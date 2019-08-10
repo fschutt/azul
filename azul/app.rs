@@ -611,6 +611,7 @@ impl<T: 'static> App<T> {
 
                                     // Application state has been updated, now figure out what to update from the callbacks
 
+                                    // TODO: .any() or .all() ??
                                     let callbacks_update_screen = call_callbacks_results.iter().any(|cr| cr.callbacks_update_screen == Redraw);
                                     let callbacks_set_new_focus_target = call_callbacks_results.iter().any(|cr| cr.new_focus_target.is_some());
                                     let callbacks_hover_restyle = call_callbacks_results.iter().any(|cr| cr.needs_rerender_hover_active);
@@ -687,19 +688,33 @@ impl<T: 'static> App<T> {
                         RelayoutUi { window_id } => {
                             // Layout the CSSOM
 
-                            // TODO: Split layout and DL construction into two separate steps!
-/*
-fn layout_display_lists<T>(
-    data: &mut T,
-    app_resources: &mut AppResources,
-    window: &mut Window<T>,
-    fake_display: &mut FakeDisplay<T>,
-    ui_states: &mut BTreeMap<DomId, UiState<T>>,
-    ui_descriptions: &mut BTreeMap<DomId, UiDescription<T>>,
-    full_window_state: &mut FullWindowState,
-    default_callbacks: &mut BTreeMap<DomId, DefaultCallbackIdMap<T>>,
-) -> BTreeMap<DomId, CachedDisplayList> {
-*/
+                            let glutin_id = reverse_window_id_mapping.get(&window_id).cloned();
+
+                            if let Some(glutin_window_id) = glutin_id {
+
+                                let window = active_windows.get_mut(&glutin_window_id).unwrap();
+                                let full_window_state = full_window_states.get_mut(&glutin_window_id).unwrap();
+
+                                let (solved_layout_cache, gl_texture_cache) = do_layout_for_display_list(
+                                    &mut data,
+                                    &mut resources,
+                                    window,
+                                    &mut fake_display,
+                                    ui_state_cache.get_mut(glutin_window_id).unwrap(),
+                                    ui_description_cache.get_mut(glutin_window_id).unwrap(),
+                                    full_window_state,
+                                    default_callbacks_cache.get_mut(glutin_window_id).unwrap(),
+
+                                );
+
+                                 window.internal.layout_result = solved_layout_cache.solved_layouts;
+                                 window.internal.display_lists = solved_layout_cache.display_lists;
+                                 window.internal.iframe_mappings = solved_layout_cache.iframe_mappings;
+                                 window.internal.gl_texture_cache = gl_texture_cache.solved_textures;
+
+                                 event_loop_proxy.send_event(AzulUpdateEvent::RebuildDisplayList { window_id }).unwrap();
+                            }
+
                             // optimization with diff:
                             // - only relayout the nodes that were added / removed
                             // - if diff is empty (same UI), skip relayout, go straight to rebuilding display list
@@ -707,13 +722,50 @@ fn layout_display_lists<T>(
                         RebuildDisplayList { window_id } => {
                             // Build the display list
 
-                            // optimization with diff:
-                            // - only rebuild the nodes that were added / removed
-                            // - if diff is empty (same UI), skip rebuilding the display list, go straight to sending the DL
+                            let glutin_id = reverse_window_id_mapping.get(&window_id).cloned();
+
+                            if let Some(glutin_window_id) = glutin_id {
+
+                                let window = &active_windows[&glutin_window_id];
+                                let full_window_state = full_window_states[&glutin_window_id];
+
+                                let (scrollable_nodes, cached_display_list) = build_cached_display_list(
+                                    &ui_description_cache[&glutin_window_id],
+                                    &ui_state_cache[&glutin_window_id],
+                                    &window.internal.layout_result,
+                                    &window.internal.gl_texture_cache,
+                                    &full_window_state,
+                                );
+
+                                // optimization with diff:
+                                // - only rebuild the nodes that were added / removed
+                                // - if diff is empty (same UI), skip rebuilding the display list, go straight to sending the DL
+
+                                window.internal.scrolled_nodes = display_list.scrollable_nodes;
+                                window.internal.cached_display_list = display_list.cached_display_list;
+
+                                event_loop_proxy.send_event(AzulUpdateEvent::SendDisplayListToWebRender { window_id }).unwrap();
+                            }
                         },
                         SendDisplayListToWebRender { window_id } => {
+
                             // Build the display list
-                            redraw_all_windows!();
+                            let glutin_id = reverse_window_id_mapping.get(&window_id).cloned();
+
+                            if let Some(glutin_window_id) = glutin_id {
+
+                                let window = &active_windows.get_mut(&glutin_window_id).unwrap();
+                                let full_window_state = full_window_states[&glutin_window_id];
+
+                                send_display_list_to_webrender(
+                                    window,
+                                    full_window_state,
+                                    &mut fake_display,
+                                    &mut resources,
+                                );
+
+                                redraw_all_windows!();
+                            }
                         },
                         UpdateScrollStates { window_id } => {
                             // Send all the scroll states from
@@ -729,10 +781,12 @@ fn layout_display_lists<T>(
                         UpdateAnimations { window_id } => {
                             // send transaction to update animations in WR
                             // if no other events happened, skip to SendDisplayListToWebRender step
+                            event_loop_proxy.send_event(AzulUpdateEvent::SendDisplayListToWebRender { window_id }).unwrap();
                         },
                         UpdateImages { window_id } => {
                             // send transaction to update images in WR
                             // if no other events happened, skip to SendDisplayListToWebRender step
+                            event_loop_proxy.send_event(AzulUpdateEvent::SendDisplayListToWebRender { window_id }).unwrap();
                         },
                     }
                 },
@@ -1203,36 +1257,15 @@ fn call_callbacks<T>(
     ret
 }
 
-/*
-// Most expensive step: Do the layout + build the actual display list (but don't send it to webrender yet!)
-#[cfg(not(test))]
-fn layout_display_lists<T>(
-
-) -> BTreeMap<DomId, CachedDisplayList> {
-    ui_states.iter().map(|(dom_id, ui_state)| {
-        let ui_description = &ui_descriptions[dom_id];
-        (dom_id.clone(), layout_display_list(
-            data,
-            ui_description,
-            ui_state,
-            window,
-            &full_window_state,
-            fake_display,
-            app_resources,
-            default_callbacks,
-        ))
-    }).collect()
-}
-*/
-
 use azul_core::{
     app_resources::{ImageKey, ImageDescriptor},
     gl::Texture,
 };
 use webrender::api::ExternalImageId;
 
-struct SolvedLayoutCache {
+struct SolvedLayoutCache<T> {
     solved_layouts: BTreeMap<DomId, LayoutResult>,
+    display_lists: BTreeMap<DomId, DisplayList<T>>,
     iframe_mappings: BTreeMap<(DomId, NodeId), DomId>,
 }
 
@@ -1250,15 +1283,8 @@ fn do_layout_for_display_list<T>(
     ui_descriptions: &mut BTreeMap<DomId, UiDescription<T>>,
     full_window_state: &mut FullWindowState,
     default_callbacks: &mut BTreeMap<DomId, DefaultCallbackIdMap<T>>,
-    pipeline_id: &PipelineId,
-) -> (SolvedLayoutCache, GlTextureCache)
-{
-    use app_resources::add_fonts_and_images;
-    use display_list::display_list_from_ui_description;
-    use azul_core::ui_state::{
-        scan_ui_state_for_iframe_callbacks,
-        scan_ui_state_for_gltexture_callbacks
-    };
+) -> (SolvedLayoutCache<T>, GlTextureCache) {
+
     use azul_css::LayoutRect;
     use wr_translate::translate_logical_size_to_css_layout_size;
     use app_resources::{add_resources, garbage_collect_fonts_and_images};
@@ -1267,6 +1293,7 @@ fn do_layout_for_display_list<T>(
 
     let mut layout_cache = SolvedLayoutCache {
         solved_layouts: BTreeMap::new(),
+        display_lists: BTreeMap::new(),
         iframe_mappings: BTreeMap::new(),
     };
 
@@ -1297,6 +1324,11 @@ fn do_layout_for_display_list<T>(
             ui_state::ui_state_from_dom,
         };
         use wr_translate::hidpi_rect_from_bounds;
+        use app_resources::add_fonts_and_images;
+        use azul_core::ui_state::{
+            scan_ui_state_for_iframe_callbacks,
+            scan_ui_state_for_gltexture_callbacks
+        };
 
         // Right now the IFrameCallbacks and GlTextureCallbacks need to know how large their
         // containers are in order to be solved properly
@@ -1427,6 +1459,7 @@ fn do_layout_for_display_list<T>(
         }
 
         layout_cache.solved_layouts.insert(dom_id, layout_result);
+        layout_cache.display_lists.insert(dom_id, display_list);
     }
 
     // Make sure unused scroll states are garbage collected.
@@ -1473,11 +1506,19 @@ fn do_layout_for_display_list<T>(
         solved_textures: BTreeMap::new(),
     };
 
+    /*
+    for (_dom_id, image_resource_updates) in display_list.image_resource_updates {
+        add_resources(app_resources, &mut fake_display.render_api, &window.internal.pipeline_id, Vec::new(), image_resource_updates);
+    }
+    */
+
     for (dom_id, textures) in solved_textures {
         for (node_id, texture) in textures {
+            //     let mut image_resource_updates = BTreeMap::new();
+
             //     (ImageKey, ImageDescriptor, ExternalImageId)
             //     let new_image_id = fake_display.render_api.new_image_id();
-            //     texture_cache.solved_textures.insert()
+            //     texture_cache.solved_textures.insert();
             //     add_resources(app_resources, &mut fake_display.render_api, &pipeline_id, Vec::new(), image_resource_updates);
         }
     }
@@ -1492,66 +1533,35 @@ fn do_layout_for_display_list<T>(
 
 // Build the cached display list
 #[cfg(not(test))]
-fn layout_display_list<T>(
-    data: &mut T,
-    ui_description: &UiDescription<T>,
-    ui_state: &UiState<T>,
-    window: &mut Window<T>,
+fn build_cached_display_list<T>(
+    ui_description_cache: &BTreeMap<DomId, UiDescription<T>>,
+    ui_state_cache: &BTreeMap<DomId, UiState<T>>,
+    layout_result_cache: &SolvedLayoutCache<T>,
+    gl_texture_cache: &GlTextureCache,
     full_window_state: &FullWindowState,
-    fake_display: &mut FakeDisplay<T>,
-    app_resources: &mut AppResources,
-    default_callbacks: &mut BTreeMap<DomId, DefaultCallbackIdMap<T>>,
-) {
+) -> (ScrolledNodes, CachedDisplayList) {
     use display_list::{
         display_list_from_ui_description,
         display_list_to_cached_display_list,
     };
     use app_resources::{add_resources, garbage_collect_fonts_and_images};
-/*
-    let display_list = display_list_from_ui_description(ui_description, ui_state);
 
-    // Make sure unused scroll states are garbage collected.
-    window.internal.scroll_states.remove_unused_scroll_states();
-
-    fake_display.hidden_context.make_not_current();
-    window.display.make_current();
-
-    DomId::reset();
-*/
     // Construct the display list + add all fonts and images
     let display_list = display_list_to_cached_display_list(
-
-        display_list,
-        data,
-        window,
-        fake_display.get_gl_context(),
         full_window_state,
-        app_resources,
-        default_callbacks,
-        &mut fake_display.render_api
+        ui_description_cache,
+        ui_state_cache,
+        &layout_result_cache,
+        &gl_texture_cache,
+        DomId::ROOT,
     );
-/*
-    window.display.make_not_current();
-    fake_display.hidden_context.make_current();
 
-    for (_dom_id, image_resource_updates) in display_list.image_resource_updates {
-        add_resources(app_resources, &mut fake_display.render_api, &window.internal.pipeline_id, Vec::new(), image_resource_updates);
-    }
-
-    // Delete unused font and image keys (that were not used in this display list)
-    garbage_collect_fonts_and_images(app_resources, &mut fake_display.render_api, &window.internal.pipeline_id);
-
-    fake_display.hidden_context.make_not_current();
-*/
-    // window.internal.layout_result = display_list.layout_result;
-    window.internal.scrolled_nodes = display_list.scrollable_nodes;
-    window.internal.cached_display_list = display_list.cached_display_list;
+    (display_list.scrollable_nodes, display_list.cached_display_list)
 }
 
 /// Build the display list and send it to webrender
 #[cfg(not(test))]
 fn send_display_list_to_webrender<T>(
-    cached_display_list: CachedDisplayList,
     window: &mut Window<T>,
     full_window_state: &FullWindowState,
     fake_display: &mut FakeDisplay<T>,
@@ -1563,7 +1573,7 @@ fn send_display_list_to_webrender<T>(
     };
 
     // NOTE: Display list has to be rebuilt every frame, otherwise, the epochs get out of sync
-    let display_list = wr_translate_display_list(cached_display_list, window.internal.pipeline_id);
+    let display_list = wr_translate_display_list(window.internal.cached_display_list.clone(), window.internal.pipeline_id);
 
     let (logical_size, _) = convert_window_size(&full_window_state.size);
 
