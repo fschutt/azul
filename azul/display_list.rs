@@ -43,8 +43,7 @@ use azul_core::{
 };
 use azul_layout::{GetStyle, style::Style};
 
-pub(crate) struct DisplayList<'a, T: 'a> {
-    pub(crate) ui_descr: &'a UiDescription<T>,
+pub(crate) struct DisplayList<T> {
     pub(crate) rectangles: NodeDataContainer<DisplayRectangle<'a>>
 }
 
@@ -99,27 +98,29 @@ struct DisplayListParametersMut<'a, T: 'a, U: FontImageApi> {
 
 /// DisplayRectangle is the main type which the layout parsing step gets operated on.
 #[derive(Debug)]
-pub(crate) struct DisplayRectangle<'a> {
+pub(crate) struct DisplayRectangle {
     /// `Some(id)` if this rectangle has a callback attached to it
     /// Note: this is not the same as the `NodeId`!
     /// These two are completely separate numbers!
     pub tag: Option<u64>,
-    /// The original styled node
-    pub(crate) styled_node: &'a StyledNode,
     /// The style properties of the node, parsed
     pub(crate) style: RectStyle,
     /// The layout properties of the node, parsed
     pub(crate) layout: RectLayout,
 }
 
-impl<'a> DisplayRectangle<'a> {
+impl DisplayRectangle {
     #[inline]
-    pub fn new(tag: Option<u64>, styled_node: &'a StyledNode) -> Self {
-        Self { tag, styled_node, style: RectStyle::default(), layout: RectLayout::default() }
+    pub fn new(tag: Option<u64>) -> Self {
+        Self {
+            tag,
+            style: RectStyle::default(),
+            layout: RectLayout::default(),
+        }
     }
 }
 
-impl<'a> GetStyle for DisplayRectangle<'a> {
+impl GetStyle for DisplayRectangle {
 
     fn get_style(&self) -> Style {
 
@@ -433,10 +434,7 @@ fn node_needs_to_clip_children(layout: &RectLayout) -> bool {
 ///
 /// This only looks at the user-facing styles of the `UiDescription`, not the actual
 /// layout. The layout is done only in the `into_display_list_builder` step.
-pub(crate) fn display_list_from_ui_description<'a, T>(
-    ui_description: &'a UiDescription<T>,
-    ui_state: &UiState<T>
-) -> DisplayList<'a, T> {
+pub(crate) fn display_list_from_ui_description<T>(ui_description: &UiDescription<T>, ui_state: &UiState<T>) -> DisplayList<T> {
 
     let arena = &ui_description.ui_descr_arena;
 
@@ -460,7 +458,6 @@ pub(crate) fn display_list_from_ui_description<'a, T>(
     }
 
     DisplayList {
-        ui_descr: ui_description,
         rectangles: display_rect_arena,
     }
 }
@@ -468,13 +465,11 @@ pub(crate) fn display_list_from_ui_description<'a, T>(
 pub(crate) struct CachedDisplayListResult {
     pub(crate) cached_display_list: CachedDisplayList,
     pub(crate) scrollable_nodes: BTreeMap<DomId, ScrolledNodes>,
-    pub(crate) layout_result: BTreeMap<DomId, LayoutResult>,
-    pub(crate) image_resource_updates: BTreeMap<DomId, Vec<(ImageId, AddImageMsg)>>,
 }
 
 /// Inserts and solves the top-level DOM (i.e. the DOM with the ID 0)
 pub(crate) fn display_list_to_cached_display_list<'a, T, U: FontImageApi>(
-    display_list: DisplayList<'a, T> ,
+    display_list: &DisplayList<T> ,
     app_data_access: &mut T,
     window: &mut Window<T>,
     gl_context: Rc<Gl>,
@@ -484,56 +479,20 @@ pub(crate) fn display_list_to_cached_display_list<'a, T, U: FontImageApi>(
     render_api: &mut U,
 ) -> CachedDisplayListResult {
 
-    use app_resources::add_fonts_and_images;
-
-    let arena = &display_list.ui_descr.ui_descr_arena;
-    let node_hierarchy = &arena.node_layout;
-    let node_data = &arena.node_data;
-    let root_dom_id = display_list.ui_descr.dom_id.clone();
-    let pipeline_id = window.internal.pipeline_id;
-
-    // Scan the styled DOM for image and font keys.
-    //
-    // The problem is that we need to scan all DOMs for image and font keys and insert them
-    // before the layout() step - however, can't call IFrameCallbacks upfront, because each
-    // IFrameCallback needs to know its size (so it has to be invoked after the layout() step).
-    // So, this process needs to follow an order like:
-    //
-    // - For each DOM to render:
-    //      - Create a DOM ID
-    //      - Style the DOM according to the stylesheet
-    //      - Scan all the font keys and image keys
-    //      - Insert the new font keys and image keys into the render API
-    //      - Scan all IFrameCallbacks, generate the DomID for each callback
-    //      - Repeat while number_of_iframe_callbacks != 0
-    add_fonts_and_images(app_resources, render_api, &pipeline_id, &display_list);
-
-    let layout_result = do_the_layout(
-        node_hierarchy,
-        node_data,
-        &display_list.rectangles,
-        &*app_resources,
-        &pipeline_id,
-        LayoutRect {
-            origin: LayoutPoint::new(0.0, 0.0),
-            size: LayoutSize::new(full_window_state.size.dimensions.width, full_window_state.size.dimensions.height),
-        },
-    );
-
     let rects_in_rendering_order = determine_rendering_order(
         node_hierarchy,
         &display_list.rectangles,
     );
 
-    let scrollable_nodes = get_nodes_that_need_scroll_clip(
-        node_hierarchy, &display_list.rectangles, node_data, &layout_result.rects,
-        &layout_result.node_depths, window.internal.pipeline_id
-    );
-
-    let mut scrollable_nodes_map = BTreeMap::new();
-    scrollable_nodes_map.insert(root_dom_id.clone(), scrollable_nodes);
-
-    let mut image_resource_updates = BTreeMap::new();
+    let mut scrollable_nodes = BTreeMap::new();
+    scrollable_nodes.insert(root_dom_id.clone(), get_nodes_that_need_scroll_clip(
+        node_hierarchy,
+        &display_list.rectangles,
+        node_data,
+        &layout_result.rects,
+        &layout_result.node_depths,
+        window.internal.pipeline_id,
+    ));
 
     let root_node = push_rectangles_into_displaylist(
         window.internal.epoch,
@@ -545,16 +504,9 @@ pub(crate) fn display_list_to_cached_display_list<'a, T, U: FontImageApi>(
             node_hierarchy,
             node_data,
             display_rectangle_arena: &display_list.rectangles,
-            css: &full_window_state.css,
             layout_result: &layout_result_map,
         },
         &mut DisplayListParametersMut {
-            app_data: app_data_access,
-            app_resources,
-            image_resource_updates: &mut image_resource_updates,
-            render_api,
-            gl_context,
-            default_callbacks,
             scrollable_nodes: &mut scrollable_nodes_map,
         },
     );
@@ -564,7 +516,6 @@ pub(crate) fn display_list_to_cached_display_list<'a, T, U: FontImageApi>(
     CachedDisplayListResult {
         cached_display_list,
         scrollable_nodes: scrollable_nodes_map,
-        image_resource_updates,
     }
 }
 
