@@ -5,7 +5,7 @@ use std::{
     cmp::Ordering as CmpOrdering,
     iter::FromIterator,
 };
-use {
+use crate::{
     callbacks::{
         DefaultCallbackId, StackCheckedPointer,
         Callback, CallbackType,
@@ -16,7 +16,7 @@ use {
     id_tree::{Arena, NodeDataContainer},
 };
 use azul_css::{NodeTypePath, CssProperty};
-pub use id_tree::{NodeHierarchy, Node, NodeId};
+pub use crate::id_tree::{NodeHierarchy, Node, NodeId};
 
 static TAG_ID: AtomicUsize = AtomicUsize::new(1);
 
@@ -1079,7 +1079,7 @@ impl<T> FromIterator<NodeType<T>> for Dom<T> {
 
 /// TODO: promote to const fn once `const_vec_new` is stable
 fn init_arena_with_node_data<T>(node_data: NodeData<T>) -> Arena<NodeData<T>> {
-    use id_tree::ROOT_NODE;
+    use crate::id_tree::ROOT_NODE;
     Arena {
         node_layout: NodeHierarchy { internal: vec![ROOT_NODE] },
         node_data: NodeDataContainer { internal: vec![node_data] },

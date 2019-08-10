@@ -5,7 +5,7 @@ use std::{
     marker::PhantomData,
 };
 use gleam::gl::{self, Gl};
-use window::LogicalSize;
+use crate::window::LogicalSize;
 use azul_css::{ColorU, ColorF};
 
 /// Typedef for an OpenGL handle

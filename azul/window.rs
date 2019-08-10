@@ -19,7 +19,7 @@ use glutin::{
 use gleam::gl::{self, Gl};
 use clipboard2::{Clipboard as _, ClipboardError, SystemClipboard};
 use azul_css::{ColorU, LayoutPoint, LayoutRect};
-use {
+use crate::{
     FastHashMap,
     compositor::Compositor,
     callbacks::{PipelineId, ScrollPosition},
@@ -394,7 +394,7 @@ impl<T> Window<T> {
         app_resources: &mut AppResources,
     ) -> Result<Self, CreationError> {
 
-        use wr_translate::translate_logical_size_to_css_layout_size;
+        use crate::wr_translate::translate_logical_size_to_css_layout_size;
         use app_resources::register_new_pipeline;
 
         // NOTE: It would be OK to use &RenderApi here, but it's better
@@ -501,7 +501,7 @@ fn create_window_builder(
 ) -> GlutinWindowBuilder {
 
     use glutin::platform::windows::WindowBuilderExtWindows;
-    use wr_translate::winit_translate::translate_taskbar_icon;
+    use crate::wr_translate::winit_translate::translate_taskbar_icon;
 
     let mut window_builder = GlutinWindowBuilder::new()
         .with_transparent(has_transparent_background)
@@ -522,7 +522,7 @@ fn create_window_builder(
 ) -> GlutinWindowBuilder {
 
     use glutin::platform::unix::WindowBuilderExtUnix;
-    use wr_translate::winit_translate::{translate_x_window_type, translate_logical_size};
+    use crate::wr_translate::winit_translate::{translate_x_window_type, translate_logical_size};
 
     let mut window_builder = GlutinWindowBuilder::new()
         .with_transparent(has_transparent_background)
@@ -577,7 +577,7 @@ pub(crate) fn synchronize_window_state_with_os_window(
     new_state: &WindowState,
     window: &GlutinWindow,
 ) {
-    use wr_translate::winit_translate::{translate_logical_position, translate_logical_size};
+    use crate::wr_translate::winit_translate::{translate_logical_position, translate_logical_size};
 
     let current_window_state = old_state.clone();
 
@@ -673,7 +673,7 @@ fn initialize_os_window(
     new_state: &WindowState,
     window: &GlutinWindow,
 ) {
-    use wr_translate::winit_translate::{translate_logical_size, translate_logical_position};
+    use crate::wr_translate::winit_translate::{translate_logical_size, translate_logical_position};
 
     window.set_title(&new_state.title);
     window.set_maximized(new_state.flags.is_maximized);
@@ -730,7 +730,7 @@ fn synchronize_mouse_state(
     new_mouse_state: &MouseState,
     window: &GlutinWindow,
 ) {
-    use wr_translate::winit_translate::{translate_cursor_icon, translate_logical_position};
+    use crate::wr_translate::winit_translate::{translate_cursor_icon, translate_logical_position};
 
     match (old_mouse_state.mouse_cursor_type, new_mouse_state.mouse_cursor_type) {
         (Some(_old_mouse_cursor), None) => {
@@ -767,7 +767,7 @@ fn initialize_mouse_state(
     new_mouse_state: &MouseState,
     window: &GlutinWindow,
 ) {
-    use wr_translate::winit_translate::{translate_cursor_icon, translate_logical_position};
+    use crate::wr_translate::winit_translate::{translate_cursor_icon, translate_logical_position};
 
     match new_mouse_state.mouse_cursor_type {
         None => { window.set_cursor_visible(false); },
@@ -796,7 +796,7 @@ fn synchronize_os_window_windows_extensions(
     window: &GlutinWindow,
 ) {
     use glutin::platform::windows::WindowExtWindows;
-    use wr_translate::winit_translate::{translate_window_icon, translate_taskbar_icon};
+    use crate::wr_translate::winit_translate::{translate_window_icon, translate_taskbar_icon};
 
     if old_state.window_icon != new_state.window_icon {
         window.set_window_icon(new_state.window_icon.clone().and_then(|ic| translate_window_icon(ic).ok()));
@@ -815,7 +815,7 @@ fn synchronize_os_window_linux_extensions(
     window: &GlutinWindow,
 ) {
     use glutin::platform::unix::WindowExtUnix;
-    use wr_translate::winit_translate::{translate_window_icon, translate_wayland_theme};
+    use crate::wr_translate::winit_translate::{translate_window_icon, translate_wayland_theme};
 
     if old_state.request_user_attention != new_state.request_user_attention {
         window.set_urgent(new_state.request_user_attention);
@@ -853,7 +853,7 @@ fn initialize_os_window_windows_extensions(
     window: &GlutinWindow,
 ) {
     use glutin::platform::windows::WindowExtWindows;
-    use wr_translate::winit_translate::{translate_taskbar_icon, translate_window_icon};
+    use crate::wr_translate::winit_translate::{translate_taskbar_icon, translate_window_icon};
 
     window.set_window_icon(new_state.window_icon.clone().and_then(|ic| translate_window_icon(ic).ok()));
     window.set_taskbar_icon(new_state.taskbar_icon.clone().and_then(|ic| translate_taskbar_icon(ic).ok()));
@@ -866,7 +866,7 @@ fn initialize_os_window_linux_extensions(
     window: &GlutinWindow,
 ) {
     use glutin::platform::unix::WindowExtUnix;
-    use wr_translate::winit_translate::{translate_window_icon, translate_wayland_theme};
+    use crate::wr_translate::winit_translate::{translate_window_icon, translate_wayland_theme};
 
     window.set_urgent(new_state.request_user_attention);
 

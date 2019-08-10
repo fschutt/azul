@@ -30,7 +30,7 @@ use azul_core::{
     id_tree::{NodeHierarchy, NodeDataContainer},
     dom::NodeId,
 };
-use style::Style;
+use crate::style::Style;
 
 mod algo;
 mod number;

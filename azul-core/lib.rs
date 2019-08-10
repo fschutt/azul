@@ -7,18 +7,18 @@ extern crate azul_css_parser;
 
 pub mod app;
 pub mod app_resources;
-pub mod async;
 pub mod callbacks;
+pub mod display_list;
 pub mod dom;
 pub mod diff;
-pub mod id_tree;
-pub mod window;
-pub mod ui_state;
 pub mod gl;
-pub mod display_list;
+pub mod id_tree;
+pub mod ui_description;
+pub mod ui_state;
 pub mod ui_solver;
 pub mod style;
-pub mod ui_description;
+pub mod task;
+pub mod window;
 
 mod stack_checked_pointer;
 

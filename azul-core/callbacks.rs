@@ -7,10 +7,9 @@ use std::{
 use azul_css::{LayoutPoint, LayoutRect, CssPath};
 #[cfg(feature = "css_parser")]
 use azul_css_parser::CssPathParseError;
-use {
+use crate::{
     FastHashMap,
     app_resources::{Words, WordPositions, ScaledWords, LayoutedGlyphs},
-    async::TerminateTimer,
     dom::{Dom, DomId, NodeType, NodeData},
     display_list::CachedDisplayList,
     ui_state::UiState,
@@ -18,11 +17,11 @@ use {
     id_tree::{NodeId, Node, NodeHierarchy},
     app_resources::AppResources,
     window::{WindowSize, WindowState, FullWindowState, KeyboardState, MouseState, LogicalSize, PhysicalSize},
-    async::{Timer, Task, TimerId},
+    task::{Timer, TerminateTimer, Task, TimerId},
     gl::Texture,
 };
 
-pub use stack_checked_pointer::StackCheckedPointer;
+pub use crate::stack_checked_pointer::StackCheckedPointer;
 pub use gleam::gl::Gl;
 
 /// A callback function has to return if the screen should be updated after the

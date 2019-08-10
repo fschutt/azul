@@ -7,7 +7,7 @@ use webrender::api::{
     AddImage, ResourceUpdate, AddFont,
     AddFontInstance, RenderApi,
 };
-use {
+use crate::{
     FastHashMap, FastHashSet,
     display_list::DisplayList,
 };
@@ -95,21 +95,21 @@ pub(crate) trait FontImageApi {
     fn new_image_key(&self) -> ImageKey;
     fn new_font_key(&self) -> FontKey;
     fn new_font_instance_key(&self) -> FontInstanceKey;
-    fn update_resources(&self, Vec<ResourceUpdate>);
+    fn update_resources(&self, _: Vec<ResourceUpdate>);
     fn flush_scene_builder(&self);
 }
 
 impl FontImageApi for RenderApi {
     fn new_image_key(&self) -> ImageKey {
-        use wr_translate::translate_image_key_wr;
+        use crate::wr_translate::translate_image_key_wr;
         translate_image_key_wr(self.generate_image_key())
     }
     fn new_font_key(&self) -> FontKey {
-        use wr_translate::translate_font_key_wr;
+        use crate::wr_translate::translate_font_key_wr;
         translate_font_key_wr(self.generate_font_key())
     }
     fn new_font_instance_key(&self) -> FontInstanceKey {
-        use wr_translate::translate_font_instance_key_wr;
+        use crate::wr_translate::translate_font_instance_key_wr;
         translate_font_instance_key_wr(self.generate_font_instance_key())
     }
     fn update_resources(&self, updates: Vec<ResourceUpdate>) { self.update_resources(updates); }
@@ -170,7 +170,7 @@ pub(crate) fn garbage_collect_fonts_and_images<U: FontImageApi>(
 pub fn image_source_get_bytes(image_source: &ImageSource)
 -> Result<(WrImageData, WrImageDescriptor), ImageReloadError>
 {
-    use wr_translate::wr_translate_image_format;
+    use crate::wr_translate::wr_translate_image_format;
 
     match image_source {
         ImageSource::Embedded(bytes) => {
@@ -307,7 +307,7 @@ struct DeleteImageMsg(ImageKey, ImageInfo);
 impl AddFontMsg {
     fn into_resource_update(&self) -> ResourceUpdate {
         use self::AddFontMsg::*;
-        use wr_translate::wr_translate_font_key;
+        use crate::wr_translate::wr_translate_font_key;
         match self {
             Font(f) => ResourceUpdate::AddFont(AddFont::Raw(wr_translate_font_key(f.font_key), f.font_bytes.clone(), f.font_index as u32)),
             Instance(fi, _) => ResourceUpdate::AddFontInstance(fi.clone()),
@@ -318,7 +318,7 @@ impl AddFontMsg {
 impl DeleteFontMsg {
     fn into_resource_update(&self) -> ResourceUpdate {
         use self::DeleteFontMsg::*;
-        use wr_translate::{wr_translate_font_key, wr_translate_font_instance_key};
+        use crate::wr_translate::{wr_translate_font_key, wr_translate_font_instance_key};
         match self {
             Font(f) => ResourceUpdate::DeleteFont(wr_translate_font_key(*f)),
             Instance(fi, _) => ResourceUpdate::DeleteFontInstance(wr_translate_font_instance_key(*fi)),
@@ -334,7 +334,7 @@ impl AddImageMsg {
 
 impl DeleteImageMsg {
     fn into_resource_update(&self) -> ResourceUpdate {
-        use wr_translate::wr_translate_image_key;
+        use crate::wr_translate::wr_translate_image_key;
         ResourceUpdate::DeleteImage(wr_translate_image_key(self.0.clone()))
     }
 }
@@ -361,7 +361,7 @@ fn build_add_font_resource_updates<T: FontImageApi>(
     for (im_font_id, font_sizes) in fonts_in_dom {
 
         macro_rules! insert_font_instances {($font_id:expr, $font_key:expr, $font_index:expr, $font_size:expr) => ({
-            use wr_translate::{wr_translate_font_instance_key, wr_translate_font_key, translate_au};
+            use crate::wr_translate::{wr_translate_font_instance_key, wr_translate_font_key, translate_au};
 
             let font_instance_key_exists = app_resources.currently_registered_fonts[pipeline_id]
                 .get(&$font_id)
@@ -476,7 +476,7 @@ fn build_add_image_resource_updates<T: FontImageApi>(
     images_in_dom: &FastHashSet<ImageId>,
 ) -> Vec<(ImageId, AddImageMsg)> {
 
-    use wr_translate::{wr_translate_image_key, translate_image_descriptor_wr};
+    use crate::wr_translate::{wr_translate_image_key, translate_image_descriptor_wr};
 
     images_in_dom.iter()
     .filter(|image_id| !app_resources.currently_registered_images[pipeline_id].contains_key(*image_id))
@@ -509,7 +509,7 @@ pub(crate) fn add_resources<T: FontImageApi>(
     add_font_resources: Vec<(ImmediateFontId, AddFontMsg)>,
     add_image_resources: Vec<(ImageId, AddImageMsg)>,
 ) {
-    use wr_translate::translate_font_instance_key_wr;
+    use crate::wr_translate::translate_font_instance_key_wr;
 
     let mut merged_resource_updates = Vec::new();
 
@@ -768,7 +768,7 @@ fn prepare_image(image_decoded: DynamicImage)
     -> Result<(WrImageData, WrImageDescriptor), ImageError>
 {
     use image;
-    use wr_translate::wr_translate_image_format;
+    use crate::wr_translate::wr_translate_image_format;
 
     let image_dims = image_decoded.dimensions();
 
@@ -906,7 +906,7 @@ fn test_font_gc() {
     use ui_description::UiDescription;
     use ui_state::{UiState, ui_state_from_dom};
     use ui_solver::px_to_au;
-    use {FastHashMap, FastHashSet};
+    use crate::{FastHashMap, FastHashSet};
     use std::hash::Hash;
 
     struct Mock;

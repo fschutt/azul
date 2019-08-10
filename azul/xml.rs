@@ -1,7 +1,7 @@
 #![allow(unused_variables)]
 
 use std::{fmt, collections::BTreeMap, path::Path};
-use {
+use crate::{
     callbacks::Callback,
     dom::Dom,
 };

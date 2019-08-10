@@ -20,8 +20,10 @@
 // OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 // SOFTWARE.
 
-use geometry::{Offsets, Size};
-use number::Number;
+use crate::{
+    geometry::{Offsets, Size},
+    number::Number,
+};
 use azul_css::PixelValue;
 
 #[derive(Copy, Clone, PartialEq, Debug)]
