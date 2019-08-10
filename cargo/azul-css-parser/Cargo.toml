@@ -14,6 +14,7 @@ repository = "https://github.com/maps4print/azul"
 readme = "README.md"
 exclude = ["assets/*", "doc/*", "examples/*"]
 autoexamples = false
+edition = "2018"
 
 [lib]
 path = "../../azul-css-parser/lib.rs"
