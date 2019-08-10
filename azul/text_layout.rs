@@ -141,9 +141,9 @@ pub fn words_to_scaled_words(
     font_size_px: f32,
 ) -> ScaledWords {
 
-    use text_shaping::{self, HB_SCALE_FACTOR, HbBuffer, HbFont, HbScaledFont};
     use std::mem;
     use std::char;
+    use crate::text_shaping::{self, HB_SCALE_FACTOR, HbBuffer, HbFont, HbScaledFont};
 
     let hb_font = HbFont::from_bytes(font_bytes, font_index);
     let hb_scaled_font = HbScaledFont::from_font(&hb_font, font_size_px);
@@ -433,7 +433,7 @@ pub fn get_layouted_glyphs(
     origin: LayoutPoint
 ) -> LayoutedGlyphs {
 
-    use text_shaping;
+    use crate::text_shaping;
 
     let letter_spacing_px = word_positions.text_layout_options.letter_spacing.unwrap_or(0.0);
     let mut all_glyphs = Vec::with_capacity(scaled_words.items.len());

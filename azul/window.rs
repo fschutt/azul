@@ -35,7 +35,7 @@ use azul_core::{
 pub use webrender::api::HitTestItem;
 pub use glutin::monitor::MonitorHandle;
 pub use azul_core::window::*;
-pub use window_state::*;
+pub use crate::window_state::*;
 
 // TODO: Right now it's not very ergonomic to cache shaders between
 // renderers - notify webrender about this.
@@ -395,7 +395,7 @@ impl<T> Window<T> {
     ) -> Result<Self, CreationError> {
 
         use crate::wr_translate::translate_logical_size_to_css_layout_size;
-        use app_resources::register_new_pipeline;
+        use crate::app_resources::register_new_pipeline;
 
         // NOTE: It would be OK to use &RenderApi here, but it's better
         // to make sure that the RenderApi is currently not in use by anything else.
