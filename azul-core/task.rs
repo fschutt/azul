@@ -5,7 +5,7 @@ use std::{
     fmt,
     hash::{Hash, Hasher},
 };
-use {
+use crate::{
     FastHashMap,
     callbacks::{
         Redraw, DontRedraw, TimerCallback, TimerCallbackInfo,
@@ -260,7 +260,7 @@ pub struct Thread<T> {
 
 /// Error that can happen while calling `.await()`
 #[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
-pub enum AwaitError {
+pub enum BlockError {
     /// Arc::into_inner() failed
     ArcUnlockError,
     /// The background thread panicked
@@ -281,7 +281,7 @@ impl<T> Thread<T> {
     ///
     /// ```rust
     /// # extern crate azul_core;
-    /// # use azul_core::async::Thread;
+    /// # use azul_core::task::Thread;
     /// #
     /// fn pure_function(input: usize) -> usize { input + 1 }
     ///
@@ -321,16 +321,16 @@ impl<T> Thread<T> {
     }
 
     /// Block until the internal thread has finished and return T
-    pub fn await(mut self) -> Result<T, AwaitError> {
+    pub fn block(mut self) -> Result<T, BlockError> {
 
-        // .await() can only be called once, so these .unwrap()s are safe
+        // .block() can only be called once, so these .unwrap()s are safe
         let handle = self.join_handle.take().unwrap();
         let data = self.data.take().unwrap();
 
-        handle.join().map_err(|_| AwaitError::ThreadJoinError)?;
+        handle.join().map_err(|_| BlockError::ThreadJoinError)?;
 
-        let data_arc = Arc::try_unwrap(data).map_err(|_| AwaitError::ArcUnlockError)?;
-        let data = data_arc.into_inner().map_err(|_| AwaitError::MutexIntoInnerError)?;
+        let data_arc = Arc::try_unwrap(data).map_err(|_| BlockError::ArcUnlockError)?;
+        let data = data_arc.into_inner().map_err(|_| BlockError::MutexIntoInnerError)?;
 
         Ok(data)
     }

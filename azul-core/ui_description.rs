@@ -3,7 +3,7 @@ use std::{
     collections::BTreeMap,
 };
 use azul_css::{ Css, CssDeclaration, CssProperty, CssPropertyType };
-use {
+use crate::{
     FastHashMap,
     id_tree::{Arena, NodeId, NodeDataContainer},
     dom::{DomId, NodeData, DomString},
@@ -64,7 +64,7 @@ impl<T> Clone for UiDescription<T> {
 impl<T> Default for UiDescription<T> {
     fn default() -> Self {
 
-        use {
+        use crate::{
             dom::Dom,
             ui_state::ui_state_from_dom,
         };
@@ -101,9 +101,9 @@ impl<T> UiDescription<T> {
         is_mouse_down: bool,
     ) -> Self {
 
-        use ui_state::ui_state_create_tags_for_hover_nodes;
+        use crate::ui_state::ui_state_create_tags_for_hover_nodes;
 
-        let ui_description = ::style::match_dom_selectors(
+        let ui_description = crate::style::match_dom_selectors(
             ui_state,
             &style,
             focused_node,

@@ -20,7 +20,7 @@ use webrender::{
 };
 use log::LevelFilter;
 use azul_css::{ColorU, HotReloadHandler, LayoutPoint};
-use {
+use crate::{
     FastHashMap,
     window::{
         Window, ScrollStates, RendererType, WindowSize,
@@ -31,7 +31,7 @@ use {
     gl::GlShader,
     traits::Layout,
     ui_state::UiState,
-    async::{Task, Timer, TimerId},
+    task::{Task, Timer, TimerId},
     callbacks::{
         LayoutCallback, FocusTarget, UpdateScreen, HitTestItem,
         Redraw, DontRedraw, ScrollPosition, DefaultCallbackIdMap,
@@ -166,15 +166,15 @@ impl<T: Layout> App<T> {
 
         #[cfg(feature = "logging")] {
             if let Some(log_level) = app_config.enable_logging {
-                ::logging::set_up_logging(app_config.log_file_path.as_ref().map(|s| s.as_str()), log_level);
+                crate::logging::set_up_logging(app_config.log_file_path.as_ref().map(|s| s.as_str()), log_level);
 
                 if app_config.enable_logging_on_panic {
-                    ::logging::set_up_panic_hooks();
+                    crate::logging::set_up_panic_hooks();
                 }
 
                 if app_config.enable_visual_panic_hook {
                     use std::sync::atomic::Ordering;
-                    ::logging::SHOULD_ENABLE_PANIC_HOOK.store(true, Ordering::SeqCst);
+                    crate::logging::SHOULD_ENABLE_PANIC_HOOK.store(true, Ordering::SeqCst);
                 }
             }
         }
@@ -182,7 +182,7 @@ impl<T: Layout> App<T> {
         #[cfg(not(test))] {
             let mut fake_display = FakeDisplay::new(app_config.renderer_type)?;
             if let Some(r) = &mut fake_display.renderer {
-                use wr_translate::set_webrender_debug_flags;
+                use crate::wr_translate::set_webrender_debug_flags;
                 set_webrender_debug_flags(r, &app_config.debug_state);
             }
             Ok(Self {
@@ -225,7 +225,7 @@ impl<T> App<T> {
     /// Toggles debugging flags in webrender, updates `self.config.debug_state`
     #[cfg(not(test))]
     pub fn toggle_debug_flags(&mut self, new_state: DebugState) {
-        use wr_translate::set_webrender_debug_flags;
+        use crate::wr_translate::set_webrender_debug_flags;
         if let Some(r) = &mut self.fake_display.renderer {
             set_webrender_debug_flags(r, &new_state);
         }
@@ -271,7 +271,7 @@ impl<T: 'static> App<T> {
             event_loop::ControlFlow,
         };
         use azul_core::window::{AzulUpdateEvent, CursorPosition, LogicalPosition};
-        use wr_translate::winit_translate::{
+        use crate::wr_translate::winit_translate::{
             translate_winit_logical_size, translate_winit_logical_position,
         };
 
@@ -392,7 +392,7 @@ impl<T: 'static> App<T> {
                         },
                         WindowEvent::KeyboardInput { input: KeyboardInput { state, virtual_keycode, scancode, modifiers, .. }, .. } => {
 
-                            use wr_translate::winit_translate::translate_virtual_keycode;
+                            use crate::wr_translate::winit_translate::translate_virtual_keycode;
                             use glutin::event::ElementState;
 
                             let mut full_window_state = full_window_states.get_mut(&glutin_window_id).unwrap();
@@ -824,7 +824,7 @@ impl<T: 'static> App<T> {
                 if timers.is_empty() && tasks.is_empty() {
                     *control_flow = ControlFlow::Wait;
                 } else {
-                    use azul_core::async::{run_all_timers, clean_up_finished_tasks};
+                    use azul_core::task::{run_all_timers, clean_up_finished_tasks};
 
                     // If timers are running, check whether they need to redraw
                     let should_redraw_timers = run_all_timers(&mut timers, &mut data, &mut resources);
@@ -1072,7 +1072,7 @@ fn do_hit_test<T>(
     render_api: &RenderApi,
 ) -> Vec<HitTestItem> {
 
-    use wr_translate::{wr_translate_hittest_item, wr_translate_pipeline_id};
+    use crate::wr_translate::{wr_translate_hittest_item, wr_translate_pipeline_id};
 
     let cursor_location = match full_window_state.mouse_state.cursor_position.get_position() {
         Some(pos) => WorldPoint::new(pos.x, pos.y),
@@ -1286,7 +1286,7 @@ fn do_layout_for_display_list<T>(
 ) -> (SolvedLayoutCache<T>, GlTextureCache) {
 
     use azul_css::LayoutRect;
-    use wr_translate::translate_logical_size_to_css_layout_size;
+    use crate::wr_translate::translate_logical_size_to_css_layout_size;
     use app_resources::{add_resources, garbage_collect_fonts_and_images};
 
     let pipeline_id = window.internal.pipeline_id;
@@ -1323,7 +1323,7 @@ fn do_layout_for_display_list<T>(
             callbacks::{LayoutInfo, IFrameCallbackInfoUnchecked, GlCallbackInfoUnchecked},
             ui_state::ui_state_from_dom,
         };
-        use wr_translate::hidpi_rect_from_bounds;
+        use crate::wr_translate::hidpi_rect_from_bounds;
         use app_resources::add_fonts_and_images;
         use azul_core::ui_state::{
             scan_ui_state_for_iframe_callbacks,
@@ -1567,7 +1567,7 @@ fn send_display_list_to_webrender<T>(
     fake_display: &mut FakeDisplay<T>,
     app_resources: &mut AppResources,
 ) {
-    use wr_translate::{
+    use crate::wr_translate::{
         wr_translate_pipeline_id,
         wr_translate_display_list,
     };
@@ -1596,7 +1596,7 @@ fn send_display_list_to_webrender<T>(
 /// indicate whether it was used during the current frame or not.
 fn scroll_all_nodes(scroll_states: &mut ScrollStates, txn: &mut Transaction) {
     use webrender::api::ScrollClamping;
-    use wr_translate::{wr_translate_external_scroll_id, wr_translate_layout_point};
+    use crate::wr_translate::{wr_translate_external_scroll_id, wr_translate_layout_point};
     for (key, value) in scroll_states.0.iter_mut() {
         txn.scroll_node_with_id(
             wr_translate_layout_point(value.get()),
@@ -1704,7 +1704,7 @@ fn render_inner<T>(
 
     use webrender::api::{DeviceIntRect, DeviceIntPoint};
     use azul_css::ColorF;
-    use wr_translate;
+    use crate::wr_translate;
 
     let (_, framebuffer_size) = convert_window_size(&full_window_state.size);
 

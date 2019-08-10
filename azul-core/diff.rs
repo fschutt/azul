@@ -2,7 +2,7 @@
 #![allow(dead_code)]
 
 use std::{collections::BTreeMap, marker::PhantomData};
-use {
+use crate::{
     id_tree::{NodeId, NodeHierarchy},
     dom::{Dom, NodeData},
 };

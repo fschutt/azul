@@ -37,7 +37,7 @@ impl CssDeclaration {
 
     /// Returns the type of the property (i.e. the CSS key as a typed enum)
     pub fn get_type(&self) -> CssPropertyType {
-        use css::CssDeclaration::*;
+        use self::CssDeclaration::*;
         match self {
             Static(s) => s.get_type(),
             Dynamic(d) => d.default_value.get_type(),
