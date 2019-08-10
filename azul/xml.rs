@@ -763,7 +763,7 @@ fn render_dom_from_app_node_inner<T>(
 
 fn set_attributes<T>(dom: &mut Dom<T>, xml_attributes: &XmlAttributeMap, filtered_xml_attributes: &FilteredComponentArguments) {
 
-    use dom::{TabIndex, DomString};
+    use crate::dom::{TabIndex, DomString};
 
     if let Some(ids) = xml_attributes.get("id") {
         for id in ids.split_whitespace() {
@@ -925,7 +925,7 @@ fn render_single_dom_node_to_string<T>(dom: &Dom<T>, existing_str: &mut String) 
     }
 
     if let Some(tab_index) = head.get_tab_index() {
-        use dom::TabIndex::*;
+        use crate::dom::TabIndex::*;
         existing_str.push_str(&format!(".with_tab_index({})", match tab_index {
             Auto => format!("TabIndex::Auto"),
             OverrideInParent(u) => format!("TabIndex::OverrideInParent({})", u),

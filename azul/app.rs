@@ -36,7 +36,7 @@ use crate::{
         LayoutCallback, FocusTarget, UpdateScreen, HitTestItem,
         Redraw, DontRedraw, ScrollPosition, DefaultCallbackIdMap,
     },
-    display_list::CachedDisplayListResult,
+    display_list::{DisplayList, CachedDisplayListResult},
 };
 use azul_core::{
     ui_solver::ScrolledNodes,
@@ -46,17 +46,17 @@ use azul_core::{
     ui_solver::LayoutResult,
     display_list::CachedDisplayList,
 };
-pub use app_resources::AppResources;
+pub use crate::app_resources::AppResources;
 
 #[cfg(not(test))]
-use window::{ FakeDisplay, WindowCreateOptions };
+use crate::window::{ FakeDisplay, WindowCreateOptions };
 #[cfg(not(test))]
 use glutin::CreationError;
 #[cfg(not(test))]
 use webrender::api::{WorldPoint, HitTestFlags};
 
 #[cfg(test)]
-use app_resources::FakeRenderApi;
+use crate::app_resources::FakeRenderApi;
 
 pub use azul_core::app::*; // {App, AppState, AppStateNoData, RuntimeError}
 
@@ -308,8 +308,8 @@ impl<T: 'static> App<T> {
                     ui_description_cache.remove(&$glutin_window_id);
 
                     if let Some(w) = window {
-                        use compositor::remove_active_pipeline;
-                        use app_resources::delete_pipeline;
+                        use crate::compositor::remove_active_pipeline;
+                        use crate::app_resources::delete_pipeline;
                         remove_active_pipeline(&w.internal.pipeline_id);
                         delete_pipeline(&mut resources, &mut render_api, &w.internal.pipeline_id);
                         render_api.delete_document(w.internal.document_id);
@@ -741,8 +741,8 @@ impl<T: 'static> App<T> {
                                 // - only rebuild the nodes that were added / removed
                                 // - if diff is empty (same UI), skip rebuilding the display list, go straight to sending the DL
 
-                                window.internal.scrolled_nodes = display_list.scrollable_nodes;
-                                window.internal.cached_display_list = display_list.cached_display_list;
+                                window.internal.scrolled_nodes = scrollable_nodes;
+                                window.internal.cached_display_list = cached_display_list;
 
                                 event_loop_proxy.send_event(AzulUpdateEvent::SendDisplayListToWebRender { window_id }).unwrap();
                             }
@@ -796,7 +796,7 @@ impl<T: 'static> App<T> {
             // Application shutdown
             if active_windows.is_empty() {
 
-                use compositor::clear_opengl_cache;
+                use crate::compositor::clear_opengl_cache;
 
                 // NOTE: For some reason this is necessary, otherwise the renderer crashes on shutdown
                 //
@@ -958,8 +958,8 @@ fn call_layout_fn<T>(
     force_css_reload: bool,
 ) -> (BTreeMap<DomId, UiState<T>>, BTreeMap<DomId, DefaultCallbackIdMap<T>>){
 
-    use ui_state::{ui_state_from_app_state, ui_state_from_dom};
     use azul_core::callbacks::LayoutInfo;
+    use crate::ui_state::{ui_state_from_app_state, ui_state_from_dom};
 
     // Any top-level DOM has no "parent", parents are only relevant for IFrames
     const PARENT_DOM: Option<(DomId, NodeId)> = None;
@@ -974,7 +974,7 @@ fn call_layout_fn<T>(
     let mut ui_state = {
 
         let css_has_error = {
-            use css::hot_reload_css;
+            use crate::css::hot_reload_css;
 
             let hot_reload_result = hot_reload_css(
                 &mut full_window_state.css,
@@ -1099,7 +1099,7 @@ fn determine_events<T>(
     full_window_state: &mut FullWindowState,
     ui_state_map: &BTreeMap<DomId, UiState<T>>,
 ) -> BTreeMap<DomId, CallbacksOfHitTest<T>> {
-    use window_state::determine_callbacks;
+    use crate::window_state::determine_callbacks;
     ui_state_map.iter().map(|(dom_id, ui_state)| {
         (dom_id.clone(), determine_callbacks(full_window_state, &hit_test_results, ui_state))
     }).collect()
@@ -1123,8 +1123,8 @@ fn call_callbacks<T>(
     glutin_window: &GlutinWindow,
 ) -> CallCallbacksResult {
 
-    use callbacks::{CallbackInfo, DefaultCallbackInfoUnchecked};
-    use window;
+    use crate::callbacks::{CallbackInfo, DefaultCallbackInfoUnchecked};
+    use crate::window;
 
     let mut ret = CallCallbacksResult {
         needs_rerender_hover_active: callbacks_filter_list.values().any(|v| v.needs_redraw_anyways),
@@ -1287,7 +1287,7 @@ fn do_layout_for_display_list<T>(
 
     use azul_css::LayoutRect;
     use crate::wr_translate::translate_logical_size_to_css_layout_size;
-    use app_resources::{add_resources, garbage_collect_fonts_and_images};
+    use crate::app_resources::{FontImageApi, add_resources, garbage_collect_fonts_and_images};
 
     let pipeline_id = window.internal.pipeline_id;
 
@@ -1301,15 +1301,15 @@ fn do_layout_for_display_list<T>(
     let mut iframe_ui_states = BTreeMap::new();
     let mut iframe_ui_descriptions = BTreeMap::new();
 
-    fn recurse<T>(
+    fn recurse<T, U: FontImageApi>(
         data: &mut T,
-        layout_cache: &mut SolvedLayoutCache,
+        layout_cache: &mut SolvedLayoutCache<T>,
         solved_textures: &mut BTreeMap<DomId, BTreeMap<NodeId, Texture>>,
         iframe_ui_states: &mut BTreeMap<DomId, UiState<T>>,
         iframe_ui_descriptions: &mut BTreeMap<DomId, UiDescription<T>>,
         default_callbacks: &mut BTreeMap<DomId, DefaultCallbackIdMap<T>>,
         app_resources: &mut AppResources,
-        render_api: &mut RenderApi,
+        render_api: &mut U,
         full_window_state: &mut FullWindowState,
         ui_state: &UiState<T>,
         ui_description: &UiDescription<T>,
@@ -1317,17 +1317,19 @@ fn do_layout_for_display_list<T>(
         bounds: LayoutRect,
         gl_context: Rc<Gl>,
     ) {
-        use display_list::display_list_from_ui_description;
-        use ui_solver::do_the_layout;
         use azul_core::{
             callbacks::{LayoutInfo, IFrameCallbackInfoUnchecked, GlCallbackInfoUnchecked},
-            ui_state::ui_state_from_dom,
+            ui_state::{
+                ui_state_from_dom,
+                scan_ui_state_for_iframe_callbacks,
+                scan_ui_state_for_gltexture_callbacks,
+            }
         };
-        use crate::wr_translate::hidpi_rect_from_bounds;
-        use app_resources::add_fonts_and_images;
-        use azul_core::ui_state::{
-            scan_ui_state_for_iframe_callbacks,
-            scan_ui_state_for_gltexture_callbacks
+        use crate::{
+            display_list::display_list_from_ui_description,
+            ui_solver::do_the_layout,
+            wr_translate::hidpi_rect_from_bounds,
+            app_resources::add_fonts_and_images,
         };
 
         // Right now the IFrameCallbacks and GlTextureCallbacks need to know how large their
@@ -1534,26 +1536,26 @@ fn do_layout_for_display_list<T>(
 // Build the cached display list
 #[cfg(not(test))]
 fn build_cached_display_list<T>(
-    ui_description_cache: &BTreeMap<DomId, UiDescription<T>>,
-    ui_state_cache: &BTreeMap<DomId, UiState<T>>,
+    display_list_cache: &BTreeMap<DomId, DisplayList<T>>,
     layout_result_cache: &SolvedLayoutCache<T>,
     gl_texture_cache: &GlTextureCache,
     full_window_state: &FullWindowState,
 ) -> (ScrolledNodes, CachedDisplayList) {
-    use display_list::{
-        display_list_from_ui_description,
-        display_list_to_cached_display_list,
+    use crate::{
+        display_list::{
+            display_list_from_ui_description,
+            display_list_to_cached_display_list,
+        },
+        app_resources::{add_resources, garbage_collect_fonts_and_images},
     };
-    use app_resources::{add_resources, garbage_collect_fonts_and_images};
 
     // Construct the display list + add all fonts and images
     let display_list = display_list_to_cached_display_list(
+        DomId::ROOT,
         full_window_state,
-        ui_description_cache,
-        ui_state_cache,
+        display_list_cache,
         &layout_result_cache,
         &gl_texture_cache,
-        DomId::ROOT,
     );
 
     (display_list.scrollable_nodes, display_list.cached_display_list)
@@ -1656,7 +1658,7 @@ fn update_scroll_state(
 
 fn clean_up_unused_opengl_textures(pipeline_info: PipelineInfo, pipeline_id: &PipelineId) {
 
-    use compositor::remove_epochs_from_pipeline;
+    use crate::compositor::remove_epochs_from_pipeline;
 
     // TODO: currently active epochs can be empty, why?
     //

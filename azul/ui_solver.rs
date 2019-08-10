@@ -69,7 +69,7 @@ pub struct InlineText<'a> {
 
 impl<'a> GetTextLayout for InlineText<'a> {
     fn get_text_layout(&mut self, text_layout_options: &ResolvedTextLayoutOptions) -> InlineTextLayout {
-        use text_layout;
+        use crate::text_layout;
         let layouted_text_block = text_layout::position_words(
             self.words,
             self.scaled_words,
@@ -82,11 +82,11 @@ impl<'a> GetTextLayout for InlineText<'a> {
 
 /// At this point in time, all font keys, image keys, etc. have
 /// to be already submitted in the RenderApi!
-pub(crate) fn do_the_layout<'a,'b, T>(
+pub(crate) fn do_the_layout<T>(
     node_hierarchy: &NodeHierarchy,
     node_data: &NodeDataContainer<NodeData<T>>,
-    display_rects: &NodeDataContainer<DisplayRectangle<'a>>,
-    app_resources: &'b AppResources,
+    display_rects: &NodeDataContainer<DisplayRectangle>,
+    app_resources: &AppResources,
     pipeline_id: &PipelineId,
     bounding_rect: LayoutRect,
 ) -> LayoutResult {
@@ -129,7 +129,7 @@ fn create_word_cache<T>(
     app_resources: &AppResources,
     node_data: &NodeDataContainer<NodeData<T>>,
 ) -> BTreeMap<NodeId, Words> {
-    use text_layout::split_text_into_words;
+    use crate::text_layout::split_text_into_words;
     node_data
     .linear_iter()
     .filter_map(|node_id| {
@@ -143,16 +143,16 @@ fn create_word_cache<T>(
     }).collect()
 }
 
-fn create_scaled_words<'a>(
+fn create_scaled_words(
     app_resources: &AppResources,
     pipeline_id: &PipelineId,
     words: &BTreeMap<NodeId, Words>,
-    display_rects: &NodeDataContainer<DisplayRectangle<'a>>,
+    display_rects: &NodeDataContainer<DisplayRectangle>,
 ) -> BTreeMap<NodeId, (ScaledWords, FontInstanceKey)> {
 
-    use text_layout::words_to_scaled_words;
-    use app_resources::ImmediateFontId;
     use azul_core::ui_solver::DEFAULT_FONT_SIZE_PX;
+    use crate::text_layout::words_to_scaled_words;
+    use crate::app_resources::ImmediateFontId;
 
     words.iter().filter_map(|(node_id, words)| {
 
@@ -212,7 +212,7 @@ fn create_word_positions<'a>(
      layouted_rects: &NodeDataContainer<PositionedRectangle>,
 ) -> BTreeMap<NodeId, (WordPositions, FontInstanceKey)> {
 
-    use text_layout;
+    use crate::text_layout;
     words.iter().filter_map(|(node_id, words)| {
         let (scaled_words, font_instance_key) = scaled_words.get(&node_id)?;
         let (text_layout_options, _, _) = layouted_rects[*node_id].resolved_text_layout_options.as_ref()?;
@@ -221,15 +221,15 @@ fn create_word_positions<'a>(
     }).collect()
 }
 
-fn get_glyphs<'a>(
+fn get_glyphs(
     node_hierarchy: &NodeHierarchy,
     scaled_words: &BTreeMap<NodeId, (ScaledWords, FontInstanceKey)>,
     positioned_word_cache: &BTreeMap<NodeId, (WordPositions, FontInstanceKey)>,
-    display_rects: &NodeDataContainer<DisplayRectangle<'a>>,
+    display_rects: &NodeDataContainer<DisplayRectangle>,
     positioned_rectangles: &mut NodeDataContainer<PositionedRectangle>,
 ) -> BTreeMap<NodeId, LayoutedGlyphs> {
 
-    use text_layout::get_layouted_glyphs;
+    use crate::text_layout::get_layouted_glyphs;
 
     scaled_words
     .iter()
