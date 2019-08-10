@@ -533,9 +533,6 @@ pub(crate) fn display_list_to_cached_display_list<'a, T, U: FontImageApi>(
     let mut scrollable_nodes_map = BTreeMap::new();
     scrollable_nodes_map.insert(root_dom_id.clone(), scrollable_nodes);
 
-    let mut layout_result_map = BTreeMap::new();
-    layout_result_map.insert(root_dom_id.clone(), layout_result);
-
     let mut image_resource_updates = BTreeMap::new();
 
     let root_node = push_rectangles_into_displaylist(
@@ -549,6 +546,7 @@ pub(crate) fn display_list_to_cached_display_list<'a, T, U: FontImageApi>(
             node_data,
             display_rectangle_arena: &display_list.rectangles,
             css: &full_window_state.css,
+            layout_result: &layout_result_map,
         },
         &mut DisplayListParametersMut {
             app_data: app_data_access,
@@ -557,7 +555,6 @@ pub(crate) fn display_list_to_cached_display_list<'a, T, U: FontImageApi>(
             render_api,
             gl_context,
             default_callbacks,
-            layout_result: &mut layout_result_map,
             scrollable_nodes: &mut scrollable_nodes_map,
         },
     );
@@ -567,7 +564,6 @@ pub(crate) fn display_list_to_cached_display_list<'a, T, U: FontImageApi>(
     CachedDisplayListResult {
         cached_display_list,
         scrollable_nodes: scrollable_nodes_map,
-        layout_result: layout_result_map,
         image_resource_updates,
     }
 }

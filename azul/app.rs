@@ -1203,6 +1203,7 @@ fn call_callbacks<T>(
     ret
 }
 
+/*
 // Most expensive step: Do the layout + build the actual display list (but don't send it to webrender yet!)
 #[cfg(not(test))]
 fn layout_display_lists<T>(
@@ -1222,6 +1223,13 @@ fn layout_display_lists<T>(
         ))
     }).collect()
 }
+*/
+
+use azul_core::{
+    app_resources::{ImageKey, ImageDescriptor},
+    gl::Texture,
+};
+use webrender::api::ExternalImageId;
 
 struct SolvedLayoutCache {
     solved_layouts: BTreeMap<DomId, LayoutResult>,
@@ -1252,6 +1260,8 @@ fn do_layout_for_display_list<T>(
         scan_ui_state_for_gltexture_callbacks
     };
     use azul_css::LayoutRect;
+    use wr_translate::translate_logical_size_to_css_layout_size;
+    use app_resources::{add_resources, garbage_collect_fonts_and_images};
 
     let pipeline_id = window.internal.pipeline_id;
 
@@ -1260,19 +1270,33 @@ fn do_layout_for_display_list<T>(
         iframe_mappings: BTreeMap::new(),
     };
 
-    let mut texture_cache = GlTextureCache {
-        solved_textures: BTreeMap::new(),
-    };
+    let mut solved_textures = BTreeMap::new();
+    let mut iframe_ui_states = BTreeMap::new();
+    let mut iframe_ui_descriptions = BTreeMap::new();
 
     fn recurse<T>(
+        data: &mut T,
         layout_cache: &mut SolvedLayoutCache,
-        texture_cache: &mut GlTextureCache,
+        solved_textures: &mut BTreeMap<DomId, BTreeMap<NodeId, Texture>>,
+        iframe_ui_states: &mut BTreeMap<DomId, UiState<T>>,
+        iframe_ui_descriptions: &mut BTreeMap<DomId, UiDescription<T>>,
+        default_callbacks: &mut BTreeMap<DomId, DefaultCallbackIdMap<T>>,
+        app_resources: &mut AppResources,
+        render_api: &mut RenderApi,
+        full_window_state: &mut FullWindowState,
         ui_state: &UiState<T>,
         ui_description: &UiDescription<T>,
-        app_resources: &mut AppResources,
         pipeline_id: &PipelineId,
         bounds: LayoutRect,
+        gl_context: Rc<Gl>,
     ) {
+        use display_list::display_list_from_ui_description;
+        use ui_solver::do_the_layout;
+        use azul_core::{
+            callbacks::{LayoutInfo, IFrameCallbackInfoUnchecked, GlCallbackInfoUnchecked},
+            ui_state::ui_state_from_dom,
+        };
+        use wr_translate::hidpi_rect_from_bounds;
 
         // Right now the IFrameCallbacks and GlTextureCallbacks need to know how large their
         // containers are in order to be solved properly
@@ -1295,36 +1319,173 @@ fn do_layout_for_display_list<T>(
 
         // Now the size of rects are known, render all the OpenGL textures
         for (node_id, cb, ptr) in gltexture_callbacks {
-            // let gl_texture = invoke_gl_texture_callback(cb, ptr, layout_result[node_id]);
-            // texture_cache.solved_textures.insert((dom_id, node_id), gl_texture);
+
+            // Invoke OpenGL callback, render texture
+            let rect_bounds = layout_result.rects[node_id].bounds;
+
+            // TODO: Unused!
+            let mut window_size_width_stops = Vec::new();
+            let mut window_size_height_stops = Vec::new();
+
+            let texture = {
+
+                let tex = (cb.0)(GlCallbackInfoUnchecked {
+                    ptr,
+                    layout_info: LayoutInfo {
+                        window_size: &full_window_state.size,
+                        window_size_width_stops: &mut window_size_width_stops,
+                        window_size_height_stops: &mut window_size_height_stops,
+                        default_callbacks: default_callbacks.entry(dom_id.clone()).or_insert_with(|| BTreeMap::new()),
+                        gl_context: gl_context.clone(),
+                        resources: &app_resources,
+                    },
+                    bounds: hidpi_rect_from_bounds(
+                        rect_bounds,
+                        full_window_state.size.hidpi_factor,
+                        full_window_state.size.winit_hidpi_factor,
+                    ),
+                });
+
+                // Reset the framebuffer and SRGB color target to 0
+                gl_context.bind_framebuffer(gl::FRAMEBUFFER, 0);
+                gl_context.disable(gl::FRAMEBUFFER_SRGB);
+                gl_context.disable(gl::MULTISAMPLE);
+
+                tex
+            };
+
+            if let Some(t) = texture {
+                solved_textures
+                    .entry(dom_id)
+                    .or_insert_with(|| BTreeMap::default())
+                    .insert(node_id, t);
+            }
         }
 
+        // Call IFrames and recurse
         for (node_id, cb, ptr) in iframe_callbacks {
-            // let (ui_state, ui_description) = invoke_ptr(cb, ptr);
-            // iframe_mappings.insert((dom_id, node_id), ui_state.dom_id.clone());
-            // recurse(ui_state, ui_description, layout_result[node_id]);
+
+            let bounds = layout_result.rects[node_id].bounds;
+            let hidpi_bounds = hidpi_rect_from_bounds(
+                bounds,
+                full_window_state.size.hidpi_factor,
+                full_window_state.size.winit_hidpi_factor
+            );
+
+            // TODO: Unused!
+            let mut window_size_width_stops = Vec::new();
+            let mut window_size_height_stops = Vec::new();
+
+            let iframe_dom = {
+                (cb.0)(IFrameCallbackInfoUnchecked {
+                    ptr,
+                    layout_info: LayoutInfo {
+                        window_size: &full_window_state.size,
+                        window_size_width_stops: &mut window_size_width_stops,
+                        window_size_height_stops: &mut window_size_height_stops,
+                        default_callbacks: default_callbacks.entry(dom_id.clone()).or_insert_with(|| BTreeMap::new()),
+                        gl_context: gl_context.clone(),
+                        resources: &app_resources,
+                    },
+                    bounds: hidpi_bounds,
+                })
+            };
+
+            if let Some(iframe_dom) = iframe_dom {
+                let is_mouse_down = full_window_state.mouse_state.mouse_down();
+                let mut iframe_ui_state = ui_state_from_dom(iframe_dom, Some((dom_id.clone(), node_id)));
+                let iframe_dom_id = iframe_ui_state.dom_id.clone();
+                let hovered_nodes = full_window_state.hovered_nodes.get(&iframe_dom_id).cloned().unwrap_or_default();
+                let iframe_ui_description = UiDescription::<T>::match_css_to_dom(
+                    &mut iframe_ui_state,
+                    &full_window_state.css,
+                    &mut full_window_state.focus_target,
+                    &mut full_window_state.pending_focus_target,
+                    &hovered_nodes,
+                    is_mouse_down,
+                );
+                layout_cache.iframe_mappings.insert((dom_id, node_id), iframe_dom_id);
+                recurse(
+                    data,
+                    layout_cache,
+                    solved_textures,
+                    iframe_ui_states,
+                    iframe_ui_descriptions,
+                    default_callbacks,
+                    app_resources,
+                    render_api,
+                    full_window_state,
+                    &iframe_ui_state,
+                    &iframe_ui_description,
+                    pipeline_id,
+                    bounds,
+                    gl_context.clone(),
+                );
+                iframe_ui_states.insert(iframe_dom_id, iframe_ui_state);
+                iframe_ui_descriptions.insert(iframe_dom_id, iframe_ui_description);
+            }
         }
 
         layout_cache.solved_layouts.insert(dom_id, layout_result);
     }
 
+    // Make sure unused scroll states are garbage collected.
+    window.internal.scroll_states.remove_unused_scroll_states();
+
+    fake_display.hidden_context.make_not_current();
+    window.display.make_current();
+
     for (dom_id, ui_state) in ui_states {
 
         let ui_description = &ui_descriptions[dom_id];
 
+        DomId::reset();
+
+        let gl_context = fake_display.get_gl_context();
         recurse(
+            data,
             &mut layout_cache,
-            &mut texture_cache,
+            &mut solved_textures,
+            &mut iframe_ui_states,
+            &mut iframe_ui_descriptions,
+            default_callbacks,
+            app_resources,
+            &mut fake_display.render_api,
+            full_window_state,
             ui_state,
             ui_description,
-            app_resources,
             &pipeline_id,
             LayoutRect {
                 origin: LayoutPoint::new(0.0, 0.0),
-                size: full_window_state.size.dimensions,
-            }
+                size: translate_logical_size_to_css_layout_size(full_window_state.size.dimensions),
+            },
+            gl_context,
         );
     }
+
+    window.display.make_not_current();
+    fake_display.hidden_context.make_current();
+
+    ui_states.extend(iframe_ui_states.into_iter());
+    ui_descriptions.extend(iframe_ui_descriptions.into_iter());
+
+    let mut texture_cache = GlTextureCache {
+        solved_textures: BTreeMap::new(),
+    };
+
+    for (dom_id, textures) in solved_textures {
+        for (node_id, texture) in textures {
+            //     (ImageKey, ImageDescriptor, ExternalImageId)
+            //     let new_image_id = fake_display.render_api.new_image_id();
+            //     texture_cache.solved_textures.insert()
+            //     add_resources(app_resources, &mut fake_display.render_api, &pipeline_id, Vec::new(), image_resource_updates);
+        }
+    }
+
+    // Delete unused font and image keys (that were not used in this display list)
+    garbage_collect_fonts_and_images(app_resources, &mut fake_display.render_api, &pipeline_id);
+
+    fake_display.hidden_context.make_not_current();
 
     (layout_cache, texture_cache)
 }
@@ -1340,14 +1501,13 @@ fn layout_display_list<T>(
     fake_display: &mut FakeDisplay<T>,
     app_resources: &mut AppResources,
     default_callbacks: &mut BTreeMap<DomId, DefaultCallbackIdMap<T>>,
-) -> CachedDisplayList {
-
+) {
     use display_list::{
         display_list_from_ui_description,
         display_list_to_cached_display_list,
     };
     use app_resources::{add_resources, garbage_collect_fonts_and_images};
-
+/*
     let display_list = display_list_from_ui_description(ui_description, ui_state);
 
     // Make sure unused scroll states are garbage collected.
@@ -1357,9 +1517,10 @@ fn layout_display_list<T>(
     window.display.make_current();
 
     DomId::reset();
-
-    // Layout and construct the display list + add all fonts and images
+*/
+    // Construct the display list + add all fonts and images
     let display_list = display_list_to_cached_display_list(
+
         display_list,
         data,
         window,
@@ -1369,7 +1530,7 @@ fn layout_display_list<T>(
         default_callbacks,
         &mut fake_display.render_api
     );
-
+/*
     window.display.make_not_current();
     fake_display.hidden_context.make_current();
 
@@ -1380,13 +1541,11 @@ fn layout_display_list<T>(
     // Delete unused font and image keys (that were not used in this display list)
     garbage_collect_fonts_and_images(app_resources, &mut fake_display.render_api, &window.internal.pipeline_id);
 
-    window.internal.layout_result = display_list.layout_result;
-    window.internal.scrolled_nodes = display_list.scrollable_nodes;
-    window.internal.cached_display_list = display_list.cached_display_list.clone();
-
     fake_display.hidden_context.make_not_current();
-
-    display_list.cached_display_list
+*/
+    // window.internal.layout_result = display_list.layout_result;
+    window.internal.scrolled_nodes = display_list.scrollable_nodes;
+    window.internal.cached_display_list = display_list.cached_display_list;
 }
 
 /// Build the display list and send it to webrender
