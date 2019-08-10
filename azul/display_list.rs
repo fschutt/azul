@@ -44,7 +44,7 @@ use azul_core::{
 use azul_layout::{GetStyle, style::Style};
 
 pub(crate) struct DisplayList<T> {
-    pub(crate) rectangles: NodeDataContainer<DisplayRectangle<'a>>
+    pub(crate) rectangles: NodeDataContainer<DisplayRectangle>
 }
 
 /// Since the display list can take a lot of parameters, we don't want to
@@ -54,20 +54,21 @@ pub(crate) struct DisplayList<T> {
 /// `DisplayListParametersRef` has only members that are
 ///  **immutable references** to other things that need to be passed down the display list
 #[derive(Clone)]
-struct DisplayListParametersRef<'a, 'b, 'c, 'd, T: 'a> {
+struct DisplayListParametersRef<'a, T: 'a> {
     /// ID of this Dom
     pub dom_id: DomId,
-    /// Reference to original DOM data
-    pub node_data: &'a NodeDataContainer<NodeData<T>>,
     /// The CSS that should be applied to the DOM
-    pub css: &'b Css,
-    /// Reference to the arena that contains all the styled rectangles
-    pub display_rectangle_arena: &'c NodeDataContainer<DisplayRectangle<'d>>,
-    /// Reference to the arena that contains the node hierarchy data, so
-    /// that the node hierarchy can be re-used
-    pub node_hierarchy: &'d NodeHierarchy,
+    pub full_window_state: &'a FullWindowState,
     /// The current pipeline of the display list
     pub pipeline_id: PipelineId,
+    /// Cached layouts (+ solved layouts for iframes)
+    pub layout_result: &'a SolvedLayoutCache,
+    /// Cached rendered OpenGL textures
+    pub gl_texture_cache: &'a GlTextureCache,
+    /// Reference to the UIState, for access to `node_hierarchy` and `node_data`
+    pub ui_state_cache: &'a BTreeMap<DomId, UiState<T>>,
+    /// Reference to the display list (with cascaded styles)
+    pub display_list_cache: &'a BTreeMap<DomId, DisplayList<T>>,
 }
 
 /// Same as `DisplayListParametersRef`, but for `&mut Something`
@@ -75,23 +76,6 @@ struct DisplayListParametersRef<'a, 'b, 'c, 'd, T: 'a> {
 /// Note: The `'a` in the `'a + Layout` is technically not required.
 /// Only rustc 1.28 requires this, more modern compiler versions insert it automatically.
 struct DisplayListParametersMut<'a, T: 'a, U: FontImageApi> {
-    /// Needs to be present, because the dom_to_displaylist_builder
-    /// could call (recursively) a sub-DOM function again, for example an OpenGL callback
-    pub app_data: &'a mut T,
-    /// The app resources, so that a sub-DOM / iframe can register fonts and images
-    /// TODO: How to handle cleanup ???
-    pub app_resources: &'a mut AppResources,
-    /// The OpenGL callback can push textures / images into the display list, however,
-    /// those texture IDs have to be submitted to the actual Render API before drawing
-    pub image_resource_updates: &'a mut BTreeMap<DomId, Vec<(ImageId, AddImageMsg)>>,
-    /// Access to the GL context so that OpenGL texture callbacks can be invoked
-    pub gl_context: Rc<Gl>,
-    /// Reference to the windows default callbacks
-    pub default_callbacks: &'a mut BTreeMap<DomId, DefaultCallbackIdMap<T>>,
-    /// The render API that fonts and images should be added onto.
-    pub render_api: &'a mut U,
-    /// Laid out words and rectangles (contains info about content bounds and text layout)
-    pub layout_result: &'a mut BTreeMap<DomId, LayoutResult>,
     /// Stores all scrollable nodes / hit-testable nodes on a per-DOM basis
     pub scrollable_nodes: &'a mut BTreeMap<DomId, ScrolledNodes>,
 }
@@ -289,7 +273,7 @@ struct ContentGroup {
 
 fn determine_rendering_order<'a>(
     node_hierarchy: &NodeHierarchy,
-    rectangles: &NodeDataContainer<DisplayRectangle<'a>>,
+    rectangles: &NodeDataContainer<DisplayRectangle>,
 ) -> ContentGroup {
 
     let children_sorted: BTreeMap<NodeId, Vec<NodeId>> = node_hierarchy
@@ -316,10 +300,10 @@ fn fill_content_group_children(group: &mut ContentGroup, children_sorted: &BTree
     }
 }
 
-fn sort_children_by_position<'a>(
+fn sort_children_by_position(
     parent: NodeId,
     node_hierarchy: &NodeHierarchy,
-    rectangles: &NodeDataContainer<DisplayRectangle<'a>>
+    rectangles: &NodeDataContainer<DisplayRectangle>
 ) -> Vec<NodeId> {
     use azul_css::LayoutPosition::*;
 
@@ -350,9 +334,9 @@ fn sort_children_by_position<'a>(
 /// activated
 /// - Overflow for X and Y needs to be tracked seperately (for overflow-x / overflow-y separation),
 /// so there we'd need to track in which direction the inner_rect is overflowing.
-fn get_nodes_that_need_scroll_clip<'a, T: 'a>(
+fn get_nodes_that_need_scroll_clip<T>(
     node_hierarchy: &NodeHierarchy,
-    display_list_rects: &NodeDataContainer<DisplayRectangle<'a>>,
+    display_list_rects: &NodeDataContainer<DisplayRectangle>,
     dom_rects: &NodeDataContainer<NodeData<T>>,
     layouted_rects: &NodeDataContainer<PositionedRectangle>,
     parents: &[(usize, NodeId)],
@@ -469,21 +453,23 @@ pub(crate) struct CachedDisplayListResult {
 
 /// Inserts and solves the top-level DOM (i.e. the DOM with the ID 0)
 pub(crate) fn display_list_to_cached_display_list<'a, T, U: FontImageApi>(
-    display_list: &DisplayList<T> ,
-    app_data_access: &mut T,
-    window: &mut Window<T>,
-    gl_context: Rc<Gl>,
+    dom_id: DomId,
     full_window_state: &FullWindowState,
-    app_resources: &mut AppResources,
-    default_callbacks: &mut BTreeMap<DomId, DefaultCallbackIdMap<T>>,
-    render_api: &mut U,
+    layout_result_cache: &SolvedLayoutCache,
+    gl_texture_cache: &GlTextureCache,
+    ui_state_cache: &BTreeMap<DomId, UiDescription<T>>,
+    display_list_cache: &BTreeMap<DomId, DisplayList<T>>,
+    app_resources: &AppResources,
 ) -> CachedDisplayListResult {
 
-    let rects_in_rendering_order = determine_rendering_order(
-        node_hierarchy,
-        &display_list.rectangles,
-    );
+    let display_list = &display_list_cache[&dom_id];
+    let ui_state = &ui_state_cache[&dom_id];
+    let node_hierarchy = &ui_state.ui_descr_arena.node_hierarchy;
+    let node_data = &ui_state.ui_descr_arena.node_data;
 
+    let rects_in_rendering_order = determine_rendering_order(node_hierarchy, &display_list.rectangles);
+
+    let layout_result = &layout_result.solved_layouts[&dom_id];
     let mut scrollable_nodes = BTreeMap::new();
     scrollable_nodes.insert(root_dom_id.clone(), get_nodes_that_need_scroll_clip(
         node_hierarchy,
@@ -499,12 +485,13 @@ pub(crate) fn display_list_to_cached_display_list<'a, T, U: FontImageApi>(
         full_window_state.size,
         rects_in_rendering_order,
         &DisplayListParametersRef {
-            dom_id: root_dom_id,
+            dom_id,
+            full_window_state,
             pipeline_id,
-            node_hierarchy,
-            node_data,
-            display_rectangle_arena: &display_list.rectangles,
-            layout_result: &layout_result_map,
+            layout_result: layout_result_cache,
+            gl_texture_cache,
+            ui_state_cache,
+            display_list_cache,
         },
         &mut DisplayListParametersMut {
             scrollable_nodes: &mut scrollable_nodes_map,
@@ -671,7 +658,11 @@ fn displaylist_handle_rect<'a,'b,'c,'d,'e,'f, T, U: FontImageApi>(
             }
         },
         GlTexture(callback) => {
-            frame.content.push(call_opengl_callback(callback, bounds, dom_id.clone(), rectangle, *pipeline_id, referenced_mutable_content));
+            // let
+            frame.content.push(
+
+
+                call_opengl_callback(callback, bounds, dom_id.clone(), rectangle, *pipeline_id, referenced_mutable_content));
         },
         IFrame(callback) => {
             let parent = Some((dom_id.clone(), *rect_idx));
@@ -747,41 +738,6 @@ fn call_opengl_callback<'a,'b,'c,'d,'e,'f, T, U: FontImageApi>(
         app_resources::{ImageDescriptor, RawImageFormat}
     };
 
-    let bounds = hidpi_rect_from_bounds(
-        bounds,
-        rectangle.window_size.hidpi_factor,
-        rectangle.window_size.winit_hidpi_factor
-    );
-
-    // TODO: Unused!
-    let mut window_size_width_stops = Vec::new();
-    let mut window_size_height_stops = Vec::new();
-
-    let texture = {
-
-        let tex = (texture_callback.0)(GlCallbackInfoUnchecked {
-            ptr: *texture_stack_ptr,
-            layout_info: LayoutInfo {
-                window_size: &rectangle.window_size,
-                window_size_width_stops: &mut window_size_width_stops,
-                window_size_height_stops: &mut window_size_height_stops,
-                default_callbacks: referenced_mutable_content.default_callbacks.get_mut(&dom_id).unwrap(),
-                gl_context: referenced_mutable_content.gl_context.clone(),
-                resources: &referenced_mutable_content.app_resources,
-            },
-            bounds,
-        });
-
-        // Reset the framebuffer and SRGB color target to 0
-        let gl_context = &*referenced_mutable_content.gl_context;
-
-        gl_context.bind_framebuffer(gl::FRAMEBUFFER, 0);
-        gl_context.disable(gl::FRAMEBUFFER_SRGB);
-        gl_context.disable(gl::MULTISAMPLE);
-
-        tex
-    };
-
     let texture = match texture {
         Some(s) => s,
         None => return LayoutRectContent::Background {
@@ -850,76 +806,12 @@ fn call_iframe_callback<'a,'b,'c,'d,'e, T, U: FontImageApi>(
     parent_dom_id: Option<(DomId, NodeId)>,
 ) -> DisplayListMsg {
 
-    use app_resources;
-    use ui_state::ui_state_from_dom;
-    use crate::wr_translate::hidpi_rect_from_bounds;
-    use azul_core::callbacks::IFrameCallbackInfoUnchecked;
-
-    let bounds = hidpi_rect_from_bounds(
-        rect,
-        rectangle.window_size.hidpi_factor,
-        rectangle.window_size.hidpi_factor
-    );
-
-    // TODO: Unused!
-    let mut window_size_width_stops = Vec::new();
-    let mut window_size_height_stops = Vec::new();
-
-    let new_dom = {
-        let iframe_info = IFrameCallbackInfoUnchecked {
-            ptr: *iframe_pointer,
-            layout_info: LayoutInfo {
-                window_size: &rectangle.window_size,
-                window_size_width_stops: &mut window_size_width_stops,
-                window_size_height_stops: &mut window_size_height_stops,
-                default_callbacks: referenced_mutable_content.default_callbacks.get_mut(&referenced_content.dom_id).unwrap(),
-                gl_context: referenced_mutable_content.gl_context.clone(),
-                resources: &referenced_mutable_content.app_resources,
-            },
-            bounds,
-        };
-
-        (iframe_callback.0)(iframe_info)
+    use crate::{
+        app_resources,
+        ui_state::ui_state_from_dom,
+        callbacks::IFrameCallbackInfoUnchecked,
+        wr_translate::hidpi_rect_from_bounds,
     };
-
-    let new_dom = match new_dom {
-        Some(s) => s,
-        None => return DisplayListMsg::Frame(DisplayListFrame {
-            tag: None,
-            clip_rect: None,
-            rect,
-            border_radius: StyleBorderRadius::default(),
-            content: vec![],
-            children: vec![],
-        }),
-    };
-
-    // TODO: Right now, no focusing, hovering or :active allowed in iframes!
-    let is_mouse_down = false;
-    let mut focused_node = None;
-    let mut focus_target = None;
-    let hovered_nodes = BTreeMap::new();
-
-    let mut ui_state = ui_state_from_dom(new_dom, parent_dom_id);
-    let ui_description = UiDescription::<T>::match_css_to_dom(
-        &mut ui_state,
-        &referenced_content.css,
-        &mut focused_node,
-        &mut focus_target,
-        &hovered_nodes,
-        is_mouse_down,
-    );
-
-    let iframe_dom_id = ui_description.dom_id.clone();
-
-    let display_list = display_list_from_ui_description(&ui_description, &ui_state);
-
-    app_resources::add_fonts_and_images(
-        referenced_mutable_content.app_resources,
-        referenced_mutable_content.render_api,
-        &referenced_content.pipeline_id,
-        &display_list
-    );
 
     let arena = &ui_description.ui_descr_arena;
     let node_hierarchy = &arena.node_layout;

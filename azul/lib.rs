@@ -267,7 +267,7 @@ pub use azul_core::{FastHashMap, FastHashSet};
 /// Font & image resource handling, lookup and caching
 pub mod resources {
     // re-export everything *except* the AppResources (which are exported under the "app" module)
-    pub use app_resources::{
+    pub use crate::app_resources::{
         LoadedFont, RawImage, FontReloadError, FontSource, ImageReloadError,
         ImageSource, RawImageFormat, CssFontId, CssImageId,
         TextCache, TextId, FontId, ImageId, image_source_get_bytes, font_source_get_bytes,
@@ -277,7 +277,11 @@ pub mod resources {
 /// Quick exports of common types
 pub mod prelude {
     pub use azul_css::*;
-    pub use app::{App, AppConfig, AppResources};
+    pub use azul_core::{
+        ui_solver::{TextLayoutOptions, ResolvedTextLayoutOptions},
+        callbacks::StackCheckedPointer,
+    };
+    pub use crate::app::{App, AppConfig, AppResources};
     pub use crate::task::{Task, TerminateTimer, TimerId, Timer, DropCheck};
     pub use crate::resources::{
         RawImageFormat, ImageId, FontId, FontSource, ImageSource,
@@ -302,13 +306,8 @@ pub mod prelude {
         WindowState, KeyboardState, MouseState, DebugState, AcceleratorKey,
         VirtualKeyCode, ScanCode, keymap,
     };
-    pub use azul_core::{
-        ui_solver::{TextLayoutOptions, ResolvedTextLayoutOptions},
-        callbacks::StackCheckedPointer,
-    };
     pub use crate::text_layout::GlyphInstance;
     pub use crate::xml::{XmlComponent, XmlComponentMap, DomXml};
-
     pub use crate::css;
     #[cfg(feature = "logging")]
     pub use log::LevelFilter;

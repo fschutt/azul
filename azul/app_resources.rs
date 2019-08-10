@@ -223,13 +223,13 @@ pub fn font_source_get_bytes(font_source: &FontSource) -> Result<(Vec<u8>, i32),
 }
 
 /// Scans the display list for all font IDs + their font size
-fn scan_ui_description_for_font_keys<'a, T>(
+fn scan_ui_description_for_font_keys<T>(
     app_resources: &AppResources,
-    display_list: &DisplayList<'a, T>
+    display_list: &DisplayList<T>
 ) -> FastHashMap<ImmediateFontId, FastHashSet<Au>> {
 
-    use dom::NodeType::*;
-    use ui_solver;
+    use crate::dom::NodeType::*;
+    use crate::ui_solver;
 
     let mut font_keys = FastHashMap::default();
 
@@ -259,12 +259,12 @@ fn scan_ui_description_for_font_keys<'a, T>(
 }
 
 /// Scans the display list for all image keys
-fn scan_ui_description_for_image_keys<'a, T>(
+fn scan_ui_description_for_image_keys<T>(
     app_resources: &AppResources,
-    display_list: &DisplayList<'a, T>
+    display_list: &DisplayList<T>
 ) -> FastHashSet<ImageId> {
 
-    use dom::NodeType::*;
+    use crate::dom::NodeType::*;
 
     display_list.rectangles
     .iter()

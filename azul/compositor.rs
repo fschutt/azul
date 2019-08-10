@@ -5,11 +5,11 @@ use webrender::{
     ExternalImageHandler, ExternalImage, ExternalImageSource,
     api::{ExternalImageId, TexelRect, DevicePoint, Epoch, ImageRendering},
 };
-use {
+use azul_core::callbacks::PipelineId;
+use crate::{
     FastHashMap,
     gl::{GLuint, Texture},
 };
-use azul_core::callbacks::PipelineId;
 
 /// Each pipeline (window) has its own OpenGL textures. GL Textures can technically
 /// be shared across pipelines, however this turns out to be very difficult in practice.
