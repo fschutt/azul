@@ -213,7 +213,7 @@ mod macros;
 /// Manages application state (`App` / `AppState` / `AppResources`), wrapping resources and app state
 pub mod app;
 /// Async IO helpers / (`Task` / `Timer` / `Thread`)
-pub use azul_core::async;
+pub use azul_core::task;
 /// Type definitions for various types of callbacks, as well as focus and scroll handling
 pub use azul_core::callbacks;
 /// CSS type definitions / CSS parsing functions
@@ -278,24 +278,24 @@ pub mod resources {
 pub mod prelude {
     pub use azul_css::*;
     pub use app::{App, AppConfig, AppResources};
-    pub use async::{Task, TerminateTimer, TimerId, Timer, DropCheck};
-    pub use resources::{
+    pub use crate::task::{Task, TerminateTimer, TimerId, Timer, DropCheck};
+    pub use crate::resources::{
         RawImageFormat, ImageId, FontId, FontSource, ImageSource,
         TextCache, TextId,
     };
-    pub use callbacks::*;
-    pub use gl::{
+    pub use crate::callbacks::*;
+    pub use crate::gl::{
         GLuint, Texture, VertexLayout, VertexAttribute, VertexAttributeType,
         VertexLayoutDescription, VertexBuffer, GlApiVersion, IndexBufferFormat,
         Uniform, UniformType, GlShader, VertexShaderCompileError,
         FragmentShaderCompileError, GlShaderLinkError, GlShaderCreateError,
     };
-    pub use dom::{
+    pub use crate::dom::{
         Dom, DomHash, NodeType, NodeData, On, DomString, TabIndex,
         EventFilter, HoverEventFilter, FocusEventFilter, NotEventFilter, WindowEventFilter,
     };
-    pub use traits::{Layout, Modify};
-    pub use window::{
+    pub use crate::traits::{Layout, Modify};
+    pub use crate::window::{
         Window, WindowCreateOptions, MonitorHandle,
         Monitor, RendererType,
         LogicalPosition, LogicalSize, PhysicalPosition, PhysicalSize,
@@ -306,17 +306,17 @@ pub mod prelude {
         ui_solver::{TextLayoutOptions, ResolvedTextLayoutOptions},
         callbacks::StackCheckedPointer,
     };
-    pub use text_layout::GlyphInstance;
-    pub use xml::{XmlComponent, XmlComponentMap, DomXml};
+    pub use crate::text_layout::GlyphInstance;
+    pub use crate::xml::{XmlComponent, XmlComponentMap, DomXml};
 
-    pub use css;
+    pub use crate::css;
     #[cfg(feature = "logging")]
     pub use log::LevelFilter;
 }
 
 /// Re-exports of errors
 pub mod errors {
-    pub use {
+    pub use crate::{
         app::RuntimeError,
         app_resources::{ImageReloadError, FontReloadError},
     };

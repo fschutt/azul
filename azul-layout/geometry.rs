@@ -22,8 +22,10 @@
 
 use std::ops::Add;
 use azul_core::ui_solver::ResolvedOffsets;
-use number::Number;
-use style::FlexDirection;
+use crate::{
+    number::Number,
+    style::FlexDirection,
+};
 
 #[derive(Debug, Copy, Clone, PartialEq)]
 pub struct Rect {

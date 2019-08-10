@@ -11,7 +11,7 @@ use azul_css::{
     Css, LayoutPosition, CssProperty, ColorU, BoxShadowClipMode,
     RectStyle, RectLayout, CssPropertyValue, LayoutPoint, LayoutSize, LayoutRect,
 };
-use {
+use crate::{
     FastHashMap,
     app_resources::{AppResources, AddImageMsg, FontImageApi},
     callbacks::{IFrameCallback, GlCallback, StackCheckedPointer},
@@ -641,7 +641,7 @@ fn displaylist_handle_rect<'a,'b,'c,'d,'e,'f, T, U: FontImageApi>(
             if let Some(layouted_glyphs) = referenced_mutable_content.layout_result[dom_id].layouted_glyph_cache.get(&rect_idx).cloned() {
 
                 use azul_core::ui_solver::DEFAULT_FONT_COLOR;
-                use wr_translate::translate_logical_size_to_css_layout_size;
+                use crate::wr_translate::translate_logical_size_to_css_layout_size;
 
                 let text_color = rect.style.text_color.and_then(|tc| tc.get_property().cloned()).unwrap_or(DEFAULT_FONT_COLOR).0;
                 let positioned_words = &referenced_mutable_content.layout_result[dom_id].positioned_word_cache[&rect_idx];
@@ -736,7 +736,7 @@ fn call_opengl_callback<'a,'b,'c,'d,'e,'f, T, U: FontImageApi>(
 ) -> LayoutRectContent {
 
     use gleam::gl;
-    use {
+    use crate::{
         compositor::insert_into_active_gl_textures,
         wr_translate::{hidpi_rect_from_bounds, wr_translate_image_key, wr_translate_image_descriptor},
         app_resources::ImageInfo,
@@ -852,7 +852,7 @@ fn call_iframe_callback<'a,'b,'c,'d,'e, T, U: FontImageApi>(
 
     use app_resources;
     use ui_state::ui_state_from_dom;
-    use wr_translate::hidpi_rect_from_bounds;
+    use crate::wr_translate::hidpi_rect_from_bounds;
     use azul_core::callbacks::IFrameCallbackInfoUnchecked;
 
     let bounds = hidpi_rect_from_bounds(

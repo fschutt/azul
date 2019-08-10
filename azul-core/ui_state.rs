@@ -3,7 +3,7 @@ use std::{
     collections::BTreeMap,
 };
 use azul_css::CssProperty;
-use {
+use crate::{
     FastHashMap,
     id_tree::NodeId,
     dom::{
@@ -122,7 +122,7 @@ pub fn ui_state_from_app_state<'a, T>(
     layout_callback: LayoutCallback<T>,
 ) -> UiState<T> {
 
-    use app::RuntimeError::*;
+    use crate::app::RuntimeError::*;
 
     // Only shortly lock the data to get the dom out
     let dom = (layout_callback)(data, layout_info);
@@ -134,7 +134,7 @@ pub fn ui_state_create_tags_for_hover_nodes<T>(
     ui_state: &mut UiState<T>,
     hover_nodes: &BTreeMap<NodeId, HoverGroup>
 ) {
-    use dom::new_tag_id;
+    use crate::dom::new_tag_id;
 
     for (hover_node_id, hover_group) in hover_nodes {
         let hover_tag = match ui_state.node_ids_to_tag_ids.get(hover_node_id) {
@@ -153,7 +153,7 @@ pub fn ui_state_create_tags_for_hover_nodes<T>(
 /// and routing input events to the callbacks).
 pub fn ui_state_from_dom<T>(dom: Dom<T>, parent_dom_node_id: Option<(DomId, NodeId)>) -> UiState<T> {
 
-    use dom::{self, new_tag_id};
+    use crate::dom::new_tag_id;
 
     // NOTE: Originally it was allowed to create a DOM with
     // multiple root elements using `add_sibling()` and `with_sibling()`.
@@ -228,7 +228,7 @@ pub fn ui_state_from_dom<T>(dom: Dom<T>, parent_dom_node_id: Option<(DomId, Node
         };
     }
 
-    dom::reset_tag_id();
+    crate::dom::reset_tag_id();
 
     {
         let arena = &dom.arena;
@@ -387,7 +387,7 @@ pub fn ui_state_from_dom<T>(dom: Dom<T>, parent_dom_node_id: Option<(DomId, Node
 pub fn scan_ui_state_for_iframe_callbacks<T>(ui_state: &UiState<T>)
 -> Vec<(NodeId, IFrameCallback<T>, StackCheckedPointer<T>)>
 {
-    use dom::NodeType::IFrame;
+    use crate::dom::NodeType::IFrame;
     ui_state.dom.arena.node_layout.linear_iter().filter_map(|node_id| {
         let node_data = &ui_state.dom.arena.node_data[node_id];
         match node_data.get_node_type() {
@@ -400,7 +400,7 @@ pub fn scan_ui_state_for_iframe_callbacks<T>(ui_state: &UiState<T>)
 pub fn scan_ui_state_for_gltexture_callbacks<T>(ui_state: &UiState<T>)
 -> Vec<(NodeId, GlCallback<T>, StackCheckedPointer<T>)>
 {
-    use dom::NodeType::GlTexture;
+    use crate::dom::NodeType::GlTexture;
     ui_state.dom.arena.node_layout.linear_iter().filter_map(|node_id| {
         let node_data = &ui_state.dom.arena.node_data[node_id];
         match node_data.get_node_type() {

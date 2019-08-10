@@ -4,7 +4,7 @@ use azul_css::{
     StyleTextColor, ColorU as StyleColorU, Overflow,
     StyleTextAlignmentHorz, StyleTextAlignmentVert,
 };
-use {
+use crate::{
     app_resources::{Words, ScaledWords, FontInstanceKey, WordPositions, LayoutedGlyphs},
     id_tree::{NodeId, NodeDataContainer},
     dom::{DomHash, ScrollTagId},
