@@ -348,6 +348,11 @@ pub(crate) struct WindowInternal {
     pub(crate) layout_result: BTreeMap<DomId, LayoutResult>,
     /// Current scroll states of nodes (x and y position of where they are scrolled)
     pub(crate) scrolled_nodes: BTreeMap<DomId, ScrolledNodes>,
+    pub(crate) display_lists: BTreeMap<DomId, DisplayList>,
+    pub(crate) gl_texture_cache: BTreeMap<DomId, BTreeMap<NodeId, (ImageKey, ImageDescriptor, ExternalImageId)>>,
+    pub(crate) iframe_mappings: BTreeMap<(DomId, NodeId), DomId>,
+    pub(crate) scrollable_nodes: BTreeMap<DomId, ScrolledNodes>,
+    pub(crate) rects_in_rendering_order: BTreeMap<DomId, ContentGroup>,
     /// States of scrolling animations, updated every frame
     pub(crate) scroll_states: ScrollStates,
     pub(crate) epoch: Epoch,
