@@ -1206,14 +1206,7 @@ fn call_callbacks<T>(
 // Most expensive step: Do the layout + build the actual display list (but don't send it to webrender yet!)
 #[cfg(not(test))]
 fn layout_display_lists<T>(
-    data: &mut T,
-    app_resources: &mut AppResources,
-    window: &mut Window<T>,
-    fake_display: &mut FakeDisplay<T>,
-    ui_states: &mut BTreeMap<DomId, UiState<T>>,
-    ui_descriptions: &mut BTreeMap<DomId, UiDescription<T>>,
-    full_window_state: &mut FullWindowState,
-    default_callbacks: &mut BTreeMap<DomId, DefaultCallbackIdMap<T>>,
+
 ) -> BTreeMap<DomId, CachedDisplayList> {
     ui_states.iter().map(|(dom_id, ui_state)| {
         let ui_description = &ui_descriptions[dom_id];
@@ -1230,14 +1223,113 @@ fn layout_display_lists<T>(
     }).collect()
 }
 
-/// Does the layout, updates the image + font resources for the RenderAPI
-fn do_layout_for_display_list()
--> (IFrameCache, GlTextureCache, CachedDisplayListResult)
-{
-
+struct SolvedLayoutCache {
+    solved_layouts: BTreeMap<DomId, LayoutResult>,
+    iframe_mappings: BTreeMap<(DomId, NodeId), DomId>,
 }
 
-// Do the layout for a single window
+struct GlTextureCache {
+    solved_textures: BTreeMap<DomId, BTreeMap<NodeId, (ImageKey, ImageDescriptor, ExternalImageId)>>,
+}
+
+/// Does the layout, updates the image + font resources for the RenderAPI
+fn do_layout_for_display_list<T>(
+    data: &mut T,
+    app_resources: &mut AppResources,
+    window: &mut Window<T>,
+    fake_display: &mut FakeDisplay<T>,
+    ui_states: &mut BTreeMap<DomId, UiState<T>>,
+    ui_descriptions: &mut BTreeMap<DomId, UiDescription<T>>,
+    full_window_state: &mut FullWindowState,
+    default_callbacks: &mut BTreeMap<DomId, DefaultCallbackIdMap<T>>,
+    pipeline_id: &PipelineId,
+) -> (SolvedLayoutCache, GlTextureCache)
+{
+    use app_resources::add_fonts_and_images;
+    use display_list::display_list_from_ui_description;
+    use azul_core::ui_state::{
+        scan_ui_state_for_iframe_callbacks,
+        scan_ui_state_for_gltexture_callbacks
+    };
+    use azul_css::LayoutRect;
+
+    let pipeline_id = window.internal.pipeline_id;
+
+    let mut layout_cache = SolvedLayoutCache {
+        solved_layouts: BTreeMap::new(),
+        iframe_mappings: BTreeMap::new(),
+    };
+
+    let mut texture_cache = GlTextureCache {
+        solved_textures: BTreeMap::new(),
+    };
+
+    fn recurse<T>(
+        layout_cache: &mut SolvedLayoutCache,
+        texture_cache: &mut GlTextureCache,
+        ui_state: &UiState<T>,
+        ui_description: &UiDescription<T>,
+        app_resources: &mut AppResources,
+        pipeline_id: &PipelineId,
+        bounds: LayoutRect,
+    ) {
+
+        // Right now the IFrameCallbacks and GlTextureCallbacks need to know how large their
+        // containers are in order to be solved properly
+        let iframe_callbacks = scan_ui_state_for_iframe_callbacks(ui_state);
+        let gltexture_callbacks = scan_ui_state_for_gltexture_callbacks(ui_state);
+        let display_list = display_list_from_ui_description(ui_description, ui_state);
+        let dom_id = ui_state.dom_id.clone();
+
+        // In order to calculate the layout, font + image metrics have to be calculated first
+        add_fonts_and_images(app_resources, render_api, &pipeline_id, &display_list);
+
+        let layout_result = do_the_layout(
+            &display_list.ui_descr.ui_descr_arena.node_layout,
+            &display_list.ui_descr.ui_descr_arena.node_data,
+            &display_list.rectangles,
+            &app_resources,
+            pipeline_id,
+            bounds,
+        );
+
+        // Now the size of rects are known, render all the OpenGL textures
+        for (node_id, cb, ptr) in gltexture_callbacks {
+            // let gl_texture = invoke_gl_texture_callback(cb, ptr, layout_result[node_id]);
+            // texture_cache.solved_textures.insert((dom_id, node_id), gl_texture);
+        }
+
+        for (node_id, cb, ptr) in iframe_callbacks {
+            // let (ui_state, ui_description) = invoke_ptr(cb, ptr);
+            // iframe_mappings.insert((dom_id, node_id), ui_state.dom_id.clone());
+            // recurse(ui_state, ui_description, layout_result[node_id]);
+        }
+
+        layout_cache.solved_layouts.insert(dom_id, layout_result);
+    }
+
+    for (dom_id, ui_state) in ui_states {
+
+        let ui_description = &ui_descriptions[dom_id];
+
+        recurse(
+            &mut layout_cache,
+            &mut texture_cache,
+            ui_state,
+            ui_description,
+            app_resources,
+            &pipeline_id,
+            LayoutRect {
+                origin: LayoutPoint::new(0.0, 0.0),
+                size: full_window_state.size.dimensions,
+            }
+        );
+    }
+
+    (layout_cache, texture_cache)
+}
+
+// Build the cached display list
 #[cfg(not(test))]
 fn layout_display_list<T>(
     data: &mut T,
