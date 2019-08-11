@@ -55,23 +55,23 @@ pub(crate) struct DisplayList {
 /// `DisplayListParametersRef` has only members that are
 ///  **immutable references** to other things that need to be passed down the display list
 #[derive(Clone)]
-struct DisplayListParametersRef<'a, T: 'a> {
+pub(crate) struct DisplayListParametersRef<'a, T: 'a> {
     /// ID of this Dom
-    pub dom_id: DomId,
+    pub(crate) dom_id: DomId,
+    /// Epoch of all the OpenGL textures
+    pub(crate) epoch: Epoch,
     /// The CSS that should be applied to the DOM
-    pub full_window_state: &'a FullWindowState,
+    pub(crate) full_window_state: &'a FullWindowState,
     /// The current pipeline of the display list
-    pub pipeline_id: PipelineId,
+    pub(crate) pipeline_id: PipelineId,
     /// Cached layouts (+ solved layouts for iframes)
-    pub layout_result: &'a SolvedLayoutCache,
+    pub(crate) layout_result: &'a SolvedLayoutCache,
     /// Cached rendered OpenGL textures
-    pub gl_texture_cache: &'a GlTextureCache,
+    pub(crate) gl_texture_cache: &'a GlTextureCache,
     /// Reference to the UIState, for access to `node_hierarchy` and `node_data`
-    pub ui_state_cache: &'a BTreeMap<DomId, UiState<T>>,
-    /// Reference to the display list (with cascaded styles)
-    pub display_list_cache: &'a BTreeMap<DomId, DisplayList>,
-    /// Stores the rects in rendering order
-    pub rects_in_rendering_order: &'a BTreeMap<DomId, ContentGroup>,
+    pub(crate) ui_state_cache: &'a BTreeMap<DomId, UiState<T>>,
+    /// Reference to the AppResources, necessary to query info about image and font keys
+    pub(crate) app_resources: &'a AppResources,
 }
 
 /// DisplayRectangle is the main type which the layout parsing step gets operated on.
@@ -247,24 +247,16 @@ impl GetStyle for DisplayRectangle {
     }
 }
 
-/// Parameters that apply to a single rectangle / div node
-#[derive(Copy, Clone)]
-struct LayoutRectParams<'a, T: 'a> {
-    epoch: Epoch,
-    rect_idx: NodeId,
-    html_node: &'a NodeType<T>,
-    window_size: WindowSize,
-}
-
 #[derive(Debug, Clone, PartialEq)]
-struct ContentGroup {
+pub(crate) struct ContentGroup {
     /// The parent of the current node group, i.e. either the root node (0)
     /// or the last positioned node ()
-    root: NodeId,
+    pub(crate) root: NodeId,
     /// Node ids in order of drawing
-    children: Vec<ContentGroup>,
+    pub(crate) children: Vec<ContentGroup>,
 }
 
+#[derive(Default)]
 pub(crate) struct SolvedLayoutCache {
     pub(crate) solved_layouts: BTreeMap<DomId, LayoutResult>,
     pub(crate) display_lists: BTreeMap<DomId, DisplayList>,
@@ -273,8 +265,9 @@ pub(crate) struct SolvedLayoutCache {
     pub(crate) rects_in_rendering_order: BTreeMap<DomId, ContentGroup>,
 }
 
+#[derive(Default)]
 pub(crate) struct GlTextureCache {
-    pub(crate) solved_textures: BTreeMap<DomId, BTreeMap<NodeId, (ImageKey, ImageDescriptor, ExternalImageId)>>,
+    pub(crate) solved_textures: BTreeMap<DomId, BTreeMap<NodeId, (ImageKey, ImageDescriptor)>>,
 }
 
 /// Does the layout, updates the image + font resources for the RenderAPI
@@ -290,16 +283,23 @@ pub(crate) fn do_layout_for_display_list<T>(
 ) -> (SolvedLayoutCache, GlTextureCache) {
 
     use azul_css::LayoutRect;
-    use crate::wr_translate::translate_logical_size_to_css_layout_size;
-    use crate::app_resources::{FontImageApi, add_resources, garbage_collect_fonts_and_images};
+    use crate::{
+        wr_translate::{
+            translate_logical_size_to_css_layout_size,
+            wr_translate_image_key,
+            wr_translate_image_descriptor,
+        },
+        app_resources::{
+            RawImageFormat, FontImageApi,
+            add_resources, garbage_collect_fonts_and_images,
+        },
+        compositor::insert_into_active_gl_textures,
+    };
+    use azul_core::app_resources::ImageInfo;
 
     let pipeline_id = window.internal.pipeline_id;
 
-    let mut layout_cache = SolvedLayoutCache {
-        solved_layouts: BTreeMap::new(),
-        display_lists: BTreeMap::new(),
-        iframe_mappings: BTreeMap::new(),
-    };
+    let mut layout_cache = SolvedLayoutCache::default();
 
     let mut solved_textures = BTreeMap::new();
     let mut iframe_ui_states = BTreeMap::new();
@@ -349,7 +349,7 @@ pub(crate) fn do_layout_for_display_list<T>(
         let dom_id = ui_state.dom_id.clone();
 
         let rects_in_rendering_order = determine_rendering_order(
-            &ui_description.ui_descr_arena.node_hierarchy,
+            &ui_description.ui_descr_arena.node_layout,
             &display_list.rectangles
         );
 
@@ -357,8 +357,8 @@ pub(crate) fn do_layout_for_display_list<T>(
         add_fonts_and_images(app_resources, render_api, &pipeline_id, &display_list, &ui_description.ui_descr_arena.node_data);
 
         let layout_result = do_the_layout(
-            &display_list.ui_descr.ui_descr_arena.node_layout,
-            &display_list.ui_descr.ui_descr_arena.node_data,
+            &ui_description.ui_descr_arena.node_layout,
+            &ui_description.ui_descr_arena.node_data,
             &display_list.rectangles,
             &app_resources,
             pipeline_id,
@@ -366,7 +366,7 @@ pub(crate) fn do_layout_for_display_list<T>(
         );
 
         let scrollable_nodes = get_nodes_that_need_scroll_clip(
-            &ui_description.ui_descr_arena.node_hierarchy,
+            &ui_description.ui_descr_arena.node_layout,
             &display_list.rectangles,
             &ui_description.ui_descr_arena.node_data,
             &layout_result.rects,
@@ -529,11 +529,12 @@ pub(crate) fn do_layout_for_display_list<T>(
     ui_states.extend(iframe_ui_states.into_iter());
     ui_descriptions.extend(iframe_ui_descriptions.into_iter());
 
-    let mut texture_cache = GlTextureCache {
+    let mut gl_texture_cache = GlTextureCache {
         solved_textures: BTreeMap::new(),
     };
 
-    let mut image_resource_updates = BTreeMap::new()
+    let mut image_resource_updates = Vec::new();
+
     for (dom_id, textures) in solved_textures {
         for (node_id, texture) in textures {
 
@@ -555,7 +556,7 @@ pub(crate) fn do_layout_for_display_list<T>(
         let texture_height = texture.size.height;
 
         let key = fake_display.render_api.new_image_key();
-        let external_image_id = insert_into_active_gl_textures(pipeline_id, rectangle.epoch, texture);
+        let external_image_id = insert_into_active_gl_textures(pipeline_id, window.internal.epoch, texture);
 
         let add_img_msg = AddImageMsg(
             AddImage {
@@ -571,26 +572,23 @@ pub(crate) fn do_layout_for_display_list<T>(
             ImageInfo { key, descriptor }
         );
 
-        image_resource_updates
-            .entry(dom_id)
-            .or_insert_with(|| Vec::new())
-            .push((ImageId::new(), add_img_msg));
+        image_resource_updates.push((ImageId::new(), add_img_msg));
 
         gl_texture_cache.solved_textures
             .entry(dom_id)
             .or_insert_with(|| BTreeMap::new())
-            .insert(node_id, (key, descriptor, external_image_id)));
+            .insert(node_id, (key, descriptor));
         }
     }
 
     // Delete unused font and image keys (that were not used in this display list)
     garbage_collect_fonts_and_images(app_resources, &mut fake_display.render_api, &pipeline_id);
     // Add the new GL textures to the RenderApi
-    add_resources(app_resources, &mut fake_display.render_api, &pipeline_id, Vec::new(), image_resource_updates)
+    add_resources(app_resources, &mut fake_display.render_api, &pipeline_id, Vec::new(), image_resource_updates);
 
     fake_display.hidden_context.make_not_current();
 
-    (layout_cache, texture_cache)
+    (layout_cache, gl_texture_cache)
 }
 
 fn determine_rendering_order<'a>(
@@ -747,10 +745,10 @@ pub(crate) fn display_list_from_ui_description<T>(ui_description: &UiDescription
     let mut override_warnings = Vec::new();
 
     let display_rect_arena = arena.node_data.transform(|_, node_id| {
-        let style = &ui_description.styled_nodes[node_id];
         let tag = ui_state.node_ids_to_tag_ids.get(&node_id).map(|tag| *tag);
-        let mut rect = DisplayRectangle::new(tag, style);
-        override_warnings.append(&mut populate_css_properties(&mut rect, node_id, &ui_description.dynamic_css_overrides));
+        let style = &ui_description.styled_nodes[node_id];
+        let mut rect = DisplayRectangle::new(tag);
+        override_warnings.append(&mut populate_css_properties(&mut rect, node_id, &ui_description.dynamic_css_overrides, &style));
         rect
     });
 
@@ -769,27 +767,17 @@ pub(crate) fn display_list_from_ui_description<T>(ui_description: &UiDescription
 }
 
 pub(crate) fn push_rectangles_into_displaylist<'a, T>(
-    epoch: Epoch,
     root_content_group: ContentGroup,
     referenced_content: &DisplayListParametersRef<'a, T>,
 ) -> DisplayListMsg {
 
-    let rectangle = LayoutRectParams {
-        epoch,
-        rect_idx: root_content_group.root,
-        html_node: referenced_content.node_data[root_content_group.root].get_node_type(),
-        window_size,
-    };
-
     let mut content = displaylist_handle_rect(
-        &rectangle,
+        root_content_group.root,
         referenced_content,
-        referenced_mutable_content,
     );
 
     let children = root_content_group.children.into_iter().map(|child_content_group| {
         push_rectangles_into_displaylist(
-            epoch,
             child_content_group,
             referenced_content,
         )
@@ -801,16 +789,25 @@ pub(crate) fn push_rectangles_into_displaylist<'a, T>(
 }
 
 /// Push a single rectangle into the display list builder
-fn displaylist_handle_rect<'a,'b, T, U: FontImageApi>(
-    rectangle: &LayoutRectParams<'b, T>,
+fn displaylist_handle_rect<'a, T, U: FontImageApi>(
+    rect_idx: NodeId,
     referenced_content: &DisplayListParametersRef<'a, T>,
 ) -> DisplayListMsg {
 
-    let DisplayListParametersRef { display_rectangle_arena, dom_id, pipeline_id, .. } = referenced_content;
-    let LayoutRectParams { rect_idx, html_node, window_size, .. } = rectangle;
+    let DisplayListParametersRef {
+        dom_id,
+        epoch,
+        pipeline_id,
+        ui_state_cache,
+        layout_result,
+        gl_texture_cache,
+        app_resources,
+        full_window_state,
+    } = referenced_content;
 
-    let rect = &display_rectangle_arena[*rect_idx];
-    let bounds = referenced_mutable_content.layout_result[dom_id].rects[*rect_idx].bounds;
+    let rect = layout_result.display_lists[dom_id].rectangles[rect_idx];
+    let bounds = layout_result.solved_layouts[dom_id].rects[rect_idx].bounds;
+    let html_node = ui_state_cache[&dom_id].dom.arena.node_data[rect_idx].get_node_type();
 
     let display_list_rect_bounds = LayoutRect::new(
          LayoutPoint::new(bounds.origin.x, bounds.origin.y),
@@ -818,7 +815,7 @@ fn displaylist_handle_rect<'a,'b, T, U: FontImageApi>(
     );
 
     let tag_id = rect.tag.map(|tag| (tag, 0)).or({
-        referenced_mutable_content.scrollable_nodes[dom_id].overflowing_nodes
+        layout_result.scrollable_nodes[dom_id].overflowing_nodes
         .get(&rect_idx)
         .map(|scrolled| (scrolled.scroll_tag_id.0, 0))
     });
@@ -865,7 +862,7 @@ fn displaylist_handle_rect<'a,'b, T, U: FontImageApi>(
         let background_content = match bg {
             LinearGradient(lg) => Some(RectBackground::LinearGradient(lg.clone())),
             RadialGradient(rg) => Some(RectBackground::RadialGradient(rg.clone())),
-            Image(style_image_id) => get_image_info(referenced_mutable_content.app_resources, &referenced_content.pipeline_id, style_image_id),
+            Image(style_image_id) => get_image_info(&app_resources, &pipeline_id, style_image_id),
             Color(c) => Some(RectBackground::Color(*c)),
         };
 
@@ -882,19 +879,19 @@ fn displaylist_handle_rect<'a,'b, T, U: FontImageApi>(
     match html_node {
         Div => { },
         Text(_) | Label(_) => {
-            if let Some(layouted_glyphs) = referenced_mutable_content.layout_result[dom_id].layouted_glyph_cache.get(&rect_idx).cloned() {
+            if let Some(layouted_glyphs) = layout_result.solved_layouts.get(dom_id).and_then(|lr| lr.layouted_glyph_cache.get(&rect_idx)).cloned() {
 
                 use azul_core::ui_solver::DEFAULT_FONT_COLOR;
                 use crate::wr_translate::translate_logical_size_to_css_layout_size;
 
                 let text_color = rect.style.text_color.and_then(|tc| tc.get_property().cloned()).unwrap_or(DEFAULT_FONT_COLOR).0;
-                let positioned_words = &referenced_mutable_content.layout_result[dom_id].positioned_word_cache[&rect_idx];
+                let positioned_words = &layout_result.solved_layouts[dom_id].positioned_word_cache[&rect_idx];
                 let font_instance_key = positioned_words.1;
 
                 frame.content.push(get_text(
                     display_list_rect_bounds,
-                    &referenced_mutable_content.layout_result[dom_id].rects[*rect_idx].padding,
-                    translate_logical_size_to_css_layout_size(window_size.dimensions),
+                    &layout_result.solved_layouts[dom_id].rects[rect_idx].padding,
+                    translate_logical_size_to_css_layout_size(full_window_state.size.dimensions),
                     layouted_glyphs,
                     font_instance_key,
                     text_color,
@@ -903,7 +900,7 @@ fn displaylist_handle_rect<'a,'b, T, U: FontImageApi>(
             }
         },
         Image(image_id) => {
-            if let Some(image_info) = referenced_mutable_content.app_resources.get_image_info(pipeline_id, image_id) {
+            if let Some(image_info) = app_resources.get_image_info(pipeline_id, image_id) {
                 frame.content.push(LayoutRectContent::Image {
                     size: LayoutSize::new(bounds.size.width, bounds.size.height),
                     offset: LayoutPoint::new(0.0, 0.0),
@@ -915,26 +912,25 @@ fn displaylist_handle_rect<'a,'b, T, U: FontImageApi>(
             }
         },
         GlTexture(_) => {
-            if let Some((key, descriptor, _)) = referenced_content.solved_textures.get(&(dom_id.clone(), *rect_idx)) {
+            if let Some((key, descriptor)) = gl_texture_cache.solved_textures.get(&dom_id).and_then(|textures| textures.get(&rect_idx)) {
                 frame.content.push(LayoutRectContent::Image {
-                    size: LayoutSize::new(descriptor.size.width, descriptor.size.height),
+                    size: LayoutSize::new(descriptor.dimensions.0 as f32, descriptor.dimensions.1 as f32),
                     offset: LayoutPoint::new(0.0, 0.0),
                     image_rendering: ImageRendering::Auto,
                     alpha_type: AlphaType::Alpha,
-                    image_key: key,
+                    image_key: *key,
                     background_color: ColorU::WHITE,
                 })
             }
         },
         IFrame(_) => {
-            if let Some(iframe_dom_id) = referenced_content.iframe_mappings.get(&(dom_id.clone(), *rect_idx)) {
+            if let Some(iframe_dom_id) = layout_result.iframe_mappings.get(&(dom_id.clone(), rect_idx)) {
                 frame.children.push(push_rectangles_into_displaylist(
-                    rectangle.epoch,
-                    rects_in_rendering_order.root,
+                    // layout_result.rects_in_rendering_order.root,
                     &DisplayListParametersRef {
                         // Important: Need to update the DOM ID,
                         // otherwise this function would be endlessly recurse
-                        dom_id: iframe_dom_id,
+                        dom_id: iframe_dom_id.clone(),
                         .. *referenced_content
                     }
                 ));
@@ -977,7 +973,7 @@ fn displaylist_handle_rect<'a,'b, T, U: FontImageApi>(
         });
     }
 
-    match referenced_mutable_content.scrollable_nodes[dom_id].overflowing_nodes.get(&rect_idx) {
+    match layout_result.scrollable_nodes[dom_id].overflowing_nodes.get(&rect_idx) {
         Some(scroll_node) => DisplayListMsg::ScrollFrame(DisplayListScrollFrame {
             content_rect: scroll_node.child_rect,
             scroll_id: scroll_node.parent_external_scroll_id,
@@ -1058,6 +1054,7 @@ fn populate_css_properties(
     rect: &mut DisplayRectangle,
     node_id: NodeId,
     css_overrides: &BTreeMap<NodeId, FastHashMap<DomString, CssProperty>>,
+    styled_node: &StyledNode,
 ) -> Vec<OverrideWarning> {
 
     use azul_css::CssDeclaration::*;
@@ -1065,7 +1062,7 @@ fn populate_css_properties(
 
     let rect_style = &mut rect.style;
     let rect_layout = &mut rect.layout;
-    let css_constraints = &rect.styled_node.css_constraints;
+    let css_constraints = &styled_node.css_constraints;
 
    css_constraints
     .values()
