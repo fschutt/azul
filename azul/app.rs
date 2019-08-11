@@ -36,7 +36,7 @@ use crate::{
         LayoutCallback, FocusTarget, UpdateScreen, HitTestItem,
         Redraw, DontRedraw, ScrollPosition, DefaultCallbackIdMap,
     },
-    display_list::{DisplayList, SolvedLayoutCache, GlTextureCache},
+    display_list::{ContentGroup, DisplayList, SolvedLayoutCache, GlTextureCache},
 };
 use azul_core::{
     ui_solver::ScrolledNodes,
@@ -600,7 +600,7 @@ impl<T: 'static> App<T> {
                                             &scroll_states,
                                             &mut window.internal.scroll_states,
                                             full_window_states.get_mut(&glutin_window_id).unwrap(),
-                                            &window.internal.layout_result,
+                                            &window.internal.layout_result.solved_layouts,
                                             &window.internal.scrolled_nodes,
                                             &window.internal.cached_display_list,
                                             gl_context.clone(),
@@ -709,12 +709,8 @@ impl<T: 'static> App<T> {
 
                                 );
 
-                                 window.internal.layout_result = solved_layout_cache.solved_layouts;
-                                 window.internal.display_lists = solved_layout_cache.display_lists;
-                                 window.internal.iframe_mappings = solved_layout_cache.iframe_mappings;
-                                 window.internal.scrollable_nodes = solved_layout_cache.scrollable_nodes;
-                                 window.internal.rects_in_rendering_order = solved_layout_cache.rects_in_rendering_order;
-                                 window.internal.gl_texture_cache = gl_texture_cache.solved_textures;
+                                 window.internal.layout_result = solved_layout_cache;
+                                 window.internal.gl_texture_cache = gl_texture_cache;
 
                                  event_loop_proxy.send_event(AzulUpdateEvent::RebuildDisplayList { window_id }).unwrap();
                             }
@@ -733,20 +729,20 @@ impl<T: 'static> App<T> {
                                 let window = &active_windows[&glutin_window_id];
                                 let full_window_state = &full_window_states[&glutin_window_id];
 
-                                let (scrollable_nodes, cached_display_list) = build_cached_display_list(
+                                let cached_display_list = build_cached_display_list(
+                                    window.internal.epoch,
+                                    window.internal.pipeline_id,
                                     &full_window_state,
-                                    &window.internal.display_list_cache,
                                     &ui_state_cache[&glutin_window_id],
                                     &window.internal.layout_result,
                                     &window.internal.gl_texture_cache,
-                                    &window.internal.rects_in_rendering_order,
+                                    &resources,
                                 );
 
                                 // optimization with diff:
                                 // - only rebuild the nodes that were added / removed
                                 // - if diff is empty (same UI), skip rebuilding the display list, go straight to sending the DL
 
-                                window.internal.scrolled_nodes = scrollable_nodes;
                                 window.internal.cached_display_list = cached_display_list;
 
                                 event_loop_proxy.send_event(AzulUpdateEvent::SendDisplayListToWebRender { window_id }).unwrap();
@@ -759,7 +755,7 @@ impl<T: 'static> App<T> {
 
                             if let Some(glutin_window_id) = glutin_id {
 
-                                let window = &active_windows.get_mut(&glutin_window_id).unwrap();
+                                let window = active_windows.get_mut(&glutin_window_id).unwrap();
                                 let full_window_state = &full_window_states[&glutin_window_id];
 
                                 send_display_list_to_webrender(
@@ -1265,31 +1261,31 @@ fn call_callbacks<T>(
 // Build the cached display list
 #[cfg(not(test))]
 fn build_cached_display_list<T>(
+    epoch: Epoch,
+    pipeline_id: PipelineId,
     full_window_state: &FullWindowState,
-    display_list_cache: &BTreeMap<DomId, DisplayList>,
     ui_state_cache: &BTreeMap<DomId, UiState<T>>,
     layout_result_cache: &SolvedLayoutCache,
     gl_texture_cache: &GlTextureCache,
-    rects_in_rendering_order: BTreeMap<DomId, ContentGroup>,
+    app_resources: &AppResources,
 ) -> CachedDisplayList {
-    use crate::{
-        display_list::display_list_from_ui_description,
-        app_resources::{add_resources, garbage_collect_fonts_and_images},
+    use crate::display_list::{
+        DisplayListParametersRef,
+        push_rectangles_into_displaylist
     };
 
     CachedDisplayList {
         root: push_rectangles_into_displaylist(
-            window.internal.epoch,
             full_window_state.size,
             &DisplayListParametersRef {
-                dom_id: DomId::ROOT,
+                dom_id: DomId::ROOT_ID,
+                epoch,
                 full_window_state,
                 pipeline_id,
                 layout_result: layout_result_cache,
                 gl_texture_cache,
                 ui_state_cache,
-                display_list_cache,
-                rects_in_rendering_order,
+                app_resources,
             },
         )
     }

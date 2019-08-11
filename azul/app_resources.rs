@@ -24,7 +24,11 @@ pub use azul_core::app_resources::{
     RawImage, CssFontId, CssImageId, TextCache, TextId, ImageId, FontId,
     ImageInfo, IdNamespace,
 };
-use azul_core::callbacks::PipelineId;
+use azul_core::{
+    callbacks::PipelineId,
+    id_tree::NodeDataContainer,
+    dom::NodeData,
+};
 
 #[derive(Debug)]
 pub enum ImageReloadError {
@@ -274,7 +278,7 @@ fn scan_ui_description_for_image_keys<T>(
     .zip(node_data.iter())
     .filter_map(|(display_rect, node_data)| {
         match node_data.get_node_type() {
-            Image(id) => Some(id),
+            Image(id) => Some(*id),
             _ => {
                 let background = display_rect.style.background.as_ref().and_then(|bg| bg.get_property())?;
                 let css_image_id = background.get_css_image_id()?;
