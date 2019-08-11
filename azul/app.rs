@@ -6,11 +6,10 @@ use std::{
 use glutin::{
     window::{
         Window as GlutinWindow,
-        WindowId as GlutinWindowId
+        WindowId as GlutinWindowId,
     },
     event::{
         ModifiersState as GlutinModifiersState,
-        WindowEvent as GlutinWindowEvent
     },
 };
 use gleam::gl::{self, Gl, GLuint};
@@ -19,7 +18,7 @@ use webrender::{
     api::{LayoutSize, DeviceIntSize, Epoch, Transaction, RenderApi},
 };
 use log::LevelFilter;
-use azul_css::{ColorU, HotReloadHandler, LayoutPoint};
+use azul_css::{ColorU, HotReloadHandler};
 use crate::{
     FastHashMap,
     window::{
@@ -33,10 +32,10 @@ use crate::{
     ui_state::UiState,
     task::{Task, Timer, TimerId},
     callbacks::{
-        LayoutCallback, FocusTarget, UpdateScreen, HitTestItem,
-        Redraw, DontRedraw, ScrollPosition, DefaultCallbackIdMap,
+        LayoutCallback, HitTestItem, Redraw, DontRedraw,
+        ScrollPosition, DefaultCallbackIdMap,
     },
-    display_list::{ContentGroup, DisplayList, SolvedLayoutCache, GlTextureCache},
+    display_list::{SolvedLayoutCache, GlTextureCache},
 };
 use azul_core::{
     ui_solver::ScrolledNodes,
