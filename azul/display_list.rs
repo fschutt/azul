@@ -5,7 +5,7 @@ use std::{
 use gleam::gl::Gl;
 use webrender::api::{
     Epoch, ImageData, AddImage, ExternalImageData,
-    ExternalImageType, TextureTarget, ExternalImageId,
+    ExternalImageType, TextureTarget,
 };
 use azul_core::{
     callbacks::{PipelineId, DefaultCallbackIdMap},
@@ -16,31 +16,28 @@ use azul_core::{
     },
     gl::Texture,
     display_list::{
-        CachedDisplayList, DisplayListMsg, LayoutRectContent,
-        ImageRendering, AlphaType, DisplayListFrame, StyleBoxShadow, DisplayListScrollFrame,
+        DisplayListMsg, LayoutRectContent, ImageRendering, AlphaType,
+        DisplayListFrame, StyleBoxShadow, DisplayListScrollFrame,
         StyleBorderStyles, StyleBorderColors, StyleBorderRadius, StyleBorderWidths,
     },
     window::FullWindowState,
 };
 use azul_css::{
-    Css, LayoutPosition, CssProperty, ColorU, BoxShadowClipMode,
+    LayoutPosition, CssProperty, ColorU, BoxShadowClipMode,
     RectStyle, RectLayout, CssPropertyValue, LayoutPoint, LayoutSize, LayoutRect,
 };
 use azul_layout::{GetStyle, style::Style};
 use crate::{
     FastHashMap,
     app_resources::{AppResources, AddImageMsg, FontImageApi},
-    callbacks::{IFrameCallback, GlCallback, StackCheckedPointer},
     ui_state::UiState,
     ui_description::{UiDescription, StyledNode},
     id_tree::{NodeDataContainer, NodeId, NodeHierarchy},
     dom::{
         DomId, NodeData, ScrollTagId, DomString,
-        NodeType::{self, Div, Text, Image, GlTexture, IFrame, Label},
+        NodeType::{Div, Text, Image, GlTexture, IFrame, Label},
     },
-    ui_solver::do_the_layout,
-    window::{Window, FakeDisplay, WindowSize},
-    callbacks::LayoutInfo,
+    window::{Window, FakeDisplay},
     text_layout::LayoutedGlyphs,
 };
 
@@ -282,7 +279,6 @@ pub(crate) fn do_layout_for_display_list<T>(
     default_callbacks: &mut BTreeMap<DomId, DefaultCallbackIdMap<T>>,
 ) -> (SolvedLayoutCache, GlTextureCache) {
 
-    use azul_css::LayoutRect;
     use crate::{
         wr_translate::{
             translate_logical_size_to_css_layout_size,
@@ -290,8 +286,9 @@ pub(crate) fn do_layout_for_display_list<T>(
             wr_translate_image_descriptor,
         },
         app_resources::{
-            RawImageFormat, FontImageApi,
-            add_resources, garbage_collect_fonts_and_images,
+            RawImageFormat,
+            add_resources,
+            garbage_collect_fonts_and_images,
         },
         compositor::insert_into_active_gl_textures,
     };
@@ -327,14 +324,9 @@ pub(crate) fn do_layout_for_display_list<T>(
                 ui_state_from_dom,
                 scan_ui_state_for_iframe_callbacks,
                 scan_ui_state_for_gltexture_callbacks,
-            }
+            },
         };
         use crate::{
-            display_list::{
-                determine_rendering_order,
-                display_list_from_ui_description,
-                get_nodes_that_need_scroll_clip,
-            },
             ui_solver::do_the_layout,
             wr_translate::hidpi_rect_from_bounds,
             app_resources::add_fonts_and_images,

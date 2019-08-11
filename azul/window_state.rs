@@ -1,15 +1,7 @@
 use std::{
     collections::{HashSet, BTreeMap},
-    fmt,
 };
-use glutin::{
-    event::{
-        WindowEvent, KeyboardInput, ElementState,
-        MouseScrollDelta, ModifiersState,
-    },
-    dpi::LogicalPosition as WinitLogicalPosition,
-};
-use crate::{
+use azul_core::{
     dom::{EventFilter, NotEventFilter, HoverEventFilter, FocusEventFilter, WindowEventFilter},
     callbacks:: {CallbackInfo, Callback, CallbackType, HitTestItem, DefaultCallbackId, UpdateScreen},
     id_tree::NodeId,
