@@ -349,12 +349,12 @@ pub(crate) fn do_layout_for_display_list<T>(
         let dom_id = ui_state.dom_id.clone();
 
         let rects_in_rendering_order = determine_rendering_order(
-            &ui_state.ui_descr_arena.node_hierarchy,
+            &ui_description.ui_descr_arena.node_hierarchy,
             &display_list.rectangles
         );
 
         // In order to calculate the layout, font + image metrics have to be calculated first
-        add_fonts_and_images(app_resources, render_api, &pipeline_id, &display_list);
+        add_fonts_and_images(app_resources, render_api, &pipeline_id, &display_list, &ui_description.ui_descr_arena.node_data);
 
         let layout_result = do_the_layout(
             &display_list.ui_descr.ui_descr_arena.node_layout,
@@ -366,9 +366,9 @@ pub(crate) fn do_layout_for_display_list<T>(
         );
 
         let scrollable_nodes = get_nodes_that_need_scroll_clip(
-            &ui_state.ui_descr_arena.node_hierarchy,
+            &ui_description.ui_descr_arena.node_hierarchy,
             &display_list.rectangles,
-            &ui_state.ui_descr_arena.node_data,
+            &ui_description.ui_descr_arena.node_data,
             &layout_result.rects,
             &layout_result.node_depths,
             *pipeline_id,
@@ -533,25 +533,60 @@ pub(crate) fn do_layout_for_display_list<T>(
         solved_textures: BTreeMap::new(),
     };
 
-    /*
-    for (_dom_id, image_resource_updates) in display_list.image_resource_updates {
-        add_resources(app_resources, &mut fake_display.render_api, &window.internal.pipeline_id, Vec::new(), image_resource_updates);
-    }
-    */
-
+    let mut image_resource_updates = BTreeMap::new()
     for (dom_id, textures) in solved_textures {
         for (node_id, texture) in textures {
-            //     let mut image_resource_updates = BTreeMap::new();
 
-            //     (ImageKey, ImageDescriptor, ExternalImageId)
-            //     let new_image_id = fake_display.render_api.new_image_id();
-            //     texture_cache.solved_textures.insert();
-            //     add_resources(app_resources, &mut fake_display.render_api, &pipeline_id, Vec::new(), image_resource_updates);
+        const TEXTURE_IS_OPAQUE: bool = false;
+        // The texture gets mapped 1:1 onto the display, so there is no need for mipmaps
+        const TEXTURE_ALLOW_MIPMAPS: bool = false;
+
+        // Note: The ImageDescriptor has no effect on how large the image appears on-screen
+        let descriptor = ImageDescriptor {
+            format: RawImageFormat::RGBA8,
+            dimensions: (texture.size.width as usize, texture.size.height as usize),
+            stride: None,
+            offset: 0,
+            is_opaque: TEXTURE_IS_OPAQUE,
+            allow_mipmaps: TEXTURE_ALLOW_MIPMAPS,
+        };
+
+        let texture_width = texture.size.width;
+        let texture_height = texture.size.height;
+
+        let key = fake_display.render_api.new_image_key();
+        let external_image_id = insert_into_active_gl_textures(pipeline_id, rectangle.epoch, texture);
+
+        let add_img_msg = AddImageMsg(
+            AddImage {
+                key: wr_translate_image_key(key),
+                descriptor: wr_translate_image_descriptor(descriptor),
+                data: ImageData::External(ExternalImageData {
+                    id: external_image_id,
+                    channel_index: 0,
+                    image_type: ExternalImageType::TextureHandle(TextureTarget::Default),
+                }),
+                tiling: None,
+            },
+            ImageInfo { key, descriptor }
+        );
+
+        image_resource_updates
+            .entry(dom_id)
+            .or_insert_with(|| Vec::new())
+            .push((ImageId::new(), add_img_msg));
+
+        gl_texture_cache.solved_textures
+            .entry(dom_id)
+            .or_insert_with(|| BTreeMap::new())
+            .insert(node_id, (key, descriptor, external_image_id)));
         }
     }
 
     // Delete unused font and image keys (that were not used in this display list)
     garbage_collect_fonts_and_images(app_resources, &mut fake_display.render_api, &pipeline_id);
+    // Add the new GL textures to the RenderApi
+    add_resources(app_resources, &mut fake_display.render_api, &pipeline_id, Vec::new(), image_resource_updates)
 
     fake_display.hidden_context.make_not_current();
 
@@ -735,7 +770,6 @@ pub(crate) fn display_list_from_ui_description<T>(ui_description: &UiDescription
 
 pub(crate) fn push_rectangles_into_displaylist<'a, T>(
     epoch: Epoch,
-    window_size: WindowSize,
     root_content_group: ContentGroup,
     referenced_content: &DisplayListParametersRef<'a, T>,
 ) -> DisplayListMsg {
@@ -756,7 +790,6 @@ pub(crate) fn push_rectangles_into_displaylist<'a, T>(
     let children = root_content_group.children.into_iter().map(|child_content_group| {
         push_rectangles_into_displaylist(
             epoch,
-            window_size,
             child_content_group,
             referenced_content,
         )
@@ -881,16 +914,31 @@ fn displaylist_handle_rect<'a,'b, T, U: FontImageApi>(
                 });
             }
         },
-        GlTexture(callback) => {
-            // let
-            frame.content.push(
-
-
-                call_opengl_callback(callback, bounds, dom_id.clone(), rectangle, *pipeline_id, referenced_mutable_content));
+        GlTexture(_) => {
+            if let Some((key, descriptor, _)) = referenced_content.solved_textures.get(&(dom_id.clone(), *rect_idx)) {
+                frame.content.push(LayoutRectContent::Image {
+                    size: LayoutSize::new(descriptor.size.width, descriptor.size.height),
+                    offset: LayoutPoint::new(0.0, 0.0),
+                    image_rendering: ImageRendering::Auto,
+                    alpha_type: AlphaType::Alpha,
+                    image_key: key,
+                    background_color: ColorU::WHITE,
+                })
+            }
         },
-        IFrame(callback) => {
-            let parent = Some((dom_id.clone(), *rect_idx));
-            frame.children.push(call_iframe_callback(callback, bounds, rectangle, referenced_content, referenced_mutable_content, parent));
+        IFrame(_) => {
+            if let Some(iframe_dom_id) = referenced_content.iframe_mappings.get(&(dom_id.clone(), *rect_idx)) {
+                frame.children.push(push_rectangles_into_displaylist(
+                    rectangle.epoch,
+                    rects_in_rendering_order.root,
+                    &DisplayListParametersRef {
+                        // Important: Need to update the DOM ID,
+                        // otherwise this function would be endlessly recurse
+                        dom_id: iframe_dom_id,
+                        .. *referenced_content
+                    }
+                ));
+            }
         },
     };
 
@@ -938,139 +986,6 @@ fn displaylist_handle_rect<'a,'b, T, U: FontImageApi>(
         }),
         None => DisplayListMsg::Frame(frame),
     }
-}
-
-#[inline]
-fn call_opengl_callback<'a,'b,'c,'d,'e,'f, T, U: FontImageApi>(
-    (texture_callback, texture_stack_ptr): &(GlCallback<T>, StackCheckedPointer<T>),
-    bounds: LayoutRect,
-    dom_id: DomId,
-    rectangle: &LayoutRectParams<'a, T>,
-    pipeline_id: PipelineId,
-    referenced_mutable_content: &mut DisplayListParametersMut<'f, T, U>,
-) -> LayoutRectContent {
-
-    use gleam::gl;
-    use crate::{
-        compositor::insert_into_active_gl_textures,
-        wr_translate::{hidpi_rect_from_bounds, wr_translate_image_key, wr_translate_image_descriptor},
-        app_resources::ImageInfo,
-    };
-    use azul_core::{
-        callbacks::GlCallbackInfoUnchecked,
-        display_list::RectBackground,
-        app_resources::{ImageDescriptor, RawImageFormat}
-    };
-
-    let texture = match texture {
-        Some(s) => s,
-        None => return LayoutRectContent::Background {
-            content: RectBackground::Color(ColorU::TRANSPARENT),
-            size: None,
-            offset: None,
-            repeat: None,
-        },
-    };
-
-    let opaque = false;
-    // The texture gets mapped 1:1 onto the display, so there is no need for mipmaps
-    let allow_mipmaps = false;
-
-    let texture_width = texture.size.width;
-    let texture_height = texture.size.height;
-
-    // Note: The ImageDescriptor has no effect on how large the image appears on-screen
-    let descriptor = ImageDescriptor {
-        format: RawImageFormat::RGBA8,
-        dimensions: (texture.size.width as usize, texture.size.height as usize),
-        stride: None,
-        offset: 0,
-        is_opaque: opaque,
-        allow_mipmaps,
-    };
-    let key = referenced_mutable_content.render_api.new_image_key();
-    let external_image_id = insert_into_active_gl_textures(pipeline_id, rectangle.epoch, texture);
-
-    let add_img_msg = AddImageMsg(
-        AddImage {
-            key: wr_translate_image_key(key),
-            descriptor: wr_translate_image_descriptor(descriptor),
-            data: ImageData::External(ExternalImageData {
-                id: external_image_id,
-                channel_index: 0,
-                image_type: ExternalImageType::TextureHandle(TextureTarget::Default),
-            }),
-            tiling: None,
-        },
-        ImageInfo { key, descriptor }
-    );
-
-    referenced_mutable_content.image_resource_updates
-        .entry(dom_id)
-        .or_insert_with(|| Vec::new())
-        .push((ImageId::new(), add_img_msg));
-
-    LayoutRectContent::Image {
-        size: LayoutSize::new(texture_width, texture_height),
-        offset: LayoutPoint::new(0.0, 0.0),
-        image_rendering: ImageRendering::Auto,
-        alpha_type: AlphaType::Alpha,
-        image_key: key,
-        background_color: ColorU::WHITE,
-    }
-}
-
-#[inline]
-fn call_iframe_callback<'a, T>(
-    (iframe_callback, iframe_pointer): &(IFrameCallback<T>, StackCheckedPointer<T>),
-    rect: LayoutRect,
-    rectangle: &LayoutRectParams<'a, T>,
-    referenced_content: &DisplayListParametersRef<'a, T>,
-    referenced_mutable_content: &mut DisplayListParametersMut<'a>,
-    parent_dom_id: Option<(DomId, NodeId)>,
-) -> DisplayListMsg {
-
-    use crate::{
-        app_resources,
-        ui_state::ui_state_from_dom,
-        callbacks::IFrameCallbackInfoUnchecked,
-        wr_translate::hidpi_rect_from_bounds,
-    };
-
-    let arena = &ui_description.ui_descr_arena;
-    let node_hierarchy = &arena.node_layout;
-    let node_data = &arena.node_data;
-
-    // Insert the DOM into the solver so we can solve the layout of the rectangles
-    let layout_result_iframe = do_the_layout(
-        &node_hierarchy,
-        &node_data,
-        &display_list.rectangles,
-        &*referenced_mutable_content.app_resources,
-        &referenced_content.pipeline_id,
-        rect,
-    );
-
-    referenced_mutable_content.scrollable_nodes.insert(iframe_dom_id.clone(), scrollable_nodes_iframe);
-    referenced_mutable_content.layout_result.insert(iframe_dom_id.clone(), layout_result_iframe);
-
-    let referenced_content = DisplayListParametersRef {
-        // Important: Need to update the ui description,
-        // otherwise this function would be endlessly recurse
-        node_hierarchy,
-        node_data,
-        display_rectangle_arena: &display_list.rectangles,
-        dom_id: iframe_dom_id,
-        .. *referenced_content
-    };
-
-    push_rectangles_into_displaylist(
-        rectangle.epoch,
-        rectangle.window_size,
-        rects_in_rendering_order,
-        &referenced_content,
-        referenced_mutable_content
-    )
 }
 
 fn get_text(
@@ -1156,7 +1071,7 @@ fn populate_css_properties(
     .values()
     .filter_map(|constraint| match constraint {
         Static(static_property) => {
-            apply_style_property(rect_style, rect_layout, static_property);
+            apply_style_property(rect_style, rect_layout, &static_property);
             None
         },
         Dynamic(dynamic_property) => {
