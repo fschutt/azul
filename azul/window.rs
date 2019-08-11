@@ -24,13 +24,14 @@ use crate::{
     compositor::Compositor,
     callbacks::{PipelineId, ScrollPosition},
     dom::{NodeId, DomId},
+    display_list::{SolvedLayoutCache, GlTextureCache, ContentGroup, DisplayList},
 };
 use azul_core::{
     ui_state::UiState,
     display_list::CachedDisplayList,
     ui_solver::{ScrolledNodes, ExternalScrollId, LayoutResult, OverflowingScrollNode},
     window::{AzulUpdateEvent, WindowId},
-    app_resources::AppResources,
+    app_resources::{AppResources, ImageKey, ImageDescriptor},
 };
 pub use webrender::api::HitTestItem;
 pub use glutin::monitor::MonitorHandle;
@@ -342,22 +343,27 @@ impl Default for ScrollState {
 }
 
 pub(crate) struct WindowInternal {
+    /// A "document" in WebRender usually corresponds to one tab (i.e. in Azuls case, the whole window).
+    pub(crate) document_id: DocumentId,
+    /// One "document" (tab) can have multiple "pipelines" (important for hit-testing).
+    ///
+    /// A document can have multiple pipelines, for example in Firefox the tab / navigation bar,
+    /// the actual browser window and the inspector are seperate pipelines, but contained in one document.
+    /// In Azul, one pipeline = one document (this could be improved later on).
+    pub(crate) pipeline_id: PipelineId,
+    /// The "epoch" is a frame counter, to remove outdated images, fonts and OpenGL textures
+    /// when they're not in use anymore.
+    pub(crate) epoch: Epoch,
     /// Current display list active in this window (useful for debugging)
     pub(crate) cached_display_list: CachedDisplayList,
     /// Currently active, layouted rectangles
-    pub(crate) layout_result: BTreeMap<DomId, LayoutResult>,
+    pub(crate) layout_result: SolvedLayoutCache,
+    /// Currently GL textures inside the active CachedDisplayList
+    pub(crate) gl_texture_cache: GlTextureCache,
     /// Current scroll states of nodes (x and y position of where they are scrolled)
     pub(crate) scrolled_nodes: BTreeMap<DomId, ScrolledNodes>,
-    pub(crate) display_lists: BTreeMap<DomId, DisplayList>,
-    pub(crate) gl_texture_cache: BTreeMap<DomId, BTreeMap<NodeId, (ImageKey, ImageDescriptor, ExternalImageId)>>,
-    pub(crate) iframe_mappings: BTreeMap<(DomId, NodeId), DomId>,
-    pub(crate) scrollable_nodes: BTreeMap<DomId, ScrolledNodes>,
-    pub(crate) rects_in_rendering_order: BTreeMap<DomId, ContentGroup>,
     /// States of scrolling animations, updated every frame
     pub(crate) scroll_states: ScrollStates,
-    pub(crate) epoch: Epoch,
-    pub(crate) pipeline_id: PipelineId,
-    pub(crate) document_id: DocumentId,
 }
 
 impl WindowInternal {
@@ -368,7 +374,7 @@ impl WindowInternal {
     {
         self.scrolled_nodes.iter().filter_map(|(dom_id, scrolled_nodes)| {
 
-            let layout_result = self.layout_result.get(dom_id)?;
+            let layout_result = self.layout_result.solved_layouts.get(dom_id)?;
             let ui_state = &ui_states.get(dom_id)?;
 
             let scroll_positions = scrolled_nodes.overflowing_nodes.iter().filter_map(|(node_id, overflowing_node)| {
@@ -462,7 +468,8 @@ impl<T> Window<T> {
                 document_id,
                 scrolled_nodes: BTreeMap::new(),
                 scroll_states: ScrollStates::new(),
-                layout_result: BTreeMap::new(),
+                layout_result: SolvedLayoutCache::default(),
+                gl_texture_cache: GlTextureCache::default(),
                 cached_display_list: CachedDisplayList::empty(display_list_dimensions),
             },
             marker: options.marker,
