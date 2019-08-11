@@ -24,14 +24,14 @@ use crate::{
     compositor::Compositor,
     callbacks::{PipelineId, ScrollPosition},
     dom::{NodeId, DomId},
-    display_list::{SolvedLayoutCache, GlTextureCache, ContentGroup, DisplayList},
+    display_list::{SolvedLayoutCache, GlTextureCache},
 };
 use azul_core::{
     ui_state::UiState,
     display_list::CachedDisplayList,
-    ui_solver::{ScrolledNodes, ExternalScrollId, LayoutResult, OverflowingScrollNode},
+    ui_solver::{ScrolledNodes, ExternalScrollId, OverflowingScrollNode},
     window::{AzulUpdateEvent, WindowId},
-    app_resources::{AppResources, ImageKey, ImageDescriptor},
+    app_resources::AppResources,
 };
 pub use webrender::api::HitTestItem;
 pub use glutin::monitor::MonitorHandle;
