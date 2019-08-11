@@ -128,14 +128,15 @@ impl FontImageApi for FakeRenderApi {
 
 /// Scans the DisplayList for new images and fonts. After this call, the RenderApi is
 /// guaranteed to know about all FontKeys and FontInstanceKey
-pub(crate) fn add_fonts_and_images<U: FontImageApi>(
+pub(crate) fn add_fonts_and_images<T, U: FontImageApi>(
     app_resources: &mut AppResources,
     render_api: &mut U,
     pipeline_id: &PipelineId,
     display_list: &DisplayList,
+    node_data: &NodeDataContainer<NodeData<T>>,
 ) {
-    let font_keys = scan_ui_description_for_font_keys(&app_resources, display_list);
-    let image_keys = scan_ui_description_for_image_keys(&app_resources, display_list);
+    let font_keys = scan_ui_description_for_font_keys(&app_resources, display_list, node_data);
+    let image_keys = scan_ui_description_for_image_keys(&app_resources, display_list, node_data);
 
     app_resources.last_frame_font_keys.get_mut(pipeline_id).unwrap().extend(font_keys.clone().into_iter());
     app_resources.last_frame_image_keys.get_mut(pipeline_id).unwrap().extend(image_keys.clone().into_iter());
@@ -223,9 +224,10 @@ pub fn font_source_get_bytes(font_source: &FontSource) -> Result<(Vec<u8>, i32),
 }
 
 /// Scans the display list for all font IDs + their font size
-fn scan_ui_description_for_font_keys(
+fn scan_ui_description_for_font_keys<T>(
     app_resources: &AppResources,
     display_list: &DisplayList,
+    node_data: &NodeDataContainer<NodeData<T>>,
 ) -> FastHashMap<ImmediateFontId, FastHashSet<Au>> {
 
     use crate::dom::NodeType::*;
@@ -235,8 +237,8 @@ fn scan_ui_description_for_font_keys(
 
     for node_id in display_list.rectangles.linear_iter() {
 
-        let node_data = &display_list.ui_descr.ui_descr_arena.node_data[node_id];
         let display_rect = &display_list.rectangles[node_id];
+        let node_data = &node_data[node_id];
 
         match node_data.get_node_type() {
             Text(_) | Label(_) => {
@@ -259,19 +261,20 @@ fn scan_ui_description_for_font_keys(
 }
 
 /// Scans the display list for all image keys
-fn scan_ui_description_for_image_keys(
+fn scan_ui_description_for_image_keys<T>(
     app_resources: &AppResources,
     display_list: &DisplayList,
+    node_data: &NodeDataContainer<NodeData<T>>,
 ) -> FastHashSet<ImageId> {
 
     use crate::dom::NodeType::*;
 
     display_list.rectangles
     .iter()
-    .zip(display_list.ui_descr.ui_descr_arena.node_data.iter())
+    .zip(node_data.iter())
     .filter_map(|(display_rect, node_data)| {
         match node_data.get_node_type() {
-            Image(id) => Some(*id),
+            Image(id) => Some(id),
             _ => {
                 let background = display_rect.style.background.as_ref().and_then(|bg| bg.get_property())?;
                 let css_image_id = background.get_css_image_id()?;
