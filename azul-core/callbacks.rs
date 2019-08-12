@@ -399,7 +399,7 @@ macro_rules! impl_callback_info_api {() => (
     pub fn set_focus_from_css<'c>(&mut self, input: &'c str) -> Result<(), CssPathParseError<'c>> {
         use azul_css_parser::parse_css_path;
         let path = parse_css_path(input)?;
-        *self.focus_target = Some(FocusTarget::Path(path));
+        *self.focus_target = Some(FocusTarget::Path((self.hit_dom_node.0.clone(), path)));
         Ok(())
     }
 
@@ -414,7 +414,7 @@ macro_rules! impl_callback_info_api {() => (
 
     /// Sets the focus_target by using an already-parsed `CssPath`.
     pub fn set_focus_from_path(&mut self, path: CssPath) {
-        *self.focus_target = Some(FocusTarget::Path(path))
+        *self.focus_target = Some(FocusTarget::Path((self.hit_dom_node.0.clone(), path)))
     }
 
     /// Set the focus_target of the window to a specific div using a `NodeId`.
@@ -844,7 +844,7 @@ impl HidpiAdjustedBounds {
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub enum FocusTarget {
     Id((DomId, NodeId)),
-    Path(CssPath),
+    Path((DomId, CssPath)),
     NoFocus,
 }
 

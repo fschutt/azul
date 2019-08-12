@@ -72,7 +72,6 @@ pub(crate) mod winit_translate {
         window::{
             LogicalSize, PhysicalSize, LogicalPosition, PhysicalPosition,
             WindowIcon, TaskBarIcon, MouseCursorType, VirtualKeyCode,
-            XWindowType,
         },
     };
     use glutin::{
@@ -95,7 +94,7 @@ pub(crate) mod winit_translate {
         XWindowType as WinitXWindowType,
     };
     #[cfg(target_os = "linux")]
-    use azul_core::window::WaylandTheme;
+    use azul_core::window::{WaylandTheme, XWindowType};
 
     #[inline(always)]
     pub(crate) fn translate_logical_position(input: LogicalPosition) -> WinitLogicalPosition {

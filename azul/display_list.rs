@@ -448,8 +448,7 @@ pub(crate) fn do_layout_for_display_list<T>(
                 let iframe_ui_description = UiDescription::<T>::match_css_to_dom(
                     &mut iframe_ui_state,
                     &full_window_state.css,
-                    &mut full_window_state.focus_target,
-                    &mut full_window_state.pending_focus_target,
+                    &full_window_state.focused_node,
                     &hovered_nodes,
                     is_mouse_down,
                 );
