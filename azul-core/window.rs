@@ -9,7 +9,7 @@ use std::{
 #[cfg(not(test))]
 #[cfg(debug_assertions)]
 use std::time::Duration;
-use azul_css::Css;
+use azul_css::{Css, CssPath};
 #[cfg(debug_assertions)]
 #[cfg(not(test))]
 use azul_css::HotReloadHandler;
@@ -316,8 +316,6 @@ pub struct FullWindowState {
     /// Currently hovered nodes, default to an empty Vec. Important for
     /// styling `:hover` elements.
     pub hovered_nodes: BTreeMap<DomId, BTreeMap<NodeId, HitTestItem>>,
-    /// Whether there is a focus field overwrite from the last callback calls.
-    pub pending_focus_target: Option<FocusTarget>,
 }
 
 impl Default for FullWindowState {
@@ -341,7 +339,6 @@ impl Default for FullWindowState {
             dropped_file: None,
             focused_node: None,
             hovered_nodes: BTreeMap::default(),
-            pending_focus_target: None,
         }
     }
 }
@@ -480,11 +477,6 @@ pub struct WindowsWindowOptions {
     /// STARTUP ONLY: Pointer (casted to void pointer) to a HWND handle
     pub parent_window: Option<*mut c_void>,
 }
-
-use std::slice;
-use std::sync::Arc;
-
-use super::*;
 
 #[derive(Debug)]
 pub enum StateOperation {
@@ -923,6 +915,24 @@ impl<T> fmt::Debug for AzulUpdateEvent<T> {
             UpdateScrollStates { window_id } => write!(f, "UpdateScrollStates {{ window_id: {:?} }}", window_id),
             UpdateAnimations { window_id } => write!(f, "UpdateAnimations {{ window_id: {:?} }}", window_id),
             UpdateImages { window_id } => write!(f, "UpdateImages {{ window_id: {:?} }}", window_id),
+        }
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, PartialOrd, Ord, Eq, Hash)]
+pub enum UpdateFocusWarning {
+    FocusInvalidDomId(DomId),
+    FocusInvalidNodeId(NodeId),
+    CouldNotFindFocusNode(CssPath),
+}
+
+impl ::std::fmt::Display for UpdateFocusWarning {
+    fn fmt(&self, f: &mut ::std::fmt::Formatter) -> ::std::fmt::Result {
+        use self::UpdateFocusWarning::*;
+        match self {
+            FocusInvalidDomId(dom_id) => write!(f, "Focusing on DOM with invalid ID: {:?}", dom_id),
+            FocusInvalidNodeId(node_id) => write!(f, "Focusing on node with invalid ID: {}", node_id),
+            CouldNotFindFocusNode(css_path) => write!(f, "Could not find focus node for path: {}", css_path),
         }
     }
 }

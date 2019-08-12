@@ -1056,8 +1056,7 @@ fn cascade_style<T>(
         (dom_id.clone(), UiDescription::match_css_to_dom(
             &mut ui_state,
             &full_window_state.css,
-            &mut full_window_state.focused_node,
-            &mut full_window_state.pending_focus_target,
+            &full_window_state.focused_node,
             &full_window_state.hovered_nodes.entry(dom_id.clone()).or_insert_with(|| BTreeMap::default()),
             full_window_state.mouse_state.mouse_down(),
         ))
@@ -1242,7 +1241,10 @@ fn call_callbacks<T>(
     }
 
     // Update the FullWindowState that we got from the frame event (updates window dimensions and DPI)
-    full_window_state.pending_focus_target = ret.new_focus_target.clone();
+    // TODO: Emit proper On::FocusReceived / On::FocusLost events!
+    full_window_state.focused_node = ret.new_focus_target.clone();
+
+    let new_focus_node = ret.new_focus_target.and_then(|ft| resolve_focus_target(ft, &ui_states).ok());
 
     // Update the window state every frame that was set by the user
     window::synchronize_window_state_with_os_window(
@@ -1255,6 +1257,29 @@ fn call_callbacks<T>(
     window::clear_scroll_state(full_window_state);
 
     ret
+}
+
+fn resolve_focus_target(target: FocusTarget, ui_states: &BTreeMap<DomId, UiState<T>>)
+-> Result<Option<(DomId, NodeId)>, UpdateFocusWarning>
+{
+    match target {
+        Id((dom_id, node_id)) => {
+            let ui_state = ui_states.get(dom_id).ok_or(UpdateFocusWarning::FocusInvalidDomId(dom_id))?;
+            let html_node_tree = &ui_state.html_node_tree;
+            let dom_id = html_node_tree.get(node_id).ok_or(UpdateFocusWarning::FocusInvalidNodeId(node_id))?;
+            Ok(Some((dom_id, node_id)));
+        },
+        NoFocus => Ok(None),
+        Path((dom_id, css_path)) => {
+            let ui_state = ui_states.get(dom_id).ok_or(UpdateFocusWarning::FocusInvalidDomId(dom_id))?;
+            let html_node_tree = &ui_state.html_node_tree;
+            let resolved_node_id = html_node_tree
+                .linear_iter()
+                .find(|node_id| matches_html_element(&css_path, *node_id, &node_hierarchy, &html_node_tree))
+                .ok_or(UpdateFocusWarning::CouldNotFindFocusNode(css_path))?;
+            Ok(Some(dom_id, resolved_node_id))
+        },
+    }
 }
 
 // Build the cached display list

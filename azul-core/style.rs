@@ -98,8 +98,7 @@ pub fn matches_html_element<'a, T>(
 pub fn match_dom_selectors<T>(
     ui_state: &UiState<T>,
     css: &Css,
-    focused_node: &mut Option<(DomId, NodeId)>,
-    pending_focus_target: &mut Option<FocusTarget>,
+    focused_node: &Option<(DomId, NodeId)>,
     hovered_nodes: &BTreeMap<NodeId, HitTestItem>,
     is_mouse_down: bool,
 ) -> UiDescription<T> {
@@ -108,7 +107,7 @@ pub fn match_dom_selectors<T>(
 
     let non_leaf_nodes = ui_state.dom.arena.node_layout.get_parents_sorted_by_depth();
 
-    let mut html_tree = construct_html_cascade_tree(
+    let html_tree = construct_html_cascade_tree(
         &ui_state.dom.arena.node_data,
         &ui_state.dom.arena.node_layout,
         &non_leaf_nodes,
@@ -117,16 +116,6 @@ pub fn match_dom_selectors<T>(
         }),
         hovered_nodes,
         is_mouse_down,
-    );
-
-    // Update the current focused field if the callbacks of the
-    // previous frame has overridden the focus field
-    update_focus_from_callbacks(
-        &ui_state.dom_id,
-        pending_focus_target,
-        focused_node,
-        &ui_state.dom.arena.node_layout,
-        &mut html_tree,
     );
 
     // First, apply all rules normally (no inheritance) of CSS values
@@ -422,76 +411,6 @@ pub fn selector_group_matches<'a, T>(selectors: &[&CssPathSelector], html_node: 
     }
 
     true
-}
-
-#[derive(Debug, Clone, PartialEq, PartialOrd, Ord, Eq, Hash)]
-pub enum UpdateFocusWarning {
-    FocusInvalidNodeId(NodeId),
-    CouldNotFindFocusNode(CssPath),
-}
-
-impl ::std::fmt::Display for UpdateFocusWarning {
-    fn fmt(&self, f: &mut ::std::fmt::Formatter) -> ::std::fmt::Result {
-        use self::UpdateFocusWarning::*;
-        match self {
-            FocusInvalidNodeId(node_id) => write!(f, "Focusing on node with invalid ID: {}", node_id),
-            CouldNotFindFocusNode(css_path) => write!(f, "Could not find focus node for path: {}", css_path),
-        }
-    }
-}
-
-/// Update the WindowStates focus node in case the previous
-/// frames callbacks set the focus to a specific node
-///
-/// Takes the `WindowState.pending_focus_target` and `WindowState.focused_node`
-/// and updates the `WindowState.focused_node` accordingly.
-/// Should be called before ``
-pub fn update_focus_from_callbacks<'a, T: 'a>(
-    self_dom_id: &DomId,
-    pending_focus_target: &mut Option<FocusTarget>,
-    focused_node: &mut Option<(DomId, NodeId)>,
-    node_hierarchy: &NodeHierarchy,
-    html_node_tree: &mut NodeDataContainer<HtmlCascadeInfo<'a, T>>,
-) -> Option<UpdateFocusWarning> {
-
-    // `pending_focus_target` is `None` in most cases, since usually the callbacks
-    // don't mess with the current focused item.
-    let new_focus_target = pending_focus_target.clone()?;
-
-    let mut warning = None;
-
-    match new_focus_target {
-        FocusTarget::Id((dom_id, node_id)) => {
-            if dom_id == *self_dom_id && html_node_tree.len() < node_id.index() {
-                *focused_node = Some((dom_id, node_id));
-            } else {
-                warning = Some(UpdateFocusWarning::FocusInvalidNodeId(node_id));
-            }
-        },
-        FocusTarget::NoFocus => { *focused_node = None; },
-        FocusTarget::Path(css_path) => {
-            if let Some(new_focused_node_id) = html_node_tree.linear_iter()
-            .find(|node_id| matches_html_element(&css_path, *node_id, &node_hierarchy, &html_node_tree)) {
-                 *focused_node = Some((self_dom_id.clone(), new_focused_node_id));
-            } else {
-                warning = Some(UpdateFocusWarning::CouldNotFindFocusNode(css_path));
-            }
-        },
-    }
-
-    // Set all items to None, no matter what - this takes care of clearing the current
-    // focused item, in case the `pending_focus_target` is set to `Some(FocusTarget::NoFocus)`.
-    for html_node in &mut html_node_tree.internal {
-        html_node.is_focused = false;
-    }
-
-    if let Some((_dom_id, focused_node)) = focused_node {
-        html_node_tree[*focused_node].is_focused = true;
-    }
-
-    *pending_focus_target = None;
-
-    warning
 }
 
 #[test]

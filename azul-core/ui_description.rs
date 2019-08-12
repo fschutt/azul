@@ -73,15 +73,13 @@ impl<T> Default for UiDescription<T> {
         let hovered_nodes = BTreeMap::new();
         let is_mouse_down = false;
 
-        let mut focused_node = None;
-        let mut focus_target = None;
+        let focused_node = None;
         let mut ui_state = ui_state_from_dom(default_dom, None);
 
         Self::match_css_to_dom(
             &mut ui_state,
             &Css::default(),
-            &mut focused_node,
-            &mut focus_target,
+            &focused_node,
             &hovered_nodes,
             is_mouse_down,
         )
@@ -95,8 +93,7 @@ impl<T> UiDescription<T> {
     pub fn match_css_to_dom(
         ui_state: &mut UiState<T>,
         style: &Css,
-        focused_node: &mut Option<(DomId, NodeId)>,
-        pending_focus_target: &mut Option<FocusTarget>,
+        focused_node: &Option<(DomId, NodeId)>,
         hovered_nodes: &BTreeMap<NodeId, HitTestItem>,
         is_mouse_down: bool,
     ) -> Self {
@@ -107,7 +104,6 @@ impl<T> UiDescription<T> {
             ui_state,
             &style,
             focused_node,
-            pending_focus_target,
             hovered_nodes,
             is_mouse_down,
         );
