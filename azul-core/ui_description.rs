@@ -9,11 +9,14 @@ use crate::{
     dom::{DomId, NodeData, DomString},
     ui_state::{UiState, HoverGroup},
     callbacks::{FocusTarget, HitTestItem},
+    style::HtmlCascadeInfo,
 };
 
 pub struct UiDescription<T> {
     /// DOM ID of this arena (so that multiple DOMs / IFrames can be displayed in one window)
     pub dom_id: DomId,
+    /// Data necessary for matching nodes properly (necessary to resolve CSS paths in callbacks)
+    pub html_tree: NodeDataContainer<HtmlCascadeInfo>,
     /// The DOM data (arena-allocated)
     pub ui_descr_arena: Arena<NodeData<T>>,
     /// ID of the root node of the arena (usually NodeId(0))
@@ -52,6 +55,7 @@ impl<T> Clone for UiDescription<T> {
     fn clone(&self) -> Self {
         Self {
             dom_id: self.dom_id.clone(),
+            html_tree: self.html_tree.clone(),
             ui_descr_arena: self.ui_descr_arena.clone(),
             ui_descr_root: self.ui_descr_root,
             styled_nodes: self.styled_nodes.clone(),

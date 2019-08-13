@@ -5,7 +5,7 @@ use std::{
 use gleam::gl::Gl;
 use webrender::api::{
     Epoch, ImageData, AddImage, ExternalImageData,
-    ExternalImageType, TextureTarget,
+    ExternalImageType, TextureTarget, RenderApi,
 };
 use azul_core::{
     callbacks::{PipelineId, DefaultCallbackIdMap},
@@ -37,7 +37,7 @@ use crate::{
         DomId, NodeData, ScrollTagId, DomString,
         NodeType::{Div, Text, Image, GlTexture, IFrame, Label},
     },
-    window::{Window, FakeDisplay},
+    window::{Window, HeadlessContextState},
     text_layout::LayoutedGlyphs,
 };
 
@@ -272,7 +272,9 @@ pub(crate) fn do_layout_for_display_list<T>(
     data: &mut T,
     app_resources: &mut AppResources,
     window: &mut Window<T>,
-    fake_display: &mut FakeDisplay<T>,
+    render_api: &mut RenderApi,
+    hidden_context: &mut HeadlessContextState,
+    gl_context: Rc<Gl>,
     ui_states: &mut BTreeMap<DomId, UiState<T>>,
     ui_descriptions: &mut BTreeMap<DomId, UiDescription<T>>,
     full_window_state: &mut FullWindowState,
@@ -405,7 +407,7 @@ pub(crate) fn do_layout_for_display_list<T>(
 
             if let Some(t) = texture {
                 solved_textures
-                    .entry(dom_id)
+                    .entry(dom_id.clone())
                     .or_insert_with(|| BTreeMap::default())
                     .insert(node_id, t);
             }
@@ -452,7 +454,7 @@ pub(crate) fn do_layout_for_display_list<T>(
                     &hovered_nodes,
                     is_mouse_down,
                 );
-                layout_cache.iframe_mappings.insert((dom_id, node_id), iframe_dom_id);
+                layout_cache.iframe_mappings.insert((dom_id.clone(), node_id), iframe_dom_id.clone());
                 recurse(
                     data,
                     layout_cache,
@@ -469,30 +471,29 @@ pub(crate) fn do_layout_for_display_list<T>(
                     bounds,
                     gl_context.clone(),
                 );
-                iframe_ui_states.insert(iframe_dom_id, iframe_ui_state);
-                iframe_ui_descriptions.insert(iframe_dom_id, iframe_ui_description);
+                iframe_ui_states.insert(iframe_dom_id.clone(), iframe_ui_state);
+                iframe_ui_descriptions.insert(iframe_dom_id.clone(), iframe_ui_description);
             }
         }
 
-        layout_cache.solved_layouts.insert(dom_id, layout_result);
-        layout_cache.display_lists.insert(dom_id, display_list);
-        layout_cache.rects_in_rendering_order.insert(dom_id, rects_in_rendering_order);
-        layout_cache.scrollable_nodes.insert(dom_id, scrollable_nodes);
+        layout_cache.solved_layouts.insert(dom_id.clone(), layout_result);
+        layout_cache.display_lists.insert(dom_id.clone(), display_list);
+        layout_cache.rects_in_rendering_order.insert(dom_id.clone(), rects_in_rendering_order);
+        layout_cache.scrollable_nodes.insert(dom_id.clone(), scrollable_nodes);
     }
 
     // Make sure unused scroll states are garbage collected.
     window.internal.scroll_states.remove_unused_scroll_states();
 
-    fake_display.hidden_context.make_not_current();
+    hidden_context.make_not_current();
     window.display.make_current();
 
-    for (dom_id, ui_state) in ui_states {
+    for (dom_id, ui_state) in ui_states.iter_mut() {
 
         let ui_description = &ui_descriptions[dom_id];
 
         DomId::reset();
 
-        let gl_context = fake_display.get_gl_context();
         recurse(
             data,
             &mut layout_cache,
@@ -501,7 +502,7 @@ pub(crate) fn do_layout_for_display_list<T>(
             &mut iframe_ui_descriptions,
             default_callbacks,
             app_resources,
-            &mut fake_display.render_api,
+            render_api,
             full_window_state,
             ui_state,
             ui_description,
@@ -510,12 +511,12 @@ pub(crate) fn do_layout_for_display_list<T>(
                 origin: LayoutPoint::new(0.0, 0.0),
                 size: translate_logical_size_to_css_layout_size(full_window_state.size.dimensions),
             },
-            gl_context,
+            gl_context.clone(),
         );
     }
 
     window.display.make_not_current();
-    fake_display.hidden_context.make_current();
+    hidden_context.make_current();
 
     ui_states.extend(iframe_ui_states.into_iter());
     ui_descriptions.extend(iframe_ui_descriptions.into_iter());
@@ -546,7 +547,7 @@ pub(crate) fn do_layout_for_display_list<T>(
         let texture_width = texture.size.width;
         let texture_height = texture.size.height;
 
-        let key = fake_display.render_api.new_image_key();
+        let key = render_api.new_image_key();
         let external_image_id = insert_into_active_gl_textures(pipeline_id, window.internal.epoch, texture);
 
         let add_img_msg = AddImageMsg(
@@ -566,18 +567,18 @@ pub(crate) fn do_layout_for_display_list<T>(
         image_resource_updates.push((ImageId::new(), add_img_msg));
 
         gl_texture_cache.solved_textures
-            .entry(dom_id)
+            .entry(dom_id.clone())
             .or_insert_with(|| BTreeMap::new())
             .insert(node_id, (key, descriptor));
         }
     }
 
     // Delete unused font and image keys (that were not used in this display list)
-    garbage_collect_fonts_and_images(app_resources, &mut fake_display.render_api, &pipeline_id);
+    garbage_collect_fonts_and_images(app_resources, render_api, &pipeline_id);
     // Add the new GL textures to the RenderApi
-    add_resources(app_resources, &mut fake_display.render_api, &pipeline_id, Vec::new(), image_resource_updates);
+    add_resources(app_resources, render_api, &pipeline_id, Vec::new(), image_resource_updates);
 
-    fake_display.hidden_context.make_not_current();
+    hidden_context.make_not_current();
 
     (layout_cache, gl_texture_cache)
 }
@@ -780,7 +781,7 @@ pub(crate) fn push_rectangles_into_displaylist<'a, T>(
 }
 
 /// Push a single rectangle into the display list builder
-fn displaylist_handle_rect<'a, T, U: FontImageApi>(
+fn displaylist_handle_rect<'a, T>(
     rect_idx: NodeId,
     referenced_content: &DisplayListParametersRef<'a, T>,
 ) -> DisplayListMsg {
@@ -796,9 +797,9 @@ fn displaylist_handle_rect<'a, T, U: FontImageApi>(
         full_window_state,
     } = referenced_content;
 
-    let rect = layout_result.display_lists[dom_id].rectangles[rect_idx];
-    let bounds = layout_result.solved_layouts[dom_id].rects[rect_idx].bounds;
-    let html_node = ui_state_cache[&dom_id].dom.arena.node_data[rect_idx].get_node_type();
+    let rect = &layout_result.display_lists[dom_id].rectangles[rect_idx];
+    let bounds = &layout_result.solved_layouts[dom_id].rects[rect_idx].bounds;
+    let html_node = &ui_state_cache[&dom_id].dom.arena.node_data[rect_idx].get_node_type();
 
     let display_list_rect_bounds = LayoutRect::new(
          LayoutPoint::new(bounds.origin.x, bounds.origin.y),

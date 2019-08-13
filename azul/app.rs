@@ -573,9 +573,11 @@ impl<T: 'static> App<T> {
 
                             if let Some(glutin_window_id) = glutin_id {
 
+                                let ui_state = &ui_state_cache[&glutin_window_id];
+                                let ui_description = &ui_description_cache[&glutin_window_id];
+
                                 let events = {
                                     let full_window_state = full_window_states.get_mut(&glutin_window_id).unwrap();
-                                    let ui_state = &ui_state_cache[&glutin_window_id];
                                     let window = &active_windows[&glutin_window_id];
                                     let hit_test_results = do_hit_test(window, &full_window_state, &render_api);
                                     determine_events(&hit_test_results, full_window_state, ui_state)
@@ -584,7 +586,6 @@ impl<T: 'static> App<T> {
                                 // TODO: Add all off-click callbacks for all non-hit windows here!
 
                                 if events.values().any(|e| e.should_call_callbacks()) {
-                                    let ui_state = &ui_state_cache[&glutin_window_id];
 
                                     // call callbacks
                                     let call_callbacks_results = active_windows.iter_mut().map(|(window_id, window)| {
@@ -593,6 +594,7 @@ impl<T: 'static> App<T> {
                                             &mut data,
                                             &events,
                                             ui_state,
+                                            ui_description,
                                             default_callbacks_cache.get_mut(window_id).unwrap(),
                                             &mut timers,
                                             &mut tasks,
@@ -612,8 +614,8 @@ impl<T: 'static> App<T> {
 
                                     // TODO: .any() or .all() ??
                                     let callbacks_update_screen = call_callbacks_results.iter().any(|cr| cr.callbacks_update_screen == Redraw);
-                                    let callbacks_set_new_focus_target = call_callbacks_results.iter().any(|cr| cr.new_focus_target.is_some());
-                                    let callbacks_hover_restyle = call_callbacks_results.iter().any(|cr| cr.needs_rerender_hover_active);
+                                    let callbacks_set_new_focus_target = call_callbacks_results.iter().any(|cr| cr.needs_restyle_focus_changed);
+                                    let callbacks_hover_restyle = call_callbacks_results.iter().any(|cr| cr.needs_restyle_hover_active);
                                     let callbacks_hover_relayout = call_callbacks_results.iter().any(|cr| cr.needs_relayout_hover_active);
                                     let nodes_were_scrolled_from_callbacks = call_callbacks_results.iter().any(|cr| cr.should_scroll_render);
 
@@ -700,7 +702,9 @@ impl<T: 'static> App<T> {
                                     &mut data,
                                     &mut resources,
                                     window,
-                                    &mut fake_display,
+                                    &mut render_api,
+                                    &mut hidden_context,
+                                    gl_context.clone(),
                                     ui_state_cache.get_mut(&glutin_window_id).unwrap(),
                                     ui_description_cache.get_mut(&glutin_window_id).unwrap(),
                                     full_window_state,
@@ -725,7 +729,7 @@ impl<T: 'static> App<T> {
 
                             if let Some(glutin_window_id) = glutin_id {
 
-                                let window = &active_windows[&glutin_window_id];
+                                let window = active_windows.get_mut(&glutin_window_id).unwrap();
                                 let full_window_state = &full_window_states[&glutin_window_id];
 
                                 let cached_display_list = build_cached_display_list(
@@ -760,7 +764,7 @@ impl<T: 'static> App<T> {
                                 send_display_list_to_webrender(
                                     window,
                                     full_window_state,
-                                    &mut fake_display,
+                                    &mut render_api,
                                     &mut resources,
                                 );
 
@@ -1108,6 +1112,7 @@ fn call_callbacks<T>(
     data: &mut T,
     callbacks_filter_list: &BTreeMap<DomId, CallbacksOfHitTest<T>>,
     ui_state_map: &BTreeMap<DomId, UiState<T>>,
+    ui_description_map: &BTreeMap<DomId, UiDescription<T>>,
     default_callbacks: &mut BTreeMap<DomId, DefaultCallbackIdMap<T>>,
     timers: &mut FastHashMap<TimerId, Timer<T>>,
     tasks: &mut Vec<Task<T>>,
@@ -1126,13 +1131,13 @@ fn call_callbacks<T>(
     use crate::window;
 
     let mut ret = CallCallbacksResult {
-        needs_rerender_hover_active: callbacks_filter_list.values().any(|v| v.needs_redraw_anyways),
+        needs_restyle_hover_active: callbacks_filter_list.values().any(|v| v.needs_redraw_anyways),
         needs_relayout_hover_active: callbacks_filter_list.values().any(|v| v.needs_relayout_anyways),
+        needs_restyle_focus_changed: false,
         should_scroll_render: false,
         callbacks_update_screen: DontRedraw,
-        new_focus_target: None,
     };
-
+    let mut new_focus_target = None;
     let mut nodes_scrolled_in_callbacks = BTreeMap::new();
     let mut modifiable_window_state = window::full_window_state_to_window_state(full_window_state);
 
@@ -1178,7 +1183,7 @@ fn call_callbacks<T>(
 
                 // Overwrite the focus from the callback info
                 if let Some(new_focus) = new_focus.clone() {
-                    ret.new_focus_target = Some(new_focus);
+                    new_focus_target = Some(new_focus);
                 }
             }
         }
@@ -1216,7 +1221,7 @@ fn call_callbacks<T>(
                 }
 
                 if let Some(new_focus) = new_focus {
-                    ret.new_focus_target = Some(new_focus);
+                    new_focus_target = Some(new_focus);
                 }
             }
         }
@@ -1240,11 +1245,17 @@ fn call_callbacks<T>(
         }
     }
 
-    // Update the FullWindowState that we got from the frame event (updates window dimensions and DPI)
-    // TODO: Emit proper On::FocusReceived / On::FocusLost events!
-    full_window_state.focused_node = ret.new_focus_target.clone();
+    use azul_core::ui_state::resolve_focus_target;
 
-    let new_focus_node = ret.new_focus_target.and_then(|ft| resolve_focus_target(ft, &ui_states).ok());
+    let new_focus_node = new_focus_target
+        .and_then(|ft| resolve_focus_target(ft, &ui_description_map, &ui_state_map).ok()?);
+    let focus_has_not_changed = full_window_state.focused_node == new_focus_node;
+    if !focus_has_not_changed {
+        // TODO: Emit proper On::FocusReceived / On::FocusLost events!
+    }
+
+    // Update the FullWindowState that we got from the frame event (updates window dimensions and DPI)
+    full_window_state.focused_node = new_focus_node;
 
     // Update the window state every frame that was set by the user
     window::synchronize_window_state_with_os_window(
@@ -1257,29 +1268,6 @@ fn call_callbacks<T>(
     window::clear_scroll_state(full_window_state);
 
     ret
-}
-
-fn resolve_focus_target(target: FocusTarget, ui_states: &BTreeMap<DomId, UiState<T>>)
--> Result<Option<(DomId, NodeId)>, UpdateFocusWarning>
-{
-    match target {
-        Id((dom_id, node_id)) => {
-            let ui_state = ui_states.get(dom_id).ok_or(UpdateFocusWarning::FocusInvalidDomId(dom_id))?;
-            let html_node_tree = &ui_state.html_node_tree;
-            let dom_id = html_node_tree.get(node_id).ok_or(UpdateFocusWarning::FocusInvalidNodeId(node_id))?;
-            Ok(Some((dom_id, node_id)));
-        },
-        NoFocus => Ok(None),
-        Path((dom_id, css_path)) => {
-            let ui_state = ui_states.get(dom_id).ok_or(UpdateFocusWarning::FocusInvalidDomId(dom_id))?;
-            let html_node_tree = &ui_state.html_node_tree;
-            let resolved_node_id = html_node_tree
-                .linear_iter()
-                .find(|node_id| matches_html_element(&css_path, *node_id, &node_hierarchy, &html_node_tree))
-                .ok_or(UpdateFocusWarning::CouldNotFindFocusNode(css_path))?;
-            Ok(Some(dom_id, resolved_node_id))
-        },
-    }
 }
 
 // Build the cached display list
@@ -1321,7 +1309,7 @@ fn build_cached_display_list<T>(
 fn send_display_list_to_webrender<T>(
     window: &mut Window<T>,
     full_window_state: &FullWindowState,
-    fake_display: &mut FakeDisplay<T>,
+    render_api: &mut RenderApi,
     app_resources: &mut AppResources,
 ) {
     use crate::wr_translate::{
@@ -1343,7 +1331,7 @@ fn send_display_list_to_webrender<T>(
         true,
     );
 
-    fake_display.render_api.send_transaction(window.internal.document_id, txn);
+    render_api.send_transaction(window.internal.document_id, txn);
 }
 
 /// Scroll all nodes in the ScrollStates to their correct position and insert
