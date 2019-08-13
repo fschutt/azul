@@ -13,9 +13,11 @@ use crate::{
     },
     callbacks::{
         LayoutInfo, Callback, LayoutCallback, DefaultCallbackId,
-        IFrameCallback, GlCallback,
+        IFrameCallback, GlCallback, FocusTarget,
     },
     stack_checked_pointer::StackCheckedPointer,
+    ui_description::UiDescription,
+    window::UpdateFocusWarning,
 };
 
 pub struct UiState<T> {
@@ -113,6 +115,38 @@ pub enum ActiveHover {
     Active,
     Hover,
 }
+
+pub fn resolve_focus_target<T>(
+    target: FocusTarget,
+    ui_descriptions: &BTreeMap<DomId, UiDescription<T>>,
+    ui_states: &BTreeMap<DomId, UiState<T>>,
+) -> Result<Option<(DomId, NodeId)>, UpdateFocusWarning> {
+
+    use crate::callbacks::FocusTarget::*;
+    use crate::style::matches_html_element;
+
+    match target {
+        Id((dom_id, node_id)) => {
+            let ui_state = ui_states.get(&dom_id).ok_or(UpdateFocusWarning::FocusInvalidDomId(dom_id.clone()))?;
+            let _ = ui_state.dom.arena.node_data.get(node_id).ok_or(UpdateFocusWarning::FocusInvalidNodeId(node_id))?;
+            Ok(Some((dom_id, node_id)))
+        },
+        NoFocus => Ok(None),
+        Path((dom_id, css_path)) => {
+            let ui_state = ui_states.get(&dom_id).ok_or(UpdateFocusWarning::FocusInvalidDomId(dom_id.clone()))?;
+            let ui_description = ui_descriptions.get(&dom_id).ok_or(UpdateFocusWarning::FocusInvalidDomId(dom_id.clone()))?;
+            let html_node_tree = &ui_description.html_tree;
+            let node_hierarchy = &ui_state.dom.arena.node_layout;
+            let node_data = &ui_state.dom.arena.node_data;
+            let resolved_node_id = html_node_tree
+                .linear_iter()
+                .find(|node_id| matches_html_element(&css_path, *node_id, &node_hierarchy, &node_data, &html_node_tree))
+                .ok_or(UpdateFocusWarning::CouldNotFindFocusNode(css_path))?;
+            Ok(Some((dom_id, resolved_node_id)))
+        },
+    }
+}
+
 
 #[allow(unused_imports, unused_variables)]
 pub fn ui_state_from_app_state<'a, T>(

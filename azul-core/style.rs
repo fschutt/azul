@@ -14,8 +14,8 @@ use crate::{
 };
 
 /// Has all the necessary information about the style CSS path
-pub struct HtmlCascadeInfo<'a, T: 'a> {
-    pub node_data: &'a NodeData<T>,
+#[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
+pub struct HtmlCascadeInfo {
     pub index_in_parent: usize,
     pub is_last_child: bool,
     pub is_hovered_over: bool,
@@ -23,34 +23,15 @@ pub struct HtmlCascadeInfo<'a, T: 'a> {
     pub is_active: bool,
 }
 
-impl<'a, T: 'a> fmt::Debug for HtmlCascadeInfo<'a, T> {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        write!(f, "HtmlCascadeInfo {{ \
-            node_data: {:?}, \
-            index_in_parent: {}, \
-            is_last_child: {:?}, \
-            is_hovered_over: {:?}, \
-            is_focused: {:?}, \
-            is_active: {:?}, \
-         }}",
-            self.node_data,
-            self.index_in_parent,
-            self.is_last_child,
-            self.is_hovered_over,
-            self.is_focused,
-            self.is_active,
-         )
-    }
-}
-
 /// Returns if the style CSS path matches the DOM node (i.e. if the DOM node should be styled by that element)
-pub fn matches_html_element<'a, T>(
+pub fn matches_html_element<T>(
     css_path: &CssPath,
     node_id: NodeId,
     node_hierarchy: &NodeHierarchy,
-    html_node_tree: &NodeDataContainer<HtmlCascadeInfo<'a, T>>)
--> bool
-{
+    node_data: &NodeDataContainer<NodeData<T>>,
+    html_node_tree: &NodeDataContainer<HtmlCascadeInfo>,
+) -> bool {
+
     use self::CssGroupSplitReason::*;
 
     if css_path.selectors.is_empty() {
@@ -71,7 +52,7 @@ pub fn matches_html_element<'a, T>(
                 return *content_group == [&CssPathSelector::Global];
             },
         };
-        let current_selector_matches = selector_group_matches(&content_group, &html_node_tree[cur_node_id]);
+        let current_selector_matches = selector_group_matches(&content_group, &html_node_tree[cur_node_id], &node_data[cur_node_id]);
 
         if direct_parent_has_to_match && !current_selector_matches {
             // If the element was a ">" element and the current,
@@ -108,7 +89,6 @@ pub fn match_dom_selectors<T>(
     let non_leaf_nodes = ui_state.dom.arena.node_layout.get_parents_sorted_by_depth();
 
     let html_tree = construct_html_cascade_tree(
-        &ui_state.dom.arena.node_data,
         &ui_state.dom.arena.node_layout,
         &non_leaf_nodes,
         focused_node.as_ref().and_then(|(dom_id, node_id)| {
@@ -123,7 +103,7 @@ pub fn match_dom_selectors<T>(
     let mut styled_nodes = ui_state.dom.arena.node_data.transform(|_, node_id| StyledNode {
         css_constraints: css
             .rules()
-            .filter(|rule| matches_html_element(&rule.path, node_id, &ui_state.dom.arena.node_layout, &html_tree))
+            .filter(|rule| matches_html_element(&rule.path, node_id, &ui_state.dom.arena.node_layout, &ui_state.dom.arena.node_data, &html_tree))
             .flat_map(|matched_rule| matched_rule.declarations.iter().map(|declaration| (declaration.get_type(), declaration.clone())))
             .collect(),
     });
@@ -151,6 +131,7 @@ pub fn match_dom_selectors<T>(
     let selected_hover_nodes = match_hover_selectors(
         collect_hover_groups(css),
         &ui_state.dom.arena.node_layout,
+        &ui_state.dom.arena.node_data,
         &html_tree,
     );
 
@@ -166,6 +147,7 @@ pub fn match_dom_selectors<T>(
         // NOTE: This deep-clones the entire arena, which may be a
         // performance-sensitive operation!
         dom_id: ui_state.dom_id.clone(),
+        html_tree,
         ui_descr_arena: ui_state.dom.arena.clone(),
         dynamic_css_overrides: ui_state.dynamic_css_overrides.clone(),
         ui_descr_root: ui_state.dom.root,
@@ -247,17 +229,15 @@ impl<'a> Iterator for CssGroupIterator<'a> {
     }
 }
 
-pub fn construct_html_cascade_tree<'a, T>(
-    input: &'a NodeDataContainer<NodeData<T>>,
+pub fn construct_html_cascade_tree(
     node_hierarchy: &NodeHierarchy,
     node_depths_sorted: &[(usize, NodeId)],
     focused_item: Option<NodeId>,
     hovered_items: &BTreeMap<NodeId, HitTestItem>,
     is_mouse_down: bool
-) -> NodeDataContainer<HtmlCascadeInfo<'a, T>> {
+) -> NodeDataContainer<HtmlCascadeInfo> {
 
     let mut nodes = (0..node_hierarchy.len()).map(|_| HtmlCascadeInfo {
-        node_data: &input[NodeId::new(0)],
         index_in_parent: 0,
         is_last_child: false,
         is_hovered_over: false,
@@ -272,7 +252,6 @@ pub fn construct_html_cascade_tree<'a, T>(
 
         let is_parent_hovered_over = hovered_items.contains_key(parent_id);
         let parent_html_matcher = HtmlCascadeInfo {
-            node_data: &input[*parent_id],
             index_in_parent: index_in_parent, // necessary for nth-child
             is_last_child: node_hierarchy[*parent_id].next_sibling.is_none(), // Necessary for :last selectors
             is_hovered_over: is_parent_hovered_over,
@@ -285,7 +264,6 @@ pub fn construct_html_cascade_tree<'a, T>(
         for (child_idx, child_id) in parent_id.children(node_hierarchy).enumerate() {
             let is_child_hovered_over = hovered_items.contains_key(&child_id);
             let child_html_matcher = HtmlCascadeInfo {
-                node_data: &input[child_id],
                 index_in_parent: child_idx + 1, // necessary for nth-child
                 is_last_child: node_hierarchy[child_id].next_sibling.is_none(),
                 is_hovered_over: is_child_hovered_over,
@@ -333,10 +311,11 @@ pub fn collect_hover_groups(css: &Css) -> BTreeMap<CssPath, HoverGroup> {
 
 /// In order to figure out on which nodes to insert the :hover and :active hit-test tags,
 /// we need to select all items that have a :hover or :active tag.
-fn match_hover_selectors<'a, T>(
+fn match_hover_selectors<T>(
     hover_selectors: BTreeMap<CssPath, HoverGroup>,
     node_hierarchy: &NodeHierarchy,
-    html_node_tree: &NodeDataContainer<HtmlCascadeInfo<'a, T>>,
+    node_data: &NodeDataContainer<NodeData<T>>,
+    html_node_tree: &NodeDataContainer<HtmlCascadeInfo>,
 ) -> BTreeMap<NodeId, HoverGroup> {
 
     let mut btree_map = BTreeMap::new();
@@ -345,7 +324,7 @@ fn match_hover_selectors<'a, T>(
         btree_map.extend(
             html_node_tree
             .linear_iter()
-            .filter(|node_id| matches_html_element(&css_path, *node_id, node_hierarchy, html_node_tree))
+            .filter(|node_id| matches_html_element(&css_path, *node_id, node_hierarchy, node_data, html_node_tree))
             .map(|node_id| (node_id, hover_selector))
         );
     }
@@ -357,24 +336,29 @@ fn match_hover_selectors<'a, T>(
 ///
 /// The intent is to "split" the CSS path into groups by selectors, then store and cache
 /// whether the direct or any parent has matched the path correctly
-pub fn selector_group_matches<'a, T>(selectors: &[&CssPathSelector], html_node: &HtmlCascadeInfo<'a, T>) -> bool {
+pub fn selector_group_matches<T>(
+    selectors: &[&CssPathSelector],
+    html_node: &HtmlCascadeInfo,
+    node_data: &NodeData<T>,
+) -> bool {
+
     use self::CssPathSelector::*;
 
     for selector in selectors {
         match selector {
             Global => { },
             Type(t) => {
-                if html_node.node_data.get_node_type().get_path() != *t {
+                if node_data.get_node_type().get_path() != *t {
                     return false;
                 }
             },
             Class(c) => {
-                if !html_node.node_data.get_classes().iter().any(|class| class.equals_str(c)) {
+                if !node_data.get_classes().iter().any(|class| class.equals_str(c)) {
                     return false;
                 }
             },
             Id(id) => {
-                if !html_node.node_data.get_ids().iter().any(|html_id| html_id.equals_str(id)) {
+                if !node_data.get_ids().iter().any(|html_id| html_id.equals_str(id)) {
                     return false;
                 }
             },

@@ -406,11 +406,11 @@ pub fn full_window_state_to_window_state(full_window_state: &FullWindowState) ->
 
 #[derive(Debug, Clone, PartialEq, PartialOrd)]
 pub struct CallCallbacksResult {
-    pub needs_rerender_hover_active: bool,
+    pub needs_restyle_hover_active: bool,
     pub needs_relayout_hover_active: bool,
+    pub needs_restyle_focus_changed: bool,
     pub should_scroll_render: bool,
     pub callbacks_update_screen: UpdateScreen,
-    pub new_focus_target: Option<FocusTarget>,
 }
 
 impl CallCallbacksResult {
@@ -420,10 +420,15 @@ impl CallCallbacksResult {
         self.callbacks_update_screen == Redraw
     }
 
-    pub fn should_rerender(&self) -> bool {
+    pub fn should_restyle(&self) -> bool {
         self.should_relayout() ||
-        self.should_scroll_render ||
-        self.needs_rerender_hover_active
+        self.needs_restyle_focus_changed ||
+        self.needs_restyle_hover_active
+    }
+
+    pub fn should_rerender(&self) -> bool {
+        self.should_restyle() ||
+        self.should_scroll_render
     }
 }
 

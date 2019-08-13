@@ -540,7 +540,7 @@ fn create_window_builder(
         .with_transparent(has_transparent_background)
         .with_override_redirect(platform_options.x11_override_redirect);
 
-    if let Some(classes) = platform_options.x11_wm_classes {
+    if let Some(classes) = platform_options.x11_wm_classes.clone() {
         for (k, v) in classes {
             window_builder = window_builder.with_class(k, v);
         }
@@ -550,7 +550,7 @@ fn create_window_builder(
         window_builder = window_builder.with_x11_window_type(translate_x_window_type(window_type));
     }
 
-    if let Some(theme_variant) = platform_options.x11_gtk_theme_variant {
+    if let Some(theme_variant) = platform_options.x11_gtk_theme_variant.clone() {
         window_builder = window_builder.with_gtk_theme_variant(theme_variant);
     }
 
@@ -562,7 +562,7 @@ fn create_window_builder(
         window_builder = window_builder.with_base_size(translate_logical_size(base_size));
     }
 
-    if let Some(app_id) = platform_options.wayland_app_id {
+    if let Some(app_id) = platform_options.wayland_app_id.clone() {
         window_builder = window_builder.with_app_id(app_id);
     }
 
@@ -840,7 +840,7 @@ fn synchronize_os_window_linux_extensions(
     }
 
     if old_state.window_icon != new_state.window_icon {
-        window.set_window_icon(new_state.window_icon.and_then(|ic| translate_window_icon(ic).ok()));
+        window.set_window_icon(new_state.window_icon.clone().and_then(|ic| translate_window_icon(ic).ok()));
     }
 }
 
@@ -886,7 +886,7 @@ fn initialize_os_window_linux_extensions(
         window.set_wayland_theme(translate_wayland_theme(new_wayland_theme));
     }
 
-    window.set_window_icon(new_state.window_icon.and_then(|ic| translate_window_icon(ic).ok()));
+    window.set_window_icon(new_state.window_icon.clone().and_then(|ic| translate_window_icon(ic).ok()));
 }
 
 // Mac-specific window options
