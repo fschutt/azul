@@ -758,7 +758,7 @@ pub(crate) fn display_list_from_ui_description<T>(ui_description: &UiDescription
 }
 
 pub(crate) fn push_rectangles_into_displaylist<'a, T>(
-    root_content_group: ContentGroup,
+    root_content_group: &ContentGroup,
     referenced_content: &DisplayListParametersRef<'a, T>,
 ) -> DisplayListMsg {
 
@@ -767,7 +767,7 @@ pub(crate) fn push_rectangles_into_displaylist<'a, T>(
         referenced_content,
     );
 
-    let children = root_content_group.children.into_iter().map(|child_content_group| {
+    let children = root_content_group.children.iter().map(|child_content_group| {
         push_rectangles_into_displaylist(
             child_content_group,
             referenced_content,
@@ -917,6 +917,7 @@ fn displaylist_handle_rect<'a, T, U: FontImageApi>(
         IFrame(_) => {
             if let Some(iframe_dom_id) = layout_result.iframe_mappings.get(&(dom_id.clone(), rect_idx)) {
                 frame.children.push(push_rectangles_into_displaylist(
+                    &layout_result.rects_in_rendering_order[&iframe_dom_id],
                     // layout_result.rects_in_rendering_order.root,
                     &DisplayListParametersRef {
                         // Important: Need to update the DOM ID,

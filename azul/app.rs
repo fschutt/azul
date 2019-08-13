@@ -1298,11 +1298,12 @@ fn build_cached_display_list<T>(
         push_rectangles_into_displaylist
     };
 
+    const DOM_ID: DomId = DomId::ROOT_ID;
     CachedDisplayList {
         root: push_rectangles_into_displaylist(
-            full_window_state.size,
+            &layout_result_cache.rects_in_rendering_order[&DOM_ID],
             &DisplayListParametersRef {
-                dom_id: DomId::ROOT_ID,
+                dom_id: DOM_ID,
                 epoch,
                 full_window_state,
                 pipeline_id,
