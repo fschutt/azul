@@ -266,7 +266,7 @@ impl<T: 'static> App<T> {
     fn run_inner(self) -> ! {
 
         use glutin::{
-            event::{WindowEvent, KeyboardInput, StartCause, Touch, Event},
+            event::{WindowEvent, KeyboardInput, Touch, Event},
             event_loop::ControlFlow,
         };
         use azul_core::window::{CursorPosition, LogicalPosition};
@@ -292,7 +292,6 @@ impl<T: 'static> App<T> {
         // otherwise there could be a memory "leak" as default callbacks only
         // get added and never removed.
 
-        println!("new events!");
         let mut eld = EventLoopData {
             data: &mut data,
             resources: &mut resources,
@@ -615,11 +614,6 @@ impl<T: 'static> App<T> {
                 use crate::compositor::clear_opengl_cache;
 
                 // NOTE: For some reason this is necessary, otherwise the renderer crashes on shutdown
-                //
-                // TODO: This still crashes on Linux because the makeCurrent call doesn't succeed
-                // (likely because the underlying surface has been destroyed). In those cases,
-                // we don't de-initialize the rendered (since this is an application shutdown it
-                // doesn't matter, the resources are going to get cleaned up by the OS).
                 hidden_context.make_current();
 
                 // Important: destroy all OpenGL textures before the shared
@@ -801,8 +795,9 @@ fn send_user_event<'a, T>(
 
                 if should_call_callbacks {
 
-                    println!("calling callbacks!");
                     // call callbacks
+                    println!("calling callbacks!");
+
                     let active_windows = &mut *eld.active_windows;
                     let data = &mut *eld.data;
                     let default_callbacks_cache = &mut *eld.default_callbacks_cache;

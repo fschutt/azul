@@ -289,7 +289,7 @@ pub(crate) fn determine_callbacks<T>(
     // If the mouse is down, but was up previously or vice versa, that means
     // that a :hover or :active state may be invalidated. In that case we need
     // to redraw the screen anyways. Setting relayout to true here in order to
-    let event_is_click_or_release = window_state.mouse_state.mouse_down() != previous_state.mouse_state.mouse_down();
+    let event_is_click_or_release = event_was_mouse_down || event_was_mouse_release;
     if event_is_click_or_release || event_was_mouse_enter || event_was_mouse_leave || !onmouseenter_empty || !onmouseleave_empty {
         needs_hover_redraw = true;
         needs_hover_relayout = true;
@@ -411,19 +411,19 @@ fn get_window_events(window_state: &FullWindowState) -> HashSet<WindowEventFilte
     }
 
     if previous_window_state.mouse_state.mouse_down() && !window_state.mouse_state.mouse_down() {
-        events_vec.insert(WindowEventFilter::MouseDown);
+        events_vec.insert(WindowEventFilter::MouseUp);
     }
 
     if previous_window_state.mouse_state.left_down && !window_state.mouse_state.left_down {
-        events_vec.insert(WindowEventFilter::LeftMouseDown);
+        events_vec.insert(WindowEventFilter::LeftMouseUp);
     }
 
     if previous_window_state.mouse_state.right_down && !window_state.mouse_state.right_down {
-        events_vec.insert(WindowEventFilter::RightMouseDown);
+        events_vec.insert(WindowEventFilter::RightMouseUp);
     }
 
     if previous_window_state.mouse_state.middle_down && !window_state.mouse_state.middle_down {
-        events_vec.insert(WindowEventFilter::MiddleMouseDown);
+        events_vec.insert(WindowEventFilter::MiddleMouseUp);
     }
 
     // scroll events
