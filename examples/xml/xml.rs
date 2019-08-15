@@ -15,22 +15,21 @@ impl Layout for DataModel {
         DomXml::from_file(XML_PATH!(), &mut XmlComponentMap::default()).into()
     }
 }
+ fn main() {
 
-fn main() {
-
-    let mut app = App::new(DataModel { }, AppConfig::default()).unwrap();
+    let app = App::new(DataModel { }, AppConfig::default()).unwrap();
 
     #[cfg(debug_assertions)]
     let window = {
         let hot_reloader = css::hot_reload_override_native(CSS_PATH!(), Duration::from_millis(500));
-        app.create_hot_reload_window(WindowCreateOptions::default(), hot_reloader).unwrap()
+        WindowCreateOptions::new_hot_reload(hot_reloader)
     };
 
     #[cfg(not(debug_assertions))]
     let window = {
-        let css = css::override_native(include_str!(CSS_PATH!())).unwrap();
-        app.create_window(WindowCreateOptions::default(), css).unwrap()
+        let css = css::override_native(include_str!(CSS_PATH!()));
+        WindowCreateOptions::new(css)
     };
 
-    app.run(window).unwrap();
+    app.run(window);
 }
