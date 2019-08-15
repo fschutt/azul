@@ -544,9 +544,6 @@ pub(crate) fn do_layout_for_display_list<T>(
             allow_mipmaps: TEXTURE_ALLOW_MIPMAPS,
         };
 
-        let texture_width = texture.size.width;
-        let texture_height = texture.size.height;
-
         let key = render_api.new_image_key();
         let external_image_id = insert_into_active_gl_textures(pipeline_id, window.internal.epoch, texture);
 
@@ -788,13 +785,13 @@ fn displaylist_handle_rect<'a, T>(
 
     let DisplayListParametersRef {
         dom_id,
-        epoch,
         pipeline_id,
         ui_state_cache,
         layout_result,
         gl_texture_cache,
         app_resources,
         full_window_state,
+        ..
     } = referenced_content;
 
     let rect = &layout_result.display_lists[dom_id].rectangles[rect_idx];
