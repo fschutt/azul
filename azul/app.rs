@@ -11,6 +11,7 @@ use glutin::{
     event::{
         ModifiersState as GlutinModifiersState,
     },
+    event_loop::EventLoopWindowTarget as GlutinEventLoopWindowTarget,
 };
 use gleam::gl::{self, Gl, GLuint};
 use webrender::{
@@ -92,7 +93,7 @@ pub struct App<T: 'static> {
     layout_callback: LayoutCallback<T>,
     /// The actual renderer of this application
     #[cfg(not(test))]
-    fake_display: FakeDisplay<T>,
+    fake_display: FakeDisplay,
     #[cfg(test)]
     render_api: FakeRenderApi,
 }
@@ -229,9 +230,6 @@ impl<T> App<T> {
         }
         self.config.debug_state = new_state;
     }
-}
-
-impl<T: 'static> App<T> {
 
     /// Start the rendering loop for the currently open windows
     /// This is the "main app loop", "main game loop" or whatever you want to call it.
@@ -285,14 +283,13 @@ impl<T: 'static> App<T> {
 
         let FakeDisplay { mut render_api, mut renderer, mut hidden_context, hidden_event_loop, gl_context } = fake_display;
 
-        // let event_loop_proxy = hidden_event_loop.create_proxy();
-
         // TODO: When the callbacks are run, rebuild the default callbacks again,
         // otherwise there could be a memory "leak" as default callbacks only
         // get added and never removed.
 
         let mut eld = EventLoopData {
             data: &mut data,
+            event_loop_target: None,
             resources: &mut resources,
             timers: &mut timers,
             tasks: &mut tasks,
@@ -316,7 +313,7 @@ impl<T: 'static> App<T> {
             send_user_event(AzulUpdateEvent::RelayoutUi { window_id }, &mut eld);
         }
 
-        hidden_event_loop.run(move |event, _, control_flow| {
+        hidden_event_loop.run(move |event, event_loop_target, control_flow| {
 
             let now = Instant::now();
 
@@ -330,6 +327,7 @@ impl<T: 'static> App<T> {
 
                     let mut eld = EventLoopData {
                         data: &mut data,
+                        event_loop_target: Some(event_loop_target),
                         resources: &mut resources,
                         timers: &mut timers,
                         tasks: &mut tasks,
@@ -456,6 +454,9 @@ impl<T: 'static> App<T> {
                             send_user_event(AzulUpdateEvent::DoHitTest { window_id }, &mut eld);
                         },
                         WindowEvent::MouseInput { state, button, modifiers, .. } => {
+                            // test
+                            send_user_event(AzulUpdateEvent::CreateWindow { window_create_options: WindowCreateOptions::default() }, &mut eld);
+
                             {
                                 use glutin::event::{ElementState::*, MouseButton::*};
                                 let mut full_window_state = eld.full_window_states.get_mut(&glutin_window_id).unwrap();
@@ -658,6 +659,7 @@ impl<T: 'static> App<T> {
 #[cfg(not(test))]
 struct EventLoopData<'a, T> {
     data: &'a mut T,
+    event_loop_target: Option<&'a GlutinEventLoopWindowTarget<()>>,
     resources: &'a mut AppResources,
     timers: &'a mut FastHashMap<TimerId, Timer<T>>,
     tasks: &'a mut Vec<Task<T>>,
@@ -684,7 +686,7 @@ struct EventLoopData<'a, T> {
 /// will internally call the function again with `send_user_event(RebuildUi { })` if necessary and so o, eldn.
 fn send_user_event<'a, T>(
     ev: AzulUpdateEvent<T>,
-    eld: &mut EventLoopData<'a, T>
+    eld: &mut EventLoopData<'a, T>,
 ) {
 
     use azul_core::window::AzulUpdateEvent::*;
@@ -697,33 +699,60 @@ fn send_user_event<'a, T>(
 
     match ev {
         CreateWindow { window_create_options } => {
-            /*
+
+            use azul_core::window::full_window_state_from_window_state;
+
+            const FORCE_CSS_RELOAD: bool = true;
+
+            let event_loop_target = match &eld.event_loop_target {
+                Some(s) => s,
+                None => return,
+            };
+
+            let full_window_state = full_window_state_from_window_state(window_create_options.state.clone());
             let window = Window::new(
                 eld.render_api,
                 eld.hidden_context.headless_context_not_current().unwrap(),
-                &event_loop_proxy,
+                event_loop_target,
                 window_create_options,
                 eld.config.background_color,
+                eld.resources,
             );
 
             let window = match window {
                 Ok(o) => o,
                 Err(e) => {
-                    log!("Error initializing window: {}", e);
+                    error!("Error initializing window: {}", e);
                     return;
                 }
             };
 
             let glutin_window_id = window.display.window().id();
             let window_id = window.id;
-            active_windows.insert(glutin_window_id, window);
-            full_window_states.insert(glutin_window_id, /* ... */);
-            ui_state_cache.insert(glutin_window_id, /* ... */);
-            ui_description_cache.insert(glutin_window_id, /* ... */);
-            window_id_mapping.insert(glutin_window_id, window_id);
-            reverse_window_id_mapping.insert(window_id, glutin_window_id);
-            // app_resources_register_pipeline()
-            */
+
+            eld.full_window_states.insert(glutin_window_id, full_window_state);
+
+            let (dom_id_map, default_callbacks_map) = call_layout_fn(
+                eld.data,
+                eld.gl_context.clone(),
+                eld.resources,
+                eld.full_window_states.get_mut(&glutin_window_id).unwrap(),
+                window.hot_reload_handler.as_ref().map(|hr| &hr.0),
+                eld.layout_callback,
+                FORCE_CSS_RELOAD,
+            );
+
+            eld.active_windows.insert(glutin_window_id, window);
+            eld.ui_state_cache.insert(glutin_window_id, dom_id_map);
+            eld.default_callbacks_cache.insert(glutin_window_id, default_callbacks_map);
+            eld.ui_description_cache.insert(glutin_window_id,
+                cascade_style(
+                    eld.ui_state_cache.get_mut(&glutin_window_id).unwrap(),
+                    eld.full_window_states.get_mut(&glutin_window_id).unwrap()
+                )
+            );
+            eld.window_id_mapping.insert(glutin_window_id, window_id);
+            eld.reverse_window_id_mapping.insert(window_id, glutin_window_id);
         },
         CloseWindow { window_id } => {
 
@@ -1058,7 +1087,7 @@ fn get_window_states<T>(
 /// be useful for future refactoring.
 fn initialize_windows<T>(
     window_create_options: BTreeMap<WindowId, WindowCreateOptions<T>>,
-    fake_display: &mut FakeDisplay<T>,
+    fake_display: &mut FakeDisplay,
     app_resources: &mut AppResources,
     config: &AppConfig,
 ) -> (

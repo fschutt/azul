@@ -23,7 +23,7 @@ path = "../../azul/lib.rs"
 
 [dependencies]
 gleam                   = { version = "0.6",            default-features = false                                                                                 }
-glutin                  = { version = "0.22.0-alpha1",  default-features = false                                                                                 }
+glutin                  = { version = "0.22.0-alpha3",  default-features = false                                                                                 }
 app_units               = { version = "0.7.1",          default-features = false                                                                                 }
 unicode-normalization   = { version = "0.1.8",          default-features = false                                                                                 }
 tinyfiledialogs         = { version = "3.3.5",          default-features = false                                                                                 }

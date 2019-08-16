@@ -11,7 +11,7 @@ use webrender::{
     // renderer::RendererError; -- not currently public in WebRender
 };
 use glutin::{
-    event_loop::EventLoop,
+    event_loop::{EventLoopWindowTarget, EventLoop},
     window::{Window as GlutinWindow, WindowBuilder as GlutinWindowBuilder},
     CreationError, ContextBuilder, Context, WindowedContext,
     NotCurrent, PossiblyCurrent,
@@ -30,7 +30,7 @@ use azul_core::{
     ui_state::UiState,
     display_list::CachedDisplayList,
     ui_solver::{ScrolledNodes, ExternalScrollId, OverflowingScrollNode},
-    window::{AzulUpdateEvent, WindowId},
+    window::WindowId,
     app_resources::AppResources,
 };
 pub use webrender::api::HitTestItem;
@@ -398,7 +398,7 @@ impl<T> Window<T> {
     pub(crate) fn new(
         render_api: &mut RenderApi,
         shared_context: &Context<NotCurrent>,
-        events_loop: &EventLoop<AzulUpdateEvent<T>>,
+        events_loop: &EventLoopWindowTarget<()>,
         mut options: WindowCreateOptions<T>,
         background_color: ColorU,
         app_resources: &mut AppResources,
@@ -589,6 +589,7 @@ pub(crate) fn synchronize_window_state_with_os_window(
     window: &GlutinWindow,
 ) {
     use crate::wr_translate::winit_translate::{translate_logical_position, translate_logical_size};
+    use glutin::window::Fullscreen;
 
     let current_window_state = old_state.clone();
 
@@ -602,7 +603,8 @@ pub(crate) fn synchronize_window_state_with_os_window(
 
     if old_state.flags.is_fullscreen != new_state.flags.is_fullscreen {
         if new_state.flags.is_fullscreen {
-            window.set_fullscreen(Some(window.current_monitor()));
+            // TODO: implement exclusive fullscreen!
+            window.set_fullscreen(Some(Fullscreen::Borderless(window.current_monitor())));
         } else {
             window.set_fullscreen(None);
         }
@@ -685,12 +687,13 @@ fn initialize_os_window(
     window: &GlutinWindow,
 ) {
     use crate::wr_translate::winit_translate::{translate_logical_size, translate_logical_position};
+    use glutin::window::Fullscreen;
 
     window.set_title(&new_state.title);
     window.set_maximized(new_state.flags.is_maximized);
 
     if new_state.flags.is_fullscreen {
-        window.set_fullscreen(Some(window.current_monitor()));
+        window.set_fullscreen(Some(Fullscreen::Borderless(window.current_monitor())));
     } else {
         window.set_fullscreen(None);
     }
@@ -932,7 +935,7 @@ pub(crate) fn clear_scroll_state(window_state: &mut FullWindowState) {
 /// other windows can use said texture. This is also important for animations and multi-window
 /// apps later on, but for now the only reason is so that `AppResources::add_font()` has
 /// the proper access to the `RenderApi`
-pub(crate) struct FakeDisplay<T: 'static> {
+pub(crate) struct FakeDisplay {
     /// Main render API that can be used to register and un-register fonts and images
     pub(crate) render_api: RenderApi,
     /// Main renderer, responsible for rendering all windows
@@ -943,12 +946,12 @@ pub(crate) struct FakeDisplay<T: 'static> {
     /// NOTE: The window and the associated context are split into separate fields.
     pub(crate) hidden_context: HeadlessContextState,
     /// Event loop that all windows share
-    pub(crate) hidden_event_loop: EventLoop<AzulUpdateEvent<T>>,
+    pub(crate) hidden_event_loop: EventLoop<()>,
     /// Stores the GL context (function pointers) that are shared across all windows
     pub(crate) gl_context: Rc<Gl>,
 }
 
-impl<T> FakeDisplay<T> {
+impl FakeDisplay {
 
     /// Creates a new render + a new display, given a renderer type (software or hardware)
     pub(crate) fn new(renderer_type: RendererType) -> Result<Self, CreationError> {
@@ -956,7 +959,7 @@ impl<T> FakeDisplay<T> {
         const DPI_FACTOR: f32 = 1.0;
 
         // The events loop is shared across all windows
-        let event_loop = EventLoop::new_user_event();
+        let event_loop = EventLoop::new();
         let mut gl_context = HeadlessContextState::NotCurrent(create_headless_context(&event_loop)?);
 
         gl_context.make_current();
@@ -995,21 +998,25 @@ fn get_gl_context(gl_window: &Context<PossiblyCurrent>) -> Result<Rc<dyn Gl>, Cr
 
 /// Returns the actual hidpi factor and the winit DPI factor for the current window
 #[allow(unused_variables)]
-fn get_hidpi_factor<T>(window: &GlutinWindow, events_loop: &EventLoop<AzulUpdateEvent<T>>) -> (f32, f32) {
-    let monitor = window.current_monitor();
-    let winit_hidpi_factor = monitor.hidpi_factor();
+fn get_hidpi_factor(window: &GlutinWindow, event_loop: &EventLoopWindowTarget<()>) -> (f32, f32) {
+
+    use crate::glutin::platform::unix::EventLoopWindowTargetExtUnix;
+
+    let winit_hidpi_factor = window.hidpi_factor() as f32;
 
     #[cfg(target_os = "linux")] {
-        (linux_get_hidpi_factor(&monitor, &events_loop), winit_hidpi_factor as f32)
+        let is_x11 = event_loop.is_x11();
+        (linux_get_hidpi_factor(is_x11).unwrap_or(winit_hidpi_factor), winit_hidpi_factor)
     }
+
     #[cfg(not(target_os = "linux"))] {
-        (winit_hidpi_factor as f32, winit_hidpi_factor as f32)
+        (winit_hidpi_factor, winit_hidpi_factor)
     }
 }
 
-fn create_gl_window<'a, T>(
+fn create_gl_window<'a>(
     window_builder: GlutinWindowBuilder,
-    event_loop: &EventLoop<AzulUpdateEvent<T>>,
+    event_loop: &EventLoopWindowTarget<()>,
     shared_context: Option<&'a Context<NotCurrent>>,
 ) -> Result<WindowedContext<NotCurrent>, CreationError> {
     create_window_context_builder(true, true, shared_context).build_windowed(window_builder.clone(), event_loop)
@@ -1018,8 +1025,8 @@ fn create_gl_window<'a, T>(
         .or_else(|_| create_window_context_builder(false, false,shared_context).build_windowed(window_builder, event_loop))
 }
 
-fn create_headless_context<T>(
-    event_loop: &EventLoop<AzulUpdateEvent<T>>,
+fn create_headless_context(
+    event_loop: &EventLoop<()>,
 ) -> Result<Context<NotCurrent>, CreationError> {
     use glutin::dpi::PhysicalSize as GlutinPhysicalSize;
     create_window_context_builder(true, true, None).build_headless(event_loop, GlutinPhysicalSize::new(1.0, 1.0))
@@ -1172,13 +1179,11 @@ fn get_xft_dpi() -> Option<f32>{
 
 /// Return the DPI on X11 systems
 #[cfg(target_os = "linux")]
-fn linux_get_hidpi_factor<T>(monitor: &MonitorHandle, events_loop: &EventLoop<AzulUpdateEvent<T>>) -> f32 {
+fn linux_get_hidpi_factor(is_x11: bool) -> Option<f32> {
 
     use std::env;
     use std::process::Command;
-    use glutin::platform::unix::EventLoopExtUnix;
 
-    let winit_dpi = monitor.hidpi_factor() as f32;
     let winit_hidpi_factor = env::var("WINIT_HIDPI_FACTOR").ok().and_then(|hidpi_factor| hidpi_factor.parse::<f32>().ok());
     let qt_font_dpi = env::var("QT_FONT_DPI").ok().and_then(|font_dpi| font_dpi.parse::<f32>().ok());
 
@@ -1195,8 +1200,8 @@ fn linux_get_hidpi_factor<T>(monitor: &MonitorHandle, events_loop: &EventLoop<Az
             .and_then(|gsettings_output| gsettings_output.parse::<f32>().ok());
 
     // Wayland: Ignore Xft.dpi
-    let xft_dpi = if events_loop.is_x11() { get_xft_dpi() } else { None };
+    let xft_dpi = if is_x11 { get_xft_dpi() } else { None };
 
     let options = [winit_hidpi_factor, qt_font_dpi, gsettings_dpi_factor, xft_dpi];
-    options.into_iter().filter_map(|x| *x).next().unwrap_or(winit_dpi)
+    options.into_iter().filter_map(|x| *x).next()
 }
