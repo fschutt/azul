@@ -1,24 +1,19 @@
-use std::{
-    collections::{HashSet, BTreeMap},
-};
-use azul_core::{
+use std::collections::{HashSet, BTreeMap};
+use crate::{
     dom::{EventFilter, NotEventFilter, HoverEventFilter, FocusEventFilter, WindowEventFilter},
     callbacks:: {CallbackInfo, Callback, CallbackType, HitTestItem, DefaultCallbackId, UpdateScreen},
     id_tree::NodeId,
     ui_state::UiState,
-};
-pub use azul_core::window::{
-    WindowState, KeyboardState, MouseState, DebugState, AcceleratorKey,
-    LogicalPosition, LogicalSize, PhysicalPosition, PhysicalSize, WindowSize,
-    WaylandTheme, WindowFlags, PlatformSpecificOptions, FullWindowState,
-    CallbacksOfHitTest, DetermineCallbackResult,
+    window::{
+        AcceleratorKey, FullWindowState, CallbacksOfHitTest, DetermineCallbackResult,
+    },
 };
 
 /// Determine which event / which callback(s) should be called and in which order
 ///
-/// This function also updates / mutates the current window state, so that
-/// the window state is updated for the next frame
-pub(crate) fn determine_callbacks<T>(
+/// This function also updates / mutates the current window states `focused_node`
+/// as well as the `window_state.previous_state`
+pub fn determine_callbacks<T>(
     window_state: &mut FullWindowState,
     hit_test_items: &[HitTestItem],
     ui_state: &UiState<T>,
@@ -362,9 +357,9 @@ pub(crate) fn determine_callbacks<T>(
     }
 }
 
-fn get_window_events(window_state: &FullWindowState) -> HashSet<WindowEventFilter> {
+pub fn get_window_events(window_state: &FullWindowState) -> HashSet<WindowEventFilter> {
 
-    use azul_core::window::CursorPosition::*;
+    use crate::window::CursorPosition::*;
 
     let mut events_vec = HashSet::<WindowEventFilter>::new();
 
@@ -479,11 +474,11 @@ fn get_window_events(window_state: &FullWindowState) -> HashSet<WindowEventFilte
     events_vec
 }
 
-fn get_hover_events(input: &HashSet<WindowEventFilter>) -> HashSet<HoverEventFilter> {
+pub fn get_hover_events(input: &HashSet<WindowEventFilter>) -> HashSet<HoverEventFilter> {
     input.iter().filter_map(|window_event| window_event.to_hover_event_filter()).collect()
 }
 
-fn get_focus_events(input: &HashSet<HoverEventFilter>) -> HashSet<FocusEventFilter> {
+pub fn get_focus_events(input: &HashSet<HoverEventFilter>) -> HashSet<FocusEventFilter> {
     input.iter().filter_map(|hover_event| hover_event.to_focus_event_filter()).collect()
 }
 

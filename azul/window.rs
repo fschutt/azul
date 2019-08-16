@@ -36,7 +36,6 @@ use azul_core::{
 pub use webrender::api::HitTestItem;
 pub use glutin::monitor::MonitorHandle;
 pub use azul_core::window::*;
-pub use crate::window_state::*;
 
 // TODO: Right now it's not very ergonomic to cache shaders between
 // renderers - notify webrender about this.

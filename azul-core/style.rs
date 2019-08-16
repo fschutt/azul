@@ -1,6 +1,6 @@
 //! DOM tree to CSS style tree cascading
 
-use std::{fmt, collections::BTreeMap};
+use std::collections::BTreeMap;
 use azul_css::{
     Css, CssContentGroup, CssPath,
     CssPathSelector, CssPathPseudoSelector, CssNthChildSelector::*,
