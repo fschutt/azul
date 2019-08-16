@@ -443,16 +443,6 @@ pub(crate) fn wr_translate_hittest_item(input: WrHitTestItem) -> HitTestItem {
     }
 }
 
-#[inline(always)]
-pub(crate) fn hidpi_rect_from_bounds(bounds: CssLayoutRect, hidpi_factor: f32, winit_hidpi_factor: f32) -> HidpiAdjustedBounds {
-    let logical_size = LogicalSize::new(bounds.size.width, bounds.size.height);
-    HidpiAdjustedBounds {
-        logical_size,
-        hidpi_factor,
-        winit_hidpi_factor,
-    }
-}
-
 // webrender -> core
 
 #[inline(always)]

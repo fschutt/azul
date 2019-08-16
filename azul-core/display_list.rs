@@ -1,9 +1,13 @@
-use std::fmt;
+use std::{
+    fmt,
+    collections::BTreeMap,
+    rc::Rc,
+};
 use azul_css::{
     LayoutPoint, LayoutSize, LayoutRect,
     StyleBackgroundRepeat, StyleBackgroundPosition, ColorU, BoxShadowClipMode,
     LinearGradient, RadialGradient, BoxShadowPreDisplayItem, StyleBackgroundSize,
-    CssPropertyValue,
+    CssPropertyValue, LayoutPosition, CssProperty, RectStyle, RectLayout,
 
     StyleBorderTopWidth, StyleBorderRightWidth, StyleBorderBottomWidth, StyleBorderLeftWidth,
     StyleBorderTopColor, StyleBorderRightColor, StyleBorderBottomColor, StyleBorderLeftColor,
@@ -11,10 +15,27 @@ use azul_css::{
     StyleBorderTopLeftRadius, StyleBorderTopRightRadius, StyleBorderBottomLeftRadius, StyleBorderBottomRightRadius,
 };
 use crate::{
-    app_resources::{ImageKey, FontInstanceKey, ImageInfo},
-    ui_solver::ExternalScrollId,
-    dom::ScrollTagId,
+    FastHashMap,
+    callbacks::{PipelineId, DefaultCallbackIdMap},
+    ui_solver::{
+        PositionedRectangle, ResolvedOffsets, ExternalScrollId,
+        LayoutResult, ScrolledNodes, OverflowingScrollNode
+    },
+    gl::Texture,
+    window::FullWindowState,
+    app_resources::{
+        AppResources, AddImageMsg, FontImageApi, ImageDescriptor,
+        ImageKey, FontInstanceKey, ImageInfo, ImageId, LayoutedGlyphs,
+    },
+    ui_state::UiState,
+    ui_description::{UiDescription, StyledNode},
+    id_tree::{NodeDataContainer, NodeId, NodeHierarchy},
+    dom::{
+        DomId, NodeData, ScrollTagId, DomString,
+        NodeType::{Div, Text, Image, GlTexture, IFrame, Label},
+    },
 };
+use gleam::gl::Gl;
 
 /// A tag that can be used to identify items during hit testing. If the tag
 /// is missing then the item doesn't take part in hit testing at all. This
@@ -49,17 +70,92 @@ pub const FONT_INSTANCE_FLAG_NO_AUTOHINT: u32       = 1 << 17;
 pub const FONT_INSTANCE_FLAG_VERTICAL_LAYOUT: u32   = 1 << 18;
 pub const FONT_INSTANCE_FLAG_LCD_VERTICAL: u32      = 1 << 19;
 
-#[derive(Debug, Copy, Clone, PartialEq, PartialOrd)]
+#[derive(Debug, Copy, Clone, PartialEq, Eq, Ord, PartialOrd, Hash)]
 pub struct GlyphOptions {
     pub render_mode: FontRenderMode,
     pub flags: FontInstanceFlags,
 }
 
-#[derive(Debug, Copy, Clone, PartialEq, PartialOrd)]
+#[derive(Debug, Copy, Clone, PartialEq, Eq, Ord, PartialOrd, Hash)]
 pub enum FontRenderMode {
     Mono,
     Alpha,
     Subpixel,
+}
+
+/*
+#[cfg(target_os = "windows")]
+let platform_options = FontInstancePlatformOptions {
+    gamma: 300,
+    contrast: 100,
+};
+
+#[cfg(target_os = "linux")]
+use webrender::api::{FontLCDFilter, FontHinting};
+
+#[cfg(target_os = "linux")]
+let platform_options = FontInstancePlatformOptions {
+    lcd_filter: FontLCDFilter::Default,
+    hinting: FontHinting::LCD,
+};
+
+#[cfg(target_os = "macos")]
+let platform_options = FontInstancePlatformOptions::default();
+*/
+#[cfg(target_os = "windows")]
+#[derive(Debug, Copy, Clone, PartialEq, Eq, Ord, PartialOrd, Hash)]
+pub struct FontInstancePlatformOptions {
+    pub gamma: u16,
+    pub contrast: u16,
+}
+
+#[cfg(target_os = "macos")]
+#[derive(Default, Debug, Copy, Clone, PartialEq, Eq, Ord, PartialOrd, Hash)]
+pub struct FontInstancePlatformOptions {
+    pub unused: u32,
+}
+
+#[cfg(target_os = "linux")]
+#[derive(Debug, Copy, Clone, PartialEq, Eq, Ord, PartialOrd, Hash)]
+pub struct FontInstancePlatformOptions {
+    pub lcd_filter: FontLCDFilter,
+    pub hinting: FontHinting,
+}
+
+#[derive(Debug, Copy, Clone, PartialEq, Eq, Ord, PartialOrd, Hash)]
+pub enum FontHinting {
+    None,
+    Mono,
+    Light,
+    Normal,
+    LCD,
+}
+
+#[derive(Debug, Copy, Clone, PartialEq, Eq, Ord, PartialOrd, Hash)]
+pub enum FontLCDFilter {
+    None,
+    Default,
+    Light,
+    Legacy,
+}
+
+impl Default for FontLCDFilter {
+    fn default() -> Self { FontLCDFilter::Default }
+}
+
+#[derive(Debug, Copy, Clone, PartialEq, Eq, Ord, PartialOrd, Hash)]
+pub struct FontInstanceOptions {
+    render_mode: FontRenderMode,
+    flags: FontInstanceFlags,
+    bg_color: ColorU,
+    /// When bg_color.a is != 0 and render_mode is FontRenderMode::Subpixel, the text will be
+    /// rendered with bg_color.r/g/b as an opaque estimated background color.
+    synthetic_italics: SyntheticItalics,
+}
+
+#[derive(Debug, Copy, Clone, PartialEq, Eq, Ord, PartialOrd, Hash)]
+pub struct SyntheticItalics {
+    angle: i16,
 }
 
 #[derive(Debug, Copy, Clone, PartialEq, PartialOrd)]
@@ -338,43 +434,6 @@ impl RectBackground {
 
 // ------------------- NEW DISPLAY LIST CODE
 
-use std::{
-    collections::BTreeMap,
-    rc::Rc,
-};
-use gleam::gl::Gl;
-use azul_core::{
-    FastHashMap,
-    callbacks::{PipelineId, DefaultCallbackIdMap},
-    app_resources::{ImageId, FontInstanceKey, ImageKey, ImageDescriptor},
-    ui_solver::{
-        PositionedRectangle, ResolvedOffsets, ExternalScrollId,
-        LayoutResult, ScrolledNodes, OverflowingScrollNode
-    },
-    gl::Texture,
-    display_list::{
-        DisplayListMsg, LayoutRectContent, ImageRendering, AlphaType,
-        DisplayListFrame, StyleBoxShadow, DisplayListScrollFrame,
-        StyleBorderStyles, StyleBorderColors, StyleBorderRadius, StyleBorderWidths,
-    },
-    window::FullWindowState,
-    app_resources::{AppResources, AddImageMsg, FontImageApi},
-    ui_state::UiState,
-    ui_description::{UiDescription, StyledNode},
-    id_tree::{NodeDataContainer, NodeId, NodeHierarchy},
-    dom::{
-        DomId, NodeData, ScrollTagId, DomString,
-        NodeType::{Div, Text, Image, GlTexture, IFrame, Label},
-    },
-    window::{Window, HeadlessContextState},
-    text_layout::LayoutedGlyphs,
-};
-use azul_css::{
-    LayoutPosition, CssProperty, ColorU, BoxShadowClipMode,
-    RectStyle, RectLayout, CssPropertyValue, LayoutPoint, LayoutSize, LayoutRect,
-};
-use azul_layout::{GetStyle, style::Style};
-
 pub struct DisplayList {
     pub rectangles: NodeDataContainer<DisplayRectangle>
 }
@@ -429,155 +488,6 @@ impl DisplayRectangle {
     }
 }
 
-impl GetStyle for DisplayRectangle {
-
-    fn get_style(&self) -> Style {
-
-        use azul_layout::{style::*, Size, Offsets, Number};
-        use azul_css::{
-            PixelValue, LayoutDisplay, LayoutDirection, LayoutWrap,
-            LayoutAlignItems, LayoutAlignContent, LayoutJustifyContent,
-            LayoutBoxSizing, Overflow as LayoutOverflow,
-        };
-        use azul_core::ui_solver::DEFAULT_FONT_SIZE;
-
-        let rect_layout = &self.layout;
-        let rect_style = &self.style;
-
-        #[inline]
-        fn translate_dimension(input: Option<CssPropertyValue<PixelValue>>) -> Dimension {
-            use azul_css::{SizeMetric, EM_HEIGHT, PT_TO_PX};
-            match input {
-                None => Dimension::Undefined,
-                Some(CssPropertyValue::Auto) => Dimension::Auto,
-                Some(CssPropertyValue::None) => Dimension::Pixels(0.0),
-                Some(CssPropertyValue::Initial) => Dimension::Undefined,
-                Some(CssPropertyValue::Inherit) => Dimension::Undefined,
-                Some(CssPropertyValue::Exact(pixel_value)) => match pixel_value.metric {
-                    SizeMetric::Px => Dimension::Pixels(pixel_value.number.get()),
-                    SizeMetric::Percent => Dimension::Percent(pixel_value.number.get()),
-                    SizeMetric::Pt => Dimension::Pixels(pixel_value.number.get() * PT_TO_PX),
-                    SizeMetric::Em => Dimension::Pixels(pixel_value.number.get() * EM_HEIGHT),
-                }
-            }
-        }
-
-        Style {
-            display: match rect_layout.display {
-                None => Display::Flex,
-                Some(CssPropertyValue::Auto) => Display::Flex,
-                Some(CssPropertyValue::None) => Display::None,
-                Some(CssPropertyValue::Initial) => Display::Flex,
-                Some(CssPropertyValue::Inherit) => Display::Flex,
-                Some(CssPropertyValue::Exact(LayoutDisplay::Flex)) => Display::Flex,
-                Some(CssPropertyValue::Exact(LayoutDisplay::Inline)) => Display::Inline,
-            },
-            box_sizing: match rect_layout.box_sizing.unwrap_or_default().get_property_or_default() {
-                None => BoxSizing::ContentBox,
-                Some(LayoutBoxSizing::ContentBox) => BoxSizing::ContentBox,
-                Some(LayoutBoxSizing::BorderBox) => BoxSizing::BorderBox,
-            },
-            position_type: match rect_layout.position.unwrap_or_default().get_property_or_default() {
-                Some(LayoutPosition::Static) => PositionType::Relative, // todo - static?
-                Some(LayoutPosition::Relative) => PositionType::Relative,
-                Some(LayoutPosition::Absolute) => PositionType::Absolute,
-                None => PositionType::Relative,
-            },
-            direction: Direction::LTR,
-            flex_direction: match rect_layout.direction.unwrap_or_default().get_property_or_default() {
-                Some(LayoutDirection::Row) => FlexDirection::Row,
-                Some(LayoutDirection::RowReverse) => FlexDirection::RowReverse,
-                Some(LayoutDirection::Column) => FlexDirection::Column,
-                Some(LayoutDirection::ColumnReverse) => FlexDirection::ColumnReverse,
-                None => FlexDirection::Row,
-            },
-            flex_wrap: match rect_layout.wrap.unwrap_or_default().get_property_or_default() {
-                Some(LayoutWrap::Wrap) => FlexWrap::Wrap,
-                Some(LayoutWrap::NoWrap) => FlexWrap::NoWrap,
-                None => FlexWrap::Wrap,
-            },
-            overflow: match rect_layout.overflow_x.unwrap_or_default().get_property_or_default() {
-                Some(LayoutOverflow::Scroll) => Overflow::Scroll,
-                Some(LayoutOverflow::Auto) => Overflow::Scroll,
-                Some(LayoutOverflow::Hidden) => Overflow::Hidden,
-                Some(LayoutOverflow::Visible) => Overflow::Visible,
-                None => Overflow::Scroll,
-            },
-            align_items: match rect_layout.align_items.unwrap_or_default().get_property_or_default() {
-                Some(LayoutAlignItems::Stretch) => AlignItems::Stretch,
-                Some(LayoutAlignItems::Center) => AlignItems::Center,
-                Some(LayoutAlignItems::Start) => AlignItems::FlexStart,
-                Some(LayoutAlignItems::End) => AlignItems::FlexEnd,
-                None => AlignItems::FlexStart,
-            },
-            align_content: match rect_layout.align_content.unwrap_or_default().get_property_or_default() {
-                Some(LayoutAlignContent::Stretch) => AlignContent::Stretch,
-                Some(LayoutAlignContent::Center) => AlignContent::Center,
-                Some(LayoutAlignContent::Start) => AlignContent::FlexStart,
-                Some(LayoutAlignContent::End) => AlignContent::FlexEnd,
-                Some(LayoutAlignContent::SpaceBetween) => AlignContent::SpaceBetween,
-                Some(LayoutAlignContent::SpaceAround) => AlignContent::SpaceAround,
-                None => AlignContent::Stretch,
-            },
-            justify_content: match rect_layout.justify_content.unwrap_or_default().get_property_or_default() {
-                Some(LayoutJustifyContent::Center) => JustifyContent::Center,
-                Some(LayoutJustifyContent::Start) => JustifyContent::FlexStart,
-                Some(LayoutJustifyContent::End) => JustifyContent::FlexEnd,
-                Some(LayoutJustifyContent::SpaceBetween) => JustifyContent::SpaceBetween,
-                Some(LayoutJustifyContent::SpaceAround) => JustifyContent::SpaceAround,
-                Some(LayoutJustifyContent::SpaceEvenly) => JustifyContent::SpaceEvenly,
-                None => JustifyContent::FlexStart,
-            },
-            position: Offsets {
-                left: translate_dimension(rect_layout.left.map(|prop| prop.map_property(|l| l.0))),
-                right: translate_dimension(rect_layout.right.map(|prop| prop.map_property(|r| r.0))),
-                top: translate_dimension(rect_layout.top.map(|prop| prop.map_property(|t| t.0))),
-                bottom: translate_dimension(rect_layout.bottom.map(|prop| prop.map_property(|b| b.0))),
-            },
-            margin: Offsets {
-                left: translate_dimension(rect_layout.margin_left.map(|prop| prop.map_property(|l| l.0))),
-                right: translate_dimension(rect_layout.margin_right.map(|prop| prop.map_property(|r| r.0))),
-                top: translate_dimension(rect_layout.margin_top.map(|prop| prop.map_property(|t| t.0))),
-                bottom: translate_dimension(rect_layout.margin_bottom.map(|prop| prop.map_property(|b| b.0))),
-            },
-            padding: Offsets {
-                left: translate_dimension(rect_layout.padding_left.map(|prop| prop.map_property(|l| l.0))),
-                right: translate_dimension(rect_layout.padding_right.map(|prop| prop.map_property(|r| r.0))),
-                top: translate_dimension(rect_layout.padding_top.map(|prop| prop.map_property(|t| t.0))),
-                bottom: translate_dimension(rect_layout.padding_bottom.map(|prop| prop.map_property(|b| b.0))),
-            },
-            border: Offsets {
-                left: translate_dimension(rect_layout.border_left_width.map(|prop| prop.map_property(|l| l.0))),
-                right: translate_dimension(rect_layout.border_right_width.map(|prop| prop.map_property(|r| r.0))),
-                top: translate_dimension(rect_layout.border_top_width.map(|prop| prop.map_property(|t| t.0))),
-                bottom: translate_dimension(rect_layout.border_bottom_width.map(|prop| prop.map_property(|b| b.0))),
-            },
-            flex_grow: rect_layout.flex_grow.unwrap_or_default().get_property_or_default().unwrap_or_default().0.get(),
-            flex_shrink: rect_layout.flex_shrink.unwrap_or_default().get_property_or_default().unwrap_or_default().0.get(),
-            size: Size {
-                width: translate_dimension(rect_layout.width.map(|prop| prop.map_property(|l| l.0))),
-                height: translate_dimension(rect_layout.height.map(|prop| prop.map_property(|l| l.0))),
-            },
-            min_size: Size {
-                width: translate_dimension(rect_layout.min_width.map(|prop| prop.map_property(|l| l.0))),
-                height: translate_dimension(rect_layout.min_height.map(|prop| prop.map_property(|l| l.0))),
-            },
-            max_size: Size {
-                width: translate_dimension(rect_layout.max_width.map(|prop| prop.map_property(|l| l.0))),
-                height: translate_dimension(rect_layout.max_height.map(|prop| prop.map_property(|l| l.0))),
-            },
-            align_self: AlignSelf::Auto, // todo!
-            flex_basis: Dimension::Auto, // todo!
-            aspect_ratio: Number::Undefined,
-            font_size_px: rect_style.font_size.and_then(|fs| fs.get_property_owned()).unwrap_or(DEFAULT_FONT_SIZE).0,
-            line_height: rect_style.line_height.and_then(|lh| lh.map_property(|lh| lh.0).get_property_owned()).map(|lh| lh.get()),
-            letter_spacing: rect_style.letter_spacing.and_then(|ls| ls.map_property(|ls| ls.0).get_property_owned()),
-            word_spacing: rect_style.word_spacing.and_then(|ws| ws.map_property(|ws| ws.0).get_property_owned()),
-            tab_width: rect_style.tab_width.and_then(|tw| tw.map_property(|tw| tw.0).get_property_owned()).map(|tw| tw.get()),
-        }
-    }
-}
-
 #[derive(Debug, Clone, PartialEq)]
 pub struct ContentGroup {
     /// The parent of the current node group, i.e. either the root node (0)
@@ -601,42 +511,31 @@ pub struct GlTextureCache {
     pub solved_textures: BTreeMap<DomId, BTreeMap<NodeId, (ImageKey, ImageDescriptor)>>,
 }
 
+// todo: very unclean, just so that
+pub type LayoutFuncTy<T> = fn(&NodeHierarchy, &NodeDataContainer<NodeData<T>>, &NodeDataContainer<DisplayRectangle>, &AppResources, &PipelineId, LayoutRect) -> LayoutResult;
+
 /// Does the layout, updates the image + font resources for the RenderAPI
-pub fn do_layout_for_display_list<T>(
+pub fn do_layout_for_display_list<T, U: FontImageApi>(
     data: &mut T,
     app_resources: &mut AppResources,
-    window: &mut Window<T>,
-    render_api: &mut RenderApi,
-    hidden_context: &mut HeadlessContextState,
+    pipeline_id: &PipelineId,
+    render_api: &mut U,
     gl_context: Rc<Gl>,
     ui_states: &mut BTreeMap<DomId, UiState<T>>,
     ui_descriptions: &mut BTreeMap<DomId, UiDescription<T>>,
     full_window_state: &mut FullWindowState,
     default_callbacks: &mut BTreeMap<DomId, DefaultCallbackIdMap<T>>,
+    insert_into_active_gl_textures: fn(PipelineId, Epoch, Texture) -> ExternalImageId,
+    layout_func: LayoutFuncTy<T>,
 ) -> (SolvedLayoutCache, GlTextureCache) {
 
     use crate::{
-        wr_translate::{
-            translate_logical_size_to_css_layout_size,
-            wr_translate_image_key,
-            wr_translate_image_descriptor,
-        },
         app_resources::{
-            RawImageFormat,
+            RawImageFormat, ImageInfo,
             add_resources,
             garbage_collect_fonts_and_images,
         },
-        compositor::insert_into_active_gl_textures,
     };
-    use azul_core::app_resources::ImageInfo;
-
-    let pipeline_id = window.internal.pipeline_id;
-
-    let mut layout_cache = SolvedLayoutCache::default();
-
-    let mut solved_textures = BTreeMap::new();
-    let mut iframe_ui_states = BTreeMap::new();
-    let mut iframe_ui_descriptions = BTreeMap::new();
 
     fn recurse<T, U: FontImageApi>(
         data: &mut T,
@@ -653,21 +552,21 @@ pub fn do_layout_for_display_list<T>(
         pipeline_id: &PipelineId,
         bounds: LayoutRect,
         gl_context: Rc<Gl>,
+        layout_func: LayoutFuncTy<T>,
     ) {
-        use azul_core::{
-            callbacks::{LayoutInfo, IFrameCallbackInfoUnchecked, GlCallbackInfoUnchecked},
+        use gleam::gl;
+        use crate::{
+            callbacks::{
+                HidpiAdjustedBounds, LayoutInfo,
+                IFrameCallbackInfoUnchecked, GlCallbackInfoUnchecked
+            },
             ui_state::{
                 ui_state_from_dom,
                 scan_ui_state_for_iframe_callbacks,
                 scan_ui_state_for_gltexture_callbacks,
             },
-        };
-        use crate::{
-            ui_solver::do_the_layout,
-            wr_translate::hidpi_rect_from_bounds,
             app_resources::add_fonts_and_images,
         };
-        use gleam::gl;
 
         // Right now the IFrameCallbacks and GlTextureCallbacks need to know how large their
         // containers are in order to be solved properly
@@ -684,7 +583,7 @@ pub fn do_layout_for_display_list<T>(
         // In order to calculate the layout, font + image metrics have to be calculated first
         add_fonts_and_images(app_resources, render_api, &pipeline_id, &display_list, &ui_description.ui_descr_arena.node_data);
 
-        let layout_result = do_the_layout(
+        let layout_result = (layout_func)(
             &ui_description.ui_descr_arena.node_layout,
             &ui_description.ui_descr_arena.node_data,
             &display_list.rectangles,
@@ -724,7 +623,7 @@ pub fn do_layout_for_display_list<T>(
                         gl_context: gl_context.clone(),
                         resources: &app_resources,
                     },
-                    bounds: hidpi_rect_from_bounds(
+                    bounds: HidpiAdjustedBounds::from_bounds(
                         rect_bounds,
                         full_window_state.size.hidpi_factor,
                         full_window_state.size.winit_hidpi_factor,
@@ -751,7 +650,7 @@ pub fn do_layout_for_display_list<T>(
         for (node_id, cb, ptr) in iframe_callbacks {
 
             let bounds = layout_result.rects[node_id].bounds;
-            let hidpi_bounds = hidpi_rect_from_bounds(
+            let hidpi_bounds = HidpiAdjustedBounds::from_bounds(
                 bounds,
                 full_window_state.size.hidpi_factor,
                 full_window_state.size.winit_hidpi_factor
@@ -804,6 +703,7 @@ pub fn do_layout_for_display_list<T>(
                     pipeline_id,
                     bounds,
                     gl_context.clone(),
+                    layout_func,
                 );
                 iframe_ui_states.insert(iframe_dom_id.clone(), iframe_ui_state);
                 iframe_ui_descriptions.insert(iframe_dom_id.clone(), iframe_ui_description);
@@ -816,11 +716,10 @@ pub fn do_layout_for_display_list<T>(
         layout_cache.scrollable_nodes.insert(dom_id.clone(), scrollable_nodes);
     }
 
-    // Make sure unused scroll states are garbage collected.
-    window.internal.scroll_states.remove_unused_scroll_states();
-
-    hidden_context.make_not_current();
-    window.display.make_current();
+    let mut layout_cache = SolvedLayoutCache::default();
+    let mut solved_textures = BTreeMap::new();
+    let mut iframe_ui_states = BTreeMap::new();
+    let mut iframe_ui_descriptions = BTreeMap::new();
 
     for (dom_id, ui_state) in ui_states.iter_mut() {
 
@@ -843,14 +742,12 @@ pub fn do_layout_for_display_list<T>(
             &pipeline_id,
             LayoutRect {
                 origin: LayoutPoint::new(0.0, 0.0),
-                size: translate_logical_size_to_css_layout_size(full_window_state.size.dimensions),
+                size: LayoutSize::new(full_window_state.size.dimensions.width, full_window_state.size.dimensions.height),
             },
             gl_context.clone(),
+            layout_func,
         );
     }
-
-    window.display.make_not_current();
-    hidden_context.make_current();
 
     ui_states.extend(iframe_ui_states.into_iter());
     ui_descriptions.extend(iframe_ui_descriptions.into_iter());
@@ -879,12 +776,12 @@ pub fn do_layout_for_display_list<T>(
         };
 
         let key = render_api.new_image_key();
-        let external_image_id = insert_into_active_gl_textures(pipeline_id, window.internal.epoch, texture);
+        let external_image_id = (insert_into_active_gl_textures)(*pipeline_id, window.internal.epoch, texture);
 
         let add_img_msg = AddImageMsg(
             AddImage {
-                key: wr_translate_image_key(key),
-                descriptor: wr_translate_image_descriptor(descriptor),
+                key,
+                descriptor,
                 data: ImageData::External(ExternalImageData {
                     id: external_image_id,
                     channel_index: 0,
@@ -908,8 +805,6 @@ pub fn do_layout_for_display_list<T>(
     garbage_collect_fonts_and_images(app_resources, render_api, &pipeline_id);
     // Add the new GL textures to the RenderApi
     add_resources(app_resources, render_api, &pipeline_id, Vec::new(), image_resource_updates);
-
-    hidden_context.make_not_current();
 
     (layout_cache, gl_texture_cache)
 }
@@ -1173,7 +1068,6 @@ fn displaylist_handle_rect<'a, T>(
     if let Some(bg) = rect.style.background.as_ref().and_then(|br| br.get_property()) {
 
         use azul_css::{CssImageId, StyleBackgroundContent::*};
-        use azul_core::display_list::RectBackground;
 
         fn get_image_info(app_resources: &AppResources, pipeline_id: &PipelineId, style_image_id: &CssImageId) -> Option<RectBackground> {
             let image_id = app_resources.get_css_image_id(&style_image_id.0)?;
@@ -1203,8 +1097,7 @@ fn displaylist_handle_rect<'a, T>(
         Text(_) | Label(_) => {
             if let Some(layouted_glyphs) = layout_result.solved_layouts.get(dom_id).and_then(|lr| lr.layouted_glyph_cache.get(&rect_idx)).cloned() {
 
-                use azul_core::ui_solver::DEFAULT_FONT_COLOR;
-                use crate::wr_translate::translate_logical_size_to_css_layout_size;
+                use crate::ui_solver::DEFAULT_FONT_COLOR;
 
                 let text_color = rect.style.text_color.and_then(|tc| tc.get_property().cloned()).unwrap_or(DEFAULT_FONT_COLOR).0;
                 let positioned_words = &layout_result.solved_layouts[dom_id].positioned_word_cache[&rect_idx];
@@ -1213,7 +1106,7 @@ fn displaylist_handle_rect<'a, T>(
                 frame.content.push(get_text(
                     display_list_rect_bounds,
                     &layout_result.solved_layouts[dom_id].rects[rect_idx].padding,
-                    translate_logical_size_to_css_layout_size(full_window_state.size.dimensions),
+                    full_window_state.size.dimensions,
                     layouted_glyphs,
                     font_instance_key,
                     text_color,
@@ -1310,7 +1203,7 @@ fn displaylist_handle_rect<'a, T>(
 fn get_text(
     bounds: LayoutRect,
     padding: &ResolvedOffsets,
-    root_window_size: LayoutSize,
+    root_window_size: LogicalSize,
     layouted_glyphs: LayoutedGlyphs,
     font_instance_key: FontInstanceKey,
     font_color: ColorU,

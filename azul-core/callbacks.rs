@@ -823,6 +823,16 @@ pub struct HidpiAdjustedBounds {
 
 impl HidpiAdjustedBounds {
 
+    #[inline(always)]
+    pub fn from_bounds(bounds: LayoutRect, hidpi_factor: f32, winit_hidpi_factor: f32) -> Self {
+        let logical_size = LogicalSize::new(bounds.size.width, bounds.size.height);
+        Self {
+            logical_size,
+            hidpi_factor,
+            winit_hidpi_factor,
+        }
+    }
+
     pub fn get_physical_size(&self) -> PhysicalSize {
         self.get_logical_size().to_physical(self.winit_hidpi_factor)
     }
