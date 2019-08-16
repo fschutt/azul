@@ -2,13 +2,13 @@ use std::{
     fmt,
     collections::BTreeMap,
 };
-use azul_css::{ Css, CssDeclaration, CssProperty, CssPropertyType };
+use azul_css::{Css, CssDeclaration, CssProperty, CssPropertyType};
 use crate::{
     FastHashMap,
     id_tree::{Arena, NodeId, NodeDataContainer},
     dom::{DomId, NodeData, DomString},
     ui_state::{UiState, HoverGroup},
-    callbacks::{FocusTarget, HitTestItem},
+    callbacks::HitTestItem,
     style::HtmlCascadeInfo,
 };
 

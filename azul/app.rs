@@ -25,7 +25,6 @@ use crate::{
         Window, ScrollStates, RendererType, WindowSize,
         DebugState, WindowState, FullWindowState, HeadlessContextState,
     },
-    window_state::CallbacksOfHitTest,
     dom::{Dom, DomId, NodeId, ScrollTagId},
     gl::GlShader,
     traits::Layout,
@@ -39,7 +38,7 @@ use crate::{
 };
 use azul_core::{
     ui_solver::ScrolledNodes,
-    window::{AzulUpdateEvent, KeyboardState, WindowId, CallCallbacksResult},
+    window::{AzulUpdateEvent, CallbacksOfHitTest, KeyboardState, WindowId, CallCallbacksResult},
     callbacks::PipelineId,
     ui_description::UiDescription,
     ui_solver::LayoutResult,
@@ -1295,7 +1294,7 @@ fn determine_events<T>(
     full_window_state: &mut FullWindowState,
     ui_state_map: &BTreeMap<DomId, UiState<T>>,
 ) -> BTreeMap<DomId, CallbacksOfHitTest<T>> {
-    use crate::window_state::determine_callbacks;
+    use azul_core::window_state::determine_callbacks;
     ui_state_map.iter().map(|(dom_id, ui_state)| {
         (dom_id.clone(), determine_callbacks(full_window_state, &hit_test_results, ui_state))
     }).collect()
