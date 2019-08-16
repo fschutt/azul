@@ -253,8 +253,6 @@ mod compositor;
 /// Default logger, can be turned off with `feature = "logging"`
 #[cfg(feature = "logging")]
 mod logging;
-/// Window state handling and diffing
-mod window_state;
 /// ImageId / FontId handling and caching
 mod app_resources;
 /// Translation between data types (so that Azuls API can be independent of the actual "backend" type)
@@ -280,6 +278,13 @@ pub mod prelude {
     pub use azul_core::{
         ui_solver::{TextLayoutOptions, ResolvedTextLayoutOptions},
         callbacks::StackCheckedPointer,
+        window::{
+            WindowCreateOptions, RendererType,
+            LogicalPosition, LogicalSize, PhysicalPosition, PhysicalSize,
+            WindowState, KeyboardState, MouseState, DebugState, AcceleratorKey,
+            VirtualKeyCode, ScanCode,
+        },
+        window_state::keymap,
     };
     pub use crate::app::{App, AppConfig, AppResources};
     pub use crate::task::{Task, TerminateTimer, TimerId, Timer, DropCheck};
@@ -300,11 +305,7 @@ pub mod prelude {
     };
     pub use crate::traits::{Layout, Modify};
     pub use crate::window::{
-        Window, WindowCreateOptions, MonitorHandle,
-        Monitor, RendererType,
-        LogicalPosition, LogicalSize, PhysicalPosition, PhysicalSize,
-        WindowState, KeyboardState, MouseState, DebugState, AcceleratorKey,
-        VirtualKeyCode, ScanCode, keymap,
+        Window, MonitorHandle, Monitor,
     };
     pub use crate::text_layout::GlyphInstance;
     pub use crate::xml::{XmlComponent, XmlComponentMap, DomXml};

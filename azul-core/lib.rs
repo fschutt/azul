@@ -19,6 +19,7 @@ pub mod ui_solver;
 pub mod style;
 pub mod task;
 pub mod window;
+pub mod window_state;
 
 mod stack_checked_pointer;
 
