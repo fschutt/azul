@@ -22,18 +22,18 @@ edition = "2018"
 path = "../../azul/lib.rs"
 
 [dependencies]
+webrender               = { version = "0.60.0",         default-features = false                                                                                 }
 gleam                   = { version = "0.6",            default-features = false                                                                                 }
 glutin                  = { version = "0.22.0-alpha3",  default-features = false                                                                                 }
 app_units               = { version = "0.7.1",          default-features = false                                                                                 }
-unicode-normalization   = { version = "0.1.8",          default-features = false                                                                                 }
 tinyfiledialogs         = { version = "3.3.5",          default-features = false                                                                                 }
 clipboard2              = { version = "0.1.1",          default-features = false                                                                                 }
 font-loader             = { version = "0.8.0",          default-features = false                                                                                 }
 xmlparser               = { version = "0.9.0",          default-features = false                                                                                 }
-harfbuzz-sys            = { version = "0.3.2",          default-features = false,                  features = ["build-native-harfbuzz", "build-native-freetype"] }
 azul-css                = { version = "0.1.0",          default-features = false,                  path = "../azul-css"                                          }
 azul-core               = { version = "0.1.0",          default-features = false,                  path = "../azul-core"                                         }
 azul-layout             = { version = "0.1.0",          default-features = false,                  path = "../azul-layout"                                       }
+azul-text-layout        = { version = "0.1.0",          default-features = false,                  path = "../azul-text-layout"                                  }
 azul-css-parser         = { version = "0.1.0",          default-features = false, optional = true, path = "../azul-css-parser"                                   }
 azul-widgets            = { version = "0.1.0",          default-features = false, optional = true, path = "../azul-widgets"                                      }
 azul-native-style       = { version = "0.1.0",          default-features = false, optional = true, path = "../azul-native-style"                                 }
@@ -42,13 +42,7 @@ serde                   = { version = "1",              default-features = false
 log                     = { version = "0.4.6",          default-features = false, optional = true                                                                }
 fern                    = { version = "0.5.7",          default-features = false, optional = true                                                                }
 backtrace               = { version = "0.3.32",         default-features = false, optional = true, features = ["std", "libunwind", "libbacktrace", "coresymbolication", "dladdr", "dbghelp"] }
-image                   = { version = "0.21.2",         default-features = false, optional = true, features = ["gif_codec", "jpeg", "png_codec", "tiff", "bmp"] }
-
-# Linux: Use webrender with freetype feature enabled
-[target.'cfg(target_os = "linux")'.dependencies]
-webrender = { version = "0.60.0", default-features = false }
-[target.'cfg(not(target_os = "linux"))'.dependencies]
-webrender = { version = "0.60.0", default-features = false }
+image                   = { version = "0.21.2",         default-features = false, optional = true, features = ["gif_codec", "jpeg", "png_codec", "tiff", "bmp"]  }
 
 [features]
 default = ["logging", "widgets", "native_style", "css_parser"]

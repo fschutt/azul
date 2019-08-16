@@ -1,5 +1,3 @@
-#![allow(unused_variables, dead_code)]
-
 use azul_css::{LayoutSize, LayoutRect, LayoutPoint};
 pub use azul_core::{
     app_resources::{
@@ -9,10 +7,10 @@ pub use azul_core::{
         ClusterIterator, ClusterInfo,
     },
     display_list::GlyphInstance,
-    ui_solver::{ResolvedTextLayoutOptions, TextLayoutOptions, InlineTextLayout},
-};
-pub(crate) use azul_core::ui_solver::{
-    DEFAULT_LINE_HEIGHT, DEFAULT_WORD_SPACING, DEFAULT_LETTER_SPACING, DEFAULT_TAB_WIDTH,
+    ui_solver::{
+        ResolvedTextLayoutOptions, TextLayoutOptions, InlineTextLayout,
+        DEFAULT_LINE_HEIGHT, DEFAULT_WORD_SPACING, DEFAULT_LETTER_SPACING, DEFAULT_TAB_WIDTH,
+    },
 };
 
 /// Whether the text overflows the parent rectangle, and if yes, by how many pixels,
@@ -471,7 +469,7 @@ pub fn get_line_y_position(line_number: usize, font_size_px: f32, line_height_px
 }
 
 #[derive(Debug, Copy, Clone, PartialOrd, PartialEq)]
-enum LineCaretIntersection {
+pub enum LineCaretIntersection {
     /// OK: Caret does not interset any elements
     NoIntersection,
     /// In order to not intersect with any holes, the caret needs to
@@ -491,7 +489,7 @@ enum LineCaretIntersection {
 /// - `holes`: Whether the text should respect any rectangular regions
 ///    where the text can't flow (preparation for inline / float layout).
 /// - `max_width`: Does the text have a restriction on how wide it can be (in pixels)
-fn caret_intersects_with_holes(
+pub fn caret_intersects_with_holes(
     line_caret_x: f32,
     line_number: usize,
     font_size_px: f32,
@@ -568,7 +566,7 @@ fn caret_intersects_with_holes(
     }
 }
 
-fn advance_caret(caret: &mut f32, line_number: &mut usize, intersection: LineCaretIntersection) {
+pub fn advance_caret(caret: &mut f32, line_number: &mut usize, intersection: LineCaretIntersection) {
     use self::LineCaretIntersection::*;
     match intersection {
         NoIntersection => { },
