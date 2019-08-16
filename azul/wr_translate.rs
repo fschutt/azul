@@ -780,6 +780,33 @@ pub(crate) fn wr_translate_display_list(input: CachedDisplayList, pipeline_id: P
     builder.finalize().2
 }
 
+pub(crate) fn wr_translate_add_font_msg(add_font_msg: &AddFontMsg) -> WrResourceUpdate {
+    use azul_core::AddFontMsg::*;
+    use self::wr_translate::{wr_translate_font_key};
+    match add_font_msg {
+        Font(f) => WrResourceUpdate::AddFont(AddFont::Raw(wr_translate_font_key(f.font_key), f.font_bytes.clone(), f.font_index as u32)),
+        Instance(fi, _) => WrResourceUpdate::AddFontInstance(fi.clone()),
+    }
+}
+
+pub(crate) fn wr_translate_delete_font_msg(delete_font_msg: &DeleteFontMsg) -> WrResourceUpdate {
+    use azul_core::DeleteFontMsg::*;
+    use self::wr_translate::{wr_translate_font_key, wr_translate_font_instance_key};
+    match delete_font_msg {
+        Font(f) => WrResourceUpdate::DeleteFont(wr_translate_font_key(*f)),
+        Instance(fi, _) => WrResourceUpdate::DeleteFontInstance(wr_translate_font_instance_key(*fi)),
+    }
+}
+
+pub(crate) fn wr_translate_add_image_msg(add_image_msg: &AddImageMsg) -> WrResourceUpdate {
+    WrResourceUpdate::AddImage(self.0.clone())
+}
+
+pub(crate) fn wr_translate_delete_image_msg(delete_image_msg: &DeleteImageMsg) -> WrResourceUpdate {
+    use self::wr_translate::wr_translate_image_key;
+    WrResourceUpdate::DeleteImage(wr_translate_image_key(self.0.clone()))
+}
+
 #[inline]
 fn push_display_list_msg(builder: &mut WrDisplayListBuilder, msg: DisplayListMsg, parent_space_and_clip: &WrSpaceAndClipInfo) {
     use azul_core::display_list::DisplayListMsg::*;
