@@ -4,6 +4,7 @@ members = [
     "cargo/azul-css",
     "cargo/azul-core",
     "cargo/azul-layout",
+    "cargo/azul-text-layout",
     "cargo/azul-widgets",
     "cargo/azul-css-parser",
     "cargo/azul-native-style",

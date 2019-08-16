@@ -1,0 +1,27 @@
+[package]
+name = "azul-text-layout"
+version = "0.1.0"
+authors = ["Felix Schütt <felix.schuett@maps4print.com>"]
+license = "MIT"
+description = '''
+    Text layout algorithms Azul desktop GUI framework
+'''
+documentation = "https://docs.rs/azul"
+homepage = "https://azul.rs/"
+keywords = ["gui", "GUI", "user interface", "svg", "graphics", "native" ]
+categories = ["gui"]
+repository = "https://github.com/maps4print/azul"
+readme = "README.md"
+exclude = ["assets/*", "doc/*", "examples/*"]
+autoexamples = false
+edition = "2018"
+
+[lib]
+path = "../../azul-text-layout/lib.rs"
+
+[dependencies]
+azul-css                = { path = "../azul-css",       default-features = false }
+azul-core               = { path = "../azul-core",      default-features = false }
+unicode-normalization   = { version = "0.1.8",          default-features = false }
+harfbuzz-sys            = { version = "0.3.2",          default-features = false,                  features = ["build-native-harfbuzz", "build-native-freetype"] }
+
