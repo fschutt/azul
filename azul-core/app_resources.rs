@@ -3,8 +3,10 @@ use azul_css::{LayoutPoint, LayoutSize};
 use crate::{
     FastHashMap, FastHashSet,
     ui_solver::{ResolvedTextLayoutOptions},
-    display_list::GlyphInstance,
+    display_list::{DisplayList, GlyphInstance},
     callbacks::PipelineId,
+    id_tree::NodeDataContainer,
+    dom::NodeData,
 };
 
 pub type CssImageId = String;
@@ -792,14 +794,13 @@ pub fn build_add_font_resource_updates<T: FontImageApi>(
     fonts_in_dom: &FastHashMap<ImmediateFontId, FastHashSet<Au>>,
 ) -> Vec<(ImmediateFontId, AddFontMsg)> {
 
-    use webrender::api::{FontInstancePlatformOptions, FontInstanceOptions, FontRenderMode, FontInstanceFlags};
+    use crate::display_list::{FontRenderMode, FontInstanceFlags};
 
     let mut resource_updates = Vec::new();
 
     for (im_font_id, font_sizes) in fonts_in_dom {
 
         macro_rules! insert_font_instances {($font_id:expr, $font_key:expr, $font_index:expr, $font_size:expr) => ({
-            use crate::wr_translate::{wr_translate_font_instance_key, wr_translate_font_key, translate_au};
 
             let font_instance_key_exists = app_resources.currently_registered_fonts[pipeline_id]
                 .get(&$font_id)
@@ -810,6 +811,11 @@ pub fn build_add_font_resource_updates<T: FontImageApi>(
 
                 let font_instance_key = render_api.new_font_instance_key();
 
+                use crate::display_list::{
+                    FontInstanceOptions, FontRenderMode,
+                    FontInstancePlatformOptions, FONT_INSTANCE_FLAG_NO_AUTOHINT,
+                };
+
                 // For some reason the gamma is way to low on Windows
                 #[cfg(target_os = "windows")]
                 let platform_options = FontInstancePlatformOptions {
@@ -818,7 +824,7 @@ pub fn build_add_font_resource_updates<T: FontImageApi>(
                 };
 
                 #[cfg(target_os = "linux")]
-                use webrender::api::{FontLCDFilter, FontHinting};
+                use crate::display_list::{FontLCDFilter, FontHinting};
 
                 #[cfg(target_os = "linux")]
                 let platform_options = FontInstancePlatformOptions {
@@ -829,22 +835,16 @@ pub fn build_add_font_resource_updates<T: FontImageApi>(
                 #[cfg(target_os = "macos")]
                 let platform_options = FontInstancePlatformOptions::default();
 
-                let mut font_instance_flags = FontInstanceFlags::empty();
-
-                font_instance_flags.set(FontInstanceFlags::SUBPIXEL_BGR, false);
-                font_instance_flags.set(FontInstanceFlags::NO_AUTOHINT, true);
-                font_instance_flags.set(FontInstanceFlags::LCD_VERTICAL, false);
-
                 let options = FontInstanceOptions {
                     render_mode: FontRenderMode::Subpixel,
-                    flags: font_instance_flags,
+                    flags: 0 | FONT_INSTANCE_FLAG_NO_AUTOHINT,
                     .. Default::default()
                 };
 
                 resource_updates.push(($font_id, AddFontMsg::Instance(AddFontInstance {
-                    key: wr_translate_font_instance_key(font_instance_key),
-                    font_key: wr_translate_font_key($font_key),
-                    glyph_size: translate_au($font_size),
+                    key: font_instance_key,
+                    font_key: $font_key,
+                    glyph_size: $font_size,
                     options: Some(options),
                     platform_options: Some(platform_options),
                     variations: Vec::new(),
@@ -859,7 +859,7 @@ pub fn build_add_font_resource_updates<T: FontImageApi>(
                 }
             },
             None => {
-                use azul_core::app_resources::ImmediateFontId::*;
+                use self::ImmediateFontId::*;
 
                 // If there is no font key, that means there's also no font instances
                 let font_source = match im_font_id {
@@ -944,8 +944,6 @@ pub fn add_resources<T: FontImageApi>(
     add_font_resources: Vec<(ImmediateFontId, AddFontMsg)>,
     add_image_resources: Vec<(ImageId, AddImageMsg)>,
 ) {
-    use crate::wr_translate::translate_font_instance_key_wr;
-
     let mut merged_resource_updates = Vec::new();
 
     merged_resource_updates.extend(add_font_resources.iter().map(|(_, f)| f.into_resource_update()));
@@ -972,11 +970,10 @@ pub fn add_resources<T: FontImageApi>(
                 .insert(font_id, LoadedFont::new(f.font_key, f.font_bytes, f.font_index));
             },
             Instance(fi, size) => {
-                let fi_key = translate_font_instance_key_wr(fi.key);
                 app_resources.currently_registered_fonts
                     .get_mut(pipeline_id).unwrap()
                     .get_mut(&font_id).unwrap()
-                    .font_instances.insert(size, fi_key);
+                    .font_instances.insert(size, fi.key);
             },
         }
     }

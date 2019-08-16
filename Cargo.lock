@@ -63,6 +63,7 @@ dependencies = [
  "azul-css-parser 0.1.0",
  "azul-layout 0.1.0",
  "azul-native-style 0.1.0",
+ "azul-text-layout 0.1.0",
  "azul-widgets 0.1.0",
  "backtrace 0.3.32 (registry+https://github.com/rust-lang/crates.io-index)",
  "clipboard2 0.1.1 (registry+https://github.com/rust-lang/crates.io-index)",
@@ -70,13 +71,11 @@ dependencies = [
  "font-loader 0.8.0 (registry+https://github.com/rust-lang/crates.io-index)",
  "gleam 0.6.17 (registry+https://github.com/rust-lang/crates.io-index)",
  "glutin 0.22.0-alpha3 (registry+https://github.com/rust-lang/crates.io-index)",
- "harfbuzz-sys 0.3.2 (registry+https://github.com/rust-lang/crates.io-index)",
  "image 0.21.2 (registry+https://github.com/rust-lang/crates.io-index)",
  "log 0.4.6 (registry+https://github.com/rust-lang/crates.io-index)",
  "serde 1.0.80 (registry+https://github.com/rust-lang/crates.io-index)",
  "serde_derive 1.0.80 (registry+https://github.com/rust-lang/crates.io-index)",
  "tinyfiledialogs 3.3.5 (registry+https://github.com/rust-lang/crates.io-index)",
- "unicode-normalization 0.1.8 (registry+https://github.com/rust-lang/crates.io-index)",
  "webrender 0.60.0 (registry+https://github.com/rust-lang/crates.io-index)",
  "xmlparser 0.9.0 (registry+https://github.com/rust-lang/crates.io-index)",
 ]
@@ -123,6 +122,16 @@ dependencies = [
 name = "azul-simplecss"
 version = "0.1.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
+
+[[package]]
+name = "azul-text-layout"
+version = "0.1.0"
+dependencies = [
+ "azul-core 0.1.0",
+ "azul-css 0.1.0",
+ "harfbuzz-sys 0.3.2 (registry+https://github.com/rust-lang/crates.io-index)",
+ "unicode-normalization 0.1.8 (registry+https://github.com/rust-lang/crates.io-index)",
+]
 
 [[package]]
 name = "azul-widgets"

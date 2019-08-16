@@ -454,8 +454,6 @@ impl<T> App<T> {
                             send_user_event(AzulUpdateEvent::DoHitTest { window_id }, &mut eld);
                         },
                         WindowEvent::MouseInput { state, button, modifiers, .. } => {
-                            // test
-                            send_user_event(AzulUpdateEvent::CreateWindow { window_create_options: WindowCreateOptions::default() }, &mut eld);
 
                             {
                                 use glutin::event::{ElementState::*, MouseButton::*};
@@ -963,18 +961,28 @@ fn send_user_event<'a, T>(
                 let window = eld.active_windows.get_mut(&glutin_window_id).unwrap();
                 let full_window_state = eld.full_window_states.get_mut(&glutin_window_id).unwrap();
 
+                // Make sure unused scroll states are garbage collected.
+                window.internal.scroll_states.remove_unused_scroll_states();
+                hidden_context.make_not_current();
+                window.display.make_current();
+
                 let (solved_layout_cache, gl_texture_cache) = do_layout_for_display_list(
                     eld.data,
                     eld.resources,
-                    window,
+                    &window.internal.pipeline_id,
                     eld.render_api,
-                    eld.hidden_context,
                     eld.gl_context.clone(),
                     eld.ui_state_cache.get_mut(&glutin_window_id).unwrap(),
                     eld.ui_description_cache.get_mut(&glutin_window_id).unwrap(),
                     full_window_state,
                     eld.default_callbacks_cache.get_mut(&glutin_window_id).unwrap(),
+                    crate::compositor::insert_into_active_gl_textures,
+                    crate::ui_solver::do_the_layout,
                 );
+
+                window.display.make_not_current();
+                hidden_context.make_current();
+                hidden_context.make_not_current();
 
                 window.internal.layout_result = solved_layout_cache;
                 window.internal.gl_texture_cache = gl_texture_cache;
