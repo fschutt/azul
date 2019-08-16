@@ -244,9 +244,6 @@ use azul_core::ui_description;
 use azul_core::ui_state;
 /// HarfBuzz text shaping utilities
 mod text_shaping;
-/// Converts the UI description (the styled HTML nodes)
-/// to an actual display list (+ layout)
-mod display_list;
 /// The compositor takes all textures (user-defined + the UI texture(s)) and draws them on
 /// top of each other
 mod compositor;
