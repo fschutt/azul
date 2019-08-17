@@ -976,6 +976,7 @@ fn send_user_event<'a, T>(
                     eld.default_callbacks_cache.get_mut(&glutin_window_id).unwrap(),
                     crate::compositor::insert_into_active_gl_textures,
                     crate::ui_solver::do_the_layout,
+                    window.internal.epoch,
                 );
 
                 window.display.make_not_current();

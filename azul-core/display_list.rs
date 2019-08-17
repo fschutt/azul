@@ -22,10 +22,11 @@ use crate::{
         LayoutResult, ScrolledNodes, OverflowingScrollNode
     },
     gl::Texture,
-    window::FullWindowState,
+    window::{FullWindowState, LogicalSize},
     app_resources::{
         AppResources, AddImageMsg, FontImageApi, ImageDescriptor,
         ImageKey, FontInstanceKey, ImageInfo, ImageId, LayoutedGlyphs,
+        Epoch, ExternalImageId, GlyphOptions,
     },
     ui_state::UiState,
     ui_description::{UiDescription, StyledNode},
@@ -46,117 +47,6 @@ use gleam::gl::Gl;
 /// events.
 pub type ItemTag = (u64, u16);
 pub type GlyphIndex = u32;
-
-pub type FontInstanceFlags = u32;
-
-// Common flags
-pub const FONT_INSTANCE_FLAG_SYNTHETIC_BOLD: u32    = 1 << 1;
-pub const FONT_INSTANCE_FLAG_EMBEDDED_BITMAPS: u32  = 1 << 2;
-pub const FONT_INSTANCE_FLAG_SUBPIXEL_BGR: u32      = 1 << 3;
-pub const FONT_INSTANCE_FLAG_TRANSPOSE: u32         = 1 << 4;
-pub const FONT_INSTANCE_FLAG_FLIP_X: u32            = 1 << 5;
-pub const FONT_INSTANCE_FLAG_FLIP_Y: u32            = 1 << 6;
-pub const FONT_INSTANCE_FLAG_SUBPIXEL_POSITION: u32 = 1 << 7;
-
-// Windows flags
-pub const FONT_INSTANCE_FLAG_FORCE_GDI: u32         = 1 << 16;
-
-// Mac flags
-pub const FONT_INSTANCE_FLAG_FONT_SMOOTHING: u32    = 1 << 16;
-
-// FreeType flags
-pub const FONT_INSTANCE_FLAG_FORCE_AUTOHINT: u32    = 1 << 16;
-pub const FONT_INSTANCE_FLAG_NO_AUTOHINT: u32       = 1 << 17;
-pub const FONT_INSTANCE_FLAG_VERTICAL_LAYOUT: u32   = 1 << 18;
-pub const FONT_INSTANCE_FLAG_LCD_VERTICAL: u32      = 1 << 19;
-
-#[derive(Debug, Copy, Clone, PartialEq, Eq, Ord, PartialOrd, Hash)]
-pub struct GlyphOptions {
-    pub render_mode: FontRenderMode,
-    pub flags: FontInstanceFlags,
-}
-
-#[derive(Debug, Copy, Clone, PartialEq, Eq, Ord, PartialOrd, Hash)]
-pub enum FontRenderMode {
-    Mono,
-    Alpha,
-    Subpixel,
-}
-
-/*
-#[cfg(target_os = "windows")]
-let platform_options = FontInstancePlatformOptions {
-    gamma: 300,
-    contrast: 100,
-};
-
-#[cfg(target_os = "linux")]
-use webrender::api::{FontLCDFilter, FontHinting};
-
-#[cfg(target_os = "linux")]
-let platform_options = FontInstancePlatformOptions {
-    lcd_filter: FontLCDFilter::Default,
-    hinting: FontHinting::LCD,
-};
-
-#[cfg(target_os = "macos")]
-let platform_options = FontInstancePlatformOptions::default();
-*/
-#[cfg(target_os = "windows")]
-#[derive(Debug, Copy, Clone, PartialEq, Eq, Ord, PartialOrd, Hash)]
-pub struct FontInstancePlatformOptions {
-    pub gamma: u16,
-    pub contrast: u16,
-}
-
-#[cfg(target_os = "macos")]
-#[derive(Default, Debug, Copy, Clone, PartialEq, Eq, Ord, PartialOrd, Hash)]
-pub struct FontInstancePlatformOptions {
-    pub unused: u32,
-}
-
-#[cfg(target_os = "linux")]
-#[derive(Debug, Copy, Clone, PartialEq, Eq, Ord, PartialOrd, Hash)]
-pub struct FontInstancePlatformOptions {
-    pub lcd_filter: FontLCDFilter,
-    pub hinting: FontHinting,
-}
-
-#[derive(Debug, Copy, Clone, PartialEq, Eq, Ord, PartialOrd, Hash)]
-pub enum FontHinting {
-    None,
-    Mono,
-    Light,
-    Normal,
-    LCD,
-}
-
-#[derive(Debug, Copy, Clone, PartialEq, Eq, Ord, PartialOrd, Hash)]
-pub enum FontLCDFilter {
-    None,
-    Default,
-    Light,
-    Legacy,
-}
-
-impl Default for FontLCDFilter {
-    fn default() -> Self { FontLCDFilter::Default }
-}
-
-#[derive(Debug, Copy, Clone, PartialEq, Eq, Ord, PartialOrd, Hash)]
-pub struct FontInstanceOptions {
-    render_mode: FontRenderMode,
-    flags: FontInstanceFlags,
-    bg_color: ColorU,
-    /// When bg_color.a is != 0 and render_mode is FontRenderMode::Subpixel, the text will be
-    /// rendered with bg_color.r/g/b as an opaque estimated background color.
-    synthetic_italics: SyntheticItalics,
-}
-
-#[derive(Debug, Copy, Clone, PartialEq, Eq, Ord, PartialOrd, Hash)]
-pub struct SyntheticItalics {
-    angle: i16,
-}
 
 #[derive(Debug, Copy, Clone, PartialEq, PartialOrd)]
 pub struct GlyphInstance {
@@ -514,6 +404,11 @@ pub struct GlTextureCache {
 // todo: very unclean, just so that
 pub type LayoutFuncTy<T> = fn(&NodeHierarchy, &NodeDataContainer<NodeData<T>>, &NodeDataContainer<DisplayRectangle>, &AppResources, &PipelineId, LayoutRect) -> LayoutResult;
 
+// struct ImageData
+// enum ExternalImageType
+// enum TextureTarget
+// enum ResourceUpdate
+
 /// Does the layout, updates the image + font resources for the RenderAPI
 pub fn do_layout_for_display_list<T, U: FontImageApi>(
     data: &mut T,
@@ -527,15 +422,17 @@ pub fn do_layout_for_display_list<T, U: FontImageApi>(
     default_callbacks: &mut BTreeMap<DomId, DefaultCallbackIdMap<T>>,
     insert_into_active_gl_textures: fn(PipelineId, Epoch, Texture) -> ExternalImageId,
     layout_func: LayoutFuncTy<T>,
+    epoch: Epoch,
 ) -> (SolvedLayoutCache, GlTextureCache) {
 
     use crate::{
         app_resources::{
-            RawImageFormat, ImageInfo,
-            add_resources,
-            garbage_collect_fonts_and_images,
+            RawImageFormat, ImageInfo, AddImage,
+            ExternalImageData, TextureTarget, ExternalImageType,
+            ImageData, add_resources, garbage_collect_fonts_and_images,
         },
     };
+    use azul_css::ColorU;
 
     fn recurse<T, U: FontImageApi>(
         data: &mut T,
@@ -776,7 +673,7 @@ pub fn do_layout_for_display_list<T, U: FontImageApi>(
         };
 
         let key = render_api.new_image_key();
-        let external_image_id = (insert_into_active_gl_textures)(*pipeline_id, window.internal.epoch, texture);
+        let external_image_id = (insert_into_active_gl_textures)(*pipeline_id, epoch, texture);
 
         let add_img_msg = AddImageMsg(
             AddImage {

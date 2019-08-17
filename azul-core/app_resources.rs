@@ -1,5 +1,8 @@
-use std::{fmt, path::PathBuf};
-use azul_css::{LayoutPoint, LayoutSize};
+use std::{fmt, sync::Arc, path::PathBuf};
+use azul_css::{
+    LayoutPoint, LayoutRect, LayoutSize,
+    RectStyle, StyleFontSize, ColorU,
+};
 use crate::{
     FastHashMap, FastHashSet,
     ui_solver::{ResolvedTextLayoutOptions},
@@ -109,9 +112,6 @@ pub enum RawImageFormat {
     RGBAI32,
     RGBA8,
 }
-
-#[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
-pub struct Au(pub i32);
 
 #[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub struct ImageKey {
@@ -698,6 +698,270 @@ pub fn garbage_collect_fonts_and_images<U: FontImageApi>(
     app_resources.last_frame_image_keys.get_mut(pipeline_id).unwrap().clear();
 }
 
+pub fn font_size_to_au(font_size: StyleFontSize) -> Au {
+    use crate::ui_solver::DEFAULT_FONT_SIZE_PX;
+    Au::from_px(font_size.0.to_pixels(DEFAULT_FONT_SIZE_PX as f32))
+}
+
+pub type FontInstanceFlags = u32;
+
+// Common flags
+pub const FONT_INSTANCE_FLAG_SYNTHETIC_BOLD: u32    = 1 << 1;
+pub const FONT_INSTANCE_FLAG_EMBEDDED_BITMAPS: u32  = 1 << 2;
+pub const FONT_INSTANCE_FLAG_SUBPIXEL_BGR: u32      = 1 << 3;
+pub const FONT_INSTANCE_FLAG_TRANSPOSE: u32         = 1 << 4;
+pub const FONT_INSTANCE_FLAG_FLIP_X: u32            = 1 << 5;
+pub const FONT_INSTANCE_FLAG_FLIP_Y: u32            = 1 << 6;
+pub const FONT_INSTANCE_FLAG_SUBPIXEL_POSITION: u32 = 1 << 7;
+
+// Windows flags
+pub const FONT_INSTANCE_FLAG_FORCE_GDI: u32         = 1 << 16;
+
+// Mac flags
+pub const FONT_INSTANCE_FLAG_FONT_SMOOTHING: u32    = 1 << 16;
+
+// FreeType flags
+pub const FONT_INSTANCE_FLAG_FORCE_AUTOHINT: u32    = 1 << 16;
+pub const FONT_INSTANCE_FLAG_NO_AUTOHINT: u32       = 1 << 17;
+pub const FONT_INSTANCE_FLAG_VERTICAL_LAYOUT: u32   = 1 << 18;
+pub const FONT_INSTANCE_FLAG_LCD_VERTICAL: u32      = 1 << 19;
+
+#[derive(Debug, Copy, Clone, PartialEq, Eq, Ord, PartialOrd, Hash)]
+pub struct GlyphOptions {
+    pub render_mode: FontRenderMode,
+    pub flags: FontInstanceFlags,
+}
+
+#[derive(Debug, Copy, Clone, PartialEq, Eq, Ord, PartialOrd, Hash)]
+pub enum FontRenderMode {
+    Mono,
+    Alpha,
+    Subpixel,
+}
+
+#[cfg(target_os = "windows")]
+#[derive(Debug, Copy, Clone, PartialEq, Eq, Ord, PartialOrd, Hash)]
+pub struct FontInstancePlatformOptions {
+    pub gamma: u16,
+    pub contrast: u16,
+}
+
+#[cfg(target_os = "macos")]
+#[derive(Default, Debug, Copy, Clone, PartialEq, Eq, Ord, PartialOrd, Hash)]
+pub struct FontInstancePlatformOptions {
+    pub unused: u32,
+}
+
+#[cfg(target_os = "linux")]
+#[derive(Debug, Copy, Clone, PartialEq, Eq, Ord, PartialOrd, Hash)]
+pub struct FontInstancePlatformOptions {
+    pub lcd_filter: FontLCDFilter,
+    pub hinting: FontHinting,
+}
+
+#[derive(Debug, Copy, Clone, PartialEq, Eq, Ord, PartialOrd, Hash)]
+pub enum FontHinting {
+    None,
+    Mono,
+    Light,
+    Normal,
+    LCD,
+}
+
+#[derive(Debug, Copy, Clone, PartialEq, Eq, Ord, PartialOrd, Hash)]
+pub enum FontLCDFilter {
+    None,
+    Default,
+    Light,
+    Legacy,
+}
+
+impl Default for FontLCDFilter {
+    fn default() -> Self { FontLCDFilter::Default }
+}
+
+#[derive(Debug, Copy, Clone, PartialEq, Eq, Ord, PartialOrd, Hash)]
+pub struct FontInstanceOptions {
+    pub render_mode: FontRenderMode,
+    pub flags: FontInstanceFlags,
+    pub bg_color: ColorU,
+    /// When bg_color.a is != 0 and render_mode is FontRenderMode::Subpixel, the text will be
+    /// rendered with bg_color.r/g/b as an opaque estimated background color.
+    pub synthetic_italics: SyntheticItalics,
+}
+
+impl Default for FontInstanceOptions {
+    fn default() -> FontInstanceOptions {
+        FontInstanceOptions {
+            render_mode: FontRenderMode::Subpixel,
+            flags: 0,
+            bg_color: ColorU::TRANSPARENT,
+            synthetic_italics: SyntheticItalics::default(),
+        }
+    }
+}
+
+
+#[derive(Debug, Copy, Clone, PartialEq, Eq, Ord, PartialOrd, Hash)]
+pub struct SyntheticItalics {
+    pub angle: i16,
+}
+
+impl Default for SyntheticItalics {
+    fn default() -> Self {
+        Self { angle: 0 }
+    }
+}
+
+/// Represents the backing store of an arbitrary series of pixels for display by
+/// WebRender. This storage can take several forms.
+#[derive(Debug, Clone, PartialEq, Eq, Ord, PartialOrd, Hash)]
+pub enum ImageData {
+    /// A simple series of bytes, provided by the embedding and owned by WebRender.
+    /// The format is stored out-of-band, currently in ImageDescriptor.
+    Raw(Arc<Vec<u8>>),
+    /// An image owned by the embedding, and referenced by WebRender. This may
+    /// take the form of a texture or a heap-allocated buffer.
+    External(ExternalImageData),
+}
+
+/// Storage format identifier for externally-managed images.
+#[repr(u32)]
+#[derive(Debug, Copy, Clone, Eq, Hash, PartialEq, PartialOrd, Ord)]
+pub enum ExternalImageType {
+    /// The image is texture-backed.
+    TextureHandle(TextureTarget),
+    /// The image is heap-allocated by the embedding.
+    Buffer,
+}
+
+/// An arbitrary identifier for an external image provided by the
+/// application. It must be a unique identifier for each external
+/// image.
+#[repr(C)]
+#[derive(Copy, Clone, Debug, Eq, PartialEq, Hash, PartialOrd, Ord)]
+pub struct ExternalImageId(pub u64);
+
+/// Specifies the type of texture target in driver terms.
+#[derive(Copy, Clone, Debug, Eq, Hash, PartialEq, PartialOrd, Ord)]
+pub enum TextureTarget {
+    /// Standard texture. This maps to GL_TEXTURE_2D in OpenGL.
+    Default = 0,
+    /// Array texture. This maps to GL_TEXTURE_2D_ARRAY in OpenGL. See
+    /// https://www.khronos.org/opengl/wiki/Array_Texture for background
+    /// on Array textures.
+    Array = 1,
+    /// Rectange texture. This maps to GL_TEXTURE_RECTANGLE in OpenGL. This
+    /// is similar to a standard texture, with a few subtle differences
+    /// (no mipmaps, non-power-of-two dimensions, different coordinate space)
+    /// that make it useful for representing the kinds of textures we use
+    /// in WebRender. See https://www.khronos.org/opengl/wiki/Rectangle_Texture
+    /// for background on Rectangle textures.
+    Rect = 2,
+    /// External texture. This maps to GL_TEXTURE_EXTERNAL_OES in OpenGL, which
+    /// is an extension. This is used for image formats that OpenGL doesn't
+    /// understand, particularly YUV. See
+    /// https://www.khronos.org/registry/OpenGL/extensions/OES/OES_EGL_image_external.txt
+    External = 3,
+}
+
+/// Descriptor for external image resources. See `ImageData`.
+#[repr(C)]
+#[derive(Debug, Clone, Eq, Hash, PartialEq, PartialOrd, Ord)]
+pub struct ExternalImageData {
+    /// The identifier of this external image, provided by the embedding.
+    pub id: ExternalImageId,
+    /// For multi-plane images (i.e. YUV), indicates the plane of the
+    /// original image that this struct represents. 0 for single-plane images.
+    pub channel_index: u8,
+    /// Storage format identifier.
+    pub image_type: ExternalImageType,
+}
+
+pub type TileSize = u16;
+pub type ImageDirtyRect = LayoutRect;
+
+#[derive(Debug, Clone, PartialEq, PartialOrd)]
+pub enum ResourceUpdate {
+    AddFont(AddFont),
+    DeleteFont(FontKey),
+    AddFontInstance(AddFontInstance),
+    DeleteFontInstance(FontInstanceKey),
+    AddImage(AddImage),
+    UpdateImage(UpdateImage),
+    DeleteImage(ImageKey),
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Ord, PartialOrd, Hash)]
+pub struct AddImage {
+    pub key: ImageKey,
+    pub descriptor: ImageDescriptor,
+    pub data: ImageData,
+    pub tiling: Option<TileSize>,
+}
+
+#[derive(Debug, Clone, PartialEq, PartialOrd)]
+pub struct UpdateImage {
+    pub key: ImageKey,
+    pub descriptor: ImageDescriptor,
+    pub data: ImageData,
+    pub dirty_rect: ImageDirtyRect,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Ord, PartialOrd, Hash)]
+pub struct AddFont {
+    pub key: FontKey,
+    pub font_bytes: Vec<u8>,
+    pub font_index: u32,
+}
+
+#[derive(Debug, Clone, PartialEq, PartialOrd)]
+pub struct AddFontInstance {
+    pub key: FontInstanceKey,
+    pub font_key: FontKey,
+    pub glyph_size: Au,
+    pub options: Option<FontInstanceOptions>,
+    pub platform_options: Option<FontInstancePlatformOptions>,
+    pub variations: Vec<FontVariation>,
+}
+
+#[repr(C)]
+#[derive(Clone, Copy, Debug, PartialOrd, PartialEq)]
+pub struct FontVariation {
+    pub tag: u32,
+    pub value: f32,
+}
+
+#[repr(C)]
+#[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+pub struct Epoch(pub u32);
+
+#[derive(Debug, Clone, Copy, Hash, PartialEq, PartialOrd, Eq, Ord)]
+pub struct Au(pub i32);
+
+pub const AU_PER_PX: i32 = 60;
+pub const MAX_AU: i32 = (1 << 30) - 1;
+pub const MIN_AU: i32 = -(1 << 30) - 1;
+
+impl Au {
+    pub fn from_px(px: f32) -> Self {
+        let target_app_units = (px * AU_PER_PX as f32) as i32;
+        Au(target_app_units.min(MAX_AU).max(MIN_AU))
+    }
+}
+
+pub fn get_font_id(rect_style: &RectStyle) -> &str {
+    use crate::ui_solver::DEFAULT_FONT_ID;
+    let font_id = rect_style.font_family.as_ref().and_then(|family| family.get_property()?.fonts.get(0));
+    font_id.map(|f| f.get_str()).unwrap_or(DEFAULT_FONT_ID)
+}
+
+pub fn get_font_size(rect_style: &RectStyle) -> StyleFontSize {
+    use crate::ui_solver::DEFAULT_FONT_SIZE;
+    rect_style.font_size.and_then(|fs| fs.get_property().cloned()).unwrap_or(DEFAULT_FONT_SIZE)
+}
+
+
 /// Scans the display list for all font IDs + their font size
 pub fn scan_ui_description_for_font_keys<T>(
     app_resources: &AppResources,
@@ -717,16 +981,16 @@ pub fn scan_ui_description_for_font_keys<T>(
 
         match node_data.get_node_type() {
             Text(_) | Label(_) => {
-                let css_font_id = ui_solver::get_font_id(&display_rect.style);
+                let css_font_id = get_font_id(&display_rect.style);
                 let font_id = match app_resources.css_ids_to_font_ids.get(css_font_id) {
                     Some(s) => ImmediateFontId::Resolved(*s),
                     None => ImmediateFontId::Unresolved(css_font_id.to_string()),
                 };
-                let font_size = ui_solver::get_font_size(&display_rect.style);
+                let font_size = get_font_size(&display_rect.style);
                 font_keys
                     .entry(font_id)
                     .or_insert_with(|| FastHashSet::default())
-                    .insert(ui_solver::font_size_to_au(font_size));
+                    .insert(Au::from_px(font_size.0.get()));
             },
             _ => { }
         }
@@ -762,9 +1026,23 @@ pub fn scan_ui_description_for_image_keys<T>(
 
 // Debug, PartialEq, Eq, PartialOrd, Ord
 #[derive(Debug, Clone)]
-pub(crate) enum AddFontMsg {
+pub enum AddFontMsg {
     Font(LoadedFont),
     Instance(AddFontInstance, Au),
+}
+
+impl AddFontMsg {
+    pub fn into_resource_update(&self) -> ResourceUpdate {
+        use self::AddFontMsg::*;
+        match self {
+            Font(f) => ResourceUpdate::AddFont(AddFont {
+                key: f.font_key,
+                font_bytes: f.font_bytes.clone(),
+                font_index: f.font_index as u32
+            }),
+            Instance(fi, _) => ResourceUpdate::AddFontInstance(fi.clone()),
+        }
+    }
 }
 
 #[derive(Debug, PartialEq, Eq, PartialOrd, Ord, Clone)]
@@ -773,11 +1051,33 @@ pub enum DeleteFontMsg {
     Instance(FontInstanceKey, Au),
 }
 
+impl DeleteFontMsg {
+    pub fn into_resource_update(&self) -> ResourceUpdate {
+        use self::DeleteFontMsg::*;
+        match self {
+            Font(f) => ResourceUpdate::DeleteFont(*f),
+            Instance(fi, _) => ResourceUpdate::DeleteFontInstance(*fi),
+        }
+    }
+}
+
 #[derive(Debug, PartialEq, Eq, PartialOrd, Ord, Clone)]
 pub struct AddImageMsg(pub AddImage, pub ImageInfo);
 
+impl AddImageMsg {
+    pub fn into_resource_update(&self) -> ResourceUpdate {
+        ResourceUpdate::AddImage(self.0.clone())
+    }
+}
+
 #[derive(Debug, PartialEq, Eq, PartialOrd, Ord, Clone)]
 pub struct DeleteImageMsg(ImageKey, ImageInfo);
+
+impl DeleteImageMsg {
+    pub fn into_resource_update(&self) -> ResourceUpdate {
+        ResourceUpdate::DeleteImage(self.0.clone())
+    }
+}
 
 /// Given the fonts of the current frame, returns `AddFont` and `AddFontInstance`s of
 /// which fonts / instances are currently not in the `current_registered_fonts` and
@@ -794,8 +1094,6 @@ pub fn build_add_font_resource_updates<T: FontImageApi>(
     fonts_in_dom: &FastHashMap<ImmediateFontId, FastHashSet<Au>>,
 ) -> Vec<(ImmediateFontId, AddFontMsg)> {
 
-    use crate::display_list::{FontRenderMode, FontInstanceFlags};
-
     let mut resource_updates = Vec::new();
 
     for (im_font_id, font_sizes) in fonts_in_dom {
@@ -811,20 +1109,12 @@ pub fn build_add_font_resource_updates<T: FontImageApi>(
 
                 let font_instance_key = render_api.new_font_instance_key();
 
-                use crate::display_list::{
-                    FontInstanceOptions, FontRenderMode,
-                    FontInstancePlatformOptions, FONT_INSTANCE_FLAG_NO_AUTOHINT,
-                };
-
                 // For some reason the gamma is way to low on Windows
                 #[cfg(target_os = "windows")]
                 let platform_options = FontInstancePlatformOptions {
                     gamma: 300,
                     contrast: 100,
                 };
-
-                #[cfg(target_os = "linux")]
-                use crate::display_list::{FontLCDFilter, FontHinting};
 
                 #[cfg(target_os = "linux")]
                 let platform_options = FontInstancePlatformOptions {
