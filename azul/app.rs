@@ -57,8 +57,6 @@ use webrender::api::{WorldPoint, HitTestFlags};
 #[cfg(test)]
 use crate::app_resources::FakeRenderApi;
 
-pub use azul_core::app::*; // {App, AppState, AppStateNoData, RuntimeError}
-
 // Default clear color is white, to signify that there is rendering going on
 // (otherwise, "transparent") backgrounds would be painted black.
 const COLOR_WHITE: ColorU = ColorU { r: 255, g: 255, b: 255, a: 0 };
