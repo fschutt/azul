@@ -26,7 +26,7 @@ use crate::{
     app_resources::{
         AppResources, AddImageMsg, FontImageApi, ImageDescriptor,
         ImageKey, FontInstanceKey, ImageInfo, ImageId, LayoutedGlyphs,
-        Epoch, ExternalImageId, GlyphOptions,
+        Epoch, ExternalImageId, GlyphOptions, LoadFontFnTy, LoadImageFnTy,
     },
     ui_state::UiState,
     ui_description::{UiDescription, StyledNode},
@@ -355,8 +355,8 @@ pub(crate) struct DisplayListParametersRef<'a, T: 'a> {
 }
 
 /// DisplayRectangle is the main type which the layout parsing step gets operated on.
-#[derive(Debug)]
-pub(crate) struct DisplayRectangle {
+#[derive(Default, Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
+pub struct DisplayRectangle {
     /// `Some(id)` if this rectangle has a callback attached to it
     /// Note: this is not the same as the `NodeId`!
     /// These two are completely separate numbers!
@@ -423,6 +423,8 @@ pub fn do_layout_for_display_list<T, U: FontImageApi>(
     insert_into_active_gl_textures: fn(PipelineId, Epoch, Texture) -> ExternalImageId,
     layout_func: LayoutFuncTy<T>,
     epoch: Epoch,
+    load_font_fn: LoadFontFnTy,
+    load_image_fn: LoadImageFnTy,
 ) -> (SolvedLayoutCache, GlTextureCache) {
 
     use crate::{
@@ -450,6 +452,8 @@ pub fn do_layout_for_display_list<T, U: FontImageApi>(
         bounds: LayoutRect,
         gl_context: Rc<Gl>,
         layout_func: LayoutFuncTy<T>,
+        load_font_fn: LoadFontFnTy,
+        load_image_fn: LoadImageFnTy,
     ) {
         use gleam::gl;
         use crate::{
@@ -478,7 +482,15 @@ pub fn do_layout_for_display_list<T, U: FontImageApi>(
         );
 
         // In order to calculate the layout, font + image metrics have to be calculated first
-        add_fonts_and_images(app_resources, render_api, &pipeline_id, &display_list, &ui_description.ui_descr_arena.node_data);
+        add_fonts_and_images(
+            app_resources,
+            render_api,
+            &pipeline_id,
+            &display_list,
+            &ui_description.ui_descr_arena.node_data,
+            load_font_fn,
+            load_image_fn,
+        );
 
         let layout_result = (layout_func)(
             &ui_description.ui_descr_arena.node_layout,
@@ -601,6 +613,8 @@ pub fn do_layout_for_display_list<T, U: FontImageApi>(
                     bounds,
                     gl_context.clone(),
                     layout_func,
+                    load_font_fn,
+                    load_image_fn,
                 );
                 iframe_ui_states.insert(iframe_dom_id.clone(), iframe_ui_state);
                 iframe_ui_descriptions.insert(iframe_dom_id.clone(), iframe_ui_description);
@@ -643,6 +657,8 @@ pub fn do_layout_for_display_list<T, U: FontImageApi>(
             },
             gl_context.clone(),
             layout_func,
+            load_font_fn,
+            load_image_fn,
         );
     }
 

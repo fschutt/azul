@@ -667,6 +667,8 @@ pub fn add_fonts_and_images<T, U: FontImageApi>(
     pipeline_id: &PipelineId,
     display_list: &DisplayList,
     node_data: &NodeDataContainer<NodeData<T>>,
+    load_font_fn: LoadFontFnTy,
+    load_image_fn: LoadImageFnTy,
 ) {
     let font_keys = scan_ui_description_for_font_keys(&app_resources, display_list, node_data);
     let image_keys = scan_ui_description_for_image_keys(&app_resources, display_list, node_data);
@@ -674,8 +676,8 @@ pub fn add_fonts_and_images<T, U: FontImageApi>(
     app_resources.last_frame_font_keys.get_mut(pipeline_id).unwrap().extend(font_keys.clone().into_iter());
     app_resources.last_frame_image_keys.get_mut(pipeline_id).unwrap().extend(image_keys.clone().into_iter());
 
-    let add_font_resource_updates = build_add_font_resource_updates(app_resources, render_api, pipeline_id, &font_keys);
-    let add_image_resource_updates = build_add_image_resource_updates(app_resources, render_api, pipeline_id, &image_keys);
+    let add_font_resource_updates = build_add_font_resource_updates(app_resources, render_api, pipeline_id, &font_keys, load_font_fn);
+    let add_image_resource_updates = build_add_image_resource_updates(app_resources, render_api, pipeline_id, &image_keys, load_image_fn);
 
     add_resources(app_resources, render_api, pipeline_id, add_font_resource_updates, add_image_resource_updates);
 }
@@ -990,7 +992,7 @@ pub fn scan_ui_description_for_font_keys<T>(
                 font_keys
                     .entry(font_id)
                     .or_insert_with(|| FastHashSet::default())
-                    .insert(Au::from_px(font_size.0.get()));
+                    .insert(font_size_to_au(font_size));
             },
             _ => { }
         }
@@ -1079,6 +1081,9 @@ impl DeleteImageMsg {
     }
 }
 
+pub type LoadFontFnTy = fn(&FontSource) -> Option<(Vec<u8>, i32)>;
+pub type LoadImageFnTy = fn(&ImageSource) -> Option<(ImageData, ImageDescriptor)>;
+
 /// Given the fonts of the current frame, returns `AddFont` and `AddFontInstance`s of
 /// which fonts / instances are currently not in the `current_registered_fonts` and
 /// need to be added.
@@ -1092,6 +1097,7 @@ pub fn build_add_font_resource_updates<T: FontImageApi>(
     render_api: &mut T,
     pipeline_id: &PipelineId,
     fonts_in_dom: &FastHashMap<ImmediateFontId, FastHashSet<Au>>,
+    font_source_load_fn: LoadFontFnTy,
 ) -> Vec<(ImmediateFontId, AddFontMsg)> {
 
     let mut resource_updates = Vec::new();
@@ -1162,14 +1168,9 @@ pub fn build_add_font_resource_updates<T: FontImageApi>(
                     Unresolved(css_font_id) => FontSource::System(css_font_id.clone()),
                 };
 
-                let (font_bytes, font_index) = match font_source_get_bytes(&font_source) {
-                    Ok(o) => o,
-                    Err(e) => {
-                        #[cfg(feature = "logging")] {
-                            warn!("Could not load font with ID: {:?} - error: {}", im_font_id, e);
-                        }
-                        continue;
-                    }
+                let (font_bytes, font_index) = match (font_source_load_fn)(&font_source) {
+                    Some(s) => s,
+                    None => continue,
                 };
 
                 if !font_sizes.is_empty() {
@@ -1202,21 +1203,14 @@ pub fn build_add_image_resource_updates<T: FontImageApi>(
     render_api: &mut T,
     pipeline_id: &PipelineId,
     images_in_dom: &FastHashSet<ImageId>,
+    image_source_load_fn: LoadImageFnTy,
 ) -> Vec<(ImageId, AddImageMsg)> {
 
     images_in_dom.iter()
     .filter(|image_id| !app_resources.currently_registered_images[pipeline_id].contains_key(*image_id))
     .filter_map(|image_id| {
-        let (data, descriptor) = match image_source_get_bytes(app_resources.image_sources.get(image_id)?) {
-            Ok(o) => o,
-            Err(e) => {
-                #[cfg(feature = "logging")] {
-                    warn!("Could not load image with ID: {:?} - error: {}", image_id, e);
-                }
-                return None;
-            }
-        };
-
+        let image_source = app_resources.image_sources.get(image_id)?;
+        let (data, descriptor) = (image_source_load_fn)(image_source)?;
         let key = render_api.new_image_key();
         let add_image = AddImage { key, data, descriptor, tiling: None };
         Some((*image_id, AddImageMsg(add_image, ImageInfo { key, descriptor })))
