@@ -139,15 +139,14 @@ extern crate azul_css;
 #[macro_use(impl_task_api)]
 extern crate azul_core;
 extern crate azul_layout;
+extern crate azul_text_layout;
 extern crate glutin;
 extern crate webrender;
 extern crate app_units;
-extern crate unicode_normalization;
 extern crate tinyfiledialogs;
 extern crate clipboard2;
 extern crate font_loader;
 extern crate xmlparser;
-extern crate harfbuzz_sys;
 extern crate gleam;
 #[cfg(feature = "css_parser")]
 extern crate azul_css_parser;
@@ -185,7 +184,8 @@ pub mod widgets {
             mut text_layout_options: ResolvedTextLayoutOptions,
             horizontal_alignment: StyleTextAlignmentHorz,
         ) -> SvgTextLayout {
-            use text_layout;
+
+            use azul_text_layout::text_layout;
 
             text_layout_options.font_size_px = SVG_FAKE_FONT_SIZE;
             let words = text_layout::split_text_into_words(text);
@@ -228,9 +228,9 @@ pub use azul_core::diff;
 /// OpenGL helper functions, necessary to create OpenGL textures, manage contexts, etc.
 pub use azul_core::gl;
 /// Handles text layout (modularized, can be used as a standalone module)
-pub mod text_layout;
+pub use azul_text_layout::text_layout as text_layout;
 /// Main `Layout` trait definition + convenience traits for `Arc<Mutex<T>>`
-pub mod traits;
+pub use azul_core::traits;
 /// Window state handling and window-related information
 pub mod window;
 /// XML-based DOM serialization and XML-to-Rust compiler implementation
@@ -243,7 +243,7 @@ use azul_core::ui_description;
 /// Manages the hover / focus tags for the DOM items
 use azul_core::ui_state;
 /// HarfBuzz text shaping utilities
-mod text_shaping;
+use azul_text_layout::text_shaping as text_shaping;
 /// The compositor takes all textures (user-defined + the UI texture(s)) and draws them on
 /// top of each other
 mod compositor;

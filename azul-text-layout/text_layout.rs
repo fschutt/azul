@@ -42,8 +42,6 @@ pub fn split_text_into_words(text: &str) -> Words {
     let mut last_char_idx = 0;
     let mut last_char_was_whitespace = false;
 
-    let char_len = normalized_chars.len();
-
     for (ch_idx, ch) in normalized_chars.iter().enumerate() {
 
         let ch = *ch;
@@ -190,7 +188,7 @@ pub fn words_to_scaled_words(
     let scaled_words = words.items.iter()
         .filter(|w| w.word_type == WordType::Word)
         .enumerate()
-        .filter_map(|(word_idx, word)| {
+        .filter_map(|(word_idx, _)| {
 
             let hb_glyph_positions = shaped_word_positions.get(word_idx)?.clone();
             let hb_glyph_infos = shaped_word_infos.get(word_idx)?.clone();
@@ -231,7 +229,6 @@ pub fn position_words(
     let word_spacing_px = space_advance * text_layout_options.word_spacing.unwrap_or(DEFAULT_WORD_SPACING);
     let line_height_px = space_advance * text_layout_options.line_height.unwrap_or(DEFAULT_LINE_HEIGHT);
     let tab_width_px = space_advance * text_layout_options.tab_width.unwrap_or(DEFAULT_TAB_WIDTH);
-    let letter_spacing_px = text_layout_options.letter_spacing.unwrap_or(DEFAULT_LETTER_SPACING);
 
     let mut line_breaks = Vec::new();
     let mut word_positions = Vec::new();
@@ -400,7 +397,6 @@ pub fn word_positions_to_inline_text_layout(
     let font_size_px = word_positions.text_layout_options.font_size_px;
     let space_advance = scaled_words.space_advance_px;
     let line_height_px = space_advance * word_positions.text_layout_options.line_height.unwrap_or(DEFAULT_LINE_HEIGHT);
-    let content_width = word_positions.content_size.width;
 
     let mut last_word_index = 0;
 
