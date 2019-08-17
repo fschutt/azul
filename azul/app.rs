@@ -20,7 +20,7 @@ use webrender::{
 };
 use log::LevelFilter;
 use azul_css::{ColorU, HotReloadHandler};
-use crate::{
+use azul_core::{
     FastHashMap,
     window::{
         Window, ScrollStates, RendererType, WindowSize,
@@ -30,20 +30,17 @@ use crate::{
     gl::GlShader,
     traits::Layout,
     ui_state::UiState,
-    task::{Task, Timer, TimerId},
+    ui_solver::ScrolledNodes,
     callbacks::{
         LayoutCallback, HitTestItem, Redraw, DontRedraw,
         ScrollPosition, DefaultCallbackIdMap,
     },
-    display_list::{SolvedLayoutCache, GlTextureCache},
-};
-use azul_core::{
-    ui_solver::ScrolledNodes,
+    task::{Task, Timer, TimerId},
     window::{AzulUpdateEvent, CallbacksOfHitTest, KeyboardState, WindowId, CallCallbacksResult},
     callbacks::PipelineId,
     ui_description::UiDescription,
     ui_solver::LayoutResult,
-    display_list::CachedDisplayList,
+    display_list::{CachedDisplayList, SolvedLayoutCache, GlTextureCache},
 };
 pub use crate::app_resources::AppResources;
 
@@ -961,7 +958,7 @@ fn send_user_event<'a, T>(
 
                 // Make sure unused scroll states are garbage collected.
                 window.internal.scroll_states.remove_unused_scroll_states();
-                hidden_context.make_not_current();
+                eld.hidden_context.make_not_current();
                 window.display.make_current();
 
                 let (solved_layout_cache, gl_texture_cache) = do_layout_for_display_list(
@@ -977,11 +974,13 @@ fn send_user_event<'a, T>(
                     crate::compositor::insert_into_active_gl_textures,
                     crate::ui_solver::do_the_layout,
                     window.internal.epoch,
+                    crate::app_resources::font_source_get_bytes,
+                    crate::app_resources::image_source_get_bytes,
                 );
 
                 window.display.make_not_current();
-                hidden_context.make_current();
-                hidden_context.make_not_current();
+                eld.hidden_context.make_current();
+                eld.hidden_context.make_not_current();
 
                 window.internal.layout_result = solved_layout_cache;
                 window.internal.gl_texture_cache = gl_texture_cache;

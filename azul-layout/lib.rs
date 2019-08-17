@@ -30,6 +30,7 @@ use azul_core::{
     id_tree::{NodeHierarchy, NodeDataContainer},
     dom::NodeId,
     display_list::DisplayRectangle,
+    traits::GetTextLayout,
 };
 use crate::style::Style;
 
@@ -41,8 +42,9 @@ pub mod style;
 pub use geometry::{Size, Offsets};
 pub use number::Number;
 
-pub trait GetStyle { fn get_style(&self) -> Style; }
-pub trait GetTextLayout { fn get_text_layout(&mut self, text_layout_options: &ResolvedTextLayoutOptions) -> InlineTextLayout; }
+pub trait GetStyle {
+    fn get_style(&self) -> Style;
+}
 
 #[derive(Debug, Clone, PartialEq, PartialOrd)]
 pub struct SolvedUi {
@@ -117,9 +119,9 @@ impl GetStyle for DisplayRectangle {
 
         use crate::{style::*, Size, Offsets, Number};
         use azul_css::{
-            PixelValue, LayoutDisplay, LayoutDirection, LayoutWrap,
+            PixelValue, LayoutDisplay, LayoutDirection, LayoutWrap, LayoutPosition,
             LayoutAlignItems, LayoutAlignContent, LayoutJustifyContent,
-            LayoutBoxSizing, Overflow as LayoutOverflow,
+            LayoutBoxSizing, Overflow as LayoutOverflow, CssPropertyValue,
         };
         use azul_core::ui_solver::DEFAULT_FONT_SIZE;
 

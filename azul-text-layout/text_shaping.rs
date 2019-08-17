@@ -45,12 +45,12 @@ const LIGA_TAG: hb_tag_t = create_hb_tag(('l', 'i', 'g', 'a'));
 // Contextual ligature substitution
 const CLIG_TAG: hb_tag_t = create_hb_tag(('c', 'l', 'i', 'g'));
 
-const FEATURE_KERNING_OFF: hb_feature_t  = hb_feature_t { tag: KERN_TAG, value: 0, start: 0, end: u32::MAX };
 const FEATURE_KERNING_ON: hb_feature_t   = hb_feature_t { tag: KERN_TAG, value: 1, start: 0, end: u32::MAX };
-const FEATURE_LIGATURE_OFF: hb_feature_t = hb_feature_t { tag: LIGA_TAG, value: 0, start: 0, end: u32::MAX };
 const FEATURE_LIGATURE_ON: hb_feature_t  = hb_feature_t { tag: LIGA_TAG, value: 1, start: 0, end: u32::MAX };
-const FEATURE_CLIG_OFF: hb_feature_t     = hb_feature_t { tag: CLIG_TAG, value: 0, start: 0, end: u32::MAX };
 const FEATURE_CLIG_ON: hb_feature_t      = hb_feature_t { tag: CLIG_TAG, value: 1, start: 0, end: u32::MAX };
+// const FEATURE_KERNING_OFF: hb_feature_t  = hb_feature_t { tag: KERN_TAG, value: 0, start: 0, end: u32::MAX };
+// const FEATURE_LIGATURE_OFF: hb_feature_t = hb_feature_t { tag: LIGA_TAG, value: 0, start: 0, end: u32::MAX };
+// const FEATURE_CLIG_OFF: hb_feature_t     = hb_feature_t { tag: CLIG_TAG, value: 0, start: 0, end: u32::MAX };
 
 // NOTE: kerning is a "feature" and has to be specifically turned on.
 static ACTIVE_HB_FEATURES: [hb_feature_t;3] = [
