@@ -156,8 +156,6 @@ pub fn ui_state_from_app_state<'a, T>(
     layout_callback: LayoutCallback<T>,
 ) -> UiState<T> {
 
-    use crate::app::RuntimeError::*;
-
     // Only shortly lock the data to get the dom out
     let dom = (layout_callback)(data, layout_info);
 

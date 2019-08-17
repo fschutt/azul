@@ -39,29 +39,6 @@ impl PreferredHeight {
     }
 }
 
-pub(crate) fn font_size_to_au(font_size: StyleFontSize) -> Au {
-    use azul_core::ui_solver::DEFAULT_FONT_SIZE_PX;
-    px_to_au(font_size.0.to_pixels(DEFAULT_FONT_SIZE_PX as f32))
-}
-
-pub(crate) fn px_to_au(px: f32) -> Au {
-    use app_units::{Au as WrAu, AU_PER_PX, MIN_AU, MAX_AU};
-
-    let target_app_units = WrAu((px * AU_PER_PX as f32) as i32);
-    Au(target_app_units.min(MAX_AU).max(MIN_AU).0)
-}
-
-pub(crate) fn get_font_id(rect_style: &RectStyle) -> &str {
-    use azul_core::ui_solver::DEFAULT_FONT_ID;
-    let font_id = rect_style.font_family.as_ref().and_then(|family| family.get_property()?.fonts.get(0));
-    font_id.map(|f| f.get_str()).unwrap_or(DEFAULT_FONT_ID)
-}
-
-pub(crate) fn get_font_size(rect_style: &RectStyle) -> StyleFontSize {
-    use azul_core::ui_solver::DEFAULT_FONT_SIZE;
-    rect_style.font_size.and_then(|fs| fs.get_property().cloned()).unwrap_or(DEFAULT_FONT_SIZE)
-}
-
 pub struct InlineText<'a> {
     words: &'a Words,
     scaled_words: &'a ScaledWords,
