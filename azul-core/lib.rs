@@ -5,7 +5,6 @@ extern crate gleam;
 #[cfg(feature = "css_parser")]
 extern crate azul_css_parser;
 
-pub mod app;
 pub mod app_resources;
 pub mod callbacks;
 pub mod display_list;

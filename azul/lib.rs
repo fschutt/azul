@@ -314,7 +314,6 @@ pub mod prelude {
 /// Re-exports of errors
 pub mod errors {
     pub use crate::{
-        app::RuntimeError,
         app_resources::{ImageReloadError, FontReloadError},
     };
     // TODO: re-export the sub-types of ClipboardError!
