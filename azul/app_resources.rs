@@ -3,28 +3,17 @@ use std::{
     path::PathBuf,
     io::Error as IoError,
 };
-use webrender::api::{
-    AddImage, ResourceUpdate, AddFont,
-    AddFontInstance, RenderApi,
-};
-use azul_core::{
-    FastHashMap, FastHashSet,
-    display_list::DisplayList,
-};
-pub use webrender::api::{
-    ImageFormat as WrImageFormat,
-    ImageData as WrImageData,
-    ImageDescriptor as WrImageDescriptor
-};
+use webrender::api::{RenderApi as WrRenderApi};
+use azul_core::app_resources::{ResourceUpdate, FontImageApi};
 #[cfg(feature = "image_loading")]
 pub use image::{ImageError, DynamicImage, GenericImageView};
-pub use azul_core::app_resources::{
-    AppResources, Au, ImmediateFontId, LoadedFont, RawImageFormat,
-    FontKey, FontInstanceKey, ImageKey, ImageSource, FontSource,
-    RawImage, CssFontId, CssImageId, TextCache, TextId, ImageId, FontId,
-    ImageInfo, IdNamespace,
-};
-use azul_core::{
+pub use azul_core::{
+    app_resources::{
+        AppResources, Au, ImmediateFontId, LoadedFont, RawImageFormat,
+        FontKey, FontInstanceKey, ImageKey, ImageSource, FontSource,
+        RawImage, CssFontId, CssImageId, TextCache, TextId, ImageId, FontId,
+        ImageInfo, IdNamespace, ImageData, ImageDescriptor,
+    },
     callbacks::PipelineId,
     id_tree::NodeDataContainer,
     dom::NodeData,
@@ -86,83 +75,120 @@ impl_display!(FontReloadError, {
     FontNotFound(id) => format!("Could not locate system font: \"{}\" found", id),
 });
 
-impl FontImageApi for RenderApi {
+/// Wrapper struct because it's not possible to implement traits on foreign types
+pub(crate) struct WrApi {
+    pub api: WrRenderApi,
+}
+
+impl FontImageApi for WrApi {
     fn new_image_key(&self) -> ImageKey {
         use crate::wr_translate::translate_image_key_wr;
-        translate_image_key_wr(self.generate_image_key())
+        translate_image_key_wr(self.api.generate_image_key())
     }
     fn new_font_key(&self) -> FontKey {
         use crate::wr_translate::translate_font_key_wr;
-        translate_font_key_wr(self.generate_font_key())
+        translate_font_key_wr(self.api.generate_font_key())
     }
     fn new_font_instance_key(&self) -> FontInstanceKey {
         use crate::wr_translate::translate_font_instance_key_wr;
-        translate_font_instance_key_wr(self.generate_font_instance_key())
+        translate_font_instance_key_wr(self.api.generate_font_instance_key())
     }
-    fn update_resources(&self, updates: Vec<ResourceUpdate>) { self.update_resources(updates); }
-    fn flush_scene_builder(&self) { self.flush_scene_builder(); }
+    fn update_resources(&self, updates: Vec<ResourceUpdate>) {
+        use crate::wr_translate::wr_translate_resource_update;
+        let wr_updates = updates.into_iter().map(wr_translate_resource_update).collect();
+        self.api.update_resources(wr_updates);
+    }
+    fn flush_scene_builder(&self) {
+        self.api.flush_scene_builder();
+    }
 }
 
 /// Returns the **decoded** bytes of the image + the descriptor (contains width / height).
 /// Returns an error if the data is encoded, but the crate wasn't built with `--features="image_loading"`
 #[allow(unused_variables)]
-pub fn image_source_get_bytes(image_source: &ImageSource)
--> Result<(WrImageData, WrImageDescriptor), ImageReloadError>
-{
-    use crate::wr_translate::wr_translate_image_format;
+pub fn image_source_get_bytes(image_source: &ImageSource) -> Option<(ImageData, ImageDescriptor)> {
 
-    match image_source {
-        ImageSource::Embedded(bytes) => {
-            #[cfg(feature = "image_loading")] {
-                decode_image_data(bytes.to_vec()).map_err(|e| ImageReloadError::DecodingError(e))
+    fn image_source_get_bytes_inner(image_source: &ImageSource)
+    -> Result<(ImageData, ImageDescriptor), ImageReloadError>
+    {
+        use std::sync::Arc;
+        match image_source {
+            ImageSource::Embedded(bytes) => {
+                #[cfg(feature = "image_loading")] {
+                    decode_image_data(bytes.to_vec()).map_err(|e| ImageReloadError::DecodingError(e))
+                }
+                #[cfg(not(feature = "image_loading"))] {
+                    Err(ImageReloadError::DecodingModuleNotActive)
+                }
+            },
+            ImageSource::Raw(raw_image) => {
+                use azul_core::app_resources::is_image_opaque;
+                let is_opaque = is_image_opaque(raw_image.data_format, &raw_image.pixels[..]);
+                let descriptor = ImageDescriptor {
+                    format: raw_image.data_format,
+                    dimensions: raw_image.image_dimensions,
+                    stride: None,
+                    offset: 0,
+                    is_opaque,
+                    allow_mipmaps: true,
+                };
+                let data = ImageData::Raw(Arc::new(raw_image.pixels.clone()));
+                Ok((data, descriptor))
+            },
+            ImageSource::File(file_path) => {
+                #[cfg(feature = "image_loading")] {
+                    use std::fs;
+                    let bytes = fs::read(file_path).map_err(|e| ImageReloadError::Io(e, file_path.clone()))?;
+                    decode_image_data(bytes).map_err(|e| ImageReloadError::DecodingError(e))
+                }
+                #[cfg(not(feature = "image_loading"))] {
+                    Err(ImageReloadError::DecodingModuleNotActive)
+                }
+            },
+        }
+    }
+
+    match image_source_get_bytes_inner(image_source) {
+        Ok(o) => Some(o),
+        Err(e) => {
+            #[cfg(feature = "logging")] {
+                error!("Could not load image source \"{:?}\", error: {}", image_source, e);
             }
-            #[cfg(not(feature = "image_loading"))] {
-                Err(ImageReloadError::DecodingModuleNotActive)
-            }
-        },
-        ImageSource::Raw(raw_image) => {
-            let opaque = is_image_opaque(raw_image.data_format, &raw_image.pixels[..]);
-            let allow_mipmaps = true;
-            let descriptor = WrImageDescriptor::new(
-                raw_image.image_dimensions.0 as i32,
-                raw_image.image_dimensions.1 as i32,
-                wr_translate_image_format(raw_image.data_format),
-                opaque,
-                allow_mipmaps
-            );
-            let data = WrImageData::new(raw_image.pixels.clone());
-            Ok((data, descriptor))
-        },
-        ImageSource::File(file_path) => {
-            #[cfg(feature = "image_loading")] {
-                use std::fs;
-                let bytes = fs::read(file_path).map_err(|e| ImageReloadError::Io(e, file_path.clone()))?;
-                decode_image_data(bytes).map_err(|e| ImageReloadError::DecodingError(e))
-            }
-            #[cfg(not(feature = "image_loading"))] {
-                Err(ImageReloadError::DecodingModuleNotActive)
-            }
-        },
+            None
+        }
     }
 }
 
-/// Returns the bytes of the font (loads the font from the system in case it is a `FontSource::System` font).
-/// Also returns the index into the font (in case the font is a font collection).
-pub fn font_source_get_bytes(font_source: &FontSource) -> Result<(Vec<u8>, i32), FontReloadError> {
-    use std::fs;
-    match font_source {
-        FontSource::Embedded(bytes) => Ok((bytes.to_vec(), 0)),
-        FontSource::File(file_path) => {
-            fs::read(file_path)
-            .map_err(|e| FontReloadError::Io(e, file_path.clone()))
-            .map(|f| (f, 0))
-        },
-        FontSource::System(id) => load_system_font(id).ok_or(FontReloadError::FontNotFound(id.clone())),
+pub fn font_source_get_bytes(font_source: &FontSource) -> Option<(Vec<u8>, i32)> {
+
+    /// Returns the bytes of the font (loads the font from the system in case it is a `FontSource::System` font).
+    /// Also returns the index into the font (in case the font is a font collection).
+    fn font_source_get_bytes_inner(font_source: &FontSource) -> Result<(Vec<u8>, i32), FontReloadError> {
+        use std::fs;
+        match font_source {
+            FontSource::Embedded(bytes) => Ok((bytes.to_vec(), 0)),
+            FontSource::File(file_path) => {
+                fs::read(file_path)
+                .map_err(|e| FontReloadError::Io(e, file_path.clone()))
+                .map(|f| (f, 0))
+            },
+            FontSource::System(id) => load_system_font(id).ok_or(FontReloadError::FontNotFound(id.clone())),
+        }
+    }
+
+    match font_source_get_bytes_inner(font_source) {
+        Ok(o) => Some(o),
+        Err(e) => {
+            #[cfg(feature = "logging")] {
+                error!("Could not load font source \"{:?}\", error: {}", font_source, e);
+            }
+            None
+        }
     }
 }
 
 #[cfg(feature = "image_loading")]
-fn decode_image_data(image_data: Vec<u8>) -> Result<(WrImageData, WrImageDescriptor), ImageError> {
+fn decode_image_data(image_data: Vec<u8>) -> Result<(ImageData, ImageDescriptor), ImageError> {
     use image; // the crate
 
     let image_format = image::guess_format(&image_data)?;
@@ -266,10 +292,9 @@ fn test_parse_gsettings_font() {
 
 #[cfg(feature = "image_loading")]
 fn prepare_image(image_decoded: DynamicImage)
-    -> Result<(WrImageData, WrImageDescriptor), ImageError>
+    -> Result<(ImageData, ImageDescriptor), ImageError>
 {
     use image;
-    use crate::wr_translate::wr_translate_image_format;
 
     let image_dims = image_decoded.dimensions();
 
@@ -351,14 +376,14 @@ fn prepare_image(image_decoded: DynamicImage)
 
     let is_opaque = is_image_opaque(format, &bytes[..]);
     let allow_mipmaps = true;
-    let descriptor = WrImageDescriptor::new(
+    let descriptor = ImageDescriptor::new(
         image_dims.0 as i32,
         image_dims.1 as i32,
-        wr_translate_image_format(format),
+        format,
         is_opaque,
         allow_mipmaps
     );
-    let data = WrImageData::new(bytes);
+    let data = ImageData::new(bytes);
 
     Ok((data, descriptor))
 }

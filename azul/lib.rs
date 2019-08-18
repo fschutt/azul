@@ -236,14 +236,8 @@ pub mod window;
 /// XML-based DOM serialization and XML-to-Rust compiler implementation
 pub mod xml;
 
-/// Slab-allocated DOM nodes
-use azul_core::id_tree;
-/// UI Description & display list handling (webrender)
-use azul_core::ui_description;
 /// Manages the hover / focus tags for the DOM items
 use azul_core::ui_state;
-/// HarfBuzz text shaping utilities
-use azul_text_layout::text_shaping as text_shaping;
 /// The compositor takes all textures (user-defined + the UI texture(s)) and draws them on
 /// top of each other
 mod compositor;
@@ -282,29 +276,27 @@ pub mod prelude {
             VirtualKeyCode, ScanCode,
         },
         window_state::keymap,
+        display_list::GlyphInstance,
+        app_resources::{
+            AppResources, RawImageFormat, ImageId, FontId,
+            FontSource, ImageSource, TextCache, TextId,
+        },
+        callbacks::*,
+        gl::{
+            GLuint, Texture, VertexLayout, VertexAttribute, VertexAttributeType,
+            VertexLayoutDescription, VertexBuffer, GlApiVersion, IndexBufferFormat,
+            Uniform, UniformType, GlShader, VertexShaderCompileError,
+            FragmentShaderCompileError, GlShaderLinkError, GlShaderCreateError,
+        },
+        dom::{
+            Dom, DomHash, NodeType, NodeData, On, DomString, TabIndex,
+            EventFilter, HoverEventFilter, FocusEventFilter, NotEventFilter, WindowEventFilter,
+        },
+        task::{Task, TerminateTimer, TimerId, Timer, DropCheck},
+        traits::Layout,
     };
-    pub use crate::app::{App, AppConfig, AppResources};
-    pub use crate::task::{Task, TerminateTimer, TimerId, Timer, DropCheck};
-    pub use crate::resources::{
-        RawImageFormat, ImageId, FontId, FontSource, ImageSource,
-        TextCache, TextId,
-    };
-    pub use crate::callbacks::*;
-    pub use crate::gl::{
-        GLuint, Texture, VertexLayout, VertexAttribute, VertexAttributeType,
-        VertexLayoutDescription, VertexBuffer, GlApiVersion, IndexBufferFormat,
-        Uniform, UniformType, GlShader, VertexShaderCompileError,
-        FragmentShaderCompileError, GlShaderLinkError, GlShaderCreateError,
-    };
-    pub use crate::dom::{
-        Dom, DomHash, NodeType, NodeData, On, DomString, TabIndex,
-        EventFilter, HoverEventFilter, FocusEventFilter, NotEventFilter, WindowEventFilter,
-    };
-    pub use crate::traits::{Layout, Modify};
-    pub use crate::window::{
-        Window, MonitorHandle, Monitor,
-    };
-    pub use crate::text_layout::GlyphInstance;
+    pub use crate::app::{App, AppConfig};
+    pub use crate::window::{Window, MonitorHandle, Monitor};
     pub use crate::xml::{XmlComponent, XmlComponentMap, DomXml};
     pub use crate::css;
     #[cfg(feature = "logging")]

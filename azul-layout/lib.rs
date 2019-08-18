@@ -26,7 +26,7 @@ extern crate azul_css;
 use std::collections::BTreeMap;
 use azul_css::LayoutRect;
 use azul_core::{
-    ui_solver::{PositionedRectangle, ResolvedTextLayoutOptions, InlineTextLayout},
+    ui_solver::PositionedRectangle,
     id_tree::{NodeHierarchy, NodeDataContainer},
     dom::NodeId,
     display_list::DisplayRectangle,
@@ -117,7 +117,7 @@ impl GetStyle for DisplayRectangle {
 
     fn get_style(&self) -> Style {
 
-        use crate::{style::*, Size, Offsets, Number};
+        use crate::style::*;
         use azul_css::{
             PixelValue, LayoutDisplay, LayoutDirection, LayoutWrap, LayoutPosition,
             LayoutAlignItems, LayoutAlignContent, LayoutJustifyContent,

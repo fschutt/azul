@@ -2,10 +2,11 @@ use std::{
     fmt,
     collections::{BTreeMap, HashSet},
     sync::atomic::{AtomicUsize, Ordering},
-    ffi::c_void,
     marker::PhantomData,
     path::PathBuf,
 };
+#[cfg(target_os = "windows")]
+use std::ffi::c_void;
 #[cfg(not(test))]
 #[cfg(debug_assertions)]
 use std::time::Duration;
@@ -16,10 +17,7 @@ use azul_css::HotReloadHandler;
 use crate::{
     dom::{DomId, EventFilter},
     id_tree::NodeId,
-    callbacks::{
-        Callback, DefaultCallbackId, HitTestItem, UpdateScreen,
-        Redraw, FocusTarget,
-    },
+    callbacks::{Callback, DefaultCallbackId, HitTestItem, UpdateScreen, Redraw},
 };
 
 pub const DEFAULT_TITLE: &str = "Azul App";
