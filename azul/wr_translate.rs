@@ -35,18 +35,40 @@ use webrender::api::{
     ImageRendering as WrImageRendering,
     ExternalScrollId as WrExternalScrollId,
     SpaceAndClipInfo as WrSpaceAndClipInfo,
+    ResourceUpdate as WrResourceUpdate,
+    AddFont as WrAddFont,
+    AddImage as WrAddImage,
+    ImageData as WrImageData,
+    ExternalImageData as WrExternalImageData,
+    ExternalImageId as WrExternalImageId,
+    ExternalImageType as WrExternalImageType,
+    TextureTarget as WrTextureTarget,
+    UpdateImage as WrUpdateImage,
+    ImageDirtyRect as WrImageDirtyRect,
+    Epoch as WrEpoch,
+    AddFontInstance as WrAddFontInstance,
+    FontVariation as WrFontVariation,
+    FontInstanceOptions as WrFontInstanceOptions,
+    FontInstancePlatformOptions as WrFontInstancePlatformOptions,
+    FontLCDFilter as WrFontLCDFilter,
+    FontHinting as WrFontHinting,
+    SyntheticItalics as WrSyntheticItalics,
 };
 use azul_core::{
-    callbacks::{HidpiAdjustedBounds, HitTestItem, PipelineId},
+    callbacks::{HitTestItem, PipelineId},
     app_resources::{
         FontKey, Au, FontInstanceKey, ImageKey,
-        IdNamespace, RawImageFormat as ImageFormat, ImageDescriptor
+        IdNamespace, RawImageFormat as ImageFormat, ImageDescriptor,
+        FontInstanceFlags, FontRenderMode, GlyphOptions, ResourceUpdate,
+        AddFont, AddImage, ImageData, ExternalImageData, ExternalImageId,
+        ExternalImageType, TextureTarget, UpdateImage, ImageDirtyRect,
+        Epoch, AddFontInstance, FontVariation, FontInstanceOptions,
+        FontInstancePlatformOptions, FontLCDFilter, FontHinting, SyntheticItalics,
     },
     display_list::{
         CachedDisplayList, GlyphInstance, DisplayListScrollFrame,
         DisplayListFrame, LayoutRectContent, DisplayListMsg,
-        FontInstanceFlags, GlyphOptions, AlphaType, FontRenderMode, ImageRendering,
-        StyleBorderRadius,
+        AlphaType, ImageRendering, StyleBorderRadius,
     },
     ui_solver::ExternalScrollId,
     window::{LogicalSize, DebugState},
@@ -434,6 +456,11 @@ fn wr_translate_layouted_glyphs(input: Vec<GlyphInstance>) -> Vec<WrGlyphInstanc
 }
 
 #[inline(always)]
+pub(crate) const fn wr_translate_epoch(epoch: Epoch) -> WrEpoch {
+    WrEpoch(epoch.0)
+}
+
+#[inline(always)]
 pub(crate) fn wr_translate_hittest_item(input: WrHitTestItem) -> HitTestItem {
     HitTestItem {
         pipeline: PipelineId(input.pipeline.0, input.pipeline.1),
@@ -468,6 +495,11 @@ pub(crate) const fn translate_font_instance_key_wr(font_instance_key: WrFontInst
 #[inline(always)]
 pub(crate) const fn translate_image_key_wr(image_key: WrImageKey) -> ImageKey {
     ImageKey { key: image_key.1, namespace: translate_id_namespace_wr(image_key.0) }
+}
+
+#[inline(always)]
+pub(crate) const fn translate_epoch_wr(epoch: WrEpoch) -> Epoch {
+    Epoch(epoch.0)
 }
 
 #[inline]
@@ -546,9 +578,86 @@ pub(crate) fn wr_translate_image_descriptor(descriptor: ImageDescriptor) -> WrIm
 }
 
 #[inline(always)]
-pub(crate) const fn translate_au(au: Au) -> WrAu {
+pub(crate) const fn wr_translate_au(au: Au) -> WrAu {
     WrAu(au.0)
 }
+
+#[inline(always)]
+pub(crate) fn wr_translate_add_font_instance(add_font_instance: AddFontInstance) -> WrAddFontInstance {
+    WrAddFontInstance {
+        key: wr_translate_font_instance_key(add_font_instance.key),
+        font_key: wr_translate_font_key(add_font_instance.font_key),
+        glyph_size: wr_translate_au(add_font_instance.glyph_size),
+        options: add_font_instance.options.map(wr_translate_font_instance_options),
+        platform_options: add_font_instance.platform_options.map(wr_translate_font_instance_platform_options),
+        variations: add_font_instance.variations.into_iter().map(wr_translate_font_variation).collect(),
+    }
+}
+
+#[inline(always)]
+fn wr_translate_font_instance_options(fio: FontInstanceOptions) -> WrFontInstanceOptions {
+    WrFontInstanceOptions {
+        render_mode: wr_translate_font_render_mode(fio.render_mode),
+        flags: wr_translate_font_instance_flags(fio.flags),
+        bg_color: wr_translate_color_u(fio.bg_color),
+        synthetic_italics: wr_translate_synthetic_italics(fio.synthetic_italics),
+    }
+}
+
+const fn wr_translate_synthetic_italics(si: SyntheticItalics) -> WrSyntheticItalics {
+    WrSyntheticItalics { angle: si.angle }
+}
+
+#[cfg(target_os = "windows")]
+#[inline(always)]
+const fn wr_translate_font_instance_platform_options(fio: FontInstancePlatformOptions) -> WrFontInstancePlatformOptions {
+    WrFontInstancePlatformOptions {
+        gamma: fio.gamma,
+        contrast: fio.contrast,
+    }
+}
+
+#[inline(always)]
+fn wr_translate_font_hinting(lcd: FontHinting) -> WrFontHinting {
+    match lcd {
+        FontHinting::None => WrFontHinting::None,
+        FontHinting::Mono => WrFontHinting::Mono,
+        FontHinting::Light => WrFontHinting::Light,
+        FontHinting::Normal => WrFontHinting::Normal,
+        FontHinting::LCD => WrFontHinting::LCD,
+    }
+}
+
+#[inline(always)]
+fn wr_translate_font_lcd_filter(lcd: FontLCDFilter) -> WrFontLCDFilter {
+    match lcd {
+        FontLCDFilter::None => WrFontLCDFilter::None,
+        FontLCDFilter::Default => WrFontLCDFilter::Default,
+        FontLCDFilter::Light => WrFontLCDFilter::Light,
+        FontLCDFilter::Legacy => WrFontLCDFilter::Legacy,
+    }
+}
+
+fn wr_translate_font_instance_platform_options(fio: FontInstancePlatformOptions) -> WrFontInstancePlatformOptions {
+    WrFontInstancePlatformOptions {
+        lcd_filter: wr_translate_font_lcd_filter(fio.lcd_filter),
+        hinting: wr_translate_font_hinting(fio.hinting),
+    }
+}
+
+#[cfg(target_os = "macos")]
+#[inline(always)]
+const fn wr_translate_font_instance_platform_options(fio: FontInstancePlatformOptions) -> WrFontInstancePlatformOptions {
+    WrFontInstancePlatformOptions {
+        unused: fio.unused,
+    }
+}
+
+#[inline(always)]
+const fn wr_translate_font_variation(variation: FontVariation) -> WrFontVariation {
+    WrFontVariation { tag: variation.tag, value: variation.value }
+}
+
 
 #[inline(always)]
 pub fn wr_translate_box_shadow_clip_mode(input: CssBoxShadowClipMode) -> WrBoxShadowClipMode {
@@ -756,6 +865,108 @@ pub(crate) fn set_webrender_debug_flags(r: &mut Renderer, new_flags: &DebugState
 }
 
 #[inline(always)]
+pub(crate) fn wr_translate_resource_update(resource_update: ResourceUpdate) -> WrResourceUpdate {
+    match resource_update {
+        ResourceUpdate::AddFont(af) => WrResourceUpdate::AddFont(wr_translate_add_font(af)),
+        ResourceUpdate::DeleteFont(fk) => WrResourceUpdate::DeleteFont(wr_translate_font_key(fk)),
+        ResourceUpdate::AddFontInstance(fi) => WrResourceUpdate::AddFontInstance(wr_translate_add_font_instance(fi)),
+        ResourceUpdate::DeleteFontInstance(fi) => WrResourceUpdate::DeleteFontInstance(wr_translate_font_instance_key(fi)),
+        ResourceUpdate::AddImage(ai) => WrResourceUpdate::AddImage(wr_translate_add_image(ai)),
+        ResourceUpdate::UpdateImage(ui) => WrResourceUpdate::UpdateImage(wr_translate_update_image(ui)),
+        ResourceUpdate::DeleteImage(k) => WrResourceUpdate::DeleteImage(wr_translate_image_key(k)),
+    }
+}
+
+#[inline(always)]
+fn wr_translate_add_font(add_font: AddFont) -> WrAddFont {
+    WrAddFont::Raw(wr_translate_font_key(add_font.key), add_font.font_bytes, add_font.font_index)
+}
+
+#[inline(always)]
+fn wr_translate_add_image(add_image: AddImage) -> WrAddImage {
+    WrAddImage {
+        key: wr_translate_image_key(add_image.key),
+        descriptor: wr_translate_image_descriptor(add_image.descriptor),
+        data: wr_translate_image_data(add_image.data),
+        tiling: add_image.tiling,
+    }
+}
+
+#[inline(always)]
+fn wr_translate_image_data(image_data: ImageData) -> WrImageData {
+    match image_data {
+        ImageData::Raw(data) => WrImageData::Raw(data),
+        ImageData::External(external) => WrImageData::External(wr_translate_external_image_data(external)),
+    }
+}
+
+#[inline(always)]
+fn wr_translate_external_image_data(external: ExternalImageData) -> WrExternalImageData {
+    WrExternalImageData {
+        id: wr_translate_external_image_id(external.id),
+        channel_index: external.channel_index,
+        image_type: wr_translate_external_image_type(external.image_type),
+    }
+}
+
+#[inline(always)]
+pub(crate) const fn wr_translate_external_image_id(external: ExternalImageId) -> WrExternalImageId {
+    WrExternalImageId(external.0)
+}
+
+#[inline(always)]
+pub(crate) const fn translate_external_image_id_wr(external: WrExternalImageId) -> ExternalImageId {
+    ExternalImageId(external.0)
+}
+
+#[inline(always)]
+fn wr_translate_external_image_type(external: ExternalImageType) -> WrExternalImageType {
+    match external {
+        ExternalImageType::TextureHandle(tt) => WrExternalImageType::TextureHandle(wr_translate_texture_target(tt)),
+        ExternalImageType::Buffer => WrExternalImageType::Buffer,
+    }
+}
+
+#[inline(always)]
+fn wr_translate_texture_target(texture_target: TextureTarget) -> WrTextureTarget {
+    match texture_target {
+        TextureTarget::Default => WrTextureTarget::Default,
+        TextureTarget::Array => WrTextureTarget::Array,
+        TextureTarget::Rect => WrTextureTarget::Rect,
+        TextureTarget::External => WrTextureTarget::External,
+    }
+}
+
+#[inline(always)]
+fn wr_translate_update_image(update_image: UpdateImage) -> WrUpdateImage {
+    WrUpdateImage {
+        key: wr_translate_image_key(update_image.key),
+        descriptor: wr_translate_image_descriptor(update_image.descriptor),
+        data: wr_translate_image_data(update_image.data),
+        dirty_rect: wr_translate_image_dirty_rect(update_image.dirty_rect),
+    }
+}
+
+#[inline(always)]
+fn wr_translate_image_dirty_rect(dirty_rect: ImageDirtyRect) -> WrImageDirtyRect {
+    use webrender::api::{
+        DeviceIntRect as WrDeviceIntRect,
+        DeviceIntPoint as WrDeviceIntPoint,
+        DeviceIntSize as WrDeviceIntSize,
+        DirtyRect as WrDirtyRect,
+    };
+    match dirty_rect {
+        ImageDirtyRect::All => WrDirtyRect::All,
+        ImageDirtyRect::Partial(rect) => WrDirtyRect::Partial(
+            WrDeviceIntRect::new(
+                WrDeviceIntPoint::new(rect.origin.x as i32, rect.origin.y as i32),
+                WrDeviceIntSize::new(rect.size.width as i32, rect.size.height as i32),
+            )
+        ),
+    }
+}
+
+#[inline(always)]
 pub(crate) fn wr_translate_external_scroll_id(scroll_id: ExternalScrollId) -> WrExternalScrollId {
     WrExternalScrollId(scroll_id.0, wr_translate_pipeline_id(scroll_id.1))
 }
@@ -936,8 +1147,8 @@ mod text {
         SpaceAndClipInfo as WrSpaceAndClipInfo,
     };
     use azul_core::{
-        app_resources::FontInstanceKey,
-        display_list::{GlyphOptions, GlyphInstance},
+        app_resources::{FontInstanceKey, GlyphOptions},
+        display_list::GlyphInstance,
     };
     use azul_css::{ColorU, LayoutRect};
 

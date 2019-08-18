@@ -8,7 +8,7 @@ use azul_css::{
 use crate::{
     dom::{DomId, NodeData},
     id_tree::{NodeId, NodeHierarchy, NodeDataContainer},
-    callbacks::{FocusTarget, HitTestItem},
+    callbacks::HitTestItem,
     ui_state::{UiState, HoverGroup, ActiveHover},
     ui_description::{UiDescription, StyledNode},
 };

@@ -8,24 +8,29 @@ use glutin::{
         Window as GlutinWindow,
         WindowId as GlutinWindowId,
     },
-    event::{
-        ModifiersState as GlutinModifiersState,
-    },
+    event::ModifiersState as GlutinModifiersState,
     event_loop::EventLoopWindowTarget as GlutinEventLoopWindowTarget,
 };
 use gleam::gl::{self, Gl, GLuint};
 use webrender::{
-    PipelineInfo, Renderer,
-    api::{LayoutSize, DeviceIntSize, Epoch, Transaction, RenderApi},
+    PipelineInfo as WrPipelineInfo,
+    Renderer as WrRenderer,
+    api::{
+        LayoutSize as WrLayoutSize,
+        DeviceIntSize as WrDeviceIntSize,
+        Transaction as WrTransaction,
+    },
 };
+#[cfg(feature = "logging")]
 use log::LevelFilter;
 use azul_css::{ColorU, HotReloadHandler};
+use crate::{
+    app_resources::WrApi,
+    window::{Window, ScrollStates, HeadlessContextState}
+};
 use azul_core::{
     FastHashMap,
-    window::{
-        Window, ScrollStates, RendererType, WindowSize,
-        DebugState, WindowState, FullWindowState, HeadlessContextState,
-    },
+    window::{RendererType, WindowSize, DebugState, WindowState, FullWindowState},
     dom::{Dom, DomId, NodeId, ScrollTagId},
     gl::GlShader,
     traits::Layout,
@@ -41,6 +46,7 @@ use azul_core::{
     ui_description::UiDescription,
     ui_solver::LayoutResult,
     display_list::{CachedDisplayList, SolvedLayoutCache, GlTextureCache},
+    app_resources::Epoch,
 };
 pub use crate::app_resources::AppResources;
 
@@ -59,7 +65,7 @@ use crate::app_resources::FakeRenderApi;
 const COLOR_WHITE: ColorU = ColorU { r: 255, g: 255, b: 255, a: 0 };
 
 /// Graphical application that maintains some kind of application state
-pub struct App<T: 'static> {
+pub struct App<T> {
     /// Your data (the global struct which all callbacks will have access to)
     pub data: T,
     /// Fonts, images and cached text that is currently loaded inside the app (window-independent).
@@ -93,7 +99,7 @@ pub struct App<T: 'static> {
     render_api: FakeRenderApi,
 }
 
-impl<T: 'static> App<T> {
+impl<T> App<T> {
     impl_task_api!();
 }
 
@@ -204,17 +210,6 @@ impl<T: Layout> App<T> {
            })
         }
     }
-}
-
-impl<T> App<T> {
-
-    /// Spawn a new window on the screen. Note that this should only be used to
-    /// create extra windows, the default window will be the window submitted to
-    /// the `.run` method.
-    #[cfg(not(test))]
-    pub fn add_window(&mut self, create_options: WindowCreateOptions<T>) {
-        self.windows.insert(WindowId::new(), create_options);
-    }
 
     /// Toggles debugging flags in webrender, updates `self.config.debug_state`
     #[cfg(not(test))]
@@ -224,6 +219,16 @@ impl<T> App<T> {
             set_webrender_debug_flags(r, &new_state);
         }
         self.config.debug_state = new_state;
+    }
+}
+
+impl<T: 'static> App<T> {
+
+    /// Spawn a new window on the screen. Note that this should only be used to
+    /// create extra windows, the default window will be the window submitted to
+    /// the `.run` method.
+    pub fn add_window(&mut self, create_options: WindowCreateOptions<T>) {
+        self.windows.insert(WindowId::new(), create_options);
     }
 
     /// Start the rendering loop for the currently open windows
@@ -268,7 +273,7 @@ impl<T> App<T> {
 
         let App { mut data, mut resources, mut timers, mut tasks, config, windows, layout_callback, mut fake_display } = self;
 
-        let window_states = get_window_states(&windows);
+        let window_states = initialize_window_states(&windows);
         let initialized_windows = initialize_windows(windows, &mut fake_display, &mut resources, &config);
 
         let (mut active_windows, mut window_id_mapping, mut reverse_window_id_mapping) = initialized_windows;
@@ -585,7 +590,7 @@ impl<T> App<T> {
                                 &mut eld.render_api,
                                 eld.renderer.as_mut().unwrap(),
                                 eld.gl_context.clone(),
-                                Transaction::new(),
+                                WrTransaction::new(),
                                 eld.config.background_color,
                             );
 
@@ -665,8 +670,8 @@ struct EventLoopData<'a, T> {
     ui_state_cache: &'a mut BTreeMap<GlutinWindowId, BTreeMap<DomId, UiState<T>>>,
     default_callbacks_cache: &'a mut BTreeMap<GlutinWindowId, BTreeMap<DomId, DefaultCallbackIdMap<T>>>,
     ui_description_cache: &'a mut BTreeMap<GlutinWindowId, BTreeMap<DomId, UiDescription<T>>>,
-    render_api: &'a mut RenderApi,
-    renderer: &'a mut Option<Renderer>,
+    render_api: &'a mut WrApi,
+    renderer: &'a mut Option<WrRenderer>,
     hidden_context: &'a mut HeadlessContextState,
     gl_context: Rc<Gl>,
 }
@@ -753,7 +758,7 @@ fn send_user_event<'a, T>(
             // TODO: Invoke callback to reject the window close event!
 
             use crate::compositor::remove_active_pipeline;
-            use crate::app_resources::delete_pipeline;
+            use azul_core::app_resources::delete_pipeline;
 
             let glutin_window_id = match eld.reverse_window_id_mapping.get(&window_id) {
                 Some(s) => s.clone(),
@@ -776,7 +781,7 @@ fn send_user_event<'a, T>(
 
             remove_active_pipeline(&w.internal.pipeline_id);
             delete_pipeline(eld.resources, eld.render_api, &w.internal.pipeline_id);
-            eld.render_api.delete_document(w.internal.document_id);
+            eld.render_api.api.delete_document(w.internal.document_id);
         },
         DoHitTest { window_id } => {
 
@@ -942,7 +947,7 @@ fn send_user_event<'a, T>(
         },
         RelayoutUi { window_id } => {
 
-            use crate::display_list::do_layout_for_display_list;
+            use azul_core::display_list::do_layout_for_display_list;
 
             println!("relayout ui!");
 
@@ -1056,9 +1061,9 @@ fn send_user_event<'a, T>(
             };
 
             let window = eld.active_windows.get_mut(&glutin_window_id).unwrap();
-            let mut txn = Transaction::new();
+            let mut txn = WrTransaction::new();
             scroll_all_nodes(&mut window.internal.scroll_states, &mut txn);
-            eld.render_api.send_transaction(window.internal.document_id, txn);
+            eld.render_api.api.send_transaction(window.internal.document_id, txn);
         },
         UpdateAnimations { window_id } => {
             // send transaction to update animations in WR
@@ -1080,7 +1085,7 @@ fn update_keyboard_state_from_modifier_state(keyboard_state: &mut KeyboardState,
     keyboard_state.super_down = modifiers.logo;
 }
 
-fn get_window_states<T>(
+fn initialize_window_states<T>(
     window_create_options: &BTreeMap<WindowId, WindowCreateOptions<T>>,
 ) -> BTreeMap<WindowId, WindowState> {
     window_create_options.iter().map(|(id, s)| (*id, s.state.clone())).collect()
@@ -1299,7 +1304,7 @@ fn cascade_style<T>(
 fn do_hit_test<T>(
     window: &Window<T>,
     full_window_state: &FullWindowState,
-    render_api: &RenderApi,
+    render_api: &WrApi,
 ) -> Vec<HitTestItem> {
 
     use crate::wr_translate::{wr_translate_hittest_item, wr_translate_pipeline_id};
@@ -1309,7 +1314,7 @@ fn do_hit_test<T>(
         None => return Vec::new(),
     };
 
-    let mut hit_test_results: Vec<HitTestItem> = render_api.hit_test(
+    let mut hit_test_results: Vec<HitTestItem> = render_api.api.hit_test(
         window.internal.document_id,
         Some(wr_translate_pipeline_id(window.internal.pipeline_id)),
         cursor_location,
@@ -1508,7 +1513,7 @@ fn build_cached_display_list<T>(
     gl_texture_cache: &GlTextureCache,
     app_resources: &AppResources,
 ) -> CachedDisplayList {
-    use crate::display_list::{
+    use azul_core::display_list::{
         DisplayListParametersRef,
         push_rectangles_into_displaylist
     };
@@ -1536,11 +1541,12 @@ fn build_cached_display_list<T>(
 fn send_display_list_to_webrender<T>(
     window: &mut Window<T>,
     full_window_state: &FullWindowState,
-    render_api: &mut RenderApi,
+    render_api: &mut WrApi,
 ) {
     use crate::wr_translate::{
         wr_translate_pipeline_id,
         wr_translate_display_list,
+        wr_translate_epoch,
     };
 
     // NOTE: Display list has to be rebuilt every frame, otherwise, the epochs get out of sync
@@ -1548,16 +1554,16 @@ fn send_display_list_to_webrender<T>(
 
     let (logical_size, _) = convert_window_size(&full_window_state.size);
 
-    let mut txn = Transaction::new();
+    let mut txn = WrTransaction::new();
     txn.set_display_list(
-        window.internal.epoch,
+        wr_translate_epoch(window.internal.epoch),
         None,
         logical_size.clone(),
         (wr_translate_pipeline_id(window.internal.pipeline_id), logical_size, display_list),
         true,
     );
 
-    render_api.send_transaction(window.internal.document_id, txn);
+    render_api.api.send_transaction(window.internal.document_id, txn);
 }
 
 /// Scroll all nodes in the ScrollStates to their correct position and insert
@@ -1565,7 +1571,7 @@ fn send_display_list_to_webrender<T>(
 ///
 /// NOTE: scroll_states has to be mutable, since every key has a "visited" field, to
 /// indicate whether it was used during the current frame or not.
-fn scroll_all_nodes(scroll_states: &mut ScrollStates, txn: &mut Transaction) {
+fn scroll_all_nodes(scroll_states: &mut ScrollStates, txn: &mut WrTransaction) {
     use webrender::api::ScrollClamping;
     use crate::wr_translate::{wr_translate_external_scroll_id, wr_translate_layout_point};
     for (key, value) in scroll_states.0.iter_mut() {
@@ -1578,11 +1584,11 @@ fn scroll_all_nodes(scroll_states: &mut ScrollStates, txn: &mut Transaction) {
 }
 
 /// Returns the (logical_size, physical_size) as LayoutSizes, which can then be passed to webrender
-fn convert_window_size(size: &WindowSize) -> (LayoutSize, DeviceIntSize) {
+fn convert_window_size(size: &WindowSize) -> (WrLayoutSize, WrDeviceIntSize) {
     let physical_size = size.get_physical_size();
     (
-        LayoutSize::new(size.dimensions.width, size.dimensions.height),
-        DeviceIntSize::new(physical_size.width as i32, physical_size.height as i32)
+        WrLayoutSize::new(size.dimensions.width, size.dimensions.height),
+        WrDeviceIntSize::new(physical_size.width as i32, physical_size.height as i32)
     )
 }
 
@@ -1625,9 +1631,10 @@ fn update_scroll_state(
     should_scroll_render
 }
 
-fn clean_up_unused_opengl_textures(pipeline_info: PipelineInfo, pipeline_id: &PipelineId) {
+fn clean_up_unused_opengl_textures(pipeline_info: WrPipelineInfo, pipeline_id: &PipelineId) {
 
     use crate::compositor::remove_epochs_from_pipeline;
+    use crate::wr_translate::translate_epoch_wr;
 
     // TODO: currently active epochs can be empty, why?
     //
@@ -1647,11 +1654,11 @@ fn clean_up_unused_opengl_textures(pipeline_info: PipelineInfo, pipeline_id: &Pi
     // Epoch(44), Epoch(45), which are currently active.
     let oldest_to_remove_epoch = pipeline_info.epochs.values().min().unwrap();
 
-    remove_epochs_from_pipeline(pipeline_id, *oldest_to_remove_epoch);
+    remove_epochs_from_pipeline(pipeline_id, translate_epoch_wr(*oldest_to_remove_epoch));
 }
 
 // Function wrapper that is invoked on scrolling and normal rendering - only renders the
-// window contents and updates the screen, assumes that all transactions via the RenderApi
+// window contents and updates the screen, assumes that all transactions via the WrApi
 // have been committed before this function is called.
 //
 // WebRender doesn't reset the active shader back to what it was, but rather sets it
@@ -1666,10 +1673,10 @@ fn render_inner<T>(
     window: &mut Window<T>,
     full_window_state: &FullWindowState,
     headless_shared_context: &mut HeadlessContextState,
-    render_api: &mut RenderApi,
-    renderer: &mut Renderer,
+    render_api: &mut WrApi,
+    renderer: &mut WrRenderer,
     gl_context: Rc<Gl>,
-    mut txn: Transaction,
+    mut txn: WrTransaction,
     background_color: ColorU,
 ) {
 
@@ -1708,7 +1715,7 @@ fn render_inner<T>(
     scroll_all_nodes(&mut window.internal.scroll_states, &mut txn);
     txn.generate_frame();
 
-    render_api.send_transaction(window.internal.document_id, txn);
+    render_api.api.send_transaction(window.internal.document_id, txn);
 
     // Update WR texture cache
     renderer.update();
@@ -1826,7 +1833,7 @@ fn compile_screen_shader(context: Rc<dyn Gl>) -> GLuint {
 }
 
 // Draws a texture to the currently bound framebuffer. Texture has to be cleaned up by the caller.
-fn draw_texture_to_screen(context: Rc<dyn Gl>, texture: GLuint, framebuffer_size: DeviceIntSize) {
+fn draw_texture_to_screen(context: Rc<dyn Gl>, texture: GLuint, framebuffer_size: WrDeviceIntSize) {
 
     context.bind_framebuffer(gl::FRAMEBUFFER, 0);
 

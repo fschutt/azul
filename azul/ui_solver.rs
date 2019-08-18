@@ -1,43 +1,18 @@
 use std::{f32, collections::BTreeMap};
 use azul_css::{
-    RectLayout, StyleFontSize, RectStyle,
-    StyleTextAlignmentHorz, StyleTextAlignmentVert,
-    LayoutRect, LayoutSize,
+    RectLayout, RectStyle, StyleTextAlignmentHorz,
+    StyleTextAlignmentVert, LayoutRect,
 };
-use crate::{
+use azul_core::{
     id_tree::{NodeId, NodeDataContainer, NodeHierarchy},
     display_list::DisplayRectangle,
     dom::{NodeData, NodeType},
-    app_resources::AppResources,
-    text_layout::{Words, ScaledWords, WordPositions, LayoutedGlyphs},
-};
-use azul_core::{
-    app_resources::{Au, FontInstanceKey},
+    app_resources::{AppResources, FontInstanceKey, Words, ScaledWords, WordPositions, LayoutedGlyphs},
     callbacks::PipelineId,
-    ui_solver::{PositionedRectangle, InlineTextLayout, LayoutResult, ResolvedTextLayoutOptions},
+    ui_solver::{PositionedRectangle, LayoutResult},
 };
-use azul_layout::{GetTextLayout, RectContent};
-
-type PixelSize = f32;
-
-#[derive(Debug, Clone, PartialEq)]
-pub(crate) enum PreferredHeight {
-    Image { original_dimensions: (usize, usize), aspect_ratio: f32, preferred_height: f32 },
-    Text { content_size: LayoutSize }
-}
-
-impl PreferredHeight {
-
-    /// Returns the preferred size of the div content.
-    /// Note that this can be larger than the actual div content!
-    pub fn get_content_size(&self) -> f32 {
-        use self::PreferredHeight::*;
-        match self {
-            Image { preferred_height, .. } => *preferred_height,
-            Text { content_size } => content_size.height,
-        }
-    }
-}
+use azul_layout::RectContent;
+use azul_text_layout::InlineText;
 
 /// At this point in time, all font keys, image keys, etc. have
 /// to be already submitted in the RenderApi!
@@ -109,9 +84,11 @@ fn create_scaled_words(
     display_rects: &NodeDataContainer<DisplayRectangle>,
 ) -> BTreeMap<NodeId, (ScaledWords, FontInstanceKey)> {
 
-    use azul_core::ui_solver::DEFAULT_FONT_SIZE_PX;
-    use crate::text_layout::words_to_scaled_words;
-    use crate::app_resources::ImmediateFontId;
+    use azul_core::{
+        app_resources::{ImmediateFontId, font_size_to_au, get_font_id, get_font_size},
+        ui_solver::DEFAULT_FONT_SIZE_PX,
+    };
+    use azul_text_layout::text_layout::words_to_scaled_words;
 
     words.iter().filter_map(|(node_id, words)| {
 

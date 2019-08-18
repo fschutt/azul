@@ -5,35 +5,41 @@ use std::{
 };
 use webrender::{
     api::{
-        Epoch, DocumentId, RenderApi, RenderNotifier, DeviceIntSize,
+        DocumentId as WrDocumentId,
+        RenderApi as WrRenderApi,
+        RenderNotifier as WrRenderNotifier,
+        DeviceIntSize as WrDeviceIntSize,
     },
-    Renderer, RendererOptions, RendererKind, ShaderPrecacheFlags, WrShaders,
+    Renderer as WrRenderer,
+    RendererOptions as WrRendererOptions,
+    RendererKind as WrRendererKind,
+    ShaderPrecacheFlags as WrShaderPrecacheFlags,
+    WrShaders as WrShaders,
     // renderer::RendererError; -- not currently public in WebRender
 };
 use glutin::{
     event_loop::{EventLoopWindowTarget, EventLoop},
     window::{Window as GlutinWindow, WindowBuilder as GlutinWindowBuilder},
-    CreationError, ContextBuilder, Context, WindowedContext,
+    CreationError as GlutinCreationError, ContextBuilder, Context, WindowedContext,
     NotCurrent, PossiblyCurrent,
 };
 use gleam::gl::{self, Gl};
 use clipboard2::{Clipboard as _, ClipboardError, SystemClipboard};
 use azul_css::{ColorU, LayoutPoint, LayoutRect};
 use crate::{
-    FastHashMap,
-    compositor::Compositor,
-    callbacks::{PipelineId, ScrollPosition},
-    dom::{NodeId, DomId},
-    display_list::{SolvedLayoutCache, GlTextureCache},
+    app_resources::WrApi,
+    compositor::Compositor
 };
 use azul_core::{
+    FastHashMap,
     ui_state::UiState,
-    display_list::CachedDisplayList,
+    callbacks::{PipelineId, ScrollPosition},
+    dom::{NodeId, DomId},
+    display_list::{CachedDisplayList, SolvedLayoutCache, GlTextureCache},
     ui_solver::{ScrolledNodes, ExternalScrollId, OverflowingScrollNode},
     window::WindowId,
-    app_resources::AppResources,
+    app_resources::{Epoch, AppResources},
 };
-pub use webrender::api::HitTestItem;
 pub use glutin::monitor::MonitorHandle;
 pub use azul_core::window::*;
 
@@ -43,8 +49,8 @@ const WR_SHADER_CACHE: Option<&mut WrShaders> = None;
 
 struct Notifier { }
 
-impl RenderNotifier for Notifier {
-    fn clone(&self) -> Box<dyn RenderNotifier> {
+impl WrRenderNotifier for Notifier {
+    fn clone(&self) -> Box<dyn WrRenderNotifier> {
         Box::new(Notifier { })
     }
 
@@ -55,7 +61,7 @@ impl RenderNotifier for Notifier {
     // synchronization problems (when handling Event::Awakened).
 
     fn wake_up(&self) { }
-    fn new_frame_ready(&self, _id: DocumentId, _scrolled: bool, _composite_needed: bool, _render_time: Option<u64>) { }
+    fn new_frame_ready(&self, _id: WrDocumentId, _scrolled: bool, _composite_needed: bool, _render_time: Option<u64>) { }
 }
 
 /// Select on which monitor the window should pop up.
@@ -343,7 +349,7 @@ impl Default for ScrollState {
 
 pub(crate) struct WindowInternal {
     /// A "document" in WebRender usually corresponds to one tab (i.e. in Azuls case, the whole window).
-    pub(crate) document_id: DocumentId,
+    pub(crate) document_id: WrDocumentId,
     /// One "document" (tab) can have multiple "pipelines" (important for hit-testing).
     ///
     /// A document can have multiple pipelines, for example in Firefox the tab / navigation bar,
@@ -396,16 +402,16 @@ impl<T> Window<T> {
 
     /// Creates a new window
     pub(crate) fn new(
-        render_api: &mut RenderApi,
+        render_api: &mut WrApi,
         shared_context: &Context<NotCurrent>,
         events_loop: &EventLoopWindowTarget<()>,
         mut options: WindowCreateOptions<T>,
         background_color: ColorU,
         app_resources: &mut AppResources,
-    ) -> Result<Self, CreationError> {
+    ) -> Result<Self, GlutinCreationError> {
 
         use crate::wr_translate::translate_logical_size_to_css_layout_size;
-        use crate::app_resources::register_new_pipeline;
+        use azul_core::app_resources::register_new_pipeline;
 
         // NOTE: It would be OK to use &RenderApi here, but it's better
         // to make sure that the RenderApi is currently not in use by anything else.
@@ -433,11 +439,10 @@ impl<T> Window<T> {
 
         let framebuffer_size = {
             let physical_size = options.state.size.dimensions.to_physical(hidpi_factor as f32);
-            DeviceIntSize::new(physical_size.width as i32, physical_size.height as i32)
+            WrDeviceIntSize::new(physical_size.width as i32, physical_size.height as i32)
         };
 
-        let document_id = render_api.add_document(framebuffer_size, 0);
-        let epoch = Epoch(0);
+        let document_id = render_api.api.add_document(framebuffer_size, 0);
 
         // TODO: The PipelineId is what gets passed to the OutputImageHandler
         // (the code that coordinates displaying the rendered texture).
@@ -462,7 +467,7 @@ impl<T> Window<T> {
             hot_reload_handler: options.hot_reload_handler,
             display: ContextState::NotCurrent(gl_window),
             internal: WindowInternal {
-                epoch,
+                epoch: Epoch(0),
                 pipeline_id,
                 document_id,
                 scrolled_nodes: BTreeMap::new(),
@@ -937,9 +942,9 @@ pub(crate) fn clear_scroll_state(window_state: &mut FullWindowState) {
 /// the proper access to the `RenderApi`
 pub(crate) struct FakeDisplay {
     /// Main render API that can be used to register and un-register fonts and images
-    pub(crate) render_api: RenderApi,
+    pub(crate) render_api: WrApi,
     /// Main renderer, responsible for rendering all windows
-    pub(crate) renderer: Option<Renderer>,
+    pub(crate) renderer: Option<WrRenderer>,
     /// Fake / invisible display, only used because OpenGL is tied to a display context
     /// (offscreen rendering is not supported out-of-the-box on many platforms)
     ///
@@ -954,7 +959,7 @@ pub(crate) struct FakeDisplay {
 impl FakeDisplay {
 
     /// Creates a new render + a new display, given a renderer type (software or hardware)
-    pub(crate) fn new(renderer_type: RendererType) -> Result<Self, CreationError> {
+    pub(crate) fn new(renderer_type: RendererType) -> Result<Self, GlutinCreationError> {
 
         const DPI_FACTOR: f32 = 1.0;
 
@@ -974,7 +979,7 @@ impl FakeDisplay {
         gl_context.make_not_current();
 
         Ok(Self {
-            render_api,
+            render_api: WrApi { api: render_api },
             renderer: Some(renderer),
             hidden_context: gl_context,
             hidden_event_loop: event_loop,
@@ -987,12 +992,12 @@ impl FakeDisplay {
     }
 }
 
-fn get_gl_context(gl_window: &Context<PossiblyCurrent>) -> Result<Rc<dyn Gl>, CreationError> {
+fn get_gl_context(gl_window: &Context<PossiblyCurrent>) -> Result<Rc<dyn Gl>, GlutinCreationError> {
     use glutin::Api;
     match gl_window.get_api() {
         Api::OpenGl => Ok(unsafe { gl::GlFns::load_with(|symbol| gl_window.get_proc_address(symbol) as *const _) }),
         Api::OpenGlEs => Ok(unsafe { gl::GlesFns::load_with(|symbol| gl_window.get_proc_address(symbol) as *const _ ) }),
-        Api::WebGl => Err(CreationError::NoBackendAvailable("WebGL".into())),
+        Api::WebGl => Err(GlutinCreationError::NoBackendAvailable("WebGL".into())),
     }
 }
 
@@ -1018,7 +1023,7 @@ fn create_gl_window<'a>(
     window_builder: GlutinWindowBuilder,
     event_loop: &EventLoopWindowTarget<()>,
     shared_context: Option<&'a Context<NotCurrent>>,
-) -> Result<WindowedContext<NotCurrent>, CreationError> {
+) -> Result<WindowedContext<NotCurrent>, GlutinCreationError> {
     create_window_context_builder(true, true, shared_context).build_windowed(window_builder.clone(), event_loop)
         .or_else(|_| create_window_context_builder(true, false, shared_context).build_windowed(window_builder.clone(), event_loop))
         .or_else(|_| create_window_context_builder(false, true, shared_context).build_windowed(window_builder.clone(), event_loop))
@@ -1027,7 +1032,7 @@ fn create_gl_window<'a>(
 
 fn create_headless_context(
     event_loop: &EventLoop<()>,
-) -> Result<Context<NotCurrent>, CreationError> {
+) -> Result<Context<NotCurrent>, GlutinCreationError> {
     use glutin::dpi::PhysicalSize as GlutinPhysicalSize;
     create_window_context_builder(true, true, None).build_headless(event_loop, GlutinPhysicalSize::new(1.0, 1.0))
         .or_else(|_| create_window_context_builder(true, false, None).build_headless(event_loop, GlutinPhysicalSize::new(1.0, 1.0)))
@@ -1074,13 +1079,13 @@ fn create_window_context_builder<'a>(
 }
 
 // This exists because RendererOptions isn't Clone-able
-fn get_renderer_opts(native: bool, device_pixel_ratio: f32) -> RendererOptions {
+fn get_renderer_opts(native: bool, device_pixel_ratio: f32) -> WrRendererOptions {
 
-    use webrender::ProgramCache;
+    use webrender::ProgramCache as WrProgramCache;
 
     // pre-caching shaders means to compile all shaders on startup
     // this can take significant time and should be only used for testing the shaders
-    const PRECACHE_SHADER_FLAGS: ShaderPrecacheFlags = ShaderPrecacheFlags::EMPTY;
+    const PRECACHE_SHADER_FLAGS: WrShaderPrecacheFlags = WrShaderPrecacheFlags::EMPTY;
 
     // NOTE: If the clear_color is None, this may lead to "black screens"
     // (because black is the default color) - so instead, white should be the default
@@ -1088,19 +1093,19 @@ fn get_renderer_opts(native: bool, device_pixel_ratio: f32) -> RendererOptions {
     // (because of bugs in webrender / handling multi-window background colors).
     // Therefore the background color has to be set before render() is invoked.
 
-    RendererOptions {
+    WrRendererOptions {
         resource_override_path: None,
         precache_flags: PRECACHE_SHADER_FLAGS,
         device_pixel_ratio,
         enable_subpixel_aa: true,
         enable_aa: true,
-        cached_programs: Some(ProgramCache::new(None)),
+        cached_programs: Some(WrProgramCache::new(None)),
         renderer_kind: if native {
-            RendererKind::Native
+            WrRendererKind::Native
         } else {
-            RendererKind::OSMesa
+            WrRendererKind::OSMesa
         },
-        .. RendererOptions::default()
+        .. WrRendererOptions::default()
     }
 }
 
@@ -1109,7 +1114,7 @@ fn create_renderer(
     notifier: Box<Notifier>,
     renderer_type: RendererType,
     device_pixel_ratio: f32,
-) -> Result<(Renderer, RenderApi), CreationError> {
+) -> Result<(WrRenderer, WrRenderApi), GlutinCreationError> {
 
     use self::RendererType::*;
 
@@ -1119,18 +1124,18 @@ fn create_renderer(
     let (renderer, sender) = match renderer_type {
         Hardware => {
             // force hardware renderer
-            Renderer::new(gl, notifier, opts_native, WR_SHADER_CACHE).unwrap()
+            WrRenderer::new(gl, notifier, opts_native, WR_SHADER_CACHE).unwrap()
         },
         Software => {
             // force software renderer
-            Renderer::new(gl, notifier, opts_osmesa, WR_SHADER_CACHE).unwrap()
+            WrRenderer::new(gl, notifier, opts_osmesa, WR_SHADER_CACHE).unwrap()
         },
         Default => {
             // try hardware first, fall back to software
-            match Renderer::new(gl.clone(), notifier.clone(), opts_native, WR_SHADER_CACHE) {
+            match WrRenderer::new(gl.clone(), notifier.clone(), opts_native, WR_SHADER_CACHE) {
                 Ok(r) => r,
                 Err(_) => {
-                    Renderer::new(gl, notifier, opts_osmesa, WR_SHADER_CACHE).unwrap()
+                    WrRenderer::new(gl, notifier, opts_osmesa, WR_SHADER_CACHE).unwrap()
                 }
             }
         }
