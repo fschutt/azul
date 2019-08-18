@@ -7,7 +7,7 @@ use azul_css::{
     LayoutPoint, LayoutSize, LayoutRect,
     StyleBackgroundRepeat, StyleBackgroundPosition, ColorU, BoxShadowClipMode,
     LinearGradient, RadialGradient, BoxShadowPreDisplayItem, StyleBackgroundSize,
-    CssPropertyValue, LayoutPosition, CssProperty, RectStyle, RectLayout,
+    CssPropertyValue, CssProperty, RectStyle, RectLayout,
 
     StyleBorderTopWidth, StyleBorderRightWidth, StyleBorderBottomWidth, StyleBorderLeftWidth,
     StyleBorderTopColor, StyleBorderRightColor, StyleBorderBottomColor, StyleBorderLeftColor,
@@ -335,7 +335,7 @@ pub struct DisplayList {
 /// `DisplayListParametersRef` has only members that are
 ///  **immutable references** to other things that need to be passed down the display list
 #[derive(Clone)]
-pub(crate) struct DisplayListParametersRef<'a, T: 'a> {
+pub struct DisplayListParametersRef<'a, T: 'a> {
     /// ID of this Dom
     pub dom_id: DomId,
     /// Epoch of all the OpenGL textures
@@ -429,12 +429,10 @@ pub fn do_layout_for_display_list<T, U: FontImageApi>(
 
     use crate::{
         app_resources::{
-            RawImageFormat, ImageInfo, AddImage,
-            ExternalImageData, TextureTarget, ExternalImageType,
+            RawImageFormat, AddImage, ExternalImageData, TextureTarget, ExternalImageType,
             ImageData, add_resources, garbage_collect_fonts_and_images,
         },
     };
-    use azul_css::ColorU;
 
     fn recurse<T, U: FontImageApi>(
         data: &mut T,
@@ -868,7 +866,7 @@ pub fn node_needs_to_clip_children(layout: &RectLayout) -> bool {
 ///
 /// This only looks at the user-facing styles of the `UiDescription`, not the actual
 /// layout. The layout is done only in the `into_display_list_builder` step.
-pub(crate) fn display_list_from_ui_description<T>(ui_description: &UiDescription<T>, ui_state: &UiState<T>) -> DisplayList {
+pub fn display_list_from_ui_description<T>(ui_description: &UiDescription<T>, ui_state: &UiState<T>) -> DisplayList {
 
     let arena = &ui_description.ui_descr_arena;
 
@@ -896,7 +894,7 @@ pub(crate) fn display_list_from_ui_description<T>(ui_description: &UiDescription
     }
 }
 
-pub(crate) fn push_rectangles_into_displaylist<'a, T>(
+pub fn push_rectangles_into_displaylist<'a, T>(
     root_content_group: &ContentGroup,
     referenced_content: &DisplayListParametersRef<'a, T>,
 ) -> DisplayListMsg {
@@ -919,7 +917,7 @@ pub(crate) fn push_rectangles_into_displaylist<'a, T>(
 }
 
 /// Push a single rectangle into the display list builder
-fn displaylist_handle_rect<'a, T>(
+pub fn displaylist_handle_rect<'a, T>(
     rect_idx: NodeId,
     referenced_content: &DisplayListParametersRef<'a, T>,
 ) -> DisplayListMsg {
@@ -1113,7 +1111,7 @@ fn displaylist_handle_rect<'a, T>(
     }
 }
 
-fn get_text(
+pub fn get_text(
     bounds: LayoutRect,
     padding: &ResolvedOffsets,
     root_window_size: LogicalSize,
@@ -1160,7 +1158,7 @@ fn get_text(
 /// Subtracts the padding from the bounds, returning the new bounds
 ///
 /// Warning: The resulting rectangle may have negative width or height
-fn subtract_padding(bounds: &LayoutRect, padding: &ResolvedOffsets) -> LayoutRect {
+pub fn subtract_padding(bounds: &LayoutRect, padding: &ResolvedOffsets) -> LayoutRect {
 
     let mut new_bounds = *bounds;
 
@@ -1179,7 +1177,7 @@ pub struct OverrideWarning {
 }
 
 /// Populate the style properties of the `DisplayRectangle`, apply static / dynamic properties
-fn populate_css_properties(
+pub fn populate_css_properties(
     rect: &mut DisplayRectangle,
     node_id: NodeId,
     css_overrides: &BTreeMap<NodeId, FastHashMap<DomString, CssProperty>>,
@@ -1218,7 +1216,7 @@ fn populate_css_properties(
     .collect()
 }
 
-fn apply_style_property(style: &mut RectStyle, layout: &mut RectLayout, property: &CssProperty) {
+pub fn apply_style_property(style: &mut RectStyle, layout: &mut RectLayout, property: &CssProperty) {
 
     use azul_css::CssProperty::*;
 

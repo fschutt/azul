@@ -228,7 +228,7 @@ pub enum ImmediateFontId {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct RawImage {
     pub pixels: Vec<u8>,
-    pub image_dimensions: (u32, u32),
+    pub image_dimensions: (usize, usize),
     pub data_format: RawImageFormat,
 }
 
@@ -881,7 +881,12 @@ pub struct ExternalImageData {
 }
 
 pub type TileSize = u16;
-pub type ImageDirtyRect = LayoutRect;
+
+#[derive(Debug, Copy, Clone, PartialEq, PartialOrd)]
+pub enum ImageDirtyRect {
+    All,
+    Partial(LayoutRect)
+}
 
 #[derive(Debug, Clone, PartialEq, PartialOrd)]
 pub enum ResourceUpdate {
@@ -972,7 +977,6 @@ pub fn scan_ui_description_for_font_keys<T>(
 ) -> FastHashMap<ImmediateFontId, FastHashSet<Au>> {
 
     use crate::dom::NodeType::*;
-    use crate::ui_solver;
 
     let mut font_keys = FastHashMap::default();
 

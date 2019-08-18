@@ -2,12 +2,20 @@ use std::{
     sync::atomic::{AtomicUsize, Ordering},
 };
 use webrender::{
-    ExternalImageHandler, ExternalImage, ExternalImageSource,
-    api::{ExternalImageId, TexelRect, DevicePoint, Epoch, ImageRendering},
+    ExternalImageHandler as WrExternalImageHandler,
+    ExternalImage as WrExternalImage,
+    ExternalImageSource as WrExternalImageSource,
+    api::{
+        TexelRect as WrTexelRect,
+        DevicePoint as WrDevicePoint,
+        ImageRendering as WrImageRendering,
+        ExternalImageId as WrExternalImageId,
+    },
 };
-use azul_core::callbacks::PipelineId;
-use crate::{
+use azul_core::{
     FastHashMap,
+    callbacks::PipelineId,
+    app_resources::{Epoch, ExternalImageId},
     gl::{GLuint, Texture},
 };
 
@@ -94,8 +102,10 @@ pub(crate) fn clear_opengl_cache() {
 #[derive(Debug, Default, Copy, Clone)]
 pub(crate) struct Compositor { }
 
-impl ExternalImageHandler for Compositor {
-    fn lock(&mut self, key: ExternalImageId, _channel_index: u8, _rendering: ImageRendering) -> ExternalImage {
+impl WrExternalImageHandler for Compositor {
+    fn lock(&mut self, key: WrExternalImageId, _channel_index: u8, _rendering: WrImageRendering) -> WrExternalImage {
+
+        use crate::wr_translate::translate_external_image_id_wr;
 
         // Search all epoch hash maps for the given key
         // There does not seem to be a way to get the epoch for the key,
@@ -115,20 +125,20 @@ impl ExternalImageHandler for Compositor {
             .map(|tex| (tex.texture_id, (tex.size.width as f32, tex.size.height as f32)))
         }
 
-        let (tex, wh) = get_opengl_texture(&key)
-        .map(|(tex, (w, h))| (ExternalImageSource::NativeTexture(tex), DevicePoint::new(w, h)))
-        .unwrap_or((ExternalImageSource::Invalid, DevicePoint::zero()));
+        let (tex, wh) = get_opengl_texture(&translate_external_image_id_wr(key))
+        .map(|(tex, (w, h))| (WrExternalImageSource::NativeTexture(tex), WrDevicePoint::new(w, h)))
+        .unwrap_or((WrExternalImageSource::Invalid, WrDevicePoint::zero()));
 
-        ExternalImage {
-            uv: TexelRect {
-                uv0: DevicePoint::zero(),
+        WrExternalImage {
+            uv: WrTexelRect {
+                uv0: WrDevicePoint::zero(),
                 uv1: wh,
             },
             source: tex,
         }
     }
 
-    fn unlock(&mut self, _key: ExternalImageId, _channel_index: u8) {
+    fn unlock(&mut self, _key: WrExternalImageId, _channel_index: u8) {
         // Since the renderer is currently single-threaded, there is nothing to do here
     }
 }
