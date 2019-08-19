@@ -915,11 +915,17 @@ pub struct UpdateImage {
     pub dirty_rect: ImageDirtyRect,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Ord, PartialOrd, Hash)]
+#[derive(Clone, PartialEq, Eq, Ord, PartialOrd, Hash)]
 pub struct AddFont {
     pub key: FontKey,
     pub font_bytes: Vec<u8>,
     pub font_index: u32,
+}
+
+impl fmt::Debug for AddFont {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        write!(f, "AddFont {{ key: {:?}, font_bytes: [u8;{}], font_index: {} }}", self.key, self.font_bytes.len(), self.font_index)
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, PartialOrd)]
@@ -1237,6 +1243,8 @@ pub fn add_resources<T: FontImageApi>(
     merged_resource_updates.extend(add_font_resources.iter().map(|(_, f)| f.into_resource_update()));
     merged_resource_updates.extend(add_image_resources.iter().map(|(_, i)| i.into_resource_update()));
 
+    println!("add resources: {:#?}", merged_resource_updates);
+
     if !merged_resource_updates.is_empty() {
         render_api.update_resources(merged_resource_updates);
         // Assure that the AddFont / AddImage updates get processed immediately
@@ -1351,6 +1359,8 @@ pub fn delete_resources<T: FontImageApi>(
 
     merged_resource_updates.extend(delete_font_resources.iter().map(|(_, f)| f.into_resource_update()));
     merged_resource_updates.extend(delete_image_resources.iter().map(|(_, i)| i.into_resource_update()));
+
+    println!("delete resources: {:#?}", merged_resource_updates);
 
     if !merged_resource_updates.is_empty() {
         render_api.update_resources(merged_resource_updates);
