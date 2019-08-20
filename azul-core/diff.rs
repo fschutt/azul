@@ -1,66 +1,66 @@
-#![allow(unused_variables)]
-#![allow(dead_code)]
-
-use std::{collections::BTreeMap, marker::PhantomData};
+use std::{
+    fmt,
+    collections::BTreeSet,
+};
 use crate::{
-    id_tree::{NodeId, NodeHierarchy},
+    id_tree::{NodeId, NodeDataContainer},
     dom::{Dom, NodeData},
 };
 
-#[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
-pub(crate) struct DomRange<F: FrameMarker> {
-    pub start: DomNode<F>,
-    pub end: DomNode<F>,
+#[derive(Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
+pub struct DomRange {
+    pub start: NodeId,
+    pub end: NodeId,
+}
+
+impl DomRange {
+
+    pub fn new(start: NodeId, end: NodeId) -> Self {
+        Self { start, end }
+    }
+
+    pub fn single_node(node_id: NodeId) -> Self {
+        Self {
+            start: node_id,
+            end: node_id,
+        }
+    }
+}
+
+impl fmt::Debug for DomRange {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        write!(f, "{}..{}", self.start, self.end)
+    }
+}
+
+impl fmt::Display for DomRange {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        write!(f, "{}..{}", self.start, self.end)
+    }
 }
 
 #[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
-pub(crate) struct OldState { }
-
-#[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
-pub(crate) struct NewState { }
-
-pub(crate) trait FrameMarker { }
-
-impl FrameMarker for OldState { }
-impl FrameMarker for NewState { }
-
-#[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
-pub(crate) struct DomNode<F: FrameMarker> {
-    pub(crate) id: NodeId,
-    pub(crate) marker: PhantomData<F>,
-}
-
-#[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
-pub(crate) enum DomChange {
-    Added(DomRange<NewState>),
-    Removed(DomRange<OldState>),
+pub enum DomChange {
+    /// Node is present on the new DOM, but not on the old one = add node
+    Added(DomRange),
+    /// Node is present on the old DOM, but not on the new one = remove node
+    Removed(DomRange),
 }
 
 #[derive(Debug, Default, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub struct DomDiff {
     /// What the actual changes nodes (not trees / subtrees) were in this diff, in order of appearance
-    pub(crate) changed_nodes: Vec<DomChange>,
-    /// Which items simply need updating in terms of image source?
-    pub(crate) only_replace_images: Vec<NodeId>,
-    /// Which nodes / subtrees need re-styling?
-    pub(crate) need_restyling: Vec<DomRange<NewState>>,
-    /// Which nodes need a re-layout?
-    /// For example A would be:
-    pub(crate) need_relayout: Vec<DomRange<NewState>>,
+    pub changed_nodes: Vec<DomChange>,
 }
 
-type TreeDepth = usize;
-type ParentNodeId = NodeId;
-type LeafNodeId = NodeId;
-
-impl<F: FrameMarker + PartialEq> DomRange<F> {
+impl DomRange {
 
     /// Is `other` a subtree of `self`? - Assumes that the DOM was
     /// constructed in a linear order, i.e. the child being within
     /// the parents start / end bounds
     pub fn contains(&self, other: &Self) -> bool {
-        other.start.id.index() >= self.start.id.index() &&
-        other.end.id.index() <= self.end.id.index()
+        other.start.index() >= self.start.index() &&
+        other.end.index() <= self.end.index()
     }
 
     /// Compares two DOM ranges *without* looking at the DOM hashes (not equivalent to `==`)
@@ -70,36 +70,61 @@ impl<F: FrameMarker + PartialEq> DomRange<F> {
     }
 }
 
-// In order to test two DOM nodes for "equality", you'd need to
-// test if the node type, the classes and the ids are the same.
-// The rest of the attributes can be ignored, since they are not
-// used by the CSS engine.
-//
-// Right now the CSS doesn't support adjacent modifiers ("+" selectors),
-// which will make this algorithm a bit more complex (but should be
-// solvable with adjacency lists).
-//
-// for each leaf node (sorted by depth):
-//     - if the node has only changed its position:
-//         - node doesn't need restyle (but may need re-layout when "+" selectors are implemented)
-//     - else insert it it
-//     - add the end added / removed nodes
-//
-// for each parent node (sorted by depth, bubble up):
-//     - if the parent has changed:
-//
-//     - ask if that child has affected that parents layout
-//          - if yes, set the parent to be restyled
-//     - ask if that child affects its siblings layout
-//          - if yes, add the siblings to the changeset
-//
+pub fn diff_dom_tree<T>(old: &Dom<T>, new: &Dom<T>) -> DomDiff {
+
+    // TODO: Check if old root = new root, if not, change entire tree
+
+    let mut changes = BTreeSet::new();
+    let mut visited_nodes = NodeDataContainer::new(vec![false; new.len()]);
+
+    visited_nodes[NodeId::ZERO] = true;
+
+    let has_root_changed = node_has_changed(
+        &old.arena.node_data[NodeId::ZERO],
+        &new.arena.node_data[NodeId::ZERO]
+    );
+
+    if has_root_changed == NODE_CHANGED_NOTHING {
+
+        diff_tree_inner(NodeId::ZERO, old, new, &mut changes, &mut visited_nodes);
+        add_visited_nodes(visited_nodes, &mut changes);
+
+        DomDiff {
+            changed_nodes: optimize_changeset(changes)
+        }
+
+    } else {
+
+        // Root changed = everything changed
+        changes.insert(DomChange::Removed(DomRange {
+            start: NodeId::ZERO,
+            end: NodeId::new(old.len() - 1)
+        }));
+
+        changes.insert(DomChange::Added(DomRange {
+            start: NodeId::ZERO,
+            end: NodeId::new(new.len() - 1)
+        }));
+
+        DomDiff {
+            changed_nodes: optimize_changeset(changes)
+        }
+    }
+}
 
 const NODE_CHANGED_NOTHING: u8  = 0x01;
 const NODE_CHANGED_TYPE: u8     = 0x02;
 const NODE_CHANGED_CLASSES: u8  = 0x04;
 const NODE_CHANGED_IDS: u8      = 0x08;
 
-fn node_needs_restyle<T>(old: &NodeData<T>, new: &NodeData<T>) -> u8 {
+// In order to test two DOM nodes for "equality", you'd need to
+// test if the node type, the classes and the ids are the same.
+// The rest of the attributes can be ignored, since they are not
+// used by the CSS engine.
+//
+// NOTE: The callbacks / etc. need to be changed!
+#[inline]
+fn node_has_changed<T>(old: &NodeData<T>, new: &NodeData<T>) -> u8 {
     let mut result = NODE_CHANGED_NOTHING;
 
     if old.get_node_type() != new.get_node_type() {
@@ -111,37 +136,100 @@ fn node_needs_restyle<T>(old: &NodeData<T>, new: &NodeData<T>) -> u8 {
     }
 
     if old.get_ids() != new.get_ids() {
-        result &= NODE_CHANGED_CLASSES;
+        result &= NODE_CHANGED_IDS;
     }
 
     result
 }
 
-fn get_leaf_nodes_by_depth<T: FrameMarker>(hierarchy: &NodeHierarchy)
--> BTreeMap<TreeDepth, BTreeMap<ParentNodeId, Vec<DomNode<T>>>>
-{
-    let mut map = BTreeMap::new();
-    let parent_nodes = hierarchy.get_parents_sorted_by_depth();
+fn diff_tree_inner<T>(
+    old_root_id: NodeId,
+    old: &Dom<T>,
+    new: &Dom<T>,
+    changes: &mut BTreeSet<DomChange>,
+    visited_nodes: &mut NodeDataContainer<bool>,
+) {
+    let mut node_shift = 0_isize;
 
-    for (parent_depth, parent_id) in parent_nodes {
-        for child_id in parent_id.children(hierarchy).filter(|child| hierarchy[*child].first_child.is_some()) {
-            map.entry(parent_depth + 1).or_insert_with(|| BTreeMap::new())
-               .entry(parent_id).or_insert_with(|| Vec::new())
-               .push(DomNode { id: child_id, marker: PhantomData });
+    for old_node_id in old_root_id.children(&old.arena.node_layout) {
+
+        // Node ID that corresponds to the same node in the new node tree
+        let new_node_id = NodeId::new((old_node_id.index() as isize + node_shift) as usize);
+
+        let old_node_last_child = NodeId::new(match old.arena.node_layout[old_node_id].next_sibling {
+            Some(s) => s.index(),
+            None => old.arena.node_layout.len() - 1,
+        });
+
+        match new.arena.node_data.get(new_node_id) {
+            None => {
+                // Couldn't find the new node in the new tree, old tree has more children than new
+                changes.insert(DomChange::Removed(DomRange {
+                    start: old_node_id,
+                    end: old_node_last_child,
+                }));
+            },
+            Some(new_node_data) => {
+
+                visited_nodes[new_node_id] = true;
+
+                let old_node_data = &old.arena.node_data[old_node_id];
+                let compare_nodes = node_has_changed(old_node_data, new_node_data);
+
+                if compare_nodes == NODE_CHANGED_NOTHING {
+                    diff_tree_inner(old_node_id, old, new, changes, visited_nodes);
+                } else {
+
+                    let new_node_subtree_len = new.arena.node_layout.subtree_len(new_node_id);
+
+                    let next_node_id = match new.arena.node_layout[new_node_id].next_sibling {
+                        Some(s) => s.index(),
+                        None => new.arena.node_layout.len() - 1,
+                    };
+
+                    // remove entire old subtree, including the node itself
+                    changes.insert(DomChange::Removed(DomRange {
+                        start: old_node_id,
+                        end: old_node_last_child,
+                    }));
+
+                    // add entire new subtree, including the node itself
+                    changes.insert(DomChange::Added(DomRange {
+                        start: new_node_id,
+                        end: NodeId::new(next_node_id),
+                    }));
+
+                    node_shift += new_node_subtree_len as isize;
+
+                    for n in new_node_id.index()..next_node_id {
+                        visited_nodes[NodeId::new(n)] = true;
+                    }
+                }
+            }
         }
     }
-
-    map
 }
 
-pub(crate) fn diff_dom_tree<T>(old: &Dom<T>, new:Dom<T>) -> DomDiff {
-
-    // TODO!
-
-    // let old_leaf_nodes = get_leaf_nodes_by_depth(&old.arena.node_layout, OldState { });
-    // let new_leaf_nodes = get_leaf_nodes_by_depth(&new.arena.node_layout, NewState { });
-
-    // depth -> parents (in order) -> [leaf children]
-
-    DomDiff::default()
+fn add_visited_nodes(
+    visited_nodes: NodeDataContainer<bool>,
+    changes: &mut BTreeSet<DomChange>,
+) {
+    changes.extend(
+        visited_nodes
+        .linear_iter()
+        .filter_map(|node_id| if visited_nodes[node_id] { None } else { Some(node_id) })
+        .map(|node_id| DomChange::Added(DomRange::single_node(node_id)))
+    );
 }
+
+fn optimize_changeset(changes: BTreeSet<DomChange>) -> Vec<DomChange> {
+    // TODO: optimize changeset into larger chunks!
+    changes.into_iter().collect()
+}
+//
+//  1 a           a
+//  2 |- b        |- b
+//  3 |- c
+//
+//  = [DomChange::Removed(3..3)]
+//
