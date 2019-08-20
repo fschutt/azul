@@ -141,7 +141,6 @@ impl<T> DomXml<T> {
     }
 
     /// Creates a mock `<app></app>` wrapper, so that the `Self::new()` function doesn't fail
-    #[cfg(test)]
     pub fn mock(xml: &str) -> Self {
         let actual_xml = format!("<app>{}</app>", xml);
         Self::new(&actual_xml, &mut XmlComponentMap::default()).unwrap()
