@@ -47,10 +47,40 @@ pub enum DomChange {
     Removed(DomRange),
 }
 
+impl fmt::Display for DomChange {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        use self::DomChange::*;
+        match self {
+            Added(c) => write!(f, "+ {}", c),
+            Removed(c) => write!(f, "- {}", c),
+        }
+    }
+}
+
 #[derive(Debug, Default, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub struct DomDiff {
     /// What the actual changes nodes (not trees / subtrees) were in this diff, in order of appearance
     pub changed_nodes: Vec<DomChange>,
+}
+
+impl fmt::Display for DomDiff {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        for c in self.changed_nodes.iter() {
+            write!(f, "{}", c)?;
+        }
+        Ok(())
+    }
+}
+
+
+pub fn format_diff_nicely<T>(old: &Dom<T>, new: &Dom<T>, diff: &DomDiff) -> String {
+    use self::DomChange::*;
+    diff.changed_nodes.iter().map(|change| {
+        match change {
+            Added(c) => format!("+\t{}", new.arena.node_data[c.start]),
+            Removed(c) => format!("-\t{}", old.arena.node_data[c.start]),
+        }
+    }).collect::<Vec<String>>().join("\r\n")
 }
 
 impl DomRange {
@@ -226,10 +256,3 @@ fn optimize_changeset(changes: BTreeSet<DomChange>) -> Vec<DomChange> {
     // TODO: optimize changeset into larger chunks!
     changes.into_iter().collect()
 }
-//
-//  1 a           a
-//  2 |- b        |- b
-//  3 |- c
-//
-//  = [DomChange::Removed(3..3)]
-//
