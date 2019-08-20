@@ -232,13 +232,22 @@ pub struct RawImage {
     pub data_format: RawImageFormat,
 }
 
-#[derive(Debug, Clone)]
+#[derive(Clone)]
 pub struct LoadedFont {
     pub font_key: FontKey,
     pub font_bytes: Vec<u8>,
     /// Index of the font in case the bytes indicate a font collection
     pub font_index: i32,
     pub font_instances: FastHashMap<Au, FontInstanceKey>,
+}
+
+impl fmt::Debug for LoadedFont {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        write!(f,
+            "LoadedFont {{ font_key: {:?}, font_bytes: [u8;{}], font_index: {}, font_instances: {:#?} }}",
+            self.font_key, self.font_bytes.len(), self.font_index, self.font_instances,
+        )
+    }
 }
 
 impl LoadedFont {
@@ -1243,8 +1252,6 @@ pub fn add_resources<T: FontImageApi>(
     merged_resource_updates.extend(add_font_resources.iter().map(|(_, f)| f.into_resource_update()));
     merged_resource_updates.extend(add_image_resources.iter().map(|(_, i)| i.into_resource_update()));
 
-    println!("add resources: {:#?}", merged_resource_updates);
-
     if !merged_resource_updates.is_empty() {
         render_api.update_resources(merged_resource_updates);
         // Assure that the AddFont / AddImage updates get processed immediately
@@ -1325,7 +1332,7 @@ pub fn build_delete_font_resource_updates(
     for (font_id, loaded_font) in app_resources.currently_registered_fonts[pipeline_id].iter() {
         resource_updates.extend(
             loaded_font.font_instances.iter()
-            .filter(|(au, _)| app_resources.last_frame_font_keys[pipeline_id][font_id].contains(au))
+            .filter(|(au, _)| !(app_resources.last_frame_font_keys[pipeline_id].get(font_id).map(|f| f.contains(au)).unwrap_or(false)))
             .map(|(au, font_instance_key)| (font_id.clone(), DeleteFontMsg::Instance(*font_instance_key, *au)))
         );
         if !app_resources.last_frame_font_keys[&pipeline_id].contains_key(font_id) || loaded_font.font_instances.is_empty() {
@@ -1359,8 +1366,6 @@ pub fn delete_resources<T: FontImageApi>(
 
     merged_resource_updates.extend(delete_font_resources.iter().map(|(_, f)| f.into_resource_update()));
     merged_resource_updates.extend(delete_image_resources.iter().map(|(_, i)| i.into_resource_update()));
-
-    println!("delete resources: {:#?}", merged_resource_updates);
 
     if !merged_resource_updates.is_empty() {
         render_api.update_resources(merged_resource_updates);
