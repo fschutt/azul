@@ -186,8 +186,20 @@ impl NodeHierarchy {
         non_leaf_nodes
     }
 
+    /// Returns the number of all subtree items - runtime O(1)
+    #[inline]
+    pub fn subtree_len(&self, parent_id: NodeId) -> usize {
+        let self_item_index = parent_id.index();
+        let next_item_index = match self[parent_id].next_sibling {
+            None => self.len(),
+            Some(s) => s.index(),
+        };
+        next_item_index - self_item_index - 1
+    }
+
     /// Returns the index in the parent node of a certain NodeId
     /// (starts at 0, i.e. the first node has the index of 0).
+    #[inline]
     pub fn get_index_in_parent(&self, node_id: NodeId) -> usize {
         node_id.preceding_siblings(&self).count() - 1
     }
