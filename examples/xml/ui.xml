@@ -1,3 +1,5 @@
 <app>
-  <div id="red"></div>
+  <div id="red">
+      <div id="green"></div>
+  </div>
 </app>
