@@ -145,3 +145,8 @@ required-features = []
 name = "xml"
 path = "../../examples/xml/xml.rs"
 required-features = []
+
+[[example]]
+name = "headless"
+path = "../../examples/headless/headless.rs"
+required-features = []

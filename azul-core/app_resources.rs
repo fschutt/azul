@@ -1,4 +1,8 @@
-use std::{fmt, sync::Arc, path::PathBuf};
+use std::{
+    fmt,
+    path::PathBuf,
+    sync::{Arc, atomic::{AtomicUsize, Ordering}},
+};
 use azul_css::{
     LayoutPoint, LayoutRect, LayoutSize,
     RectStyle, StyleFontSize, ColorU,
@@ -676,8 +680,8 @@ pub fn add_fonts_and_images<T, U: FontImageApi>(
     pipeline_id: &PipelineId,
     display_list: &DisplayList,
     node_data: &NodeDataContainer<NodeData<T>>,
-    load_font_fn: LoadFontFnTy,
-    load_image_fn: LoadImageFnTy,
+    load_font_fn: LoadFontFn,
+    load_image_fn: LoadImageFn,
 ) {
     let font_keys = scan_ui_description_for_font_keys(&app_resources, display_list, node_data);
     let image_keys = scan_ui_description_for_image_keys(&app_resources, display_list, node_data);
@@ -852,6 +856,15 @@ pub enum ExternalImageType {
 #[repr(C)]
 #[derive(Copy, Clone, Debug, Eq, PartialEq, Hash, PartialOrd, Ord)]
 pub struct ExternalImageId(pub u64);
+
+static LAST_EXTERNAL_IMAGE_ID: AtomicUsize = AtomicUsize::new(0);
+
+impl ExternalImageId {
+    /// Creates a new, unique ExternalImageId
+    pub fn new() -> Self {
+        Self(LAST_EXTERNAL_IMAGE_ID.fetch_add(1, Ordering::SeqCst) as u64)
+    }
+}
 
 /// Specifies the type of texture target in driver terms.
 #[derive(Copy, Clone, Debug, Eq, Hash, PartialEq, PartialOrd, Ord)]
@@ -1100,8 +1113,8 @@ impl DeleteImageMsg {
     }
 }
 
-pub type LoadFontFnTy = fn(&FontSource) -> Option<(Vec<u8>, i32)>;
-pub type LoadImageFnTy = fn(&ImageSource) -> Option<(ImageData, ImageDescriptor)>;
+pub type LoadFontFn = fn(&FontSource) -> Option<(Vec<u8>, i32)>;
+pub type LoadImageFn = fn(&ImageSource) -> Option<(ImageData, ImageDescriptor)>;
 
 /// Given the fonts of the current frame, returns `AddFont` and `AddFontInstance`s of
 /// which fonts / instances are currently not in the `current_registered_fonts` and
@@ -1116,7 +1129,7 @@ pub fn build_add_font_resource_updates<T: FontImageApi>(
     render_api: &mut T,
     pipeline_id: &PipelineId,
     fonts_in_dom: &FastHashMap<ImmediateFontId, FastHashSet<Au>>,
-    font_source_load_fn: LoadFontFnTy,
+    font_source_load_fn: LoadFontFn,
 ) -> Vec<(ImmediateFontId, AddFontMsg)> {
 
     let mut resource_updates = Vec::new();
@@ -1222,7 +1235,7 @@ pub fn build_add_image_resource_updates<T: FontImageApi>(
     render_api: &mut T,
     pipeline_id: &PipelineId,
     images_in_dom: &FastHashSet<ImageId>,
-    image_source_load_fn: LoadImageFnTy,
+    image_source_load_fn: LoadImageFn,
 ) -> Vec<(ImageId, AddImageMsg)> {
 
     images_in_dom.iter()

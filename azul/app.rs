@@ -45,7 +45,7 @@ use azul_core::{
     callbacks::PipelineId,
     ui_description::UiDescription,
     ui_solver::LayoutResult,
-    display_list::{CachedDisplayList, SolvedLayoutCache, GlTextureCache},
+    display_list::CachedDisplayList,
     app_resources::Epoch,
 };
 pub use crate::app_resources::AppResources;
@@ -609,14 +609,14 @@ impl<T: 'static> App<T> {
             // Application shutdown
             if active_windows.is_empty() {
 
-                use crate::compositor::clear_opengl_cache;
+                use azul_core::gl::gl_textures_clear_opengl_cache;
 
                 // NOTE: For some reason this is necessary, otherwise the renderer crashes on shutdown
                 hidden_context.make_current();
 
                 // Important: destroy all OpenGL textures before the shared
                 // OpenGL context is destroyed.
-                clear_opengl_cache();
+                gl_textures_clear_opengl_cache();
 
                 gl_context.disable(gl::FRAMEBUFFER_SRGB);
                 gl_context.disable(gl::MULTISAMPLE);
@@ -757,7 +757,7 @@ fn send_user_event<'a, T>(
             // Close the window
             // TODO: Invoke callback to reject the window close event!
 
-            use crate::compositor::remove_active_pipeline;
+            use azul_core::gl::gl_textures_remove_active_pipeline;
             use azul_core::app_resources::delete_pipeline;
 
             let glutin_window_id = match eld.reverse_window_id_mapping.get(&window_id) {
@@ -779,7 +779,7 @@ fn send_user_event<'a, T>(
                 None => return,
             };
 
-            remove_active_pipeline(&w.internal.pipeline_id);
+            gl_textures_remove_active_pipeline(&w.internal.pipeline_id);
             delete_pipeline(eld.resources, eld.render_api, &w.internal.pipeline_id);
             eld.render_api.api.delete_document(w.internal.document_id);
         },
@@ -947,7 +947,7 @@ fn send_user_event<'a, T>(
         },
         RelayoutUi { window_id } => {
 
-            use azul_core::display_list::do_layout_for_display_list;
+            use azul_core::display_list::SolvedLayout;
 
             println!("relayout ui!");
 
@@ -966,19 +966,19 @@ fn send_user_event<'a, T>(
                 eld.hidden_context.make_not_current();
                 window.display.make_current();
 
-                let (solved_layout_cache, gl_texture_cache) = do_layout_for_display_list(
+                let SolvedLayout { solved_layout_cache, gl_texture_cache } = SolvedLayout::new(
                     eld.data,
-                    eld.resources,
                     &window.internal.pipeline_id,
+                    window.internal.epoch,
                     eld.render_api,
+                    eld.resources,
                     eld.gl_context.clone(),
+                    full_window_state,
                     eld.ui_state_cache.get_mut(&glutin_window_id).unwrap(),
                     eld.ui_description_cache.get_mut(&glutin_window_id).unwrap(),
-                    full_window_state,
                     eld.default_callbacks_cache.get_mut(&glutin_window_id).unwrap(),
-                    crate::compositor::insert_into_active_gl_textures,
-                    crate::ui_solver::do_the_layout,
-                    window.internal.epoch,
+                    azul_core::gl::insert_into_active_gl_textures,
+                    azul_layout::ui_solver::do_the_layout,
                     crate::app_resources::font_source_get_bytes,
                     crate::app_resources::image_source_get_bytes,
                 );
@@ -1010,7 +1010,7 @@ fn send_user_event<'a, T>(
                 let window = eld.active_windows.get_mut(&glutin_window_id).unwrap();
                 let full_window_state = &eld.full_window_states[&glutin_window_id];
 
-                let cached_display_list = build_cached_display_list(
+                let cached_display_list = CachedDisplayList::new(
                     window.internal.epoch,
                     window.internal.pipeline_id,
                     &full_window_state,
@@ -1195,7 +1195,6 @@ fn call_layout_fn<T>(
 ) -> (BTreeMap<DomId, UiState<T>>, BTreeMap<DomId, DefaultCallbackIdMap<T>>){
 
     use azul_core::callbacks::LayoutInfo;
-    use crate::ui_state::{ui_state_from_app_state, ui_state_from_dom};
 
     // Any top-level DOM has no "parent", parents are only relevant for IFrames
     const PARENT_DOM: Option<(DomId, NodeId)> = None;
@@ -1235,11 +1234,11 @@ fn call_layout_fn<T>(
                     gl_context: gl_context.clone(),
                     resources: app_resources,
                 };
-                ui_state_from_app_state(data, layout_info, PARENT_DOM, layout_callback)
+                UiState::new_from_app_state(data, layout_info, PARENT_DOM, layout_callback)
             },
             Some(s) => {
                 println!("{}", s);
-                ui_state_from_dom(Dom::label(s.clone()).with_class("__azul_css_error"), None)
+                UiState::new(Dom::label(s.clone()).with_class("__azul_css_error"), None)
             },
         }
     };
@@ -1289,7 +1288,7 @@ fn cascade_style<T>(
      full_window_state: &mut FullWindowState,
 ) -> BTreeMap<DomId, UiDescription<T>>{
     ui_states.iter_mut().map(|(dom_id, mut ui_state)| {
-        (dom_id.clone(), UiDescription::match_css_to_dom(
+        (dom_id.clone(), UiDescription::new(
             &mut ui_state,
             &full_window_state.css,
             &full_window_state.focused_node,
@@ -1502,40 +1501,6 @@ fn call_callbacks<T>(
     ret
 }
 
-// Build the cached display list
-#[cfg(not(test))]
-fn build_cached_display_list<T>(
-    epoch: Epoch,
-    pipeline_id: PipelineId,
-    full_window_state: &FullWindowState,
-    ui_state_cache: &BTreeMap<DomId, UiState<T>>,
-    layout_result_cache: &SolvedLayoutCache,
-    gl_texture_cache: &GlTextureCache,
-    app_resources: &AppResources,
-) -> CachedDisplayList {
-    use azul_core::display_list::{
-        DisplayListParametersRef,
-        push_rectangles_into_displaylist
-    };
-
-    const DOM_ID: DomId = DomId::ROOT_ID;
-    CachedDisplayList {
-        root: push_rectangles_into_displaylist(
-            &layout_result_cache.rects_in_rendering_order[&DOM_ID],
-            &DisplayListParametersRef {
-                dom_id: DOM_ID,
-                epoch,
-                full_window_state,
-                pipeline_id,
-                layout_result: layout_result_cache,
-                gl_texture_cache,
-                ui_state_cache,
-                app_resources,
-            },
-        )
-    }
-}
-
 /// Build the display list and send it to webrender
 #[cfg(not(test))]
 fn send_display_list_to_webrender<T>(
@@ -1633,7 +1598,7 @@ fn update_scroll_state(
 
 fn clean_up_unused_opengl_textures(pipeline_info: WrPipelineInfo, pipeline_id: &PipelineId) {
 
-    use crate::compositor::remove_epochs_from_pipeline;
+    use azul_core::gl::gl_textures_remove_epochs_from_pipeline;
     use crate::wr_translate::translate_epoch_wr;
 
     // TODO: currently active epochs can be empty, why?
@@ -1654,7 +1619,7 @@ fn clean_up_unused_opengl_textures(pipeline_info: WrPipelineInfo, pipeline_id: &
     // Epoch(44), Epoch(45), which are currently active.
     let oldest_to_remove_epoch = pipeline_info.epochs.values().min().unwrap();
 
-    remove_epochs_from_pipeline(pipeline_id, translate_epoch_wr(*oldest_to_remove_epoch));
+    gl_textures_remove_epochs_from_pipeline(pipeline_id, translate_epoch_wr(*oldest_to_remove_epoch));
 }
 
 // Function wrapper that is invoked on scrolling and normal rendering - only renders the

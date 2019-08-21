@@ -195,8 +195,6 @@ pub mod window;
 /// XML-based DOM serialization and XML-to-Rust compiler implementation
 pub mod xml;
 
-use azul_core::ui_state;
-use azul_layout::ui_solver;
 mod compositor;
 #[cfg(feature = "logging")]
 mod logging;
