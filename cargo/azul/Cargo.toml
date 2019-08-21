@@ -32,8 +32,7 @@ font-loader             = { version = "0.8.0",          default-features = false
 xmlparser               = { version = "0.9.0",          default-features = false                                                                                 }
 azul-css                = { version = "0.1.0",          default-features = false,                  path = "../azul-css"                                          }
 azul-core               = { version = "0.1.0",          default-features = false,                  path = "../azul-core"                                         }
-azul-layout             = { version = "0.1.0",          default-features = false,                  path = "../azul-layout"                                       }
-azul-text-layout        = { version = "0.1.0",          default-features = false,                  path = "../azul-text-layout"                                  }
+azul-layout             = { version = "0.1.0",          default-features = false,                  path = "../azul-layout",         features = ["text_layout"]   }
 azul-css-parser         = { version = "0.1.0",          default-features = false, optional = true, path = "../azul-css-parser"                                   }
 azul-widgets            = { version = "0.1.0",          default-features = false, optional = true, path = "../azul-widgets"                                      }
 azul-native-style       = { version = "0.1.0",          default-features = false, optional = true, path = "../azul-native-style"                                 }

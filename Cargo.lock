@@ -63,7 +63,6 @@ dependencies = [
  "azul-css-parser 0.1.0",
  "azul-layout 0.1.0",
  "azul-native-style 0.1.0",
- "azul-text-layout 0.1.0",
  "azul-widgets 0.1.0",
  "backtrace 0.3.32 (registry+https://github.com/rust-lang/crates.io-index)",
  "clipboard2 0.1.1 (registry+https://github.com/rust-lang/crates.io-index)",
@@ -108,6 +107,7 @@ version = "0.1.0"
 dependencies = [
  "azul-core 0.1.0",
  "azul-css 0.1.0",
+ "azul-text-layout 0.1.0",
 ]
 
 [[package]]

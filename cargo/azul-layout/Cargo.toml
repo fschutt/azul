@@ -20,5 +20,10 @@ edition = "2018"
 path = "../../azul-layout/lib.rs"
 
 [dependencies]
-azul-core   = { version = "0.1.0", path = "../azul-core" }
-azul-css    = { version = "0.1.0", path = "../azul-css"  }
+azul-core           = { version = "0.1.0", path = "../azul-core" }
+azul-css            = { version = "0.1.0", path = "../azul-css"  }
+azul-text-layout    = { version = "0.1.0", path = "../azul-text-layout", optional = true }
+
+[features]
+default = []
+text_layout = ["azul-text-layout"]
