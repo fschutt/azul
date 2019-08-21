@@ -68,19 +68,16 @@ impl<T> Clone for UiDescription<T> {
 impl<T> Default for UiDescription<T> {
     fn default() -> Self {
 
-        use crate::{
-            dom::Dom,
-            ui_state::ui_state_from_dom,
-        };
+        use crate::{dom::Dom};
 
         let default_dom = Dom::div();
         let hovered_nodes = BTreeMap::new();
         let is_mouse_down = false;
 
         let focused_node = None;
-        let mut ui_state = ui_state_from_dom(default_dom, None);
+        let mut ui_state = UiState::new(default_dom, None);
 
-        Self::match_css_to_dom(
+        Self::new(
             &mut ui_state,
             &Css::default(),
             &focused_node,
@@ -94,15 +91,13 @@ impl<T> UiDescription<T> {
     /// Applies the styles to the nodes calculated from the `layout_screen`
     /// function and calculates the final display list that is submitted to the
     /// renderer.
-    pub fn match_css_to_dom(
+    pub fn new(
         ui_state: &mut UiState<T>,
         style: &Css,
         focused_node: &Option<(DomId, NodeId)>,
         hovered_nodes: &BTreeMap<NodeId, HitTestItem>,
         is_mouse_down: bool,
     ) -> Self {
-
-        use crate::ui_state::ui_state_create_tags_for_hover_nodes;
 
         let ui_description = crate::style::match_dom_selectors(
             ui_state,
@@ -113,7 +108,7 @@ impl<T> UiDescription<T> {
         );
 
         // Important: Create all the tags for the :hover and :active selectors
-        ui_state_create_tags_for_hover_nodes(ui_state, &ui_description.selected_hover_nodes);
+        ui_state.create_tags_for_hover_nodes(&ui_description.selected_hover_nodes);
 
         ui_description
     }
