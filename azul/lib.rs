@@ -139,7 +139,6 @@ extern crate azul_css;
 #[macro_use(impl_task_api)]
 extern crate azul_core;
 extern crate azul_layout;
-extern crate azul_text_layout;
 extern crate glutin;
 extern crate webrender;
 extern crate app_units;
@@ -166,46 +165,6 @@ extern crate backtrace;
 #[cfg(feature = "image_loading")]
 extern crate image;
 
-#[cfg(feature = "widgets")]
-pub mod widgets {
-    pub use azul_widgets::{button, label, table_view, text_input, errors};
-
-    #[cfg(any(feature = "svg", feature = "svg_parsing"))]
-    pub mod svg {
-
-        pub use azul_widgets::svg::*;
-        use azul_css::{StyleTextAlignmentHorz, LayoutPoint};
-        use azul_core::ui_solver::ResolvedTextLayoutOptions;
-
-        pub fn svg_text_layout_from_str(
-            text: &str,
-            font_bytes: &[u8],
-            font_index: u32,
-            mut text_layout_options: ResolvedTextLayoutOptions,
-            horizontal_alignment: StyleTextAlignmentHorz,
-        ) -> SvgTextLayout {
-
-            use azul_text_layout::text_layout;
-
-            text_layout_options.font_size_px = SVG_FAKE_FONT_SIZE;
-            let words = text_layout::split_text_into_words(text);
-            let scaled_words = text_layout::words_to_scaled_words(&words, font_bytes, font_index, SVG_FAKE_FONT_SIZE);
-            let word_positions = text_layout::position_words(&words, &scaled_words, &text_layout_options);
-            let mut inline_text_layout = text_layout::word_positions_to_inline_text_layout(&word_positions, &scaled_words);
-            inline_text_layout.align_children_horizontal(horizontal_alignment);
-            let layouted_glyphs = text_layout::get_layouted_glyphs(&word_positions, &scaled_words, &inline_text_layout, LayoutPoint::zero());
-
-            SvgTextLayout {
-               words,
-               scaled_words,
-               word_positions,
-               layouted_glyphs,
-               inline_text_layout,
-            }
-        }
-    }
-}
-
 // Crate-internal macros
 #[macro_use]
 mod macros;
@@ -228,7 +187,7 @@ pub use azul_core::diff;
 /// OpenGL helper functions, necessary to create OpenGL textures, manage contexts, etc.
 pub use azul_core::gl;
 /// Handles text layout (modularized, can be used as a standalone module)
-pub use azul_text_layout::text_layout as text_layout;
+pub use azul_layout::text_layout;
 /// Main `Layout` trait definition + convenience traits for `Arc<Mutex<T>>`
 pub use azul_core::traits;
 /// Window state handling and window-related information
@@ -236,20 +195,13 @@ pub mod window;
 /// XML-based DOM serialization and XML-to-Rust compiler implementation
 pub mod xml;
 
-/// Manages the hover / focus tags for the DOM items
 use azul_core::ui_state;
-/// The compositor takes all textures (user-defined + the UI texture(s)) and draws them on
-/// top of each other
+use azul_layout::ui_solver;
 mod compositor;
-/// Default logger, can be turned off with `feature = "logging"`
 #[cfg(feature = "logging")]
 mod logging;
-/// ImageId / FontId handling and caching
 mod app_resources;
-/// Translation between data types (so that Azuls API can be independent of the actual "backend" type)
 mod wr_translate;
-/// Flexbox-based UI solver
-mod ui_solver;
 
 pub use azul_core::{FastHashMap, FastHashSet};
 
@@ -342,4 +294,44 @@ pub mod errors {
         Clipboard(e) => format!("Clipboard error: {}", e),
         WindowCreate(e) => format!("Window creation error: {}", e),
     });
+}
+
+#[cfg(feature = "widgets")]
+pub mod widgets {
+    pub use azul_widgets::{button, label, table_view, text_input, errors};
+
+    #[cfg(any(feature = "svg", feature = "svg_parsing"))]
+    pub mod svg {
+
+        pub use azul_widgets::svg::*;
+        use azul_css::{StyleTextAlignmentHorz, LayoutPoint};
+        use azul_core::ui_solver::ResolvedTextLayoutOptions;
+
+        pub fn svg_text_layout_from_str(
+            text: &str,
+            font_bytes: &[u8],
+            font_index: u32,
+            mut text_layout_options: ResolvedTextLayoutOptions,
+            horizontal_alignment: StyleTextAlignmentHorz,
+        ) -> SvgTextLayout {
+
+            use azul_layout::text_layout;
+
+            text_layout_options.font_size_px = SVG_FAKE_FONT_SIZE;
+            let words = text_layout::split_text_into_words(text);
+            let scaled_words = text_layout::words_to_scaled_words(&words, font_bytes, font_index, SVG_FAKE_FONT_SIZE);
+            let word_positions = text_layout::position_words(&words, &scaled_words, &text_layout_options);
+            let mut inline_text_layout = text_layout::word_positions_to_inline_text_layout(&word_positions, &scaled_words);
+            inline_text_layout.align_children_horizontal(horizontal_alignment);
+            let layouted_glyphs = text_layout::get_layouted_glyphs(&word_positions, &scaled_words, &inline_text_layout, LayoutPoint::zero());
+
+            SvgTextLayout {
+               words,
+               scaled_words,
+               word_positions,
+               layouted_glyphs,
+               inline_text_layout,
+            }
+        }
+    }
 }

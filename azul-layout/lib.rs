@@ -22,6 +22,8 @@
 
 extern crate azul_core;
 extern crate azul_css;
+#[cfg(feature = "text_layout")]
+pub extern crate azul_text_layout as text_layout;
 
 use std::collections::BTreeMap;
 use azul_css::LayoutRect;
@@ -39,6 +41,8 @@ mod number;
 mod geometry;
 
 pub mod style;
+#[cfg(feature = "text_layout")]
+pub mod ui_solver;
 pub use geometry::{Size, Offsets};
 pub use number::Number;
 

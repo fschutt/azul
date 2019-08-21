@@ -1,4 +1,5 @@
 use std::{f32, collections::BTreeMap};
+use crate::RectContent;
 use azul_css::{
     RectLayout, RectStyle, StyleTextAlignmentHorz,
     StyleTextAlignmentVert, LayoutRect,
@@ -11,12 +12,11 @@ use azul_core::{
     callbacks::PipelineId,
     ui_solver::{PositionedRectangle, LayoutResult},
 };
-use azul_layout::RectContent;
 use azul_text_layout::InlineText;
 
 /// At this point in time, all font keys, image keys, etc. have
 /// to be already submitted in the RenderApi!
-pub(crate) fn do_the_layout<T>(
+pub fn do_the_layout<T>(
     node_hierarchy: &NodeHierarchy,
     node_data: &NodeDataContainer<NodeData<T>>,
     display_rects: &NodeDataContainer<DisplayRectangle>,
@@ -25,7 +25,7 @@ pub(crate) fn do_the_layout<T>(
     bounding_rect: LayoutRect,
 ) -> LayoutResult {
 
-    use azul_layout::SolvedUi;
+    use crate::SolvedUi;
 
     // 1. do layout pass without any text, only images, set display:inline children to (0px 0px)
     // 2. for each display:inline rect, layout children, calculate size of parent item
@@ -59,11 +59,11 @@ pub(crate) fn do_the_layout<T>(
     }
 }
 
-fn create_word_cache<T>(
+pub fn create_word_cache<T>(
     app_resources: &AppResources,
     node_data: &NodeDataContainer<NodeData<T>>,
 ) -> BTreeMap<NodeId, Words> {
-    use crate::text_layout::split_text_into_words;
+    use azul_text_layout::text_layout::split_text_into_words;
     node_data
     .linear_iter()
     .filter_map(|node_id| {
@@ -77,7 +77,7 @@ fn create_word_cache<T>(
     }).collect()
 }
 
-fn create_scaled_words(
+pub fn create_scaled_words(
     app_resources: &AppResources,
     pipeline_id: &PipelineId,
     words: &BTreeMap<NodeId, Words>,
@@ -147,8 +147,7 @@ fn create_word_positions<'a>(
      scaled_words: &BTreeMap<NodeId, (ScaledWords, FontInstanceKey)>,
      layouted_rects: &NodeDataContainer<PositionedRectangle>,
 ) -> BTreeMap<NodeId, (WordPositions, FontInstanceKey)> {
-
-    use crate::text_layout;
+    use azul_text_layout::text_layout;
     words.iter().filter_map(|(node_id, words)| {
         let (scaled_words, font_instance_key) = scaled_words.get(&node_id)?;
         let (text_layout_options, _, _) = layouted_rects[*node_id].resolved_text_layout_options.as_ref()?;
@@ -165,7 +164,7 @@ fn get_glyphs(
     positioned_rectangles: &mut NodeDataContainer<PositionedRectangle>,
 ) -> BTreeMap<NodeId, LayoutedGlyphs> {
 
-    use crate::text_layout::get_layouted_glyphs;
+    use azul_text_layout::text_layout::get_layouted_glyphs;
 
     scaled_words
     .iter()
