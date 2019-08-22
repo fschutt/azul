@@ -30,8 +30,7 @@ fn main() {
 
     // Set width + height of the rendering here
     let (page_width_px, page_height_px) = (600.0, 100.0);
-    // TODO: why &mut?
-    let mut fake_window_state = FullWindowState {
+    let fake_window_state = FullWindowState {
         size: WindowSize {
             dimensions: LogicalSize::new(page_width_px, page_height_px),
             .. Default::default()
@@ -44,8 +43,8 @@ fn main() {
     let epoch = Epoch(0);
     let dom: Dom<Mock> = Dom::div().with_id("hello");
     let css = azul_css_parser::new_from_str("#hello {
-        width: 300px;
-        height: 40px;
+        width: 100%;
+        height: 50%;
         background: red;
     }").unwrap();
 
@@ -71,7 +70,7 @@ fn main() {
         &mut render_api,
         &mut app_resources,
         gl_context.clone(),
-        &mut fake_window_state,
+        &fake_window_state,
         &mut ui_states,
         &mut ui_descriptions,
         &mut default_callbacks,
