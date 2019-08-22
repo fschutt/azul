@@ -129,6 +129,7 @@ version = "0.1.0"
 dependencies = [
  "azul-core 0.1.0",
  "azul-css 0.1.0",
+ "freetype 0.4.1 (registry+https://github.com/rust-lang/crates.io-index)",
  "harfbuzz-sys 0.3.2 (registry+https://github.com/rust-lang/crates.io-index)",
  "unicode-normalization 0.1.8 (registry+https://github.com/rust-lang/crates.io-index)",
 ]
