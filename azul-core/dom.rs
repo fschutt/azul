@@ -67,10 +67,10 @@ impl DomId {
         }
     }
 
-    /// Reset the DOM ID to 1, usually done once-per-frame for the root DOM
+    /// Reset the DOM ID to 0, usually done once-per-frame for the root DOM
     #[inline(always)]
     pub fn reset() {
-        DOM_ID.swap(1, Ordering::SeqCst);
+        DOM_ID.swap(0, Ordering::SeqCst);
     }
 
     /// Returns if this is the root node

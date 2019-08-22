@@ -758,7 +758,6 @@ fn send_user_event<'a, T>(
             // TODO: Invoke callback to reject the window close event!
 
             use azul_core::gl::gl_textures_remove_active_pipeline;
-            use azul_core::app_resources::delete_pipeline;
 
             let glutin_window_id = match eld.reverse_window_id_mapping.get(&window_id) {
                 Some(s) => s.clone(),
@@ -780,7 +779,7 @@ fn send_user_event<'a, T>(
             };
 
             gl_textures_remove_active_pipeline(&w.internal.pipeline_id);
-            delete_pipeline(eld.resources, eld.render_api, &w.internal.pipeline_id);
+            eld.resources.delete_pipeline(&w.internal.pipeline_id, eld.render_api);
             eld.render_api.api.delete_document(w.internal.document_id);
         },
         DoHitTest { window_id } => {
@@ -1165,6 +1164,7 @@ fn initialize_ui_state_cache<T>(
     let mut default_callbacks_id_map = BTreeMap::new();
 
     for (glutin_window_id, window) in windows {
+        DomId::reset();
         let full_window_state = full_window_states.get_mut(glutin_window_id).unwrap();
         let (dom_id_map, default_callbacks_map) = call_layout_fn(
             data,

@@ -49,6 +49,11 @@ fn main() {
         background: red;
     }").unwrap();
 
+    // Important!
+    app_resources.add_new_pipeline(pipeline_id);
+
+    DomId::reset();
+
     let mut ui_state = UiState::new(dom, None);
     let ui_description = UiDescription::new(&mut ui_state, &css, &None, &BTreeMap::new(), false);
 

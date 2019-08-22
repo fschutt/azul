@@ -65,28 +65,6 @@ impl<T> Clone for UiDescription<T> {
     }
 }
 
-impl<T> Default for UiDescription<T> {
-    fn default() -> Self {
-
-        use crate::{dom::Dom};
-
-        let default_dom = Dom::div();
-        let hovered_nodes = BTreeMap::new();
-        let is_mouse_down = false;
-
-        let focused_node = None;
-        let mut ui_state = UiState::new(default_dom, None);
-
-        Self::new(
-            &mut ui_state,
-            &Css::default(),
-            &focused_node,
-            &hovered_nodes,
-            is_mouse_down,
-        )
-    }
-}
-
 impl<T> UiDescription<T> {
     /// Applies the styles to the nodes calculated from the `layout_screen`
     /// function and calculates the final display list that is submitted to the
