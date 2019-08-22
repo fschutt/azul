@@ -958,7 +958,7 @@ fn send_user_event<'a, T>(
                 };
 
                 let window = eld.active_windows.get_mut(&glutin_window_id).unwrap();
-                let full_window_state = eld.full_window_states.get_mut(&glutin_window_id).unwrap();
+                let full_window_state = &eld.full_window_states[&glutin_window_id];
 
                 // Make sure unused scroll states are garbage collected.
                 window.internal.scroll_states.remove_unused_scroll_states();
