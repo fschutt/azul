@@ -170,6 +170,41 @@ pub struct AppResources {
     pub text_cache: TextCache,
 }
 
+impl AppResources {
+
+    /// Add a new pipeline to the app resources
+    pub fn add_new_pipeline(&mut self, pipeline_id: PipelineId) {
+        self.currently_registered_fonts.insert(pipeline_id, FastHashMap::default());
+        self.currently_registered_images.insert(pipeline_id, FastHashMap::default());
+        self.last_frame_font_keys.insert(pipeline_id, FastHashMap::default());
+        self.last_frame_image_keys.insert(pipeline_id, FastHashSet::default());
+    }
+
+    /// Delete and remove all fonts & font instance keys from a given pipeline
+    pub fn delete_pipeline<T: FontImageApi>(&mut self, pipeline_id: &PipelineId, render_api: &mut T) {
+        let mut delete_font_resources = Vec::new();
+
+        for (font_id, loaded_font) in self.currently_registered_fonts[&pipeline_id].iter() {
+            delete_font_resources.extend(
+                loaded_font.font_instances.iter()
+                .map(|(au, font_instance_key)| (font_id.clone(), DeleteFontMsg::Instance(*font_instance_key, *au)))
+            );
+            delete_font_resources.push((font_id.clone(), DeleteFontMsg::Font(loaded_font.font_key)));
+        }
+
+        let delete_image_resources = self.currently_registered_images[&pipeline_id].iter()
+        .map(|(id, info)| (*id, DeleteImageMsg(info.key, *info)))
+        .collect();
+
+        delete_resources(self, render_api, pipeline_id, delete_font_resources, delete_image_resources);
+
+        self.currently_registered_fonts.remove(pipeline_id);
+        self.currently_registered_images.remove(pipeline_id);
+        self.last_frame_font_keys.remove(pipeline_id);
+        self.last_frame_image_keys.remove(pipeline_id);
+    }
+}
+
 macro_rules! unique_id {($struct_name:ident, $counter_name:ident) => {
 
     static $counter_name: ::std::sync::atomic::AtomicUsize = ::std::sync::atomic::AtomicUsize::new(0);
@@ -1293,45 +1328,6 @@ pub fn add_resources<T: FontImageApi>(
             },
         }
     }
-}
-
-/// Add a new pipeline to the app resources
-pub fn register_new_pipeline(
-    app_resources: &mut AppResources,
-    pipeline_id: PipelineId,
-) {
-    app_resources.currently_registered_fonts.insert(pipeline_id, FastHashMap::default());
-    app_resources.currently_registered_images.insert(pipeline_id, FastHashMap::default());
-    app_resources.last_frame_font_keys.insert(pipeline_id, FastHashMap::default());
-    app_resources.last_frame_image_keys.insert(pipeline_id, FastHashSet::default());
-}
-
-/// Delete and remove all fonts & font instance keys from a given pipeline
-pub fn delete_pipeline<T: FontImageApi>(
-    app_resources: &mut AppResources,
-    render_api: &mut T,
-    pipeline_id: &PipelineId,
-) {
-    let mut delete_font_resources = Vec::new();
-
-    for (font_id, loaded_font) in app_resources.currently_registered_fonts[&pipeline_id].iter() {
-        delete_font_resources.extend(
-            loaded_font.font_instances.iter()
-            .map(|(au, font_instance_key)| (font_id.clone(), DeleteFontMsg::Instance(*font_instance_key, *au)))
-        );
-        delete_font_resources.push((font_id.clone(), DeleteFontMsg::Font(loaded_font.font_key)));
-    }
-
-    let delete_image_resources = app_resources.currently_registered_images[&pipeline_id].iter()
-    .map(|(id, info)| (*id, DeleteImageMsg(info.key, *info)))
-    .collect();
-
-    delete_resources(app_resources, render_api, pipeline_id, delete_font_resources, delete_image_resources);
-
-    app_resources.currently_registered_fonts.remove(pipeline_id);
-    app_resources.currently_registered_images.remove(pipeline_id);
-    app_resources.last_frame_font_keys.remove(pipeline_id);
-    app_resources.last_frame_image_keys.remove(pipeline_id);
 }
 
 pub fn build_delete_font_resource_updates(
