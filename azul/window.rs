@@ -411,7 +411,6 @@ impl<T> Window<T> {
     ) -> Result<Self, GlutinCreationError> {
 
         use crate::wr_translate::translate_logical_size_to_css_layout_size;
-        use azul_core::app_resources::register_new_pipeline;
 
         // NOTE: It would be OK to use &RenderApi here, but it's better
         // to make sure that the RenderApi is currently not in use by anything else.
@@ -453,7 +452,7 @@ impl<T> Window<T> {
         // back to their windows and window positions.
         let pipeline_id = PipelineId::new();
 
-        register_new_pipeline(app_resources, pipeline_id);
+        app_resources.add_new_pipeline(pipeline_id);
 
         options.state.css.sort_by_specificity();
 

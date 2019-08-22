@@ -698,8 +698,6 @@ impl SolvedLayout {
 
             let ui_description = &ui_descriptions[dom_id];
 
-            DomId::reset();
-
             recurse(
                 data,
                 &mut solved_layout_cache,
