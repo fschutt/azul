@@ -2,6 +2,7 @@ extern crate azul_css;
 extern crate azul_core;
 extern crate unicode_normalization;
 extern crate harfbuzz_sys;
+extern crate freetype; // necessary to get baseline of font
 
 pub mod text_layout;
 pub mod text_shaping;
