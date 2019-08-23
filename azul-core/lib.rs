@@ -12,12 +12,12 @@ pub mod dom;
 pub mod diff;
 pub mod gl;
 pub mod id_tree;
-pub mod ui_description;
-pub mod ui_state;
-pub mod ui_solver;
 pub mod style;
 pub mod traits;
 pub mod task;
+pub mod ui_description;
+pub mod ui_state;
+pub mod ui_solver;
 pub mod window;
 pub mod window_state;
 
