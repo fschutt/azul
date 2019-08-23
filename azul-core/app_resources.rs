@@ -336,6 +336,7 @@ pub struct LoadedFont {
     /// Index of the font in case the bytes indicate a font collection
     pub font_index: i32,
     pub font_instances: FastHashMap<Au, FontInstanceKey>,
+    pub font_metrics: FontMetrics,
 }
 
 impl fmt::Debug for LoadedFont {
@@ -348,16 +349,6 @@ impl fmt::Debug for LoadedFont {
 }
 
 impl LoadedFont {
-
-    /// Creates a new loaded font with 0 font instances
-    pub fn new(font_key: FontKey, font_bytes: Vec<u8>, font_index: i32) -> Self {
-        Self {
-            font_key,
-            font_bytes,
-            font_index,
-            font_instances: FastHashMap::default(),
-        }
-    }
 
     pub fn delete_font_instance(&mut self, size: &Au) {
         self.font_instances.remove(size);
@@ -1214,8 +1205,13 @@ pub struct LoadedImageSource {
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub struct LoadedFontSource {
+    /// Bytes of the font file
     pub font_bytes: Vec<u8>,
-    pub font_index: i32
+    /// Index of the font in the file (if not known, set to 0) -
+    /// only relevant if the file is a font collection
+    pub font_index: i32,
+    /// Important baseline / character metrics of the font
+    pub font_metrics: FontMetrics,
 }
 
 pub type LoadFontFn = fn(&FontSource) -> Option<LoadedFontSource>;
@@ -1305,15 +1301,24 @@ pub fn build_add_font_resource_updates<T: FontImageApi>(
                     Unresolved(css_font_id) => FontSource::System(css_font_id.clone()),
                 };
 
-                let LoadedFontSource { font_bytes, font_index } = match (font_source_load_fn)(&font_source) {
+                let loaded_font_source = match (font_source_load_fn)(&font_source) {
                     Some(s) => s,
                     None => continue,
                 };
 
+                let LoadedFontSource { font_bytes, font_index, font_metrics } = loaded_font_source;
+
                 if !font_sizes.is_empty() {
                     let font_key = render_api.new_font_key();
+                    let loaded_font = LoadedFont {
+                        font_key,
+                        font_bytes,
+                        font_index,
+                        font_metrics,
+                        font_instances: FastHashMap::new(),
+                    };
 
-                    resource_updates.push((im_font_id.clone(), AddFontMsg::Font(LoadedFont::new(font_key, font_bytes, font_index))));
+                    resource_updates.push((im_font_id.clone(), AddFontMsg::Font(loaded_font)));
 
                     for font_size in font_sizes {
                         insert_font_instances!(im_font_id.clone(), font_key, font_index, *font_size);
@@ -1388,7 +1393,7 @@ pub fn add_resources<T: FontImageApi>(
             Font(f) => {
                 app_resources.currently_registered_fonts
                 .get_mut(pipeline_id).unwrap()
-                .insert(font_id, LoadedFont::new(f.font_key, f.font_bytes, f.font_index));
+                .insert(font_id, f);
             },
             Instance(fi, size) => {
                 app_resources.currently_registered_fonts
