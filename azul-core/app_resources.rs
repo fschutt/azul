@@ -55,6 +55,64 @@ impl fmt::Debug for GlyphPosition {
     }
 }
 
+#[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
+pub struct FontMetrics {
+    /// Font size that these metrics were created for, usually 1000px
+    /// (so every metric has to be divided by 1000 before it can be used for measurements)
+    pub font_size: usize,
+    pub x_ppem: u16,
+    pub y_ppem: u16,
+    pub x_scale: i64,
+    pub y_scale: i64,
+    pub ascender: i64,
+    pub descender: i64,
+    pub height: i64,
+    pub max_advance: i64,
+}
+
+impl FontMetrics {
+
+    pub fn get_x_ppem(&self, target_font_size: f32) -> f32 {
+        let s = self.x_ppem as f32;
+        s / (self.font_size as f32) * target_font_size
+    }
+
+    pub fn get_y_ppem(&self, target_font_size: f32) -> f32 {
+        let s = self.y_ppem as f32;
+        s / (self.font_size as f32) * target_font_size
+    }
+
+    pub fn get_x_scale(&self, target_font_size: f32) -> f32 {
+        let s = self.x_scale as f32;
+        s / (self.font_size as f32) * target_font_size
+    }
+
+    pub fn get_y_scale(&self, target_font_size: f32) -> f32 {
+        let s = self.y_scale as f32;
+        s / (self.font_size as f32) * target_font_size
+    }
+
+    pub fn get_ascender(&self, target_font_size: f32) -> f32 {
+        let s = self.ascender as f32;
+        s / (self.font_size as f32) * target_font_size
+    }
+
+    pub fn get_descender(&self, target_font_size: f32) -> f32 {
+        let s = self.descender as f32;
+        s / (self.font_size as f32) * target_font_size
+    }
+
+    pub fn get_height(&self, target_font_size: f32) -> f32 {
+        let s = self.height as f32;
+        s / (self.font_size as f32) * target_font_size
+    }
+
+    pub fn get_max_advance(&self, target_font_size: f32) -> f32 {
+        let s = self.max_advance as f32;
+        s / (self.font_size as f32) * target_font_size
+    }
+}
+
 #[repr(C)]
 #[derive(Copy, Clone)]
 pub union HbVarIntT {
