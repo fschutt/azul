@@ -165,12 +165,27 @@ pub fn font_source_get_bytes(font_source: &FontSource) -> Option<LoadedFontSourc
     /// Also returns the index into the font (in case the font is a font collection).
     fn font_source_get_bytes_inner(font_source: &FontSource) -> Result<LoadedFontSource, FontReloadError> {
         use std::fs;
+        use azul_layout::text_layout::text_shaping::get_font_metrics_freetype;
+
+        const DEFAULT_FONT_INDEX: i32 = 0;
+
         match font_source {
-            FontSource::Embedded(font_bytes) => Ok(LoadedFontSource { font_bytes: font_bytes.to_vec(), font_index: 0 }),
+            FontSource::Embedded(font_bytes) => Ok(LoadedFontSource {
+                font_bytes: font_bytes.to_vec(),
+                font_index: DEFAULT_FONT_INDEX,
+                font_metrics: get_font_metrics_freetype(font_bytes, DEFAULT_FONT_INDEX),
+            }),
             FontSource::File(file_path) => {
                 fs::read(file_path)
                 .map_err(|e| FontReloadError::Io(e, file_path.clone()))
-                .map(|font_bytes|  LoadedFontSource { font_bytes, font_index: 0 })
+                .map(|font_bytes|  {
+                    let font_metrics = get_font_metrics_freetype(&font_bytes, DEFAULT_FONT_INDEX);
+                    LoadedFontSource {
+                        font_bytes,
+                        font_index: DEFAULT_FONT_INDEX,
+                        font_metrics,
+                    }
+            })
             },
             FontSource::System(id) => load_system_font(id).ok_or(FontReloadError::FontNotFound(id.clone())),
         }
@@ -199,6 +214,7 @@ fn decode_image_data(image_data: Vec<u8>) -> Result<LoadedImageSource, ImageErro
 /// Returns the font + the index of the font (in case the font is a collection)
 fn load_system_font(id: &str) -> Option<LoadedFontSource> {
     use font_loader::system_fonts::{self, FontPropertyBuilder};
+    use azul_layout::text_layout::text_shaping::get_font_metrics_freetype;
 
     let font_builder = match id {
         "monospace" => {
@@ -230,8 +246,9 @@ fn load_system_font(id: &str) -> Option<LoadedFontSource> {
     };
 
     let (font_bytes, font_index) = system_fonts::get(&font_builder.build())?;
+    let font_metrics = get_font_metrics_freetype(&font_bytes, font_index);
 
-    Some(LoadedFontSource { font_bytes, font_index })
+    Some(LoadedFontSource { font_bytes, font_index, font_metrics })
 }
 
 /// Return the native fonts
