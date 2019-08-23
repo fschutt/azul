@@ -3,6 +3,8 @@ use std::{
     sync::atomic::{AtomicUsize, Ordering},
     collections::BTreeMap,
     rc::Rc,
+    any::Any,
+    cell::RefCell,
 };
 use azul_css::{LayoutPoint, LayoutRect, CssPath};
 #[cfg(feature = "css_parser")]
@@ -41,6 +43,29 @@ pub const Redraw: Option<()> = Some(());
 /// The screen does not need to redraw after the callback has been called.
 #[allow(non_upper_case_globals)]
 pub const DontRedraw: Option<()> = None;
+
+#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord)]
+pub struct Ref<T>(Rc<RefCell<T>>);
+
+impl<T: 'static> Ref<T> {
+
+    pub fn new(data: T) -> Self {
+        Ref(Rc::new(RefCell::new(data)))
+    }
+
+    pub fn upcast(self) -> RefAny {
+        RefAny(self.0 as Rc<dyn Any>)
+    }
+}
+
+#[derive(Debug)]
+pub struct RefAny(Rc<dyn Any>);
+
+impl RefAny {
+    pub fn downcast_ref<T: 'static>(&self) -> Option<&RefCell<T>> {
+        self.0.downcast_ref::<RefCell<T>>()
+    }
+}
 
 static LAST_DEFAULT_CALLBACK_ID: AtomicUsize = AtomicUsize::new(0);
 
