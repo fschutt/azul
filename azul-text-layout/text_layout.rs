@@ -4,7 +4,7 @@ pub use azul_core::{
         Words, Word, WordType, GlyphInfo, GlyphPosition,
         ScaledWords, ScaledWord, WordIndex, GlyphIndex, LineLength, IndexOfLineBreak,
         RemainingSpaceToRight, LineBreaks, WordPositions, LayoutedGlyphs,
-        ClusterIterator, ClusterInfo,
+        ClusterIterator, ClusterInfo, FontMetrics,
     },
     display_list::GlyphInstance,
     ui_solver::{
@@ -134,6 +134,7 @@ pub fn words_to_scaled_words(
     words: &Words,
     font_bytes: &[u8],
     font_index: u32,
+    font_metrics: FontMetrics,
     font_size_px: f32,
 ) -> ScaledWords {
 
@@ -205,6 +206,7 @@ pub fn words_to_scaled_words(
 
     ScaledWords {
         font_size_px,
+        font_metrics,
         baseline_px: font_size_px, // TODO!
         items: scaled_words,
         longest_word_width: longest_word_width,
@@ -395,6 +397,7 @@ pub fn word_positions_to_inline_text_layout(
     use azul_core::ui_solver::InlineTextLine;
 
     let font_size_px = word_positions.text_layout_options.font_size_px;
+    let regular_line_height = scaled_words.font_metrics.get_height(font_size_px);
     let space_advance = scaled_words.space_advance_px;
     let line_height_px = space_advance * word_positions.text_layout_options.line_height.unwrap_or(DEFAULT_LINE_HEIGHT);
 
@@ -408,8 +411,8 @@ pub fn word_positions_to_inline_text_layout(
                 let start_word_idx = last_word_index;
                 let line = InlineTextLine {
                     bounds: LayoutRect {
-                        origin: LayoutPoint { x: 0.0, y: get_line_y_position(line_number, font_size_px, line_height_px) },
-                        size: LayoutSize { width: *line_length, height: font_size_px },
+                        origin: LayoutPoint { x: 0.0, y: get_line_y_position(line_number, regular_line_height, line_height_px) },
+                        size: LayoutSize { width: *line_length, height: regular_line_height },
                     },
                     word_start: start_word_idx,
                     word_end: *word_idx,
@@ -431,11 +434,12 @@ pub fn get_layouted_glyphs(
 
     let letter_spacing_px = word_positions.text_layout_options.letter_spacing.unwrap_or(0.0);
     let mut all_glyphs = Vec::with_capacity(scaled_words.items.len());
+    let baseline_px = scaled_words.font_metrics.get_ascender(scaled_words.font_size_px);
 
     for line in inline_text_layout.lines.iter() {
 
-        let line_x = line.bounds.origin.x;
-        let line_y = line.bounds.origin.y;
+        let line_x = origin.x + line.bounds.origin.x;
+        let line_y = origin.y + line.bounds.origin.y - (line.bounds.size.height - baseline_px); // bottom left corner of the glyph (baseline)
 
         let scaled_words_in_this_line = &scaled_words.items[line.word_start..line.word_end];
         let word_positions_in_this_line = &word_positions.word_positions[line.word_start..line.word_end];
@@ -443,8 +447,8 @@ pub fn get_layouted_glyphs(
         for (scaled_word, word_position) in scaled_words_in_this_line.iter().zip(word_positions_in_this_line.iter()) {
             let mut glyphs = text_shaping::get_glyph_instances_hb(&scaled_word.glyph_infos, &scaled_word.glyph_positions);
             for (glyph, cluster_info) in glyphs.iter_mut().zip(scaled_word.cluster_iter()) {
-                glyph.point.x += origin.x + line_x + word_position.x + (letter_spacing_px * cluster_info.cluster_idx as f32);
-                glyph.point.y += origin.y + line_y;
+                glyph.point.x += line_x + word_position.x + (letter_spacing_px * cluster_info.cluster_idx as f32);
+                glyph.point.y += line_y;
             }
 
             all_glyphs.append(&mut glyphs);
