@@ -17,7 +17,7 @@ use harfbuzz_sys::{
 };
 use azul_core::{
     display_list::GlyphInstance,
-    app_resources::{GlyphInfo, GlyphPosition},
+    app_resources::{GlyphInfo, FontMetrics, GlyphPosition},
 };
 use azul_css::{LayoutPoint, LayoutSize};
 
@@ -266,136 +266,79 @@ pub(crate) fn get_glyph_instances_hb(
     }).collect()
 }
 
-pub struct SizeMetrics {
-    /// Font size that these metrics were created for, usually 1000px
-    /// (so every metric has to be divided by 1000 before it can be used for measurements)
-    font_size: usize,
-    x_ppem: u16,
-    y_ppem: u16,
-    x_scale: i64,
-    y_scale: i64,
-    ascender: i64,
-    descender: i64,
-    height: i64,
-    max_advance: i64,
-}
+/// Get the baseline for a font, you'll have to scale the
+/// font size then later on for your given font size
+pub fn get_font_metrics_freetype(font_bytes: &[u8], font_index: i32) -> FontMetrics {
 
-impl SizeMetrics {
+    use std::convert::TryInto;
+    use freetype::freetype::{
+        FT_Init_FreeType, FT_Done_FreeType, FT_New_Memory_Face,
+        FT_Done_Face, FT_Set_Char_Size, FT_Library, FT_Face,
+    };
 
-    /// Get the baseline for a font, you'll have to scale the
-    /// font size then later on for your given font size
-    pub fn new(font_bytes: &[u8], font_index: i32) -> Self {
+    const FT_ERR_OK: i32 = 0;
+    const FAKE_FONT_SIZE: i64 = 1000;
 
-        use std::convert::TryInto;
-        use freetype::freetype::{
-            FT_Init_FreeType, FT_Done_FreeType, FT_New_Memory_Face,
-            FT_Done_Face, FT_Set_Char_Size, FT_Library, FT_Face,
-        };
+    let mut baseline = FontMetrics {
+        font_size: FAKE_FONT_SIZE as usize,
+        x_ppem: 0,
+        y_ppem: 0,
+        x_scale: 0,
+        y_scale: 0,
+        ascender: 0,
+        descender: 0,
+        height: 0,
+        max_advance: 0,
+    };
 
-        const FT_ERR_OK: i32 = 0;
-        const FAKE_FONT_SIZE: i64 = 1000;
+    let buf_len: i64 = match font_bytes.len().try_into().ok() {
+        Some(s) => s,
+        None => return baseline, // font too large for freetype
+    };
 
-        let mut baseline = Self {
-            font_size: FAKE_FONT_SIZE as usize,
-            x_ppem: 0,
-            y_ppem: 0,
-            x_scale: 0,
-            y_scale: 0,
-            ascender: 0,
-            descender: 0,
-            height: 0,
-            max_advance: 0,
-        };
-
-        let buf_len: i64 = match font_bytes.len().try_into().ok() {
-            Some(s) => s,
-            None => return baseline, // font too large for freetype
-        };
-
-        unsafe {
-            // Initialize library
-            let mut ft_library: FT_Library = ptr::null_mut();
-            let error = FT_Init_FreeType(&mut ft_library);
-            if error != FT_ERR_OK {
-                return baseline;
-            }
-
-            // Load font
-            let mut ft_face: FT_Face = ptr::null_mut();
-            let error = FT_New_Memory_Face(ft_library, font_bytes.as_ptr(), buf_len, font_index as i64, &mut ft_face);
-            if error != FT_ERR_OK {
-                FT_Done_FreeType(ft_library);
-                return baseline;
-            }
-
-            // Set font size to fake 1000px
-            let error = FT_Set_Char_Size(ft_face, 0, FAKE_FONT_SIZE * 64, 300, 300);
-            if error != FT_ERR_OK {
-                FT_Done_Face(ft_face);
-                FT_Done_FreeType(ft_library);
-                return baseline;
-            }
-
-            let ft_face_ref = &*ft_face;
-            let ft_size_ref = &*ft_face_ref.size;
-            let metrics = ft_size_ref.metrics;
-
-            baseline = Self {
-                font_size: FAKE_FONT_SIZE as usize,
-                x_ppem: metrics.x_ppem,
-                y_ppem: metrics.y_ppem,
-                x_scale: metrics.x_scale,
-                y_scale: metrics.y_scale,
-                ascender: metrics.ascender,
-                descender: metrics.descender,
-                height: metrics.height,
-                max_advance: metrics.max_advance,
-            };
-
-            FT_Done_Face(ft_face);
-            FT_Done_FreeType(ft_library);
+    unsafe {
+        // Initialize library
+        let mut ft_library: FT_Library = ptr::null_mut();
+        let error = FT_Init_FreeType(&mut ft_library);
+        if error != FT_ERR_OK {
+            return baseline;
         }
 
-        baseline
+        // Load font
+        let mut ft_face: FT_Face = ptr::null_mut();
+        let error = FT_New_Memory_Face(ft_library, font_bytes.as_ptr(), buf_len, font_index as i64, &mut ft_face);
+        if error != FT_ERR_OK {
+            FT_Done_FreeType(ft_library);
+            return baseline;
+        }
+
+        // Set font size to fake 1000px
+        let error = FT_Set_Char_Size(ft_face, 0, FAKE_FONT_SIZE * 64, 300, 300);
+        if error != FT_ERR_OK {
+            FT_Done_Face(ft_face);
+            FT_Done_FreeType(ft_library);
+            return baseline;
+        }
+
+        let ft_face_ref = &*ft_face;
+        let ft_size_ref = &*ft_face_ref.size;
+        let metrics = ft_size_ref.metrics;
+
+        baseline = FontMetrics {
+            font_size: FAKE_FONT_SIZE as usize,
+            x_ppem: metrics.x_ppem,
+            y_ppem: metrics.y_ppem,
+            x_scale: metrics.x_scale,
+            y_scale: metrics.y_scale,
+            ascender: metrics.ascender,
+            descender: metrics.descender,
+            height: metrics.height,
+            max_advance: metrics.max_advance,
+        };
+
+        FT_Done_Face(ft_face);
+        FT_Done_FreeType(ft_library);
     }
 
-    pub fn get_x_ppem(&self, target_font_size: f32) -> f32 {
-        let s = self.x_ppem as f32;
-        s / (self.font_size as f32) * target_font_size
-    }
-
-    pub fn get_y_ppem(&self, target_font_size: f32) -> f32 {
-        let s = self.y_ppem as f32;
-        s / (self.font_size as f32) * target_font_size
-    }
-
-    pub fn get_x_scale(&self, target_font_size: f32) -> f32 {
-        let s = self.x_scale as f32;
-        s / (self.font_size as f32) * target_font_size
-    }
-
-    pub fn get_y_scale(&self, target_font_size: f32) -> f32 {
-        let s = self.y_scale as f32;
-        s / (self.font_size as f32) * target_font_size
-    }
-
-    pub fn get_ascender(&self, target_font_size: f32) -> f32 {
-        let s = self.ascender as f32;
-        s / (self.font_size as f32) * target_font_size
-    }
-
-    pub fn get_descender(&self, target_font_size: f32) -> f32 {
-        let s = self.descender as f32;
-        s / (self.font_size as f32) * target_font_size
-    }
-
-    pub fn get_height(&self, target_font_size: f32) -> f32 {
-        let s = self.height as f32;
-        s / (self.font_size as f32) * target_font_size
-    }
-
-    pub fn get_max_advance(&self, target_font_size: f32) -> f32 {
-        let s = self.max_advance as f32;
-        s / (self.font_size as f32) * target_font_size
-    }
+    baseline
 }
