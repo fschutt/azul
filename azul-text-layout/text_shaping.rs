@@ -312,8 +312,10 @@ pub fn get_font_metrics_freetype(font_bytes: &[u8], font_index: i32) -> FontMetr
             return baseline;
         }
 
+        const DPI: u32 = 72;
+
         // Set font size to fake 1000px
-        let error = FT_Set_Char_Size(ft_face, 0, FAKE_FONT_SIZE * 64, 300, 300);
+        let error = FT_Set_Char_Size(ft_face, 0, FAKE_FONT_SIZE, DPI, DPI);
         if error != FT_ERR_OK {
             FT_Done_Face(ft_face);
             FT_Done_FreeType(ft_library);

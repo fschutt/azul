@@ -104,15 +104,14 @@ pub fn create_scaled_words(
         let loaded_font = app_resources.get_loaded_font(pipeline_id, &font_id)?;
         let font_instance_key = loaded_font.font_instances.get(&font_size_au)?;
 
-        let font_bytes = &loaded_font.font_bytes;
-        let font_index = loaded_font.font_index as u32;
-
         let scaled_words = words_to_scaled_words(
             words,
-            font_bytes,
-            font_index,
+            &loaded_font.font_bytes,
+            loaded_font.font_index as u32,
+            loaded_font.font_metrics,
             font_size.0.to_pixels(DEFAULT_FONT_SIZE_PX as f32),
         );
+
         Some((*node_id, (scaled_words, *font_instance_key)))
     }).collect()
 }
@@ -182,7 +181,7 @@ fn get_glyphs(
         inline_text_layout.align_children_horizontal(horz_alignment);
         inline_text_layout.align_children_vertical_in_parent_bounds(&parent_bounds, vert_alignment);
 
-        let glyphs = get_layouted_glyphs(word_positions, scaled_words, &inline_text_layout, bounds.origin);
+        let glyphs = get_layouted_glyphs(word_positions, scaled_words, &inline_text_layout, bounds.origin, );
         Some((*node_id, glyphs))
     }).collect()
 }
