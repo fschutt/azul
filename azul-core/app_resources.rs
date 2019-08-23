@@ -1206,8 +1206,20 @@ impl DeleteImageMsg {
     }
 }
 
-pub type LoadFontFn = fn(&FontSource) -> Option<(Vec<u8>, i32)>;
-pub type LoadImageFn = fn(&ImageSource) -> Option<(ImageData, ImageDescriptor)>;
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+pub struct LoadedImageSource {
+    pub image_bytes_decoded: ImageData,
+    pub image_descriptor: ImageDescriptor,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+pub struct LoadedFontSource {
+    pub font_bytes: Vec<u8>,
+    pub font_index: i32
+}
+
+pub type LoadFontFn = fn(&FontSource) -> Option<LoadedFontSource>;
+pub type LoadImageFn = fn(&ImageSource) -> Option<LoadedImageSource>;
 
 /// Given the fonts of the current frame, returns `AddFont` and `AddFontInstance`s of
 /// which fonts / instances are currently not in the `current_registered_fonts` and
@@ -1293,7 +1305,7 @@ pub fn build_add_font_resource_updates<T: FontImageApi>(
                     Unresolved(css_font_id) => FontSource::System(css_font_id.clone()),
                 };
 
-                let (font_bytes, font_index) = match (font_source_load_fn)(&font_source) {
+                let LoadedFontSource { font_bytes, font_index } = match (font_source_load_fn)(&font_source) {
                     Some(s) => s,
                     None => continue,
                 };
@@ -1335,10 +1347,10 @@ pub fn build_add_image_resource_updates<T: FontImageApi>(
     .filter(|image_id| !app_resources.currently_registered_images[pipeline_id].contains_key(*image_id))
     .filter_map(|image_id| {
         let image_source = app_resources.image_sources.get(image_id)?;
-        let (data, descriptor) = (image_source_load_fn)(image_source)?;
+        let LoadedImageSource { image_bytes_decoded, image_descriptor } = (image_source_load_fn)(image_source)?;
         let key = render_api.new_image_key();
-        let add_image = AddImage { key, data, descriptor, tiling: None };
-        Some((*image_id, AddImageMsg(add_image, ImageInfo { key, descriptor })))
+        let add_image = AddImage { key, data: image_bytes_decoded, descriptor: image_descriptor, tiling: None };
+        Some((*image_id, AddImageMsg(add_image, ImageInfo { key, descriptor: image_descriptor })))
     }).collect()
 }
 

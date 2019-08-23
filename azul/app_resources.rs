@@ -12,7 +12,7 @@ pub use azul_core::{
         AppResources, Au, ImmediateFontId, LoadedFont, RawImageFormat,
         FontKey, FontInstanceKey, ImageKey, ImageSource, FontSource,
         RawImage, CssFontId, CssImageId, TextCache, TextId, ImageId, FontId,
-        ImageInfo, IdNamespace, ImageData, ImageDescriptor,
+        ImageInfo, IdNamespace, ImageData, ImageDescriptor, LoadedImageSource, LoadedFontSource,
     },
     callbacks::PipelineId,
     id_tree::NodeDataContainer,
@@ -106,10 +106,10 @@ impl FontImageApi for WrApi {
 /// Returns the **decoded** bytes of the image + the descriptor (contains width / height).
 /// Returns an error if the data is encoded, but the crate wasn't built with `--features="image_loading"`
 #[allow(unused_variables)]
-pub fn image_source_get_bytes(image_source: &ImageSource) -> Option<(ImageData, ImageDescriptor)> {
+pub fn image_source_get_bytes(image_source: &ImageSource) -> Option<LoadedImageSource> {
 
     fn image_source_get_bytes_inner(image_source: &ImageSource)
-    -> Result<(ImageData, ImageDescriptor), ImageReloadError>
+    -> Result<LoadedImageSource, ImageReloadError>
     {
         use std::sync::Arc;
         match image_source {
@@ -133,7 +133,7 @@ pub fn image_source_get_bytes(image_source: &ImageSource) -> Option<(ImageData, 
                     allow_mipmaps: true,
                 };
                 let data = ImageData::Raw(Arc::new(raw_image.pixels.clone()));
-                Ok((data, descriptor))
+                Ok(LoadedImageSource { image_bytes_decoded: data, image_descriptor: descriptor })
             },
             ImageSource::File(file_path) => {
                 #[cfg(feature = "image_loading")] {
@@ -159,18 +159,18 @@ pub fn image_source_get_bytes(image_source: &ImageSource) -> Option<(ImageData, 
     }
 }
 
-pub fn font_source_get_bytes(font_source: &FontSource) -> Option<(Vec<u8>, i32)> {
+pub fn font_source_get_bytes(font_source: &FontSource) -> Option<LoadedFontSource> {
 
     /// Returns the bytes of the font (loads the font from the system in case it is a `FontSource::System` font).
     /// Also returns the index into the font (in case the font is a font collection).
-    fn font_source_get_bytes_inner(font_source: &FontSource) -> Result<(Vec<u8>, i32), FontReloadError> {
+    fn font_source_get_bytes_inner(font_source: &FontSource) -> Result<LoadedFontSource, FontReloadError> {
         use std::fs;
         match font_source {
-            FontSource::Embedded(bytes) => Ok((bytes.to_vec(), 0)),
+            FontSource::Embedded(font_bytes) => Ok(LoadedFontSource { font_bytes: font_bytes.to_vec(), font_index: 0 }),
             FontSource::File(file_path) => {
                 fs::read(file_path)
                 .map_err(|e| FontReloadError::Io(e, file_path.clone()))
-                .map(|f| (f, 0))
+                .map(|font_bytes|  LoadedFontSource { font_bytes, font_index: 0 })
             },
             FontSource::System(id) => load_system_font(id).ok_or(FontReloadError::FontNotFound(id.clone())),
         }
@@ -188,7 +188,7 @@ pub fn font_source_get_bytes(font_source: &FontSource) -> Option<(Vec<u8>, i32)>
 }
 
 #[cfg(feature = "image_loading")]
-fn decode_image_data(image_data: Vec<u8>) -> Result<(ImageData, ImageDescriptor), ImageError> {
+fn decode_image_data(image_data: Vec<u8>) -> Result<LoadedImageSource, ImageError> {
     use image; // the crate
 
     let image_format = image::guess_format(&image_data)?;
@@ -197,7 +197,7 @@ fn decode_image_data(image_data: Vec<u8>) -> Result<(ImageData, ImageDescriptor)
 }
 
 /// Returns the font + the index of the font (in case the font is a collection)
-fn load_system_font(id: &str) -> Option<(Vec<u8>, i32)> {
+fn load_system_font(id: &str) -> Option<LoadedFontSource> {
     use font_loader::system_fonts::{self, FontPropertyBuilder};
 
     let font_builder = match id {
@@ -229,7 +229,9 @@ fn load_system_font(id: &str) -> Option<(Vec<u8>, i32)> {
         other => FontPropertyBuilder::new().family(other)
     };
 
-    system_fonts::get(&font_builder.build())
+    let (font_bytes, font_index) = system_fonts::get(&font_builder.build())?;
+
+    Some(LoadedFontSource { font_bytes, font_index })
 }
 
 /// Return the native fonts
@@ -291,9 +293,7 @@ fn test_parse_gsettings_font() {
 // https://github.com/christolliday/limn/blob/master/core/src/resources/image.rs
 
 #[cfg(feature = "image_loading")]
-fn prepare_image(image_decoded: DynamicImage)
-    -> Result<(ImageData, ImageDescriptor), ImageError>
-{
+fn prepare_image(image_decoded: DynamicImage) -> Result<LoadedImageSource, ImageError> {
     use image;
 
     let image_dims = image_decoded.dimensions();
@@ -385,7 +385,7 @@ fn prepare_image(image_decoded: DynamicImage)
     );
     let data = ImageData::new(bytes);
 
-    Ok((data, descriptor))
+    Ok(LoadedImageSource { decoded_image_bytes: data, image_descriptor: descriptor })
 }
 
 /*

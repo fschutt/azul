@@ -10,7 +10,8 @@ fn main() {
     use azul_core::{
         app_resources::{
             AppResources, Epoch, FakeRenderApi,
-            ImageData, ImageDescriptor, ImageSource, FontSource,
+            ImageSource, LoadedImageSource,
+            FontSource, LoadedFontSource,
         },
         dom::{DomId, Dom},
         display_list::{SolvedLayout, CachedDisplayList},
@@ -21,8 +22,8 @@ fn main() {
         window::{WindowSize, FullWindowState, LogicalSize},
     };
 
-    fn load_font(_: &FontSource) -> Option<(Vec<u8>, i32)> { None }
-    fn load_image(_: &ImageSource) -> Option<(ImageData, ImageDescriptor)> { None }
+    fn load_font(_: &FontSource) -> Option<LoadedFontSource> { None }
+    fn load_image(_: &ImageSource) -> Option<LoadedImageSource> { None }
 
     let mut data = Mock { };
     let mut app_resources = AppResources::new();
