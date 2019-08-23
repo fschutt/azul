@@ -461,6 +461,8 @@ pub struct ScaledWords {
     pub space_advance_px: f32,
     /// Glyph index of the space character
     pub space_codepoint: u32,
+    /// Metrics necessary for baseline calculation
+    pub font_metrics: FontMetrics,
 }
 
 /// Word that is scaled (to a font / font instance), but not yet positioned
