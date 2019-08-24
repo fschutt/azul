@@ -7,10 +7,10 @@ use std::{
 };
 use crate::{
     callbacks::{
-        DefaultCallbackId, StackCheckedPointer,
         Callback, CallbackType,
-        GlCallback, GlCallbackTypeUnchecked,
-        IFrameCallback, IFrameCallbackTypeUnchecked,
+        GlCallback, GlCallbackType,
+        IFrameCallback, IFrameCallbackType,
+        RefAny, DefaultCallback,
     },
     app_resources::{ImageId, TextId},
     id_tree::{Arena, NodeDataContainer},
@@ -98,9 +98,9 @@ pub enum NodeType<T> {
     /// OpenGL texture. The `Svg` widget deserizalizes itself into a texture
     /// Equality and Hash values are only checked by the OpenGl texture ID,
     /// Azul does not check that the contents of two textures are the same
-    GlTexture((GlCallback<T>, StackCheckedPointer<T>)),
+    GlTexture((GlCallback, RefAny)),
     /// DOM that gets passed its width / height during the layout
-    IFrame((IFrameCallback<T>, StackCheckedPointer<T>)),
+    IFrame((IFrameCallback<T>, RefAny)),
 }
 
 impl<T> NodeType<T> {
@@ -520,7 +520,7 @@ pub struct NodeData<T> {
     /// to this node.
     ///
     /// This is only important if this node has any default callbacks.
-    default_callback_ids: Vec<(EventFilter, DefaultCallbackId)>,
+    default_callbacks: Vec<(EventFilter, DefaultCallback<T>)>,
     /// Override certain dynamic styling properties in this frame. For this,
     /// these properties have to have a name (the ID).
     ///
@@ -600,7 +600,7 @@ impl<T> PartialEq for NodeData<T> {
         self.ids == other.ids &&
         self.classes == other.classes &&
         self.callbacks == other.callbacks &&
-        self.default_callback_ids == other.default_callback_ids &&
+        self.default_callbacks == other.default_callbacks &&
         self.dynamic_css_overrides == other.dynamic_css_overrides &&
         self.is_draggable == other.is_draggable &&
         self.tab_index == other.tab_index
@@ -627,8 +627,8 @@ impl<T> Hash for NodeData<T> {
         for callback in &self.callbacks {
             callback.hash(state);
         }
-        for default_callback_id in &self.default_callback_ids {
-            default_callback_id.hash(state);
+        for default_callback in &self.default_callbacks {
+            default_callback.hash(state);
         }
         for dynamic_css_override in &self.dynamic_css_overrides {
             dynamic_css_override.hash(state);
@@ -645,7 +645,7 @@ impl<T> Clone for NodeData<T> {
             ids: self.ids.clone(),
             classes: self.classes.clone(),
             callbacks: self.callbacks.clone(),
-            default_callback_ids: self.default_callback_ids.clone(),
+            default_callbacks: self.default_callbacks.clone(),
             dynamic_css_overrides: self.dynamic_css_overrides.clone(),
             is_draggable: self.is_draggable.clone(),
             tab_index: self.tab_index.clone(),
@@ -716,10 +716,10 @@ fn node_data_to_string<T>(node_data: &NodeData<T>) -> String {
         format!(" callbacks=\"{}\"", node_data.callbacks.iter().map(|(evt, cb)| format!("({:?}={:?})", evt, cb)).collect::<Vec<String>>().join(" "))
     };
 
-    let default_callbacks = if node_data.default_callback_ids.is_empty() {
+    let default_callbacks = if node_data.default_callbacks.is_empty() {
         String::new()
     } else {
-        format!(" default-callbacks=\"{}\"", node_data.default_callback_ids.iter().map(|(evt, cb)| format!("({:?}={:?})", evt, cb)).collect::<Vec<String>>().join(" "))
+        format!(" default-callbacks=\"{}\"", node_data.default_callbacks.iter().map(|(evt, cb)| format!("({:?}={:?})", evt, cb)).collect::<Vec<String>>().join(" "))
     };
 
     let css_overrides = if node_data.dynamic_css_overrides.is_empty() {
@@ -739,7 +739,7 @@ impl<T> fmt::Debug for NodeData<T> {
                 \tids: {:?}, \
                 \tclasses: {:?}, \
                 \tcallbacks: {:?}, \
-                \tdefault_callback_ids: {:?}, \
+                \tdefault_callbacks: {:?}, \
                 \tdynamic_css_overrides: {:?}, \
                 \tis_draggable: {:?}, \
                 \ttab_index: {:?}, \
@@ -748,7 +748,7 @@ impl<T> fmt::Debug for NodeData<T> {
             self.ids,
             self.classes,
             self.callbacks,
-            self.default_callback_ids,
+            self.default_callbacks,
             self.dynamic_css_overrides,
             self.is_draggable,
             self.tab_index,
@@ -768,7 +768,7 @@ impl<T> NodeData<T> {
             ids: Vec::new(),
             classes: Vec::new(),
             callbacks: Vec::new(),
-            default_callback_ids: Vec::new(),
+            default_callbacks: Vec::new(),
             dynamic_css_overrides: Vec::new(),
             is_draggable: false,
             tab_index: None,
@@ -827,13 +827,13 @@ impl<T> NodeData<T> {
 
     /// Shorthand for `NodeData::new(NodeType::GlTexture((callback, ptr)))`
     #[inline(always)]
-    pub fn gl_texture(callback: GlCallbackTypeUnchecked<T>, ptr: StackCheckedPointer<T>) -> Self {
+    pub fn gl_texture(callback: GlCallbackType, ptr: RefAny) -> Self {
         Self::new(NodeType::GlTexture((GlCallback(callback), ptr)))
     }
 
     /// Shorthand for `NodeData::new(NodeType::IFrame((callback, ptr)))`
     #[inline(always)]
-    pub fn iframe(callback: IFrameCallbackTypeUnchecked<T>, ptr: StackCheckedPointer<T>) -> Self {
+    pub fn iframe(callback: IFrameCallbackType<T>, ptr: RefAny) -> Self {
         Self::new(NodeType::IFrame((IFrameCallback(callback), ptr)))
     }
 
@@ -849,7 +849,7 @@ impl<T> NodeData<T> {
     #[inline(always)]
     pub const fn get_callbacks(&self) -> &Vec<(EventFilter, Callback<T>)> { &self.callbacks }
     #[inline(always)]
-    pub const fn get_default_callback_ids(&self) -> &Vec<(EventFilter, DefaultCallbackId)> { &self.default_callback_ids }
+    pub const fn get_default_callbacks(&self) -> &Vec<(EventFilter, DefaultCallback<T>)> { &self.default_callbacks }
     #[inline(always)]
     pub const fn get_dynamic_css_overrides(&self) -> &Vec<(DomString, CssProperty)> { &self.dynamic_css_overrides }
     #[inline(always)]
@@ -866,7 +866,7 @@ impl<T> NodeData<T> {
     #[inline(always)]
     pub fn set_callbacks(&mut self, callbacks: Vec<(EventFilter, Callback<T>)>) { self.callbacks = callbacks; }
     #[inline(always)]
-    pub fn set_default_callback_ids(&mut self, default_callback_ids: Vec<(EventFilter, DefaultCallbackId)>) { self.default_callback_ids = default_callback_ids; }
+    pub fn set_default_callbacks(&mut self, default_callbacks: Vec<(EventFilter, DefaultCallback<T>)>) { self.default_callbacks = default_callbacks; }
     #[inline(always)]
     pub fn set_dynamic_css_overrides(&mut self, dynamic_css_overrides: Vec<(DomString, CssProperty)>) { self.dynamic_css_overrides = dynamic_css_overrides; }
     #[inline(always)]
@@ -883,7 +883,7 @@ impl<T> NodeData<T> {
     #[inline(always)]
     pub fn with_callbacks(self, callbacks: Vec<(EventFilter, Callback<T>)>) -> Self { Self { callbacks, .. self } }
     #[inline(always)]
-    pub fn with_default_callback_ids(self, default_callback_ids: Vec<(EventFilter, DefaultCallbackId)>) -> Self { Self { default_callback_ids, .. self } }
+    pub fn with_default_callbacks(self, default_callbacks: Vec<(EventFilter, DefaultCallback<T>)>) -> Self { Self { default_callbacks, .. self } }
     #[inline(always)]
     pub fn with_dynamic_css_overrides(self, dynamic_css_overrides: Vec<(DomString, CssProperty)>) -> Self { Self { dynamic_css_overrides, .. self } }
     #[inline(always)]
@@ -1165,13 +1165,13 @@ impl<T> Dom<T> {
 
     /// Shorthand for `Dom::new(NodeType::GlTexture((callback, ptr)))`
     #[inline]
-    pub fn gl_texture<I: Into<StackCheckedPointer<T>>>(callback: GlCallbackTypeUnchecked<T>, ptr: I) -> Self {
+    pub fn gl_texture<I: Into<RefAny>>(callback: GlCallbackType, ptr: I) -> Self {
         Self::new(NodeType::GlTexture((GlCallback(callback), ptr.into())))
     }
 
     /// Shorthand for `Dom::new(NodeType::IFrame((callback, ptr)))`
     #[inline]
-    pub fn iframe<I: Into<StackCheckedPointer<T>>>(callback: IFrameCallbackTypeUnchecked<T>, ptr: I) -> Self {
+    pub fn iframe<I: Into<RefAny>>(callback: IFrameCallbackType<T>, ptr: I) -> Self {
         Self::new(NodeType::IFrame((IFrameCallback(callback), ptr.into())))
     }
 
@@ -1287,8 +1287,8 @@ impl<T> Dom<T> {
     }
 
     #[inline]
-    pub fn with_default_callback_id<O: Into<EventFilter>>(mut self, on: O, id: DefaultCallbackId) -> Self {
-        self.add_default_callback_id(on, id);
+    pub fn with_default_callback<O: Into<EventFilter>>(mut self, on: O, default_callback: DefaultCallback<T>) -> Self {
+        self.add_default_callback(on, default_callback);
         self
     }
 
@@ -1332,8 +1332,8 @@ impl<T> Dom<T> {
     }
 
     #[inline]
-    pub fn add_default_callback_id<O: Into<EventFilter>>(&mut self, on: O, id: DefaultCallbackId) {
-        self.arena.node_data[self.head].default_callback_ids.push((on.into(), id));
+    pub fn add_default_callback<O: Into<EventFilter>>(&mut self, on: O, default_callback: DefaultCallback<T>) {
+        self.arena.node_data[self.head].default_callbacks.push((on.into(), default_callback));
     }
 
     #[inline]
@@ -1353,7 +1353,6 @@ impl<T> Dom<T> {
 
     /// Returns a debug formatted version of the DOM for easier debugging
     pub fn debug_dump(&self) -> String {
-
         let mut s = String::new();
         if self.arena.len() > 0 {
             print_tree_recursive(&self.arena, &mut s, NodeId::new(0), 0);

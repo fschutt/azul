@@ -16,7 +16,7 @@ use azul_css::{
 };
 use crate::{
     FastHashMap,
-    callbacks::{PipelineId, DefaultCallbackIdMap},
+    callbacks::PipelineId,
     ui_solver::{
         PositionedRectangle, ResolvedOffsets, ExternalScrollId,
         LayoutResult, ScrolledNodes, OverflowingScrollNode
@@ -480,7 +480,6 @@ impl SolvedLayout {
 
     /// Does the layout, updates the image + font resources for the RenderAPI
     pub fn new<T, U: FontImageApi>(
-        data: &mut T,
         pipeline_id: &PipelineId,
         epoch: Epoch,
         render_api: &mut U,
@@ -489,7 +488,6 @@ impl SolvedLayout {
         full_window_state: &FullWindowState,
         ui_states: &mut BTreeMap<DomId, UiState<T>>,
         ui_descriptions: &mut BTreeMap<DomId, UiDescription<T>>,
-        default_callbacks: &mut BTreeMap<DomId, DefaultCallbackIdMap<T>>,
         insert_into_active_gl_textures: GlStoreImageFn,
         layout_func: LayoutFn<T>,
         load_font_fn: LoadFontFn,
@@ -504,12 +502,10 @@ impl SolvedLayout {
         };
 
         fn recurse<T, U: FontImageApi>(
-            data: &mut T,
             layout_cache: &mut SolvedLayoutCache,
             solved_textures: &mut BTreeMap<DomId, BTreeMap<NodeId, Texture>>,
             iframe_ui_states: &mut BTreeMap<DomId, UiState<T>>,
             iframe_ui_descriptions: &mut BTreeMap<DomId, UiDescription<T>>,
-            default_callbacks: &mut BTreeMap<DomId, DefaultCallbackIdMap<T>>,
             app_resources: &mut AppResources,
             render_api: &mut U,
             full_window_state: &FullWindowState,
@@ -526,7 +522,7 @@ impl SolvedLayout {
             use crate::{
                 callbacks::{
                     HidpiAdjustedBounds, LayoutInfo,
-                    IFrameCallbackInfoUnchecked, GlCallbackInfoUnchecked
+                    IFrameCallbackInfo, GlCallbackInfo
                 },
                 app_resources::add_fonts_and_images,
             };
@@ -584,13 +580,12 @@ impl SolvedLayout {
 
                 let texture = {
 
-                    let tex = (cb.0)(GlCallbackInfoUnchecked {
-                        ptr,
+                    let tex = (cb.0)(GlCallbackInfo {
+                        state: ptr,
                         layout_info: LayoutInfo {
                             window_size: &full_window_state.size,
                             window_size_width_stops: &mut window_size_width_stops,
                             window_size_height_stops: &mut window_size_height_stops,
-                            default_callbacks: default_callbacks.entry(dom_id.clone()).or_insert_with(|| BTreeMap::new()),
                             gl_context: gl_context.clone(),
                             resources: &app_resources,
                         },
@@ -632,13 +627,12 @@ impl SolvedLayout {
                 let mut window_size_height_stops = Vec::new();
 
                 let iframe_dom = {
-                    (cb.0)(IFrameCallbackInfoUnchecked {
-                        ptr,
+                    (cb.0)(IFrameCallbackInfo {
+                        state: ptr,
                         layout_info: LayoutInfo {
                             window_size: &full_window_state.size,
                             window_size_width_stops: &mut window_size_width_stops,
                             window_size_height_stops: &mut window_size_height_stops,
-                            default_callbacks: default_callbacks.entry(dom_id.clone()).or_insert_with(|| BTreeMap::new()),
                             gl_context: gl_context.clone(),
                             resources: &app_resources,
                         },
@@ -660,12 +654,10 @@ impl SolvedLayout {
                     );
                     layout_cache.iframe_mappings.insert((dom_id.clone(), node_id), iframe_dom_id.clone());
                     recurse(
-                        data,
                         layout_cache,
                         solved_textures,
                         iframe_ui_states,
                         iframe_ui_descriptions,
-                        default_callbacks,
                         app_resources,
                         render_api,
                         full_window_state,
@@ -699,12 +691,10 @@ impl SolvedLayout {
             let ui_description = &ui_descriptions[dom_id];
 
             recurse(
-                data,
                 &mut solved_layout_cache,
                 &mut solved_textures,
                 &mut iframe_ui_states,
                 &mut iframe_ui_descriptions,
-                default_callbacks,
                 app_resources,
                 render_api,
                 full_window_state,

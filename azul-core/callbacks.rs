@@ -23,7 +23,6 @@ use crate::{
     gl::Texture,
 };
 
-pub use crate::stack_checked_pointer::StackCheckedPointer;
 pub use gleam::gl::Gl;
 
 /// A callback function has to return if the screen should be updated after the
@@ -45,7 +44,7 @@ pub const Redraw: Option<()> = Some(());
 pub const DontRedraw: Option<()> = None;
 
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord)]
-pub struct Ref<T>(Rc<RefCell<T>>);
+pub struct Ref<T: 'static>(Rc<RefCell<T>>);
 
 impl<T: 'static> Ref<T> {
 
@@ -58,27 +57,12 @@ impl<T: 'static> Ref<T> {
     }
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct RefAny(Rc<dyn Any>);
 
 impl RefAny {
     pub fn downcast_ref<T: 'static>(&self) -> Option<&RefCell<T>> {
         self.0.downcast_ref::<RefCell<T>>()
-    }
-}
-
-static LAST_DEFAULT_CALLBACK_ID: AtomicUsize = AtomicUsize::new(0);
-
-pub type DefaultCallbackIdMap<T> = BTreeMap<DefaultCallbackId, (StackCheckedPointer<T>, DefaultCallback<T>)>;
-
-/// Each default callback is identified by its ID (not by it's function pointer),
-/// since multiple IDs could point to the same function.
-#[derive(Debug, Copy, Clone, PartialEq, Eq, Hash, Ord, PartialOrd)]
-pub struct DefaultCallbackId { id: usize }
-
-impl DefaultCallbackId {
-    pub fn new() -> Self {
-        DefaultCallbackId { id: LAST_DEFAULT_CALLBACK_ID.fetch_add(1, Ordering::SeqCst) }
     }
 }
 
@@ -99,7 +83,7 @@ pub type PipelineSourceId = u32;
 
 /// Callback function pointer (has to be a function pointer in
 /// order to be compatible with C APIs later on).
-pub type LayoutCallback<T> = fn(&T, layout_info: LayoutInfo<T>) -> Dom<T>;
+pub type LayoutCallback<T> = fn(&T, layout_info: LayoutInfo) -> Dom<T>;
 
 /// Information about a scroll frame, given to the user by the framework
 #[derive(Debug, Copy, Clone, PartialEq, PartialOrd)]
@@ -200,26 +184,64 @@ macro_rules! impl_callback {($callback_value:ident<$t:ident>) => (
     impl<$t> Copy for $callback_value<$t> { }
 )}
 
+macro_rules! impl_callback_no_generics {($callback_value:ident) => (
+
+    impl ::std::fmt::Display for $callback_value {
+        fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+            write!(f, "{:?}", self)
+        }
+    }
+
+    impl ::std::fmt::Debug for $callback_value {
+        fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+            let callback = stringify!($callback_value);
+            write!(f, "{} @ 0x{:x}", callback, self.0 as usize)
+        }
+    }
+
+    impl Clone for $callback_value {
+        fn clone(&self) -> Self {
+            $callback_value(self.0.clone())
+        }
+    }
+
+    impl ::std::hash::Hash for $callback_value {
+        fn hash<H>(&self, state: &mut H) where H: ::std::hash::Hasher {
+            state.write_usize(self.0 as usize);
+        }
+    }
+
+    impl PartialEq for $callback_value {
+        fn eq(&self, rhs: &Self) -> bool {
+            self.0 as usize == rhs.0 as usize
+        }
+    }
+
+    impl PartialOrd for $callback_value {
+        fn partial_cmp(&self, other: &Self) -> Option<::std::cmp::Ordering> {
+            Some((self.0 as usize).cmp(&(other.0 as usize)))
+        }
+    }
+
+    impl Ord for $callback_value {
+        fn cmp(&self, other: &Self) -> ::std::cmp::Ordering {
+            (self.0 as usize).cmp(&(other.0 as usize))
+        }
+    }
+
+    impl Eq for $callback_value { }
+
+    impl Copy for $callback_value { }
+)}
+
 macro_rules! impl_get_gl_context {() => {
     /// Returns a reference-counted pointer to the OpenGL context
     pub fn get_gl_context(&self) -> Rc<Gl> {
         self.gl_context.clone()
     }
-
-    /// Adds a default callback to the window. The default callbacks are
-    /// cleared after every frame, so two-way data binding widgets have to call this
-    /// on every frame they want to insert a default callback.
-    ///
-    /// Returns an ID by which the callback can be uniquely identified (used for hit-testing)
-    #[must_use]
-    pub fn add_default_callback(&mut self, callback_fn: DefaultCallbackTypeUnchecked<T>, callback_ptr: StackCheckedPointer<T>) -> DefaultCallbackId {
-        let default_callback_id = DefaultCallbackId::new();
-        self.default_callbacks.insert(default_callback_id, (callback_ptr, DefaultCallback(callback_fn)));
-        default_callback_id
-    }
 };}
 
-/// Implements functions for `CallbackInfo`, `DefaultCallbackInfoUnchecked` and `DefaultCallbackInfo`,
+/// Implements functions for `CallbackInfo` and `DefaultCallbackInfo`,
 /// to prevent duplicating the functions
 #[macro_export]
 macro_rules! impl_task_api {() => (
@@ -250,7 +272,7 @@ macro_rules! impl_task_api {() => (
     }
 )}
 
-/// Implements functions for `CallbackInfo`, `DefaultCallbackInfoUnchecked` and `DefaultCallbackInfo`,
+/// Implements functions for `CallbackInfo` and `DefaultCallbackInfo`,
 /// to prevent duplicating the functions
 macro_rules! impl_callback_info_api {() => (
 
@@ -459,10 +481,10 @@ macro_rules! impl_callback_info_api {() => (
 
 // -- default callback
 
-pub struct DefaultCallbackInfoUnchecked<'a, T> {
+pub struct DefaultCallbackInfo<'a, T> {
     /// Type-erased pointer to a unknown type on the stack (inside of `T`),
     /// pointer has to be casted to a `U` type first (via `.invoke_callback()`)
-    pub ptr: StackCheckedPointer<T>,
+    pub ptr: RefAny,
     /// State of the current window that the callback was called on (read only!)
     pub current_window_state: &'a FullWindowState,
     /// User-modifiable state of the window that the callback was called on
@@ -473,53 +495,6 @@ pub struct DefaultCallbackInfoUnchecked<'a, T> {
     pub scrolled_nodes: &'a BTreeMap<DomId, ScrolledNodes>,
     /// Current display list active in this window (useful for debugging)
     pub cached_display_list: &'a CachedDisplayList,
-    /// The user can push default callbacks in this `DefaultCallbackSystem`,
-    /// which get called later in the hit-testing logic
-    pub default_callbacks: &'a mut BTreeMap<DefaultCallbackId, (StackCheckedPointer<T>, DefaultCallback<T>)>,
-    /// An Rc to the original WindowContext - this is only so that
-    /// the user can create textures and other OpenGL content in the window
-    /// but not change any window properties from underneath - this would
-    /// lead to mismatch between the
-    pub gl_context: Rc<Gl>,
-    /// See [`AppState.resources`](./struct.AppState.html#structfield.resources)
-    pub resources : &'a mut AppResources,
-    /// Currently running timers (polling functions, run on the main thread)
-    pub timers: &'a mut FastHashMap<TimerId, Timer<T>>,
-    /// Currently running tasks (asynchronous functions running each on a different thread)
-    pub tasks: &'a mut Vec<Task<T>>,
-    /// UiState containing the necessary data for testing what
-    pub ui_state: &'a BTreeMap<DomId, UiState<T>>,
-    /// The callback can change the focus_target - note that the focus_target is set before the
-    /// next frames' layout() function is invoked, but the current frames callbacks are not affected.
-    pub focus_target: &'a mut Option<FocusTarget>,
-    /// Immutable (!) reference to where the nodes are currently scrolled (current position)
-    pub current_scroll_states: &'a BTreeMap<DomId, BTreeMap<NodeId, ScrollPosition>>,
-    /// Mutable map where a user can set where he wants the nodes to be scrolled to (for the next frame)
-    pub nodes_scrolled_in_callback: &'a mut BTreeMap<DomId, BTreeMap<NodeId, LayoutPoint>>,
-    /// The ID of the node that was hit. You can use this to query information about
-    /// the node, but please don't hard-code any if / else statements based on the `NodeId`
-    pub hit_dom_node: (DomId, NodeId),
-    /// The (x, y) position of the mouse cursor, **relative to top left of the element that was hit**.
-    pub cursor_relative_to_item: Option<(f32, f32)>,
-    /// The (x, y) position of the mouse cursor, **relative to top left of the window**.
-    pub cursor_in_viewport: Option<(f32, f32)>,
-}
-
-pub struct DefaultCallbackInfo<'a, T, U> {
-    pub data: &'a mut U,
-    /// State of the current window that the callback was called on (read only!)
-    pub current_window_state: &'a FullWindowState,
-    /// User-modifiable state of the window that the callback was called on
-    pub modifiable_window_state: &'a mut WindowState,
-    /// Currently active, layouted rectangles
-    pub layout_result: &'a BTreeMap<DomId, LayoutResult>,
-    /// Nodes that overflow their parents and are able to scroll
-    pub scrolled_nodes: &'a BTreeMap<DomId, ScrolledNodes>,
-    /// Current display list active in this window (useful for debugging)
-    pub cached_display_list: &'a CachedDisplayList,
-    /// The user can push default callbacks in this `DefaultCallbackSystem`,
-    /// which get called later in the hit-testing logic
-    pub default_callbacks: &'a mut BTreeMap<DefaultCallbackId, (StackCheckedPointer<T>, DefaultCallback<T>)>,
     /// An Rc to the original WindowContext - this is only so that
     /// the user can create textures and other OpenGL content in the window
     /// but not change any window properties from underneath - this would
@@ -551,39 +526,10 @@ pub struct DefaultCallbackInfo<'a, T, U> {
 
 /// Callback that is invoked "by default", for example a text field that always
 /// has a default "ontextinput" handler
-pub struct DefaultCallback<T>(pub DefaultCallbackTypeUnchecked<T>);
+pub struct DefaultCallback<T>(pub DefaultCallbackType<T>);
 impl_callback!(DefaultCallback<T>);
-pub type DefaultCallbackTypeUnchecked<T> = fn(DefaultCallbackInfoUnchecked<T>) -> CallbackReturn;
-pub type DefaultCallbackType<T, U> = fn(DefaultCallbackInfo<T, U>) -> CallbackReturn;
 
-impl<'a, T> DefaultCallbackInfoUnchecked<'a, T> {
-    pub unsafe fn invoke_callback<U: Sized + 'static>(self, callback: DefaultCallbackType<T, U>) -> CallbackReturn {
-        let casted_value: &mut U = self.ptr.cast();
-        let casted_callback_info = DefaultCallbackInfo {
-            data: casted_value,
-            current_window_state: self.current_window_state,
-            modifiable_window_state: self.modifiable_window_state,
-            layout_result: self.layout_result,
-            scrolled_nodes: self.scrolled_nodes,
-            cached_display_list: self.cached_display_list,
-            default_callbacks: self.default_callbacks,
-            gl_context: self.gl_context,
-            resources: self.resources,
-            timers: self.timers,
-            tasks: self.tasks,
-            ui_state: self.ui_state,
-            focus_target: self.focus_target,
-            current_scroll_states: self.current_scroll_states,
-            nodes_scrolled_in_callback: self.nodes_scrolled_in_callback,
-            hit_dom_node: self.hit_dom_node,
-            cursor_relative_to_item: self.cursor_relative_to_item,
-            cursor_in_viewport: self.cursor_in_viewport,
-        };
-        callback(casted_callback_info)
-    }
-}
-
-
+pub type DefaultCallbackType<T> = fn(DefaultCallbackInfo<T>) -> CallbackReturn;
 
 // -- normal callback
 
@@ -595,6 +541,7 @@ impl<'a, T> DefaultCallbackInfoUnchecked<'a, T> {
 /// an `UpdateScreen::Redraw` from the function
 pub struct Callback<T>(pub CallbackType<T>);
 impl_callback!(Callback<T>);
+
 /// Information about the callback that is passed to the callback whenever a callback is invoked
 pub struct CallbackInfo<'a, T: 'a> {
     /// Your data (the global struct which all callbacks will have access to)
@@ -609,9 +556,6 @@ pub struct CallbackInfo<'a, T: 'a> {
     pub scrolled_nodes: &'a BTreeMap<DomId, ScrolledNodes>,
     /// Current display list active in this window (useful for debugging)
     pub cached_display_list: &'a CachedDisplayList,
-    /// The user can push default callbacks in this `DefaultCallbackSystem`,
-    /// which get called later in the hit-testing logic
-    pub default_callbacks: &'a mut BTreeMap<DefaultCallbackId, (StackCheckedPointer<T>, DefaultCallback<T>)>,
     /// An Rc to the original WindowContext - this is only so that
     /// the user can create textures and other OpenGL content in the window
     /// but not change any window properties from underneath - this would
@@ -653,7 +597,6 @@ impl<'a, T: 'a> fmt::Debug for CallbackInfo<'a, T> {
             layout_result: {:?}, \
             scrolled_nodes: {:?}, \
             cached_display_list: {:?}, \
-            default_callbacks: {:?}, \
             gl_context: {{ .. }}, \
             resources: {{ .. }}, \
             timers: {{ .. }}, \
@@ -671,7 +614,6 @@ impl<'a, T: 'a> fmt::Debug for CallbackInfo<'a, T> {
             self.layout_result,
             self.scrolled_nodes,
             self.cached_display_list,
-            self.default_callbacks,
             self.ui_state,
             self.focus_target,
             self.current_scroll_states,
@@ -686,64 +628,33 @@ impl<'a, T: 'a> fmt::Debug for CallbackInfo<'a, T> {
 // -- opengl callback
 
 /// Callbacks that returns a rendered OpenGL texture
-pub struct GlCallback<T>(pub GlCallbackTypeUnchecked<T>);
-impl_callback!(GlCallback<T>);
-pub struct GlCallbackInfoUnchecked<'a, T: 'a> {
-    pub ptr: StackCheckedPointer<T>,
-    pub layout_info: LayoutInfo<'a, T>,
-    pub bounds: HidpiAdjustedBounds,
-}
-pub struct GlCallbackInfo<'a, T: 'a, U: Sized> {
-    pub state: &'a mut U,
-    pub layout_info: LayoutInfo<'a, T>,
-    pub bounds: HidpiAdjustedBounds,
-}
-pub type GlCallbackReturn = Option<Texture>;
-pub type GlCallbackTypeUnchecked<T> = fn(GlCallbackInfoUnchecked<T>) -> GlCallbackReturn;
-pub type GlCallbackType<T, U> = fn(GlCallbackInfo<T, U>) -> GlCallbackReturn;
+pub struct GlCallback(pub GlCallbackType);
+impl_callback_no_generics!(GlCallback);
 
-impl<'a, T: 'a> GlCallbackInfoUnchecked<'a, T> {
-    pub unsafe fn invoke_callback<U: Sized + 'static>(self, callback: GlCallbackType<T, U>) -> GlCallbackReturn {
-        let casted_value: &mut U = self.ptr.cast();
-        let casted_callback_info = GlCallbackInfo {
-            state: casted_value,
-            layout_info: self.layout_info,
-            bounds: self.bounds,
-        };
-        callback(casted_callback_info)
-    }
+pub struct GlCallbackInfo<'a> {
+    pub state: RefAny,
+    pub layout_info: LayoutInfo<'a>,
+    pub bounds: HidpiAdjustedBounds,
 }
+
+pub type GlCallbackReturn = Option<Texture>;
+pub type GlCallbackType = fn(GlCallbackInfo) -> GlCallbackReturn;
 
 // -- iframe callback
 
-/// Callback that, given a rectangle area on the screen, returns the DOM appropriate for that bounds (useful for infinite lists)
-pub struct IFrameCallback<T>(pub IFrameCallbackTypeUnchecked<T>);
+/// Callback that, given a rectangle area on the screen, returns the DOM
+/// appropriate for that bounds (useful for infinite lists)
+pub struct IFrameCallback<T>(pub IFrameCallbackType<T>);
 impl_callback!(IFrameCallback<T>);
-pub struct IFrameCallbackInfoUnchecked<'a, T: 'a> {
-    pub ptr: StackCheckedPointer<T>,
-    pub layout_info: LayoutInfo<'a, T>,
-    pub bounds: HidpiAdjustedBounds,
-}
-pub struct IFrameCallbackInfo<'a, T: 'a, U: Sized> {
-    pub state: &'a mut U,
-    pub layout_info: LayoutInfo<'a, T>,
-    pub bounds: HidpiAdjustedBounds,
-}
-pub type IFrameCallbackReturn<T> = Option<Dom<T>>; // todo: return virtual scrolling frames!
-pub type IFrameCallbackTypeUnchecked<T> = fn(IFrameCallbackInfoUnchecked<T>) -> IFrameCallbackReturn<T>;
-pub type IFrameCallbackType<T, U> = fn(IFrameCallbackInfo<T, U>) -> IFrameCallbackReturn<T>;
 
-impl<'a, T: 'a> IFrameCallbackInfoUnchecked<'a, T> {
-    pub unsafe fn invoke_callback<U: Sized + 'static>(self, callback: IFrameCallbackType<T, U>) -> IFrameCallbackReturn<T> {
-        let casted_value: &mut U = self.ptr.cast();
-        let casted_callback_info = IFrameCallbackInfo {
-            state: casted_value,
-            layout_info: self.layout_info,
-            bounds: self.bounds,
-        };
-        callback(casted_callback_info)
-    }
+pub struct IFrameCallbackInfo<'a> {
+    pub state: RefAny,
+    pub layout_info: LayoutInfo<'a>,
+    pub bounds: HidpiAdjustedBounds,
 }
+
+pub type IFrameCallbackReturn<T> = Option<Dom<T>>; // todo: return virtual scrolling frames!
+pub type IFrameCallbackType<T> = fn(IFrameCallbackInfo) -> IFrameCallbackReturn<T>;
 
 // -- timer callback
 
@@ -759,7 +670,7 @@ pub type TimerCallbackType<T> = fn(TimerCallbackInfo<T>) -> TimerCallbackReturn;
 
 /// Gives the `layout()` function access to the `AppResources` and the `Window`
 /// (for querying images and fonts, as well as width / height)
-pub struct LayoutInfo<'a, T> {
+pub struct LayoutInfo<'a> {
     /// Window size (so that apps can return a different UI depending on
     /// the window size - mobile / desktop view). Should be later removed
     /// in favor of "resize" handlers and @media queries.
@@ -774,9 +685,6 @@ pub struct LayoutInfo<'a, T> {
     pub window_size_width_stops: &'a mut Vec<f32>,
     /// Same as `window_size_width_stops` but for the height of the window.
     pub window_size_height_stops: &'a mut Vec<f32>,
-    /// The user can push default callbacks in this `DefaultCallbackSystem`,
-    /// which get called later in the hit-testing logic
-    pub default_callbacks: &'a mut BTreeMap<DefaultCallbackId, (StackCheckedPointer<T>, DefaultCallback<T>)>,
     /// An Rc to the original WindowContext - this is only so that
     /// the user can create textures and other OpenGL content in the window
     pub gl_context: Rc<Gl>,
@@ -784,11 +692,11 @@ pub struct LayoutInfo<'a, T> {
     pub resources: &'a AppResources,
 }
 
-impl<'a, T> LayoutInfo<'a, T> {
+impl<'a> LayoutInfo<'a> {
     impl_get_gl_context!();
 }
 
-impl<'a, T> LayoutInfo<'a, T> {
+impl<'a> LayoutInfo<'a> {
 
     /// Returns whether the window width is larger than `width`,
     /// but sets an internal "dirty" flag - so that the UI is re-generated when
@@ -889,13 +797,7 @@ impl<'a, T: 'a> CallbackInfo<'a, T> {
     impl_get_gl_context!();
 }
 
-impl<'a, T> DefaultCallbackInfoUnchecked<'a, T> {
-    impl_callback_info_api!();
-    impl_task_api!();
-    impl_get_gl_context!();
-}
-
-impl<'a, T, U> DefaultCallbackInfo<'a, T, U> {
+impl<'a, T> DefaultCallbackInfo<'a, T> {
     impl_callback_info_api!();
     impl_task_api!();
     impl_get_gl_context!();
