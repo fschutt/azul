@@ -17,7 +17,7 @@ use azul_css::HotReloadHandler;
 use crate::{
     dom::{DomId, EventFilter},
     id_tree::NodeId,
-    callbacks::{Callback, DefaultCallbackId, HitTestItem, UpdateScreen, Redraw},
+    callbacks::{Callback, DefaultCallback, HitTestItem, UpdateScreen, Redraw},
 };
 
 pub const DEFAULT_TITLE: &str = "Azul App";
@@ -942,7 +942,7 @@ impl ::std::fmt::Display for UpdateFocusWarning {
 
 pub struct DetermineCallbackResult<T> {
     pub hit_test_item: Option<HitTestItem>,
-    pub default_callbacks: BTreeMap<EventFilter, DefaultCallbackId>,
+    pub default_callbacks: BTreeMap<EventFilter, DefaultCallback<T>>,
     pub normal_callbacks: BTreeMap<EventFilter, Callback<T>>,
 }
 

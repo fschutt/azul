@@ -12,10 +12,9 @@ use crate::{
         WindowEventFilter,
     },
     callbacks::{
-        LayoutInfo, Callback, LayoutCallback, DefaultCallbackId,
-        IFrameCallback, GlCallback, FocusTarget,
+        LayoutInfo, Callback, LayoutCallback, DefaultCallback,
+        IFrameCallback, GlCallback, FocusTarget, RefAny,
     },
-    stack_checked_pointer::StackCheckedPointer,
     ui_description::UiDescription,
     window::UpdateFocusWarning,
 };
@@ -48,13 +47,13 @@ pub struct UiState<T> {
     // the default callbacks. This is done for consistency, since otherwise the
     // event filtering logic gets much more complicated than it already is.
     pub hover_callbacks:                BTreeMap<NodeId, BTreeMap<HoverEventFilter, Callback<T>>>,
-    pub hover_default_callbacks:        BTreeMap<NodeId, BTreeMap<HoverEventFilter, DefaultCallbackId>>,
+    pub hover_default_callbacks:        BTreeMap<NodeId, BTreeMap<HoverEventFilter, DefaultCallback<T>>>,
     pub focus_callbacks:                BTreeMap<NodeId, BTreeMap<FocusEventFilter, Callback<T>>>,
-    pub focus_default_callbacks:        BTreeMap<NodeId, BTreeMap<FocusEventFilter, DefaultCallbackId>>,
+    pub focus_default_callbacks:        BTreeMap<NodeId, BTreeMap<FocusEventFilter, DefaultCallback<T>>>,
     pub not_callbacks:                  BTreeMap<NodeId, BTreeMap<NotEventFilter, Callback<T>>>,
-    pub not_default_callbacks:          BTreeMap<NodeId, BTreeMap<NotEventFilter, DefaultCallbackId>>,
+    pub not_default_callbacks:          BTreeMap<NodeId, BTreeMap<NotEventFilter, DefaultCallback<T>>>,
     pub window_callbacks:               BTreeMap<NodeId, BTreeMap<WindowEventFilter, Callback<T>>>,
-    pub window_default_callbacks:       BTreeMap<NodeId, BTreeMap<WindowEventFilter, DefaultCallbackId>>,
+    pub window_default_callbacks:       BTreeMap<NodeId, BTreeMap<WindowEventFilter, DefaultCallback<T>>>,
 }
 
 impl<T> fmt::Debug for UiState<T> {
@@ -287,14 +286,14 @@ impl<T> UiState<T> {
                     );
                 }
 
-                if !node.get_default_callback_ids().is_empty() {
+                if !node.get_default_callbacks().is_empty() {
 
                     // Filter and insert HoverEventFilter callbacks
                     filter_and_insert_callbacks!(
                         node_id,
-                        node.get_default_callback_ids(),
+                        node.get_default_callbacks(),
                         HoverEventFilter,
-                        DefaultCallbackId,
+                        DefaultCallback<T>,
                         as_hover_event_filter,
                         hover_default_callbacks,
                         node_tag_id,
@@ -303,9 +302,9 @@ impl<T> UiState<T> {
                     // Filter and insert FocusEventFilter callbacks
                     filter_and_insert_callbacks!(
                         node_id,
-                        node.get_default_callback_ids(),
+                        node.get_default_callbacks(),
                         FocusEventFilter,
-                        DefaultCallbackId,
+                        DefaultCallback<T>,
                         as_focus_event_filter,
                         focus_default_callbacks,
                         node_tag_id,
@@ -313,9 +312,9 @@ impl<T> UiState<T> {
 
                     filter_and_insert_callbacks!(
                         node_id,
-                        node.get_default_callback_ids(),
+                        node.get_default_callbacks(),
                         NotEventFilter,
-                        DefaultCallbackId,
+                        DefaultCallback<T>,
                         as_not_event_filter,
                         not_default_callbacks,
                         node_tag_id,
@@ -323,9 +322,9 @@ impl<T> UiState<T> {
 
                     filter_and_insert_callbacks!(
                         node_id,
-                        node.get_default_callback_ids(),
+                        node.get_default_callbacks(),
                         WindowEventFilter,
-                        DefaultCallbackId,
+                        DefaultCallback<T>,
                         as_window_event_filter,
                         window_default_callbacks,
                     );
@@ -387,7 +386,7 @@ impl<T> UiState<T> {
 
     pub fn new_from_app_state<'a>(
         data: &T,
-        layout_info: LayoutInfo<'a, T>,
+        layout_info: LayoutInfo<'a>,
         parent_dom: Option<(DomId, NodeId)>,
         layout_callback: LayoutCallback<T>,
     ) -> UiState<T> {
@@ -413,7 +412,7 @@ impl<T> UiState<T> {
         }
     }
 
-    pub fn scan_for_iframe_callbacks(&self) -> Vec<(NodeId, IFrameCallback<T>, StackCheckedPointer<T>)> {
+    pub fn scan_for_iframe_callbacks(&self) -> Vec<(NodeId, IFrameCallback<T>, RefAny)> {
         use crate::dom::NodeType::IFrame;
         self.dom.arena.node_layout.linear_iter().filter_map(|node_id| {
             let node_data = &self.dom.arena.node_data[node_id];
@@ -424,7 +423,7 @@ impl<T> UiState<T> {
         }).collect()
     }
 
-    pub fn scan_for_gltexture_callbacks(&self) -> Vec<(NodeId, GlCallback<T>, StackCheckedPointer<T>)> {
+    pub fn scan_for_gltexture_callbacks(&self) -> Vec<(NodeId, GlCallback, RefAny)> {
         use crate::dom::NodeType::GlTexture;
         self.dom.arena.node_layout.linear_iter().filter_map(|node_id| {
             let node_data = &self.dom.arena.node_data[node_id];

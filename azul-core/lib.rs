@@ -21,8 +21,6 @@ pub mod ui_solver;
 pub mod window;
 pub mod window_state;
 
-mod stack_checked_pointer;
-
 // Typedef for possible faster implementation of hashing
 pub type FastHashMap<T, U> = ::std::collections::HashMap<T, U>;
 pub type FastHashSet<T> = ::std::collections::HashSet<T>;

@@ -35,7 +35,7 @@ pub trait Layout {
     /// // This is done by azul internally
     /// // let new_ui = MyDataModel::layout();
     /// ```
-    fn layout(&self, layout_info: LayoutInfo<Self>) -> Dom<Self> where Self: Sized;
+    fn layout(&self, layout_info: LayoutInfo) -> Dom<Self> where Self: Sized;
 }
 
 pub trait GetTextLayout {
