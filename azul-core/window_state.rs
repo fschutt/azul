@@ -1,7 +1,7 @@
 use std::collections::{HashSet, BTreeMap};
 use crate::{
     dom::{EventFilter, NotEventFilter, HoverEventFilter, FocusEventFilter, WindowEventFilter},
-    callbacks:: {CallbackInfo, Callback, CallbackType, HitTestItem, DefaultCallbackId, UpdateScreen},
+    callbacks:: {CallbackInfo, Callback, CallbackType, HitTestItem, DefaultCallback, UpdateScreen},
     id_tree::NodeId,
     ui_state::UiState,
     window::{
@@ -101,7 +101,6 @@ pub fn determine_callbacks<T>(
                 }
             }
 
-            // BTreeMap<EventFilter, DefaultCallbackId>
             let mut default_hover_callbacks = BTreeMap::new();
 
             // Insert all default Hover events
@@ -123,7 +122,7 @@ pub fn determine_callbacks<T>(
             .filter(|(current_window_event, _)| current_window_events.contains(current_window_event))
             .map(|(current_window_event, callback)| (EventFilter::Window(*current_window_event), *callback))
             .collect::<BTreeMap<_, _>>();
-        let default_window_callbacks = BTreeMap::<EventFilter, DefaultCallbackId>::new();
+        let default_window_callbacks = BTreeMap::<EventFilter, DefaultCallback<T>>::new();
         insert_only_non_empty_callbacks!(window_node_id, None, normal_window_callbacks, default_window_callbacks);
     }
 
@@ -208,7 +207,6 @@ pub fn determine_callbacks<T>(
                 }
             }
 
-            // BTreeMap<EventFilter, DefaultCallbackId>
             let mut default_callbacks = BTreeMap::new();
 
             // Insert all default Hover(MouseEnter) events
