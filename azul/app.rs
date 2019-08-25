@@ -959,12 +959,12 @@ fn send_user_event<'a, T>(
                 window.display.make_current();
 
                 let SolvedLayout { solved_layout_cache, gl_texture_cache } = SolvedLayout::new(
-                    &window.internal.pipeline_id,
                     window.internal.epoch,
+                    window.internal.pipeline_id,
+                    full_window_state,
+                    eld.gl_context.clone(),
                     eld.render_api,
                     eld.resources,
-                    eld.gl_context.clone(),
-                    full_window_state,
                     eld.ui_state_cache.get_mut(&glutin_window_id).unwrap(),
                     eld.ui_description_cache.get_mut(&glutin_window_id).unwrap(),
                     azul_core::gl::insert_into_active_gl_textures,

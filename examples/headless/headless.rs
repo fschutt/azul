@@ -25,7 +25,6 @@ fn main() {
     fn load_font(_: &FontSource) -> Option<LoadedFontSource> { None }
     fn load_image(_: &ImageSource) -> Option<LoadedImageSource> { None }
 
-    let mut data = Mock { };
     let mut app_resources = AppResources::new();
     let mut render_api = FakeRenderApi::new();
 
@@ -61,20 +60,17 @@ fn main() {
     ui_states.insert(DomId::ROOT_ID, ui_state);
     let mut ui_descriptions = BTreeMap::new();
     ui_descriptions.insert(DomId::ROOT_ID, ui_description);
-    let mut default_callbacks = BTreeMap::new();
 
     // Solve the layout (the extra parameters are necessary because of IFrame recursion)
     let solved_layout = SolvedLayout::new(
-        &mut data,
-        &pipeline_id,
         epoch,
+        pipeline_id,
+        &fake_window_state,
+        gl_context,
         &mut render_api,
         &mut app_resources,
-        gl_context.clone(),
-        &fake_window_state,
         &mut ui_states,
         &mut ui_descriptions,
-        &mut default_callbacks,
         azul_core::gl::insert_into_active_gl_textures,
         azul_layout::ui_solver::do_the_layout,
         load_font,
