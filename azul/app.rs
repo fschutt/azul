@@ -669,7 +669,7 @@ struct EventLoopData<'a, T> {
     full_window_states: &'a mut BTreeMap<GlutinWindowId, FullWindowState>,
     ui_state_cache: &'a mut BTreeMap<GlutinWindowId, BTreeMap<DomId, UiState<T>>>,
     default_callbacks_cache: &'a mut BTreeMap<GlutinWindowId, BTreeMap<DomId, DefaultCallbackIdMap<T>>>,
-    ui_description_cache: &'a mut BTreeMap<GlutinWindowId, BTreeMap<DomId, UiDescription<T>>>,
+    ui_description_cache: &'a mut BTreeMap<GlutinWindowId, BTreeMap<DomId, UiDescription>>,
     render_api: &'a mut WrApi,
     renderer: &'a mut Option<WrRenderer>,
     hidden_context: &'a mut HeadlessContextState,
@@ -1274,7 +1274,7 @@ fn call_layout_fn<T>(
 fn initialize_ui_description_cache<T>(
     ui_states: &mut BTreeMap<GlutinWindowId, BTreeMap<DomId, UiState<T>>>,
     full_window_states: &mut BTreeMap<GlutinWindowId, FullWindowState>,
-) -> BTreeMap<GlutinWindowId, BTreeMap<DomId, UiDescription<T>>> {
+) -> BTreeMap<GlutinWindowId, BTreeMap<DomId, UiDescription>> {
     ui_states.iter_mut().map(|(glutin_window_id, ui_states)| {
         let full_window_state = full_window_states.get_mut(glutin_window_id).unwrap();
         (*glutin_window_id, cascade_style(ui_states, full_window_state))
@@ -1286,7 +1286,7 @@ fn initialize_ui_description_cache<T>(
 fn cascade_style<T>(
      ui_states: &mut BTreeMap<DomId, UiState<T>>,
      full_window_state: &mut FullWindowState,
-) -> BTreeMap<DomId, UiDescription<T>>{
+) -> BTreeMap<DomId, UiDescription>{
     ui_states.iter_mut().map(|(dom_id, mut ui_state)| {
         (dom_id.clone(), UiDescription::new(
             &mut ui_state,
@@ -1343,7 +1343,7 @@ fn call_callbacks<T>(
     data: &mut T,
     callbacks_filter_list: &BTreeMap<DomId, CallbacksOfHitTest<T>>,
     ui_state_map: &BTreeMap<DomId, UiState<T>>,
-    ui_description_map: &BTreeMap<DomId, UiDescription<T>>,
+    ui_description_map: &BTreeMap<DomId, UiDescription>,
     default_callbacks: &mut BTreeMap<DomId, DefaultCallbackIdMap<T>>,
     timers: &mut FastHashMap<TimerId, Timer<T>>,
     tasks: &mut Vec<Task<T>>,

@@ -117,7 +117,7 @@ pub enum ActiveHover {
 
 pub fn resolve_focus_target<T>(
     target: FocusTarget,
-    ui_descriptions: &BTreeMap<DomId, UiDescription<T>>,
+    ui_descriptions: &BTreeMap<DomId, UiDescription>,
     ui_states: &BTreeMap<DomId, UiState<T>>,
 ) -> Result<Option<(DomId, NodeId)>, UpdateFocusWarning> {
 
@@ -189,44 +189,81 @@ impl<T> UiState<T> {
         let mut window_callbacks = BTreeMap::new();
         let mut window_default_callbacks = BTreeMap::new();
 
-        // data.callbacks, HoverEventFilter, Callback<T>, as_hover_event_filter, hover_callbacks, <node_tag_id> (optional)
-        macro_rules! filter_and_insert_callbacks {
-            (
-                    $node_id:ident,
-                    $data_source:expr,
-                    $event_filter:ident,
-                    $callback_type:ty,
-                    $filter_func:ident,
-                    $final_callback_list:ident,
-            ) => {
+        macro_rules! filter_step_0 {
+            ($event_filter:ident, $callback_type:ty, $data_source:expr, $filter_func:ident) => {{
                 let node_hover_callbacks: BTreeMap<$event_filter, $callback_type> = $data_source.iter()
                 .filter_map(|(event_filter, cb)| event_filter.$filter_func().map(|not_evt| (not_evt, *cb)))
                 .collect();
+                node_hover_callbacks
+            }};
+        };
 
-                if !node_hover_callbacks.is_empty() {
-                    $final_callback_list.insert($node_id, node_hover_callbacks);
-                }
-            };
-            (
+        macro_rules! filter_and_insert_callbacks {(
                 $node_id:ident,
                 $data_source:expr,
                 $event_filter:ident,
                 $callback_type:ty,
                 $filter_func:ident,
                 $final_callback_list:ident,
-                $node_tag_id:ident,
-            ) => {
-                let node_hover_callbacks: BTreeMap<$event_filter, $callback_type> = $data_source.iter()
-                .filter_map(|(event_filter, cb)| event_filter.$filter_func().map(|not_evt| (not_evt, *cb)))
-                .collect();
+        ) => {
+            let node_hover_callbacks = filter_step_0!($event_filter, $callback_type, $data_source, $filter_func);
+            if !node_hover_callbacks.is_empty() {
+                $final_callback_list.insert($node_id, node_hover_callbacks);
+            }
+        };(
+            $node_id:ident,
+            $data_source:expr,
+            $event_filter:ident,
+            $callback_type:ty,
+            $filter_func:ident,
+            $final_callback_list:ident,
+            $node_tag_id:ident,
+        ) => {
+            let node_hover_callbacks = filter_step_0!($event_filter, $callback_type, $data_source, $filter_func);
+            if !node_hover_callbacks.is_empty() {
+                $final_callback_list.insert($node_id, node_hover_callbacks);
+                let tag_id = $node_tag_id.unwrap_or_else(|| new_tag_id());
+                $node_tag_id = Some(tag_id);
+            }
+        };}
 
-                if !node_hover_callbacks.is_empty() {
-                    $final_callback_list.insert($node_id, node_hover_callbacks);
-                    let tag_id = $node_tag_id.unwrap_or_else(|| new_tag_id());
-                    $node_tag_id = Some(tag_id);
-                }
-            };
-        }
+        macro_rules! filter_step_0_default {
+            ($event_filter:ident, $callback_type:ty, $data_source:expr, $filter_func:ident) => {{
+                let node_hover_callbacks: BTreeMap<$event_filter, $callback_type> = $data_source.iter()
+                .filter_map(|(event_filter, cb)| event_filter.$filter_func().map(|not_evt| (not_evt, cb.0)))
+                .collect();
+                node_hover_callbacks
+            }};
+        };
+
+        macro_rules! filter_and_insert_default_callbacks {(
+                $node_id:ident,
+                $data_source:expr,
+                $event_filter:ident,
+                $callback_type:ty,
+                $filter_func:ident,
+                $final_callback_list:ident,
+        ) => {
+            let node_hover_callbacks = filter_step_0_default!($event_filter, $callback_type, $data_source, $filter_func);
+            if !node_hover_callbacks.is_empty() {
+                $final_callback_list.insert($node_id, node_hover_callbacks);
+            }
+        };(
+            $node_id:ident,
+            $data_source:expr,
+            $event_filter:ident,
+            $callback_type:ty,
+            $filter_func:ident,
+            $final_callback_list:ident,
+            $node_tag_id:ident,
+        ) => {
+            let node_hover_callbacks = filter_step_0_default!($event_filter, $callback_type, $data_source, $filter_func);
+            if !node_hover_callbacks.is_empty() {
+                $final_callback_list.insert($node_id, node_hover_callbacks);
+                let tag_id = $node_tag_id.unwrap_or_else(|| new_tag_id());
+                $node_tag_id = Some(tag_id);
+            }
+        };}
 
         crate::dom::reset_tag_id();
 
@@ -289,7 +326,7 @@ impl<T> UiState<T> {
                 if !node.get_default_callbacks().is_empty() {
 
                     // Filter and insert HoverEventFilter callbacks
-                    filter_and_insert_callbacks!(
+                    filter_and_insert_default_callbacks!(
                         node_id,
                         node.get_default_callbacks(),
                         HoverEventFilter,
@@ -300,7 +337,7 @@ impl<T> UiState<T> {
                     );
 
                     // Filter and insert FocusEventFilter callbacks
-                    filter_and_insert_callbacks!(
+                    filter_and_insert_default_callbacks!(
                         node_id,
                         node.get_default_callbacks(),
                         FocusEventFilter,
@@ -310,7 +347,7 @@ impl<T> UiState<T> {
                         node_tag_id,
                     );
 
-                    filter_and_insert_callbacks!(
+                    filter_and_insert_default_callbacks!(
                         node_id,
                         node.get_default_callbacks(),
                         NotEventFilter,
@@ -320,7 +357,7 @@ impl<T> UiState<T> {
                         node_tag_id,
                     );
 
-                    filter_and_insert_callbacks!(
+                    filter_and_insert_default_callbacks!(
                         node_id,
                         node.get_default_callbacks(),
                         WindowEventFilter,
@@ -412,23 +449,23 @@ impl<T> UiState<T> {
         }
     }
 
-    pub fn scan_for_iframe_callbacks(&self) -> Vec<(NodeId, IFrameCallback<T>, RefAny)> {
+    pub fn scan_for_iframe_callbacks(&self) -> Vec<(NodeId, &(IFrameCallback<T>, RefAny))> {
         use crate::dom::NodeType::IFrame;
         self.dom.arena.node_layout.linear_iter().filter_map(|node_id| {
             let node_data = &self.dom.arena.node_data[node_id];
             match node_data.get_node_type() {
-                IFrame((cb, ptr)) => Some((node_id, *cb, *ptr)),
+                IFrame(cb) => Some((node_id, cb)),
                 _ => None,
             }
         }).collect()
     }
 
-    pub fn scan_for_gltexture_callbacks(&self) -> Vec<(NodeId, GlCallback, RefAny)> {
+    pub fn scan_for_gltexture_callbacks(&self) -> Vec<(NodeId, &(GlCallback, RefAny))> {
         use crate::dom::NodeType::GlTexture;
         self.dom.arena.node_layout.linear_iter().filter_map(|node_id| {
             let node_data = &self.dom.arena.node_data[node_id];
             match node_data.get_node_type() {
-                GlTexture((cb, ptr)) => Some((node_id, *cb, *ptr)),
+                GlTexture(cb) => Some((node_id, cb)),
                 _ => None,
             }
         }).collect()

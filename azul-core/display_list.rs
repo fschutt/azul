@@ -358,9 +358,9 @@ pub struct DisplayList {
 impl DisplayList {
 
     /// NOTE: This function assumes that the UiDescription has an initialized arena
-    pub fn new<T>(ui_description: &UiDescription<T>, ui_state: &UiState<T>) -> Self {
+    pub fn new<T>(ui_description: &UiDescription, ui_state: &UiState<T>) -> Self {
 
-        let arena = &ui_description.ui_descr_arena;
+        let arena = &ui_state.dom.arena;
 
         let mut override_warnings = Vec::new();
 
@@ -487,7 +487,7 @@ impl SolvedLayout {
         gl_context: Rc<Gl>,
         full_window_state: &FullWindowState,
         ui_states: &mut BTreeMap<DomId, UiState<T>>,
-        ui_descriptions: &mut BTreeMap<DomId, UiDescription<T>>,
+        ui_descriptions: &mut BTreeMap<DomId, UiDescription>,
         insert_into_active_gl_textures: GlStoreImageFn,
         layout_func: LayoutFn<T>,
         load_font_fn: LoadFontFn,
@@ -505,12 +505,12 @@ impl SolvedLayout {
             layout_cache: &mut SolvedLayoutCache,
             solved_textures: &mut BTreeMap<DomId, BTreeMap<NodeId, Texture>>,
             iframe_ui_states: &mut BTreeMap<DomId, UiState<T>>,
-            iframe_ui_descriptions: &mut BTreeMap<DomId, UiDescription<T>>,
+            iframe_ui_descriptions: &mut BTreeMap<DomId, UiDescription>,
             app_resources: &mut AppResources,
             render_api: &mut U,
             full_window_state: &FullWindowState,
             ui_state: &UiState<T>,
-            ui_description: &UiDescription<T>,
+            ui_description: &UiDescription,
             pipeline_id: &PipelineId,
             bounds: LayoutRect,
             gl_context: Rc<Gl>,
@@ -529,13 +529,11 @@ impl SolvedLayout {
 
             // Right now the IFrameCallbacks and GlTextureCallbacks need to know how large their
             // containers are in order to be solved properly
-            let iframe_callbacks = ui_state.scan_for_iframe_callbacks();
-            let gltexture_callbacks = ui_state.scan_for_gltexture_callbacks();
             let display_list = DisplayList::new(ui_description, ui_state);
             let dom_id = ui_state.dom_id.clone();
 
             let rects_in_rendering_order = determine_rendering_order(
-                &ui_description.ui_descr_arena.node_layout,
+                &ui_state.dom.arena.node_layout,
                 &display_list.rectangles
             );
 
@@ -545,14 +543,14 @@ impl SolvedLayout {
                 render_api,
                 &pipeline_id,
                 &display_list,
-                &ui_description.ui_descr_arena.node_data,
+                &ui_state.dom.arena.node_data,
                 load_font_fn,
                 load_image_fn,
             );
 
             let layout_result = (layout_func)(
-                &ui_description.ui_descr_arena.node_layout,
-                &ui_description.ui_descr_arena.node_data,
+                &ui_state.dom.arena.node_layout,
+                &ui_state.dom.arena.node_data,
                 &display_list.rectangles,
                 &app_resources,
                 pipeline_id,
@@ -560,16 +558,16 @@ impl SolvedLayout {
             );
 
             let scrollable_nodes = get_nodes_that_need_scroll_clip(
-                &ui_description.ui_descr_arena.node_layout,
+                &ui_state.dom.arena.node_layout,
                 &display_list.rectangles,
-                &ui_description.ui_descr_arena.node_data,
+                &ui_state.dom.arena.node_data,
                 &layout_result.rects,
                 &layout_result.node_depths,
                 *pipeline_id,
             );
 
             // Now the size of rects are known, render all the OpenGL textures
-            for (node_id, cb, ptr) in gltexture_callbacks {
+            for (node_id, (cb, ptr)) in ui_state.scan_for_gltexture_callbacks() {
 
                 // Invoke OpenGL callback, render texture
                 let rect_bounds = layout_result.rects[node_id].bounds;
@@ -613,7 +611,7 @@ impl SolvedLayout {
             }
 
             // Call IFrames and recurse
-            for (node_id, cb, ptr) in iframe_callbacks {
+            for (node_id, (cb, ptr)) in ui_state.scan_for_iframe_callbacks() {
 
                 let bounds = layout_result.rects[node_id].bounds;
                 let hidpi_bounds = HidpiAdjustedBounds::from_bounds(

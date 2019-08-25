@@ -82,7 +82,7 @@ pub fn match_dom_selectors<T>(
     focused_node: &Option<(DomId, NodeId)>,
     hovered_nodes: &BTreeMap<NodeId, HitTestItem>,
     is_mouse_down: bool,
-) -> UiDescription<T> {
+) -> UiDescription {
 
     use azul_css::CssDeclaration;
 
@@ -148,7 +148,6 @@ pub fn match_dom_selectors<T>(
         // performance-sensitive operation!
         dom_id: ui_state.dom_id.clone(),
         html_tree,
-        ui_descr_arena: ui_state.dom.arena.clone(),
         dynamic_css_overrides: ui_state.dynamic_css_overrides.clone(),
         ui_descr_root: ui_state.dom.root,
         styled_nodes,
