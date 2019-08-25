@@ -12,7 +12,7 @@ struct List {
 const CUSTOM_CSS: &str = ".selected { background-color: black; color: white; }";
 
 impl Layout for List {
-    fn layout(&self, _: LayoutInfo<Self>) -> Dom<Self> {
+    fn layout(&self, _: LayoutInfo) -> Dom<Self> {
         self.items.iter().enumerate().map(|(idx, item)| {
             NodeData::label(*item)
                 .with_classes(if self.selected == Some(idx) { vec!["selected".into()] } else { vec![] })

@@ -47,7 +47,7 @@ struct Board {
 
 impl Layout for Universe {
 
-    fn layout(&self, _info: LayoutInfo<Self>) -> Dom<Self> {
+    fn layout(&self, _info: LayoutInfo) -> Dom<Self> {
 
         let (dead_cells, alive_cells) = count_dead_and_alive_cells(&self.board.cells);
 
@@ -189,15 +189,20 @@ fn start_stop_game(event: CallbackInfo<Universe>) -> UpdateScreen {
 
 fn main() {
 
-    let mut app = App::new(Universe {
+    let app_data = Universe {
         board: Board::empty(INITIAL_UNIVERSE_WIDTH, INITIAL_UNIVERSE_HEIGHT),
         game_is_running: false,
-    }, AppConfig::default()).unwrap();
-
-    let mut window_options = WindowCreateOptions::default();
-    window_options.state.title = "Game of Life".into();
-
+    };
+    let app = App::new(app_data, AppConfig::default()).unwrap();
     let css = css::override_native(CSS).unwrap();
-    let window = app.create_window(window_options, css).unwrap();
-    app.run(window).unwrap();
+    let window_options = WindowCreateOptions {
+        state: WindowState {
+            title: String::from("Game of Life"),
+            .. Default::default()
+        },
+        css,
+        .. Default::default()
+    };
+
+    app.run(window_options);
 }

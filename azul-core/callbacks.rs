@@ -44,8 +44,14 @@ pub const Redraw: Option<()> = Some(());
 #[allow(non_upper_case_globals)]
 pub const DontRedraw: Option<()> = None;
 
-#[derive(Default, Debug, Clone, PartialEq, Eq, PartialOrd, Ord)]
+#[derive(Default, Debug, PartialEq, Eq, PartialOrd, Ord)]
 pub struct Ref<T: 'static>(Rc<RefCell<T>>);
+
+impl<T: 'static> Clone for Ref<T> {
+    fn clone(&self) -> Self {
+        Ref(self.0.clone())
+    }
+}
 
 impl<T: 'static + Hash> Hash for Ref<T> {
     fn hash<H>(&self, state: &mut H) where H: ::std::hash::Hasher {
@@ -74,8 +80,20 @@ impl<T: 'static> Ref<T> {
     }
 }
 
-#[derive(Debug, Clone)]
+impl<T: 'static> From<Ref<T>> for RefAny {
+    fn from(r: Ref<T>) -> Self {
+        r.upcast()
+    }
+}
+
+#[derive(Debug)]
 pub struct RefAny(Rc<dyn Any>);
+
+impl Clone for RefAny {
+    fn clone(&self) -> Self {
+        RefAny(self.0.clone())
+    }
+}
 
 use std::ffi::c_void;
 
