@@ -38,7 +38,7 @@ svg = ["lyon", "gleam"]
 # This is for activating **parsing** of SVG files. If you, for example, just
 # want to draw shapes on the screen, you do not need to activate this feature,
 # this is just for parsing the SVG from a file.
-svg_parsing = ["usvg", "svg"]
+svg_parsing = ["usvg", "svg", "fonts"]
 # Necessary for getting the glyphs out of a TTF font (until harfbuzz / etc. would implement something like this)
 fonts = ["stb_truetype"]
 # For serializing / deserializing CSS colors using serde
