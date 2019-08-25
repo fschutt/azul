@@ -5,21 +5,21 @@ extern crate azul;
 use azul::{prelude::*, widgets::table_view::*};
 
 struct TableDemo {
-    table_state: TableViewState,
+    table_view_state: Ref<TableViewState>,
 }
 
 impl Layout for TableDemo {
-    fn layout(&self, info: LayoutInfo<Self>) -> Dom<Self> {
-        TableView::new().dom(&self.table_state, &self, info.window)
+    fn layout(&self, _: LayoutInfo) -> Dom<Self> {
+        TableView::new(self.table_view_state.clone()).dom()
     }
 }
 
 fn main() {
 
-    let mut table_state = TableViewState::default();
-    table_state.work_sheet.set_cell(3, 4, "Hello World");
+    let mut table_view_state = TableViewState::default();
+    table_view_state.set_cell(3, 4, "Hello World");
 
-    let mut app = App::new(TableDemo { table_state }, AppConfig::default()).unwrap();
-    let window = app.create_window(WindowCreateOptions::default(), css::native()).unwrap();
-    app.run(window).unwrap();
+    let app_data = TableDemo { table_view_state: Ref::new(table_view_state) };
+    let app = App::new(app_data, AppConfig::default()).unwrap();
+    app.run(WindowCreateOptions::new(css::native()));
 }
