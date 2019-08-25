@@ -1,24 +1,22 @@
 use std::{
-    fmt,
     collections::BTreeMap,
 };
 use azul_css::{Css, CssDeclaration, CssProperty, CssPropertyType};
 use crate::{
     FastHashMap,
-    id_tree::{Arena, NodeId, NodeDataContainer},
-    dom::{DomId, NodeData, DomString},
+    id_tree::{NodeId, NodeDataContainer},
+    dom::{DomId, DomString},
     ui_state::{UiState, HoverGroup},
     callbacks::HitTestItem,
     style::HtmlCascadeInfo,
 };
 
-pub struct UiDescription<T> {
+#[derive(Debug)]
+pub struct UiDescription {
     /// DOM ID of this arena (so that multiple DOMs / IFrames can be displayed in one window)
     pub dom_id: DomId,
     /// Data necessary for matching nodes properly (necessary to resolve CSS paths in callbacks)
     pub html_tree: NodeDataContainer<HtmlCascadeInfo>,
-    /// The DOM data (arena-allocated)
-    pub ui_descr_arena: Arena<NodeData<T>>,
     /// ID of the root node of the arena (usually NodeId(0))
     pub ui_descr_root: NodeId,
     /// This field is created from the Css
@@ -31,45 +29,11 @@ pub struct UiDescription<T> {
     pub selected_hover_nodes: BTreeMap<NodeId, HoverGroup>,
 }
 
-impl<T> fmt::Debug for UiDescription<T> {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        write!(f, "UiDescription {{ \
-            dom_id: {:?},
-            ui_descr_arena: {:?},
-            ui_descr_root: {:?},
-            styled_nodes: {:?},
-            dynamic_css_overrides: {:?},
-            selected_hover_nodes: {:?},
-        }}",
-            self.dom_id,
-            self.ui_descr_arena,
-            self.ui_descr_root,
-            self.styled_nodes,
-            self.dynamic_css_overrides,
-            self.selected_hover_nodes,
-        )
-    }
-}
-
-impl<T> Clone for UiDescription<T> {
-    fn clone(&self) -> Self {
-        Self {
-            dom_id: self.dom_id.clone(),
-            html_tree: self.html_tree.clone(),
-            ui_descr_arena: self.ui_descr_arena.clone(),
-            ui_descr_root: self.ui_descr_root,
-            styled_nodes: self.styled_nodes.clone(),
-            dynamic_css_overrides: self.dynamic_css_overrides.clone(),
-            selected_hover_nodes: self.selected_hover_nodes.clone(),
-        }
-    }
-}
-
-impl<T> UiDescription<T> {
+impl UiDescription {
     /// Applies the styles to the nodes calculated from the `layout_screen`
     /// function and calculates the final display list that is submitted to the
     /// renderer.
-    pub fn new(
+    pub fn new<T>(
         ui_state: &mut UiState<T>,
         style: &Css,
         focused_node: &Option<(DomId, NodeId)>,

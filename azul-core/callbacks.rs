@@ -4,7 +4,8 @@ use std::{
     collections::BTreeMap,
     rc::Rc,
     any::Any,
-    cell::RefCell,
+    hash::Hash,
+    cell::{Ref as StdRef, RefMut as StdRefMut, RefCell},
 };
 use azul_css::{LayoutPoint, LayoutRect, CssPath};
 #[cfg(feature = "css_parser")]
@@ -43,13 +44,29 @@ pub const Redraw: Option<()> = Some(());
 #[allow(non_upper_case_globals)]
 pub const DontRedraw: Option<()> = None;
 
-#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord)]
+#[derive(Default, Debug, Clone, PartialEq, Eq, PartialOrd, Ord)]
 pub struct Ref<T: 'static>(Rc<RefCell<T>>);
+
+impl<T: 'static + Hash> Hash for Ref<T> {
+    fn hash<H>(&self, state: &mut H) where H: ::std::hash::Hasher {
+        let self_ptr = Rc::into_raw(self.0.clone()) as *const c_void as usize;
+        state.write_usize(self_ptr);
+        self.0.borrow().hash(state)
+    }
+}
 
 impl<T: 'static> Ref<T> {
 
     pub fn new(data: T) -> Self {
         Ref(Rc::new(RefCell::new(data)))
+    }
+
+    pub fn borrow(&self) -> StdRef<T> {
+        self.0.borrow()
+    }
+
+    pub fn borrow_mut(&mut self) -> StdRefMut<T> {
+        self.0.borrow_mut()
     }
 
     pub fn upcast(self) -> RefAny {
@@ -60,8 +77,39 @@ impl<T: 'static> Ref<T> {
 #[derive(Debug, Clone)]
 pub struct RefAny(Rc<dyn Any>);
 
+use std::ffi::c_void;
+
+impl ::std::hash::Hash for RefAny {
+    fn hash<H>(&self, state: &mut H) where H: ::std::hash::Hasher {
+        let self_ptr = Rc::into_raw(self.0.clone()) as *const c_void as usize;
+        state.write_usize(self_ptr);
+    }
+}
+
+impl PartialEq for RefAny {
+    fn eq(&self, rhs: &Self) -> bool {
+        Rc::ptr_eq(&self.0, &rhs.0)
+    }
+}
+
+impl PartialOrd for RefAny {
+    fn partial_cmp(&self, rhs: &Self) -> Option<::std::cmp::Ordering> {
+        Some(self.cmp(rhs))
+    }
+}
+
+impl Ord for RefAny {
+    fn cmp(&self, rhs: &Self) -> ::std::cmp::Ordering {
+        let self_ptr = Rc::into_raw(self.0.clone()) as *const c_void as usize;
+        let rhs_ptr = Rc::into_raw(rhs.0.clone()) as *const c_void as usize;
+        self_ptr.cmp(&rhs_ptr)
+    }
+}
+
+impl Eq for RefAny { }
+
 impl RefAny {
-    pub fn downcast_ref<T: 'static>(&self) -> Option<&RefCell<T>> {
+    pub fn downcast<T: 'static>(&self) -> Option<&RefCell<T>> {
         self.0.downcast_ref::<RefCell<T>>()
     }
 }
@@ -484,7 +532,7 @@ macro_rules! impl_callback_info_api {() => (
 pub struct DefaultCallbackInfo<'a, T> {
     /// Type-erased pointer to a unknown type on the stack (inside of `T`),
     /// pointer has to be casted to a `U` type first (via `.invoke_callback()`)
-    pub ptr: RefAny,
+    pub state: RefAny,
     /// State of the current window that the callback was called on (read only!)
     pub current_window_state: &'a FullWindowState,
     /// User-modifiable state of the window that the callback was called on
@@ -632,7 +680,7 @@ pub struct GlCallback(pub GlCallbackType);
 impl_callback_no_generics!(GlCallback);
 
 pub struct GlCallbackInfo<'a> {
-    pub state: RefAny,
+    pub state: &'a RefAny,
     pub layout_info: LayoutInfo<'a>,
     pub bounds: HidpiAdjustedBounds,
 }
@@ -648,7 +696,7 @@ pub struct IFrameCallback<T>(pub IFrameCallbackType<T>);
 impl_callback!(IFrameCallback<T>);
 
 pub struct IFrameCallbackInfo<'a> {
-    pub state: RefAny,
+    pub state: &'a RefAny,
     pub layout_info: LayoutInfo<'a>,
     pub bounds: HidpiAdjustedBounds,
 }
