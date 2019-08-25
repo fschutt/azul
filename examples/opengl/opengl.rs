@@ -26,14 +26,16 @@ const CSS: &str = "
 
 struct OpenGlAppState { }
 
+struct Mock { }
+
 impl Layout for OpenGlAppState {
     fn layout(&self, _info: LayoutInfo<Self>) -> Dom<Self> {
-        Dom::gl_texture(render_my_texture, StackCheckedPointer::new_entire_struct(self))
+        Dom::gl_texture(render_my_texture, Ref::new(Mock { }))
         .with_child(Button::with_label("Hello").dom().with_id("the_button"))
     }
 }
 
-fn render_my_texture(info: GlCallbackInfoUnchecked<OpenGlAppState>) -> GlCallbackReturn {
+fn render_my_texture(info: GlCallbackInfo) -> GlCallbackReturn {
 
     println!("rendering opengl state!");
 
@@ -63,8 +65,6 @@ fn render_my_texture(info: GlCallbackInfoUnchecked<OpenGlAppState>) -> GlCallbac
 
     // Set "textures[0]" as the color attachement #0
     gl_context.framebuffer_texture_2d(gl::FRAMEBUFFER, gl::COLOR_ATTACHMENT0, gl::TEXTURE_2D, textures[0], 0);
-
-    // gl_context.draw_buffers(&[gl::COLOR_ATTACHMENT0]);
 
     // Check that the framebuffer is complete
     debug_assert!(gl_context.check_frame_buffer_status(gl::FRAMEBUFFER) == gl::FRAMEBUFFER_COMPLETE);
@@ -96,8 +96,7 @@ fn render_my_texture(info: GlCallbackInfoUnchecked<OpenGlAppState>) -> GlCallbac
 }
 
 fn main() {
-    let mut app = App::new(OpenGlAppState { }, AppConfig::default()).unwrap();
+    let app = App::new(OpenGlAppState { }, AppConfig::default()).unwrap();
     let css = css::override_native(CSS).unwrap();
-    let window = app.create_window(WindowCreateOptions::default(), css).unwrap();
-    app.run(window).unwrap();
+    app.run(WindowCreateOptions::new(css));
 }

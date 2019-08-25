@@ -312,14 +312,18 @@ pub mod widgets {
             horizontal_alignment: StyleTextAlignmentHorz,
         ) -> SvgTextLayout {
 
-            use azul_layout::text_layout;
+            use azul_layout::text_layout::text_layout;
+            use azul_layout::text_layout::text_shaping::get_font_metrics_freetype;
 
             text_layout_options.font_size_px = SVG_FAKE_FONT_SIZE;
             let words = text_layout::split_text_into_words(text);
-            let scaled_words = text_layout::words_to_scaled_words(&words, font_bytes, font_index, SVG_FAKE_FONT_SIZE);
+            let font_metrics = get_font_metrics_freetype(font_bytes, font_index as i32);
+            let scaled_words = text_layout::words_to_scaled_words(&words, font_bytes, font_index, font_metrics, SVG_FAKE_FONT_SIZE);
             let word_positions = text_layout::position_words(&words, &scaled_words, &text_layout_options);
+
             let mut inline_text_layout = text_layout::word_positions_to_inline_text_layout(&word_positions, &scaled_words);
             inline_text_layout.align_children_horizontal(horizontal_alignment);
+
             let layouted_glyphs = text_layout::get_layouted_glyphs(&word_positions, &scaled_words, &inline_text_layout, LayoutPoint::zero());
 
             SvgTextLayout {

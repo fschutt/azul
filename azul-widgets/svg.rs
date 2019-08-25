@@ -32,7 +32,7 @@ use azul_core::{
         VertexBuffer, VertexLayout, VertexLayoutDescription, VertexAttributeType,
         VertexAttribute, Uniform, Texture, GlShader, GlApiVersion, IndexBufferFormat
     },
-    window::{FakeWindow, LogicalSize},
+    window::LogicalSize,
     app_resources::{Words, ScaledWords, WordPositions, LayoutedGlyphs},
     display_list::GlyphInstance,
     ui_solver::InlineTextLayout,
@@ -276,7 +276,7 @@ impl SvgCache {
     /// the registry, returns the IDs of the added shapes, in the order that they appeared in the Svg
     #[cfg(feature = "svg_parsing")]
     pub fn add_svg<S: AsRef<str>>(&mut self, input: S) -> Result<Vec<(SvgLayerId, SvgStyle)>, SvgParseError> {
-        let layers = self::svg_to_lyon::parse_from(input)?;
+        let layers: Vec<(Vec<SvgLayerType>, SvgStyle)> = self::svg_to_lyon::parse_from(input)?;
         Ok(layers
             .into_iter()
             .map(|(layer, style)| SvgLayerResourceDirect::tesselate_from_layer(&layer, style))
@@ -1055,7 +1055,7 @@ impl VertexLayoutDescription for SvgVert {
     }
 }
 
-#[derive(Debug, Copy, Clone)]
+#[derive(Debug, Copy, Clone, PartialOrd, Ord, PartialEq, Eq, Hash)]
 pub struct SvgWorldPixel;
 
 pub type GlyphId = u32;
@@ -1075,6 +1075,7 @@ pub struct VectorizedFont {
     font_index: FontIndex,
 }
 
+#[cfg(feature = "fonts")]
 use stb_truetype::{FontInfo, Vertex};
 
 impl VectorizedFont {
@@ -1088,6 +1089,7 @@ impl VectorizedFont {
         }
     }
 
+    #[cfg(feature = "fonts")]
     pub fn get_fill_vertices(&self, glyphs: &[GlyphInstance]) -> Vec<VertexBuffers<SvgVert, u32>> {
 
         let font_info = match FontInfo::new(self.font_bytes.clone(), 0) {
@@ -1111,6 +1113,7 @@ impl VectorizedFont {
         }).collect()
     }
 
+    #[cfg(feature = "fonts")]
     pub fn get_stroke_vertices(&self, glyphs: &[GlyphInstance], stroke_options: &SvgStrokeOptions) -> Vec<VertexBuffers<SvgVert, u32>> {
 
         let font_info = match FontInfo::new(self.font_bytes.clone(), 0) {
@@ -1141,12 +1144,14 @@ impl VectorizedFont {
 
 
 /// Converts a `Vec<stb_truetype::Vertex>` to a `SvgLayerType::Polygon`
+#[cfg(feature = "fonts")]
 fn glyph_to_svg_layer_type(vertices: Vec<Vertex>) -> SvgLayerType {
     SvgLayerType::Polygon(vertices.into_iter().map(rusttype_glyph_to_path_events).collect())
 }
 
 // Convert a Rusttype glyph to a Vec of PathEvents,
 // in order to turn a glyph into a polygon
+#[cfg(feature = "fonts")]
 fn rusttype_glyph_to_path_events(vertex: Vertex) -> PathEvent {
 
     use stb_truetype::VertexType;
@@ -1372,7 +1377,7 @@ mod svg_to_lyon {
         path::PathEvent,
     };
     use usvg::{Tree, PathSegment, Color, Options, Paint, Stroke, LineCap, LineJoin, NodeKind};
-    use svg::{
+    use crate::svg::{
         SvgStrokeOptions, SvgLineCap, SvgLineJoin,
         SvgLayerType, SvgStyle, SvgParseError
     };
@@ -2012,30 +2017,23 @@ impl Svg {
     /// The final texture will be width * height large. Note that width and height
     /// need to be multiplied with the current `HiDPI` factor, otherwise the texture
     /// will be blurry on HiDPI screens. This isn't done automatically.
-    pub fn render_svg<T>(&self, svg_cache: &SvgCache, window: &FakeWindow<T>, svg_size: LogicalSize) -> Texture {
+    pub fn render_svg(
+        &self,
+        svg_cache: &SvgCache,
+        gl_context: Rc<Gl>,
+        hidpi_factor: f32,
+        svg_size: LogicalSize,
+    ) -> Texture {
 
         let texture_width = svg_size.width;
         let texture_height = svg_size.height;
-
-        // let multisampling_factor = match self.multisampling_factor {
-        //     0 => None,
-        //     i if i <= 2 => Some(2),
-        //     i if i <= 4 => Some(4),
-        //     i if i <= 8 => Some(8),
-        //     i if i <= 16 => Some(16),
-        //     _ => None,
-        // };
-
         let z_index: f32 = 0.5;
         let bbox_size = TypedSize2D::new(texture_width as f32, texture_height as f32);
 
-        let hidpi = window.get_hidpi_factor() as f32;
-
-        let zoom = if self.enable_hidpi { self.zoom * hidpi } else { self.zoom } * self.multisampling_factor as f32;
-        let pan = if self.enable_hidpi { (self.pan.0 * hidpi, self.pan.1 * hidpi) } else { self.pan };
+        let zoom = if self.enable_hidpi { self.zoom * hidpi_factor } else { self.zoom } * self.multisampling_factor as f32;
+        let pan = if self.enable_hidpi { (self.pan.0 * hidpi_factor, self.pan.1 * hidpi_factor) } else { self.pan };
         let pan = (pan.0 * self.multisampling_factor as f32, pan.1 * self.multisampling_factor as f32);
 
-        let gl_context = window.get_gl_context();
         svg_cache.init_shader(gl_context.clone());
 
         let mut shader = svg_cache.shader.borrow_mut();
