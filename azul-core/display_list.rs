@@ -480,12 +480,12 @@ impl SolvedLayout {
 
     /// Does the layout, updates the image + font resources for the RenderAPI
     pub fn new<T, U: FontImageApi>(
-        pipeline_id: &PipelineId,
         epoch: Epoch,
+        pipeline_id: PipelineId,
+        full_window_state: &FullWindowState,
+        gl_context: Rc<Gl>,
         render_api: &mut U,
         app_resources: &mut AppResources,
-        gl_context: Rc<Gl>,
-        full_window_state: &FullWindowState,
         ui_states: &mut BTreeMap<DomId, UiState<T>>,
         ui_descriptions: &mut BTreeMap<DomId, UiDescription>,
         insert_into_active_gl_textures: GlStoreImageFn,
@@ -737,7 +737,7 @@ impl SolvedLayout {
             };
 
             let key = render_api.new_image_key();
-            let external_image_id = (insert_into_active_gl_textures)(*pipeline_id, epoch, texture);
+            let external_image_id = (insert_into_active_gl_textures)(pipeline_id, epoch, texture);
 
             let add_img_msg = AddImageMsg(
                 AddImage {

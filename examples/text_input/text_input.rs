@@ -18,7 +18,7 @@ const CSS: &str = "
 }
 
 #text_input_1 p {
-    font-size: 10px;
+    font-size: 12px;
 }
 
 #text_input_1:focus {
@@ -27,29 +27,25 @@ const CSS: &str = "
 ";
 
 struct TestCrudApp {
-    text_input: TextInputState,
+    text_input: Ref<TextInputState>,
 }
 
 impl Default for TestCrudApp {
     fn default() -> Self {
         Self {
-            text_input: TextInputState::new("Hover mouse over rectangle and press keys")
+            text_input: Ref::new(TextInputState::new("Hover mouse over rectangle and press keys")),
         }
     }
 }
 
 impl Layout for TestCrudApp {
-    fn layout(&self, info: LayoutInfo<Self>) -> Dom<Self> {
-        TextInput::new()
-        .bind(info.window, &self.text_input, &self)
-        .dom(&self.text_input)
-        .with_id("text_input_1")
+    fn layout(&self, _: LayoutInfo) -> Dom<Self> {
+        TextInput::new(self.text_input.clone()).dom().with_id("text_input_1")
     }
 }
 
 fn main() {
-    let mut app = App::new(TestCrudApp::default(), AppConfig::default()).unwrap();
+    let app = App::new(TestCrudApp::default(), AppConfig::default()).unwrap();
     let css = css::override_native(CSS).unwrap();
-    let window = app.create_window(WindowCreateOptions::default(), css).unwrap();
-    app.run(window).unwrap();
+    app.run(WindowCreateOptions::new(css));
 }
