@@ -101,6 +101,7 @@ pub fn determine_callbacks<T>(
                 }
             }
 
+            // BTreeMap<EventFilter, (DefaultCallback<T>, NodeId)>
             let mut default_hover_callbacks = BTreeMap::new();
 
             // Insert all default Hover events
@@ -207,6 +208,7 @@ pub fn determine_callbacks<T>(
                 }
             }
 
+            // BTreeMap<EventFilter, DefaultCallbackId>
             let mut default_callbacks = BTreeMap::new();
 
             // Insert all default Hover(MouseEnter) events

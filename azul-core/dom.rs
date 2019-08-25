@@ -520,7 +520,7 @@ pub struct NodeData<T> {
     /// to this node.
     ///
     /// This is only important if this node has any default callbacks.
-    default_callbacks: Vec<(EventFilter, DefaultCallback<T>)>,
+    default_callbacks: Vec<(EventFilter, (DefaultCallback<T>, RefAny))>,
     /// Override certain dynamic styling properties in this frame. For this,
     /// these properties have to have a name (the ID).
     ///
@@ -849,7 +849,7 @@ impl<T> NodeData<T> {
     #[inline(always)]
     pub const fn get_callbacks(&self) -> &Vec<(EventFilter, Callback<T>)> { &self.callbacks }
     #[inline(always)]
-    pub const fn get_default_callbacks(&self) -> &Vec<(EventFilter, DefaultCallback<T>)> { &self.default_callbacks }
+    pub const fn get_default_callbacks(&self) -> &Vec<(EventFilter, (DefaultCallback<T>, RefAny))> { &self.default_callbacks }
     #[inline(always)]
     pub const fn get_dynamic_css_overrides(&self) -> &Vec<(DomString, CssProperty)> { &self.dynamic_css_overrides }
     #[inline(always)]
@@ -866,7 +866,7 @@ impl<T> NodeData<T> {
     #[inline(always)]
     pub fn set_callbacks(&mut self, callbacks: Vec<(EventFilter, Callback<T>)>) { self.callbacks = callbacks; }
     #[inline(always)]
-    pub fn set_default_callbacks(&mut self, default_callbacks: Vec<(EventFilter, DefaultCallback<T>)>) { self.default_callbacks = default_callbacks; }
+    pub fn set_default_callbacks(&mut self, default_callbacks: Vec<(EventFilter, (DefaultCallback<T>, RefAny))>) { self.default_callbacks = default_callbacks; }
     #[inline(always)]
     pub fn set_dynamic_css_overrides(&mut self, dynamic_css_overrides: Vec<(DomString, CssProperty)>) { self.dynamic_css_overrides = dynamic_css_overrides; }
     #[inline(always)]
@@ -883,7 +883,7 @@ impl<T> NodeData<T> {
     #[inline(always)]
     pub fn with_callbacks(self, callbacks: Vec<(EventFilter, Callback<T>)>) -> Self { Self { callbacks, .. self } }
     #[inline(always)]
-    pub fn with_default_callbacks(self, default_callbacks: Vec<(EventFilter, DefaultCallback<T>)>) -> Self { Self { default_callbacks, .. self } }
+    pub fn with_default_callbacks(self, default_callbacks: Vec<(EventFilter, (DefaultCallback<T>, RefAny))>) -> Self { Self { default_callbacks, .. self } }
     #[inline(always)]
     pub fn with_dynamic_css_overrides(self, dynamic_css_overrides: Vec<(DomString, CssProperty)>) -> Self { Self { dynamic_css_overrides, .. self } }
     #[inline(always)]
@@ -1287,8 +1287,8 @@ impl<T> Dom<T> {
     }
 
     #[inline]
-    pub fn with_default_callback<O: Into<EventFilter>>(mut self, on: O, default_callback: DefaultCallback<T>) -> Self {
-        self.add_default_callback(on, default_callback);
+    pub fn with_default_callback<O: Into<EventFilter>>(mut self, on: O, default_callback: DefaultCallback<T>, ptr: RefAny) -> Self {
+        self.add_default_callback(on, default_callback, ptr);
         self
     }
 
@@ -1332,8 +1332,8 @@ impl<T> Dom<T> {
     }
 
     #[inline]
-    pub fn add_default_callback<O: Into<EventFilter>>(&mut self, on: O, default_callback: DefaultCallback<T>) {
-        self.arena.node_data[self.head].default_callbacks.push((on.into(), default_callback));
+    pub fn add_default_callback<O: Into<EventFilter>>(&mut self, on: O, default_callback: DefaultCallback<T>, ptr: RefAny) {
+        self.arena.node_data[self.head].default_callbacks.push((on.into(), (default_callback, ptr)));
     }
 
     #[inline]
