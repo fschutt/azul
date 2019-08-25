@@ -28,6 +28,5 @@ impl Layout for DataModel {
 
 fn main() {
     let app = App::new(DataModel { counter: 0 }, AppConfig::default()).unwrap();
-    let root_window = WindowCreateOptions::new(css::native());
-    app.run(root_window);
+    app.run(WindowCreateOptions::new(css::native()));
 }
