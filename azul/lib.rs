@@ -218,7 +218,6 @@ pub mod prelude {
     pub use azul_css::*;
     pub use azul_core::{
         ui_solver::{TextLayoutOptions, ResolvedTextLayoutOptions},
-        callbacks::StackCheckedPointer,
         window::{
             WindowCreateOptions, RendererType,
             LogicalPosition, LogicalSize, PhysicalPosition, PhysicalSize,

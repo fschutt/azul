@@ -532,7 +532,7 @@ macro_rules! impl_callback_info_api {() => (
 pub struct DefaultCallbackInfo<'a, T> {
     /// Type-erased pointer to a unknown type on the stack (inside of `T`),
     /// pointer has to be casted to a `U` type first (via `.invoke_callback()`)
-    pub state: RefAny,
+    pub state: &'a RefAny,
     /// State of the current window that the callback was called on (read only!)
     pub current_window_state: &'a FullWindowState,
     /// User-modifiable state of the window that the callback was called on
@@ -593,7 +593,7 @@ impl_callback!(Callback<T>);
 /// Information about the callback that is passed to the callback whenever a callback is invoked
 pub struct CallbackInfo<'a, T: 'a> {
     /// Your data (the global struct which all callbacks will have access to)
-    pub data: &'a mut T,
+    pub state: &'a mut T,
     /// State of the current window that the callback was called on (read only!)
     pub current_window_state: &'a FullWindowState,
     /// User-modifiable state of the window that the callback was called on
