@@ -38,7 +38,7 @@ use azul_core::{
     ui_solver::ScrolledNodes,
     callbacks::{
         LayoutCallback, HitTestItem, Redraw, DontRedraw,
-        ScrollPosition, DefaultCallbackIdMap,
+        ScrollPosition,
     },
     task::{Task, Timer, TimerId},
     window::{AzulUpdateEvent, CallbacksOfHitTest, KeyboardState, WindowId, CallCallbacksResult},
@@ -278,7 +278,7 @@ impl<T: 'static> App<T> {
 
         let (mut active_windows, mut window_id_mapping, mut reverse_window_id_mapping) = initialized_windows;
         let mut full_window_states = initialize_full_window_states(&reverse_window_id_mapping, &window_states);
-        let (mut ui_state_cache, mut default_callbacks_cache) = initialize_ui_state_cache(&data, fake_display.gl_context.clone(), &resources, &active_windows, &mut full_window_states, layout_callback);
+        let mut ui_state_cache = initialize_ui_state_cache(&data, fake_display.gl_context.clone(), &resources, &active_windows, &mut full_window_states, layout_callback);
         let mut ui_description_cache = initialize_ui_description_cache(&mut ui_state_cache, &mut full_window_states);
 
         let FakeDisplay { mut render_api, mut renderer, mut hidden_context, hidden_event_loop, gl_context } = fake_display;
@@ -300,7 +300,6 @@ impl<T: 'static> App<T> {
             reverse_window_id_mapping: &mut reverse_window_id_mapping,
             full_window_states: &mut full_window_states,
             ui_state_cache: &mut ui_state_cache,
-            default_callbacks_cache: &mut default_callbacks_cache,
             ui_description_cache: &mut ui_description_cache,
             render_api: &mut render_api,
             renderer: &mut renderer,
@@ -338,7 +337,6 @@ impl<T: 'static> App<T> {
                         reverse_window_id_mapping: &mut reverse_window_id_mapping,
                         full_window_states: &mut full_window_states,
                         ui_state_cache: &mut ui_state_cache,
-                        default_callbacks_cache: &mut default_callbacks_cache,
                         ui_description_cache: &mut ui_description_cache,
                         render_api: &mut render_api,
                         renderer: &mut renderer,
@@ -668,7 +666,6 @@ struct EventLoopData<'a, T> {
     reverse_window_id_mapping: &'a mut BTreeMap<WindowId, GlutinWindowId>,
     full_window_states: &'a mut BTreeMap<GlutinWindowId, FullWindowState>,
     ui_state_cache: &'a mut BTreeMap<GlutinWindowId, BTreeMap<DomId, UiState<T>>>,
-    default_callbacks_cache: &'a mut BTreeMap<GlutinWindowId, BTreeMap<DomId, DefaultCallbackIdMap<T>>>,
     ui_description_cache: &'a mut BTreeMap<GlutinWindowId, BTreeMap<DomId, UiDescription>>,
     render_api: &'a mut WrApi,
     renderer: &'a mut Option<WrRenderer>,
@@ -730,7 +727,7 @@ fn send_user_event<'a, T>(
 
             eld.full_window_states.insert(glutin_window_id, full_window_state);
 
-            let (dom_id_map, default_callbacks_map) = call_layout_fn(
+            let dom_id_map = call_layout_fn(
                 eld.data,
                 eld.gl_context.clone(),
                 eld.resources,
@@ -742,7 +739,6 @@ fn send_user_event<'a, T>(
 
             eld.active_windows.insert(glutin_window_id, window);
             eld.ui_state_cache.insert(glutin_window_id, dom_id_map);
-            eld.default_callbacks_cache.insert(glutin_window_id, default_callbacks_map);
             eld.ui_description_cache.insert(glutin_window_id,
                 cascade_style(
                     eld.ui_state_cache.get_mut(&glutin_window_id).unwrap(),
@@ -825,21 +821,19 @@ fn send_user_event<'a, T>(
 
                     let active_windows = &mut *eld.active_windows;
                     let data = &mut *eld.data;
-                    let default_callbacks_cache = &mut *eld.default_callbacks_cache;
                     let timers = &mut *eld.timers;
                     let tasks = &mut *eld.tasks;
                     let full_window_states = &mut *eld.full_window_states;
                     let gl_context = eld.gl_context.clone();
                     let resources = &mut *eld.resources;
 
-                    let call_callbacks_results = active_windows.iter_mut().map(|(window_id, window)| {
+                    let call_callbacks_results = active_windows.values_mut().map(|window| {
                         let scroll_states = window.internal.get_current_scroll_states(&ui_state);
                         call_callbacks(
                             data,
                             &events,
                             ui_state,
                             ui_description,
-                            default_callbacks_cache.get_mut(window_id).unwrap(),
                             timers,
                             tasks,
                             &scroll_states,
@@ -901,7 +895,7 @@ fn send_user_event<'a, T>(
                 let full_window_state = eld.full_window_states.get_mut(&glutin_window_id).unwrap();
                 let window = &eld.active_windows[&glutin_window_id];
                 let force_css_reload = false;
-                let (new_ui_state, default_callbacks_map) = call_layout_fn(
+                let new_ui_state = call_layout_fn(
                     &*eld.data,
                     eld.gl_context.clone(),
                     &*eld.resources,
@@ -911,7 +905,6 @@ fn send_user_event<'a, T>(
                     force_css_reload,
                 );
 
-                *eld.default_callbacks_cache.get_mut(&glutin_window_id).unwrap() = default_callbacks_map;
                 *eld.ui_state_cache.get_mut(&glutin_window_id).unwrap() = new_ui_state;
             } // end of borrowing eld
 
@@ -966,7 +959,6 @@ fn send_user_event<'a, T>(
                 window.display.make_current();
 
                 let SolvedLayout { solved_layout_cache, gl_texture_cache } = SolvedLayout::new(
-                    eld.data,
                     &window.internal.pipeline_id,
                     window.internal.epoch,
                     eld.render_api,
@@ -975,7 +967,6 @@ fn send_user_event<'a, T>(
                     full_window_state,
                     eld.ui_state_cache.get_mut(&glutin_window_id).unwrap(),
                     eld.ui_description_cache.get_mut(&glutin_window_id).unwrap(),
-                    eld.default_callbacks_cache.get_mut(&glutin_window_id).unwrap(),
                     azul_core::gl::insert_into_active_gl_textures,
                     azul_layout::ui_solver::do_the_layout,
                     crate::app_resources::font_source_get_bytes,
@@ -1154,19 +1145,16 @@ fn initialize_ui_state_cache<T>(
     windows: &BTreeMap<GlutinWindowId, Window<T>>,
     full_window_states: &mut BTreeMap<GlutinWindowId, FullWindowState>,
     layout_callback: LayoutCallback<T>,
-) -> (
-    BTreeMap<GlutinWindowId, BTreeMap<DomId, UiState<T>>>,
-    BTreeMap<GlutinWindowId, BTreeMap<DomId, DefaultCallbackIdMap<T>>>,
-) {
+) -> BTreeMap<GlutinWindowId, BTreeMap<DomId, UiState<T>>> {
+
     const FORCE_CSS_RELOAD: bool = true;
 
     let mut ui_state_map = BTreeMap::new();
-    let mut default_callbacks_id_map = BTreeMap::new();
 
     for (glutin_window_id, window) in windows {
         DomId::reset();
         let full_window_state = full_window_states.get_mut(glutin_window_id).unwrap();
-        let (dom_id_map, default_callbacks_map) = call_layout_fn(
+        let dom_id_map = call_layout_fn(
             data,
             gl_context.clone(),
             app_resources,
@@ -1176,12 +1164,11 @@ fn initialize_ui_state_cache<T>(
             FORCE_CSS_RELOAD,
         );
         ui_state_map.insert(*glutin_window_id, dom_id_map);
-        default_callbacks_id_map.insert(*glutin_window_id, default_callbacks_map);
     }
 
     DomId::reset();
 
-    (ui_state_map, default_callbacks_id_map)
+    ui_state_map
 }
 
 fn call_layout_fn<T>(
@@ -1192,7 +1179,7 @@ fn call_layout_fn<T>(
     hot_reload_handler: Option<&Box<HotReloadHandler>>,
     layout_callback: LayoutCallback<T>,
     force_css_reload: bool,
-) -> (BTreeMap<DomId, UiState<T>>, BTreeMap<DomId, DefaultCallbackIdMap<T>>){
+) -> BTreeMap<DomId, UiState<T>> {
 
     use azul_core::callbacks::LayoutInfo;
 
@@ -1202,7 +1189,6 @@ fn call_layout_fn<T>(
     // TODO: Use these "stop sizes" to optimize not calling layout() on redrawing!
     let mut stop_sizes_width = Vec::new();
     let mut stop_sizes_height = Vec::new();
-    let mut default_callbacks = BTreeMap::new();
 
     // Hot-reload the CSS for this window
     #[cfg(debug_assertions)]
@@ -1230,7 +1216,6 @@ fn call_layout_fn<T>(
                     window_size: &full_window_state.size,
                     window_size_width_stops: &mut stop_sizes_width,
                     window_size_height_stops: &mut stop_sizes_height,
-                    default_callbacks: &mut default_callbacks,
                     gl_context: gl_context.clone(),
                     resources: app_resources,
                 };
@@ -1250,7 +1235,6 @@ fn call_layout_fn<T>(
             window_size: &full_window_state.size,
             window_size_width_stops: &mut stop_sizes_width,
             window_size_height_stops: &mut stop_sizes_height,
-            default_callbacks: &mut default_callbacks,
             gl_context: gl_context.clone(),
             resources: app_resources,
         };
@@ -1265,10 +1249,7 @@ fn call_layout_fn<T>(
     let mut dom_id_map = BTreeMap::new();
     dom_id_map.insert(ui_state_dom_id.clone(), ui_state);
 
-    let mut default_callbacks_map = BTreeMap::new();
-    default_callbacks_map.insert(ui_state_dom_id.clone(), default_callbacks);
-
-    (dom_id_map, default_callbacks_map)
+    dom_id_map
 }
 
 fn initialize_ui_description_cache<T>(
@@ -1344,7 +1325,6 @@ fn call_callbacks<T>(
     callbacks_filter_list: &BTreeMap<DomId, CallbacksOfHitTest<T>>,
     ui_state_map: &BTreeMap<DomId, UiState<T>>,
     ui_description_map: &BTreeMap<DomId, UiDescription>,
-    default_callbacks: &mut BTreeMap<DomId, DefaultCallbackIdMap<T>>,
     timers: &mut FastHashMap<TimerId, Timer<T>>,
     tasks: &mut Vec<Task<T>>,
     scroll_states: &BTreeMap<DomId, BTreeMap<NodeId, ScrollPosition>>,
@@ -1358,7 +1338,7 @@ fn call_callbacks<T>(
     glutin_window: &GlutinWindow,
 ) -> CallCallbacksResult {
 
-    use crate::callbacks::{CallbackInfo, DefaultCallbackInfoUnchecked};
+    use crate::callbacks::{CallbackInfo, DefaultCallbackInfo};
     use crate::window;
 
     let mut ret = CallCallbacksResult {
@@ -1373,46 +1353,47 @@ fn call_callbacks<T>(
     let mut modifiable_window_state = window::full_window_state_to_window_state(full_window_state);
 
     // Run all default callbacks - **before** the user-defined callbacks are run!
-    for dom_id in ui_state_map.keys().cloned() {
-        for (node_id, callback_results) in callbacks_filter_list[&dom_id].nodes_with_callbacks.iter() {
+    for (dom_id, ui_state) in ui_state_map.iter() {
+        for (node_id, callback_results) in callbacks_filter_list[dom_id].nodes_with_callbacks.iter() {
             let hit_item = &callback_results.hit_test_item;
-            for default_callback_id in callback_results.default_callbacks.values() {
+            for event_filter in callback_results.default_callbacks.keys() {
+
+                let default_callback = ui_state.dom.arena.node_data
+                    .get(*node_id)
+                    .map(|nd| nd.get_default_callbacks())
+                    .and_then(|dc| dc.iter().find_map(|(evt, cb)| if evt == event_filter { Some(cb) } else { None }));
+
+                let (default_callback, default_callback_ptr) = match default_callback {
+                    Some(s) => s,
+                    None => continue,
+                };
 
                 let mut new_focus = None;
 
-                let default_callback = default_callbacks.get(&dom_id).and_then(|dc| dc.get(default_callback_id).cloned());
+                let default_callback_return = (default_callback.0)(DefaultCallbackInfo {
+                    state: default_callback_ptr,
+                    current_window_state: &full_window_state,
+                    modifiable_window_state: &mut modifiable_window_state,
+                    layout_result,
+                    scrolled_nodes,
+                    cached_display_list,
+                    gl_context: gl_context.clone(),
+                    resources,
+                    timers,
+                    tasks,
+                    ui_state: ui_state_map,
+                    focus_target: &mut new_focus,
+                    current_scroll_states: scroll_states,
+                    nodes_scrolled_in_callback: &mut nodes_scrolled_in_callbacks,
+                    hit_dom_node: (dom_id.clone(), *node_id),
+                    cursor_relative_to_item: hit_item.as_ref().map(|hi| (hi.point_relative_to_item.x, hi.point_relative_to_item.y)),
+                    cursor_in_viewport: hit_item.as_ref().map(|hi| (hi.point_in_viewport.x, hi.point_in_viewport.y)),
+                });
 
-                let default_callback_redraws = match default_callback {
-                    Some((callback_ptr, callback_fn)) => {
-                        (callback_fn.0)(DefaultCallbackInfoUnchecked {
-                            ptr: callback_ptr,
-                            current_window_state: &full_window_state,
-                            modifiable_window_state: &mut modifiable_window_state,
-                            layout_result,
-                            scrolled_nodes,
-                            cached_display_list,
-                            default_callbacks: default_callbacks.get_mut(&dom_id).unwrap(),
-                            gl_context: gl_context.clone(),
-                            resources,
-                            timers,
-                            tasks,
-                            ui_state: ui_state_map,
-                            focus_target: &mut new_focus,
-                            current_scroll_states: scroll_states,
-                            nodes_scrolled_in_callback: &mut nodes_scrolled_in_callbacks,
-                            hit_dom_node: (dom_id.clone(), *node_id),
-                            cursor_relative_to_item: hit_item.as_ref().map(|hi| (hi.point_relative_to_item.x, hi.point_relative_to_item.y)),
-                            cursor_in_viewport: hit_item.as_ref().map(|hi| (hi.point_in_viewport.x, hi.point_in_viewport.y)),
-                        })
-                    },
-                    None => DontRedraw,
-                };
-
-                if default_callback_redraws == Redraw {
+                if default_callback_return == Redraw {
                     ret.callbacks_update_screen = Redraw;
                 }
 
-                // Overwrite the focus from the callback info
                 if let Some(new_focus) = new_focus.clone() {
                     new_focus_target = Some(new_focus);
                 }
@@ -1429,13 +1410,12 @@ fn call_callbacks<T>(
                 let mut new_focus = None;
 
                 if (callback.0)(CallbackInfo {
-                    data,
+                    state: data,
                     current_window_state: &full_window_state,
                     modifiable_window_state: &mut modifiable_window_state,
                     layout_result,
                     scrolled_nodes,
                     cached_display_list,
-                    default_callbacks: default_callbacks.get_mut(&dom_id).unwrap(),
                     gl_context: gl_context.clone(),
                     resources,
                     timers,
