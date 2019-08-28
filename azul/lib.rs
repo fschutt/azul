@@ -187,7 +187,7 @@ pub use azul_core::diff;
 /// OpenGL helper functions, necessary to create OpenGL textures, manage contexts, etc.
 pub use azul_core::gl;
 /// Handles text layout (modularized, can be used as a standalone module)
-pub use azul_layout::text_layout;
+pub use azul_layout::text_layout as text_layout;
 /// Main `Layout` trait definition + convenience traits for `Arc<Mutex<T>>`
 pub use azul_core::traits;
 /// Window state handling and window-related information

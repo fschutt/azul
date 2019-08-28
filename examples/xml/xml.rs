@@ -11,7 +11,7 @@ macro_rules! CSS_PATH { () => (concat!(env!("CARGO_MANIFEST_DIR"), "/../../examp
 struct DataModel { }
 
 impl Layout for DataModel {
-    fn layout(&self, _: LayoutInfo<DataModel>) -> Dom<DataModel> {
+    fn layout(&self, _: LayoutInfo) -> Dom<DataModel> {
         DomXml::from_file(XML_PATH!(), &mut XmlComponentMap::default()).into()
     }
 }

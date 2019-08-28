@@ -26,12 +26,12 @@ fn print_which_item_was_selected(event: CallbackInfo<List>) -> UpdateScreen {
     let selected = event.target_index_in_parent();
     let mut should_redraw = DontRedraw;
 
-    if selected != event.state.data.selected {
-        event.state.data.selected = selected;
+    if selected != event.state.selected {
+        event.state.selected = selected;
         should_redraw = Redraw;
     }
 
-    println!("selected item: {:?}", event.state.data.selected);
+    println!("selected item: {:?}", event.state.selected);
 
     should_redraw
 }
@@ -50,8 +50,7 @@ fn main() {
         selected: None,
     };
 
-    let mut app = App::new(data, AppConfig::default()).unwrap();
+    let app = App::new(data, AppConfig::default()).unwrap();
     let css = css::override_native(CUSTOM_CSS).unwrap();
-    let window = app.create_window(WindowCreateOptions::default(), css).unwrap();
-    app.run(window).unwrap();
+    app.run(WindowCreateOptions::new(css));
 }

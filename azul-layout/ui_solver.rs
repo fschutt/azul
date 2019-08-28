@@ -227,7 +227,7 @@ fn determine_text_alignment(
 #[cfg(test)]
 mod layout_tests {
 
-    use id_tree::{Node, NodeId};
+    use azul_core::id_tree::{Node, NodeId};
     use super::*;
 
     /// Returns a DOM for testing so we don't have to construct it every time.
