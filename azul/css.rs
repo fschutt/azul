@@ -112,6 +112,7 @@ pub(crate) fn hot_reload_css(
 
     if should_reload {
         let new_css = hot_reload_handler.reload_style()?;
+        println!("hot reloading css: {:?}", new_css);
         *css = new_css;
         has_reloaded = true;
         *last_style_reload = now;

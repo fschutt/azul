@@ -164,24 +164,23 @@ fn next_iteration(input: &Board) -> Board {
 }
 
 /// Callback that starts the main
-fn start_stop_game(event: CallbackInfo<Universe>) -> UpdateScreen {
+fn start_stop_game(mut event: CallbackInfo<Universe>) -> UpdateScreen {
 
     use std::time::Duration;
 
     if let Some(timer) = {
-        let state = &mut event.state.data;
-        state.board = Board::new_random(INITIAL_UNIVERSE_WIDTH, INITIAL_UNIVERSE_HEIGHT);
+        event.state.board = Board::new_random(INITIAL_UNIVERSE_WIDTH, INITIAL_UNIVERSE_HEIGHT);
 
-        if state.game_is_running {
+        if event.state.game_is_running {
             None
         } else {
             let timer = Timer::new(tick).with_interval(Duration::from_millis(200));
 
-            state.game_is_running = true;
+            event.state.game_is_running = true;
             Some(timer)
         }
     }{
-        event.state.add_timer(TimerId::new(), timer);
+        event.add_timer(TimerId::new(), timer);
     }
 
     Redraw
@@ -198,9 +197,9 @@ fn main() {
     let window_options = WindowCreateOptions {
         state: WindowState {
             title: String::from("Game of Life"),
+            css,
             .. Default::default()
         },
-        css,
         .. Default::default()
     };
 

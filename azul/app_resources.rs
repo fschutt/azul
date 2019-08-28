@@ -405,64 +405,29 @@ fn prepare_image(image_decoded: DynamicImage) -> Result<LoadedImageSource, Image
     Ok(LoadedImageSource { decoded_image_bytes: data, image_descriptor: descriptor })
 }
 
-/*
+
 #[test]
 fn test_font_gc() {
 
-    use std::collections::BTreeMap;
-    use prelude::*;
-    use ui_description::UiDescription;
-    use ui_state::{UiState, ui_state_from_dom};
-    use ui_solver::px_to_au;
-    use crate::{FastHashMap, FastHashSet};
-    use std::hash::Hash;
-
-    struct Mock;
-
-    let mut app_resources = AppResources::new();
-    let mut focused_node = None;
-    let mut pending_focus_target = None;
-    let is_mouse_down = false;
-    let hovered_nodes = BTreeMap::new();
-    let css = css::from_str(r#"
-        #one { font-family: Helvetica; }
-        #two { font-family: Arial; }
-        #three { font-family: Times New Roman; }
-    "#).unwrap();
-
-    let mut ui_state_frame_1: UiState<Mock> = ui_state_from_dom(DomXml::mock(r#"
-        <p id="one">Hello</p>
-        <p id="two">Hello</p>
-        <p id="three">Hello</p>
-    "#).into_dom());
-    let ui_description_frame_1 = UiDescription::match_css_to_dom(&mut ui_state_frame_1, &css, &mut focused_node, &mut pending_focus_target, &hovered_nodes, is_mouse_down);
-    let display_list_frame_1 = DisplayList::new_from_ui_description(&ui_description_frame_1, &ui_state_frame_1);
-
-
-    let mut ui_state_frame_2: UiState<Mock> = ui_state_from_dom(DomXml::mock(r#"
-        <p>Hello</p>
-    "#).into_dom());
-    let ui_description_frame_2 = UiDescription::match_css_to_dom(&mut ui_state_frame_2, &css, &mut focused_node, &mut pending_focus_target, &hovered_nodes, is_mouse_down);
-    let display_list_frame_2 = DisplayList::new_from_ui_description(&ui_description_frame_2, &ui_state_frame_2);
-
-
-    let mut ui_state_frame_3: UiState<Mock> = ui_state_from_dom(DomXml::mock(r#"
-        <p id="one">Hello</p>
-        <p id="two">Hello</p>
-        <p id="three">Hello</p>
-    "#).into_dom());
-    let ui_description_frame_3 = UiDescription::match_css_to_dom(&mut ui_state_frame_3, &css, &mut focused_node, &mut pending_focus_target, &hovered_nodes, is_mouse_down);
-    let display_list_frame_3 = DisplayList {
-        ui_descr: &ui_description_frame_3,
-        rectangles: &ui_state_frame_3
+    use std::{
+        collections::BTreeMap,
+        hash::Hash,
+        sync::Arc,
     };
-
-
-    // Assert that all fonts got added and detected correctly
-    let mut expected_fonts = FastHashMap::new();
-    expected_fonts.insert(FontId::new(), FontSource::System(String::from("Helvetica")));
-    expected_fonts.insert(FontId::new(), FontSource::System(String::from("Arial")));
-    expected_fonts.insert(FontId::new(), FontSource::System(String::from("Times New Roman")));
+    use azul_core::{
+        FastHashMap, FastHashSet,
+        ui_description::UiDescription,
+        ui_state::UiState,
+        app_resources::{
+            AppResources, Au, FakeRenderApi,
+            scan_ui_description_for_image_keys,
+            scan_ui_description_for_font_keys,
+            garbage_collect_fonts_and_images,
+            add_fonts_and_images, FontMetrics,
+        },
+        display_list::DisplayList,
+    };
+    use crate::xml::DomXml;
 
     fn build_map<T: Hash + Eq, U>(i: Vec<(T, U)>) -> FastHashMap<T, U> {
         let mut map = FastHashMap::default();
@@ -476,54 +441,130 @@ fn test_font_gc() {
         set
     }
 
-    assert_eq!(scan_ui_description_for_image_keys(&app_resources, &display_list_frame_1), FastHashSet::default());
-    assert_eq!(scan_ui_description_for_image_keys(&app_resources, &display_list_frame_2), FastHashSet::default());
-    assert_eq!(scan_ui_description_for_image_keys(&app_resources, &display_list_frame_3), FastHashSet::default());
+    fn build_ui(xml: &str, css: &str) -> (UiState<Mock>, UiDescription, DisplayList) {
 
-    assert_eq!(scan_ui_description_for_font_keys(&app_resources, &display_list_frame_1), build_map(vec![
-        (ImmediateFontId::Unresolved("Arial".to_string()), build_set(vec![px_to_au(10.0)])),
-        (ImmediateFontId::Unresolved("Helvetica".to_string()), build_set(vec![px_to_au(10.0)])),
-        (ImmediateFontId::Unresolved("Times New Roman".to_string()), build_set(vec![px_to_au(10.0)])),
+        use crate::css::from_str as css_from_str;
+
+        let is_mouse_down = false;
+        let focused_node = None;
+        let hovered_nodes = BTreeMap::new();
+        let css = css_from_str(css).unwrap();
+
+        let mut ui_state = UiState::new(DomXml::mock(xml).into_dom(), None);
+        let ui_description = UiDescription::new(&mut ui_state, &css, &focused_node, &hovered_nodes, is_mouse_down);
+        let display_list = DisplayList::new(&ui_description, &ui_state);
+
+        (ui_state, ui_description, display_list)
+    }
+
+    fn fake_load_font_fn(_f: &FontSource) -> Option<LoadedFontSource> {
+        Some(LoadedFontSource {
+            font_bytes: Vec::new(),
+            font_index: 0,
+            font_metrics: FontMetrics::zero(),
+        })
+    }
+
+    fn fake_load_image_font_fn(_i: &ImageSource) -> Option<LoadedImageSource> {
+        Some(LoadedImageSource {
+            image_bytes_decoded: ImageData::Raw(Arc::new(Vec::new())),
+            image_descriptor: ImageDescriptor {
+                format: RawImageFormat::R8,
+                dimensions: (0, 0),
+                stride: None,
+                offset: 0,
+                is_opaque: true,
+                allow_mipmaps: false,
+            },
+        })
+    }
+
+    struct Mock;
+
+    let mut app_resources = AppResources::new();
+    let pipeline_id = PipelineId::new();
+
+    let css = r#"
+        #one { font-family: Helvetica; }
+        #two { font-family: Arial; }
+        #three { font-family: Times New Roman; }
+    "#;
+
+    let (ui_state_frame_1, ui_description_frame_1, display_list_frame_1) = build_ui(r#"
+        <p id="one">Hello</p>
+        <p id="two">Hello</p>
+        <p id="three">Hello</p>
+    "#, css);
+
+    let (ui_state_frame_2, ui_description_frame_2, display_list_frame_2) = build_ui(r#"
+        <p>Hello</p>
+    "#, css);
+
+    let (ui_state_frame_3, ui_description_frame_3, display_list_frame_3) = build_ui(r#"
+        <p id="one">Hello</p>
+        <p id="two">Hello</p>
+        <p id="three">Hello</p>
+    "#, css);
+
+    // Assert that all fonts got added and detected correctly
+    let mut expected_fonts = build_map(vec![
+        (FontId::new(), FontSource::System(String::from("Helvetica"))),
+        (FontId::new(), FontSource::System(String::from("Arial"))),
+        (FontId::new(), FontSource::System(String::from("Times New Roman"))),
+    ]);
+
+    let node_data_1 = &ui_state_frame_1.dom.arena.node_data;
+    let node_data_2 = &ui_state_frame_2.dom.arena.node_data;
+    let node_data_3 = &ui_state_frame_3.dom.arena.node_data;
+
+    assert_eq!(scan_ui_description_for_image_keys(&app_resources, &display_list_frame_1, &node_data_1), FastHashSet::default());
+    assert_eq!(scan_ui_description_for_image_keys(&app_resources, &display_list_frame_2, &node_data_2), FastHashSet::default());
+    assert_eq!(scan_ui_description_for_image_keys(&app_resources, &display_list_frame_3, &node_data_3), FastHashSet::default());
+
+    assert_eq!(scan_ui_description_for_font_keys(&app_resources, &display_list_frame_1, &node_data_1), build_map(vec![
+        (ImmediateFontId::Unresolved("Arial".to_string()), build_set(vec![Au::from_px(10.0)])),
+        (ImmediateFontId::Unresolved("Helvetica".to_string()), build_set(vec![Au::from_px(10.0)])),
+        (ImmediateFontId::Unresolved("Times New Roman".to_string()), build_set(vec![Au::from_px(10.0)])),
     ]));
-    assert_eq!(scan_ui_description_for_font_keys(&app_resources, &display_list_frame_2), build_map(vec![
-        (ImmediateFontId::Unresolved("sans-serif".to_string()), build_set(vec![px_to_au(10.0)])),
+    assert_eq!(scan_ui_description_for_font_keys(&app_resources, &display_list_frame_2, &node_data_2), build_map(vec![
+        (ImmediateFontId::Unresolved("sans-serif".to_string()), build_set(vec![Au::from_px(10.0)])),
     ]));
-    assert_eq!(scan_ui_description_for_font_keys(&app_resources, &display_list_frame_3), build_map(vec![
-        (ImmediateFontId::Unresolved("Arial".to_string()), build_set(vec![px_to_au(10.0)])),
-        (ImmediateFontId::Unresolved("Helvetica".to_string()), build_set(vec![px_to_au(10.0)])),
-        (ImmediateFontId::Unresolved("Times New Roman".to_string()), build_set(vec![px_to_au(10.0)])),
+    assert_eq!(scan_ui_description_for_font_keys(&app_resources, &display_list_frame_3, &node_data_3), build_map(vec![
+        (ImmediateFontId::Unresolved("Arial".to_string()), build_set(vec![Au::from_px(10.0)])),
+        (ImmediateFontId::Unresolved("Helvetica".to_string()), build_set(vec![Au::from_px(10.0)])),
+        (ImmediateFontId::Unresolved("Times New Roman".to_string()), build_set(vec![Au::from_px(10.0)])),
     ]));
 
     let mut fake_render_api = FakeRenderApi::new();
 
-    add_fonts_and_images(&mut app_resources, &mut fake_render_api, &display_list_frame_1);
+    add_fonts_and_images(&mut app_resources, &mut fake_render_api, &pipeline_id, &display_list_frame_1, &node_data_1, fake_load_font_fn, fake_load_image_font_fn);
     assert_eq!(app_resources.currently_registered_fonts.len(), 3);
     assert_eq!(app_resources.last_frame_font_keys.len(), 3);
 
     // Assert that the first frame doesn't delete the fonts again
-    garbage_collect_fonts_and_images(&mut app_resources, &mut fake_render_api);
-    assert_eq!(app_resources.currently_registered_fonts.len(), 3); // fails
+    garbage_collect_fonts_and_images(&mut app_resources, &mut fake_render_api, &pipeline_id);
+    assert_eq!(app_resources.currently_registered_fonts.len(), 3);
 
     // Assert that fonts don't get double-inserted, still the same font sources as previously
-    add_fonts_and_images(&mut app_resources, &mut fake_render_api, &display_list_frame_3);
-    garbage_collect_fonts_and_images(&mut app_resources, &mut fake_render_api);
+    add_fonts_and_images(&mut app_resources, &mut fake_render_api, &pipeline_id, &display_list_frame_3, &node_data_3, fake_load_font_fn, fake_load_image_font_fn);
+    garbage_collect_fonts_and_images(&mut app_resources, &mut fake_render_api, &pipeline_id);
     assert_eq!(app_resources.currently_registered_fonts.len(), 3);
 
     // Assert that no new fonts get added on subsequent frames
-    add_fonts_and_images(&mut app_resources, &mut fake_render_api, &display_list_frame_3);
-    add_fonts_and_images(&mut app_resources, &mut fake_render_api, &display_list_frame_3);
-    add_fonts_and_images(&mut app_resources, &mut fake_render_api, &display_list_frame_3);
-    add_fonts_and_images(&mut app_resources, &mut fake_render_api, &display_list_frame_3);
-    add_fonts_and_images(&mut app_resources, &mut fake_render_api, &display_list_frame_3);
-    garbage_collect_fonts_and_images(&mut app_resources, &mut fake_render_api);
+    add_fonts_and_images(&mut app_resources, &mut fake_render_api, &pipeline_id, &display_list_frame_3, &node_data_3, fake_load_font_fn, fake_load_image_font_fn);
+    add_fonts_and_images(&mut app_resources, &mut fake_render_api, &pipeline_id, &display_list_frame_3, &node_data_3, fake_load_font_fn, fake_load_image_font_fn);
+    add_fonts_and_images(&mut app_resources, &mut fake_render_api, &pipeline_id, &display_list_frame_3, &node_data_3, fake_load_font_fn, fake_load_image_font_fn);
+    add_fonts_and_images(&mut app_resources, &mut fake_render_api, &pipeline_id, &display_list_frame_3, &node_data_3, fake_load_font_fn, fake_load_image_font_fn);
+    add_fonts_and_images(&mut app_resources, &mut fake_render_api, &pipeline_id, &display_list_frame_3, &node_data_3, fake_load_font_fn, fake_load_image_font_fn);
+    garbage_collect_fonts_and_images(&mut app_resources, &mut fake_render_api, &pipeline_id);
     assert_eq!(app_resources.currently_registered_fonts.len(), 3);
 
     // If the DOM changes, the fonts should get deleted, the only font still present is "sans-serif"
-    add_fonts_and_images(&mut app_resources, &mut fake_render_api, &display_list_frame_2);
-    garbage_collect_fonts_and_images(&mut app_resources, &mut fake_render_api);
+    add_fonts_and_images(&mut app_resources, &mut fake_render_api, &pipeline_id, &display_list_frame_2, &node_data_2, fake_load_font_fn, fake_load_image_font_fn);
+    garbage_collect_fonts_and_images(&mut app_resources, &mut fake_render_api, &pipeline_id);
     assert_eq!(app_resources.currently_registered_fonts.len(), 1);
 
-    add_fonts_and_images(&mut app_resources, &mut fake_render_api, &display_list_frame_1);
-    garbage_collect_fonts_and_images(&mut app_resources, &mut fake_render_api);
+    add_fonts_and_images(&mut app_resources, &mut fake_render_api, &pipeline_id, &display_list_frame_1, &node_data_1, fake_load_font_fn, fake_load_image_font_fn);
+    garbage_collect_fonts_and_images(&mut app_resources, &mut fake_render_api, &pipeline_id);
     assert_eq!(app_resources.currently_registered_fonts.len(), 3);
-}*/
+}

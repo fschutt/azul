@@ -72,6 +72,21 @@ pub struct FontMetrics {
 
 impl FontMetrics {
 
+    // Only for testing, zero-sized font, will always return 0 for every metric
+    pub fn zero() -> Self {
+        Self {
+            font_size: 1000,
+            x_ppem: 0,
+            y_ppem: 0,
+            x_scale: 0,
+            y_scale: 0,
+            ascender: 0,
+            descender: 0,
+            height: 0,
+            max_advance: 0,
+        }
+    }
+
     pub fn get_x_ppem(&self, target_font_size: f32) -> f32 {
         let s = self.x_ppem as f32;
         s / (self.font_size as f32) * target_font_size

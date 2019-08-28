@@ -398,9 +398,10 @@ pub fn selector_group_matches<T>(
 
 #[test]
 fn test_case_issue_93() {
+
     use azul_css::CssPathSelector::*;
     use azul_css::*;
-    use dom::*;
+    use crate::dom::*;
 
     struct DataModel;
 
@@ -427,9 +428,9 @@ fn test_case_issue_93() {
     ] };
 
     let node_hierarchy = &dom.arena.node_layout;
+    let node_data = &dom.arena.node_data;
     let nodes_sorted: Vec<_> = node_hierarchy.get_parents_sorted_by_depth();
     let html_node_tree = construct_html_cascade_tree(
-        &dom.arena.node_data,
         &node_hierarchy,
         &nodes_sorted,
         None,
@@ -462,13 +463,13 @@ fn test_case_issue_93() {
     // ".tabwidget-tab.active .tabwidget-tab-label"
     // should not match
     // ".tabwidget-tab.active .tabwidget-tab-close"
-    assert_eq!(matches_html_element(&tab_active_close, NodeId::new(3), &node_hierarchy, &html_node_tree), false);
+    assert_eq!(matches_html_element(&tab_active_close, NodeId::new(3), &node_hierarchy, &node_data, &html_node_tree), false);
 
     // Test 2:
     // ".tabwidget-tab.active .tabwidget-tab-close"
     // should match
     // ".tabwidget-tab.active .tabwidget-tab-close"
-    assert_eq!(matches_html_element(&tab_active_close, NodeId::new(4), &node_hierarchy, &html_node_tree), true);
+    assert_eq!(matches_html_element(&tab_active_close, NodeId::new(4), &node_hierarchy, &node_data, &html_node_tree), true);
 }
 
 #[test]

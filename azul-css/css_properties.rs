@@ -237,10 +237,16 @@ pub struct LayoutSideOffsets {
 }
 
 /// u8-based color, range 0 to 255 (similar to webrenders ColorU)
-#[derive(Debug, Copy, Clone, PartialEq, Ord, PartialOrd, Eq, Hash)]
+#[derive(Copy, Clone, PartialEq, Ord, PartialOrd, Eq, Hash)]
 pub struct ColorU { pub r: u8, pub g: u8, pub b: u8, pub a: u8 }
 
 impl Default for ColorU { fn default() -> Self { ColorU::BLACK } }
+
+impl fmt::Debug for ColorU {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        write!(f, "rgba({}, {}, {}, {})", self.r, self.g, self.b, self.a as f32 / 255.0)
+    }
+}
 
 impl fmt::Display for ColorU {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
@@ -1052,10 +1058,16 @@ impl PixelValueNoPercent {
 }
 
 /// FloatValue, but associated with a certain metric (i.e. px, em, etc.)
-#[derive(Default, Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
+#[derive(Default, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub struct PixelValue {
     pub metric: SizeMetric,
     pub number: FloatValue,
+}
+
+impl fmt::Debug for PixelValue {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        write!(f, "{}{}", self.number, self.metric)
+    }
 }
 
 // Manual Debug implementation, because the auto-generated one is nearly unreadable
