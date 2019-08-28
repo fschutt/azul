@@ -29,7 +29,7 @@ struct OpenGlAppState { }
 struct Mock { }
 
 impl Layout for OpenGlAppState {
-    fn layout(&self, _info: LayoutInfo<Self>) -> Dom<Self> {
+    fn layout(&self, _info: LayoutInfo) -> Dom<Self> {
         Dom::gl_texture(render_my_texture, Ref::new(Mock { }))
         .with_child(Button::with_label("Hello").dom().with_id("the_button"))
     }
@@ -40,7 +40,7 @@ fn render_my_texture(info: GlCallbackInfo) -> GlCallbackReturn {
     println!("rendering opengl state!");
 
     let texture_size = info.bounds.get_logical_size();
-    let gl_context = info.layout_info.window.get_gl_context();
+    let gl_context = info.layout_info.gl_context.clone();
 
     let framebuffers = gl_context.gen_framebuffers(1);
     gl_context.bind_framebuffer(gl::FRAMEBUFFER, framebuffers[0]);

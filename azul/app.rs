@@ -30,7 +30,7 @@ use crate::{
 };
 use azul_core::{
     FastHashMap,
-    window::{RendererType, WindowSize, DebugState, WindowState, FullWindowState},
+    window::{RendererType, WindowCreateOptions, WindowSize, DebugState, WindowState, FullWindowState},
     dom::{Dom, DomId, NodeId, ScrollTagId},
     gl::GlShader,
     traits::Layout,
@@ -51,14 +51,14 @@ use azul_core::{
 pub use crate::app_resources::AppResources;
 
 #[cfg(not(test))]
-use crate::window::{ FakeDisplay, WindowCreateOptions };
+use crate::window::{ FakeDisplay };
 #[cfg(not(test))]
 use glutin::CreationError;
 #[cfg(not(test))]
 use webrender::api::{WorldPoint, HitTestFlags};
 
 #[cfg(test)]
-use crate::app_resources::FakeRenderApi;
+use azul_core::app_resources::FakeRenderApi;
 
 // Default clear color is white, to signify that there is rendering going on
 // (otherwise, "transparent") backgrounds would be painted black.
@@ -678,7 +678,8 @@ struct EventLoopData<'a, T> {
 /// non-predictable way, which leads to redrawing bugs.
 ///
 /// The function recurses until there's nothing left to do, i.e. sending a `send_user_event(DoHitTest { }, eld)`
-/// will internally call the function again with `send_user_event(RebuildUi { })` if necessary and so o, eldn.
+/// will internally call the function again with `send_user_event(RebuildUi { })` if necessary and so on.
+#[cfg(not(test))]
 fn send_user_event<'a, T>(
     ev: AzulUpdateEvent<T>,
     eld: &mut EventLoopData<'a, T>,
@@ -1086,6 +1087,7 @@ fn initialize_window_states<T>(
 ///
 /// Theoretically, this mapping isn't used anywhere else, but it might
 /// be useful for future refactoring.
+#[cfg(not(test))]
 fn initialize_windows<T>(
     window_create_options: BTreeMap<WindowId, WindowCreateOptions<T>>,
     fake_display: &mut FakeDisplay,
@@ -1154,12 +1156,18 @@ fn initialize_ui_state_cache<T>(
     for (glutin_window_id, window) in windows {
         DomId::reset();
         let full_window_state = full_window_states.get_mut(glutin_window_id).unwrap();
+
+        #[cfg(not(test))]
+        let hot_reload_handler = window.hot_reload_handler.as_ref().map(|hr| &hr.0);
+        #[cfg(test)]
+        let hot_reload_handler = None;
+
         let dom_id_map = call_layout_fn(
             data,
             gl_context.clone(),
             app_resources,
             full_window_state,
-            window.hot_reload_handler.as_ref().map(|hr| &hr.0),
+            hot_reload_handler,
             layout_callback,
             FORCE_CSS_RELOAD,
         );
@@ -1197,16 +1205,19 @@ fn call_layout_fn<T>(
         let css_has_error = {
             use crate::css::hot_reload_css;
 
+            println!("hot_reload_handler: {:?}", hot_reload_handler.is_some());
             let hot_reload_result = hot_reload_css(
                 &mut full_window_state.css,
                 hot_reload_handler,
                 &mut Instant::now(),
                 force_css_reload,
             );
+
             let (_, css_has_error) = match hot_reload_result {
                 Ok(has_reloaded) => (has_reloaded, None),
                 Err(css_error) => (true, Some(css_error)),
             };
+
             css_has_error
         };
 
@@ -1263,7 +1274,6 @@ fn initialize_ui_description_cache<T>(
 }
 
 // HTML (UiState) + CSS (FullWindowState) => CSSOM (UiDescription)
-#[cfg(not(test))]
 fn cascade_style<T>(
      ui_states: &mut BTreeMap<DomId, UiState<T>>,
      full_window_state: &mut FullWindowState,

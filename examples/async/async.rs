@@ -62,17 +62,14 @@ impl Layout for MyDataModel {
 }
 
 fn reset_connection(event: CallbackInfo<MyDataModel>) -> UpdateScreen {
-    event.state.data.connection_status.modify(|state| *state = ConnectionStatus::NotConnected);
+    *event.state.connection_status.lock().ok()? = ConnectionStatus::NotConnected;
     Redraw
 }
 
-fn start_connection(event: CallbackInfo<MyDataModel>) -> UpdateScreen {
-    event.state.data.connection_status.modify(|state| {
-        *state = ConnectionStatus::InProgress(Instant::now(), Duration::from_secs(0));
-    });
-    let task = Task::new(Arc::clone(&event.state.data.connection_status), connect_to_db_async);
-    event.state.add_task(task);
-    event.state.add_timer(TimerId::new(), Timer::new(timer_timer));
+fn start_connection(mut event: CallbackInfo<MyDataModel>) -> UpdateScreen {
+    *event.state.connection_status.lock().ok()? = ConnectionStatus::InProgress(Instant::now(), Duration::from_secs(0));
+    event.add_task(Task::new(Arc::clone(&event.state.connection_status), connect_to_db_async));
+    event.add_timer(TimerId::new(), Timer::new(timer_timer));
     Redraw
 }
 
@@ -87,12 +84,11 @@ fn timer_timer(event: TimerCallbackInfo<MyDataModel>) -> (UpdateScreen, Terminat
 
 fn connect_to_db_async(connection_status: Arc<Mutex<ConnectionStatus>>, _: DropCheck) {
     thread::sleep(Duration::from_secs(10)); // simulate slow load
-    connection_status.modify(|state| { *state = ConnectionStatus::Connected; });
+    *connection_status.lock().unwrap() = ConnectionStatus::Connected;
 }
 
 fn main() {
     let model = MyDataModel { connection_status: Arc::new(Mutex::new(ConnectionStatus::NotConnected)) };
-    let mut app = App::new(model, AppConfig::default()).unwrap();
-    let window = app.create_window(WindowCreateOptions::default(), css::native()).unwrap();
-    app.run(window).unwrap();
+    let app = App::new(model, AppConfig::default()).unwrap();
+    app.run(WindowCreateOptions::new(css::native()));
 }

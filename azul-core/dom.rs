@@ -1418,7 +1418,7 @@ fn test_dom_sibling_1() {
 #[test]
 fn test_dom_from_iter_1() {
 
-    use id_tree::Node;
+    use crate::id_tree::Node;
 
     struct TestLayout;
 

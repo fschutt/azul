@@ -34,7 +34,7 @@ enum Event {
 
 
 impl Layout for Calculator {
-    fn layout(&self, _info: LayoutInfo<Self>) -> Dom<Self> {
+    fn layout(&self, _info: LayoutInfo) -> Dom<Self> {
         let result = if self.division_by_zero {
             format!("Cannot divide by zero.")
         } else {
@@ -216,8 +216,7 @@ fn handle_mouseclick_numpad_btn(info: CallbackInfo<Calculator>) -> UpdateScreen 
 }
 
 fn handle_text_input(info: CallbackInfo<Calculator>) -> UpdateScreen {
-    let CallbackInfo { state, window_id, .. } = info;
-    let current_key = state.windows[window_id].state.keyboard_state.current_char?;
+    let current_key = info.get_keyboard_state().current_char?;
     let event = match current_key {
         '0' => Event::Number(0),
         '1' => Event::Number(1),
@@ -239,143 +238,139 @@ fn handle_text_input(info: CallbackInfo<Calculator>) -> UpdateScreen {
     };
 
     println!("Got event via keyboard input: {:?}", event);
-    process_event(state, event)
+    process_event(info.state, event)
 }
 
 fn handle_virtual_key_input(info: CallbackInfo<Calculator>) -> UpdateScreen {
-    let CallbackInfo { state, window_id, .. } = info;
-    let current_key = state.windows[window_id].state.keyboard_state.latest_virtual_keycode?;
+    let current_key = info.get_keyboard_state().current_virtual_keycode?;
     let event = match current_key {
         VirtualKeyCode::Return => Event::EqualSign,
         VirtualKeyCode::Back => Event::Clear,
         _ => return DontRedraw,
     };
-    process_event(state, event)
+    process_event(info.state, event)
 }
 
-fn process_event(app_state: &mut AppState<Calculator>, event: Event) -> UpdateScreen {
+fn process_event(calculator: &mut Calculator, event: Event) -> UpdateScreen {
 
     // Act on the event accordingly
     match event {
         Event::Clear => {
-            app_state.data = Calculator::default();
+            *calculator = Calculator::default();
             Redraw
         }
         Event::InvertSign => {
-            if !app_state.data.division_by_zero {
-                app_state.data.current_operand_stack.negative_number = !app_state.data.current_operand_stack.negative_number;
+            if !calculator.division_by_zero {
+                calculator.current_operand_stack.negative_number = !calculator.current_operand_stack.negative_number;
             }
             Redraw
         }
         Event::Percent => {
 
-            if app_state.data.division_by_zero {
+            if calculator.division_by_zero {
                 return DontRedraw;
             }
 
-            if let Some(operation) = &app_state.data.last_event.clone() {
-                if let Some(operand) = app_state.data.current_operator.clone() {
-                    let num = app_state.data.current_operand_stack.get_number();
+            if let Some(operation) = &calculator.last_event.clone() {
+                if let Some(operand) = calculator.current_operator.clone() {
+                    let num = calculator.current_operand_stack.get_number();
                     let op = operand.get_number();
                     let result = match operation {
                         Event::Plus | Event::Subtract => op / 100.0 * num,
                         Event::Multiply | Event::Divide => num / 100.0,
                         _ => unreachable!(),
                     };
-                    app_state.data.current_operand_stack = OperandStack::from(result);
+                    calculator.current_operand_stack = OperandStack::from(result);
                 }
             }
 
             Redraw
         }
         Event::EqualSign => {
-            let state = &mut app_state.data;
 
-            if state.division_by_zero {
+            if calculator.division_by_zero {
                 return DontRedraw;
             }
 
-            if let Some(Event::EqualSign) = state.last_event {
-                state.expression = format!("{} =", state.current_operand_stack.get_display());
+            if let Some(Event::EqualSign) = calculator.last_event {
+                calculator.expression = format!("{} =", calculator.current_operand_stack.get_display());
             } else {
-                state.expression.push_str(&format!("{} =", state.current_operand_stack.get_display()));
-                if let Some(operation) = &state.last_event.clone() {
-                    if let Some(operand) = state.current_operator.clone() {
-                        let num = state.current_operand_stack.get_number();
+                calculator.expression.push_str(&format!("{} =", calculator.current_operand_stack.get_display()));
+                if let Some(operation) = &calculator.last_event.clone() {
+                    if let Some(operand) = calculator.current_operator.clone() {
+                        let num = calculator.current_operand_stack.get_number();
                         let op = operand.get_number();
                         match perform_operation(op, &operation, num) {
-                            Some(r) => state.current_operand_stack = OperandStack::from(r),
-                            None => state.division_by_zero = true,
+                            Some(r) => calculator.current_operand_stack = OperandStack::from(r),
+                            None => calculator.division_by_zero = true,
                         }
                     }
                 }
             }
 
-            state.current_operator = None;
-            state.last_event = Some(Event::EqualSign);
+            calculator.current_operator = None;
+            calculator.last_event = Some(Event::EqualSign);
 
             Redraw
         }
         Event::Dot => {
-            let state = &mut app_state.data;
 
-            if state.division_by_zero {
+            if calculator.division_by_zero {
                 return DontRedraw;
             }
 
-            if state.current_operand_stack.stack.iter().position(|x| *x == Number::Dot).is_none() {
-                if state.current_operand_stack.stack.len() == 0 {
-                    state.current_operand_stack.stack.push(Number::Value(0));
+            if calculator.current_operand_stack.stack.iter().position(|x| *x == Number::Dot).is_none() {
+                if calculator.current_operand_stack.stack.len() == 0 {
+                    calculator.current_operand_stack.stack.push(Number::Value(0));
                 }
-                state.current_operand_stack.stack.push(Number::Dot);
+                calculator.current_operand_stack.stack.push(Number::Dot);
             }
 
             Redraw
         }
         Event::Number(v) => {
-            if let Some(Event::EqualSign) = app_state.data.last_event {
-                app_state.data = Calculator::default();
+            if let Some(Event::EqualSign) = calculator.last_event {
+                *calculator = Calculator::default();
             }
-            app_state.data.current_operand_stack.stack.push(Number::Value(v));
+            calculator.current_operand_stack.stack.push(Number::Value(v));
             Redraw
         }
         operation => {
-            let state = &mut app_state.data;
 
-            if state.division_by_zero {
+            if calculator.division_by_zero {
                 return DontRedraw;
             }
 
-            if let Some(Event::EqualSign) = state.last_event {
-                state.expression = String::new();
+            if let Some(Event::EqualSign) = calculator.last_event {
+                calculator.expression = String::new();
             }
 
-            state.expression.push_str(&state.current_operand_stack.get_display());
+            calculator.expression.push_str(&calculator.current_operand_stack.get_display());
 
-            if let Some(Event::EqualSign) = state.last_event {
-                state.current_operator = Some(state.current_operand_stack.clone());
-            } else if let Some(last_operation) = &state.last_event.clone() {
-                if let Some(operand) = state.current_operator.clone() {
-                    let num = state.current_operand_stack.get_number();
+            if let Some(Event::EqualSign) = calculator.last_event {
+                calculator.current_operator = Some(calculator.current_operand_stack.clone());
+            } else if let Some(last_operation) = &calculator.last_event.clone() {
+                if let Some(operand) = calculator.current_operator.clone() {
+                    let num = calculator.current_operand_stack.get_number();
                     let op = operand.get_number();
                     match perform_operation(op, last_operation, num) {
-                        Some(r) => state.current_operator = Some(OperandStack::from(r)),
-                        None => state.division_by_zero = true,
+                        Some(r) => calculator.current_operator = Some(OperandStack::from(r)),
+                        None => calculator.division_by_zero = true,
                     }
                 }
             } else {
-                state.current_operator = Some(state.current_operand_stack.clone());
+                calculator.current_operator = Some(calculator.current_operand_stack.clone());
             }
 
-            state.current_operand_stack = OperandStack::default();
-            state.expression.push_str(match operation {
+            calculator.current_operand_stack = OperandStack::default();
+            calculator.expression.push_str(match operation {
                 Event::Plus => " + ",
                 Event::Subtract => " - ",
                 Event::Multiply => " x ",
                 Event::Divide => " / ",
                 _ => unreachable!(),
             });
-            state.last_event = Some(operation);
+            calculator.last_event = Some(operation);
 
             Redraw
         }
@@ -403,15 +398,13 @@ fn main() {
     let css = css::override_native(include_str!(CSS_PATH!())).unwrap();
 
     let mut app = App::new(Calculator::default(), AppConfig::default()).unwrap();
-    let font_id = app.app_state.resources.add_css_font_id("KoHo-Light");
-    app.app_state.resources.add_font_source(font_id, FontSource::Embedded(FONT));
 
-    let window = app.create_window(WindowCreateOptions::default(), css.clone()).unwrap();
-    let window2 = app.create_window(WindowCreateOptions::default(), css.clone()).unwrap();
-    let window3 = app.create_window(WindowCreateOptions::default(), css.clone()).unwrap();
-    let window4 = app.create_window(WindowCreateOptions::default(), css.clone()).unwrap();
-    app.add_window(window2);
-    app.add_window(window3);
-    app.add_window(window4);
-    app.run(window).unwrap();
+    let font_id = app.resources.add_css_font_id("KoHo-Light");
+    app.resources.add_font_source(font_id, FontSource::Embedded(FONT));
+
+    // Create 4 windows to test multi-windowing
+    app.add_window(WindowCreateOptions::new(css.clone()));
+    app.add_window(WindowCreateOptions::new(css.clone()));
+    app.add_window(WindowCreateOptions::new(css.clone()));
+    app.run(WindowCreateOptions::new(css.clone()));
 }

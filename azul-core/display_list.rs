@@ -1327,7 +1327,7 @@ pub fn apply_style_property(style: &mut RectStyle, layout: &mut RectLayout, prop
 
 #[test]
 fn test_overflow_parsing() {
-    use prelude::Overflow;
+    use azul_css::Overflow;
 
     let layout1 = RectLayout::default();
 
