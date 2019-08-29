@@ -22,17 +22,17 @@ pub trait Layout {
     /// ## Example
     ///
     /// ```rust
-    /// use azul::{dom::Dom, traits::Layout, callbacks::LayoutInfo};
+    /// use azul_core::{dom::Dom, traits::Layout, callbacks::LayoutInfo};
     ///
     /// struct MyDataModel { }
     ///
     /// impl Layout for MyDataModel {
-    ///     fn layout(&self, _: LayoutInfo<MyDataModel>) -> Dom<MyDataModel> {
+    ///     fn layout(&self, _: LayoutInfo) -> Dom<MyDataModel> {
     ///         Dom::label("Hello World!").with_id("my-label")
     ///     }
     /// }
     ///
-    /// // This is done by azul internally
+    /// // The layout() function is called by Azul:
     /// // let new_ui = MyDataModel::layout();
     /// ```
     fn layout(&self, layout_info: LayoutInfo) -> Dom<Self> where Self: Sized;
