@@ -31,7 +31,7 @@ use crate::{
 use azul_core::{
     FastHashMap,
     window::{RendererType, WindowCreateOptions, WindowSize, DebugState, WindowState, FullWindowState},
-    dom::{Dom, DomId, NodeId, ScrollTagId},
+    dom::{DomId, NodeId, ScrollTagId},
     gl::GlShader,
     traits::Layout,
     ui_state::UiState,
@@ -311,6 +311,9 @@ impl<T: 'static> App<T> {
         for window_id in window_keys {
             send_user_event(AzulUpdateEvent::RelayoutUi { window_id }, &mut eld);
         }
+
+        #[cfg(debug_assertions)]
+        let mut last_style_reload = Instant::now();
 
         hidden_event_loop.run(move |event, event_loop_target, control_flow| {
 
@@ -626,7 +629,53 @@ impl<T: 'static> App<T> {
 
                 *control_flow = ControlFlow::Exit;
             } else {
+
                 *control_flow = ControlFlow::Wait;
+
+                // Reload CSS if necessary
+                #[cfg(debug_assertions)] {
+                    const DONT_FORCE_CSS_RELOAD: bool = false;
+
+                    let mut should_update = false;
+
+                    for (glutin_window_id, window) in active_windows.iter() {
+                        let full_window_state = full_window_states.get_mut(&glutin_window_id).unwrap();
+                        let hot_reload_handler = window.hot_reload_handler.as_ref().map(|hr| &hr.0);
+                        if hot_reload_css(full_window_state, hot_reload_handler, &mut last_style_reload, DONT_FORCE_CSS_RELOAD).0 {
+                            should_update = true;
+                        }
+                    }
+
+                    if should_update {
+                        let mut eld = EventLoopData {
+                            data: &mut data,
+                            event_loop_target: Some(event_loop_target),
+                            resources: &mut resources,
+                            timers: &mut timers,
+                            tasks: &mut tasks,
+                            config: &config,
+                            layout_callback: layout_callback,
+                            active_windows: &mut active_windows,
+                            window_id_mapping: &mut window_id_mapping,
+                            reverse_window_id_mapping: &mut reverse_window_id_mapping,
+                            full_window_states: &mut full_window_states,
+                            ui_state_cache: &mut ui_state_cache,
+                            ui_description_cache: &mut ui_description_cache,
+                            render_api: &mut render_api,
+                            renderer: &mut renderer,
+                            hidden_context: &mut hidden_context,
+                            gl_context: gl_context.clone(),
+                        };
+
+                        for window_id in eld.window_id_mapping.clone().values() {
+                            send_user_event(AzulUpdateEvent::RebuildUi { window_id: *window_id }, &mut eld);
+                        }
+
+                        for (_, window) in eld.active_windows.iter() {
+                            window.display.window().request_redraw();
+                        }
+                    }
+                }
 
                 /*
                 // If no timers / tasks are running, wait until next user event
@@ -698,8 +747,6 @@ fn send_user_event<'a, T>(
 
             use azul_core::window::full_window_state_from_window_state;
 
-            const FORCE_CSS_RELOAD: bool = true;
-
             let event_loop_target = match &eld.event_loop_target {
                 Some(s) => s,
                 None => return,
@@ -728,14 +775,19 @@ fn send_user_event<'a, T>(
 
             eld.full_window_states.insert(glutin_window_id, full_window_state);
 
+            #[cfg(debug_assertions)] {
+                const FORCE_CSS_RELOAD: bool = true;
+                let full_window_state = eld.full_window_states.get_mut(&glutin_window_id).unwrap();
+                let hot_reload_handler = window.hot_reload_handler.as_ref().map(|hr| &hr.0);
+                let _ = hot_reload_css(full_window_state, hot_reload_handler, &mut Instant::now(), FORCE_CSS_RELOAD);
+            }
+
             let dom_id_map = call_layout_fn(
                 eld.data,
                 eld.gl_context.clone(),
                 eld.resources,
-                eld.full_window_states.get_mut(&glutin_window_id).unwrap(),
-                window.hot_reload_handler.as_ref().map(|hr| &hr.0),
+                &eld.full_window_states[&glutin_window_id],
                 eld.layout_callback,
-                FORCE_CSS_RELOAD,
             );
 
             eld.active_windows.insert(glutin_window_id, window);
@@ -893,17 +945,13 @@ fn send_user_event<'a, T>(
                     None => return,
                 };
 
-                let full_window_state = eld.full_window_states.get_mut(&glutin_window_id).unwrap();
-                let window = &eld.active_windows[&glutin_window_id];
-                let force_css_reload = false;
+                let full_window_state = &eld.full_window_states[&glutin_window_id];
                 let new_ui_state = call_layout_fn(
                     &*eld.data,
                     eld.gl_context.clone(),
                     &*eld.resources,
                     full_window_state,
-                    window.hot_reload_handler.as_ref().map(|hr| &hr.0),
                     eld.layout_callback,
-                    force_css_reload,
                 );
 
                 *eld.ui_state_cache.get_mut(&glutin_window_id).unwrap() = new_ui_state;
@@ -1149,27 +1197,26 @@ fn initialize_ui_state_cache<T>(
     layout_callback: LayoutCallback<T>,
 ) -> BTreeMap<GlutinWindowId, BTreeMap<DomId, UiState<T>>> {
 
-    const FORCE_CSS_RELOAD: bool = true;
 
     let mut ui_state_map = BTreeMap::new();
 
     for (glutin_window_id, window) in windows {
         DomId::reset();
-        let full_window_state = full_window_states.get_mut(glutin_window_id).unwrap();
 
-        #[cfg(not(test))]
-        let hot_reload_handler = window.hot_reload_handler.as_ref().map(|hr| &hr.0);
-        #[cfg(test)]
-        let hot_reload_handler = None;
+        #[cfg(debug_assertions)] {
+            const FORCE_CSS_RELOAD: bool = true;
+            let full_window_state = full_window_states.get_mut(glutin_window_id).unwrap();
+            let hot_reload_handler = window.hot_reload_handler.as_ref().map(|hr| &hr.0);
+            let _ = hot_reload_css(full_window_state, hot_reload_handler, &mut Instant::now(), FORCE_CSS_RELOAD);
+        }
 
+        let full_window_state = full_window_states.get(glutin_window_id).unwrap();
         let dom_id_map = call_layout_fn(
             data,
             gl_context.clone(),
             app_resources,
-            full_window_state,
-            hot_reload_handler,
+            &full_window_state,
             layout_callback,
-            FORCE_CSS_RELOAD,
         );
         ui_state_map.insert(*glutin_window_id, dom_id_map);
     }
@@ -1179,14 +1226,37 @@ fn initialize_ui_state_cache<T>(
     ui_state_map
 }
 
+/// Returns (whether the screen should update, whether the CSS had an error).
+#[cfg(debug_assertions)]
+fn hot_reload_css(
+    full_window_state: &mut FullWindowState,
+    hot_reload_handler: Option<&Box<HotReloadHandler>>,
+    last_style_reload: &mut Instant,
+    force_css_reload: bool,
+) -> (bool, bool) {
+
+    let hot_reload_result = crate::css::hot_reload_css(
+        &mut full_window_state.css,
+        hot_reload_handler,
+        last_style_reload,
+        force_css_reload,
+    );
+
+    match hot_reload_result {
+        Ok(has_reloaded) => (has_reloaded, false),
+        Err(css_error) => {
+            println!("{}\n----\n", css_error);
+            (true, true)
+        },
+    }
+}
+
 fn call_layout_fn<T>(
     data: &T,
     gl_context: Rc<Gl>,
     app_resources: &AppResources,
-    full_window_state: &mut FullWindowState,
-    hot_reload_handler: Option<&Box<HotReloadHandler>>,
+    full_window_state: &FullWindowState,
     layout_callback: LayoutCallback<T>,
-    force_css_reload: bool,
 ) -> BTreeMap<DomId, UiState<T>> {
 
     use azul_core::callbacks::LayoutInfo;
@@ -1198,48 +1268,6 @@ fn call_layout_fn<T>(
     let mut stop_sizes_width = Vec::new();
     let mut stop_sizes_height = Vec::new();
 
-    // Hot-reload the CSS for this window
-    #[cfg(debug_assertions)]
-    let mut ui_state = {
-
-        let css_has_error = {
-            use crate::css::hot_reload_css;
-
-            println!("hot_reload_handler: {:?}", hot_reload_handler.is_some());
-            let hot_reload_result = hot_reload_css(
-                &mut full_window_state.css,
-                hot_reload_handler,
-                &mut Instant::now(),
-                force_css_reload,
-            );
-
-            let (_, css_has_error) = match hot_reload_result {
-                Ok(has_reloaded) => (has_reloaded, None),
-                Err(css_error) => (true, Some(css_error)),
-            };
-
-            css_has_error
-        };
-
-        match &css_has_error {
-            None => {
-                let layout_info = LayoutInfo {
-                    window_size: &full_window_state.size,
-                    window_size_width_stops: &mut stop_sizes_width,
-                    window_size_height_stops: &mut stop_sizes_height,
-                    gl_context: gl_context.clone(),
-                    resources: app_resources,
-                };
-                UiState::new_from_app_state(data, layout_info, PARENT_DOM, layout_callback)
-            },
-            Some(s) => {
-                println!("{}", s);
-                UiState::new(Dom::label(s.clone()).with_class("__azul_css_error"), None)
-            },
-        }
-    };
-
-    #[cfg(not(debug_assertions))]
     let mut ui_state = {
         let full_window_state = &full_window_state;
         let layout_info = LayoutInfo {
@@ -1250,7 +1278,7 @@ fn call_layout_fn<T>(
             resources: app_resources,
         };
 
-        ui_state_from_app_state(data, layout_info, PARENT_DOM, layout_callback)
+        UiState::new_from_app_state(data, layout_info, PARENT_DOM, layout_callback)
     };
 
     ui_state.dom_id = DomId::ROOT_ID;
