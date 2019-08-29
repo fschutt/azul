@@ -1,5 +1,5 @@
 #red {
-    width: 500px;
+    width: 100%;
     height: 400px;
     background: red;
     border-radius: 10px;
@@ -9,6 +9,11 @@
 #green {
     position: absolute;
     width: 100px;
+    top: 100px;
     height: 100px;
     background: linear-gradient(green, blue);
+}
+
+#green p {
+    color: white;
 }

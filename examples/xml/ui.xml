@@ -1,5 +1,7 @@
 <app>
   <div id="red">
-      <div id="green"></div>
+      <div id="green">
+          <p>Hello</p>
+      </div>
   </div>
 </app>
