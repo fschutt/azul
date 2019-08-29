@@ -246,7 +246,7 @@ pub struct AppResources {
 impl AppResources {
 
     /// Add a new pipeline to the app resources
-    pub fn add_new_pipeline(&mut self, pipeline_id: PipelineId) {
+    pub fn add_pipeline(&mut self, pipeline_id: PipelineId) {
         self.currently_registered_fonts.insert(pipeline_id, FastHashMap::default());
         self.currently_registered_images.insert(pipeline_id, FastHashMap::default());
         self.last_frame_font_keys.insert(pipeline_id, FastHashMap::default());
@@ -764,11 +764,15 @@ pub struct FakeRenderApi { }
 
 impl FakeRenderApi { pub fn new() -> Self { Self { } } }
 
+static LAST_FAKE_IMAGE_KEY: AtomicUsize = AtomicUsize::new(0);
+static LAST_FAKE_FONT_KEY: AtomicUsize = AtomicUsize::new(0);
+static LAST_FAKE_FONT_INSTANCE_KEY: AtomicUsize = AtomicUsize::new(0);
+
 // Fake RenderApi for unit testing
 impl FontImageApi for FakeRenderApi {
-    fn new_image_key(&self) -> ImageKey { ImageKey { key: 0, namespace: IdNamespace(0) } }
-    fn new_font_key(&self) -> FontKey { FontKey { key: 0, namespace: IdNamespace(0) } }
-    fn new_font_instance_key(&self) -> FontInstanceKey { FontInstanceKey { key: 0, namespace: IdNamespace(0) } }
+    fn new_image_key(&self) -> ImageKey { ImageKey { key: LAST_FAKE_IMAGE_KEY.fetch_add(1, Ordering::SeqCst) as u32, namespace: IdNamespace(0) } }
+    fn new_font_key(&self) -> FontKey { FontKey { key: LAST_FAKE_FONT_KEY.fetch_add(1, Ordering::SeqCst) as u32, namespace: IdNamespace(0) } }
+    fn new_font_instance_key(&self) -> FontInstanceKey { FontInstanceKey { key: LAST_FAKE_FONT_INSTANCE_KEY.fetch_add(1, Ordering::SeqCst) as u32, namespace: IdNamespace(0) } }
     fn update_resources(&self, _: Vec<ResourceUpdate>) { }
     fn flush_scene_builder(&self) { }
 }

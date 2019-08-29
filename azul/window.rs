@@ -452,7 +452,7 @@ impl<T> Window<T> {
         // back to their windows and window positions.
         let pipeline_id = PipelineId::new();
 
-        app_resources.add_new_pipeline(pipeline_id);
+        app_resources.add_pipeline(pipeline_id);
 
         options.state.css.sort_by_specificity();
 
