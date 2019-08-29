@@ -291,9 +291,9 @@ impl<T> Thread<T> {
     ///
     /// // thread_1, thread_2 and thread_3 run in parallel here...
     ///
-    /// let result_1 = thread_1.await();
-    /// let result_2 = thread_2.await();
-    /// let result_3 = thread_3.await();
+    /// let result_1 = thread_1.block();
+    /// let result_2 = thread_2.block();
+    /// let result_3 = thread_3.block();
     ///
     /// assert_eq!(result_1, Ok(6));
     /// assert_eq!(result_2, Ok(11));

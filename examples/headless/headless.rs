@@ -49,7 +49,7 @@ fn main() {
     }").unwrap();
 
     // Important!
-    app_resources.add_new_pipeline(pipeline_id);
+    app_resources.add_pipeline(pipeline_id);
 
     DomId::reset();
 
