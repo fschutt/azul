@@ -246,11 +246,12 @@ pub use azul_core::gl;
 pub mod window;
 /// XML-based DOM serialization and XML-to-Rust compiler implementation
 pub mod xml;
-
+/// Font & image resource handling, lookup and caching
+#[path = "./app_resources.rs"]
+pub mod resources;
 mod compositor;
 #[cfg(feature = "logging")]
 mod logging;
-mod app_resources;
 mod wr_translate;
 
 pub use azul_core::{FastHashMap, FastHashSet};
@@ -266,16 +267,6 @@ pub mod text_layout {
     pub use azul_layout::text_layout::text_layout::*;
     pub use azul_layout::text_layout::text_shaping::*;
     pub use azul_layout::text_layout::InlineText;
-}
-
-/// Font & image resource handling, lookup and caching
-pub mod resources {
-    // re-export everything *except* the AppResources (which are exported under the "app" module)
-    pub use crate::app_resources::{
-        LoadedFont, RawImage, FontReloadError, FontSource, ImageReloadError,
-        ImageSource, RawImageFormat, CssFontId, CssImageId,
-        TextCache, TextId, FontId, ImageId, image_source_get_bytes, font_source_get_bytes,
-    };
 }
 
 /// Quick exports of common types
@@ -320,7 +311,7 @@ pub mod prelude {
 /// Re-exports of errors
 pub mod errors {
     pub use crate::{
-        app_resources::{ImageReloadError, FontReloadError},
+        resources::{ImageReloadError, FontReloadError},
     };
     // TODO: re-export the sub-types of ClipboardError!
     pub use clipboard2::ClipboardError;
