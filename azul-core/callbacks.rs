@@ -13,13 +13,18 @@ use azul_css_parser::CssPathParseError;
 use crate::{
     FastHashMap,
     app_resources::{Words, WordPositions, ScaledWords, LayoutedGlyphs},
-    dom::{Dom, DomId, NodeType, NodeData},
+    dom::{Dom, DomId, TagId, NodeType, NodeData},
     display_list::CachedDisplayList,
     ui_state::UiState,
+    ui_description::UiDescription,
     ui_solver::{PositionedRectangle, LayoutedRectangle, ScrolledNodes, LayoutResult},
     id_tree::{NodeId, Node, NodeHierarchy},
     app_resources::AppResources,
-    window::{WindowSize, WindowState, FullWindowState, KeyboardState, MouseState, LogicalSize, PhysicalSize},
+    window::{
+        WindowSize, WindowState, FullWindowState,
+        KeyboardState, MouseState, LogicalSize, PhysicalSize,
+        UpdateFocusWarning,
+    },
     task::{Timer, TerminateTimer, Task, TimerId},
     gl::Texture,
 };
@@ -132,15 +137,6 @@ impl RefAny {
     }
 }
 
-/// A tag that can be used to identify items during hit testing. If the tag
-/// is missing then the item doesn't take part in hit testing at all. This
-/// is composed of two numbers. In Servo, the first is an identifier while the
-/// second is used to select the cursor that should be used during mouse
-/// movement. In Gecko, the first is a scrollframe identifier, while the second
-/// is used to store various flags that APZ needs to properly process input
-/// events.
-pub type ItemTag = (u64, u16);
-
 /// This type carries no valuable semantics for WR. However, it reflects the fact that
 /// clients (Servo) may generate pipelines by different semi-independent sources.
 /// These pipelines still belong to the same `IdNamespace` and the same `DocumentId`.
@@ -180,7 +176,7 @@ pub struct HitTestItem {
     /// The pipeline that the display item that was hit belongs to.
     pub pipeline: PipelineId,
     /// The tag of the hit display item.
-    pub tag: ItemTag,
+    pub tag: TagId,
     /// The hit point in the coordinate space of the "viewport" of the display item.
     /// The viewport is the scroll node formed by the root reference frame of the display item's pipeline.
     pub point_in_viewport: LayoutPoint,
@@ -855,6 +851,39 @@ pub enum FocusTarget {
     Id((DomId, NodeId)),
     Path((DomId, CssPath)),
     NoFocus,
+}
+
+impl FocusTarget {
+    pub fn resolve<T>(
+        &self,
+        ui_descriptions: &BTreeMap<DomId, UiDescription>,
+        ui_states: &BTreeMap<DomId, UiState<T>>,
+    ) -> Result<Option<(DomId, NodeId)>, UpdateFocusWarning> {
+
+        use crate::callbacks::FocusTarget::*;
+        use crate::style::matches_html_element;
+
+        match self {
+            Id((dom_id, node_id)) => {
+                let ui_state = ui_states.get(&dom_id).ok_or(UpdateFocusWarning::FocusInvalidDomId(dom_id.clone()))?;
+                let _ = ui_state.dom.arena.node_data.get(*node_id).ok_or(UpdateFocusWarning::FocusInvalidNodeId(*node_id))?;
+                Ok(Some((dom_id.clone(), *node_id)))
+            },
+            NoFocus => Ok(None),
+            Path((dom_id, css_path)) => {
+                let ui_state = ui_states.get(&dom_id).ok_or(UpdateFocusWarning::FocusInvalidDomId(dom_id.clone()))?;
+                let ui_description = ui_descriptions.get(&dom_id).ok_or(UpdateFocusWarning::FocusInvalidDomId(dom_id.clone()))?;
+                let html_node_tree = &ui_description.html_tree;
+                let node_hierarchy = &ui_state.dom.arena.node_layout;
+                let node_data = &ui_state.dom.arena.node_data;
+                let resolved_node_id = html_node_tree
+                    .linear_iter()
+                    .find(|node_id| matches_html_element(css_path, *node_id, &node_hierarchy, &node_data, &html_node_tree))
+                    .ok_or(UpdateFocusWarning::CouldNotFindFocusNode(css_path.clone()))?;
+                Ok(Some((dom_id.clone(), resolved_node_id)))
+            },
+        }
+    }
 }
 
 impl<'a, T: 'a> CallbackInfo<'a, T> {

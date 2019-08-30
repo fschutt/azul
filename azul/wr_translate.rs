@@ -70,6 +70,7 @@ use azul_core::{
         DisplayListFrame, LayoutRectContent, DisplayListMsg,
         AlphaType, ImageRendering, StyleBorderRadius,
     },
+    dom::TagId,
     ui_solver::ExternalScrollId,
     window::{LogicalSize, DebugState},
 };
@@ -461,10 +462,14 @@ pub(crate) const fn wr_translate_epoch(epoch: Epoch) -> WrEpoch {
 }
 
 #[inline(always)]
+const fn wr_translate_tag_id(input: TagId) -> (u64, u16) {
+    (input.0, 0)
+}
+
 pub(crate) fn wr_translate_hittest_item(input: WrHitTestItem) -> HitTestItem {
     HitTestItem {
         pipeline: PipelineId(input.pipeline.0, input.pipeline.1),
-        tag: input.tag,
+        tag: TagId(input.tag.0),
         point_in_viewport: CssLayoutPoint::new(input.point_in_viewport.x, input.point_in_viewport.y),
         point_relative_to_item: CssLayoutPoint::new(input.point_relative_to_item.x, input.point_relative_to_item.y),
     }
@@ -1009,7 +1014,7 @@ fn push_frame(
         rect: wr_rect,
         clip_rect: wr_translate_layout_rect(frame.clip_rect.unwrap_or(frame.rect)),
         is_backface_visible: false,
-        tag: frame.tag,
+        tag: frame.tag.map(wr_translate_tag_id),
     };
 
     let content_clip = WrComplexClipRegion::new(wr_rect, wr_border_radius, WrClipMode::Clip);
@@ -1062,14 +1067,14 @@ fn push_scroll_frame(
         rect: wr_rect,
         clip_rect: wr_translate_layout_rect(scroll_frame.frame.clip_rect.unwrap_or(scroll_frame.frame.rect)),
         is_backface_visible: false,
-        tag: Some((scroll_frame.scroll_tag.0, 0)),
+        tag:  Some(wr_translate_tag_id(scroll_frame.scroll_tag.0)),
     };
 
     let info = WrLayoutPrimitiveInfo {
         rect: wr_rect,
         clip_rect: wr_rect,
         is_backface_visible: false,
-        tag: scroll_frame.frame.tag,
+        tag: scroll_frame.frame.tag.map(wr_translate_tag_id),
     };
 
     // Push content (overflowing)
