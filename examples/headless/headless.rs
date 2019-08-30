@@ -88,5 +88,5 @@ fn main() {
     );
 
     // Do the rendering for your custom backend here
-    println!("{:#?}", display_list);
+    println!("{:#?}", display_list.root);
 }
