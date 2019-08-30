@@ -27,7 +27,7 @@ use gleam::gl::{self, Gl};
 use clipboard2::{Clipboard as _, ClipboardError, SystemClipboard};
 use azul_css::{ColorU, LayoutPoint, LayoutRect};
 use crate::{
-    app_resources::WrApi,
+    resources::WrApi,
     compositor::Compositor
 };
 use azul_core::{
