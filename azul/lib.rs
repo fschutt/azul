@@ -102,7 +102,7 @@
 //! it from an external application.
 //!
 //! Azul can also render to a headless target - for this purpose, the `text-layout`,
-//! the `kayout` and the `core` components are separate crates, separate from the `azul`
+//! the `layout` and the `core` components are separate crates, separate from the `azul`
 //! crate, which depends on webrender and is meant as the desktop deployment target. By default,
 //! `azul-layout` depends on a static build of HarfBuzz and FreeType for layouting glyphs,
 //! but you can use the system-native builds by using `features = ["native-freetype"]`.
@@ -197,7 +197,7 @@
 
 extern crate azul_native_style;
 extern crate azul_css;
-#[macro_use(impl_task_api)]
+#[macro_use(impl_task_api, impl_from, impl_display)]
 extern crate azul_core;
 extern crate azul_layout;
 extern crate glutin;
@@ -225,10 +225,6 @@ extern crate fern;
 extern crate backtrace;
 #[cfg(feature = "image_loading")]
 extern crate image;
-
-// Crate-internal macros
-#[macro_use]
-mod macros;
 
 /// Manages application state (`App` / `AppState` / `AppResources`), wrapping resources and app state
 pub mod app;

@@ -412,7 +412,6 @@ fn prepare_image(image_decoded: DynamicImage) -> Result<LoadedImageSource, Image
     Ok(LoadedImageSource { decoded_image_bytes: data, image_descriptor: descriptor })
 }
 
-
 #[test]
 fn test_font_gc() {
 
