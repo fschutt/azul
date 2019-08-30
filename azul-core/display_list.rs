@@ -144,7 +144,9 @@ pub struct DisplayListFrame {
 impl fmt::Debug for DisplayListFrame {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         write!(f, "rect: {:#?},", self.rect)?;
-        write!(f, "\r\nborder_radius: {:#?},", self.border_radius)?;
+        if !self.border_radius.is_none() {
+            write!(f, "\r\nborder_radius: {:#?},", self.border_radius)?;
+        }
         if let Some(clip_rect) = &self.clip_rect {
             write!(f, "\r\nclip_rect: {:#?},", clip_rect)?;
         }
@@ -198,6 +200,14 @@ pub struct StyleBorderRadius {
     pub bottom_right: Option<CssPropertyValue<StyleBorderBottomRightRadius>>,
 }
 
+impl StyleBorderRadius {
+    pub fn is_none(&self) -> bool {
+        self.top_left.is_none() &&
+        self.top_right.is_none() &&
+        self.bottom_left.is_none() &&
+        self.bottom_right.is_none()
+    }
+}
 impl fmt::Debug for StyleBorderRadius {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         write!(f, "StyleBorderRadius {{")?;
@@ -278,7 +288,7 @@ pub struct StyleBoxShadow {
 
 tlbr_debug!(StyleBoxShadow);
 
-#[derive(Debug, Clone, PartialEq, PartialOrd)]
+#[derive(Clone, PartialEq, PartialOrd)]
 pub enum LayoutRectContent {
     Text {
         glyphs: Vec<GlyphInstance>,
@@ -310,6 +320,72 @@ pub enum LayoutRectContent {
         shadow: StyleBoxShadow,
         clip_mode: BoxShadowClipMode,
     },
+}
+
+impl fmt::Debug for LayoutRectContent {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        use self::LayoutRectContent::*;
+        match self {
+            Text { glyphs, font_instance_key, color, glyph_options, clip } => {
+                write!(f,
+                    "Text {{\r\n\
+                        glyphs: {:?},\r\n\
+                        font_instance_key: {:?},\r\n\
+                        color: {:?},\r\n\
+                        glyph_options: {:?},\r\n\
+                        clip: {:?}\r\n\
+                    }}",
+                    glyphs, font_instance_key, color, glyph_options, clip,
+                )
+            },
+            Background { content, size, offset, repeat } => {
+                write!(f, "Background {{\r\n")?;
+                write!(f, "    content: {:?},\r\n", content)?;
+                if let Some(size) = size {
+                    write!(f, "    size: {:?},\r\n", size)?;
+                }
+                if let Some(offset) = offset {
+                    write!(f, "    offset: {:?},\r\n", offset)?;
+                }
+                if let Some(repeat) = repeat {
+                    write!(f, "    repeat: {:?},\r\n", repeat)?;
+                }
+                write!(f, "}}")
+            },
+            Image { size, offset, image_rendering, alpha_type, image_key, background_color } => {
+                write!(f,
+                    "Image {{\r\n\
+                        size: {:?},\r\n\
+                        offset: {:?},\r\n\
+                        image_rendering: {:?},\r\n\
+                        alpha_type: {:?},\r\n\
+                        image_key: {:?},\r\n\
+                        background_color: {:?}\r\n\
+                    }}",
+                    size, offset, image_rendering, alpha_type, image_key, background_color
+                )
+            },
+            Border { widths, colors, styles, } => {
+                write!(f,
+                    "Border {{\r\n\
+                        widths: {:?},\r\n\
+                        colors: {:?},\r\n\
+                        styles: {:?}\r\n\
+                    }}",
+                    widths, colors, styles,
+                )
+            },
+            BoxShadow { shadow, clip_mode } => {
+                write!(f,
+                    "BoxShadow {{\r\n\
+                        shadow: {:?},\r\n\
+                        clip_mode: {:?}\r\n\
+                    }}",
+                    shadow, clip_mode,
+                )
+            },
+        }
+    }
 }
 
 #[derive(Clone, PartialEq, PartialOrd)]

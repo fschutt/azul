@@ -230,28 +230,9 @@ impl<T: 'static> App<T> {
         self.windows.insert(WindowId::new(), create_options);
     }
 
-    /// Start the rendering loop for the currently open windows
-    /// This is the "main app loop", "main game loop" or whatever you want to call it.
-    /// Usually this is the last function you call in your `main()` function, since exiting
-    /// it means that the user has closed all windows and wants to close the app.
-    ///
-    /// When all windows are closed, this function returns the internal data again.
-    /// This is useful for ex. CLI application that run procedurally, but then want to
-    /// open a window temporarily, to ask for user input in a "nicer" way than a pure
-    /// CLI-way.
-    ///
-    /// This way you can do this:
-    ///
-    /// ```no_run,ignore
-    /// let app = App::new(MyData { username: None, password: None });
-    /// app.create_window(WindowCreateOptions::default(), azul_native_style::native());
-    ///
-    /// // pop open a window that asks the user for his username and password...
-    /// let MyData { username, password } = app.run();
-    ///
-    /// // continue the rest of the program here...
-    /// println!("username: {:?}, password: {:?}", username, password);
-    /// ```
+    /// Start the rendering loop for the currently added windows. The run() function
+    /// takes one `WindowCreateOptions` as an argument, which is the "root" window, i.e.
+    /// the main application window.
     #[cfg(not(test))]
     pub fn run(mut self, root_window: WindowCreateOptions<T>) -> ! {
         self.add_window(root_window);
@@ -1183,6 +1164,7 @@ fn initialize_full_window_states(
     }).collect()
 }
 
+#[cfg(not(test))]
 fn initialize_ui_state_cache<T>(
     data: &T,
     gl_context: Rc<Gl>,
