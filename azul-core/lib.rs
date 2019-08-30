@@ -6,9 +6,11 @@ extern crate gleam;
 extern crate azul_css_parser;
 
 pub mod app_resources;
+/// Type definitions for various types of callbacks, as well as focus and scroll handling
 pub mod callbacks;
 pub mod display_list;
 pub mod dom;
+/// Algorithms to create git-like diffs between two doms in linear time
 pub mod diff;
 pub mod gl;
 pub mod id_tree;

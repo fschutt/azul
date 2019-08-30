@@ -63,6 +63,61 @@ pub struct DomDiff {
     pub changed_nodes: Vec<DomChange>,
 }
 
+impl DomDiff {
+    pub fn new<T>(old: &Dom<T>, new: &Dom<T>) -> Self {
+
+        // TODO: Check if old root = new root, if not, change entire tree
+
+        let mut changes = BTreeSet::new();
+        let mut visited_nodes = NodeDataContainer::new(vec![false; new.len()]);
+
+        visited_nodes[NodeId::ZERO] = true;
+
+        let has_root_changed = node_has_changed(
+            &old.arena.node_data[NodeId::ZERO],
+            &new.arena.node_data[NodeId::ZERO]
+        );
+
+        if has_root_changed == NODE_CHANGED_NOTHING {
+
+            diff_tree_inner(NodeId::ZERO, old, new, &mut changes, &mut visited_nodes);
+            add_visited_nodes(visited_nodes, &mut changes);
+
+            Self {
+                changed_nodes: optimize_changeset(changes)
+            }
+
+        } else {
+
+            // Root changed = everything changed
+            changes.insert(DomChange::Removed(DomRange {
+                start: NodeId::ZERO,
+                end: NodeId::new(old.len() - 1)
+            }));
+
+            changes.insert(DomChange::Added(DomRange {
+                start: NodeId::ZERO,
+                end: NodeId::new(new.len() - 1)
+            }));
+
+            Self {
+                changed_nodes: optimize_changeset(changes)
+            }
+        }
+    }
+
+    /// Formats the diff into a git-like `+ Node1 / - Node3` form
+    pub fn format_nicely<T>(&self, old: &Dom<T>, new: &Dom<T>) -> String {
+        use self::DomChange::*;
+        self.changed_nodes.iter().map(|change| {
+            match change {
+                Added(c) => format!("+\t{}", new.arena.node_data[c.start]),
+                Removed(c) => format!("-\t{}", old.arena.node_data[c.start]),
+            }
+        }).collect::<Vec<String>>().join("\r\n")
+    }
+}
+
 impl fmt::Display for DomDiff {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         for c in self.changed_nodes.iter() {
@@ -70,17 +125,6 @@ impl fmt::Display for DomDiff {
         }
         Ok(())
     }
-}
-
-
-pub fn format_diff_nicely<T>(old: &Dom<T>, new: &Dom<T>, diff: &DomDiff) -> String {
-    use self::DomChange::*;
-    diff.changed_nodes.iter().map(|change| {
-        match change {
-            Added(c) => format!("+\t{}", new.arena.node_data[c.start]),
-            Removed(c) => format!("-\t{}", old.arena.node_data[c.start]),
-        }
-    }).collect::<Vec<String>>().join("\r\n")
 }
 
 impl DomRange {
@@ -97,48 +141,6 @@ impl DomRange {
     pub fn equals_range(&self, other: &Self) -> bool {
         other.start == self.start &&
         other.end == self.end
-    }
-}
-
-pub fn diff_dom_tree<T>(old: &Dom<T>, new: &Dom<T>) -> DomDiff {
-
-    // TODO: Check if old root = new root, if not, change entire tree
-
-    let mut changes = BTreeSet::new();
-    let mut visited_nodes = NodeDataContainer::new(vec![false; new.len()]);
-
-    visited_nodes[NodeId::ZERO] = true;
-
-    let has_root_changed = node_has_changed(
-        &old.arena.node_data[NodeId::ZERO],
-        &new.arena.node_data[NodeId::ZERO]
-    );
-
-    if has_root_changed == NODE_CHANGED_NOTHING {
-
-        diff_tree_inner(NodeId::ZERO, old, new, &mut changes, &mut visited_nodes);
-        add_visited_nodes(visited_nodes, &mut changes);
-
-        DomDiff {
-            changed_nodes: optimize_changeset(changes)
-        }
-
-    } else {
-
-        // Root changed = everything changed
-        changes.insert(DomChange::Removed(DomRange {
-            start: NodeId::ZERO,
-            end: NodeId::new(old.len() - 1)
-        }));
-
-        changes.insert(DomChange::Added(DomRange {
-            start: NodeId::ZERO,
-            end: NodeId::new(new.len() - 1)
-        }));
-
-        DomDiff {
-            changed_nodes: optimize_changeset(changes)
-        }
     }
 }
 

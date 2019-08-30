@@ -104,7 +104,7 @@ impl<T> App<T> {
 }
 
 /// Configuration for optional features, such as whether to enable logging or panic hooks
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
 #[cfg_attr(not(feature = "logging"), derive(Copy))]
 pub struct AppConfig {
     /// If enabled, logs error and info messages.
@@ -1494,10 +1494,7 @@ fn call_callbacks<T>(
         }
     }
 
-    use azul_core::ui_state::resolve_focus_target;
-
-    let new_focus_node = new_focus_target
-        .and_then(|ft| resolve_focus_target(ft, &ui_description_map, &ui_state_map).ok()?);
+    let new_focus_node = new_focus_target.and_then(|ft| ft.resolve(&ui_description_map, &ui_state_map).ok()?);
     let focus_has_not_changed = full_window_state.focused_node == new_focus_node;
     if !focus_has_not_changed {
         // TODO: Emit proper On::FocusReceived / On::FocusLost events!
@@ -1603,7 +1600,7 @@ fn update_scroll_state(
     let mut should_scroll_render = false;
 
     for scroll_node in hit_test_items.iter()
-        .filter_map(|item| scrolled_nodes.tags_to_node_ids.get(&ScrollTagId(item.tag.0)))
+        .filter_map(|item| scrolled_nodes.tags_to_node_ids.get(&ScrollTagId(item.tag)))
         .filter_map(|node_id| scrolled_nodes.overflowing_nodes.get(&node_id)) {
 
         // The external scroll ID is constructed from the DOM hash
