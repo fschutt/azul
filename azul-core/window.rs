@@ -368,37 +368,40 @@ impl FullWindowState {
     }
 }
 
-/// Creates a FullWindowState from a regular WindowState, fills non-available
-/// fields with their default values
-pub fn full_window_state_from_window_state(window_state: WindowState) -> FullWindowState {
-    FullWindowState {
-        title: window_state.title,
-        size: window_state.size,
-        position: window_state.position,
-        flags: window_state.flags,
-        debug_state: window_state.debug_state,
-        keyboard_state: window_state.keyboard_state,
-        mouse_state: window_state.mouse_state,
-        ime_position: window_state.ime_position,
-        platform_specific_options: window_state.platform_specific_options,
-        css: window_state.css,
-        .. Default::default()
+impl From<WindowState> for FullWindowState {
+    /// Creates a FullWindowState from a regular WindowState, fills non-available
+    /// fields with their default values
+    fn from(window_state: WindowState) -> FullWindowState {
+        FullWindowState {
+            title: window_state.title,
+            size: window_state.size,
+            position: window_state.position,
+            flags: window_state.flags,
+            debug_state: window_state.debug_state,
+            keyboard_state: window_state.keyboard_state,
+            mouse_state: window_state.mouse_state,
+            ime_position: window_state.ime_position,
+            platform_specific_options: window_state.platform_specific_options,
+            css: window_state.css,
+            .. Default::default()
+        }
     }
 }
 
-/// Reverse function of `full_window_state_from_window_state`
-pub fn full_window_state_to_window_state(full_window_state: &FullWindowState) -> WindowState {
-    WindowState {
-        title: full_window_state.title.clone(),
-        size: full_window_state.size,
-        position: full_window_state.position,
-        flags: full_window_state.flags,
-        debug_state: full_window_state.debug_state,
-        keyboard_state: full_window_state.keyboard_state.clone(),
-        mouse_state: full_window_state.mouse_state,
-        ime_position: full_window_state.ime_position,
-        platform_specific_options: full_window_state.platform_specific_options.clone(),
-        css: full_window_state.css.clone(),
+impl From<FullWindowState> for WindowState {
+    fn from(full_window_state: FullWindowState) -> WindowState {
+        WindowState {
+            title: full_window_state.title,
+            size: full_window_state.size,
+            position: full_window_state.position,
+            flags: full_window_state.flags,
+            debug_state: full_window_state.debug_state,
+            keyboard_state: full_window_state.keyboard_state,
+            mouse_state: full_window_state.mouse_state,
+            ime_position: full_window_state.ime_position,
+            platform_specific_options: full_window_state.platform_specific_options,
+            css: full_window_state.css,
+        }
     }
 }
 
