@@ -258,7 +258,7 @@ pub struct Thread<T> {
     join_handle: Option<JoinHandle<()>>,
 }
 
-/// Error that can happen while calling `.await()`
+/// Error that can happen while calling `.block()`
 #[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub enum BlockError {
     /// Arc::into_inner() failed
