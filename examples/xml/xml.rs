@@ -3,7 +3,6 @@
 extern crate azul;
 
 use azul::prelude::*;
-use std::time::Duration;
 
 macro_rules! XML_PATH { () => (concat!(env!("CARGO_MANIFEST_DIR"), "/../../examples/xml/ui.xml")) }
 macro_rules! CSS_PATH { () => (concat!(env!("CARGO_MANIFEST_DIR"), "/../../examples/xml/xml.css")) }
@@ -21,13 +20,14 @@ impl Layout for DataModel {
 
     #[cfg(debug_assertions)]
     let window = {
+        use std::time::Duration;
         let hot_reloader = css::hot_reload_override_native(CSS_PATH!(), Duration::from_millis(500));
         WindowCreateOptions::new_hot_reload(hot_reloader)
     };
 
     #[cfg(not(debug_assertions))]
     let window = {
-        let css = css::override_native(include_str!(CSS_PATH!()));
+        let css = css::override_native(include_str!(CSS_PATH!())).unwrap();
         WindowCreateOptions::new(css)
     };
 
