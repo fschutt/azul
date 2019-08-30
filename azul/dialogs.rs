@@ -93,9 +93,6 @@ pub fn msg_box_ok(title: &str, message: &str, icon: MessageBoxIcon) {
 }
 
 /// Wrapper around `message_box_ok` with the default title "Info" + an info icon.
-///
-/// Note: If you are too young to remember Visual Basics glorious `MsgBox`
-/// then I pity you. Those were the days.
 pub fn msg_box(content: &str) {
     msg_box_ok("Info", content, MessageBoxIcon::Info);
 }

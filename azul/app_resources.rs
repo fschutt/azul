@@ -9,10 +9,17 @@ use azul_core::app_resources::{ResourceUpdate, FontImageApi};
 pub use image::{ImageError, DynamicImage, GenericImageView};
 pub use azul_core::{
     app_resources::{
-        AppResources, Au, ImmediateFontId, LoadedFont, RawImageFormat,
-        FontKey, FontInstanceKey, ImageKey, ImageSource, FontSource,
-        RawImage, CssFontId, CssImageId, TextCache, TextId, ImageId, FontId,
-        ImageInfo, IdNamespace, ImageData, ImageDescriptor, LoadedImageSource, LoadedFontSource,
+        AddFont, AddFontInstance, AddImage, AddImageMsg, AppResources, Au,
+        ClusterInfo, ClusterIterator, DeleteImageMsg, Epoch,
+        ExternalImageData, ExternalImageId, FakeRenderApi, FontId,
+        FontInstanceKey, FontInstanceOptions, FontInstancePlatformOptions,
+        FontKey, FontMetrics, FontVariation, GlyphInfo, GlyphOptions,
+        GlyphPosition, IdNamespace, ImageDescriptor, ImageId, ImageInfo,
+        ImageKey, LayoutedGlyphs, LoadedFont, LoadedFontSource,
+        LoadedImageSource, RawImage, ScaledWord, ScaledWords,
+        SyntheticItalics, TextCache, TextId, UpdateImage, Word,
+        WordPositions, Words, FontSource, ImageData, ImageSource,
+        RawImageFormat, CssFontId, CssImageId,
     },
     callbacks::PipelineId,
     id_tree::NodeDataContainer,

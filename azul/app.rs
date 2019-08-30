@@ -25,7 +25,7 @@ use webrender::{
 use log::LevelFilter;
 use azul_css::{ColorU, HotReloadHandler};
 use crate::{
-    app_resources::WrApi,
+    resources::WrApi,
     window::{Window, ScrollStates, HeadlessContextState}
 };
 use azul_core::{
@@ -46,9 +46,8 @@ use azul_core::{
     ui_description::UiDescription,
     ui_solver::LayoutResult,
     display_list::CachedDisplayList,
-    app_resources::Epoch,
+    app_resources::{AppResources, Epoch},
 };
-pub use crate::app_resources::AppResources;
 
 #[cfg(not(test))]
 use crate::window::{ FakeDisplay };
@@ -1016,8 +1015,8 @@ fn send_user_event<'a, T>(
                     eld.ui_description_cache.get_mut(&glutin_window_id).unwrap(),
                     azul_core::gl::insert_into_active_gl_textures,
                     azul_layout::ui_solver::do_the_layout,
-                    crate::app_resources::font_source_get_bytes,
-                    crate::app_resources::image_source_get_bytes,
+                    crate::resources::font_source_get_bytes,
+                    crate::resources::image_source_get_bytes,
                 );
 
                 window.display.make_not_current();
