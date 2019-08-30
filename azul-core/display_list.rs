@@ -32,7 +32,7 @@ use crate::{
     ui_description::{UiDescription, StyledNode},
     id_tree::{NodeDataContainer, NodeId, NodeHierarchy},
     dom::{
-        DomId, NodeData, ScrollTagId, DomString,
+        DomId, NodeData, TagId, ScrollTagId, DomString,
         NodeType::{Div, Text, Image, GlTexture, IFrame, Label},
     },
 };
@@ -144,7 +144,7 @@ pub struct DisplayListFrame {
     /// Border radius, set to none only if overflow: visible is set!
     pub border_radius: StyleBorderRadius,
     pub clip_rect: Option<LayoutRect>,
-    pub tag: Option<ItemTag>,
+    pub tag: Option<TagId>,
     pub content: Vec<LayoutRectContent>,
     pub children: Vec<DisplayListMsg>,
 }
@@ -157,7 +157,7 @@ impl fmt::Debug for DisplayListFrame {
             write!(f, "\r\nclip_rect: {:#?},", clip_rect)?;
         }
         if let Some(tag) = &self.tag {
-            write!(f, "\r\ntag: ({}, {}),", tag.0, tag.1)?;
+            write!(f, "\r\ntag: {}", tag.0)?;
         }
         if !self.content.is_empty() {
             write!(f, "\r\ncontent: {:#?}", self.content)?;
@@ -419,7 +419,7 @@ pub struct DisplayRectangle {
     /// `Some(id)` if this rectangle has a callback attached to it
     /// Note: this is not the same as the `NodeId`!
     /// These two are completely separate numbers!
-    pub tag: Option<u64>,
+    pub tag: Option<TagId>,
     /// The style properties of the node, parsed
     pub style: RectStyle,
     /// The layout properties of the node, parsed
@@ -428,7 +428,7 @@ pub struct DisplayRectangle {
 
 impl DisplayRectangle {
     #[inline]
-    pub fn new(tag: Option<u64>) -> Self {
+    pub fn new(tag: Option<TagId>) -> Self {
         Self {
             tag,
             style: RectStyle::default(),
@@ -964,10 +964,10 @@ pub fn displaylist_handle_rect<'a, T>(
          LayoutSize::new(bounds.size.width, bounds.size.height),
     );
 
-    let tag_id = rect.tag.map(|tag| (tag, 0)).or({
+    let tag_id = rect.tag.or({
         layout_result.scrollable_nodes[dom_id].overflowing_nodes
         .get(&rect_idx)
-        .map(|scrolled| (scrolled.scroll_tag_id.0, 0))
+        .map(|scrolled| scrolled.scroll_tag_id.0)
     });
 
     let mut frame = DisplayListFrame {

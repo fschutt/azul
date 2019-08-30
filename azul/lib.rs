@@ -186,10 +186,6 @@ pub use azul_core::dom;
 pub use azul_core::diff;
 /// OpenGL helper functions, necessary to create OpenGL textures, manage contexts, etc.
 pub use azul_core::gl;
-/// Handles text layout (modularized, can be used as a standalone module)
-pub use azul_layout::text_layout as text_layout;
-/// Main `Layout` trait definition + convenience traits for `Arc<Mutex<T>>`
-pub use azul_core::traits;
 /// Window state handling and window-related information
 pub mod window;
 /// XML-based DOM serialization and XML-to-Rust compiler implementation
@@ -202,6 +198,19 @@ mod app_resources;
 mod wr_translate;
 
 pub use azul_core::{FastHashMap, FastHashSet};
+
+/// Traits `Layout`, `GetTextLayout` and `GetStyle` definitions
+pub mod traits {
+    pub use azul_core::traits::*;
+    pub use azul_layout::GetStyle;
+}
+
+/// Handles text layout (modularized, can be used as a standalone module)
+pub mod text_layout {
+    pub use azul_layout::text_layout::text_layout::*;
+    pub use azul_layout::text_layout::text_shaping::*;
+    pub use azul_layout::text_layout::InlineText;
+}
 
 /// Font & image resource handling, lookup and caching
 pub mod resources {
@@ -242,7 +251,6 @@ pub mod prelude {
             EventFilter, HoverEventFilter, FocusEventFilter, NotEventFilter, WindowEventFilter,
         },
         task::{Task, TerminateTimer, TimerId, Timer, DropCheck},
-        traits::Layout,
     };
     pub use crate::app::{App, AppConfig};
     pub use crate::window::{Window, MonitorHandle, Monitor};

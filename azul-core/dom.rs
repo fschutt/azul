@@ -20,23 +20,26 @@ pub use crate::id_tree::{NodeHierarchy, Node, NodeId};
 
 static TAG_ID: AtomicUsize = AtomicUsize::new(1);
 
-pub type TagId = u64;
+/// Unique Ttag" that is used to annotate which rectangles are relevant for hit-testing
+#[derive(Debug, Copy, Clone, PartialEq, Eq, Hash, Ord, PartialOrd)]
+pub struct TagId(pub u64);
 
 /// Same as the `TagId`, but only for scrollable nodes
 #[derive(Debug, Copy, Clone, PartialEq, Eq, Hash, Ord, PartialOrd)]
 pub struct ScrollTagId(pub TagId);
 
-pub fn new_tag_id() -> TagId {
-    TAG_ID.fetch_add(1, Ordering::SeqCst) as TagId
-}
-
-pub fn reset_tag_id() {
-    TAG_ID.swap(1, Ordering::SeqCst);
+impl TagId {
+    pub fn new() -> Self {
+        TagId(TAG_ID.fetch_add(1, Ordering::SeqCst) as u64)
+    }
+    pub fn reset() {
+        TAG_ID.swap(1, Ordering::SeqCst);
+    }
 }
 
 impl ScrollTagId {
     pub fn new() -> ScrollTagId {
-        ScrollTagId(new_tag_id())
+        ScrollTagId(TagId::new())
     }
 }
 
@@ -59,6 +62,7 @@ impl DomId {
     /// ID for the top-level DOM (of a window)
     pub const ROOT_ID: DomId = Self { id: 0, parent: None };
 
+    /// Creates a new, unique DOM ID.
     #[inline(always)]
     pub fn new(parent: Option<(DomId, NodeId)>) -> DomId {
         DomId {

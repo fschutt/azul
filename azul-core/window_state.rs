@@ -44,7 +44,7 @@ pub fn determine_callbacks<T>(
     // Figure out what the hovered NodeIds are
     let mut new_hit_node_ids: BTreeMap<NodeId, HitTestItem> = hit_test_items.iter().filter_map(|hit_test_item| {
         ui_state.tag_ids_to_node_ids
-        .get(&hit_test_item.tag.0)
+        .get(&hit_test_item.tag)
         .map(|node_id| (*node_id, hit_test_item.clone()))
     }).collect();
 
@@ -57,7 +57,7 @@ pub fn determine_callbacks<T>(
 
         // Find the first (closest to cursor in hierarchy) item that has a tabindex
         let closest_focus_node = hit_test_items.iter().rev()
-        .find_map(|item| ui_state.tab_index_tags.get(&item.tag.0))
+        .find_map(|item| ui_state.tab_index_tags.get(&item.tag))
         .cloned();
 
         // Even if the focused node is None, we still have to update window_state.focused_node!

@@ -13,10 +13,8 @@ use crate::{
     },
     callbacks::{
         LayoutInfo, Callback, LayoutCallback, DefaultCallback,
-        IFrameCallback, GlCallback, FocusTarget, RefAny,
+        IFrameCallback, GlCallback, RefAny,
     },
-    ui_description::UiDescription,
-    window::UpdateFocusWarning,
 };
 
 pub struct UiState<T> {
@@ -115,45 +113,12 @@ pub enum ActiveHover {
     Hover,
 }
 
-pub fn resolve_focus_target<T>(
-    target: FocusTarget,
-    ui_descriptions: &BTreeMap<DomId, UiDescription>,
-    ui_states: &BTreeMap<DomId, UiState<T>>,
-) -> Result<Option<(DomId, NodeId)>, UpdateFocusWarning> {
-
-    use crate::callbacks::FocusTarget::*;
-    use crate::style::matches_html_element;
-
-    match target {
-        Id((dom_id, node_id)) => {
-            let ui_state = ui_states.get(&dom_id).ok_or(UpdateFocusWarning::FocusInvalidDomId(dom_id.clone()))?;
-            let _ = ui_state.dom.arena.node_data.get(node_id).ok_or(UpdateFocusWarning::FocusInvalidNodeId(node_id))?;
-            Ok(Some((dom_id, node_id)))
-        },
-        NoFocus => Ok(None),
-        Path((dom_id, css_path)) => {
-            let ui_state = ui_states.get(&dom_id).ok_or(UpdateFocusWarning::FocusInvalidDomId(dom_id.clone()))?;
-            let ui_description = ui_descriptions.get(&dom_id).ok_or(UpdateFocusWarning::FocusInvalidDomId(dom_id.clone()))?;
-            let html_node_tree = &ui_description.html_tree;
-            let node_hierarchy = &ui_state.dom.arena.node_layout;
-            let node_data = &ui_state.dom.arena.node_data;
-            let resolved_node_id = html_node_tree
-                .linear_iter()
-                .find(|node_id| matches_html_element(&css_path, *node_id, &node_hierarchy, &node_data, &html_node_tree))
-                .ok_or(UpdateFocusWarning::CouldNotFindFocusNode(css_path))?;
-            Ok(Some((dom_id, resolved_node_id)))
-        },
-    }
-}
-
 impl<T> UiState<T> {
 
     /// The UiState contains all the tags (for hit-testing) as well as the mapping
     /// from Hit-testing tags to NodeIds (which are important for filtering input events
     /// and routing input events to the callbacks).
     pub fn new(dom: Dom<T>, parent_dom: Option<(DomId, NodeId)>) -> UiState<T> {
-
-        use crate::dom::new_tag_id;
 
         // NOTE: Originally it was allowed to create a DOM with
         // multiple root elements using `add_sibling()` and `with_sibling()`.
@@ -222,7 +187,7 @@ impl<T> UiState<T> {
             let node_hover_callbacks = filter_step_0!($event_filter, $callback_type, $data_source, $filter_func);
             if !node_hover_callbacks.is_empty() {
                 $final_callback_list.insert($node_id, node_hover_callbacks);
-                let tag_id = $node_tag_id.unwrap_or_else(|| new_tag_id());
+                let tag_id = $node_tag_id.unwrap_or_else(|| TagId::new());
                 $node_tag_id = Some(tag_id);
             }
         };}
@@ -260,12 +225,12 @@ impl<T> UiState<T> {
             let node_hover_callbacks = filter_step_0_default!($event_filter, $callback_type, $data_source, $filter_func);
             if !node_hover_callbacks.is_empty() {
                 $final_callback_list.insert($node_id, node_hover_callbacks);
-                let tag_id = $node_tag_id.unwrap_or_else(|| new_tag_id());
+                let tag_id = $node_tag_id.unwrap_or_else(|| TagId::new());
                 $node_tag_id = Some(tag_id);
             }
         };}
 
-        crate::dom::reset_tag_id();
+        TagId::reset();
 
         {
             let arena = &dom.arena;
@@ -368,7 +333,7 @@ impl<T> UiState<T> {
                 }
 
                 if node.get_is_draggable() {
-                    let tag_id = node_tag_id.unwrap_or_else(|| new_tag_id());
+                    let tag_id = node_tag_id.unwrap_or_else(|| TagId::new());
                     draggable_tags.insert(tag_id, node_id);
                     node_tag_id = Some(tag_id);
                 }
@@ -380,7 +345,7 @@ impl<T> UiState<T> {
                 let node_tab_index = node.get_tab_index().or(if should_insert_tabindex_auto { Some(TabIndex::Auto) } else { None });
 
                 if let Some(tab_index) = node_tab_index {
-                    let tag_id = node_tag_id.unwrap_or_else(|| new_tag_id());
+                    let tag_id = node_tag_id.unwrap_or_else(|| TagId::new());
                     tab_index_tags.insert(tag_id, (node_id, tab_index));
                     node_tag_id = Some(tag_id);
                 }
@@ -435,12 +400,11 @@ impl<T> UiState<T> {
     }
 
     pub fn create_tags_for_hover_nodes(&mut self, hover_nodes: &BTreeMap<NodeId, HoverGroup>) {
-        use crate::dom::new_tag_id;
 
         for (hover_node_id, hover_group) in hover_nodes {
             let hover_tag = match self.node_ids_to_tag_ids.get(hover_node_id) {
                 Some(tag_id) => *tag_id,
-                None => new_tag_id(),
+                None => TagId::new(),
             };
 
             self.node_ids_to_tag_ids.insert(*hover_node_id, hover_tag);
