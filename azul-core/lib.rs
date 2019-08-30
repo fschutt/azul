@@ -5,6 +5,9 @@ extern crate gleam;
 #[cfg(feature = "css_parser")]
 extern crate azul_css_parser;
 
+/// Useful macros for implementing Azul APIs without duplicating code
+#[macro_use]
+pub mod macros;
 /// Functions to manage adding fonts + images, garbage collection
 pub mod app_resources;
 /// Type definitions for various types of callbacks, as well as focus and scroll handling
