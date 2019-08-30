@@ -19,7 +19,7 @@ pub use azul_core::{
         LoadedImageSource, RawImage, ScaledWord, ScaledWords,
         SyntheticItalics, TextCache, TextId, UpdateImage, Word,
         WordPositions, Words, FontSource, ImageData, ImageSource,
-        RawImageFormat, CssFontId, CssImageId,
+        RawImageFormat, CssFontId, CssImageId, ImmediateFontId,
     },
     callbacks::PipelineId,
     id_tree::NodeDataContainer,

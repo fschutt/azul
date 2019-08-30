@@ -211,7 +211,7 @@ impl fmt::Debug for LayoutSize {
 
 impl fmt::Display for LayoutSize {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        write!(f, "{} x {}", self.width, self.height)
+        write!(f, "{}x{}", self.width, self.height)
     }
 }
 
@@ -234,7 +234,7 @@ impl fmt::Debug for LayoutPoint {
 
 impl fmt::Display for LayoutPoint {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        write!(f, "{}, {}", self.x, self.y)
+        write!(f, "({}, {})", self.x, self.y)
     }
 }
 
