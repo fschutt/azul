@@ -38,14 +38,6 @@ use crate::{
 };
 use gleam::gl::Gl;
 
-/// A tag that can be used to identify items during hit testing. If the tag
-/// is missing then the item doesn't take part in hit testing at all. This
-/// is composed of two numbers. In Servo, the first is an identifier while the
-/// second is used to select the cursor that should be used during mouse
-/// movement. In Gecko, the first is a scrollframe identifier, while the second
-/// is used to store various flags that APZ needs to properly process input
-/// events.
-pub type ItemTag = (u64, u16);
 pub type GlyphIndex = u32;
 
 #[derive(Debug, Copy, Clone, PartialEq, PartialOrd)]
