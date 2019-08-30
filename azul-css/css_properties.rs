@@ -110,8 +110,20 @@ const CSS_PROPERTY_KEY_MAP: [(CssPropertyType, &'static str);66] = [
 // depend on webrender, just to have the same types, azul-css should be a standalone crate.
 
 /// Only used for calculations: Rectangle (x, y, width, height) in layout space.
-#[derive(Debug, Copy, Clone, PartialEq, PartialOrd)]
+#[derive(Copy, Clone, PartialEq, PartialOrd)]
 pub struct LayoutRect { pub origin: LayoutPoint, pub size: LayoutSize }
+
+impl fmt::Debug for LayoutRect {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        write!(f, "{}", self)
+    }
+}
+
+impl fmt::Display for LayoutRect {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        write!(f, "{} @ {}", self.size, self.origin)
+    }
+}
 
 impl LayoutRect {
     #[inline(always)]
@@ -188,8 +200,20 @@ impl LayoutRect {
 }
 
 /// Only used for calculations: Size (width, height) in layout space.
-#[derive(Debug, Copy, Clone, PartialEq, PartialOrd)]
+#[derive(Copy, Clone, PartialEq, PartialOrd)]
 pub struct LayoutSize { pub width: f32, pub height: f32 }
+
+impl fmt::Debug for LayoutSize {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        write!(f, "{}", self)
+    }
+}
+
+impl fmt::Display for LayoutSize {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        write!(f, "{} x {}", self.width, self.height)
+    }
+}
 
 impl LayoutSize {
     #[inline(always)]
@@ -199,8 +223,20 @@ impl LayoutSize {
 }
 
 /// Only used for calculations: Point coordinate (x, y) in layout space.
-#[derive(Debug, Copy, Clone, PartialEq, PartialOrd)]
+#[derive(Copy, Clone, PartialEq, PartialOrd)]
 pub struct LayoutPoint { pub x: f32, pub y: f32 }
+
+impl fmt::Debug for LayoutPoint {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        write!(f, "{}", self)
+    }
+}
+
+impl fmt::Display for LayoutPoint {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        write!(f, "{}, {}", self.x, self.y)
+    }
+}
 
 impl LayoutPoint {
     #[inline(always)]

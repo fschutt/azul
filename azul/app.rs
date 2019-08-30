@@ -745,14 +745,12 @@ fn send_user_event<'a, T>(
     match ev {
         CreateWindow { window_create_options } => {
 
-            use azul_core::window::full_window_state_from_window_state;
-
             let event_loop_target = match &eld.event_loop_target {
                 Some(s) => s,
                 None => return,
             };
 
-            let full_window_state = full_window_state_from_window_state(window_create_options.state.clone());
+            let full_window_state: FullWindowState = window_create_options.state.clone().into();
             let window = Window::new(
                 eld.render_api,
                 eld.hidden_context.headless_context_not_current().unwrap(),
@@ -1179,11 +1177,9 @@ fn initialize_full_window_states(
     active_window_ids: &BTreeMap<WindowId, GlutinWindowId>,
     window_states: &BTreeMap<WindowId, WindowState>,
 ) -> BTreeMap<GlutinWindowId, FullWindowState> {
-    use azul_core::window::full_window_state_from_window_state;
-
     active_window_ids.iter().filter_map(|(window_id, glutin_window_id)| {
         let window_state = window_states.get(window_id)?;
-        let full_window_state = full_window_state_from_window_state(window_state.clone());
+        let full_window_state: FullWindowState = window_state.clone().into();
         Some((*glutin_window_id, full_window_state))
     }).collect()
 }
@@ -1388,7 +1384,7 @@ fn call_callbacks<T>(
     };
     let mut new_focus_target = None;
     let mut nodes_scrolled_in_callbacks = BTreeMap::new();
-    let mut modifiable_window_state = window::full_window_state_to_window_state(full_window_state);
+    let mut modifiable_window_state: WindowState = full_window_state.clone().into();
 
     // Run all default callbacks - **before** the user-defined callbacks are run!
     for (dom_id, ui_state) in ui_state_map.iter() {
