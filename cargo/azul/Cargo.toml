@@ -150,3 +150,8 @@ required-features = []
 name = "headless"
 path = "../../examples/headless/headless.rs"
 required-features = []
+
+[[example]]
+name = "layout_tests"
+path = "../../examples/layout_tests/layout_tests.rs"
+required-features = []
