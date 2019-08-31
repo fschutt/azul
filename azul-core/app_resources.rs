@@ -859,6 +859,12 @@ pub enum FontRenderMode {
     Subpixel,
 }
 
+#[cfg(target_arch = "wasm32")]
+#[derive(Debug, Default, Copy, Clone, PartialEq, Eq, Ord, PartialOrd, Hash)]
+pub struct FontInstancePlatformOptions {
+    // empty for now
+}
+
 #[cfg(target_os = "windows")]
 #[derive(Debug, Copy, Clone, PartialEq, Eq, Ord, PartialOrd, Hash)]
 pub struct FontInstancePlatformOptions {
@@ -1283,6 +1289,9 @@ pub fn build_add_font_resource_updates<T: FontImageApi>(
                 };
 
                 #[cfg(target_os = "macos")]
+                let platform_options = FontInstancePlatformOptions::default();
+
+                #[cfg(target_arch = "wasm32")]
                 let platform_options = FontInstancePlatformOptions::default();
 
                 let options = FontInstanceOptions {
