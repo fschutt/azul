@@ -1,0 +1,96 @@
+<!-- Test a basic block of 100x50px -->
+<test name="simple-width">
+    <html>
+        <div id="hello" />
+    </html>
+
+    <style>
+        #hello {
+            width: 100px;
+            height: 50px;
+        }
+    </style>
+
+    <output size="600x100">
+        Frame(
+            rect: 100x50 @ (0, 0),
+        )
+    </output>
+
+    <output size="800x1200">
+        Frame(
+            rect: 100x50 @ (0, 0),
+        )
+    </output>
+</test>
+
+<!-- Test that the percentage is propagated from the root -->
+<test name="calculate-percentage">
+    <html>
+        <div id="hello" />
+    </html>
+
+    <style>
+        #hello {
+            width: 100%;
+            height: 50%;
+        }
+    </style>
+
+    <output size="600x100">
+        Frame(
+            rect: 600x50 @ (0, 0),
+        )
+    </output>
+
+    <output size="800x1200">
+        Frame(
+            rect: 800x600 @ (0, 0),
+        )
+    </output>
+</test>
+
+<!-- Overflowing content should be displayed in a ScrollFrame -->
+<!--
+<test name="test-overflow-scrollframe">
+    <html>
+        <div id="hello" />
+    </html>
+
+    <style>
+        #hello {
+            width: 500px;
+            height: 500px;
+        }
+    </style>
+
+    <output size="10x10">
+        ScrollFrame(
+            rect: 500x500 @ (0, 0),
+        )
+    </output>
+</test>
+-->
+
+<!-- A margin on the root node should affect the position-->
+<!--
+<test name="margin-root">
+    <html>
+        <div id="hello" />
+    </html>
+
+    <style>
+        #hello {
+            width: 500px;
+            height: 500px;
+            margin: 50px;
+        }
+    </style>
+
+    <output size="500x500">
+        ScrollFrame(
+            rect: 600x600 @ (0, 0),
+        )
+    </output>
+</test>
+-->

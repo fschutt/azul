@@ -36,6 +36,10 @@
 
 - Shows how to use iterators to build a DOM by using an iterator over an array of strings
 
+## `layout_tests`
+
+- Runs all the layout tests in the `/tests` directory
+
 ## `opengl`
 
 - Shows how to render an OpenGL texture as an image via a `GlTextureCallback`
