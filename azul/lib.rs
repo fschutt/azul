@@ -250,9 +250,6 @@ mod compositor;
 mod logging;
 mod wr_translate;
 
-#[cfg(test)]
-mod test_runner;
-
 pub use azul_core::{FastHashMap, FastHashSet};
 
 /// Traits `Layout`, `GetTextLayout` and `GetStyle` definitions

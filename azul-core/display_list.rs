@@ -143,12 +143,20 @@ pub struct DisplayListFrame {
 
 impl fmt::Debug for DisplayListFrame {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        write!(f, "rect: {:#?},", self.rect)?;
+        let print_no_comma_rect =
+            !self.border_radius.is_none() ||
+            self.clip_rect.is_some() ||
+            self.tag.is_some() ||
+            !self.content.is_empty() ||
+            !self.children.is_empty();
+
+        write!(f, "rect: {:#?}{}", self.rect, if !print_no_comma_rect { "" } else { "," })?;
+
         if !self.border_radius.is_none() {
-            write!(f, "\r\nborder_radius: {:#?},", self.border_radius)?;
+            write!(f, "\r\nborder_radius: {:#?}", self.border_radius)?;
         }
         if let Some(clip_rect) = &self.clip_rect {
-            write!(f, "\r\nclip_rect: {:#?},", clip_rect)?;
+            write!(f, "\r\nclip_rect: {:#?}", clip_rect)?;
         }
         if let Some(tag) = &self.tag {
             write!(f, "\r\ntag: {}", tag.0)?;
