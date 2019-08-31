@@ -8,7 +8,10 @@ fn run_full_layout_tests() {
 
     use std::fs;
     use crate::{
-        xml::{self, DomXml, XmlNode},
+        xml::{
+            self, XmlComponentMap, render_dom_from_app_node_inner,
+            DomXml, XmlNode, FilteredComponentArguments,
+        },
         dom::Dom,
         css::Css,
     };
@@ -138,19 +141,21 @@ fn run_full_layout_tests() {
             Err(e) => panic!("File {:?} is not valid XML: error: {:?}, contents: {:?}", filename, e, file_contents),
         };
 
-        let html = DomXml::mock(get_content(find_root_node(&file_xml, "html").unwrap())).into_dom();
+        let root_node = find_root_node(&file_xml, "html").unwrap();
+        let first_child = root_node.children.get(0).unwrap();
+        let dom = render_dom_from_app_node_inner(&first_child, &XmlComponentMap::default(), &FilteredComponentArguments::default()).unwrap();
         let css = azul_css_parser::new_from_str(get_content(find_root_node(&file_xml, "style").unwrap())).unwrap();
         let expected_output = find_root_node(&file_xml, "output").unwrap();
         let expected_output_test = get_content(expected_output).lines().collect::<Vec<&str>>().join("\r\n");
         let output_size = parse_size(find_attribute(&expected_output, "size").unwrap()).unwrap();
-        let display_list = create_display_list(html, &css, output_size);
+        let display_list = create_display_list(dom, &css, output_size);
 
-        let output = format!("{:?}", display_list.root);
+        let output = format!("{:#?}", display_list.root);
         let output = output.lines().map(|l| format!("    {}", l)).collect::<Vec<String>>().join("\r\n");
 
         if output != expected_output_test {
             panic!(
-                "Failed test \"{}\" at size: {:?} - expected:\r\n{}\r\ngot:\r\n{}",
+                "\r\n\r\nFailed test \"{}\" at size: {:?}\r\nexpected:\r\n{}\r\n\r\ngot:\r\n\r\n{}\r\n\r\n",
                 filename, output_size, expected_output_test, output
             );
         }

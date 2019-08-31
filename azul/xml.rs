@@ -709,7 +709,7 @@ fn compile_component(component_name: &str, component_args: &FilteredComponentArg
     )
 }
 
-fn render_dom_from_app_node<T>(
+pub fn render_dom_from_app_node<T>(
     app_node: &XmlNode,
     component_map: &XmlComponentMap<T>
 ) -> Result<Dom<T>, RenderDomError> {
@@ -723,7 +723,7 @@ fn render_dom_from_app_node<T>(
 }
 
 /// Takes a single (expanded) app node and renders the DOM or returns an error
-fn render_dom_from_app_node_inner<T>(
+pub fn render_dom_from_app_node_inner<T>(
     xml_node: &XmlNode,
     component_map: &XmlComponentMap<T>,
     parent_xml_attributes: &FilteredComponentArguments,
