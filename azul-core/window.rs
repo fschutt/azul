@@ -462,12 +462,20 @@ impl Default for WindowFlags {
     }
 }
 
+#[cfg(target_arch = "wasm32")]
+pub type PlatformSpecificOptions = WasmWindowOptions;
 #[cfg(target_os = "windows")]
 pub type PlatformSpecificOptions = WindowsWindowOptions;
 #[cfg(target_os = "linux")]
 pub type PlatformSpecificOptions = LinuxWindowOptions;
 #[cfg(target_os = "macos")]
 pub type PlatformSpecificOptions = MacWindowOptions;
+
+#[cfg(target_arch = "wasm32")]
+#[derive(Debug, Default, Copy, Clone, PartialEq, PartialOrd, Eq, Ord, Hash)]
+pub struct WasmWindowOptions {
+    // empty for now
+}
 
 #[cfg(target_os = "windows")]
 #[derive(Debug, Default, Clone, PartialEq, PartialOrd, Eq, Ord, Hash)]
