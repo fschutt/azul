@@ -1,7 +1,7 @@
 extern crate azul_core;
 extern crate azul_css;
 
-#[cfg(feature = "svg")]
+#[cfg(feature = "fonts")]
 extern crate stb_truetype;
 #[cfg(feature = "svg")]
 extern crate gleam;

@@ -204,13 +204,13 @@ pub struct DropCheck(Arc<()>);
 /// Azul will join the thread automatically after it is finished (joining won't block the UI).
 pub struct Task<T> {
     // Thread handle of the currently in-progress task
-    join_handle: Option<JoinHandle<()>>,
+    join_handle: Option<JoinHandle<UpdateScreen>>,
     dropcheck: Weak<()>,
     /// Timer that will run directly after this task is completed.
     pub after_completion_timer: Option<Timer<T>>,
 }
 
-pub type TaskCallback<U> = fn(Arc<Mutex<U>>, DropCheck);
+pub type TaskCallback<U> = fn(Arc<Mutex<U>>, DropCheck) -> UpdateScreen;
 
 impl<T> Task<T> {
 
