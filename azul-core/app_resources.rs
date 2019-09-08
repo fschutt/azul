@@ -662,7 +662,7 @@ impl AppResources {
         self.image_sources.get(image_id)
     }
 
-    pub fn delete_image(&mut self, image_id: &ImageId) {
+    pub fn delete_image_source(&mut self, image_id: &ImageId) {
         self.image_sources.remove(image_id);
     }
 
@@ -722,6 +722,10 @@ impl AppResources {
         self.font_sources.remove(id);
     }
 
+    pub fn get_loaded_font(&self, pipeline_id: &PipelineId, font_id: &ImmediateFontId) -> Option<&LoadedFont> {
+        self.currently_registered_fonts.get(pipeline_id).and_then(|map| map.get(font_id))
+    }
+
     // -- TextId cache
 
     /// Adds a string to the internal text cache, but only store it as a string,
@@ -742,10 +746,6 @@ impl AppResources {
     /// Empties the entire internal text cache, invalidating all `TextId`s. Use with care.
     pub fn clear_all_texts(&mut self) {
         self.text_cache.clear_all_texts();
-    }
-
-    pub fn get_loaded_font(&self, pipeline_id: &PipelineId, font_id: &ImmediateFontId) -> Option<&LoadedFont> {
-        self.currently_registered_fonts.get(pipeline_id).and_then(|map| map.get(font_id))
     }
 }
 
