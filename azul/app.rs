@@ -25,7 +25,7 @@ use webrender::{
 use log::LevelFilter;
 use azul_css::{ColorU, HotReloadHandler};
 use crate::{
-    resources::WrApi,
+    resources::{ImageReloadError, WrApi, FontReloadError},
     window::{Window, ScrollStates, HeadlessContextState}
 };
 use azul_core::{
@@ -46,7 +46,10 @@ use azul_core::{
     ui_description::UiDescription,
     ui_solver::LayoutResult,
     display_list::CachedDisplayList,
-    app_resources::{AppResources, Epoch},
+    app_resources::{
+        AppResources, Epoch, FontId, ImageId, LoadedFont, ImmediateFontId,
+        TextId, ImageSource, FontSource, CssImageId, ImageInfo,
+    },
 };
 
 #[cfg(not(test))]
@@ -100,6 +103,8 @@ pub struct App<T> {
 
 impl<T> App<T> {
     impl_task_api!();
+    impl_image_api!(resources);
+    impl_font_api!(resources);
 }
 
 /// Configuration for optional features, such as whether to enable logging or panic hooks
