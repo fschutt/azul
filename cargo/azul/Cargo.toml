@@ -58,7 +58,9 @@ widgets = ["azul-widgets"]
 # Enable / disable the built-in SVG widgets (requires lyon - extra compilation time)
 svg = ["widgets", "azul-widgets/svg"]
 # Enable / disable the SVG parser (requires usvg)
-svg_parsing = ["svg", "azul-widgets/svg_parsing"]
+svg_parsing = ["svg", "widgets", "azul-widgets/svg_parsing"]
+# Enable / disable the built-in SVG widgets (requires lyon - extra compilation time)
+svg_fonts = ["widgets", "azul-widgets/fonts"]
 # Enable / disable the OS-native CSS style loader
 native_style = ["azul-native-style"]
 # On some applications you might not want to load any images. For these purposes

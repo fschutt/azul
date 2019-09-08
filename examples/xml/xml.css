@@ -8,26 +8,8 @@
 
 #green {
     position: absolute;
-    width: 100%;
-    bottom: 0px;
+    width: 100px;
+    bottom: -50px;
     height: 20px;
-    background: #222;
-}
-
-#green p {
-    color: white;
-    font-family: sans-serif;
-    font-size: 18px;
-}
-
-#red p {
-    color: white;
-    font-size: 50px;
-    width: 100%;
-    text-align: center;
     background: green;
-}
-
-#test p {
-    border-radius: 50px;
 }

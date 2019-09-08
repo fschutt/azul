@@ -27,7 +27,7 @@ lyon                    = { version = "0.11.0", default-features = false, option
 usvg                    = { version = "0.3.0",  default-features = false, optional = true                         }
 serde_derive            = { version = "1",      default-features = false, optional = true                         }
 serde                   = { version = "1",      default-features = false, optional = true                         }
-stb_truetype            = { version = "0.2.6",  default-features = false, optional = true                         }
+stb_truetype            = { version = "0.2.2",  default-features = false, optional = true                         }
 
 [features]
 default = []
