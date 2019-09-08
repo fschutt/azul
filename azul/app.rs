@@ -892,7 +892,6 @@ fn send_user_event<'a, T>(
             } // end of borrowing eld
 
             if should_call_callbacks {
-
                 if callbacks_update_screen {
                     eld.reverse_window_id_mapping.clone().keys().for_each(|window_id| {
                         send_user_event(AzulUpdateEvent::RebuildUi { window_id: *window_id }, eld);
@@ -901,12 +900,9 @@ fn send_user_event<'a, T>(
                     send_user_event(AzulUpdateEvent::RestyleUi { window_id, skip_layout: false }, eld);
                 } else if callbacks_hover_restyle {
                     send_user_event(AzulUpdateEvent::RestyleUi { window_id, skip_layout: callbacks_hover_relayout }, eld);
-                }
-
-                if nodes_were_scrolled_from_callbacks {
+                } else if nodes_were_scrolled_from_callbacks {
                     send_user_event(AzulUpdateEvent::UpdateScrollStates { window_id }, eld);
                 }
-
             } else if needs_relayout_anyways {
                 send_user_event(AzulUpdateEvent::RestyleUi { window_id, skip_layout: false }, eld);
             } else if needs_redraw_anyways {
@@ -1065,13 +1061,16 @@ fn send_user_event<'a, T>(
                     full_window_state,
                     eld.render_api,
                 );
+
+                send_user_event(AzulUpdateEvent::UpdateScrollStates { window_id }, eld);
+
             } // end borrowing &mut eld
 
             redraw_all_windows!();
         },
         UpdateScrollStates { window_id } => {
             // Synchronize all the scroll states from window.internal.scroll_states with webrender
-
+            println!("update scroll states!");
             let glutin_window_id = match eld.reverse_window_id_mapping.get(&window_id) {
                 Some(s) => s.clone(),
                 None => return,
@@ -1531,6 +1530,7 @@ fn send_display_list_to_webrender<T>(
 fn scroll_all_nodes(scroll_states: &mut ScrollStates, txn: &mut WrTransaction) {
     use webrender::api::ScrollClamping;
     use crate::wr_translate::{wr_translate_external_scroll_id, wr_translate_layout_point};
+    println!("scrolling nodes: {:#?}", scroll_states);
     for (key, value) in scroll_states.0.iter_mut() {
         txn.scroll_node_with_id(
             wr_translate_layout_point(value.get()),

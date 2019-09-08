@@ -1,8 +1,5 @@
 <app>
   <div id="red">
-      <div id="green">
-          <p>ldka jflkdlkdjfa dsalkfjdsalk sajf dslkfjds alkfjd </p>
-      </div>
-      <p id="test">Hallo</p>
+      <div id="green"></div>
   </div>
 </app>
