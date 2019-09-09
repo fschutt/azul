@@ -25,7 +25,7 @@ use webrender::{
 use log::LevelFilter;
 use azul_css::{ColorU, HotReloadHandler};
 use crate::{
-    resources::{ImageReloadError, WrApi, FontReloadError},
+    resources::WrApi,
     window::{Window, ScrollStates, HeadlessContextState}
 };
 use azul_core::{

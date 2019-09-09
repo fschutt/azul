@@ -1536,7 +1536,6 @@ pub struct VerticesIndicesBuffer {
     pub indices: Vec<u32>,
 }
 
-#[cfg_attr(feature = "serde_serialization", derive(Serialize, Deserialize))]
 #[derive(Debug, Copy, Clone)]
 pub struct BezierControlPoint {
     pub x: f32,
@@ -1547,6 +1546,11 @@ impl BezierControlPoint {
     /// Distance of two points
     pub fn distance(&self, other: &Self) -> f32 {
         ((other.x - self.x).powi(2) + (other.y - self.y).powi(2)).sqrt()
+    }
+
+    #[inline(always)]
+    pub const fn from_points((x, y): (f32, f32)) -> Self {
+        BezierControlPoint { x, y }
     }
 }
 

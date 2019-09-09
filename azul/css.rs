@@ -48,8 +48,6 @@ pub use azul_css::*;
 pub mod css_parser {
     pub use azul_css_parser::*;
 }
-#[cfg(feature = "css_parser")]
-pub use azul_css_parser::CssColor;
 #[cfg(feature = "native_style")]
 pub mod native_style {
     pub use azul_native_style::*;
