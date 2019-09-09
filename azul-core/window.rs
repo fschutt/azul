@@ -758,7 +758,7 @@ pub struct WindowCreateOptions<T> {
     #[cfg(not(test))]
     /// An optional style hot-reloader for the current window, only available with debug_assertions
     /// enabled
-    pub hot_reload_handler: Option<HotReloader>,
+    pub hot_reload_handler: Option<Box<dyn HotReloadHandler>>,
     // Marker, necessary to create a Window<T> out of the create options
     pub marker: PhantomData<T>,
 }
@@ -807,7 +807,7 @@ impl<T> WindowCreateOptions<T> {
     #[cfg(debug_assertions)]
     pub fn new_hot_reload(hot_reload_handler: Box<dyn HotReloadHandler>) -> Self {
         Self {
-            hot_reload_handler: Some(HotReloader::new(hot_reload_handler)),
+            hot_reload_handler: Some(hot_reload_handler),
             .. Default::default()
         }
     }
