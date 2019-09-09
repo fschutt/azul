@@ -463,7 +463,7 @@ impl<T> Window<T> {
             renderer_type: options.renderer_type,
             #[cfg(not(test))]
             #[cfg(debug_assertions)]
-            hot_reload_handler: options.hot_reload_handler,
+            hot_reload_handler: options.hot_reload_handler.map(|w| HotReloader::new(w)),
             display: ContextState::NotCurrent(gl_window),
             internal: WindowInternal {
                 epoch: Epoch(0),

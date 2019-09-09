@@ -22,8 +22,3 @@ path = "../../azul-css-parser/lib.rs"
 [dependencies]
 azul-css                = { path = "../azul-css",   default-features = false }
 azul-simplecss          = { version = "0.1.1",      default-features = false }
-serde                   = { version = "1",          default-features = false, optional = true }
-
-[features]
-default = []
-serde_serialization = ["serde"]

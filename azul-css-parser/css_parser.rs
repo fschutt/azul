@@ -106,7 +106,7 @@ macro_rules! typed_pixel_value_parser {
 /// ```rust
 /// # extern crate azul_css_parser;
 /// # extern crate azul_css;
-/// 
+///
 /// # use azul_css_parser;
 /// # use azul_css::{LayoutWidth, PixelValue, CssPropertyType, CssPropertyValue, CssProperty};
 /// assert_eq!(
@@ -855,6 +855,13 @@ pub fn parse_css_color<'a>(input: &'a str)
             },
         }
     }
+}
+
+/// Formats a ColorU in hex format
+pub fn css_color_to_string(color: ColorU, prefix_hash: bool) -> String {
+    let prefix = if prefix_hash { "#" } else { "" };
+    let alpha = if color.a == 255 { String::new() } else { format!("{:02x}", color.a) };
+    format!("{}{:02x}{:02x}{:02x}{}", prefix, color.r, color.g, color.b, alpha)
 }
 
 pub fn parse_float_value(input: &str)
@@ -2451,7 +2458,7 @@ multi_type_parser!(parse_layout_text_align, StyleTextAlignmentHorz,
 mod css_tests {
     use super::*;
 
-    
+
     #[test]
     fn test_parse_box_shadow_1() {
         assert_eq!(
