@@ -577,8 +577,6 @@ fn create_window_builder(
     has_transparent_background: bool,
     platform_options: &MacWindowOptions,
 ) -> GlutinWindowBuilder {
-    use glutin::platform::windows::WindowBuilderExtMac;
-
     let mut window_builder = GlutinWindowBuilder::new()
         .with_transparent(has_transparent_background);
 
@@ -857,10 +855,11 @@ fn synchronize_os_window_mac_extensions(
     new_state: &MacWindowOptions,
     window: &GlutinWindow,
 ) {
-    use glutin::platform::macos::WindowExtMacOs;
+    use glutin::platform::macos::WindowExtMacOS;
+    use glutin::platform::macos::RequestUserAttentionType;
 
-    if old_state.request_user_attention != new_state.request_user_attention {
-        window.set_urgent(new_state.request_user_attention);
+    if old_state.request_user_attention != new_state.request_user_attention && new_state.request_user_attention {
+        window.request_user_attention(RequestUserAttentionType::Informational);
     }
 }
 
@@ -901,9 +900,12 @@ fn initialize_os_window_mac_extensions(
     new_state: &MacWindowOptions,
     window: &GlutinWindow,
 ) {
-    use glutin::platform::macos::WindowExtMacOs;
+    use glutin::platform::macos::WindowExtMacOS;
+    use glutin::platform::macos::RequestUserAttentionType;
 
-    window.set_urgent(new_state.request_user_attention);
+    if new_state.request_user_attention {
+        window.request_user_attention(RequestUserAttentionType::Informational);
+    }
 }
 
 /// Overwrites all fields of the `FullWindowState` with the fields of the `WindowState`,
@@ -1004,11 +1006,11 @@ fn get_gl_context(gl_window: &Context<PossiblyCurrent>) -> Result<Rc<dyn Gl>, Gl
 #[allow(unused_variables)]
 fn get_hidpi_factor(window: &GlutinWindow, event_loop: &EventLoopWindowTarget<()>) -> (f32, f32) {
 
-    use crate::glutin::platform::unix::EventLoopWindowTargetExtUnix;
-
     let winit_hidpi_factor = window.hidpi_factor() as f32;
 
     #[cfg(target_os = "linux")] {
+        use crate::glutin::platform::unix::EventLoopWindowTargetExtUnix;
+
         let is_x11 = event_loop.is_x11();
         (linux_get_hidpi_factor(is_x11).unwrap_or(winit_hidpi_factor), winit_hidpi_factor)
     }
