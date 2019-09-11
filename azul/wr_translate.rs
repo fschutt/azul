@@ -50,10 +50,14 @@ use webrender::api::{
     FontVariation as WrFontVariation,
     FontInstanceOptions as WrFontInstanceOptions,
     FontInstancePlatformOptions as WrFontInstancePlatformOptions,
-    FontLCDFilter as WrFontLCDFilter,
-    FontHinting as WrFontHinting,
     SyntheticItalics as WrSyntheticItalics,
 };
+#[cfg(not(any(target_os = "macos", target_os = "windows")))]
+use webrender::api::{
+    FontLCDFilter as WrFontLCDFilter,
+    FontHinting as WrFontHinting,
+};
+
 use azul_core::{
     callbacks::{HitTestItem, PipelineId},
     app_resources::{
@@ -622,6 +626,7 @@ const fn wr_translate_font_instance_platform_options(fio: FontInstancePlatformOp
     }
 }
 
+#[cfg(not(any(target_os = "macos", target_os = "windows")))]
 #[inline(always)]
 fn wr_translate_font_hinting(lcd: FontHinting) -> WrFontHinting {
     match lcd {
@@ -633,6 +638,7 @@ fn wr_translate_font_hinting(lcd: FontHinting) -> WrFontHinting {
     }
 }
 
+#[cfg(not(any(target_os = "macos", target_os = "windows")))]
 #[inline(always)]
 fn wr_translate_font_lcd_filter(lcd: FontLCDFilter) -> WrFontLCDFilter {
     match lcd {
@@ -643,6 +649,7 @@ fn wr_translate_font_lcd_filter(lcd: FontLCDFilter) -> WrFontLCDFilter {
     }
 }
 
+#[cfg(not(target_os = "macos"))]
 fn wr_translate_font_instance_platform_options(fio: FontInstancePlatformOptions) -> WrFontInstancePlatformOptions {
     WrFontInstancePlatformOptions {
         lcd_filter: wr_translate_font_lcd_filter(fio.lcd_filter),
