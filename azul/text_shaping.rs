@@ -82,7 +82,7 @@ impl<'a> HbFont<'a> {
         let user_data_ptr = ptr::null_mut();
         let destroy_func = None;
 
-        let font_ptr = font_bytes.as_ptr() as *const i8;
+        let font_ptr = font_bytes.as_ptr() as *const c_char;
         let hb_face_bytes = unsafe {
             hb_blob_create(font_ptr, font_bytes.len() as u32, MEMORY_MODE_READONLY, user_data_ptr, destroy_func)
         };
