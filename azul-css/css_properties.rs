@@ -2014,11 +2014,12 @@ pub enum LayoutAxis {
 pub enum LayoutDisplay {
     Flex,
     Inline,
+    Block,
 }
 
 impl Default for LayoutDisplay {
     fn default() -> Self {
-        LayoutDisplay::Flex
+        LayoutDisplay::Block
     }
 }
 

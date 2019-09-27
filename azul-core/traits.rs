@@ -36,6 +36,14 @@ pub trait Layout {
     /// // let new_ui = MyDataModel::layout();
     /// ```
     fn layout(&self, layout_info: LayoutInfo) -> Dom<Self> where Self: Sized;
+
+    /// Same as layout(), but set the node 0 to be of node type `body`.
+    fn layout_with_root_node_as_body(&self, layout_info: LayoutInfo) -> Dom<Self> where Self: Sized {
+        use crate::{dom::NodeType, id_tree::NodeId};
+        let mut dom = self.layout(layout_info);
+        dom.arena.node_data[NodeId::ZERO].set_node_type(NodeType::Body);
+        dom
+    }
 }
 
 pub trait GetTextLayout {

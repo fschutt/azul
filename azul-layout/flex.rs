@@ -25,7 +25,7 @@ use std::{collections::BTreeMap, f32};
 use azul_css::{LayoutRect, LayoutPoint, LayoutSize};
 use azul_core::{
     ui_solver::{PositionedRectangle, ResolvedTextLayoutOptions, InlineTextLayout, ResolvedOffsets},
-    id_tree::{NodeHierarchy, NodeDataContainer},
+    id_tree::{NodeHierarchy, NodeDepths, NodeDataContainer},
     dom::NodeId,
 };
 use crate::{
@@ -81,6 +81,7 @@ pub(crate) fn compute<T: GetTextLayout>(
     node_styles: &NodeDataContainer<Style>,
     rect_contents: &mut BTreeMap<NodeId, RectContent<T>>,
     root_size: LayoutSize,
+    _node_depths: &NodeDepths,
 ) -> NodeDataContainer<PositionedRectangle> {
 
     use azul_css::Overflow as LayoutOverflow;

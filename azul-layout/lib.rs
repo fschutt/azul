@@ -29,22 +29,23 @@ use std::collections::BTreeMap;
 use azul_css::LayoutRect;
 use azul_core::{
     ui_solver::PositionedRectangle,
-    id_tree::{NodeHierarchy, NodeDataContainer},
+    id_tree::{NodeHierarchy, NodeDepths, NodeDataContainer},
     dom::NodeId,
     display_list::DisplayRectangle,
     traits::GetTextLayout,
 };
-use crate::style::Style;
 
-mod algo;
+mod flex;
+mod block;
 mod number;
 mod geometry;
 
 pub mod style;
 #[cfg(feature = "text_layout")]
 pub mod ui_solver;
-pub use geometry::{Size, Offsets};
-pub use number::Number;
+pub use crate::geometry::{Size, Offsets};
+pub use crate::number::Number;
+pub use crate::style::Style;
 
 pub trait GetStyle {
     fn get_style(&self) -> Style;
@@ -88,26 +89,25 @@ impl SolvedUi {
         bounds: LayoutRect,
         node_hierarchy: &NodeHierarchy,
         display_rects: &NodeDataContainer<T>,
-        mut rect_contents: BTreeMap<NodeId, RectContent<U>>,
+        rect_contents: &mut BTreeMap<NodeId, RectContent<U>>,
+        node_depths: &NodeDepths,
     ) -> Self {
 
-        let styles = display_rects.transform(|node, node_id| {
-
-            let image_aspect_ratio = match rect_contents.get(&node_id) {
+        let styles = display_rects.transform(|node, node_id| Style {
+            aspect_ratio: match rect_contents.get(&node_id) {
                 Some(RectContent::Image(w, h)) => Number::Defined(*w as f32 / *h as f32),
                 _ => Number::Undefined,
-            };
-
-            let mut style = node.get_style();
-            style.aspect_ratio = image_aspect_ratio;
-            style
+            },
+            .. node.get_style()
         });
 
-        let mut solved_rects = algo::compute(NodeId::ZERO, node_hierarchy, &styles, &mut rect_contents, bounds.size);
+        // let mut solved_rects = flex::compute(NodeId::ZERO, node_hierarchy, &styles, rect_contents, bounds.size, node_depths);
+        let mut solved_rects = block::compute(NodeId::ZERO, node_hierarchy, &styles, rect_contents, bounds.size, node_depths);
 
         // Offset all layouted rectangles by the origin of the bounds
         let origin_x = bounds.origin.x;
         let origin_y = bounds.origin.y;
+
         for rect in solved_rects.internal.iter_mut() {
             rect.bounds.origin.x += origin_x;
             rect.bounds.origin.y += origin_y;
@@ -153,10 +153,11 @@ impl GetStyle for DisplayRectangle {
         Style {
             display: match rect_layout.display {
                 None => Display::Flex,
-                Some(CssPropertyValue::Auto) => Display::Flex,
                 Some(CssPropertyValue::None) => Display::None,
-                Some(CssPropertyValue::Initial) => Display::Flex,
-                Some(CssPropertyValue::Inherit) => Display::Flex,
+                Some(CssPropertyValue::Auto) => Display::Block,
+                Some(CssPropertyValue::Initial) => Display::Block,
+                Some(CssPropertyValue::Inherit) => Display::Block,
+                Some(CssPropertyValue::Exact(LayoutDisplay::Block)) => Display::Block,
                 Some(CssPropertyValue::Exact(LayoutDisplay::Flex)) => Display::Flex,
                 Some(CssPropertyValue::Exact(LayoutDisplay::Inline)) => Display::Inline,
             },

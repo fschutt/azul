@@ -89,13 +89,14 @@ impl Default for Direction {
 #[derive(Copy, Clone, PartialEq, Debug)]
 pub enum Display {
     Flex,
+    Block,
     Inline,
     None,
 }
 
 impl Default for Display {
     fn default() -> Display {
-        Display::Flex
+        Display::Block
     }
 }
 

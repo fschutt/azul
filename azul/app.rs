@@ -196,7 +196,7 @@ impl<T: Layout> App<T> {
                 timers: FastHashMap::default(),
                 tasks: Vec::new(),
                 config: app_config,
-                layout_callback: T::layout,
+                layout_callback: T::layout_with_root_node_as_body,
                 fake_display,
             })
         }

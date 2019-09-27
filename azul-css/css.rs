@@ -243,6 +243,7 @@ pub type CssContentGroup<'a> = Vec<&'a CssPathSelector>;
 /// without carrying any of its associated data
 #[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub enum NodeTypePath {
+    Body,
     Div,
     P,
     Img,
@@ -263,7 +264,8 @@ impl<'a> fmt::Display for NodeTypePathParseError<'a> {
     }
 }
 
-const NODE_TYPE_PATH_MAP: [(NodeTypePath, &'static str); 5] = [
+const NODE_TYPE_PATH_MAP: [(NodeTypePath, &'static str); 6] = [
+    (NodeTypePath::Body, "body"),
     (NodeTypePath::Div, "div"),
     (NodeTypePath::P, "p"),
     (NodeTypePath::Img, "img"),

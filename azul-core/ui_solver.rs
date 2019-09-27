@@ -83,7 +83,7 @@ impl InlineTextLayout {
         let child_top_edge = self_bounds.origin.y;
         let shift = (child_top_edge - parent_top_edge) + (parent_bottom_edge - child_bottom_edge);
 
-        for line in &mut self.lines {
+        for line in self.lines.iter_mut() {
             line.bounds.origin.y += shift * shift_multiplier;
         }
     }

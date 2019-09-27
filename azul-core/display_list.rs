@@ -33,7 +33,6 @@ use crate::{
     id_tree::{NodeDataContainer, NodeId, NodeHierarchy},
     dom::{
         DomId, NodeData, TagId, ScrollTagId, DomString,
-        NodeType::{Div, Text, Image, GlTexture, IFrame, Label},
     },
 };
 use gleam::gl::Gl;
@@ -1020,6 +1019,8 @@ pub fn displaylist_handle_rect<'a, T>(
     referenced_content: &DisplayListParametersRef<'a, T>,
 ) -> DisplayListMsg {
 
+    use crate::dom::NodeType::*;
+
     let DisplayListParametersRef {
         dom_id,
         pipeline_id,
@@ -1102,7 +1103,7 @@ pub fn displaylist_handle_rect<'a, T>(
     }
 
     match html_node {
-        Div => { },
+        Div | Body => { },
         Text(_) | Label(_) => {
             if let Some(layouted_glyphs) = layout_result.solved_layouts.get(dom_id).and_then(|lr| lr.layouted_glyph_cache.get(&rect_idx)).cloned() {
 

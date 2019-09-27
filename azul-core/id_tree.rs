@@ -4,6 +4,7 @@ use std::{
 };
 
 pub use self::node_id::NodeId;
+pub type NodeDepths = Vec<(usize, NodeId)>;
 
 // Since private fields are module-based, this prevents any module from accessing
 // `NodeId.index` directly. To get the correct node index is by using `NodeId::index()`,
@@ -158,7 +159,7 @@ impl NodeHierarchy {
     /// the first element.
     ///
     /// Runtime: O(n) max
-    pub fn get_parents_sorted_by_depth(&self) -> Vec<(usize, NodeId)> {
+    pub fn get_parents_sorted_by_depth(&self) -> NodeDepths {
 
         let mut non_leaf_nodes = Vec::new();
         let mut current_children = vec![(0, NodeId::new(0))];

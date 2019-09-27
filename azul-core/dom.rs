@@ -92,6 +92,8 @@ pub struct DomHash(pub u64);
 pub enum NodeType<T> {
     /// Regular div with no particular type of data attached
     Div,
+    /// Same as div, but only for the root node
+    Body,
     /// A small label that can be (optionally) be selectable with the mouse
     Label(DomString),
     /// Larger amount of text, that has to be cached
@@ -111,7 +113,7 @@ impl<T> NodeType<T> {
     fn get_text_content(&self) -> Option<String> {
         use self::NodeType::*;
         match self {
-            Div => None,
+            Div | Body => None,
             Label(s) => Some(format!("{}", s)),
             Image(id) => Some(format!("image({:?})", id)),
             Text(t) => Some(format!("textid({:?})", t)),
@@ -128,6 +130,7 @@ impl<T> fmt::Debug for NodeType<T> {
         use self::NodeType::*;
         match self {
             Div => write!(f, "NodeType::Div"),
+            Body => write!(f, "NodeType::Body"),
             Label(a) => write!(f, "NodeType::Label {{ {:?} }}", a),
             Text(a) => write!(f, "NodeType::Text {{ {:?} }}", a),
             Image(a) => write!(f, "NodeType::Image {{ {:?} }}", a),
@@ -142,6 +145,7 @@ impl<T> Clone for NodeType<T> {
         use self::NodeType::*;
         match self {
             Div => Div,
+            Body => Body,
             Label(a) => Label(a.clone()),
             Text(a) => Text(a.clone()),
             Image(a) => Image(a.clone()),
@@ -157,7 +161,7 @@ impl<T> Hash for NodeType<T> {
         use std::mem;
         mem::discriminant(&self).hash(state);
         match self {
-            Div => { },
+            Div | Body => { },
             Label(a) => a.hash(state),
             Text(a) => a.hash(state),
             Image(a) => a.hash(state),
@@ -178,6 +182,7 @@ impl<T> PartialEq for NodeType<T> {
         use self::NodeType::*;
         match (self, rhs) {
             (Div, Div) => true,
+            (Body, Body) => true,
             (Label(a), Label(b)) => a == b,
             (Text(a), Text(b)) => a == b,
             (Image(a), Image(b)) => a == b,
@@ -200,6 +205,7 @@ impl<T> NodeType<T> {
         use self::NodeType::*;
         match self {
             Div => NodeTypePath::Div,
+            Body => NodeTypePath::Body,
             Label(_) | Text(_) => NodeTypePath::P,
             Image(_) => NodeTypePath::Img,
             GlTexture(_) => NodeTypePath::Texture,
@@ -805,6 +811,12 @@ impl<T> NodeData<T> {
         DomHash(hasher.finish())
     }
 
+    /// Shorthand for `NodeData::new(NodeType::Body)`.
+    #[inline(always)]
+    pub fn body() -> Self {
+        Self::new(NodeType::Body)
+    }
+
     /// Shorthand for `NodeData::new(NodeType::Div)`.
     #[inline(always)]
     pub fn div() -> Self {
@@ -1012,7 +1024,7 @@ impl<T> fmt::Debug for Dom<T> {
 
 impl<T> FromIterator<Dom<T>> for Dom<T> {
     fn from_iter<I: IntoIterator<Item=Dom<T>>>(iter: I) -> Self {
-        let mut c = Dom::new(NodeType::Div);
+        let mut c = Dom::div();
         for i in iter {
             c.add_child(i);
         }
@@ -1027,7 +1039,7 @@ impl<T> FromIterator<NodeData<T>> for Dom<T> {
         // the iterator executes 0 times (and therefore pushes 0 nodes)
 
         // "Root" node of this DOM
-        let mut node_data = vec![NodeData::new(NodeType::Div)];
+        let mut node_data = vec![NodeData::div()];
         let mut node_layout = vec![Node {
             parent: None,
             previous_sibling: None,
@@ -1144,55 +1156,55 @@ impl<T> Dom<T> {
     }
 
     /// Shorthand for `Dom::new(NodeType::Div)`.
-    #[inline]
+    #[inline(always)]
     pub fn div() -> Self {
         Self::new(NodeType::Div)
     }
 
     /// Shorthand for `Dom::new(NodeType::Label(value.into()))`
-    #[inline]
+    #[inline(always)]
     pub fn label<S: Into<DomString>>(value: S) -> Self {
         Self::new(NodeType::Label(value.into()))
     }
 
     /// Shorthand for `Dom::new(NodeType::Text(text_id))`
-    #[inline]
+    #[inline(always)]
     pub fn text_id(text_id: TextId) -> Self {
         Self::new(NodeType::Text(text_id))
     }
 
     /// Shorthand for `Dom::new(NodeType::Image(image_id))`
-    #[inline]
+    #[inline(always)]
     pub fn image(image: ImageId) -> Self {
         Self::new(NodeType::Image(image))
     }
 
     /// Shorthand for `Dom::new(NodeType::GlTexture((callback, ptr)))`
-    #[inline]
+    #[inline(always)]
     pub fn gl_texture<I: Into<RefAny>>(callback: GlCallbackType, ptr: I) -> Self {
         Self::new(NodeType::GlTexture((GlCallback(callback), ptr.into())))
     }
 
     /// Shorthand for `Dom::new(NodeType::IFrame((callback, ptr)))`
-    #[inline]
+    #[inline(always)]
     pub fn iframe<I: Into<RefAny>>(callback: IFrameCallbackType<T>, ptr: I) -> Self {
         Self::new(NodeType::IFrame((IFrameCallback(callback), ptr.into())))
     }
 
     /// Returns the number of nodes in this DOM
-    #[inline]
+    #[inline(always)]
     pub fn len(&self) -> usize {
         self.arena.len()
     }
 
     /// Returns an immutable reference to the current HEAD of the DOM structure (the last inserted element)
-    #[inline]
+    #[inline(always)]
     pub fn get_head_node(&self) -> &NodeData<T> {
         &self.arena.node_data[self.head]
     }
 
     /// Returns a mutable reference to the current HEAD of the DOM structure (the last inserted element)
-    #[inline]
+    #[inline(always)]
     pub fn get_head_node_mut(&mut self) -> &mut NodeData<T> {
         &mut self.arena.node_data[self.head]
     }
