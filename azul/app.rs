@@ -196,7 +196,7 @@ impl<T: Layout> App<T> {
                 timers: FastHashMap::default(),
                 tasks: Vec::new(),
                 config: app_config,
-                layout_callback: T::layout_with_root_node_as_body,
+                layout_callback: T::layout,
                 fake_display,
             })
         }
@@ -1377,7 +1377,7 @@ fn call_callbacks<T>(
             let hit_item = &callback_results.hit_test_item;
             for event_filter in callback_results.default_callbacks.keys() {
 
-                let default_callback = ui_state.dom.arena.node_data
+                let default_callback = ui_state.get_dom().arena.node_data
                     .get(*node_id)
                     .map(|nd| nd.get_default_callbacks())
                     .and_then(|dc| dc.iter().find_map(|(evt, cb)| if evt == event_filter { Some(cb) } else { None }));

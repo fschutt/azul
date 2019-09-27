@@ -56,7 +56,7 @@ fn parse_size(output_size: &str) -> Option<(f32, f32)> {
     Some((w, h))
 }
 
-fn create_display_list(dom: Dom<Mock>, css: &Css, size: (f32, f32)) -> CachedDisplayList {
+fn create_display_list(dom: Dom<Mock>, mut css: Css, size: (f32, f32)) -> CachedDisplayList {
 
     use std::{rc::Rc, collections::BTreeMap};
     use azul_core::{
@@ -71,23 +71,35 @@ fn create_display_list(dom: Dom<Mock>, css: &Css, size: (f32, f32)) -> CachedDis
         gl::VirtualGlDriver,
         ui_state::UiState,
         ui_description::UiDescription,
-        window::{WindowSize, FullWindowState, LogicalSize},
+        window::FullWindowState,
+    };
+    use azul_css::{
+        CssRuleBlock, CssPath, Stylesheet, CssProperty,
+        LayoutWidth, LayoutHeight, CssPropertyValue,
+        CssDeclaration, CssPathSelector, NodeTypePath,
     };
 
     fn load_font(_: &FontSource) -> Option<LoadedFontSource> { None }
     fn load_image(_: &ImageSource) -> Option<LoadedImageSource> { None }
 
+    // Prepend new stylesheet to control width / height of body
+    //
+    // format!("body { width: {{}}, height: {{}} }", size.0, size.1);
+    let body_stylesheet = &[Stylesheet {
+        rules: vec![CssRuleBlock {
+            path: CssPath { selectors: vec![CssPathSelector::Type(NodeTypePath::Body)] },
+            declarations: vec![
+                CssDeclaration::Static(CssProperty::Width(CssPropertyValue::Exact(LayoutWidth::px(size.0)))),
+                CssDeclaration::Static(CssProperty::Height(CssPropertyValue::Exact(LayoutHeight::px(size.1)))),
+            ],
+        }]
+    }];
+    css.stylesheets.splice(0..0, body_stylesheet.iter().cloned());
+
     let mut app_resources = AppResources::new();
     let mut render_api = FakeRenderApi::new();
 
-    let fake_window_state = FullWindowState {
-        size: WindowSize {
-            dimensions: LogicalSize::new(size.0, size.1),
-            .. Default::default()
-        },
-        .. Default::default()
-    };
-
+    let fake_window_state = FullWindowState::default();
     let gl_context = Rc::new(VirtualGlDriver::new());
     let pipeline_id = PipelineId::new();
     let epoch = Epoch(0);
@@ -165,7 +177,7 @@ fn main() {
                 let expected_output_test = expected_output_test.iter().map(|l| &l[trim_until..]).collect::<Vec<&str>>();
                 let expected_output_test = expected_output_test.join("\r\n");
                 let output_size = parse_size(find_attribute(&expected_output, "size").unwrap()).unwrap();
-                let display_list = create_display_list(dom.clone(), &css, output_size);
+                let display_list = create_display_list(dom.clone(), css.clone(), output_size);
 
                 let output = format!("{:#?}", display_list.root);
                 let output = output.lines().collect::<Vec<&str>>().join("\r\n");

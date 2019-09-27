@@ -21,7 +21,7 @@ pub struct UiState<T> {
     /// Unique identifier for the DOM
     pub dom_id: DomId,
     /// The actual DOM, rendered from the .layout() function
-    pub dom: Dom<T>,
+    pub(crate) dom: Dom<T>,
     /// The style properties that should be overridden for this frame, cloned from the `Css`
     pub dynamic_css_overrides: BTreeMap<NodeId, FastHashMap<DomString, CssProperty>>,
     /// Stores all tags for nodes that need to activate on a `:hover` or `:active` event.
@@ -52,6 +52,13 @@ pub struct UiState<T> {
     pub not_default_callbacks:          BTreeMap<NodeId, BTreeMap<NotEventFilter, DefaultCallback<T>>>,
     pub window_callbacks:               BTreeMap<NodeId, BTreeMap<WindowEventFilter, Callback<T>>>,
     pub window_default_callbacks:       BTreeMap<NodeId, BTreeMap<WindowEventFilter, DefaultCallback<T>>>,
+}
+
+impl<T> UiState<T> {
+    #[inline(always)]
+    pub const fn get_dom(&self) -> &Dom<T> {
+        &self.dom
+    }
 }
 
 impl<T> fmt::Debug for UiState<T> {
@@ -118,7 +125,12 @@ impl<T> UiState<T> {
     /// The UiState contains all the tags (for hit-testing) as well as the mapping
     /// from Hit-testing tags to NodeIds (which are important for filtering input events
     /// and routing input events to the callbacks).
-    pub fn new(dom: Dom<T>, parent_dom: Option<(DomId, NodeId)>) -> UiState<T> {
+    pub fn new(mut dom: Dom<T>, parent_dom: Option<(DomId, NodeId)>) -> UiState<T> {
+
+        use crate::dom::NodeType;
+
+        // NOTE: root node has to have the type "body"
+        dom.arena.node_data[NodeId::ZERO].set_node_type(NodeType::Body);
 
         // NOTE: Originally it was allowed to create a DOM with
         // multiple root elements using `add_sibling()` and `with_sibling()`.

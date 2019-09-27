@@ -665,7 +665,6 @@ impl SolvedLayout {
                         bounds: HidpiAdjustedBounds::from_bounds(
                             rect_bounds,
                             full_window_state.size.hidpi_factor,
-                            full_window_state.size.winit_hidpi_factor,
                         ),
                     });
 
@@ -692,7 +691,6 @@ impl SolvedLayout {
                 let hidpi_bounds = HidpiAdjustedBounds::from_bounds(
                     bounds,
                     full_window_state.size.hidpi_factor,
-                    full_window_state.size.winit_hidpi_factor
                 );
 
                 // TODO: Unused!
