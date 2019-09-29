@@ -88,6 +88,7 @@ impl Default for Direction {
 
 #[derive(Copy, Clone, PartialEq, Debug)]
 pub enum Display {
+    Fixed,
     Flex,
     Block,
     Inline,

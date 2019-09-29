@@ -2012,6 +2012,7 @@ pub enum LayoutAxis {
 /// Represents a `display` attribute
 #[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub enum LayoutDisplay {
+    Fixed,
     Flex,
     Inline,
     Block,

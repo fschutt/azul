@@ -2391,6 +2391,7 @@ multi_type_parser!(parse_style_background_repeat, StyleBackgroundRepeat,
                     ["repeat-y", RepeatY]);
 
 multi_type_parser!(parse_layout_display, LayoutDisplay,
+                    ["fixed", Fixed],
                     ["flex", Flex],
                     ["block", Block],
                     ["inline", Inline]);

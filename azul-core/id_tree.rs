@@ -101,6 +101,7 @@ pub const ROOT_NODE: Node = Node {
 };
 
 impl Node {
+    pub const ROOT: Node = ROOT_NODE;
     #[inline]
     pub fn has_parent(&self) -> bool { self.parent.is_some() }
     #[inline]
