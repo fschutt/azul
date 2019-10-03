@@ -153,7 +153,7 @@ impl GetStyle for DisplayRectangle {
 
         Style {
             display: match rect_layout.display {
-                None => Display::Flex,
+                None => Display::Block,
                 Some(CssPropertyValue::None) => Display::None,
                 Some(CssPropertyValue::Auto) => Display::Block,
                 Some(CssPropertyValue::Initial) => Display::Block,

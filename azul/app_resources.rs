@@ -517,9 +517,9 @@ fn test_font_gc() {
         <p id="three">Hello</p>
     "#, css);
 
-    let node_data_1 = &ui_state_frame_1.dom.arena.node_data;
-    let node_data_2 = &ui_state_frame_2.dom.arena.node_data;
-    let node_data_3 = &ui_state_frame_3.dom.arena.node_data;
+    let node_data_1 = &ui_state_frame_1.get_dom().arena.node_data;
+    let node_data_2 = &ui_state_frame_2.get_dom().arena.node_data;
+    let node_data_3 = &ui_state_frame_3.get_dom().arena.node_data;
 
     // Assert that the UI doesn't contain any images
     assert_eq!(scan_ui_description_for_image_keys(&app_resources, &display_list_frame_1, &node_data_1), FastHashSet::default());

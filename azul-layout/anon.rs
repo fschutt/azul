@@ -75,12 +75,14 @@ impl AnonDom {
         // to correct the "next sibling" count
         let anon_nodes_count = count_all_anon_nodes(node_hierarchy, node_styles, node_depths, rect_contents);
 
+        println!("anon nodes count: {:#?}", anon_nodes_count);
+
         for (_depth, parent_id) in node_depths {
 
             let children_ids = parent_id.children(node_hierarchy).collect::<Vec<NodeId>>();
             let children_count = children_ids.len();
 
-            let num_inline_children = children_ids.iter().map(|child_id| is_inline_node(&node_styles[*child_id], &rect_contents, child_id)).count();
+            let num_inline_children = children_ids.iter().filter(|child_id| is_inline_node(&node_styles[**child_id], &rect_contents, child_id)).count();
             let num_block_children = children_count - num_inline_children;
             let all_children_are_inline = num_block_children == 0;
             let all_children_are_block = num_inline_children == 0;
@@ -132,29 +134,32 @@ impl AnonDom {
                 // Mixed inline / block content: Need to insert anonymous nodes +
                 // fix their parent / child relationships
 
+                println!("mixed inline block nodes!");
+
                 if children_count == 0 {
                     continue;
                 }
 
-                let mut current_child_is_inline_node = {
-                    let first_child_id = &children_ids[0];
-                    is_inline_node(&node_styles[*first_child_id], &rect_contents, first_child_id)
-                };
-
                 macro_rules! insert_anonymous_block {($id:expr) => ({
+                    println!("inserting anon node @ {:?}", $id);
                     let old_node = node_hierarchy[*$id];
-                    let node_count_all_children = anon_nodes_count.get($id).copied().unwrap_or(0);
+                    let node_count_anon_children = anon_nodes_count.get($id).copied().unwrap_or(0);
                     new_node_hierarchy[(*$id + num_anon_nodes).index()] = Node {
                         parent: old_node.parent.as_ref().and_then(|p| original_node_id_mapping.get(p).copied()),
                         previous_sibling: old_node.previous_sibling.as_ref().and_then(|s| original_node_id_mapping.get(s).copied()),
-                        next_sibling: old_parent_node.next_sibling.map(|n| n + num_anon_nodes + node_count_all_children),
-                        first_child: old_parent_node.first_child.map(|n| n + num_anon_nodes),
-                        last_child: old_parent_node.last_child.map(|n| n + num_anon_nodes + node_count_all_children),
+                        next_sibling: old_node.next_sibling.map(|n| n + num_anon_nodes + node_count_anon_children),
+                        first_child: Some($id + (num_anon_nodes + 1)),
+                        last_child: Some(n + num_anon_nodes + node_count_anon_children + node_hierarchy.subtree_len($id) + node_count_since_last_inline_node),
                     };
                     num_anon_nodes += 1;
                 })}
 
-                if current_child_is_inline_node {
+                let mut last_child_is_inline_node = {
+                    let first_child_id = &children_ids[0];
+                    is_inline_node(&node_styles[*first_child_id], &rect_contents, first_child_id)
+                };
+
+                if last_child_is_inline_node {
                     insert_anonymous_block!(&children_ids[0]);
                 }
 
@@ -162,11 +167,13 @@ impl AnonDom {
                 for child_id in children_ids.iter() {
 
                     let child_node_style = node_styles[*child_id];
+                    let child_node = node_hierarchy[*child_id];
+                    let current_child_is_inline_node = is_inline_node(&child_node_style, rect_contents, child_id);
 
-                    let child_is_inline_node = is_inline_node(&child_node_style, rect_contents, child_id);
+                    println!("current_child_is_inline_node: {:?} - {:?}", child_id, current_child_is_inline_node);
 
                     // inline content follows a block
-                    if child_is_inline_node && !current_child_is_inline_node {
+                    if current_child_is_inline_node && !last_child_is_inline_node {
                         insert_anonymous_block!(child_id);
                     }
 
@@ -175,7 +182,16 @@ impl AnonDom {
                     new_nodes[(*child_id + num_anon_nodes).index()] =
                         if all_children_are_block { BlockNode(child_node_style) } else { InlineNode(child_node_style) };
 
-                    current_child_is_inline_node = child_is_inline_node;
+                    let node_count_all_children = anon_nodes_count.get(child_id).copied().unwrap_or(0);
+                    new_node_hierarchy[(*child_id + num_anon_nodes).index()] = Node {
+                        parent: child_node.parent.as_ref().and_then(|p| original_node_id_mapping.get(p).copied()),
+                        previous_sibling: child_node.previous_sibling.as_ref().and_then(|s| original_node_id_mapping.get(s).copied()),
+                        next_sibling: child_node.next_sibling.map(|n| n + num_anon_nodes + node_count_all_children),
+                        first_child: child_node.first_child.map(|n| n + num_anon_nodes),
+                        last_child: child_node.last_child.map(|n| n + num_anon_nodes + node_count_all_children),
+                    };
+
+                    last_child_is_inline_node = current_child_is_inline_node;
                 }
             }
         }
@@ -236,7 +252,11 @@ fn count_anon_nodes_direct_children<T: GetTextLayout>(
 ) -> usize {
 
     let children_ids = node_id.children(node_hierarchy).collect::<Vec<NodeId>>();
-    let num_inline_children = children_ids.iter().map(|child_id| is_inline_node(&node_styles[*child_id], &rect_contents, child_id)).count();
+    let num_inline_children = children_ids
+        .iter()
+        .filter(|child_id| is_inline_node(&node_styles[**child_id], &rect_contents, child_id))
+        .count();
+
     let num_block_children = children_ids.len() - num_inline_children;
     let all_children_are_inline = num_block_children == 0;
     let all_children_are_block = num_inline_children == 0;
@@ -261,11 +281,10 @@ fn count_anon_nodes_direct_children<T: GetTextLayout>(
 
     for child_id in children_ids.iter() {
         let current_child_is_inline_node = is_inline_node(&node_styles[*child_id], &rect_contents, child_id);
-        if !current_child_is_inline_node {
-            last_child_is_inline_node = false;
-        } else if current_child_is_inline_node && !last_child_is_inline_node {
+        if current_child_is_inline_node && !last_child_is_inline_node {
             anon_node_count += 1;
         }
+        last_child_is_inline_node = current_child_is_inline_node;
     }
 
     anon_node_count
@@ -308,18 +327,11 @@ fn test_anon_dom() {
     }
 
     let dom: Dom<Mock> = Dom::body()
-        .with_child(Dom::label("first").with_class("inline"))
-        .with_child(Dom::label("second").with_class("inline"))
-        .with_child(Dom::div().with_id("third"));
+        .with_child(Dom::label("first"))
+        .with_child(Dom::label("second"))
+        .with_child(Dom::div());
 
-    let css = Css::new(vec![Stylesheet::new(vec![
-        CssRuleBlock::new(
-            CssPath::new(vec![CssPathSelector::Class("inline".to_string())]),
-            vec![
-                CssDeclaration::new_static(CssProperty::display(LayoutDisplay::Inline)),
-            ]
-        )
-    ])]);
+    let css = Css::empty();
 
     let mut ui_state = UiState::new(dom, None);
     let ui_description = UiDescription::new(&mut ui_state, &css, &None, &BTreeMap::new(), false);
@@ -337,50 +349,58 @@ fn test_anon_dom() {
         &rect_contents,
     );
 
-    assert_eq!(anon_dom.anon_node_hierarchy, NodeHierarchy::new(
+    let expected_anon_hierarchy = NodeHierarchy::new(
         vec![
             // Node 0: root node (body):
             Node {
                 parent: None,
+                first_child: Some(NodeId::new(1)),
+                last_child: Some(NodeId::new(4)),
                 previous_sibling: None,
                 next_sibling: None,
-                first_child: None,
-                last_child: None,
             },
-            //      Node 1 (anonymous node, parent of the two inline texts):
+            // Node 1 (anonymous node, parent of the two inline texts):
             Node {
-                parent: None,
+                parent: Some(NodeId::new(0)),
+                first_child: Some(NodeId::new(2)),
+                last_child: Some(NodeId::new(3)),
                 previous_sibling: None,
-                next_sibling: None,
-                first_child: None,
-                last_child: None,
+                next_sibling: Some(NodeId::new(4)),
             },
-            //          Node 2 (inline text "first"):
+            // Node 2 (inline text "first"):
             Node {
-                parent: None,
-                previous_sibling: None,
-                next_sibling: None,
+                parent: Some(NodeId::new(1)),
                 first_child: None,
                 last_child: None,
+                previous_sibling: None,
+                next_sibling: Some(NodeId::new(3)),
             },
-            //          Node 3 (inline text "second"):
+            // Node 3 (inline text "second"):
             Node {
-                parent: None,
-                previous_sibling: None,
-                next_sibling: None,
+                parent: Some(NodeId::new(1)),
                 first_child: None,
                 last_child: None,
+                previous_sibling: Some(NodeId::new(2)),
+                next_sibling: None,
             },
-            //      Node 4 (div block with id "third"):
+            // Node 4 (div block with id "third"):
             Node {
-                parent: None,
-                previous_sibling: None,
-                next_sibling: None,
+                parent: Some(NodeId::new(0)),
                 first_child: None,
                 last_child: None,
+                previous_sibling: Some(NodeId::new(1)),
+                next_sibling: None,
             },
         ]
-    ));
+    );
+
+    if anon_dom.anon_node_hierarchy != expected_anon_hierarchy {
+        panic!(
+            "\r\n\r\nexpected:\r\n{:#?}\r\n\r\n----\r\n\r\ngot:\r\n{:#?}\r\n\r\n",
+            expected_anon_hierarchy.internal,
+            anon_dom.anon_node_hierarchy.internal,
+        );
+    }
 
     // anon_node_hierarchy: NodeHierarchy,
     // anon_node_styles: NodeDataContainer<AnonNode>,

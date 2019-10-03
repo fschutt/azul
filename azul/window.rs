@@ -384,7 +384,7 @@ impl WindowInternal {
 
             let scroll_positions = scrolled_nodes.overflowing_nodes.iter().filter_map(|(node_id, overflowing_node)| {
                 let scroll_location = self.scroll_states.get_scroll_position(&overflowing_node.parent_external_scroll_id)?;
-                let parent_node = ui_state.get_dom().arena.node_layout[*node_id].parent.unwrap_or(NodeId::ZERO);
+                let parent_node = ui_state.get_dom().arena.node_hierarchy[*node_id].parent.unwrap_or(NodeId::ZERO);
                 let scroll_position = ScrollPosition {
                     scroll_frame_rect: overflowing_node.child_rect,
                     parent_rect: layout_result.rects[parent_node].to_layouted_rectangle(),
