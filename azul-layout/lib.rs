@@ -12,7 +12,7 @@
 // The above copyright notice and this permission notice shall be included in all
 // copies or substantial portions of the Software.
 //
-// THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+// THE SOFTWARE IS PROVIDED "anon_nodes_direct_childrenAS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
 // IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
 // FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
 // AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
@@ -159,6 +159,7 @@ impl GetStyle for DisplayRectangle {
                 Some(CssPropertyValue::Inherit) => Display::Block,
                 Some(CssPropertyValue::Exact(LayoutDisplay::Block)) => Display::Block,
                 Some(CssPropertyValue::Exact(LayoutDisplay::Flex)) => Display::Flex,
+                Some(CssPropertyValue::Exact(LayoutDisplay::Fixed)) => Display::Fixed,
                 Some(CssPropertyValue::Exact(LayoutDisplay::Inline)) => Display::Inline,
             },
             box_sizing: match rect_layout.box_sizing.unwrap_or_default().get_property_or_default() {
