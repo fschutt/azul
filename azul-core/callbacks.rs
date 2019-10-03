@@ -80,8 +80,17 @@ impl<T: 'static> Ref<T> {
         self.0.borrow_mut()
     }
 
+    pub fn get_type_name(&self) -> &'static str {
+        use std::any;
+        any::type_name::<T>()
+    }
+
     pub fn upcast(self) -> RefAny {
-        RefAny(self.0 as Rc<dyn Any>)
+        use std::any;
+        RefAny {
+            ptr: self.0 as Rc<dyn Any>,
+            type_name: any::type_name::<T>(),
+        }
     }
 }
 
@@ -92,11 +101,17 @@ impl<T: 'static> From<Ref<T>> for RefAny {
 }
 
 #[derive(Debug)]
-pub struct RefAny(Rc<dyn Any>);
+pub struct RefAny {
+    ptr: Rc<dyn Any>,
+    type_name: &'static str,
+}
 
 impl Clone for RefAny {
     fn clone(&self) -> Self {
-        RefAny(self.0.clone())
+        RefAny {
+            ptr: self.ptr.clone(),
+            type_name: self.type_name,
+        }
     }
 }
 
@@ -104,14 +119,14 @@ use std::ffi::c_void;
 
 impl ::std::hash::Hash for RefAny {
     fn hash<H>(&self, state: &mut H) where H: ::std::hash::Hasher {
-        let self_ptr = Rc::into_raw(self.0.clone()) as *const c_void as usize;
+        let self_ptr = Rc::into_raw(self.ptr.clone()) as *const c_void as usize;
         state.write_usize(self_ptr);
     }
 }
 
 impl PartialEq for RefAny {
     fn eq(&self, rhs: &Self) -> bool {
-        Rc::ptr_eq(&self.0, &rhs.0)
+        Rc::ptr_eq(&self.ptr, &rhs.ptr)
     }
 }
 
@@ -123,8 +138,8 @@ impl PartialOrd for RefAny {
 
 impl Ord for RefAny {
     fn cmp(&self, rhs: &Self) -> ::std::cmp::Ordering {
-        let self_ptr = Rc::into_raw(self.0.clone()) as *const c_void as usize;
-        let rhs_ptr = Rc::into_raw(rhs.0.clone()) as *const c_void as usize;
+        let self_ptr = Rc::into_raw(self.ptr.clone()) as *const c_void as usize;
+        let rhs_ptr = Rc::into_raw(rhs.ptr.clone()) as *const c_void as usize;
         self_ptr.cmp(&rhs_ptr)
     }
 }
@@ -132,8 +147,16 @@ impl Ord for RefAny {
 impl Eq for RefAny { }
 
 impl RefAny {
+
+    /// Casts the type-erased pointer back to a `RefCell<T>`
     pub fn downcast<T: 'static>(&self) -> Option<&RefCell<T>> {
-        self.0.downcast_ref::<RefCell<T>>()
+        self.ptr.downcast_ref::<RefCell<T>>()
+    }
+
+    /// Returns the compiler-generated string of the type (`std::any::type_name`).
+    /// Very useful for debugging
+    pub fn get_type_name(&self) -> &'static str {
+        self.type_name
     }
 }
 
