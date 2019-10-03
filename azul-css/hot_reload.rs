@@ -40,7 +40,7 @@ impl HotReloadOverrideHandler {
 
 impl HotReloadHandler for HotReloadOverrideHandler {
     fn reload_style(&self) -> Result<Css, String> {
-        let mut css = Css::new();
+        let mut css = Css::empty();
         for stylesheet in self.base_style.clone().stylesheets {
             css.append_stylesheet(stylesheet);
         }

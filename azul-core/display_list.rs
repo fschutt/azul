@@ -608,7 +608,7 @@ impl SolvedLayout {
             let dom_id = ui_state.dom_id.clone();
 
             let rects_in_rendering_order = determine_rendering_order(
-                &ui_state.dom.arena.node_layout,
+                &ui_state.dom.arena.node_hierarchy,
                 &display_list.rectangles
             );
 
@@ -624,7 +624,7 @@ impl SolvedLayout {
             );
 
             let layout_result = (layout_func)(
-                &ui_state.dom.arena.node_layout,
+                &ui_state.dom.arena.node_hierarchy,
                 &ui_state.dom.arena.node_data,
                 &display_list.rectangles,
                 &app_resources,
@@ -633,7 +633,7 @@ impl SolvedLayout {
             );
 
             let scrollable_nodes = get_nodes_that_need_scroll_clip(
-                &ui_state.dom.arena.node_layout,
+                &ui_state.dom.arena.node_hierarchy,
                 &display_list.rectangles,
                 &ui_state.dom.arena.node_data,
                 &layout_result.rects,

@@ -395,7 +395,7 @@ macro_rules! impl_callback_info_api {() => (
     ///
     /// Note: Index is 0-based (first item has the index of 0)
     pub fn get_index_in_parent(&self, node_id: &(DomId, NodeId)) -> Option<(usize, (DomId, NodeId))> {
-        let node_layout = &self.ui_state[&node_id.0].dom.arena.node_layout;
+        let node_layout = &self.ui_state[&node_id.0].dom.arena.node_hierarchy;
 
         if node_id.1.index() > node_layout.len() {
             return None; // node_id out of range
@@ -411,7 +411,7 @@ macro_rules! impl_callback_info_api {() => (
 
     /// Returns the hierarchy of the given node ID
     pub fn get_node(&self, (dom_id, node_id): &(DomId, NodeId)) -> Option<&Node> {
-        self.ui_state[dom_id].dom.arena.node_layout.internal.get(node_id.index())
+        self.ui_state[dom_id].dom.arena.node_hierarchy.internal.get(node_id.index())
     }
 
     /// Returns the parent of the given `NodeId` or None if the target is the root node.
@@ -422,7 +422,7 @@ macro_rules! impl_callback_info_api {() => (
 
     /// Returns the node hierarchy (DOM tree order)
     pub fn get_node_hierarchy(&self) -> &NodeHierarchy {
-        &self.ui_state[&self.hit_dom_node.0].dom.arena.node_layout
+        &self.ui_state[&self.hit_dom_node.0].dom.arena.node_hierarchy
     }
 
     /// Returns the node content of a specific node

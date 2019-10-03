@@ -998,6 +998,200 @@ impl CssProperty {
     pub fn inherit(prop_type: CssPropertyType) -> Self {
         css_property_from_type!(prop_type, Inherit)
     }
+
+
+    /// Creates a `text_color` CSS attribute
+    pub const fn text_color(input: StyleTextColor) -> Self { CssProperty::TextColor(CssPropertyValue::Exact(input)) }
+
+    /// Creates a `font_size` CSS attribute
+    pub const fn font_size(input: StyleFontSize) -> Self { CssProperty::FontSize(CssPropertyValue::Exact(input)) }
+
+    /// Creates a `font_family` CSS attribute
+    pub const fn font_family(input: StyleFontFamily) -> Self { CssProperty::FontFamily(CssPropertyValue::Exact(input)) }
+
+    /// Creates a `text_align` CSS attribute
+    pub const fn text_align(input: StyleTextAlignmentHorz) -> Self { CssProperty::TextAlign(CssPropertyValue::Exact(input)) }
+
+    /// Creates a `letter_spacing` CSS attribute
+    pub const fn letter_spacing(input: StyleLetterSpacing) -> Self { CssProperty::LetterSpacing(CssPropertyValue::Exact(input)) }
+
+    /// Creates a `line_height` CSS attribute
+    pub const fn line_height(input: StyleLineHeight) -> Self { CssProperty::LineHeight(CssPropertyValue::Exact(input)) }
+
+    /// Creates a `word_spacing` CSS attribute
+    pub const fn word_spacing(input: StyleWordSpacing) -> Self { CssProperty::WordSpacing(CssPropertyValue::Exact(input)) }
+
+    /// Creates a `tab_width` CSS attribute
+    pub const fn tab_width(input: StyleTabWidth) -> Self { CssProperty::TabWidth(CssPropertyValue::Exact(input)) }
+
+    /// Creates a `cursor` CSS attribute
+    pub const fn cursor(input: StyleCursor) -> Self { CssProperty::Cursor(CssPropertyValue::Exact(input)) }
+
+    /// Creates a `display` CSS attribute
+    pub const fn display(input: LayoutDisplay) -> Self { CssProperty::Display(CssPropertyValue::Exact(input)) }
+
+    /// Creates a `float` CSS attribute
+    pub const fn float(input: LayoutFloat) -> Self { CssProperty::Float(CssPropertyValue::Exact(input)) }
+
+    /// Creates a `box_sizing` CSS attribute
+    pub const fn box_sizing(input: LayoutBoxSizing) -> Self { CssProperty::BoxSizing(CssPropertyValue::Exact(input)) }
+
+    /// Creates a `width` CSS attribute
+    pub const fn width(input: LayoutWidth) -> Self { CssProperty::Width(CssPropertyValue::Exact(input)) }
+
+    /// Creates a `height` CSS attribute
+    pub const fn height(input: LayoutHeight) -> Self { CssProperty::Height(CssPropertyValue::Exact(input)) }
+
+    /// Creates a `min_width` CSS attribute
+    pub const fn min_width(input: LayoutMinWidth) -> Self { CssProperty::MinWidth(CssPropertyValue::Exact(input)) }
+
+    /// Creates a `min_height` CSS attribute
+    pub const fn min_height(input: LayoutMinHeight) -> Self { CssProperty::MinHeight(CssPropertyValue::Exact(input)) }
+
+    /// Creates a `max_width` CSS attribute
+    pub const fn max_width(input: LayoutMaxWidth) -> Self { CssProperty::MaxWidth(CssPropertyValue::Exact(input)) }
+
+    /// Creates a `max_height` CSS attribute
+    pub const fn max_height(input: LayoutMaxHeight) -> Self { CssProperty::MaxHeight(CssPropertyValue::Exact(input)) }
+
+    /// Creates a `position` CSS attribute
+    pub const fn position(input: LayoutPosition) -> Self { CssProperty::Position(CssPropertyValue::Exact(input)) }
+
+    /// Creates a `top` CSS attribute
+    pub const fn top(input: LayoutTop) -> Self { CssProperty::Top(CssPropertyValue::Exact(input)) }
+
+    /// Creates a `right` CSS attribute
+    pub const fn right(input: LayoutRight) -> Self { CssProperty::Right(CssPropertyValue::Exact(input)) }
+
+    /// Creates a `left` CSS attribute
+    pub const fn left(input: LayoutLeft) -> Self { CssProperty::Left(CssPropertyValue::Exact(input)) }
+
+    /// Creates a `bottom` CSS attribute
+    pub const fn bottom(input: LayoutBottom) -> Self { CssProperty::Bottom(CssPropertyValue::Exact(input)) }
+
+    /// Creates a `flex_wrap` CSS attribute
+    pub const fn flex_wrap(input: LayoutWrap) -> Self { CssProperty::FlexWrap(CssPropertyValue::Exact(input)) }
+
+    /// Creates a `flex_direction` CSS attribute
+    pub const fn flex_direction(input: LayoutDirection) -> Self { CssProperty::FlexDirection(CssPropertyValue::Exact(input)) }
+
+    /// Creates a `flex_grow` CSS attribute
+    pub const fn flex_grow(input: LayoutFlexGrow) -> Self { CssProperty::FlexGrow(CssPropertyValue::Exact(input)) }
+
+    /// Creates a `flex_shrink` CSS attribute
+    pub const fn flex_shrink(input: LayoutFlexShrink) -> Self { CssProperty::FlexShrink(CssPropertyValue::Exact(input)) }
+
+    /// Creates a `justify_content` CSS attribute
+    pub const fn justify_content(input: LayoutJustifyContent) -> Self { CssProperty::JustifyContent(CssPropertyValue::Exact(input)) }
+
+    /// Creates a `align_items` CSS attribute
+    pub const fn align_items(input: LayoutAlignItems) -> Self { CssProperty::AlignItems(CssPropertyValue::Exact(input)) }
+
+    /// Creates a `align_content` CSS attribute
+    pub const fn align_content(input: LayoutAlignContent) -> Self { CssProperty::AlignContent(CssPropertyValue::Exact(input)) }
+
+    /// Creates a `background_content` CSS attribute
+    pub const fn background_content(input: StyleBackgroundContent) -> Self { CssProperty::BackgroundContent(CssPropertyValue::Exact(input)) }
+
+    /// Creates a `background_position` CSS attribute
+    pub const fn background_position(input: StyleBackgroundPosition) -> Self { CssProperty::BackgroundPosition(CssPropertyValue::Exact(input)) }
+
+    /// Creates a `background_size` CSS attribute
+    pub const fn background_size(input: StyleBackgroundSize) -> Self { CssProperty::BackgroundSize(CssPropertyValue::Exact(input)) }
+
+    /// Creates a `background_repeat` CSS attribute
+    pub const fn background_repeat(input: StyleBackgroundRepeat) -> Self { CssProperty::BackgroundRepeat(CssPropertyValue::Exact(input)) }
+
+    /// Creates a `overflow_x` CSS attribute
+    pub const fn overflow_x(input: Overflow) -> Self { CssProperty::OverflowX(CssPropertyValue::Exact(input)) }
+
+    /// Creates a `overflow_y` CSS attribute
+    pub const fn overflow_y(input: Overflow) -> Self { CssProperty::OverflowY(CssPropertyValue::Exact(input)) }
+
+    /// Creates a `padding_top` CSS attribute
+    pub const fn padding_top(input: LayoutPaddingTop) -> Self { CssProperty::PaddingTop(CssPropertyValue::Exact(input)) }
+
+    /// Creates a `padding_left` CSS attribute
+    pub const fn padding_left(input: LayoutPaddingLeft) -> Self { CssProperty::PaddingLeft(CssPropertyValue::Exact(input)) }
+
+    /// Creates a `padding_right` CSS attribute
+    pub const fn padding_right(input: LayoutPaddingRight) -> Self { CssProperty::PaddingRight(CssPropertyValue::Exact(input)) }
+
+    /// Creates a `padding_bottom` CSS attribute
+    pub const fn padding_bottom(input: LayoutPaddingBottom) -> Self { CssProperty::PaddingBottom(CssPropertyValue::Exact(input)) }
+
+    /// Creates a `margin_top` CSS attribute
+    pub const fn margin_top(input: LayoutMarginTop) -> Self { CssProperty::MarginTop(CssPropertyValue::Exact(input)) }
+
+    /// Creates a `margin_left` CSS attribute
+    pub const fn margin_left(input: LayoutMarginLeft) -> Self { CssProperty::MarginLeft(CssPropertyValue::Exact(input)) }
+
+    /// Creates a `margin_right` CSS attribute
+    pub const fn margin_right(input: LayoutMarginRight) -> Self { CssProperty::MarginRight(CssPropertyValue::Exact(input)) }
+
+    /// Creates a `margin_bottom` CSS attribute
+    pub const fn margin_bottom(input: LayoutMarginBottom) -> Self { CssProperty::MarginBottom(CssPropertyValue::Exact(input)) }
+
+    /// Creates a `border_top_left_radius` CSS attribute
+    pub const fn border_top_left_radius(input: StyleBorderTopLeftRadius) -> Self { CssProperty::BorderTopLeftRadius(CssPropertyValue::Exact(input)) }
+
+    /// Creates a `border_top_right_radius` CSS attribute
+    pub const fn border_top_right_radius(input: StyleBorderTopRightRadius) -> Self { CssProperty::BorderTopRightRadius(CssPropertyValue::Exact(input)) }
+
+    /// Creates a `border_bottom_left_radius` CSS attribute
+    pub const fn border_bottom_left_radius(input: StyleBorderBottomLeftRadius) -> Self { CssProperty::BorderBottomLeftRadius(CssPropertyValue::Exact(input)) }
+
+    /// Creates a `border_bottom_right_radius` CSS attribute
+    pub const fn border_bottom_right_radius(input: StyleBorderBottomRightRadius) -> Self { CssProperty::BorderBottomRightRadius(CssPropertyValue::Exact(input)) }
+
+    /// Creates a `border_top_color` CSS attribute
+    pub const fn border_top_color(input: StyleBorderTopColor) -> Self { CssProperty::BorderTopColor(CssPropertyValue::Exact(input)) }
+
+    /// Creates a `border_right_color` CSS attribute
+    pub const fn border_right_color(input: StyleBorderRightColor) -> Self { CssProperty::BorderRightColor(CssPropertyValue::Exact(input)) }
+
+    /// Creates a `border_left_color` CSS attribute
+    pub const fn border_left_color(input: StyleBorderLeftColor) -> Self { CssProperty::BorderLeftColor(CssPropertyValue::Exact(input)) }
+
+    /// Creates a `border_bottom_color` CSS attribute
+    pub const fn border_bottom_color(input: StyleBorderBottomColor) -> Self { CssProperty::BorderBottomColor(CssPropertyValue::Exact(input)) }
+
+    /// Creates a `border_top_style` CSS attribute
+    pub const fn border_top_style(input: StyleBorderTopStyle) -> Self { CssProperty::BorderTopStyle(CssPropertyValue::Exact(input)) }
+
+    /// Creates a `border_right_style` CSS attribute
+    pub const fn border_right_style(input: StyleBorderRightStyle) -> Self { CssProperty::BorderRightStyle(CssPropertyValue::Exact(input)) }
+
+    /// Creates a `border_left_style` CSS attribute
+    pub const fn border_left_style(input: StyleBorderLeftStyle) -> Self { CssProperty::BorderLeftStyle(CssPropertyValue::Exact(input)) }
+
+    /// Creates a `border_bottom_style` CSS attribute
+    pub const fn border_bottom_style(input: StyleBorderBottomStyle) -> Self { CssProperty::BorderBottomStyle(CssPropertyValue::Exact(input)) }
+
+    /// Creates a `border_top_width` CSS attribute
+    pub const fn border_top_width(input: StyleBorderTopWidth) -> Self { CssProperty::BorderTopWidth(CssPropertyValue::Exact(input)) }
+
+    /// Creates a `border_right_width` CSS attribute
+    pub const fn border_right_width(input: StyleBorderRightWidth) -> Self { CssProperty::BorderRightWidth(CssPropertyValue::Exact(input)) }
+
+    /// Creates a `border_left_width` CSS attribute
+    pub const fn border_left_width(input: StyleBorderLeftWidth) -> Self { CssProperty::BorderLeftWidth(CssPropertyValue::Exact(input)) }
+
+/// Creates a `border_bottom_width` CSS attribute
+    pub const fn border_bottom_width(input: StyleBorderBottomWidth) -> Self { CssProperty::BorderBottomWidth(CssPropertyValue::Exact(input)) }
+
+    /// Creates a `box_shadow_left` CSS attribute
+    pub const fn box_shadow_left(input: BoxShadowPreDisplayItem) -> Self { CssProperty::BoxShadowLeft(CssPropertyValue::Exact(input)) }
+
+    /// Creates a `box_shadow_right` CSS attribute
+    pub const fn box_shadow_right(input: BoxShadowPreDisplayItem) -> Self { CssProperty::BoxShadowRight(CssPropertyValue::Exact(input)) }
+
+    /// Creates a `box_shadow_top` CSS attribute
+    pub const fn box_shadow_top(input: BoxShadowPreDisplayItem) -> Self { CssProperty::BoxShadowTop(CssPropertyValue::Exact(input)) }
+
+    /// Creates a `box_shadow_bottom` CSS attribute
+    pub const fn box_shadow_bottom(input: BoxShadowPreDisplayItem) -> Self { CssProperty::BoxShadowBottom(CssPropertyValue::Exact(input)) }
+
 }
 
 macro_rules! impl_from_css_prop {

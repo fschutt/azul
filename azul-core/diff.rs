@@ -183,14 +183,14 @@ fn diff_tree_inner<T>(
 ) {
     let mut node_shift = 0_isize;
 
-    for old_node_id in old_root_id.children(&old.arena.node_layout) {
+    for old_node_id in old_root_id.children(&old.arena.node_hierarchy) {
 
         // Node ID that corresponds to the same node in the new node tree
         let new_node_id = NodeId::new((old_node_id.index() as isize + node_shift) as usize);
 
-        let old_node_last_child = NodeId::new(match old.arena.node_layout[old_node_id].next_sibling {
+        let old_node_last_child = NodeId::new(match old.arena.node_hierarchy[old_node_id].next_sibling {
             Some(s) => s.index(),
-            None => old.arena.node_layout.len() - 1,
+            None => old.arena.node_hierarchy.len() - 1,
         });
 
         match new.arena.node_data.get(new_node_id) {
@@ -212,11 +212,11 @@ fn diff_tree_inner<T>(
                     diff_tree_inner(old_node_id, old, new, changes, visited_nodes);
                 } else {
 
-                    let new_node_subtree_len = new.arena.node_layout.subtree_len(new_node_id);
+                    let new_node_subtree_len = new.arena.node_hierarchy.subtree_len(new_node_id);
 
-                    let next_node_id = match new.arena.node_layout[new_node_id].next_sibling {
+                    let next_node_id = match new.arena.node_hierarchy[new_node_id].next_sibling {
                         Some(s) => s.index(),
-                        None => new.arena.node_layout.len() - 1,
+                        None => new.arena.node_hierarchy.len() - 1,
                     };
 
                     // remove entire old subtree, including the node itself

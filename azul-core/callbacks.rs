@@ -656,7 +656,7 @@ impl FocusTarget {
                 let ui_state = ui_states.get(&dom_id).ok_or(UpdateFocusWarning::FocusInvalidDomId(dom_id.clone()))?;
                 let ui_description = ui_descriptions.get(&dom_id).ok_or(UpdateFocusWarning::FocusInvalidDomId(dom_id.clone()))?;
                 let html_node_tree = &ui_description.html_tree;
-                let node_hierarchy = &ui_state.dom.arena.node_layout;
+                let node_hierarchy = &ui_state.dom.arena.node_hierarchy;
                 let node_data = &ui_state.dom.arena.node_data;
                 let resolved_node_id = html_node_tree
                     .linear_iter()
@@ -696,7 +696,7 @@ impl<'a, T: 'a> ParentNodesIterator<'a, T> {
 
     /// Returns the offset into the parent of the current node or None if the item has no parent
     pub fn current_index_in_parent(&self) -> Option<usize> {
-        let node_layout = &self.ui_state[&self.current_item.0].dom.arena.node_layout;
+        let node_layout = &self.ui_state[&self.current_item.0].dom.arena.node_hierarchy;
         if node_layout[self.current_item.1].parent.is_some() {
             Some(node_layout.get_index_in_parent(self.current_item.1))
         } else {
@@ -710,7 +710,7 @@ impl<'a, T: 'a> Iterator for ParentNodesIterator<'a, T> {
 
     /// For each item in the current item path, returns the index of the item in the parent
     fn next(&mut self) -> Option<(DomId, NodeId)> {
-        let parent_node_id = self.ui_state[&self.current_item.0].dom.arena.node_layout[self.current_item.1].parent?;
+        let parent_node_id = self.ui_state[&self.current_item.0].dom.arena.node_hierarchy[self.current_item.1].parent?;
         self.current_item.1 = parent_node_id;
         Some((self.current_item.0.clone(), parent_node_id))
     }

@@ -86,10 +86,10 @@ pub fn match_dom_selectors<T>(
 
     use azul_css::CssDeclaration;
 
-    let non_leaf_nodes = ui_state.dom.arena.node_layout.get_parents_sorted_by_depth();
+    let non_leaf_nodes = ui_state.dom.arena.node_hierarchy.get_parents_sorted_by_depth();
 
     let html_tree = construct_html_cascade_tree(
-        &ui_state.dom.arena.node_layout,
+        &ui_state.dom.arena.node_hierarchy,
         &non_leaf_nodes,
         focused_node.as_ref().and_then(|(dom_id, node_id)| {
             if *dom_id == ui_state.dom_id { Some(*node_id) } else { None }
@@ -103,7 +103,7 @@ pub fn match_dom_selectors<T>(
     let mut styled_nodes = ui_state.dom.arena.node_data.transform(|_, node_id| StyledNode {
         css_constraints: css
             .rules()
-            .filter(|rule| matches_html_element(&rule.path, node_id, &ui_state.dom.arena.node_layout, &ui_state.dom.arena.node_data, &html_tree))
+            .filter(|rule| matches_html_element(&rule.path, node_id, &ui_state.dom.arena.node_hierarchy, &ui_state.dom.arena.node_data, &html_tree))
             .flat_map(|matched_rule| matched_rule.declarations.iter().map(|declaration| (declaration.get_type(), declaration.clone())))
             .collect(),
     });
@@ -117,7 +117,7 @@ pub fn match_dom_selectors<T>(
             continue;
         }
 
-        for child_id in parent_id.children(&ui_state.dom.arena.node_layout) {
+        for child_id in parent_id.children(&ui_state.dom.arena.node_hierarchy) {
             for inherited_rule in &inherited_rules {
                 // Only override the rule if the child already has an inherited rule, don't override it
                 let inherited_rule_type = inherited_rule.get_type();
@@ -130,7 +130,7 @@ pub fn match_dom_selectors<T>(
     // first (to insert their TagId later)
     let selected_hover_nodes = match_hover_selectors(
         collect_hover_groups(css),
-        &ui_state.dom.arena.node_layout,
+        &ui_state.dom.arena.node_hierarchy,
         &ui_state.dom.arena.node_data,
         &html_tree,
     );
@@ -427,7 +427,7 @@ fn test_case_issue_93() {
         Class("tabwidget-tab-close".into())
     ] };
 
-    let node_hierarchy = &dom.arena.node_layout;
+    let node_hierarchy = &dom.arena.node_hierarchy;
     let node_data = &dom.arena.node_data;
     let nodes_sorted: Vec<_> = node_hierarchy.get_parents_sorted_by_depth();
     let html_node_tree = construct_html_cascade_tree(

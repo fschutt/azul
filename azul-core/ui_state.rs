@@ -247,7 +247,7 @@ impl<T> UiState<T> {
         {
             let arena = &dom.arena;
 
-            debug_assert!(arena.node_layout[NodeId::new(0)].next_sibling.is_none());
+            debug_assert!(arena.node_hierarchy[NodeId::new(0)].next_sibling.is_none());
 
             for node_id in arena.linear_iter() {
 
@@ -427,7 +427,7 @@ impl<T> UiState<T> {
 
     pub fn scan_for_iframe_callbacks(&self) -> Vec<(NodeId, &(IFrameCallback<T>, RefAny))> {
         use crate::dom::NodeType::IFrame;
-        self.dom.arena.node_layout.linear_iter().filter_map(|node_id| {
+        self.dom.arena.node_hierarchy.linear_iter().filter_map(|node_id| {
             let node_data = &self.dom.arena.node_data[node_id];
             match node_data.get_node_type() {
                 IFrame(cb) => Some((node_id, cb)),
@@ -438,7 +438,7 @@ impl<T> UiState<T> {
 
     pub fn scan_for_gltexture_callbacks(&self) -> Vec<(NodeId, &(GlCallback, RefAny))> {
         use crate::dom::NodeType::GlTexture;
-        self.dom.arena.node_layout.linear_iter().filter_map(|node_id| {
+        self.dom.arena.node_hierarchy.linear_iter().filter_map(|node_id| {
             let node_data = &self.dom.arena.node_data[node_id];
             match node_data.get_node_type() {
                 GlTexture(cb) => Some((node_id, cb)),

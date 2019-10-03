@@ -1081,7 +1081,7 @@ impl<T> FromIterator<NodeData<T>> for Dom<T> {
             root: NodeId::new(0),
             arena: Arena {
                 node_data: NodeDataContainer::new(node_data),
-                node_layout: NodeHierarchy::new(node_layout),
+                node_hierarchy: NodeHierarchy::new(node_layout),
             },
         }
     }
@@ -1097,14 +1097,14 @@ impl<T> FromIterator<NodeType<T>> for Dom<T> {
 fn init_arena_with_node_data<T>(node_data: NodeData<T>) -> Arena<NodeData<T>> {
     use crate::id_tree::ROOT_NODE;
     Arena {
-        node_layout: NodeHierarchy { internal: vec![ROOT_NODE] },
+        node_hierarchy: NodeHierarchy { internal: vec![ROOT_NODE] },
         node_data: NodeDataContainer { internal: vec![node_data] },
     }
 }
 
 fn print_tree_recursive<T>(arena: &Arena<NodeData<T>>, string: &mut String, current_node_id: NodeId, indent: usize) {
 
-    let node = &arena.node_layout[current_node_id];
+    let node = &arena.node_hierarchy[current_node_id];
     let tabs = String::from("    ").repeat(indent);
 
     string.push_str(&tabs);
@@ -1159,6 +1159,12 @@ impl<T> Dom<T> {
     #[inline(always)]
     pub fn div() -> Self {
         Self::new(NodeType::Div)
+    }
+
+    /// Shorthand for `Dom::new(NodeType::Body)`.
+    #[inline(always)]
+    pub fn body() -> Self {
+        Self::new(NodeType::Body)
     }
 
     /// Shorthand for `Dom::new(NodeType::Label(value.into()))`
@@ -1237,7 +1243,7 @@ impl<T> Dom<T> {
 
         for node_id in 0..child_len {
             let node_id = NodeId::new(node_id);
-            let node_id_child: &mut Node = &mut child_arena.node_layout[node_id];
+            let node_id_child: &mut Node = &mut child_arena.node_hierarchy[node_id];
 
             // WARNING: Order of these blocks is important!
 
@@ -1247,10 +1253,10 @@ impl<T> Dom<T> {
                 Some(previous_sibling)
             }).is_none() {
                 // None - set the current heads' last child as the new previous sibling
-                let last_child = self_arena.node_layout[self.head].last_child;
+                let last_child = self_arena.node_hierarchy[self.head].last_child;
                 if last_child.is_some() && node_id_child.parent.is_none() {
                     node_id_child.previous_sibling = last_child;
-                    self_arena.node_layout[last_child.unwrap()].next_sibling = Some(node_id + self_len);
+                    self_arena.node_hierarchy[last_child.unwrap()].next_sibling = Some(node_id + self_len);
                 }
             }
 
@@ -1275,8 +1281,8 @@ impl<T> Dom<T> {
             }
         }
 
-        self_arena.node_layout[self.head].first_child.get_or_insert(NodeId::new(self_len));
-        self_arena.node_layout[self.head].last_child = Some(last_sibling.unwrap() + self_len);
+        self_arena.node_hierarchy[self.head].first_child.get_or_insert(NodeId::new(self_len));
+        self_arena.node_hierarchy[self.head].last_child = Some(last_sibling.unwrap() + self_len);
 
         (&mut *self_arena).append_arena(child_arena);
     }
@@ -1400,31 +1406,31 @@ fn test_dom_sibling_1() {
 
     assert_eq!(vec![DomString::Static("sibling-1")],
         arena.node_data[
-            arena.node_layout[dom.root]
+            arena.node_hierarchy[dom.root]
             .first_child.expect("root has no first child")
         ].ids);
 
     assert_eq!(vec![DomString::Static("sibling-2")],
         arena.node_data[
-            arena.node_layout[
-                arena.node_layout[dom.root]
+            arena.node_hierarchy[
+                arena.node_hierarchy[dom.root]
                 .first_child.expect("root has no first child")
             ].next_sibling.expect("root has no second sibling")
         ].ids);
 
     assert_eq!(vec![DomString::Static("sibling-1-child-1")],
         arena.node_data[
-            arena.node_layout[
-                arena.node_layout[dom.root]
+            arena.node_hierarchy[
+                arena.node_hierarchy[dom.root]
                 .first_child.expect("root has no first child")
             ].first_child.expect("first child has no first child")
         ].ids);
 
     assert_eq!(vec![DomString::Static("sibling-2-child-1")],
         arena.node_data[
-            arena.node_layout[
-                arena.node_layout[
-                    arena.node_layout[dom.root]
+            arena.node_hierarchy[
+                arena.node_hierarchy[
+                    arena.node_hierarchy[dom.root]
                     .first_child.expect("root has no first child")
                 ].next_sibling.expect("first child has no second sibling")
             ].first_child.expect("second sibling has no first child")
@@ -1453,7 +1459,7 @@ fn test_dom_from_iter_1() {
     assert_eq!(arena.len(), 6);
 
     // Check root node
-    assert_eq!(arena.node_layout.get(NodeId::new(0)), Some(&Node {
+    assert_eq!(arena.node_hierarchy.get(NodeId::new(0)), Some(&Node {
         parent: None,
         previous_sibling: None,
         next_sibling: None,
@@ -1462,7 +1468,7 @@ fn test_dom_from_iter_1() {
     }));
     assert_eq!(arena.node_data.get(NodeId::new(0)), Some(&NodeData::new(NodeType::Div)));
 
-    assert_eq!(arena.node_layout.get(NodeId::new(arena.node_layout.len() - 1)), Some(&Node {
+    assert_eq!(arena.node_hierarchy.get(NodeId::new(arena.node_hierarchy.len() - 1)), Some(&Node {
         parent: Some(NodeId::new(0)),
         previous_sibling: Some(NodeId::new(4)),
         next_sibling: None,

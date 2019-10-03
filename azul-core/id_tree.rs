@@ -116,7 +116,7 @@ impl Node {
 
 #[derive(Debug, Default, Clone, PartialEq, Hash, Eq)]
 pub struct Arena<T> {
-    pub node_layout: NodeHierarchy,
+    pub node_hierarchy: NodeHierarchy,
     pub node_data: NodeDataContainer<T>,
 }
 
@@ -294,7 +294,7 @@ impl<T> Arena<T> {
     pub fn new() -> Arena<T> {
         // NOTE: This is a separate function, since Vec::new() is a const fn (so this function doesn't allocate)
         Arena {
-            node_layout: NodeHierarchy { internal: Vec::new() },
+            node_hierarchy: NodeHierarchy { internal: Vec::new() },
             node_data: NodeDataContainer { internal: Vec::<T>::new() },
         }
     }
@@ -302,7 +302,7 @@ impl<T> Arena<T> {
     #[inline]
     pub fn with_capacity(cap: usize) -> Arena<T> {
         Arena {
-            node_layout: NodeHierarchy { internal: Vec::with_capacity(cap) },
+            node_hierarchy: NodeHierarchy { internal: Vec::with_capacity(cap) },
             node_data: NodeDataContainer { internal: Vec::<T>::with_capacity(cap) },
         }
     }
@@ -310,8 +310,8 @@ impl<T> Arena<T> {
     /// Create a new node from its associated data.
     #[inline]
     pub fn new_node(&mut self, data: T) -> NodeId {
-        let next_index = self.node_layout.len();
-        self.node_layout.internal.push(Node {
+        let next_index = self.node_hierarchy.len();
+        self.node_hierarchy.internal.push(Node {
             parent: None,
             first_child: None,
             last_child: None,
@@ -325,7 +325,7 @@ impl<T> Arena<T> {
     // Returns how many nodes there are in the arena
     #[inline]
     pub fn len(&self) -> usize {
-        self.node_layout.len()
+        self.node_hierarchy.len()
     }
 
     #[inline]
@@ -337,7 +337,7 @@ impl<T> Arena<T> {
     #[inline]
     pub fn linear_iter(&self) -> LinearIterator {
         LinearIterator {
-            arena_len: self.node_layout.len(),
+            arena_len: self.node_hierarchy.len(),
             position: 0,
         }
     }
@@ -348,7 +348,7 @@ impl<T> Arena<T> {
     /// know what you're doing
     #[inline]
     pub fn append_arena(&mut self, other: &mut Arena<T>) {
-        self.node_layout.internal.append(&mut other.node_layout.internal);
+        self.node_hierarchy.internal.append(&mut other.node_hierarchy.internal);
         self.node_data.internal.append(&mut other.node_data.internal);
     }
 
@@ -359,7 +359,7 @@ impl<T> Arena<T> {
     pub fn transform<U, F>(&self, closure: F) -> Arena<U> where F: Fn(&T, NodeId) -> U {
         // TODO if T: Send (which is usually the case), then we could use rayon here!
         Arena {
-            node_layout: self.node_layout.clone(),
+            node_hierarchy: self.node_hierarchy.clone(),
             node_data: self.node_data.transform(closure),
         }
     }
@@ -371,9 +371,9 @@ impl NodeId {
     ///
     /// Call `.next().unwrap()` once on the iterator to skip the node itself.
     #[inline]
-    pub const fn ancestors(self, node_layout: &NodeHierarchy) -> Ancestors {
+    pub const fn ancestors(self, node_hierarchy: &NodeHierarchy) -> Ancestors {
         Ancestors {
-            node_layout,
+            node_hierarchy,
             node: Some(self),
         }
     }
@@ -382,9 +382,9 @@ impl NodeId {
     ///
     /// Call `.next().unwrap()` once on the iterator to skip the node itself.
     #[inline]
-    pub const fn preceding_siblings(self, node_layout: &NodeHierarchy) -> PrecedingSiblings {
+    pub const fn preceding_siblings(self, node_hierarchy: &NodeHierarchy) -> PrecedingSiblings {
         PrecedingSiblings {
-            node_layout,
+            node_hierarchy,
             node: Some(self),
         }
     }
@@ -393,28 +393,28 @@ impl NodeId {
     ///
     /// Call `.next().unwrap()` once on the iterator to skip the node itself.
     #[inline]
-    pub const fn following_siblings(self, node_layout: &NodeHierarchy) -> FollowingSiblings {
+    pub const fn following_siblings(self, node_hierarchy: &NodeHierarchy) -> FollowingSiblings {
         FollowingSiblings {
-            node_layout,
+            node_hierarchy,
             node: Some(self),
         }
     }
 
     /// Return an iterator of references to this node’s children.
     #[inline]
-    pub fn children(self, node_layout: &NodeHierarchy) -> Children {
+    pub fn children(self, node_hierarchy: &NodeHierarchy) -> Children {
         Children {
-            node_layout,
-            node: node_layout[self].first_child,
+            node_hierarchy,
+            node: node_hierarchy[self].first_child,
         }
     }
 
     /// Return an iterator of references to this node’s children, in reverse order.
     #[inline]
-    pub fn reverse_children(self, node_layout: &NodeHierarchy) -> ReverseChildren {
+    pub fn reverse_children(self, node_hierarchy: &NodeHierarchy) -> ReverseChildren {
         ReverseChildren {
-            node_layout,
-            node: node_layout[self].last_child,
+            node_hierarchy,
+            node: node_hierarchy[self].last_child,
         }
     }
 
@@ -423,15 +423,15 @@ impl NodeId {
     /// Parent nodes appear before the descendants.
     /// Call `.next().unwrap()` once on the iterator to skip the node itself.
     #[inline]
-    pub const fn descendants(self, node_layout: &NodeHierarchy) -> Descendants {
-        Descendants(self.traverse(node_layout))
+    pub const fn descendants(self, node_hierarchy: &NodeHierarchy) -> Descendants {
+        Descendants(self.traverse(node_hierarchy))
     }
 
     /// Return an iterator of references to this node and its descendants, in tree order.
     #[inline]
-    pub const fn traverse(self, node_layout: &NodeHierarchy) -> Traverse {
+    pub const fn traverse(self, node_hierarchy: &NodeHierarchy) -> Traverse {
         Traverse {
-            node_layout,
+            node_hierarchy,
             root: self,
             next: Some(NodeEdge::Start(self)),
         }
@@ -439,9 +439,9 @@ impl NodeId {
 
     /// Return an iterator of references to this node and its descendants, in tree order.
     #[inline]
-    pub const fn reverse_traverse(self, node_layout: &NodeHierarchy) -> ReverseTraverse {
+    pub const fn reverse_traverse(self, node_hierarchy: &NodeHierarchy) -> ReverseTraverse {
         ReverseTraverse {
-            node_layout,
+            node_hierarchy,
             root: self,
             next: Some(NodeEdge::End(self)),
         }
@@ -457,7 +457,7 @@ macro_rules! impl_node_iterator {
             fn next(&mut self) -> Option<NodeId> {
                 match self.node.take() {
                     Some(node) => {
-                        self.node = $next(&self.node_layout[node]);
+                        self.node = $next(&self.node_hierarchy[node]);
                         Some(node)
                     }
                     None => None
@@ -491,7 +491,7 @@ impl Iterator for LinearIterator {
 
 /// An iterator of references to the ancestors a given node.
 pub struct Ancestors<'a> {
-    node_layout: &'a NodeHierarchy,
+    node_hierarchy: &'a NodeHierarchy,
     node: Option<NodeId>,
 }
 
@@ -499,7 +499,7 @@ impl_node_iterator!(Ancestors, |node: &Node| node.parent);
 
 /// An iterator of references to the siblings before a given node.
 pub struct PrecedingSiblings<'a> {
-    node_layout: &'a NodeHierarchy,
+    node_hierarchy: &'a NodeHierarchy,
     node: Option<NodeId>,
 }
 
@@ -507,7 +507,7 @@ impl_node_iterator!(PrecedingSiblings, |node: &Node| node.previous_sibling);
 
 /// An iterator of references to the siblings after a given node.
 pub struct FollowingSiblings<'a> {
-    node_layout: &'a NodeHierarchy,
+    node_hierarchy: &'a NodeHierarchy,
     node: Option<NodeId>,
 }
 
@@ -515,7 +515,7 @@ impl_node_iterator!(FollowingSiblings, |node: &Node| node.next_sibling);
 
 /// An iterator of references to the children of a given node.
 pub struct Children<'a> {
-    node_layout: &'a NodeHierarchy,
+    node_hierarchy: &'a NodeHierarchy,
     node: Option<NodeId>,
 }
 
@@ -523,7 +523,7 @@ impl_node_iterator!(Children, |node: &Node| node.next_sibling);
 
 /// An iterator of references to the children of a given node, in reverse order.
 pub struct ReverseChildren<'a> {
-    node_layout: &'a NodeHierarchy,
+    node_hierarchy: &'a NodeHierarchy,
     node: Option<NodeId>,
 }
 
@@ -571,7 +571,7 @@ impl<T> NodeEdge<T> {
 
 /// An iterator of references to a given node and its descendants, in tree order.
 pub struct Traverse<'a> {
-    node_layout: &'a NodeHierarchy,
+    node_hierarchy: &'a NodeHierarchy,
     root: NodeId,
     next: Option<NodeEdge<NodeId>>,
 }
@@ -584,7 +584,7 @@ impl<'a> Iterator for Traverse<'a> {
             Some(item) => {
                 self.next = match item {
                     NodeEdge::Start(node) => {
-                        match self.node_layout[node].first_child {
+                        match self.node_hierarchy[node].first_child {
                             Some(first_child) => Some(NodeEdge::Start(first_child)),
                             None => Some(NodeEdge::End(node.clone()))
                         }
@@ -593,9 +593,9 @@ impl<'a> Iterator for Traverse<'a> {
                         if node == self.root {
                             None
                         } else {
-                            match self.node_layout[node].next_sibling {
+                            match self.node_hierarchy[node].next_sibling {
                                 Some(next_sibling) => Some(NodeEdge::Start(next_sibling)),
-                                None => match self.node_layout[node].parent {
+                                None => match self.node_hierarchy[node].parent {
                                     Some(parent) => Some(NodeEdge::End(parent)),
 
                                     // `node.parent()` here can only be `None`
@@ -617,7 +617,7 @@ impl<'a> Iterator for Traverse<'a> {
 
 /// An iterator of references to a given node and its descendants, in reverse tree order.
 pub struct ReverseTraverse<'a> {
-    node_layout: &'a NodeHierarchy,
+    node_hierarchy: &'a NodeHierarchy,
     root: NodeId,
     next: Option<NodeEdge<NodeId>>,
 }
@@ -630,7 +630,7 @@ impl<'a> Iterator for ReverseTraverse<'a> {
             Some(item) => {
                 self.next = match item {
                     NodeEdge::End(node) => {
-                        match self.node_layout[node].last_child {
+                        match self.node_hierarchy[node].last_child {
                             Some(last_child) => Some(NodeEdge::End(last_child)),
                             None => Some(NodeEdge::Start(node.clone()))
                         }
@@ -639,9 +639,9 @@ impl<'a> Iterator for ReverseTraverse<'a> {
                         if node == self.root {
                             None
                         } else {
-                            match self.node_layout[node].previous_sibling {
+                            match self.node_hierarchy[node].previous_sibling {
                                 Some(previous_sibling) => Some(NodeEdge::End(previous_sibling)),
-                                None => match self.node_layout[node].parent {
+                                None => match self.node_hierarchy[node].parent {
                                     Some(parent) => Some(NodeEdge::Start(parent)),
 
                                     // `node.parent()` here can only be `None`

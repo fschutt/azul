@@ -12,10 +12,22 @@ pub struct Css {
     pub stylesheets: Vec<Stylesheet>,
 }
 
+impl Css {
+    pub const fn new(stylesheets: Vec<Stylesheet>) -> Self {
+        Self { stylesheets }
+    }
+}
+
 #[derive(Debug, Default, PartialEq, Clone)]
 pub struct Stylesheet {
     /// The style rules making up the document - for example, de-duplicated CSS rules
     pub rules: Vec<CssRuleBlock>,
+}
+
+impl Stylesheet {
+    pub const fn new(rules: Vec<CssRuleBlock>) -> Self {
+        Self { rules }
+    }
 }
 
 impl From<Vec<CssRuleBlock>> for Stylesheet {
@@ -34,6 +46,14 @@ pub enum CssDeclaration {
 }
 
 impl CssDeclaration {
+
+    pub const fn new_static(prop: CssProperty) -> Self {
+        CssDeclaration::Static(prop)
+    }
+
+    pub const fn new_dynamic(prop: DynamicCssProperty) -> Self {
+        CssDeclaration::Dynamic(prop)
+    }
 
     /// Returns the type of the property (i.e. the CSS key as a typed enum)
     pub fn get_type(&self) -> CssPropertyType {
@@ -237,6 +257,15 @@ pub struct CssRuleBlock {
     pub declarations: Vec<CssDeclaration>,
 }
 
+impl CssRuleBlock {
+    pub const fn new(path: CssPath, declarations: Vec<CssDeclaration>) -> Self {
+        Self {
+            path,
+            declarations,
+        }
+    }
+}
+
 pub type CssContentGroup<'a> = Vec<&'a CssPathSelector>;
 
 /// Signifies the type (i.e. the discriminant value) of a DOM node
@@ -309,6 +338,12 @@ impl fmt::Display for NodeTypePath {
 #[derive(Clone, Hash, Default, PartialEq, Eq, PartialOrd, Ord)]
 pub struct CssPath {
     pub selectors: Vec<CssPathSelector>,
+}
+
+impl CssPath {
+    pub const fn new(selectors: Vec<CssPathSelector>) -> Self {
+        Self { selectors }
+    }
 }
 
 impl fmt::Display for CssPath {
@@ -418,7 +453,7 @@ impl fmt::Display for CssPathPseudoSelector {
 impl Css {
 
     /// Creates a new, empty CSS with no stylesheets
-    pub fn new() -> Self {
+    pub fn empty() -> Self {
         Default::default()
     }
 
@@ -475,7 +510,7 @@ impl<'a> Iterator for RuleIterator<'a> {
 impl Stylesheet {
 
     /// Creates a new stylesheet with no style rules.
-    pub fn new() -> Self {
+    pub fn empty() -> Self {
         Default::default()
     }
 

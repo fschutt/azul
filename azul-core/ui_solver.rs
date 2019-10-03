@@ -34,7 +34,17 @@ pub struct InlineTextLine {
     pub word_end: usize,
 }
 
+impl InlineTextLine {
+    pub const fn new(bounds: LayoutRect, word_start: usize, word_end: usize) -> Self {
+        Self { bounds, word_start, word_end }
+    }
+}
+
 impl InlineTextLayout {
+
+    pub const fn new(lines: Vec<InlineTextLine>) -> Self {
+        Self { lines }
+    }
 
     #[inline]
     #[must_use]
