@@ -75,8 +75,6 @@ impl AnonDom {
         // to correct the "next sibling" count
         let anon_nodes_count = count_all_anon_nodes(node_hierarchy, node_styles, node_depths, rect_contents);
 
-        println!("anon nodes count: {:#?}", anon_nodes_count);
-
         for (_depth, parent_id) in node_depths {
 
             let children_ids = parent_id.children(node_hierarchy).collect::<Vec<NodeId>>();
@@ -134,24 +132,31 @@ impl AnonDom {
                 // Mixed inline / block content: Need to insert anonymous nodes +
                 // fix their parent / child relationships
 
-                println!("mixed inline block nodes!");
-
                 if children_count == 0 {
                     continue;
                 }
 
-                macro_rules! insert_anonymous_block {($id:expr) => ({
-                    println!("inserting anon node @ {:?}", $id);
-                    let old_node = node_hierarchy[*$id];
+                let mut last_anon_node = None;
+
+                macro_rules! start_anonymous_node {($id:expr) => ({
                     let node_count_anon_children = anon_nodes_count.get($id).copied().unwrap_or(0);
-                    new_node_hierarchy[(*$id + num_anon_nodes).index()] = Node {
-                        parent: old_node.parent.as_ref().and_then(|p| original_node_id_mapping.get(p).copied()),
-                        previous_sibling: old_node.previous_sibling.as_ref().and_then(|s| original_node_id_mapping.get(s).copied()),
-                        next_sibling: old_node.next_sibling.map(|n| n + num_anon_nodes + node_count_anon_children),
-                        first_child: Some($id + (num_anon_nodes + 1)),
-                        last_child: Some(n + num_anon_nodes + node_count_anon_children + node_hierarchy.subtree_len($id) + node_count_since_last_inline_node),
-                    };
+                    last_anon_node = Some(($id, num_anon_nodes, node_count_anon_children));
                     num_anon_nodes += 1;
+                })}
+
+                macro_rules! end_anonymous_node {($id:expr) => ({
+                    if let Some((last_anon_node, num_anon_nodes_before, node_count_anon_children)) = last_anon_node {
+                        let old_node = node_hierarchy[*last_anon_node];
+                        new_node_hierarchy[last_anon_node.index() + num_anon_nodes_before] = Node {
+                            parent: old_node.parent.as_ref().and_then(|p| original_node_id_mapping.get(p).copied()),
+                            previous_sibling: old_node.previous_sibling.as_ref().and_then(|s| original_node_id_mapping.get(s).copied()),
+                            next_sibling: old_node.next_sibling.map(|_| $id + num_anon_nodes),
+                            first_child: Some(*last_anon_node + num_anon_nodes_before + 1),
+                            last_child: Some($id + (num_anon_nodes - 1)),
+                        };
+                    }
+
+                    last_anon_node = None;
                 })}
 
                 let mut last_child_is_inline_node = {
@@ -159,39 +164,69 @@ impl AnonDom {
                     is_inline_node(&node_styles[*first_child_id], &rect_contents, first_child_id)
                 };
 
-                if last_child_is_inline_node {
-                    insert_anonymous_block!(&children_ids[0]);
+                if last_child_is_inline_node { // first node is inline node
+                    start_anonymous_node!(&children_ids[0]);
                 }
 
                 // Mixed content: How many anonymous nodes are needed?
-                for child_id in children_ids.iter() {
+                for (child_idx, child_id) in children_ids.iter().enumerate() {
 
                     let child_node_style = node_styles[*child_id];
                     let child_node = node_hierarchy[*child_id];
                     let current_child_is_inline_node = is_inline_node(&child_node_style, rect_contents, child_id);
+                    let next_child_is_inline_node = if let Some(next_node_id) = children_ids.get(child_idx + 1) {
+                        is_inline_node(&node_styles[*next_node_id], rect_contents, next_node_id)
+                    } else {
+                        false
+                    };
 
-                    println!("current_child_is_inline_node: {:?} - {:?}", child_id, current_child_is_inline_node);
+                    let mut anon_node_tree_was_ended = None;
 
                     // inline content follows a block
                     if current_child_is_inline_node && !last_child_is_inline_node {
-                        insert_anonymous_block!(child_id);
+                        start_anonymous_node!(child_id);
+                    } else if !current_child_is_inline_node && last_child_is_inline_node {
+                        anon_node_tree_was_ended = last_anon_node
+                        .map(|(last_anon_node, num_anon_nodes_before, _)| {
+                            (*last_anon_node, num_anon_nodes_before)
+                        });
+                        end_anonymous_node!(*child_id);
                     }
 
                     original_node_id_mapping.insert(*child_id, *child_id + num_anon_nodes);
 
                     new_nodes[(*child_id + num_anon_nodes).index()] =
-                        if all_children_are_block { BlockNode(child_node_style) } else { InlineNode(child_node_style) };
+                        if current_child_is_inline_node { InlineNode(child_node_style) } else { BlockNode(child_node_style) };
 
-                    let node_count_all_children = anon_nodes_count.get(child_id).copied().unwrap_or(0);
+                    let node_count_anon_children = anon_nodes_count.get(child_id).copied().unwrap_or(0);
                     new_node_hierarchy[(*child_id + num_anon_nodes).index()] = Node {
-                        parent: child_node.parent.as_ref().and_then(|p| original_node_id_mapping.get(p).copied()),
-                        previous_sibling: child_node.previous_sibling.as_ref().and_then(|s| original_node_id_mapping.get(s).copied()),
-                        next_sibling: child_node.next_sibling.map(|n| n + num_anon_nodes + node_count_all_children),
+                        parent:
+                            if let Some((last_anon, num_anon_nodes_before, _)) = last_anon_node {
+                                Some(*last_anon + num_anon_nodes_before)
+                            } else {
+                                child_node.parent.as_ref().and_then(|p| original_node_id_mapping.get(p).copied())
+                            },
+                        previous_sibling:
+                            if let Some((last_anon_node, num_anon_nodes_before)) = anon_node_tree_was_ended {
+                                Some(last_anon_node + num_anon_nodes_before)
+                            } else {
+                                child_node.previous_sibling.map(|n| n + num_anon_nodes)
+                            },
+                        next_sibling:
+                            if current_child_is_inline_node && !next_child_is_inline_node {
+                                None
+                            } else {
+                                child_node.next_sibling.map(|n| n + num_anon_nodes + node_count_anon_children)
+                            },
                         first_child: child_node.first_child.map(|n| n + num_anon_nodes),
-                        last_child: child_node.last_child.map(|n| n + num_anon_nodes + node_count_all_children),
+                        last_child: child_node.last_child.map(|n| n + num_anon_nodes + node_count_anon_children),
                     };
 
                     last_child_is_inline_node = current_child_is_inline_node;
+                }
+
+                if let Some(last) = children_ids.last() {
+                    end_anonymous_node!(*last);
                 }
             }
         }
@@ -401,8 +436,4 @@ fn test_anon_dom() {
             anon_dom.anon_node_hierarchy.internal,
         );
     }
-
-    // anon_node_hierarchy: NodeHierarchy,
-    // anon_node_styles: NodeDataContainer<AnonNode>,
-    // original_node_id_mapping: BTreeMap<OriginalNodeId, AnonNodeId>,
 }

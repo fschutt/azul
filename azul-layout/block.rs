@@ -19,6 +19,17 @@ pub(crate) fn compute<T: GetTextLayout>(
     node_depths: &NodeDepths,
 ) -> NodeDataContainer<PositionedRectangle> {
 
+    use crate::anon::AnonDom;
+
+    let anon_dom = AnonDom::new(
+        node_hierarchy,
+        node_styles,
+        node_depths,
+        rect_contents,
+    );
+
+    println!("{:#?}", anon_dom);
+
     NodeDataContainer::new(vec![PositionedRectangle {
         bounds: LayoutRect::new(LayoutPoint::new(0.0, 0.0), LayoutSize::new(100.0, 100.0)),
         padding: ResolvedOffsets::zero(),
