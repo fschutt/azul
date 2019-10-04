@@ -94,6 +94,8 @@ impl SolvedUi {
         node_depths: &NodeDepths,
     ) -> Self {
 
+        use crate::anon::AnonDom;
+
         let styles = display_rects.transform(|node, node_id| Style {
             aspect_ratio: match rect_contents.get(&node_id) {
                 Some(RectContent::Image(w, h)) => Number::Defined(*w as f32 / *h as f32),
@@ -102,8 +104,15 @@ impl SolvedUi {
             .. node.get_style()
         });
 
+        let anon_dom = AnonDom::new(
+            node_hierarchy,
+            &styles,
+            node_depths,
+            rect_contents,
+        );
+
         // let mut solved_rects = flex::compute(NodeId::ZERO, node_hierarchy, &styles, rect_contents, bounds.size, node_depths);
-        let mut solved_rects = block::compute(NodeId::ZERO, node_hierarchy, &styles, rect_contents, bounds.size, node_depths);
+        let mut solved_rects = block::compute(NodeId::ZERO, bounds.size, node_hierarchy, &styles, rect_contents, &anon_dom);
 
         // Offset all layouted rectangles by the origin of the bounds
         let origin_x = bounds.origin.x;

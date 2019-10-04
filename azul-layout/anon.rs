@@ -25,6 +25,7 @@ pub(crate) struct AnonDom {
     pub(crate) anon_node_hierarchy: NodeHierarchy,
     pub(crate) anon_node_styles: NodeDataContainer<AnonNode>,
     pub(crate) original_node_id_mapping: BTreeMap<OriginalNodeId, AnonNodeId>,
+    pub(crate) reverse_node_id_mapping: BTreeMap<AnonNodeId, OriginalNodeId>,
 }
 
 #[derive(Debug, Copy, Clone)]
@@ -67,7 +68,10 @@ impl AnonDom {
         let mut new_nodes = vec![AnonNode::AnonStyle; node_hierarchy.len() * 2];
         let mut new_node_hierarchy = vec![Node::ROOT; node_hierarchy.len() * 2];
         let mut original_node_id_mapping = BTreeMap::new();
+        let mut reverse_node_id_mapping = BTreeMap::new();
+
         original_node_id_mapping.insert(NodeId::ZERO, NodeId::ZERO);
+        reverse_node_id_mapping.insert(NodeId::ZERO, NodeId::ZERO);
 
         let mut num_anon_nodes = 0;
 
@@ -91,6 +95,7 @@ impl AnonDom {
             let parent_is_inline_node = is_inline_node(&parent_node_style, &rect_contents, parent_id);
 
             original_node_id_mapping.insert(*parent_id, *parent_id + num_anon_nodes);
+            reverse_node_id_mapping.insert(*parent_id + num_anon_nodes, *parent_id);
 
             new_nodes[(*parent_id + num_anon_nodes).index()] =
                 if parent_is_inline_node { InlineNode(*parent_node_style) } else { BlockNode(*parent_node_style) };
@@ -114,6 +119,7 @@ impl AnonDom {
                     let child_node_count_all_children = anon_nodes_count.get(child_id).copied().unwrap_or(0);
 
                     original_node_id_mapping.insert(*child_id, *child_id + num_anon_nodes);
+                    reverse_node_id_mapping.insert(*child_id + num_anon_nodes, *child_id);
 
                     new_nodes[(*child_id + num_anon_nodes).index()] =
                         if all_children_are_block { BlockNode(*child_node_style) } else { InlineNode(*child_node_style) };
@@ -194,6 +200,7 @@ impl AnonDom {
                     }
 
                     original_node_id_mapping.insert(*child_id, *child_id + num_anon_nodes);
+                    reverse_node_id_mapping.insert(*child_id + num_anon_nodes, *child_id);
 
                     new_nodes[(*child_id + num_anon_nodes).index()] =
                         if current_child_is_inline_node { InlineNode(child_node_style) } else { BlockNode(child_node_style) };
@@ -239,6 +246,7 @@ impl AnonDom {
             anon_node_hierarchy: NodeHierarchy::new(new_node_hierarchy),
             anon_node_styles: NodeDataContainer::new(new_nodes),
             original_node_id_mapping,
+            reverse_node_id_mapping,
         }
     }
 }
