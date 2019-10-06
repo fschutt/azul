@@ -112,7 +112,11 @@ impl SolvedUi {
         );
 
         // let mut solved_rects = flex::compute(NodeId::ZERO, node_hierarchy, &styles, rect_contents, bounds.size, node_depths);
-        let mut solved_rects = block::compute(NodeId::ZERO, bounds.size, node_hierarchy, &styles, rect_contents, &anon_dom);
+        let mut solved_rects = block::compute(
+            bounds.size,
+            &anon_dom,
+            rect_contents,
+        );
 
         // Offset all layouted rectangles by the origin of the bounds
         let origin_x = bounds.origin.x;

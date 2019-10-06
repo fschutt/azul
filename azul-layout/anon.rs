@@ -23,7 +23,7 @@ pub(crate) type AnonNodeId = NodeId;
 #[derive(Debug, Clone)]
 pub(crate) struct AnonDom {
     pub(crate) anon_node_hierarchy: NodeHierarchy,
-    pub(crate) anon_node_styles: NodeDataContainer<AnonNode>,
+    pub(crate) anon_node_data: NodeDataContainer<AnonNode>,
     pub(crate) original_node_id_mapping: BTreeMap<OriginalNodeId, AnonNodeId>,
     pub(crate) reverse_node_id_mapping: BTreeMap<AnonNodeId, OriginalNodeId>,
 }
@@ -244,7 +244,7 @@ impl AnonDom {
 
         Self {
             anon_node_hierarchy: NodeHierarchy::new(new_node_hierarchy),
-            anon_node_styles: NodeDataContainer::new(new_nodes),
+            anon_node_data: NodeDataContainer::new(new_nodes),
             original_node_id_mapping,
             reverse_node_id_mapping,
         }

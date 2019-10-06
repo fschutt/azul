@@ -174,7 +174,6 @@ pub(crate) fn compute<T: GetTextLayout>(
                 origin: LayoutPoint { x: rect.origin.x.unwrap_or_zero(), y: rect.origin.y.unwrap_or_zero() },
                 size: LayoutSize { width: rect.size.width.unwrap_or_zero(), height: rect.size.height.unwrap_or_zero() },
             },
-            content_size: None, // TODO
             padding: rect.padding,
             border_widths: rect.border_widths,
             margin: rect.margin,
