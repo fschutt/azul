@@ -147,6 +147,7 @@ impl Default for JustifyContent {
 
 #[derive(Copy, Clone, PartialEq, Debug)]
 pub enum Overflow {
+    Auto,
     Visible,
     Hidden,
     Scroll,
@@ -154,7 +155,23 @@ pub enum Overflow {
 
 impl Default for Overflow {
     fn default() -> Overflow {
-        Overflow::Visible
+        Overflow::Scroll
+    }
+}
+
+impl Overflow {
+    pub fn allows_horizontal_overflow(&self) -> bool {
+        use self::Overflow::*;
+        match self {
+            Auto => false,
+            Visible => true,
+            Hidden => true,
+            Scroll => false,
+        }
+    }
+
+    pub fn allows_vertical_overflow(&self) -> bool {
+        true
     }
 }
 

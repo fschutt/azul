@@ -42,6 +42,20 @@ impl InlineTextLine {
 
 impl InlineTextLayout {
 
+    pub fn get_leading(&self) -> f32 {
+        match self.lines.first() {
+            None => 0.0,
+            Some(s) => s.bounds.origin.x,
+        }
+    }
+
+    pub fn get_trailing(&self) -> f32 {
+        match self.lines.first() {
+            None => 0.0,
+            Some(s) => s.bounds.origin.x + s.bounds.size.width,
+        }
+    }
+
     pub const fn new(lines: Vec<InlineTextLine>) -> Self {
         Self { lines }
     }

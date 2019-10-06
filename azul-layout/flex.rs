@@ -179,6 +179,7 @@ pub(crate) fn compute<T: GetTextLayout>(
             margin: rect.margin,
             resolved_text_layout_options: resolved_text_layout_options.get(&node_id).cloned(),
             overflow: match node_styles[node_id].overflow {
+                Overflow::Auto => LayoutOverflow::Auto,
                 Overflow::Scroll => LayoutOverflow::Scroll,
                 Overflow::Hidden => LayoutOverflow::Hidden,
                 Overflow::Visible => LayoutOverflow::Visible,

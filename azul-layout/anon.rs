@@ -4,7 +4,7 @@
 use std::collections::BTreeMap;
 use crate::{
     RectContent,
-    style::{Style, Display},
+    style::{Style, Overflow, Display},
 };
 use azul_core::{
     id_tree::{NodeDataContainer, NodeHierarchy, NodeId, NodeDepths, Node},
@@ -43,6 +43,15 @@ pub(crate) enum AnonNode {
 }
 
 impl AnonNode {
+
+    pub(crate) fn get_overflow_x(&self) -> Overflow {
+        use self::AnonNode::*;
+        match self {
+         AnonStyle => Overflow::Auto,
+         BlockNode(s) | InlineNode(s) => s.overflow,
+        }
+    }
+
     pub(crate) fn is_inline(&self) -> bool {
         use self::AnonNode::*;
         match self {
@@ -151,7 +160,7 @@ impl AnonDom {
                 })}
 
                 macro_rules! end_anonymous_node {($id:expr) => ({
-                    if let Some((last_anon_node, num_anon_nodes_before, node_count_anon_children)) = last_anon_node {
+                    if let Some((last_anon_node, num_anon_nodes_before, _)) = last_anon_node {
                         let old_node = node_hierarchy[*last_anon_node];
                         new_node_hierarchy[last_anon_node.index() + num_anon_nodes_before] = Node {
                             parent: old_node.parent.as_ref().and_then(|p| original_node_id_mapping.get(p).copied()),
