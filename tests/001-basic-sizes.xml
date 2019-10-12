@@ -3,12 +3,12 @@
 <test name="simple-width">
     <html>
         <body>
-            <div id="hello" />
+            <div id="foo" />
         </body>
     </html>
 
     <style>
-        #hello {
+        #foo {
             width: 100px;
             height: 50px;
         }
@@ -41,7 +41,7 @@
 <test name="calculate-percentage">
     <html>
         <body>
-            <div id="hello" />
+            <div id="foo" />
         </body>
     </html>
 
@@ -50,7 +50,7 @@
             height: 100%;
         }
 
-        #hello {
+        #foo {
             width: 100%;
             height: 50%;
         }
@@ -80,16 +80,15 @@
 </test>
 
 <!-- Overflowing content should be displayed in a ScrollFrame -->
-<!--
-<test name="test-overflow-scrollframe">
+<test name="overflow-scrollframe">
     <html>
         <body>
-            <div id="hello" />
+            <div id="foo" />
         </body>
     </html>
 
     <style>
-        #hello {
+        #foo {
             width: 500px;
             height: 500px;
         }
@@ -97,23 +96,74 @@
 
     <output size="10x10">
         ScrollFrame(
-            rect: 500x500 @ (0, 0),
+            DisplayListScrollFrame {
+                content_rect: 500x500 @ (0, 0)
+                scroll_tag: ScrollTagId(1)
+                frame: DisplayListFrame {
+                    rect: 10x10 @ (0, 0),
+                    tag: 1
+                    children: [
+                        Frame(
+                            rect: 500x500 @ (0, 0),
+                        ),
+                    ]
+                }
+            },
+        )
+    </output>
+
+    <output size="1000x800">
+        Frame(
+            rect: 1000x500 @ (0, 0),
+            children: [
+                Frame(
+                    rect: 500x500 @ (0, 0),
+                ),
+            ],
         )
     </output>
 </test>
--->
+
+<!-- Test that margin: 0 auto centers a div -->
+<test name="margin-zero-auto">
+    <html>
+        <body>
+            <div id="foo" />
+        </body>
+    </html>
+
+    <style>
+        #foo {
+            width: 50px;
+            height: 50px;
+            margin: 0 auto;
+        }
+    </style>
+
+    <!-- 350px | 50px | 350px -->
+    <output size="750x50">
+        Frame(
+            rect: 750x50 @ (0, 0),
+            children: [
+                Frame(
+                    rect: 50x50 @ (350, 0),
+                ),
+            ],
+        )
+    </output>
+</test>
 
 <!-- A margin on the root node should affect the position-->
 <!--
 <test name="margin-root">
     <html>
         <body>
-            <div id="hello" />
+            <div id="foo" />
         </body>
     </html>
 
     <style>
-        #hello {
+        #foo {
             width: 500px;
             height: 500px;
             margin: 50px;

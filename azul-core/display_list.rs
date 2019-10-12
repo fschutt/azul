@@ -116,7 +116,7 @@ impl DisplayListMsg {
     }
 }
 
-#[derive(Debug, Clone, PartialEq, PartialOrd)]
+#[derive(Clone, PartialEq, PartialOrd)]
 pub struct DisplayListScrollFrame {
     /// Bounding rect of the (overflowing) content of the scroll frame
     pub content_rect: LayoutRect,
@@ -127,6 +127,21 @@ pub struct DisplayListScrollFrame {
     pub scroll_tag: ScrollTagId,
     /// Content + children of the scroll clip
     pub frame: DisplayListFrame,
+}
+
+impl fmt::Debug for DisplayListScrollFrame {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        write!(f, "DisplayListScrollFrame {{\r\n")?;
+        write!(f, "    content_rect: {}\r\n", self.content_rect)?;
+        write!(f, "    scroll_tag: {}\r\n", self.scroll_tag)?;
+        write!(f, "    frame: DisplayListFrame {{\r\n")?;
+        let frame = format!("{:#?}", self.frame);
+        let frame = frame.lines().map(|l| format!("        {}", l)).collect::<Vec<_>>().join("\r\n");
+        write!(f, "{}\r\n", frame)?;
+        write!(f, "    }}\r\n")?;
+        write!(f, "}}")?;
+        Ok(())
+    }
 }
 
 #[derive(Clone, PartialEq, PartialOrd)]
@@ -166,6 +181,7 @@ impl fmt::Debug for DisplayListFrame {
         if !self.children.is_empty() {
             write!(f, "\r\nchildren: {:#?}", self.children)?;
         }
+
         Ok(())
     }
 }

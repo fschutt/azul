@@ -227,6 +227,16 @@ pub fn parse_combined_css_property<'a>(key: CombinedCssPropertyType, value: &'a 
 {
     use self::CombinedCssPropertyType::*;
 
+    macro_rules! convert_value {($thing:expr, $prop_type:ident, $wrapper:ident) => (
+        match $thing {
+            PixelValueWithAuto::None => CssProperty::none(CssPropertyType::$prop_type),
+            PixelValueWithAuto::Initial => CssProperty::initial(CssPropertyType::$prop_type),
+            PixelValueWithAuto::Inherit => CssProperty::inherit(CssPropertyType::$prop_type),
+            PixelValueWithAuto::Auto => CssProperty::auto(CssPropertyType::$prop_type),
+            PixelValueWithAuto::Exact(x) => CssProperty::$prop_type($wrapper(x).into()),
+        }
+    )}
+
     let keys = match key {
         BorderRadius => {
             vec![
@@ -340,19 +350,19 @@ pub fn parse_combined_css_property<'a>(key: CombinedCssPropertyType, value: &'a 
         Padding => {
             let padding = parse_layout_padding(value)?;
             Ok(vec![
-                CssProperty::PaddingTop(LayoutPaddingTop(padding.top).into()),
-                CssProperty::PaddingBottom(LayoutPaddingBottom(padding.bottom).into()),
-                CssProperty::PaddingLeft(LayoutPaddingLeft(padding.left).into()),
-                CssProperty::PaddingRight(LayoutPaddingRight(padding.right).into()),
+                convert_value!(padding.top, PaddingTop, LayoutPaddingTop),
+                convert_value!(padding.bottom, PaddingBottom, LayoutPaddingBottom),
+                convert_value!(padding.left, PaddingLeft, LayoutPaddingLeft),
+                convert_value!(padding.right, PaddingRight, LayoutPaddingRight),
             ])
         },
         Margin => {
             let margin = parse_layout_margin(value)?;
             Ok(vec![
-                CssProperty::MarginTop(LayoutMarginTop(margin.top).into()),
-                CssProperty::MarginBottom(LayoutMarginBottom(margin.bottom).into()),
-                CssProperty::MarginLeft(LayoutMarginLeft(margin.left).into()),
-                CssProperty::MarginRight(LayoutMarginRight(margin.right).into()),
+                convert_value!(margin.top, MarginTop, LayoutMarginTop),
+                convert_value!(margin.bottom, MarginBottom, LayoutMarginBottom),
+                convert_value!(margin.left, MarginLeft, LayoutMarginLeft),
+                convert_value!(margin.right, MarginRight, LayoutMarginRight),
             ])
         },
         Border => {
@@ -772,6 +782,8 @@ fn parse_pixel_value_inner<'a>(input: &'a str, match_values: &[(&'static str, Si
     // You can't sub-string pixel values, have to call collect() here!
     let number_str = input.chars().take_while(is_part_of_number).collect::<String>();
     let unit_str = input.chars().filter(|ch| !is_part_of_number(ch)).collect::<String>();
+    let unit_str = unit_str.trim();
+    let unit_str = unit_str.to_string();
 
     if number_str.is_empty() {
         return Err(PixelParseError::NoValueGiven(input));
@@ -779,9 +791,14 @@ fn parse_pixel_value_inner<'a>(input: &'a str, match_values: &[(&'static str, Si
 
     let number = number_str.parse::<f32>().map_err(|e| PixelParseError::ValueParseErr(e, number_str))?;
 
-    let unit = match_values.iter().find_map(|(target_str, target_size_metric)|
-        if unit_str.as_str() == *target_str { Some(*target_size_metric) } else { None }
-    ).ok_or(PixelParseError::UnsupportedMetric(number, unit_str, input))?;
+    let unit =
+        if unit_str.is_empty() {
+            SizeMetric::Px
+        } else {
+            match_values.iter().find_map(|(target_str, target_size_metric)|
+                if unit_str.as_str() == *target_str { Some(*target_size_metric) } else { None }
+            ).ok_or(PixelParseError::UnsupportedMetric(number, unit_str, input))?
+        };
 
     Ok(PixelValue::from_metric(unit, number))
 }
@@ -1276,10 +1293,10 @@ impl_from!(PixelParseError<'a>, LayoutPaddingParseError::PixelParseError);
 /// Represents a parsed `padding` attribute
 #[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub struct LayoutPadding {
-    pub top: PixelValue,
-    pub bottom: PixelValue,
-    pub left: PixelValue,
-    pub right: PixelValue,
+    pub top: PixelValueWithAuto,
+    pub bottom: PixelValueWithAuto,
+    pub left: PixelValueWithAuto,
+    pub right: PixelValueWithAuto,
 }
 
 /// Parse a padding value such as
@@ -1289,8 +1306,8 @@ pub fn parse_layout_padding<'a>(input: &'a str)
 -> Result<LayoutPadding, LayoutPaddingParseError>
 {
     let mut input_iter = input.split_whitespace();
-    let first = parse_pixel_value(input_iter.next().ok_or(LayoutPaddingParseError::TooFewValues)?)?;
-    let second = parse_pixel_value(match input_iter.next() {
+    let first = parse_pixel_value_with_auto(input_iter.next().ok_or(LayoutPaddingParseError::TooFewValues)?)?;
+    let second = parse_pixel_value_with_auto(match input_iter.next() {
         Some(s) => s,
         None => return Ok(LayoutPadding {
             top: first,
@@ -1299,7 +1316,7 @@ pub fn parse_layout_padding<'a>(input: &'a str)
             right: first,
         }),
     })?;
-    let third = parse_pixel_value(match input_iter.next() {
+    let third = parse_pixel_value_with_auto(match input_iter.next() {
         Some(s) => s,
         None => return Ok(LayoutPadding {
             top: first,
@@ -1308,7 +1325,7 @@ pub fn parse_layout_padding<'a>(input: &'a str)
             right: second,
         }),
     })?;
-    let fourth = parse_pixel_value(match input_iter.next() {
+    let fourth = parse_pixel_value_with_auto(match input_iter.next() {
         Some(s) => s,
         None => return Ok(LayoutPadding {
             top: first,
@@ -1345,13 +1362,34 @@ impl_display!{ LayoutMarginParseError<'a>, {
 
 impl_from!(PixelParseError<'a>, LayoutMarginParseError::PixelParseError);
 
+#[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
+pub enum PixelValueWithAuto {
+    None,
+    Initial,
+    Inherit,
+    Auto,
+    Exact(PixelValue),
+}
+
+/// Parses a pixel value, but also tries values like "auto", "initial", "inherit" and "none"
+pub fn parse_pixel_value_with_auto<'a>(input: &'a str) -> Result<PixelValueWithAuto, PixelParseError<'a>> {
+    let input = input.trim();
+    match input {
+        "none" => Ok(PixelValueWithAuto::None),
+        "initial" => Ok(PixelValueWithAuto::Initial),
+        "inherit" => Ok(PixelValueWithAuto::Inherit),
+        "auto" => Ok(PixelValueWithAuto::Auto),
+        e => Ok(PixelValueWithAuto::Exact(parse_pixel_value(e)?)),
+    }
+}
+
 /// Represents a parsed `padding` attribute
 #[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub struct LayoutMargin {
-    pub top: PixelValue,
-    pub bottom: PixelValue,
-    pub left: PixelValue,
-    pub right: PixelValue,
+    pub top: PixelValueWithAuto,
+    pub bottom: PixelValueWithAuto,
+    pub left: PixelValueWithAuto,
+    pub right: PixelValueWithAuto,
 }
 
 pub fn parse_layout_margin<'a>(input: &'a str)

@@ -240,7 +240,7 @@ fn solve_heights<T: GetTextLayout>(
 
     match &anon_dom.anon_node_data[NodeId::ZERO] {
         BlockNode(ref style) | InlineNode(ref style) => {
-            let root_block_height = calculate_block_height(
+            let mut root_block_height = calculate_block_height(
                 style,
                 root_size.width,
                 root_size.height,
@@ -249,10 +249,11 @@ fn solve_heights<T: GetTextLayout>(
                 rect_contents.get_mut(&NodeId::ZERO),
                 resolved_text_layout_options.get(&NodeId::ZERO),
             );
+            root_block_height.height = root_block_height.height.min(root_size.height);
             apply_block_height(root_block_height, &mut positioned_rects[NodeId::ZERO]);
         },
         AnonStyle => {
-            positioned_rects[NodeId::ZERO].bounds.size.height = children_height_sum;
+            positioned_rects[NodeId::ZERO].bounds.size.height = children_height_sum.min(root_size.height);
         },
     }
 
