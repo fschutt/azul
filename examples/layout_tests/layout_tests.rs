@@ -178,7 +178,7 @@ fn main() {
                     let output = output.lines().map(|l| format!("    {}", l)).collect::<Vec<String>>().join("\r\n");
                     let expected_output_test = expected_output_test.lines().map(|l| format!("    {}", l)).collect::<Vec<String>>().join("\r\n");
                     layout_tests_err.push(format!(
-                        "layout_test {}:{} at size: {:?} ... FAILED\r\n\r\n    expected:\r\n{}\r\n\r\n    got:\r\n\r\n{}\r\n\r\n",
+                        "layout_test {}:{} at size: {:?} ... FAILED\r\n\r\n    expected:\r\n\r\n{}\r\n\r\n    got:\r\n\r\n{}\r\n\r\n",
                         filename, test_name, output_size, expected_output_test, output
                     ));
                 } else {

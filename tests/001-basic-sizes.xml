@@ -2,7 +2,9 @@
 
 <test name="simple-width">
     <html>
-        <div id="hello" />
+        <body>
+            <div id="hello" />
+        </body>
     </html>
 
     <style>
@@ -14,13 +16,23 @@
 
     <output size="600x100">
         Frame(
-            rect: 100x50 @ (0, 0),
+            rect: 600x50 @ (0, 0),
+            children: [
+                Frame(
+                    rect: 100x50 @ (0, 0),
+                ),
+            ],
         )
     </output>
 
     <output size="800x1200">
         Frame(
-            rect: 100x50 @ (0, 0),
+            rect: 800x50 @ (0, 0),
+            children: [
+                Frame(
+                    rect: 100x50 @ (0, 0),
+                ),
+            ],
         )
     </output>
 </test>
@@ -28,10 +40,16 @@
 <!-- Test that the percentage is propagated from the root -->
 <test name="calculate-percentage">
     <html>
-        <div id="hello" />
+        <body>
+            <div id="hello" />
+        </body>
     </html>
 
     <style>
+        body {
+            height: 100%;
+        }
+
         #hello {
             width: 100%;
             height: 50%;
@@ -40,13 +58,23 @@
 
     <output size="600x100">
         Frame(
-            rect: 600x50 @ (0, 0),
+            rect: 600x100 @ (0, 0),
+            children: [
+                Frame(
+                    rect: 600x50 @ (0, 0),
+                ),
+            ],
         )
     </output>
 
     <output size="800x1200">
         Frame(
-            rect: 800x600 @ (0, 0),
+            rect: 800x1200 @ (0, 0),
+            children: [
+                Frame(
+                    rect: 800x600 @ (0, 0),
+                ),
+            ],
         )
     </output>
 </test>
@@ -55,7 +83,9 @@
 <!--
 <test name="test-overflow-scrollframe">
     <html>
-        <div id="hello" />
+        <body>
+            <div id="hello" />
+        </body>
     </html>
 
     <style>
@@ -77,7 +107,9 @@
 <!--
 <test name="margin-root">
     <html>
-        <div id="hello" />
+        <body>
+            <div id="hello" />
+        </body>
     </html>
 
     <style>

@@ -2,13 +2,18 @@
 use std::collections::BTreeMap;
 use crate::{
     RectContent,
-    anon::AnonDom,
-    style::{Style, Overflow as StyleOverflow},
+    RectContent::{Image, Text},
+    anon::{AnonDom, AnonNode::{InlineNode, BlockNode, AnonStyle}},
+    style::{Style, Overflow as StyleOverflow, Display, Dimension, BoxSizing},
+    number::{Number::{Defined, Undefined}, MinMax, OrElse},
 };
 use azul_core::{
     traits::GetTextLayout,
     id_tree::{NodeDataContainer, NodeDepths, NodeId},
-    ui_solver::{PositionedRectangle, ResolvedOffsets},
+    ui_solver::{
+        PositionedRectangle, InlineTextLayout,
+        ResolvedTextLayoutOptions, ResolvedOffsets
+    },
 };
 use azul_css::{LayoutSize, LayoutPoint, LayoutRect, Overflow};
 
@@ -29,18 +34,24 @@ pub(crate) fn compute<T: GetTextLayout>(
         overflow: Overflow::Scroll,
     }; anon_dom.anon_node_hierarchy.len()]);
 
+    let mut resolved_text_layout_options = BTreeMap::new();
+
     solve_widths(
         root_size.width,
         anon_dom,
         &anon_dom_depths,
         &mut positioned_rects,
         rect_contents,
+        &mut resolved_text_layout_options,
     );
 
     solve_heights(
+        root_size,
+        anon_dom,
         &anon_dom_depths,
         rect_contents,
         &mut positioned_rects,
+        &resolved_text_layout_options,
     );
 
     position_items(
@@ -64,9 +75,8 @@ fn solve_widths<T: GetTextLayout>(
     anon_dom_depths: &NodeDepths,
     positioned_rects: &mut NodeDataContainer<PositionedRectangle>,
     rect_contents: &mut BTreeMap<NodeId, RectContent<T>>,
+    resolved_text_layout_options: &mut BTreeMap<NodeId, (ResolvedTextLayoutOptions, InlineTextLayout)>,
 ) {
-
-    use crate::anon::AnonNode::{InlineNode, BlockNode, AnonStyle};
 
     debug_assert!(anon_dom.anon_node_hierarchy.len() == positioned_rects.len());
 
@@ -85,11 +95,13 @@ fn solve_widths<T: GetTextLayout>(
                     }).unwrap_or(StyleOverflow::Auto);
 
                     let w = calculate_inline_width(
+                        id,
                         last_trailing,
                         rect_contents.get_mut(original_node_id),
                         style,
                         $parent_content_size,
                         parent_overflow_x,
+                        resolved_text_layout_options,
                     );
 
                     last_trailing = w.trailing;
@@ -121,21 +133,129 @@ fn solve_widths<T: GetTextLayout>(
     }
 }
 
-fn apply_block_width(block: BlockWidth, node: &mut PositionedRectangle) {
-    node.bounds.size.width = block.width;
-    node.padding.right = block.padding.0;
-    node.padding.left = block.padding.1;
-    node.margin.right = block.margin.0;
-    node.margin.left = block.margin.1;
-    node.border_widths.right = block.border_width.0;
-    node.border_widths.left = block.border_width.1;
-}
-
 fn solve_heights<T: GetTextLayout>(
-    _anon_dom_depths: &NodeDepths,
-    _rect_contents: &mut BTreeMap<NodeId, RectContent<T>>,
-    _positioned_rects: &mut NodeDataContainer<PositionedRectangle>,
+    root_size: LayoutSize,
+    anon_dom: &AnonDom,
+    anon_dom_depths: &NodeDepths,
+    rect_contents: &mut BTreeMap<NodeId, RectContent<T>>,
+    positioned_rects: &mut NodeDataContainer<PositionedRectangle>,
+    resolved_text_layout_options: &BTreeMap<NodeId, (ResolvedTextLayoutOptions, InlineTextLayout)>,
 ) {
+    debug_assert!(anon_dom.anon_node_hierarchy.len() == positioned_rects.len());
+
+    // First, distribute the known heights in a top-down fashion
+    for (depth, parent_node_id) in anon_dom_depths.iter() {
+
+        let h = match &anon_dom.anon_node_data[*parent_node_id] {
+            BlockNode(ref style) | InlineNode(ref style) => {
+                match style.size.height {
+                    Dimension::Undefined | Dimension::Auto => 0.0,
+                    Dimension::Pixels(p) => p,
+                    Dimension::Percent(pct) => {
+                        let parent = anon_dom.anon_node_hierarchy[*parent_node_id].parent;
+                        let parent_height = match parent {
+                            None => root_size.height,
+                            Some(s) => positioned_rects[s].bounds.size.height,
+                        };
+                        parent_height / 100.0 * pct
+                    }
+                }
+            },
+            AnonStyle => 0.0,
+        };
+
+        positioned_rects[*parent_node_id].bounds.size.height = h;
+    }
+
+    // Then, bubble the inline items up and increase the height if the
+    // height isn't fixed.
+
+    let mut content_heights = BTreeMap::new();
+    let mut children_height_sum = 0.0;
+    let mut current_depth_level = anon_dom_depths.last().map(|(s, _)| *s).unwrap_or(0);
+    let mut last_parent = None;
+
+    for (depth, parent_node_id) in anon_dom_depths.iter().rev() {
+
+        last_parent = anon_dom.anon_node_hierarchy[*parent_node_id].parent;
+
+        if current_depth_level != *depth {
+            if let Some(last_parent) = last_parent {
+                content_heights.insert(last_parent, children_height_sum);
+            }
+            last_parent = None;
+            children_height_sum = 0.0;
+            current_depth_level = *depth;
+        }
+
+        let parent_size = positioned_rects[*parent_node_id].bounds.size;
+
+        for child_id in parent_node_id.children(&anon_dom.anon_node_hierarchy) {
+
+            let self_width = positioned_rects[child_id].bounds.size.width;
+            let children_content_height = child_id
+                .children(&anon_dom.anon_node_hierarchy)
+                .map(|c| content_heights.get(&c).copied().unwrap_or(0.0))
+                .sum();
+
+            let block_height = match &anon_dom.anon_node_data[child_id] {
+                BlockNode(ref style) => {
+                    calculate_block_height(
+                        style,
+                        parent_size.width,
+                        parent_size.height,
+                        self_width,
+                        children_content_height,
+                        rect_contents.get_mut(&child_id),
+                        resolved_text_layout_options.get(&child_id),
+                    )
+                },
+                InlineNode(ref style) => {
+                    calculate_block_height(
+                        style,
+                        parent_size.width,
+                        parent_size.height,
+                        self_width,
+                        children_content_height,
+                        rect_contents.get_mut(&child_id),
+                        resolved_text_layout_options.get(&child_id),
+                    )
+                },
+                AnonStyle => {
+                    // set padding, margin, border to zero
+                    BlockHeight { height: children_content_height, .. Default::default() }
+                }
+            };
+
+            content_heights.insert(child_id, block_height.margin_box_height());
+
+            apply_block_height(block_height, &mut positioned_rects[child_id]);
+
+            children_height_sum += block_height.margin_box_height();
+        }
+    }
+
+    // If there is no defined height on the body node, set the height on the root node to be the
+    // combined height of all child nodes.
+
+    match &anon_dom.anon_node_data[NodeId::ZERO] {
+        BlockNode(ref style) | InlineNode(ref style) => {
+            let root_block_height = calculate_block_height(
+                style,
+                root_size.width,
+                root_size.height,
+                positioned_rects[NodeId::ZERO].bounds.size.width,
+                children_height_sum,
+                rect_contents.get_mut(&NodeId::ZERO),
+                resolved_text_layout_options.get(&NodeId::ZERO),
+            );
+            apply_block_height(root_block_height, &mut positioned_rects[NodeId::ZERO]);
+        },
+        AnonStyle => {
+            positioned_rects[NodeId::ZERO].bounds.size.height = children_height_sum;
+        },
+    }
+
     // bubble inline sizes up
     // the first leaf node will never be a inline node, since inline nodes are wrapped by AnonNodes
 }
@@ -217,16 +337,11 @@ fn calculate_block_width(
     parent_content_width: f32,
 ) -> BlockWidth {
 
-    use crate::{
-        number::{Number, MinMax, OrElse},
-        style::{Dimension, Display, BoxSizing::{BorderBox, ContentBox}},
-    };
-
     if style.display == Display::None {
         return BlockWidth::default();
     }
 
-    let pw = Number::Defined(parent_content_width);
+    let pw = Defined(parent_content_width);
 
     // The default for block width is 100% of the parent width
     let width = style.size.width.resolve(pw).or_else(parent_content_width);
@@ -241,11 +356,11 @@ fn calculate_block_width(
     let border_width_right = style.border.left.resolve(pw).or_else(0.0);
 
     // Adjust for min / max width properties
-    let mut width = Number::Defined(match style.box_sizing {
+    let mut width = Defined(match style.box_sizing {
         // The width and height properties (and min/max properties) includes only the content.
-        ContentBox => width + padding_left + padding_right + border_width_left + border_width_right,
+        BoxSizing::ContentBox => width + padding_left + padding_right + border_width_left + border_width_right,
         // The width and height properties (and min/max properties) includes content, padding and border
-        BorderBox => width,
+        BoxSizing::BorderBox => width,
     })
     .maybe_min(style.min_size.width.resolve(pw))
     .maybe_max(style.max_size.width.resolve(pw))
@@ -336,18 +451,14 @@ impl InlineWidth {
 }
 
 fn calculate_inline_width<T: GetTextLayout>(
+    node_id: NodeId,
     last_leading: Option<f32>,
     rect_content: Option<&mut RectContent<T>>,
     style: &Style,
     parent_content_width: f32,
     parent_overflow_x: StyleOverflow,
+    resolved_text_layout_options: &mut BTreeMap<NodeId, (ResolvedTextLayoutOptions, InlineTextLayout)>,
 ) -> InlineWidth {
-
-    use crate::{
-        RectContent::{Image, Text},
-        number::{Number::{Defined, Undefined}, MinMax, OrElse},
-        style::{Display, BoxSizing},
-    };
 
     if style.display == Display::None {
         return InlineWidth::default();
@@ -369,12 +480,11 @@ fn calculate_inline_width<T: GetTextLayout>(
         },
         (Undefined, Some(Text(t))) => {
             use azul_core::ui_solver::{
-                ResolvedTextLayoutOptions,
                 DEFAULT_FONT_SIZE_PX, DEFAULT_LETTER_SPACING,
                 DEFAULT_WORD_SPACING,
             };
 
-            let layouted_inline_text = t.get_text_layout(&ResolvedTextLayoutOptions {
+            let text_layout_options = ResolvedTextLayoutOptions {
                 max_horizontal_width: if parent_overflow_x.allows_horizontal_overflow() { None } else { Some(parent_content_width) },
                 leading: last_leading,
                 holes: Vec::new(),
@@ -383,11 +493,15 @@ fn calculate_inline_width<T: GetTextLayout>(
                 word_spacing: style.word_spacing.map(|ls| ls.to_pixels(DEFAULT_WORD_SPACING)),
                 line_height: style.line_height,
                 tab_width: style.tab_width,
-            });
+            };
+
+            let layouted_inline_text = t.get_text_layout(&text_layout_options);
 
             leading = Some(layouted_inline_text.get_trailing());
 
             let inline_text_bounds = layouted_inline_text.get_bounds();
+
+            resolved_text_layout_options.insert(node_id, (text_layout_options.clone(), layouted_inline_text));
 
             inline_text_bounds.size.width
         },
@@ -400,7 +514,7 @@ fn calculate_inline_width<T: GetTextLayout>(
     let padding_right = style.padding.right.resolve(pw).or_else(0.0);
 
     let border_width_left = style.border.left.resolve(pw).or_else(0.0);
-    let border_width_right = style.border.left.resolve(pw).or_else(0.0);
+    let border_width_right = style.border.right.resolve(pw).or_else(0.0);
 
     // Adjust for min / max width properties
     let width = Defined(match style.box_sizing {
@@ -421,4 +535,128 @@ fn calculate_inline_width<T: GetTextLayout>(
         padding: (padding_left, padding_right),
         trailing: if style.display == Display::Inline { leading } else { None }
     }
+}
+
+fn apply_block_width(block: BlockWidth, node: &mut PositionedRectangle) {
+    node.bounds.size.width = block.width;
+    node.padding.right = block.padding.0;
+    node.padding.left = block.padding.1;
+    node.margin.right = block.margin.0;
+    node.margin.left = block.margin.1;
+    node.border_widths.right = block.border_width.0;
+    node.border_widths.left = block.border_width.1;
+}
+
+// ----
+
+#[derive(Debug, Copy, Clone, Default)]
+struct BlockHeight {
+    height: f32,
+    content_height: Option<f32>,
+    border_height: (f32, f32),
+    margin: (f32, f32),
+    padding: (f32, f32),
+}
+
+impl BlockHeight {
+    #[inline]
+    pub fn content_box_height(&self) -> f32 { self.height }
+    #[inline]
+    pub fn padding_box_height(&self) -> f32 { self.content_box_height() + self.padding.0 + self.padding.1 }
+    #[inline]
+    pub fn border_box_height(&self) -> f32 { self.padding_box_height() + self.border_height.0 + self.border_height.1 }
+    #[inline]
+    pub fn margin_box_height(&self) -> f32 { self.border_box_height() + self.margin.0 + self.margin.1 }
+}
+
+fn calculate_block_height<T: GetTextLayout>(
+    style: &Style,
+    parent_width: f32,
+    parent_height: f32,
+    block_width: f32,
+    children_content_height: f32,
+    rect_content: Option<&mut RectContent<T>>,
+    resolved_text_layout_options: Option<&(ResolvedTextLayoutOptions, InlineTextLayout)>,
+) -> BlockHeight {
+
+    if style.display == Display::None {
+        return BlockHeight::default();
+    }
+
+    let ph = Defined(parent_height);
+
+    let mut content_height = None;
+
+    let height = match style.size.height {
+        Dimension::Undefined | Dimension::Auto => {
+            let self_content_height = match rect_content {
+                None => None,
+                Some(Image(image_width, image_height)) => {
+                    Some(*image_width as f32 / *image_height as f32 * block_width)
+                },
+                Some(Text(t)) => {
+                    match resolved_text_layout_options {
+                        None => None,
+                        Some((tlo, layouted_inline_text)) => {
+                            let inline_text_bounds = layouted_inline_text.get_bounds();
+                            Some(inline_text_bounds.size.height)
+                        }
+                    }
+                },
+            };
+
+            content_height = self_content_height;
+            children_content_height.max(self_content_height.unwrap_or(0.0))
+        },
+        Dimension::Pixels(p) => p,
+        Dimension::Percent(pct) => {
+            parent_height / 100.0 * pct
+        }
+    };
+
+    let pw = Defined(parent_width);
+
+    // CSS spec:
+    //
+    // The percentage is calculated with respect to the *width* of the generated box’s
+    // containing block. Note that this is true for margin-top and margin-bottom as well.
+
+    let margin_top = style.margin.top.resolve(pw).or_else(0.0);
+    let margin_bottom = style.margin.bottom.resolve(pw).or_else(0.0);
+
+    let padding_top = style.padding.top.resolve(pw).or_else(0.0);
+    let padding_bottom = style.padding.bottom.resolve(pw).or_else(0.0);
+
+    let border_height_top = style.border.top.resolve(pw).or_else(0.0);
+    let border_height_bottom = style.border.bottom.resolve(pw).or_else(0.0);
+
+    // Adjust for min / max height properties
+    let height = Defined(match style.box_sizing {
+        // The width and height properties (and min/max properties) includes only the content.
+        BoxSizing::ContentBox => height + padding_top + padding_bottom + border_height_top + border_height_bottom,
+        // The width and height properties (and min/max properties) includes content, padding and border
+        BoxSizing::BorderBox => height,
+    })
+    .maybe_min(style.min_size.height.resolve(ph))
+    .maybe_max(style.max_size.height.resolve(ph))
+    .or_else(height)
+    - padding_top - padding_bottom - border_height_top - border_height_bottom;
+
+    BlockHeight {
+        height,
+        content_height,
+        border_height: (border_height_top, border_height_bottom),
+        margin: (margin_top, margin_bottom),
+        padding: (padding_top, padding_bottom),
+    }
+}
+
+fn apply_block_height(block: BlockHeight, node: &mut PositionedRectangle) {
+    node.bounds.size.height = block.height;
+    node.padding.top = block.padding.0;
+    node.padding.bottom = block.padding.1;
+    node.margin.top = block.margin.0;
+    node.margin.bottom = block.margin.1;
+    node.border_widths.top = block.border_height.0;
+    node.border_widths.bottom = block.border_height.1;
 }

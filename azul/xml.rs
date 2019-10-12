@@ -315,6 +315,7 @@ pub struct XmlComponentMap<T> {
 impl<T> Default for XmlComponentMap<T> {
     fn default() -> Self {
         let mut map = Self { components: BTreeMap::new(), callbacks: BTreeMap::new() };
+        map.register_component("body", Box::new(BodyRenderer { }), true);
         map.register_component("div", Box::new(DivRenderer { }), true);
         map.register_component("p", Box::new(TextRenderer { }), true);
         map
@@ -1003,6 +1004,25 @@ impl<T> XmlComponent<T> for DivRenderer {
 
     fn compile_to_rust_code(&self, _: &XmlComponentMap<T>, _: &FilteredComponentArguments, _: &XmlTextContent) -> Result<String, CompileError> {
         Ok("Dom::div()".into())
+    }
+}
+
+/// Render for a `body` component
+#[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
+pub struct BodyRenderer { }
+
+impl<T> XmlComponent<T> for BodyRenderer {
+
+    fn get_available_arguments(&self) -> ComponentArguments {
+        ComponentArguments::new()
+    }
+
+    fn render_dom(&self, _: &XmlComponentMap<T>, _: &FilteredComponentArguments, _: &XmlTextContent) -> Result<Dom<T>, RenderDomError> {
+        Ok(Dom::body())
+    }
+
+    fn compile_to_rust_code(&self, _: &XmlComponentMap<T>, _: &FilteredComponentArguments, _: &XmlTextContent) -> Result<String, CompileError> {
+        Ok("Dom::body()".into())
     }
 }
 

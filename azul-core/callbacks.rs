@@ -181,8 +181,20 @@ pub struct ScrollPosition {
     pub scroll_location: LayoutPoint,
 }
 
-#[derive(Debug, Copy, Clone, Eq, Hash, PartialEq, PartialOrd, Ord)]
+#[derive(Copy, Clone, Eq, Hash, PartialEq, PartialOrd, Ord)]
 pub struct PipelineId(pub PipelineSourceId, pub u32);
+
+impl ::std::fmt::Display for PipelineId {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        write!(f, "PipelineId({}, {})", self.0, self.1)
+    }
+}
+
+impl ::std::fmt::Debug for PipelineId {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        write!(f, "{}", self)
+    }
+}
 
 static LAST_PIPELINE_ID: AtomicUsize = AtomicUsize::new(0);
 

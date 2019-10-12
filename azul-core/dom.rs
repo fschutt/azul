@@ -21,12 +21,37 @@ pub use crate::id_tree::{NodeHierarchy, Node, NodeId};
 static TAG_ID: AtomicUsize = AtomicUsize::new(1);
 
 /// Unique Ttag" that is used to annotate which rectangles are relevant for hit-testing
-#[derive(Debug, Copy, Clone, PartialEq, Eq, Hash, Ord, PartialOrd)]
+#[derive(Copy, Clone, PartialEq, Eq, Hash, Ord, PartialOrd)]
 pub struct TagId(pub u64);
 
+impl ::std::fmt::Display for TagId {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        write!(f, "ScrollTagId({})", self.0)
+    }
+}
+
+impl ::std::fmt::Debug for TagId {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        write!(f, "{}", self)
+    }
+}
+
+
 /// Same as the `TagId`, but only for scrollable nodes
-#[derive(Debug, Copy, Clone, PartialEq, Eq, Hash, Ord, PartialOrd)]
+#[derive(Copy, Clone, PartialEq, Eq, Hash, Ord, PartialOrd)]
 pub struct ScrollTagId(pub TagId);
+
+impl ::std::fmt::Display for ScrollTagId {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        write!(f, "ScrollTagId({})", (self.0).0)
+    }
+}
+
+impl ::std::fmt::Debug for ScrollTagId {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        write!(f, "{}", self)
+    }
+}
 
 impl TagId {
     pub fn new() -> Self {

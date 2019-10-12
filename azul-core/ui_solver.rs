@@ -1,4 +1,4 @@
-use std::collections::BTreeMap;
+use std::{fmt, collections::BTreeMap};
 use azul_css::{
     LayoutRect, PixelValue, StyleFontSize,
     StyleTextColor, ColorU as StyleColorU, Overflow,
@@ -133,9 +133,21 @@ pub fn calculate_vertical_shift_multiplier(vertical_alignment: StyleTextAlignmen
     }
 }
 
-#[derive(Clone, Copy, Debug, Eq, Hash, PartialEq, Ord, PartialOrd)]
+#[derive(Clone, Copy, Eq, Hash, PartialEq, Ord, PartialOrd)]
 #[repr(C)]
 pub struct ExternalScrollId(pub u64, pub PipelineId);
+
+impl ::std::fmt::Display for ExternalScrollId {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        write!(f, "ExternalScrollId({:0x}, {})", self.0, self.1)
+    }
+}
+
+impl ::std::fmt::Debug for ExternalScrollId {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        write!(f, "{}", self)
+    }
+}
 
 #[derive(Default, Debug, Clone)]
 pub struct ScrolledNodes {
