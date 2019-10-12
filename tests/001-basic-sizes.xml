@@ -1,4 +1,5 @@
 <!-- Test a basic block of 100x50px -->
+
 <test name="simple-width">
     <html>
         <div id="hello" />

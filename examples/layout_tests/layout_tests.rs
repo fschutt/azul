@@ -56,7 +56,7 @@ fn parse_size(output_size: &str) -> Option<(f32, f32)> {
     Some((w, h))
 }
 
-fn create_display_list(dom: Dom<Mock>, mut css: Css, size: (f32, f32)) -> CachedDisplayList {
+fn create_display_list(dom: Dom<Mock>, css: &Css, size: (f32, f32)) -> CachedDisplayList {
 
     use std::{rc::Rc, collections::BTreeMap};
     use azul_core::{
@@ -71,35 +71,24 @@ fn create_display_list(dom: Dom<Mock>, mut css: Css, size: (f32, f32)) -> Cached
         gl::VirtualGlDriver,
         ui_state::UiState,
         ui_description::UiDescription,
-        window::FullWindowState,
-    };
-    use azul_css::{
-        CssRuleBlock, CssPath, Stylesheet, CssProperty,
-        LayoutWidth, LayoutHeight, CssPropertyValue,
-        CssDeclaration, CssPathSelector, NodeTypePath,
+        window::{FullWindowState, LogicalSize, WindowSize},
     };
 
     fn load_font(_: &FontSource) -> Option<LoadedFontSource> { None }
     fn load_image(_: &ImageSource) -> Option<LoadedImageSource> { None }
 
-    // Prepend new stylesheet to control width / height of body
-    //
-    // format!("body { width: {{}}, height: {{}} }", size.0, size.1);
-    let body_stylesheet = &[Stylesheet {
-        rules: vec![CssRuleBlock {
-            path: CssPath { selectors: vec![CssPathSelector::Type(NodeTypePath::Body)] },
-            declarations: vec![
-                CssDeclaration::Static(CssProperty::Width(CssPropertyValue::Exact(LayoutWidth::px(size.0)))),
-                CssDeclaration::Static(CssProperty::Height(CssPropertyValue::Exact(LayoutHeight::px(size.1)))),
-            ],
-        }]
-    }];
-    css.stylesheets.splice(0..0, body_stylesheet.iter().cloned());
-
     let mut app_resources = AppResources::new();
     let mut render_api = FakeRenderApi::new();
 
-    let fake_window_state = FullWindowState::default();
+    let fake_window_state = FullWindowState {
+        size: WindowSize {
+            dimensions: LogicalSize::new(size.0, size.1),
+            hidpi_factor: 1.0,
+            winit_hidpi_factor: 1.0,
+            .. Default::default()
+        },
+        .. Default::default()
+    };
     let gl_context = Rc::new(VirtualGlDriver::new());
     let pipeline_id = PipelineId::new();
     let epoch = Epoch(0);
@@ -146,9 +135,12 @@ fn create_display_list(dom: Dom<Mock>, mut css: Css, size: (f32, f32)) -> Cached
 
 fn main() {
 
+    use std::process::exit;
+
     const TESTS_DIRECTORY: &str = concat!(env!("CARGO_MANIFEST_DIR"), "/../../tests");
 
-    let mut num_layout_tests = 0;
+    let mut layout_tests_ok = Vec::new();
+    let mut layout_tests_err = Vec::new();
 
     for (filename, file_contents) in load_files(TESTS_DIRECTORY) {
         let file_xml = match xml::parse_xml_string(&file_contents) {
@@ -177,24 +169,33 @@ fn main() {
                 let expected_output_test = expected_output_test.iter().map(|l| &l[trim_until..]).collect::<Vec<&str>>();
                 let expected_output_test = expected_output_test.join("\r\n");
                 let output_size = parse_size(find_attribute(&expected_output, "size").unwrap()).unwrap();
-                let display_list = create_display_list(dom.clone(), css.clone(), output_size);
+                let display_list = create_display_list(dom.clone(), &css, output_size);
 
                 let output = format!("{:#?}", display_list.root);
                 let output = output.lines().collect::<Vec<&str>>().join("\r\n");
 
                 if output != expected_output_test {
-                    panic!(
-                        "\r\n\r\nlayout_test {}:{} at size: {:?} ... FAILED\r\n\r\nexpected:\r\n{}\r\n\r\ngot:\r\n\r\n{}\r\n\r\n",
+                    let output = output.lines().map(|l| format!("    {}", l)).collect::<Vec<String>>().join("\r\n");
+                    let expected_output_test = expected_output_test.lines().map(|l| format!("    {}", l)).collect::<Vec<String>>().join("\r\n");
+                    layout_tests_err.push(format!(
+                        "layout_test {}:{} at size: {:?} ... FAILED\r\n\r\n    expected:\r\n{}\r\n\r\n    got:\r\n\r\n{}\r\n\r\n",
                         filename, test_name, output_size, expected_output_test, output
-                    );
+                    ));
                 } else {
-                    num_layout_tests += 1;
-                    println!("layout_test {}:{} @ {:?} ... ok", filename, test_name, output_size);
+                    layout_tests_ok.push(format!("layout_test {}:{} @ {:?} ... ok", filename, test_name, output_size));
                 }
             }
         }
+    }
 
-        println!("\r\nlayout_test result: ok. {} passed; 0 failed; 0 ignored; 0 measured; 0 filtered out", num_layout_tests);
+    if layout_tests_err.is_empty() {
+        println!("{}", layout_tests_ok.join("\r\n"));
+        println!("\r\nlayout_test result: ok. {} passed; {} failed; 0 ignored; 0 measured; 0 filtered out", layout_tests_ok.len(), layout_tests_err.len());
+    } else {
+        println!("{}", layout_tests_ok.join("\r\n"));
+        println!("{}", layout_tests_err.join("\r\n"));
+        eprintln!("\r\nlayout_test result: FAILED. {} passed; {} failed; 0 ignored; 0 measured; 0 filtered out", layout_tests_ok.len(), layout_tests_err.len());
+        exit(-1);
     }
 }
 

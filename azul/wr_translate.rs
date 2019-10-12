@@ -1765,7 +1765,7 @@ mod box_shadow {
             return;
         }
 
-        let full_screen_rect = LayoutRect::new(LayoutPoint::zero(), builder.content_size());;
+        let full_screen_rect = LayoutRect::new(LayoutPoint::zero(), builder.content_size());
 
         // Prevent shadows that are larger than the full screen
         let clip_rect = wr_translate_layout_rect(clip_rect);

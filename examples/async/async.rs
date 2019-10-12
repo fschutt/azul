@@ -85,6 +85,7 @@ fn timer_timer(event: TimerCallbackInfo<MyDataModel>) -> (UpdateScreen, Terminat
 fn connect_to_db_async(connection_status: Arc<Mutex<ConnectionStatus>>, _: DropCheck) -> UpdateScreen {
     thread::sleep(Duration::from_secs(10)); // simulate slow load
     *connection_status.lock().unwrap() = ConnectionStatus::Connected;
+    Redraw
 }
 
 fn main() {
