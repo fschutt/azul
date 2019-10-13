@@ -1,5 +1,4 @@
 <!-- Test a basic block of 100x50px -->
-
 <test name="simple-width">
     <html>
         <body>
@@ -154,7 +153,7 @@
 </test>
 
 <!-- A margin on the root node should affect the position-->
-<!--
+
 <test name="margin-root">
     <html>
         <body>
@@ -172,8 +171,19 @@
 
     <output size="500x500">
         ScrollFrame(
-            rect: 600x600 @ (0, 0),
+            DisplayListScrollFrame {
+                content_rect: 550x550 @ (0, 0)
+                scroll_tag: ScrollTagId(1)
+                frame: DisplayListFrame {
+                    rect: 500x500 @ (0, 0),
+                    tag: 1
+                    children: [
+                        Frame(
+                            rect: 500x500 @ (50, 50),
+                        ),
+                    ]
+                }
+            },
         )
     </output>
 </test>
--->

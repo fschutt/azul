@@ -21,7 +21,7 @@
 // SOFTWARE.
 
 use crate::{
-    geometry::{Offsets, Size},
+    geometry::{Offsets, DEFAULT_OFFSETS, DEFAULT_SIZE, Size},
     number::Number,
 };
 use azul_css::PixelValue;
@@ -35,9 +35,13 @@ pub enum AlignItems {
     Stretch,
 }
 
+impl AlignItems {
+    pub(crate) const DEFAULT: AlignItems = AlignItems::FlexStart;
+}
+
 impl Default for AlignItems {
     fn default() -> AlignItems {
-        AlignItems::Stretch
+        AlignItems::DEFAULT
     }
 }
 
@@ -51,9 +55,13 @@ pub enum AlignSelf {
     Stretch,
 }
 
+impl AlignSelf {
+    pub(crate) const DEFAULT: AlignSelf = AlignSelf::Auto;
+}
+
 impl Default for AlignSelf {
     fn default() -> AlignSelf {
-        AlignSelf::Auto
+        AlignSelf::DEFAULT
     }
 }
 
@@ -67,9 +75,13 @@ pub enum AlignContent {
     SpaceAround,
 }
 
+impl AlignContent {
+    pub(crate) const DEFAULT: AlignContent = AlignContent::Stretch;
+}
+
 impl Default for AlignContent {
     fn default() -> AlignContent {
-        AlignContent::Stretch
+        AlignContent::DEFAULT
     }
 }
 
@@ -80,24 +92,31 @@ pub enum Direction {
     RTL,
 }
 
+impl Direction {
+    const DEFAULT: Direction = Direction::Inherit;
+}
+
 impl Default for Direction {
     fn default() -> Direction {
-        Direction::Inherit
+        Direction::DEFAULT
     }
 }
 
 #[derive(Copy, Clone, PartialEq, Debug)]
 pub enum Display {
-    Fixed,
     Flex,
     Block,
     Inline,
     None,
 }
 
+impl Display {
+    const DEFAULT: Display = Display::Block;
+}
+
 impl Default for Display {
     fn default() -> Display {
-        Display::Block
+        Display::DEFAULT
     }
 }
 
@@ -109,9 +128,13 @@ pub enum FlexDirection {
     ColumnReverse,
 }
 
+impl FlexDirection {
+    pub(crate) const DEFAULT: FlexDirection = FlexDirection::Row;
+}
+
 impl Default for FlexDirection {
     fn default() -> FlexDirection {
-        FlexDirection::Row
+        FlexDirection::DEFAULT
     }
 }
 
@@ -139,9 +162,13 @@ pub enum JustifyContent {
     SpaceEvenly,
 }
 
+impl JustifyContent {
+    pub(crate) const DEFAULT: JustifyContent = JustifyContent::FlexStart;
+}
+
 impl Default for JustifyContent {
     fn default() -> JustifyContent {
-        JustifyContent::FlexStart
+        JustifyContent::DEFAULT
     }
 }
 
@@ -153,9 +180,13 @@ pub enum Overflow {
     Scroll,
 }
 
+impl Overflow {
+    pub(crate) const DEFAULT: Overflow = Overflow::Scroll;
+}
+
 impl Default for Overflow {
     fn default() -> Overflow {
-        Overflow::Scroll
+        Overflow::DEFAULT
     }
 }
 
@@ -179,6 +210,12 @@ impl Overflow {
 pub enum PositionType {
     Relative,
     Absolute,
+    Static,
+    Fixed,
+}
+
+impl PositionType {
+    pub(crate) const DEFAULT: PositionType = PositionType::Relative;
 }
 
 impl Default for PositionType {
@@ -194,9 +231,13 @@ pub enum FlexWrap {
     WrapReverse,
 }
 
+impl FlexWrap {
+    pub(crate) const DEFAULT: FlexWrap = FlexWrap::Wrap;
+}
+
 impl Default for FlexWrap {
     fn default() -> FlexWrap {
-        FlexWrap::NoWrap
+        FlexWrap::DEFAULT
     }
 }
 
@@ -208,9 +249,14 @@ pub enum Dimension {
     Percent(f32),
 }
 
+impl Dimension {
+    pub(crate) const DEFAULT: Dimension = Dimension::Undefined;
+}
+
 impl Default for Dimension {
+    #[inline]
     fn default() -> Dimension {
-        Dimension::Undefined
+        Dimension::DEFAULT
     }
 }
 
@@ -233,22 +279,16 @@ impl Dimension {
 }
 
 impl Default for Offsets<Dimension> {
+    #[inline]
     fn default() -> Offsets<Dimension> {
-        Offsets {
-            right: Default::default(),
-            left: Default::default(),
-            top: Default::default(),
-            bottom: Default::default()
-        }
+        DEFAULT_OFFSETS
     }
 }
 
 impl Default for Size<Dimension> {
+    #[inline]
     fn default() -> Size<Dimension> {
-        Size {
-            width: Dimension::Auto,
-            height: Dimension::Auto,
-        }
+        DEFAULT_SIZE
     }
 }
 
@@ -258,15 +298,19 @@ pub enum BoxSizing {
     BorderBox,
 }
 
+impl BoxSizing {
+    pub(crate) const DEFAULT: BoxSizing = BoxSizing::ContentBox;
+}
+
 impl Default for BoxSizing {
+    #[inline]
     fn default() -> BoxSizing {
-        BoxSizing::ContentBox
+        BoxSizing::DEFAULT
     }
 }
 
 #[derive(Copy, Clone, Debug)]
-pub struct Style {
-    pub display: Display,
+pub struct Style {pub display: Display,
     pub box_sizing: BoxSizing,
     pub position_type: PositionType,
     pub direction: Direction,
@@ -295,37 +339,43 @@ pub struct Style {
     pub tab_width: Option<f32>,
 }
 
+impl Style {
+    pub(crate) const DEFAULT: Style = Style {
+        display: Display::DEFAULT,
+        box_sizing: BoxSizing::DEFAULT,
+        position_type: PositionType::DEFAULT,
+        direction: Direction::DEFAULT,
+        flex_direction: FlexDirection::DEFAULT,
+        flex_wrap: FlexWrap::DEFAULT,
+        overflow: Overflow::DEFAULT,
+        align_items: AlignItems::DEFAULT,
+        align_self: AlignSelf::DEFAULT,
+        align_content: AlignContent::DEFAULT,
+        justify_content: JustifyContent::DEFAULT,
+        position: DEFAULT_OFFSETS,
+        margin: DEFAULT_OFFSETS,
+        padding: DEFAULT_OFFSETS,
+        border: DEFAULT_OFFSETS,
+        flex_grow: 0.0,
+        flex_shrink: 1.0,
+        flex_basis: Dimension::Auto,
+        size: DEFAULT_SIZE,
+        min_size: DEFAULT_SIZE,
+        max_size: DEFAULT_SIZE,
+        aspect_ratio: Number::Undefined,
+        font_size_px: PixelValue::const_px(10),
+        letter_spacing: None,
+        line_height: None,
+        word_spacing: None,
+        tab_width: None,
+    };
+}
+
+pub(crate) static DEFAULT_STYLE: Style = Style::DEFAULT;
+
 impl Default for Style {
     fn default() -> Style {
-        Style {
-            display: Default::default(),
-            box_sizing: Default::default(),
-            position_type: Default::default(),
-            direction: Default::default(),
-            flex_direction: Default::default(),
-            flex_wrap: Default::default(),
-            overflow: Default::default(),
-            align_items: Default::default(),
-            align_self: Default::default(),
-            align_content: Default::default(),
-            justify_content: Default::default(),
-            position: Default::default(),
-            margin: Default::default(),
-            padding: Default::default(),
-            border: Default::default(),
-            flex_grow: 0.0,
-            flex_shrink: 1.0,
-            flex_basis: Dimension::Auto,
-            size: Default::default(),
-            min_size: Default::default(),
-            max_size: Default::default(),
-            aspect_ratio: Default::default(),
-            font_size_px: PixelValue::const_px(10),
-            letter_spacing: None,
-            line_height: None,
-            word_spacing: None,
-            tab_width: None,
-        }
+        Style::DEFAULT
     }
 }
 

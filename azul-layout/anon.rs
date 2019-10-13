@@ -4,7 +4,7 @@
 use std::collections::BTreeMap;
 use crate::{
     RectContent,
-    style::{Style, Overflow, Display},
+    style::{Style, Overflow, Display, PositionType},
 };
 use azul_core::{
     id_tree::{NodeDataContainer, NodeHierarchy, NodeId, NodeDepths, Node},
@@ -43,6 +43,31 @@ pub(crate) enum AnonNode {
 }
 
 impl AnonNode {
+
+    pub(crate) fn get_style(&self) -> &Style {
+        use self::AnonNode::*;
+        use crate::style::DEFAULT_STYLE;
+        match &self {
+            AnonStyle => &DEFAULT_STYLE,
+            BlockNode(s) | InlineNode(s) => s,
+        }
+    }
+
+    pub(crate) fn get_position_type(&self) -> PositionType {
+        use self::AnonNode::*;
+        match self {
+         AnonStyle => PositionType::Static,
+         BlockNode(s) | InlineNode(s) => s.position_type,
+        }
+    }
+
+    pub(crate) fn get_display(&self) -> Display {
+        use self::AnonNode::*;
+        match self {
+         AnonStyle => Display::Block,
+         BlockNode(s) | InlineNode(s) => s.display,
+        }
+    }
 
     pub(crate) fn get_overflow_x(&self) -> Overflow {
         use self::AnonNode::*;

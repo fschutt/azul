@@ -24,7 +24,7 @@ use std::ops::Add;
 use azul_core::ui_solver::ResolvedOffsets;
 use crate::{
     number::Number,
-    style::FlexDirection,
+    style::{FlexDirection, Dimension},
 };
 
 #[derive(Debug, Copy, Clone, PartialEq)]
@@ -99,6 +99,13 @@ pub struct Offsets<T> {
     pub bottom: T,
     pub right: T,
 }
+
+pub(crate) const DEFAULT_OFFSETS: Offsets<Dimension> = Offsets {
+    top: Dimension::DEFAULT,
+    left: Dimension::DEFAULT,
+    bottom: Dimension::DEFAULT,
+    right: Dimension::DEFAULT,
+};
 
 impl<T> Offsets<T> {
     pub(crate) fn map<R, F: Fn(T) -> R>(self, f: F) -> Offsets<R> {
@@ -189,6 +196,11 @@ pub struct Size<T> {
     pub width: T,
     pub height: T,
 }
+
+pub(crate) const DEFAULT_SIZE: Size<Dimension> = Size {
+    width: Dimension::DEFAULT,
+    height: Dimension::DEFAULT,
+};
 
 impl<T> Size<T> {
     pub(crate) fn map<R, F>(self, f: F) -> Size<R>

@@ -173,7 +173,6 @@ impl GetStyle for DisplayRectangle {
                 Some(CssPropertyValue::Inherit) => Display::Block,
                 Some(CssPropertyValue::Exact(LayoutDisplay::Block)) => Display::Block,
                 Some(CssPropertyValue::Exact(LayoutDisplay::Flex)) => Display::Flex,
-                Some(CssPropertyValue::Exact(LayoutDisplay::Fixed)) => Display::Fixed,
                 Some(CssPropertyValue::Exact(LayoutDisplay::Inline)) => Display::Inline,
             },
             box_sizing: match rect_layout.box_sizing.unwrap_or_default().get_property_or_default() {
@@ -182,10 +181,11 @@ impl GetStyle for DisplayRectangle {
                 Some(LayoutBoxSizing::BorderBox) => BoxSizing::BorderBox,
             },
             position_type: match rect_layout.position.unwrap_or_default().get_property_or_default() {
-                Some(LayoutPosition::Static) => PositionType::Relative, // todo - static?
+                Some(LayoutPosition::Static) => PositionType::Static,
                 Some(LayoutPosition::Relative) => PositionType::Relative,
                 Some(LayoutPosition::Absolute) => PositionType::Absolute,
-                None => PositionType::Relative,
+                Some(LayoutPosition::Fixed) => PositionType::Fixed,
+                None => PositionType::Static,
             },
             direction: Direction::LTR,
             flex_direction: match rect_layout.direction.unwrap_or_default().get_property_or_default() {
@@ -270,8 +270,8 @@ impl GetStyle for DisplayRectangle {
                 width: translate_dimension(rect_layout.max_width.map(|prop| prop.map_property(|l| l.0))),
                 height: translate_dimension(rect_layout.max_height.map(|prop| prop.map_property(|l| l.0))),
             },
-            align_self: AlignSelf::Auto, // todo!
-            flex_basis: Dimension::Auto, // todo!
+            align_self: AlignSelf::default(), // todo!
+            flex_basis: Dimension::default(), // todo!
             aspect_ratio: Number::Undefined,
             font_size_px: rect_style.font_size.and_then(|fs| fs.get_property_owned()).unwrap_or(DEFAULT_FONT_SIZE).0,
             line_height: rect_style.line_height.and_then(|lh| lh.map_property(|lh| lh.0).get_property_owned()).map(|lh| lh.get()),
