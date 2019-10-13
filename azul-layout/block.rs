@@ -279,9 +279,10 @@ fn position_items(
 
     for (depth, parent_node_id) in anon_dom_depths.iter() {
 
+        cur_x = 0.0;
+
         // we are processing a new depth level
         if *depth != cur_depth {
-            cur_x = 0.0;
             cur_y = 0.0;
             if position_relative_absolute_stack.last().map(|s: &(NodeId, usize)| s.1) == Some(cur_depth) {
                 position_relative_absolute_stack.pop();
@@ -314,36 +315,73 @@ fn position_items(
             let (left_margin, _) = get_collapsed_horz_margin(child_id, &anon_dom.anon_node_hierarchy, &positioned_rects);
             let (top_margin, _) = get_collapsed_vert_margin(child_id, &anon_dom.anon_node_hierarchy, &positioned_rects);
 
+            let child_rect = &mut positioned_rects[child_id];
+
+            // let right_leading = right_margin + child_rect.border_widths.right + child_rect.padding.right;
+            // let bottom_leading = bottom_margin + child_rect.border_widths.bottom + child_rect.padding.bottom;
+            let left_leading = left_margin + child_rect.border_widths.left + child_rect.padding.left;
+            let top_leading = top_margin + child_rect.border_widths.top + child_rect.padding.top;
+
             match child_display_mode {
                 Display::None => continue,
-                Display::Flex | Display::Block => {
-                    // both flex and block are laid out as block items,
-                    // the only difference is in the width / height
-                    // calculation of the children
-                    let child_rect = &mut positioned_rects[child_id];
-
-                    // let right_leading = right_margin + child_rect.border_widths.right + child_rect.padding.right;
-                    // let bottom_leading = bottom_margin + child_rect.border_widths.bottom + child_rect.padding.bottom;
-                    let left_leading = left_margin + child_rect.border_widths.left + child_rect.padding.left;
-                    let top_leading = top_margin + child_rect.border_widths.top + child_rect.padding.top;
-
-                    child_rect.bounds.origin = LayoutPoint::new(
-                        /* x */ cur_x + left_leading,
-                        /* y */ cur_y + top_leading,
-                    );
-
+                Display::Flex => {
+                    // overflow / line break
                     if cur_x + left_leading + child_rect.bounds.size.width > parent_content_size {
+                        child_rect.bounds.origin = LayoutPoint::new(
+                            /* x */ left_leading,
+                            /* y */ cur_y + top_leading,
+                        );
                         cur_x = 0.0;
                         cur_y += top_leading + child_rect.bounds.size.height;
                     } else {
+                        // layout items next to each other in line
+                        child_rect.bounds.origin = LayoutPoint::new(
+                            /* x */ cur_x + left_leading,
+                            /* y */ cur_y + top_leading,
+                        );
                         cur_x += left_leading + child_rect.bounds.size.width;
                     }
                 },
+                Display::Block => {
+                    child_rect.bounds.origin = LayoutPoint::new(
+                        /* x */ cur_x + child_rect.margin.left + child_rect.border_widths.left + child_rect.padding.left,
+                        /* y */ cur_y + top_leading,
+                    );
+                    cur_x = 0.0;
+                    cur_y += top_leading + child_rect.bounds.size.height;
+                },
                 Display::Inline => {
-                    for child_id in parent_node_id.children(&anon_dom.anon_node_hierarchy) {
-                        let child_display_mode = anon_dom.anon_node_data[child_id].get_display();
-                        // TODO
+
+                    // overflow / line break
+                    if cur_x + left_leading + child_rect.bounds.size.width > parent_content_size {
+                        child_rect.bounds.origin = LayoutPoint::new(
+                            /* x */ left_leading,
+                            /* y */ cur_y + top_leading,
+                        );
+                        cur_x = 0.0;
+                        cur_y += top_leading + child_rect.bounds.size.height;
+                    } else {
+                        // layout items next to each other in line
+                        child_rect.bounds.origin = LayoutPoint::new(
+                            /* x */ cur_x + left_leading,
+                            /* y */ cur_y + top_leading,
+                        );
+                        cur_x += left_leading + child_rect.bounds.size.width;
                     }
+                    // cur_x += inline_text_layout.last_line.origin.y + right_leading;
+
+                    //      // if two following texts have different font sizes,
+                    //      // align the two texts to their baseline
+                    //
+                    //      if last_inline_text.font_size > this_inline_text.font_size {
+                    //           shift_down_first_line(this_inline_text, last_inline_text.baseline - this_inline_text.baseline);
+                    //      } else if this_inline_text.font_size > last_inline_text.font_size {
+                    //           shift_down_last_line(last_inline_text, this_inline_text.baseline - last_inline_text.baseline);
+                    //      }
+
+                    // adjust_second_line_of_current_text(margin_bottom);
+
+                    // cur_y = inline_text_layout.last_line.origin.y + baseline_adjustment;
                 }
             }
         }
@@ -449,6 +487,8 @@ fn figure_out_position(
 }
 
 // Get the collapsed (left, right) margins of this node, i.e. the larger of the two margins
+//
+// NOTE: Only use when using horizontal layouts, not block layouts!
 fn get_collapsed_horz_margin(
     node_id: NodeId,
     anon_node_hierarchy: &NodeHierarchy,
