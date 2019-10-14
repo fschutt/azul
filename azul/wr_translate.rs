@@ -1017,22 +1017,24 @@ fn push_frame(
     let wr_rect = wr_translate_layout_rect(frame.rect);
     let wr_border_radius = wr_translate_border_radius(frame.border_radius, frame.rect.size);
 
-    let info = WrLayoutPrimitiveInfo {
+    let root_rect = WrLayoutRect::new(WrLayoutPoint::new(0.0, 0.0), builder.content_size());
+
+    let content_info = WrLayoutPrimitiveInfo {
         rect: wr_rect,
-        clip_rect: wr_translate_layout_rect(frame.clip_rect.unwrap_or(frame.rect)),
+        clip_rect: frame.clip_rect.map(wr_translate_layout_rect).unwrap_or(root_rect),
         is_backface_visible: false,
         tag: frame.tag.map(wr_translate_tag_id),
     };
 
-    let content_clip = WrComplexClipRegion::new(wr_rect, wr_border_radius, WrClipMode::Clip);
-    let content_clip_id = builder.define_clip(parent_space_and_clip, wr_rect, vec![content_clip], /* image_mask: */ None);
+    let content_clip = WrComplexClipRegion::new(root_rect, wr_border_radius, WrClipMode::Clip);
+    let content_clip_id = builder.define_clip(parent_space_and_clip, root_rect, vec![content_clip], /* image_mask: */ None);
     let content_space_and_clip = WrSpaceAndClipInfo {
         spatial_id: parent_space_and_clip.spatial_id,
         clip_id: content_clip_id,
     };
 
     for item in frame.content {
-        push_display_list_content(builder, item, &info, frame.border_radius, &content_space_and_clip);
+        push_display_list_content(builder, item, &content_info, frame.border_radius, &content_space_and_clip);
     }
 
     // If the rect has an overflow:* property set
@@ -1070,23 +1072,25 @@ fn push_scroll_frame(
     let wr_rect = wr_translate_layout_rect(scroll_frame.frame.rect);
     let wr_border_radius = wr_translate_border_radius(scroll_frame.frame.border_radius, scroll_frame.frame.rect.size);
 
+    let root_rect = WrLayoutRect::new(WrLayoutPoint::new(0.0, 0.0), builder.content_size());
+
     let hit_test_info = WrLayoutPrimitiveInfo {
         rect: wr_rect,
-        clip_rect: wr_translate_layout_rect(scroll_frame.frame.clip_rect.unwrap_or(scroll_frame.frame.rect)),
+        clip_rect: scroll_frame.frame.clip_rect.map(wr_translate_layout_rect).unwrap_or(root_rect),
         is_backface_visible: false,
         tag:  Some(wr_translate_tag_id(scroll_frame.scroll_tag.0)),
     };
 
     let info = WrLayoutPrimitiveInfo {
         rect: wr_rect,
-        clip_rect: wr_rect,
+        clip_rect: root_rect,
         is_backface_visible: false,
         tag: scroll_frame.frame.tag.map(wr_translate_tag_id),
     };
 
     // Push content (overflowing)
-    let content_clip = WrComplexClipRegion::new(wr_rect, wr_border_radius, WrClipMode::Clip);
-    let content_clip_id = builder.define_clip(parent_space_and_clip, wr_rect, vec![content_clip], /* image_mask: */ None);
+    let content_clip = WrComplexClipRegion::new(root_rect, wr_border_radius, WrClipMode::Clip);
+    let content_clip_id = builder.define_clip(parent_space_and_clip, root_rect, vec![content_clip], /* image_mask: */ None);
     let content_clip_info = WrSpaceAndClipInfo {
         spatial_id: parent_space_and_clip.spatial_id,
         clip_id: content_clip_id,
@@ -1186,6 +1190,8 @@ mod text {
             info.clip_rect.origin.y = clip_rect.origin.y;
             info.clip_rect.size = wr_translate_layout_size(clip_rect.size);
         }
+
+        println!("push text: {:#?}", glyphs);
 
         builder.push_text(
             &info,
@@ -1859,9 +1865,24 @@ mod border {
         styles: StyleBorderStyles,
         parent_space_and_clip: &WrSpaceAndClipInfo,
     ) {
+        use webrender::api::{
+            ClipMode as WrClipMode,
+            ComplexClipRegion as WrComplexClipRegion
+        };
+        use crate::wr_translate::wr_translate_border_radius;
+
+        let mut info = *info;
+
         let rect_size = LayoutSize::new(info.rect.size.width, info.rect.size.height);
+
         if let Some((border_widths, border_details)) = get_webrender_border(rect_size, radii, widths, colors, styles) {
-            builder.push_border(info, parent_space_and_clip, border_widths, border_details);
+
+            info.rect.origin.x -= widths.left_width();
+            info.rect.origin.y -= widths.top_width();
+            info.rect.size.width += widths.total_horizontal();
+            info.rect.size.height += widths.total_vertical();
+
+            builder.push_border(&info, &parent_space_and_clip, border_widths, border_details);
         }
     }
 

@@ -279,6 +279,39 @@ pub struct StyleBorderWidths {
     pub left: Option<CssPropertyValue<StyleBorderLeftWidth>>,
 }
 
+impl StyleBorderWidths {
+
+    #[inline]
+    pub fn left_width(&self) -> f32 {
+        self.left.unwrap_or_default().get_property_owned().unwrap_or_default().0.to_pixels(0.0)
+    }
+
+    #[inline]
+    pub fn right_width(&self) -> f32 {
+        self.right.unwrap_or_default().get_property_owned().unwrap_or_default().0.to_pixels(0.0)
+    }
+
+    #[inline]
+    pub fn top_width(&self) -> f32 {
+        self.top.unwrap_or_default().get_property_owned().unwrap_or_default().0.to_pixels(0.0)
+    }
+
+    #[inline]
+    pub fn bottom_width(&self) -> f32 {
+        self.bottom.unwrap_or_default().get_property_owned().unwrap_or_default().0.to_pixels(0.0)
+    }
+
+    #[inline]
+    pub fn total_horizontal(&self) -> f32 {
+        self.left_width() + self.right_width()
+    }
+
+    #[inline]
+    pub fn total_vertical(&self) -> f32 {
+        self.top_width() + self.bottom_width()
+    }
+}
+
 tlbr_debug!(StyleBorderWidths);
 
 #[derive(Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]

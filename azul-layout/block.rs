@@ -65,7 +65,14 @@ pub(crate) fn compute<T: GetTextLayout>(
     NodeDataContainer::new(
         anon_dom.original_node_id_mapping
         .iter()
-        .map(|(_, anon_node_id)| positioned_rects[*anon_node_id].clone())
+        .map(|(_, anon_node_id)| {
+            let mut pos_rect = positioned_rects[*anon_node_id].clone();
+            if let Some((rtlo, inline_text)) = resolved_text_layout_options.get(anon_node_id).cloned() {
+                let bounds = inline_text.get_bounds();
+                pos_rect.resolved_text_layout_options = Some((rtlo, inline_text, bounds));
+            }
+            pos_rect
+        })
         .collect()
     )
 }
@@ -87,7 +94,11 @@ fn solve_widths<T: GetTextLayout>(
         let id: NodeId = $id;
         if $parent_content_size > 0.0 {
             let block_width = match &anon_dom.anon_node_data[id] {
-                BlockNode(ref style) => calculate_block_width(style, $parent_content_size),
+                BlockNode(ref style) => {
+                    let w = calculate_block_width(style, $parent_content_size);
+                    println!("setting node id {} to width: {:#?}", id, w);
+                    w
+                },
                 InlineNode(ref style) => {
 
                     let original_node_id = &anon_dom.reverse_node_id_mapping.get(&id).unwrap();
@@ -128,10 +139,13 @@ fn solve_widths<T: GetTextLayout>(
 
     for (_depth, parent_node_id) in anon_dom_depths {
         let parent_content_size = positioned_rects[*parent_node_id].bounds.size.width;
+        println!("parent: {} - {:#?}", parent_node_id, positioned_rects[*parent_node_id].bounds);
         for child_id in parent_node_id.children(&anon_dom.anon_node_hierarchy) {
             calc_block_width!(child_id, parent_content_size);
         }
     }
+
+    println!("-----");
 }
 
 fn solve_heights<T: GetTextLayout>(
@@ -698,6 +712,8 @@ fn calculate_inline_width<T: GetTextLayout>(
                 DEFAULT_WORD_SPACING,
             };
 
+            println!("parent_content_width: {}", parent_content_width);
+
             let text_layout_options = ResolvedTextLayoutOptions {
                 max_horizontal_width: if parent_overflow_x.allows_horizontal_overflow() { None } else { Some(parent_content_width) },
                 leading: last_leading,
@@ -715,6 +731,7 @@ fn calculate_inline_width<T: GetTextLayout>(
 
             let inline_text_bounds = layouted_inline_text.get_bounds();
 
+            println!("inserting node {}: {:#?}", node_id, text_layout_options);
             resolved_text_layout_options.insert(node_id, (text_layout_options.clone(), layouted_inline_text));
 
             inline_text_bounds.size.width
