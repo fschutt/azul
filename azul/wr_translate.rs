@@ -1932,13 +1932,21 @@ mod border {
             width_left.map(|v| v.to_pixels(rect_size.width)).unwrap_or(0.0),
         );
 
+        let is_solid_border =
+            style_top == Some(BorderStyleNoNone::Solid) &&
+            style_left == Some(BorderStyleNoNone::Solid) &&
+            style_right == Some(BorderStyleNoNone::Solid) &&
+            style_bottom == Some(BorderStyleNoNone::Solid);
+
+        let should_not_do_aa = is_solid_border && has_no_border_radius;
+
         let border_details = WrBorderDetails::Normal(WrNormalBorder {
             top:    WrBorderSide { color: wr_translate_color_u(color_top.0).into(), style: translate_wr_border(style_top, width_top) },
             left:   WrBorderSide { color: wr_translate_color_u(color_left.0).into(), style: translate_wr_border(style_left, width_left) },
             right:  WrBorderSide { color: wr_translate_color_u(color_right.0).into(), style: translate_wr_border(style_right, width_right) },
             bottom: WrBorderSide { color: wr_translate_color_u(color_bottom.0).into(), style: translate_wr_border(style_bottom, width_bottom) },
             radius: if has_no_border_radius { WrBorderRadius::zero() } else { wr_translate_border_radius(radii, rect_size) },
-            do_aa: !has_no_border_radius,
+            do_aa: !should_not_do_aa,
         });
 
         Some((border_widths, border_details))

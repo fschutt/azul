@@ -1,5 +1,5 @@
 <app>
-  <div id="red">
-      <div id="green"></div>
-  </div>
+  <div id="red"></div>
+  <div id="green"></div>
+  <p>Hello</p>
 </app>
