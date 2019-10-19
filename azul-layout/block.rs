@@ -97,6 +97,25 @@ fn solve_widths<T: GetTextLayout>(
                 BlockNode(ref style) => {
                     let w = calculate_block_width(style, $parent_content_size);
                     println!("setting node id {} to width: {:#?}", id, w);
+                    /*
+                    if let Some(Text(t)) = rect_contents.get(&id) {
+                        resolved_text_layout_options.entry(id).or_insert_with(|| {
+
+                            let text_layout_options = ResolvedTextLayoutOptions {
+                                max_horizontal_width: if style.overflow.allows_horizontal_overflow() { None } else { Some(w.width) },
+                                leading: None,
+                                holes: Vec::new(),
+                                font_size_px: style.font_size_px.to_pixels(DEFAULT_FONT_SIZE_PX as f32),
+                                letter_spacing: style.letter_spacing.map(|ls| ls.to_pixels(DEFAULT_LETTER_SPACING)),
+                                word_spacing: style.word_spacing.map(|ls| ls.to_pixels(DEFAULT_WORD_SPACING)),
+                                line_height: style.line_height,
+                                tab_width: style.tab_width,
+                            };
+
+                            let layouted_inline_text = t.get_text_layout(&text_layout_options);
+                            (text_layout_options, layouted_inline_text)
+                        });
+                    }*/
                     w
                 },
                 InlineNode(ref style) => {
@@ -712,8 +731,6 @@ fn calculate_inline_width<T: GetTextLayout>(
                 DEFAULT_WORD_SPACING,
             };
 
-            println!("parent_content_width: {}", parent_content_width);
-
             let text_layout_options = ResolvedTextLayoutOptions {
                 max_horizontal_width: if parent_overflow_x.allows_horizontal_overflow() { None } else { Some(parent_content_width) },
                 leading: last_leading,
@@ -731,8 +748,7 @@ fn calculate_inline_width<T: GetTextLayout>(
 
             let inline_text_bounds = layouted_inline_text.get_bounds();
 
-            println!("inserting node {}: {:#?}", node_id, text_layout_options);
-            resolved_text_layout_options.insert(node_id, (text_layout_options.clone(), layouted_inline_text));
+            resolved_text_layout_options.insert(node_id, (text_layout_options, layouted_inline_text));
 
             inline_text_bounds.size.width
         },

@@ -1054,8 +1054,8 @@ pub fn parse_color_builtin<'a>(input: &'a str)
     Ok(ColorU { r, g, b, a })
 }
 
-/// Parse a color of the form 'rgb([0-255], [0-255], [0-255])', or 'rgba([0-255], [0-255], [0-255],
-/// [0.0-1.0])' without the leading 'rgb[a](' or trailing ')'. Alpha defaults to 255.
+/// Parse a color of the form `rgb([0-255], [0-255], [0-255])`, or `rgba([0-255], [0-255], [0-255],
+/// [0.0-1.0])` without the leading `rgb[a](` or trailing `)`. Alpha defaults to 255.
 pub fn parse_color_rgb<'a>(input: &'a str, parse_alpha: bool)
 -> Result<ColorU, CssColorParseError<'a>>
 {

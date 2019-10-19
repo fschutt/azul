@@ -130,7 +130,9 @@ impl<T> UiState<T> {
         use crate::dom::NodeType;
 
         // NOTE: root node has to have the type "body"
-        dom.arena.node_data[NodeId::ZERO].set_node_type(NodeType::Body);
+        if *dom.arena.node_data[NodeId::ZERO].get_node_type() != NodeType::Body {
+            dom = Dom::body().with_child(dom);
+        }
 
         // NOTE: Originally it was allowed to create a DOM with
         // multiple root elements using `add_sibling()` and `with_sibling()`.

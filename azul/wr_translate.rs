@@ -1014,28 +1014,19 @@ fn push_frame(
         ComplexClipRegion as WrComplexClipRegion
     };
 
-    let wr_rect = wr_translate_layout_rect(frame.rect);
-    let wr_border_radius = wr_translate_border_radius(frame.border_radius, frame.rect.size);
-
-    let root_rect = WrLayoutRect::new(WrLayoutPoint::new(0.0, 0.0), builder.content_size());
-
-    let content_info = WrLayoutPrimitiveInfo {
-        rect: wr_rect,
-        clip_rect: frame.clip_rect.map(wr_translate_layout_rect).unwrap_or(root_rect),
-        is_backface_visible: false,
-        tag: frame.tag.map(wr_translate_tag_id),
-    };
-
-    let content_clip = WrComplexClipRegion::new(root_rect, wr_border_radius, WrClipMode::Clip);
-    let content_clip_id = builder.define_clip(parent_space_and_clip, root_rect, vec![content_clip], /* image_mask: */ None);
-    let content_space_and_clip = WrSpaceAndClipInfo {
-        spatial_id: parent_space_and_clip.spatial_id,
-        clip_id: content_clip_id,
-    };
-
     for item in frame.content {
-        push_display_list_content(builder, item, &content_info, frame.border_radius, &content_space_and_clip);
+        push_display_list_content(
+            builder,
+            item,
+            frame.rect,
+            frame.clip_rect,
+            frame.border_radius,
+            frame.tag,
+            parent_space_and_clip,
+        );
     }
+
+    let wr_border_radius = wr_translate_border_radius(frame.border_radius, frame.rect.size);
 
     // If the rect has an overflow:* property set
     let overflow_clip_id = frame.clip_rect.map(|clip_rect| {
@@ -1066,51 +1057,45 @@ fn push_scroll_frame(
     use webrender::api::{
         ClipMode as WrClipMode,
         ScrollSensitivity as WrScrollSensitivity,
-        ComplexClipRegion as WrComplexClipRegion
-    };
-
-    let wr_rect = wr_translate_layout_rect(scroll_frame.frame.rect);
-    let wr_border_radius = wr_translate_border_radius(scroll_frame.frame.border_radius, scroll_frame.frame.rect.size);
-
-    let root_rect = WrLayoutRect::new(WrLayoutPoint::new(0.0, 0.0), builder.content_size());
-
-    let hit_test_info = WrLayoutPrimitiveInfo {
-        rect: wr_rect,
-        clip_rect: scroll_frame.frame.clip_rect.map(wr_translate_layout_rect).unwrap_or(root_rect),
-        is_backface_visible: false,
-        tag:  Some(wr_translate_tag_id(scroll_frame.scroll_tag.0)),
-    };
-
-    let info = WrLayoutPrimitiveInfo {
-        rect: wr_rect,
-        clip_rect: root_rect,
-        is_backface_visible: false,
-        tag: scroll_frame.frame.tag.map(wr_translate_tag_id),
-    };
-
-    // Push content (overflowing)
-    let content_clip = WrComplexClipRegion::new(root_rect, wr_border_radius, WrClipMode::Clip);
-    let content_clip_id = builder.define_clip(parent_space_and_clip, root_rect, vec![content_clip], /* image_mask: */ None);
-    let content_clip_info = WrSpaceAndClipInfo {
-        spatial_id: parent_space_and_clip.spatial_id,
-        clip_id: content_clip_id,
+        ComplexClipRegion as WrComplexClipRegion,
     };
 
     for item in scroll_frame.frame.content {
-        push_display_list_content(builder, item, &info, scroll_frame.frame.border_radius, &content_clip_info);
+        push_display_list_content(
+            builder,
+            item,
+            scroll_frame.frame.rect,
+            scroll_frame.frame.clip_rect,
+            scroll_frame.frame.border_radius,
+            scroll_frame.frame.tag,
+            parent_space_and_clip,
+        );
     }
 
-    // Push hit-testing + scrolling children
-    let scroll_frame_clip_region = WrComplexClipRegion::new(wr_rect, wr_border_radius, WrClipMode::Clip);
-    let hit_testing_clip_id = builder.define_clip(parent_space_and_clip, wr_rect, vec![scroll_frame_clip_region], /* image_mask: */  None);
-    let hit_testing_clip_info = WrSpaceAndClipInfo {
-        spatial_id: parent_space_and_clip.spatial_id,
-        clip_id: hit_testing_clip_id,
+    let rect = scroll_frame.frame.rect;
+    let border_radius = scroll_frame.frame.border_radius;
+    let wr_border_radius = wr_translate_border_radius(border_radius, rect.size);
+    let root_rect = {
+        let root_size = builder.content_size();
+        CssLayoutRect::new(CssLayoutPoint::new(0.0, 0.0), CssLayoutSize::new(root_size.width, root_size.height))
     };
-    builder.push_rect(&hit_test_info, &hit_testing_clip_info, wr_translate_color_u(ColorU::TRANSPARENT).into()); // push hit-testing rect
+    let clip_rect = scroll_frame.frame.clip_rect.unwrap_or(root_rect);
+
+    let hit_test_info = WrLayoutPrimitiveInfo {
+        rect: wr_translate_layout_rect(rect),
+        clip_rect: wr_translate_layout_rect(clip_rect),
+        is_backface_visible: false,
+        tag: Some(wr_translate_tag_id(scroll_frame.scroll_tag.0)),
+    };
+
+    // Push hit-testing + scrolling children
+    let hit_testing_space_and_clip = define_border_radius_clip(builder, rect, border_radius, parent_space_and_clip);
+    let scroll_frame_clip_region = WrComplexClipRegion::new(wr_translate_layout_rect(rect), wr_border_radius, WrClipMode::Clip);
+
+    builder.push_rect(&hit_test_info, &hit_testing_space_and_clip, wr_translate_color_u(ColorU::TRANSPARENT).into()); // push hit-testing rect
 
     let scroll_frame_clip_info = builder.define_scroll_frame(
-        /* parent clip */ &hit_testing_clip_info, // scroll frame has the hit-testing clip as a parent
+        /* parent clip */ &hit_testing_space_and_clip, // scroll frame has the hit-testing clip as a parent
         /* external id*/ Some(wr_translate_external_scroll_id(scroll_frame.scroll_id)),
         /* content_rect */ wr_translate_layout_rect(scroll_frame.content_rect),
         /* clip_rect */ wr_translate_layout_rect(scroll_frame.frame.clip_rect.unwrap_or(scroll_frame.frame.rect)),
@@ -1125,32 +1110,86 @@ fn push_scroll_frame(
     }
 }
 
+fn define_border_radius_clip(
+    builder: &mut WrDisplayListBuilder,
+    layout_rect: CssLayoutRect,
+    border_radius: StyleBorderRadius,
+    parent_space_and_clip: &WrSpaceAndClipInfo,
+) -> WrSpaceAndClipInfo {
+    use webrender::api::{
+        ClipMode as WrClipMode,
+        ComplexClipRegion as WrComplexClipRegion,
+    };
+
+    let wr_layout_rect = wr_translate_layout_rect(layout_rect);
+    let wr_border_radius = wr_translate_border_radius(border_radius, layout_rect.size);
+    let clip = WrComplexClipRegion::new(wr_layout_rect, wr_border_radius, WrClipMode::Clip);
+    let clip_id = builder.define_clip(parent_space_and_clip, wr_layout_rect, vec![clip], /* image_mask: */ None);
+
+    WrSpaceAndClipInfo {
+        clip_id,
+        .. *parent_space_and_clip
+    }
+}
+
 #[inline]
 fn push_display_list_content(
     builder: &mut WrDisplayListBuilder,
     content: LayoutRectContent,
-    info: &WrLayoutPrimitiveInfo,
-    radii: StyleBorderRadius,
+    rect: CssLayoutRect,
+    clip_rect: Option<CssLayoutRect>,
+    border_radius: StyleBorderRadius,
+    tag: Option<TagId>,
     parent_space_and_clip: &WrSpaceAndClipInfo,
 ) {
-
     use azul_core::display_list::LayoutRectContent::*;
 
+    let normal_info = WrLayoutPrimitiveInfo {
+        rect: wr_translate_layout_rect(rect),
+        clip_rect: wr_translate_layout_rect(clip_rect.unwrap_or(rect)),
+        is_backface_visible: false,
+        tag: tag.map(wr_translate_tag_id),
+    };
+
+    // If the content is a shadow, it needs to be clipped by the root
+    let root_rect = {
+        let root_size = builder.content_size();
+        CssLayoutRect::new(CssLayoutPoint::zero(), CssLayoutSize::new(root_size.width, root_size.height))
+    };
+
+    let root_info = WrLayoutPrimitiveInfo {
+        rect: wr_translate_layout_rect(rect),
+        clip_rect: wr_translate_layout_rect(clip_rect.unwrap_or(root_rect)),
+        is_backface_visible: false,
+        tag: tag.map(wr_translate_tag_id),
+    };
+
+    // Border and BoxShadow::Ouset get a root clip, since they are outside of the rect contents
+    // All other content types get the regular clip
     match content {
         Text { glyphs, font_instance_key, color, glyph_options, clip } => {
-            text::push_text(builder, info, glyphs, font_instance_key, color, glyph_options, clip, parent_space_and_clip);
+            let normal_space_and_clip = define_border_radius_clip(builder, rect, border_radius, parent_space_and_clip);
+            text::push_text(builder, &normal_info, glyphs, font_instance_key, color, glyph_options, clip, &normal_space_and_clip);
         },
         Background { content, size, offset, repeat  } => {
-            background::push_background(builder, info, content, size, offset, repeat, parent_space_and_clip);
+            let normal_space_and_clip = define_border_radius_clip(builder, rect, border_radius, parent_space_and_clip);
+            background::push_background(builder, &normal_info, content, size, offset, repeat, &normal_space_and_clip);
         },
         Image { size, offset, image_rendering, alpha_type, image_key, background_color } => {
-            image::push_image(builder, info, size, offset, image_key, alpha_type, image_rendering, background_color, parent_space_and_clip);
+            let normal_space_and_clip = define_border_radius_clip(builder, rect, border_radius, parent_space_and_clip);
+            image::push_image(builder, &normal_info, size, offset, image_key, alpha_type, image_rendering, background_color, &normal_space_and_clip);
+        },
+        BoxShadow { shadow, clip_mode: CssBoxShadowClipMode::Inset } => {
+            let normal_space_and_clip = define_border_radius_clip(builder, rect, border_radius, parent_space_and_clip);
+            box_shadow::push_box_shadow(builder, rect, CssBoxShadowClipMode::Inset, shadow, border_radius, &normal_space_and_clip);
+        },
+        BoxShadow { shadow, clip_mode: CssBoxShadowClipMode::Outset } => {
+            let root_space_and_clip = define_border_radius_clip(builder, root_rect, StyleBorderRadius::default(), parent_space_and_clip);
+            box_shadow::push_box_shadow(builder, rect, CssBoxShadowClipMode::Outset, shadow, border_radius, &root_space_and_clip);
         },
         Border { widths, colors, styles } => {
-            border::push_border(builder, info, radii, widths, colors, styles, parent_space_and_clip);
-        },
-        BoxShadow { shadow, clip_mode } => {
-            box_shadow::push_box_shadow(builder, translate_layout_rect_wr(info.rect), clip_mode, shadow, radii, parent_space_and_clip);
+            let root_space_and_clip = define_border_radius_clip(builder, root_rect, StyleBorderRadius::default(), parent_space_and_clip);
+            border::push_border(builder, &root_info, border_radius, widths, colors, styles, &root_space_and_clip);
         },
     }
 }
@@ -1865,11 +1904,6 @@ mod border {
         styles: StyleBorderStyles,
         parent_space_and_clip: &WrSpaceAndClipInfo,
     ) {
-        use webrender::api::{
-            ClipMode as WrClipMode,
-            ComplexClipRegion as WrComplexClipRegion
-        };
-        use crate::wr_translate::wr_translate_border_radius;
 
         let mut info = *info;
 

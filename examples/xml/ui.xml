@@ -1,3 +1,5 @@
 <app>
-  <p id="test">Helladlkfjdalkfjo lkdajflkadjflk</p>
+    <div id="green"></div>
+    <div id="red"></div>
+    <p>Hello</p>
 </app>

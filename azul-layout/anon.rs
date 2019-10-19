@@ -118,10 +118,14 @@ impl AnonDom {
             let children_ids = parent_id.children(node_hierarchy).collect::<Vec<NodeId>>();
             let children_count = children_ids.len();
 
+            if children_count == 0 {
+                continue;
+            }
+
             let num_inline_children = children_ids.iter().filter(|child_id| is_inline_node(&node_styles[**child_id], &rect_contents, child_id)).count();
             let num_block_children = children_count - num_inline_children;
-            let all_children_are_inline = num_block_children == 0;
-            let all_children_are_block = num_inline_children == 0;
+            let all_children_are_inline = num_inline_children == children_count;
+            let all_children_are_block = num_block_children == children_count;
 
             // Add the node data of the parent to the DOM
             let parent_node_style = &node_styles[*parent_id];
@@ -171,10 +175,6 @@ impl AnonDom {
 
                 // Mixed inline / block content: Need to insert anonymous nodes +
                 // fix their parent / child relationships
-
-                if children_count == 0 {
-                    continue;
-                }
 
                 let mut last_anon_node = None;
 
@@ -292,7 +292,6 @@ fn count_all_anon_nodes<T: GetTextLayout>(
     node_depths: &NodeDepths,
     rect_contents: &BTreeMap<NodeId, RectContent<T>>,
 ) -> BTreeMap<NodeId, usize> {
-
     let mut anon_nodes_by_depth = BTreeMap::new();
     let mut sum_anon_nodes = BTreeMap::new();
 
@@ -334,9 +333,10 @@ fn count_anon_nodes_direct_children<T: GetTextLayout>(
         .filter(|child_id| is_inline_node(&node_styles[**child_id], &rect_contents, child_id))
         .count();
 
-    let num_block_children = children_ids.len() - num_inline_children;
-    let all_children_are_inline = num_block_children == 0;
-    let all_children_are_block = num_inline_children == 0;
+    let children_count = children_ids.len();
+    let num_block_children = children_count - num_inline_children;
+    let all_children_are_inline = num_inline_children == children_count;
+    let all_children_are_block = num_block_children == children_count;
 
     let mut anon_node_count = 0;
 
