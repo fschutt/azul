@@ -492,23 +492,6 @@ pub struct WindowsWindowOptions {
     pub parent_window: Option<*mut c_void>,
 }
 
-#[derive(Debug)]
-pub enum StateOperation {
-    Remove = 0, // _NET_WM_STATE_REMOVE
-    Add = 1,    // _NET_WM_STATE_ADD
-    Toggle = 2, // _NET_WM_STATE_TOGGLE
-}
-
-impl From<bool> for StateOperation {
-    fn from(op: bool) -> Self {
-        if op {
-            StateOperation::Add
-        } else {
-            StateOperation::Remove
-        }
-    }
-}
-
 /// X window type. Maps directly to
 /// [`_NET_WM_WINDOW_TYPE`](https://specifications.freedesktop.org/wm-spec/wm-spec-1.5.html).
 #[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
