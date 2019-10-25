@@ -5,18 +5,25 @@ body {
 #green {
     width: 100px;
     height: 50px;
-    background: green;
+    background: linear-gradient(red, green);
     border: 5px solid black;
     border-radius: 10px;
     box-sizing: content-box;
+    display: inline;
 }
 
 #red {
     width: 100px;
     height: 50px;
     background: red;
+    margin: 10px;
+    display: inline;
 }
 
 p {
-    position: fixed;
+    font-size: 20px;
+    font-family: sans-serif;
+    background: blue;
+    color: white;
+    display: block;
 }

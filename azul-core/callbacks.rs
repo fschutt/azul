@@ -49,6 +49,87 @@ pub const Redraw: Option<()> = Some(());
 #[allow(non_upper_case_globals)]
 pub const DontRedraw: Option<()> = None;
 
+/// # The two-way binding system
+///
+/// A fundamental problem in UI development is where and how to store
+/// states of widgets, without impacting reusability, extensability or
+/// performance. Azul solves this problem using a type-erased
+/// `Rc<RefCell<Box<Any>>>` type (`RefAny`), whic can be up and downcasted to
+/// a `Rc<RefCell<Box<T>>>` type (`Ref<T>`). `Ref` and `RefAny` exist mostly to
+/// reduce typing and to prevent multiple mutable access to the inner
+/// `RefCell` at compile time. Azul stores all `RefAny`s inside the `Dom` tree
+/// and does NOT clone or mutate them at all. Only user-defined callbacks
+/// or the default callbacks have access to the `RefAny` data.
+///
+/// # Overriding the default behaviour of widgets
+///
+/// While Rust does not support inheritance with language constructs such
+/// as `@override` (Java) or the `override` keyword in C#, emulating structs
+/// that can change their behaviour at runtime is quite easy. Imagine a
+/// struct in which all methods are stored as public function pointers
+/// inside the struct itself:
+///
+/// ```rust
+/// // The struct has all methods as function pointers,
+/// // so that they can be "overridden" and exchanged with other
+/// // implementations if necessary
+/// struct A {
+///     pub function_a: fn(&A, i32) -> i32,
+///     pub function_b: fn(&A) -> &'static str,
+/// }
+///
+/// impl A {
+///     pub fn default_impl_a(&self, num: i32) -> i32 { num + num }
+///     pub fn default_impl_b(&self) -> &'static str { "default b method!" }
+///
+///     // Don't call default_impl_a() directly, just the function pointer
+///     pub fn do_a(&self, num: i32) -> i32 { (self.function_a)(self, num) }
+///     pub fn do_b(&self) -> &'static str { (self.function_b)(self) }
+/// }
+///
+/// // Here we provide the default ("base class") implementation
+/// impl Default for A {
+///     fn default() -> A {
+///         A {
+///             function_a: A::default_impl_a,
+///             function_b: A::default_impl_b,
+///         }
+///     }
+/// }
+///
+/// // Alternative function that will override the original method
+/// fn override_a(_: &A, num: i32) -> i32 { num * num }
+///
+/// fn main() {
+///     let mut a = A::default();
+///     println!("{}", a.do_a(5)); // prints "10" (5 + 5)
+///     println!("{}", a.do_b());  // prints "default b method"
+///
+///     a.function_a = override_a; // Here we override the behaviour
+///     println!("{}", a.do_a(5)); // prints "25" (5 * 5)
+///     println!("{}", a.do_b());  // still prints "default b method", since method isn't overridden
+/// }
+/// ```
+///
+/// Applied to widgets, the "A" class (a placeholder for a "Button", "Table" or other widget)
+/// can look something like this:
+///
+/// ```rust,no_run
+/// fn layout(&self, _: &LayoutInfo) -> Dom<T> {
+///     Spreadsheet::new()
+///         .override_oncellchange(my_func_1)
+///         .override_onworkspacechange(my_func_2)
+///         .override_oncellselect(my_func_3)
+///     .dom()
+/// }
+/// ```
+///
+/// The spreadsheet has some "default" event handlers, which can be exchanged for custom
+/// implementations via an open API. The benefit is that functions can be mixed and matched,
+/// and widgets can be composed of sub-widgets as well as be re-used. Another benefit is that
+/// now the widget can react to "custom" events such as "oncellchange" or "oncellselect",
+/// without Azul knowing that such events even exist. The downside is that this coding style
+/// requires more work on behalf of the widget designer (but not the user).
 #[derive(Default, Debug, PartialEq, Eq, PartialOrd, Ord)]
 pub struct Ref<T: 'static>(Rc<RefCell<T>>);
 
