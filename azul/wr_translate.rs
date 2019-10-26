@@ -67,7 +67,7 @@ use azul_core::{
         AddFont, AddImage, ImageData, ExternalImageData, ExternalImageId,
         ExternalImageType, TextureTarget, UpdateImage, ImageDirtyRect,
         Epoch, AddFontInstance, FontVariation, FontInstanceOptions,
-        FontInstancePlatformOptions, FontLCDFilter, FontHinting, SyntheticItalics,
+        FontInstancePlatformOptions, SyntheticItalics,
     },
     display_list::{
         CachedDisplayList, GlyphInstance, DisplayListScrollFrame,
@@ -78,6 +78,8 @@ use azul_core::{
     ui_solver::ExternalScrollId,
     window::{LogicalSize, DebugState},
 };
+#[cfg(not(any(target_os = "macos", target_os = "windows")))]
+use azul_core::app_resources::{FontLCDFilter, FontHinting};
 use azul_css::{
     ColorU as CssColorU,
     ColorF as CssColorF,
@@ -1231,8 +1233,6 @@ mod text {
             info.clip_rect.size = wr_translate_layout_size(clip_rect.size);
         }
 
-        println!("push text: {:#?}", glyphs);
-
         builder.push_text(
             &info,
             parent_space_and_clip,
@@ -1910,12 +1910,27 @@ mod border {
 
         let rect_size = LayoutSize::new(info.rect.size.width, info.rect.size.height);
 
-        if let Some((border_widths, border_details)) = get_webrender_border(rect_size, radii, widths, colors, styles) {
+        if let Some((border_widths, mut border_details)) = get_webrender_border(rect_size, radii, widths, colors, styles) {
 
             info.rect.origin.x -= widths.left_width();
             info.rect.origin.y -= widths.top_width();
             info.rect.size.width += widths.total_horizontal();
             info.rect.size.height += widths.total_vertical();
+
+            // The border width has to be added to the border radius itself
+            match &mut border_details {
+                WrBorderDetails::Normal(n) => {
+                    if n.radius.top_left.width != 0.0 { n.radius.top_left.width += widths.left_width(); }
+                    if n.radius.top_left.height != 0.0 { n.radius.top_left.height += widths.top_width(); }
+                    if n.radius.top_right.width != 0.0 { n.radius.top_right.width += widths.right_width(); }
+                    if n.radius.top_right.height != 0.0 { n.radius.top_right.height += widths.top_width(); }
+                    if n.radius.bottom_left.width != 0.0 { n.radius.bottom_left.width += widths.left_width(); }
+                    if n.radius.bottom_left.height != 0.0 { n.radius.bottom_left.height += widths.bottom_width(); }
+                    if n.radius.bottom_right.width != 0.0 { n.radius.bottom_right.width += widths.right_width(); }
+                    if n.radius.bottom_right.height != 0.0 { n.radius.bottom_right.height += widths.bottom_width(); }
+                },
+                _ => { },
+            };
 
             builder.push_border(&info, &parent_space_and_clip, border_widths, border_details);
         }

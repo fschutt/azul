@@ -1,5 +1,5 @@
 
-use std::collections::BTreeMap;
+use std::{fmt, collections::BTreeMap};
 use crate::{
     RectContent,
     RectContent::{Image, Text},
@@ -96,7 +96,6 @@ fn solve_widths<T: GetTextLayout>(
             let block_width = match &anon_dom.anon_node_data[id] {
                 BlockNode(ref style) => {
                     let w = calculate_block_width(style, $parent_content_size);
-                    println!("setting node id {} to width: {:#?}", id, w);
                     /*
                     if let Some(Text(t)) = rect_contents.get(&id) {
                         resolved_text_layout_options.entry(id).or_insert_with(|| {
@@ -158,13 +157,10 @@ fn solve_widths<T: GetTextLayout>(
 
     for (_depth, parent_node_id) in anon_dom_depths {
         let parent_content_size = positioned_rects[*parent_node_id].bounds.size.width;
-        println!("parent: {} - {:#?}", parent_node_id, positioned_rects[*parent_node_id].bounds);
         for child_id in parent_node_id.children(&anon_dom.anon_node_hierarchy) {
             calc_block_width!(child_id, parent_content_size);
         }
     }
-
-    println!("-----");
 }
 
 fn solve_heights<T: GetTextLayout>(
@@ -559,12 +555,24 @@ fn get_collapsed_vert_margin(
 
 // ------
 
-#[derive(Debug, Copy, Clone, Default)]
+#[derive(Copy, Clone, Default)]
 struct BlockWidth {
     width: f32,
     border_width: (f32, f32),
     margin: (f32, f32),
     padding: (f32, f32),
+}
+
+impl fmt::Debug for BlockWidth {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        write!(f, "BlockWidth {{\r\n")?;
+        write!(f, "    width: {}\r\n", self.width)?;
+        write!(f, "    border_width: {:?}\r\n", self.border_width)?;
+        write!(f, "    margin: {:?}\r\n", self.margin)?;
+        write!(f, "    padding: {:?}\r\n", self.padding)?;
+        write!(f, "}}")?;
+        Ok(())
+    }
 }
 
 impl BlockWidth {
@@ -677,13 +685,26 @@ fn calculate_block_width(
     }
 }
 
-#[derive(Debug, Copy, Clone, Default)]
+#[derive(Copy, Clone, Default)]
 struct InlineWidth {
     width: f32,
     border_width: (f32, f32),
     margin: (f32, f32),
     padding: (f32, f32),
     trailing: Option<f32>,
+}
+
+impl fmt::Debug for InlineWidth {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        write!(f, "InlineWidth {{\r\n")?;
+        write!(f, "    width: {}\r\n", self.width)?;
+        write!(f, "    border_width: {:?}\r\n", self.border_width)?;
+        write!(f, "    margin: {:?}\r\n", self.margin)?;
+        write!(f, "    padding: {:?}\r\n", self.padding)?;
+        write!(f, "    trailing: {:?}\r\n", self.trailing)?;
+        write!(f, "}}")?;
+        Ok(())
+    }
 }
 
 impl InlineWidth {

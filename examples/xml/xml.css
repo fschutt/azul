@@ -3,11 +3,11 @@ body {
 }
 
 #green {
-    width: 100px;
+    width: 200px;
     height: 50px;
-    background: linear-gradient(red, green);
-    border: 5px solid black;
-    border-radius: 10px;
+    background: green;
+    border: 100px solid rgba(0, 0, 0, 0.5);
+    border-radius: 100px;
     box-sizing: content-box;
     display: inline;
 }

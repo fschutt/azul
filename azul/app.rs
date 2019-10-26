@@ -560,8 +560,6 @@ impl<T: 'static> App<T> {
                         },
                         WindowEvent::RedrawRequested => {
 
-                            println!("rerender!");
-                            println!("-------");
                             let full_window_state = eld.full_window_states.get(&glutin_window_id).unwrap();
                             let mut windowed_context = eld.active_windows.get_mut(&glutin_window_id);
                             let mut windowed_context = windowed_context.as_mut().unwrap();
@@ -816,8 +814,6 @@ fn send_user_event<'a, T>(
         },
         DoHitTest { window_id } => {
 
-            println!("doing hit test!");
-
             // Hit test if any nodes were hit, see if any callbacks need to be called
 
             let mut callbacks_update_screen = false;
@@ -853,7 +849,6 @@ fn send_user_event<'a, T>(
                 if should_call_callbacks {
 
                     // call callbacks
-                    println!("calling callbacks!");
 
                     let active_windows = &mut *eld.active_windows;
                     let data = &mut *eld.data;
@@ -915,7 +910,6 @@ fn send_user_event<'a, T>(
             }
         },
         RebuildUi { window_id } => {
-            println!("rebuild ui!");
 
             // Call the .layout() function, build UiState
             {
@@ -943,8 +937,6 @@ fn send_user_event<'a, T>(
         },
         RestyleUi { window_id, skip_layout } => {
 
-            println!("restyle ui!");
-
             // Cascade the CSS to the HTML nodes
             {
                 let glutin_window_id = match eld.reverse_window_id_mapping.get(&window_id) {
@@ -968,8 +960,6 @@ fn send_user_event<'a, T>(
         RelayoutUi { window_id } => {
 
             use azul_core::display_list::SolvedLayout;
-
-            println!("relayout ui!");
 
             // Layout the CSSOM
             {
@@ -1016,8 +1006,6 @@ fn send_user_event<'a, T>(
         },
         RebuildDisplayList { window_id } => {
 
-            println!("rebuild DL!");
-
             // Build the display list
             {
                 let glutin_window_id = match eld.reverse_window_id_mapping.get(&window_id) {
@@ -1049,8 +1037,6 @@ fn send_user_event<'a, T>(
         },
         SendDisplayListToWebRender { window_id } => {
 
-            println!("send display list!");
-
             // Build the display list
             {
                 let glutin_window_id = match eld.reverse_window_id_mapping.get(&window_id) {
@@ -1075,7 +1061,6 @@ fn send_user_event<'a, T>(
         },
         UpdateScrollStates { window_id } => {
             // Synchronize all the scroll states from window.internal.scroll_states with webrender
-            println!("update scroll states!");
             let glutin_window_id = match eld.reverse_window_id_mapping.get(&window_id) {
                 Some(s) => s.clone(),
                 None => return,
@@ -1535,7 +1520,6 @@ fn send_display_list_to_webrender<T>(
 fn scroll_all_nodes(scroll_states: &mut ScrollStates, txn: &mut WrTransaction) {
     use webrender::api::ScrollClamping;
     use crate::wr_translate::{wr_translate_external_scroll_id, wr_translate_layout_point};
-    println!("scrolling nodes: {:#?}", scroll_states);
     for (key, value) in scroll_states.0.iter_mut() {
         txn.scroll_node_with_id(
             wr_translate_layout_point(value.get()),
