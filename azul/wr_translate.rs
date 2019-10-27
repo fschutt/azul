@@ -1039,6 +1039,8 @@ fn push_frame(
         clip_id
     }).unwrap_or(parent_space_and_clip.clip_id);
 
+    println!("overflow clip id: {:?}", overflow_clip_id);
+
     let overflow_space_and_clip = WrSpaceAndClipInfo {
         spatial_id: parent_space_and_clip.spatial_id,
         clip_id: overflow_clip_id,

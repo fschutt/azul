@@ -1,6 +1,8 @@
 <app>
-    <div id="child-static-1"></div>
-    <div id="child-static-2"></div>
-    <div id="child-absolute-1"></div>
-    <div id="child-static-3"></div>
+    <div id="parent">
+        <div id="child-static-1"></div>
+        <div id="child-static-2"></div>
+        <div id="child-absolute-1"></div>
+        <div id="child-static-3"></div>
+    </div>
 </app>
