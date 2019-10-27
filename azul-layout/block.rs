@@ -448,6 +448,11 @@ fn position_items(
             let child_anon_node = &anon_dom.anon_node_data[child_id];
             let child_position_type = child_anon_node.get_position_type();
 
+            let previous_sibling_origin = match anon_dom.anon_node_hierarchy[child_id].previous_sibling {
+                None => LayoutPoint::zero(),
+                Some(ps) => positioned_rects[ps].bounds.origin,
+            };
+
             match child_position_type {
                 PositionType::Static => {
                     let child_rect = &mut positioned_rects[child_id];
@@ -456,43 +461,54 @@ fn position_items(
                 },
                 PositionType::Fixed => {
                     let child_rect = &mut positioned_rects[child_id];
-                    child_rect.bounds = figure_out_position(LayoutRect::new(LayoutPoint::zero(), root_size), child_anon_node.get_style(), &child_rect);
+                    child_rect.bounds = figure_out_position(LayoutRect::new(LayoutPoint::zero(), root_size), previous_sibling_origin, child_anon_node.get_style(), &child_rect);
                 },
                 PositionType::Relative => {
                     let last_absolute_node = position_relative_absolute_stack.last().copied().unwrap_or((NodeId::ZERO, 0));
                     let last_absolute_bounds = positioned_rects[last_absolute_node.0].bounds;
                     let child_rect = &mut positioned_rects[child_id];
                     // TODO: This is wrong, should only add top / left positions!
-                    child_rect.bounds = figure_out_position(last_absolute_bounds, child_anon_node.get_style(), &child_rect);
+                    child_rect.bounds = figure_out_position(last_absolute_bounds, previous_sibling_origin, child_anon_node.get_style(), &child_rect);
                 },
                 PositionType::Absolute => {
                     let child_rect = &mut positioned_rects[child_id];
-                    child_rect.bounds = figure_out_position(parent_bounds, child_anon_node.get_style(), &child_rect);
+                    child_rect.bounds = figure_out_position(parent_bounds, previous_sibling_origin, child_anon_node.get_style(), &child_rect);
                 },
             }
         }
     }
 }
 
-// Figure out the origin of a rect, given
+// Figure out the origin of a position:absolute rect, given
 fn figure_out_position(
     parent: LayoutRect,
+    previous_sibling_origin: LayoutPoint,
     child_style: &Style,
     child_rect: &PositionedRectangle,
 ) -> LayoutRect {
 
     let top_offset = child_style.position.top.resolve(Defined(parent.size.height)).unwrap_or_zero();
+    let top_is_defined = child_style.position.top.is_defined();
+
     let bottom_offset = child_style.position.bottom.resolve(Defined(parent.size.height)).unwrap_or_zero();
+    let bottom_is_defined = child_style.position.bottom.is_defined();
+
     let left_offset = child_style.position.left.resolve(Defined(parent.size.width)).unwrap_or_zero();
+    let left_is_defined = child_style.position.left.is_defined();
+
     let right_offset = child_style.position.right.resolve(Defined(parent.size.width)).unwrap_or_zero();
+    let right_is_defined = child_style.position.right.is_defined();
 
     // If the width of the item is undefined, the width is defined by the left: / right: attributes
     let width_is_defined = child_style.size.width.is_defined();
-    let width = if width_is_defined {
-        child_style.size.width.resolve(Defined(parent.size.width))
-    } else {
-        Defined(parent.size.width - left_offset - right_offset)
-    }
+    let width =
+        if width_is_defined {
+            child_style.size.width.resolve(Defined(parent.size.width))
+        } else if right_is_defined && left_is_defined {
+            Defined(parent.size.width - left_offset - right_offset)
+        } else {
+            Defined(0.0)
+        }
     .maybe_min(child_style.min_size.width.resolve(Defined(parent.size.width)))
     .maybe_max(child_style.max_size.width.resolve(Defined(parent.size.width)))
     .unwrap_or_zero();
@@ -501,16 +517,34 @@ fn figure_out_position(
     let height_is_defined = child_style.size.height.is_defined();
     let height = if height_is_defined {
         child_style.size.height.resolve(Defined(parent.size.height))
-    } else {
-
+    } else if top_is_defined && bottom_is_defined {
         Defined(parent.size.height - top_offset - bottom_offset)
+    } else {
+        Defined(0.0)
     }
     .maybe_min(child_style.min_size.height.resolve(Defined(parent.size.height)))
     .maybe_max(child_style.max_size.height.resolve(Defined(parent.size.height)))
     .unwrap_or_zero();
 
+    // Now figure out the offset of the rectangle (TODO: incorporate padding / margin)!:
+    let x_offset = if left_is_defined {
+        left_offset
+    } else if right_is_defined {
+        parent.size.width - width - right_offset
+    } else {
+        previous_sibling_origin.x - parent.origin.x
+    };
+
+    let y_offset = if top_is_defined {
+        top_offset
+    } else if bottom_is_defined {
+        parent.size.height - height - bottom_offset
+    } else {
+        previous_sibling_origin.y - parent.origin.y
+    };
+
     LayoutRect {
-        origin: LayoutPoint::new(parent.origin.x + left_offset, parent.origin.y + top_offset),
+        origin: LayoutPoint::new(parent.origin.x + x_offset, parent.origin.y + y_offset),
         size: LayoutSize::new(width, height),
     }
 }

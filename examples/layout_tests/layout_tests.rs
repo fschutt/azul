@@ -153,10 +153,12 @@ fn main() {
 
             let test_name = find_attribute(&test_xml_node, "name").unwrap();
 
-            let root_node = find_root_node(&test_xml_node.children, "html").unwrap();
-            let first_child = root_node.children.get(0).unwrap();
-            let dom = render_dom_from_app_node_inner(&first_child, &XmlComponentMap::default(), &FilteredComponentArguments::default()).unwrap();
-            let css = azul_css_parser::new_from_str(get_content(find_root_node(&test_xml_node.children, "style").unwrap())).unwrap();
+            let html_node = find_root_node(&test_xml_node.children, "html").unwrap();
+            let body_node = find_root_node(&html_node.children, "body").unwrap();
+            let style_node = find_root_node(&html_node.children, "style").unwrap();
+
+            let dom = render_dom_from_app_node_inner(&body_node, &XmlComponentMap::default(), &FilteredComponentArguments::default()).unwrap();
+            let css = azul_css_parser::new_from_str(get_content(style_node)).unwrap();
 
             // One <test> can have multiple <output> to test for different sizes
             for expected_output in test_xml_node.children.iter().filter(|node| node.node_type == "output") {

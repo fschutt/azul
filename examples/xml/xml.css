@@ -1,29 +1,17 @@
-body {
-    background: yellow;
+#child-static-1, #child-static-2, #child-static-3 {
+    height: 50px;
+    position: static;
 }
 
-#green {
-    width: 200px;
-    height: 50px;
-    background: green;
-    border: 100px solid rgba(0, 0, 0, 0.5);
-    border-radius: 100px;
-    box-sizing: content-box;
-    display: inline;
-}
+#child-static-1 { background: green; }
+#child-static-2 { background: blue; }
+#child-static-3 { background: yellow; }
 
-#red {
-    width: 100px;
-    height: 50px;
+#child-absolute-1 {
+    position: absolute;
+    height: 70px;
+    width: 50px;
+    top: 10px;
+    left: 10px;
     background: red;
-    margin: 10px;
-    display: inline;
-}
-
-p {
-    font-size: 20px;
-    font-family: sans-serif;
-    background: blue;
-    color: white;
-    display: block;
 }
