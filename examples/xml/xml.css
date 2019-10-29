@@ -1,23 +1,17 @@
-body {
-    background: linear-gradient(yellow, blue);
-}
-
-p#test {
+#test {
+    height: 50px;
     background: blue;
-    color: white;
-    font-family: sans-serif;
-    font-size: 50px;
-    padding: 5px;
     border-radius: 5px;
+    padding: 10px;
+    border: 20px dotted rgba(255, 255, 255, 0.5);
     box-shadow: 0px 0px 10px black;
-    border: 2px dotted salmon;
+    min-width: 730px;
 }
 
-#lipsum {
-    background: white;
-    display: inline;
-    text-align: right;
-    line-height: 1.2;
-    font-family: "Segoe UI";
-    font-size: 12px;
+#child {
+    width: 100%;
+    height: 10px;
+    background: red;
+    box-sizing: border-box;
+    border: 4px solid white;
 }

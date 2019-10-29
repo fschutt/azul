@@ -992,16 +992,21 @@ pub(crate) fn wr_translate_display_list(input: CachedDisplayList, pipeline_id: P
         wr_translate_pipeline_id(pipeline_id),
         wr_translate_layout_size(input.root.get_size())
     );
-    push_display_list_msg(&mut builder, input.root, &root_space_and_clip);
+    push_display_list_msg(&mut builder, input.root, &root_space_and_clip, &root_space_and_clip);
     builder.finalize().2
 }
 
 #[inline]
-fn push_display_list_msg(builder: &mut WrDisplayListBuilder, msg: DisplayListMsg, parent_space_and_clip: &WrSpaceAndClipInfo) {
+fn push_display_list_msg(
+    builder: &mut WrDisplayListBuilder,
+    msg: DisplayListMsg,
+    parent_space_and_clip: &WrSpaceAndClipInfo,
+    root_space_and_clip: &WrSpaceAndClipInfo,
+) {
     use azul_core::display_list::DisplayListMsg::*;
     match msg {
-        Frame(f) => push_frame(builder, f, parent_space_and_clip),
-        ScrollFrame(sf) => push_scroll_frame(builder, sf, parent_space_and_clip),
+        Frame(f) => push_frame(builder, f, parent_space_and_clip, root_space_and_clip),
+        ScrollFrame(sf) => push_scroll_frame(builder, sf, parent_space_and_clip, root_space_and_clip),
     }
 }
 
@@ -1009,7 +1014,8 @@ fn push_display_list_msg(builder: &mut WrDisplayListBuilder, msg: DisplayListMsg
 fn push_frame(
     builder: &mut WrDisplayListBuilder,
     frame: DisplayListFrame,
-    parent_space_and_clip: &WrSpaceAndClipInfo
+    parent_space_and_clip: &WrSpaceAndClipInfo,
+    root_space_and_clip: &WrSpaceAndClipInfo,
 ) {
 
     use webrender::api::{
@@ -1026,18 +1032,16 @@ fn push_frame(
             frame.border_radius,
             frame.tag,
             parent_space_and_clip,
+            root_space_and_clip,
         );
     }
 
     let wr_border_radius = wr_translate_border_radius(frame.border_radius, frame.rect.size);
 
     // If the rect has an overflow:* property set
-    let overflow_clip_id = frame.clip_rect.map(|clip_rect| {
-        let clip_rect = wr_translate_layout_rect(clip_rect);
-        let clip = WrComplexClipRegion::new(clip_rect, wr_border_radius, WrClipMode::Clip);
-        let clip_id = builder.define_clip(parent_space_and_clip, clip_rect, vec![clip], /* image_mask: */ None);
-        clip_id
-    }).unwrap_or(parent_space_and_clip.clip_id);
+    let overflow_clip_id = frame.clip_rect
+    .map(|clip_rect| define_border_radius_clip(builder, clip_rect, wr_border_radius, parent_space_and_clip).clip_id)
+    .unwrap_or(parent_space_and_clip.clip_id);
 
     println!("overflow clip id: {:?}", overflow_clip_id);
 
@@ -1047,7 +1051,7 @@ fn push_frame(
     };
 
     for child in frame.children {
-        push_display_list_msg(builder, child, &overflow_space_and_clip);
+        push_display_list_msg(builder, child, &overflow_space_and_clip, root_space_and_clip);
     }
 }
 
@@ -1055,7 +1059,8 @@ fn push_frame(
 fn push_scroll_frame(
     builder: &mut WrDisplayListBuilder,
     scroll_frame: DisplayListScrollFrame,
-    parent_space_and_clip: &WrSpaceAndClipInfo
+    parent_space_and_clip: &WrSpaceAndClipInfo,
+    root_space_and_clip: &WrSpaceAndClipInfo,
 ) {
 
     use azul_css::ColorU;
@@ -1074,6 +1079,7 @@ fn push_scroll_frame(
             scroll_frame.frame.border_radius,
             scroll_frame.frame.tag,
             parent_space_and_clip,
+            root_space_and_clip,
         );
     }
 
@@ -1094,7 +1100,7 @@ fn push_scroll_frame(
     };
 
     // Push hit-testing + scrolling children
-    let hit_testing_space_and_clip = define_border_radius_clip(builder, rect, border_radius, parent_space_and_clip);
+    let hit_testing_space_and_clip = define_border_radius_clip(builder, rect, wr_border_radius, parent_space_and_clip);
     let scroll_frame_clip_region = WrComplexClipRegion::new(wr_translate_layout_rect(rect), wr_border_radius, WrClipMode::Clip);
 
     builder.push_rect(&hit_test_info, &hit_testing_space_and_clip, wr_translate_color_u(ColorU::TRANSPARENT).into()); // push hit-testing rect
@@ -1111,14 +1117,14 @@ fn push_scroll_frame(
 
     // Only children should scroll, not the frame itself!
     for child in scroll_frame.frame.children {
-        push_display_list_msg(builder, child, &scroll_frame_clip_info);
+        push_display_list_msg(builder, child, &scroll_frame_clip_info, &root_space_and_clip);
     }
 }
 
 fn define_border_radius_clip(
     builder: &mut WrDisplayListBuilder,
     layout_rect: CssLayoutRect,
-    border_radius: StyleBorderRadius,
+    wr_border_radius: WrBorderRadius,
     parent_space_and_clip: &WrSpaceAndClipInfo,
 ) -> WrSpaceAndClipInfo {
     use webrender::api::{
@@ -1126,8 +1132,9 @@ fn define_border_radius_clip(
         ComplexClipRegion as WrComplexClipRegion,
     };
 
+    println!("defining clip rect: {}", layout_rect);
+
     let wr_layout_rect = wr_translate_layout_rect(layout_rect);
-    let wr_border_radius = wr_translate_border_radius(border_radius, layout_rect.size);
     let clip = WrComplexClipRegion::new(wr_layout_rect, wr_border_radius, WrClipMode::Clip);
     let clip_id = builder.define_clip(parent_space_and_clip, wr_layout_rect, vec![clip], /* image_mask: */ None);
 
@@ -1146,55 +1153,51 @@ fn push_display_list_content(
     border_radius: StyleBorderRadius,
     tag: Option<TagId>,
     parent_space_and_clip: &WrSpaceAndClipInfo,
+    root_space_and_clip: &WrSpaceAndClipInfo,
 ) {
     use azul_core::display_list::LayoutRectContent::*;
 
-    let normal_info = WrLayoutPrimitiveInfo {
-        rect: wr_translate_layout_rect(rect),
-        clip_rect: wr_translate_layout_rect(clip_rect.unwrap_or(rect)),
-        is_backface_visible: false,
-        tag: tag.map(wr_translate_tag_id),
-    };
-
-    // If the content is a shadow, it needs to be clipped by the root
     let root_rect = {
         let root_size = builder.content_size();
-        CssLayoutRect::new(CssLayoutPoint::zero(), CssLayoutSize::new(root_size.width, root_size.height))
+        CssLayoutRect::new(CssLayoutPoint::new(0.0, 0.0), CssLayoutSize::new(root_size.width, root_size.height))
     };
 
-    let root_info = WrLayoutPrimitiveInfo {
+    let normal_info = WrLayoutPrimitiveInfo {
         rect: wr_translate_layout_rect(rect),
         clip_rect: wr_translate_layout_rect(clip_rect.unwrap_or(root_rect)),
         is_backface_visible: false,
         tag: tag.map(wr_translate_tag_id),
     };
 
+    let wr_border_radius = wr_translate_border_radius(border_radius, rect.size);
+
     // Border and BoxShadow::Ouset get a root clip, since they are outside of the rect contents
     // All other content types get the regular clip
     match content {
         Text { glyphs, font_instance_key, color, glyph_options, clip } => {
-            let normal_space_and_clip = define_border_radius_clip(builder, rect, border_radius, parent_space_and_clip);
-            text::push_text(builder, &normal_info, glyphs, font_instance_key, color, glyph_options, clip, &normal_space_and_clip);
+            // let normal_space_and_clip = define_border_radius_clip(builder, rect, wr_border_radius, parent_space_and_clip);
+            // text::push_text(builder, &normal_info, glyphs, font_instance_key, color, glyph_options, clip, &normal_space_and_clip);
+            text::push_text(builder, &normal_info, glyphs, font_instance_key, color, glyph_options, clip, parent_space_and_clip);
         },
         Background { content, size, offset, repeat  } => {
-            let normal_space_and_clip = define_border_radius_clip(builder, rect, border_radius, parent_space_and_clip);
+            let normal_space_and_clip = define_border_radius_clip(builder, rect, wr_border_radius, parent_space_and_clip);
             background::push_background(builder, &normal_info, content, size, offset, repeat, &normal_space_and_clip);
         },
         Image { size, offset, image_rendering, alpha_type, image_key, background_color } => {
-            let normal_space_and_clip = define_border_radius_clip(builder, rect, border_radius, parent_space_and_clip);
+            let normal_space_and_clip = define_border_radius_clip(builder, rect, wr_border_radius, parent_space_and_clip);
             image::push_image(builder, &normal_info, size, offset, image_key, alpha_type, image_rendering, background_color, &normal_space_and_clip);
         },
         BoxShadow { shadow, clip_mode: CssBoxShadowClipMode::Inset } => {
-            let normal_space_and_clip = define_border_radius_clip(builder, rect, border_radius, parent_space_and_clip);
+            let normal_space_and_clip = define_border_radius_clip(builder, rect, wr_border_radius, parent_space_and_clip);
             box_shadow::push_box_shadow(builder, rect, CssBoxShadowClipMode::Inset, shadow, border_radius, &normal_space_and_clip);
         },
         BoxShadow { shadow, clip_mode: CssBoxShadowClipMode::Outset } => {
-            let root_space_and_clip = define_border_radius_clip(builder, root_rect, StyleBorderRadius::default(), parent_space_and_clip);
+            // If the content is a shadow, it needs to be clipped by the root
             box_shadow::push_box_shadow(builder, rect, CssBoxShadowClipMode::Outset, shadow, border_radius, &root_space_and_clip);
         },
         Border { widths, colors, styles } => {
-            let root_space_and_clip = define_border_radius_clip(builder, root_rect, StyleBorderRadius::default(), parent_space_and_clip);
-            border::push_border(builder, &root_info, border_radius, widths, colors, styles, &root_space_and_clip);
+            // no clip necessary because item will always be in parent bounds
+            border::push_border(builder, &normal_info, border_radius, widths, colors, styles, parent_space_and_clip);
         },
     }
 }
@@ -1912,28 +1915,7 @@ mod border {
 
         let rect_size = LayoutSize::new(info.rect.size.width, info.rect.size.height);
 
-        if let Some((border_widths, mut border_details)) = get_webrender_border(rect_size, radii, widths, colors, styles) {
-
-            info.rect.origin.x -= widths.left_width();
-            info.rect.origin.y -= widths.top_width();
-            info.rect.size.width += widths.total_horizontal();
-            info.rect.size.height += widths.total_vertical();
-
-            // The border width has to be added to the border radius itself
-            match &mut border_details {
-                WrBorderDetails::Normal(n) => {
-                    if n.radius.top_left.width != 0.0 { n.radius.top_left.width += widths.left_width(); }
-                    if n.radius.top_left.height != 0.0 { n.radius.top_left.height += widths.top_width(); }
-                    if n.radius.top_right.width != 0.0 { n.radius.top_right.width += widths.right_width(); }
-                    if n.radius.top_right.height != 0.0 { n.radius.top_right.height += widths.top_width(); }
-                    if n.radius.bottom_left.width != 0.0 { n.radius.bottom_left.width += widths.left_width(); }
-                    if n.radius.bottom_left.height != 0.0 { n.radius.bottom_left.height += widths.bottom_width(); }
-                    if n.radius.bottom_right.width != 0.0 { n.radius.bottom_right.width += widths.right_width(); }
-                    if n.radius.bottom_right.height != 0.0 { n.radius.bottom_right.height += widths.bottom_width(); }
-                },
-                _ => { },
-            };
-
+        if let Some((border_widths, border_details)) = get_webrender_border(rect_size, radii, widths, colors, styles) {
             builder.push_border(&info, &parent_space_and_clip, border_widths, border_details);
         }
     }

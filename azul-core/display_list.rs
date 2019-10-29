@@ -1080,13 +1080,8 @@ pub fn displaylist_handle_rect<'a, T>(
     } = referenced_content;
 
     let rect = &layout_result.display_lists[dom_id].rectangles[rect_idx];
-    let bounds = &layout_result.solved_layouts[dom_id].rects[rect_idx].bounds;
+    let bounds = &layout_result.solved_layouts[dom_id].rects[rect_idx];
     let html_node = &ui_state_cache[&dom_id].dom.arena.node_data[rect_idx].get_node_type();
-
-    let display_list_rect_bounds = LayoutRect::new(
-         LayoutPoint::new(bounds.origin.x, bounds.origin.y),
-         LayoutSize::new(bounds.size.width, bounds.size.height),
-    );
 
     let tag_id = rect.tag.or({
         layout_result.scrollable_nodes[dom_id].overflowing_nodes
@@ -1103,7 +1098,7 @@ pub fn displaylist_handle_rect<'a, T>(
             bottom_left: rect.style.border_bottom_left_radius,
             bottom_right: rect.style.border_bottom_right_radius,
         },
-        rect: display_list_rect_bounds,
+        rect: bounds.get_background_bounds(),
         content: Vec::new(),
         children: Vec::new(),
     };
@@ -1161,7 +1156,7 @@ pub fn displaylist_handle_rect<'a, T>(
                 let font_instance_key = positioned_words.1;
 
                 frame.content.push(get_text(
-                    display_list_rect_bounds,
+                    bounds.get_content_bounds(),
                     &layout_result.solved_layouts[dom_id].rects[rect_idx].padding,
                     full_window_state.size.dimensions,
                     layouted_glyphs,
@@ -1174,7 +1169,7 @@ pub fn displaylist_handle_rect<'a, T>(
         Image(image_id) => {
             if let Some(image_info) = app_resources.get_image_info(pipeline_id, image_id) {
                 frame.content.push(LayoutRectContent::Image {
-                    size: LayoutSize::new(bounds.size.width, bounds.size.height),
+                    size: LayoutSize::new(bounds.bounds.size.width, bounds.bounds.size.height),
                     offset: LayoutPoint::new(0.0, 0.0),
                     image_rendering: ImageRendering::Auto,
                     alpha_type: AlphaType::PremultipliedAlpha,

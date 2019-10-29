@@ -5,7 +5,7 @@ use crate::{
     RectContent::{Image, Text},
     anon::{AnonDom, AnonNode::{InlineNode, BlockNode, AnonStyle}},
     style::{Style, Overflow as StyleOverflow, Display, Dimension, BoxSizing},
-    number::{Number::{Defined, Undefined}, MinMax, OrElse},
+    number::{Number, Number::{Defined, Undefined}, MinMax, OrElse},
 };
 use azul_core::{
     id_tree::NodeHierarchy,
@@ -268,11 +268,11 @@ fn solve_heights<T: GetTextLayout>(
                 rect_contents.get_mut(&NodeId::ZERO),
                 resolved_text_layout_options.get(&NodeId::ZERO),
             );
-            root_block_height.height = root_block_height.height.min(root_size.height);
+            root_block_height.height = root_block_height.height.max(root_size.height);
             apply_block_height(root_block_height, &mut positioned_rects[NodeId::ZERO]);
         },
         AnonStyle => {
-            positioned_rects[NodeId::ZERO].bounds.size.height = children_height_sum.min(root_size.height);
+            positioned_rects[NodeId::ZERO].bounds.size.height = children_height_sum.max(root_size.height);
         },
     }
 }
@@ -648,6 +648,26 @@ impl BlockWidth {
     pub fn margin_box_width(&self) -> f32 { self.border_box_width() + self.margin.0 + self.margin.1 }
 }
 
+fn check_width_minmax(width: Number, style: &Style, pw: f32) -> Number {
+    let pwn = Defined(pw);
+    width
+    .maybe_min(style.max_size.width.resolve(pwn))
+    .maybe_max(style.min_size.width.resolve(pwn))
+    .maybe_min(if style.min_size.width.resolve(pwn).unwrap_or_zero() > style.max_size.width.resolve(pwn).to_option().unwrap_or(pw) {
+        style.min_size.width.resolve(pwn)
+    } else { Undefined })
+}
+
+fn check_height_minmax(height: Number, style: &Style, ph: f32) -> Number {
+    let phn = Defined(ph);
+    height
+    .maybe_min(style.max_size.height.resolve(phn))
+    .maybe_max(style.min_size.height.resolve(phn))
+    .maybe_min(if style.min_size.height.resolve(phn).unwrap_or_zero() > style.max_size.height.resolve(phn).to_option().unwrap_or(ph) {
+        style.min_size.height.resolve(phn)
+    } else { Undefined })
+}
+
 // see: https://limpet.net/mbrubeck/2014/09/17/toy-layout-engine-6-block.html
 fn calculate_block_width(
     style: &Style,
@@ -670,17 +690,21 @@ fn calculate_block_width(
     let padding_right = style.padding.right.resolve(pw).or_else(0.0);
 
     let border_width_left = style.border.left.resolve(pw).or_else(0.0);
-    let border_width_right = style.border.left.resolve(pw).or_else(0.0);
+    let border_width_right = style.border.right.resolve(pw).or_else(0.0);
 
     // Adjust for min / max width properties
-    let mut width = Defined(match style.box_sizing {
+    let mut width = check_width_minmax(Defined(match style.box_sizing {
         // The width and height properties (and min/max properties) includes only the content.
-        BoxSizing::ContentBox => width + padding_left + padding_right + border_width_left + border_width_right,
+        BoxSizing::ContentBox => {
+            println!("content box!");
+            width
+        },
         // The width and height properties (and min/max properties) includes content, padding and border
-        BoxSizing::BorderBox => width,
-    })
-    .maybe_min(style.min_size.width.resolve(pw))
-    .maybe_max(style.max_size.width.resolve(pw))
+        BoxSizing::BorderBox => {
+            println!("border box!");
+            width + padding_left + padding_right + border_width_left + border_width_right
+        },
+    }), style, parent_content_width)
     .or_else(width)
     - padding_left - padding_right - border_width_left - border_width_right;
 
@@ -724,7 +748,7 @@ fn calculate_block_width(
 
             if underflow >= 0.0 {
                 // Expand width to fill the underflow.
-                width = underflow;
+                // width = underflow;
             } else {
                 // Width can't be negative. Adjust the right margin instead.
                 width = 0.0;
@@ -803,10 +827,8 @@ fn calculate_inline_width<T: GetTextLayout>(
         (Defined(f), _) => f,
         (Undefined, None) => 0.0,
         (Undefined, Some(Image(image_width, image_height))) => {
-            *image_width as f32 / *image_height as f32 * style.size.width.resolve(pw)
-            .maybe_min(style.min_size.width.resolve(pw))
-            .maybe_max(style.max_size.width.resolve(pw))
-            .or_else(parent_content_width)
+                *image_width as f32 / *image_height as f32
+                * check_width_minmax(style.size.width.resolve(pw), style, parent_content_width).or_else(parent_content_width)
         },
         (Undefined, Some(Text(t))) => {
             use azul_core::ui_solver::{
@@ -847,14 +869,12 @@ fn calculate_inline_width<T: GetTextLayout>(
     let border_width_right = style.border.right.resolve(pw).or_else(0.0);
 
     // Adjust for min / max width properties
-    let width = Defined(match style.box_sizing {
+    let width = check_width_minmax(Defined(match style.box_sizing {
         // The width and height properties (and min/max properties) includes only the content.
-        BoxSizing::ContentBox => width + padding_left + padding_right + border_width_left + border_width_right,
+        BoxSizing::BorderBox => width + padding_left + padding_right + border_width_left + border_width_right,
         // The width and height properties (and min/max properties) includes content, padding and border
-        BoxSizing::BorderBox => width,
-    })
-    .maybe_min(style.min_size.width.resolve(pw))
-    .maybe_max(style.max_size.width.resolve(pw))
+        BoxSizing::ContentBox => width,
+    }), style, parent_content_width)
     .or_else(width)
     - padding_left - padding_right - border_width_left - border_width_right;
 
@@ -961,14 +981,12 @@ fn calculate_block_height<T: GetTextLayout>(
     let border_height_bottom = style.border.bottom.resolve(pw).or_else(0.0);
 
     // Adjust for min / max height properties
-    let height = Defined(match style.box_sizing {
+    let height = check_height_minmax(Defined(match style.box_sizing {
         // The width and height properties (and min/max properties) includes only the content.
         BoxSizing::ContentBox => height + padding_top + padding_bottom + border_height_top + border_height_bottom,
         // The width and height properties (and min/max properties) includes content, padding and border
         BoxSizing::BorderBox => height,
-    })
-    .maybe_min(style.min_size.height.resolve(ph))
-    .maybe_max(style.max_size.height.resolve(ph))
+    }), style, parent_height)
     .or_else(height)
     - padding_top - padding_bottom - border_height_top - border_height_bottom;
 

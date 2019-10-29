@@ -267,6 +267,25 @@ impl PositionedRectangle {
             overflow: self.overflow,
         }
     }
+
+    // Returns the rect where the content should be placed (for example the text itself)
+    pub fn get_content_bounds(&self) -> LayoutRect {
+        self.bounds
+    }
+
+    // Returns the rect that includes bounds, expanded by the padding + the border widths
+    pub fn get_background_bounds(&self) -> LayoutRect {
+
+        let mut b = self.bounds;
+
+        b.origin.x -= self.padding.left + self.border_widths.left;
+        b.size.width += self.padding.total_horizontal() + self.border_widths.total_horizontal();
+
+        b.origin.y -= self.padding.top + self.border_widths.top;
+        b.size.height += self.padding.total_vertical() + self.border_widths.total_vertical();
+
+        b
+    }
 }
 
 /// Same as `PositionedRectangle`, but without the `text_layout_options`,
