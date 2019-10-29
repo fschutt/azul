@@ -33,7 +33,7 @@
     -->
     <output size="800x600">
         Frame(
-            rect: 800x150 @ (0, 0),
+            rect: 800x600 @ (0, 0),
             children: [
                 Frame(
                     rect: 50x70 @ (10, 10),

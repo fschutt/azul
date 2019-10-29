@@ -1043,8 +1043,6 @@ fn push_frame(
     .map(|clip_rect| define_border_radius_clip(builder, clip_rect, wr_border_radius, parent_space_and_clip).clip_id)
     .unwrap_or(parent_space_and_clip.clip_id);
 
-    println!("overflow clip id: {:?}", overflow_clip_id);
-
     let overflow_space_and_clip = WrSpaceAndClipInfo {
         spatial_id: parent_space_and_clip.spatial_id,
         clip_id: overflow_clip_id,
@@ -1131,8 +1129,6 @@ fn define_border_radius_clip(
         ClipMode as WrClipMode,
         ComplexClipRegion as WrComplexClipRegion,
     };
-
-    println!("defining clip rect: {}", layout_rect);
 
     let wr_layout_rect = wr_translate_layout_rect(layout_rect);
     let clip = WrComplexClipRegion::new(wr_layout_rect, wr_border_radius, WrClipMode::Clip);

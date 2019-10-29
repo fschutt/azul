@@ -696,12 +696,10 @@ fn calculate_block_width(
     let mut width = check_width_minmax(Defined(match style.box_sizing {
         // The width and height properties (and min/max properties) includes only the content.
         BoxSizing::ContentBox => {
-            println!("content box!");
             width
         },
         // The width and height properties (and min/max properties) includes content, padding and border
         BoxSizing::BorderBox => {
-            println!("border box!");
             width + padding_left + padding_right + border_width_left + border_width_right
         },
     }), style, parent_content_width)

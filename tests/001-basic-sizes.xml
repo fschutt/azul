@@ -14,7 +14,7 @@
 
     <output size="600x100">
         Frame(
-            rect: 600x50 @ (0, 0),
+            rect: 600x100 @ (0, 0),
             children: [
                 Frame(
                     rect: 100x50 @ (0, 0),
@@ -25,7 +25,7 @@
 
     <output size="800x1200">
         Frame(
-            rect: 800x50 @ (0, 0),
+            rect: 800x1200 @ (0, 0),
             children: [
                 Frame(
                     rect: 100x50 @ (0, 0),
@@ -110,7 +110,7 @@
 
     <output size="1000x800">
         Frame(
-            rect: 1000x500 @ (0, 0),
+            rect: 1000x800 @ (0, 0),
             children: [
                 Frame(
                     rect: 500x500 @ (0, 0),
@@ -166,7 +166,7 @@
     <output size="500x500">
         ScrollFrame(
             DisplayListScrollFrame {
-                content_rect: 550x550 @ (0, 0)
+                content_rect: 600x600 @ (0, 0)
                 scroll_tag: ScrollTagId(1)
                 frame: DisplayListFrame {
                     rect: 500x500 @ (0, 0),
@@ -198,7 +198,7 @@
 
     <output size="500x500">
         Frame(
-            rect: 500x100 @ (0, 0),
+            rect: 500x500 @ (0, 0),
             children: [
                 Frame(
                     rect: 50x50 @ (0, 0),

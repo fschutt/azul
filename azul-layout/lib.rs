@@ -164,9 +164,6 @@ impl GetStyle for DisplayRectangle {
             }
         }
 
-        println!("rect_layout.max_width - {:?}", rect_layout.max_width);
-        println!("rect_layout.min_width - {:?}", rect_layout.min_width);
-
         Style {
             display: match rect_layout.display {
                 None => Display::Block,
