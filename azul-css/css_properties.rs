@@ -2207,8 +2207,8 @@ pub enum LayoutAxis {
 #[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub enum LayoutDisplay {
     Flex,
-    Inline,
     Block,
+    InlineBlock,
 }
 
 impl Default for LayoutDisplay {

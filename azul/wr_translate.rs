@@ -1906,9 +1906,6 @@ mod border {
         styles: StyleBorderStyles,
         parent_space_and_clip: &WrSpaceAndClipInfo,
     ) {
-
-        let mut info = *info;
-
         let rect_size = LayoutSize::new(info.rect.size.width, info.rect.size.height);
 
         if let Some((border_widths, border_details)) = get_webrender_border(rect_size, radii, widths, colors, styles) {

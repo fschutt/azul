@@ -4,8 +4,10 @@
     padding: 10px;
     border: 20px dotted rgba(255, 255, 255, 0.5);
     box-shadow: 0px 0px 10px black;
-    max-width: 730px;
-    margin: 50px;
+    box-sizing: border-box;
+    margin: 40px;
+    width: 200px;
+    display: block;
 }
 
 .child {
@@ -24,7 +26,11 @@
 }
 
 #b {
-    width: 10px;
-    height: 10px;
+    width: 50px;
+    height: 50px;
     background: red;
+    border-radius: 50%;
+    border: 10px solid green;
+    display: inline-block;
+    box-sizing: border-box;
 }

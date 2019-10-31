@@ -368,7 +368,7 @@ fn count_anon_nodes_direct_children<T: GetTextLayout>(
 }
 
 fn is_inline_node<T: GetTextLayout>(s: &Style, rect_contents: &BTreeMap<NodeId, RectContent<T>>, node_id: &NodeId) -> bool {
-    s.display == Display::Inline ||
+    s.display == Display::InlineBlock ||
     // Is the item a text line? Texts are always laid out as display: inline, no matter what
     rect_contents.get(node_id).map(|c| c.is_text()) == Some(true)
 }

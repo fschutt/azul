@@ -173,7 +173,7 @@ impl GetStyle for DisplayRectangle {
                 Some(CssPropertyValue::Inherit) => Display::Block,
                 Some(CssPropertyValue::Exact(LayoutDisplay::Block)) => Display::Block,
                 Some(CssPropertyValue::Exact(LayoutDisplay::Flex)) => Display::Flex,
-                Some(CssPropertyValue::Exact(LayoutDisplay::Inline)) => Display::Inline,
+                Some(CssPropertyValue::Exact(LayoutDisplay::InlineBlock)) => Display::InlineBlock,
             },
             box_sizing: match rect_layout.box_sizing.unwrap_or_default().get_property_or_default() {
                 None => BoxSizing::ContentBox,

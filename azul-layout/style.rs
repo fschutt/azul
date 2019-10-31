@@ -106,7 +106,7 @@ impl Default for Direction {
 pub enum Display {
     Flex,
     Block,
-    Inline,
+    InlineBlock,
     None,
 }
 

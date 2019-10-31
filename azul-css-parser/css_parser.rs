@@ -2431,7 +2431,7 @@ multi_type_parser!(parse_style_background_repeat, StyleBackgroundRepeat,
 multi_type_parser!(parse_layout_display, LayoutDisplay,
                     ["flex", Flex],
                     ["block", Block],
-                    ["inline", Inline]);
+                    ["inline-block", InlineBlock]);
 
 multi_type_parser!(parse_layout_float, LayoutFloat,
                     ["left", Left],

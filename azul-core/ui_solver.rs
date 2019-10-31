@@ -286,6 +286,32 @@ impl PositionedRectangle {
 
         b
     }
+
+    pub fn get_margin_box_width(&self) -> f32 {
+        self.bounds.size.width +
+        self.padding.total_horizontal() +
+        self.border_widths.total_horizontal() +
+        self.margin.total_horizontal()
+    }
+
+    pub fn get_margin_box_height(&self) -> f32 {
+        self.bounds.size.height +
+        self.padding.total_vertical() +
+        self.border_widths.total_vertical() +
+        self.margin.total_vertical()
+    }
+
+    pub fn get_left_leading(&self) -> f32 {
+        self.margin.left +
+        self.padding.left +
+        self.border_widths.left
+    }
+
+    pub fn get_top_leading(&self) -> f32 {
+        self.margin.top +
+        self.padding.top +
+        self.border_widths.top
+    }
 }
 
 /// Same as `PositionedRectangle`, but without the `text_layout_options`,

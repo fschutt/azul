@@ -333,66 +333,30 @@ fn position_items(
             let child_display_mode = child_anon_node.get_display();
             let child_position_type = child_anon_node.get_position_type();
 
-            let (left_margin, _) = get_collapsed_horz_margin(child_id, &anon_dom.anon_node_hierarchy, &positioned_rects);
-            let (top_margin, _) = get_collapsed_vert_margin(child_id, &anon_dom.anon_node_hierarchy, &positioned_rects);
-
             let child_rect = &mut positioned_rects[child_id];
-
-            // let right_leading = right_margin + child_rect.border_widths.right + child_rect.padding.right;
-            // let bottom_leading = bottom_margin + child_rect.border_widths.bottom + child_rect.padding.bottom;
-            let left_leading = left_margin + child_rect.border_widths.left + child_rect.padding.left;
-            let top_leading = top_margin + child_rect.border_widths.top + child_rect.padding.top;
 
             match child_display_mode {
                 Display::None => continue,
-                Display::Flex => {
-                    // overflow / line break
-                    if cur_x + left_leading + child_rect.bounds.size.width > parent_content_size {
-                        child_rect.bounds.origin = LayoutPoint::new(
-                            /* x */ left_leading,
-                            /* y */ cur_y + top_leading,
-                        );
-                        cur_x = 0.0;
-                        cur_y += top_leading + child_rect.bounds.size.height;
+                Display::Block | Display::InlineBlock | Display::Flex => {
+                    let items_fit_in_line = ((cur_x + child_rect.get_margin_box_width().round()) as usize) < (parent_content_size.round() as usize);
+                    if items_fit_in_line {
+                        child_rect.bounds.origin = LayoutPoint::new(child_rect.get_left_leading(), cur_y + child_rect.get_top_leading());
+                        if child_display_mode == Display::Block {
+                            cur_x = 0.0;
+                            cur_y += child_rect.get_margin_box_height();
+                        } else {
+                            cur_x += child_rect.get_margin_box_width();
+                            // cur_y stays as it is
+                        }
                     } else {
-                        // layout items next to each other in line
-                        child_rect.bounds.origin = LayoutPoint::new(
-                            /* x */ cur_x + left_leading,
-                            /* y */ cur_y + top_leading,
-                        );
-                        cur_x += left_leading + child_rect.bounds.size.width;
+                        child_rect.bounds.origin = LayoutPoint::new(child_rect.get_left_leading(), cur_y + child_rect.get_top_leading());
+                        cur_x = 0.0; // line break
+                        cur_y += child_rect.get_margin_box_height();
                     }
-                },
-                Display::Block => {
-                    child_rect.bounds.origin = LayoutPoint::new(
-                        /* x */ cur_x + child_rect.margin.left + child_rect.border_widths.left + child_rect.padding.left,
-                        /* y */ cur_y + top_leading,
-                    );
-                    cur_x = 0.0;
-                    if child_position_type != PositionType::Absolute && child_position_type != PositionType::Fixed {
-                        cur_y += top_leading + child_rect.bounds.size.height;
-                    }
-                },
-                Display::Inline => {
 
-                    // overflow / line break
-                    if cur_x + left_leading + child_rect.bounds.size.width > parent_content_size {
-                        child_rect.bounds.origin = LayoutPoint::new(
-                            /* x */ left_leading,
-                            /* y */ cur_y + top_leading,
-                        );
-                        cur_x = 0.0;
-                        cur_y += top_leading + child_rect.bounds.size.height;
-                    } else {
-                        // layout items next to each other in line
-                        child_rect.bounds.origin = LayoutPoint::new(
-                            /* x */ cur_x + left_leading,
-                            /* y */ cur_y + top_leading,
-                        );
-                        cur_x += left_leading + child_rect.bounds.size.width;
-                    }
-                    // cur_x += inline_text_layout.last_line.origin.y + right_leading;
-
+                    // if is_inline {
+                    //      cur_x += inline_text_layout.last_line.origin.y + right_leading;
+                    //
                     //      // if two following texts have different font sizes,
                     //      // align the two texts to their baseline
                     //
@@ -401,10 +365,9 @@ fn position_items(
                     //      } else if this_inline_text.font_size > last_inline_text.font_size {
                     //           shift_down_last_line(last_inline_text, this_inline_text.baseline - last_inline_text.baseline);
                     //      }
-
-                    // adjust_second_line_of_current_text(margin_bottom);
-
-                    // cur_y = inline_text_layout.last_line.origin.y + baseline_adjustment;
+                    //      adjust_second_line_of_current_text(margin_bottom);
+                    //      cur_y = inline_text_layout.last_line.origin.y + baseline_adjustment;
+                    // }
                 }
             }
         }
@@ -577,43 +540,45 @@ fn figure_out_position(
     }
 }
 
-// Get the collapsed (left, right) margins of this node, i.e. the larger of the two margins
-//
-// NOTE: Only use when using horizontal layouts, not block layouts!
-fn get_collapsed_horz_margin(
-    node_id: NodeId,
-    anon_node_hierarchy: &NodeHierarchy,
-    positioned_rects: &NodeDataContainer<PositionedRectangle>,
-) -> (f32, f32) {
+/*
+    // Get the collapsed (left, right) margins of this node, i.e. the larger of the two margins
+    //
+    // NOTE: Only use when using horizontal layouts, not block layouts!
+    fn get_collapsed_horz_margin(
+        node_id: NodeId,
+        anon_node_hierarchy: &NodeHierarchy,
+        positioned_rects: &NodeDataContainer<PositionedRectangle>,
+    ) -> (f32, f32) {
 
-    let previous_sibling = &anon_node_hierarchy[node_id].previous_sibling;
-    let next_sibling = &anon_node_hierarchy[node_id].next_sibling;
-    let positioned_rect = &positioned_rects[node_id];
-    let (margin_right, margin_left) = (positioned_rect.margin.right, positioned_rect.margin.left);
+        let previous_sibling = &anon_node_hierarchy[node_id].previous_sibling;
+        let next_sibling = &anon_node_hierarchy[node_id].next_sibling;
+        let positioned_rect = &positioned_rects[node_id];
+        let (margin_right, margin_left) = (positioned_rect.margin.right, positioned_rect.margin.left);
 
-    let previous_sibling_margin_right = previous_sibling.map(|ps| positioned_rects[ps].margin.right).unwrap_or(0.0);
-    let next_sibling_margin_left = next_sibling.map(|ps| positioned_rects[ps].margin.left).unwrap_or(0.0);
+        let previous_sibling_margin_right = previous_sibling.map(|ps| positioned_rects[ps].margin.right).unwrap_or(0.0);
+        let next_sibling_margin_left = next_sibling.map(|ps| positioned_rects[ps].margin.left).unwrap_or(0.0);
 
-    (previous_sibling_margin_right.max(margin_left), next_sibling_margin_left.max(margin_right))
-}
+        (previous_sibling_margin_right.max(margin_left), next_sibling_margin_left.max(margin_right))
+    }
 
-// Get the collapsed (top, bottom) margins of this node, i.e. the larger of the two margins
-fn get_collapsed_vert_margin(
-    node_id: NodeId,
-    anon_node_hierarchy: &NodeHierarchy,
-    positioned_rects: &NodeDataContainer<PositionedRectangle>,
-) -> (f32, f32) {
+    // Get the collapsed (top, bottom) margins of this node, i.e. the larger of the two margins
+    fn get_collapsed_vert_margin(
+        node_id: NodeId,
+        anon_node_hierarchy: &NodeHierarchy,
+        positioned_rects: &NodeDataContainer<PositionedRectangle>,
+    ) -> (f32, f32) {
 
-    let previous_sibling = &anon_node_hierarchy[node_id].previous_sibling;
-    let next_sibling = &anon_node_hierarchy[node_id].next_sibling;
-    let positioned_rect = &positioned_rects[node_id];
-    let (margin_top, margin_bottom) = (positioned_rect.margin.top, positioned_rect.margin.bottom);
+        let previous_sibling = &anon_node_hierarchy[node_id].previous_sibling;
+        let next_sibling = &anon_node_hierarchy[node_id].next_sibling;
+        let positioned_rect = &positioned_rects[node_id];
+        let (margin_top, margin_bottom) = (positioned_rect.margin.top, positioned_rect.margin.bottom);
 
-    let previous_sibling_margin_bottom = previous_sibling.map(|ps| positioned_rects[ps].margin.bottom).unwrap_or(0.0);
-    let next_sibling_margin_top = next_sibling.map(|ps| positioned_rects[ps].margin.top).unwrap_or(0.0);
+        let previous_sibling_margin_bottom = previous_sibling.map(|ps| positioned_rects[ps].margin.bottom).unwrap_or(0.0);
+        let next_sibling_margin_top = next_sibling.map(|ps| positioned_rects[ps].margin.top).unwrap_or(0.0);
 
-    (previous_sibling_margin_bottom.max(margin_top), next_sibling_margin_top.max(margin_bottom))
-}
+        (previous_sibling_margin_bottom.max(margin_top), next_sibling_margin_top.max(margin_bottom))
+    }
+*/
 
 // ------
 
@@ -682,6 +647,7 @@ fn calculate_block_width(
 
     // The default for block width is 100% of the parent width
     let width = style.size.width.resolve(pw).or_else(parent_content_width);
+    let width_is_defined = style.size.width.is_defined();
 
     let mut margin_left = style.margin.left.resolve(pw).or_else(0.0);
     let mut margin_right = style.margin.right.resolve(pw).or_else(0.0);
@@ -695,16 +661,18 @@ fn calculate_block_width(
     // Adjust for min / max width properties
     let mut width = check_width_minmax(Defined(match style.box_sizing {
         // The width and height properties (and min/max properties) includes only the content.
-        BoxSizing::ContentBox => {
-            width
-        },
+        BoxSizing::ContentBox => width,
         // The width and height properties (and min/max properties) includes content, padding and border
         BoxSizing::BorderBox => {
-            width + padding_left + padding_right + border_width_left + border_width_right
+            if width_is_defined {
+                width + padding_left + padding_right + border_width_left + border_width_right
+            } else {
+                width
+            }
         },
     }), style, parent_content_width)
     .or_else(width)
-    - padding_left - padding_right - border_width_left - border_width_right;
+    - margin_left - margin_right - padding_left - padding_right - border_width_left - border_width_right;
 
     let total_width = width
         + margin_left
@@ -746,7 +714,7 @@ fn calculate_block_width(
 
             if underflow >= 0.0 {
                 // Expand width to fill the underflow.
-                // width = underflow;
+                width = underflow;
             } else {
                 // Width can't be negative. Adjust the right margin instead.
                 width = 0.0;
@@ -881,7 +849,7 @@ fn calculate_inline_width<T: GetTextLayout>(
         border_width: (border_width_left, border_width_right),
         margin: (margin_left, margin_right),
         padding: (padding_left, padding_right),
-        trailing: if style.display == Display::Inline { leading } else { None }
+        trailing: if style.display == Display::InlineBlock { leading } else { None }
     }
 }
 
@@ -934,6 +902,7 @@ fn calculate_block_height<T: GetTextLayout>(
     let ph = Defined(parent_height);
 
     let mut content_height = None;
+    let mut height_is_defined = false;
 
     let height = match style.size.height {
         Dimension::Undefined | Dimension::Auto => {
@@ -956,8 +925,9 @@ fn calculate_block_height<T: GetTextLayout>(
             content_height = self_content_height;
             children_content_height.max(self_content_height.unwrap_or(0.0))
         },
-        Dimension::Pixels(p) => p,
+        Dimension::Pixels(p) => { height_is_defined = true; p },
         Dimension::Percent(pct) => {
+            height_is_defined = true;
             parent_height / 100.0 * pct
         }
     };
@@ -983,7 +953,11 @@ fn calculate_block_height<T: GetTextLayout>(
         // The width and height properties (and min/max properties) includes only the content.
         BoxSizing::ContentBox => height + padding_top + padding_bottom + border_height_top + border_height_bottom,
         // The width and height properties (and min/max properties) includes content, padding and border
-        BoxSizing::BorderBox => height,
+        BoxSizing::BorderBox => if height_is_defined {
+            height
+        } else {
+            height + padding_top + padding_bottom + border_height_top + border_height_bottom
+        },
     }), style, parent_height)
     .or_else(height)
     - padding_top - padding_bottom - border_height_top - border_height_bottom;
