@@ -7,7 +7,7 @@
     box-sizing: border-box;
     margin: 40px;
     width: 200px;
-    display: block;
+    display: inline-block;
 }
 
 .child {
@@ -32,5 +32,13 @@
     border-radius: 50%;
     border: 10px solid green;
     display: inline-block;
-    box-sizing: border-box;
+}
+
+#c {
+    width: 150px;
+    height: 50px;
+    background: red;
+    border-radius: 50%;
+    border: 10px solid green;
+    display: inline-block;
 }

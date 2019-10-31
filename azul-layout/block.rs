@@ -340,9 +340,11 @@ fn position_items(
                 Display::Block | Display::InlineBlock | Display::Flex => {
                     let items_fit_in_line = ((cur_x + child_rect.get_margin_box_width().round()) as usize) < (parent_content_size.round() as usize);
                     if items_fit_in_line {
-                        child_rect.bounds.origin = LayoutPoint::new(child_rect.get_left_leading(), cur_y + child_rect.get_top_leading());
                         if child_display_mode == Display::Block {
                             cur_x = 0.0;
+                        }
+                        child_rect.bounds.origin = LayoutPoint::new(cur_x + child_rect.get_left_leading(), cur_y + child_rect.get_top_leading());
+                        if child_display_mode == Display::Block {
                             cur_y += child_rect.get_margin_box_height();
                         } else {
                             cur_x += child_rect.get_margin_box_width();
