@@ -1298,17 +1298,13 @@ fn do_hit_test<T>(
         None => return Vec::new(),
     };
 
-    let mut hit_test_results: Vec<HitTestItem> = render_api.api.hit_test(
+    // Return callbacks front-to-back
+    render_api.api.hit_test(
         window.internal.document_id,
         Some(wr_translate_pipeline_id(window.internal.pipeline_id)),
         cursor_location,
         HitTestFlags::FIND_ALL
-    ).items.into_iter().map(wr_translate_hittest_item).collect();
-
-    // Execute callbacks back-to-front, not front-to-back
-    hit_test_results.reverse();
-
-    hit_test_results
+    ).items.into_iter().map(wr_translate_hittest_item).collect()
 }
 
 /// Given the current (and previous) window state and the hit test results,
@@ -1356,11 +1352,117 @@ fn call_callbacks<T>(
     let mut nodes_scrolled_in_callbacks = BTreeMap::new();
     let mut modifiable_window_state: WindowState = full_window_state.clone().into();
 
-    // Run all default callbacks - **before** the user-defined callbacks are run!
-    for (dom_id, ui_state) in ui_state_map.iter() {
-        for (node_id, callback_results) in callbacks_filter_list[dom_id].nodes_with_callbacks.iter() {
-            let hit_item = &callback_results.hit_test_item;
-            for event_filter in callback_results.default_callbacks.keys() {
+    // Which default callbacks should be prevented from running?
+    let mut event_prevent_default = BTreeMap::new();
+
+    // Run all regular callbacks first (front-to-back)
+    for (dom_id, callbacks_of_hit_test) in callbacks_filter_list.iter() {
+
+        // In order to implement bubbling properly, the events have to be re-sorted a bit
+        // TODO: Put this in the CallbacksOfHitTest construction
+        let mut callbacks_grouped_by_event_type = BTreeMap::new();
+
+        for (node_id, determine_callback_result) in callbacks_of_hit_test.nodes_with_callbacks.iter() {
+            for (event_filter, callback) in determine_callback_result.normal_callbacks.iter() {
+                callbacks_grouped_by_event_type
+                    .entry(event_filter)
+                    .or_insert_with(|| Vec::new())
+                    .push((node_id, callback));
+            }
+        }
+
+        'outer_normal: for (event_filter, callback_nodes) in callbacks_grouped_by_event_type {
+
+            // The (node_id, callback)s are sorted by depth from top to bottom.
+            // If one event wants to prevent bubbling, the entire event is canceled.
+            // It is assumed that there aren't any two nodes that have the same event filter.
+            for (node_id, callback) in callback_nodes {
+
+                let mut new_focus = None;
+                let mut stop_propagation = false;
+                let mut prevent_default = false;
+                let hit_item = &callbacks_of_hit_test.nodes_with_callbacks[&node_id].hit_test_item;
+
+                // Invoke callback
+                let callback_return = (callback.0)(CallbackInfo {
+                    state: data,
+                    current_window_state: &full_window_state,
+                    modifiable_window_state: &mut modifiable_window_state,
+                    layout_result,
+                    scrolled_nodes,
+                    cached_display_list,
+                    gl_context: gl_context.clone(),
+                    resources,
+                    timers,
+                    tasks,
+                    ui_state: ui_state_map,
+                    prevent_default: &mut prevent_default,
+                    stop_propagation: &mut stop_propagation,
+                    focus_target: &mut new_focus,
+                    current_scroll_states: scroll_states,
+                    nodes_scrolled_in_callback: &mut nodes_scrolled_in_callbacks,
+                    hit_dom_node: (dom_id.clone(), *node_id),
+                    cursor_relative_to_item: hit_item.as_ref().map(|hi| (hi.point_relative_to_item.x, hi.point_relative_to_item.y)),
+                    cursor_in_viewport: hit_item.as_ref().map(|hi| (hi.point_in_viewport.x, hi.point_in_viewport.y)),
+                });
+
+                if callback_return == Redraw {
+                    ret.callbacks_update_screen = Redraw;
+                }
+
+                if let Some(new_focus) = new_focus {
+                    new_focus_target = Some(new_focus);
+                }
+
+                if prevent_default {
+                    event_prevent_default.insert((dom_id, node_id), event_filter);
+                }
+
+                if stop_propagation {
+                    continue 'outer_normal;
+                }
+            }
+        }
+    }
+
+    // Run all default callbacks (front to back)
+
+    for (dom_id, callbacks_of_hit_test) in callbacks_filter_list.iter() {
+
+        let ui_state = match ui_state_map.get(dom_id) {
+            Some(s) => s,
+            None => continue,
+        };
+
+        // In order to implement bubbling properly, the events have to be re-sorted a bit
+        // TODO: Put this in the CallbacksOfHitTest construction
+        let mut default_callbacks_grouped_by_event_type = BTreeMap::new();
+
+        for (node_id, determine_callback_result) in callbacks_of_hit_test.nodes_with_callbacks.iter() {
+            for (event_filter, default_callback) in determine_callback_result.default_callbacks.iter() {
+                default_callbacks_grouped_by_event_type
+                    .entry(event_filter)
+                    .or_insert_with(|| Vec::new())
+                    .push((node_id, default_callback));
+            }
+        }
+
+        'outer_default: for (event_filter, default_callback_nodes) in default_callbacks_grouped_by_event_type {
+
+            // The (node_id, callback)s are sorted by depth from top to bottom.
+            // If one event wants to prevent bubbling, the entire event is canceled.
+            // It is assumed that there aren't any two nodes that have the same event filter.
+            for (node_id, _) in default_callback_nodes {
+
+                if event_prevent_default.get(&(dom_id, node_id)).copied() == Some(event_filter) {
+                    // In addition to preventing the default callback, also prevent bubbling
+                    // TODO: not sure if this is the correct behaviour
+                    continue 'outer_default;
+                }
+
+                let mut new_focus = None;
+                let mut stop_propagation = false;
+                let hit_item = &callbacks_of_hit_test.nodes_with_callbacks[&node_id].hit_test_item;
 
                 let default_callback = ui_state.get_dom().arena.node_data
                     .get(*node_id)
@@ -1372,8 +1474,7 @@ fn call_callbacks<T>(
                     None => continue,
                 };
 
-                let mut new_focus = None;
-
+                // Invoke default callback
                 let default_callback_return = (default_callback.0)(DefaultCallbackInfo {
                     state: default_callback_ptr,
                     current_window_state: &full_window_state,
@@ -1386,6 +1487,7 @@ fn call_callbacks<T>(
                     timers,
                     tasks,
                     ui_state: ui_state_map,
+                    stop_propagation: &mut stop_propagation,
                     focus_target: &mut new_focus,
                     current_scroll_states: scroll_states,
                     nodes_scrolled_in_callback: &mut nodes_scrolled_in_callbacks,
@@ -1401,42 +1503,9 @@ fn call_callbacks<T>(
                 if let Some(new_focus) = new_focus.clone() {
                     new_focus_target = Some(new_focus);
                 }
-            }
-        }
-    }
 
-    // Run all regular callbacks
-    for dom_id in ui_state_map.keys().cloned() {
-        for (node_id, callback_results) in callbacks_filter_list[&dom_id].nodes_with_callbacks.iter() {
-            let hit_item = &callback_results.hit_test_item;
-            for callback in callback_results.normal_callbacks.values() {
-
-                let mut new_focus = None;
-
-                if (callback.0)(CallbackInfo {
-                    state: data,
-                    current_window_state: &full_window_state,
-                    modifiable_window_state: &mut modifiable_window_state,
-                    layout_result,
-                    scrolled_nodes,
-                    cached_display_list,
-                    gl_context: gl_context.clone(),
-                    resources,
-                    timers,
-                    tasks,
-                    ui_state: ui_state_map,
-                    focus_target: &mut new_focus,
-                    current_scroll_states: scroll_states,
-                    nodes_scrolled_in_callback: &mut nodes_scrolled_in_callbacks,
-                    hit_dom_node: (dom_id.clone(), *node_id),
-                    cursor_relative_to_item: hit_item.as_ref().map(|hi| (hi.point_relative_to_item.x, hi.point_relative_to_item.y)),
-                    cursor_in_viewport: hit_item.as_ref().map(|hi| (hi.point_in_viewport.x, hi.point_in_viewport.y)),
-                }) == Redraw {
-                    ret.callbacks_update_screen = Redraw;
-                }
-
-                if let Some(new_focus) = new_focus {
-                    new_focus_target = Some(new_focus);
+                if stop_propagation {
+                    continue 'outer_default;
                 }
             }
         }

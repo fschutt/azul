@@ -1018,11 +1018,6 @@ fn push_frame(
     root_space_and_clip: &WrSpaceAndClipInfo,
 ) {
 
-    use webrender::api::{
-        ClipMode as WrClipMode,
-        ComplexClipRegion as WrComplexClipRegion
-    };
-
     for item in frame.content {
         push_display_list_content(
             builder,

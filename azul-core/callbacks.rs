@@ -448,6 +448,8 @@ pub struct DefaultCallbackInfo<'a, T> {
     pub tasks: &'a mut Vec<Task<T>>,
     /// UiState containing the necessary data for testing what
     pub ui_state: &'a BTreeMap<DomId, UiState<T>>,
+    /// Sets whether the event should be propagated to the parent hit node or not
+    pub stop_propagation: &'a mut bool,
     /// The callback can change the focus_target - note that the focus_target is set before the
     /// next frames' layout() function is invoked, but the current frames callbacks are not affected.
     pub focus_target: &'a mut Option<FocusTarget>,
@@ -509,6 +511,12 @@ pub struct CallbackInfo<'a, T: 'a> {
     pub tasks: &'a mut Vec<Task<T>>,
     /// UiState containing the necessary data for testing what
     pub ui_state: &'a BTreeMap<DomId, UiState<T>>,
+    /// Sets whether the event should be propagated to the parent hit node or not
+    pub stop_propagation: &'a mut bool,
+    /// Sets whether the default event for this event type
+    /// should be invoked. If set to true, this will prevent the default callback from running
+    /// *and will stop the default callback from bubbling to its parents*.
+    pub prevent_default: &'a mut bool,
     /// The callback can change the focus_target - note that the focus_target is set before the
     /// next frames' layout() function is invoked, but the current frames callbacks are not affected.
     pub focus_target: &'a mut Option<FocusTarget>,
@@ -562,6 +570,33 @@ impl<'a, T: 'a> fmt::Debug for CallbackInfo<'a, T> {
             self.cursor_relative_to_item,
             self.cursor_in_viewport,
         )
+    }
+}
+
+impl<'a, T: 'a> DefaultCallbackInfo<'a, T> {
+    /// Sets whether the event should be propagated to the parent hit node or not
+    ///
+    /// Similar to `e.stopPropagation()` in JavaScript
+    pub fn stop_propagation(&mut self) {
+        *self.stop_propagation = true;
+    }
+}
+
+impl<'a, T: 'a> CallbackInfo<'a, T> {
+    /// Sets whether the default event for this event type
+    /// should be invoked. If set to true, this will prevent the default callback from running
+    /// *and will stop the default callback from bubbling to its parents*.
+    ///
+    /// Similar to `e.preventDefault()` in JavaScript
+    pub fn prevent_default(&mut self) {
+        *self.prevent_default = true;
+    }
+
+    /// Sets whether the event should be propagated to the parent hit node or not
+    ///
+    /// Similar to `e.stopPropagation()` in JavaScript
+    pub fn stop_propagation(&mut self) {
+        *self.stop_propagation = true;
     }
 }
 
