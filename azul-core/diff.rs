@@ -4,7 +4,7 @@ use std::{
 };
 use crate::{
     id_tree::{NodeId, NodeDataContainer},
-    dom::{Dom, NodeData},
+    dom::{CompactDom, NodeData},
 };
 
 #[derive(Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
@@ -64,7 +64,7 @@ pub struct DomDiff {
 }
 
 impl DomDiff {
-    pub fn new<T>(old: &Dom<T>, new: &Dom<T>) -> Self {
+    pub fn new<T>(old: &CompactDom<T>, new: &CompactDom<T>) -> Self {
 
         // TODO: Check if old root = new root, if not, change entire tree
 
@@ -107,7 +107,7 @@ impl DomDiff {
     }
 
     /// Formats the diff into a git-like `+ Node1 / - Node3` form
-    pub fn format_nicely<T>(&self, old: &Dom<T>, new: &Dom<T>) -> String {
+    pub fn format_nicely<T>(&self, old: &CompactDom<T>, new: &CompactDom<T>) -> String {
         use self::DomChange::*;
         self.changed_nodes.iter().map(|change| {
             match change {
@@ -176,8 +176,8 @@ fn node_has_changed<T>(old: &NodeData<T>, new: &NodeData<T>) -> u8 {
 
 fn diff_tree_inner<T>(
     old_root_id: NodeId,
-    old: &Dom<T>,
-    new: &Dom<T>,
+    old: &CompactDom<T>,
+    new: &CompactDom<T>,
     changes: &mut BTreeSet<DomChange>,
     visited_nodes: &mut NodeDataContainer<bool>,
 ) {

@@ -914,17 +914,15 @@ fn compile_app_node_to_rust_code_inner<T>(app_node: &XmlNode, component_map: &Xm
 /// Takes a DOM node and appends the necessary `.with_id().with_class()`, etc. to the DOMs HEAD
 fn render_single_dom_node_to_string<T>(dom: &Dom<T>, existing_str: &mut String) {
 
-    let head = dom.get_head_node();
-
-    for id in head.get_ids().iter() {
+    for id in dom.root.get_ids().iter() {
         existing_str.push_str(&format!(".with_id({})", id));
     }
 
-    for class in head.get_classes().iter() {
+    for class in dom.root.get_classes().iter() {
         existing_str.push_str(&format!(".with_class({})", class));
     }
 
-    if let Some(tab_index) = head.get_tab_index() {
+    if let Some(tab_index) = dom.root.get_tab_index() {
         use crate::dom::TabIndex::*;
         existing_str.push_str(&format!(".with_tab_index({})", match tab_index {
             Auto => format!("TabIndex::Auto"),
@@ -933,7 +931,7 @@ fn render_single_dom_node_to_string<T>(dom: &Dom<T>, existing_str: &mut String) 
         }));
     }
 
-    if head.get_is_draggable() {
+    if dom.root.get_is_draggable() {
         *existing_str += ".is_draggable(true)";
     }
 }

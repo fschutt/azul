@@ -7,7 +7,7 @@ use crate::{
     FastHashMap,
     id_tree::NodeId,
     dom::{
-        Dom, DomId, TagId, TabIndex, DomString,
+        Dom, CompactDom, DomId, TagId, TabIndex, DomString,
         HoverEventFilter, FocusEventFilter, NotEventFilter,
         WindowEventFilter,
     },
@@ -21,7 +21,7 @@ pub struct UiState<T> {
     /// Unique identifier for the DOM
     pub dom_id: DomId,
     /// The actual DOM, rendered from the .layout() function
-    pub(crate) dom: Dom<T>,
+    pub(crate) dom: CompactDom<T>,
     /// The style properties that should be overridden for this frame, cloned from the `Css`
     pub dynamic_css_overrides: BTreeMap<NodeId, FastHashMap<DomString, CssProperty>>,
     /// Stores all tags for nodes that need to activate on a `:hover` or `:active` event.
@@ -56,7 +56,7 @@ pub struct UiState<T> {
 
 impl<T> UiState<T> {
     #[inline(always)]
-    pub const fn get_dom(&self) -> &Dom<T> {
+    pub const fn get_dom(&self) -> &CompactDom<T> {
         &self.dom
     }
 }
@@ -130,9 +130,11 @@ impl<T> UiState<T> {
         use crate::dom::NodeType;
 
         // NOTE: root node has to have the type "body"
-        if *dom.arena.node_data[NodeId::ZERO].get_node_type() != NodeType::Body {
+        if *dom.root.get_node_type() != NodeType::Body {
             dom = Dom::body().with_child(dom);
         }
+
+        let dom: CompactDom<T> = dom.into();
 
         // NOTE: Originally it was allowed to create a DOM with
         // multiple root elements using `add_sibling()` and `with_sibling()`.
