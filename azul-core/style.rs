@@ -420,6 +420,8 @@ fn test_case_issue_93() {
         .with_child(render_tab())
     );
 
+    let dom = convert_dom_into_compact_dom(dom);
+
     let tab_active_close = CssPath { selectors: vec![
         Class("tabwidget-tab".into()),
         Class("active".into()),

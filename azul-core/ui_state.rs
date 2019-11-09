@@ -125,14 +125,7 @@ impl<T> UiState<T> {
     /// The UiState contains all the tags (for hit-testing) as well as the mapping
     /// from Hit-testing tags to NodeIds (which are important for filtering input events
     /// and routing input events to the callbacks).
-    pub fn new(mut dom: Dom<T>, parent_dom: Option<(DomId, NodeId)>) -> UiState<T> {
-
-        use crate::dom::NodeType;
-
-        // NOTE: root node has to have the type "body"
-        if *dom.root.get_node_type() != NodeType::Body {
-            dom = Dom::body().with_child(dom);
-        }
+    pub fn new(dom: Dom<T>, parent_dom: Option<(DomId, NodeId)>) -> UiState<T> {
 
         let dom: CompactDom<T> = dom.into();
 

@@ -763,26 +763,18 @@ fn node_data_to_string<T>(node_data: &NodeData<T>) -> String {
 
 impl<T> fmt::Debug for NodeData<T> {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        write!(f,
-            "NodeData {{ \
-                \tnode_type: {:?}, \
-                \tids: {:?}, \
-                \tclasses: {:?}, \
-                \tcallbacks: {:?}, \
-                \tdefault_callbacks: {:?}, \
-                \tdynamic_css_overrides: {:?}, \
-                \tis_draggable: {:?}, \
-                \ttab_index: {:?}, \
-            }}",
-            self.node_type,
-            self.ids,
-            self.classes,
-            self.callbacks,
-            self.default_callbacks,
-            self.dynamic_css_overrides,
-            self.is_draggable,
-            self.tab_index,
-        )
+        write!(f, "NodeData {{")?;
+        write!(f, "\tnode_type: {:?}", self.node_type)?;
+
+        if !self.ids.is_empty() { write!(f, "\tids: {:?}", self.ids)?; }
+        if !self.classes.is_empty() { write!(f, "\tclasses: {:?}", self.classes)?; }
+        if !self.callbacks.is_empty() { write!(f, "\tcallbacks: {:?}", self.callbacks)?; }
+        if !self.default_callbacks.is_empty() { write!(f, "\tdefault_callbacks: {:?}", self.default_callbacks)?; }
+        if !self.dynamic_css_overrides.is_empty() { write!(f, "\tdynamic_css_overrides: {:?}", self.dynamic_css_overrides)?; }
+        if self.is_draggable { write!(f, "\tis_draggable: {:?}", self.is_draggable)?; }
+        if let Some(t) = self.tab_index { write!(f, "\ttab_index: {:?}", t)?; }
+        write!(f, "}}")?;
+        Ok(())
     }
 }
 
@@ -930,7 +922,7 @@ impl<T> NodeData<T> {
 /// heap allocations - for `&'static str`, simply stores the pointer,
 /// instead of converting it into a String. This is good for class names
 /// or IDs, whose content rarely changes.
-#[derive(Debug, Clone)]
+#[derive(Clone)]
 pub enum DomString {
     Static(&'static str),
     Heap(String),
@@ -977,6 +969,16 @@ impl DomString {
         match &self {
             Static(s) => s,
             Heap(h) => h,
+        }
+    }
+}
+
+impl fmt::Debug for DomString {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        use self::DomString::*;
+        match &self {
+            Static(s) => write!(f, "\"{}\"", s),
+            Heap(h) => write!(f, "\"{}\"", h),
         }
     }
 }
@@ -1049,10 +1051,10 @@ impl<T> FromIterator<NodeType<T>> for Dom<T> {
     }
 }
 
-fn convert_dom_into_compact_dom<T>(dom: Dom<T>) -> CompactDom<T> {
+pub(crate) fn convert_dom_into_compact_dom<T>(dom: Dom<T>) -> CompactDom<T> {
 
     // Pre-allocate all nodes (+ 1 root node)
-    let default_node_data = NodeData::new(NodeType::Div);
+    let default_node_data = NodeData::div();
 
     let mut arena = Arena {
         node_hierarchy: NodeHierarchy { internal: vec![Node::ROOT; dom.estimated_total_children + 1] },
@@ -1069,9 +1071,7 @@ fn convert_dom_into_compact_dom<T>(dom: Dom<T>) -> CompactDom<T> {
         last_child: if dom.children.is_empty() { None } else { Some(root_node_id + dom.estimated_total_children) },
     };
 
-    for c in dom.children {
-        convert_dom_into_compact_dom_internal(c, &mut arena, root_node_id, root_node, &mut cur_node_id);
-    }
+    convert_dom_into_compact_dom_internal(dom, &mut arena, root_node_id, root_node, &mut cur_node_id);
 
     CompactDom {
         arena,
@@ -1106,18 +1106,88 @@ fn convert_dom_into_compact_dom_internal<T>(
     let children_len = dom.children.len();
     for (child_index, child_dom) in dom.children.into_iter().enumerate() {
         let child_node_id = NodeId::new(*cur_node_id);
-        let is_last_child = child_index == children_len;
+        let is_last_child = (child_index + 1) == children_len;
         let child_dom_is_empty = child_dom.children.is_empty();
         let child_node = Node {
             parent: Some(parent_node_id),
             previous_sibling: previous_sibling_id,
-            next_sibling: if is_last_child { None } else { Some(child_node_id + dom.estimated_total_children + 1) },
+            next_sibling: if is_last_child { None } else { Some(child_node_id + child_dom.estimated_total_children + 1) },
             first_child: if child_dom_is_empty { None } else { Some(child_node_id + 1) },
-            last_child: if child_dom_is_empty { None } else { Some(child_node_id + dom.estimated_total_children) },
+            last_child: if child_dom_is_empty { None } else { Some(child_node_id + child_dom.estimated_total_children) },
         };
         previous_sibling_id = Some(child_node_id);
         // recurse BEFORE adding the next child
         convert_dom_into_compact_dom_internal(child_dom, arena, child_node_id, child_node, cur_node_id);
+    }
+}
+
+#[test]
+fn test_compact_dom_conversion() {
+
+    use crate::dom::DomString::Static;
+
+    struct Dummy;
+
+    let dom: Dom<Dummy> = Dom::body()
+        .with_child(Dom::div().with_class("class1"))
+        .with_child(Dom::div().with_class("class1")
+            .with_child(Dom::div().with_id("child_2"))
+        )
+        .with_child(Dom::div().with_class("class1"));
+
+    let expected_dom: CompactDom<Dummy> = CompactDom {
+        root: NodeId::ZERO,
+        arena: Arena {
+            node_hierarchy: NodeHierarchy { internal: vec![
+                Node /* 0 */ {
+                    parent: None,
+                    previous_sibling: None,
+                    next_sibling: None,
+                    first_child: Some(NodeId::new(1)),
+                    last_child: Some(NodeId::new(4)),
+                },
+                Node /* 1 */ {
+                    parent: Some(NodeId::new(0)),
+                    previous_sibling: None,
+                    next_sibling: Some(NodeId::new(2)),
+                    first_child: None,
+                    last_child: None,
+                },
+                Node /* 2 */ {
+                    parent: Some(NodeId::new(0)),
+                    previous_sibling: Some(NodeId::new(1)),
+                    next_sibling: Some(NodeId::new(4)),
+                    first_child: Some(NodeId::new(3)),
+                    last_child: Some(NodeId::new(3)),
+                },
+                Node /* 3 */ {
+                    parent: Some(NodeId::new(2)),
+                    previous_sibling: None,
+                    next_sibling: None,
+                    first_child: None,
+                    last_child: None,
+                },
+                Node /* 4 */ {
+                    parent: Some(NodeId::new(0)),
+                    previous_sibling: Some(NodeId::new(2)),
+                    next_sibling: None,
+                    first_child: None,
+                    last_child: None,
+                },
+            ]},
+            node_data: NodeDataContainer { internal: vec![
+                /* 0 */    NodeData::body(),
+                /* 1 */    NodeData::div().with_classes(vec![Static("class1")]),
+                /* 2 */    NodeData::div().with_classes(vec![Static("class1")]),
+                /* 3 */    NodeData::div().with_ids(vec![Static("child_2")]),
+                /* 4 */    NodeData::div().with_classes(vec![Static("class1")]),
+            ]},
+        },
+    };
+
+    let got_dom = convert_dom_into_compact_dom(dom);
+    if got_dom != expected_dom {
+        panic!("{}", format!("expected compact dom: ----\r\n{:#?}\r\n\r\ngot compact dom: ----\r\n{:#?}\r\n", expected_dom, got_dom));
     }
 }
 
@@ -1390,6 +1460,8 @@ fn test_dom_sibling_1() {
                 .with_child(Dom::div()
                     .with_id("sibling-2-child-1")));
 
+    let dom = convert_dom_into_compact_dom(dom);
+
     let arena = &dom.arena;
 
     assert_eq!(NodeId::new(0), dom.root);
@@ -1435,6 +1507,8 @@ fn test_dom_from_iter_1() {
     struct TestLayout;
 
     let dom: Dom<TestLayout> = (0..5).map(|e| NodeData::new(NodeType::Label(format!("{}", e + 1).into()))).collect();
+    let dom = convert_dom_into_compact_dom(dom);
+
     let arena = &dom.arena;
 
     // We need to have 6 nodes:
@@ -1478,10 +1552,8 @@ fn test_zero_size_dom() {
 
     struct TestLayout;
 
-    let mut null_dom: Dom<TestLayout> = (0..0).map(|_| NodeData::default()).collect();
+    let null_dom: Dom<TestLayout> = (0..0).map(|_| NodeData::default()).collect();
+    let null_dom = convert_dom_into_compact_dom(null_dom);
 
     assert!(null_dom.arena.len() == 1);
-
-    null_dom.add_class("hello"); // should not panic
-    null_dom.add_id("id-hello"); // should not panic
 }
