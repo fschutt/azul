@@ -3298,10 +3298,10 @@ mod css_tests {
         assert_eq!(
             parse_layout_padding("10px"),
             Ok(LayoutPadding {
-                top: PixelValue::px(10.0),
-                right: PixelValue::px(10.0),
-                bottom: PixelValue::px(10.0),
-                left: PixelValue::px(10.0),
+                top: PixelValueWithAuto::Exact(PixelValue::px(10.0)),
+                right: PixelValueWithAuto::Exact(PixelValue::px(10.0)),
+                bottom: PixelValueWithAuto::Exact(PixelValue::px(10.0)),
+                left: PixelValueWithAuto::Exact(PixelValue::px(10.0)),
             })
         );
     }
@@ -3311,10 +3311,10 @@ mod css_tests {
         assert_eq!(
             parse_layout_padding("25px 50px"),
             Ok(LayoutPadding {
-                top: PixelValue::px(25.0),
-                right: PixelValue::px(50.0),
-                bottom: PixelValue::px(25.0),
-                left: PixelValue::px(50.0),
+                top: PixelValueWithAuto::Exact(PixelValue::px(25.0)),
+                right: PixelValueWithAuto::Exact(PixelValue::px(50.0)),
+                bottom: PixelValueWithAuto::Exact(PixelValue::px(25.0)),
+                left: PixelValueWithAuto::Exact(PixelValue::px(50.0)),
             })
         );
     }
@@ -3324,10 +3324,10 @@ mod css_tests {
         assert_eq!(
             parse_layout_padding("25px 50px 75px"),
             Ok(LayoutPadding {
-                top: PixelValue::px(25.0),
-                right: PixelValue::px(50.0),
-                left: PixelValue::px(50.0),
-                bottom: PixelValue::px(75.0),
+                top: PixelValueWithAuto::Exact(PixelValue::px(25.0)),
+                right: PixelValueWithAuto::Exact(PixelValue::px(50.0)),
+                left: PixelValueWithAuto::Exact(PixelValue::px(50.0)),
+                bottom: PixelValueWithAuto::Exact(PixelValue::px(75.0)),
             })
         );
     }
@@ -3337,10 +3337,10 @@ mod css_tests {
         assert_eq!(
             parse_layout_padding("25px 50px 75px 100px"),
             Ok(LayoutPadding {
-                top: PixelValue::px(25.0),
-                right: PixelValue::px(50.0),
-                bottom: PixelValue::px(75.0),
-                left: PixelValue::px(100.0),
+                top: PixelValueWithAuto::Exact(PixelValue::px(25.0)),
+                right: PixelValueWithAuto::Exact(PixelValue::px(50.0)),
+                bottom: PixelValueWithAuto::Exact(PixelValue::px(75.0)),
+                left: PixelValueWithAuto::Exact(PixelValue::px(100.0)),
             })
         );
     }

@@ -1014,6 +1014,50 @@ pub struct Dom<T> {
     estimated_total_children: usize,
 }
 
+impl<T> Clone for Dom<T> {
+    fn clone(&self) -> Self {
+        Dom {
+            root: self.root.clone(),
+            children: self.children.clone(),
+            estimated_total_children: self.estimated_total_children,
+        }
+    }
+}
+
+fn compare_dom<T>(a: &Dom<T>, b: &Dom<T>) -> bool {
+    a.root == b.root &&
+    a.estimated_total_children == b.estimated_total_children &&
+    a.children.len() == b.children.len() &&
+    a.children.iter().zip(b.children.iter()).all(|(a, b)| compare_dom(a, b))
+}
+
+impl<T> PartialEq for Dom<T> {
+    fn eq(&self, rhs: &Self) -> bool {
+        compare_dom(self, rhs)
+    }
+}
+
+impl<T> Eq for Dom<T> { }
+
+fn print_dom<T>(d: &Dom<T>, f: &mut fmt::Formatter) -> fmt::Result {
+    write!(f, "Dom {{\r\n")?;
+    write!(f, "\troot: {:#?}", d.root)?;
+    write!(f, "\testimated_total_children: {:#?}", d.estimated_total_children)?;
+    write!(f, "\tchildren: [")?;
+    for c in &d.children {
+        print_dom(c, f)?;
+    }
+    write!(f, "\t]")?;
+    write!(f, "}}")?;
+    Ok(())
+}
+
+impl<T> fmt::Debug for Dom<T> {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        print_dom(self, f)
+    }
+}
+
 impl<T> FromIterator<Dom<T>> for Dom<T> {
     fn from_iter<I: IntoIterator<Item=Dom<T>>>(iter: I) -> Self {
 
@@ -1231,7 +1275,7 @@ impl<T> Eq for CompactDom<T> { }
 
 impl<T> fmt::Debug for CompactDom<T> {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        write!(f, "Dom {{ arena: {:?}, root: {:?} }}", self.arena, self.root)
+        write!(f, "CompactDom {{ arena: {:?}, root: {:?} }}", self.arena, self.root)
     }
 }
 
@@ -1411,7 +1455,7 @@ impl<T> Dom<T> {
     pub fn get_html_string(&self) -> String {
         let mut output = String::new();
         get_html_string_inner(self, &mut output, 0);
-        output
+        output.trim().to_string()
     }
 }
 
@@ -1421,14 +1465,15 @@ fn get_html_string_inner<T>(dom: &Dom<T>, output: &mut String, indent: usize) {
     let content = dom.root.node_type.get_text_content();
     let print_self_closing_tag = dom.children.is_empty() && content.is_none();
 
+    output.push_str("\r\n");
     output.push_str(&tabs);
     output.push_str(&dom.root.debug_print_start(print_self_closing_tag));
-    output.push_str("\r\n");
 
     if let Some(content) = &content {
-        output.push_str(&tabs);
-        output.push_str(content);
         output.push_str("\r\n");
+        output.push_str(&tabs);
+        output.push_str(&"    ");
+        output.push_str(content);
     }
 
     if !print_self_closing_tag {
@@ -1437,9 +1482,9 @@ fn get_html_string_inner<T>(dom: &Dom<T>, output: &mut String, indent: usize) {
             get_html_string_inner(c, output, indent + 1);
         }
 
+        output.push_str("\r\n");
         output.push_str(&tabs);
         output.push_str(&dom.root.debug_print_end());
-        output.push_str("\r\n");
     }
 }
 

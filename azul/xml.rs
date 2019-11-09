@@ -189,7 +189,7 @@ impl<T> DomXml<T> {
         let expected = self.into_dom();
         if expected != fixed {
             panic!("\r\nExpected DOM did not match:\r\n\r\nexpected: ----------\r\n{}\r\ngot: ----------\r\n{}\r\n",
-                expected.debug_dump(), fixed.debug_dump()
+                expected.get_html_string(), fixed.get_html_string()
             );
         }
     }

@@ -48,8 +48,12 @@ impl Button {
 fn test_button_ui_1() {
     struct Mock;
 
-    let expected = String::from("<div class=\"__azul-native-button\" tabindex=\"0\">\r\n    <p>Hello</p>\r\n</div>\r\n");
-    let button: Dom<Mock> = Button::with_label("Hello").dom();
+    let expected_html = "<div class=\"__azul-native-button\" tabindex=\"0\">\r\n    <p>\r\n        Hello\r\n    </p>\r\n</div>";
 
-    assert_eq!(expected, button.debug_dump());
+    let button: Dom<Mock> = Button::with_label("Hello").dom();
+    let button_html = button.get_html_string();
+
+    if expected_html != button_html {
+        panic!("expected:\r\n{}\r\ngot:\r\n{}", expected_html, button_html);
+    }
 }
