@@ -139,7 +139,7 @@ pub struct KeyboardState {
 }
 
 /// Mouse position, cursor type, user scroll input, etc.
-#[derive(Debug, Copy, Clone, PartialEq)]
+#[derive(Debug, Copy, Clone, PartialOrd, PartialEq)]
 pub struct MouseState {
     /// Current mouse cursor type, set to `None` if the cursor is hidden. (READWRITE)
     pub mouse_cursor_type: Option<MouseCursorType>,
@@ -571,13 +571,17 @@ impl From<FullWindowState> for WindowState {
     }
 }
 
-#[derive(Debug, Clone, PartialEq, PartialOrd)]
+#[derive(Debug, Clone, PartialEq)]
 pub struct CallCallbacksResult {
     pub needs_restyle_hover_active: bool,
     pub needs_relayout_hover_active: bool,
     pub needs_restyle_focus_changed: bool,
+    /// Whether the UI should be rendered anyways due to a (programmatic or user input) scroll event
     pub should_scroll_render: bool,
+    /// Whether the callbacks say to rebuild the UI or not
     pub callbacks_update_screen: UpdateScreen,
+    /// WindowState that was (potentially) modified in the callbacks
+    pub modified_window_state: WindowState,
 }
 
 impl CallCallbacksResult {

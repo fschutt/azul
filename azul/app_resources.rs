@@ -83,7 +83,7 @@ impl_display!(FontReloadError, {
 });
 
 /// Wrapper struct because it's not possible to implement traits on foreign types
-pub(crate) struct WrApi {
+pub struct WrApi {
     pub api: WrRenderApi,
 }
 

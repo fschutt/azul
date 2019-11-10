@@ -90,7 +90,7 @@ pub fn hot_reload_override_native<P: Into<PathBuf>>(file_path: P, reload_interva
 
 /// Reload the CSS if enough time has passed since the last reload
 #[cfg(debug_assertions)]
-pub(crate) fn hot_reload_css(
+pub fn hot_reload_css(
     css: &mut Css,
     hot_reload_handler: Option<&Box<dyn HotReloadHandler>>,
     last_style_reload: &mut Instant,

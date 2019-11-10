@@ -4,7 +4,7 @@ use std::fmt;
 
 /// Css stylesheet - contains a parsed CSS stylesheet in "rule blocks",
 /// i.e. blocks of key-value pairs associated with a selector path.
-#[derive(Debug, Default, PartialEq, Clone)]
+#[derive(Debug, Default, PartialEq, PartialOrd, Clone)]
 pub struct Css {
     /// One CSS stylesheet can hold more than one sub-stylesheet:
     /// For example, when overriding native styles, the `.sort_by_specificy()` function
@@ -18,7 +18,7 @@ impl Css {
     }
 }
 
-#[derive(Debug, Default, PartialEq, Clone)]
+#[derive(Debug, Default, PartialEq, PartialOrd, Clone)]
 pub struct Stylesheet {
     /// The style rules making up the document - for example, de-duplicated CSS rules
     pub rules: Vec<CssRuleBlock>,
@@ -248,7 +248,7 @@ impl DynamicCssProperty {
 
 /// One block of rules that applies a bunch of rules to a "path" in the style, i.e.
 /// `div#myid.myclass -> { ("justify-content", "center") }`
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialOrd, PartialEq)]
 pub struct CssRuleBlock {
     /// The css path (full selector) of the style ruleset
     pub path: CssPath,
