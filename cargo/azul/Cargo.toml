@@ -97,7 +97,6 @@ name = "hello_world"
 path = "../../examples/hello_world/hello_world.rs"
 required-features = []
 
-
 [[example]]
 name = "hot_reload"
 path = "../../examples/hot_reload/hot_reload.rs"
@@ -151,9 +150,4 @@ required-features = []
 [[example]]
 name = "headless"
 path = "../../examples/headless/headless.rs"
-required-features = []
-
-[[example]]
-name = "layout_tests"
-path = "../../examples/layout_tests/layout_tests.rs"
 required-features = []

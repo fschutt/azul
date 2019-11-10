@@ -106,7 +106,9 @@ version = "0.1.0"
 dependencies = [
  "azul-core 0.1.0",
  "azul-css 0.1.0",
+ "azul-css-parser 0.1.0",
  "azul-text-layout 0.1.0",
+ "azulc 0.1.0",
 ]
 
 [[package]]

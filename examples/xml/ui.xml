@@ -1,4 +1,4 @@
-<app>
+<body>
   <div id="test">
       <div class="child"></div>
       <div class="child"></div>
@@ -24,4 +24,4 @@
   <p>Hello</p>
   <p>Hello</p>
 
-</app>
+</body>

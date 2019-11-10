@@ -24,6 +24,15 @@ azul-core           = { version = "0.1.0", path = "../azul-core" }
 azul-css            = { version = "0.1.0", path = "../azul-css"  }
 azul-text-layout    = { version = "0.1.0", path = "../azul-text-layout", optional = true }
 
+[dev-dependencies]
+azul-css-parser             = { version = "0.1.0", path = "../azul-css-parser"  }
+azulc                       = { version = "0.1.0", path = "../azulc"  }
+
 [features]
 default = []
 text_layout = ["azul-text-layout"]
+
+[[example]]
+name = "layout_tests"
+path = "../../examples/layout_tests/layout_tests.rs"
+required-features = []

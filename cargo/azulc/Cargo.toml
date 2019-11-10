@@ -19,12 +19,10 @@ edition = "2018"
 [lib]
 crate-type = ["rlib", "cdylib"]
 path = "../../azulc/lib.rs"
-default-features = []
 
 [[bin]]
 name = "azulc"
 path = "../../azulc/main.rs"
-default-features = ["text_layout"]
 
 [dependencies]
 gleam                   = { version = "0.6",            default-features = false                                        }

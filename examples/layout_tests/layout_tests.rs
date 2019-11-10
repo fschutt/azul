@@ -3,20 +3,21 @@
 extern crate azul_layout;
 extern crate azul_core;
 extern crate azul_css_parser;
-extern crate azul;
+extern crate azulc;
+extern crate azul_css;
 
 use std::fs;
-use azul::{
+use azulc::{
     xml::{
         self, XmlComponentMap, render_dom_from_app_node_inner,
         XmlNode, FilteredComponentArguments,
     },
-    dom::Dom,
-    css::Css,
 };
 use azul_core::{
     display_list::CachedDisplayList,
+    dom::Dom,
 };
+use azul_css::Css;
 
 struct Mock { }
 
@@ -41,19 +42,6 @@ fn find_attribute<'a>(node: &'a XmlNode, attribute: &str) -> Option<&'a str> {
 fn get_content<'a>(xml: &'a XmlNode) -> &'a str {
     const DEFAULT_STR: &str = "";
     xml.text.as_ref().map(|s| s.as_str()).unwrap_or(DEFAULT_STR)
-}
-
-// Parse a string like "600x100" -> (600, 100)
-fn parse_size(output_size: &str) -> Option<(f32, f32)> {
-    let output_size = output_size.trim();
-    let mut iter = output_size.split("x");
-    let w = iter.next()?;
-    let h = iter.next()?;
-    let w = w.trim();
-    let h = h.trim();
-    let w = w.parse::<f32>().ok()?;
-    let h = h.parse::<f32>().ok()?;
-    Some((w, h))
 }
 
 fn create_display_list(dom: Dom<Mock>, css: &Css, size: (f32, f32)) -> CachedDisplayList {

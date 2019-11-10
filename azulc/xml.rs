@@ -207,13 +207,13 @@ impl<T> Into<Dom<T>> for DomXml<T> {
 
 /// Component that was created from a XML node (instead of being registered from Rust code).
 /// Necessary to
-struct DynamicXmlComponent {
+pub struct DynamicXmlComponent {
     /// What the name of this component is, i.e. "test" for `<component name="test" />`
-    name: String,
+    pub name: String,
     /// Whether this component has any `args="a: String"` arguments
-    arguments: Option<ComponentArguments>,
+    pub arguments: Option<ComponentArguments>,
     /// Root XML node of this component (the `<component />` Node)
-    root: XmlNode,
+    pub root: XmlNode,
 }
 
 impl DynamicXmlComponent {
@@ -249,7 +249,7 @@ impl<T> XmlComponent<T> for DynamicXmlComponent {
         let mut dom = Dom::div();
 
         for child_node in &self.root.children {
-            dom.add_child(render_dom_from_app_node_inner(child_node, components, arguments)?);
+            dom.add_child(render_dom_from_body_node_inner(child_node, components, arguments)?);
         }
 
         Ok(dom)
@@ -514,7 +514,7 @@ pub fn parse_xml_string(xml: &str) -> Result<Vec<XmlNode>, XmlParseError> {
 
 /// Given a root node, traverses along the hierarchy, and returns a
 /// mutable reference to a child of the node if
-fn get_item<'a>(hierarchy: &[usize], root_node: &'a mut XmlNode) -> Option<&'a mut XmlNode> {
+pub fn get_item<'a>(hierarchy: &[usize], root_node: &'a mut XmlNode) -> Option<&'a mut XmlNode> {
     let mut current_node = &*root_node;
     let mut iter = hierarchy.iter();
 
@@ -530,7 +530,7 @@ fn get_item<'a>(hierarchy: &[usize], root_node: &'a mut XmlNode) -> Option<&'a m
 }
 
 /// Compiles a XML `args="a: String, b: bool"` into a `["a" => "String", "b" => "bool"]` map
-fn parse_component_arguments(input: &str) -> Result<ComponentArguments, ComponentParseError> {
+pub fn parse_component_arguments(input: &str) -> Result<ComponentArguments, ComponentParseError> {
 
     use self::ComponentParseError::*;
 
@@ -567,7 +567,7 @@ fn parse_component_arguments(input: &str) -> Result<ComponentArguments, Componen
 pub type FilteredComponentArguments = ComponentArguments;
 
 /// Filters the XML attributes of a component given XmlAttributeMap
-fn validate_and_filter_component_args(xml_attributes: &XmlAttributeMap, valid_args: &FilteredComponentArguments)
+pub fn validate_and_filter_component_args(xml_attributes: &XmlAttributeMap, valid_args: &FilteredComponentArguments)
 -> Result<FilteredComponentArguments, RenderDomError> {
 
     const DEFAULT_ARGS: [&str;5] = ["id", "class", "tabindex", "draggable", "focusable"];
@@ -624,25 +624,25 @@ fn normalize_casing(input: &str) -> String {
     words.join("_")
 }
 
-/// Find the one and only <app /> node, return error if
+/// Find the one and only `<body>` node, return error if
 /// there is no app node or there are multiple app nodes
-fn get_app_node(root_nodes: &[XmlNode]) -> Result<XmlNode, XmlParseError> {
+pub fn get_body_node(root_nodes: &[XmlNode]) -> Result<XmlNode, XmlParseError> {
 
-    let mut app_node_iterator = root_nodes.iter().filter(|node| {
+    let mut body_node_iterator = root_nodes.iter().filter(|node| {
         let node_type_normalized = normalize_casing(&node.node_type);
-        &node_type_normalized == "app"
+        &node_type_normalized == "body"
     }).cloned();
 
-    let app_node = app_node_iterator.next().ok_or(XmlParseError::NoRootComponent)?;
-    if app_node_iterator.next().is_some() {
+    let body_node = body_node_iterator.next().ok_or(XmlParseError::NoRootComponent)?;
+    if body_node_iterator.next().is_some() {
         Err(XmlParseError::MultipleRootComponents)
     } else {
-        Ok(app_node)
+        Ok(body_node)
     }
 }
 
 /// Filter all `<component />` nodes and insert them into the `components` node
-fn get_xml_components<T>(root_nodes: &[XmlNode], components: &mut XmlComponentMap<T>) -> Result<(), ComponentParseError> {
+pub fn get_xml_components<T>(root_nodes: &[XmlNode], components: &mut XmlComponentMap<T>) -> Result<(), ComponentParseError> {
 
     for node in root_nodes {
         match DynamicXmlComponent::new(node.clone()) {
@@ -659,8 +659,8 @@ fn get_xml_components<T>(root_nodes: &[XmlNode], components: &mut XmlComponentMa
 pub fn str_to_dom<T>(xml: &str, component_map: &mut XmlComponentMap<T>) -> Result<Dom<T>, XmlParseError> {
     let root_nodes = parse_xml_string(xml)?;
     get_xml_components(&root_nodes, component_map)?;
-    let app_node = get_app_node(&root_nodes)?;
-    render_dom_from_app_node(&app_node, component_map).map_err(|e| e.into())
+    let body_node = get_body_node(&root_nodes)?;
+    render_dom_from_body_node(&body_node, component_map).map_err(|e| e.into())
 }
 
 /// Parses an XML string and returns a `String`, which contains the Rust source code
@@ -675,9 +675,9 @@ pub fn str_to_rust_code<T>(
 
     let root_nodes = parse_xml_string(xml).map_err(|e| format!("XML parse error: {}", e))?;
     get_xml_components(&root_nodes, component_map).map_err(|e| format!("Error parsing component: {}", e))?;
-    let app_node = get_app_node(&root_nodes).map_err(|e| format!("Could not find <app /> node: {}", e))?;
+    let body_node = get_body_node(&root_nodes).map_err(|e| format!("Could not find <app /> node: {}", e))?;
     let components_source = compile_components_to_rust_code(&component_map)?;
-    let app_source = compile_app_node_to_rust_code(&app_node, &component_map)?;
+    let app_source = compile_body_node_to_rust_code(&body_node, &component_map)?;
 
     let source_code = format!("{}\r\n{}\r\n{}\r\n{}", HEADER_WARNING, imports,
         compile_components(components_source),
@@ -687,7 +687,7 @@ pub fn str_to_rust_code<T>(
     Ok(source_code)
 }
 
-fn format_component_args(component_args: &FilteredComponentArguments) -> String {
+pub fn format_component_args(component_args: &FilteredComponentArguments) -> String {
     let mut args = Vec::new();
     for (arg_name, arg_type) in component_args {
         args.push(format!("{}: {}", arg_name, arg_type));
@@ -695,13 +695,13 @@ fn format_component_args(component_args: &FilteredComponentArguments) -> String 
     args.join(" ")
 }
 
-fn compile_components(components: BTreeMap<ComponentName, (CompiledComponent, FilteredComponentArguments)>) -> String {
+pub fn compile_components(components: BTreeMap<ComponentName, (CompiledComponent, FilteredComponentArguments)>) -> String {
     components.iter().map(|(name, (function_body, function_args))| {
         compile_component(name, function_args, function_body)
     }).collect::<Vec<String>>().join("\r\n")
 }
 
-fn compile_component(component_name: &str, component_args: &FilteredComponentArguments, component_function_body: &str) -> String {
+pub fn compile_component(component_name: &str, component_args: &FilteredComponentArguments, component_function_body: &str) -> String {
     format!(
         "fn render_component_{}({}) {{\r\n{}\r\n}}",
         normalize_casing(component_name),
@@ -710,21 +710,21 @@ fn compile_component(component_name: &str, component_args: &FilteredComponentArg
     )
 }
 
-pub fn render_dom_from_app_node<T>(
-    app_node: &XmlNode,
+pub fn render_dom_from_body_node<T>(
+    body_node: &XmlNode,
     component_map: &XmlComponentMap<T>
 ) -> Result<Dom<T>, RenderDomError> {
 
     // Don't actually render the <app></app> node itself
-    let mut dom = Dom::div();
-    for child_node in &app_node.children {
-        dom.add_child(render_dom_from_app_node_inner(child_node, component_map, &FilteredComponentArguments::default())?);
+    let mut dom = Dom::body();
+    for child_node in &body_node.children {
+        dom.add_child(render_dom_from_body_node_inner(child_node, component_map, &FilteredComponentArguments::default())?);
     }
     Ok(dom)
 }
 
 /// Takes a single (expanded) app node and renders the DOM or returns an error
-pub fn render_dom_from_app_node_inner<T>(
+pub fn render_dom_from_body_node_inner<T>(
     xml_node: &XmlNode,
     component_map: &XmlComponentMap<T>,
     parent_xml_attributes: &FilteredComponentArguments,
@@ -755,13 +755,13 @@ pub fn render_dom_from_app_node_inner<T>(
     set_attributes(&mut dom, &xml_node.attributes, &filtered_xml_attributes);
 
     for child_node in &xml_node.children {
-        dom.add_child(render_dom_from_app_node_inner(child_node, component_map, &filtered_xml_attributes)?);
+        dom.add_child(render_dom_from_body_node_inner(child_node, component_map, &filtered_xml_attributes)?);
     }
 
     Ok(dom)
 }
 
-fn set_attributes<T>(dom: &mut Dom<T>, xml_attributes: &XmlAttributeMap, filtered_xml_attributes: &FilteredComponentArguments) {
+pub fn set_attributes<T>(dom: &mut Dom<T>, xml_attributes: &XmlAttributeMap, filtered_xml_attributes: &FilteredComponentArguments) {
 
     use azul_core::dom::{TabIndex, DomString};
 
@@ -870,7 +870,7 @@ pub fn format_args_dynamic(input: &str, variables: &FilteredComponentArguments) 
 }
 
 /// Parses a string ("true" or "false")
-fn parse_bool(input: &str) -> Option<bool> {
+pub fn parse_bool(input: &str) -> Option<bool> {
     match input {
         "true" => Some(true),
         "false" => Some(false),
@@ -879,7 +879,7 @@ fn parse_bool(input: &str) -> Option<bool> {
 }
 
 /// Takes all components and generates the source code function from them
-fn compile_components_to_rust_code<T>(components: &XmlComponentMap<T>)
+pub fn compile_components_to_rust_code<T>(components: &XmlComponentMap<T>)
 -> Result<BTreeMap<ComponentName, (CompiledComponent, FilteredComponentArguments)>, CompileError>
 {
     let mut map = BTreeMap::new();
@@ -902,17 +902,17 @@ fn compile_components_to_rust_code<T>(components: &XmlComponentMap<T>)
     Ok(map)
 }
 
-fn compile_app_node_to_rust_code<T>(app_node: &XmlNode, component_map: &XmlComponentMap<T>) -> Result<String, CompileError> {
-    compile_app_node_to_rust_code_inner(app_node, component_map)
+pub fn compile_body_node_to_rust_code<T>(body_node: &XmlNode, component_map: &XmlComponentMap<T>) -> Result<String, CompileError> {
+    compile_body_node_to_rust_code_inner(body_node, component_map)
 }
 
-fn compile_app_node_to_rust_code_inner<T>(app_node: &XmlNode, component_map: &XmlComponentMap<T>) -> Result<String, CompileError> {
+pub fn compile_body_node_to_rust_code_inner<T>(body_node: &XmlNode, component_map: &XmlComponentMap<T>) -> Result<String, CompileError> {
     // TODO!
     Err("unimplemented".into())
 }
 
 /// Takes a DOM node and appends the necessary `.with_id().with_class()`, etc. to the DOMs HEAD
-fn render_single_dom_node_to_string<T>(dom: &Dom<T>, existing_str: &mut String) {
+pub fn render_single_dom_node_to_string<T>(dom: &Dom<T>, existing_str: &mut String) {
 
     for id in dom.root.get_ids().iter() {
         existing_str.push_str(&format!(".with_id({})", id));
@@ -946,7 +946,7 @@ fn test_compile_dom_1() {
         let mut component_map = XmlComponentMap::<Dummy>::default();
         let root_nodes = parse_xml_string(input).unwrap();
         get_xml_components(&root_nodes, &mut component_map).unwrap();
-        let app_node = get_app_node(&root_nodes).unwrap();
+        let body_node = get_body_node(&root_nodes).unwrap();
         let components = compile_components_to_rust_code(&component_map).unwrap();
         let (searched_component_source, searched_component_args) = components.get(component_name).unwrap();
         let component_string = compile_component(component_name, searched_component_args, searched_component_source);
@@ -959,8 +959,8 @@ fn test_compile_dom_1() {
         let mut component_map = XmlComponentMap::<Dummy>::default();
         let root_nodes = parse_xml_string(input).unwrap();
         get_xml_components(&root_nodes, &mut component_map).unwrap();
-        let app_node = get_app_node(&root_nodes).unwrap();
-        let app_source = compile_app_node_to_rust_code(&app_node, &component_map).unwrap();
+        let body_node = get_body_node(&root_nodes).unwrap();
+        let app_source = compile_body_node_to_rust_code(&body_node, &component_map).unwrap();
 
         // TODO!
         // assert_eq!(app_source, expected);
@@ -1048,7 +1048,7 @@ impl<T> XmlComponent<T> for TextRenderer {
 }
 
 // NOTE: Two sequential returns count as a single return, while single returns get ignored.
-fn prepare_string(input: &str) -> String {
+pub fn prepare_string(input: &str) -> String {
 
     const SPACE: &str = " ";
     const RETURN: &str = "\n";
