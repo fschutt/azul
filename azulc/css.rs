@@ -5,7 +5,6 @@ use azul_css::*;
 pub fn css_to_rust_code(css: &Css) -> String {
 
     let mut output = String::new();
-    let mut tabs = 0;
 
     output.push_str("const CSS: Css = Css {\r\n");
     output.push_str("\tstylesheets: [\r\n");
@@ -50,7 +49,7 @@ fn print_declaraction(decl: &CssDeclaration, tabs: usize) -> String {
 }
 
 trait FormatAsRustCode {
-    fn format_as_rust_code(&self, tabs: usize) -> String;
+    fn format_as_rust_code(&self, _tabs: usize) -> String;
 }
 
 fn print_css_property_value<T: FormatAsRustCode>(prop_val: &CssPropertyValue<T>, tabs: usize) -> String {
@@ -140,355 +139,355 @@ fn format_dynamic_css_prop(decl: &DynamicCssProperty, tabs: usize) -> String {
 
 
 impl FormatAsRustCode for StyleTextColor { 
-    fn format_as_rust_code(&self, tabs: usize) -> String {
+    fn format_as_rust_code(&self, _tabs: usize) -> String {
         format!("{:?}", self)
     }
 }
 
 impl FormatAsRustCode for StyleFontSize { 
-    fn format_as_rust_code(&self, tabs: usize) -> String {
+    fn format_as_rust_code(&self, _tabs: usize) -> String {
         format!("{:?}", self)
     }
 }
 
 impl FormatAsRustCode for StyleFontFamily { 
-    fn format_as_rust_code(&self, tabs: usize) -> String {
+    fn format_as_rust_code(&self, _tabs: usize) -> String {
         format!("{:?}", self)
     }
 }
 
 impl FormatAsRustCode for StyleTextAlignmentHorz { 
-    fn format_as_rust_code(&self, tabs: usize) -> String {
+    fn format_as_rust_code(&self, _tabs: usize) -> String {
         format!("{:?}", self)
     }
 }
 
 impl FormatAsRustCode for StyleLetterSpacing { 
-    fn format_as_rust_code(&self, tabs: usize) -> String {
+    fn format_as_rust_code(&self, _tabs: usize) -> String {
         format!("{:?}", self)
     }
 }
 
 impl FormatAsRustCode for StyleLineHeight { 
-    fn format_as_rust_code(&self, tabs: usize) -> String {
+    fn format_as_rust_code(&self, _tabs: usize) -> String {
         format!("{:?}", self)
     }
 }
 
 impl FormatAsRustCode for StyleWordSpacing { 
-    fn format_as_rust_code(&self, tabs: usize) -> String {
+    fn format_as_rust_code(&self, _tabs: usize) -> String {
         format!("{:?}", self)
     }
 }
 
 impl FormatAsRustCode for StyleTabWidth { 
-    fn format_as_rust_code(&self, tabs: usize) -> String {
+    fn format_as_rust_code(&self, _tabs: usize) -> String {
         format!("{:?}", self)
     }
 }
 
 impl FormatAsRustCode for StyleCursor { 
-    fn format_as_rust_code(&self, tabs: usize) -> String {
+    fn format_as_rust_code(&self, _tabs: usize) -> String {
         format!("{:?}", self)
     }
 }
 
 impl FormatAsRustCode for LayoutDisplay { 
-    fn format_as_rust_code(&self, tabs: usize) -> String {
+    fn format_as_rust_code(&self, _tabs: usize) -> String {
         format!("{:?}", self)
     }
 }
 
 impl FormatAsRustCode for LayoutFloat { 
-    fn format_as_rust_code(&self, tabs: usize) -> String {
+    fn format_as_rust_code(&self, _tabs: usize) -> String {
         format!("{:?}", self)
     }
 }
 
 impl FormatAsRustCode for LayoutBoxSizing { 
-    fn format_as_rust_code(&self, tabs: usize) -> String {
+    fn format_as_rust_code(&self, _tabs: usize) -> String {
         format!("{:?}", self)
     }
 }
 
 impl FormatAsRustCode for LayoutWidth { 
-    fn format_as_rust_code(&self, tabs: usize) -> String {
+    fn format_as_rust_code(&self, _tabs: usize) -> String {
         format!("{:?}", self)
     }
 }
 
 impl FormatAsRustCode for LayoutHeight { 
-    fn format_as_rust_code(&self, tabs: usize) -> String {
+    fn format_as_rust_code(&self, _tabs: usize) -> String {
         format!("{:?}", self)
     }
 }
 
 impl FormatAsRustCode for LayoutMinWidth { 
-    fn format_as_rust_code(&self, tabs: usize) -> String {
+    fn format_as_rust_code(&self, _tabs: usize) -> String {
         format!("{:?}", self)
     }
 }
 
 impl FormatAsRustCode for LayoutMinHeight { 
-    fn format_as_rust_code(&self, tabs: usize) -> String {
+    fn format_as_rust_code(&self, _tabs: usize) -> String {
         format!("{:?}", self)
     }
 }
 
 impl FormatAsRustCode for LayoutMaxWidth { 
-    fn format_as_rust_code(&self, tabs: usize) -> String {
+    fn format_as_rust_code(&self, _tabs: usize) -> String {
         format!("{:?}", self)
     }
 }
 
 impl FormatAsRustCode for LayoutMaxHeight { 
-    fn format_as_rust_code(&self, tabs: usize) -> String {
+    fn format_as_rust_code(&self, _tabs: usize) -> String {
         format!("{:?}", self)
     }
 }
 
 impl FormatAsRustCode for LayoutPosition { 
-    fn format_as_rust_code(&self, tabs: usize) -> String {
+    fn format_as_rust_code(&self, _tabs: usize) -> String {
         format!("{:?}", self)
     }
 }
 
 impl FormatAsRustCode for LayoutTop { 
-    fn format_as_rust_code(&self, tabs: usize) -> String {
+    fn format_as_rust_code(&self, _tabs: usize) -> String {
         format!("{:?}", self)
     }
 }
 
 impl FormatAsRustCode for LayoutRight { 
-    fn format_as_rust_code(&self, tabs: usize) -> String {
+    fn format_as_rust_code(&self, _tabs: usize) -> String {
         format!("{:?}", self)
     }
 }
 
 impl FormatAsRustCode for LayoutLeft { 
-    fn format_as_rust_code(&self, tabs: usize) -> String {
+    fn format_as_rust_code(&self, _tabs: usize) -> String {
         format!("{:?}", self)
     }
 }
 
 impl FormatAsRustCode for LayoutBottom { 
-    fn format_as_rust_code(&self, tabs: usize) -> String {
+    fn format_as_rust_code(&self, _tabs: usize) -> String {
         format!("{:?}", self)
     }
 }
 
 impl FormatAsRustCode for LayoutWrap { 
-    fn format_as_rust_code(&self, tabs: usize) -> String {
+    fn format_as_rust_code(&self, _tabs: usize) -> String {
         format!("{:?}", self)
     }
 }
 
 impl FormatAsRustCode for LayoutDirection { 
-    fn format_as_rust_code(&self, tabs: usize) -> String {
+    fn format_as_rust_code(&self, _tabs: usize) -> String {
         format!("{:?}", self)
     }
 }
 
 impl FormatAsRustCode for LayoutFlexGrow { 
-    fn format_as_rust_code(&self, tabs: usize) -> String {
+    fn format_as_rust_code(&self, _tabs: usize) -> String {
         format!("{:?}", self)
     }
 }
 
 impl FormatAsRustCode for LayoutFlexShrink { 
-    fn format_as_rust_code(&self, tabs: usize) -> String {
+    fn format_as_rust_code(&self, _tabs: usize) -> String {
         format!("{:?}", self)
     }
 }
 
 impl FormatAsRustCode for LayoutJustifyContent { 
-    fn format_as_rust_code(&self, tabs: usize) -> String {
+    fn format_as_rust_code(&self, _tabs: usize) -> String {
         format!("{:?}", self)
     }
 }
 
 impl FormatAsRustCode for LayoutAlignItems { 
-    fn format_as_rust_code(&self, tabs: usize) -> String {
+    fn format_as_rust_code(&self, _tabs: usize) -> String {
         format!("{:?}", self)
     }
 }
 
 impl FormatAsRustCode for LayoutAlignContent { 
-    fn format_as_rust_code(&self, tabs: usize) -> String {
+    fn format_as_rust_code(&self, _tabs: usize) -> String {
         format!("{:?}", self)
     }
 }
 
 impl FormatAsRustCode for StyleBackgroundContent { 
-    fn format_as_rust_code(&self, tabs: usize) -> String {
+    fn format_as_rust_code(&self, _tabs: usize) -> String {
         format!("{:?}", self)
     }
 }
 
 impl FormatAsRustCode for StyleBackgroundPosition { 
-    fn format_as_rust_code(&self, tabs: usize) -> String {
+    fn format_as_rust_code(&self, _tabs: usize) -> String {
         format!("{:?}", self)
     }
 }
 
 impl FormatAsRustCode for StyleBackgroundSize { 
-    fn format_as_rust_code(&self, tabs: usize) -> String {
+    fn format_as_rust_code(&self, _tabs: usize) -> String {
         format!("{:?}", self)
     }
 }
 
 impl FormatAsRustCode for StyleBackgroundRepeat { 
-    fn format_as_rust_code(&self, tabs: usize) -> String {
+    fn format_as_rust_code(&self, _tabs: usize) -> String {
         format!("{:?}", self)
     }
 }
 
 impl FormatAsRustCode for Overflow { 
-    fn format_as_rust_code(&self, tabs: usize) -> String {
+    fn format_as_rust_code(&self, _tabs: usize) -> String {
         format!("{:?}", self)
     }
 }
 
 impl FormatAsRustCode for LayoutPaddingTop { 
-    fn format_as_rust_code(&self, tabs: usize) -> String {
+    fn format_as_rust_code(&self, _tabs: usize) -> String {
         format!("{:?}", self)
     }
 }
 
 impl FormatAsRustCode for LayoutPaddingLeft { 
-    fn format_as_rust_code(&self, tabs: usize) -> String {
+    fn format_as_rust_code(&self, _tabs: usize) -> String {
         format!("{:?}", self)
     }
 }
 
 impl FormatAsRustCode for LayoutPaddingRight { 
-    fn format_as_rust_code(&self, tabs: usize) -> String {
+    fn format_as_rust_code(&self, _tabs: usize) -> String {
         format!("{:?}", self)
     }
 }
 
 impl FormatAsRustCode for LayoutPaddingBottom { 
-    fn format_as_rust_code(&self, tabs: usize) -> String {
+    fn format_as_rust_code(&self, _tabs: usize) -> String {
         format!("{:?}", self)
     }
 }
 
 impl FormatAsRustCode for LayoutMarginTop { 
-    fn format_as_rust_code(&self, tabs: usize) -> String {
+    fn format_as_rust_code(&self, _tabs: usize) -> String {
         format!("{:?}", self)
     }
 }
 
 impl FormatAsRustCode for LayoutMarginLeft { 
-    fn format_as_rust_code(&self, tabs: usize) -> String {
+    fn format_as_rust_code(&self, _tabs: usize) -> String {
         format!("{:?}", self)
     }
 }
 
 impl FormatAsRustCode for LayoutMarginRight { 
-    fn format_as_rust_code(&self, tabs: usize) -> String {
+    fn format_as_rust_code(&self, _tabs: usize) -> String {
         format!("{:?}", self)
     }
 }
 
 impl FormatAsRustCode for LayoutMarginBottom { 
-    fn format_as_rust_code(&self, tabs: usize) -> String {
+    fn format_as_rust_code(&self, _tabs: usize) -> String {
         format!("{:?}", self)
     }
 }
 
 impl FormatAsRustCode for StyleBorderTopLeftRadius { 
-    fn format_as_rust_code(&self, tabs: usize) -> String {
+    fn format_as_rust_code(&self, _tabs: usize) -> String {
         format!("{:?}", self)
     }
 }
 
 impl FormatAsRustCode for StyleBorderTopRightRadius { 
-    fn format_as_rust_code(&self, tabs: usize) -> String {
+    fn format_as_rust_code(&self, _tabs: usize) -> String {
         format!("{:?}", self)
     }
 }
 
 impl FormatAsRustCode for StyleBorderBottomLeftRadius { 
-    fn format_as_rust_code(&self, tabs: usize) -> String {
+    fn format_as_rust_code(&self, _tabs: usize) -> String {
         format!("{:?}", self)
     }
 }
 
 impl FormatAsRustCode for StyleBorderBottomRightRadius { 
-    fn format_as_rust_code(&self, tabs: usize) -> String {
+    fn format_as_rust_code(&self, _tabs: usize) -> String {
         format!("{:?}", self)
     }
 }
 
 impl FormatAsRustCode for StyleBorderTopColor { 
-    fn format_as_rust_code(&self, tabs: usize) -> String {
+    fn format_as_rust_code(&self, _tabs: usize) -> String {
         format!("{:?}", self)
     }
 }
 
 impl FormatAsRustCode for StyleBorderRightColor { 
-    fn format_as_rust_code(&self, tabs: usize) -> String {
+    fn format_as_rust_code(&self, _tabs: usize) -> String {
         format!("{:?}", self)
     }
 }
 
 impl FormatAsRustCode for StyleBorderLeftColor { 
-    fn format_as_rust_code(&self, tabs: usize) -> String {
+    fn format_as_rust_code(&self, _tabs: usize) -> String {
         format!("{:?}", self)
     }
 }
 
 impl FormatAsRustCode for StyleBorderBottomColor { 
-    fn format_as_rust_code(&self, tabs: usize) -> String {
+    fn format_as_rust_code(&self, _tabs: usize) -> String {
         format!("{:?}", self)
     }
 }
 
 impl FormatAsRustCode for StyleBorderTopStyle { 
-    fn format_as_rust_code(&self, tabs: usize) -> String {
+    fn format_as_rust_code(&self, _tabs: usize) -> String {
         format!("{:?}", self)
     }
 }
 
 impl FormatAsRustCode for StyleBorderRightStyle { 
-    fn format_as_rust_code(&self, tabs: usize) -> String {
+    fn format_as_rust_code(&self, _tabs: usize) -> String {
         format!("{:?}", self)
     }
 }
 
 impl FormatAsRustCode for StyleBorderLeftStyle { 
-    fn format_as_rust_code(&self, tabs: usize) -> String {
+    fn format_as_rust_code(&self, _tabs: usize) -> String {
         format!("{:?}", self)
     }
 }
 
 impl FormatAsRustCode for StyleBorderBottomStyle { 
-    fn format_as_rust_code(&self, tabs: usize) -> String {
+    fn format_as_rust_code(&self, _tabs: usize) -> String {
         format!("{:?}", self)
     }
 }
 
 impl FormatAsRustCode for StyleBorderTopWidth { 
-    fn format_as_rust_code(&self, tabs: usize) -> String {
+    fn format_as_rust_code(&self, _tabs: usize) -> String {
         format!("{:?}", self)
     }
 }
 
 impl FormatAsRustCode for StyleBorderRightWidth { 
-    fn format_as_rust_code(&self, tabs: usize) -> String {
+    fn format_as_rust_code(&self, _tabs: usize) -> String {
         format!("{:?}", self)
     }
 }
 
 impl FormatAsRustCode for StyleBorderLeftWidth { 
-    fn format_as_rust_code(&self, tabs: usize) -> String {
+    fn format_as_rust_code(&self, _tabs: usize) -> String {
         format!("{:?}", self)
     }
 }
 
 impl FormatAsRustCode for StyleBorderBottomWidth { 
-    fn format_as_rust_code(&self, tabs: usize) -> String {
+    fn format_as_rust_code(&self, _tabs: usize) -> String {
         format!("{:?}", self)
     }
 }

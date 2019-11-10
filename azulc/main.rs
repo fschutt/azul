@@ -105,8 +105,15 @@ fn main() {
 
         match action {
             Action::PrintRustCode => {
-                let body_source = compile_body_node_to_rust_code(&body_node, &component_map).unwrap();
-                println!("{}", body_source);
+                let compiled_source = match str_to_rust_code(&root_nodes, "use azul_core::dom::*;", &mut XmlComponentMap::default()) {
+                    Ok(s) => s,
+                    Err(e) => {
+                        eprintln!("error: could not render Rust code:\r\n{:?}", e);
+                        print_help();
+                        exit(-1);
+                    }
+                };
+                println!("{}", compiled_source);
             },
             Action::PrintDom => {
                 let dom = match render_dom_from_body_node(&body_node, &component_map) {
@@ -119,7 +126,6 @@ fn main() {
                 };
 
                 println!("{}", dom.get_html_string());
-                // compile_body_node_to_dom(&body_node, &component_map).get_html_string()
             },
             Action::Cascade => {
                 println!("cascading dom + css!");
