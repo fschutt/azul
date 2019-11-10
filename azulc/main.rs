@@ -133,7 +133,7 @@ fn main() {
     } else if input_file.ends_with(".css") {
         // compile CSS file to Rust code
         let css = azul_css_parser::new_from_str(&file_contents).unwrap();
-        println!("{:#?}", css); // TODO: proper Rust output
+        println!("{}", azulc::css::css_to_rust_code(&css));
     } else if input_file == "--help" {
         print_help();
     } else {

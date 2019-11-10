@@ -5,11 +5,11 @@ extern crate xmlparser;
 #[macro_use(impl_from)]
 extern crate azul_core;
 extern crate azul_css;
-extern crate azul_css_parser;
 extern crate azul_layout;
 
 /// XML-based DOM serialization and XML-to-Rust compiler implementation
 pub mod xml;
+pub mod css;
 pub mod layout {
     pub use azul_layout::*;
 }

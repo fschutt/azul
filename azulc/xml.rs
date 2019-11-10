@@ -715,7 +715,7 @@ pub fn render_dom_from_body_node<T>(
     component_map: &XmlComponentMap<T>
 ) -> Result<Dom<T>, RenderDomError> {
 
-    // Don't actually render the <app></app> node itself
+    // Don't actually render the <body></body> node itself
     let mut dom = Dom::body();
     for child_node in &body_node.children {
         dom.add_child(render_dom_from_body_node_inner(child_node, component_map, &FilteredComponentArguments::default())?);
