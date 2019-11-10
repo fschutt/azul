@@ -989,7 +989,7 @@ fn send_user_event<'a, T>(
                     eld.ui_state_cache.get_mut(&glutin_window_id).unwrap(),
                     eld.ui_description_cache.get_mut(&glutin_window_id).unwrap(),
                     azul_core::gl::insert_into_active_gl_textures,
-                    azul_layout::ui_solver::do_the_layout,
+                    azulc::layout::ui_solver::do_the_layout,
                     crate::resources::font_source_get_bytes,
                     crate::resources::image_source_get_bytes,
                 );

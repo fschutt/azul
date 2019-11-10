@@ -64,6 +64,7 @@ dependencies = [
  "azul-layout 0.1.0",
  "azul-native-style 0.1.0",
  "azul-widgets 0.1.0",
+ "azulc 0.1.0",
  "backtrace 0.3.37 (registry+https://github.com/rust-lang/crates.io-index)",
  "clipboard2 0.1.1 (registry+https://github.com/rust-lang/crates.io-index)",
  "fern 0.5.8 (registry+https://github.com/rust-lang/crates.io-index)",
@@ -76,7 +77,6 @@ dependencies = [
  "serde_derive 1.0.80 (registry+https://github.com/rust-lang/crates.io-index)",
  "tinyfiledialogs 3.3.6 (registry+https://github.com/rust-lang/crates.io-index)",
  "webrender 0.60.0 (registry+https://github.com/rust-lang/crates.io-index)",
- "xmlparser 0.9.0 (registry+https://github.com/rust-lang/crates.io-index)",
 ]
 
 [[package]]
@@ -145,6 +145,18 @@ dependencies = [
  "serde_derive 1.0.80 (registry+https://github.com/rust-lang/crates.io-index)",
  "stb_truetype 0.2.8 (registry+https://github.com/rust-lang/crates.io-index)",
  "usvg 0.3.0 (registry+https://github.com/rust-lang/crates.io-index)",
+]
+
+[[package]]
+name = "azulc"
+version = "0.1.0"
+dependencies = [
+ "azul-core 0.1.0",
+ "azul-css 0.1.0",
+ "azul-css-parser 0.1.0",
+ "azul-layout 0.1.0",
+ "gleam 0.6.19 (registry+https://github.com/rust-lang/crates.io-index)",
+ "xmlparser 0.9.0 (registry+https://github.com/rust-lang/crates.io-index)",
 ]
 
 [[package]]

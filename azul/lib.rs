@@ -199,14 +199,13 @@ extern crate azul_native_style;
 extern crate azul_css;
 #[macro_use(impl_task_api, impl_font_api, impl_image_api, impl_from, impl_display)]
 extern crate azul_core;
-extern crate azul_layout;
+extern crate azulc;
 extern crate glutin;
 extern crate webrender;
 extern crate app_units;
 extern crate tinyfiledialogs;
 extern crate clipboard2;
 extern crate font_loader;
-extern crate xmlparser;
 extern crate gleam;
 #[cfg(feature = "css_parser")]
 extern crate azul_css_parser;
@@ -226,6 +225,7 @@ extern crate backtrace;
 #[cfg(feature = "image_loading")]
 extern crate image;
 
+pub use azulc::xml;
 /// Manages application state (`App` / `AppState` / `AppResources`), wrapping resources and app state
 pub mod app;
 pub use azul_core::task;
@@ -240,8 +240,6 @@ pub use azul_core::diff;
 pub use azul_core::gl;
 /// Window state handling and window-related information
 pub mod window;
-/// XML-based DOM serialization and XML-to-Rust compiler implementation
-pub mod xml;
 /// Font & image resource handling, lookup and caching
 #[path = "./app_resources.rs"]
 pub mod resources;
@@ -255,14 +253,14 @@ pub use azul_core::{FastHashMap, FastHashSet};
 /// Traits `Layout`, `GetTextLayout` and `GetStyle` definitions
 pub mod traits {
     pub use azul_core::traits::*;
-    pub use azul_layout::GetStyle;
+    pub use azulc::layout::GetStyle;
 }
 
 /// Handles text layout (modularized, can be used as a standalone module)
 pub mod text_layout {
-    pub use azul_layout::text_layout::text_layout::*;
-    pub use azul_layout::text_layout::text_shaping::*;
-    pub use azul_layout::text_layout::InlineText;
+    pub use azulc::layout::text_layout::text_layout::*;
+    pub use azulc::layout::text_layout::text_shaping::*;
+    pub use azulc::layout::text_layout::InlineText;
 }
 
 /// Quick exports of common types
@@ -365,8 +363,8 @@ pub mod widgets {
             horizontal_alignment: StyleTextAlignmentHorz,
         ) -> SvgTextLayout {
 
-            use azul_layout::text_layout::text_layout;
-            use azul_layout::text_layout::text_shaping::get_font_metrics_freetype;
+            use azulc::layout::text_layout::text_layout;
+            use azulc::layout::text_layout::text_shaping::get_font_metrics_freetype;
 
             text_layout_options.font_size_px = SVG_FAKE_FONT_SIZE;
             let words = text_layout::split_text_into_words(text);

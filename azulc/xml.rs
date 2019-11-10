@@ -1,7 +1,7 @@
 #![allow(unused_variables)]
 
 use std::{fmt, collections::BTreeMap, path::Path};
-use crate::{
+use azul_core::{
     callbacks::Callback,
     dom::Dom,
 };
@@ -763,7 +763,7 @@ pub fn render_dom_from_app_node_inner<T>(
 
 fn set_attributes<T>(dom: &mut Dom<T>, xml_attributes: &XmlAttributeMap, filtered_xml_attributes: &FilteredComponentArguments) {
 
-    use crate::dom::{TabIndex, DomString};
+    use azul_core::dom::{TabIndex, DomString};
 
     if let Some(ids) = xml_attributes.get("id") {
         for id in ids.split_whitespace() {
@@ -923,7 +923,7 @@ fn render_single_dom_node_to_string<T>(dom: &Dom<T>, existing_str: &mut String) 
     }
 
     if let Some(tab_index) = dom.root.get_tab_index() {
-        use crate::dom::TabIndex::*;
+        use azul_core::dom::TabIndex::*;
         existing_str.push_str(&format!(".with_tab_index({})", match tab_index {
             Auto => format!("TabIndex::Auto"),
             OverrideInParent(u) => format!("TabIndex::OverrideInParent({})", u),

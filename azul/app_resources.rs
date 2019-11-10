@@ -172,7 +172,7 @@ pub fn font_source_get_bytes(font_source: &FontSource) -> Option<LoadedFontSourc
     /// Also returns the index into the font (in case the font is a font collection).
     fn font_source_get_bytes_inner(font_source: &FontSource) -> Result<LoadedFontSource, FontReloadError> {
         use std::fs;
-        use azul_layout::text_layout::text_shaping::get_font_metrics_freetype;
+        use azulc::layout::text_layout::text_shaping::get_font_metrics_freetype;
 
         const DEFAULT_FONT_INDEX: i32 = 0;
 
@@ -221,7 +221,7 @@ fn decode_image_data(image_data: Vec<u8>) -> Result<LoadedImageSource, ImageErro
 /// Returns the font + the index of the font (in case the font is a collection)
 fn load_system_font(id: &str) -> Option<LoadedFontSource> {
     use font_loader::system_fonts::{self, FontPropertyBuilder};
-    use azul_layout::text_layout::text_shaping::get_font_metrics_freetype;
+    use azulc::layout::text_layout::text_shaping::get_font_metrics_freetype;
 
     let font_builder = match id {
         "monospace" => {
