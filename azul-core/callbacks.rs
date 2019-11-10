@@ -12,14 +12,13 @@ use azul_css::{LayoutPoint, LayoutRect, CssPath};
 use azul_css_parser::CssPathParseError;
 use crate::{
     FastHashMap,
-    app_resources::{Words, WordPositions, ScaledWords, LayoutedGlyphs},
+    app_resources::{AppResources, IdNamespace, Words, WordPositions, ScaledWords, LayoutedGlyphs},
     dom::{Dom, DomId, TagId, NodeType, NodeData},
     display_list::CachedDisplayList,
     ui_state::UiState,
     ui_description::UiDescription,
     ui_solver::{PositionedRectangle, LayoutedRectangle, ScrolledNodes, LayoutResult},
     id_tree::{NodeId, Node, NodeHierarchy},
-    app_resources::AppResources,
     window::{
         WindowSize, WindowState, FullWindowState,
         KeyboardState, MouseState, LogicalSize, PhysicalSize,
@@ -261,6 +260,22 @@ pub struct ScrollPosition {
     /// Where (measured from the top left corner) is the frame currently scrolled to?
     pub scroll_location: LayoutPoint,
 }
+
+#[derive(Copy, Clone, Eq, Hash, PartialEq, PartialOrd, Ord)]
+pub struct DocumentId(pub IdNamespace, pub u32);
+
+impl ::std::fmt::Display for DocumentId {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        write!(f, "DocumentId({}, {})", self.0, self.1)
+    }
+}
+
+impl ::std::fmt::Debug for DocumentId {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        write!(f, "{}", self)
+    }
+}
+
 
 #[derive(Copy, Clone, Eq, Hash, PartialEq, PartialOrd, Ord)]
 pub struct PipelineId(pub PipelineSourceId, pub u32);

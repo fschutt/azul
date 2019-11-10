@@ -13,11 +13,16 @@ use std::time::Duration;
 use azul_css::{Css, CssPath};
 #[cfg(debug_assertions)]
 #[cfg(not(test))]
-use azul_css::HotReloadHandler;
+use azul_css::{LayoutPoint, LayoutRect, HotReloadHandler};
 use crate::{
+    FastHashMap,
+    app_resources::Epoch,
     dom::{DomId, EventFilter},
     id_tree::NodeId,
-    callbacks::{Callback, DefaultCallback, HitTestItem, UpdateScreen, Redraw},
+    callbacks::{PipelineId, DocumentId, Callback, DefaultCallback, ScrollPosition, HitTestItem, UpdateScreen, Redraw},
+    ui_solver::{OverflowingScrollNode, ExternalScrollId, ScrolledNodes},
+    ui_state::UiState,
+    display_list::{SolvedLayoutCache, GlTextureCache, CachedDisplayList},
 };
 
 pub const DEFAULT_TITLE: &str = "Azul App";
@@ -241,6 +246,167 @@ pub struct DebugState {
     pub show_overdraw: bool,
     /// Toggles `webrender::DebugFlagsFGPU_CACHE_DBG`
     pub gpu_cache_dbg: bool,
+}
+
+
+#[derive(Debug, Default)]
+pub struct ScrollStates(pub FastHashMap<ExternalScrollId, ScrollState>);
+
+impl ScrollStates {
+
+    pub fn new() -> ScrollStates {
+        ScrollStates::default()
+    }
+
+    #[must_use]
+    pub fn get_scroll_position(&self, scroll_id: &ExternalScrollId) -> Option<LayoutPoint> {
+        self.0.get(&scroll_id).map(|entry| entry.get())
+    }
+
+    /// Set the scroll amount - does not update the `entry.used_this_frame`,
+    /// since that is only relevant when we are actually querying the renderer.
+    pub fn set_scroll_position(&mut self, node: &OverflowingScrollNode, scroll_position: LayoutPoint) {
+        self.0.entry(node.parent_external_scroll_id)
+        .or_insert_with(|| ScrollState::default())
+        .set(scroll_position.x, scroll_position.y, &node.child_rect);
+    }
+
+    /// NOTE: This has to be a getter, because we need to update
+    #[must_use]
+    pub fn get_scroll_position_and_mark_as_used(&mut self, scroll_id: &ExternalScrollId) -> Option<LayoutPoint> {
+        let entry = self.0.get_mut(&scroll_id)?;
+        Some(entry.get_and_mark_as_used())
+    }
+
+    /// Updating (add to) the existing scroll amount does not update the `entry.used_this_frame`,
+    /// since that is only relevant when we are actually querying the renderer.
+    pub fn scroll_node(&mut self, node: &OverflowingScrollNode, scroll_by_x: f32, scroll_by_y: f32) {
+        self.0.entry(node.parent_external_scroll_id)
+        .or_insert_with(|| ScrollState::default())
+        .add(scroll_by_x, scroll_by_y, &node.child_rect);
+    }
+
+    /// Removes all scroll states that weren't used in the last frame
+    pub fn remove_unused_scroll_states(&mut self) {
+        self.0.retain(|_, state| state.used_this_frame);
+    }
+}
+
+#[derive(Debug, Copy, Clone, PartialEq, PartialOrd)]
+pub struct ScrollState {
+    /// Amount in pixel that the current node is scrolled
+    pub scroll_position: LayoutPoint,
+    /// Was the scroll amount used in this frame?
+    pub used_this_frame: bool,
+}
+
+impl ScrollState {
+
+    /// Return the current position of the scroll state
+    pub fn get(&self) -> LayoutPoint {
+        self.scroll_position
+    }
+
+    /// Add a scroll X / Y onto the existing scroll state
+    pub fn add(&mut self, x: f32, y: f32, child_rect: &LayoutRect) {
+        self.scroll_position.x = (self.scroll_position.x + x).max(0.0).min(child_rect.size.width);
+        self.scroll_position.y = (self.scroll_position.y + y).max(0.0).min(child_rect.size.height);
+    }
+
+    /// Set the scroll state to a new position
+    pub fn set(&mut self, x: f32, y: f32, child_rect: &LayoutRect) {
+        self.scroll_position.x = x.max(0.0).min(child_rect.size.width);
+        self.scroll_position.y = y.max(0.0).min(child_rect.size.height);
+    }
+
+    /// Returns the scroll position and also set the "used_this_frame" flag
+    pub fn get_and_mark_as_used(&mut self) -> LayoutPoint {
+        self.used_this_frame = true;
+        self.scroll_position
+    }
+}
+
+impl Default for ScrollState {
+    fn default() -> Self {
+        ScrollState {
+            scroll_position: LayoutPoint::zero(),
+            used_this_frame: true,
+        }
+    }
+}
+
+/// Overwrites all fields of the `FullWindowState` with the fields of the `WindowState`,
+/// but leaves the extra fields such as `.hover_nodes` untouched
+pub fn update_full_window_state(
+    full_window_state: &mut FullWindowState,
+    window_state: &WindowState
+) {
+    full_window_state.title = window_state.title.clone();
+    full_window_state.size = window_state.size;
+    full_window_state.position = window_state.position;
+    full_window_state.flags = window_state.flags;
+    full_window_state.debug_state = window_state.debug_state;
+    full_window_state.keyboard_state = window_state.keyboard_state.clone();
+    full_window_state.mouse_state = window_state.mouse_state;
+    full_window_state.ime_position = window_state.ime_position;
+    full_window_state.platform_specific_options = window_state.platform_specific_options.clone();
+}
+
+/// Resets the mouse states `scroll_x` and `scroll_y` to 0
+pub fn clear_scroll_state(window_state: &mut FullWindowState) {
+    window_state.mouse_state.scroll_x = None;
+    window_state.mouse_state.scroll_y = None;
+}
+
+pub struct WindowInternal {
+    /// A "document" in WebRender usually corresponds to one tab (i.e. in Azuls case, the whole window).
+    pub document_id: DocumentId,
+    /// One "document" (tab) can have multiple "pipelines" (important for hit-testing).
+    ///
+    /// A document can have multiple pipelines, for example in Firefox the tab / navigation bar,
+    /// the actual browser window and the inspector are seperate pipelines, but contained in one document.
+    /// In Azul, one pipeline = one document (this could be improved later on).
+    pub pipeline_id: PipelineId,
+    /// The "epoch" is a frame counter, to remove outdated images, fonts and OpenGL textures
+    /// when they're not in use anymore.
+    pub epoch: Epoch,
+    /// Current display list active in this window (useful for debugging)
+    pub cached_display_list: CachedDisplayList,
+    /// Currently active, layouted rectangles
+    pub layout_result: SolvedLayoutCache,
+    /// Currently GL textures inside the active CachedDisplayList
+    pub gl_texture_cache: GlTextureCache,
+    /// Current scroll states of nodes (x and y position of where they are scrolled)
+    pub scrolled_nodes: BTreeMap<DomId, ScrolledNodes>,
+    /// States of scrolling animations, updated every frame
+    pub scroll_states: ScrollStates,
+}
+
+impl WindowInternal {
+
+    /// Returns a copy of the current scroll states + scroll positions
+    pub fn get_current_scroll_states<T>(&self, ui_states: &BTreeMap<DomId, UiState<T>>)
+    -> BTreeMap<DomId, BTreeMap<NodeId, ScrollPosition>>
+    {
+        self.scrolled_nodes.iter().filter_map(|(dom_id, scrolled_nodes)| {
+
+            let layout_result = self.layout_result.solved_layouts.get(dom_id)?;
+            let ui_state = &ui_states.get(dom_id)?;
+
+            let scroll_positions = scrolled_nodes.overflowing_nodes.iter().filter_map(|(node_id, overflowing_node)| {
+                let scroll_location = self.scroll_states.get_scroll_position(&overflowing_node.parent_external_scroll_id)?;
+                let parent_node = ui_state.get_dom().arena.node_hierarchy[*node_id].parent.unwrap_or(NodeId::ZERO);
+                let scroll_position = ScrollPosition {
+                    scroll_frame_rect: overflowing_node.child_rect,
+                    parent_rect: layout_result.rects[parent_node].to_layouted_rectangle(),
+                    scroll_location,
+                };
+                Some((*node_id, scroll_position))
+            }).collect();
+
+            Some((dom_id.clone(), scroll_positions))
+        }).collect()
+    }
 }
 
 /// State, size, etc of the window, for comparing to the last frame

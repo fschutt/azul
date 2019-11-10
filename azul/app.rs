@@ -718,6 +718,7 @@ fn send_user_event<'a, T>(
 ) {
 
     use azul_core::window::AzulUpdateEvent::*;
+    use crate::wr_translate::wr_translate_document_id;
 
     macro_rules! redraw_all_windows {() => {
         for (_, window) in eld.active_windows.iter() {
@@ -810,7 +811,7 @@ fn send_user_event<'a, T>(
 
             gl_textures_remove_active_pipeline(&w.internal.pipeline_id);
             eld.resources.delete_pipeline(&w.internal.pipeline_id, eld.render_api);
-            eld.render_api.api.delete_document(w.internal.document_id);
+            eld.render_api.api.delete_document(wr_translate_document_id(w.internal.document_id));
         },
         DoHitTest { window_id } => {
 
@@ -1069,7 +1070,7 @@ fn send_user_event<'a, T>(
             let window = eld.active_windows.get_mut(&glutin_window_id).unwrap();
             let mut txn = WrTransaction::new();
             scroll_all_nodes(&mut window.internal.scroll_states, &mut txn);
-            eld.render_api.api.send_transaction(window.internal.document_id, txn);
+            eld.render_api.api.send_transaction(wr_translate_document_id(window.internal.document_id), txn);
         },
         UpdateAnimations { window_id } => {
             // send transaction to update animations in WR
@@ -1291,7 +1292,11 @@ fn do_hit_test<T>(
     render_api: &WrApi,
 ) -> Vec<HitTestItem> {
 
-    use crate::wr_translate::{wr_translate_hittest_item, wr_translate_pipeline_id};
+    use crate::wr_translate::{
+        wr_translate_hittest_item, 
+        wr_translate_pipeline_id,
+        wr_translate_document_id,
+    };
 
     let cursor_location = match full_window_state.mouse_state.cursor_position.get_position() {
         Some(pos) => WorldPoint::new(pos.x, pos.y),
@@ -1300,7 +1305,7 @@ fn do_hit_test<T>(
 
     // Return callbacks front-to-back
     render_api.api.hit_test(
-        window.internal.document_id,
+        wr_translate_document_id(window.internal.document_id),
         Some(wr_translate_pipeline_id(window.internal.pipeline_id)),
         cursor_location,
         HitTestFlags::FIND_ALL
@@ -1560,6 +1565,7 @@ fn send_display_list_to_webrender<T>(
 ) {
     use crate::wr_translate::{
         wr_translate_pipeline_id,
+        wr_translate_document_id,
         wr_translate_display_list,
         wr_translate_epoch,
     };
@@ -1578,7 +1584,7 @@ fn send_display_list_to_webrender<T>(
         true,
     );
 
-    render_api.api.send_transaction(window.internal.document_id, txn);
+    render_api.api.send_transaction(wr_translate_document_id(window.internal.document_id), txn);
 }
 
 /// Scroll all nodes in the ScrollStates to their correct position and insert
@@ -1730,7 +1736,7 @@ fn render_inner<T>(
     scroll_all_nodes(&mut window.internal.scroll_states, &mut txn);
     txn.generate_frame();
 
-    render_api.api.send_transaction(window.internal.document_id, txn);
+    render_api.api.send_transaction(wr_translate::wr_translate_document_id(window.internal.document_id), txn);
 
     // Update WR texture cache
     renderer.update();

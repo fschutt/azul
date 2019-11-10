@@ -12,6 +12,7 @@ use webrender::api::{
     ImageKey as WrImageKey,
     IdNamespace as WrIdNamespace,
     PipelineId as WrPipelineId,
+    DocumentId as WrDocumentId,
     ColorU as WrColorU,
     ColorF as WrColorF,
     BorderRadius as WrBorderRadius,
@@ -59,7 +60,7 @@ use webrender::api::{
 };
 
 use azul_core::{
-    callbacks::{HitTestItem, PipelineId},
+    callbacks::{HitTestItem, PipelineId, DocumentId},
     app_resources::{
         FontKey, Au, FontInstanceKey, ImageKey,
         IdNamespace, RawImageFormat as ImageFormat, ImageDescriptor,
@@ -494,6 +495,11 @@ pub(crate) const fn translate_pipeline_id_wr(pipeline_id: WrPipelineId) -> Pipel
 }
 
 #[inline(always)]
+pub(crate) const fn translate_document_id_wr(document_id: WrDocumentId) -> DocumentId {
+    DocumentId(translate_id_namespace_wr(document_id.0), document_id.1)
+}
+
+#[inline(always)]
 pub(crate) const fn translate_font_key_wr(font_key: WrFontKey) -> FontKey {
     FontKey { key: font_key.1, namespace: translate_id_namespace_wr(font_key.0) }
 }
@@ -563,6 +569,11 @@ pub(crate) const fn wr_translate_image_key(image_key: ImageKey) -> WrImageKey {
 #[inline(always)]
 pub(crate) const fn wr_translate_pipeline_id(pipeline_id: PipelineId) -> WrPipelineId {
     WrPipelineId(pipeline_id.0, pipeline_id.1)
+}
+
+#[inline(always)]
+pub(crate) const fn wr_translate_document_id(document_id: DocumentId) -> WrDocumentId {
+    WrDocumentId(wr_translate_id_namespace(document_id.0), document_id.1)
 }
 
 #[inline(always)]

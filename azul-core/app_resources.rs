@@ -176,8 +176,20 @@ pub struct ImageDescriptor {
     pub allow_mipmaps: bool,
 }
 
-#[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
+#[derive(Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub struct IdNamespace(pub u32);
+
+impl ::std::fmt::Display for IdNamespace {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        write!(f, "IdNamespace({})", self.0)
+    }
+}
+
+impl ::std::fmt::Debug for IdNamespace {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        write!(f, "{}", self)
+    }
+}
 
 #[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub enum RawImageFormat {
