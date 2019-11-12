@@ -622,7 +622,7 @@ pub fn parse_component_arguments(input: &str) -> Result<ComponentArgumentsMap, C
 
 pub type FilteredComponentArguments = ComponentArguments;
 
-pub const DEFAULT_ARGS: [&str;6] = ["id", "class", "tabindex", "draggable", "focusable", "accepts-text"];
+pub const DEFAULT_ARGS: [&str;8] = ["id", "class", "tabindex", "draggable", "focusable", "accepts-text", "name", "args"];
 
 /// Filters the XML attributes of a component given XmlAttributeMap
 pub fn validate_and_filter_component_args(xml_attributes: &XmlAttributeMap, valid_args: &ComponentArguments)
@@ -1059,24 +1059,6 @@ pub fn parse_bool(input: &str) -> Option<bool> {
         _ => None,
     }
 }
-
-/*
-/// Filter all `<component />` nodes and return references to them
-pub fn get_all_component_nodes(root_nodes: &[XmlNode]) -> Result<Vec<&XmlNode>, ComponentParseError> {
-
-    let mut vec = Vec::new();
-
-    for node in root_nodes {
-        match DynamicXmlComponent::new(node.clone()) {
-            Ok(_) => { vec.push(node); },
-            Err(ComponentParseError::NotAComponent) => { }, // not a <component /> node, ignore
-            Err(e) => return Err(e), // Error during parsing the XML component, bail
-        }
-    }
-
-    Ok(vec)
-}
-*/
 
 pub fn render_component_inner<T>(
     map: &mut BTreeMap<ComponentName, (CompiledComponent, FilteredComponentArguments)>,
