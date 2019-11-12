@@ -135,6 +135,9 @@ pub trait XmlComponent<T> {
     fn render_dom(&self, components: &XmlComponentMap<T>, arguments: &FilteredComponentArguments, content: &XmlTextContent) -> Result<Dom<T>, RenderDomError>;
     /// Used to compile the XML component to Rust code - input
     fn compile_to_rust_code(&self, components: &XmlComponentMap<T>, attributes: &FilteredComponentArguments, content: &XmlTextContent) -> Result<String, CompileError>;
+    /// Returns the XML node for this component (necessary to compile the component into a function
+    /// during the Rust compilation stage)
+    fn get_xml_node(&self) -> XmlNode;
 }
 
 pub struct DomXml<T> {
@@ -235,6 +238,13 @@ pub struct DynamicXmlComponent {
 impl DynamicXmlComponent {
     /// Parses a `component` from an XML node
     pub fn new(root: XmlNode) -> Result<Self, ComponentParseError> {
+
+        let node_type = normalize_casing(&root.node_type);
+
+        if node_type.as_str() != "component" {
+            return Err(ComponentParseError::NotAComponent);
+        }
+
         let name = root.attributes.get("name").cloned().ok_or(ComponentParseError::NotAComponent)?;
         let accepts_text = root.attributes.get("accepts-text").and_then(|p| parse_bool(p.as_str())).unwrap_or(false);
 
@@ -258,6 +268,10 @@ impl<T> XmlComponent<T> for DynamicXmlComponent {
 
     fn get_available_arguments(&self) -> ComponentArguments {
         self.arguments.clone()
+    }
+
+    fn get_xml_node(&self) -> XmlNode {
+        self.root.clone()
     }
 
     fn render_dom(
@@ -731,12 +745,11 @@ pub fn str_to_rust_code(
     get_xml_components(&root_nodes, component_map).map_err(|e| format!("Error parsing component: {}", e))?;
     // TODO: 
     let body_node = get_body_node(&root_nodes).map_err(|e| format!("Could not find <body /> node: {}", e))?;
-    let root_components = filter_xml_components(&root_nodes).map_err(|e| format!("Error parsing component: {}", e))?;
     let app_source = compile_body_node_to_rust_code(&body_node, &component_map)?;
     let app_source = app_source.lines().map(|l| format!("        {}", l)).collect::<Vec<String>>().join("\r\n");
 
-    let source_code = format!("{}\r\n\r\n{}\r\n{}\r\n{}", HEADER_WARNING, imports,
-        compile_components(compile_components_to_rust_code(&root_components, &component_map)?),
+    let source_code = format!("{}\r\n\r\n{}\r\n\r\n{}\r\n\r\n{}", HEADER_WARNING, imports,
+        compile_components(compile_components_to_rust_code(&component_map)?),
         format!("impl Layout for YourType {{\r\n    fn layout(&self, _info: LayoutInfo) -> Dom<YourType> {{\r\n{}\r\n    }}\r\n}}",
             app_source
         ),
@@ -757,13 +770,19 @@ pub fn compile_component(
     component_args: &FilteredComponentArguments, 
     component_function_body: &str, 
 ) -> String {
+    
+    let function_args = format_component_args(component_args);
+    let component_function_body = component_function_body.lines().map(|l| format!("    {}", l)).collect::<Vec<String>>().join("\r\n");
+    let should_inline = component_function_body.lines().count() == 1;
     format!(
-        "fn render_component_{}{}({}{}) {{\r\n{}\r\n}}",
+        "{}fn render_component_{}{}({}{}{}) -> Dom<T> {{\r\n{}\r\n}}",
+        if should_inline { "#[inline]\r\n" } else { "" },
         normalize_casing(component_name),
         // pass the text content as the first 
-        if component_args.accepts_text { "<I: Into<DomString>>" } else { "" },
-        if component_args.accepts_text { "text: I, " } else { "" },
-        format_component_args(component_args),
+        if component_args.accepts_text { "<T: Layout, I: Into<DomString>>" } else { "<T: Layout>" },
+        if component_args.accepts_text { "text: I" } else { "" },
+        if !function_args.is_empty() { ", " } else { "" },
+        function_args,
         component_function_body,
     )
 }
@@ -1041,8 +1060,9 @@ pub fn parse_bool(input: &str) -> Option<bool> {
     }
 }
 
+/*
 /// Filter all `<component />` nodes and return references to them
-pub fn filter_xml_components(root_nodes: &[XmlNode]) -> Result<Vec<&XmlNode>, ComponentParseError> {
+pub fn get_all_component_nodes(root_nodes: &[XmlNode]) -> Result<Vec<&XmlNode>, ComponentParseError> {
 
     let mut vec = Vec::new();
 
@@ -1056,10 +1076,12 @@ pub fn filter_xml_components(root_nodes: &[XmlNode]) -> Result<Vec<&XmlNode>, Co
 
     Ok(vec)
 }
+*/
 
 pub fn render_component_inner<T>(
     map: &mut BTreeMap<ComponentName, (CompiledComponent, FilteredComponentArguments)>,
-    xml_node: &XmlNode,
+    component_name: String,
+    (renderer, inherit_variables): &(Box<dyn XmlComponent<T>>, bool),
     component_map: &XmlComponentMap<T>,
     parent_xml_attributes: &FilteredComponentArguments,
     tabs: usize,
@@ -1067,10 +1089,8 @@ pub fn render_component_inner<T>(
 
     let t = String::from("    ").repeat(tabs);
 
-    let component_name = normalize_casing(&xml_node.node_type);
-
-    let (renderer, inherit_variables) = component_map.components.get(&component_name)
-        .ok_or(RenderDomError::UnknownComponent(component_name.clone()))?;
+    let component_name = normalize_casing(&component_name);
+    let xml_node = renderer.get_xml_node();
 
     // Arguments of the current node
     let available_function_args = renderer.get_available_arguments();
@@ -1104,18 +1124,13 @@ pub fn render_component_inner<T>(
 
 /// Takes all components and generates the source code function from them
 pub fn compile_components_to_rust_code<T>(
-    components_to_compile: &[&XmlNode], 
     components: &XmlComponentMap<T>
 ) -> Result<BTreeMap<ComponentName, (CompiledComponent, FilteredComponentArguments)>, CompileError> {
-    
+
     let mut map = BTreeMap::new();
 
-    // for xml_node in components_to_compile {
-    //     render_component_inner(&mut map, xml_node, components, &FilteredComponentArguments::default(), 0)?;
-    // }
-
-    for xml_node in components_to_compile {
-        render_component_inner(&mut map, xml_node, components, &FilteredComponentArguments::default(), 0)?;
+    for (xml_node_name, xml_component) in &components.components {
+        render_component_inner(&mut map, xml_node_name.clone(), xml_component, &components, &FilteredComponentArguments::default(), 0)?;
     }
 
     Ok(map)
@@ -1210,6 +1225,10 @@ impl<T> XmlComponent<T> for DivRenderer {
     fn compile_to_rust_code(&self, _: &XmlComponentMap<T>, _: &FilteredComponentArguments, _: &XmlTextContent) -> Result<String, CompileError> {
         Ok("Dom::div()".into())
     }
+
+    fn get_xml_node(&self) -> XmlNode {
+        XmlNode::new("div")
+    }
 }
 
 /// Render for a `body` component
@@ -1228,6 +1247,10 @@ impl<T> XmlComponent<T> for BodyRenderer {
 
     fn compile_to_rust_code(&self, _: &XmlComponentMap<T>, _: &FilteredComponentArguments, _: &XmlTextContent) -> Result<String, CompileError> {
         Ok("Dom::body()".into())
+    }
+
+    fn get_xml_node(&self) -> XmlNode {
+        XmlNode::new("body")
     }
 }
 
@@ -1254,6 +1277,10 @@ impl<T> XmlComponent<T> for TextRenderer {
             Some(c) => format!("Dom::label(format!(\"{}\", {}))", c, args.args.keys().map(|s| s.as_str()).collect::<Vec<&str>>().join(", ")),
             None => format!("Dom::label(\"\")"),
         })
+    }
+
+    fn get_xml_node(&self) -> XmlNode {
+        XmlNode::new("p")
     }
 }
 
