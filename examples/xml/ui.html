@@ -1,0 +1,26 @@
+<head>
+  <!-- Browser-only CSS -->
+  <style>
+    * { margin: 0; padding: 0; } 
+    component { display: none !important; }
+  </style>
+
+  <!-- One component = one function -->
+  <!-- Here we define a component "a" that has a "href" attribute -->
+  <!-- and accepts text content ast its child -->
+  <component name="a" accepts-text="true" args="href: String">
+      <p class=".__azul_native_hyperlink">{{ text }}</p>
+  </component>
+</head>
+
+<body>
+  <div id="test">
+      <div class="child"></div>
+  </div>
+  <div id="b"></div>
+  <div id="c" class="btn highlight-danger"></div>
+  <p>Hello
+    <!-- Component gets instantiated here -->
+    <a href=".">World</a>
+  </p>
+</body>

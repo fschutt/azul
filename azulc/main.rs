@@ -18,7 +18,7 @@ pub fn compile_css_to_rust_code(_input: &str) -> String {
 }
 
 fn print_help() {
-    eprintln!("usage: azulc [file.xml | .html] [--rust | --cascade | --display-list widthxheight]");
+    eprintln!("usage: azulc [file.xml | .html] [--rust | --cascade | --dom | --display-list widthxheight]");
     eprintln!("usage: azulc file.css");
 }
 

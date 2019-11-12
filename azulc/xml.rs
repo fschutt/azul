@@ -3,6 +3,7 @@
 use std::{fmt, collections::BTreeMap, path::Path};
 use azul_core::dom::Dom;
 use xmlparser::Tokenizer;
+use crate::Dummy;
 pub use xmlparser::{Error as XmlError, TokenType, TextPos, StreamError};
 
 /// Error that can happen during hot-reload -
@@ -622,7 +623,7 @@ pub fn parse_component_arguments(input: &str) -> Result<ComponentArgumentsMap, C
 
 pub type FilteredComponentArguments = ComponentArguments;
 
-pub const DEFAULT_ARGS: [&str;8] = ["id", "class", "tabindex", "draggable", "focusable", "accepts-text", "name", "args"];
+pub const DEFAULT_ARGS: [&str;8] = ["id", "class", "tabindex", "draggable", "focusable", "accepts_text", "name", "args"];
 
 /// Filters the XML attributes of a component given XmlAttributeMap
 pub fn validate_and_filter_component_args(xml_attributes: &XmlAttributeMap, valid_args: &ComponentArguments)
@@ -717,7 +718,9 @@ pub fn get_xml_components<T>(root_nodes: &[XmlNode], components: &mut XmlCompone
 /// Parses an XML string and returns a `Dom` with the components instantiated in the `<app></app>`
 pub fn str_to_dom<T>(xml: &str, component_map: &mut XmlComponentMap<T>) -> Result<Dom<T>, XmlParseError> {
     let root_nodes = parse_xml_string(xml)?;
-    get_xml_components(&root_nodes, component_map)?;
+    if let Some(head_node) = root_nodes.iter().find(|n| normalize_casing(&n.node_type).as_str() == "head") {
+        get_xml_components(&head_node.children, component_map)?;
+    }
     let body_node = get_body_node(&root_nodes)?;
     render_dom_from_body_node(&body_node, component_map).map_err(|e| e.into())
 }
@@ -730,8 +733,6 @@ pub fn format_component_args(component_args: &FilteredComponentArguments) -> Str
     args.join(" ")
 }
 
-pub struct Dummy;
-
 /// Parses an XML string and returns a `String`, which contains the Rust source code
 /// (i.e. it compiles the XML to valid Rust)
 pub fn str_to_rust_code(
@@ -742,8 +743,10 @@ pub fn str_to_rust_code(
 
     const HEADER_WARNING: &str = "//! Auto-generated UI source code";
 
-    get_xml_components(&root_nodes, component_map).map_err(|e| format!("Error parsing component: {}", e))?;
-    // TODO: 
+    if let Some(head_node) = root_nodes.iter().find(|n| normalize_casing(&n.node_type).as_str() == "head") {
+        get_xml_components(&head_node.children, component_map).map_err(|e| format!("Error parsing component: {}", e))?;
+    }
+
     let body_node = get_body_node(&root_nodes).map_err(|e| format!("Could not find <body /> node: {}", e))?;
     let app_source = compile_body_node_to_rust_code(&body_node, &component_map)?;
     let app_source = app_source.lines().map(|l| format!("        {}", l)).collect::<Vec<String>>().join("\r\n");
@@ -1070,6 +1073,7 @@ pub fn render_component_inner<T>(
 ) -> Result<(), CompileError> {
 
     let t = String::from("    ").repeat(tabs);
+    let t1 = String::from("    ").repeat(tabs + 1);
 
     let component_name = normalize_casing(&component_name);
     let xml_node = renderer.get_xml_node();
@@ -1094,8 +1098,8 @@ pub fn render_component_inner<T>(
     set_stringified_attributes(&mut dom_string, &xml_node.attributes, &filtered_xml_attributes.args, tabs + 1);
 
     for child_node in &xml_node.children {
-        dom_string.push_str(&format!(".with_child(\r\n{}\r\n{})", 
-            compile_node_to_rust_code_inner(child_node, component_map, &filtered_xml_attributes, tabs + 1)?, t,
+        dom_string.push_str(&format!("\r\n{}.with_child(\r\n{}{}\r\n{})", 
+            t, t1, compile_node_to_rust_code_inner(child_node, component_map, &filtered_xml_attributes, tabs + 1)?, t,
         ));
     }
 
@@ -1112,7 +1116,7 @@ pub fn compile_components_to_rust_code<T>(
     let mut map = BTreeMap::new();
 
     for (xml_node_name, xml_component) in &components.components {
-        render_component_inner(&mut map, xml_node_name.clone(), xml_component, &components, &FilteredComponentArguments::default(), 0)?;
+        render_component_inner(&mut map, xml_node_name.clone(), xml_component, &components, &FilteredComponentArguments::default(), 1)?;
     }
 
     Ok(map)
@@ -1168,7 +1172,9 @@ pub fn compile_node_to_rust_code_inner<T>(
     
     let text_as_first_arg = 
         if filtered_xml_attributes.accepts_text { 
-            format!("\"{}\"{}", node.text.clone().unwrap_or_default(), if !instantiated_function_arguments.is_empty() { ", " } else { "" }) 
+            let mut node_text = node.text.clone();
+            if let Some(t) = &mut node_text { *t = t.trim().to_string(); }
+            format!("\"{}\"{}", node_text.unwrap_or_default(), if !instantiated_function_arguments.is_empty() { ", " } else { "" }) 
         } else { 
             String::new()
         };
@@ -1255,10 +1261,7 @@ impl<T> XmlComponent<T> for TextRenderer {
     }
 
     fn compile_to_rust_code(&self, _: &XmlComponentMap<T>, args: &FilteredComponentArguments, content: &XmlTextContent) -> Result<String, CompileError> {
-        Ok(match content {
-            Some(c) => format!("Dom::label(format!(\"{}\", {}))", c, args.args.keys().map(|s| s.as_str()).collect::<Vec<&str>>().join(", ")),
-            None => format!("Dom::label(\"\")"),
-        })
+        Ok(String::from("Dom::label(text)"))
     }
 
     fn get_xml_node(&self) -> XmlNode {
@@ -1271,7 +1274,7 @@ impl<T> XmlComponent<T> for TextRenderer {
 #[test]
 fn test_compile_dom_1() {
 
-    struct Dummy;
+    use crate::Dummy;
 
     // Test the output of a certain component
     fn test_component_source_code(input: &str, component_name: &str, expected: &str) {
@@ -1303,9 +1306,9 @@ fn test_compile_dom_1() {
             <div id="a" class="b" draggable="true"></div>
         </component>
 
-        <app>
+        <body>
             <Test />
-        </app>
+        </body>
     "#;
     let s1_expected = r#"
         fn render_component_test<T>() -> Dom<T> {

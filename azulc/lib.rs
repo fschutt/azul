@@ -20,14 +20,16 @@ use azul_core::{
 };
 use azul_css::LayoutSize;
 
+pub struct Dummy;
+
 #[no_mangle]
 pub fn compile_xml_to_rust_code(_input: &str) -> String {
     String::new() // TODO
 }
 
 #[no_mangle]
-pub fn compile_xml_to_dom<T>(_input: &str) -> Dom<T> {
-    Dom::div() // TODO
+pub fn compile_xml_to_html(_input: &str) -> String {
+    Dom::<Dummy>::div().get_html_string() // TODO
 }
 
 #[no_mangle]
