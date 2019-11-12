@@ -729,29 +729,40 @@ pub fn str_to_rust_code(
     const HEADER_WARNING: &str = "//! Auto-generated UI source code";
 
     get_xml_components(&root_nodes, component_map).map_err(|e| format!("Error parsing component: {}", e))?;
+    // TODO: 
     let body_node = get_body_node(&root_nodes).map_err(|e| format!("Could not find <body /> node: {}", e))?;
     let root_components = filter_xml_components(&root_nodes).map_err(|e| format!("Error parsing component: {}", e))?;
-    let components_source = compile_components_to_rust_code(&root_components, &component_map)?;
     let app_source = compile_body_node_to_rust_code(&body_node, &component_map)?;
+    let app_source = app_source.lines().map(|l| format!("        {}", l)).collect::<Vec<String>>().join("\r\n");
 
     let source_code = format!("{}\r\n\r\n{}\r\n{}\r\n{}", HEADER_WARNING, imports,
-        compile_components(components_source),
-        app_source,
+        compile_components(compile_components_to_rust_code(&root_components, &component_map)?),
+        format!("impl Layout for YourType {{\r\n    fn layout(&self, _info: LayoutInfo) -> Dom<YourType> {{\r\n{}\r\n    }}\r\n}}",
+            app_source
+        ),
     );
 
     Ok(source_code)
 }
 
+// Compile all components to source code
 pub fn compile_components(components: BTreeMap<ComponentName, (CompiledComponent, FilteredComponentArguments)>) -> String {
     components.iter().map(|(name, (function_body, function_args))| {
         compile_component(name, function_args, function_body)
     }).collect::<Vec<String>>().join("\r\n\r\n")
 }
 
-pub fn compile_component(component_name: &str, component_args: &FilteredComponentArguments, component_function_body: &str) -> String {
+pub fn compile_component(
+    component_name: &str, 
+    component_args: &FilteredComponentArguments, 
+    component_function_body: &str, 
+) -> String {
     format!(
-        "fn render_component_{}({}) {{\r\n{}\r\n}}",
+        "fn render_component_{}{}({}{}) {{\r\n{}\r\n}}",
         normalize_casing(component_name),
+        // pass the text content as the first 
+        if component_args.accepts_text { "<I: Into<DomString>>" } else { "" },
+        if component_args.accepts_text { "text: I, " } else { "" },
         format_component_args(component_args),
         component_function_body,
     )
@@ -865,21 +876,21 @@ pub fn set_stringified_attributes(
     if let Some(ids) = xml_attributes.get("id") {
         let ids = ids
             .split_whitespace()
-            .map(|id| format!("DomString::Static(\"{}\")", format_args_dynamic(id, &filtered_xml_attributes)))
+            .map(|id| format!("{}.with_id(\"{}\")", t, format_args_dynamic(id, &filtered_xml_attributes)))
             .collect::<Vec<String>>()
-            .join(", ");
+            .join("\r\n");
 
-        dom_string.push_str(&format!("\r\n{}.with_ids(vec![{}])", t, ids));
+        dom_string.push_str(&format!("\r\n{}", ids));
     }
 
     if let Some(classes) = xml_attributes.get("class") {
         let classes = classes
             .split_whitespace()
-            .map(|class| format!("DomString::Static(\"{}\")", format_args_dynamic(class, &filtered_xml_attributes)))
+            .map(|class| format!("{}.with_class(\"{}\")", t, format_args_dynamic(class, &filtered_xml_attributes)))
             .collect::<Vec<String>>()
-            .join(", ");
+            .join("\r\n");
 
-        dom_string.push_str(&format!("\r\n{}.with_classes(vec![{}])", t, classes));
+        dom_string.push_str(&format!("\r\n{}", classes));
     }
 
     if let Some(drag) = xml_attributes.get("draggable")
@@ -1078,11 +1089,11 @@ pub fn render_component_inner<T>(
     let text = xml_node.text.as_ref().map(|t| format_args_dynamic(t, &filtered_xml_attributes.args));
 
     let mut dom_string = renderer.compile_to_rust_code(component_map, &filtered_xml_attributes, &text)?;
-    set_stringified_attributes(&mut dom_string, &xml_node.attributes, &filtered_xml_attributes.args, tabs);
+    set_stringified_attributes(&mut dom_string, &xml_node.attributes, &filtered_xml_attributes.args, tabs + 1);
 
     for child_node in &xml_node.children {
-        dom_string.push_str(&format!("\r\n{}.with_child({})", 
-            t, compile_node_to_rust_code_inner(child_node, component_map, &filtered_xml_attributes, tabs + 1)?,
+        dom_string.push_str(&format!(".with_child(\r\n{}\r\n{})", 
+            compile_node_to_rust_code_inner(child_node, component_map, &filtered_xml_attributes, tabs + 1)?, t,
         ));
     }
 
@@ -1096,6 +1107,7 @@ pub fn compile_components_to_rust_code<T>(
     components_to_compile: &[&XmlNode], 
     components: &XmlComponentMap<T>
 ) -> Result<BTreeMap<ComponentName, (CompiledComponent, FilteredComponentArguments)>, CompileError> {
+    
     let mut map = BTreeMap::new();
 
     // for xml_node in components_to_compile {
@@ -1110,9 +1122,13 @@ pub fn compile_components_to_rust_code<T>(
 }
 
 pub fn compile_body_node_to_rust_code<T>(body_node: &XmlNode, component_map: &XmlComponentMap<T>) -> Result<String, CompileError> {
+    let t = "    ";
+    let t2 = "        ";
     let mut dom_string = String::from("Dom::body()");
     for child_node in &body_node.children {
-        dom_string.push_str(&format!("\r\n    .with_child({})", compile_node_to_rust_code_inner(child_node, component_map, &FilteredComponentArguments::default(), 1)?));
+        dom_string.push_str(&format!("\r\n{}.with_child(\r\n{}{}\r\n{})", 
+            t, t2, compile_node_to_rust_code_inner(child_node, component_map, &FilteredComponentArguments::default(), 2)?, t
+        ));
     }
     let dom_string = dom_string.trim();
     Ok(dom_string.to_string())
@@ -1126,6 +1142,7 @@ pub fn compile_node_to_rust_code_inner<T>(
 ) -> Result<String, CompileError> {
     
     let t = String::from("    ").repeat(tabs);
+    let t2 = String::from("    ").repeat(tabs + 1);
 
     let component_name = normalize_casing(&node.node_type);
 
@@ -1152,12 +1169,23 @@ pub fn compile_node_to_rust_code_inner<T>(
     .collect::<Vec<String>>()
     .join(", ");
     
+    let text_as_first_arg = 
+        if filtered_xml_attributes.accepts_text { 
+            format!("\"{}\"{}", node.text.clone().unwrap_or_default(), if !instantiated_function_arguments.is_empty() { ", " } else { "" }) 
+        } else { 
+            String::new()
+        };
+
     // The dom string is the function name
-    let mut dom_string = format!("render_component_{}({})", component_name, instantiated_function_arguments);
-    set_stringified_attributes(&mut dom_string, &node.attributes, &filtered_xml_attributes.args, tabs);
+    let mut dom_string = format!("render_component_{}({}{})", component_name, text_as_first_arg, instantiated_function_arguments);
+    set_stringified_attributes(&mut dom_string, &node.attributes, &filtered_xml_attributes.args, tabs + 1);
 
     for child_node in &node.children {
-        dom_string.push_str(&format!("\r\n{}.with_child({})", t, compile_node_to_rust_code_inner(child_node, component_map, &filtered_xml_attributes, tabs + 1)?));
+        dom_string.push_str(
+            &format!("\r\n{}.with_child(\r\n{}{}\r\n{})", 
+                t, t2, compile_node_to_rust_code_inner(child_node, component_map, &filtered_xml_attributes, tabs + 1)?, t
+            )
+        );
     }
 
     Ok(dom_string)
