@@ -248,7 +248,7 @@ impl DynamicXmlComponent {
         }
 
         let name = root.attributes.get("name").cloned().ok_or(ComponentParseError::NotAComponent)?;
-        let accepts_text = root.attributes.get("accepts-text").and_then(|p| parse_bool(p.as_str())).unwrap_or(false);
+        let accepts_text = root.attributes.get("accepts_text").and_then(|p| parse_bool(p.as_str())).unwrap_or(false);
 
         let args = match root.attributes.get("args") {
             Some(s) => parse_component_arguments(s)?,
