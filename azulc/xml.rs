@@ -774,7 +774,7 @@ pub fn compile_component(
     component_function_body: &str, 
 ) -> String {
     
-    let function_args = format_component_args(component_args);
+    let function_args = format_component_args(component_args);    
     let component_function_body = component_function_body.lines().map(|l| format!("    {}", l)).collect::<Vec<String>>().join("\r\n");
     let should_inline = component_function_body.lines().count() == 1;
     format!(
@@ -784,7 +784,7 @@ pub fn compile_component(
         // pass the text content as the first 
         if component_args.accepts_text { "<T: Layout, I: Into<DomString>>" } else { "<T: Layout>" },
         if component_args.accepts_text { "text: I" } else { "" },
-        if !function_args.is_empty() { ", " } else { "" },
+        if function_args.is_empty() || !component_args.accepts_text { "" } else { ", " },
         function_args,
         component_function_body,
     )
@@ -1080,7 +1080,7 @@ pub fn render_component_inner<T>(
 
     // Arguments of the current node
     let available_function_args = renderer.get_available_arguments();
-    let mut filtered_xml_attributes = validate_and_filter_component_args(&xml_node.attributes, &available_function_args)?;
+    let mut filtered_xml_attributes = available_function_args.clone(); // <- important, only for Rust code compilation
 
     if *inherit_variables {
         // Append all variables that are in scope for the parent node
@@ -1166,7 +1166,7 @@ pub fn compile_node_to_rust_code_inner<T>(
 
     let instantiated_function_arguments = filtered_xml_attributes.args.keys()
     .filter_map(|xml_attribute| node.attributes.get(xml_attribute))
-    .map(|s| s.to_string())
+    .map(|s| format!("\"{}\"", s))
     .collect::<Vec<String>>()
     .join(", ");
     
