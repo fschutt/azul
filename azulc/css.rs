@@ -16,7 +16,7 @@ pub fn css_to_rust_code(css: &Css) -> String {
 
         for block in &stylesheet.rules {
             output.push_str("\t\t\t\tCssRuleBlock: {\r\n");
-            output.push_str(&format!("\t\t\t\t\tpath: {:?},\r\n", block.path));
+            output.push_str(&format!("\t\t\t\t\tpath: {},\r\n", print_block_path(&block.path, 5)));
 
             output.push_str("\t\t\t\t\tdeclarations: [\r\n");
             
@@ -39,6 +39,69 @@ pub fn css_to_rust_code(css: &Css) -> String {
     let output = output.replace("\t", "    ");
 
     output
+}
+
+fn print_block_path(path: &CssPath, tabs: usize) -> String {
+    let t = String::from("    ").repeat(tabs);
+    let t1 = String::from("    ").repeat(tabs + 1);
+
+    format!("CssPath {{\r\n{}selectors: {}\r\n{}}}", t1, format_selectors(&path.selectors, tabs + 1), t)
+}
+
+fn format_selectors(selectors: &[CssPathSelector], tabs: usize) -> String {
+    let t = String::from("    ").repeat(tabs);
+    let t1 = String::from("    ").repeat(tabs + 1);
+
+    let selectors_formatted = selectors.iter()
+    .map(|s| format!("{}{},", t1, format_single_selector(s, tabs + 1)))
+    .collect::<Vec<String>>()
+    .join("\r\n");
+
+    format!("vec![\r\n{}\r\n{}]", selectors_formatted, t)
+}
+
+fn format_single_selector(p: &CssPathSelector, _tabs: usize) -> String {
+    match p {
+        CssPathSelector::Global => format!("CssPathSelector::Global"),
+        CssPathSelector::Type(ntp) => format!("CssPathSelector::Type({})", format_node_type(ntp)),
+        CssPathSelector::Class(class) => format!("CssPathSelector::Class(String::from({:?}))", class),
+        CssPathSelector::Id(id) => format!("CssPathSelector::Id(String::from({:?}))", id),
+        CssPathSelector::PseudoSelector(cps) => format!("CssPathSelector::PseudoSelector({})", format_pseudo_selector_type(cps)),
+        CssPathSelector::DirectChildren => format!("CssPathSelector::DirectChildren"),
+        CssPathSelector::Children => format!("CssPathSelector::Children"),
+    }
+}
+
+fn format_node_type(n: &NodeTypePath) -> &'static str {
+    match n {
+        NodeTypePath::Body => "NodeTypePath::Body",
+        NodeTypePath::Div => "NodeTypePath::Div",
+        NodeTypePath::P => "NodeTypePath::P",
+        NodeTypePath::Img => "NodeTypePath::Img",
+        NodeTypePath::Texture => "NodeTypePath::Texture",
+        NodeTypePath::IFrame => "NodeTypePath::IFrame",
+    }
+}
+
+fn format_pseudo_selector_type(p: &CssPathPseudoSelector) -> String {
+    match p {
+        CssPathPseudoSelector::First => format!("CssPathPseudoSelector::First"),
+        CssPathPseudoSelector::Last => format!("CssPathPseudoSelector::Last"),
+        CssPathPseudoSelector::NthChild(n) => format!("CssPathPseudoSelector::NthChild({})", format_nth_child_selector(n)),
+        CssPathPseudoSelector::Hover => format!("CssPathPseudoSelector::Hover"),
+        CssPathPseudoSelector::Active => format!("CssPathPseudoSelector::Active"),
+        CssPathPseudoSelector::Focus => format!("CssPathPseudoSelector::Focus"),
+    }
+}
+
+fn format_nth_child_selector(n: &CssNthChildSelector) -> String {
+    match n {
+        CssNthChildSelector::Number(num) => format!("CssNthChildSelector::Number({})", num),
+        CssNthChildSelector::Even => format!("CssNthChildSelector::Even"),
+        CssNthChildSelector::Odd => format!("CssNthChildSelector::Odd"),
+        CssNthChildSelector::Pattern { repeat, offset } => 
+            format!("CssNthChildSelector::Pattern {{ repeat: {}, offset: {} }}", repeat, offset),
+    }
 }
 
 fn print_declaraction(decl: &CssDeclaration, tabs: usize) -> String {
@@ -137,6 +200,68 @@ fn format_dynamic_css_prop(decl: &DynamicCssProperty, tabs: usize) -> String {
         t, decl.dynamic_id, t, format_static_css_prop(&decl.default_value, tabs + 1), t)
 }
 
+fn format_pixel_value(p: &PixelValue) -> String {
+    match p.metric {
+        SizeMetric::Px => format!("PixelValue::px({})", p.number.get()),
+        SizeMetric::Pt => format!("PixelValue::pt({})", p.number.get()),
+        SizeMetric::Em => format!("PixelValue::em({})", p.number.get()),
+        SizeMetric::Percent => format!("PixelValue::percent({})", p.number.get()),
+    }
+}
+
+fn format_size_metric(s: &SizeMetric) -> &'static str {
+    match s {
+        SizeMetric::Px => "SizeMetric::Px",
+        SizeMetric::Pt => "SizeMetric::Pt",
+        SizeMetric::Em => "SizeMetric::Em",
+        SizeMetric::Percent => "SizeMetric::Percent",
+    }
+}
+
+fn format_float_value(f: &FloatValue) -> String {
+    format!("FloatValue::from({})", f.get())
+}
+
+macro_rules! impl_float_value_fmt {($struct_name:ident) => (
+    impl FormatAsRustCode for $struct_name { 
+        fn format_as_rust_code(&self, _tabs: usize) -> String {
+            format!("{}({})", stringify!($struct_name), format_float_value(&self.0))
+        }
+    }
+)}
+
+impl_float_value_fmt!(LayoutFlexGrow);
+impl_float_value_fmt!(LayoutFlexShrink);
+
+macro_rules! impl_pixel_value_fmt {($struct_name:ident) => (
+    impl FormatAsRustCode for $struct_name { 
+        fn format_as_rust_code(&self, _tabs: usize) -> String {
+            format!("{}({})", stringify!($struct_name), format_pixel_value(&self.0))
+        }
+    }
+)}
+
+impl_pixel_value_fmt!(StyleBorderTopLeftRadius);
+impl_pixel_value_fmt!(StyleBorderBottomLeftRadius);
+impl_pixel_value_fmt!(StyleBorderTopRightRadius);
+impl_pixel_value_fmt!(StyleBorderBottomRightRadius);
+
+impl_pixel_value_fmt!(StyleBorderTopWidth);
+impl_pixel_value_fmt!(StyleBorderLeftWidth);
+impl_pixel_value_fmt!(StyleBorderRightWidth);
+impl_pixel_value_fmt!(StyleBorderBottomWidth);
+
+impl_pixel_value_fmt!(LayoutMarginTop);
+impl_pixel_value_fmt!(LayoutMarginBottom);
+impl_pixel_value_fmt!(LayoutMarginRight);
+impl_pixel_value_fmt!(LayoutMarginLeft);
+
+impl_pixel_value_fmt!(LayoutPaddingTop);
+impl_pixel_value_fmt!(LayoutPaddingBottom);
+impl_pixel_value_fmt!(LayoutPaddingRight);
+impl_pixel_value_fmt!(LayoutPaddingLeft);
+
+macro_rules! impl_color_value_fmt {($struct_name:ty) => ()}
 
 impl FormatAsRustCode for StyleTextColor { 
     fn format_as_rust_code(&self, _tabs: usize) -> String {
@@ -288,18 +413,6 @@ impl FormatAsRustCode for LayoutDirection {
     }
 }
 
-impl FormatAsRustCode for LayoutFlexGrow { 
-    fn format_as_rust_code(&self, _tabs: usize) -> String {
-        format!("{:?}", self)
-    }
-}
-
-impl FormatAsRustCode for LayoutFlexShrink { 
-    fn format_as_rust_code(&self, _tabs: usize) -> String {
-        format!("{:?}", self)
-    }
-}
-
 impl FormatAsRustCode for LayoutJustifyContent { 
     fn format_as_rust_code(&self, _tabs: usize) -> String {
         format!("{:?}", self)
@@ -348,78 +461,6 @@ impl FormatAsRustCode for Overflow {
     }
 }
 
-impl FormatAsRustCode for LayoutPaddingTop { 
-    fn format_as_rust_code(&self, _tabs: usize) -> String {
-        format!("{:?}", self)
-    }
-}
-
-impl FormatAsRustCode for LayoutPaddingLeft { 
-    fn format_as_rust_code(&self, _tabs: usize) -> String {
-        format!("{:?}", self)
-    }
-}
-
-impl FormatAsRustCode for LayoutPaddingRight { 
-    fn format_as_rust_code(&self, _tabs: usize) -> String {
-        format!("{:?}", self)
-    }
-}
-
-impl FormatAsRustCode for LayoutPaddingBottom { 
-    fn format_as_rust_code(&self, _tabs: usize) -> String {
-        format!("{:?}", self)
-    }
-}
-
-impl FormatAsRustCode for LayoutMarginTop { 
-    fn format_as_rust_code(&self, _tabs: usize) -> String {
-        format!("{:?}", self)
-    }
-}
-
-impl FormatAsRustCode for LayoutMarginLeft { 
-    fn format_as_rust_code(&self, _tabs: usize) -> String {
-        format!("{:?}", self)
-    }
-}
-
-impl FormatAsRustCode for LayoutMarginRight { 
-    fn format_as_rust_code(&self, _tabs: usize) -> String {
-        format!("{:?}", self)
-    }
-}
-
-impl FormatAsRustCode for LayoutMarginBottom { 
-    fn format_as_rust_code(&self, _tabs: usize) -> String {
-        format!("{:?}", self)
-    }
-}
-
-impl FormatAsRustCode for StyleBorderTopLeftRadius { 
-    fn format_as_rust_code(&self, _tabs: usize) -> String {
-        format!("{:?}", self)
-    }
-}
-
-impl FormatAsRustCode for StyleBorderTopRightRadius { 
-    fn format_as_rust_code(&self, _tabs: usize) -> String {
-        format!("{:?}", self)
-    }
-}
-
-impl FormatAsRustCode for StyleBorderBottomLeftRadius { 
-    fn format_as_rust_code(&self, _tabs: usize) -> String {
-        format!("{:?}", self)
-    }
-}
-
-impl FormatAsRustCode for StyleBorderBottomRightRadius { 
-    fn format_as_rust_code(&self, _tabs: usize) -> String {
-        format!("{:?}", self)
-    }
-}
-
 impl FormatAsRustCode for StyleBorderTopColor { 
     fn format_as_rust_code(&self, _tabs: usize) -> String {
         format!("{:?}", self)
@@ -444,58 +485,49 @@ impl FormatAsRustCode for StyleBorderBottomColor {
     }
 }
 
+fn format_border_style(b: &BorderStyle) -> &'static str {
+    match b {
+        BorderStyle::None => "BorderStyle::None",
+        BorderStyle::Solid => "BorderStyle::Solid",
+        BorderStyle::Double => "BorderStyle::Double",
+        BorderStyle::Dotted => "BorderStyle::Dotted",
+        BorderStyle::Dashed => "BorderStyle::Dashed",
+        BorderStyle::Hidden => "BorderStyle::Hidden",
+        BorderStyle::Groove => "BorderStyle::Groove",
+        BorderStyle::Ridge => "BorderStyle::Ridge",
+        BorderStyle::Inset => "BorderStyle::Inset",
+        BorderStyle::Outset => "BorderStyle::Outset",
+    }
+}
+
 impl FormatAsRustCode for StyleBorderTopStyle { 
-    fn format_as_rust_code(&self, _tabs: usize) -> String {
-        format!("{:?}", self)
+    fn format_as_rust_code(&self, tabs: usize) -> String {
+        format!("StyleBorderTopStyle({})", format_border_style(&self.0))
     }
 }
 
 impl FormatAsRustCode for StyleBorderRightStyle { 
-    fn format_as_rust_code(&self, _tabs: usize) -> String {
-        format!("{:?}", self)
+    fn format_as_rust_code(&self, tabs: usize) -> String {
+        format!("StyleBorderRightStyle({})", format_border_style(&self.0))
     }
 }
 
 impl FormatAsRustCode for StyleBorderLeftStyle { 
-    fn format_as_rust_code(&self, _tabs: usize) -> String {
-        format!("{:?}", self)
+    fn format_as_rust_code(&self, tabs: usize) -> String {
+        format!("StyleBorderLeftStyle({})", format_border_style(&self.0))
     }
 }
 
 impl FormatAsRustCode for StyleBorderBottomStyle { 
-    fn format_as_rust_code(&self, _tabs: usize) -> String {
-        format!("{:?}", self)
-    }
-}
-
-impl FormatAsRustCode for StyleBorderTopWidth { 
-    fn format_as_rust_code(&self, _tabs: usize) -> String {
-        format!("{:?}", self)
-    }
-}
-
-impl FormatAsRustCode for StyleBorderRightWidth { 
-    fn format_as_rust_code(&self, _tabs: usize) -> String {
-        format!("{:?}", self)
-    }
-}
-
-impl FormatAsRustCode for StyleBorderLeftWidth { 
-    fn format_as_rust_code(&self, _tabs: usize) -> String {
-        format!("{:?}", self)
-    }
-}
-
-impl FormatAsRustCode for StyleBorderBottomWidth { 
-    fn format_as_rust_code(&self, _tabs: usize) -> String {
-        format!("{:?}", self)
+    fn format_as_rust_code(&self, tabs: usize) -> String {
+        format!("StyleBorderBottomStyle({})", format_border_style(&self.0))
     }
 }
 
 impl FormatAsRustCode for BoxShadowPreDisplayItem { 
     fn format_as_rust_code(&self, tabs: usize) -> String {
         let t = String::from("    ").repeat(tabs);
-        format!("BoxShadowPreDisplayItem {{\r\n{}    offset: {:?}\r\n{}    color: {:?}\r\n{}    blur_radius: {:?}\r\n{}    spread_radius: {:?}\r\n{}    clip_mode: ClipMode::{:?}\r\n{}}}", 
+        format!("BoxShadowPreDisplayItem {{\r\n{}    offset: {:?},\r\n{}    color: {:?},\r\n{}    blur_radius: {:?},\r\n{}    spread_radius: {:?},\r\n{}    clip_mode: ClipMode::{:?},\r\n{}}}", 
             t, self.offset, t, self.color, t, self.blur_radius, t, self.spread_radius, t, self.clip_mode, t)
     }
 }
