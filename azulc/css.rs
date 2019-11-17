@@ -276,6 +276,7 @@ impl_pixel_value_fmt!(StyleBorderRightWidth);
 impl_pixel_value_fmt!(StyleBorderBottomWidth);
 impl_pixel_value_fmt!(StyleLetterSpacing);
 impl_pixel_value_fmt!(StyleWordSpacing);
+impl_pixel_value_fmt!(StyleFontSize);
 
 impl_pixel_value_fmt!(LayoutMarginTop);
 impl_pixel_value_fmt!(LayoutMarginBottom);
@@ -465,27 +466,122 @@ impl_enum_fmt!(StyleTextAlignmentHorz,
     Right
 );
 
-impl FormatAsRustCode for StyleFontSize { 
-    fn format_as_rust_code(&self, _tabs: usize) -> String {
-        format!("{:?}", self)
+impl_enum_fmt!(DirectionCorner,
+    Right,
+    Left,
+    Top,
+    Bottom,
+    TopRight,
+    TopLeft,
+    BottomRight,
+    BottomLeft
+);
+
+impl_enum_fmt!(ExtendMode,
+    Clamp,
+    Repeat
+);
+
+impl FormatAsRustCode for StyleBackgroundContent {
+    fn format_as_rust_code(&self, tabs: usize) -> String {
+        match self {
+            StyleBackgroundContent::LinearGradient(l) => format!("StyleBackgroundContent::LinearGradient({})", format_linear_gradient(l, tabs)),
+            StyleBackgroundContent::RadialGradient(r) => format!("StyleBackgroundContent::RadialGradient({})", format_radial_gradient(r, tabs)),
+            StyleBackgroundContent::Image(id) => format!("StyleBackgroundContent::Image({:?})", id),
+            StyleBackgroundContent::Color(c) => format!("StyleBackgroundContent::Color({})", format_color_value(c)),
+        }
     }
+}
+
+fn format_direction(d: &Direction, tabs: usize) -> String {
+    match d {
+        Direction::Angle(fv) => format!("Direction::Angle({})", format_float_value(fv)),
+        Direction::FromTo(from, to) => format!("Direction::FromTo({}, {})", 
+            from.format_as_rust_code(tabs + 1), to.format_as_rust_code(tabs + 1)
+        ),
+    }
+}
+
+fn format_linear_gradient(l: &LinearGradient, tabs: usize) -> String {
+    let t = String::from("    ").repeat(tabs);
+    let t1 = String::from("    ").repeat(tabs + 1);
+    format!("LinearGradient {{\r\n{}direction: {},\r\n{}extend_mode: {},\r\n{}stops: vec![\r\n{}{}\r\n{}],\r\n{}}}",
+        t1, format_direction(&l.direction, tabs + 1), t1, 
+        l.extend_mode.format_as_rust_code(tabs + 1), t1, 
+        t1, format_gradient_stops(&l.stops, tabs), t1, t,
+    )
+}
+
+fn format_gradient_stops(stops: &[GradientStopPre], tabs: usize) -> String {
+    let t = String::from("    ").repeat(tabs);
+    stops.iter()
+        .map(|s| format_gradient_stop(s))
+        .collect::<Vec<_>>()
+        .join(&format!(",\r\n{}", t))
+}
+
+fn format_radial_gradient(r: &RadialGradient, tabs: usize) -> String {
+    let t = String::from("    ").repeat(tabs);
+    let t1 = String::from("    ").repeat(tabs + 1);
+    format!("RadialGradient {{\r\n{}shape: {},\r\n{}extend_mode: {},\r\n{}stops: vec![\r\n{}{}\r\n{}],\r\n{}}}",
+        t1, r.shape.format_as_rust_code(tabs + 1), t1, 
+        r.extend_mode.format_as_rust_code(tabs + 1), t1, 
+        t1, format_gradient_stops(&r.stops, tabs + 1), t1, t,
+    )
+}
+
+fn format_gradient_stop(g: &GradientStopPre) -> String {
+    format!("GradientStopPre {{ offset: {}, color: {} }}",
+        g.offset.as_ref().map(|s| format_percentage_value(s)).unwrap_or(format!("None")),
+        format_color_value(&g.color),
+    )
+}
+
+fn format_font_ids(stops: &[FontId], tabs: usize) -> String {
+    let t = String::from("    ").repeat(tabs);
+    stops.iter()
+        .map(|s| format!("FontId({:?})", s.0))
+        .collect::<Vec<_>>()
+        .join(&format!(",\r\n{}", t))
 }
 
 impl FormatAsRustCode for StyleFontFamily { 
-    fn format_as_rust_code(&self, _tabs: usize) -> String {
-        format!("{:?}", self)
-    }
-}
-
-impl FormatAsRustCode for StyleBackgroundContent { 
-    fn format_as_rust_code(&self, _tabs: usize) -> String {
-        format!("{:?}", self)
+    fn format_as_rust_code(&self, tabs: usize) -> String {
+        let t = String::from("    ").repeat(tabs);
+        let t1 = String::from("    ").repeat(tabs + 1);
+        format!("StyleFontFamily {{ fonts: vec![\r\n{}{}\r\n{}]\r\n{}}}", 
+            t1, format_font_ids(&self.fonts, tabs + 1), t1, t
+        )
     }
 }
 
 impl FormatAsRustCode for StyleBackgroundPosition { 
-    fn format_as_rust_code(&self, _tabs: usize) -> String {
-        format!("{:?}", self)
+    fn format_as_rust_code(&self, tabs: usize) -> String {
+        let t = String::from("    ").repeat(tabs);
+        let t1 = String::from("    ").repeat(tabs + 1);
+        format!("StyleBackgroundPosition {{\r\n{}horizontal: {},\r\n{}vertical: {},\r\n{}}}",
+            t1, 
+            format_background_position_horizontal(&self.horizontal), t1, 
+            format_background_position_vertical(&self.vertical), t
+        )
+    }
+}
+
+fn format_background_position_horizontal(b: &BackgroundPositionHorizontal) -> String {
+    match b {
+        BackgroundPositionHorizontal::Left => format!("BackgroundPositionHorizontal::Left"),
+        BackgroundPositionHorizontal::Center => format!("BackgroundPositionHorizontal::Center"),
+        BackgroundPositionHorizontal::Right => format!("BackgroundPositionHorizontal::Right"),
+        BackgroundPositionHorizontal::Exact(p) => format!("BackgroundPositionHorizontal::Exact({})", format_pixel_value(p)),
+    }
+}
+
+fn format_background_position_vertical(b: &BackgroundPositionVertical) -> String {
+    match b {
+        BackgroundPositionVertical::Top => format!("BackgroundPositionVertical::Top"),
+        BackgroundPositionVertical::Center => format!("BackgroundPositionVertical::Center"),
+        BackgroundPositionVertical::Bottom => format!("BackgroundPositionVertical::Bottom"),
+        BackgroundPositionVertical::Exact(p) => format!("BackgroundPositionVertical::Exact({})", format_pixel_value(p)),
     }
 }
 
