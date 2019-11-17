@@ -153,7 +153,8 @@ impl<T> DomXml<T> {
     /// Note: Needs at least one `<app></app>` node in order to not fail
     #[inline]
     pub fn new(xml: &str, component_map: &mut XmlComponentMap<T>) -> Result<Self, XmlParseError> {
-        let dom = str_to_dom(xml, component_map)?;
+        let parsed_dom = parse_xml_string(xml)?;
+        let dom = str_to_dom(&parsed_dom, component_map)?;
         Ok(Self {
             original_string: xml.to_string(),
             parsed_dom: dom,
@@ -716,8 +717,7 @@ pub fn get_xml_components<T>(root_nodes: &[XmlNode], components: &mut XmlCompone
 }
 
 /// Parses an XML string and returns a `Dom` with the components instantiated in the `<app></app>`
-pub fn str_to_dom<T>(xml: &str, component_map: &mut XmlComponentMap<T>) -> Result<Dom<T>, XmlParseError> {
-    let root_nodes = parse_xml_string(xml)?;
+pub fn str_to_dom<T>(root_nodes: &[XmlNode], component_map: &mut XmlComponentMap<T>) -> Result<Dom<T>, XmlParseError> {
     if let Some(head_node) = root_nodes.iter().find(|n| normalize_casing(&n.node_type).as_str() == "head") {
         get_xml_components(&head_node.children, component_map)?;
     }

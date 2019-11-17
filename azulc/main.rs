@@ -75,29 +75,10 @@ fn main() {
         };
 
         // parse the XML
-        let mut component_map = XmlComponentMap::<Dummy>::default();
         let root_nodes = match parse_xml_string(&file_contents).ok() {
             Some(s) => s,
             None => {
                 eprintln!("error: input could not be parsed as xml");
-                print_help();
-                exit(-1);
-            }
-        };
-
-        match get_xml_components(&root_nodes, &mut component_map).ok() {
-            Some(s) => s,
-            None => {
-                eprintln!("error: could not parse XML components");
-                print_help();
-                exit(-1);
-            }
-        }
-
-        let body_node = match get_body_node(&root_nodes).ok() {
-            Some(s) => s,
-            None => {
-                eprintln!("error: no body / root node");
                 print_help();
                 exit(-1);
             }
@@ -116,7 +97,7 @@ fn main() {
                 println!("{}", compiled_source);
             },
             Action::PrintDom => {
-                let dom = match render_dom_from_body_node(&body_node, &component_map) {
+                let dom = match str_to_dom(&root_nodes, &mut XmlComponentMap::<Dummy>::default()) {
                     Ok(s) => s,
                     Err(e) => {
                         eprintln!("error: could not render DOM:\r\n{}", e);
