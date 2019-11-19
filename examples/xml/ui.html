@@ -5,10 +5,12 @@
     component { display: none !important; }
   </style>
 
+  <link rel="stylesheet" href="./xml.css" />
+  
   <!-- One component = one function -->
   <!-- Here we define a component "a" that has a "href" attribute -->
   <!-- and accepts text content ast its child -->
-  <component name="a" accepts-text="true" args="href: String">
+  <component name="a" accepts-text="true" args="href: String, blah: bool">
       <p class=".__azul_native_hyperlink">{{ text }}</p>
   </component>
 </head>
@@ -19,8 +21,5 @@
   </div>
   <div id="b"></div>
   <div id="c" class="btn highlight-danger"></div>
-  <p>Hello
-    <!-- Component gets instantiated here -->
-    <a href=".">World</a>
-  </p>
+  <p>Hello <a href="https://www.rust-lang.org/" blah="true">World</a></p>
 </body>

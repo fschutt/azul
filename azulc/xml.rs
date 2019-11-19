@@ -1,7 +1,12 @@
 #![allow(unused_variables)]
 
 use std::{fmt, collections::BTreeMap, path::Path};
-use azul_core::dom::Dom;
+use azul_core::{
+    ui_description::UiDescription,
+    ui_state::UiState,
+    dom::Dom
+};
+use azul_css::Css;
 use xmlparser::Tokenizer;
 use crate::Dummy;
 pub use xmlparser::{Error as XmlError, TokenType, TextPos, StreamError};
@@ -9,6 +14,20 @@ pub use xmlparser::{Error as XmlError, TokenType, TextPos, StreamError};
 /// Error that can happen during hot-reload -
 /// stringified, since it is only used for printing and is not exposed in the public API
 pub type SyntaxError = String;
+
+/// Error that can happen while a CSS file is being loaded from an XML file
+#[derive(Debug)]
+pub enum LoadStyleFileError {
+    NoStyleFileFound,
+    CssParseError(String),
+    IoError(::std::io::Error),
+}
+
+impl From<::std::io::Error> for LoadStyleFileError {
+    fn from(e: ::std::io::Error) -> Self {
+        LoadStyleFileError::IoError(e)
+    }
+}
 
 /// Tag of an XML node, such as the "button" in `<button>Hello</button>`.
 pub type XmlTagName = String;
@@ -141,6 +160,8 @@ pub trait XmlComponent<T> {
     fn get_xml_node(&self) -> XmlNode;
 }
 
+/// Wrapper for the XML parser - necessary to easily create a Dom from
+/// XML without putting an XML solver into `azul-core`.
 pub struct DomXml<T> {
     pub original_string: String,
     pub parsed_dom: Dom<T>,
@@ -476,6 +497,36 @@ impl fmt::Display for RenderDomError {
     }
 }
 
+/// Tries to look for a `<link type="stylesheet" href="blah.css" />`
+/// in the `<head>` node, then parse the CSS
+pub fn load_style_file_from_xml<I: AsRef<Path>>(html_path: I, xml: &[XmlNode]) 
+-> Result<Css, LoadStyleFileError> 
+{
+    use std::path::PathBuf;
+    use std::fs;
+
+    fn try_find_stylesheet_path(xml: &[XmlNode]) -> Option<String> {
+        let head_node = find_node_by_type(xml, "head")?;
+        let link_node = find_node_by_type(&head_node.children, "link")?;
+        if find_attribute(link_node, "rel")?.as_str() != "stylesheet" {
+            return None; 
+        }
+        find_attribute(link_node, "href").cloned()
+    }
+
+    let path = try_find_stylesheet_path(xml).ok_or(LoadStyleFileError::NoStyleFileFound)?;
+    let normalized_path = html_path.as_ref().join(PathBuf::from(path));
+    let file_contents = fs::read_to_string(&normalized_path)?;
+    let css = azul_css_parser::new_from_str(&file_contents)
+        .map_err(|e| LoadStyleFileError::CssParseError(format!("{}", e)))?; // have to return a String here due to lifetime in CssParseError
+    Ok(css)
+}
+
+pub fn cascade_dom<T>(dom: Dom<T>, css: &Css) -> UiDescription {
+    let mut ui_state = UiState::new(dom, None);
+    UiDescription::new(&mut ui_state, css, &None, &BTreeMap::new(), false)
+}
+
 /// Parses the XML string into an XML tree, returns
 /// the root `<app></app>` node, with the children attached to it.
 ///
@@ -716,9 +767,19 @@ pub fn get_xml_components<T>(root_nodes: &[XmlNode], components: &mut XmlCompone
     Ok(())
 }
 
+/// Searches in the the `root_nodes` for a `node_type`, convenience function in order to 
+/// for example find the first <blah /> node in all these nodes.
+pub fn find_node_by_type<'a>(root_nodes: &'a [XmlNode], node_type: &str) -> Option<&'a XmlNode> {
+    root_nodes.iter().find(|n| normalize_casing(&n.node_type).as_str() == node_type)
+}
+
+pub fn find_attribute<'a>(node: &'a XmlNode, attribute: &str) -> Option<&'a String> {
+    node.attributes.iter().find(|n| normalize_casing(&n.0).as_str() == attribute).map(|s| s.1)
+}
+
 /// Parses an XML string and returns a `Dom` with the components instantiated in the `<app></app>`
 pub fn str_to_dom<T>(root_nodes: &[XmlNode], component_map: &mut XmlComponentMap<T>) -> Result<Dom<T>, XmlParseError> {
-    if let Some(head_node) = root_nodes.iter().find(|n| normalize_casing(&n.node_type).as_str() == "head") {
+    if let Some(head_node) = find_node_by_type(root_nodes, "head") {
         get_xml_components(&head_node.children, component_map)?;
     }
     let body_node = get_body_node(&root_nodes)?;
@@ -726,11 +787,17 @@ pub fn str_to_dom<T>(root_nodes: &[XmlNode], component_map: &mut XmlComponentMap
 }
 
 pub fn format_component_args(component_args: &FilteredComponentArguments) -> String {
-    let mut args = Vec::new();
-    for (arg_name, arg_type) in &component_args.args {
-        args.push(format!("{}: {}", arg_name, arg_type));
-    }
-    args.join(" ")
+    
+/*
+    let mut args = component_args.args.iter().map(|(arg_name, (arg_type, arg_index))| {
+        (arg_index, format!("{}: {}", arg_name, arg_type))
+    }).collect::<Vec<(usize, String)>>();
+    
+    args.sort_by(|&(_, a), &(_, b)| b.0.cmp(&a.0));
+*/
+    let args_sorted = component_args.args.iter().map(|(k, v)| v.clone()).collect::<Vec<_>>();
+
+    args_sorted.join(", ")
 }
 
 /// Parses an XML string and returns a `String`, which contains the Rust source code

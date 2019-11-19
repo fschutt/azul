@@ -84,6 +84,11 @@ fn main() {
             }
         };
 
+        use std::path::Path;
+
+        let input_file_path = Path::new(&input_file);
+        let base = input_file_path.parent().and_then(|p| p.to_str()).unwrap_or("");
+
         match action {
             Action::PrintRustCode => {
                 let compiled_source = match str_to_rust_code(&root_nodes, "use azul_core::dom::*;", &mut XmlComponentMap::default()) {
@@ -109,17 +114,66 @@ fn main() {
                 println!("{}", dom.get_html_string());
             },
             Action::Cascade => {
-                println!("cascading dom + css!");
-                // println!("{:#?}", azul_core::style::cascade(&file_contents));
+                
+                let dom = match str_to_dom(&root_nodes, &mut XmlComponentMap::<Dummy>::default()) {
+                    Ok(s) => s,
+                    Err(e) => {
+                        eprintln!("error: could not render DOM:\r\n{}", e);
+                        print_help();
+                        exit(-1);
+                    }
+                };
+
+                // load the CSS file from the head -> link href="css" node
+                let css = match load_style_file_from_xml(base, &root_nodes) {
+                    Ok(s) => s,
+                    Err(e) => {
+                        eprintln!("error: could not find CSS file:\r\n{:?}", e);
+                        print_help();
+                        exit(-1);
+                    }
+                };
+
+                let ui_description = cascade_dom(dom, &css);
+                
+                println!("{:#?}", ui_description.styled_nodes);
             },
             Action::PrintDisplayList((w, h)) => {
-                println!("layouting to display list");
+
+                let dom = match str_to_dom(&root_nodes, &mut XmlComponentMap::<Dummy>::default()) {
+                    Ok(s) => s,
+                    Err(e) => {
+                        eprintln!("error: could not render DOM:\r\n{}", e);
+                        print_help();
+                        exit(-1);
+                    }
+                };
+
+                let css = match load_style_file_from_xml(base, &root_nodes) {
+                    Ok(s) => s,
+                    Err(e) => {
+                        eprintln!("error: could not find CSS file:\r\n{:?}", e);
+                        print_help();
+                        exit(-1);
+                    }
+                };
+                
+                let ui_description = cascade_dom(dom, &css);
+                println!("{:#?}", ui_description.styled_nodes);
+
                 // println!("{:#?}", azulc::compile_xml_to_display_list(&file_contents, w, h));
-            }
+            },
         }
     } else if input_file.ends_with(".css") {
         // compile CSS file to Rust code
-        let css = azul_css_parser::new_from_str(&file_contents).unwrap();
+        let css = match azul_css_parser::new_from_str(&file_contents) {
+            Ok(s) => s,
+            Err(e) => {
+                eprintln!("error: could not parse CSS:\r\n{}", e);
+                print_help();
+                exit(-1);
+            }
+        };
         println!("{}", azulc::css::css_to_rust_code(&css));
     } else if input_file == "--help" {
         print_help();
