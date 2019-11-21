@@ -1,5 +1,13 @@
 # Examples
 
+## How to run Examples
+
+To run an example:
+
+ 1. clone the project
+ 2. build it from the repository root `cargo build` 
+ 3. Run the desired example like this `cargo run --example <project_name>`. for example `cargo run --example calculator`
+
 ## `async`
 
 - Shows the use of `async::Task` to create a background thread to run a long-running task.
