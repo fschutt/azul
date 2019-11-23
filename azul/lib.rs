@@ -205,7 +205,6 @@ extern crate webrender;
 extern crate app_units;
 extern crate tinyfiledialogs;
 extern crate clipboard2;
-extern crate font_loader;
 extern crate gleam;
 #[cfg(feature = "css_parser")]
 extern crate azul_css_parser;
@@ -222,8 +221,6 @@ extern crate log;
 extern crate fern;
 #[cfg(feature = "logging")]
 extern crate backtrace;
-#[cfg(feature = "image_loading")]
-extern crate image;
 
 pub use azulc::xml;
 /// Manages application state (`App` / `AppState` / `AppResources`), wrapping resources and app state
@@ -304,13 +301,11 @@ pub mod prelude {
 
 /// Re-exports of errors
 pub mod errors {
-    pub use crate::{
-        resources::{ImageReloadError, FontReloadError},
-    };
     // TODO: re-export the sub-types of ClipboardError!
     pub use clipboard2::ClipboardError;
     pub use glutin::CreationError;
-
+    pub use azulc::image_loading::ImageReloadError;
+    pub use azulc::font_loading::FontReloadError;
     #[derive(Debug)]
     pub enum Error {
         Resource(ResourceReloadError),

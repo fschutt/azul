@@ -327,6 +327,7 @@ pub struct HitTestItem {
 /// ```
 ///
 /// This is necessary to work around for https://github.com/rust-lang/rust/issues/54508
+#[macro_export]
 macro_rules! impl_callback {($callback_value:ident<$t:ident>) => (
 
     impl<$t> ::std::fmt::Display for $callback_value<$t> {
@@ -377,6 +378,7 @@ macro_rules! impl_callback {($callback_value:ident<$t:ident>) => (
     impl<$t> Copy for $callback_value<$t> { }
 )}
 
+#[macro_export]
 macro_rules! impl_callback_no_generics {($callback_value:ident) => (
 
     impl ::std::fmt::Display for $callback_value {

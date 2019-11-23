@@ -963,6 +963,16 @@ pub enum ImageData {
     External(ExternalImageData),
 }
 
+impl ImageData {
+    
+    pub fn new_raw(data: Vec<u8>) -> Self {
+        ImageData::Raw(Arc::new(data))
+    }
+
+    pub fn new_external(data: ExternalImageData) -> Self {
+        ImageData::External(data)
+    }
+}
 /// Storage format identifier for externally-managed images.
 #[repr(u32)]
 #[derive(Debug, Copy, Clone, Eq, Hash, PartialEq, PartialOrd, Ord)]
@@ -1253,8 +1263,10 @@ pub struct LoadedFontSource {
     pub font_metrics: FontMetrics,
 }
 
-pub type LoadFontFn = fn(&FontSource) -> Option<LoadedFontSource>;
-pub type LoadImageFn = fn(&ImageSource) -> Option<LoadedImageSource>;
+pub struct LoadFontFn(pub fn(&FontSource) -> Option<LoadedFontSource>);
+impl_callback_no_generics!(LoadFontFn);
+pub struct LoadImageFn(pub fn(&ImageSource) -> Option<LoadedImageSource>);
+impl_callback_no_generics!(LoadImageFn);
 
 /// Given the fonts of the current frame, returns `AddFont` and `AddFontInstance`s of
 /// which fonts / instances are currently not in the `current_registered_fonts` and
@@ -1343,7 +1355,7 @@ pub fn build_add_font_resource_updates<T: FontImageApi>(
                     Unresolved(css_font_id) => FontSource::System(css_font_id.clone()),
                 };
 
-                let loaded_font_source = match (font_source_load_fn)(&font_source) {
+                let loaded_font_source = match (font_source_load_fn.0)(&font_source) {
                     Some(s) => s,
                     None => continue,
                 };
@@ -1394,7 +1406,7 @@ pub fn build_add_image_resource_updates<T: FontImageApi>(
     .filter(|image_id| !app_resources.currently_registered_images[pipeline_id].contains_key(*image_id))
     .filter_map(|image_id| {
         let image_source = app_resources.image_sources.get(image_id)?;
-        let LoadedImageSource { image_bytes_decoded, image_descriptor } = (image_source_load_fn)(image_source)?;
+        let LoadedImageSource { image_bytes_decoded, image_descriptor } = (image_source_load_fn.0)(image_source)?;
         let key = render_api.new_image_key();
         let add_image = AddImage { key, data: image_bytes_decoded, descriptor: image_descriptor, tiling: None };
         Some((*image_id, AddImageMsg(add_image, ImageInfo { key, descriptor: image_descriptor })))

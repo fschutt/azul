@@ -527,6 +527,86 @@ pub fn cascade_dom<T>(dom: Dom<T>, css: &Css) -> UiDescription {
     UiDescription::new(&mut ui_state, css, &None, &BTreeMap::new(), false)
 }
 
+#[cfg(all(feature = "image_loading", feature = "font_loading"))]
+use azul_core::{
+    window::LogicalSize,
+    display_list::CachedDisplayList
+};
+
+#[cfg(all(feature = "image_loading", feature = "font_loading"))]
+pub fn layout_dom<T>(dom: Dom<T>, css: &Css, root_size: LogicalSize) -> CachedDisplayList {
+    
+    use std::rc::Rc;
+    use azul_core::{
+        app_resources::{AppResources, LoadImageFn, LoadFontFn, Epoch, FakeRenderApi},
+        dom::DomId,
+        display_list::SolvedLayout,
+        callbacks::PipelineId,
+        gl::VirtualGlDriver,
+        window::{WindowSize, FullWindowState},
+    };
+
+    let mut app_resources = AppResources::new();
+    let mut render_api = FakeRenderApi::new();
+
+
+    // Set width + height of the rendering here
+    let (page_width_px, page_height_px) = (600.0, 100.0);
+    let fake_window_state = FullWindowState {
+        size: WindowSize {
+            dimensions: LogicalSize::new(page_width_px, page_height_px),
+            .. Default::default()
+        },
+        .. Default::default()
+    };
+
+    // Note: while the VirtualGlDriver will crash on everything,
+    // triggering that behaviour is virtually impossible because
+    // there is no way to create OpenGL callbacks in the XML code
+    let gl_context = Rc::new(VirtualGlDriver::new());
+    let pipeline_id = PipelineId::new();
+    let epoch = Epoch(0);
+
+    // Important!
+    app_resources.add_pipeline(pipeline_id);
+
+    DomId::reset();
+
+    let mut ui_state = UiState::new(dom, None);
+    let ui_description = UiDescription::new(&mut ui_state, &css, &None, &BTreeMap::new(), false);
+
+    let mut ui_states = BTreeMap::new();
+    ui_states.insert(DomId::ROOT_ID, ui_state);
+    let mut ui_descriptions = BTreeMap::new();
+    ui_descriptions.insert(DomId::ROOT_ID, ui_description);
+
+    // Solve the layout (the extra parameters are necessary because of IFrame recursion)
+    let solved_layout = SolvedLayout::new(
+        epoch,
+        pipeline_id,
+        &fake_window_state,
+        gl_context,
+        &mut render_api,
+        &mut app_resources,
+        &mut ui_states,
+        &mut ui_descriptions,
+        azul_core::gl::insert_into_active_gl_textures,
+        azul_layout::ui_solver::do_the_layout,
+        LoadFontFn(crate::font_loading::font_source_get_bytes),
+        LoadImageFn(crate::image_loading::image_source_get_bytes),
+    );
+
+    CachedDisplayList::new(
+        epoch,
+        pipeline_id,
+        &fake_window_state,
+        &ui_states,
+        &solved_layout.solved_layout_cache,
+        &solved_layout.gl_texture_cache,
+        &app_resources,
+    )
+}
+
 /// Parses the XML string into an XML tree, returns
 /// the root `<app></app>` node, with the children attached to it.
 ///

@@ -44,7 +44,7 @@ use azul_core::{
     display_list::CachedDisplayList,
     app_resources::{
         AppResources, Epoch, FontId, ImageId, LoadedFont, ImmediateFontId,
-        TextId, ImageSource, FontSource, CssImageId, ImageInfo,
+        TextId, ImageSource, FontSource, CssImageId, ImageInfo, LoadFontFn, LoadImageFn,
     },
 };
 
@@ -135,6 +135,14 @@ pub struct AppConfig {
     /// Framerate (i.e. 16ms) - sets how often the timer / tasks should check
     /// for updates. Default: 30ms
     pub min_frame_duration: Duration,
+    /// Function that is called when a font should be loaded. This is necessary to be
+    /// configurable so that "desktop" and "web" versions of azul can have different
+    /// implementations of loading fonts
+    pub font_loading_fn: LoadFontFn,
+    /// Function that is called when a font should be loaded. Necessary to be
+    /// configurable so that "desktop" and "web" versions of azul can have 
+    /// different implementations of loading images.
+    pub image_loading_fn: LoadImageFn,
 }
 
 impl Default for AppConfig {
@@ -153,6 +161,8 @@ impl Default for AppConfig {
             debug_state: DebugState::default(),
             background_color: COLOR_WHITE,
             min_frame_duration: Duration::from_millis(30),
+            font_loading_fn: LoadFontFn(::azulc::font_loading::font_source_get_bytes), // assumes "font_loading" feature enabled
+            image_loading_fn: LoadImageFn(::azulc::image_loading::image_source_get_bytes), // assumes "image_loading" feature enabled
         }
     }
 }
@@ -990,8 +1000,8 @@ fn send_user_event<'a, T>(
                     eld.ui_description_cache.get_mut(&glutin_window_id).unwrap(),
                     azul_core::gl::insert_into_active_gl_textures,
                     azulc::layout::ui_solver::do_the_layout,
-                    crate::resources::font_source_get_bytes,
-                    crate::resources::image_source_get_bytes,
+                    eld.config.font_loading_fn,
+                    eld.config.image_loading_fn,
                 );
 
                 window.display.make_not_current();

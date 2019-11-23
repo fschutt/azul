@@ -31,6 +31,29 @@ azul-core               = { version = "0.1.0",          default-features = false
 azul-css                = { version = "0.1.0",          default-features = false,       path = "../azul-css"            }
 azul-css-parser         = { version = "0.1.0",          default-features = false,       path = "../azul-css-parser"     }
 azul-layout             = { version = "0.1.0",          default-features = false,       path = "../azul-layout"         }
+image                   = { version = "0.21.2",         default-features = false,       optional = true,    features = ["gif_codec", "jpeg", "png_codec", "tiff", "bmp"]    }
+font-loader             = { version = "0.8.0",          default-features = false,       optional = true                                                                     }
 
 [features]
+default = []
+# On some applications you might not want to load any images. For these purposes
+# the image crate can be disabled, to speed up compile times
+image_loading = ["image"]
+# Enables loading of ICO files on the image decoder
+ico = ["image/ico"]
+# Enables loading of TGA files on the image decoder
+tga = ["image/tga"]
+# Enables loading of HDR files on the image decoder
+hdr = ["image/hdr"]
+# Enables parallel JPEG decoding on the image decoder
+jpeg_rayon = ["image/jpeg_rayon"]
+# Enables loading of DXT files on the image decoder
+dxt = ["image/dxt"]
+# Enables loading of WEBP files on the image decoder
+webp = ["image/webp"]
+# Enables loading of PNM files on the image decoder
+pnm = ["image/pnm"]
+# Activates the font-loading module, important to deactivate for example
+font_loading = ["font-loader"]
+# Text loading module, disable if you have a custom text layouting function
 text_layout = ["azul-layout/text_layout"]

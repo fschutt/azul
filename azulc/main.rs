@@ -147,6 +147,7 @@ fn main() {
                 }
             },
             Action::PrintDisplayList((w, h)) => {
+                use azul_core::window::LogicalSize;                                            
 
                 let dom = match str_to_dom(&root_nodes, &mut XmlComponentMap::<Dummy>::default()) {
                     Ok(s) => s,
@@ -166,10 +167,10 @@ fn main() {
                     }
                 };
                 
-                let ui_description = cascade_dom(dom, &css);
-                println!("{:#?}", ui_description.styled_nodes);
-
-                // println!("{:#?}", azulc::compile_xml_to_display_list(&file_contents, w, h));
+                let cached_display_list = layout_dom( // "not found in scope error": you forgot to compile azulc with "--all-features" !
+                    dom, &css, LogicalSize::new(w, h)
+                );
+                println!("{:#?}", cached_display_list.root);
             },
         }
     } else if input_file.ends_with(".css") {

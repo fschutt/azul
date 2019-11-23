@@ -8,10 +8,11 @@ extern crate azul_css_parser;
 /// Useful macros for implementing Azul APIs without duplicating code
 #[macro_use]
 pub mod macros;
+/// Type definitions for various types of callbacks, as well as focus and scroll handling
+#[macro_use]
+pub mod callbacks;
 /// Functions to manage adding fonts + images, garbage collection
 pub mod app_resources;
-/// Type definitions for various types of callbacks, as well as focus and scroll handling
-pub mod callbacks;
 /// Layout and display list creation algorithm, z-index reordering of
 pub mod display_list;
 /// `Dom` construction, `NodeData` and `NodeType` management functions

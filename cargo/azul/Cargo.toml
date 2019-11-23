@@ -28,8 +28,7 @@ glutin                  = { version = "0.22.0-alpha3",  default-features = false
 app_units               = { version = "0.7.1",          default-features = false                                                                                 }
 tinyfiledialogs         = { version = "3.3.5",          default-features = false                                                                                 }
 clipboard2              = { version = "0.1.1",          default-features = false                                                                                 }
-font-loader             = { version = "0.8.0",          default-features = false                                                                                 }
-azulc                   = { version = "0.1.0",          default-features = false,                  path = "../azulc"                                             }
+azulc                   = { version = "0.1.0",          default-features = false,                  path = "../azulc",               features = ["text_layout", "image_loading", "font_loading"] }
 azul-css                = { version = "0.1.0",          default-features = false,                  path = "../azul-css"                                          }
 azul-core               = { version = "0.1.0",          default-features = false,                  path = "../azul-core"                                         }
 azul-layout             = { version = "0.1.0",          default-features = false,                  path = "../azul-layout",         features = ["text_layout"]   }
@@ -40,40 +39,49 @@ serde_derive            = { version = "1",              default-features = false
 serde                   = { version = "1",              default-features = false, optional = true                                                                }
 log                     = { version = "0.4.6",          default-features = false, optional = true                                                                }
 fern                    = { version = "0.5.7",          default-features = false, optional = true                                                                }
-backtrace               = { version = "0.3.32",         default-features = false, optional = true, features = ["std", "libunwind", "libbacktrace", "coresymbolication", "dladdr", "dbghelp"] }
-image                   = { version = "0.21.2",         default-features = false, optional = true, features = ["gif_codec", "jpeg", "png_codec", "tiff", "bmp"]  }
+backtrace               = { version = "0.3.32",         default-features = false, optional = true, features = ["std", "libunwind", "libbacktrace", "coresymbolication", "dladdr", "dbghelp"]    }
 
 [features]
-default = ["logging", "widgets", "native_style", "css_parser"]
+default = ["logging", "widgets", "native_style", "css_parser", "image_loading", "font_loading", "text_layout"]
 # Enable this feature to enable crash logging & reporting.
 # Azul will insert custom panic handlers to pop up a message and log
 # crashes to an "error.log" file, see AppConfig for more details
 logging = ["fern", "backtrace", "log"]
-# For serializing / deserializing CSS colors using serde
-serde_serialization = ["serde", "serde_derive"]
-# Enable / diable the CSS parser
-css_parser = ["azul-core/css_parser", "azul-css-parser"]
 # Enable / disable the built-in widgets
 widgets = ["azul-widgets"]
+# Enable / disable the OS-native CSS style loader
+native_style = ["azul-native-style"]
+# Enable / diable the CSS parser
+css_parser = ["azul-core/css_parser", "azul-css-parser"]
+# For serializing / deserializing CSS colors using serde
+serde_serialization = ["serde", "serde_derive"]
 # Enable / disable the built-in SVG widgets (requires lyon - extra compilation time)
 svg = ["widgets", "azul-widgets/svg"]
 # Enable / disable the SVG parser (requires usvg)
 svg_parsing = ["svg", "widgets", "azul-widgets/svg_parsing"]
 # Enable / disable the built-in SVG widgets (requires lyon - extra compilation time)
 svg_fonts = ["widgets", "azul-widgets/fonts"]
-# Enable / disable the OS-native CSS style loader
-native_style = ["azul-native-style"]
 # On some applications you might not want to load any images. For these purposes
 # the image crate can be disabled, to speed up compile times
-image_loading = ["image"]
-# Features to load extra image formats
-ico = ["image/ico"]
-tga = ["image/tga"]
-hdr = ["image/hdr"]
-jpeg_rayon = ["image/jpeg_rayon"]
-dxt = ["image/dxt"]
-webp = ["image/webp"]
-pnm = ["image/pnm"]
+image_loading = ["azulc/image_loading"]
+# Enables loading of ICO files on the image decoder
+ico = ["azulc/ico"]
+# Enables loading of TGA files on the image decoder
+tga = ["azulc/tga"]
+# Enables loading of HDR files on the image decoder
+hdr = ["azulc/hdr"]
+# Enables parallel JPEG decoding on the image decoder
+jpeg_rayon = ["azulc/jpeg_rayon"]
+# Enables loading of DXT files on the image decoder
+dxt = ["azulc/dxt"]
+# Enables loading of WEBP files on the image decoder
+webp = ["azulc/webp"]
+# Enables loading of PNM files on the image decoder
+pnm = ["azulc/pnm"]
+# Activates the font-loading module, important to deactivate for example
+font_loading = ["azulc/font-loader"]
+# Text loading module, disable if you have a custom text layouting function
+text_layout = ["azulc/text_layout"]
 
 ## -----------
 

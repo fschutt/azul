@@ -213,15 +213,6 @@ fn format_pixel_value_no_percent(p: &PixelValueNoPercent) -> String {
     format!("PixelValueNoPercent({})", format_pixel_value(&p.0))
 }
 
-fn format_size_metric(s: &SizeMetric) -> &'static str {
-    match s {
-        SizeMetric::Px => "SizeMetric::Px",
-        SizeMetric::Pt => "SizeMetric::Pt",
-        SizeMetric::Em => "SizeMetric::Em",
-        SizeMetric::Percent => "SizeMetric::Percent",
-    }
-}
-
 fn format_float_value(f: &FloatValue) -> String {
     format!("FloatValue::from({:?})", f.get())
 }
