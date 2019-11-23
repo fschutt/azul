@@ -114,7 +114,8 @@ fn main() {
                 println!("{}", dom.get_html_string());
             },
             Action::Cascade => {
-                
+                use azul_css::get_css_key_map;
+
                 let dom = match str_to_dom(&root_nodes, &mut XmlComponentMap::<Dummy>::default()) {
                     Ok(s) => s,
                     Err(e) => {
@@ -136,7 +137,14 @@ fn main() {
 
                 let ui_description = cascade_dom(dom, &css);
                 
-                println!("{:#?}", ui_description.styled_nodes);
+                let css_key_map = get_css_key_map();
+
+                for (node_id, styled_node) in ui_description.styled_nodes.internal.iter().enumerate() {
+                    println!("node {}:", node_id);
+                    for (css_key, css_value) in &styled_node.css_constraints {
+                        println!("\t{}: {},", css_key.to_str(&css_key_map), css_value.to_str());
+                    }
+                }
             },
             Action::PrintDisplayList((w, h)) => {
 

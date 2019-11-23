@@ -4,6 +4,10 @@ use std::collections::BTreeMap;
 use std::fmt;
 use crate::css::CssPropertyValue;
 
+pub trait FormatAsCssValue {
+    fn format_as_css_value(&self, f: &mut fmt::Formatter) -> fmt::Result;
+}
+
 /// Currently hard-coded: Height of one em in pixels
 pub const EM_HEIGHT: f32 = 16.0;
 pub const PT_TO_PX: f32 = 96.0 / 72.0;
@@ -483,7 +487,6 @@ macro_rules! derive_display_zero {($struct:ident) => (
     }
 )}
 
-
 /// Creates `pt`, `px` and `em` constructors for any struct that has a
 /// `PixelValue` as it's self.0 field.
 macro_rules! impl_pixel_value {($struct:ident) => (
@@ -507,19 +510,49 @@ macro_rules! impl_pixel_value {($struct:ident) => (
             $struct(PixelValue::pt(value))
         }
     }
+
+    impl FormatAsCssValue for $struct {
+        fn format_as_css_value(&self, f: &mut fmt::Formatter) -> fmt::Result {
+            self.0.format_as_css_value(f)
+        }
+    }
 )}
 
 macro_rules! impl_percentage_value{($struct:ident) => (
+    impl ::std::fmt::Display for $struct {
+        fn fmt(&self, f: &mut ::std::fmt::Formatter) -> ::std::fmt::Result {
+            write!(f, "{}%", self.0.get())
+        }
+    }
+
     impl ::std::fmt::Debug for $struct {
         fn fmt(&self, f: &mut ::std::fmt::Formatter) -> ::std::fmt::Result {
+            write!(f, "{}%", self.0.get())
+        }
+    }
+
+    impl FormatAsCssValue for $struct {
+        fn format_as_css_value(&self, f: &mut fmt::Formatter) -> fmt::Result {
             write!(f, "{}%", self.0.get())
         }
     }
 )}
 
 macro_rules! impl_float_value{($struct:ident) => (
+    impl ::std::fmt::Display for $struct {
+        fn fmt(&self, f: &mut ::std::fmt::Formatter) -> ::std::fmt::Result {
+            write!(f, "{}", self.0.get())
+        }
+    }
+
     impl ::std::fmt::Debug for $struct {
         fn fmt(&self, f: &mut ::std::fmt::Formatter) -> ::std::fmt::Result {
+            write!(f, "{}", self.0.get())
+        }
+    }
+
+    impl FormatAsCssValue for $struct {
+        fn format_as_css_value(&self, f: &mut fmt::Formatter) -> fmt::Result {
             write!(f, "{}", self.0.get())
         }
     }
@@ -1177,7 +1210,7 @@ impl CssProperty {
     /// Creates a `border_left_width` CSS attribute
     pub const fn border_left_width(input: StyleBorderLeftWidth) -> Self { CssProperty::BorderLeftWidth(CssPropertyValue::Exact(input)) }
 
-/// Creates a `border_bottom_width` CSS attribute
+    /// Creates a `border_bottom_width` CSS attribute
     pub const fn border_bottom_width(input: StyleBorderBottomWidth) -> Self { CssProperty::BorderBottomWidth(CssPropertyValue::Exact(input)) }
 
     /// Creates a `box_shadow_left` CSS attribute
@@ -1303,6 +1336,12 @@ impl fmt::Debug for PixelValue {
 // Manual Debug implementation, because the auto-generated one is nearly unreadable
 impl fmt::Display for PixelValue {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        write!(f, "{}{}", self.number, self.metric)
+    }
+}
+
+impl FormatAsCssValue for PixelValue {
+    fn format_as_css_value(&self, f: &mut fmt::Formatter) -> fmt::Result {
         write!(f, "{}{}", self.number, self.metric)
     }
 }

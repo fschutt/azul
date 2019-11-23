@@ -83,6 +83,14 @@ impl CssDeclaration {
             Dynamic(d) => d.can_trigger_relayout(),
         }
     }
+
+    pub fn to_str(&self) -> String {
+        use self::CssDeclaration::*;
+        match self {
+            Static(s) => format!("{:?}", s),
+            Dynamic(d) => format!("var(--{}, {:?})", d.dynamic_id, d.default_value),
+        }
+    }
 }
 
 /// A `DynamicCssProperty` is a type of css property that can be changed on possibly
