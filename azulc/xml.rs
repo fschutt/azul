@@ -1302,12 +1302,18 @@ pub fn compile_node_to_rust_code_inner<T>(
         v.0 = format_args_dynamic(&v.0, &parent_xml_attributes.args).to_string();
     }
 
-    let instantiated_function_arguments = filtered_xml_attributes.args.keys()
-    .filter_map(|xml_attribute| node.attributes.get(xml_attribute))
-    .map(|s| format!("\"{}\"", s))
-    .collect::<Vec<String>>()
-    .join(", ");
+    let mut instantiated_function_arguments = filtered_xml_attributes.args.iter()
+    .filter_map(|(xml_attribute_key, (_xml_attribute_type, xml_attribute_order))| {
+        let instantiated_value = node.attributes.get(xml_attribute_key).cloned()?;
+        Some((*xml_attribute_order, format!("\"{}\"", instantiated_value)))
+    })
+    .collect::<Vec<(usize, String)>>();
+
+    instantiated_function_arguments.sort_by(|(_, a), (_, b)| a.cmp(&b));
     
+    let instantiated_function_arguments = instantiated_function_arguments.into_iter().map(|(k, v)| v.clone()).collect::<Vec<String>>().join(", ");
+    
+
     let text_as_first_arg = 
         if filtered_xml_attributes.accepts_text { 
             let mut node_text = node.text.clone();
