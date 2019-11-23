@@ -35,7 +35,7 @@ image                   = { version = "0.21.2",         default-features = false
 font-loader             = { version = "0.8.0",          default-features = false,       optional = true                                                                     }
 
 [features]
-default = []
+default = ["text_layout", "image_loading", "font_loading"]
 # On some applications you might not want to load any images. For these purposes
 # the image crate can be disabled, to speed up compile times
 image_loading = ["image"]

@@ -42,9 +42,13 @@ pub type XmlAttributeMap = BTreeMap<XmlAttributeKey, XmlAttributeValue>;
 
 pub type ComponentArgumentName = String;
 pub type ComponentArgumentType = String;
-pub type ComponentArgumentsMap = BTreeMap<ComponentArgumentName, ComponentArgumentType>;
+pub type ComponentArgumentOrder = usize;
+pub type ComponentArgumentsMap = BTreeMap<ComponentArgumentName, (ComponentArgumentType, ComponentArgumentOrder)>;
 pub type ComponentName = String;
 pub type CompiledComponent = String;
+pub type FilteredComponentArguments = ComponentArguments;
+
+pub const DEFAULT_ARGS: [&str;8] = ["id", "class", "tabindex", "draggable", "focusable", "accepts_text", "name", "args"];
 
 /// A component can take various arguments (to pass down to its children), which are then
 /// later compiled into Rust function arguments - for example
@@ -747,15 +751,11 @@ pub fn parse_component_arguments(input: &str) -> Result<ComponentArgumentsMap, C
         let arg_name = normalize_casing(arg_name);
         let arg_type = arg_type.to_string();
 
-        args.insert(arg_name, arg_type);
+        args.insert(arg_name, (arg_type, arg_idx));
     }
 
     Ok(args)
 }
-
-pub type FilteredComponentArguments = ComponentArguments;
-
-pub const DEFAULT_ARGS: [&str;8] = ["id", "class", "tabindex", "draggable", "focusable", "accepts_text", "name", "args"];
 
 /// Filters the XML attributes of a component given XmlAttributeMap
 pub fn validate_and_filter_component_args(xml_attributes: &XmlAttributeMap, valid_args: &ComponentArguments)
@@ -768,20 +768,14 @@ pub fn validate_and_filter_component_args(xml_attributes: &XmlAttributeMap, vali
 
     for (xml_attribute_name, xml_attribute_value) in xml_attributes.iter() {
 
-        let arg_value = match valid_args.args.get(xml_attribute_name) {
-            Some(valid_arg_type) => Some(xml_attribute_value),
-            None => {
-                if DEFAULT_ARGS.contains(&xml_attribute_name.as_str()) {
-                    None // no error, but don't insert the attribute name
-                } else {
-                    let keys = valid_args.args.keys().cloned().collect();
-                    return Err(RenderDomError::UselessFunctionArgument(xml_attribute_name.clone(), xml_attribute_value.clone(), keys));
-                }
-            }
-        };
-
-        if let Some(value) = arg_value {
-            map.args.insert(xml_attribute_name.clone(), value.clone());
+        if let Some((valid_arg_type, valid_arg_index)) = valid_args.args.get(xml_attribute_name) {
+            map.args.insert(xml_attribute_name.clone(), (valid_arg_type.clone(), *valid_arg_index));
+        } else if DEFAULT_ARGS.contains(&xml_attribute_name.as_str()) {
+            // no error, but don't insert the attribute name
+        } else {
+            // key was not expected for this component
+            let keys = valid_args.args.keys().cloned().collect();
+            return Err(RenderDomError::UselessFunctionArgument(xml_attribute_name.clone(), xml_attribute_value.clone(), keys));
         }
     }
 
@@ -866,20 +860,6 @@ pub fn str_to_dom<T>(root_nodes: &[XmlNode], component_map: &mut XmlComponentMap
     render_dom_from_body_node(&body_node, component_map).map_err(|e| e.into())
 }
 
-pub fn format_component_args(component_args: &FilteredComponentArguments) -> String {
-    
-/*
-    let mut args = component_args.args.iter().map(|(arg_name, (arg_type, arg_index))| {
-        (arg_index, format!("{}: {}", arg_name, arg_type))
-    }).collect::<Vec<(usize, String)>>();
-    
-    args.sort_by(|&(_, a), &(_, b)| b.0.cmp(&a.0));
-*/
-    let args_sorted = component_args.args.iter().map(|(k, v)| v.clone()).collect::<Vec<_>>();
-
-    args_sorted.join(", ")
-}
-
 /// Parses an XML string and returns a `String`, which contains the Rust source code
 /// (i.e. it compiles the XML to valid Rust)
 pub fn str_to_rust_code(
@@ -915,13 +895,24 @@ pub fn compile_components(components: BTreeMap<ComponentName, (CompiledComponent
     }).collect::<Vec<String>>().join("\r\n\r\n")
 }
 
+pub fn format_component_args(component_args: &ComponentArgumentsMap) -> String {
+
+    let mut args = component_args.iter().map(|(arg_name, (arg_type, arg_index))| {
+        (*arg_index, format!("{}: {}", arg_name, arg_type))
+    }).collect::<Vec<(usize, String)>>();
+    
+    args.sort_by(|(_, a), (_, b)| b.cmp(&a));
+
+    args.iter().map(|(k, v)| v.clone()).collect::<Vec<String>>().join(", ")
+}
+
 pub fn compile_component(
     component_name: &str, 
-    component_args: &FilteredComponentArguments, 
+    component_args: &ComponentArguments, 
     component_function_body: &str, 
 ) -> String {
-    
-    let function_args = format_component_args(component_args);    
+
+    let function_args = format_component_args(&component_args.args);    
     let component_function_body = component_function_body.lines().map(|l| format!("    {}", l)).collect::<Vec<String>>().join("\r\n");
     let should_inline = component_function_body.lines().count() == 1;
     format!(
@@ -973,7 +964,7 @@ pub fn render_dom_from_body_node_inner<T>(
 
     // Instantiate the parent arguments in the current child arguments
     for v in filtered_xml_attributes.args.values_mut() {
-        *v = format_args_dynamic(v, &parent_xml_attributes.args);
+        v.0 = format_args_dynamic(&v.0, &parent_xml_attributes.args).to_string();
     }
 
     let text = xml_node.text.as_ref().map(|t| format_args_dynamic(t, &filtered_xml_attributes.args));
@@ -1129,7 +1120,7 @@ pub fn format_args_dynamic(input: &str, variables: &ComponentArgumentsMap) -> St
                             let variable_name: String = input[(last_open + 1)..ch_idx].iter().collect();
                             let variable_name = normalize_casing(variable_name.trim());
                             match variables.get(&variable_name) {
-                                Some(s) => final_str.push_str(s),
+                                Some(s) => final_str.push_str(&s.0),
                                 None => {
                                     final_str.push('{');
                                     final_str.push_str(&variable_name);
@@ -1236,7 +1227,7 @@ pub fn render_component_inner<T>(
 
     // Instantiate the parent arguments in the current child arguments
     for v in filtered_xml_attributes.args.values_mut() {
-        *v = format_args_dynamic(v, &parent_xml_attributes.args);
+        v.0 = format_args_dynamic(&v.0, &parent_xml_attributes.args).to_string();
     }
 
     let text = xml_node.text.as_ref().map(|t| format_args_dynamic(t, &filtered_xml_attributes.args));
@@ -1308,7 +1299,7 @@ pub fn compile_node_to_rust_code_inner<T>(
 
     // Instantiate the parent arguments in the current child arguments
     for v in filtered_xml_attributes.args.values_mut() {
-        *v = format_args_dynamic(v, &parent_xml_attributes.args);
+        v.0 = format_args_dynamic(&v.0, &parent_xml_attributes.args).to_string();
     }
 
     let instantiated_function_arguments = filtered_xml_attributes.args.keys()

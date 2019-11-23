@@ -32,7 +32,9 @@ pub mod font_loading {
         path::PathBuf,
         io::Error as IoError,
     };
-    use azul_core::app_resources::{FontSource, LoadedFontSource};
+    use azul_core::app_resources::FontSource;
+    #[cfg(feature = "text_layout")]
+    use azul_core::app_resources::LoadedFontSource;
 
     const DEFAULT_FONT_INDEX: i32 = 0;
 
