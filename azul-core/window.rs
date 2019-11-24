@@ -719,13 +719,13 @@ pub struct LinuxWindowOptions {
     pub x11_screen: Option<i32>,
     /// Build window with `WM_CLASS` hint; defaults to the name of the binary. Only relevant on X11.
     /// Can only be set at window creation, can't be changed in callbacks.
-    pub x11_wm_classes: Option<Vec<(String, String)>>,
+    pub x11_wm_classes: Vec<(String, String)>,
     /// Build window with override-redirect flag; defaults to false. Only relevant on X11.
     /// Can only be set at window creation, can't be changed in callbacks.
     pub x11_override_redirect: bool,
     /// Build window with `_NET_WM_WINDOW_TYPE` hint; defaults to `Normal`. Only relevant on X11.
     /// Can only be set at window creation, can't be changed in callbacks.
-    pub x11_window_type: Option<XWindowType>,
+    pub x11_window_types: Vec<XWindowType>,
     /// Build window with `_GTK_THEME_VARIANT` hint set to the specified value. Currently only relevant on X11.
     /// Can only be set at window creation, can't be changed in callbacks.
     pub x11_gtk_theme_variant: Option<String>,

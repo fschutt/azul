@@ -405,14 +405,13 @@ fn create_window_builder(
         .with_transparent(has_transparent_background)
         .with_override_redirect(platform_options.x11_override_redirect);
 
-    if let Some(classes) = platform_options.x11_wm_classes.clone() {
-        for (k, v) in classes {
-            window_builder = window_builder.with_class(k, v);
-        }
+    for (k, v) in platform_options.x11_wm_classes.clone() {
+        window_builder = window_builder.with_class(k, v);
     }
 
-    if let Some(window_type) = platform_options.x11_window_type {
-        window_builder = window_builder.with_x11_window_type(translate_x_window_type(window_type));
+    if !platform_options.x11_window_types.is_empty() {
+        let window_types = platform_options.x11_window_types.iter().map(|e| translate_x_window_type(*e)).collect();
+        window_builder = window_builder.with_x11_window_type(window_types);
     }
 
     if let Some(theme_variant) = platform_options.x11_gtk_theme_variant.clone() {
