@@ -71,8 +71,6 @@ dependencies = [
  "gleam 0.6.19 (registry+https://github.com/rust-lang/crates.io-index)",
  "glutin 0.22.0-alpha5 (registry+https://github.com/rust-lang/crates.io-index)",
  "log 0.4.8 (registry+https://github.com/rust-lang/crates.io-index)",
- "serde 1.0.80 (registry+https://github.com/rust-lang/crates.io-index)",
- "serde_derive 1.0.80 (registry+https://github.com/rust-lang/crates.io-index)",
  "tinyfiledialogs 3.3.6 (registry+https://github.com/rust-lang/crates.io-index)",
  "webrender 0.60.0 (registry+https://github.com/rust-lang/crates.io-index)",
 ]

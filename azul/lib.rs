@@ -208,10 +208,6 @@ extern crate clipboard2;
 extern crate gleam;
 #[cfg(feature = "css_parser")]
 extern crate azul_css_parser;
-#[cfg(feature = "serde_serialization")]
-extern crate serde;
-#[cfg(feature = "serde_serialization")]
-extern crate serde_derive;
 #[cfg(feature = "widgets")]
 extern crate azul_widgets;
 #[cfg(feature = "logging")]

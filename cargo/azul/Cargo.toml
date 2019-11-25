@@ -35,8 +35,6 @@ azul-layout             = { version = "0.1.0",          default-features = false
 azul-css-parser         = { version = "0.1.0",          default-features = false, optional = true, path = "../azul-css-parser"                                   }
 azul-widgets            = { version = "0.1.0",          default-features = false, optional = true, path = "../azul-widgets"                                      }
 azul-native-style       = { version = "0.1.0",          default-features = false, optional = true, path = "../azul-native-style"                                 }
-serde_derive            = { version = "1",              default-features = false, optional = true                                                                }
-serde                   = { version = "1",              default-features = false, optional = true                                                                }
 log                     = { version = "0.4.6",          default-features = false, optional = true                                                                }
 fern                    = { version = "0.5.7",          default-features = false, optional = true                                                                }
 backtrace               = { version = "0.3.32",         default-features = false, optional = true, features = ["std", "libunwind", "libbacktrace", "coresymbolication", "dladdr", "dbghelp"]    }
@@ -53,8 +51,6 @@ widgets = ["azul-widgets"]
 native_style = ["azul-native-style"]
 # Enable / diable the CSS parser
 css_parser = ["azul-core/css_parser", "azul-css-parser"]
-# For serializing / deserializing CSS colors using serde
-serde_serialization = ["serde", "serde_derive"]
 # Enable / disable the built-in SVG widgets (requires lyon - extra compilation time)
 svg = ["widgets", "azul-widgets/svg"]
 # Enable / disable the SVG parser (requires usvg)
