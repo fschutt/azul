@@ -1219,8 +1219,7 @@ pub fn combine_and_replace_dynamic_items(input: &[DynamicItem], variables: &Comp
 /// in order when compiling the arguments to Rust code
 pub fn format_args_dynamic(input: &str, variables: &ComponentArgumentsMap) -> String {
     let dynamic_str_items = split_dynamic_string(input);
-    let formatted_str = combine_and_replace_dynamic_items(&dynamic_str_items, variables);
-    formatted_str
+    combine_and_replace_dynamic_items(&dynamic_str_items, variables)
 }
 
 // NOTE: Two sequential returns count as a single return, while single returns get ignored.
@@ -1351,6 +1350,50 @@ pub fn compile_body_node_to_rust_code<T>(body_node: &XmlNode, component_map: &Xm
     Ok(dom_string.to_string())
 }
 
+fn compile_and_format_dynamic_items(input: &[DynamicItem]) -> String {
+    use self::DynamicItem::*;
+    if input.is_empty() {
+        String::from("\"\"")
+    } else if input.len() == 1 {
+        // common: there is only one "dynamic item" - skip the "format!()" macro
+        match &input[0] {
+            Var(v) => normalize_casing(v.trim()),
+            Str(s) => format!("{:?}", s),
+        }
+    } else {
+        // build a "format!("{var}, blah", var)" string
+        let mut formatted_str = String::from("format!(\"");
+        let mut variables = Vec::new();
+        for item in input {
+            match item {
+                Var(v) => {
+                    let variable_name = normalize_casing(v.trim());
+                    formatted_str.push_str(&format!("{{{}}}", variable_name));
+                    variables.push(variable_name.clone());
+                },
+                Str(s) => { 
+                    let s = s.replace("\"", "\\\"");
+                    formatted_str.push_str(&s); 
+                },
+            }
+        }
+
+        formatted_str.push('\"');
+        if !variables.is_empty() {
+            formatted_str.push_str(", ");
+        }
+
+        formatted_str.push_str(&variables.join(", "));
+        formatted_str.push(')');
+        formatted_str
+    }
+}
+
+fn format_args_for_rust_code(input: &str) -> String {
+    let dynamic_str_items = split_dynamic_string(input);
+    compile_and_format_dynamic_items(&dynamic_str_items)
+}
+
 pub fn compile_node_to_rust_code_inner<T>(
     node: &XmlNode, 
     component_map: &XmlComponentMap<T>, 
@@ -1384,19 +1427,17 @@ pub fn compile_node_to_rust_code_inner<T>(
 
         let mut args = filtered_xml_attributes.args.iter()
         .filter_map(|(xml_attribute_key, (_xml_attribute_type, xml_attribute_order))| {
-            let instantiated_value = match node.attributes.get(xml_attribute_key).cloned() {
-                Some(s) => s,
+            match node.attributes.get(xml_attribute_key).cloned() {
+                Some(s) => Some((*xml_attribute_order, format_args_for_rust_code(&s))),
                 None => {
                     // __TODO__
-                    // let node_text = format_args_for_rust_code(&xml_attribute_key, &parent_xml_attributes.args);
+                    // let node_text = format_args_for_rust_code(&xml_attribute_key);
                     //   "{text}" => "text"
                     //   "{href}" => "href"
                     //   "{blah}_the_thing" => "format!(\"{blah}_the_thing\", blah)"
-                    return None;
+                    None
                 }
-            };
-            
-            Some((*xml_attribute_order, format!("\"{}\"", instantiated_value)))
+            }
         })
         .collect::<Vec<(usize, String)>>();
 
@@ -1408,7 +1449,7 @@ pub fn compile_node_to_rust_code_inner<T>(
     let text_as_first_arg = 
         if filtered_xml_attributes.accepts_text { 
             let node_text = node.text.clone().unwrap_or_default();
-            let node_text = node_text.trim();
+            let node_text = format_args_for_rust_code(node_text.trim());
             let trailing_comma = if !instantiated_function_arguments.is_empty() { ", " } else { "" };
 
             // __TODO__
@@ -1417,7 +1458,7 @@ pub fn compile_node_to_rust_code_inner<T>(
             //   "{href}" => "href"
             //   "{blah}_the_thing" => "format!(\"{blah}_the_thing\", blah)"
             
-            format!("\"{}\"{}", node_text, trailing_comma) 
+            format!("{}{}", node_text, trailing_comma) 
         } else { 
             String::new()
         };
