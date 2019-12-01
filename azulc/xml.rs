@@ -621,7 +621,7 @@ pub fn layout_dom<T>(dom: Dom<T>, css: &Css, root_size: LogicalSize) -> CachedDi
 /// # Example
 ///
 /// ```rust
-/// # use azul::xml::{XmlNode, parse_xml_string};
+/// # use azulc::xml::{XmlNode, parse_xml_string};
 /// assert_eq!(
 ///     parse_xml_string("<app><p /><div id='thing' /></app>").unwrap(),
 ///     vec![
@@ -1082,67 +1082,145 @@ pub fn set_stringified_attributes(
     }
 }
 
-/// Given a string and a key => value mapping, replaces parts of the string with the value, i.e.:
-///
-/// ```rust,no_run,ignore
-/// let variables = btreemap!{ "a" => "value1", "b" => "value2" };
-/// let initial = "hello {a}, {b}{{ {c} }}";
-/// let expected = "hello value1, value2{ {c} }";
-/// assert_eq!(format_args_dynamic(initial, &variables), expected.to_string());
+/// Item of a split string - either a variable name or a string
+#[derive(Debug, Clone, PartialEq, PartialOrd, Eq, Ord, Hash)]
+pub enum DynamicItem {
+    Var(String),
+    Str(String),
+}
+
+/// Splits a string into formatting arguments
+/// ```rust
+/// # use azulc::xml::DynamicItem::*;
+/// # use azulc::xml::split_dynamic_string;
+/// let s = "hello {a}, {b}{{ {c} }}";
+/// let split = split_dynamic_string(s);
+/// let output = vec![
+///     Str("hello ".to_string()),
+///     Var("a".to_string()),
+///     Str(", ".to_string()),
+///     Var("b".to_string()),
+///     Str("{ ".to_string()),
+///     Var("c".to_string()),
+///     Str(" }".to_string()),
+/// ];
+/// assert_eq!(output, split);
 /// ```
-pub fn format_args_dynamic(input: &str, variables: &ComponentArgumentsMap) -> String {
+pub fn split_dynamic_string(input: &str) -> Vec<DynamicItem> {
 
-    let mut opening_braces = Vec::new();
-    let mut final_str = String::new();
+    use self::DynamicItem::*;
+
     let input: Vec<char> = input.chars().collect();
+    let input_chars_len = input.len();
 
-    for (ch_idx, ch) in input.iter().enumerate() {
-        match ch {
-            '{' => {
-                if input.get(ch_idx + 1) == Some(&'{') {
-                    final_str.push('{');
-                } else if ch_idx != 0 && input.get(ch_idx - 1) == Some(&'{') {
-                    // second "{", do nothing
-                } else {
-                    // idx + 1 is not a "{"
-                    opening_braces.push(ch_idx);
-                }
-            },
-            '}' => {
-                if input.get(ch_idx + 1) == Some(&'}') {
-                    final_str.push('}');
-                } else if ch_idx != 0 && input.get(ch_idx - 1) == Some(&'}') {
-                    // second "}", do nothing
-                } else {
-                    // idx + 1 is not a "}"
-                    match opening_braces.pop() {
-                        Some(last_open) => {
-                            let variable_name: String = input[(last_open + 1)..ch_idx].iter().collect();
-                            let variable_name = normalize_casing(variable_name.trim());
-                            match variables.get(&variable_name) {
-                                Some(s) => final_str.push_str(&s.0),
-                                None => {
-                                    final_str.push('{');
-                                    final_str.push_str(&variable_name);
-                                    final_str.push('}');
-                                },
-                            }
-                        },
-                        None => {
-                            final_str.push('}');
-                        },
+    let mut items = Vec::new();
+    let mut current_idx = 0;
+    let mut last_idx = 0;
+
+    while current_idx < input_chars_len {
+        let c = input[current_idx];
+        match c {
+            '{' if input.get(current_idx + 1).copied() != Some('{') => {
+                
+                // variable start, search until next closing brace or whitespace or end of string
+                let mut start_offset = 1;
+                let mut has_found_variable = false;
+                while let Some(c) = input.get(current_idx + start_offset) {
+                    if c.is_whitespace() { break; }
+                    if *c == '}' && input.get(current_idx + start_offset + 1).copied() != Some('}') { 
+                        start_offset += 1;
+                        has_found_variable = true; 
+                        break; 
                     }
+                    start_offset += 1;
+                }
+
+                // advance current_idx accordingly
+                // on fail, set cursor to end
+                // set last_idx accordingly
+                if has_found_variable {
+                    
+                    if last_idx != current_idx {
+                        items.push(Str(input[last_idx..current_idx].iter().collect()));
+                    }
+
+                    // subtract 1 from start for opening brace, one from end for closing brace
+                    items.push(Var(input[(current_idx + 1)..(current_idx + start_offset - 1)].iter().collect()));
+                    current_idx = current_idx + start_offset;
+                    last_idx = current_idx;
+                } else {
+                    current_idx += start_offset;
                 }
             },
-            _ => {
-                if opening_braces.last().is_none() {
-                    final_str.push(*ch);
-                }
-            },
+            _ => { current_idx += 1; },
         }
     }
 
-    final_str
+    if current_idx != last_idx {
+        items.push(Str(input[last_idx..].iter().collect()));
+    }
+
+    for item in &mut items {
+        // replace {{ with { in strings
+        if let Str(s) = item {
+            *s = s.replace("{{", "{").replace("}}", "}");
+        }
+    }
+
+    items
+}
+
+/// Combines the split string back into its original form while replacing the variables with their values
+///
+/// let variables = btreemap!{ "a" => "value1", "b" => "value2" };
+/// [Str("hello "), Var("a"), Str(", "), Var("b"), Str("{ "), Var("c"), Str(" }}")]
+/// => "hello value1, valuec{ {c} }"
+pub fn combine_and_replace_dynamic_items(input: &[DynamicItem], variables: &ComponentArgumentsMap) -> String {
+    let mut s = String::new();
+    
+    for item in input {
+        match item {
+            DynamicItem::Var(v) => {
+                let variable_name = normalize_casing(v.trim());
+                match variables.get(&variable_name) {
+                    Some((resolved_var, _)) => { s.push_str(&resolved_var); },
+                    None => {
+                        s.push('{');
+                        s.push_str(v);
+                        s.push('}');
+                    },
+                }
+            },
+            DynamicItem::Str(dynamic_str) => {
+                s.push_str(&dynamic_str); 
+            }
+        }
+    }
+
+    s
+}
+
+/// Given a string and a key => value mapping, replaces parts of the string with the value, i.e.:
+///
+/// ```rust
+/// # use std::collections::BTreeMap;
+/// # use azulc::xml::format_args_dynamic;
+/// let mut variables = BTreeMap::new();
+/// variables.insert(String::from("a"), (String::from("value1"), 0));
+/// variables.insert(String::from("b"), (String::from("value2"), 1));
+///
+/// let initial = "hello {a}, {b}{{ {c} }}";
+/// let expected = "hello value1, value2{ {c} }".to_string();
+/// assert_eq!(format_args_dynamic(initial, &variables), expected);
+/// ```
+///
+/// Note: the number (0, 1, etc.) is the order of the argument, it is irrelevant for
+/// runtime formatting, only important for keeping the component / function arguments
+/// in order when compiling the arguments to Rust code
+pub fn format_args_dynamic(input: &str, variables: &ComponentArgumentsMap) -> String {
+    let dynamic_str_items = split_dynamic_string(input);
+    let formatted_str = combine_and_replace_dynamic_items(&dynamic_str_items, variables);
+    formatted_str
 }
 
 // NOTE: Two sequential returns count as a single return, while single returns get ignored.
@@ -1302,23 +1380,44 @@ pub fn compile_node_to_rust_code_inner<T>(
         v.0 = format_args_dynamic(&v.0, &parent_xml_attributes.args).to_string();
     }
 
-    let mut instantiated_function_arguments = filtered_xml_attributes.args.iter()
-    .filter_map(|(xml_attribute_key, (_xml_attribute_type, xml_attribute_order))| {
-        let instantiated_value = node.attributes.get(xml_attribute_key).cloned()?;
-        Some((*xml_attribute_order, format!("\"{}\"", instantiated_value)))
-    })
-    .collect::<Vec<(usize, String)>>();
+    let instantiated_function_arguments = {
 
-    instantiated_function_arguments.sort_by(|(_, a), (_, b)| a.cmp(&b));
+        let mut args = filtered_xml_attributes.args.iter()
+        .filter_map(|(xml_attribute_key, (_xml_attribute_type, xml_attribute_order))| {
+            let instantiated_value = match node.attributes.get(xml_attribute_key).cloned() {
+                Some(s) => s,
+                None => {
+                    // __TODO__
+                    // let node_text = format_args_for_rust_code(&xml_attribute_key, &parent_xml_attributes.args);
+                    //   "{text}" => "text"
+                    //   "{href}" => "href"
+                    //   "{blah}_the_thing" => "format!(\"{blah}_the_thing\", blah)"
+                    return None;
+                }
+            };
+            
+            Some((*xml_attribute_order, format!("\"{}\"", instantiated_value)))
+        })
+        .collect::<Vec<(usize, String)>>();
+
+        args.sort_by(|(_, a), (_, b)| a.cmp(&b));
     
-    let instantiated_function_arguments = instantiated_function_arguments.into_iter().map(|(k, v)| v.clone()).collect::<Vec<String>>().join(", ");
-    
+        args.into_iter().map(|(k, v)| v.clone()).collect::<Vec<String>>().join(", ")
+    };
 
     let text_as_first_arg = 
         if filtered_xml_attributes.accepts_text { 
-            let mut node_text = node.text.clone();
-            if let Some(t) = &mut node_text { *t = t.trim().to_string(); }
-            format!("\"{}\"{}", node_text.unwrap_or_default(), if !instantiated_function_arguments.is_empty() { ", " } else { "" }) 
+            let node_text = node.text.clone().unwrap_or_default();
+            let node_text = node_text.trim();
+            let trailing_comma = if !instantiated_function_arguments.is_empty() { ", " } else { "" };
+
+            // __TODO__
+            // let node_text = format_args_for_rust_code(&node_text, &parent_xml_attributes.args);
+            //   "{text}" => "text"
+            //   "{href}" => "href"
+            //   "{blah}_the_thing" => "format!(\"{blah}_the_thing\", blah)"
+            
+            format!("\"{}\"{}", node_text, trailing_comma) 
         } else { 
             String::new()
         };
