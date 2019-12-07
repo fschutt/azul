@@ -38,6 +38,7 @@ azul-native-style       = { version = "0.1.0",          default-features = false
 log                     = { version = "0.4.6",          default-features = false, optional = true                                                                }
 fern                    = { version = "0.5.7",          default-features = false, optional = true                                                                }
 backtrace               = { version = "0.3.32",         default-features = false, optional = true, features = ["std", "libunwind", "libbacktrace", "coresymbolication", "dladdr", "dbghelp"]    }
+osmesa-sys              = { version = "0.1.2",          default-features = false, optional = true                                                                }
 
 [features]
 default = ["logging", "widgets", "native_style", "css_parser", "image_loading", "font_loading", "text_layout"]
@@ -78,6 +79,8 @@ pnm = ["azulc/pnm"]
 font_loading = ["azulc/font-loader"]
 # Text loading module, disable if you have a custom text layouting function
 text_layout = ["azulc/text_layout"]
+# Enable / disable OSMesa (disabled by default to save on compilation time)
+osmesa = ["osmesa-sys"]
 
 ## -----------
 

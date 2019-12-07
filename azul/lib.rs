@@ -200,6 +200,8 @@ extern crate azul_css;
 #[macro_use(impl_task_api, impl_font_api, impl_image_api, impl_from, impl_display)]
 extern crate azul_core;
 extern crate azulc;
+#[cfg(feature = "osmesa")]
+extern crate osmesa_sys;
 extern crate glutin;
 extern crate webrender;
 extern crate app_units;
