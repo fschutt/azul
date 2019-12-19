@@ -66,13 +66,13 @@ impl Layout for CounterApp {
     }
 }
 
-fn update_counter(event: CallbackInfo<DataModel>) -> UpdateScreen {
+fn update_counter(event: CallbackInfo<CounterApp>) -> UpdateScreen {
     event.state.data.counter += 1;
     Redraw
 }
 
 fn main() {
-    let mut app = App::new(DataModel { counter: 0 }, AppConfig::default()).unwrap();
+    let mut app = App::new(CounterApp { counter: 0 }, AppConfig::default()).unwrap();
     let window = app
         .create_window(WindowCreateOptions::default(), css::native())
         .unwrap();
