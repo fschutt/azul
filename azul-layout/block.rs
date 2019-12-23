@@ -1,3 +1,4 @@
+#![allow(dead_code)]
 
 use std::{fmt, collections::BTreeMap};
 use crate::{
@@ -8,7 +9,6 @@ use crate::{
     number::{Number, Number::{Defined, Undefined}, MinMax, OrElse},
 };
 use azul_core::{
-    id_tree::NodeHierarchy,
     traits::GetTextLayout,
     id_tree::{NodeDataContainer, NodeDepths, NodeId},
     ui_solver::{
@@ -154,7 +154,7 @@ fn solve_heights<T: GetTextLayout>(
     debug_assert!(anon_dom.anon_node_hierarchy.len() == positioned_rects.len());
 
     // First, distribute the known heights in a top-down fashion
-    for (depth, parent_node_id) in anon_dom_depths.iter() {
+    for (_depth, parent_node_id) in anon_dom_depths.iter() {
 
         let h = match &anon_dom.anon_node_data[*parent_node_id] {
             BlockNode(ref style) | InlineNode(ref style) => {
@@ -209,7 +209,7 @@ fn solve_heights<T: GetTextLayout>(
             let children_content_height = child_id
                 .children(&anon_dom.anon_node_hierarchy)
                 .filter(|c| {
-                    let position_type = anon_dom.anon_node_data[child_id].get_position_type();
+                    let position_type = anon_dom.anon_node_data[*c].get_position_type();
                     position_type != PositionType::Absolute && position_type != PositionType::Fixed
                 })
                 .map(|c| content_heights.get(&c).copied().unwrap_or(0.0))

@@ -1,3 +1,5 @@
+#![allow(dead_code)]
+
 // MIT License
 //
 // Copyright (c) 2018 Visly Inc.

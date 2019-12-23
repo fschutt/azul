@@ -77,6 +77,7 @@ impl AnonNode {
         }
     }
 
+    #[allow(dead_code)]
     pub(crate) fn is_inline(&self) -> bool {
         use self::AnonNode::*;
         match self {

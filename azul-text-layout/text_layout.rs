@@ -98,7 +98,7 @@ pub fn split_text_into_words(text: &str) -> Words {
         }
 
         let mut push_words = |arr: [Option<Word>;2]| {
-            words.extend(arr.into_iter().filter_map(|e| *e));
+            words.extend(arr.iter().filter_map(|e| *e));
         };
 
         push_words([should_push_word, should_push_delimiter]);

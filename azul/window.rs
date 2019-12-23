@@ -1047,5 +1047,5 @@ fn linux_get_hidpi_factor(is_x11: bool) -> Option<f32> {
     let xft_dpi = if is_x11 { get_xft_dpi() } else { None };
 
     let options = [winit_hidpi_factor, qt_font_dpi, gsettings_dpi_factor, xft_dpi];
-    options.into_iter().filter_map(|x| *x).next()
+    options.iter().filter_map(|x| *x).next()
 }
