@@ -31,20 +31,14 @@ fn main() {
     macro_rules! CSS_PATH { () => (concat!(env!("CARGO_MANIFEST_DIR"), "/../../examples/hot_reload/hot_reload.css")) }
 
     let mut app = App::new(MyDataModel, AppConfig::default()).unwrap();
-    let image_id = app.app_state.resources.add_css_image_id("Cat01");
-    app.app_state.resources.add_image_source(image_id, ImageSource::Embedded(TEST_IMAGE));
+    let image_id = app.resources.add_css_image_id("Cat01");
+    app.resources.add_image_source(image_id, ImageSource::Embedded(TEST_IMAGE));
 
     #[cfg(debug_assertions)]
-    let window = {
-        let hot_reloader = css::hot_reload(CSS_PATH!(), Duration::from_millis(500));
-        app.create_hot_reload_window(WindowCreateOptions::default(), hot_reloader).unwrap()
-    };
+    let window = WindowCreateOptions::new_hot_reload(css::hot_reload_override_native(CSS_PATH!(), Duration::from_millis(500)));
 
     #[cfg(not(debug_assertions))]
-    let window = {
-        let css = css::from_str(include_str!(CSS_PATH!())).unwrap();
-        app.create_window(WindowCreateOptions::default(), css).unwrap()
-    };
+    let window = WindowCreateOptions::new(css::override_native(include_str!(CSS_PATH!())).unwrap());
 
-    app.run(window).unwrap();
+    app.run(window);
 }
