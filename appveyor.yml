@@ -39,14 +39,9 @@ install:
 # source: https://github.com/starkat99/appveyor-rust/blob/master/appveyor.yml#L113
 build: false
 
-# Equivalent to Travis' `script` phase
 test_script:
-  - cargo check --verbose --all-features
-  - cargo check --verbose --examples
-  - cargo check --no-default-features
-  - cargo check --no-default-features --features="svg"
-  - cargo check --no-default-features --features="logging"
-  - cargo check --no-default-features --features="image_loading"
+  - cargo check --verbose
+  - cargo check --verbose --all-features --examples
   - cargo check --verbose --release --all-features
   - RUST_BACKTRACE=1 cargo test --verbose --all-features
   - cargo run --example layout_tests -- --nocapture
