@@ -307,8 +307,9 @@ impl<T: 'static> App<T> {
         let mut last_style_reload = Instant::now();
 
         hidden_event_loop.run(move |event, event_loop_target, control_flow| {
-
+            /*
             let now = Instant::now();
+            */
 
             match event {
                 Event::DeviceEvent { .. } => {

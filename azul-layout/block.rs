@@ -288,7 +288,6 @@ fn position_items(
     // In order to do a block layout, we first have to know whether
     // can overflow the parent horizontally.
 
-    let mut cur_x = 0.0;
     let mut cur_y = 0.0;
 
     // stack to track what the last position: absolute item was
@@ -297,7 +296,7 @@ fn position_items(
 
     for (depth, parent_node_id) in anon_dom_depths.iter() {
 
-        cur_x = 0.0;
+        let mut cur_x = 0.0;
 
         // we are processing a new depth level
         if *depth != cur_depth {
@@ -910,10 +909,10 @@ fn calculate_block_height<T: GetTextLayout>(
                 Some(Image(image_width, image_height)) => {
                     Some(*image_width as f32 / *image_height as f32 * block_width)
                 },
-                Some(Text(t)) => {
+                Some(Text(_t)) => {
                     match resolved_text_layout_options {
                         None => None,
-                        Some((tlo, layouted_inline_text)) => {
+                        Some((_tlo, layouted_inline_text)) => {
                             let inline_text_bounds = layouted_inline_text.get_bounds();
                             Some(inline_text_bounds.size.height)
                         }
