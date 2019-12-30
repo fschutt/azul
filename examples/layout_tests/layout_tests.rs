@@ -49,7 +49,7 @@ fn create_display_list(dom: Dom<Mock>, css: &Css, size: (f32, f32)) -> CachedDis
     use std::{rc::Rc, collections::BTreeMap};
     use azul_core::{
         app_resources::{
-            AppResources, Epoch, FakeRenderApi,
+            AppResources, LoadImageFn, LoadFontFn, Epoch, FakeRenderApi,
             ImageSource, LoadedImageSource,
             FontSource, LoadedFontSource,
         },
@@ -106,8 +106,8 @@ fn create_display_list(dom: Dom<Mock>, css: &Css, size: (f32, f32)) -> CachedDis
         &mut ui_descriptions,
         azul_core::gl::insert_into_active_gl_textures,
         azul_layout::ui_solver::do_the_layout,
-        load_font,
-        load_image,
+        LoadFontFn(load_font),
+        LoadImageFn(load_image),
     );
 
     CachedDisplayList::new(
