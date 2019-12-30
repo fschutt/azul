@@ -41,9 +41,8 @@ impl WrExternalImageHandler for Compositor {
 #[cfg(feature="osmesa")] 
 mod osmesa {
 
-    use osmesa_sys::OSMesaContext;
-
-    pub use platform::{OSMesaContext, OSMesaContextHandle};
+    use osmesa_sys;
+    use std::ptr;
 
     pub struct OSMesaContext {
         buffer: Vec<u8>,
@@ -63,7 +62,7 @@ mod osmesa {
     impl OSMesaContext {
 
         /// Returns a memory-backed RGBA-buffer
-        pub fn new(width: usize, height: usize, shared_ctxt: Option<OSMesaContext>) -> Result<Self, OsMesaCreateError> {
+        pub fn new(width: usize, height: usize, shared_ctxt: Option<osmesa_sys::OSMesaContext>) -> Result<Self, OsMesaCreateError> {
 
             let shared = shared_ctxt.unwrap_or(ptr::null_mut());
 
