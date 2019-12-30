@@ -158,7 +158,7 @@ pub struct SvgShader {
 }
 
 impl SvgShader {
-    pub fn new(gl_context: Rc<Gl>) -> Self {
+    pub fn new(gl_context: Rc<dyn Gl>) -> Self {
 
         let current_gl_api = GlApiVersion::get(&*gl_context);
         let vertex_source_prefixed = prefix_gl_version(SVG_VERTEX_SHADER, current_gl_api);
@@ -285,7 +285,7 @@ impl SvgCache {
     }
 
     /// Builds and compiles the SVG shader if the shader isn't already present
-    fn init_shader<'a>(&'a self, gl_context: Rc<Gl>) {
+    fn init_shader<'a>(&'a self, gl_context: Rc<dyn Gl>) {
         self.shader.borrow_mut().get_or_insert_with(|| SvgShader::new(gl_context));
     }
 
@@ -2024,7 +2024,7 @@ impl Svg {
     pub fn render_svg(
         &self,
         svg_cache: &SvgCache,
-        gl_context: Rc<Gl>,
+        gl_context: Rc<dyn Gl>,
         hidpi_factor: f32,
         svg_size: LogicalSize,
     ) -> Texture {
