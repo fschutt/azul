@@ -43,5 +43,7 @@ test_script:
   - cargo check --verbose
   - cargo check --verbose --all-features --examples
   - cargo check --verbose --release --all-features
-  - RUST_BACKTRACE=1 cargo test --verbose --all-features
-  - cargo run --example layout_tests -- --nocapture
+
+# temporarily disabled
+#  - cargo test --verbose --all-features
+#  - cargo run --example layout_tests -- --nocapture
