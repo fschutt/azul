@@ -183,17 +183,15 @@ fn solve_heights<T: GetTextLayout>(
     let mut content_heights = BTreeMap::new();
     let mut children_height_sum = 0.0;
     let mut current_depth_level = anon_dom_depths.last().map(|(s, _)| *s).unwrap_or(0);
-    let mut last_parent = None;
 
     for (depth, parent_node_id) in anon_dom_depths.iter().rev() {
 
-        last_parent = anon_dom.anon_node_hierarchy[*parent_node_id].parent;
+        let last_parent = anon_dom.anon_node_hierarchy[*parent_node_id].parent;
 
         if current_depth_level != *depth {
             if let Some(last_parent) = last_parent {
                 content_heights.insert(last_parent, children_height_sum);
             }
-            last_parent = None;
             children_height_sum = 0.0;
             current_depth_level = *depth;
         }
@@ -307,10 +305,12 @@ fn position_items(
             cur_depth = *depth;
         }
 
+        /*
         let parent_width = match anon_dom.anon_node_hierarchy[*parent_node_id].parent {
             None => (root_size.width, StyleOverflow::Scroll),
             Some(s) => (positioned_rects[s].bounds.size.width, anon_dom.anon_node_data[s].get_overflow_x()),
         };
+        */
 
         let parent_content_size = positioned_rects[*parent_node_id].bounds.size.width;
 
@@ -330,7 +330,6 @@ fn position_items(
 
             let child_anon_node = &anon_dom.anon_node_data[child_id];
             let child_display_mode = child_anon_node.get_display();
-            let child_position_type = child_anon_node.get_position_type();
 
             let child_rect = &mut positioned_rects[child_id];
 
@@ -899,8 +898,6 @@ fn calculate_block_height<T: GetTextLayout>(
     if style.display == Display::None {
         return BlockHeight::default();
     }
-
-    let ph = Defined(parent_height);
 
     let mut content_height = None;
     let mut height_is_defined = false;
