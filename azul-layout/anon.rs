@@ -270,6 +270,8 @@ impl AnonDom {
                 if let Some(last) = children_ids.last() {
                     end_anonymous_node!(*last);
                 }
+
+                assert_eq!(last_anon_node, None);
             }
         }
 
