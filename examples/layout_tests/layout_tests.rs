@@ -44,6 +44,19 @@ fn get_content<'a>(xml: &'a XmlNode) -> &'a str {
     xml.text.as_ref().map(|s| s.as_str()).unwrap_or(DEFAULT_STR)
 }
 
+// Parse a string like "600x100" -> (600, 100)
+fn parse_size(output_size: &str) -> Option<(f32, f32)> {
+    let output_size = output_size.trim();
+    let mut iter = output_size.split("x");
+    let w = iter.next()?;
+    let h = iter.next()?;
+    let w = w.trim();
+    let h = h.trim();
+    let w = w.parse::<f32>().ok()?;
+    let h = h.parse::<f32>().ok()?;
+    Some((w, h))
+}
+
 fn create_display_list(dom: Dom<Mock>, css: &Css, size: (f32, f32)) -> CachedDisplayList {
 
     use std::{rc::Rc, collections::BTreeMap};
