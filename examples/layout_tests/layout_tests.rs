@@ -9,7 +9,7 @@ extern crate azul_css;
 use std::fs;
 use azulc::{
     xml::{
-        self, XmlComponentMap, render_dom_from_app_node_inner,
+        self, XmlComponentMap, render_dom_from_body_node_inner,
         XmlNode, FilteredComponentArguments,
     },
 };
@@ -145,7 +145,7 @@ fn main() {
             let body_node = find_root_node(&html_node.children, "body").unwrap();
             let style_node = find_root_node(&html_node.children, "style").unwrap();
 
-            let dom = render_dom_from_app_node_inner(&body_node, &XmlComponentMap::default(), &FilteredComponentArguments::default()).unwrap();
+            let dom = render_dom_from_body_node_inner(&body_node, &XmlComponentMap::default(), &FilteredComponentArguments::default()).unwrap();
             let css = azul_css_parser::new_from_str(get_content(style_node)).unwrap();
 
             // One <test> can have multiple <output> to test for different sizes
