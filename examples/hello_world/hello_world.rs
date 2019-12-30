@@ -21,7 +21,7 @@ impl Layout for DataModel {
             .with_child(label)
             .with_child(button);
 
-        println!("dom:\r\n{}", dom.debug_dump());
+        println!("dom:\r\n{}", dom.get_html_string());
         dom
     }
 }
