@@ -1100,9 +1100,9 @@ pub enum DynamicItem {
 ///     Var("a".to_string()),
 ///     Str(", ".to_string()),
 ///     Var("b".to_string()),
-///     Str("{ ".to_string()),
+///     Str("{{ ".to_string()),
 ///     Var("c".to_string()),
-///     Str(" }".to_string()),
+///     Str(" }}".to_string()),
 /// ];
 /// assert_eq!(output, split);
 /// ```
@@ -1110,61 +1110,30 @@ pub fn split_dynamic_string(input: &str) -> Vec<DynamicItem> {
 
     use self::DynamicItem::*;
 
-    let input: Vec<char> = input.chars().collect();
-    let input_chars_len = input.len();
-
     let mut items = Vec::new();
-    let mut current_idx = 0;
-    let mut last_idx = 0;
 
-    while current_idx < input_chars_len {
-        let c = input[current_idx];
-        match c {
-            '{' if input.get(current_idx + 1).copied() != Some('{') => {
-                
-                // variable start, search until next closing brace or whitespace or end of string
-                let mut start_offset = 1;
-                let mut has_found_variable = false;
-                while let Some(c) = input.get(current_idx + start_offset) {
-                    if c.is_whitespace() { break; }
-                    if *c == '}' && input.get(current_idx + start_offset + 1).copied() != Some('}') { 
-                        start_offset += 1;
-                        has_found_variable = true; 
-                        break; 
-                    }
-                    start_offset += 1;
-                }
+    let mut current_str_start: usize = 0;
+    let mut current_var_candidate_start: usize = 0;
 
-                // advance current_idx accordingly
-                // on fail, set cursor to end
-                // set last_idx accordingly
-                if has_found_variable {
-                    
-                    if last_idx != current_idx {
-                        items.push(Str(input[last_idx..current_idx].iter().collect()));
-                    }
-
-                    // subtract 1 from start for opening brace, one from end for closing brace
-                    items.push(Var(input[(current_idx + 1)..(current_idx + start_offset - 1)].iter().collect()));
-                    current_idx = current_idx + start_offset;
-                    last_idx = current_idx;
-                } else {
-                    current_idx += start_offset;
-                }
-            },
-            _ => { current_idx += 1; },
+    for (current_idx, ch) in input.char_indices() {
+        if ch == '{' {
+            current_var_candidate_start = current_idx + 1;
+        } else if ch.is_whitespace() {
+            // drop current candidate
+            current_var_candidate_start = current_str_start
+        } else if ch == '}' && current_str_start < current_var_candidate_start {
+            // found actual variable
+            if current_str_start < current_var_candidate_start - 1 {
+                items.push(Str(input[current_str_start .. current_var_candidate_start - 1].to_string()));
+            }
+            items.push(Var(input[current_var_candidate_start .. current_idx].to_string()));
+            current_str_start = current_idx + 1;
+        } else {
+            // nothing to do
         }
     }
-
-    if current_idx != last_idx {
-        items.push(Str(input[last_idx..].iter().collect()));
-    }
-
-    for item in &mut items {
-        // replace {{ with { in strings
-        if let Str(s) = item {
-            *s = s.replace("{{", "{").replace("}}", "}");
-        }
+    if current_str_start < input.len() {
+        items.push(Str(input[current_str_start ..].to_string()));
     }
 
     items
@@ -1173,8 +1142,8 @@ pub fn split_dynamic_string(input: &str) -> Vec<DynamicItem> {
 /// Combines the split string back into its original form while replacing the variables with their values
 ///
 /// let variables = btreemap!{ "a" => "value1", "b" => "value2" };
-/// [Str("hello "), Var("a"), Str(", "), Var("b"), Str("{ "), Var("c"), Str(" }}")]
-/// => "hello value1, valuec{ {c} }"
+/// [Str("hello "), Var("a"), Str(", "), Var("b"), Str("{{ "), Var("c"), Str(" }}")]
+/// => "hello value1, value2{{ {c} }}"
 pub fn combine_and_replace_dynamic_items(input: &[DynamicItem], variables: &ComponentArgumentsMap) -> String {
     let mut s = String::new();
     
@@ -1210,7 +1179,7 @@ pub fn combine_and_replace_dynamic_items(input: &[DynamicItem], variables: &Comp
 /// variables.insert(String::from("b"), (String::from("value2"), 1));
 ///
 /// let initial = "hello {a}, {b}{{ {c} }}";
-/// let expected = "hello value1, value2{ {c} }".to_string();
+/// let expected = "hello value1, value2{{ {c} }}".to_string();
 /// assert_eq!(format_args_dynamic(initial, &variables), expected);
 /// ```
 ///
@@ -1606,19 +1575,19 @@ fn test_compile_dom_1() {
 #[test]
 fn test_format_args_dynamic() {
     let mut variables = ComponentArgumentsMap::new();
-    variables.insert("a".to_string(), ("value1".to_string(), 1));
-    variables.insert("b".to_string(), ("value2".to_string(), 2));
+    variables.insert("a".to_string(), ("value1".to_string(), 0));
+    variables.insert("b".to_string(), ("value2".to_string(), 1));
     assert_eq!(
         format_args_dynamic("hello {a}, {b}{{ {c} }}", &variables),
-        String::from("hello value1, value2{ {c} }"),
+        String::from("hello value1, value2{{ {c} }}"),
     );
     assert_eq!(
         format_args_dynamic("hello {{a}, {b}{{ {c} }}", &variables),
-        String::from("hello {a}, value2{ {c} }"),
+        String::from("hello {value1, value2{{ {c} }}"),
     );
     assert_eq!(
         format_args_dynamic("hello {{{{{{{ a   }}, {b}{{ {c} }}", &variables),
-        String::from("hello {{{{{{ a   }, value2{ {c} }"),
+        String::from("hello {{{{{{{ a   }}, value2{{ {c} }}"),
     );
 }
 
@@ -1641,7 +1610,7 @@ fn test_parse_component_arguments() {
     let mut args_1_expected = ComponentArgumentsMap::new();
     args_1_expected.insert("selected_date".to_string(), ("DateTime".to_string(), 1));
     args_1_expected.insert("minimum_date".to_string(), ("DateTime".to_string(), 2));
-    args_1_expected.insert("grid_visible".to_string(), ("bool".to_string(), 3));
+    args_1_expected.insert("grid_visible".to_string(), ("bool".to_string(), 0));
 
     // Everything OK
     assert_eq!(
