@@ -43,7 +43,7 @@ test_script:
   - cargo check --verbose
   - cargo check --verbose --all-features --examples
   - cargo check --verbose --release --all-features
+  - cargo test --verbose --all-features
 
 # temporarily disabled
-#  - cargo test --verbose --all-features
 #  - cargo run --example layout_tests -- --nocapture
