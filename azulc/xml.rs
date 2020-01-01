@@ -1605,9 +1605,9 @@ fn test_compile_dom_1() {
 
 #[test]
 fn test_format_args_dynamic() {
-    let mut variables = FilteredComponentArguments::new();
-    variables.insert("a".to_string(), "value1".to_string());
-    variables.insert("b".to_string(), "value2".to_string());
+    let mut variables = ComponentArgumentsMap::new();
+    variables.insert("a".to_string(), ("value1".to_string(), 1));
+    variables.insert("b".to_string(), ("value2".to_string(), 2));
     assert_eq!(
         format_args_dynamic("hello {a}, {b}{{ {c} }}", &variables),
         String::from("hello value1, value2{ {c} }"),
@@ -1638,10 +1638,10 @@ fn test_normalize_casing() {
 #[test]
 fn test_parse_component_arguments() {
 
-    let mut args_1_expected = ComponentArguments::new();
-    args_1_expected.insert("selected_date".to_string(), "DateTime".to_string());
-    args_1_expected.insert("minimum_date".to_string(), "DateTime".to_string());
-    args_1_expected.insert("grid_visible".to_string(), "bool".to_string());
+    let mut args_1_expected = ComponentArgumentsMap::new();
+    args_1_expected.insert("selected_date".to_string(), ("DateTime".to_string(), 1));
+    args_1_expected.insert("minimum_date".to_string(), ("DateTime".to_string(), 2));
+    args_1_expected.insert("grid_visible".to_string(), ("bool".to_string(), 3));
 
     // Everything OK
     assert_eq!(
