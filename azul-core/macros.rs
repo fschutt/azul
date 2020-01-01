@@ -33,15 +33,21 @@ macro_rules! impl_task_api {() => (
 
 /// Implement the `From` trait for any type.
 /// Example usage:
-/// ```
-/// enum MyError<'a> {
-///     Bar(BarError<'a>)
-///     Foo(FooError<'a>)
+/// 
+/// ```no_run
+/// # #[macro_use] extern crate azul_core;
+/// # fn main() {}
+/// 
+/// # struct BarError {}
+/// # struct FooError {}
+/// 
+/// enum MyError {
+///     Bar(BarError),
+///     Foo(FooError),
 /// }
 ///
-/// impl_from!(BarError<'a>, Error::Bar);
-/// impl_from!(BarError<'a>, Error::Bar);
-///
+/// impl_from!(BarError, MyError::Bar);
+/// impl_from!(FooError, MyError::Foo);
 /// ```
 #[macro_export]
 macro_rules! impl_from {
@@ -67,10 +73,13 @@ macro_rules! impl_from {
 /// Implement `Display` for an enum.
 ///
 /// Example usage:
-/// ```
+/// ```no_run
+/// # #[macro_use] extern crate azul_core;
+/// # fn main() {}
+/// 
 /// enum Foo<'a> {
-///     Bar(&'a str)
-///     Baz(i32)
+///     Bar(&'a str),
+///     Baz(i32),
 /// }
 ///
 /// impl_display!{ Foo<'a>, {

@@ -113,7 +113,7 @@ pub const DontRedraw: Option<()> = None;
 /// Applied to widgets, the "A" class (a placeholder for a "Button", "Table" or other widget)
 /// can look something like this:
 ///
-/// ```rust,no_run
+/// ```rust,no_run,compile_fail
 /// fn layout(&self, _: &LayoutInfo) -> Dom<T> {
 ///     Spreadsheet::new()
 ///         .override_oncellchange(my_func_1)
@@ -319,7 +319,11 @@ pub struct HitTestItem {
 /// Implements `Display, Debug, Copy, Clone, PartialEq, Eq, Hash, PartialOrd, Ord, Hash`
 /// for a Callback with a `.0` field:
 ///
-/// ```
+/// ```no_run
+/// # #[macro_use] extern crate azul_core;
+/// # fn main() {}
+/// # use std::fmt;
+/// 
 /// struct MyCallback<T>(fn (&T));
 ///
 /// // impl <T> Display, Debug, etc. for MyCallback<T>
