@@ -103,6 +103,7 @@ fn test_font_gc() {
         app_resources::{
             AppResources, Au, FakeRenderApi,
             LoadFontFn, FontSource, LoadedFontSource,
+            ImmediateFontId,
             LoadImageFn, ImageSource, LoadedImageSource, RawImageFormat, ImageDescriptor, ImageData,
             scan_ui_description_for_image_keys,
             scan_ui_description_for_font_keys,
@@ -110,6 +111,7 @@ fn test_font_gc() {
             add_fonts_and_images, FontMetrics,
         },
         display_list::DisplayList,
+        callbacks::PipelineId,
     };
     use crate::xml::DomXml;
 
