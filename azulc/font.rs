@@ -102,6 +102,8 @@ fn test_font_gc() {
         ui_state::UiState,
         app_resources::{
             AppResources, Au, FakeRenderApi,
+            LoadFontFn, FontSource, LoadedFontSource,
+            LoadImageFn, ImageSource, LoadedImageSource, RawImageFormat, ImageDescriptor, ImageData,
             scan_ui_description_for_image_keys,
             scan_ui_description_for_font_keys,
             garbage_collect_fonts_and_images,
@@ -139,15 +141,15 @@ fn test_font_gc() {
         (ui_state, ui_description, display_list)
     }
 
-    fn fake_load_font_fn(_f: &FontSource) -> Option<LoadedFontSource> {
+    let fake_load_font_fn = LoadFontFn(|_f: &FontSource| -> Option<LoadedFontSource> {
         Some(LoadedFontSource {
             font_bytes: Vec::new(),
             font_index: 0,
             font_metrics: FontMetrics::zero(),
         })
-    }
+    });
 
-    fn fake_load_image_font_fn(_i: &ImageSource) -> Option<LoadedImageSource> {
+    let fake_load_image_font_fn = LoadImageFn(|_i: &ImageSource| -> Option<LoadedImageSource> {
         Some(LoadedImageSource {
             image_bytes_decoded: ImageData::Raw(Arc::new(Vec::new())),
             image_descriptor: ImageDescriptor {
@@ -159,7 +161,7 @@ fn test_font_gc() {
                 allow_mipmaps: false,
             },
         })
-    }
+    });
 
     struct Mock;
 
