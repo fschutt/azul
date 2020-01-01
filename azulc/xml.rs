@@ -186,9 +186,9 @@ impl<T> DomXml<T> {
         })
     }
 
-    /// Creates a mock `<app></app>` wrapper, so that the `Self::new()` function doesn't fail
+    /// Creates a mock `<body></body>` wrapper, so that the `Self::new()` function doesn't fail
     pub fn mock(xml: &str) -> Self {
-        let actual_xml = format!("<app>{}</app>", xml);
+        let actual_xml = format!("<body>{}</body>", xml);
         Self::new(&actual_xml, &mut XmlComponentMap::default()).unwrap()
     }
 
@@ -851,7 +851,7 @@ pub fn find_attribute<'a>(node: &'a XmlNode, attribute: &str) -> Option<&'a Stri
     node.attributes.iter().find(|n| normalize_casing(&n.0).as_str() == attribute).map(|s| s.1)
 }
 
-/// Parses an XML string and returns a `Dom` with the components instantiated in the `<app></app>`
+/// Parses an XML string and returns a `Dom` with the components instantiated in the `<body></body>`
 pub fn str_to_dom<T>(root_nodes: &[XmlNode], component_map: &mut XmlComponentMap<T>) -> Result<Dom<T>, XmlParseError> {
     if let Some(head_node) = find_node_by_type(root_nodes, "head") {
         get_xml_components(&head_node.children, component_map)?;
