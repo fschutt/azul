@@ -252,10 +252,13 @@ impl<T> Drop for Task<T> {
 }
 
 /// A `Thread` is a simple abstraction over `std::thread` that allows to offload a pure
-/// function to a different thread (essentially emulating async / await for older compilers)
+/// function to a different thread (essentially emulating async / await for older compilers).
+///
+/// # Warning
+///
+/// `Thread` panics if it goes out of scope before `.block()` was called.
 pub struct Thread<T> {
-    data: Option<Arc<Mutex<T>>>,
-    join_handle: Option<JoinHandle<()>>,
+    join_handle: Option<JoinHandle<T>>,
 }
 
 /// Error that can happen while calling `.block()`
@@ -300,38 +303,16 @@ impl<T> Thread<T> {
     /// assert_eq!(result_3, Ok(21));
     /// ```
     pub fn new<U>(initial_data: U, callback: fn(U) -> T) -> Self where T: Send + 'static, U: Send + 'static {
-
-        use std::mem;
-
-        // Reserve memory for T and zero it
-        let data = Arc::new(Mutex::new(unsafe { mem::zeroed() }));
-        let data_arc = data.clone();
-
-        // For some reason, Rust doesn't realize that we're *moving* the data into the
-        // child thread, which is why the 'static is unnecessary - that would only be necessary
-        // if we'd reference the data from the main thread
-        let thread_handle = thread::spawn(move || {
-            *data_arc.lock().unwrap() = callback(initial_data);
-        });
-
         Self {
-            data: Some(data),
-            join_handle: Some(thread_handle),
+            join_handle: Some(thread::spawn(move || callback(initial_data))),
         }
     }
 
     /// Block until the internal thread has finished and return T
     pub fn block(mut self) -> Result<T, BlockError> {
-
         // .block() can only be called once, so these .unwrap()s are safe
         let handle = self.join_handle.take().unwrap();
-        let data = self.data.take().unwrap();
-
-        handle.join().map_err(|_| BlockError::ThreadJoinError)?;
-
-        let data_arc = Arc::try_unwrap(data).map_err(|_| BlockError::ArcUnlockError)?;
-        let data = data_arc.into_inner().map_err(|_| BlockError::MutexIntoInnerError)?;
-
+        let data = handle.join().map_err(|_| BlockError::ThreadJoinError)?;
         Ok(data)
     }
 }
