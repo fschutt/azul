@@ -422,8 +422,7 @@ fn position_items(
                     child_rect.bounds.origin.y += parent_bounds.origin.y;
                 },
                 PositionType::Fixed => {
-                    let child_rect = &mut positioned_rects[child_id];
-                    child_rect.bounds = figure_out_position(LayoutRect::new(LayoutPoint::zero(), root_size), previous_sibling_origin, child_anon_node.get_style(), &child_rect);
+                    positioned_rects[child_id].bounds = figure_out_position(LayoutRect::new(LayoutPoint::zero(), root_size), previous_sibling_origin, child_anon_node.get_style());
                 },
                 PositionType::Relative => {
 
@@ -464,8 +463,7 @@ fn position_items(
                 PositionType::Absolute => {
                     let last_positioned_node = position_relative_absolute_stack.last().copied().unwrap_or((NodeId::ZERO, 0));
                     let last_positioned_bounds = positioned_rects[last_positioned_node.0].bounds;
-                    let child_rect = &mut positioned_rects[child_id];
-                    child_rect.bounds = figure_out_position(last_positioned_bounds, previous_sibling_origin, child_anon_node.get_style(), &child_rect);
+                    positioned_rects[child_id].bounds = figure_out_position(last_positioned_bounds, previous_sibling_origin, child_anon_node.get_style());
                 },
             }
         }
@@ -476,8 +474,7 @@ fn position_items(
 fn figure_out_position(
     parent: LayoutRect,
     previous_sibling_origin: LayoutPoint,
-    child_style: &Style,
-    child_rect: &PositionedRectangle,
+    child_style: &Style
 ) -> LayoutRect {
 
     let top_offset = child_style.position.top.resolve(Defined(parent.size.height)).unwrap_or_zero();
