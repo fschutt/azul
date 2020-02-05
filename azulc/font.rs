@@ -1,3 +1,7 @@
+#![cfg(feature = "font_loading")]
+
+use azul_css;
+
 /// Returns the font file contents from the computer + the font index
 pub fn load_system_font(id: &str) -> Option<(Vec<u8>, i32)> {
     use font_loader::system_fonts::{self, FontPropertyBuilder};
@@ -88,6 +92,7 @@ fn test_parse_gsettings_font() {
     assert_eq!(parse_gsettings_font("'Ubuntu Mono 13'"), "Ubuntu Mono");
 }
 
+// Test that the font gets garbage collected correctly
 #[test]
 fn test_font_gc() {
 
@@ -125,7 +130,7 @@ fn test_font_gc() {
 
     fn build_ui(xml: &str, css: &str) -> (UiState<Mock>, UiDescription, DisplayList) {
 
-        use crate::css::from_str as css_from_str;
+        use azul_css::from_str as css_from_str;
 
         let is_mouse_down = false;
         let focused_node = None;
@@ -139,6 +144,7 @@ fn test_font_gc() {
         (ui_state, ui_description, display_list)
     }
 
+    #[cfg(feature = "font_loading")]
     fn fake_load_font_fn(_f: &FontSource) -> Option<LoadedFontSource> {
         Some(LoadedFontSource {
             font_bytes: Vec::new(),
@@ -147,6 +153,7 @@ fn test_font_gc() {
         })
     }
 
+    #[cfg(feature = "image_loading")]
     fn fake_load_image_font_fn(_i: &ImageSource) -> Option<LoadedImageSource> {
         Some(LoadedImageSource {
             image_bytes_decoded: ImageData::Raw(Arc::new(Vec::new())),

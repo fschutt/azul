@@ -6,10 +6,10 @@ extern crate xmlparser;
 extern crate azul_core;
 extern crate azul_css;
 extern crate azul_layout;
-// #[cfg(feature = "font_loading")]
-// extern crate font_loader;
-// #[cfg(feature = "image_loading")]
-// extern crate image;
+#[cfg(feature = "font_loading")]
+extern crate font_loader;
+#[cfg(feature = "image_loading")]
+extern crate image as image_crate;
 
 pub struct Dummy;
 

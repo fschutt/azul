@@ -10,10 +10,10 @@ use std::ffi::c_void;
 #[cfg(not(test))]
 #[cfg(debug_assertions)]
 use std::time::Duration;
-use azul_css::{Css, CssPath};
+use azul_css::{Css, LayoutPoint, LayoutRect, CssPath};
 #[cfg(debug_assertions)]
 #[cfg(not(test))]
-use azul_css::{LayoutPoint, LayoutRect, HotReloadHandler};
+use azul_css::HotReloadHandler;
 use crate::{
     FastHashMap,
     app_resources::Epoch,
