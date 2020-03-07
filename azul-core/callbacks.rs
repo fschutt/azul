@@ -262,11 +262,14 @@ pub struct ScrollPosition {
 }
 
 #[derive(Copy, Clone, Eq, Hash, PartialEq, PartialOrd, Ord)]
-pub struct DocumentId(pub IdNamespace, pub u32);
+pub struct DocumentId {
+    pub namespace_id: IdNamespace, 
+    pub id: u32 
+}
 
 impl ::std::fmt::Display for DocumentId {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        write!(f, "DocumentId({}, {})", self.0, self.1)
+        write!(f, "DocumentId {{ ns: {}, id: {} }}", self.namespace_id, self.id)
     }
 }
 
@@ -755,7 +758,7 @@ impl HidpiAdjustedBounds {
         }
     }
 
-    pub fn get_physical_size(&self) -> PhysicalSize {
+    pub fn get_physical_size(&self) -> PhysicalSize<u32> {
         self.get_logical_size().to_physical(self.hidpi_factor)
     }
 

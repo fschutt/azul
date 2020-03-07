@@ -5,7 +5,14 @@
 //! azul (not azul-core), you have to depend on webrender.
 
 use webrender::api::{
-    LayoutPrimitiveInfo as WrLayoutPrimitiveInfo,
+    units::{
+        LayoutSize as WrLayoutSize,
+        LayoutPoint as WrLayoutPoint,
+        LayoutRect as WrLayoutRect,
+        LayoutSideOffsets as WrLayoutSideOffsets,
+        ImageDirtyRect as WrImageDirtyRect,
+    },
+    CommonItemProperties as WrCommonItemProperties,
     HitTestItem as WrHitTestItem,
     FontKey as WrFontKey,
     FontInstanceKey as WrFontInstanceKey,
@@ -20,15 +27,11 @@ use webrender::api::{
     BoxShadowClipMode as WrBoxShadowClipMode,
     ExtendMode as WrExtendMode,
     BorderStyle as WrBorderStyle,
-    LayoutSideOffsets as WrLayoutSideOffsets,
     ImageFormat as WrImageFormat,
     ImageDescriptor as WrImageDescriptor,
     GlyphInstance as WrGlyphInstance,
     BuiltDisplayList as WrBuiltDisplayList,
     DisplayListBuilder as WrDisplayListBuilder,
-    LayoutSize as WrLayoutSize,
-    LayoutPoint as WrLayoutPoint,
-    LayoutRect as WrLayoutRect,
     GlyphOptions as WrGlyphOptions,
     AlphaType as WrAlphaType,
     FontInstanceFlags as WrFontInstanceFlags,
@@ -45,7 +48,6 @@ use webrender::api::{
     ExternalImageType as WrExternalImageType,
     TextureTarget as WrTextureTarget,
     UpdateImage as WrUpdateImage,
-    ImageDirtyRect as WrImageDirtyRect,
     Epoch as WrEpoch,
     AddFontInstance as WrAddFontInstance,
     FontVariation as WrFontVariation,
@@ -106,12 +108,6 @@ pub(crate) mod winit_translate {
     };
     use glutin::{
         event::VirtualKeyCode as WinitVirtualKeyCode,
-        dpi::{
-            LogicalPosition as WinitLogicalPosition,
-            LogicalSize as WinitLogicalSize,
-            PhysicalPosition as WinitPhysicalPosition,
-            PhysicalSize as WinitPhysicalSize,
-        },
         window::{
             CursorIcon as WinitCursorIcon,
             BadIcon as WinitBadIcon,
@@ -125,6 +121,12 @@ pub(crate) mod winit_translate {
     };
     #[cfg(target_os = "linux")]
     use azul_core::window::{WaylandTheme, XWindowType};
+
+    use glutin::dpi::PhysicalSize as WinitPhysicalSize;
+    use glutin::dpi::PhysicalPosition as WinitPhysicalPosition;
+
+    pub(crate) type WinitLogicalSize = glutin::dpi::LogicalSize<f64>;
+    pub(crate) type WinitLogicalPosition = glutin::dpi::LogicalPosition<f64>;
 
     #[inline(always)]
     pub(crate) fn translate_logical_position(input: LogicalPosition) -> WinitLogicalPosition {
@@ -146,6 +148,26 @@ pub(crate) mod winit_translate {
         LogicalSize::new(input.width as f32, input.height as f32)
     }
 
+    #[inline(always)]
+    pub(crate) fn translate_physical_position<T>(input: PhysicalPosition<T>) -> WinitPhysicalPosition<T> {
+        WinitPhysicalPosition::new(input.x, input.y)
+    }
+
+    #[inline(always)]
+    pub(crate) fn translate_physical_size<T>(input: PhysicalSize<T>) -> WinitPhysicalSize<T> {
+        WinitPhysicalSize::new(input.width, input.height)
+    }
+
+    #[inline(always)]
+    pub(crate) fn winit_translate_physical_position<T>(input: WinitPhysicalPosition<T>) -> PhysicalPosition<T> {
+        PhysicalPosition::new(input.x, input.y)
+    }
+
+    #[inline(always)]
+    pub(crate) fn winit_translate_physical_size<T>(input: WinitPhysicalSize<T>) -> PhysicalSize<T> {
+        PhysicalSize::new(input.width, input.height)
+    }
+
     #[cfg(target_os = "linux")]
     #[inline(always)]
     pub(crate) fn translate_x_window_type(input: XWindowType) -> WinitXWindowType {
@@ -165,14 +187,6 @@ pub(crate) mod winit_translate {
             XWindowType::Dnd => WinitXWindowType::Dnd,
             XWindowType::Normal => WinitXWindowType::Normal,
         }
-    }
-
-    pub(crate) fn translate_physical_position(input: PhysicalPosition) -> WinitPhysicalPosition {
-        WinitPhysicalPosition::new(input.x as f64, input.y as f64)
-    }
-
-    pub(crate) fn translate_physical_size(input: PhysicalSize) -> WinitPhysicalSize {
-        WinitPhysicalSize::new(input.width as f64, input.height as f64)
     }
 
     pub(crate) fn translate_mouse_cursor_type(mouse_cursor_type: MouseCursorType) -> WinitCursorIcon {
@@ -496,7 +510,7 @@ pub(crate) const fn translate_pipeline_id_wr(pipeline_id: WrPipelineId) -> Pipel
 
 #[inline(always)]
 pub(crate) const fn translate_document_id_wr(document_id: WrDocumentId) -> DocumentId {
-    DocumentId(translate_id_namespace_wr(document_id.0), document_id.1)
+    DocumentId { namespace: translate_id_namespace_wr(document_id.0), id: document_id.1 }
 }
 
 #[inline(always)]
@@ -573,7 +587,7 @@ pub(crate) const fn wr_translate_pipeline_id(pipeline_id: PipelineId) -> WrPipel
 
 #[inline(always)]
 pub(crate) const fn wr_translate_document_id(document_id: DocumentId) -> WrDocumentId {
-    WrDocumentId(wr_translate_id_namespace(document_id.0), document_id.1)
+    WrDocumentId { namespace_id: wr_translate_id_namespace(document_id.namespace_id), id: document_id.id }
 }
 
 #[inline(always)]
@@ -588,7 +602,7 @@ pub(crate) const fn translate_logical_size_to_css_layout_size(logical_size: Logi
 
 #[inline]
 pub(crate) fn wr_translate_image_descriptor(descriptor: ImageDescriptor) -> WrImageDescriptor {
-    use webrender::api::DeviceIntSize;
+    use webrender::api::units::DeviceIntSize;
     WrImageDescriptor {
         format: wr_translate_image_format(descriptor.format),
         size: DeviceIntSize::new(descriptor.dimensions.0 as i32, descriptor.dimensions.1 as i32),
@@ -976,9 +990,11 @@ fn wr_translate_update_image(update_image: UpdateImage) -> WrUpdateImage {
 #[inline(always)]
 fn wr_translate_image_dirty_rect(dirty_rect: ImageDirtyRect) -> WrImageDirtyRect {
     use webrender::api::{
-        DeviceIntRect as WrDeviceIntRect,
-        DeviceIntPoint as WrDeviceIntPoint,
-        DeviceIntSize as WrDeviceIntSize,
+        units::{        
+            DeviceIntRect as WrDeviceIntRect,
+            DeviceIntPoint as WrDeviceIntPoint,
+            DeviceIntSize as WrDeviceIntSize,
+        },
         DirtyRect as WrDirtyRect,
     };
     match dirty_rect {
@@ -1096,7 +1112,7 @@ fn push_scroll_frame(
     };
     let clip_rect = scroll_frame.frame.clip_rect.unwrap_or(root_rect);
 
-    let hit_test_info = WrLayoutPrimitiveInfo {
+    let hit_test_info = WrCommonItemProperties {
         rect: wr_translate_layout_rect(rect),
         clip_rect: wr_translate_layout_rect(clip_rect),
         is_backface_visible: false,
@@ -1164,7 +1180,7 @@ fn push_display_list_content(
         CssLayoutRect::new(CssLayoutPoint::new(0.0, 0.0), CssLayoutSize::new(root_size.width, root_size.height))
     };
 
-    let normal_info = WrLayoutPrimitiveInfo {
+    let normal_info = WrCommonItemProperties {
         rect: wr_translate_layout_rect(rect),
         clip_rect: wr_translate_layout_rect(clip_rect.unwrap_or(root_rect)),
         is_backface_visible: false,
@@ -1208,7 +1224,7 @@ mod text {
 
     use webrender::api::{
         DisplayListBuilder as WrDisplayListBuilder,
-        LayoutPrimitiveInfo as WrLayoutPrimitiveInfo,
+        CommonItemProperties as WrCommonItemProperties,
         SpaceAndClipInfo as WrSpaceAndClipInfo,
     };
     use azul_core::{
@@ -1219,7 +1235,7 @@ mod text {
 
     pub(in super) fn push_text(
          builder: &mut WrDisplayListBuilder,
-         info: &WrLayoutPrimitiveInfo,
+         info: &WrCommonItemProperties,
          glyphs: Vec<GlyphInstance>,
          font_instance_key: FontInstanceKey,
          color: ColorU,
@@ -1254,10 +1270,12 @@ mod text {
 mod background {
 
     use webrender::api::{
+        units::{
+            LayoutSize as WrLayoutSize,
+            LayoutRect as WrLayoutRect,
+        },
         DisplayListBuilder as WrDisplayListBuilder,
-        LayoutPrimitiveInfo as WrLayoutPrimitiveInfo,
-        LayoutSize as WrLayoutSize,
-        LayoutRect as WrLayoutRect,
+        CommonItemProperties as WrCommonItemProperties,
         GradientStop as WrGradientStop,
         SpaceAndClipInfo as WrSpaceAndClipInfo,
     };
@@ -1279,7 +1297,7 @@ mod background {
     #[inline]
     pub(in super) fn push_background(
         builder: &mut WrDisplayListBuilder,
-        info: &WrLayoutPrimitiveInfo,
+        info: &WrCommonItemProperties,
         background: RectBackground,
         background_size: Option<StyleBackgroundSize>,
         background_position: Option<StyleBackgroundPosition>,
@@ -1300,7 +1318,7 @@ mod background {
 
     fn push_radial_gradient_background(
         builder: &mut WrDisplayListBuilder,
-        info: &WrLayoutPrimitiveInfo,
+        info: &WrCommonItemProperties,
         radial_gradient: RadialGradient,
         background_position: Option<StyleBackgroundPosition>,
         background_size: Option<StyleBackgroundSize>,
@@ -1350,7 +1368,7 @@ mod background {
 
     fn push_linear_gradient_background(
         builder: &mut WrDisplayListBuilder,
-        info: &WrLayoutPrimitiveInfo,
+        info: &WrCommonItemProperties,
         linear_gradient: LinearGradient,
         background_position: Option<StyleBackgroundPosition>,
         background_size: Option<StyleBackgroundSize>,
@@ -1398,7 +1416,7 @@ mod background {
 
     fn push_image_background(
         builder: &mut WrDisplayListBuilder,
-        info: &WrLayoutPrimitiveInfo,
+        info: &WrCommonItemProperties,
         image_info: ImageInfo,
         background_position: Option<StyleBackgroundPosition>,
         background_size: Option<StyleBackgroundSize>,
@@ -1424,7 +1442,7 @@ mod background {
 
     fn push_color_background(
         builder: &mut WrDisplayListBuilder,
-        info: &WrLayoutPrimitiveInfo,
+        info: &WrCommonItemProperties,
         color: ColorU,
         background_position: Option<StyleBackgroundPosition>,
         background_size: Option<StyleBackgroundSize>,
@@ -1453,15 +1471,15 @@ mod background {
     }
 
     fn get_background_repeat_info(
-        info: &WrLayoutPrimitiveInfo,
+        info: &WrCommonItemProperties,
         background_repeat: StyleBackgroundRepeat,
         background_size: LayoutSize,
-    ) -> WrLayoutPrimitiveInfo {
+    ) -> WrCommonItemProperties {
 
         use azul_css::StyleBackgroundRepeat::*;
 
         match background_repeat {
-            NoRepeat => WrLayoutPrimitiveInfo::with_clip_rect(
+            NoRepeat => WrCommonItemProperties::with_clip_rect(
                 info.rect,
                 WrLayoutRect::new(
                     info.rect.origin,
@@ -1469,14 +1487,14 @@ mod background {
                 ),
             ),
             Repeat => *info,
-            RepeatX => WrLayoutPrimitiveInfo::with_clip_rect(
+            RepeatX => WrCommonItemProperties::with_clip_rect(
                 info.rect,
                 WrLayoutRect::new(
                     info.rect.origin,
                     WrLayoutSize::new(info.rect.size.width, background_size.height),
                 ),
             ),
-            RepeatY => WrLayoutPrimitiveInfo::with_clip_rect(
+            RepeatY => WrCommonItemProperties::with_clip_rect(
                 info.rect,
                 WrLayoutRect::new(
                     info.rect.origin,
@@ -1488,7 +1506,7 @@ mod background {
 
     /// Transform a background size such as "cover" or "contain" into actual pixels
     fn calculate_background_size(
-        info: &WrLayoutPrimitiveInfo,
+        info: &WrCommonItemProperties,
         bg_size: Option<StyleBackgroundSize>,
         content_size: Option<(f32, f32)>,
     ) -> LayoutSize {
@@ -1520,7 +1538,7 @@ mod background {
 
     /// Transforma background-position attribute into pixel coordinates
     fn calculate_background_position(
-        info: &WrLayoutPrimitiveInfo,
+        info: &WrCommonItemProperties,
         background_position: StyleBackgroundPosition,
         background_size: LayoutSize,
     ) -> LayoutPoint {
@@ -1553,7 +1571,7 @@ mod image {
 
     use webrender::api::{
         DisplayListBuilder as WrDisplayListBuilder,
-        LayoutPrimitiveInfo as WrLayoutPrimitiveInfo,
+        CommonItemProperties as WrCommonItemProperties,
         SpaceAndClipInfo as WrSpaceAndClipInfo,
     };
     use azul_css::{LayoutPoint, LayoutSize, ColorU};
@@ -1565,7 +1583,7 @@ mod image {
     #[inline]
     pub(in super) fn push_image(
         builder: &mut WrDisplayListBuilder,
-        info: &WrLayoutPrimitiveInfo,
+        info: &WrCommonItemProperties,
         size: LayoutSize,
         offset: LayoutPoint,
         image_key: ImageKey,
@@ -1578,7 +1596,7 @@ mod image {
             wr_translate_image_rendering, wr_translate_alpha_type,
             wr_translate_color_u, wr_translate_image_key, wr_translate_layout_size,
         };
-        use webrender::api::LayoutSize as WrLayoutSize;
+        use webrender::api::units::LayoutSize as WrLayoutSize;
 
         let mut offset_info = *info;
         offset_info.rect.origin.x += offset.x;
@@ -1606,7 +1624,7 @@ mod box_shadow {
         display_list::{StyleBoxShadow, StyleBorderRadius},
     };
     use webrender::api::{
-        LayoutPrimitiveInfo as WrLayoutPrimitiveInfo,
+        CommonItemProperties as WrCommonItemProperties,
         DisplayListBuilder as WrDisplayListBuilder,
         SpaceAndClipInfo as WrSpaceAndClipInfo,
     };
@@ -1807,7 +1825,7 @@ mod box_shadow {
         shadow_type: BoxShadowClipMode,
         parent_space_and_clip: &WrSpaceAndClipInfo,
     ) {
-        use webrender::api::{LayoutRect, LayoutPoint, LayoutVector2D};
+        use webrender::api::units::{LayoutRect, LayoutPoint, LayoutVector2D};
         use super::{
             wr_translate_color_f, wr_translate_border_radius,
             wr_translate_box_shadow_clip_mode, wr_translate_layout_rect,
@@ -1824,7 +1842,7 @@ mod box_shadow {
         let clip_rect = wr_translate_layout_rect(clip_rect);
         let clip_rect = clip_rect.intersection(&full_screen_rect).unwrap_or(clip_rect);
 
-        let info = WrLayoutPrimitiveInfo::with_clip_rect(LayoutRect::zero(), clip_rect);
+        let info = WrCommonItemProperties::with_clip_rect(LayoutRect::zero(), clip_rect);
 
         builder.push_box_shadow(
             &info,
@@ -1881,10 +1899,10 @@ mod box_shadow {
 mod border {
 
     use webrender::api::{
+        units::LayoutSideOffsets as WrLayoutSideOffsets,
         DisplayListBuilder as WrDisplayListBuilder,
-        LayoutSideOffsets as WrLayoutSideOffsets,
         BorderDetails as WrBorderDetails,
-        LayoutPrimitiveInfo as WrLayoutPrimitiveInfo,
+        CommonItemProperties as WrCommonItemProperties,
         BorderStyle as WrBorderStyle,
         BorderSide as WrBorderSide,
         SpaceAndClipInfo as WrSpaceAndClipInfo,
@@ -1905,7 +1923,7 @@ mod border {
 
     pub(in super) fn push_border(
         builder: &mut WrDisplayListBuilder,
-        info: &WrLayoutPrimitiveInfo,
+        info: &WrCommonItemProperties,
         radii: StyleBorderRadius,
         widths: StyleBorderWidths,
         colors: StyleBorderColors,

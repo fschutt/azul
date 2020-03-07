@@ -219,6 +219,8 @@ extern crate log;
 extern crate fern;
 #[cfg(feature = "logging")]
 extern crate backtrace;
+#[cfg(target_os = "macos")]
+extern crate core_foundation;
 
 pub use azulc::xml;
 /// Manages application state (`App` / `AppState` / `AppResources`), wrapping resources and app state

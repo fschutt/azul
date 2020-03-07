@@ -1,5 +1,6 @@
 use std::{
     fmt,
+    rc::Rc,
     collections::{BTreeMap, HashSet},
     sync::atomic::{AtomicUsize, Ordering},
     marker::PhantomData,
@@ -24,6 +25,7 @@ use crate::{
     ui_state::UiState,
     display_list::{SolvedLayoutCache, GlTextureCache, CachedDisplayList},
 };
+use gleam::gl::Gl;
 
 pub const DEFAULT_TITLE: &str = "Azul App";
 pub const DEFAULT_WIDTH: f32 = 800.0;
@@ -417,7 +419,7 @@ pub struct WindowState {
     /// Size of the window + max width / max height: 800 x 600 by default
     pub size: WindowSize,
     /// The x and y position, or None to let the WM decide where to put the window (default)
-    pub position: Option<LogicalPosition>,
+    pub position: Option<PhysicalPosition<u32>>,
     /// Flags such as whether the window is minimized / maximized, fullscreen, etc.
     pub flags: WindowFlags,
     /// Mostly used for debugging, shows WebRender-builtin graphs on the screen.
@@ -445,7 +447,7 @@ pub struct FullWindowState {
     /// Size of the window + max width / max height: 800 x 600 by default
     pub size: WindowSize,
     /// The x and y position, or None to let the WM decide where to put the window (default)
-    pub position: Option<LogicalPosition>,
+    pub position: Option<PhysicalPosition<u32>>,
     /// Flags such as whether the window is minimized / maximized, fullscreen, etc.
     pub flags: WindowFlags,
     /// Mostly used for debugging, shows WebRender-builtin graphs on the screen.
@@ -755,19 +757,11 @@ pub struct MacWindowOptions {
 
 impl WindowState {
 
-    pub fn new(css: Css) -> Self {
-        Self {
-            css,
-            .. Default::default()
-        }
-    }
+    /// Creates a new, default `WindowState` with the given CSS style
+    pub fn new(css: Css) -> Self { Self { css, .. Default::default() } }
 
-    pub fn with_css(self, css: Css) -> Self {
-        Self {
-            css,
-            .. self
-        }
-    }
+    /// Same as `WindowState::new` but to be used as a builder method
+    pub fn with_css(self, css: Css) -> Self { Self { css, .. self } }
 
     /// Returns the current keyboard keyboard state. We don't want the library
     /// user to be able to modify this state, only to read it.
@@ -783,9 +777,7 @@ impl WindowState {
 
     /// Returns the physical (width, height) in pixel of this window
     pub fn get_physical_size(&self) -> (usize, usize) {
-        let hidpi = self.get_hidpi_factor();
-        let physical = self.size.dimensions.to_physical(hidpi);
-        (physical.width as usize, physical.height as usize)
+        (self.size.dimensions.width as usize, self.size.dimensions.height as usize)
     }
 
     /// Returns the current HiDPI factor for this window.
@@ -851,14 +843,11 @@ impl WindowSize {
 
     /// Get the actual logical size
     pub fn get_logical_size(&self) -> LogicalSize {
-        LogicalSize::new(self.dimensions.width, self.dimensions.height)
+        self.dimensions
     }
 
-    pub fn get_physical_size(&self) -> PhysicalSize {
-        PhysicalSize::new(
-            self.dimensions.width * self.hidpi_factor,
-            self.dimensions.height * self.hidpi_factor,
-        )
+    pub fn get_physical_size(&self) -> PhysicalSize<u32> {
+        self.dimensions.to_physical(self.hidpi_factor)
     }
 
     /// Get a size that is usually smaller than the logical one, so that the winit DPI factor is compensated for.
@@ -1013,11 +1002,26 @@ impl HotReloader {
 /// not available for whatever reason.
 ///
 /// If you don't know what any of this means, leave it at `Default`.
-#[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub enum RendererType {
+    /// Use the hardware renderer first, then fall back to OSMesa
     Default,
-    Hardware,
-    Software,
+    /// Force hardware rendering
+    ForceHardware,
+    /// Force software rendering
+    ForceSoftware,
+    /// Render using a custom OpenGL implementation
+    Custom(Rc<dyn Gl>),
+}
+
+impl fmt::Debug for RendererType {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        match self {
+            RendererType::Default => write!(f, "Default"),
+            RendererType::ForceHardware => write!(f, "ForceHardware"),
+            RendererType::ForceSoftware => write!(f, "ForceSoftware"),
+            RendererType::Custom(_) => write!(f, "Custom"),
+        }
+    }
 }
 
 impl Default for RendererType {
@@ -1221,15 +1225,15 @@ pub struct LogicalSize {
 }
 
 #[derive(Debug, Copy, Clone, PartialEq, PartialOrd)]
-pub struct PhysicalPosition {
-    pub x: f32,
-    pub y: f32,
+pub struct PhysicalPosition<T> {
+    pub x: T,
+    pub y: T,
 }
 
 #[derive(Debug, Copy, Clone, PartialEq, PartialOrd)]
-pub struct PhysicalSize {
-    pub width: f32,
-    pub height: f32,
+pub struct PhysicalSize<T> {
+    pub width: T,
+    pub height: T,
 }
 
 impl LogicalPosition {
@@ -1238,24 +1242,39 @@ impl LogicalPosition {
     #[inline(always)]
     pub const fn zero() -> Self { Self::new(0.0, 0.0) }
     #[inline(always)]
-    pub fn to_physical(self, hidpi_factor: f32) -> PhysicalPosition {
+    pub fn to_physical(self, hidpi_factor: f32) -> PhysicalPosition<u32> {
         PhysicalPosition {
-            x: self.x * hidpi_factor,
-            y: self.y * hidpi_factor,
+            x: (self.x * hidpi_factor) as u32,
+            y: (self.y * hidpi_factor) as u32,
         }
     }
 }
 
-impl PhysicalPosition {
+impl<T> PhysicalPosition<T> {
     #[inline(always)]
-    pub const fn new(x: f32, y: f32) -> Self { Self { x, y } }
+    pub const fn new(x: T, y: T) -> Self { Self { x, y } }
+}
+
+impl PhysicalPosition<u32> {
+    #[inline(always)]
+    pub const fn zero() -> Self { Self::new(0, 0) }
+    #[inline(always)]
+    pub fn to_logical(self, hidpi_factor: f32) -> LogicalPosition {
+        LogicalPosition {
+            x: self.x as f32 / hidpi_factor,
+            y: self.y as f32 / hidpi_factor,
+        }
+    }
+}
+
+impl PhysicalPosition<f64> {
     #[inline(always)]
     pub const fn zero() -> Self { Self::new(0.0, 0.0) }
     #[inline(always)]
     pub fn to_logical(self, hidpi_factor: f32) -> LogicalPosition {
         LogicalPosition {
-            x: self.x / hidpi_factor,
-            y: self.y / hidpi_factor,
+            x: self.x as f32 / hidpi_factor,
+            y: self.y as f32 / hidpi_factor,
         }
     }
 }
@@ -1266,24 +1285,27 @@ impl LogicalSize {
     #[inline(always)]
     pub const fn zero() -> Self { Self::new(0.0, 0.0) }
     #[inline(always)]
-    pub fn to_physical(self, hidpi_factor: f32) -> PhysicalSize {
+    pub fn to_physical(self, hidpi_factor: f32) -> PhysicalSize<u32> {
         PhysicalSize {
-            width: self.width * hidpi_factor,
-            height: self.height * hidpi_factor,
+            width: (self.width * hidpi_factor) as u32,
+            height: (self.height * hidpi_factor) as u32,
         }
     }
 }
 
-impl PhysicalSize {
+impl<T> PhysicalSize<T> {
     #[inline(always)]
-    pub const fn new(width: f32, height: f32) -> Self { Self { width, height } }
+    pub const fn new(width: T, height: T) -> Self { Self { width, height } }
+}
+
+impl PhysicalSize<u32> {
     #[inline(always)]
-    pub const fn zero() -> Self { Self::new(0.0, 0.0) }
+    pub const fn zero() -> Self { Self::new(0, 0) }
     #[inline(always)]
     pub fn to_logical(self, hidpi_factor: f32) -> LogicalSize {
         LogicalSize {
-            width: self.width / hidpi_factor,
-            height: self.height / hidpi_factor,
+            width: self.width as f32 / hidpi_factor,
+            height: self.height as f32 / hidpi_factor,
         }
     }
 }

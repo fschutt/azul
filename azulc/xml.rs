@@ -555,10 +555,9 @@ pub fn layout_dom<T>(dom: Dom<T>, css: &Css, root_size: LogicalSize) -> CachedDi
 
 
     // Set width + height of the rendering here
-    let (page_width_px, page_height_px) = (600.0, 100.0);
     let fake_window_state = FullWindowState {
         size: WindowSize {
-            dimensions: LogicalSize::new(page_width_px, page_height_px),
+            dimensions: root_size,
             .. Default::default()
         },
         .. Default::default()

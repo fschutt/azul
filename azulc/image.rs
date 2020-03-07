@@ -1,3 +1,5 @@
+#![cfg(feature = "image_loading")]
+
 use azul_core::app_resources::LoadedImageSource;
 pub use image_crate::{ImageError, DynamicImage, GenericImageView};
 

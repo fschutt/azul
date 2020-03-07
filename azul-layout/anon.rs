@@ -1,3 +1,6 @@
+#![allow(unused_assignments)]
+#![allow(unused_variables)]
+
 //! Module that handles the construction on `AnonDom`, a `Dom` that holds
 //! "anonymous" nodes (that group two following "inline" texts into one "anonymous" block).
 

@@ -974,6 +974,56 @@ impl Gl for VirtualGlDriver {
     fn provoking_vertex_angle(&self, mode: GLenum) {
         unimplemented()
     }
+
+    // -- glium: 0.8
+
+    fn gen_vertex_arrays_apple(&self, n: GLsizei) -> Vec<GLuint> {
+        unimplemented()
+    }
+
+    fn bind_vertex_array_apple(&self, vao: GLuint) {
+        unimplemented()
+    }
+
+    fn delete_vertex_arrays_apple(&self, vertex_arrays: &[GLuint]) {
+        unimplemented()
+    }
+    
+    fn copy_texture_chromium(
+        &self,
+        source_id: GLuint,
+        source_level: GLint,
+        dest_target: GLenum,
+        dest_id: GLuint,
+        dest_level: GLint,
+        internal_format: GLint,
+        dest_type: GLenum,
+        unpack_flip_y: GLboolean,
+        unpack_premultiply_alpha: GLboolean,
+        unpack_unmultiply_alpha: GLboolean
+    ) {
+        unimplemented()
+    }
+
+    fn copy_sub_texture_chromium(
+        &self,
+        source_id: GLuint,
+        source_level: GLint,
+        dest_target: GLenum,
+        dest_id: GLuint,
+        dest_level: GLint,
+        x_offset: GLint,
+        y_offset: GLint,
+        x: GLint,
+        y: GLint,
+        width: GLsizei,
+        height: GLsizei,
+        unpack_flip_y: GLboolean,
+        unpack_premultiply_alpha: GLboolean,
+        unpack_unmultiply_alpha: GLboolean
+    ) {
+        unimplemented()
+    }
 }
 
 fn unimplemented() -> ! {

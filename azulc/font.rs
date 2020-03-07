@@ -1,7 +1,5 @@
 #![cfg(feature = "font_loading")]
 
-use azul_css;
-
 /// Returns the font file contents from the computer + the font index
 pub fn load_system_font(id: &str) -> Option<(Vec<u8>, i32)> {
     use font_loader::system_fonts::{self, FontPropertyBuilder};
