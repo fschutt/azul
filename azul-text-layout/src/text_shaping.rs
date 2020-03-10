@@ -272,12 +272,13 @@ pub fn get_font_metrics_freetype(font_bytes: &[u8], font_index: i32) -> FontMetr
 
     use std::convert::TryInto;
     use freetype::freetype::{
+        FT_Long, FT_F26Dot6,
         FT_Init_FreeType, FT_Done_FreeType, FT_New_Memory_Face,
         FT_Done_Face, FT_Set_Char_Size, FT_Library, FT_Face,
     };
 
     const FT_ERR_OK: i32 = 0;
-    const FAKE_FONT_SIZE: isize = 1000;
+    const FAKE_FONT_SIZE: FT_F26Dot6 = 1000;
 
     let mut baseline = FontMetrics {
         font_size: FAKE_FONT_SIZE as usize,
@@ -291,12 +292,10 @@ pub fn get_font_metrics_freetype(font_bytes: &[u8], font_index: i32) -> FontMetr
         max_advance: 0,
     };
 
-    // Note: There are a lot of ".try_into().ok()" conversions here, that is because
-    // on some systems, FreeType builds with i64, on other systems it builds with i32
-    // as the required type. So we use ".try_into()" to accomodate for both platforms.
-    //
-    // On error, we simply return the default baseline with a font size of 0
-    // (TODO: use "Result" instead to express failure?)
+    let buf_len: FT_Long = match font_bytes.len().try_into().ok() {
+        Some(s) => s,
+        None => return baseline, // font too large for freetype
+    };
 
     unsafe {
         // Initialize library
@@ -310,7 +309,8 @@ pub fn get_font_metrics_freetype(font_bytes: &[u8], font_index: i32) -> FontMetr
         let mut ft_face: FT_Face = ptr::null_mut();
         let font_index = match font_index.try_into().ok() { Some(s) => s, None => return baseline };
         let buf_len = match font_bytes.len().try_into().ok() { Some(s) => s, None => return baseline };
-        let error = FT_New_Memory_Face(ft_library, font_bytes.as_ptr(), buf_len, font_index, &mut ft_face);
+        let error = FT_New_Memory_Face(ft_library, font_bytes.as_ptr(), buf_len, font_index as FT_Long, &mut ft_face);
+
         if error != FT_ERR_OK {
             FT_Done_FreeType(ft_library);
             return baseline;
@@ -335,12 +335,12 @@ pub fn get_font_metrics_freetype(font_bytes: &[u8], font_index: i32) -> FontMetr
             font_size: FAKE_FONT_SIZE as usize,
             x_ppem: metrics.x_ppem,
             y_ppem: metrics.y_ppem,
-            x_scale: match metrics.x_scale.try_into().ok() { Some(s) => s, None => return baseline },
-            y_scale: match metrics.y_scale.try_into().ok() { Some(s) => s, None => return baseline },
-            ascender: match metrics.ascender.try_into().ok() { Some(s) => s, None => return baseline },
-            descender: match metrics.descender.try_into().ok() { Some(s) => s, None => return baseline },
-            height: match metrics.height.try_into().ok() { Some(s) => s, None => return baseline },
-            max_advance: match metrics.max_advance.try_into().ok() { Some(s) => s, None => return baseline },
+            x_scale: metrics.x_scale as i64,
+            y_scale: metrics.y_scale as i64,
+            ascender: metrics.ascender as i64,
+            descender: metrics.descender as i64,
+            height: metrics.height as i64,
+            max_advance: metrics.max_advance as i64,
         };
 
         FT_Done_Face(ft_face);
