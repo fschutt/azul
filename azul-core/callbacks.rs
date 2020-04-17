@@ -28,7 +28,7 @@ use crate::{
     gl::Texture,
 };
 
-pub use gleam::gl::Gl;
+use gleam::gl::Gl;
 
 /// A callback function has to return if the screen should be updated after the
 /// function has run.
@@ -263,8 +263,8 @@ pub struct ScrollPosition {
 
 #[derive(Copy, Clone, Eq, Hash, PartialEq, PartialOrd, Ord)]
 pub struct DocumentId {
-    pub namespace_id: IdNamespace, 
-    pub id: u32 
+    pub namespace_id: IdNamespace,
+    pub id: u32
 }
 
 impl ::std::fmt::Display for DocumentId {

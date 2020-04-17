@@ -510,7 +510,7 @@ pub(crate) const fn translate_pipeline_id_wr(pipeline_id: WrPipelineId) -> Pipel
 
 #[inline(always)]
 pub(crate) const fn translate_document_id_wr(document_id: WrDocumentId) -> DocumentId {
-    DocumentId { namespace: translate_id_namespace_wr(document_id.0), id: document_id.1 }
+    DocumentId { namespace_id: translate_id_namespace_wr(document_id.namespace_id), id: document_id.id }
 }
 
 #[inline(always)]
@@ -990,7 +990,7 @@ fn wr_translate_update_image(update_image: UpdateImage) -> WrUpdateImage {
 #[inline(always)]
 fn wr_translate_image_dirty_rect(dirty_rect: ImageDirtyRect) -> WrImageDirtyRect {
     use webrender::api::{
-        units::{        
+        units::{
             DeviceIntRect as WrDeviceIntRect,
             DeviceIntPoint as WrDeviceIntPoint,
             DeviceIntSize as WrDeviceIntSize,

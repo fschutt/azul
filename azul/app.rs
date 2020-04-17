@@ -48,9 +48,7 @@ use azul_core::{
 };
 
 #[cfg(not(test))]
-use crate::window::{ FakeDisplay };
-#[cfg(not(test))]
-use glutin::CreationError;
+use crate::window::{ FakeDisplay, RendererCreationError };
 #[cfg(not(test))]
 use webrender::api::{units::WorldPoint, HitTestFlags};
 
@@ -139,7 +137,7 @@ pub struct AppConfig {
     /// implementations of loading fonts
     pub font_loading_fn: LoadFontFn,
     /// Function that is called when a font should be loaded. Necessary to be
-    /// configurable so that "desktop" and "web" versions of azul can have 
+    /// configurable so that "desktop" and "web" versions of azul can have
     /// different implementations of loading images.
     pub image_loading_fn: LoadImageFn,
 }
@@ -171,7 +169,7 @@ impl<T: Layout> App<T> {
     #[cfg(not(test))]
     #[allow(unused_variables)]
     /// Create a new, empty application. This does not open any windows.
-    pub fn new(initial_data: T, app_config: AppConfig) -> Result<Self, CreationError> {
+    pub fn new(initial_data: T, app_config: AppConfig) -> Result<Self, RendererCreationError> {
 
         #[cfg(feature = "logging")] {
             if let Some(log_level) = app_config.enable_logging {
@@ -555,7 +553,7 @@ impl<T: 'static> App<T> {
                                 let mut windowed_context = eld.active_windows.get_mut(&glutin_window_id);
                                 let windowed_context = windowed_context.as_mut().unwrap();
                                 let dpi_factor = windowed_context.display.window().scale_factor();
-                                full_window_state.mouse_state.cursor_position = CursorPosition::InWindow(winit_translate_physical_position(*location).to_logical(dpi_factor));
+                                full_window_state.mouse_state.cursor_position = CursorPosition::InWindow(winit_translate_physical_position(*location).to_logical(dpi_factor as f32));
                             }
 
                             match phase {
@@ -1323,7 +1321,7 @@ fn do_hit_test<T>(
 ) -> Vec<HitTestItem> {
 
     use crate::wr_translate::{
-        wr_translate_hittest_item, 
+        wr_translate_hittest_item,
         wr_translate_pipeline_id,
         wr_translate_document_id,
     };

@@ -495,7 +495,7 @@ pub(crate) fn synchronize_window_state_with_os_window(
 
     if old_state.position != new_state.position {
         if let Some(new_position) = new_state.position {
-            window.set_outer_position(translate_logical_position(new_position));
+            window.set_outer_position(translate_logical_position(new_position.to_logical(new_state.size.hidpi_factor)));
         }
     }
 
@@ -568,7 +568,7 @@ fn initialize_os_window(
     window.set_min_inner_size(new_state.size.max_dimensions.map(translate_logical_size));
 
     if let Some(new_position) = new_state.position {
-        window.set_outer_position(translate_logical_position(new_position));
+        window.set_outer_position(translate_logical_position(new_position.to_logical(new_state.size.hidpi_factor)));
     }
 
     if let Some(new_ime_position) = new_state.ime_position {
@@ -798,20 +798,22 @@ pub(crate) struct FakeDisplay {
 impl FakeDisplay {
 
     /// Creates a new render + a new display, given a renderer type (software or hardware)
-    pub(crate) fn new(renderer_type: RendererType) -> Result<Self, GlutinCreationError> {
+    pub(crate) fn new(renderer_type: RendererType) -> Result<Self, RendererCreationError> {
 
         const DPI_FACTOR: f32 = 1.0;
 
+        let initial_size = WrDeviceIntSize::new(600, 800); // fake size for the renderer
+
         // The events loop is shared across all windows
         let event_loop = EventLoop::new();
-        let (mut renderer, render_api, gl_context) = create_renderer(renderer_type, DPI_FACTOR)?;
+        let (renderer, render_api, headless_context, gl_context) = create_renderer(&event_loop, renderer_type, DPI_FACTOR, initial_size)?;
 
         Ok(Self {
             render_api: WrApi { api: render_api },
             renderer: Some(renderer),
-            hidden_context: gl_context,
+            hidden_context: headless_context,
             hidden_event_loop: event_loop,
-            gl_context: gl_function_pointers,
+            gl_context,
         })
     }
 
@@ -833,7 +835,7 @@ fn get_gl_context(gl_window: &Context<PossiblyCurrent>) -> Result<Rc<dyn Gl>, Gl
 #[allow(unused_variables)]
 fn get_hidpi_factor(window: &GlutinWindow, event_loop: &EventLoopWindowTarget<()>) -> (f32, f32) {
 
-    let winit_hidpi_factor = window.hidpi_factor() as f32;
+    let winit_hidpi_factor = window.scale_factor() as f32;
 
     #[cfg(target_os = "linux")] {
         use crate::glutin::platform::unix::EventLoopWindowTargetExtUnix;
@@ -852,31 +854,40 @@ fn create_gl_window<'a>(
     event_loop: &EventLoopWindowTarget<()>,
     shared_context: Option<&'a Context<NotCurrent>>,
 ) -> Result<WindowedContext<NotCurrent>, GlutinCreationError> {
-    create_window_context_builder(true, true, shared_context).build_windowed(window_builder.clone(), event_loop)
-        .or_else(|_| create_window_context_builder(true,  false, true, shared_context).build_windowed(window_builder.clone(), event_loop))
-        .or_else(|_| create_window_context_builder(false, true,  true, shared_context).build_windowed(window_builder.clone(), event_loop))
-        .or_else(|_| create_window_context_builder(false, false, true, shared_context).build_windowed(window_builder.clone(), event_loop))
+    create_window_context_builder(Vsync::Enabled, Srgb::Enabled, HwAcceleration::Enabled, shared_context).build_windowed(window_builder.clone(), event_loop)
+        .or_else(|_| create_window_context_builder(Vsync::Enabled,  Srgb::Disabled, HwAcceleration::Enabled, shared_context).build_windowed(window_builder.clone(), event_loop))
+        .or_else(|_| create_window_context_builder(Vsync::Disabled, Srgb::Enabled,  HwAcceleration::Enabled, shared_context).build_windowed(window_builder.clone(), event_loop))
+        .or_else(|_| create_window_context_builder(Vsync::Disabled, Srgb::Disabled, HwAcceleration::Enabled, shared_context).build_windowed(window_builder.clone(), event_loop))
         // try building using no hardware acceleration
-        .or_else(|_| create_window_context_builder(true,  false, false, shared_context).build_windowed(window_builder.clone(), event_loop))
-        .or_else(|_| create_window_context_builder(false, true,  false, shared_context).build_windowed(window_builder.clone(), event_loop))
-        .or_else(|_| create_window_context_builder(false, false, false, shared_context).build_windowed(window_builder.clone(), event_loop))
+        .or_else(|_| create_window_context_builder(Vsync::Enabled,  Srgb::Disabled, HwAcceleration::Disabled, shared_context).build_windowed(window_builder.clone(), event_loop))
+        .or_else(|_| create_window_context_builder(Vsync::Disabled, Srgb::Enabled,  HwAcceleration::Disabled, shared_context).build_windowed(window_builder.clone(), event_loop))
+        .or_else(|_| create_window_context_builder(Vsync::Disabled, Srgb::Disabled, HwAcceleration::Disabled, shared_context).build_windowed(window_builder.clone(), event_loop))
 }
 
 fn create_headless_context(
     event_loop: &EventLoop<()>,
+    force_hardware: HwAcceleration,
 ) -> Result<Context<NotCurrent>, GlutinCreationError> {
     use glutin::dpi::PhysicalSize as GlutinPhysicalSize;
     let default_size = GlutinPhysicalSize::new(1, 1);
-    create_window_context_builder(true, true, None).build_headless(event_loop, default_size)
-        .or_else(|_| create_window_context_builder(true,  false, true, None).build_headless(event_loop, default_size))
-        .or_else(|_| create_window_context_builder(false, true,  true, None).build_headless(event_loop, default_size))
-        .or_else(|_| create_window_context_builder(false, false, true, None).build_headless(event_loop, default_size))
-        // try building using no hardware acceleration
-        .or_else(|_| create_window_context_builder(true,  false, false, None).build_headless(event_loop, default_size))
-        .or_else(|_| create_window_context_builder(false, true,  false, None).build_headless(event_loop, default_size))
-        .or_else(|_| create_window_context_builder(false, false, false, None).build_headless(event_loop, default_size))
+
+                 create_window_context_builder(Vsync::Enabled,  Srgb::Enabled,  force_hardware, None).build_headless(event_loop, default_size)
+    .or_else(|_| create_window_context_builder(Vsync::Enabled,  Srgb::Disabled, force_hardware, None).build_headless(event_loop, default_size))
+    .or_else(|_| create_window_context_builder(Vsync::Disabled, Srgb::Enabled,  force_hardware, None).build_headless(event_loop, default_size))
+    .or_else(|_| create_window_context_builder(Vsync::Disabled, Srgb::Disabled, force_hardware, None).build_headless(event_loop, default_size))
 }
 
+#[derive(PartialEq)]
+enum Vsync { Enabled, Disabled }
+impl Vsync { fn is_enabled(&self) -> bool { *self == Vsync::Enabled }}
+
+#[derive(PartialEq)]
+enum Srgb { Enabled, Disabled }
+impl Srgb { fn is_enabled(&self) -> bool { *self == Srgb::Enabled }}
+
+#[derive(PartialEq)]
+enum HwAcceleration { Enabled, Disabled }
+impl HwAcceleration { fn is_enabled(&self) -> bool { *self == HwAcceleration::Enabled }}
 
 /// ContextBuilder is sadly not clone-able, which is why it has to be re-created
 /// every time you want to create a new context. The goals is to not crash on
@@ -889,9 +900,9 @@ fn create_headless_context(
 /// we can be sure the shared context can't be re-shared by the created window. Only
 /// the root window (via `FakeDisplay`) is allowed to manage the OpenGL context.
 fn create_window_context_builder<'a>(
-    vsync: bool,
-    srgb: bool,
-    hardware_acceleration: bool,
+    vsync: Vsync,
+    srgb: Srgb,
+    hardware_acceleration: HwAcceleration,
     shared_context: Option<&'a Context<NotCurrent>>
 ) -> ContextBuilder<'a, NotCurrent> {
 
@@ -912,12 +923,12 @@ fn create_window_context_builder<'a>(
     let gl_debug_enabled = false;
     context_builder
         .with_gl_debug_flag(gl_debug_enabled)
-        .with_vsync(vsync)
-        .with_srgb(srgb)
-        .with_hardware_acceleration(Some(hardware_acceleration))
+        .with_vsync(vsync.is_enabled())
+        .with_srgb(srgb.is_enabled())
+        .with_hardware_acceleration(Some(hardware_acceleration.is_enabled()))
 }
 
-// This exists because RendererOptions isn't Clone-able
+// This exists because WrRendererOptions isn't Clone-able
 fn get_renderer_opts(native: bool, device_pixel_ratio: f32) -> WrRendererOptions {
 
     use webrender::ProgramCache as WrProgramCache;
@@ -948,56 +959,87 @@ fn get_renderer_opts(native: bool, device_pixel_ratio: f32) -> WrRendererOptions
     }
 }
 
+#[derive(Debug)]
+pub enum RendererCreationError {
+    Glutin(GlutinCreationError),
+    Wr,
+}
+
+impl From<GlutinCreationError> for RendererCreationError {
+    fn from(e: GlutinCreationError) -> Self { RendererCreationError::Glutin(e) }
+}
+
 // Startup function of the renderer
 fn create_renderer(
+    event_loop: &EventLoop<()>,
     renderer_type: RendererType,
     device_pixel_ratio: f32,
-) -> Result<(WrRenderer, WrRenderApi), GlutinCreationError> {
+    device_size: WrDeviceIntSize,
+) -> Result<(WrRenderer, WrRenderApi, HeadlessContextState, Rc<dyn Gl>), RendererCreationError> {
 
     use self::RendererType::*;
 
-    // Note: Notifier is fairly useless, since rendering is 
+    // Note: Notifier is fairly useless, since rendering is
     // completely single-threaded, see comments on RenderNotifier impl
     let notifier = Box::new(Notifier { });
-
-    let mut gl_context = match renderer_type {
-        ForceHardware => create_headless_context(&event_loop)?,
-        ForceSoftware => /* TODO: load OSMesa here */ create_headless_context(&event_loop)?,
-        Default => create_headless_context(&event_loop)
-            .ok_or( /* TODO: load OSMesa here */ create_headless_context(&event_loop))?,
-        Custom(gl) => gl.clone(),
-    };
-
-    let mut gl = HeadlessContextState::NotCurrent(gl_context.clone());
-    gl.make_current();
-    let gl_function_pointers = get_gl_context(gl.headless_context().unwrap())?;
 
     let opts_native = get_renderer_opts(true, device_pixel_ratio);
     let opts_osmesa = get_renderer_opts(false, device_pixel_ratio);
 
-    let (renderer, sender) = match renderer_type {
+    let (renderer, sender, headless_context, gl_context) = match renderer_type {
         ForceHardware => {
-            WrRenderer::new(gl, notifier, opts_native, WR_SHADER_CACHE)?;
+            let gl_context = create_headless_context(&event_loop, HwAcceleration::Enabled)?;
+            let mut headless_context = HeadlessContextState::NotCurrent(gl_context);
+            headless_context.make_current();
+            let gl_context = get_gl_context(headless_context.headless_context().unwrap()).unwrap();
+            let (renderer, sender) = WrRenderer::new(gl_context.clone(), notifier, opts_native, WR_SHADER_CACHE, device_size)
+                .map_err(|_| RendererCreationError::Wr)?;
+            (renderer, sender, headless_context, gl_context)
         },
         ForceSoftware => {
-            // TODO: Load OSMesaContext here!
-            WrRenderer::new(gl, notifier, opts_osmesa, WR_SHADER_CACHE)?
+            let gl_context = create_headless_context(&event_loop, HwAcceleration::Disabled)?;
+            let mut headless_context = HeadlessContextState::NotCurrent(gl_context);
+            headless_context.make_current();
+            let gl_context = get_gl_context(headless_context.headless_context().unwrap()).unwrap();
+            let (renderer, sender) = WrRenderer::new(gl_context.clone(), notifier, opts_native, WR_SHADER_CACHE, device_size)
+                .map_err(|_| RendererCreationError::Wr)?;
+            (renderer, sender, headless_context, gl_context)
         },
         Default => {
-            WrRenderer::new(gl.clone(), notifier.clone(), opts_native, WR_SHADER_CACHE)
-            .ok_or(WrRenderer::new(gl, notifier.clone(), opts_osmesa, WR_SHADER_CACHE))?
+            create_headless_context(&event_loop, HwAcceleration::Enabled)
+            .map_err(|e| RendererCreationError::Glutin(e))
+            .and_then(|gl_context| {
+                let mut headless_context = HeadlessContextState::NotCurrent(gl_context);
+                headless_context.make_current();
+                let gl_context = get_gl_context(headless_context.headless_context().unwrap()).unwrap();
+                let (renderer, sender) = WrRenderer::new(gl_context.clone(), notifier, opts_native, WR_SHADER_CACHE, device_size)
+                    .map_err(|_| RendererCreationError::Wr)?;
+                Ok((renderer, sender, headless_context, gl_context))
+            })
+            .or_else(|_| {
+                let gl_context = create_headless_context(&event_loop, HwAcceleration::Disabled)?;
+                let mut headless_context = HeadlessContextState::NotCurrent(gl_context);
+                headless_context.make_current();
+                let gl_context = get_gl_context(headless_context.headless_context().unwrap()).unwrap();
+                let (renderer, sender) = WrRenderer::new(gl_context.clone(), notifier, opts_native, WR_SHADER_CACHE, device_size)
+                    .map_err(|_| RendererCreationError::Wr)?;
+                Ok((renderer, sender, headless_context, gl_context))
+            })?
         },
-        Custom(gl) => {
-            WrRenderer::new(gl, notifier, opts_native, WR_SHADER_CACHE)?
+        Custom(gl_context) => {
+            let mut headless_context = HeadlessContextState::NotCurrent(gl_context.clone());
+            let (renderer, sender) = WrRenderer::new(gl_context.clone(), notifier, opts_native, WR_SHADER_CACHE, device_size)
+                .map_err(|_| RendererCreationError::Wr)?;
+            (renderer, sender, headless_context, gl_context)
         },
     };
 
     let api = sender.create_api();
 
     renderer.set_external_image_handler(Box::new(Compositor::default()));
-    gl.make_not_current();
+    headless_context.make_not_current();
 
-    Ok((renderer, api))
+    Ok((renderer, api, headless_context, gl_context))
 }
 
 #[cfg(target_os = "linux")]

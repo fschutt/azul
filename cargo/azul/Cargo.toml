@@ -39,7 +39,7 @@ log                     = { version = "0.4.8",          default-features = false
 fern                    = { version = "0.5.7",          default-features = false, optional = true                                                                }
 backtrace               = { version = "0.3.43",         default-features = false, optional = true, features = ["std", "libunwind", "libbacktrace", "coresymbolication", "dladdr", "dbghelp"]    }
 
-[target.'cfg(feature = "macos")'.dependencies]
+[target.'cfg(macos)'.dependencies]
 core-foundation              = { version = "0.7.0",     default-features = false, features = ["mac_os_10_7_support"] }
 
 [features]

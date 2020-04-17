@@ -1,8 +1,10 @@
 use std::{
     fmt,
+    hash::{Hash, Hasher},
+    cmp::Ordering,
     rc::Rc,
     collections::{BTreeMap, HashSet},
-    sync::atomic::{AtomicUsize, Ordering},
+    sync::atomic::{AtomicUsize, Ordering as AtomicOrdering},
     marker::PhantomData,
     path::PathBuf,
 };
@@ -40,7 +42,7 @@ pub struct WindowId { id: usize }
 
 impl WindowId {
     pub fn new() -> Self {
-        WindowId { id: LAST_WINDOW_ID.fetch_add(1, Ordering::SeqCst) }
+        WindowId { id: LAST_WINDOW_ID.fetch_add(1, AtomicOrdering::SeqCst) }
     }
 }
 
@@ -54,7 +56,7 @@ pub struct IconKey { id: usize }
 
 impl IconKey {
     pub fn new() -> Self {
-        Self { id: LAST_ICON_KEY.fetch_add(1, Ordering::SeqCst) }
+        Self { id: LAST_ICON_KEY.fetch_add(1, AtomicOrdering::SeqCst) }
     }
 }
 
@@ -1013,6 +1015,64 @@ pub enum RendererType {
     Custom(Rc<dyn Gl>),
 }
 
+impl RendererType {
+    #[inline(always)]
+    fn get_type(&self) -> RendererTypeNoData {
+        match self {
+            RendererType::Default => RendererTypeNoData::Default,
+            RendererType::ForceHardware => RendererTypeNoData::ForceHardware,
+            RendererType::ForceSoftware => RendererTypeNoData::ForceSoftware,
+            RendererType::Custom(_) => RendererTypeNoData::Custom,
+        }
+    }
+}
+
+#[derive(Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
+enum RendererTypeNoData {
+    Default,
+    ForceHardware,
+    ForceSoftware,
+    Custom,
+}
+
+impl Clone for RendererType {
+    fn clone(&self) -> Self {
+        use self::RendererType::*;
+        match self {
+            Default => Default,
+            ForceHardware => ForceHardware,
+            ForceSoftware => ForceSoftware,
+            Custom(gl) => Custom(gl.clone()),
+        }
+    }
+}
+
+impl PartialOrd for RendererType {
+    fn partial_cmp(&self, other: &RendererType) -> Option<Ordering> {
+        Some(self.cmp(other))
+    }
+}
+
+impl Ord for RendererType {
+    fn cmp(&self, other: &RendererType) -> Ordering {
+        self.get_type().cmp(&other.get_type())
+    }
+}
+
+impl PartialEq for RendererType {
+    fn eq(&self, other: &RendererType) -> bool {
+        self.get_type().eq(&other.get_type())
+    }
+}
+
+impl Eq for RendererType { }
+
+impl Hash for RendererType {
+    fn hash<H>(&self, state: &mut H) where H: Hasher {
+        self.get_type().hash(state);
+    }
+}
+
 impl fmt::Debug for RendererType {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         match self {
@@ -1527,7 +1587,7 @@ impl PartialEq for WindowIcon {
 }
 
 impl PartialOrd for WindowIcon {
-    fn partial_cmp(&self, rhs: &Self) -> Option<::std::cmp::Ordering> {
+    fn partial_cmp(&self, rhs: &Self) -> Option<Ordering> {
         Some((self.get_key()).cmp(&rhs.get_key()))
     }
 }
@@ -1535,13 +1595,13 @@ impl PartialOrd for WindowIcon {
 impl Eq for WindowIcon { }
 
 impl Ord for WindowIcon {
-    fn cmp(&self, rhs: &Self) -> ::std::cmp::Ordering {
+    fn cmp(&self, rhs: &Self) -> Ordering {
         (self.get_key()).cmp(&rhs.get_key())
     }
 }
 
-impl ::std::hash::Hash for WindowIcon {
-    fn hash<H>(&self, state: &mut H) where H: ::std::hash::Hasher {
+impl Hash for WindowIcon {
+    fn hash<H>(&self, state: &mut H) where H: Hasher {
         self.get_key().hash(state);
     }
 }
@@ -1560,7 +1620,7 @@ impl PartialEq for TaskBarIcon {
 }
 
 impl PartialOrd for TaskBarIcon {
-    fn partial_cmp(&self, rhs: &Self) -> Option<::std::cmp::Ordering> {
+    fn partial_cmp(&self, rhs: &Self) -> Option<Ordering> {
         Some((self.key).cmp(&rhs.key))
     }
 }
@@ -1568,13 +1628,13 @@ impl PartialOrd for TaskBarIcon {
 impl Eq for TaskBarIcon { }
 
 impl Ord for TaskBarIcon {
-    fn cmp(&self, rhs: &Self) -> ::std::cmp::Ordering {
+    fn cmp(&self, rhs: &Self) -> Ordering {
         (self.key).cmp(&rhs.key)
     }
 }
 
-impl ::std::hash::Hash for TaskBarIcon {
-    fn hash<H>(&self, state: &mut H) where H: ::std::hash::Hasher {
+impl Hash for TaskBarIcon {
+    fn hash<H>(&self, state: &mut H) where H: Hasher {
         self.key.hash(state);
     }
 }
