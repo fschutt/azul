@@ -38,7 +38,6 @@ azul-native-style       = { version = "0.1.0",          default-features = false
 log                     = { version = "0.4.8",          default-features = false, optional = true                                                                }
 fern                    = { version = "0.5.7",          default-features = false, optional = true                                                                }
 backtrace               = { version = "0.3.43",         default-features = false, optional = true, features = ["std", "libunwind", "libbacktrace", "coresymbolication", "dladdr", "dbghelp"]    }
-osmesa-sys              = { version = "0.1.2",          default-features = false, optional = true                                                                }
 
 [target.'cfg(feature = "macos")'.dependencies]
 core-foundation              = { version = "0.7.0",     default-features = false, features = ["mac_os_10_7_support"] }
@@ -82,8 +81,6 @@ pnm = ["azulc/pnm"]
 font_loading = ["azulc/font-loader"]
 # Text loading module, disable if you have a custom text layouting function
 text_layout = ["azulc/text_layout"]
-# Enable / disable OSMesa (disabled by default to save on compilation time)
-osmesa = ["osmesa-sys"]
 
 ## -----------
 
