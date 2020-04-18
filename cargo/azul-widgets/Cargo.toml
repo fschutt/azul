@@ -22,7 +22,7 @@ path = "../../azul-widgets/lib.rs"
 [dependencies]
 azul-core               = { version = "0.1.0",  default-features = false,                   path = "../azul-core" }
 azul-css                = { version = "0.1.0",  default-features = false,                   path = "../azul-css"  }
-gleam                   = { version = "0.8",    default-features = false, optional = true                         }
+gleam                   = { version = "0.11.0", default-features = false, optional = true                         }
 lyon                    = { version = "0.15.5", default-features = false, optional = true                         }
 usvg                    = { version = "0.9.0",  default-features = false, optional = true                         }
 serde_derive            = { version = "1",      default-features = false, optional = true                         }

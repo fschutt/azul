@@ -975,7 +975,7 @@ impl Gl for VirtualGlDriver {
         unimplemented()
     }
 
-    // -- glium: 0.8
+    // -- gleam: 0.8
 
     fn gen_vertex_arrays_apple(&self, n: GLsizei) -> Vec<GLuint> {
         unimplemented()
@@ -988,7 +988,7 @@ impl Gl for VirtualGlDriver {
     fn delete_vertex_arrays_apple(&self, vertex_arrays: &[GLuint]) {
         unimplemented()
     }
-    
+
     fn copy_texture_chromium(
         &self,
         source_id: GLuint,
@@ -1018,6 +1018,51 @@ impl Gl for VirtualGlDriver {
         y: GLint,
         width: GLsizei,
         height: GLsizei,
+        unpack_flip_y: GLboolean,
+        unpack_premultiply_alpha: GLboolean,
+        unpack_unmultiply_alpha: GLboolean
+    ) {
+        unimplemented()
+    }
+
+    // -- gleam: 0.11
+
+    fn egl_image_target_renderbuffer_storage_oes(&self, target: u32, image: *const c_void) {
+        unimplemented()
+    }
+
+    fn copy_texture_3d_angle(
+        &self,
+        source_id: GLuint,
+        source_level: GLint,
+        dest_target: GLenum,
+        dest_id: GLuint,
+        dest_level: GLint,
+        internal_format: GLint,
+        dest_type: GLenum,
+        unpack_flip_y: GLboolean,
+        unpack_premultiply_alpha: GLboolean,
+        unpack_unmultiply_alpha: GLboolean
+    ) {
+        unimplemented()
+    }
+
+    fn copy_sub_texture_3d_angle(
+        &self,
+        source_id: GLuint,
+        source_level: GLint,
+        dest_target: GLenum,
+        dest_id: GLuint,
+        dest_level: GLint,
+        x_offset: GLint,
+        y_offset: GLint,
+        z_offset: GLint,
+        x: GLint,
+        y: GLint,
+        z: GLint,
+        width: GLsizei,
+        height: GLsizei,
+        depth: GLsizei,
         unpack_flip_y: GLboolean,
         unpack_premultiply_alpha: GLboolean,
         unpack_unmultiply_alpha: GLboolean

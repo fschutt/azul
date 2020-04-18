@@ -1516,7 +1516,6 @@ fn render_inner<T>(
     background_color: ColorU,
 ) {
 
-    use webrender::api::units::{DeviceIntRect, DeviceIntPoint};
     use azul_css::ColorF;
     use crate::wr_translate;
 
@@ -1542,11 +1541,6 @@ fn render_inner<T>(
 
     window.internal.epoch = increase_epoch(window.internal.epoch);
 
-    txn.set_window_parameters(
-        framebuffer_size.clone(),
-        DeviceIntRect::new(DeviceIntPoint::new(0, 0), framebuffer_size),
-        full_window_state.size.hidpi_factor as f32
-    );
     txn.set_root_pipeline(wr_translate::wr_translate_pipeline_id(window.internal.pipeline_id));
     scroll_all_nodes(&mut window.internal.scroll_states, &mut txn);
     txn.generate_frame();
