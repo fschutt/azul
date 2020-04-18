@@ -136,8 +136,8 @@ pub mod image_loading {
     }
 
     pub fn image_source_get_bytes_inner(image_source: &ImageSource) -> Result<LoadedImageSource, ImageReloadError> {
-        
-        use azul_core::app_resources::{ImageDescriptor, ImageData};
+
+        use azul_core::app_resources::{ImageDescriptor, ImageDescriptorFlags, ImageData};
 
         match image_source {
             ImageSource::Embedded(bytes) => {
@@ -158,8 +158,10 @@ pub mod image_loading {
                     dimensions: raw_image.image_dimensions,
                     stride: None,
                     offset: 0,
-                    is_opaque,
-                    allow_mipmaps: true,
+                    flags: ImageDescriptorFlags {
+                        is_opaque,
+                        allow_mipmaps: true,
+                    },
                 };
                 let data = ImageData::Raw(Arc::new(raw_image.pixels.clone()));
                 Ok(LoadedImageSource { image_bytes_decoded: data, image_descriptor: descriptor })

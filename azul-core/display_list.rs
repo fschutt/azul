@@ -24,7 +24,7 @@ use crate::{
     gl::Texture,
     window::{FullWindowState, LogicalSize},
     app_resources::{
-        AppResources, AddImageMsg, FontImageApi, ImageDescriptor,
+        AppResources, AddImageMsg, FontImageApi, ImageDescriptor, ImageDescriptorFlags,
         ImageKey, FontInstanceKey, ImageInfo, ImageId, LayoutedGlyphs,
         Epoch, ExternalImageId, GlyphOptions, LoadFontFn, LoadImageFn,
     },
@@ -857,18 +857,17 @@ impl SolvedLayout {
         for (dom_id, textures) in solved_textures {
             for (node_id, texture) in textures {
 
-            const TEXTURE_IS_OPAQUE: bool = false;
-            // The texture gets mapped 1:1 onto the display, so there is no need for mipmaps
-            const TEXTURE_ALLOW_MIPMAPS: bool = false;
-
             // Note: The ImageDescriptor has no effect on how large the image appears on-screen
             let descriptor = ImageDescriptor {
                 format: RawImageFormat::RGBA8,
                 dimensions: (texture.size.width as usize, texture.size.height as usize),
                 stride: None,
                 offset: 0,
-                is_opaque: TEXTURE_IS_OPAQUE,
-                allow_mipmaps: TEXTURE_ALLOW_MIPMAPS,
+                flags: ImageDescriptorFlags {
+                    is_opaque: texture.flags.is_opaque,
+                    // The texture gets mapped 1:1 onto the display, so there is no need for mipmaps
+                    allow_mipmaps: false,
+                },
             };
 
             let key = render_api.new_image_key();

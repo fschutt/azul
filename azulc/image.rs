@@ -14,7 +14,7 @@ pub fn decode_image_data(image_data: Vec<u8>) -> Result<LoadedImageSource, Image
 
 pub fn prepare_image(image_decoded: DynamicImage) -> Result<LoadedImageSource, ImageError> {
     use azul_core::app_resources::{
-        RawImageFormat, ImageDescriptor, ImageData,
+        RawImageFormat, ImageDescriptor, ImageDescriptorFlags, ImageData,
         is_image_opaque, premultiply
     };
 
@@ -101,10 +101,12 @@ pub fn prepare_image(image_decoded: DynamicImage) -> Result<LoadedImageSource, I
     let descriptor = ImageDescriptor {
         format,
         dimensions: (image_dims.0 as usize, image_dims.1 as usize),
-        is_opaque,
-        allow_mipmaps,
         offset: 0,
         stride: None,
+        flags: ImageDescriptorFlags {
+            is_opaque,
+            allow_mipmaps,
+        }
     };
     let data = ImageData::new_raw(bytes);
 

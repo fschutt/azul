@@ -29,6 +29,7 @@ use webrender::api::{
     BorderStyle as WrBorderStyle,
     ImageFormat as WrImageFormat,
     ImageDescriptor as WrImageDescriptor,
+    ImageDescriptorFlags as WrImageDescriptorFlags,
     GlyphInstance as WrGlyphInstance,
     BuiltDisplayList as WrBuiltDisplayList,
     DisplayListBuilder as WrDisplayListBuilder,
@@ -65,7 +66,7 @@ use azul_core::{
     callbacks::{HitTestItem, PipelineId, DocumentId},
     app_resources::{
         FontKey, Au, FontInstanceKey, ImageKey,
-        IdNamespace, RawImageFormat as ImageFormat, ImageDescriptor,
+        IdNamespace, RawImageFormat as ImageFormat, ImageDescriptor, ImageDescriptorFlags,
         FontInstanceFlags, FontRenderMode, GlyphOptions, ResourceUpdate,
         AddFont, AddImage, ImageData, ExternalImageData, ExternalImageId,
         ExternalImageType, TextureTarget, UpdateImage, ImageDirtyRect,
@@ -540,8 +541,15 @@ pub(crate) fn translate_image_descriptor_wr(descriptor: WrImageDescriptor) -> Im
         dimensions: (descriptor.size.width as usize, descriptor.size.height as usize),
         stride: descriptor.stride,
         offset: descriptor.offset,
-        is_opaque: descriptor.is_opaque,
-        allow_mipmaps: descriptor.allow_mipmaps,
+        flags: translate_image_descriptor_flags_wr(descriptor.flags),
+    }
+}
+
+#[inline]
+pub(crate) fn translate_image_descriptor_flags_wr(flags: WrImageDescriptorFlags) -> ImageDescriptorFlags {
+    ImageDescriptorFlags {
+        is_opaque: flags.contains(WrImageDescriptorFlags::IS_OPAQUE),
+        allow_mipmaps: flags.contains(WrImageDescriptorFlags::ALLOW_MIPMAPS),
     }
 }
 
@@ -608,9 +616,16 @@ pub(crate) fn wr_translate_image_descriptor(descriptor: ImageDescriptor) -> WrIm
         size: DeviceIntSize::new(descriptor.dimensions.0 as i32, descriptor.dimensions.1 as i32),
         stride: descriptor.stride,
         offset: descriptor.offset,
-        is_opaque: descriptor.is_opaque,
-        allow_mipmaps: descriptor.allow_mipmaps,
+        flags: wr_translate_image_descriptor_flags(descriptor.flags),
     }
+}
+
+#[inline]
+pub(crate) fn wr_translate_image_descriptor_flags(flags: ImageDescriptorFlags) -> WrImageDescriptorFlags {
+    let mut f = WrImageDescriptorFlags::empty();
+    f.set(WrImageDescriptorFlags::IS_OPAQUE, flags.is_opaque);
+    f.set(WrImageDescriptorFlags::ALLOW_MIPMAPS, flags.allow_mipmaps);
+    f
 }
 
 #[inline(always)]

@@ -165,6 +165,13 @@ pub struct ImageDescriptor {
     /// tells the texture upload machinery where to find the bytes to upload for
     /// this tile. Non-tiled images generally set this to zero.
     pub offset: i32,
+    /// Various bool flags related to this descriptor.
+    pub flags: ImageDescriptorFlags,
+}
+
+/// Various flags that are part of an image descriptor.
+#[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
+pub struct ImageDescriptorFlags {
     /// Whether this image is opaque, or has an alpha channel. Avoiding blending
     /// for opaque surfaces is an important optimization.
     pub is_opaque: bool,
@@ -964,7 +971,7 @@ pub enum ImageData {
 }
 
 impl ImageData {
-    
+
     pub fn new_raw(data: Vec<u8>) -> Self {
         ImageData::Raw(Arc::new(data))
     }

@@ -1079,10 +1079,20 @@ fn unimplemented() -> ! {
 pub struct Texture {
     /// Raw OpenGL texture ID
     pub texture_id: GLuint,
+    /// Hints and flags for optimization purposes
+    pub flags: TextureFlags,
     /// Size of this texture (in pixels)
     pub size: LogicalSize,
     /// A reference-counted pointer to the OpenGL context (so that the texture can be deleted in the destructor)
     pub gl_context: Rc<dyn Gl>,
+}
+
+#[derive(Debug, Copy, Clone, PartialEq, PartialOrd, Eq, Ord, Hash)]
+pub struct TextureFlags {
+    /// Whether this texture contains an alpha component
+    pub is_opaque: bool,
+    /// Optimization: use the compositor instead of OpenGL for energy optimization
+    pub is_video_texture: bool,
 }
 
 impl ::std::fmt::Display for Texture {
@@ -1837,6 +1847,10 @@ impl GlShader {
         Texture {
             texture_id,
             size: texture_size,
+            flags: TextureFlags {
+                is_opaque: true,
+                is_video_texture: false,
+            },
             gl_context: self.gl_context.clone(),
         }
     }
