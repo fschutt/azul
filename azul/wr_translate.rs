@@ -1350,8 +1350,8 @@ mod background {
         let offset = calculate_background_position(info, background_position, background_size);
 
         let mut offset_info = *info;
-        offset_info.rect.origin.x += offset.x;
-        offset_info.rect.origin.y += offset.y;
+        offset_info.clip_rect.origin.x += offset.x;
+        offset_info.clip_rect.origin.y += offset.y;
 
         let stops: Vec<WrGradientStop> = radial_gradient.stops.iter().map(|gradient_pre|
             WrGradientStop {
@@ -1359,7 +1359,7 @@ mod background {
                 color: wr_translate_color_u(gradient_pre.color).into(),
             }).collect();
 
-        let center = info.rect.center();
+        let center = info.clip_rect.center();
 
         // Note: division by 2.0 because it's the radius, not the diameter
         let radius = match radial_gradient.shape {
@@ -1403,8 +1403,8 @@ mod background {
         let offset = calculate_background_position(info, background_position, background_size);
 
         let mut offset_info = *info;
-        offset_info.rect.origin.x += offset.x;
-        offset_info.rect.origin.y += offset.y;
+        offset_info.clip_rect.origin.x += offset.x;
+        offset_info.clip_rect.origin.y += offset.y;
 
         let stops: Vec<WrGradientStop> = linear_gradient.stops.iter().map(|gradient_pre|
             WrGradientStop {
@@ -1412,7 +1412,7 @@ mod background {
                 color: wr_translate_color_u(gradient_pre.color).into(),
             }).collect();
 
-        let (begin_pt, end_pt) = linear_gradient.direction.to_points(&wr_translate_css_layout_rect(offset_info.rect));
+        let (begin_pt, end_pt) = linear_gradient.direction.to_points(&wr_translate_css_layout_rect(offset_info.clip_rect));
         let gradient = builder.create_gradient(
             wr_translate_layout_point(begin_pt),
             wr_translate_layout_point(end_pt),
@@ -1473,10 +1473,10 @@ mod background {
         let offset = calculate_background_position(info, background_position, background_size);
 
         let mut offset_info = *info;
-        offset_info.rect.origin.x += offset.x;
-        offset_info.rect.origin.y += offset.y;
-        offset_info.rect.size.width = background_size.width;
-        offset_info.rect.size.height = background_size.height;
+        offset_info.clip_rect.origin.x += offset.x;
+        offset_info.clip_rect.origin.y += offset.y;
+        offset_info.clip_rect.size.width = background_size.width;
+        offset_info.clip_rect.size.height = background_size.height;
 
         builder.push_rect(
             &offset_info,
@@ -1495,25 +1495,25 @@ mod background {
 
         match background_repeat {
             NoRepeat => WrCommonItemProperties::with_clip_rect(
-                info.rect,
+                info.clip_rect,
                 WrLayoutRect::new(
-                    info.rect.origin,
+                    info.clip_rect.origin,
                     WrLayoutSize::new(background_size.width, background_size.height),
                 ),
             ),
             Repeat => *info,
             RepeatX => WrCommonItemProperties::with_clip_rect(
-                info.rect,
+                info.clip_rect,
                 WrLayoutRect::new(
-                    info.rect.origin,
-                    WrLayoutSize::new(info.rect.size.width, background_size.height),
+                    info.clip_rect.origin,
+                    WrLayoutSize::new(info.clip_rect.size.width, background_size.height),
                 ),
             ),
             RepeatY => WrCommonItemProperties::with_clip_rect(
-                info.rect,
+                info.clip_rect,
                 WrLayoutRect::new(
-                    info.rect.origin,
-                    WrLayoutSize::new(background_size.width, info.rect.size.height),
+                    info.clip_rect.origin,
+                    WrLayoutSize::new(background_size.width, info.clip_rect.size.height),
                 ),
             ),
         }
@@ -1526,7 +1526,7 @@ mod background {
         content_size: Option<(f32, f32)>,
     ) -> LayoutSize {
 
-        let content_size = content_size.unwrap_or((info.rect.size.width, info.rect.size.height));
+        let content_size = content_size.unwrap_or((info.clip_rect.size.width, info.clip_rect.size.height));
 
         let bg_size = match bg_size {
             None => return LayoutSize::new(content_size.0 as f32, content_size.1 as f32),
@@ -1534,14 +1534,14 @@ mod background {
         };
 
         let content_aspect_ratio = Ratio {
-            width: info.rect.size.width / content_size.0 as f32,
-            height: info.rect.size.height / content_size.1 as f32,
+            width: info.clip_rect.size.width / content_size.0 as f32,
+            height: info.clip_rect.size.height / content_size.1 as f32,
         };
 
         let ratio = match bg_size {
             StyleBackgroundSize::ExactSize(w, h) => {
-                let w = w.to_pixels(info.rect.size.width);
-                let h = h.to_pixels(info.rect.size.height);
+                let w = w.to_pixels(info.clip_rect.size.width);
+                let h = h.to_pixels(info.clip_rect.size.height);
                 w.min(h)
             },
             StyleBackgroundSize::Contain => content_aspect_ratio.width.min(content_aspect_ratio.height),
@@ -1561,8 +1561,8 @@ mod background {
         use azul_css::BackgroundPositionVertical;
         use azul_css::BackgroundPositionHorizontal;
 
-        let width = info.rect.size.width;
-        let height = info.rect.size.height;
+        let width = info.clip_rect.size.width;
+        let height = info.clip_rect.size.height;
 
         let horizontal_offset = match background_position.horizontal {
             BackgroundPositionHorizontal::Right => 0.0,
@@ -1614,8 +1614,8 @@ mod image {
         use webrender::api::units::LayoutSize as WrLayoutSize;
 
         let mut offset_info = *info;
-        offset_info.rect.origin.x += offset.x;
-        offset_info.rect.origin.y += offset.y;
+        offset_info.clip_rect.origin.x += offset.x;
+        offset_info.clip_rect.origin.y += offset.y;
 
         let tile_spacing = WrLayoutSize::zero();
 
@@ -1945,7 +1945,7 @@ mod border {
         styles: StyleBorderStyles,
         parent_space_and_clip: &WrSpaceAndClipInfo,
     ) {
-        let rect_size = LayoutSize::new(info.rect.size.width, info.rect.size.height);
+        let rect_size = LayoutSize::new(info.clip_rect.size.width, info.clip_rect.size.height);
 
         if let Some((border_widths, border_details)) = get_webrender_border(rect_size, radii, widths, colors, styles) {
             builder.push_border(&info, &parent_space_and_clip, border_widths, border_details);
