@@ -19,13 +19,14 @@ use crate::{
     callbacks::PipelineId,
     ui_solver::{
         PositionedRectangle, ResolvedOffsets, ExternalScrollId,
-        LayoutResult, ScrolledNodes, OverflowingScrollNode
+        LayoutResult, ScrolledNodes, OverflowingScrollNode,
+        PositionInfo,
     },
     gl::Texture,
     window::{FullWindowState, LogicalSize},
     app_resources::{
         AppResources, AddImageMsg, FontImageApi, ImageDescriptor, ImageDescriptorFlags,
-        ImageKey, FontInstanceKey, ImageInfo, ImageId, LayoutedGlyphs,
+        ImageKey, FontInstanceKey, ImageInfo, ImageId, LayoutedGlyphs, PrimitiveFlags,
         Epoch, ExternalImageId, GlyphOptions, LoadFontFn, LoadImageFn,
     },
     ui_state::UiState,
@@ -65,8 +66,8 @@ pub struct CachedDisplayList {
 }
 
 impl CachedDisplayList {
-    pub fn empty(size: LayoutSize) -> Self {
-        Self { root: DisplayListMsg::Frame(DisplayListFrame::root(size)) }
+    pub fn empty(size: LayoutSize, origin: LayoutPoint) -> Self {
+        Self { root: DisplayListMsg::Frame(DisplayListFrame::root(size, origin)) }
     }
 
     pub fn new<T>(
@@ -123,8 +124,8 @@ impl DisplayListMsg {
     pub fn get_size(&self) -> LayoutSize {
         use self::DisplayListMsg::*;
         match self {
-            Frame(f) => f.rect.size,
-            ScrollFrame(sf) => sf.frame.rect.size,
+            Frame(f) => f.size,
+            ScrollFrame(sf) => sf.frame.size,
         }
     }
 }
@@ -159,13 +160,15 @@ impl fmt::Debug for DisplayListScrollFrame {
 
 #[derive(Clone, PartialEq, PartialOrd)]
 pub struct DisplayListFrame {
-    pub rect: LayoutRect,
+    pub size: LayoutSize,
+    pub position: PositionInfo,
     /// Border radius, set to none only if overflow: visible is set!
     pub border_radius: StyleBorderRadius,
     pub clip_rect: Option<LayoutRect>,
     pub tag: Option<TagId>,
     pub content: Vec<LayoutRectContent>,
     pub children: Vec<DisplayListMsg>,
+    pub flags: PrimitiveFlags,
 }
 
 impl fmt::Debug for DisplayListFrame {
@@ -177,7 +180,7 @@ impl fmt::Debug for DisplayListFrame {
             !self.content.is_empty() ||
             !self.children.is_empty();
 
-        write!(f, "rect: {:#?}{}", self.rect, if !print_no_comma_rect { "" } else { "," })?;
+        write!(f, "rect: {:#?} @ {:?}{}", self.size, self.position, if !print_no_comma_rect { "" } else { "," })?;
 
         if !self.border_radius.is_none() {
             write!(f, "\r\nborder_radius: {:#?}", self.border_radius)?;
@@ -200,13 +203,16 @@ impl fmt::Debug for DisplayListFrame {
 }
 
 impl DisplayListFrame {
-    pub fn root(dimensions: LayoutSize) -> Self {
+    pub fn root(dimensions: LayoutSize, root_origin: LayoutPoint) -> Self {
         DisplayListFrame {
             tag: None,
             clip_rect: None,
-            rect: LayoutRect {
-                origin: LayoutPoint { x: 0.0, y: 0.0 },
-                size: dimensions,
+            size: dimensions,
+            position: PositionInfo::Static { x_offset: root_origin.x, y_offset: root_origin.y },
+            flags: PrimitiveFlags {
+                is_backface_visible: true,
+                is_scrollbar_container: false,
+                is_scrollbar_thumb: false,
             },
             border_radius: StyleBorderRadius::default(),
             content: vec![],
@@ -364,7 +370,7 @@ pub enum LayoutRectContent {
         font_instance_key: FontInstanceKey,
         color: ColorU,
         glyph_options: Option<GlyphOptions>,
-        clip: Option<LayoutRect>,
+        clip: Option<LayoutSize>,
     },
     Background {
         content: RectBackground,
@@ -707,7 +713,7 @@ impl SolvedLayout {
             for (node_id, (cb, ptr)) in ui_state.scan_for_gltexture_callbacks() {
 
                 // Invoke OpenGL callback, render texture
-                let rect_bounds = layout_result.rects[node_id].bounds;
+                let rect_size = layout_result.rects[node_id].size;
 
                 // TODO: Unused!
                 let mut window_size_width_stops = Vec::new();
@@ -725,7 +731,7 @@ impl SolvedLayout {
                             resources: &app_resources,
                         },
                         bounds: HidpiAdjustedBounds::from_bounds(
-                            rect_bounds,
+                            rect_size,
                             full_window_state.size.hidpi_factor,
                         ),
                     });
@@ -749,9 +755,9 @@ impl SolvedLayout {
             // Call IFrames and recurse
             for (node_id, (cb, ptr)) in ui_state.scan_for_iframe_callbacks() {
 
-                let bounds = layout_result.rects[node_id].bounds;
+                let size = layout_result.rects[node_id].size;
                 let hidpi_bounds = HidpiAdjustedBounds::from_bounds(
-                    bounds,
+                    size,
                     full_window_state.size.hidpi_factor,
                 );
 
@@ -988,13 +994,20 @@ pub fn get_nodes_that_need_scroll_clip<T>(
 
         let parent_rect = &layouted_rects[*parent];
 
-        let children_scroll_rect = match parent_rect.bounds.get_scroll_rect(parent.children(&node_hierarchy).map(|child_id| layouted_rects[child_id].bounds)) {
+        let children_rects = parent
+        .children(&node_hierarchy)
+        .filter_map(|child_id| layouted_rects[child_id].get_static_bounds())
+        .collect::<Vec<_>>();
+
+        let children_scroll_rect = match parent_rect
+        .get_static_bounds()
+        .and_then(|pr| pr.get_scroll_rect(children_rects.into_iter())) {
             None => continue,
             Some(sum) => sum,
         };
 
         // Check if the scroll rect overflows the parent bounds
-        if contains_rect_rounded(&parent_rect.bounds, children_scroll_rect) {
+        if contains_rect_rounded(&LayoutRect::new(LayoutPoint::zero(), parent_rect.size), children_scroll_rect) {
             continue;
         }
 
@@ -1101,16 +1114,24 @@ pub fn displaylist_handle_rect<'a, T>(
         .map(|scrolled| scrolled.scroll_tag_id.0)
     });
 
+    let (size, position) = bounds.get_background_bounds();
+
     let mut frame = DisplayListFrame {
         tag: tag_id,
         clip_rect: None,
+        size,
+        position,
         border_radius: StyleBorderRadius {
             top_left: rect.style.border_top_left_radius,
             top_right: rect.style.border_top_right_radius,
             bottom_left: rect.style.border_bottom_left_radius,
             bottom_right: rect.style.border_bottom_right_radius,
         },
-        rect: bounds.get_background_bounds(),
+        flags: PrimitiveFlags {
+            is_backface_visible: true,
+            is_scrollbar_container: false,
+            is_scrollbar_thumb: false,
+        },
         content: Vec::new(),
         children: Vec::new(),
     };
@@ -1168,7 +1189,7 @@ pub fn displaylist_handle_rect<'a, T>(
                 let font_instance_key = positioned_words.1;
 
                 frame.content.push(get_text(
-                    bounds.get_content_bounds(),
+                    bounds.size,
                     &layout_result.solved_layouts[dom_id].rects[rect_idx].padding,
                     full_window_state.size.dimensions,
                     layouted_glyphs,
@@ -1181,7 +1202,7 @@ pub fn displaylist_handle_rect<'a, T>(
         Image(image_id) => {
             if let Some(image_info) = app_resources.get_image_info(pipeline_id, image_id) {
                 frame.content.push(LayoutRectContent::Image {
-                    size: LayoutSize::new(bounds.bounds.size.width, bounds.bounds.size.height),
+                    size: LayoutSize::new(bounds.size.width, bounds.size.height),
                     offset: LayoutPoint::new(0.0, 0.0),
                     image_rendering: ImageRendering::Auto,
                     alpha_type: AlphaType::PremultipliedAlpha,
@@ -1265,7 +1286,7 @@ pub fn displaylist_handle_rect<'a, T>(
 }
 
 pub fn get_text(
-    bounds: LayoutRect,
+    bounds_size: LayoutSize,
     padding: &ResolvedOffsets,
     root_window_size: LogicalSize,
     layouted_glyphs: LayoutedGlyphs,
@@ -1277,25 +1298,19 @@ pub fn get_text(
     let overflow_horizontal_visible = rect_layout.is_horizontal_overflow_visible();
     let overflow_vertical_visible = rect_layout.is_horizontal_overflow_visible();
 
-    let padding_clip_bounds = subtract_padding(&bounds, padding);
+    let padding_clip_size = subtract_padding(&bounds_size, padding);
 
-    // Adjust the bounds by the padding, depending on the overflow:visible parameter
-    let text_clip_rect = match (overflow_horizontal_visible, overflow_vertical_visible) {
+    // Adjust the bounds_size by the padding, depending on the overflow:visible parameter
+    let text_clip_size = match (overflow_horizontal_visible, overflow_vertical_visible) {
         (true, true) => None,
-        (false, false) => Some(padding_clip_bounds),
+        (false, false) => Some(padding_clip_size),
         (true, false) => {
             // Horizontally visible, vertically cut
-            Some(LayoutRect {
-                origin: bounds.origin,
-                size: LayoutSize::new(root_window_size.width, padding_clip_bounds.size.height),
-            })
+            Some(LayoutSize::new(root_window_size.width, padding_clip_size.height))
         },
         (false, true) => {
             // Vertically visible, horizontally cut
-            Some(LayoutRect {
-                origin: bounds.origin,
-                size: LayoutSize::new(padding_clip_bounds.size.width, root_window_size.height),
-            })
+            Some(LayoutSize::new(padding_clip_size.width, root_window_size.height))
         },
     };
 
@@ -1304,23 +1319,19 @@ pub fn get_text(
         font_instance_key,
         color: font_color,
         glyph_options: None,
-        clip: text_clip_rect,
+        clip: text_clip_size,
     }
 }
 
-/// Subtracts the padding from the bounds, returning the new bounds
+/// Subtracts the padding from the size, returning the new size
 ///
 /// Warning: The resulting rectangle may have negative width or height
-pub fn subtract_padding(bounds: &LayoutRect, padding: &ResolvedOffsets) -> LayoutRect {
-
-    let mut new_bounds = *bounds;
-
-    new_bounds.origin.x += padding.left;
-    new_bounds.size.width -= padding.right + padding.left;
-    new_bounds.origin.y += padding.top;
-    new_bounds.size.height -= padding.top + padding.bottom;
-
-    new_bounds
+#[inline]
+pub fn subtract_padding(size: &LayoutSize, padding: &ResolvedOffsets) -> LayoutSize {
+    LayoutSize {
+        width: size.width - padding.right + padding.left,
+        height: size.height - padding.top + padding.bottom,
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash, PartialOrd, Ord)]

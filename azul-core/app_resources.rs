@@ -147,6 +147,16 @@ pub type IndexOfLineBreak = usize;
 pub type RemainingSpaceToRight = f32;
 pub type LineBreaks = Vec<(GlyphIndex, RemainingSpaceToRight)>;
 
+#[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
+pub struct PrimitiveFlags {
+    /// The CSS backface-visibility property (yes, it can be really granular)
+    pub is_backface_visible: bool,
+    /// If set, this primitive represents a scroll bar container
+    pub is_scrollbar_container: bool,
+    /// If set, this primitive represents a scroll bar thumb
+    pub is_scrollbar_thumb: bool,
+}
+
 /// Metadata (but not storage) describing an image In WebRender.
 #[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub struct ImageDescriptor {

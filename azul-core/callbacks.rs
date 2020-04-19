@@ -7,7 +7,7 @@ use std::{
     hash::Hash,
     cell::{Ref as StdRef, RefMut as StdRefMut, RefCell},
 };
-use azul_css::{LayoutPoint, LayoutRect, CssPath};
+use azul_css::{LayoutPoint, LayoutRect, LayoutSize, CssPath};
 #[cfg(feature = "css_parser")]
 use azul_css_parser::CssPathParseError;
 use crate::{
@@ -750,8 +750,8 @@ pub struct HidpiAdjustedBounds {
 impl HidpiAdjustedBounds {
 
     #[inline(always)]
-    pub fn from_bounds(bounds: LayoutRect, hidpi_factor: f32) -> Self {
-        let logical_size = LogicalSize::new(bounds.size.width, bounds.size.height);
+    pub fn from_bounds(bounds: LayoutSize, hidpi_factor: f32) -> Self {
+        let logical_size = LogicalSize::new(bounds.width, bounds.height);
         Self {
             logical_size,
             hidpi_factor,

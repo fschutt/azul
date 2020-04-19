@@ -419,13 +419,12 @@ fn position_items(
 
             match child_position_type {
                 PositionType::Static => {
-                    let child_rect = &mut positioned_rects[child_id];
-                    child_rect.bounds.origin.x += parent_bounds.origin.x;
-                    child_rect.bounds.origin.y += parent_bounds.origin.y;
+                    child_rect.position = PositionInfo::Static;
                 },
                 PositionType::Fixed => {
                     let child_rect = &mut positioned_rects[child_id];
                     child_rect.bounds = figure_out_position(LayoutRect::new(LayoutPoint::zero(), root_size), previous_sibling_origin, child_anon_node.get_style(), &child_rect);
+                    child_rect.position = PositionInfo::Fixed;
                 },
                 PositionType::Relative => {
 
@@ -460,14 +459,19 @@ fn position_items(
                         previous_sibling_origin.y - parent_bounds.origin.y
                     };
 
-                    child_rect.bounds.origin.x += parent_bounds.origin.x + x_offset;
-                    child_rect.bounds.origin.y += parent_bounds.origin.y + y_offset;
+                    child_rect.position_info = PositionInfo::Relative { x_offset, y_offset };
                 },
                 PositionType::Absolute => {
                     let last_positioned_node = position_relative_absolute_stack.last().copied().unwrap_or((NodeId::ZERO, 0));
                     let last_positioned_bounds = positioned_rects[last_positioned_node.0].bounds;
                     let child_rect = &mut positioned_rects[child_id];
-                    child_rect.bounds = figure_out_position(last_positioned_bounds, previous_sibling_origin, child_anon_node.get_style(), &child_rect);
+                    let computed_bounds = figure_out_position(last_positioned_bounds, previous_sibling_origin, child_anon_node.get_style(), &child_rect);
+                    child_rect.bounds.width = computed_bounds.width;
+                    child_rect.bounds.height = computed_bounds.height;
+                    child_rect.position_info = PositionInfo::Absolute {
+                        x_offset: computed_bounds.x - last_positioned_bounds.x,
+                        y_offset: computed_bounds.y - last_positioned_bounds.y,
+                    };
                 },
             }
         }

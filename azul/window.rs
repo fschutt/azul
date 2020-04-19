@@ -335,7 +335,7 @@ impl<T> Window<T> {
                 scroll_states: ScrollStates::new(),
                 layout_result: SolvedLayoutCache::default(),
                 gl_texture_cache: GlTextureCache::default(),
-                cached_display_list: CachedDisplayList::empty(display_list_dimensions),
+                cached_display_list: CachedDisplayList::empty(display_list_dimensions, LayoutPoint::zero()),
             },
             marker: options.marker,
         };

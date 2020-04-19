@@ -1,6 +1,6 @@
 use std::{fmt, collections::BTreeMap};
 use azul_css::{
-    LayoutRect, PixelValue, StyleFontSize,
+    LayoutRect, LayoutPoint, LayoutSize, PixelValue, StyleFontSize,
     StyleTextColor, ColorU as StyleColorU, Overflow,
     StyleTextAlignmentHorz, StyleTextAlignmentVert,
 };
@@ -243,7 +243,9 @@ impl ResolvedOffsets {
 #[derive(Debug, Clone, PartialEq, PartialOrd)]
 pub struct PositionedRectangle {
     /// Outer bounds of the rectangle
-    pub bounds: LayoutRect,
+    pub size: LayoutSize,
+    /// How the rectangle should be positioned
+    pub position: PositionInfo,
     /// Padding of the rectangle
     pub padding: ResolvedOffsets,
     /// Margin of the rectangle
@@ -257,10 +259,43 @@ pub struct PositionedRectangle {
     pub overflow: Overflow,
 }
 
+#[derive(Debug, Copy, Clone, PartialEq, PartialOrd)]
+pub enum PositionInfo {
+    Static { x_offset: f32, y_offset: f32 },
+    Fixed { x_offset: f32, y_offset: f32 },
+    Absolute { x_offset: f32, y_offset: f32 },
+    Relative { x_offset: f32, y_offset: f32 },
+}
+
+impl PositionInfo {
+    pub fn is_positioned(&self) -> bool {
+        match self {
+            PositionInfo::Static { .. } => false,
+            PositionInfo::Fixed { .. } => true,
+            PositionInfo::Absolute { .. } => true,
+            PositionInfo::Relative { .. } => true,
+        }
+    }
+}
 impl PositionedRectangle {
+
+    pub fn get_static_bounds(&self) -> Option<LayoutRect> {
+        match self.position {
+            PositionInfo::Static { x_offset, y_offset }     => Some(LayoutRect::new(
+                LayoutPoint::new(x_offset, y_offset), self.size
+            )),
+            PositionInfo::Fixed { .. }      => None,
+            PositionInfo::Absolute { .. }   => None, // TODO?
+            PositionInfo::Relative { x_offset, y_offset }   => Some(LayoutRect::new(
+                LayoutPoint::new(x_offset, y_offset), self.size
+            )), // TODO?
+        }
+    }
+
     pub fn to_layouted_rectangle(&self) -> LayoutedRectangle {
         LayoutedRectangle {
-            bounds: self.bounds,
+            size: self.size,
+            position: self.position,
             padding: self.padding,
             margin: self.margin,
             border_widths: self.border_widths,
@@ -269,33 +304,42 @@ impl PositionedRectangle {
     }
 
     // Returns the rect where the content should be placed (for example the text itself)
-    pub fn get_content_bounds(&self) -> LayoutRect {
-        self.bounds
+    pub fn get_content_size(&self) -> LayoutSize {
+        self.size
     }
 
     // Returns the rect that includes bounds, expanded by the padding + the border widths
-    pub fn get_background_bounds(&self) -> LayoutRect {
+    pub fn get_background_bounds(&self) -> (LayoutSize, PositionInfo) {
 
-        let mut b = self.bounds;
+        use crate::ui_solver::PositionInfo::*;
 
-        b.origin.x -= self.padding.left + self.border_widths.left;
-        b.size.width += self.padding.total_horizontal() + self.border_widths.total_horizontal();
+        let b_size = LayoutSize {
+            width: self.size.width + self.padding.total_horizontal() + self.border_widths.total_horizontal(),
+            height: self.size.height + self.padding.total_vertical() + self.border_widths.total_vertical(),
+        };
 
-        b.origin.y -= self.padding.top + self.border_widths.top;
-        b.size.height += self.padding.total_vertical() + self.border_widths.total_vertical();
+        let x_offset_add = 0.0 - self.padding.left - self.border_widths.left;
+        let y_offset_add = 0.0 - self.padding.top - self.border_widths.top;
 
-        b
+        let b_position = match self.position {
+            Static { x_offset, y_offset } => Static { x_offset: x_offset + x_offset_add, y_offset: y_offset + y_offset_add },
+            Fixed { x_offset, y_offset } => Fixed { x_offset: x_offset + x_offset_add, y_offset: y_offset + y_offset_add },
+            Relative { x_offset, y_offset } => Relative { x_offset: x_offset + x_offset_add, y_offset: y_offset + y_offset_add },
+            Absolute { x_offset, y_offset } => Absolute { x_offset: x_offset + x_offset_add, y_offset: y_offset + y_offset_add },
+        };
+
+        (b_size, b_position)
     }
 
     pub fn get_margin_box_width(&self) -> f32 {
-        self.bounds.size.width +
+        self.size.width +
         self.padding.total_horizontal() +
         self.border_widths.total_horizontal() +
         self.margin.total_horizontal()
     }
 
     pub fn get_margin_box_height(&self) -> f32 {
-        self.bounds.size.height +
+        self.size.height +
         self.padding.total_vertical() +
         self.border_widths.total_vertical() +
         self.margin.total_vertical()
@@ -319,7 +363,9 @@ impl PositionedRectangle {
 #[derive(Debug, Copy, Clone, PartialEq, PartialOrd)]
 pub struct LayoutedRectangle {
     /// Outer bounds of the rectangle
-    pub bounds: LayoutRect,
+    pub size: LayoutSize,
+    /// How the rectangle should be positioned
+    pub position: PositionInfo,
     /// Padding of the rectangle
     pub padding: ResolvedOffsets,
     /// Margin of the rectangle

@@ -118,15 +118,6 @@ impl SolvedUi {
             rect_contents,
         );
 
-        // Offset all layouted rectangles by the origin of the bounds
-        let origin_x = bounds.origin.x;
-        let origin_y = bounds.origin.y;
-
-        for rect in solved_rects.internal.iter_mut() {
-            rect.bounds.origin.x += origin_x;
-            rect.bounds.origin.y += origin_y;
-        }
-
         SolvedUi { solved_rects }
     }
 }

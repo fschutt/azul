@@ -22,6 +22,7 @@ use webrender::api::{
     DocumentId as WrDocumentId,
     ColorU as WrColorU,
     ColorF as WrColorF,
+    PrimitiveFlags as WrPrimitiveFlags,
     BorderRadius as WrBorderRadius,
     BorderSide as WrBorderSide,
     BoxShadowClipMode as WrBoxShadowClipMode,
@@ -71,7 +72,7 @@ use azul_core::{
         AddFont, AddImage, ImageData, ExternalImageData, ExternalImageId,
         ExternalImageType, TextureTarget, UpdateImage, ImageDirtyRect,
         Epoch, AddFontInstance, FontVariation, FontInstanceOptions,
-        FontInstancePlatformOptions, SyntheticItalics,
+        FontInstancePlatformOptions, SyntheticItalics, PrimitiveFlags,
     },
     display_list::{
         CachedDisplayList, GlyphInstance, DisplayListScrollFrame,
@@ -871,6 +872,24 @@ fn wr_translate_font_render_mode(font_render_mode: FontRenderMode) -> WrFontRend
 }
 
 #[inline]
+fn wr_translate_primitive_flags(flags: PrimitiveFlags) -> WrPrimitiveFlags {
+    let mut f = WrPrimitiveFlags::empty();
+    f.set(WrPrimitiveFlags::IS_BACKFACE_VISIBLE, flags.is_backface_visible);
+    f.set(WrPrimitiveFlags::IS_SCROLLBAR_CONTAINER, flags.is_scrollbar_container);
+    f.set(WrPrimitiveFlags::IS_SCROLLBAR_THUMB, flags.is_scrollbar_thumb);
+    f
+}
+
+#[inline]
+fn translate_primitive_flags_wr(flags: WrPrimitiveFlags) -> PrimitiveFlags {
+    PrimitiveFlags {
+        is_backface_visible: flags.contains(WrPrimitiveFlags::IS_BACKFACE_VISIBLE),
+        is_scrollbar_container: flags.contains(WrPrimitiveFlags::IS_SCROLLBAR_CONTAINER),
+        is_scrollbar_thumb: flags.contains(WrPrimitiveFlags::IS_SCROLLBAR_THUMB),
+    }
+}
+
+#[inline]
 fn wr_translate_glyph_options(glyph_options: GlyphOptions) -> WrGlyphOptions {
     WrGlyphOptions {
         render_mode: wr_translate_font_render_mode(glyph_options.render_mode),
@@ -1034,7 +1053,7 @@ pub(crate) fn wr_translate_display_list(input: CachedDisplayList, pipeline_id: P
         wr_translate_pipeline_id(pipeline_id),
         wr_translate_layout_size(input.root.get_size())
     );
-    push_display_list_msg(&mut builder, input.root, &root_space_and_clip, &root_space_and_clip);
+    push_display_list_msg(&mut builder, input.root, WrSpatialId::root(), WrClipId::root());
     builder.finalize().2
 }
 
@@ -1042,13 +1061,13 @@ pub(crate) fn wr_translate_display_list(input: CachedDisplayList, pipeline_id: P
 fn push_display_list_msg(
     builder: &mut WrDisplayListBuilder,
     msg: DisplayListMsg,
-    parent_space_and_clip: &WrSpaceAndClipInfo,
-    root_space_and_clip: &WrSpaceAndClipInfo,
+    parent_spatial_id: WrSpatialId,
+    parent_clip_id: WrClipId,
 ) {
     use azul_core::display_list::DisplayListMsg::*;
     match msg {
-        Frame(f) => push_frame(builder, f, parent_space_and_clip, root_space_and_clip),
-        ScrollFrame(sf) => push_scroll_frame(builder, sf, parent_space_and_clip, root_space_and_clip),
+        Frame(f) => push_frame(builder, f, parent_spatial_id, parent_clip_id),
+        ScrollFrame(sf) => push_scroll_frame(builder, sf, parent_spatial_id, parent_clip_id),
     }
 }
 
@@ -1056,8 +1075,8 @@ fn push_display_list_msg(
 fn push_frame(
     builder: &mut WrDisplayListBuilder,
     frame: DisplayListFrame,
-    parent_space_and_clip: &WrSpaceAndClipInfo,
-    root_space_and_clip: &WrSpaceAndClipInfo,
+    parent_spatial_id: WrSpatialId,
+    parent_clip_id: WrClipId,
 ) {
 
     for item in frame.content {
@@ -1068,25 +1087,20 @@ fn push_frame(
             frame.clip_rect,
             frame.border_radius,
             frame.tag,
-            parent_space_and_clip,
-            root_space_and_clip,
+            parent_spatial_id,
+            parent_clip_id,
         );
     }
 
     let wr_border_radius = wr_translate_border_radius(frame.border_radius, frame.rect.size);
 
     // If the rect has an overflow:* property set
-    let overflow_clip_id = frame.clip_rect
-    .map(|clip_rect| define_border_radius_clip(builder, clip_rect, wr_border_radius, parent_space_and_clip).clip_id)
-    .unwrap_or(parent_space_and_clip.clip_id);
-
-    let overflow_space_and_clip = WrSpaceAndClipInfo {
-        spatial_id: parent_space_and_clip.spatial_id,
-        clip_id: overflow_clip_id,
-    };
+    let current_rect_clip_id = frame.clip_rect
+    .map(|clip_rect| define_border_radius_clip(builder, clip_rect, wr_border_radius, parent_spatial_id, parent_clip_id))
+    .unwrap_or(parent_clip_id);
 
     for child in frame.children {
-        push_display_list_msg(builder, child, &overflow_space_and_clip, root_space_and_clip);
+        push_display_list_msg(builder, child, parent_spatial_id, current_rect_clip_id);
     }
 }
 
@@ -1094,10 +1108,9 @@ fn push_frame(
 fn push_scroll_frame(
     builder: &mut WrDisplayListBuilder,
     scroll_frame: DisplayListScrollFrame,
-    parent_space_and_clip: &WrSpaceAndClipInfo,
-    root_space_and_clip: &WrSpaceAndClipInfo,
+    parent_spatial_id: WrSpatialId,
+    parent_clip_id: WrClipId,
 ) {
-
     use azul_css::ColorU;
     use webrender::api::{
         ClipMode as WrClipMode,
@@ -1113,8 +1126,8 @@ fn push_scroll_frame(
             scroll_frame.frame.clip_rect,
             scroll_frame.frame.border_radius,
             scroll_frame.frame.tag,
-            parent_space_and_clip,
-            root_space_and_clip,
+            parent_spatial_id,
+            parent_clip_id,
         );
     }
 
@@ -1130,8 +1143,8 @@ fn push_scroll_frame(
     let hit_test_info = WrCommonItemProperties {
         rect: wr_translate_layout_rect(rect),
         clip_rect: wr_translate_layout_rect(clip_rect),
-        is_backface_visible: false,
-        tag: Some(wr_translate_tag_id(scroll_frame.scroll_tag.0)),
+        flags: wr_translate_primitive_flags(scroll_frame.frame.flags),
+        hit_info: Some(wr_translate_tag_id(scroll_frame.scroll_tag.0)),
     };
 
     // Push hit-testing + scrolling children
@@ -1152,7 +1165,7 @@ fn push_scroll_frame(
 
     // Only children should scroll, not the frame itself!
     for child in scroll_frame.frame.children {
-        push_display_list_msg(builder, child, &scroll_frame_clip_info, &root_space_and_clip);
+        push_display_list_msg(builder, child, &scroll_frame_clip_info);
     }
 }
 
@@ -1160,33 +1173,32 @@ fn define_border_radius_clip(
     builder: &mut WrDisplayListBuilder,
     layout_rect: CssLayoutRect,
     wr_border_radius: WrBorderRadius,
-    parent_space_and_clip: &WrSpaceAndClipInfo,
-) -> WrSpaceAndClipInfo {
+    parent_spatial_id: WrSpatialId,
+    parent_clip_id: WrClipId,
+) -> WrClipId {
+
     use webrender::api::{
         ClipMode as WrClipMode,
         ComplexClipRegion as WrComplexClipRegion,
     };
 
-    let wr_layout_rect = wr_translate_layout_rect(layout_rect);
-    let clip = WrComplexClipRegion::new(wr_layout_rect, wr_border_radius, WrClipMode::Clip);
-    let clip_id = builder.define_clip(parent_space_and_clip, wr_layout_rect, vec![clip], /* image_mask: */ None);
-
-    WrSpaceAndClipInfo {
-        clip_id,
-        .. *parent_space_and_clip
-    }
+    builder.define_clip(
+        WrSpaceAndClipInfo { spatial_id: parent_spatial_id, clip_id: parent_clip_id },
+        wr_translate_layout_rect(layout_rect),
+        [WrComplexClipRegion::new(wr_layout_rect, wr_border_radius, WrClipMode::Clip)],
+        /* image_mask: */ None,
+    )
 }
 
 #[inline]
 fn push_display_list_content(
     builder: &mut WrDisplayListBuilder,
     content: LayoutRectContent,
-    rect: CssLayoutRect,
-    clip_rect: Option<CssLayoutRect>,
+    clip_rect: CssLayoutRect,
     border_radius: StyleBorderRadius,
-    tag: Option<TagId>,
-    parent_space_and_clip: &WrSpaceAndClipInfo,
-    root_space_and_clip: &WrSpaceAndClipInfo,
+    hit_info: Option<TagId>,
+    parent_clip_id: WrClipId,
+    parent_spatial_id: WrSpatialId,
 ) {
     use azul_core::display_list::LayoutRectContent::*;
 
@@ -1198,8 +1210,8 @@ fn push_display_list_content(
     let normal_info = WrCommonItemProperties {
         rect: wr_translate_layout_rect(rect),
         clip_rect: wr_translate_layout_rect(clip_rect.unwrap_or(root_rect)),
-        is_backface_visible: false,
-        tag: tag.map(wr_translate_tag_id),
+        flags: ,
+        hit_info: hit_info.map(wr_translate_tag_id),
     };
 
     let wr_border_radius = wr_translate_border_radius(border_radius, rect.size);
