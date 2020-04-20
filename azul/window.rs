@@ -273,6 +273,7 @@ impl<T> Window<T> {
             translate_logical_size_to_css_layout_size,
             translate_document_id_wr
         };
+        use azul_css::LayoutPoint;
 
         // NOTE: It would be OK to use &RenderApi here, but it's better
         // to make sure that the RenderApi is currently not in use by anything else.

@@ -105,6 +105,15 @@ pub enum DisplayListMsg {
 }
 
 impl DisplayListMsg {
+
+    pub fn get_position(&self) -> PositionInfo {
+        use self::DisplayListMsg::*;
+        match self {
+            Frame(f) => f.position,
+            ScrollFrame(sf) => sf.frame.position,
+        }
+    }
+
     pub fn append_child(&mut self, child: Self) {
         use self::DisplayListMsg::*;
         match self {
@@ -164,7 +173,6 @@ pub struct DisplayListFrame {
     pub position: PositionInfo,
     /// Border radius, set to none only if overflow: visible is set!
     pub border_radius: StyleBorderRadius,
-    pub clip_rect: Option<LayoutRect>,
     pub tag: Option<TagId>,
     pub content: Vec<LayoutRectContent>,
     pub children: Vec<DisplayListMsg>,
@@ -175,7 +183,6 @@ impl fmt::Debug for DisplayListFrame {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         let print_no_comma_rect =
             !self.border_radius.is_none() ||
-            self.clip_rect.is_some() ||
             self.tag.is_some() ||
             !self.content.is_empty() ||
             !self.children.is_empty();
@@ -184,9 +191,6 @@ impl fmt::Debug for DisplayListFrame {
 
         if !self.border_radius.is_none() {
             write!(f, "\r\nborder_radius: {:#?}", self.border_radius)?;
-        }
-        if let Some(clip_rect) = &self.clip_rect {
-            write!(f, "\r\nclip_rect: {:#?}", clip_rect)?;
         }
         if let Some(tag) = &self.tag {
             write!(f, "\r\ntag: {}", tag.0)?;
@@ -206,7 +210,6 @@ impl DisplayListFrame {
     pub fn root(dimensions: LayoutSize, root_origin: LayoutPoint) -> Self {
         DisplayListFrame {
             tag: None,
-            clip_rect: None,
             size: dimensions,
             position: PositionInfo::Static { x_offset: root_origin.x, y_offset: root_origin.y },
             flags: PrimitiveFlags {
@@ -1118,7 +1121,6 @@ pub fn displaylist_handle_rect<'a, T>(
 
     let mut frame = DisplayListFrame {
         tag: tag_id,
-        clip_rect: None,
         size,
         position,
         border_radius: StyleBorderRadius {
