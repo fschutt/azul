@@ -172,16 +172,14 @@ fn get_glyphs(
         let (word_positions, _) = positioned_word_cache.get(node_id)?;
         let display_rect = &display_rects[*node_id];
         let (horz_alignment, vert_alignment) = determine_text_alignment(&display_rect.style, &display_rect.layout);
-        let parent_bounds = match &node_hierarchy[*node_id].parent {
-            None => positioned_rectangles[NodeId::new(0)].bounds,
-            Some(parent) => positioned_rectangles[*parent].bounds,
-        };
-        let bounds = positioned_rectangles[*node_id].bounds;
+        let parent_node_id = node_hierarchy[*node_id].parent.unwrap_or(NodeId::new(0));
+        let parent_size = positioned_rectangles[parent_node_id].size;
+
         let (_, inline_text_layout, _) = positioned_rectangles[*node_id].resolved_text_layout_options.as_mut()?;
         inline_text_layout.align_children_horizontal(horz_alignment);
-        inline_text_layout.align_children_vertical_in_parent_bounds(&parent_bounds, vert_alignment);
+        inline_text_layout.align_children_vertical_in_parent_bounds(&parent_size, vert_alignment);
 
-        let glyphs = get_layouted_glyphs(word_positions, scaled_words, &inline_text_layout, bounds.origin, );
+        let glyphs = get_layouted_glyphs(word_positions, scaled_words, &inline_text_layout);
         Some((*node_id, glyphs))
     }).collect()
 }

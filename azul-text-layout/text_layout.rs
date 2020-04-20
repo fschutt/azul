@@ -427,7 +427,6 @@ pub fn get_layouted_glyphs(
     word_positions: &WordPositions,
     scaled_words: &ScaledWords,
     inline_text_layout: &InlineTextLayout,
-    origin: LayoutPoint
 ) -> LayoutedGlyphs {
 
     use crate::text_shaping;
@@ -438,8 +437,8 @@ pub fn get_layouted_glyphs(
 
     for line in inline_text_layout.lines.iter() {
 
-        let line_x = origin.x + line.bounds.origin.x;
-        let line_y = origin.y + line.bounds.origin.y - (line.bounds.size.height - baseline_px); // bottom left corner of the glyph (baseline)
+        let line_x = line.bounds.origin.x;
+        let line_y = line.bounds.origin.y - (line.bounds.size.height - baseline_px); // bottom left corner of the glyph (baseline)
 
         let scaled_words_in_this_line = &scaled_words.items[line.word_start..line.word_end];
         let word_positions_in_this_line = &word_positions.word_positions[line.word_start..line.word_end];

@@ -111,8 +111,8 @@ impl SolvedUi {
             rect_contents,
         );
 
-        // let mut solved_rects = flex::compute(NodeId::ZERO, node_hierarchy, &styles, rect_contents, bounds.size, node_depths);
-        let mut solved_rects = block::compute(
+        // let solved_rects = flex::compute(NodeId::ZERO, node_hierarchy, &styles, rect_contents, bounds.size, node_depths);
+        let solved_rects = block::compute(
             bounds.size,
             &anon_dom,
             rect_contents,

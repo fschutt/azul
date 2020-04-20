@@ -92,20 +92,17 @@ impl InlineTextLayout {
     }
 
     /// Align the lines vertical to *their parents container*
-    pub fn align_children_vertical_in_parent_bounds(&mut self, parent: &LayoutRect, vertical_alignment: StyleTextAlignmentVert) {
+    pub fn align_children_vertical_in_parent_bounds(&mut self, parent_size: &LayoutSize, vertical_alignment: StyleTextAlignmentVert) {
 
         let shift_multiplier = match calculate_vertical_shift_multiplier(vertical_alignment) {
             None =>  return,
             Some(s) => s,
         };
 
-        let parent_bottom_edge = parent.origin.y + parent.size.height;
-        let parent_top_edge = parent.origin.y;
-
         let self_bounds = self.get_bounds();
         let child_bottom_edge = self_bounds.origin.y + self_bounds.size.height;
         let child_top_edge = self_bounds.origin.y;
-        let shift = (child_top_edge - parent_top_edge) + (parent_bottom_edge - child_bottom_edge);
+        let shift = child_top_edge + (parent_size.height - child_bottom_edge);
 
         for line in self.lines.iter_mut() {
             line.bounds.origin.y += shift * shift_multiplier;

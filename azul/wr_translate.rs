@@ -17,6 +17,8 @@ use webrender::api::{
     FontKey as WrFontKey,
     FontInstanceKey as WrFontInstanceKey,
     ImageKey as WrImageKey,
+    ClipId as WrClipId,
+    SpatialId as WrSpatialId,
     IdNamespace as WrIdNamespace,
     PipelineId as WrPipelineId,
     DocumentId as WrDocumentId,
