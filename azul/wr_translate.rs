@@ -1139,8 +1139,8 @@ fn push_frame(
             frame.border_radius,
             frame.tag,
             frame.flags,
-            parent_spatial_id,
             parent_clip_id,
+            parent_spatial_id,
         );
     }
 
@@ -1180,22 +1180,25 @@ fn push_scroll_frame(
             scroll_frame.frame.border_radius,
             scroll_frame.frame.tag,
             scroll_frame.frame.flags,
-            parent_spatial_id,
             parent_clip_id,
+            parent_spatial_id,
         );
     }
 
+    // Push hit-testing + scrolling children
+
     let rect = scroll_frame.frame.rect;
     let wr_border_radius = wr_translate_border_radius(scroll_frame.frame.border_radius, rect.size);
+    let hit_testing_clip_id = define_border_radius_clip(builder, rect, wr_border_radius, parent_spatial_id, parent_clip_id);
     let hit_test_info = WrCommonItemProperties {
         clip_rect: wr_translate_layout_rect(rect),
         flags: wr_translate_primitive_flags(scroll_frame.frame.flags),
         hit_info: Some(wr_translate_tag_id(scroll_frame.scroll_tag.0)),
+        clip_id: hit_testing_clip_id,
+        spatial_id: parent_spatial_id,
     };
 
-    // Push hit-testing + scrolling children
-    let hit_testing_clip_id = define_border_radius_clip(builder, rect, wr_border_radius, parent_spatial_id, parent_clip_id);
-    builder.push_rect(&hit_test_info, parent_spatial_id, hit_testing_clip_id, wr_translate_color_u(ColorU::TRANSPARENT).into());
+    builder.push_rect(&hit_test_info, hit_test_info.clip_rect, wr_translate_color_u(ColorU::TRANSPARENT).into());
 
     let scroll_frame_clip_region = WrComplexClipRegion::new(wr_translate_layout_rect(rect), wr_border_radius, WrClipMode::Clip);
 
@@ -1236,7 +1239,7 @@ fn define_border_radius_clip(
     builder.define_clip(
         &WrSpaceAndClipInfo { spatial_id: parent_spatial_id, clip_id: parent_clip_id },
         wr_layout_rect,
-        &[WrComplexClipRegion::new(wr_layout_rect, wr_border_radius, WrClipMode::Clip)],
+        vec![WrComplexClipRegion::new(wr_layout_rect, wr_border_radius, WrClipMode::Clip)],
         /* image_mask: */ None,
     )
 }
@@ -1254,7 +1257,7 @@ fn push_display_list_content(
 ) {
     use azul_core::display_list::LayoutRectContent::*;
 
-    let normal_info = WrCommonItemProperties {
+    let mut normal_info = WrCommonItemProperties {
         clip_rect: wr_translate_layout_rect(clip_rect),
         clip_id: parent_clip_id,
         spatial_id: parent_spatial_id,
@@ -1270,27 +1273,31 @@ fn push_display_list_content(
         Text { glyphs, font_instance_key, color, glyph_options, clip } => {
             // let border_radius_clip_id = define_border_radius_clip(builder, rect, wr_border_radius, parent_space_and_clip);
             // text::push_text(builder, &normal_info, glyphs, font_instance_key, color, glyph_options, clip, &normal_space_and_clip);
-            text::push_text(builder, &normal_info, glyphs, font_instance_key, color, glyph_options, clip, parent_spatial_id, parent_clip_id);
+            text::push_text(builder, &normal_info, glyphs, font_instance_key, color, glyph_options, clip);
         },
         Background { content, size, offset, repeat  } => {
             let border_radius_clip_id = define_border_radius_clip(builder, clip_rect, wr_border_radius, parent_spatial_id, parent_clip_id);
-            background::push_background(builder, &normal_info, content, size, offset, repeat, parent_spatial_id, border_radius_clip_id);
+            normal_info.clip_id = border_radius_clip_id;
+            background::push_background(builder, &normal_info, content, size, offset, repeat);
         },
         Image { size, offset, image_rendering, alpha_type, image_key, background_color } => {
             let border_radius_clip_id = define_border_radius_clip(builder, clip_rect, wr_border_radius, parent_spatial_id, parent_clip_id);
-            image::push_image(builder, &normal_info, size, offset, image_key, alpha_type, image_rendering, background_color, parent_spatial_id, border_radius_clip_id);
+            normal_info.clip_id = border_radius_clip_id;
+            image::push_image(builder, &normal_info, size, offset, image_key, alpha_type, image_rendering, background_color);
         },
         BoxShadow { shadow, clip_mode: CssBoxShadowClipMode::Inset } => {
             let border_radius_clip_id = define_border_radius_clip(builder, clip_rect, wr_border_radius, parent_spatial_id, parent_clip_id);
-            box_shadow::push_box_shadow(builder, clip_rect, CssBoxShadowClipMode::Inset, shadow, border_radius, parent_spatial_id, border_radius_clip_id);
+            normal_info.clip_id = border_radius_clip_id;
+            box_shadow::push_box_shadow(builder, clip_rect, CssBoxShadowClipMode::Inset, shadow, border_radius, normal_info.spatial_id, normal_info.clip_id);
         },
         BoxShadow { shadow, clip_mode: CssBoxShadowClipMode::Outset } => {
             // If the content is a shadow, it needs to be clipped by the root
-            box_shadow::push_box_shadow(builder, clip_rect, CssBoxShadowClipMode::Outset, shadow, border_radius, parent_spatial_id, WrClipId::root(builder.pipeline_id));
+            normal_info.clip_id = WrClipId::root(builder.pipeline_id);
+            box_shadow::push_box_shadow(builder, clip_rect, CssBoxShadowClipMode::Outset, shadow, border_radius, normal_info.spatial_id, normal_info.clip_id);
         },
         Border { widths, colors, styles } => {
             // no clip necessary because item will always be in parent bounds
-            border::push_border(builder, &normal_info, border_radius, widths, colors, styles, parent_spatial_id, parent_clip_id);
+            border::push_border(builder, &normal_info, border_radius, widths, colors, styles);
         },
     }
 }
@@ -1300,9 +1307,6 @@ mod text {
     use webrender::api::{
         DisplayListBuilder as WrDisplayListBuilder,
         CommonItemProperties as WrCommonItemProperties,
-        SpaceAndClipInfo as WrSpaceAndClipInfo,
-        SpatialId as WrSpatialId,
-        ClipId as WrClipId,
     };
     use azul_core::{
         app_resources::{FontInstanceKey, GlyphOptions},
@@ -1318,8 +1322,6 @@ mod text {
          color: ColorU,
          glyph_options: Option<GlyphOptions>,
          clip: Option<LayoutRect>,
-         parent_spatial_id: WrSpatialId,
-         parent_clip_id: WrClipId,
     ) {
         use super::{
             wr_translate_layouted_glyphs, wr_translate_font_instance_key,
@@ -1336,10 +1338,7 @@ mod text {
 
         builder.push_text(
             &info,
-            &WrSpaceAndClipInfo {
-                spatial_id: parent_spatial_id,
-                clip_id: parent_clip_id,
-            },
+            info.clip_rect,
             &wr_translate_layouted_glyphs(glyphs),
             wr_translate_font_instance_key(font_instance_key),
             wr_translate_color_u(color).into(),
@@ -1355,12 +1354,9 @@ mod background {
             LayoutSize as WrLayoutSize,
             LayoutRect as WrLayoutRect,
         },
-        SpatialId as WrSpatialId,
-        ClipId as WrClipId,
         DisplayListBuilder as WrDisplayListBuilder,
         CommonItemProperties as WrCommonItemProperties,
         GradientStop as WrGradientStop,
-        SpaceAndClipInfo as WrSpaceAndClipInfo,
     };
     use azul_css::{
         StyleBackgroundSize, StyleBackgroundPosition, StyleBackgroundRepeat,
@@ -1385,18 +1381,16 @@ mod background {
         background_size: Option<StyleBackgroundSize>,
         background_position: Option<StyleBackgroundPosition>,
         background_repeat: Option<StyleBackgroundRepeat>,
-        parent_spatial_id: WrSpatialId,
-        parent_clip_id: WrClipId,
     ) {
         use azul_core::display_list::RectBackground::*;
 
         let content_size = background.get_content_size();
 
         match background {
-            RadialGradient(rg)  => push_radial_gradient_background(builder, info, rg, background_position, background_size, background_repeat, content_size, parent_spatial_id, parent_clip_id),
-            LinearGradient(g)   => push_linear_gradient_background(builder, info, g, background_position, background_size, background_repeat, content_size, parent_spatial_id, parent_clip_id),
-            Image(image_info)   => push_image_background(builder, info, image_info, background_position, background_size, background_repeat, content_size, parent_spatial_id, parent_clip_id),
-            Color(col)          => push_color_background(builder, info, col, background_position, background_size, background_repeat, content_size, parent_spatial_id, parent_clip_id),
+            RadialGradient(rg)  => push_radial_gradient_background(builder, &info, rg, background_position, background_size, background_repeat, content_size),
+            LinearGradient(g)   => push_linear_gradient_background(builder, &info, g, background_position, background_size, background_repeat, content_size),
+            Image(image_info)   => push_image_background(builder, &info, image_info, background_position, background_size, background_repeat, content_size),
+            Color(col)          => push_color_background(builder, &info, col, background_position, background_size, background_repeat, content_size),
         }
     }
 
@@ -1408,8 +1402,6 @@ mod background {
         background_size: Option<StyleBackgroundSize>,
         background_repeat: Option<StyleBackgroundRepeat>,
         content_size: Option<(f32, f32)>,
-        parent_spatial_id: WrSpatialId,
-        parent_clip_id: WrClipId,
     ) {
         use azul_css::Shape;
         use super::{wr_translate_color_u, wr_translate_layout_size, wr_translate_extend_mode};
@@ -1444,10 +1436,7 @@ mod background {
 
         builder.push_radial_gradient(
             &offset_info,
-            &WrSpaceAndClipInfo {
-                spatial_id: parent_spatial_id,
-                clip_id: parent_clip_id,
-            },
+            offset_info.clip_rect,
             gradient,
             wr_translate_layout_size(background_size),
             WrLayoutSize::zero()
@@ -1462,8 +1451,6 @@ mod background {
         background_size: Option<StyleBackgroundSize>,
         background_repeat: Option<StyleBackgroundRepeat>,
         content_size: Option<(f32, f32)>,
-        parent_spatial_id: WrSpatialId,
-        parent_clip_id: WrClipId,
     ) {
         use super::{
             wr_translate_color_u, wr_translate_extend_mode,
@@ -1496,10 +1483,7 @@ mod background {
 
         builder.push_gradient(
             &offset_info,
-            &WrSpaceAndClipInfo {
-                spatial_id: parent_spatial_id,
-                clip_id: parent_clip_id,
-            },
+            offset_info.clip_rect,
             gradient,
             wr_translate_layout_size(background_size),
             WrLayoutSize::zero()
@@ -1514,8 +1498,6 @@ mod background {
         background_size: Option<StyleBackgroundSize>,
         background_repeat: Option<StyleBackgroundRepeat>,
         content_size: Option<(f32, f32)>,
-        parent_spatial_id: WrSpatialId,
-        parent_clip_id: WrClipId,
     ) {
         use azul_core::display_list::{AlphaType, ImageRendering};
 
@@ -1530,7 +1512,7 @@ mod background {
         let image_rendering = ImageRendering::Auto;
         let background_color = ColorU { r: 0, g: 0, b: 0, a: 255 };
 
-        image::push_image(builder, &background_repeat_info, background_size, background_position, image_info.key, alpha_type, image_rendering, background_color, parent_spatial_id, parent_clip_id);
+        image::push_image(builder, &background_repeat_info, background_size, background_position, image_info.key, alpha_type, image_rendering, background_color);
     }
 
     fn push_color_background(
@@ -1541,8 +1523,6 @@ mod background {
         background_size: Option<StyleBackgroundSize>,
         background_repeat: Option<StyleBackgroundRepeat>,
         content_size: Option<(f32, f32)>,
-        parent_spatial_id: WrSpatialId,
-        parent_clip_id: WrClipId,
     ) {
         use super::wr_translate_color_u;
 
@@ -1559,10 +1539,7 @@ mod background {
 
         builder.push_rect(
             &offset_info,
-            &WrSpaceAndClipInfo {
-                spatial_id: parent_spatial_id,
-                clip_id: parent_clip_id,
-            },
+            offset_info.clip_rect,
             wr_translate_color_u(color).into()
         );
     }
@@ -1576,28 +1553,28 @@ mod background {
         use azul_css::StyleBackgroundRepeat::*;
 
         match background_repeat {
-            NoRepeat => WrCommonItemProperties::with_clip_rect(
-                info.clip_rect,
-                WrLayoutRect::new(
+            NoRepeat => WrCommonItemProperties {
+                clip_rect: WrLayoutRect::new(
                     info.clip_rect.origin,
                     WrLayoutSize::new(background_size.width, background_size.height),
                 ),
-            ),
+                .. *info
+            },
             Repeat => *info,
-            RepeatX => WrCommonItemProperties::with_clip_rect(
-                info.clip_rect,
-                WrLayoutRect::new(
+            RepeatX => WrCommonItemProperties {
+                clip_rect: WrLayoutRect::new(
                     info.clip_rect.origin,
                     WrLayoutSize::new(info.clip_rect.size.width, background_size.height),
                 ),
-            ),
-            RepeatY => WrCommonItemProperties::with_clip_rect(
-                info.clip_rect,
-                WrLayoutRect::new(
+                .. *info
+            },
+            RepeatY => WrCommonItemProperties {
+                clip_rect: WrLayoutRect::new(
                     info.clip_rect.origin,
                     WrLayoutSize::new(background_size.width, info.clip_rect.size.height),
                 ),
-            ),
+                .. *info
+            },
         }
     }
 
@@ -1669,7 +1646,6 @@ mod image {
     use webrender::api::{
         DisplayListBuilder as WrDisplayListBuilder,
         CommonItemProperties as WrCommonItemProperties,
-        SpaceAndClipInfo as WrSpaceAndClipInfo,
     };
     use azul_css::{LayoutPoint, LayoutSize, ColorU};
     use azul_core::{
@@ -1687,7 +1663,6 @@ mod image {
         alpha_type: AlphaType,
         image_rendering: ImageRendering,
         background_color: ColorU,
-        parent_space_and_clip: &WrSpaceAndClipInfo,
     ) {
         use super::{
             wr_translate_image_rendering, wr_translate_alpha_type,
@@ -1701,9 +1676,9 @@ mod image {
 
         let tile_spacing = WrLayoutSize::zero();
 
-        builder.push_image(
+        builder.push_repeating_image(
             &offset_info,
-            parent_space_and_clip,
+            offset_info.clip_rect,
             wr_translate_layout_size(size),
             tile_spacing,
             wr_translate_image_rendering(image_rendering),
@@ -1725,7 +1700,6 @@ mod box_shadow {
         SpatialId as WrSpatialId,
         CommonItemProperties as WrCommonItemProperties,
         DisplayListBuilder as WrDisplayListBuilder,
-        SpaceAndClipInfo as WrSpaceAndClipInfo,
     };
 
     enum ShouldPushShadow {
@@ -1929,7 +1903,7 @@ mod box_shadow {
         parent_spatial_id: WrSpatialId,
         parent_clip_id: WrClipId,
     ) {
-        use webrender::api::units::{LayoutRect, LayoutPoint, LayoutVector2D};
+        use webrender::api::{PrimitiveFlags as WrPrimitiveFlags, units::LayoutVector2D};
         use super::{
             wr_translate_color_f, wr_translate_border_radius,
             wr_translate_box_shadow_clip_mode, wr_translate_layout_rect,
@@ -1940,20 +1914,16 @@ mod box_shadow {
             return;
         }
 
-        let full_screen_rect = LayoutRect::new(LayoutPoint::zero(), builder.content_size());
-
-        // Prevent shadows that are larger than the full screen
-        let clip_rect = wr_translate_layout_rect(clip_rect);
-        let clip_rect = clip_rect.intersection(&full_screen_rect).unwrap_or(clip_rect);
-
-        let info = WrCommonItemProperties::with_clip_rect(LayoutRect::zero(), clip_rect);
+        let info = WrCommonItemProperties {
+            clip_rect: wr_translate_layout_rect(clip_rect),
+            spatial_id: parent_spatial_id,
+            clip_id: parent_clip_id,
+            flags: WrPrimitiveFlags::IS_BACKFACE_VISIBLE,
+            hit_info: None,
+        };
 
         builder.push_box_shadow(
             &info,
-            WrCommonItemProperties::new(
-                wr_translate_layout_rect(bounds),
-                WrSpaceAndClipInfo { spatial_id: parent_spatial_id, clip_id: parent_clip_id }
-            ),
             wr_translate_layout_rect(bounds),
             LayoutVector2D::new(pre_shadow.offset[0].to_pixels(), pre_shadow.offset[1].to_pixels()),
             wr_translate_color_f(apply_gamma(pre_shadow.color.into())),
@@ -2012,9 +1982,6 @@ mod border {
         CommonItemProperties as WrCommonItemProperties,
         BorderStyle as WrBorderStyle,
         BorderSide as WrBorderSide,
-        SpaceAndClipInfo as WrSpaceAndClipInfo,
-        SpatialId as WrSpatialId,
-        ClipId as WrClipId,
     };
     use azul_css::{
         LayoutSize, BorderStyle, BorderStyleNoNone, CssPropertyValue, PixelValue
@@ -2037,16 +2004,11 @@ mod border {
         widths: StyleBorderWidths,
         colors: StyleBorderColors,
         styles: StyleBorderStyles,
-        parent_spatial_id: WrSpatialId,
-        parent_clip_id: WrClipId,
     ) {
         let rect_size = LayoutSize::new(info.clip_rect.size.width, info.clip_rect.size.height);
 
         if let Some((border_widths, border_details)) = get_webrender_border(rect_size, radii, widths, colors, styles) {
-            builder.push_border(&info, &WrSpaceAndClipInfo {
-                spatial_id: parent_spatial_id,
-                clip_id: parent_clip_id
-            }, border_widths, border_details);
+            builder.push_border(&info, info.clip_rect, border_widths, border_details);
         }
     }
 

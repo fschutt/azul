@@ -1006,33 +1006,28 @@ fn create_renderer(
                 .map_err(|_| RendererCreationError::Wr)?;
             (renderer, sender, headless_context, gl_context)
         },
-        Default => {
-            create_headless_context(&event_loop, HwAcceleration::Enabled)
-            .map_err(|e| RendererCreationError::Glutin(e))
-            .and_then(|gl_context| {
-                let mut headless_context = HeadlessContextState::NotCurrent(gl_context);
-                headless_context.make_current();
-                let gl_context = get_gl_context(headless_context.headless_context().unwrap()).unwrap();
-                let (renderer, sender) = WrRenderer::new(gl_context.clone(), notifier, opts_native, WR_SHADER_CACHE, device_size)
-                    .map_err(|_| RendererCreationError::Wr)?;
-                Ok((renderer, sender, headless_context, gl_context))
-            })
-            .or_else(|_| {
-                let gl_context = create_headless_context(&event_loop, HwAcceleration::Disabled)?;
-                let mut headless_context = HeadlessContextState::NotCurrent(gl_context);
-                headless_context.make_current();
-                let gl_context = get_gl_context(headless_context.headless_context().unwrap()).unwrap();
-                let (renderer, sender) = WrRenderer::new(gl_context.clone(), notifier, opts_native, WR_SHADER_CACHE, device_size)
-                    .map_err(|_| RendererCreationError::Wr)?;
-                Ok((renderer, sender, headless_context, gl_context))
-            })?
-        },
-        Custom(gl_context) => {
-            let mut headless_context = HeadlessContextState::NotCurrent(gl_context.clone());
-            let (renderer, sender) = WrRenderer::new(gl_context.clone(), notifier, opts_native, WR_SHADER_CACHE, device_size)
-                .map_err(|_| RendererCreationError::Wr)?;
-            (renderer, sender, headless_context, gl_context)
-        },
+        Default | Custom(_) /* TODO: can't use gl_context here! */ => {
+            let ctx = create_headless_context(&event_loop, HwAcceleration::Enabled).map_err(|e| RendererCreationError::Glutin(e));
+            match ctx {
+                Ok(gl_context) => {
+                    let mut headless_context = HeadlessContextState::NotCurrent(gl_context);
+                    headless_context.make_current();
+                    let gl_context = get_gl_context(headless_context.headless_context().unwrap()).unwrap();
+                    let (renderer, sender) = WrRenderer::new(gl_context.clone(), notifier, opts_native, WR_SHADER_CACHE, device_size)
+                        .map_err(|_| RendererCreationError::Wr)?;
+                    (renderer, sender, headless_context, gl_context)
+                },
+                Err(_) => {
+                    let gl_context = create_headless_context(&event_loop, HwAcceleration::Disabled)?;
+                    let mut headless_context = HeadlessContextState::NotCurrent(gl_context);
+                    headless_context.make_current();
+                    let gl_context = get_gl_context(headless_context.headless_context().unwrap()).unwrap();
+                    let (renderer, sender) = WrRenderer::new(gl_context.clone(), notifier, opts_native, WR_SHADER_CACHE, device_size)
+                        .map_err(|_| RendererCreationError::Wr)?;
+                    (renderer, sender, headless_context, gl_context)
+                },
+            }
+        }
     };
 
     let api = sender.create_api();
