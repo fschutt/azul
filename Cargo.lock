@@ -73,7 +73,7 @@ dependencies = [
  "clipboard2",
  "core-foundation 0.7.0",
  "fern",
- "gleam 0.11.0",
+ "gleam",
  "glutin",
  "log",
  "tinyfiledialogs",
@@ -86,7 +86,7 @@ version = "0.1.0"
 dependencies = [
  "azul-css",
  "azul-css-parser",
- "gleam 0.11.0",
+ "gleam",
 ]
 
 [[package]]
@@ -143,7 +143,7 @@ version = "0.1.0"
 dependencies = [
  "azul-core",
  "azul-css",
- "gleam 0.11.0",
+ "gleam",
  "lyon",
  "serde",
  "serde_derive",
@@ -160,7 +160,7 @@ dependencies = [
  "azul-css-parser",
  "azul-layout",
  "font-loader",
- "gleam 0.8.0",
+ "gleam",
  "image",
  "xmlparser 0.9.0",
 ]
@@ -735,15 +735,6 @@ dependencies = [
  "khronos_api",
  "log",
  "xml-rs",
-]
-
-[[package]]
-name = "gleam"
-version = "0.8.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "23a18ef03079e0a5524bb207bd452de8ac15f817af0580f8911d6aed7496a168"
-dependencies = [
- "gl_generator 0.13.1",
 ]
 
 [[package]]
@@ -1853,7 +1844,7 @@ dependencies = [
  "euclid",
  "freetype",
  "fxhash",
- "gleam 0.11.0",
+ "gleam",
  "lazy_static",
  "libc",
  "log",
