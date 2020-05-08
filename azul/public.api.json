@@ -1,0 +1,110 @@
+{
+   "apis":[
+      {
+         "0.1.0":{
+            "rust_includes":"use core::ffi::c_void;\r\nuse azul_core::dom::Dom;\r\nuse azul_core::callbacks::LayoutInfo;\r\nuse azul_css::Css;\r\nuse azul_core::window::WindowCreateOptions;\r\n#[cfg(not(target_arch = \"wasm32\"))]\r\nuse azul_desktop::app::{App, AppConfig};\r\n#[cfg(target_arch = \"wasm32\")]\r\nuse azul_web::app::{App, AppConfig};",
+            "typedefs":[
+               {
+                  "name":"DataModel",
+                  "doc": "The data model",
+                  "type":"*mut c_void"
+               },
+               {
+                  "name":"LayoutCallback",
+                  "type":"fn(&AzDataModelPtr, AzLayoutInfoPtr) -> AzDomPtr"
+               }
+            ],
+            "classes":[
+               {
+                  "name":"LayoutInfo",
+                  "constructors":[
+
+                  ],
+                  "downcast": false
+               },
+               {
+                  "name":"Dom",
+                  "rust_class_name": "Dom<AzDataModelPtr>",
+                  "constructors":[
+                     {
+                        "fn_name":"div",
+                        "fn_body":"Dom::<AzDataModelPtr>::div()"
+                     }
+                  ]
+               },
+               {
+                  "name":"AppConfig",
+                  "constructors":[
+                     {
+                        "fn_name":"new",
+                        "fn_body":"AppConfig::default()"
+                     }
+                  ]
+               },
+               {
+                  "name":"Css",
+                  "constructors":[
+                     {
+                        "fn_name":"native",
+                        "fn_body":"azul_native_style::native()"
+                     }
+                  ]
+               },
+               {
+                  "name":"WindowCreateOptions",
+                  "rust_class_name": "WindowCreateOptions<AzDataModelPtr>",
+                  "constructors":[
+                     {
+                        "fn_name":"new",
+                        "args":[
+                           {
+                              "name":"css",
+                              "type":"Css"
+                           }
+                        ],
+                        "fn_body":"WindowCreateOptions::<AzDataModelPtr>::new(*az_css_downcast(css))"
+                     }
+                  ]
+               },
+               {
+                  "name":"App",
+                  "rust_class_name": "App<AzDataModelPtr>",
+                  "constructors":[
+                     {
+                        "doc":"Creates a new App instance.",
+                        "fn_name":"new",
+                        "args":[
+                           {
+                              "name":"data",
+                              "type":"DataModel"
+                           },
+                           {
+                              "name":"config",
+                              "type":"AppConfig"
+                           },
+                           {
+                              "name":"callback",
+                              "type":"LayoutCallback"
+                           }
+                        ],
+                        "fn_body":"App::new_from_callback(data, *az_app_config_downcast(config), callback)"
+                     }
+                  ],
+                  "functions":[
+                     {
+                        "fn_name":"run",
+                        "args":[
+                           {
+                              "name":"window",
+                              "type":"WindowCreateOptions"
+                           }
+                        ],
+                        "fn_body":"az_app_downcast(app).run(*az_window_create_options_downcast(window))"
+                     }
+                  ]
+               }
+            ]
+         }
+      }
+   ]
+}

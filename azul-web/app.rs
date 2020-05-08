@@ -29,7 +29,7 @@ impl<T> App<T> {
         Self { data, config, callback }
     }
 
-    pub fn run(self, window: WindowCreateOptions<T>) -> ! {
+    pub fn run(self, _window: WindowCreateOptions<T>) -> ! {
         loop { }
     }
 }
