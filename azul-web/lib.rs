@@ -2,3 +2,5 @@
 
 extern crate azul_core;
 extern crate azul_css;
+
+pub mod app;

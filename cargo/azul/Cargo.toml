@@ -17,9 +17,15 @@ readme = "../README.md"
 exclude = ["../assets/*", "../doc/*", "../examples/*"]
 autoexamples = false
 edition = "2018"
+crate_type = ["lib", "cdylib"]
 
 [lib]
-path = "../../azul-desktop/lib.rs"
+path = "../../azul/lib.rs"
+
+[dependencies]
+azul-core = { version = "0.1.0", path = "../azul-core", default-features = false }
+azul-css  = { version = "0.1.0", path = "../azul-css", default-features = false }
+azul-native-style = { version = "0.1.0", path = "../azul-native-style", default-features = false }
 
 [target.'cfg(not(target_arch = "wasm32"))'.dependencies]
 azul-desktop = { version = "0.1.0", path = "../azul-desktop", default-features = false }

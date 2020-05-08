@@ -165,11 +165,17 @@ impl Default for AppConfig {
 }
 
 impl<T: Layout> App<T> {
+    /// Creates a new, empty application. This does not open any windows.
+    pub fn new(initial_data: T, app_config: AppConfig) -> Result<Self, RendererCreationError> {
+        Self::new_with_callback(initial_data, app_config, T::layout)
+    }
+}
 
+impl<T> App<T> {
     #[cfg(not(test))]
     #[allow(unused_variables)]
-    /// Create a new, empty application. This does not open any windows.
-    pub fn new(initial_data: T, app_config: AppConfig) -> Result<Self, RendererCreationError> {
+    /// Creates a new, empty application using a specified callback. This does not open any windows.
+    pub fn new_with_callback(initial_data: T, app_config: AppConfig, callback: LayoutCallback<T>) -> Result<Self, RendererCreationError> {
 
         #[cfg(feature = "logging")] {
             if let Some(log_level) = app_config.enable_logging {
@@ -199,7 +205,7 @@ impl<T: Layout> App<T> {
                 timers: FastHashMap::default(),
                 tasks: Vec::new(),
                 config: app_config,
-                layout_callback: T::layout,
+                layout_callback: callback,
                 fake_display,
             })
         }
@@ -212,7 +218,7 @@ impl<T: Layout> App<T> {
                timers: FastHashMap::default(),
                tasks: Vec::new(),
                config: app_config,
-               layout_callback: T::layout,
+               layout_callback: callback,
                render_api: FakeRenderApi::new(),
            })
         }

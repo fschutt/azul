@@ -665,6 +665,7 @@ pub type TimerCallbackType<T> = fn(TimerCallbackInfo<T>) -> TimerCallbackReturn;
 
 /// Gives the `layout()` function access to the `AppResources` and the `Window`
 /// (for querying images and fonts, as well as width / height)
+#[repr(C)]
 pub struct LayoutInfo<'a> {
     /// Window size (so that apps can return a different UI depending on
     /// the window size - mobile / desktop view). Should be later removed

@@ -7,3 +7,13 @@
 
 #[path = "./c-api.rs"]
 pub mod c_api;
+
+extern crate azul_core;
+extern crate azul_css;
+extern crate azul_native_style;
+
+#[cfg(target_arch = "wasm32")]
+extern crate azul_web;
+
+#[cfg(not(target_arch = "wasm32"))]
+extern crate azul_desktop;

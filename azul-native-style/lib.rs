@@ -23,12 +23,20 @@ pub const MACOS_CSS: &str = concat!(
     include_str!("styles/shared/table.css"),
 );
 
+/// CSS mimicking the OS-native look - Web: `styles/native_web.css`
+pub const WASM_CSS: &str = concat!(
+    include_str!("styles/native_web.css"),
+    include_str!("styles/shared/table.css"),
+);
+
 #[cfg(target_os="windows")]
 pub const NATIVE_CSS: &str = WINDOWS_CSS;
 #[cfg(target_os="macos")]
 pub const NATIVE_CSS: &str = MACOS_CSS;
 #[cfg(target_os="linux")]
 pub const NATIVE_CSS: &str = LINUX_CSS;
+#[cfg(target_arch="wasm32")]
+pub const NATIVE_CSS: &str = WASM_CSS;
 
 /// Returns the native style for the OS
 ///
