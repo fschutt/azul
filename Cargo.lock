@@ -61,23 +61,8 @@ checksum = "f8aac770f1885fd7e387acedd76065302551364496e46b3dd00860b2f8359b9d"
 name = "azul"
 version = "0.1.0"
 dependencies = [
- "app_units",
- "azul-core",
- "azul-css",
- "azul-css-parser",
- "azul-layout",
- "azul-native-style",
- "azul-widgets",
- "azulc",
- "backtrace",
- "clipboard2",
- "core-foundation 0.7.0",
- "fern",
- "gleam",
- "glutin",
- "log",
- "tinyfiledialogs",
- "webrender",
+ "azul-desktop",
+ "azul-web",
 ]
 
 [[package]]
@@ -99,6 +84,29 @@ version = "0.1.0"
 dependencies = [
  "azul-css",
  "azul-simplecss",
+]
+
+[[package]]
+name = "azul-desktop"
+version = "0.1.0"
+dependencies = [
+ "app_units",
+ "azul-core",
+ "azul-css",
+ "azul-css-parser",
+ "azul-layout",
+ "azul-native-style",
+ "azul-widgets",
+ "azulc",
+ "backtrace",
+ "clipboard2",
+ "core-foundation 0.7.0",
+ "fern",
+ "gleam",
+ "glutin",
+ "log",
+ "tinyfiledialogs",
+ "webrender",
 ]
 
 [[package]]
@@ -135,6 +143,14 @@ dependencies = [
  "freetype",
  "harfbuzz-sys",
  "unicode-normalization",
+]
+
+[[package]]
+name = "azul-web"
+version = "0.1.0"
+dependencies = [
+ "azul-core",
+ "azul-css",
 ]
 
 [[package]]

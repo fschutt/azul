@@ -1,6 +1,8 @@
 [workspace]
 members = [
     "cargo/azul",
+    "cargo/azul-desktop",
+    "cargo/azul-web",
     "cargo/azulc",
     "cargo/azul-css",
     "cargo/azul-core",

@@ -1,0 +1,79 @@
+[package]
+name = "azul-desktop"
+version = "0.1.0"
+authors = ["Felix Schütt <felix.schuett@maps4print.com>"]
+license = "MIT"
+description = "Desktop rendering API for azul"
+documentation = "https://docs.rs/azul-desktop"
+homepage = "https://azul.rs/"
+keywords = ["gui", "GUI", "user interface", "svg", "graphics" ]
+categories = ["gui"]
+repository = "https://github.com/maps4print/azul"
+readme = "../README.md"
+exclude = ["../assets/*", "../doc/*", "../examples/*"]
+autoexamples = false
+edition = "2018"
+
+[lib]
+path = "../../azul-desktop/lib.rs"
+
+[dependencies]
+webrender               = { git = "https://github.com/servo/webrender",           rev = "7d2d37e88089f28d941fb3d891657121e6915c1c", default-features = false     }
+gleam                   = { version = "0.11.0",         default-features = false                                                                                 }
+glutin                  = { version = "0.22.1",         default-features = false                                                                                 }
+app_units               = { version = "0.7.1",          default-features = false                                                                                 }
+tinyfiledialogs         = { version = "3.3.9",          default-features = false                                                                                 }
+clipboard2              = { version = "0.1.1",          default-features = false                                                                                 }
+azulc                   = { version = "0.1.0",          default-features = false,                  path = "../azulc",               features = ["text_layout", "image_loading", "font_loading"] }
+azul-css                = { version = "0.1.0",          default-features = false,                  path = "../azul-css"                                          }
+azul-core               = { version = "0.1.0",          default-features = false,                  path = "../azul-core"                                         }
+azul-layout             = { version = "0.1.0",          default-features = false,                  path = "../azul-layout",         features = ["text_layout"]   }
+azul-css-parser         = { version = "0.1.0",          default-features = false, optional = true, path = "../azul-css-parser"                                   }
+azul-widgets            = { version = "0.1.0",          default-features = false, optional = true, path = "../azul-widgets"                                      }
+azul-native-style       = { version = "0.1.0",          default-features = false, optional = true, path = "../azul-native-style"                                 }
+log                     = { version = "0.4.8",          default-features = false, optional = true                                                                }
+fern                    = { version = "0.5.7",          default-features = false, optional = true                                                                }
+backtrace               = { version = "0.3.43",         default-features = false, optional = true, features = ["std", "libunwind", "libbacktrace", "coresymbolication", "dladdr", "dbghelp"]    }
+
+[target.'cfg(macos)'.dependencies]
+core-foundation              = { version = "0.7.0",     default-features = false, features = ["mac_os_10_7_support"] }
+
+[features]
+default = ["logging", "widgets", "native_style", "css_parser", "image_loading", "font_loading", "text_layout"]
+# Enable this feature to enable crash logging & reporting.
+# Azul will insert custom panic handlers to pop up a message and log
+# crashes to an "error.log" file, see AppConfig for more details
+logging = ["fern", "backtrace", "log"]
+# Enable / disable the built-in widgets
+widgets = ["azul-widgets"]
+# Enable / disable the OS-native CSS style loader
+native_style = ["azul-native-style"]
+# Enable / diable the CSS parser
+css_parser = ["azul-core/css_parser", "azul-css-parser"]
+# Enable / disable the built-in SVG widgets (requires lyon - extra compilation time)
+svg = ["widgets", "azul-widgets/svg"]
+# Enable / disable the SVG parser (requires usvg)
+svg_parsing = ["svg", "widgets", "azul-widgets/svg_parsing"]
+# Enable / disable the built-in SVG widgets (requires lyon - extra compilation time)
+svg_fonts = ["widgets", "azul-widgets/fonts"]
+# On some applications you might not want to load any images. For these purposes
+# the image crate can be disabled, to speed up compile times
+image_loading = ["azulc/image_loading"]
+# Enables loading of ICO files on the image decoder
+ico = ["azulc/ico"]
+# Enables loading of TGA files on the image decoder
+tga = ["azulc/tga"]
+# Enables loading of HDR files on the image decoder
+hdr = ["azulc/hdr"]
+# Enables parallel JPEG decoding on the image decoder
+jpeg_rayon = ["azulc/jpeg_rayon"]
+# Enables loading of DXT files on the image decoder
+dxt = ["azulc/dxt"]
+# Enables loading of WEBP files on the image decoder
+webp = ["azulc/webp"]
+# Enables loading of PNM files on the image decoder
+pnm = ["azulc/pnm"]
+# Activates the font-loading module, important to deactivate for example
+font_loading = ["azulc/font-loader"]
+# Text loading module, disable if you have a custom text layouting function
+text_layout = ["azulc/text_layout"]
