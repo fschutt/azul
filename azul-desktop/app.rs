@@ -193,7 +193,7 @@ impl<T> App<T> {
         }
 
         #[cfg(not(test))] {
-            let mut fake_display = FakeDisplay::new(app_config.renderer_type)?;
+            let mut fake_display = FakeDisplay::new(app_config.renderer_type.clone())?;
             if let Some(r) = &mut fake_display.renderer {
                 use crate::wr_translate::set_webrender_debug_flags;
                 set_webrender_debug_flags(r, &app_config.debug_state);
@@ -266,6 +266,7 @@ impl<T: 'static> App<T> {
     }
 
     #[cfg(not(test))]
+    #[allow(unused_variables)]
     fn run_inner(self) -> ! {
 
         use glutin::{
@@ -322,8 +323,6 @@ impl<T: 'static> App<T> {
         let mut last_style_reload = Instant::now();
 
         hidden_event_loop.run(move |event, event_loop_target, control_flow| {
-
-            let now = Instant::now();
 
             let mut eld = EventLoopData {
                 data: &mut data,

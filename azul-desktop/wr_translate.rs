@@ -83,7 +83,7 @@ use azul_core::{
         AlphaType, ImageRendering, StyleBorderRadius,
     },
     dom::TagId,
-    ui_solver::ExternalScrollId,
+    ui_solver::{ExternalScrollId, PositionInfo},
     window::{LogicalSize, DebugState},
 };
 #[cfg(not(any(target_os = "macos", target_os = "windows")))]
@@ -562,6 +562,7 @@ pub fn translate_image_format_wr(input: WrImageFormat) -> ImageFormat {
     match input {
         WrImageFormat::R8 => ImageFormat::R8,
         WrImageFormat::R16 => ImageFormat::R16,
+        WrImageFormat::RG16 => ImageFormat::RG16,
         WrImageFormat::BGRA8 => ImageFormat::BGRA8,
         WrImageFormat::RGBAF32 => ImageFormat::RGBAF32,
         WrImageFormat::RG8 => ImageFormat::RG8,
@@ -755,6 +756,7 @@ pub fn wr_translate_image_format(input: ImageFormat) -> WrImageFormat {
     match input {
         ImageFormat::R8 => WrImageFormat::R8,
         ImageFormat::R16 => WrImageFormat::R16,
+        ImageFormat::RG16 => WrImageFormat::RG16,
         ImageFormat::BGRA8 => WrImageFormat::BGRA8,
         ImageFormat::RGBAF32 => WrImageFormat::RGBAF32,
         ImageFormat::RG8 => WrImageFormat::RG8,
@@ -1107,7 +1109,9 @@ fn push_display_list_msg(
         },
     };
 
-    if msg.get_position().is_positioned() {
+    let msg_position = msg.get_position();
+
+    if msg_position.is_positioned() {
         positioned_items.push((spatial_id, clip_id));
     }
 
@@ -1116,7 +1120,7 @@ fn push_display_list_msg(
         ScrollFrame(sf) => push_scroll_frame(builder, sf, spatial_id, clip_id, positioned_items),
     }
 
-    if msg.get_position().is_positioned() {
+    if msg_position.is_positioned() {
         positioned_items.pop();
     }
 
@@ -1131,11 +1135,13 @@ fn push_frame(
     parent_clip_id: WrClipId,
     positioned_items: &mut Vec<(WrSpatialId, WrClipId)>
 ) {
+    let clip_rect = get_frame_clip_rect(frame.position, frame.size);
+
     for item in frame.content {
         push_display_list_content(
             builder,
             item,
-            frame.clip_rect,
+            clip_rect,
             frame.border_radius,
             frame.tag,
             frame.flags,
@@ -1144,15 +1150,25 @@ fn push_frame(
         );
     }
 
-    let wr_border_radius = wr_translate_border_radius(frame.border_radius, frame.rect.size);
+    let wr_border_radius = wr_translate_border_radius(frame.border_radius, frame.size);
 
     // If the rect has an overflow:* property set
-    let current_rect_clip_id = frame.clip_rect
-    .map(|clip_rect| define_border_radius_clip(builder, clip_rect, wr_border_radius, parent_spatial_id, parent_clip_id))
-    .unwrap_or(parent_clip_id);
+    let current_rect_clip_id = define_border_radius_clip(builder, clip_rect, wr_border_radius, parent_spatial_id, parent_clip_id);
 
     for child in frame.children {
         push_display_list_msg(builder, child, parent_spatial_id, current_rect_clip_id, positioned_items);
+    }
+}
+
+// The clip rect is the rect of the
+fn get_frame_clip_rect(position_info: PositionInfo, rect_size: CssLayoutSize) -> CssLayoutRect {
+    match position_info {
+        PositionInfo::Static { x_offset, y_offset } |
+        PositionInfo::Relative { x_offset, y_offset } |
+        PositionInfo::Absolute { x_offset, y_offset } |
+        PositionInfo::Fixed { x_offset, y_offset } => {
+            CssLayoutRect::new(CssLayoutPoint::new(x_offset, y_offset), rect_size)
+        }
     }
 }
 
@@ -1171,12 +1187,14 @@ fn push_scroll_frame(
         ComplexClipRegion as WrComplexClipRegion,
     };
 
+    let clip_rect = get_frame_clip_rect(scroll_frame.frame.position, scroll_frame.frame.size);
+
     // Only children should scroll, not the frame itself!
     for item in scroll_frame.frame.content {
         push_display_list_content(
             builder,
             item,
-            scroll_frame.frame.clip_rect,
+            clip_rect,
             scroll_frame.frame.border_radius,
             scroll_frame.frame.tag,
             scroll_frame.frame.flags,
@@ -1187,11 +1205,10 @@ fn push_scroll_frame(
 
     // Push hit-testing + scrolling children
 
-    let rect = scroll_frame.frame.rect;
-    let wr_border_radius = wr_translate_border_radius(scroll_frame.frame.border_radius, rect.size);
-    let hit_testing_clip_id = define_border_radius_clip(builder, rect, wr_border_radius, parent_spatial_id, parent_clip_id);
+    let wr_border_radius = wr_translate_border_radius(scroll_frame.frame.border_radius, scroll_frame.frame.size);
+    let hit_testing_clip_id = define_border_radius_clip(builder, clip_rect, wr_border_radius, parent_spatial_id, parent_clip_id);
     let hit_test_info = WrCommonItemProperties {
-        clip_rect: wr_translate_layout_rect(rect),
+        clip_rect: wr_translate_layout_rect(clip_rect),
         flags: wr_translate_primitive_flags(scroll_frame.frame.flags),
         hit_info: Some(wr_translate_tag_id(scroll_frame.scroll_tag.0)),
         clip_id: hit_testing_clip_id,
@@ -1200,7 +1217,7 @@ fn push_scroll_frame(
 
     builder.push_rect(&hit_test_info, hit_test_info.clip_rect, wr_translate_color_u(ColorU::TRANSPARENT).into());
 
-    let scroll_frame_clip_region = WrComplexClipRegion::new(wr_translate_layout_rect(rect), wr_border_radius, WrClipMode::Clip);
+    let scroll_frame_clip_region = WrComplexClipRegion::new(wr_translate_layout_rect(clip_rect), wr_border_radius, WrClipMode::Clip);
 
     // scroll frame has the hit-testing clip as a parent
     let scroll_frame_clip_info = builder.define_scroll_frame(
@@ -1210,7 +1227,7 @@ fn push_scroll_frame(
         },
         /* external id*/ Some(wr_translate_external_scroll_id(scroll_frame.scroll_id)),
         /* content_rect */ wr_translate_layout_rect(scroll_frame.content_rect),
-        /* clip_rect */ wr_translate_layout_rect(scroll_frame.frame.clip_rect.unwrap_or(scroll_frame.frame.rect)),
+        /* clip_rect */ wr_translate_layout_rect(clip_rect),
         /* complex_clips */ vec![scroll_frame_clip_region],
         /* image_mask */ None,
         /* sensitivity */ WrScrollSensitivity::Script,
@@ -1270,10 +1287,15 @@ fn push_display_list_content(
     // Border and BoxShadow::Ouset get a root clip, since they are outside of the rect contents
     // All other content types get the regular clip
     match content {
-        Text { glyphs, font_instance_key, color, glyph_options, clip } => {
-            // let border_radius_clip_id = define_border_radius_clip(builder, rect, wr_border_radius, parent_space_and_clip);
-            // text::push_text(builder, &normal_info, glyphs, font_instance_key, color, glyph_options, clip, &normal_space_and_clip);
-            text::push_text(builder, &normal_info, glyphs, font_instance_key, color, glyph_options, clip);
+        Text { glyphs, font_instance_key, color, glyph_options, overflow } => {
+            let (border_radius_spatial_id, border_radius_clip_id) = if overflow.0 || overflow.1 {
+                (WrSpatialId::root_scroll_node(builder.pipeline_id), WrClipId::root(builder.pipeline_id))
+            } else {
+                (parent_spatial_id, define_border_radius_clip(builder, clip_rect, wr_border_radius, parent_spatial_id, parent_clip_id))
+            };
+            normal_info.spatial_id = border_radius_spatial_id;
+            normal_info.clip_id = border_radius_clip_id;
+            text::push_text(builder, &normal_info, glyphs, font_instance_key, color, glyph_options);
         },
         Background { content, size, offset, repeat  } => {
             let border_radius_clip_id = define_border_radius_clip(builder, clip_rect, wr_border_radius, parent_spatial_id, parent_clip_id);
@@ -1312,7 +1334,7 @@ mod text {
         app_resources::{FontInstanceKey, GlyphOptions},
         display_list::GlyphInstance,
     };
-    use azul_css::{ColorU, LayoutRect};
+    use azul_css::ColorU;
 
     pub(in super) fn push_text(
          builder: &mut WrDisplayListBuilder,
@@ -1321,20 +1343,11 @@ mod text {
          font_instance_key: FontInstanceKey,
          color: ColorU,
          glyph_options: Option<GlyphOptions>,
-         clip: Option<LayoutRect>,
     ) {
         use super::{
             wr_translate_layouted_glyphs, wr_translate_font_instance_key,
             wr_translate_color_u, wr_translate_glyph_options,
-            wr_translate_layout_size,
         };
-
-        let mut info = *info;
-        if let Some(clip_rect) = clip {
-            info.clip_rect.origin.x = clip_rect.origin.x;
-            info.clip_rect.origin.y = clip_rect.origin.y;
-            info.clip_rect.size = wr_translate_layout_size(clip_rect.size);
-        }
 
         builder.push_text(
             &info,

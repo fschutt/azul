@@ -212,6 +212,7 @@ impl ::std::fmt::Debug for IdNamespace {
 pub enum RawImageFormat {
     R8,
     R16,
+    RG16,
     BGRA8,
     RGBAF32,
     RG8,

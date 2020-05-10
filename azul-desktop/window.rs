@@ -878,15 +878,15 @@ fn create_headless_context(
     .or_else(|_| create_window_context_builder(Vsync::Disabled, Srgb::Disabled, force_hardware, None).build_headless(event_loop, default_size))
 }
 
-#[derive(PartialEq)]
+#[derive(PartialEq, Copy, Clone, Debug)]
 enum Vsync { Enabled, Disabled }
 impl Vsync { fn is_enabled(&self) -> bool { *self == Vsync::Enabled }}
 
-#[derive(PartialEq)]
+#[derive(PartialEq, Copy, Clone, Debug)]
 enum Srgb { Enabled, Disabled }
 impl Srgb { fn is_enabled(&self) -> bool { *self == Srgb::Enabled }}
 
-#[derive(PartialEq)]
+#[derive(PartialEq, Copy, Clone, Debug)]
 enum HwAcceleration { Enabled, Disabled }
 impl HwAcceleration { fn is_enabled(&self) -> bool { *self == HwAcceleration::Enabled }}
 
@@ -987,7 +987,7 @@ fn create_renderer(
     let opts_native = get_renderer_opts(true, device_pixel_ratio);
     let opts_osmesa = get_renderer_opts(false, device_pixel_ratio);
 
-    let (renderer, sender, headless_context, gl_context) = match renderer_type {
+    let (mut renderer, sender, mut headless_context, gl_context) = match renderer_type {
         ForceHardware => {
             let gl_context = create_headless_context(&event_loop, HwAcceleration::Enabled)?;
             let mut headless_context = HeadlessContextState::NotCurrent(gl_context);
@@ -1002,7 +1002,7 @@ fn create_renderer(
             let mut headless_context = HeadlessContextState::NotCurrent(gl_context);
             headless_context.make_current();
             let gl_context = get_gl_context(headless_context.headless_context().unwrap()).unwrap();
-            let (renderer, sender) = WrRenderer::new(gl_context.clone(), notifier, opts_native, WR_SHADER_CACHE, device_size)
+            let (renderer, sender) = WrRenderer::new(gl_context.clone(), notifier, opts_osmesa, WR_SHADER_CACHE, device_size)
                 .map_err(|_| RendererCreationError::Wr)?;
             (renderer, sender, headless_context, gl_context)
         },

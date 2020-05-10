@@ -23,7 +23,7 @@ use crate::{
         PositionInfo,
     },
     gl::Texture,
-    window::{FullWindowState, LogicalSize},
+    window::FullWindowState,
     app_resources::{
         AppResources, AddImageMsg, FontImageApi, ImageDescriptor, ImageDescriptorFlags,
         ImageKey, FontInstanceKey, ImageInfo, ImageId, LayoutedGlyphs, PrimitiveFlags,
@@ -373,7 +373,7 @@ pub enum LayoutRectContent {
         font_instance_key: FontInstanceKey,
         color: ColorU,
         glyph_options: Option<GlyphOptions>,
-        clip: Option<LayoutSize>,
+        overflow: (bool, bool),
     },
     Background {
         content: RectBackground,
@@ -404,16 +404,16 @@ impl fmt::Debug for LayoutRectContent {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         use self::LayoutRectContent::*;
         match self {
-            Text { glyphs, font_instance_key, color, glyph_options, clip } => {
+            Text { glyphs, font_instance_key, color, glyph_options, overflow } => {
                 write!(f,
                     "Text {{\r\n\
                         glyphs: {:?},\r\n\
                         font_instance_key: {:?},\r\n\
                         color: {:?},\r\n\
                         glyph_options: {:?},\r\n\
-                        clip: {:?}\r\n\
+                        overflow: {:?},\r\n\
                     }}",
-                    glyphs, font_instance_key, color, glyph_options, clip,
+                    glyphs, font_instance_key, color, glyph_options, overflow
                 )
             },
             Background { content, size, offset, repeat } => {
@@ -1103,7 +1103,6 @@ pub fn displaylist_handle_rect<'a, T>(
         layout_result,
         gl_texture_cache,
         app_resources,
-        full_window_state,
         ..
     } = referenced_content;
 
@@ -1191,9 +1190,6 @@ pub fn displaylist_handle_rect<'a, T>(
                 let font_instance_key = positioned_words.1;
 
                 frame.content.push(get_text(
-                    bounds.size,
-                    &layout_result.solved_layouts[dom_id].rects[rect_idx].padding,
-                    full_window_state.size.dimensions,
                     layouted_glyphs,
                     font_instance_key,
                     text_color,
@@ -1288,9 +1284,6 @@ pub fn displaylist_handle_rect<'a, T>(
 }
 
 pub fn get_text(
-    bounds_size: LayoutSize,
-    padding: &ResolvedOffsets,
-    root_window_size: LogicalSize,
     layouted_glyphs: LayoutedGlyphs,
     font_instance_key: FontInstanceKey,
     font_color: ColorU,
@@ -1300,28 +1293,12 @@ pub fn get_text(
     let overflow_horizontal_visible = rect_layout.is_horizontal_overflow_visible();
     let overflow_vertical_visible = rect_layout.is_horizontal_overflow_visible();
 
-    let padding_clip_size = subtract_padding(&bounds_size, padding);
-
-    // Adjust the bounds_size by the padding, depending on the overflow:visible parameter
-    let text_clip_size = match (overflow_horizontal_visible, overflow_vertical_visible) {
-        (true, true) => None,
-        (false, false) => Some(padding_clip_size),
-        (true, false) => {
-            // Horizontally visible, vertically cut
-            Some(LayoutSize::new(root_window_size.width, padding_clip_size.height))
-        },
-        (false, true) => {
-            // Vertically visible, horizontally cut
-            Some(LayoutSize::new(padding_clip_size.width, root_window_size.height))
-        },
-    };
-
     LayoutRectContent::Text {
         glyphs: layouted_glyphs.glyphs,
         font_instance_key,
         color: font_color,
         glyph_options: None,
-        clip: text_clip_size,
+        overflow: (overflow_horizontal_visible, overflow_vertical_visible),
     }
 }
 

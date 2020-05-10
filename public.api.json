@@ -3,15 +3,21 @@
       {
          "0.1.0":{
             "rust_includes":"use core::ffi::c_void;\r\nuse azul_core::dom::Dom;\r\nuse azul_core::callbacks::LayoutInfo;\r\nuse azul_css::Css;\r\nuse azul_core::window::WindowCreateOptions;\r\n#[cfg(not(target_arch = \"wasm32\"))]\r\nuse azul_desktop::app::{App, AppConfig};\r\n#[cfg(target_arch = \"wasm32\")]\r\nuse azul_web::app::{App, AppConfig};",
-            "typedefs":[
+            "c_typedefs": "// The data model\r\ntypedef void *AzDataModelPtr;\r\n// The layout() callback fn\r\ntypedef AzDomPtr (*AzLayoutCallbackPtr)(const AzDataModelPtr*, const AzLayoutInfoPtr*);",
+            "rust_typedefs":[
                {
                   "name":"DataModel",
+                  "type": "ptr",
                   "doc": "The data model",
-                  "type":"*mut c_void"
+                  "rust_type":"*mut c_void",
+                  "c_type": "void *"
                },
                {
                   "name":"LayoutCallback",
-                  "type":"fn(&AzDataModelPtr, AzLayoutInfoPtr) -> AzDomPtr"
+                  "type": "callback",
+                  "doc": "The layout() callback fn",
+                  "rust_type":"fn(&AzDataModelPtr, &AzLayoutInfoPtr) -> AzDomPtr",
+                  "c_type": "AzDomPtr (*AzLayoutCallbackPtr)(const AzDataModelPtr*, const AzLayoutInfoPtr*)"
                }
             ],
             "classes":[
@@ -87,7 +93,7 @@
                               "type":"LayoutCallback"
                            }
                         ],
-                        "fn_body":"App::new_from_callback(data, *az_app_config_downcast(config), callback)"
+                        "fn_body":"App::new_with_callback(data, *az_app_config_downcast(config), callback)"
                      }
                   ],
                   "functions":[

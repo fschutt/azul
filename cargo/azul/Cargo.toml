@@ -20,7 +20,7 @@ edition = "2018"
 crate_type = ["lib", "cdylib"]
 
 [lib]
-path = "../../azul/lib.rs"
+path = "../../azul/src/lib.rs"
 
 [dependencies]
 azul-core = { version = "0.1.0", path = "../azul-core", default-features = false }
