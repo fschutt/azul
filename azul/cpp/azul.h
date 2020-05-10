@@ -33,7 +33,7 @@
 
 // The data model
 typedef void *AzDataModelPtr;
-//The layout() callback fn
+// The layout() callback fn
 typedef AzDomPtr (*AzLayoutCallbackPtr)(const AzDataModelPtr*, const AzLayoutInfoPtr*);
 
 

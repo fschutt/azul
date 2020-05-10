@@ -1,0 +1,30 @@
+[package]
+name = "azul-dll"
+version = "0.1.0"
+authors = ["Felix Schütt <felix.schuett@maps4print.com>"]
+license = "MIT"
+description = "C-API of Azul GUI"
+documentation = "https://docs.rs/azul"
+homepage = "https://azul.rs/"
+keywords = ["gui", "GUI", "user interface", "svg", "graphics" ]
+categories = ["gui"]
+repository = "https://github.com/maps4print/azul"
+readme = "../README.md"
+exclude = ["../assets/*", "../doc/*", "../examples/*"]
+autoexamples = false
+edition = "2018"
+
+[lib]
+path = "../../azul-dll/lib.rs"
+
+[dependencies]
+azul-core = { version = "0.1.0", path = "../azul-core", default-features = false }
+azul-css  = { version = "0.1.0", path = "../azul-css", default-features = false }
+azul-native-style = { version = "0.1.0", path = "../azul-native-style", default-features = false }
+
+[target.'cfg(not(target_arch = "wasm32"))'.dependencies]
+azul-desktop = { version = "0.1.0", path = "../azul-desktop", default-features = false }
+
+[target.'cfg(target_arch = "wasm32")'.dependencies]
+azul-web = { version = "0.1.0", path = "../azul-web", default-features = false }
+

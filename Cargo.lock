@@ -61,11 +61,7 @@ checksum = "f8aac770f1885fd7e387acedd76065302551364496e46b3dd00860b2f8359b9d"
 name = "azul"
 version = "0.1.0"
 dependencies = [
- "azul-core",
- "azul-css",
- "azul-desktop",
- "azul-native-style",
- "azul-web",
+ "azul-dll",
 ]
 
 [[package]]
@@ -110,6 +106,17 @@ dependencies = [
  "log",
  "tinyfiledialogs",
  "webrender",
+]
+
+[[package]]
+name = "azul-dll"
+version = "0.1.0"
+dependencies = [
+ "azul-core",
+ "azul-css",
+ "azul-desktop",
+ "azul-native-style",
+ "azul-web",
 ]
 
 [[package]]

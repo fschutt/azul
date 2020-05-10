@@ -2,7 +2,6 @@
    "apis":[
       {
          "0.1.0":{
-            "rust_includes":"use core::ffi::c_void;\r\nuse azul_core::dom::Dom;\r\nuse azul_core::callbacks::LayoutInfo;\r\nuse azul_css::Css;\r\nuse azul_core::window::WindowCreateOptions;\r\n#[cfg(not(target_arch = \"wasm32\"))]\r\nuse azul_desktop::app::{App, AppConfig};\r\n#[cfg(target_arch = \"wasm32\")]\r\nuse azul_web::app::{App, AppConfig};",
             "c_typedefs": "// The data model\r\ntypedef void *AzDataModelPtr;\r\n// The layout() callback fn\r\ntypedef AzDomPtr (*AzLayoutCallbackPtr)(const AzDataModelPtr*, const AzLayoutInfoPtr*);",
             "rust_typedefs":[
                {
