@@ -162,7 +162,7 @@ dependencies = [
  "azul-css 0.0.1 (registry+https://github.com/rust-lang/crates.io-index)",
  "azul-desktop 0.0.1 (registry+https://github.com/rust-lang/crates.io-index)",
  "azul-native-style 0.0.1 (registry+https://github.com/rust-lang/crates.io-index)",
- "azul-web 0.0.1",
+ "azul-web 0.0.2 (registry+https://github.com/rust-lang/crates.io-index)",
 ]
 
 [[package]]
@@ -235,9 +235,7 @@ dependencies = [
 
 [[package]]
 name = "azul-web"
-version = "0.0.1"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "f2e92541b7221884400e21ef422028105e8717a4b4f48b289c0c1d0f9ab4cbd0"
+version = "0.0.2"
 dependencies = [
  "azul-core 0.0.1 (registry+https://github.com/rust-lang/crates.io-index)",
  "azul-css 0.0.1 (registry+https://github.com/rust-lang/crates.io-index)",
@@ -246,6 +244,8 @@ dependencies = [
 [[package]]
 name = "azul-web"
 version = "0.0.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "df8d7d09a18ffecdb87506622ba1b5bc521c95119eb1caf433a02c1fca639b8d"
 dependencies = [
  "azul-core 0.0.1 (registry+https://github.com/rust-lang/crates.io-index)",
  "azul-css 0.0.1 (registry+https://github.com/rust-lang/crates.io-index)",
