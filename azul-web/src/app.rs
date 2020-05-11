@@ -10,15 +10,15 @@ impl Default for AppConfig {
     fn default() -> Self { AppConfig { } }
 }
 
-pub struct App<T> {
-    pub data: T,
+pub struct App {
+    pub data: RefAny,
     pub config: AppConfig,
     pub callback: LayoutCallback,
 }
 
-impl<T> App<T> {
+impl App {
 
-    pub fn new(data: T, config: AppConfig, callback: LayoutCallback) -> Self {
+    pub fn new(data: RefAny, config: AppConfig, callback: LayoutCallback) -> Self {
         Self { data, config, callback }
     }
 
