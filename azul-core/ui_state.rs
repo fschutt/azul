@@ -293,11 +293,17 @@ impl UiState {
         parent_dom: Option<(DomId, NodeId)>,
         layout_callback: LayoutCallback,
     ) -> UiState {
+        use std::ffi::c_void;
+        use crate::callbacks::{LayoutInfoPtr, RefAnyPtr};
 
-        // Only shortly lock the data to get the dom out
-        let dom = (layout_callback)(data, layout_info);
-
-        Self::new(dom, parent_dom)
+        let data_box = Box::new(data.clone());
+        let layout_info_box = Box::new(layout_info);
+        let dom_ptr = (layout_callback)(
+            RefAnyPtr { ptr: Box::into_raw(data_box) as *mut c_void },
+            LayoutInfoPtr { ptr: Box::into_raw(layout_info_box) as *mut c_void }
+        );
+        let dom = unsafe { Box::<Dom>::from_raw(dom_ptr.ptr as *mut Dom) };
+        Self::new(*dom, parent_dom)
     }
 
     pub fn create_tags_for_hover_nodes(&mut self, hover_nodes: &BTreeMap<NodeId, HoverGroup>) {

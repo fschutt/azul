@@ -22,6 +22,7 @@ rust_c_api_header = "\
 //!\r\n\
 //! For now, the crate simply re-exports azul_core and calls the c_api functions\r\n\
 \r\n\
+#![allow(dead_code)]\r\n\
 extern crate azul_core;\r\n\
 extern crate azul_css;\r\n\
 extern crate azul_native_style;\r\n\

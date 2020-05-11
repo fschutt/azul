@@ -19,7 +19,7 @@ autoexamples = false
 edition = "2018"
 
 [lib]
-path = "../../azul/src/lib.rs"
+path = "../../azul/rust/azul.rs"
 
 [dependencies]
 azul-dll = { version = "0.1.0", path = "../azul-dll", default-features = false }

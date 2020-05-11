@@ -6,6 +6,7 @@
 //!
 //! For now, the crate simply re-exports azul_core and calls the c_api functions
 
+#![allow(dead_code)]
 extern crate azul_core;
 extern crate azul_css;
 extern crate azul_native_style;

@@ -14,7 +14,7 @@ use azul_css_parser::CssPathParseError;
 use crate::{
     FastHashMap,
     app_resources::{AppResources, IdNamespace, Words, WordPositions, ScaledWords, LayoutedGlyphs},
-    dom::{Dom, DomId, TagId, NodeType, NodeData},
+    dom::{Dom, DomPtr, DomId, TagId, NodeType, NodeData},
     display_list::CachedDisplayList,
     ui_state::UiState,
     ui_description::UiDescription,
@@ -250,7 +250,15 @@ pub type PipelineSourceId = u32;
 
 /// Callback function pointer (has to be a function pointer in
 /// order to be compatible with C APIs later on).
-pub type LayoutCallback = fn(&RefAny, layout_info: LayoutInfo) -> Dom;
+///
+/// NOTE: The original callback was `fn(&self, LayoutInfo) -> Dom`
+/// which then evolved to `fn(&RefAny, LayoutInfo) -> Dom`.
+/// The indirection is necessary because of the memory management
+/// around the C API
+///
+/// See azul-core/ui_state.rs:298 for how the memory is managed
+/// across the callback boundary.
+pub type LayoutCallback = fn(RefAnyPtr, LayoutInfoPtr) -> DomPtr;
 
 /// Information about a scroll frame, given to the user by the framework
 #[derive(Debug, Copy, Clone, PartialEq, PartialOrd)]
