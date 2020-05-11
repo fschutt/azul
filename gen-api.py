@@ -32,7 +32,7 @@ extern crate azul_desktop;\r\n\
 \r\n\
 use core::ffi::c_void;\r\n\
 use azul_core::dom::Dom;\r\n\
-use azul_core::callbacks::LayoutInfo;\r\n\
+use azul_core::callbacks::{RefAny, LayoutInfo};\r\n\
 use azul_css::Css;\r\n\
 use azul_core::window::WindowCreateOptions;\r\n\
 #[cfg(not(target_arch = \"wasm32\"))]\r\n\
@@ -45,14 +45,14 @@ rust_typedefs = "\
 /// The data model\r\n\
 pub type AzDataModel = *mut c_void;\r\n\
 /// The layout() callback fn\r\n\
-pub type AzLayoutCallback = fn(AzDataModel, AzLayoutInfoPtr) -> AzDomPtr;\r\n\
+pub type AzLayoutCallback = fn(AzRefAnyPtr, AzLayoutInfoPtr) -> AzDomPtr;\r\n\
 "
 
 c_typedefs = "\
 // The data model\r\n\
 typedef void *AzDataModel;\r\n\
 // The layout() callback fn\r\n\
-typedef AzDomPtr (*AzLayoutCallbackPtr)(AzDataModel, AzLayoutInfoPtr);\r\n\
+typedef AzDomPtr (*AzLayoutCallbackPtr)(AzRefAnyPtr, AzLayoutInfoPtr);\r\n\
 "
 
 def to_snake_case(name):
@@ -124,12 +124,13 @@ def generate_c_api_code(apiData):
                     fn_args = ""
 
                     if "args" in const.keys():
-                        for arg in const["args"]:
+                        for arg_name in const["args"].keys():
+                            arg_type = const["args"][arg_name]
                             # special cases: no "Ptr" postfix
-                            if ((arg["type"] == "LayoutCallback") or (arg["type"] == "DataModel")):
-                                fn_args += arg["name"]+ ": " + prefix + arg["type"] + ", " # no postfix
+                            if ((arg_type == "LayoutCallback") or (arg_type == "DataModel")):
+                                fn_args += arg_name + ": " + prefix + arg_type + ", " # no postfix
                             else:
-                                fn_args += arg["name"] + ": " + prefix + arg["type"] + postfix + ", "
+                                fn_args += arg_name + ": " + prefix + arg_type + postfix + ", "
                         fn_args = fn_args[:-2]
 
                     code += "#[no_mangle] pub extern \"C\" fn " + fn_prefix + to_snake_case(class_name) + "_" + const["fn_name"] + "(" + fn_args + ") -> " + class_ptr_name + " { "
@@ -146,12 +147,13 @@ def generate_c_api_code(apiData):
                     fn_args = class_name.lower() + ": " + class_ptr_name + ", "
 
                     if "args" in f.keys():
-                        for arg in f["args"]:
+                        for arg_name in f["args"].keys():
+                            arg_type = f["args"][arg_name]
                             # special cases: no "Ptr" postfix
-                            if ((arg["type"] == "LayoutCallback") or (arg["type"] == "DataModel")):
-                                fn_args += arg["name"]+ ": " + prefix + arg["type"] + ", " # no postfix
+                            if ((arg_type == "LayoutCallback") or (arg_type == "DataModel")):
+                                fn_args += arg_name + ": " + prefix + arg_type + ", " # no postfix
                             else:
-                                fn_args += arg["name"] + ": " + prefix + arg["type"] + postfix + ", "
+                                fn_args += arg_name + ": " + prefix + arg_type + postfix + ", "
                         fn_args = fn_args[:-2]
 
                     returns = ""
@@ -231,12 +233,13 @@ def generate_c_bindings(apiData):
                     fn_args = ""
 
                     if "args" in const.keys():
-                        for arg in const["args"]:
+                        for arg_name in const["args"]:
+                            arg_type = const["args"][arg_name]
                             # special cases: no "Ptr" postfix
-                            if ((arg["type"] == "LayoutCallback") or (arg["type"] == "DataModel")):
-                                fn_args += prefix + arg["type"] + arg["name"] + " " + ", " # no postfix
+                            if ((arg_type == "LayoutCallback") or (arg_type == "DataModel")):
+                                fn_args += prefix + arg_type + arg_name + " " + ", " # no postfix
                             else:
-                                fn_args += prefix + arg["type"] + postfix + arg["name"] + " " + ", "
+                                fn_args += prefix + arg_type + postfix + arg_name + " " + ", "
                         fn_args = fn_args[:-2]
                         if (len(const["args"]) == 0):
                             fn_args = "void"
@@ -254,12 +257,13 @@ def generate_c_bindings(apiData):
                     fn_args = ""
 
                     if "args" in f.keys():
-                        for arg in f["args"]:
+                        for arg_name in f["args"]:
+                            arg_type = f["args"][arg_name]
                             # special cases: no "Ptr" postfix
-                            if ((arg["type"] == "LayoutCallback") or (arg["type"] == "DataModel")):
-                                fn_args += prefix + arg["type"] + arg["name"] + " " + ", " # no postfix
+                            if ((arg_type == "LayoutCallback") or (arg_type == "DataModel")):
+                                fn_args += prefix + arg_type + arg_name + " " + ", " # no postfix
                             else:
-                                fn_args += prefix + arg["type"] + postfix + arg["name"] + " " + ", "
+                                fn_args += prefix + arg_type + postfix + arg_name + " " + ", "
                         fn_args = fn_args[:-2]
                         if (len(f["args"]) == 0):
                             fn_args = "void"

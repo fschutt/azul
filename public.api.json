@@ -4,49 +4,40 @@
          "AppConfig": {
             "constructors":[
                {
-                  "fn_name":"new",
-                  "fn_body":"AppConfig::default()"
+                  "fn_name": "new",
+                  "fn_body": "AppConfig::default()"
                }
             ]
          },
          "App": {
-            "rust_class_name": "App<AzDataModel>",
             "constructors":[
                {
                   "doc":"Creates a new App instance.",
                   "fn_name":"new",
-                  "args":[
-                     {
-                        "name":"data",
-                        "type":"DataModel"
-                     },
-                     {
-                        "name":"config",
-                        "type":"AppConfig"
-                     },
-                     {
-                        "name":"callback",
-                        "type":"LayoutCallback"
-                     }
-                  ],
-                  "fn_body":"App::new_with_callback(data, *az_app_config_downcast(config), callback)"
+                  "args": {
+                     "data": "RefAny",
+                     "config": "AppConfig",
+                     "callback": "LayoutCallback"
+                  },
+                  "fn_body":"App::new(*az_ref_any_downcast(data), *az_app_config_downcast(config), callback)"
                }
             ],
             "functions":[
                {
                   "fn_name":"run",
-                  "args":[
-                     {
-                        "name":"window",
-                        "type":"WindowCreateOptions"
-                     }
-                  ],
+                  "args":{
+                     "window": "WindowCreateOptions"
+                  },
                   "fn_body":"az_app_downcast(app).run(*az_window_create_options_downcast(window))"
                }
             ]
          }
       },
       "callbacks": {
+         "RefAny": {
+            "constructors":[],
+            "external": "azul_core::callbacks::RefAnyPtr"
+         },
          "LayoutInfo": {
             "rust_class_name": "LayoutInfo<'a>",
             "constructors":[],
@@ -55,11 +46,11 @@
       },
       "dom": {
          "Dom": {
-            "rust_class_name": "Dom<AzDataModel>",
+            "rust_class_name": "Dom",
             "constructors": [
                {
                   "fn_name":"div",
-                  "fn_body":"Dom::<AzDataModel>::div()"
+                  "fn_body":"Dom::div()"
                }
             ],
             "external": "azul_core::dom::DomPtr"
@@ -77,17 +68,14 @@
       },
       "window": {
          "WindowCreateOptions": {
-            "rust_class_name": "WindowCreateOptions<AzDataModel>",
+            "rust_class_name": "WindowCreateOptions",
             "constructors":[
                {
                   "fn_name":"new",
-                  "args":[
-                     {
-                        "name":"css",
-                        "type":"Css"
-                     }
-                  ],
-                  "fn_body":"WindowCreateOptions::<AzDataModel>::new(*az_css_downcast(css))"
+                  "args":{
+                     "css": "Css"
+                  },
+                  "fn_body":"WindowCreateOptions::new(*az_css_downcast(css))"
                }
             ]
          }

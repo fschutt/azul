@@ -6,6 +6,7 @@ use std::{
     any::Any,
     hash::Hash,
     cell::{Ref as StdRef, RefMut as StdRefMut, RefCell},
+    ffi::c_void,
 };
 use azul_css::{LayoutPoint, LayoutRect, LayoutSize, CssPath};
 #[cfg(feature = "css_parser")]
@@ -195,7 +196,8 @@ impl Clone for RefAny {
     }
 }
 
-use std::ffi::c_void;
+/// Pointer to rust-allocated `Box<RefAny>` struct
+#[no_mangle] #[repr(C)] pub struct RefAnyPtr { pub ptr: *mut c_void }
 
 impl ::std::hash::Hash for RefAny {
     fn hash<H>(&self, state: &mut H) where H: ::std::hash::Hasher {
