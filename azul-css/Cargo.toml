@@ -12,9 +12,6 @@ homepage = "https://azul.rs/"
 keywords = ["gui", "GUI", "user interface", "svg", "graphics", "style" ]
 categories = ["gui"]
 repository = "https://github.com/maps4print/azul"
-readme = "README.md"
-exclude = ["assets/*", "doc/*", "examples/*"]
-autoexamples = false
 edition = "2018"
 
 [dependencies]
