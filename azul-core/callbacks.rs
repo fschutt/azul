@@ -663,9 +663,11 @@ pub struct TimerCallbackInfo<'a, T> {
 pub type TimerCallbackReturn = (UpdateScreen, TerminateTimer);
 pub type TimerCallbackType<T> = fn(TimerCallbackInfo<T>) -> TimerCallbackReturn;
 
+/// Pointer to rust-allocated `Box<LayoutInfo<'a>>` struct
+#[no_mangle] #[repr(C)] pub struct LayoutInfoPtr { pub ptr: *mut c_void }
+
 /// Gives the `layout()` function access to the `AppResources` and the `Window`
 /// (for querying images and fonts, as well as width / height)
-#[repr(C)]
 pub struct LayoutInfo<'a> {
     /// Window size (so that apps can return a different UI depending on
     /// the window size - mobile / desktop view). Should be later removed

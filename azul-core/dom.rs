@@ -4,6 +4,7 @@ use std::{
     sync::atomic::{AtomicUsize, Ordering},
     cmp::Ordering as CmpOrdering,
     iter::FromIterator,
+    ffi::c_void,
 };
 use crate::{
     callbacks::{
@@ -1013,6 +1014,9 @@ pub struct Dom<T> {
     // the `Dom` can be converted into a `CompactDom`
     estimated_total_children: usize,
 }
+
+/// Pointer to rust-allocated `Box<Dom<*mut c_void>>` struct
+#[no_mangle] #[repr(C)] pub struct DomPtr { pub ptr: *mut c_void }
 
 impl<T> Clone for Dom<T> {
     fn clone(&self) -> Self {

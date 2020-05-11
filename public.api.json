@@ -1,115 +1,96 @@
 {
-   "apis":[
-      {
-         "0.1.0":{
-            "c_typedefs": "// The data model\r\ntypedef void *AzDataModelPtr;\r\n// The layout() callback fn\r\ntypedef AzDomPtr (*AzLayoutCallbackPtr)(const AzDataModelPtr*, const AzLayoutInfoPtr*);",
-            "rust_typedefs":[
+   "0.1.0": {
+      "app": {
+         "AppConfig": {
+            "constructors":[
                {
-                  "name":"DataModel",
-                  "type": "ptr",
-                  "doc": "The data model",
-                  "rust_type":"*mut c_void",
-                  "c_type": "void *"
-               },
+                  "fn_name":"new",
+                  "fn_body":"AppConfig::default()"
+               }
+            ]
+         },
+         "App": {
+            "rust_class_name": "App<AzDataModel>",
+            "constructors":[
                {
-                  "name":"LayoutCallback",
-                  "type": "callback",
-                  "doc": "The layout() callback fn",
-                  "rust_type":"fn(&AzDataModelPtr, &AzLayoutInfoPtr) -> AzDomPtr",
-                  "c_type": "AzDomPtr (*AzLayoutCallbackPtr)(const AzDataModelPtr*, const AzLayoutInfoPtr*)"
+                  "doc":"Creates a new App instance.",
+                  "fn_name":"new",
+                  "args":[
+                     {
+                        "name":"data",
+                        "type":"DataModel"
+                     },
+                     {
+                        "name":"config",
+                        "type":"AppConfig"
+                     },
+                     {
+                        "name":"callback",
+                        "type":"LayoutCallback"
+                     }
+                  ],
+                  "fn_body":"App::new_with_callback(data, *az_app_config_downcast(config), callback)"
                }
             ],
-            "classes":[
+            "functions":[
                {
-                  "name":"LayoutInfo",
-                  "constructors":[
-
-                  ],
-                  "downcast": false
-               },
-               {
-                  "name":"Dom",
-                  "rust_class_name": "Dom<AzDataModelPtr>",
-                  "constructors":[
+                  "fn_name":"run",
+                  "args":[
                      {
-                        "fn_name":"div",
-                        "fn_body":"Dom::<AzDataModelPtr>::div()"
-                     }
-                  ]
-               },
-               {
-                  "name":"AppConfig",
-                  "constructors":[
-                     {
-                        "fn_name":"new",
-                        "fn_body":"AppConfig::default()"
-                     }
-                  ]
-               },
-               {
-                  "name":"Css",
-                  "constructors":[
-                     {
-                        "fn_name":"native",
-                        "fn_body":"azul_native_style::native()"
-                     }
-                  ]
-               },
-               {
-                  "name":"WindowCreateOptions",
-                  "rust_class_name": "WindowCreateOptions<AzDataModelPtr>",
-                  "constructors":[
-                     {
-                        "fn_name":"new",
-                        "args":[
-                           {
-                              "name":"css",
-                              "type":"Css"
-                           }
-                        ],
-                        "fn_body":"WindowCreateOptions::<AzDataModelPtr>::new(*az_css_downcast(css))"
-                     }
-                  ]
-               },
-               {
-                  "name":"App",
-                  "rust_class_name": "App<AzDataModelPtr>",
-                  "constructors":[
-                     {
-                        "doc":"Creates a new App instance.",
-                        "fn_name":"new",
-                        "args":[
-                           {
-                              "name":"data",
-                              "type":"DataModel"
-                           },
-                           {
-                              "name":"config",
-                              "type":"AppConfig"
-                           },
-                           {
-                              "name":"callback",
-                              "type":"LayoutCallback"
-                           }
-                        ],
-                        "fn_body":"App::new_with_callback(data, *az_app_config_downcast(config), callback)"
+                        "name":"window",
+                        "type":"WindowCreateOptions"
                      }
                   ],
-                  "functions":[
+                  "fn_body":"az_app_downcast(app).run(*az_window_create_options_downcast(window))"
+               }
+            ]
+         }
+      },
+      "callbacks": {
+         "LayoutInfo": {
+            "rust_class_name": "LayoutInfo<'a>",
+            "constructors":[],
+            "external": "azul_core::callbacks::LayoutInfoPtr"
+         }
+      },
+      "dom": {
+         "Dom": {
+            "rust_class_name": "Dom<AzDataModel>",
+            "constructors": [
+               {
+                  "fn_name":"div",
+                  "fn_body":"Dom::<AzDataModel>::div()"
+               }
+            ],
+            "external": "azul_core::dom::DomPtr"
+         }
+      },
+      "css": {
+         "Css": {
+            "constructors":[
+               {
+                  "fn_name":"native",
+                  "fn_body":"azul_native_style::native()"
+               }
+            ]
+         }
+      },
+      "window": {
+         "WindowCreateOptions": {
+            "rust_class_name": "WindowCreateOptions<AzDataModel>",
+            "constructors":[
+               {
+                  "fn_name":"new",
+                  "args":[
                      {
-                        "fn_name":"run",
-                        "args":[
-                           {
-                              "name":"window",
-                              "type":"WindowCreateOptions"
-                           }
-                        ],
-                        "fn_body":"az_app_downcast(app).run(*az_window_create_options_downcast(window))"
+                        "name":"css",
+                        "type":"Css"
                      }
-                  ]
+                  ],
+                  "fn_body":"WindowCreateOptions::<AzDataModel>::new(*az_css_downcast(css))"
                }
             ]
          }
       }
-   ]
+   }
 }
