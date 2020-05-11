@@ -6,7 +6,6 @@ license = "MIT"
 description = '''
     Flexbox layout solver the Azul GUI framework
 '''
-documentation = "https://docs.rs/azul"
 homepage = "https://azul.rs/"
 keywords = ["gui", "user-interface", "svg", "graphics", "css" ]
 categories = ["gui"]

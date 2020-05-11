@@ -4,7 +4,6 @@ version = "0.0.1"
 authors = ["Felix Schütt <felix.schuett@maps4print.com>"]
 license = "MIT"
 description = "C-API of Azul GUI"
-documentation = "https://docs.rs/azul"
 homepage = "https://azul.rs/"
 keywords = ["gui", "user-interface", "svg", "graphics", "css" ]
 categories = ["gui"]

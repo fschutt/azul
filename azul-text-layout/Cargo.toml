@@ -6,7 +6,6 @@ license = "MIT"
 description = '''
     Text layout algorithms Azul desktop GUI framework
 '''
-documentation = "https://docs.rs/azul"
 homepage = "https://azul.rs/"
 keywords = ["gui", "user-interface", "svg", "graphics", "native" ]
 categories = ["gui"]

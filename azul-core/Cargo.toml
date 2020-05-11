@@ -6,7 +6,6 @@ license = "MIT"
 description = '''
     Common datatypes used for the Azul document object model, shared across all azul-* crates
 '''
-documentation = "https://docs.rs/azul-core"
 homepage = "https://azul.rs/"
 keywords = ["gui", "GUI", "user-interface"]
 categories = ["gui"]

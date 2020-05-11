@@ -6,7 +6,6 @@ license = "MIT"
 description = '''
     Azul XML-to-Rust compiler (and library)
 '''
-documentation = "https://docs.rs/azulc"
 homepage = "https://azul.rs/"
 keywords = ["gui", "GUI", "user-interface"]
 categories = ["gui"]

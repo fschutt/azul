@@ -6,7 +6,6 @@ license = "MIT"
 description = '''
     Builtin widgets for the Azul GUI framework (buttons, checkboxes, labels, etc.)
 '''
-documentation = "https://docs.rs/azul-widgets"
 homepage = "https://azul.rs/"
 keywords = ["gui", "GUI", "user-interface"]
 categories = ["gui"]
