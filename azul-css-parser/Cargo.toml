@@ -14,5 +14,5 @@ repository = "https://github.com/maps4print/azul"
 edition = "2018"
 
 [dependencies]
-azul-css                = { path = "../azul-css",   default-features = false }
+azul-css                = { version = "0.0.1",      default-features = false }
 azul-simplecss          = { version = "0.1.1",      default-features = false }
