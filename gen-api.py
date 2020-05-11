@@ -303,7 +303,7 @@ def generate_rust_bindings(apiData):
         for class_name in module.keys():
             c = module[class_name]
             code += "\r\n    "
-            code += "pub struct AppConfig { ptr: *mut c_void }\r\n"
+            code += "pub struct " + class_name + " { ptr: " + + " }\r\n"
 
         code += "}\r\n\r\n"
 

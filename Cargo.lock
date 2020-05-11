@@ -80,6 +80,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "393070399804fd02df1d025de088a06994aaf2862f8a77e70fdeb5ded0dfdd0c"
 dependencies = [
  "azul-css 0.0.1 (registry+https://github.com/rust-lang/crates.io-index)",
+ "azul-css-parser 0.0.1 (registry+https://github.com/rust-lang/crates.io-index)",
  "gleam",
 ]
 
@@ -116,13 +117,14 @@ name = "azul-desktop"
 version = "0.0.1"
 dependencies = [
  "app_units",
- "azul-core 0.0.1",
- "azul-css 0.0.1",
- "azul-css-parser 0.0.1",
- "azul-layout 0.0.1",
- "azul-native-style",
- "azul-widgets",
- "azulc",
+ "azul-core 0.0.1 (registry+https://github.com/rust-lang/crates.io-index)",
+ "azul-css 0.0.1 (registry+https://github.com/rust-lang/crates.io-index)",
+ "azul-css-parser 0.0.1 (registry+https://github.com/rust-lang/crates.io-index)",
+ "azul-layout 0.0.1 (registry+https://github.com/rust-lang/crates.io-index)",
+ "azul-native-style 0.0.1 (registry+https://github.com/rust-lang/crates.io-index)",
+ "azul-webrender",
+ "azul-widgets 0.0.1 (registry+https://github.com/rust-lang/crates.io-index)",
+ "azulc 0.0.1 (registry+https://github.com/rust-lang/crates.io-index)",
  "backtrace",
  "clipboard2",
  "core-foundation 0.7.0",
@@ -131,7 +133,6 @@ dependencies = [
  "glutin",
  "log",
  "tinyfiledialogs",
- "webrender",
 ]
 
 [[package]]
@@ -141,7 +142,7 @@ dependencies = [
  "azul-core 0.0.1",
  "azul-css 0.0.1",
  "azul-desktop",
- "azul-native-style",
+ "azul-native-style 0.0.1",
  "azul-web",
 ]
 
@@ -168,6 +169,16 @@ dependencies = [
 [[package]]
 name = "azul-native-style"
 version = "0.0.1"
+dependencies = [
+ "azul-css 0.0.1 (registry+https://github.com/rust-lang/crates.io-index)",
+ "azul-css-parser 0.0.1 (registry+https://github.com/rust-lang/crates.io-index)",
+]
+
+[[package]]
+name = "azul-native-style"
+version = "0.0.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "4c8994626f350c06d0781f6f05b66f5fcb4b61c1a56d826da16ac6e95aff322b"
 dependencies = [
  "azul-css 0.0.1 (registry+https://github.com/rust-lang/crates.io-index)",
  "azul-css-parser 0.0.1 (registry+https://github.com/rust-lang/crates.io-index)",
@@ -212,6 +223,72 @@ dependencies = [
 ]
 
 [[package]]
+name = "azul-webrender"
+version = "0.61.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "163bf727fb7842ad25682f736911def06b14db17c99f68430f6afe140f1ae36d"
+dependencies = [
+ "azul-webrender-api",
+ "azul-webrender-build",
+ "bincode",
+ "bitflags",
+ "byteorder",
+ "cfg-if",
+ "core-foundation 0.7.0",
+ "core-graphics 0.19.0",
+ "core-text 15.0.0",
+ "cstr",
+ "dwrote",
+ "euclid",
+ "freetype",
+ "fxhash",
+ "gleam",
+ "lazy_static",
+ "libc",
+ "log",
+ "malloc_size_of_derive",
+ "num-traits",
+ "plane-split",
+ "rayon",
+ "smallvec",
+ "svg_fmt",
+ "time",
+ "tracy-rs",
+ "wr_malloc_size_of",
+]
+
+[[package]]
+name = "azul-webrender-api"
+version = "0.61.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "32f4d71c1f1b64e2951a6345bccd48814ee661f16e365d305b36952e8825d32a"
+dependencies = [
+ "app_units",
+ "bitflags",
+ "byteorder",
+ "core-foundation 0.7.0",
+ "core-graphics 0.19.0",
+ "derive_more",
+ "euclid",
+ "malloc_size_of_derive",
+ "peek-poke",
+ "serde",
+ "serde_bytes",
+ "serde_derive",
+ "time",
+ "wr_malloc_size_of",
+]
+
+[[package]]
+name = "azul-webrender-build"
+version = "0.0.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "869bd71797a9c4abd267095de07e97f2ca6d024b9f1735c8bf3a943265edcb56"
+dependencies = [
+ "bitflags",
+]
+
+[[package]]
 name = "azul-widgets"
 version = "0.0.1"
 dependencies = [
@@ -226,8 +303,38 @@ dependencies = [
 ]
 
 [[package]]
+name = "azul-widgets"
+version = "0.0.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "d54355249e4a485a15ecfc61ee3b9cb960a39077adad7621b4875b4278cb3dba"
+dependencies = [
+ "azul-core 0.0.1 (registry+https://github.com/rust-lang/crates.io-index)",
+ "azul-css 0.0.1 (registry+https://github.com/rust-lang/crates.io-index)",
+ "gleam",
+ "lyon",
+ "stb_truetype",
+ "usvg",
+]
+
+[[package]]
 name = "azulc"
 version = "0.0.1"
+dependencies = [
+ "azul-core 0.0.1 (registry+https://github.com/rust-lang/crates.io-index)",
+ "azul-css 0.0.1 (registry+https://github.com/rust-lang/crates.io-index)",
+ "azul-css-parser 0.0.1 (registry+https://github.com/rust-lang/crates.io-index)",
+ "azul-layout 0.0.1 (registry+https://github.com/rust-lang/crates.io-index)",
+ "font-loader",
+ "gleam",
+ "image",
+ "xmlparser 0.9.0",
+]
+
+[[package]]
+name = "azulc"
+version = "0.0.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "3429a9ff980d6bb07c0b628d00f80d960c52b9b6ea3675a8730b62584440bcf0"
 dependencies = [
  "azul-core 0.0.1 (registry+https://github.com/rust-lang/crates.io-index)",
  "azul-css 0.0.1 (registry+https://github.com/rust-lang/crates.io-index)",
@@ -1367,7 +1474,8 @@ dependencies = [
 [[package]]
 name = "peek-poke"
 version = "0.2.0"
-source = "git+https://github.com/servo/webrender?rev=7d2d37e88089f28d941fb3d891657121e6915c1c#7d2d37e88089f28d941fb3d891657121e6915c1c"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "d93fd6a575ebf1ac2668d08443c97a22872cfb463fd8b7ddd141e9f6be59af2f"
 dependencies = [
  "euclid",
  "peek-poke-derive",
@@ -1376,7 +1484,8 @@ dependencies = [
 [[package]]
 name = "peek-poke-derive"
 version = "0.2.1"
-source = "git+https://github.com/servo/webrender?rev=7d2d37e88089f28d941fb3d891657121e6915c1c#7d2d37e88089f28d941fb3d891657121e6915c1c"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "6fb44a25c5bba983be0fc8592dfaf3e6d0935ce8be0c6b15b2a39507af34a926"
 dependencies = [
  "proc-macro2 1.0.10",
  "quote 1.0.3",
@@ -1902,69 +2011,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "webrender"
-version = "0.61.0"
-source = "git+https://github.com/servo/webrender?rev=7d2d37e88089f28d941fb3d891657121e6915c1c#7d2d37e88089f28d941fb3d891657121e6915c1c"
-dependencies = [
- "bincode",
- "bitflags",
- "byteorder",
- "cfg-if",
- "core-foundation 0.7.0",
- "core-graphics 0.19.0",
- "core-text 15.0.0",
- "cstr",
- "dwrote",
- "euclid",
- "freetype",
- "fxhash",
- "gleam",
- "lazy_static",
- "libc",
- "log",
- "malloc_size_of_derive",
- "num-traits",
- "plane-split",
- "rayon",
- "smallvec",
- "svg_fmt",
- "time",
- "tracy-rs",
- "webrender_api",
- "webrender_build",
- "wr_malloc_size_of",
-]
-
-[[package]]
-name = "webrender_api"
-version = "0.61.0"
-source = "git+https://github.com/servo/webrender?rev=7d2d37e88089f28d941fb3d891657121e6915c1c#7d2d37e88089f28d941fb3d891657121e6915c1c"
-dependencies = [
- "app_units",
- "bitflags",
- "byteorder",
- "core-foundation 0.7.0",
- "core-graphics 0.19.0",
- "derive_more",
- "euclid",
- "malloc_size_of_derive",
- "peek-poke",
- "serde",
- "serde_bytes",
- "serde_derive",
- "time",
- "wr_malloc_size_of",
-]
-
-[[package]]
-name = "webrender_build"
-version = "0.0.1"
-source = "git+https://github.com/servo/webrender?rev=7d2d37e88089f28d941fb3d891657121e6915c1c#7d2d37e88089f28d941fb3d891657121e6915c1c"
-dependencies = [
- "bitflags",
-]
-
-[[package]]
 name = "winapi"
 version = "0.2.8"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -2038,8 +2084,9 @@ dependencies = [
 
 [[package]]
 name = "wr_malloc_size_of"
-version = "0.0.1"
-source = "git+https://github.com/servo/webrender?rev=7d2d37e88089f28d941fb3d891657121e6915c1c#7d2d37e88089f28d941fb3d891657121e6915c1c"
+version = "0.1.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "db83ceee1d8ac1591e1b053eba4580f58009155b5d8acfd66c1cfd369e593c89"
 dependencies = [
  "app_units",
  "euclid",
