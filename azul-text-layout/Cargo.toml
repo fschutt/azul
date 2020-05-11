@@ -8,7 +8,7 @@ description = '''
 '''
 documentation = "https://docs.rs/azul"
 homepage = "https://azul.rs/"
-keywords = ["gui", "GUI", "user-interface", "svg", "graphics", "native" ]
+keywords = ["gui", "user-interface", "svg", "graphics", "native" ]
 categories = ["gui"]
 repository = "https://github.com/maps4print/azul"
 edition = "2018"
