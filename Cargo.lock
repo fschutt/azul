@@ -215,8 +215,8 @@ dependencies = [
 name = "azul-widgets"
 version = "0.0.1"
 dependencies = [
- "azul-core 0.0.1",
- "azul-css 0.0.1",
+ "azul-core 0.0.1 (registry+https://github.com/rust-lang/crates.io-index)",
+ "azul-css 0.0.1 (registry+https://github.com/rust-lang/crates.io-index)",
  "gleam",
  "lyon",
  "serde",
