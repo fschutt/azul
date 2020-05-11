@@ -4,7 +4,7 @@ version = "0.0.1"
 authors = ["Felix Schütt <felix.schuett@maps4print.com>"]
 license = "MIT"
 description = "Web API implementation for the Azul GUI toolkit"
-documentation = "https://docs.rs/azul"
+documentation = "https://docs.rs/azul-web"
 homepage = "https://azul.rs/"
 keywords = ["gui", "GUI", "user-interface", "svg", "graphics" ]
 categories = ["gui"]
@@ -12,5 +12,5 @@ repository = "https://github.com/maps4print/azul"
 edition = "2018"
 
 [dependencies]
-azul-core = { version = "0.0.1", path = "../azul-core", default-features = false }
-azul-css  = { version = "0.0.1", path = "../azul-css", default-features = false }
+azul-core = { version = "0.0.1", default-features = false }
+azul-css  = { version = "0.0.1", default-features = false }

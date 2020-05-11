@@ -119,7 +119,7 @@ dependencies = [
  "azul-core 0.0.1",
  "azul-css 0.0.1",
  "azul-css-parser 0.0.1",
- "azul-layout",
+ "azul-layout 0.0.1",
  "azul-native-style",
  "azul-widgets",
  "azulc",
@@ -148,6 +148,17 @@ dependencies = [
 [[package]]
 name = "azul-layout"
 version = "0.0.1"
+dependencies = [
+ "azul-core 0.0.1 (registry+https://github.com/rust-lang/crates.io-index)",
+ "azul-css 0.0.1 (registry+https://github.com/rust-lang/crates.io-index)",
+ "azul-text-layout 0.0.1 (registry+https://github.com/rust-lang/crates.io-index)",
+]
+
+[[package]]
+name = "azul-layout"
+version = "0.0.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "d184c58457ce08b840d4e29a4c4d9231ff023f9fb0b7de3076ddce86c1a70016"
 dependencies = [
  "azul-core 0.0.1 (registry+https://github.com/rust-lang/crates.io-index)",
  "azul-css 0.0.1 (registry+https://github.com/rust-lang/crates.io-index)",
@@ -221,7 +232,7 @@ dependencies = [
  "azul-core 0.0.1 (registry+https://github.com/rust-lang/crates.io-index)",
  "azul-css 0.0.1 (registry+https://github.com/rust-lang/crates.io-index)",
  "azul-css-parser 0.0.1 (registry+https://github.com/rust-lang/crates.io-index)",
- "azul-layout",
+ "azul-layout 0.0.1 (registry+https://github.com/rust-lang/crates.io-index)",
  "font-loader",
  "gleam",
  "image",
