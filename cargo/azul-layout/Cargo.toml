@@ -1,6 +1,6 @@
 [package]
 name = "azul-layout"
-version = "0.1.0"
+version = "0.0.1"
 authors = ["Emil Sjölander <emil@visly.app>", "fschutt <felix.schuett@maps4print.com>"]
 license = "MIT"
 description = '''
@@ -20,13 +20,13 @@ edition = "2018"
 path = "../../azul-layout/lib.rs"
 
 [dependencies]
-azul-core           = { version = "0.1.0", path = "../azul-core" }
-azul-css            = { version = "0.1.0", path = "../azul-css"  }
-azul-text-layout    = { version = "0.1.0", path = "../azul-text-layout", optional = true }
+azul-core           = { version = "0.0.1", path = "../azul-core" }
+azul-css            = { version = "0.0.1", path = "../azul-css"  }
+azul-text-layout    = { version = "0.0.1", path = "../azul-text-layout", optional = true }
 
 [dev-dependencies]
-azul-css-parser             = { version = "0.1.0", path = "../azul-css-parser"  }
-azulc                       = { version = "0.1.0", path = "../azulc"  }
+azul-css-parser             = { version = "0.0.1", path = "../azul-css-parser"  }
+azulc                       = { version = "0.0.1", path = "../azulc"  }
 
 [features]
 default = []

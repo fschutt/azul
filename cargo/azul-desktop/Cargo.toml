@@ -1,6 +1,6 @@
 [package]
 name = "azul-desktop"
-version = "0.1.0"
+version = "0.0.1"
 authors = ["Felix Schütt <felix.schuett@maps4print.com>"]
 license = "MIT"
 description = "Desktop rendering API for azul"
@@ -24,13 +24,13 @@ glutin                  = { version = "0.22.1",         default-features = false
 app_units               = { version = "0.7.1",          default-features = false                                                                                 }
 tinyfiledialogs         = { version = "3.3.9",          default-features = false                                                                                 }
 clipboard2              = { version = "0.1.1",          default-features = false                                                                                 }
-azulc                   = { version = "0.1.0",          default-features = false,                  path = "../azulc",               features = ["text_layout", "image_loading", "font_loading"] }
-azul-css                = { version = "0.1.0",          default-features = false,                  path = "../azul-css"                                          }
-azul-core               = { version = "0.1.0",          default-features = false,                  path = "../azul-core"                                         }
-azul-layout             = { version = "0.1.0",          default-features = false,                  path = "../azul-layout",         features = ["text_layout"]   }
-azul-css-parser         = { version = "0.1.0",          default-features = false, optional = true, path = "../azul-css-parser"                                   }
-azul-widgets            = { version = "0.1.0",          default-features = false, optional = true, path = "../azul-widgets"                                      }
-azul-native-style       = { version = "0.1.0",          default-features = false, optional = true, path = "../azul-native-style"                                 }
+azulc                   = { version = "0.0.1",          default-features = false,                  path = "../azulc",               features = ["text_layout", "image_loading", "font_loading"] }
+azul-css                = { version = "0.0.1",          default-features = false,                  path = "../azul-css"                                          }
+azul-core               = { version = "0.0.1",          default-features = false,                  path = "../azul-core"                                         }
+azul-layout             = { version = "0.0.1",          default-features = false,                  path = "../azul-layout",         features = ["text_layout"]   }
+azul-css-parser         = { version = "0.0.1",          default-features = false, optional = true, path = "../azul-css-parser"                                   }
+azul-widgets            = { version = "0.0.1",          default-features = false, optional = true, path = "../azul-widgets"                                      }
+azul-native-style       = { version = "0.0.1",          default-features = false, optional = true, path = "../azul-native-style"                                 }
 log                     = { version = "0.4.8",          default-features = false, optional = true                                                                }
 fern                    = { version = "0.5.7",          default-features = false, optional = true                                                                }
 backtrace               = { version = "0.3.43",         default-features = false, optional = true, features = ["std", "libunwind", "libbacktrace", "coresymbolication", "dladdr", "dbghelp"]    }

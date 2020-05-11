@@ -1,6 +1,6 @@
 [package]
 name = "azulc"
-version = "0.1.0"
+version = "0.0.1"
 authors = ["Felix Schütt <felix.schuett@maps4print.com>"]
 license = "MIT"
 description = '''
@@ -25,12 +25,12 @@ name = "azulc"
 path = "../../azulc/main.rs"
 
 [dependencies]
-gleam                   = { version = "0.11.0",         default-features = false                                        }
-xmlparser               = { version = "0.9.0",          default-features = false                                        }
-azul-core               = { version = "0.1.0",          default-features = false,       path = "../azul-core"           }
-azul-css                = { version = "0.1.0",          default-features = false,       path = "../azul-css"            }
-azul-css-parser         = { version = "0.1.0",          default-features = false,       path = "../azul-css-parser"     }
-azul-layout             = { version = "0.1.0",          default-features = false,       path = "../azul-layout"         }
+gleam                   = { version = "0.11.0",         default-features = false }
+xmlparser               = { version = "0.9.0",          default-features = false }
+azul-core               = { version = "0.0.1",          default-features = false,       path = "../azul-core"           }
+azul-css                = { version = "0.0.1",          default-features = false,       path = "../azul-css"            }
+azul-css-parser         = { version = "0.0.1",          default-features = false,       path = "../azul-css-parser"     }
+azul-layout             = { version = "0.0.1",          default-features = false,       path = "../azul-layout"         }
 image                   = { version = "0.21.2",         default-features = false,       optional = true,    features = ["gif_codec", "jpeg", "png_codec", "tiff", "bmp"]    }
 font-loader             = { version = "0.8.0",          default-features = false,       optional = true                                                                     }
 

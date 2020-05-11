@@ -1,6 +1,6 @@
 [package]
 name = "azul"
-version = "0.1.0"
+version = "0.0.1"
 authors = ["Felix Schütt <felix.schuett@maps4print.com>"]
 license = "MIT"
 description = '''
@@ -22,7 +22,7 @@ edition = "2018"
 path = "../../azul/rust/azul.rs"
 
 [dependencies]
-azul-dll = { version = "0.1.0", path = "../azul-dll", default-features = false }
+azul-dll = { version = "0.0.1", path = "../azul-dll", default-features = false }
 
 # [features]
 # default = ["logging", "widgets", "native_style", "css_parser", "image_loading", "font_loading", "text_layout"]

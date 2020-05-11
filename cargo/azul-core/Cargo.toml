@@ -1,6 +1,6 @@
 [package]
 name = "azul-core"
-version = "0.1.0"
+version = "0.0.1"
 authors = ["Felix Schütt <felix.schuett@maps4print.com>"]
 license = "MIT"
 description = '''
@@ -22,8 +22,8 @@ path = "../../azul-core/lib.rs"
 
 [dependencies]
 gleam                   = { version = "0.11.0"                                                                      }
-azul-css                = { version = "0.1.0",                      path = "../azul-css"                            }
-azul-css-parser         = { version = "0.1.0",  optional = true,    path = "../azul-css-parser"                     }
+azul-css                = { version = "0.0.1",                      path = "../azul-css"                            }
+azul-css-parser         = { version = "0.0.1",  optional = true,    path = "../azul-css-parser"                     }
 
 [features]
 css_parser = ["azul-css-parser"]

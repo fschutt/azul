@@ -1,6 +1,6 @@
 [package]
 name = "azul-web"
-version = "0.1.0"
+version = "0.0.1"
 authors = ["Felix Schütt <felix.schuett@maps4print.com>"]
 license = "MIT"
 description = "Web API implementation for the Azul GUI toolkit"
@@ -18,5 +18,5 @@ edition = "2018"
 path = "../../azul-web/lib.rs"
 
 [dependencies]
-azul-core = { version = "0.1.0", path = "../azul-core", default-features = false }
-azul-css = { version = "0.1.0", path = "../azul-css", default-features = false }
+azul-core = { version = "0.0.1", path = "../azul-core", default-features = false }
+azul-css  = { version = "0.0.1", path = "../azul-css", default-features = false }

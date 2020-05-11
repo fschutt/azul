@@ -1,6 +1,6 @@
 [package]
 name = "azul-native-style"
-version = "0.1.0"
+version = "0.0.1"
 authors = ["Felix Schütt <felix.schuett@maps4print.com>"]
 license = "MIT"
 description = '''

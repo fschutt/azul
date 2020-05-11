@@ -13,3 +13,15 @@ members = [
     "cargo/azul-css-parser",
     "cargo/azul-native-style",
 ]
+
+# Publish in order:
+#   azul-css
+#   azul-css-parser
+#   azul-core
+#   azul-text-layout
+#   azul-layout
+#   azulc
+#   azul-desktop
+#   azul-web
+#   azul-dll
+#   azul

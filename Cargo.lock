@@ -59,14 +59,14 @@ checksum = "f8aac770f1885fd7e387acedd76065302551364496e46b3dd00860b2f8359b9d"
 
 [[package]]
 name = "azul"
-version = "0.1.0"
+version = "0.0.1"
 dependencies = [
  "azul-dll",
 ]
 
 [[package]]
 name = "azul-core"
-version = "0.1.0"
+version = "0.0.1"
 dependencies = [
  "azul-css",
  "azul-css-parser",
@@ -75,11 +75,11 @@ dependencies = [
 
 [[package]]
 name = "azul-css"
-version = "0.1.0"
+version = "0.0.1"
 
 [[package]]
 name = "azul-css-parser"
-version = "0.1.0"
+version = "0.0.1"
 dependencies = [
  "azul-css",
  "azul-simplecss",
@@ -87,7 +87,7 @@ dependencies = [
 
 [[package]]
 name = "azul-desktop"
-version = "0.1.0"
+version = "0.0.1"
 dependencies = [
  "app_units",
  "azul-core",
@@ -110,7 +110,7 @@ dependencies = [
 
 [[package]]
 name = "azul-dll"
-version = "0.1.0"
+version = "0.0.1"
 dependencies = [
  "azul-core",
  "azul-css",
@@ -121,7 +121,7 @@ dependencies = [
 
 [[package]]
 name = "azul-layout"
-version = "0.1.0"
+version = "0.0.1"
 dependencies = [
  "azul-core",
  "azul-css",
@@ -132,7 +132,7 @@ dependencies = [
 
 [[package]]
 name = "azul-native-style"
-version = "0.1.0"
+version = "0.0.1"
 dependencies = [
  "azul-css",
  "azul-css-parser",
@@ -146,7 +146,7 @@ checksum = "c303bfdf857413adbd19d9b15dddd9b4adb8e2be7e493c8a38d9fc6179a074ac"
 
 [[package]]
 name = "azul-text-layout"
-version = "0.1.0"
+version = "0.0.1"
 dependencies = [
  "azul-core",
  "azul-css",
@@ -157,7 +157,7 @@ dependencies = [
 
 [[package]]
 name = "azul-web"
-version = "0.1.0"
+version = "0.0.1"
 dependencies = [
  "azul-core",
  "azul-css",
@@ -165,7 +165,7 @@ dependencies = [
 
 [[package]]
 name = "azul-widgets"
-version = "0.1.0"
+version = "0.0.1"
 dependencies = [
  "azul-core",
  "azul-css",
@@ -179,7 +179,7 @@ dependencies = [
 
 [[package]]
 name = "azulc"
-version = "0.1.0"
+version = "0.0.1"
 dependencies = [
  "azul-core",
  "azul-css",
