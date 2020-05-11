@@ -293,16 +293,24 @@ impl UiState {
         parent_dom: Option<(DomId, NodeId)>,
         layout_callback: LayoutCallback,
     ) -> UiState {
+
         use std::ffi::c_void;
         use crate::callbacks::{LayoutInfoPtr, RefAnyPtr};
 
         let data_box = Box::new(data.clone());
         let layout_info_box = Box::new(layout_info);
+        let data_box_ptr = Box::into_raw(data_box) as *mut c_void;
+        let layout_info_box_ptr = Box::into_raw(layout_info_box) as *mut c_void;
+
         let dom_ptr = (layout_callback)(
-            RefAnyPtr { ptr: Box::into_raw(data_box) as *mut c_void },
-            LayoutInfoPtr { ptr: Box::into_raw(layout_info_box) as *mut c_void }
+            RefAnyPtr { ptr: data_box_ptr },
+            LayoutInfoPtr { ptr: layout_info_box_ptr }
         );
+
         let dom = unsafe { Box::<Dom>::from_raw(dom_ptr.ptr as *mut Dom) };
+        let _ = unsafe { Box::<RefAny>::from_raw(data_box_ptr as *mut RefAny) };
+        let _ = unsafe { Box::<LayoutInfo<'a>>::from_raw(layout_info_box_ptr as *mut LayoutInfo<'a>) };
+
         Self::new(*dom, parent_dom)
     }
 
