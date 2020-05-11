@@ -1,6 +1,6 @@
 [package]
 name = "azul-web"
-version = "0.0.3"
+version = "0.0.4"
 authors = ["Felix Schütt <felix.schuett@maps4print.com>"]
 license = "MIT"
 description = "Web API implementation for the Azul GUI toolkit"

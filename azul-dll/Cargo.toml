@@ -19,5 +19,5 @@ azul-native-style = { version = "0.0.1", default-features = false }
 azul-desktop = { version = "0.0.1", default-features = false }
 
 [target.'cfg(target_arch = "wasm32")'.dependencies]
-azul-web = { version = "0.0.2", default-features = false }
+azul-web = { version = "0.0.3", default-features = false }
 
