@@ -4,22 +4,22 @@ use std::{ops::Range, collections::BTreeMap};
 use azul_core::{
     dom::{Dom, On, NodeData, DomString, NodeType},
     callbacks::{
-        Ref, DefaultCallback, DefaultCallbackInfo, CallbackReturn,
+        Ref, Callback, CallbackInfo, CallbackReturn,
         IFrameCallbackInfo, IFrameCallbackReturn, DontRedraw,
     },
 };
 
 #[derive(Debug, Clone)]
-pub struct TableView<T> {
+pub struct TableView {
     pub state: Ref<TableViewState>,
-    pub on_mouse_up: DefaultCallback<T>,
+    pub on_mouse_up: Callback,
 }
 
-impl<T> Default for TableView<T> {
+impl Default for TableView {
     fn default() -> Self {
         Self {
             state: Ref::default(),
-            on_mouse_up: DefaultCallback(Self::default_on_mouse_up),
+            on_mouse_up: Callback(Self::default_on_mouse_up),
         }
     }
 }
@@ -47,7 +47,7 @@ impl TableViewState {
 
     /// Renders a cutout of the table from, horizontally from (col_start..col_end)
     /// and vertically from (row_start..row_end)
-    pub fn render<T>(&self, rows: Range<usize>, columns: Range<usize>) -> Dom<T> {
+    pub fn render(&self, rows: Range<usize>, columns: Range<usize>) -> Dom {
 
         // div.__azul-native-table-container
         //     |-> div.__azul-native-table-column (Column 0)
@@ -77,7 +77,7 @@ impl TableViewState {
                     NodeData::label(format!("{}", row_idx + 1))
                     .with_classes(vec![DomString::Static("__azul-native-table-row")])
                 )
-                .collect::<Dom<T>>()
+                .collect::<Dom>()
                 .with_class("__azul-native-table-row-numbers")
             )
         )
@@ -100,11 +100,11 @@ impl TableViewState {
                             }
                         ).with_classes(vec![DomString::Static("__azul-native-table-cell")])
                     )
-                    .collect::<Dom<T>>()
+                    .collect::<Dom>()
                     .with_class("__azul-native-table-rows")
                 )
             )
-            .collect::<Dom<T>>()
+            .collect::<Dom>()
             .with_class("__azul-native-table-column-container")
             // current active selection (s)
             .with_child(
@@ -123,7 +123,7 @@ impl TableViewState {
     }
 }
 
-impl<T> TableView<T> {
+impl TableView {
 
     #[inline]
     pub fn new(state: Ref<TableViewState>) -> Self {
@@ -136,24 +136,24 @@ impl<T> TableView<T> {
     }
 
     #[inline]
-    pub fn on_mouse_up(self, cb: DefaultCallback<T>) -> Self {
+    pub fn on_mouse_up(self, cb: Callback) -> Self {
         Self { on_mouse_up: cb, .. self }
     }
 
     #[inline]
-    pub fn dom(self) -> Dom<T> {
+    pub fn dom(self) -> Dom {
         let upcasted_table_view = self.state.upcast();
         Dom::iframe(Self::render_table_iframe_contents, upcasted_table_view.clone())
             .with_class("__azul-native-table-iframe")
-            .with_default_callback(On::MouseUp, self.on_mouse_up, upcasted_table_view)
+            .with_callback(On::MouseUp, self.on_mouse_up.0, upcasted_table_view)
     }
 
-    pub fn default_on_mouse_up(_info: DefaultCallbackInfo<T>) -> CallbackReturn {
+    pub fn default_on_mouse_up(_info: CallbackInfo) -> CallbackReturn {
         println!("table was clicked");
         DontRedraw
     }
 
-    fn render_table_iframe_contents(info: IFrameCallbackInfo) -> IFrameCallbackReturn<T> {
+    fn render_table_iframe_contents(info: IFrameCallbackInfo) -> IFrameCallbackReturn {
         let table_view_state = info.state.downcast::<TableViewState>()?;
         let table_view_state = table_view_state.borrow();
         let logical_size = info.bounds.get_logical_size();
@@ -163,8 +163,8 @@ impl<T> TableView<T> {
     }
 }
 
-impl<T> Into<Dom<T>> for TableView<T> {
-    fn into(self) -> Dom<T> {
+impl Into<Dom> for TableView {
+    fn into(self) -> Dom {
         self.dom()
     }
 }

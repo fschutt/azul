@@ -11,8 +11,6 @@ extern crate font_loader;
 #[cfg(feature = "image_loading")]
 extern crate image as image_crate;
 
-pub struct Dummy;
-
 /// XML-based DOM serialization and XML-to-Rust compiler implementation
 pub mod xml;
 /// Module for compiling CSS to Rust code

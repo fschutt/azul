@@ -23,11 +23,9 @@ fn print_help() {
 }
 
 fn main() {
-    
+
     use azulc::xml::*;
     use std::process::exit;
-
-    struct Dummy;
 
     let input_file = match env::args().nth(1) {
         Some(s) => s,
@@ -46,9 +44,9 @@ fn main() {
     };
 
     if input_file.ends_with(".html") || input_file.ends_with(".xml") {
-        
+
         // process XML / HTML
-        
+
         let second_arg = env::args().nth(2).unwrap_or(String::from("--rust"));
 
         let action = match second_arg.as_str() {
@@ -102,7 +100,7 @@ fn main() {
                 println!("{}", compiled_source);
             },
             Action::PrintDom => {
-                let dom = match str_to_dom(&root_nodes, &mut XmlComponentMap::<Dummy>::default()) {
+                let dom = match str_to_dom(&root_nodes, &mut XmlComponentMap::default()) {
                     Ok(s) => s,
                     Err(e) => {
                         eprintln!("error: could not render DOM:\r\n{}", e);
@@ -116,7 +114,7 @@ fn main() {
             Action::Cascade => {
                 use azul_css::get_css_key_map;
 
-                let dom = match str_to_dom(&root_nodes, &mut XmlComponentMap::<Dummy>::default()) {
+                let dom = match str_to_dom(&root_nodes, &mut XmlComponentMap::default()) {
                     Ok(s) => s,
                     Err(e) => {
                         eprintln!("error: could not render DOM:\r\n{}", e);
@@ -136,7 +134,7 @@ fn main() {
                 };
 
                 let ui_description = cascade_dom(dom, &css);
-                
+
                 let css_key_map = get_css_key_map();
 
                 for (node_id, styled_node) in ui_description.styled_nodes.internal.iter().enumerate() {
@@ -147,9 +145,9 @@ fn main() {
                 }
             },
             Action::PrintDisplayList((w, h)) => {
-                use azul_core::window::LogicalSize;                                            
+                use azul_core::window::LogicalSize;
 
-                let dom = match str_to_dom(&root_nodes, &mut XmlComponentMap::<Dummy>::default()) {
+                let dom = match str_to_dom(&root_nodes, &mut XmlComponentMap::default()) {
                     Ok(s) => s,
                     Err(e) => {
                         eprintln!("error: could not render DOM:\r\n{}", e);
@@ -166,7 +164,7 @@ fn main() {
                         exit(-1);
                     }
                 };
-                
+
                 let cached_display_list = layout_dom( // "not found in scope error": you forgot to compile azulc with "--all-features" !
                     dom, &css, LogicalSize::new(w, h)
                 );

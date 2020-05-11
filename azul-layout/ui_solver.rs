@@ -16,9 +16,9 @@ use azul_text_layout::InlineText;
 
 /// At this point in time, all font keys, image keys, etc. have
 /// to be already submitted in the RenderApi!
-pub fn do_the_layout<T>(
+pub fn do_the_layout(
     node_hierarchy: &NodeHierarchy,
-    node_data: &NodeDataContainer<NodeData<T>>,
+    node_data: &NodeDataContainer<NodeData>,
     display_rects: &NodeDataContainer<DisplayRectangle>,
     app_resources: &AppResources,
     pipeline_id: &PipelineId,
@@ -59,9 +59,9 @@ pub fn do_the_layout<T>(
     }
 }
 
-pub fn create_word_cache<T>(
+pub fn create_word_cache(
     app_resources: &AppResources,
-    node_data: &NodeDataContainer<NodeData<T>>,
+    node_data: &NodeDataContainer<NodeData>,
 ) -> BTreeMap<NodeId, Words> {
     use azul_text_layout::text_layout::split_text_into_words;
     node_data
@@ -116,12 +116,12 @@ pub fn create_scaled_words(
     }).collect()
 }
 
-fn create_rect_contents_cache<'a, T>(
+fn create_rect_contents_cache<'a>(
     app_resources: &AppResources,
     pipeline_id: &PipelineId,
     words: &'a BTreeMap<NodeId, Words>,
     scaled_words: &'a BTreeMap<NodeId, (ScaledWords, FontInstanceKey)>,
-    display_rects: &NodeDataContainer<NodeData<T>>,
+    display_rects: &NodeDataContainer<NodeData>,
 ) -> BTreeMap<NodeId, RectContent<InlineText<'a>>> {
     use azul_core::dom::NodeType::*;
     display_rects.linear_iter().filter_map(|node_id| {

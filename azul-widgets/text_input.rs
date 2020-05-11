@@ -4,28 +4,28 @@ use std::ops::Range;
 use azul_core::{
     dom::{Dom, EventFilter, FocusEventFilter, TabIndex},
     window::{KeyboardState, VirtualKeyCode},
-    callbacks::{Ref, Redraw, DefaultCallbackInfo, DefaultCallback, CallbackReturn},
+    callbacks::{Ref, Redraw, Callback, CallbackInfo, CallbackReturn},
 };
 
 #[derive(Debug, Clone, Hash, PartialEq, Eq)]
-pub struct TextInput<T> {
-    pub on_text_input: DefaultCallback<T>,
-    pub on_virtual_key_down: DefaultCallback<T>,
+pub struct TextInput {
+    pub on_text_input: Callback,
+    pub on_virtual_key_down: Callback,
     pub state: Ref<TextInputState>,
 }
 
-impl<T> Default for TextInput<T> {
+impl Default for TextInput {
     fn default() -> Self {
         TextInput {
-            on_text_input: DefaultCallback(Self::default_on_text_input),
-            on_virtual_key_down: DefaultCallback(Self::default_on_virtual_key_down),
+            on_text_input: Callback(Self::default_on_text_input),
+            on_virtual_key_down: Callback(Self::default_on_virtual_key_down),
             state: Ref::default(),
         }
     }
 }
 
-impl<T> Into<Dom<T>> for TextInput<T> {
-    fn into(self) -> Dom<T> {
+impl Into<Dom> for TextInput {
+    fn into(self) -> Dom {
         self.dom()
     }
 }
@@ -187,7 +187,7 @@ impl TextInputState {
     }
 }
 
-impl<T> TextInput<T> {
+impl TextInput {
 
     pub fn new(state: Ref<TextInputState>) -> Self {
         Self { state, .. Default::default() }
@@ -197,15 +197,15 @@ impl<T> TextInput<T> {
         Self { state, .. self }
     }
 
-    pub fn on_text_input(self, callback: DefaultCallback<T>) -> Self {
+    pub fn on_text_input(self, callback: Callback) -> Self {
         Self { on_text_input: callback, .. self }
     }
 
-    pub fn on_virtual_key_down(self, callback: DefaultCallback<T>) -> Self {
+    pub fn on_virtual_key_down(self, callback: Callback) -> Self {
         Self { on_text_input: callback, .. self }
     }
 
-    pub fn dom(self) -> Dom<T> {
+    pub fn dom(self) -> Dom {
 
         let label = Dom::label(self.state.borrow().text.clone())
             .with_class("__azul-native-input-text-label");
@@ -215,18 +215,18 @@ impl<T> TextInput<T> {
         Dom::div()
             .with_class("__azul-native-input-text")
             .with_tab_index(TabIndex::Auto)
-            .with_default_callback(EventFilter::Focus(FocusEventFilter::TextInput), self.on_text_input, upcasted_state.clone())
-            .with_default_callback(EventFilter::Focus(FocusEventFilter::VirtualKeyDown), self.on_virtual_key_down, upcasted_state)
+            .with_callback(EventFilter::Focus(FocusEventFilter::TextInput), self.on_text_input.0, upcasted_state.clone())
+            .with_callback(EventFilter::Focus(FocusEventFilter::VirtualKeyDown), self.on_virtual_key_down.0, upcasted_state)
             .with_child(label)
     }
 
-    pub fn default_on_text_input(info: DefaultCallbackInfo<T>) -> CallbackReturn {
+    pub fn default_on_text_input(info: CallbackInfo) -> CallbackReturn {
         let text_input_state = info.state.downcast::<TextInputState>()?;
         let keyboard_state = info.current_window_state.get_keyboard_state();
         text_input_state.borrow_mut().handle_on_text_input(keyboard_state)
     }
 
-    pub fn default_on_virtual_key_down(info: DefaultCallbackInfo<T>) -> CallbackReturn {
+    pub fn default_on_virtual_key_down(info: CallbackInfo) -> CallbackReturn {
         let text_input_state = info.state.downcast::<TextInputState>()?;
         let keyboard_state = info.current_window_state.get_keyboard_state();
         text_input_state.borrow_mut().handle_on_virtual_key_down(keyboard_state)

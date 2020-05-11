@@ -8,7 +8,6 @@ use azul_core::{
 };
 use azul_css::Css;
 use xmlparser::Tokenizer;
-use crate::Dummy;
 pub use xmlparser::{Error as XmlError, TokenType, TextPos, StreamError};
 
 /// Error that can happen during hot-reload -
@@ -68,7 +67,7 @@ pub const DEFAULT_ARGS: [&str;8] = ["id", "class", "tabindex", "draggable", "foc
 ///     c: &'a HashMap<X, Y>,
 /// }
 ///
-/// fn render_component_test<'a, T>(args: &TestRendererArgs<'a>) -> Dom<T> {
+/// fn render_component_test<'a, T>(args: &TestRendererArgs<'a>) -> Dom {
 ///     Button::with_label(format!("Is this true? Scientists say: {:?}", args.b)).with_class(format!("test_{}", args.a))
 /// }
 /// ```
@@ -87,7 +86,7 @@ pub struct ComponentArguments {
 
 impl Default for ComponentArguments {
     fn default() -> Self {
-        Self { 
+        Self {
             args: ComponentArgumentsMap::default(),
             accepts_text: false,
         }
@@ -101,7 +100,7 @@ impl ComponentArguments {
 }
 
 /// Specifies a component that reacts to a parsed XML node
-pub trait XmlComponent<T> {
+pub trait XmlComponent {
 
     /// Should return all arguments that this component can take - for example if you have a
     /// component called `Calendar`, which can take a `selectedDate` argument:
@@ -156,9 +155,9 @@ pub trait XmlComponent<T> {
     /// data format.
     fn get_available_arguments(&self) -> ComponentArguments;
     /// Given a root node and a list of possible arguments, returns a DOM or a syntax error
-    fn render_dom(&self, components: &XmlComponentMap<T>, arguments: &FilteredComponentArguments, content: &XmlTextContent) -> Result<Dom<T>, RenderDomError>;
+    fn render_dom(&self, components: &XmlComponentMap, arguments: &FilteredComponentArguments, content: &XmlTextContent) -> Result<Dom, RenderDomError>;
     /// Used to compile the XML component to Rust code - input
-    fn compile_to_rust_code(&self, components: &XmlComponentMap<T>, attributes: &FilteredComponentArguments, content: &XmlTextContent) -> Result<String, CompileError>;
+    fn compile_to_rust_code(&self, components: &XmlComponentMap, attributes: &FilteredComponentArguments, content: &XmlTextContent) -> Result<String, CompileError>;
     /// Returns the XML node for this component (necessary to compile the component into a function
     /// during the Rust compilation stage)
     fn get_xml_node(&self) -> XmlNode;
@@ -166,18 +165,18 @@ pub trait XmlComponent<T> {
 
 /// Wrapper for the XML parser - necessary to easily create a Dom from
 /// XML without putting an XML solver into `azul-core`.
-pub struct DomXml<T> {
+pub struct DomXml {
     pub original_string: String,
-    pub parsed_dom: Dom<T>,
+    pub parsed_dom: Dom,
 }
 
-impl<T> DomXml<T> {
+impl DomXml {
 
     /// Parses and loads a DOM from an XML string
     ///
     /// Note: Needs at least one `<app></app>` node in order to not fail
     #[inline]
-    pub fn new(xml: &str, component_map: &mut XmlComponentMap<T>) -> Result<Self, XmlParseError> {
+    pub fn new(xml: &str, component_map: &mut XmlComponentMap) -> Result<Self, XmlParseError> {
         let parsed_dom = parse_xml_string(xml)?;
         let dom = str_to_dom(&parsed_dom, component_map)?;
         Ok(Self {
@@ -197,7 +196,7 @@ impl<T> DomXml<T> {
     /// **Warning**: The file is reloaded from disk on every function call - do not
     /// use this in release builds! This function deliberately never fails: In an error case,
     /// the error gets rendered as a `NodeType::Label`.
-    pub fn from_file<I: AsRef<Path>>(file_path: I, component_map: &mut XmlComponentMap<T>) -> Self {
+    pub fn from_file<I: AsRef<Path>>(file_path: I, component_map: &mut XmlComponentMap) -> Self {
 
         use std::fs;
 
@@ -230,7 +229,7 @@ impl<T> DomXml<T> {
     /// dom.assert_eq(Dom::div().with_id("test"));
     /// ```
     #[cfg(test)]
-    pub fn assert_eq(self, other: Dom<T>) {
+    pub fn assert_eq(self, other: Dom) {
         let fixed = Dom::div().with_child(other);
         let expected = self.into_dom();
         if expected != fixed {
@@ -240,13 +239,13 @@ impl<T> DomXml<T> {
         }
     }
 
-    pub fn into_dom(self) -> Dom<T> {
+    pub fn into_dom(self) -> Dom {
         self.into()
     }
 }
 
-impl<T> Into<Dom<T>> for DomXml<T> {
-    fn into(self) -> Dom<T> {
+impl Into<Dom> for DomXml {
+    fn into(self) -> Dom {
         self.parsed_dom
     }
 }
@@ -291,7 +290,7 @@ impl DynamicXmlComponent {
     }
 }
 
-impl<T> XmlComponent<T> for DynamicXmlComponent {
+impl XmlComponent for DynamicXmlComponent {
 
     fn get_available_arguments(&self) -> ComponentArguments {
         self.arguments.clone()
@@ -303,10 +302,10 @@ impl<T> XmlComponent<T> for DynamicXmlComponent {
 
     fn render_dom(
         &self,
-        components: &XmlComponentMap<T>,
+        components: &XmlComponentMap,
         arguments: &FilteredComponentArguments,
         content: &XmlTextContent,
-    ) -> Result<Dom<T>, RenderDomError> {
+    ) -> Result<Dom, RenderDomError> {
 
         let mut dom = Dom::div();
 
@@ -319,7 +318,7 @@ impl<T> XmlComponent<T> for DynamicXmlComponent {
 
     fn compile_to_rust_code(
         &self,
-        components: &XmlComponentMap<T>,
+        components: &XmlComponentMap,
         attributes: &FilteredComponentArguments,
         content: &XmlTextContent,
     ) -> Result<String, CompileError> {
@@ -366,13 +365,13 @@ impl XmlNode {
 }
 
 /// Holds all XML components - builtin components
-pub struct XmlComponentMap<T> {
+pub struct XmlComponentMap {
     /// Stores all known components that can be used during DOM rendering
     /// + whether this component should inherit variables from the parent scope
-    components: BTreeMap<String, (Box<dyn XmlComponent<T>>, bool)>,
+    components: BTreeMap<String, (Box<dyn XmlComponent>, bool)>,
 }
 
-impl<T> Default for XmlComponentMap<T> {
+impl Default for XmlComponentMap {
     fn default() -> Self {
         let mut map = Self { components: BTreeMap::new() };
         map.register_component("body", Box::new(BodyRenderer { }), true);
@@ -382,8 +381,8 @@ impl<T> Default for XmlComponentMap<T> {
     }
 }
 
-impl<T> XmlComponentMap<T> {
-    pub fn register_component<S: AsRef<str>>(&mut self, id: S, component: Box<dyn XmlComponent<T>>, inherit_variables: bool) {
+impl XmlComponentMap {
+    pub fn register_component<S: AsRef<str>>(&mut self, id: S, component: Box<dyn XmlComponent>, inherit_variables: bool) {
         self.components.insert(normalize_casing(id.as_ref()), (component, inherit_variables));
     }
 }
@@ -503,8 +502,8 @@ impl fmt::Display for RenderDomError {
 
 /// Tries to look for a `<link type="stylesheet" href="blah.css" />`
 /// in the `<head>` node, then parse the CSS
-pub fn load_style_file_from_xml<I: AsRef<Path>>(html_path: I, xml: &[XmlNode]) 
--> Result<Css, LoadStyleFileError> 
+pub fn load_style_file_from_xml<I: AsRef<Path>>(html_path: I, xml: &[XmlNode])
+-> Result<Css, LoadStyleFileError>
 {
     use std::path::PathBuf;
     use std::fs;
@@ -513,7 +512,7 @@ pub fn load_style_file_from_xml<I: AsRef<Path>>(html_path: I, xml: &[XmlNode])
         let head_node = find_node_by_type(xml, "head")?;
         let link_node = find_node_by_type(&head_node.children, "link")?;
         if find_attribute(link_node, "rel")?.as_str() != "stylesheet" {
-            return None; 
+            return None;
         }
         find_attribute(link_node, "href").cloned()
     }
@@ -526,7 +525,7 @@ pub fn load_style_file_from_xml<I: AsRef<Path>>(html_path: I, xml: &[XmlNode])
     Ok(css)
 }
 
-pub fn cascade_dom<T>(dom: Dom<T>, css: &Css) -> UiDescription {
+pub fn cascade_dom(dom: Dom, css: &Css) -> UiDescription {
     let mut ui_state = UiState::new(dom, None);
     UiDescription::new(&mut ui_state, css, &None, &BTreeMap::new(), false)
 }
@@ -538,8 +537,8 @@ use azul_core::{
 };
 
 #[cfg(all(feature = "image_loading", feature = "font_loading"))]
-pub fn layout_dom<T>(dom: Dom<T>, css: &Css, root_size: LogicalSize) -> CachedDisplayList {
-    
+pub fn layout_dom(dom: Dom, css: &Css, root_size: LogicalSize) -> CachedDisplayList {
+
     use std::rc::Rc;
     use azul_core::{
         app_resources::{AppResources, LoadImageFn, LoadFontFn, Epoch, FakeRenderApi},
@@ -827,7 +826,7 @@ pub fn get_body_node(root_nodes: &[XmlNode]) -> Result<XmlNode, XmlParseError> {
 }
 
 /// Filter all `<component />` nodes and insert them into the `components` node
-pub fn get_xml_components<T>(root_nodes: &[XmlNode], components: &mut XmlComponentMap<T>) -> Result<(), ComponentParseError> {
+pub fn get_xml_components(root_nodes: &[XmlNode], components: &mut XmlComponentMap) -> Result<(), ComponentParseError> {
 
     for node in root_nodes {
         match DynamicXmlComponent::new(node.clone()) {
@@ -840,7 +839,7 @@ pub fn get_xml_components<T>(root_nodes: &[XmlNode], components: &mut XmlCompone
     Ok(())
 }
 
-/// Searches in the the `root_nodes` for a `node_type`, convenience function in order to 
+/// Searches in the the `root_nodes` for a `node_type`, convenience function in order to
 /// for example find the first <blah /> node in all these nodes.
 pub fn find_node_by_type<'a>(root_nodes: &'a [XmlNode], node_type: &str) -> Option<&'a XmlNode> {
     root_nodes.iter().find(|n| normalize_casing(&n.node_type).as_str() == node_type)
@@ -851,7 +850,7 @@ pub fn find_attribute<'a>(node: &'a XmlNode, attribute: &str) -> Option<&'a Stri
 }
 
 /// Parses an XML string and returns a `Dom` with the components instantiated in the `<app></app>`
-pub fn str_to_dom<T>(root_nodes: &[XmlNode], component_map: &mut XmlComponentMap<T>) -> Result<Dom<T>, XmlParseError> {
+pub fn str_to_dom(root_nodes: &[XmlNode], component_map: &mut XmlComponentMap) -> Result<Dom, XmlParseError> {
     if let Some(head_node) = find_node_by_type(root_nodes, "head") {
         get_xml_components(&head_node.children, component_map)?;
     }
@@ -864,7 +863,7 @@ pub fn str_to_dom<T>(root_nodes: &[XmlNode], component_map: &mut XmlComponentMap
 pub fn str_to_rust_code(
     root_nodes: &[XmlNode],
     imports: &str,
-    component_map: &mut XmlComponentMap<Dummy>,
+    component_map: &mut XmlComponentMap,
 ) -> Result<String, CompileError> {
 
     const HEADER_WARNING: &str = "//! Auto-generated UI source code";
@@ -899,26 +898,26 @@ pub fn format_component_args(component_args: &ComponentArgumentsMap) -> String {
     let mut args = component_args.iter().map(|(arg_name, (arg_type, arg_index))| {
         (*arg_index, format!("{}: {}", arg_name, arg_type))
     }).collect::<Vec<(usize, String)>>();
-    
+
     args.sort_by(|(_, a), (_, b)| b.cmp(&a));
 
     args.iter().map(|(k, v)| v.clone()).collect::<Vec<String>>().join(", ")
 }
 
 pub fn compile_component(
-    component_name: &str, 
-    component_args: &ComponentArguments, 
-    component_function_body: &str, 
+    component_name: &str,
+    component_args: &ComponentArguments,
+    component_function_body: &str,
 ) -> String {
 
-    let function_args = format_component_args(&component_args.args);    
+    let function_args = format_component_args(&component_args.args);
     let component_function_body = component_function_body.lines().map(|l| format!("    {}", l)).collect::<Vec<String>>().join("\r\n");
     let should_inline = component_function_body.lines().count() == 1;
     format!(
-        "{}fn render_component_{}{}({}{}{}) -> Dom<T> {{\r\n{}\r\n}}",
+        "{}fn render_component_{}{}({}{}{}) -> Dom {{\r\n{}\r\n}}",
         if should_inline { "#[inline]\r\n" } else { "" },
         normalize_casing(component_name),
-        // pass the text content as the first 
+        // pass the text content as the first
         if component_args.accepts_text { "<T: Layout, I: Into<DomString>>" } else { "<T: Layout>" },
         if component_args.accepts_text { "text: I" } else { "" },
         if function_args.is_empty() || !component_args.accepts_text { "" } else { ", " },
@@ -927,10 +926,10 @@ pub fn compile_component(
     )
 }
 
-pub fn render_dom_from_body_node<T>(
+pub fn render_dom_from_body_node(
     body_node: &XmlNode,
-    component_map: &XmlComponentMap<T>
-) -> Result<Dom<T>, RenderDomError> {
+    component_map: &XmlComponentMap
+) -> Result<Dom, RenderDomError> {
 
     // Don't actually render the <body></body> node itself
     let mut dom = Dom::body();
@@ -941,11 +940,11 @@ pub fn render_dom_from_body_node<T>(
 }
 
 /// Takes a single (expanded) app node and renders the DOM or returns an error
-pub fn render_dom_from_body_node_inner<T>(
+pub fn render_dom_from_body_node_inner(
     xml_node: &XmlNode,
-    component_map: &XmlComponentMap<T>,
+    component_map: &XmlComponentMap,
     parent_xml_attributes: &FilteredComponentArguments,
-) -> Result<Dom<T>, RenderDomError> {
+) -> Result<Dom, RenderDomError> {
 
     let component_name = normalize_casing(&xml_node.node_type);
 
@@ -978,7 +977,7 @@ pub fn render_dom_from_body_node_inner<T>(
     Ok(dom)
 }
 
-pub fn set_attributes<T>(dom: &mut Dom<T>, xml_attributes: &XmlAttributeMap, filtered_xml_attributes: &FilteredComponentArguments) {
+pub fn set_attributes(dom: &mut Dom, xml_attributes: &XmlAttributeMap, filtered_xml_attributes: &FilteredComponentArguments) {
 
     use azul_core::dom::{TabIndex, DomString};
 
@@ -1024,8 +1023,8 @@ pub fn set_attributes<T>(dom: &mut Dom<T>, xml_attributes: &XmlAttributeMap, fil
 }
 
 pub fn set_stringified_attributes(
-    dom_string: &mut String, 
-    xml_attributes: &XmlAttributeMap, 
+    dom_string: &mut String,
+    xml_attributes: &XmlAttributeMap,
     filtered_xml_attributes: &ComponentArgumentsMap,
     tabs: usize,
 ) {
@@ -1120,16 +1119,16 @@ pub fn split_dynamic_string(input: &str) -> Vec<DynamicItem> {
         let c = input[current_idx];
         match c {
             '{' if input.get(current_idx + 1).copied() != Some('{') => {
-                
+
                 // variable start, search until next closing brace or whitespace or end of string
                 let mut start_offset = 1;
                 let mut has_found_variable = false;
                 while let Some(c) = input.get(current_idx + start_offset) {
                     if c.is_whitespace() { break; }
-                    if *c == '}' && input.get(current_idx + start_offset + 1).copied() != Some('}') { 
+                    if *c == '}' && input.get(current_idx + start_offset + 1).copied() != Some('}') {
                         start_offset += 1;
-                        has_found_variable = true; 
-                        break; 
+                        has_found_variable = true;
+                        break;
                     }
                     start_offset += 1;
                 }
@@ -1138,7 +1137,7 @@ pub fn split_dynamic_string(input: &str) -> Vec<DynamicItem> {
                 // on fail, set cursor to end
                 // set last_idx accordingly
                 if has_found_variable {
-                    
+
                     if last_idx != current_idx {
                         items.push(Str(input[last_idx..current_idx].iter().collect()));
                     }
@@ -1176,7 +1175,7 @@ pub fn split_dynamic_string(input: &str) -> Vec<DynamicItem> {
 /// => "hello value1, valuec{ {c} }"
 pub fn combine_and_replace_dynamic_items(input: &[DynamicItem], variables: &ComponentArgumentsMap) -> String {
     let mut s = String::new();
-    
+
     for item in input {
         match item {
             DynamicItem::Var(v) => {
@@ -1191,7 +1190,7 @@ pub fn combine_and_replace_dynamic_items(input: &[DynamicItem], variables: &Comp
                 }
             },
             DynamicItem::Str(dynamic_str) => {
-                s.push_str(&dynamic_str); 
+                s.push_str(&dynamic_str);
             }
         }
     }
@@ -1277,11 +1276,11 @@ pub fn parse_bool(input: &str) -> Option<bool> {
     }
 }
 
-pub fn render_component_inner<T>(
+pub fn render_component_inner(
     map: &mut BTreeMap<ComponentName, (CompiledComponent, FilteredComponentArguments)>,
     component_name: String,
-    (renderer, inherit_variables): &(Box<dyn XmlComponent<T>>, bool),
-    component_map: &XmlComponentMap<T>,
+    (renderer, inherit_variables): &(Box<dyn XmlComponent>, bool),
+    component_map: &XmlComponentMap,
     parent_xml_attributes: &FilteredComponentArguments,
     tabs: usize,
 ) -> Result<(), CompileError> {
@@ -1312,19 +1311,19 @@ pub fn render_component_inner<T>(
     set_stringified_attributes(&mut dom_string, &xml_node.attributes, &filtered_xml_attributes.args, tabs + 1);
 
     for child_node in &xml_node.children {
-        dom_string.push_str(&format!("\r\n{}.with_child(\r\n{}{}\r\n{})", 
+        dom_string.push_str(&format!("\r\n{}.with_child(\r\n{}{}\r\n{})",
             t, t1, compile_node_to_rust_code_inner(child_node, component_map, &filtered_xml_attributes, tabs + 1)?, t,
         ));
     }
 
     map.insert(component_name, (dom_string, filtered_xml_attributes));
-    
+
     Ok(())
 }
 
 /// Takes all components and generates the source code function from them
-pub fn compile_components_to_rust_code<T>(
-    components: &XmlComponentMap<T>
+pub fn compile_components_to_rust_code(
+    components: &XmlComponentMap
 ) -> Result<BTreeMap<ComponentName, (CompiledComponent, FilteredComponentArguments)>, CompileError> {
 
     let mut map = BTreeMap::new();
@@ -1336,12 +1335,12 @@ pub fn compile_components_to_rust_code<T>(
     Ok(map)
 }
 
-pub fn compile_body_node_to_rust_code<T>(body_node: &XmlNode, component_map: &XmlComponentMap<T>) -> Result<String, CompileError> {
+pub fn compile_body_node_to_rust_code(body_node: &XmlNode, component_map: &XmlComponentMap) -> Result<String, CompileError> {
     let t = "    ";
     let t2 = "        ";
     let mut dom_string = String::from("Dom::body()");
     for child_node in &body_node.children {
-        dom_string.push_str(&format!("\r\n{}.with_child(\r\n{}{}\r\n{})", 
+        dom_string.push_str(&format!("\r\n{}.with_child(\r\n{}{}\r\n{})",
             t, t2, compile_node_to_rust_code_inner(child_node, component_map, &FilteredComponentArguments::default(), 2)?, t
         ));
     }
@@ -1370,9 +1369,9 @@ fn compile_and_format_dynamic_items(input: &[DynamicItem]) -> String {
                     formatted_str.push_str(&format!("{{{}}}", variable_name));
                     variables.push(variable_name.clone());
                 },
-                Str(s) => { 
+                Str(s) => {
                     let s = s.replace("\"", "\\\"");
-                    formatted_str.push_str(&s); 
+                    formatted_str.push_str(&s);
                 },
             }
         }
@@ -1393,13 +1392,13 @@ fn format_args_for_rust_code(input: &str) -> String {
     compile_and_format_dynamic_items(&dynamic_str_items)
 }
 
-pub fn compile_node_to_rust_code_inner<T>(
-    node: &XmlNode, 
-    component_map: &XmlComponentMap<T>, 
+pub fn compile_node_to_rust_code_inner(
+    node: &XmlNode,
+    component_map: &XmlComponentMap,
     parent_xml_attributes: &FilteredComponentArguments,
     tabs: usize,
 ) -> Result<String, CompileError> {
-    
+
     let t = String::from("    ").repeat(tabs);
     let t2 = String::from("    ").repeat(tabs + 1);
 
@@ -1441,12 +1440,12 @@ pub fn compile_node_to_rust_code_inner<T>(
         .collect::<Vec<(usize, String)>>();
 
         args.sort_by(|(_, a), (_, b)| a.cmp(&b));
-    
+
         args.into_iter().map(|(k, v)| v.clone()).collect::<Vec<String>>().join(", ")
     };
 
-    let text_as_first_arg = 
-        if filtered_xml_attributes.accepts_text { 
+    let text_as_first_arg =
+        if filtered_xml_attributes.accepts_text {
             let node_text = node.text.clone().unwrap_or_default();
             let node_text = format_args_for_rust_code(node_text.trim());
             let trailing_comma = if !instantiated_function_arguments.is_empty() { ", " } else { "" };
@@ -1456,9 +1455,9 @@ pub fn compile_node_to_rust_code_inner<T>(
             //   "{text}" => "text"
             //   "{href}" => "href"
             //   "{blah}_the_thing" => "format!(\"{blah}_the_thing\", blah)"
-            
-            format!("{}{}", node_text, trailing_comma) 
-        } else { 
+
+            format!("{}{}", node_text, trailing_comma)
+        } else {
             String::new()
         };
 
@@ -1468,7 +1467,7 @@ pub fn compile_node_to_rust_code_inner<T>(
 
     for child_node in &node.children {
         dom_string.push_str(
-            &format!("\r\n{}.with_child(\r\n{}{}\r\n{})", 
+            &format!("\r\n{}.with_child(\r\n{}{}\r\n{})",
                 t, t2, compile_node_to_rust_code_inner(child_node, component_map, &filtered_xml_attributes, tabs + 1)?, t
             )
         );
@@ -1483,17 +1482,17 @@ pub fn compile_node_to_rust_code_inner<T>(
 #[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub struct DivRenderer { }
 
-impl<T> XmlComponent<T> for DivRenderer {
+impl XmlComponent for DivRenderer {
 
     fn get_available_arguments(&self) -> ComponentArguments {
         ComponentArguments::new()
     }
 
-    fn render_dom(&self, _: &XmlComponentMap<T>, _: &FilteredComponentArguments, _: &XmlTextContent) -> Result<Dom<T>, RenderDomError> {
+    fn render_dom(&self, _: &XmlComponentMap, _: &FilteredComponentArguments, _: &XmlTextContent) -> Result<Dom, RenderDomError> {
         Ok(Dom::div())
     }
 
-    fn compile_to_rust_code(&self, _: &XmlComponentMap<T>, _: &FilteredComponentArguments, _: &XmlTextContent) -> Result<String, CompileError> {
+    fn compile_to_rust_code(&self, _: &XmlComponentMap, _: &FilteredComponentArguments, _: &XmlTextContent) -> Result<String, CompileError> {
         Ok("Dom::div()".into())
     }
 
@@ -1506,17 +1505,17 @@ impl<T> XmlComponent<T> for DivRenderer {
 #[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub struct BodyRenderer { }
 
-impl<T> XmlComponent<T> for BodyRenderer {
+impl XmlComponent for BodyRenderer {
 
     fn get_available_arguments(&self) -> ComponentArguments {
         ComponentArguments::new()
     }
 
-    fn render_dom(&self, _: &XmlComponentMap<T>, _: &FilteredComponentArguments, _: &XmlTextContent) -> Result<Dom<T>, RenderDomError> {
+    fn render_dom(&self, _: &XmlComponentMap, _: &FilteredComponentArguments, _: &XmlTextContent) -> Result<Dom, RenderDomError> {
         Ok(Dom::body())
     }
 
-    fn compile_to_rust_code(&self, _: &XmlComponentMap<T>, _: &FilteredComponentArguments, _: &XmlTextContent) -> Result<String, CompileError> {
+    fn compile_to_rust_code(&self, _: &XmlComponentMap, _: &FilteredComponentArguments, _: &XmlTextContent) -> Result<String, CompileError> {
         Ok("Dom::body()".into())
     }
 
@@ -1529,7 +1528,7 @@ impl<T> XmlComponent<T> for BodyRenderer {
 #[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub struct TextRenderer { }
 
-impl<T> XmlComponent<T> for TextRenderer {
+impl XmlComponent for TextRenderer {
 
     fn get_available_arguments(&self) -> ComponentArguments {
         ComponentArguments {
@@ -1538,12 +1537,12 @@ impl<T> XmlComponent<T> for TextRenderer {
         }
     }
 
-    fn render_dom(&self, _: &XmlComponentMap<T>, _: &FilteredComponentArguments, content: &XmlTextContent) -> Result<Dom<T>, RenderDomError> {
+    fn render_dom(&self, _: &XmlComponentMap, _: &FilteredComponentArguments, content: &XmlTextContent) -> Result<Dom, RenderDomError> {
         let content = content.as_ref().map(|s| prepare_string(&s)).unwrap_or_default();
         Ok(Dom::label(content))
     }
 
-    fn compile_to_rust_code(&self, _: &XmlComponentMap<T>, args: &FilteredComponentArguments, content: &XmlTextContent) -> Result<String, CompileError> {
+    fn compile_to_rust_code(&self, _: &XmlComponentMap, args: &FilteredComponentArguments, content: &XmlTextContent) -> Result<String, CompileError> {
         Ok(String::from("Dom::label(text)"))
     }
 
@@ -1594,7 +1593,7 @@ fn test_compile_dom_1() {
         </body>
     "#;
     let s1_expected = r#"
-        fn render_component_test<T>() -> Dom<T> {
+        fn render_component_test<T>() -> Dom {
             Dom::div().with_id("a").with_class("b").is_draggable(true)
         }
     "#;

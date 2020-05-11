@@ -70,7 +70,7 @@ impl CachedDisplayList {
         Self { root: DisplayListMsg::Frame(DisplayListFrame::root(size, origin)) }
     }
 
-    pub fn new<T>(
+    pub fn new(
             epoch: Epoch,
             pipeline_id: PipelineId,
             full_window_state: &FullWindowState,

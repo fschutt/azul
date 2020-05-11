@@ -15,7 +15,7 @@ impl Label {
     }
 
     #[inline]
-    pub fn dom<T>(self) -> Dom<T> {
+    pub fn dom(self) -> Dom {
         Dom::label(self.text).with_class("__azul-native-label")
     }
 }

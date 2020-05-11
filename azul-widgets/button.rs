@@ -28,7 +28,7 @@ impl Button {
         }
     }
 
-    pub fn dom<T>(self) -> Dom<T> {
+    pub fn dom(self) -> Dom {
         use self::ButtonContent::*;
 
         let mut button_root = Dom::div()
