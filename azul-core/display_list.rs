@@ -74,7 +74,7 @@ impl CachedDisplayList {
             epoch: Epoch,
             pipeline_id: PipelineId,
             full_window_state: &FullWindowState,
-            ui_state_cache: &BTreeMap<DomId, UiState<T>>,
+            ui_state_cache: &BTreeMap<DomId, UiState>,
             layout_result_cache: &SolvedLayoutCache,
             gl_texture_cache: &GlTextureCache,
             app_resources: &AppResources,
@@ -504,7 +504,7 @@ pub struct DisplayList {
 impl DisplayList {
 
     /// NOTE: This function assumes that the UiDescription has an initialized arena
-    pub fn new<T>(ui_description: &UiDescription, ui_state: &UiState<T>) -> Self {
+    pub fn new(ui_description: &UiDescription, ui_state: &UiState) -> Self {
 
         let arena = &ui_state.dom.arena;
 
@@ -540,7 +540,7 @@ impl DisplayList {
 /// `DisplayListParametersRef` has only members that are
 ///  **immutable references** to other things that need to be passed down the display list
 #[derive(Clone)]
-pub struct DisplayListParametersRef<'a, T: 'a> {
+pub struct DisplayListParametersRef<'a> {
     /// ID of this Dom
     pub dom_id: DomId,
     /// Epoch of all the OpenGL textures
@@ -554,7 +554,7 @@ pub struct DisplayListParametersRef<'a, T: 'a> {
     /// Cached rendered OpenGL textures
     pub gl_texture_cache: &'a GlTextureCache,
     /// Reference to the UIState, for access to `node_hierarchy` and `node_data`
-    pub ui_state_cache: &'a BTreeMap<DomId, UiState<T>>,
+    pub ui_state_cache: &'a BTreeMap<DomId, UiState>,
     /// Reference to the AppResources, necessary to query info about image and font keys
     pub app_resources: &'a AppResources,
 }
@@ -606,13 +606,8 @@ pub struct GlTextureCache {
     pub solved_textures: BTreeMap<DomId, BTreeMap<NodeId, (ImageKey, ImageDescriptor)>>,
 }
 
-// todo: very unclean, just so that
-pub type LayoutFn<T> = fn(&NodeHierarchy, &NodeDataContainer<NodeData<T>>, &NodeDataContainer<DisplayRectangle>, &AppResources, &PipelineId, LayoutRect) -> LayoutResult;
-
-// struct ImageData
-// enum ExternalImageType
-// enum TextureTarget
-// enum ResourceUpdate
+// todo: very unclean
+pub type LayoutFn = fn(&NodeHierarchy, &NodeDataContainer<NodeData>, &NodeDataContainer<DisplayRectangle>, &AppResources, &PipelineId, LayoutRect) -> LayoutResult;
 
 pub type GlStoreImageFn = fn(PipelineId, Epoch, Texture) -> ExternalImageId;
 
@@ -625,17 +620,17 @@ pub struct SolvedLayout {
 impl SolvedLayout {
 
     /// Does the layout, updates the image + font resources for the RenderAPI
-    pub fn new<T, U: FontImageApi>(
+    pub fn new<U: FontImageApi>(
         epoch: Epoch,
         pipeline_id: PipelineId,
         full_window_state: &FullWindowState,
         gl_context: Rc<dyn Gl>,
         render_api: &mut U,
         app_resources: &mut AppResources,
-        ui_states: &mut BTreeMap<DomId, UiState<T>>,
+        ui_states: &mut BTreeMap<DomId, UiState>,
         ui_descriptions: &mut BTreeMap<DomId, UiDescription>,
         insert_into_active_gl_textures: GlStoreImageFn,
-        layout_func: LayoutFn<T>,
+        layout_func: LayoutFn,
         load_font_fn: LoadFontFn,
         load_image_fn: LoadImageFn,
     ) -> Self {
@@ -647,20 +642,20 @@ impl SolvedLayout {
             },
         };
 
-        fn recurse<T, U: FontImageApi>(
+        fn recurse<U: FontImageApi>(
             layout_cache: &mut SolvedLayoutCache,
             solved_textures: &mut BTreeMap<DomId, BTreeMap<NodeId, Texture>>,
-            iframe_ui_states: &mut BTreeMap<DomId, UiState<T>>,
+            iframe_ui_states: &mut BTreeMap<DomId, UiState>,
             iframe_ui_descriptions: &mut BTreeMap<DomId, UiDescription>,
             app_resources: &mut AppResources,
             render_api: &mut U,
             full_window_state: &FullWindowState,
-            ui_state: &UiState<T>,
+            ui_state: &UiState,
             ui_description: &UiDescription,
             pipeline_id: &PipelineId,
             bounds: LayoutRect,
             gl_context: Rc<dyn Gl>,
-            layout_func: LayoutFn<T>,
+            layout_func: LayoutFn,
             load_font_fn: LoadFontFn,
             load_image_fn: LoadImageFn,
         ) {
@@ -979,10 +974,10 @@ pub fn sort_children_by_position(
 /// activated
 /// - Overflow for X and Y needs to be tracked seperately (for overflow-x / overflow-y separation),
 /// so there we'd need to track in which direction the inner_rect is overflowing.
-pub fn get_nodes_that_need_scroll_clip<T>(
+pub fn get_nodes_that_need_scroll_clip(
     node_hierarchy: &NodeHierarchy,
     display_list_rects: &NodeDataContainer<DisplayRectangle>,
-    dom_rects: &NodeDataContainer<NodeData<T>>,
+    dom_rects: &NodeDataContainer<NodeData>,
     layouted_rects: &NodeDataContainer<PositionedRectangle>,
     parents: &[(usize, NodeId)],
     pipeline_id: PipelineId,
@@ -1066,9 +1061,9 @@ pub fn node_needs_to_clip_children(layout: &RectLayout) -> bool {
     !(layout.is_horizontal_overflow_visible() || layout.is_vertical_overflow_visible())
 }
 
-pub fn push_rectangles_into_displaylist<'a, T>(
+pub fn push_rectangles_into_displaylist<'a>(
     root_content_group: &ContentGroup,
-    referenced_content: &DisplayListParametersRef<'a, T>,
+    referenced_content: &DisplayListParametersRef<'a>,
 ) -> DisplayListMsg {
 
     let mut content = displaylist_handle_rect(
@@ -1089,9 +1084,9 @@ pub fn push_rectangles_into_displaylist<'a, T>(
 }
 
 /// Push a single rectangle into the display list builder
-pub fn displaylist_handle_rect<'a, T>(
+pub fn displaylist_handle_rect<'a>(
     rect_idx: NodeId,
-    referenced_content: &DisplayListParametersRef<'a, T>,
+    referenced_content: &DisplayListParametersRef<'a>,
 ) -> DisplayListMsg {
 
     use crate::dom::NodeType::*;

@@ -24,11 +24,11 @@ pub struct HtmlCascadeInfo {
 }
 
 /// Returns if the style CSS path matches the DOM node (i.e. if the DOM node should be styled by that element)
-pub fn matches_html_element<T>(
+pub fn matches_html_element(
     css_path: &CssPath,
     node_id: NodeId,
     node_hierarchy: &NodeHierarchy,
-    node_data: &NodeDataContainer<NodeData<T>>,
+    node_data: &NodeDataContainer<NodeData>,
     html_node_tree: &NodeDataContainer<HtmlCascadeInfo>,
 ) -> bool {
 
@@ -76,8 +76,8 @@ pub fn matches_html_element<T>(
     last_selector_matched
 }
 
-pub fn match_dom_selectors<T>(
-    ui_state: &UiState<T>,
+pub fn match_dom_selectors(
+    ui_state: &UiState,
     css: &Css,
     focused_node: &Option<(DomId, NodeId)>,
     hovered_nodes: &BTreeMap<NodeId, HitTestItem>,
@@ -310,10 +310,10 @@ pub fn collect_hover_groups(css: &Css) -> BTreeMap<CssPath, HoverGroup> {
 
 /// In order to figure out on which nodes to insert the :hover and :active hit-test tags,
 /// we need to select all items that have a :hover or :active tag.
-fn match_hover_selectors<T>(
+fn match_hover_selectors(
     hover_selectors: BTreeMap<CssPath, HoverGroup>,
     node_hierarchy: &NodeHierarchy,
-    node_data: &NodeDataContainer<NodeData<T>>,
+    node_data: &NodeDataContainer<NodeData>,
     html_node_tree: &NodeDataContainer<HtmlCascadeInfo>,
 ) -> BTreeMap<NodeId, HoverGroup> {
 
@@ -335,10 +335,10 @@ fn match_hover_selectors<T>(
 ///
 /// The intent is to "split" the CSS path into groups by selectors, then store and cache
 /// whether the direct or any parent has matched the path correctly
-pub fn selector_group_matches<T>(
+pub fn selector_group_matches(
     selectors: &[&CssPathSelector],
     html_node: &HtmlCascadeInfo,
-    node_data: &NodeData<T>,
+    node_data: &NodeData,
 ) -> bool {
 
     use self::CssPathSelector::*;

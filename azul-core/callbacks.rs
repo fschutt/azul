@@ -114,7 +114,7 @@ pub const DontRedraw: Option<()> = None;
 /// can look something like this:
 ///
 /// ```rust,no_run
-/// fn layout(&self, _: &LayoutInfo) -> Dom<T> {
+/// fn layout(&self, _: &LayoutInfo) -> Dom {
 ///     Spreadsheet::new()
 ///         .override_oncellchange(my_func_1)
 ///         .override_onworkspacechange(my_func_2)
@@ -248,7 +248,7 @@ pub type PipelineSourceId = u32;
 
 /// Callback function pointer (has to be a function pointer in
 /// order to be compatible with C APIs later on).
-pub type LayoutCallback<T> = fn(&T, layout_info: LayoutInfo) -> Dom<T>;
+pub type LayoutCallback = fn(&RefAny, layout_info: LayoutInfo) -> Dom;
 
 /// Information about a scroll frame, given to the user by the framework
 #[derive(Debug, Copy, Clone, PartialEq, PartialOrd)]
@@ -323,66 +323,15 @@ pub struct HitTestItem {
 /// for a Callback with a `.0` field:
 ///
 /// ```
-/// struct MyCallback<T>(fn (&T));
+/// struct MyCallback(fn (&T));
 ///
-/// // impl <T> Display, Debug, etc. for MyCallback<T>
-/// impl_callback!(MyCallback<T>);
+/// // impl Display, Debug, etc. for MyCallback
+/// impl_callback!(MyCallback);
 /// ```
 ///
 /// This is necessary to work around for https://github.com/rust-lang/rust/issues/54508
 #[macro_export]
-macro_rules! impl_callback {($callback_value:ident<$t:ident>) => (
-
-    impl<$t> ::std::fmt::Display for $callback_value<$t> {
-        fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-            write!(f, "{:?}", self)
-        }
-    }
-
-    impl<$t> ::std::fmt::Debug for $callback_value<$t> {
-        fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-            let callback = stringify!($callback_value);
-            write!(f, "{} @ 0x{:x}", callback, self.0 as usize)
-        }
-    }
-
-    impl<$t> Clone for $callback_value<$t> {
-        fn clone(&self) -> Self {
-            $callback_value(self.0.clone())
-        }
-    }
-
-    impl<$t> ::std::hash::Hash for $callback_value<$t> {
-        fn hash<H>(&self, state: &mut H) where H: ::std::hash::Hasher {
-            state.write_usize(self.0 as usize);
-        }
-    }
-
-    impl<$t> PartialEq for $callback_value<$t> {
-        fn eq(&self, rhs: &Self) -> bool {
-            self.0 as usize == rhs.0 as usize
-        }
-    }
-
-    impl<$t> PartialOrd for $callback_value<$t> {
-        fn partial_cmp(&self, other: &Self) -> Option<::std::cmp::Ordering> {
-            Some((self.0 as usize).cmp(&(other.0 as usize)))
-        }
-    }
-
-    impl<$t> Ord for $callback_value<$t> {
-        fn cmp(&self, other: &Self) -> ::std::cmp::Ordering {
-            (self.0 as usize).cmp(&(other.0 as usize))
-        }
-    }
-
-    impl<$t> Eq for $callback_value<$t> { }
-
-    impl<$t> Copy for $callback_value<$t> { }
-)}
-
-#[macro_export]
-macro_rules! impl_callback_no_generics {($callback_value:ident) => (
+macro_rules! impl_callback {($callback_value:ident) => (
 
     impl ::std::fmt::Display for $callback_value {
         fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
@@ -439,11 +388,20 @@ macro_rules! impl_get_gl_context {() => {
     }
 };}
 
-// -- default callback
+// -- normal callback
 
-pub struct DefaultCallbackInfo<'a, T> {
-    /// Type-erased pointer to a unknown type on the stack (inside of `T`),
-    /// pointer has to be casted to a `U` type first (via `.invoke_callback()`)
+/// Stores a function pointer that is executed when the given UI element is hit
+///
+/// Must return an `UpdateScreen` that denotes if the screen should be redrawn.
+/// The style is not affected by this, so if you make changes to the window's style
+/// inside the function, the screen will not be automatically redrawn, unless you return
+/// an `UpdateScreen::Redraw` from the function
+pub struct Callback(pub CallbackType);
+impl_callback!(Callback);
+
+/// Information about the callback that is passed to the callback whenever a callback is invoked
+pub struct CallbackInfo<'a> {
+    /// Your data (the global struct which all callbacks will have access to)
     pub state: &'a RefAny,
     /// State of the current window that the callback was called on (read only!)
     pub current_window_state: &'a FullWindowState,
@@ -463,80 +421,13 @@ pub struct DefaultCallbackInfo<'a, T> {
     /// See [`AppState.resources`](./struct.AppState.html#structfield.resources)
     pub resources : &'a mut AppResources,
     /// Currently running timers (polling functions, run on the main thread)
-    pub timers: &'a mut FastHashMap<TimerId, Timer<T>>,
+    pub timers: &'a mut FastHashMap<TimerId, Timer>,
     /// Currently running tasks (asynchronous functions running each on a different thread)
-    pub tasks: &'a mut Vec<Task<T>>,
+    pub tasks: &'a mut Vec<Task>,
     /// UiState containing the necessary data for testing what
-    pub ui_state: &'a BTreeMap<DomId, UiState<T>>,
+    pub ui_state: &'a BTreeMap<DomId, UiState>,
     /// Sets whether the event should be propagated to the parent hit node or not
     pub stop_propagation: &'a mut bool,
-    /// The callback can change the focus_target - note that the focus_target is set before the
-    /// next frames' layout() function is invoked, but the current frames callbacks are not affected.
-    pub focus_target: &'a mut Option<FocusTarget>,
-    /// Immutable (!) reference to where the nodes are currently scrolled (current position)
-    pub current_scroll_states: &'a BTreeMap<DomId, BTreeMap<NodeId, ScrollPosition>>,
-    /// Mutable map where a user can set where he wants the nodes to be scrolled to (for the next frame)
-    pub nodes_scrolled_in_callback: &'a mut BTreeMap<DomId, BTreeMap<NodeId, LayoutPoint>>,
-    /// The ID of the node that was hit. You can use this to query information about
-    /// the node, but please don't hard-code any if / else statements based on the `NodeId`
-    pub hit_dom_node: (DomId, NodeId),
-    /// The (x, y) position of the mouse cursor, **relative to top left of the element that was hit**.
-    pub cursor_relative_to_item: Option<(f32, f32)>,
-    /// The (x, y) position of the mouse cursor, **relative to top left of the window**.
-    pub cursor_in_viewport: Option<(f32, f32)>,
-}
-
-/// Callback that is invoked "by default", for example a text field that always
-/// has a default "ontextinput" handler
-pub struct DefaultCallback<T>(pub DefaultCallbackType<T>);
-impl_callback!(DefaultCallback<T>);
-
-pub type DefaultCallbackType<T> = fn(DefaultCallbackInfo<T>) -> CallbackReturn;
-
-// -- normal callback
-
-/// Stores a function pointer that is executed when the given UI element is hit
-///
-/// Must return an `UpdateScreen` that denotes if the screen should be redrawn.
-/// The style is not affected by this, so if you make changes to the window's style
-/// inside the function, the screen will not be automatically redrawn, unless you return
-/// an `UpdateScreen::Redraw` from the function
-pub struct Callback<T>(pub CallbackType<T>);
-impl_callback!(Callback<T>);
-
-/// Information about the callback that is passed to the callback whenever a callback is invoked
-pub struct CallbackInfo<'a, T: 'a> {
-    /// Your data (the global struct which all callbacks will have access to)
-    pub state: &'a mut T,
-    /// State of the current window that the callback was called on (read only!)
-    pub current_window_state: &'a FullWindowState,
-    /// User-modifiable state of the window that the callback was called on
-    pub modifiable_window_state: &'a mut WindowState,
-    /// Currently active, layouted rectangles
-    pub layout_result: &'a BTreeMap<DomId, LayoutResult>,
-    /// Nodes that overflow their parents and are able to scroll
-    pub scrolled_nodes: &'a BTreeMap<DomId, ScrolledNodes>,
-    /// Current display list active in this window (useful for debugging)
-    pub cached_display_list: &'a CachedDisplayList,
-    /// An Rc to the original WindowContext - this is only so that
-    /// the user can create textures and other OpenGL content in the window
-    /// but not change any window properties from underneath - this would
-    /// lead to mismatch between the
-    pub gl_context: Rc<dyn Gl>,
-    /// See [`AppState.resources`](./struct.AppState.html#structfield.resources)
-    pub resources : &'a mut AppResources,
-    /// Currently running timers (polling functions, run on the main thread)
-    pub timers: &'a mut FastHashMap<TimerId, Timer<T>>,
-    /// Currently running tasks (asynchronous functions running each on a different thread)
-    pub tasks: &'a mut Vec<Task<T>>,
-    /// UiState containing the necessary data for testing what
-    pub ui_state: &'a BTreeMap<DomId, UiState<T>>,
-    /// Sets whether the event should be propagated to the parent hit node or not
-    pub stop_propagation: &'a mut bool,
-    /// Sets whether the default event for this event type
-    /// should be invoked. If set to true, this will prevent the default callback from running
-    /// *and will stop the default callback from bubbling to its parents*.
-    pub prevent_default: &'a mut bool,
     /// The callback can change the focus_target - note that the focus_target is set before the
     /// next frames' layout() function is invoked, but the current frames callbacks are not affected.
     pub focus_target: &'a mut Option<FocusTarget>,
@@ -554,9 +445,9 @@ pub struct CallbackInfo<'a, T: 'a> {
     pub cursor_in_viewport: Option<(f32, f32)>,
 }
 pub type CallbackReturn = UpdateScreen;
-pub type CallbackType<T> = fn(CallbackInfo<T>) -> CallbackReturn;
+pub type CallbackType = fn(CallbackInfo) -> CallbackReturn;
 
-impl<'a, T: 'a> fmt::Debug for CallbackInfo<'a, T> {
+impl<'a> fmt::Debug for CallbackInfo<'a> {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         write!(f, "CallbackInfo {{
             data: {{ .. }}, \
@@ -593,25 +484,7 @@ impl<'a, T: 'a> fmt::Debug for CallbackInfo<'a, T> {
     }
 }
 
-impl<'a, T: 'a> DefaultCallbackInfo<'a, T> {
-    /// Sets whether the event should be propagated to the parent hit node or not
-    ///
-    /// Similar to `e.stopPropagation()` in JavaScript
-    pub fn stop_propagation(&mut self) {
-        *self.stop_propagation = true;
-    }
-}
-
-impl<'a, T: 'a> CallbackInfo<'a, T> {
-    /// Sets whether the default event for this event type
-    /// should be invoked. If set to true, this will prevent the default callback from running
-    /// *and will stop the default callback from bubbling to its parents*.
-    ///
-    /// Similar to `e.preventDefault()` in JavaScript
-    pub fn prevent_default(&mut self) {
-        *self.prevent_default = true;
-    }
-
+impl<'a> CallbackInfo<'a> {
     /// Sets whether the event should be propagated to the parent hit node or not
     ///
     /// Similar to `e.stopPropagation()` in JavaScript
@@ -624,7 +497,7 @@ impl<'a, T: 'a> CallbackInfo<'a, T> {
 
 /// Callbacks that returns a rendered OpenGL texture
 pub struct GlCallback(pub GlCallbackType);
-impl_callback_no_generics!(GlCallback);
+impl_callback!(GlCallback);
 
 pub struct GlCallbackInfo<'a> {
     pub state: &'a RefAny,
@@ -639,8 +512,8 @@ pub type GlCallbackType = fn(GlCallbackInfo) -> GlCallbackReturn;
 
 /// Callback that, given a rectangle area on the screen, returns the DOM
 /// appropriate for that bounds (useful for infinite lists)
-pub struct IFrameCallback<T>(pub IFrameCallbackType<T>);
-impl_callback!(IFrameCallback<T>);
+pub struct IFrameCallback(pub IFrameCallbackType);
+impl_callback!(IFrameCallback);
 
 pub struct IFrameCallbackInfo<'a> {
     pub state: &'a RefAny,
@@ -648,20 +521,20 @@ pub struct IFrameCallbackInfo<'a> {
     pub bounds: HidpiAdjustedBounds,
 }
 
-pub type IFrameCallbackReturn<T> = Option<Dom<T>>; // todo: return virtual scrolling frames!
-pub type IFrameCallbackType<T> = fn(IFrameCallbackInfo) -> IFrameCallbackReturn<T>;
+pub type IFrameCallbackReturn = Option<Dom>; // todo: return virtual scrolling frames!
+pub type IFrameCallbackType = fn(IFrameCallbackInfo) -> IFrameCallbackReturn;
 
 // -- timer callback
 
 /// Callback that can runs on every frame on the main thread - can modify the app data model
-pub struct TimerCallback<T>(pub TimerCallbackType<T>);
-impl_callback!(TimerCallback<T>);
-pub struct TimerCallbackInfo<'a, T> {
-    pub state: &'a mut T,
+pub struct TimerCallback(pub TimerCallbackType);
+impl_callback!(TimerCallback);
+pub struct TimerCallbackInfo<'a> {
+    pub state: &'a mut RefAny,
     pub app_resources: &'a mut AppResources,
 }
 pub type TimerCallbackReturn = (UpdateScreen, TerminateTimer);
-pub type TimerCallbackType<T> = fn(TimerCallbackInfo<T>) -> TimerCallbackReturn;
+pub type TimerCallbackType = fn(TimerCallbackInfo) -> TimerCallbackReturn;
 
 /// Pointer to rust-allocated `Box<LayoutInfo<'a>>` struct
 #[no_mangle] #[repr(C)] pub struct LayoutInfoPtr { pub ptr: *mut c_void }
@@ -703,7 +576,7 @@ impl<'a> LayoutInfo<'a> {
     /// For example:
     ///
     /// ```rust,no_run,ignore
-    /// fn layout(info: LayoutInfo<T>) -> Dom<T> {
+    /// fn layout(info: LayoutInfo<T>) -> Dom {
     ///     if info.window_width_larger_than(720.0) {
     ///         render_desktop_ui()
     ///     } else {
@@ -787,10 +660,10 @@ pub enum FocusTarget {
 }
 
 impl FocusTarget {
-    pub fn resolve<T>(
+    pub fn resolve(
         &self,
         ui_descriptions: &BTreeMap<DomId, UiDescription>,
-        ui_states: &BTreeMap<DomId, UiState<T>>,
+        ui_states: &BTreeMap<DomId, UiState>,
     ) -> Result<Option<(DomId, NodeId)>, UpdateFocusWarning> {
 
         use crate::callbacks::FocusTarget::*;
@@ -819,13 +692,7 @@ impl FocusTarget {
     }
 }
 
-impl<'a, T: 'a> CallbackInfo<'a, T> {
-    impl_callback_info_api!();
-    impl_task_api!();
-    impl_get_gl_context!();
-}
-
-impl<'a, T> DefaultCallbackInfo<'a, T> {
+impl<'a> CallbackInfo<'a> {
     impl_callback_info_api!();
     impl_task_api!();
     impl_get_gl_context!();
@@ -833,12 +700,12 @@ impl<'a, T> DefaultCallbackInfo<'a, T> {
 
 /// Iterator that, starting from a certain starting point, returns the
 /// parent node until it gets to the root node.
-pub struct ParentNodesIterator<'a, T: 'a> {
-    ui_state: &'a BTreeMap<DomId, UiState<T>>,
+pub struct ParentNodesIterator<'a> {
+    ui_state: &'a BTreeMap<DomId, UiState>,
     current_item: (DomId, NodeId),
 }
 
-impl<'a, T: 'a> ParentNodesIterator<'a, T> {
+impl<'a> ParentNodesIterator<'a> {
 
     /// Returns what node ID the iterator is currently processing
     pub fn current_node(&self) -> (DomId, NodeId) {
@@ -856,7 +723,7 @@ impl<'a, T: 'a> ParentNodesIterator<'a, T> {
     }
 }
 
-impl<'a, T: 'a> Iterator for ParentNodesIterator<'a, T> {
+impl<'a> Iterator for ParentNodesIterator<'a> {
     type Item = (DomId, NodeId);
 
     /// For each item in the current item path, returns the index of the item in the parent
@@ -868,13 +735,12 @@ impl<'a, T: 'a> Iterator for ParentNodesIterator<'a, T> {
 }
 
 /// The actual function that calls the callback in their proper hierarchy and order
-pub fn call_callbacks<T>(
-    data: &mut T,
-    callbacks_filter_list: &BTreeMap<DomId, CallbacksOfHitTest<T>>,
-    ui_state_map: &BTreeMap<DomId, UiState<T>>,
+pub fn call_callbacks(
+    callbacks_filter_list: &BTreeMap<DomId, CallbacksOfHitTest>,
+    ui_state_map: &BTreeMap<DomId, UiState>,
     ui_description_map: &BTreeMap<DomId, UiDescription>,
-    timers: &mut FastHashMap<TimerId, Timer<T>>,
-    tasks: &mut Vec<Task<T>>,
+    timers: &mut FastHashMap<TimerId, Timer>,
+    tasks: &mut Vec<Task>,
     scroll_states: &BTreeMap<DomId, BTreeMap<NodeId, ScrollPosition>>,
     modifiable_scroll_states: &mut ScrollStates,
     full_window_state: &mut FullWindowState,
@@ -896,11 +762,14 @@ pub fn call_callbacks<T>(
     let mut new_focus_target = None;
     let mut nodes_scrolled_in_callbacks = BTreeMap::new();
 
-    // Which default callbacks should be prevented from running?
-    let mut event_prevent_default = BTreeMap::new();
+    // Run all callbacks (front to back)
 
-    // Run all regular callbacks first (front-to-back)
     for (dom_id, callbacks_of_hit_test) in callbacks_filter_list.iter() {
+
+        let ui_state = match ui_state_map.get(dom_id) {
+            Some(s) => s,
+            None => continue,
+        };
 
         // In order to implement bubbling properly, the events have to be re-sorted a bit
         // TODO: Put this in the CallbacksOfHitTest construction
@@ -915,21 +784,30 @@ pub fn call_callbacks<T>(
             }
         }
 
-        'outer_normal: for (event_filter, callback_nodes) in callbacks_grouped_by_event_type {
+        'outer: for (event_filter, callback_nodes) in callbacks_grouped_by_event_type {
 
             // The (node_id, callback)s are sorted by depth from top to bottom.
             // If one event wants to prevent bubbling, the entire event is canceled.
             // It is assumed that there aren't any two nodes that have the same event filter.
-            for (node_id, callback) in callback_nodes {
+            for (node_id, _) in callback_nodes {
 
                 let mut new_focus = None;
                 let mut stop_propagation = false;
-                let mut prevent_default = false;
                 let hit_item = &callbacks_of_hit_test.nodes_with_callbacks[&node_id].hit_test_item;
+
+                let callback = ui_state.get_dom().arena.node_data
+                    .get(*node_id)
+                    .map(|nd| nd.get_callbacks())
+                    .and_then(|dc| dc.iter().find_map(|(evt, cb)| if evt == event_filter { Some(cb) } else { None }));
+
+                let (callback, callback_ptr) = match callback {
+                    Some(s) => s,
+                    None => continue,
+                };
 
                 // Invoke callback
                 let callback_return = (callback.0)(CallbackInfo {
-                    state: data,
+                    state: callback_ptr,
                     current_window_state: &full_window_state,
                     modifiable_window_state: &mut ret.modified_window_state,
                     layout_result,
@@ -940,7 +818,6 @@ pub fn call_callbacks<T>(
                     timers,
                     tasks,
                     ui_state: ui_state_map,
-                    prevent_default: &mut prevent_default,
                     stop_propagation: &mut stop_propagation,
                     focus_target: &mut new_focus,
                     current_scroll_states: scroll_states,
@@ -954,102 +831,12 @@ pub fn call_callbacks<T>(
                     ret.callbacks_update_screen = Redraw;
                 }
 
-                if let Some(new_focus) = new_focus {
-                    new_focus_target = Some(new_focus);
-                }
-
-                if prevent_default {
-                    event_prevent_default.insert((dom_id, node_id), event_filter);
-                }
-
-                if stop_propagation {
-                    continue 'outer_normal;
-                }
-            }
-        }
-    }
-
-    // Run all default callbacks (front to back)
-
-    for (dom_id, callbacks_of_hit_test) in callbacks_filter_list.iter() {
-
-        let ui_state = match ui_state_map.get(dom_id) {
-            Some(s) => s,
-            None => continue,
-        };
-
-        // In order to implement bubbling properly, the events have to be re-sorted a bit
-        // TODO: Put this in the CallbacksOfHitTest construction
-        let mut default_callbacks_grouped_by_event_type = BTreeMap::new();
-
-        for (node_id, determine_callback_result) in callbacks_of_hit_test.nodes_with_callbacks.iter() {
-            for (event_filter, default_callback) in determine_callback_result.default_callbacks.iter() {
-                default_callbacks_grouped_by_event_type
-                    .entry(event_filter)
-                    .or_insert_with(|| Vec::new())
-                    .push((node_id, default_callback));
-            }
-        }
-
-        'outer_default: for (event_filter, default_callback_nodes) in default_callbacks_grouped_by_event_type {
-
-            // The (node_id, callback)s are sorted by depth from top to bottom.
-            // If one event wants to prevent bubbling, the entire event is canceled.
-            // It is assumed that there aren't any two nodes that have the same event filter.
-            for (node_id, _) in default_callback_nodes {
-
-                if event_prevent_default.get(&(dom_id, node_id)).copied() == Some(event_filter) {
-                    // In addition to preventing the default callback, also prevent bubbling
-                    // TODO: not sure if this is the correct behaviour
-                    continue 'outer_default;
-                }
-
-                let mut new_focus = None;
-                let mut stop_propagation = false;
-                let hit_item = &callbacks_of_hit_test.nodes_with_callbacks[&node_id].hit_test_item;
-
-                let default_callback = ui_state.get_dom().arena.node_data
-                    .get(*node_id)
-                    .map(|nd| nd.get_default_callbacks())
-                    .and_then(|dc| dc.iter().find_map(|(evt, cb)| if evt == event_filter { Some(cb) } else { None }));
-
-                let (default_callback, default_callback_ptr) = match default_callback {
-                    Some(s) => s,
-                    None => continue,
-                };
-
-                // Invoke default callback
-                let default_callback_return = (default_callback.0)(DefaultCallbackInfo {
-                    state: default_callback_ptr,
-                    current_window_state: &full_window_state,
-                    modifiable_window_state: &mut ret.modified_window_state,
-                    layout_result,
-                    scrolled_nodes,
-                    cached_display_list,
-                    gl_context: gl_context.clone(),
-                    resources,
-                    timers,
-                    tasks,
-                    ui_state: ui_state_map,
-                    stop_propagation: &mut stop_propagation,
-                    focus_target: &mut new_focus,
-                    current_scroll_states: scroll_states,
-                    nodes_scrolled_in_callback: &mut nodes_scrolled_in_callbacks,
-                    hit_dom_node: (dom_id.clone(), *node_id),
-                    cursor_relative_to_item: hit_item.as_ref().map(|hi| (hi.point_relative_to_item.x, hi.point_relative_to_item.y)),
-                    cursor_in_viewport: hit_item.as_ref().map(|hi| (hi.point_in_viewport.x, hi.point_in_viewport.y)),
-                });
-
-                if default_callback_return == Redraw {
-                    ret.callbacks_update_screen = Redraw;
-                }
-
                 if let Some(new_focus) = new_focus.clone() {
                     new_focus_target = Some(new_focus);
                 }
 
                 if stop_propagation {
-                    continue 'outer_default;
+                    continue 'outer;
                 }
             }
         }

@@ -1,12 +1,12 @@
  #![allow(unused_macros)]
 
-/// Implements functions for `CallbackInfo` and `DefaultCallbackInfo`,
+/// Implements functions for `CallbackInfo` and `Info`,
 /// to prevent duplicating the functions
 #[macro_export]
 macro_rules! impl_task_api {() => (
     /// Insert a timer into the list of active timers.
     /// Replaces the existing timer if called with the same TimerId.
-    pub fn add_timer(&mut self, id: TimerId, timer: Timer<T>) {
+    pub fn add_timer(&mut self, id: TimerId, timer: Timer) {
         self.timers.insert(id, timer);
     }
 
@@ -16,17 +16,17 @@ macro_rules! impl_task_api {() => (
     }
 
     /// Returns a reference to an existing timer (if the `TimerId` is valid)
-    pub fn get_timer(&self, timer_id: &TimerId) -> Option<&Timer<T>> {
+    pub fn get_timer(&self, timer_id: &TimerId) -> Option<&Timer> {
         self.timers.get(&timer_id)
     }
 
     /// Deletes a timer and returns it (if the `TimerId` is valid)
-    pub fn delete_timer(&mut self, timer_id: &TimerId) -> Option<Timer<T>> {
+    pub fn delete_timer(&mut self, timer_id: &TimerId) -> Option<Timer> {
         self.timers.remove(timer_id)
     }
 
     /// Adds a (thread-safe) `Task` to the app that runs on a different thread
-    pub fn add_task(&mut self, task: Task<T>) {
+    pub fn add_task(&mut self, task: Task) {
         self.tasks.push(task);
     }
 )}
@@ -311,7 +311,7 @@ macro_rules! impl_timer_api {($struct_field:ident) => (
     /// See [`AppState::add_timer`]
     ///
     /// [`AppState::add_timer`]: ../app_state/struct.AppState.html#method.add_timer
-    pub fn add_timer(&mut self, timer_id: TimerId, timer: Timer<T>) {
+    pub fn add_timer(&mut self, timer_id: TimerId, timer: Timer) {
         self.$struct_field.add_timer(timer_id, timer)
     }
 
@@ -325,20 +325,20 @@ macro_rules! impl_timer_api {($struct_field:ident) => (
     /// See [`AppState::get_timer`]
     ///
     /// [`AppState::get_timer`]: ../app_state/struct.AppState.html#method.get_timer
-    pub fn get_timer(&self, timer_id: &TimerId) -> Option<Timer<T>> {
+    pub fn get_timer(&self, timer_id: &TimerId) -> Option<Timer> {
         self.$struct_field.get_timer(timer_id)
     }
 
     /// See [`AppState::delete_timer`]
     ///
     /// [`AppState::delete_timer`]: ../app_state/struct.AppState.html#method.delete_timer
-    pub fn delete_timer(&mut self, timer_id: &TimerId) -> Option<Timer<T>> {
+    pub fn delete_timer(&mut self, timer_id: &TimerId) -> Option<Timer> {
         self.$struct_field.delete_timer(timer_id)
     }
 
 )}
 
-/// Implements functions for `CallbackInfo` and `DefaultCallbackInfo`,
+/// Implements functions for `CallbackInfo` and `Info`,
 /// to prevent duplicating the functions
 macro_rules! impl_callback_info_api {() => (
 
@@ -426,7 +426,7 @@ macro_rules! impl_callback_info_api {() => (
     }
 
     /// Returns the node content of a specific node
-    pub fn get_node_content(&self, (dom_id, node_id): &(DomId, NodeId)) -> Option<&NodeData<T>> {
+    pub fn get_node_content(&self, (dom_id, node_id): &(DomId, NodeId)) -> Option<&NodeData> {
         self.ui_state[dom_id].dom.arena.node_data.internal.get(node_id.index())
     }
 
@@ -443,7 +443,7 @@ macro_rules! impl_callback_info_api {() => (
     }
 
     /// Checks whether the target of the CallbackInfo has a certain node type
-    pub fn target_is_node_type(&self, node_type: NodeType<T>) -> bool {
+    pub fn target_is_node_type(&self, node_type: NodeType) -> bool {
         if let Some(self_node) = self.get_node_content(&self.hit_dom_node) {
             self_node.is_node_type(node_type)
         } else {
@@ -518,7 +518,7 @@ macro_rules! impl_callback_info_api {() => (
 
     /// Creates an iterator that starts at the current DOM node and continouusly
     /// returns the parent `(DomId, NodeId)`, until the iterator gets to the root DOM node.
-    pub fn parent_nodes<'c>(&'c self) -> ParentNodesIterator<'c, T> {
+    pub fn parent_nodes<'c>(&'c self) -> ParentNodesIterator<'c> {
         ParentNodesIterator {
             ui_state: &self.ui_state,
             current_item: self.hit_dom_node.clone(),

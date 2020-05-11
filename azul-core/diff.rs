@@ -64,7 +64,7 @@ pub struct DomDiff {
 }
 
 impl DomDiff {
-    pub fn new<T>(old: &CompactDom<T>, new: &CompactDom<T>) -> Self {
+    pub fn new(old: &CompactDom, new: &CompactDom) -> Self {
 
         // TODO: Check if old root = new root, if not, change entire tree
 
@@ -107,7 +107,7 @@ impl DomDiff {
     }
 
     /// Formats the diff into a git-like `+ Node1 / - Node3` form
-    pub fn format_nicely<T>(&self, old: &CompactDom<T>, new: &CompactDom<T>) -> String {
+    pub fn format_nicely(&self, old: &CompactDom, new: &CompactDom) -> String {
         use self::DomChange::*;
         self.changed_nodes.iter().map(|change| {
             match change {
@@ -156,7 +156,7 @@ const NODE_CHANGED_IDS: u8      = 0x08;
 //
 // NOTE: The callbacks / etc. need to be changed!
 #[inline]
-fn node_has_changed<T>(old: &NodeData<T>, new: &NodeData<T>) -> u8 {
+fn node_has_changed(old: &NodeData, new: &NodeData) -> u8 {
     let mut result = NODE_CHANGED_NOTHING;
 
     if old.get_node_type() != new.get_node_type() {
@@ -174,10 +174,10 @@ fn node_has_changed<T>(old: &NodeData<T>, new: &NodeData<T>) -> u8 {
     result
 }
 
-fn diff_tree_inner<T>(
+fn diff_tree_inner(
     old_root_id: NodeId,
-    old: &CompactDom<T>,
-    new: &CompactDom<T>,
+    old: &CompactDom,
+    new: &CompactDom,
     changes: &mut BTreeSet<DomChange>,
     visited_nodes: &mut NodeDataContainer<bool>,
 ) {

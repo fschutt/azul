@@ -11,7 +11,7 @@ use crate::{
         Callback, CallbackType,
         GlCallback, GlCallbackType,
         IFrameCallback, IFrameCallbackType,
-        RefAny, DefaultCallback,
+        RefAny,
     },
     app_resources::{ImageId, TextId},
     id_tree::{Arena, NodeDataContainer},
@@ -115,7 +115,7 @@ impl DomId {
 pub struct DomHash(pub u64);
 
 /// List of core DOM node types built-into by `azul`.
-pub enum NodeType<T> {
+pub enum NodeType {
     /// Regular div with no particular type of data attached
     Div,
     /// Same as div, but only for the root node
@@ -132,10 +132,10 @@ pub enum NodeType<T> {
     /// Azul does not check that the contents of two textures are the same
     GlTexture((GlCallback, RefAny)),
     /// DOM that gets passed its width / height during the layout
-    IFrame((IFrameCallback<T>, RefAny)),
+    IFrame((IFrameCallback, RefAny)),
 }
 
-impl<T> NodeType<T> {
+impl NodeType {
     fn get_text_content(&self) -> Option<String> {
         use self::NodeType::*;
         match self {
@@ -149,9 +149,9 @@ impl<T> NodeType<T> {
     }
 }
 
-// #[derive(Debug, Clone, PartialEq, Hash, Eq)] for NodeType<T>
+// #[derive(Debug, Clone, PartialEq, Hash, Eq)] for NodeType
 
-impl<T> fmt::Debug for NodeType<T> {
+impl fmt::Debug for NodeType {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         use self::NodeType::*;
         match self {
@@ -166,7 +166,7 @@ impl<T> fmt::Debug for NodeType<T> {
     }
 }
 
-impl<T> Clone for NodeType<T> {
+impl Clone for NodeType {
     fn clone(&self) -> Self {
         use self::NodeType::*;
         match self {
@@ -181,7 +181,7 @@ impl<T> Clone for NodeType<T> {
     }
 }
 
-impl<T> Hash for NodeType<T> {
+impl Hash for NodeType {
     fn hash<H>(&self, state: &mut H) where H: Hasher {
         use self::NodeType::*;
         use std::mem;
@@ -203,7 +203,7 @@ impl<T> Hash for NodeType<T> {
     }
 }
 
-impl<T> PartialEq for NodeType<T> {
+impl PartialEq for NodeType {
     fn eq(&self, rhs: &Self) -> bool {
         use self::NodeType::*;
         match (self, rhs) {
@@ -223,9 +223,9 @@ impl<T> PartialEq for NodeType<T> {
     }
 }
 
-impl<T> Eq for NodeType<T> { }
+impl Eq for NodeType { }
 
-impl<T> NodeType<T> {
+impl NodeType {
     #[inline]
     pub fn get_path(&self) -> NodeTypePath {
         use self::NodeType::*;
@@ -542,21 +542,15 @@ impl WindowEventFilter {
 }
 
 /// Represents one single DOM node (node type, classes, ids and callbacks are stored here)
-pub struct NodeData<T> {
+pub struct NodeData {
     /// `div`
-    node_type: NodeType<T>,
+    node_type: NodeType,
     /// `#main #something`
     ids: Vec<DomString>,
     /// `.myclass .otherclass`
     classes: Vec<DomString>,
     /// `On::MouseUp` -> `Callback(my_button_click_handler)`
-    callbacks: Vec<(EventFilter, Callback<T>)>,
-    /// Usually not set by the user directly - `FakeWindow::add_default_callback`
-    /// returns a callback ID, so that we know which default callback(s) are attached
-    /// to this node.
-    ///
-    /// This is only important if this node has any default callbacks.
-    default_callbacks: Vec<(EventFilter, (DefaultCallback<T>, RefAny))>,
+    callbacks: Vec<(EventFilter, (Callback, RefAny))>,
     /// Override certain dynamic styling properties in this frame. For this,
     /// these properties have to have a name (the ID).
     ///
@@ -630,28 +624,27 @@ impl Default for TabIndex {
     }
 }
 
-impl<T> PartialEq for NodeData<T> {
+impl PartialEq for NodeData {
     fn eq(&self, other: &Self) -> bool {
         self.node_type == other.node_type &&
         self.ids == other.ids &&
         self.classes == other.classes &&
         self.callbacks == other.callbacks &&
-        self.default_callbacks == other.default_callbacks &&
         self.dynamic_css_overrides == other.dynamic_css_overrides &&
         self.is_draggable == other.is_draggable &&
         self.tab_index == other.tab_index
     }
 }
 
-impl<T> Eq for NodeData<T> { }
+impl Eq for NodeData { }
 
-impl<T> Default for NodeData<T> {
+impl Default for NodeData {
     fn default() -> Self {
         NodeData::new(NodeType::Div)
     }
 }
 
-impl<T> Hash for NodeData<T> {
+impl Hash for NodeData {
     fn hash<H: Hasher>(&self, state: &mut H) {
         self.node_type.hash(state);
         for id in &self.ids {
@@ -663,9 +656,6 @@ impl<T> Hash for NodeData<T> {
         for callback in &self.callbacks {
             callback.hash(state);
         }
-        for default_callback in &self.default_callbacks {
-            default_callback.hash(state);
-        }
         for dynamic_css_override in &self.dynamic_css_overrides {
             dynamic_css_override.hash(state);
         }
@@ -674,14 +664,13 @@ impl<T> Hash for NodeData<T> {
     }
 }
 
-impl<T> Clone for NodeData<T> {
+impl Clone for NodeData {
     fn clone(&self) -> Self {
         Self {
             node_type: self.node_type.clone(),
             ids: self.ids.clone(),
             classes: self.classes.clone(),
             callbacks: self.callbacks.clone(),
-            default_callbacks: self.default_callbacks.clone(),
             dynamic_css_overrides: self.dynamic_css_overrides.clone(),
             is_draggable: self.is_draggable.clone(),
             tab_index: self.tab_index.clone(),
@@ -689,7 +678,7 @@ impl<T> Clone for NodeData<T> {
     }
 }
 
-impl<T> fmt::Display for NodeData<T> {
+impl fmt::Display for NodeData {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
 
         let html_type = self.node_type.get_path();
@@ -702,7 +691,7 @@ impl<T> fmt::Display for NodeData<T> {
     }
 }
 
-impl<T> NodeData<T> {
+impl NodeData {
     pub fn debug_print_start(&self, close_self: bool) -> String {
         let html_type = self.node_type.get_path();
         let attributes_string = node_data_to_string(&self);
@@ -715,7 +704,7 @@ impl<T> NodeData<T> {
     }
 }
 
-fn node_data_to_string<T>(node_data: &NodeData<T>) -> String {
+fn node_data_to_string(node_data: &NodeData) -> String {
 
     let id_string = if node_data.ids.is_empty() {
         String::new()
@@ -747,22 +736,16 @@ fn node_data_to_string<T>(node_data: &NodeData<T>) -> String {
         format!(" callbacks=\"{}\"", node_data.callbacks.iter().map(|(evt, cb)| format!("({:?}={:?})", evt, cb)).collect::<Vec<String>>().join(" "))
     };
 
-    let default_callbacks = if node_data.default_callbacks.is_empty() {
-        String::new()
-    } else {
-        format!(" default-callbacks=\"{}\"", node_data.default_callbacks.iter().map(|(evt, cb)| format!("({:?}={:?})", evt, cb)).collect::<Vec<String>>().join(" "))
-    };
-
     let css_overrides = if node_data.dynamic_css_overrides.is_empty() {
         String::new()
     } else {
         format!(" css-overrides=\"{}\"", node_data.dynamic_css_overrides.iter().map(|(id, prop)| format!("{}={:?};", id, prop)).collect::<Vec<String>>().join(" "))
     };
 
-    format!("{}{}{}{}{}{}{}", id_string, class_string, tabindex, draggable, callbacks, default_callbacks, css_overrides)
+    format!("{}{}{}{}{}{}", id_string, class_string, tabindex, draggable, callbacks, css_overrides)
 }
 
-impl<T> fmt::Debug for NodeData<T> {
+impl fmt::Debug for NodeData {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         write!(f, "NodeData {{")?;
         write!(f, "\tnode_type: {:?}", self.node_type)?;
@@ -770,7 +753,6 @@ impl<T> fmt::Debug for NodeData<T> {
         if !self.ids.is_empty() { write!(f, "\tids: {:?}", self.ids)?; }
         if !self.classes.is_empty() { write!(f, "\tclasses: {:?}", self.classes)?; }
         if !self.callbacks.is_empty() { write!(f, "\tcallbacks: {:?}", self.callbacks)?; }
-        if !self.default_callbacks.is_empty() { write!(f, "\tdefault_callbacks: {:?}", self.default_callbacks)?; }
         if !self.dynamic_css_overrides.is_empty() { write!(f, "\tdynamic_css_overrides: {:?}", self.dynamic_css_overrides)?; }
         if self.is_draggable { write!(f, "\tis_draggable: {:?}", self.is_draggable)?; }
         if let Some(t) = self.tab_index { write!(f, "\ttab_index: {:?}", t)?; }
@@ -779,17 +761,16 @@ impl<T> fmt::Debug for NodeData<T> {
     }
 }
 
-impl<T> NodeData<T> {
+impl NodeData {
 
     /// Creates a new `NodeData` instance from a given `NodeType`
     #[inline]
-    pub const fn new(node_type: NodeType<T>) -> Self {
+    pub const fn new(node_type: NodeType) -> Self {
         Self {
             node_type,
             ids: Vec::new(),
             classes: Vec::new(),
             callbacks: Vec::new(),
-            default_callbacks: Vec::new(),
             dynamic_css_overrides: Vec::new(),
             is_draggable: false,
             tab_index: None,
@@ -798,7 +779,7 @@ impl<T> NodeData<T> {
 
     /// Checks whether this node is of the given node type (div, image, text)
     #[inline]
-    pub fn is_node_type(&self, searched_type: NodeType<T>) -> bool {
+    pub fn is_node_type(&self, searched_type: NodeType) -> bool {
         self.node_type == searched_type
     }
 
@@ -860,7 +841,7 @@ impl<T> NodeData<T> {
 
     /// Shorthand for `NodeData::new(NodeType::IFrame((callback, ptr)))`
     #[inline(always)]
-    pub fn iframe(callback: IFrameCallbackType<T>, ptr: RefAny) -> Self {
+    pub fn iframe(callback: IFrameCallbackType, ptr: RefAny) -> Self {
         Self::new(NodeType::IFrame((IFrameCallback(callback), ptr)))
     }
 
@@ -868,15 +849,13 @@ impl<T> NodeData<T> {
     // in the future (which is why the fields are all private).
 
     #[inline(always)]
-    pub const fn get_node_type(&self) -> &NodeType<T> { &self.node_type }
+    pub const fn get_node_type(&self) -> &NodeType { &self.node_type }
     #[inline(always)]
     pub const fn get_ids(&self) -> &Vec<DomString> { &self.ids }
     #[inline(always)]
     pub const fn get_classes(&self) -> &Vec<DomString> { &self.classes }
     #[inline(always)]
-    pub const fn get_callbacks(&self) -> &Vec<(EventFilter, Callback<T>)> { &self.callbacks }
-    #[inline(always)]
-    pub const fn get_default_callbacks(&self) -> &Vec<(EventFilter, (DefaultCallback<T>, RefAny))> { &self.default_callbacks }
+    pub const fn get_callbacks(&self) -> &Vec<(EventFilter, (Callback, RefAny))> { &self.callbacks }
     #[inline(always)]
     pub const fn get_dynamic_css_overrides(&self) -> &Vec<(DomString, CssProperty)> { &self.dynamic_css_overrides }
     #[inline(always)]
@@ -885,15 +864,13 @@ impl<T> NodeData<T> {
     pub const fn get_tab_index(&self) -> Option<TabIndex> { self.tab_index }
 
     #[inline(always)]
-    pub fn set_node_type(&mut self, node_type: NodeType<T>) { self.node_type = node_type; }
+    pub fn set_node_type(&mut self, node_type: NodeType) { self.node_type = node_type; }
     #[inline(always)]
     pub fn set_ids(&mut self, ids: Vec<DomString>) { self.ids = ids; }
     #[inline(always)]
     pub fn set_classes(&mut self, classes: Vec<DomString>) { self.classes = classes; }
     #[inline(always)]
-    pub fn set_callbacks(&mut self, callbacks: Vec<(EventFilter, Callback<T>)>) { self.callbacks = callbacks; }
-    #[inline(always)]
-    pub fn set_default_callbacks(&mut self, default_callbacks: Vec<(EventFilter, (DefaultCallback<T>, RefAny))>) { self.default_callbacks = default_callbacks; }
+    pub fn set_callbacks(&mut self, callbacks: Vec<(EventFilter, (Callback, RefAny))>) { self.callbacks = callbacks; }
     #[inline(always)]
     pub fn set_dynamic_css_overrides(&mut self, dynamic_css_overrides: Vec<(DomString, CssProperty)>) { self.dynamic_css_overrides = dynamic_css_overrides; }
     #[inline(always)]
@@ -902,15 +879,13 @@ impl<T> NodeData<T> {
     pub fn set_tab_index(&mut self, tab_index: Option<TabIndex>) { self.tab_index = tab_index; }
 
     #[inline(always)]
-    pub fn with_node_type(self, node_type: NodeType<T>) -> Self { Self { node_type, .. self } }
+    pub fn with_node_type(self, node_type: NodeType) -> Self { Self { node_type, .. self } }
     #[inline(always)]
     pub fn with_ids(self, ids: Vec<DomString>) -> Self { Self { ids, .. self } }
     #[inline(always)]
     pub fn with_classes(self, classes: Vec<DomString>) -> Self { Self { classes, .. self } }
     #[inline(always)]
-    pub fn with_callbacks(self, callbacks: Vec<(EventFilter, Callback<T>)>) -> Self { Self { callbacks, .. self } }
-    #[inline(always)]
-    pub fn with_default_callbacks(self, default_callbacks: Vec<(EventFilter, (DefaultCallback<T>, RefAny))>) -> Self { Self { default_callbacks, .. self } }
+    pub fn with_callbacks(self, callbacks: Vec<(EventFilter, (Callback, RefAny))>) -> Self { Self { callbacks, .. self } }
     #[inline(always)]
     pub fn with_dynamic_css_overrides(self, dynamic_css_overrides: Vec<(DomString, CssProperty)>) -> Self { Self { dynamic_css_overrides, .. self } }
     #[inline(always)]
@@ -1007,9 +982,9 @@ impl From<&'static str> for DomString {
 }
 
 /// The document model, similar to HTML. This is a create-only structure, you don't actually read anything back
-pub struct Dom<T> {
-    pub root: NodeData<T>,
-    pub children: Vec<Dom<T>>,
+pub struct Dom {
+    pub root: NodeData,
+    pub children: Vec<Dom>,
     // Tracks the number of sub-children of the current children, so that
     // the `Dom` can be converted into a `CompactDom`
     estimated_total_children: usize,
@@ -1018,7 +993,7 @@ pub struct Dom<T> {
 /// Pointer to rust-allocated `Box<Dom<*mut c_void>>` struct
 #[no_mangle] #[repr(C)] pub struct DomPtr { pub ptr: *mut c_void }
 
-impl<T> Clone for Dom<T> {
+impl Clone for Dom {
     fn clone(&self) -> Self {
         Dom {
             root: self.root.clone(),
@@ -1028,22 +1003,22 @@ impl<T> Clone for Dom<T> {
     }
 }
 
-fn compare_dom<T>(a: &Dom<T>, b: &Dom<T>) -> bool {
+fn compare_dom(a: &Dom, b: &Dom) -> bool {
     a.root == b.root &&
     a.estimated_total_children == b.estimated_total_children &&
     a.children.len() == b.children.len() &&
     a.children.iter().zip(b.children.iter()).all(|(a, b)| compare_dom(a, b))
 }
 
-impl<T> PartialEq for Dom<T> {
+impl PartialEq for Dom {
     fn eq(&self, rhs: &Self) -> bool {
         compare_dom(self, rhs)
     }
 }
 
-impl<T> Eq for Dom<T> { }
+impl Eq for Dom { }
 
-fn print_dom<T>(d: &Dom<T>, f: &mut fmt::Formatter) -> fmt::Result {
+fn print_dom(d: &Dom, f: &mut fmt::Formatter) -> fmt::Result {
     write!(f, "Dom {{\r\n")?;
     write!(f, "\troot: {:#?}", d.root)?;
     write!(f, "\testimated_total_children: {:#?}", d.estimated_total_children)?;
@@ -1056,14 +1031,14 @@ fn print_dom<T>(d: &Dom<T>, f: &mut fmt::Formatter) -> fmt::Result {
     Ok(())
 }
 
-impl<T> fmt::Debug for Dom<T> {
+impl fmt::Debug for Dom {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         print_dom(self, f)
     }
 }
 
-impl<T> FromIterator<Dom<T>> for Dom<T> {
-    fn from_iter<I: IntoIterator<Item=Dom<T>>>(iter: I) -> Self {
+impl FromIterator<Dom> for Dom {
+    fn from_iter<I: IntoIterator<Item=Dom>>(iter: I) -> Self {
 
         let mut estimated_total_children = 0;
         let children = iter.into_iter().map(|c| {
@@ -1079,8 +1054,8 @@ impl<T> FromIterator<Dom<T>> for Dom<T> {
     }
 }
 
-impl<T> FromIterator<NodeData<T>> for Dom<T> {
-    fn from_iter<I: IntoIterator<Item=NodeData<T>>>(iter: I) -> Self {
+impl FromIterator<NodeData> for Dom {
+    fn from_iter<I: IntoIterator<Item=NodeData>>(iter: I) -> Self {
 
         let children = iter.into_iter().map(|c| Dom { root: c, children: Vec::new(), estimated_total_children: 0 }).collect::<Vec<_>>();
         let estimated_total_children = children.len();
@@ -1093,13 +1068,13 @@ impl<T> FromIterator<NodeData<T>> for Dom<T> {
     }
 }
 
-impl<T> FromIterator<NodeType<T>> for Dom<T> {
-    fn from_iter<I: IntoIterator<Item=NodeType<T>>>(iter: I) -> Self {
+impl FromIterator<NodeType> for Dom {
+    fn from_iter<I: IntoIterator<Item=NodeType>>(iter: I) -> Self {
         iter.into_iter().map(|i| NodeData { node_type: i, .. Default::default() }).collect()
     }
 }
 
-pub(crate) fn convert_dom_into_compact_dom<T>(dom: Dom<T>) -> CompactDom<T> {
+pub(crate) fn convert_dom_into_compact_dom(dom: Dom) -> CompactDom {
 
     // Pre-allocate all nodes (+ 1 root node)
     let default_node_data = NodeData::div();
@@ -1128,9 +1103,9 @@ pub(crate) fn convert_dom_into_compact_dom<T>(dom: Dom<T>) -> CompactDom<T> {
 }
 
 // note: somehow convert this into a non-recursive form later on!
-fn convert_dom_into_compact_dom_internal<T>(
-    dom: Dom<T>,
-    arena: &mut Arena<NodeData<T>>,
+fn convert_dom_into_compact_dom_internal(
+    dom: Dom,
+    arena: &mut Arena<NodeData>,
     parent_node_id: NodeId,
     node: Node,
     cur_node_id: &mut usize
@@ -1239,19 +1214,19 @@ fn test_compact_dom_conversion() {
     }
 }
 
-/// Same as `Dom<T>`, but arena-based for more efficient memory layout
-pub struct CompactDom<T> {
-    pub arena: Arena<NodeData<T>>,
+/// Same as `Dom`, but arena-based for more efficient memory layout
+pub struct CompactDom {
+    pub arena: Arena<NodeData>,
     pub root: NodeId,
 }
 
-impl<T> From<Dom<T>> for CompactDom<T> {
-    fn from(dom: Dom<T>) -> Self {
+impl From<Dom> for CompactDom {
+    fn from(dom: Dom) -> Self {
         convert_dom_into_compact_dom(dom)
     }
 }
 
-impl<T> CompactDom<T> {
+impl CompactDom {
     /// Returns the number of nodes in this DOM
     #[inline(always)]
     pub fn len(&self) -> usize {
@@ -1259,7 +1234,7 @@ impl<T> CompactDom<T> {
     }
 }
 
-impl<T> Clone for CompactDom<T> {
+impl Clone for CompactDom {
     fn clone(&self) -> Self {
         CompactDom {
             arena: self.arena.clone(),
@@ -1268,27 +1243,27 @@ impl<T> Clone for CompactDom<T> {
     }
 }
 
-impl<T> PartialEq for CompactDom<T> {
+impl PartialEq for CompactDom {
     fn eq(&self, rhs: &Self) -> bool {
         self.arena == rhs.arena &&
         self.root == rhs.root
     }
 }
 
-impl<T> Eq for CompactDom<T> { }
+impl Eq for CompactDom { }
 
-impl<T> fmt::Debug for CompactDom<T> {
+impl fmt::Debug for CompactDom {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         write!(f, "CompactDom {{ arena: {:?}, root: {:?} }}", self.arena, self.root)
     }
 }
 
-impl<T> Dom<T> {
+impl Dom {
 
     /// Creates an empty DOM with a give `NodeType`. Note: This is a `const fn` and
     /// doesn't allocate, it only allocates once you add at least one child node.
     #[inline]
-    pub const fn new(node_type: NodeType<T>) -> Self {
+    pub const fn new(node_type: NodeType) -> Self {
         Self {
             root: NodeData::new(node_type),
             children: Vec::new(),
@@ -1298,7 +1273,7 @@ impl<T> Dom<T> {
 
     /// Creates an empty DOM with space reserved for `cap` nodes
     #[inline]
-    pub fn with_capacity(node_type: NodeType<T>, cap: usize) -> Self {
+    pub fn with_capacity(node_type: NodeType, cap: usize) -> Self {
         Self {
             root: NodeData::new(node_type),
             children: Vec::with_capacity(cap),
@@ -1344,7 +1319,7 @@ impl<T> Dom<T> {
 
     /// Shorthand for `Dom::new(NodeType::IFrame((callback, ptr)))`
     #[inline(always)]
-    pub fn iframe<I: Into<RefAny>>(callback: IFrameCallbackType<T>, ptr: I) -> Self {
+    pub fn iframe<I: Into<RefAny>>(callback: IFrameCallbackType, ptr: I) -> Self {
         Self::new(NodeType::IFrame((IFrameCallback(callback), ptr.into())))
     }
 
@@ -1372,14 +1347,8 @@ impl<T> Dom<T> {
 
     /// Same as `event`, but easier to use for method chaining in a builder-style pattern
     #[inline]
-    pub fn with_callback<O: Into<EventFilter>>(mut self, on: O, callback: CallbackType<T>) -> Self {
-        self.add_callback(on, callback);
-        self
-    }
-
-    #[inline]
-    pub fn with_default_callback<O: Into<EventFilter>>(mut self, on: O, default_callback: DefaultCallback<T>, ptr: RefAny) -> Self {
-        self.add_default_callback(on, default_callback, ptr);
+    pub fn with_callback<O: Into<EventFilter>>(mut self, on: O, callback: CallbackType, ptr: RefAny) -> Self {
+        self.add_callback(on, callback, ptr);
         self
     }
 
@@ -1418,13 +1387,8 @@ impl<T> Dom<T> {
     }
 
     #[inline]
-    pub fn add_callback<O: Into<EventFilter>>(&mut self, on: O, callback: CallbackType<T>) {
-        self.root.callbacks.push((on.into(), Callback(callback)));
-    }
-
-    #[inline]
-    pub fn add_default_callback<O: Into<EventFilter>>(&mut self, on: O, default_callback: DefaultCallback<T>, ptr: RefAny) {
-        self.root.default_callbacks.push((on.into(), (default_callback, ptr)));
+    pub fn add_callback<O: Into<EventFilter>>(&mut self, on: O, callback: CallbackType, ptr: RefAny) {
+        self.root.callbacks.push((on.into(), (Callback(callback), ptr)));
     }
 
     #[inline]
@@ -1463,7 +1427,7 @@ impl<T> Dom<T> {
     }
 }
 
-fn get_html_string_inner<T>(dom: &Dom<T>, output: &mut String, indent: usize) {
+fn get_html_string_inner(dom: &Dom, output: &mut String, indent: usize) {
     let tabs = String::from("    ").repeat(indent);
 
     let content = dom.root.node_type.get_text_content();

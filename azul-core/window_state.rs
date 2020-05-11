@@ -1,7 +1,7 @@
 use std::collections::{HashSet, BTreeMap};
 use crate::{
     dom::{EventFilter, NotEventFilter, HoverEventFilter, FocusEventFilter, WindowEventFilter},
-    callbacks:: {CallbackInfo, Callback, CallbackType, HitTestItem, DefaultCallback, UpdateScreen},
+    callbacks:: {CallbackInfo, CallbackType, HitTestItem, UpdateScreen},
     id_tree::NodeId,
     ui_state::UiState,
     window::{
@@ -16,14 +16,14 @@ use crate::{
 pub fn determine_callbacks<T>(
     window_state: &mut FullWindowState,
     hit_test_items: &[HitTestItem],
-    ui_state: &UiState<T>,
-) -> CallbacksOfHitTest<T> {
+    ui_state: &UiState,
+) -> CallbacksOfHitTest {
 
     use std::collections::BTreeSet;
 
     let mut needs_hover_redraw = false;
     let mut needs_hover_relayout = false;
-    let mut nodes_with_callbacks: BTreeMap<NodeId, DetermineCallbackResult<T>> = BTreeMap::new();
+    let mut nodes_with_callbacks: BTreeMap<NodeId, DetermineCallbackResult> = BTreeMap::new();
 
     let current_window_events = get_window_events(window_state);
     let current_hover_events = get_hover_events(&current_window_events);
@@ -65,8 +65,8 @@ pub fn determine_callbacks<T>(
     }
 
     macro_rules! insert_only_non_empty_callbacks {
-        ($node_id:expr, $hit_test_item:expr, $normal_hover_callbacks:expr, $default_hover_callbacks:expr) => ({
-            if !($normal_hover_callbacks.is_empty() && $default_hover_callbacks.is_empty()) {
+        ($node_id:expr, $hit_test_item:expr, $normal_hover_callbacks:expr) => ({
+            if !$normal_hover_callbacks.is_empty() {
                 let mut callback_result = nodes_with_callbacks.entry(*$node_id)
                 .or_insert_with(|| DetermineCallbackResult::default());
 
@@ -75,7 +75,6 @@ pub fn determine_callbacks<T>(
                     callback_result.hit_test_item = Some(hit_test_item);
                 }
                 callback_result.normal_callbacks.extend($normal_hover_callbacks.into_iter());
-                callback_result.default_callbacks.extend($default_hover_callbacks.into_iter());
             }
         })
     }
@@ -85,35 +84,22 @@ pub fn determine_callbacks<T>(
         $node_id:expr,
         $hit_test_item:expr,
         $hover_callbacks:ident,
-        $hover_default_callbacks:ident,
         $current_hover_events:ident,
         $event_filter:ident
     ) => ({
-            // BTreeMap<EventFilter, Callback<T>>
+            // BTreeMap<EventFilter, Callback>
             let mut normal_hover_callbacks = BTreeMap::new();
 
             // Insert all normal Hover events
             if let Some(ui_state_hover_event_filters) = ui_state.$hover_callbacks.get($node_id) {
                 for current_hover_event in &$current_hover_events {
                     if let Some(callback) = ui_state_hover_event_filters.get(current_hover_event) {
-                        normal_hover_callbacks.insert(EventFilter::$event_filter(*current_hover_event), *callback);
+                        normal_hover_callbacks.insert(EventFilter::$event_filter(*current_hover_event), callback.0);
                     }
                 }
             }
 
-            // BTreeMap<EventFilter, (DefaultCallback<T>, NodeId)>
-            let mut default_hover_callbacks = BTreeMap::new();
-
-            // Insert all default Hover events
-            if let Some(ui_state_hover_default_event_filters) = ui_state.$hover_default_callbacks.get($node_id) {
-                for current_hover_event in &$current_hover_events {
-                    if let Some(callback_id) = ui_state_hover_default_event_filters.get(current_hover_event) {
-                        default_hover_callbacks.insert(EventFilter::$event_filter(*current_hover_event), *callback_id);
-                    }
-                }
-            }
-
-            insert_only_non_empty_callbacks!($node_id, $hit_test_item, normal_hover_callbacks, default_hover_callbacks);
+            insert_only_non_empty_callbacks!($node_id, $hit_test_item, normal_hover_callbacks);
         })
     }
 
@@ -121,30 +107,19 @@ pub fn determine_callbacks<T>(
     for (window_node_id, window_callbacks) in &ui_state.window_callbacks {
         let normal_window_callbacks = window_callbacks.iter()
             .filter(|(current_window_event, _)| current_window_events.contains(current_window_event))
-            .map(|(current_window_event, callback)| (EventFilter::Window(*current_window_event), *callback))
+            .map(|(current_window_event, callback)| (EventFilter::Window(*current_window_event), callback.0))
             .collect::<BTreeMap<_, _>>();
-        let default_window_callbacks = BTreeMap::<EventFilter, DefaultCallback<T>>::new();
-        insert_only_non_empty_callbacks!(window_node_id, None, normal_window_callbacks, default_window_callbacks);
-    }
-
-    // Insert all default window events
-    for (window_node_id, window_callbacks) in &ui_state.window_default_callbacks {
-        let normal_window_callbacks = BTreeMap::<EventFilter, Callback<T>>::new();
-        let default_window_callbacks = window_callbacks.iter()
-            .filter(|(current_window_event, _)| current_window_events.contains(current_window_event))
-            .map(|(current_window_event, callback)| (EventFilter::Window(*current_window_event), *callback))
-            .collect::<BTreeMap<_, _>>();
-        insert_only_non_empty_callbacks!(window_node_id, None, normal_window_callbacks, default_window_callbacks);
+        insert_only_non_empty_callbacks!(window_node_id, None, normal_window_callbacks);
     }
 
     // Insert (normal + default) hover events
     for (hover_node_id, hit_test_item) in &new_hit_node_ids {
-        insert_callbacks!(hover_node_id, Some(hit_test_item.clone()), hover_callbacks, hover_default_callbacks, current_hover_events, Hover);
+        insert_callbacks!(hover_node_id, Some(hit_test_item.clone()), hover_callbacks, current_hover_events, Hover);
     }
 
     // Insert (normal + default) focus events
     if let Some(current_focused_node) = &window_state.focused_node {
-        insert_callbacks!(&current_focused_node.1, None, focus_callbacks, focus_default_callbacks, current_focus_events, Focus);
+        insert_callbacks!(&current_focused_node.1, None, focus_callbacks, current_focus_events, Focus);
     }
 
     // If the last focused node and the current focused node aren't the same,
@@ -179,7 +154,7 @@ pub fn determine_callbacks<T>(
     // Insert FocusReceived / FocusLost
     for (node_id, focus_event) in &focus_received_lost_events {
         let current_focus_leave_events = [focus_event.clone()];
-        insert_callbacks!(node_id, None, focus_callbacks, focus_default_callbacks, current_focus_leave_events, Focus);
+        insert_callbacks!(node_id, None, focus_callbacks, current_focus_leave_events, Focus);
     }
 
     let current_dom_id = ui_state.dom_id.clone();
@@ -189,13 +164,13 @@ pub fn determine_callbacks<T>(
 
             let node_is_focused = window_state.focused_node == Some((current_dom_id.clone(), $node_id));
 
-            // BTreeMap<EventFilter, Callback<T>>
+            // BTreeMap<EventFilter, Callback>
             let mut normal_callbacks = BTreeMap::new();
 
             // Insert all normal Hover(MouseEnter) events
             if let Some(ui_state_hover_event_filters) = ui_state.hover_callbacks.get(&$node_id) {
                 if let Some(callback) = ui_state_hover_event_filters.get(&HoverEventFilter::$event_filter) {
-                    normal_callbacks.insert(EventFilter::Hover(HoverEventFilter::$event_filter), *callback);
+                    normal_callbacks.insert(EventFilter::Hover(HoverEventFilter::$event_filter), callback.0);
                 }
             }
 
@@ -203,38 +178,18 @@ pub fn determine_callbacks<T>(
             if node_is_focused {
                 if let Some(ui_state_focus_event_filters) = ui_state.focus_callbacks.get(&$node_id) {
                     if let Some(callback) = ui_state_focus_event_filters.get(&FocusEventFilter::$event_filter) {
-                        normal_callbacks.insert(EventFilter::Focus(FocusEventFilter::$event_filter), *callback);
+                        normal_callbacks.insert(EventFilter::Focus(FocusEventFilter::$event_filter), callback.0);
                     }
                 }
             }
 
-            // BTreeMap<EventFilter, DefaultCallbackId>
-            let mut default_callbacks = BTreeMap::new();
-
-            // Insert all default Hover(MouseEnter) events
-            if let Some(ui_state_hover_default_event_filters) = ui_state.hover_default_callbacks.get(&$node_id) {
-                if let Some(callback_id) = ui_state_hover_default_event_filters.get(&HoverEventFilter::$event_filter) {
-                    default_callbacks.insert(EventFilter::Hover(HoverEventFilter::$event_filter), *callback_id);
-                }
-            }
-
-            // Insert all default Focus(MouseEnter) events
-            if node_is_focused {
-                if let Some(ui_state_focus_default_event_filters) = ui_state.focus_default_callbacks.get(&$node_id) {
-                    if let Some(callback_id) = ui_state_focus_default_event_filters.get(&FocusEventFilter::$event_filter) {
-                        default_callbacks.insert(EventFilter::Focus(FocusEventFilter::$event_filter), *callback_id);
-                    }
-                }
-            }
-
-            if !(default_callbacks.is_empty() && normal_callbacks.is_empty()) {
+            if !normal_callbacks.is_empty() {
 
                 let mut callback_result = nodes_with_callbacks.entry($node_id)
                 .or_insert_with(|| DetermineCallbackResult::default());
 
                 callback_result.hit_test_item = Some($hit_test_item);
                 callback_result.normal_callbacks.extend(normal_callbacks.into_iter());
-                callback_result.default_callbacks.extend(default_callbacks.into_iter());
             }
 
             if let Some((_, hover_group)) = ui_state.node_ids_to_tag_ids.get(&$node_id).and_then(|tag_for_this_node| {
@@ -297,10 +252,8 @@ pub fn determine_callbacks<T>(
     // Then we need to go through the events and fire them if the event was present, but the NodeID was not
     let mut reverse_event_hover_normal_list = BTreeMap::<HoverEventFilter, BTreeSet<NodeId>>::new();
     let mut reverse_event_focus_normal_list = BTreeMap::<FocusEventFilter, BTreeSet<NodeId>>::new();
-    let mut reverse_event_hover_default_list = BTreeMap::<HoverEventFilter, BTreeSet<NodeId>>::new();
-    let mut reverse_event_focus_default_list = BTreeMap::<FocusEventFilter, BTreeSet<NodeId>>::new();
 
-    for (node_id, DetermineCallbackResult { default_callbacks, normal_callbacks, .. }) in &nodes_with_callbacks {
+    for (node_id, DetermineCallbackResult { normal_callbacks, .. }) in &nodes_with_callbacks {
         for event_filter in normal_callbacks.keys() {
             match event_filter {
                 EventFilter::Hover(h) => {
@@ -308,17 +261,6 @@ pub fn determine_callbacks<T>(
                 },
                 EventFilter::Focus(f) => {
                     reverse_event_focus_normal_list.entry(*f).or_insert_with(|| BTreeSet::new()).insert(*node_id);
-                },
-                _ => { },
-            }
-        }
-        for event_filter in default_callbacks.keys() {
-            match event_filter {
-                EventFilter::Hover(h) => {
-                    reverse_event_hover_default_list.entry(*h).or_insert_with(|| BTreeSet::new()).insert(*node_id);
-                },
-                EventFilter::Focus(f) => {
-                    reverse_event_focus_default_list.entry(*f).or_insert_with(|| BTreeSet::new()).insert(*node_id);
                 },
                 _ => { },
             }
@@ -335,10 +277,9 @@ pub fn determine_callbacks<T>(
                         if !on_node_ids.contains(node_id) {
                             nodes_with_callbacks.entry(*node_id)
                             .or_insert_with(|| DetermineCallbackResult::default())
-                            .normal_callbacks.insert(EventFilter::Not(*event_filter), *event_callback);
+                            .normal_callbacks.insert(EventFilter::Not(*event_filter), event_callback.0);
                         }
                     }
-                    // TODO: Same thing for default callbacks here
                 },
                 NotEventFilter::Focus(_f) => {
                     // TODO: Same thing for focus
@@ -490,7 +431,7 @@ pub fn get_focus_events(input: &HashSet<HoverEventFilter>) -> HashSet<FocusEvent
 /// ```no_run,ignore
 /// use azul::prelude::{AcceleratorKey::*, VirtualKeyCode::*};
 ///
-/// fn my_callback<T>(info: CallbackInfo<T>) -> UpdateScreen {
+/// fn my_Callback(info: CallbackInfo) -> UpdateScreen {
 ///     keymap(info, &[
 ///         [vec![Ctrl, S], save_document],
 ///         [vec![Ctrl, N], create_new_document],
@@ -500,8 +441,8 @@ pub fn get_focus_events(input: &HashSet<HoverEventFilter>) -> HashSet<FocusEvent
 /// }
 /// ```
 pub fn keymap<T>(
-    info: CallbackInfo<T>,
-    events: &[(Vec<AcceleratorKey>, CallbackType<T>)]
+    info: CallbackInfo,
+    events: &[(Vec<AcceleratorKey>, CallbackType)]
 ) -> UpdateScreen {
 
     let keyboard_state = info.get_keyboard_state().clone();

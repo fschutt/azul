@@ -809,12 +809,12 @@ impl FontImageApi for FakeRenderApi {
 
 /// Scans the DisplayList for new images and fonts. After this call, the RenderApi is
 /// guaranteed to know about all FontKeys and FontInstanceKey
-pub fn add_fonts_and_images<T, U: FontImageApi>(
+pub fn add_fonts_and_images<U: FontImageApi>(
     app_resources: &mut AppResources,
     render_api: &mut U,
     pipeline_id: &PipelineId,
     display_list: &DisplayList,
-    node_data: &NodeDataContainer<NodeData<T>>,
+    node_data: &NodeDataContainer<NodeData>,
     load_font_fn: LoadFontFn,
     load_image_fn: LoadImageFn,
 ) {
@@ -1149,10 +1149,10 @@ pub fn get_font_size(rect_style: &RectStyle) -> StyleFontSize {
 
 
 /// Scans the display list for all font IDs + their font size
-pub fn scan_ui_description_for_font_keys<T>(
+pub fn scan_ui_description_for_font_keys(
     app_resources: &AppResources,
     display_list: &DisplayList,
-    node_data: &NodeDataContainer<NodeData<T>>,
+    node_data: &NodeDataContainer<NodeData>,
 ) -> FastHashMap<ImmediateFontId, FastHashSet<Au>> {
 
     use crate::dom::NodeType::*;
@@ -1185,10 +1185,10 @@ pub fn scan_ui_description_for_font_keys<T>(
 }
 
 /// Scans the display list for all image keys
-pub fn scan_ui_description_for_image_keys<T>(
+pub fn scan_ui_description_for_image_keys(
     app_resources: &AppResources,
     display_list: &DisplayList,
-    node_data: &NodeDataContainer<NodeData<T>>,
+    node_data: &NodeDataContainer<NodeData>,
 ) -> FastHashSet<ImageId> {
 
     use crate::dom::NodeType::*;
@@ -1282,9 +1282,9 @@ pub struct LoadedFontSource {
 }
 
 pub struct LoadFontFn(pub fn(&FontSource) -> Option<LoadedFontSource>);
-impl_callback_no_generics!(LoadFontFn);
+impl_callback!(LoadFontFn);
 pub struct LoadImageFn(pub fn(&ImageSource) -> Option<LoadedImageSource>);
-impl_callback_no_generics!(LoadImageFn);
+impl_callback!(LoadImageFn);
 
 /// Given the fonts of the current frame, returns `AddFont` and `AddFontInstance`s of
 /// which fonts / instances are currently not in the `current_registered_fonts` and

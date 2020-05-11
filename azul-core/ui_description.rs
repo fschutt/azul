@@ -33,8 +33,8 @@ impl UiDescription {
     /// Applies the styles to the nodes calculated from the `layout_screen`
     /// function and calculates the final display list that is submitted to the
     /// renderer.
-    pub fn new<T>(
-        ui_state: &mut UiState<T>,
+    pub fn new(
+        ui_state: &mut UiState,
         style: &Css,
         focused_node: &Option<(DomId, NodeId)>,
         hovered_nodes: &BTreeMap<NodeId, HitTestItem>,

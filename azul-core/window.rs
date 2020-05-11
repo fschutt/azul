@@ -22,7 +22,7 @@ use crate::{
     app_resources::Epoch,
     dom::{DomId, EventFilter},
     id_tree::NodeId,
-    callbacks::{PipelineId, DocumentId, Callback, DefaultCallback, ScrollPosition, HitTestItem, UpdateScreen, Redraw},
+    callbacks::{PipelineId, DocumentId, Callback, ScrollPosition, HitTestItem, UpdateScreen, Redraw},
     ui_solver::{OverflowingScrollNode, ExternalScrollId, ScrolledNodes},
     ui_state::UiState,
     display_list::{SolvedLayoutCache, GlTextureCache, CachedDisplayList},
@@ -389,7 +389,7 @@ pub struct WindowInternal {
 impl WindowInternal {
 
     /// Returns a copy of the current scroll states + scroll positions
-    pub fn get_current_scroll_states<T>(&self, ui_states: &BTreeMap<DomId, UiState<T>>)
+    pub fn get_current_scroll_states<T>(&self, ui_states: &BTreeMap<DomId, UiState>)
     -> BTreeMap<DomId, BTreeMap<NodeId, ScrollPosition>>
     {
         self.scrolled_nodes.iter().filter_map(|(dom_id, scrolled_nodes)| {
@@ -1167,68 +1167,58 @@ impl ::std::fmt::Display for UpdateFocusWarning {
     }
 }
 
-pub struct DetermineCallbackResult<T> {
+pub struct DetermineCallbackResult {
     pub hit_test_item: Option<HitTestItem>,
-    pub default_callbacks: BTreeMap<EventFilter, DefaultCallback<T>>,
-    pub normal_callbacks: BTreeMap<EventFilter, Callback<T>>,
+    pub normal_callbacks: BTreeMap<EventFilter, Callback>,
 }
 
-impl<T> DetermineCallbackResult<T> {
-
-    pub fn has_default_callbacks(&self) -> bool {
-        !self.default_callbacks.is_empty()
-    }
+impl DetermineCallbackResult {
 
     pub fn has_normal_callbacks(&self) -> bool {
         !self.normal_callbacks.is_empty()
     }
 
     pub fn has_any_callbacks(&self) -> bool {
-        self.has_default_callbacks() ||
         self.has_normal_callbacks()
     }
 }
 
-impl<T> Default for DetermineCallbackResult<T> {
+impl Default for DetermineCallbackResult {
     fn default() -> Self {
         DetermineCallbackResult {
             hit_test_item: None,
-            default_callbacks: BTreeMap::new(),
             normal_callbacks: BTreeMap::new(),
         }
     }
 }
 
-impl<T> Clone for DetermineCallbackResult<T> {
+impl Clone for DetermineCallbackResult {
     fn clone(&self) -> Self {
         DetermineCallbackResult {
             hit_test_item: self.hit_test_item.clone(),
-            default_callbacks: self.default_callbacks.clone(),
             normal_callbacks: self.normal_callbacks.clone(),
         }
     }
 }
 
-impl<T> fmt::Debug for DetermineCallbackResult<T> {
+impl fmt::Debug for DetermineCallbackResult {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         write!(f,
         "DetermineCallbackResult {{ \
             hit_test_item: {:?},\
-            default_callbacks: {:#?},\
             normal_callbacks: {:#?},\
         }}",
             self.hit_test_item,
-            self.default_callbacks,
             self.normal_callbacks.keys().collect::<Vec<_>>(),
         )
     }
 }
 
-pub struct CallbacksOfHitTest<T> {
+pub struct CallbacksOfHitTest {
     /// A BTreeMap where each item is already filtered by the proper hit-testing type,
     /// meaning in order to get the proper callbacks, you simply have to iterate through
     /// all node IDs
-    pub nodes_with_callbacks: BTreeMap<NodeId, DetermineCallbackResult<T>>,
+    pub nodes_with_callbacks: BTreeMap<NodeId, DetermineCallbackResult>,
     /// Same as `needs_redraw_anyways`, but for reusing the layout from the previous frame.
     /// Each `:hover` and `:active` group stores whether it modifies the layout, as
     /// a performance optimization.
@@ -1239,7 +1229,7 @@ pub struct CallbacksOfHitTest<T> {
     pub needs_redraw_anyways: bool,
 }
 
-impl<T> Default for CallbacksOfHitTest<T> {
+impl Default for CallbacksOfHitTest {
     fn default() -> Self {
         Self {
             nodes_with_callbacks: BTreeMap::new(),
@@ -1249,7 +1239,7 @@ impl<T> Default for CallbacksOfHitTest<T> {
     }
 }
 
-impl<T> fmt::Debug for CallbacksOfHitTest<T> {
+impl fmt::Debug for CallbacksOfHitTest {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         write!(f,
         "CallbacksOfHitTest {{ \
@@ -1264,7 +1254,7 @@ impl<T> fmt::Debug for CallbacksOfHitTest<T> {
     }
 }
 
-impl<T> CallbacksOfHitTest<T> {
+impl CallbacksOfHitTest {
     /// Returns whether there is any
     pub fn should_call_callbacks(&self) -> bool {
         !self.nodes_with_callbacks.is_empty() &&

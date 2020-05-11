@@ -2,13 +2,11 @@ use std::{
     sync::{Arc, Mutex, Weak, atomic::{AtomicUsize, Ordering}},
     thread::{self, JoinHandle},
     time::{Duration, Instant},
-    fmt,
-    hash::{Hash, Hasher},
 };
 use crate::{
     FastHashMap,
     callbacks::{
-        Redraw, DontRedraw, TimerCallback, TimerCallbackInfo,
+        Redraw, DontRedraw, TimerCallback, TimerCallbackInfo, RefAny,
         TimerCallbackReturn, TimerCallbackType, UpdateScreen,
     },
     app_resources::AppResources,
@@ -45,7 +43,8 @@ impl TimerId {
 ///
 /// The callback of a `Timer` should be fast enough to run under 16ms,
 /// otherwise running timers will block the main UI thread.
-pub struct Timer<T> {
+#[derive(Debug, Copy, Clone, PartialEq, Eq, Hash)]
+pub struct Timer {
     /// Stores when the timer was created (usually acquired by `Instant::now()`)
     pub created: Instant,
     /// When the timer was last called (`None` only when the timer hasn't been called yet).
@@ -61,13 +60,13 @@ pub struct Timer<T> {
     /// execution after 5s using `Some(Duration::from_secs(5))`).
     pub timeout: Option<Duration>,
     /// Callback to be called for this timer
-    pub callback: TimerCallback<T>,
+    pub callback: TimerCallback,
 }
 
-impl<T> Timer<T> {
+impl Timer {
 
     /// Create a new timer
-    pub fn new(callback: TimerCallbackType<T>) -> Self {
+    pub fn new(callback: TimerCallbackType) -> Self {
         Timer {
             created: Instant::now(),
             last_run: None,
@@ -104,7 +103,7 @@ impl<T> Timer<T> {
 
     /// Crate-internal: Invokes the timer if the timer and
     /// the `self.timeout` allow it to
-    pub fn invoke<'a>(&mut self, info: TimerCallbackInfo<'a, T>) -> TimerCallbackReturn {
+    pub fn invoke<'a>(&mut self, info: TimerCallbackInfo<'a>) -> TimerCallbackReturn {
 
         let instant_now = Instant::now();
         let delay = self.delay.unwrap_or_else(|| Duration::from_millis(0));
@@ -134,61 +133,6 @@ impl<T> Timer<T> {
     }
 }
 
-// #[derive(Debug, Copy, Clone, PartialEq, Eq, Hash)] for Timer<T>
-
-impl<T> fmt::Debug for Timer<T> {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        write!(f,
-            "Timer {{ \
-                created: {:?}, \
-                last_run: {:?}, \
-                delay: {:?}, \
-                interval: {:?}, \
-                timeout: {:?}, \
-                callback: {:?}, \
-            }}",
-            self.created,
-            self.last_run,
-            self.delay,
-            self.interval,
-            self.timeout,
-            self.callback,
-        )
-    }
-}
-
-impl<T> Clone for Timer<T> {
-    fn clone(&self) -> Self {
-        Timer { .. *self }
-    }
-}
-
-impl<T> Hash for Timer<T> {
-    fn hash<H>(&self, state: &mut H) where H: Hasher {
-        self.created.hash(state);
-        self.last_run.hash(state);
-        self.delay.hash(state);
-        self.interval.hash(state);
-        self.timeout.hash(state);
-        self.callback.hash(state);
-    }
-}
-
-impl<T> PartialEq for Timer<T> {
-    fn eq(&self, rhs: &Self) -> bool {
-        self.created == rhs.created &&
-        self.last_run == rhs.last_run &&
-        self.delay == rhs.delay &&
-        self.interval == rhs.interval &&
-        self.timeout == rhs.timeout &&
-        self.callback == rhs.callback
-    }
-}
-
-impl<T> Eq for Timer<T> { }
-
-impl<T> Copy for Timer<T> { }
-
 /// Simple struct that is used by Azul internally to determine when the thread has finished executing.
 /// When this struct goes out of scope, Azul will call `.join()` on the thread (so in order to not
 /// block the main thread, simply let it go out of scope naturally.
@@ -202,17 +146,17 @@ pub struct DropCheck(Arc<()>);
 /// This is useful to offload actions such as loading long files, etc. to a background thread.
 ///
 /// Azul will join the thread automatically after it is finished (joining won't block the UI).
-pub struct Task<T> {
+pub struct Task {
     // Thread handle of the currently in-progress task
     join_handle: Option<JoinHandle<UpdateScreen>>,
     dropcheck: Weak<()>,
     /// Timer that will run directly after this task is completed.
-    pub after_completion_timer: Option<Timer<T>>,
+    pub after_completion_timer: Option<Timer>,
 }
 
 pub type TaskCallback<U> = fn(Arc<Mutex<U>>, DropCheck) -> UpdateScreen;
 
-impl<T> Task<T> {
+impl Task {
 
     /// Creates a new task from a callback and a set of input data - which has to be wrapped in an `Arc<Mutex<T>>>`.
     pub fn new<U: Send + 'static>(data: Arc<Mutex<U>>, callback: TaskCallback<U>) -> Self {
@@ -232,7 +176,7 @@ impl<T> Task<T> {
     ///
     /// Often necessary to "clean up" or copy data from the background task into the UI.
     #[inline]
-    pub fn then(mut self, timer: Timer<T>) -> Self {
+    pub fn then(mut self, timer: Timer) -> Self {
         self.after_completion_timer = Some(timer);
         self
     }
@@ -243,7 +187,7 @@ impl<T> Task<T> {
     }
 }
 
-impl<T> Drop for Task<T> {
+impl Drop for Task {
     fn drop(&mut self) {
         if let Some(thread_handle) = self.join_handle.take() {
             let _ = thread_handle.join().unwrap();
@@ -327,9 +271,9 @@ impl<T> Drop for Thread<T> {
 
 /// Run all currently registered timers
 #[must_use]
-pub fn run_all_timers<T>(
-    timers: &mut FastHashMap<TimerId, Timer<T>>,
-    data: &mut T,
+pub fn run_all_timers(
+    timers: &mut FastHashMap<TimerId, Timer>,
+    data: &mut RefAny,
     resources: &mut AppResources,
 ) -> UpdateScreen {
 
@@ -361,8 +305,8 @@ pub fn run_all_timers<T>(
 /// Remove all tasks that have finished executing
 #[must_use]
 pub fn clean_up_finished_tasks<T>(
-    tasks: &mut Vec<Task<T>>,
-    timers: &mut FastHashMap<TimerId, Timer<T>>,
+    tasks: &mut Vec<Task>,
+    timers: &mut FastHashMap<TimerId, Timer>,
 ) -> UpdateScreen {
 
     let old_count = tasks.len();
