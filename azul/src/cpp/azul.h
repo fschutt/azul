@@ -31,8 +31,6 @@
 #include <stdlib.h>
 
 
-// The data model
-typedef void *AzDataModel;
 // The layout() callback fn
 typedef AzDomPtr (*AzLayoutCallbackPtr)(AzRefAnyPtr, AzLayoutInfoPtr);
 

@@ -26,8 +26,6 @@ use azul_desktop::app::{App, AppConfig};
 use azul_web::app::{App, AppConfig};
 
 
-/// The data model
-pub type AzDataModel = *mut c_void;
 /// The layout() callback fn
 pub type AzLayoutCallback = fn(AzRefAnyPtr, AzLayoutInfoPtr) -> AzDomPtr;
 
