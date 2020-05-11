@@ -74,6 +74,16 @@ dependencies = [
 ]
 
 [[package]]
+name = "azul-core"
+version = "0.0.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "393070399804fd02df1d025de088a06994aaf2862f8a77e70fdeb5ded0dfdd0c"
+dependencies = [
+ "azul-css 0.0.1 (registry+https://github.com/rust-lang/crates.io-index)",
+ "gleam",
+]
+
+[[package]]
 name = "azul-css"
 version = "0.0.1"
 
@@ -106,7 +116,7 @@ name = "azul-desktop"
 version = "0.0.1"
 dependencies = [
  "app_units",
- "azul-core",
+ "azul-core 0.0.1",
  "azul-css 0.0.1",
  "azul-css-parser 0.0.1",
  "azul-layout",
@@ -128,7 +138,7 @@ dependencies = [
 name = "azul-dll"
 version = "0.0.1"
 dependencies = [
- "azul-core",
+ "azul-core 0.0.1",
  "azul-css 0.0.1",
  "azul-desktop",
  "azul-native-style",
@@ -139,7 +149,7 @@ dependencies = [
 name = "azul-layout"
 version = "0.0.1"
 dependencies = [
- "azul-core",
+ "azul-core 0.0.1",
  "azul-css 0.0.1",
  "azul-css-parser 0.0.1",
  "azul-text-layout",
@@ -164,8 +174,8 @@ checksum = "c303bfdf857413adbd19d9b15dddd9b4adb8e2be7e493c8a38d9fc6179a074ac"
 name = "azul-text-layout"
 version = "0.0.1"
 dependencies = [
- "azul-core",
- "azul-css 0.0.1",
+ "azul-core 0.0.1 (registry+https://github.com/rust-lang/crates.io-index)",
+ "azul-css 0.0.1 (registry+https://github.com/rust-lang/crates.io-index)",
  "freetype",
  "harfbuzz-sys",
  "unicode-normalization",
@@ -175,7 +185,7 @@ dependencies = [
 name = "azul-web"
 version = "0.0.1"
 dependencies = [
- "azul-core",
+ "azul-core 0.0.1",
  "azul-css 0.0.1",
 ]
 
@@ -183,7 +193,7 @@ dependencies = [
 name = "azul-widgets"
 version = "0.0.1"
 dependencies = [
- "azul-core",
+ "azul-core 0.0.1",
  "azul-css 0.0.1",
  "gleam",
  "lyon",
@@ -197,7 +207,7 @@ dependencies = [
 name = "azulc"
 version = "0.0.1"
 dependencies = [
- "azul-core",
+ "azul-core 0.0.1",
  "azul-css 0.0.1",
  "azul-css-parser 0.0.1",
  "azul-layout",
