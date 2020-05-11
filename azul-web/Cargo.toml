@@ -14,9 +14,6 @@ exclude = ["../assets/*", "../doc/*", "../examples/*"]
 autoexamples = false
 edition = "2018"
 
-[lib]
-path = "../../azul-web/lib.rs"
-
 [dependencies]
 azul-core = { version = "0.0.1", path = "../azul-core", default-features = false }
 azul-css  = { version = "0.0.1", path = "../azul-css", default-features = false }

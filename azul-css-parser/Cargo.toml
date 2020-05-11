@@ -1,14 +1,14 @@
 [package]
-name = "azul-native-style"
+name = "azul-css-parser"
 version = "0.0.1"
 authors = ["Felix Schütt <felix.schuett@maps4print.com>"]
 license = "MIT"
 description = '''
-    OS-native styles for use with the Azul desktop GUI framework
+    CSS-compatible parser for the Azul GUI framework
 '''
 documentation = "https://docs.rs/azul"
 homepage = "https://azul.rs/"
-keywords = ["gui", "GUI", "user interface", "svg", "graphics", "native" ]
+keywords = ["gui", "GUI", "user interface", "svg", "graphics", "css" ]
 categories = ["gui"]
 repository = "https://github.com/maps4print/azul"
 readme = "README.md"
@@ -16,9 +16,6 @@ exclude = ["assets/*", "doc/*", "examples/*"]
 autoexamples = false
 edition = "2018"
 
-[lib]
-path = "../../azul-native-style/lib.rs"
-
 [dependencies]
-azul-css                = { path = "../azul-css",          default-features = false }
-azul-css-parser         = { path = "../azul-css-parser",   default-features = false }
+azul-css                = { path = "../azul-css",   default-features = false }
+azul-simplecss          = { version = "0.1.1",      default-features = false }

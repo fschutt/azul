@@ -18,7 +18,6 @@ edition = "2018"
 
 [lib]
 crate-type = ["rlib", "cdylib"]
-path = "../../azul-core/lib.rs"
 
 [dependencies]
 gleam                   = { version = "0.11.0"                                                                      }

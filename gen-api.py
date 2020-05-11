@@ -7,12 +7,12 @@ postfix = "Ptr"
 
 license_path = "./LICENSE"
 api_file_path = "./public.api.json"
-rust_c_api_path = "./azul-dll/lib.rs"
+rust_c_api_path = "./azul-dll/src/lib.rs"
 
-bindings_c_path = "./azul/c/azul.h"
-bindings_cpp_path = "./azul/cpp/azul.h"
-bindings_rust_path = "./azul/rust/azul.rs"
-bindings_python_path = "./azul/python/azul.py"
+bindings_c_path = "./azul/src/c/azul.h"
+bindings_cpp_path = "./azul/src/cpp/azul.h"
+bindings_rust_path = "./azul/src/rust/azul.rs"
+bindings_python_path = "./azul/src/python/azul.py"
 
 rust_c_api_header = "\
 //! Public API for Azul\r\n\

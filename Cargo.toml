@@ -1,27 +1,15 @@
 [workspace]
 members = [
-    "cargo/azul",
-    "cargo/azul-dll",
-    "cargo/azul-desktop",
-    "cargo/azul-web",
-    "cargo/azulc",
-    "cargo/azul-css",
-    "cargo/azul-core",
-    "cargo/azul-layout",
-    "cargo/azul-text-layout",
-    "cargo/azul-widgets",
-    "cargo/azul-css-parser",
-    "cargo/azul-native-style",
+    "azul",
+    "azul-dll",
+    "azul-desktop",
+    "azul-web",
+    "azulc",
+    "azul-css",
+    "azul-core",
+    "azul-layout",
+    "azul-text-layout",
+    "azul-widgets",
+    "azul-css-parser",
+    "azul-native-style",
 ]
-
-# Publish in order:
-#   azul-css
-#   azul-css-parser
-#   azul-core
-#   azul-text-layout
-#   azul-layout
-#   azulc
-#   azul-desktop
-#   azul-web
-#   azul-dll
-#   azul

@@ -18,9 +18,6 @@ exclude = ["../assets/*", "../doc/*", "../examples/*"]
 autoexamples = false
 edition = "2018"
 
-[lib]
-path = "../../azul/rust/azul.rs"
-
 [dependencies]
 azul-dll = { version = "0.0.1", path = "../azul-dll", default-features = false }
 
