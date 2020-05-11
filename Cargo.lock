@@ -68,8 +68,8 @@ dependencies = [
 name = "azul-core"
 version = "0.0.1"
 dependencies = [
- "azul-css",
- "azul-css-parser",
+ "azul-css 0.0.1 (registry+https://github.com/rust-lang/crates.io-index)",
+ "azul-css-parser 0.0.1 (registry+https://github.com/rust-lang/crates.io-index)",
  "gleam",
 ]
 
@@ -78,10 +78,26 @@ name = "azul-css"
 version = "0.0.1"
 
 [[package]]
+name = "azul-css"
+version = "0.0.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "c323e70e1a3a7f0872301a72aa87bd31a1bbc99eb8fdd8d2186f9f0b2115693f"
+
+[[package]]
 name = "azul-css-parser"
 version = "0.0.1"
 dependencies = [
- "azul-css",
+ "azul-css 0.0.1 (registry+https://github.com/rust-lang/crates.io-index)",
+ "azul-simplecss",
+]
+
+[[package]]
+name = "azul-css-parser"
+version = "0.0.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "d93ed7b3b69099193f4290b427b596d6a3fca49886b3434580f2d31e2bfc6ee3"
+dependencies = [
+ "azul-css 0.0.1 (registry+https://github.com/rust-lang/crates.io-index)",
  "azul-simplecss",
 ]
 
@@ -91,8 +107,8 @@ version = "0.0.1"
 dependencies = [
  "app_units",
  "azul-core",
- "azul-css",
- "azul-css-parser",
+ "azul-css 0.0.1",
+ "azul-css-parser 0.0.1",
  "azul-layout",
  "azul-native-style",
  "azul-widgets",
@@ -113,7 +129,7 @@ name = "azul-dll"
 version = "0.0.1"
 dependencies = [
  "azul-core",
- "azul-css",
+ "azul-css 0.0.1",
  "azul-desktop",
  "azul-native-style",
  "azul-web",
@@ -124,8 +140,8 @@ name = "azul-layout"
 version = "0.0.1"
 dependencies = [
  "azul-core",
- "azul-css",
- "azul-css-parser",
+ "azul-css 0.0.1",
+ "azul-css-parser 0.0.1",
  "azul-text-layout",
  "azulc",
 ]
@@ -134,8 +150,8 @@ dependencies = [
 name = "azul-native-style"
 version = "0.0.1"
 dependencies = [
- "azul-css",
- "azul-css-parser",
+ "azul-css 0.0.1",
+ "azul-css-parser 0.0.1",
 ]
 
 [[package]]
@@ -149,7 +165,7 @@ name = "azul-text-layout"
 version = "0.0.1"
 dependencies = [
  "azul-core",
- "azul-css",
+ "azul-css 0.0.1",
  "freetype",
  "harfbuzz-sys",
  "unicode-normalization",
@@ -160,7 +176,7 @@ name = "azul-web"
 version = "0.0.1"
 dependencies = [
  "azul-core",
- "azul-css",
+ "azul-css 0.0.1",
 ]
 
 [[package]]
@@ -168,7 +184,7 @@ name = "azul-widgets"
 version = "0.0.1"
 dependencies = [
  "azul-core",
- "azul-css",
+ "azul-css 0.0.1",
  "gleam",
  "lyon",
  "serde",
@@ -182,8 +198,8 @@ name = "azulc"
 version = "0.0.1"
 dependencies = [
  "azul-core",
- "azul-css",
- "azul-css-parser",
+ "azul-css 0.0.1",
+ "azul-css-parser 0.0.1",
  "azul-layout",
  "font-loader",
  "gleam",

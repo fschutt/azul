@@ -11,18 +11,15 @@ homepage = "https://azul.rs/"
 keywords = ["gui", "GUI", "user-interface"]
 categories = ["gui"]
 repository = "https://github.com/maps4print/azul"
-readme = "README.md"
-exclude = ["assets/*", "doc/*", "examples/*"]
-autoexamples = false
 edition = "2018"
 
 [lib]
 crate-type = ["rlib", "cdylib"]
 
 [dependencies]
-gleam                   = { version = "0.11.0"                                                                      }
-azul-css                = { version = "0.0.1",                      path = "../azul-css"                            }
-azul-css-parser         = { version = "0.0.1",  optional = true,    path = "../azul-css-parser"                     }
+gleam                   = { version = "0.11.0" }
+azul-css                = { version = "0.0.1" }
+azul-css-parser         = { version = "0.0.1",  optional = true }
 
 [features]
 css_parser = ["azul-css-parser"]
