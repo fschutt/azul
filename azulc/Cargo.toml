@@ -24,10 +24,10 @@ path = "src/main.rs"
 [dependencies]
 gleam                   = { version = "0.11.0",         default-features = false }
 xmlparser               = { version = "0.9.0",          default-features = false }
-azul-core               = { version = "0.0.1",          default-features = false,       path = "../azul-core"           }
-azul-css                = { version = "0.0.1",          default-features = false,       path = "../azul-css"            }
-azul-css-parser         = { version = "0.0.1",          default-features = false,       path = "../azul-css-parser"     }
-azul-layout             = { version = "0.0.1",          default-features = false,       path = "../azul-layout"         }
+azul-core               = { version = "0.0.1",          default-features = false }
+azul-css                = { version = "0.0.1",          default-features = false }
+azul-css-parser         = { version = "0.0.1",          default-features = false }
+azul-layout             = { version = "0.0.1",          default-features = false }
 image                   = { version = "0.21.2",         default-features = false,       optional = true,    features = ["gif_codec", "jpeg", "png_codec", "tiff", "bmp"]    }
 font-loader             = { version = "0.8.0",          default-features = false,       optional = true                                                                     }
 
