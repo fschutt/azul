@@ -14,8 +14,8 @@ repository = "https://github.com/maps4print/azul"
 edition = "2018"
 
 [dependencies]
-azul-core               = { version = "0.0.1",  default-features = false,                   path = "../azul-core" }
-azul-css                = { version = "0.0.1",  default-features = false,                   path = "../azul-css"  }
+azul-core               = { version = "0.0.1",  default-features = false }
+azul-css                = { version = "0.0.1",  default-features = false }
 gleam                   = { version = "0.11.0", default-features = false, optional = true                         }
 lyon                    = { version = "0.15.5", default-features = false, optional = true                         }
 usvg                    = { version = "0.9.0",  default-features = false, optional = true                         }
