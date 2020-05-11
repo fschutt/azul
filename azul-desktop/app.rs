@@ -32,10 +32,9 @@ use azul_core::{
     window::{RendererType, WindowCreateOptions, WindowSize, DebugState, WindowState, FullWindowState},
     dom::{DomId, NodeId, ScrollTagId},
     gl::GlShader,
-    traits::Layout,
     ui_state::UiState,
     ui_solver::ScrolledNodes,
-    callbacks::{LayoutCallback, HitTestItem, Redraw},
+    callbacks::{RefAny, LayoutCallback, HitTestItem, Redraw},
     task::{Task, Timer, TimerId},
     window::{AzulUpdateEvent, CallbacksOfHitTest, KeyboardState, WindowId},
     callbacks::PipelineId,
@@ -60,33 +59,33 @@ use azul_core::app_resources::FakeRenderApi;
 const COLOR_WHITE: ColorU = ColorU { r: 255, g: 255, b: 255, a: 0 };
 
 /// Graphical application that maintains some kind of application state
-pub struct App<T> {
+pub struct App {
     /// Your data (the global struct which all callbacks will have access to)
-    pub data: T,
+    pub data: RefAny,
     /// Fonts, images and cached text that is currently loaded inside the app (window-independent).
     ///
     /// Accessing this field is often required to load new fonts or images, so instead of
     /// requiring the `FontHashMap`, a lot of functions just require the whole `AppResources` field.
     pub resources: AppResources,
     /// Currently running timers (polling functions, run on the main thread)
-    pub timers: FastHashMap<TimerId, Timer<T>>,
+    pub timers: FastHashMap<TimerId, Timer>,
     /// Currently running tasks (asynchronous functions running each on a different thread)
-    pub tasks: Vec<Task<T>>,
+    pub tasks: Vec<Task>,
     /// Application configuration, whether to enable logging, etc.
     pub config: AppConfig,
     /// The window create options (only set at startup), get moved into the `.run_inner()` method
     /// No window is actually shown until the `.run_inner()` method is called.
-    windows: BTreeMap<WindowId, WindowCreateOptions<T>>,
+    windows: BTreeMap<WindowId, WindowCreateOptions>,
     /// The `Layout::layout()` callback, stored as a function pointer,
     /// There are multiple reasons for doing this (instead of requiring `T: Layout` everywhere):
     ///
-    /// - It seperates the `Dom<T>` from the `Layout` trait, making it possible to split the
+    /// - It seperates the `Dom` from the `Layout` trait, making it possible to split the
     ///   UI solving and styling into reusable crates
     /// - It's less typing work (prevents having to type `<T: Layout>` everywhere)
     /// - It's potentially more efficient to compile (less type-checking required)
     /// - It's a preparation for the C ABI, in which traits don't exist (for language bindings).
     ///   In the C ABI "traits" are simply structs with function pointers (and void* instead of T)
-    layout_callback: LayoutCallback<T>,
+    layout_callback: LayoutCallback,
     /// The actual renderer of this application
     #[cfg(not(test))]
     fake_display: FakeDisplay,
@@ -94,7 +93,7 @@ pub struct App<T> {
     render_api: FakeRenderApi,
 }
 
-impl<T> App<T> {
+impl App {
     impl_task_api!();
     impl_image_api!(resources);
     impl_font_api!(resources);
@@ -164,18 +163,12 @@ impl Default for AppConfig {
     }
 }
 
-impl<T: Layout> App<T> {
-    /// Creates a new, empty application. This does not open any windows.
-    pub fn new(initial_data: T, app_config: AppConfig) -> Result<Self, RendererCreationError> {
-        Self::new_with_callback(initial_data, app_config, T::layout)
-    }
-}
+impl App {
 
-impl<T> App<T> {
     #[cfg(not(test))]
     #[allow(unused_variables)]
     /// Creates a new, empty application using a specified callback. This does not open any windows.
-    pub fn new_with_callback(initial_data: T, app_config: AppConfig, callback: LayoutCallback<T>) -> Result<Self, RendererCreationError> {
+    pub fn new(initial_data: RefAny, app_config: AppConfig, callback: LayoutCallback) -> Result<Self, RendererCreationError> {
 
         #[cfg(feature = "logging")] {
             if let Some(log_level) = app_config.enable_logging {
@@ -235,12 +228,12 @@ impl<T> App<T> {
     }
 }
 
-impl<T: 'static> App<T> {
+impl App {
 
     /// Spawn a new window on the screen. Note that this should only be used to
     /// create extra windows, the default window will be the window submitted to
     /// the `.run` method.
-    pub fn add_window(&mut self, create_options: WindowCreateOptions<T>) {
+    pub fn add_window(&mut self, create_options: WindowCreateOptions) {
         self.windows.insert(WindowId::new(), create_options);
     }
 
@@ -248,7 +241,7 @@ impl<T: 'static> App<T> {
     /// takes one `WindowCreateOptions` as an argument, which is the "root" window, i.e.
     /// the main application window.
     #[cfg(not(test))]
-    pub fn run(mut self, root_window: WindowCreateOptions<T>) -> ! {
+    pub fn run(mut self, root_window: WindowCreateOptions) -> ! {
 
         #[cfg(target_os = "macos")]
         {
@@ -712,19 +705,19 @@ impl<T: 'static> App<T> {
 }
 
 #[cfg(not(test))]
-struct EventLoopData<'a, T> {
-    data: &'a mut T,
+struct EventLoopData<'a> {
+    data: &'a mut RefAny,
     event_loop_target: Option<&'a GlutinEventLoopWindowTarget<()>>,
     resources: &'a mut AppResources,
-    timers: &'a mut FastHashMap<TimerId, Timer<T>>,
-    tasks: &'a mut Vec<Task<T>>,
+    timers: &'a mut FastHashMap<TimerId, Timer>,
+    tasks: &'a mut Vec<Task>,
     config: &'a AppConfig,
-    layout_callback: LayoutCallback<T>,
-    active_windows: &'a mut BTreeMap<GlutinWindowId, Window<T>>,
+    layout_callback: LayoutCallback,
+    active_windows: &'a mut BTreeMap<GlutinWindowId, Window>,
     window_id_mapping: &'a mut BTreeMap<GlutinWindowId, WindowId>,
     reverse_window_id_mapping: &'a mut BTreeMap<WindowId, GlutinWindowId>,
     full_window_states: &'a mut BTreeMap<GlutinWindowId, FullWindowState>,
-    ui_state_cache: &'a mut BTreeMap<GlutinWindowId, BTreeMap<DomId, UiState<T>>>,
+    ui_state_cache: &'a mut BTreeMap<GlutinWindowId, BTreeMap<DomId, UiState>>,
     ui_description_cache: &'a mut BTreeMap<GlutinWindowId, BTreeMap<DomId, UiDescription>>,
     render_api: &'a mut WrApi,
     renderer: &'a mut Option<WrRenderer>,
@@ -739,9 +732,9 @@ struct EventLoopData<'a, T> {
 /// The function recurses until there's nothing left to do, i.e. sending a `send_user_event(DoHitTest { }, eld)`
 /// will internally call the function again with `send_user_event(RebuildUi { })` if necessary and so on.
 #[cfg(not(test))]
-fn send_user_event<'a, T>(
-    ev: AzulUpdateEvent<T>,
-    eld: &mut EventLoopData<'a, T>,
+fn send_user_event<'a>(
+    ev: AzulUpdateEvent,
+    eld: &mut EventLoopData<'a>,
 ) {
 
     use azul_core::window::AzulUpdateEvent::*;
@@ -880,7 +873,6 @@ fn send_user_event<'a, T>(
                     use azul_core::callbacks;
 
                     let active_windows = &mut *eld.active_windows;
-                    let data = &mut *eld.data;
                     let timers = &mut *eld.timers;
                     let tasks = &mut *eld.tasks;
                     let full_window_states = &mut *eld.full_window_states;
@@ -890,7 +882,6 @@ fn send_user_event<'a, T>(
                     let call_callbacks_results = active_windows.values_mut().map(|window| {
                         let scroll_states = window.internal.get_current_scroll_states(&ui_state);
                         let mut ret = callbacks::call_callbacks(
-                            data,
                             &events,
                             ui_state,
                             ui_description,
@@ -1125,8 +1116,8 @@ fn update_keyboard_state_from_modifier_state(keyboard_state: &mut KeyboardState,
     keyboard_state.super_down = modifiers.logo();
 }
 
-fn initialize_window_states<T>(
-    window_create_options: &BTreeMap<WindowId, WindowCreateOptions<T>>,
+fn initialize_window_states(
+    window_create_options: &BTreeMap<WindowId, WindowCreateOptions>,
 ) -> BTreeMap<WindowId, WindowState> {
     window_create_options.iter().map(|(id, s)| (*id, s.state.clone())).collect()
 }
@@ -1137,13 +1128,13 @@ fn initialize_window_states<T>(
 /// Theoretically, this mapping isn't used anywhere else, but it might
 /// be useful for future refactoring.
 #[cfg(not(test))]
-fn initialize_windows<T>(
-    window_create_options: BTreeMap<WindowId, WindowCreateOptions<T>>,
+fn initialize_windows(
+    window_create_options: BTreeMap<WindowId, WindowCreateOptions>,
     fake_display: &mut FakeDisplay,
     app_resources: &mut AppResources,
     config: &AppConfig,
 ) -> (
-    BTreeMap<GlutinWindowId, Window<T>>,
+    BTreeMap<GlutinWindowId, Window>,
     BTreeMap<GlutinWindowId, WindowId>,
     BTreeMap<WindowId, GlutinWindowId>
 ) {
@@ -1188,14 +1179,14 @@ fn initialize_full_window_states(
 }
 
 #[cfg(not(test))]
-fn initialize_ui_state_cache<T>(
-    data: &T,
+fn initialize_ui_state_cache(
+    data: &RefAny,
     gl_context: Rc<dyn Gl>,
     app_resources: &AppResources,
-    windows: &BTreeMap<GlutinWindowId, Window<T>>,
+    windows: &BTreeMap<GlutinWindowId, Window>,
     full_window_states: &mut BTreeMap<GlutinWindowId, FullWindowState>,
-    layout_callback: LayoutCallback<T>,
-) -> BTreeMap<GlutinWindowId, BTreeMap<DomId, UiState<T>>> {
+    layout_callback: LayoutCallback,
+) -> BTreeMap<GlutinWindowId, BTreeMap<DomId, UiState>> {
 
 
     let mut ui_state_map = BTreeMap::new();
@@ -1251,13 +1242,13 @@ fn hot_reload_css(
     }
 }
 
-fn call_layout_fn<T>(
-    data: &T,
+fn call_layout_fn(
+    data: &RefAny,
     gl_context: Rc<dyn Gl>,
     app_resources: &AppResources,
     full_window_state: &FullWindowState,
-    layout_callback: LayoutCallback<T>,
-) -> BTreeMap<DomId, UiState<T>> {
+    layout_callback: LayoutCallback,
+) -> BTreeMap<DomId, UiState> {
 
     use azul_core::callbacks::LayoutInfo;
 
@@ -1291,8 +1282,8 @@ fn call_layout_fn<T>(
     dom_id_map
 }
 
-fn initialize_ui_description_cache<T>(
-    ui_states: &mut BTreeMap<GlutinWindowId, BTreeMap<DomId, UiState<T>>>,
+fn initialize_ui_description_cache(
+    ui_states: &mut BTreeMap<GlutinWindowId, BTreeMap<DomId, UiState>>,
     full_window_states: &mut BTreeMap<GlutinWindowId, FullWindowState>,
 ) -> BTreeMap<GlutinWindowId, BTreeMap<DomId, UiDescription>> {
     ui_states.iter_mut().map(|(glutin_window_id, ui_states)| {
@@ -1302,8 +1293,8 @@ fn initialize_ui_description_cache<T>(
 }
 
 // HTML (UiState) + CSS (FullWindowState) => CSSOM (UiDescription)
-fn cascade_style<T>(
-     ui_states: &mut BTreeMap<DomId, UiState<T>>,
+fn cascade_style(
+     ui_states: &mut BTreeMap<DomId, UiState>,
      full_window_state: &mut FullWindowState,
 ) -> BTreeMap<DomId, UiDescription>{
     ui_states.iter_mut().map(|(dom_id, mut ui_state)| {
@@ -1319,8 +1310,8 @@ fn cascade_style<T>(
 
 /// Returns the currently hit-tested results, in back-to-front order
 #[cfg(not(test))]
-fn do_hit_test<T>(
-    window: &Window<T>,
+fn do_hit_test(
+    window: &Window,
     full_window_state: &FullWindowState,
     render_api: &WrApi,
 ) -> Vec<HitTestItem> {
@@ -1347,11 +1338,11 @@ fn do_hit_test<T>(
 
 /// Given the current (and previous) window state and the hit test results,
 /// determines which `On::X` filters to actually call.
-fn determine_events<T>(
+fn determine_events(
     hit_test_results: &[HitTestItem],
     full_window_state: &mut FullWindowState,
-    ui_state_map: &BTreeMap<DomId, UiState<T>>,
-) -> BTreeMap<DomId, CallbacksOfHitTest<T>> {
+    ui_state_map: &BTreeMap<DomId, UiState>,
+) -> BTreeMap<DomId, CallbacksOfHitTest> {
     use azul_core::window_state::determine_callbacks;
     ui_state_map.iter().map(|(dom_id, ui_state)| {
         (dom_id.clone(), determine_callbacks(full_window_state, &hit_test_results, ui_state))
@@ -1378,8 +1369,8 @@ fn synchronize_window_state_with_os(
 
 /// Build the display list and send it to webrender
 #[cfg(not(test))]
-fn send_display_list_to_webrender<T>(
-    window: &mut Window<T>,
+fn send_display_list_to_webrender(
+    window: &mut Window,
     full_window_state: &FullWindowState,
     render_api: &mut WrApi,
 ) {
@@ -1510,8 +1501,8 @@ fn clean_up_unused_opengl_textures(pipeline_info: WrPipelineInfo, pipeline_id: &
 // NOTE: For some reason, webrender allows rendering to a framebuffer with a
 // negative width / height, although that doesn't make sense
 #[cfg(not(test))]
-fn render_inner<T>(
-    window: &mut Window<T>,
+fn render_inner(
+    window: &mut Window,
     full_window_state: &FullWindowState,
     headless_shared_context: &mut HeadlessContextState,
     render_api: &mut WrApi,

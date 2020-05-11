@@ -5,7 +5,6 @@ use std::{
     rc::Rc,
     collections::{BTreeMap, HashSet},
     sync::atomic::{AtomicUsize, Ordering as AtomicOrdering},
-    marker::PhantomData,
     path::PathBuf,
 };
 #[cfg(target_os = "windows")]
@@ -389,7 +388,7 @@ pub struct WindowInternal {
 impl WindowInternal {
 
     /// Returns a copy of the current scroll states + scroll positions
-    pub fn get_current_scroll_states<T>(&self, ui_states: &BTreeMap<DomId, UiState>)
+    pub fn get_current_scroll_states(&self, ui_states: &BTreeMap<DomId, UiState>)
     -> BTreeMap<DomId, BTreeMap<NodeId, ScrollPosition>>
     {
         self.scrolled_nodes.iter().filter_map(|(dom_id, scrolled_nodes)| {
@@ -891,7 +890,7 @@ impl Default for WindowState {
 }
 
 /// Options on how to initially create the window
-pub struct WindowCreateOptions<T> {
+pub struct WindowCreateOptions {
     /// State of the window, set the initial title / width / height here.
     pub state: WindowState,
     // /// Which monitor should the window be created on?
@@ -903,11 +902,9 @@ pub struct WindowCreateOptions<T> {
     /// An optional style hot-reloader for the current window, only available with debug_assertions
     /// enabled
     pub hot_reload_handler: Option<Box<dyn HotReloadHandler>>,
-    // Marker, necessary to create a Window<T> out of the create options
-    pub marker: PhantomData<T>,
 }
 
-impl<T> fmt::Debug for WindowCreateOptions<T> {
+impl fmt::Debug for WindowCreateOptions {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         #[cfg(debug_assertions)]
         #[cfg(not(test))] {
@@ -920,7 +917,7 @@ impl<T> fmt::Debug for WindowCreateOptions<T> {
     }
 }
 
-impl<T> Default for WindowCreateOptions<T> {
+impl Default for WindowCreateOptions {
     fn default() -> Self {
         Self {
             state: WindowState::default(),
@@ -928,12 +925,11 @@ impl<T> Default for WindowCreateOptions<T> {
             #[cfg(debug_assertions)]
             #[cfg(not(test))]
             hot_reload_handler: None,
-            marker: PhantomData,
         }
     }
 }
 
-impl<T> WindowCreateOptions<T> {
+impl WindowCreateOptions {
 
     pub fn new(css: Css) -> Self {
         Self {
@@ -1092,9 +1088,9 @@ impl Default for RendererType {
 
 /// Custom event type, to construct an `EventLoop<AzulWindowUpdateEvent>`.
 /// This is dispatched into the `EventLoop` (to send a "custom" event)
-pub enum AzulUpdateEvent<T> {
+pub enum AzulUpdateEvent {
     CreateWindow {
-        window_create_options: WindowCreateOptions<T>,
+        window_create_options: WindowCreateOptions,
     },
     CloseWindow {
         window_id: WindowId,
@@ -1130,7 +1126,7 @@ pub enum AzulUpdateEvent<T> {
     // ... etc.
 }
 
-impl<T> fmt::Debug for AzulUpdateEvent<T> {
+impl fmt::Debug for AzulUpdateEvent {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         use self::AzulUpdateEvent::*;
         match self {

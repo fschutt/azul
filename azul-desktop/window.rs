@@ -1,7 +1,6 @@
 use std::{
     rc::Rc,
     collections::BTreeMap,
-    marker::PhantomData,
 };
 use webrender::{
     api::{
@@ -141,7 +140,7 @@ impl Default for Monitor {
 }
 
 /// Represents one graphical window to be rendered
-pub struct Window<T> {
+pub struct Window {
     /// System that can identify this window
     pub(crate) id: WindowId,
     /// Renderer type: Hardware-with-software-fallback, pure software or pure hardware renderer?
@@ -155,8 +154,6 @@ pub struct Window<T> {
     pub(crate) internal: WindowInternal,
     /// The display, i.e. the actual window (+ the attached OpenGL context)
     pub(crate) display: ContextState,
-    // Marker, necessary to create a Window<T> out of the `WindowCreateOptions<T>`
-    marker: PhantomData<T>,
 }
 
 pub(crate) enum ContextState {
@@ -257,14 +254,14 @@ impl HeadlessContextState {
     }
 }
 
-impl<T> Window<T> {
+impl Window {
 
     /// Creates a new window
     pub(crate) fn new(
         render_api: &mut WrApi,
         shared_context: &Context<NotCurrent>,
         events_loop: &EventLoopWindowTarget<()>,
-        mut options: WindowCreateOptions<T>,
+        mut options: WindowCreateOptions,
         background_color: ColorU,
         app_resources: &mut AppResources,
     ) -> Result<Self, GlutinCreationError> {
@@ -338,7 +335,6 @@ impl<T> Window<T> {
                 gl_texture_cache: GlTextureCache::default(),
                 cached_display_list: CachedDisplayList::empty(display_list_dimensions, LayoutPoint::zero()),
             },
-            marker: options.marker,
         };
 
         Ok(window)

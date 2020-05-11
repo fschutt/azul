@@ -13,7 +13,7 @@ use crate::{
 ///
 /// This function also updates / mutates the current window states `focused_node`
 /// as well as the `window_state.previous_state`
-pub fn determine_callbacks<T>(
+pub fn determine_callbacks(
     window_state: &mut FullWindowState,
     hit_test_items: &[HitTestItem],
     ui_state: &UiState,
