@@ -307,8 +307,6 @@ pub fn get_font_metrics_freetype(font_bytes: &[u8], font_index: i32) -> FontMetr
 
         // Load font
         let mut ft_face: FT_Face = ptr::null_mut();
-        let font_index = match font_index.try_into().ok() { Some(s) => s, None => return baseline };
-        let buf_len = match font_bytes.len().try_into().ok() { Some(s) => s, None => return baseline };
         let error = FT_New_Memory_Face(ft_library, font_bytes.as_ptr(), buf_len, font_index as FT_Long, &mut ft_face);
 
         if error != FT_ERR_OK {
