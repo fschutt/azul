@@ -1,3 +1,6 @@
+//! Contains functions for breaking a string into words, calculate
+//! the positions of words / lines and do glyph positioning
+
 use azul_css::{LayoutSize, LayoutRect, LayoutPoint};
 pub use azul_core::{
     app_resources::{

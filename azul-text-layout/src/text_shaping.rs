@@ -1,5 +1,4 @@
 //! Contains functions for laying out single words (uses HarfBuzz for context-aware font shaping).
-//! Right now, words are laid out on a word-per-word basis, no inter-word font shaping is done.
 
 use std::{slice, ptr, u32, ops::Deref, os::raw::{c_char, c_uint}};
 use harfbuzz_sys::{
