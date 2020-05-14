@@ -1,6 +1,6 @@
 [package]
 name = "azul-text-layout"
-version = "0.0.2"
+version = "0.0.3"
 authors = ["Felix Schütt <felix.schuett@maps4print.com>"]
 license = "MIT"
 description = '''
@@ -14,7 +14,7 @@ edition = "2018"
 
 [dependencies]
 azul-css                = { version = "0.0.1",   default-features = false }
-azul-core               = { version = "0.0.1",   default-features = false }
+azul-core               = { version = "0.0.2",   default-features = false }
 unicode-normalization   = { version = "0.1.12",  default-features = false }
 harfbuzz-sys            = { version = "0.3.4",   default-features = false,   features = ["build-native-harfbuzz", "build-native-freetype"] }
 freetype                = { version = "0.4.1",   default-features = false }
