@@ -1,6 +1,6 @@
 [package]
 name = "azul-text-layout"
-version = "0.0.3"
+version = "0.0.4"
 authors = ["Felix Schütt <felix.schuett@maps4print.com>"]
 license = "MIT"
 description = '''
@@ -11,6 +11,7 @@ keywords = ["gui", "user-interface", "svg", "graphics", "native" ]
 categories = ["gui"]
 repository = "https://github.com/maps4print/azul"
 edition = "2018"
+readme = "./README.md"
 
 [dependencies]
 azul-css                = { version = "0.0.1",   default-features = false }
