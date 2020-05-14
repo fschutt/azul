@@ -476,9 +476,9 @@ def generate_rust_bindings(apiData):
 
                     code += "        pub fn " + f["fn_name"] + "(" + fn_args + ") " +  returns + " { " + fn_body + "}\r\n"
 
-            code += "    /// Prevents the destructor from running and returns the internal `" + class_ptr_name + "`\r\n"
-            code += "    #[allow(dead_code)]\r\n"
-            code += "    pub(crate) fn leak(mut self) -> " + class_ptr_name + " { self.run_destructor = false; " +  fn_prefix + to_snake_case(class_name) + "_shallow_copy(&self.ptr) }\r\n"
+            code += "       /// Prevents the destructor from running and returns the internal `" + class_ptr_name + "`\r\n"
+            code += "       #[allow(dead_code)]\r\n"
+            code += "       pub(crate) fn leak(mut self) -> " + class_ptr_name + " { self.run_destructor = false; " +  fn_prefix + to_snake_case(class_name) + "_shallow_copy(&self.ptr) }\r\n"
             code += "    }\r\n\r\n"
 
             code += "    impl Drop for " + class_name + " { fn drop(&mut self) { if self.run_destructor { " + fn_prefix + to_snake_case(class_name) + "_delete(&mut self.ptr); } } }\r\n"
