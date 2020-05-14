@@ -13,9 +13,11 @@ use crate::{
     },
     callbacks::{
         LayoutInfo, Callback, LayoutCallback,
-        IFrameCallback, GlCallback, RefAny,
+        IFrameCallback, RefAny,
     },
 };
+#[cfg(feature = "opengl")]
+use crate::callbacks::GlCallback;
 
 pub struct UiState {
     /// Unique identifier for the DOM
@@ -339,6 +341,7 @@ impl UiState {
         }).collect()
     }
 
+    #[cfg(feature = "opengl")]
     pub fn scan_for_gltexture_callbacks(&self) -> Vec<(NodeId, &(GlCallback, RefAny))> {
         use crate::dom::NodeType::GlTexture;
         self.dom.arena.node_hierarchy.linear_iter().filter_map(|node_id| {

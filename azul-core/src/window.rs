@@ -26,6 +26,7 @@ use crate::{
     ui_state::UiState,
     display_list::{SolvedLayoutCache, GlTextureCache, CachedDisplayList},
 };
+#[cfg(feature = "opengl")]
 use gleam::gl::Gl;
 
 pub const DEFAULT_TITLE: &str = "Azul App";
@@ -1000,6 +1001,7 @@ impl HotReloader {
 /// not available for whatever reason.
 ///
 /// If you don't know what any of this means, leave it at `Default`.
+#[cfg_attr(not(feature = "opengl"), derive(Copy))]
 pub enum RendererType {
     /// Use the hardware renderer first, then fall back to OSMesa
     Default,
@@ -1008,6 +1010,7 @@ pub enum RendererType {
     /// Force software rendering
     ForceSoftware,
     /// Render using a custom OpenGL implementation
+    #[cfg(feature = "opengl")]
     Custom(Rc<dyn Gl>),
 }
 
@@ -1018,6 +1021,7 @@ impl RendererType {
             RendererType::Default => RendererTypeNoData::Default,
             RendererType::ForceHardware => RendererTypeNoData::ForceHardware,
             RendererType::ForceSoftware => RendererTypeNoData::ForceSoftware,
+            #[cfg(feature = "opengl")]
             RendererType::Custom(_) => RendererTypeNoData::Custom,
         }
     }
@@ -1038,6 +1042,7 @@ impl Clone for RendererType {
             Default => Default,
             ForceHardware => ForceHardware,
             ForceSoftware => ForceSoftware,
+            #[cfg(feature = "opengl")]
             Custom(gl) => Custom(gl.clone()),
         }
     }
@@ -1075,6 +1080,7 @@ impl fmt::Debug for RendererType {
             RendererType::Default => write!(f, "Default"),
             RendererType::ForceHardware => write!(f, "ForceHardware"),
             RendererType::ForceSoftware => write!(f, "ForceSoftware"),
+            #[cfg(feature = "opengl")]
             RendererType::Custom(_) => write!(f, "Custom"),
         }
     }

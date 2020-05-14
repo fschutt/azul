@@ -26,9 +26,11 @@ use crate::{
         UpdateFocusWarning, CallCallbacksResult, ScrollStates,
     },
     task::{Timer, TerminateTimer, Task, TimerId},
-    gl::Texture,
 };
 
+#[cfg(feature = "opengl")]
+use crate::gl::Texture;
+#[cfg(feature = "opengl")]
 use gleam::gl::Gl;
 
 /// A callback function has to return if the screen should be updated after the
@@ -393,6 +395,7 @@ macro_rules! impl_callback {($callback_value:ident) => (
 
 macro_rules! impl_get_gl_context {() => {
     /// Returns a reference-counted pointer to the OpenGL context
+    #[cfg(feature = "opengl")]
     pub fn get_gl_context(&self) -> Rc<dyn Gl> {
         self.gl_context.clone()
     }
@@ -423,10 +426,8 @@ pub struct CallbackInfo<'a> {
     pub scrolled_nodes: &'a BTreeMap<DomId, ScrolledNodes>,
     /// Current display list active in this window (useful for debugging)
     pub cached_display_list: &'a CachedDisplayList,
-    /// An Rc to the original WindowContext - this is only so that
-    /// the user can create textures and other OpenGL content in the window
-    /// but not change any window properties from underneath - this would
-    /// lead to mismatch between the
+    /// An Rc to the OpenGL context, in order to be able to render to OpenGL textures
+    #[cfg(feature = "opengl")]
     pub gl_context: Rc<dyn Gl>,
     /// See [`AppState.resources`](./struct.AppState.html#structfield.resources)
     pub resources : &'a mut AppResources,
@@ -506,7 +507,9 @@ impl<'a> CallbackInfo<'a> {
 // -- opengl callback
 
 /// Callbacks that returns a rendered OpenGL texture
+#[cfg(feature = "opengl")]
 pub struct GlCallback(pub GlCallbackType);
+#[cfg(feature = "opengl")]
 impl_callback!(GlCallback);
 
 pub struct GlCallbackInfo<'a> {
@@ -515,7 +518,9 @@ pub struct GlCallbackInfo<'a> {
     pub bounds: HidpiAdjustedBounds,
 }
 
+#[cfg(feature = "opengl")]
 pub type GlCallbackReturn = Option<Texture>;
+#[cfg(feature = "opengl")]
 pub type GlCallbackType = fn(GlCallbackInfo) -> GlCallbackReturn;
 
 // -- iframe callback
@@ -566,8 +571,9 @@ pub struct LayoutInfo<'a> {
     pub window_size_width_stops: &'a mut Vec<f32>,
     /// Same as `window_size_width_stops` but for the height of the window.
     pub window_size_height_stops: &'a mut Vec<f32>,
-    /// An Rc to the original WindowContext - this is only so that
+    /// An Rc to the original OpenGL context - this is only so that
     /// the user can create textures and other OpenGL content in the window
+    #[cfg(feature = "opengl")]
     pub gl_context: Rc<dyn Gl>,
     /// Allows the layout() function to reference app resources such as FontIDs or ImageIDs
     pub resources: &'a AppResources,
@@ -745,6 +751,7 @@ impl<'a> Iterator for ParentNodesIterator<'a> {
 }
 
 /// The actual function that calls the callback in their proper hierarchy and order
+#[cfg(feature = "opengl")]
 pub fn call_callbacks(
     callbacks_filter_list: &BTreeMap<DomId, CallbacksOfHitTest>,
     ui_state_map: &BTreeMap<DomId, UiState>,

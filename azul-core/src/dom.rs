@@ -9,13 +9,14 @@ use std::{
 use crate::{
     callbacks::{
         Callback, CallbackType,
-        GlCallback, GlCallbackType,
         IFrameCallback, IFrameCallbackType,
         RefAny,
     },
     app_resources::{ImageId, TextId},
     id_tree::{Arena, NodeDataContainer},
 };
+#[cfg(feature = "opengl")]
+use crate::callbacks::{GlCallback, GlCallbackType};
 use azul_css::{NodeTypePath, CssProperty};
 pub use crate::id_tree::{NodeHierarchy, Node, NodeId};
 
@@ -115,6 +116,7 @@ impl DomId {
 pub struct DomHash(pub u64);
 
 /// List of core DOM node types built-into by `azul`.
+#[derive(Debug, Clone, PartialEq, Hash, Eq)]
 pub enum NodeType {
     /// Regular div with no particular type of data attached
     Div,
@@ -130,6 +132,7 @@ pub enum NodeType {
     /// OpenGL texture. The `Svg` widget deserizalizes itself into a texture
     /// Equality and Hash values are only checked by the OpenGl texture ID,
     /// Azul does not check that the contents of two textures are the same
+    #[cfg(feature = "opengl")]
     GlTexture((GlCallback, RefAny)),
     /// DOM that gets passed its width / height during the layout
     IFrame((IFrameCallback, RefAny)),
@@ -143,87 +146,12 @@ impl NodeType {
             Label(s) => Some(format!("{}", s)),
             Image(id) => Some(format!("image({:?})", id)),
             Text(t) => Some(format!("textid({:?})", t)),
+            #[cfg(feature = "opengl")]
             GlTexture(g) => Some(format!("gltexture({:?})", g)),
             IFrame(i) => Some(format!("iframe({:?})", i)),
         }
     }
 }
-
-// #[derive(Debug, Clone, PartialEq, Hash, Eq)] for NodeType
-
-impl fmt::Debug for NodeType {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        use self::NodeType::*;
-        match self {
-            Div => write!(f, "NodeType::Div"),
-            Body => write!(f, "NodeType::Body"),
-            Label(a) => write!(f, "NodeType::Label {{ {:?} }}", a),
-            Text(a) => write!(f, "NodeType::Text {{ {:?} }}", a),
-            Image(a) => write!(f, "NodeType::Image {{ {:?} }}", a),
-            GlTexture((ptr, cb)) => write!(f, "NodeType::GlTexture {{ ptr: {:?}, callback: {:?} }}", ptr, cb),
-            IFrame((ptr, cb)) => write!(f, "NodeType::IFrame {{ ptr: {:?}, callback: {:?} }}", ptr, cb),
-        }
-    }
-}
-
-impl Clone for NodeType {
-    fn clone(&self) -> Self {
-        use self::NodeType::*;
-        match self {
-            Div => Div,
-            Body => Body,
-            Label(a) => Label(a.clone()),
-            Text(a) => Text(a.clone()),
-            Image(a) => Image(a.clone()),
-            GlTexture((ptr, a)) => GlTexture((ptr.clone(), a.clone())),
-            IFrame((ptr, a)) => IFrame((ptr.clone(), a.clone())),
-        }
-    }
-}
-
-impl Hash for NodeType {
-    fn hash<H>(&self, state: &mut H) where H: Hasher {
-        use self::NodeType::*;
-        use std::mem;
-        mem::discriminant(&self).hash(state);
-        match self {
-            Div | Body => { },
-            Label(a) => a.hash(state),
-            Text(a) => a.hash(state),
-            Image(a) => a.hash(state),
-            GlTexture((ptr, a)) => {
-                ptr.hash(state);
-                a.hash(state);
-            },
-            IFrame((ptr, a)) => {
-                ptr.hash(state);
-                a.hash(state);
-            },
-        }
-    }
-}
-
-impl PartialEq for NodeType {
-    fn eq(&self, rhs: &Self) -> bool {
-        use self::NodeType::*;
-        match (self, rhs) {
-            (Div, Div) => true,
-            (Body, Body) => true,
-            (Label(a), Label(b)) => a == b,
-            (Text(a), Text(b)) => a == b,
-            (Image(a), Image(b)) => a == b,
-            (GlTexture((ptr_a, a)), GlTexture((ptr_b, b))) => {
-                a == b && ptr_a == ptr_b
-            },
-            (IFrame((ptr_a, a)), IFrame((ptr_b, b))) => {
-                a == b && ptr_a == ptr_b
-            },
-            _ => false,
-        }
-    }
-}
-
-impl Eq for NodeType { }
 
 impl NodeType {
     #[inline]
@@ -234,6 +162,7 @@ impl NodeType {
             Body => NodeTypePath::Body,
             Label(_) | Text(_) => NodeTypePath::P,
             Image(_) => NodeTypePath::Img,
+            #[cfg(feature = "opengl")]
             GlTexture(_) => NodeTypePath::Texture,
             IFrame(_) => NodeTypePath::IFrame,
         }
@@ -835,6 +764,7 @@ impl NodeData {
 
     /// Shorthand for `NodeData::new(NodeType::GlTexture((callback, ptr)))`
     #[inline(always)]
+    #[cfg(feature = "opengl")]
     pub fn gl_texture(callback: GlCallbackType, ptr: RefAny) -> Self {
         Self::new(NodeType::GlTexture((GlCallback(callback), ptr)))
     }
@@ -1313,6 +1243,7 @@ impl Dom {
 
     /// Shorthand for `Dom::new(NodeType::GlTexture((callback, ptr)))`
     #[inline(always)]
+    #[cfg(feature = "opengl")]
     pub fn gl_texture<I: Into<RefAny>>(callback: GlCallbackType, ptr: I) -> Self {
         Self::new(NodeType::GlTexture((GlCallback(callback), ptr.into())))
     }

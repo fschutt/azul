@@ -22,7 +22,6 @@ use crate::{
         LayoutResult, ScrolledNodes, OverflowingScrollNode,
         PositionInfo,
     },
-    gl::Texture,
     window::FullWindowState,
     app_resources::{
         AppResources, AddImageMsg, FontImageApi, ImageDescriptor, ImageDescriptorFlags,
@@ -36,6 +35,9 @@ use crate::{
         DomId, NodeData, TagId, ScrollTagId, DomString,
     },
 };
+#[cfg(feature = "opengl")]
+use crate::gl::Texture;
+#[cfg(feature = "opengl")]
 use gleam::gl::Gl;
 
 pub type GlyphIndex = u32;
@@ -608,7 +610,7 @@ pub struct GlTextureCache {
 
 // todo: very unclean
 pub type LayoutFn = fn(&NodeHierarchy, &NodeDataContainer<NodeData>, &NodeDataContainer<DisplayRectangle>, &AppResources, &PipelineId, LayoutRect) -> LayoutResult;
-
+#[cfg(feature = "opengl")]
 pub type GlStoreImageFn = fn(PipelineId, Epoch, Texture) -> ExternalImageId;
 
 #[derive(Default)]
@@ -620,6 +622,7 @@ pub struct SolvedLayout {
 impl SolvedLayout {
 
     /// Does the layout, updates the image + font resources for the RenderAPI
+    #[cfg(feature = "opengl")]
     pub fn new<U: FontImageApi>(
         epoch: Epoch,
         pipeline_id: PipelineId,
@@ -642,6 +645,7 @@ impl SolvedLayout {
             },
         };
 
+        #[cfg(feature = "opengl")]
         fn recurse<U: FontImageApi>(
             layout_cache: &mut SolvedLayoutCache,
             solved_textures: &mut BTreeMap<DomId, BTreeMap<NodeId, Texture>>,
@@ -1204,6 +1208,7 @@ pub fn displaylist_handle_rect<'a>(
                 });
             }
         },
+        #[cfg(feature = "opengl")]
         GlTexture(_) => {
             if let Some((key, descriptor)) = gl_texture_cache.solved_textures.get(&dom_id).and_then(|textures| textures.get(&rect_idx)) {
                 frame.content.push(LayoutRectContent::Image {
