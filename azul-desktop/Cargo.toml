@@ -18,10 +18,10 @@ glutin                  = { version = "0.22.1", default-features = false }
 app_units               = { version = "0.7.1",  default-features = false }
 tinyfiledialogs         = { version = "3.3.9",  default-features = false }
 clipboard2              = { version = "0.1.1",  default-features = false }
-azulc                   = { version = "0.0.2",  default-features = false, features = ["text_layout", "image_loading", "font_loading"] }
+azulc                   = { version = "0.0.3",  default-features = false, features = ["text_layout", "image_loading", "font_loading"] }
 azul-css                = { version = "0.0.1",  default-features = false }
 azul-core               = { version = "0.0.2",  default-features = false, features = ["opengl"] }
-azul-layout             = { version = "0.0.1",  default-features = false, features = ["text_layout"] }
+azul-layout             = { version = "0.0.4",  default-features = false, features = ["text_layout"] }
 azul-css-parser         = { version = "0.0.1",  default-features = false, optional = true }
 azul-widgets            = { version = "0.0.1",  default-features = false, optional = true }
 azul-native-style       = { version = "0.0.1",  default-features = false, optional = true }
