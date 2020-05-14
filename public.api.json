@@ -35,12 +35,10 @@
       },
       "callbacks": {
          "RefAny": {
-            "constructors":[],
             "external": "azul_core::callbacks::RefAnyPtr"
          },
          "LayoutInfo": {
             "rust_class_name": "LayoutInfo<'a>",
-            "constructors":[],
             "external": "azul_core::callbacks::LayoutInfoPtr"
          }
       },

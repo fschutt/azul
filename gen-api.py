@@ -59,6 +59,11 @@ c_typedefs = "\
 typedef AzDomPtr (*AzLayoutCallbackPtr)(AzRefAnyPtr, AzLayoutInfoPtr);\r\n\
 "
 
+rust_api_typedef = "\
+    /// Callback fn that returns the layout\r\n\
+    pub type LayoutCallback = fn(RefAny, LayoutInfo) -> Dom;\r\n\
+"
+
 def to_snake_case(name):
     s1 = re.sub('(.)([A-Z][a-z]+)', r'\1_\2', name)
     return re.sub('([a-z0-9])([A-Z])', r'\1_\2', s1).lower()
@@ -125,17 +130,7 @@ def generate_c_api_code(apiData):
                         code += "// Creates a new `" + class_name + "` instance whose memory is owned by the rust allocator\r\n"
                         code += "// Equivalent to the Rust `" + class_name  + "::" + const["fn_name"] + "()` constructor.\r\n"
 
-                    fn_args = ""
-
-                    if "args" in const.keys():
-                        for arg_name in const["args"].keys():
-                            arg_type = const["args"][arg_name]
-                            # special cases: no "Ptr" postfix
-                            if ((arg_type == "LayoutCallback") or (arg_type == "DataModel")):
-                                fn_args += arg_name + ": " + prefix + arg_type + ", " # no postfix
-                            else:
-                                fn_args += arg_name + ": " + prefix + arg_type + postfix + ", "
-                        fn_args = fn_args[:-2]
+                    fn_args = fn_args_c_api(const, class_name, class_ptr_name, False)
 
                     code += "#[no_mangle] pub extern \"C\" fn " + fn_prefix + to_snake_case(class_name) + "_" + const["fn_name"] + "(" + fn_args + ") -> " + class_ptr_name + " { "
                     code += class_ptr_name + " { ptr: Box::into_raw(Box::new(" + const["fn_body"] + ")) as *mut c_void }"
@@ -148,17 +143,7 @@ def generate_c_api_code(apiData):
                     else:
                         code += "// Equivalent to the Rust `" + class_name  + "::" + f["fn_name"] + "()` function.\r\n"
 
-                    fn_args = class_name.lower() + ": " + class_ptr_name + ", "
-
-                    if "args" in f.keys():
-                        for arg_name in f["args"].keys():
-                            arg_type = f["args"][arg_name]
-                            # special cases: no "Ptr" postfix
-                            if ((arg_type == "LayoutCallback") or (arg_type == "DataModel")):
-                                fn_args += arg_name + ": " + prefix + arg_type + ", " # no postfix
-                            else:
-                                fn_args += arg_name + ": " + prefix + arg_type + postfix + ", "
-                        fn_args = fn_args[:-2]
+                    fn_args = fn_args_c_api(f, class_name, class_ptr_name, True)
 
                     returns = ""
                     if "returns" in f.keys():
@@ -184,6 +169,22 @@ def generate_c_api_code(apiData):
 
     return code
 
+def fn_args_c_api(f, class_name, class_ptr_name, self_as_first_arg):
+    fn_args = ""
+    if self_as_first_arg:
+        fn_args = class_name.lower() + ": " + class_ptr_name + ", "
+
+    if "args" in f.keys():
+        for arg_name in f["args"].keys():
+            arg_type = f["args"][arg_name]
+            # special cases: no "Ptr" postfix
+            if ((arg_type == "LayoutCallback") or (arg_type == "DataModel")):
+                fn_args += arg_name + ": " + prefix + arg_type + ", " # no postfix
+            else:
+                fn_args += arg_name + ": " + prefix + arg_type + postfix + ", "
+        fn_args = fn_args[:-2]
+
+    return fn_args
 
 # Generates the azul.h header
 def generate_c_bindings(apiData):
@@ -234,19 +235,7 @@ def generate_c_bindings(apiData):
                         header += "// Creates a new `" + class_name + "` instance whose memory is owned by the rust allocator\r\n"
                         header += "// Equivalent to the Rust `" + class_name  + "::" + const["fn_name"] + "()` constructor.\r\n"
 
-                    fn_args = ""
-
-                    if "args" in const.keys():
-                        for arg_name in const["args"]:
-                            arg_type = const["args"][arg_name]
-                            # special cases: no "Ptr" postfix
-                            if ((arg_type == "LayoutCallback") or (arg_type == "DataModel")):
-                                fn_args += prefix + arg_type + arg_name + " " + ", " # no postfix
-                            else:
-                                fn_args += prefix + arg_type + postfix + arg_name + " " + ", "
-                        fn_args = fn_args[:-2]
-                        if (len(const["args"]) == 0):
-                            fn_args = "void"
+                    fn_args = get_fn_args_c(const, class_name, class_ptr_name)
 
                     fn_name = fn_prefix + to_snake_case(class_name) + "_" + const["fn_name"]
                     header += class_ptr_name + " " + fn_name + "(" + fn_args + ");\r\n"
@@ -258,19 +247,7 @@ def generate_c_bindings(apiData):
                     else:
                         header += "// Equivalent to the Rust `" + class_name  + "::" + f["fn_name"] + "()` function.\r\n"
 
-                    fn_args = ""
-
-                    if "args" in f.keys():
-                        for arg_name in f["args"]:
-                            arg_type = f["args"][arg_name]
-                            # special cases: no "Ptr" postfix
-                            if ((arg_type == "LayoutCallback") or (arg_type == "DataModel")):
-                                fn_args += prefix + arg_type + arg_name + " " + ", " # no postfix
-                            else:
-                                fn_args += prefix + arg_type + postfix + arg_name + " " + ", "
-                        fn_args = fn_args[:-2]
-                        if (len(f["args"]) == 0):
-                            fn_args = "void"
+                    fn_args = get_fn_args_c(f, class_name, class_ptr_name)
 
                     fn_name = fn_prefix + to_snake_case(class_name) + "_" + f["fn_name"]
                     header += class_ptr_name + " " + fn_name + "(" + fn_args + ");\r\n"
@@ -282,9 +259,98 @@ def generate_c_bindings(apiData):
 
     return header
 
+def get_fn_args_c(f, class_name, class_ptr_name):
+    fn_args = ""
+
+    if "args" in f.keys():
+        for arg_name in f["args"]:
+            arg_type = f["args"][arg_name]
+            # special cases: no "Ptr" postfix
+            if ((arg_type == "LayoutCallback") or (arg_type == "DataModel")):
+                fn_args += prefix + arg_type + arg_name + " " + ", " # no postfix
+            else:
+                fn_args += prefix + arg_type + postfix + arg_name + " " + ", "
+        fn_args = fn_args[:-2]
+        if (len(f["args"]) == 0):
+            fn_args = "void"
+
+    return fn_args
+
 # TODO
 def generate_cpp_bindings(apiData):
     return generate_c_bindings(apiData)
+
+def search_for_module_of_class(apiData, class_name):
+    for module_name in apiData.keys():
+        if class_name in apiData[module_name].keys():
+            return module_name
+
+    return None
+
+def get_all_imports(apiData, module, module_name, existing_imports = {}):
+    imports = existing_imports
+
+    for class_name in module.keys():
+        c = module[class_name]
+
+        if "constructors" in c.keys():
+            for const in c["constructors"]:
+                if "args" in const.keys():
+                    for arg_type in const["args"].values():
+                        found_module = None
+
+                        if arg_type == "LayoutCallback":
+                            found_module = "callbacks"
+                        else:
+                            found_module = search_for_module_of_class(apiData, arg_type)
+
+                        if found_module is None:
+                            raise Exception("" + arg_type + " not found!")
+
+                        if found_module in imports:
+                            imports[found_module].append(arg_type)
+                        else:
+                            imports[found_module] = [arg_type]
+
+        if "functions" in c.keys():
+            for f in c["functions"]:
+                if "args" in f.keys():
+                    for arg_type in f["args"].values():
+                        found_module = None
+
+                        if arg_type == "LayoutCallback":
+                            found_module = "callbacks"
+                        else:
+                            found_module = search_for_module_of_class(apiData, arg_type)
+
+                        if found_module is None:
+                            raise Exception("" + arg_type + " not found!")
+
+                        if found_module in imports:
+                            imports[found_module].append(arg_type)
+                        else:
+                            imports[found_module] = [arg_type]
+
+    if module_name in imports:
+        del imports[module_name]
+
+    imports_str = ""
+
+    for module_name in imports.keys():
+        classes = imports[module_name]
+        use_str = ""
+        if len(classes) == 1:
+            use_str = classes[0]
+        else:
+            use_str = "{"
+            for c in classes:
+                use_str += c + ", "
+            use_str = use_str[:-2]
+            use_str += "}"
+
+        imports_str += "    use crate::" + module_name + "::" + use_str + ";\r\n"
+
+    return imports_str
 
 def generate_rust_bindings(apiData):
 
@@ -310,8 +376,15 @@ def generate_rust_bindings(apiData):
 
     for module_name in apiData.keys():
         module = apiData[module_name]
+
         code += "pub mod " + module_name + " {\r\n\r\n"
-        code += "    use azul_dll::*;"
+        code += "    use azul_dll::*;\r\n"
+        if module_name == "callbacks":
+            code += get_all_imports(apiData, module, module_name, {"callbacks": ["RefAny", "LayoutInfo"], "dom": ["Dom"]})
+            code += rust_api_typedef
+        else:
+            code += get_all_imports(apiData, module, module_name, {})
+
         for class_name in module.keys():
             c = module[class_name]
 
@@ -324,31 +397,84 @@ def generate_rust_bindings(apiData):
             else:
                 code += "    /// `" + class_name + "` struct\r\n    "
 
-            code += "pub struct " + class_name + " { ptr: " +  class_ptr_name + " }\r\n\r\n"
+            code += "pub struct " + class_name + " { pub(crate) ptr: " +  class_ptr_name + " }\r\n\r\n"
+
+            outputImpl = \
+                (("constructors" in c.keys()) and (len(c["constructors"]) != 0)) or \
+                (("functions" in c.keys()) and (len(c["functions"]) != 0))
+
+            if outputImpl:
+                code += "    impl " + class_name + " {\r\n"
 
             if "constructors" in c.keys():
-                if len(c["constructors"]) != 0:
-                    code += "    impl " + class_name + " {\r\n"
                 for const in c["constructors"]:
                     if "doc" in const.keys():
                         code += "        /// " + const["doc"] + "\r\n"
                     else:
                         code += "        /// Creates a new `" + class_name + "` instance.\r\n"
 
-                    fn_args = "" # TODO
-                    fn_args_call = "" # TODO
+                    fn_args = rust_bindings_fn_args(const, class_name, class_ptr_name, False)
+                    fn_args_call = rust_bindings_call_fn_args(const, class_name, class_ptr_name, False)
                     c_fn_name = fn_prefix + to_snake_case(class_name) + "_" + const["fn_name"]
                     code += "        pub fn " + const["fn_name"] + "(" + fn_args + ") -> Self { Self { ptr: " + c_fn_name + "(" + fn_args_call + ") } }\r\n"
-                    # code += class_ptr_name + " " + c_fn_name + "(" + fn_args + ");\r\n"
 
-                if len(c["constructors"]) != 0:
-                    code += "    }\r\n\r\n"
+            if "functions" in c.keys():
+                for f in c["functions"]:
+                    if "doc" in f.keys():
+                        code += "        /// " + f["doc"] + "\r\n"
+                    else:
+                        code += "        /// Calls the `" + class_name + "::" + f["fn_name"] + "` function.\r\n"
+
+                    fn_args = rust_bindings_fn_args(f, class_name, class_ptr_name, True)
+                    fn_args_call = rust_bindings_call_fn_args(f, class_name, class_ptr_name, True)
+                    c_fn_name = fn_prefix + to_snake_case(class_name) + "_" + f["fn_name"]
+
+                    returns = ""
+                    if "returns" in f.keys():
+                        returns = " -> " + f["returns"]
+
+                    code += "        pub fn " + f["fn_name"] + "(" + fn_args + ") " +  returns + " { " + c_fn_name + "(" + fn_args_call + ") }\r\n"
+
+
+            if outputImpl:
+                code += "    }\r\n\r\n"
 
             code += "    impl Drop for " + class_name + " { fn drop(&mut self) { " + fn_prefix + to_snake_case(class_name) + "_delete(self.ptr); } }\r\n"
 
         code += "}\r\n\r\n"
 
     return code
+
+# Generate the string for TAKING rust-api function arguments
+def rust_bindings_fn_args(f, class_name, class_ptr_name, self_as_first_arg):
+    fn_args = ""
+    if self_as_first_arg:
+        fn_args = "&self, "
+
+    if "args" in f.keys():
+        for arg_name in f["args"].keys():
+            arg_type = f["args"][arg_name]
+            fn_args += arg_name + ": " + arg_type + ", "
+        fn_args = fn_args[:-2]
+
+    return fn_args
+
+# Generate the string for CALLING rust-api function args
+def rust_bindings_call_fn_args(f, class_name, class_ptr_name, self_as_first_arg):
+    fn_args = ""
+    if self_as_first_arg:
+        fn_args = "self.ptr, "
+
+    if "args" in f.keys():
+        for arg_name in f["args"]:
+            if f["args"][arg_name] == "LayoutCallback":
+                fn_args += arg_name + ", "
+            else:
+                fn_args += arg_name + ".ptr, "
+
+        fn_args = fn_args[:-2]
+
+    return fn_args
 
 def generate_python_bindings(apiData):
     return ""

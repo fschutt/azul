@@ -211,15 +211,19 @@ extern crate azul_dll;
 pub mod callbacks {
 
     use azul_dll::*;
+    use crate::dom::Dom;
+    /// Callback fn that returns the layout
+    pub type LayoutCallback = fn(RefAny, LayoutInfo) -> Dom;
+
 
     /// `LayoutInfo` struct
-    pub struct LayoutInfo { ptr: AzLayoutInfoPtr }
+    pub struct LayoutInfo { pub(crate) ptr: AzLayoutInfoPtr }
 
     impl Drop for LayoutInfo { fn drop(&mut self) { az_layout_info_delete(self.ptr); } }
 
 
     /// `RefAny` struct
-    pub struct RefAny { ptr: AzRefAnyPtr }
+    pub struct RefAny { pub(crate) ptr: AzRefAnyPtr }
 
     impl Drop for RefAny { fn drop(&mut self) { az_ref_any_delete(self.ptr); } }
 }
@@ -227,9 +231,12 @@ pub mod callbacks {
 pub mod app {
 
     use azul_dll::*;
+    use crate::callbacks::{RefAny, LayoutCallback};
+    use crate::window::WindowCreateOptions;
+
 
     /// `AppConfig` struct
-    pub struct AppConfig { ptr: AzAppConfigPtr }
+    pub struct AppConfig { pub(crate) ptr: AzAppConfigPtr }
 
     impl AppConfig {
         /// Creates a new `AppConfig` instance.
@@ -240,11 +247,13 @@ pub mod app {
 
 
     /// `App` struct
-    pub struct App { ptr: AzAppPtr }
+    pub struct App { pub(crate) ptr: AzAppPtr }
 
     impl App {
         /// Creates a new App instance.
-        pub fn new() -> Self { Self { ptr: az_app_new() } }
+        pub fn new(config: AppConfig, data: RefAny, callback: LayoutCallback) -> Self { Self { ptr: az_app_new(config.ptr, data.ptr, callback) } }
+        /// Calls the `App::run` function.
+        pub fn run(&self, window: WindowCreateOptions)  { az_app_run(self.ptr, window.ptr) }
     }
 
     impl Drop for App { fn drop(&mut self) { az_app_delete(self.ptr); } }
@@ -253,13 +262,15 @@ pub mod app {
 pub mod window {
 
     use azul_dll::*;
+    use crate::css::Css;
+
 
     /// `WindowCreateOptions` struct
-    pub struct WindowCreateOptions { ptr: AzWindowCreateOptionsPtr }
+    pub struct WindowCreateOptions { pub(crate) ptr: AzWindowCreateOptionsPtr }
 
     impl WindowCreateOptions {
         /// Creates a new `WindowCreateOptions` instance.
-        pub fn new() -> Self { Self { ptr: az_window_create_options_new() } }
+        pub fn new(css: Css) -> Self { Self { ptr: az_window_create_options_new(css.ptr) } }
     }
 
     impl Drop for WindowCreateOptions { fn drop(&mut self) { az_window_create_options_delete(self.ptr); } }
@@ -269,8 +280,9 @@ pub mod css {
 
     use azul_dll::*;
 
+
     /// `Css` struct
-    pub struct Css { ptr: AzCssPtr }
+    pub struct Css { pub(crate) ptr: AzCssPtr }
 
     impl Css {
         /// Creates a new `Css` instance.
@@ -284,8 +296,9 @@ pub mod dom {
 
     use azul_dll::*;
 
+
     /// `Dom` struct
-    pub struct Dom { ptr: AzDomPtr }
+    pub struct Dom { pub(crate) ptr: AzDomPtr }
 
     impl Dom {
         /// Creates a new `Dom` instance.
