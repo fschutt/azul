@@ -293,6 +293,7 @@ pub mod prelude {
     pub use crate::app::{App, AppConfig};
     pub use crate::window::{Window, MonitorHandle, Monitor};
     pub use crate::xml::{XmlComponent, XmlComponentMap, DomXml};
+    #[cfg(any(feature = "css_parser", feature = "native_style"))]
     pub use crate::css;
     #[cfg(feature = "logging")]
     pub use log::LevelFilter;

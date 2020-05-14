@@ -101,7 +101,6 @@ impl App {
 
 /// Configuration for optional features, such as whether to enable logging or panic hooks
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
-#[cfg_attr(not(feature = "logging"), derive(Copy))]
 pub struct AppConfig {
     /// If enabled, logs error and info messages.
     ///
@@ -636,7 +635,7 @@ impl App {
                 *control_flow = ControlFlow::Wait;
 
                 // Reload CSS if necessary
-                #[cfg(debug_assertions)] {
+                #[cfg(all(debug_assertions, any(feature = "css_parser", feature = "native_style")))] {
                     const DONT_FORCE_CSS_RELOAD: bool = false;
 
                     let mut should_update = false;
@@ -767,7 +766,9 @@ fn send_user_event<'a>(
             let window = match window {
                 Ok(o) => o,
                 Err(e) => {
-                    error!("Error initializing window: {}", e);
+                    #[cfg(feature = "logging")] {
+                        error!("Error initializing window: {}", e);
+                    }
                     return;
                 }
             };
@@ -777,7 +778,7 @@ fn send_user_event<'a>(
 
             eld.full_window_states.insert(glutin_window_id, full_window_state);
 
-            #[cfg(debug_assertions)] {
+            #[cfg(all(debug_assertions, any(feature = "css_parser", feature = "native_style")))] {
                 const FORCE_CSS_RELOAD: bool = true;
                 let full_window_state = eld.full_window_states.get_mut(&glutin_window_id).unwrap();
                 let hot_reload_handler = window.hot_reload_handler.as_ref().map(|hr| &hr.0);
@@ -1194,7 +1195,7 @@ fn initialize_ui_state_cache(
     for (glutin_window_id, window) in windows {
         DomId::reset();
 
-        #[cfg(debug_assertions)] {
+        #[cfg(all(debug_assertions, any(feature = "css_parser", feature = "native_style")))] {
             const FORCE_CSS_RELOAD: bool = true;
             let full_window_state = full_window_states.get_mut(glutin_window_id).unwrap();
             let hot_reload_handler = window.hot_reload_handler.as_ref().map(|hr| &hr.0);
@@ -1218,7 +1219,7 @@ fn initialize_ui_state_cache(
 }
 
 /// Returns (whether the screen should update, whether the CSS had an error).
-#[cfg(debug_assertions)]
+#[cfg(all(debug_assertions, any(feature = "css_parser", feature = "native_style")))]
 fn hot_reload_css(
     full_window_state: &mut FullWindowState,
     hot_reload_handler: Option<&Box<dyn HotReloadHandler>>,

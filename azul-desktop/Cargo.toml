@@ -1,6 +1,6 @@
 [package]
 name = "azul-desktop"
-version = "0.0.3"
+version = "0.0.4"
 authors = ["Felix Schütt <felix.schuett@maps4print.com>"]
 license = "MIT"
 description = "Desktop rendering API for azul"
