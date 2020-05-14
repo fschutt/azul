@@ -1,6 +1,6 @@
 [package]
 name = "azul-layout"
-version = "0.0.2"
+version = "0.0.3"
 authors = ["Emil Sjölander <emil@visly.app>", "fschutt <felix.schuett@maps4print.com>"]
 license = "MIT"
 description = '''
@@ -13,8 +13,8 @@ repository = "https://github.com/maps4print/azul"
 edition = "2018"
 
 [dependencies]
-azul-core           = { version = "0.0.1" }
 azul-css            = { version = "0.0.1" }
+azul-core           = { version = "0.0.2", default-features = false, features = ["opengl"] }
 azul-text-layout    = { version = "0.0.2", optional = true }
 
 [dev-dependencies]
