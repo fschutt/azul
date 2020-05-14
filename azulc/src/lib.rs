@@ -1,5 +1,10 @@
 //! Azul-XML-to-Rust compiler (library)
 
+#![doc(
+    html_logo_url = "https://raw.githubusercontent.com/maps4print/azul/master/assets/images/azul_logo_full_min.svg.png",
+    html_favicon_url = "https://raw.githubusercontent.com/maps4print/azul/master/assets/images/favicon.ico",
+)]
+
 extern crate gleam;
 extern crate xmlparser;
 #[macro_use(impl_from, impl_display)]

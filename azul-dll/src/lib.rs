@@ -6,6 +6,12 @@
 //!
 //! For now, the crate simply re-exports azul_core and calls the c_api functions
 
+
+#![doc(
+    html_logo_url = "https://raw.githubusercontent.com/maps4print/azul/master/assets/images/azul_logo_full_min.svg.png",
+    html_favicon_url = "https://raw.githubusercontent.com/maps4print/azul/master/assets/images/favicon.ico",
+)]
+
 #![allow(dead_code)]
 extern crate azul_core;
 extern crate azul_css;

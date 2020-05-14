@@ -1,5 +1,10 @@
 //! Provides azul-compatible approximations of OS-native styles.
 
+#![doc(
+    html_logo_url = "https://raw.githubusercontent.com/maps4print/azul/master/assets/images/azul_logo_full_min.svg.png",
+    html_favicon_url = "https://raw.githubusercontent.com/maps4print/azul/master/assets/images/favicon.ico",
+)]
+
 extern crate azul_css;
 extern crate azul_css_parser;
 
