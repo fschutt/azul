@@ -39,12 +39,12 @@ typedef AzDomPtr (*AzLayoutCallbackPtr)(AzRefAnyPtr, AzLayoutInfoPtr);
 // Pointer to rust-allocated `Box<LayoutInfo>` struct
 typedef struct AzLayoutInfoPtr { void *ptr; } AzLayoutInfoPtr
 // Destructor: Takes ownership of the `LayoutInfo` pointer and deletes it.
-void az_layout_info_delete(AzLayoutInfoPtr ptr);
+void az_layout_info_delete(AzLayoutInfoPtr* ptr);
 
 // Pointer to rust-allocated `Box<RefAny>` struct
 typedef struct AzRefAnyPtr { void *ptr; } AzRefAnyPtr
 // Destructor: Takes ownership of the `RefAny` pointer and deletes it.
-void az_ref_any_delete(AzRefAnyPtr ptr);
+void az_ref_any_delete(AzRefAnyPtr* ptr);
 
 // Pointer to rust-allocated `Box<AppConfig>` struct
 typedef struct AzAppConfigPtr { void *ptr; } AzAppConfigPtr
@@ -52,7 +52,7 @@ typedef struct AzAppConfigPtr { void *ptr; } AzAppConfigPtr
 // Equivalent to the Rust `AppConfig::new()` constructor.
 AzAppConfigPtr az_app_config_new();
 // Destructor: Takes ownership of the `AppConfig` pointer and deletes it.
-void az_app_config_delete(AzAppConfigPtr ptr);
+void az_app_config_delete(AzAppConfigPtr* ptr);
 
 // Pointer to rust-allocated `Box<App>` struct
 typedef struct AzAppPtr { void *ptr; } AzAppPtr
@@ -61,7 +61,7 @@ AzAppPtr az_app_new(AzAppConfigPtrconfig , AzRefAnyPtrdata , AzLayoutCallbackcal
 // Equivalent to the Rust `App::run()` function.
 AzAppPtr az_app_run(AzWindowCreateOptionsPtrwindow );
 // Destructor: Takes ownership of the `App` pointer and deletes it.
-void az_app_delete(AzAppPtr ptr);
+void az_app_delete(AzAppPtr* ptr);
 
 // Pointer to rust-allocated `Box<WindowCreateOptions>` struct
 typedef struct AzWindowCreateOptionsPtr { void *ptr; } AzWindowCreateOptionsPtr
@@ -69,7 +69,7 @@ typedef struct AzWindowCreateOptionsPtr { void *ptr; } AzWindowCreateOptionsPtr
 // Equivalent to the Rust `WindowCreateOptions::new()` constructor.
 AzWindowCreateOptionsPtr az_window_create_options_new(AzCssPtrcss );
 // Destructor: Takes ownership of the `WindowCreateOptions` pointer and deletes it.
-void az_window_create_options_delete(AzWindowCreateOptionsPtr ptr);
+void az_window_create_options_delete(AzWindowCreateOptionsPtr* ptr);
 
 // Pointer to rust-allocated `Box<Css>` struct
 typedef struct AzCssPtr { void *ptr; } AzCssPtr
@@ -77,7 +77,7 @@ typedef struct AzCssPtr { void *ptr; } AzCssPtr
 // Equivalent to the Rust `Css::native()` constructor.
 AzCssPtr az_css_native();
 // Destructor: Takes ownership of the `Css` pointer and deletes it.
-void az_css_delete(AzCssPtr ptr);
+void az_css_delete(AzCssPtr* ptr);
 
 // Pointer to rust-allocated `Box<Dom>` struct
 typedef struct AzDomPtr { void *ptr; } AzDomPtr
@@ -85,7 +85,7 @@ typedef struct AzDomPtr { void *ptr; } AzDomPtr
 // Equivalent to the Rust `Dom::div()` constructor.
 AzDomPtr az_dom_div();
 // Destructor: Takes ownership of the `Dom` pointer and deletes it.
-void az_dom_delete(AzDomPtr ptr);
+void az_dom_delete(AzDomPtr* ptr);
 
 
 #endif /* AZUL_GUI_H */

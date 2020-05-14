@@ -39,14 +39,18 @@ pub type AzLayoutCallback = fn(AzRefAnyPtr, AzLayoutInfoPtr) -> AzDomPtr;
 /// Pointer to rust-allocated `Box<LayoutInfo>` struct
 pub use ::azul_core::callbacks::LayoutInfoPtr as AzLayoutInfoPtr;
 /// Destructor: Takes ownership of the `LayoutInfo` pointer and deletes it.
-#[no_mangle] pub extern "C" fn az_layout_info_delete<'a>(ptr: AzLayoutInfoPtr) { let _ = unsafe { Box::<LayoutInfo<'a>>::from_raw(ptr.ptr  as *mut LayoutInfo<'a>) }; }
+#[no_mangle] pub extern "C" fn az_layout_info_delete<'a>(ptr: &mut AzLayoutInfoPtr) { let _ = unsafe { Box::<LayoutInfo<'a>>::from_raw(ptr.ptr  as *mut LayoutInfo<'a>) }; }
+/// Copies the pointer: WARNING: After calling this function you'll have two pointers to the same Box<`LayoutInfo`>!.
+#[no_mangle] pub extern "C" fn az_layout_info_shallow_copy<'a>(ptr: &AzLayoutInfoPtr) -> AzLayoutInfoPtr { AzLayoutInfoPtr { ptr: ptr.ptr } }
 /// (private): Downcasts the `AzLayoutInfoPtr` to a `Box<LayoutInfo<'a>>`. Note that this takes ownership of the pointer.
 fn az_layout_info_downcast<'a>(ptr: AzLayoutInfoPtr) -> Box<LayoutInfo<'a>> { unsafe { Box::<LayoutInfo<'a>>::from_raw(ptr.ptr  as *mut LayoutInfo<'a>) } }
 
 /// Pointer to rust-allocated `Box<RefAny>` struct
 pub use ::azul_core::callbacks::RefAnyPtr as AzRefAnyPtr;
 /// Destructor: Takes ownership of the `RefAny` pointer and deletes it.
-#[no_mangle] pub extern "C" fn az_ref_any_delete(ptr: AzRefAnyPtr) { let _ = unsafe { Box::<RefAny>::from_raw(ptr.ptr  as *mut RefAny) }; }
+#[no_mangle] pub extern "C" fn az_ref_any_delete(ptr: &mut AzRefAnyPtr) { let _ = unsafe { Box::<RefAny>::from_raw(ptr.ptr  as *mut RefAny) }; }
+/// Copies the pointer: WARNING: After calling this function you'll have two pointers to the same Box<`RefAny`>!.
+#[no_mangle] pub extern "C" fn az_ref_any_shallow_copy(ptr: &AzRefAnyPtr) -> AzRefAnyPtr { AzRefAnyPtr { ptr: ptr.ptr } }
 /// (private): Downcasts the `AzRefAnyPtr` to a `Box<RefAny>`. Note that this takes ownership of the pointer.
 fn az_ref_any_downcast(ptr: AzRefAnyPtr) -> Box<RefAny> { unsafe { Box::<RefAny>::from_raw(ptr.ptr  as *mut RefAny) } }
 
@@ -56,7 +60,9 @@ fn az_ref_any_downcast(ptr: AzRefAnyPtr) -> Box<RefAny> { unsafe { Box::<RefAny>
 // Equivalent to the Rust `AppConfig::new()` constructor.
 #[no_mangle] pub extern "C" fn az_app_config_new() -> AzAppConfigPtr { AzAppConfigPtr { ptr: Box::into_raw(Box::new(AppConfig::default())) as *mut c_void } }
 /// Destructor: Takes ownership of the `AppConfig` pointer and deletes it.
-#[no_mangle] pub extern "C" fn az_app_config_delete(ptr: AzAppConfigPtr) { let _ = unsafe { Box::<AppConfig>::from_raw(ptr.ptr  as *mut AppConfig) }; }
+#[no_mangle] pub extern "C" fn az_app_config_delete(ptr: &mut AzAppConfigPtr) { let _ = unsafe { Box::<AppConfig>::from_raw(ptr.ptr  as *mut AppConfig) }; }
+/// Copies the pointer: WARNING: After calling this function you'll have two pointers to the same Box<`AppConfig`>!.
+#[no_mangle] pub extern "C" fn az_app_config_shallow_copy(ptr: &AzAppConfigPtr) -> AzAppConfigPtr { AzAppConfigPtr { ptr: ptr.ptr } }
 /// (private): Downcasts the `AzAppConfigPtr` to a `Box<AppConfig>`. Note that this takes ownership of the pointer.
 fn az_app_config_downcast(ptr: AzAppConfigPtr) -> Box<AppConfig> { unsafe { Box::<AppConfig>::from_raw(ptr.ptr  as *mut AppConfig) } }
 
@@ -67,7 +73,9 @@ fn az_app_config_downcast(ptr: AzAppConfigPtr) -> Box<AppConfig> { unsafe { Box:
 // Equivalent to the Rust `App::run()` function.
 #[no_mangle] pub extern "C" fn az_app_run(app: AzAppPtr, window: AzWindowCreateOptionsPtr) { az_app_downcast(app).run(*az_window_create_options_downcast(window)) }
 /// Destructor: Takes ownership of the `App` pointer and deletes it.
-#[no_mangle] pub extern "C" fn az_app_delete(ptr: AzAppPtr) { let _ = unsafe { Box::<App>::from_raw(ptr.ptr  as *mut App) }; }
+#[no_mangle] pub extern "C" fn az_app_delete(ptr: &mut AzAppPtr) { let _ = unsafe { Box::<App>::from_raw(ptr.ptr  as *mut App) }; }
+/// Copies the pointer: WARNING: After calling this function you'll have two pointers to the same Box<`App`>!.
+#[no_mangle] pub extern "C" fn az_app_shallow_copy(ptr: &AzAppPtr) -> AzAppPtr { AzAppPtr { ptr: ptr.ptr } }
 /// (private): Downcasts the `AzAppPtr` to a `Box<App>`. Note that this takes ownership of the pointer.
 fn az_app_downcast(ptr: AzAppPtr) -> Box<App> { unsafe { Box::<App>::from_raw(ptr.ptr  as *mut App) } }
 
@@ -77,7 +85,9 @@ fn az_app_downcast(ptr: AzAppPtr) -> Box<App> { unsafe { Box::<App>::from_raw(pt
 // Equivalent to the Rust `WindowCreateOptions::new()` constructor.
 #[no_mangle] pub extern "C" fn az_window_create_options_new(css: AzCssPtr) -> AzWindowCreateOptionsPtr { AzWindowCreateOptionsPtr { ptr: Box::into_raw(Box::new(WindowCreateOptions::new(*az_css_downcast(css)))) as *mut c_void } }
 /// Destructor: Takes ownership of the `WindowCreateOptions` pointer and deletes it.
-#[no_mangle] pub extern "C" fn az_window_create_options_delete(ptr: AzWindowCreateOptionsPtr) { let _ = unsafe { Box::<WindowCreateOptions>::from_raw(ptr.ptr  as *mut WindowCreateOptions) }; }
+#[no_mangle] pub extern "C" fn az_window_create_options_delete(ptr: &mut AzWindowCreateOptionsPtr) { let _ = unsafe { Box::<WindowCreateOptions>::from_raw(ptr.ptr  as *mut WindowCreateOptions) }; }
+/// Copies the pointer: WARNING: After calling this function you'll have two pointers to the same Box<`WindowCreateOptions`>!.
+#[no_mangle] pub extern "C" fn az_window_create_options_shallow_copy(ptr: &AzWindowCreateOptionsPtr) -> AzWindowCreateOptionsPtr { AzWindowCreateOptionsPtr { ptr: ptr.ptr } }
 /// (private): Downcasts the `AzWindowCreateOptionsPtr` to a `Box<WindowCreateOptions>`. Note that this takes ownership of the pointer.
 fn az_window_create_options_downcast(ptr: AzWindowCreateOptionsPtr) -> Box<WindowCreateOptions> { unsafe { Box::<WindowCreateOptions>::from_raw(ptr.ptr  as *mut WindowCreateOptions) } }
 
@@ -87,7 +97,9 @@ fn az_window_create_options_downcast(ptr: AzWindowCreateOptionsPtr) -> Box<Windo
 // Equivalent to the Rust `Css::native()` constructor.
 #[no_mangle] pub extern "C" fn az_css_native() -> AzCssPtr { AzCssPtr { ptr: Box::into_raw(Box::new(azul_native_style::native())) as *mut c_void } }
 /// Destructor: Takes ownership of the `Css` pointer and deletes it.
-#[no_mangle] pub extern "C" fn az_css_delete(ptr: AzCssPtr) { let _ = unsafe { Box::<Css>::from_raw(ptr.ptr  as *mut Css) }; }
+#[no_mangle] pub extern "C" fn az_css_delete(ptr: &mut AzCssPtr) { let _ = unsafe { Box::<Css>::from_raw(ptr.ptr  as *mut Css) }; }
+/// Copies the pointer: WARNING: After calling this function you'll have two pointers to the same Box<`Css`>!.
+#[no_mangle] pub extern "C" fn az_css_shallow_copy(ptr: &AzCssPtr) -> AzCssPtr { AzCssPtr { ptr: ptr.ptr } }
 /// (private): Downcasts the `AzCssPtr` to a `Box<Css>`. Note that this takes ownership of the pointer.
 fn az_css_downcast(ptr: AzCssPtr) -> Box<Css> { unsafe { Box::<Css>::from_raw(ptr.ptr  as *mut Css) } }
 
@@ -97,6 +109,8 @@ pub use ::azul_core::dom::DomPtr as AzDomPtr;
 // Equivalent to the Rust `Dom::div()` constructor.
 #[no_mangle] pub extern "C" fn az_dom_div() -> AzDomPtr { AzDomPtr { ptr: Box::into_raw(Box::new(Dom::div())) as *mut c_void } }
 /// Destructor: Takes ownership of the `Dom` pointer and deletes it.
-#[no_mangle] pub extern "C" fn az_dom_delete(ptr: AzDomPtr) { let _ = unsafe { Box::<Dom>::from_raw(ptr.ptr  as *mut Dom) }; }
+#[no_mangle] pub extern "C" fn az_dom_delete(ptr: &mut AzDomPtr) { let _ = unsafe { Box::<Dom>::from_raw(ptr.ptr  as *mut Dom) }; }
+/// Copies the pointer: WARNING: After calling this function you'll have two pointers to the same Box<`Dom`>!.
+#[no_mangle] pub extern "C" fn az_dom_shallow_copy(ptr: &AzDomPtr) -> AzDomPtr { AzDomPtr { ptr: ptr.ptr } }
 /// (private): Downcasts the `AzDomPtr` to a `Box<Dom>`. Note that this takes ownership of the pointer.
 fn az_dom_downcast(ptr: AzDomPtr) -> Box<Dom> { unsafe { Box::<Dom>::from_raw(ptr.ptr  as *mut Dom) } }

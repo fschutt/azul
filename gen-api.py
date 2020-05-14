@@ -62,6 +62,23 @@ typedef AzDomPtr (*AzLayoutCallbackPtr)(AzRefAnyPtr, AzLayoutInfoPtr);\r\n\
 rust_api_typedef = "\
     /// Callback fn that returns the layout\r\n\
     pub type LayoutCallback = fn(RefAny, LayoutInfo) -> Dom;\r\n\
+    \r\n\
+    \r\n\
+    fn default_callback(_: RefAny, _: LayoutInfo) -> Dom {\r\n\
+        Dom::div()\r\n\
+    }\r\n\
+    \r\n\
+    pub(crate) static mut CALLBACK: LayoutCallback = default_callback;\r\n\
+    \r\n\
+    pub(crate) fn translate_callback(data: azul_dll::AzRefAnyPtr, layout: azul_dll::AzLayoutInfoPtr) -> azul_dll::AzDomPtr {\r\n\
+        unsafe { CALLBACK(RefAny { ptr: data, run_destructor: true }, LayoutInfo { ptr: layout, run_destructor: true }) }.leak()\r\n\
+    }\r\n\
+"
+
+rust_api_app_new_typedef = "{\r\n\
+            unsafe { crate::callbacks::CALLBACK = callback };\r\n\
+            az_app_new(config.leak(), data.leak(), crate::callbacks::translate_callback)\r\n\
+        }\
 "
 
 def to_snake_case(name):
@@ -95,7 +112,6 @@ def generate_c_api_code(apiData):
     apiData = apiData.values()[-1]
 
     code += rust_typedefs
-
     code += "\r\n"
 
     for module_name in apiData.keys():
@@ -158,8 +174,13 @@ def generate_c_api_code(apiData):
                 lifetime = "<'a>"
 
             code += "/// Destructor: Takes ownership of the `" + class_name + "` pointer and deletes it.\r\n"
-            code += "#[no_mangle] pub extern \"C\" fn " + fn_prefix + to_snake_case(class_name) + "_delete" + lifetime + "(ptr: " + class_ptr_name + ") { "
+            code += "#[no_mangle] pub extern \"C\" fn " + fn_prefix + to_snake_case(class_name) + "_delete" + lifetime + "(ptr: &mut " + class_ptr_name + ") { "
             code += "let _ = unsafe { Box::<" + rust_class_name + ">::from_raw(ptr.ptr  as *mut " + rust_class_name + ") };"
+            code += " }\r\n"
+
+            code += "/// Copies the pointer: WARNING: After calling this function you'll have two pointers to the same Box<`" + class_name + "`>!.\r\n"
+            code += "#[no_mangle] pub extern \"C\" fn " + fn_prefix + to_snake_case(class_name) + "_shallow_copy" + lifetime + "(ptr: &" + class_ptr_name + ") -> " + class_ptr_name + " { "
+            code += class_ptr_name + " { ptr: ptr.ptr }"
             code += " }\r\n"
 
             code += "/// (private): Downcasts the `" + class_ptr_name + "` to a `Box<" + rust_class_name + ">`. Note that this takes ownership of the pointer.\r\n"
@@ -171,11 +192,22 @@ def generate_c_api_code(apiData):
 
 def fn_args_c_api(f, class_name, class_ptr_name, self_as_first_arg):
     fn_args = ""
+
     if self_as_first_arg:
-        fn_args = class_name.lower() + ": " + class_ptr_name + ", "
+        self_val = f["args"]["self"]
+        if (self_val == "value"):
+            fn_args += class_name.lower() + ": " + class_ptr_name + ", "
+        elif (self_val == "refmut"):
+            fn_args += class_name.lower() + ": &mut" + class_ptr_name + ", "
+        elif (self_val == "ref"):
+            fn_args += class_name.lower() + ": &" + class_ptr_name + ", "
+        else:
+            raise Exception("wrong self value " + self_val)
 
     if "args" in f.keys():
         for arg_name in f["args"].keys():
+            if arg_name == "self":
+                continue
             arg_type = f["args"][arg_name]
             # special cases: no "Ptr" postfix
             if ((arg_type == "LayoutCallback") or (arg_type == "DataModel")):
@@ -253,7 +285,7 @@ def generate_c_bindings(apiData):
                     header += class_ptr_name + " " + fn_name + "(" + fn_args + ");\r\n"
 
             header += "// Destructor: Takes ownership of the `" + class_name + "` pointer and deletes it.\r\n"
-            header += "void " + fn_prefix + to_snake_case(class_name) + "_delete(" + class_ptr_name + " ptr);\r\n"
+            header += "void " + fn_prefix + to_snake_case(class_name) + "_delete(" + class_ptr_name + "* ptr);\r\n"
 
     header += "\r\n\r\n#endif /* AZUL_GUI_H */\r\n"
 
@@ -264,6 +296,8 @@ def get_fn_args_c(f, class_name, class_ptr_name):
 
     if "args" in f.keys():
         for arg_name in f["args"]:
+            if arg_name == "self":
+                continue
             arg_type = f["args"][arg_name]
             # special cases: no "Ptr" postfix
             if ((arg_type == "LayoutCallback") or (arg_type == "DataModel")):
@@ -296,7 +330,10 @@ def get_all_imports(apiData, module, module_name, existing_imports = {}):
         if "constructors" in c.keys():
             for const in c["constructors"]:
                 if "args" in const.keys():
-                    for arg_type in const["args"].values():
+                    for arg_name in const["args"].keys():
+                        if arg_name == "self":
+                            continue
+                        arg_type = const["args"][arg_name]
                         found_module = None
 
                         if arg_type == "LayoutCallback":
@@ -315,7 +352,10 @@ def get_all_imports(apiData, module, module_name, existing_imports = {}):
         if "functions" in c.keys():
             for f in c["functions"]:
                 if "args" in f.keys():
-                    for arg_type in f["args"].values():
+                    for arg_name in f["args"].keys():
+                        if arg_name == "self":
+                            continue
+                        arg_type = f["args"][arg_name]
                         found_module = None
 
                         if arg_type == "LayoutCallback":
@@ -397,14 +437,9 @@ def generate_rust_bindings(apiData):
             else:
                 code += "    /// `" + class_name + "` struct\r\n    "
 
-            code += "pub struct " + class_name + " { pub(crate) ptr: " +  class_ptr_name + " }\r\n\r\n"
+            code += "pub struct " + class_name + " { pub(crate) ptr: " +  class_ptr_name + ", pub(crate) run_destructor: bool }\r\n\r\n"
 
-            outputImpl = \
-                (("constructors" in c.keys()) and (len(c["constructors"]) != 0)) or \
-                (("functions" in c.keys()) and (len(c["functions"]) != 0))
-
-            if outputImpl:
-                code += "    impl " + class_name + " {\r\n"
+            code += "    impl " + class_name + " {\r\n"
 
             if "constructors" in c.keys():
                 for const in c["constructors"]:
@@ -416,7 +451,12 @@ def generate_rust_bindings(apiData):
                     fn_args = rust_bindings_fn_args(const, class_name, class_ptr_name, False)
                     fn_args_call = rust_bindings_call_fn_args(const, class_name, class_ptr_name, False)
                     c_fn_name = fn_prefix + to_snake_case(class_name) + "_" + const["fn_name"]
-                    code += "        pub fn " + const["fn_name"] + "(" + fn_args + ") -> Self { Self { ptr: " + c_fn_name + "(" + fn_args_call + ") } }\r\n"
+                    fn_body = c_fn_name + "(" + fn_args_call + ")"
+
+                    if [class_name, const["fn_name"]] == ["App", "new"]:
+                        fn_body = rust_api_app_new_typedef
+
+                    code += "        pub fn " + const["fn_name"] + "(" + fn_args + ") -> Self { Self { ptr: " + fn_body + ", run_destructor: true } }\r\n"
 
             if "functions" in c.keys():
                 for f in c["functions"]:
@@ -428,18 +468,20 @@ def generate_rust_bindings(apiData):
                     fn_args = rust_bindings_fn_args(f, class_name, class_ptr_name, True)
                     fn_args_call = rust_bindings_call_fn_args(f, class_name, class_ptr_name, True)
                     c_fn_name = fn_prefix + to_snake_case(class_name) + "_" + f["fn_name"]
+                    fn_body = c_fn_name + "(" + fn_args_call + ")"
 
                     returns = ""
                     if "returns" in f.keys():
                         returns = " -> " + f["returns"]
 
-                    code += "        pub fn " + f["fn_name"] + "(" + fn_args + ") " +  returns + " { " + c_fn_name + "(" + fn_args_call + ") }\r\n"
+                    code += "        pub fn " + f["fn_name"] + "(" + fn_args + ") " +  returns + " { " + fn_body + "}\r\n"
 
+            code += "    /// Prevents the destructor from running and returns the internal `" + class_ptr_name + "`\r\n"
+            code += "    #[allow(dead_code)]\r\n"
+            code += "    pub(crate) fn leak(mut self) -> " + class_ptr_name + " { self.run_destructor = false; " +  fn_prefix + to_snake_case(class_name) + "_shallow_copy(&self.ptr) }\r\n"
+            code += "    }\r\n\r\n"
 
-            if outputImpl:
-                code += "    }\r\n\r\n"
-
-            code += "    impl Drop for " + class_name + " { fn drop(&mut self) { " + fn_prefix + to_snake_case(class_name) + "_delete(self.ptr); } }\r\n"
+            code += "    impl Drop for " + class_name + " { fn drop(&mut self) { if self.run_destructor { " + fn_prefix + to_snake_case(class_name) + "_delete(&mut self.ptr); } } }\r\n"
 
         code += "}\r\n\r\n"
 
@@ -448,11 +490,22 @@ def generate_rust_bindings(apiData):
 # Generate the string for TAKING rust-api function arguments
 def rust_bindings_fn_args(f, class_name, class_ptr_name, self_as_first_arg):
     fn_args = ""
+
     if self_as_first_arg:
-        fn_args = "&self, "
+        self_val = f["args"]["self"]
+        if (self_val == "value"):
+            fn_args += "self, "
+        elif (self_val == "refmut"):
+            fn_args += "&mut self, "
+        elif (self_val == "ref"):
+            fn_args += "&self, "
+        else:
+            raise Exception("wrong self value " + self_val)
 
     if "args" in f.keys():
         for arg_name in f["args"].keys():
+            if arg_name == "self":
+                continue
             arg_type = f["args"][arg_name]
             fn_args += arg_name + ": " + arg_type + ", "
         fn_args = fn_args[:-2]
@@ -463,14 +516,28 @@ def rust_bindings_fn_args(f, class_name, class_ptr_name, self_as_first_arg):
 def rust_bindings_call_fn_args(f, class_name, class_ptr_name, self_as_first_arg):
     fn_args = ""
     if self_as_first_arg:
-        fn_args = "self.ptr, "
+        self_val = f["args"]["self"]
+        if (self_val == "value"):
+            fn_args += "self.leak(), "
+        elif (self_val == "refmut"):
+            fn_args += "&mut self.ptr, "
+        elif (self_val == "ref"):
+            fn_args += "&self.ptr, "
+        else:
+            raise Exception("wrong self value " + self_val)
 
     if "args" in f.keys():
         for arg_name in f["args"]:
-            if f["args"][arg_name] == "LayoutCallback":
-                fn_args += arg_name + ", "
+            arg_type = f["args"][arg_name]
+            if arg_name == "self":
+                continue
+
+            if arg_type.startswith("&mut "):
+                fn_args += "&mut " + arg_name + ".ptr, "
+            elif arg_type.startswith("&"):
+                fn_args += "&" + arg_name + ".ptr, "
             else:
-                fn_args += arg_name + ".ptr, "
+                fn_args += arg_name + ".leak(), "
 
         fn_args = fn_args[:-2]
 

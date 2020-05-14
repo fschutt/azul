@@ -214,18 +214,41 @@ pub mod callbacks {
     use crate::dom::Dom;
     /// Callback fn that returns the layout
     pub type LayoutCallback = fn(RefAny, LayoutInfo) -> Dom;
+    
+    
+    fn default_callback(_: RefAny, _: LayoutInfo) -> Dom {
+        Dom::div()
+    }
+    
+    pub(crate) static mut CALLBACK: LayoutCallback = default_callback;
+    
+    pub(crate) fn translate_callback(data: azul_dll::AzRefAnyPtr, layout: azul_dll::AzLayoutInfoPtr) -> azul_dll::AzDomPtr {
+        unsafe { CALLBACK(RefAny { ptr: data, run_destructor: true }, LayoutInfo { ptr: layout, run_destructor: true }) }.leak()
+    }
 
 
     /// `LayoutInfo` struct
-    pub struct LayoutInfo { pub(crate) ptr: AzLayoutInfoPtr }
+    pub struct LayoutInfo { pub(crate) ptr: AzLayoutInfoPtr, pub(crate) run_destructor: bool }
 
-    impl Drop for LayoutInfo { fn drop(&mut self) { az_layout_info_delete(self.ptr); } }
+    impl LayoutInfo {
+    /// Prevents the destructor from running and returns the internal `AzLayoutInfoPtr`
+    #[allow(dead_code)]
+    pub(crate) fn leak(mut self) -> AzLayoutInfoPtr { self.run_destructor = false; az_layout_info_shallow_copy(&self.ptr) }
+    }
+
+    impl Drop for LayoutInfo { fn drop(&mut self) { if self.run_destructor { az_layout_info_delete(&mut self.ptr); } } }
 
 
     /// `RefAny` struct
-    pub struct RefAny { pub(crate) ptr: AzRefAnyPtr }
+    pub struct RefAny { pub(crate) ptr: AzRefAnyPtr, pub(crate) run_destructor: bool }
 
-    impl Drop for RefAny { fn drop(&mut self) { az_ref_any_delete(self.ptr); } }
+    impl RefAny {
+    /// Prevents the destructor from running and returns the internal `AzRefAnyPtr`
+    #[allow(dead_code)]
+    pub(crate) fn leak(mut self) -> AzRefAnyPtr { self.run_destructor = false; az_ref_any_shallow_copy(&self.ptr) }
+    }
+
+    impl Drop for RefAny { fn drop(&mut self) { if self.run_destructor { az_ref_any_delete(&mut self.ptr); } } }
 }
 
 pub mod app {
@@ -236,27 +259,36 @@ pub mod app {
 
 
     /// `AppConfig` struct
-    pub struct AppConfig { pub(crate) ptr: AzAppConfigPtr }
+    pub struct AppConfig { pub(crate) ptr: AzAppConfigPtr, pub(crate) run_destructor: bool }
 
     impl AppConfig {
         /// Creates a new `AppConfig` instance.
-        pub fn new() -> Self { Self { ptr: az_app_config_new() } }
+        pub fn new() -> Self { Self { ptr: az_app_config_new(), run_destructor: true } }
+    /// Prevents the destructor from running and returns the internal `AzAppConfigPtr`
+    #[allow(dead_code)]
+    pub(crate) fn leak(mut self) -> AzAppConfigPtr { self.run_destructor = false; az_app_config_shallow_copy(&self.ptr) }
     }
 
-    impl Drop for AppConfig { fn drop(&mut self) { az_app_config_delete(self.ptr); } }
+    impl Drop for AppConfig { fn drop(&mut self) { if self.run_destructor { az_app_config_delete(&mut self.ptr); } } }
 
 
     /// `App` struct
-    pub struct App { pub(crate) ptr: AzAppPtr }
+    pub struct App { pub(crate) ptr: AzAppPtr, pub(crate) run_destructor: bool }
 
     impl App {
         /// Creates a new App instance.
-        pub fn new(config: AppConfig, data: RefAny, callback: LayoutCallback) -> Self { Self { ptr: az_app_new(config.ptr, data.ptr, callback) } }
+        pub fn new(config: AppConfig, data: RefAny, callback: LayoutCallback) -> Self { Self { ptr: {
+            unsafe { crate::callbacks::CALLBACK = callback };
+            az_app_new(config.leak(), data.leak(), crate::callbacks::translate_callback)
+        }, run_destructor: true } }
         /// Calls the `App::run` function.
-        pub fn run(&self, window: WindowCreateOptions)  { az_app_run(self.ptr, window.ptr) }
+        pub fn run(self, window: WindowCreateOptions)  { az_app_run(self.leak(), window.leak())}
+    /// Prevents the destructor from running and returns the internal `AzAppPtr`
+    #[allow(dead_code)]
+    pub(crate) fn leak(mut self) -> AzAppPtr { self.run_destructor = false; az_app_shallow_copy(&self.ptr) }
     }
 
-    impl Drop for App { fn drop(&mut self) { az_app_delete(self.ptr); } }
+    impl Drop for App { fn drop(&mut self) { if self.run_destructor { az_app_delete(&mut self.ptr); } } }
 }
 
 pub mod window {
@@ -266,14 +298,17 @@ pub mod window {
 
 
     /// `WindowCreateOptions` struct
-    pub struct WindowCreateOptions { pub(crate) ptr: AzWindowCreateOptionsPtr }
+    pub struct WindowCreateOptions { pub(crate) ptr: AzWindowCreateOptionsPtr, pub(crate) run_destructor: bool }
 
     impl WindowCreateOptions {
         /// Creates a new `WindowCreateOptions` instance.
-        pub fn new(css: Css) -> Self { Self { ptr: az_window_create_options_new(css.ptr) } }
+        pub fn new(css: Css) -> Self { Self { ptr: az_window_create_options_new(css.leak()), run_destructor: true } }
+    /// Prevents the destructor from running and returns the internal `AzWindowCreateOptionsPtr`
+    #[allow(dead_code)]
+    pub(crate) fn leak(mut self) -> AzWindowCreateOptionsPtr { self.run_destructor = false; az_window_create_options_shallow_copy(&self.ptr) }
     }
 
-    impl Drop for WindowCreateOptions { fn drop(&mut self) { az_window_create_options_delete(self.ptr); } }
+    impl Drop for WindowCreateOptions { fn drop(&mut self) { if self.run_destructor { az_window_create_options_delete(&mut self.ptr); } } }
 }
 
 pub mod css {
@@ -282,14 +317,17 @@ pub mod css {
 
 
     /// `Css` struct
-    pub struct Css { pub(crate) ptr: AzCssPtr }
+    pub struct Css { pub(crate) ptr: AzCssPtr, pub(crate) run_destructor: bool }
 
     impl Css {
         /// Creates a new `Css` instance.
-        pub fn native() -> Self { Self { ptr: az_css_native() } }
+        pub fn native() -> Self { Self { ptr: az_css_native(), run_destructor: true } }
+    /// Prevents the destructor from running and returns the internal `AzCssPtr`
+    #[allow(dead_code)]
+    pub(crate) fn leak(mut self) -> AzCssPtr { self.run_destructor = false; az_css_shallow_copy(&self.ptr) }
     }
 
-    impl Drop for Css { fn drop(&mut self) { az_css_delete(self.ptr); } }
+    impl Drop for Css { fn drop(&mut self) { if self.run_destructor { az_css_delete(&mut self.ptr); } } }
 }
 
 pub mod dom {
@@ -298,13 +336,16 @@ pub mod dom {
 
 
     /// `Dom` struct
-    pub struct Dom { pub(crate) ptr: AzDomPtr }
+    pub struct Dom { pub(crate) ptr: AzDomPtr, pub(crate) run_destructor: bool }
 
     impl Dom {
         /// Creates a new `Dom` instance.
-        pub fn div() -> Self { Self { ptr: az_dom_div() } }
+        pub fn div() -> Self { Self { ptr: az_dom_div(), run_destructor: true } }
+    /// Prevents the destructor from running and returns the internal `AzDomPtr`
+    #[allow(dead_code)]
+    pub(crate) fn leak(mut self) -> AzDomPtr { self.run_destructor = false; az_dom_shallow_copy(&self.ptr) }
     }
 
-    impl Drop for Dom { fn drop(&mut self) { az_dom_delete(self.ptr); } }
+    impl Drop for Dom { fn drop(&mut self) { if self.run_destructor { az_dom_delete(&mut self.ptr); } } }
 }
 
