@@ -253,6 +253,10 @@ pub type PipelineSourceId = u32;
 /// Callback function pointer (has to be a function pointer in
 /// order to be compatible with C APIs later on).
 ///
+/// IMPORTANT: The callback needs to deallocate the `RefAnyPtr` and `LayoutInfoPtr`,
+/// otherwise that memory is leaked. If you use the official auto-generated
+/// bindings, this is already done for you.
+///
 /// NOTE: The original callback was `fn(&self, LayoutInfo) -> Dom`
 /// which then evolved to `fn(&RefAny, LayoutInfo) -> Dom`.
 /// The indirection is necessary because of the memory management

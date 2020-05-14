@@ -310,8 +310,6 @@ impl UiState {
         );
 
         let dom = unsafe { Box::<Dom>::from_raw(dom_ptr.ptr as *mut Dom) };
-        let _ = unsafe { Box::<RefAny>::from_raw(data_box_ptr as *mut RefAny) };
-        let _ = unsafe { Box::<LayoutInfo<'a>>::from_raw(layout_info_box_ptr as *mut LayoutInfo<'a>) };
 
         Self::new(*dom, parent_dom)
     }
