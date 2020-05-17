@@ -25,8 +25,6 @@ extern crate clipboard2;
 extern crate gleam;
 #[cfg(feature = "css_parser")]
 extern crate azul_css_parser;
-#[cfg(feature = "widgets")]
-extern crate azul_widgets;
 #[cfg(feature = "logging")]
 #[cfg_attr(feature = "logging", macro_use(error, warn))]
 extern crate log;
@@ -152,49 +150,4 @@ pub mod errors {
         Clipboard(e) => format!("Clipboard error: {}", e),
         WindowCreate(e) => format!("Window creation error: {}", e),
     });
-}
-
-/// Default built-in widgets (button, label, text input, etc.), available with `feature = "widgets"`
-#[cfg(feature = "widgets")]
-pub mod widgets {
-    pub use azul_widgets::{button, label, table_view, text_input, errors};
-
-    #[cfg(any(feature = "svg", feature = "svg_parsing"))]
-    pub mod svg {
-
-        pub use azul_widgets::svg::*;
-        use azul_css::{StyleTextAlignmentHorz, LayoutPoint};
-        use azul_core::ui_solver::ResolvedTextLayoutOptions;
-
-        pub fn svg_text_layout_from_str(
-            text: &str,
-            font_bytes: &[u8],
-            font_index: u32,
-            mut text_layout_options: ResolvedTextLayoutOptions,
-            horizontal_alignment: StyleTextAlignmentHorz,
-        ) -> SvgTextLayout {
-
-            use azulc::layout::text_layout::text_layout;
-            use azulc::layout::text_layout::text_shaping::get_font_metrics_freetype;
-
-            text_layout_options.font_size_px = SVG_FAKE_FONT_SIZE;
-            let words = text_layout::split_text_into_words(text);
-            let font_metrics = get_font_metrics_freetype(font_bytes, font_index as i32);
-            let scaled_words = text_layout::words_to_scaled_words(&words, font_bytes, font_index, font_metrics, SVG_FAKE_FONT_SIZE);
-            let word_positions = text_layout::position_words(&words, &scaled_words, &text_layout_options);
-
-            let mut inline_text_layout = text_layout::word_positions_to_inline_text_layout(&word_positions, &scaled_words);
-            inline_text_layout.align_children_horizontal(horizontal_alignment);
-
-            let layouted_glyphs = text_layout::get_layouted_glyphs(&word_positions, &scaled_words, &inline_text_layout, LayoutPoint::zero());
-
-            SvgTextLayout {
-               words,
-               scaled_words,
-               word_positions,
-               layouted_glyphs,
-               inline_text_layout,
-            }
-        }
-    }
 }

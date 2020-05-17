@@ -18,13 +18,12 @@ glutin                  = { version = "0.22.1", default-features = false }
 app_units               = { version = "0.7.1",  default-features = false }
 tinyfiledialogs         = { version = "3.3.9",  default-features = false }
 clipboard2              = { version = "0.1.1",  default-features = false }
-azulc                   = { version = "0.0.3",  default-features = false, features = ["text_layout", "image_loading", "font_loading"] }
-azul-css                = { version = "0.0.1",  default-features = false }
-azul-core               = { version = "0.0.2",  default-features = false, features = ["opengl"] }
-azul-layout             = { version = "0.0.4",  default-features = false, features = ["text_layout"] }
-azul-css-parser         = { version = "0.0.1",  default-features = false, optional = true }
-azul-widgets            = { version = "0.0.1",  default-features = false, optional = true }
-azul-native-style       = { version = "0.0.1",  default-features = false, optional = true }
+azulc                   = { path = "../azulc", version = "0.0.3",  default-features = false, features = ["text_layout", "image_loading", "font_loading"] }
+azul-css                = { path = "../azul-css", version = "0.0.1",  default-features = false }
+azul-core               = { path = "../azul-core", version = "0.0.2",  default-features = false, features = ["opengl"] }
+azul-layout             = { path = "../azul-layout", version = "0.0.4",  default-features = false, features = ["text_layout"] }
+azul-css-parser         = { path = "../azul-css-parser", version = "0.0.1",  default-features = false, optional = true }
+azul-native-style       = { path = "../azul-native-style", version = "0.0.1",  default-features = false, optional = true }
 log                     = { version = "0.4.8",  default-features = false, optional = true }
 fern                    = { version = "0.5.7",  default-features = false, optional = true }
 backtrace               = { version = "0.3.43", default-features = false, optional = true, features = ["std", "libunwind", "libbacktrace", "coresymbolication", "dladdr", "dbghelp"] }
@@ -33,23 +32,15 @@ backtrace               = { version = "0.3.43", default-features = false, option
 core-foundation              = { version = "0.7.0",     default-features = false, features = ["mac_os_10_7_support"] }
 
 [features]
-default = ["logging", "widgets", "native_style", "css_parser", "image_loading", "font_loading", "text_layout"]
+default = ["logging", "native_style", "css_parser", "image_loading", "font_loading", "text_layout"]
 # Enable this feature to enable crash logging & reporting.
 # Azul will insert custom panic handlers to pop up a message and log
 # crashes to an "error.log" file, see AppConfig for more details
 logging = ["fern", "backtrace", "log"]
-# Enable / disable the built-in widgets
-widgets = ["azul-widgets"]
 # Enable / disable the OS-native CSS style loader
 native_style = ["azul-native-style"]
 # Enable / diable the CSS parser
 css_parser = ["azul-core/css_parser", "azul-css-parser"]
-# Enable / disable the built-in SVG widgets (requires lyon - extra compilation time)
-svg = ["widgets", "azul-widgets/svg"]
-# Enable / disable the SVG parser (requires usvg)
-svg_parsing = ["svg", "widgets", "azul-widgets/svg_parsing"]
-# Enable / disable the built-in SVG widgets (requires lyon - extra compilation time)
-svg_fonts = ["widgets", "azul-widgets/fonts"]
 # On some applications you might not want to load any images. For these purposes
 # the image crate can be disabled, to speed up compile times
 image_loading = ["azulc/image_loading"]

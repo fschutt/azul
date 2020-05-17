@@ -297,15 +297,13 @@ impl UiState {
     ) -> UiState {
 
         use std::ffi::c_void;
-        use crate::callbacks::{LayoutInfoPtr, RefAnyPtr};
+        use crate::callbacks::LayoutInfoPtr;
 
-        let data_box = Box::new(data.clone());
         let layout_info_box = Box::new(layout_info);
-        let data_box_ptr = Box::into_raw(data_box) as *mut c_void;
         let layout_info_box_ptr = Box::into_raw(layout_info_box) as *mut c_void;
 
         let dom_ptr = (layout_callback)(
-            RefAnyPtr { ptr: data_box_ptr },
+            data.clone(),
             LayoutInfoPtr { ptr: layout_info_box_ptr }
         );
 

@@ -11,32 +11,24 @@ repository = "https://github.com/maps4print/azul"
 edition = "2018"
 
 [dependencies]
-azul-core = { version = "0.0.2", default-features = false, features = ["opengl"] }
-azul-css  = { version = "0.0.1", default-features = false }
-azul-native-style = { version = "0.0.1", default-features = false }
+azul-core = { path = "../azul-core", version = "0.0.2", default-features = false, features = ["opengl"] }
+azul-css  = { path = "../azul-css", version = "0.0.1", default-features = false }
+azul-native-style = { path = "../azul-native-style", version = "0.0.1", default-features = false }
 
 [target.'cfg(not(target_arch = "wasm32"))'.dependencies]
-azul-desktop = { version = "0.0.5", default-features = false }
+azul-desktop = { path = "../azul-desktop", version = "0.0.5", default-features = false }
 
 [target.'cfg(target_arch = "wasm32")'.dependencies]
-azul-web = { version = "0.0.4", default-features = false }
+azul-web = { path = "../azul-web", version = "0.0.5", default-features = false }
 
 [features]
-default = ["logging", "widgets", "native_style", "css_parser", "image_loading", "font_loading", "text_layout"]
+default = ["logging", "native_style", "css_parser", "image_loading", "font_loading", "text_layout"]
 # Enable logging & error reporting
 logging = ["azul-desktop/logging"]
-# Enable / disable the built-in widgets
-widgets = ["azul-desktop/widgets"]
 # Enable / disable the OS-native CSS style loader
 native_style = ["azul-desktop/native_style"]
 # Enable / diable the CSS parser
 css_parser = ["azul-desktop/css_parser"]
-# Enable / disable the built-in SVG widgets (requires lyon - extra compilation time)
-svg = ["azul-desktop/svg"]
-# Enable / disable the SVG parser (requires usvg)
-svg_parsing = ["azul-desktop/svg_parsing"]
-# Enable / disable the built-in SVG widgets (requires lyon - extra compilation time)
-svg_fonts = ["azul-desktop/svg_fonts"]
 # Enables loading images - if you don't need to use images in your app, disable this for faster compilation speed
 image_loading = ["azul-desktop/image_loading"]
 # Enables loading of ICO files on the image decoder

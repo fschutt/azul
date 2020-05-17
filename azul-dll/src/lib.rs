@@ -13,6 +13,8 @@
 )]
 
 #![allow(dead_code)]
+#![allow(unused_imports)]
+
 extern crate azul_core;
 extern crate azul_css;
 extern crate azul_native_style;
@@ -33,7 +35,7 @@ use azul_web::app::{App, AppConfig};
 
 
 /// The layout() callback fn
-pub type AzLayoutCallback = fn(AzRefAnyPtr, AzLayoutInfoPtr) -> AzDomPtr;
+pub type AzLayoutCallback = fn(AzRefAny, AzLayoutInfoPtr) -> AzDomPtr;
 
 
 /// Pointer to rust-allocated `Box<LayoutInfo>` struct
@@ -46,13 +48,32 @@ pub use ::azul_core::callbacks::LayoutInfoPtr as AzLayoutInfoPtr;
 fn az_layout_info_downcast<'a>(ptr: AzLayoutInfoPtr) -> Box<LayoutInfo<'a>> { unsafe { Box::<LayoutInfo<'a>>::from_raw(ptr.ptr  as *mut LayoutInfo<'a>) } }
 
 /// Pointer to rust-allocated `Box<RefAny>` struct
-pub use ::azul_core::callbacks::RefAnyPtr as AzRefAnyPtr;
+pub use ::azul_core::callbacks::RefAny as AzRefAny;
+
+/// Creates a new `RefAny` instance
+#[no_mangle] pub extern "C" fn az_ref_any_new(ptr: *const u8, len: usize, type_id: u64, type_name: &str, custom_destructor: fn(AzRefAny)) -> AzRefAny { AzRefAny::new_c(ptr, len, type_id, type_name, custom_destructor) }
+/// Returns the internal pointer of the `RefAny` as a `*mut c_void` or a nullptr if the types don't match
+#[no_mangle] pub extern "C" fn az_ref_any_get_ptr(ptr: &AzRefAny, len: usize, type_id: u64) -> *const c_void { ptr.get_ptr(len, type_id) }
+/// Returns the internal pointer of the `RefAny` as a `*mut c_void` or a nullptr if the types don't match
+#[no_mangle] pub extern "C" fn az_ref_any_get_mut_ptr(ptr: &AzRefAny, len: usize, type_id: u64) -> *mut c_void { ptr.get_mut_ptr(len, type_id) }
+/// Creates a new reference of the pointer, pointing to the same object: WARNING: After calling this function you'll have two pointers to the same Box<`RefAny`>!.
+#[no_mangle] pub extern "C" fn az_ref_any_shallow_copy(ptr: &AzRefAny) -> AzRefAny { ptr.clone() }
 /// Destructor: Takes ownership of the `RefAny` pointer and deletes it.
-#[no_mangle] pub extern "C" fn az_ref_any_delete(ptr: &mut AzRefAnyPtr) { let _ = unsafe { Box::<RefAny>::from_raw(ptr.ptr  as *mut RefAny) }; }
-/// Copies the pointer: WARNING: After calling this function you'll have two pointers to the same Box<`RefAny`>!.
-#[no_mangle] pub extern "C" fn az_ref_any_shallow_copy(ptr: &AzRefAnyPtr) -> AzRefAnyPtr { AzRefAnyPtr { ptr: ptr.ptr } }
-/// (private): Downcasts the `AzRefAnyPtr` to a `Box<RefAny>`. Note that this takes ownership of the pointer.
-fn az_ref_any_downcast(ptr: AzRefAnyPtr) -> Box<RefAny> { unsafe { Box::<RefAny>::from_raw(ptr.ptr  as *mut RefAny) } }
+#[no_mangle] pub extern "C" fn az_ref_any_delete(ptr: &mut AzRefAny) { az_ref_any_core_copy(ptr).drop_c() }
+/// Copies the pointer without invoking the destructor
+#[no_mangle] pub extern "C" fn az_ref_any_core_copy(ptr: &AzRefAny) -> AzRefAny {
+    AzRefAny {
+        _internal_ptr: ptr._internal_ptr,
+        _internal_len: ptr._internal_len,
+        _internal_layout_size: ptr._internal_layout_size,
+        _internal_layout_align: ptr._internal_layout_align,
+        type_id: ptr.type_id,
+        type_name: ptr.type_name.clone(),
+        strong_count: ptr.strong_count,
+        is_currently_mutable: ptr.is_currently_mutable,
+        custom_destructor: ptr.custom_destructor,
+    }
+}
 
 /// Pointer to rust-allocated `Box<AppConfig>` struct
 #[no_mangle] #[repr(C)] pub struct AzAppConfigPtr { ptr: *mut c_void }
@@ -69,7 +90,7 @@ fn az_app_config_downcast(ptr: AzAppConfigPtr) -> Box<AppConfig> { unsafe { Box:
 /// Pointer to rust-allocated `Box<App>` struct
 #[no_mangle] #[repr(C)] pub struct AzAppPtr { ptr: *mut c_void }
 /// Creates a new App instance.
-#[no_mangle] pub extern "C" fn az_app_new(config: AzAppConfigPtr, data: AzRefAnyPtr, callback: AzLayoutCallback) -> AzAppPtr { AzAppPtr { ptr: Box::into_raw(Box::new(App::new(*az_ref_any_downcast(data), *az_app_config_downcast(config), callback))) as *mut c_void } }
+#[no_mangle] pub extern "C" fn az_app_new(config: AzAppConfigPtr, data: AzRefAny, callback: AzLayoutCallback) -> AzAppPtr { AzAppPtr { ptr: Box::into_raw(Box::new(App::new(data, *az_app_config_downcast(config), callback))) as *mut c_void } }
 // Equivalent to the Rust `App::run()` function.
 #[no_mangle] pub extern "C" fn az_app_run(app: AzAppPtr, window: AzWindowCreateOptionsPtr) { az_app_downcast(app).run(*az_window_create_options_downcast(window)) }
 /// Destructor: Takes ownership of the `App` pointer and deletes it.

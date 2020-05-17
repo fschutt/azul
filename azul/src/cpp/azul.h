@@ -32,7 +32,7 @@
 
 
 // The layout() callback fn
-typedef AzDomPtr (*AzLayoutCallbackPtr)(AzRefAnyPtr, AzLayoutInfoPtr);
+typedef AzDomPtr (*AzLayoutCallbackPtr)(AzRefAny, AzLayoutInfoPtr);
 
 
 
@@ -57,7 +57,7 @@ void az_app_config_delete(AzAppConfigPtr* ptr);
 // Pointer to rust-allocated `Box<App>` struct
 typedef struct AzAppPtr { void *ptr; } AzAppPtr
 // Creates a new App instance.
-AzAppPtr az_app_new(AzAppConfigPtrconfig , AzRefAnyPtrdata , AzLayoutCallbackcallback );
+AzAppPtr az_app_new(AzAppConfigPtrconfig , AzRefAnydata , AzLayoutCallbackcallback );
 // Equivalent to the Rust `App::run()` function.
 AzAppPtr az_app_run(AzWindowCreateOptionsPtrwindow );
 // Destructor: Takes ownership of the `App` pointer and deletes it.

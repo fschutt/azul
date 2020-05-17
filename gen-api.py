@@ -4,6 +4,7 @@ import re
 prefix = "Az"
 fn_prefix = "az_"
 postfix = "Ptr"
+postfix_excluded = ["LayoutCallback", "DataModel", "RefAny"]
 
 azul_readme_path = "./azul/README.md"
 license_path = "./LICENSE"
@@ -30,6 +31,8 @@ rust_c_api_header = "\
 )]\r\n\
 \r\n\
 #![allow(dead_code)]\r\n\
+#![allow(unused_imports)]\r\n\
+\r\n\
 extern crate azul_core;\r\n\
 extern crate azul_css;\r\n\
 extern crate azul_native_style;\r\n\
@@ -51,12 +54,12 @@ use azul_web::app::{App, AppConfig};\r\n\
 
 rust_typedefs = "\
 /// The layout() callback fn\r\n\
-pub type AzLayoutCallback = fn(AzRefAnyPtr, AzLayoutInfoPtr) -> AzDomPtr;\r\n\
+pub type AzLayoutCallback = fn(AzRefAny, AzLayoutInfoPtr) -> AzDomPtr;\r\n\
 "
 
 c_typedefs = "\
 // The layout() callback fn\r\n\
-typedef AzDomPtr (*AzLayoutCallbackPtr)(AzRefAnyPtr, AzLayoutInfoPtr);\r\n\
+typedef AzDomPtr (*AzLayoutCallbackPtr)(AzRefAny, AzLayoutInfoPtr);\r\n\
 "
 
 rust_api_typedef = "\
@@ -70,8 +73,8 @@ rust_api_typedef = "\
     \r\n\
     pub(crate) static mut CALLBACK: LayoutCallback = default_callback;\r\n\
     \r\n\
-    pub(crate) fn translate_callback(data: azul_dll::AzRefAnyPtr, layout: azul_dll::AzLayoutInfoPtr) -> azul_dll::AzDomPtr {\r\n\
-        unsafe { CALLBACK(RefAny { ptr: data, run_destructor: true }, LayoutInfo { ptr: layout, run_destructor: true }) }.leak()\r\n\
+    pub(crate) fn translate_callback(data: azul_dll::AzRefAny, layout: azul_dll::AzLayoutInfoPtr) -> azul_dll::AzDomPtr {\r\n\
+        unsafe { CALLBACK(RefAny(data), LayoutInfo { ptr: layout, run_destructor: true }) }.leak()\r\n\
     }\r\n\
 "
 
@@ -120,6 +123,10 @@ def generate_c_api_code(apiData):
             c = module[class_name]
 
             code += "\r\n"
+
+            if "external_c_api_code" in c.keys():
+                code += read_file(c["external_c_api_code"])
+                continue
 
             rust_class_name = class_name
             if "rust_class_name" in c.keys():
@@ -210,7 +217,7 @@ def fn_args_c_api(f, class_name, class_ptr_name, self_as_first_arg):
                 continue
             arg_type = f["args"][arg_name]
             # special cases: no "Ptr" postfix
-            if ((arg_type == "LayoutCallback") or (arg_type == "DataModel")):
+            if arg_type in postfix_excluded:
                 fn_args += arg_name + ": " + prefix + arg_type + ", " # no postfix
             else:
                 fn_args += arg_name + ": " + prefix + arg_type + postfix + ", "
@@ -300,7 +307,7 @@ def get_fn_args_c(f, class_name, class_ptr_name):
                 continue
             arg_type = f["args"][arg_name]
             # special cases: no "Ptr" postfix
-            if ((arg_type == "LayoutCallback") or (arg_type == "DataModel")):
+            if arg_type in postfix_excluded:
                 fn_args += prefix + arg_type + arg_name + " " + ", " # no postfix
             else:
                 fn_args += prefix + arg_type + postfix + arg_name + " " + ", "
@@ -431,6 +438,10 @@ def generate_rust_bindings(apiData):
             class_ptr_name = prefix + class_name + postfix;
 
             code += "\r\n\r\n"
+
+            if "external_rust_api_code" in c.keys():
+                code += read_file(c["external_rust_api_code"])
+                continue
 
             if "doc" in c.keys():
                 code += "    /// " + c["doc"] + "\r\n    "

@@ -13,13 +13,13 @@ repository = "https://github.com/maps4print/azul"
 edition = "2018"
 
 [dependencies]
-azul-css            = { version = "0.0.1" }
-azul-core           = { version = "0.0.2", default-features = false, features = ["opengl"] }
-azul-text-layout    = { version = "0.0.3", optional = true }
+azul-css            = { path = "../azul-css", version = "0.0.1" }
+azul-core           = { path = "../azul-core", version = "0.0.2", default-features = false, features = ["opengl"] }
+azul-text-layout    = { path = "../azul-text-layout", version = "0.0.4", optional = true }
 
 [dev-dependencies]
-azul-css-parser             = { version = "0.0.1"  }
-azulc                       = { version = "0.0.1"  }
+azul-css-parser             = { path = "../azul-css-parser", version = "0.0.1"  }
+azulc                       = { path = "../azulc", version = "0.0.3"  }
 
 [features]
 default = []

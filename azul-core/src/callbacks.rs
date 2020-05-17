@@ -3,10 +3,9 @@ use std::{
     sync::atomic::{AtomicUsize, Ordering},
     collections::BTreeMap,
     rc::Rc,
-    any::Any,
     hash::Hash,
-    cell::{Ref as StdRef, RefMut as StdRefMut, RefCell},
     ffi::c_void,
+    alloc::Layout,
 };
 use azul_css::{LayoutPoint, LayoutRect, LayoutSize, CssPath};
 #[cfg(feature = "css_parser")]
@@ -51,196 +50,97 @@ pub const Redraw: Option<()> = Some(());
 #[allow(non_upper_case_globals)]
 pub const DontRedraw: Option<()> = None;
 
-/// # The two-way binding system
-///
-/// A fundamental problem in UI development is where and how to store
-/// states of widgets, without impacting reusability, extensability or
-/// performance. Azul solves this problem using a type-erased
-/// `Rc<RefCell<Box<Any>>>` type (`RefAny`), whic can be up and downcasted to
-/// a `Rc<RefCell<Box<T>>>` type (`Ref<T>`). `Ref` and `RefAny` exist mostly to
-/// reduce typing and to prevent multiple mutable access to the inner
-/// `RefCell` at compile time. Azul stores all `RefAny`s inside the `Dom` tree
-/// and does NOT clone or mutate them at all. Only user-defined callbacks
-/// or the default callbacks have access to the `RefAny` data.
-///
-/// # Overriding the default behaviour of widgets
-///
-/// While Rust does not support inheritance with language constructs such
-/// as `@override` (Java) or the `override` keyword in C#, emulating structs
-/// that can change their behaviour at runtime is quite easy. Imagine a
-/// struct in which all methods are stored as public function pointers
-/// inside the struct itself:
-///
-/// ```rust
-/// // The struct has all methods as function pointers,
-/// // so that they can be "overridden" and exchanged with other
-/// // implementations if necessary
-/// struct A {
-///     pub function_a: fn(&A, i32) -> i32,
-///     pub function_b: fn(&A) -> &'static str,
-/// }
-///
-/// impl A {
-///     pub fn default_impl_a(&self, num: i32) -> i32 { num + num }
-///     pub fn default_impl_b(&self) -> &'static str { "default b method!" }
-///
-///     // Don't call default_impl_a() directly, just the function pointer
-///     pub fn do_a(&self, num: i32) -> i32 { (self.function_a)(self, num) }
-///     pub fn do_b(&self) -> &'static str { (self.function_b)(self) }
-/// }
-///
-/// // Here we provide the default ("base class") implementation
-/// impl Default for A {
-///     fn default() -> A {
-///         A {
-///             function_a: A::default_impl_a,
-///             function_b: A::default_impl_b,
-///         }
-///     }
-/// }
-///
-/// // Alternative function that will override the original method
-/// fn override_a(_: &A, num: i32) -> i32 { num * num }
-///
-/// fn main() {
-///     let mut a = A::default();
-///     println!("{}", a.do_a(5)); // prints "10" (5 + 5)
-///     println!("{}", a.do_b());  // prints "default b method"
-///
-///     a.function_a = override_a; // Here we override the behaviour
-///     println!("{}", a.do_a(5)); // prints "25" (5 * 5)
-///     println!("{}", a.do_b());  // still prints "default b method", since method isn't overridden
-/// }
-/// ```
-///
-/// Applied to widgets, the "A" class (a placeholder for a "Button", "Table" or other widget)
-/// can look something like this:
-///
-/// ```rust,no_run
-/// fn layout(&self, _: &LayoutInfo) -> Dom {
-///     Spreadsheet::new()
-///         .override_oncellchange(my_func_1)
-///         .override_onworkspacechange(my_func_2)
-///         .override_oncellselect(my_func_3)
-///     .dom()
-/// }
-/// ```
-///
-/// The spreadsheet has some "default" event handlers, which can be exchanged for custom
-/// implementations via an open API. The benefit is that functions can be mixed and matched,
-/// and widgets can be composed of sub-widgets as well as be re-used. Another benefit is that
-/// now the widget can react to "custom" events such as "oncellchange" or "oncellselect",
-/// without Azul knowing that such events even exist. The downside is that this coding style
-/// requires more work on behalf of the widget designer (but not the user).
-#[derive(Default, Debug, PartialEq, Eq, PartialOrd, Ord)]
-pub struct Ref<T: 'static>(Rc<RefCell<T>>);
-
-impl<T: 'static> Clone for Ref<T> {
-    fn clone(&self) -> Self {
-        Ref(self.0.clone())
-    }
-}
-
-impl<T: 'static + Hash> Hash for Ref<T> {
-    fn hash<H>(&self, state: &mut H) where H: ::std::hash::Hasher {
-        let self_ptr = Rc::into_raw(self.0.clone()) as *const c_void as usize;
-        state.write_usize(self_ptr);
-        self.0.borrow().hash(state)
-    }
-}
-
-impl<T: 'static> Ref<T> {
-
-    pub fn new(data: T) -> Self {
-        Ref(Rc::new(RefCell::new(data)))
-    }
-
-    pub fn borrow(&self) -> StdRef<T> {
-        self.0.borrow()
-    }
-
-    pub fn borrow_mut(&mut self) -> StdRefMut<T> {
-        self.0.borrow_mut()
-    }
-
-    pub fn get_type_name(&self) -> &'static str {
-        use std::any;
-        any::type_name::<T>()
-    }
-
-    pub fn upcast(self) -> RefAny {
-        use std::any;
-        RefAny {
-            ptr: self.0 as Rc<dyn Any>,
-            type_name: any::type_name::<T>(),
-        }
-    }
-}
-
-impl<T: 'static> From<Ref<T>> for RefAny {
-    fn from(r: Ref<T>) -> Self {
-        r.upcast()
-    }
-}
-
-#[derive(Debug)]
+#[no_mangle]
+#[repr(C)]
+#[derive(Debug, Hash, PartialEq, PartialOrd, Ord, Eq)]
 pub struct RefAny {
-    ptr: Rc<dyn Any>,
-    type_name: &'static str,
+    pub _internal_ptr: *const c_void,
+    pub _internal_len: usize,
+    pub _internal_layout_size: usize,
+    pub _internal_layout_align: usize,
+    pub type_id: u64,
+    pub type_name: String,
+    pub strong_count: usize,
+    pub is_currently_mutable: bool,
+    pub custom_destructor: fn(RefAny),
 }
 
 impl Clone for RefAny {
     fn clone(&self) -> Self {
-        RefAny {
-            ptr: self.ptr.clone(),
-            type_name: self.type_name,
+        Self {
+            _internal_ptr: self._internal_ptr,
+            _internal_len: self._internal_len,
+            _internal_layout_size: self._internal_layout_size,
+            _internal_layout_align: self._internal_layout_align,
+            type_id: self.type_id,
+            type_name: self.type_name.clone(),
+            strong_count: self.strong_count + 1, // TODO: handle overflow
+            is_currently_mutable: self.is_currently_mutable,
+            custom_destructor: self.custom_destructor,
         }
     }
 }
 
-/// Pointer to rust-allocated `Box<RefAny>` struct
-#[no_mangle] #[repr(C)] pub struct RefAnyPtr { pub ptr: *mut c_void }
-
-impl ::std::hash::Hash for RefAny {
-    fn hash<H>(&self, state: &mut H) where H: ::std::hash::Hasher {
-        let self_ptr = Rc::into_raw(self.ptr.clone()) as *const c_void as usize;
-        state.write_usize(self_ptr);
-    }
-}
-
-impl PartialEq for RefAny {
-    fn eq(&self, rhs: &Self) -> bool {
-        Rc::ptr_eq(&self.ptr, &rhs.ptr)
-    }
-}
-
-impl PartialOrd for RefAny {
-    fn partial_cmp(&self, rhs: &Self) -> Option<::std::cmp::Ordering> {
-        Some(self.cmp(rhs))
-    }
-}
-
-impl Ord for RefAny {
-    fn cmp(&self, rhs: &Self) -> ::std::cmp::Ordering {
-        let self_ptr = Rc::into_raw(self.ptr.clone()) as *const c_void as usize;
-        let rhs_ptr = Rc::into_raw(rhs.ptr.clone()) as *const c_void as usize;
-        self_ptr.cmp(&rhs_ptr)
-    }
-}
-
-impl Eq for RefAny { }
-
 impl RefAny {
 
-    /// Casts the type-erased pointer back to a `RefCell<T>`
-    pub fn downcast<T: 'static>(&self) -> Option<&RefCell<T>> {
-        self.ptr.downcast_ref::<RefCell<T>>()
+    #[inline]
+    pub fn new_c(ptr: *const u8, len: usize, type_id: u64, type_name: &str, custom_destructor: fn(RefAny)) -> Self {
+        use std::{alloc, ptr};
+
+        // cast the struct as bytes
+        let struct_as_bytes = unsafe { ::std::slice::from_raw_parts(ptr, len) };
+
+        // allocate + copy the struct to the heap
+        let layout = Layout::for_value(&*struct_as_bytes);
+        let heap_struct_as_bytes = unsafe { alloc::alloc(layout) };
+        unsafe { ptr::copy_nonoverlapping(struct_as_bytes.as_ptr(), heap_struct_as_bytes, struct_as_bytes.len()) };
+
+        // TODO: allocate + leak the boolean for specifying whether this struct is mutable
+
+        Self {
+            _internal_ptr: heap_struct_as_bytes as *const c_void,
+            _internal_len: len,
+            _internal_layout_size: layout.size(),
+            _internal_layout_align: layout.align(),
+            type_id,
+            type_name: type_name.to_string(),
+            strong_count: 0,
+            is_currently_mutable: true,
+            custom_destructor,
+        }
     }
 
-    /// Returns the compiler-generated string of the type (`std::any::type_name`).
-    /// Very useful for debugging
-    pub fn get_type_name(&self) -> &'static str {
-        self.type_name
+    // Warning: may return nullptr
+    #[inline]
+    pub fn get_ptr(&self, len: usize, type_id: u64) -> *const c_void {
+        use std::ptr;
+        if self.is_currently_mutable && len == self._internal_len && type_id == self.type_id {
+            self._internal_ptr
+        } else {
+            ptr::null()
+        }
+    }
+
+    // Warning: may return nullptr
+    #[inline]
+    pub fn get_mut_ptr(&self, len: usize, type_id: u64) -> *mut c_void {
+        use std::ptr;
+        if self.is_currently_mutable && len == self._internal_len && type_id == self.type_id {
+            self._internal_ptr as *mut c_void
+        } else {
+            ptr::null_mut()
+        }
+    }
+
+    #[inline]
+    pub fn drop_c(self) {
+        use std::alloc;
+        if self.strong_count == 0 {
+            unsafe {
+                (self.custom_destructor)(self.clone());
+                alloc::dealloc(self._internal_ptr as *mut u8, Layout::from_size_align_unchecked(self._internal_layout_size, self._internal_layout_align));
+            }
+        }
     }
 }
 
@@ -264,7 +164,7 @@ pub type PipelineSourceId = u32;
 ///
 /// See azul-core/ui_state.rs:298 for how the memory is managed
 /// across the callback boundary.
-pub type LayoutCallback = fn(RefAnyPtr, LayoutInfoPtr) -> DomPtr;
+pub type LayoutCallback = fn(RefAny, LayoutInfoPtr) -> DomPtr;
 
 /// Information about a scroll frame, given to the user by the framework
 #[derive(Debug, Copy, Clone, PartialEq, PartialOrd)]

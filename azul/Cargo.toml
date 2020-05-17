@@ -21,7 +21,7 @@ edition = "2018"
 path = "src/rust/azul.rs"
 
 [dependencies]
-azul-dll = { version = "0.0.1", path = "../azul-dll", default-features = false }
+azul-dll = { path = "../azul-dll", version = "0.0.1", default-features = false }
 
 # [features]
 # default = ["logging", "widgets", "native_style", "css_parser", "image_loading", "font_loading", "text_layout"]
