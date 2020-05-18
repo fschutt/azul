@@ -243,7 +243,7 @@ pub struct FontKey {
 ///
 /// Images and fonts can be references across window contexts (not yet tested,
 /// but should work).
-#[derive(Default)]
+#[derive(Debug, Default)]
 pub struct AppResources {
     /// The CssImageId is the string used in the CSS, i.e. "my_image" -> ImageId(4)
     pub css_ids_to_image_ids: FastHashMap<CssImageId, ImageId>,

@@ -59,6 +59,7 @@ use azul_core::app_resources::FakeRenderApi;
 const COLOR_WHITE: ColorU = ColorU { r: 255, g: 255, b: 255, a: 0 };
 
 /// Graphical application that maintains some kind of application state
+#[derive(Debug)]
 pub struct App {
     /// Your data (the global struct which all callbacks will have access to)
     pub data: RefAny,
@@ -233,6 +234,8 @@ impl App {
     /// create extra windows, the default window will be the window submitted to
     /// the `.run` method.
     pub fn add_window(&mut self, create_options: WindowCreateOptions) {
+        println!("create options: {:?}", create_options);
+        println!("windows: {:?}", self.windows);
         self.windows.insert(WindowId::new(), create_options);
     }
 
@@ -253,7 +256,9 @@ impl App {
             );
         }
 
+        println!("add window!");
         self.add_window(root_window);
+        println!("run inner!");
         self.run_inner()
     }
 

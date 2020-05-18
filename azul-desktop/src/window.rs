@@ -1,4 +1,5 @@
 use std::{
+    fmt,
     rc::Rc,
     collections::BTreeMap,
 };
@@ -790,6 +791,12 @@ pub(crate) struct FakeDisplay {
     pub(crate) hidden_event_loop: EventLoop<()>,
     /// Stores the GL context (function pointers) that are shared across all windows
     pub(crate) gl_context: Rc<dyn Gl>,
+}
+
+impl fmt::Debug for FakeDisplay {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        write!(f, "FakeDisplay {{ .. }}")
+    }
 }
 
 impl FakeDisplay {

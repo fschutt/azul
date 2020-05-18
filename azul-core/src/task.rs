@@ -146,6 +146,7 @@ pub struct DropCheck(Arc<()>);
 /// This is useful to offload actions such as loading long files, etc. to a background thread.
 ///
 /// Azul will join the thread automatically after it is finished (joining won't block the UI).
+#[derive(Debug)]
 pub struct Task {
     // Thread handle of the currently in-progress task
     join_handle: Option<JoinHandle<UpdateScreen>>,

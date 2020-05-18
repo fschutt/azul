@@ -74,7 +74,7 @@ rust_api_typedef = "\
     pub(crate) static mut CALLBACK: LayoutCallback = default_callback;\r\n\
     \r\n\
     pub(crate) fn translate_callback(data: azul_dll::AzRefAny, layout: azul_dll::AzLayoutInfoPtr) -> azul_dll::AzDomPtr {\r\n\
-        unsafe { CALLBACK(RefAny(data), LayoutInfo { ptr: layout, run_destructor: true }) }.leak()\r\n\
+        unsafe { CALLBACK(RefAny(data), LayoutInfo { ptr: layout }) }.leak()\r\n\
     }\r\n\
 "
 
@@ -156,7 +156,8 @@ def generate_c_api_code(apiData):
                     fn_args = fn_args_c_api(const, class_name, class_ptr_name, False)
 
                     code += "#[no_mangle] pub extern \"C\" fn " + fn_prefix + to_snake_case(class_name) + "_" + const["fn_name"] + "(" + fn_args + ") -> " + class_ptr_name + " { "
-                    code += class_ptr_name + " { ptr: Box::into_raw(Box::new(" + const["fn_body"] + ")) as *mut c_void }"
+                    code += "let object: " + class_name + " = " + const["fn_body"] + "; " # note: security check, that the returned object is of the correct type
+                    code += class_ptr_name + " { ptr: Box::into_raw(Box::new(object)) as *mut c_void }"
                     code += " }\r\n"
 
             if "functions" in c.keys():
@@ -448,7 +449,7 @@ def generate_rust_bindings(apiData):
             else:
                 code += "    /// `" + class_name + "` struct\r\n    "
 
-            code += "pub struct " + class_name + " { pub(crate) ptr: " +  class_ptr_name + ", pub(crate) run_destructor: bool }\r\n\r\n"
+            code += "pub struct " + class_name + " { pub(crate) ptr: " +  class_ptr_name + " }\r\n\r\n"
 
             code += "    impl " + class_name + " {\r\n"
 
@@ -467,7 +468,7 @@ def generate_rust_bindings(apiData):
                     if [class_name, const["fn_name"]] == ["App", "new"]:
                         fn_body = rust_api_app_new_typedef
 
-                    code += "        pub fn " + const["fn_name"] + "(" + fn_args + ") -> Self { Self { ptr: " + fn_body + ", run_destructor: true } }\r\n"
+                    code += "        pub fn " + const["fn_name"] + "(" + fn_args + ") -> Self { Self { ptr: " + fn_body + " } }\r\n"
 
             if "functions" in c.keys():
                 for f in c["functions"]:
@@ -489,10 +490,10 @@ def generate_rust_bindings(apiData):
 
             code += "       /// Prevents the destructor from running and returns the internal `" + class_ptr_name + "`\r\n"
             code += "       #[allow(dead_code)]\r\n"
-            code += "       pub(crate) fn leak(mut self) -> " + class_ptr_name + " { self.run_destructor = false; " +  fn_prefix + to_snake_case(class_name) + "_shallow_copy(&self.ptr) }\r\n"
+            code += "       pub(crate) fn leak(self) -> " + class_ptr_name + " { let p = " +  fn_prefix + to_snake_case(class_name) + "_shallow_copy(&self.ptr); std::mem::forget(self); p }\r\n"
             code += "    }\r\n\r\n"
 
-            code += "    impl Drop for " + class_name + " { fn drop(&mut self) { if self.run_destructor { " + fn_prefix + to_snake_case(class_name) + "_delete(&mut self.ptr); } } }\r\n"
+            code += "    impl Drop for " + class_name + " { fn drop(&mut self) { " + fn_prefix + to_snake_case(class_name) + "_delete(&mut self.ptr); } }\r\n"
 
         code += "}\r\n\r\n"
 

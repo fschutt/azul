@@ -19,7 +19,7 @@
                      "config": "AppConfig",
                      "callback": "LayoutCallback"
                   },
-                  "fn_body": "App::new(data, *az_app_config_downcast(config), callback)"
+                  "fn_body": "App::new(data, *az_app_config_downcast(config), callback).unwrap()"
                }
             ],
             "functions":[
