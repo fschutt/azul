@@ -421,7 +421,7 @@ pub struct WindowState {
     /// Size of the window + max width / max height: 800 x 600 by default
     pub size: WindowSize,
     /// The x and y position, or None to let the WM decide where to put the window (default)
-    pub position: Option<PhysicalPosition<u32>>,
+    pub position: Option<PhysicalPosition<i32>>,
     /// Flags such as whether the window is minimized / maximized, fullscreen, etc.
     pub flags: WindowFlags,
     /// Mostly used for debugging, shows WebRender-builtin graphs on the screen.
@@ -449,7 +449,7 @@ pub struct FullWindowState {
     /// Size of the window + max width / max height: 800 x 600 by default
     pub size: WindowSize,
     /// The x and y position, or None to let the WM decide where to put the window (default)
-    pub position: Option<PhysicalPosition<u32>>,
+    pub position: Option<PhysicalPosition<i32>>,
     /// Flags such as whether the window is minimized / maximized, fullscreen, etc.
     pub flags: WindowFlags,
     /// Mostly used for debugging, shows WebRender-builtin graphs on the screen.
@@ -803,27 +803,39 @@ pub enum FullScreenMode {
 }
 
 #[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
+pub enum Theme {
+    Dark,
+    Light,
+}
+
+#[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub struct WaylandTheme {
     /// Primary color when the window is focused
-    pub primary_active: [u8; 4],
+    pub primary_color_active: [u8;4],
     /// Primary color when the window is unfocused
-    pub primary_inactive: [u8; 4],
+    pub primary_color_inactive: [u8;4],
     /// Secondary color when the window is focused
-    pub secondary_active: [u8; 4],
+    pub secondary_color_active: [u8;4],
     /// Secondary color when the window is unfocused
-    pub secondary_inactive: [u8; 4],
-    /// Close button color when hovered over
-    pub close_button_hovered: [u8; 4],
-    /// Close button color
-    pub close_button: [u8; 4],
-    /// Close button color when hovered over
-    pub maximize_button_hovered: [u8; 4],
-    /// Maximize button color
-    pub maximize_button: [u8; 4],
-    /// Minimize button color when hovered over
-    pub minimize_button_hovered: [u8; 4],
-    /// Minimize button color
-    pub minimize_button: [u8; 4],
+    pub secondary_color_inactive: [u8;4],
+    /// Close button color (idle state)
+    pub close_button_color_idle: [u8;4],
+    /// Close button color (hovered state)
+    pub close_button_color_hovered: [u8;4],
+    /// Close button color (disabled state)
+    pub close_button_color_disabled: [u8;4],
+    /// Maximize button color (idle state)
+    pub maximize_button_color_idle: [u8;4],
+    /// Maximize button color (hovered state)
+    pub maximize_button_color_hovered: [u8;4],
+    /// Maximize button color (disabled state)
+    pub maximize_button_color_disabled: [u8;4],
+    /// Minimize button color (idle state)
+    pub minimize_button_color_idle: [u8;4],
+    /// Minimize button color (hovered state)
+    pub minimize_button_color_hovered: [u8;4],
+    /// Minimize button color (disabled state)
+    pub minimize_button_color_disabled: [u8;4],
 }
 
 #[derive(Debug, Copy, Clone, PartialEq, PartialOrd)]
@@ -1120,6 +1132,9 @@ pub enum AzulUpdateEvent {
     SendDisplayListToWebRender {
         window_id: WindowId,
     },
+    RedrawRequested {
+        window_id: WindowId,
+    },
     UpdateScrollStates {
         window_id: WindowId,
     },
@@ -1144,6 +1159,7 @@ impl fmt::Debug for AzulUpdateEvent {
             RelayoutUi { window_id } => write!(f, "RelayoutUi {{ window_id: {:?} }}", window_id),
             RebuildDisplayList { window_id } => write!(f, "RebuildDisplayList {{ window_id: {:?} }}", window_id),
             SendDisplayListToWebRender { window_id } => write!(f, "SendDisplayListToWebRender {{ window_id: {:?} }}", window_id),
+            RedrawRequested { window_id } => write!(f, "RedrawRequested {{ window_id: {:?} }}", window_id),
             UpdateScrollStates { window_id } => write!(f, "UpdateScrollStates {{ window_id: {:?} }}", window_id),
             UpdateAnimations { window_id } => write!(f, "UpdateAnimations {{ window_id: {:?} }}", window_id),
             UpdateImages { window_id } => write!(f, "UpdateImages {{ window_id: {:?} }}", window_id),
@@ -1307,7 +1323,7 @@ impl<T> PhysicalPosition<T> {
     pub const fn new(x: T, y: T) -> Self { Self { x, y } }
 }
 
-impl PhysicalPosition<u32> {
+impl PhysicalPosition<i32> {
     #[inline(always)]
     pub const fn zero() -> Self { Self::new(0, 0) }
     #[inline(always)]

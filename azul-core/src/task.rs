@@ -305,7 +305,7 @@ pub fn run_all_timers(
 
 /// Remove all tasks that have finished executing
 #[must_use]
-pub fn clean_up_finished_tasks<T>(
+pub fn clean_up_finished_tasks(
     tasks: &mut Vec<Task>,
     timers: &mut FastHashMap<TimerId, Timer>,
 ) -> UpdateScreen {

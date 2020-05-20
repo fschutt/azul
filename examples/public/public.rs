@@ -13,8 +13,6 @@ struct Data {
 }
 
 fn layout(data: RefAny, _info: LayoutInfo) -> Dom {
-    let data = data.downcast_ref::<Data>().unwrap();
-    println!("counter: {:?}", data.counter);
     Dom::div()
 }
 

@@ -234,8 +234,6 @@ impl App {
     /// create extra windows, the default window will be the window submitted to
     /// the `.run` method.
     pub fn add_window(&mut self, create_options: WindowCreateOptions) {
-        println!("create options: {:?}", create_options);
-        println!("windows: {:?}", self.windows);
         self.windows.insert(WindowId::new(), create_options);
     }
 
@@ -256,9 +254,7 @@ impl App {
             );
         }
 
-        println!("add window!");
         self.add_window(root_window);
-        println!("run inner!");
         self.run_inner()
     }
 
@@ -267,7 +263,7 @@ impl App {
     fn run_inner(self) -> ! {
 
         use glutin::{
-            event::{WindowEvent, DeviceEvent, KeyboardInput, Touch, Event},
+            event::{WindowEvent, KeyboardInput, Touch, Event},
             event_loop::ControlFlow,
         };
         use azul_core::window::{CursorPosition, LogicalPosition};
@@ -291,39 +287,10 @@ impl App {
         // otherwise there could be a memory "leak" as default callbacks only
         // get added and never removed.
 
-        let mut eld = EventLoopData {
-            data: &mut data,
-            event_loop_target: None,
-            resources: &mut resources,
-            timers: &mut timers,
-            tasks: &mut tasks,
-            config: &config,
-            layout_callback: layout_callback,
-            active_windows: &mut active_windows,
-            window_id_mapping: &mut window_id_mapping,
-            reverse_window_id_mapping: &mut reverse_window_id_mapping,
-            full_window_states: &mut full_window_states,
-            ui_state_cache: &mut ui_state_cache,
-            ui_description_cache: &mut ui_description_cache,
-            render_api: &mut render_api,
-            renderer: &mut renderer,
-            hidden_context: &mut hidden_context,
-            gl_context: gl_context.clone(),
-        };
-
-        let window_keys = eld.reverse_window_id_mapping.keys().cloned().collect::<Vec<_>>();
-        for window_id in window_keys {
-            send_user_event(AzulUpdateEvent::RelayoutUi { window_id }, &mut eld);
-        }
-
-        #[cfg(debug_assertions)]
-        let mut last_style_reload = Instant::now();
-
-        hidden_event_loop.run(move |event, event_loop_target, control_flow| {
-
+        {
             let mut eld = EventLoopData {
                 data: &mut data,
-                event_loop_target: Some(event_loop_target),
+                event_loop_target: None,
                 resources: &mut resources,
                 timers: &mut timers,
                 tasks: &mut tasks,
@@ -341,277 +308,293 @@ impl App {
                 gl_context: gl_context.clone(),
             };
 
-            match event {
-                Event::DeviceEvent { event: DeviceEvent::ModifiersChanged(modifier_state), .. } => {
-                    for full_window_state in eld.full_window_states.values_mut() {
-                        update_keyboard_state_from_modifier_state(&mut full_window_state.keyboard_state, &modifier_state);
-                    }
-                    *control_flow = ControlFlow::Wait;
-                    return;
-                },
-                Event::DeviceEvent { .. } => {
-                    // ignore high-frequency events
-                    *control_flow = ControlFlow::Wait;
-                    return;
-                },
-                Event::RedrawRequested(window_id) => {
+            let window_keys = eld.reverse_window_id_mapping.keys().cloned().collect::<Vec<_>>();
+            for window_id in window_keys {
+                send_user_event(AzulUpdateEvent::RelayoutUi { window_id }, &mut eld);
+            }
+        }
 
-                    let glutin_window_id = window_id;
+        #[cfg(debug_assertions)]
+        let mut last_style_reload = Instant::now();
 
-                    let full_window_state = eld.full_window_states.get(&glutin_window_id).unwrap();
-                    let mut windowed_context = eld.active_windows.get_mut(&glutin_window_id);
-                    let mut windowed_context = windowed_context.as_mut().unwrap();
+        hidden_event_loop.run(move |event, event_loop_target, control_flow| {
 
-                    let pipeline_id = windowed_context.internal.pipeline_id;
+            let now = Instant::now();
 
-                    // Render + swap the screen (call webrender + draw to texture)
-                    render_inner(
-                        &mut windowed_context,
-                        &full_window_state,
-                        &mut eld.hidden_context,
-                        &mut eld.render_api,
-                        eld.renderer.as_mut().unwrap(),
-                        eld.gl_context.clone(),
-                        WrTransaction::new(),
-                        eld.config.background_color,
-                    );
+            {
+                let mut eld = EventLoopData {
+                    data: &mut data,
+                    event_loop_target: Some(event_loop_target),
+                    resources: &mut resources,
+                    timers: &mut timers,
+                    tasks: &mut tasks,
+                    config: &config,
+                    layout_callback: layout_callback,
+                    active_windows: &mut active_windows,
+                    window_id_mapping: &mut window_id_mapping,
+                    reverse_window_id_mapping: &mut reverse_window_id_mapping,
+                    full_window_states: &mut full_window_states,
+                    ui_state_cache: &mut ui_state_cache,
+                    ui_description_cache: &mut ui_description_cache,
+                    render_api: &mut render_api,
+                    renderer: &mut renderer,
+                    hidden_context: &mut hidden_context,
+                    gl_context: gl_context.clone(),
+                };
 
-                    // After rendering + swapping, remove the unused OpenGL textures
-                    clean_up_unused_opengl_textures(eld.renderer.as_mut().unwrap().flush_pipeline_info(), &pipeline_id);
-                },
-                Event::WindowEvent { event, window_id } => {
+                println!("event: {:?}", event);
 
-                    let glutin_window_id = window_id;
-                    let window_id = match eld.window_id_mapping.get(&glutin_window_id) {
-                        Some(s) => *s,
-                        None => {
-                            // glutin also sends events for the root window here!
-                            // However, the root window only exists as a "hidden" window
-                            // to share the same OpenGL context across all windows.
-                            // In this case, simply ignore the event.
-                            *control_flow = ControlFlow::Wait;
-                            return;
+                match event {
+                    Event::DeviceEvent { .. } => {
+                        // ignore high-frequency events
+                        *control_flow = ControlFlow::Wait;
+                        return;
+                    },
+                    Event::RedrawRequested(window_id) => {
+                        if let Some(window_id) = eld.window_id_mapping.get(&window_id).cloned() {
+                            send_user_event(AzulUpdateEvent::RedrawRequested { window_id }, &mut eld);
                         }
-                    };
+                    },
+                    Event::WindowEvent { event, window_id } => {
 
-                    match &event {
-                        WindowEvent::Resized(physical_size) => {
-                            {
-                                // relayout, rebuild cached display list, reinitialize scroll states
-                                let mut windowed_context = eld.active_windows.get_mut(&glutin_window_id);
-                                let windowed_context = windowed_context.as_mut().unwrap();
-                                let dpi_factor = windowed_context.display.window().scale_factor();
-                                let mut full_window_state = eld.full_window_states.get_mut(&glutin_window_id).unwrap();
-
-                                full_window_state.size.winit_hidpi_factor = dpi_factor as f32;
-                                full_window_state.size.hidpi_factor = dpi_factor as f32;
-                                full_window_state.size.dimensions = winit_translate_physical_size(*physical_size).to_logical(dpi_factor as f32);
-
-                                windowed_context.display.make_current();
-                                windowed_context.display.windowed_context().unwrap().resize(*physical_size);
-                                windowed_context.display.make_not_current();
+                        let glutin_window_id = window_id;
+                        let window_id = match eld.window_id_mapping.get(&glutin_window_id) {
+                            Some(s) => *s,
+                            None => {
+                                // glutin also sends events for the root window here!
+                                // However, the root window only exists as a "hidden" window
+                                // to share the same OpenGL context across all windows.
+                                // In this case, simply ignore the event.
+                                *control_flow = ControlFlow::Wait;
+                                return;
                             }
-                            // TODO: Only rebuild UI if the resize is going across a resize boundary
-                            send_user_event(AzulUpdateEvent::RebuildUi { window_id }, &mut eld);
-                        },
-                        WindowEvent::ScaleFactorChanged { scale_factor, new_inner_size } => {
-                            let mut full_window_state = eld.full_window_states.get_mut(&glutin_window_id).unwrap();
-                            full_window_state.size.winit_hidpi_factor = *scale_factor as f32;
-                            full_window_state.size.hidpi_factor = *scale_factor as f32;
-                        },
-                        WindowEvent::Moved(new_window_position) => {
-                            let mut full_window_state = eld.full_window_states.get_mut(&glutin_window_id).unwrap();
-                            full_window_state.position = Some(winit_translate_physical_position(*new_window_position));
-                        },
-                        WindowEvent::CursorMoved { position, .. } => {
-                            {
-                                let mut full_window_state = eld.full_window_states.get_mut(&glutin_window_id).unwrap();
-                                let world_pos_x = position.x as f32 / full_window_state.size.hidpi_factor * full_window_state.size.winit_hidpi_factor;
-                                let world_pos_y = position.y as f32 / full_window_state.size.hidpi_factor * full_window_state.size.winit_hidpi_factor;
-                                full_window_state.mouse_state.cursor_position = CursorPosition::InWindow(LogicalPosition::new(world_pos_x, world_pos_y));
-                            }
-                            send_user_event(AzulUpdateEvent::DoHitTest { window_id }, &mut eld);
-                        },
-                        WindowEvent::CursorLeft { .. } => {
-                            {
-                                let mut full_window_state = eld.full_window_states.get_mut(&glutin_window_id).unwrap();
-                                full_window_state.mouse_state.cursor_position = CursorPosition::OutOfWindow;
-                            }
-                            send_user_event(AzulUpdateEvent::DoHitTest { window_id }, &mut eld);
-                        },
-                        WindowEvent::CursorEntered { .. } => {
-                            {
-                                let mut full_window_state = eld.full_window_states.get_mut(&glutin_window_id).unwrap();
-                                full_window_state.mouse_state.cursor_position = CursorPosition::InWindow(LogicalPosition::new(0.0, 0.0));
-                            }
-                            send_user_event(AzulUpdateEvent::DoHitTest { window_id }, &mut eld);
-                        },
-                        WindowEvent::KeyboardInput { input: KeyboardInput { state, virtual_keycode, scancode, .. }, .. } => {
+                        };
 
-                            use crate::wr_translate::winit_translate::translate_virtual_keycode;
-                            use glutin::event::ElementState;
-
-                            {
-                                let mut full_window_state = eld.full_window_states.get_mut(&glutin_window_id).unwrap();
-                                match state {
-                                    ElementState::Pressed => {
-                                        if let Some(vk) = virtual_keycode.map(translate_virtual_keycode) {
-                                            full_window_state.keyboard_state.pressed_virtual_keycodes.insert(vk);
-                                            full_window_state.keyboard_state.current_virtual_keycode = Some(vk);
-                                        }
-                                        full_window_state.keyboard_state.pressed_scancodes.insert(*scancode);
-                                        full_window_state.keyboard_state.current_char = None;
-                                    },
-                                    ElementState::Released => {
-                                        if let Some(vk) = virtual_keycode.map(translate_virtual_keycode) {
-                                            full_window_state.keyboard_state.pressed_virtual_keycodes.remove(&vk);
-                                            full_window_state.keyboard_state.current_virtual_keycode = None;
-                                        }
-                                        full_window_state.keyboard_state.pressed_scancodes.remove(scancode);
-                                        full_window_state.keyboard_state.current_char = None;
-                                    },
+                        match &event {
+                            WindowEvent::ModifiersChanged(modifier_state) => {
+                                for full_window_state in eld.full_window_states.values_mut() {
+                                    update_keyboard_state_from_modifier_state(&mut full_window_state.keyboard_state, &modifier_state);
                                 }
-                            }
+                                *control_flow = ControlFlow::Wait;
+                            },
+                            WindowEvent::Resized(physical_size) => {
+                                {
+                                    // relayout, rebuild cached display list, reinitialize scroll states
+                                    let mut windowed_context = eld.active_windows.get_mut(&glutin_window_id);
+                                    let windowed_context = windowed_context.as_mut().unwrap();
+                                    let dpi_factor = windowed_context.display.window().scale_factor();
+                                    let mut full_window_state = eld.full_window_states.get_mut(&glutin_window_id).unwrap();
 
-                            send_user_event(AzulUpdateEvent::DoHitTest { window_id }, &mut eld);
-                        },
-                        // The char event is sliced inbetween a keydown and a keyup event, so the keyup
-                        // has to clear the character again
-                        WindowEvent::ReceivedCharacter(c) => {
-                            {
-                                let mut full_window_state = eld.full_window_states.get_mut(&glutin_window_id).unwrap();
-                                full_window_state.keyboard_state.current_char = Some(*c);
-                            }
+                                    full_window_state.size.winit_hidpi_factor = dpi_factor as f32;
+                                    full_window_state.size.hidpi_factor = dpi_factor as f32;
+                                    full_window_state.size.dimensions = winit_translate_physical_size(*physical_size).to_logical(dpi_factor as f32);
 
-                            send_user_event(AzulUpdateEvent::DoHitTest { window_id }, &mut eld);
-                        },
-                        WindowEvent::MouseInput { state, button, .. } => {
-
-                            {
-                                use glutin::event::{ElementState::*, MouseButton::*};
-                                let mut full_window_state = eld.full_window_states.get_mut(&glutin_window_id).unwrap();
-
-                                match state {
-                                    Pressed => {
-                                        match button {
-                                            Left => full_window_state.mouse_state.left_down = true,
-                                            Right => full_window_state.mouse_state.right_down = true,
-                                            Middle => full_window_state.mouse_state.middle_down = true,
-                                            _ => full_window_state.mouse_state.left_down = true,
-                                        }
-                                    },
-                                    Released => {
-                                        match button {
-                                            Left => full_window_state.mouse_state.left_down = false,
-                                            Right => full_window_state.mouse_state.right_down = false,
-                                            Middle => full_window_state.mouse_state.middle_down = false,
-                                            _ => full_window_state.mouse_state.left_down = false,
-                                        }
-                                    },
+                                    windowed_context.display.make_current();
+                                    windowed_context.display.windowed_context().unwrap().resize(*physical_size);
+                                    windowed_context.display.make_not_current();
                                 }
-                            }
-
-                            send_user_event(AzulUpdateEvent::DoHitTest { window_id }, &mut eld);
-                        },
-                        WindowEvent::MouseWheel { delta, .. } => {
-
-                            let should_scroll_render_from_input_events;
-
-                            {
-                                use glutin::event::MouseScrollDelta;
-
-                                const LINE_DELTA: f32 = 38.0;
-
+                                // TODO: Only rebuild UI if the resize is going across a resize boundary
+                                send_user_event(AzulUpdateEvent::RebuildUi { window_id }, &mut eld);
+                            },
+                            WindowEvent::ScaleFactorChanged { scale_factor, new_inner_size } => {
                                 let mut full_window_state = eld.full_window_states.get_mut(&glutin_window_id).unwrap();
-
-                                let (scroll_x_px, scroll_y_px) = match delta {
-                                    MouseScrollDelta::PixelDelta(p) => (p.x as f32, p.y as f32),
-                                    MouseScrollDelta::LineDelta(x, y) => (x * LINE_DELTA, y * LINE_DELTA),
-                                };
-
-                                // TODO: "natural scrolling"?
-                                full_window_state.mouse_state.scroll_x = Some(-scroll_x_px);
-                                full_window_state.mouse_state.scroll_y = Some(-scroll_y_px);
-
-                                let window = eld.active_windows.get_mut(&glutin_window_id).unwrap();
-                                let hit_test_results = do_hit_test(window, &full_window_state, &eld.render_api);
-                                let scrolled_nodes = &window.internal.scrolled_nodes;
-                                let scroll_states = &mut window.internal.scroll_states;
-
-                                should_scroll_render_from_input_events = scrolled_nodes.values().any(|scrolled_node| {
-                                    update_scroll_state(full_window_state, scrolled_node, scroll_states, &hit_test_results)
-                                });
-                            }
-
-                            if should_scroll_render_from_input_events {
-                                send_user_event(AzulUpdateEvent::UpdateScrollStates { window_id }, &mut eld);
-                            }
-                        },
-                        WindowEvent::Touch(Touch { phase, location, .. }) => {
-                            use glutin::event::TouchPhase::*;
-
-                            {
+                                full_window_state.size.winit_hidpi_factor = *scale_factor as f32;
+                                full_window_state.size.hidpi_factor = *scale_factor as f32;
+                            },
+                            WindowEvent::Moved(new_window_position) => {
                                 let mut full_window_state = eld.full_window_states.get_mut(&glutin_window_id).unwrap();
-                                let mut windowed_context = eld.active_windows.get_mut(&glutin_window_id);
-                                let windowed_context = windowed_context.as_mut().unwrap();
-                                let dpi_factor = windowed_context.display.window().scale_factor();
-                                full_window_state.mouse_state.cursor_position = CursorPosition::InWindow(winit_translate_physical_position(*location).to_logical(dpi_factor as f32));
-                            }
+                                full_window_state.position = Some(winit_translate_physical_position(*new_window_position));
+                            },
+                            WindowEvent::CursorMoved { position, .. } => {
+                                {
+                                    let mut full_window_state = eld.full_window_states.get_mut(&glutin_window_id).unwrap();
+                                    let world_pos_x = position.x as f32 / full_window_state.size.hidpi_factor * full_window_state.size.winit_hidpi_factor;
+                                    let world_pos_y = position.y as f32 / full_window_state.size.hidpi_factor * full_window_state.size.winit_hidpi_factor;
+                                    full_window_state.mouse_state.cursor_position = CursorPosition::InWindow(LogicalPosition::new(world_pos_x, world_pos_y));
+                                }
+                                send_user_event(AzulUpdateEvent::DoHitTest { window_id }, &mut eld);
+                            },
+                            WindowEvent::CursorLeft { .. } => {
+                                {
+                                    let mut full_window_state = eld.full_window_states.get_mut(&glutin_window_id).unwrap();
+                                    full_window_state.mouse_state.cursor_position = CursorPosition::OutOfWindow;
+                                }
+                                send_user_event(AzulUpdateEvent::DoHitTest { window_id }, &mut eld);
+                            },
+                            WindowEvent::CursorEntered { .. } => {
+                                {
+                                    let mut full_window_state = eld.full_window_states.get_mut(&glutin_window_id).unwrap();
+                                    full_window_state.mouse_state.cursor_position = CursorPosition::InWindow(LogicalPosition::new(0.0, 0.0));
+                                }
+                                send_user_event(AzulUpdateEvent::DoHitTest { window_id }, &mut eld);
+                            },
+                            WindowEvent::KeyboardInput { input: KeyboardInput { state, virtual_keycode, scancode, .. }, .. } => {
 
-                            match phase {
-                                Started => {
-                                    send_user_event(AzulUpdateEvent::DoHitTest { window_id }, &mut eld);
-                                },
-                                Moved => {
-                                    // TODO: Do hit test and update window.internal.scroll_states!
+                                use crate::wr_translate::winit_translate::translate_virtual_keycode;
+                                use glutin::event::ElementState;
+
+                                {
+                                    let mut full_window_state = eld.full_window_states.get_mut(&glutin_window_id).unwrap();
+                                    match state {
+                                        ElementState::Pressed => {
+                                            if let Some(vk) = virtual_keycode.map(translate_virtual_keycode) {
+                                                full_window_state.keyboard_state.pressed_virtual_keycodes.insert(vk);
+                                                full_window_state.keyboard_state.current_virtual_keycode = Some(vk);
+                                            }
+                                            full_window_state.keyboard_state.pressed_scancodes.insert(*scancode);
+                                            full_window_state.keyboard_state.current_char = None;
+                                        },
+                                        ElementState::Released => {
+                                            if let Some(vk) = virtual_keycode.map(translate_virtual_keycode) {
+                                                full_window_state.keyboard_state.pressed_virtual_keycodes.remove(&vk);
+                                                full_window_state.keyboard_state.current_virtual_keycode = None;
+                                            }
+                                            full_window_state.keyboard_state.pressed_scancodes.remove(scancode);
+                                            full_window_state.keyboard_state.current_char = None;
+                                        },
+                                    }
+                                }
+
+                                send_user_event(AzulUpdateEvent::DoHitTest { window_id }, &mut eld);
+                            },
+                            // The char event is sliced inbetween a keydown and a keyup event, so the keyup
+                            // has to clear the character again
+                            WindowEvent::ReceivedCharacter(c) => {
+                                {
+                                    let mut full_window_state = eld.full_window_states.get_mut(&glutin_window_id).unwrap();
+                                    full_window_state.keyboard_state.current_char = Some(*c);
+                                }
+
+                                send_user_event(AzulUpdateEvent::DoHitTest { window_id }, &mut eld);
+                            },
+                            WindowEvent::MouseInput { state, button, .. } => {
+
+                                {
+                                    use glutin::event::{ElementState::*, MouseButton::*};
+                                    let mut full_window_state = eld.full_window_states.get_mut(&glutin_window_id).unwrap();
+
+                                    match state {
+                                        Pressed => {
+                                            match button {
+                                                Left => full_window_state.mouse_state.left_down = true,
+                                                Right => full_window_state.mouse_state.right_down = true,
+                                                Middle => full_window_state.mouse_state.middle_down = true,
+                                                _ => full_window_state.mouse_state.left_down = true,
+                                            }
+                                        },
+                                        Released => {
+                                            match button {
+                                                Left => full_window_state.mouse_state.left_down = false,
+                                                Right => full_window_state.mouse_state.right_down = false,
+                                                Middle => full_window_state.mouse_state.middle_down = false,
+                                                _ => full_window_state.mouse_state.left_down = false,
+                                            }
+                                        },
+                                    }
+                                }
+
+                                send_user_event(AzulUpdateEvent::DoHitTest { window_id }, &mut eld);
+                            },
+                            WindowEvent::MouseWheel { delta, .. } => {
+
+                                let should_scroll_render_from_input_events;
+
+                                {
+                                    use glutin::event::MouseScrollDelta;
+
+                                    const LINE_DELTA: f32 = 38.0;
+
+                                    let mut full_window_state = eld.full_window_states.get_mut(&glutin_window_id).unwrap();
+
+                                    let (scroll_x_px, scroll_y_px) = match delta {
+                                        MouseScrollDelta::PixelDelta(p) => (p.x as f32, p.y as f32),
+                                        MouseScrollDelta::LineDelta(x, y) => (x * LINE_DELTA, y * LINE_DELTA),
+                                    };
+
+                                    // TODO: "natural scrolling"?
+                                    full_window_state.mouse_state.scroll_x = Some(-scroll_x_px);
+                                    full_window_state.mouse_state.scroll_y = Some(-scroll_y_px);
+
+                                    let window = eld.active_windows.get_mut(&glutin_window_id).unwrap();
+                                    let hit_test_results = do_hit_test(window, &full_window_state, &eld.render_api);
+                                    let scrolled_nodes = &window.internal.scrolled_nodes;
+                                    let scroll_states = &mut window.internal.scroll_states;
+
+                                    should_scroll_render_from_input_events = scrolled_nodes.values().any(|scrolled_node| {
+                                        update_scroll_state(full_window_state, scrolled_node, scroll_states, &hit_test_results)
+                                    });
+                                }
+
+                                if should_scroll_render_from_input_events {
                                     send_user_event(AzulUpdateEvent::UpdateScrollStates { window_id }, &mut eld);
-                                },
-                                Ended => {
-                                    send_user_event(AzulUpdateEvent::DoHitTest { window_id }, &mut eld);
-                                },
-                                Cancelled => {
-                                    send_user_event(AzulUpdateEvent::DoHitTest { window_id }, &mut eld);
-                                },
-                            }
-                        },
-                        WindowEvent::HoveredFile(file_path) => {
-                            {
+                                }
+                            },
+                            WindowEvent::Touch(Touch { phase, location, .. }) => {
+                                use glutin::event::TouchPhase::*;
+
+                                {
+                                    let mut full_window_state = eld.full_window_states.get_mut(&glutin_window_id).unwrap();
+                                    let mut windowed_context = eld.active_windows.get_mut(&glutin_window_id);
+                                    let windowed_context = windowed_context.as_mut().unwrap();
+                                    let dpi_factor = windowed_context.display.window().scale_factor();
+                                    full_window_state.mouse_state.cursor_position = CursorPosition::InWindow(winit_translate_physical_position(*location).to_logical(dpi_factor as f32));
+                                }
+
+                                match phase {
+                                    Started => {
+                                        send_user_event(AzulUpdateEvent::DoHitTest { window_id }, &mut eld);
+                                    },
+                                    Moved => {
+                                        // TODO: Do hit test and update window.internal.scroll_states!
+                                        send_user_event(AzulUpdateEvent::UpdateScrollStates { window_id }, &mut eld);
+                                    },
+                                    Ended => {
+                                        send_user_event(AzulUpdateEvent::DoHitTest { window_id }, &mut eld);
+                                    },
+                                    Cancelled => {
+                                        send_user_event(AzulUpdateEvent::DoHitTest { window_id }, &mut eld);
+                                    },
+                                }
+                            },
+                            WindowEvent::HoveredFile(file_path) => {
+                                {
+                                    let mut full_window_state = eld.full_window_states.get_mut(&glutin_window_id).unwrap();
+                                    full_window_state.hovered_file = Some(file_path.clone());
+                                    full_window_state.dropped_file = None;
+                                }
+                                send_user_event(AzulUpdateEvent::DoHitTest { window_id }, &mut eld);
+                            },
+                            WindowEvent::HoveredFileCancelled => {
+                                {
+                                    let mut full_window_state = eld.full_window_states.get_mut(&glutin_window_id).unwrap();
+                                    full_window_state.hovered_file = None;
+                                    full_window_state.dropped_file = None;
+                                }
+                                send_user_event(AzulUpdateEvent::DoHitTest { window_id }, &mut eld);
+                            },
+                            WindowEvent::DroppedFile(file_path) => {
+                                {
+                                    let mut full_window_state = eld.full_window_states.get_mut(&glutin_window_id).unwrap();
+                                    full_window_state.hovered_file = None;
+                                    full_window_state.dropped_file = Some(file_path.clone());
+                                }
+                                send_user_event(AzulUpdateEvent::DoHitTest { window_id }, &mut eld);
+                            },
+                            WindowEvent::Focused(false) => {
                                 let mut full_window_state = eld.full_window_states.get_mut(&glutin_window_id).unwrap();
-                                full_window_state.hovered_file = Some(file_path.clone());
-                                full_window_state.dropped_file = None;
-                            }
-                            send_user_event(AzulUpdateEvent::DoHitTest { window_id }, &mut eld);
-                        },
-                        WindowEvent::HoveredFileCancelled => {
-                            {
-                                let mut full_window_state = eld.full_window_states.get_mut(&glutin_window_id).unwrap();
-                                full_window_state.hovered_file = None;
-                                full_window_state.dropped_file = None;
-                            }
-                            send_user_event(AzulUpdateEvent::DoHitTest { window_id }, &mut eld);
-                        },
-                        WindowEvent::DroppedFile(file_path) => {
-                            {
-                                let mut full_window_state = eld.full_window_states.get_mut(&glutin_window_id).unwrap();
-                                full_window_state.hovered_file = None;
-                                full_window_state.dropped_file = Some(file_path.clone());
-                            }
-                            send_user_event(AzulUpdateEvent::DoHitTest { window_id }, &mut eld);
-                        },
-                        WindowEvent::Focused(false) => {
-                            let mut full_window_state = eld.full_window_states.get_mut(&glutin_window_id).unwrap();
-                            full_window_state.keyboard_state.current_char = None;
-                            full_window_state.keyboard_state.pressed_virtual_keycodes.clear();
-                            full_window_state.keyboard_state.current_virtual_keycode = None;
-                            full_window_state.keyboard_state.pressed_scancodes.clear();
-                        },
-                        WindowEvent::CloseRequested => {
-                            send_user_event(AzulUpdateEvent::CloseWindow { window_id }, &mut eld);
-                        },
-                        _ => { },
-                    }
-                },
-                _ => { },
+                                full_window_state.keyboard_state.current_char = None;
+                                full_window_state.keyboard_state.pressed_virtual_keycodes.clear();
+                                full_window_state.keyboard_state.current_virtual_keycode = None;
+                                full_window_state.keyboard_state.pressed_scancodes.clear();
+                            },
+                            WindowEvent::CloseRequested => {
+                                send_user_event(AzulUpdateEvent::CloseWindow { window_id }, &mut eld);
+                            },
+                            _ => { },
+                        }
+                    },
+                    _ => { },
+                }
             }
 
             // Application shutdown
@@ -678,13 +661,17 @@ impl App {
                             send_user_event(AzulUpdateEvent::RebuildUi { window_id: *window_id }, &mut eld);
                         }
 
-                        for (_, window) in eld.active_windows.iter() {
-                            window.display.window().request_redraw();
+                        // for (window_id, _window) in eld.active_windows.iter() {
+                        //     if let Some(window_id) = eld.window_id_mapping.get(&window_id).cloned() {
+                        for window_id in eld.window_id_mapping.clone().values() {
+                            send_user_event(AzulUpdateEvent::RedrawRequested { window_id: *window_id }, &mut eld);
                         }
+                        //     }
+                        //     // window.display.window().request_redraw();
+                        // }
                     }
                 }
 
-                /*
                 // If no timers / tasks are running, wait until next user event
                 if timers.is_empty() && tasks.is_empty() {
                     *control_flow = ControlFlow::Wait;
@@ -695,15 +682,20 @@ impl App {
                     let should_redraw_timers = run_all_timers(&mut timers, &mut data, &mut resources);
                     let should_redraw_tasks = clean_up_finished_tasks(&mut tasks, &mut timers);
                     let should_redraw_timers_tasks = [should_redraw_timers, should_redraw_tasks].iter().any(|i| *i == Redraw);
+
                     if should_redraw_timers_tasks {
                         *control_flow = ControlFlow::Poll;
-                        redraw_all_windows!();
+                        for (_, window) in active_windows.iter() {
+                            println!("request redraw!");
+                            window.display.window().request_redraw();
+                        }
                     } else {
                         *control_flow = ControlFlow::WaitUntil(now + config.min_frame_duration);
                     }
                 }
-                */
             }
+
+            println!("control flow: {:?}", control_flow);
         })
     }
 }
@@ -746,6 +738,7 @@ fn send_user_event<'a>(
 
     macro_rules! redraw_all_windows {() => {
         for (_, window) in eld.active_windows.iter() {
+            println!("request redraw!");
             window.display.window().request_redraw();
         }
     };}
@@ -840,6 +833,8 @@ fn send_user_event<'a>(
             eld.render_api.api.delete_document(wr_translate_document_id(w.internal.document_id));
         },
         DoHitTest { window_id } => {
+
+            println!("do hit test!");
 
             // Hit test if any nodes were hit, see if any callbacks need to be called
 
@@ -941,6 +936,7 @@ fn send_user_event<'a>(
             }
         },
         RebuildUi { window_id } => {
+            println!("rebuild ui!");
 
             // Call the .layout() function, build UiState
             {
@@ -967,6 +963,7 @@ fn send_user_event<'a>(
             send_user_event(AzulUpdateEvent::RestyleUi { window_id, skip_layout: false }, eld);
         },
         RestyleUi { window_id, skip_layout } => {
+            println!("restyle ui!");
 
             // Cascade the CSS to the HTML nodes
             {
@@ -989,6 +986,7 @@ fn send_user_event<'a>(
             }
         },
         RelayoutUi { window_id } => {
+            println!("relayout ui!");
 
             use azul_core::display_list::SolvedLayout;
 
@@ -1036,6 +1034,7 @@ fn send_user_event<'a>(
             send_user_event(AzulUpdateEvent::RebuildDisplayList { window_id }, eld);
         },
         RebuildDisplayList { window_id } => {
+            println!("rebuild display list!");
 
             // Build the display list
             {
@@ -1067,6 +1066,7 @@ fn send_user_event<'a>(
             send_user_event(AzulUpdateEvent::SendDisplayListToWebRender { window_id }, eld);
         },
         SendDisplayListToWebRender { window_id } => {
+            println!("send display list to WR!");
 
             // Build the display list
             {
@@ -1090,7 +1090,41 @@ fn send_user_event<'a>(
 
             redraw_all_windows!();
         },
+        RedrawRequested { window_id } => {
+            println!("redraw requested got notice!");
+
+            let glutin_window_id = match eld.reverse_window_id_mapping.get(&window_id) {
+                Some(s) => s.clone(),
+                None => return,
+            };
+
+            let full_window_state = eld.full_window_states.get(&glutin_window_id).unwrap();
+            let mut windowed_context = eld.active_windows.get_mut(&glutin_window_id);
+            let mut windowed_context = windowed_context.as_mut().unwrap();
+
+            let pipeline_id = windowed_context.internal.pipeline_id;
+
+            // Render + swap the screen (call webrender + draw to texture)
+            render_inner(
+                &mut windowed_context,
+                &full_window_state,
+                &mut eld.hidden_context,
+                &mut eld.render_api,
+                eld.renderer.as_mut().unwrap(),
+                eld.gl_context.clone(),
+                WrTransaction::new(),
+                eld.config.background_color,
+            );
+
+            println!("rendered!");
+
+            // After rendering + swapping, remove the unused OpenGL textures
+            clean_up_unused_opengl_textures(eld.renderer.as_mut().unwrap().flush_pipeline_info(), &pipeline_id);
+        },
         UpdateScrollStates { window_id } => {
+
+            println!("update scroll states!");
+
             // Synchronize all the scroll states from window.internal.scroll_states with webrender
             let glutin_window_id = match eld.reverse_window_id_mapping.get(&window_id) {
                 Some(s) => s.clone(),
@@ -1103,11 +1137,15 @@ fn send_user_event<'a>(
             eld.render_api.api.send_transaction(wr_translate_document_id(window.internal.document_id), txn);
         },
         UpdateAnimations { window_id } => {
+            println!("update animations!");
+
             // send transaction to update animations in WR
             // if no other events happened, skip to SendDisplayListToWebRender step
             send_user_event(AzulUpdateEvent::SendDisplayListToWebRender { window_id }, eld);
         },
         UpdateImages { window_id } => {
+            println!("update images!");
+
             // send transaction to update images in WR
             // if no other events happened, skip to SendDisplayListToWebRender step
             send_user_event(AzulUpdateEvent::SendDisplayListToWebRender { window_id }, eld);
@@ -1387,8 +1425,12 @@ fn send_display_list_to_webrender(
         wr_translate_epoch,
     };
 
+    println!("display list: {:#?}", window.internal.cached_display_list);
+
     // NOTE: Display list has to be rebuilt every frame, otherwise, the epochs get out of sync
     let display_list = wr_translate_display_list(window.internal.cached_display_list.clone(), window.internal.pipeline_id);
+
+    println!("translated display list!");
 
     let (logical_size, _) = convert_window_size(&full_window_state.size);
 
@@ -1401,6 +1443,7 @@ fn send_display_list_to_webrender(
         true,
     );
 
+    println!("send transaction!");
     render_api.api.send_transaction(wr_translate_document_id(window.internal.document_id), txn);
 }
 
@@ -1554,6 +1597,8 @@ fn render_inner(
 
     let background_color_f: ColorF = background_color.into();
 
+    println!("rendering!");
+
     unsafe {
 
         // NOTE: The `hidden_display` must share the OpenGL context with the `window`,
@@ -1627,6 +1672,8 @@ fn render_inner(
         gl_context.use_program(current_program[0] as u32);
         headless_shared_context.make_not_current();
     };
+
+    println!("rendering done!");
 }
 
 /// When called with glDrawArrays(0, 3), generates a simple triangle that

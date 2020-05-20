@@ -108,7 +108,7 @@ pub(crate) mod winit_translate {
     use azul_core::{
         window::{
             LogicalSize, PhysicalSize, LogicalPosition, PhysicalPosition,
-            WindowIcon, TaskBarIcon, MouseCursorType, VirtualKeyCode,
+            WindowIcon, TaskBarIcon, MouseCursorType, VirtualKeyCode, Theme,
         },
     };
     use glutin::{
@@ -117,11 +117,13 @@ pub(crate) mod winit_translate {
             CursorIcon as WinitCursorIcon,
             BadIcon as WinitBadIcon,
             Icon as WinitIcon,
+            Theme as WinitTheme,
         },
     };
     #[cfg(target_os = "linux")]
     use glutin::platform::unix::{
-        WaylandTheme as WinitWaylandTheme,
+        Theme as WinitWaylandTheme,
+        ButtonState as WinitButtonState,
         XWindowType as WinitXWindowType,
     };
     #[cfg(target_os = "linux")]
@@ -132,6 +134,61 @@ pub(crate) mod winit_translate {
 
     pub(crate) type WinitLogicalSize = glutin::dpi::LogicalSize<f64>;
     pub(crate) type WinitLogicalPosition = glutin::dpi::LogicalPosition<f64>;
+
+    // Translation type because in winit 24.0 the WinitWaylandTheme is a trait instead
+    // of a struct, which makes things more complicated
+    pub(crate) struct WaylandThemeWrapper {
+        primary_color_active: [u8; 4],
+        primary_color_inactive: [u8; 4],
+        secondary_color_active: [u8; 4],
+        secondary_color_inactive: [u8; 4],
+        close_button_color_idle: [u8; 4],
+        close_button_color_hovered: [u8; 4],
+        close_button_color_disabled: [u8; 4],
+        maximize_button_color_idle: [u8;4],
+        maximize_button_color_hovered: [u8;4],
+        maximize_button_color_disabled: [u8;4],
+        minimize_button_color_idle: [u8;4],
+        minimize_button_color_hovered: [u8;4],
+        minimize_button_color_disabled: [u8;4],
+    }
+
+    #[cfg(target_os = "linux")]
+    impl WinitWaylandTheme for WaylandThemeWrapper {
+        fn primary_color(&self, window_active: bool) -> [u8;4] { if window_active { self.primary_color_active } else { self.primary_color_inactive }}
+        fn secondary_color(&self, window_active: bool) -> [u8;4] { if window_active { self.secondary_color_active } else { self.secondary_color_inactive }}
+        fn close_button_color(&self, button_state: WinitButtonState) -> [u8;4] { match button_state {
+            WinitButtonState::Idle => self.close_button_color_idle,
+            WinitButtonState::Hovered => self.close_button_color_hovered,
+            WinitButtonState::Disabled => self.close_button_color_disabled
+        }}
+        fn maximize_button_color(&self, button_state: WinitButtonState) -> [u8;4] { match button_state {
+            WinitButtonState::Idle => self.maximize_button_color_idle,
+            WinitButtonState::Hovered => self.maximize_button_color_hovered,
+            WinitButtonState::Disabled => self.maximize_button_color_disabled
+        }}
+        fn minimize_button_color(&self, button_state: WinitButtonState) -> [u8;4] { match button_state {
+            WinitButtonState::Idle => self.minimize_button_color_idle,
+            WinitButtonState::Hovered => self.minimize_button_color_hovered,
+            WinitButtonState::Disabled => self.minimize_button_color_disabled
+        }}
+    }
+
+    #[inline(always)]
+    pub(crate) fn translate_winit_theme(input: WinitTheme) -> Theme {
+        match input {
+            WinitTheme::Dark => Theme::Dark,
+            WinitTheme::Light => Theme::Light,
+        }
+    }
+
+    #[inline(always)]
+    pub(crate) fn translate_theme(input: Theme) -> WinitTheme {
+        match input {
+            Theme::Dark => WinitTheme::Dark,
+            Theme::Light => WinitTheme::Light,
+        }
+    }
 
     #[inline(always)]
     pub(crate) fn translate_logical_position(input: LogicalPosition) -> WinitLogicalPosition {
@@ -249,19 +306,22 @@ pub(crate) mod winit_translate {
     }
 
     #[cfg(target_os = "linux")]
-    #[inline]
-    pub(crate) fn translate_wayland_theme(input: WaylandTheme) -> WinitWaylandTheme {
-        WinitWaylandTheme {
-            primary_active: input.primary_active,
-            primary_inactive: input.primary_inactive,
-            secondary_active: input.secondary_active,
-            secondary_inactive: input.secondary_inactive,
-            close_button_hovered: input.close_button_hovered,
-            close_button: input.close_button,
-            maximize_button_hovered: input.maximize_button_hovered,
-            maximize_button: input.maximize_button,
-            minimize_button_hovered: input.minimize_button_hovered,
-            minimize_button: input.minimize_button,
+    #[inline(always)]
+    pub(crate) const fn translate_wayland_theme(input: WaylandTheme) -> WaylandThemeWrapper {
+        WaylandThemeWrapper {
+            primary_color_active: input.primary_color_active,
+            primary_color_inactive: input.primary_color_inactive,
+            secondary_color_active: input.secondary_color_active,
+            secondary_color_inactive: input.secondary_color_inactive,
+            close_button_color_idle: input.close_button_color_idle,
+            close_button_color_hovered: input.close_button_color_hovered,
+            close_button_color_disabled: input.close_button_color_disabled,
+            maximize_button_color_idle: input.maximize_button_color_idle,
+            maximize_button_color_hovered: input.maximize_button_color_hovered,
+            maximize_button_color_disabled: input.maximize_button_color_disabled,
+            minimize_button_color_idle: input.minimize_button_color_idle,
+            minimize_button_color_hovered: input.minimize_button_color_hovered,
+            minimize_button_color_disabled: input.minimize_button_color_disabled,
         }
     }
 
