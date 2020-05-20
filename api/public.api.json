@@ -14,21 +14,21 @@
                {
                   "doc":"Creates a new App instance.",
                   "fn_name":"new",
-                  "args": {
-                     "data": "RefAny",
-                     "config": "AppConfig",
-                     "callback": "LayoutCallback"
-                  },
+                  "args": [
+                     {"data": "RefAny"},
+                     {"config": "AppConfig"},
+                     {"callback": "LayoutCallback"}
+                  ],
                   "fn_body": "App::new(data, *az_app_config_downcast(config), callback).unwrap()"
                }
             ],
             "functions":[
                {
                   "fn_name":"run",
-                  "args":{
-                     "self": "value",
-                     "window": "WindowCreateOptions"
-                  },
+                  "args": [
+                     {"self": "value"},
+                     {"window": "WindowCreateOptions"}
+                  ],
                   "fn_body":"az_app_downcast(app).run(*az_window_create_options_downcast(window))"
                }
             ]
@@ -72,9 +72,9 @@
             "constructors":[
                {
                   "fn_name":"new",
-                  "args":{
-                     "css": "Css"
-                  },
+                  "args":[
+                     {"css": "Css"}
+                  ],
                   "fn_body":"WindowCreateOptions::new(*az_css_downcast(css))"
                }
             ]
