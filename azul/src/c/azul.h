@@ -77,6 +77,9 @@ typedef struct AzDomPtr { void *ptr; } AzDomPtr
 // Creates a new `Dom` instance whose memory is owned by the rust allocator
 // Equivalent to the Rust `Dom::div()` constructor.
 AzDomPtr az_dom_div();
+// Creates a new `Dom` instance whose memory is owned by the rust allocator
+// Equivalent to the Rust `Dom::label()` constructor.
+AzDomPtr az_dom_label(AzStringPtrtext );
 // Destructor: Takes ownership of the `Dom` pointer and deletes it.
 void az_dom_delete(AzDomPtr* ptr);
 

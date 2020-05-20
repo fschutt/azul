@@ -75,6 +75,13 @@
                {
                   "fn_name":"div",
                   "fn_body":"Dom::div()"
+               },
+               {
+                  "fn_name": "label",
+                  "fn_args": [
+                     {"text": "String"}
+                  ],
+                  "fn_body": "Dom::label(*az_string_downcast(text))"
                }
             ],
             "external": "azul_core::dom::DomPtr"

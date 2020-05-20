@@ -385,6 +385,7 @@ pub mod callbacks {
 pub mod dom {
 
     use azul_dll::*;
+    use crate::str::String;
 
 
     /// `Dom` struct
@@ -393,6 +394,8 @@ pub mod dom {
     impl Dom {
         /// Creates a new `Dom` instance.
         pub fn div() -> Self { Self { ptr: az_dom_div() } }
+        /// Creates a new `Dom` instance.
+        pub fn label(text: String) -> Self { Self { ptr: az_dom_label(text.leak()) } }
        /// Prevents the destructor from running and returns the internal `AzDomPtr`
        #[allow(dead_code)]
        pub(crate) fn leak(self) -> AzDomPtr { let p = az_dom_shallow_copy(&self.ptr); std::mem::forget(self); p }

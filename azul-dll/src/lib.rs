@@ -118,6 +118,9 @@ pub use ::azul_core::dom::DomPtr as AzDomPtr;
 // Creates a new `Dom` instance whose memory is owned by the rust allocator
 // Equivalent to the Rust `Dom::div()` constructor.
 #[no_mangle] pub extern "C" fn az_dom_div() -> AzDomPtr { let object: Dom = Dom::div(); AzDomPtr { ptr: Box::into_raw(Box::new(object)) as *mut c_void } }
+// Creates a new `Dom` instance whose memory is owned by the rust allocator
+// Equivalent to the Rust `Dom::label()` constructor.
+#[no_mangle] pub extern "C" fn az_dom_label(text: AzStringPtr) -> AzDomPtr { let object: Dom = Dom::label(*az_string_downcast(text)); AzDomPtr { ptr: Box::into_raw(Box::new(object)) as *mut c_void } }
 /// Destructor: Takes ownership of the `Dom` pointer and deletes it.
 #[no_mangle] pub extern "C" fn az_dom_delete(ptr: &mut AzDomPtr) { let _ = unsafe { Box::<Dom>::from_raw(ptr.ptr  as *mut Dom) }; }
 /// Copies the pointer: WARNING: After calling this function you'll have two pointers to the same Box<`Dom`>!.
