@@ -342,7 +342,6 @@ impl App {
                     gl_context: gl_context.clone(),
                 };
 
-                println!("event: {:?}", event);
 
                 match event {
                     Event::DeviceEvent { .. } => {
@@ -686,7 +685,6 @@ impl App {
                     if should_redraw_timers_tasks {
                         *control_flow = ControlFlow::Poll;
                         for (_, window) in active_windows.iter() {
-                            println!("request redraw!");
                             window.display.window().request_redraw();
                         }
                     } else {
@@ -695,7 +693,6 @@ impl App {
                 }
             }
 
-            println!("control flow: {:?}", control_flow);
         })
     }
 }
@@ -738,7 +735,6 @@ fn send_user_event<'a>(
 
     macro_rules! redraw_all_windows {() => {
         for (_, window) in eld.active_windows.iter() {
-            println!("request redraw!");
             window.display.window().request_redraw();
         }
     };}
@@ -834,7 +830,6 @@ fn send_user_event<'a>(
         },
         DoHitTest { window_id } => {
 
-            println!("do hit test!");
 
             // Hit test if any nodes were hit, see if any callbacks need to be called
 
@@ -936,7 +931,6 @@ fn send_user_event<'a>(
             }
         },
         RebuildUi { window_id } => {
-            println!("rebuild ui!");
 
             // Call the .layout() function, build UiState
             {
@@ -963,7 +957,6 @@ fn send_user_event<'a>(
             send_user_event(AzulUpdateEvent::RestyleUi { window_id, skip_layout: false }, eld);
         },
         RestyleUi { window_id, skip_layout } => {
-            println!("restyle ui!");
 
             // Cascade the CSS to the HTML nodes
             {
@@ -986,7 +979,6 @@ fn send_user_event<'a>(
             }
         },
         RelayoutUi { window_id } => {
-            println!("relayout ui!");
 
             use azul_core::display_list::SolvedLayout;
 
@@ -1034,7 +1026,6 @@ fn send_user_event<'a>(
             send_user_event(AzulUpdateEvent::RebuildDisplayList { window_id }, eld);
         },
         RebuildDisplayList { window_id } => {
-            println!("rebuild display list!");
 
             // Build the display list
             {
@@ -1066,7 +1057,6 @@ fn send_user_event<'a>(
             send_user_event(AzulUpdateEvent::SendDisplayListToWebRender { window_id }, eld);
         },
         SendDisplayListToWebRender { window_id } => {
-            println!("send display list to WR!");
 
             // Build the display list
             {
@@ -1091,7 +1081,6 @@ fn send_user_event<'a>(
             redraw_all_windows!();
         },
         RedrawRequested { window_id } => {
-            println!("redraw requested got notice!");
 
             let glutin_window_id = match eld.reverse_window_id_mapping.get(&window_id) {
                 Some(s) => s.clone(),
@@ -1116,14 +1105,12 @@ fn send_user_event<'a>(
                 eld.config.background_color,
             );
 
-            println!("rendered!");
 
             // After rendering + swapping, remove the unused OpenGL textures
             clean_up_unused_opengl_textures(eld.renderer.as_mut().unwrap().flush_pipeline_info(), &pipeline_id);
         },
         UpdateScrollStates { window_id } => {
 
-            println!("update scroll states!");
 
             // Synchronize all the scroll states from window.internal.scroll_states with webrender
             let glutin_window_id = match eld.reverse_window_id_mapping.get(&window_id) {
@@ -1137,14 +1124,12 @@ fn send_user_event<'a>(
             eld.render_api.api.send_transaction(wr_translate_document_id(window.internal.document_id), txn);
         },
         UpdateAnimations { window_id } => {
-            println!("update animations!");
 
             // send transaction to update animations in WR
             // if no other events happened, skip to SendDisplayListToWebRender step
             send_user_event(AzulUpdateEvent::SendDisplayListToWebRender { window_id }, eld);
         },
         UpdateImages { window_id } => {
-            println!("update images!");
 
             // send transaction to update images in WR
             // if no other events happened, skip to SendDisplayListToWebRender step
@@ -1280,7 +1265,6 @@ fn hot_reload_css(
     match hot_reload_result {
         Ok(has_reloaded) => (has_reloaded, false),
         Err(css_error) => {
-            println!("{}\n----\n", css_error);
             (true, true)
         },
     }
@@ -1425,12 +1409,10 @@ fn send_display_list_to_webrender(
         wr_translate_epoch,
     };
 
-    println!("display list: {:#?}", window.internal.cached_display_list);
 
     // NOTE: Display list has to be rebuilt every frame, otherwise, the epochs get out of sync
     let display_list = wr_translate_display_list(window.internal.cached_display_list.clone(), window.internal.pipeline_id);
 
-    println!("translated display list!");
 
     let (logical_size, _) = convert_window_size(&full_window_state.size);
 
@@ -1443,7 +1425,6 @@ fn send_display_list_to_webrender(
         true,
     );
 
-    println!("send transaction!");
     render_api.api.send_transaction(wr_translate_document_id(window.internal.document_id), txn);
 }
 
@@ -1597,7 +1578,6 @@ fn render_inner(
 
     let background_color_f: ColorF = background_color.into();
 
-    println!("rendering!");
 
     unsafe {
 
@@ -1673,7 +1653,6 @@ fn render_inner(
         headless_shared_context.make_not_current();
     };
 
-    println!("rendering done!");
 }
 
 /// When called with glDrawArrays(0, 3), generates a simple triangle that
