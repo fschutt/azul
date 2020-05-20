@@ -1,3 +1,5 @@
+    use crate::dom::Dom;
+
     /// Callback fn that returns the layout
     pub type LayoutCallback = fn(RefAny, LayoutInfo) -> Dom;
 

@@ -13,6 +13,7 @@
 
         #[inline]
         pub fn new<T: 'static>(value: T) -> Self {
+            use azul_dll::*;
 
             fn default_custom_destructor<U: 'static>(ptr: AzRefAnyCore) {
                 use std::{mem, ptr};
@@ -27,11 +28,12 @@
                 }
             }
 
+            let type_name_str = ::std::any::type_name::<T>();
             let s = az_ref_any_new(
                 (&value as *const T) as *const u8,
                 ::std::mem::size_of::<T>(),
                 Self::get_type_id::<T>() as u64,
-                ::std::any::type_name::<T>(),
+                crate::str::String::from_utf8_unchecked(type_name_str.as_ptr(), type_name_str.len()).leak(),
                 default_custom_destructor::<T>,
             );
             ::std::mem::forget(value); // do not run the destructor of T here!

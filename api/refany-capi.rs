@@ -2,7 +2,9 @@
 pub use ::azul_core::callbacks::RefAny as AzRefAny;
 
 /// Creates a new `RefAny` instance
-#[no_mangle] pub extern "C" fn az_ref_any_new(ptr: *const u8, len: usize, type_id: u64, type_name: &str, custom_destructor: fn(AzRefAny)) -> AzRefAny { AzRefAny::new_c(ptr, len, type_id, type_name, custom_destructor) }
+#[no_mangle] pub extern "C" fn az_ref_any_new(ptr: *const u8, len: usize, type_id: u64, type_name: AzStringPtr, custom_destructor: fn(AzRefAny)) -> AzRefAny {
+    AzRefAny::new_c(ptr, len, type_id, *az_string_downcast(type_name), custom_destructor)
+}
 /// Returns the internal pointer of the `RefAny` as a `*mut c_void` or a nullptr if the types don't match
 #[no_mangle] pub extern "C" fn az_ref_any_get_ptr(ptr: &AzRefAny, len: usize, type_id: u64) -> *const c_void { ptr.get_ptr(len, type_id) }
 /// Returns the internal pointer of the `RefAny` as a `*mut c_void` or a nullptr if the types don't match

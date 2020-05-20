@@ -84,7 +84,7 @@ impl Clone for RefAny {
 impl RefAny {
 
     #[inline]
-    pub fn new_c(ptr: *const u8, len: usize, type_id: u64, type_name: &str, custom_destructor: fn(RefAny)) -> Self {
+    pub fn new_c(ptr: *const u8, len: usize, type_id: u64, type_name: String, custom_destructor: fn(RefAny)) -> Self {
         use std::{alloc, ptr};
 
         // cast the struct as bytes
@@ -103,7 +103,7 @@ impl RefAny {
             _internal_layout_size: layout.size(),
             _internal_layout_align: layout.align(),
             type_id,
-            type_name: type_name.to_string(),
+            type_name,
             strong_count: 0,
             is_currently_mutable: true,
             custom_destructor,

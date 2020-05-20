@@ -36,6 +36,15 @@ typedef AzDomPtr (*AzLayoutCallbackPtr)(AzRefAny, AzLayoutInfoPtr);
 
 
 
+// Pointer to rust-allocated `Box<String>` struct
+typedef struct AzStringPtr { void *ptr; } AzStringPtr
+// Creates + allocates a Rust `String` by **copying** it from another utf8-encoded string
+AzStringPtr az_string_from_utf8_unchecked(ptr: *const u8, len: usize);
+// Creates + allocates a Rust `String` by **copying** it from another utf8-encoded string
+AzStringPtr az_string_from_utf8_lossy(ptr: *const u8, len: usize);
+// Destructor: Takes ownership of the `String` pointer and deletes it.
+void az_string_delete(AzStringPtr* ptr);
+
 // Pointer to rust-allocated `Box<AppConfig>` struct
 typedef struct AzAppConfigPtr { void *ptr; } AzAppConfigPtr
 // Creates a new `AppConfig` instance whose memory is owned by the rust allocator

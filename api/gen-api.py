@@ -12,6 +12,28 @@ fn_prefix = "az_"
 postfix = "Ptr"
 postfix_excluded = ["LayoutCallback", "DataModel", "RefAny"]
 
+basic_types = [
+    "bool",
+    "char",
+    "f32",
+    "f64",
+    "fn",
+    "i128",
+    "i16",
+    "i32",
+    "i64",
+    "i8",
+    "isize",
+    "slice",
+    "u128",
+    "u16",
+    "u32",
+    "u64",
+    "u8",
+    "()",
+    "usize"
+]
+
 azul_readme_path = "../azul/README.md"
 license_path = "../LICENSE"
 api_file_path = "./public.api.json"
@@ -153,7 +175,7 @@ def fn_args_c_api(f, class_name, class_ptr_name, self_as_first_arg):
     fn_args = ""
 
     if self_as_first_arg:
-        self_val = list(f["args"][0].values())[0]
+        self_val = list(f["fn_args"][0].values())[0]
         if (self_val == "value"):
             fn_args += class_name.lower() + ": " + class_ptr_name + ", "
         elif (self_val == "refmut"):
@@ -163,14 +185,16 @@ def fn_args_c_api(f, class_name, class_ptr_name, self_as_first_arg):
         else:
             raise Exception("wrong self value " + self_val)
 
-    if "args" in f.keys():
-        for arg_object in f["args"]:
+    if "fn_args" in f.keys():
+        for arg_object in f["fn_args"]:
             arg_name = list(arg_object.keys())[0]
             if arg_name == "self":
                 continue
             arg_type = arg_object[arg_name]
-            # special cases: no "Ptr" postfix
-            if arg_type in postfix_excluded:
+
+            if is_primitive_arg(arg_type):
+                fn_args += arg_name + ": " + arg_type + ", " # no pre, no postfix
+            elif arg_type in postfix_excluded:
                 fn_args += arg_name + ": " + prefix + arg_type + ", " # no postfix
             else:
                 fn_args += arg_name + ": " + prefix + arg_type + postfix + ", "
@@ -256,19 +280,21 @@ def generate_c_bindings(apiData):
 def get_fn_args_c(f, class_name, class_ptr_name):
     fn_args = ""
 
-    if "args" in f.keys():
-        for arg_object in f["args"]:
+    if "fn_args" in f.keys():
+        for arg_object in f["fn_args"]:
             arg_name = list(arg_object.keys())[0]
             if arg_name == "self":
                 continue
             arg_type = arg_object[arg_name]
-            # special cases: no "Ptr" postfix
-            if arg_type in postfix_excluded:
+
+            if is_primitive_arg(arg_type):
+                fn_args += arg_name + ": " + arg_type + ", " # no pre, no postfix
+            elif arg_type in postfix_excluded:
                 fn_args += prefix + arg_type + arg_name + " " + ", " # no postfix
             else:
                 fn_args += prefix + arg_type + postfix + arg_name + " " + ", "
         fn_args = fn_args[:-2]
-        if (len(f["args"]) == 0):
+        if (len(f["fn_args"]) == 0):
             fn_args = "void"
 
     return fn_args
@@ -284,57 +310,70 @@ def search_for_module_of_class(apiData, class_name):
 
     return None
 
+def is_primitive_arg(arg):
+    arg = arg.replace("&", "")
+    arg = arg.replace("&mut", "")
+    arg = arg.replace("*const", "")
+    arg = arg.replace("*const", "")
+    arg = arg.replace("*mut", "")
+    arg = arg.strip()
+    return arg in basic_types
+
 def get_all_imports(apiData, module, module_name, existing_imports = {}):
-    imports = existing_imports
+
+    imports = {}
+
+    arg_types_to_search = []
 
     for class_name in module.keys():
         c = module[class_name]
 
         if "constructors" in c.keys():
             for const in c["constructors"]:
-                if "args" in const.keys():
-                    for arg_object in const["args"]:
+                if "fn_args" in const.keys():
+                    for arg_object in const["fn_args"]:
                         arg_name = list(arg_object.keys())[0]
                         if arg_name == "self":
                             continue
                         arg_type = arg_object[arg_name]
-                        found_module = None
-
-                        if arg_type == "LayoutCallback":
-                            found_module = "callbacks"
-                        else:
-                            found_module = search_for_module_of_class(apiData, arg_type)
-
-                        if found_module is None:
-                            raise Exception("" + arg_type + " not found!")
-
-                        if found_module in imports:
-                            imports[found_module].append(arg_type)
-                        else:
-                            imports[found_module] = [arg_type]
+                        arg_types_to_search.append(arg_type)
 
         if "functions" in c.keys():
             for f in c["functions"]:
-                if "args" in f.keys():
-                    for arg_object in f["args"]:
+                if "fn_args" in f.keys():
+                    for arg_object in f["fn_args"]:
                         arg_name = list(arg_object.keys())[0]
                         if arg_name == "self":
                             continue
                         arg_type = arg_object[arg_name]
-                        found_module = None
+                        arg_types_to_search.append(arg_type)
 
-                        if arg_type == "LayoutCallback":
-                            found_module = "callbacks"
-                        else:
-                            found_module = search_for_module_of_class(apiData, arg_type)
+    for arg in arg_types_to_search:
 
-                        if found_module is None:
-                            raise Exception("" + arg_type + " not found!")
+        arg = arg.replace("*const", "")
+        arg = arg.replace("*mut", "")
+        arg = arg.strip()
 
-                        if found_module in imports:
-                            imports[found_module].append(arg_type)
-                        else:
-                            imports[found_module] = [arg_type]
+        if arg in basic_types:
+            continue
+
+        found_module = None
+
+        for v_module_name in existing_imports.keys():
+            for v in existing_imports[v_module_name]:
+                if v == arg:
+                    found_module = v_module_name
+
+        if found_module is None:
+            found_module = search_for_module_of_class(apiData, arg)
+
+        if found_module is None:
+            raise Exception("" + arg + " not found!")
+
+        if found_module in imports:
+            imports[found_module].append(arg)
+        else:
+            imports[found_module] = [arg]
 
     if module_name in imports:
         del imports[module_name]
@@ -386,10 +425,10 @@ def generate_rust_bindings(apiData):
         code += "pub mod " + module_name + " {\r\n\r\n"
         code += "    use azul_dll::*;\r\n"
         if module_name == "callbacks":
-            code += get_all_imports(apiData, module, module_name, {"callbacks": ["RefAny", "LayoutInfo"], "dom": ["Dom"]})
+            code += get_all_imports(apiData, module, module_name, {"callbacks": ["RefAny", "LayoutInfo", "LayoutCallback"], "dom": ["Dom"]})
             code += rust_api_typedef
         else:
-            code += get_all_imports(apiData, module, module_name, {})
+            code += get_all_imports(apiData, module, module_name, {"callbacks": ["LayoutCallback"]})
 
         for class_name in module.keys():
             c = module[class_name]
@@ -462,7 +501,7 @@ def rust_bindings_fn_args(f, class_name, class_ptr_name, self_as_first_arg):
     fn_args = ""
 
     if self_as_first_arg:
-        self_val = list(f["args"][0].values())[0]
+        self_val = list(f["fn_args"][0].values())[0]
         if (self_val == "value"):
             fn_args += "self, "
         elif (self_val == "refmut"):
@@ -472,8 +511,8 @@ def rust_bindings_fn_args(f, class_name, class_ptr_name, self_as_first_arg):
         else:
             raise Exception("wrong self value " + self_val)
 
-    if "args" in f.keys():
-        for arg_object in f["args"]:
+    if "fn_args" in f.keys():
+        for arg_object in f["fn_args"]:
             arg_name = list(arg_object.keys())[0]
             if arg_name == "self":
                 continue
@@ -487,7 +526,7 @@ def rust_bindings_fn_args(f, class_name, class_ptr_name, self_as_first_arg):
 def rust_bindings_call_fn_args(f, class_name, class_ptr_name, self_as_first_arg):
     fn_args = ""
     if self_as_first_arg:
-        self_val = list(f["args"][0].values())[0]
+        self_val = list(f["fn_args"][0].values())[0]
         if (self_val == "value"):
             fn_args += "self.leak(), "
         elif (self_val == "refmut"):
@@ -497,8 +536,8 @@ def rust_bindings_call_fn_args(f, class_name, class_ptr_name, self_as_first_arg)
         else:
             raise Exception("wrong self value " + self_val)
 
-    if "args" in f.keys():
-        for arg_object in f["args"]:
+    if "fn_args" in f.keys():
+        for arg_object in f["fn_args"]:
             arg_name = list(arg_object.keys())[0]
             if arg_name == "self":
                 continue
@@ -508,6 +547,8 @@ def rust_bindings_call_fn_args(f, class_name, class_ptr_name, self_as_first_arg)
                 fn_args += "&mut " + arg_name + ".ptr, "
             elif arg_type.startswith("&"):
                 fn_args += "&" + arg_name + ".ptr, "
+            elif is_primitive_arg(arg_type):
+                fn_args += arg_name + ", "
             else:
                 fn_args += arg_name + ".leak(), "
 

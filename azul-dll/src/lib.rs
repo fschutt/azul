@@ -36,6 +36,19 @@ use azul_web::app::{App, AppConfig};
 pub type AzLayoutCallback = fn(AzRefAny, AzLayoutInfoPtr) -> AzDomPtr;
 
 
+/// Pointer to rust-allocated `Box<String>` struct
+#[no_mangle] #[repr(C)] pub struct AzStringPtr { ptr: *mut c_void }
+/// Creates + allocates a Rust `String` by **copying** it from another utf8-encoded string
+#[no_mangle] pub extern "C" fn az_string_from_utf8_unchecked(ptr: *const u8, len: usize) -> AzStringPtr { let object: String = unsafe { std::str::from_utf8_unchecked(std::slice::from_raw_parts(ptr, len)).to_string() }; AzStringPtr { ptr: Box::into_raw(Box::new(object)) as *mut c_void } }
+/// Creates + allocates a Rust `String` by **copying** it from another utf8-encoded string
+#[no_mangle] pub extern "C" fn az_string_from_utf8_lossy(ptr: *const u8, len: usize) -> AzStringPtr { let object: String = unsafe { std::string::String::from_utf8_lossy(std::slice::from_raw_parts(ptr, len)).to_string() }; AzStringPtr { ptr: Box::into_raw(Box::new(object)) as *mut c_void } }
+/// Destructor: Takes ownership of the `String` pointer and deletes it.
+#[no_mangle] pub extern "C" fn az_string_delete(ptr: &mut AzStringPtr) { let _ = unsafe { Box::<String>::from_raw(ptr.ptr  as *mut String) }; }
+/// Copies the pointer: WARNING: After calling this function you'll have two pointers to the same Box<`String`>!.
+#[no_mangle] pub extern "C" fn az_string_shallow_copy(ptr: &AzStringPtr) -> AzStringPtr { AzStringPtr { ptr: ptr.ptr } }
+/// (private): Downcasts the `AzStringPtr` to a `Box<String>`. Note that this takes ownership of the pointer.
+fn az_string_downcast(ptr: AzStringPtr) -> Box<String> { unsafe { Box::<String>::from_raw(ptr.ptr  as *mut String) } }
+
 /// Pointer to rust-allocated `Box<AppConfig>` struct
 #[no_mangle] #[repr(C)] pub struct AzAppConfigPtr { ptr: *mut c_void }
 // Creates a new `AppConfig` instance whose memory is owned by the rust allocator
@@ -65,7 +78,9 @@ fn az_app_downcast(ptr: AzAppPtr) -> Box<App> { unsafe { Box::<App>::from_raw(pt
 pub use ::azul_core::callbacks::RefAny as AzRefAny;
 
 /// Creates a new `RefAny` instance
-#[no_mangle] pub extern "C" fn az_ref_any_new(ptr: *const u8, len: usize, type_id: u64, type_name: &str, custom_destructor: fn(AzRefAny)) -> AzRefAny { AzRefAny::new_c(ptr, len, type_id, type_name, custom_destructor) }
+#[no_mangle] pub extern "C" fn az_ref_any_new(ptr: *const u8, len: usize, type_id: u64, type_name: AzStringPtr, custom_destructor: fn(AzRefAny)) -> AzRefAny {
+    AzRefAny::new_c(ptr, len, type_id, *az_string_downcast(type_name), custom_destructor)
+}
 /// Returns the internal pointer of the `RefAny` as a `*mut c_void` or a nullptr if the types don't match
 #[no_mangle] pub extern "C" fn az_ref_any_get_ptr(ptr: &AzRefAny, len: usize, type_id: u64) -> *const c_void { ptr.get_ptr(len, type_id) }
 /// Returns the internal pointer of the `RefAny` as a `*mut c_void` or a nullptr if the types don't match

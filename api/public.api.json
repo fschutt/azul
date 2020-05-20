@@ -1,5 +1,29 @@
 {
    "0.1.0": {
+      "str": {
+         "String": {
+            "constructors": [
+               {
+                  "doc": "Creates + allocates a Rust `String` by **copying** it from another utf8-encoded string",
+                  "fn_name": "from_utf8_unchecked",
+                  "fn_args": [
+                     {"ptr": "*const u8"},
+                     {"len": "usize"}
+                  ],
+                  "fn_body": "unsafe { std::str::from_utf8_unchecked(std::slice::from_raw_parts(ptr, len)).to_string() }"
+               },
+               {
+                  "doc": "Creates + allocates a Rust `String` by **copying** it from another utf8-encoded string",
+                  "fn_name": "from_utf8_lossy",
+                  "fn_args": [
+                     {"ptr": "*const u8"},
+                     {"len": "usize"}
+                  ],
+                  "fn_body": "unsafe { std::string::String::from_utf8_lossy(std::slice::from_raw_parts(ptr, len)).to_string() }"
+               }
+            ]
+         }
+      },
       "app": {
          "AppConfig": {
             "constructors":[
@@ -14,7 +38,7 @@
                {
                   "doc":"Creates a new App instance.",
                   "fn_name":"new",
-                  "args": [
+                  "fn_args": [
                      {"data": "RefAny"},
                      {"config": "AppConfig"},
                      {"callback": "LayoutCallback"}
@@ -25,7 +49,7 @@
             "functions":[
                {
                   "fn_name":"run",
-                  "args": [
+                  "fn_args": [
                      {"self": "value"},
                      {"window": "WindowCreateOptions"}
                   ],
@@ -72,7 +96,7 @@
             "constructors":[
                {
                   "fn_name":"new",
-                  "args":[
+                  "fn_args":[
                      {"css": "Css"}
                   ],
                   "fn_body":"WindowCreateOptions::new(*az_css_downcast(css))"

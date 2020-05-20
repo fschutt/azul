@@ -208,6 +208,27 @@
 
 extern crate azul_dll;
 
+pub mod str {
+
+    use azul_dll::*;
+
+
+    /// `String` struct
+    pub struct String { pub(crate) ptr: AzStringPtr }
+
+    impl String {
+        /// Creates + allocates a Rust `String` by **copying** it from another utf8-encoded string
+        pub fn from_utf8_unchecked(ptr: *const u8, len: usize) -> Self { Self { ptr: az_string_from_utf8_unchecked(ptr, len) } }
+        /// Creates + allocates a Rust `String` by **copying** it from another utf8-encoded string
+        pub fn from_utf8_lossy(ptr: *const u8, len: usize) -> Self { Self { ptr: az_string_from_utf8_lossy(ptr, len) } }
+       /// Prevents the destructor from running and returns the internal `AzStringPtr`
+       #[allow(dead_code)]
+       pub(crate) fn leak(self) -> AzStringPtr { let p = az_string_shallow_copy(&self.ptr); std::mem::forget(self); p }
+    }
+
+    impl Drop for String { fn drop(&mut self) { az_string_delete(&mut self.ptr); } }
+}
+
 pub mod app {
 
     use azul_dll::*;
@@ -252,6 +273,7 @@ pub mod callbacks {
 
     use azul_dll::*;
     use crate::dom::Dom;
+
     /// Callback fn that returns the layout
     pub type LayoutCallback = fn(RefAny, LayoutInfo) -> Dom;
 
@@ -281,6 +303,7 @@ pub mod callbacks {
 
         #[inline]
         pub fn new<T: 'static>(value: T) -> Self {
+            use azul_dll::*;
 
             fn default_custom_destructor<U: 'static>(ptr: AzRefAnyCore) {
                 use std::{mem, ptr};
@@ -295,11 +318,12 @@ pub mod callbacks {
                 }
             }
 
+            let type_name_str = ::std::any::type_name::<T>();
             let s = az_ref_any_new(
                 (&value as *const T) as *const u8,
                 ::std::mem::size_of::<T>(),
                 Self::get_type_id::<T>() as u64,
-                ::std::any::type_name::<T>(),
+                crate::str::String::from_utf8_unchecked(type_name_str.as_ptr(), type_name_str.len()).leak(),
                 default_custom_destructor::<T>,
             );
             ::std::mem::forget(value); // do not run the destructor of T here!
