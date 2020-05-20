@@ -59,9 +59,11 @@
          }
       },
       "callbacks": {
+         "LayoutCallback": {
+            "use_patches": true
+         },
          "RefAny": {
-            "external_c_api_code": "./refany-capi.rs",
-            "external_rust_api_code": "./refany-rustapi.rs"
+            "use_patches": true
          },
          "LayoutInfo": {
             "rust_class_name": "LayoutInfo<'a>",
