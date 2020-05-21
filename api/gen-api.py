@@ -55,8 +55,9 @@ c_api_patches = {
 }
 
 rust_api_patches = {
+    tuple(['callbacks', 'LayoutCallback']): read_file("./patches/azul.rs/layout_callback.rs"),
     tuple(['callbacks', 'RefAny']): read_file("./patches/azul.rs/refany.rs"),
-    tuple(['app', 'App', 'run']): read_file("./patches/azul.rs/app_run.rs"),
+    tuple(['app', 'App', 'new']): read_file("./patches/azul.rs/app_new.rs"),
 }
 
 # ---------------------------------------------------------------------------------------------
@@ -191,7 +192,7 @@ def fn_args_c_api(f, class_name, class_ptr_name, self_as_first_arg, apiData):
 
             if is_primitive_arg(arg_type):
                 fn_args += arg_name + ": " + arg_type + ", " # no pre, no postfix
-            elif class_is_virtual(apiData, arg_type):
+            elif class_is_virtual(apiData, arg_type, "dll"):
                 fn_args += arg_name + ": " + prefix + arg_type + ", " # no postfix
             else:
                 fn_args += arg_name + ": " + prefix + arg_type + postfix + ", "
@@ -201,14 +202,14 @@ def fn_args_c_api(f, class_name, class_ptr_name, self_as_first_arg, apiData):
 
 # Returns if the class is "pure virtual", i.e. if it is an
 # object consisting of patches instead of being defined in the API
-def class_is_virtual(apiData, className):
+def class_is_virtual(apiData, className, api):
     for module_name in apiData.keys():
         module = apiData[module_name]
         for class_name in module.keys():
             if class_name != className:
                 continue
             c = module[class_name]
-            if "use_patches" in c.keys() and c["use_patches"]:
+            if "use_patches" in c.keys() and api in c["use_patches"]:
                 return True
 
     return False
@@ -225,7 +226,7 @@ def get_fn_args_c(f, class_name, class_ptr_name, apiData):
 
             if is_primitive_arg(arg_type):
                 fn_args += arg_name + ": " + arg_type + ", " # no pre, no postfix
-            elif class_is_virtual(apiData, arg_type):
+            elif class_is_virtual(apiData, arg_type, "rust"):
                 fn_args += prefix + arg_type + arg_name + " " + ", " # no postfix
             else:
                 fn_args += prefix + arg_type + postfix + arg_name + " " + ", "
@@ -314,20 +315,18 @@ def generate_rust_dll(apiData):
     for module_name in apiData.keys():
         module = apiData[module_name]
 
-        if tuple([module_name]) in dll_patches.keys():
+        if tuple([module_name]) in dll_patches.keys() and "use_patches" in module.keys() and "dll" in module["use_patches"]:
             code += dll_patches[tuple([module_name])]
-            if "use_patches" in module.keys() and module["use_patches"]:
-                continue
+            continue
 
         for class_name in module.keys():
             c = module[class_name]
 
             code += "\r\n"
 
-            if tuple([module_name, class_name]) in dll_patches.keys():
+            if tuple([module_name, class_name]) in dll_patches.keys() and "use_patches" in c.keys() and "dll" in c["use_patches"]:
                 code += dll_patches[tuple([module_name, class_name])]
-                if "use_patches" in c.keys() and c["use_patches"]:
-                    continue
+                continue
 
             rust_class_name = class_name
             if "rust_class_name" in c.keys():
@@ -351,10 +350,15 @@ def generate_rust_dll(apiData):
 
                     fn_name = const["fn_name"]
 
-                    if tuple([module_name, class_name, fn_name]) in dll_patches.keys():
-                        code += dll_patches[tuple([module_name, class_name, fn_name])]
-                        if "use_patches" in const.keys() and const["use_patches"]:
-                            continue
+                    fn_body = ""
+
+                    if tuple([module_name, class_name, fn_name]) in dll_patches.keys() \
+                    and "use_patches" in const.keys() \
+                    and "dll" in const["use_patches"]:
+                        fn_body = dll_patches[tuple([module_name, class_name, fn_name])]
+                    else:
+                        fn_body += "let object: " + class_name + " = " + const["fn_body"] + "; " # note: security check, that the returned object is of the correct type
+                        fn_body += class_ptr_name + " { ptr: Box::into_raw(Box::new(object)) as *mut c_void }"
 
                     if "doc" in const.keys():
                         code += "/// " + const["doc"] + "\r\n"
@@ -365,8 +369,7 @@ def generate_rust_dll(apiData):
                     fn_args = fn_args_c_api(const, class_name, class_ptr_name, False, apiData)
 
                     code += "#[no_mangle] pub extern \"C\" fn " + fn_prefix + to_snake_case(class_name) + "_" + const["fn_name"] + "(" + fn_args + ") -> " + class_ptr_name + " { "
-                    code += "let object: " + class_name + " = " + const["fn_body"] + "; " # note: security check, that the returned object is of the correct type
-                    code += class_ptr_name + " { ptr: Box::into_raw(Box::new(object)) as *mut c_void }"
+                    code += fn_body
                     code += " }\r\n"
 
             if "functions" in c.keys():
@@ -374,10 +377,13 @@ def generate_rust_dll(apiData):
 
                     fn_name = f["fn_name"]
 
-                    if tuple([module_name, class_name, fn_name]) in dll_patches.keys():
-                        code += dll_patches[tuple([module_name, class_name, fn_name])]
-                        if "use_patches" in f.keys() and f["use_patches"]:
-                            continue
+                    fn_body = ""
+                    if tuple([module_name, class_name, fn_name]) in dll_patches.keys() \
+                    and "use_patches" in f.keys() \
+                    and "dll" in f["use_patches"]:
+                        fn_body = dll_patches[tuple([module_name, class_name, fn_name])]
+                    else:
+                        fn_body = f["fn_body"]
 
                     if "doc" in f.keys():
                         code += "/// " + f["doc"] + "\r\n"
@@ -391,7 +397,7 @@ def generate_rust_dll(apiData):
                         returns = " -> " + f["returns"]
 
                     code += "#[no_mangle] pub extern \"C\" fn " + fn_prefix + to_snake_case(class_name) + "_" + f["fn_name"] + "(" + fn_args + ")" + returns + " { "
-                    code += f["fn_body"]
+                    code += fn_body
                     code += " }\r\n"
 
             lifetime = ""
@@ -538,10 +544,9 @@ def generate_rust_api(apiData):
 
             code += "\r\n\r\n"
 
-            if tuple([module_name, class_name]) in rust_api_patches.keys():
+            if tuple([module_name, class_name]) in rust_api_patches.keys() and "use_patches" in c.keys() and "rust" in c["use_patches"]:
                 code += rust_api_patches[tuple([module_name, class_name])]
-                if "use_patches" in c.keys() and c["use_patches"]:
-                    continue
+                continue
 
             if "doc" in c.keys():
                 code += "    /// " + c["doc"] + "\r\n    "
@@ -556,28 +561,44 @@ def generate_rust_api(apiData):
                 for const in c["constructors"]:
 
                     fn_name = const["fn_name"]
+                    c_fn_name = fn_prefix + to_snake_case(class_name) + "_" + fn_name
+                    fn_args = rust_bindings_fn_args(const, class_name, class_ptr_name, False)
+                    fn_args_call = rust_bindings_call_fn_args(const, class_name, class_ptr_name, False)
 
-                    if tuple([module_name, class_name, fn_name]) in rust_api_patches:
-                        code += rust_api_patches[tuple([module_name, class_name, fn_name])]
-                        if "use_patches" in const.keys() and const["use_patches"]:
-                            continue
+                    fn_body = ""
+
+                    if tuple([module_name, class_name, fn_name]) in rust_api_patches.keys() \
+                    and "use_patches" in const.keys() \
+                    and "rust" in const["use_patches"]:
+                        fn_body = rust_api_patches[tuple([module_name, class_name, fn_name])]
+                    else:
+                        fn_body = "Self { ptr: " + c_fn_name + "(" + fn_args_call + ") }"
 
                     if "doc" in const.keys():
                         code += "        /// " + const["doc"] + "\r\n"
                     else:
                         code += "        /// Creates a new `" + class_name + "` instance.\r\n"
 
-                    fn_args = rust_bindings_fn_args(const, class_name, class_ptr_name, False)
-                    fn_args_call = rust_bindings_call_fn_args(const, class_name, class_ptr_name, False)
-                    c_fn_name = fn_prefix + to_snake_case(class_name) + "_" + fn_name
-                    fn_body = c_fn_name + "(" + fn_args_call + ")"
-
-                    code += "        pub fn " + fn_name + "(" + fn_args + ") -> Self { Self { ptr: " + fn_body + " } }\r\n"
+                    code += "        pub fn " + fn_name + "(" + fn_args + ") -> Self { " + fn_body + " }\r\n"
 
             if "functions" in c.keys():
                 for f in c["functions"]:
 
                     fn_name = f["fn_name"]
+                    fn_args = rust_bindings_fn_args(f, class_name, class_ptr_name, True)
+                    fn_args_call = rust_bindings_call_fn_args(f, class_name, class_ptr_name, True)
+                    c_fn_name = fn_prefix + to_snake_case(class_name) + "_" + fn_name
+
+                    fn_body = ""
+
+                    if tuple([module_name, class_name, fn_name]) in rust_api_patches.keys() \
+                    and "use_patches" in const.keys() \
+                    and "rust" in const["use_patches"]:
+                        print("ok - " + str(tuple([module_name, class_name, fn_name])))
+                        fn_body = rust_api_patches[tuple([module_name, class_name, fn_name])]
+                    else:
+                        fn_body = c_fn_name + "(" + fn_args_call + ")"
+
                     if tuple([module_name, class_name, fn_name]) in rust_api_patches:
                         code += rust_api_patches[tuple([module_name, class_name, fn_name])]
                         if "use_patches" in f.keys() and f["use_patches"]:
@@ -587,11 +608,6 @@ def generate_rust_api(apiData):
                         code += "        /// " + f["doc"] + "\r\n"
                     else:
                         code += "        /// Calls the `" + class_name + "::" + f["fn_name"] + "` function.\r\n"
-
-                    fn_args = rust_bindings_fn_args(f, class_name, class_ptr_name, True)
-                    fn_args_call = rust_bindings_call_fn_args(f, class_name, class_ptr_name, True)
-                    c_fn_name = fn_prefix + to_snake_case(class_name) + "_" + fn_name
-                    fn_body = c_fn_name + "(" + fn_args_call + ")"
 
                     returns = ""
                     if "returns" in f.keys():

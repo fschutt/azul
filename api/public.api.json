@@ -43,7 +43,7 @@
                      {"config": "AppConfig"},
                      {"callback": "LayoutCallback"}
                   ],
-                  "fn_body_from_patches": ["rust"],
+                  "use_patches": ["rust"],
                   "fn_body": "App::new(data, *az_app_config_downcast(config), callback).unwrap()"
                }
             ],
@@ -61,10 +61,10 @@
       },
       "callbacks": {
          "LayoutCallback": {
-            "use_patches": true
+            "use_patches": ["dll", "rust"]
          },
          "RefAny": {
-            "use_patches": true
+            "use_patches": ["dll", "rust"]
          },
          "LayoutInfo": {
             "rust_class_name": "LayoutInfo<'a>",

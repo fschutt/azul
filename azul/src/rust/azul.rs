@@ -257,11 +257,11 @@ pub mod app {
 
     impl App {
         /// Creates a new App instance.
-        pub fn new(data: RefAny, config: AppConfig, callback: LayoutCallback) -> Self { Self { ptr: az_app_new(data.leak(), config.leak(), callback.leak()) } }
-        unsafe { crate::callbacks::CALLBACK = callback };
+        pub fn new(data: RefAny, config: AppConfig, callback: LayoutCallback) -> Self {         unsafe { crate::callbacks::CALLBACK = callback };
         Self {
             ptr: az_app_new(data.leak(), config.leak(), crate::callbacks::translate_callback)
         }
+ }
         /// Calls the `App::run` function.
         pub fn run(self, window: WindowCreateOptions)  { az_app_run(self.leak(), window.leak())}
        /// Prevents the destructor from running and returns the internal `AzAppPtr`
@@ -278,16 +278,20 @@ pub mod callbacks {
     use azul_dll::*;
 
 
-    /// `LayoutCallback` struct
-    pub struct LayoutCallback { pub(crate) ptr: AzLayoutCallbackPtr }
+    use crate::dom::Dom;
 
-    impl LayoutCallback {
-       /// Prevents the destructor from running and returns the internal `AzLayoutCallbackPtr`
-       #[allow(dead_code)]
-       pub(crate) fn leak(self) -> AzLayoutCallbackPtr { let p = az_layout_callback_shallow_copy(&self.ptr); std::mem::forget(self); p }
+    /// Callback fn that returns the layout
+    pub type LayoutCallback = fn(RefAny, LayoutInfo) -> Dom;
+
+    fn default_callback(_: RefAny, _: LayoutInfo) -> Dom {
+        Dom::div()
     }
 
-    impl Drop for LayoutCallback { fn drop(&mut self) { az_layout_callback_delete(&mut self.ptr); } }
+    pub(crate) static mut CALLBACK: LayoutCallback = default_callback;
+
+    pub(crate) fn translate_callback(data: azul_dll::AzRefAny, layout: azul_dll::AzLayoutInfoPtr) -> azul_dll::AzDomPtr {
+        unsafe { CALLBACK(RefAny(data), LayoutInfo { ptr: layout }) }.leak()
+    }
 
 
     use azul_dll::AzRefAny as AzRefAnyCore;
