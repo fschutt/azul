@@ -208,7 +208,8 @@
 
 extern crate azul_dll;
 
-#[allow(dead_code, unused_imports)]pub mod str {
+#[allow(dead_code, unused_imports)]
+pub mod str {
 
     use azul_dll::*;
 
@@ -229,7 +230,8 @@ extern crate azul_dll;
     impl Drop for String { fn drop(&mut self) { az_string_delete(&mut self.ptr); } }
 }
 
-#[allow(dead_code, unused_imports)]pub mod app {
+#[allow(dead_code, unused_imports)]
+pub mod app {
 
     use azul_dll::*;
     use crate::callbacks::{RefAny, LayoutCallback};
@@ -256,10 +258,11 @@ extern crate azul_dll;
     impl App {
         /// Creates a new App instance.
         pub fn new(data: RefAny, config: AppConfig, callback: LayoutCallback) -> Self { Self { ptr: az_app_new(data.leak(), config.leak(), callback.leak()) } }
-{
-            unsafe { crate::callbacks::CALLBACK = callback };
-            az_app_new(data.leak(), config.leak(), crate::callbacks::translate_callback)
-        }        /// Calls the `App::run` function.
+        unsafe { crate::callbacks::CALLBACK = callback };
+        Self {
+            ptr: az_app_new(data.leak(), config.leak(), crate::callbacks::translate_callback)
+        }
+        /// Calls the `App::run` function.
         pub fn run(self, window: WindowCreateOptions)  { az_app_run(self.leak(), window.leak())}
        /// Prevents the destructor from running and returns the internal `AzAppPtr`
        #[allow(dead_code)]
@@ -269,7 +272,8 @@ extern crate azul_dll;
     impl Drop for App { fn drop(&mut self) { az_app_delete(&mut self.ptr); } }
 }
 
-#[allow(dead_code, unused_imports)]pub mod callbacks {
+#[allow(dead_code, unused_imports)]
+pub mod callbacks {
 
     use azul_dll::*;
 
@@ -380,7 +384,8 @@ extern crate azul_dll;
     impl Drop for LayoutInfo { fn drop(&mut self) { az_layout_info_delete(&mut self.ptr); } }
 }
 
-#[allow(dead_code, unused_imports)]pub mod dom {
+#[allow(dead_code, unused_imports)]
+pub mod dom {
 
     use azul_dll::*;
     use crate::str::String;
@@ -402,7 +407,8 @@ extern crate azul_dll;
     impl Drop for Dom { fn drop(&mut self) { az_dom_delete(&mut self.ptr); } }
 }
 
-#[allow(dead_code, unused_imports)]pub mod css {
+#[allow(dead_code, unused_imports)]
+pub mod css {
 
     use azul_dll::*;
 
@@ -421,7 +427,8 @@ extern crate azul_dll;
     impl Drop for Css { fn drop(&mut self) { az_css_delete(&mut self.ptr); } }
 }
 
-#[allow(dead_code, unused_imports)]pub mod window {
+#[allow(dead_code, unused_imports)]
+pub mod window {
 
     use azul_dll::*;
     use crate::css::Css;

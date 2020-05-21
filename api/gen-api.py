@@ -10,7 +10,6 @@ def read_file(path):
 prefix = "Az"
 fn_prefix = "az_"
 postfix = "Ptr"
-postfix_excluded = ["LayoutCallback", "DataModel", "RefAny"]
 
 basic_types = [
     "bool",
@@ -169,7 +168,7 @@ def get_all_imports(apiData, module, module_name, existing_imports = {}):
 
     return imports_str
 
-def fn_args_c_api(f, class_name, class_ptr_name, self_as_first_arg):
+def fn_args_c_api(f, class_name, class_ptr_name, self_as_first_arg, apiData):
     fn_args = ""
 
     if self_as_first_arg:
@@ -192,7 +191,7 @@ def fn_args_c_api(f, class_name, class_ptr_name, self_as_first_arg):
 
             if is_primitive_arg(arg_type):
                 fn_args += arg_name + ": " + arg_type + ", " # no pre, no postfix
-            elif arg_type in postfix_excluded:
+            elif class_is_virtual(apiData, arg_type):
                 fn_args += arg_name + ": " + prefix + arg_type + ", " # no postfix
             else:
                 fn_args += arg_name + ": " + prefix + arg_type + postfix + ", "
@@ -200,7 +199,21 @@ def fn_args_c_api(f, class_name, class_ptr_name, self_as_first_arg):
 
     return fn_args
 
-def get_fn_args_c(f, class_name, class_ptr_name):
+# Returns if the class is "pure virtual", i.e. if it is an
+# object consisting of patches instead of being defined in the API
+def class_is_virtual(apiData, className):
+    for module_name in apiData.keys():
+        module = apiData[module_name]
+        for class_name in module.keys():
+            if class_name != className:
+                continue
+            c = module[class_name]
+            if "use_patches" in c.keys() and c["use_patches"]:
+                return True
+
+    return False
+
+def get_fn_args_c(f, class_name, class_ptr_name, apiData):
     fn_args = ""
 
     if "fn_args" in f.keys():
@@ -212,7 +225,7 @@ def get_fn_args_c(f, class_name, class_ptr_name):
 
             if is_primitive_arg(arg_type):
                 fn_args += arg_name + ": " + arg_type + ", " # no pre, no postfix
-            elif arg_type in postfix_excluded:
+            elif class_is_virtual(apiData, arg_type):
                 fn_args += prefix + arg_type + arg_name + " " + ", " # no postfix
             else:
                 fn_args += prefix + arg_type + postfix + arg_name + " " + ", "
@@ -349,7 +362,7 @@ def generate_rust_dll(apiData):
                         code += "// Creates a new `" + class_name + "` instance whose memory is owned by the rust allocator\r\n"
                         code += "// Equivalent to the Rust `" + class_name  + "::" + const["fn_name"] + "()` constructor.\r\n"
 
-                    fn_args = fn_args_c_api(const, class_name, class_ptr_name, False)
+                    fn_args = fn_args_c_api(const, class_name, class_ptr_name, False, apiData)
 
                     code += "#[no_mangle] pub extern \"C\" fn " + fn_prefix + to_snake_case(class_name) + "_" + const["fn_name"] + "(" + fn_args + ") -> " + class_ptr_name + " { "
                     code += "let object: " + class_name + " = " + const["fn_body"] + "; " # note: security check, that the returned object is of the correct type
@@ -371,7 +384,7 @@ def generate_rust_dll(apiData):
                     else:
                         code += "// Equivalent to the Rust `" + class_name  + "::" + f["fn_name"] + "()` function.\r\n"
 
-                    fn_args = fn_args_c_api(f, class_name, class_ptr_name, True)
+                    fn_args = fn_args_c_api(f, class_name, class_ptr_name, True, apiData)
 
                     returns = ""
                     if "returns" in f.keys():
@@ -454,7 +467,7 @@ def generate_c_api(apiData):
                         header += "// Creates a new `" + class_name + "` instance whose memory is owned by the rust allocator\r\n"
                         header += "// Equivalent to the Rust `" + class_name  + "::" + const["fn_name"] + "()` constructor.\r\n"
 
-                    fn_args = get_fn_args_c(const, class_name, class_ptr_name)
+                    fn_args = get_fn_args_c(const, class_name, class_ptr_name, apiData)
 
                     fn_name = fn_prefix + to_snake_case(class_name) + "_" + const["fn_name"]
                     header += class_ptr_name + " " + fn_name + "(" + fn_args + ");\r\n"
@@ -466,7 +479,7 @@ def generate_c_api(apiData):
                     else:
                         header += "// Equivalent to the Rust `" + class_name  + "::" + f["fn_name"] + "()` function.\r\n"
 
-                    fn_args = get_fn_args_c(f, class_name, class_ptr_name)
+                    fn_args = get_fn_args_c(f, class_name, class_ptr_name, apiData)
 
                     fn_name = fn_prefix + to_snake_case(class_name) + "_" + f["fn_name"]
                     header += class_ptr_name + " " + fn_name + "(" + fn_args + ");\r\n"
@@ -509,7 +522,7 @@ def generate_rust_api(apiData):
     for module_name in apiData.keys():
         module = apiData[module_name]
 
-        code += "#[allow(dead_code, unused_imports)]"
+        code += "#[allow(dead_code, unused_imports)]\r\n"
         code += "pub mod " + module_name + " {\r\n\r\n"
         code += "    use azul_dll::*;\r\n"
 

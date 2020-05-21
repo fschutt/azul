@@ -43,6 +43,7 @@
                      {"config": "AppConfig"},
                      {"callback": "LayoutCallback"}
                   ],
+                  "fn_body_from_patches": ["rust"],
                   "fn_body": "App::new(data, *az_app_config_downcast(config), callback).unwrap()"
                }
             ],
