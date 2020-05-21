@@ -13,7 +13,8 @@ struct Data {
 }
 
 fn layout(data: RefAny, _info: LayoutInfo) -> Dom {
-    Dom::div()
+    let data = data.downcast_ref::<Data>().expect("wrong downcast");
+    Dom::label(format!("hello: {}", data.counter).into())
 }
 
 fn main() {

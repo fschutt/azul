@@ -55,6 +55,7 @@ c_api_patches = {
 }
 
 rust_api_patches = {
+    tuple(['str']): read_file("./patches/azul.rs/string.rs"),
     tuple(['callbacks', 'LayoutCallback']): read_file("./patches/azul.rs/layout_callback.rs"),
     tuple(['callbacks', 'RefAny']): read_file("./patches/azul.rs/refany.rs"),
     tuple(['app', 'App', 'new']): read_file("./patches/azul.rs/app_new.rs"),

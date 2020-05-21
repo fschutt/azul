@@ -212,7 +212,12 @@ extern crate azul_dll;
 pub mod str {
 
     use azul_dll::*;
-
+impl From<std::string::String> for crate::str::String {
+    fn from(s: std::string::String) -> crate::str::String {
+        crate::str::String::from_utf8_unchecked(s.as_ptr(), s.len()) // - copies s into a new String
+        // - s is deallocated here
+    }
+}
 
     /// `String` struct
     pub struct String { pub(crate) ptr: AzStringPtr }
