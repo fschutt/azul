@@ -1,3 +1,3 @@
 cd ./api && python3 ./gen-api.py && cd .. && \
-cargo doc --no-deps --open
-# cargo run --example public
+cargo run --example public
+# cargo doc --no-deps --open

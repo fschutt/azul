@@ -642,7 +642,10 @@ def generate_rust_api(apiData):
         for class_name in module.keys():
             c = module[class_name]
 
-            class_ptr_name = prefix + class_name + postfix;
+            c_is_stack_allocated = class_is_stack_allocated(c)
+            class_ptr_name = prefix + class_name + postfix
+            if c_is_stack_allocated:
+                class_ptr_name = prefix + class_name
 
             code += "\r\n\r\n"
 
@@ -655,7 +658,10 @@ def generate_rust_api(apiData):
             else:
                 code += "    /// `" + class_name + "` struct\r\n    "
 
-            code += "pub struct " + class_name + " { pub(crate) ptr: " +  class_ptr_name + " }\r\n\r\n"
+            if c_is_stack_allocated:
+                code += "pub struct " + class_name + " { pub(crate) object: " +  class_ptr_name + " }\r\n\r\n"
+            else:
+                code += "pub struct " + class_name + " { pub(crate) ptr: " +  class_ptr_name + " }\r\n\r\n"
 
             code += "    impl " + class_name + " {\r\n"
 
@@ -674,7 +680,10 @@ def generate_rust_api(apiData):
                     and "rust" in const["use_patches"]:
                         fn_body = rust_api_patches[tuple([module_name, class_name, fn_name])]
                     else:
-                        fn_body = "Self { ptr: " + c_fn_name + "(" + fn_args_call + ") }"
+                        if c_is_stack_allocated:
+                            fn_body = "Self { object: " + c_fn_name + "(" + fn_args_call + ") }"
+                        else:
+                            fn_body = "Self { ptr: " + c_fn_name + "(" + fn_args_call + ") }"
 
                     if "doc" in const.keys():
                         code += "        /// " + const["doc"] + "\r\n"
@@ -718,12 +727,20 @@ def generate_rust_api(apiData):
 
                     code += "        pub fn " + fn_name + "(" + fn_args + ") " +  returns + " { " + fn_body + " }\r\n"
 
+            leak_fn_body = "let p = " +  fn_prefix + to_snake_case(class_name) + "_shallow_copy(&self.ptr); std::mem::forget(self); p"
+            if c_is_stack_allocated:
+                leak_fn_body = fn_prefix + to_snake_case(class_name) + "_deep_copy(&self.object)"
+
             code += "       /// Prevents the destructor from running and returns the internal `" + class_ptr_name + "`\r\n"
             code += "       #[allow(dead_code)]\r\n"
-            code += "       pub(crate) fn leak(self) -> " + class_ptr_name + " { let p = " +  fn_prefix + to_snake_case(class_name) + "_shallow_copy(&self.ptr); std::mem::forget(self); p }\r\n"
+            code += "       pub(crate) fn leak(self) -> " + class_ptr_name + " { " + leak_fn_body + " }\r\n"
             code += "    }\r\n\r\n"
 
-            code += "    impl Drop for " + class_name + " { fn drop(&mut self) { " + fn_prefix + to_snake_case(class_name) + "_delete(&mut self.ptr); } }\r\n"
+            if is_stack_allocated_type:
+                # TODO: if enum has fields, delete those fields, otherwise don't do anything
+                pass
+            else:
+                code += "    impl Drop for " + class_name + " { fn drop(&mut self) { " + fn_prefix + to_snake_case(class_name) + "_delete(&mut self.ptr); } }\r\n"
 
         code += "}\r\n\r\n"
 
