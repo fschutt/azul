@@ -22,10 +22,14 @@ extern crate azul_web;
 extern crate azul_desktop;
 
 use core::ffi::c_void;
-use azul_core::dom::Dom;
-use azul_core::callbacks::{RefAny, LayoutInfo};
+use std::path::PathBuf;
+use azul_core::{
+    dom::Dom,
+    callbacks::{RefAny, LayoutInfo},
+    window::WindowCreateOptions,
+    app_resources::*,
+};
 use azul_css::Css;
-use azul_core::window::WindowCreateOptions;
 #[cfg(not(target_arch = "wasm32"))]
 use azul_desktop::app::{App, AppConfig};
 #[cfg(target_arch = "wasm32")]

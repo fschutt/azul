@@ -1,7 +1,7 @@
 {
    "0.1.0": {
       "str": {
-         "doc": "Definition of azuls internal String type + functions for conversion from std::String",
+         "doc": "Definition of azuls internal String type + functions for conversion from `std::String`",
          "classes": {
             "String": {
                "constructors": {
@@ -20,6 +20,42 @@
                         {"len": "usize"}
                      ],
                      "fn_body": "unsafe { std::string::String::from_utf8_lossy(std::slice::from_raw_parts(ptr, len)).to_string() }"
+                  }
+               }
+            }
+         }
+      },
+      "vec": {
+         "doc": "Definition of azuls internal `U8Vec` type + functions for conversion from `std::Vec`",
+         "classes": {
+            "U8Vec": {
+               "doc": "Wrapper over a Rust-allocated `Vec<u8>`",
+               "rust_class_name": "Vec<u8>",
+               "constructors": {
+                  "copy_from": {
+                     "doc": "Creates + allocates a Rust `Vec<u8>` by **copying** it from a bytes source",
+                     "fn_args": [
+                        {"ptr": "*const u8"},
+                        {"len": "usize"}
+                     ],
+                     "fn_body": "std::slice::from_raw_parts(ptr, len).to_vec()"
+                  }
+               }
+            }
+         }
+      },
+      "path": {
+         "doc": "Definition of azuls internal `PathBuf` type + functions for conversion from `std::PathBuf`",
+         "classes": {
+            "PathBuf": {
+               "doc": "Wrapper over a Rust-allocated `PathBuf`",
+               "constructors": {
+                  "new": {
+                     "doc": "Creates a new PathBuf from a String",
+                     "fn_args": [
+                        {"path": "String"}
+                     ],
+                     "fn_body": "std::path::PathBuf::from(*az_string_downcast(path))"
                   }
                }
             }
@@ -77,6 +113,23 @@
             }
          }
       },
+      "css": {
+         "doc": "`Css` parsing module",
+         "classes": {
+            "Css": {
+               "constructors": {
+                  "native": {
+                     "doc": "Loads the native style for the given operating system",
+                     "fn_body":"azul_native_style::native()"
+                  },
+                  "empty": {
+                     "doc": "Returns an empty CSS style",
+                     "fn_body":"Css::empty()"
+                  }
+               }
+            }
+         }
+      },
       "dom": {
          "doc": "`Dom` construction and configuration",
          "classes": {
@@ -121,20 +174,78 @@
             }
          }
       },
-      "css": {
-         "doc": "`Css` parsing module",
+      "resources": {
+         "doc": "Struct definition for image / font / text IDs",
          "classes": {
-            "Css": {
+            "TextId": {
+               "external": "azul_core::app_resources::TextId",
                "constructors": {
-                  "native": {
-                     "doc": "Loads the native style for the given operating system",
-                     "fn_body":"azul_native_style::native()"
-                  },
-                  "empty": {
-                     "doc": "Returns an empty CSS style",
-                     "fn_body":"Css::empty()"
+                  "new": {
+                     "doc": "Creates a new, unique `TextId`",
+                     "fn_body":"TextId::new()"
                   }
                }
+            },
+            "ImageId": {
+               "external": "azul_core::app_resources::ImageId",
+               "constructors": {
+                  "new": {
+                     "doc": "Creates a new, unique `ImageId`",
+                     "fn_body":"ImageId::new()"
+                  }
+               }
+            },
+            "FontId": {
+               "external": "azul_core::app_resources::FontId",
+               "constructors": {
+                  "new": {
+                     "doc": "Creates a new, unique `FontId`",
+                     "fn_body":"FontId::new()"
+                  }
+               }
+            },
+            "ImageSource": {
+               "external": "azul_core::app_resources::ImageSource",
+               "enum_fields": [
+                  {"Embedded": {"type": "Vec<u8>", "doc": "Bytes of the image, encoded in PNG / JPG / etc. format"}},
+                  {"File": {"type": "PathBuf", "doc": "References an (encoded!) image as a file from the file system that is loaded when necessary"}},
+                  {"Raw": {"type": "RawImage", "doc": "References a decoded (!) `RawImage` as the image source"}}
+               ]
+            },
+            "FontSource": {
+               "external": "azul_core::app_resources::FontSource",
+               "enum_fields": [
+                  {"Embedded": {"type": "Vec<u8>", "doc": "Bytes are the bytes of the font file"}},
+                  {"File": {"type": "PathBuf", "doc": "References a font from a file path, which is loaded when necessary"}},
+                  {"System": {"type": "String", "doc": "References a font from from a system font identifier, such as `\"Arial\"` or `\"Helvetica\"`"}}
+               ]
+            },
+            "RawImage": {
+               "constructors": {
+                  "new": {
+                     "doc": "Creates a new `RawImage` by loading the decoded bytes",
+                     "fn_args": [
+                        {"decoded_pixels": "U8Vec"},
+                        {"width": "usize"},
+                        {"height": "usize"},
+                        {"data_format": "RawImageFormat"}
+                     ],
+                     "fn_body": "RawImage { pixels: *az_u8_vec_downcast(decoded_pixels), image_dimensions: (width, height), data_format }"
+                  }
+               }
+            },
+            "RawImageFormat": {
+               "external": "azul_core::app_resources::RawImageFormat",
+               "enum_fields": [
+                  {"R8": {"doc": "Bytes are in the R-unsinged-8bit format"}},
+                  {"R16": {"doc": "Bytes are in the R-unsinged-16bit format"}},
+                  {"RG16": {"doc": "Bytes are in the RG-unsinged-16bit format"}},
+                  {"BGRA8": {"doc": "Bytes are in the BRGA-unsigned-8bit format"}},
+                  {"RGBAF32": {"doc": "Bytes are in the RGBA-floating-point-32bit format"}},
+                  {"RG8": {"doc": "Bytes are in the RG-unsigned-8bit format"}},
+                  {"RGBAI32": {"doc": "Bytes are in the RGBA-signed-32bit format"}},
+                  {"RGBA8": {"doc": "Bytes are in the RGBA-unsigned-8bit format"}}
+               ]
             }
          }
       },

@@ -209,6 +209,7 @@ impl ::std::fmt::Debug for IdNamespace {
 }
 
 #[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
+#[repr(C)]
 pub enum RawImageFormat {
     R8,
     R16,
@@ -332,7 +333,7 @@ unique_id!(FontId, FONT_ID_COUNTER);
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum ImageSource {
     /// The image is embedded inside the binary file
-    Embedded(&'static [u8]),
+    Embedded(Vec<u8>),
     /// The image is already decoded and loaded from a set of bytes
     Raw(RawImage),
     /// The image is loaded from a file
@@ -342,7 +343,7 @@ pub enum ImageSource {
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub enum FontSource {
     /// The font is embedded inside the binary file
-    Embedded(&'static [u8]),
+    Embedded(Vec<u8>),
     /// The font is loaded from a file
     File(PathBuf),
     /// The font is a system built-in font
@@ -353,7 +354,7 @@ impl fmt::Display for FontSource {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         use self::FontSource::*;
         match self {
-            Embedded(e) => write!(f, "Embedded(0x{:x})", e as *const _ as usize),
+            Embedded(e) => write!(f, "Embedded(0x{:x})", e.as_ptr() as *const _ as usize),
             File(p) => write!(f, "\"{}\"", p.as_path().to_string_lossy()),
             System(id) => write!(f, "\"{}\"", id),
         }

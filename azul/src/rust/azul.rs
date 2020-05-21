@@ -216,7 +216,7 @@ pub mod prelude {
         window::WindowCreateOptions,
         callbacks::{RefAny, LayoutInfo},
     };
-}/// Definition of azuls internal String type + functions for conversion from std::String
+}/// Definition of azuls internal String type + functions for conversion from `std::String`
 #[allow(dead_code, unused_imports)]
 pub mod str {
 
@@ -242,6 +242,49 @@ impl From<std::string::String> for crate::str::String {
     }
 
     impl Drop for String { fn drop(&mut self) { az_string_delete(&mut self.ptr); } }
+}
+
+/// Definition of azuls internal `U8Vec` type + functions for conversion from `std::Vec`
+#[allow(dead_code, unused_imports)]
+pub mod vec {
+
+    use azul_dll::*;
+
+
+    /// Wrapper over a Rust-allocated `Vec<u8>`
+    pub struct U8Vec { pub(crate) ptr: AzU8VecPtr }
+
+    impl U8Vec {
+        /// Creates + allocates a Rust `Vec<u8>` by **copying** it from a bytes source
+        pub fn copy_from(ptr: *const u8, len: usize) -> Self { Self { ptr: az_u8_vec_copy_from(ptr, len) } }
+       /// Prevents the destructor from running and returns the internal `AzU8VecPtr`
+       #[allow(dead_code)]
+       pub(crate) fn leak(self) -> AzU8VecPtr { let p = az_u8_vec_shallow_copy(&self.ptr); std::mem::forget(self); p }
+    }
+
+    impl Drop for U8Vec { fn drop(&mut self) { az_u8_vec_delete(&mut self.ptr); } }
+}
+
+/// Definition of azuls internal `PathBuf` type + functions for conversion from `std::PathBuf`
+#[allow(dead_code, unused_imports)]
+pub mod path {
+
+    use azul_dll::*;
+    use crate::str::String;
+
+
+    /// Wrapper over a Rust-allocated `PathBuf`
+    pub struct PathBuf { pub(crate) ptr: AzPathBufPtr }
+
+    impl PathBuf {
+        /// Creates a new PathBuf from a String
+        pub fn new(path: String) -> Self { Self { ptr: az_path_buf_new(path.leak()) } }
+       /// Prevents the destructor from running and returns the internal `AzPathBufPtr`
+       #[allow(dead_code)]
+       pub(crate) fn leak(self) -> AzPathBufPtr { let p = az_path_buf_shallow_copy(&self.ptr); std::mem::forget(self); p }
+    }
+
+    impl Drop for PathBuf { fn drop(&mut self) { az_path_buf_delete(&mut self.ptr); } }
 }
 
 /// `App` construction and configuration
@@ -404,6 +447,29 @@ pub mod callbacks {
     impl Drop for LayoutInfo { fn drop(&mut self) { az_layout_info_delete(&mut self.ptr); } }
 }
 
+/// `Css` parsing module
+#[allow(dead_code, unused_imports)]
+pub mod css {
+
+    use azul_dll::*;
+
+
+    /// `Css` struct
+    pub struct Css { pub(crate) ptr: AzCssPtr }
+
+    impl Css {
+        /// Loads the native style for the given operating system
+        pub fn native() -> Self { Self { ptr: az_css_native() } }
+        /// Returns an empty CSS style
+        pub fn empty() -> Self { Self { ptr: az_css_empty() } }
+       /// Prevents the destructor from running and returns the internal `AzCssPtr`
+       #[allow(dead_code)]
+       pub(crate) fn leak(self) -> AzCssPtr { let p = az_css_shallow_copy(&self.ptr); std::mem::forget(self); p }
+    }
+
+    impl Drop for Css { fn drop(&mut self) { az_css_delete(&mut self.ptr); } }
+}
+
 /// `Dom` construction and configuration
 #[allow(dead_code, unused_imports)]
 pub mod dom {
@@ -434,27 +500,104 @@ pub mod dom {
     impl Drop for Dom { fn drop(&mut self) { az_dom_delete(&mut self.ptr); } }
 }
 
-/// `Css` parsing module
+/// Struct definition for image / font / text IDs
 #[allow(dead_code, unused_imports)]
-pub mod css {
+pub mod resources {
 
     use azul_dll::*;
+    use crate::vec::U8Vec;
 
 
-    /// `Css` struct
-    pub struct Css { pub(crate) ptr: AzCssPtr }
+    /// `TextId` struct
+    pub struct TextId { pub(crate) ptr: AzTextIdPtr }
 
-    impl Css {
-        /// Loads the native style for the given operating system
-        pub fn native() -> Self { Self { ptr: az_css_native() } }
-        /// Returns an empty CSS style
-        pub fn empty() -> Self { Self { ptr: az_css_empty() } }
-       /// Prevents the destructor from running and returns the internal `AzCssPtr`
+    impl TextId {
+        /// Creates a new, unique `TextId`
+        pub fn new() -> Self { Self { ptr: az_text_id_new() } }
+       /// Prevents the destructor from running and returns the internal `AzTextIdPtr`
        #[allow(dead_code)]
-       pub(crate) fn leak(self) -> AzCssPtr { let p = az_css_shallow_copy(&self.ptr); std::mem::forget(self); p }
+       pub(crate) fn leak(self) -> AzTextIdPtr { let p = az_text_id_shallow_copy(&self.ptr); std::mem::forget(self); p }
     }
 
-    impl Drop for Css { fn drop(&mut self) { az_css_delete(&mut self.ptr); } }
+    impl Drop for TextId { fn drop(&mut self) { az_text_id_delete(&mut self.ptr); } }
+
+
+    /// `ImageId` struct
+    pub struct ImageId { pub(crate) ptr: AzImageIdPtr }
+
+    impl ImageId {
+        /// Creates a new, unique `ImageId`
+        pub fn new() -> Self { Self { ptr: az_image_id_new() } }
+       /// Prevents the destructor from running and returns the internal `AzImageIdPtr`
+       #[allow(dead_code)]
+       pub(crate) fn leak(self) -> AzImageIdPtr { let p = az_image_id_shallow_copy(&self.ptr); std::mem::forget(self); p }
+    }
+
+    impl Drop for ImageId { fn drop(&mut self) { az_image_id_delete(&mut self.ptr); } }
+
+
+    /// `FontId` struct
+    pub struct FontId { pub(crate) ptr: AzFontIdPtr }
+
+    impl FontId {
+        /// Creates a new, unique `FontId`
+        pub fn new() -> Self { Self { ptr: az_font_id_new() } }
+       /// Prevents the destructor from running and returns the internal `AzFontIdPtr`
+       #[allow(dead_code)]
+       pub(crate) fn leak(self) -> AzFontIdPtr { let p = az_font_id_shallow_copy(&self.ptr); std::mem::forget(self); p }
+    }
+
+    impl Drop for FontId { fn drop(&mut self) { az_font_id_delete(&mut self.ptr); } }
+
+
+    /// `ImageSource` struct
+    pub struct ImageSource { pub(crate) ptr: AzImageSourcePtr }
+
+    impl ImageSource {
+       /// Prevents the destructor from running and returns the internal `AzImageSourcePtr`
+       #[allow(dead_code)]
+       pub(crate) fn leak(self) -> AzImageSourcePtr { let p = az_image_source_shallow_copy(&self.ptr); std::mem::forget(self); p }
+    }
+
+    impl Drop for ImageSource { fn drop(&mut self) { az_image_source_delete(&mut self.ptr); } }
+
+
+    /// `FontSource` struct
+    pub struct FontSource { pub(crate) ptr: AzFontSourcePtr }
+
+    impl FontSource {
+       /// Prevents the destructor from running and returns the internal `AzFontSourcePtr`
+       #[allow(dead_code)]
+       pub(crate) fn leak(self) -> AzFontSourcePtr { let p = az_font_source_shallow_copy(&self.ptr); std::mem::forget(self); p }
+    }
+
+    impl Drop for FontSource { fn drop(&mut self) { az_font_source_delete(&mut self.ptr); } }
+
+
+    /// `RawImage` struct
+    pub struct RawImage { pub(crate) ptr: AzRawImagePtr }
+
+    impl RawImage {
+        /// Creates a new `RawImage` by loading the decoded bytes
+        pub fn new(decoded_pixels: U8Vec, width: usize, height: usize, data_format: RawImageFormat) -> Self { Self { ptr: az_raw_image_new(decoded_pixels.leak(), width, height, data_format.leak()) } }
+       /// Prevents the destructor from running and returns the internal `AzRawImagePtr`
+       #[allow(dead_code)]
+       pub(crate) fn leak(self) -> AzRawImagePtr { let p = az_raw_image_shallow_copy(&self.ptr); std::mem::forget(self); p }
+    }
+
+    impl Drop for RawImage { fn drop(&mut self) { az_raw_image_delete(&mut self.ptr); } }
+
+
+    /// `RawImageFormat` struct
+    pub struct RawImageFormat { pub(crate) ptr: AzRawImageFormatPtr }
+
+    impl RawImageFormat {
+       /// Prevents the destructor from running and returns the internal `AzRawImageFormatPtr`
+       #[allow(dead_code)]
+       pub(crate) fn leak(self) -> AzRawImageFormatPtr { let p = az_raw_image_format_shallow_copy(&self.ptr); std::mem::forget(self); p }
+    }
+
+    impl Drop for RawImageFormat { fn drop(&mut self) { az_raw_image_format_delete(&mut self.ptr); } }
 }
 
 /// Window creation / startup configuration
