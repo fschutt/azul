@@ -249,7 +249,12 @@ impl From<std::string::String> for crate::str::String {
 pub mod vec {
 
     use azul_dll::*;
-
+impl From<std::vec::Vec<u8>> for crate::vec::U8Vec {
+    fn from(v: std::vec::Vec<u8>) -> crate::vec::U8Vec {
+        crate::vec::U8Vec::copy_from(v.as_ptr(), v.len()) // - copies v into a new Vec<u8>
+        // - v is deallocated here
+    }
+}
 
     /// Wrapper over a Rust-allocated `Vec<u8>`
     pub struct U8Vec { pub(crate) ptr: AzU8VecPtr }
