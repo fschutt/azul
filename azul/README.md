@@ -25,21 +25,20 @@ independent of the context they are in.
 # Hello World
 
 ```no_run
-extern crate azul;
-
 use azul::prelude::*;
 
-struct MyDataModel { }
+struct UserData {
+    counter: usize,
+}
 
-impl Layout for MyDataModel {
-    fn layout(&Ref<Self>, _: LayoutInfo) -> Dom {
-        Dom::label("Hello World")
-    }
+fn layout_func(data: RefAny, _info: LayoutInfo) -> Dom {
+    let data = data.downcast_ref::<UserData>().unwrap();
+    Dom::label(format!("Hello World: {}", data.counter).into())
 }
 
 fn main() {
-    let app = App::new(MyDataModel { }, AppConfig::default()).unwrap();
-    app.run(WindowCreateOptions::new(css::native()));
+    let app = App::new(RefAny::new(UserData { counter: 5 }), AppConfig::new(), layout_func);
+    app.run(WindowCreateOptions::new(Css::native()));
 }
 ```
 

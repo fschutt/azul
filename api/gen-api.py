@@ -55,6 +55,7 @@ c_api_patches = {
 }
 
 rust_api_patches = {
+    tuple(['*']): read_file("./patches/azul.rs/header.rs"),
     tuple(['str']): read_file("./patches/azul.rs/string.rs"),
     tuple(['callbacks', 'LayoutCallback']): read_file("./patches/azul.rs/layout_callback.rs"),
     tuple(['callbacks', 'RefAny']): read_file("./patches/azul.rs/refany.rs"),
@@ -79,7 +80,7 @@ def write_file(string, path):
 
 def search_for_module_of_class(apiData, class_name):
     for module_name in apiData.keys():
-        if class_name in apiData[module_name].keys():
+        if class_name in apiData[module_name]["classes"].keys():
             return module_name
 
     return None
@@ -205,7 +206,7 @@ def fn_args_c_api(f, class_name, class_ptr_name, self_as_first_arg, apiData):
 # object consisting of patches instead of being defined in the API
 def class_is_virtual(apiData, className, api):
     for module_name in apiData.keys():
-        module = apiData[module_name]
+        module = apiData[module_name]["classes"]
         for class_name in module.keys():
             if class_name != className:
                 continue
@@ -314,7 +315,7 @@ def generate_rust_dll(apiData):
         code += dll_patches[tuple(['*'])]
 
     for module_name in apiData.keys():
-        module = apiData[module_name]
+        module = apiData[module_name]["classes"]
 
         if tuple([module_name]) in dll_patches.keys() and "use_patches" in module.keys() and "dll" in module["use_patches"]:
             code += dll_patches[tuple([module_name])]
@@ -452,7 +453,7 @@ def generate_c_api(apiData):
     header += "\r\n"
 
     for module_name in apiData.keys():
-        module = apiData[module_name]
+        module = apiData[module_name]["classes"]
         for class_name in module.keys():
             c = module[class_name]
             header += "\r\n"
@@ -527,7 +528,14 @@ def generate_rust_api(apiData):
     apiData = apiData[version]
 
     for module_name in apiData.keys():
-        module = apiData[module_name]
+        module_doc = None
+        if "doc" in apiData[module_name]:
+            module_doc = apiData[module_name]["doc"]
+
+        module = apiData[module_name]["classes"]
+
+        if module_doc != None:
+            code += "/// " + module_doc + "\r\n"
 
         code += "#[allow(dead_code, unused_imports)]\r\n"
         code += "pub mod " + module_name + " {\r\n\r\n"

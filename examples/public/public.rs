@@ -1,12 +1,6 @@
 //! Example of the new, public API
 
-use azul::{
-    app::{App, AppConfig},
-    css::Css,
-    dom::Dom,
-    window::WindowCreateOptions,
-    callbacks::{RefAny, LayoutInfo},
-};
+use azul::prelude::*;
 
 struct Data {
     counter: usize,

@@ -1,117 +1,141 @@
 {
    "0.1.0": {
       "str": {
-         "String": {
-            "constructors": [
-               {
-                  "doc": "Creates + allocates a Rust `String` by **copying** it from another utf8-encoded string",
-                  "fn_name": "from_utf8_unchecked",
-                  "fn_args": [
-                     {"ptr": "*const u8"},
-                     {"len": "usize"}
-                  ],
-                  "fn_body": "unsafe { std::str::from_utf8_unchecked(std::slice::from_raw_parts(ptr, len)).to_string() }"
-               },
-               {
-                  "doc": "Creates + allocates a Rust `String` by **copying** it from another utf8-encoded string",
-                  "fn_name": "from_utf8_lossy",
-                  "fn_args": [
-                     {"ptr": "*const u8"},
-                     {"len": "usize"}
-                  ],
-                  "fn_body": "unsafe { std::string::String::from_utf8_lossy(std::slice::from_raw_parts(ptr, len)).to_string() }"
-               }
-            ]
+         "doc": "Definition of azuls internal String type + functions for conversion from std::String",
+         "classes": {
+            "String": {
+               "constructors": [
+                  {
+                     "doc": "Creates + allocates a Rust `String` by **copying** it from another utf8-encoded string",
+                     "fn_name": "from_utf8_unchecked",
+                     "fn_args": [
+                        {"ptr": "*const u8"},
+                        {"len": "usize"}
+                     ],
+                     "fn_body": "unsafe { std::str::from_utf8_unchecked(std::slice::from_raw_parts(ptr, len)).to_string() }"
+                  },
+                  {
+                     "doc": "Creates + allocates a Rust `String` by **copying** it from another utf8-encoded string",
+                     "fn_name": "from_utf8_lossy",
+                     "fn_args": [
+                        {"ptr": "*const u8"},
+                        {"len": "usize"}
+                     ],
+                     "fn_body": "unsafe { std::string::String::from_utf8_lossy(std::slice::from_raw_parts(ptr, len)).to_string() }"
+                  }
+               ]
+            }
          }
       },
       "app": {
-         "AppConfig": {
-            "constructors":[
-               {
-                  "fn_name": "new",
-                  "fn_body": "AppConfig::default()"
-               }
-            ]
-         },
-         "App": {
-            "constructors":[
-               {
-                  "doc":"Creates a new App instance.",
-                  "fn_name":"new",
-                  "fn_args": [
-                     {"data": "RefAny"},
-                     {"config": "AppConfig"},
-                     {"callback": "LayoutCallback"}
-                  ],
-                  "use_patches": ["rust"],
-                  "fn_body": "App::new(data, *az_app_config_downcast(config), callback).unwrap()"
-               }
-            ],
-            "functions":[
-               {
-                  "fn_name":"run",
-                  "fn_args": [
-                     {"self": "value"},
-                     {"window": "WindowCreateOptions"}
-                  ],
-                  "fn_body":"az_app_downcast(app).run(*az_window_create_options_downcast(window))"
-               }
-            ]
+         "doc": "`App` construction and configuration",
+         "classes": {
+            "AppConfig": {
+               "constructors":[
+                  {
+                     "fn_name": "new",
+                     "fn_body": "AppConfig::default()"
+                  }
+               ]
+            },
+            "App": {
+               "constructors":[
+                  {
+                     "doc":"Creates a new App instance.",
+                     "fn_name":"new",
+                     "fn_args": [
+                        {"data": "RefAny"},
+                        {"config": "AppConfig"},
+                        {"callback": "LayoutCallback"}
+                     ],
+                     "use_patches": ["rust"],
+                     "fn_body": "App::new(data, *az_app_config_downcast(config), callback).unwrap()"
+                  }
+               ],
+               "functions":[
+                  {
+                     "fn_name":"run",
+                     "fn_args": [
+                        {"self": "value"},
+                        {"window": "WindowCreateOptions"}
+                     ],
+                     "fn_body":"az_app_downcast(app).run(*az_window_create_options_downcast(window))"
+                  }
+               ]
+            }
          }
       },
       "callbacks": {
-         "LayoutCallback": {
-            "use_patches": ["dll", "rust"]
-         },
-         "RefAny": {
-            "use_patches": ["dll", "rust"]
-         },
-         "LayoutInfo": {
-            "rust_class_name": "LayoutInfo<'a>",
-            "external": "azul_core::callbacks::LayoutInfoPtr"
+         "doc": "Callback type definitions + struct definitions of `CallbackInfo`s",
+         "classes": {
+            "LayoutCallback": {
+               "use_patches": ["dll", "rust"]
+            },
+            "RefAny": {
+               "use_patches": ["dll", "rust"]
+            },
+            "LayoutInfo": {
+               "rust_class_name": "LayoutInfo<'a>",
+               "external": "azul_core::callbacks::LayoutInfoPtr"
+            }
          }
       },
       "dom": {
-         "Dom": {
-            "rust_class_name": "Dom",
-            "constructors": [
-               {
-                  "fn_name":"div",
-                  "fn_body":"Dom::div()"
-               },
-               {
-                  "fn_name": "label",
-                  "fn_args": [
-                     {"text": "String"}
-                  ],
-                  "fn_body": "Dom::label(*az_string_downcast(text))"
-               }
-            ],
-            "external": "azul_core::dom::DomPtr"
+         "doc": "`Dom` construction and configuration",
+         "classes": {
+            "Dom": {
+               "rust_class_name": "Dom",
+               "constructors": [
+                  {
+                     "fn_name":"div",
+                     "fn_body":"Dom::div()"
+                  },
+                  {
+                     "fn_name": "label",
+                     "fn_args": [
+                        {"text": "String"}
+                     ],
+                     "fn_body": "Dom::label(*az_string_downcast(text))"
+                  }
+               ],
+               "external": "azul_core::dom::DomPtr"
+            }
          }
       },
       "css": {
-         "Css": {
-            "constructors":[
-               {
-                  "fn_name":"native",
-                  "fn_body":"azul_native_style::native()"
-               }
-            ]
+         "doc": "`Css` parsing module",
+         "classes": {
+            "Css": {
+               "constructors":[
+                  {
+                     "fn_name":"native",
+                     "doc": "Loads the native style for the given operating system",
+                     "fn_body":"azul_native_style::native()"
+                  },
+                  {
+                     "fn_name":"empty",
+                     "doc": "Returns an empty CSS style",
+                     "fn_body":"Css::empty()"
+                  }
+               ]
+            }
          }
       },
       "window": {
-         "WindowCreateOptions": {
-            "rust_class_name": "WindowCreateOptions",
-            "constructors":[
-               {
-                  "fn_name":"new",
-                  "fn_args":[
-                     {"css": "Css"}
-                  ],
-                  "fn_body":"WindowCreateOptions::new(*az_css_downcast(css))"
-               }
-            ]
+         "doc": "Window creation / startup configuration",
+         "classes": {
+            "WindowCreateOptions": {
+               "rust_class_name": "WindowCreateOptions",
+               "constructors":[
+                  {
+                     "fn_name":"new",
+                     "fn_args":[
+                        {"css": "Css"}
+                     ],
+                     "fn_body":"WindowCreateOptions::new(*az_css_downcast(css))"
+                  }
+               ]
+            }
          }
       }
    }

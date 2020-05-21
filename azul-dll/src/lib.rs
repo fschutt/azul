@@ -129,9 +129,10 @@ fn az_dom_downcast(ptr: AzDomPtr) -> Box<Dom> { unsafe { Box::<Dom>::from_raw(pt
 
 /// Pointer to rust-allocated `Box<Css>` struct
 #[no_mangle] #[repr(C)] pub struct AzCssPtr { ptr: *mut c_void }
-// Creates a new `Css` instance whose memory is owned by the rust allocator
-// Equivalent to the Rust `Css::native()` constructor.
+/// Loads the native style for the given operating system
 #[no_mangle] pub extern "C" fn az_css_native() -> AzCssPtr { let object: Css = azul_native_style::native(); AzCssPtr { ptr: Box::into_raw(Box::new(object)) as *mut c_void } }
+/// Returns an empty CSS style
+#[no_mangle] pub extern "C" fn az_css_empty() -> AzCssPtr { let object: Css = Css::empty(); AzCssPtr { ptr: Box::into_raw(Box::new(object)) as *mut c_void } }
 /// Destructor: Takes ownership of the `Css` pointer and deletes it.
 #[no_mangle] pub extern "C" fn az_css_delete(ptr: &mut AzCssPtr) { let _ = unsafe { Box::<Css>::from_raw(ptr.ptr  as *mut Css) }; }
 /// Copies the pointer: WARNING: After calling this function you'll have two pointers to the same Box<`Css`>!.

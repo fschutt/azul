@@ -27,21 +27,20 @@
 //! # Hello World
 //! 
 //! ```no_run
-//! extern crate azul;
-//! 
 //! use azul::prelude::*;
 //! 
-//! struct MyDataModel { }
+//! struct UserData {
+//!     counter: usize,
+//! }
 //! 
-//! impl Layout for MyDataModel {
-//!     fn layout(&Ref<Self>, _: LayoutInfo) -> Dom {
-//!         Dom::label("Hello World")
-//!     }
+//! fn layout_func(data: RefAny, _info: LayoutInfo) -> Dom {
+//!     let data = data.downcast_ref::<UserData>().unwrap();
+//!     Dom::label(format!("Hello World: {}", data.counter).into())
 //! }
 //! 
 //! fn main() {
-//!     let app = App::new(MyDataModel { }, AppConfig::default()).unwrap();
-//!     app.run(WindowCreateOptions::new(css::native()));
+//!     let app = App::new(RefAny::new(UserData { counter: 5 }), AppConfig::new(), layout_func);
+//!     app.run(WindowCreateOptions::new(Css::native()));
 //! }
 //! ```
 //! 
@@ -208,6 +207,16 @@
 
 extern crate azul_dll;
 
+/// Module to re-export common structs (`App`, `AppConfig`, `Css`, `Dom`, `WindowCreateOptions`, `RefAny`, `LayoutInfo`)
+pub mod prelude {
+    pub use crate::{
+        app::{App, AppConfig},
+        css::Css,
+        dom::Dom,
+        window::WindowCreateOptions,
+        callbacks::{RefAny, LayoutInfo},
+    };
+}/// Definition of azuls internal String type + functions for conversion from std::String
 #[allow(dead_code, unused_imports)]
 pub mod str {
 
@@ -235,6 +244,7 @@ impl From<std::string::String> for crate::str::String {
     impl Drop for String { fn drop(&mut self) { az_string_delete(&mut self.ptr); } }
 }
 
+/// `App` construction and configuration
 #[allow(dead_code, unused_imports)]
 pub mod app {
 
@@ -277,6 +287,7 @@ pub mod app {
     impl Drop for App { fn drop(&mut self) { az_app_delete(&mut self.ptr); } }
 }
 
+/// Callback type definitions + struct definitions of `CallbackInfo`s
 #[allow(dead_code, unused_imports)]
 pub mod callbacks {
 
@@ -393,6 +404,7 @@ pub mod callbacks {
     impl Drop for LayoutInfo { fn drop(&mut self) { az_layout_info_delete(&mut self.ptr); } }
 }
 
+/// `Dom` construction and configuration
 #[allow(dead_code, unused_imports)]
 pub mod dom {
 
@@ -416,6 +428,7 @@ pub mod dom {
     impl Drop for Dom { fn drop(&mut self) { az_dom_delete(&mut self.ptr); } }
 }
 
+/// `Css` parsing module
 #[allow(dead_code, unused_imports)]
 pub mod css {
 
@@ -426,8 +439,10 @@ pub mod css {
     pub struct Css { pub(crate) ptr: AzCssPtr }
 
     impl Css {
-        /// Creates a new `Css` instance.
+        /// Loads the native style for the given operating system
         pub fn native() -> Self { Self { ptr: az_css_native() } }
+        /// Returns an empty CSS style
+        pub fn empty() -> Self { Self { ptr: az_css_empty() } }
        /// Prevents the destructor from running and returns the internal `AzCssPtr`
        #[allow(dead_code)]
        pub(crate) fn leak(self) -> AzCssPtr { let p = az_css_shallow_copy(&self.ptr); std::mem::forget(self); p }
@@ -436,6 +451,7 @@ pub mod css {
     impl Drop for Css { fn drop(&mut self) { az_css_delete(&mut self.ptr); } }
 }
 
+/// Window creation / startup configuration
 #[allow(dead_code, unused_imports)]
 pub mod window {
 

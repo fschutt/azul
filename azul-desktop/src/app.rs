@@ -1047,6 +1047,8 @@ fn send_user_event<'a>(
                     &eld.resources,
                 );
 
+                println!("new display list: {:#?}", cached_display_list);
+
                 // optimization with diff:
                 // - only rebuild the nodes that were added / removed
                 // - if diff is empty (same UI), skip rebuilding the display list, go straight to sending the DL
