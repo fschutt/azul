@@ -38,7 +38,7 @@
                         {"ptr": "*const u8"},
                         {"len": "usize"}
                      ],
-                     "fn_body": "std::slice::from_raw_parts(ptr, len).to_vec()"
+                     "fn_body": "unsafe { std::slice::from_raw_parts(ptr, len).to_vec() }"
                   }
                }
             }
@@ -179,6 +179,9 @@
          "classes": {
             "TextId": {
                "external": "azul_core::app_resources::TextId",
+               "struct_fields": {
+                  "id": "usize"
+               },
                "constructors": {
                   "new": {
                      "doc": "Creates a new, unique `TextId`",
@@ -188,6 +191,9 @@
             },
             "ImageId": {
                "external": "azul_core::app_resources::ImageId",
+               "struct_fields": {
+                  "id": "usize"
+               },
                "constructors": {
                   "new": {
                      "doc": "Creates a new, unique `ImageId`",
@@ -197,6 +203,9 @@
             },
             "FontId": {
                "external": "azul_core::app_resources::FontId",
+               "struct_fields": {
+                  "id": "usize"
+               },
                "constructors": {
                   "new": {
                      "doc": "Creates a new, unique `FontId`",
@@ -206,19 +215,19 @@
             },
             "ImageSource": {
                "external": "azul_core::app_resources::ImageSource",
-               "enum_fields": [
-                  {"Embedded": {"type": "Vec<u8>", "doc": "Bytes of the image, encoded in PNG / JPG / etc. format"}},
-                  {"File": {"type": "PathBuf", "doc": "References an (encoded!) image as a file from the file system that is loaded when necessary"}},
-                  {"Raw": {"type": "RawImage", "doc": "References a decoded (!) `RawImage` as the image source"}}
-               ]
+               "enum_fields": {
+                  "Embedded": {"type": "Vec<u8>", "doc": "Bytes of the image, encoded in PNG / JPG / etc. format"},
+                  "File": {"type": "PathBuf", "doc": "References an (encoded!) image as a file from the file system that is loaded when necessary"},
+                  "Raw": {"type": "RawImage", "doc": "References a decoded (!) `RawImage` as the image source"}
+               }
             },
             "FontSource": {
                "external": "azul_core::app_resources::FontSource",
-               "enum_fields": [
-                  {"Embedded": {"type": "Vec<u8>", "doc": "Bytes are the bytes of the font file"}},
-                  {"File": {"type": "PathBuf", "doc": "References a font from a file path, which is loaded when necessary"}},
-                  {"System": {"type": "String", "doc": "References a font from from a system font identifier, such as `\"Arial\"` or `\"Helvetica\"`"}}
-               ]
+               "enum_fields": {
+                  "Embedded": {"type": "Vec<u8>", "doc": "Bytes are the bytes of the font file"},
+                  "File": {"type": "PathBuf", "doc": "References a font from a file path, which is loaded when necessary"},
+                  "System": {"type": "String", "doc": "References a font from from a system font identifier, such as `\"Arial\"` or `\"Helvetica\"`"}
+               }
             },
             "RawImage": {
                "constructors": {
@@ -236,16 +245,16 @@
             },
             "RawImageFormat": {
                "external": "azul_core::app_resources::RawImageFormat",
-               "enum_fields": [
-                  {"R8": {"doc": "Bytes are in the R-unsinged-8bit format"}},
-                  {"R16": {"doc": "Bytes are in the R-unsinged-16bit format"}},
-                  {"RG16": {"doc": "Bytes are in the RG-unsinged-16bit format"}},
-                  {"BGRA8": {"doc": "Bytes are in the BRGA-unsigned-8bit format"}},
-                  {"RGBAF32": {"doc": "Bytes are in the RGBA-floating-point-32bit format"}},
-                  {"RG8": {"doc": "Bytes are in the RG-unsigned-8bit format"}},
-                  {"RGBAI32": {"doc": "Bytes are in the RGBA-signed-32bit format"}},
-                  {"RGBA8": {"doc": "Bytes are in the RGBA-unsigned-8bit format"}}
-               ]
+               "enum_fields": {
+                  "R8": {"doc": "Bytes are in the R-unsinged-8bit format"},
+                  "R16": {"doc": "Bytes are in the R-unsinged-16bit format"},
+                  "RG16": {"doc": "Bytes are in the RG-unsinged-16bit format"},
+                  "BGRA8": {"doc": "Bytes are in the BRGA-unsigned-8bit format"},
+                  "RGBAF32": {"doc": "Bytes are in the RGBA-floating-point-32bit format"},
+                  "RG8": {"doc": "Bytes are in the RG-unsigned-8bit format"},
+                  "RGBAI32": {"doc": "Bytes are in the RGBA-signed-32bit format"},
+                  "RGBA8": {"doc": "Bytes are in the RGBA-unsigned-8bit format"}
+               }
             }
          }
       },

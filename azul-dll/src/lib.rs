@@ -57,7 +57,7 @@ use azul_web::app::{App, AppConfig};
 /// Wrapper over a Rust-allocated `Vec<u8>`
 #[no_mangle] #[repr(C)] pub struct AzU8VecPtr { ptr: *mut c_void }
 /// Creates + allocates a Rust `Vec<u8>` by **copying** it from a bytes source
-#[no_mangle] #[inline] pub extern "C" fn az_u8_vec_copy_from(ptr: *const u8, len: usize) -> AzU8VecPtr { let object: U8Vec = std::slice::from_raw_parts(ptr, len).to_vec(); AzU8VecPtr { ptr: Box::into_raw(Box::new(object)) as *mut c_void } }
+#[no_mangle] #[inline] pub extern "C" fn az_u8_vec_copy_from(ptr: *const u8, len: usize) -> AzU8VecPtr { let object: Vec<u8> = unsafe { std::slice::from_raw_parts(ptr, len).to_vec() }; AzU8VecPtr { ptr: Box::into_raw(Box::new(object)) as *mut c_void } }
 /// Destructor: Takes ownership of the `U8Vec` pointer and deletes it.
 #[no_mangle] #[inline] pub extern "C" fn az_u8_vec_delete(ptr: &mut AzU8VecPtr) { let _ = unsafe { Box::<Vec<u8>>::from_raw(ptr.ptr  as *mut Vec<u8>) }; }
 /// Copies the pointer: WARNING: After calling this function you'll have two pointers to the same Box<`U8Vec`>!.
@@ -203,80 +203,56 @@ pub use ::azul_core::dom::DomPtr as AzDomPtr;
 #[inline(always)] fn az_dom_downcast_ref<F: FnOnce(&Box<Dom>)>(ptr: &mut AzDomPtr, func: F) { let box_ptr: Box<Dom> = unsafe { Box::<Dom>::from_raw(ptr.ptr  as *mut Dom) };func(&box_ptr);ptr.ptr = Box::into_raw(box_ptr) as *mut c_void; }
 
 /// Pointer to rust-allocated `Box<TextId>` struct
-pub use ::azul_core::app_resources::TextId as AzTextIdPtr;
+pub use ::azul_core::app_resources::TextId as AzTextId;
 /// Creates a new, unique `TextId`
-#[no_mangle] #[inline] pub extern "C" fn az_text_id_new() -> AzTextIdPtr { let object: TextId = TextId::new(); AzTextIdPtr { ptr: Box::into_raw(Box::new(object)) as *mut c_void } }
+#[no_mangle] #[inline] pub extern "C" fn az_text_id_new() -> AzTextId { let object: TextId = TextId::new(); object }
 /// Destructor: Takes ownership of the `TextId` pointer and deletes it.
-#[no_mangle] #[inline] pub extern "C" fn az_text_id_delete(ptr: &mut AzTextIdPtr) { let _ = unsafe { Box::<TextId>::from_raw(ptr.ptr  as *mut TextId) }; }
-/// Copies the pointer: WARNING: After calling this function you'll have two pointers to the same Box<`TextId`>!.
-#[no_mangle] #[inline] pub extern "C" fn az_text_id_shallow_copy(ptr: &AzTextIdPtr) -> AzTextIdPtr { AzTextIdPtr { ptr: ptr.ptr } }
-/// (private): Downcasts the `AzTextIdPtr` to a `Box<TextId>`. Note that this takes ownership of the pointer.
-#[inline(always)] fn az_text_id_downcast(ptr: AzTextIdPtr) -> Box<TextId> { unsafe { Box::<TextId>::from_raw(ptr.ptr  as *mut TextId) } }
-/// (private): Downcasts the `AzTextIdPtr` to a `&mut Box<TextId>` and runs the `func` closure on it
-#[inline(always)] fn az_text_id_downcast_refmut<F: FnOnce(&mut Box<TextId>)>(ptr: &mut AzTextIdPtr, func: F) { let mut box_ptr: Box<TextId> = unsafe { Box::<TextId>::from_raw(ptr.ptr  as *mut TextId) };func(&mut box_ptr);ptr.ptr = Box::into_raw(box_ptr) as *mut c_void; }
-/// (private): Downcasts the `AzTextIdPtr` to a `&Box<TextId>` and runs the `func` closure on it
-#[inline(always)] fn az_text_id_downcast_ref<F: FnOnce(&Box<TextId>)>(ptr: &mut AzTextIdPtr, func: F) { let box_ptr: Box<TextId> = unsafe { Box::<TextId>::from_raw(ptr.ptr  as *mut TextId) };func(&box_ptr);ptr.ptr = Box::into_raw(box_ptr) as *mut c_void; }
+#[no_mangle] #[inline] pub extern "C" fn az_text_id_delete(_: AzTextId) { }
+/// Copies the object
+#[no_mangle] #[inline] pub extern "C" fn az_text_id_deep_copy(object: &AzTextId) -> AzTextId { object.clone() }
 
 /// Pointer to rust-allocated `Box<ImageId>` struct
-pub use ::azul_core::app_resources::ImageId as AzImageIdPtr;
+pub use ::azul_core::app_resources::ImageId as AzImageId;
 /// Creates a new, unique `ImageId`
-#[no_mangle] #[inline] pub extern "C" fn az_image_id_new() -> AzImageIdPtr { let object: ImageId = ImageId::new(); AzImageIdPtr { ptr: Box::into_raw(Box::new(object)) as *mut c_void } }
+#[no_mangle] #[inline] pub extern "C" fn az_image_id_new() -> AzImageId { let object: ImageId = ImageId::new(); object }
 /// Destructor: Takes ownership of the `ImageId` pointer and deletes it.
-#[no_mangle] #[inline] pub extern "C" fn az_image_id_delete(ptr: &mut AzImageIdPtr) { let _ = unsafe { Box::<ImageId>::from_raw(ptr.ptr  as *mut ImageId) }; }
-/// Copies the pointer: WARNING: After calling this function you'll have two pointers to the same Box<`ImageId`>!.
-#[no_mangle] #[inline] pub extern "C" fn az_image_id_shallow_copy(ptr: &AzImageIdPtr) -> AzImageIdPtr { AzImageIdPtr { ptr: ptr.ptr } }
-/// (private): Downcasts the `AzImageIdPtr` to a `Box<ImageId>`. Note that this takes ownership of the pointer.
-#[inline(always)] fn az_image_id_downcast(ptr: AzImageIdPtr) -> Box<ImageId> { unsafe { Box::<ImageId>::from_raw(ptr.ptr  as *mut ImageId) } }
-/// (private): Downcasts the `AzImageIdPtr` to a `&mut Box<ImageId>` and runs the `func` closure on it
-#[inline(always)] fn az_image_id_downcast_refmut<F: FnOnce(&mut Box<ImageId>)>(ptr: &mut AzImageIdPtr, func: F) { let mut box_ptr: Box<ImageId> = unsafe { Box::<ImageId>::from_raw(ptr.ptr  as *mut ImageId) };func(&mut box_ptr);ptr.ptr = Box::into_raw(box_ptr) as *mut c_void; }
-/// (private): Downcasts the `AzImageIdPtr` to a `&Box<ImageId>` and runs the `func` closure on it
-#[inline(always)] fn az_image_id_downcast_ref<F: FnOnce(&Box<ImageId>)>(ptr: &mut AzImageIdPtr, func: F) { let box_ptr: Box<ImageId> = unsafe { Box::<ImageId>::from_raw(ptr.ptr  as *mut ImageId) };func(&box_ptr);ptr.ptr = Box::into_raw(box_ptr) as *mut c_void; }
+#[no_mangle] #[inline] pub extern "C" fn az_image_id_delete(_: AzImageId) { }
+/// Copies the object
+#[no_mangle] #[inline] pub extern "C" fn az_image_id_deep_copy(object: &AzImageId) -> AzImageId { object.clone() }
 
 /// Pointer to rust-allocated `Box<FontId>` struct
-pub use ::azul_core::app_resources::FontId as AzFontIdPtr;
+pub use ::azul_core::app_resources::FontId as AzFontId;
 /// Creates a new, unique `FontId`
-#[no_mangle] #[inline] pub extern "C" fn az_font_id_new() -> AzFontIdPtr { let object: FontId = FontId::new(); AzFontIdPtr { ptr: Box::into_raw(Box::new(object)) as *mut c_void } }
+#[no_mangle] #[inline] pub extern "C" fn az_font_id_new() -> AzFontId { let object: FontId = FontId::new(); object }
 /// Destructor: Takes ownership of the `FontId` pointer and deletes it.
-#[no_mangle] #[inline] pub extern "C" fn az_font_id_delete(ptr: &mut AzFontIdPtr) { let _ = unsafe { Box::<FontId>::from_raw(ptr.ptr  as *mut FontId) }; }
-/// Copies the pointer: WARNING: After calling this function you'll have two pointers to the same Box<`FontId`>!.
-#[no_mangle] #[inline] pub extern "C" fn az_font_id_shallow_copy(ptr: &AzFontIdPtr) -> AzFontIdPtr { AzFontIdPtr { ptr: ptr.ptr } }
-/// (private): Downcasts the `AzFontIdPtr` to a `Box<FontId>`. Note that this takes ownership of the pointer.
-#[inline(always)] fn az_font_id_downcast(ptr: AzFontIdPtr) -> Box<FontId> { unsafe { Box::<FontId>::from_raw(ptr.ptr  as *mut FontId) } }
-/// (private): Downcasts the `AzFontIdPtr` to a `&mut Box<FontId>` and runs the `func` closure on it
-#[inline(always)] fn az_font_id_downcast_refmut<F: FnOnce(&mut Box<FontId>)>(ptr: &mut AzFontIdPtr, func: F) { let mut box_ptr: Box<FontId> = unsafe { Box::<FontId>::from_raw(ptr.ptr  as *mut FontId) };func(&mut box_ptr);ptr.ptr = Box::into_raw(box_ptr) as *mut c_void; }
-/// (private): Downcasts the `AzFontIdPtr` to a `&Box<FontId>` and runs the `func` closure on it
-#[inline(always)] fn az_font_id_downcast_ref<F: FnOnce(&Box<FontId>)>(ptr: &mut AzFontIdPtr, func: F) { let box_ptr: Box<FontId> = unsafe { Box::<FontId>::from_raw(ptr.ptr  as *mut FontId) };func(&box_ptr);ptr.ptr = Box::into_raw(box_ptr) as *mut c_void; }
+#[no_mangle] #[inline] pub extern "C" fn az_font_id_delete(_: AzFontId) { }
+/// Copies the object
+#[no_mangle] #[inline] pub extern "C" fn az_font_id_deep_copy(object: &AzFontId) -> AzFontId { object.clone() }
 
 /// Pointer to rust-allocated `Box<ImageSource>` struct
-pub use ::azul_core::app_resources::ImageSource as AzImageSourcePtr;
+pub use ::azul_core::app_resources::ImageSource as AzImageSource;
+/// Bytes of the image, encoded in PNG / JPG / etc. format
+/// References an (encoded!) image as a file from the file system that is loaded when necessary
+/// References a decoded (!) `RawImage` as the image source
 /// Destructor: Takes ownership of the `ImageSource` pointer and deletes it.
-#[no_mangle] #[inline] pub extern "C" fn az_image_source_delete(ptr: &mut AzImageSourcePtr) { let _ = unsafe { Box::<ImageSource>::from_raw(ptr.ptr  as *mut ImageSource) }; }
-/// Copies the pointer: WARNING: After calling this function you'll have two pointers to the same Box<`ImageSource`>!.
-#[no_mangle] #[inline] pub extern "C" fn az_image_source_shallow_copy(ptr: &AzImageSourcePtr) -> AzImageSourcePtr { AzImageSourcePtr { ptr: ptr.ptr } }
-/// (private): Downcasts the `AzImageSourcePtr` to a `Box<ImageSource>`. Note that this takes ownership of the pointer.
-#[inline(always)] fn az_image_source_downcast(ptr: AzImageSourcePtr) -> Box<ImageSource> { unsafe { Box::<ImageSource>::from_raw(ptr.ptr  as *mut ImageSource) } }
-/// (private): Downcasts the `AzImageSourcePtr` to a `&mut Box<ImageSource>` and runs the `func` closure on it
-#[inline(always)] fn az_image_source_downcast_refmut<F: FnOnce(&mut Box<ImageSource>)>(ptr: &mut AzImageSourcePtr, func: F) { let mut box_ptr: Box<ImageSource> = unsafe { Box::<ImageSource>::from_raw(ptr.ptr  as *mut ImageSource) };func(&mut box_ptr);ptr.ptr = Box::into_raw(box_ptr) as *mut c_void; }
-/// (private): Downcasts the `AzImageSourcePtr` to a `&Box<ImageSource>` and runs the `func` closure on it
-#[inline(always)] fn az_image_source_downcast_ref<F: FnOnce(&Box<ImageSource>)>(ptr: &mut AzImageSourcePtr, func: F) { let box_ptr: Box<ImageSource> = unsafe { Box::<ImageSource>::from_raw(ptr.ptr  as *mut ImageSource) };func(&box_ptr);ptr.ptr = Box::into_raw(box_ptr) as *mut c_void; }
+#[no_mangle] #[inline] pub extern "C" fn az_image_source_delete(_: AzImageSource) { }
+/// Copies the object
+#[no_mangle] #[inline] pub extern "C" fn az_image_source_deep_copy(object: &AzImageSource) -> AzImageSource { object.clone() }
 
 /// Pointer to rust-allocated `Box<FontSource>` struct
-pub use ::azul_core::app_resources::FontSource as AzFontSourcePtr;
+pub use ::azul_core::app_resources::FontSource as AzFontSource;
+/// Bytes are the bytes of the font file
+/// References a font from a file path, which is loaded when necessary
+/// References a font from from a system font identifier, such as `"Arial"` or `"Helvetica"`
 /// Destructor: Takes ownership of the `FontSource` pointer and deletes it.
-#[no_mangle] #[inline] pub extern "C" fn az_font_source_delete(ptr: &mut AzFontSourcePtr) { let _ = unsafe { Box::<FontSource>::from_raw(ptr.ptr  as *mut FontSource) }; }
-/// Copies the pointer: WARNING: After calling this function you'll have two pointers to the same Box<`FontSource`>!.
-#[no_mangle] #[inline] pub extern "C" fn az_font_source_shallow_copy(ptr: &AzFontSourcePtr) -> AzFontSourcePtr { AzFontSourcePtr { ptr: ptr.ptr } }
-/// (private): Downcasts the `AzFontSourcePtr` to a `Box<FontSource>`. Note that this takes ownership of the pointer.
-#[inline(always)] fn az_font_source_downcast(ptr: AzFontSourcePtr) -> Box<FontSource> { unsafe { Box::<FontSource>::from_raw(ptr.ptr  as *mut FontSource) } }
-/// (private): Downcasts the `AzFontSourcePtr` to a `&mut Box<FontSource>` and runs the `func` closure on it
-#[inline(always)] fn az_font_source_downcast_refmut<F: FnOnce(&mut Box<FontSource>)>(ptr: &mut AzFontSourcePtr, func: F) { let mut box_ptr: Box<FontSource> = unsafe { Box::<FontSource>::from_raw(ptr.ptr  as *mut FontSource) };func(&mut box_ptr);ptr.ptr = Box::into_raw(box_ptr) as *mut c_void; }
-/// (private): Downcasts the `AzFontSourcePtr` to a `&Box<FontSource>` and runs the `func` closure on it
-#[inline(always)] fn az_font_source_downcast_ref<F: FnOnce(&Box<FontSource>)>(ptr: &mut AzFontSourcePtr, func: F) { let box_ptr: Box<FontSource> = unsafe { Box::<FontSource>::from_raw(ptr.ptr  as *mut FontSource) };func(&box_ptr);ptr.ptr = Box::into_raw(box_ptr) as *mut c_void; }
+#[no_mangle] #[inline] pub extern "C" fn az_font_source_delete(_: AzFontSource) { }
+/// Copies the object
+#[no_mangle] #[inline] pub extern "C" fn az_font_source_deep_copy(object: &AzFontSource) -> AzFontSource { object.clone() }
 
 /// Pointer to rust-allocated `Box<RawImage>` struct
 #[no_mangle] #[repr(C)] pub struct AzRawImagePtr { ptr: *mut c_void }
 /// Creates a new `RawImage` by loading the decoded bytes
-#[no_mangle] #[inline] pub extern "C" fn az_raw_image_new(decoded_pixels: AzU8VecPtr, width: usize, height: usize, data_format: AzRawImageFormatPtr) -> AzRawImagePtr { let object: RawImage = RawImage { pixels: *az_u8_vec_downcast(decoded_pixels), image_dimensions: (width, height), data_format }; AzRawImagePtr { ptr: Box::into_raw(Box::new(object)) as *mut c_void } }
+#[no_mangle] #[inline] pub extern "C" fn az_raw_image_new(decoded_pixels: AzU8VecPtr, width: usize, height: usize, data_format: AzRawImageFormat) -> AzRawImagePtr { let object: RawImage = RawImage { pixels: *az_u8_vec_downcast(decoded_pixels), image_dimensions: (width, height), data_format }; AzRawImagePtr { ptr: Box::into_raw(Box::new(object)) as *mut c_void } }
 /// Destructor: Takes ownership of the `RawImage` pointer and deletes it.
 #[no_mangle] #[inline] pub extern "C" fn az_raw_image_delete(ptr: &mut AzRawImagePtr) { let _ = unsafe { Box::<RawImage>::from_raw(ptr.ptr  as *mut RawImage) }; }
 /// Copies the pointer: WARNING: After calling this function you'll have two pointers to the same Box<`RawImage`>!.
@@ -289,17 +265,27 @@ pub use ::azul_core::app_resources::FontSource as AzFontSourcePtr;
 #[inline(always)] fn az_raw_image_downcast_ref<F: FnOnce(&Box<RawImage>)>(ptr: &mut AzRawImagePtr, func: F) { let box_ptr: Box<RawImage> = unsafe { Box::<RawImage>::from_raw(ptr.ptr  as *mut RawImage) };func(&box_ptr);ptr.ptr = Box::into_raw(box_ptr) as *mut c_void; }
 
 /// Pointer to rust-allocated `Box<RawImageFormat>` struct
-pub use ::azul_core::app_resources::RawImageFormat as AzRawImageFormatPtr;
+pub use ::azul_core::app_resources::RawImageFormat as AzRawImageFormat;
+/// Bytes are in the R-unsinged-8bit format
+#[inline] #[no_mangle] pub extern "C" fn az_raw_image_format_r8() -> AzRawImageFormat { AzRawImageFormat::R8 }
+/// Bytes are in the R-unsinged-16bit format
+#[inline] #[no_mangle] pub extern "C" fn az_raw_image_format_r16() -> AzRawImageFormat { AzRawImageFormat::R16 }
+/// Bytes are in the RG-unsinged-16bit format
+#[inline] #[no_mangle] pub extern "C" fn az_raw_image_format_rg16() -> AzRawImageFormat { AzRawImageFormat::RG16 }
+/// Bytes are in the BRGA-unsigned-8bit format
+#[inline] #[no_mangle] pub extern "C" fn az_raw_image_format_bgra8() -> AzRawImageFormat { AzRawImageFormat::BGRA8 }
+/// Bytes are in the RGBA-floating-point-32bit format
+#[inline] #[no_mangle] pub extern "C" fn az_raw_image_format_rgbaf32() -> AzRawImageFormat { AzRawImageFormat::RGBAF32 }
+/// Bytes are in the RG-unsigned-8bit format
+#[inline] #[no_mangle] pub extern "C" fn az_raw_image_format_rg8() -> AzRawImageFormat { AzRawImageFormat::RG8 }
+/// Bytes are in the RGBA-signed-32bit format
+#[inline] #[no_mangle] pub extern "C" fn az_raw_image_format_rgbai32() -> AzRawImageFormat { AzRawImageFormat::RGBAI32 }
+/// Bytes are in the RGBA-unsigned-8bit format
+#[inline] #[no_mangle] pub extern "C" fn az_raw_image_format_rgba8() -> AzRawImageFormat { AzRawImageFormat::RGBA8 }
 /// Destructor: Takes ownership of the `RawImageFormat` pointer and deletes it.
-#[no_mangle] #[inline] pub extern "C" fn az_raw_image_format_delete(ptr: &mut AzRawImageFormatPtr) { let _ = unsafe { Box::<RawImageFormat>::from_raw(ptr.ptr  as *mut RawImageFormat) }; }
-/// Copies the pointer: WARNING: After calling this function you'll have two pointers to the same Box<`RawImageFormat`>!.
-#[no_mangle] #[inline] pub extern "C" fn az_raw_image_format_shallow_copy(ptr: &AzRawImageFormatPtr) -> AzRawImageFormatPtr { AzRawImageFormatPtr { ptr: ptr.ptr } }
-/// (private): Downcasts the `AzRawImageFormatPtr` to a `Box<RawImageFormat>`. Note that this takes ownership of the pointer.
-#[inline(always)] fn az_raw_image_format_downcast(ptr: AzRawImageFormatPtr) -> Box<RawImageFormat> { unsafe { Box::<RawImageFormat>::from_raw(ptr.ptr  as *mut RawImageFormat) } }
-/// (private): Downcasts the `AzRawImageFormatPtr` to a `&mut Box<RawImageFormat>` and runs the `func` closure on it
-#[inline(always)] fn az_raw_image_format_downcast_refmut<F: FnOnce(&mut Box<RawImageFormat>)>(ptr: &mut AzRawImageFormatPtr, func: F) { let mut box_ptr: Box<RawImageFormat> = unsafe { Box::<RawImageFormat>::from_raw(ptr.ptr  as *mut RawImageFormat) };func(&mut box_ptr);ptr.ptr = Box::into_raw(box_ptr) as *mut c_void; }
-/// (private): Downcasts the `AzRawImageFormatPtr` to a `&Box<RawImageFormat>` and runs the `func` closure on it
-#[inline(always)] fn az_raw_image_format_downcast_ref<F: FnOnce(&Box<RawImageFormat>)>(ptr: &mut AzRawImageFormatPtr, func: F) { let box_ptr: Box<RawImageFormat> = unsafe { Box::<RawImageFormat>::from_raw(ptr.ptr  as *mut RawImageFormat) };func(&box_ptr);ptr.ptr = Box::into_raw(box_ptr) as *mut c_void; }
+#[no_mangle] #[inline] pub extern "C" fn az_raw_image_format_delete(_: AzRawImageFormat) { }
+/// Copies the object
+#[no_mangle] #[inline] pub extern "C" fn az_raw_image_format_deep_copy(object: &AzRawImageFormat) -> AzRawImageFormat { object.clone() }
 
 /// Pointer to rust-allocated `Box<WindowCreateOptions>` struct
 #[no_mangle] #[repr(C)] pub struct AzWindowCreateOptionsPtr { ptr: *mut c_void }

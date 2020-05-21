@@ -314,6 +314,7 @@ macro_rules! unique_id {($struct_name:ident, $counter_name:ident) => {
     static $counter_name: ::std::sync::atomic::AtomicUsize = ::std::sync::atomic::AtomicUsize::new(0);
 
     #[derive(Debug, Copy, Clone, PartialEq, Eq, Hash, Ord, PartialOrd)]
+    #[repr(C)]
     pub struct $struct_name {
         id: usize,
     }

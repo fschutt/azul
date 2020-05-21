@@ -94,6 +94,18 @@ def is_primitive_arg(arg):
     arg = arg.strip()
     return arg in basic_types
 
+def search_imports_arg_type(c, search_type, arg_types_to_search):
+    if search_type in c.keys():
+        for fn_name in c[search_type]:
+            const = c[search_type][fn_name]
+            if "fn_args" in const.keys():
+                for arg_object in const["fn_args"]:
+                    arg_name = list(arg_object.keys())[0]
+                    if arg_name == "self":
+                        continue
+                    arg_type = arg_object[arg_name]
+                    arg_types_to_search.append(arg_type)
+
 def get_all_imports(apiData, module, module_name, existing_imports = {}):
 
     imports = {}
@@ -102,28 +114,8 @@ def get_all_imports(apiData, module, module_name, existing_imports = {}):
 
     for class_name in module.keys():
         c = module[class_name]
-
-        if "constructors" in c.keys():
-            for fn_name in c["constructors"]:
-                const = c["constructors"][fn_name]
-                if "fn_args" in const.keys():
-                    for arg_object in const["fn_args"]:
-                        arg_name = list(arg_object.keys())[0]
-                        if arg_name == "self":
-                            continue
-                        arg_type = arg_object[arg_name]
-                        arg_types_to_search.append(arg_type)
-
-        if "functions" in c.keys():
-            for fn_name in c["functions"]:
-                f = c["functions"][fn_name]
-                if "fn_args" in f.keys():
-                    for arg_object in f["fn_args"]:
-                        arg_name = list(arg_object.keys())[0]
-                        if arg_name == "self":
-                            continue
-                        arg_type = arg_object[arg_name]
-                        arg_types_to_search.append(arg_type)
+        search_imports_arg_type(c, "constructors", arg_types_to_search)
+        search_imports_arg_type(c, "functions", arg_types_to_search)
 
     for arg in arg_types_to_search:
 
@@ -198,13 +190,49 @@ def fn_args_c_api(f, class_name, class_ptr_name, self_as_first_arg, apiData):
 
             if is_primitive_arg(arg_type):
                 fn_args += arg_name + ": " + arg_type + ", " # no pre, no postfix
-            elif class_is_virtual(apiData, arg_type, "dll"):
+            elif class_is_virtual(apiData, arg_type, "dll") or is_stack_allocated_type(apiData, arg_type):
                 fn_args += arg_name + ": " + prefix + arg_type + ", " # no postfix
             else:
                 fn_args += arg_name + ": " + prefix + arg_type + postfix + ", "
         fn_args = fn_args[:-2]
 
     return fn_args
+
+def class_is_small_enum(c):
+    return "enum_fields" in c.keys()
+
+def class_is_small_struct(c):
+    return "struct_fields" in c.keys()
+
+def class_is_stack_allocated(c):
+    return class_is_small_struct(c) or class_is_small_enum(c)
+
+# Find the [module, classname] given a rust_class_name, returns None if not found
+# For example searching for "Vec<u8>" will return ["vec", "U8Vec"]
+# Then you can use get_class() to get the class object
+def search_for_class_by_rust_class_name(apiData, searched_rust_class_name):
+    for module_name in apiData.keys():
+        module = apiData[module_name]
+        for class_name in module["classes"].keys():
+            c = module["classes"][class_name]
+            rust_class_name = class_name
+            if "rust_class_name" in c.keys():
+                rust_class_name = c["rust_class_name"]
+            if rust_class_name == searched_rust_class_name or class_name == searched_rust_class_name:
+                return [module_name, class_name]
+
+    return None
+
+def get_class(apiData, module_name, class_name):
+    return apiData[module_name]["classes"][class_name]
+
+# Returns whether a type is external, searches by rust_class_name instead of class_name
+def is_stack_allocated_type(apiData, rust_class_name):
+    search_result = search_for_class_by_rust_class_name(apiData, rust_class_name)
+    if search_result is None:
+        raise Exception("type not found " + rust_class_name)
+    c = get_class(apiData, search_result[0], search_result[1])
+    return class_is_stack_allocated(c)
 
 # Returns if the class is "pure virtual", i.e. if it is an
 # object consisting of patches instead of being defined in the API
@@ -338,16 +366,37 @@ def generate_rust_dll(apiData):
             if "rust_class_name" in c.keys():
                 rust_class_name = c["rust_class_name"]
 
-            class_ptr_name = prefix + class_name + postfix;
-
             if "doc" in c.keys():
                 code += "/// " + c["doc"] + "\r\n"
             else:
                 code += "/// Pointer to rust-allocated `Box<" + class_name + ">` struct\r\n"
 
+            # Small structs and enums are stack-allocated in order to save on indirection
+            # They don't have destructors, since they
+            c_is_stack_allocated = class_is_stack_allocated(c)
+
+            if c_is_stack_allocated:
+                class_ptr_name = prefix + class_name
+            else:
+                class_ptr_name = prefix + class_name + postfix
+
             if "external" in c.keys():
                 external_path = c["external"]
                 code += "pub use ::" + external_path + " as " + class_ptr_name + ";\r\n"
+                if c_is_stack_allocated:
+                    if class_is_small_enum(c):
+                        for enum_variant_name in c["enum_fields"].keys():
+                            enum = c["enum_fields"][enum_variant_name]
+                            if "doc" in enum.keys():
+                                code += "/// " + enum["doc"] + "\r\n"
+                            if "type" in enum.keys():
+                                # TODO!
+                                pass
+                            else:
+                                # enum variant with no arguments
+                                code += "#[inline] #[no_mangle] pub extern \"C\" fn " + fn_prefix + to_snake_case(class_name) + "_" + to_snake_case(enum_variant_name) + "() -> " + class_ptr_name + " { "
+                                code += class_ptr_name + "::" + enum_variant_name
+                                code += " }\r\n"
             else:
                 code += "#[no_mangle] #[repr(C)] pub struct " + class_ptr_name + " { ptr: *mut c_void }\r\n"
 
@@ -363,8 +412,11 @@ def generate_rust_dll(apiData):
                     and "dll" in const["use_patches"]:
                         fn_body = dll_patches[tuple([module_name, class_name, fn_name])]
                     else:
-                        fn_body += "let object: " + class_name + " = " + const["fn_body"] + "; " # note: security check, that the returned object is of the correct type
-                        fn_body += class_ptr_name + " { ptr: Box::into_raw(Box::new(object)) as *mut c_void }"
+                        fn_body += "let object: " + rust_class_name + " = " + const["fn_body"] + "; " # note: security check, that the returned object is of the correct type
+                        if c_is_stack_allocated:
+                            fn_body += "object"
+                        else:
+                            fn_body += class_ptr_name + " { ptr: Box::into_raw(Box::new(object)) as *mut c_void }"
 
                     if "doc" in const.keys():
                         code += "/// " + const["doc"] + "\r\n"
@@ -411,39 +463,53 @@ def generate_rust_dll(apiData):
                 lifetime = "<'a>"
 
             code += "/// Destructor: Takes ownership of the `" + class_name + "` pointer and deletes it.\r\n"
-            code += "#[no_mangle] #[inline] pub extern \"C\" fn " + fn_prefix + to_snake_case(class_name) + "_delete" + lifetime + "(ptr: &mut " + class_ptr_name + ") { "
-            code += "let _ = unsafe { Box::<" + rust_class_name + ">::from_raw(ptr.ptr  as *mut " + rust_class_name + ") };"
-            code += " }\r\n"
+            if c_is_stack_allocated:
+                # az_item_delete()
+                code += "#[no_mangle] #[inline] pub extern \"C\" fn " + fn_prefix + to_snake_case(class_name) + "_delete" + lifetime + "(_: " + class_ptr_name + ") { }\r\n"
 
-            code += "/// Copies the pointer: WARNING: After calling this function you'll have two pointers to the same Box<`" + class_name + "`>!.\r\n"
-            code += "#[no_mangle] #[inline] pub extern \"C\" fn " + fn_prefix + to_snake_case(class_name) + "_shallow_copy" + lifetime + "(ptr: &" + class_ptr_name + ") -> " + class_ptr_name + " { "
-            code += class_ptr_name + " { ptr: ptr.ptr }"
-            code += " }\r\n"
+                code += "/// Copies the object\r\n"
+                code += "#[no_mangle] #[inline] pub extern \"C\" fn " + fn_prefix + to_snake_case(class_name) + "_deep_copy" + lifetime + "(object: &" + class_ptr_name + ") -> " + class_ptr_name + " { "
+                code += "object.clone()"
+                code += " }\r\n"
+            else:
+                # az_item_delete()
+                code += "#[no_mangle] #[inline] pub extern \"C\" fn " + fn_prefix + to_snake_case(class_name) + "_delete" + lifetime + "(ptr: &mut " + class_ptr_name + ") { "
+                code += "let _ = unsafe { Box::<" + rust_class_name + ">::from_raw(ptr.ptr  as *mut " + rust_class_name + ") };"
+                code += " }\r\n"
 
-            code += "/// (private): Downcasts the `" + class_ptr_name + "` to a `Box<" + rust_class_name + ">`. Note that this takes ownership of the pointer.\r\n"
-            code += "#[inline(always)] fn " + fn_prefix + to_snake_case(class_name) + "_downcast" + lifetime + "(ptr: " + class_ptr_name + ") -> Box<" + rust_class_name + "> { "
-            code += "unsafe { Box::<" + rust_class_name + ">::from_raw(ptr.ptr  as *mut " + rust_class_name + ") }"
-            code += " }\r\n"
+                # az_item_shallow_copy()
+                code += "/// Copies the pointer: WARNING: After calling this function you'll have two pointers to the same Box<`" + class_name + "`>!.\r\n"
+                code += "#[no_mangle] #[inline] pub extern \"C\" fn " + fn_prefix + to_snake_case(class_name) + "_shallow_copy" + lifetime + "(ptr: &" + class_ptr_name + ") -> " + class_ptr_name + " { "
+                code += class_ptr_name + " { ptr: ptr.ptr }"
+                code += " }\r\n"
 
-            downcast_refmut_generics = "<F: FnOnce(&mut Box<" + rust_class_name + ">)>"
-            if lifetime == "<'a>":
-                downcast_refmut_generics = "<'a, F: FnOnce(&mut Box<" + rust_class_name + ">)>"
-            code += "/// (private): Downcasts the `" + class_ptr_name + "` to a `&mut Box<" + rust_class_name + ">` and runs the `func` closure on it\r\n"
-            code += "#[inline(always)] fn " + fn_prefix + to_snake_case(class_name) + "_downcast_refmut" + downcast_refmut_generics + "(ptr: &mut " + class_ptr_name + ", func: F) { "
-            code += "let mut box_ptr: Box<" + rust_class_name + "> = unsafe { Box::<" + rust_class_name + ">::from_raw(ptr.ptr  as *mut " + rust_class_name + ") };"
-            code += "func(&mut box_ptr);"
-            code += "ptr.ptr = Box::into_raw(box_ptr) as *mut c_void;"
-            code += " }\r\n"
+                # az_item_downcast()
+                code += "/// (private): Downcasts the `" + class_ptr_name + "` to a `Box<" + rust_class_name + ">`. Note that this takes ownership of the pointer.\r\n"
+                code += "#[inline(always)] fn " + fn_prefix + to_snake_case(class_name) + "_downcast" + lifetime + "(ptr: " + class_ptr_name + ") -> Box<" + rust_class_name + "> { "
+                code += "unsafe { Box::<" + rust_class_name + ">::from_raw(ptr.ptr  as *mut " + rust_class_name + ") }"
+                code += " }\r\n"
 
-            downcast_ref_generics = "<F: FnOnce(&Box<" + rust_class_name + ">)>"
-            if lifetime == "<'a>":
-                downcast_ref_generics = "<'a, F: FnOnce(&Box<" + rust_class_name + ">)>"
-            code += "/// (private): Downcasts the `" + class_ptr_name + "` to a `&Box<" + rust_class_name + ">` and runs the `func` closure on it\r\n"
-            code += "#[inline(always)] fn " + fn_prefix + to_snake_case(class_name) + "_downcast_ref" + downcast_ref_generics + "(ptr: &mut " + class_ptr_name + ", func: F) { "
-            code += "let box_ptr: Box<" + rust_class_name + "> = unsafe { Box::<" + rust_class_name + ">::from_raw(ptr.ptr  as *mut " + rust_class_name + ") };"
-            code += "func(&box_ptr);"
-            code += "ptr.ptr = Box::into_raw(box_ptr) as *mut c_void;"
-            code += " }\r\n"
+                # az_item_downcast_refmut()
+                downcast_refmut_generics = "<F: FnOnce(&mut Box<" + rust_class_name + ">)>"
+                if lifetime == "<'a>":
+                    downcast_refmut_generics = "<'a, F: FnOnce(&mut Box<" + rust_class_name + ">)>"
+                code += "/// (private): Downcasts the `" + class_ptr_name + "` to a `&mut Box<" + rust_class_name + ">` and runs the `func` closure on it\r\n"
+                code += "#[inline(always)] fn " + fn_prefix + to_snake_case(class_name) + "_downcast_refmut" + downcast_refmut_generics + "(ptr: &mut " + class_ptr_name + ", func: F) { "
+                code += "let mut box_ptr: Box<" + rust_class_name + "> = unsafe { Box::<" + rust_class_name + ">::from_raw(ptr.ptr  as *mut " + rust_class_name + ") };"
+                code += "func(&mut box_ptr);"
+                code += "ptr.ptr = Box::into_raw(box_ptr) as *mut c_void;"
+                code += " }\r\n"
+
+                # az_item_downcast_ref()
+                downcast_ref_generics = "<F: FnOnce(&Box<" + rust_class_name + ">)>"
+                if lifetime == "<'a>":
+                    downcast_ref_generics = "<'a, F: FnOnce(&Box<" + rust_class_name + ">)>"
+                code += "/// (private): Downcasts the `" + class_ptr_name + "` to a `&Box<" + rust_class_name + ">` and runs the `func` closure on it\r\n"
+                code += "#[inline(always)] fn " + fn_prefix + to_snake_case(class_name) + "_downcast_ref" + downcast_ref_generics + "(ptr: &mut " + class_ptr_name + ", func: F) { "
+                code += "let box_ptr: Box<" + rust_class_name + "> = unsafe { Box::<" + rust_class_name + ">::from_raw(ptr.ptr  as *mut " + rust_class_name + ") };"
+                code += "func(&box_ptr);"
+                code += "ptr.ptr = Box::into_raw(box_ptr) as *mut c_void;"
+                code += " }\r\n"
 
     return code
 
