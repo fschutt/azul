@@ -278,7 +278,7 @@ pub mod app {
         }
  }
         /// Runs the application. Due to platform restrictions (specifically `WinMain` on Windows), this function never returns.
-        pub fn run(self, window: WindowCreateOptions)  { az_app_run(self.leak(), window.leak())}
+        pub fn run(self, window: WindowCreateOptions)  { az_app_run(self.leak(), window.leak()) }
        /// Prevents the destructor from running and returns the internal `AzAppPtr`
        #[allow(dead_code)]
        pub(crate) fn leak(self) -> AzAppPtr { let p = az_app_shallow_copy(&self.ptr); std::mem::forget(self); p }
@@ -422,6 +422,10 @@ pub mod dom {
         pub fn body() -> Self { Self { ptr: az_dom_body() } }
         /// Creates a new `Dom` instance.
         pub fn label(text: String) -> Self { Self { ptr: az_dom_label(text.leak()) } }
+        /// Reparents another `Dom` to be the child node of this `Dom`
+        pub fn add_child(&mut self, child: Dom)  { az_dom_add_child(&mut self.ptr, child.leak()) }
+        /// Same as [`Dom::add_child`](#method.add_child), but as a builder method
+        pub fn with_child(self, child: Dom)  -> Dom { Dom { ptr: { az_dom_with_child(self.leak(), child.leak())} } }
        /// Prevents the destructor from running and returns the internal `AzDomPtr`
        #[allow(dead_code)]
        pub(crate) fn leak(self) -> AzDomPtr { let p = az_dom_shallow_copy(&self.ptr); std::mem::forget(self); p }

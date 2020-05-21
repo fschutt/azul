@@ -98,6 +98,25 @@
                      ],
                      "fn_body": "Dom::label(*az_string_downcast(text))"
                   }
+               },
+               "functions": {
+                  "add_child": {
+                     "doc": "Reparents another `Dom` to be the child node of this `Dom`",
+                     "fn_args": [
+                        {"self": "refmut"},
+                        {"child": "Dom"}
+                     ],
+                     "fn_body": "az_dom_downcast_refmut(dom, |d| { d.add_child(*az_dom_downcast(child)); })"
+                  },
+                  "with_child": {
+                     "doc": "Same as [`Dom::add_child`](#method.add_child), but as a builder method",
+                     "fn_args": [
+                        {"self": "mut value"},
+                        {"child": "Dom"}
+                     ],
+                     "returns": "Dom",
+                     "fn_body": "az_dom_add_child(&mut dom, child); dom"
+                  }
                }
             }
          }

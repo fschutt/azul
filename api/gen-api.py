@@ -180,8 +180,10 @@ def fn_args_c_api(f, class_name, class_ptr_name, self_as_first_arg, apiData):
         self_val = list(f["fn_args"][0].values())[0]
         if (self_val == "value"):
             fn_args += class_name.lower() + ": " + class_ptr_name + ", "
+        elif (self_val == "mut value"):
+            fn_args += "mut " + class_name.lower() + ": " + class_ptr_name + ", "
         elif (self_val == "refmut"):
-            fn_args += class_name.lower() + ": &mut" + class_ptr_name + ", "
+            fn_args += class_name.lower() + ": &mut " + class_ptr_name + ", "
         elif (self_val == "ref"):
             fn_args += class_name.lower() + ": &" + class_ptr_name + ", "
         else:
@@ -246,7 +248,7 @@ def rust_bindings_fn_args(f, class_name, class_ptr_name, self_as_first_arg):
 
     if self_as_first_arg:
         self_val = list(f["fn_args"][0].values())[0]
-        if (self_val == "value"):
+        if (self_val == "value") or (self_val == "mut value"):
             fn_args += "self, "
         elif (self_val == "refmut"):
             fn_args += "&mut self, "
@@ -271,7 +273,7 @@ def rust_bindings_call_fn_args(f, class_name, class_ptr_name, self_as_first_arg)
     fn_args = ""
     if self_as_first_arg:
         self_val = list(f["fn_args"][0].values())[0]
-        if (self_val == "value"):
+        if (self_val == "value") or (self_val == "mut value"):
             fn_args += "self.leak(), "
         elif (self_val == "refmut"):
             fn_args += "&mut self.ptr, "
@@ -372,7 +374,7 @@ def generate_rust_dll(apiData):
 
                     fn_args = fn_args_c_api(const, class_name, class_ptr_name, False, apiData)
 
-                    code += "#[no_mangle] pub extern \"C\" fn " + fn_prefix + to_snake_case(class_name) + "_" + fn_name + "(" + fn_args + ") -> " + class_ptr_name + " { "
+                    code += "#[no_mangle] #[inline] pub extern \"C\" fn " + fn_prefix + to_snake_case(class_name) + "_" + fn_name + "(" + fn_args + ") -> " + class_ptr_name + " { "
                     code += fn_body
                     code += " }\r\n"
 
@@ -398,9 +400,9 @@ def generate_rust_dll(apiData):
 
                     returns = ""
                     if "returns" in f.keys():
-                        returns = " -> " + f["returns"]
+                        returns = " -> " + prefix + f["returns"] + postfix
 
-                    code += "#[no_mangle] pub extern \"C\" fn " + fn_prefix + to_snake_case(class_name) + "_" + fn_name + "(" + fn_args + ")" + returns + " { "
+                    code += "#[no_mangle] #[inline] pub extern \"C\" fn " + fn_prefix + to_snake_case(class_name) + "_" + fn_name + "(" + fn_args + ")" + returns + " { "
                     code += fn_body
                     code += " }\r\n"
 
@@ -409,18 +411,38 @@ def generate_rust_dll(apiData):
                 lifetime = "<'a>"
 
             code += "/// Destructor: Takes ownership of the `" + class_name + "` pointer and deletes it.\r\n"
-            code += "#[no_mangle] pub extern \"C\" fn " + fn_prefix + to_snake_case(class_name) + "_delete" + lifetime + "(ptr: &mut " + class_ptr_name + ") { "
+            code += "#[no_mangle] #[inline] pub extern \"C\" fn " + fn_prefix + to_snake_case(class_name) + "_delete" + lifetime + "(ptr: &mut " + class_ptr_name + ") { "
             code += "let _ = unsafe { Box::<" + rust_class_name + ">::from_raw(ptr.ptr  as *mut " + rust_class_name + ") };"
             code += " }\r\n"
 
             code += "/// Copies the pointer: WARNING: After calling this function you'll have two pointers to the same Box<`" + class_name + "`>!.\r\n"
-            code += "#[no_mangle] pub extern \"C\" fn " + fn_prefix + to_snake_case(class_name) + "_shallow_copy" + lifetime + "(ptr: &" + class_ptr_name + ") -> " + class_ptr_name + " { "
+            code += "#[no_mangle] #[inline] pub extern \"C\" fn " + fn_prefix + to_snake_case(class_name) + "_shallow_copy" + lifetime + "(ptr: &" + class_ptr_name + ") -> " + class_ptr_name + " { "
             code += class_ptr_name + " { ptr: ptr.ptr }"
             code += " }\r\n"
 
             code += "/// (private): Downcasts the `" + class_ptr_name + "` to a `Box<" + rust_class_name + ">`. Note that this takes ownership of the pointer.\r\n"
-            code += "fn " + fn_prefix + to_snake_case(class_name) + "_downcast" + lifetime + "(ptr: " + class_ptr_name + ") -> Box<" + rust_class_name + "> { "
+            code += "#[inline(always)] fn " + fn_prefix + to_snake_case(class_name) + "_downcast" + lifetime + "(ptr: " + class_ptr_name + ") -> Box<" + rust_class_name + "> { "
             code += "unsafe { Box::<" + rust_class_name + ">::from_raw(ptr.ptr  as *mut " + rust_class_name + ") }"
+            code += " }\r\n"
+
+            downcast_refmut_generics = "<F: FnOnce(&mut Box<" + rust_class_name + ">)>"
+            if lifetime == "<'a>":
+                downcast_refmut_generics = "<'a, F: FnOnce(&mut Box<" + rust_class_name + ">)>"
+            code += "/// (private): Downcasts the `" + class_ptr_name + "` to a `&mut Box<" + rust_class_name + ">` and runs the `func` closure on it\r\n"
+            code += "#[inline(always)] fn " + fn_prefix + to_snake_case(class_name) + "_downcast_refmut" + downcast_refmut_generics + "(ptr: &mut " + class_ptr_name + ", func: F) { "
+            code += "let mut box_ptr: Box<" + rust_class_name + "> = unsafe { Box::<" + rust_class_name + ">::from_raw(ptr.ptr  as *mut " + rust_class_name + ") };"
+            code += "func(&mut box_ptr);"
+            code += "ptr.ptr = Box::into_raw(box_ptr) as *mut c_void;"
+            code += " }\r\n"
+
+            downcast_ref_generics = "<F: FnOnce(&Box<" + rust_class_name + ">)>"
+            if lifetime == "<'a>":
+                downcast_ref_generics = "<'a, F: FnOnce(&Box<" + rust_class_name + ">)>"
+            code += "/// (private): Downcasts the `" + class_ptr_name + "` to a `&Box<" + rust_class_name + ">` and runs the `func` closure on it\r\n"
+            code += "#[inline(always)] fn " + fn_prefix + to_snake_case(class_name) + "_downcast_ref" + downcast_ref_generics + "(ptr: &mut " + class_ptr_name + ", func: F) { "
+            code += "let box_ptr: Box<" + rust_class_name + "> = unsafe { Box::<" + rust_class_name + ">::from_raw(ptr.ptr  as *mut " + rust_class_name + ") };"
+            code += "func(&box_ptr);"
+            code += "ptr.ptr = Box::into_raw(box_ptr) as *mut c_void;"
             code += " }\r\n"
 
     return code
@@ -625,8 +647,9 @@ def generate_rust_api(apiData):
                     returns = ""
                     if "returns" in f.keys():
                         returns = " -> " + f["returns"]
+                        fn_body = f["returns"] + " { ptr: { " + fn_body + "} }"
 
-                    code += "        pub fn " + fn_name + "(" + fn_args + ") " +  returns + " { " + fn_body + "}\r\n"
+                    code += "        pub fn " + fn_name + "(" + fn_args + ") " +  returns + " { " + fn_body + " }\r\n"
 
             code += "       /// Prevents the destructor from running and returns the internal `" + class_ptr_name + "`\r\n"
             code += "       #[allow(dead_code)]\r\n"
