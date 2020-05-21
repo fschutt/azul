@@ -257,8 +257,8 @@ pub mod app {
     pub struct AppConfig { pub(crate) ptr: AzAppConfigPtr }
 
     impl AppConfig {
-        /// Creates a new `AppConfig` instance.
-        pub fn new() -> Self { Self { ptr: az_app_config_new() } }
+        /// Creates a new AppConfig with default values
+        pub fn default() -> Self { Self { ptr: az_app_config_default() } }
        /// Prevents the destructor from running and returns the internal `AzAppConfigPtr`
        #[allow(dead_code)]
        pub(crate) fn leak(self) -> AzAppConfigPtr { let p = az_app_config_shallow_copy(&self.ptr); std::mem::forget(self); p }
@@ -271,13 +271,13 @@ pub mod app {
     pub struct App { pub(crate) ptr: AzAppPtr }
 
     impl App {
-        /// Creates a new App instance.
+        /// Creates a new App instance from the given `AppConfig`
         pub fn new(data: RefAny, config: AppConfig, callback: LayoutCallback) -> Self {         unsafe { crate::callbacks::CALLBACK = callback };
         Self {
             ptr: az_app_new(data.leak(), config.leak(), crate::callbacks::translate_callback)
         }
  }
-        /// Calls the `App::run` function.
+        /// Runs the application. Due to platform restrictions (specifically `WinMain` on Windows), this function never returns.
         pub fn run(self, window: WindowCreateOptions)  { az_app_run(self.leak(), window.leak())}
        /// Prevents the destructor from running and returns the internal `AzAppPtr`
        #[allow(dead_code)]
@@ -416,8 +416,10 @@ pub mod dom {
     pub struct Dom { pub(crate) ptr: AzDomPtr }
 
     impl Dom {
-        /// Creates a new `Dom` instance.
+        /// Creates a new `div` node
         pub fn div() -> Self { Self { ptr: az_dom_div() } }
+        /// Creates a new `body` node
+        pub fn body() -> Self { Self { ptr: az_dom_body() } }
         /// Creates a new `Dom` instance.
         pub fn label(text: String) -> Self { Self { ptr: az_dom_label(text.leak()) } }
        /// Prevents the destructor from running and returns the internal `AzDomPtr`

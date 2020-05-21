@@ -15,6 +15,6 @@ fn main() {
     let data = Data {
         counter: 5,
     };
-    let app = App::new(RefAny::new(data), AppConfig::new(), layout);
+    let app = App::new(RefAny::new(data), AppConfig::default(), layout);
     app.run(WindowCreateOptions::new(Css::native()));
 }

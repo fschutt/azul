@@ -104,7 +104,8 @@ def get_all_imports(apiData, module, module_name, existing_imports = {}):
         c = module[class_name]
 
         if "constructors" in c.keys():
-            for const in c["constructors"]:
+            for fn_name in c["constructors"]:
+                const = c["constructors"][fn_name]
                 if "fn_args" in const.keys():
                     for arg_object in const["fn_args"]:
                         arg_name = list(arg_object.keys())[0]
@@ -114,7 +115,8 @@ def get_all_imports(apiData, module, module_name, existing_imports = {}):
                         arg_types_to_search.append(arg_type)
 
         if "functions" in c.keys():
-            for f in c["functions"]:
+            for fn_name in c["functions"]:
+                f = c["functions"][fn_name]
                 if "fn_args" in f.keys():
                     for arg_object in f["fn_args"]:
                         arg_name = list(arg_object.keys())[0]
@@ -348,9 +350,9 @@ def generate_rust_dll(apiData):
                 code += "#[no_mangle] #[repr(C)] pub struct " + class_ptr_name + " { ptr: *mut c_void }\r\n"
 
             if "constructors" in c.keys():
-                for const in c["constructors"]:
+                for fn_name in c["constructors"]:
 
-                    fn_name = const["fn_name"]
+                    const = c["constructors"][fn_name]
 
                     fn_body = ""
 
@@ -366,18 +368,18 @@ def generate_rust_dll(apiData):
                         code += "/// " + const["doc"] + "\r\n"
                     else:
                         code += "// Creates a new `" + class_name + "` instance whose memory is owned by the rust allocator\r\n"
-                        code += "// Equivalent to the Rust `" + class_name  + "::" + const["fn_name"] + "()` constructor.\r\n"
+                        code += "// Equivalent to the Rust `" + class_name  + "::" + fn_name + "()` constructor.\r\n"
 
                     fn_args = fn_args_c_api(const, class_name, class_ptr_name, False, apiData)
 
-                    code += "#[no_mangle] pub extern \"C\" fn " + fn_prefix + to_snake_case(class_name) + "_" + const["fn_name"] + "(" + fn_args + ") -> " + class_ptr_name + " { "
+                    code += "#[no_mangle] pub extern \"C\" fn " + fn_prefix + to_snake_case(class_name) + "_" + fn_name + "(" + fn_args + ") -> " + class_ptr_name + " { "
                     code += fn_body
                     code += " }\r\n"
 
             if "functions" in c.keys():
-                for f in c["functions"]:
+                for fn_name in c["functions"]:
 
-                    fn_name = f["fn_name"]
+                    f = c["functions"][fn_name]
 
                     fn_body = ""
                     if tuple([module_name, class_name, fn_name]) in dll_patches.keys() \
@@ -390,7 +392,7 @@ def generate_rust_dll(apiData):
                     if "doc" in f.keys():
                         code += "/// " + f["doc"] + "\r\n"
                     else:
-                        code += "// Equivalent to the Rust `" + class_name  + "::" + f["fn_name"] + "()` function.\r\n"
+                        code += "// Equivalent to the Rust `" + class_name  + "::" + fn_name + "()` function.\r\n"
 
                     fn_args = fn_args_c_api(f, class_name, class_ptr_name, True, apiData)
 
@@ -398,7 +400,7 @@ def generate_rust_dll(apiData):
                     if "returns" in f.keys():
                         returns = " -> " + f["returns"]
 
-                    code += "#[no_mangle] pub extern \"C\" fn " + fn_prefix + to_snake_case(class_name) + "_" + f["fn_name"] + "(" + fn_args + ")" + returns + " { "
+                    code += "#[no_mangle] pub extern \"C\" fn " + fn_prefix + to_snake_case(class_name) + "_" + fn_name + "(" + fn_args + ")" + returns + " { "
                     code += fn_body
                     code += " }\r\n"
 
@@ -468,28 +470,30 @@ def generate_c_api(apiData):
             header += "typedef struct " + class_ptr_name + " { void *ptr; } "  +  class_ptr_name + "\r\n"
 
             if "constructors" in c.keys():
-                for const in c["constructors"]:
+                for fn_name in c["constructors"]:
+                    const = c["constructors"][fn_name]
                     if "doc" in const.keys():
                         header += "// " + const["doc"] + "\r\n"
                     else:
                         header += "// Creates a new `" + class_name + "` instance whose memory is owned by the rust allocator\r\n"
-                        header += "// Equivalent to the Rust `" + class_name  + "::" + const["fn_name"] + "()` constructor.\r\n"
+                        header += "// Equivalent to the Rust `" + class_name  + "::" + fn_name + "()` constructor.\r\n"
 
                     fn_args = get_fn_args_c(const, class_name, class_ptr_name, apiData)
 
-                    fn_name = fn_prefix + to_snake_case(class_name) + "_" + const["fn_name"]
+                    fn_name = fn_prefix + to_snake_case(class_name) + "_" + fn_name
                     header += class_ptr_name + " " + fn_name + "(" + fn_args + ");\r\n"
 
             if "functions" in c.keys():
-                for f in c["functions"]:
+                for fn_name in c["functions"]:
+                    f = c["functions"][fn_name]
                     if "doc" in f.keys():
                         header += "// " + f["doc"] + "\r\n"
                     else:
-                        header += "// Equivalent to the Rust `" + class_name  + "::" + f["fn_name"] + "()` function.\r\n"
+                        header += "// Equivalent to the Rust `" + class_name  + "::" + fn_name + "()` function.\r\n"
 
                     fn_args = get_fn_args_c(f, class_name, class_ptr_name, apiData)
 
-                    fn_name = fn_prefix + to_snake_case(class_name) + "_" + f["fn_name"]
+                    fn_name = fn_prefix + to_snake_case(class_name) + "_" + fn_name
                     header += class_ptr_name + " " + fn_name + "(" + fn_args + ");\r\n"
 
             header += "// Destructor: Takes ownership of the `" + class_name + "` pointer and deletes it.\r\n"
@@ -567,9 +571,9 @@ def generate_rust_api(apiData):
             code += "    impl " + class_name + " {\r\n"
 
             if "constructors" in c.keys():
-                for const in c["constructors"]:
+                for fn_name in c["constructors"]:
+                    const = c["constructors"][fn_name]
 
-                    fn_name = const["fn_name"]
                     c_fn_name = fn_prefix + to_snake_case(class_name) + "_" + fn_name
                     fn_args = rust_bindings_fn_args(const, class_name, class_ptr_name, False)
                     fn_args_call = rust_bindings_call_fn_args(const, class_name, class_ptr_name, False)
@@ -591,9 +595,9 @@ def generate_rust_api(apiData):
                     code += "        pub fn " + fn_name + "(" + fn_args + ") -> Self { " + fn_body + " }\r\n"
 
             if "functions" in c.keys():
-                for f in c["functions"]:
+                for fn_name in c["functions"]:
+                    f = c["functions"][fn_name]
 
-                    fn_name = f["fn_name"]
                     fn_args = rust_bindings_fn_args(f, class_name, class_ptr_name, True)
                     fn_args_call = rust_bindings_call_fn_args(f, class_name, class_ptr_name, True)
                     c_fn_name = fn_prefix + to_snake_case(class_name) + "_" + fn_name
@@ -616,7 +620,7 @@ def generate_rust_api(apiData):
                     if "doc" in f.keys():
                         code += "        /// " + f["doc"] + "\r\n"
                     else:
-                        code += "        /// Calls the `" + class_name + "::" + f["fn_name"] + "` function.\r\n"
+                        code += "        /// Calls the `" + class_name + "::" + fn_name + "` function.\r\n"
 
                     returns = ""
                     if "returns" in f.keys():

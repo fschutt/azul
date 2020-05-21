@@ -48,9 +48,8 @@ fn az_string_downcast(ptr: AzStringPtr) -> Box<String> { unsafe { Box::<String>:
 
 /// Pointer to rust-allocated `Box<AppConfig>` struct
 #[no_mangle] #[repr(C)] pub struct AzAppConfigPtr { ptr: *mut c_void }
-// Creates a new `AppConfig` instance whose memory is owned by the rust allocator
-// Equivalent to the Rust `AppConfig::new()` constructor.
-#[no_mangle] pub extern "C" fn az_app_config_new() -> AzAppConfigPtr { let object: AppConfig = AppConfig::default(); AzAppConfigPtr { ptr: Box::into_raw(Box::new(object)) as *mut c_void } }
+/// Creates a new AppConfig with default values
+#[no_mangle] pub extern "C" fn az_app_config_default() -> AzAppConfigPtr { let object: AppConfig = AppConfig::default(); AzAppConfigPtr { ptr: Box::into_raw(Box::new(object)) as *mut c_void } }
 /// Destructor: Takes ownership of the `AppConfig` pointer and deletes it.
 #[no_mangle] pub extern "C" fn az_app_config_delete(ptr: &mut AzAppConfigPtr) { let _ = unsafe { Box::<AppConfig>::from_raw(ptr.ptr  as *mut AppConfig) }; }
 /// Copies the pointer: WARNING: After calling this function you'll have two pointers to the same Box<`AppConfig`>!.
@@ -60,9 +59,9 @@ fn az_app_config_downcast(ptr: AzAppConfigPtr) -> Box<AppConfig> { unsafe { Box:
 
 /// Pointer to rust-allocated `Box<App>` struct
 #[no_mangle] #[repr(C)] pub struct AzAppPtr { ptr: *mut c_void }
-/// Creates a new App instance.
+/// Creates a new App instance from the given `AppConfig`
 #[no_mangle] pub extern "C" fn az_app_new(data: AzRefAny, config: AzAppConfigPtr, callback: AzLayoutCallback) -> AzAppPtr { let object: App = App::new(data, *az_app_config_downcast(config), callback).unwrap(); AzAppPtr { ptr: Box::into_raw(Box::new(object)) as *mut c_void } }
-// Equivalent to the Rust `App::run()` function.
+/// Runs the application. Due to platform restrictions (specifically `WinMain` on Windows), this function never returns.
 #[no_mangle] pub extern "C" fn az_app_run(app: AzAppPtr, window: AzWindowCreateOptionsPtr) { az_app_downcast(app).run(*az_window_create_options_downcast(window)) }
 /// Destructor: Takes ownership of the `App` pointer and deletes it.
 #[no_mangle] pub extern "C" fn az_app_delete(ptr: &mut AzAppPtr) { let _ = unsafe { Box::<App>::from_raw(ptr.ptr  as *mut App) }; }
@@ -114,9 +113,10 @@ fn az_layout_info_downcast<'a>(ptr: AzLayoutInfoPtr) -> Box<LayoutInfo<'a>> { un
 
 /// Pointer to rust-allocated `Box<Dom>` struct
 pub use ::azul_core::dom::DomPtr as AzDomPtr;
-// Creates a new `Dom` instance whose memory is owned by the rust allocator
-// Equivalent to the Rust `Dom::div()` constructor.
+/// Creates a new `div` node
 #[no_mangle] pub extern "C" fn az_dom_div() -> AzDomPtr { let object: Dom = Dom::div(); AzDomPtr { ptr: Box::into_raw(Box::new(object)) as *mut c_void } }
+/// Creates a new `body` node
+#[no_mangle] pub extern "C" fn az_dom_body() -> AzDomPtr { let object: Dom = Dom::body(); AzDomPtr { ptr: Box::into_raw(Box::new(object)) as *mut c_void } }
 // Creates a new `Dom` instance whose memory is owned by the rust allocator
 // Equivalent to the Rust `Dom::label()` constructor.
 #[no_mangle] pub extern "C" fn az_dom_label(text: AzStringPtr) -> AzDomPtr { let object: Dom = Dom::label(*az_string_downcast(text)); AzDomPtr { ptr: Box::into_raw(Box::new(object)) as *mut c_void } }
