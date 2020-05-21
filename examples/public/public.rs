@@ -8,7 +8,8 @@ struct Data {
 
 fn layout(data: RefAny, _info: LayoutInfo) -> Dom {
     let data = data.downcast_ref::<Data>().expect("wrong downcast");
-    Dom::label(format!("hello: {}", data.counter).into())
+    Dom::body()
+        .with_child(Dom::label(format!("hello: {}", data.counter).into()))
 }
 
 fn main() {
