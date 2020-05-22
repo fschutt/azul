@@ -157,22 +157,6 @@ pub mod callbacks {
     use azul_dll::*;
 
 
-    /// `UpdateScreen` struct
-    pub struct UpdateScreen { pub(crate) object: AzUpdateScreen }
-
-    impl<T> From<Option<T>> for UpdateScreen { fn from(o: Option<T>) -> Self { Self { object: match o { None => AzDontRedraw, Some(_) => AzRedraw }} } }
-
-
-    /// `Redraw` struct
-    pub const Redraw: AzUpdateScreen = AzRedraw;
-
-
-
-    /// `DontRedraw` struct
-    pub const DontRedraw: AzUpdateScreen = AzDontRedraw;
-
-
-
     use crate::dom::Dom;
 
     /// Callback fn that returns the layout
@@ -189,8 +173,81 @@ pub mod callbacks {
     }
 
 
+    /// `Callback` struct
+    pub struct Callback { pub(crate) object: AzCallback }
+    
+
+    /// `CallbackInfo` struct
+    pub struct CallbackInfo { pub(crate) ptr: AzCallbackInfoPtr }
+
+    impl CallbackInfo {
+       /// Prevents the destructor from running and returns the internal `AzCallbackInfoPtr`
+       #[allow(dead_code)]
+       pub(crate) fn leak(self) -> AzCallbackInfoPtr { let p = az_callback_info_shallow_copy(&self.ptr); std::mem::forget(self); p }
+    }
+
+
+
+    /// `UpdateScreen` struct
+    pub struct UpdateScreen { pub(crate) object: AzUpdateScreen }
+
+    impl<T> From<Option<T>> for UpdateScreen { fn from(o: Option<T>) -> Self { Self { object: match o { None => AzDontRedraw, Some(_) => AzRedraw }} } }
+
+
+    /// `Redraw` struct
+    pub const Redraw: AzUpdateScreen = AzRedraw;
+
+
+
+    /// `DontRedraw` struct
+    pub const DontRedraw: AzUpdateScreen = AzDontRedraw;
+
+
+
+    /// `IFrameCallback` struct
+    pub struct IFrameCallback { pub(crate) object: AzIFrameCallback }
+    
+
+    /// `IFrameCallbackInfo` struct
+    pub struct IFrameCallbackInfo { pub(crate) ptr: AzIFrameCallbackInfoPtr }
+
+    impl IFrameCallbackInfo {
+       /// Prevents the destructor from running and returns the internal `AzIFrameCallbackInfoPtr`
+       #[allow(dead_code)]
+       pub(crate) fn leak(self) -> AzIFrameCallbackInfoPtr { let p = az_i_frame_callback_info_shallow_copy(&self.ptr); std::mem::forget(self); p }
+    }
+
+
+
+    /// `IFrameCallbackReturn` struct
+    pub struct IFrameCallbackReturn { pub(crate) ptr: AzIFrameCallbackReturnPtr }
+
+    impl IFrameCallbackReturn {
+       /// Prevents the destructor from running and returns the internal `AzIFrameCallbackReturnPtr`
+       #[allow(dead_code)]
+       pub(crate) fn leak(self) -> AzIFrameCallbackReturnPtr { let p = az_i_frame_callback_return_shallow_copy(&self.ptr); std::mem::forget(self); p }
+    }
+
+
+
+    /// `GlCallback` struct
+    pub struct GlCallback { pub(crate) object: AzGlCallback }
+    
+
+    /// `GlCallbackInfo` struct
+    pub struct GlCallbackInfo { pub(crate) ptr: AzGlCallbackInfoPtr }
+
+    impl GlCallbackInfo {
+       /// Prevents the destructor from running and returns the internal `AzGlCallbackInfoPtr`
+       #[allow(dead_code)]
+       pub(crate) fn leak(self) -> AzGlCallbackInfoPtr { let p = az_gl_callback_info_shallow_copy(&self.ptr); std::mem::forget(self); p }
+    }
+
+
+
     use azul_dll::AzRefAny as AzRefAnyCore;
 
+    /// `RefAny` struct
     #[repr(transparent)]
     pub struct RefAny(pub(crate) AzRefAnyCore);
 
@@ -202,7 +259,7 @@ pub mod callbacks {
 
     impl RefAny {
 
-        #[inline]
+        /// Creates a new, type-erased pointer by casting the `T` value into a `Vec<u8>` and saving the length + type ID
         pub fn new<T: 'static>(value: T) -> Self {
             use azul_dll::*;
 
@@ -231,6 +288,7 @@ pub mod callbacks {
             Self(s)
         }
 
+        /// Returns the inner `AzRefAnyCore`
         pub fn leak(self) -> AzRefAnyCore {
             use std::mem;
             let s = az_ref_any_core_copy(&self.0);
@@ -238,6 +296,7 @@ pub mod callbacks {
             s
         }
 
+        /// Downcasts the type-erased pointer to a type `&U`, returns `None` if the types don't match
         #[inline]
         pub fn downcast_ref<'a, U: 'static>(&'a self) -> Option<&'a U> {
             use std::ptr;
@@ -245,6 +304,7 @@ pub mod callbacks {
             if ptr == ptr::null() { None } else { Some(unsafe { &*(self.0._internal_ptr as *const U) as &'a U }) }
         }
 
+        /// Downcasts the type-erased pointer to a type `&mut U`, returns `None` if the types don't match
         #[inline]
         pub fn downcast_mut<'a, U: 'static>(&'a mut self) -> Option<&'a mut U> {
             use std::ptr;

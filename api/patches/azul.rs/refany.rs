@@ -1,5 +1,6 @@
     use azul_dll::AzRefAny as AzRefAnyCore;
 
+    /// `RefAny` struct
     #[repr(transparent)]
     pub struct RefAny(pub(crate) AzRefAnyCore);
 
@@ -11,7 +12,7 @@
 
     impl RefAny {
 
-        #[inline]
+        /// Creates a new, type-erased pointer by casting the `T` value into a `Vec<u8>` and saving the length + type ID
         pub fn new<T: 'static>(value: T) -> Self {
             use azul_dll::*;
 
@@ -40,6 +41,7 @@
             Self(s)
         }
 
+        /// Returns the inner `AzRefAnyCore`
         pub fn leak(self) -> AzRefAnyCore {
             use std::mem;
             let s = az_ref_any_core_copy(&self.0);
@@ -47,6 +49,7 @@
             s
         }
 
+        /// Downcasts the type-erased pointer to a type `&U`, returns `None` if the types don't match
         #[inline]
         pub fn downcast_ref<'a, U: 'static>(&'a self) -> Option<&'a U> {
             use std::ptr;
@@ -54,6 +57,7 @@
             if ptr == ptr::null() { None } else { Some(unsafe { &*(self.0._internal_ptr as *const U) as &'a U }) }
         }
 
+        /// Downcasts the type-erased pointer to a type `&mut U`, returns `None` if the types don't match
         #[inline]
         pub fn downcast_mut<'a, U: 'static>(&'a mut self) -> Option<&'a mut U> {
             use std::ptr;

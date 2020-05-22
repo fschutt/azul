@@ -101,10 +101,32 @@
       "callbacks": {
          "doc": "Callback type definitions + struct definitions of `CallbackInfo`s",
          "classes": {
+            "LayoutCallback": { "use_patches": ["dll", "rust"], "typedef": true },
+
+            "Callback": { "use_patches": ["dll", "rust"], "typedef": true },
+            "CallbackInfo": {
+               "external": "azul_core::callbacks::CallbackInfoPtr",
+               "rust_class_name": "CallbackInfo<'a>"
+            },
             "UpdateScreen": { "external": "Option<()>", "use_patches": ["rust"], "typedef": true },
             "Redraw": { "external": "azul_core::callbacks::Redraw", "use_patches": ["rust"], "const": "UpdateScreen" },
             "DontRedraw": { "external": "azul_core::callbacks::DontRedraw", "use_patches": ["rust"], "const": "UpdateScreen" },
-            "LayoutCallback": { "use_patches": ["dll", "rust"] },
+
+            "IFrameCallback": { "use_patches": ["dll", "rust"], "typedef": true },
+            "IFrameCallbackInfo": {
+               "external": "azul_core::callbacks::IFrameCallbackInfoPtr",
+               "rust_class_name": "IFrameCallbackInfo<'a>"
+            },
+            "IFrameCallbackReturn": {
+               "external": "azul_core::callbacks::IFrameCallbackReturnPtr"
+            },
+
+            "GlCallback": { "use_patches": ["dll", "rust"], "typedef": true },
+            "GlCallbackInfo": {
+               "external": "azul_core::callbacks::GlCallbackInfoPtr",
+               "rust_class_name": "GlCallbackInfo<'a>"
+            },
+
             "RefAny": { "use_patches": ["dll", "rust"] },
             "LayoutInfo": {
                "rust_class_name": "LayoutInfo<'a>",

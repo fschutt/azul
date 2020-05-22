@@ -28,9 +28,9 @@ use core::ffi::c_void;
 use std::path::PathBuf;
 use azul_core::{
     dom::Dom,
-    callbacks::{RefAny, LayoutInfo},
+    callbacks::{RefAny, LayoutInfo, Callback, CallbackInfo, GlCallbackInfo, GlCallbackReturn, IFrameCallbackInfo, IFrameCallbackReturn},
     window::WindowCreateOptions,
-    app_resources::*,
+    app_resources::{RawImage, RawImageFormat, FontId, TextId, ImageId},
 };
 use azul_css::Css;
 #[cfg(not(target_arch = "wasm32"))]
@@ -116,6 +116,24 @@ use azul_web::app::{App, AppConfig};
 /// (private): Downcasts the `AzAppPtr` to a `&Box<App>` and runs the `func` closure on it
 #[inline(always)] fn az_app_downcast_ref<F: FnOnce(&Box<App>)>(ptr: &mut AzAppPtr, func: F) { let box_ptr: Box<App> = unsafe { Box::<App>::from_raw(ptr.ptr  as *mut App) };func(&box_ptr);ptr.ptr = Box::into_raw(box_ptr) as *mut c_void; }
 
+/// The layout() callback fn
+pub type AzLayoutCallback = fn(AzRefAny, AzLayoutInfoPtr) -> AzDomPtr;
+/// Re-export of rust-allocated (stack based) `Callback` struct
+#[no_mangle] #[repr(C)] pub struct AzCallback { ptr: *mut c_void }
+
+/// Pointer to rust-allocated `Box<CallbackInfo>` struct
+pub use azul_core::callbacks::CallbackInfoPtr as AzCallbackInfoPtr;
+/// Destructor: Takes ownership of the `CallbackInfo` pointer and deletes it.
+#[no_mangle] #[inline] pub extern "C" fn az_callback_info_delete<'a>(ptr: &mut AzCallbackInfoPtr) { let _ = unsafe { Box::<CallbackInfo<'a>>::from_raw(ptr.ptr  as *mut CallbackInfo<'a>) }; }
+/// Copies the pointer: WARNING: After calling this function you'll have two pointers to the same Box<`CallbackInfo`>!.
+#[no_mangle] #[inline] pub extern "C" fn az_callback_info_shallow_copy<'a>(ptr: &AzCallbackInfoPtr) -> AzCallbackInfoPtr { AzCallbackInfoPtr { ptr: ptr.ptr } }
+/// (private): Downcasts the `AzCallbackInfoPtr` to a `Box<CallbackInfo<'a>>`. Note that this takes ownership of the pointer.
+#[inline(always)] fn az_callback_info_downcast<'a>(ptr: AzCallbackInfoPtr) -> Box<CallbackInfo<'a>> { unsafe { Box::<CallbackInfo<'a>>::from_raw(ptr.ptr  as *mut CallbackInfo<'a>) } }
+/// (private): Downcasts the `AzCallbackInfoPtr` to a `&mut Box<CallbackInfo<'a>>` and runs the `func` closure on it
+#[inline(always)] fn az_callback_info_downcast_refmut<'a, F: FnOnce(&mut Box<CallbackInfo<'a>>)>(ptr: &mut AzCallbackInfoPtr, func: F) { let mut box_ptr: Box<CallbackInfo<'a>> = unsafe { Box::<CallbackInfo<'a>>::from_raw(ptr.ptr  as *mut CallbackInfo<'a>) };func(&mut box_ptr);ptr.ptr = Box::into_raw(box_ptr) as *mut c_void; }
+/// (private): Downcasts the `AzCallbackInfoPtr` to a `&Box<CallbackInfo<'a>>` and runs the `func` closure on it
+#[inline(always)] fn az_callback_info_downcast_ref<'a, F: FnOnce(&Box<CallbackInfo<'a>>)>(ptr: &mut AzCallbackInfoPtr, func: F) { let box_ptr: Box<CallbackInfo<'a>> = unsafe { Box::<CallbackInfo<'a>>::from_raw(ptr.ptr  as *mut CallbackInfo<'a>) };func(&box_ptr);ptr.ptr = Box::into_raw(box_ptr) as *mut c_void; }
+
 /// Re-export of rust-allocated (stack based) `UpdateScreen` struct
 pub type AzUpdateScreen = Option<()>;
 
@@ -125,8 +143,51 @@ pub const AzRedraw: AzUpdateScreen = azul_core::callbacks::Redraw;
 /// Re-export of rust-allocated (stack based) `DontRedraw` struct
 pub const AzDontRedraw: AzUpdateScreen = azul_core::callbacks::DontRedraw;
 
-/// The layout() callback fn
-pub type AzLayoutCallback = fn(AzRefAny, AzLayoutInfoPtr) -> AzDomPtr;
+/// Re-export of rust-allocated (stack based) `IFrameCallback` struct
+#[no_mangle] #[repr(C)] pub struct AzIFrameCallback { ptr: *mut c_void }
+
+/// Pointer to rust-allocated `Box<IFrameCallbackInfo>` struct
+pub use azul_core::callbacks::IFrameCallbackInfoPtr as AzIFrameCallbackInfoPtr;
+/// Destructor: Takes ownership of the `IFrameCallbackInfo` pointer and deletes it.
+#[no_mangle] #[inline] pub extern "C" fn az_i_frame_callback_info_delete<'a>(ptr: &mut AzIFrameCallbackInfoPtr) { let _ = unsafe { Box::<IFrameCallbackInfo<'a>>::from_raw(ptr.ptr  as *mut IFrameCallbackInfo<'a>) }; }
+/// Copies the pointer: WARNING: After calling this function you'll have two pointers to the same Box<`IFrameCallbackInfo`>!.
+#[no_mangle] #[inline] pub extern "C" fn az_i_frame_callback_info_shallow_copy<'a>(ptr: &AzIFrameCallbackInfoPtr) -> AzIFrameCallbackInfoPtr { AzIFrameCallbackInfoPtr { ptr: ptr.ptr } }
+/// (private): Downcasts the `AzIFrameCallbackInfoPtr` to a `Box<IFrameCallbackInfo<'a>>`. Note that this takes ownership of the pointer.
+#[inline(always)] fn az_i_frame_callback_info_downcast<'a>(ptr: AzIFrameCallbackInfoPtr) -> Box<IFrameCallbackInfo<'a>> { unsafe { Box::<IFrameCallbackInfo<'a>>::from_raw(ptr.ptr  as *mut IFrameCallbackInfo<'a>) } }
+/// (private): Downcasts the `AzIFrameCallbackInfoPtr` to a `&mut Box<IFrameCallbackInfo<'a>>` and runs the `func` closure on it
+#[inline(always)] fn az_i_frame_callback_info_downcast_refmut<'a, F: FnOnce(&mut Box<IFrameCallbackInfo<'a>>)>(ptr: &mut AzIFrameCallbackInfoPtr, func: F) { let mut box_ptr: Box<IFrameCallbackInfo<'a>> = unsafe { Box::<IFrameCallbackInfo<'a>>::from_raw(ptr.ptr  as *mut IFrameCallbackInfo<'a>) };func(&mut box_ptr);ptr.ptr = Box::into_raw(box_ptr) as *mut c_void; }
+/// (private): Downcasts the `AzIFrameCallbackInfoPtr` to a `&Box<IFrameCallbackInfo<'a>>` and runs the `func` closure on it
+#[inline(always)] fn az_i_frame_callback_info_downcast_ref<'a, F: FnOnce(&Box<IFrameCallbackInfo<'a>>)>(ptr: &mut AzIFrameCallbackInfoPtr, func: F) { let box_ptr: Box<IFrameCallbackInfo<'a>> = unsafe { Box::<IFrameCallbackInfo<'a>>::from_raw(ptr.ptr  as *mut IFrameCallbackInfo<'a>) };func(&box_ptr);ptr.ptr = Box::into_raw(box_ptr) as *mut c_void; }
+
+/// Pointer to rust-allocated `Box<IFrameCallbackReturn>` struct
+pub use azul_core::callbacks::IFrameCallbackReturnPtr as AzIFrameCallbackReturnPtr;
+/// Destructor: Takes ownership of the `IFrameCallbackReturn` pointer and deletes it.
+#[no_mangle] #[inline] pub extern "C" fn az_i_frame_callback_return_delete(ptr: &mut AzIFrameCallbackReturnPtr) { let _ = unsafe { Box::<IFrameCallbackReturn>::from_raw(ptr.ptr  as *mut IFrameCallbackReturn) }; }
+/// Copies the pointer: WARNING: After calling this function you'll have two pointers to the same Box<`IFrameCallbackReturn`>!.
+#[no_mangle] #[inline] pub extern "C" fn az_i_frame_callback_return_shallow_copy(ptr: &AzIFrameCallbackReturnPtr) -> AzIFrameCallbackReturnPtr { AzIFrameCallbackReturnPtr { ptr: ptr.ptr } }
+/// (private): Downcasts the `AzIFrameCallbackReturnPtr` to a `Box<IFrameCallbackReturn>`. Note that this takes ownership of the pointer.
+#[inline(always)] fn az_i_frame_callback_return_downcast(ptr: AzIFrameCallbackReturnPtr) -> Box<IFrameCallbackReturn> { unsafe { Box::<IFrameCallbackReturn>::from_raw(ptr.ptr  as *mut IFrameCallbackReturn) } }
+/// (private): Downcasts the `AzIFrameCallbackReturnPtr` to a `&mut Box<IFrameCallbackReturn>` and runs the `func` closure on it
+#[inline(always)] fn az_i_frame_callback_return_downcast_refmut<F: FnOnce(&mut Box<IFrameCallbackReturn>)>(ptr: &mut AzIFrameCallbackReturnPtr, func: F) { let mut box_ptr: Box<IFrameCallbackReturn> = unsafe { Box::<IFrameCallbackReturn>::from_raw(ptr.ptr  as *mut IFrameCallbackReturn) };func(&mut box_ptr);ptr.ptr = Box::into_raw(box_ptr) as *mut c_void; }
+/// (private): Downcasts the `AzIFrameCallbackReturnPtr` to a `&Box<IFrameCallbackReturn>` and runs the `func` closure on it
+#[inline(always)] fn az_i_frame_callback_return_downcast_ref<F: FnOnce(&Box<IFrameCallbackReturn>)>(ptr: &mut AzIFrameCallbackReturnPtr, func: F) { let box_ptr: Box<IFrameCallbackReturn> = unsafe { Box::<IFrameCallbackReturn>::from_raw(ptr.ptr  as *mut IFrameCallbackReturn) };func(&box_ptr);ptr.ptr = Box::into_raw(box_ptr) as *mut c_void; }
+
+/// Re-export of rust-allocated (stack based) `GlCallback` struct
+#[no_mangle] #[repr(C)] pub struct AzGlCallback { ptr: *mut c_void }
+
+/// Pointer to rust-allocated `Box<GlCallbackInfo>` struct
+pub use azul_core::callbacks::GlCallbackInfoPtr as AzGlCallbackInfoPtr;
+/// Destructor: Takes ownership of the `GlCallbackInfo` pointer and deletes it.
+#[no_mangle] #[inline] pub extern "C" fn az_gl_callback_info_delete<'a>(ptr: &mut AzGlCallbackInfoPtr) { let _ = unsafe { Box::<GlCallbackInfo<'a>>::from_raw(ptr.ptr  as *mut GlCallbackInfo<'a>) }; }
+/// Copies the pointer: WARNING: After calling this function you'll have two pointers to the same Box<`GlCallbackInfo`>!.
+#[no_mangle] #[inline] pub extern "C" fn az_gl_callback_info_shallow_copy<'a>(ptr: &AzGlCallbackInfoPtr) -> AzGlCallbackInfoPtr { AzGlCallbackInfoPtr { ptr: ptr.ptr } }
+/// (private): Downcasts the `AzGlCallbackInfoPtr` to a `Box<GlCallbackInfo<'a>>`. Note that this takes ownership of the pointer.
+#[inline(always)] fn az_gl_callback_info_downcast<'a>(ptr: AzGlCallbackInfoPtr) -> Box<GlCallbackInfo<'a>> { unsafe { Box::<GlCallbackInfo<'a>>::from_raw(ptr.ptr  as *mut GlCallbackInfo<'a>) } }
+/// (private): Downcasts the `AzGlCallbackInfoPtr` to a `&mut Box<GlCallbackInfo<'a>>` and runs the `func` closure on it
+#[inline(always)] fn az_gl_callback_info_downcast_refmut<'a, F: FnOnce(&mut Box<GlCallbackInfo<'a>>)>(ptr: &mut AzGlCallbackInfoPtr, func: F) { let mut box_ptr: Box<GlCallbackInfo<'a>> = unsafe { Box::<GlCallbackInfo<'a>>::from_raw(ptr.ptr  as *mut GlCallbackInfo<'a>) };func(&mut box_ptr);ptr.ptr = Box::into_raw(box_ptr) as *mut c_void; }
+/// (private): Downcasts the `AzGlCallbackInfoPtr` to a `&Box<GlCallbackInfo<'a>>` and runs the `func` closure on it
+#[inline(always)] fn az_gl_callback_info_downcast_ref<'a, F: FnOnce(&Box<GlCallbackInfo<'a>>)>(ptr: &mut AzGlCallbackInfoPtr, func: F) { let box_ptr: Box<GlCallbackInfo<'a>> = unsafe { Box::<GlCallbackInfo<'a>>::from_raw(ptr.ptr  as *mut GlCallbackInfo<'a>) };func(&box_ptr);ptr.ptr = Box::into_raw(box_ptr) as *mut c_void; }
+
 /// Pointer to rust-allocated `Box<RefAny>` struct
 pub use ::azul_core::callbacks::RefAny as AzRefAny;
 
