@@ -59,6 +59,7 @@ pub mod str {
        pub(crate) fn leak(self) -> AzStringPtr { let p = az_string_shallow_copy(&self.ptr); std::mem::forget(self); p }
     }
 
+    impl Drop for String { fn drop(&mut self) { az_string_delete(&mut self.ptr); } }
 }
 
 /// Definition of azuls internal `U8Vec` type + functions for conversion from `std::Vec`
@@ -85,6 +86,7 @@ pub mod vec {
        pub(crate) fn leak(self) -> AzU8VecPtr { let p = az_u8_vec_shallow_copy(&self.ptr); std::mem::forget(self); p }
     }
 
+    impl Drop for U8Vec { fn drop(&mut self) { az_u8_vec_delete(&mut self.ptr); } }
 }
 
 /// Definition of azuls internal `PathBuf` type + functions for conversion from `std::PathBuf`
@@ -106,6 +108,7 @@ pub mod path {
        pub(crate) fn leak(self) -> AzPathBufPtr { let p = az_path_buf_shallow_copy(&self.ptr); std::mem::forget(self); p }
     }
 
+    impl Drop for PathBuf { fn drop(&mut self) { az_path_buf_delete(&mut self.ptr); } }
 }
 
 /// `App` construction and configuration
@@ -128,6 +131,7 @@ pub mod app {
        pub(crate) fn leak(self) -> AzAppConfigPtr { let p = az_app_config_shallow_copy(&self.ptr); std::mem::forget(self); p }
     }
 
+    impl Drop for AppConfig { fn drop(&mut self) { az_app_config_delete(&mut self.ptr); } }
 
 
     /// `App` struct
@@ -148,6 +152,7 @@ pub mod app {
        pub(crate) fn leak(self) -> AzAppPtr { let p = az_app_shallow_copy(&self.ptr); std::mem::forget(self); p }
     }
 
+    impl Drop for App { fn drop(&mut self) { az_app_delete(&mut self.ptr); } }
 }
 
 /// Callback type definitions + struct definitions of `CallbackInfo`s
@@ -186,6 +191,7 @@ pub type Callback = fn(AzCallbackInfoPtr) -> AzCallbackReturn;
        pub(crate) fn leak(self) -> AzCallbackInfoPtr { let p = az_callback_info_shallow_copy(&self.ptr); std::mem::forget(self); p }
     }
 
+    impl Drop for CallbackInfo { fn drop(&mut self) { az_callback_info_delete(&mut self.ptr); } }
 
 
     /// `UpdateScreen` struct
@@ -195,12 +201,12 @@ pub type Callback = fn(AzCallbackInfoPtr) -> AzCallbackReturn;
 
 
     /// `Redraw` struct
-    pub static Redraw: AzUpdateScreen = AzRedraw;
+    pub static REDRAW: AzUpdateScreen = AzRedraw;
 
 
 
     /// `DontRedraw` struct
-    pub static DontRedraw: AzUpdateScreen = AzDontRedraw;
+    pub static DONT_REDRAW: AzUpdateScreen = AzDontRedraw;
 
 
 
@@ -216,6 +222,7 @@ pub type IFrameCallback = fn(AzIFrameCallbackInfoPtr) -> AzIFrameCallbackReturnP
        pub(crate) fn leak(self) -> AzIFrameCallbackInfoPtr { let p = az_i_frame_callback_info_shallow_copy(&self.ptr); std::mem::forget(self); p }
     }
 
+    impl Drop for IFrameCallbackInfo { fn drop(&mut self) { az_i_frame_callback_info_delete(&mut self.ptr); } }
 
 
     /// `IFrameCallbackReturn` struct
@@ -227,6 +234,7 @@ pub type IFrameCallback = fn(AzIFrameCallbackInfoPtr) -> AzIFrameCallbackReturnP
        pub(crate) fn leak(self) -> AzIFrameCallbackReturnPtr { let p = az_i_frame_callback_return_shallow_copy(&self.ptr); std::mem::forget(self); p }
     }
 
+    impl Drop for IFrameCallbackReturn { fn drop(&mut self) { az_i_frame_callback_return_delete(&mut self.ptr); } }
 
 
 /// Callback for rendering to an OpenGL texture
@@ -241,6 +249,7 @@ pub type GlCallback = fn(AzGlCallbackInfoPtr) -> AzGlCallbackReturnPtr;
        pub(crate) fn leak(self) -> AzGlCallbackInfoPtr { let p = az_gl_callback_info_shallow_copy(&self.ptr); std::mem::forget(self); p }
     }
 
+    impl Drop for GlCallbackInfo { fn drop(&mut self) { az_gl_callback_info_delete(&mut self.ptr); } }
 
 
     /// `GlCallbackReturn` struct
@@ -252,6 +261,7 @@ pub type GlCallback = fn(AzGlCallbackInfoPtr) -> AzGlCallbackReturnPtr;
        pub(crate) fn leak(self) -> AzGlCallbackReturnPtr { let p = az_gl_callback_return_shallow_copy(&self.ptr); std::mem::forget(self); p }
     }
 
+    impl Drop for GlCallbackReturn { fn drop(&mut self) { az_gl_callback_return_delete(&mut self.ptr); } }
 
 
     use azul_dll::AzRefAny as AzRefAnyCore;
@@ -349,6 +359,7 @@ pub type GlCallback = fn(AzGlCallbackInfoPtr) -> AzGlCallbackReturnPtr;
        pub(crate) fn leak(self) -> AzLayoutInfoPtr { let p = az_layout_info_shallow_copy(&self.ptr); std::mem::forget(self); p }
     }
 
+    impl Drop for LayoutInfo { fn drop(&mut self) { az_layout_info_delete(&mut self.ptr); } }
 }
 
 /// `Css` parsing module
@@ -371,6 +382,7 @@ pub mod css {
        pub(crate) fn leak(self) -> AzCssPtr { let p = az_css_shallow_copy(&self.ptr); std::mem::forget(self); p }
     }
 
+    impl Drop for Css { fn drop(&mut self) { az_css_delete(&mut self.ptr); } }
 }
 
 /// `Dom` construction and configuration
@@ -400,6 +412,7 @@ pub mod dom {
        pub(crate) fn leak(self) -> AzDomPtr { let p = az_dom_shallow_copy(&self.ptr); std::mem::forget(self); p }
     }
 
+    impl Drop for Dom { fn drop(&mut self) { az_dom_delete(&mut self.ptr); } }
 }
 
 /// Struct definition for image / font / text IDs
@@ -421,6 +434,7 @@ pub mod resources {
        pub(crate) fn leak(self) -> AzTextId { az_text_id_deep_copy(&self.object) }
     }
 
+    impl Drop for TextId { fn drop(&mut self) { az_text_id_delete(&mut self.ptr); } }
 
 
     /// `ImageId` struct
@@ -434,6 +448,7 @@ pub mod resources {
        pub(crate) fn leak(self) -> AzImageId { az_image_id_deep_copy(&self.object) }
     }
 
+    impl Drop for ImageId { fn drop(&mut self) { az_image_id_delete(&mut self.ptr); } }
 
 
     /// `FontId` struct
@@ -447,34 +462,43 @@ pub mod resources {
        pub(crate) fn leak(self) -> AzFontId { az_font_id_deep_copy(&self.object) }
     }
 
+    impl Drop for FontId { fn drop(&mut self) { az_font_id_delete(&mut self.ptr); } }
 
 
     /// `ImageSource` struct
     pub struct ImageSource { pub(crate) object: AzImageSource }
 
     impl ImageSource {
-/// Bytes of the image, encoded in PNG / JPG / etc. format
-/// References an (encoded!) image as a file from the file system that is loaded when necessary
-/// References a decoded (!) `RawImage` as the image source
+        /// Bytes of the image, encoded in PNG / JPG / etc. format
+        pub fn embedded() { }
+        /// References an (encoded!) image as a file from the file system that is loaded when necessary
+        pub fn file() { }
+        /// References a decoded (!) `RawImage` as the image source
+        pub fn raw() { }
        /// Prevents the destructor from running and returns the internal `AzImageSource`
        #[allow(dead_code)]
        pub(crate) fn leak(self) -> AzImageSource { az_image_source_deep_copy(&self.object) }
     }
 
+    impl Drop for ImageSource { fn drop(&mut self) { az_image_source_delete(&mut self.ptr); } }
 
 
     /// `FontSource` struct
     pub struct FontSource { pub(crate) object: AzFontSource }
 
     impl FontSource {
-/// Bytes are the bytes of the font file
-/// References a font from a file path, which is loaded when necessary
-/// References a font from from a system font identifier, such as `"Arial"` or `"Helvetica"`
+        /// Bytes are the bytes of the font file
+        pub fn embedded() { }
+        /// References a font from a file path, which is loaded when necessary
+        pub fn file() { }
+        /// References a font from from a system font identifier, such as `"Arial"` or `"Helvetica"`
+        pub fn system() { }
        /// Prevents the destructor from running and returns the internal `AzFontSource`
        #[allow(dead_code)]
        pub(crate) fn leak(self) -> AzFontSource { az_font_source_deep_copy(&self.object) }
     }
 
+    impl Drop for FontSource { fn drop(&mut self) { az_font_source_delete(&mut self.ptr); } }
 
 
     /// `RawImage` struct
@@ -488,33 +512,35 @@ pub mod resources {
        pub(crate) fn leak(self) -> AzRawImagePtr { let p = az_raw_image_shallow_copy(&self.ptr); std::mem::forget(self); p }
     }
 
+    impl Drop for RawImage { fn drop(&mut self) { az_raw_image_delete(&mut self.ptr); } }
 
 
     /// `RawImageFormat` struct
     pub struct RawImageFormat { pub(crate) object: AzRawImageFormat }
 
     impl RawImageFormat {
-/// Bytes are in the R-unsinged-8bit format
-pub fn r8() -> Self { Self { object: az_raw_image_format_r8() }  }
-/// Bytes are in the R-unsinged-16bit format
-pub fn r16() -> Self { Self { object: az_raw_image_format_r16() }  }
-/// Bytes are in the RG-unsinged-16bit format
-pub fn rg16() -> Self { Self { object: az_raw_image_format_rg16() }  }
-/// Bytes are in the BRGA-unsigned-8bit format
-pub fn bgra8() -> Self { Self { object: az_raw_image_format_bgra8() }  }
-/// Bytes are in the RGBA-floating-point-32bit format
-pub fn rgbaf32() -> Self { Self { object: az_raw_image_format_rgbaf32() }  }
-/// Bytes are in the RG-unsigned-8bit format
-pub fn rg8() -> Self { Self { object: az_raw_image_format_rg8() }  }
-/// Bytes are in the RGBA-signed-32bit format
-pub fn rgbai32() -> Self { Self { object: az_raw_image_format_rgbai32() }  }
-/// Bytes are in the RGBA-unsigned-8bit format
-pub fn rgba8() -> Self { Self { object: az_raw_image_format_rgba8() }  }
+        /// Bytes are in the R-unsinged-8bit format
+        pub fn r8() -> Self { Self { object: az_raw_image_format_r8() }  }
+        /// Bytes are in the R-unsinged-16bit format
+        pub fn r16() -> Self { Self { object: az_raw_image_format_r16() }  }
+        /// Bytes are in the RG-unsinged-16bit format
+        pub fn rg16() -> Self { Self { object: az_raw_image_format_rg16() }  }
+        /// Bytes are in the BRGA-unsigned-8bit format
+        pub fn bgra8() -> Self { Self { object: az_raw_image_format_bgra8() }  }
+        /// Bytes are in the RGBA-floating-point-32bit format
+        pub fn rgbaf32() -> Self { Self { object: az_raw_image_format_rgbaf32() }  }
+        /// Bytes are in the RG-unsigned-8bit format
+        pub fn rg8() -> Self { Self { object: az_raw_image_format_rg8() }  }
+        /// Bytes are in the RGBA-signed-32bit format
+        pub fn rgbai32() -> Self { Self { object: az_raw_image_format_rgbai32() }  }
+        /// Bytes are in the RGBA-unsigned-8bit format
+        pub fn rgba8() -> Self { Self { object: az_raw_image_format_rgba8() }  }
        /// Prevents the destructor from running and returns the internal `AzRawImageFormat`
        #[allow(dead_code)]
        pub(crate) fn leak(self) -> AzRawImageFormat { az_raw_image_format_deep_copy(&self.object) }
     }
 
+    impl Drop for RawImageFormat { fn drop(&mut self) { az_raw_image_format_delete(&mut self.ptr); } }
 }
 
 /// Window creation / startup configuration
@@ -536,5 +562,6 @@ pub mod window {
        pub(crate) fn leak(self) -> AzWindowCreateOptionsPtr { let p = az_window_create_options_shallow_copy(&self.ptr); std::mem::forget(self); p }
     }
 
+    impl Drop for WindowCreateOptions { fn drop(&mut self) { az_window_create_options_delete(&mut self.ptr); } }
 }
 
