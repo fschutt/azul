@@ -126,6 +126,9 @@
                "external": "azul_core::callbacks::GlCallbackInfoPtr",
                "rust_class_name": "GlCallbackInfo<'a>"
             },
+            "GlCallbackReturn": {
+               "external": "azul_core::callbacks::GlCallbackReturnPtr"
+            },
 
             "RefAny": { "use_patches": ["dll", "rust"] },
             "LayoutInfo": {

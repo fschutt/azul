@@ -173,9 +173,9 @@ pub mod callbacks {
     }
 
 
-    /// `Callback` struct
-    pub struct Callback { pub(crate) object: AzCallback }
-    
+pub type CallbackReturn = AzUpdateScreen;
+/// Callback for responding to window events
+pub type Callback = fn(AzCallbackInfoPtr) -> AzCallbackReturn;
 
     /// `CallbackInfo` struct
     pub struct CallbackInfo { pub(crate) ptr: AzCallbackInfoPtr }
@@ -204,9 +204,8 @@ pub mod callbacks {
 
 
 
-    /// `IFrameCallback` struct
-    pub struct IFrameCallback { pub(crate) object: AzIFrameCallback }
-    
+/// Callback for rendering iframes (infinite data structures that have to know how large they are rendered)
+pub type IFrameCallback = fn(AzIFrameCallbackInfoPtr) -> AzIFrameCallbackReturnPtr;
 
     /// `IFrameCallbackInfo` struct
     pub struct IFrameCallbackInfo { pub(crate) ptr: AzIFrameCallbackInfoPtr }
@@ -230,9 +229,8 @@ pub mod callbacks {
 
 
 
-    /// `GlCallback` struct
-    pub struct GlCallback { pub(crate) object: AzGlCallback }
-    
+/// Callback for rendering to an OpenGL texture
+pub type GlCallback = fn(AzGlCallbackInfoPtr) -> AzGlCallbackReturnPtr;
 
     /// `GlCallbackInfo` struct
     pub struct GlCallbackInfo { pub(crate) ptr: AzGlCallbackInfoPtr }
@@ -241,6 +239,17 @@ pub mod callbacks {
        /// Prevents the destructor from running and returns the internal `AzGlCallbackInfoPtr`
        #[allow(dead_code)]
        pub(crate) fn leak(self) -> AzGlCallbackInfoPtr { let p = az_gl_callback_info_shallow_copy(&self.ptr); std::mem::forget(self); p }
+    }
+
+
+
+    /// `GlCallbackReturn` struct
+    pub struct GlCallbackReturn { pub(crate) ptr: AzGlCallbackReturnPtr }
+
+    impl GlCallbackReturn {
+       /// Prevents the destructor from running and returns the internal `AzGlCallbackReturnPtr`
+       #[allow(dead_code)]
+       pub(crate) fn leak(self) -> AzGlCallbackReturnPtr { let p = az_gl_callback_return_shallow_copy(&self.ptr); std::mem::forget(self); p }
     }
 
 

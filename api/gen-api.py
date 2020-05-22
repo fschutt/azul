@@ -30,21 +30,27 @@ js_api_path = "../azul/src/js/azul.js"
 dll_patches = {
     tuple(['*']): read_file("./patches/azul-dll/header.rs"),
     tuple(['callbacks', 'RefAny']): read_file("./patches/azul-dll/refany.rs"),
-    tuple(['callbacks', 'LayoutCallback']): read_file("./patches/azul-dll/layout_callback.rs")
-}
-
-c_api_patches = {
-    tuple(['callbacks', 'LayoutCallback']): read_file("./patches/c/layout_callback.h"),
+    tuple(['callbacks', 'LayoutCallback']): read_file("./patches/azul-dll/layout_callback.rs"),
+    tuple(['callbacks', 'Callback']): read_file("./patches/azul-dll/callback.rs"),
+    tuple(['callbacks', 'GlCallback']): read_file("./patches/azul-dll/gl_callback.rs"),
+    tuple(['callbacks', 'IFrameCallback']): read_file("./patches/azul-dll/iframe_callback.rs"),
 }
 
 rust_api_patches = {
     tuple(['*']): read_file("./patches/azul.rs/header.rs"),
     tuple(['str']): read_file("./patches/azul.rs/string.rs"),
     tuple(['vec']): read_file("./patches/azul.rs/vec.rs"),
-    tuple(['callbacks', 'LayoutCallback']): read_file("./patches/azul.rs/layout_callback.rs"),
     tuple(['callbacks', 'RefAny']): read_file("./patches/azul.rs/refany.rs"),
     tuple(['callbacks', 'UpdateScreen']): read_file("./patches/azul.rs/update_screen.rs"),
+    tuple(['callbacks', 'LayoutCallback']): read_file("./patches/azul.rs/layout_callback.rs"),
+    tuple(['callbacks', 'Callback']): read_file("./patches/azul.rs/callback.rs"),
+    tuple(['callbacks', 'GlCallback']): read_file("./patches/azul.rs/gl_callback.rs"),
+    tuple(['callbacks', 'IFrameCallback']): read_file("./patches/azul.rs/iframe_callback.rs"),
     tuple(['app', 'App', 'new']): read_file("./patches/azul.rs/app_new.rs"),
+}
+
+c_api_patches = {
+    tuple(['callbacks', 'LayoutCallback']): read_file("./patches/c/layout_callback.h"),
 }
 
 # ---------------------------------------------------------------------------------------------
