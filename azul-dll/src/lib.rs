@@ -116,6 +116,15 @@ use azul_web::app::{App, AppConfig};
 /// (private): Downcasts the `AzAppPtr` to a `&Box<App>` and runs the `func` closure on it
 #[inline(always)] fn az_app_downcast_ref<F: FnOnce(&Box<App>)>(ptr: &mut AzAppPtr, func: F) { let box_ptr: Box<App> = unsafe { Box::<App>::from_raw(ptr.ptr  as *mut App) };func(&box_ptr);ptr.ptr = Box::into_raw(box_ptr) as *mut c_void; }
 
+/// Re-export of rust-allocated (stack based) `UpdateScreen` struct
+pub type AzUpdateScreen = Option<()>;
+
+/// Re-export of rust-allocated (stack based) `Redraw` struct
+pub const AzRedraw: AzUpdateScreen = azul_core::callbacks::Redraw;
+
+/// Re-export of rust-allocated (stack based) `DontRedraw` struct
+pub const AzDontRedraw: AzUpdateScreen = azul_core::callbacks::DontRedraw;
+
 /// The layout() callback fn
 pub type AzLayoutCallback = fn(AzRefAny, AzLayoutInfoPtr) -> AzDomPtr;
 /// Pointer to rust-allocated `Box<RefAny>` struct
@@ -149,7 +158,7 @@ pub use ::azul_core::callbacks::RefAny as AzRefAny;
 }
 
 /// Pointer to rust-allocated `Box<LayoutInfo>` struct
-pub use ::azul_core::callbacks::LayoutInfoPtr as AzLayoutInfoPtr;
+pub use azul_core::callbacks::LayoutInfoPtr as AzLayoutInfoPtr;
 /// Destructor: Takes ownership of the `LayoutInfo` pointer and deletes it.
 #[no_mangle] #[inline] pub extern "C" fn az_layout_info_delete<'a>(ptr: &mut AzLayoutInfoPtr) { let _ = unsafe { Box::<LayoutInfo<'a>>::from_raw(ptr.ptr  as *mut LayoutInfo<'a>) }; }
 /// Copies the pointer: WARNING: After calling this function you'll have two pointers to the same Box<`LayoutInfo`>!.
@@ -179,7 +188,7 @@ pub use ::azul_core::callbacks::LayoutInfoPtr as AzLayoutInfoPtr;
 #[inline(always)] fn az_css_downcast_ref<F: FnOnce(&Box<Css>)>(ptr: &mut AzCssPtr, func: F) { let box_ptr: Box<Css> = unsafe { Box::<Css>::from_raw(ptr.ptr  as *mut Css) };func(&box_ptr);ptr.ptr = Box::into_raw(box_ptr) as *mut c_void; }
 
 /// Pointer to rust-allocated `Box<Dom>` struct
-pub use ::azul_core::dom::DomPtr as AzDomPtr;
+pub use azul_core::dom::DomPtr as AzDomPtr;
 /// Creates a new `div` node
 #[no_mangle] #[inline] pub extern "C" fn az_dom_div() -> AzDomPtr { let object: Dom = Dom::div(); AzDomPtr { ptr: Box::into_raw(Box::new(object)) as *mut c_void } }
 /// Creates a new `body` node
@@ -202,8 +211,8 @@ pub use ::azul_core::dom::DomPtr as AzDomPtr;
 /// (private): Downcasts the `AzDomPtr` to a `&Box<Dom>` and runs the `func` closure on it
 #[inline(always)] fn az_dom_downcast_ref<F: FnOnce(&Box<Dom>)>(ptr: &mut AzDomPtr, func: F) { let box_ptr: Box<Dom> = unsafe { Box::<Dom>::from_raw(ptr.ptr  as *mut Dom) };func(&box_ptr);ptr.ptr = Box::into_raw(box_ptr) as *mut c_void; }
 
-/// Pointer to rust-allocated `Box<TextId>` struct
-pub use ::azul_core::app_resources::TextId as AzTextId;
+/// Re-export of rust-allocated (stack based) `TextId` struct
+pub use azul_core::app_resources::TextId as AzTextId;
 /// Creates a new, unique `TextId`
 #[no_mangle] #[inline] pub extern "C" fn az_text_id_new() -> AzTextId { let object: TextId = TextId::new(); object }
 /// Destructor: Takes ownership of the `TextId` pointer and deletes it.
@@ -211,8 +220,8 @@ pub use ::azul_core::app_resources::TextId as AzTextId;
 /// Copies the object
 #[no_mangle] #[inline] pub extern "C" fn az_text_id_deep_copy(object: &AzTextId) -> AzTextId { object.clone() }
 
-/// Pointer to rust-allocated `Box<ImageId>` struct
-pub use ::azul_core::app_resources::ImageId as AzImageId;
+/// Re-export of rust-allocated (stack based) `ImageId` struct
+pub use azul_core::app_resources::ImageId as AzImageId;
 /// Creates a new, unique `ImageId`
 #[no_mangle] #[inline] pub extern "C" fn az_image_id_new() -> AzImageId { let object: ImageId = ImageId::new(); object }
 /// Destructor: Takes ownership of the `ImageId` pointer and deletes it.
@@ -220,8 +229,8 @@ pub use ::azul_core::app_resources::ImageId as AzImageId;
 /// Copies the object
 #[no_mangle] #[inline] pub extern "C" fn az_image_id_deep_copy(object: &AzImageId) -> AzImageId { object.clone() }
 
-/// Pointer to rust-allocated `Box<FontId>` struct
-pub use ::azul_core::app_resources::FontId as AzFontId;
+/// Re-export of rust-allocated (stack based) `FontId` struct
+pub use azul_core::app_resources::FontId as AzFontId;
 /// Creates a new, unique `FontId`
 #[no_mangle] #[inline] pub extern "C" fn az_font_id_new() -> AzFontId { let object: FontId = FontId::new(); object }
 /// Destructor: Takes ownership of the `FontId` pointer and deletes it.
@@ -229,8 +238,8 @@ pub use ::azul_core::app_resources::FontId as AzFontId;
 /// Copies the object
 #[no_mangle] #[inline] pub extern "C" fn az_font_id_deep_copy(object: &AzFontId) -> AzFontId { object.clone() }
 
-/// Pointer to rust-allocated `Box<ImageSource>` struct
-pub use ::azul_core::app_resources::ImageSource as AzImageSource;
+/// Re-export of rust-allocated (stack based) `ImageSource` struct
+pub use azul_core::app_resources::ImageSource as AzImageSource;
 /// Bytes of the image, encoded in PNG / JPG / etc. format
 /// References an (encoded!) image as a file from the file system that is loaded when necessary
 /// References a decoded (!) `RawImage` as the image source
@@ -239,8 +248,8 @@ pub use ::azul_core::app_resources::ImageSource as AzImageSource;
 /// Copies the object
 #[no_mangle] #[inline] pub extern "C" fn az_image_source_deep_copy(object: &AzImageSource) -> AzImageSource { object.clone() }
 
-/// Pointer to rust-allocated `Box<FontSource>` struct
-pub use ::azul_core::app_resources::FontSource as AzFontSource;
+/// Re-export of rust-allocated (stack based) `FontSource` struct
+pub use azul_core::app_resources::FontSource as AzFontSource;
 /// Bytes are the bytes of the font file
 /// References a font from a file path, which is loaded when necessary
 /// References a font from from a system font identifier, such as `"Arial"` or `"Helvetica"`
@@ -264,8 +273,8 @@ pub use ::azul_core::app_resources::FontSource as AzFontSource;
 /// (private): Downcasts the `AzRawImagePtr` to a `&Box<RawImage>` and runs the `func` closure on it
 #[inline(always)] fn az_raw_image_downcast_ref<F: FnOnce(&Box<RawImage>)>(ptr: &mut AzRawImagePtr, func: F) { let box_ptr: Box<RawImage> = unsafe { Box::<RawImage>::from_raw(ptr.ptr  as *mut RawImage) };func(&box_ptr);ptr.ptr = Box::into_raw(box_ptr) as *mut c_void; }
 
-/// Pointer to rust-allocated `Box<RawImageFormat>` struct
-pub use ::azul_core::app_resources::RawImageFormat as AzRawImageFormat;
+/// Re-export of rust-allocated (stack based) `RawImageFormat` struct
+pub use azul_core::app_resources::RawImageFormat as AzRawImageFormat;
 /// Bytes are in the R-unsinged-8bit format
 #[inline] #[no_mangle] pub extern "C" fn az_raw_image_format_r8() -> AzRawImageFormat { AzRawImageFormat::R8 }
 /// Bytes are in the R-unsinged-16bit format

@@ -101,12 +101,11 @@
       "callbacks": {
          "doc": "Callback type definitions + struct definitions of `CallbackInfo`s",
          "classes": {
-            "LayoutCallback": {
-               "use_patches": ["dll", "rust"]
-            },
-            "RefAny": {
-               "use_patches": ["dll", "rust"]
-            },
+            "UpdateScreen": { "external": "Option<()>", "use_patches": ["rust"], "typedef": true },
+            "Redraw": { "external": "azul_core::callbacks::Redraw", "use_patches": ["rust"], "const": "UpdateScreen" },
+            "DontRedraw": { "external": "azul_core::callbacks::DontRedraw", "use_patches": ["rust"], "const": "UpdateScreen" },
+            "LayoutCallback": { "use_patches": ["dll", "rust"] },
+            "RefAny": { "use_patches": ["dll", "rust"] },
             "LayoutInfo": {
                "rust_class_name": "LayoutInfo<'a>",
                "external": "azul_core::callbacks::LayoutInfoPtr"
