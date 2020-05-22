@@ -414,11 +414,12 @@ def generate_rust_dll(apiData):
             if "external" in c.keys():
                 external_path = c["external"]
                 if class_is_const:
-                    code += "pub const " + class_ptr_name + ": " + prefix + c["const"] + " = " + external_path + ";\r\n"
+                    code += "#[no_mangle] pub static " + class_ptr_name + ": " + prefix + c["const"] + " = " + external_path + ";\r\n"
                 elif class_is_typedef:
-                    code += "pub type " + class_ptr_name + " = " + external_path + ";\r\n"
+                    code += "#[no_mangle] pub type " + class_ptr_name + " = " + external_path + ";\r\n"
                 else:
-                    code += "pub use " + external_path + " as " + class_ptr_name + ";\r\n"
+                    code += "pub type " + class_ptr_name + "Type = " + external_path + ";\r\n"
+                    code += "#[no_mangle] pub use " + class_ptr_name + "Type as " + class_ptr_name + ";\r\n"
 
                 if c_is_stack_allocated:
                     if class_is_small_enum(c):
@@ -722,7 +723,7 @@ def generate_rust_api(apiData):
                 if class_is_typedef:
                     code += "pub struct " + class_name + " { pub(crate) object: " +  class_ptr_name + " }\r\n    "
                 elif class_is_const:
-                    code += "pub const " + class_name + ": " + prefix + c["const"] + " = " + class_ptr_name + ";\r\n\r\n"
+                    code += "pub static " + class_name + ": " + prefix + c["const"] + " = " + class_ptr_name + ";\r\n\r\n"
                 else:
                     code += "pub struct " + class_name + " { pub(crate) object: " +  class_ptr_name + " }\r\n\r\n"
             else:

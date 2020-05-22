@@ -195,12 +195,12 @@ pub type Callback = fn(AzCallbackInfoPtr) -> AzCallbackReturn;
 
 
     /// `Redraw` struct
-    pub const Redraw: AzUpdateScreen = AzRedraw;
+    pub static Redraw: AzUpdateScreen = AzRedraw;
 
 
 
     /// `DontRedraw` struct
-    pub const DontRedraw: AzUpdateScreen = AzDontRedraw;
+    pub static DontRedraw: AzUpdateScreen = AzDontRedraw;
 
 
 

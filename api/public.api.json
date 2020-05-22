@@ -106,7 +106,8 @@
             "Callback": { "use_patches": ["dll", "rust"], "typedef": true },
             "CallbackInfo": {
                "external": "azul_core::callbacks::CallbackInfoPtr",
-               "rust_class_name": "CallbackInfo<'a>"
+               "rust_class_name": "CallbackInfo<'a>",
+               "is_boxed_object": true
             },
             "UpdateScreen": { "external": "Option<()>", "use_patches": ["rust"], "typedef": true },
             "Redraw": { "external": "azul_core::callbacks::Redraw", "use_patches": ["rust"], "const": "UpdateScreen" },
@@ -115,25 +116,30 @@
             "IFrameCallback": { "use_patches": ["dll", "rust"], "typedef": true },
             "IFrameCallbackInfo": {
                "external": "azul_core::callbacks::IFrameCallbackInfoPtr",
-               "rust_class_name": "IFrameCallbackInfo<'a>"
+               "rust_class_name": "IFrameCallbackInfo<'a>",
+               "is_boxed_object": true
             },
             "IFrameCallbackReturn": {
-               "external": "azul_core::callbacks::IFrameCallbackReturnPtr"
+               "external": "azul_core::callbacks::IFrameCallbackReturnPtr",
+               "is_boxed_object": true
             },
 
             "GlCallback": { "use_patches": ["dll", "rust"], "typedef": true },
             "GlCallbackInfo": {
                "external": "azul_core::callbacks::GlCallbackInfoPtr",
-               "rust_class_name": "GlCallbackInfo<'a>"
+               "rust_class_name": "GlCallbackInfo<'a>",
+               "is_boxed_object": true
             },
             "GlCallbackReturn": {
-               "external": "azul_core::callbacks::GlCallbackReturnPtr"
+               "external": "azul_core::callbacks::GlCallbackReturnPtr",
+               "is_boxed_object": true
             },
 
             "RefAny": { "use_patches": ["dll", "rust"] },
             "LayoutInfo": {
                "rust_class_name": "LayoutInfo<'a>",
-               "external": "azul_core::callbacks::LayoutInfoPtr"
+               "external": "azul_core::callbacks::LayoutInfoPtr",
+               "is_boxed_object": true
             }
          }
       },
@@ -160,6 +166,7 @@
             "Dom": {
                "rust_class_name": "Dom",
                "external": "azul_core::dom::DomPtr",
+               "is_boxed_object": true,
                "constructors": {
                   "div": {
                      "doc": "Creates a new `div` node",
