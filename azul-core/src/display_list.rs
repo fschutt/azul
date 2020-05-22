@@ -32,7 +32,7 @@ use crate::{
     ui_description::{UiDescription, StyledNode},
     id_tree::{NodeDataContainer, NodeId, NodeHierarchy},
     dom::{
-        DomId, NodeData, TagId, ScrollTagId, DomString,
+        DomId, NodeData, TagId, ScrollTagId,
     },
 };
 #[cfg(feature = "opengl")]
@@ -1339,7 +1339,7 @@ pub struct OverrideWarning {
 pub fn populate_css_properties(
     rect: &mut DisplayRectangle,
     node_id: NodeId,
-    css_overrides: &BTreeMap<NodeId, FastHashMap<DomString, CssProperty>>,
+    css_overrides: &BTreeMap<NodeId, FastHashMap<String, CssProperty>>,
     styled_node: &StyledNode,
 ) -> Vec<OverrideWarning> {
 
@@ -1358,7 +1358,7 @@ pub fn populate_css_properties(
             None
         },
         Dynamic(dynamic_property) => {
-            let overridden_property = css_overrides.get(&node_id).and_then(|overrides| overrides.get(&dynamic_property.dynamic_id.clone().into()))?;
+            let overridden_property = css_overrides.get(&node_id).and_then(|overrides| overrides.get(&dynamic_property.dynamic_id))?;
 
             // Apply the property default if the discriminant of the two types matches
             if mem::discriminant(overridden_property) == mem::discriminant(&dynamic_property.default_value) {

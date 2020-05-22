@@ -98,7 +98,7 @@ pub mod prelude {
             FragmentShaderCompileError, GlShaderLinkError, GlShaderCreateError,
         },
         dom::{
-            Dom, DomHash, NodeType, NodeData, On, DomString, TabIndex,
+            Dom, DomHash, NodeType, NodeData, On, TabIndex,
             EventFilter, HoverEventFilter, FocusEventFilter, NotEventFilter, WindowEventFilter,
         },
         task::{Task, TerminateTimer, TimerId, Timer, DropCheck},

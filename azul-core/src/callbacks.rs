@@ -313,7 +313,6 @@ macro_rules! impl_get_gl_context {() => {
 /// The style is not affected by this, so if you make changes to the window's style
 /// inside the function, the screen will not be automatically redrawn, unless you return
 /// an `UpdateScreen::Redraw` from the function
-#[repr(C)]
 pub struct Callback(pub CallbackType);
 impl_callback!(Callback);
 

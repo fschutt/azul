@@ -352,12 +352,12 @@ pub fn selector_group_matches(
                 }
             },
             Class(c) => {
-                if !node_data.get_classes().iter().any(|class| class.equals_str(c)) {
+                if !node_data.get_classes().iter().any(|class| class == c) {
                     return false;
                 }
             },
             Id(id) => {
-                if !node_data.get_ids().iter().any(|html_id| html_id.equals_str(id)) {
+                if !node_data.get_ids().iter().any(|html_id| html_id == id) {
                     return false;
                 }
             },

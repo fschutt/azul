@@ -43,5 +43,5 @@ pub mod window;
 pub mod window_state;
 
 // Typedef for possible faster implementation of hashing
-pub type FastHashMap<T, U> = ::std::collections::HashMap<T, U>;
-pub type FastHashSet<T> = ::std::collections::HashSet<T>;
+pub type FastHashMap<T, U> = std::collections::HashMap<T, U>;
+pub type FastHashSet<T> = std::collections::HashSet<T>;

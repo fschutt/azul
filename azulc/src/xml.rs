@@ -918,7 +918,7 @@ pub fn compile_component(
         if should_inline { "#[inline]\r\n" } else { "" },
         normalize_casing(component_name),
         // pass the text content as the first
-        if component_args.accepts_text { "<T: Layout, I: Into<DomString>>" } else { "<T: Layout>" },
+        if component_args.accepts_text { "<T: Layout, I: Into<String>>" } else { "<T: Layout>" },
         if component_args.accepts_text { "text: I" } else { "" },
         if function_args.is_empty() || !component_args.accepts_text { "" } else { ", " },
         function_args,
@@ -979,17 +979,17 @@ pub fn render_dom_from_body_node_inner(
 
 pub fn set_attributes(dom: &mut Dom, xml_attributes: &XmlAttributeMap, filtered_xml_attributes: &FilteredComponentArguments) {
 
-    use azul_core::dom::{TabIndex, DomString};
+    use azul_core::dom::TabIndex;
 
     if let Some(ids) = xml_attributes.get("id") {
         for id in ids.split_whitespace() {
-            dom.add_id(DomString::Heap(format_args_dynamic(id, &filtered_xml_attributes.args)));
+            dom.add_id(format_args_dynamic(id, &filtered_xml_attributes.args));
         }
     }
 
     if let Some(classes) = xml_attributes.get("class") {
         for class in classes.split_whitespace() {
-            dom.add_class(DomString::Heap(format_args_dynamic(class, &filtered_xml_attributes.args)));
+            dom.add_class(format_args_dynamic(class, &filtered_xml_attributes.args));
         }
     }
 

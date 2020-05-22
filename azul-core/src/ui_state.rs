@@ -7,7 +7,7 @@ use crate::{
     FastHashMap,
     id_tree::NodeId,
     dom::{
-        Dom, CompactDom, DomId, TagId, TabIndex, DomString,
+        Dom, CompactDom, DomId, TagId, TabIndex,
         HoverEventFilter, FocusEventFilter, NotEventFilter,
         WindowEventFilter,
     },
@@ -25,7 +25,7 @@ pub struct UiState {
     /// The actual DOM, rendered from the .layout() function
     pub(crate) dom: CompactDom,
     /// The style properties that should be overridden for this frame, cloned from the `Css`
-    pub dynamic_css_overrides: BTreeMap<NodeId, FastHashMap<DomString, CssProperty>>,
+    pub dynamic_css_overrides: BTreeMap<NodeId, FastHashMap<String, CssProperty>>,
     /// Stores all tags for nodes that need to activate on a `:hover` or `:active` event.
     pub tag_ids_to_hover_active_states: BTreeMap<TagId, (NodeId, HoverGroup)>,
 

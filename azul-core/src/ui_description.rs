@@ -5,7 +5,7 @@ use azul_css::{Css, CssDeclaration, CssProperty, CssPropertyType};
 use crate::{
     FastHashMap,
     id_tree::{NodeId, NodeDataContainer},
-    dom::{DomId, DomString},
+    dom::DomId,
     ui_state::{UiState, HoverGroup},
     callbacks::HitTestItem,
     style::HtmlCascadeInfo,
@@ -22,7 +22,7 @@ pub struct UiDescription {
     /// This field is created from the Css
     pub styled_nodes: NodeDataContainer<StyledNode>,
     /// The style properties that should be overridden for this frame, cloned from the `Css`
-    pub dynamic_css_overrides: BTreeMap<NodeId, FastHashMap<DomString, CssProperty>>,
+    pub dynamic_css_overrides: BTreeMap<NodeId, FastHashMap<String, CssProperty>>,
     /// In order to hit-test :hover and :active selectors, need to insert tags for all rectangles
     /// that have a non-:hover path, for example if we have `#thing:hover`, then all nodes selected by `#thing`
     /// need to get a TagId, otherwise, they can't be hit-tested.

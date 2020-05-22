@@ -2,7 +2,6 @@ use std::{
     fmt,
     hash::{Hash, Hasher},
     sync::atomic::{AtomicUsize, Ordering},
-    cmp::Ordering as CmpOrdering,
     iter::FromIterator,
     ffi::c_void,
 };
@@ -123,7 +122,7 @@ pub enum NodeType {
     /// Same as div, but only for the root node
     Body,
     /// A small label that can be (optionally) be selectable with the mouse
-    Label(DomString),
+    Label(String),
     /// Larger amount of text, that has to be cached
     Text(TextId),
     /// An image that is rendered by WebRender. The id is acquired by the
@@ -475,9 +474,9 @@ pub struct NodeData {
     /// `div`
     node_type: NodeType,
     /// `#main #something`
-    ids: Vec<DomString>,
+    ids: Vec<String>,
     /// `.myclass .otherclass`
-    classes: Vec<DomString>,
+    classes: Vec<String>,
     /// `On::MouseUp` -> `Callback(my_button_click_handler)`
     callbacks: Vec<(EventFilter, (Callback, RefAny))>,
     /// Override certain dynamic styling properties in this frame. For this,
@@ -495,7 +494,7 @@ pub struct NodeData {
     ///     dynamic_css_overrides: vec![("my_custom_width".into(), CssProperty::Width(LayoutWidth::px(500.0)))]
     /// }
     /// ```
-    dynamic_css_overrides: Vec<(DomString, CssProperty)>,
+    dynamic_css_overrides: Vec<(String, CssProperty)>,
     /// Whether this div can be dragged or not, similar to `draggable = "true"` in HTML, .
     ///
     /// **TODO**: Currently doesn't do anything, since the drag & drop implementation is missing, API stub.
@@ -714,12 +713,12 @@ impl NodeData {
 
     /// Checks whether this node has the searched ID attached
     pub fn has_id(&self, id: &str) -> bool {
-        self.ids.iter().any(|self_id| self_id.equals_str(id))
+        self.ids.iter().any(|self_id| self_id == id)
     }
 
     /// Checks whether this node has the searched class attached
     pub fn has_class(&self, class: &str) -> bool {
-        self.classes.iter().any(|self_class| self_class.equals_str(class))
+        self.classes.iter().any(|self_class| self_class == class)
     }
 
     pub fn calculate_node_data_hash(&self) -> DomHash {
@@ -746,7 +745,7 @@ impl NodeData {
 
     /// Shorthand for `NodeData::new(NodeType::Label(value.into()))`
     #[inline(always)]
-    pub fn label<S: Into<DomString>>(value: S) -> Self {
+    pub fn label<S: Into<String>>(value: S) -> Self {
         Self::new(NodeType::Label(value.into()))
     }
 
@@ -781,13 +780,13 @@ impl NodeData {
     #[inline(always)]
     pub const fn get_node_type(&self) -> &NodeType { &self.node_type }
     #[inline(always)]
-    pub const fn get_ids(&self) -> &Vec<DomString> { &self.ids }
+    pub const fn get_ids(&self) -> &Vec<String> { &self.ids }
     #[inline(always)]
-    pub const fn get_classes(&self) -> &Vec<DomString> { &self.classes }
+    pub const fn get_classes(&self) -> &Vec<String> { &self.classes }
     #[inline(always)]
     pub const fn get_callbacks(&self) -> &Vec<(EventFilter, (Callback, RefAny))> { &self.callbacks }
     #[inline(always)]
-    pub const fn get_dynamic_css_overrides(&self) -> &Vec<(DomString, CssProperty)> { &self.dynamic_css_overrides }
+    pub const fn get_dynamic_css_overrides(&self) -> &Vec<(String, CssProperty)> { &self.dynamic_css_overrides }
     #[inline(always)]
     pub const fn get_is_draggable(&self) -> bool { self.is_draggable }
     #[inline(always)]
@@ -796,13 +795,13 @@ impl NodeData {
     #[inline(always)]
     pub fn set_node_type(&mut self, node_type: NodeType) { self.node_type = node_type; }
     #[inline(always)]
-    pub fn set_ids(&mut self, ids: Vec<DomString>) { self.ids = ids; }
+    pub fn set_ids(&mut self, ids: Vec<String>) { self.ids = ids; }
     #[inline(always)]
-    pub fn set_classes(&mut self, classes: Vec<DomString>) { self.classes = classes; }
+    pub fn set_classes(&mut self, classes: Vec<String>) { self.classes = classes; }
     #[inline(always)]
     pub fn set_callbacks(&mut self, callbacks: Vec<(EventFilter, (Callback, RefAny))>) { self.callbacks = callbacks; }
     #[inline(always)]
-    pub fn set_dynamic_css_overrides(&mut self, dynamic_css_overrides: Vec<(DomString, CssProperty)>) { self.dynamic_css_overrides = dynamic_css_overrides; }
+    pub fn set_dynamic_css_overrides(&mut self, dynamic_css_overrides: Vec<(String, CssProperty)>) { self.dynamic_css_overrides = dynamic_css_overrides; }
     #[inline(always)]
     pub fn set_is_draggable(&mut self, is_draggable: bool) { self.is_draggable = is_draggable; }
     #[inline(always)]
@@ -811,104 +810,17 @@ impl NodeData {
     #[inline(always)]
     pub fn with_node_type(self, node_type: NodeType) -> Self { Self { node_type, .. self } }
     #[inline(always)]
-    pub fn with_ids(self, ids: Vec<DomString>) -> Self { Self { ids, .. self } }
+    pub fn with_ids(self, ids: Vec<String>) -> Self { Self { ids, .. self } }
     #[inline(always)]
-    pub fn with_classes(self, classes: Vec<DomString>) -> Self { Self { classes, .. self } }
+    pub fn with_classes(self, classes: Vec<String>) -> Self { Self { classes, .. self } }
     #[inline(always)]
     pub fn with_callbacks(self, callbacks: Vec<(EventFilter, (Callback, RefAny))>) -> Self { Self { callbacks, .. self } }
     #[inline(always)]
-    pub fn with_dynamic_css_overrides(self, dynamic_css_overrides: Vec<(DomString, CssProperty)>) -> Self { Self { dynamic_css_overrides, .. self } }
+    pub fn with_dynamic_css_overrides(self, dynamic_css_overrides: Vec<(String, CssProperty)>) -> Self { Self { dynamic_css_overrides, .. self } }
     #[inline(always)]
     pub fn is_draggable(self, is_draggable: bool) -> Self { Self { is_draggable, .. self } }
     #[inline(always)]
     pub fn with_tab_index(self, tab_index: Option<TabIndex>) -> Self { Self { tab_index, .. self } }
-}
-
-/// Most strings are known at compile time, spares a bit of
-/// heap allocations - for `&'static str`, simply stores the pointer,
-/// instead of converting it into a String. This is good for class names
-/// or IDs, whose content rarely changes.
-#[derive(Clone)]
-pub enum DomString {
-    Static(&'static str),
-    Heap(String),
-}
-
-impl Eq for DomString { }
-
-impl PartialEq for DomString {
-    fn eq(&self, other: &Self) -> bool {
-        self.as_str() == other.as_str()
-    }
-}
-
-impl PartialOrd for DomString {
-    fn partial_cmp(&self, other: &Self) -> Option<CmpOrdering> {
-        Some(self.as_str().cmp(other.as_str()))
-    }
-}
-
-impl Ord for DomString {
-    fn cmp(&self, other: &Self) -> CmpOrdering {
-        self.as_str().cmp(other.as_str())
-    }
-}
-
-impl Hash for DomString {
-    fn hash<H: Hasher>(&self, state: &mut H) {
-        self.as_str().hash(state);
-    }
-}
-
-impl DomString {
-
-    pub fn equals_str(&self, target: &str) -> bool {
-        use self::DomString::*;
-        match &self {
-            Static(s) => *s == target,
-            Heap(h) => h == target,
-        }
-    }
-
-    pub fn as_str(&self) -> &str {
-        use self::DomString::*;
-        match &self {
-            Static(s) => s,
-            Heap(h) => h,
-        }
-    }
-}
-
-impl fmt::Debug for DomString {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        use self::DomString::*;
-        match &self {
-            Static(s) => write!(f, "\"{}\"", s),
-            Heap(h) => write!(f, "\"{}\"", h),
-        }
-    }
-}
-
-impl fmt::Display for DomString {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        use self::DomString::*;
-        match &self {
-            Static(s) => write!(f, "{}", s),
-            Heap(h) => write!(f, "{}", h),
-        }
-    }
-}
-
-impl From<String> for DomString {
-    fn from(e: String) -> Self {
-        DomString::Heap(e)
-    }
-}
-
-impl From<&'static str> for DomString {
-    fn from(e: &'static str) -> Self {
-        DomString::Static(e)
-    }
 }
 
 /// The document model, similar to HTML. This is a create-only structure, you don't actually read anything back
@@ -1077,7 +989,7 @@ fn convert_dom_into_compact_dom_internal(
 #[test]
 fn test_compact_dom_conversion() {
 
-    use crate::dom::DomString::Static;
+    use crate::dom::String::Static;
 
     struct Dummy;
 
@@ -1225,7 +1137,7 @@ impl Dom {
 
     /// Shorthand for `Dom::new(NodeType::Label(value.into()))`
     #[inline(always)]
-    pub fn label<S: Into<DomString>>(value: S) -> Self {
+    pub fn label<S: Into<String>>(value: S) -> Self {
         Self::new(NodeType::Label(value.into()))
     }
 
@@ -1264,14 +1176,14 @@ impl Dom {
 
     /// Same as `id`, but easier to use for method chaining in a builder-style pattern
     #[inline]
-    pub fn with_id<S: Into<DomString>>(mut self, id: S) -> Self {
+    pub fn with_id<S: Into<String>>(mut self, id: S) -> Self {
         self.add_id(id);
         self
     }
 
     /// Same as `id`, but easier to use for method chaining in a builder-style pattern
     #[inline]
-    pub fn with_class<S: Into<DomString>>(mut self, class: S) -> Self {
+    pub fn with_class<S: Into<String>>(mut self, class: S) -> Self {
         self.add_class(class);
         self
     }
@@ -1290,7 +1202,7 @@ impl Dom {
     }
 
     #[inline]
-    pub fn with_css_override<S: Into<DomString>>(mut self, id: S, property: CssProperty) -> Self {
+    pub fn with_css_override<S: Into<String>>(mut self, id: S, property: CssProperty) -> Self {
         self.add_css_override(id, property);
         self
     }
@@ -1308,12 +1220,12 @@ impl Dom {
     }
 
     #[inline]
-    pub fn add_id<S: Into<DomString>>(&mut self, id: S) {
+    pub fn add_id<S: Into<String>>(&mut self, id: S) {
         self.root.ids.push(id.into());
     }
 
     #[inline]
-    pub fn add_class<S: Into<DomString>>(&mut self, class: S) {
+    pub fn add_class<S: Into<String>>(&mut self, class: S) {
         self.root.classes.push(class.into());
     }
 
@@ -1323,7 +1235,7 @@ impl Dom {
     }
 
     #[inline]
-    pub fn add_css_override<S: Into<DomString>, P: Into<CssProperty>>(&mut self, override_id: S, property: P) {
+    pub fn add_css_override<S: Into<String>, P: Into<CssProperty>>(&mut self, override_id: S, property: P) {
         self.root.dynamic_css_overrides.push((override_id.into(), property.into()));
     }
 
@@ -1410,13 +1322,13 @@ fn test_dom_sibling_1() {
 
     assert_eq!(NodeId::new(0), dom.root);
 
-    assert_eq!(vec![DomString::Static("sibling-1")],
+    assert_eq!(vec![String::Static("sibling-1")],
         arena.node_data[
             arena.node_hierarchy[dom.root]
             .first_child.expect("root has no first child")
         ].ids);
 
-    assert_eq!(vec![DomString::Static("sibling-2")],
+    assert_eq!(vec![String::Static("sibling-2")],
         arena.node_data[
             arena.node_hierarchy[
                 arena.node_hierarchy[dom.root]
@@ -1424,7 +1336,7 @@ fn test_dom_sibling_1() {
             ].next_sibling.expect("root has no second sibling")
         ].ids);
 
-    assert_eq!(vec![DomString::Static("sibling-1-child-1")],
+    assert_eq!(vec![String::Static("sibling-1-child-1")],
         arena.node_data[
             arena.node_hierarchy[
                 arena.node_hierarchy[dom.root]
@@ -1432,7 +1344,7 @@ fn test_dom_sibling_1() {
             ].first_child.expect("first child has no first child")
         ].ids);
 
-    assert_eq!(vec![DomString::Static("sibling-2-child-1")],
+    assert_eq!(vec![String::Static("sibling-2-child-1")],
         arena.node_data[
             arena.node_hierarchy[
                 arena.node_hierarchy[
@@ -1485,7 +1397,7 @@ fn test_dom_from_iter_1() {
     }));
 
     assert_eq!(arena.node_data.get(NodeId::new(arena.node_data.len() - 1)), Some(&NodeData {
-        node_type: NodeType::Label(DomString::Heap(String::from("5"))),
+        node_type: NodeType::Label(String::Heap(String::from("5"))),
         .. Default::default()
     }));
 }
