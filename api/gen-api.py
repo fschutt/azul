@@ -377,10 +377,6 @@ def generate_rust_dll(apiData):
             class_is_const = "const" in c.keys()
             class_is_typedef = "typedef" in c.keys() and c["typedef"]
 
-            generate_delete_fn = class_is_boxed_object
-            generate_copy_fn = class_is_boxed_object
-            generate_downcast_fn = class_is_boxed_object
-
             # Small structs and enums are stack-allocated in order to save on indirection
             # They don't have destructors, since they
             c_is_stack_allocated = not(class_is_boxed_object)
@@ -500,48 +496,45 @@ def generate_rust_dll(apiData):
                     code += "object.clone()"
                     code += " }\r\n"
             else:
-                if generate_delete_fn:
-                    # az_item_delete()
-                    code += "/// Destructor: Takes ownership of the `" + class_name + "` pointer and deletes it.\r\n"
-                    code += "#[no_mangle] #[inline] pub extern \"C\" fn " + fn_prefix + to_snake_case(class_name) + "_delete" + lifetime + "(ptr: &mut " + class_ptr_name + ") { "
-                    code += "let _ = unsafe { Box::<" + rust_class_name + ">::from_raw(ptr.ptr  as *mut " + rust_class_name + ") };"
-                    code += " }\r\n"
+                # az_item_delete()
+                code += "/// Destructor: Takes ownership of the `" + class_name + "` pointer and deletes it.\r\n"
+                code += "#[no_mangle] #[inline] pub extern \"C\" fn " + fn_prefix + to_snake_case(class_name) + "_delete" + lifetime + "(ptr: &mut " + class_ptr_name + ") { "
+                code += "let _ = unsafe { Box::<" + rust_class_name + ">::from_raw(ptr.ptr  as *mut " + rust_class_name + ") };"
+                code += " }\r\n"
 
-                if generate_copy_fn:
-                    # az_item_shallow_copy()
-                    code += "/// Copies the pointer: WARNING: After calling this function you'll have two pointers to the same Box<`" + class_name + "`>!.\r\n"
-                    code += "#[no_mangle] #[inline] pub extern \"C\" fn " + fn_prefix + to_snake_case(class_name) + "_shallow_copy" + lifetime + "(ptr: &" + class_ptr_name + ") -> " + class_ptr_name + " { "
-                    code += class_ptr_name + " { ptr: ptr.ptr }"
-                    code += " }\r\n"
+                # az_item_shallow_copy()
+                code += "/// Copies the pointer: WARNING: After calling this function you'll have two pointers to the same Box<`" + class_name + "`>!.\r\n"
+                code += "#[no_mangle] #[inline] pub extern \"C\" fn " + fn_prefix + to_snake_case(class_name) + "_shallow_copy" + lifetime + "(ptr: &" + class_ptr_name + ") -> " + class_ptr_name + " { "
+                code += class_ptr_name + " { ptr: ptr.ptr }"
+                code += " }\r\n"
 
-                if generate_downcast_fn:
-                    # az_item_downcast()
-                    code += "/// (private): Downcasts the `" + class_ptr_name + "` to a `Box<" + rust_class_name + ">`. Note that this takes ownership of the pointer.\r\n"
-                    code += "#[inline(always)] fn " + fn_prefix + to_snake_case(class_name) + "_downcast" + lifetime + "(ptr: " + class_ptr_name + ") -> Box<" + rust_class_name + "> { "
-                    code += "unsafe { Box::<" + rust_class_name + ">::from_raw(ptr.ptr  as *mut " + rust_class_name + ") }"
-                    code += " }\r\n"
+                # az_item_downcast()
+                code += "/// (private): Downcasts the `" + class_ptr_name + "` to a `Box<" + rust_class_name + ">`. Note that this takes ownership of the pointer.\r\n"
+                code += "#[inline(always)] fn " + fn_prefix + to_snake_case(class_name) + "_downcast" + lifetime + "(ptr: " + class_ptr_name + ") -> Box<" + rust_class_name + "> { "
+                code += "unsafe { Box::<" + rust_class_name + ">::from_raw(ptr.ptr  as *mut " + rust_class_name + ") }"
+                code += " }\r\n"
 
-                    # az_item_downcast_refmut()
-                    downcast_refmut_generics = "<F: FnOnce(&mut Box<" + rust_class_name + ">)>"
-                    if lifetime == "<'a>":
-                        downcast_refmut_generics = "<'a, F: FnOnce(&mut Box<" + rust_class_name + ">)>"
-                    code += "/// (private): Downcasts the `" + class_ptr_name + "` to a `&mut Box<" + rust_class_name + ">` and runs the `func` closure on it\r\n"
-                    code += "#[inline(always)] fn " + fn_prefix + to_snake_case(class_name) + "_downcast_refmut" + downcast_refmut_generics + "(ptr: &mut " + class_ptr_name + ", func: F) { "
-                    code += "let mut box_ptr: Box<" + rust_class_name + "> = unsafe { Box::<" + rust_class_name + ">::from_raw(ptr.ptr  as *mut " + rust_class_name + ") };"
-                    code += "func(&mut box_ptr);"
-                    code += "ptr.ptr = Box::into_raw(box_ptr) as *mut c_void;"
-                    code += " }\r\n"
+                # az_item_downcast_refmut()
+                downcast_refmut_generics = "<F: FnOnce(&mut Box<" + rust_class_name + ">)>"
+                if lifetime == "<'a>":
+                    downcast_refmut_generics = "<'a, F: FnOnce(&mut Box<" + rust_class_name + ">)>"
+                code += "/// (private): Downcasts the `" + class_ptr_name + "` to a `&mut Box<" + rust_class_name + ">` and runs the `func` closure on it\r\n"
+                code += "#[inline(always)] fn " + fn_prefix + to_snake_case(class_name) + "_downcast_refmut" + downcast_refmut_generics + "(ptr: &mut " + class_ptr_name + ", func: F) { "
+                code += "let mut box_ptr: Box<" + rust_class_name + "> = unsafe { Box::<" + rust_class_name + ">::from_raw(ptr.ptr  as *mut " + rust_class_name + ") };"
+                code += "func(&mut box_ptr);"
+                code += "ptr.ptr = Box::into_raw(box_ptr) as *mut c_void;"
+                code += " }\r\n"
 
-                    # az_item_downcast_ref()
-                    downcast_ref_generics = "<F: FnOnce(&Box<" + rust_class_name + ">)>"
-                    if lifetime == "<'a>":
-                        downcast_ref_generics = "<'a, F: FnOnce(&Box<" + rust_class_name + ">)>"
-                    code += "/// (private): Downcasts the `" + class_ptr_name + "` to a `&Box<" + rust_class_name + ">` and runs the `func` closure on it\r\n"
-                    code += "#[inline(always)] fn " + fn_prefix + to_snake_case(class_name) + "_downcast_ref" + downcast_ref_generics + "(ptr: &mut " + class_ptr_name + ", func: F) { "
-                    code += "let box_ptr: Box<" + rust_class_name + "> = unsafe { Box::<" + rust_class_name + ">::from_raw(ptr.ptr  as *mut " + rust_class_name + ") };"
-                    code += "func(&box_ptr);"
-                    code += "ptr.ptr = Box::into_raw(box_ptr) as *mut c_void;"
-                    code += " }\r\n"
+                # az_item_downcast_ref()
+                downcast_ref_generics = "<F: FnOnce(&Box<" + rust_class_name + ">)>"
+                if lifetime == "<'a>":
+                    downcast_ref_generics = "<'a, F: FnOnce(&Box<" + rust_class_name + ">)>"
+                code += "/// (private): Downcasts the `" + class_ptr_name + "` to a `&Box<" + rust_class_name + ">` and runs the `func` closure on it\r\n"
+                code += "#[inline(always)] fn " + fn_prefix + to_snake_case(class_name) + "_downcast_ref" + downcast_ref_generics + "(ptr: &mut " + class_ptr_name + ", func: F) { "
+                code += "let box_ptr: Box<" + rust_class_name + "> = unsafe { Box::<" + rust_class_name + ">::from_raw(ptr.ptr  as *mut " + rust_class_name + ") };"
+                code += "func(&box_ptr);"
+                code += "ptr.ptr = Box::into_raw(box_ptr) as *mut c_void;"
+                code += " }\r\n"
 
     return code
 
@@ -599,10 +592,6 @@ def generate_rust_api(apiData):
                 class_is_boxed_object = c["is_boxed_object"]
             class_is_const = "const" in c.keys()
             class_is_typedef = "typedef" in c.keys() and c["typedef"]
-
-            generate_delete_fn = class_is_boxed_object
-            generate_copy_fn = class_is_boxed_object
-            generate_downcast_fn = class_is_boxed_object
 
             c_is_stack_allocated = not(class_is_boxed_object)
             class_ptr_name = prefix + class_name + postfix
@@ -715,13 +704,11 @@ def generate_rust_api(apiData):
                 if class_is_boxed_object:
                     leak_fn_body = "let p = " +  fn_prefix + to_snake_case(class_name) + "_shallow_copy(&self.ptr); std::mem::forget(self); p"
                     code += "       /// Prevents the destructor from running and returns the internal `" + class_ptr_name + "`\r\n"
-                    code += "       #[allow(dead_code)]\r\n"
-                    code += "       pub(crate) fn leak(self) -> " + class_ptr_name + " { " + leak_fn_body + " }\r\n"
+                    code += "       pub fn leak(self) -> " + class_ptr_name + " { " + leak_fn_body + " }\r\n"
                 else:
                     code += "       /// Prevents the destructor from running and returns the internal `" + class_ptr_name + "`\r\n"
                     leak_fn_body = fn_prefix + to_snake_case(class_name) + "_deep_copy(&self.object)"
-                    code += "       #[allow(dead_code)]\r\n"
-                    code += "       pub(crate) fn leak(self) -> " + class_ptr_name + " { " + leak_fn_body + " }\r\n"
+                    code += "       pub fn leak(self) -> " + class_ptr_name + " { " + leak_fn_body + " }\r\n"
 
                 code += "    }\r\n\r\n" # end of class
 
