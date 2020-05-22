@@ -313,6 +313,7 @@ macro_rules! impl_get_gl_context {() => {
 /// The style is not affected by this, so if you make changes to the window's style
 /// inside the function, the screen will not be automatically redrawn, unless you return
 /// an `UpdateScreen::Redraw` from the function
+#[repr(C)]
 pub struct Callback(pub CallbackType);
 impl_callback!(Callback);
 
@@ -359,8 +360,12 @@ pub struct CallbackInfo<'a> {
     /// The (x, y) position of the mouse cursor, **relative to top left of the window**.
     pub cursor_in_viewport: Option<(f32, f32)>,
 }
+
+/// Pointer to rust-allocated `Box<CallbackInfo<'a>>` struct
+#[no_mangle] #[repr(C)] pub struct CallbackInfoPtr { pub ptr: *mut c_void }
+
 pub type CallbackReturn = UpdateScreen;
-pub type CallbackType = fn(CallbackInfo) -> CallbackReturn;
+pub type CallbackType = fn(CallbackInfoPtr) -> CallbackReturn;
 
 impl<'a> fmt::Debug for CallbackInfo<'a> {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
@@ -422,10 +427,18 @@ pub struct GlCallbackInfo<'a> {
     pub bounds: HidpiAdjustedBounds,
 }
 
+/// Pointer to rust-allocated `Box<GlCallbackInfo<'a>>` struct
+#[no_mangle] #[repr(C)] pub struct GlCallbackInfoPtr { pub ptr: *mut c_void }
+
 #[cfg(feature = "opengl")]
-pub type GlCallbackReturn = Option<Texture>;
+#[repr(C)]
+pub struct GlCallbackReturn { pub texture: Option<Texture> }
+
+/// Pointer to rust-allocated `Box<GlCallbackReturn>` struct
+#[no_mangle] #[repr(C)] pub struct GlCallbackReturnPtr { pub ptr: *mut c_void }
+
 #[cfg(feature = "opengl")]
-pub type GlCallbackType = fn(GlCallbackInfo) -> GlCallbackReturn;
+pub type GlCallbackType = fn(GlCallbackInfoPtr) -> GlCallbackReturnPtr;
 
 // -- iframe callback
 
@@ -440,8 +453,16 @@ pub struct IFrameCallbackInfo<'a> {
     pub bounds: HidpiAdjustedBounds,
 }
 
-pub type IFrameCallbackReturn = Option<Dom>; // todo: return virtual scrolling frames!
-pub type IFrameCallbackType = fn(IFrameCallbackInfo) -> IFrameCallbackReturn;
+/// Pointer to rust-allocated `Box<IFrameCallbackInfo<'a>>` struct
+#[no_mangle] #[repr(C)] pub struct IFrameCallbackInfoPtr { pub ptr: *mut c_void }
+
+#[repr(C)]
+pub struct IFrameCallbackReturn { pub dom: Option<Dom> } // todo: return virtual scrolling frames!
+
+/// Pointer to rust-allocated `Box<IFrameCallbackReturn>` struct
+#[no_mangle] #[repr(C)] pub struct IFrameCallbackReturnPtr { pub ptr: *mut c_void }
+
+pub type IFrameCallbackType = fn(IFrameCallbackInfoPtr) -> IFrameCallbackReturnPtr;
 
 // -- timer callback
 
@@ -726,8 +747,7 @@ pub fn call_callbacks(
                     None => continue,
                 };
 
-                // Invoke callback
-                let callback_return = (callback.0)(CallbackInfo {
+                let callback_info = CallbackInfo {
                     state: callback_ptr,
                     current_window_state: &full_window_state,
                     modifiable_window_state: &mut ret.modified_window_state,
@@ -746,7 +766,12 @@ pub fn call_callbacks(
                     hit_dom_node: (dom_id.clone(), *node_id),
                     cursor_relative_to_item: hit_item.as_ref().map(|hi| (hi.point_relative_to_item.x, hi.point_relative_to_item.y)),
                     cursor_in_viewport: hit_item.as_ref().map(|hi| (hi.point_in_viewport.x, hi.point_in_viewport.y)),
-                });
+                };
+
+                let ptr = CallbackInfoPtr { ptr: Box::into_raw(Box::new(callback_info)) as *mut c_void };
+
+                // Invoke callback
+                let callback_return = (callback.0)(ptr);
 
                 if callback_return == Redraw {
                     ret.callbacks_update_screen = Redraw;

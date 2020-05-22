@@ -455,5 +455,10 @@ pub fn keymap<T>(
                 .all(|keymap_char| keymap_char.matches(&keyboard_state))
         })
         .next()
-        .and_then(|(_, callback)| (callback)(info))
+        .and_then(|(_, callback)| {
+            use std::ffi::c_void;
+            use crate::callbacks::CallbackInfoPtr;
+            let ptr = CallbackInfoPtr { ptr: Box::into_raw(Box::new(info)) as *mut c_void };
+            (callback)(ptr)
+        })
 }

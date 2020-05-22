@@ -722,8 +722,10 @@ impl SolvedLayout {
                 let mut window_size_height_stops = Vec::new();
 
                 let texture = {
+                    use crate::callbacks::{GlCallbackInfoPtr, GlCallbackReturn};
+                    use std::ffi::c_void;
 
-                    let tex = (cb.0)(GlCallbackInfo {
+                    let callback_info = GlCallbackInfo {
                         state: ptr,
                         layout_info: LayoutInfo {
                             window_size: &full_window_state.size,
@@ -736,7 +738,12 @@ impl SolvedLayout {
                             rect_size,
                             full_window_state.size.hidpi_factor,
                         ),
-                    });
+                    };
+
+                    let ptr = GlCallbackInfoPtr { ptr: Box::into_raw(Box::new(callback_info)) as *mut c_void };
+                    let gl_callback_return_ptr = (cb.0)(ptr);
+                    let gl_callback_return = unsafe { Box::from_raw(gl_callback_return_ptr.ptr as *mut GlCallbackReturn) };
+                    let tex = gl_callback_return.texture;
 
                     // Reset the framebuffer and SRGB color target to 0
                     gl_context.bind_framebuffer(gl::FRAMEBUFFER, 0);
@@ -768,7 +775,10 @@ impl SolvedLayout {
                 let mut window_size_height_stops = Vec::new();
 
                 let iframe_dom = {
-                    (cb.0)(IFrameCallbackInfo {
+                    use crate::callbacks::{IFrameCallbackInfoPtr, IFrameCallbackReturn};
+                    use std::ffi::c_void;
+
+                    let callback_info = IFrameCallbackInfo {
                         state: ptr,
                         layout_info: LayoutInfo {
                             window_size: &full_window_state.size,
@@ -778,7 +788,13 @@ impl SolvedLayout {
                             resources: &app_resources,
                         },
                         bounds: hidpi_bounds,
-                    })
+                    };
+
+                    let ptr = IFrameCallbackInfoPtr { ptr: Box::into_raw(Box::new(callback_info)) as *mut c_void };
+                    let iframe_callback_return_ptr = (cb.0)(ptr);
+                    let iframe_callback_return = unsafe { Box::from_raw(iframe_callback_return_ptr.ptr as *mut IFrameCallbackReturn) };
+                    let dom = iframe_callback_return.dom;
+                    dom
                 };
 
                 if let Some(iframe_dom) = iframe_dom {
