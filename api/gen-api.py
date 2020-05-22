@@ -64,11 +64,11 @@ def write_file(string, path):
     text_file.close()
 
 def search_for_module_of_class(apiData, class_name):
-    for module_name in apiData.keys():
-        if class_name in apiData[module_name]["classes"].keys():
-            return module_name
-
-    return None
+    search_result = search_for_class_by_rust_class_name(apiData, class_name)
+    if search_result is None:
+        return None
+    else:
+        return search_result[0]
 
 def is_primitive_arg(arg):
     arg = arg.replace("&", "")
@@ -122,7 +122,7 @@ def get_all_imports(apiData, module, module_name, existing_imports = {}):
             found_module = search_for_module_of_class(apiData, arg)
 
         if found_module is None:
-            raise Exception("" + arg + " not found!")
+            raise Exception(arg + " not found!")
 
         if found_module in imports:
             imports[found_module].append(arg)
@@ -173,15 +173,34 @@ def fn_args_c_api(f, class_name, class_ptr_name, self_as_first_arg, apiData):
                 continue
             arg_type = arg_object[arg_name]
 
+            analyzed_arg_type = analyze_type(arg_type)
+            ptr_type = analyzed_arg_type[0]
+            arg_type = analyzed_arg_type[1]
+
             if is_primitive_arg(arg_type):
-                fn_args += arg_name + ": " + arg_type + ", " # no pre, no postfix
+                fn_args += arg_name + ": " + ptr_type + arg_type + ", " # no pre, no postfix
             elif class_is_virtual(apiData, arg_type, "dll") or is_stack_allocated_type(apiData, arg_type):
-                fn_args += arg_name + ": " + prefix + arg_type + ", " # no postfix
+                fn_args += arg_name + ": " + ptr_type + prefix + arg_type + ", " # no postfix
             else:
-                fn_args += arg_name + ": " + prefix + arg_type + postfix + ", "
+                fn_args += arg_name + ": " + ptr_type + prefix + arg_type + postfix + ", "
         fn_args = fn_args[:-2]
 
     return fn_args
+
+def analyze_type(arg):
+    starts = ""
+    arg_type = ""
+
+    if arg.startswith("*const"):
+        starts = "*const "
+        arg_type = arg.replace("*const", "")
+    elif arg.startswith("*mut"):
+        starts = "*mut "
+        arg_type = arg.replace("*mut", "")
+    else:
+        arg_type = arg
+
+    return [starts, arg_type.strip()]
 
 def class_is_small_enum(c):
     return "enum_fields" in c.keys()
