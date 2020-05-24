@@ -421,7 +421,7 @@ pub mod resources {
        pub fn leak(self) -> AzTextId { az_text_id_deep_copy(&self.object) }
     }
 
-    impl Drop for TextId { fn drop(&mut self) { az_text_id_delete(&mut self.ptr); } }
+    impl Drop for TextId { fn drop(&mut self) { az_text_id_delete(&mut self.object); } }
 
 
     /// `ImageId` struct
@@ -434,7 +434,7 @@ pub mod resources {
        pub fn leak(self) -> AzImageId { az_image_id_deep_copy(&self.object) }
     }
 
-    impl Drop for ImageId { fn drop(&mut self) { az_image_id_delete(&mut self.ptr); } }
+    impl Drop for ImageId { fn drop(&mut self) { az_image_id_delete(&mut self.object); } }
 
 
     /// `FontId` struct
@@ -447,7 +447,7 @@ pub mod resources {
        pub fn leak(self) -> AzFontId { az_font_id_deep_copy(&self.object) }
     }
 
-    impl Drop for FontId { fn drop(&mut self) { az_font_id_delete(&mut self.ptr); } }
+    impl Drop for FontId { fn drop(&mut self) { az_font_id_delete(&mut self.object); } }
 
 
     /// `ImageSource` struct
@@ -455,16 +455,16 @@ pub mod resources {
 
     impl ImageSource {
         /// Bytes of the image, encoded in PNG / JPG / etc. format
-        pub fn embedded() { }
+        pub fn embedded(variant_data: crate::vec::U8Vec) -> Self { Self { object: az_image_source_embedded(variant_data.leak()) }}
         /// References an (encoded!) image as a file from the file system that is loaded when necessary
-        pub fn file() { }
+        pub fn file(variant_data: crate::path::PathBuf) -> Self { Self { object: az_image_source_file(variant_data.leak()) }}
         /// References a decoded (!) `RawImage` as the image source
-        pub fn raw() { }
+        pub fn raw(variant_data: crate::resources::RawImage) -> Self { Self { object: az_image_source_raw(variant_data.leak()) }}
        /// Prevents the destructor from running and returns the internal `AzImageSource`
        pub fn leak(self) -> AzImageSource { az_image_source_deep_copy(&self.object) }
     }
 
-    impl Drop for ImageSource { fn drop(&mut self) { az_image_source_delete(&mut self.ptr); } }
+    impl Drop for ImageSource { fn drop(&mut self) { az_image_source_delete(&mut self.object); } }
 
 
     /// `FontSource` struct
@@ -472,16 +472,16 @@ pub mod resources {
 
     impl FontSource {
         /// Bytes are the bytes of the font file
-        pub fn embedded() { }
+        pub fn embedded(variant_data: crate::vec::U8Vec) -> Self { Self { object: az_font_source_embedded(variant_data.leak()) }}
         /// References a font from a file path, which is loaded when necessary
-        pub fn file() { }
+        pub fn file(variant_data: crate::path::PathBuf) -> Self { Self { object: az_font_source_file(variant_data.leak()) }}
         /// References a font from from a system font identifier, such as `"Arial"` or `"Helvetica"`
-        pub fn system() { }
+        pub fn system(variant_data: crate::str::String) -> Self { Self { object: az_font_source_system(variant_data.leak()) }}
        /// Prevents the destructor from running and returns the internal `AzFontSource`
        pub fn leak(self) -> AzFontSource { az_font_source_deep_copy(&self.object) }
     }
 
-    impl Drop for FontSource { fn drop(&mut self) { az_font_source_delete(&mut self.ptr); } }
+    impl Drop for FontSource { fn drop(&mut self) { az_font_source_delete(&mut self.object); } }
 
 
     /// `RawImage` struct
@@ -521,7 +521,7 @@ pub mod resources {
        pub fn leak(self) -> AzRawImageFormat { az_raw_image_format_deep_copy(&self.object) }
     }
 
-    impl Drop for RawImageFormat { fn drop(&mut self) { az_raw_image_format_delete(&mut self.ptr); } }
+    impl Drop for RawImageFormat { fn drop(&mut self) { az_raw_image_format_delete(&mut self.object); } }
 }
 
 /// Window creation / startup configuration

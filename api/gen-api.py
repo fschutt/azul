@@ -411,8 +411,19 @@ def generate_rust_dll(apiData):
                             if "doc" in enum.keys():
                                 code += "/// " + enum["doc"] + "\r\n"
                             if "type" in enum.keys():
-                                # TODO!
-                                pass
+                                variant_type = enum["type"]
+                                if is_primitive_arg(variant_type):
+                                    code += "#[inline] #[no_mangle] pub extern \"C\" fn " + fn_prefix + to_snake_case(class_name) + "_" + to_snake_case(enum_variant_name) + "(variant_data: " + variant_type + ") -> " + class_ptr_name + " { "
+                                    code += class_ptr_name + "::" + enum_variant_name + "(variant_data)"
+                                    code += " }\r\n"
+                                else:
+                                    found_class_path = search_for_class_by_rust_class_name(apiData, variant_type)
+                                    variant_data_class_name = prefix + found_class_path[1] + postfix
+                                    if class_is_stack_allocated(get_class(apiData, found_class_path[0], found_class_path[1])):
+                                        variant_data_class_name = prefix + found_class[1]
+                                    code += "#[inline] #[no_mangle] pub extern \"C\" fn " + fn_prefix + to_snake_case(class_name) + "_" + to_snake_case(enum_variant_name) + "(variant_data: " + variant_data_class_name + ") -> " + class_ptr_name + " { "
+                                    code += class_ptr_name + "::" + enum_variant_name + "(*" + fn_prefix + to_snake_case(found_class_path[1]) + "_downcast(variant_data))"
+                                    code += " }\r\n"
                             else:
                                 # enum variant with no arguments
                                 code += "#[inline] #[no_mangle] pub extern \"C\" fn " + fn_prefix + to_snake_case(class_name) + "_" + to_snake_case(enum_variant_name) + "() -> " + class_ptr_name + " { "
@@ -486,9 +497,22 @@ def generate_rust_dll(apiData):
 
             if c_is_stack_allocated:
                 if not(class_is_const or class_is_typedef):
+
+                    # Generate the destructor for an enum
+                    stack_delete_body = ""
+                    if class_is_small_enum(c):
+                        stack_delete_body += "match object { "
+                        for enum_variant_name in c["enum_fields"].keys():
+                            enum_variant = c["enum_fields"][enum_variant_name]
+                            if "type" in enum_variant.keys() and not(is_primitive_arg(enum_variant["type"])):
+                                stack_delete_body += class_ptr_name + "::" + enum_variant_name + "(_) => { }, "
+                            else:
+                                stack_delete_body += class_ptr_name + "::" + enum_variant_name + " => { }, "
+                        stack_delete_body += "}\r\n"
+
                     # az_item_delete()
                     code += "/// Destructor: Takes ownership of the `" + class_name + "` pointer and deletes it.\r\n"
-                    code += "#[no_mangle] #[inline] pub extern \"C\" fn " + fn_prefix + to_snake_case(class_name) + "_delete" + lifetime + "(_: " + class_ptr_name + ") { }\r\n"
+                    code += "#[no_mangle] #[inline] #[allow(unused_variables)] pub extern \"C\" fn " + fn_prefix + to_snake_case(class_name) + "_delete" + lifetime + "(object: &mut " + class_ptr_name + ") { " + stack_delete_body + "}\r\n"
 
                     # az_item_deep_copy()
                     code += "/// Copies the object\r\n"
@@ -629,9 +653,12 @@ def generate_rust_api(apiData):
                         if "doc" in enum.keys():
                             code += "        /// " + enum["doc"] + "\r\n"
                         if "type" in enum.keys():
-                            # TODO!
-                            code += "        pub fn " + to_snake_case(enum_variant_name) + "() { }\r\n"
-                            pass
+                            variant_type = enum["type"]
+                            found_class_path = search_for_class_by_rust_class_name(apiData, variant_type)
+                            stack_enum_args = "crate::" + found_class_path[0] + "::" + found_class_path[1]
+                            code += "        pub fn " + to_snake_case(enum_variant_name) + "(variant_data: " + stack_enum_args + ") -> Self { "
+                            code += "Self { object: " + fn_prefix + to_snake_case(class_name) + "_" + to_snake_case(enum_variant_name) + "(variant_data.leak()) }"
+                            code += "}\r\n"
                         else:
                             # enum variant with no arguments
                             code += "        pub fn " + to_snake_case(enum_variant_name) + "() -> Self { "
@@ -712,7 +739,8 @@ def generate_rust_api(apiData):
 
                 code += "    }\r\n\r\n" # end of class
 
-                code += "    impl Drop for " + class_name + " { fn drop(&mut self) { " + fn_prefix + to_snake_case(class_name) + "_delete(&mut self.ptr); } }\r\n"
+                destructor_fn_object = "self.ptr" if class_is_boxed_object else "self.object"
+                code += "    impl Drop for " + class_name + " { fn drop(&mut self) { " + fn_prefix + to_snake_case(class_name) + "_delete(&mut " + destructor_fn_object + "); } }\r\n"
 
         code += "}\r\n\r\n" # end of module
 

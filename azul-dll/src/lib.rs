@@ -296,7 +296,7 @@ pub type AzTextIdType = azul_core::app_resources::TextId;
 /// Creates a new, unique `TextId`
 #[no_mangle] #[inline] pub extern "C" fn az_text_id_new() -> AzTextId { let object: TextId = TextId::new(); object }
 /// Destructor: Takes ownership of the `TextId` pointer and deletes it.
-#[no_mangle] #[inline] pub extern "C" fn az_text_id_delete(_: AzTextId) { }
+#[no_mangle] #[inline] #[allow(unused_variables)] pub extern "C" fn az_text_id_delete(object: &mut AzTextId) { }
 /// Copies the object
 #[no_mangle] #[inline] pub extern "C" fn az_text_id_deep_copy(object: &AzTextId) -> AzTextId { object.clone() }
 
@@ -306,7 +306,7 @@ pub type AzImageIdType = azul_core::app_resources::ImageId;
 /// Creates a new, unique `ImageId`
 #[no_mangle] #[inline] pub extern "C" fn az_image_id_new() -> AzImageId { let object: ImageId = ImageId::new(); object }
 /// Destructor: Takes ownership of the `ImageId` pointer and deletes it.
-#[no_mangle] #[inline] pub extern "C" fn az_image_id_delete(_: AzImageId) { }
+#[no_mangle] #[inline] #[allow(unused_variables)] pub extern "C" fn az_image_id_delete(object: &mut AzImageId) { }
 /// Copies the object
 #[no_mangle] #[inline] pub extern "C" fn az_image_id_deep_copy(object: &AzImageId) -> AzImageId { object.clone() }
 
@@ -316,7 +316,7 @@ pub type AzFontIdType = azul_core::app_resources::FontId;
 /// Creates a new, unique `FontId`
 #[no_mangle] #[inline] pub extern "C" fn az_font_id_new() -> AzFontId { let object: FontId = FontId::new(); object }
 /// Destructor: Takes ownership of the `FontId` pointer and deletes it.
-#[no_mangle] #[inline] pub extern "C" fn az_font_id_delete(_: AzFontId) { }
+#[no_mangle] #[inline] #[allow(unused_variables)] pub extern "C" fn az_font_id_delete(object: &mut AzFontId) { }
 /// Copies the object
 #[no_mangle] #[inline] pub extern "C" fn az_font_id_deep_copy(object: &AzFontId) -> AzFontId { object.clone() }
 
@@ -324,10 +324,14 @@ pub type AzFontIdType = azul_core::app_resources::FontId;
 pub type AzImageSourceType = azul_core::app_resources::ImageSource;
 #[no_mangle] pub use AzImageSourceType as AzImageSource;
 /// Bytes of the image, encoded in PNG / JPG / etc. format
+#[inline] #[no_mangle] pub extern "C" fn az_image_source_embedded(variant_data: AzU8VecPtr) -> AzImageSource { AzImageSource::Embedded(*az_u8_vec_downcast(variant_data)) }
 /// References an (encoded!) image as a file from the file system that is loaded when necessary
+#[inline] #[no_mangle] pub extern "C" fn az_image_source_file(variant_data: AzPathBufPtr) -> AzImageSource { AzImageSource::File(*az_path_buf_downcast(variant_data)) }
 /// References a decoded (!) `RawImage` as the image source
+#[inline] #[no_mangle] pub extern "C" fn az_image_source_raw(variant_data: AzRawImagePtr) -> AzImageSource { AzImageSource::Raw(*az_raw_image_downcast(variant_data)) }
 /// Destructor: Takes ownership of the `ImageSource` pointer and deletes it.
-#[no_mangle] #[inline] pub extern "C" fn az_image_source_delete(_: AzImageSource) { }
+#[no_mangle] #[inline] #[allow(unused_variables)] pub extern "C" fn az_image_source_delete(object: &mut AzImageSource) { match object { AzImageSource::Embedded(_) => { }, AzImageSource::File(_) => { }, AzImageSource::Raw(_) => { }, }
+}
 /// Copies the object
 #[no_mangle] #[inline] pub extern "C" fn az_image_source_deep_copy(object: &AzImageSource) -> AzImageSource { object.clone() }
 
@@ -335,10 +339,14 @@ pub type AzImageSourceType = azul_core::app_resources::ImageSource;
 pub type AzFontSourceType = azul_core::app_resources::FontSource;
 #[no_mangle] pub use AzFontSourceType as AzFontSource;
 /// Bytes are the bytes of the font file
+#[inline] #[no_mangle] pub extern "C" fn az_font_source_embedded(variant_data: AzU8VecPtr) -> AzFontSource { AzFontSource::Embedded(*az_u8_vec_downcast(variant_data)) }
 /// References a font from a file path, which is loaded when necessary
+#[inline] #[no_mangle] pub extern "C" fn az_font_source_file(variant_data: AzPathBufPtr) -> AzFontSource { AzFontSource::File(*az_path_buf_downcast(variant_data)) }
 /// References a font from from a system font identifier, such as `"Arial"` or `"Helvetica"`
+#[inline] #[no_mangle] pub extern "C" fn az_font_source_system(variant_data: AzStringPtr) -> AzFontSource { AzFontSource::System(*az_string_downcast(variant_data)) }
 /// Destructor: Takes ownership of the `FontSource` pointer and deletes it.
-#[no_mangle] #[inline] pub extern "C" fn az_font_source_delete(_: AzFontSource) { }
+#[no_mangle] #[inline] #[allow(unused_variables)] pub extern "C" fn az_font_source_delete(object: &mut AzFontSource) { match object { AzFontSource::Embedded(_) => { }, AzFontSource::File(_) => { }, AzFontSource::System(_) => { }, }
+}
 /// Copies the object
 #[no_mangle] #[inline] pub extern "C" fn az_font_source_deep_copy(object: &AzFontSource) -> AzFontSource { object.clone() }
 
@@ -377,7 +385,8 @@ pub type AzRawImageFormatType = azul_core::app_resources::RawImageFormat;
 /// Bytes are in the RGBA-unsigned-8bit format
 #[inline] #[no_mangle] pub extern "C" fn az_raw_image_format_rgba8() -> AzRawImageFormat { AzRawImageFormat::RGBA8 }
 /// Destructor: Takes ownership of the `RawImageFormat` pointer and deletes it.
-#[no_mangle] #[inline] pub extern "C" fn az_raw_image_format_delete(_: AzRawImageFormat) { }
+#[no_mangle] #[inline] #[allow(unused_variables)] pub extern "C" fn az_raw_image_format_delete(object: &mut AzRawImageFormat) { match object { AzRawImageFormat::R8 => { }, AzRawImageFormat::R16 => { }, AzRawImageFormat::RG16 => { }, AzRawImageFormat::BGRA8 => { }, AzRawImageFormat::RGBAF32 => { }, AzRawImageFormat::RG8 => { }, AzRawImageFormat::RGBAI32 => { }, AzRawImageFormat::RGBA8 => { }, }
+}
 /// Copies the object
 #[no_mangle] #[inline] pub extern "C" fn az_raw_image_format_deep_copy(object: &AzRawImageFormat) -> AzRawImageFormat { object.clone() }
 
