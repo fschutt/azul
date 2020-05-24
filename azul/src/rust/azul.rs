@@ -72,7 +72,8 @@ pub mod vec {
             crate::vec::U8Vec::copy_from(v.as_ptr(), v.len()) // - copies v into a new Vec<u8>
             // - v is deallocated here
         }
-    }
+    }    use crate::str::String;
+
 
     /// Wrapper over a Rust-allocated `Vec<u8>`
     pub struct U8Vec { pub(crate) ptr: AzU8VecPtr }
@@ -85,6 +86,19 @@ pub mod vec {
     }
 
     impl Drop for U8Vec { fn drop(&mut self) { az_u8_vec_delete(&mut self.ptr); } }
+
+
+    /// Wrapper over a Rust-allocated `Vec<String>`
+    pub struct StringVec { pub(crate) ptr: AzStringVecPtr }
+
+    impl StringVec {
+        /// Creates + allocates a Rust `Vec<String>` by **copying** it from a bytes source
+        pub fn copy_from(ptr: *const String, len: usize) -> Self { Self { ptr: az_string_vec_copy_from(ptr.leak(), len) } }
+       /// Prevents the destructor from running and returns the internal `AzStringVecPtr`
+       pub fn leak(self) -> AzStringVecPtr { let p = az_string_vec_shallow_copy(&self.ptr); std::mem::forget(self); p }
+    }
+
+    impl Drop for StringVec { fn drop(&mut self) { az_string_vec_delete(&mut self.ptr); } }
 }
 
 /// Definition of azuls internal `PathBuf` type + functions for conversion from `std::PathBuf`
@@ -106,6 +120,26 @@ pub mod path {
     }
 
     impl Drop for PathBuf { fn drop(&mut self) { az_path_buf_delete(&mut self.ptr); } }
+}
+
+/// Definition of azuls internal `Duration` type + functions for conversion from `std::time::Duration`
+#[allow(dead_code, unused_imports)]
+pub mod time {
+
+    use azul_dll::*;
+
+
+    /// Wrapper over a Rust-allocated `Duration`
+    pub struct Duration { pub(crate) ptr: AzDurationPtr }
+
+    impl Duration {
+        /// Creates a new `Duration` from milliseconds
+        pub fn from_millis(millis: u64) -> Self { Self { ptr: az_duration_from_millis(millis) } }
+       /// Prevents the destructor from running and returns the internal `AzDurationPtr`
+       pub fn leak(self) -> AzDurationPtr { let p = az_duration_shallow_copy(&self.ptr); std::mem::forget(self); p }
+    }
+
+    impl Drop for Duration { fn drop(&mut self) { az_duration_delete(&mut self.ptr); } }
 }
 
 /// `App` construction and configuration
@@ -357,6 +391,7 @@ pub type GlCallback = fn(AzGlCallbackInfoPtr) -> AzGlCallbackReturnPtr;
 pub mod css {
 
     use azul_dll::*;
+    use crate::str::String;
 
 
     /// `Css` struct
@@ -372,6 +407,30 @@ pub mod css {
     }
 
     impl Drop for Css { fn drop(&mut self) { az_css_delete(&mut self.ptr); } }
+
+
+    /// `CssPropertyKey` struct
+    pub struct CssPropertyKey { pub(crate) ptr: AzCssPropertyKeyPtr }
+
+    impl CssPropertyKey {
+       /// Prevents the destructor from running and returns the internal `AzCssPropertyKeyPtr`
+       pub fn leak(self) -> AzCssPropertyKeyPtr { let p = az_css_property_key_shallow_copy(&self.ptr); std::mem::forget(self); p }
+    }
+
+    impl Drop for CssPropertyKey { fn drop(&mut self) { az_css_property_key_delete(&mut self.ptr); } }
+
+
+    /// Parsed CSS key-value pair
+    pub struct CssProperty { pub(crate) ptr: AzCssPropertyPtr }
+
+    impl CssProperty {
+        /// Parses a new CssProperty from a string
+        pub fn parse_from_string(key: CssPropertyKey, value: String) -> Self { Self { ptr: az_css_property_parse_from_string(key.leak(), value.leak()) } }
+       /// Prevents the destructor from running and returns the internal `AzCssPropertyPtr`
+       pub fn leak(self) -> AzCssPropertyPtr { let p = az_css_property_shallow_copy(&self.ptr); std::mem::forget(self); p }
+    }
+
+    impl Drop for CssProperty { fn drop(&mut self) { az_css_property_delete(&mut self.ptr); } }
 }
 
 /// `Dom` construction and configuration
@@ -379,7 +438,11 @@ pub mod css {
 pub mod dom {
 
     use azul_dll::*;
-    use crate::str::String;
+    use crate::str::{String, String, String, String, String, String, String};
+    use crate::resources::{TextId, ImageId};
+    use crate::callbacks::{RefAny, GlCallback, RefAny, GlCallback, RefAny, Callback, RefAny, Callback};
+    use crate::vec::{Vec<String>, Vec<String>, Vec<String>, Vec<String>};
+    use crate::css::{CssProperty, CssProperty};
 
 
     /// `Dom` struct
@@ -390,17 +453,198 @@ pub mod dom {
         pub fn div() -> Self { Self { ptr: az_dom_div() } }
         /// Creates a new `body` node
         pub fn body() -> Self { Self { ptr: az_dom_body() } }
-        /// Creates a new `Dom` instance.
+        /// Creates a new `p` node with a given `String` as the text contents
         pub fn label(text: String) -> Self { Self { ptr: az_dom_label(text.leak()) } }
+        /// Creates a new `p` node from a (cached) text referenced by a `TextId`
+        pub fn text(text_id: TextId) -> Self { Self { ptr: az_dom_text(text_id.leak()) } }
+        /// Creates a new `img` node from a (cached) text referenced by a `ImageId`
+        pub fn image(image_id: ImageId) -> Self { Self { ptr: az_dom_image(image_id.leak()) } }
+        /// Creates a new node which will render an OpenGL texture after the layout step is finished. See the documentation for [GlCallback]() for more info about OpenGL rendering callbacks.
+        pub fn gl_callback(data: RefAny, callback: GlCallback) -> Self { Self { ptr: az_dom_gl_callback(data.leak(), callback.leak()) } }
+        /// Creates a new node with a callback that will return a `Dom` after being layouted. See the documentation for [IFrameCallback]() for more info about iframe callbacks.
+        pub fn iframe_callback(data: RefAny, callback: GlCallback) -> Self { Self { ptr: az_dom_iframe_callback(data.leak(), callback.leak()) } }
+        /// Adds a CSS ID (`#something`) to the DOM node
+        pub fn add_id(&mut self, id: String)  { az_dom_add_id(&mut self.ptr, id.leak()) }
+        /// Same as [`Dom::add_id`](#method.add_id), but as a builder method
+        pub fn with_id(self, id: String)  -> Dom { Dom { ptr: { az_dom_with_id(self.leak(), id.leak())} } }
+        /// Same as calling [`Dom::add_id`](#method.add_id) for each CSS ID, but this function **replaces** all current CSS IDs
+        pub fn set_ids(&mut self, ids: Vec<String>)  { az_dom_set_ids(&mut self.ptr, ids.leak()) }
+        /// Same as [`Dom::set_ids`](#method.set_ids), but as a builder method
+        pub fn with_ids(self, ids: Vec<String>)  -> Dom { Dom { ptr: { az_dom_with_ids(self.leak(), ids.leak())} } }
+        /// Adds a CSS class (`.something`) to the DOM node
+        pub fn add_class(&mut self, class: String)  { az_dom_add_class(&mut self.ptr, class.leak()) }
+        /// Same as [`Dom::add_class`](#method.add_class), but as a builder method
+        pub fn with_class(self, class: String)  -> Dom { Dom { ptr: { az_dom_with_class(self.leak(), class.leak())} } }
+        /// Same as calling [`Dom::add_class`](#method.add_class) for each class, but this function **replaces** all current classes
+        pub fn set_classes(&mut self, classes: Vec<String>)  { az_dom_set_classes(&mut self.ptr, classes.leak()) }
+        /// Same as [`Dom::set_classes`](#method.set_classes), but as a builder method
+        pub fn with_classes(self, classes: Vec<String>)  -> Dom { Dom { ptr: { az_dom_with_classes(self.leak(), classes.leak())} } }
+        /// Adds a [`Callback`](callbacks/type.Callback) that acts on the `data` the `event` happens
+        pub fn add_callback(&mut self, event: EventFilter, data: RefAny, callback: Callback)  { az_dom_add_callback(&mut self.ptr, event.leak(), data.leak(), callback.leak()) }
+        /// Same as [`Dom::add_callback`](#method.add_callback), but as a builder method
+        pub fn with_callback(&mut self, event: EventFilter, data: RefAny, callback: Callback)  { az_dom_with_callback(&mut self.ptr, event.leak(), data.leak(), callback.leak()) }
+        /// Overrides the CSS property of this DOM node with a value (for example `"width = 200px"`)
+        pub fn add_dynamic_css_override(&mut self, prop: CssProperty)  { az_dom_add_dynamic_css_override(&mut self.ptr, prop.leak()) }
+        /// Same as [`Dom::add_dynamic_css_override`](#method.add_dynamic_css_override), but as a builder method
+        pub fn with_dynamic_css_override(&mut self, prop: CssProperty)  { az_dom_with_dynamic_css_override(&mut self.ptr, prop.leak()) }
+        /// Sets the `is_draggable` attribute of this DOM node (default: false)
+        pub fn set_is_draggable(&mut self, is_draggable: bool)  { az_dom_set_is_draggable(&mut self.ptr, is_draggable) }
+        /// Same as [`Dom::set_is_draggable`](#method.set_is_draggable), but as a builder method
+        pub fn is_draggable(&mut self, is_draggable: bool)  { az_dom_is_draggable(&mut self.ptr, is_draggable) }
+        /// Sets the `tabindex` attribute of this DOM node (makes an element focusable - default: None)
+        pub fn set_tab_index(&mut self, tab_index: TabIndex)  { az_dom_set_tab_index(&mut self.ptr, tab_index.leak()) }
+        /// Same as [`Dom::set_tab_index`](#method.set_tab_index), but as a builder method
+        pub fn with_tab_index(&mut self, tab_index: TabIndex)  { az_dom_with_tab_index(&mut self.ptr, tab_index.leak()) }
         /// Reparents another `Dom` to be the child node of this `Dom`
         pub fn add_child(&mut self, child: Dom)  { az_dom_add_child(&mut self.ptr, child.leak()) }
         /// Same as [`Dom::add_child`](#method.add_child), but as a builder method
         pub fn with_child(self, child: Dom)  -> Dom { Dom { ptr: { az_dom_with_child(self.leak(), child.leak())} } }
+        /// Returns if the DOM node has a certain CSS ID
+        pub fn has_id(&self, id: String)  -> bool { bool { ptr: { az_dom_has_id(&self.ptr, id.leak())} } }
+        /// Returns if the DOM node has a certain CSS class
+        pub fn has_class(&self, class: String)  -> bool { bool { ptr: { az_dom_has_class(&self.ptr, class.leak())} } }
        /// Prevents the destructor from running and returns the internal `AzDomPtr`
        pub fn leak(self) -> AzDomPtr { let p = az_dom_shallow_copy(&self.ptr); std::mem::forget(self); p }
     }
 
     impl Drop for Dom { fn drop(&mut self) { az_dom_delete(&mut self.ptr); } }
+
+
+    /// `EventFilter` struct
+    pub struct EventFilter { pub(crate) object: AzEventFilter }
+
+    impl EventFilter {
+        pub fn hover(variant_data: crate::dom::HoverEventFilter) -> Self { Self { object: az_event_filter_hover(variant_data.leak()) }}
+        pub fn not(variant_data: crate::dom::NotEventFilter) -> Self { Self { object: az_event_filter_not(variant_data.leak()) }}
+        pub fn focus(variant_data: crate::dom::FocusEventFilter) -> Self { Self { object: az_event_filter_focus(variant_data.leak()) }}
+        pub fn window(variant_data: crate::dom::WindowEventFilter) -> Self { Self { object: az_event_filter_window(variant_data.leak()) }}
+       /// Prevents the destructor from running and returns the internal `AzEventFilter`
+       pub fn leak(self) -> AzEventFilter { az_event_filter_deep_copy(&self.object) }
+    }
+
+    impl Drop for EventFilter { fn drop(&mut self) { az_event_filter_delete(&mut self.object); } }
+
+
+    /// `HoverEventFilter` struct
+    pub struct HoverEventFilter { pub(crate) object: AzHoverEventFilter }
+
+    impl HoverEventFilter {
+        pub fn mouse_over() -> Self { Self { object: az_hover_event_filter_mouse_over() }  }
+        pub fn mouse_down() -> Self { Self { object: az_hover_event_filter_mouse_down() }  }
+        pub fn left_mouse_down() -> Self { Self { object: az_hover_event_filter_left_mouse_down() }  }
+        pub fn right_mouse_down() -> Self { Self { object: az_hover_event_filter_right_mouse_down() }  }
+        pub fn middle_mouse_down() -> Self { Self { object: az_hover_event_filter_middle_mouse_down() }  }
+        pub fn mouse_up() -> Self { Self { object: az_hover_event_filter_mouse_up() }  }
+        pub fn left_mouse_up() -> Self { Self { object: az_hover_event_filter_left_mouse_up() }  }
+        pub fn right_mouse_up() -> Self { Self { object: az_hover_event_filter_right_mouse_up() }  }
+        pub fn middle_mouse_up() -> Self { Self { object: az_hover_event_filter_middle_mouse_up() }  }
+        pub fn mouse_enter() -> Self { Self { object: az_hover_event_filter_mouse_enter() }  }
+        pub fn mouse_leave() -> Self { Self { object: az_hover_event_filter_mouse_leave() }  }
+        pub fn scroll() -> Self { Self { object: az_hover_event_filter_scroll() }  }
+        pub fn scroll_start() -> Self { Self { object: az_hover_event_filter_scroll_start() }  }
+        pub fn scroll_end() -> Self { Self { object: az_hover_event_filter_scroll_end() }  }
+        pub fn text_input() -> Self { Self { object: az_hover_event_filter_text_input() }  }
+        pub fn virtual_key_down() -> Self { Self { object: az_hover_event_filter_virtual_key_down() }  }
+        pub fn virtual_key_up() -> Self { Self { object: az_hover_event_filter_virtual_key_up() }  }
+        pub fn hovered_file() -> Self { Self { object: az_hover_event_filter_hovered_file() }  }
+        pub fn dropped_file() -> Self { Self { object: az_hover_event_filter_dropped_file() }  }
+        pub fn hovered_file_cancelled() -> Self { Self { object: az_hover_event_filter_hovered_file_cancelled() }  }
+       /// Prevents the destructor from running and returns the internal `AzHoverEventFilter`
+       pub fn leak(self) -> AzHoverEventFilter { az_hover_event_filter_deep_copy(&self.object) }
+    }
+
+    impl Drop for HoverEventFilter { fn drop(&mut self) { az_hover_event_filter_delete(&mut self.object); } }
+
+
+    /// `FocusEventFilter` struct
+    pub struct FocusEventFilter { pub(crate) object: AzFocusEventFilter }
+
+    impl FocusEventFilter {
+        pub fn mouse_over() -> Self { Self { object: az_focus_event_filter_mouse_over() }  }
+        pub fn mouse_down() -> Self { Self { object: az_focus_event_filter_mouse_down() }  }
+        pub fn left_mouse_down() -> Self { Self { object: az_focus_event_filter_left_mouse_down() }  }
+        pub fn right_mouse_down() -> Self { Self { object: az_focus_event_filter_right_mouse_down() }  }
+        pub fn middle_mouse_down() -> Self { Self { object: az_focus_event_filter_middle_mouse_down() }  }
+        pub fn mouse_up() -> Self { Self { object: az_focus_event_filter_mouse_up() }  }
+        pub fn left_mouse_up() -> Self { Self { object: az_focus_event_filter_left_mouse_up() }  }
+        pub fn right_mouse_up() -> Self { Self { object: az_focus_event_filter_right_mouse_up() }  }
+        pub fn middle_mouse_up() -> Self { Self { object: az_focus_event_filter_middle_mouse_up() }  }
+        pub fn mouse_enter() -> Self { Self { object: az_focus_event_filter_mouse_enter() }  }
+        pub fn mouse_leave() -> Self { Self { object: az_focus_event_filter_mouse_leave() }  }
+        pub fn scroll() -> Self { Self { object: az_focus_event_filter_scroll() }  }
+        pub fn scroll_start() -> Self { Self { object: az_focus_event_filter_scroll_start() }  }
+        pub fn scroll_end() -> Self { Self { object: az_focus_event_filter_scroll_end() }  }
+        pub fn text_input() -> Self { Self { object: az_focus_event_filter_text_input() }  }
+        pub fn virtual_key_down() -> Self { Self { object: az_focus_event_filter_virtual_key_down() }  }
+        pub fn virtual_key_up() -> Self { Self { object: az_focus_event_filter_virtual_key_up() }  }
+        pub fn focus_received() -> Self { Self { object: az_focus_event_filter_focus_received() }  }
+        pub fn focus_lost() -> Self { Self { object: az_focus_event_filter_focus_lost() }  }
+       /// Prevents the destructor from running and returns the internal `AzFocusEventFilter`
+       pub fn leak(self) -> AzFocusEventFilter { az_focus_event_filter_deep_copy(&self.object) }
+    }
+
+    impl Drop for FocusEventFilter { fn drop(&mut self) { az_focus_event_filter_delete(&mut self.object); } }
+
+
+    /// `NotEventFilter` struct
+    pub struct NotEventFilter { pub(crate) object: AzNotEventFilter }
+
+    impl NotEventFilter {
+        pub fn hover(variant_data: crate::dom::HoverEventFilter) -> Self { Self { object: az_not_event_filter_hover(variant_data.leak()) }}
+        pub fn focus(variant_data: crate::dom::FocusEventFilter) -> Self { Self { object: az_not_event_filter_focus(variant_data.leak()) }}
+       /// Prevents the destructor from running and returns the internal `AzNotEventFilter`
+       pub fn leak(self) -> AzNotEventFilter { az_not_event_filter_deep_copy(&self.object) }
+    }
+
+    impl Drop for NotEventFilter { fn drop(&mut self) { az_not_event_filter_delete(&mut self.object); } }
+
+
+    /// `WindowEventFilter` struct
+    pub struct WindowEventFilter { pub(crate) object: AzWindowEventFilter }
+
+    impl WindowEventFilter {
+        pub fn mouse_over() -> Self { Self { object: az_window_event_filter_mouse_over() }  }
+        pub fn mouse_down() -> Self { Self { object: az_window_event_filter_mouse_down() }  }
+        pub fn left_mouse_down() -> Self { Self { object: az_window_event_filter_left_mouse_down() }  }
+        pub fn right_mouse_down() -> Self { Self { object: az_window_event_filter_right_mouse_down() }  }
+        pub fn middle_mouse_down() -> Self { Self { object: az_window_event_filter_middle_mouse_down() }  }
+        pub fn mouse_up() -> Self { Self { object: az_window_event_filter_mouse_up() }  }
+        pub fn left_mouse_up() -> Self { Self { object: az_window_event_filter_left_mouse_up() }  }
+        pub fn right_mouse_up() -> Self { Self { object: az_window_event_filter_right_mouse_up() }  }
+        pub fn middle_mouse_up() -> Self { Self { object: az_window_event_filter_middle_mouse_up() }  }
+        pub fn mouse_enter() -> Self { Self { object: az_window_event_filter_mouse_enter() }  }
+        pub fn mouse_leave() -> Self { Self { object: az_window_event_filter_mouse_leave() }  }
+        pub fn scroll() -> Self { Self { object: az_window_event_filter_scroll() }  }
+        pub fn scroll_start() -> Self { Self { object: az_window_event_filter_scroll_start() }  }
+        pub fn scroll_end() -> Self { Self { object: az_window_event_filter_scroll_end() }  }
+        pub fn text_input() -> Self { Self { object: az_window_event_filter_text_input() }  }
+        pub fn virtual_key_down() -> Self { Self { object: az_window_event_filter_virtual_key_down() }  }
+        pub fn virtual_key_up() -> Self { Self { object: az_window_event_filter_virtual_key_up() }  }
+        pub fn hovered_file() -> Self { Self { object: az_window_event_filter_hovered_file() }  }
+        pub fn dropped_file() -> Self { Self { object: az_window_event_filter_dropped_file() }  }
+        pub fn hovered_file_cancelled() -> Self { Self { object: az_window_event_filter_hovered_file_cancelled() }  }
+       /// Prevents the destructor from running and returns the internal `AzWindowEventFilter`
+       pub fn leak(self) -> AzWindowEventFilter { az_window_event_filter_deep_copy(&self.object) }
+    }
+
+    impl Drop for WindowEventFilter { fn drop(&mut self) { az_window_event_filter_delete(&mut self.object); } }
+
+
+    /// `TabIndex` struct
+    pub struct TabIndex { pub(crate) object: AzTabIndex }
+
+    impl TabIndex {
+        /// Automatic tab index, similar to simply setting `focusable = "true"` or `tabindex = 0`, (both have the effect of making the element focusable)
+        pub fn auto() -> Self { Self { object: az_tab_index_auto() }  }
+        ///  Set the tab index in relation to its parent element (`tabindex = n`)
+        pub fn override_in_parent(variant_data: usize) -> Self { Self { object: az_tab_index_override_in_parent(variant_data) }}
+        /// Elements can be focused in callbacks, but are not accessible via keyboard / tab navigation (`tabindex = -1`)
+        pub fn no_keyboard_focus() -> Self { Self { object: az_tab_index_no_keyboard_focus() }  }
+       /// Prevents the destructor from running and returns the internal `AzTabIndex`
+       pub fn leak(self) -> AzTabIndex { az_tab_index_deep_copy(&self.object) }
+    }
+
+    impl Drop for TabIndex { fn drop(&mut self) { az_tab_index_delete(&mut self.object); } }
 }
 
 /// Struct definition for image / font / text IDs

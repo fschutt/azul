@@ -41,6 +41,20 @@
                      "fn_body": "unsafe { std::slice::from_raw_parts(ptr, len).to_vec() }"
                   }
                }
+            },
+            "StringVec": {
+               "doc": "Wrapper over a Rust-allocated `Vec<String>`",
+               "rust_class_name": "Vec<String>",
+               "constructors": {
+                  "copy_from": {
+                     "doc": "Creates + allocates a Rust `Vec<String>` by **copying** it from a bytes source",
+                     "fn_args": [
+                        {"ptr": "*const String"},
+                        {"len": "usize"}
+                     ],
+                     "fn_body": "unsafe { std::slice::from_raw_parts(ptr, len).to_vec() }"
+                  }
+               }
             }
          }
       },
@@ -56,6 +70,27 @@
                         {"path": "String"}
                      ],
                      "fn_body": "std::path::PathBuf::from(*az_string_downcast(path))"
+                  }
+               }
+            }
+         }
+      },
+      "time": {
+         "doc": "Definition of azuls internal `Duration` type + functions for conversion from `std::time::Duration`",
+         "classes": {
+            "Duration": {
+               "doc": "Wrapper over a Rust-allocated `Duration`",
+               "struct_fields": {
+                  "secs:": { "type": "u64" },
+                  "nanos:": { "type": "u32" }
+               },
+               "constructors": {
+                  "from_millis": {
+                     "doc": "Creates a new `Duration` from milliseconds",
+                     "fn_args": [
+                        {"millis": "u64"}
+                     ],
+                     "fn_body": ""
                   }
                }
             }
@@ -157,6 +192,21 @@
                      "fn_body":"Css::empty()"
                   }
                }
+            },
+            "CssPropertyKey": {
+            },
+            "CssProperty": {
+               "doc": "Parsed CSS key-value pair",
+               "constructors": {
+                  "parse_from_string": {
+                     "doc": "Parses a new CssProperty from a string",
+                     "fn_args": [
+                        {"key": "CssPropertyKey"},
+                        {"value": "String"}
+                     ],
+                     "fn_body":"CssPropertyValue::from_str(key, &*az_string_downcast(value))"
+                  }
+               }
             }
          }
       },
@@ -164,7 +214,6 @@
          "doc": "`Dom` construction and configuration",
          "classes": {
             "Dom": {
-               "rust_class_name": "Dom",
                "external": "azul_core::dom::DomPtr",
                "is_boxed_object": true,
                "constructors": {
@@ -177,13 +226,180 @@
                      "fn_body":"Dom::body()"
                   },
                   "label": {
+                     "doc": "Creates a new `p` node with a given `String` as the text contents",
                      "fn_args": [
                         {"text": "String"}
                      ],
                      "fn_body": "Dom::label(*az_string_downcast(text))"
+                  },
+                  "text": {
+                     "doc": "Creates a new `p` node from a (cached) text referenced by a `TextId`",
+                     "fn_args": [
+                        {"text_id": "TextId"}
+                     ],
+                     "fn_body": "Dom::text(*az_text_id_downcast(text_id))"
+                  },
+                  "image": {
+                     "doc": "Creates a new `img` node from a (cached) text referenced by a `ImageId`",
+                     "fn_args": [
+                        {"image_id": "ImageId"}
+                     ],
+                     "fn_body": "Dom::image(*az_image_id_downcast(image_id))"
+                  },
+                  "gl_callback": {
+                     "doc": "Creates a new node which will render an OpenGL texture after the layout step is finished. See the documentation for [GlCallback]() for more info about OpenGL rendering callbacks.",
+                     "fn_args": [
+                        {"data": "RefAny"},
+                        {"callback": "GlCallback"}
+                     ],
+                     "fn_body": "Dom::gl_callback(azul_core::callbacks::GlCallback(callback))"
+                  },
+                  "iframe_callback": {
+                     "doc": "Creates a new node with a callback that will return a `Dom` after being layouted. See the documentation for [IFrameCallback]() for more info about iframe callbacks.",
+                     "fn_args": [
+                        {"data": "RefAny"},
+                        {"callback": "GlCallback"}
+                     ],
+                     "fn_body": "Dom::iframe(azul_core::callbacks::IFrameCallback(callback))"
                   }
                },
                "functions": {
+                  "add_id": {
+                     "doc": "Adds a CSS ID (`#something`) to the DOM node",
+                     "fn_args": [
+                        {"self": "refmut"},
+                        {"id": "String"}
+                     ],
+                     "fn_body": "az_dom_downcast_refmut(dom, |d| { d.add_id(*az_string_downcast(id)); })"
+                  },
+                  "with_id": {
+                     "doc": "Same as [`Dom::add_id`](#method.add_id), but as a builder method",
+                     "fn_args": [
+                        {"self": "mut value"},
+                        {"id": "String"}
+                     ],
+                     "returns": "Dom",
+                     "fn_body": "az_dom_add_id(&mut dom, id); dom"
+                  },
+                  "set_ids": {
+                     "doc": "Same as calling [`Dom::add_id`](#method.add_id) for each CSS ID, but this function **replaces** all current CSS IDs",
+                     "fn_args": [
+                        {"self": "refmut"},
+                        {"ids": "Vec<String>"}
+                     ],
+                     "fn_body": "az_dom_downcast_refmut(dom, |d| { d.set_ids(*az_vec_string_downcast(ids)); })"
+                  },
+                  "with_ids": {
+                     "doc": "Same as [`Dom::set_ids`](#method.set_ids), but as a builder method",
+                     "fn_args": [
+                        {"self": "mut value"},
+                        {"ids": "Vec<String>"}
+                     ],
+                     "returns": "Dom",
+                     "fn_body": "az_dom_set_ids(&mut dom, ids); dom"
+                  },
+                  "add_class": {
+                     "doc": "Adds a CSS class (`.something`) to the DOM node",
+                     "fn_args": [
+                        {"self": "refmut"},
+                        {"class": "String"}
+                     ],
+                     "fn_body": "az_dom_downcast_refmut(dom, |d| { d.add_class(*az_string_downcast(class)); })"
+                  },
+                  "with_class": {
+                     "doc": "Same as [`Dom::add_class`](#method.add_class), but as a builder method",
+                     "fn_args": [
+                        {"self": "mut value"},
+                        {"class": "String"}
+                     ],
+                     "returns": "Dom",
+                     "fn_body": "az_dom_add_class(&mut dom, class); dom"
+                  },
+                  "set_classes": {
+                     "doc": "Same as calling [`Dom::add_class`](#method.add_class) for each class, but this function **replaces** all current classes",
+                     "fn_args": [
+                        {"self": "refmut"},
+                        {"classes": "Vec<String>"}
+                     ],
+                     "fn_body": "az_dom_downcast_refmut(dom, |d| { d.set_classes(*az_vec_string_downcast(classes)); })"
+                  },
+                  "with_classes": {
+                     "doc": "Same as [`Dom::set_classes`](#method.set_classes), but as a builder method",
+                     "fn_args": [
+                        {"self": "mut value"},
+                        {"classes": "Vec<String>"}
+                     ],
+                     "returns": "Dom",
+                     "fn_body": "az_dom_set_classes(&mut dom, ids); dom"
+                  },
+                  "add_callback": {
+                     "doc": "Adds a [`Callback`](callbacks/type.Callback) that acts on the `data` the `event` happens",
+                     "fn_args": [
+                        {"self": "refmut"},
+                        {"event": "EventFilter"},
+                        {"data": "RefAny"},
+                        {"callback": "Callback"}
+                     ],
+                     "fn_body": "az_dom_downcast_refmut(dom, |d| { d.add_callback(event, data, Callback(callback)); })"
+                  },
+                  "with_callback": {
+                     "doc": "Same as [`Dom::add_callback`](#method.add_callback), but as a builder method",
+                     "fn_args": [
+                        {"self": "refmut"},
+                        {"event": "EventFilter"},
+                        {"data": "RefAny"},
+                        {"callback": "Callback"}
+                     ],
+                     "fn_body": "az_dom_add_callback(&mut dom, event, data, callback); dom"
+                  },
+                  "add_dynamic_css_override": {
+                     "doc": "Overrides the CSS property of this DOM node with a value (for example `\"width = 200px\"`)",
+                     "fn_args": [
+                        {"self": "refmut"},
+                        {"prop": "CssProperty"}
+                     ],
+                     "fn_body": "az_dom_downcast_refmut(dom, |d| { d.add_dynamic_css_override(event, az_css_property_downcast(prop)); })"
+                  },
+                  "with_dynamic_css_override": {
+                     "doc": "Same as [`Dom::add_dynamic_css_override`](#method.add_dynamic_css_override), but as a builder method",
+                     "fn_args": [
+                        {"self": "refmut"},
+                        {"prop": "CssProperty"}
+                     ],
+                     "fn_body": "az_dom_add_dynamic_css_override(&mut dom, prop); dom"
+                  },
+                  "set_is_draggable": {
+                     "doc": "Sets the `is_draggable` attribute of this DOM node (default: false)",
+                     "fn_args": [
+                        {"self": "refmut"},
+                        {"is_draggable": "bool"}
+                     ],
+                     "fn_body": "az_dom_downcast_refmut(dom, |d| { d.is_draggable(event, is_draggable); })"
+                  },
+                  "is_draggable": {
+                     "doc": "Same as [`Dom::set_is_draggable`](#method.set_is_draggable), but as a builder method",
+                     "fn_args": [
+                        {"self": "refmut"},
+                        {"is_draggable": "bool"}
+                     ],
+                     "fn_body": "az_dom_set_is_draggable(&mut dom, is_draggable); dom"
+                  },
+                  "set_tab_index": {
+                     "doc": "Sets the `tabindex` attribute of this DOM node (makes an element focusable - default: None)",
+                     "fn_args": [
+                        {"self": "refmut"},
+                        {"tab_index": "TabIndex"}
+                     ],
+                     "fn_body": "az_dom_downcast_refmut(dom, |d| { d.set_tab_index(event, tab_index); })"
+                  },
+                  "with_tab_index": {
+                     "doc": "Same as [`Dom::set_tab_index`](#method.set_tab_index), but as a builder method",
+                     "fn_args": [
+                        {"self": "refmut"},
+                        {"tab_index": "TabIndex"}
+                     ],
+                     "fn_body": "az_dom_set_tab_index(&mut dom, tab_index); dom"
+                  },
                   "add_child": {
                      "doc": "Reparents another `Dom` to be the child node of this `Dom`",
                      "fn_args": [
@@ -200,7 +416,123 @@
                      ],
                      "returns": "Dom",
                      "fn_body": "az_dom_add_child(&mut dom, child); dom"
+                  },
+                  "has_id": {
+                     "doc": "Returns if the DOM node has a certain CSS ID",
+                     "fn_args": [
+                        {"self": "ref"},
+                        {"id": "String"}
+                     ],
+                     "returns": "bool",
+                     "fn_body": "az_dom_downcast_refmut(dom, |d| { d.has_id(&*az_string_downcast(id)); })"
+                  },
+                  "has_class": {
+                     "doc": "Returns if the DOM node has a certain CSS class",
+                     "fn_args": [
+                        {"self": "ref"},
+                        {"class": "String"}
+                     ],
+                     "returns": "bool",
+                     "fn_body": "az_dom_downcast_refmut(dom, |d| { d.has_class(&*az_string_downcast(class)); })"
                   }
+               }
+            },
+            "EventFilter": {
+               "external": "azul_core::dom::EventFilter",
+               "enum_fields": {
+                  "Hover": {"type": "HoverEventFilter"},
+                  "Not": {"type": "NotEventFilter"},
+                  "Focus": {"type": "FocusEventFilter"},
+                  "Window": {"type": "WindowEventFilter"}
+               }
+            },
+            "HoverEventFilter": {
+               "external": "azul_core::dom::HoverEventFilter",
+               "enum_fields": {
+                  "MouseOver": {},
+                  "MouseDown": {},
+                  "LeftMouseDown": {},
+                  "RightMouseDown": {},
+                  "MiddleMouseDown": {},
+                  "MouseUp": {},
+                  "LeftMouseUp": {},
+                  "RightMouseUp": {},
+                  "MiddleMouseUp": {},
+                  "MouseEnter": {},
+                  "MouseLeave": {},
+                  "Scroll": {},
+                  "ScrollStart": {},
+                  "ScrollEnd": {},
+                  "TextInput": {},
+                  "VirtualKeyDown": {},
+                  "VirtualKeyUp": {},
+                  "HoveredFile": {},
+                  "DroppedFile": {},
+                  "HoveredFileCancelled": {}
+               }
+            },
+            "FocusEventFilter": {
+               "external": "azul_core::dom::FocusEventFilter",
+               "enum_fields": {
+                  "MouseOver": {},
+                  "MouseDown": {},
+                  "LeftMouseDown": {},
+                  "RightMouseDown": {},
+                  "MiddleMouseDown": {},
+                  "MouseUp": {},
+                  "LeftMouseUp": {},
+                  "RightMouseUp": {},
+                  "MiddleMouseUp": {},
+                  "MouseEnter": {},
+                  "MouseLeave": {},
+                  "Scroll": {},
+                  "ScrollStart": {},
+                  "ScrollEnd": {},
+                  "TextInput": {},
+                  "VirtualKeyDown": {},
+                  "VirtualKeyUp": {},
+                  "FocusReceived": {},
+                  "FocusLost": {}
+               }
+            },
+            "NotEventFilter": {
+               "external": "azul_core::dom::NotEventFilter",
+               "enum_fields": {
+                  "Hover": {"type": "HoverEventFilter"},
+                  "Focus": {"type": "FocusEventFilter"}
+               }
+            },
+            "WindowEventFilter": {
+               "external": "azul_core::dom::WindowEventFilter",
+               "enum_fields": {
+                  "MouseOver": {},
+                  "MouseDown": {},
+                  "LeftMouseDown": {},
+                  "RightMouseDown": {},
+                  "MiddleMouseDown": {},
+                  "MouseUp": {},
+                  "LeftMouseUp": {},
+                  "RightMouseUp": {},
+                  "MiddleMouseUp": {},
+                  "MouseEnter": {},
+                  "MouseLeave": {},
+                  "Scroll": {},
+                  "ScrollStart": {},
+                  "ScrollEnd": {},
+                  "TextInput": {},
+                  "VirtualKeyDown": {},
+                  "VirtualKeyUp": {},
+                  "HoveredFile": {},
+                  "DroppedFile": {},
+                  "HoveredFileCancelled": {}
+               }
+            },
+            "TabIndex": {
+               "external": "azul_core::dom::TabIndex",
+               "enum_fields": {
+                  "Auto": { "doc": "Automatic tab index, similar to simply setting `focusable = \"true\"` or `tabindex = 0`, (both have the effect of making the element focusable)" },
+                  "OverrideInParent": { "type": "usize", "doc": " Set the tab index in relation to its parent element (`tabindex = n`)" },
+                  "NoKeyboardFocus": { "doc": "Elements can be focused in callbacks, but are not accessible via keyboard / tab navigation (`tabindex = -1`)"}
                }
             }
          }

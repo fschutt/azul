@@ -69,6 +69,21 @@ use azul_web::app::{App, AppConfig};
 /// (private): Downcasts the `AzU8VecPtr` to a `&Box<Vec<u8>>` and runs the `func` closure on it
 #[inline(always)] fn az_u8_vec_downcast_ref<F: FnOnce(&Box<Vec<u8>>)>(ptr: &mut AzU8VecPtr, func: F) { let box_ptr: Box<Vec<u8>> = unsafe { Box::<Vec<u8>>::from_raw(ptr.ptr  as *mut Vec<u8>) };func(&box_ptr);ptr.ptr = Box::into_raw(box_ptr) as *mut c_void; }
 
+/// Wrapper over a Rust-allocated `Vec<String>`
+#[no_mangle] #[repr(C)] pub struct AzStringVecPtr { ptr: *mut c_void }
+/// Creates + allocates a Rust `Vec<String>` by **copying** it from a bytes source
+#[no_mangle] #[inline] pub extern "C" fn az_string_vec_copy_from(ptr: *const AzStringPtr, len: usize) -> AzStringVecPtr { let object: Vec<String> = unsafe { std::slice::from_raw_parts(ptr, len).to_vec() }; AzStringVecPtr { ptr: Box::into_raw(Box::new(object)) as *mut c_void } }
+/// Destructor: Takes ownership of the `StringVec` pointer and deletes it.
+#[no_mangle] #[inline] pub extern "C" fn az_string_vec_delete(ptr: &mut AzStringVecPtr) { let _ = unsafe { Box::<Vec<String>>::from_raw(ptr.ptr  as *mut Vec<String>) }; }
+/// Copies the pointer: WARNING: After calling this function you'll have two pointers to the same Box<`StringVec`>!.
+#[no_mangle] #[inline] pub extern "C" fn az_string_vec_shallow_copy(ptr: &AzStringVecPtr) -> AzStringVecPtr { AzStringVecPtr { ptr: ptr.ptr } }
+/// (private): Downcasts the `AzStringVecPtr` to a `Box<Vec<String>>`. Note that this takes ownership of the pointer.
+#[inline(always)] fn az_string_vec_downcast(ptr: AzStringVecPtr) -> Box<Vec<String>> { unsafe { Box::<Vec<String>>::from_raw(ptr.ptr  as *mut Vec<String>) } }
+/// (private): Downcasts the `AzStringVecPtr` to a `&mut Box<Vec<String>>` and runs the `func` closure on it
+#[inline(always)] fn az_string_vec_downcast_refmut<F: FnOnce(&mut Box<Vec<String>>)>(ptr: &mut AzStringVecPtr, func: F) { let mut box_ptr: Box<Vec<String>> = unsafe { Box::<Vec<String>>::from_raw(ptr.ptr  as *mut Vec<String>) };func(&mut box_ptr);ptr.ptr = Box::into_raw(box_ptr) as *mut c_void; }
+/// (private): Downcasts the `AzStringVecPtr` to a `&Box<Vec<String>>` and runs the `func` closure on it
+#[inline(always)] fn az_string_vec_downcast_ref<F: FnOnce(&Box<Vec<String>>)>(ptr: &mut AzStringVecPtr, func: F) { let box_ptr: Box<Vec<String>> = unsafe { Box::<Vec<String>>::from_raw(ptr.ptr  as *mut Vec<String>) };func(&box_ptr);ptr.ptr = Box::into_raw(box_ptr) as *mut c_void; }
+
 /// Wrapper over a Rust-allocated `PathBuf`
 #[no_mangle] #[repr(C)] pub struct AzPathBufPtr { ptr: *mut c_void }
 /// Creates a new PathBuf from a String
@@ -83,6 +98,21 @@ use azul_web::app::{App, AppConfig};
 #[inline(always)] fn az_path_buf_downcast_refmut<F: FnOnce(&mut Box<PathBuf>)>(ptr: &mut AzPathBufPtr, func: F) { let mut box_ptr: Box<PathBuf> = unsafe { Box::<PathBuf>::from_raw(ptr.ptr  as *mut PathBuf) };func(&mut box_ptr);ptr.ptr = Box::into_raw(box_ptr) as *mut c_void; }
 /// (private): Downcasts the `AzPathBufPtr` to a `&Box<PathBuf>` and runs the `func` closure on it
 #[inline(always)] fn az_path_buf_downcast_ref<F: FnOnce(&Box<PathBuf>)>(ptr: &mut AzPathBufPtr, func: F) { let box_ptr: Box<PathBuf> = unsafe { Box::<PathBuf>::from_raw(ptr.ptr  as *mut PathBuf) };func(&box_ptr);ptr.ptr = Box::into_raw(box_ptr) as *mut c_void; }
+
+/// Wrapper over a Rust-allocated `Duration`
+#[no_mangle] #[repr(C)] pub struct AzDurationPtr { ptr: *mut c_void }
+/// Creates a new `Duration` from milliseconds
+#[no_mangle] #[inline] pub extern "C" fn az_duration_from_millis(millis: u64) -> AzDurationPtr { let object: Duration = ; AzDurationPtr { ptr: Box::into_raw(Box::new(object)) as *mut c_void } }
+/// Destructor: Takes ownership of the `Duration` pointer and deletes it.
+#[no_mangle] #[inline] pub extern "C" fn az_duration_delete(ptr: &mut AzDurationPtr) { let _ = unsafe { Box::<Duration>::from_raw(ptr.ptr  as *mut Duration) }; }
+/// Copies the pointer: WARNING: After calling this function you'll have two pointers to the same Box<`Duration`>!.
+#[no_mangle] #[inline] pub extern "C" fn az_duration_shallow_copy(ptr: &AzDurationPtr) -> AzDurationPtr { AzDurationPtr { ptr: ptr.ptr } }
+/// (private): Downcasts the `AzDurationPtr` to a `Box<Duration>`. Note that this takes ownership of the pointer.
+#[inline(always)] fn az_duration_downcast(ptr: AzDurationPtr) -> Box<Duration> { unsafe { Box::<Duration>::from_raw(ptr.ptr  as *mut Duration) } }
+/// (private): Downcasts the `AzDurationPtr` to a `&mut Box<Duration>` and runs the `func` closure on it
+#[inline(always)] fn az_duration_downcast_refmut<F: FnOnce(&mut Box<Duration>)>(ptr: &mut AzDurationPtr, func: F) { let mut box_ptr: Box<Duration> = unsafe { Box::<Duration>::from_raw(ptr.ptr  as *mut Duration) };func(&mut box_ptr);ptr.ptr = Box::into_raw(box_ptr) as *mut c_void; }
+/// (private): Downcasts the `AzDurationPtr` to a `&Box<Duration>` and runs the `func` closure on it
+#[inline(always)] fn az_duration_downcast_ref<F: FnOnce(&Box<Duration>)>(ptr: &mut AzDurationPtr, func: F) { let box_ptr: Box<Duration> = unsafe { Box::<Duration>::from_raw(ptr.ptr  as *mut Duration) };func(&box_ptr);ptr.ptr = Box::into_raw(box_ptr) as *mut c_void; }
 
 /// Pointer to rust-allocated `Box<AppConfig>` struct
 #[no_mangle] #[repr(C)] pub struct AzAppConfigPtr { ptr: *mut c_void }
@@ -265,6 +295,34 @@ pub type AzLayoutInfoPtrType = azul_core::callbacks::LayoutInfoPtr;
 /// (private): Downcasts the `AzCssPtr` to a `&Box<Css>` and runs the `func` closure on it
 #[inline(always)] fn az_css_downcast_ref<F: FnOnce(&Box<Css>)>(ptr: &mut AzCssPtr, func: F) { let box_ptr: Box<Css> = unsafe { Box::<Css>::from_raw(ptr.ptr  as *mut Css) };func(&box_ptr);ptr.ptr = Box::into_raw(box_ptr) as *mut c_void; }
 
+/// Pointer to rust-allocated `Box<CssPropertyKey>` struct
+#[no_mangle] #[repr(C)] pub struct AzCssPropertyKeyPtr { ptr: *mut c_void }
+/// Destructor: Takes ownership of the `CssPropertyKey` pointer and deletes it.
+#[no_mangle] #[inline] pub extern "C" fn az_css_property_key_delete(ptr: &mut AzCssPropertyKeyPtr) { let _ = unsafe { Box::<CssPropertyKey>::from_raw(ptr.ptr  as *mut CssPropertyKey) }; }
+/// Copies the pointer: WARNING: After calling this function you'll have two pointers to the same Box<`CssPropertyKey`>!.
+#[no_mangle] #[inline] pub extern "C" fn az_css_property_key_shallow_copy(ptr: &AzCssPropertyKeyPtr) -> AzCssPropertyKeyPtr { AzCssPropertyKeyPtr { ptr: ptr.ptr } }
+/// (private): Downcasts the `AzCssPropertyKeyPtr` to a `Box<CssPropertyKey>`. Note that this takes ownership of the pointer.
+#[inline(always)] fn az_css_property_key_downcast(ptr: AzCssPropertyKeyPtr) -> Box<CssPropertyKey> { unsafe { Box::<CssPropertyKey>::from_raw(ptr.ptr  as *mut CssPropertyKey) } }
+/// (private): Downcasts the `AzCssPropertyKeyPtr` to a `&mut Box<CssPropertyKey>` and runs the `func` closure on it
+#[inline(always)] fn az_css_property_key_downcast_refmut<F: FnOnce(&mut Box<CssPropertyKey>)>(ptr: &mut AzCssPropertyKeyPtr, func: F) { let mut box_ptr: Box<CssPropertyKey> = unsafe { Box::<CssPropertyKey>::from_raw(ptr.ptr  as *mut CssPropertyKey) };func(&mut box_ptr);ptr.ptr = Box::into_raw(box_ptr) as *mut c_void; }
+/// (private): Downcasts the `AzCssPropertyKeyPtr` to a `&Box<CssPropertyKey>` and runs the `func` closure on it
+#[inline(always)] fn az_css_property_key_downcast_ref<F: FnOnce(&Box<CssPropertyKey>)>(ptr: &mut AzCssPropertyKeyPtr, func: F) { let box_ptr: Box<CssPropertyKey> = unsafe { Box::<CssPropertyKey>::from_raw(ptr.ptr  as *mut CssPropertyKey) };func(&box_ptr);ptr.ptr = Box::into_raw(box_ptr) as *mut c_void; }
+
+/// Parsed CSS key-value pair
+#[no_mangle] #[repr(C)] pub struct AzCssPropertyPtr { ptr: *mut c_void }
+/// Parses a new CssProperty from a string
+#[no_mangle] #[inline] pub extern "C" fn az_css_property_parse_from_string(key: AzCssPropertyKeyPtr, value: AzStringPtr) -> AzCssPropertyPtr { let object: CssProperty = CssPropertyValue::from_str(key, &*az_string_downcast(value)); AzCssPropertyPtr { ptr: Box::into_raw(Box::new(object)) as *mut c_void } }
+/// Destructor: Takes ownership of the `CssProperty` pointer and deletes it.
+#[no_mangle] #[inline] pub extern "C" fn az_css_property_delete(ptr: &mut AzCssPropertyPtr) { let _ = unsafe { Box::<CssProperty>::from_raw(ptr.ptr  as *mut CssProperty) }; }
+/// Copies the pointer: WARNING: After calling this function you'll have two pointers to the same Box<`CssProperty`>!.
+#[no_mangle] #[inline] pub extern "C" fn az_css_property_shallow_copy(ptr: &AzCssPropertyPtr) -> AzCssPropertyPtr { AzCssPropertyPtr { ptr: ptr.ptr } }
+/// (private): Downcasts the `AzCssPropertyPtr` to a `Box<CssProperty>`. Note that this takes ownership of the pointer.
+#[inline(always)] fn az_css_property_downcast(ptr: AzCssPropertyPtr) -> Box<CssProperty> { unsafe { Box::<CssProperty>::from_raw(ptr.ptr  as *mut CssProperty) } }
+/// (private): Downcasts the `AzCssPropertyPtr` to a `&mut Box<CssProperty>` and runs the `func` closure on it
+#[inline(always)] fn az_css_property_downcast_refmut<F: FnOnce(&mut Box<CssProperty>)>(ptr: &mut AzCssPropertyPtr, func: F) { let mut box_ptr: Box<CssProperty> = unsafe { Box::<CssProperty>::from_raw(ptr.ptr  as *mut CssProperty) };func(&mut box_ptr);ptr.ptr = Box::into_raw(box_ptr) as *mut c_void; }
+/// (private): Downcasts the `AzCssPropertyPtr` to a `&Box<CssProperty>` and runs the `func` closure on it
+#[inline(always)] fn az_css_property_downcast_ref<F: FnOnce(&Box<CssProperty>)>(ptr: &mut AzCssPropertyPtr, func: F) { let box_ptr: Box<CssProperty> = unsafe { Box::<CssProperty>::from_raw(ptr.ptr  as *mut CssProperty) };func(&box_ptr);ptr.ptr = Box::into_raw(box_ptr) as *mut c_void; }
+
 /// Pointer to rust-allocated `Box<Dom>` struct
 pub type AzDomPtrType = azul_core::dom::DomPtr;
 #[no_mangle] pub use AzDomPtrType as AzDomPtr;
@@ -272,13 +330,56 @@ pub type AzDomPtrType = azul_core::dom::DomPtr;
 #[no_mangle] #[inline] pub extern "C" fn az_dom_div() -> AzDomPtr { let object: Dom = Dom::div(); AzDomPtr { ptr: Box::into_raw(Box::new(object)) as *mut c_void } }
 /// Creates a new `body` node
 #[no_mangle] #[inline] pub extern "C" fn az_dom_body() -> AzDomPtr { let object: Dom = Dom::body(); AzDomPtr { ptr: Box::into_raw(Box::new(object)) as *mut c_void } }
-// Creates a new `Dom` instance whose memory is owned by the rust allocator
-// Equivalent to the Rust `Dom::label()` constructor.
+/// Creates a new `p` node with a given `String` as the text contents
 #[no_mangle] #[inline] pub extern "C" fn az_dom_label(text: AzStringPtr) -> AzDomPtr { let object: Dom = Dom::label(*az_string_downcast(text)); AzDomPtr { ptr: Box::into_raw(Box::new(object)) as *mut c_void } }
+/// Creates a new `p` node from a (cached) text referenced by a `TextId`
+#[no_mangle] #[inline] pub extern "C" fn az_dom_text(text_id: AzTextId) -> AzDomPtr { let object: Dom = Dom::text(*az_text_id_downcast(text_id)); AzDomPtr { ptr: Box::into_raw(Box::new(object)) as *mut c_void } }
+/// Creates a new `img` node from a (cached) text referenced by a `ImageId`
+#[no_mangle] #[inline] pub extern "C" fn az_dom_image(image_id: AzImageId) -> AzDomPtr { let object: Dom = Dom::image(*az_image_id_downcast(image_id)); AzDomPtr { ptr: Box::into_raw(Box::new(object)) as *mut c_void } }
+/// Creates a new node which will render an OpenGL texture after the layout step is finished. See the documentation for [GlCallback]() for more info about OpenGL rendering callbacks.
+#[no_mangle] #[inline] pub extern "C" fn az_dom_gl_callback(data: AzRefAny, callback: AzGlCallback) -> AzDomPtr { let object: Dom = Dom::gl_callback(azul_core::callbacks::GlCallback(callback)); AzDomPtr { ptr: Box::into_raw(Box::new(object)) as *mut c_void } }
+/// Creates a new node with a callback that will return a `Dom` after being layouted. See the documentation for [IFrameCallback]() for more info about iframe callbacks.
+#[no_mangle] #[inline] pub extern "C" fn az_dom_iframe_callback(data: AzRefAny, callback: AzGlCallback) -> AzDomPtr { let object: Dom = Dom::iframe(azul_core::callbacks::IFrameCallback(callback)); AzDomPtr { ptr: Box::into_raw(Box::new(object)) as *mut c_void } }
+/// Adds a CSS ID (`#something`) to the DOM node
+#[no_mangle] #[inline] pub extern "C" fn az_dom_add_id(dom: &mut AzDomPtr, id: AzStringPtr) { az_dom_downcast_refmut(dom, |d| { d.add_id(*az_string_downcast(id)); }) }
+/// Same as [`Dom::add_id`](#method.add_id), but as a builder method
+#[no_mangle] #[inline] pub extern "C" fn az_dom_with_id(mut dom: AzDomPtr, id: AzStringPtr) -> AzDomPtr { az_dom_add_id(&mut dom, id); dom }
+/// Same as calling [`Dom::add_id`](#method.add_id) for each CSS ID, but this function **replaces** all current CSS IDs
+#[no_mangle] #[inline] pub extern "C" fn az_dom_set_ids(dom: &mut AzDomPtr, ids: AzVec<String>Ptr) { az_dom_downcast_refmut(dom, |d| { d.set_ids(*az_vec_string_downcast(ids)); }) }
+/// Same as [`Dom::set_ids`](#method.set_ids), but as a builder method
+#[no_mangle] #[inline] pub extern "C" fn az_dom_with_ids(mut dom: AzDomPtr, ids: AzVec<String>Ptr) -> AzDomPtr { az_dom_set_ids(&mut dom, ids); dom }
+/// Adds a CSS class (`.something`) to the DOM node
+#[no_mangle] #[inline] pub extern "C" fn az_dom_add_class(dom: &mut AzDomPtr, class: AzStringPtr) { az_dom_downcast_refmut(dom, |d| { d.add_class(*az_string_downcast(class)); }) }
+/// Same as [`Dom::add_class`](#method.add_class), but as a builder method
+#[no_mangle] #[inline] pub extern "C" fn az_dom_with_class(mut dom: AzDomPtr, class: AzStringPtr) -> AzDomPtr { az_dom_add_class(&mut dom, class); dom }
+/// Same as calling [`Dom::add_class`](#method.add_class) for each class, but this function **replaces** all current classes
+#[no_mangle] #[inline] pub extern "C" fn az_dom_set_classes(dom: &mut AzDomPtr, classes: AzVec<String>Ptr) { az_dom_downcast_refmut(dom, |d| { d.set_classes(*az_vec_string_downcast(classes)); }) }
+/// Same as [`Dom::set_classes`](#method.set_classes), but as a builder method
+#[no_mangle] #[inline] pub extern "C" fn az_dom_with_classes(mut dom: AzDomPtr, classes: AzVec<String>Ptr) -> AzDomPtr { az_dom_set_classes(&mut dom, ids); dom }
+/// Adds a [`Callback`](callbacks/type.Callback) that acts on the `data` the `event` happens
+#[no_mangle] #[inline] pub extern "C" fn az_dom_add_callback(dom: &mut AzDomPtr, event: AzEventFilter, data: AzRefAny, callback: AzCallback) { az_dom_downcast_refmut(dom, |d| { d.add_callback(event, data, Callback(callback)); }) }
+/// Same as [`Dom::add_callback`](#method.add_callback), but as a builder method
+#[no_mangle] #[inline] pub extern "C" fn az_dom_with_callback(dom: &mut AzDomPtr, event: AzEventFilter, data: AzRefAny, callback: AzCallback) { az_dom_add_callback(&mut dom, event, data, callback); dom }
+/// Overrides the CSS property of this DOM node with a value (for example `"width = 200px"`)
+#[no_mangle] #[inline] pub extern "C" fn az_dom_add_dynamic_css_override(dom: &mut AzDomPtr, prop: AzCssPropertyPtr) { az_dom_downcast_refmut(dom, |d| { d.add_dynamic_css_override(event, az_css_property_downcast(prop)); }) }
+/// Same as [`Dom::add_dynamic_css_override`](#method.add_dynamic_css_override), but as a builder method
+#[no_mangle] #[inline] pub extern "C" fn az_dom_with_dynamic_css_override(dom: &mut AzDomPtr, prop: AzCssPropertyPtr) { az_dom_add_dynamic_css_override(&mut dom, prop); dom }
+/// Sets the `is_draggable` attribute of this DOM node (default: false)
+#[no_mangle] #[inline] pub extern "C" fn az_dom_set_is_draggable(dom: &mut AzDomPtr, is_draggable: bool) { az_dom_downcast_refmut(dom, |d| { d.is_draggable(event, is_draggable); }) }
+/// Same as [`Dom::set_is_draggable`](#method.set_is_draggable), but as a builder method
+#[no_mangle] #[inline] pub extern "C" fn az_dom_is_draggable(dom: &mut AzDomPtr, is_draggable: bool) { az_dom_set_is_draggable(&mut dom, is_draggable); dom }
+/// Sets the `tabindex` attribute of this DOM node (makes an element focusable - default: None)
+#[no_mangle] #[inline] pub extern "C" fn az_dom_set_tab_index(dom: &mut AzDomPtr, tab_index: AzTabIndex) { az_dom_downcast_refmut(dom, |d| { d.set_tab_index(event, tab_index); }) }
+/// Same as [`Dom::set_tab_index`](#method.set_tab_index), but as a builder method
+#[no_mangle] #[inline] pub extern "C" fn az_dom_with_tab_index(dom: &mut AzDomPtr, tab_index: AzTabIndex) { az_dom_set_tab_index(&mut dom, tab_index); dom }
 /// Reparents another `Dom` to be the child node of this `Dom`
 #[no_mangle] #[inline] pub extern "C" fn az_dom_add_child(dom: &mut AzDomPtr, child: AzDomPtr) { az_dom_downcast_refmut(dom, |d| { d.add_child(*az_dom_downcast(child)); }) }
 /// Same as [`Dom::add_child`](#method.add_child), but as a builder method
 #[no_mangle] #[inline] pub extern "C" fn az_dom_with_child(mut dom: AzDomPtr, child: AzDomPtr) -> AzDomPtr { az_dom_add_child(&mut dom, child); dom }
+/// Returns if the DOM node has a certain CSS ID
+#[no_mangle] #[inline] pub extern "C" fn az_dom_has_id(dom: &AzDomPtr, id: AzStringPtr) -> AzboolPtr { az_dom_downcast_refmut(dom, |d| { d.has_id(&*az_string_downcast(id)); }) }
+/// Returns if the DOM node has a certain CSS class
+#[no_mangle] #[inline] pub extern "C" fn az_dom_has_class(dom: &AzDomPtr, class: AzStringPtr) -> AzboolPtr { az_dom_downcast_refmut(dom, |d| { d.has_class(&*az_string_downcast(class)); }) }
 /// Destructor: Takes ownership of the `Dom` pointer and deletes it.
 #[no_mangle] #[inline] pub extern "C" fn az_dom_delete(ptr: &mut AzDomPtr) { let _ = unsafe { Box::<Dom>::from_raw(ptr.ptr  as *mut Dom) }; }
 /// Copies the pointer: WARNING: After calling this function you'll have two pointers to the same Box<`Dom`>!.
@@ -289,6 +390,131 @@ pub type AzDomPtrType = azul_core::dom::DomPtr;
 #[inline(always)] fn az_dom_downcast_refmut<F: FnOnce(&mut Box<Dom>)>(ptr: &mut AzDomPtr, func: F) { let mut box_ptr: Box<Dom> = unsafe { Box::<Dom>::from_raw(ptr.ptr  as *mut Dom) };func(&mut box_ptr);ptr.ptr = Box::into_raw(box_ptr) as *mut c_void; }
 /// (private): Downcasts the `AzDomPtr` to a `&Box<Dom>` and runs the `func` closure on it
 #[inline(always)] fn az_dom_downcast_ref<F: FnOnce(&Box<Dom>)>(ptr: &mut AzDomPtr, func: F) { let box_ptr: Box<Dom> = unsafe { Box::<Dom>::from_raw(ptr.ptr  as *mut Dom) };func(&box_ptr);ptr.ptr = Box::into_raw(box_ptr) as *mut c_void; }
+
+/// Re-export of rust-allocated (stack based) `EventFilter` struct
+pub type AzEventFilterType = azul_core::dom::EventFilter;
+#[no_mangle] pub use AzEventFilterType as AzEventFilter;
+#[inline] #[no_mangle] pub extern "C" fn az_event_filter_hover(variant_data: AzHoverEventFilter) -> AzEventFilter { AzEventFilter::Hover(*az_hover_event_filter_downcast(variant_data)) }
+#[inline] #[no_mangle] pub extern "C" fn az_event_filter_not(variant_data: AzNotEventFilter) -> AzEventFilter { AzEventFilter::Not(*az_not_event_filter_downcast(variant_data)) }
+#[inline] #[no_mangle] pub extern "C" fn az_event_filter_focus(variant_data: AzFocusEventFilter) -> AzEventFilter { AzEventFilter::Focus(*az_focus_event_filter_downcast(variant_data)) }
+#[inline] #[no_mangle] pub extern "C" fn az_event_filter_window(variant_data: AzWindowEventFilter) -> AzEventFilter { AzEventFilter::Window(*az_window_event_filter_downcast(variant_data)) }
+/// Destructor: Takes ownership of the `EventFilter` pointer and deletes it.
+#[no_mangle] #[inline] #[allow(unused_variables)] pub extern "C" fn az_event_filter_delete(object: &mut AzEventFilter) { match object { AzEventFilter::Hover(_) => { }, AzEventFilter::Not(_) => { }, AzEventFilter::Focus(_) => { }, AzEventFilter::Window(_) => { }, }
+}
+/// Copies the object
+#[no_mangle] #[inline] pub extern "C" fn az_event_filter_deep_copy(object: &AzEventFilter) -> AzEventFilter { object.clone() }
+
+/// Re-export of rust-allocated (stack based) `HoverEventFilter` struct
+pub type AzHoverEventFilterType = azul_core::dom::HoverEventFilter;
+#[no_mangle] pub use AzHoverEventFilterType as AzHoverEventFilter;
+#[inline] #[no_mangle] pub extern "C" fn az_hover_event_filter_mouse_over() -> AzHoverEventFilter { AzHoverEventFilter::MouseOver }
+#[inline] #[no_mangle] pub extern "C" fn az_hover_event_filter_mouse_down() -> AzHoverEventFilter { AzHoverEventFilter::MouseDown }
+#[inline] #[no_mangle] pub extern "C" fn az_hover_event_filter_left_mouse_down() -> AzHoverEventFilter { AzHoverEventFilter::LeftMouseDown }
+#[inline] #[no_mangle] pub extern "C" fn az_hover_event_filter_right_mouse_down() -> AzHoverEventFilter { AzHoverEventFilter::RightMouseDown }
+#[inline] #[no_mangle] pub extern "C" fn az_hover_event_filter_middle_mouse_down() -> AzHoverEventFilter { AzHoverEventFilter::MiddleMouseDown }
+#[inline] #[no_mangle] pub extern "C" fn az_hover_event_filter_mouse_up() -> AzHoverEventFilter { AzHoverEventFilter::MouseUp }
+#[inline] #[no_mangle] pub extern "C" fn az_hover_event_filter_left_mouse_up() -> AzHoverEventFilter { AzHoverEventFilter::LeftMouseUp }
+#[inline] #[no_mangle] pub extern "C" fn az_hover_event_filter_right_mouse_up() -> AzHoverEventFilter { AzHoverEventFilter::RightMouseUp }
+#[inline] #[no_mangle] pub extern "C" fn az_hover_event_filter_middle_mouse_up() -> AzHoverEventFilter { AzHoverEventFilter::MiddleMouseUp }
+#[inline] #[no_mangle] pub extern "C" fn az_hover_event_filter_mouse_enter() -> AzHoverEventFilter { AzHoverEventFilter::MouseEnter }
+#[inline] #[no_mangle] pub extern "C" fn az_hover_event_filter_mouse_leave() -> AzHoverEventFilter { AzHoverEventFilter::MouseLeave }
+#[inline] #[no_mangle] pub extern "C" fn az_hover_event_filter_scroll() -> AzHoverEventFilter { AzHoverEventFilter::Scroll }
+#[inline] #[no_mangle] pub extern "C" fn az_hover_event_filter_scroll_start() -> AzHoverEventFilter { AzHoverEventFilter::ScrollStart }
+#[inline] #[no_mangle] pub extern "C" fn az_hover_event_filter_scroll_end() -> AzHoverEventFilter { AzHoverEventFilter::ScrollEnd }
+#[inline] #[no_mangle] pub extern "C" fn az_hover_event_filter_text_input() -> AzHoverEventFilter { AzHoverEventFilter::TextInput }
+#[inline] #[no_mangle] pub extern "C" fn az_hover_event_filter_virtual_key_down() -> AzHoverEventFilter { AzHoverEventFilter::VirtualKeyDown }
+#[inline] #[no_mangle] pub extern "C" fn az_hover_event_filter_virtual_key_up() -> AzHoverEventFilter { AzHoverEventFilter::VirtualKeyUp }
+#[inline] #[no_mangle] pub extern "C" fn az_hover_event_filter_hovered_file() -> AzHoverEventFilter { AzHoverEventFilter::HoveredFile }
+#[inline] #[no_mangle] pub extern "C" fn az_hover_event_filter_dropped_file() -> AzHoverEventFilter { AzHoverEventFilter::DroppedFile }
+#[inline] #[no_mangle] pub extern "C" fn az_hover_event_filter_hovered_file_cancelled() -> AzHoverEventFilter { AzHoverEventFilter::HoveredFileCancelled }
+/// Destructor: Takes ownership of the `HoverEventFilter` pointer and deletes it.
+#[no_mangle] #[inline] #[allow(unused_variables)] pub extern "C" fn az_hover_event_filter_delete(object: &mut AzHoverEventFilter) { match object { AzHoverEventFilter::MouseOver => { }, AzHoverEventFilter::MouseDown => { }, AzHoverEventFilter::LeftMouseDown => { }, AzHoverEventFilter::RightMouseDown => { }, AzHoverEventFilter::MiddleMouseDown => { }, AzHoverEventFilter::MouseUp => { }, AzHoverEventFilter::LeftMouseUp => { }, AzHoverEventFilter::RightMouseUp => { }, AzHoverEventFilter::MiddleMouseUp => { }, AzHoverEventFilter::MouseEnter => { }, AzHoverEventFilter::MouseLeave => { }, AzHoverEventFilter::Scroll => { }, AzHoverEventFilter::ScrollStart => { }, AzHoverEventFilter::ScrollEnd => { }, AzHoverEventFilter::TextInput => { }, AzHoverEventFilter::VirtualKeyDown => { }, AzHoverEventFilter::VirtualKeyUp => { }, AzHoverEventFilter::HoveredFile => { }, AzHoverEventFilter::DroppedFile => { }, AzHoverEventFilter::HoveredFileCancelled => { }, }
+}
+/// Copies the object
+#[no_mangle] #[inline] pub extern "C" fn az_hover_event_filter_deep_copy(object: &AzHoverEventFilter) -> AzHoverEventFilter { object.clone() }
+
+/// Re-export of rust-allocated (stack based) `FocusEventFilter` struct
+pub type AzFocusEventFilterType = azul_core::dom::FocusEventFilter;
+#[no_mangle] pub use AzFocusEventFilterType as AzFocusEventFilter;
+#[inline] #[no_mangle] pub extern "C" fn az_focus_event_filter_mouse_over() -> AzFocusEventFilter { AzFocusEventFilter::MouseOver }
+#[inline] #[no_mangle] pub extern "C" fn az_focus_event_filter_mouse_down() -> AzFocusEventFilter { AzFocusEventFilter::MouseDown }
+#[inline] #[no_mangle] pub extern "C" fn az_focus_event_filter_left_mouse_down() -> AzFocusEventFilter { AzFocusEventFilter::LeftMouseDown }
+#[inline] #[no_mangle] pub extern "C" fn az_focus_event_filter_right_mouse_down() -> AzFocusEventFilter { AzFocusEventFilter::RightMouseDown }
+#[inline] #[no_mangle] pub extern "C" fn az_focus_event_filter_middle_mouse_down() -> AzFocusEventFilter { AzFocusEventFilter::MiddleMouseDown }
+#[inline] #[no_mangle] pub extern "C" fn az_focus_event_filter_mouse_up() -> AzFocusEventFilter { AzFocusEventFilter::MouseUp }
+#[inline] #[no_mangle] pub extern "C" fn az_focus_event_filter_left_mouse_up() -> AzFocusEventFilter { AzFocusEventFilter::LeftMouseUp }
+#[inline] #[no_mangle] pub extern "C" fn az_focus_event_filter_right_mouse_up() -> AzFocusEventFilter { AzFocusEventFilter::RightMouseUp }
+#[inline] #[no_mangle] pub extern "C" fn az_focus_event_filter_middle_mouse_up() -> AzFocusEventFilter { AzFocusEventFilter::MiddleMouseUp }
+#[inline] #[no_mangle] pub extern "C" fn az_focus_event_filter_mouse_enter() -> AzFocusEventFilter { AzFocusEventFilter::MouseEnter }
+#[inline] #[no_mangle] pub extern "C" fn az_focus_event_filter_mouse_leave() -> AzFocusEventFilter { AzFocusEventFilter::MouseLeave }
+#[inline] #[no_mangle] pub extern "C" fn az_focus_event_filter_scroll() -> AzFocusEventFilter { AzFocusEventFilter::Scroll }
+#[inline] #[no_mangle] pub extern "C" fn az_focus_event_filter_scroll_start() -> AzFocusEventFilter { AzFocusEventFilter::ScrollStart }
+#[inline] #[no_mangle] pub extern "C" fn az_focus_event_filter_scroll_end() -> AzFocusEventFilter { AzFocusEventFilter::ScrollEnd }
+#[inline] #[no_mangle] pub extern "C" fn az_focus_event_filter_text_input() -> AzFocusEventFilter { AzFocusEventFilter::TextInput }
+#[inline] #[no_mangle] pub extern "C" fn az_focus_event_filter_virtual_key_down() -> AzFocusEventFilter { AzFocusEventFilter::VirtualKeyDown }
+#[inline] #[no_mangle] pub extern "C" fn az_focus_event_filter_virtual_key_up() -> AzFocusEventFilter { AzFocusEventFilter::VirtualKeyUp }
+#[inline] #[no_mangle] pub extern "C" fn az_focus_event_filter_focus_received() -> AzFocusEventFilter { AzFocusEventFilter::FocusReceived }
+#[inline] #[no_mangle] pub extern "C" fn az_focus_event_filter_focus_lost() -> AzFocusEventFilter { AzFocusEventFilter::FocusLost }
+/// Destructor: Takes ownership of the `FocusEventFilter` pointer and deletes it.
+#[no_mangle] #[inline] #[allow(unused_variables)] pub extern "C" fn az_focus_event_filter_delete(object: &mut AzFocusEventFilter) { match object { AzFocusEventFilter::MouseOver => { }, AzFocusEventFilter::MouseDown => { }, AzFocusEventFilter::LeftMouseDown => { }, AzFocusEventFilter::RightMouseDown => { }, AzFocusEventFilter::MiddleMouseDown => { }, AzFocusEventFilter::MouseUp => { }, AzFocusEventFilter::LeftMouseUp => { }, AzFocusEventFilter::RightMouseUp => { }, AzFocusEventFilter::MiddleMouseUp => { }, AzFocusEventFilter::MouseEnter => { }, AzFocusEventFilter::MouseLeave => { }, AzFocusEventFilter::Scroll => { }, AzFocusEventFilter::ScrollStart => { }, AzFocusEventFilter::ScrollEnd => { }, AzFocusEventFilter::TextInput => { }, AzFocusEventFilter::VirtualKeyDown => { }, AzFocusEventFilter::VirtualKeyUp => { }, AzFocusEventFilter::FocusReceived => { }, AzFocusEventFilter::FocusLost => { }, }
+}
+/// Copies the object
+#[no_mangle] #[inline] pub extern "C" fn az_focus_event_filter_deep_copy(object: &AzFocusEventFilter) -> AzFocusEventFilter { object.clone() }
+
+/// Re-export of rust-allocated (stack based) `NotEventFilter` struct
+pub type AzNotEventFilterType = azul_core::dom::NotEventFilter;
+#[no_mangle] pub use AzNotEventFilterType as AzNotEventFilter;
+#[inline] #[no_mangle] pub extern "C" fn az_not_event_filter_hover(variant_data: AzHoverEventFilter) -> AzNotEventFilter { AzNotEventFilter::Hover(*az_hover_event_filter_downcast(variant_data)) }
+#[inline] #[no_mangle] pub extern "C" fn az_not_event_filter_focus(variant_data: AzFocusEventFilter) -> AzNotEventFilter { AzNotEventFilter::Focus(*az_focus_event_filter_downcast(variant_data)) }
+/// Destructor: Takes ownership of the `NotEventFilter` pointer and deletes it.
+#[no_mangle] #[inline] #[allow(unused_variables)] pub extern "C" fn az_not_event_filter_delete(object: &mut AzNotEventFilter) { match object { AzNotEventFilter::Hover(_) => { }, AzNotEventFilter::Focus(_) => { }, }
+}
+/// Copies the object
+#[no_mangle] #[inline] pub extern "C" fn az_not_event_filter_deep_copy(object: &AzNotEventFilter) -> AzNotEventFilter { object.clone() }
+
+/// Re-export of rust-allocated (stack based) `WindowEventFilter` struct
+pub type AzWindowEventFilterType = azul_core::dom::WindowEventFilter;
+#[no_mangle] pub use AzWindowEventFilterType as AzWindowEventFilter;
+#[inline] #[no_mangle] pub extern "C" fn az_window_event_filter_mouse_over() -> AzWindowEventFilter { AzWindowEventFilter::MouseOver }
+#[inline] #[no_mangle] pub extern "C" fn az_window_event_filter_mouse_down() -> AzWindowEventFilter { AzWindowEventFilter::MouseDown }
+#[inline] #[no_mangle] pub extern "C" fn az_window_event_filter_left_mouse_down() -> AzWindowEventFilter { AzWindowEventFilter::LeftMouseDown }
+#[inline] #[no_mangle] pub extern "C" fn az_window_event_filter_right_mouse_down() -> AzWindowEventFilter { AzWindowEventFilter::RightMouseDown }
+#[inline] #[no_mangle] pub extern "C" fn az_window_event_filter_middle_mouse_down() -> AzWindowEventFilter { AzWindowEventFilter::MiddleMouseDown }
+#[inline] #[no_mangle] pub extern "C" fn az_window_event_filter_mouse_up() -> AzWindowEventFilter { AzWindowEventFilter::MouseUp }
+#[inline] #[no_mangle] pub extern "C" fn az_window_event_filter_left_mouse_up() -> AzWindowEventFilter { AzWindowEventFilter::LeftMouseUp }
+#[inline] #[no_mangle] pub extern "C" fn az_window_event_filter_right_mouse_up() -> AzWindowEventFilter { AzWindowEventFilter::RightMouseUp }
+#[inline] #[no_mangle] pub extern "C" fn az_window_event_filter_middle_mouse_up() -> AzWindowEventFilter { AzWindowEventFilter::MiddleMouseUp }
+#[inline] #[no_mangle] pub extern "C" fn az_window_event_filter_mouse_enter() -> AzWindowEventFilter { AzWindowEventFilter::MouseEnter }
+#[inline] #[no_mangle] pub extern "C" fn az_window_event_filter_mouse_leave() -> AzWindowEventFilter { AzWindowEventFilter::MouseLeave }
+#[inline] #[no_mangle] pub extern "C" fn az_window_event_filter_scroll() -> AzWindowEventFilter { AzWindowEventFilter::Scroll }
+#[inline] #[no_mangle] pub extern "C" fn az_window_event_filter_scroll_start() -> AzWindowEventFilter { AzWindowEventFilter::ScrollStart }
+#[inline] #[no_mangle] pub extern "C" fn az_window_event_filter_scroll_end() -> AzWindowEventFilter { AzWindowEventFilter::ScrollEnd }
+#[inline] #[no_mangle] pub extern "C" fn az_window_event_filter_text_input() -> AzWindowEventFilter { AzWindowEventFilter::TextInput }
+#[inline] #[no_mangle] pub extern "C" fn az_window_event_filter_virtual_key_down() -> AzWindowEventFilter { AzWindowEventFilter::VirtualKeyDown }
+#[inline] #[no_mangle] pub extern "C" fn az_window_event_filter_virtual_key_up() -> AzWindowEventFilter { AzWindowEventFilter::VirtualKeyUp }
+#[inline] #[no_mangle] pub extern "C" fn az_window_event_filter_hovered_file() -> AzWindowEventFilter { AzWindowEventFilter::HoveredFile }
+#[inline] #[no_mangle] pub extern "C" fn az_window_event_filter_dropped_file() -> AzWindowEventFilter { AzWindowEventFilter::DroppedFile }
+#[inline] #[no_mangle] pub extern "C" fn az_window_event_filter_hovered_file_cancelled() -> AzWindowEventFilter { AzWindowEventFilter::HoveredFileCancelled }
+/// Destructor: Takes ownership of the `WindowEventFilter` pointer and deletes it.
+#[no_mangle] #[inline] #[allow(unused_variables)] pub extern "C" fn az_window_event_filter_delete(object: &mut AzWindowEventFilter) { match object { AzWindowEventFilter::MouseOver => { }, AzWindowEventFilter::MouseDown => { }, AzWindowEventFilter::LeftMouseDown => { }, AzWindowEventFilter::RightMouseDown => { }, AzWindowEventFilter::MiddleMouseDown => { }, AzWindowEventFilter::MouseUp => { }, AzWindowEventFilter::LeftMouseUp => { }, AzWindowEventFilter::RightMouseUp => { }, AzWindowEventFilter::MiddleMouseUp => { }, AzWindowEventFilter::MouseEnter => { }, AzWindowEventFilter::MouseLeave => { }, AzWindowEventFilter::Scroll => { }, AzWindowEventFilter::ScrollStart => { }, AzWindowEventFilter::ScrollEnd => { }, AzWindowEventFilter::TextInput => { }, AzWindowEventFilter::VirtualKeyDown => { }, AzWindowEventFilter::VirtualKeyUp => { }, AzWindowEventFilter::HoveredFile => { }, AzWindowEventFilter::DroppedFile => { }, AzWindowEventFilter::HoveredFileCancelled => { }, }
+}
+/// Copies the object
+#[no_mangle] #[inline] pub extern "C" fn az_window_event_filter_deep_copy(object: &AzWindowEventFilter) -> AzWindowEventFilter { object.clone() }
+
+/// Re-export of rust-allocated (stack based) `TabIndex` struct
+pub type AzTabIndexType = azul_core::dom::TabIndex;
+#[no_mangle] pub use AzTabIndexType as AzTabIndex;
+/// Automatic tab index, similar to simply setting `focusable = "true"` or `tabindex = 0`, (both have the effect of making the element focusable)
+#[inline] #[no_mangle] pub extern "C" fn az_tab_index_auto() -> AzTabIndex { AzTabIndex::Auto }
+///  Set the tab index in relation to its parent element (`tabindex = n`)
+#[inline] #[no_mangle] pub extern "C" fn az_tab_index_override_in_parent(variant_data: usize) -> AzTabIndex { AzTabIndex::OverrideInParent(variant_data) }
+/// Elements can be focused in callbacks, but are not accessible via keyboard / tab navigation (`tabindex = -1`)
+#[inline] #[no_mangle] pub extern "C" fn az_tab_index_no_keyboard_focus() -> AzTabIndex { AzTabIndex::NoKeyboardFocus }
+/// Destructor: Takes ownership of the `TabIndex` pointer and deletes it.
+#[no_mangle] #[inline] #[allow(unused_variables)] pub extern "C" fn az_tab_index_delete(object: &mut AzTabIndex) { match object { AzTabIndex::Auto => { }, AzTabIndex::OverrideInParent => { }, AzTabIndex::NoKeyboardFocus => { }, }
+}
+/// Copies the object
+#[no_mangle] #[inline] pub extern "C" fn az_tab_index_deep_copy(object: &AzTabIndex) -> AzTabIndex { object.clone() }
 
 /// Re-export of rust-allocated (stack based) `TextId` struct
 pub type AzTextIdType = azul_core::app_resources::TextId;

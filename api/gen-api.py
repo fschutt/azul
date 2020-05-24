@@ -420,7 +420,7 @@ def generate_rust_dll(apiData):
                                     found_class_path = search_for_class_by_rust_class_name(apiData, variant_type)
                                     variant_data_class_name = prefix + found_class_path[1] + postfix
                                     if class_is_stack_allocated(get_class(apiData, found_class_path[0], found_class_path[1])):
-                                        variant_data_class_name = prefix + found_class[1]
+                                        variant_data_class_name = prefix + found_class_path[1]
                                     code += "#[inline] #[no_mangle] pub extern \"C\" fn " + fn_prefix + to_snake_case(class_name) + "_" + to_snake_case(enum_variant_name) + "(variant_data: " + variant_data_class_name + ") -> " + class_ptr_name + " { "
                                     code += class_ptr_name + "::" + enum_variant_name + "(*" + fn_prefix + to_snake_case(found_class_path[1]) + "_downcast(variant_data))"
                                     code += " }\r\n"
@@ -654,11 +654,16 @@ def generate_rust_api(apiData):
                             code += "        /// " + enum["doc"] + "\r\n"
                         if "type" in enum.keys():
                             variant_type = enum["type"]
-                            found_class_path = search_for_class_by_rust_class_name(apiData, variant_type)
-                            stack_enum_args = "crate::" + found_class_path[0] + "::" + found_class_path[1]
-                            code += "        pub fn " + to_snake_case(enum_variant_name) + "(variant_data: " + stack_enum_args + ") -> Self { "
-                            code += "Self { object: " + fn_prefix + to_snake_case(class_name) + "_" + to_snake_case(enum_variant_name) + "(variant_data.leak()) }"
-                            code += "}\r\n"
+                            if is_primitive_arg(variant_type):
+                                code += "        pub fn " + to_snake_case(enum_variant_name) + "(variant_data: " + variant_type + ") -> Self { "
+                                code += "Self { object: " + fn_prefix + to_snake_case(class_name) + "_" + to_snake_case(enum_variant_name) + "(variant_data) }"
+                                code += "}\r\n"
+                            else:
+                                found_class_path = search_for_class_by_rust_class_name(apiData, variant_type)
+                                stack_enum_args = "crate::" + found_class_path[0] + "::" + found_class_path[1]
+                                code += "        pub fn " + to_snake_case(enum_variant_name) + "(variant_data: " + stack_enum_args + ") -> Self { "
+                                code += "Self { object: " + fn_prefix + to_snake_case(class_name) + "_" + to_snake_case(enum_variant_name) + "(variant_data.leak()) }"
+                                code += "}\r\n"
                         else:
                             # enum variant with no arguments
                             code += "        pub fn " + to_snake_case(enum_variant_name) + "() -> Self { "
