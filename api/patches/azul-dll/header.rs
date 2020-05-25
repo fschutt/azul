@@ -29,7 +29,7 @@ use azul_core::{
     window::WindowCreateOptions,
     app_resources::{RawImage, RawImageFormat, FontId, TextId, ImageId},
 };
-use azul_css::Css;
+use azul_css::*;
 #[cfg(not(target_arch = "wasm32"))]
 use azul_desktop::app::{App, AppConfig};
 #[cfg(target_arch = "wasm32")]

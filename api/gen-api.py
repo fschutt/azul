@@ -180,10 +180,16 @@ def fn_args_c_api(f, class_name, class_ptr_name, self_as_first_arg, apiData):
 
             if is_primitive_arg(arg_type):
                 fn_args += arg_name + ": " + ptr_type + arg_type + ", " # no pre, no postfix
-            elif class_is_virtual(apiData, arg_type, "dll") or is_stack_allocated_type(apiData, arg_type):
-                fn_args += arg_name + ": " + ptr_type + prefix + arg_type + ", " # no postfix
             else:
-                fn_args += arg_name + ": " + ptr_type + prefix + arg_type + postfix + ", "
+                arg_type_new = search_for_class_by_rust_class_name(apiData, arg_type)
+                if arg_type_new is None:
+                    print("arg_type not found: " + str(arg_type))
+                    raise Exception("type not found: " + arg_type)
+                arg_type = arg_type_new[1]
+                if class_is_virtual(apiData, arg_type, "dll") or is_stack_allocated_type(apiData, arg_type):
+                    fn_args += arg_name + ": " + ptr_type + prefix + arg_type + ", " # no postfix
+                else:
+                    fn_args += arg_name + ": " + ptr_type + prefix + arg_type + postfix + ", "
         fn_args = fn_args[:-2]
 
     return fn_args
@@ -419,10 +425,12 @@ def generate_rust_dll(apiData):
                                 else:
                                     found_class_path = search_for_class_by_rust_class_name(apiData, variant_type)
                                     variant_data_class_name = prefix + found_class_path[1] + postfix
+                                    fn_body = "*" + fn_prefix + to_snake_case(found_class_path[1]) + "_downcast(variant_data)"
                                     if class_is_stack_allocated(get_class(apiData, found_class_path[0], found_class_path[1])):
                                         variant_data_class_name = prefix + found_class_path[1]
+                                        fn_body = "variant_data"
                                     code += "#[inline] #[no_mangle] pub extern \"C\" fn " + fn_prefix + to_snake_case(class_name) + "_" + to_snake_case(enum_variant_name) + "(variant_data: " + variant_data_class_name + ") -> " + class_ptr_name + " { "
-                                    code += class_ptr_name + "::" + enum_variant_name + "(*" + fn_prefix + to_snake_case(found_class_path[1]) + "_downcast(variant_data))"
+                                    code += class_ptr_name + "::" + enum_variant_name + "(" + fn_body + ")"
                                     code += " }\r\n"
                             else:
                                 # enum variant with no arguments
@@ -484,7 +492,11 @@ def generate_rust_dll(apiData):
 
                     returns = ""
                     if "returns" in f.keys():
-                        returns = " -> " + prefix + f["returns"] + postfix
+                        return_type = f["returns"]
+                        if is_primitive_arg(return_type):
+                            returns = " -> " + return_type
+                        else:
+                            returns = " -> " + prefix + return_type + postfix
 
                     code += "#[no_mangle] #[inline] pub extern \"C\" fn " + fn_prefix + to_snake_case(class_name) + "_" + fn_name + "(" + fn_args + ")" + returns + " { "
                     code += fn_body

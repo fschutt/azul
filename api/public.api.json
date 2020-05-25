@@ -75,27 +75,6 @@
             }
          }
       },
-      "time": {
-         "doc": "Definition of azuls internal `Duration` type + functions for conversion from `std::time::Duration`",
-         "classes": {
-            "Duration": {
-               "doc": "Wrapper over a Rust-allocated `Duration`",
-               "struct_fields": {
-                  "secs:": { "type": "u64" },
-                  "nanos:": { "type": "u32" }
-               },
-               "constructors": {
-                  "from_millis": {
-                     "doc": "Creates a new `Duration` from milliseconds",
-                     "fn_args": [
-                        {"millis": "u64"}
-                     ],
-                     "fn_body": ""
-                  }
-               }
-            }
-         }
-      },
       "app": {
          "doc": "`App` construction and configuration",
          "classes": {
@@ -193,19 +172,928 @@
                   }
                }
             },
-            "CssPropertyKey": {
+            "BoxShadowPreDisplayItem": {
+                "constructors": { }
+            },
+            "LayoutAlignContent": {
+                "constructors": { }
+            },
+            "LayoutAlignItems": {
+                "constructors": { }
+            },
+            "LayoutBottom": {
+                "constructors": { }
+            },
+            "LayoutBoxSizing": {
+                "constructors": { }
+            },
+            "LayoutDirection": {
+                "constructors": { }
+            },
+            "LayoutDisplay": {
+                "constructors": { }
+            },
+            "LayoutFlexGrow": {
+                "constructors": { }
+            },
+            "LayoutFlexShrink": {
+                "constructors": { }
+            },
+            "LayoutFloat": {
+                "constructors": { }
+            },
+            "LayoutHeight": {
+                "constructors": { }
+            },
+            "LayoutJustifyContent": {
+                "constructors": { }
+            },
+            "LayoutLeft": {
+                "constructors": { }
+            },
+            "LayoutMarginBottom": {
+                "constructors": { }
+            },
+            "LayoutMarginLeft": {
+                "constructors": { }
+            },
+            "LayoutMarginRight": {
+                "constructors": { }
+            },
+            "LayoutMarginTop": {
+                "constructors": { }
+            },
+            "LayoutMaxHeight": {
+                "constructors": { }
+            },
+            "LayoutMaxWidth": {
+                "constructors": { }
+            },
+            "LayoutMinHeight": {
+                "constructors": { }
+            },
+            "LayoutMinWidth": {
+                "constructors": { }
+            },
+            "LayoutPaddingBottom": {
+                "constructors": { }
+            },
+            "LayoutPaddingLeft": {
+                "constructors": { }
+            },
+            "LayoutPaddingRight": {
+                "constructors": { }
+            },
+            "LayoutPaddingTop": {
+                "constructors": { }
+            },
+            "LayoutPosition": {
+                "constructors": { }
+            },
+            "LayoutRight": {
+                "constructors": { }
+            },
+            "LayoutTop": {
+                "constructors": { }
+            },
+            "LayoutWidth": {
+                "constructors": { }
+            },
+            "LayoutWrap": {
+                "constructors": { }
+            },
+            "Overflow": {
+                "constructors": { }
+            },
+            "Overflow": {
+                "constructors": { }
+            },
+            "StyleBackgroundContent": {
+                "constructors": { }
+            },
+            "StyleBackgroundPosition": {
+                "constructors": { }
+            },
+            "StyleBackgroundRepeat": {
+                "constructors": { }
+            },
+            "StyleBackgroundSize": {
+                "constructors": { }
+            },
+            "StyleBorderBottomColor": {
+                "constructors": { }
+            },
+            "StyleBorderBottomLeftRadius": {
+                "constructors": { }
+            },
+            "StyleBorderBottomRightRadius": {
+                "constructors": { }
+            },
+            "StyleBorderBottomStyle": {
+                "constructors": { }
+            },
+            "StyleBorderBottomWidth": {
+                "constructors": { }
+            },
+            "StyleBorderLeftColor": {
+                "constructors": { }
+            },
+            "StyleBorderLeftStyle": {
+                "constructors": { }
+            },
+            "StyleBorderLeftWidth": {
+                "constructors": { }
+            },
+            "StyleBorderRightColor": {
+                "constructors": { }
+            },
+            "StyleBorderRightStyle": {
+                "constructors": { }
+            },
+            "StyleBorderRightWidth": {
+                "constructors": { }
+            },
+            "StyleBorderTopColor": {
+                "constructors": { }
+            },
+            "StyleBorderTopLeftRadius": {
+                "constructors": { }
+            },
+            "StyleBorderTopRightRadius": {
+                "constructors": { }
+            },
+            "StyleBorderTopStyle": {
+                "constructors": { }
+            },
+            "StyleBorderTopWidth": {
+                "constructors": { }
+            },
+            "StyleCursor": {
+                "constructors": { }
+            },
+            "StyleFontFamily": {
+                "constructors": { }
+            },
+            "StyleFontSize": {
+                "constructors": { }
+            },
+            "StyleLetterSpacing": {
+                "constructors": { }
+            },
+            "StyleLineHeight": {
+                "constructors": { }
+            },
+            "StyleTabWidth": {
+                "constructors": { }
+            },
+            "StyleTextAlignmentHorz": {
+                "constructors": { }
+            },
+            "StyleTextColor": {
+                "constructors": { }
+            },
+            "StyleWordSpacing": {
+                "constructors": { }
+            },
+            "BoxShadowPreDisplayItemValue": {
+                "rust_class_name": "CssPropertyValue<BoxShadowPreDisplayItem>",
+                "external": "azul_css::CssPropertyValue::<BoxShadowPreDisplayItem>",
+                "enum_fields": {
+                    "Auto": { },
+                    "None": { },
+                    "Inherit": { },
+                    "Initial": { },
+                    "Exact": { "type": "BoxShadowPreDisplayItem" }
+                }
+            },
+            "LayoutAlignContentValue": {
+                "rust_class_name": "CssPropertyValue<LayoutAlignContent>",
+                "external": "azul_css::CssPropertyValue::<LayoutAlignContent>",
+                "enum_fields": {
+                    "Auto": { },
+                    "None": { },
+                    "Inherit": { },
+                    "Initial": { },
+                    "Exact": { "type": "LayoutAlignContent" }
+                }
+            },
+            "LayoutAlignItemsValue": {
+                "rust_class_name": "CssPropertyValue<LayoutAlignItems>",
+                "external": "azul_css::CssPropertyValue::<LayoutAlignItems>",
+                "enum_fields": {
+                    "Auto": { },
+                    "None": { },
+                    "Inherit": { },
+                    "Initial": { },
+                    "Exact": { "type": "LayoutAlignItems" }
+                }
+            },
+            "LayoutBottomValue": {
+                "rust_class_name": "CssPropertyValue<LayoutBottom>",
+                "external": "azul_css::CssPropertyValue::<LayoutBottom>",
+                "enum_fields": {
+                    "Auto": { },
+                    "None": { },
+                    "Inherit": { },
+                    "Initial": { },
+                    "Exact": { "type": "LayoutBottom" }
+                }
+            },
+            "LayoutBoxSizingValue": {
+                "rust_class_name": "CssPropertyValue<LayoutBoxSizing>",
+                "external": "azul_css::CssPropertyValue::<LayoutBoxSizing>",
+                "enum_fields": {
+                    "Auto": { },
+                    "None": { },
+                    "Inherit": { },
+                    "Initial": { },
+                    "Exact": { "type": "LayoutBoxSizing" }
+                }
+            },
+            "LayoutDirectionValue": {
+                "rust_class_name": "CssPropertyValue<LayoutDirection>",
+                "external": "azul_css::CssPropertyValue::<LayoutDirection>",
+                "enum_fields": {
+                    "Auto": { },
+                    "None": { },
+                    "Inherit": { },
+                    "Initial": { },
+                    "Exact": { "type": "LayoutDirection" }
+                }
+            },
+            "LayoutDisplayValue": {
+                "rust_class_name": "CssPropertyValue<LayoutDisplay>",
+                "external": "azul_css::CssPropertyValue::<LayoutDisplay>",
+                "enum_fields": {
+                    "Auto": { },
+                    "None": { },
+                    "Inherit": { },
+                    "Initial": { },
+                    "Exact": { "type": "LayoutDisplay" }
+                }
+            },
+            "LayoutFlexGrowValue": {
+                "rust_class_name": "CssPropertyValue<LayoutFlexGrow>",
+                "external": "azul_css::CssPropertyValue::<LayoutFlexGrow>",
+                "enum_fields": {
+                    "Auto": { },
+                    "None": { },
+                    "Inherit": { },
+                    "Initial": { },
+                    "Exact": { "type": "LayoutFlexGrow" }
+                }
+            },
+            "LayoutFlexShrinkValue": {
+                "rust_class_name": "CssPropertyValue<LayoutFlexShrink>",
+                "external": "azul_css::CssPropertyValue::<LayoutFlexShrink>",
+                "enum_fields": {
+                    "Auto": { },
+                    "None": { },
+                    "Inherit": { },
+                    "Initial": { },
+                    "Exact": { "type": "LayoutFlexShrink" }
+                }
+            },
+            "LayoutFloatValue": {
+                "rust_class_name": "CssPropertyValue<LayoutFloat>",
+                "external": "azul_css::CssPropertyValue::<LayoutFloat>",
+                "enum_fields": {
+                    "Auto": { },
+                    "None": { },
+                    "Inherit": { },
+                    "Initial": { },
+                    "Exact": { "type": "LayoutFloat" }
+                }
+            },
+            "LayoutHeightValue": {
+                "rust_class_name": "CssPropertyValue<LayoutHeight>",
+                "external": "azul_css::CssPropertyValue::<LayoutHeight>",
+                "enum_fields": {
+                    "Auto": { },
+                    "None": { },
+                    "Inherit": { },
+                    "Initial": { },
+                    "Exact": { "type": "LayoutHeight" }
+                }
+            },
+            "LayoutJustifyContentValue": {
+                "rust_class_name": "CssPropertyValue<LayoutJustifyContent>",
+                "external": "azul_css::CssPropertyValue::<LayoutJustifyContent>",
+                "enum_fields": {
+                    "Auto": { },
+                    "None": { },
+                    "Inherit": { },
+                    "Initial": { },
+                    "Exact": { "type": "LayoutJustifyContent" }
+                }
+            },
+            "LayoutLeftValue": {
+                "rust_class_name": "CssPropertyValue<LayoutLeft>",
+                "external": "azul_css::CssPropertyValue::<LayoutLeft>",
+                "enum_fields": {
+                    "Auto": { },
+                    "None": { },
+                    "Inherit": { },
+                    "Initial": { },
+                    "Exact": { "type": "LayoutLeft" }
+                }
+            },
+            "LayoutMarginBottomValue": {
+                "rust_class_name": "CssPropertyValue<LayoutMarginBottom>",
+                "external": "azul_css::CssPropertyValue::<LayoutMarginBottom>",
+                "enum_fields": {
+                    "Auto": { },
+                    "None": { },
+                    "Inherit": { },
+                    "Initial": { },
+                    "Exact": { "type": "LayoutMarginBottom" }
+                }
+            },
+            "LayoutMarginLeftValue": {
+                "rust_class_name": "CssPropertyValue<LayoutMarginLeft>",
+                "external": "azul_css::CssPropertyValue::<LayoutMarginLeft>",
+                "enum_fields": {
+                    "Auto": { },
+                    "None": { },
+                    "Inherit": { },
+                    "Initial": { },
+                    "Exact": { "type": "LayoutMarginLeft" }
+                }
+            },
+            "LayoutMarginRightValue": {
+                "rust_class_name": "CssPropertyValue<LayoutMarginRight>",
+                "external": "azul_css::CssPropertyValue::<LayoutMarginRight>",
+                "enum_fields": {
+                    "Auto": { },
+                    "None": { },
+                    "Inherit": { },
+                    "Initial": { },
+                    "Exact": { "type": "LayoutMarginRight" }
+                }
+            },
+            "LayoutMarginTopValue": {
+                "rust_class_name": "CssPropertyValue<LayoutMarginTop>",
+                "external": "azul_css::CssPropertyValue::<LayoutMarginTop>",
+                "enum_fields": {
+                    "Auto": { },
+                    "None": { },
+                    "Inherit": { },
+                    "Initial": { },
+                    "Exact": { "type": "LayoutMarginTop" }
+                }
+            },
+            "LayoutMaxHeightValue": {
+                "rust_class_name": "CssPropertyValue<LayoutMaxHeight>",
+                "external": "azul_css::CssPropertyValue::<LayoutMaxHeight>",
+                "enum_fields": {
+                    "Auto": { },
+                    "None": { },
+                    "Inherit": { },
+                    "Initial": { },
+                    "Exact": { "type": "LayoutMaxHeight" }
+                }
+            },
+            "LayoutMaxWidthValue": {
+                "rust_class_name": "CssPropertyValue<LayoutMaxWidth>",
+                "external": "azul_css::CssPropertyValue::<LayoutMaxWidth>",
+                "enum_fields": {
+                    "Auto": { },
+                    "None": { },
+                    "Inherit": { },
+                    "Initial": { },
+                    "Exact": { "type": "LayoutMaxWidth" }
+                }
+            },
+            "LayoutMinHeightValue": {
+                "rust_class_name": "CssPropertyValue<LayoutMinHeight>",
+                "external": "azul_css::CssPropertyValue::<LayoutMinHeight>",
+                "enum_fields": {
+                    "Auto": { },
+                    "None": { },
+                    "Inherit": { },
+                    "Initial": { },
+                    "Exact": { "type": "LayoutMinHeight" }
+                }
+            },
+            "LayoutMinWidthValue": {
+                "rust_class_name": "CssPropertyValue<LayoutMinWidth>",
+                "external": "azul_css::CssPropertyValue::<LayoutMinWidth>",
+                "enum_fields": {
+                    "Auto": { },
+                    "None": { },
+                    "Inherit": { },
+                    "Initial": { },
+                    "Exact": { "type": "LayoutMinWidth" }
+                }
+            },
+            "LayoutPaddingBottomValue": {
+                "rust_class_name": "CssPropertyValue<LayoutPaddingBottom>",
+                "external": "azul_css::CssPropertyValue::<LayoutPaddingBottom>",
+                "enum_fields": {
+                    "Auto": { },
+                    "None": { },
+                    "Inherit": { },
+                    "Initial": { },
+                    "Exact": { "type": "LayoutPaddingBottom" }
+                }
+            },
+            "LayoutPaddingLeftValue": {
+                "rust_class_name": "CssPropertyValue<LayoutPaddingLeft>",
+                "external": "azul_css::CssPropertyValue::<LayoutPaddingLeft>",
+                "enum_fields": {
+                    "Auto": { },
+                    "None": { },
+                    "Inherit": { },
+                    "Initial": { },
+                    "Exact": { "type": "LayoutPaddingLeft" }
+                }
+            },
+            "LayoutPaddingRightValue": {
+                "rust_class_name": "CssPropertyValue<LayoutPaddingRight>",
+                "external": "azul_css::CssPropertyValue::<LayoutPaddingRight>",
+                "enum_fields": {
+                    "Auto": { },
+                    "None": { },
+                    "Inherit": { },
+                    "Initial": { },
+                    "Exact": { "type": "LayoutPaddingRight" }
+                }
+            },
+            "LayoutPaddingTopValue": {
+                "rust_class_name": "CssPropertyValue<LayoutPaddingTop>",
+                "external": "azul_css::CssPropertyValue::<LayoutPaddingTop>",
+                "enum_fields": {
+                    "Auto": { },
+                    "None": { },
+                    "Inherit": { },
+                    "Initial": { },
+                    "Exact": { "type": "LayoutPaddingTop" }
+                }
+            },
+            "LayoutPositionValue": {
+                "rust_class_name": "CssPropertyValue<LayoutPosition>",
+                "external": "azul_css::CssPropertyValue::<LayoutPosition>",
+                "enum_fields": {
+                    "Auto": { },
+                    "None": { },
+                    "Inherit": { },
+                    "Initial": { },
+                    "Exact": { "type": "LayoutPosition" }
+                }
+            },
+            "LayoutRightValue": {
+                "rust_class_name": "CssPropertyValue<LayoutRight>",
+                "external": "azul_css::CssPropertyValue::<LayoutRight>",
+                "enum_fields": {
+                    "Auto": { },
+                    "None": { },
+                    "Inherit": { },
+                    "Initial": { },
+                    "Exact": { "type": "LayoutRight" }
+                }
+            },
+            "LayoutTopValue": {
+                "rust_class_name": "CssPropertyValue<LayoutTop>",
+                "external": "azul_css::CssPropertyValue::<LayoutTop>",
+                "enum_fields": {
+                    "Auto": { },
+                    "None": { },
+                    "Inherit": { },
+                    "Initial": { },
+                    "Exact": { "type": "LayoutTop" }
+                }
+            },
+            "LayoutWidthValue": {
+                "rust_class_name": "CssPropertyValue<LayoutWidth>",
+                "external": "azul_css::CssPropertyValue::<LayoutWidth>",
+                "enum_fields": {
+                    "Auto": { },
+                    "None": { },
+                    "Inherit": { },
+                    "Initial": { },
+                    "Exact": { "type": "LayoutWidth" }
+                }
+            },
+            "LayoutWrapValue": {
+                "rust_class_name": "CssPropertyValue<LayoutWrap>",
+                "external": "azul_css::CssPropertyValue::<LayoutWrap>",
+                "enum_fields": {
+                    "Auto": { },
+                    "None": { },
+                    "Inherit": { },
+                    "Initial": { },
+                    "Exact": { "type": "LayoutWrap" }
+                }
+            },
+            "OverflowValue": {
+                "rust_class_name": "CssPropertyValue<Overflow>",
+                "external": "azul_css::CssPropertyValue::<Overflow>",
+                "enum_fields": {
+                    "Auto": { },
+                    "None": { },
+                    "Inherit": { },
+                    "Initial": { },
+                    "Exact": { "type": "Overflow" }
+                }
+            },
+            "OverflowValue": {
+                "rust_class_name": "CssPropertyValue<Overflow>",
+                "external": "azul_css::CssPropertyValue::<Overflow>",
+                "enum_fields": {
+                    "Auto": { },
+                    "None": { },
+                    "Inherit": { },
+                    "Initial": { },
+                    "Exact": { "type": "Overflow" }
+                }
+            },
+            "StyleBackgroundContentValue": {
+                "rust_class_name": "CssPropertyValue<StyleBackgroundContent>",
+                "external": "azul_css::CssPropertyValue::<StyleBackgroundContent>",
+                "enum_fields": {
+                    "Auto": { },
+                    "None": { },
+                    "Inherit": { },
+                    "Initial": { },
+                    "Exact": { "type": "StyleBackgroundContent" }
+                }
+            },
+            "StyleBackgroundPositionValue": {
+                "rust_class_name": "CssPropertyValue<StyleBackgroundPosition>",
+                "external": "azul_css::CssPropertyValue::<StyleBackgroundPosition>",
+                "enum_fields": {
+                    "Auto": { },
+                    "None": { },
+                    "Inherit": { },
+                    "Initial": { },
+                    "Exact": { "type": "StyleBackgroundPosition" }
+                }
+            },
+            "StyleBackgroundRepeatValue": {
+                "rust_class_name": "CssPropertyValue<StyleBackgroundRepeat>",
+                "external": "azul_css::CssPropertyValue::<StyleBackgroundRepeat>",
+                "enum_fields": {
+                    "Auto": { },
+                    "None": { },
+                    "Inherit": { },
+                    "Initial": { },
+                    "Exact": { "type": "StyleBackgroundRepeat" }
+                }
+            },
+            "StyleBackgroundSizeValue": {
+                "rust_class_name": "CssPropertyValue<StyleBackgroundSize>",
+                "external": "azul_css::CssPropertyValue::<StyleBackgroundSize>",
+                "enum_fields": {
+                    "Auto": { },
+                    "None": { },
+                    "Inherit": { },
+                    "Initial": { },
+                    "Exact": { "type": "StyleBackgroundSize" }
+                }
+            },
+            "StyleBorderBottomColorValue": {
+                "rust_class_name": "CssPropertyValue<StyleBorderBottomColor>",
+                "external": "azul_css::CssPropertyValue::<StyleBorderBottomColor>",
+                "enum_fields": {
+                    "Auto": { },
+                    "None": { },
+                    "Inherit": { },
+                    "Initial": { },
+                    "Exact": { "type": "StyleBorderBottomColor" }
+                }
+            },
+            "StyleBorderBottomLeftRadiusValue": {
+                "rust_class_name": "CssPropertyValue<StyleBorderBottomLeftRadius>",
+                "external": "azul_css::CssPropertyValue::<StyleBorderBottomLeftRadius>",
+                "enum_fields": {
+                    "Auto": { },
+                    "None": { },
+                    "Inherit": { },
+                    "Initial": { },
+                    "Exact": { "type": "StyleBorderBottomLeftRadius" }
+                }
+            },
+            "StyleBorderBottomRightRadiusValue": {
+                "rust_class_name": "CssPropertyValue<StyleBorderBottomRightRadius>",
+                "external": "azul_css::CssPropertyValue::<StyleBorderBottomRightRadius>",
+                "enum_fields": {
+                    "Auto": { },
+                    "None": { },
+                    "Inherit": { },
+                    "Initial": { },
+                    "Exact": { "type": "StyleBorderBottomRightRadius" }
+                }
+            },
+            "StyleBorderBottomStyleValue": {
+                "rust_class_name": "CssPropertyValue<StyleBorderBottomStyle>",
+                "external": "azul_css::CssPropertyValue::<StyleBorderBottomStyle>",
+                "enum_fields": {
+                    "Auto": { },
+                    "None": { },
+                    "Inherit": { },
+                    "Initial": { },
+                    "Exact": { "type": "StyleBorderBottomStyle" }
+                }
+            },
+            "StyleBorderBottomWidthValue": {
+                "rust_class_name": "CssPropertyValue<StyleBorderBottomWidth>",
+                "external": "azul_css::CssPropertyValue::<StyleBorderBottomWidth>",
+                "enum_fields": {
+                    "Auto": { },
+                    "None": { },
+                    "Inherit": { },
+                    "Initial": { },
+                    "Exact": { "type": "StyleBorderBottomWidth" }
+                }
+            },
+            "StyleBorderLeftColorValue": {
+                "rust_class_name": "CssPropertyValue<StyleBorderLeftColor>",
+                "external": "azul_css::CssPropertyValue::<StyleBorderLeftColor>",
+                "enum_fields": {
+                    "Auto": { },
+                    "None": { },
+                    "Inherit": { },
+                    "Initial": { },
+                    "Exact": { "type": "StyleBorderLeftColor" }
+                }
+            },
+            "StyleBorderLeftStyleValue": {
+                "rust_class_name": "CssPropertyValue<StyleBorderLeftStyle>",
+                "external": "azul_css::CssPropertyValue::<StyleBorderLeftStyle>",
+                "enum_fields": {
+                    "Auto": { },
+                    "None": { },
+                    "Inherit": { },
+                    "Initial": { },
+                    "Exact": { "type": "StyleBorderLeftStyle" }
+                }
+            },
+            "StyleBorderLeftWidthValue": {
+                "rust_class_name": "CssPropertyValue<StyleBorderLeftWidth>",
+                "external": "azul_css::CssPropertyValue::<StyleBorderLeftWidth>",
+                "enum_fields": {
+                    "Auto": { },
+                    "None": { },
+                    "Inherit": { },
+                    "Initial": { },
+                    "Exact": { "type": "StyleBorderLeftWidth" }
+                }
+            },
+            "StyleBorderRightColorValue": {
+                "rust_class_name": "CssPropertyValue<StyleBorderRightColor>",
+                "external": "azul_css::CssPropertyValue::<StyleBorderRightColor>",
+                "enum_fields": {
+                    "Auto": { },
+                    "None": { },
+                    "Inherit": { },
+                    "Initial": { },
+                    "Exact": { "type": "StyleBorderRightColor" }
+                }
+            },
+            "StyleBorderRightStyleValue": {
+                "rust_class_name": "CssPropertyValue<StyleBorderRightStyle>",
+                "external": "azul_css::CssPropertyValue::<StyleBorderRightStyle>",
+                "enum_fields": {
+                    "Auto": { },
+                    "None": { },
+                    "Inherit": { },
+                    "Initial": { },
+                    "Exact": { "type": "StyleBorderRightStyle" }
+                }
+            },
+            "StyleBorderRightWidthValue": {
+                "rust_class_name": "CssPropertyValue<StyleBorderRightWidth>",
+                "external": "azul_css::CssPropertyValue::<StyleBorderRightWidth>",
+                "enum_fields": {
+                    "Auto": { },
+                    "None": { },
+                    "Inherit": { },
+                    "Initial": { },
+                    "Exact": { "type": "StyleBorderRightWidth" }
+                }
+            },
+            "StyleBorderTopColorValue": {
+                "rust_class_name": "CssPropertyValue<StyleBorderTopColor>",
+                "external": "azul_css::CssPropertyValue::<StyleBorderTopColor>",
+                "enum_fields": {
+                    "Auto": { },
+                    "None": { },
+                    "Inherit": { },
+                    "Initial": { },
+                    "Exact": { "type": "StyleBorderTopColor" }
+                }
+            },
+            "StyleBorderTopLeftRadiusValue": {
+                "rust_class_name": "CssPropertyValue<StyleBorderTopLeftRadius>",
+                "external": "azul_css::CssPropertyValue::<StyleBorderTopLeftRadius>",
+                "enum_fields": {
+                    "Auto": { },
+                    "None": { },
+                    "Inherit": { },
+                    "Initial": { },
+                    "Exact": { "type": "StyleBorderTopLeftRadius" }
+                }
+            },
+            "StyleBorderTopRightRadiusValue": {
+                "rust_class_name": "CssPropertyValue<StyleBorderTopRightRadius>",
+                "external": "azul_css::CssPropertyValue::<StyleBorderTopRightRadius>",
+                "enum_fields": {
+                    "Auto": { },
+                    "None": { },
+                    "Inherit": { },
+                    "Initial": { },
+                    "Exact": { "type": "StyleBorderTopRightRadius" }
+                }
+            },
+            "StyleBorderTopStyleValue": {
+                "rust_class_name": "CssPropertyValue<StyleBorderTopStyle>",
+                "external": "azul_css::CssPropertyValue::<StyleBorderTopStyle>",
+                "enum_fields": {
+                    "Auto": { },
+                    "None": { },
+                    "Inherit": { },
+                    "Initial": { },
+                    "Exact": { "type": "StyleBorderTopStyle" }
+                }
+            },
+            "StyleBorderTopWidthValue": {
+                "rust_class_name": "CssPropertyValue<StyleBorderTopWidth>",
+                "external": "azul_css::CssPropertyValue::<StyleBorderTopWidth>",
+                "enum_fields": {
+                    "Auto": { },
+                    "None": { },
+                    "Inherit": { },
+                    "Initial": { },
+                    "Exact": { "type": "StyleBorderTopWidth" }
+                }
+            },
+            "StyleCursorValue": {
+                "rust_class_name": "CssPropertyValue<StyleCursor>",
+                "external": "azul_css::CssPropertyValue::<StyleCursor>",
+                "enum_fields": {
+                    "Auto": { },
+                    "None": { },
+                    "Inherit": { },
+                    "Initial": { },
+                    "Exact": { "type": "StyleCursor" }
+                }
+            },
+            "StyleFontFamilyValue": {
+                "rust_class_name": "CssPropertyValue<StyleFontFamily>",
+                "external": "azul_css::CssPropertyValue::<StyleFontFamily>",
+                "enum_fields": {
+                    "Auto": { },
+                    "None": { },
+                    "Inherit": { },
+                    "Initial": { },
+                    "Exact": { "type": "StyleFontFamily" }
+                }
+            },
+            "StyleFontSizeValue": {
+                "rust_class_name": "CssPropertyValue<StyleFontSize>",
+                "external": "azul_css::CssPropertyValue::<StyleFontSize>",
+                "enum_fields": {
+                    "Auto": { },
+                    "None": { },
+                    "Inherit": { },
+                    "Initial": { },
+                    "Exact": { "type": "StyleFontSize" }
+                }
+            },
+            "StyleLetterSpacingValue": {
+                "rust_class_name": "CssPropertyValue<StyleLetterSpacing>",
+                "external": "azul_css::CssPropertyValue::<StyleLetterSpacing>",
+                "enum_fields": {
+                    "Auto": { },
+                    "None": { },
+                    "Inherit": { },
+                    "Initial": { },
+                    "Exact": { "type": "StyleLetterSpacing" }
+                }
+            },
+            "StyleLineHeightValue": {
+                "rust_class_name": "CssPropertyValue<StyleLineHeight>",
+                "external": "azul_css::CssPropertyValue::<StyleLineHeight>",
+                "enum_fields": {
+                    "Auto": { },
+                    "None": { },
+                    "Inherit": { },
+                    "Initial": { },
+                    "Exact": { "type": "StyleLineHeight" }
+                }
+            },
+            "StyleTabWidthValue": {
+                "rust_class_name": "CssPropertyValue<StyleTabWidth>",
+                "external": "azul_css::CssPropertyValue::<StyleTabWidth>",
+                "enum_fields": {
+                    "Auto": { },
+                    "None": { },
+                    "Inherit": { },
+                    "Initial": { },
+                    "Exact": { "type": "StyleTabWidth" }
+                }
+            },
+            "StyleTextAlignmentHorzValue": {
+                "rust_class_name": "CssPropertyValue<StyleTextAlignmentHorz>",
+                "external": "azul_css::CssPropertyValue::<StyleTextAlignmentHorz>",
+                "enum_fields": {
+                    "Auto": { },
+                    "None": { },
+                    "Inherit": { },
+                    "Initial": { },
+                    "Exact": { "type": "StyleTextAlignmentHorz" }
+                }
+            },
+            "StyleTextColorValue": {
+                "rust_class_name": "CssPropertyValue<StyleTextColor>",
+                "external": "azul_css::CssPropertyValue::<StyleTextColor>",
+                "enum_fields": {
+                    "Auto": { },
+                    "None": { },
+                    "Inherit": { },
+                    "Initial": { },
+                    "Exact": { "type": "StyleTextColor" }
+                }
+            },
+            "StyleWordSpacingValue": {
+                "rust_class_name": "CssPropertyValue<StyleWordSpacing>",
+                "external": "azul_css::CssPropertyValue::<StyleWordSpacing>",
+                "enum_fields": {
+                    "Auto": { },
+                    "None": { },
+                    "Inherit": { },
+                    "Initial": { },
+                    "Exact": { "type": "StyleWordSpacing" }
+                }
             },
             "CssProperty": {
                "doc": "Parsed CSS key-value pair",
-               "constructors": {
-                  "parse_from_string": {
-                     "doc": "Parses a new CssProperty from a string",
-                     "fn_args": [
-                        {"key": "CssPropertyKey"},
-                        {"value": "String"}
-                     ],
-                     "fn_body":"CssPropertyValue::from_str(key, &*az_string_downcast(value))"
-                  }
+               "external": "azul_css::CssProperty",
+               "enum_fields": {
+                  "TextColor": { "type": "CssPropertyValue<StyleTextColor>" },
+                  "FontSize": { "type": "CssPropertyValue<StyleFontSize>" },
+                  "FontFamily": { "type": "CssPropertyValue<StyleFontFamily>" },
+                  "TextAlign": { "type": "CssPropertyValue<StyleTextAlignmentHorz>" },
+                  "LetterSpacing": { "type": "CssPropertyValue<StyleLetterSpacing>" },
+                  "LineHeight": { "type": "CssPropertyValue<StyleLineHeight>" },
+                  "WordSpacing": { "type": "CssPropertyValue<StyleWordSpacing>" },
+                  "TabWidth": { "type": "CssPropertyValue<StyleTabWidth>" },
+                  "Cursor": { "type": "CssPropertyValue<StyleCursor>" },
+                  "Display": { "type": "CssPropertyValue<LayoutDisplay>" },
+                  "Float": { "type": "CssPropertyValue<LayoutFloat>" },
+                  "BoxSizing": { "type": "CssPropertyValue<LayoutBoxSizing>" },
+                  "Width": { "type": "CssPropertyValue<LayoutWidth>" },
+                  "Height": { "type": "CssPropertyValue<LayoutHeight>" },
+                  "MinWidth": { "type": "CssPropertyValue<LayoutMinWidth>" },
+                  "MinHeight": { "type": "CssPropertyValue<LayoutMinHeight>" },
+                  "MaxWidth": { "type": "CssPropertyValue<LayoutMaxWidth>" },
+                  "MaxHeight": { "type": "CssPropertyValue<LayoutMaxHeight>" },
+                  "Position": { "type": "CssPropertyValue<LayoutPosition>" },
+                  "Top": { "type": "CssPropertyValue<LayoutTop>" },
+                  "Right": { "type": "CssPropertyValue<LayoutRight>" },
+                  "Left": { "type": "CssPropertyValue<LayoutLeft>" },
+                  "Bottom": { "type": "CssPropertyValue<LayoutBottom>" },
+                  "FlexWrap": { "type": "CssPropertyValue<LayoutWrap>" },
+                  "FlexDirection": { "type": "CssPropertyValue<LayoutDirection>" },
+                  "FlexGrow": { "type": "CssPropertyValue<LayoutFlexGrow>" },
+                  "FlexShrink": { "type": "CssPropertyValue<LayoutFlexShrink>" },
+                  "JustifyContent": { "type": "CssPropertyValue<LayoutJustifyContent>" },
+                  "AlignItems": { "type": "CssPropertyValue<LayoutAlignItems>" },
+                  "AlignContent": { "type": "CssPropertyValue<LayoutAlignContent>" },
+                  "BackgroundContent": { "type": "CssPropertyValue<StyleBackgroundContent>" },
+                  "BackgroundPosition": { "type": "CssPropertyValue<StyleBackgroundPosition>" },
+                  "BackgroundSize": { "type": "CssPropertyValue<StyleBackgroundSize>" },
+                  "BackgroundRepeat": { "type": "CssPropertyValue<StyleBackgroundRepeat>" },
+                  "OverflowX": { "type": "CssPropertyValue<Overflow>" },
+                  "OverflowY": { "type": "CssPropertyValue<Overflow>" },
+                  "PaddingTop": { "type": "CssPropertyValue<LayoutPaddingTop>" },
+                  "PaddingLeft": { "type": "CssPropertyValue<LayoutPaddingLeft>" },
+                  "PaddingRight": { "type": "CssPropertyValue<LayoutPaddingRight>" },
+                  "PaddingBottom": { "type": "CssPropertyValue<LayoutPaddingBottom>" },
+                  "MarginTop": { "type": "CssPropertyValue<LayoutMarginTop>" },
+                  "MarginLeft": { "type": "CssPropertyValue<LayoutMarginLeft>" },
+                  "MarginRight": { "type": "CssPropertyValue<LayoutMarginRight>" },
+                  "MarginBottom": { "type": "CssPropertyValue<LayoutMarginBottom>" },
+                  "BorderTopLeftRadius": { "type": "CssPropertyValue<StyleBorderTopLeftRadius>" },
+                  "BorderTopRightRadius": { "type": "CssPropertyValue<StyleBorderTopRightRadius>" },
+                  "BorderBottomLeftRadius": { "type": "CssPropertyValue<StyleBorderBottomLeftRadius>" },
+                  "BorderBottomRightRadius": { "type": "CssPropertyValue<StyleBorderBottomRightRadius>" },
+                  "BorderTopColor": { "type": "CssPropertyValue<StyleBorderTopColor>" },
+                  "BorderRightColor": { "type": "CssPropertyValue<StyleBorderRightColor>" },
+                  "BorderLeftColor": { "type": "CssPropertyValue<StyleBorderLeftColor>" },
+                  "BorderBottomColor": { "type": "CssPropertyValue<StyleBorderBottomColor>" },
+                  "BorderTopStyle": { "type": "CssPropertyValue<StyleBorderTopStyle>" },
+                  "BorderRightStyle": { "type": "CssPropertyValue<StyleBorderRightStyle>" },
+                  "BorderLeftStyle": { "type": "CssPropertyValue<StyleBorderLeftStyle>" },
+                  "BorderBottomStyle": { "type": "CssPropertyValue<StyleBorderBottomStyle>" },
+                  "BorderTopWidth": { "type": "CssPropertyValue<StyleBorderTopWidth>" },
+                  "BorderRightWidth": { "type": "CssPropertyValue<StyleBorderRightWidth>" },
+                  "BorderLeftWidth": { "type": "CssPropertyValue<StyleBorderLeftWidth>" },
+                  "BorderBottomWidth": { "type": "CssPropertyValue<StyleBorderBottomWidth>" },
+                  "BoxShadowLeft": { "type": "CssPropertyValue<BoxShadowPreDisplayItem>" },
+                  "BoxShadowRight": { "type": "CssPropertyValue<BoxShadowPreDisplayItem>" },
+                  "BoxShadowTop": { "type": "CssPropertyValue<BoxShadowPreDisplayItem>" },
+                  "BoxShadowBottom": { "type": "CssPropertyValue<BoxShadowPreDisplayItem>" }
                }
             }
          }
@@ -246,13 +1134,13 @@
                      ],
                      "fn_body": "Dom::image(*az_image_id_downcast(image_id))"
                   },
-                  "gl_callback": {
+                  "gl_texture": {
                      "doc": "Creates a new node which will render an OpenGL texture after the layout step is finished. See the documentation for [GlCallback]() for more info about OpenGL rendering callbacks.",
                      "fn_args": [
                         {"data": "RefAny"},
                         {"callback": "GlCallback"}
                      ],
-                     "fn_body": "Dom::gl_callback(azul_core::callbacks::GlCallback(callback))"
+                     "fn_body": "Dom::gl_texture(azul_core::callbacks::GlCallback(callback))"
                   },
                   "iframe_callback": {
                      "doc": "Creates a new node with a callback that will return a `Dom` after being layouted. See the documentation for [IFrameCallback]() for more info about iframe callbacks.",
@@ -424,7 +1312,7 @@
                         {"id": "String"}
                      ],
                      "returns": "bool",
-                     "fn_body": "az_dom_downcast_refmut(dom, |d| { d.has_id(&*az_string_downcast(id)); })"
+                     "fn_body": "az_dom_downcast_refmut(dom, |d| { d.has_id(&*az_string_downcast(id)) })"
                   },
                   "has_class": {
                      "doc": "Returns if the DOM node has a certain CSS class",
@@ -433,7 +1321,7 @@
                         {"class": "String"}
                      ],
                      "returns": "bool",
-                     "fn_body": "az_dom_downcast_refmut(dom, |d| { d.has_class(&*az_string_downcast(class)); })"
+                     "fn_body": "az_dom_downcast_refmut(dom, |d| { d.has_class(&*az_string_downcast(class)) })"
                   }
                }
             },

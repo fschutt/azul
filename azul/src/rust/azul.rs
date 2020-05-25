@@ -122,26 +122,6 @@ pub mod path {
     impl Drop for PathBuf { fn drop(&mut self) { az_path_buf_delete(&mut self.ptr); } }
 }
 
-/// Definition of azuls internal `Duration` type + functions for conversion from `std::time::Duration`
-#[allow(dead_code, unused_imports)]
-pub mod time {
-
-    use azul_dll::*;
-
-
-    /// Wrapper over a Rust-allocated `Duration`
-    pub struct Duration { pub(crate) ptr: AzDurationPtr }
-
-    impl Duration {
-        /// Creates a new `Duration` from milliseconds
-        pub fn from_millis(millis: u64) -> Self { Self { ptr: az_duration_from_millis(millis) } }
-       /// Prevents the destructor from running and returns the internal `AzDurationPtr`
-       pub fn leak(self) -> AzDurationPtr { let p = az_duration_shallow_copy(&self.ptr); std::mem::forget(self); p }
-    }
-
-    impl Drop for Duration { fn drop(&mut self) { az_duration_delete(&mut self.ptr); } }
-}
-
 /// `App` construction and configuration
 #[allow(dead_code, unused_imports)]
 pub mod app {
@@ -391,7 +371,6 @@ pub type GlCallback = fn(AzGlCallbackInfoPtr) -> AzGlCallbackReturnPtr;
 pub mod css {
 
     use azul_dll::*;
-    use crate::str::String;
 
 
     /// `Css` struct
@@ -409,28 +388,1699 @@ pub mod css {
     impl Drop for Css { fn drop(&mut self) { az_css_delete(&mut self.ptr); } }
 
 
-    /// `CssPropertyKey` struct
-    pub struct CssPropertyKey { pub(crate) ptr: AzCssPropertyKeyPtr }
+    /// `BoxShadowPreDisplayItem` struct
+    pub struct BoxShadowPreDisplayItem { pub(crate) ptr: AzBoxShadowPreDisplayItemPtr }
 
-    impl CssPropertyKey {
-       /// Prevents the destructor from running and returns the internal `AzCssPropertyKeyPtr`
-       pub fn leak(self) -> AzCssPropertyKeyPtr { let p = az_css_property_key_shallow_copy(&self.ptr); std::mem::forget(self); p }
+    impl BoxShadowPreDisplayItem {
+       /// Prevents the destructor from running and returns the internal `AzBoxShadowPreDisplayItemPtr`
+       pub fn leak(self) -> AzBoxShadowPreDisplayItemPtr { let p = az_box_shadow_pre_display_item_shallow_copy(&self.ptr); std::mem::forget(self); p }
     }
 
-    impl Drop for CssPropertyKey { fn drop(&mut self) { az_css_property_key_delete(&mut self.ptr); } }
+    impl Drop for BoxShadowPreDisplayItem { fn drop(&mut self) { az_box_shadow_pre_display_item_delete(&mut self.ptr); } }
+
+
+    /// `LayoutAlignContent` struct
+    pub struct LayoutAlignContent { pub(crate) ptr: AzLayoutAlignContentPtr }
+
+    impl LayoutAlignContent {
+       /// Prevents the destructor from running and returns the internal `AzLayoutAlignContentPtr`
+       pub fn leak(self) -> AzLayoutAlignContentPtr { let p = az_layout_align_content_shallow_copy(&self.ptr); std::mem::forget(self); p }
+    }
+
+    impl Drop for LayoutAlignContent { fn drop(&mut self) { az_layout_align_content_delete(&mut self.ptr); } }
+
+
+    /// `LayoutAlignItems` struct
+    pub struct LayoutAlignItems { pub(crate) ptr: AzLayoutAlignItemsPtr }
+
+    impl LayoutAlignItems {
+       /// Prevents the destructor from running and returns the internal `AzLayoutAlignItemsPtr`
+       pub fn leak(self) -> AzLayoutAlignItemsPtr { let p = az_layout_align_items_shallow_copy(&self.ptr); std::mem::forget(self); p }
+    }
+
+    impl Drop for LayoutAlignItems { fn drop(&mut self) { az_layout_align_items_delete(&mut self.ptr); } }
+
+
+    /// `LayoutBottom` struct
+    pub struct LayoutBottom { pub(crate) ptr: AzLayoutBottomPtr }
+
+    impl LayoutBottom {
+       /// Prevents the destructor from running and returns the internal `AzLayoutBottomPtr`
+       pub fn leak(self) -> AzLayoutBottomPtr { let p = az_layout_bottom_shallow_copy(&self.ptr); std::mem::forget(self); p }
+    }
+
+    impl Drop for LayoutBottom { fn drop(&mut self) { az_layout_bottom_delete(&mut self.ptr); } }
+
+
+    /// `LayoutBoxSizing` struct
+    pub struct LayoutBoxSizing { pub(crate) ptr: AzLayoutBoxSizingPtr }
+
+    impl LayoutBoxSizing {
+       /// Prevents the destructor from running and returns the internal `AzLayoutBoxSizingPtr`
+       pub fn leak(self) -> AzLayoutBoxSizingPtr { let p = az_layout_box_sizing_shallow_copy(&self.ptr); std::mem::forget(self); p }
+    }
+
+    impl Drop for LayoutBoxSizing { fn drop(&mut self) { az_layout_box_sizing_delete(&mut self.ptr); } }
+
+
+    /// `LayoutDirection` struct
+    pub struct LayoutDirection { pub(crate) ptr: AzLayoutDirectionPtr }
+
+    impl LayoutDirection {
+       /// Prevents the destructor from running and returns the internal `AzLayoutDirectionPtr`
+       pub fn leak(self) -> AzLayoutDirectionPtr { let p = az_layout_direction_shallow_copy(&self.ptr); std::mem::forget(self); p }
+    }
+
+    impl Drop for LayoutDirection { fn drop(&mut self) { az_layout_direction_delete(&mut self.ptr); } }
+
+
+    /// `LayoutDisplay` struct
+    pub struct LayoutDisplay { pub(crate) ptr: AzLayoutDisplayPtr }
+
+    impl LayoutDisplay {
+       /// Prevents the destructor from running and returns the internal `AzLayoutDisplayPtr`
+       pub fn leak(self) -> AzLayoutDisplayPtr { let p = az_layout_display_shallow_copy(&self.ptr); std::mem::forget(self); p }
+    }
+
+    impl Drop for LayoutDisplay { fn drop(&mut self) { az_layout_display_delete(&mut self.ptr); } }
+
+
+    /// `LayoutFlexGrow` struct
+    pub struct LayoutFlexGrow { pub(crate) ptr: AzLayoutFlexGrowPtr }
+
+    impl LayoutFlexGrow {
+       /// Prevents the destructor from running and returns the internal `AzLayoutFlexGrowPtr`
+       pub fn leak(self) -> AzLayoutFlexGrowPtr { let p = az_layout_flex_grow_shallow_copy(&self.ptr); std::mem::forget(self); p }
+    }
+
+    impl Drop for LayoutFlexGrow { fn drop(&mut self) { az_layout_flex_grow_delete(&mut self.ptr); } }
+
+
+    /// `LayoutFlexShrink` struct
+    pub struct LayoutFlexShrink { pub(crate) ptr: AzLayoutFlexShrinkPtr }
+
+    impl LayoutFlexShrink {
+       /// Prevents the destructor from running and returns the internal `AzLayoutFlexShrinkPtr`
+       pub fn leak(self) -> AzLayoutFlexShrinkPtr { let p = az_layout_flex_shrink_shallow_copy(&self.ptr); std::mem::forget(self); p }
+    }
+
+    impl Drop for LayoutFlexShrink { fn drop(&mut self) { az_layout_flex_shrink_delete(&mut self.ptr); } }
+
+
+    /// `LayoutFloat` struct
+    pub struct LayoutFloat { pub(crate) ptr: AzLayoutFloatPtr }
+
+    impl LayoutFloat {
+       /// Prevents the destructor from running and returns the internal `AzLayoutFloatPtr`
+       pub fn leak(self) -> AzLayoutFloatPtr { let p = az_layout_float_shallow_copy(&self.ptr); std::mem::forget(self); p }
+    }
+
+    impl Drop for LayoutFloat { fn drop(&mut self) { az_layout_float_delete(&mut self.ptr); } }
+
+
+    /// `LayoutHeight` struct
+    pub struct LayoutHeight { pub(crate) ptr: AzLayoutHeightPtr }
+
+    impl LayoutHeight {
+       /// Prevents the destructor from running and returns the internal `AzLayoutHeightPtr`
+       pub fn leak(self) -> AzLayoutHeightPtr { let p = az_layout_height_shallow_copy(&self.ptr); std::mem::forget(self); p }
+    }
+
+    impl Drop for LayoutHeight { fn drop(&mut self) { az_layout_height_delete(&mut self.ptr); } }
+
+
+    /// `LayoutJustifyContent` struct
+    pub struct LayoutJustifyContent { pub(crate) ptr: AzLayoutJustifyContentPtr }
+
+    impl LayoutJustifyContent {
+       /// Prevents the destructor from running and returns the internal `AzLayoutJustifyContentPtr`
+       pub fn leak(self) -> AzLayoutJustifyContentPtr { let p = az_layout_justify_content_shallow_copy(&self.ptr); std::mem::forget(self); p }
+    }
+
+    impl Drop for LayoutJustifyContent { fn drop(&mut self) { az_layout_justify_content_delete(&mut self.ptr); } }
+
+
+    /// `LayoutLeft` struct
+    pub struct LayoutLeft { pub(crate) ptr: AzLayoutLeftPtr }
+
+    impl LayoutLeft {
+       /// Prevents the destructor from running and returns the internal `AzLayoutLeftPtr`
+       pub fn leak(self) -> AzLayoutLeftPtr { let p = az_layout_left_shallow_copy(&self.ptr); std::mem::forget(self); p }
+    }
+
+    impl Drop for LayoutLeft { fn drop(&mut self) { az_layout_left_delete(&mut self.ptr); } }
+
+
+    /// `LayoutMarginBottom` struct
+    pub struct LayoutMarginBottom { pub(crate) ptr: AzLayoutMarginBottomPtr }
+
+    impl LayoutMarginBottom {
+       /// Prevents the destructor from running and returns the internal `AzLayoutMarginBottomPtr`
+       pub fn leak(self) -> AzLayoutMarginBottomPtr { let p = az_layout_margin_bottom_shallow_copy(&self.ptr); std::mem::forget(self); p }
+    }
+
+    impl Drop for LayoutMarginBottom { fn drop(&mut self) { az_layout_margin_bottom_delete(&mut self.ptr); } }
+
+
+    /// `LayoutMarginLeft` struct
+    pub struct LayoutMarginLeft { pub(crate) ptr: AzLayoutMarginLeftPtr }
+
+    impl LayoutMarginLeft {
+       /// Prevents the destructor from running and returns the internal `AzLayoutMarginLeftPtr`
+       pub fn leak(self) -> AzLayoutMarginLeftPtr { let p = az_layout_margin_left_shallow_copy(&self.ptr); std::mem::forget(self); p }
+    }
+
+    impl Drop for LayoutMarginLeft { fn drop(&mut self) { az_layout_margin_left_delete(&mut self.ptr); } }
+
+
+    /// `LayoutMarginRight` struct
+    pub struct LayoutMarginRight { pub(crate) ptr: AzLayoutMarginRightPtr }
+
+    impl LayoutMarginRight {
+       /// Prevents the destructor from running and returns the internal `AzLayoutMarginRightPtr`
+       pub fn leak(self) -> AzLayoutMarginRightPtr { let p = az_layout_margin_right_shallow_copy(&self.ptr); std::mem::forget(self); p }
+    }
+
+    impl Drop for LayoutMarginRight { fn drop(&mut self) { az_layout_margin_right_delete(&mut self.ptr); } }
+
+
+    /// `LayoutMarginTop` struct
+    pub struct LayoutMarginTop { pub(crate) ptr: AzLayoutMarginTopPtr }
+
+    impl LayoutMarginTop {
+       /// Prevents the destructor from running and returns the internal `AzLayoutMarginTopPtr`
+       pub fn leak(self) -> AzLayoutMarginTopPtr { let p = az_layout_margin_top_shallow_copy(&self.ptr); std::mem::forget(self); p }
+    }
+
+    impl Drop for LayoutMarginTop { fn drop(&mut self) { az_layout_margin_top_delete(&mut self.ptr); } }
+
+
+    /// `LayoutMaxHeight` struct
+    pub struct LayoutMaxHeight { pub(crate) ptr: AzLayoutMaxHeightPtr }
+
+    impl LayoutMaxHeight {
+       /// Prevents the destructor from running and returns the internal `AzLayoutMaxHeightPtr`
+       pub fn leak(self) -> AzLayoutMaxHeightPtr { let p = az_layout_max_height_shallow_copy(&self.ptr); std::mem::forget(self); p }
+    }
+
+    impl Drop for LayoutMaxHeight { fn drop(&mut self) { az_layout_max_height_delete(&mut self.ptr); } }
+
+
+    /// `LayoutMaxWidth` struct
+    pub struct LayoutMaxWidth { pub(crate) ptr: AzLayoutMaxWidthPtr }
+
+    impl LayoutMaxWidth {
+       /// Prevents the destructor from running and returns the internal `AzLayoutMaxWidthPtr`
+       pub fn leak(self) -> AzLayoutMaxWidthPtr { let p = az_layout_max_width_shallow_copy(&self.ptr); std::mem::forget(self); p }
+    }
+
+    impl Drop for LayoutMaxWidth { fn drop(&mut self) { az_layout_max_width_delete(&mut self.ptr); } }
+
+
+    /// `LayoutMinHeight` struct
+    pub struct LayoutMinHeight { pub(crate) ptr: AzLayoutMinHeightPtr }
+
+    impl LayoutMinHeight {
+       /// Prevents the destructor from running and returns the internal `AzLayoutMinHeightPtr`
+       pub fn leak(self) -> AzLayoutMinHeightPtr { let p = az_layout_min_height_shallow_copy(&self.ptr); std::mem::forget(self); p }
+    }
+
+    impl Drop for LayoutMinHeight { fn drop(&mut self) { az_layout_min_height_delete(&mut self.ptr); } }
+
+
+    /// `LayoutMinWidth` struct
+    pub struct LayoutMinWidth { pub(crate) ptr: AzLayoutMinWidthPtr }
+
+    impl LayoutMinWidth {
+       /// Prevents the destructor from running and returns the internal `AzLayoutMinWidthPtr`
+       pub fn leak(self) -> AzLayoutMinWidthPtr { let p = az_layout_min_width_shallow_copy(&self.ptr); std::mem::forget(self); p }
+    }
+
+    impl Drop for LayoutMinWidth { fn drop(&mut self) { az_layout_min_width_delete(&mut self.ptr); } }
+
+
+    /// `LayoutPaddingBottom` struct
+    pub struct LayoutPaddingBottom { pub(crate) ptr: AzLayoutPaddingBottomPtr }
+
+    impl LayoutPaddingBottom {
+       /// Prevents the destructor from running and returns the internal `AzLayoutPaddingBottomPtr`
+       pub fn leak(self) -> AzLayoutPaddingBottomPtr { let p = az_layout_padding_bottom_shallow_copy(&self.ptr); std::mem::forget(self); p }
+    }
+
+    impl Drop for LayoutPaddingBottom { fn drop(&mut self) { az_layout_padding_bottom_delete(&mut self.ptr); } }
+
+
+    /// `LayoutPaddingLeft` struct
+    pub struct LayoutPaddingLeft { pub(crate) ptr: AzLayoutPaddingLeftPtr }
+
+    impl LayoutPaddingLeft {
+       /// Prevents the destructor from running and returns the internal `AzLayoutPaddingLeftPtr`
+       pub fn leak(self) -> AzLayoutPaddingLeftPtr { let p = az_layout_padding_left_shallow_copy(&self.ptr); std::mem::forget(self); p }
+    }
+
+    impl Drop for LayoutPaddingLeft { fn drop(&mut self) { az_layout_padding_left_delete(&mut self.ptr); } }
+
+
+    /// `LayoutPaddingRight` struct
+    pub struct LayoutPaddingRight { pub(crate) ptr: AzLayoutPaddingRightPtr }
+
+    impl LayoutPaddingRight {
+       /// Prevents the destructor from running and returns the internal `AzLayoutPaddingRightPtr`
+       pub fn leak(self) -> AzLayoutPaddingRightPtr { let p = az_layout_padding_right_shallow_copy(&self.ptr); std::mem::forget(self); p }
+    }
+
+    impl Drop for LayoutPaddingRight { fn drop(&mut self) { az_layout_padding_right_delete(&mut self.ptr); } }
+
+
+    /// `LayoutPaddingTop` struct
+    pub struct LayoutPaddingTop { pub(crate) ptr: AzLayoutPaddingTopPtr }
+
+    impl LayoutPaddingTop {
+       /// Prevents the destructor from running and returns the internal `AzLayoutPaddingTopPtr`
+       pub fn leak(self) -> AzLayoutPaddingTopPtr { let p = az_layout_padding_top_shallow_copy(&self.ptr); std::mem::forget(self); p }
+    }
+
+    impl Drop for LayoutPaddingTop { fn drop(&mut self) { az_layout_padding_top_delete(&mut self.ptr); } }
+
+
+    /// `LayoutPosition` struct
+    pub struct LayoutPosition { pub(crate) ptr: AzLayoutPositionPtr }
+
+    impl LayoutPosition {
+       /// Prevents the destructor from running and returns the internal `AzLayoutPositionPtr`
+       pub fn leak(self) -> AzLayoutPositionPtr { let p = az_layout_position_shallow_copy(&self.ptr); std::mem::forget(self); p }
+    }
+
+    impl Drop for LayoutPosition { fn drop(&mut self) { az_layout_position_delete(&mut self.ptr); } }
+
+
+    /// `LayoutRight` struct
+    pub struct LayoutRight { pub(crate) ptr: AzLayoutRightPtr }
+
+    impl LayoutRight {
+       /// Prevents the destructor from running and returns the internal `AzLayoutRightPtr`
+       pub fn leak(self) -> AzLayoutRightPtr { let p = az_layout_right_shallow_copy(&self.ptr); std::mem::forget(self); p }
+    }
+
+    impl Drop for LayoutRight { fn drop(&mut self) { az_layout_right_delete(&mut self.ptr); } }
+
+
+    /// `LayoutTop` struct
+    pub struct LayoutTop { pub(crate) ptr: AzLayoutTopPtr }
+
+    impl LayoutTop {
+       /// Prevents the destructor from running and returns the internal `AzLayoutTopPtr`
+       pub fn leak(self) -> AzLayoutTopPtr { let p = az_layout_top_shallow_copy(&self.ptr); std::mem::forget(self); p }
+    }
+
+    impl Drop for LayoutTop { fn drop(&mut self) { az_layout_top_delete(&mut self.ptr); } }
+
+
+    /// `LayoutWidth` struct
+    pub struct LayoutWidth { pub(crate) ptr: AzLayoutWidthPtr }
+
+    impl LayoutWidth {
+       /// Prevents the destructor from running and returns the internal `AzLayoutWidthPtr`
+       pub fn leak(self) -> AzLayoutWidthPtr { let p = az_layout_width_shallow_copy(&self.ptr); std::mem::forget(self); p }
+    }
+
+    impl Drop for LayoutWidth { fn drop(&mut self) { az_layout_width_delete(&mut self.ptr); } }
+
+
+    /// `LayoutWrap` struct
+    pub struct LayoutWrap { pub(crate) ptr: AzLayoutWrapPtr }
+
+    impl LayoutWrap {
+       /// Prevents the destructor from running and returns the internal `AzLayoutWrapPtr`
+       pub fn leak(self) -> AzLayoutWrapPtr { let p = az_layout_wrap_shallow_copy(&self.ptr); std::mem::forget(self); p }
+    }
+
+    impl Drop for LayoutWrap { fn drop(&mut self) { az_layout_wrap_delete(&mut self.ptr); } }
+
+
+    /// `Overflow` struct
+    pub struct Overflow { pub(crate) ptr: AzOverflowPtr }
+
+    impl Overflow {
+       /// Prevents the destructor from running and returns the internal `AzOverflowPtr`
+       pub fn leak(self) -> AzOverflowPtr { let p = az_overflow_shallow_copy(&self.ptr); std::mem::forget(self); p }
+    }
+
+    impl Drop for Overflow { fn drop(&mut self) { az_overflow_delete(&mut self.ptr); } }
+
+
+    /// `StyleBackgroundContent` struct
+    pub struct StyleBackgroundContent { pub(crate) ptr: AzStyleBackgroundContentPtr }
+
+    impl StyleBackgroundContent {
+       /// Prevents the destructor from running and returns the internal `AzStyleBackgroundContentPtr`
+       pub fn leak(self) -> AzStyleBackgroundContentPtr { let p = az_style_background_content_shallow_copy(&self.ptr); std::mem::forget(self); p }
+    }
+
+    impl Drop for StyleBackgroundContent { fn drop(&mut self) { az_style_background_content_delete(&mut self.ptr); } }
+
+
+    /// `StyleBackgroundPosition` struct
+    pub struct StyleBackgroundPosition { pub(crate) ptr: AzStyleBackgroundPositionPtr }
+
+    impl StyleBackgroundPosition {
+       /// Prevents the destructor from running and returns the internal `AzStyleBackgroundPositionPtr`
+       pub fn leak(self) -> AzStyleBackgroundPositionPtr { let p = az_style_background_position_shallow_copy(&self.ptr); std::mem::forget(self); p }
+    }
+
+    impl Drop for StyleBackgroundPosition { fn drop(&mut self) { az_style_background_position_delete(&mut self.ptr); } }
+
+
+    /// `StyleBackgroundRepeat` struct
+    pub struct StyleBackgroundRepeat { pub(crate) ptr: AzStyleBackgroundRepeatPtr }
+
+    impl StyleBackgroundRepeat {
+       /// Prevents the destructor from running and returns the internal `AzStyleBackgroundRepeatPtr`
+       pub fn leak(self) -> AzStyleBackgroundRepeatPtr { let p = az_style_background_repeat_shallow_copy(&self.ptr); std::mem::forget(self); p }
+    }
+
+    impl Drop for StyleBackgroundRepeat { fn drop(&mut self) { az_style_background_repeat_delete(&mut self.ptr); } }
+
+
+    /// `StyleBackgroundSize` struct
+    pub struct StyleBackgroundSize { pub(crate) ptr: AzStyleBackgroundSizePtr }
+
+    impl StyleBackgroundSize {
+       /// Prevents the destructor from running and returns the internal `AzStyleBackgroundSizePtr`
+       pub fn leak(self) -> AzStyleBackgroundSizePtr { let p = az_style_background_size_shallow_copy(&self.ptr); std::mem::forget(self); p }
+    }
+
+    impl Drop for StyleBackgroundSize { fn drop(&mut self) { az_style_background_size_delete(&mut self.ptr); } }
+
+
+    /// `StyleBorderBottomColor` struct
+    pub struct StyleBorderBottomColor { pub(crate) ptr: AzStyleBorderBottomColorPtr }
+
+    impl StyleBorderBottomColor {
+       /// Prevents the destructor from running and returns the internal `AzStyleBorderBottomColorPtr`
+       pub fn leak(self) -> AzStyleBorderBottomColorPtr { let p = az_style_border_bottom_color_shallow_copy(&self.ptr); std::mem::forget(self); p }
+    }
+
+    impl Drop for StyleBorderBottomColor { fn drop(&mut self) { az_style_border_bottom_color_delete(&mut self.ptr); } }
+
+
+    /// `StyleBorderBottomLeftRadius` struct
+    pub struct StyleBorderBottomLeftRadius { pub(crate) ptr: AzStyleBorderBottomLeftRadiusPtr }
+
+    impl StyleBorderBottomLeftRadius {
+       /// Prevents the destructor from running and returns the internal `AzStyleBorderBottomLeftRadiusPtr`
+       pub fn leak(self) -> AzStyleBorderBottomLeftRadiusPtr { let p = az_style_border_bottom_left_radius_shallow_copy(&self.ptr); std::mem::forget(self); p }
+    }
+
+    impl Drop for StyleBorderBottomLeftRadius { fn drop(&mut self) { az_style_border_bottom_left_radius_delete(&mut self.ptr); } }
+
+
+    /// `StyleBorderBottomRightRadius` struct
+    pub struct StyleBorderBottomRightRadius { pub(crate) ptr: AzStyleBorderBottomRightRadiusPtr }
+
+    impl StyleBorderBottomRightRadius {
+       /// Prevents the destructor from running and returns the internal `AzStyleBorderBottomRightRadiusPtr`
+       pub fn leak(self) -> AzStyleBorderBottomRightRadiusPtr { let p = az_style_border_bottom_right_radius_shallow_copy(&self.ptr); std::mem::forget(self); p }
+    }
+
+    impl Drop for StyleBorderBottomRightRadius { fn drop(&mut self) { az_style_border_bottom_right_radius_delete(&mut self.ptr); } }
+
+
+    /// `StyleBorderBottomStyle` struct
+    pub struct StyleBorderBottomStyle { pub(crate) ptr: AzStyleBorderBottomStylePtr }
+
+    impl StyleBorderBottomStyle {
+       /// Prevents the destructor from running and returns the internal `AzStyleBorderBottomStylePtr`
+       pub fn leak(self) -> AzStyleBorderBottomStylePtr { let p = az_style_border_bottom_style_shallow_copy(&self.ptr); std::mem::forget(self); p }
+    }
+
+    impl Drop for StyleBorderBottomStyle { fn drop(&mut self) { az_style_border_bottom_style_delete(&mut self.ptr); } }
+
+
+    /// `StyleBorderBottomWidth` struct
+    pub struct StyleBorderBottomWidth { pub(crate) ptr: AzStyleBorderBottomWidthPtr }
+
+    impl StyleBorderBottomWidth {
+       /// Prevents the destructor from running and returns the internal `AzStyleBorderBottomWidthPtr`
+       pub fn leak(self) -> AzStyleBorderBottomWidthPtr { let p = az_style_border_bottom_width_shallow_copy(&self.ptr); std::mem::forget(self); p }
+    }
+
+    impl Drop for StyleBorderBottomWidth { fn drop(&mut self) { az_style_border_bottom_width_delete(&mut self.ptr); } }
+
+
+    /// `StyleBorderLeftColor` struct
+    pub struct StyleBorderLeftColor { pub(crate) ptr: AzStyleBorderLeftColorPtr }
+
+    impl StyleBorderLeftColor {
+       /// Prevents the destructor from running and returns the internal `AzStyleBorderLeftColorPtr`
+       pub fn leak(self) -> AzStyleBorderLeftColorPtr { let p = az_style_border_left_color_shallow_copy(&self.ptr); std::mem::forget(self); p }
+    }
+
+    impl Drop for StyleBorderLeftColor { fn drop(&mut self) { az_style_border_left_color_delete(&mut self.ptr); } }
+
+
+    /// `StyleBorderLeftStyle` struct
+    pub struct StyleBorderLeftStyle { pub(crate) ptr: AzStyleBorderLeftStylePtr }
+
+    impl StyleBorderLeftStyle {
+       /// Prevents the destructor from running and returns the internal `AzStyleBorderLeftStylePtr`
+       pub fn leak(self) -> AzStyleBorderLeftStylePtr { let p = az_style_border_left_style_shallow_copy(&self.ptr); std::mem::forget(self); p }
+    }
+
+    impl Drop for StyleBorderLeftStyle { fn drop(&mut self) { az_style_border_left_style_delete(&mut self.ptr); } }
+
+
+    /// `StyleBorderLeftWidth` struct
+    pub struct StyleBorderLeftWidth { pub(crate) ptr: AzStyleBorderLeftWidthPtr }
+
+    impl StyleBorderLeftWidth {
+       /// Prevents the destructor from running and returns the internal `AzStyleBorderLeftWidthPtr`
+       pub fn leak(self) -> AzStyleBorderLeftWidthPtr { let p = az_style_border_left_width_shallow_copy(&self.ptr); std::mem::forget(self); p }
+    }
+
+    impl Drop for StyleBorderLeftWidth { fn drop(&mut self) { az_style_border_left_width_delete(&mut self.ptr); } }
+
+
+    /// `StyleBorderRightColor` struct
+    pub struct StyleBorderRightColor { pub(crate) ptr: AzStyleBorderRightColorPtr }
+
+    impl StyleBorderRightColor {
+       /// Prevents the destructor from running and returns the internal `AzStyleBorderRightColorPtr`
+       pub fn leak(self) -> AzStyleBorderRightColorPtr { let p = az_style_border_right_color_shallow_copy(&self.ptr); std::mem::forget(self); p }
+    }
+
+    impl Drop for StyleBorderRightColor { fn drop(&mut self) { az_style_border_right_color_delete(&mut self.ptr); } }
+
+
+    /// `StyleBorderRightStyle` struct
+    pub struct StyleBorderRightStyle { pub(crate) ptr: AzStyleBorderRightStylePtr }
+
+    impl StyleBorderRightStyle {
+       /// Prevents the destructor from running and returns the internal `AzStyleBorderRightStylePtr`
+       pub fn leak(self) -> AzStyleBorderRightStylePtr { let p = az_style_border_right_style_shallow_copy(&self.ptr); std::mem::forget(self); p }
+    }
+
+    impl Drop for StyleBorderRightStyle { fn drop(&mut self) { az_style_border_right_style_delete(&mut self.ptr); } }
+
+
+    /// `StyleBorderRightWidth` struct
+    pub struct StyleBorderRightWidth { pub(crate) ptr: AzStyleBorderRightWidthPtr }
+
+    impl StyleBorderRightWidth {
+       /// Prevents the destructor from running and returns the internal `AzStyleBorderRightWidthPtr`
+       pub fn leak(self) -> AzStyleBorderRightWidthPtr { let p = az_style_border_right_width_shallow_copy(&self.ptr); std::mem::forget(self); p }
+    }
+
+    impl Drop for StyleBorderRightWidth { fn drop(&mut self) { az_style_border_right_width_delete(&mut self.ptr); } }
+
+
+    /// `StyleBorderTopColor` struct
+    pub struct StyleBorderTopColor { pub(crate) ptr: AzStyleBorderTopColorPtr }
+
+    impl StyleBorderTopColor {
+       /// Prevents the destructor from running and returns the internal `AzStyleBorderTopColorPtr`
+       pub fn leak(self) -> AzStyleBorderTopColorPtr { let p = az_style_border_top_color_shallow_copy(&self.ptr); std::mem::forget(self); p }
+    }
+
+    impl Drop for StyleBorderTopColor { fn drop(&mut self) { az_style_border_top_color_delete(&mut self.ptr); } }
+
+
+    /// `StyleBorderTopLeftRadius` struct
+    pub struct StyleBorderTopLeftRadius { pub(crate) ptr: AzStyleBorderTopLeftRadiusPtr }
+
+    impl StyleBorderTopLeftRadius {
+       /// Prevents the destructor from running and returns the internal `AzStyleBorderTopLeftRadiusPtr`
+       pub fn leak(self) -> AzStyleBorderTopLeftRadiusPtr { let p = az_style_border_top_left_radius_shallow_copy(&self.ptr); std::mem::forget(self); p }
+    }
+
+    impl Drop for StyleBorderTopLeftRadius { fn drop(&mut self) { az_style_border_top_left_radius_delete(&mut self.ptr); } }
+
+
+    /// `StyleBorderTopRightRadius` struct
+    pub struct StyleBorderTopRightRadius { pub(crate) ptr: AzStyleBorderTopRightRadiusPtr }
+
+    impl StyleBorderTopRightRadius {
+       /// Prevents the destructor from running and returns the internal `AzStyleBorderTopRightRadiusPtr`
+       pub fn leak(self) -> AzStyleBorderTopRightRadiusPtr { let p = az_style_border_top_right_radius_shallow_copy(&self.ptr); std::mem::forget(self); p }
+    }
+
+    impl Drop for StyleBorderTopRightRadius { fn drop(&mut self) { az_style_border_top_right_radius_delete(&mut self.ptr); } }
+
+
+    /// `StyleBorderTopStyle` struct
+    pub struct StyleBorderTopStyle { pub(crate) ptr: AzStyleBorderTopStylePtr }
+
+    impl StyleBorderTopStyle {
+       /// Prevents the destructor from running and returns the internal `AzStyleBorderTopStylePtr`
+       pub fn leak(self) -> AzStyleBorderTopStylePtr { let p = az_style_border_top_style_shallow_copy(&self.ptr); std::mem::forget(self); p }
+    }
+
+    impl Drop for StyleBorderTopStyle { fn drop(&mut self) { az_style_border_top_style_delete(&mut self.ptr); } }
+
+
+    /// `StyleBorderTopWidth` struct
+    pub struct StyleBorderTopWidth { pub(crate) ptr: AzStyleBorderTopWidthPtr }
+
+    impl StyleBorderTopWidth {
+       /// Prevents the destructor from running and returns the internal `AzStyleBorderTopWidthPtr`
+       pub fn leak(self) -> AzStyleBorderTopWidthPtr { let p = az_style_border_top_width_shallow_copy(&self.ptr); std::mem::forget(self); p }
+    }
+
+    impl Drop for StyleBorderTopWidth { fn drop(&mut self) { az_style_border_top_width_delete(&mut self.ptr); } }
+
+
+    /// `StyleCursor` struct
+    pub struct StyleCursor { pub(crate) ptr: AzStyleCursorPtr }
+
+    impl StyleCursor {
+       /// Prevents the destructor from running and returns the internal `AzStyleCursorPtr`
+       pub fn leak(self) -> AzStyleCursorPtr { let p = az_style_cursor_shallow_copy(&self.ptr); std::mem::forget(self); p }
+    }
+
+    impl Drop for StyleCursor { fn drop(&mut self) { az_style_cursor_delete(&mut self.ptr); } }
+
+
+    /// `StyleFontFamily` struct
+    pub struct StyleFontFamily { pub(crate) ptr: AzStyleFontFamilyPtr }
+
+    impl StyleFontFamily {
+       /// Prevents the destructor from running and returns the internal `AzStyleFontFamilyPtr`
+       pub fn leak(self) -> AzStyleFontFamilyPtr { let p = az_style_font_family_shallow_copy(&self.ptr); std::mem::forget(self); p }
+    }
+
+    impl Drop for StyleFontFamily { fn drop(&mut self) { az_style_font_family_delete(&mut self.ptr); } }
+
+
+    /// `StyleFontSize` struct
+    pub struct StyleFontSize { pub(crate) ptr: AzStyleFontSizePtr }
+
+    impl StyleFontSize {
+       /// Prevents the destructor from running and returns the internal `AzStyleFontSizePtr`
+       pub fn leak(self) -> AzStyleFontSizePtr { let p = az_style_font_size_shallow_copy(&self.ptr); std::mem::forget(self); p }
+    }
+
+    impl Drop for StyleFontSize { fn drop(&mut self) { az_style_font_size_delete(&mut self.ptr); } }
+
+
+    /// `StyleLetterSpacing` struct
+    pub struct StyleLetterSpacing { pub(crate) ptr: AzStyleLetterSpacingPtr }
+
+    impl StyleLetterSpacing {
+       /// Prevents the destructor from running and returns the internal `AzStyleLetterSpacingPtr`
+       pub fn leak(self) -> AzStyleLetterSpacingPtr { let p = az_style_letter_spacing_shallow_copy(&self.ptr); std::mem::forget(self); p }
+    }
+
+    impl Drop for StyleLetterSpacing { fn drop(&mut self) { az_style_letter_spacing_delete(&mut self.ptr); } }
+
+
+    /// `StyleLineHeight` struct
+    pub struct StyleLineHeight { pub(crate) ptr: AzStyleLineHeightPtr }
+
+    impl StyleLineHeight {
+       /// Prevents the destructor from running and returns the internal `AzStyleLineHeightPtr`
+       pub fn leak(self) -> AzStyleLineHeightPtr { let p = az_style_line_height_shallow_copy(&self.ptr); std::mem::forget(self); p }
+    }
+
+    impl Drop for StyleLineHeight { fn drop(&mut self) { az_style_line_height_delete(&mut self.ptr); } }
+
+
+    /// `StyleTabWidth` struct
+    pub struct StyleTabWidth { pub(crate) ptr: AzStyleTabWidthPtr }
+
+    impl StyleTabWidth {
+       /// Prevents the destructor from running and returns the internal `AzStyleTabWidthPtr`
+       pub fn leak(self) -> AzStyleTabWidthPtr { let p = az_style_tab_width_shallow_copy(&self.ptr); std::mem::forget(self); p }
+    }
+
+    impl Drop for StyleTabWidth { fn drop(&mut self) { az_style_tab_width_delete(&mut self.ptr); } }
+
+
+    /// `StyleTextAlignmentHorz` struct
+    pub struct StyleTextAlignmentHorz { pub(crate) ptr: AzStyleTextAlignmentHorzPtr }
+
+    impl StyleTextAlignmentHorz {
+       /// Prevents the destructor from running and returns the internal `AzStyleTextAlignmentHorzPtr`
+       pub fn leak(self) -> AzStyleTextAlignmentHorzPtr { let p = az_style_text_alignment_horz_shallow_copy(&self.ptr); std::mem::forget(self); p }
+    }
+
+    impl Drop for StyleTextAlignmentHorz { fn drop(&mut self) { az_style_text_alignment_horz_delete(&mut self.ptr); } }
+
+
+    /// `StyleTextColor` struct
+    pub struct StyleTextColor { pub(crate) ptr: AzStyleTextColorPtr }
+
+    impl StyleTextColor {
+       /// Prevents the destructor from running and returns the internal `AzStyleTextColorPtr`
+       pub fn leak(self) -> AzStyleTextColorPtr { let p = az_style_text_color_shallow_copy(&self.ptr); std::mem::forget(self); p }
+    }
+
+    impl Drop for StyleTextColor { fn drop(&mut self) { az_style_text_color_delete(&mut self.ptr); } }
+
+
+    /// `StyleWordSpacing` struct
+    pub struct StyleWordSpacing { pub(crate) ptr: AzStyleWordSpacingPtr }
+
+    impl StyleWordSpacing {
+       /// Prevents the destructor from running and returns the internal `AzStyleWordSpacingPtr`
+       pub fn leak(self) -> AzStyleWordSpacingPtr { let p = az_style_word_spacing_shallow_copy(&self.ptr); std::mem::forget(self); p }
+    }
+
+    impl Drop for StyleWordSpacing { fn drop(&mut self) { az_style_word_spacing_delete(&mut self.ptr); } }
+
+
+    /// `BoxShadowPreDisplayItemValue` struct
+    pub struct BoxShadowPreDisplayItemValue { pub(crate) object: AzBoxShadowPreDisplayItemValue }
+
+    impl BoxShadowPreDisplayItemValue {
+        pub fn auto() -> Self { Self { object: az_box_shadow_pre_display_item_value_auto() }  }
+        pub fn none() -> Self { Self { object: az_box_shadow_pre_display_item_value_none() }  }
+        pub fn inherit() -> Self { Self { object: az_box_shadow_pre_display_item_value_inherit() }  }
+        pub fn initial() -> Self { Self { object: az_box_shadow_pre_display_item_value_initial() }  }
+        pub fn exact(variant_data: crate::css::BoxShadowPreDisplayItem) -> Self { Self { object: az_box_shadow_pre_display_item_value_exact(variant_data.leak()) }}
+       /// Prevents the destructor from running and returns the internal `AzBoxShadowPreDisplayItemValue`
+       pub fn leak(self) -> AzBoxShadowPreDisplayItemValue { az_box_shadow_pre_display_item_value_deep_copy(&self.object) }
+    }
+
+    impl Drop for BoxShadowPreDisplayItemValue { fn drop(&mut self) { az_box_shadow_pre_display_item_value_delete(&mut self.object); } }
+
+
+    /// `LayoutAlignContentValue` struct
+    pub struct LayoutAlignContentValue { pub(crate) object: AzLayoutAlignContentValue }
+
+    impl LayoutAlignContentValue {
+        pub fn auto() -> Self { Self { object: az_layout_align_content_value_auto() }  }
+        pub fn none() -> Self { Self { object: az_layout_align_content_value_none() }  }
+        pub fn inherit() -> Self { Self { object: az_layout_align_content_value_inherit() }  }
+        pub fn initial() -> Self { Self { object: az_layout_align_content_value_initial() }  }
+        pub fn exact(variant_data: crate::css::LayoutAlignContent) -> Self { Self { object: az_layout_align_content_value_exact(variant_data.leak()) }}
+       /// Prevents the destructor from running and returns the internal `AzLayoutAlignContentValue`
+       pub fn leak(self) -> AzLayoutAlignContentValue { az_layout_align_content_value_deep_copy(&self.object) }
+    }
+
+    impl Drop for LayoutAlignContentValue { fn drop(&mut self) { az_layout_align_content_value_delete(&mut self.object); } }
+
+
+    /// `LayoutAlignItemsValue` struct
+    pub struct LayoutAlignItemsValue { pub(crate) object: AzLayoutAlignItemsValue }
+
+    impl LayoutAlignItemsValue {
+        pub fn auto() -> Self { Self { object: az_layout_align_items_value_auto() }  }
+        pub fn none() -> Self { Self { object: az_layout_align_items_value_none() }  }
+        pub fn inherit() -> Self { Self { object: az_layout_align_items_value_inherit() }  }
+        pub fn initial() -> Self { Self { object: az_layout_align_items_value_initial() }  }
+        pub fn exact(variant_data: crate::css::LayoutAlignItems) -> Self { Self { object: az_layout_align_items_value_exact(variant_data.leak()) }}
+       /// Prevents the destructor from running and returns the internal `AzLayoutAlignItemsValue`
+       pub fn leak(self) -> AzLayoutAlignItemsValue { az_layout_align_items_value_deep_copy(&self.object) }
+    }
+
+    impl Drop for LayoutAlignItemsValue { fn drop(&mut self) { az_layout_align_items_value_delete(&mut self.object); } }
+
+
+    /// `LayoutBottomValue` struct
+    pub struct LayoutBottomValue { pub(crate) object: AzLayoutBottomValue }
+
+    impl LayoutBottomValue {
+        pub fn auto() -> Self { Self { object: az_layout_bottom_value_auto() }  }
+        pub fn none() -> Self { Self { object: az_layout_bottom_value_none() }  }
+        pub fn inherit() -> Self { Self { object: az_layout_bottom_value_inherit() }  }
+        pub fn initial() -> Self { Self { object: az_layout_bottom_value_initial() }  }
+        pub fn exact(variant_data: crate::css::LayoutBottom) -> Self { Self { object: az_layout_bottom_value_exact(variant_data.leak()) }}
+       /// Prevents the destructor from running and returns the internal `AzLayoutBottomValue`
+       pub fn leak(self) -> AzLayoutBottomValue { az_layout_bottom_value_deep_copy(&self.object) }
+    }
+
+    impl Drop for LayoutBottomValue { fn drop(&mut self) { az_layout_bottom_value_delete(&mut self.object); } }
+
+
+    /// `LayoutBoxSizingValue` struct
+    pub struct LayoutBoxSizingValue { pub(crate) object: AzLayoutBoxSizingValue }
+
+    impl LayoutBoxSizingValue {
+        pub fn auto() -> Self { Self { object: az_layout_box_sizing_value_auto() }  }
+        pub fn none() -> Self { Self { object: az_layout_box_sizing_value_none() }  }
+        pub fn inherit() -> Self { Self { object: az_layout_box_sizing_value_inherit() }  }
+        pub fn initial() -> Self { Self { object: az_layout_box_sizing_value_initial() }  }
+        pub fn exact(variant_data: crate::css::LayoutBoxSizing) -> Self { Self { object: az_layout_box_sizing_value_exact(variant_data.leak()) }}
+       /// Prevents the destructor from running and returns the internal `AzLayoutBoxSizingValue`
+       pub fn leak(self) -> AzLayoutBoxSizingValue { az_layout_box_sizing_value_deep_copy(&self.object) }
+    }
+
+    impl Drop for LayoutBoxSizingValue { fn drop(&mut self) { az_layout_box_sizing_value_delete(&mut self.object); } }
+
+
+    /// `LayoutDirectionValue` struct
+    pub struct LayoutDirectionValue { pub(crate) object: AzLayoutDirectionValue }
+
+    impl LayoutDirectionValue {
+        pub fn auto() -> Self { Self { object: az_layout_direction_value_auto() }  }
+        pub fn none() -> Self { Self { object: az_layout_direction_value_none() }  }
+        pub fn inherit() -> Self { Self { object: az_layout_direction_value_inherit() }  }
+        pub fn initial() -> Self { Self { object: az_layout_direction_value_initial() }  }
+        pub fn exact(variant_data: crate::css::LayoutDirection) -> Self { Self { object: az_layout_direction_value_exact(variant_data.leak()) }}
+       /// Prevents the destructor from running and returns the internal `AzLayoutDirectionValue`
+       pub fn leak(self) -> AzLayoutDirectionValue { az_layout_direction_value_deep_copy(&self.object) }
+    }
+
+    impl Drop for LayoutDirectionValue { fn drop(&mut self) { az_layout_direction_value_delete(&mut self.object); } }
+
+
+    /// `LayoutDisplayValue` struct
+    pub struct LayoutDisplayValue { pub(crate) object: AzLayoutDisplayValue }
+
+    impl LayoutDisplayValue {
+        pub fn auto() -> Self { Self { object: az_layout_display_value_auto() }  }
+        pub fn none() -> Self { Self { object: az_layout_display_value_none() }  }
+        pub fn inherit() -> Self { Self { object: az_layout_display_value_inherit() }  }
+        pub fn initial() -> Self { Self { object: az_layout_display_value_initial() }  }
+        pub fn exact(variant_data: crate::css::LayoutDisplay) -> Self { Self { object: az_layout_display_value_exact(variant_data.leak()) }}
+       /// Prevents the destructor from running and returns the internal `AzLayoutDisplayValue`
+       pub fn leak(self) -> AzLayoutDisplayValue { az_layout_display_value_deep_copy(&self.object) }
+    }
+
+    impl Drop for LayoutDisplayValue { fn drop(&mut self) { az_layout_display_value_delete(&mut self.object); } }
+
+
+    /// `LayoutFlexGrowValue` struct
+    pub struct LayoutFlexGrowValue { pub(crate) object: AzLayoutFlexGrowValue }
+
+    impl LayoutFlexGrowValue {
+        pub fn auto() -> Self { Self { object: az_layout_flex_grow_value_auto() }  }
+        pub fn none() -> Self { Self { object: az_layout_flex_grow_value_none() }  }
+        pub fn inherit() -> Self { Self { object: az_layout_flex_grow_value_inherit() }  }
+        pub fn initial() -> Self { Self { object: az_layout_flex_grow_value_initial() }  }
+        pub fn exact(variant_data: crate::css::LayoutFlexGrow) -> Self { Self { object: az_layout_flex_grow_value_exact(variant_data.leak()) }}
+       /// Prevents the destructor from running and returns the internal `AzLayoutFlexGrowValue`
+       pub fn leak(self) -> AzLayoutFlexGrowValue { az_layout_flex_grow_value_deep_copy(&self.object) }
+    }
+
+    impl Drop for LayoutFlexGrowValue { fn drop(&mut self) { az_layout_flex_grow_value_delete(&mut self.object); } }
+
+
+    /// `LayoutFlexShrinkValue` struct
+    pub struct LayoutFlexShrinkValue { pub(crate) object: AzLayoutFlexShrinkValue }
+
+    impl LayoutFlexShrinkValue {
+        pub fn auto() -> Self { Self { object: az_layout_flex_shrink_value_auto() }  }
+        pub fn none() -> Self { Self { object: az_layout_flex_shrink_value_none() }  }
+        pub fn inherit() -> Self { Self { object: az_layout_flex_shrink_value_inherit() }  }
+        pub fn initial() -> Self { Self { object: az_layout_flex_shrink_value_initial() }  }
+        pub fn exact(variant_data: crate::css::LayoutFlexShrink) -> Self { Self { object: az_layout_flex_shrink_value_exact(variant_data.leak()) }}
+       /// Prevents the destructor from running and returns the internal `AzLayoutFlexShrinkValue`
+       pub fn leak(self) -> AzLayoutFlexShrinkValue { az_layout_flex_shrink_value_deep_copy(&self.object) }
+    }
+
+    impl Drop for LayoutFlexShrinkValue { fn drop(&mut self) { az_layout_flex_shrink_value_delete(&mut self.object); } }
+
+
+    /// `LayoutFloatValue` struct
+    pub struct LayoutFloatValue { pub(crate) object: AzLayoutFloatValue }
+
+    impl LayoutFloatValue {
+        pub fn auto() -> Self { Self { object: az_layout_float_value_auto() }  }
+        pub fn none() -> Self { Self { object: az_layout_float_value_none() }  }
+        pub fn inherit() -> Self { Self { object: az_layout_float_value_inherit() }  }
+        pub fn initial() -> Self { Self { object: az_layout_float_value_initial() }  }
+        pub fn exact(variant_data: crate::css::LayoutFloat) -> Self { Self { object: az_layout_float_value_exact(variant_data.leak()) }}
+       /// Prevents the destructor from running and returns the internal `AzLayoutFloatValue`
+       pub fn leak(self) -> AzLayoutFloatValue { az_layout_float_value_deep_copy(&self.object) }
+    }
+
+    impl Drop for LayoutFloatValue { fn drop(&mut self) { az_layout_float_value_delete(&mut self.object); } }
+
+
+    /// `LayoutHeightValue` struct
+    pub struct LayoutHeightValue { pub(crate) object: AzLayoutHeightValue }
+
+    impl LayoutHeightValue {
+        pub fn auto() -> Self { Self { object: az_layout_height_value_auto() }  }
+        pub fn none() -> Self { Self { object: az_layout_height_value_none() }  }
+        pub fn inherit() -> Self { Self { object: az_layout_height_value_inherit() }  }
+        pub fn initial() -> Self { Self { object: az_layout_height_value_initial() }  }
+        pub fn exact(variant_data: crate::css::LayoutHeight) -> Self { Self { object: az_layout_height_value_exact(variant_data.leak()) }}
+       /// Prevents the destructor from running and returns the internal `AzLayoutHeightValue`
+       pub fn leak(self) -> AzLayoutHeightValue { az_layout_height_value_deep_copy(&self.object) }
+    }
+
+    impl Drop for LayoutHeightValue { fn drop(&mut self) { az_layout_height_value_delete(&mut self.object); } }
+
+
+    /// `LayoutJustifyContentValue` struct
+    pub struct LayoutJustifyContentValue { pub(crate) object: AzLayoutJustifyContentValue }
+
+    impl LayoutJustifyContentValue {
+        pub fn auto() -> Self { Self { object: az_layout_justify_content_value_auto() }  }
+        pub fn none() -> Self { Self { object: az_layout_justify_content_value_none() }  }
+        pub fn inherit() -> Self { Self { object: az_layout_justify_content_value_inherit() }  }
+        pub fn initial() -> Self { Self { object: az_layout_justify_content_value_initial() }  }
+        pub fn exact(variant_data: crate::css::LayoutJustifyContent) -> Self { Self { object: az_layout_justify_content_value_exact(variant_data.leak()) }}
+       /// Prevents the destructor from running and returns the internal `AzLayoutJustifyContentValue`
+       pub fn leak(self) -> AzLayoutJustifyContentValue { az_layout_justify_content_value_deep_copy(&self.object) }
+    }
+
+    impl Drop for LayoutJustifyContentValue { fn drop(&mut self) { az_layout_justify_content_value_delete(&mut self.object); } }
+
+
+    /// `LayoutLeftValue` struct
+    pub struct LayoutLeftValue { pub(crate) object: AzLayoutLeftValue }
+
+    impl LayoutLeftValue {
+        pub fn auto() -> Self { Self { object: az_layout_left_value_auto() }  }
+        pub fn none() -> Self { Self { object: az_layout_left_value_none() }  }
+        pub fn inherit() -> Self { Self { object: az_layout_left_value_inherit() }  }
+        pub fn initial() -> Self { Self { object: az_layout_left_value_initial() }  }
+        pub fn exact(variant_data: crate::css::LayoutLeft) -> Self { Self { object: az_layout_left_value_exact(variant_data.leak()) }}
+       /// Prevents the destructor from running and returns the internal `AzLayoutLeftValue`
+       pub fn leak(self) -> AzLayoutLeftValue { az_layout_left_value_deep_copy(&self.object) }
+    }
+
+    impl Drop for LayoutLeftValue { fn drop(&mut self) { az_layout_left_value_delete(&mut self.object); } }
+
+
+    /// `LayoutMarginBottomValue` struct
+    pub struct LayoutMarginBottomValue { pub(crate) object: AzLayoutMarginBottomValue }
+
+    impl LayoutMarginBottomValue {
+        pub fn auto() -> Self { Self { object: az_layout_margin_bottom_value_auto() }  }
+        pub fn none() -> Self { Self { object: az_layout_margin_bottom_value_none() }  }
+        pub fn inherit() -> Self { Self { object: az_layout_margin_bottom_value_inherit() }  }
+        pub fn initial() -> Self { Self { object: az_layout_margin_bottom_value_initial() }  }
+        pub fn exact(variant_data: crate::css::LayoutMarginBottom) -> Self { Self { object: az_layout_margin_bottom_value_exact(variant_data.leak()) }}
+       /// Prevents the destructor from running and returns the internal `AzLayoutMarginBottomValue`
+       pub fn leak(self) -> AzLayoutMarginBottomValue { az_layout_margin_bottom_value_deep_copy(&self.object) }
+    }
+
+    impl Drop for LayoutMarginBottomValue { fn drop(&mut self) { az_layout_margin_bottom_value_delete(&mut self.object); } }
+
+
+    /// `LayoutMarginLeftValue` struct
+    pub struct LayoutMarginLeftValue { pub(crate) object: AzLayoutMarginLeftValue }
+
+    impl LayoutMarginLeftValue {
+        pub fn auto() -> Self { Self { object: az_layout_margin_left_value_auto() }  }
+        pub fn none() -> Self { Self { object: az_layout_margin_left_value_none() }  }
+        pub fn inherit() -> Self { Self { object: az_layout_margin_left_value_inherit() }  }
+        pub fn initial() -> Self { Self { object: az_layout_margin_left_value_initial() }  }
+        pub fn exact(variant_data: crate::css::LayoutMarginLeft) -> Self { Self { object: az_layout_margin_left_value_exact(variant_data.leak()) }}
+       /// Prevents the destructor from running and returns the internal `AzLayoutMarginLeftValue`
+       pub fn leak(self) -> AzLayoutMarginLeftValue { az_layout_margin_left_value_deep_copy(&self.object) }
+    }
+
+    impl Drop for LayoutMarginLeftValue { fn drop(&mut self) { az_layout_margin_left_value_delete(&mut self.object); } }
+
+
+    /// `LayoutMarginRightValue` struct
+    pub struct LayoutMarginRightValue { pub(crate) object: AzLayoutMarginRightValue }
+
+    impl LayoutMarginRightValue {
+        pub fn auto() -> Self { Self { object: az_layout_margin_right_value_auto() }  }
+        pub fn none() -> Self { Self { object: az_layout_margin_right_value_none() }  }
+        pub fn inherit() -> Self { Self { object: az_layout_margin_right_value_inherit() }  }
+        pub fn initial() -> Self { Self { object: az_layout_margin_right_value_initial() }  }
+        pub fn exact(variant_data: crate::css::LayoutMarginRight) -> Self { Self { object: az_layout_margin_right_value_exact(variant_data.leak()) }}
+       /// Prevents the destructor from running and returns the internal `AzLayoutMarginRightValue`
+       pub fn leak(self) -> AzLayoutMarginRightValue { az_layout_margin_right_value_deep_copy(&self.object) }
+    }
+
+    impl Drop for LayoutMarginRightValue { fn drop(&mut self) { az_layout_margin_right_value_delete(&mut self.object); } }
+
+
+    /// `LayoutMarginTopValue` struct
+    pub struct LayoutMarginTopValue { pub(crate) object: AzLayoutMarginTopValue }
+
+    impl LayoutMarginTopValue {
+        pub fn auto() -> Self { Self { object: az_layout_margin_top_value_auto() }  }
+        pub fn none() -> Self { Self { object: az_layout_margin_top_value_none() }  }
+        pub fn inherit() -> Self { Self { object: az_layout_margin_top_value_inherit() }  }
+        pub fn initial() -> Self { Self { object: az_layout_margin_top_value_initial() }  }
+        pub fn exact(variant_data: crate::css::LayoutMarginTop) -> Self { Self { object: az_layout_margin_top_value_exact(variant_data.leak()) }}
+       /// Prevents the destructor from running and returns the internal `AzLayoutMarginTopValue`
+       pub fn leak(self) -> AzLayoutMarginTopValue { az_layout_margin_top_value_deep_copy(&self.object) }
+    }
+
+    impl Drop for LayoutMarginTopValue { fn drop(&mut self) { az_layout_margin_top_value_delete(&mut self.object); } }
+
+
+    /// `LayoutMaxHeightValue` struct
+    pub struct LayoutMaxHeightValue { pub(crate) object: AzLayoutMaxHeightValue }
+
+    impl LayoutMaxHeightValue {
+        pub fn auto() -> Self { Self { object: az_layout_max_height_value_auto() }  }
+        pub fn none() -> Self { Self { object: az_layout_max_height_value_none() }  }
+        pub fn inherit() -> Self { Self { object: az_layout_max_height_value_inherit() }  }
+        pub fn initial() -> Self { Self { object: az_layout_max_height_value_initial() }  }
+        pub fn exact(variant_data: crate::css::LayoutMaxHeight) -> Self { Self { object: az_layout_max_height_value_exact(variant_data.leak()) }}
+       /// Prevents the destructor from running and returns the internal `AzLayoutMaxHeightValue`
+       pub fn leak(self) -> AzLayoutMaxHeightValue { az_layout_max_height_value_deep_copy(&self.object) }
+    }
+
+    impl Drop for LayoutMaxHeightValue { fn drop(&mut self) { az_layout_max_height_value_delete(&mut self.object); } }
+
+
+    /// `LayoutMaxWidthValue` struct
+    pub struct LayoutMaxWidthValue { pub(crate) object: AzLayoutMaxWidthValue }
+
+    impl LayoutMaxWidthValue {
+        pub fn auto() -> Self { Self { object: az_layout_max_width_value_auto() }  }
+        pub fn none() -> Self { Self { object: az_layout_max_width_value_none() }  }
+        pub fn inherit() -> Self { Self { object: az_layout_max_width_value_inherit() }  }
+        pub fn initial() -> Self { Self { object: az_layout_max_width_value_initial() }  }
+        pub fn exact(variant_data: crate::css::LayoutMaxWidth) -> Self { Self { object: az_layout_max_width_value_exact(variant_data.leak()) }}
+       /// Prevents the destructor from running and returns the internal `AzLayoutMaxWidthValue`
+       pub fn leak(self) -> AzLayoutMaxWidthValue { az_layout_max_width_value_deep_copy(&self.object) }
+    }
+
+    impl Drop for LayoutMaxWidthValue { fn drop(&mut self) { az_layout_max_width_value_delete(&mut self.object); } }
+
+
+    /// `LayoutMinHeightValue` struct
+    pub struct LayoutMinHeightValue { pub(crate) object: AzLayoutMinHeightValue }
+
+    impl LayoutMinHeightValue {
+        pub fn auto() -> Self { Self { object: az_layout_min_height_value_auto() }  }
+        pub fn none() -> Self { Self { object: az_layout_min_height_value_none() }  }
+        pub fn inherit() -> Self { Self { object: az_layout_min_height_value_inherit() }  }
+        pub fn initial() -> Self { Self { object: az_layout_min_height_value_initial() }  }
+        pub fn exact(variant_data: crate::css::LayoutMinHeight) -> Self { Self { object: az_layout_min_height_value_exact(variant_data.leak()) }}
+       /// Prevents the destructor from running and returns the internal `AzLayoutMinHeightValue`
+       pub fn leak(self) -> AzLayoutMinHeightValue { az_layout_min_height_value_deep_copy(&self.object) }
+    }
+
+    impl Drop for LayoutMinHeightValue { fn drop(&mut self) { az_layout_min_height_value_delete(&mut self.object); } }
+
+
+    /// `LayoutMinWidthValue` struct
+    pub struct LayoutMinWidthValue { pub(crate) object: AzLayoutMinWidthValue }
+
+    impl LayoutMinWidthValue {
+        pub fn auto() -> Self { Self { object: az_layout_min_width_value_auto() }  }
+        pub fn none() -> Self { Self { object: az_layout_min_width_value_none() }  }
+        pub fn inherit() -> Self { Self { object: az_layout_min_width_value_inherit() }  }
+        pub fn initial() -> Self { Self { object: az_layout_min_width_value_initial() }  }
+        pub fn exact(variant_data: crate::css::LayoutMinWidth) -> Self { Self { object: az_layout_min_width_value_exact(variant_data.leak()) }}
+       /// Prevents the destructor from running and returns the internal `AzLayoutMinWidthValue`
+       pub fn leak(self) -> AzLayoutMinWidthValue { az_layout_min_width_value_deep_copy(&self.object) }
+    }
+
+    impl Drop for LayoutMinWidthValue { fn drop(&mut self) { az_layout_min_width_value_delete(&mut self.object); } }
+
+
+    /// `LayoutPaddingBottomValue` struct
+    pub struct LayoutPaddingBottomValue { pub(crate) object: AzLayoutPaddingBottomValue }
+
+    impl LayoutPaddingBottomValue {
+        pub fn auto() -> Self { Self { object: az_layout_padding_bottom_value_auto() }  }
+        pub fn none() -> Self { Self { object: az_layout_padding_bottom_value_none() }  }
+        pub fn inherit() -> Self { Self { object: az_layout_padding_bottom_value_inherit() }  }
+        pub fn initial() -> Self { Self { object: az_layout_padding_bottom_value_initial() }  }
+        pub fn exact(variant_data: crate::css::LayoutPaddingBottom) -> Self { Self { object: az_layout_padding_bottom_value_exact(variant_data.leak()) }}
+       /// Prevents the destructor from running and returns the internal `AzLayoutPaddingBottomValue`
+       pub fn leak(self) -> AzLayoutPaddingBottomValue { az_layout_padding_bottom_value_deep_copy(&self.object) }
+    }
+
+    impl Drop for LayoutPaddingBottomValue { fn drop(&mut self) { az_layout_padding_bottom_value_delete(&mut self.object); } }
+
+
+    /// `LayoutPaddingLeftValue` struct
+    pub struct LayoutPaddingLeftValue { pub(crate) object: AzLayoutPaddingLeftValue }
+
+    impl LayoutPaddingLeftValue {
+        pub fn auto() -> Self { Self { object: az_layout_padding_left_value_auto() }  }
+        pub fn none() -> Self { Self { object: az_layout_padding_left_value_none() }  }
+        pub fn inherit() -> Self { Self { object: az_layout_padding_left_value_inherit() }  }
+        pub fn initial() -> Self { Self { object: az_layout_padding_left_value_initial() }  }
+        pub fn exact(variant_data: crate::css::LayoutPaddingLeft) -> Self { Self { object: az_layout_padding_left_value_exact(variant_data.leak()) }}
+       /// Prevents the destructor from running and returns the internal `AzLayoutPaddingLeftValue`
+       pub fn leak(self) -> AzLayoutPaddingLeftValue { az_layout_padding_left_value_deep_copy(&self.object) }
+    }
+
+    impl Drop for LayoutPaddingLeftValue { fn drop(&mut self) { az_layout_padding_left_value_delete(&mut self.object); } }
+
+
+    /// `LayoutPaddingRightValue` struct
+    pub struct LayoutPaddingRightValue { pub(crate) object: AzLayoutPaddingRightValue }
+
+    impl LayoutPaddingRightValue {
+        pub fn auto() -> Self { Self { object: az_layout_padding_right_value_auto() }  }
+        pub fn none() -> Self { Self { object: az_layout_padding_right_value_none() }  }
+        pub fn inherit() -> Self { Self { object: az_layout_padding_right_value_inherit() }  }
+        pub fn initial() -> Self { Self { object: az_layout_padding_right_value_initial() }  }
+        pub fn exact(variant_data: crate::css::LayoutPaddingRight) -> Self { Self { object: az_layout_padding_right_value_exact(variant_data.leak()) }}
+       /// Prevents the destructor from running and returns the internal `AzLayoutPaddingRightValue`
+       pub fn leak(self) -> AzLayoutPaddingRightValue { az_layout_padding_right_value_deep_copy(&self.object) }
+    }
+
+    impl Drop for LayoutPaddingRightValue { fn drop(&mut self) { az_layout_padding_right_value_delete(&mut self.object); } }
+
+
+    /// `LayoutPaddingTopValue` struct
+    pub struct LayoutPaddingTopValue { pub(crate) object: AzLayoutPaddingTopValue }
+
+    impl LayoutPaddingTopValue {
+        pub fn auto() -> Self { Self { object: az_layout_padding_top_value_auto() }  }
+        pub fn none() -> Self { Self { object: az_layout_padding_top_value_none() }  }
+        pub fn inherit() -> Self { Self { object: az_layout_padding_top_value_inherit() }  }
+        pub fn initial() -> Self { Self { object: az_layout_padding_top_value_initial() }  }
+        pub fn exact(variant_data: crate::css::LayoutPaddingTop) -> Self { Self { object: az_layout_padding_top_value_exact(variant_data.leak()) }}
+       /// Prevents the destructor from running and returns the internal `AzLayoutPaddingTopValue`
+       pub fn leak(self) -> AzLayoutPaddingTopValue { az_layout_padding_top_value_deep_copy(&self.object) }
+    }
+
+    impl Drop for LayoutPaddingTopValue { fn drop(&mut self) { az_layout_padding_top_value_delete(&mut self.object); } }
+
+
+    /// `LayoutPositionValue` struct
+    pub struct LayoutPositionValue { pub(crate) object: AzLayoutPositionValue }
+
+    impl LayoutPositionValue {
+        pub fn auto() -> Self { Self { object: az_layout_position_value_auto() }  }
+        pub fn none() -> Self { Self { object: az_layout_position_value_none() }  }
+        pub fn inherit() -> Self { Self { object: az_layout_position_value_inherit() }  }
+        pub fn initial() -> Self { Self { object: az_layout_position_value_initial() }  }
+        pub fn exact(variant_data: crate::css::LayoutPosition) -> Self { Self { object: az_layout_position_value_exact(variant_data.leak()) }}
+       /// Prevents the destructor from running and returns the internal `AzLayoutPositionValue`
+       pub fn leak(self) -> AzLayoutPositionValue { az_layout_position_value_deep_copy(&self.object) }
+    }
+
+    impl Drop for LayoutPositionValue { fn drop(&mut self) { az_layout_position_value_delete(&mut self.object); } }
+
+
+    /// `LayoutRightValue` struct
+    pub struct LayoutRightValue { pub(crate) object: AzLayoutRightValue }
+
+    impl LayoutRightValue {
+        pub fn auto() -> Self { Self { object: az_layout_right_value_auto() }  }
+        pub fn none() -> Self { Self { object: az_layout_right_value_none() }  }
+        pub fn inherit() -> Self { Self { object: az_layout_right_value_inherit() }  }
+        pub fn initial() -> Self { Self { object: az_layout_right_value_initial() }  }
+        pub fn exact(variant_data: crate::css::LayoutRight) -> Self { Self { object: az_layout_right_value_exact(variant_data.leak()) }}
+       /// Prevents the destructor from running and returns the internal `AzLayoutRightValue`
+       pub fn leak(self) -> AzLayoutRightValue { az_layout_right_value_deep_copy(&self.object) }
+    }
+
+    impl Drop for LayoutRightValue { fn drop(&mut self) { az_layout_right_value_delete(&mut self.object); } }
+
+
+    /// `LayoutTopValue` struct
+    pub struct LayoutTopValue { pub(crate) object: AzLayoutTopValue }
+
+    impl LayoutTopValue {
+        pub fn auto() -> Self { Self { object: az_layout_top_value_auto() }  }
+        pub fn none() -> Self { Self { object: az_layout_top_value_none() }  }
+        pub fn inherit() -> Self { Self { object: az_layout_top_value_inherit() }  }
+        pub fn initial() -> Self { Self { object: az_layout_top_value_initial() }  }
+        pub fn exact(variant_data: crate::css::LayoutTop) -> Self { Self { object: az_layout_top_value_exact(variant_data.leak()) }}
+       /// Prevents the destructor from running and returns the internal `AzLayoutTopValue`
+       pub fn leak(self) -> AzLayoutTopValue { az_layout_top_value_deep_copy(&self.object) }
+    }
+
+    impl Drop for LayoutTopValue { fn drop(&mut self) { az_layout_top_value_delete(&mut self.object); } }
+
+
+    /// `LayoutWidthValue` struct
+    pub struct LayoutWidthValue { pub(crate) object: AzLayoutWidthValue }
+
+    impl LayoutWidthValue {
+        pub fn auto() -> Self { Self { object: az_layout_width_value_auto() }  }
+        pub fn none() -> Self { Self { object: az_layout_width_value_none() }  }
+        pub fn inherit() -> Self { Self { object: az_layout_width_value_inherit() }  }
+        pub fn initial() -> Self { Self { object: az_layout_width_value_initial() }  }
+        pub fn exact(variant_data: crate::css::LayoutWidth) -> Self { Self { object: az_layout_width_value_exact(variant_data.leak()) }}
+       /// Prevents the destructor from running and returns the internal `AzLayoutWidthValue`
+       pub fn leak(self) -> AzLayoutWidthValue { az_layout_width_value_deep_copy(&self.object) }
+    }
+
+    impl Drop for LayoutWidthValue { fn drop(&mut self) { az_layout_width_value_delete(&mut self.object); } }
+
+
+    /// `LayoutWrapValue` struct
+    pub struct LayoutWrapValue { pub(crate) object: AzLayoutWrapValue }
+
+    impl LayoutWrapValue {
+        pub fn auto() -> Self { Self { object: az_layout_wrap_value_auto() }  }
+        pub fn none() -> Self { Self { object: az_layout_wrap_value_none() }  }
+        pub fn inherit() -> Self { Self { object: az_layout_wrap_value_inherit() }  }
+        pub fn initial() -> Self { Self { object: az_layout_wrap_value_initial() }  }
+        pub fn exact(variant_data: crate::css::LayoutWrap) -> Self { Self { object: az_layout_wrap_value_exact(variant_data.leak()) }}
+       /// Prevents the destructor from running and returns the internal `AzLayoutWrapValue`
+       pub fn leak(self) -> AzLayoutWrapValue { az_layout_wrap_value_deep_copy(&self.object) }
+    }
+
+    impl Drop for LayoutWrapValue { fn drop(&mut self) { az_layout_wrap_value_delete(&mut self.object); } }
+
+
+    /// `OverflowValue` struct
+    pub struct OverflowValue { pub(crate) object: AzOverflowValue }
+
+    impl OverflowValue {
+        pub fn auto() -> Self { Self { object: az_overflow_value_auto() }  }
+        pub fn none() -> Self { Self { object: az_overflow_value_none() }  }
+        pub fn inherit() -> Self { Self { object: az_overflow_value_inherit() }  }
+        pub fn initial() -> Self { Self { object: az_overflow_value_initial() }  }
+        pub fn exact(variant_data: crate::css::Overflow) -> Self { Self { object: az_overflow_value_exact(variant_data.leak()) }}
+       /// Prevents the destructor from running and returns the internal `AzOverflowValue`
+       pub fn leak(self) -> AzOverflowValue { az_overflow_value_deep_copy(&self.object) }
+    }
+
+    impl Drop for OverflowValue { fn drop(&mut self) { az_overflow_value_delete(&mut self.object); } }
+
+
+    /// `StyleBackgroundContentValue` struct
+    pub struct StyleBackgroundContentValue { pub(crate) object: AzStyleBackgroundContentValue }
+
+    impl StyleBackgroundContentValue {
+        pub fn auto() -> Self { Self { object: az_style_background_content_value_auto() }  }
+        pub fn none() -> Self { Self { object: az_style_background_content_value_none() }  }
+        pub fn inherit() -> Self { Self { object: az_style_background_content_value_inherit() }  }
+        pub fn initial() -> Self { Self { object: az_style_background_content_value_initial() }  }
+        pub fn exact(variant_data: crate::css::StyleBackgroundContent) -> Self { Self { object: az_style_background_content_value_exact(variant_data.leak()) }}
+       /// Prevents the destructor from running and returns the internal `AzStyleBackgroundContentValue`
+       pub fn leak(self) -> AzStyleBackgroundContentValue { az_style_background_content_value_deep_copy(&self.object) }
+    }
+
+    impl Drop for StyleBackgroundContentValue { fn drop(&mut self) { az_style_background_content_value_delete(&mut self.object); } }
+
+
+    /// `StyleBackgroundPositionValue` struct
+    pub struct StyleBackgroundPositionValue { pub(crate) object: AzStyleBackgroundPositionValue }
+
+    impl StyleBackgroundPositionValue {
+        pub fn auto() -> Self { Self { object: az_style_background_position_value_auto() }  }
+        pub fn none() -> Self { Self { object: az_style_background_position_value_none() }  }
+        pub fn inherit() -> Self { Self { object: az_style_background_position_value_inherit() }  }
+        pub fn initial() -> Self { Self { object: az_style_background_position_value_initial() }  }
+        pub fn exact(variant_data: crate::css::StyleBackgroundPosition) -> Self { Self { object: az_style_background_position_value_exact(variant_data.leak()) }}
+       /// Prevents the destructor from running and returns the internal `AzStyleBackgroundPositionValue`
+       pub fn leak(self) -> AzStyleBackgroundPositionValue { az_style_background_position_value_deep_copy(&self.object) }
+    }
+
+    impl Drop for StyleBackgroundPositionValue { fn drop(&mut self) { az_style_background_position_value_delete(&mut self.object); } }
+
+
+    /// `StyleBackgroundRepeatValue` struct
+    pub struct StyleBackgroundRepeatValue { pub(crate) object: AzStyleBackgroundRepeatValue }
+
+    impl StyleBackgroundRepeatValue {
+        pub fn auto() -> Self { Self { object: az_style_background_repeat_value_auto() }  }
+        pub fn none() -> Self { Self { object: az_style_background_repeat_value_none() }  }
+        pub fn inherit() -> Self { Self { object: az_style_background_repeat_value_inherit() }  }
+        pub fn initial() -> Self { Self { object: az_style_background_repeat_value_initial() }  }
+        pub fn exact(variant_data: crate::css::StyleBackgroundRepeat) -> Self { Self { object: az_style_background_repeat_value_exact(variant_data.leak()) }}
+       /// Prevents the destructor from running and returns the internal `AzStyleBackgroundRepeatValue`
+       pub fn leak(self) -> AzStyleBackgroundRepeatValue { az_style_background_repeat_value_deep_copy(&self.object) }
+    }
+
+    impl Drop for StyleBackgroundRepeatValue { fn drop(&mut self) { az_style_background_repeat_value_delete(&mut self.object); } }
+
+
+    /// `StyleBackgroundSizeValue` struct
+    pub struct StyleBackgroundSizeValue { pub(crate) object: AzStyleBackgroundSizeValue }
+
+    impl StyleBackgroundSizeValue {
+        pub fn auto() -> Self { Self { object: az_style_background_size_value_auto() }  }
+        pub fn none() -> Self { Self { object: az_style_background_size_value_none() }  }
+        pub fn inherit() -> Self { Self { object: az_style_background_size_value_inherit() }  }
+        pub fn initial() -> Self { Self { object: az_style_background_size_value_initial() }  }
+        pub fn exact(variant_data: crate::css::StyleBackgroundSize) -> Self { Self { object: az_style_background_size_value_exact(variant_data.leak()) }}
+       /// Prevents the destructor from running and returns the internal `AzStyleBackgroundSizeValue`
+       pub fn leak(self) -> AzStyleBackgroundSizeValue { az_style_background_size_value_deep_copy(&self.object) }
+    }
+
+    impl Drop for StyleBackgroundSizeValue { fn drop(&mut self) { az_style_background_size_value_delete(&mut self.object); } }
+
+
+    /// `StyleBorderBottomColorValue` struct
+    pub struct StyleBorderBottomColorValue { pub(crate) object: AzStyleBorderBottomColorValue }
+
+    impl StyleBorderBottomColorValue {
+        pub fn auto() -> Self { Self { object: az_style_border_bottom_color_value_auto() }  }
+        pub fn none() -> Self { Self { object: az_style_border_bottom_color_value_none() }  }
+        pub fn inherit() -> Self { Self { object: az_style_border_bottom_color_value_inherit() }  }
+        pub fn initial() -> Self { Self { object: az_style_border_bottom_color_value_initial() }  }
+        pub fn exact(variant_data: crate::css::StyleBorderBottomColor) -> Self { Self { object: az_style_border_bottom_color_value_exact(variant_data.leak()) }}
+       /// Prevents the destructor from running and returns the internal `AzStyleBorderBottomColorValue`
+       pub fn leak(self) -> AzStyleBorderBottomColorValue { az_style_border_bottom_color_value_deep_copy(&self.object) }
+    }
+
+    impl Drop for StyleBorderBottomColorValue { fn drop(&mut self) { az_style_border_bottom_color_value_delete(&mut self.object); } }
+
+
+    /// `StyleBorderBottomLeftRadiusValue` struct
+    pub struct StyleBorderBottomLeftRadiusValue { pub(crate) object: AzStyleBorderBottomLeftRadiusValue }
+
+    impl StyleBorderBottomLeftRadiusValue {
+        pub fn auto() -> Self { Self { object: az_style_border_bottom_left_radius_value_auto() }  }
+        pub fn none() -> Self { Self { object: az_style_border_bottom_left_radius_value_none() }  }
+        pub fn inherit() -> Self { Self { object: az_style_border_bottom_left_radius_value_inherit() }  }
+        pub fn initial() -> Self { Self { object: az_style_border_bottom_left_radius_value_initial() }  }
+        pub fn exact(variant_data: crate::css::StyleBorderBottomLeftRadius) -> Self { Self { object: az_style_border_bottom_left_radius_value_exact(variant_data.leak()) }}
+       /// Prevents the destructor from running and returns the internal `AzStyleBorderBottomLeftRadiusValue`
+       pub fn leak(self) -> AzStyleBorderBottomLeftRadiusValue { az_style_border_bottom_left_radius_value_deep_copy(&self.object) }
+    }
+
+    impl Drop for StyleBorderBottomLeftRadiusValue { fn drop(&mut self) { az_style_border_bottom_left_radius_value_delete(&mut self.object); } }
+
+
+    /// `StyleBorderBottomRightRadiusValue` struct
+    pub struct StyleBorderBottomRightRadiusValue { pub(crate) object: AzStyleBorderBottomRightRadiusValue }
+
+    impl StyleBorderBottomRightRadiusValue {
+        pub fn auto() -> Self { Self { object: az_style_border_bottom_right_radius_value_auto() }  }
+        pub fn none() -> Self { Self { object: az_style_border_bottom_right_radius_value_none() }  }
+        pub fn inherit() -> Self { Self { object: az_style_border_bottom_right_radius_value_inherit() }  }
+        pub fn initial() -> Self { Self { object: az_style_border_bottom_right_radius_value_initial() }  }
+        pub fn exact(variant_data: crate::css::StyleBorderBottomRightRadius) -> Self { Self { object: az_style_border_bottom_right_radius_value_exact(variant_data.leak()) }}
+       /// Prevents the destructor from running and returns the internal `AzStyleBorderBottomRightRadiusValue`
+       pub fn leak(self) -> AzStyleBorderBottomRightRadiusValue { az_style_border_bottom_right_radius_value_deep_copy(&self.object) }
+    }
+
+    impl Drop for StyleBorderBottomRightRadiusValue { fn drop(&mut self) { az_style_border_bottom_right_radius_value_delete(&mut self.object); } }
+
+
+    /// `StyleBorderBottomStyleValue` struct
+    pub struct StyleBorderBottomStyleValue { pub(crate) object: AzStyleBorderBottomStyleValue }
+
+    impl StyleBorderBottomStyleValue {
+        pub fn auto() -> Self { Self { object: az_style_border_bottom_style_value_auto() }  }
+        pub fn none() -> Self { Self { object: az_style_border_bottom_style_value_none() }  }
+        pub fn inherit() -> Self { Self { object: az_style_border_bottom_style_value_inherit() }  }
+        pub fn initial() -> Self { Self { object: az_style_border_bottom_style_value_initial() }  }
+        pub fn exact(variant_data: crate::css::StyleBorderBottomStyle) -> Self { Self { object: az_style_border_bottom_style_value_exact(variant_data.leak()) }}
+       /// Prevents the destructor from running and returns the internal `AzStyleBorderBottomStyleValue`
+       pub fn leak(self) -> AzStyleBorderBottomStyleValue { az_style_border_bottom_style_value_deep_copy(&self.object) }
+    }
+
+    impl Drop for StyleBorderBottomStyleValue { fn drop(&mut self) { az_style_border_bottom_style_value_delete(&mut self.object); } }
+
+
+    /// `StyleBorderBottomWidthValue` struct
+    pub struct StyleBorderBottomWidthValue { pub(crate) object: AzStyleBorderBottomWidthValue }
+
+    impl StyleBorderBottomWidthValue {
+        pub fn auto() -> Self { Self { object: az_style_border_bottom_width_value_auto() }  }
+        pub fn none() -> Self { Self { object: az_style_border_bottom_width_value_none() }  }
+        pub fn inherit() -> Self { Self { object: az_style_border_bottom_width_value_inherit() }  }
+        pub fn initial() -> Self { Self { object: az_style_border_bottom_width_value_initial() }  }
+        pub fn exact(variant_data: crate::css::StyleBorderBottomWidth) -> Self { Self { object: az_style_border_bottom_width_value_exact(variant_data.leak()) }}
+       /// Prevents the destructor from running and returns the internal `AzStyleBorderBottomWidthValue`
+       pub fn leak(self) -> AzStyleBorderBottomWidthValue { az_style_border_bottom_width_value_deep_copy(&self.object) }
+    }
+
+    impl Drop for StyleBorderBottomWidthValue { fn drop(&mut self) { az_style_border_bottom_width_value_delete(&mut self.object); } }
+
+
+    /// `StyleBorderLeftColorValue` struct
+    pub struct StyleBorderLeftColorValue { pub(crate) object: AzStyleBorderLeftColorValue }
+
+    impl StyleBorderLeftColorValue {
+        pub fn auto() -> Self { Self { object: az_style_border_left_color_value_auto() }  }
+        pub fn none() -> Self { Self { object: az_style_border_left_color_value_none() }  }
+        pub fn inherit() -> Self { Self { object: az_style_border_left_color_value_inherit() }  }
+        pub fn initial() -> Self { Self { object: az_style_border_left_color_value_initial() }  }
+        pub fn exact(variant_data: crate::css::StyleBorderLeftColor) -> Self { Self { object: az_style_border_left_color_value_exact(variant_data.leak()) }}
+       /// Prevents the destructor from running and returns the internal `AzStyleBorderLeftColorValue`
+       pub fn leak(self) -> AzStyleBorderLeftColorValue { az_style_border_left_color_value_deep_copy(&self.object) }
+    }
+
+    impl Drop for StyleBorderLeftColorValue { fn drop(&mut self) { az_style_border_left_color_value_delete(&mut self.object); } }
+
+
+    /// `StyleBorderLeftStyleValue` struct
+    pub struct StyleBorderLeftStyleValue { pub(crate) object: AzStyleBorderLeftStyleValue }
+
+    impl StyleBorderLeftStyleValue {
+        pub fn auto() -> Self { Self { object: az_style_border_left_style_value_auto() }  }
+        pub fn none() -> Self { Self { object: az_style_border_left_style_value_none() }  }
+        pub fn inherit() -> Self { Self { object: az_style_border_left_style_value_inherit() }  }
+        pub fn initial() -> Self { Self { object: az_style_border_left_style_value_initial() }  }
+        pub fn exact(variant_data: crate::css::StyleBorderLeftStyle) -> Self { Self { object: az_style_border_left_style_value_exact(variant_data.leak()) }}
+       /// Prevents the destructor from running and returns the internal `AzStyleBorderLeftStyleValue`
+       pub fn leak(self) -> AzStyleBorderLeftStyleValue { az_style_border_left_style_value_deep_copy(&self.object) }
+    }
+
+    impl Drop for StyleBorderLeftStyleValue { fn drop(&mut self) { az_style_border_left_style_value_delete(&mut self.object); } }
+
+
+    /// `StyleBorderLeftWidthValue` struct
+    pub struct StyleBorderLeftWidthValue { pub(crate) object: AzStyleBorderLeftWidthValue }
+
+    impl StyleBorderLeftWidthValue {
+        pub fn auto() -> Self { Self { object: az_style_border_left_width_value_auto() }  }
+        pub fn none() -> Self { Self { object: az_style_border_left_width_value_none() }  }
+        pub fn inherit() -> Self { Self { object: az_style_border_left_width_value_inherit() }  }
+        pub fn initial() -> Self { Self { object: az_style_border_left_width_value_initial() }  }
+        pub fn exact(variant_data: crate::css::StyleBorderLeftWidth) -> Self { Self { object: az_style_border_left_width_value_exact(variant_data.leak()) }}
+       /// Prevents the destructor from running and returns the internal `AzStyleBorderLeftWidthValue`
+       pub fn leak(self) -> AzStyleBorderLeftWidthValue { az_style_border_left_width_value_deep_copy(&self.object) }
+    }
+
+    impl Drop for StyleBorderLeftWidthValue { fn drop(&mut self) { az_style_border_left_width_value_delete(&mut self.object); } }
+
+
+    /// `StyleBorderRightColorValue` struct
+    pub struct StyleBorderRightColorValue { pub(crate) object: AzStyleBorderRightColorValue }
+
+    impl StyleBorderRightColorValue {
+        pub fn auto() -> Self { Self { object: az_style_border_right_color_value_auto() }  }
+        pub fn none() -> Self { Self { object: az_style_border_right_color_value_none() }  }
+        pub fn inherit() -> Self { Self { object: az_style_border_right_color_value_inherit() }  }
+        pub fn initial() -> Self { Self { object: az_style_border_right_color_value_initial() }  }
+        pub fn exact(variant_data: crate::css::StyleBorderRightColor) -> Self { Self { object: az_style_border_right_color_value_exact(variant_data.leak()) }}
+       /// Prevents the destructor from running and returns the internal `AzStyleBorderRightColorValue`
+       pub fn leak(self) -> AzStyleBorderRightColorValue { az_style_border_right_color_value_deep_copy(&self.object) }
+    }
+
+    impl Drop for StyleBorderRightColorValue { fn drop(&mut self) { az_style_border_right_color_value_delete(&mut self.object); } }
+
+
+    /// `StyleBorderRightStyleValue` struct
+    pub struct StyleBorderRightStyleValue { pub(crate) object: AzStyleBorderRightStyleValue }
+
+    impl StyleBorderRightStyleValue {
+        pub fn auto() -> Self { Self { object: az_style_border_right_style_value_auto() }  }
+        pub fn none() -> Self { Self { object: az_style_border_right_style_value_none() }  }
+        pub fn inherit() -> Self { Self { object: az_style_border_right_style_value_inherit() }  }
+        pub fn initial() -> Self { Self { object: az_style_border_right_style_value_initial() }  }
+        pub fn exact(variant_data: crate::css::StyleBorderRightStyle) -> Self { Self { object: az_style_border_right_style_value_exact(variant_data.leak()) }}
+       /// Prevents the destructor from running and returns the internal `AzStyleBorderRightStyleValue`
+       pub fn leak(self) -> AzStyleBorderRightStyleValue { az_style_border_right_style_value_deep_copy(&self.object) }
+    }
+
+    impl Drop for StyleBorderRightStyleValue { fn drop(&mut self) { az_style_border_right_style_value_delete(&mut self.object); } }
+
+
+    /// `StyleBorderRightWidthValue` struct
+    pub struct StyleBorderRightWidthValue { pub(crate) object: AzStyleBorderRightWidthValue }
+
+    impl StyleBorderRightWidthValue {
+        pub fn auto() -> Self { Self { object: az_style_border_right_width_value_auto() }  }
+        pub fn none() -> Self { Self { object: az_style_border_right_width_value_none() }  }
+        pub fn inherit() -> Self { Self { object: az_style_border_right_width_value_inherit() }  }
+        pub fn initial() -> Self { Self { object: az_style_border_right_width_value_initial() }  }
+        pub fn exact(variant_data: crate::css::StyleBorderRightWidth) -> Self { Self { object: az_style_border_right_width_value_exact(variant_data.leak()) }}
+       /// Prevents the destructor from running and returns the internal `AzStyleBorderRightWidthValue`
+       pub fn leak(self) -> AzStyleBorderRightWidthValue { az_style_border_right_width_value_deep_copy(&self.object) }
+    }
+
+    impl Drop for StyleBorderRightWidthValue { fn drop(&mut self) { az_style_border_right_width_value_delete(&mut self.object); } }
+
+
+    /// `StyleBorderTopColorValue` struct
+    pub struct StyleBorderTopColorValue { pub(crate) object: AzStyleBorderTopColorValue }
+
+    impl StyleBorderTopColorValue {
+        pub fn auto() -> Self { Self { object: az_style_border_top_color_value_auto() }  }
+        pub fn none() -> Self { Self { object: az_style_border_top_color_value_none() }  }
+        pub fn inherit() -> Self { Self { object: az_style_border_top_color_value_inherit() }  }
+        pub fn initial() -> Self { Self { object: az_style_border_top_color_value_initial() }  }
+        pub fn exact(variant_data: crate::css::StyleBorderTopColor) -> Self { Self { object: az_style_border_top_color_value_exact(variant_data.leak()) }}
+       /// Prevents the destructor from running and returns the internal `AzStyleBorderTopColorValue`
+       pub fn leak(self) -> AzStyleBorderTopColorValue { az_style_border_top_color_value_deep_copy(&self.object) }
+    }
+
+    impl Drop for StyleBorderTopColorValue { fn drop(&mut self) { az_style_border_top_color_value_delete(&mut self.object); } }
+
+
+    /// `StyleBorderTopLeftRadiusValue` struct
+    pub struct StyleBorderTopLeftRadiusValue { pub(crate) object: AzStyleBorderTopLeftRadiusValue }
+
+    impl StyleBorderTopLeftRadiusValue {
+        pub fn auto() -> Self { Self { object: az_style_border_top_left_radius_value_auto() }  }
+        pub fn none() -> Self { Self { object: az_style_border_top_left_radius_value_none() }  }
+        pub fn inherit() -> Self { Self { object: az_style_border_top_left_radius_value_inherit() }  }
+        pub fn initial() -> Self { Self { object: az_style_border_top_left_radius_value_initial() }  }
+        pub fn exact(variant_data: crate::css::StyleBorderTopLeftRadius) -> Self { Self { object: az_style_border_top_left_radius_value_exact(variant_data.leak()) }}
+       /// Prevents the destructor from running and returns the internal `AzStyleBorderTopLeftRadiusValue`
+       pub fn leak(self) -> AzStyleBorderTopLeftRadiusValue { az_style_border_top_left_radius_value_deep_copy(&self.object) }
+    }
+
+    impl Drop for StyleBorderTopLeftRadiusValue { fn drop(&mut self) { az_style_border_top_left_radius_value_delete(&mut self.object); } }
+
+
+    /// `StyleBorderTopRightRadiusValue` struct
+    pub struct StyleBorderTopRightRadiusValue { pub(crate) object: AzStyleBorderTopRightRadiusValue }
+
+    impl StyleBorderTopRightRadiusValue {
+        pub fn auto() -> Self { Self { object: az_style_border_top_right_radius_value_auto() }  }
+        pub fn none() -> Self { Self { object: az_style_border_top_right_radius_value_none() }  }
+        pub fn inherit() -> Self { Self { object: az_style_border_top_right_radius_value_inherit() }  }
+        pub fn initial() -> Self { Self { object: az_style_border_top_right_radius_value_initial() }  }
+        pub fn exact(variant_data: crate::css::StyleBorderTopRightRadius) -> Self { Self { object: az_style_border_top_right_radius_value_exact(variant_data.leak()) }}
+       /// Prevents the destructor from running and returns the internal `AzStyleBorderTopRightRadiusValue`
+       pub fn leak(self) -> AzStyleBorderTopRightRadiusValue { az_style_border_top_right_radius_value_deep_copy(&self.object) }
+    }
+
+    impl Drop for StyleBorderTopRightRadiusValue { fn drop(&mut self) { az_style_border_top_right_radius_value_delete(&mut self.object); } }
+
+
+    /// `StyleBorderTopStyleValue` struct
+    pub struct StyleBorderTopStyleValue { pub(crate) object: AzStyleBorderTopStyleValue }
+
+    impl StyleBorderTopStyleValue {
+        pub fn auto() -> Self { Self { object: az_style_border_top_style_value_auto() }  }
+        pub fn none() -> Self { Self { object: az_style_border_top_style_value_none() }  }
+        pub fn inherit() -> Self { Self { object: az_style_border_top_style_value_inherit() }  }
+        pub fn initial() -> Self { Self { object: az_style_border_top_style_value_initial() }  }
+        pub fn exact(variant_data: crate::css::StyleBorderTopStyle) -> Self { Self { object: az_style_border_top_style_value_exact(variant_data.leak()) }}
+       /// Prevents the destructor from running and returns the internal `AzStyleBorderTopStyleValue`
+       pub fn leak(self) -> AzStyleBorderTopStyleValue { az_style_border_top_style_value_deep_copy(&self.object) }
+    }
+
+    impl Drop for StyleBorderTopStyleValue { fn drop(&mut self) { az_style_border_top_style_value_delete(&mut self.object); } }
+
+
+    /// `StyleBorderTopWidthValue` struct
+    pub struct StyleBorderTopWidthValue { pub(crate) object: AzStyleBorderTopWidthValue }
+
+    impl StyleBorderTopWidthValue {
+        pub fn auto() -> Self { Self { object: az_style_border_top_width_value_auto() }  }
+        pub fn none() -> Self { Self { object: az_style_border_top_width_value_none() }  }
+        pub fn inherit() -> Self { Self { object: az_style_border_top_width_value_inherit() }  }
+        pub fn initial() -> Self { Self { object: az_style_border_top_width_value_initial() }  }
+        pub fn exact(variant_data: crate::css::StyleBorderTopWidth) -> Self { Self { object: az_style_border_top_width_value_exact(variant_data.leak()) }}
+       /// Prevents the destructor from running and returns the internal `AzStyleBorderTopWidthValue`
+       pub fn leak(self) -> AzStyleBorderTopWidthValue { az_style_border_top_width_value_deep_copy(&self.object) }
+    }
+
+    impl Drop for StyleBorderTopWidthValue { fn drop(&mut self) { az_style_border_top_width_value_delete(&mut self.object); } }
+
+
+    /// `StyleCursorValue` struct
+    pub struct StyleCursorValue { pub(crate) object: AzStyleCursorValue }
+
+    impl StyleCursorValue {
+        pub fn auto() -> Self { Self { object: az_style_cursor_value_auto() }  }
+        pub fn none() -> Self { Self { object: az_style_cursor_value_none() }  }
+        pub fn inherit() -> Self { Self { object: az_style_cursor_value_inherit() }  }
+        pub fn initial() -> Self { Self { object: az_style_cursor_value_initial() }  }
+        pub fn exact(variant_data: crate::css::StyleCursor) -> Self { Self { object: az_style_cursor_value_exact(variant_data.leak()) }}
+       /// Prevents the destructor from running and returns the internal `AzStyleCursorValue`
+       pub fn leak(self) -> AzStyleCursorValue { az_style_cursor_value_deep_copy(&self.object) }
+    }
+
+    impl Drop for StyleCursorValue { fn drop(&mut self) { az_style_cursor_value_delete(&mut self.object); } }
+
+
+    /// `StyleFontFamilyValue` struct
+    pub struct StyleFontFamilyValue { pub(crate) object: AzStyleFontFamilyValue }
+
+    impl StyleFontFamilyValue {
+        pub fn auto() -> Self { Self { object: az_style_font_family_value_auto() }  }
+        pub fn none() -> Self { Self { object: az_style_font_family_value_none() }  }
+        pub fn inherit() -> Self { Self { object: az_style_font_family_value_inherit() }  }
+        pub fn initial() -> Self { Self { object: az_style_font_family_value_initial() }  }
+        pub fn exact(variant_data: crate::css::StyleFontFamily) -> Self { Self { object: az_style_font_family_value_exact(variant_data.leak()) }}
+       /// Prevents the destructor from running and returns the internal `AzStyleFontFamilyValue`
+       pub fn leak(self) -> AzStyleFontFamilyValue { az_style_font_family_value_deep_copy(&self.object) }
+    }
+
+    impl Drop for StyleFontFamilyValue { fn drop(&mut self) { az_style_font_family_value_delete(&mut self.object); } }
+
+
+    /// `StyleFontSizeValue` struct
+    pub struct StyleFontSizeValue { pub(crate) object: AzStyleFontSizeValue }
+
+    impl StyleFontSizeValue {
+        pub fn auto() -> Self { Self { object: az_style_font_size_value_auto() }  }
+        pub fn none() -> Self { Self { object: az_style_font_size_value_none() }  }
+        pub fn inherit() -> Self { Self { object: az_style_font_size_value_inherit() }  }
+        pub fn initial() -> Self { Self { object: az_style_font_size_value_initial() }  }
+        pub fn exact(variant_data: crate::css::StyleFontSize) -> Self { Self { object: az_style_font_size_value_exact(variant_data.leak()) }}
+       /// Prevents the destructor from running and returns the internal `AzStyleFontSizeValue`
+       pub fn leak(self) -> AzStyleFontSizeValue { az_style_font_size_value_deep_copy(&self.object) }
+    }
+
+    impl Drop for StyleFontSizeValue { fn drop(&mut self) { az_style_font_size_value_delete(&mut self.object); } }
+
+
+    /// `StyleLetterSpacingValue` struct
+    pub struct StyleLetterSpacingValue { pub(crate) object: AzStyleLetterSpacingValue }
+
+    impl StyleLetterSpacingValue {
+        pub fn auto() -> Self { Self { object: az_style_letter_spacing_value_auto() }  }
+        pub fn none() -> Self { Self { object: az_style_letter_spacing_value_none() }  }
+        pub fn inherit() -> Self { Self { object: az_style_letter_spacing_value_inherit() }  }
+        pub fn initial() -> Self { Self { object: az_style_letter_spacing_value_initial() }  }
+        pub fn exact(variant_data: crate::css::StyleLetterSpacing) -> Self { Self { object: az_style_letter_spacing_value_exact(variant_data.leak()) }}
+       /// Prevents the destructor from running and returns the internal `AzStyleLetterSpacingValue`
+       pub fn leak(self) -> AzStyleLetterSpacingValue { az_style_letter_spacing_value_deep_copy(&self.object) }
+    }
+
+    impl Drop for StyleLetterSpacingValue { fn drop(&mut self) { az_style_letter_spacing_value_delete(&mut self.object); } }
+
+
+    /// `StyleLineHeightValue` struct
+    pub struct StyleLineHeightValue { pub(crate) object: AzStyleLineHeightValue }
+
+    impl StyleLineHeightValue {
+        pub fn auto() -> Self { Self { object: az_style_line_height_value_auto() }  }
+        pub fn none() -> Self { Self { object: az_style_line_height_value_none() }  }
+        pub fn inherit() -> Self { Self { object: az_style_line_height_value_inherit() }  }
+        pub fn initial() -> Self { Self { object: az_style_line_height_value_initial() }  }
+        pub fn exact(variant_data: crate::css::StyleLineHeight) -> Self { Self { object: az_style_line_height_value_exact(variant_data.leak()) }}
+       /// Prevents the destructor from running and returns the internal `AzStyleLineHeightValue`
+       pub fn leak(self) -> AzStyleLineHeightValue { az_style_line_height_value_deep_copy(&self.object) }
+    }
+
+    impl Drop for StyleLineHeightValue { fn drop(&mut self) { az_style_line_height_value_delete(&mut self.object); } }
+
+
+    /// `StyleTabWidthValue` struct
+    pub struct StyleTabWidthValue { pub(crate) object: AzStyleTabWidthValue }
+
+    impl StyleTabWidthValue {
+        pub fn auto() -> Self { Self { object: az_style_tab_width_value_auto() }  }
+        pub fn none() -> Self { Self { object: az_style_tab_width_value_none() }  }
+        pub fn inherit() -> Self { Self { object: az_style_tab_width_value_inherit() }  }
+        pub fn initial() -> Self { Self { object: az_style_tab_width_value_initial() }  }
+        pub fn exact(variant_data: crate::css::StyleTabWidth) -> Self { Self { object: az_style_tab_width_value_exact(variant_data.leak()) }}
+       /// Prevents the destructor from running and returns the internal `AzStyleTabWidthValue`
+       pub fn leak(self) -> AzStyleTabWidthValue { az_style_tab_width_value_deep_copy(&self.object) }
+    }
+
+    impl Drop for StyleTabWidthValue { fn drop(&mut self) { az_style_tab_width_value_delete(&mut self.object); } }
+
+
+    /// `StyleTextAlignmentHorzValue` struct
+    pub struct StyleTextAlignmentHorzValue { pub(crate) object: AzStyleTextAlignmentHorzValue }
+
+    impl StyleTextAlignmentHorzValue {
+        pub fn auto() -> Self { Self { object: az_style_text_alignment_horz_value_auto() }  }
+        pub fn none() -> Self { Self { object: az_style_text_alignment_horz_value_none() }  }
+        pub fn inherit() -> Self { Self { object: az_style_text_alignment_horz_value_inherit() }  }
+        pub fn initial() -> Self { Self { object: az_style_text_alignment_horz_value_initial() }  }
+        pub fn exact(variant_data: crate::css::StyleTextAlignmentHorz) -> Self { Self { object: az_style_text_alignment_horz_value_exact(variant_data.leak()) }}
+       /// Prevents the destructor from running and returns the internal `AzStyleTextAlignmentHorzValue`
+       pub fn leak(self) -> AzStyleTextAlignmentHorzValue { az_style_text_alignment_horz_value_deep_copy(&self.object) }
+    }
+
+    impl Drop for StyleTextAlignmentHorzValue { fn drop(&mut self) { az_style_text_alignment_horz_value_delete(&mut self.object); } }
+
+
+    /// `StyleTextColorValue` struct
+    pub struct StyleTextColorValue { pub(crate) object: AzStyleTextColorValue }
+
+    impl StyleTextColorValue {
+        pub fn auto() -> Self { Self { object: az_style_text_color_value_auto() }  }
+        pub fn none() -> Self { Self { object: az_style_text_color_value_none() }  }
+        pub fn inherit() -> Self { Self { object: az_style_text_color_value_inherit() }  }
+        pub fn initial() -> Self { Self { object: az_style_text_color_value_initial() }  }
+        pub fn exact(variant_data: crate::css::StyleTextColor) -> Self { Self { object: az_style_text_color_value_exact(variant_data.leak()) }}
+       /// Prevents the destructor from running and returns the internal `AzStyleTextColorValue`
+       pub fn leak(self) -> AzStyleTextColorValue { az_style_text_color_value_deep_copy(&self.object) }
+    }
+
+    impl Drop for StyleTextColorValue { fn drop(&mut self) { az_style_text_color_value_delete(&mut self.object); } }
+
+
+    /// `StyleWordSpacingValue` struct
+    pub struct StyleWordSpacingValue { pub(crate) object: AzStyleWordSpacingValue }
+
+    impl StyleWordSpacingValue {
+        pub fn auto() -> Self { Self { object: az_style_word_spacing_value_auto() }  }
+        pub fn none() -> Self { Self { object: az_style_word_spacing_value_none() }  }
+        pub fn inherit() -> Self { Self { object: az_style_word_spacing_value_inherit() }  }
+        pub fn initial() -> Self { Self { object: az_style_word_spacing_value_initial() }  }
+        pub fn exact(variant_data: crate::css::StyleWordSpacing) -> Self { Self { object: az_style_word_spacing_value_exact(variant_data.leak()) }}
+       /// Prevents the destructor from running and returns the internal `AzStyleWordSpacingValue`
+       pub fn leak(self) -> AzStyleWordSpacingValue { az_style_word_spacing_value_deep_copy(&self.object) }
+    }
+
+    impl Drop for StyleWordSpacingValue { fn drop(&mut self) { az_style_word_spacing_value_delete(&mut self.object); } }
 
 
     /// Parsed CSS key-value pair
-    pub struct CssProperty { pub(crate) ptr: AzCssPropertyPtr }
+    pub struct CssProperty { pub(crate) object: AzCssProperty }
 
     impl CssProperty {
-        /// Parses a new CssProperty from a string
-        pub fn parse_from_string(key: CssPropertyKey, value: String) -> Self { Self { ptr: az_css_property_parse_from_string(key.leak(), value.leak()) } }
-       /// Prevents the destructor from running and returns the internal `AzCssPropertyPtr`
-       pub fn leak(self) -> AzCssPropertyPtr { let p = az_css_property_shallow_copy(&self.ptr); std::mem::forget(self); p }
+        pub fn text_color(variant_data: crate::css::StyleTextColorValue) -> Self { Self { object: az_css_property_text_color(variant_data.leak()) }}
+        pub fn font_size(variant_data: crate::css::StyleFontSizeValue) -> Self { Self { object: az_css_property_font_size(variant_data.leak()) }}
+        pub fn font_family(variant_data: crate::css::StyleFontFamilyValue) -> Self { Self { object: az_css_property_font_family(variant_data.leak()) }}
+        pub fn text_align(variant_data: crate::css::StyleTextAlignmentHorzValue) -> Self { Self { object: az_css_property_text_align(variant_data.leak()) }}
+        pub fn letter_spacing(variant_data: crate::css::StyleLetterSpacingValue) -> Self { Self { object: az_css_property_letter_spacing(variant_data.leak()) }}
+        pub fn line_height(variant_data: crate::css::StyleLineHeightValue) -> Self { Self { object: az_css_property_line_height(variant_data.leak()) }}
+        pub fn word_spacing(variant_data: crate::css::StyleWordSpacingValue) -> Self { Self { object: az_css_property_word_spacing(variant_data.leak()) }}
+        pub fn tab_width(variant_data: crate::css::StyleTabWidthValue) -> Self { Self { object: az_css_property_tab_width(variant_data.leak()) }}
+        pub fn cursor(variant_data: crate::css::StyleCursorValue) -> Self { Self { object: az_css_property_cursor(variant_data.leak()) }}
+        pub fn display(variant_data: crate::css::LayoutDisplayValue) -> Self { Self { object: az_css_property_display(variant_data.leak()) }}
+        pub fn float(variant_data: crate::css::LayoutFloatValue) -> Self { Self { object: az_css_property_float(variant_data.leak()) }}
+        pub fn box_sizing(variant_data: crate::css::LayoutBoxSizingValue) -> Self { Self { object: az_css_property_box_sizing(variant_data.leak()) }}
+        pub fn width(variant_data: crate::css::LayoutWidthValue) -> Self { Self { object: az_css_property_width(variant_data.leak()) }}
+        pub fn height(variant_data: crate::css::LayoutHeightValue) -> Self { Self { object: az_css_property_height(variant_data.leak()) }}
+        pub fn min_width(variant_data: crate::css::LayoutMinWidthValue) -> Self { Self { object: az_css_property_min_width(variant_data.leak()) }}
+        pub fn min_height(variant_data: crate::css::LayoutMinHeightValue) -> Self { Self { object: az_css_property_min_height(variant_data.leak()) }}
+        pub fn max_width(variant_data: crate::css::LayoutMaxWidthValue) -> Self { Self { object: az_css_property_max_width(variant_data.leak()) }}
+        pub fn max_height(variant_data: crate::css::LayoutMaxHeightValue) -> Self { Self { object: az_css_property_max_height(variant_data.leak()) }}
+        pub fn position(variant_data: crate::css::LayoutPositionValue) -> Self { Self { object: az_css_property_position(variant_data.leak()) }}
+        pub fn top(variant_data: crate::css::LayoutTopValue) -> Self { Self { object: az_css_property_top(variant_data.leak()) }}
+        pub fn right(variant_data: crate::css::LayoutRightValue) -> Self { Self { object: az_css_property_right(variant_data.leak()) }}
+        pub fn left(variant_data: crate::css::LayoutLeftValue) -> Self { Self { object: az_css_property_left(variant_data.leak()) }}
+        pub fn bottom(variant_data: crate::css::LayoutBottomValue) -> Self { Self { object: az_css_property_bottom(variant_data.leak()) }}
+        pub fn flex_wrap(variant_data: crate::css::LayoutWrapValue) -> Self { Self { object: az_css_property_flex_wrap(variant_data.leak()) }}
+        pub fn flex_direction(variant_data: crate::css::LayoutDirectionValue) -> Self { Self { object: az_css_property_flex_direction(variant_data.leak()) }}
+        pub fn flex_grow(variant_data: crate::css::LayoutFlexGrowValue) -> Self { Self { object: az_css_property_flex_grow(variant_data.leak()) }}
+        pub fn flex_shrink(variant_data: crate::css::LayoutFlexShrinkValue) -> Self { Self { object: az_css_property_flex_shrink(variant_data.leak()) }}
+        pub fn justify_content(variant_data: crate::css::LayoutJustifyContentValue) -> Self { Self { object: az_css_property_justify_content(variant_data.leak()) }}
+        pub fn align_items(variant_data: crate::css::LayoutAlignItemsValue) -> Self { Self { object: az_css_property_align_items(variant_data.leak()) }}
+        pub fn align_content(variant_data: crate::css::LayoutAlignContentValue) -> Self { Self { object: az_css_property_align_content(variant_data.leak()) }}
+        pub fn background_content(variant_data: crate::css::StyleBackgroundContentValue) -> Self { Self { object: az_css_property_background_content(variant_data.leak()) }}
+        pub fn background_position(variant_data: crate::css::StyleBackgroundPositionValue) -> Self { Self { object: az_css_property_background_position(variant_data.leak()) }}
+        pub fn background_size(variant_data: crate::css::StyleBackgroundSizeValue) -> Self { Self { object: az_css_property_background_size(variant_data.leak()) }}
+        pub fn background_repeat(variant_data: crate::css::StyleBackgroundRepeatValue) -> Self { Self { object: az_css_property_background_repeat(variant_data.leak()) }}
+        pub fn overflow_x(variant_data: crate::css::OverflowValue) -> Self { Self { object: az_css_property_overflow_x(variant_data.leak()) }}
+        pub fn overflow_y(variant_data: crate::css::OverflowValue) -> Self { Self { object: az_css_property_overflow_y(variant_data.leak()) }}
+        pub fn padding_top(variant_data: crate::css::LayoutPaddingTopValue) -> Self { Self { object: az_css_property_padding_top(variant_data.leak()) }}
+        pub fn padding_left(variant_data: crate::css::LayoutPaddingLeftValue) -> Self { Self { object: az_css_property_padding_left(variant_data.leak()) }}
+        pub fn padding_right(variant_data: crate::css::LayoutPaddingRightValue) -> Self { Self { object: az_css_property_padding_right(variant_data.leak()) }}
+        pub fn padding_bottom(variant_data: crate::css::LayoutPaddingBottomValue) -> Self { Self { object: az_css_property_padding_bottom(variant_data.leak()) }}
+        pub fn margin_top(variant_data: crate::css::LayoutMarginTopValue) -> Self { Self { object: az_css_property_margin_top(variant_data.leak()) }}
+        pub fn margin_left(variant_data: crate::css::LayoutMarginLeftValue) -> Self { Self { object: az_css_property_margin_left(variant_data.leak()) }}
+        pub fn margin_right(variant_data: crate::css::LayoutMarginRightValue) -> Self { Self { object: az_css_property_margin_right(variant_data.leak()) }}
+        pub fn margin_bottom(variant_data: crate::css::LayoutMarginBottomValue) -> Self { Self { object: az_css_property_margin_bottom(variant_data.leak()) }}
+        pub fn border_top_left_radius(variant_data: crate::css::StyleBorderTopLeftRadiusValue) -> Self { Self { object: az_css_property_border_top_left_radius(variant_data.leak()) }}
+        pub fn border_top_right_radius(variant_data: crate::css::StyleBorderTopRightRadiusValue) -> Self { Self { object: az_css_property_border_top_right_radius(variant_data.leak()) }}
+        pub fn border_bottom_left_radius(variant_data: crate::css::StyleBorderBottomLeftRadiusValue) -> Self { Self { object: az_css_property_border_bottom_left_radius(variant_data.leak()) }}
+        pub fn border_bottom_right_radius(variant_data: crate::css::StyleBorderBottomRightRadiusValue) -> Self { Self { object: az_css_property_border_bottom_right_radius(variant_data.leak()) }}
+        pub fn border_top_color(variant_data: crate::css::StyleBorderTopColorValue) -> Self { Self { object: az_css_property_border_top_color(variant_data.leak()) }}
+        pub fn border_right_color(variant_data: crate::css::StyleBorderRightColorValue) -> Self { Self { object: az_css_property_border_right_color(variant_data.leak()) }}
+        pub fn border_left_color(variant_data: crate::css::StyleBorderLeftColorValue) -> Self { Self { object: az_css_property_border_left_color(variant_data.leak()) }}
+        pub fn border_bottom_color(variant_data: crate::css::StyleBorderBottomColorValue) -> Self { Self { object: az_css_property_border_bottom_color(variant_data.leak()) }}
+        pub fn border_top_style(variant_data: crate::css::StyleBorderTopStyleValue) -> Self { Self { object: az_css_property_border_top_style(variant_data.leak()) }}
+        pub fn border_right_style(variant_data: crate::css::StyleBorderRightStyleValue) -> Self { Self { object: az_css_property_border_right_style(variant_data.leak()) }}
+        pub fn border_left_style(variant_data: crate::css::StyleBorderLeftStyleValue) -> Self { Self { object: az_css_property_border_left_style(variant_data.leak()) }}
+        pub fn border_bottom_style(variant_data: crate::css::StyleBorderBottomStyleValue) -> Self { Self { object: az_css_property_border_bottom_style(variant_data.leak()) }}
+        pub fn border_top_width(variant_data: crate::css::StyleBorderTopWidthValue) -> Self { Self { object: az_css_property_border_top_width(variant_data.leak()) }}
+        pub fn border_right_width(variant_data: crate::css::StyleBorderRightWidthValue) -> Self { Self { object: az_css_property_border_right_width(variant_data.leak()) }}
+        pub fn border_left_width(variant_data: crate::css::StyleBorderLeftWidthValue) -> Self { Self { object: az_css_property_border_left_width(variant_data.leak()) }}
+        pub fn border_bottom_width(variant_data: crate::css::StyleBorderBottomWidthValue) -> Self { Self { object: az_css_property_border_bottom_width(variant_data.leak()) }}
+        pub fn box_shadow_left(variant_data: crate::css::BoxShadowPreDisplayItemValue) -> Self { Self { object: az_css_property_box_shadow_left(variant_data.leak()) }}
+        pub fn box_shadow_right(variant_data: crate::css::BoxShadowPreDisplayItemValue) -> Self { Self { object: az_css_property_box_shadow_right(variant_data.leak()) }}
+        pub fn box_shadow_top(variant_data: crate::css::BoxShadowPreDisplayItemValue) -> Self { Self { object: az_css_property_box_shadow_top(variant_data.leak()) }}
+        pub fn box_shadow_bottom(variant_data: crate::css::BoxShadowPreDisplayItemValue) -> Self { Self { object: az_css_property_box_shadow_bottom(variant_data.leak()) }}
+       /// Prevents the destructor from running and returns the internal `AzCssProperty`
+       pub fn leak(self) -> AzCssProperty { az_css_property_deep_copy(&self.object) }
     }
 
-    impl Drop for CssProperty { fn drop(&mut self) { az_css_property_delete(&mut self.ptr); } }
+    impl Drop for CssProperty { fn drop(&mut self) { az_css_property_delete(&mut self.object); } }
 }
 
 /// `Dom` construction and configuration
@@ -460,7 +2110,7 @@ pub mod dom {
         /// Creates a new `img` node from a (cached) text referenced by a `ImageId`
         pub fn image(image_id: ImageId) -> Self { Self { ptr: az_dom_image(image_id.leak()) } }
         /// Creates a new node which will render an OpenGL texture after the layout step is finished. See the documentation for [GlCallback]() for more info about OpenGL rendering callbacks.
-        pub fn gl_callback(data: RefAny, callback: GlCallback) -> Self { Self { ptr: az_dom_gl_callback(data.leak(), callback.leak()) } }
+        pub fn gl_texture(data: RefAny, callback: GlCallback) -> Self { Self { ptr: az_dom_gl_texture(data.leak(), callback.leak()) } }
         /// Creates a new node with a callback that will return a `Dom` after being layouted. See the documentation for [IFrameCallback]() for more info about iframe callbacks.
         pub fn iframe_callback(data: RefAny, callback: GlCallback) -> Self { Self { ptr: az_dom_iframe_callback(data.leak(), callback.leak()) } }
         /// Adds a CSS ID (`#something`) to the DOM node
