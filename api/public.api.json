@@ -1278,7 +1278,7 @@
                         {"self": "refmut"},
                         {"is_draggable": "bool"}
                      ],
-                     "fn_body": "az_dom_downcast_refmut(dom, |d| { d.is_draggable(is_draggable); })"
+                     "fn_body": "az_dom_downcast_refmut(dom, |d| { d.set_draggable(is_draggable); })"
                   },
                   "is_draggable": {
                      "doc": "Same as [`Dom::set_is_draggable`](#method.set_is_draggable), but as a builder method",

@@ -119,7 +119,8 @@ pub type AzCallbackReturn = AzUpdateScreen;
 /// Callback for responding to window events
 pub type AzCallback = fn(AzCallbackInfoPtr) -> AzCallbackReturn;
 /// Pointer to rust-allocated `Box<CallbackInfo>` struct
-#[no_mangle] #[repr(C)] pub struct AzCallbackInfoPtr { ptr: *mut c_void }
+pub type AzCallbackInfoPtrType = azul_core::callbacks::CallbackInfoPtr;
+#[no_mangle] pub use AzCallbackInfoPtrType as AzCallbackInfoPtr;
 /// Destructor: Takes ownership of the `CallbackInfo` pointer and deletes it.
 #[no_mangle] #[inline] pub extern "C" fn az_callback_info_delete<'a>(ptr: &mut AzCallbackInfoPtr) { let _ = unsafe { Box::<CallbackInfo<'a>>::from_raw(ptr.ptr  as *mut CallbackInfo<'a>) }; }
 /// Copies the pointer: WARNING: After calling this function you'll have two pointers to the same Box<`CallbackInfo`>!.
@@ -132,18 +133,19 @@ pub type AzCallback = fn(AzCallbackInfoPtr) -> AzCallbackReturn;
 #[inline(always)] fn az_callback_info_downcast_ref<'a, P, F: FnOnce(&Box<CallbackInfo<'a>>) -> P>(ptr: &mut AzCallbackInfoPtr, func: F) -> P { let box_ptr: Box<CallbackInfo<'a>> = unsafe { Box::<CallbackInfo<'a>>::from_raw(ptr.ptr  as *mut CallbackInfo<'a>) }; let ret_val = func(&box_ptr); ptr.ptr = Box::into_raw(box_ptr) as *mut c_void;ret_val }
 
 /// Re-export of rust-allocated (stack based) `UpdateScreen` struct
-#[no_mangle] #[repr(C)] pub struct AzUpdateScreen { object: Option<()> }
+#[no_mangle] pub type AzUpdateScreen = Option<()>;
 
 /// Re-export of rust-allocated (stack based) `Redraw` struct
-#[no_mangle] pub static AzRedraw: AzUpdateScreen = AzUpdateScreen { object: azul_core::callbacks::Redraw };
+#[no_mangle] pub static AzRedraw: AzUpdateScreen = azul_core::callbacks::Redraw;
 
 /// Re-export of rust-allocated (stack based) `DontRedraw` struct
-#[no_mangle] pub static AzDontRedraw: AzUpdateScreen = AzUpdateScreen { object: azul_core::callbacks::DontRedraw };
+#[no_mangle] pub static AzDontRedraw: AzUpdateScreen = azul_core::callbacks::DontRedraw;
 
 /// Callback for rendering iframes (infinite data structures that have to know how large they are rendered)
 pub type AzIFrameCallback = fn(AzIFrameCallbackInfoPtr) -> AzIFrameCallbackReturnPtr;
 /// Pointer to rust-allocated `Box<IFrameCallbackInfo>` struct
-#[no_mangle] #[repr(C)] pub struct AzIFrameCallbackInfoPtr { ptr: *mut c_void }
+pub type AzIFrameCallbackInfoPtrType = azul_core::callbacks::IFrameCallbackInfoPtr;
+#[no_mangle] pub use AzIFrameCallbackInfoPtrType as AzIFrameCallbackInfoPtr;
 /// Destructor: Takes ownership of the `IFrameCallbackInfo` pointer and deletes it.
 #[no_mangle] #[inline] pub extern "C" fn az_i_frame_callback_info_delete<'a>(ptr: &mut AzIFrameCallbackInfoPtr) { let _ = unsafe { Box::<IFrameCallbackInfo<'a>>::from_raw(ptr.ptr  as *mut IFrameCallbackInfo<'a>) }; }
 /// Copies the pointer: WARNING: After calling this function you'll have two pointers to the same Box<`IFrameCallbackInfo`>!.
@@ -156,7 +158,8 @@ pub type AzIFrameCallback = fn(AzIFrameCallbackInfoPtr) -> AzIFrameCallbackRetur
 #[inline(always)] fn az_i_frame_callback_info_downcast_ref<'a, P, F: FnOnce(&Box<IFrameCallbackInfo<'a>>) -> P>(ptr: &mut AzIFrameCallbackInfoPtr, func: F) -> P { let box_ptr: Box<IFrameCallbackInfo<'a>> = unsafe { Box::<IFrameCallbackInfo<'a>>::from_raw(ptr.ptr  as *mut IFrameCallbackInfo<'a>) }; let ret_val = func(&box_ptr); ptr.ptr = Box::into_raw(box_ptr) as *mut c_void;ret_val }
 
 /// Pointer to rust-allocated `Box<IFrameCallbackReturn>` struct
-#[no_mangle] #[repr(C)] pub struct AzIFrameCallbackReturnPtr { ptr: *mut c_void }
+pub type AzIFrameCallbackReturnPtrType = azul_core::callbacks::IFrameCallbackReturnPtr;
+#[no_mangle] pub use AzIFrameCallbackReturnPtrType as AzIFrameCallbackReturnPtr;
 /// Destructor: Takes ownership of the `IFrameCallbackReturn` pointer and deletes it.
 #[no_mangle] #[inline] pub extern "C" fn az_i_frame_callback_return_delete(ptr: &mut AzIFrameCallbackReturnPtr) { let _ = unsafe { Box::<IFrameCallbackReturn>::from_raw(ptr.ptr  as *mut IFrameCallbackReturn) }; }
 /// Copies the pointer: WARNING: After calling this function you'll have two pointers to the same Box<`IFrameCallbackReturn`>!.
@@ -171,7 +174,8 @@ pub type AzIFrameCallback = fn(AzIFrameCallbackInfoPtr) -> AzIFrameCallbackRetur
 /// Callback for rendering to an OpenGL texture
 pub type AzGlCallback = fn(AzGlCallbackInfoPtr) -> AzGlCallbackReturnPtr;
 /// Pointer to rust-allocated `Box<GlCallbackInfo>` struct
-#[no_mangle] #[repr(C)] pub struct AzGlCallbackInfoPtr { ptr: *mut c_void }
+pub type AzGlCallbackInfoPtrType = azul_core::callbacks::GlCallbackInfoPtr;
+#[no_mangle] pub use AzGlCallbackInfoPtrType as AzGlCallbackInfoPtr;
 /// Destructor: Takes ownership of the `GlCallbackInfo` pointer and deletes it.
 #[no_mangle] #[inline] pub extern "C" fn az_gl_callback_info_delete<'a>(ptr: &mut AzGlCallbackInfoPtr) { let _ = unsafe { Box::<GlCallbackInfo<'a>>::from_raw(ptr.ptr  as *mut GlCallbackInfo<'a>) }; }
 /// Copies the pointer: WARNING: After calling this function you'll have two pointers to the same Box<`GlCallbackInfo`>!.
@@ -184,7 +188,8 @@ pub type AzGlCallback = fn(AzGlCallbackInfoPtr) -> AzGlCallbackReturnPtr;
 #[inline(always)] fn az_gl_callback_info_downcast_ref<'a, P, F: FnOnce(&Box<GlCallbackInfo<'a>>) -> P>(ptr: &mut AzGlCallbackInfoPtr, func: F) -> P { let box_ptr: Box<GlCallbackInfo<'a>> = unsafe { Box::<GlCallbackInfo<'a>>::from_raw(ptr.ptr  as *mut GlCallbackInfo<'a>) }; let ret_val = func(&box_ptr); ptr.ptr = Box::into_raw(box_ptr) as *mut c_void;ret_val }
 
 /// Pointer to rust-allocated `Box<GlCallbackReturn>` struct
-#[no_mangle] #[repr(C)] pub struct AzGlCallbackReturnPtr { ptr: *mut c_void }
+pub type AzGlCallbackReturnPtrType = azul_core::callbacks::GlCallbackReturnPtr;
+#[no_mangle] pub use AzGlCallbackReturnPtrType as AzGlCallbackReturnPtr;
 /// Destructor: Takes ownership of the `GlCallbackReturn` pointer and deletes it.
 #[no_mangle] #[inline] pub extern "C" fn az_gl_callback_return_delete(ptr: &mut AzGlCallbackReturnPtr) { let _ = unsafe { Box::<GlCallbackReturn>::from_raw(ptr.ptr  as *mut GlCallbackReturn) }; }
 /// Copies the pointer: WARNING: After calling this function you'll have two pointers to the same Box<`GlCallbackReturn`>!.
@@ -227,7 +232,8 @@ pub use ::azul_core::callbacks::RefAny as AzRefAny;
 }
 
 /// Pointer to rust-allocated `Box<LayoutInfo>` struct
-#[no_mangle] #[repr(C)] pub struct AzLayoutInfoPtr { ptr: *mut c_void }
+pub type AzLayoutInfoPtrType = azul_core::callbacks::LayoutInfoPtr;
+#[no_mangle] pub use AzLayoutInfoPtrType as AzLayoutInfoPtr;
 /// Destructor: Takes ownership of the `LayoutInfo` pointer and deletes it.
 #[no_mangle] #[inline] pub extern "C" fn az_layout_info_delete<'a>(ptr: &mut AzLayoutInfoPtr) { let _ = unsafe { Box::<LayoutInfo<'a>>::from_raw(ptr.ptr  as *mut LayoutInfo<'a>) }; }
 /// Copies the pointer: WARNING: After calling this function you'll have two pointers to the same Box<`LayoutInfo`>!.
@@ -1889,7 +1895,8 @@ pub use ::azul_core::callbacks::RefAny as AzRefAny;
 #[no_mangle] #[inline] pub extern "C" fn az_css_property_deep_copy(object: &AzCssProperty) -> AzCssProperty { AzCssProperty{ object: object.object.clone() } }
 
 /// Pointer to rust-allocated `Box<Dom>` struct
-#[no_mangle] #[repr(C)] pub struct AzDomPtr { ptr: *mut c_void }
+pub type AzDomPtrType = azul_core::dom::DomPtr;
+#[no_mangle] pub use AzDomPtrType as AzDomPtr;
 /// Creates a new `div` node
 #[no_mangle] #[inline] pub extern "C" fn az_dom_div() -> AzDomPtr { let object: Dom = Dom::div(); AzDomPtr { ptr: Box::into_raw(Box::new(object)) as *mut c_void } }
 /// Creates a new `body` node
@@ -1929,7 +1936,7 @@ pub use ::azul_core::callbacks::RefAny as AzRefAny;
 /// Same as [`Dom::add_css_override`](#method.add_css_override), but as a builder method
 #[no_mangle] #[inline] pub extern "C" fn az_dom_with_css_override(mut dom: AzDomPtr, id: AzString, prop: AzCssProperty) -> AzDomPtr { az_dom_add_css_override(&mut dom, id, prop); dom }
 /// Sets the `is_draggable` attribute of this DOM node (default: false)
-#[no_mangle] #[inline] pub extern "C" fn az_dom_set_is_draggable(dom: &mut AzDomPtr, is_draggable: bool) { az_dom_downcast_refmut(dom, |d| { d.is_draggable(is_draggable); }) }
+#[no_mangle] #[inline] pub extern "C" fn az_dom_set_is_draggable(dom: &mut AzDomPtr, is_draggable: bool) { az_dom_downcast_refmut(dom, |d| { d.set_draggable(is_draggable); }) }
 /// Same as [`Dom::set_is_draggable`](#method.set_is_draggable), but as a builder method
 #[no_mangle] #[inline] pub extern "C" fn az_dom_is_draggable(mut dom: AzDomPtr, is_draggable: bool) -> AzDomPtr { az_dom_set_is_draggable(&mut dom, is_draggable); dom }
 /// Sets the `tabindex` attribute of this DOM node (makes an element focusable - default: None)

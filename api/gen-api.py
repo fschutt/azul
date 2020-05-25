@@ -69,13 +69,6 @@ def write_file(string, path):
     text_file.write(string)
     text_file.close()
 
-def search_for_module_of_class(apiData, class_name):
-    search_result = search_for_class_by_rust_class_name(apiData, class_name)
-    if search_result is None:
-        return None
-    else:
-        return search_result[0]
-
 def is_primitive_arg(arg):
     arg = arg.replace("&", "")
     arg = arg.replace("&mut", "")
@@ -117,18 +110,15 @@ def get_all_imports(apiData, module, module_name):
         if arg in basic_types:
             continue
 
-        found_module = None
-
-        if found_module is None:
-            found_module = search_for_module_of_class(apiData, arg)
+        found_module = search_for_class_by_rust_class_name(apiData, arg)
 
         if found_module is None:
             raise Exception(arg + " not found!")
 
-        if found_module in imports:
-            imports[found_module].append(arg)
+        if found_module[0] in imports:
+            imports[found_module[0]].add(found_module[1])
         else:
-            imports[found_module] = [arg]
+            imports[found_module[0]] = {found_module[1]}
 
     if module_name in imports:
         del imports[module_name]
@@ -136,7 +126,7 @@ def get_all_imports(apiData, module, module_name):
     imports_str = ""
 
     for module_name in imports.keys():
-        classes = imports[module_name]
+        classes = list(imports[module_name])
         use_str = ""
         if len(classes) == 1:
             use_str = classes[0]
@@ -378,11 +368,10 @@ def generate_rust_dll(apiData):
             if "rust_class_name" in c.keys():
                 rust_class_name = c["rust_class_name"]
 
-            class_is_boxed_object = not("external" in c.keys() and ("struct_fields" in c.keys() or "enum_fields" in c.keys() or "typedef" in c.keys() or "const" in c.keys()))
-            if "is_boxed_object" in c.keys():
-                class_is_boxed_object = c["is_boxed_object"]
+            class_is_boxed_object = not(class_is_stack_allocated(c))
             class_is_const = "const" in c.keys()
             class_is_typedef = "typedef" in c.keys() and c["typedef"]
+            treat_external_as_ptr = "external" in c.keys() and "is_boxed_object" in c.keys() and c["is_boxed_object"]
 
             # Small structs and enums are stack-allocated in order to save on indirection
             # They don't have destructors, since they
@@ -404,10 +393,13 @@ def generate_rust_dll(apiData):
             if "external" in c.keys():
                 external_path = c["external"]
                 if class_is_const:
-                    code += "#[no_mangle] pub static " + class_ptr_name + ": " + prefix + c["const"] + " = " + prefix + c["const"] + " { object: " + external_path + " };\r\n"
+                    code += "#[no_mangle] pub static " + class_ptr_name + ": " + prefix + c["const"] + " = " + external_path + ";\r\n"
+                elif class_is_typedef:
+                    code += "#[no_mangle] pub type " + class_ptr_name + " = " + external_path + ";\r\n"
                 elif class_is_boxed_object:
-                    if class_is_typedef:
-                        code += "#[no_mangle] #[repr(C)] pub type " + class_ptr_name + " = " + external_path + ";\r\n"
+                    if treat_external_as_ptr:
+                        code += "pub type " + class_ptr_name + "Type = " + external_path + ";\r\n"
+                        code += "#[no_mangle] pub use " + class_ptr_name + "Type as " + class_ptr_name + ";\r\n"
                     else:
                         code += "#[no_mangle] #[repr(C)] pub struct " + class_ptr_name + " { ptr: *mut c_void }\r\n"
                 else:
@@ -631,11 +623,10 @@ def generate_rust_api(apiData):
         for class_name in module.keys():
             c = module[class_name]
 
-            class_is_boxed_object = not("external" in c.keys() and ("struct_fields" in c.keys() or "enum_fields" in c.keys() or "typedef" in c.keys() or "const" in c.keys()))
-            if "is_boxed_object" in c.keys():
-                class_is_boxed_object = c["is_boxed_object"]
+            class_is_boxed_object = not(class_is_stack_allocated(c))
             class_is_const = "const" in c.keys()
             class_is_typedef = "typedef" in c.keys() and c["typedef"]
+            treat_external_as_ptr = "external" in c.keys() and "is_boxed_object" in c.keys() and c["is_boxed_object"]
 
             c_is_stack_allocated = not(class_is_boxed_object)
             class_ptr_name = prefix + class_name + postfix

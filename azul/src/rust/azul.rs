@@ -2088,11 +2088,11 @@ pub mod css {
 pub mod dom {
 
     use azul_dll::*;
-    use crate::str::{String, String, String, String, String, String, String, String, String};
+    use crate::str::String;
     use crate::resources::{TextId, ImageId};
-    use crate::callbacks::{RefAny, GlCallback, RefAny, IFrameCallback, RefAny, Callback, RefAny, Callback};
-    use crate::vec::{Vec<String>, Vec<String>, Vec<String>, Vec<String>};
-    use crate::css::{CssProperty, CssProperty};
+    use crate::callbacks::{Callback, GlCallback, RefAny, IFrameCallback};
+    use crate::vec::StringVec;
+    use crate::css::CssProperty;
 
 
     /// `Dom` struct
