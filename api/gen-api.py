@@ -216,7 +216,8 @@ def class_is_small_struct(c):
     return "struct_fields" in c.keys()
 
 def class_is_stack_allocated(c):
-    return class_is_small_struct(c) or class_is_small_enum(c)
+    class_is_boxed_object = not("external" in c.keys() and ("struct_fields" in c.keys() or "enum_fields" in c.keys() or "typedef" in c.keys() or "const" in c.keys()))
+    return not(class_is_boxed_object)
 
 # Find the [module, classname] given a rust_class_name, returns None if not found
 # For example searching for "Vec<u8>" will return ["vec", "U8Vec"]
@@ -403,12 +404,14 @@ def generate_rust_dll(apiData):
             if "external" in c.keys():
                 external_path = c["external"]
                 if class_is_const:
-                    code += "#[no_mangle] pub static " + class_ptr_name + ": " + prefix + c["const"] + " = " + external_path + ";\r\n"
-                elif class_is_typedef:
-                    code += "#[no_mangle] pub type " + class_ptr_name + " = " + external_path + ";\r\n"
+                    code += "#[no_mangle] pub static " + class_ptr_name + ": " + prefix + c["const"] + " = " + prefix + c["const"] + " { object: " + external_path + " };\r\n"
+                elif class_is_boxed_object:
+                    if class_is_typedef:
+                        code += "#[no_mangle] #[repr(C)] pub type " + class_ptr_name + " = " + external_path + ";\r\n"
+                    else:
+                        code += "#[no_mangle] #[repr(C)] pub struct " + class_ptr_name + " { ptr: *mut c_void }\r\n"
                 else:
-                    code += "pub type " + class_ptr_name + "Type = " + external_path + ";\r\n"
-                    code += "#[no_mangle] pub use " + class_ptr_name + "Type as " + class_ptr_name + ";\r\n"
+                    code += "#[no_mangle] #[repr(C)] pub struct " + class_ptr_name + " { object: " + external_path + " }\r\n"
 
                 if c_is_stack_allocated:
                     if class_is_small_enum(c):
@@ -420,7 +423,7 @@ def generate_rust_dll(apiData):
                                 variant_type = enum["type"]
                                 if is_primitive_arg(variant_type):
                                     code += "#[inline] #[no_mangle] pub extern \"C\" fn " + fn_prefix + to_snake_case(class_name) + "_" + to_snake_case(enum_variant_name) + "(variant_data: " + variant_type + ") -> " + class_ptr_name + " { "
-                                    code += class_ptr_name + "::" + enum_variant_name + "(variant_data)"
+                                    code += class_ptr_name + " { object: " + c["external"] + "::" + enum_variant_name + "(variant_data) }"
                                     code += " }\r\n"
                                 else:
                                     found_class_path = search_for_class_by_rust_class_name(apiData, variant_type)
@@ -428,14 +431,14 @@ def generate_rust_dll(apiData):
                                     fn_body = "*" + fn_prefix + to_snake_case(found_class_path[1]) + "_downcast(variant_data)"
                                     if class_is_stack_allocated(get_class(apiData, found_class_path[0], found_class_path[1])):
                                         variant_data_class_name = prefix + found_class_path[1]
-                                        fn_body = "variant_data"
+                                        fn_body = "variant_data.object"
                                     code += "#[inline] #[no_mangle] pub extern \"C\" fn " + fn_prefix + to_snake_case(class_name) + "_" + to_snake_case(enum_variant_name) + "(variant_data: " + variant_data_class_name + ") -> " + class_ptr_name + " { "
-                                    code += class_ptr_name + "::" + enum_variant_name + "(" + fn_body + ")"
+                                    code += class_ptr_name + " { object: " + c["external"] + "::" + enum_variant_name + "(" + fn_body + ") }"
                                     code += " }\r\n"
                             else:
                                 # enum variant with no arguments
                                 code += "#[inline] #[no_mangle] pub extern \"C\" fn " + fn_prefix + to_snake_case(class_name) + "_" + to_snake_case(enum_variant_name) + "() -> " + class_ptr_name + " { "
-                                code += class_ptr_name + "::" + enum_variant_name
+                                code += class_ptr_name + " { object: " + c["external"] + "::" + enum_variant_name + " }"
                                 code += " }\r\n"
             else:
                 code += "#[no_mangle] #[repr(C)] pub struct " + class_ptr_name + " { ptr: *mut c_void }\r\n"
@@ -454,7 +457,7 @@ def generate_rust_dll(apiData):
                     else:
                         fn_body += "let object: " + rust_class_name + " = " + const["fn_body"] + "; " # note: security check, that the returned object is of the correct type
                         if c_is_stack_allocated:
-                            fn_body += "object"
+                            fn_body += class_ptr_name + " { object }"
                         else:
                             fn_body += class_ptr_name + " { ptr: Box::into_raw(Box::new(object)) as *mut c_void }"
 
@@ -496,7 +499,11 @@ def generate_rust_dll(apiData):
                         if is_primitive_arg(return_type):
                             returns = " -> " + return_type
                         else:
-                            returns = " -> " + prefix + return_type + postfix
+                            return_type_class = search_for_class_by_rust_class_name(apiData, return_type)
+                            if class_is_stack_allocated(get_class(apiData, return_type_class[0], return_type_class[1])):
+                                returns = " -> " + prefix + return_type # no postfix
+                            else:
+                                returns = " -> " + prefix + return_type + postfix
 
                     code += "#[no_mangle] #[inline] pub extern \"C\" fn " + fn_prefix + to_snake_case(class_name) + "_" + fn_name + "(" + fn_args + ")" + returns + " { "
                     code += fn_body
@@ -513,13 +520,13 @@ def generate_rust_dll(apiData):
                     # Generate the destructor for an enum
                     stack_delete_body = ""
                     if class_is_small_enum(c):
-                        stack_delete_body += "match object { "
+                        stack_delete_body += "match object.object { "
                         for enum_variant_name in c["enum_fields"].keys():
                             enum_variant = c["enum_fields"][enum_variant_name]
-                            if "type" in enum_variant.keys() and not(is_primitive_arg(enum_variant["type"])):
-                                stack_delete_body += class_ptr_name + "::" + enum_variant_name + "(_) => { }, "
+                            if "type" in enum_variant.keys():
+                                stack_delete_body += c["external"] + "::" + enum_variant_name + "(_) => { }, "
                             else:
-                                stack_delete_body += class_ptr_name + "::" + enum_variant_name + " => { }, "
+                                stack_delete_body += c["external"] + "::" + enum_variant_name + " => { }, "
                         stack_delete_body += "}\r\n"
 
                     # az_item_delete()
@@ -529,7 +536,7 @@ def generate_rust_dll(apiData):
                     # az_item_deep_copy()
                     code += "/// Copies the object\r\n"
                     code += "#[no_mangle] #[inline] pub extern \"C\" fn " + fn_prefix + to_snake_case(class_name) + "_deep_copy" + lifetime + "(object: &" + class_ptr_name + ") -> " + class_ptr_name + " { "
-                    code += "object.clone()"
+                    code += class_ptr_name + "{ object: object.object.clone() }"
                     code += " }\r\n"
             else:
                 # az_item_delete()
@@ -562,14 +569,15 @@ def generate_rust_dll(apiData):
                 code += " }\r\n"
 
                 # az_item_downcast_ref()
-                downcast_ref_generics = "<F: FnOnce(&Box<" + rust_class_name + ">)>"
+                downcast_ref_generics = "<P, F: FnOnce(&Box<" + rust_class_name + ">) -> P>"
                 if lifetime == "<'a>":
-                    downcast_ref_generics = "<'a, F: FnOnce(&Box<" + rust_class_name + ">)>"
+                    downcast_ref_generics = "<'a, P, F: FnOnce(&Box<" + rust_class_name + ">) -> P>"
                 code += "/// (private): Downcasts the `" + class_ptr_name + "` to a `&Box<" + rust_class_name + ">` and runs the `func` closure on it\r\n"
-                code += "#[inline(always)] fn " + fn_prefix + to_snake_case(class_name) + "_downcast_ref" + downcast_ref_generics + "(ptr: &mut " + class_ptr_name + ", func: F) { "
-                code += "let box_ptr: Box<" + rust_class_name + "> = unsafe { Box::<" + rust_class_name + ">::from_raw(ptr.ptr  as *mut " + rust_class_name + ") };"
-                code += "func(&box_ptr);"
+                code += "#[inline(always)] fn " + fn_prefix + to_snake_case(class_name) + "_downcast_ref" + downcast_ref_generics + "(ptr: &mut " + class_ptr_name + ", func: F) -> P { "
+                code += "let box_ptr: Box<" + rust_class_name + "> = unsafe { Box::<" + rust_class_name + ">::from_raw(ptr.ptr  as *mut " + rust_class_name + ") }; "
+                code += "let ret_val = func(&box_ptr); "
                 code += "ptr.ptr = Box::into_raw(box_ptr) as *mut c_void;"
+                code += "ret_val"
                 code += " }\r\n"
 
     return code

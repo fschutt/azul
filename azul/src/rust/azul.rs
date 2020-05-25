@@ -47,18 +47,18 @@ pub mod str {
     }
 
     /// `String` struct
-    pub struct String { pub(crate) ptr: AzStringPtr }
+    pub struct String { pub(crate) object: AzString }
 
     impl String {
         /// Creates + allocates a Rust `String` by **copying** it from another utf8-encoded string
-        pub fn from_utf8_unchecked(ptr: *const u8, len: usize) -> Self { Self { ptr: az_string_from_utf8_unchecked(ptr, len) } }
+        pub fn from_utf8_unchecked(ptr: *const u8, len: usize) -> Self { Self { object: az_string_from_utf8_unchecked(ptr, len) } }
         /// Creates + allocates a Rust `String` by **copying** it from another utf8-encoded string
-        pub fn from_utf8_lossy(ptr: *const u8, len: usize) -> Self { Self { ptr: az_string_from_utf8_lossy(ptr, len) } }
-       /// Prevents the destructor from running and returns the internal `AzStringPtr`
-       pub fn leak(self) -> AzStringPtr { let p = az_string_shallow_copy(&self.ptr); std::mem::forget(self); p }
+        pub fn from_utf8_lossy(ptr: *const u8, len: usize) -> Self { Self { object: az_string_from_utf8_lossy(ptr, len) } }
+       /// Prevents the destructor from running and returns the internal `AzString`
+       pub fn leak(self) -> AzString { az_string_deep_copy(&self.object) }
     }
 
-    impl Drop for String { fn drop(&mut self) { az_string_delete(&mut self.ptr); } }
+    impl Drop for String { fn drop(&mut self) { az_string_delete(&mut self.object); } }
 }
 
 /// Definition of azuls internal `U8Vec` type + functions for conversion from `std::Vec`
@@ -76,29 +76,29 @@ pub mod vec {
 
 
     /// Wrapper over a Rust-allocated `Vec<u8>`
-    pub struct U8Vec { pub(crate) ptr: AzU8VecPtr }
+    pub struct U8Vec { pub(crate) object: AzU8Vec }
 
     impl U8Vec {
         /// Creates + allocates a Rust `Vec<u8>` by **copying** it from a bytes source
-        pub fn copy_from(ptr: *const u8, len: usize) -> Self { Self { ptr: az_u8_vec_copy_from(ptr, len) } }
-       /// Prevents the destructor from running and returns the internal `AzU8VecPtr`
-       pub fn leak(self) -> AzU8VecPtr { let p = az_u8_vec_shallow_copy(&self.ptr); std::mem::forget(self); p }
+        pub fn copy_from(ptr: *const u8, len: usize) -> Self { Self { object: az_u8_vec_copy_from(ptr, len) } }
+       /// Prevents the destructor from running and returns the internal `AzU8Vec`
+       pub fn leak(self) -> AzU8Vec { az_u8_vec_deep_copy(&self.object) }
     }
 
-    impl Drop for U8Vec { fn drop(&mut self) { az_u8_vec_delete(&mut self.ptr); } }
+    impl Drop for U8Vec { fn drop(&mut self) { az_u8_vec_delete(&mut self.object); } }
 
 
     /// Wrapper over a Rust-allocated `Vec<String>`
-    pub struct StringVec { pub(crate) ptr: AzStringVecPtr }
+    pub struct StringVec { pub(crate) object: AzStringVec }
 
     impl StringVec {
         /// Creates + allocates a Rust `Vec<String>` by **copying** it from a bytes source
-        pub fn copy_from(ptr: *const String, len: usize) -> Self { Self { ptr: az_string_vec_copy_from(ptr.leak(), len) } }
-       /// Prevents the destructor from running and returns the internal `AzStringVecPtr`
-       pub fn leak(self) -> AzStringVecPtr { let p = az_string_vec_shallow_copy(&self.ptr); std::mem::forget(self); p }
+        pub fn copy_from(ptr: *const String, len: usize) -> Self { Self { object: az_string_vec_copy_from(ptr.leak(), len) } }
+       /// Prevents the destructor from running and returns the internal `AzStringVec`
+       pub fn leak(self) -> AzStringVec { az_string_vec_deep_copy(&self.object) }
     }
 
-    impl Drop for StringVec { fn drop(&mut self) { az_string_vec_delete(&mut self.ptr); } }
+    impl Drop for StringVec { fn drop(&mut self) { az_string_vec_delete(&mut self.object); } }
 }
 
 /// Definition of azuls internal `PathBuf` type + functions for conversion from `std::PathBuf`
@@ -2088,9 +2088,9 @@ pub mod css {
 pub mod dom {
 
     use azul_dll::*;
-    use crate::str::{String, String, String, String, String, String, String};
+    use crate::str::{String, String, String, String, String, String, String, String, String};
     use crate::resources::{TextId, ImageId};
-    use crate::callbacks::{RefAny, GlCallback, RefAny, GlCallback, RefAny, Callback, RefAny, Callback};
+    use crate::callbacks::{RefAny, GlCallback, RefAny, IFrameCallback, RefAny, Callback, RefAny, Callback};
     use crate::vec::{Vec<String>, Vec<String>, Vec<String>, Vec<String>};
     use crate::css::{CssProperty, CssProperty};
 
@@ -2112,7 +2112,7 @@ pub mod dom {
         /// Creates a new node which will render an OpenGL texture after the layout step is finished. See the documentation for [GlCallback]() for more info about OpenGL rendering callbacks.
         pub fn gl_texture(data: RefAny, callback: GlCallback) -> Self { Self { ptr: az_dom_gl_texture(data.leak(), callback.leak()) } }
         /// Creates a new node with a callback that will return a `Dom` after being layouted. See the documentation for [IFrameCallback]() for more info about iframe callbacks.
-        pub fn iframe_callback(data: RefAny, callback: GlCallback) -> Self { Self { ptr: az_dom_iframe_callback(data.leak(), callback.leak()) } }
+        pub fn iframe_callback(data: RefAny, callback: IFrameCallback) -> Self { Self { ptr: az_dom_iframe_callback(data.leak(), callback.leak()) } }
         /// Adds a CSS ID (`#something`) to the DOM node
         pub fn add_id(&mut self, id: String)  { az_dom_add_id(&mut self.ptr, id.leak()) }
         /// Same as [`Dom::add_id`](#method.add_id), but as a builder method
@@ -2132,27 +2132,29 @@ pub mod dom {
         /// Adds a [`Callback`](callbacks/type.Callback) that acts on the `data` the `event` happens
         pub fn add_callback(&mut self, event: EventFilter, data: RefAny, callback: Callback)  { az_dom_add_callback(&mut self.ptr, event.leak(), data.leak(), callback.leak()) }
         /// Same as [`Dom::add_callback`](#method.add_callback), but as a builder method
-        pub fn with_callback(&mut self, event: EventFilter, data: RefAny, callback: Callback)  { az_dom_with_callback(&mut self.ptr, event.leak(), data.leak(), callback.leak()) }
+        pub fn with_callback(self, event: EventFilter, data: RefAny, callback: Callback)  -> Dom { Dom { ptr: { az_dom_with_callback(self.leak(), event.leak(), data.leak(), callback.leak())} } }
         /// Overrides the CSS property of this DOM node with a value (for example `"width = 200px"`)
-        pub fn add_dynamic_css_override(&mut self, prop: CssProperty)  { az_dom_add_dynamic_css_override(&mut self.ptr, prop.leak()) }
-        /// Same as [`Dom::add_dynamic_css_override`](#method.add_dynamic_css_override), but as a builder method
-        pub fn with_dynamic_css_override(&mut self, prop: CssProperty)  { az_dom_with_dynamic_css_override(&mut self.ptr, prop.leak()) }
+        pub fn add_css_override(&mut self, id: String, prop: CssProperty)  { az_dom_add_css_override(&mut self.ptr, id.leak(), prop.leak()) }
+        /// Same as [`Dom::add_css_override`](#method.add_css_override), but as a builder method
+        pub fn with_css_override(self, id: String, prop: CssProperty)  -> Dom { Dom { ptr: { az_dom_with_css_override(self.leak(), id.leak(), prop.leak())} } }
         /// Sets the `is_draggable` attribute of this DOM node (default: false)
         pub fn set_is_draggable(&mut self, is_draggable: bool)  { az_dom_set_is_draggable(&mut self.ptr, is_draggable) }
         /// Same as [`Dom::set_is_draggable`](#method.set_is_draggable), but as a builder method
-        pub fn is_draggable(&mut self, is_draggable: bool)  { az_dom_is_draggable(&mut self.ptr, is_draggable) }
+        pub fn is_draggable(self, is_draggable: bool)  -> Dom { Dom { ptr: { az_dom_is_draggable(self.leak(), is_draggable)} } }
         /// Sets the `tabindex` attribute of this DOM node (makes an element focusable - default: None)
         pub fn set_tab_index(&mut self, tab_index: TabIndex)  { az_dom_set_tab_index(&mut self.ptr, tab_index.leak()) }
         /// Same as [`Dom::set_tab_index`](#method.set_tab_index), but as a builder method
-        pub fn with_tab_index(&mut self, tab_index: TabIndex)  { az_dom_with_tab_index(&mut self.ptr, tab_index.leak()) }
+        pub fn with_tab_index(self, tab_index: TabIndex)  -> Dom { Dom { ptr: { az_dom_with_tab_index(self.leak(), tab_index.leak())} } }
         /// Reparents another `Dom` to be the child node of this `Dom`
         pub fn add_child(&mut self, child: Dom)  { az_dom_add_child(&mut self.ptr, child.leak()) }
         /// Same as [`Dom::add_child`](#method.add_child), but as a builder method
         pub fn with_child(self, child: Dom)  -> Dom { Dom { ptr: { az_dom_with_child(self.leak(), child.leak())} } }
         /// Returns if the DOM node has a certain CSS ID
-        pub fn has_id(&self, id: String)  -> bool { bool { ptr: { az_dom_has_id(&self.ptr, id.leak())} } }
+        pub fn has_id(&mut self, id: String)  -> bool { bool { ptr: { az_dom_has_id(&mut self.ptr, id.leak())} } }
         /// Returns if the DOM node has a certain CSS class
-        pub fn has_class(&self, class: String)  -> bool { bool { ptr: { az_dom_has_class(&self.ptr, class.leak())} } }
+        pub fn has_class(&mut self, class: String)  -> bool { bool { ptr: { az_dom_has_class(&mut self.ptr, class.leak())} } }
+        /// Returns the HTML String for this DOM
+        pub fn get_html_string(&mut self)  -> String { String { ptr: { az_dom_get_html_string(&mut self.ptr)} } }
        /// Prevents the destructor from running and returns the internal `AzDomPtr`
        pub fn leak(self) -> AzDomPtr { let p = az_dom_shallow_copy(&self.ptr); std::mem::forget(self); p }
     }

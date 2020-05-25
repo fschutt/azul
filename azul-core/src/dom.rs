@@ -751,7 +751,7 @@ impl NodeData {
 
     /// Shorthand for `NodeData::new(NodeType::Text(text_id))`
     #[inline(always)]
-    pub const fn text_id(text_id: TextId) -> Self {
+    pub const fn text(text_id: TextId) -> Self {
         Self::new(NodeType::Text(text_id))
     }
 
@@ -1143,7 +1143,7 @@ impl Dom {
 
     /// Shorthand for `Dom::new(NodeType::Text(text_id))`
     #[inline(always)]
-    pub const fn text_id(text_id: TextId) -> Self {
+    pub const fn text(text_id: TextId) -> Self {
         Self::new(NodeType::Text(text_id))
     }
 
@@ -1224,10 +1224,16 @@ impl Dom {
         self.root.ids.push(id.into());
     }
 
+    #[inline(always)]
+    pub fn set_ids(&mut self, ids: Vec<String>) { self.root.set_ids(ids); }
+
     #[inline]
     pub fn add_class<S: Into<String>>(&mut self, class: S) {
         self.root.classes.push(class.into());
     }
+
+    #[inline(always)]
+    pub fn set_classes(&mut self, classes: Vec<String>) { self.root.set_classes(classes); }
 
     #[inline]
     pub fn add_callback<O: Into<EventFilter>>(&mut self, on: O, callback: CallbackType, ptr: RefAny) {
@@ -1268,6 +1274,15 @@ impl Dom {
         get_html_string_inner(self, &mut output, 0);
         output.trim().to_string()
     }
+
+    /// Checks whether this node is of the given node type (div, image, text)
+    #[inline]
+    pub fn is_node_type(&self, searched_type: NodeType) -> bool { self.root.is_node_type(searched_type) }
+    /// Checks whether this node has the searched ID attached
+    pub fn has_id(&self, id: &str) -> bool { self.root.has_id(id) }
+    /// Checks whether this node has the searched class attached
+    pub fn has_class(&self, class: &str) -> bool { self.root.has_class(class) }
+
 }
 
 fn get_html_string_inner(dom: &Dom, output: &mut String, indent: usize) {

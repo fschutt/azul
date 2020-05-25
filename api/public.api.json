@@ -4,6 +4,10 @@
          "doc": "Definition of azuls internal String type + functions for conversion from `std::String`",
          "classes": {
             "String": {
+               "external": "std::string::String",
+               "struct_fields": {
+                  "vec": { "type": "Vec<u8>" }
+               },
                "constructors": {
                   "from_utf8_unchecked": {
                      "doc": "Creates + allocates a Rust `String` by **copying** it from another utf8-encoded string",
@@ -31,6 +35,10 @@
             "U8Vec": {
                "doc": "Wrapper over a Rust-allocated `Vec<u8>`",
                "rust_class_name": "Vec<u8>",
+               "external": "std::vec::Vec::<u8>",
+               "struct_fields": {
+                  "vec": { "type": "Vec<u8>" }
+               },
                "constructors": {
                   "copy_from": {
                      "doc": "Creates + allocates a Rust `Vec<u8>` by **copying** it from a bytes source",
@@ -45,6 +53,10 @@
             "StringVec": {
                "doc": "Wrapper over a Rust-allocated `Vec<String>`",
                "rust_class_name": "Vec<String>",
+               "external": "std::vec::Vec::<String>",
+               "struct_fields": {
+                  "vec": { "type": "Vec<String>" }
+               },
                "constructors": {
                   "copy_from": {
                      "doc": "Creates + allocates a Rust `Vec<String>` by **copying** it from a bytes source",
@@ -52,7 +64,7 @@
                         {"ptr": "*const String"},
                         {"len": "usize"}
                      ],
-                     "fn_body": "unsafe { std::slice::from_raw_parts(ptr, len).to_vec() }"
+                     "fn_body": "unsafe { std::slice::from_raw_parts(ptr, len).into_iter().map(|s| s.object.clone()).collect() }"
                   }
                }
             }
@@ -69,7 +81,7 @@
                      "fn_args": [
                         {"path": "String"}
                      ],
-                     "fn_body": "std::path::PathBuf::from(*az_string_downcast(path))"
+                     "fn_body": "std::path::PathBuf::from(path.object)"
                   }
                }
             }
@@ -1118,21 +1130,21 @@
                      "fn_args": [
                         {"text": "String"}
                      ],
-                     "fn_body": "Dom::label(*az_string_downcast(text))"
+                     "fn_body": "Dom::label(text.object)"
                   },
                   "text": {
                      "doc": "Creates a new `p` node from a (cached) text referenced by a `TextId`",
                      "fn_args": [
                         {"text_id": "TextId"}
                      ],
-                     "fn_body": "Dom::text(*az_text_id_downcast(text_id))"
+                     "fn_body": "Dom::text(text_id.object)"
                   },
                   "image": {
                      "doc": "Creates a new `img` node from a (cached) text referenced by a `ImageId`",
                      "fn_args": [
                         {"image_id": "ImageId"}
                      ],
-                     "fn_body": "Dom::image(*az_image_id_downcast(image_id))"
+                     "fn_body": "Dom::image(image_id.object)"
                   },
                   "gl_texture": {
                      "doc": "Creates a new node which will render an OpenGL texture after the layout step is finished. See the documentation for [GlCallback]() for more info about OpenGL rendering callbacks.",
@@ -1140,15 +1152,15 @@
                         {"data": "RefAny"},
                         {"callback": "GlCallback"}
                      ],
-                     "fn_body": "Dom::gl_texture(azul_core::callbacks::GlCallback(callback))"
+                     "fn_body": "Dom::gl_texture(callback, data)"
                   },
                   "iframe_callback": {
                      "doc": "Creates a new node with a callback that will return a `Dom` after being layouted. See the documentation for [IFrameCallback]() for more info about iframe callbacks.",
                      "fn_args": [
                         {"data": "RefAny"},
-                        {"callback": "GlCallback"}
+                        {"callback": "IFrameCallback"}
                      ],
-                     "fn_body": "Dom::iframe(azul_core::callbacks::IFrameCallback(callback))"
+                     "fn_body": "Dom::iframe(callback, data)"
                   }
                },
                "functions": {
@@ -1158,7 +1170,7 @@
                         {"self": "refmut"},
                         {"id": "String"}
                      ],
-                     "fn_body": "az_dom_downcast_refmut(dom, |d| { d.add_id(*az_string_downcast(id)); })"
+                     "fn_body": "az_dom_downcast_refmut(dom, |d| { d.add_id(id.object); })"
                   },
                   "with_id": {
                      "doc": "Same as [`Dom::add_id`](#method.add_id), but as a builder method",
@@ -1175,7 +1187,7 @@
                         {"self": "refmut"},
                         {"ids": "Vec<String>"}
                      ],
-                     "fn_body": "az_dom_downcast_refmut(dom, |d| { d.set_ids(*az_vec_string_downcast(ids)); })"
+                     "fn_body": "az_dom_downcast_refmut(dom, |d| { d.set_ids(ids.object); })"
                   },
                   "with_ids": {
                      "doc": "Same as [`Dom::set_ids`](#method.set_ids), but as a builder method",
@@ -1192,7 +1204,7 @@
                         {"self": "refmut"},
                         {"class": "String"}
                      ],
-                     "fn_body": "az_dom_downcast_refmut(dom, |d| { d.add_class(*az_string_downcast(class)); })"
+                     "fn_body": "az_dom_downcast_refmut(dom, |d| { d.add_class(class.object); })"
                   },
                   "with_class": {
                      "doc": "Same as [`Dom::add_class`](#method.add_class), but as a builder method",
@@ -1209,7 +1221,7 @@
                         {"self": "refmut"},
                         {"classes": "Vec<String>"}
                      ],
-                     "fn_body": "az_dom_downcast_refmut(dom, |d| { d.set_classes(*az_vec_string_downcast(classes)); })"
+                     "fn_body": "az_dom_downcast_refmut(dom, |d| { (*d).set_classes(classes.object); })"
                   },
                   "with_classes": {
                      "doc": "Same as [`Dom::set_classes`](#method.set_classes), but as a builder method",
@@ -1218,7 +1230,7 @@
                         {"classes": "Vec<String>"}
                      ],
                      "returns": "Dom",
-                     "fn_body": "az_dom_set_classes(&mut dom, ids); dom"
+                     "fn_body": "az_dom_set_classes(&mut dom, classes); dom"
                   },
                   "add_callback": {
                      "doc": "Adds a [`Callback`](callbacks/type.Callback) that acts on the `data` the `event` happens",
@@ -1228,33 +1240,37 @@
                         {"data": "RefAny"},
                         {"callback": "Callback"}
                      ],
-                     "fn_body": "az_dom_downcast_refmut(dom, |d| { d.add_callback(event, data, Callback(callback)); })"
+                     "fn_body": "az_dom_downcast_refmut(dom, |d| { d.add_callback(event.object, callback, data); })"
                   },
                   "with_callback": {
                      "doc": "Same as [`Dom::add_callback`](#method.add_callback), but as a builder method",
                      "fn_args": [
-                        {"self": "refmut"},
+                        {"self": "mut value"},
                         {"event": "EventFilter"},
                         {"data": "RefAny"},
                         {"callback": "Callback"}
                      ],
+                     "returns": "Dom",
                      "fn_body": "az_dom_add_callback(&mut dom, event, data, callback); dom"
                   },
-                  "add_dynamic_css_override": {
+                  "add_css_override": {
                      "doc": "Overrides the CSS property of this DOM node with a value (for example `\"width = 200px\"`)",
                      "fn_args": [
                         {"self": "refmut"},
+                        {"id": "String"},
                         {"prop": "CssProperty"}
                      ],
-                     "fn_body": "az_dom_downcast_refmut(dom, |d| { d.add_dynamic_css_override(event, az_css_property_downcast(prop)); })"
+                     "fn_body": "az_dom_downcast_refmut(dom, |d| { d.add_css_override(id.object, prop.object); })"
                   },
-                  "with_dynamic_css_override": {
-                     "doc": "Same as [`Dom::add_dynamic_css_override`](#method.add_dynamic_css_override), but as a builder method",
+                  "with_css_override": {
+                     "doc": "Same as [`Dom::add_css_override`](#method.add_css_override), but as a builder method",
                      "fn_args": [
-                        {"self": "refmut"},
+                        {"self": "mut value"},
+                        {"id": "String"},
                         {"prop": "CssProperty"}
                      ],
-                     "fn_body": "az_dom_add_dynamic_css_override(&mut dom, prop); dom"
+                     "returns": "Dom",
+                     "fn_body": "az_dom_add_css_override(&mut dom, id, prop); dom"
                   },
                   "set_is_draggable": {
                      "doc": "Sets the `is_draggable` attribute of this DOM node (default: false)",
@@ -1262,14 +1278,15 @@
                         {"self": "refmut"},
                         {"is_draggable": "bool"}
                      ],
-                     "fn_body": "az_dom_downcast_refmut(dom, |d| { d.is_draggable(event, is_draggable); })"
+                     "fn_body": "az_dom_downcast_refmut(dom, |d| { d.is_draggable(is_draggable); })"
                   },
                   "is_draggable": {
                      "doc": "Same as [`Dom::set_is_draggable`](#method.set_is_draggable), but as a builder method",
                      "fn_args": [
-                        {"self": "refmut"},
+                        {"self": "mut value"},
                         {"is_draggable": "bool"}
                      ],
+                     "returns": "Dom",
                      "fn_body": "az_dom_set_is_draggable(&mut dom, is_draggable); dom"
                   },
                   "set_tab_index": {
@@ -1278,14 +1295,15 @@
                         {"self": "refmut"},
                         {"tab_index": "TabIndex"}
                      ],
-                     "fn_body": "az_dom_downcast_refmut(dom, |d| { d.set_tab_index(event, tab_index); })"
+                     "fn_body": "az_dom_downcast_refmut(dom, |d| { d.set_tab_index(tab_index.object); })"
                   },
                   "with_tab_index": {
                      "doc": "Same as [`Dom::set_tab_index`](#method.set_tab_index), but as a builder method",
                      "fn_args": [
-                        {"self": "refmut"},
+                        {"self": "mut value"},
                         {"tab_index": "TabIndex"}
                      ],
+                     "returns": "Dom",
                      "fn_body": "az_dom_set_tab_index(&mut dom, tab_index); dom"
                   },
                   "add_child": {
@@ -1308,20 +1326,28 @@
                   "has_id": {
                      "doc": "Returns if the DOM node has a certain CSS ID",
                      "fn_args": [
-                        {"self": "ref"},
+                        {"self": "refmut"},
                         {"id": "String"}
                      ],
                      "returns": "bool",
-                     "fn_body": "az_dom_downcast_refmut(dom, |d| { d.has_id(&*az_string_downcast(id)) })"
+                     "fn_body": "az_dom_downcast_ref(dom, |d| { d.has_id(&id.object) })"
                   },
                   "has_class": {
                      "doc": "Returns if the DOM node has a certain CSS class",
                      "fn_args": [
-                        {"self": "ref"},
+                        {"self": "refmut"},
                         {"class": "String"}
                      ],
                      "returns": "bool",
-                     "fn_body": "az_dom_downcast_refmut(dom, |d| { d.has_class(&*az_string_downcast(class)) })"
+                     "fn_body": "az_dom_downcast_ref(dom, |d| { d.has_class(&class.object) })"
+                  },
+                  "get_html_string": {
+                     "doc": "Returns the HTML String for this DOM",
+                     "fn_args": [
+                        {"self": "refmut"}
+                     ],
+                     "returns": "String",
+                     "fn_body": "AzString { object: az_dom_downcast_ref(dom, |d| { d.get_html_string() }) }"
                   }
                }
             },
@@ -1490,7 +1516,7 @@
                         {"height": "usize"},
                         {"data_format": "RawImageFormat"}
                      ],
-                     "fn_body": "RawImage { pixels: *az_u8_vec_downcast(decoded_pixels), image_dimensions: (width, height), data_format }"
+                     "fn_body": "RawImage { pixels: decoded_pixels.object, image_dimensions: (width, height), data_format: data_format.object }"
                   }
                }
             },

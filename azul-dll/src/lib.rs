@@ -37,57 +37,39 @@ use azul_css::*;
 use azul_desktop::app::{App, AppConfig};
 #[cfg(target_arch = "wasm32")]
 use azul_web::app::{App, AppConfig};
-/// Pointer to rust-allocated `Box<String>` struct
-#[no_mangle] #[repr(C)] pub struct AzStringPtr { ptr: *mut c_void }
+/// Re-export of rust-allocated (stack based) `String` struct
+#[no_mangle] #[repr(C)] pub struct AzString { object: std::string::String }
 /// Creates + allocates a Rust `String` by **copying** it from another utf8-encoded string
-#[no_mangle] #[inline] pub extern "C" fn az_string_from_utf8_unchecked(ptr: *const u8, len: usize) -> AzStringPtr { let object: String = unsafe { std::str::from_utf8_unchecked(std::slice::from_raw_parts(ptr, len)).to_string() }; AzStringPtr { ptr: Box::into_raw(Box::new(object)) as *mut c_void } }
+#[no_mangle] #[inline] pub extern "C" fn az_string_from_utf8_unchecked(ptr: *const u8, len: usize) -> AzString { let object: String = unsafe { std::str::from_utf8_unchecked(std::slice::from_raw_parts(ptr, len)).to_string() }; AzString { object } }
 /// Creates + allocates a Rust `String` by **copying** it from another utf8-encoded string
-#[no_mangle] #[inline] pub extern "C" fn az_string_from_utf8_lossy(ptr: *const u8, len: usize) -> AzStringPtr { let object: String = unsafe { std::string::String::from_utf8_lossy(std::slice::from_raw_parts(ptr, len)).to_string() }; AzStringPtr { ptr: Box::into_raw(Box::new(object)) as *mut c_void } }
+#[no_mangle] #[inline] pub extern "C" fn az_string_from_utf8_lossy(ptr: *const u8, len: usize) -> AzString { let object: String = unsafe { std::string::String::from_utf8_lossy(std::slice::from_raw_parts(ptr, len)).to_string() }; AzString { object } }
 /// Destructor: Takes ownership of the `String` pointer and deletes it.
-#[no_mangle] #[inline] pub extern "C" fn az_string_delete(ptr: &mut AzStringPtr) { let _ = unsafe { Box::<String>::from_raw(ptr.ptr  as *mut String) }; }
-/// Copies the pointer: WARNING: After calling this function you'll have two pointers to the same Box<`String`>!.
-#[no_mangle] #[inline] pub extern "C" fn az_string_shallow_copy(ptr: &AzStringPtr) -> AzStringPtr { AzStringPtr { ptr: ptr.ptr } }
-/// (private): Downcasts the `AzStringPtr` to a `Box<String>`. Note that this takes ownership of the pointer.
-#[inline(always)] fn az_string_downcast(ptr: AzStringPtr) -> Box<String> { unsafe { Box::<String>::from_raw(ptr.ptr  as *mut String) } }
-/// (private): Downcasts the `AzStringPtr` to a `&mut Box<String>` and runs the `func` closure on it
-#[inline(always)] fn az_string_downcast_refmut<F: FnOnce(&mut Box<String>)>(ptr: &mut AzStringPtr, func: F) { let mut box_ptr: Box<String> = unsafe { Box::<String>::from_raw(ptr.ptr  as *mut String) };func(&mut box_ptr);ptr.ptr = Box::into_raw(box_ptr) as *mut c_void; }
-/// (private): Downcasts the `AzStringPtr` to a `&Box<String>` and runs the `func` closure on it
-#[inline(always)] fn az_string_downcast_ref<F: FnOnce(&Box<String>)>(ptr: &mut AzStringPtr, func: F) { let box_ptr: Box<String> = unsafe { Box::<String>::from_raw(ptr.ptr  as *mut String) };func(&box_ptr);ptr.ptr = Box::into_raw(box_ptr) as *mut c_void; }
+#[no_mangle] #[inline] #[allow(unused_variables)] pub extern "C" fn az_string_delete(object: &mut AzString) { }
+/// Copies the object
+#[no_mangle] #[inline] pub extern "C" fn az_string_deep_copy(object: &AzString) -> AzString { AzString{ object: object.object.clone() } }
 
 /// Wrapper over a Rust-allocated `Vec<u8>`
-#[no_mangle] #[repr(C)] pub struct AzU8VecPtr { ptr: *mut c_void }
+#[no_mangle] #[repr(C)] pub struct AzU8Vec { object: std::vec::Vec::<u8> }
 /// Creates + allocates a Rust `Vec<u8>` by **copying** it from a bytes source
-#[no_mangle] #[inline] pub extern "C" fn az_u8_vec_copy_from(ptr: *const u8, len: usize) -> AzU8VecPtr { let object: Vec<u8> = unsafe { std::slice::from_raw_parts(ptr, len).to_vec() }; AzU8VecPtr { ptr: Box::into_raw(Box::new(object)) as *mut c_void } }
+#[no_mangle] #[inline] pub extern "C" fn az_u8_vec_copy_from(ptr: *const u8, len: usize) -> AzU8Vec { let object: Vec<u8> = unsafe { std::slice::from_raw_parts(ptr, len).to_vec() }; AzU8Vec { object } }
 /// Destructor: Takes ownership of the `U8Vec` pointer and deletes it.
-#[no_mangle] #[inline] pub extern "C" fn az_u8_vec_delete(ptr: &mut AzU8VecPtr) { let _ = unsafe { Box::<Vec<u8>>::from_raw(ptr.ptr  as *mut Vec<u8>) }; }
-/// Copies the pointer: WARNING: After calling this function you'll have two pointers to the same Box<`U8Vec`>!.
-#[no_mangle] #[inline] pub extern "C" fn az_u8_vec_shallow_copy(ptr: &AzU8VecPtr) -> AzU8VecPtr { AzU8VecPtr { ptr: ptr.ptr } }
-/// (private): Downcasts the `AzU8VecPtr` to a `Box<Vec<u8>>`. Note that this takes ownership of the pointer.
-#[inline(always)] fn az_u8_vec_downcast(ptr: AzU8VecPtr) -> Box<Vec<u8>> { unsafe { Box::<Vec<u8>>::from_raw(ptr.ptr  as *mut Vec<u8>) } }
-/// (private): Downcasts the `AzU8VecPtr` to a `&mut Box<Vec<u8>>` and runs the `func` closure on it
-#[inline(always)] fn az_u8_vec_downcast_refmut<F: FnOnce(&mut Box<Vec<u8>>)>(ptr: &mut AzU8VecPtr, func: F) { let mut box_ptr: Box<Vec<u8>> = unsafe { Box::<Vec<u8>>::from_raw(ptr.ptr  as *mut Vec<u8>) };func(&mut box_ptr);ptr.ptr = Box::into_raw(box_ptr) as *mut c_void; }
-/// (private): Downcasts the `AzU8VecPtr` to a `&Box<Vec<u8>>` and runs the `func` closure on it
-#[inline(always)] fn az_u8_vec_downcast_ref<F: FnOnce(&Box<Vec<u8>>)>(ptr: &mut AzU8VecPtr, func: F) { let box_ptr: Box<Vec<u8>> = unsafe { Box::<Vec<u8>>::from_raw(ptr.ptr  as *mut Vec<u8>) };func(&box_ptr);ptr.ptr = Box::into_raw(box_ptr) as *mut c_void; }
+#[no_mangle] #[inline] #[allow(unused_variables)] pub extern "C" fn az_u8_vec_delete(object: &mut AzU8Vec) { }
+/// Copies the object
+#[no_mangle] #[inline] pub extern "C" fn az_u8_vec_deep_copy(object: &AzU8Vec) -> AzU8Vec { AzU8Vec{ object: object.object.clone() } }
 
 /// Wrapper over a Rust-allocated `Vec<String>`
-#[no_mangle] #[repr(C)] pub struct AzStringVecPtr { ptr: *mut c_void }
+#[no_mangle] #[repr(C)] pub struct AzStringVec { object: std::vec::Vec::<String> }
 /// Creates + allocates a Rust `Vec<String>` by **copying** it from a bytes source
-#[no_mangle] #[inline] pub extern "C" fn az_string_vec_copy_from(ptr: *const AzStringPtr, len: usize) -> AzStringVecPtr { let object: Vec<String> = unsafe { std::slice::from_raw_parts(ptr, len).to_vec() }; AzStringVecPtr { ptr: Box::into_raw(Box::new(object)) as *mut c_void } }
+#[no_mangle] #[inline] pub extern "C" fn az_string_vec_copy_from(ptr: *const AzString, len: usize) -> AzStringVec { let object: Vec<String> = unsafe { std::slice::from_raw_parts(ptr, len).into_iter().map(|s| s.object.clone()).collect() }; AzStringVec { object } }
 /// Destructor: Takes ownership of the `StringVec` pointer and deletes it.
-#[no_mangle] #[inline] pub extern "C" fn az_string_vec_delete(ptr: &mut AzStringVecPtr) { let _ = unsafe { Box::<Vec<String>>::from_raw(ptr.ptr  as *mut Vec<String>) }; }
-/// Copies the pointer: WARNING: After calling this function you'll have two pointers to the same Box<`StringVec`>!.
-#[no_mangle] #[inline] pub extern "C" fn az_string_vec_shallow_copy(ptr: &AzStringVecPtr) -> AzStringVecPtr { AzStringVecPtr { ptr: ptr.ptr } }
-/// (private): Downcasts the `AzStringVecPtr` to a `Box<Vec<String>>`. Note that this takes ownership of the pointer.
-#[inline(always)] fn az_string_vec_downcast(ptr: AzStringVecPtr) -> Box<Vec<String>> { unsafe { Box::<Vec<String>>::from_raw(ptr.ptr  as *mut Vec<String>) } }
-/// (private): Downcasts the `AzStringVecPtr` to a `&mut Box<Vec<String>>` and runs the `func` closure on it
-#[inline(always)] fn az_string_vec_downcast_refmut<F: FnOnce(&mut Box<Vec<String>>)>(ptr: &mut AzStringVecPtr, func: F) { let mut box_ptr: Box<Vec<String>> = unsafe { Box::<Vec<String>>::from_raw(ptr.ptr  as *mut Vec<String>) };func(&mut box_ptr);ptr.ptr = Box::into_raw(box_ptr) as *mut c_void; }
-/// (private): Downcasts the `AzStringVecPtr` to a `&Box<Vec<String>>` and runs the `func` closure on it
-#[inline(always)] fn az_string_vec_downcast_ref<F: FnOnce(&Box<Vec<String>>)>(ptr: &mut AzStringVecPtr, func: F) { let box_ptr: Box<Vec<String>> = unsafe { Box::<Vec<String>>::from_raw(ptr.ptr  as *mut Vec<String>) };func(&box_ptr);ptr.ptr = Box::into_raw(box_ptr) as *mut c_void; }
+#[no_mangle] #[inline] #[allow(unused_variables)] pub extern "C" fn az_string_vec_delete(object: &mut AzStringVec) { }
+/// Copies the object
+#[no_mangle] #[inline] pub extern "C" fn az_string_vec_deep_copy(object: &AzStringVec) -> AzStringVec { AzStringVec{ object: object.object.clone() } }
 
 /// Wrapper over a Rust-allocated `PathBuf`
 #[no_mangle] #[repr(C)] pub struct AzPathBufPtr { ptr: *mut c_void }
 /// Creates a new PathBuf from a String
-#[no_mangle] #[inline] pub extern "C" fn az_path_buf_new(path: AzStringPtr) -> AzPathBufPtr { let object: PathBuf = std::path::PathBuf::from(*az_string_downcast(path)); AzPathBufPtr { ptr: Box::into_raw(Box::new(object)) as *mut c_void } }
+#[no_mangle] #[inline] pub extern "C" fn az_path_buf_new(path: AzString) -> AzPathBufPtr { let object: PathBuf = std::path::PathBuf::from(path.object); AzPathBufPtr { ptr: Box::into_raw(Box::new(object)) as *mut c_void } }
 /// Destructor: Takes ownership of the `PathBuf` pointer and deletes it.
 #[no_mangle] #[inline] pub extern "C" fn az_path_buf_delete(ptr: &mut AzPathBufPtr) { let _ = unsafe { Box::<PathBuf>::from_raw(ptr.ptr  as *mut PathBuf) }; }
 /// Copies the pointer: WARNING: After calling this function you'll have two pointers to the same Box<`PathBuf`>!.
@@ -97,7 +79,7 @@ use azul_web::app::{App, AppConfig};
 /// (private): Downcasts the `AzPathBufPtr` to a `&mut Box<PathBuf>` and runs the `func` closure on it
 #[inline(always)] fn az_path_buf_downcast_refmut<F: FnOnce(&mut Box<PathBuf>)>(ptr: &mut AzPathBufPtr, func: F) { let mut box_ptr: Box<PathBuf> = unsafe { Box::<PathBuf>::from_raw(ptr.ptr  as *mut PathBuf) };func(&mut box_ptr);ptr.ptr = Box::into_raw(box_ptr) as *mut c_void; }
 /// (private): Downcasts the `AzPathBufPtr` to a `&Box<PathBuf>` and runs the `func` closure on it
-#[inline(always)] fn az_path_buf_downcast_ref<F: FnOnce(&Box<PathBuf>)>(ptr: &mut AzPathBufPtr, func: F) { let box_ptr: Box<PathBuf> = unsafe { Box::<PathBuf>::from_raw(ptr.ptr  as *mut PathBuf) };func(&box_ptr);ptr.ptr = Box::into_raw(box_ptr) as *mut c_void; }
+#[inline(always)] fn az_path_buf_downcast_ref<P, F: FnOnce(&Box<PathBuf>) -> P>(ptr: &mut AzPathBufPtr, func: F) -> P { let box_ptr: Box<PathBuf> = unsafe { Box::<PathBuf>::from_raw(ptr.ptr  as *mut PathBuf) }; let ret_val = func(&box_ptr); ptr.ptr = Box::into_raw(box_ptr) as *mut c_void;ret_val }
 
 /// Pointer to rust-allocated `Box<AppConfig>` struct
 #[no_mangle] #[repr(C)] pub struct AzAppConfigPtr { ptr: *mut c_void }
@@ -112,7 +94,7 @@ use azul_web::app::{App, AppConfig};
 /// (private): Downcasts the `AzAppConfigPtr` to a `&mut Box<AppConfig>` and runs the `func` closure on it
 #[inline(always)] fn az_app_config_downcast_refmut<F: FnOnce(&mut Box<AppConfig>)>(ptr: &mut AzAppConfigPtr, func: F) { let mut box_ptr: Box<AppConfig> = unsafe { Box::<AppConfig>::from_raw(ptr.ptr  as *mut AppConfig) };func(&mut box_ptr);ptr.ptr = Box::into_raw(box_ptr) as *mut c_void; }
 /// (private): Downcasts the `AzAppConfigPtr` to a `&Box<AppConfig>` and runs the `func` closure on it
-#[inline(always)] fn az_app_config_downcast_ref<F: FnOnce(&Box<AppConfig>)>(ptr: &mut AzAppConfigPtr, func: F) { let box_ptr: Box<AppConfig> = unsafe { Box::<AppConfig>::from_raw(ptr.ptr  as *mut AppConfig) };func(&box_ptr);ptr.ptr = Box::into_raw(box_ptr) as *mut c_void; }
+#[inline(always)] fn az_app_config_downcast_ref<P, F: FnOnce(&Box<AppConfig>) -> P>(ptr: &mut AzAppConfigPtr, func: F) -> P { let box_ptr: Box<AppConfig> = unsafe { Box::<AppConfig>::from_raw(ptr.ptr  as *mut AppConfig) }; let ret_val = func(&box_ptr); ptr.ptr = Box::into_raw(box_ptr) as *mut c_void;ret_val }
 
 /// Pointer to rust-allocated `Box<App>` struct
 #[no_mangle] #[repr(C)] pub struct AzAppPtr { ptr: *mut c_void }
@@ -129,7 +111,7 @@ use azul_web::app::{App, AppConfig};
 /// (private): Downcasts the `AzAppPtr` to a `&mut Box<App>` and runs the `func` closure on it
 #[inline(always)] fn az_app_downcast_refmut<F: FnOnce(&mut Box<App>)>(ptr: &mut AzAppPtr, func: F) { let mut box_ptr: Box<App> = unsafe { Box::<App>::from_raw(ptr.ptr  as *mut App) };func(&mut box_ptr);ptr.ptr = Box::into_raw(box_ptr) as *mut c_void; }
 /// (private): Downcasts the `AzAppPtr` to a `&Box<App>` and runs the `func` closure on it
-#[inline(always)] fn az_app_downcast_ref<F: FnOnce(&Box<App>)>(ptr: &mut AzAppPtr, func: F) { let box_ptr: Box<App> = unsafe { Box::<App>::from_raw(ptr.ptr  as *mut App) };func(&box_ptr);ptr.ptr = Box::into_raw(box_ptr) as *mut c_void; }
+#[inline(always)] fn az_app_downcast_ref<P, F: FnOnce(&Box<App>) -> P>(ptr: &mut AzAppPtr, func: F) -> P { let box_ptr: Box<App> = unsafe { Box::<App>::from_raw(ptr.ptr  as *mut App) }; let ret_val = func(&box_ptr); ptr.ptr = Box::into_raw(box_ptr) as *mut c_void;ret_val }
 
 /// The layout() callback fn
 pub type AzLayoutCallback = fn(AzRefAny, AzLayoutInfoPtr) -> AzDomPtr;
@@ -137,8 +119,7 @@ pub type AzCallbackReturn = AzUpdateScreen;
 /// Callback for responding to window events
 pub type AzCallback = fn(AzCallbackInfoPtr) -> AzCallbackReturn;
 /// Pointer to rust-allocated `Box<CallbackInfo>` struct
-pub type AzCallbackInfoPtrType = azul_core::callbacks::CallbackInfoPtr;
-#[no_mangle] pub use AzCallbackInfoPtrType as AzCallbackInfoPtr;
+#[no_mangle] #[repr(C)] pub struct AzCallbackInfoPtr { ptr: *mut c_void }
 /// Destructor: Takes ownership of the `CallbackInfo` pointer and deletes it.
 #[no_mangle] #[inline] pub extern "C" fn az_callback_info_delete<'a>(ptr: &mut AzCallbackInfoPtr) { let _ = unsafe { Box::<CallbackInfo<'a>>::from_raw(ptr.ptr  as *mut CallbackInfo<'a>) }; }
 /// Copies the pointer: WARNING: After calling this function you'll have two pointers to the same Box<`CallbackInfo`>!.
@@ -148,22 +129,21 @@ pub type AzCallbackInfoPtrType = azul_core::callbacks::CallbackInfoPtr;
 /// (private): Downcasts the `AzCallbackInfoPtr` to a `&mut Box<CallbackInfo<'a>>` and runs the `func` closure on it
 #[inline(always)] fn az_callback_info_downcast_refmut<'a, F: FnOnce(&mut Box<CallbackInfo<'a>>)>(ptr: &mut AzCallbackInfoPtr, func: F) { let mut box_ptr: Box<CallbackInfo<'a>> = unsafe { Box::<CallbackInfo<'a>>::from_raw(ptr.ptr  as *mut CallbackInfo<'a>) };func(&mut box_ptr);ptr.ptr = Box::into_raw(box_ptr) as *mut c_void; }
 /// (private): Downcasts the `AzCallbackInfoPtr` to a `&Box<CallbackInfo<'a>>` and runs the `func` closure on it
-#[inline(always)] fn az_callback_info_downcast_ref<'a, F: FnOnce(&Box<CallbackInfo<'a>>)>(ptr: &mut AzCallbackInfoPtr, func: F) { let box_ptr: Box<CallbackInfo<'a>> = unsafe { Box::<CallbackInfo<'a>>::from_raw(ptr.ptr  as *mut CallbackInfo<'a>) };func(&box_ptr);ptr.ptr = Box::into_raw(box_ptr) as *mut c_void; }
+#[inline(always)] fn az_callback_info_downcast_ref<'a, P, F: FnOnce(&Box<CallbackInfo<'a>>) -> P>(ptr: &mut AzCallbackInfoPtr, func: F) -> P { let box_ptr: Box<CallbackInfo<'a>> = unsafe { Box::<CallbackInfo<'a>>::from_raw(ptr.ptr  as *mut CallbackInfo<'a>) }; let ret_val = func(&box_ptr); ptr.ptr = Box::into_raw(box_ptr) as *mut c_void;ret_val }
 
 /// Re-export of rust-allocated (stack based) `UpdateScreen` struct
-#[no_mangle] pub type AzUpdateScreen = Option<()>;
+#[no_mangle] #[repr(C)] pub struct AzUpdateScreen { object: Option<()> }
 
 /// Re-export of rust-allocated (stack based) `Redraw` struct
-#[no_mangle] pub static AzRedraw: AzUpdateScreen = azul_core::callbacks::Redraw;
+#[no_mangle] pub static AzRedraw: AzUpdateScreen = AzUpdateScreen { object: azul_core::callbacks::Redraw };
 
 /// Re-export of rust-allocated (stack based) `DontRedraw` struct
-#[no_mangle] pub static AzDontRedraw: AzUpdateScreen = azul_core::callbacks::DontRedraw;
+#[no_mangle] pub static AzDontRedraw: AzUpdateScreen = AzUpdateScreen { object: azul_core::callbacks::DontRedraw };
 
 /// Callback for rendering iframes (infinite data structures that have to know how large they are rendered)
 pub type AzIFrameCallback = fn(AzIFrameCallbackInfoPtr) -> AzIFrameCallbackReturnPtr;
 /// Pointer to rust-allocated `Box<IFrameCallbackInfo>` struct
-pub type AzIFrameCallbackInfoPtrType = azul_core::callbacks::IFrameCallbackInfoPtr;
-#[no_mangle] pub use AzIFrameCallbackInfoPtrType as AzIFrameCallbackInfoPtr;
+#[no_mangle] #[repr(C)] pub struct AzIFrameCallbackInfoPtr { ptr: *mut c_void }
 /// Destructor: Takes ownership of the `IFrameCallbackInfo` pointer and deletes it.
 #[no_mangle] #[inline] pub extern "C" fn az_i_frame_callback_info_delete<'a>(ptr: &mut AzIFrameCallbackInfoPtr) { let _ = unsafe { Box::<IFrameCallbackInfo<'a>>::from_raw(ptr.ptr  as *mut IFrameCallbackInfo<'a>) }; }
 /// Copies the pointer: WARNING: After calling this function you'll have two pointers to the same Box<`IFrameCallbackInfo`>!.
@@ -173,11 +153,10 @@ pub type AzIFrameCallbackInfoPtrType = azul_core::callbacks::IFrameCallbackInfoP
 /// (private): Downcasts the `AzIFrameCallbackInfoPtr` to a `&mut Box<IFrameCallbackInfo<'a>>` and runs the `func` closure on it
 #[inline(always)] fn az_i_frame_callback_info_downcast_refmut<'a, F: FnOnce(&mut Box<IFrameCallbackInfo<'a>>)>(ptr: &mut AzIFrameCallbackInfoPtr, func: F) { let mut box_ptr: Box<IFrameCallbackInfo<'a>> = unsafe { Box::<IFrameCallbackInfo<'a>>::from_raw(ptr.ptr  as *mut IFrameCallbackInfo<'a>) };func(&mut box_ptr);ptr.ptr = Box::into_raw(box_ptr) as *mut c_void; }
 /// (private): Downcasts the `AzIFrameCallbackInfoPtr` to a `&Box<IFrameCallbackInfo<'a>>` and runs the `func` closure on it
-#[inline(always)] fn az_i_frame_callback_info_downcast_ref<'a, F: FnOnce(&Box<IFrameCallbackInfo<'a>>)>(ptr: &mut AzIFrameCallbackInfoPtr, func: F) { let box_ptr: Box<IFrameCallbackInfo<'a>> = unsafe { Box::<IFrameCallbackInfo<'a>>::from_raw(ptr.ptr  as *mut IFrameCallbackInfo<'a>) };func(&box_ptr);ptr.ptr = Box::into_raw(box_ptr) as *mut c_void; }
+#[inline(always)] fn az_i_frame_callback_info_downcast_ref<'a, P, F: FnOnce(&Box<IFrameCallbackInfo<'a>>) -> P>(ptr: &mut AzIFrameCallbackInfoPtr, func: F) -> P { let box_ptr: Box<IFrameCallbackInfo<'a>> = unsafe { Box::<IFrameCallbackInfo<'a>>::from_raw(ptr.ptr  as *mut IFrameCallbackInfo<'a>) }; let ret_val = func(&box_ptr); ptr.ptr = Box::into_raw(box_ptr) as *mut c_void;ret_val }
 
 /// Pointer to rust-allocated `Box<IFrameCallbackReturn>` struct
-pub type AzIFrameCallbackReturnPtrType = azul_core::callbacks::IFrameCallbackReturnPtr;
-#[no_mangle] pub use AzIFrameCallbackReturnPtrType as AzIFrameCallbackReturnPtr;
+#[no_mangle] #[repr(C)] pub struct AzIFrameCallbackReturnPtr { ptr: *mut c_void }
 /// Destructor: Takes ownership of the `IFrameCallbackReturn` pointer and deletes it.
 #[no_mangle] #[inline] pub extern "C" fn az_i_frame_callback_return_delete(ptr: &mut AzIFrameCallbackReturnPtr) { let _ = unsafe { Box::<IFrameCallbackReturn>::from_raw(ptr.ptr  as *mut IFrameCallbackReturn) }; }
 /// Copies the pointer: WARNING: After calling this function you'll have two pointers to the same Box<`IFrameCallbackReturn`>!.
@@ -187,13 +166,12 @@ pub type AzIFrameCallbackReturnPtrType = azul_core::callbacks::IFrameCallbackRet
 /// (private): Downcasts the `AzIFrameCallbackReturnPtr` to a `&mut Box<IFrameCallbackReturn>` and runs the `func` closure on it
 #[inline(always)] fn az_i_frame_callback_return_downcast_refmut<F: FnOnce(&mut Box<IFrameCallbackReturn>)>(ptr: &mut AzIFrameCallbackReturnPtr, func: F) { let mut box_ptr: Box<IFrameCallbackReturn> = unsafe { Box::<IFrameCallbackReturn>::from_raw(ptr.ptr  as *mut IFrameCallbackReturn) };func(&mut box_ptr);ptr.ptr = Box::into_raw(box_ptr) as *mut c_void; }
 /// (private): Downcasts the `AzIFrameCallbackReturnPtr` to a `&Box<IFrameCallbackReturn>` and runs the `func` closure on it
-#[inline(always)] fn az_i_frame_callback_return_downcast_ref<F: FnOnce(&Box<IFrameCallbackReturn>)>(ptr: &mut AzIFrameCallbackReturnPtr, func: F) { let box_ptr: Box<IFrameCallbackReturn> = unsafe { Box::<IFrameCallbackReturn>::from_raw(ptr.ptr  as *mut IFrameCallbackReturn) };func(&box_ptr);ptr.ptr = Box::into_raw(box_ptr) as *mut c_void; }
+#[inline(always)] fn az_i_frame_callback_return_downcast_ref<P, F: FnOnce(&Box<IFrameCallbackReturn>) -> P>(ptr: &mut AzIFrameCallbackReturnPtr, func: F) -> P { let box_ptr: Box<IFrameCallbackReturn> = unsafe { Box::<IFrameCallbackReturn>::from_raw(ptr.ptr  as *mut IFrameCallbackReturn) }; let ret_val = func(&box_ptr); ptr.ptr = Box::into_raw(box_ptr) as *mut c_void;ret_val }
 
 /// Callback for rendering to an OpenGL texture
 pub type AzGlCallback = fn(AzGlCallbackInfoPtr) -> AzGlCallbackReturnPtr;
 /// Pointer to rust-allocated `Box<GlCallbackInfo>` struct
-pub type AzGlCallbackInfoPtrType = azul_core::callbacks::GlCallbackInfoPtr;
-#[no_mangle] pub use AzGlCallbackInfoPtrType as AzGlCallbackInfoPtr;
+#[no_mangle] #[repr(C)] pub struct AzGlCallbackInfoPtr { ptr: *mut c_void }
 /// Destructor: Takes ownership of the `GlCallbackInfo` pointer and deletes it.
 #[no_mangle] #[inline] pub extern "C" fn az_gl_callback_info_delete<'a>(ptr: &mut AzGlCallbackInfoPtr) { let _ = unsafe { Box::<GlCallbackInfo<'a>>::from_raw(ptr.ptr  as *mut GlCallbackInfo<'a>) }; }
 /// Copies the pointer: WARNING: After calling this function you'll have two pointers to the same Box<`GlCallbackInfo`>!.
@@ -203,11 +181,10 @@ pub type AzGlCallbackInfoPtrType = azul_core::callbacks::GlCallbackInfoPtr;
 /// (private): Downcasts the `AzGlCallbackInfoPtr` to a `&mut Box<GlCallbackInfo<'a>>` and runs the `func` closure on it
 #[inline(always)] fn az_gl_callback_info_downcast_refmut<'a, F: FnOnce(&mut Box<GlCallbackInfo<'a>>)>(ptr: &mut AzGlCallbackInfoPtr, func: F) { let mut box_ptr: Box<GlCallbackInfo<'a>> = unsafe { Box::<GlCallbackInfo<'a>>::from_raw(ptr.ptr  as *mut GlCallbackInfo<'a>) };func(&mut box_ptr);ptr.ptr = Box::into_raw(box_ptr) as *mut c_void; }
 /// (private): Downcasts the `AzGlCallbackInfoPtr` to a `&Box<GlCallbackInfo<'a>>` and runs the `func` closure on it
-#[inline(always)] fn az_gl_callback_info_downcast_ref<'a, F: FnOnce(&Box<GlCallbackInfo<'a>>)>(ptr: &mut AzGlCallbackInfoPtr, func: F) { let box_ptr: Box<GlCallbackInfo<'a>> = unsafe { Box::<GlCallbackInfo<'a>>::from_raw(ptr.ptr  as *mut GlCallbackInfo<'a>) };func(&box_ptr);ptr.ptr = Box::into_raw(box_ptr) as *mut c_void; }
+#[inline(always)] fn az_gl_callback_info_downcast_ref<'a, P, F: FnOnce(&Box<GlCallbackInfo<'a>>) -> P>(ptr: &mut AzGlCallbackInfoPtr, func: F) -> P { let box_ptr: Box<GlCallbackInfo<'a>> = unsafe { Box::<GlCallbackInfo<'a>>::from_raw(ptr.ptr  as *mut GlCallbackInfo<'a>) }; let ret_val = func(&box_ptr); ptr.ptr = Box::into_raw(box_ptr) as *mut c_void;ret_val }
 
 /// Pointer to rust-allocated `Box<GlCallbackReturn>` struct
-pub type AzGlCallbackReturnPtrType = azul_core::callbacks::GlCallbackReturnPtr;
-#[no_mangle] pub use AzGlCallbackReturnPtrType as AzGlCallbackReturnPtr;
+#[no_mangle] #[repr(C)] pub struct AzGlCallbackReturnPtr { ptr: *mut c_void }
 /// Destructor: Takes ownership of the `GlCallbackReturn` pointer and deletes it.
 #[no_mangle] #[inline] pub extern "C" fn az_gl_callback_return_delete(ptr: &mut AzGlCallbackReturnPtr) { let _ = unsafe { Box::<GlCallbackReturn>::from_raw(ptr.ptr  as *mut GlCallbackReturn) }; }
 /// Copies the pointer: WARNING: After calling this function you'll have two pointers to the same Box<`GlCallbackReturn`>!.
@@ -217,14 +194,14 @@ pub type AzGlCallbackReturnPtrType = azul_core::callbacks::GlCallbackReturnPtr;
 /// (private): Downcasts the `AzGlCallbackReturnPtr` to a `&mut Box<GlCallbackReturn>` and runs the `func` closure on it
 #[inline(always)] fn az_gl_callback_return_downcast_refmut<F: FnOnce(&mut Box<GlCallbackReturn>)>(ptr: &mut AzGlCallbackReturnPtr, func: F) { let mut box_ptr: Box<GlCallbackReturn> = unsafe { Box::<GlCallbackReturn>::from_raw(ptr.ptr  as *mut GlCallbackReturn) };func(&mut box_ptr);ptr.ptr = Box::into_raw(box_ptr) as *mut c_void; }
 /// (private): Downcasts the `AzGlCallbackReturnPtr` to a `&Box<GlCallbackReturn>` and runs the `func` closure on it
-#[inline(always)] fn az_gl_callback_return_downcast_ref<F: FnOnce(&Box<GlCallbackReturn>)>(ptr: &mut AzGlCallbackReturnPtr, func: F) { let box_ptr: Box<GlCallbackReturn> = unsafe { Box::<GlCallbackReturn>::from_raw(ptr.ptr  as *mut GlCallbackReturn) };func(&box_ptr);ptr.ptr = Box::into_raw(box_ptr) as *mut c_void; }
+#[inline(always)] fn az_gl_callback_return_downcast_ref<P, F: FnOnce(&Box<GlCallbackReturn>) -> P>(ptr: &mut AzGlCallbackReturnPtr, func: F) -> P { let box_ptr: Box<GlCallbackReturn> = unsafe { Box::<GlCallbackReturn>::from_raw(ptr.ptr  as *mut GlCallbackReturn) }; let ret_val = func(&box_ptr); ptr.ptr = Box::into_raw(box_ptr) as *mut c_void;ret_val }
 
 /// Pointer to rust-allocated `Box<RefAny>` struct
 pub use ::azul_core::callbacks::RefAny as AzRefAny;
 
 /// Creates a new `RefAny` instance
-#[no_mangle] pub extern "C" fn az_ref_any_new(ptr: *const u8, len: usize, type_id: u64, type_name: AzStringPtr, custom_destructor: fn(AzRefAny)) -> AzRefAny {
-    AzRefAny::new_c(ptr, len, type_id, *az_string_downcast(type_name), custom_destructor)
+#[no_mangle] pub extern "C" fn az_ref_any_new(ptr: *const u8, len: usize, type_id: u64, type_name: AzString, custom_destructor: fn(AzRefAny)) -> AzRefAny {
+    AzRefAny::new_c(ptr, len, type_id, type_name.object, custom_destructor)
 }
 /// Returns the internal pointer of the `RefAny` as a `*mut c_void` or a nullptr if the types don't match
 #[no_mangle] pub extern "C" fn az_ref_any_get_ptr(ptr: &AzRefAny, len: usize, type_id: u64) -> *const c_void { ptr.get_ptr(len, type_id) }
@@ -250,8 +227,7 @@ pub use ::azul_core::callbacks::RefAny as AzRefAny;
 }
 
 /// Pointer to rust-allocated `Box<LayoutInfo>` struct
-pub type AzLayoutInfoPtrType = azul_core::callbacks::LayoutInfoPtr;
-#[no_mangle] pub use AzLayoutInfoPtrType as AzLayoutInfoPtr;
+#[no_mangle] #[repr(C)] pub struct AzLayoutInfoPtr { ptr: *mut c_void }
 /// Destructor: Takes ownership of the `LayoutInfo` pointer and deletes it.
 #[no_mangle] #[inline] pub extern "C" fn az_layout_info_delete<'a>(ptr: &mut AzLayoutInfoPtr) { let _ = unsafe { Box::<LayoutInfo<'a>>::from_raw(ptr.ptr  as *mut LayoutInfo<'a>) }; }
 /// Copies the pointer: WARNING: After calling this function you'll have two pointers to the same Box<`LayoutInfo`>!.
@@ -261,7 +237,7 @@ pub type AzLayoutInfoPtrType = azul_core::callbacks::LayoutInfoPtr;
 /// (private): Downcasts the `AzLayoutInfoPtr` to a `&mut Box<LayoutInfo<'a>>` and runs the `func` closure on it
 #[inline(always)] fn az_layout_info_downcast_refmut<'a, F: FnOnce(&mut Box<LayoutInfo<'a>>)>(ptr: &mut AzLayoutInfoPtr, func: F) { let mut box_ptr: Box<LayoutInfo<'a>> = unsafe { Box::<LayoutInfo<'a>>::from_raw(ptr.ptr  as *mut LayoutInfo<'a>) };func(&mut box_ptr);ptr.ptr = Box::into_raw(box_ptr) as *mut c_void; }
 /// (private): Downcasts the `AzLayoutInfoPtr` to a `&Box<LayoutInfo<'a>>` and runs the `func` closure on it
-#[inline(always)] fn az_layout_info_downcast_ref<'a, F: FnOnce(&Box<LayoutInfo<'a>>)>(ptr: &mut AzLayoutInfoPtr, func: F) { let box_ptr: Box<LayoutInfo<'a>> = unsafe { Box::<LayoutInfo<'a>>::from_raw(ptr.ptr  as *mut LayoutInfo<'a>) };func(&box_ptr);ptr.ptr = Box::into_raw(box_ptr) as *mut c_void; }
+#[inline(always)] fn az_layout_info_downcast_ref<'a, P, F: FnOnce(&Box<LayoutInfo<'a>>) -> P>(ptr: &mut AzLayoutInfoPtr, func: F) -> P { let box_ptr: Box<LayoutInfo<'a>> = unsafe { Box::<LayoutInfo<'a>>::from_raw(ptr.ptr  as *mut LayoutInfo<'a>) }; let ret_val = func(&box_ptr); ptr.ptr = Box::into_raw(box_ptr) as *mut c_void;ret_val }
 
 /// Pointer to rust-allocated `Box<Css>` struct
 #[no_mangle] #[repr(C)] pub struct AzCssPtr { ptr: *mut c_void }
@@ -278,7 +254,7 @@ pub type AzLayoutInfoPtrType = azul_core::callbacks::LayoutInfoPtr;
 /// (private): Downcasts the `AzCssPtr` to a `&mut Box<Css>` and runs the `func` closure on it
 #[inline(always)] fn az_css_downcast_refmut<F: FnOnce(&mut Box<Css>)>(ptr: &mut AzCssPtr, func: F) { let mut box_ptr: Box<Css> = unsafe { Box::<Css>::from_raw(ptr.ptr  as *mut Css) };func(&mut box_ptr);ptr.ptr = Box::into_raw(box_ptr) as *mut c_void; }
 /// (private): Downcasts the `AzCssPtr` to a `&Box<Css>` and runs the `func` closure on it
-#[inline(always)] fn az_css_downcast_ref<F: FnOnce(&Box<Css>)>(ptr: &mut AzCssPtr, func: F) { let box_ptr: Box<Css> = unsafe { Box::<Css>::from_raw(ptr.ptr  as *mut Css) };func(&box_ptr);ptr.ptr = Box::into_raw(box_ptr) as *mut c_void; }
+#[inline(always)] fn az_css_downcast_ref<P, F: FnOnce(&Box<Css>) -> P>(ptr: &mut AzCssPtr, func: F) -> P { let box_ptr: Box<Css> = unsafe { Box::<Css>::from_raw(ptr.ptr  as *mut Css) }; let ret_val = func(&box_ptr); ptr.ptr = Box::into_raw(box_ptr) as *mut c_void;ret_val }
 
 /// Pointer to rust-allocated `Box<BoxShadowPreDisplayItem>` struct
 #[no_mangle] #[repr(C)] pub struct AzBoxShadowPreDisplayItemPtr { ptr: *mut c_void }
@@ -291,7 +267,7 @@ pub type AzLayoutInfoPtrType = azul_core::callbacks::LayoutInfoPtr;
 /// (private): Downcasts the `AzBoxShadowPreDisplayItemPtr` to a `&mut Box<BoxShadowPreDisplayItem>` and runs the `func` closure on it
 #[inline(always)] fn az_box_shadow_pre_display_item_downcast_refmut<F: FnOnce(&mut Box<BoxShadowPreDisplayItem>)>(ptr: &mut AzBoxShadowPreDisplayItemPtr, func: F) { let mut box_ptr: Box<BoxShadowPreDisplayItem> = unsafe { Box::<BoxShadowPreDisplayItem>::from_raw(ptr.ptr  as *mut BoxShadowPreDisplayItem) };func(&mut box_ptr);ptr.ptr = Box::into_raw(box_ptr) as *mut c_void; }
 /// (private): Downcasts the `AzBoxShadowPreDisplayItemPtr` to a `&Box<BoxShadowPreDisplayItem>` and runs the `func` closure on it
-#[inline(always)] fn az_box_shadow_pre_display_item_downcast_ref<F: FnOnce(&Box<BoxShadowPreDisplayItem>)>(ptr: &mut AzBoxShadowPreDisplayItemPtr, func: F) { let box_ptr: Box<BoxShadowPreDisplayItem> = unsafe { Box::<BoxShadowPreDisplayItem>::from_raw(ptr.ptr  as *mut BoxShadowPreDisplayItem) };func(&box_ptr);ptr.ptr = Box::into_raw(box_ptr) as *mut c_void; }
+#[inline(always)] fn az_box_shadow_pre_display_item_downcast_ref<P, F: FnOnce(&Box<BoxShadowPreDisplayItem>) -> P>(ptr: &mut AzBoxShadowPreDisplayItemPtr, func: F) -> P { let box_ptr: Box<BoxShadowPreDisplayItem> = unsafe { Box::<BoxShadowPreDisplayItem>::from_raw(ptr.ptr  as *mut BoxShadowPreDisplayItem) }; let ret_val = func(&box_ptr); ptr.ptr = Box::into_raw(box_ptr) as *mut c_void;ret_val }
 
 /// Pointer to rust-allocated `Box<LayoutAlignContent>` struct
 #[no_mangle] #[repr(C)] pub struct AzLayoutAlignContentPtr { ptr: *mut c_void }
@@ -304,7 +280,7 @@ pub type AzLayoutInfoPtrType = azul_core::callbacks::LayoutInfoPtr;
 /// (private): Downcasts the `AzLayoutAlignContentPtr` to a `&mut Box<LayoutAlignContent>` and runs the `func` closure on it
 #[inline(always)] fn az_layout_align_content_downcast_refmut<F: FnOnce(&mut Box<LayoutAlignContent>)>(ptr: &mut AzLayoutAlignContentPtr, func: F) { let mut box_ptr: Box<LayoutAlignContent> = unsafe { Box::<LayoutAlignContent>::from_raw(ptr.ptr  as *mut LayoutAlignContent) };func(&mut box_ptr);ptr.ptr = Box::into_raw(box_ptr) as *mut c_void; }
 /// (private): Downcasts the `AzLayoutAlignContentPtr` to a `&Box<LayoutAlignContent>` and runs the `func` closure on it
-#[inline(always)] fn az_layout_align_content_downcast_ref<F: FnOnce(&Box<LayoutAlignContent>)>(ptr: &mut AzLayoutAlignContentPtr, func: F) { let box_ptr: Box<LayoutAlignContent> = unsafe { Box::<LayoutAlignContent>::from_raw(ptr.ptr  as *mut LayoutAlignContent) };func(&box_ptr);ptr.ptr = Box::into_raw(box_ptr) as *mut c_void; }
+#[inline(always)] fn az_layout_align_content_downcast_ref<P, F: FnOnce(&Box<LayoutAlignContent>) -> P>(ptr: &mut AzLayoutAlignContentPtr, func: F) -> P { let box_ptr: Box<LayoutAlignContent> = unsafe { Box::<LayoutAlignContent>::from_raw(ptr.ptr  as *mut LayoutAlignContent) }; let ret_val = func(&box_ptr); ptr.ptr = Box::into_raw(box_ptr) as *mut c_void;ret_val }
 
 /// Pointer to rust-allocated `Box<LayoutAlignItems>` struct
 #[no_mangle] #[repr(C)] pub struct AzLayoutAlignItemsPtr { ptr: *mut c_void }
@@ -317,7 +293,7 @@ pub type AzLayoutInfoPtrType = azul_core::callbacks::LayoutInfoPtr;
 /// (private): Downcasts the `AzLayoutAlignItemsPtr` to a `&mut Box<LayoutAlignItems>` and runs the `func` closure on it
 #[inline(always)] fn az_layout_align_items_downcast_refmut<F: FnOnce(&mut Box<LayoutAlignItems>)>(ptr: &mut AzLayoutAlignItemsPtr, func: F) { let mut box_ptr: Box<LayoutAlignItems> = unsafe { Box::<LayoutAlignItems>::from_raw(ptr.ptr  as *mut LayoutAlignItems) };func(&mut box_ptr);ptr.ptr = Box::into_raw(box_ptr) as *mut c_void; }
 /// (private): Downcasts the `AzLayoutAlignItemsPtr` to a `&Box<LayoutAlignItems>` and runs the `func` closure on it
-#[inline(always)] fn az_layout_align_items_downcast_ref<F: FnOnce(&Box<LayoutAlignItems>)>(ptr: &mut AzLayoutAlignItemsPtr, func: F) { let box_ptr: Box<LayoutAlignItems> = unsafe { Box::<LayoutAlignItems>::from_raw(ptr.ptr  as *mut LayoutAlignItems) };func(&box_ptr);ptr.ptr = Box::into_raw(box_ptr) as *mut c_void; }
+#[inline(always)] fn az_layout_align_items_downcast_ref<P, F: FnOnce(&Box<LayoutAlignItems>) -> P>(ptr: &mut AzLayoutAlignItemsPtr, func: F) -> P { let box_ptr: Box<LayoutAlignItems> = unsafe { Box::<LayoutAlignItems>::from_raw(ptr.ptr  as *mut LayoutAlignItems) }; let ret_val = func(&box_ptr); ptr.ptr = Box::into_raw(box_ptr) as *mut c_void;ret_val }
 
 /// Pointer to rust-allocated `Box<LayoutBottom>` struct
 #[no_mangle] #[repr(C)] pub struct AzLayoutBottomPtr { ptr: *mut c_void }
@@ -330,7 +306,7 @@ pub type AzLayoutInfoPtrType = azul_core::callbacks::LayoutInfoPtr;
 /// (private): Downcasts the `AzLayoutBottomPtr` to a `&mut Box<LayoutBottom>` and runs the `func` closure on it
 #[inline(always)] fn az_layout_bottom_downcast_refmut<F: FnOnce(&mut Box<LayoutBottom>)>(ptr: &mut AzLayoutBottomPtr, func: F) { let mut box_ptr: Box<LayoutBottom> = unsafe { Box::<LayoutBottom>::from_raw(ptr.ptr  as *mut LayoutBottom) };func(&mut box_ptr);ptr.ptr = Box::into_raw(box_ptr) as *mut c_void; }
 /// (private): Downcasts the `AzLayoutBottomPtr` to a `&Box<LayoutBottom>` and runs the `func` closure on it
-#[inline(always)] fn az_layout_bottom_downcast_ref<F: FnOnce(&Box<LayoutBottom>)>(ptr: &mut AzLayoutBottomPtr, func: F) { let box_ptr: Box<LayoutBottom> = unsafe { Box::<LayoutBottom>::from_raw(ptr.ptr  as *mut LayoutBottom) };func(&box_ptr);ptr.ptr = Box::into_raw(box_ptr) as *mut c_void; }
+#[inline(always)] fn az_layout_bottom_downcast_ref<P, F: FnOnce(&Box<LayoutBottom>) -> P>(ptr: &mut AzLayoutBottomPtr, func: F) -> P { let box_ptr: Box<LayoutBottom> = unsafe { Box::<LayoutBottom>::from_raw(ptr.ptr  as *mut LayoutBottom) }; let ret_val = func(&box_ptr); ptr.ptr = Box::into_raw(box_ptr) as *mut c_void;ret_val }
 
 /// Pointer to rust-allocated `Box<LayoutBoxSizing>` struct
 #[no_mangle] #[repr(C)] pub struct AzLayoutBoxSizingPtr { ptr: *mut c_void }
@@ -343,7 +319,7 @@ pub type AzLayoutInfoPtrType = azul_core::callbacks::LayoutInfoPtr;
 /// (private): Downcasts the `AzLayoutBoxSizingPtr` to a `&mut Box<LayoutBoxSizing>` and runs the `func` closure on it
 #[inline(always)] fn az_layout_box_sizing_downcast_refmut<F: FnOnce(&mut Box<LayoutBoxSizing>)>(ptr: &mut AzLayoutBoxSizingPtr, func: F) { let mut box_ptr: Box<LayoutBoxSizing> = unsafe { Box::<LayoutBoxSizing>::from_raw(ptr.ptr  as *mut LayoutBoxSizing) };func(&mut box_ptr);ptr.ptr = Box::into_raw(box_ptr) as *mut c_void; }
 /// (private): Downcasts the `AzLayoutBoxSizingPtr` to a `&Box<LayoutBoxSizing>` and runs the `func` closure on it
-#[inline(always)] fn az_layout_box_sizing_downcast_ref<F: FnOnce(&Box<LayoutBoxSizing>)>(ptr: &mut AzLayoutBoxSizingPtr, func: F) { let box_ptr: Box<LayoutBoxSizing> = unsafe { Box::<LayoutBoxSizing>::from_raw(ptr.ptr  as *mut LayoutBoxSizing) };func(&box_ptr);ptr.ptr = Box::into_raw(box_ptr) as *mut c_void; }
+#[inline(always)] fn az_layout_box_sizing_downcast_ref<P, F: FnOnce(&Box<LayoutBoxSizing>) -> P>(ptr: &mut AzLayoutBoxSizingPtr, func: F) -> P { let box_ptr: Box<LayoutBoxSizing> = unsafe { Box::<LayoutBoxSizing>::from_raw(ptr.ptr  as *mut LayoutBoxSizing) }; let ret_val = func(&box_ptr); ptr.ptr = Box::into_raw(box_ptr) as *mut c_void;ret_val }
 
 /// Pointer to rust-allocated `Box<LayoutDirection>` struct
 #[no_mangle] #[repr(C)] pub struct AzLayoutDirectionPtr { ptr: *mut c_void }
@@ -356,7 +332,7 @@ pub type AzLayoutInfoPtrType = azul_core::callbacks::LayoutInfoPtr;
 /// (private): Downcasts the `AzLayoutDirectionPtr` to a `&mut Box<LayoutDirection>` and runs the `func` closure on it
 #[inline(always)] fn az_layout_direction_downcast_refmut<F: FnOnce(&mut Box<LayoutDirection>)>(ptr: &mut AzLayoutDirectionPtr, func: F) { let mut box_ptr: Box<LayoutDirection> = unsafe { Box::<LayoutDirection>::from_raw(ptr.ptr  as *mut LayoutDirection) };func(&mut box_ptr);ptr.ptr = Box::into_raw(box_ptr) as *mut c_void; }
 /// (private): Downcasts the `AzLayoutDirectionPtr` to a `&Box<LayoutDirection>` and runs the `func` closure on it
-#[inline(always)] fn az_layout_direction_downcast_ref<F: FnOnce(&Box<LayoutDirection>)>(ptr: &mut AzLayoutDirectionPtr, func: F) { let box_ptr: Box<LayoutDirection> = unsafe { Box::<LayoutDirection>::from_raw(ptr.ptr  as *mut LayoutDirection) };func(&box_ptr);ptr.ptr = Box::into_raw(box_ptr) as *mut c_void; }
+#[inline(always)] fn az_layout_direction_downcast_ref<P, F: FnOnce(&Box<LayoutDirection>) -> P>(ptr: &mut AzLayoutDirectionPtr, func: F) -> P { let box_ptr: Box<LayoutDirection> = unsafe { Box::<LayoutDirection>::from_raw(ptr.ptr  as *mut LayoutDirection) }; let ret_val = func(&box_ptr); ptr.ptr = Box::into_raw(box_ptr) as *mut c_void;ret_val }
 
 /// Pointer to rust-allocated `Box<LayoutDisplay>` struct
 #[no_mangle] #[repr(C)] pub struct AzLayoutDisplayPtr { ptr: *mut c_void }
@@ -369,7 +345,7 @@ pub type AzLayoutInfoPtrType = azul_core::callbacks::LayoutInfoPtr;
 /// (private): Downcasts the `AzLayoutDisplayPtr` to a `&mut Box<LayoutDisplay>` and runs the `func` closure on it
 #[inline(always)] fn az_layout_display_downcast_refmut<F: FnOnce(&mut Box<LayoutDisplay>)>(ptr: &mut AzLayoutDisplayPtr, func: F) { let mut box_ptr: Box<LayoutDisplay> = unsafe { Box::<LayoutDisplay>::from_raw(ptr.ptr  as *mut LayoutDisplay) };func(&mut box_ptr);ptr.ptr = Box::into_raw(box_ptr) as *mut c_void; }
 /// (private): Downcasts the `AzLayoutDisplayPtr` to a `&Box<LayoutDisplay>` and runs the `func` closure on it
-#[inline(always)] fn az_layout_display_downcast_ref<F: FnOnce(&Box<LayoutDisplay>)>(ptr: &mut AzLayoutDisplayPtr, func: F) { let box_ptr: Box<LayoutDisplay> = unsafe { Box::<LayoutDisplay>::from_raw(ptr.ptr  as *mut LayoutDisplay) };func(&box_ptr);ptr.ptr = Box::into_raw(box_ptr) as *mut c_void; }
+#[inline(always)] fn az_layout_display_downcast_ref<P, F: FnOnce(&Box<LayoutDisplay>) -> P>(ptr: &mut AzLayoutDisplayPtr, func: F) -> P { let box_ptr: Box<LayoutDisplay> = unsafe { Box::<LayoutDisplay>::from_raw(ptr.ptr  as *mut LayoutDisplay) }; let ret_val = func(&box_ptr); ptr.ptr = Box::into_raw(box_ptr) as *mut c_void;ret_val }
 
 /// Pointer to rust-allocated `Box<LayoutFlexGrow>` struct
 #[no_mangle] #[repr(C)] pub struct AzLayoutFlexGrowPtr { ptr: *mut c_void }
@@ -382,7 +358,7 @@ pub type AzLayoutInfoPtrType = azul_core::callbacks::LayoutInfoPtr;
 /// (private): Downcasts the `AzLayoutFlexGrowPtr` to a `&mut Box<LayoutFlexGrow>` and runs the `func` closure on it
 #[inline(always)] fn az_layout_flex_grow_downcast_refmut<F: FnOnce(&mut Box<LayoutFlexGrow>)>(ptr: &mut AzLayoutFlexGrowPtr, func: F) { let mut box_ptr: Box<LayoutFlexGrow> = unsafe { Box::<LayoutFlexGrow>::from_raw(ptr.ptr  as *mut LayoutFlexGrow) };func(&mut box_ptr);ptr.ptr = Box::into_raw(box_ptr) as *mut c_void; }
 /// (private): Downcasts the `AzLayoutFlexGrowPtr` to a `&Box<LayoutFlexGrow>` and runs the `func` closure on it
-#[inline(always)] fn az_layout_flex_grow_downcast_ref<F: FnOnce(&Box<LayoutFlexGrow>)>(ptr: &mut AzLayoutFlexGrowPtr, func: F) { let box_ptr: Box<LayoutFlexGrow> = unsafe { Box::<LayoutFlexGrow>::from_raw(ptr.ptr  as *mut LayoutFlexGrow) };func(&box_ptr);ptr.ptr = Box::into_raw(box_ptr) as *mut c_void; }
+#[inline(always)] fn az_layout_flex_grow_downcast_ref<P, F: FnOnce(&Box<LayoutFlexGrow>) -> P>(ptr: &mut AzLayoutFlexGrowPtr, func: F) -> P { let box_ptr: Box<LayoutFlexGrow> = unsafe { Box::<LayoutFlexGrow>::from_raw(ptr.ptr  as *mut LayoutFlexGrow) }; let ret_val = func(&box_ptr); ptr.ptr = Box::into_raw(box_ptr) as *mut c_void;ret_val }
 
 /// Pointer to rust-allocated `Box<LayoutFlexShrink>` struct
 #[no_mangle] #[repr(C)] pub struct AzLayoutFlexShrinkPtr { ptr: *mut c_void }
@@ -395,7 +371,7 @@ pub type AzLayoutInfoPtrType = azul_core::callbacks::LayoutInfoPtr;
 /// (private): Downcasts the `AzLayoutFlexShrinkPtr` to a `&mut Box<LayoutFlexShrink>` and runs the `func` closure on it
 #[inline(always)] fn az_layout_flex_shrink_downcast_refmut<F: FnOnce(&mut Box<LayoutFlexShrink>)>(ptr: &mut AzLayoutFlexShrinkPtr, func: F) { let mut box_ptr: Box<LayoutFlexShrink> = unsafe { Box::<LayoutFlexShrink>::from_raw(ptr.ptr  as *mut LayoutFlexShrink) };func(&mut box_ptr);ptr.ptr = Box::into_raw(box_ptr) as *mut c_void; }
 /// (private): Downcasts the `AzLayoutFlexShrinkPtr` to a `&Box<LayoutFlexShrink>` and runs the `func` closure on it
-#[inline(always)] fn az_layout_flex_shrink_downcast_ref<F: FnOnce(&Box<LayoutFlexShrink>)>(ptr: &mut AzLayoutFlexShrinkPtr, func: F) { let box_ptr: Box<LayoutFlexShrink> = unsafe { Box::<LayoutFlexShrink>::from_raw(ptr.ptr  as *mut LayoutFlexShrink) };func(&box_ptr);ptr.ptr = Box::into_raw(box_ptr) as *mut c_void; }
+#[inline(always)] fn az_layout_flex_shrink_downcast_ref<P, F: FnOnce(&Box<LayoutFlexShrink>) -> P>(ptr: &mut AzLayoutFlexShrinkPtr, func: F) -> P { let box_ptr: Box<LayoutFlexShrink> = unsafe { Box::<LayoutFlexShrink>::from_raw(ptr.ptr  as *mut LayoutFlexShrink) }; let ret_val = func(&box_ptr); ptr.ptr = Box::into_raw(box_ptr) as *mut c_void;ret_val }
 
 /// Pointer to rust-allocated `Box<LayoutFloat>` struct
 #[no_mangle] #[repr(C)] pub struct AzLayoutFloatPtr { ptr: *mut c_void }
@@ -408,7 +384,7 @@ pub type AzLayoutInfoPtrType = azul_core::callbacks::LayoutInfoPtr;
 /// (private): Downcasts the `AzLayoutFloatPtr` to a `&mut Box<LayoutFloat>` and runs the `func` closure on it
 #[inline(always)] fn az_layout_float_downcast_refmut<F: FnOnce(&mut Box<LayoutFloat>)>(ptr: &mut AzLayoutFloatPtr, func: F) { let mut box_ptr: Box<LayoutFloat> = unsafe { Box::<LayoutFloat>::from_raw(ptr.ptr  as *mut LayoutFloat) };func(&mut box_ptr);ptr.ptr = Box::into_raw(box_ptr) as *mut c_void; }
 /// (private): Downcasts the `AzLayoutFloatPtr` to a `&Box<LayoutFloat>` and runs the `func` closure on it
-#[inline(always)] fn az_layout_float_downcast_ref<F: FnOnce(&Box<LayoutFloat>)>(ptr: &mut AzLayoutFloatPtr, func: F) { let box_ptr: Box<LayoutFloat> = unsafe { Box::<LayoutFloat>::from_raw(ptr.ptr  as *mut LayoutFloat) };func(&box_ptr);ptr.ptr = Box::into_raw(box_ptr) as *mut c_void; }
+#[inline(always)] fn az_layout_float_downcast_ref<P, F: FnOnce(&Box<LayoutFloat>) -> P>(ptr: &mut AzLayoutFloatPtr, func: F) -> P { let box_ptr: Box<LayoutFloat> = unsafe { Box::<LayoutFloat>::from_raw(ptr.ptr  as *mut LayoutFloat) }; let ret_val = func(&box_ptr); ptr.ptr = Box::into_raw(box_ptr) as *mut c_void;ret_val }
 
 /// Pointer to rust-allocated `Box<LayoutHeight>` struct
 #[no_mangle] #[repr(C)] pub struct AzLayoutHeightPtr { ptr: *mut c_void }
@@ -421,7 +397,7 @@ pub type AzLayoutInfoPtrType = azul_core::callbacks::LayoutInfoPtr;
 /// (private): Downcasts the `AzLayoutHeightPtr` to a `&mut Box<LayoutHeight>` and runs the `func` closure on it
 #[inline(always)] fn az_layout_height_downcast_refmut<F: FnOnce(&mut Box<LayoutHeight>)>(ptr: &mut AzLayoutHeightPtr, func: F) { let mut box_ptr: Box<LayoutHeight> = unsafe { Box::<LayoutHeight>::from_raw(ptr.ptr  as *mut LayoutHeight) };func(&mut box_ptr);ptr.ptr = Box::into_raw(box_ptr) as *mut c_void; }
 /// (private): Downcasts the `AzLayoutHeightPtr` to a `&Box<LayoutHeight>` and runs the `func` closure on it
-#[inline(always)] fn az_layout_height_downcast_ref<F: FnOnce(&Box<LayoutHeight>)>(ptr: &mut AzLayoutHeightPtr, func: F) { let box_ptr: Box<LayoutHeight> = unsafe { Box::<LayoutHeight>::from_raw(ptr.ptr  as *mut LayoutHeight) };func(&box_ptr);ptr.ptr = Box::into_raw(box_ptr) as *mut c_void; }
+#[inline(always)] fn az_layout_height_downcast_ref<P, F: FnOnce(&Box<LayoutHeight>) -> P>(ptr: &mut AzLayoutHeightPtr, func: F) -> P { let box_ptr: Box<LayoutHeight> = unsafe { Box::<LayoutHeight>::from_raw(ptr.ptr  as *mut LayoutHeight) }; let ret_val = func(&box_ptr); ptr.ptr = Box::into_raw(box_ptr) as *mut c_void;ret_val }
 
 /// Pointer to rust-allocated `Box<LayoutJustifyContent>` struct
 #[no_mangle] #[repr(C)] pub struct AzLayoutJustifyContentPtr { ptr: *mut c_void }
@@ -434,7 +410,7 @@ pub type AzLayoutInfoPtrType = azul_core::callbacks::LayoutInfoPtr;
 /// (private): Downcasts the `AzLayoutJustifyContentPtr` to a `&mut Box<LayoutJustifyContent>` and runs the `func` closure on it
 #[inline(always)] fn az_layout_justify_content_downcast_refmut<F: FnOnce(&mut Box<LayoutJustifyContent>)>(ptr: &mut AzLayoutJustifyContentPtr, func: F) { let mut box_ptr: Box<LayoutJustifyContent> = unsafe { Box::<LayoutJustifyContent>::from_raw(ptr.ptr  as *mut LayoutJustifyContent) };func(&mut box_ptr);ptr.ptr = Box::into_raw(box_ptr) as *mut c_void; }
 /// (private): Downcasts the `AzLayoutJustifyContentPtr` to a `&Box<LayoutJustifyContent>` and runs the `func` closure on it
-#[inline(always)] fn az_layout_justify_content_downcast_ref<F: FnOnce(&Box<LayoutJustifyContent>)>(ptr: &mut AzLayoutJustifyContentPtr, func: F) { let box_ptr: Box<LayoutJustifyContent> = unsafe { Box::<LayoutJustifyContent>::from_raw(ptr.ptr  as *mut LayoutJustifyContent) };func(&box_ptr);ptr.ptr = Box::into_raw(box_ptr) as *mut c_void; }
+#[inline(always)] fn az_layout_justify_content_downcast_ref<P, F: FnOnce(&Box<LayoutJustifyContent>) -> P>(ptr: &mut AzLayoutJustifyContentPtr, func: F) -> P { let box_ptr: Box<LayoutJustifyContent> = unsafe { Box::<LayoutJustifyContent>::from_raw(ptr.ptr  as *mut LayoutJustifyContent) }; let ret_val = func(&box_ptr); ptr.ptr = Box::into_raw(box_ptr) as *mut c_void;ret_val }
 
 /// Pointer to rust-allocated `Box<LayoutLeft>` struct
 #[no_mangle] #[repr(C)] pub struct AzLayoutLeftPtr { ptr: *mut c_void }
@@ -447,7 +423,7 @@ pub type AzLayoutInfoPtrType = azul_core::callbacks::LayoutInfoPtr;
 /// (private): Downcasts the `AzLayoutLeftPtr` to a `&mut Box<LayoutLeft>` and runs the `func` closure on it
 #[inline(always)] fn az_layout_left_downcast_refmut<F: FnOnce(&mut Box<LayoutLeft>)>(ptr: &mut AzLayoutLeftPtr, func: F) { let mut box_ptr: Box<LayoutLeft> = unsafe { Box::<LayoutLeft>::from_raw(ptr.ptr  as *mut LayoutLeft) };func(&mut box_ptr);ptr.ptr = Box::into_raw(box_ptr) as *mut c_void; }
 /// (private): Downcasts the `AzLayoutLeftPtr` to a `&Box<LayoutLeft>` and runs the `func` closure on it
-#[inline(always)] fn az_layout_left_downcast_ref<F: FnOnce(&Box<LayoutLeft>)>(ptr: &mut AzLayoutLeftPtr, func: F) { let box_ptr: Box<LayoutLeft> = unsafe { Box::<LayoutLeft>::from_raw(ptr.ptr  as *mut LayoutLeft) };func(&box_ptr);ptr.ptr = Box::into_raw(box_ptr) as *mut c_void; }
+#[inline(always)] fn az_layout_left_downcast_ref<P, F: FnOnce(&Box<LayoutLeft>) -> P>(ptr: &mut AzLayoutLeftPtr, func: F) -> P { let box_ptr: Box<LayoutLeft> = unsafe { Box::<LayoutLeft>::from_raw(ptr.ptr  as *mut LayoutLeft) }; let ret_val = func(&box_ptr); ptr.ptr = Box::into_raw(box_ptr) as *mut c_void;ret_val }
 
 /// Pointer to rust-allocated `Box<LayoutMarginBottom>` struct
 #[no_mangle] #[repr(C)] pub struct AzLayoutMarginBottomPtr { ptr: *mut c_void }
@@ -460,7 +436,7 @@ pub type AzLayoutInfoPtrType = azul_core::callbacks::LayoutInfoPtr;
 /// (private): Downcasts the `AzLayoutMarginBottomPtr` to a `&mut Box<LayoutMarginBottom>` and runs the `func` closure on it
 #[inline(always)] fn az_layout_margin_bottom_downcast_refmut<F: FnOnce(&mut Box<LayoutMarginBottom>)>(ptr: &mut AzLayoutMarginBottomPtr, func: F) { let mut box_ptr: Box<LayoutMarginBottom> = unsafe { Box::<LayoutMarginBottom>::from_raw(ptr.ptr  as *mut LayoutMarginBottom) };func(&mut box_ptr);ptr.ptr = Box::into_raw(box_ptr) as *mut c_void; }
 /// (private): Downcasts the `AzLayoutMarginBottomPtr` to a `&Box<LayoutMarginBottom>` and runs the `func` closure on it
-#[inline(always)] fn az_layout_margin_bottom_downcast_ref<F: FnOnce(&Box<LayoutMarginBottom>)>(ptr: &mut AzLayoutMarginBottomPtr, func: F) { let box_ptr: Box<LayoutMarginBottom> = unsafe { Box::<LayoutMarginBottom>::from_raw(ptr.ptr  as *mut LayoutMarginBottom) };func(&box_ptr);ptr.ptr = Box::into_raw(box_ptr) as *mut c_void; }
+#[inline(always)] fn az_layout_margin_bottom_downcast_ref<P, F: FnOnce(&Box<LayoutMarginBottom>) -> P>(ptr: &mut AzLayoutMarginBottomPtr, func: F) -> P { let box_ptr: Box<LayoutMarginBottom> = unsafe { Box::<LayoutMarginBottom>::from_raw(ptr.ptr  as *mut LayoutMarginBottom) }; let ret_val = func(&box_ptr); ptr.ptr = Box::into_raw(box_ptr) as *mut c_void;ret_val }
 
 /// Pointer to rust-allocated `Box<LayoutMarginLeft>` struct
 #[no_mangle] #[repr(C)] pub struct AzLayoutMarginLeftPtr { ptr: *mut c_void }
@@ -473,7 +449,7 @@ pub type AzLayoutInfoPtrType = azul_core::callbacks::LayoutInfoPtr;
 /// (private): Downcasts the `AzLayoutMarginLeftPtr` to a `&mut Box<LayoutMarginLeft>` and runs the `func` closure on it
 #[inline(always)] fn az_layout_margin_left_downcast_refmut<F: FnOnce(&mut Box<LayoutMarginLeft>)>(ptr: &mut AzLayoutMarginLeftPtr, func: F) { let mut box_ptr: Box<LayoutMarginLeft> = unsafe { Box::<LayoutMarginLeft>::from_raw(ptr.ptr  as *mut LayoutMarginLeft) };func(&mut box_ptr);ptr.ptr = Box::into_raw(box_ptr) as *mut c_void; }
 /// (private): Downcasts the `AzLayoutMarginLeftPtr` to a `&Box<LayoutMarginLeft>` and runs the `func` closure on it
-#[inline(always)] fn az_layout_margin_left_downcast_ref<F: FnOnce(&Box<LayoutMarginLeft>)>(ptr: &mut AzLayoutMarginLeftPtr, func: F) { let box_ptr: Box<LayoutMarginLeft> = unsafe { Box::<LayoutMarginLeft>::from_raw(ptr.ptr  as *mut LayoutMarginLeft) };func(&box_ptr);ptr.ptr = Box::into_raw(box_ptr) as *mut c_void; }
+#[inline(always)] fn az_layout_margin_left_downcast_ref<P, F: FnOnce(&Box<LayoutMarginLeft>) -> P>(ptr: &mut AzLayoutMarginLeftPtr, func: F) -> P { let box_ptr: Box<LayoutMarginLeft> = unsafe { Box::<LayoutMarginLeft>::from_raw(ptr.ptr  as *mut LayoutMarginLeft) }; let ret_val = func(&box_ptr); ptr.ptr = Box::into_raw(box_ptr) as *mut c_void;ret_val }
 
 /// Pointer to rust-allocated `Box<LayoutMarginRight>` struct
 #[no_mangle] #[repr(C)] pub struct AzLayoutMarginRightPtr { ptr: *mut c_void }
@@ -486,7 +462,7 @@ pub type AzLayoutInfoPtrType = azul_core::callbacks::LayoutInfoPtr;
 /// (private): Downcasts the `AzLayoutMarginRightPtr` to a `&mut Box<LayoutMarginRight>` and runs the `func` closure on it
 #[inline(always)] fn az_layout_margin_right_downcast_refmut<F: FnOnce(&mut Box<LayoutMarginRight>)>(ptr: &mut AzLayoutMarginRightPtr, func: F) { let mut box_ptr: Box<LayoutMarginRight> = unsafe { Box::<LayoutMarginRight>::from_raw(ptr.ptr  as *mut LayoutMarginRight) };func(&mut box_ptr);ptr.ptr = Box::into_raw(box_ptr) as *mut c_void; }
 /// (private): Downcasts the `AzLayoutMarginRightPtr` to a `&Box<LayoutMarginRight>` and runs the `func` closure on it
-#[inline(always)] fn az_layout_margin_right_downcast_ref<F: FnOnce(&Box<LayoutMarginRight>)>(ptr: &mut AzLayoutMarginRightPtr, func: F) { let box_ptr: Box<LayoutMarginRight> = unsafe { Box::<LayoutMarginRight>::from_raw(ptr.ptr  as *mut LayoutMarginRight) };func(&box_ptr);ptr.ptr = Box::into_raw(box_ptr) as *mut c_void; }
+#[inline(always)] fn az_layout_margin_right_downcast_ref<P, F: FnOnce(&Box<LayoutMarginRight>) -> P>(ptr: &mut AzLayoutMarginRightPtr, func: F) -> P { let box_ptr: Box<LayoutMarginRight> = unsafe { Box::<LayoutMarginRight>::from_raw(ptr.ptr  as *mut LayoutMarginRight) }; let ret_val = func(&box_ptr); ptr.ptr = Box::into_raw(box_ptr) as *mut c_void;ret_val }
 
 /// Pointer to rust-allocated `Box<LayoutMarginTop>` struct
 #[no_mangle] #[repr(C)] pub struct AzLayoutMarginTopPtr { ptr: *mut c_void }
@@ -499,7 +475,7 @@ pub type AzLayoutInfoPtrType = azul_core::callbacks::LayoutInfoPtr;
 /// (private): Downcasts the `AzLayoutMarginTopPtr` to a `&mut Box<LayoutMarginTop>` and runs the `func` closure on it
 #[inline(always)] fn az_layout_margin_top_downcast_refmut<F: FnOnce(&mut Box<LayoutMarginTop>)>(ptr: &mut AzLayoutMarginTopPtr, func: F) { let mut box_ptr: Box<LayoutMarginTop> = unsafe { Box::<LayoutMarginTop>::from_raw(ptr.ptr  as *mut LayoutMarginTop) };func(&mut box_ptr);ptr.ptr = Box::into_raw(box_ptr) as *mut c_void; }
 /// (private): Downcasts the `AzLayoutMarginTopPtr` to a `&Box<LayoutMarginTop>` and runs the `func` closure on it
-#[inline(always)] fn az_layout_margin_top_downcast_ref<F: FnOnce(&Box<LayoutMarginTop>)>(ptr: &mut AzLayoutMarginTopPtr, func: F) { let box_ptr: Box<LayoutMarginTop> = unsafe { Box::<LayoutMarginTop>::from_raw(ptr.ptr  as *mut LayoutMarginTop) };func(&box_ptr);ptr.ptr = Box::into_raw(box_ptr) as *mut c_void; }
+#[inline(always)] fn az_layout_margin_top_downcast_ref<P, F: FnOnce(&Box<LayoutMarginTop>) -> P>(ptr: &mut AzLayoutMarginTopPtr, func: F) -> P { let box_ptr: Box<LayoutMarginTop> = unsafe { Box::<LayoutMarginTop>::from_raw(ptr.ptr  as *mut LayoutMarginTop) }; let ret_val = func(&box_ptr); ptr.ptr = Box::into_raw(box_ptr) as *mut c_void;ret_val }
 
 /// Pointer to rust-allocated `Box<LayoutMaxHeight>` struct
 #[no_mangle] #[repr(C)] pub struct AzLayoutMaxHeightPtr { ptr: *mut c_void }
@@ -512,7 +488,7 @@ pub type AzLayoutInfoPtrType = azul_core::callbacks::LayoutInfoPtr;
 /// (private): Downcasts the `AzLayoutMaxHeightPtr` to a `&mut Box<LayoutMaxHeight>` and runs the `func` closure on it
 #[inline(always)] fn az_layout_max_height_downcast_refmut<F: FnOnce(&mut Box<LayoutMaxHeight>)>(ptr: &mut AzLayoutMaxHeightPtr, func: F) { let mut box_ptr: Box<LayoutMaxHeight> = unsafe { Box::<LayoutMaxHeight>::from_raw(ptr.ptr  as *mut LayoutMaxHeight) };func(&mut box_ptr);ptr.ptr = Box::into_raw(box_ptr) as *mut c_void; }
 /// (private): Downcasts the `AzLayoutMaxHeightPtr` to a `&Box<LayoutMaxHeight>` and runs the `func` closure on it
-#[inline(always)] fn az_layout_max_height_downcast_ref<F: FnOnce(&Box<LayoutMaxHeight>)>(ptr: &mut AzLayoutMaxHeightPtr, func: F) { let box_ptr: Box<LayoutMaxHeight> = unsafe { Box::<LayoutMaxHeight>::from_raw(ptr.ptr  as *mut LayoutMaxHeight) };func(&box_ptr);ptr.ptr = Box::into_raw(box_ptr) as *mut c_void; }
+#[inline(always)] fn az_layout_max_height_downcast_ref<P, F: FnOnce(&Box<LayoutMaxHeight>) -> P>(ptr: &mut AzLayoutMaxHeightPtr, func: F) -> P { let box_ptr: Box<LayoutMaxHeight> = unsafe { Box::<LayoutMaxHeight>::from_raw(ptr.ptr  as *mut LayoutMaxHeight) }; let ret_val = func(&box_ptr); ptr.ptr = Box::into_raw(box_ptr) as *mut c_void;ret_val }
 
 /// Pointer to rust-allocated `Box<LayoutMaxWidth>` struct
 #[no_mangle] #[repr(C)] pub struct AzLayoutMaxWidthPtr { ptr: *mut c_void }
@@ -525,7 +501,7 @@ pub type AzLayoutInfoPtrType = azul_core::callbacks::LayoutInfoPtr;
 /// (private): Downcasts the `AzLayoutMaxWidthPtr` to a `&mut Box<LayoutMaxWidth>` and runs the `func` closure on it
 #[inline(always)] fn az_layout_max_width_downcast_refmut<F: FnOnce(&mut Box<LayoutMaxWidth>)>(ptr: &mut AzLayoutMaxWidthPtr, func: F) { let mut box_ptr: Box<LayoutMaxWidth> = unsafe { Box::<LayoutMaxWidth>::from_raw(ptr.ptr  as *mut LayoutMaxWidth) };func(&mut box_ptr);ptr.ptr = Box::into_raw(box_ptr) as *mut c_void; }
 /// (private): Downcasts the `AzLayoutMaxWidthPtr` to a `&Box<LayoutMaxWidth>` and runs the `func` closure on it
-#[inline(always)] fn az_layout_max_width_downcast_ref<F: FnOnce(&Box<LayoutMaxWidth>)>(ptr: &mut AzLayoutMaxWidthPtr, func: F) { let box_ptr: Box<LayoutMaxWidth> = unsafe { Box::<LayoutMaxWidth>::from_raw(ptr.ptr  as *mut LayoutMaxWidth) };func(&box_ptr);ptr.ptr = Box::into_raw(box_ptr) as *mut c_void; }
+#[inline(always)] fn az_layout_max_width_downcast_ref<P, F: FnOnce(&Box<LayoutMaxWidth>) -> P>(ptr: &mut AzLayoutMaxWidthPtr, func: F) -> P { let box_ptr: Box<LayoutMaxWidth> = unsafe { Box::<LayoutMaxWidth>::from_raw(ptr.ptr  as *mut LayoutMaxWidth) }; let ret_val = func(&box_ptr); ptr.ptr = Box::into_raw(box_ptr) as *mut c_void;ret_val }
 
 /// Pointer to rust-allocated `Box<LayoutMinHeight>` struct
 #[no_mangle] #[repr(C)] pub struct AzLayoutMinHeightPtr { ptr: *mut c_void }
@@ -538,7 +514,7 @@ pub type AzLayoutInfoPtrType = azul_core::callbacks::LayoutInfoPtr;
 /// (private): Downcasts the `AzLayoutMinHeightPtr` to a `&mut Box<LayoutMinHeight>` and runs the `func` closure on it
 #[inline(always)] fn az_layout_min_height_downcast_refmut<F: FnOnce(&mut Box<LayoutMinHeight>)>(ptr: &mut AzLayoutMinHeightPtr, func: F) { let mut box_ptr: Box<LayoutMinHeight> = unsafe { Box::<LayoutMinHeight>::from_raw(ptr.ptr  as *mut LayoutMinHeight) };func(&mut box_ptr);ptr.ptr = Box::into_raw(box_ptr) as *mut c_void; }
 /// (private): Downcasts the `AzLayoutMinHeightPtr` to a `&Box<LayoutMinHeight>` and runs the `func` closure on it
-#[inline(always)] fn az_layout_min_height_downcast_ref<F: FnOnce(&Box<LayoutMinHeight>)>(ptr: &mut AzLayoutMinHeightPtr, func: F) { let box_ptr: Box<LayoutMinHeight> = unsafe { Box::<LayoutMinHeight>::from_raw(ptr.ptr  as *mut LayoutMinHeight) };func(&box_ptr);ptr.ptr = Box::into_raw(box_ptr) as *mut c_void; }
+#[inline(always)] fn az_layout_min_height_downcast_ref<P, F: FnOnce(&Box<LayoutMinHeight>) -> P>(ptr: &mut AzLayoutMinHeightPtr, func: F) -> P { let box_ptr: Box<LayoutMinHeight> = unsafe { Box::<LayoutMinHeight>::from_raw(ptr.ptr  as *mut LayoutMinHeight) }; let ret_val = func(&box_ptr); ptr.ptr = Box::into_raw(box_ptr) as *mut c_void;ret_val }
 
 /// Pointer to rust-allocated `Box<LayoutMinWidth>` struct
 #[no_mangle] #[repr(C)] pub struct AzLayoutMinWidthPtr { ptr: *mut c_void }
@@ -551,7 +527,7 @@ pub type AzLayoutInfoPtrType = azul_core::callbacks::LayoutInfoPtr;
 /// (private): Downcasts the `AzLayoutMinWidthPtr` to a `&mut Box<LayoutMinWidth>` and runs the `func` closure on it
 #[inline(always)] fn az_layout_min_width_downcast_refmut<F: FnOnce(&mut Box<LayoutMinWidth>)>(ptr: &mut AzLayoutMinWidthPtr, func: F) { let mut box_ptr: Box<LayoutMinWidth> = unsafe { Box::<LayoutMinWidth>::from_raw(ptr.ptr  as *mut LayoutMinWidth) };func(&mut box_ptr);ptr.ptr = Box::into_raw(box_ptr) as *mut c_void; }
 /// (private): Downcasts the `AzLayoutMinWidthPtr` to a `&Box<LayoutMinWidth>` and runs the `func` closure on it
-#[inline(always)] fn az_layout_min_width_downcast_ref<F: FnOnce(&Box<LayoutMinWidth>)>(ptr: &mut AzLayoutMinWidthPtr, func: F) { let box_ptr: Box<LayoutMinWidth> = unsafe { Box::<LayoutMinWidth>::from_raw(ptr.ptr  as *mut LayoutMinWidth) };func(&box_ptr);ptr.ptr = Box::into_raw(box_ptr) as *mut c_void; }
+#[inline(always)] fn az_layout_min_width_downcast_ref<P, F: FnOnce(&Box<LayoutMinWidth>) -> P>(ptr: &mut AzLayoutMinWidthPtr, func: F) -> P { let box_ptr: Box<LayoutMinWidth> = unsafe { Box::<LayoutMinWidth>::from_raw(ptr.ptr  as *mut LayoutMinWidth) }; let ret_val = func(&box_ptr); ptr.ptr = Box::into_raw(box_ptr) as *mut c_void;ret_val }
 
 /// Pointer to rust-allocated `Box<LayoutPaddingBottom>` struct
 #[no_mangle] #[repr(C)] pub struct AzLayoutPaddingBottomPtr { ptr: *mut c_void }
@@ -564,7 +540,7 @@ pub type AzLayoutInfoPtrType = azul_core::callbacks::LayoutInfoPtr;
 /// (private): Downcasts the `AzLayoutPaddingBottomPtr` to a `&mut Box<LayoutPaddingBottom>` and runs the `func` closure on it
 #[inline(always)] fn az_layout_padding_bottom_downcast_refmut<F: FnOnce(&mut Box<LayoutPaddingBottom>)>(ptr: &mut AzLayoutPaddingBottomPtr, func: F) { let mut box_ptr: Box<LayoutPaddingBottom> = unsafe { Box::<LayoutPaddingBottom>::from_raw(ptr.ptr  as *mut LayoutPaddingBottom) };func(&mut box_ptr);ptr.ptr = Box::into_raw(box_ptr) as *mut c_void; }
 /// (private): Downcasts the `AzLayoutPaddingBottomPtr` to a `&Box<LayoutPaddingBottom>` and runs the `func` closure on it
-#[inline(always)] fn az_layout_padding_bottom_downcast_ref<F: FnOnce(&Box<LayoutPaddingBottom>)>(ptr: &mut AzLayoutPaddingBottomPtr, func: F) { let box_ptr: Box<LayoutPaddingBottom> = unsafe { Box::<LayoutPaddingBottom>::from_raw(ptr.ptr  as *mut LayoutPaddingBottom) };func(&box_ptr);ptr.ptr = Box::into_raw(box_ptr) as *mut c_void; }
+#[inline(always)] fn az_layout_padding_bottom_downcast_ref<P, F: FnOnce(&Box<LayoutPaddingBottom>) -> P>(ptr: &mut AzLayoutPaddingBottomPtr, func: F) -> P { let box_ptr: Box<LayoutPaddingBottom> = unsafe { Box::<LayoutPaddingBottom>::from_raw(ptr.ptr  as *mut LayoutPaddingBottom) }; let ret_val = func(&box_ptr); ptr.ptr = Box::into_raw(box_ptr) as *mut c_void;ret_val }
 
 /// Pointer to rust-allocated `Box<LayoutPaddingLeft>` struct
 #[no_mangle] #[repr(C)] pub struct AzLayoutPaddingLeftPtr { ptr: *mut c_void }
@@ -577,7 +553,7 @@ pub type AzLayoutInfoPtrType = azul_core::callbacks::LayoutInfoPtr;
 /// (private): Downcasts the `AzLayoutPaddingLeftPtr` to a `&mut Box<LayoutPaddingLeft>` and runs the `func` closure on it
 #[inline(always)] fn az_layout_padding_left_downcast_refmut<F: FnOnce(&mut Box<LayoutPaddingLeft>)>(ptr: &mut AzLayoutPaddingLeftPtr, func: F) { let mut box_ptr: Box<LayoutPaddingLeft> = unsafe { Box::<LayoutPaddingLeft>::from_raw(ptr.ptr  as *mut LayoutPaddingLeft) };func(&mut box_ptr);ptr.ptr = Box::into_raw(box_ptr) as *mut c_void; }
 /// (private): Downcasts the `AzLayoutPaddingLeftPtr` to a `&Box<LayoutPaddingLeft>` and runs the `func` closure on it
-#[inline(always)] fn az_layout_padding_left_downcast_ref<F: FnOnce(&Box<LayoutPaddingLeft>)>(ptr: &mut AzLayoutPaddingLeftPtr, func: F) { let box_ptr: Box<LayoutPaddingLeft> = unsafe { Box::<LayoutPaddingLeft>::from_raw(ptr.ptr  as *mut LayoutPaddingLeft) };func(&box_ptr);ptr.ptr = Box::into_raw(box_ptr) as *mut c_void; }
+#[inline(always)] fn az_layout_padding_left_downcast_ref<P, F: FnOnce(&Box<LayoutPaddingLeft>) -> P>(ptr: &mut AzLayoutPaddingLeftPtr, func: F) -> P { let box_ptr: Box<LayoutPaddingLeft> = unsafe { Box::<LayoutPaddingLeft>::from_raw(ptr.ptr  as *mut LayoutPaddingLeft) }; let ret_val = func(&box_ptr); ptr.ptr = Box::into_raw(box_ptr) as *mut c_void;ret_val }
 
 /// Pointer to rust-allocated `Box<LayoutPaddingRight>` struct
 #[no_mangle] #[repr(C)] pub struct AzLayoutPaddingRightPtr { ptr: *mut c_void }
@@ -590,7 +566,7 @@ pub type AzLayoutInfoPtrType = azul_core::callbacks::LayoutInfoPtr;
 /// (private): Downcasts the `AzLayoutPaddingRightPtr` to a `&mut Box<LayoutPaddingRight>` and runs the `func` closure on it
 #[inline(always)] fn az_layout_padding_right_downcast_refmut<F: FnOnce(&mut Box<LayoutPaddingRight>)>(ptr: &mut AzLayoutPaddingRightPtr, func: F) { let mut box_ptr: Box<LayoutPaddingRight> = unsafe { Box::<LayoutPaddingRight>::from_raw(ptr.ptr  as *mut LayoutPaddingRight) };func(&mut box_ptr);ptr.ptr = Box::into_raw(box_ptr) as *mut c_void; }
 /// (private): Downcasts the `AzLayoutPaddingRightPtr` to a `&Box<LayoutPaddingRight>` and runs the `func` closure on it
-#[inline(always)] fn az_layout_padding_right_downcast_ref<F: FnOnce(&Box<LayoutPaddingRight>)>(ptr: &mut AzLayoutPaddingRightPtr, func: F) { let box_ptr: Box<LayoutPaddingRight> = unsafe { Box::<LayoutPaddingRight>::from_raw(ptr.ptr  as *mut LayoutPaddingRight) };func(&box_ptr);ptr.ptr = Box::into_raw(box_ptr) as *mut c_void; }
+#[inline(always)] fn az_layout_padding_right_downcast_ref<P, F: FnOnce(&Box<LayoutPaddingRight>) -> P>(ptr: &mut AzLayoutPaddingRightPtr, func: F) -> P { let box_ptr: Box<LayoutPaddingRight> = unsafe { Box::<LayoutPaddingRight>::from_raw(ptr.ptr  as *mut LayoutPaddingRight) }; let ret_val = func(&box_ptr); ptr.ptr = Box::into_raw(box_ptr) as *mut c_void;ret_val }
 
 /// Pointer to rust-allocated `Box<LayoutPaddingTop>` struct
 #[no_mangle] #[repr(C)] pub struct AzLayoutPaddingTopPtr { ptr: *mut c_void }
@@ -603,7 +579,7 @@ pub type AzLayoutInfoPtrType = azul_core::callbacks::LayoutInfoPtr;
 /// (private): Downcasts the `AzLayoutPaddingTopPtr` to a `&mut Box<LayoutPaddingTop>` and runs the `func` closure on it
 #[inline(always)] fn az_layout_padding_top_downcast_refmut<F: FnOnce(&mut Box<LayoutPaddingTop>)>(ptr: &mut AzLayoutPaddingTopPtr, func: F) { let mut box_ptr: Box<LayoutPaddingTop> = unsafe { Box::<LayoutPaddingTop>::from_raw(ptr.ptr  as *mut LayoutPaddingTop) };func(&mut box_ptr);ptr.ptr = Box::into_raw(box_ptr) as *mut c_void; }
 /// (private): Downcasts the `AzLayoutPaddingTopPtr` to a `&Box<LayoutPaddingTop>` and runs the `func` closure on it
-#[inline(always)] fn az_layout_padding_top_downcast_ref<F: FnOnce(&Box<LayoutPaddingTop>)>(ptr: &mut AzLayoutPaddingTopPtr, func: F) { let box_ptr: Box<LayoutPaddingTop> = unsafe { Box::<LayoutPaddingTop>::from_raw(ptr.ptr  as *mut LayoutPaddingTop) };func(&box_ptr);ptr.ptr = Box::into_raw(box_ptr) as *mut c_void; }
+#[inline(always)] fn az_layout_padding_top_downcast_ref<P, F: FnOnce(&Box<LayoutPaddingTop>) -> P>(ptr: &mut AzLayoutPaddingTopPtr, func: F) -> P { let box_ptr: Box<LayoutPaddingTop> = unsafe { Box::<LayoutPaddingTop>::from_raw(ptr.ptr  as *mut LayoutPaddingTop) }; let ret_val = func(&box_ptr); ptr.ptr = Box::into_raw(box_ptr) as *mut c_void;ret_val }
 
 /// Pointer to rust-allocated `Box<LayoutPosition>` struct
 #[no_mangle] #[repr(C)] pub struct AzLayoutPositionPtr { ptr: *mut c_void }
@@ -616,7 +592,7 @@ pub type AzLayoutInfoPtrType = azul_core::callbacks::LayoutInfoPtr;
 /// (private): Downcasts the `AzLayoutPositionPtr` to a `&mut Box<LayoutPosition>` and runs the `func` closure on it
 #[inline(always)] fn az_layout_position_downcast_refmut<F: FnOnce(&mut Box<LayoutPosition>)>(ptr: &mut AzLayoutPositionPtr, func: F) { let mut box_ptr: Box<LayoutPosition> = unsafe { Box::<LayoutPosition>::from_raw(ptr.ptr  as *mut LayoutPosition) };func(&mut box_ptr);ptr.ptr = Box::into_raw(box_ptr) as *mut c_void; }
 /// (private): Downcasts the `AzLayoutPositionPtr` to a `&Box<LayoutPosition>` and runs the `func` closure on it
-#[inline(always)] fn az_layout_position_downcast_ref<F: FnOnce(&Box<LayoutPosition>)>(ptr: &mut AzLayoutPositionPtr, func: F) { let box_ptr: Box<LayoutPosition> = unsafe { Box::<LayoutPosition>::from_raw(ptr.ptr  as *mut LayoutPosition) };func(&box_ptr);ptr.ptr = Box::into_raw(box_ptr) as *mut c_void; }
+#[inline(always)] fn az_layout_position_downcast_ref<P, F: FnOnce(&Box<LayoutPosition>) -> P>(ptr: &mut AzLayoutPositionPtr, func: F) -> P { let box_ptr: Box<LayoutPosition> = unsafe { Box::<LayoutPosition>::from_raw(ptr.ptr  as *mut LayoutPosition) }; let ret_val = func(&box_ptr); ptr.ptr = Box::into_raw(box_ptr) as *mut c_void;ret_val }
 
 /// Pointer to rust-allocated `Box<LayoutRight>` struct
 #[no_mangle] #[repr(C)] pub struct AzLayoutRightPtr { ptr: *mut c_void }
@@ -629,7 +605,7 @@ pub type AzLayoutInfoPtrType = azul_core::callbacks::LayoutInfoPtr;
 /// (private): Downcasts the `AzLayoutRightPtr` to a `&mut Box<LayoutRight>` and runs the `func` closure on it
 #[inline(always)] fn az_layout_right_downcast_refmut<F: FnOnce(&mut Box<LayoutRight>)>(ptr: &mut AzLayoutRightPtr, func: F) { let mut box_ptr: Box<LayoutRight> = unsafe { Box::<LayoutRight>::from_raw(ptr.ptr  as *mut LayoutRight) };func(&mut box_ptr);ptr.ptr = Box::into_raw(box_ptr) as *mut c_void; }
 /// (private): Downcasts the `AzLayoutRightPtr` to a `&Box<LayoutRight>` and runs the `func` closure on it
-#[inline(always)] fn az_layout_right_downcast_ref<F: FnOnce(&Box<LayoutRight>)>(ptr: &mut AzLayoutRightPtr, func: F) { let box_ptr: Box<LayoutRight> = unsafe { Box::<LayoutRight>::from_raw(ptr.ptr  as *mut LayoutRight) };func(&box_ptr);ptr.ptr = Box::into_raw(box_ptr) as *mut c_void; }
+#[inline(always)] fn az_layout_right_downcast_ref<P, F: FnOnce(&Box<LayoutRight>) -> P>(ptr: &mut AzLayoutRightPtr, func: F) -> P { let box_ptr: Box<LayoutRight> = unsafe { Box::<LayoutRight>::from_raw(ptr.ptr  as *mut LayoutRight) }; let ret_val = func(&box_ptr); ptr.ptr = Box::into_raw(box_ptr) as *mut c_void;ret_val }
 
 /// Pointer to rust-allocated `Box<LayoutTop>` struct
 #[no_mangle] #[repr(C)] pub struct AzLayoutTopPtr { ptr: *mut c_void }
@@ -642,7 +618,7 @@ pub type AzLayoutInfoPtrType = azul_core::callbacks::LayoutInfoPtr;
 /// (private): Downcasts the `AzLayoutTopPtr` to a `&mut Box<LayoutTop>` and runs the `func` closure on it
 #[inline(always)] fn az_layout_top_downcast_refmut<F: FnOnce(&mut Box<LayoutTop>)>(ptr: &mut AzLayoutTopPtr, func: F) { let mut box_ptr: Box<LayoutTop> = unsafe { Box::<LayoutTop>::from_raw(ptr.ptr  as *mut LayoutTop) };func(&mut box_ptr);ptr.ptr = Box::into_raw(box_ptr) as *mut c_void; }
 /// (private): Downcasts the `AzLayoutTopPtr` to a `&Box<LayoutTop>` and runs the `func` closure on it
-#[inline(always)] fn az_layout_top_downcast_ref<F: FnOnce(&Box<LayoutTop>)>(ptr: &mut AzLayoutTopPtr, func: F) { let box_ptr: Box<LayoutTop> = unsafe { Box::<LayoutTop>::from_raw(ptr.ptr  as *mut LayoutTop) };func(&box_ptr);ptr.ptr = Box::into_raw(box_ptr) as *mut c_void; }
+#[inline(always)] fn az_layout_top_downcast_ref<P, F: FnOnce(&Box<LayoutTop>) -> P>(ptr: &mut AzLayoutTopPtr, func: F) -> P { let box_ptr: Box<LayoutTop> = unsafe { Box::<LayoutTop>::from_raw(ptr.ptr  as *mut LayoutTop) }; let ret_val = func(&box_ptr); ptr.ptr = Box::into_raw(box_ptr) as *mut c_void;ret_val }
 
 /// Pointer to rust-allocated `Box<LayoutWidth>` struct
 #[no_mangle] #[repr(C)] pub struct AzLayoutWidthPtr { ptr: *mut c_void }
@@ -655,7 +631,7 @@ pub type AzLayoutInfoPtrType = azul_core::callbacks::LayoutInfoPtr;
 /// (private): Downcasts the `AzLayoutWidthPtr` to a `&mut Box<LayoutWidth>` and runs the `func` closure on it
 #[inline(always)] fn az_layout_width_downcast_refmut<F: FnOnce(&mut Box<LayoutWidth>)>(ptr: &mut AzLayoutWidthPtr, func: F) { let mut box_ptr: Box<LayoutWidth> = unsafe { Box::<LayoutWidth>::from_raw(ptr.ptr  as *mut LayoutWidth) };func(&mut box_ptr);ptr.ptr = Box::into_raw(box_ptr) as *mut c_void; }
 /// (private): Downcasts the `AzLayoutWidthPtr` to a `&Box<LayoutWidth>` and runs the `func` closure on it
-#[inline(always)] fn az_layout_width_downcast_ref<F: FnOnce(&Box<LayoutWidth>)>(ptr: &mut AzLayoutWidthPtr, func: F) { let box_ptr: Box<LayoutWidth> = unsafe { Box::<LayoutWidth>::from_raw(ptr.ptr  as *mut LayoutWidth) };func(&box_ptr);ptr.ptr = Box::into_raw(box_ptr) as *mut c_void; }
+#[inline(always)] fn az_layout_width_downcast_ref<P, F: FnOnce(&Box<LayoutWidth>) -> P>(ptr: &mut AzLayoutWidthPtr, func: F) -> P { let box_ptr: Box<LayoutWidth> = unsafe { Box::<LayoutWidth>::from_raw(ptr.ptr  as *mut LayoutWidth) }; let ret_val = func(&box_ptr); ptr.ptr = Box::into_raw(box_ptr) as *mut c_void;ret_val }
 
 /// Pointer to rust-allocated `Box<LayoutWrap>` struct
 #[no_mangle] #[repr(C)] pub struct AzLayoutWrapPtr { ptr: *mut c_void }
@@ -668,7 +644,7 @@ pub type AzLayoutInfoPtrType = azul_core::callbacks::LayoutInfoPtr;
 /// (private): Downcasts the `AzLayoutWrapPtr` to a `&mut Box<LayoutWrap>` and runs the `func` closure on it
 #[inline(always)] fn az_layout_wrap_downcast_refmut<F: FnOnce(&mut Box<LayoutWrap>)>(ptr: &mut AzLayoutWrapPtr, func: F) { let mut box_ptr: Box<LayoutWrap> = unsafe { Box::<LayoutWrap>::from_raw(ptr.ptr  as *mut LayoutWrap) };func(&mut box_ptr);ptr.ptr = Box::into_raw(box_ptr) as *mut c_void; }
 /// (private): Downcasts the `AzLayoutWrapPtr` to a `&Box<LayoutWrap>` and runs the `func` closure on it
-#[inline(always)] fn az_layout_wrap_downcast_ref<F: FnOnce(&Box<LayoutWrap>)>(ptr: &mut AzLayoutWrapPtr, func: F) { let box_ptr: Box<LayoutWrap> = unsafe { Box::<LayoutWrap>::from_raw(ptr.ptr  as *mut LayoutWrap) };func(&box_ptr);ptr.ptr = Box::into_raw(box_ptr) as *mut c_void; }
+#[inline(always)] fn az_layout_wrap_downcast_ref<P, F: FnOnce(&Box<LayoutWrap>) -> P>(ptr: &mut AzLayoutWrapPtr, func: F) -> P { let box_ptr: Box<LayoutWrap> = unsafe { Box::<LayoutWrap>::from_raw(ptr.ptr  as *mut LayoutWrap) }; let ret_val = func(&box_ptr); ptr.ptr = Box::into_raw(box_ptr) as *mut c_void;ret_val }
 
 /// Pointer to rust-allocated `Box<Overflow>` struct
 #[no_mangle] #[repr(C)] pub struct AzOverflowPtr { ptr: *mut c_void }
@@ -681,7 +657,7 @@ pub type AzLayoutInfoPtrType = azul_core::callbacks::LayoutInfoPtr;
 /// (private): Downcasts the `AzOverflowPtr` to a `&mut Box<Overflow>` and runs the `func` closure on it
 #[inline(always)] fn az_overflow_downcast_refmut<F: FnOnce(&mut Box<Overflow>)>(ptr: &mut AzOverflowPtr, func: F) { let mut box_ptr: Box<Overflow> = unsafe { Box::<Overflow>::from_raw(ptr.ptr  as *mut Overflow) };func(&mut box_ptr);ptr.ptr = Box::into_raw(box_ptr) as *mut c_void; }
 /// (private): Downcasts the `AzOverflowPtr` to a `&Box<Overflow>` and runs the `func` closure on it
-#[inline(always)] fn az_overflow_downcast_ref<F: FnOnce(&Box<Overflow>)>(ptr: &mut AzOverflowPtr, func: F) { let box_ptr: Box<Overflow> = unsafe { Box::<Overflow>::from_raw(ptr.ptr  as *mut Overflow) };func(&box_ptr);ptr.ptr = Box::into_raw(box_ptr) as *mut c_void; }
+#[inline(always)] fn az_overflow_downcast_ref<P, F: FnOnce(&Box<Overflow>) -> P>(ptr: &mut AzOverflowPtr, func: F) -> P { let box_ptr: Box<Overflow> = unsafe { Box::<Overflow>::from_raw(ptr.ptr  as *mut Overflow) }; let ret_val = func(&box_ptr); ptr.ptr = Box::into_raw(box_ptr) as *mut c_void;ret_val }
 
 /// Pointer to rust-allocated `Box<StyleBackgroundContent>` struct
 #[no_mangle] #[repr(C)] pub struct AzStyleBackgroundContentPtr { ptr: *mut c_void }
@@ -694,7 +670,7 @@ pub type AzLayoutInfoPtrType = azul_core::callbacks::LayoutInfoPtr;
 /// (private): Downcasts the `AzStyleBackgroundContentPtr` to a `&mut Box<StyleBackgroundContent>` and runs the `func` closure on it
 #[inline(always)] fn az_style_background_content_downcast_refmut<F: FnOnce(&mut Box<StyleBackgroundContent>)>(ptr: &mut AzStyleBackgroundContentPtr, func: F) { let mut box_ptr: Box<StyleBackgroundContent> = unsafe { Box::<StyleBackgroundContent>::from_raw(ptr.ptr  as *mut StyleBackgroundContent) };func(&mut box_ptr);ptr.ptr = Box::into_raw(box_ptr) as *mut c_void; }
 /// (private): Downcasts the `AzStyleBackgroundContentPtr` to a `&Box<StyleBackgroundContent>` and runs the `func` closure on it
-#[inline(always)] fn az_style_background_content_downcast_ref<F: FnOnce(&Box<StyleBackgroundContent>)>(ptr: &mut AzStyleBackgroundContentPtr, func: F) { let box_ptr: Box<StyleBackgroundContent> = unsafe { Box::<StyleBackgroundContent>::from_raw(ptr.ptr  as *mut StyleBackgroundContent) };func(&box_ptr);ptr.ptr = Box::into_raw(box_ptr) as *mut c_void; }
+#[inline(always)] fn az_style_background_content_downcast_ref<P, F: FnOnce(&Box<StyleBackgroundContent>) -> P>(ptr: &mut AzStyleBackgroundContentPtr, func: F) -> P { let box_ptr: Box<StyleBackgroundContent> = unsafe { Box::<StyleBackgroundContent>::from_raw(ptr.ptr  as *mut StyleBackgroundContent) }; let ret_val = func(&box_ptr); ptr.ptr = Box::into_raw(box_ptr) as *mut c_void;ret_val }
 
 /// Pointer to rust-allocated `Box<StyleBackgroundPosition>` struct
 #[no_mangle] #[repr(C)] pub struct AzStyleBackgroundPositionPtr { ptr: *mut c_void }
@@ -707,7 +683,7 @@ pub type AzLayoutInfoPtrType = azul_core::callbacks::LayoutInfoPtr;
 /// (private): Downcasts the `AzStyleBackgroundPositionPtr` to a `&mut Box<StyleBackgroundPosition>` and runs the `func` closure on it
 #[inline(always)] fn az_style_background_position_downcast_refmut<F: FnOnce(&mut Box<StyleBackgroundPosition>)>(ptr: &mut AzStyleBackgroundPositionPtr, func: F) { let mut box_ptr: Box<StyleBackgroundPosition> = unsafe { Box::<StyleBackgroundPosition>::from_raw(ptr.ptr  as *mut StyleBackgroundPosition) };func(&mut box_ptr);ptr.ptr = Box::into_raw(box_ptr) as *mut c_void; }
 /// (private): Downcasts the `AzStyleBackgroundPositionPtr` to a `&Box<StyleBackgroundPosition>` and runs the `func` closure on it
-#[inline(always)] fn az_style_background_position_downcast_ref<F: FnOnce(&Box<StyleBackgroundPosition>)>(ptr: &mut AzStyleBackgroundPositionPtr, func: F) { let box_ptr: Box<StyleBackgroundPosition> = unsafe { Box::<StyleBackgroundPosition>::from_raw(ptr.ptr  as *mut StyleBackgroundPosition) };func(&box_ptr);ptr.ptr = Box::into_raw(box_ptr) as *mut c_void; }
+#[inline(always)] fn az_style_background_position_downcast_ref<P, F: FnOnce(&Box<StyleBackgroundPosition>) -> P>(ptr: &mut AzStyleBackgroundPositionPtr, func: F) -> P { let box_ptr: Box<StyleBackgroundPosition> = unsafe { Box::<StyleBackgroundPosition>::from_raw(ptr.ptr  as *mut StyleBackgroundPosition) }; let ret_val = func(&box_ptr); ptr.ptr = Box::into_raw(box_ptr) as *mut c_void;ret_val }
 
 /// Pointer to rust-allocated `Box<StyleBackgroundRepeat>` struct
 #[no_mangle] #[repr(C)] pub struct AzStyleBackgroundRepeatPtr { ptr: *mut c_void }
@@ -720,7 +696,7 @@ pub type AzLayoutInfoPtrType = azul_core::callbacks::LayoutInfoPtr;
 /// (private): Downcasts the `AzStyleBackgroundRepeatPtr` to a `&mut Box<StyleBackgroundRepeat>` and runs the `func` closure on it
 #[inline(always)] fn az_style_background_repeat_downcast_refmut<F: FnOnce(&mut Box<StyleBackgroundRepeat>)>(ptr: &mut AzStyleBackgroundRepeatPtr, func: F) { let mut box_ptr: Box<StyleBackgroundRepeat> = unsafe { Box::<StyleBackgroundRepeat>::from_raw(ptr.ptr  as *mut StyleBackgroundRepeat) };func(&mut box_ptr);ptr.ptr = Box::into_raw(box_ptr) as *mut c_void; }
 /// (private): Downcasts the `AzStyleBackgroundRepeatPtr` to a `&Box<StyleBackgroundRepeat>` and runs the `func` closure on it
-#[inline(always)] fn az_style_background_repeat_downcast_ref<F: FnOnce(&Box<StyleBackgroundRepeat>)>(ptr: &mut AzStyleBackgroundRepeatPtr, func: F) { let box_ptr: Box<StyleBackgroundRepeat> = unsafe { Box::<StyleBackgroundRepeat>::from_raw(ptr.ptr  as *mut StyleBackgroundRepeat) };func(&box_ptr);ptr.ptr = Box::into_raw(box_ptr) as *mut c_void; }
+#[inline(always)] fn az_style_background_repeat_downcast_ref<P, F: FnOnce(&Box<StyleBackgroundRepeat>) -> P>(ptr: &mut AzStyleBackgroundRepeatPtr, func: F) -> P { let box_ptr: Box<StyleBackgroundRepeat> = unsafe { Box::<StyleBackgroundRepeat>::from_raw(ptr.ptr  as *mut StyleBackgroundRepeat) }; let ret_val = func(&box_ptr); ptr.ptr = Box::into_raw(box_ptr) as *mut c_void;ret_val }
 
 /// Pointer to rust-allocated `Box<StyleBackgroundSize>` struct
 #[no_mangle] #[repr(C)] pub struct AzStyleBackgroundSizePtr { ptr: *mut c_void }
@@ -733,7 +709,7 @@ pub type AzLayoutInfoPtrType = azul_core::callbacks::LayoutInfoPtr;
 /// (private): Downcasts the `AzStyleBackgroundSizePtr` to a `&mut Box<StyleBackgroundSize>` and runs the `func` closure on it
 #[inline(always)] fn az_style_background_size_downcast_refmut<F: FnOnce(&mut Box<StyleBackgroundSize>)>(ptr: &mut AzStyleBackgroundSizePtr, func: F) { let mut box_ptr: Box<StyleBackgroundSize> = unsafe { Box::<StyleBackgroundSize>::from_raw(ptr.ptr  as *mut StyleBackgroundSize) };func(&mut box_ptr);ptr.ptr = Box::into_raw(box_ptr) as *mut c_void; }
 /// (private): Downcasts the `AzStyleBackgroundSizePtr` to a `&Box<StyleBackgroundSize>` and runs the `func` closure on it
-#[inline(always)] fn az_style_background_size_downcast_ref<F: FnOnce(&Box<StyleBackgroundSize>)>(ptr: &mut AzStyleBackgroundSizePtr, func: F) { let box_ptr: Box<StyleBackgroundSize> = unsafe { Box::<StyleBackgroundSize>::from_raw(ptr.ptr  as *mut StyleBackgroundSize) };func(&box_ptr);ptr.ptr = Box::into_raw(box_ptr) as *mut c_void; }
+#[inline(always)] fn az_style_background_size_downcast_ref<P, F: FnOnce(&Box<StyleBackgroundSize>) -> P>(ptr: &mut AzStyleBackgroundSizePtr, func: F) -> P { let box_ptr: Box<StyleBackgroundSize> = unsafe { Box::<StyleBackgroundSize>::from_raw(ptr.ptr  as *mut StyleBackgroundSize) }; let ret_val = func(&box_ptr); ptr.ptr = Box::into_raw(box_ptr) as *mut c_void;ret_val }
 
 /// Pointer to rust-allocated `Box<StyleBorderBottomColor>` struct
 #[no_mangle] #[repr(C)] pub struct AzStyleBorderBottomColorPtr { ptr: *mut c_void }
@@ -746,7 +722,7 @@ pub type AzLayoutInfoPtrType = azul_core::callbacks::LayoutInfoPtr;
 /// (private): Downcasts the `AzStyleBorderBottomColorPtr` to a `&mut Box<StyleBorderBottomColor>` and runs the `func` closure on it
 #[inline(always)] fn az_style_border_bottom_color_downcast_refmut<F: FnOnce(&mut Box<StyleBorderBottomColor>)>(ptr: &mut AzStyleBorderBottomColorPtr, func: F) { let mut box_ptr: Box<StyleBorderBottomColor> = unsafe { Box::<StyleBorderBottomColor>::from_raw(ptr.ptr  as *mut StyleBorderBottomColor) };func(&mut box_ptr);ptr.ptr = Box::into_raw(box_ptr) as *mut c_void; }
 /// (private): Downcasts the `AzStyleBorderBottomColorPtr` to a `&Box<StyleBorderBottomColor>` and runs the `func` closure on it
-#[inline(always)] fn az_style_border_bottom_color_downcast_ref<F: FnOnce(&Box<StyleBorderBottomColor>)>(ptr: &mut AzStyleBorderBottomColorPtr, func: F) { let box_ptr: Box<StyleBorderBottomColor> = unsafe { Box::<StyleBorderBottomColor>::from_raw(ptr.ptr  as *mut StyleBorderBottomColor) };func(&box_ptr);ptr.ptr = Box::into_raw(box_ptr) as *mut c_void; }
+#[inline(always)] fn az_style_border_bottom_color_downcast_ref<P, F: FnOnce(&Box<StyleBorderBottomColor>) -> P>(ptr: &mut AzStyleBorderBottomColorPtr, func: F) -> P { let box_ptr: Box<StyleBorderBottomColor> = unsafe { Box::<StyleBorderBottomColor>::from_raw(ptr.ptr  as *mut StyleBorderBottomColor) }; let ret_val = func(&box_ptr); ptr.ptr = Box::into_raw(box_ptr) as *mut c_void;ret_val }
 
 /// Pointer to rust-allocated `Box<StyleBorderBottomLeftRadius>` struct
 #[no_mangle] #[repr(C)] pub struct AzStyleBorderBottomLeftRadiusPtr { ptr: *mut c_void }
@@ -759,7 +735,7 @@ pub type AzLayoutInfoPtrType = azul_core::callbacks::LayoutInfoPtr;
 /// (private): Downcasts the `AzStyleBorderBottomLeftRadiusPtr` to a `&mut Box<StyleBorderBottomLeftRadius>` and runs the `func` closure on it
 #[inline(always)] fn az_style_border_bottom_left_radius_downcast_refmut<F: FnOnce(&mut Box<StyleBorderBottomLeftRadius>)>(ptr: &mut AzStyleBorderBottomLeftRadiusPtr, func: F) { let mut box_ptr: Box<StyleBorderBottomLeftRadius> = unsafe { Box::<StyleBorderBottomLeftRadius>::from_raw(ptr.ptr  as *mut StyleBorderBottomLeftRadius) };func(&mut box_ptr);ptr.ptr = Box::into_raw(box_ptr) as *mut c_void; }
 /// (private): Downcasts the `AzStyleBorderBottomLeftRadiusPtr` to a `&Box<StyleBorderBottomLeftRadius>` and runs the `func` closure on it
-#[inline(always)] fn az_style_border_bottom_left_radius_downcast_ref<F: FnOnce(&Box<StyleBorderBottomLeftRadius>)>(ptr: &mut AzStyleBorderBottomLeftRadiusPtr, func: F) { let box_ptr: Box<StyleBorderBottomLeftRadius> = unsafe { Box::<StyleBorderBottomLeftRadius>::from_raw(ptr.ptr  as *mut StyleBorderBottomLeftRadius) };func(&box_ptr);ptr.ptr = Box::into_raw(box_ptr) as *mut c_void; }
+#[inline(always)] fn az_style_border_bottom_left_radius_downcast_ref<P, F: FnOnce(&Box<StyleBorderBottomLeftRadius>) -> P>(ptr: &mut AzStyleBorderBottomLeftRadiusPtr, func: F) -> P { let box_ptr: Box<StyleBorderBottomLeftRadius> = unsafe { Box::<StyleBorderBottomLeftRadius>::from_raw(ptr.ptr  as *mut StyleBorderBottomLeftRadius) }; let ret_val = func(&box_ptr); ptr.ptr = Box::into_raw(box_ptr) as *mut c_void;ret_val }
 
 /// Pointer to rust-allocated `Box<StyleBorderBottomRightRadius>` struct
 #[no_mangle] #[repr(C)] pub struct AzStyleBorderBottomRightRadiusPtr { ptr: *mut c_void }
@@ -772,7 +748,7 @@ pub type AzLayoutInfoPtrType = azul_core::callbacks::LayoutInfoPtr;
 /// (private): Downcasts the `AzStyleBorderBottomRightRadiusPtr` to a `&mut Box<StyleBorderBottomRightRadius>` and runs the `func` closure on it
 #[inline(always)] fn az_style_border_bottom_right_radius_downcast_refmut<F: FnOnce(&mut Box<StyleBorderBottomRightRadius>)>(ptr: &mut AzStyleBorderBottomRightRadiusPtr, func: F) { let mut box_ptr: Box<StyleBorderBottomRightRadius> = unsafe { Box::<StyleBorderBottomRightRadius>::from_raw(ptr.ptr  as *mut StyleBorderBottomRightRadius) };func(&mut box_ptr);ptr.ptr = Box::into_raw(box_ptr) as *mut c_void; }
 /// (private): Downcasts the `AzStyleBorderBottomRightRadiusPtr` to a `&Box<StyleBorderBottomRightRadius>` and runs the `func` closure on it
-#[inline(always)] fn az_style_border_bottom_right_radius_downcast_ref<F: FnOnce(&Box<StyleBorderBottomRightRadius>)>(ptr: &mut AzStyleBorderBottomRightRadiusPtr, func: F) { let box_ptr: Box<StyleBorderBottomRightRadius> = unsafe { Box::<StyleBorderBottomRightRadius>::from_raw(ptr.ptr  as *mut StyleBorderBottomRightRadius) };func(&box_ptr);ptr.ptr = Box::into_raw(box_ptr) as *mut c_void; }
+#[inline(always)] fn az_style_border_bottom_right_radius_downcast_ref<P, F: FnOnce(&Box<StyleBorderBottomRightRadius>) -> P>(ptr: &mut AzStyleBorderBottomRightRadiusPtr, func: F) -> P { let box_ptr: Box<StyleBorderBottomRightRadius> = unsafe { Box::<StyleBorderBottomRightRadius>::from_raw(ptr.ptr  as *mut StyleBorderBottomRightRadius) }; let ret_val = func(&box_ptr); ptr.ptr = Box::into_raw(box_ptr) as *mut c_void;ret_val }
 
 /// Pointer to rust-allocated `Box<StyleBorderBottomStyle>` struct
 #[no_mangle] #[repr(C)] pub struct AzStyleBorderBottomStylePtr { ptr: *mut c_void }
@@ -785,7 +761,7 @@ pub type AzLayoutInfoPtrType = azul_core::callbacks::LayoutInfoPtr;
 /// (private): Downcasts the `AzStyleBorderBottomStylePtr` to a `&mut Box<StyleBorderBottomStyle>` and runs the `func` closure on it
 #[inline(always)] fn az_style_border_bottom_style_downcast_refmut<F: FnOnce(&mut Box<StyleBorderBottomStyle>)>(ptr: &mut AzStyleBorderBottomStylePtr, func: F) { let mut box_ptr: Box<StyleBorderBottomStyle> = unsafe { Box::<StyleBorderBottomStyle>::from_raw(ptr.ptr  as *mut StyleBorderBottomStyle) };func(&mut box_ptr);ptr.ptr = Box::into_raw(box_ptr) as *mut c_void; }
 /// (private): Downcasts the `AzStyleBorderBottomStylePtr` to a `&Box<StyleBorderBottomStyle>` and runs the `func` closure on it
-#[inline(always)] fn az_style_border_bottom_style_downcast_ref<F: FnOnce(&Box<StyleBorderBottomStyle>)>(ptr: &mut AzStyleBorderBottomStylePtr, func: F) { let box_ptr: Box<StyleBorderBottomStyle> = unsafe { Box::<StyleBorderBottomStyle>::from_raw(ptr.ptr  as *mut StyleBorderBottomStyle) };func(&box_ptr);ptr.ptr = Box::into_raw(box_ptr) as *mut c_void; }
+#[inline(always)] fn az_style_border_bottom_style_downcast_ref<P, F: FnOnce(&Box<StyleBorderBottomStyle>) -> P>(ptr: &mut AzStyleBorderBottomStylePtr, func: F) -> P { let box_ptr: Box<StyleBorderBottomStyle> = unsafe { Box::<StyleBorderBottomStyle>::from_raw(ptr.ptr  as *mut StyleBorderBottomStyle) }; let ret_val = func(&box_ptr); ptr.ptr = Box::into_raw(box_ptr) as *mut c_void;ret_val }
 
 /// Pointer to rust-allocated `Box<StyleBorderBottomWidth>` struct
 #[no_mangle] #[repr(C)] pub struct AzStyleBorderBottomWidthPtr { ptr: *mut c_void }
@@ -798,7 +774,7 @@ pub type AzLayoutInfoPtrType = azul_core::callbacks::LayoutInfoPtr;
 /// (private): Downcasts the `AzStyleBorderBottomWidthPtr` to a `&mut Box<StyleBorderBottomWidth>` and runs the `func` closure on it
 #[inline(always)] fn az_style_border_bottom_width_downcast_refmut<F: FnOnce(&mut Box<StyleBorderBottomWidth>)>(ptr: &mut AzStyleBorderBottomWidthPtr, func: F) { let mut box_ptr: Box<StyleBorderBottomWidth> = unsafe { Box::<StyleBorderBottomWidth>::from_raw(ptr.ptr  as *mut StyleBorderBottomWidth) };func(&mut box_ptr);ptr.ptr = Box::into_raw(box_ptr) as *mut c_void; }
 /// (private): Downcasts the `AzStyleBorderBottomWidthPtr` to a `&Box<StyleBorderBottomWidth>` and runs the `func` closure on it
-#[inline(always)] fn az_style_border_bottom_width_downcast_ref<F: FnOnce(&Box<StyleBorderBottomWidth>)>(ptr: &mut AzStyleBorderBottomWidthPtr, func: F) { let box_ptr: Box<StyleBorderBottomWidth> = unsafe { Box::<StyleBorderBottomWidth>::from_raw(ptr.ptr  as *mut StyleBorderBottomWidth) };func(&box_ptr);ptr.ptr = Box::into_raw(box_ptr) as *mut c_void; }
+#[inline(always)] fn az_style_border_bottom_width_downcast_ref<P, F: FnOnce(&Box<StyleBorderBottomWidth>) -> P>(ptr: &mut AzStyleBorderBottomWidthPtr, func: F) -> P { let box_ptr: Box<StyleBorderBottomWidth> = unsafe { Box::<StyleBorderBottomWidth>::from_raw(ptr.ptr  as *mut StyleBorderBottomWidth) }; let ret_val = func(&box_ptr); ptr.ptr = Box::into_raw(box_ptr) as *mut c_void;ret_val }
 
 /// Pointer to rust-allocated `Box<StyleBorderLeftColor>` struct
 #[no_mangle] #[repr(C)] pub struct AzStyleBorderLeftColorPtr { ptr: *mut c_void }
@@ -811,7 +787,7 @@ pub type AzLayoutInfoPtrType = azul_core::callbacks::LayoutInfoPtr;
 /// (private): Downcasts the `AzStyleBorderLeftColorPtr` to a `&mut Box<StyleBorderLeftColor>` and runs the `func` closure on it
 #[inline(always)] fn az_style_border_left_color_downcast_refmut<F: FnOnce(&mut Box<StyleBorderLeftColor>)>(ptr: &mut AzStyleBorderLeftColorPtr, func: F) { let mut box_ptr: Box<StyleBorderLeftColor> = unsafe { Box::<StyleBorderLeftColor>::from_raw(ptr.ptr  as *mut StyleBorderLeftColor) };func(&mut box_ptr);ptr.ptr = Box::into_raw(box_ptr) as *mut c_void; }
 /// (private): Downcasts the `AzStyleBorderLeftColorPtr` to a `&Box<StyleBorderLeftColor>` and runs the `func` closure on it
-#[inline(always)] fn az_style_border_left_color_downcast_ref<F: FnOnce(&Box<StyleBorderLeftColor>)>(ptr: &mut AzStyleBorderLeftColorPtr, func: F) { let box_ptr: Box<StyleBorderLeftColor> = unsafe { Box::<StyleBorderLeftColor>::from_raw(ptr.ptr  as *mut StyleBorderLeftColor) };func(&box_ptr);ptr.ptr = Box::into_raw(box_ptr) as *mut c_void; }
+#[inline(always)] fn az_style_border_left_color_downcast_ref<P, F: FnOnce(&Box<StyleBorderLeftColor>) -> P>(ptr: &mut AzStyleBorderLeftColorPtr, func: F) -> P { let box_ptr: Box<StyleBorderLeftColor> = unsafe { Box::<StyleBorderLeftColor>::from_raw(ptr.ptr  as *mut StyleBorderLeftColor) }; let ret_val = func(&box_ptr); ptr.ptr = Box::into_raw(box_ptr) as *mut c_void;ret_val }
 
 /// Pointer to rust-allocated `Box<StyleBorderLeftStyle>` struct
 #[no_mangle] #[repr(C)] pub struct AzStyleBorderLeftStylePtr { ptr: *mut c_void }
@@ -824,7 +800,7 @@ pub type AzLayoutInfoPtrType = azul_core::callbacks::LayoutInfoPtr;
 /// (private): Downcasts the `AzStyleBorderLeftStylePtr` to a `&mut Box<StyleBorderLeftStyle>` and runs the `func` closure on it
 #[inline(always)] fn az_style_border_left_style_downcast_refmut<F: FnOnce(&mut Box<StyleBorderLeftStyle>)>(ptr: &mut AzStyleBorderLeftStylePtr, func: F) { let mut box_ptr: Box<StyleBorderLeftStyle> = unsafe { Box::<StyleBorderLeftStyle>::from_raw(ptr.ptr  as *mut StyleBorderLeftStyle) };func(&mut box_ptr);ptr.ptr = Box::into_raw(box_ptr) as *mut c_void; }
 /// (private): Downcasts the `AzStyleBorderLeftStylePtr` to a `&Box<StyleBorderLeftStyle>` and runs the `func` closure on it
-#[inline(always)] fn az_style_border_left_style_downcast_ref<F: FnOnce(&Box<StyleBorderLeftStyle>)>(ptr: &mut AzStyleBorderLeftStylePtr, func: F) { let box_ptr: Box<StyleBorderLeftStyle> = unsafe { Box::<StyleBorderLeftStyle>::from_raw(ptr.ptr  as *mut StyleBorderLeftStyle) };func(&box_ptr);ptr.ptr = Box::into_raw(box_ptr) as *mut c_void; }
+#[inline(always)] fn az_style_border_left_style_downcast_ref<P, F: FnOnce(&Box<StyleBorderLeftStyle>) -> P>(ptr: &mut AzStyleBorderLeftStylePtr, func: F) -> P { let box_ptr: Box<StyleBorderLeftStyle> = unsafe { Box::<StyleBorderLeftStyle>::from_raw(ptr.ptr  as *mut StyleBorderLeftStyle) }; let ret_val = func(&box_ptr); ptr.ptr = Box::into_raw(box_ptr) as *mut c_void;ret_val }
 
 /// Pointer to rust-allocated `Box<StyleBorderLeftWidth>` struct
 #[no_mangle] #[repr(C)] pub struct AzStyleBorderLeftWidthPtr { ptr: *mut c_void }
@@ -837,7 +813,7 @@ pub type AzLayoutInfoPtrType = azul_core::callbacks::LayoutInfoPtr;
 /// (private): Downcasts the `AzStyleBorderLeftWidthPtr` to a `&mut Box<StyleBorderLeftWidth>` and runs the `func` closure on it
 #[inline(always)] fn az_style_border_left_width_downcast_refmut<F: FnOnce(&mut Box<StyleBorderLeftWidth>)>(ptr: &mut AzStyleBorderLeftWidthPtr, func: F) { let mut box_ptr: Box<StyleBorderLeftWidth> = unsafe { Box::<StyleBorderLeftWidth>::from_raw(ptr.ptr  as *mut StyleBorderLeftWidth) };func(&mut box_ptr);ptr.ptr = Box::into_raw(box_ptr) as *mut c_void; }
 /// (private): Downcasts the `AzStyleBorderLeftWidthPtr` to a `&Box<StyleBorderLeftWidth>` and runs the `func` closure on it
-#[inline(always)] fn az_style_border_left_width_downcast_ref<F: FnOnce(&Box<StyleBorderLeftWidth>)>(ptr: &mut AzStyleBorderLeftWidthPtr, func: F) { let box_ptr: Box<StyleBorderLeftWidth> = unsafe { Box::<StyleBorderLeftWidth>::from_raw(ptr.ptr  as *mut StyleBorderLeftWidth) };func(&box_ptr);ptr.ptr = Box::into_raw(box_ptr) as *mut c_void; }
+#[inline(always)] fn az_style_border_left_width_downcast_ref<P, F: FnOnce(&Box<StyleBorderLeftWidth>) -> P>(ptr: &mut AzStyleBorderLeftWidthPtr, func: F) -> P { let box_ptr: Box<StyleBorderLeftWidth> = unsafe { Box::<StyleBorderLeftWidth>::from_raw(ptr.ptr  as *mut StyleBorderLeftWidth) }; let ret_val = func(&box_ptr); ptr.ptr = Box::into_raw(box_ptr) as *mut c_void;ret_val }
 
 /// Pointer to rust-allocated `Box<StyleBorderRightColor>` struct
 #[no_mangle] #[repr(C)] pub struct AzStyleBorderRightColorPtr { ptr: *mut c_void }
@@ -850,7 +826,7 @@ pub type AzLayoutInfoPtrType = azul_core::callbacks::LayoutInfoPtr;
 /// (private): Downcasts the `AzStyleBorderRightColorPtr` to a `&mut Box<StyleBorderRightColor>` and runs the `func` closure on it
 #[inline(always)] fn az_style_border_right_color_downcast_refmut<F: FnOnce(&mut Box<StyleBorderRightColor>)>(ptr: &mut AzStyleBorderRightColorPtr, func: F) { let mut box_ptr: Box<StyleBorderRightColor> = unsafe { Box::<StyleBorderRightColor>::from_raw(ptr.ptr  as *mut StyleBorderRightColor) };func(&mut box_ptr);ptr.ptr = Box::into_raw(box_ptr) as *mut c_void; }
 /// (private): Downcasts the `AzStyleBorderRightColorPtr` to a `&Box<StyleBorderRightColor>` and runs the `func` closure on it
-#[inline(always)] fn az_style_border_right_color_downcast_ref<F: FnOnce(&Box<StyleBorderRightColor>)>(ptr: &mut AzStyleBorderRightColorPtr, func: F) { let box_ptr: Box<StyleBorderRightColor> = unsafe { Box::<StyleBorderRightColor>::from_raw(ptr.ptr  as *mut StyleBorderRightColor) };func(&box_ptr);ptr.ptr = Box::into_raw(box_ptr) as *mut c_void; }
+#[inline(always)] fn az_style_border_right_color_downcast_ref<P, F: FnOnce(&Box<StyleBorderRightColor>) -> P>(ptr: &mut AzStyleBorderRightColorPtr, func: F) -> P { let box_ptr: Box<StyleBorderRightColor> = unsafe { Box::<StyleBorderRightColor>::from_raw(ptr.ptr  as *mut StyleBorderRightColor) }; let ret_val = func(&box_ptr); ptr.ptr = Box::into_raw(box_ptr) as *mut c_void;ret_val }
 
 /// Pointer to rust-allocated `Box<StyleBorderRightStyle>` struct
 #[no_mangle] #[repr(C)] pub struct AzStyleBorderRightStylePtr { ptr: *mut c_void }
@@ -863,7 +839,7 @@ pub type AzLayoutInfoPtrType = azul_core::callbacks::LayoutInfoPtr;
 /// (private): Downcasts the `AzStyleBorderRightStylePtr` to a `&mut Box<StyleBorderRightStyle>` and runs the `func` closure on it
 #[inline(always)] fn az_style_border_right_style_downcast_refmut<F: FnOnce(&mut Box<StyleBorderRightStyle>)>(ptr: &mut AzStyleBorderRightStylePtr, func: F) { let mut box_ptr: Box<StyleBorderRightStyle> = unsafe { Box::<StyleBorderRightStyle>::from_raw(ptr.ptr  as *mut StyleBorderRightStyle) };func(&mut box_ptr);ptr.ptr = Box::into_raw(box_ptr) as *mut c_void; }
 /// (private): Downcasts the `AzStyleBorderRightStylePtr` to a `&Box<StyleBorderRightStyle>` and runs the `func` closure on it
-#[inline(always)] fn az_style_border_right_style_downcast_ref<F: FnOnce(&Box<StyleBorderRightStyle>)>(ptr: &mut AzStyleBorderRightStylePtr, func: F) { let box_ptr: Box<StyleBorderRightStyle> = unsafe { Box::<StyleBorderRightStyle>::from_raw(ptr.ptr  as *mut StyleBorderRightStyle) };func(&box_ptr);ptr.ptr = Box::into_raw(box_ptr) as *mut c_void; }
+#[inline(always)] fn az_style_border_right_style_downcast_ref<P, F: FnOnce(&Box<StyleBorderRightStyle>) -> P>(ptr: &mut AzStyleBorderRightStylePtr, func: F) -> P { let box_ptr: Box<StyleBorderRightStyle> = unsafe { Box::<StyleBorderRightStyle>::from_raw(ptr.ptr  as *mut StyleBorderRightStyle) }; let ret_val = func(&box_ptr); ptr.ptr = Box::into_raw(box_ptr) as *mut c_void;ret_val }
 
 /// Pointer to rust-allocated `Box<StyleBorderRightWidth>` struct
 #[no_mangle] #[repr(C)] pub struct AzStyleBorderRightWidthPtr { ptr: *mut c_void }
@@ -876,7 +852,7 @@ pub type AzLayoutInfoPtrType = azul_core::callbacks::LayoutInfoPtr;
 /// (private): Downcasts the `AzStyleBorderRightWidthPtr` to a `&mut Box<StyleBorderRightWidth>` and runs the `func` closure on it
 #[inline(always)] fn az_style_border_right_width_downcast_refmut<F: FnOnce(&mut Box<StyleBorderRightWidth>)>(ptr: &mut AzStyleBorderRightWidthPtr, func: F) { let mut box_ptr: Box<StyleBorderRightWidth> = unsafe { Box::<StyleBorderRightWidth>::from_raw(ptr.ptr  as *mut StyleBorderRightWidth) };func(&mut box_ptr);ptr.ptr = Box::into_raw(box_ptr) as *mut c_void; }
 /// (private): Downcasts the `AzStyleBorderRightWidthPtr` to a `&Box<StyleBorderRightWidth>` and runs the `func` closure on it
-#[inline(always)] fn az_style_border_right_width_downcast_ref<F: FnOnce(&Box<StyleBorderRightWidth>)>(ptr: &mut AzStyleBorderRightWidthPtr, func: F) { let box_ptr: Box<StyleBorderRightWidth> = unsafe { Box::<StyleBorderRightWidth>::from_raw(ptr.ptr  as *mut StyleBorderRightWidth) };func(&box_ptr);ptr.ptr = Box::into_raw(box_ptr) as *mut c_void; }
+#[inline(always)] fn az_style_border_right_width_downcast_ref<P, F: FnOnce(&Box<StyleBorderRightWidth>) -> P>(ptr: &mut AzStyleBorderRightWidthPtr, func: F) -> P { let box_ptr: Box<StyleBorderRightWidth> = unsafe { Box::<StyleBorderRightWidth>::from_raw(ptr.ptr  as *mut StyleBorderRightWidth) }; let ret_val = func(&box_ptr); ptr.ptr = Box::into_raw(box_ptr) as *mut c_void;ret_val }
 
 /// Pointer to rust-allocated `Box<StyleBorderTopColor>` struct
 #[no_mangle] #[repr(C)] pub struct AzStyleBorderTopColorPtr { ptr: *mut c_void }
@@ -889,7 +865,7 @@ pub type AzLayoutInfoPtrType = azul_core::callbacks::LayoutInfoPtr;
 /// (private): Downcasts the `AzStyleBorderTopColorPtr` to a `&mut Box<StyleBorderTopColor>` and runs the `func` closure on it
 #[inline(always)] fn az_style_border_top_color_downcast_refmut<F: FnOnce(&mut Box<StyleBorderTopColor>)>(ptr: &mut AzStyleBorderTopColorPtr, func: F) { let mut box_ptr: Box<StyleBorderTopColor> = unsafe { Box::<StyleBorderTopColor>::from_raw(ptr.ptr  as *mut StyleBorderTopColor) };func(&mut box_ptr);ptr.ptr = Box::into_raw(box_ptr) as *mut c_void; }
 /// (private): Downcasts the `AzStyleBorderTopColorPtr` to a `&Box<StyleBorderTopColor>` and runs the `func` closure on it
-#[inline(always)] fn az_style_border_top_color_downcast_ref<F: FnOnce(&Box<StyleBorderTopColor>)>(ptr: &mut AzStyleBorderTopColorPtr, func: F) { let box_ptr: Box<StyleBorderTopColor> = unsafe { Box::<StyleBorderTopColor>::from_raw(ptr.ptr  as *mut StyleBorderTopColor) };func(&box_ptr);ptr.ptr = Box::into_raw(box_ptr) as *mut c_void; }
+#[inline(always)] fn az_style_border_top_color_downcast_ref<P, F: FnOnce(&Box<StyleBorderTopColor>) -> P>(ptr: &mut AzStyleBorderTopColorPtr, func: F) -> P { let box_ptr: Box<StyleBorderTopColor> = unsafe { Box::<StyleBorderTopColor>::from_raw(ptr.ptr  as *mut StyleBorderTopColor) }; let ret_val = func(&box_ptr); ptr.ptr = Box::into_raw(box_ptr) as *mut c_void;ret_val }
 
 /// Pointer to rust-allocated `Box<StyleBorderTopLeftRadius>` struct
 #[no_mangle] #[repr(C)] pub struct AzStyleBorderTopLeftRadiusPtr { ptr: *mut c_void }
@@ -902,7 +878,7 @@ pub type AzLayoutInfoPtrType = azul_core::callbacks::LayoutInfoPtr;
 /// (private): Downcasts the `AzStyleBorderTopLeftRadiusPtr` to a `&mut Box<StyleBorderTopLeftRadius>` and runs the `func` closure on it
 #[inline(always)] fn az_style_border_top_left_radius_downcast_refmut<F: FnOnce(&mut Box<StyleBorderTopLeftRadius>)>(ptr: &mut AzStyleBorderTopLeftRadiusPtr, func: F) { let mut box_ptr: Box<StyleBorderTopLeftRadius> = unsafe { Box::<StyleBorderTopLeftRadius>::from_raw(ptr.ptr  as *mut StyleBorderTopLeftRadius) };func(&mut box_ptr);ptr.ptr = Box::into_raw(box_ptr) as *mut c_void; }
 /// (private): Downcasts the `AzStyleBorderTopLeftRadiusPtr` to a `&Box<StyleBorderTopLeftRadius>` and runs the `func` closure on it
-#[inline(always)] fn az_style_border_top_left_radius_downcast_ref<F: FnOnce(&Box<StyleBorderTopLeftRadius>)>(ptr: &mut AzStyleBorderTopLeftRadiusPtr, func: F) { let box_ptr: Box<StyleBorderTopLeftRadius> = unsafe { Box::<StyleBorderTopLeftRadius>::from_raw(ptr.ptr  as *mut StyleBorderTopLeftRadius) };func(&box_ptr);ptr.ptr = Box::into_raw(box_ptr) as *mut c_void; }
+#[inline(always)] fn az_style_border_top_left_radius_downcast_ref<P, F: FnOnce(&Box<StyleBorderTopLeftRadius>) -> P>(ptr: &mut AzStyleBorderTopLeftRadiusPtr, func: F) -> P { let box_ptr: Box<StyleBorderTopLeftRadius> = unsafe { Box::<StyleBorderTopLeftRadius>::from_raw(ptr.ptr  as *mut StyleBorderTopLeftRadius) }; let ret_val = func(&box_ptr); ptr.ptr = Box::into_raw(box_ptr) as *mut c_void;ret_val }
 
 /// Pointer to rust-allocated `Box<StyleBorderTopRightRadius>` struct
 #[no_mangle] #[repr(C)] pub struct AzStyleBorderTopRightRadiusPtr { ptr: *mut c_void }
@@ -915,7 +891,7 @@ pub type AzLayoutInfoPtrType = azul_core::callbacks::LayoutInfoPtr;
 /// (private): Downcasts the `AzStyleBorderTopRightRadiusPtr` to a `&mut Box<StyleBorderTopRightRadius>` and runs the `func` closure on it
 #[inline(always)] fn az_style_border_top_right_radius_downcast_refmut<F: FnOnce(&mut Box<StyleBorderTopRightRadius>)>(ptr: &mut AzStyleBorderTopRightRadiusPtr, func: F) { let mut box_ptr: Box<StyleBorderTopRightRadius> = unsafe { Box::<StyleBorderTopRightRadius>::from_raw(ptr.ptr  as *mut StyleBorderTopRightRadius) };func(&mut box_ptr);ptr.ptr = Box::into_raw(box_ptr) as *mut c_void; }
 /// (private): Downcasts the `AzStyleBorderTopRightRadiusPtr` to a `&Box<StyleBorderTopRightRadius>` and runs the `func` closure on it
-#[inline(always)] fn az_style_border_top_right_radius_downcast_ref<F: FnOnce(&Box<StyleBorderTopRightRadius>)>(ptr: &mut AzStyleBorderTopRightRadiusPtr, func: F) { let box_ptr: Box<StyleBorderTopRightRadius> = unsafe { Box::<StyleBorderTopRightRadius>::from_raw(ptr.ptr  as *mut StyleBorderTopRightRadius) };func(&box_ptr);ptr.ptr = Box::into_raw(box_ptr) as *mut c_void; }
+#[inline(always)] fn az_style_border_top_right_radius_downcast_ref<P, F: FnOnce(&Box<StyleBorderTopRightRadius>) -> P>(ptr: &mut AzStyleBorderTopRightRadiusPtr, func: F) -> P { let box_ptr: Box<StyleBorderTopRightRadius> = unsafe { Box::<StyleBorderTopRightRadius>::from_raw(ptr.ptr  as *mut StyleBorderTopRightRadius) }; let ret_val = func(&box_ptr); ptr.ptr = Box::into_raw(box_ptr) as *mut c_void;ret_val }
 
 /// Pointer to rust-allocated `Box<StyleBorderTopStyle>` struct
 #[no_mangle] #[repr(C)] pub struct AzStyleBorderTopStylePtr { ptr: *mut c_void }
@@ -928,7 +904,7 @@ pub type AzLayoutInfoPtrType = azul_core::callbacks::LayoutInfoPtr;
 /// (private): Downcasts the `AzStyleBorderTopStylePtr` to a `&mut Box<StyleBorderTopStyle>` and runs the `func` closure on it
 #[inline(always)] fn az_style_border_top_style_downcast_refmut<F: FnOnce(&mut Box<StyleBorderTopStyle>)>(ptr: &mut AzStyleBorderTopStylePtr, func: F) { let mut box_ptr: Box<StyleBorderTopStyle> = unsafe { Box::<StyleBorderTopStyle>::from_raw(ptr.ptr  as *mut StyleBorderTopStyle) };func(&mut box_ptr);ptr.ptr = Box::into_raw(box_ptr) as *mut c_void; }
 /// (private): Downcasts the `AzStyleBorderTopStylePtr` to a `&Box<StyleBorderTopStyle>` and runs the `func` closure on it
-#[inline(always)] fn az_style_border_top_style_downcast_ref<F: FnOnce(&Box<StyleBorderTopStyle>)>(ptr: &mut AzStyleBorderTopStylePtr, func: F) { let box_ptr: Box<StyleBorderTopStyle> = unsafe { Box::<StyleBorderTopStyle>::from_raw(ptr.ptr  as *mut StyleBorderTopStyle) };func(&box_ptr);ptr.ptr = Box::into_raw(box_ptr) as *mut c_void; }
+#[inline(always)] fn az_style_border_top_style_downcast_ref<P, F: FnOnce(&Box<StyleBorderTopStyle>) -> P>(ptr: &mut AzStyleBorderTopStylePtr, func: F) -> P { let box_ptr: Box<StyleBorderTopStyle> = unsafe { Box::<StyleBorderTopStyle>::from_raw(ptr.ptr  as *mut StyleBorderTopStyle) }; let ret_val = func(&box_ptr); ptr.ptr = Box::into_raw(box_ptr) as *mut c_void;ret_val }
 
 /// Pointer to rust-allocated `Box<StyleBorderTopWidth>` struct
 #[no_mangle] #[repr(C)] pub struct AzStyleBorderTopWidthPtr { ptr: *mut c_void }
@@ -941,7 +917,7 @@ pub type AzLayoutInfoPtrType = azul_core::callbacks::LayoutInfoPtr;
 /// (private): Downcasts the `AzStyleBorderTopWidthPtr` to a `&mut Box<StyleBorderTopWidth>` and runs the `func` closure on it
 #[inline(always)] fn az_style_border_top_width_downcast_refmut<F: FnOnce(&mut Box<StyleBorderTopWidth>)>(ptr: &mut AzStyleBorderTopWidthPtr, func: F) { let mut box_ptr: Box<StyleBorderTopWidth> = unsafe { Box::<StyleBorderTopWidth>::from_raw(ptr.ptr  as *mut StyleBorderTopWidth) };func(&mut box_ptr);ptr.ptr = Box::into_raw(box_ptr) as *mut c_void; }
 /// (private): Downcasts the `AzStyleBorderTopWidthPtr` to a `&Box<StyleBorderTopWidth>` and runs the `func` closure on it
-#[inline(always)] fn az_style_border_top_width_downcast_ref<F: FnOnce(&Box<StyleBorderTopWidth>)>(ptr: &mut AzStyleBorderTopWidthPtr, func: F) { let box_ptr: Box<StyleBorderTopWidth> = unsafe { Box::<StyleBorderTopWidth>::from_raw(ptr.ptr  as *mut StyleBorderTopWidth) };func(&box_ptr);ptr.ptr = Box::into_raw(box_ptr) as *mut c_void; }
+#[inline(always)] fn az_style_border_top_width_downcast_ref<P, F: FnOnce(&Box<StyleBorderTopWidth>) -> P>(ptr: &mut AzStyleBorderTopWidthPtr, func: F) -> P { let box_ptr: Box<StyleBorderTopWidth> = unsafe { Box::<StyleBorderTopWidth>::from_raw(ptr.ptr  as *mut StyleBorderTopWidth) }; let ret_val = func(&box_ptr); ptr.ptr = Box::into_raw(box_ptr) as *mut c_void;ret_val }
 
 /// Pointer to rust-allocated `Box<StyleCursor>` struct
 #[no_mangle] #[repr(C)] pub struct AzStyleCursorPtr { ptr: *mut c_void }
@@ -954,7 +930,7 @@ pub type AzLayoutInfoPtrType = azul_core::callbacks::LayoutInfoPtr;
 /// (private): Downcasts the `AzStyleCursorPtr` to a `&mut Box<StyleCursor>` and runs the `func` closure on it
 #[inline(always)] fn az_style_cursor_downcast_refmut<F: FnOnce(&mut Box<StyleCursor>)>(ptr: &mut AzStyleCursorPtr, func: F) { let mut box_ptr: Box<StyleCursor> = unsafe { Box::<StyleCursor>::from_raw(ptr.ptr  as *mut StyleCursor) };func(&mut box_ptr);ptr.ptr = Box::into_raw(box_ptr) as *mut c_void; }
 /// (private): Downcasts the `AzStyleCursorPtr` to a `&Box<StyleCursor>` and runs the `func` closure on it
-#[inline(always)] fn az_style_cursor_downcast_ref<F: FnOnce(&Box<StyleCursor>)>(ptr: &mut AzStyleCursorPtr, func: F) { let box_ptr: Box<StyleCursor> = unsafe { Box::<StyleCursor>::from_raw(ptr.ptr  as *mut StyleCursor) };func(&box_ptr);ptr.ptr = Box::into_raw(box_ptr) as *mut c_void; }
+#[inline(always)] fn az_style_cursor_downcast_ref<P, F: FnOnce(&Box<StyleCursor>) -> P>(ptr: &mut AzStyleCursorPtr, func: F) -> P { let box_ptr: Box<StyleCursor> = unsafe { Box::<StyleCursor>::from_raw(ptr.ptr  as *mut StyleCursor) }; let ret_val = func(&box_ptr); ptr.ptr = Box::into_raw(box_ptr) as *mut c_void;ret_val }
 
 /// Pointer to rust-allocated `Box<StyleFontFamily>` struct
 #[no_mangle] #[repr(C)] pub struct AzStyleFontFamilyPtr { ptr: *mut c_void }
@@ -967,7 +943,7 @@ pub type AzLayoutInfoPtrType = azul_core::callbacks::LayoutInfoPtr;
 /// (private): Downcasts the `AzStyleFontFamilyPtr` to a `&mut Box<StyleFontFamily>` and runs the `func` closure on it
 #[inline(always)] fn az_style_font_family_downcast_refmut<F: FnOnce(&mut Box<StyleFontFamily>)>(ptr: &mut AzStyleFontFamilyPtr, func: F) { let mut box_ptr: Box<StyleFontFamily> = unsafe { Box::<StyleFontFamily>::from_raw(ptr.ptr  as *mut StyleFontFamily) };func(&mut box_ptr);ptr.ptr = Box::into_raw(box_ptr) as *mut c_void; }
 /// (private): Downcasts the `AzStyleFontFamilyPtr` to a `&Box<StyleFontFamily>` and runs the `func` closure on it
-#[inline(always)] fn az_style_font_family_downcast_ref<F: FnOnce(&Box<StyleFontFamily>)>(ptr: &mut AzStyleFontFamilyPtr, func: F) { let box_ptr: Box<StyleFontFamily> = unsafe { Box::<StyleFontFamily>::from_raw(ptr.ptr  as *mut StyleFontFamily) };func(&box_ptr);ptr.ptr = Box::into_raw(box_ptr) as *mut c_void; }
+#[inline(always)] fn az_style_font_family_downcast_ref<P, F: FnOnce(&Box<StyleFontFamily>) -> P>(ptr: &mut AzStyleFontFamilyPtr, func: F) -> P { let box_ptr: Box<StyleFontFamily> = unsafe { Box::<StyleFontFamily>::from_raw(ptr.ptr  as *mut StyleFontFamily) }; let ret_val = func(&box_ptr); ptr.ptr = Box::into_raw(box_ptr) as *mut c_void;ret_val }
 
 /// Pointer to rust-allocated `Box<StyleFontSize>` struct
 #[no_mangle] #[repr(C)] pub struct AzStyleFontSizePtr { ptr: *mut c_void }
@@ -980,7 +956,7 @@ pub type AzLayoutInfoPtrType = azul_core::callbacks::LayoutInfoPtr;
 /// (private): Downcasts the `AzStyleFontSizePtr` to a `&mut Box<StyleFontSize>` and runs the `func` closure on it
 #[inline(always)] fn az_style_font_size_downcast_refmut<F: FnOnce(&mut Box<StyleFontSize>)>(ptr: &mut AzStyleFontSizePtr, func: F) { let mut box_ptr: Box<StyleFontSize> = unsafe { Box::<StyleFontSize>::from_raw(ptr.ptr  as *mut StyleFontSize) };func(&mut box_ptr);ptr.ptr = Box::into_raw(box_ptr) as *mut c_void; }
 /// (private): Downcasts the `AzStyleFontSizePtr` to a `&Box<StyleFontSize>` and runs the `func` closure on it
-#[inline(always)] fn az_style_font_size_downcast_ref<F: FnOnce(&Box<StyleFontSize>)>(ptr: &mut AzStyleFontSizePtr, func: F) { let box_ptr: Box<StyleFontSize> = unsafe { Box::<StyleFontSize>::from_raw(ptr.ptr  as *mut StyleFontSize) };func(&box_ptr);ptr.ptr = Box::into_raw(box_ptr) as *mut c_void; }
+#[inline(always)] fn az_style_font_size_downcast_ref<P, F: FnOnce(&Box<StyleFontSize>) -> P>(ptr: &mut AzStyleFontSizePtr, func: F) -> P { let box_ptr: Box<StyleFontSize> = unsafe { Box::<StyleFontSize>::from_raw(ptr.ptr  as *mut StyleFontSize) }; let ret_val = func(&box_ptr); ptr.ptr = Box::into_raw(box_ptr) as *mut c_void;ret_val }
 
 /// Pointer to rust-allocated `Box<StyleLetterSpacing>` struct
 #[no_mangle] #[repr(C)] pub struct AzStyleLetterSpacingPtr { ptr: *mut c_void }
@@ -993,7 +969,7 @@ pub type AzLayoutInfoPtrType = azul_core::callbacks::LayoutInfoPtr;
 /// (private): Downcasts the `AzStyleLetterSpacingPtr` to a `&mut Box<StyleLetterSpacing>` and runs the `func` closure on it
 #[inline(always)] fn az_style_letter_spacing_downcast_refmut<F: FnOnce(&mut Box<StyleLetterSpacing>)>(ptr: &mut AzStyleLetterSpacingPtr, func: F) { let mut box_ptr: Box<StyleLetterSpacing> = unsafe { Box::<StyleLetterSpacing>::from_raw(ptr.ptr  as *mut StyleLetterSpacing) };func(&mut box_ptr);ptr.ptr = Box::into_raw(box_ptr) as *mut c_void; }
 /// (private): Downcasts the `AzStyleLetterSpacingPtr` to a `&Box<StyleLetterSpacing>` and runs the `func` closure on it
-#[inline(always)] fn az_style_letter_spacing_downcast_ref<F: FnOnce(&Box<StyleLetterSpacing>)>(ptr: &mut AzStyleLetterSpacingPtr, func: F) { let box_ptr: Box<StyleLetterSpacing> = unsafe { Box::<StyleLetterSpacing>::from_raw(ptr.ptr  as *mut StyleLetterSpacing) };func(&box_ptr);ptr.ptr = Box::into_raw(box_ptr) as *mut c_void; }
+#[inline(always)] fn az_style_letter_spacing_downcast_ref<P, F: FnOnce(&Box<StyleLetterSpacing>) -> P>(ptr: &mut AzStyleLetterSpacingPtr, func: F) -> P { let box_ptr: Box<StyleLetterSpacing> = unsafe { Box::<StyleLetterSpacing>::from_raw(ptr.ptr  as *mut StyleLetterSpacing) }; let ret_val = func(&box_ptr); ptr.ptr = Box::into_raw(box_ptr) as *mut c_void;ret_val }
 
 /// Pointer to rust-allocated `Box<StyleLineHeight>` struct
 #[no_mangle] #[repr(C)] pub struct AzStyleLineHeightPtr { ptr: *mut c_void }
@@ -1006,7 +982,7 @@ pub type AzLayoutInfoPtrType = azul_core::callbacks::LayoutInfoPtr;
 /// (private): Downcasts the `AzStyleLineHeightPtr` to a `&mut Box<StyleLineHeight>` and runs the `func` closure on it
 #[inline(always)] fn az_style_line_height_downcast_refmut<F: FnOnce(&mut Box<StyleLineHeight>)>(ptr: &mut AzStyleLineHeightPtr, func: F) { let mut box_ptr: Box<StyleLineHeight> = unsafe { Box::<StyleLineHeight>::from_raw(ptr.ptr  as *mut StyleLineHeight) };func(&mut box_ptr);ptr.ptr = Box::into_raw(box_ptr) as *mut c_void; }
 /// (private): Downcasts the `AzStyleLineHeightPtr` to a `&Box<StyleLineHeight>` and runs the `func` closure on it
-#[inline(always)] fn az_style_line_height_downcast_ref<F: FnOnce(&Box<StyleLineHeight>)>(ptr: &mut AzStyleLineHeightPtr, func: F) { let box_ptr: Box<StyleLineHeight> = unsafe { Box::<StyleLineHeight>::from_raw(ptr.ptr  as *mut StyleLineHeight) };func(&box_ptr);ptr.ptr = Box::into_raw(box_ptr) as *mut c_void; }
+#[inline(always)] fn az_style_line_height_downcast_ref<P, F: FnOnce(&Box<StyleLineHeight>) -> P>(ptr: &mut AzStyleLineHeightPtr, func: F) -> P { let box_ptr: Box<StyleLineHeight> = unsafe { Box::<StyleLineHeight>::from_raw(ptr.ptr  as *mut StyleLineHeight) }; let ret_val = func(&box_ptr); ptr.ptr = Box::into_raw(box_ptr) as *mut c_void;ret_val }
 
 /// Pointer to rust-allocated `Box<StyleTabWidth>` struct
 #[no_mangle] #[repr(C)] pub struct AzStyleTabWidthPtr { ptr: *mut c_void }
@@ -1019,7 +995,7 @@ pub type AzLayoutInfoPtrType = azul_core::callbacks::LayoutInfoPtr;
 /// (private): Downcasts the `AzStyleTabWidthPtr` to a `&mut Box<StyleTabWidth>` and runs the `func` closure on it
 #[inline(always)] fn az_style_tab_width_downcast_refmut<F: FnOnce(&mut Box<StyleTabWidth>)>(ptr: &mut AzStyleTabWidthPtr, func: F) { let mut box_ptr: Box<StyleTabWidth> = unsafe { Box::<StyleTabWidth>::from_raw(ptr.ptr  as *mut StyleTabWidth) };func(&mut box_ptr);ptr.ptr = Box::into_raw(box_ptr) as *mut c_void; }
 /// (private): Downcasts the `AzStyleTabWidthPtr` to a `&Box<StyleTabWidth>` and runs the `func` closure on it
-#[inline(always)] fn az_style_tab_width_downcast_ref<F: FnOnce(&Box<StyleTabWidth>)>(ptr: &mut AzStyleTabWidthPtr, func: F) { let box_ptr: Box<StyleTabWidth> = unsafe { Box::<StyleTabWidth>::from_raw(ptr.ptr  as *mut StyleTabWidth) };func(&box_ptr);ptr.ptr = Box::into_raw(box_ptr) as *mut c_void; }
+#[inline(always)] fn az_style_tab_width_downcast_ref<P, F: FnOnce(&Box<StyleTabWidth>) -> P>(ptr: &mut AzStyleTabWidthPtr, func: F) -> P { let box_ptr: Box<StyleTabWidth> = unsafe { Box::<StyleTabWidth>::from_raw(ptr.ptr  as *mut StyleTabWidth) }; let ret_val = func(&box_ptr); ptr.ptr = Box::into_raw(box_ptr) as *mut c_void;ret_val }
 
 /// Pointer to rust-allocated `Box<StyleTextAlignmentHorz>` struct
 #[no_mangle] #[repr(C)] pub struct AzStyleTextAlignmentHorzPtr { ptr: *mut c_void }
@@ -1032,7 +1008,7 @@ pub type AzLayoutInfoPtrType = azul_core::callbacks::LayoutInfoPtr;
 /// (private): Downcasts the `AzStyleTextAlignmentHorzPtr` to a `&mut Box<StyleTextAlignmentHorz>` and runs the `func` closure on it
 #[inline(always)] fn az_style_text_alignment_horz_downcast_refmut<F: FnOnce(&mut Box<StyleTextAlignmentHorz>)>(ptr: &mut AzStyleTextAlignmentHorzPtr, func: F) { let mut box_ptr: Box<StyleTextAlignmentHorz> = unsafe { Box::<StyleTextAlignmentHorz>::from_raw(ptr.ptr  as *mut StyleTextAlignmentHorz) };func(&mut box_ptr);ptr.ptr = Box::into_raw(box_ptr) as *mut c_void; }
 /// (private): Downcasts the `AzStyleTextAlignmentHorzPtr` to a `&Box<StyleTextAlignmentHorz>` and runs the `func` closure on it
-#[inline(always)] fn az_style_text_alignment_horz_downcast_ref<F: FnOnce(&Box<StyleTextAlignmentHorz>)>(ptr: &mut AzStyleTextAlignmentHorzPtr, func: F) { let box_ptr: Box<StyleTextAlignmentHorz> = unsafe { Box::<StyleTextAlignmentHorz>::from_raw(ptr.ptr  as *mut StyleTextAlignmentHorz) };func(&box_ptr);ptr.ptr = Box::into_raw(box_ptr) as *mut c_void; }
+#[inline(always)] fn az_style_text_alignment_horz_downcast_ref<P, F: FnOnce(&Box<StyleTextAlignmentHorz>) -> P>(ptr: &mut AzStyleTextAlignmentHorzPtr, func: F) -> P { let box_ptr: Box<StyleTextAlignmentHorz> = unsafe { Box::<StyleTextAlignmentHorz>::from_raw(ptr.ptr  as *mut StyleTextAlignmentHorz) }; let ret_val = func(&box_ptr); ptr.ptr = Box::into_raw(box_ptr) as *mut c_void;ret_val }
 
 /// Pointer to rust-allocated `Box<StyleTextColor>` struct
 #[no_mangle] #[repr(C)] pub struct AzStyleTextColorPtr { ptr: *mut c_void }
@@ -1045,7 +1021,7 @@ pub type AzLayoutInfoPtrType = azul_core::callbacks::LayoutInfoPtr;
 /// (private): Downcasts the `AzStyleTextColorPtr` to a `&mut Box<StyleTextColor>` and runs the `func` closure on it
 #[inline(always)] fn az_style_text_color_downcast_refmut<F: FnOnce(&mut Box<StyleTextColor>)>(ptr: &mut AzStyleTextColorPtr, func: F) { let mut box_ptr: Box<StyleTextColor> = unsafe { Box::<StyleTextColor>::from_raw(ptr.ptr  as *mut StyleTextColor) };func(&mut box_ptr);ptr.ptr = Box::into_raw(box_ptr) as *mut c_void; }
 /// (private): Downcasts the `AzStyleTextColorPtr` to a `&Box<StyleTextColor>` and runs the `func` closure on it
-#[inline(always)] fn az_style_text_color_downcast_ref<F: FnOnce(&Box<StyleTextColor>)>(ptr: &mut AzStyleTextColorPtr, func: F) { let box_ptr: Box<StyleTextColor> = unsafe { Box::<StyleTextColor>::from_raw(ptr.ptr  as *mut StyleTextColor) };func(&box_ptr);ptr.ptr = Box::into_raw(box_ptr) as *mut c_void; }
+#[inline(always)] fn az_style_text_color_downcast_ref<P, F: FnOnce(&Box<StyleTextColor>) -> P>(ptr: &mut AzStyleTextColorPtr, func: F) -> P { let box_ptr: Box<StyleTextColor> = unsafe { Box::<StyleTextColor>::from_raw(ptr.ptr  as *mut StyleTextColor) }; let ret_val = func(&box_ptr); ptr.ptr = Box::into_raw(box_ptr) as *mut c_void;ret_val }
 
 /// Pointer to rust-allocated `Box<StyleWordSpacing>` struct
 #[no_mangle] #[repr(C)] pub struct AzStyleWordSpacingPtr { ptr: *mut c_void }
@@ -1058,978 +1034,918 @@ pub type AzLayoutInfoPtrType = azul_core::callbacks::LayoutInfoPtr;
 /// (private): Downcasts the `AzStyleWordSpacingPtr` to a `&mut Box<StyleWordSpacing>` and runs the `func` closure on it
 #[inline(always)] fn az_style_word_spacing_downcast_refmut<F: FnOnce(&mut Box<StyleWordSpacing>)>(ptr: &mut AzStyleWordSpacingPtr, func: F) { let mut box_ptr: Box<StyleWordSpacing> = unsafe { Box::<StyleWordSpacing>::from_raw(ptr.ptr  as *mut StyleWordSpacing) };func(&mut box_ptr);ptr.ptr = Box::into_raw(box_ptr) as *mut c_void; }
 /// (private): Downcasts the `AzStyleWordSpacingPtr` to a `&Box<StyleWordSpacing>` and runs the `func` closure on it
-#[inline(always)] fn az_style_word_spacing_downcast_ref<F: FnOnce(&Box<StyleWordSpacing>)>(ptr: &mut AzStyleWordSpacingPtr, func: F) { let box_ptr: Box<StyleWordSpacing> = unsafe { Box::<StyleWordSpacing>::from_raw(ptr.ptr  as *mut StyleWordSpacing) };func(&box_ptr);ptr.ptr = Box::into_raw(box_ptr) as *mut c_void; }
+#[inline(always)] fn az_style_word_spacing_downcast_ref<P, F: FnOnce(&Box<StyleWordSpacing>) -> P>(ptr: &mut AzStyleWordSpacingPtr, func: F) -> P { let box_ptr: Box<StyleWordSpacing> = unsafe { Box::<StyleWordSpacing>::from_raw(ptr.ptr  as *mut StyleWordSpacing) }; let ret_val = func(&box_ptr); ptr.ptr = Box::into_raw(box_ptr) as *mut c_void;ret_val }
 
 /// Re-export of rust-allocated (stack based) `BoxShadowPreDisplayItemValue` struct
-pub type AzBoxShadowPreDisplayItemValueType = azul_css::CssPropertyValue::<BoxShadowPreDisplayItem>;
-#[no_mangle] pub use AzBoxShadowPreDisplayItemValueType as AzBoxShadowPreDisplayItemValue;
-#[inline] #[no_mangle] pub extern "C" fn az_box_shadow_pre_display_item_value_auto() -> AzBoxShadowPreDisplayItemValue { AzBoxShadowPreDisplayItemValue::Auto }
-#[inline] #[no_mangle] pub extern "C" fn az_box_shadow_pre_display_item_value_none() -> AzBoxShadowPreDisplayItemValue { AzBoxShadowPreDisplayItemValue::None }
-#[inline] #[no_mangle] pub extern "C" fn az_box_shadow_pre_display_item_value_inherit() -> AzBoxShadowPreDisplayItemValue { AzBoxShadowPreDisplayItemValue::Inherit }
-#[inline] #[no_mangle] pub extern "C" fn az_box_shadow_pre_display_item_value_initial() -> AzBoxShadowPreDisplayItemValue { AzBoxShadowPreDisplayItemValue::Initial }
-#[inline] #[no_mangle] pub extern "C" fn az_box_shadow_pre_display_item_value_exact(variant_data: AzBoxShadowPreDisplayItemPtr) -> AzBoxShadowPreDisplayItemValue { AzBoxShadowPreDisplayItemValue::Exact(*az_box_shadow_pre_display_item_downcast(variant_data)) }
+#[no_mangle] #[repr(C)] pub struct AzBoxShadowPreDisplayItemValue { object: azul_css::CssPropertyValue::<BoxShadowPreDisplayItem> }
+#[inline] #[no_mangle] pub extern "C" fn az_box_shadow_pre_display_item_value_auto() -> AzBoxShadowPreDisplayItemValue { AzBoxShadowPreDisplayItemValue { object: azul_css::CssPropertyValue::<BoxShadowPreDisplayItem>::Auto } }
+#[inline] #[no_mangle] pub extern "C" fn az_box_shadow_pre_display_item_value_none() -> AzBoxShadowPreDisplayItemValue { AzBoxShadowPreDisplayItemValue { object: azul_css::CssPropertyValue::<BoxShadowPreDisplayItem>::None } }
+#[inline] #[no_mangle] pub extern "C" fn az_box_shadow_pre_display_item_value_inherit() -> AzBoxShadowPreDisplayItemValue { AzBoxShadowPreDisplayItemValue { object: azul_css::CssPropertyValue::<BoxShadowPreDisplayItem>::Inherit } }
+#[inline] #[no_mangle] pub extern "C" fn az_box_shadow_pre_display_item_value_initial() -> AzBoxShadowPreDisplayItemValue { AzBoxShadowPreDisplayItemValue { object: azul_css::CssPropertyValue::<BoxShadowPreDisplayItem>::Initial } }
+#[inline] #[no_mangle] pub extern "C" fn az_box_shadow_pre_display_item_value_exact(variant_data: AzBoxShadowPreDisplayItemPtr) -> AzBoxShadowPreDisplayItemValue { AzBoxShadowPreDisplayItemValue { object: azul_css::CssPropertyValue::<BoxShadowPreDisplayItem>::Exact(*az_box_shadow_pre_display_item_downcast(variant_data)) } }
 /// Destructor: Takes ownership of the `BoxShadowPreDisplayItemValue` pointer and deletes it.
-#[no_mangle] #[inline] #[allow(unused_variables)] pub extern "C" fn az_box_shadow_pre_display_item_value_delete(object: &mut AzBoxShadowPreDisplayItemValue) { match object { AzBoxShadowPreDisplayItemValue::Auto => { }, AzBoxShadowPreDisplayItemValue::None => { }, AzBoxShadowPreDisplayItemValue::Inherit => { }, AzBoxShadowPreDisplayItemValue::Initial => { }, AzBoxShadowPreDisplayItemValue::Exact(_) => { }, }
+#[no_mangle] #[inline] #[allow(unused_variables)] pub extern "C" fn az_box_shadow_pre_display_item_value_delete(object: &mut AzBoxShadowPreDisplayItemValue) { match object.object { azul_css::CssPropertyValue::<BoxShadowPreDisplayItem>::Auto => { }, azul_css::CssPropertyValue::<BoxShadowPreDisplayItem>::None => { }, azul_css::CssPropertyValue::<BoxShadowPreDisplayItem>::Inherit => { }, azul_css::CssPropertyValue::<BoxShadowPreDisplayItem>::Initial => { }, azul_css::CssPropertyValue::<BoxShadowPreDisplayItem>::Exact(_) => { }, }
 }
 /// Copies the object
-#[no_mangle] #[inline] pub extern "C" fn az_box_shadow_pre_display_item_value_deep_copy(object: &AzBoxShadowPreDisplayItemValue) -> AzBoxShadowPreDisplayItemValue { object.clone() }
+#[no_mangle] #[inline] pub extern "C" fn az_box_shadow_pre_display_item_value_deep_copy(object: &AzBoxShadowPreDisplayItemValue) -> AzBoxShadowPreDisplayItemValue { AzBoxShadowPreDisplayItemValue{ object: object.object.clone() } }
 
 /// Re-export of rust-allocated (stack based) `LayoutAlignContentValue` struct
-pub type AzLayoutAlignContentValueType = azul_css::CssPropertyValue::<LayoutAlignContent>;
-#[no_mangle] pub use AzLayoutAlignContentValueType as AzLayoutAlignContentValue;
-#[inline] #[no_mangle] pub extern "C" fn az_layout_align_content_value_auto() -> AzLayoutAlignContentValue { AzLayoutAlignContentValue::Auto }
-#[inline] #[no_mangle] pub extern "C" fn az_layout_align_content_value_none() -> AzLayoutAlignContentValue { AzLayoutAlignContentValue::None }
-#[inline] #[no_mangle] pub extern "C" fn az_layout_align_content_value_inherit() -> AzLayoutAlignContentValue { AzLayoutAlignContentValue::Inherit }
-#[inline] #[no_mangle] pub extern "C" fn az_layout_align_content_value_initial() -> AzLayoutAlignContentValue { AzLayoutAlignContentValue::Initial }
-#[inline] #[no_mangle] pub extern "C" fn az_layout_align_content_value_exact(variant_data: AzLayoutAlignContentPtr) -> AzLayoutAlignContentValue { AzLayoutAlignContentValue::Exact(*az_layout_align_content_downcast(variant_data)) }
+#[no_mangle] #[repr(C)] pub struct AzLayoutAlignContentValue { object: azul_css::CssPropertyValue::<LayoutAlignContent> }
+#[inline] #[no_mangle] pub extern "C" fn az_layout_align_content_value_auto() -> AzLayoutAlignContentValue { AzLayoutAlignContentValue { object: azul_css::CssPropertyValue::<LayoutAlignContent>::Auto } }
+#[inline] #[no_mangle] pub extern "C" fn az_layout_align_content_value_none() -> AzLayoutAlignContentValue { AzLayoutAlignContentValue { object: azul_css::CssPropertyValue::<LayoutAlignContent>::None } }
+#[inline] #[no_mangle] pub extern "C" fn az_layout_align_content_value_inherit() -> AzLayoutAlignContentValue { AzLayoutAlignContentValue { object: azul_css::CssPropertyValue::<LayoutAlignContent>::Inherit } }
+#[inline] #[no_mangle] pub extern "C" fn az_layout_align_content_value_initial() -> AzLayoutAlignContentValue { AzLayoutAlignContentValue { object: azul_css::CssPropertyValue::<LayoutAlignContent>::Initial } }
+#[inline] #[no_mangle] pub extern "C" fn az_layout_align_content_value_exact(variant_data: AzLayoutAlignContentPtr) -> AzLayoutAlignContentValue { AzLayoutAlignContentValue { object: azul_css::CssPropertyValue::<LayoutAlignContent>::Exact(*az_layout_align_content_downcast(variant_data)) } }
 /// Destructor: Takes ownership of the `LayoutAlignContentValue` pointer and deletes it.
-#[no_mangle] #[inline] #[allow(unused_variables)] pub extern "C" fn az_layout_align_content_value_delete(object: &mut AzLayoutAlignContentValue) { match object { AzLayoutAlignContentValue::Auto => { }, AzLayoutAlignContentValue::None => { }, AzLayoutAlignContentValue::Inherit => { }, AzLayoutAlignContentValue::Initial => { }, AzLayoutAlignContentValue::Exact(_) => { }, }
+#[no_mangle] #[inline] #[allow(unused_variables)] pub extern "C" fn az_layout_align_content_value_delete(object: &mut AzLayoutAlignContentValue) { match object.object { azul_css::CssPropertyValue::<LayoutAlignContent>::Auto => { }, azul_css::CssPropertyValue::<LayoutAlignContent>::None => { }, azul_css::CssPropertyValue::<LayoutAlignContent>::Inherit => { }, azul_css::CssPropertyValue::<LayoutAlignContent>::Initial => { }, azul_css::CssPropertyValue::<LayoutAlignContent>::Exact(_) => { }, }
 }
 /// Copies the object
-#[no_mangle] #[inline] pub extern "C" fn az_layout_align_content_value_deep_copy(object: &AzLayoutAlignContentValue) -> AzLayoutAlignContentValue { object.clone() }
+#[no_mangle] #[inline] pub extern "C" fn az_layout_align_content_value_deep_copy(object: &AzLayoutAlignContentValue) -> AzLayoutAlignContentValue { AzLayoutAlignContentValue{ object: object.object.clone() } }
 
 /// Re-export of rust-allocated (stack based) `LayoutAlignItemsValue` struct
-pub type AzLayoutAlignItemsValueType = azul_css::CssPropertyValue::<LayoutAlignItems>;
-#[no_mangle] pub use AzLayoutAlignItemsValueType as AzLayoutAlignItemsValue;
-#[inline] #[no_mangle] pub extern "C" fn az_layout_align_items_value_auto() -> AzLayoutAlignItemsValue { AzLayoutAlignItemsValue::Auto }
-#[inline] #[no_mangle] pub extern "C" fn az_layout_align_items_value_none() -> AzLayoutAlignItemsValue { AzLayoutAlignItemsValue::None }
-#[inline] #[no_mangle] pub extern "C" fn az_layout_align_items_value_inherit() -> AzLayoutAlignItemsValue { AzLayoutAlignItemsValue::Inherit }
-#[inline] #[no_mangle] pub extern "C" fn az_layout_align_items_value_initial() -> AzLayoutAlignItemsValue { AzLayoutAlignItemsValue::Initial }
-#[inline] #[no_mangle] pub extern "C" fn az_layout_align_items_value_exact(variant_data: AzLayoutAlignItemsPtr) -> AzLayoutAlignItemsValue { AzLayoutAlignItemsValue::Exact(*az_layout_align_items_downcast(variant_data)) }
+#[no_mangle] #[repr(C)] pub struct AzLayoutAlignItemsValue { object: azul_css::CssPropertyValue::<LayoutAlignItems> }
+#[inline] #[no_mangle] pub extern "C" fn az_layout_align_items_value_auto() -> AzLayoutAlignItemsValue { AzLayoutAlignItemsValue { object: azul_css::CssPropertyValue::<LayoutAlignItems>::Auto } }
+#[inline] #[no_mangle] pub extern "C" fn az_layout_align_items_value_none() -> AzLayoutAlignItemsValue { AzLayoutAlignItemsValue { object: azul_css::CssPropertyValue::<LayoutAlignItems>::None } }
+#[inline] #[no_mangle] pub extern "C" fn az_layout_align_items_value_inherit() -> AzLayoutAlignItemsValue { AzLayoutAlignItemsValue { object: azul_css::CssPropertyValue::<LayoutAlignItems>::Inherit } }
+#[inline] #[no_mangle] pub extern "C" fn az_layout_align_items_value_initial() -> AzLayoutAlignItemsValue { AzLayoutAlignItemsValue { object: azul_css::CssPropertyValue::<LayoutAlignItems>::Initial } }
+#[inline] #[no_mangle] pub extern "C" fn az_layout_align_items_value_exact(variant_data: AzLayoutAlignItemsPtr) -> AzLayoutAlignItemsValue { AzLayoutAlignItemsValue { object: azul_css::CssPropertyValue::<LayoutAlignItems>::Exact(*az_layout_align_items_downcast(variant_data)) } }
 /// Destructor: Takes ownership of the `LayoutAlignItemsValue` pointer and deletes it.
-#[no_mangle] #[inline] #[allow(unused_variables)] pub extern "C" fn az_layout_align_items_value_delete(object: &mut AzLayoutAlignItemsValue) { match object { AzLayoutAlignItemsValue::Auto => { }, AzLayoutAlignItemsValue::None => { }, AzLayoutAlignItemsValue::Inherit => { }, AzLayoutAlignItemsValue::Initial => { }, AzLayoutAlignItemsValue::Exact(_) => { }, }
+#[no_mangle] #[inline] #[allow(unused_variables)] pub extern "C" fn az_layout_align_items_value_delete(object: &mut AzLayoutAlignItemsValue) { match object.object { azul_css::CssPropertyValue::<LayoutAlignItems>::Auto => { }, azul_css::CssPropertyValue::<LayoutAlignItems>::None => { }, azul_css::CssPropertyValue::<LayoutAlignItems>::Inherit => { }, azul_css::CssPropertyValue::<LayoutAlignItems>::Initial => { }, azul_css::CssPropertyValue::<LayoutAlignItems>::Exact(_) => { }, }
 }
 /// Copies the object
-#[no_mangle] #[inline] pub extern "C" fn az_layout_align_items_value_deep_copy(object: &AzLayoutAlignItemsValue) -> AzLayoutAlignItemsValue { object.clone() }
+#[no_mangle] #[inline] pub extern "C" fn az_layout_align_items_value_deep_copy(object: &AzLayoutAlignItemsValue) -> AzLayoutAlignItemsValue { AzLayoutAlignItemsValue{ object: object.object.clone() } }
 
 /// Re-export of rust-allocated (stack based) `LayoutBottomValue` struct
-pub type AzLayoutBottomValueType = azul_css::CssPropertyValue::<LayoutBottom>;
-#[no_mangle] pub use AzLayoutBottomValueType as AzLayoutBottomValue;
-#[inline] #[no_mangle] pub extern "C" fn az_layout_bottom_value_auto() -> AzLayoutBottomValue { AzLayoutBottomValue::Auto }
-#[inline] #[no_mangle] pub extern "C" fn az_layout_bottom_value_none() -> AzLayoutBottomValue { AzLayoutBottomValue::None }
-#[inline] #[no_mangle] pub extern "C" fn az_layout_bottom_value_inherit() -> AzLayoutBottomValue { AzLayoutBottomValue::Inherit }
-#[inline] #[no_mangle] pub extern "C" fn az_layout_bottom_value_initial() -> AzLayoutBottomValue { AzLayoutBottomValue::Initial }
-#[inline] #[no_mangle] pub extern "C" fn az_layout_bottom_value_exact(variant_data: AzLayoutBottomPtr) -> AzLayoutBottomValue { AzLayoutBottomValue::Exact(*az_layout_bottom_downcast(variant_data)) }
+#[no_mangle] #[repr(C)] pub struct AzLayoutBottomValue { object: azul_css::CssPropertyValue::<LayoutBottom> }
+#[inline] #[no_mangle] pub extern "C" fn az_layout_bottom_value_auto() -> AzLayoutBottomValue { AzLayoutBottomValue { object: azul_css::CssPropertyValue::<LayoutBottom>::Auto } }
+#[inline] #[no_mangle] pub extern "C" fn az_layout_bottom_value_none() -> AzLayoutBottomValue { AzLayoutBottomValue { object: azul_css::CssPropertyValue::<LayoutBottom>::None } }
+#[inline] #[no_mangle] pub extern "C" fn az_layout_bottom_value_inherit() -> AzLayoutBottomValue { AzLayoutBottomValue { object: azul_css::CssPropertyValue::<LayoutBottom>::Inherit } }
+#[inline] #[no_mangle] pub extern "C" fn az_layout_bottom_value_initial() -> AzLayoutBottomValue { AzLayoutBottomValue { object: azul_css::CssPropertyValue::<LayoutBottom>::Initial } }
+#[inline] #[no_mangle] pub extern "C" fn az_layout_bottom_value_exact(variant_data: AzLayoutBottomPtr) -> AzLayoutBottomValue { AzLayoutBottomValue { object: azul_css::CssPropertyValue::<LayoutBottom>::Exact(*az_layout_bottom_downcast(variant_data)) } }
 /// Destructor: Takes ownership of the `LayoutBottomValue` pointer and deletes it.
-#[no_mangle] #[inline] #[allow(unused_variables)] pub extern "C" fn az_layout_bottom_value_delete(object: &mut AzLayoutBottomValue) { match object { AzLayoutBottomValue::Auto => { }, AzLayoutBottomValue::None => { }, AzLayoutBottomValue::Inherit => { }, AzLayoutBottomValue::Initial => { }, AzLayoutBottomValue::Exact(_) => { }, }
+#[no_mangle] #[inline] #[allow(unused_variables)] pub extern "C" fn az_layout_bottom_value_delete(object: &mut AzLayoutBottomValue) { match object.object { azul_css::CssPropertyValue::<LayoutBottom>::Auto => { }, azul_css::CssPropertyValue::<LayoutBottom>::None => { }, azul_css::CssPropertyValue::<LayoutBottom>::Inherit => { }, azul_css::CssPropertyValue::<LayoutBottom>::Initial => { }, azul_css::CssPropertyValue::<LayoutBottom>::Exact(_) => { }, }
 }
 /// Copies the object
-#[no_mangle] #[inline] pub extern "C" fn az_layout_bottom_value_deep_copy(object: &AzLayoutBottomValue) -> AzLayoutBottomValue { object.clone() }
+#[no_mangle] #[inline] pub extern "C" fn az_layout_bottom_value_deep_copy(object: &AzLayoutBottomValue) -> AzLayoutBottomValue { AzLayoutBottomValue{ object: object.object.clone() } }
 
 /// Re-export of rust-allocated (stack based) `LayoutBoxSizingValue` struct
-pub type AzLayoutBoxSizingValueType = azul_css::CssPropertyValue::<LayoutBoxSizing>;
-#[no_mangle] pub use AzLayoutBoxSizingValueType as AzLayoutBoxSizingValue;
-#[inline] #[no_mangle] pub extern "C" fn az_layout_box_sizing_value_auto() -> AzLayoutBoxSizingValue { AzLayoutBoxSizingValue::Auto }
-#[inline] #[no_mangle] pub extern "C" fn az_layout_box_sizing_value_none() -> AzLayoutBoxSizingValue { AzLayoutBoxSizingValue::None }
-#[inline] #[no_mangle] pub extern "C" fn az_layout_box_sizing_value_inherit() -> AzLayoutBoxSizingValue { AzLayoutBoxSizingValue::Inherit }
-#[inline] #[no_mangle] pub extern "C" fn az_layout_box_sizing_value_initial() -> AzLayoutBoxSizingValue { AzLayoutBoxSizingValue::Initial }
-#[inline] #[no_mangle] pub extern "C" fn az_layout_box_sizing_value_exact(variant_data: AzLayoutBoxSizingPtr) -> AzLayoutBoxSizingValue { AzLayoutBoxSizingValue::Exact(*az_layout_box_sizing_downcast(variant_data)) }
+#[no_mangle] #[repr(C)] pub struct AzLayoutBoxSizingValue { object: azul_css::CssPropertyValue::<LayoutBoxSizing> }
+#[inline] #[no_mangle] pub extern "C" fn az_layout_box_sizing_value_auto() -> AzLayoutBoxSizingValue { AzLayoutBoxSizingValue { object: azul_css::CssPropertyValue::<LayoutBoxSizing>::Auto } }
+#[inline] #[no_mangle] pub extern "C" fn az_layout_box_sizing_value_none() -> AzLayoutBoxSizingValue { AzLayoutBoxSizingValue { object: azul_css::CssPropertyValue::<LayoutBoxSizing>::None } }
+#[inline] #[no_mangle] pub extern "C" fn az_layout_box_sizing_value_inherit() -> AzLayoutBoxSizingValue { AzLayoutBoxSizingValue { object: azul_css::CssPropertyValue::<LayoutBoxSizing>::Inherit } }
+#[inline] #[no_mangle] pub extern "C" fn az_layout_box_sizing_value_initial() -> AzLayoutBoxSizingValue { AzLayoutBoxSizingValue { object: azul_css::CssPropertyValue::<LayoutBoxSizing>::Initial } }
+#[inline] #[no_mangle] pub extern "C" fn az_layout_box_sizing_value_exact(variant_data: AzLayoutBoxSizingPtr) -> AzLayoutBoxSizingValue { AzLayoutBoxSizingValue { object: azul_css::CssPropertyValue::<LayoutBoxSizing>::Exact(*az_layout_box_sizing_downcast(variant_data)) } }
 /// Destructor: Takes ownership of the `LayoutBoxSizingValue` pointer and deletes it.
-#[no_mangle] #[inline] #[allow(unused_variables)] pub extern "C" fn az_layout_box_sizing_value_delete(object: &mut AzLayoutBoxSizingValue) { match object { AzLayoutBoxSizingValue::Auto => { }, AzLayoutBoxSizingValue::None => { }, AzLayoutBoxSizingValue::Inherit => { }, AzLayoutBoxSizingValue::Initial => { }, AzLayoutBoxSizingValue::Exact(_) => { }, }
+#[no_mangle] #[inline] #[allow(unused_variables)] pub extern "C" fn az_layout_box_sizing_value_delete(object: &mut AzLayoutBoxSizingValue) { match object.object { azul_css::CssPropertyValue::<LayoutBoxSizing>::Auto => { }, azul_css::CssPropertyValue::<LayoutBoxSizing>::None => { }, azul_css::CssPropertyValue::<LayoutBoxSizing>::Inherit => { }, azul_css::CssPropertyValue::<LayoutBoxSizing>::Initial => { }, azul_css::CssPropertyValue::<LayoutBoxSizing>::Exact(_) => { }, }
 }
 /// Copies the object
-#[no_mangle] #[inline] pub extern "C" fn az_layout_box_sizing_value_deep_copy(object: &AzLayoutBoxSizingValue) -> AzLayoutBoxSizingValue { object.clone() }
+#[no_mangle] #[inline] pub extern "C" fn az_layout_box_sizing_value_deep_copy(object: &AzLayoutBoxSizingValue) -> AzLayoutBoxSizingValue { AzLayoutBoxSizingValue{ object: object.object.clone() } }
 
 /// Re-export of rust-allocated (stack based) `LayoutDirectionValue` struct
-pub type AzLayoutDirectionValueType = azul_css::CssPropertyValue::<LayoutDirection>;
-#[no_mangle] pub use AzLayoutDirectionValueType as AzLayoutDirectionValue;
-#[inline] #[no_mangle] pub extern "C" fn az_layout_direction_value_auto() -> AzLayoutDirectionValue { AzLayoutDirectionValue::Auto }
-#[inline] #[no_mangle] pub extern "C" fn az_layout_direction_value_none() -> AzLayoutDirectionValue { AzLayoutDirectionValue::None }
-#[inline] #[no_mangle] pub extern "C" fn az_layout_direction_value_inherit() -> AzLayoutDirectionValue { AzLayoutDirectionValue::Inherit }
-#[inline] #[no_mangle] pub extern "C" fn az_layout_direction_value_initial() -> AzLayoutDirectionValue { AzLayoutDirectionValue::Initial }
-#[inline] #[no_mangle] pub extern "C" fn az_layout_direction_value_exact(variant_data: AzLayoutDirectionPtr) -> AzLayoutDirectionValue { AzLayoutDirectionValue::Exact(*az_layout_direction_downcast(variant_data)) }
+#[no_mangle] #[repr(C)] pub struct AzLayoutDirectionValue { object: azul_css::CssPropertyValue::<LayoutDirection> }
+#[inline] #[no_mangle] pub extern "C" fn az_layout_direction_value_auto() -> AzLayoutDirectionValue { AzLayoutDirectionValue { object: azul_css::CssPropertyValue::<LayoutDirection>::Auto } }
+#[inline] #[no_mangle] pub extern "C" fn az_layout_direction_value_none() -> AzLayoutDirectionValue { AzLayoutDirectionValue { object: azul_css::CssPropertyValue::<LayoutDirection>::None } }
+#[inline] #[no_mangle] pub extern "C" fn az_layout_direction_value_inherit() -> AzLayoutDirectionValue { AzLayoutDirectionValue { object: azul_css::CssPropertyValue::<LayoutDirection>::Inherit } }
+#[inline] #[no_mangle] pub extern "C" fn az_layout_direction_value_initial() -> AzLayoutDirectionValue { AzLayoutDirectionValue { object: azul_css::CssPropertyValue::<LayoutDirection>::Initial } }
+#[inline] #[no_mangle] pub extern "C" fn az_layout_direction_value_exact(variant_data: AzLayoutDirectionPtr) -> AzLayoutDirectionValue { AzLayoutDirectionValue { object: azul_css::CssPropertyValue::<LayoutDirection>::Exact(*az_layout_direction_downcast(variant_data)) } }
 /// Destructor: Takes ownership of the `LayoutDirectionValue` pointer and deletes it.
-#[no_mangle] #[inline] #[allow(unused_variables)] pub extern "C" fn az_layout_direction_value_delete(object: &mut AzLayoutDirectionValue) { match object { AzLayoutDirectionValue::Auto => { }, AzLayoutDirectionValue::None => { }, AzLayoutDirectionValue::Inherit => { }, AzLayoutDirectionValue::Initial => { }, AzLayoutDirectionValue::Exact(_) => { }, }
+#[no_mangle] #[inline] #[allow(unused_variables)] pub extern "C" fn az_layout_direction_value_delete(object: &mut AzLayoutDirectionValue) { match object.object { azul_css::CssPropertyValue::<LayoutDirection>::Auto => { }, azul_css::CssPropertyValue::<LayoutDirection>::None => { }, azul_css::CssPropertyValue::<LayoutDirection>::Inherit => { }, azul_css::CssPropertyValue::<LayoutDirection>::Initial => { }, azul_css::CssPropertyValue::<LayoutDirection>::Exact(_) => { }, }
 }
 /// Copies the object
-#[no_mangle] #[inline] pub extern "C" fn az_layout_direction_value_deep_copy(object: &AzLayoutDirectionValue) -> AzLayoutDirectionValue { object.clone() }
+#[no_mangle] #[inline] pub extern "C" fn az_layout_direction_value_deep_copy(object: &AzLayoutDirectionValue) -> AzLayoutDirectionValue { AzLayoutDirectionValue{ object: object.object.clone() } }
 
 /// Re-export of rust-allocated (stack based) `LayoutDisplayValue` struct
-pub type AzLayoutDisplayValueType = azul_css::CssPropertyValue::<LayoutDisplay>;
-#[no_mangle] pub use AzLayoutDisplayValueType as AzLayoutDisplayValue;
-#[inline] #[no_mangle] pub extern "C" fn az_layout_display_value_auto() -> AzLayoutDisplayValue { AzLayoutDisplayValue::Auto }
-#[inline] #[no_mangle] pub extern "C" fn az_layout_display_value_none() -> AzLayoutDisplayValue { AzLayoutDisplayValue::None }
-#[inline] #[no_mangle] pub extern "C" fn az_layout_display_value_inherit() -> AzLayoutDisplayValue { AzLayoutDisplayValue::Inherit }
-#[inline] #[no_mangle] pub extern "C" fn az_layout_display_value_initial() -> AzLayoutDisplayValue { AzLayoutDisplayValue::Initial }
-#[inline] #[no_mangle] pub extern "C" fn az_layout_display_value_exact(variant_data: AzLayoutDisplayPtr) -> AzLayoutDisplayValue { AzLayoutDisplayValue::Exact(*az_layout_display_downcast(variant_data)) }
+#[no_mangle] #[repr(C)] pub struct AzLayoutDisplayValue { object: azul_css::CssPropertyValue::<LayoutDisplay> }
+#[inline] #[no_mangle] pub extern "C" fn az_layout_display_value_auto() -> AzLayoutDisplayValue { AzLayoutDisplayValue { object: azul_css::CssPropertyValue::<LayoutDisplay>::Auto } }
+#[inline] #[no_mangle] pub extern "C" fn az_layout_display_value_none() -> AzLayoutDisplayValue { AzLayoutDisplayValue { object: azul_css::CssPropertyValue::<LayoutDisplay>::None } }
+#[inline] #[no_mangle] pub extern "C" fn az_layout_display_value_inherit() -> AzLayoutDisplayValue { AzLayoutDisplayValue { object: azul_css::CssPropertyValue::<LayoutDisplay>::Inherit } }
+#[inline] #[no_mangle] pub extern "C" fn az_layout_display_value_initial() -> AzLayoutDisplayValue { AzLayoutDisplayValue { object: azul_css::CssPropertyValue::<LayoutDisplay>::Initial } }
+#[inline] #[no_mangle] pub extern "C" fn az_layout_display_value_exact(variant_data: AzLayoutDisplayPtr) -> AzLayoutDisplayValue { AzLayoutDisplayValue { object: azul_css::CssPropertyValue::<LayoutDisplay>::Exact(*az_layout_display_downcast(variant_data)) } }
 /// Destructor: Takes ownership of the `LayoutDisplayValue` pointer and deletes it.
-#[no_mangle] #[inline] #[allow(unused_variables)] pub extern "C" fn az_layout_display_value_delete(object: &mut AzLayoutDisplayValue) { match object { AzLayoutDisplayValue::Auto => { }, AzLayoutDisplayValue::None => { }, AzLayoutDisplayValue::Inherit => { }, AzLayoutDisplayValue::Initial => { }, AzLayoutDisplayValue::Exact(_) => { }, }
+#[no_mangle] #[inline] #[allow(unused_variables)] pub extern "C" fn az_layout_display_value_delete(object: &mut AzLayoutDisplayValue) { match object.object { azul_css::CssPropertyValue::<LayoutDisplay>::Auto => { }, azul_css::CssPropertyValue::<LayoutDisplay>::None => { }, azul_css::CssPropertyValue::<LayoutDisplay>::Inherit => { }, azul_css::CssPropertyValue::<LayoutDisplay>::Initial => { }, azul_css::CssPropertyValue::<LayoutDisplay>::Exact(_) => { }, }
 }
 /// Copies the object
-#[no_mangle] #[inline] pub extern "C" fn az_layout_display_value_deep_copy(object: &AzLayoutDisplayValue) -> AzLayoutDisplayValue { object.clone() }
+#[no_mangle] #[inline] pub extern "C" fn az_layout_display_value_deep_copy(object: &AzLayoutDisplayValue) -> AzLayoutDisplayValue { AzLayoutDisplayValue{ object: object.object.clone() } }
 
 /// Re-export of rust-allocated (stack based) `LayoutFlexGrowValue` struct
-pub type AzLayoutFlexGrowValueType = azul_css::CssPropertyValue::<LayoutFlexGrow>;
-#[no_mangle] pub use AzLayoutFlexGrowValueType as AzLayoutFlexGrowValue;
-#[inline] #[no_mangle] pub extern "C" fn az_layout_flex_grow_value_auto() -> AzLayoutFlexGrowValue { AzLayoutFlexGrowValue::Auto }
-#[inline] #[no_mangle] pub extern "C" fn az_layout_flex_grow_value_none() -> AzLayoutFlexGrowValue { AzLayoutFlexGrowValue::None }
-#[inline] #[no_mangle] pub extern "C" fn az_layout_flex_grow_value_inherit() -> AzLayoutFlexGrowValue { AzLayoutFlexGrowValue::Inherit }
-#[inline] #[no_mangle] pub extern "C" fn az_layout_flex_grow_value_initial() -> AzLayoutFlexGrowValue { AzLayoutFlexGrowValue::Initial }
-#[inline] #[no_mangle] pub extern "C" fn az_layout_flex_grow_value_exact(variant_data: AzLayoutFlexGrowPtr) -> AzLayoutFlexGrowValue { AzLayoutFlexGrowValue::Exact(*az_layout_flex_grow_downcast(variant_data)) }
+#[no_mangle] #[repr(C)] pub struct AzLayoutFlexGrowValue { object: azul_css::CssPropertyValue::<LayoutFlexGrow> }
+#[inline] #[no_mangle] pub extern "C" fn az_layout_flex_grow_value_auto() -> AzLayoutFlexGrowValue { AzLayoutFlexGrowValue { object: azul_css::CssPropertyValue::<LayoutFlexGrow>::Auto } }
+#[inline] #[no_mangle] pub extern "C" fn az_layout_flex_grow_value_none() -> AzLayoutFlexGrowValue { AzLayoutFlexGrowValue { object: azul_css::CssPropertyValue::<LayoutFlexGrow>::None } }
+#[inline] #[no_mangle] pub extern "C" fn az_layout_flex_grow_value_inherit() -> AzLayoutFlexGrowValue { AzLayoutFlexGrowValue { object: azul_css::CssPropertyValue::<LayoutFlexGrow>::Inherit } }
+#[inline] #[no_mangle] pub extern "C" fn az_layout_flex_grow_value_initial() -> AzLayoutFlexGrowValue { AzLayoutFlexGrowValue { object: azul_css::CssPropertyValue::<LayoutFlexGrow>::Initial } }
+#[inline] #[no_mangle] pub extern "C" fn az_layout_flex_grow_value_exact(variant_data: AzLayoutFlexGrowPtr) -> AzLayoutFlexGrowValue { AzLayoutFlexGrowValue { object: azul_css::CssPropertyValue::<LayoutFlexGrow>::Exact(*az_layout_flex_grow_downcast(variant_data)) } }
 /// Destructor: Takes ownership of the `LayoutFlexGrowValue` pointer and deletes it.
-#[no_mangle] #[inline] #[allow(unused_variables)] pub extern "C" fn az_layout_flex_grow_value_delete(object: &mut AzLayoutFlexGrowValue) { match object { AzLayoutFlexGrowValue::Auto => { }, AzLayoutFlexGrowValue::None => { }, AzLayoutFlexGrowValue::Inherit => { }, AzLayoutFlexGrowValue::Initial => { }, AzLayoutFlexGrowValue::Exact(_) => { }, }
+#[no_mangle] #[inline] #[allow(unused_variables)] pub extern "C" fn az_layout_flex_grow_value_delete(object: &mut AzLayoutFlexGrowValue) { match object.object { azul_css::CssPropertyValue::<LayoutFlexGrow>::Auto => { }, azul_css::CssPropertyValue::<LayoutFlexGrow>::None => { }, azul_css::CssPropertyValue::<LayoutFlexGrow>::Inherit => { }, azul_css::CssPropertyValue::<LayoutFlexGrow>::Initial => { }, azul_css::CssPropertyValue::<LayoutFlexGrow>::Exact(_) => { }, }
 }
 /// Copies the object
-#[no_mangle] #[inline] pub extern "C" fn az_layout_flex_grow_value_deep_copy(object: &AzLayoutFlexGrowValue) -> AzLayoutFlexGrowValue { object.clone() }
+#[no_mangle] #[inline] pub extern "C" fn az_layout_flex_grow_value_deep_copy(object: &AzLayoutFlexGrowValue) -> AzLayoutFlexGrowValue { AzLayoutFlexGrowValue{ object: object.object.clone() } }
 
 /// Re-export of rust-allocated (stack based) `LayoutFlexShrinkValue` struct
-pub type AzLayoutFlexShrinkValueType = azul_css::CssPropertyValue::<LayoutFlexShrink>;
-#[no_mangle] pub use AzLayoutFlexShrinkValueType as AzLayoutFlexShrinkValue;
-#[inline] #[no_mangle] pub extern "C" fn az_layout_flex_shrink_value_auto() -> AzLayoutFlexShrinkValue { AzLayoutFlexShrinkValue::Auto }
-#[inline] #[no_mangle] pub extern "C" fn az_layout_flex_shrink_value_none() -> AzLayoutFlexShrinkValue { AzLayoutFlexShrinkValue::None }
-#[inline] #[no_mangle] pub extern "C" fn az_layout_flex_shrink_value_inherit() -> AzLayoutFlexShrinkValue { AzLayoutFlexShrinkValue::Inherit }
-#[inline] #[no_mangle] pub extern "C" fn az_layout_flex_shrink_value_initial() -> AzLayoutFlexShrinkValue { AzLayoutFlexShrinkValue::Initial }
-#[inline] #[no_mangle] pub extern "C" fn az_layout_flex_shrink_value_exact(variant_data: AzLayoutFlexShrinkPtr) -> AzLayoutFlexShrinkValue { AzLayoutFlexShrinkValue::Exact(*az_layout_flex_shrink_downcast(variant_data)) }
+#[no_mangle] #[repr(C)] pub struct AzLayoutFlexShrinkValue { object: azul_css::CssPropertyValue::<LayoutFlexShrink> }
+#[inline] #[no_mangle] pub extern "C" fn az_layout_flex_shrink_value_auto() -> AzLayoutFlexShrinkValue { AzLayoutFlexShrinkValue { object: azul_css::CssPropertyValue::<LayoutFlexShrink>::Auto } }
+#[inline] #[no_mangle] pub extern "C" fn az_layout_flex_shrink_value_none() -> AzLayoutFlexShrinkValue { AzLayoutFlexShrinkValue { object: azul_css::CssPropertyValue::<LayoutFlexShrink>::None } }
+#[inline] #[no_mangle] pub extern "C" fn az_layout_flex_shrink_value_inherit() -> AzLayoutFlexShrinkValue { AzLayoutFlexShrinkValue { object: azul_css::CssPropertyValue::<LayoutFlexShrink>::Inherit } }
+#[inline] #[no_mangle] pub extern "C" fn az_layout_flex_shrink_value_initial() -> AzLayoutFlexShrinkValue { AzLayoutFlexShrinkValue { object: azul_css::CssPropertyValue::<LayoutFlexShrink>::Initial } }
+#[inline] #[no_mangle] pub extern "C" fn az_layout_flex_shrink_value_exact(variant_data: AzLayoutFlexShrinkPtr) -> AzLayoutFlexShrinkValue { AzLayoutFlexShrinkValue { object: azul_css::CssPropertyValue::<LayoutFlexShrink>::Exact(*az_layout_flex_shrink_downcast(variant_data)) } }
 /// Destructor: Takes ownership of the `LayoutFlexShrinkValue` pointer and deletes it.
-#[no_mangle] #[inline] #[allow(unused_variables)] pub extern "C" fn az_layout_flex_shrink_value_delete(object: &mut AzLayoutFlexShrinkValue) { match object { AzLayoutFlexShrinkValue::Auto => { }, AzLayoutFlexShrinkValue::None => { }, AzLayoutFlexShrinkValue::Inherit => { }, AzLayoutFlexShrinkValue::Initial => { }, AzLayoutFlexShrinkValue::Exact(_) => { }, }
+#[no_mangle] #[inline] #[allow(unused_variables)] pub extern "C" fn az_layout_flex_shrink_value_delete(object: &mut AzLayoutFlexShrinkValue) { match object.object { azul_css::CssPropertyValue::<LayoutFlexShrink>::Auto => { }, azul_css::CssPropertyValue::<LayoutFlexShrink>::None => { }, azul_css::CssPropertyValue::<LayoutFlexShrink>::Inherit => { }, azul_css::CssPropertyValue::<LayoutFlexShrink>::Initial => { }, azul_css::CssPropertyValue::<LayoutFlexShrink>::Exact(_) => { }, }
 }
 /// Copies the object
-#[no_mangle] #[inline] pub extern "C" fn az_layout_flex_shrink_value_deep_copy(object: &AzLayoutFlexShrinkValue) -> AzLayoutFlexShrinkValue { object.clone() }
+#[no_mangle] #[inline] pub extern "C" fn az_layout_flex_shrink_value_deep_copy(object: &AzLayoutFlexShrinkValue) -> AzLayoutFlexShrinkValue { AzLayoutFlexShrinkValue{ object: object.object.clone() } }
 
 /// Re-export of rust-allocated (stack based) `LayoutFloatValue` struct
-pub type AzLayoutFloatValueType = azul_css::CssPropertyValue::<LayoutFloat>;
-#[no_mangle] pub use AzLayoutFloatValueType as AzLayoutFloatValue;
-#[inline] #[no_mangle] pub extern "C" fn az_layout_float_value_auto() -> AzLayoutFloatValue { AzLayoutFloatValue::Auto }
-#[inline] #[no_mangle] pub extern "C" fn az_layout_float_value_none() -> AzLayoutFloatValue { AzLayoutFloatValue::None }
-#[inline] #[no_mangle] pub extern "C" fn az_layout_float_value_inherit() -> AzLayoutFloatValue { AzLayoutFloatValue::Inherit }
-#[inline] #[no_mangle] pub extern "C" fn az_layout_float_value_initial() -> AzLayoutFloatValue { AzLayoutFloatValue::Initial }
-#[inline] #[no_mangle] pub extern "C" fn az_layout_float_value_exact(variant_data: AzLayoutFloatPtr) -> AzLayoutFloatValue { AzLayoutFloatValue::Exact(*az_layout_float_downcast(variant_data)) }
+#[no_mangle] #[repr(C)] pub struct AzLayoutFloatValue { object: azul_css::CssPropertyValue::<LayoutFloat> }
+#[inline] #[no_mangle] pub extern "C" fn az_layout_float_value_auto() -> AzLayoutFloatValue { AzLayoutFloatValue { object: azul_css::CssPropertyValue::<LayoutFloat>::Auto } }
+#[inline] #[no_mangle] pub extern "C" fn az_layout_float_value_none() -> AzLayoutFloatValue { AzLayoutFloatValue { object: azul_css::CssPropertyValue::<LayoutFloat>::None } }
+#[inline] #[no_mangle] pub extern "C" fn az_layout_float_value_inherit() -> AzLayoutFloatValue { AzLayoutFloatValue { object: azul_css::CssPropertyValue::<LayoutFloat>::Inherit } }
+#[inline] #[no_mangle] pub extern "C" fn az_layout_float_value_initial() -> AzLayoutFloatValue { AzLayoutFloatValue { object: azul_css::CssPropertyValue::<LayoutFloat>::Initial } }
+#[inline] #[no_mangle] pub extern "C" fn az_layout_float_value_exact(variant_data: AzLayoutFloatPtr) -> AzLayoutFloatValue { AzLayoutFloatValue { object: azul_css::CssPropertyValue::<LayoutFloat>::Exact(*az_layout_float_downcast(variant_data)) } }
 /// Destructor: Takes ownership of the `LayoutFloatValue` pointer and deletes it.
-#[no_mangle] #[inline] #[allow(unused_variables)] pub extern "C" fn az_layout_float_value_delete(object: &mut AzLayoutFloatValue) { match object { AzLayoutFloatValue::Auto => { }, AzLayoutFloatValue::None => { }, AzLayoutFloatValue::Inherit => { }, AzLayoutFloatValue::Initial => { }, AzLayoutFloatValue::Exact(_) => { }, }
+#[no_mangle] #[inline] #[allow(unused_variables)] pub extern "C" fn az_layout_float_value_delete(object: &mut AzLayoutFloatValue) { match object.object { azul_css::CssPropertyValue::<LayoutFloat>::Auto => { }, azul_css::CssPropertyValue::<LayoutFloat>::None => { }, azul_css::CssPropertyValue::<LayoutFloat>::Inherit => { }, azul_css::CssPropertyValue::<LayoutFloat>::Initial => { }, azul_css::CssPropertyValue::<LayoutFloat>::Exact(_) => { }, }
 }
 /// Copies the object
-#[no_mangle] #[inline] pub extern "C" fn az_layout_float_value_deep_copy(object: &AzLayoutFloatValue) -> AzLayoutFloatValue { object.clone() }
+#[no_mangle] #[inline] pub extern "C" fn az_layout_float_value_deep_copy(object: &AzLayoutFloatValue) -> AzLayoutFloatValue { AzLayoutFloatValue{ object: object.object.clone() } }
 
 /// Re-export of rust-allocated (stack based) `LayoutHeightValue` struct
-pub type AzLayoutHeightValueType = azul_css::CssPropertyValue::<LayoutHeight>;
-#[no_mangle] pub use AzLayoutHeightValueType as AzLayoutHeightValue;
-#[inline] #[no_mangle] pub extern "C" fn az_layout_height_value_auto() -> AzLayoutHeightValue { AzLayoutHeightValue::Auto }
-#[inline] #[no_mangle] pub extern "C" fn az_layout_height_value_none() -> AzLayoutHeightValue { AzLayoutHeightValue::None }
-#[inline] #[no_mangle] pub extern "C" fn az_layout_height_value_inherit() -> AzLayoutHeightValue { AzLayoutHeightValue::Inherit }
-#[inline] #[no_mangle] pub extern "C" fn az_layout_height_value_initial() -> AzLayoutHeightValue { AzLayoutHeightValue::Initial }
-#[inline] #[no_mangle] pub extern "C" fn az_layout_height_value_exact(variant_data: AzLayoutHeightPtr) -> AzLayoutHeightValue { AzLayoutHeightValue::Exact(*az_layout_height_downcast(variant_data)) }
+#[no_mangle] #[repr(C)] pub struct AzLayoutHeightValue { object: azul_css::CssPropertyValue::<LayoutHeight> }
+#[inline] #[no_mangle] pub extern "C" fn az_layout_height_value_auto() -> AzLayoutHeightValue { AzLayoutHeightValue { object: azul_css::CssPropertyValue::<LayoutHeight>::Auto } }
+#[inline] #[no_mangle] pub extern "C" fn az_layout_height_value_none() -> AzLayoutHeightValue { AzLayoutHeightValue { object: azul_css::CssPropertyValue::<LayoutHeight>::None } }
+#[inline] #[no_mangle] pub extern "C" fn az_layout_height_value_inherit() -> AzLayoutHeightValue { AzLayoutHeightValue { object: azul_css::CssPropertyValue::<LayoutHeight>::Inherit } }
+#[inline] #[no_mangle] pub extern "C" fn az_layout_height_value_initial() -> AzLayoutHeightValue { AzLayoutHeightValue { object: azul_css::CssPropertyValue::<LayoutHeight>::Initial } }
+#[inline] #[no_mangle] pub extern "C" fn az_layout_height_value_exact(variant_data: AzLayoutHeightPtr) -> AzLayoutHeightValue { AzLayoutHeightValue { object: azul_css::CssPropertyValue::<LayoutHeight>::Exact(*az_layout_height_downcast(variant_data)) } }
 /// Destructor: Takes ownership of the `LayoutHeightValue` pointer and deletes it.
-#[no_mangle] #[inline] #[allow(unused_variables)] pub extern "C" fn az_layout_height_value_delete(object: &mut AzLayoutHeightValue) { match object { AzLayoutHeightValue::Auto => { }, AzLayoutHeightValue::None => { }, AzLayoutHeightValue::Inherit => { }, AzLayoutHeightValue::Initial => { }, AzLayoutHeightValue::Exact(_) => { }, }
+#[no_mangle] #[inline] #[allow(unused_variables)] pub extern "C" fn az_layout_height_value_delete(object: &mut AzLayoutHeightValue) { match object.object { azul_css::CssPropertyValue::<LayoutHeight>::Auto => { }, azul_css::CssPropertyValue::<LayoutHeight>::None => { }, azul_css::CssPropertyValue::<LayoutHeight>::Inherit => { }, azul_css::CssPropertyValue::<LayoutHeight>::Initial => { }, azul_css::CssPropertyValue::<LayoutHeight>::Exact(_) => { }, }
 }
 /// Copies the object
-#[no_mangle] #[inline] pub extern "C" fn az_layout_height_value_deep_copy(object: &AzLayoutHeightValue) -> AzLayoutHeightValue { object.clone() }
+#[no_mangle] #[inline] pub extern "C" fn az_layout_height_value_deep_copy(object: &AzLayoutHeightValue) -> AzLayoutHeightValue { AzLayoutHeightValue{ object: object.object.clone() } }
 
 /// Re-export of rust-allocated (stack based) `LayoutJustifyContentValue` struct
-pub type AzLayoutJustifyContentValueType = azul_css::CssPropertyValue::<LayoutJustifyContent>;
-#[no_mangle] pub use AzLayoutJustifyContentValueType as AzLayoutJustifyContentValue;
-#[inline] #[no_mangle] pub extern "C" fn az_layout_justify_content_value_auto() -> AzLayoutJustifyContentValue { AzLayoutJustifyContentValue::Auto }
-#[inline] #[no_mangle] pub extern "C" fn az_layout_justify_content_value_none() -> AzLayoutJustifyContentValue { AzLayoutJustifyContentValue::None }
-#[inline] #[no_mangle] pub extern "C" fn az_layout_justify_content_value_inherit() -> AzLayoutJustifyContentValue { AzLayoutJustifyContentValue::Inherit }
-#[inline] #[no_mangle] pub extern "C" fn az_layout_justify_content_value_initial() -> AzLayoutJustifyContentValue { AzLayoutJustifyContentValue::Initial }
-#[inline] #[no_mangle] pub extern "C" fn az_layout_justify_content_value_exact(variant_data: AzLayoutJustifyContentPtr) -> AzLayoutJustifyContentValue { AzLayoutJustifyContentValue::Exact(*az_layout_justify_content_downcast(variant_data)) }
+#[no_mangle] #[repr(C)] pub struct AzLayoutJustifyContentValue { object: azul_css::CssPropertyValue::<LayoutJustifyContent> }
+#[inline] #[no_mangle] pub extern "C" fn az_layout_justify_content_value_auto() -> AzLayoutJustifyContentValue { AzLayoutJustifyContentValue { object: azul_css::CssPropertyValue::<LayoutJustifyContent>::Auto } }
+#[inline] #[no_mangle] pub extern "C" fn az_layout_justify_content_value_none() -> AzLayoutJustifyContentValue { AzLayoutJustifyContentValue { object: azul_css::CssPropertyValue::<LayoutJustifyContent>::None } }
+#[inline] #[no_mangle] pub extern "C" fn az_layout_justify_content_value_inherit() -> AzLayoutJustifyContentValue { AzLayoutJustifyContentValue { object: azul_css::CssPropertyValue::<LayoutJustifyContent>::Inherit } }
+#[inline] #[no_mangle] pub extern "C" fn az_layout_justify_content_value_initial() -> AzLayoutJustifyContentValue { AzLayoutJustifyContentValue { object: azul_css::CssPropertyValue::<LayoutJustifyContent>::Initial } }
+#[inline] #[no_mangle] pub extern "C" fn az_layout_justify_content_value_exact(variant_data: AzLayoutJustifyContentPtr) -> AzLayoutJustifyContentValue { AzLayoutJustifyContentValue { object: azul_css::CssPropertyValue::<LayoutJustifyContent>::Exact(*az_layout_justify_content_downcast(variant_data)) } }
 /// Destructor: Takes ownership of the `LayoutJustifyContentValue` pointer and deletes it.
-#[no_mangle] #[inline] #[allow(unused_variables)] pub extern "C" fn az_layout_justify_content_value_delete(object: &mut AzLayoutJustifyContentValue) { match object { AzLayoutJustifyContentValue::Auto => { }, AzLayoutJustifyContentValue::None => { }, AzLayoutJustifyContentValue::Inherit => { }, AzLayoutJustifyContentValue::Initial => { }, AzLayoutJustifyContentValue::Exact(_) => { }, }
+#[no_mangle] #[inline] #[allow(unused_variables)] pub extern "C" fn az_layout_justify_content_value_delete(object: &mut AzLayoutJustifyContentValue) { match object.object { azul_css::CssPropertyValue::<LayoutJustifyContent>::Auto => { }, azul_css::CssPropertyValue::<LayoutJustifyContent>::None => { }, azul_css::CssPropertyValue::<LayoutJustifyContent>::Inherit => { }, azul_css::CssPropertyValue::<LayoutJustifyContent>::Initial => { }, azul_css::CssPropertyValue::<LayoutJustifyContent>::Exact(_) => { }, }
 }
 /// Copies the object
-#[no_mangle] #[inline] pub extern "C" fn az_layout_justify_content_value_deep_copy(object: &AzLayoutJustifyContentValue) -> AzLayoutJustifyContentValue { object.clone() }
+#[no_mangle] #[inline] pub extern "C" fn az_layout_justify_content_value_deep_copy(object: &AzLayoutJustifyContentValue) -> AzLayoutJustifyContentValue { AzLayoutJustifyContentValue{ object: object.object.clone() } }
 
 /// Re-export of rust-allocated (stack based) `LayoutLeftValue` struct
-pub type AzLayoutLeftValueType = azul_css::CssPropertyValue::<LayoutLeft>;
-#[no_mangle] pub use AzLayoutLeftValueType as AzLayoutLeftValue;
-#[inline] #[no_mangle] pub extern "C" fn az_layout_left_value_auto() -> AzLayoutLeftValue { AzLayoutLeftValue::Auto }
-#[inline] #[no_mangle] pub extern "C" fn az_layout_left_value_none() -> AzLayoutLeftValue { AzLayoutLeftValue::None }
-#[inline] #[no_mangle] pub extern "C" fn az_layout_left_value_inherit() -> AzLayoutLeftValue { AzLayoutLeftValue::Inherit }
-#[inline] #[no_mangle] pub extern "C" fn az_layout_left_value_initial() -> AzLayoutLeftValue { AzLayoutLeftValue::Initial }
-#[inline] #[no_mangle] pub extern "C" fn az_layout_left_value_exact(variant_data: AzLayoutLeftPtr) -> AzLayoutLeftValue { AzLayoutLeftValue::Exact(*az_layout_left_downcast(variant_data)) }
+#[no_mangle] #[repr(C)] pub struct AzLayoutLeftValue { object: azul_css::CssPropertyValue::<LayoutLeft> }
+#[inline] #[no_mangle] pub extern "C" fn az_layout_left_value_auto() -> AzLayoutLeftValue { AzLayoutLeftValue { object: azul_css::CssPropertyValue::<LayoutLeft>::Auto } }
+#[inline] #[no_mangle] pub extern "C" fn az_layout_left_value_none() -> AzLayoutLeftValue { AzLayoutLeftValue { object: azul_css::CssPropertyValue::<LayoutLeft>::None } }
+#[inline] #[no_mangle] pub extern "C" fn az_layout_left_value_inherit() -> AzLayoutLeftValue { AzLayoutLeftValue { object: azul_css::CssPropertyValue::<LayoutLeft>::Inherit } }
+#[inline] #[no_mangle] pub extern "C" fn az_layout_left_value_initial() -> AzLayoutLeftValue { AzLayoutLeftValue { object: azul_css::CssPropertyValue::<LayoutLeft>::Initial } }
+#[inline] #[no_mangle] pub extern "C" fn az_layout_left_value_exact(variant_data: AzLayoutLeftPtr) -> AzLayoutLeftValue { AzLayoutLeftValue { object: azul_css::CssPropertyValue::<LayoutLeft>::Exact(*az_layout_left_downcast(variant_data)) } }
 /// Destructor: Takes ownership of the `LayoutLeftValue` pointer and deletes it.
-#[no_mangle] #[inline] #[allow(unused_variables)] pub extern "C" fn az_layout_left_value_delete(object: &mut AzLayoutLeftValue) { match object { AzLayoutLeftValue::Auto => { }, AzLayoutLeftValue::None => { }, AzLayoutLeftValue::Inherit => { }, AzLayoutLeftValue::Initial => { }, AzLayoutLeftValue::Exact(_) => { }, }
+#[no_mangle] #[inline] #[allow(unused_variables)] pub extern "C" fn az_layout_left_value_delete(object: &mut AzLayoutLeftValue) { match object.object { azul_css::CssPropertyValue::<LayoutLeft>::Auto => { }, azul_css::CssPropertyValue::<LayoutLeft>::None => { }, azul_css::CssPropertyValue::<LayoutLeft>::Inherit => { }, azul_css::CssPropertyValue::<LayoutLeft>::Initial => { }, azul_css::CssPropertyValue::<LayoutLeft>::Exact(_) => { }, }
 }
 /// Copies the object
-#[no_mangle] #[inline] pub extern "C" fn az_layout_left_value_deep_copy(object: &AzLayoutLeftValue) -> AzLayoutLeftValue { object.clone() }
+#[no_mangle] #[inline] pub extern "C" fn az_layout_left_value_deep_copy(object: &AzLayoutLeftValue) -> AzLayoutLeftValue { AzLayoutLeftValue{ object: object.object.clone() } }
 
 /// Re-export of rust-allocated (stack based) `LayoutMarginBottomValue` struct
-pub type AzLayoutMarginBottomValueType = azul_css::CssPropertyValue::<LayoutMarginBottom>;
-#[no_mangle] pub use AzLayoutMarginBottomValueType as AzLayoutMarginBottomValue;
-#[inline] #[no_mangle] pub extern "C" fn az_layout_margin_bottom_value_auto() -> AzLayoutMarginBottomValue { AzLayoutMarginBottomValue::Auto }
-#[inline] #[no_mangle] pub extern "C" fn az_layout_margin_bottom_value_none() -> AzLayoutMarginBottomValue { AzLayoutMarginBottomValue::None }
-#[inline] #[no_mangle] pub extern "C" fn az_layout_margin_bottom_value_inherit() -> AzLayoutMarginBottomValue { AzLayoutMarginBottomValue::Inherit }
-#[inline] #[no_mangle] pub extern "C" fn az_layout_margin_bottom_value_initial() -> AzLayoutMarginBottomValue { AzLayoutMarginBottomValue::Initial }
-#[inline] #[no_mangle] pub extern "C" fn az_layout_margin_bottom_value_exact(variant_data: AzLayoutMarginBottomPtr) -> AzLayoutMarginBottomValue { AzLayoutMarginBottomValue::Exact(*az_layout_margin_bottom_downcast(variant_data)) }
+#[no_mangle] #[repr(C)] pub struct AzLayoutMarginBottomValue { object: azul_css::CssPropertyValue::<LayoutMarginBottom> }
+#[inline] #[no_mangle] pub extern "C" fn az_layout_margin_bottom_value_auto() -> AzLayoutMarginBottomValue { AzLayoutMarginBottomValue { object: azul_css::CssPropertyValue::<LayoutMarginBottom>::Auto } }
+#[inline] #[no_mangle] pub extern "C" fn az_layout_margin_bottom_value_none() -> AzLayoutMarginBottomValue { AzLayoutMarginBottomValue { object: azul_css::CssPropertyValue::<LayoutMarginBottom>::None } }
+#[inline] #[no_mangle] pub extern "C" fn az_layout_margin_bottom_value_inherit() -> AzLayoutMarginBottomValue { AzLayoutMarginBottomValue { object: azul_css::CssPropertyValue::<LayoutMarginBottom>::Inherit } }
+#[inline] #[no_mangle] pub extern "C" fn az_layout_margin_bottom_value_initial() -> AzLayoutMarginBottomValue { AzLayoutMarginBottomValue { object: azul_css::CssPropertyValue::<LayoutMarginBottom>::Initial } }
+#[inline] #[no_mangle] pub extern "C" fn az_layout_margin_bottom_value_exact(variant_data: AzLayoutMarginBottomPtr) -> AzLayoutMarginBottomValue { AzLayoutMarginBottomValue { object: azul_css::CssPropertyValue::<LayoutMarginBottom>::Exact(*az_layout_margin_bottom_downcast(variant_data)) } }
 /// Destructor: Takes ownership of the `LayoutMarginBottomValue` pointer and deletes it.
-#[no_mangle] #[inline] #[allow(unused_variables)] pub extern "C" fn az_layout_margin_bottom_value_delete(object: &mut AzLayoutMarginBottomValue) { match object { AzLayoutMarginBottomValue::Auto => { }, AzLayoutMarginBottomValue::None => { }, AzLayoutMarginBottomValue::Inherit => { }, AzLayoutMarginBottomValue::Initial => { }, AzLayoutMarginBottomValue::Exact(_) => { }, }
+#[no_mangle] #[inline] #[allow(unused_variables)] pub extern "C" fn az_layout_margin_bottom_value_delete(object: &mut AzLayoutMarginBottomValue) { match object.object { azul_css::CssPropertyValue::<LayoutMarginBottom>::Auto => { }, azul_css::CssPropertyValue::<LayoutMarginBottom>::None => { }, azul_css::CssPropertyValue::<LayoutMarginBottom>::Inherit => { }, azul_css::CssPropertyValue::<LayoutMarginBottom>::Initial => { }, azul_css::CssPropertyValue::<LayoutMarginBottom>::Exact(_) => { }, }
 }
 /// Copies the object
-#[no_mangle] #[inline] pub extern "C" fn az_layout_margin_bottom_value_deep_copy(object: &AzLayoutMarginBottomValue) -> AzLayoutMarginBottomValue { object.clone() }
+#[no_mangle] #[inline] pub extern "C" fn az_layout_margin_bottom_value_deep_copy(object: &AzLayoutMarginBottomValue) -> AzLayoutMarginBottomValue { AzLayoutMarginBottomValue{ object: object.object.clone() } }
 
 /// Re-export of rust-allocated (stack based) `LayoutMarginLeftValue` struct
-pub type AzLayoutMarginLeftValueType = azul_css::CssPropertyValue::<LayoutMarginLeft>;
-#[no_mangle] pub use AzLayoutMarginLeftValueType as AzLayoutMarginLeftValue;
-#[inline] #[no_mangle] pub extern "C" fn az_layout_margin_left_value_auto() -> AzLayoutMarginLeftValue { AzLayoutMarginLeftValue::Auto }
-#[inline] #[no_mangle] pub extern "C" fn az_layout_margin_left_value_none() -> AzLayoutMarginLeftValue { AzLayoutMarginLeftValue::None }
-#[inline] #[no_mangle] pub extern "C" fn az_layout_margin_left_value_inherit() -> AzLayoutMarginLeftValue { AzLayoutMarginLeftValue::Inherit }
-#[inline] #[no_mangle] pub extern "C" fn az_layout_margin_left_value_initial() -> AzLayoutMarginLeftValue { AzLayoutMarginLeftValue::Initial }
-#[inline] #[no_mangle] pub extern "C" fn az_layout_margin_left_value_exact(variant_data: AzLayoutMarginLeftPtr) -> AzLayoutMarginLeftValue { AzLayoutMarginLeftValue::Exact(*az_layout_margin_left_downcast(variant_data)) }
+#[no_mangle] #[repr(C)] pub struct AzLayoutMarginLeftValue { object: azul_css::CssPropertyValue::<LayoutMarginLeft> }
+#[inline] #[no_mangle] pub extern "C" fn az_layout_margin_left_value_auto() -> AzLayoutMarginLeftValue { AzLayoutMarginLeftValue { object: azul_css::CssPropertyValue::<LayoutMarginLeft>::Auto } }
+#[inline] #[no_mangle] pub extern "C" fn az_layout_margin_left_value_none() -> AzLayoutMarginLeftValue { AzLayoutMarginLeftValue { object: azul_css::CssPropertyValue::<LayoutMarginLeft>::None } }
+#[inline] #[no_mangle] pub extern "C" fn az_layout_margin_left_value_inherit() -> AzLayoutMarginLeftValue { AzLayoutMarginLeftValue { object: azul_css::CssPropertyValue::<LayoutMarginLeft>::Inherit } }
+#[inline] #[no_mangle] pub extern "C" fn az_layout_margin_left_value_initial() -> AzLayoutMarginLeftValue { AzLayoutMarginLeftValue { object: azul_css::CssPropertyValue::<LayoutMarginLeft>::Initial } }
+#[inline] #[no_mangle] pub extern "C" fn az_layout_margin_left_value_exact(variant_data: AzLayoutMarginLeftPtr) -> AzLayoutMarginLeftValue { AzLayoutMarginLeftValue { object: azul_css::CssPropertyValue::<LayoutMarginLeft>::Exact(*az_layout_margin_left_downcast(variant_data)) } }
 /// Destructor: Takes ownership of the `LayoutMarginLeftValue` pointer and deletes it.
-#[no_mangle] #[inline] #[allow(unused_variables)] pub extern "C" fn az_layout_margin_left_value_delete(object: &mut AzLayoutMarginLeftValue) { match object { AzLayoutMarginLeftValue::Auto => { }, AzLayoutMarginLeftValue::None => { }, AzLayoutMarginLeftValue::Inherit => { }, AzLayoutMarginLeftValue::Initial => { }, AzLayoutMarginLeftValue::Exact(_) => { }, }
+#[no_mangle] #[inline] #[allow(unused_variables)] pub extern "C" fn az_layout_margin_left_value_delete(object: &mut AzLayoutMarginLeftValue) { match object.object { azul_css::CssPropertyValue::<LayoutMarginLeft>::Auto => { }, azul_css::CssPropertyValue::<LayoutMarginLeft>::None => { }, azul_css::CssPropertyValue::<LayoutMarginLeft>::Inherit => { }, azul_css::CssPropertyValue::<LayoutMarginLeft>::Initial => { }, azul_css::CssPropertyValue::<LayoutMarginLeft>::Exact(_) => { }, }
 }
 /// Copies the object
-#[no_mangle] #[inline] pub extern "C" fn az_layout_margin_left_value_deep_copy(object: &AzLayoutMarginLeftValue) -> AzLayoutMarginLeftValue { object.clone() }
+#[no_mangle] #[inline] pub extern "C" fn az_layout_margin_left_value_deep_copy(object: &AzLayoutMarginLeftValue) -> AzLayoutMarginLeftValue { AzLayoutMarginLeftValue{ object: object.object.clone() } }
 
 /// Re-export of rust-allocated (stack based) `LayoutMarginRightValue` struct
-pub type AzLayoutMarginRightValueType = azul_css::CssPropertyValue::<LayoutMarginRight>;
-#[no_mangle] pub use AzLayoutMarginRightValueType as AzLayoutMarginRightValue;
-#[inline] #[no_mangle] pub extern "C" fn az_layout_margin_right_value_auto() -> AzLayoutMarginRightValue { AzLayoutMarginRightValue::Auto }
-#[inline] #[no_mangle] pub extern "C" fn az_layout_margin_right_value_none() -> AzLayoutMarginRightValue { AzLayoutMarginRightValue::None }
-#[inline] #[no_mangle] pub extern "C" fn az_layout_margin_right_value_inherit() -> AzLayoutMarginRightValue { AzLayoutMarginRightValue::Inherit }
-#[inline] #[no_mangle] pub extern "C" fn az_layout_margin_right_value_initial() -> AzLayoutMarginRightValue { AzLayoutMarginRightValue::Initial }
-#[inline] #[no_mangle] pub extern "C" fn az_layout_margin_right_value_exact(variant_data: AzLayoutMarginRightPtr) -> AzLayoutMarginRightValue { AzLayoutMarginRightValue::Exact(*az_layout_margin_right_downcast(variant_data)) }
+#[no_mangle] #[repr(C)] pub struct AzLayoutMarginRightValue { object: azul_css::CssPropertyValue::<LayoutMarginRight> }
+#[inline] #[no_mangle] pub extern "C" fn az_layout_margin_right_value_auto() -> AzLayoutMarginRightValue { AzLayoutMarginRightValue { object: azul_css::CssPropertyValue::<LayoutMarginRight>::Auto } }
+#[inline] #[no_mangle] pub extern "C" fn az_layout_margin_right_value_none() -> AzLayoutMarginRightValue { AzLayoutMarginRightValue { object: azul_css::CssPropertyValue::<LayoutMarginRight>::None } }
+#[inline] #[no_mangle] pub extern "C" fn az_layout_margin_right_value_inherit() -> AzLayoutMarginRightValue { AzLayoutMarginRightValue { object: azul_css::CssPropertyValue::<LayoutMarginRight>::Inherit } }
+#[inline] #[no_mangle] pub extern "C" fn az_layout_margin_right_value_initial() -> AzLayoutMarginRightValue { AzLayoutMarginRightValue { object: azul_css::CssPropertyValue::<LayoutMarginRight>::Initial } }
+#[inline] #[no_mangle] pub extern "C" fn az_layout_margin_right_value_exact(variant_data: AzLayoutMarginRightPtr) -> AzLayoutMarginRightValue { AzLayoutMarginRightValue { object: azul_css::CssPropertyValue::<LayoutMarginRight>::Exact(*az_layout_margin_right_downcast(variant_data)) } }
 /// Destructor: Takes ownership of the `LayoutMarginRightValue` pointer and deletes it.
-#[no_mangle] #[inline] #[allow(unused_variables)] pub extern "C" fn az_layout_margin_right_value_delete(object: &mut AzLayoutMarginRightValue) { match object { AzLayoutMarginRightValue::Auto => { }, AzLayoutMarginRightValue::None => { }, AzLayoutMarginRightValue::Inherit => { }, AzLayoutMarginRightValue::Initial => { }, AzLayoutMarginRightValue::Exact(_) => { }, }
+#[no_mangle] #[inline] #[allow(unused_variables)] pub extern "C" fn az_layout_margin_right_value_delete(object: &mut AzLayoutMarginRightValue) { match object.object { azul_css::CssPropertyValue::<LayoutMarginRight>::Auto => { }, azul_css::CssPropertyValue::<LayoutMarginRight>::None => { }, azul_css::CssPropertyValue::<LayoutMarginRight>::Inherit => { }, azul_css::CssPropertyValue::<LayoutMarginRight>::Initial => { }, azul_css::CssPropertyValue::<LayoutMarginRight>::Exact(_) => { }, }
 }
 /// Copies the object
-#[no_mangle] #[inline] pub extern "C" fn az_layout_margin_right_value_deep_copy(object: &AzLayoutMarginRightValue) -> AzLayoutMarginRightValue { object.clone() }
+#[no_mangle] #[inline] pub extern "C" fn az_layout_margin_right_value_deep_copy(object: &AzLayoutMarginRightValue) -> AzLayoutMarginRightValue { AzLayoutMarginRightValue{ object: object.object.clone() } }
 
 /// Re-export of rust-allocated (stack based) `LayoutMarginTopValue` struct
-pub type AzLayoutMarginTopValueType = azul_css::CssPropertyValue::<LayoutMarginTop>;
-#[no_mangle] pub use AzLayoutMarginTopValueType as AzLayoutMarginTopValue;
-#[inline] #[no_mangle] pub extern "C" fn az_layout_margin_top_value_auto() -> AzLayoutMarginTopValue { AzLayoutMarginTopValue::Auto }
-#[inline] #[no_mangle] pub extern "C" fn az_layout_margin_top_value_none() -> AzLayoutMarginTopValue { AzLayoutMarginTopValue::None }
-#[inline] #[no_mangle] pub extern "C" fn az_layout_margin_top_value_inherit() -> AzLayoutMarginTopValue { AzLayoutMarginTopValue::Inherit }
-#[inline] #[no_mangle] pub extern "C" fn az_layout_margin_top_value_initial() -> AzLayoutMarginTopValue { AzLayoutMarginTopValue::Initial }
-#[inline] #[no_mangle] pub extern "C" fn az_layout_margin_top_value_exact(variant_data: AzLayoutMarginTopPtr) -> AzLayoutMarginTopValue { AzLayoutMarginTopValue::Exact(*az_layout_margin_top_downcast(variant_data)) }
+#[no_mangle] #[repr(C)] pub struct AzLayoutMarginTopValue { object: azul_css::CssPropertyValue::<LayoutMarginTop> }
+#[inline] #[no_mangle] pub extern "C" fn az_layout_margin_top_value_auto() -> AzLayoutMarginTopValue { AzLayoutMarginTopValue { object: azul_css::CssPropertyValue::<LayoutMarginTop>::Auto } }
+#[inline] #[no_mangle] pub extern "C" fn az_layout_margin_top_value_none() -> AzLayoutMarginTopValue { AzLayoutMarginTopValue { object: azul_css::CssPropertyValue::<LayoutMarginTop>::None } }
+#[inline] #[no_mangle] pub extern "C" fn az_layout_margin_top_value_inherit() -> AzLayoutMarginTopValue { AzLayoutMarginTopValue { object: azul_css::CssPropertyValue::<LayoutMarginTop>::Inherit } }
+#[inline] #[no_mangle] pub extern "C" fn az_layout_margin_top_value_initial() -> AzLayoutMarginTopValue { AzLayoutMarginTopValue { object: azul_css::CssPropertyValue::<LayoutMarginTop>::Initial } }
+#[inline] #[no_mangle] pub extern "C" fn az_layout_margin_top_value_exact(variant_data: AzLayoutMarginTopPtr) -> AzLayoutMarginTopValue { AzLayoutMarginTopValue { object: azul_css::CssPropertyValue::<LayoutMarginTop>::Exact(*az_layout_margin_top_downcast(variant_data)) } }
 /// Destructor: Takes ownership of the `LayoutMarginTopValue` pointer and deletes it.
-#[no_mangle] #[inline] #[allow(unused_variables)] pub extern "C" fn az_layout_margin_top_value_delete(object: &mut AzLayoutMarginTopValue) { match object { AzLayoutMarginTopValue::Auto => { }, AzLayoutMarginTopValue::None => { }, AzLayoutMarginTopValue::Inherit => { }, AzLayoutMarginTopValue::Initial => { }, AzLayoutMarginTopValue::Exact(_) => { }, }
+#[no_mangle] #[inline] #[allow(unused_variables)] pub extern "C" fn az_layout_margin_top_value_delete(object: &mut AzLayoutMarginTopValue) { match object.object { azul_css::CssPropertyValue::<LayoutMarginTop>::Auto => { }, azul_css::CssPropertyValue::<LayoutMarginTop>::None => { }, azul_css::CssPropertyValue::<LayoutMarginTop>::Inherit => { }, azul_css::CssPropertyValue::<LayoutMarginTop>::Initial => { }, azul_css::CssPropertyValue::<LayoutMarginTop>::Exact(_) => { }, }
 }
 /// Copies the object
-#[no_mangle] #[inline] pub extern "C" fn az_layout_margin_top_value_deep_copy(object: &AzLayoutMarginTopValue) -> AzLayoutMarginTopValue { object.clone() }
+#[no_mangle] #[inline] pub extern "C" fn az_layout_margin_top_value_deep_copy(object: &AzLayoutMarginTopValue) -> AzLayoutMarginTopValue { AzLayoutMarginTopValue{ object: object.object.clone() } }
 
 /// Re-export of rust-allocated (stack based) `LayoutMaxHeightValue` struct
-pub type AzLayoutMaxHeightValueType = azul_css::CssPropertyValue::<LayoutMaxHeight>;
-#[no_mangle] pub use AzLayoutMaxHeightValueType as AzLayoutMaxHeightValue;
-#[inline] #[no_mangle] pub extern "C" fn az_layout_max_height_value_auto() -> AzLayoutMaxHeightValue { AzLayoutMaxHeightValue::Auto }
-#[inline] #[no_mangle] pub extern "C" fn az_layout_max_height_value_none() -> AzLayoutMaxHeightValue { AzLayoutMaxHeightValue::None }
-#[inline] #[no_mangle] pub extern "C" fn az_layout_max_height_value_inherit() -> AzLayoutMaxHeightValue { AzLayoutMaxHeightValue::Inherit }
-#[inline] #[no_mangle] pub extern "C" fn az_layout_max_height_value_initial() -> AzLayoutMaxHeightValue { AzLayoutMaxHeightValue::Initial }
-#[inline] #[no_mangle] pub extern "C" fn az_layout_max_height_value_exact(variant_data: AzLayoutMaxHeightPtr) -> AzLayoutMaxHeightValue { AzLayoutMaxHeightValue::Exact(*az_layout_max_height_downcast(variant_data)) }
+#[no_mangle] #[repr(C)] pub struct AzLayoutMaxHeightValue { object: azul_css::CssPropertyValue::<LayoutMaxHeight> }
+#[inline] #[no_mangle] pub extern "C" fn az_layout_max_height_value_auto() -> AzLayoutMaxHeightValue { AzLayoutMaxHeightValue { object: azul_css::CssPropertyValue::<LayoutMaxHeight>::Auto } }
+#[inline] #[no_mangle] pub extern "C" fn az_layout_max_height_value_none() -> AzLayoutMaxHeightValue { AzLayoutMaxHeightValue { object: azul_css::CssPropertyValue::<LayoutMaxHeight>::None } }
+#[inline] #[no_mangle] pub extern "C" fn az_layout_max_height_value_inherit() -> AzLayoutMaxHeightValue { AzLayoutMaxHeightValue { object: azul_css::CssPropertyValue::<LayoutMaxHeight>::Inherit } }
+#[inline] #[no_mangle] pub extern "C" fn az_layout_max_height_value_initial() -> AzLayoutMaxHeightValue { AzLayoutMaxHeightValue { object: azul_css::CssPropertyValue::<LayoutMaxHeight>::Initial } }
+#[inline] #[no_mangle] pub extern "C" fn az_layout_max_height_value_exact(variant_data: AzLayoutMaxHeightPtr) -> AzLayoutMaxHeightValue { AzLayoutMaxHeightValue { object: azul_css::CssPropertyValue::<LayoutMaxHeight>::Exact(*az_layout_max_height_downcast(variant_data)) } }
 /// Destructor: Takes ownership of the `LayoutMaxHeightValue` pointer and deletes it.
-#[no_mangle] #[inline] #[allow(unused_variables)] pub extern "C" fn az_layout_max_height_value_delete(object: &mut AzLayoutMaxHeightValue) { match object { AzLayoutMaxHeightValue::Auto => { }, AzLayoutMaxHeightValue::None => { }, AzLayoutMaxHeightValue::Inherit => { }, AzLayoutMaxHeightValue::Initial => { }, AzLayoutMaxHeightValue::Exact(_) => { }, }
+#[no_mangle] #[inline] #[allow(unused_variables)] pub extern "C" fn az_layout_max_height_value_delete(object: &mut AzLayoutMaxHeightValue) { match object.object { azul_css::CssPropertyValue::<LayoutMaxHeight>::Auto => { }, azul_css::CssPropertyValue::<LayoutMaxHeight>::None => { }, azul_css::CssPropertyValue::<LayoutMaxHeight>::Inherit => { }, azul_css::CssPropertyValue::<LayoutMaxHeight>::Initial => { }, azul_css::CssPropertyValue::<LayoutMaxHeight>::Exact(_) => { }, }
 }
 /// Copies the object
-#[no_mangle] #[inline] pub extern "C" fn az_layout_max_height_value_deep_copy(object: &AzLayoutMaxHeightValue) -> AzLayoutMaxHeightValue { object.clone() }
+#[no_mangle] #[inline] pub extern "C" fn az_layout_max_height_value_deep_copy(object: &AzLayoutMaxHeightValue) -> AzLayoutMaxHeightValue { AzLayoutMaxHeightValue{ object: object.object.clone() } }
 
 /// Re-export of rust-allocated (stack based) `LayoutMaxWidthValue` struct
-pub type AzLayoutMaxWidthValueType = azul_css::CssPropertyValue::<LayoutMaxWidth>;
-#[no_mangle] pub use AzLayoutMaxWidthValueType as AzLayoutMaxWidthValue;
-#[inline] #[no_mangle] pub extern "C" fn az_layout_max_width_value_auto() -> AzLayoutMaxWidthValue { AzLayoutMaxWidthValue::Auto }
-#[inline] #[no_mangle] pub extern "C" fn az_layout_max_width_value_none() -> AzLayoutMaxWidthValue { AzLayoutMaxWidthValue::None }
-#[inline] #[no_mangle] pub extern "C" fn az_layout_max_width_value_inherit() -> AzLayoutMaxWidthValue { AzLayoutMaxWidthValue::Inherit }
-#[inline] #[no_mangle] pub extern "C" fn az_layout_max_width_value_initial() -> AzLayoutMaxWidthValue { AzLayoutMaxWidthValue::Initial }
-#[inline] #[no_mangle] pub extern "C" fn az_layout_max_width_value_exact(variant_data: AzLayoutMaxWidthPtr) -> AzLayoutMaxWidthValue { AzLayoutMaxWidthValue::Exact(*az_layout_max_width_downcast(variant_data)) }
+#[no_mangle] #[repr(C)] pub struct AzLayoutMaxWidthValue { object: azul_css::CssPropertyValue::<LayoutMaxWidth> }
+#[inline] #[no_mangle] pub extern "C" fn az_layout_max_width_value_auto() -> AzLayoutMaxWidthValue { AzLayoutMaxWidthValue { object: azul_css::CssPropertyValue::<LayoutMaxWidth>::Auto } }
+#[inline] #[no_mangle] pub extern "C" fn az_layout_max_width_value_none() -> AzLayoutMaxWidthValue { AzLayoutMaxWidthValue { object: azul_css::CssPropertyValue::<LayoutMaxWidth>::None } }
+#[inline] #[no_mangle] pub extern "C" fn az_layout_max_width_value_inherit() -> AzLayoutMaxWidthValue { AzLayoutMaxWidthValue { object: azul_css::CssPropertyValue::<LayoutMaxWidth>::Inherit } }
+#[inline] #[no_mangle] pub extern "C" fn az_layout_max_width_value_initial() -> AzLayoutMaxWidthValue { AzLayoutMaxWidthValue { object: azul_css::CssPropertyValue::<LayoutMaxWidth>::Initial } }
+#[inline] #[no_mangle] pub extern "C" fn az_layout_max_width_value_exact(variant_data: AzLayoutMaxWidthPtr) -> AzLayoutMaxWidthValue { AzLayoutMaxWidthValue { object: azul_css::CssPropertyValue::<LayoutMaxWidth>::Exact(*az_layout_max_width_downcast(variant_data)) } }
 /// Destructor: Takes ownership of the `LayoutMaxWidthValue` pointer and deletes it.
-#[no_mangle] #[inline] #[allow(unused_variables)] pub extern "C" fn az_layout_max_width_value_delete(object: &mut AzLayoutMaxWidthValue) { match object { AzLayoutMaxWidthValue::Auto => { }, AzLayoutMaxWidthValue::None => { }, AzLayoutMaxWidthValue::Inherit => { }, AzLayoutMaxWidthValue::Initial => { }, AzLayoutMaxWidthValue::Exact(_) => { }, }
+#[no_mangle] #[inline] #[allow(unused_variables)] pub extern "C" fn az_layout_max_width_value_delete(object: &mut AzLayoutMaxWidthValue) { match object.object { azul_css::CssPropertyValue::<LayoutMaxWidth>::Auto => { }, azul_css::CssPropertyValue::<LayoutMaxWidth>::None => { }, azul_css::CssPropertyValue::<LayoutMaxWidth>::Inherit => { }, azul_css::CssPropertyValue::<LayoutMaxWidth>::Initial => { }, azul_css::CssPropertyValue::<LayoutMaxWidth>::Exact(_) => { }, }
 }
 /// Copies the object
-#[no_mangle] #[inline] pub extern "C" fn az_layout_max_width_value_deep_copy(object: &AzLayoutMaxWidthValue) -> AzLayoutMaxWidthValue { object.clone() }
+#[no_mangle] #[inline] pub extern "C" fn az_layout_max_width_value_deep_copy(object: &AzLayoutMaxWidthValue) -> AzLayoutMaxWidthValue { AzLayoutMaxWidthValue{ object: object.object.clone() } }
 
 /// Re-export of rust-allocated (stack based) `LayoutMinHeightValue` struct
-pub type AzLayoutMinHeightValueType = azul_css::CssPropertyValue::<LayoutMinHeight>;
-#[no_mangle] pub use AzLayoutMinHeightValueType as AzLayoutMinHeightValue;
-#[inline] #[no_mangle] pub extern "C" fn az_layout_min_height_value_auto() -> AzLayoutMinHeightValue { AzLayoutMinHeightValue::Auto }
-#[inline] #[no_mangle] pub extern "C" fn az_layout_min_height_value_none() -> AzLayoutMinHeightValue { AzLayoutMinHeightValue::None }
-#[inline] #[no_mangle] pub extern "C" fn az_layout_min_height_value_inherit() -> AzLayoutMinHeightValue { AzLayoutMinHeightValue::Inherit }
-#[inline] #[no_mangle] pub extern "C" fn az_layout_min_height_value_initial() -> AzLayoutMinHeightValue { AzLayoutMinHeightValue::Initial }
-#[inline] #[no_mangle] pub extern "C" fn az_layout_min_height_value_exact(variant_data: AzLayoutMinHeightPtr) -> AzLayoutMinHeightValue { AzLayoutMinHeightValue::Exact(*az_layout_min_height_downcast(variant_data)) }
+#[no_mangle] #[repr(C)] pub struct AzLayoutMinHeightValue { object: azul_css::CssPropertyValue::<LayoutMinHeight> }
+#[inline] #[no_mangle] pub extern "C" fn az_layout_min_height_value_auto() -> AzLayoutMinHeightValue { AzLayoutMinHeightValue { object: azul_css::CssPropertyValue::<LayoutMinHeight>::Auto } }
+#[inline] #[no_mangle] pub extern "C" fn az_layout_min_height_value_none() -> AzLayoutMinHeightValue { AzLayoutMinHeightValue { object: azul_css::CssPropertyValue::<LayoutMinHeight>::None } }
+#[inline] #[no_mangle] pub extern "C" fn az_layout_min_height_value_inherit() -> AzLayoutMinHeightValue { AzLayoutMinHeightValue { object: azul_css::CssPropertyValue::<LayoutMinHeight>::Inherit } }
+#[inline] #[no_mangle] pub extern "C" fn az_layout_min_height_value_initial() -> AzLayoutMinHeightValue { AzLayoutMinHeightValue { object: azul_css::CssPropertyValue::<LayoutMinHeight>::Initial } }
+#[inline] #[no_mangle] pub extern "C" fn az_layout_min_height_value_exact(variant_data: AzLayoutMinHeightPtr) -> AzLayoutMinHeightValue { AzLayoutMinHeightValue { object: azul_css::CssPropertyValue::<LayoutMinHeight>::Exact(*az_layout_min_height_downcast(variant_data)) } }
 /// Destructor: Takes ownership of the `LayoutMinHeightValue` pointer and deletes it.
-#[no_mangle] #[inline] #[allow(unused_variables)] pub extern "C" fn az_layout_min_height_value_delete(object: &mut AzLayoutMinHeightValue) { match object { AzLayoutMinHeightValue::Auto => { }, AzLayoutMinHeightValue::None => { }, AzLayoutMinHeightValue::Inherit => { }, AzLayoutMinHeightValue::Initial => { }, AzLayoutMinHeightValue::Exact(_) => { }, }
+#[no_mangle] #[inline] #[allow(unused_variables)] pub extern "C" fn az_layout_min_height_value_delete(object: &mut AzLayoutMinHeightValue) { match object.object { azul_css::CssPropertyValue::<LayoutMinHeight>::Auto => { }, azul_css::CssPropertyValue::<LayoutMinHeight>::None => { }, azul_css::CssPropertyValue::<LayoutMinHeight>::Inherit => { }, azul_css::CssPropertyValue::<LayoutMinHeight>::Initial => { }, azul_css::CssPropertyValue::<LayoutMinHeight>::Exact(_) => { }, }
 }
 /// Copies the object
-#[no_mangle] #[inline] pub extern "C" fn az_layout_min_height_value_deep_copy(object: &AzLayoutMinHeightValue) -> AzLayoutMinHeightValue { object.clone() }
+#[no_mangle] #[inline] pub extern "C" fn az_layout_min_height_value_deep_copy(object: &AzLayoutMinHeightValue) -> AzLayoutMinHeightValue { AzLayoutMinHeightValue{ object: object.object.clone() } }
 
 /// Re-export of rust-allocated (stack based) `LayoutMinWidthValue` struct
-pub type AzLayoutMinWidthValueType = azul_css::CssPropertyValue::<LayoutMinWidth>;
-#[no_mangle] pub use AzLayoutMinWidthValueType as AzLayoutMinWidthValue;
-#[inline] #[no_mangle] pub extern "C" fn az_layout_min_width_value_auto() -> AzLayoutMinWidthValue { AzLayoutMinWidthValue::Auto }
-#[inline] #[no_mangle] pub extern "C" fn az_layout_min_width_value_none() -> AzLayoutMinWidthValue { AzLayoutMinWidthValue::None }
-#[inline] #[no_mangle] pub extern "C" fn az_layout_min_width_value_inherit() -> AzLayoutMinWidthValue { AzLayoutMinWidthValue::Inherit }
-#[inline] #[no_mangle] pub extern "C" fn az_layout_min_width_value_initial() -> AzLayoutMinWidthValue { AzLayoutMinWidthValue::Initial }
-#[inline] #[no_mangle] pub extern "C" fn az_layout_min_width_value_exact(variant_data: AzLayoutMinWidthPtr) -> AzLayoutMinWidthValue { AzLayoutMinWidthValue::Exact(*az_layout_min_width_downcast(variant_data)) }
+#[no_mangle] #[repr(C)] pub struct AzLayoutMinWidthValue { object: azul_css::CssPropertyValue::<LayoutMinWidth> }
+#[inline] #[no_mangle] pub extern "C" fn az_layout_min_width_value_auto() -> AzLayoutMinWidthValue { AzLayoutMinWidthValue { object: azul_css::CssPropertyValue::<LayoutMinWidth>::Auto } }
+#[inline] #[no_mangle] pub extern "C" fn az_layout_min_width_value_none() -> AzLayoutMinWidthValue { AzLayoutMinWidthValue { object: azul_css::CssPropertyValue::<LayoutMinWidth>::None } }
+#[inline] #[no_mangle] pub extern "C" fn az_layout_min_width_value_inherit() -> AzLayoutMinWidthValue { AzLayoutMinWidthValue { object: azul_css::CssPropertyValue::<LayoutMinWidth>::Inherit } }
+#[inline] #[no_mangle] pub extern "C" fn az_layout_min_width_value_initial() -> AzLayoutMinWidthValue { AzLayoutMinWidthValue { object: azul_css::CssPropertyValue::<LayoutMinWidth>::Initial } }
+#[inline] #[no_mangle] pub extern "C" fn az_layout_min_width_value_exact(variant_data: AzLayoutMinWidthPtr) -> AzLayoutMinWidthValue { AzLayoutMinWidthValue { object: azul_css::CssPropertyValue::<LayoutMinWidth>::Exact(*az_layout_min_width_downcast(variant_data)) } }
 /// Destructor: Takes ownership of the `LayoutMinWidthValue` pointer and deletes it.
-#[no_mangle] #[inline] #[allow(unused_variables)] pub extern "C" fn az_layout_min_width_value_delete(object: &mut AzLayoutMinWidthValue) { match object { AzLayoutMinWidthValue::Auto => { }, AzLayoutMinWidthValue::None => { }, AzLayoutMinWidthValue::Inherit => { }, AzLayoutMinWidthValue::Initial => { }, AzLayoutMinWidthValue::Exact(_) => { }, }
+#[no_mangle] #[inline] #[allow(unused_variables)] pub extern "C" fn az_layout_min_width_value_delete(object: &mut AzLayoutMinWidthValue) { match object.object { azul_css::CssPropertyValue::<LayoutMinWidth>::Auto => { }, azul_css::CssPropertyValue::<LayoutMinWidth>::None => { }, azul_css::CssPropertyValue::<LayoutMinWidth>::Inherit => { }, azul_css::CssPropertyValue::<LayoutMinWidth>::Initial => { }, azul_css::CssPropertyValue::<LayoutMinWidth>::Exact(_) => { }, }
 }
 /// Copies the object
-#[no_mangle] #[inline] pub extern "C" fn az_layout_min_width_value_deep_copy(object: &AzLayoutMinWidthValue) -> AzLayoutMinWidthValue { object.clone() }
+#[no_mangle] #[inline] pub extern "C" fn az_layout_min_width_value_deep_copy(object: &AzLayoutMinWidthValue) -> AzLayoutMinWidthValue { AzLayoutMinWidthValue{ object: object.object.clone() } }
 
 /// Re-export of rust-allocated (stack based) `LayoutPaddingBottomValue` struct
-pub type AzLayoutPaddingBottomValueType = azul_css::CssPropertyValue::<LayoutPaddingBottom>;
-#[no_mangle] pub use AzLayoutPaddingBottomValueType as AzLayoutPaddingBottomValue;
-#[inline] #[no_mangle] pub extern "C" fn az_layout_padding_bottom_value_auto() -> AzLayoutPaddingBottomValue { AzLayoutPaddingBottomValue::Auto }
-#[inline] #[no_mangle] pub extern "C" fn az_layout_padding_bottom_value_none() -> AzLayoutPaddingBottomValue { AzLayoutPaddingBottomValue::None }
-#[inline] #[no_mangle] pub extern "C" fn az_layout_padding_bottom_value_inherit() -> AzLayoutPaddingBottomValue { AzLayoutPaddingBottomValue::Inherit }
-#[inline] #[no_mangle] pub extern "C" fn az_layout_padding_bottom_value_initial() -> AzLayoutPaddingBottomValue { AzLayoutPaddingBottomValue::Initial }
-#[inline] #[no_mangle] pub extern "C" fn az_layout_padding_bottom_value_exact(variant_data: AzLayoutPaddingBottomPtr) -> AzLayoutPaddingBottomValue { AzLayoutPaddingBottomValue::Exact(*az_layout_padding_bottom_downcast(variant_data)) }
+#[no_mangle] #[repr(C)] pub struct AzLayoutPaddingBottomValue { object: azul_css::CssPropertyValue::<LayoutPaddingBottom> }
+#[inline] #[no_mangle] pub extern "C" fn az_layout_padding_bottom_value_auto() -> AzLayoutPaddingBottomValue { AzLayoutPaddingBottomValue { object: azul_css::CssPropertyValue::<LayoutPaddingBottom>::Auto } }
+#[inline] #[no_mangle] pub extern "C" fn az_layout_padding_bottom_value_none() -> AzLayoutPaddingBottomValue { AzLayoutPaddingBottomValue { object: azul_css::CssPropertyValue::<LayoutPaddingBottom>::None } }
+#[inline] #[no_mangle] pub extern "C" fn az_layout_padding_bottom_value_inherit() -> AzLayoutPaddingBottomValue { AzLayoutPaddingBottomValue { object: azul_css::CssPropertyValue::<LayoutPaddingBottom>::Inherit } }
+#[inline] #[no_mangle] pub extern "C" fn az_layout_padding_bottom_value_initial() -> AzLayoutPaddingBottomValue { AzLayoutPaddingBottomValue { object: azul_css::CssPropertyValue::<LayoutPaddingBottom>::Initial } }
+#[inline] #[no_mangle] pub extern "C" fn az_layout_padding_bottom_value_exact(variant_data: AzLayoutPaddingBottomPtr) -> AzLayoutPaddingBottomValue { AzLayoutPaddingBottomValue { object: azul_css::CssPropertyValue::<LayoutPaddingBottom>::Exact(*az_layout_padding_bottom_downcast(variant_data)) } }
 /// Destructor: Takes ownership of the `LayoutPaddingBottomValue` pointer and deletes it.
-#[no_mangle] #[inline] #[allow(unused_variables)] pub extern "C" fn az_layout_padding_bottom_value_delete(object: &mut AzLayoutPaddingBottomValue) { match object { AzLayoutPaddingBottomValue::Auto => { }, AzLayoutPaddingBottomValue::None => { }, AzLayoutPaddingBottomValue::Inherit => { }, AzLayoutPaddingBottomValue::Initial => { }, AzLayoutPaddingBottomValue::Exact(_) => { }, }
+#[no_mangle] #[inline] #[allow(unused_variables)] pub extern "C" fn az_layout_padding_bottom_value_delete(object: &mut AzLayoutPaddingBottomValue) { match object.object { azul_css::CssPropertyValue::<LayoutPaddingBottom>::Auto => { }, azul_css::CssPropertyValue::<LayoutPaddingBottom>::None => { }, azul_css::CssPropertyValue::<LayoutPaddingBottom>::Inherit => { }, azul_css::CssPropertyValue::<LayoutPaddingBottom>::Initial => { }, azul_css::CssPropertyValue::<LayoutPaddingBottom>::Exact(_) => { }, }
 }
 /// Copies the object
-#[no_mangle] #[inline] pub extern "C" fn az_layout_padding_bottom_value_deep_copy(object: &AzLayoutPaddingBottomValue) -> AzLayoutPaddingBottomValue { object.clone() }
+#[no_mangle] #[inline] pub extern "C" fn az_layout_padding_bottom_value_deep_copy(object: &AzLayoutPaddingBottomValue) -> AzLayoutPaddingBottomValue { AzLayoutPaddingBottomValue{ object: object.object.clone() } }
 
 /// Re-export of rust-allocated (stack based) `LayoutPaddingLeftValue` struct
-pub type AzLayoutPaddingLeftValueType = azul_css::CssPropertyValue::<LayoutPaddingLeft>;
-#[no_mangle] pub use AzLayoutPaddingLeftValueType as AzLayoutPaddingLeftValue;
-#[inline] #[no_mangle] pub extern "C" fn az_layout_padding_left_value_auto() -> AzLayoutPaddingLeftValue { AzLayoutPaddingLeftValue::Auto }
-#[inline] #[no_mangle] pub extern "C" fn az_layout_padding_left_value_none() -> AzLayoutPaddingLeftValue { AzLayoutPaddingLeftValue::None }
-#[inline] #[no_mangle] pub extern "C" fn az_layout_padding_left_value_inherit() -> AzLayoutPaddingLeftValue { AzLayoutPaddingLeftValue::Inherit }
-#[inline] #[no_mangle] pub extern "C" fn az_layout_padding_left_value_initial() -> AzLayoutPaddingLeftValue { AzLayoutPaddingLeftValue::Initial }
-#[inline] #[no_mangle] pub extern "C" fn az_layout_padding_left_value_exact(variant_data: AzLayoutPaddingLeftPtr) -> AzLayoutPaddingLeftValue { AzLayoutPaddingLeftValue::Exact(*az_layout_padding_left_downcast(variant_data)) }
+#[no_mangle] #[repr(C)] pub struct AzLayoutPaddingLeftValue { object: azul_css::CssPropertyValue::<LayoutPaddingLeft> }
+#[inline] #[no_mangle] pub extern "C" fn az_layout_padding_left_value_auto() -> AzLayoutPaddingLeftValue { AzLayoutPaddingLeftValue { object: azul_css::CssPropertyValue::<LayoutPaddingLeft>::Auto } }
+#[inline] #[no_mangle] pub extern "C" fn az_layout_padding_left_value_none() -> AzLayoutPaddingLeftValue { AzLayoutPaddingLeftValue { object: azul_css::CssPropertyValue::<LayoutPaddingLeft>::None } }
+#[inline] #[no_mangle] pub extern "C" fn az_layout_padding_left_value_inherit() -> AzLayoutPaddingLeftValue { AzLayoutPaddingLeftValue { object: azul_css::CssPropertyValue::<LayoutPaddingLeft>::Inherit } }
+#[inline] #[no_mangle] pub extern "C" fn az_layout_padding_left_value_initial() -> AzLayoutPaddingLeftValue { AzLayoutPaddingLeftValue { object: azul_css::CssPropertyValue::<LayoutPaddingLeft>::Initial } }
+#[inline] #[no_mangle] pub extern "C" fn az_layout_padding_left_value_exact(variant_data: AzLayoutPaddingLeftPtr) -> AzLayoutPaddingLeftValue { AzLayoutPaddingLeftValue { object: azul_css::CssPropertyValue::<LayoutPaddingLeft>::Exact(*az_layout_padding_left_downcast(variant_data)) } }
 /// Destructor: Takes ownership of the `LayoutPaddingLeftValue` pointer and deletes it.
-#[no_mangle] #[inline] #[allow(unused_variables)] pub extern "C" fn az_layout_padding_left_value_delete(object: &mut AzLayoutPaddingLeftValue) { match object { AzLayoutPaddingLeftValue::Auto => { }, AzLayoutPaddingLeftValue::None => { }, AzLayoutPaddingLeftValue::Inherit => { }, AzLayoutPaddingLeftValue::Initial => { }, AzLayoutPaddingLeftValue::Exact(_) => { }, }
+#[no_mangle] #[inline] #[allow(unused_variables)] pub extern "C" fn az_layout_padding_left_value_delete(object: &mut AzLayoutPaddingLeftValue) { match object.object { azul_css::CssPropertyValue::<LayoutPaddingLeft>::Auto => { }, azul_css::CssPropertyValue::<LayoutPaddingLeft>::None => { }, azul_css::CssPropertyValue::<LayoutPaddingLeft>::Inherit => { }, azul_css::CssPropertyValue::<LayoutPaddingLeft>::Initial => { }, azul_css::CssPropertyValue::<LayoutPaddingLeft>::Exact(_) => { }, }
 }
 /// Copies the object
-#[no_mangle] #[inline] pub extern "C" fn az_layout_padding_left_value_deep_copy(object: &AzLayoutPaddingLeftValue) -> AzLayoutPaddingLeftValue { object.clone() }
+#[no_mangle] #[inline] pub extern "C" fn az_layout_padding_left_value_deep_copy(object: &AzLayoutPaddingLeftValue) -> AzLayoutPaddingLeftValue { AzLayoutPaddingLeftValue{ object: object.object.clone() } }
 
 /// Re-export of rust-allocated (stack based) `LayoutPaddingRightValue` struct
-pub type AzLayoutPaddingRightValueType = azul_css::CssPropertyValue::<LayoutPaddingRight>;
-#[no_mangle] pub use AzLayoutPaddingRightValueType as AzLayoutPaddingRightValue;
-#[inline] #[no_mangle] pub extern "C" fn az_layout_padding_right_value_auto() -> AzLayoutPaddingRightValue { AzLayoutPaddingRightValue::Auto }
-#[inline] #[no_mangle] pub extern "C" fn az_layout_padding_right_value_none() -> AzLayoutPaddingRightValue { AzLayoutPaddingRightValue::None }
-#[inline] #[no_mangle] pub extern "C" fn az_layout_padding_right_value_inherit() -> AzLayoutPaddingRightValue { AzLayoutPaddingRightValue::Inherit }
-#[inline] #[no_mangle] pub extern "C" fn az_layout_padding_right_value_initial() -> AzLayoutPaddingRightValue { AzLayoutPaddingRightValue::Initial }
-#[inline] #[no_mangle] pub extern "C" fn az_layout_padding_right_value_exact(variant_data: AzLayoutPaddingRightPtr) -> AzLayoutPaddingRightValue { AzLayoutPaddingRightValue::Exact(*az_layout_padding_right_downcast(variant_data)) }
+#[no_mangle] #[repr(C)] pub struct AzLayoutPaddingRightValue { object: azul_css::CssPropertyValue::<LayoutPaddingRight> }
+#[inline] #[no_mangle] pub extern "C" fn az_layout_padding_right_value_auto() -> AzLayoutPaddingRightValue { AzLayoutPaddingRightValue { object: azul_css::CssPropertyValue::<LayoutPaddingRight>::Auto } }
+#[inline] #[no_mangle] pub extern "C" fn az_layout_padding_right_value_none() -> AzLayoutPaddingRightValue { AzLayoutPaddingRightValue { object: azul_css::CssPropertyValue::<LayoutPaddingRight>::None } }
+#[inline] #[no_mangle] pub extern "C" fn az_layout_padding_right_value_inherit() -> AzLayoutPaddingRightValue { AzLayoutPaddingRightValue { object: azul_css::CssPropertyValue::<LayoutPaddingRight>::Inherit } }
+#[inline] #[no_mangle] pub extern "C" fn az_layout_padding_right_value_initial() -> AzLayoutPaddingRightValue { AzLayoutPaddingRightValue { object: azul_css::CssPropertyValue::<LayoutPaddingRight>::Initial } }
+#[inline] #[no_mangle] pub extern "C" fn az_layout_padding_right_value_exact(variant_data: AzLayoutPaddingRightPtr) -> AzLayoutPaddingRightValue { AzLayoutPaddingRightValue { object: azul_css::CssPropertyValue::<LayoutPaddingRight>::Exact(*az_layout_padding_right_downcast(variant_data)) } }
 /// Destructor: Takes ownership of the `LayoutPaddingRightValue` pointer and deletes it.
-#[no_mangle] #[inline] #[allow(unused_variables)] pub extern "C" fn az_layout_padding_right_value_delete(object: &mut AzLayoutPaddingRightValue) { match object { AzLayoutPaddingRightValue::Auto => { }, AzLayoutPaddingRightValue::None => { }, AzLayoutPaddingRightValue::Inherit => { }, AzLayoutPaddingRightValue::Initial => { }, AzLayoutPaddingRightValue::Exact(_) => { }, }
+#[no_mangle] #[inline] #[allow(unused_variables)] pub extern "C" fn az_layout_padding_right_value_delete(object: &mut AzLayoutPaddingRightValue) { match object.object { azul_css::CssPropertyValue::<LayoutPaddingRight>::Auto => { }, azul_css::CssPropertyValue::<LayoutPaddingRight>::None => { }, azul_css::CssPropertyValue::<LayoutPaddingRight>::Inherit => { }, azul_css::CssPropertyValue::<LayoutPaddingRight>::Initial => { }, azul_css::CssPropertyValue::<LayoutPaddingRight>::Exact(_) => { }, }
 }
 /// Copies the object
-#[no_mangle] #[inline] pub extern "C" fn az_layout_padding_right_value_deep_copy(object: &AzLayoutPaddingRightValue) -> AzLayoutPaddingRightValue { object.clone() }
+#[no_mangle] #[inline] pub extern "C" fn az_layout_padding_right_value_deep_copy(object: &AzLayoutPaddingRightValue) -> AzLayoutPaddingRightValue { AzLayoutPaddingRightValue{ object: object.object.clone() } }
 
 /// Re-export of rust-allocated (stack based) `LayoutPaddingTopValue` struct
-pub type AzLayoutPaddingTopValueType = azul_css::CssPropertyValue::<LayoutPaddingTop>;
-#[no_mangle] pub use AzLayoutPaddingTopValueType as AzLayoutPaddingTopValue;
-#[inline] #[no_mangle] pub extern "C" fn az_layout_padding_top_value_auto() -> AzLayoutPaddingTopValue { AzLayoutPaddingTopValue::Auto }
-#[inline] #[no_mangle] pub extern "C" fn az_layout_padding_top_value_none() -> AzLayoutPaddingTopValue { AzLayoutPaddingTopValue::None }
-#[inline] #[no_mangle] pub extern "C" fn az_layout_padding_top_value_inherit() -> AzLayoutPaddingTopValue { AzLayoutPaddingTopValue::Inherit }
-#[inline] #[no_mangle] pub extern "C" fn az_layout_padding_top_value_initial() -> AzLayoutPaddingTopValue { AzLayoutPaddingTopValue::Initial }
-#[inline] #[no_mangle] pub extern "C" fn az_layout_padding_top_value_exact(variant_data: AzLayoutPaddingTopPtr) -> AzLayoutPaddingTopValue { AzLayoutPaddingTopValue::Exact(*az_layout_padding_top_downcast(variant_data)) }
+#[no_mangle] #[repr(C)] pub struct AzLayoutPaddingTopValue { object: azul_css::CssPropertyValue::<LayoutPaddingTop> }
+#[inline] #[no_mangle] pub extern "C" fn az_layout_padding_top_value_auto() -> AzLayoutPaddingTopValue { AzLayoutPaddingTopValue { object: azul_css::CssPropertyValue::<LayoutPaddingTop>::Auto } }
+#[inline] #[no_mangle] pub extern "C" fn az_layout_padding_top_value_none() -> AzLayoutPaddingTopValue { AzLayoutPaddingTopValue { object: azul_css::CssPropertyValue::<LayoutPaddingTop>::None } }
+#[inline] #[no_mangle] pub extern "C" fn az_layout_padding_top_value_inherit() -> AzLayoutPaddingTopValue { AzLayoutPaddingTopValue { object: azul_css::CssPropertyValue::<LayoutPaddingTop>::Inherit } }
+#[inline] #[no_mangle] pub extern "C" fn az_layout_padding_top_value_initial() -> AzLayoutPaddingTopValue { AzLayoutPaddingTopValue { object: azul_css::CssPropertyValue::<LayoutPaddingTop>::Initial } }
+#[inline] #[no_mangle] pub extern "C" fn az_layout_padding_top_value_exact(variant_data: AzLayoutPaddingTopPtr) -> AzLayoutPaddingTopValue { AzLayoutPaddingTopValue { object: azul_css::CssPropertyValue::<LayoutPaddingTop>::Exact(*az_layout_padding_top_downcast(variant_data)) } }
 /// Destructor: Takes ownership of the `LayoutPaddingTopValue` pointer and deletes it.
-#[no_mangle] #[inline] #[allow(unused_variables)] pub extern "C" fn az_layout_padding_top_value_delete(object: &mut AzLayoutPaddingTopValue) { match object { AzLayoutPaddingTopValue::Auto => { }, AzLayoutPaddingTopValue::None => { }, AzLayoutPaddingTopValue::Inherit => { }, AzLayoutPaddingTopValue::Initial => { }, AzLayoutPaddingTopValue::Exact(_) => { }, }
+#[no_mangle] #[inline] #[allow(unused_variables)] pub extern "C" fn az_layout_padding_top_value_delete(object: &mut AzLayoutPaddingTopValue) { match object.object { azul_css::CssPropertyValue::<LayoutPaddingTop>::Auto => { }, azul_css::CssPropertyValue::<LayoutPaddingTop>::None => { }, azul_css::CssPropertyValue::<LayoutPaddingTop>::Inherit => { }, azul_css::CssPropertyValue::<LayoutPaddingTop>::Initial => { }, azul_css::CssPropertyValue::<LayoutPaddingTop>::Exact(_) => { }, }
 }
 /// Copies the object
-#[no_mangle] #[inline] pub extern "C" fn az_layout_padding_top_value_deep_copy(object: &AzLayoutPaddingTopValue) -> AzLayoutPaddingTopValue { object.clone() }
+#[no_mangle] #[inline] pub extern "C" fn az_layout_padding_top_value_deep_copy(object: &AzLayoutPaddingTopValue) -> AzLayoutPaddingTopValue { AzLayoutPaddingTopValue{ object: object.object.clone() } }
 
 /// Re-export of rust-allocated (stack based) `LayoutPositionValue` struct
-pub type AzLayoutPositionValueType = azul_css::CssPropertyValue::<LayoutPosition>;
-#[no_mangle] pub use AzLayoutPositionValueType as AzLayoutPositionValue;
-#[inline] #[no_mangle] pub extern "C" fn az_layout_position_value_auto() -> AzLayoutPositionValue { AzLayoutPositionValue::Auto }
-#[inline] #[no_mangle] pub extern "C" fn az_layout_position_value_none() -> AzLayoutPositionValue { AzLayoutPositionValue::None }
-#[inline] #[no_mangle] pub extern "C" fn az_layout_position_value_inherit() -> AzLayoutPositionValue { AzLayoutPositionValue::Inherit }
-#[inline] #[no_mangle] pub extern "C" fn az_layout_position_value_initial() -> AzLayoutPositionValue { AzLayoutPositionValue::Initial }
-#[inline] #[no_mangle] pub extern "C" fn az_layout_position_value_exact(variant_data: AzLayoutPositionPtr) -> AzLayoutPositionValue { AzLayoutPositionValue::Exact(*az_layout_position_downcast(variant_data)) }
+#[no_mangle] #[repr(C)] pub struct AzLayoutPositionValue { object: azul_css::CssPropertyValue::<LayoutPosition> }
+#[inline] #[no_mangle] pub extern "C" fn az_layout_position_value_auto() -> AzLayoutPositionValue { AzLayoutPositionValue { object: azul_css::CssPropertyValue::<LayoutPosition>::Auto } }
+#[inline] #[no_mangle] pub extern "C" fn az_layout_position_value_none() -> AzLayoutPositionValue { AzLayoutPositionValue { object: azul_css::CssPropertyValue::<LayoutPosition>::None } }
+#[inline] #[no_mangle] pub extern "C" fn az_layout_position_value_inherit() -> AzLayoutPositionValue { AzLayoutPositionValue { object: azul_css::CssPropertyValue::<LayoutPosition>::Inherit } }
+#[inline] #[no_mangle] pub extern "C" fn az_layout_position_value_initial() -> AzLayoutPositionValue { AzLayoutPositionValue { object: azul_css::CssPropertyValue::<LayoutPosition>::Initial } }
+#[inline] #[no_mangle] pub extern "C" fn az_layout_position_value_exact(variant_data: AzLayoutPositionPtr) -> AzLayoutPositionValue { AzLayoutPositionValue { object: azul_css::CssPropertyValue::<LayoutPosition>::Exact(*az_layout_position_downcast(variant_data)) } }
 /// Destructor: Takes ownership of the `LayoutPositionValue` pointer and deletes it.
-#[no_mangle] #[inline] #[allow(unused_variables)] pub extern "C" fn az_layout_position_value_delete(object: &mut AzLayoutPositionValue) { match object { AzLayoutPositionValue::Auto => { }, AzLayoutPositionValue::None => { }, AzLayoutPositionValue::Inherit => { }, AzLayoutPositionValue::Initial => { }, AzLayoutPositionValue::Exact(_) => { }, }
+#[no_mangle] #[inline] #[allow(unused_variables)] pub extern "C" fn az_layout_position_value_delete(object: &mut AzLayoutPositionValue) { match object.object { azul_css::CssPropertyValue::<LayoutPosition>::Auto => { }, azul_css::CssPropertyValue::<LayoutPosition>::None => { }, azul_css::CssPropertyValue::<LayoutPosition>::Inherit => { }, azul_css::CssPropertyValue::<LayoutPosition>::Initial => { }, azul_css::CssPropertyValue::<LayoutPosition>::Exact(_) => { }, }
 }
 /// Copies the object
-#[no_mangle] #[inline] pub extern "C" fn az_layout_position_value_deep_copy(object: &AzLayoutPositionValue) -> AzLayoutPositionValue { object.clone() }
+#[no_mangle] #[inline] pub extern "C" fn az_layout_position_value_deep_copy(object: &AzLayoutPositionValue) -> AzLayoutPositionValue { AzLayoutPositionValue{ object: object.object.clone() } }
 
 /// Re-export of rust-allocated (stack based) `LayoutRightValue` struct
-pub type AzLayoutRightValueType = azul_css::CssPropertyValue::<LayoutRight>;
-#[no_mangle] pub use AzLayoutRightValueType as AzLayoutRightValue;
-#[inline] #[no_mangle] pub extern "C" fn az_layout_right_value_auto() -> AzLayoutRightValue { AzLayoutRightValue::Auto }
-#[inline] #[no_mangle] pub extern "C" fn az_layout_right_value_none() -> AzLayoutRightValue { AzLayoutRightValue::None }
-#[inline] #[no_mangle] pub extern "C" fn az_layout_right_value_inherit() -> AzLayoutRightValue { AzLayoutRightValue::Inherit }
-#[inline] #[no_mangle] pub extern "C" fn az_layout_right_value_initial() -> AzLayoutRightValue { AzLayoutRightValue::Initial }
-#[inline] #[no_mangle] pub extern "C" fn az_layout_right_value_exact(variant_data: AzLayoutRightPtr) -> AzLayoutRightValue { AzLayoutRightValue::Exact(*az_layout_right_downcast(variant_data)) }
+#[no_mangle] #[repr(C)] pub struct AzLayoutRightValue { object: azul_css::CssPropertyValue::<LayoutRight> }
+#[inline] #[no_mangle] pub extern "C" fn az_layout_right_value_auto() -> AzLayoutRightValue { AzLayoutRightValue { object: azul_css::CssPropertyValue::<LayoutRight>::Auto } }
+#[inline] #[no_mangle] pub extern "C" fn az_layout_right_value_none() -> AzLayoutRightValue { AzLayoutRightValue { object: azul_css::CssPropertyValue::<LayoutRight>::None } }
+#[inline] #[no_mangle] pub extern "C" fn az_layout_right_value_inherit() -> AzLayoutRightValue { AzLayoutRightValue { object: azul_css::CssPropertyValue::<LayoutRight>::Inherit } }
+#[inline] #[no_mangle] pub extern "C" fn az_layout_right_value_initial() -> AzLayoutRightValue { AzLayoutRightValue { object: azul_css::CssPropertyValue::<LayoutRight>::Initial } }
+#[inline] #[no_mangle] pub extern "C" fn az_layout_right_value_exact(variant_data: AzLayoutRightPtr) -> AzLayoutRightValue { AzLayoutRightValue { object: azul_css::CssPropertyValue::<LayoutRight>::Exact(*az_layout_right_downcast(variant_data)) } }
 /// Destructor: Takes ownership of the `LayoutRightValue` pointer and deletes it.
-#[no_mangle] #[inline] #[allow(unused_variables)] pub extern "C" fn az_layout_right_value_delete(object: &mut AzLayoutRightValue) { match object { AzLayoutRightValue::Auto => { }, AzLayoutRightValue::None => { }, AzLayoutRightValue::Inherit => { }, AzLayoutRightValue::Initial => { }, AzLayoutRightValue::Exact(_) => { }, }
+#[no_mangle] #[inline] #[allow(unused_variables)] pub extern "C" fn az_layout_right_value_delete(object: &mut AzLayoutRightValue) { match object.object { azul_css::CssPropertyValue::<LayoutRight>::Auto => { }, azul_css::CssPropertyValue::<LayoutRight>::None => { }, azul_css::CssPropertyValue::<LayoutRight>::Inherit => { }, azul_css::CssPropertyValue::<LayoutRight>::Initial => { }, azul_css::CssPropertyValue::<LayoutRight>::Exact(_) => { }, }
 }
 /// Copies the object
-#[no_mangle] #[inline] pub extern "C" fn az_layout_right_value_deep_copy(object: &AzLayoutRightValue) -> AzLayoutRightValue { object.clone() }
+#[no_mangle] #[inline] pub extern "C" fn az_layout_right_value_deep_copy(object: &AzLayoutRightValue) -> AzLayoutRightValue { AzLayoutRightValue{ object: object.object.clone() } }
 
 /// Re-export of rust-allocated (stack based) `LayoutTopValue` struct
-pub type AzLayoutTopValueType = azul_css::CssPropertyValue::<LayoutTop>;
-#[no_mangle] pub use AzLayoutTopValueType as AzLayoutTopValue;
-#[inline] #[no_mangle] pub extern "C" fn az_layout_top_value_auto() -> AzLayoutTopValue { AzLayoutTopValue::Auto }
-#[inline] #[no_mangle] pub extern "C" fn az_layout_top_value_none() -> AzLayoutTopValue { AzLayoutTopValue::None }
-#[inline] #[no_mangle] pub extern "C" fn az_layout_top_value_inherit() -> AzLayoutTopValue { AzLayoutTopValue::Inherit }
-#[inline] #[no_mangle] pub extern "C" fn az_layout_top_value_initial() -> AzLayoutTopValue { AzLayoutTopValue::Initial }
-#[inline] #[no_mangle] pub extern "C" fn az_layout_top_value_exact(variant_data: AzLayoutTopPtr) -> AzLayoutTopValue { AzLayoutTopValue::Exact(*az_layout_top_downcast(variant_data)) }
+#[no_mangle] #[repr(C)] pub struct AzLayoutTopValue { object: azul_css::CssPropertyValue::<LayoutTop> }
+#[inline] #[no_mangle] pub extern "C" fn az_layout_top_value_auto() -> AzLayoutTopValue { AzLayoutTopValue { object: azul_css::CssPropertyValue::<LayoutTop>::Auto } }
+#[inline] #[no_mangle] pub extern "C" fn az_layout_top_value_none() -> AzLayoutTopValue { AzLayoutTopValue { object: azul_css::CssPropertyValue::<LayoutTop>::None } }
+#[inline] #[no_mangle] pub extern "C" fn az_layout_top_value_inherit() -> AzLayoutTopValue { AzLayoutTopValue { object: azul_css::CssPropertyValue::<LayoutTop>::Inherit } }
+#[inline] #[no_mangle] pub extern "C" fn az_layout_top_value_initial() -> AzLayoutTopValue { AzLayoutTopValue { object: azul_css::CssPropertyValue::<LayoutTop>::Initial } }
+#[inline] #[no_mangle] pub extern "C" fn az_layout_top_value_exact(variant_data: AzLayoutTopPtr) -> AzLayoutTopValue { AzLayoutTopValue { object: azul_css::CssPropertyValue::<LayoutTop>::Exact(*az_layout_top_downcast(variant_data)) } }
 /// Destructor: Takes ownership of the `LayoutTopValue` pointer and deletes it.
-#[no_mangle] #[inline] #[allow(unused_variables)] pub extern "C" fn az_layout_top_value_delete(object: &mut AzLayoutTopValue) { match object { AzLayoutTopValue::Auto => { }, AzLayoutTopValue::None => { }, AzLayoutTopValue::Inherit => { }, AzLayoutTopValue::Initial => { }, AzLayoutTopValue::Exact(_) => { }, }
+#[no_mangle] #[inline] #[allow(unused_variables)] pub extern "C" fn az_layout_top_value_delete(object: &mut AzLayoutTopValue) { match object.object { azul_css::CssPropertyValue::<LayoutTop>::Auto => { }, azul_css::CssPropertyValue::<LayoutTop>::None => { }, azul_css::CssPropertyValue::<LayoutTop>::Inherit => { }, azul_css::CssPropertyValue::<LayoutTop>::Initial => { }, azul_css::CssPropertyValue::<LayoutTop>::Exact(_) => { }, }
 }
 /// Copies the object
-#[no_mangle] #[inline] pub extern "C" fn az_layout_top_value_deep_copy(object: &AzLayoutTopValue) -> AzLayoutTopValue { object.clone() }
+#[no_mangle] #[inline] pub extern "C" fn az_layout_top_value_deep_copy(object: &AzLayoutTopValue) -> AzLayoutTopValue { AzLayoutTopValue{ object: object.object.clone() } }
 
 /// Re-export of rust-allocated (stack based) `LayoutWidthValue` struct
-pub type AzLayoutWidthValueType = azul_css::CssPropertyValue::<LayoutWidth>;
-#[no_mangle] pub use AzLayoutWidthValueType as AzLayoutWidthValue;
-#[inline] #[no_mangle] pub extern "C" fn az_layout_width_value_auto() -> AzLayoutWidthValue { AzLayoutWidthValue::Auto }
-#[inline] #[no_mangle] pub extern "C" fn az_layout_width_value_none() -> AzLayoutWidthValue { AzLayoutWidthValue::None }
-#[inline] #[no_mangle] pub extern "C" fn az_layout_width_value_inherit() -> AzLayoutWidthValue { AzLayoutWidthValue::Inherit }
-#[inline] #[no_mangle] pub extern "C" fn az_layout_width_value_initial() -> AzLayoutWidthValue { AzLayoutWidthValue::Initial }
-#[inline] #[no_mangle] pub extern "C" fn az_layout_width_value_exact(variant_data: AzLayoutWidthPtr) -> AzLayoutWidthValue { AzLayoutWidthValue::Exact(*az_layout_width_downcast(variant_data)) }
+#[no_mangle] #[repr(C)] pub struct AzLayoutWidthValue { object: azul_css::CssPropertyValue::<LayoutWidth> }
+#[inline] #[no_mangle] pub extern "C" fn az_layout_width_value_auto() -> AzLayoutWidthValue { AzLayoutWidthValue { object: azul_css::CssPropertyValue::<LayoutWidth>::Auto } }
+#[inline] #[no_mangle] pub extern "C" fn az_layout_width_value_none() -> AzLayoutWidthValue { AzLayoutWidthValue { object: azul_css::CssPropertyValue::<LayoutWidth>::None } }
+#[inline] #[no_mangle] pub extern "C" fn az_layout_width_value_inherit() -> AzLayoutWidthValue { AzLayoutWidthValue { object: azul_css::CssPropertyValue::<LayoutWidth>::Inherit } }
+#[inline] #[no_mangle] pub extern "C" fn az_layout_width_value_initial() -> AzLayoutWidthValue { AzLayoutWidthValue { object: azul_css::CssPropertyValue::<LayoutWidth>::Initial } }
+#[inline] #[no_mangle] pub extern "C" fn az_layout_width_value_exact(variant_data: AzLayoutWidthPtr) -> AzLayoutWidthValue { AzLayoutWidthValue { object: azul_css::CssPropertyValue::<LayoutWidth>::Exact(*az_layout_width_downcast(variant_data)) } }
 /// Destructor: Takes ownership of the `LayoutWidthValue` pointer and deletes it.
-#[no_mangle] #[inline] #[allow(unused_variables)] pub extern "C" fn az_layout_width_value_delete(object: &mut AzLayoutWidthValue) { match object { AzLayoutWidthValue::Auto => { }, AzLayoutWidthValue::None => { }, AzLayoutWidthValue::Inherit => { }, AzLayoutWidthValue::Initial => { }, AzLayoutWidthValue::Exact(_) => { }, }
+#[no_mangle] #[inline] #[allow(unused_variables)] pub extern "C" fn az_layout_width_value_delete(object: &mut AzLayoutWidthValue) { match object.object { azul_css::CssPropertyValue::<LayoutWidth>::Auto => { }, azul_css::CssPropertyValue::<LayoutWidth>::None => { }, azul_css::CssPropertyValue::<LayoutWidth>::Inherit => { }, azul_css::CssPropertyValue::<LayoutWidth>::Initial => { }, azul_css::CssPropertyValue::<LayoutWidth>::Exact(_) => { }, }
 }
 /// Copies the object
-#[no_mangle] #[inline] pub extern "C" fn az_layout_width_value_deep_copy(object: &AzLayoutWidthValue) -> AzLayoutWidthValue { object.clone() }
+#[no_mangle] #[inline] pub extern "C" fn az_layout_width_value_deep_copy(object: &AzLayoutWidthValue) -> AzLayoutWidthValue { AzLayoutWidthValue{ object: object.object.clone() } }
 
 /// Re-export of rust-allocated (stack based) `LayoutWrapValue` struct
-pub type AzLayoutWrapValueType = azul_css::CssPropertyValue::<LayoutWrap>;
-#[no_mangle] pub use AzLayoutWrapValueType as AzLayoutWrapValue;
-#[inline] #[no_mangle] pub extern "C" fn az_layout_wrap_value_auto() -> AzLayoutWrapValue { AzLayoutWrapValue::Auto }
-#[inline] #[no_mangle] pub extern "C" fn az_layout_wrap_value_none() -> AzLayoutWrapValue { AzLayoutWrapValue::None }
-#[inline] #[no_mangle] pub extern "C" fn az_layout_wrap_value_inherit() -> AzLayoutWrapValue { AzLayoutWrapValue::Inherit }
-#[inline] #[no_mangle] pub extern "C" fn az_layout_wrap_value_initial() -> AzLayoutWrapValue { AzLayoutWrapValue::Initial }
-#[inline] #[no_mangle] pub extern "C" fn az_layout_wrap_value_exact(variant_data: AzLayoutWrapPtr) -> AzLayoutWrapValue { AzLayoutWrapValue::Exact(*az_layout_wrap_downcast(variant_data)) }
+#[no_mangle] #[repr(C)] pub struct AzLayoutWrapValue { object: azul_css::CssPropertyValue::<LayoutWrap> }
+#[inline] #[no_mangle] pub extern "C" fn az_layout_wrap_value_auto() -> AzLayoutWrapValue { AzLayoutWrapValue { object: azul_css::CssPropertyValue::<LayoutWrap>::Auto } }
+#[inline] #[no_mangle] pub extern "C" fn az_layout_wrap_value_none() -> AzLayoutWrapValue { AzLayoutWrapValue { object: azul_css::CssPropertyValue::<LayoutWrap>::None } }
+#[inline] #[no_mangle] pub extern "C" fn az_layout_wrap_value_inherit() -> AzLayoutWrapValue { AzLayoutWrapValue { object: azul_css::CssPropertyValue::<LayoutWrap>::Inherit } }
+#[inline] #[no_mangle] pub extern "C" fn az_layout_wrap_value_initial() -> AzLayoutWrapValue { AzLayoutWrapValue { object: azul_css::CssPropertyValue::<LayoutWrap>::Initial } }
+#[inline] #[no_mangle] pub extern "C" fn az_layout_wrap_value_exact(variant_data: AzLayoutWrapPtr) -> AzLayoutWrapValue { AzLayoutWrapValue { object: azul_css::CssPropertyValue::<LayoutWrap>::Exact(*az_layout_wrap_downcast(variant_data)) } }
 /// Destructor: Takes ownership of the `LayoutWrapValue` pointer and deletes it.
-#[no_mangle] #[inline] #[allow(unused_variables)] pub extern "C" fn az_layout_wrap_value_delete(object: &mut AzLayoutWrapValue) { match object { AzLayoutWrapValue::Auto => { }, AzLayoutWrapValue::None => { }, AzLayoutWrapValue::Inherit => { }, AzLayoutWrapValue::Initial => { }, AzLayoutWrapValue::Exact(_) => { }, }
+#[no_mangle] #[inline] #[allow(unused_variables)] pub extern "C" fn az_layout_wrap_value_delete(object: &mut AzLayoutWrapValue) { match object.object { azul_css::CssPropertyValue::<LayoutWrap>::Auto => { }, azul_css::CssPropertyValue::<LayoutWrap>::None => { }, azul_css::CssPropertyValue::<LayoutWrap>::Inherit => { }, azul_css::CssPropertyValue::<LayoutWrap>::Initial => { }, azul_css::CssPropertyValue::<LayoutWrap>::Exact(_) => { }, }
 }
 /// Copies the object
-#[no_mangle] #[inline] pub extern "C" fn az_layout_wrap_value_deep_copy(object: &AzLayoutWrapValue) -> AzLayoutWrapValue { object.clone() }
+#[no_mangle] #[inline] pub extern "C" fn az_layout_wrap_value_deep_copy(object: &AzLayoutWrapValue) -> AzLayoutWrapValue { AzLayoutWrapValue{ object: object.object.clone() } }
 
 /// Re-export of rust-allocated (stack based) `OverflowValue` struct
-pub type AzOverflowValueType = azul_css::CssPropertyValue::<Overflow>;
-#[no_mangle] pub use AzOverflowValueType as AzOverflowValue;
-#[inline] #[no_mangle] pub extern "C" fn az_overflow_value_auto() -> AzOverflowValue { AzOverflowValue::Auto }
-#[inline] #[no_mangle] pub extern "C" fn az_overflow_value_none() -> AzOverflowValue { AzOverflowValue::None }
-#[inline] #[no_mangle] pub extern "C" fn az_overflow_value_inherit() -> AzOverflowValue { AzOverflowValue::Inherit }
-#[inline] #[no_mangle] pub extern "C" fn az_overflow_value_initial() -> AzOverflowValue { AzOverflowValue::Initial }
-#[inline] #[no_mangle] pub extern "C" fn az_overflow_value_exact(variant_data: AzOverflowPtr) -> AzOverflowValue { AzOverflowValue::Exact(*az_overflow_downcast(variant_data)) }
+#[no_mangle] #[repr(C)] pub struct AzOverflowValue { object: azul_css::CssPropertyValue::<Overflow> }
+#[inline] #[no_mangle] pub extern "C" fn az_overflow_value_auto() -> AzOverflowValue { AzOverflowValue { object: azul_css::CssPropertyValue::<Overflow>::Auto } }
+#[inline] #[no_mangle] pub extern "C" fn az_overflow_value_none() -> AzOverflowValue { AzOverflowValue { object: azul_css::CssPropertyValue::<Overflow>::None } }
+#[inline] #[no_mangle] pub extern "C" fn az_overflow_value_inherit() -> AzOverflowValue { AzOverflowValue { object: azul_css::CssPropertyValue::<Overflow>::Inherit } }
+#[inline] #[no_mangle] pub extern "C" fn az_overflow_value_initial() -> AzOverflowValue { AzOverflowValue { object: azul_css::CssPropertyValue::<Overflow>::Initial } }
+#[inline] #[no_mangle] pub extern "C" fn az_overflow_value_exact(variant_data: AzOverflowPtr) -> AzOverflowValue { AzOverflowValue { object: azul_css::CssPropertyValue::<Overflow>::Exact(*az_overflow_downcast(variant_data)) } }
 /// Destructor: Takes ownership of the `OverflowValue` pointer and deletes it.
-#[no_mangle] #[inline] #[allow(unused_variables)] pub extern "C" fn az_overflow_value_delete(object: &mut AzOverflowValue) { match object { AzOverflowValue::Auto => { }, AzOverflowValue::None => { }, AzOverflowValue::Inherit => { }, AzOverflowValue::Initial => { }, AzOverflowValue::Exact(_) => { }, }
+#[no_mangle] #[inline] #[allow(unused_variables)] pub extern "C" fn az_overflow_value_delete(object: &mut AzOverflowValue) { match object.object { azul_css::CssPropertyValue::<Overflow>::Auto => { }, azul_css::CssPropertyValue::<Overflow>::None => { }, azul_css::CssPropertyValue::<Overflow>::Inherit => { }, azul_css::CssPropertyValue::<Overflow>::Initial => { }, azul_css::CssPropertyValue::<Overflow>::Exact(_) => { }, }
 }
 /// Copies the object
-#[no_mangle] #[inline] pub extern "C" fn az_overflow_value_deep_copy(object: &AzOverflowValue) -> AzOverflowValue { object.clone() }
+#[no_mangle] #[inline] pub extern "C" fn az_overflow_value_deep_copy(object: &AzOverflowValue) -> AzOverflowValue { AzOverflowValue{ object: object.object.clone() } }
 
 /// Re-export of rust-allocated (stack based) `StyleBackgroundContentValue` struct
-pub type AzStyleBackgroundContentValueType = azul_css::CssPropertyValue::<StyleBackgroundContent>;
-#[no_mangle] pub use AzStyleBackgroundContentValueType as AzStyleBackgroundContentValue;
-#[inline] #[no_mangle] pub extern "C" fn az_style_background_content_value_auto() -> AzStyleBackgroundContentValue { AzStyleBackgroundContentValue::Auto }
-#[inline] #[no_mangle] pub extern "C" fn az_style_background_content_value_none() -> AzStyleBackgroundContentValue { AzStyleBackgroundContentValue::None }
-#[inline] #[no_mangle] pub extern "C" fn az_style_background_content_value_inherit() -> AzStyleBackgroundContentValue { AzStyleBackgroundContentValue::Inherit }
-#[inline] #[no_mangle] pub extern "C" fn az_style_background_content_value_initial() -> AzStyleBackgroundContentValue { AzStyleBackgroundContentValue::Initial }
-#[inline] #[no_mangle] pub extern "C" fn az_style_background_content_value_exact(variant_data: AzStyleBackgroundContentPtr) -> AzStyleBackgroundContentValue { AzStyleBackgroundContentValue::Exact(*az_style_background_content_downcast(variant_data)) }
+#[no_mangle] #[repr(C)] pub struct AzStyleBackgroundContentValue { object: azul_css::CssPropertyValue::<StyleBackgroundContent> }
+#[inline] #[no_mangle] pub extern "C" fn az_style_background_content_value_auto() -> AzStyleBackgroundContentValue { AzStyleBackgroundContentValue { object: azul_css::CssPropertyValue::<StyleBackgroundContent>::Auto } }
+#[inline] #[no_mangle] pub extern "C" fn az_style_background_content_value_none() -> AzStyleBackgroundContentValue { AzStyleBackgroundContentValue { object: azul_css::CssPropertyValue::<StyleBackgroundContent>::None } }
+#[inline] #[no_mangle] pub extern "C" fn az_style_background_content_value_inherit() -> AzStyleBackgroundContentValue { AzStyleBackgroundContentValue { object: azul_css::CssPropertyValue::<StyleBackgroundContent>::Inherit } }
+#[inline] #[no_mangle] pub extern "C" fn az_style_background_content_value_initial() -> AzStyleBackgroundContentValue { AzStyleBackgroundContentValue { object: azul_css::CssPropertyValue::<StyleBackgroundContent>::Initial } }
+#[inline] #[no_mangle] pub extern "C" fn az_style_background_content_value_exact(variant_data: AzStyleBackgroundContentPtr) -> AzStyleBackgroundContentValue { AzStyleBackgroundContentValue { object: azul_css::CssPropertyValue::<StyleBackgroundContent>::Exact(*az_style_background_content_downcast(variant_data)) } }
 /// Destructor: Takes ownership of the `StyleBackgroundContentValue` pointer and deletes it.
-#[no_mangle] #[inline] #[allow(unused_variables)] pub extern "C" fn az_style_background_content_value_delete(object: &mut AzStyleBackgroundContentValue) { match object { AzStyleBackgroundContentValue::Auto => { }, AzStyleBackgroundContentValue::None => { }, AzStyleBackgroundContentValue::Inherit => { }, AzStyleBackgroundContentValue::Initial => { }, AzStyleBackgroundContentValue::Exact(_) => { }, }
+#[no_mangle] #[inline] #[allow(unused_variables)] pub extern "C" fn az_style_background_content_value_delete(object: &mut AzStyleBackgroundContentValue) { match object.object { azul_css::CssPropertyValue::<StyleBackgroundContent>::Auto => { }, azul_css::CssPropertyValue::<StyleBackgroundContent>::None => { }, azul_css::CssPropertyValue::<StyleBackgroundContent>::Inherit => { }, azul_css::CssPropertyValue::<StyleBackgroundContent>::Initial => { }, azul_css::CssPropertyValue::<StyleBackgroundContent>::Exact(_) => { }, }
 }
 /// Copies the object
-#[no_mangle] #[inline] pub extern "C" fn az_style_background_content_value_deep_copy(object: &AzStyleBackgroundContentValue) -> AzStyleBackgroundContentValue { object.clone() }
+#[no_mangle] #[inline] pub extern "C" fn az_style_background_content_value_deep_copy(object: &AzStyleBackgroundContentValue) -> AzStyleBackgroundContentValue { AzStyleBackgroundContentValue{ object: object.object.clone() } }
 
 /// Re-export of rust-allocated (stack based) `StyleBackgroundPositionValue` struct
-pub type AzStyleBackgroundPositionValueType = azul_css::CssPropertyValue::<StyleBackgroundPosition>;
-#[no_mangle] pub use AzStyleBackgroundPositionValueType as AzStyleBackgroundPositionValue;
-#[inline] #[no_mangle] pub extern "C" fn az_style_background_position_value_auto() -> AzStyleBackgroundPositionValue { AzStyleBackgroundPositionValue::Auto }
-#[inline] #[no_mangle] pub extern "C" fn az_style_background_position_value_none() -> AzStyleBackgroundPositionValue { AzStyleBackgroundPositionValue::None }
-#[inline] #[no_mangle] pub extern "C" fn az_style_background_position_value_inherit() -> AzStyleBackgroundPositionValue { AzStyleBackgroundPositionValue::Inherit }
-#[inline] #[no_mangle] pub extern "C" fn az_style_background_position_value_initial() -> AzStyleBackgroundPositionValue { AzStyleBackgroundPositionValue::Initial }
-#[inline] #[no_mangle] pub extern "C" fn az_style_background_position_value_exact(variant_data: AzStyleBackgroundPositionPtr) -> AzStyleBackgroundPositionValue { AzStyleBackgroundPositionValue::Exact(*az_style_background_position_downcast(variant_data)) }
+#[no_mangle] #[repr(C)] pub struct AzStyleBackgroundPositionValue { object: azul_css::CssPropertyValue::<StyleBackgroundPosition> }
+#[inline] #[no_mangle] pub extern "C" fn az_style_background_position_value_auto() -> AzStyleBackgroundPositionValue { AzStyleBackgroundPositionValue { object: azul_css::CssPropertyValue::<StyleBackgroundPosition>::Auto } }
+#[inline] #[no_mangle] pub extern "C" fn az_style_background_position_value_none() -> AzStyleBackgroundPositionValue { AzStyleBackgroundPositionValue { object: azul_css::CssPropertyValue::<StyleBackgroundPosition>::None } }
+#[inline] #[no_mangle] pub extern "C" fn az_style_background_position_value_inherit() -> AzStyleBackgroundPositionValue { AzStyleBackgroundPositionValue { object: azul_css::CssPropertyValue::<StyleBackgroundPosition>::Inherit } }
+#[inline] #[no_mangle] pub extern "C" fn az_style_background_position_value_initial() -> AzStyleBackgroundPositionValue { AzStyleBackgroundPositionValue { object: azul_css::CssPropertyValue::<StyleBackgroundPosition>::Initial } }
+#[inline] #[no_mangle] pub extern "C" fn az_style_background_position_value_exact(variant_data: AzStyleBackgroundPositionPtr) -> AzStyleBackgroundPositionValue { AzStyleBackgroundPositionValue { object: azul_css::CssPropertyValue::<StyleBackgroundPosition>::Exact(*az_style_background_position_downcast(variant_data)) } }
 /// Destructor: Takes ownership of the `StyleBackgroundPositionValue` pointer and deletes it.
-#[no_mangle] #[inline] #[allow(unused_variables)] pub extern "C" fn az_style_background_position_value_delete(object: &mut AzStyleBackgroundPositionValue) { match object { AzStyleBackgroundPositionValue::Auto => { }, AzStyleBackgroundPositionValue::None => { }, AzStyleBackgroundPositionValue::Inherit => { }, AzStyleBackgroundPositionValue::Initial => { }, AzStyleBackgroundPositionValue::Exact(_) => { }, }
+#[no_mangle] #[inline] #[allow(unused_variables)] pub extern "C" fn az_style_background_position_value_delete(object: &mut AzStyleBackgroundPositionValue) { match object.object { azul_css::CssPropertyValue::<StyleBackgroundPosition>::Auto => { }, azul_css::CssPropertyValue::<StyleBackgroundPosition>::None => { }, azul_css::CssPropertyValue::<StyleBackgroundPosition>::Inherit => { }, azul_css::CssPropertyValue::<StyleBackgroundPosition>::Initial => { }, azul_css::CssPropertyValue::<StyleBackgroundPosition>::Exact(_) => { }, }
 }
 /// Copies the object
-#[no_mangle] #[inline] pub extern "C" fn az_style_background_position_value_deep_copy(object: &AzStyleBackgroundPositionValue) -> AzStyleBackgroundPositionValue { object.clone() }
+#[no_mangle] #[inline] pub extern "C" fn az_style_background_position_value_deep_copy(object: &AzStyleBackgroundPositionValue) -> AzStyleBackgroundPositionValue { AzStyleBackgroundPositionValue{ object: object.object.clone() } }
 
 /// Re-export of rust-allocated (stack based) `StyleBackgroundRepeatValue` struct
-pub type AzStyleBackgroundRepeatValueType = azul_css::CssPropertyValue::<StyleBackgroundRepeat>;
-#[no_mangle] pub use AzStyleBackgroundRepeatValueType as AzStyleBackgroundRepeatValue;
-#[inline] #[no_mangle] pub extern "C" fn az_style_background_repeat_value_auto() -> AzStyleBackgroundRepeatValue { AzStyleBackgroundRepeatValue::Auto }
-#[inline] #[no_mangle] pub extern "C" fn az_style_background_repeat_value_none() -> AzStyleBackgroundRepeatValue { AzStyleBackgroundRepeatValue::None }
-#[inline] #[no_mangle] pub extern "C" fn az_style_background_repeat_value_inherit() -> AzStyleBackgroundRepeatValue { AzStyleBackgroundRepeatValue::Inherit }
-#[inline] #[no_mangle] pub extern "C" fn az_style_background_repeat_value_initial() -> AzStyleBackgroundRepeatValue { AzStyleBackgroundRepeatValue::Initial }
-#[inline] #[no_mangle] pub extern "C" fn az_style_background_repeat_value_exact(variant_data: AzStyleBackgroundRepeatPtr) -> AzStyleBackgroundRepeatValue { AzStyleBackgroundRepeatValue::Exact(*az_style_background_repeat_downcast(variant_data)) }
+#[no_mangle] #[repr(C)] pub struct AzStyleBackgroundRepeatValue { object: azul_css::CssPropertyValue::<StyleBackgroundRepeat> }
+#[inline] #[no_mangle] pub extern "C" fn az_style_background_repeat_value_auto() -> AzStyleBackgroundRepeatValue { AzStyleBackgroundRepeatValue { object: azul_css::CssPropertyValue::<StyleBackgroundRepeat>::Auto } }
+#[inline] #[no_mangle] pub extern "C" fn az_style_background_repeat_value_none() -> AzStyleBackgroundRepeatValue { AzStyleBackgroundRepeatValue { object: azul_css::CssPropertyValue::<StyleBackgroundRepeat>::None } }
+#[inline] #[no_mangle] pub extern "C" fn az_style_background_repeat_value_inherit() -> AzStyleBackgroundRepeatValue { AzStyleBackgroundRepeatValue { object: azul_css::CssPropertyValue::<StyleBackgroundRepeat>::Inherit } }
+#[inline] #[no_mangle] pub extern "C" fn az_style_background_repeat_value_initial() -> AzStyleBackgroundRepeatValue { AzStyleBackgroundRepeatValue { object: azul_css::CssPropertyValue::<StyleBackgroundRepeat>::Initial } }
+#[inline] #[no_mangle] pub extern "C" fn az_style_background_repeat_value_exact(variant_data: AzStyleBackgroundRepeatPtr) -> AzStyleBackgroundRepeatValue { AzStyleBackgroundRepeatValue { object: azul_css::CssPropertyValue::<StyleBackgroundRepeat>::Exact(*az_style_background_repeat_downcast(variant_data)) } }
 /// Destructor: Takes ownership of the `StyleBackgroundRepeatValue` pointer and deletes it.
-#[no_mangle] #[inline] #[allow(unused_variables)] pub extern "C" fn az_style_background_repeat_value_delete(object: &mut AzStyleBackgroundRepeatValue) { match object { AzStyleBackgroundRepeatValue::Auto => { }, AzStyleBackgroundRepeatValue::None => { }, AzStyleBackgroundRepeatValue::Inherit => { }, AzStyleBackgroundRepeatValue::Initial => { }, AzStyleBackgroundRepeatValue::Exact(_) => { }, }
+#[no_mangle] #[inline] #[allow(unused_variables)] pub extern "C" fn az_style_background_repeat_value_delete(object: &mut AzStyleBackgroundRepeatValue) { match object.object { azul_css::CssPropertyValue::<StyleBackgroundRepeat>::Auto => { }, azul_css::CssPropertyValue::<StyleBackgroundRepeat>::None => { }, azul_css::CssPropertyValue::<StyleBackgroundRepeat>::Inherit => { }, azul_css::CssPropertyValue::<StyleBackgroundRepeat>::Initial => { }, azul_css::CssPropertyValue::<StyleBackgroundRepeat>::Exact(_) => { }, }
 }
 /// Copies the object
-#[no_mangle] #[inline] pub extern "C" fn az_style_background_repeat_value_deep_copy(object: &AzStyleBackgroundRepeatValue) -> AzStyleBackgroundRepeatValue { object.clone() }
+#[no_mangle] #[inline] pub extern "C" fn az_style_background_repeat_value_deep_copy(object: &AzStyleBackgroundRepeatValue) -> AzStyleBackgroundRepeatValue { AzStyleBackgroundRepeatValue{ object: object.object.clone() } }
 
 /// Re-export of rust-allocated (stack based) `StyleBackgroundSizeValue` struct
-pub type AzStyleBackgroundSizeValueType = azul_css::CssPropertyValue::<StyleBackgroundSize>;
-#[no_mangle] pub use AzStyleBackgroundSizeValueType as AzStyleBackgroundSizeValue;
-#[inline] #[no_mangle] pub extern "C" fn az_style_background_size_value_auto() -> AzStyleBackgroundSizeValue { AzStyleBackgroundSizeValue::Auto }
-#[inline] #[no_mangle] pub extern "C" fn az_style_background_size_value_none() -> AzStyleBackgroundSizeValue { AzStyleBackgroundSizeValue::None }
-#[inline] #[no_mangle] pub extern "C" fn az_style_background_size_value_inherit() -> AzStyleBackgroundSizeValue { AzStyleBackgroundSizeValue::Inherit }
-#[inline] #[no_mangle] pub extern "C" fn az_style_background_size_value_initial() -> AzStyleBackgroundSizeValue { AzStyleBackgroundSizeValue::Initial }
-#[inline] #[no_mangle] pub extern "C" fn az_style_background_size_value_exact(variant_data: AzStyleBackgroundSizePtr) -> AzStyleBackgroundSizeValue { AzStyleBackgroundSizeValue::Exact(*az_style_background_size_downcast(variant_data)) }
+#[no_mangle] #[repr(C)] pub struct AzStyleBackgroundSizeValue { object: azul_css::CssPropertyValue::<StyleBackgroundSize> }
+#[inline] #[no_mangle] pub extern "C" fn az_style_background_size_value_auto() -> AzStyleBackgroundSizeValue { AzStyleBackgroundSizeValue { object: azul_css::CssPropertyValue::<StyleBackgroundSize>::Auto } }
+#[inline] #[no_mangle] pub extern "C" fn az_style_background_size_value_none() -> AzStyleBackgroundSizeValue { AzStyleBackgroundSizeValue { object: azul_css::CssPropertyValue::<StyleBackgroundSize>::None } }
+#[inline] #[no_mangle] pub extern "C" fn az_style_background_size_value_inherit() -> AzStyleBackgroundSizeValue { AzStyleBackgroundSizeValue { object: azul_css::CssPropertyValue::<StyleBackgroundSize>::Inherit } }
+#[inline] #[no_mangle] pub extern "C" fn az_style_background_size_value_initial() -> AzStyleBackgroundSizeValue { AzStyleBackgroundSizeValue { object: azul_css::CssPropertyValue::<StyleBackgroundSize>::Initial } }
+#[inline] #[no_mangle] pub extern "C" fn az_style_background_size_value_exact(variant_data: AzStyleBackgroundSizePtr) -> AzStyleBackgroundSizeValue { AzStyleBackgroundSizeValue { object: azul_css::CssPropertyValue::<StyleBackgroundSize>::Exact(*az_style_background_size_downcast(variant_data)) } }
 /// Destructor: Takes ownership of the `StyleBackgroundSizeValue` pointer and deletes it.
-#[no_mangle] #[inline] #[allow(unused_variables)] pub extern "C" fn az_style_background_size_value_delete(object: &mut AzStyleBackgroundSizeValue) { match object { AzStyleBackgroundSizeValue::Auto => { }, AzStyleBackgroundSizeValue::None => { }, AzStyleBackgroundSizeValue::Inherit => { }, AzStyleBackgroundSizeValue::Initial => { }, AzStyleBackgroundSizeValue::Exact(_) => { }, }
+#[no_mangle] #[inline] #[allow(unused_variables)] pub extern "C" fn az_style_background_size_value_delete(object: &mut AzStyleBackgroundSizeValue) { match object.object { azul_css::CssPropertyValue::<StyleBackgroundSize>::Auto => { }, azul_css::CssPropertyValue::<StyleBackgroundSize>::None => { }, azul_css::CssPropertyValue::<StyleBackgroundSize>::Inherit => { }, azul_css::CssPropertyValue::<StyleBackgroundSize>::Initial => { }, azul_css::CssPropertyValue::<StyleBackgroundSize>::Exact(_) => { }, }
 }
 /// Copies the object
-#[no_mangle] #[inline] pub extern "C" fn az_style_background_size_value_deep_copy(object: &AzStyleBackgroundSizeValue) -> AzStyleBackgroundSizeValue { object.clone() }
+#[no_mangle] #[inline] pub extern "C" fn az_style_background_size_value_deep_copy(object: &AzStyleBackgroundSizeValue) -> AzStyleBackgroundSizeValue { AzStyleBackgroundSizeValue{ object: object.object.clone() } }
 
 /// Re-export of rust-allocated (stack based) `StyleBorderBottomColorValue` struct
-pub type AzStyleBorderBottomColorValueType = azul_css::CssPropertyValue::<StyleBorderBottomColor>;
-#[no_mangle] pub use AzStyleBorderBottomColorValueType as AzStyleBorderBottomColorValue;
-#[inline] #[no_mangle] pub extern "C" fn az_style_border_bottom_color_value_auto() -> AzStyleBorderBottomColorValue { AzStyleBorderBottomColorValue::Auto }
-#[inline] #[no_mangle] pub extern "C" fn az_style_border_bottom_color_value_none() -> AzStyleBorderBottomColorValue { AzStyleBorderBottomColorValue::None }
-#[inline] #[no_mangle] pub extern "C" fn az_style_border_bottom_color_value_inherit() -> AzStyleBorderBottomColorValue { AzStyleBorderBottomColorValue::Inherit }
-#[inline] #[no_mangle] pub extern "C" fn az_style_border_bottom_color_value_initial() -> AzStyleBorderBottomColorValue { AzStyleBorderBottomColorValue::Initial }
-#[inline] #[no_mangle] pub extern "C" fn az_style_border_bottom_color_value_exact(variant_data: AzStyleBorderBottomColorPtr) -> AzStyleBorderBottomColorValue { AzStyleBorderBottomColorValue::Exact(*az_style_border_bottom_color_downcast(variant_data)) }
+#[no_mangle] #[repr(C)] pub struct AzStyleBorderBottomColorValue { object: azul_css::CssPropertyValue::<StyleBorderBottomColor> }
+#[inline] #[no_mangle] pub extern "C" fn az_style_border_bottom_color_value_auto() -> AzStyleBorderBottomColorValue { AzStyleBorderBottomColorValue { object: azul_css::CssPropertyValue::<StyleBorderBottomColor>::Auto } }
+#[inline] #[no_mangle] pub extern "C" fn az_style_border_bottom_color_value_none() -> AzStyleBorderBottomColorValue { AzStyleBorderBottomColorValue { object: azul_css::CssPropertyValue::<StyleBorderBottomColor>::None } }
+#[inline] #[no_mangle] pub extern "C" fn az_style_border_bottom_color_value_inherit() -> AzStyleBorderBottomColorValue { AzStyleBorderBottomColorValue { object: azul_css::CssPropertyValue::<StyleBorderBottomColor>::Inherit } }
+#[inline] #[no_mangle] pub extern "C" fn az_style_border_bottom_color_value_initial() -> AzStyleBorderBottomColorValue { AzStyleBorderBottomColorValue { object: azul_css::CssPropertyValue::<StyleBorderBottomColor>::Initial } }
+#[inline] #[no_mangle] pub extern "C" fn az_style_border_bottom_color_value_exact(variant_data: AzStyleBorderBottomColorPtr) -> AzStyleBorderBottomColorValue { AzStyleBorderBottomColorValue { object: azul_css::CssPropertyValue::<StyleBorderBottomColor>::Exact(*az_style_border_bottom_color_downcast(variant_data)) } }
 /// Destructor: Takes ownership of the `StyleBorderBottomColorValue` pointer and deletes it.
-#[no_mangle] #[inline] #[allow(unused_variables)] pub extern "C" fn az_style_border_bottom_color_value_delete(object: &mut AzStyleBorderBottomColorValue) { match object { AzStyleBorderBottomColorValue::Auto => { }, AzStyleBorderBottomColorValue::None => { }, AzStyleBorderBottomColorValue::Inherit => { }, AzStyleBorderBottomColorValue::Initial => { }, AzStyleBorderBottomColorValue::Exact(_) => { }, }
+#[no_mangle] #[inline] #[allow(unused_variables)] pub extern "C" fn az_style_border_bottom_color_value_delete(object: &mut AzStyleBorderBottomColorValue) { match object.object { azul_css::CssPropertyValue::<StyleBorderBottomColor>::Auto => { }, azul_css::CssPropertyValue::<StyleBorderBottomColor>::None => { }, azul_css::CssPropertyValue::<StyleBorderBottomColor>::Inherit => { }, azul_css::CssPropertyValue::<StyleBorderBottomColor>::Initial => { }, azul_css::CssPropertyValue::<StyleBorderBottomColor>::Exact(_) => { }, }
 }
 /// Copies the object
-#[no_mangle] #[inline] pub extern "C" fn az_style_border_bottom_color_value_deep_copy(object: &AzStyleBorderBottomColorValue) -> AzStyleBorderBottomColorValue { object.clone() }
+#[no_mangle] #[inline] pub extern "C" fn az_style_border_bottom_color_value_deep_copy(object: &AzStyleBorderBottomColorValue) -> AzStyleBorderBottomColorValue { AzStyleBorderBottomColorValue{ object: object.object.clone() } }
 
 /// Re-export of rust-allocated (stack based) `StyleBorderBottomLeftRadiusValue` struct
-pub type AzStyleBorderBottomLeftRadiusValueType = azul_css::CssPropertyValue::<StyleBorderBottomLeftRadius>;
-#[no_mangle] pub use AzStyleBorderBottomLeftRadiusValueType as AzStyleBorderBottomLeftRadiusValue;
-#[inline] #[no_mangle] pub extern "C" fn az_style_border_bottom_left_radius_value_auto() -> AzStyleBorderBottomLeftRadiusValue { AzStyleBorderBottomLeftRadiusValue::Auto }
-#[inline] #[no_mangle] pub extern "C" fn az_style_border_bottom_left_radius_value_none() -> AzStyleBorderBottomLeftRadiusValue { AzStyleBorderBottomLeftRadiusValue::None }
-#[inline] #[no_mangle] pub extern "C" fn az_style_border_bottom_left_radius_value_inherit() -> AzStyleBorderBottomLeftRadiusValue { AzStyleBorderBottomLeftRadiusValue::Inherit }
-#[inline] #[no_mangle] pub extern "C" fn az_style_border_bottom_left_radius_value_initial() -> AzStyleBorderBottomLeftRadiusValue { AzStyleBorderBottomLeftRadiusValue::Initial }
-#[inline] #[no_mangle] pub extern "C" fn az_style_border_bottom_left_radius_value_exact(variant_data: AzStyleBorderBottomLeftRadiusPtr) -> AzStyleBorderBottomLeftRadiusValue { AzStyleBorderBottomLeftRadiusValue::Exact(*az_style_border_bottom_left_radius_downcast(variant_data)) }
+#[no_mangle] #[repr(C)] pub struct AzStyleBorderBottomLeftRadiusValue { object: azul_css::CssPropertyValue::<StyleBorderBottomLeftRadius> }
+#[inline] #[no_mangle] pub extern "C" fn az_style_border_bottom_left_radius_value_auto() -> AzStyleBorderBottomLeftRadiusValue { AzStyleBorderBottomLeftRadiusValue { object: azul_css::CssPropertyValue::<StyleBorderBottomLeftRadius>::Auto } }
+#[inline] #[no_mangle] pub extern "C" fn az_style_border_bottom_left_radius_value_none() -> AzStyleBorderBottomLeftRadiusValue { AzStyleBorderBottomLeftRadiusValue { object: azul_css::CssPropertyValue::<StyleBorderBottomLeftRadius>::None } }
+#[inline] #[no_mangle] pub extern "C" fn az_style_border_bottom_left_radius_value_inherit() -> AzStyleBorderBottomLeftRadiusValue { AzStyleBorderBottomLeftRadiusValue { object: azul_css::CssPropertyValue::<StyleBorderBottomLeftRadius>::Inherit } }
+#[inline] #[no_mangle] pub extern "C" fn az_style_border_bottom_left_radius_value_initial() -> AzStyleBorderBottomLeftRadiusValue { AzStyleBorderBottomLeftRadiusValue { object: azul_css::CssPropertyValue::<StyleBorderBottomLeftRadius>::Initial } }
+#[inline] #[no_mangle] pub extern "C" fn az_style_border_bottom_left_radius_value_exact(variant_data: AzStyleBorderBottomLeftRadiusPtr) -> AzStyleBorderBottomLeftRadiusValue { AzStyleBorderBottomLeftRadiusValue { object: azul_css::CssPropertyValue::<StyleBorderBottomLeftRadius>::Exact(*az_style_border_bottom_left_radius_downcast(variant_data)) } }
 /// Destructor: Takes ownership of the `StyleBorderBottomLeftRadiusValue` pointer and deletes it.
-#[no_mangle] #[inline] #[allow(unused_variables)] pub extern "C" fn az_style_border_bottom_left_radius_value_delete(object: &mut AzStyleBorderBottomLeftRadiusValue) { match object { AzStyleBorderBottomLeftRadiusValue::Auto => { }, AzStyleBorderBottomLeftRadiusValue::None => { }, AzStyleBorderBottomLeftRadiusValue::Inherit => { }, AzStyleBorderBottomLeftRadiusValue::Initial => { }, AzStyleBorderBottomLeftRadiusValue::Exact(_) => { }, }
+#[no_mangle] #[inline] #[allow(unused_variables)] pub extern "C" fn az_style_border_bottom_left_radius_value_delete(object: &mut AzStyleBorderBottomLeftRadiusValue) { match object.object { azul_css::CssPropertyValue::<StyleBorderBottomLeftRadius>::Auto => { }, azul_css::CssPropertyValue::<StyleBorderBottomLeftRadius>::None => { }, azul_css::CssPropertyValue::<StyleBorderBottomLeftRadius>::Inherit => { }, azul_css::CssPropertyValue::<StyleBorderBottomLeftRadius>::Initial => { }, azul_css::CssPropertyValue::<StyleBorderBottomLeftRadius>::Exact(_) => { }, }
 }
 /// Copies the object
-#[no_mangle] #[inline] pub extern "C" fn az_style_border_bottom_left_radius_value_deep_copy(object: &AzStyleBorderBottomLeftRadiusValue) -> AzStyleBorderBottomLeftRadiusValue { object.clone() }
+#[no_mangle] #[inline] pub extern "C" fn az_style_border_bottom_left_radius_value_deep_copy(object: &AzStyleBorderBottomLeftRadiusValue) -> AzStyleBorderBottomLeftRadiusValue { AzStyleBorderBottomLeftRadiusValue{ object: object.object.clone() } }
 
 /// Re-export of rust-allocated (stack based) `StyleBorderBottomRightRadiusValue` struct
-pub type AzStyleBorderBottomRightRadiusValueType = azul_css::CssPropertyValue::<StyleBorderBottomRightRadius>;
-#[no_mangle] pub use AzStyleBorderBottomRightRadiusValueType as AzStyleBorderBottomRightRadiusValue;
-#[inline] #[no_mangle] pub extern "C" fn az_style_border_bottom_right_radius_value_auto() -> AzStyleBorderBottomRightRadiusValue { AzStyleBorderBottomRightRadiusValue::Auto }
-#[inline] #[no_mangle] pub extern "C" fn az_style_border_bottom_right_radius_value_none() -> AzStyleBorderBottomRightRadiusValue { AzStyleBorderBottomRightRadiusValue::None }
-#[inline] #[no_mangle] pub extern "C" fn az_style_border_bottom_right_radius_value_inherit() -> AzStyleBorderBottomRightRadiusValue { AzStyleBorderBottomRightRadiusValue::Inherit }
-#[inline] #[no_mangle] pub extern "C" fn az_style_border_bottom_right_radius_value_initial() -> AzStyleBorderBottomRightRadiusValue { AzStyleBorderBottomRightRadiusValue::Initial }
-#[inline] #[no_mangle] pub extern "C" fn az_style_border_bottom_right_radius_value_exact(variant_data: AzStyleBorderBottomRightRadiusPtr) -> AzStyleBorderBottomRightRadiusValue { AzStyleBorderBottomRightRadiusValue::Exact(*az_style_border_bottom_right_radius_downcast(variant_data)) }
+#[no_mangle] #[repr(C)] pub struct AzStyleBorderBottomRightRadiusValue { object: azul_css::CssPropertyValue::<StyleBorderBottomRightRadius> }
+#[inline] #[no_mangle] pub extern "C" fn az_style_border_bottom_right_radius_value_auto() -> AzStyleBorderBottomRightRadiusValue { AzStyleBorderBottomRightRadiusValue { object: azul_css::CssPropertyValue::<StyleBorderBottomRightRadius>::Auto } }
+#[inline] #[no_mangle] pub extern "C" fn az_style_border_bottom_right_radius_value_none() -> AzStyleBorderBottomRightRadiusValue { AzStyleBorderBottomRightRadiusValue { object: azul_css::CssPropertyValue::<StyleBorderBottomRightRadius>::None } }
+#[inline] #[no_mangle] pub extern "C" fn az_style_border_bottom_right_radius_value_inherit() -> AzStyleBorderBottomRightRadiusValue { AzStyleBorderBottomRightRadiusValue { object: azul_css::CssPropertyValue::<StyleBorderBottomRightRadius>::Inherit } }
+#[inline] #[no_mangle] pub extern "C" fn az_style_border_bottom_right_radius_value_initial() -> AzStyleBorderBottomRightRadiusValue { AzStyleBorderBottomRightRadiusValue { object: azul_css::CssPropertyValue::<StyleBorderBottomRightRadius>::Initial } }
+#[inline] #[no_mangle] pub extern "C" fn az_style_border_bottom_right_radius_value_exact(variant_data: AzStyleBorderBottomRightRadiusPtr) -> AzStyleBorderBottomRightRadiusValue { AzStyleBorderBottomRightRadiusValue { object: azul_css::CssPropertyValue::<StyleBorderBottomRightRadius>::Exact(*az_style_border_bottom_right_radius_downcast(variant_data)) } }
 /// Destructor: Takes ownership of the `StyleBorderBottomRightRadiusValue` pointer and deletes it.
-#[no_mangle] #[inline] #[allow(unused_variables)] pub extern "C" fn az_style_border_bottom_right_radius_value_delete(object: &mut AzStyleBorderBottomRightRadiusValue) { match object { AzStyleBorderBottomRightRadiusValue::Auto => { }, AzStyleBorderBottomRightRadiusValue::None => { }, AzStyleBorderBottomRightRadiusValue::Inherit => { }, AzStyleBorderBottomRightRadiusValue::Initial => { }, AzStyleBorderBottomRightRadiusValue::Exact(_) => { }, }
+#[no_mangle] #[inline] #[allow(unused_variables)] pub extern "C" fn az_style_border_bottom_right_radius_value_delete(object: &mut AzStyleBorderBottomRightRadiusValue) { match object.object { azul_css::CssPropertyValue::<StyleBorderBottomRightRadius>::Auto => { }, azul_css::CssPropertyValue::<StyleBorderBottomRightRadius>::None => { }, azul_css::CssPropertyValue::<StyleBorderBottomRightRadius>::Inherit => { }, azul_css::CssPropertyValue::<StyleBorderBottomRightRadius>::Initial => { }, azul_css::CssPropertyValue::<StyleBorderBottomRightRadius>::Exact(_) => { }, }
 }
 /// Copies the object
-#[no_mangle] #[inline] pub extern "C" fn az_style_border_bottom_right_radius_value_deep_copy(object: &AzStyleBorderBottomRightRadiusValue) -> AzStyleBorderBottomRightRadiusValue { object.clone() }
+#[no_mangle] #[inline] pub extern "C" fn az_style_border_bottom_right_radius_value_deep_copy(object: &AzStyleBorderBottomRightRadiusValue) -> AzStyleBorderBottomRightRadiusValue { AzStyleBorderBottomRightRadiusValue{ object: object.object.clone() } }
 
 /// Re-export of rust-allocated (stack based) `StyleBorderBottomStyleValue` struct
-pub type AzStyleBorderBottomStyleValueType = azul_css::CssPropertyValue::<StyleBorderBottomStyle>;
-#[no_mangle] pub use AzStyleBorderBottomStyleValueType as AzStyleBorderBottomStyleValue;
-#[inline] #[no_mangle] pub extern "C" fn az_style_border_bottom_style_value_auto() -> AzStyleBorderBottomStyleValue { AzStyleBorderBottomStyleValue::Auto }
-#[inline] #[no_mangle] pub extern "C" fn az_style_border_bottom_style_value_none() -> AzStyleBorderBottomStyleValue { AzStyleBorderBottomStyleValue::None }
-#[inline] #[no_mangle] pub extern "C" fn az_style_border_bottom_style_value_inherit() -> AzStyleBorderBottomStyleValue { AzStyleBorderBottomStyleValue::Inherit }
-#[inline] #[no_mangle] pub extern "C" fn az_style_border_bottom_style_value_initial() -> AzStyleBorderBottomStyleValue { AzStyleBorderBottomStyleValue::Initial }
-#[inline] #[no_mangle] pub extern "C" fn az_style_border_bottom_style_value_exact(variant_data: AzStyleBorderBottomStylePtr) -> AzStyleBorderBottomStyleValue { AzStyleBorderBottomStyleValue::Exact(*az_style_border_bottom_style_downcast(variant_data)) }
+#[no_mangle] #[repr(C)] pub struct AzStyleBorderBottomStyleValue { object: azul_css::CssPropertyValue::<StyleBorderBottomStyle> }
+#[inline] #[no_mangle] pub extern "C" fn az_style_border_bottom_style_value_auto() -> AzStyleBorderBottomStyleValue { AzStyleBorderBottomStyleValue { object: azul_css::CssPropertyValue::<StyleBorderBottomStyle>::Auto } }
+#[inline] #[no_mangle] pub extern "C" fn az_style_border_bottom_style_value_none() -> AzStyleBorderBottomStyleValue { AzStyleBorderBottomStyleValue { object: azul_css::CssPropertyValue::<StyleBorderBottomStyle>::None } }
+#[inline] #[no_mangle] pub extern "C" fn az_style_border_bottom_style_value_inherit() -> AzStyleBorderBottomStyleValue { AzStyleBorderBottomStyleValue { object: azul_css::CssPropertyValue::<StyleBorderBottomStyle>::Inherit } }
+#[inline] #[no_mangle] pub extern "C" fn az_style_border_bottom_style_value_initial() -> AzStyleBorderBottomStyleValue { AzStyleBorderBottomStyleValue { object: azul_css::CssPropertyValue::<StyleBorderBottomStyle>::Initial } }
+#[inline] #[no_mangle] pub extern "C" fn az_style_border_bottom_style_value_exact(variant_data: AzStyleBorderBottomStylePtr) -> AzStyleBorderBottomStyleValue { AzStyleBorderBottomStyleValue { object: azul_css::CssPropertyValue::<StyleBorderBottomStyle>::Exact(*az_style_border_bottom_style_downcast(variant_data)) } }
 /// Destructor: Takes ownership of the `StyleBorderBottomStyleValue` pointer and deletes it.
-#[no_mangle] #[inline] #[allow(unused_variables)] pub extern "C" fn az_style_border_bottom_style_value_delete(object: &mut AzStyleBorderBottomStyleValue) { match object { AzStyleBorderBottomStyleValue::Auto => { }, AzStyleBorderBottomStyleValue::None => { }, AzStyleBorderBottomStyleValue::Inherit => { }, AzStyleBorderBottomStyleValue::Initial => { }, AzStyleBorderBottomStyleValue::Exact(_) => { }, }
+#[no_mangle] #[inline] #[allow(unused_variables)] pub extern "C" fn az_style_border_bottom_style_value_delete(object: &mut AzStyleBorderBottomStyleValue) { match object.object { azul_css::CssPropertyValue::<StyleBorderBottomStyle>::Auto => { }, azul_css::CssPropertyValue::<StyleBorderBottomStyle>::None => { }, azul_css::CssPropertyValue::<StyleBorderBottomStyle>::Inherit => { }, azul_css::CssPropertyValue::<StyleBorderBottomStyle>::Initial => { }, azul_css::CssPropertyValue::<StyleBorderBottomStyle>::Exact(_) => { }, }
 }
 /// Copies the object
-#[no_mangle] #[inline] pub extern "C" fn az_style_border_bottom_style_value_deep_copy(object: &AzStyleBorderBottomStyleValue) -> AzStyleBorderBottomStyleValue { object.clone() }
+#[no_mangle] #[inline] pub extern "C" fn az_style_border_bottom_style_value_deep_copy(object: &AzStyleBorderBottomStyleValue) -> AzStyleBorderBottomStyleValue { AzStyleBorderBottomStyleValue{ object: object.object.clone() } }
 
 /// Re-export of rust-allocated (stack based) `StyleBorderBottomWidthValue` struct
-pub type AzStyleBorderBottomWidthValueType = azul_css::CssPropertyValue::<StyleBorderBottomWidth>;
-#[no_mangle] pub use AzStyleBorderBottomWidthValueType as AzStyleBorderBottomWidthValue;
-#[inline] #[no_mangle] pub extern "C" fn az_style_border_bottom_width_value_auto() -> AzStyleBorderBottomWidthValue { AzStyleBorderBottomWidthValue::Auto }
-#[inline] #[no_mangle] pub extern "C" fn az_style_border_bottom_width_value_none() -> AzStyleBorderBottomWidthValue { AzStyleBorderBottomWidthValue::None }
-#[inline] #[no_mangle] pub extern "C" fn az_style_border_bottom_width_value_inherit() -> AzStyleBorderBottomWidthValue { AzStyleBorderBottomWidthValue::Inherit }
-#[inline] #[no_mangle] pub extern "C" fn az_style_border_bottom_width_value_initial() -> AzStyleBorderBottomWidthValue { AzStyleBorderBottomWidthValue::Initial }
-#[inline] #[no_mangle] pub extern "C" fn az_style_border_bottom_width_value_exact(variant_data: AzStyleBorderBottomWidthPtr) -> AzStyleBorderBottomWidthValue { AzStyleBorderBottomWidthValue::Exact(*az_style_border_bottom_width_downcast(variant_data)) }
+#[no_mangle] #[repr(C)] pub struct AzStyleBorderBottomWidthValue { object: azul_css::CssPropertyValue::<StyleBorderBottomWidth> }
+#[inline] #[no_mangle] pub extern "C" fn az_style_border_bottom_width_value_auto() -> AzStyleBorderBottomWidthValue { AzStyleBorderBottomWidthValue { object: azul_css::CssPropertyValue::<StyleBorderBottomWidth>::Auto } }
+#[inline] #[no_mangle] pub extern "C" fn az_style_border_bottom_width_value_none() -> AzStyleBorderBottomWidthValue { AzStyleBorderBottomWidthValue { object: azul_css::CssPropertyValue::<StyleBorderBottomWidth>::None } }
+#[inline] #[no_mangle] pub extern "C" fn az_style_border_bottom_width_value_inherit() -> AzStyleBorderBottomWidthValue { AzStyleBorderBottomWidthValue { object: azul_css::CssPropertyValue::<StyleBorderBottomWidth>::Inherit } }
+#[inline] #[no_mangle] pub extern "C" fn az_style_border_bottom_width_value_initial() -> AzStyleBorderBottomWidthValue { AzStyleBorderBottomWidthValue { object: azul_css::CssPropertyValue::<StyleBorderBottomWidth>::Initial } }
+#[inline] #[no_mangle] pub extern "C" fn az_style_border_bottom_width_value_exact(variant_data: AzStyleBorderBottomWidthPtr) -> AzStyleBorderBottomWidthValue { AzStyleBorderBottomWidthValue { object: azul_css::CssPropertyValue::<StyleBorderBottomWidth>::Exact(*az_style_border_bottom_width_downcast(variant_data)) } }
 /// Destructor: Takes ownership of the `StyleBorderBottomWidthValue` pointer and deletes it.
-#[no_mangle] #[inline] #[allow(unused_variables)] pub extern "C" fn az_style_border_bottom_width_value_delete(object: &mut AzStyleBorderBottomWidthValue) { match object { AzStyleBorderBottomWidthValue::Auto => { }, AzStyleBorderBottomWidthValue::None => { }, AzStyleBorderBottomWidthValue::Inherit => { }, AzStyleBorderBottomWidthValue::Initial => { }, AzStyleBorderBottomWidthValue::Exact(_) => { }, }
+#[no_mangle] #[inline] #[allow(unused_variables)] pub extern "C" fn az_style_border_bottom_width_value_delete(object: &mut AzStyleBorderBottomWidthValue) { match object.object { azul_css::CssPropertyValue::<StyleBorderBottomWidth>::Auto => { }, azul_css::CssPropertyValue::<StyleBorderBottomWidth>::None => { }, azul_css::CssPropertyValue::<StyleBorderBottomWidth>::Inherit => { }, azul_css::CssPropertyValue::<StyleBorderBottomWidth>::Initial => { }, azul_css::CssPropertyValue::<StyleBorderBottomWidth>::Exact(_) => { }, }
 }
 /// Copies the object
-#[no_mangle] #[inline] pub extern "C" fn az_style_border_bottom_width_value_deep_copy(object: &AzStyleBorderBottomWidthValue) -> AzStyleBorderBottomWidthValue { object.clone() }
+#[no_mangle] #[inline] pub extern "C" fn az_style_border_bottom_width_value_deep_copy(object: &AzStyleBorderBottomWidthValue) -> AzStyleBorderBottomWidthValue { AzStyleBorderBottomWidthValue{ object: object.object.clone() } }
 
 /// Re-export of rust-allocated (stack based) `StyleBorderLeftColorValue` struct
-pub type AzStyleBorderLeftColorValueType = azul_css::CssPropertyValue::<StyleBorderLeftColor>;
-#[no_mangle] pub use AzStyleBorderLeftColorValueType as AzStyleBorderLeftColorValue;
-#[inline] #[no_mangle] pub extern "C" fn az_style_border_left_color_value_auto() -> AzStyleBorderLeftColorValue { AzStyleBorderLeftColorValue::Auto }
-#[inline] #[no_mangle] pub extern "C" fn az_style_border_left_color_value_none() -> AzStyleBorderLeftColorValue { AzStyleBorderLeftColorValue::None }
-#[inline] #[no_mangle] pub extern "C" fn az_style_border_left_color_value_inherit() -> AzStyleBorderLeftColorValue { AzStyleBorderLeftColorValue::Inherit }
-#[inline] #[no_mangle] pub extern "C" fn az_style_border_left_color_value_initial() -> AzStyleBorderLeftColorValue { AzStyleBorderLeftColorValue::Initial }
-#[inline] #[no_mangle] pub extern "C" fn az_style_border_left_color_value_exact(variant_data: AzStyleBorderLeftColorPtr) -> AzStyleBorderLeftColorValue { AzStyleBorderLeftColorValue::Exact(*az_style_border_left_color_downcast(variant_data)) }
+#[no_mangle] #[repr(C)] pub struct AzStyleBorderLeftColorValue { object: azul_css::CssPropertyValue::<StyleBorderLeftColor> }
+#[inline] #[no_mangle] pub extern "C" fn az_style_border_left_color_value_auto() -> AzStyleBorderLeftColorValue { AzStyleBorderLeftColorValue { object: azul_css::CssPropertyValue::<StyleBorderLeftColor>::Auto } }
+#[inline] #[no_mangle] pub extern "C" fn az_style_border_left_color_value_none() -> AzStyleBorderLeftColorValue { AzStyleBorderLeftColorValue { object: azul_css::CssPropertyValue::<StyleBorderLeftColor>::None } }
+#[inline] #[no_mangle] pub extern "C" fn az_style_border_left_color_value_inherit() -> AzStyleBorderLeftColorValue { AzStyleBorderLeftColorValue { object: azul_css::CssPropertyValue::<StyleBorderLeftColor>::Inherit } }
+#[inline] #[no_mangle] pub extern "C" fn az_style_border_left_color_value_initial() -> AzStyleBorderLeftColorValue { AzStyleBorderLeftColorValue { object: azul_css::CssPropertyValue::<StyleBorderLeftColor>::Initial } }
+#[inline] #[no_mangle] pub extern "C" fn az_style_border_left_color_value_exact(variant_data: AzStyleBorderLeftColorPtr) -> AzStyleBorderLeftColorValue { AzStyleBorderLeftColorValue { object: azul_css::CssPropertyValue::<StyleBorderLeftColor>::Exact(*az_style_border_left_color_downcast(variant_data)) } }
 /// Destructor: Takes ownership of the `StyleBorderLeftColorValue` pointer and deletes it.
-#[no_mangle] #[inline] #[allow(unused_variables)] pub extern "C" fn az_style_border_left_color_value_delete(object: &mut AzStyleBorderLeftColorValue) { match object { AzStyleBorderLeftColorValue::Auto => { }, AzStyleBorderLeftColorValue::None => { }, AzStyleBorderLeftColorValue::Inherit => { }, AzStyleBorderLeftColorValue::Initial => { }, AzStyleBorderLeftColorValue::Exact(_) => { }, }
+#[no_mangle] #[inline] #[allow(unused_variables)] pub extern "C" fn az_style_border_left_color_value_delete(object: &mut AzStyleBorderLeftColorValue) { match object.object { azul_css::CssPropertyValue::<StyleBorderLeftColor>::Auto => { }, azul_css::CssPropertyValue::<StyleBorderLeftColor>::None => { }, azul_css::CssPropertyValue::<StyleBorderLeftColor>::Inherit => { }, azul_css::CssPropertyValue::<StyleBorderLeftColor>::Initial => { }, azul_css::CssPropertyValue::<StyleBorderLeftColor>::Exact(_) => { }, }
 }
 /// Copies the object
-#[no_mangle] #[inline] pub extern "C" fn az_style_border_left_color_value_deep_copy(object: &AzStyleBorderLeftColorValue) -> AzStyleBorderLeftColorValue { object.clone() }
+#[no_mangle] #[inline] pub extern "C" fn az_style_border_left_color_value_deep_copy(object: &AzStyleBorderLeftColorValue) -> AzStyleBorderLeftColorValue { AzStyleBorderLeftColorValue{ object: object.object.clone() } }
 
 /// Re-export of rust-allocated (stack based) `StyleBorderLeftStyleValue` struct
-pub type AzStyleBorderLeftStyleValueType = azul_css::CssPropertyValue::<StyleBorderLeftStyle>;
-#[no_mangle] pub use AzStyleBorderLeftStyleValueType as AzStyleBorderLeftStyleValue;
-#[inline] #[no_mangle] pub extern "C" fn az_style_border_left_style_value_auto() -> AzStyleBorderLeftStyleValue { AzStyleBorderLeftStyleValue::Auto }
-#[inline] #[no_mangle] pub extern "C" fn az_style_border_left_style_value_none() -> AzStyleBorderLeftStyleValue { AzStyleBorderLeftStyleValue::None }
-#[inline] #[no_mangle] pub extern "C" fn az_style_border_left_style_value_inherit() -> AzStyleBorderLeftStyleValue { AzStyleBorderLeftStyleValue::Inherit }
-#[inline] #[no_mangle] pub extern "C" fn az_style_border_left_style_value_initial() -> AzStyleBorderLeftStyleValue { AzStyleBorderLeftStyleValue::Initial }
-#[inline] #[no_mangle] pub extern "C" fn az_style_border_left_style_value_exact(variant_data: AzStyleBorderLeftStylePtr) -> AzStyleBorderLeftStyleValue { AzStyleBorderLeftStyleValue::Exact(*az_style_border_left_style_downcast(variant_data)) }
+#[no_mangle] #[repr(C)] pub struct AzStyleBorderLeftStyleValue { object: azul_css::CssPropertyValue::<StyleBorderLeftStyle> }
+#[inline] #[no_mangle] pub extern "C" fn az_style_border_left_style_value_auto() -> AzStyleBorderLeftStyleValue { AzStyleBorderLeftStyleValue { object: azul_css::CssPropertyValue::<StyleBorderLeftStyle>::Auto } }
+#[inline] #[no_mangle] pub extern "C" fn az_style_border_left_style_value_none() -> AzStyleBorderLeftStyleValue { AzStyleBorderLeftStyleValue { object: azul_css::CssPropertyValue::<StyleBorderLeftStyle>::None } }
+#[inline] #[no_mangle] pub extern "C" fn az_style_border_left_style_value_inherit() -> AzStyleBorderLeftStyleValue { AzStyleBorderLeftStyleValue { object: azul_css::CssPropertyValue::<StyleBorderLeftStyle>::Inherit } }
+#[inline] #[no_mangle] pub extern "C" fn az_style_border_left_style_value_initial() -> AzStyleBorderLeftStyleValue { AzStyleBorderLeftStyleValue { object: azul_css::CssPropertyValue::<StyleBorderLeftStyle>::Initial } }
+#[inline] #[no_mangle] pub extern "C" fn az_style_border_left_style_value_exact(variant_data: AzStyleBorderLeftStylePtr) -> AzStyleBorderLeftStyleValue { AzStyleBorderLeftStyleValue { object: azul_css::CssPropertyValue::<StyleBorderLeftStyle>::Exact(*az_style_border_left_style_downcast(variant_data)) } }
 /// Destructor: Takes ownership of the `StyleBorderLeftStyleValue` pointer and deletes it.
-#[no_mangle] #[inline] #[allow(unused_variables)] pub extern "C" fn az_style_border_left_style_value_delete(object: &mut AzStyleBorderLeftStyleValue) { match object { AzStyleBorderLeftStyleValue::Auto => { }, AzStyleBorderLeftStyleValue::None => { }, AzStyleBorderLeftStyleValue::Inherit => { }, AzStyleBorderLeftStyleValue::Initial => { }, AzStyleBorderLeftStyleValue::Exact(_) => { }, }
+#[no_mangle] #[inline] #[allow(unused_variables)] pub extern "C" fn az_style_border_left_style_value_delete(object: &mut AzStyleBorderLeftStyleValue) { match object.object { azul_css::CssPropertyValue::<StyleBorderLeftStyle>::Auto => { }, azul_css::CssPropertyValue::<StyleBorderLeftStyle>::None => { }, azul_css::CssPropertyValue::<StyleBorderLeftStyle>::Inherit => { }, azul_css::CssPropertyValue::<StyleBorderLeftStyle>::Initial => { }, azul_css::CssPropertyValue::<StyleBorderLeftStyle>::Exact(_) => { }, }
 }
 /// Copies the object
-#[no_mangle] #[inline] pub extern "C" fn az_style_border_left_style_value_deep_copy(object: &AzStyleBorderLeftStyleValue) -> AzStyleBorderLeftStyleValue { object.clone() }
+#[no_mangle] #[inline] pub extern "C" fn az_style_border_left_style_value_deep_copy(object: &AzStyleBorderLeftStyleValue) -> AzStyleBorderLeftStyleValue { AzStyleBorderLeftStyleValue{ object: object.object.clone() } }
 
 /// Re-export of rust-allocated (stack based) `StyleBorderLeftWidthValue` struct
-pub type AzStyleBorderLeftWidthValueType = azul_css::CssPropertyValue::<StyleBorderLeftWidth>;
-#[no_mangle] pub use AzStyleBorderLeftWidthValueType as AzStyleBorderLeftWidthValue;
-#[inline] #[no_mangle] pub extern "C" fn az_style_border_left_width_value_auto() -> AzStyleBorderLeftWidthValue { AzStyleBorderLeftWidthValue::Auto }
-#[inline] #[no_mangle] pub extern "C" fn az_style_border_left_width_value_none() -> AzStyleBorderLeftWidthValue { AzStyleBorderLeftWidthValue::None }
-#[inline] #[no_mangle] pub extern "C" fn az_style_border_left_width_value_inherit() -> AzStyleBorderLeftWidthValue { AzStyleBorderLeftWidthValue::Inherit }
-#[inline] #[no_mangle] pub extern "C" fn az_style_border_left_width_value_initial() -> AzStyleBorderLeftWidthValue { AzStyleBorderLeftWidthValue::Initial }
-#[inline] #[no_mangle] pub extern "C" fn az_style_border_left_width_value_exact(variant_data: AzStyleBorderLeftWidthPtr) -> AzStyleBorderLeftWidthValue { AzStyleBorderLeftWidthValue::Exact(*az_style_border_left_width_downcast(variant_data)) }
+#[no_mangle] #[repr(C)] pub struct AzStyleBorderLeftWidthValue { object: azul_css::CssPropertyValue::<StyleBorderLeftWidth> }
+#[inline] #[no_mangle] pub extern "C" fn az_style_border_left_width_value_auto() -> AzStyleBorderLeftWidthValue { AzStyleBorderLeftWidthValue { object: azul_css::CssPropertyValue::<StyleBorderLeftWidth>::Auto } }
+#[inline] #[no_mangle] pub extern "C" fn az_style_border_left_width_value_none() -> AzStyleBorderLeftWidthValue { AzStyleBorderLeftWidthValue { object: azul_css::CssPropertyValue::<StyleBorderLeftWidth>::None } }
+#[inline] #[no_mangle] pub extern "C" fn az_style_border_left_width_value_inherit() -> AzStyleBorderLeftWidthValue { AzStyleBorderLeftWidthValue { object: azul_css::CssPropertyValue::<StyleBorderLeftWidth>::Inherit } }
+#[inline] #[no_mangle] pub extern "C" fn az_style_border_left_width_value_initial() -> AzStyleBorderLeftWidthValue { AzStyleBorderLeftWidthValue { object: azul_css::CssPropertyValue::<StyleBorderLeftWidth>::Initial } }
+#[inline] #[no_mangle] pub extern "C" fn az_style_border_left_width_value_exact(variant_data: AzStyleBorderLeftWidthPtr) -> AzStyleBorderLeftWidthValue { AzStyleBorderLeftWidthValue { object: azul_css::CssPropertyValue::<StyleBorderLeftWidth>::Exact(*az_style_border_left_width_downcast(variant_data)) } }
 /// Destructor: Takes ownership of the `StyleBorderLeftWidthValue` pointer and deletes it.
-#[no_mangle] #[inline] #[allow(unused_variables)] pub extern "C" fn az_style_border_left_width_value_delete(object: &mut AzStyleBorderLeftWidthValue) { match object { AzStyleBorderLeftWidthValue::Auto => { }, AzStyleBorderLeftWidthValue::None => { }, AzStyleBorderLeftWidthValue::Inherit => { }, AzStyleBorderLeftWidthValue::Initial => { }, AzStyleBorderLeftWidthValue::Exact(_) => { }, }
+#[no_mangle] #[inline] #[allow(unused_variables)] pub extern "C" fn az_style_border_left_width_value_delete(object: &mut AzStyleBorderLeftWidthValue) { match object.object { azul_css::CssPropertyValue::<StyleBorderLeftWidth>::Auto => { }, azul_css::CssPropertyValue::<StyleBorderLeftWidth>::None => { }, azul_css::CssPropertyValue::<StyleBorderLeftWidth>::Inherit => { }, azul_css::CssPropertyValue::<StyleBorderLeftWidth>::Initial => { }, azul_css::CssPropertyValue::<StyleBorderLeftWidth>::Exact(_) => { }, }
 }
 /// Copies the object
-#[no_mangle] #[inline] pub extern "C" fn az_style_border_left_width_value_deep_copy(object: &AzStyleBorderLeftWidthValue) -> AzStyleBorderLeftWidthValue { object.clone() }
+#[no_mangle] #[inline] pub extern "C" fn az_style_border_left_width_value_deep_copy(object: &AzStyleBorderLeftWidthValue) -> AzStyleBorderLeftWidthValue { AzStyleBorderLeftWidthValue{ object: object.object.clone() } }
 
 /// Re-export of rust-allocated (stack based) `StyleBorderRightColorValue` struct
-pub type AzStyleBorderRightColorValueType = azul_css::CssPropertyValue::<StyleBorderRightColor>;
-#[no_mangle] pub use AzStyleBorderRightColorValueType as AzStyleBorderRightColorValue;
-#[inline] #[no_mangle] pub extern "C" fn az_style_border_right_color_value_auto() -> AzStyleBorderRightColorValue { AzStyleBorderRightColorValue::Auto }
-#[inline] #[no_mangle] pub extern "C" fn az_style_border_right_color_value_none() -> AzStyleBorderRightColorValue { AzStyleBorderRightColorValue::None }
-#[inline] #[no_mangle] pub extern "C" fn az_style_border_right_color_value_inherit() -> AzStyleBorderRightColorValue { AzStyleBorderRightColorValue::Inherit }
-#[inline] #[no_mangle] pub extern "C" fn az_style_border_right_color_value_initial() -> AzStyleBorderRightColorValue { AzStyleBorderRightColorValue::Initial }
-#[inline] #[no_mangle] pub extern "C" fn az_style_border_right_color_value_exact(variant_data: AzStyleBorderRightColorPtr) -> AzStyleBorderRightColorValue { AzStyleBorderRightColorValue::Exact(*az_style_border_right_color_downcast(variant_data)) }
+#[no_mangle] #[repr(C)] pub struct AzStyleBorderRightColorValue { object: azul_css::CssPropertyValue::<StyleBorderRightColor> }
+#[inline] #[no_mangle] pub extern "C" fn az_style_border_right_color_value_auto() -> AzStyleBorderRightColorValue { AzStyleBorderRightColorValue { object: azul_css::CssPropertyValue::<StyleBorderRightColor>::Auto } }
+#[inline] #[no_mangle] pub extern "C" fn az_style_border_right_color_value_none() -> AzStyleBorderRightColorValue { AzStyleBorderRightColorValue { object: azul_css::CssPropertyValue::<StyleBorderRightColor>::None } }
+#[inline] #[no_mangle] pub extern "C" fn az_style_border_right_color_value_inherit() -> AzStyleBorderRightColorValue { AzStyleBorderRightColorValue { object: azul_css::CssPropertyValue::<StyleBorderRightColor>::Inherit } }
+#[inline] #[no_mangle] pub extern "C" fn az_style_border_right_color_value_initial() -> AzStyleBorderRightColorValue { AzStyleBorderRightColorValue { object: azul_css::CssPropertyValue::<StyleBorderRightColor>::Initial } }
+#[inline] #[no_mangle] pub extern "C" fn az_style_border_right_color_value_exact(variant_data: AzStyleBorderRightColorPtr) -> AzStyleBorderRightColorValue { AzStyleBorderRightColorValue { object: azul_css::CssPropertyValue::<StyleBorderRightColor>::Exact(*az_style_border_right_color_downcast(variant_data)) } }
 /// Destructor: Takes ownership of the `StyleBorderRightColorValue` pointer and deletes it.
-#[no_mangle] #[inline] #[allow(unused_variables)] pub extern "C" fn az_style_border_right_color_value_delete(object: &mut AzStyleBorderRightColorValue) { match object { AzStyleBorderRightColorValue::Auto => { }, AzStyleBorderRightColorValue::None => { }, AzStyleBorderRightColorValue::Inherit => { }, AzStyleBorderRightColorValue::Initial => { }, AzStyleBorderRightColorValue::Exact(_) => { }, }
+#[no_mangle] #[inline] #[allow(unused_variables)] pub extern "C" fn az_style_border_right_color_value_delete(object: &mut AzStyleBorderRightColorValue) { match object.object { azul_css::CssPropertyValue::<StyleBorderRightColor>::Auto => { }, azul_css::CssPropertyValue::<StyleBorderRightColor>::None => { }, azul_css::CssPropertyValue::<StyleBorderRightColor>::Inherit => { }, azul_css::CssPropertyValue::<StyleBorderRightColor>::Initial => { }, azul_css::CssPropertyValue::<StyleBorderRightColor>::Exact(_) => { }, }
 }
 /// Copies the object
-#[no_mangle] #[inline] pub extern "C" fn az_style_border_right_color_value_deep_copy(object: &AzStyleBorderRightColorValue) -> AzStyleBorderRightColorValue { object.clone() }
+#[no_mangle] #[inline] pub extern "C" fn az_style_border_right_color_value_deep_copy(object: &AzStyleBorderRightColorValue) -> AzStyleBorderRightColorValue { AzStyleBorderRightColorValue{ object: object.object.clone() } }
 
 /// Re-export of rust-allocated (stack based) `StyleBorderRightStyleValue` struct
-pub type AzStyleBorderRightStyleValueType = azul_css::CssPropertyValue::<StyleBorderRightStyle>;
-#[no_mangle] pub use AzStyleBorderRightStyleValueType as AzStyleBorderRightStyleValue;
-#[inline] #[no_mangle] pub extern "C" fn az_style_border_right_style_value_auto() -> AzStyleBorderRightStyleValue { AzStyleBorderRightStyleValue::Auto }
-#[inline] #[no_mangle] pub extern "C" fn az_style_border_right_style_value_none() -> AzStyleBorderRightStyleValue { AzStyleBorderRightStyleValue::None }
-#[inline] #[no_mangle] pub extern "C" fn az_style_border_right_style_value_inherit() -> AzStyleBorderRightStyleValue { AzStyleBorderRightStyleValue::Inherit }
-#[inline] #[no_mangle] pub extern "C" fn az_style_border_right_style_value_initial() -> AzStyleBorderRightStyleValue { AzStyleBorderRightStyleValue::Initial }
-#[inline] #[no_mangle] pub extern "C" fn az_style_border_right_style_value_exact(variant_data: AzStyleBorderRightStylePtr) -> AzStyleBorderRightStyleValue { AzStyleBorderRightStyleValue::Exact(*az_style_border_right_style_downcast(variant_data)) }
+#[no_mangle] #[repr(C)] pub struct AzStyleBorderRightStyleValue { object: azul_css::CssPropertyValue::<StyleBorderRightStyle> }
+#[inline] #[no_mangle] pub extern "C" fn az_style_border_right_style_value_auto() -> AzStyleBorderRightStyleValue { AzStyleBorderRightStyleValue { object: azul_css::CssPropertyValue::<StyleBorderRightStyle>::Auto } }
+#[inline] #[no_mangle] pub extern "C" fn az_style_border_right_style_value_none() -> AzStyleBorderRightStyleValue { AzStyleBorderRightStyleValue { object: azul_css::CssPropertyValue::<StyleBorderRightStyle>::None } }
+#[inline] #[no_mangle] pub extern "C" fn az_style_border_right_style_value_inherit() -> AzStyleBorderRightStyleValue { AzStyleBorderRightStyleValue { object: azul_css::CssPropertyValue::<StyleBorderRightStyle>::Inherit } }
+#[inline] #[no_mangle] pub extern "C" fn az_style_border_right_style_value_initial() -> AzStyleBorderRightStyleValue { AzStyleBorderRightStyleValue { object: azul_css::CssPropertyValue::<StyleBorderRightStyle>::Initial } }
+#[inline] #[no_mangle] pub extern "C" fn az_style_border_right_style_value_exact(variant_data: AzStyleBorderRightStylePtr) -> AzStyleBorderRightStyleValue { AzStyleBorderRightStyleValue { object: azul_css::CssPropertyValue::<StyleBorderRightStyle>::Exact(*az_style_border_right_style_downcast(variant_data)) } }
 /// Destructor: Takes ownership of the `StyleBorderRightStyleValue` pointer and deletes it.
-#[no_mangle] #[inline] #[allow(unused_variables)] pub extern "C" fn az_style_border_right_style_value_delete(object: &mut AzStyleBorderRightStyleValue) { match object { AzStyleBorderRightStyleValue::Auto => { }, AzStyleBorderRightStyleValue::None => { }, AzStyleBorderRightStyleValue::Inherit => { }, AzStyleBorderRightStyleValue::Initial => { }, AzStyleBorderRightStyleValue::Exact(_) => { }, }
+#[no_mangle] #[inline] #[allow(unused_variables)] pub extern "C" fn az_style_border_right_style_value_delete(object: &mut AzStyleBorderRightStyleValue) { match object.object { azul_css::CssPropertyValue::<StyleBorderRightStyle>::Auto => { }, azul_css::CssPropertyValue::<StyleBorderRightStyle>::None => { }, azul_css::CssPropertyValue::<StyleBorderRightStyle>::Inherit => { }, azul_css::CssPropertyValue::<StyleBorderRightStyle>::Initial => { }, azul_css::CssPropertyValue::<StyleBorderRightStyle>::Exact(_) => { }, }
 }
 /// Copies the object
-#[no_mangle] #[inline] pub extern "C" fn az_style_border_right_style_value_deep_copy(object: &AzStyleBorderRightStyleValue) -> AzStyleBorderRightStyleValue { object.clone() }
+#[no_mangle] #[inline] pub extern "C" fn az_style_border_right_style_value_deep_copy(object: &AzStyleBorderRightStyleValue) -> AzStyleBorderRightStyleValue { AzStyleBorderRightStyleValue{ object: object.object.clone() } }
 
 /// Re-export of rust-allocated (stack based) `StyleBorderRightWidthValue` struct
-pub type AzStyleBorderRightWidthValueType = azul_css::CssPropertyValue::<StyleBorderRightWidth>;
-#[no_mangle] pub use AzStyleBorderRightWidthValueType as AzStyleBorderRightWidthValue;
-#[inline] #[no_mangle] pub extern "C" fn az_style_border_right_width_value_auto() -> AzStyleBorderRightWidthValue { AzStyleBorderRightWidthValue::Auto }
-#[inline] #[no_mangle] pub extern "C" fn az_style_border_right_width_value_none() -> AzStyleBorderRightWidthValue { AzStyleBorderRightWidthValue::None }
-#[inline] #[no_mangle] pub extern "C" fn az_style_border_right_width_value_inherit() -> AzStyleBorderRightWidthValue { AzStyleBorderRightWidthValue::Inherit }
-#[inline] #[no_mangle] pub extern "C" fn az_style_border_right_width_value_initial() -> AzStyleBorderRightWidthValue { AzStyleBorderRightWidthValue::Initial }
-#[inline] #[no_mangle] pub extern "C" fn az_style_border_right_width_value_exact(variant_data: AzStyleBorderRightWidthPtr) -> AzStyleBorderRightWidthValue { AzStyleBorderRightWidthValue::Exact(*az_style_border_right_width_downcast(variant_data)) }
+#[no_mangle] #[repr(C)] pub struct AzStyleBorderRightWidthValue { object: azul_css::CssPropertyValue::<StyleBorderRightWidth> }
+#[inline] #[no_mangle] pub extern "C" fn az_style_border_right_width_value_auto() -> AzStyleBorderRightWidthValue { AzStyleBorderRightWidthValue { object: azul_css::CssPropertyValue::<StyleBorderRightWidth>::Auto } }
+#[inline] #[no_mangle] pub extern "C" fn az_style_border_right_width_value_none() -> AzStyleBorderRightWidthValue { AzStyleBorderRightWidthValue { object: azul_css::CssPropertyValue::<StyleBorderRightWidth>::None } }
+#[inline] #[no_mangle] pub extern "C" fn az_style_border_right_width_value_inherit() -> AzStyleBorderRightWidthValue { AzStyleBorderRightWidthValue { object: azul_css::CssPropertyValue::<StyleBorderRightWidth>::Inherit } }
+#[inline] #[no_mangle] pub extern "C" fn az_style_border_right_width_value_initial() -> AzStyleBorderRightWidthValue { AzStyleBorderRightWidthValue { object: azul_css::CssPropertyValue::<StyleBorderRightWidth>::Initial } }
+#[inline] #[no_mangle] pub extern "C" fn az_style_border_right_width_value_exact(variant_data: AzStyleBorderRightWidthPtr) -> AzStyleBorderRightWidthValue { AzStyleBorderRightWidthValue { object: azul_css::CssPropertyValue::<StyleBorderRightWidth>::Exact(*az_style_border_right_width_downcast(variant_data)) } }
 /// Destructor: Takes ownership of the `StyleBorderRightWidthValue` pointer and deletes it.
-#[no_mangle] #[inline] #[allow(unused_variables)] pub extern "C" fn az_style_border_right_width_value_delete(object: &mut AzStyleBorderRightWidthValue) { match object { AzStyleBorderRightWidthValue::Auto => { }, AzStyleBorderRightWidthValue::None => { }, AzStyleBorderRightWidthValue::Inherit => { }, AzStyleBorderRightWidthValue::Initial => { }, AzStyleBorderRightWidthValue::Exact(_) => { }, }
+#[no_mangle] #[inline] #[allow(unused_variables)] pub extern "C" fn az_style_border_right_width_value_delete(object: &mut AzStyleBorderRightWidthValue) { match object.object { azul_css::CssPropertyValue::<StyleBorderRightWidth>::Auto => { }, azul_css::CssPropertyValue::<StyleBorderRightWidth>::None => { }, azul_css::CssPropertyValue::<StyleBorderRightWidth>::Inherit => { }, azul_css::CssPropertyValue::<StyleBorderRightWidth>::Initial => { }, azul_css::CssPropertyValue::<StyleBorderRightWidth>::Exact(_) => { }, }
 }
 /// Copies the object
-#[no_mangle] #[inline] pub extern "C" fn az_style_border_right_width_value_deep_copy(object: &AzStyleBorderRightWidthValue) -> AzStyleBorderRightWidthValue { object.clone() }
+#[no_mangle] #[inline] pub extern "C" fn az_style_border_right_width_value_deep_copy(object: &AzStyleBorderRightWidthValue) -> AzStyleBorderRightWidthValue { AzStyleBorderRightWidthValue{ object: object.object.clone() } }
 
 /// Re-export of rust-allocated (stack based) `StyleBorderTopColorValue` struct
-pub type AzStyleBorderTopColorValueType = azul_css::CssPropertyValue::<StyleBorderTopColor>;
-#[no_mangle] pub use AzStyleBorderTopColorValueType as AzStyleBorderTopColorValue;
-#[inline] #[no_mangle] pub extern "C" fn az_style_border_top_color_value_auto() -> AzStyleBorderTopColorValue { AzStyleBorderTopColorValue::Auto }
-#[inline] #[no_mangle] pub extern "C" fn az_style_border_top_color_value_none() -> AzStyleBorderTopColorValue { AzStyleBorderTopColorValue::None }
-#[inline] #[no_mangle] pub extern "C" fn az_style_border_top_color_value_inherit() -> AzStyleBorderTopColorValue { AzStyleBorderTopColorValue::Inherit }
-#[inline] #[no_mangle] pub extern "C" fn az_style_border_top_color_value_initial() -> AzStyleBorderTopColorValue { AzStyleBorderTopColorValue::Initial }
-#[inline] #[no_mangle] pub extern "C" fn az_style_border_top_color_value_exact(variant_data: AzStyleBorderTopColorPtr) -> AzStyleBorderTopColorValue { AzStyleBorderTopColorValue::Exact(*az_style_border_top_color_downcast(variant_data)) }
+#[no_mangle] #[repr(C)] pub struct AzStyleBorderTopColorValue { object: azul_css::CssPropertyValue::<StyleBorderTopColor> }
+#[inline] #[no_mangle] pub extern "C" fn az_style_border_top_color_value_auto() -> AzStyleBorderTopColorValue { AzStyleBorderTopColorValue { object: azul_css::CssPropertyValue::<StyleBorderTopColor>::Auto } }
+#[inline] #[no_mangle] pub extern "C" fn az_style_border_top_color_value_none() -> AzStyleBorderTopColorValue { AzStyleBorderTopColorValue { object: azul_css::CssPropertyValue::<StyleBorderTopColor>::None } }
+#[inline] #[no_mangle] pub extern "C" fn az_style_border_top_color_value_inherit() -> AzStyleBorderTopColorValue { AzStyleBorderTopColorValue { object: azul_css::CssPropertyValue::<StyleBorderTopColor>::Inherit } }
+#[inline] #[no_mangle] pub extern "C" fn az_style_border_top_color_value_initial() -> AzStyleBorderTopColorValue { AzStyleBorderTopColorValue { object: azul_css::CssPropertyValue::<StyleBorderTopColor>::Initial } }
+#[inline] #[no_mangle] pub extern "C" fn az_style_border_top_color_value_exact(variant_data: AzStyleBorderTopColorPtr) -> AzStyleBorderTopColorValue { AzStyleBorderTopColorValue { object: azul_css::CssPropertyValue::<StyleBorderTopColor>::Exact(*az_style_border_top_color_downcast(variant_data)) } }
 /// Destructor: Takes ownership of the `StyleBorderTopColorValue` pointer and deletes it.
-#[no_mangle] #[inline] #[allow(unused_variables)] pub extern "C" fn az_style_border_top_color_value_delete(object: &mut AzStyleBorderTopColorValue) { match object { AzStyleBorderTopColorValue::Auto => { }, AzStyleBorderTopColorValue::None => { }, AzStyleBorderTopColorValue::Inherit => { }, AzStyleBorderTopColorValue::Initial => { }, AzStyleBorderTopColorValue::Exact(_) => { }, }
+#[no_mangle] #[inline] #[allow(unused_variables)] pub extern "C" fn az_style_border_top_color_value_delete(object: &mut AzStyleBorderTopColorValue) { match object.object { azul_css::CssPropertyValue::<StyleBorderTopColor>::Auto => { }, azul_css::CssPropertyValue::<StyleBorderTopColor>::None => { }, azul_css::CssPropertyValue::<StyleBorderTopColor>::Inherit => { }, azul_css::CssPropertyValue::<StyleBorderTopColor>::Initial => { }, azul_css::CssPropertyValue::<StyleBorderTopColor>::Exact(_) => { }, }
 }
 /// Copies the object
-#[no_mangle] #[inline] pub extern "C" fn az_style_border_top_color_value_deep_copy(object: &AzStyleBorderTopColorValue) -> AzStyleBorderTopColorValue { object.clone() }
+#[no_mangle] #[inline] pub extern "C" fn az_style_border_top_color_value_deep_copy(object: &AzStyleBorderTopColorValue) -> AzStyleBorderTopColorValue { AzStyleBorderTopColorValue{ object: object.object.clone() } }
 
 /// Re-export of rust-allocated (stack based) `StyleBorderTopLeftRadiusValue` struct
-pub type AzStyleBorderTopLeftRadiusValueType = azul_css::CssPropertyValue::<StyleBorderTopLeftRadius>;
-#[no_mangle] pub use AzStyleBorderTopLeftRadiusValueType as AzStyleBorderTopLeftRadiusValue;
-#[inline] #[no_mangle] pub extern "C" fn az_style_border_top_left_radius_value_auto() -> AzStyleBorderTopLeftRadiusValue { AzStyleBorderTopLeftRadiusValue::Auto }
-#[inline] #[no_mangle] pub extern "C" fn az_style_border_top_left_radius_value_none() -> AzStyleBorderTopLeftRadiusValue { AzStyleBorderTopLeftRadiusValue::None }
-#[inline] #[no_mangle] pub extern "C" fn az_style_border_top_left_radius_value_inherit() -> AzStyleBorderTopLeftRadiusValue { AzStyleBorderTopLeftRadiusValue::Inherit }
-#[inline] #[no_mangle] pub extern "C" fn az_style_border_top_left_radius_value_initial() -> AzStyleBorderTopLeftRadiusValue { AzStyleBorderTopLeftRadiusValue::Initial }
-#[inline] #[no_mangle] pub extern "C" fn az_style_border_top_left_radius_value_exact(variant_data: AzStyleBorderTopLeftRadiusPtr) -> AzStyleBorderTopLeftRadiusValue { AzStyleBorderTopLeftRadiusValue::Exact(*az_style_border_top_left_radius_downcast(variant_data)) }
+#[no_mangle] #[repr(C)] pub struct AzStyleBorderTopLeftRadiusValue { object: azul_css::CssPropertyValue::<StyleBorderTopLeftRadius> }
+#[inline] #[no_mangle] pub extern "C" fn az_style_border_top_left_radius_value_auto() -> AzStyleBorderTopLeftRadiusValue { AzStyleBorderTopLeftRadiusValue { object: azul_css::CssPropertyValue::<StyleBorderTopLeftRadius>::Auto } }
+#[inline] #[no_mangle] pub extern "C" fn az_style_border_top_left_radius_value_none() -> AzStyleBorderTopLeftRadiusValue { AzStyleBorderTopLeftRadiusValue { object: azul_css::CssPropertyValue::<StyleBorderTopLeftRadius>::None } }
+#[inline] #[no_mangle] pub extern "C" fn az_style_border_top_left_radius_value_inherit() -> AzStyleBorderTopLeftRadiusValue { AzStyleBorderTopLeftRadiusValue { object: azul_css::CssPropertyValue::<StyleBorderTopLeftRadius>::Inherit } }
+#[inline] #[no_mangle] pub extern "C" fn az_style_border_top_left_radius_value_initial() -> AzStyleBorderTopLeftRadiusValue { AzStyleBorderTopLeftRadiusValue { object: azul_css::CssPropertyValue::<StyleBorderTopLeftRadius>::Initial } }
+#[inline] #[no_mangle] pub extern "C" fn az_style_border_top_left_radius_value_exact(variant_data: AzStyleBorderTopLeftRadiusPtr) -> AzStyleBorderTopLeftRadiusValue { AzStyleBorderTopLeftRadiusValue { object: azul_css::CssPropertyValue::<StyleBorderTopLeftRadius>::Exact(*az_style_border_top_left_radius_downcast(variant_data)) } }
 /// Destructor: Takes ownership of the `StyleBorderTopLeftRadiusValue` pointer and deletes it.
-#[no_mangle] #[inline] #[allow(unused_variables)] pub extern "C" fn az_style_border_top_left_radius_value_delete(object: &mut AzStyleBorderTopLeftRadiusValue) { match object { AzStyleBorderTopLeftRadiusValue::Auto => { }, AzStyleBorderTopLeftRadiusValue::None => { }, AzStyleBorderTopLeftRadiusValue::Inherit => { }, AzStyleBorderTopLeftRadiusValue::Initial => { }, AzStyleBorderTopLeftRadiusValue::Exact(_) => { }, }
+#[no_mangle] #[inline] #[allow(unused_variables)] pub extern "C" fn az_style_border_top_left_radius_value_delete(object: &mut AzStyleBorderTopLeftRadiusValue) { match object.object { azul_css::CssPropertyValue::<StyleBorderTopLeftRadius>::Auto => { }, azul_css::CssPropertyValue::<StyleBorderTopLeftRadius>::None => { }, azul_css::CssPropertyValue::<StyleBorderTopLeftRadius>::Inherit => { }, azul_css::CssPropertyValue::<StyleBorderTopLeftRadius>::Initial => { }, azul_css::CssPropertyValue::<StyleBorderTopLeftRadius>::Exact(_) => { }, }
 }
 /// Copies the object
-#[no_mangle] #[inline] pub extern "C" fn az_style_border_top_left_radius_value_deep_copy(object: &AzStyleBorderTopLeftRadiusValue) -> AzStyleBorderTopLeftRadiusValue { object.clone() }
+#[no_mangle] #[inline] pub extern "C" fn az_style_border_top_left_radius_value_deep_copy(object: &AzStyleBorderTopLeftRadiusValue) -> AzStyleBorderTopLeftRadiusValue { AzStyleBorderTopLeftRadiusValue{ object: object.object.clone() } }
 
 /// Re-export of rust-allocated (stack based) `StyleBorderTopRightRadiusValue` struct
-pub type AzStyleBorderTopRightRadiusValueType = azul_css::CssPropertyValue::<StyleBorderTopRightRadius>;
-#[no_mangle] pub use AzStyleBorderTopRightRadiusValueType as AzStyleBorderTopRightRadiusValue;
-#[inline] #[no_mangle] pub extern "C" fn az_style_border_top_right_radius_value_auto() -> AzStyleBorderTopRightRadiusValue { AzStyleBorderTopRightRadiusValue::Auto }
-#[inline] #[no_mangle] pub extern "C" fn az_style_border_top_right_radius_value_none() -> AzStyleBorderTopRightRadiusValue { AzStyleBorderTopRightRadiusValue::None }
-#[inline] #[no_mangle] pub extern "C" fn az_style_border_top_right_radius_value_inherit() -> AzStyleBorderTopRightRadiusValue { AzStyleBorderTopRightRadiusValue::Inherit }
-#[inline] #[no_mangle] pub extern "C" fn az_style_border_top_right_radius_value_initial() -> AzStyleBorderTopRightRadiusValue { AzStyleBorderTopRightRadiusValue::Initial }
-#[inline] #[no_mangle] pub extern "C" fn az_style_border_top_right_radius_value_exact(variant_data: AzStyleBorderTopRightRadiusPtr) -> AzStyleBorderTopRightRadiusValue { AzStyleBorderTopRightRadiusValue::Exact(*az_style_border_top_right_radius_downcast(variant_data)) }
+#[no_mangle] #[repr(C)] pub struct AzStyleBorderTopRightRadiusValue { object: azul_css::CssPropertyValue::<StyleBorderTopRightRadius> }
+#[inline] #[no_mangle] pub extern "C" fn az_style_border_top_right_radius_value_auto() -> AzStyleBorderTopRightRadiusValue { AzStyleBorderTopRightRadiusValue { object: azul_css::CssPropertyValue::<StyleBorderTopRightRadius>::Auto } }
+#[inline] #[no_mangle] pub extern "C" fn az_style_border_top_right_radius_value_none() -> AzStyleBorderTopRightRadiusValue { AzStyleBorderTopRightRadiusValue { object: azul_css::CssPropertyValue::<StyleBorderTopRightRadius>::None } }
+#[inline] #[no_mangle] pub extern "C" fn az_style_border_top_right_radius_value_inherit() -> AzStyleBorderTopRightRadiusValue { AzStyleBorderTopRightRadiusValue { object: azul_css::CssPropertyValue::<StyleBorderTopRightRadius>::Inherit } }
+#[inline] #[no_mangle] pub extern "C" fn az_style_border_top_right_radius_value_initial() -> AzStyleBorderTopRightRadiusValue { AzStyleBorderTopRightRadiusValue { object: azul_css::CssPropertyValue::<StyleBorderTopRightRadius>::Initial } }
+#[inline] #[no_mangle] pub extern "C" fn az_style_border_top_right_radius_value_exact(variant_data: AzStyleBorderTopRightRadiusPtr) -> AzStyleBorderTopRightRadiusValue { AzStyleBorderTopRightRadiusValue { object: azul_css::CssPropertyValue::<StyleBorderTopRightRadius>::Exact(*az_style_border_top_right_radius_downcast(variant_data)) } }
 /// Destructor: Takes ownership of the `StyleBorderTopRightRadiusValue` pointer and deletes it.
-#[no_mangle] #[inline] #[allow(unused_variables)] pub extern "C" fn az_style_border_top_right_radius_value_delete(object: &mut AzStyleBorderTopRightRadiusValue) { match object { AzStyleBorderTopRightRadiusValue::Auto => { }, AzStyleBorderTopRightRadiusValue::None => { }, AzStyleBorderTopRightRadiusValue::Inherit => { }, AzStyleBorderTopRightRadiusValue::Initial => { }, AzStyleBorderTopRightRadiusValue::Exact(_) => { }, }
+#[no_mangle] #[inline] #[allow(unused_variables)] pub extern "C" fn az_style_border_top_right_radius_value_delete(object: &mut AzStyleBorderTopRightRadiusValue) { match object.object { azul_css::CssPropertyValue::<StyleBorderTopRightRadius>::Auto => { }, azul_css::CssPropertyValue::<StyleBorderTopRightRadius>::None => { }, azul_css::CssPropertyValue::<StyleBorderTopRightRadius>::Inherit => { }, azul_css::CssPropertyValue::<StyleBorderTopRightRadius>::Initial => { }, azul_css::CssPropertyValue::<StyleBorderTopRightRadius>::Exact(_) => { }, }
 }
 /// Copies the object
-#[no_mangle] #[inline] pub extern "C" fn az_style_border_top_right_radius_value_deep_copy(object: &AzStyleBorderTopRightRadiusValue) -> AzStyleBorderTopRightRadiusValue { object.clone() }
+#[no_mangle] #[inline] pub extern "C" fn az_style_border_top_right_radius_value_deep_copy(object: &AzStyleBorderTopRightRadiusValue) -> AzStyleBorderTopRightRadiusValue { AzStyleBorderTopRightRadiusValue{ object: object.object.clone() } }
 
 /// Re-export of rust-allocated (stack based) `StyleBorderTopStyleValue` struct
-pub type AzStyleBorderTopStyleValueType = azul_css::CssPropertyValue::<StyleBorderTopStyle>;
-#[no_mangle] pub use AzStyleBorderTopStyleValueType as AzStyleBorderTopStyleValue;
-#[inline] #[no_mangle] pub extern "C" fn az_style_border_top_style_value_auto() -> AzStyleBorderTopStyleValue { AzStyleBorderTopStyleValue::Auto }
-#[inline] #[no_mangle] pub extern "C" fn az_style_border_top_style_value_none() -> AzStyleBorderTopStyleValue { AzStyleBorderTopStyleValue::None }
-#[inline] #[no_mangle] pub extern "C" fn az_style_border_top_style_value_inherit() -> AzStyleBorderTopStyleValue { AzStyleBorderTopStyleValue::Inherit }
-#[inline] #[no_mangle] pub extern "C" fn az_style_border_top_style_value_initial() -> AzStyleBorderTopStyleValue { AzStyleBorderTopStyleValue::Initial }
-#[inline] #[no_mangle] pub extern "C" fn az_style_border_top_style_value_exact(variant_data: AzStyleBorderTopStylePtr) -> AzStyleBorderTopStyleValue { AzStyleBorderTopStyleValue::Exact(*az_style_border_top_style_downcast(variant_data)) }
+#[no_mangle] #[repr(C)] pub struct AzStyleBorderTopStyleValue { object: azul_css::CssPropertyValue::<StyleBorderTopStyle> }
+#[inline] #[no_mangle] pub extern "C" fn az_style_border_top_style_value_auto() -> AzStyleBorderTopStyleValue { AzStyleBorderTopStyleValue { object: azul_css::CssPropertyValue::<StyleBorderTopStyle>::Auto } }
+#[inline] #[no_mangle] pub extern "C" fn az_style_border_top_style_value_none() -> AzStyleBorderTopStyleValue { AzStyleBorderTopStyleValue { object: azul_css::CssPropertyValue::<StyleBorderTopStyle>::None } }
+#[inline] #[no_mangle] pub extern "C" fn az_style_border_top_style_value_inherit() -> AzStyleBorderTopStyleValue { AzStyleBorderTopStyleValue { object: azul_css::CssPropertyValue::<StyleBorderTopStyle>::Inherit } }
+#[inline] #[no_mangle] pub extern "C" fn az_style_border_top_style_value_initial() -> AzStyleBorderTopStyleValue { AzStyleBorderTopStyleValue { object: azul_css::CssPropertyValue::<StyleBorderTopStyle>::Initial } }
+#[inline] #[no_mangle] pub extern "C" fn az_style_border_top_style_value_exact(variant_data: AzStyleBorderTopStylePtr) -> AzStyleBorderTopStyleValue { AzStyleBorderTopStyleValue { object: azul_css::CssPropertyValue::<StyleBorderTopStyle>::Exact(*az_style_border_top_style_downcast(variant_data)) } }
 /// Destructor: Takes ownership of the `StyleBorderTopStyleValue` pointer and deletes it.
-#[no_mangle] #[inline] #[allow(unused_variables)] pub extern "C" fn az_style_border_top_style_value_delete(object: &mut AzStyleBorderTopStyleValue) { match object { AzStyleBorderTopStyleValue::Auto => { }, AzStyleBorderTopStyleValue::None => { }, AzStyleBorderTopStyleValue::Inherit => { }, AzStyleBorderTopStyleValue::Initial => { }, AzStyleBorderTopStyleValue::Exact(_) => { }, }
+#[no_mangle] #[inline] #[allow(unused_variables)] pub extern "C" fn az_style_border_top_style_value_delete(object: &mut AzStyleBorderTopStyleValue) { match object.object { azul_css::CssPropertyValue::<StyleBorderTopStyle>::Auto => { }, azul_css::CssPropertyValue::<StyleBorderTopStyle>::None => { }, azul_css::CssPropertyValue::<StyleBorderTopStyle>::Inherit => { }, azul_css::CssPropertyValue::<StyleBorderTopStyle>::Initial => { }, azul_css::CssPropertyValue::<StyleBorderTopStyle>::Exact(_) => { }, }
 }
 /// Copies the object
-#[no_mangle] #[inline] pub extern "C" fn az_style_border_top_style_value_deep_copy(object: &AzStyleBorderTopStyleValue) -> AzStyleBorderTopStyleValue { object.clone() }
+#[no_mangle] #[inline] pub extern "C" fn az_style_border_top_style_value_deep_copy(object: &AzStyleBorderTopStyleValue) -> AzStyleBorderTopStyleValue { AzStyleBorderTopStyleValue{ object: object.object.clone() } }
 
 /// Re-export of rust-allocated (stack based) `StyleBorderTopWidthValue` struct
-pub type AzStyleBorderTopWidthValueType = azul_css::CssPropertyValue::<StyleBorderTopWidth>;
-#[no_mangle] pub use AzStyleBorderTopWidthValueType as AzStyleBorderTopWidthValue;
-#[inline] #[no_mangle] pub extern "C" fn az_style_border_top_width_value_auto() -> AzStyleBorderTopWidthValue { AzStyleBorderTopWidthValue::Auto }
-#[inline] #[no_mangle] pub extern "C" fn az_style_border_top_width_value_none() -> AzStyleBorderTopWidthValue { AzStyleBorderTopWidthValue::None }
-#[inline] #[no_mangle] pub extern "C" fn az_style_border_top_width_value_inherit() -> AzStyleBorderTopWidthValue { AzStyleBorderTopWidthValue::Inherit }
-#[inline] #[no_mangle] pub extern "C" fn az_style_border_top_width_value_initial() -> AzStyleBorderTopWidthValue { AzStyleBorderTopWidthValue::Initial }
-#[inline] #[no_mangle] pub extern "C" fn az_style_border_top_width_value_exact(variant_data: AzStyleBorderTopWidthPtr) -> AzStyleBorderTopWidthValue { AzStyleBorderTopWidthValue::Exact(*az_style_border_top_width_downcast(variant_data)) }
+#[no_mangle] #[repr(C)] pub struct AzStyleBorderTopWidthValue { object: azul_css::CssPropertyValue::<StyleBorderTopWidth> }
+#[inline] #[no_mangle] pub extern "C" fn az_style_border_top_width_value_auto() -> AzStyleBorderTopWidthValue { AzStyleBorderTopWidthValue { object: azul_css::CssPropertyValue::<StyleBorderTopWidth>::Auto } }
+#[inline] #[no_mangle] pub extern "C" fn az_style_border_top_width_value_none() -> AzStyleBorderTopWidthValue { AzStyleBorderTopWidthValue { object: azul_css::CssPropertyValue::<StyleBorderTopWidth>::None } }
+#[inline] #[no_mangle] pub extern "C" fn az_style_border_top_width_value_inherit() -> AzStyleBorderTopWidthValue { AzStyleBorderTopWidthValue { object: azul_css::CssPropertyValue::<StyleBorderTopWidth>::Inherit } }
+#[inline] #[no_mangle] pub extern "C" fn az_style_border_top_width_value_initial() -> AzStyleBorderTopWidthValue { AzStyleBorderTopWidthValue { object: azul_css::CssPropertyValue::<StyleBorderTopWidth>::Initial } }
+#[inline] #[no_mangle] pub extern "C" fn az_style_border_top_width_value_exact(variant_data: AzStyleBorderTopWidthPtr) -> AzStyleBorderTopWidthValue { AzStyleBorderTopWidthValue { object: azul_css::CssPropertyValue::<StyleBorderTopWidth>::Exact(*az_style_border_top_width_downcast(variant_data)) } }
 /// Destructor: Takes ownership of the `StyleBorderTopWidthValue` pointer and deletes it.
-#[no_mangle] #[inline] #[allow(unused_variables)] pub extern "C" fn az_style_border_top_width_value_delete(object: &mut AzStyleBorderTopWidthValue) { match object { AzStyleBorderTopWidthValue::Auto => { }, AzStyleBorderTopWidthValue::None => { }, AzStyleBorderTopWidthValue::Inherit => { }, AzStyleBorderTopWidthValue::Initial => { }, AzStyleBorderTopWidthValue::Exact(_) => { }, }
+#[no_mangle] #[inline] #[allow(unused_variables)] pub extern "C" fn az_style_border_top_width_value_delete(object: &mut AzStyleBorderTopWidthValue) { match object.object { azul_css::CssPropertyValue::<StyleBorderTopWidth>::Auto => { }, azul_css::CssPropertyValue::<StyleBorderTopWidth>::None => { }, azul_css::CssPropertyValue::<StyleBorderTopWidth>::Inherit => { }, azul_css::CssPropertyValue::<StyleBorderTopWidth>::Initial => { }, azul_css::CssPropertyValue::<StyleBorderTopWidth>::Exact(_) => { }, }
 }
 /// Copies the object
-#[no_mangle] #[inline] pub extern "C" fn az_style_border_top_width_value_deep_copy(object: &AzStyleBorderTopWidthValue) -> AzStyleBorderTopWidthValue { object.clone() }
+#[no_mangle] #[inline] pub extern "C" fn az_style_border_top_width_value_deep_copy(object: &AzStyleBorderTopWidthValue) -> AzStyleBorderTopWidthValue { AzStyleBorderTopWidthValue{ object: object.object.clone() } }
 
 /// Re-export of rust-allocated (stack based) `StyleCursorValue` struct
-pub type AzStyleCursorValueType = azul_css::CssPropertyValue::<StyleCursor>;
-#[no_mangle] pub use AzStyleCursorValueType as AzStyleCursorValue;
-#[inline] #[no_mangle] pub extern "C" fn az_style_cursor_value_auto() -> AzStyleCursorValue { AzStyleCursorValue::Auto }
-#[inline] #[no_mangle] pub extern "C" fn az_style_cursor_value_none() -> AzStyleCursorValue { AzStyleCursorValue::None }
-#[inline] #[no_mangle] pub extern "C" fn az_style_cursor_value_inherit() -> AzStyleCursorValue { AzStyleCursorValue::Inherit }
-#[inline] #[no_mangle] pub extern "C" fn az_style_cursor_value_initial() -> AzStyleCursorValue { AzStyleCursorValue::Initial }
-#[inline] #[no_mangle] pub extern "C" fn az_style_cursor_value_exact(variant_data: AzStyleCursorPtr) -> AzStyleCursorValue { AzStyleCursorValue::Exact(*az_style_cursor_downcast(variant_data)) }
+#[no_mangle] #[repr(C)] pub struct AzStyleCursorValue { object: azul_css::CssPropertyValue::<StyleCursor> }
+#[inline] #[no_mangle] pub extern "C" fn az_style_cursor_value_auto() -> AzStyleCursorValue { AzStyleCursorValue { object: azul_css::CssPropertyValue::<StyleCursor>::Auto } }
+#[inline] #[no_mangle] pub extern "C" fn az_style_cursor_value_none() -> AzStyleCursorValue { AzStyleCursorValue { object: azul_css::CssPropertyValue::<StyleCursor>::None } }
+#[inline] #[no_mangle] pub extern "C" fn az_style_cursor_value_inherit() -> AzStyleCursorValue { AzStyleCursorValue { object: azul_css::CssPropertyValue::<StyleCursor>::Inherit } }
+#[inline] #[no_mangle] pub extern "C" fn az_style_cursor_value_initial() -> AzStyleCursorValue { AzStyleCursorValue { object: azul_css::CssPropertyValue::<StyleCursor>::Initial } }
+#[inline] #[no_mangle] pub extern "C" fn az_style_cursor_value_exact(variant_data: AzStyleCursorPtr) -> AzStyleCursorValue { AzStyleCursorValue { object: azul_css::CssPropertyValue::<StyleCursor>::Exact(*az_style_cursor_downcast(variant_data)) } }
 /// Destructor: Takes ownership of the `StyleCursorValue` pointer and deletes it.
-#[no_mangle] #[inline] #[allow(unused_variables)] pub extern "C" fn az_style_cursor_value_delete(object: &mut AzStyleCursorValue) { match object { AzStyleCursorValue::Auto => { }, AzStyleCursorValue::None => { }, AzStyleCursorValue::Inherit => { }, AzStyleCursorValue::Initial => { }, AzStyleCursorValue::Exact(_) => { }, }
+#[no_mangle] #[inline] #[allow(unused_variables)] pub extern "C" fn az_style_cursor_value_delete(object: &mut AzStyleCursorValue) { match object.object { azul_css::CssPropertyValue::<StyleCursor>::Auto => { }, azul_css::CssPropertyValue::<StyleCursor>::None => { }, azul_css::CssPropertyValue::<StyleCursor>::Inherit => { }, azul_css::CssPropertyValue::<StyleCursor>::Initial => { }, azul_css::CssPropertyValue::<StyleCursor>::Exact(_) => { }, }
 }
 /// Copies the object
-#[no_mangle] #[inline] pub extern "C" fn az_style_cursor_value_deep_copy(object: &AzStyleCursorValue) -> AzStyleCursorValue { object.clone() }
+#[no_mangle] #[inline] pub extern "C" fn az_style_cursor_value_deep_copy(object: &AzStyleCursorValue) -> AzStyleCursorValue { AzStyleCursorValue{ object: object.object.clone() } }
 
 /// Re-export of rust-allocated (stack based) `StyleFontFamilyValue` struct
-pub type AzStyleFontFamilyValueType = azul_css::CssPropertyValue::<StyleFontFamily>;
-#[no_mangle] pub use AzStyleFontFamilyValueType as AzStyleFontFamilyValue;
-#[inline] #[no_mangle] pub extern "C" fn az_style_font_family_value_auto() -> AzStyleFontFamilyValue { AzStyleFontFamilyValue::Auto }
-#[inline] #[no_mangle] pub extern "C" fn az_style_font_family_value_none() -> AzStyleFontFamilyValue { AzStyleFontFamilyValue::None }
-#[inline] #[no_mangle] pub extern "C" fn az_style_font_family_value_inherit() -> AzStyleFontFamilyValue { AzStyleFontFamilyValue::Inherit }
-#[inline] #[no_mangle] pub extern "C" fn az_style_font_family_value_initial() -> AzStyleFontFamilyValue { AzStyleFontFamilyValue::Initial }
-#[inline] #[no_mangle] pub extern "C" fn az_style_font_family_value_exact(variant_data: AzStyleFontFamilyPtr) -> AzStyleFontFamilyValue { AzStyleFontFamilyValue::Exact(*az_style_font_family_downcast(variant_data)) }
+#[no_mangle] #[repr(C)] pub struct AzStyleFontFamilyValue { object: azul_css::CssPropertyValue::<StyleFontFamily> }
+#[inline] #[no_mangle] pub extern "C" fn az_style_font_family_value_auto() -> AzStyleFontFamilyValue { AzStyleFontFamilyValue { object: azul_css::CssPropertyValue::<StyleFontFamily>::Auto } }
+#[inline] #[no_mangle] pub extern "C" fn az_style_font_family_value_none() -> AzStyleFontFamilyValue { AzStyleFontFamilyValue { object: azul_css::CssPropertyValue::<StyleFontFamily>::None } }
+#[inline] #[no_mangle] pub extern "C" fn az_style_font_family_value_inherit() -> AzStyleFontFamilyValue { AzStyleFontFamilyValue { object: azul_css::CssPropertyValue::<StyleFontFamily>::Inherit } }
+#[inline] #[no_mangle] pub extern "C" fn az_style_font_family_value_initial() -> AzStyleFontFamilyValue { AzStyleFontFamilyValue { object: azul_css::CssPropertyValue::<StyleFontFamily>::Initial } }
+#[inline] #[no_mangle] pub extern "C" fn az_style_font_family_value_exact(variant_data: AzStyleFontFamilyPtr) -> AzStyleFontFamilyValue { AzStyleFontFamilyValue { object: azul_css::CssPropertyValue::<StyleFontFamily>::Exact(*az_style_font_family_downcast(variant_data)) } }
 /// Destructor: Takes ownership of the `StyleFontFamilyValue` pointer and deletes it.
-#[no_mangle] #[inline] #[allow(unused_variables)] pub extern "C" fn az_style_font_family_value_delete(object: &mut AzStyleFontFamilyValue) { match object { AzStyleFontFamilyValue::Auto => { }, AzStyleFontFamilyValue::None => { }, AzStyleFontFamilyValue::Inherit => { }, AzStyleFontFamilyValue::Initial => { }, AzStyleFontFamilyValue::Exact(_) => { }, }
+#[no_mangle] #[inline] #[allow(unused_variables)] pub extern "C" fn az_style_font_family_value_delete(object: &mut AzStyleFontFamilyValue) { match object.object { azul_css::CssPropertyValue::<StyleFontFamily>::Auto => { }, azul_css::CssPropertyValue::<StyleFontFamily>::None => { }, azul_css::CssPropertyValue::<StyleFontFamily>::Inherit => { }, azul_css::CssPropertyValue::<StyleFontFamily>::Initial => { }, azul_css::CssPropertyValue::<StyleFontFamily>::Exact(_) => { }, }
 }
 /// Copies the object
-#[no_mangle] #[inline] pub extern "C" fn az_style_font_family_value_deep_copy(object: &AzStyleFontFamilyValue) -> AzStyleFontFamilyValue { object.clone() }
+#[no_mangle] #[inline] pub extern "C" fn az_style_font_family_value_deep_copy(object: &AzStyleFontFamilyValue) -> AzStyleFontFamilyValue { AzStyleFontFamilyValue{ object: object.object.clone() } }
 
 /// Re-export of rust-allocated (stack based) `StyleFontSizeValue` struct
-pub type AzStyleFontSizeValueType = azul_css::CssPropertyValue::<StyleFontSize>;
-#[no_mangle] pub use AzStyleFontSizeValueType as AzStyleFontSizeValue;
-#[inline] #[no_mangle] pub extern "C" fn az_style_font_size_value_auto() -> AzStyleFontSizeValue { AzStyleFontSizeValue::Auto }
-#[inline] #[no_mangle] pub extern "C" fn az_style_font_size_value_none() -> AzStyleFontSizeValue { AzStyleFontSizeValue::None }
-#[inline] #[no_mangle] pub extern "C" fn az_style_font_size_value_inherit() -> AzStyleFontSizeValue { AzStyleFontSizeValue::Inherit }
-#[inline] #[no_mangle] pub extern "C" fn az_style_font_size_value_initial() -> AzStyleFontSizeValue { AzStyleFontSizeValue::Initial }
-#[inline] #[no_mangle] pub extern "C" fn az_style_font_size_value_exact(variant_data: AzStyleFontSizePtr) -> AzStyleFontSizeValue { AzStyleFontSizeValue::Exact(*az_style_font_size_downcast(variant_data)) }
+#[no_mangle] #[repr(C)] pub struct AzStyleFontSizeValue { object: azul_css::CssPropertyValue::<StyleFontSize> }
+#[inline] #[no_mangle] pub extern "C" fn az_style_font_size_value_auto() -> AzStyleFontSizeValue { AzStyleFontSizeValue { object: azul_css::CssPropertyValue::<StyleFontSize>::Auto } }
+#[inline] #[no_mangle] pub extern "C" fn az_style_font_size_value_none() -> AzStyleFontSizeValue { AzStyleFontSizeValue { object: azul_css::CssPropertyValue::<StyleFontSize>::None } }
+#[inline] #[no_mangle] pub extern "C" fn az_style_font_size_value_inherit() -> AzStyleFontSizeValue { AzStyleFontSizeValue { object: azul_css::CssPropertyValue::<StyleFontSize>::Inherit } }
+#[inline] #[no_mangle] pub extern "C" fn az_style_font_size_value_initial() -> AzStyleFontSizeValue { AzStyleFontSizeValue { object: azul_css::CssPropertyValue::<StyleFontSize>::Initial } }
+#[inline] #[no_mangle] pub extern "C" fn az_style_font_size_value_exact(variant_data: AzStyleFontSizePtr) -> AzStyleFontSizeValue { AzStyleFontSizeValue { object: azul_css::CssPropertyValue::<StyleFontSize>::Exact(*az_style_font_size_downcast(variant_data)) } }
 /// Destructor: Takes ownership of the `StyleFontSizeValue` pointer and deletes it.
-#[no_mangle] #[inline] #[allow(unused_variables)] pub extern "C" fn az_style_font_size_value_delete(object: &mut AzStyleFontSizeValue) { match object { AzStyleFontSizeValue::Auto => { }, AzStyleFontSizeValue::None => { }, AzStyleFontSizeValue::Inherit => { }, AzStyleFontSizeValue::Initial => { }, AzStyleFontSizeValue::Exact(_) => { }, }
+#[no_mangle] #[inline] #[allow(unused_variables)] pub extern "C" fn az_style_font_size_value_delete(object: &mut AzStyleFontSizeValue) { match object.object { azul_css::CssPropertyValue::<StyleFontSize>::Auto => { }, azul_css::CssPropertyValue::<StyleFontSize>::None => { }, azul_css::CssPropertyValue::<StyleFontSize>::Inherit => { }, azul_css::CssPropertyValue::<StyleFontSize>::Initial => { }, azul_css::CssPropertyValue::<StyleFontSize>::Exact(_) => { }, }
 }
 /// Copies the object
-#[no_mangle] #[inline] pub extern "C" fn az_style_font_size_value_deep_copy(object: &AzStyleFontSizeValue) -> AzStyleFontSizeValue { object.clone() }
+#[no_mangle] #[inline] pub extern "C" fn az_style_font_size_value_deep_copy(object: &AzStyleFontSizeValue) -> AzStyleFontSizeValue { AzStyleFontSizeValue{ object: object.object.clone() } }
 
 /// Re-export of rust-allocated (stack based) `StyleLetterSpacingValue` struct
-pub type AzStyleLetterSpacingValueType = azul_css::CssPropertyValue::<StyleLetterSpacing>;
-#[no_mangle] pub use AzStyleLetterSpacingValueType as AzStyleLetterSpacingValue;
-#[inline] #[no_mangle] pub extern "C" fn az_style_letter_spacing_value_auto() -> AzStyleLetterSpacingValue { AzStyleLetterSpacingValue::Auto }
-#[inline] #[no_mangle] pub extern "C" fn az_style_letter_spacing_value_none() -> AzStyleLetterSpacingValue { AzStyleLetterSpacingValue::None }
-#[inline] #[no_mangle] pub extern "C" fn az_style_letter_spacing_value_inherit() -> AzStyleLetterSpacingValue { AzStyleLetterSpacingValue::Inherit }
-#[inline] #[no_mangle] pub extern "C" fn az_style_letter_spacing_value_initial() -> AzStyleLetterSpacingValue { AzStyleLetterSpacingValue::Initial }
-#[inline] #[no_mangle] pub extern "C" fn az_style_letter_spacing_value_exact(variant_data: AzStyleLetterSpacingPtr) -> AzStyleLetterSpacingValue { AzStyleLetterSpacingValue::Exact(*az_style_letter_spacing_downcast(variant_data)) }
+#[no_mangle] #[repr(C)] pub struct AzStyleLetterSpacingValue { object: azul_css::CssPropertyValue::<StyleLetterSpacing> }
+#[inline] #[no_mangle] pub extern "C" fn az_style_letter_spacing_value_auto() -> AzStyleLetterSpacingValue { AzStyleLetterSpacingValue { object: azul_css::CssPropertyValue::<StyleLetterSpacing>::Auto } }
+#[inline] #[no_mangle] pub extern "C" fn az_style_letter_spacing_value_none() -> AzStyleLetterSpacingValue { AzStyleLetterSpacingValue { object: azul_css::CssPropertyValue::<StyleLetterSpacing>::None } }
+#[inline] #[no_mangle] pub extern "C" fn az_style_letter_spacing_value_inherit() -> AzStyleLetterSpacingValue { AzStyleLetterSpacingValue { object: azul_css::CssPropertyValue::<StyleLetterSpacing>::Inherit } }
+#[inline] #[no_mangle] pub extern "C" fn az_style_letter_spacing_value_initial() -> AzStyleLetterSpacingValue { AzStyleLetterSpacingValue { object: azul_css::CssPropertyValue::<StyleLetterSpacing>::Initial } }
+#[inline] #[no_mangle] pub extern "C" fn az_style_letter_spacing_value_exact(variant_data: AzStyleLetterSpacingPtr) -> AzStyleLetterSpacingValue { AzStyleLetterSpacingValue { object: azul_css::CssPropertyValue::<StyleLetterSpacing>::Exact(*az_style_letter_spacing_downcast(variant_data)) } }
 /// Destructor: Takes ownership of the `StyleLetterSpacingValue` pointer and deletes it.
-#[no_mangle] #[inline] #[allow(unused_variables)] pub extern "C" fn az_style_letter_spacing_value_delete(object: &mut AzStyleLetterSpacingValue) { match object { AzStyleLetterSpacingValue::Auto => { }, AzStyleLetterSpacingValue::None => { }, AzStyleLetterSpacingValue::Inherit => { }, AzStyleLetterSpacingValue::Initial => { }, AzStyleLetterSpacingValue::Exact(_) => { }, }
+#[no_mangle] #[inline] #[allow(unused_variables)] pub extern "C" fn az_style_letter_spacing_value_delete(object: &mut AzStyleLetterSpacingValue) { match object.object { azul_css::CssPropertyValue::<StyleLetterSpacing>::Auto => { }, azul_css::CssPropertyValue::<StyleLetterSpacing>::None => { }, azul_css::CssPropertyValue::<StyleLetterSpacing>::Inherit => { }, azul_css::CssPropertyValue::<StyleLetterSpacing>::Initial => { }, azul_css::CssPropertyValue::<StyleLetterSpacing>::Exact(_) => { }, }
 }
 /// Copies the object
-#[no_mangle] #[inline] pub extern "C" fn az_style_letter_spacing_value_deep_copy(object: &AzStyleLetterSpacingValue) -> AzStyleLetterSpacingValue { object.clone() }
+#[no_mangle] #[inline] pub extern "C" fn az_style_letter_spacing_value_deep_copy(object: &AzStyleLetterSpacingValue) -> AzStyleLetterSpacingValue { AzStyleLetterSpacingValue{ object: object.object.clone() } }
 
 /// Re-export of rust-allocated (stack based) `StyleLineHeightValue` struct
-pub type AzStyleLineHeightValueType = azul_css::CssPropertyValue::<StyleLineHeight>;
-#[no_mangle] pub use AzStyleLineHeightValueType as AzStyleLineHeightValue;
-#[inline] #[no_mangle] pub extern "C" fn az_style_line_height_value_auto() -> AzStyleLineHeightValue { AzStyleLineHeightValue::Auto }
-#[inline] #[no_mangle] pub extern "C" fn az_style_line_height_value_none() -> AzStyleLineHeightValue { AzStyleLineHeightValue::None }
-#[inline] #[no_mangle] pub extern "C" fn az_style_line_height_value_inherit() -> AzStyleLineHeightValue { AzStyleLineHeightValue::Inherit }
-#[inline] #[no_mangle] pub extern "C" fn az_style_line_height_value_initial() -> AzStyleLineHeightValue { AzStyleLineHeightValue::Initial }
-#[inline] #[no_mangle] pub extern "C" fn az_style_line_height_value_exact(variant_data: AzStyleLineHeightPtr) -> AzStyleLineHeightValue { AzStyleLineHeightValue::Exact(*az_style_line_height_downcast(variant_data)) }
+#[no_mangle] #[repr(C)] pub struct AzStyleLineHeightValue { object: azul_css::CssPropertyValue::<StyleLineHeight> }
+#[inline] #[no_mangle] pub extern "C" fn az_style_line_height_value_auto() -> AzStyleLineHeightValue { AzStyleLineHeightValue { object: azul_css::CssPropertyValue::<StyleLineHeight>::Auto } }
+#[inline] #[no_mangle] pub extern "C" fn az_style_line_height_value_none() -> AzStyleLineHeightValue { AzStyleLineHeightValue { object: azul_css::CssPropertyValue::<StyleLineHeight>::None } }
+#[inline] #[no_mangle] pub extern "C" fn az_style_line_height_value_inherit() -> AzStyleLineHeightValue { AzStyleLineHeightValue { object: azul_css::CssPropertyValue::<StyleLineHeight>::Inherit } }
+#[inline] #[no_mangle] pub extern "C" fn az_style_line_height_value_initial() -> AzStyleLineHeightValue { AzStyleLineHeightValue { object: azul_css::CssPropertyValue::<StyleLineHeight>::Initial } }
+#[inline] #[no_mangle] pub extern "C" fn az_style_line_height_value_exact(variant_data: AzStyleLineHeightPtr) -> AzStyleLineHeightValue { AzStyleLineHeightValue { object: azul_css::CssPropertyValue::<StyleLineHeight>::Exact(*az_style_line_height_downcast(variant_data)) } }
 /// Destructor: Takes ownership of the `StyleLineHeightValue` pointer and deletes it.
-#[no_mangle] #[inline] #[allow(unused_variables)] pub extern "C" fn az_style_line_height_value_delete(object: &mut AzStyleLineHeightValue) { match object { AzStyleLineHeightValue::Auto => { }, AzStyleLineHeightValue::None => { }, AzStyleLineHeightValue::Inherit => { }, AzStyleLineHeightValue::Initial => { }, AzStyleLineHeightValue::Exact(_) => { }, }
+#[no_mangle] #[inline] #[allow(unused_variables)] pub extern "C" fn az_style_line_height_value_delete(object: &mut AzStyleLineHeightValue) { match object.object { azul_css::CssPropertyValue::<StyleLineHeight>::Auto => { }, azul_css::CssPropertyValue::<StyleLineHeight>::None => { }, azul_css::CssPropertyValue::<StyleLineHeight>::Inherit => { }, azul_css::CssPropertyValue::<StyleLineHeight>::Initial => { }, azul_css::CssPropertyValue::<StyleLineHeight>::Exact(_) => { }, }
 }
 /// Copies the object
-#[no_mangle] #[inline] pub extern "C" fn az_style_line_height_value_deep_copy(object: &AzStyleLineHeightValue) -> AzStyleLineHeightValue { object.clone() }
+#[no_mangle] #[inline] pub extern "C" fn az_style_line_height_value_deep_copy(object: &AzStyleLineHeightValue) -> AzStyleLineHeightValue { AzStyleLineHeightValue{ object: object.object.clone() } }
 
 /// Re-export of rust-allocated (stack based) `StyleTabWidthValue` struct
-pub type AzStyleTabWidthValueType = azul_css::CssPropertyValue::<StyleTabWidth>;
-#[no_mangle] pub use AzStyleTabWidthValueType as AzStyleTabWidthValue;
-#[inline] #[no_mangle] pub extern "C" fn az_style_tab_width_value_auto() -> AzStyleTabWidthValue { AzStyleTabWidthValue::Auto }
-#[inline] #[no_mangle] pub extern "C" fn az_style_tab_width_value_none() -> AzStyleTabWidthValue { AzStyleTabWidthValue::None }
-#[inline] #[no_mangle] pub extern "C" fn az_style_tab_width_value_inherit() -> AzStyleTabWidthValue { AzStyleTabWidthValue::Inherit }
-#[inline] #[no_mangle] pub extern "C" fn az_style_tab_width_value_initial() -> AzStyleTabWidthValue { AzStyleTabWidthValue::Initial }
-#[inline] #[no_mangle] pub extern "C" fn az_style_tab_width_value_exact(variant_data: AzStyleTabWidthPtr) -> AzStyleTabWidthValue { AzStyleTabWidthValue::Exact(*az_style_tab_width_downcast(variant_data)) }
+#[no_mangle] #[repr(C)] pub struct AzStyleTabWidthValue { object: azul_css::CssPropertyValue::<StyleTabWidth> }
+#[inline] #[no_mangle] pub extern "C" fn az_style_tab_width_value_auto() -> AzStyleTabWidthValue { AzStyleTabWidthValue { object: azul_css::CssPropertyValue::<StyleTabWidth>::Auto } }
+#[inline] #[no_mangle] pub extern "C" fn az_style_tab_width_value_none() -> AzStyleTabWidthValue { AzStyleTabWidthValue { object: azul_css::CssPropertyValue::<StyleTabWidth>::None } }
+#[inline] #[no_mangle] pub extern "C" fn az_style_tab_width_value_inherit() -> AzStyleTabWidthValue { AzStyleTabWidthValue { object: azul_css::CssPropertyValue::<StyleTabWidth>::Inherit } }
+#[inline] #[no_mangle] pub extern "C" fn az_style_tab_width_value_initial() -> AzStyleTabWidthValue { AzStyleTabWidthValue { object: azul_css::CssPropertyValue::<StyleTabWidth>::Initial } }
+#[inline] #[no_mangle] pub extern "C" fn az_style_tab_width_value_exact(variant_data: AzStyleTabWidthPtr) -> AzStyleTabWidthValue { AzStyleTabWidthValue { object: azul_css::CssPropertyValue::<StyleTabWidth>::Exact(*az_style_tab_width_downcast(variant_data)) } }
 /// Destructor: Takes ownership of the `StyleTabWidthValue` pointer and deletes it.
-#[no_mangle] #[inline] #[allow(unused_variables)] pub extern "C" fn az_style_tab_width_value_delete(object: &mut AzStyleTabWidthValue) { match object { AzStyleTabWidthValue::Auto => { }, AzStyleTabWidthValue::None => { }, AzStyleTabWidthValue::Inherit => { }, AzStyleTabWidthValue::Initial => { }, AzStyleTabWidthValue::Exact(_) => { }, }
+#[no_mangle] #[inline] #[allow(unused_variables)] pub extern "C" fn az_style_tab_width_value_delete(object: &mut AzStyleTabWidthValue) { match object.object { azul_css::CssPropertyValue::<StyleTabWidth>::Auto => { }, azul_css::CssPropertyValue::<StyleTabWidth>::None => { }, azul_css::CssPropertyValue::<StyleTabWidth>::Inherit => { }, azul_css::CssPropertyValue::<StyleTabWidth>::Initial => { }, azul_css::CssPropertyValue::<StyleTabWidth>::Exact(_) => { }, }
 }
 /// Copies the object
-#[no_mangle] #[inline] pub extern "C" fn az_style_tab_width_value_deep_copy(object: &AzStyleTabWidthValue) -> AzStyleTabWidthValue { object.clone() }
+#[no_mangle] #[inline] pub extern "C" fn az_style_tab_width_value_deep_copy(object: &AzStyleTabWidthValue) -> AzStyleTabWidthValue { AzStyleTabWidthValue{ object: object.object.clone() } }
 
 /// Re-export of rust-allocated (stack based) `StyleTextAlignmentHorzValue` struct
-pub type AzStyleTextAlignmentHorzValueType = azul_css::CssPropertyValue::<StyleTextAlignmentHorz>;
-#[no_mangle] pub use AzStyleTextAlignmentHorzValueType as AzStyleTextAlignmentHorzValue;
-#[inline] #[no_mangle] pub extern "C" fn az_style_text_alignment_horz_value_auto() -> AzStyleTextAlignmentHorzValue { AzStyleTextAlignmentHorzValue::Auto }
-#[inline] #[no_mangle] pub extern "C" fn az_style_text_alignment_horz_value_none() -> AzStyleTextAlignmentHorzValue { AzStyleTextAlignmentHorzValue::None }
-#[inline] #[no_mangle] pub extern "C" fn az_style_text_alignment_horz_value_inherit() -> AzStyleTextAlignmentHorzValue { AzStyleTextAlignmentHorzValue::Inherit }
-#[inline] #[no_mangle] pub extern "C" fn az_style_text_alignment_horz_value_initial() -> AzStyleTextAlignmentHorzValue { AzStyleTextAlignmentHorzValue::Initial }
-#[inline] #[no_mangle] pub extern "C" fn az_style_text_alignment_horz_value_exact(variant_data: AzStyleTextAlignmentHorzPtr) -> AzStyleTextAlignmentHorzValue { AzStyleTextAlignmentHorzValue::Exact(*az_style_text_alignment_horz_downcast(variant_data)) }
+#[no_mangle] #[repr(C)] pub struct AzStyleTextAlignmentHorzValue { object: azul_css::CssPropertyValue::<StyleTextAlignmentHorz> }
+#[inline] #[no_mangle] pub extern "C" fn az_style_text_alignment_horz_value_auto() -> AzStyleTextAlignmentHorzValue { AzStyleTextAlignmentHorzValue { object: azul_css::CssPropertyValue::<StyleTextAlignmentHorz>::Auto } }
+#[inline] #[no_mangle] pub extern "C" fn az_style_text_alignment_horz_value_none() -> AzStyleTextAlignmentHorzValue { AzStyleTextAlignmentHorzValue { object: azul_css::CssPropertyValue::<StyleTextAlignmentHorz>::None } }
+#[inline] #[no_mangle] pub extern "C" fn az_style_text_alignment_horz_value_inherit() -> AzStyleTextAlignmentHorzValue { AzStyleTextAlignmentHorzValue { object: azul_css::CssPropertyValue::<StyleTextAlignmentHorz>::Inherit } }
+#[inline] #[no_mangle] pub extern "C" fn az_style_text_alignment_horz_value_initial() -> AzStyleTextAlignmentHorzValue { AzStyleTextAlignmentHorzValue { object: azul_css::CssPropertyValue::<StyleTextAlignmentHorz>::Initial } }
+#[inline] #[no_mangle] pub extern "C" fn az_style_text_alignment_horz_value_exact(variant_data: AzStyleTextAlignmentHorzPtr) -> AzStyleTextAlignmentHorzValue { AzStyleTextAlignmentHorzValue { object: azul_css::CssPropertyValue::<StyleTextAlignmentHorz>::Exact(*az_style_text_alignment_horz_downcast(variant_data)) } }
 /// Destructor: Takes ownership of the `StyleTextAlignmentHorzValue` pointer and deletes it.
-#[no_mangle] #[inline] #[allow(unused_variables)] pub extern "C" fn az_style_text_alignment_horz_value_delete(object: &mut AzStyleTextAlignmentHorzValue) { match object { AzStyleTextAlignmentHorzValue::Auto => { }, AzStyleTextAlignmentHorzValue::None => { }, AzStyleTextAlignmentHorzValue::Inherit => { }, AzStyleTextAlignmentHorzValue::Initial => { }, AzStyleTextAlignmentHorzValue::Exact(_) => { }, }
+#[no_mangle] #[inline] #[allow(unused_variables)] pub extern "C" fn az_style_text_alignment_horz_value_delete(object: &mut AzStyleTextAlignmentHorzValue) { match object.object { azul_css::CssPropertyValue::<StyleTextAlignmentHorz>::Auto => { }, azul_css::CssPropertyValue::<StyleTextAlignmentHorz>::None => { }, azul_css::CssPropertyValue::<StyleTextAlignmentHorz>::Inherit => { }, azul_css::CssPropertyValue::<StyleTextAlignmentHorz>::Initial => { }, azul_css::CssPropertyValue::<StyleTextAlignmentHorz>::Exact(_) => { }, }
 }
 /// Copies the object
-#[no_mangle] #[inline] pub extern "C" fn az_style_text_alignment_horz_value_deep_copy(object: &AzStyleTextAlignmentHorzValue) -> AzStyleTextAlignmentHorzValue { object.clone() }
+#[no_mangle] #[inline] pub extern "C" fn az_style_text_alignment_horz_value_deep_copy(object: &AzStyleTextAlignmentHorzValue) -> AzStyleTextAlignmentHorzValue { AzStyleTextAlignmentHorzValue{ object: object.object.clone() } }
 
 /// Re-export of rust-allocated (stack based) `StyleTextColorValue` struct
-pub type AzStyleTextColorValueType = azul_css::CssPropertyValue::<StyleTextColor>;
-#[no_mangle] pub use AzStyleTextColorValueType as AzStyleTextColorValue;
-#[inline] #[no_mangle] pub extern "C" fn az_style_text_color_value_auto() -> AzStyleTextColorValue { AzStyleTextColorValue::Auto }
-#[inline] #[no_mangle] pub extern "C" fn az_style_text_color_value_none() -> AzStyleTextColorValue { AzStyleTextColorValue::None }
-#[inline] #[no_mangle] pub extern "C" fn az_style_text_color_value_inherit() -> AzStyleTextColorValue { AzStyleTextColorValue::Inherit }
-#[inline] #[no_mangle] pub extern "C" fn az_style_text_color_value_initial() -> AzStyleTextColorValue { AzStyleTextColorValue::Initial }
-#[inline] #[no_mangle] pub extern "C" fn az_style_text_color_value_exact(variant_data: AzStyleTextColorPtr) -> AzStyleTextColorValue { AzStyleTextColorValue::Exact(*az_style_text_color_downcast(variant_data)) }
+#[no_mangle] #[repr(C)] pub struct AzStyleTextColorValue { object: azul_css::CssPropertyValue::<StyleTextColor> }
+#[inline] #[no_mangle] pub extern "C" fn az_style_text_color_value_auto() -> AzStyleTextColorValue { AzStyleTextColorValue { object: azul_css::CssPropertyValue::<StyleTextColor>::Auto } }
+#[inline] #[no_mangle] pub extern "C" fn az_style_text_color_value_none() -> AzStyleTextColorValue { AzStyleTextColorValue { object: azul_css::CssPropertyValue::<StyleTextColor>::None } }
+#[inline] #[no_mangle] pub extern "C" fn az_style_text_color_value_inherit() -> AzStyleTextColorValue { AzStyleTextColorValue { object: azul_css::CssPropertyValue::<StyleTextColor>::Inherit } }
+#[inline] #[no_mangle] pub extern "C" fn az_style_text_color_value_initial() -> AzStyleTextColorValue { AzStyleTextColorValue { object: azul_css::CssPropertyValue::<StyleTextColor>::Initial } }
+#[inline] #[no_mangle] pub extern "C" fn az_style_text_color_value_exact(variant_data: AzStyleTextColorPtr) -> AzStyleTextColorValue { AzStyleTextColorValue { object: azul_css::CssPropertyValue::<StyleTextColor>::Exact(*az_style_text_color_downcast(variant_data)) } }
 /// Destructor: Takes ownership of the `StyleTextColorValue` pointer and deletes it.
-#[no_mangle] #[inline] #[allow(unused_variables)] pub extern "C" fn az_style_text_color_value_delete(object: &mut AzStyleTextColorValue) { match object { AzStyleTextColorValue::Auto => { }, AzStyleTextColorValue::None => { }, AzStyleTextColorValue::Inherit => { }, AzStyleTextColorValue::Initial => { }, AzStyleTextColorValue::Exact(_) => { }, }
+#[no_mangle] #[inline] #[allow(unused_variables)] pub extern "C" fn az_style_text_color_value_delete(object: &mut AzStyleTextColorValue) { match object.object { azul_css::CssPropertyValue::<StyleTextColor>::Auto => { }, azul_css::CssPropertyValue::<StyleTextColor>::None => { }, azul_css::CssPropertyValue::<StyleTextColor>::Inherit => { }, azul_css::CssPropertyValue::<StyleTextColor>::Initial => { }, azul_css::CssPropertyValue::<StyleTextColor>::Exact(_) => { }, }
 }
 /// Copies the object
-#[no_mangle] #[inline] pub extern "C" fn az_style_text_color_value_deep_copy(object: &AzStyleTextColorValue) -> AzStyleTextColorValue { object.clone() }
+#[no_mangle] #[inline] pub extern "C" fn az_style_text_color_value_deep_copy(object: &AzStyleTextColorValue) -> AzStyleTextColorValue { AzStyleTextColorValue{ object: object.object.clone() } }
 
 /// Re-export of rust-allocated (stack based) `StyleWordSpacingValue` struct
-pub type AzStyleWordSpacingValueType = azul_css::CssPropertyValue::<StyleWordSpacing>;
-#[no_mangle] pub use AzStyleWordSpacingValueType as AzStyleWordSpacingValue;
-#[inline] #[no_mangle] pub extern "C" fn az_style_word_spacing_value_auto() -> AzStyleWordSpacingValue { AzStyleWordSpacingValue::Auto }
-#[inline] #[no_mangle] pub extern "C" fn az_style_word_spacing_value_none() -> AzStyleWordSpacingValue { AzStyleWordSpacingValue::None }
-#[inline] #[no_mangle] pub extern "C" fn az_style_word_spacing_value_inherit() -> AzStyleWordSpacingValue { AzStyleWordSpacingValue::Inherit }
-#[inline] #[no_mangle] pub extern "C" fn az_style_word_spacing_value_initial() -> AzStyleWordSpacingValue { AzStyleWordSpacingValue::Initial }
-#[inline] #[no_mangle] pub extern "C" fn az_style_word_spacing_value_exact(variant_data: AzStyleWordSpacingPtr) -> AzStyleWordSpacingValue { AzStyleWordSpacingValue::Exact(*az_style_word_spacing_downcast(variant_data)) }
+#[no_mangle] #[repr(C)] pub struct AzStyleWordSpacingValue { object: azul_css::CssPropertyValue::<StyleWordSpacing> }
+#[inline] #[no_mangle] pub extern "C" fn az_style_word_spacing_value_auto() -> AzStyleWordSpacingValue { AzStyleWordSpacingValue { object: azul_css::CssPropertyValue::<StyleWordSpacing>::Auto } }
+#[inline] #[no_mangle] pub extern "C" fn az_style_word_spacing_value_none() -> AzStyleWordSpacingValue { AzStyleWordSpacingValue { object: azul_css::CssPropertyValue::<StyleWordSpacing>::None } }
+#[inline] #[no_mangle] pub extern "C" fn az_style_word_spacing_value_inherit() -> AzStyleWordSpacingValue { AzStyleWordSpacingValue { object: azul_css::CssPropertyValue::<StyleWordSpacing>::Inherit } }
+#[inline] #[no_mangle] pub extern "C" fn az_style_word_spacing_value_initial() -> AzStyleWordSpacingValue { AzStyleWordSpacingValue { object: azul_css::CssPropertyValue::<StyleWordSpacing>::Initial } }
+#[inline] #[no_mangle] pub extern "C" fn az_style_word_spacing_value_exact(variant_data: AzStyleWordSpacingPtr) -> AzStyleWordSpacingValue { AzStyleWordSpacingValue { object: azul_css::CssPropertyValue::<StyleWordSpacing>::Exact(*az_style_word_spacing_downcast(variant_data)) } }
 /// Destructor: Takes ownership of the `StyleWordSpacingValue` pointer and deletes it.
-#[no_mangle] #[inline] #[allow(unused_variables)] pub extern "C" fn az_style_word_spacing_value_delete(object: &mut AzStyleWordSpacingValue) { match object { AzStyleWordSpacingValue::Auto => { }, AzStyleWordSpacingValue::None => { }, AzStyleWordSpacingValue::Inherit => { }, AzStyleWordSpacingValue::Initial => { }, AzStyleWordSpacingValue::Exact(_) => { }, }
+#[no_mangle] #[inline] #[allow(unused_variables)] pub extern "C" fn az_style_word_spacing_value_delete(object: &mut AzStyleWordSpacingValue) { match object.object { azul_css::CssPropertyValue::<StyleWordSpacing>::Auto => { }, azul_css::CssPropertyValue::<StyleWordSpacing>::None => { }, azul_css::CssPropertyValue::<StyleWordSpacing>::Inherit => { }, azul_css::CssPropertyValue::<StyleWordSpacing>::Initial => { }, azul_css::CssPropertyValue::<StyleWordSpacing>::Exact(_) => { }, }
 }
 /// Copies the object
-#[no_mangle] #[inline] pub extern "C" fn az_style_word_spacing_value_deep_copy(object: &AzStyleWordSpacingValue) -> AzStyleWordSpacingValue { object.clone() }
+#[no_mangle] #[inline] pub extern "C" fn az_style_word_spacing_value_deep_copy(object: &AzStyleWordSpacingValue) -> AzStyleWordSpacingValue { AzStyleWordSpacingValue{ object: object.object.clone() } }
 
 /// Parsed CSS key-value pair
-pub type AzCssPropertyType = azul_css::CssProperty;
-#[no_mangle] pub use AzCssPropertyType as AzCssProperty;
-#[inline] #[no_mangle] pub extern "C" fn az_css_property_text_color(variant_data: AzStyleTextColorValue) -> AzCssProperty { AzCssProperty::TextColor(variant_data) }
-#[inline] #[no_mangle] pub extern "C" fn az_css_property_font_size(variant_data: AzStyleFontSizeValue) -> AzCssProperty { AzCssProperty::FontSize(variant_data) }
-#[inline] #[no_mangle] pub extern "C" fn az_css_property_font_family(variant_data: AzStyleFontFamilyValue) -> AzCssProperty { AzCssProperty::FontFamily(variant_data) }
-#[inline] #[no_mangle] pub extern "C" fn az_css_property_text_align(variant_data: AzStyleTextAlignmentHorzValue) -> AzCssProperty { AzCssProperty::TextAlign(variant_data) }
-#[inline] #[no_mangle] pub extern "C" fn az_css_property_letter_spacing(variant_data: AzStyleLetterSpacingValue) -> AzCssProperty { AzCssProperty::LetterSpacing(variant_data) }
-#[inline] #[no_mangle] pub extern "C" fn az_css_property_line_height(variant_data: AzStyleLineHeightValue) -> AzCssProperty { AzCssProperty::LineHeight(variant_data) }
-#[inline] #[no_mangle] pub extern "C" fn az_css_property_word_spacing(variant_data: AzStyleWordSpacingValue) -> AzCssProperty { AzCssProperty::WordSpacing(variant_data) }
-#[inline] #[no_mangle] pub extern "C" fn az_css_property_tab_width(variant_data: AzStyleTabWidthValue) -> AzCssProperty { AzCssProperty::TabWidth(variant_data) }
-#[inline] #[no_mangle] pub extern "C" fn az_css_property_cursor(variant_data: AzStyleCursorValue) -> AzCssProperty { AzCssProperty::Cursor(variant_data) }
-#[inline] #[no_mangle] pub extern "C" fn az_css_property_display(variant_data: AzLayoutDisplayValue) -> AzCssProperty { AzCssProperty::Display(variant_data) }
-#[inline] #[no_mangle] pub extern "C" fn az_css_property_float(variant_data: AzLayoutFloatValue) -> AzCssProperty { AzCssProperty::Float(variant_data) }
-#[inline] #[no_mangle] pub extern "C" fn az_css_property_box_sizing(variant_data: AzLayoutBoxSizingValue) -> AzCssProperty { AzCssProperty::BoxSizing(variant_data) }
-#[inline] #[no_mangle] pub extern "C" fn az_css_property_width(variant_data: AzLayoutWidthValue) -> AzCssProperty { AzCssProperty::Width(variant_data) }
-#[inline] #[no_mangle] pub extern "C" fn az_css_property_height(variant_data: AzLayoutHeightValue) -> AzCssProperty { AzCssProperty::Height(variant_data) }
-#[inline] #[no_mangle] pub extern "C" fn az_css_property_min_width(variant_data: AzLayoutMinWidthValue) -> AzCssProperty { AzCssProperty::MinWidth(variant_data) }
-#[inline] #[no_mangle] pub extern "C" fn az_css_property_min_height(variant_data: AzLayoutMinHeightValue) -> AzCssProperty { AzCssProperty::MinHeight(variant_data) }
-#[inline] #[no_mangle] pub extern "C" fn az_css_property_max_width(variant_data: AzLayoutMaxWidthValue) -> AzCssProperty { AzCssProperty::MaxWidth(variant_data) }
-#[inline] #[no_mangle] pub extern "C" fn az_css_property_max_height(variant_data: AzLayoutMaxHeightValue) -> AzCssProperty { AzCssProperty::MaxHeight(variant_data) }
-#[inline] #[no_mangle] pub extern "C" fn az_css_property_position(variant_data: AzLayoutPositionValue) -> AzCssProperty { AzCssProperty::Position(variant_data) }
-#[inline] #[no_mangle] pub extern "C" fn az_css_property_top(variant_data: AzLayoutTopValue) -> AzCssProperty { AzCssProperty::Top(variant_data) }
-#[inline] #[no_mangle] pub extern "C" fn az_css_property_right(variant_data: AzLayoutRightValue) -> AzCssProperty { AzCssProperty::Right(variant_data) }
-#[inline] #[no_mangle] pub extern "C" fn az_css_property_left(variant_data: AzLayoutLeftValue) -> AzCssProperty { AzCssProperty::Left(variant_data) }
-#[inline] #[no_mangle] pub extern "C" fn az_css_property_bottom(variant_data: AzLayoutBottomValue) -> AzCssProperty { AzCssProperty::Bottom(variant_data) }
-#[inline] #[no_mangle] pub extern "C" fn az_css_property_flex_wrap(variant_data: AzLayoutWrapValue) -> AzCssProperty { AzCssProperty::FlexWrap(variant_data) }
-#[inline] #[no_mangle] pub extern "C" fn az_css_property_flex_direction(variant_data: AzLayoutDirectionValue) -> AzCssProperty { AzCssProperty::FlexDirection(variant_data) }
-#[inline] #[no_mangle] pub extern "C" fn az_css_property_flex_grow(variant_data: AzLayoutFlexGrowValue) -> AzCssProperty { AzCssProperty::FlexGrow(variant_data) }
-#[inline] #[no_mangle] pub extern "C" fn az_css_property_flex_shrink(variant_data: AzLayoutFlexShrinkValue) -> AzCssProperty { AzCssProperty::FlexShrink(variant_data) }
-#[inline] #[no_mangle] pub extern "C" fn az_css_property_justify_content(variant_data: AzLayoutJustifyContentValue) -> AzCssProperty { AzCssProperty::JustifyContent(variant_data) }
-#[inline] #[no_mangle] pub extern "C" fn az_css_property_align_items(variant_data: AzLayoutAlignItemsValue) -> AzCssProperty { AzCssProperty::AlignItems(variant_data) }
-#[inline] #[no_mangle] pub extern "C" fn az_css_property_align_content(variant_data: AzLayoutAlignContentValue) -> AzCssProperty { AzCssProperty::AlignContent(variant_data) }
-#[inline] #[no_mangle] pub extern "C" fn az_css_property_background_content(variant_data: AzStyleBackgroundContentValue) -> AzCssProperty { AzCssProperty::BackgroundContent(variant_data) }
-#[inline] #[no_mangle] pub extern "C" fn az_css_property_background_position(variant_data: AzStyleBackgroundPositionValue) -> AzCssProperty { AzCssProperty::BackgroundPosition(variant_data) }
-#[inline] #[no_mangle] pub extern "C" fn az_css_property_background_size(variant_data: AzStyleBackgroundSizeValue) -> AzCssProperty { AzCssProperty::BackgroundSize(variant_data) }
-#[inline] #[no_mangle] pub extern "C" fn az_css_property_background_repeat(variant_data: AzStyleBackgroundRepeatValue) -> AzCssProperty { AzCssProperty::BackgroundRepeat(variant_data) }
-#[inline] #[no_mangle] pub extern "C" fn az_css_property_overflow_x(variant_data: AzOverflowValue) -> AzCssProperty { AzCssProperty::OverflowX(variant_data) }
-#[inline] #[no_mangle] pub extern "C" fn az_css_property_overflow_y(variant_data: AzOverflowValue) -> AzCssProperty { AzCssProperty::OverflowY(variant_data) }
-#[inline] #[no_mangle] pub extern "C" fn az_css_property_padding_top(variant_data: AzLayoutPaddingTopValue) -> AzCssProperty { AzCssProperty::PaddingTop(variant_data) }
-#[inline] #[no_mangle] pub extern "C" fn az_css_property_padding_left(variant_data: AzLayoutPaddingLeftValue) -> AzCssProperty { AzCssProperty::PaddingLeft(variant_data) }
-#[inline] #[no_mangle] pub extern "C" fn az_css_property_padding_right(variant_data: AzLayoutPaddingRightValue) -> AzCssProperty { AzCssProperty::PaddingRight(variant_data) }
-#[inline] #[no_mangle] pub extern "C" fn az_css_property_padding_bottom(variant_data: AzLayoutPaddingBottomValue) -> AzCssProperty { AzCssProperty::PaddingBottom(variant_data) }
-#[inline] #[no_mangle] pub extern "C" fn az_css_property_margin_top(variant_data: AzLayoutMarginTopValue) -> AzCssProperty { AzCssProperty::MarginTop(variant_data) }
-#[inline] #[no_mangle] pub extern "C" fn az_css_property_margin_left(variant_data: AzLayoutMarginLeftValue) -> AzCssProperty { AzCssProperty::MarginLeft(variant_data) }
-#[inline] #[no_mangle] pub extern "C" fn az_css_property_margin_right(variant_data: AzLayoutMarginRightValue) -> AzCssProperty { AzCssProperty::MarginRight(variant_data) }
-#[inline] #[no_mangle] pub extern "C" fn az_css_property_margin_bottom(variant_data: AzLayoutMarginBottomValue) -> AzCssProperty { AzCssProperty::MarginBottom(variant_data) }
-#[inline] #[no_mangle] pub extern "C" fn az_css_property_border_top_left_radius(variant_data: AzStyleBorderTopLeftRadiusValue) -> AzCssProperty { AzCssProperty::BorderTopLeftRadius(variant_data) }
-#[inline] #[no_mangle] pub extern "C" fn az_css_property_border_top_right_radius(variant_data: AzStyleBorderTopRightRadiusValue) -> AzCssProperty { AzCssProperty::BorderTopRightRadius(variant_data) }
-#[inline] #[no_mangle] pub extern "C" fn az_css_property_border_bottom_left_radius(variant_data: AzStyleBorderBottomLeftRadiusValue) -> AzCssProperty { AzCssProperty::BorderBottomLeftRadius(variant_data) }
-#[inline] #[no_mangle] pub extern "C" fn az_css_property_border_bottom_right_radius(variant_data: AzStyleBorderBottomRightRadiusValue) -> AzCssProperty { AzCssProperty::BorderBottomRightRadius(variant_data) }
-#[inline] #[no_mangle] pub extern "C" fn az_css_property_border_top_color(variant_data: AzStyleBorderTopColorValue) -> AzCssProperty { AzCssProperty::BorderTopColor(variant_data) }
-#[inline] #[no_mangle] pub extern "C" fn az_css_property_border_right_color(variant_data: AzStyleBorderRightColorValue) -> AzCssProperty { AzCssProperty::BorderRightColor(variant_data) }
-#[inline] #[no_mangle] pub extern "C" fn az_css_property_border_left_color(variant_data: AzStyleBorderLeftColorValue) -> AzCssProperty { AzCssProperty::BorderLeftColor(variant_data) }
-#[inline] #[no_mangle] pub extern "C" fn az_css_property_border_bottom_color(variant_data: AzStyleBorderBottomColorValue) -> AzCssProperty { AzCssProperty::BorderBottomColor(variant_data) }
-#[inline] #[no_mangle] pub extern "C" fn az_css_property_border_top_style(variant_data: AzStyleBorderTopStyleValue) -> AzCssProperty { AzCssProperty::BorderTopStyle(variant_data) }
-#[inline] #[no_mangle] pub extern "C" fn az_css_property_border_right_style(variant_data: AzStyleBorderRightStyleValue) -> AzCssProperty { AzCssProperty::BorderRightStyle(variant_data) }
-#[inline] #[no_mangle] pub extern "C" fn az_css_property_border_left_style(variant_data: AzStyleBorderLeftStyleValue) -> AzCssProperty { AzCssProperty::BorderLeftStyle(variant_data) }
-#[inline] #[no_mangle] pub extern "C" fn az_css_property_border_bottom_style(variant_data: AzStyleBorderBottomStyleValue) -> AzCssProperty { AzCssProperty::BorderBottomStyle(variant_data) }
-#[inline] #[no_mangle] pub extern "C" fn az_css_property_border_top_width(variant_data: AzStyleBorderTopWidthValue) -> AzCssProperty { AzCssProperty::BorderTopWidth(variant_data) }
-#[inline] #[no_mangle] pub extern "C" fn az_css_property_border_right_width(variant_data: AzStyleBorderRightWidthValue) -> AzCssProperty { AzCssProperty::BorderRightWidth(variant_data) }
-#[inline] #[no_mangle] pub extern "C" fn az_css_property_border_left_width(variant_data: AzStyleBorderLeftWidthValue) -> AzCssProperty { AzCssProperty::BorderLeftWidth(variant_data) }
-#[inline] #[no_mangle] pub extern "C" fn az_css_property_border_bottom_width(variant_data: AzStyleBorderBottomWidthValue) -> AzCssProperty { AzCssProperty::BorderBottomWidth(variant_data) }
-#[inline] #[no_mangle] pub extern "C" fn az_css_property_box_shadow_left(variant_data: AzBoxShadowPreDisplayItemValue) -> AzCssProperty { AzCssProperty::BoxShadowLeft(variant_data) }
-#[inline] #[no_mangle] pub extern "C" fn az_css_property_box_shadow_right(variant_data: AzBoxShadowPreDisplayItemValue) -> AzCssProperty { AzCssProperty::BoxShadowRight(variant_data) }
-#[inline] #[no_mangle] pub extern "C" fn az_css_property_box_shadow_top(variant_data: AzBoxShadowPreDisplayItemValue) -> AzCssProperty { AzCssProperty::BoxShadowTop(variant_data) }
-#[inline] #[no_mangle] pub extern "C" fn az_css_property_box_shadow_bottom(variant_data: AzBoxShadowPreDisplayItemValue) -> AzCssProperty { AzCssProperty::BoxShadowBottom(variant_data) }
+#[no_mangle] #[repr(C)] pub struct AzCssProperty { object: azul_css::CssProperty }
+#[inline] #[no_mangle] pub extern "C" fn az_css_property_text_color(variant_data: AzStyleTextColorValue) -> AzCssProperty { AzCssProperty { object: azul_css::CssProperty::TextColor(variant_data.object) } }
+#[inline] #[no_mangle] pub extern "C" fn az_css_property_font_size(variant_data: AzStyleFontSizeValue) -> AzCssProperty { AzCssProperty { object: azul_css::CssProperty::FontSize(variant_data.object) } }
+#[inline] #[no_mangle] pub extern "C" fn az_css_property_font_family(variant_data: AzStyleFontFamilyValue) -> AzCssProperty { AzCssProperty { object: azul_css::CssProperty::FontFamily(variant_data.object) } }
+#[inline] #[no_mangle] pub extern "C" fn az_css_property_text_align(variant_data: AzStyleTextAlignmentHorzValue) -> AzCssProperty { AzCssProperty { object: azul_css::CssProperty::TextAlign(variant_data.object) } }
+#[inline] #[no_mangle] pub extern "C" fn az_css_property_letter_spacing(variant_data: AzStyleLetterSpacingValue) -> AzCssProperty { AzCssProperty { object: azul_css::CssProperty::LetterSpacing(variant_data.object) } }
+#[inline] #[no_mangle] pub extern "C" fn az_css_property_line_height(variant_data: AzStyleLineHeightValue) -> AzCssProperty { AzCssProperty { object: azul_css::CssProperty::LineHeight(variant_data.object) } }
+#[inline] #[no_mangle] pub extern "C" fn az_css_property_word_spacing(variant_data: AzStyleWordSpacingValue) -> AzCssProperty { AzCssProperty { object: azul_css::CssProperty::WordSpacing(variant_data.object) } }
+#[inline] #[no_mangle] pub extern "C" fn az_css_property_tab_width(variant_data: AzStyleTabWidthValue) -> AzCssProperty { AzCssProperty { object: azul_css::CssProperty::TabWidth(variant_data.object) } }
+#[inline] #[no_mangle] pub extern "C" fn az_css_property_cursor(variant_data: AzStyleCursorValue) -> AzCssProperty { AzCssProperty { object: azul_css::CssProperty::Cursor(variant_data.object) } }
+#[inline] #[no_mangle] pub extern "C" fn az_css_property_display(variant_data: AzLayoutDisplayValue) -> AzCssProperty { AzCssProperty { object: azul_css::CssProperty::Display(variant_data.object) } }
+#[inline] #[no_mangle] pub extern "C" fn az_css_property_float(variant_data: AzLayoutFloatValue) -> AzCssProperty { AzCssProperty { object: azul_css::CssProperty::Float(variant_data.object) } }
+#[inline] #[no_mangle] pub extern "C" fn az_css_property_box_sizing(variant_data: AzLayoutBoxSizingValue) -> AzCssProperty { AzCssProperty { object: azul_css::CssProperty::BoxSizing(variant_data.object) } }
+#[inline] #[no_mangle] pub extern "C" fn az_css_property_width(variant_data: AzLayoutWidthValue) -> AzCssProperty { AzCssProperty { object: azul_css::CssProperty::Width(variant_data.object) } }
+#[inline] #[no_mangle] pub extern "C" fn az_css_property_height(variant_data: AzLayoutHeightValue) -> AzCssProperty { AzCssProperty { object: azul_css::CssProperty::Height(variant_data.object) } }
+#[inline] #[no_mangle] pub extern "C" fn az_css_property_min_width(variant_data: AzLayoutMinWidthValue) -> AzCssProperty { AzCssProperty { object: azul_css::CssProperty::MinWidth(variant_data.object) } }
+#[inline] #[no_mangle] pub extern "C" fn az_css_property_min_height(variant_data: AzLayoutMinHeightValue) -> AzCssProperty { AzCssProperty { object: azul_css::CssProperty::MinHeight(variant_data.object) } }
+#[inline] #[no_mangle] pub extern "C" fn az_css_property_max_width(variant_data: AzLayoutMaxWidthValue) -> AzCssProperty { AzCssProperty { object: azul_css::CssProperty::MaxWidth(variant_data.object) } }
+#[inline] #[no_mangle] pub extern "C" fn az_css_property_max_height(variant_data: AzLayoutMaxHeightValue) -> AzCssProperty { AzCssProperty { object: azul_css::CssProperty::MaxHeight(variant_data.object) } }
+#[inline] #[no_mangle] pub extern "C" fn az_css_property_position(variant_data: AzLayoutPositionValue) -> AzCssProperty { AzCssProperty { object: azul_css::CssProperty::Position(variant_data.object) } }
+#[inline] #[no_mangle] pub extern "C" fn az_css_property_top(variant_data: AzLayoutTopValue) -> AzCssProperty { AzCssProperty { object: azul_css::CssProperty::Top(variant_data.object) } }
+#[inline] #[no_mangle] pub extern "C" fn az_css_property_right(variant_data: AzLayoutRightValue) -> AzCssProperty { AzCssProperty { object: azul_css::CssProperty::Right(variant_data.object) } }
+#[inline] #[no_mangle] pub extern "C" fn az_css_property_left(variant_data: AzLayoutLeftValue) -> AzCssProperty { AzCssProperty { object: azul_css::CssProperty::Left(variant_data.object) } }
+#[inline] #[no_mangle] pub extern "C" fn az_css_property_bottom(variant_data: AzLayoutBottomValue) -> AzCssProperty { AzCssProperty { object: azul_css::CssProperty::Bottom(variant_data.object) } }
+#[inline] #[no_mangle] pub extern "C" fn az_css_property_flex_wrap(variant_data: AzLayoutWrapValue) -> AzCssProperty { AzCssProperty { object: azul_css::CssProperty::FlexWrap(variant_data.object) } }
+#[inline] #[no_mangle] pub extern "C" fn az_css_property_flex_direction(variant_data: AzLayoutDirectionValue) -> AzCssProperty { AzCssProperty { object: azul_css::CssProperty::FlexDirection(variant_data.object) } }
+#[inline] #[no_mangle] pub extern "C" fn az_css_property_flex_grow(variant_data: AzLayoutFlexGrowValue) -> AzCssProperty { AzCssProperty { object: azul_css::CssProperty::FlexGrow(variant_data.object) } }
+#[inline] #[no_mangle] pub extern "C" fn az_css_property_flex_shrink(variant_data: AzLayoutFlexShrinkValue) -> AzCssProperty { AzCssProperty { object: azul_css::CssProperty::FlexShrink(variant_data.object) } }
+#[inline] #[no_mangle] pub extern "C" fn az_css_property_justify_content(variant_data: AzLayoutJustifyContentValue) -> AzCssProperty { AzCssProperty { object: azul_css::CssProperty::JustifyContent(variant_data.object) } }
+#[inline] #[no_mangle] pub extern "C" fn az_css_property_align_items(variant_data: AzLayoutAlignItemsValue) -> AzCssProperty { AzCssProperty { object: azul_css::CssProperty::AlignItems(variant_data.object) } }
+#[inline] #[no_mangle] pub extern "C" fn az_css_property_align_content(variant_data: AzLayoutAlignContentValue) -> AzCssProperty { AzCssProperty { object: azul_css::CssProperty::AlignContent(variant_data.object) } }
+#[inline] #[no_mangle] pub extern "C" fn az_css_property_background_content(variant_data: AzStyleBackgroundContentValue) -> AzCssProperty { AzCssProperty { object: azul_css::CssProperty::BackgroundContent(variant_data.object) } }
+#[inline] #[no_mangle] pub extern "C" fn az_css_property_background_position(variant_data: AzStyleBackgroundPositionValue) -> AzCssProperty { AzCssProperty { object: azul_css::CssProperty::BackgroundPosition(variant_data.object) } }
+#[inline] #[no_mangle] pub extern "C" fn az_css_property_background_size(variant_data: AzStyleBackgroundSizeValue) -> AzCssProperty { AzCssProperty { object: azul_css::CssProperty::BackgroundSize(variant_data.object) } }
+#[inline] #[no_mangle] pub extern "C" fn az_css_property_background_repeat(variant_data: AzStyleBackgroundRepeatValue) -> AzCssProperty { AzCssProperty { object: azul_css::CssProperty::BackgroundRepeat(variant_data.object) } }
+#[inline] #[no_mangle] pub extern "C" fn az_css_property_overflow_x(variant_data: AzOverflowValue) -> AzCssProperty { AzCssProperty { object: azul_css::CssProperty::OverflowX(variant_data.object) } }
+#[inline] #[no_mangle] pub extern "C" fn az_css_property_overflow_y(variant_data: AzOverflowValue) -> AzCssProperty { AzCssProperty { object: azul_css::CssProperty::OverflowY(variant_data.object) } }
+#[inline] #[no_mangle] pub extern "C" fn az_css_property_padding_top(variant_data: AzLayoutPaddingTopValue) -> AzCssProperty { AzCssProperty { object: azul_css::CssProperty::PaddingTop(variant_data.object) } }
+#[inline] #[no_mangle] pub extern "C" fn az_css_property_padding_left(variant_data: AzLayoutPaddingLeftValue) -> AzCssProperty { AzCssProperty { object: azul_css::CssProperty::PaddingLeft(variant_data.object) } }
+#[inline] #[no_mangle] pub extern "C" fn az_css_property_padding_right(variant_data: AzLayoutPaddingRightValue) -> AzCssProperty { AzCssProperty { object: azul_css::CssProperty::PaddingRight(variant_data.object) } }
+#[inline] #[no_mangle] pub extern "C" fn az_css_property_padding_bottom(variant_data: AzLayoutPaddingBottomValue) -> AzCssProperty { AzCssProperty { object: azul_css::CssProperty::PaddingBottom(variant_data.object) } }
+#[inline] #[no_mangle] pub extern "C" fn az_css_property_margin_top(variant_data: AzLayoutMarginTopValue) -> AzCssProperty { AzCssProperty { object: azul_css::CssProperty::MarginTop(variant_data.object) } }
+#[inline] #[no_mangle] pub extern "C" fn az_css_property_margin_left(variant_data: AzLayoutMarginLeftValue) -> AzCssProperty { AzCssProperty { object: azul_css::CssProperty::MarginLeft(variant_data.object) } }
+#[inline] #[no_mangle] pub extern "C" fn az_css_property_margin_right(variant_data: AzLayoutMarginRightValue) -> AzCssProperty { AzCssProperty { object: azul_css::CssProperty::MarginRight(variant_data.object) } }
+#[inline] #[no_mangle] pub extern "C" fn az_css_property_margin_bottom(variant_data: AzLayoutMarginBottomValue) -> AzCssProperty { AzCssProperty { object: azul_css::CssProperty::MarginBottom(variant_data.object) } }
+#[inline] #[no_mangle] pub extern "C" fn az_css_property_border_top_left_radius(variant_data: AzStyleBorderTopLeftRadiusValue) -> AzCssProperty { AzCssProperty { object: azul_css::CssProperty::BorderTopLeftRadius(variant_data.object) } }
+#[inline] #[no_mangle] pub extern "C" fn az_css_property_border_top_right_radius(variant_data: AzStyleBorderTopRightRadiusValue) -> AzCssProperty { AzCssProperty { object: azul_css::CssProperty::BorderTopRightRadius(variant_data.object) } }
+#[inline] #[no_mangle] pub extern "C" fn az_css_property_border_bottom_left_radius(variant_data: AzStyleBorderBottomLeftRadiusValue) -> AzCssProperty { AzCssProperty { object: azul_css::CssProperty::BorderBottomLeftRadius(variant_data.object) } }
+#[inline] #[no_mangle] pub extern "C" fn az_css_property_border_bottom_right_radius(variant_data: AzStyleBorderBottomRightRadiusValue) -> AzCssProperty { AzCssProperty { object: azul_css::CssProperty::BorderBottomRightRadius(variant_data.object) } }
+#[inline] #[no_mangle] pub extern "C" fn az_css_property_border_top_color(variant_data: AzStyleBorderTopColorValue) -> AzCssProperty { AzCssProperty { object: azul_css::CssProperty::BorderTopColor(variant_data.object) } }
+#[inline] #[no_mangle] pub extern "C" fn az_css_property_border_right_color(variant_data: AzStyleBorderRightColorValue) -> AzCssProperty { AzCssProperty { object: azul_css::CssProperty::BorderRightColor(variant_data.object) } }
+#[inline] #[no_mangle] pub extern "C" fn az_css_property_border_left_color(variant_data: AzStyleBorderLeftColorValue) -> AzCssProperty { AzCssProperty { object: azul_css::CssProperty::BorderLeftColor(variant_data.object) } }
+#[inline] #[no_mangle] pub extern "C" fn az_css_property_border_bottom_color(variant_data: AzStyleBorderBottomColorValue) -> AzCssProperty { AzCssProperty { object: azul_css::CssProperty::BorderBottomColor(variant_data.object) } }
+#[inline] #[no_mangle] pub extern "C" fn az_css_property_border_top_style(variant_data: AzStyleBorderTopStyleValue) -> AzCssProperty { AzCssProperty { object: azul_css::CssProperty::BorderTopStyle(variant_data.object) } }
+#[inline] #[no_mangle] pub extern "C" fn az_css_property_border_right_style(variant_data: AzStyleBorderRightStyleValue) -> AzCssProperty { AzCssProperty { object: azul_css::CssProperty::BorderRightStyle(variant_data.object) } }
+#[inline] #[no_mangle] pub extern "C" fn az_css_property_border_left_style(variant_data: AzStyleBorderLeftStyleValue) -> AzCssProperty { AzCssProperty { object: azul_css::CssProperty::BorderLeftStyle(variant_data.object) } }
+#[inline] #[no_mangle] pub extern "C" fn az_css_property_border_bottom_style(variant_data: AzStyleBorderBottomStyleValue) -> AzCssProperty { AzCssProperty { object: azul_css::CssProperty::BorderBottomStyle(variant_data.object) } }
+#[inline] #[no_mangle] pub extern "C" fn az_css_property_border_top_width(variant_data: AzStyleBorderTopWidthValue) -> AzCssProperty { AzCssProperty { object: azul_css::CssProperty::BorderTopWidth(variant_data.object) } }
+#[inline] #[no_mangle] pub extern "C" fn az_css_property_border_right_width(variant_data: AzStyleBorderRightWidthValue) -> AzCssProperty { AzCssProperty { object: azul_css::CssProperty::BorderRightWidth(variant_data.object) } }
+#[inline] #[no_mangle] pub extern "C" fn az_css_property_border_left_width(variant_data: AzStyleBorderLeftWidthValue) -> AzCssProperty { AzCssProperty { object: azul_css::CssProperty::BorderLeftWidth(variant_data.object) } }
+#[inline] #[no_mangle] pub extern "C" fn az_css_property_border_bottom_width(variant_data: AzStyleBorderBottomWidthValue) -> AzCssProperty { AzCssProperty { object: azul_css::CssProperty::BorderBottomWidth(variant_data.object) } }
+#[inline] #[no_mangle] pub extern "C" fn az_css_property_box_shadow_left(variant_data: AzBoxShadowPreDisplayItemValue) -> AzCssProperty { AzCssProperty { object: azul_css::CssProperty::BoxShadowLeft(variant_data.object) } }
+#[inline] #[no_mangle] pub extern "C" fn az_css_property_box_shadow_right(variant_data: AzBoxShadowPreDisplayItemValue) -> AzCssProperty { AzCssProperty { object: azul_css::CssProperty::BoxShadowRight(variant_data.object) } }
+#[inline] #[no_mangle] pub extern "C" fn az_css_property_box_shadow_top(variant_data: AzBoxShadowPreDisplayItemValue) -> AzCssProperty { AzCssProperty { object: azul_css::CssProperty::BoxShadowTop(variant_data.object) } }
+#[inline] #[no_mangle] pub extern "C" fn az_css_property_box_shadow_bottom(variant_data: AzBoxShadowPreDisplayItemValue) -> AzCssProperty { AzCssProperty { object: azul_css::CssProperty::BoxShadowBottom(variant_data.object) } }
 /// Destructor: Takes ownership of the `CssProperty` pointer and deletes it.
-#[no_mangle] #[inline] #[allow(unused_variables)] pub extern "C" fn az_css_property_delete(object: &mut AzCssProperty) { match object { AzCssProperty::TextColor(_) => { }, AzCssProperty::FontSize(_) => { }, AzCssProperty::FontFamily(_) => { }, AzCssProperty::TextAlign(_) => { }, AzCssProperty::LetterSpacing(_) => { }, AzCssProperty::LineHeight(_) => { }, AzCssProperty::WordSpacing(_) => { }, AzCssProperty::TabWidth(_) => { }, AzCssProperty::Cursor(_) => { }, AzCssProperty::Display(_) => { }, AzCssProperty::Float(_) => { }, AzCssProperty::BoxSizing(_) => { }, AzCssProperty::Width(_) => { }, AzCssProperty::Height(_) => { }, AzCssProperty::MinWidth(_) => { }, AzCssProperty::MinHeight(_) => { }, AzCssProperty::MaxWidth(_) => { }, AzCssProperty::MaxHeight(_) => { }, AzCssProperty::Position(_) => { }, AzCssProperty::Top(_) => { }, AzCssProperty::Right(_) => { }, AzCssProperty::Left(_) => { }, AzCssProperty::Bottom(_) => { }, AzCssProperty::FlexWrap(_) => { }, AzCssProperty::FlexDirection(_) => { }, AzCssProperty::FlexGrow(_) => { }, AzCssProperty::FlexShrink(_) => { }, AzCssProperty::JustifyContent(_) => { }, AzCssProperty::AlignItems(_) => { }, AzCssProperty::AlignContent(_) => { }, AzCssProperty::BackgroundContent(_) => { }, AzCssProperty::BackgroundPosition(_) => { }, AzCssProperty::BackgroundSize(_) => { }, AzCssProperty::BackgroundRepeat(_) => { }, AzCssProperty::OverflowX(_) => { }, AzCssProperty::OverflowY(_) => { }, AzCssProperty::PaddingTop(_) => { }, AzCssProperty::PaddingLeft(_) => { }, AzCssProperty::PaddingRight(_) => { }, AzCssProperty::PaddingBottom(_) => { }, AzCssProperty::MarginTop(_) => { }, AzCssProperty::MarginLeft(_) => { }, AzCssProperty::MarginRight(_) => { }, AzCssProperty::MarginBottom(_) => { }, AzCssProperty::BorderTopLeftRadius(_) => { }, AzCssProperty::BorderTopRightRadius(_) => { }, AzCssProperty::BorderBottomLeftRadius(_) => { }, AzCssProperty::BorderBottomRightRadius(_) => { }, AzCssProperty::BorderTopColor(_) => { }, AzCssProperty::BorderRightColor(_) => { }, AzCssProperty::BorderLeftColor(_) => { }, AzCssProperty::BorderBottomColor(_) => { }, AzCssProperty::BorderTopStyle(_) => { }, AzCssProperty::BorderRightStyle(_) => { }, AzCssProperty::BorderLeftStyle(_) => { }, AzCssProperty::BorderBottomStyle(_) => { }, AzCssProperty::BorderTopWidth(_) => { }, AzCssProperty::BorderRightWidth(_) => { }, AzCssProperty::BorderLeftWidth(_) => { }, AzCssProperty::BorderBottomWidth(_) => { }, AzCssProperty::BoxShadowLeft(_) => { }, AzCssProperty::BoxShadowRight(_) => { }, AzCssProperty::BoxShadowTop(_) => { }, AzCssProperty::BoxShadowBottom(_) => { }, }
+#[no_mangle] #[inline] #[allow(unused_variables)] pub extern "C" fn az_css_property_delete(object: &mut AzCssProperty) { match object.object { azul_css::CssProperty::TextColor(_) => { }, azul_css::CssProperty::FontSize(_) => { }, azul_css::CssProperty::FontFamily(_) => { }, azul_css::CssProperty::TextAlign(_) => { }, azul_css::CssProperty::LetterSpacing(_) => { }, azul_css::CssProperty::LineHeight(_) => { }, azul_css::CssProperty::WordSpacing(_) => { }, azul_css::CssProperty::TabWidth(_) => { }, azul_css::CssProperty::Cursor(_) => { }, azul_css::CssProperty::Display(_) => { }, azul_css::CssProperty::Float(_) => { }, azul_css::CssProperty::BoxSizing(_) => { }, azul_css::CssProperty::Width(_) => { }, azul_css::CssProperty::Height(_) => { }, azul_css::CssProperty::MinWidth(_) => { }, azul_css::CssProperty::MinHeight(_) => { }, azul_css::CssProperty::MaxWidth(_) => { }, azul_css::CssProperty::MaxHeight(_) => { }, azul_css::CssProperty::Position(_) => { }, azul_css::CssProperty::Top(_) => { }, azul_css::CssProperty::Right(_) => { }, azul_css::CssProperty::Left(_) => { }, azul_css::CssProperty::Bottom(_) => { }, azul_css::CssProperty::FlexWrap(_) => { }, azul_css::CssProperty::FlexDirection(_) => { }, azul_css::CssProperty::FlexGrow(_) => { }, azul_css::CssProperty::FlexShrink(_) => { }, azul_css::CssProperty::JustifyContent(_) => { }, azul_css::CssProperty::AlignItems(_) => { }, azul_css::CssProperty::AlignContent(_) => { }, azul_css::CssProperty::BackgroundContent(_) => { }, azul_css::CssProperty::BackgroundPosition(_) => { }, azul_css::CssProperty::BackgroundSize(_) => { }, azul_css::CssProperty::BackgroundRepeat(_) => { }, azul_css::CssProperty::OverflowX(_) => { }, azul_css::CssProperty::OverflowY(_) => { }, azul_css::CssProperty::PaddingTop(_) => { }, azul_css::CssProperty::PaddingLeft(_) => { }, azul_css::CssProperty::PaddingRight(_) => { }, azul_css::CssProperty::PaddingBottom(_) => { }, azul_css::CssProperty::MarginTop(_) => { }, azul_css::CssProperty::MarginLeft(_) => { }, azul_css::CssProperty::MarginRight(_) => { }, azul_css::CssProperty::MarginBottom(_) => { }, azul_css::CssProperty::BorderTopLeftRadius(_) => { }, azul_css::CssProperty::BorderTopRightRadius(_) => { }, azul_css::CssProperty::BorderBottomLeftRadius(_) => { }, azul_css::CssProperty::BorderBottomRightRadius(_) => { }, azul_css::CssProperty::BorderTopColor(_) => { }, azul_css::CssProperty::BorderRightColor(_) => { }, azul_css::CssProperty::BorderLeftColor(_) => { }, azul_css::CssProperty::BorderBottomColor(_) => { }, azul_css::CssProperty::BorderTopStyle(_) => { }, azul_css::CssProperty::BorderRightStyle(_) => { }, azul_css::CssProperty::BorderLeftStyle(_) => { }, azul_css::CssProperty::BorderBottomStyle(_) => { }, azul_css::CssProperty::BorderTopWidth(_) => { }, azul_css::CssProperty::BorderRightWidth(_) => { }, azul_css::CssProperty::BorderLeftWidth(_) => { }, azul_css::CssProperty::BorderBottomWidth(_) => { }, azul_css::CssProperty::BoxShadowLeft(_) => { }, azul_css::CssProperty::BoxShadowRight(_) => { }, azul_css::CssProperty::BoxShadowTop(_) => { }, azul_css::CssProperty::BoxShadowBottom(_) => { }, }
 }
 /// Copies the object
-#[no_mangle] #[inline] pub extern "C" fn az_css_property_deep_copy(object: &AzCssProperty) -> AzCssProperty { object.clone() }
+#[no_mangle] #[inline] pub extern "C" fn az_css_property_deep_copy(object: &AzCssProperty) -> AzCssProperty { AzCssProperty{ object: object.object.clone() } }
 
 /// Pointer to rust-allocated `Box<Dom>` struct
-pub type AzDomPtrType = azul_core::dom::DomPtr;
-#[no_mangle] pub use AzDomPtrType as AzDomPtr;
+#[no_mangle] #[repr(C)] pub struct AzDomPtr { ptr: *mut c_void }
 /// Creates a new `div` node
 #[no_mangle] #[inline] pub extern "C" fn az_dom_div() -> AzDomPtr { let object: Dom = Dom::div(); AzDomPtr { ptr: Box::into_raw(Box::new(object)) as *mut c_void } }
 /// Creates a new `body` node
 #[no_mangle] #[inline] pub extern "C" fn az_dom_body() -> AzDomPtr { let object: Dom = Dom::body(); AzDomPtr { ptr: Box::into_raw(Box::new(object)) as *mut c_void } }
 /// Creates a new `p` node with a given `String` as the text contents
-#[no_mangle] #[inline] pub extern "C" fn az_dom_label(text: AzStringPtr) -> AzDomPtr { let object: Dom = Dom::label(*az_string_downcast(text)); AzDomPtr { ptr: Box::into_raw(Box::new(object)) as *mut c_void } }
+#[no_mangle] #[inline] pub extern "C" fn az_dom_label(text: AzString) -> AzDomPtr { let object: Dom = Dom::label(text.object); AzDomPtr { ptr: Box::into_raw(Box::new(object)) as *mut c_void } }
 /// Creates a new `p` node from a (cached) text referenced by a `TextId`
-#[no_mangle] #[inline] pub extern "C" fn az_dom_text(text_id: AzTextId) -> AzDomPtr { let object: Dom = Dom::text(*az_text_id_downcast(text_id)); AzDomPtr { ptr: Box::into_raw(Box::new(object)) as *mut c_void } }
+#[no_mangle] #[inline] pub extern "C" fn az_dom_text(text_id: AzTextId) -> AzDomPtr { let object: Dom = Dom::text(text_id.object); AzDomPtr { ptr: Box::into_raw(Box::new(object)) as *mut c_void } }
 /// Creates a new `img` node from a (cached) text referenced by a `ImageId`
-#[no_mangle] #[inline] pub extern "C" fn az_dom_image(image_id: AzImageId) -> AzDomPtr { let object: Dom = Dom::image(*az_image_id_downcast(image_id)); AzDomPtr { ptr: Box::into_raw(Box::new(object)) as *mut c_void } }
+#[no_mangle] #[inline] pub extern "C" fn az_dom_image(image_id: AzImageId) -> AzDomPtr { let object: Dom = Dom::image(image_id.object); AzDomPtr { ptr: Box::into_raw(Box::new(object)) as *mut c_void } }
 /// Creates a new node which will render an OpenGL texture after the layout step is finished. See the documentation for [GlCallback]() for more info about OpenGL rendering callbacks.
-#[no_mangle] #[inline] pub extern "C" fn az_dom_gl_texture(data: AzRefAny, callback: AzGlCallback) -> AzDomPtr { let object: Dom = Dom::gl_texture(azul_core::callbacks::GlCallback(callback)); AzDomPtr { ptr: Box::into_raw(Box::new(object)) as *mut c_void } }
+#[no_mangle] #[inline] pub extern "C" fn az_dom_gl_texture(data: AzRefAny, callback: AzGlCallback) -> AzDomPtr { let object: Dom = Dom::gl_texture(callback, data); AzDomPtr { ptr: Box::into_raw(Box::new(object)) as *mut c_void } }
 /// Creates a new node with a callback that will return a `Dom` after being layouted. See the documentation for [IFrameCallback]() for more info about iframe callbacks.
-#[no_mangle] #[inline] pub extern "C" fn az_dom_iframe_callback(data: AzRefAny, callback: AzGlCallback) -> AzDomPtr { let object: Dom = Dom::iframe(azul_core::callbacks::IFrameCallback(callback)); AzDomPtr { ptr: Box::into_raw(Box::new(object)) as *mut c_void } }
+#[no_mangle] #[inline] pub extern "C" fn az_dom_iframe_callback(data: AzRefAny, callback: AzIFrameCallback) -> AzDomPtr { let object: Dom = Dom::iframe(callback, data); AzDomPtr { ptr: Box::into_raw(Box::new(object)) as *mut c_void } }
 /// Adds a CSS ID (`#something`) to the DOM node
-#[no_mangle] #[inline] pub extern "C" fn az_dom_add_id(dom: &mut AzDomPtr, id: AzStringPtr) { az_dom_downcast_refmut(dom, |d| { d.add_id(*az_string_downcast(id)); }) }
+#[no_mangle] #[inline] pub extern "C" fn az_dom_add_id(dom: &mut AzDomPtr, id: AzString) { az_dom_downcast_refmut(dom, |d| { d.add_id(id.object); }) }
 /// Same as [`Dom::add_id`](#method.add_id), but as a builder method
-#[no_mangle] #[inline] pub extern "C" fn az_dom_with_id(mut dom: AzDomPtr, id: AzStringPtr) -> AzDomPtr { az_dom_add_id(&mut dom, id); dom }
+#[no_mangle] #[inline] pub extern "C" fn az_dom_with_id(mut dom: AzDomPtr, id: AzString) -> AzDomPtr { az_dom_add_id(&mut dom, id); dom }
 /// Same as calling [`Dom::add_id`](#method.add_id) for each CSS ID, but this function **replaces** all current CSS IDs
-#[no_mangle] #[inline] pub extern "C" fn az_dom_set_ids(dom: &mut AzDomPtr, ids: AzStringVecPtr) { az_dom_downcast_refmut(dom, |d| { d.set_ids(*az_vec_string_downcast(ids)); }) }
+#[no_mangle] #[inline] pub extern "C" fn az_dom_set_ids(dom: &mut AzDomPtr, ids: AzStringVec) { az_dom_downcast_refmut(dom, |d| { d.set_ids(ids.object); }) }
 /// Same as [`Dom::set_ids`](#method.set_ids), but as a builder method
-#[no_mangle] #[inline] pub extern "C" fn az_dom_with_ids(mut dom: AzDomPtr, ids: AzStringVecPtr) -> AzDomPtr { az_dom_set_ids(&mut dom, ids); dom }
+#[no_mangle] #[inline] pub extern "C" fn az_dom_with_ids(mut dom: AzDomPtr, ids: AzStringVec) -> AzDomPtr { az_dom_set_ids(&mut dom, ids); dom }
 /// Adds a CSS class (`.something`) to the DOM node
-#[no_mangle] #[inline] pub extern "C" fn az_dom_add_class(dom: &mut AzDomPtr, class: AzStringPtr) { az_dom_downcast_refmut(dom, |d| { d.add_class(*az_string_downcast(class)); }) }
+#[no_mangle] #[inline] pub extern "C" fn az_dom_add_class(dom: &mut AzDomPtr, class: AzString) { az_dom_downcast_refmut(dom, |d| { d.add_class(class.object); }) }
 /// Same as [`Dom::add_class`](#method.add_class), but as a builder method
-#[no_mangle] #[inline] pub extern "C" fn az_dom_with_class(mut dom: AzDomPtr, class: AzStringPtr) -> AzDomPtr { az_dom_add_class(&mut dom, class); dom }
+#[no_mangle] #[inline] pub extern "C" fn az_dom_with_class(mut dom: AzDomPtr, class: AzString) -> AzDomPtr { az_dom_add_class(&mut dom, class); dom }
 /// Same as calling [`Dom::add_class`](#method.add_class) for each class, but this function **replaces** all current classes
-#[no_mangle] #[inline] pub extern "C" fn az_dom_set_classes(dom: &mut AzDomPtr, classes: AzStringVecPtr) { az_dom_downcast_refmut(dom, |d| { d.set_classes(*az_vec_string_downcast(classes)); }) }
+#[no_mangle] #[inline] pub extern "C" fn az_dom_set_classes(dom: &mut AzDomPtr, classes: AzStringVec) { az_dom_downcast_refmut(dom, |d| { (*d).set_classes(classes.object); }) }
 /// Same as [`Dom::set_classes`](#method.set_classes), but as a builder method
-#[no_mangle] #[inline] pub extern "C" fn az_dom_with_classes(mut dom: AzDomPtr, classes: AzStringVecPtr) -> AzDomPtr { az_dom_set_classes(&mut dom, ids); dom }
+#[no_mangle] #[inline] pub extern "C" fn az_dom_with_classes(mut dom: AzDomPtr, classes: AzStringVec) -> AzDomPtr { az_dom_set_classes(&mut dom, classes); dom }
 /// Adds a [`Callback`](callbacks/type.Callback) that acts on the `data` the `event` happens
-#[no_mangle] #[inline] pub extern "C" fn az_dom_add_callback(dom: &mut AzDomPtr, event: AzEventFilter, data: AzRefAny, callback: AzCallback) { az_dom_downcast_refmut(dom, |d| { d.add_callback(event, data, Callback(callback)); }) }
+#[no_mangle] #[inline] pub extern "C" fn az_dom_add_callback(dom: &mut AzDomPtr, event: AzEventFilter, data: AzRefAny, callback: AzCallback) { az_dom_downcast_refmut(dom, |d| { d.add_callback(event.object, callback, data); }) }
 /// Same as [`Dom::add_callback`](#method.add_callback), but as a builder method
-#[no_mangle] #[inline] pub extern "C" fn az_dom_with_callback(dom: &mut AzDomPtr, event: AzEventFilter, data: AzRefAny, callback: AzCallback) { az_dom_add_callback(&mut dom, event, data, callback); dom }
+#[no_mangle] #[inline] pub extern "C" fn az_dom_with_callback(mut dom: AzDomPtr, event: AzEventFilter, data: AzRefAny, callback: AzCallback) -> AzDomPtr { az_dom_add_callback(&mut dom, event, data, callback); dom }
 /// Overrides the CSS property of this DOM node with a value (for example `"width = 200px"`)
-#[no_mangle] #[inline] pub extern "C" fn az_dom_add_dynamic_css_override(dom: &mut AzDomPtr, prop: AzCssProperty) { az_dom_downcast_refmut(dom, |d| { d.add_dynamic_css_override(event, az_css_property_downcast(prop)); }) }
-/// Same as [`Dom::add_dynamic_css_override`](#method.add_dynamic_css_override), but as a builder method
-#[no_mangle] #[inline] pub extern "C" fn az_dom_with_dynamic_css_override(dom: &mut AzDomPtr, prop: AzCssProperty) { az_dom_add_dynamic_css_override(&mut dom, prop); dom }
+#[no_mangle] #[inline] pub extern "C" fn az_dom_add_css_override(dom: &mut AzDomPtr, id: AzString, prop: AzCssProperty) { az_dom_downcast_refmut(dom, |d| { d.add_css_override(id.object, prop.object); }) }
+/// Same as [`Dom::add_css_override`](#method.add_css_override), but as a builder method
+#[no_mangle] #[inline] pub extern "C" fn az_dom_with_css_override(mut dom: AzDomPtr, id: AzString, prop: AzCssProperty) -> AzDomPtr { az_dom_add_css_override(&mut dom, id, prop); dom }
 /// Sets the `is_draggable` attribute of this DOM node (default: false)
-#[no_mangle] #[inline] pub extern "C" fn az_dom_set_is_draggable(dom: &mut AzDomPtr, is_draggable: bool) { az_dom_downcast_refmut(dom, |d| { d.is_draggable(event, is_draggable); }) }
+#[no_mangle] #[inline] pub extern "C" fn az_dom_set_is_draggable(dom: &mut AzDomPtr, is_draggable: bool) { az_dom_downcast_refmut(dom, |d| { d.is_draggable(is_draggable); }) }
 /// Same as [`Dom::set_is_draggable`](#method.set_is_draggable), but as a builder method
-#[no_mangle] #[inline] pub extern "C" fn az_dom_is_draggable(dom: &mut AzDomPtr, is_draggable: bool) { az_dom_set_is_draggable(&mut dom, is_draggable); dom }
+#[no_mangle] #[inline] pub extern "C" fn az_dom_is_draggable(mut dom: AzDomPtr, is_draggable: bool) -> AzDomPtr { az_dom_set_is_draggable(&mut dom, is_draggable); dom }
 /// Sets the `tabindex` attribute of this DOM node (makes an element focusable - default: None)
-#[no_mangle] #[inline] pub extern "C" fn az_dom_set_tab_index(dom: &mut AzDomPtr, tab_index: AzTabIndex) { az_dom_downcast_refmut(dom, |d| { d.set_tab_index(event, tab_index); }) }
+#[no_mangle] #[inline] pub extern "C" fn az_dom_set_tab_index(dom: &mut AzDomPtr, tab_index: AzTabIndex) { az_dom_downcast_refmut(dom, |d| { d.set_tab_index(tab_index.object); }) }
 /// Same as [`Dom::set_tab_index`](#method.set_tab_index), but as a builder method
-#[no_mangle] #[inline] pub extern "C" fn az_dom_with_tab_index(dom: &mut AzDomPtr, tab_index: AzTabIndex) { az_dom_set_tab_index(&mut dom, tab_index); dom }
+#[no_mangle] #[inline] pub extern "C" fn az_dom_with_tab_index(mut dom: AzDomPtr, tab_index: AzTabIndex) -> AzDomPtr { az_dom_set_tab_index(&mut dom, tab_index); dom }
 /// Reparents another `Dom` to be the child node of this `Dom`
 #[no_mangle] #[inline] pub extern "C" fn az_dom_add_child(dom: &mut AzDomPtr, child: AzDomPtr) { az_dom_downcast_refmut(dom, |d| { d.add_child(*az_dom_downcast(child)); }) }
 /// Same as [`Dom::add_child`](#method.add_child), but as a builder method
 #[no_mangle] #[inline] pub extern "C" fn az_dom_with_child(mut dom: AzDomPtr, child: AzDomPtr) -> AzDomPtr { az_dom_add_child(&mut dom, child); dom }
 /// Returns if the DOM node has a certain CSS ID
-#[no_mangle] #[inline] pub extern "C" fn az_dom_has_id(dom: &AzDomPtr, id: AzStringPtr) -> bool { az_dom_downcast_refmut(dom, |d| { d.has_id(&*az_string_downcast(id)) }) }
+#[no_mangle] #[inline] pub extern "C" fn az_dom_has_id(dom: &mut AzDomPtr, id: AzString) -> bool { az_dom_downcast_ref(dom, |d| { d.has_id(&id.object) }) }
 /// Returns if the DOM node has a certain CSS class
-#[no_mangle] #[inline] pub extern "C" fn az_dom_has_class(dom: &AzDomPtr, class: AzStringPtr) -> bool { az_dom_downcast_refmut(dom, |d| { d.has_class(&*az_string_downcast(class)) }) }
+#[no_mangle] #[inline] pub extern "C" fn az_dom_has_class(dom: &mut AzDomPtr, class: AzString) -> bool { az_dom_downcast_ref(dom, |d| { d.has_class(&class.object) }) }
+/// Returns the HTML String for this DOM
+#[no_mangle] #[inline] pub extern "C" fn az_dom_get_html_string(dom: &mut AzDomPtr) -> AzString { AzString { object: az_dom_downcast_ref(dom, |d| { d.get_html_string() }) } }
 /// Destructor: Takes ownership of the `Dom` pointer and deletes it.
 #[no_mangle] #[inline] pub extern "C" fn az_dom_delete(ptr: &mut AzDomPtr) { let _ = unsafe { Box::<Dom>::from_raw(ptr.ptr  as *mut Dom) }; }
 /// Copies the pointer: WARNING: After calling this function you'll have two pointers to the same Box<`Dom`>!.
@@ -2039,197 +1955,186 @@ pub type AzDomPtrType = azul_core::dom::DomPtr;
 /// (private): Downcasts the `AzDomPtr` to a `&mut Box<Dom>` and runs the `func` closure on it
 #[inline(always)] fn az_dom_downcast_refmut<F: FnOnce(&mut Box<Dom>)>(ptr: &mut AzDomPtr, func: F) { let mut box_ptr: Box<Dom> = unsafe { Box::<Dom>::from_raw(ptr.ptr  as *mut Dom) };func(&mut box_ptr);ptr.ptr = Box::into_raw(box_ptr) as *mut c_void; }
 /// (private): Downcasts the `AzDomPtr` to a `&Box<Dom>` and runs the `func` closure on it
-#[inline(always)] fn az_dom_downcast_ref<F: FnOnce(&Box<Dom>)>(ptr: &mut AzDomPtr, func: F) { let box_ptr: Box<Dom> = unsafe { Box::<Dom>::from_raw(ptr.ptr  as *mut Dom) };func(&box_ptr);ptr.ptr = Box::into_raw(box_ptr) as *mut c_void; }
+#[inline(always)] fn az_dom_downcast_ref<P, F: FnOnce(&Box<Dom>) -> P>(ptr: &mut AzDomPtr, func: F) -> P { let box_ptr: Box<Dom> = unsafe { Box::<Dom>::from_raw(ptr.ptr  as *mut Dom) }; let ret_val = func(&box_ptr); ptr.ptr = Box::into_raw(box_ptr) as *mut c_void;ret_val }
 
 /// Re-export of rust-allocated (stack based) `EventFilter` struct
-pub type AzEventFilterType = azul_core::dom::EventFilter;
-#[no_mangle] pub use AzEventFilterType as AzEventFilter;
-#[inline] #[no_mangle] pub extern "C" fn az_event_filter_hover(variant_data: AzHoverEventFilter) -> AzEventFilter { AzEventFilter::Hover(variant_data) }
-#[inline] #[no_mangle] pub extern "C" fn az_event_filter_not(variant_data: AzNotEventFilter) -> AzEventFilter { AzEventFilter::Not(variant_data) }
-#[inline] #[no_mangle] pub extern "C" fn az_event_filter_focus(variant_data: AzFocusEventFilter) -> AzEventFilter { AzEventFilter::Focus(variant_data) }
-#[inline] #[no_mangle] pub extern "C" fn az_event_filter_window(variant_data: AzWindowEventFilter) -> AzEventFilter { AzEventFilter::Window(variant_data) }
+#[no_mangle] #[repr(C)] pub struct AzEventFilter { object: azul_core::dom::EventFilter }
+#[inline] #[no_mangle] pub extern "C" fn az_event_filter_hover(variant_data: AzHoverEventFilter) -> AzEventFilter { AzEventFilter { object: azul_core::dom::EventFilter::Hover(variant_data.object) } }
+#[inline] #[no_mangle] pub extern "C" fn az_event_filter_not(variant_data: AzNotEventFilter) -> AzEventFilter { AzEventFilter { object: azul_core::dom::EventFilter::Not(variant_data.object) } }
+#[inline] #[no_mangle] pub extern "C" fn az_event_filter_focus(variant_data: AzFocusEventFilter) -> AzEventFilter { AzEventFilter { object: azul_core::dom::EventFilter::Focus(variant_data.object) } }
+#[inline] #[no_mangle] pub extern "C" fn az_event_filter_window(variant_data: AzWindowEventFilter) -> AzEventFilter { AzEventFilter { object: azul_core::dom::EventFilter::Window(variant_data.object) } }
 /// Destructor: Takes ownership of the `EventFilter` pointer and deletes it.
-#[no_mangle] #[inline] #[allow(unused_variables)] pub extern "C" fn az_event_filter_delete(object: &mut AzEventFilter) { match object { AzEventFilter::Hover(_) => { }, AzEventFilter::Not(_) => { }, AzEventFilter::Focus(_) => { }, AzEventFilter::Window(_) => { }, }
+#[no_mangle] #[inline] #[allow(unused_variables)] pub extern "C" fn az_event_filter_delete(object: &mut AzEventFilter) { match object.object { azul_core::dom::EventFilter::Hover(_) => { }, azul_core::dom::EventFilter::Not(_) => { }, azul_core::dom::EventFilter::Focus(_) => { }, azul_core::dom::EventFilter::Window(_) => { }, }
 }
 /// Copies the object
-#[no_mangle] #[inline] pub extern "C" fn az_event_filter_deep_copy(object: &AzEventFilter) -> AzEventFilter { object.clone() }
+#[no_mangle] #[inline] pub extern "C" fn az_event_filter_deep_copy(object: &AzEventFilter) -> AzEventFilter { AzEventFilter{ object: object.object.clone() } }
 
 /// Re-export of rust-allocated (stack based) `HoverEventFilter` struct
-pub type AzHoverEventFilterType = azul_core::dom::HoverEventFilter;
-#[no_mangle] pub use AzHoverEventFilterType as AzHoverEventFilter;
-#[inline] #[no_mangle] pub extern "C" fn az_hover_event_filter_mouse_over() -> AzHoverEventFilter { AzHoverEventFilter::MouseOver }
-#[inline] #[no_mangle] pub extern "C" fn az_hover_event_filter_mouse_down() -> AzHoverEventFilter { AzHoverEventFilter::MouseDown }
-#[inline] #[no_mangle] pub extern "C" fn az_hover_event_filter_left_mouse_down() -> AzHoverEventFilter { AzHoverEventFilter::LeftMouseDown }
-#[inline] #[no_mangle] pub extern "C" fn az_hover_event_filter_right_mouse_down() -> AzHoverEventFilter { AzHoverEventFilter::RightMouseDown }
-#[inline] #[no_mangle] pub extern "C" fn az_hover_event_filter_middle_mouse_down() -> AzHoverEventFilter { AzHoverEventFilter::MiddleMouseDown }
-#[inline] #[no_mangle] pub extern "C" fn az_hover_event_filter_mouse_up() -> AzHoverEventFilter { AzHoverEventFilter::MouseUp }
-#[inline] #[no_mangle] pub extern "C" fn az_hover_event_filter_left_mouse_up() -> AzHoverEventFilter { AzHoverEventFilter::LeftMouseUp }
-#[inline] #[no_mangle] pub extern "C" fn az_hover_event_filter_right_mouse_up() -> AzHoverEventFilter { AzHoverEventFilter::RightMouseUp }
-#[inline] #[no_mangle] pub extern "C" fn az_hover_event_filter_middle_mouse_up() -> AzHoverEventFilter { AzHoverEventFilter::MiddleMouseUp }
-#[inline] #[no_mangle] pub extern "C" fn az_hover_event_filter_mouse_enter() -> AzHoverEventFilter { AzHoverEventFilter::MouseEnter }
-#[inline] #[no_mangle] pub extern "C" fn az_hover_event_filter_mouse_leave() -> AzHoverEventFilter { AzHoverEventFilter::MouseLeave }
-#[inline] #[no_mangle] pub extern "C" fn az_hover_event_filter_scroll() -> AzHoverEventFilter { AzHoverEventFilter::Scroll }
-#[inline] #[no_mangle] pub extern "C" fn az_hover_event_filter_scroll_start() -> AzHoverEventFilter { AzHoverEventFilter::ScrollStart }
-#[inline] #[no_mangle] pub extern "C" fn az_hover_event_filter_scroll_end() -> AzHoverEventFilter { AzHoverEventFilter::ScrollEnd }
-#[inline] #[no_mangle] pub extern "C" fn az_hover_event_filter_text_input() -> AzHoverEventFilter { AzHoverEventFilter::TextInput }
-#[inline] #[no_mangle] pub extern "C" fn az_hover_event_filter_virtual_key_down() -> AzHoverEventFilter { AzHoverEventFilter::VirtualKeyDown }
-#[inline] #[no_mangle] pub extern "C" fn az_hover_event_filter_virtual_key_up() -> AzHoverEventFilter { AzHoverEventFilter::VirtualKeyUp }
-#[inline] #[no_mangle] pub extern "C" fn az_hover_event_filter_hovered_file() -> AzHoverEventFilter { AzHoverEventFilter::HoveredFile }
-#[inline] #[no_mangle] pub extern "C" fn az_hover_event_filter_dropped_file() -> AzHoverEventFilter { AzHoverEventFilter::DroppedFile }
-#[inline] #[no_mangle] pub extern "C" fn az_hover_event_filter_hovered_file_cancelled() -> AzHoverEventFilter { AzHoverEventFilter::HoveredFileCancelled }
+#[no_mangle] #[repr(C)] pub struct AzHoverEventFilter { object: azul_core::dom::HoverEventFilter }
+#[inline] #[no_mangle] pub extern "C" fn az_hover_event_filter_mouse_over() -> AzHoverEventFilter { AzHoverEventFilter { object: azul_core::dom::HoverEventFilter::MouseOver } }
+#[inline] #[no_mangle] pub extern "C" fn az_hover_event_filter_mouse_down() -> AzHoverEventFilter { AzHoverEventFilter { object: azul_core::dom::HoverEventFilter::MouseDown } }
+#[inline] #[no_mangle] pub extern "C" fn az_hover_event_filter_left_mouse_down() -> AzHoverEventFilter { AzHoverEventFilter { object: azul_core::dom::HoverEventFilter::LeftMouseDown } }
+#[inline] #[no_mangle] pub extern "C" fn az_hover_event_filter_right_mouse_down() -> AzHoverEventFilter { AzHoverEventFilter { object: azul_core::dom::HoverEventFilter::RightMouseDown } }
+#[inline] #[no_mangle] pub extern "C" fn az_hover_event_filter_middle_mouse_down() -> AzHoverEventFilter { AzHoverEventFilter { object: azul_core::dom::HoverEventFilter::MiddleMouseDown } }
+#[inline] #[no_mangle] pub extern "C" fn az_hover_event_filter_mouse_up() -> AzHoverEventFilter { AzHoverEventFilter { object: azul_core::dom::HoverEventFilter::MouseUp } }
+#[inline] #[no_mangle] pub extern "C" fn az_hover_event_filter_left_mouse_up() -> AzHoverEventFilter { AzHoverEventFilter { object: azul_core::dom::HoverEventFilter::LeftMouseUp } }
+#[inline] #[no_mangle] pub extern "C" fn az_hover_event_filter_right_mouse_up() -> AzHoverEventFilter { AzHoverEventFilter { object: azul_core::dom::HoverEventFilter::RightMouseUp } }
+#[inline] #[no_mangle] pub extern "C" fn az_hover_event_filter_middle_mouse_up() -> AzHoverEventFilter { AzHoverEventFilter { object: azul_core::dom::HoverEventFilter::MiddleMouseUp } }
+#[inline] #[no_mangle] pub extern "C" fn az_hover_event_filter_mouse_enter() -> AzHoverEventFilter { AzHoverEventFilter { object: azul_core::dom::HoverEventFilter::MouseEnter } }
+#[inline] #[no_mangle] pub extern "C" fn az_hover_event_filter_mouse_leave() -> AzHoverEventFilter { AzHoverEventFilter { object: azul_core::dom::HoverEventFilter::MouseLeave } }
+#[inline] #[no_mangle] pub extern "C" fn az_hover_event_filter_scroll() -> AzHoverEventFilter { AzHoverEventFilter { object: azul_core::dom::HoverEventFilter::Scroll } }
+#[inline] #[no_mangle] pub extern "C" fn az_hover_event_filter_scroll_start() -> AzHoverEventFilter { AzHoverEventFilter { object: azul_core::dom::HoverEventFilter::ScrollStart } }
+#[inline] #[no_mangle] pub extern "C" fn az_hover_event_filter_scroll_end() -> AzHoverEventFilter { AzHoverEventFilter { object: azul_core::dom::HoverEventFilter::ScrollEnd } }
+#[inline] #[no_mangle] pub extern "C" fn az_hover_event_filter_text_input() -> AzHoverEventFilter { AzHoverEventFilter { object: azul_core::dom::HoverEventFilter::TextInput } }
+#[inline] #[no_mangle] pub extern "C" fn az_hover_event_filter_virtual_key_down() -> AzHoverEventFilter { AzHoverEventFilter { object: azul_core::dom::HoverEventFilter::VirtualKeyDown } }
+#[inline] #[no_mangle] pub extern "C" fn az_hover_event_filter_virtual_key_up() -> AzHoverEventFilter { AzHoverEventFilter { object: azul_core::dom::HoverEventFilter::VirtualKeyUp } }
+#[inline] #[no_mangle] pub extern "C" fn az_hover_event_filter_hovered_file() -> AzHoverEventFilter { AzHoverEventFilter { object: azul_core::dom::HoverEventFilter::HoveredFile } }
+#[inline] #[no_mangle] pub extern "C" fn az_hover_event_filter_dropped_file() -> AzHoverEventFilter { AzHoverEventFilter { object: azul_core::dom::HoverEventFilter::DroppedFile } }
+#[inline] #[no_mangle] pub extern "C" fn az_hover_event_filter_hovered_file_cancelled() -> AzHoverEventFilter { AzHoverEventFilter { object: azul_core::dom::HoverEventFilter::HoveredFileCancelled } }
 /// Destructor: Takes ownership of the `HoverEventFilter` pointer and deletes it.
-#[no_mangle] #[inline] #[allow(unused_variables)] pub extern "C" fn az_hover_event_filter_delete(object: &mut AzHoverEventFilter) { match object { AzHoverEventFilter::MouseOver => { }, AzHoverEventFilter::MouseDown => { }, AzHoverEventFilter::LeftMouseDown => { }, AzHoverEventFilter::RightMouseDown => { }, AzHoverEventFilter::MiddleMouseDown => { }, AzHoverEventFilter::MouseUp => { }, AzHoverEventFilter::LeftMouseUp => { }, AzHoverEventFilter::RightMouseUp => { }, AzHoverEventFilter::MiddleMouseUp => { }, AzHoverEventFilter::MouseEnter => { }, AzHoverEventFilter::MouseLeave => { }, AzHoverEventFilter::Scroll => { }, AzHoverEventFilter::ScrollStart => { }, AzHoverEventFilter::ScrollEnd => { }, AzHoverEventFilter::TextInput => { }, AzHoverEventFilter::VirtualKeyDown => { }, AzHoverEventFilter::VirtualKeyUp => { }, AzHoverEventFilter::HoveredFile => { }, AzHoverEventFilter::DroppedFile => { }, AzHoverEventFilter::HoveredFileCancelled => { }, }
+#[no_mangle] #[inline] #[allow(unused_variables)] pub extern "C" fn az_hover_event_filter_delete(object: &mut AzHoverEventFilter) { match object.object { azul_core::dom::HoverEventFilter::MouseOver => { }, azul_core::dom::HoverEventFilter::MouseDown => { }, azul_core::dom::HoverEventFilter::LeftMouseDown => { }, azul_core::dom::HoverEventFilter::RightMouseDown => { }, azul_core::dom::HoverEventFilter::MiddleMouseDown => { }, azul_core::dom::HoverEventFilter::MouseUp => { }, azul_core::dom::HoverEventFilter::LeftMouseUp => { }, azul_core::dom::HoverEventFilter::RightMouseUp => { }, azul_core::dom::HoverEventFilter::MiddleMouseUp => { }, azul_core::dom::HoverEventFilter::MouseEnter => { }, azul_core::dom::HoverEventFilter::MouseLeave => { }, azul_core::dom::HoverEventFilter::Scroll => { }, azul_core::dom::HoverEventFilter::ScrollStart => { }, azul_core::dom::HoverEventFilter::ScrollEnd => { }, azul_core::dom::HoverEventFilter::TextInput => { }, azul_core::dom::HoverEventFilter::VirtualKeyDown => { }, azul_core::dom::HoverEventFilter::VirtualKeyUp => { }, azul_core::dom::HoverEventFilter::HoveredFile => { }, azul_core::dom::HoverEventFilter::DroppedFile => { }, azul_core::dom::HoverEventFilter::HoveredFileCancelled => { }, }
 }
 /// Copies the object
-#[no_mangle] #[inline] pub extern "C" fn az_hover_event_filter_deep_copy(object: &AzHoverEventFilter) -> AzHoverEventFilter { object.clone() }
+#[no_mangle] #[inline] pub extern "C" fn az_hover_event_filter_deep_copy(object: &AzHoverEventFilter) -> AzHoverEventFilter { AzHoverEventFilter{ object: object.object.clone() } }
 
 /// Re-export of rust-allocated (stack based) `FocusEventFilter` struct
-pub type AzFocusEventFilterType = azul_core::dom::FocusEventFilter;
-#[no_mangle] pub use AzFocusEventFilterType as AzFocusEventFilter;
-#[inline] #[no_mangle] pub extern "C" fn az_focus_event_filter_mouse_over() -> AzFocusEventFilter { AzFocusEventFilter::MouseOver }
-#[inline] #[no_mangle] pub extern "C" fn az_focus_event_filter_mouse_down() -> AzFocusEventFilter { AzFocusEventFilter::MouseDown }
-#[inline] #[no_mangle] pub extern "C" fn az_focus_event_filter_left_mouse_down() -> AzFocusEventFilter { AzFocusEventFilter::LeftMouseDown }
-#[inline] #[no_mangle] pub extern "C" fn az_focus_event_filter_right_mouse_down() -> AzFocusEventFilter { AzFocusEventFilter::RightMouseDown }
-#[inline] #[no_mangle] pub extern "C" fn az_focus_event_filter_middle_mouse_down() -> AzFocusEventFilter { AzFocusEventFilter::MiddleMouseDown }
-#[inline] #[no_mangle] pub extern "C" fn az_focus_event_filter_mouse_up() -> AzFocusEventFilter { AzFocusEventFilter::MouseUp }
-#[inline] #[no_mangle] pub extern "C" fn az_focus_event_filter_left_mouse_up() -> AzFocusEventFilter { AzFocusEventFilter::LeftMouseUp }
-#[inline] #[no_mangle] pub extern "C" fn az_focus_event_filter_right_mouse_up() -> AzFocusEventFilter { AzFocusEventFilter::RightMouseUp }
-#[inline] #[no_mangle] pub extern "C" fn az_focus_event_filter_middle_mouse_up() -> AzFocusEventFilter { AzFocusEventFilter::MiddleMouseUp }
-#[inline] #[no_mangle] pub extern "C" fn az_focus_event_filter_mouse_enter() -> AzFocusEventFilter { AzFocusEventFilter::MouseEnter }
-#[inline] #[no_mangle] pub extern "C" fn az_focus_event_filter_mouse_leave() -> AzFocusEventFilter { AzFocusEventFilter::MouseLeave }
-#[inline] #[no_mangle] pub extern "C" fn az_focus_event_filter_scroll() -> AzFocusEventFilter { AzFocusEventFilter::Scroll }
-#[inline] #[no_mangle] pub extern "C" fn az_focus_event_filter_scroll_start() -> AzFocusEventFilter { AzFocusEventFilter::ScrollStart }
-#[inline] #[no_mangle] pub extern "C" fn az_focus_event_filter_scroll_end() -> AzFocusEventFilter { AzFocusEventFilter::ScrollEnd }
-#[inline] #[no_mangle] pub extern "C" fn az_focus_event_filter_text_input() -> AzFocusEventFilter { AzFocusEventFilter::TextInput }
-#[inline] #[no_mangle] pub extern "C" fn az_focus_event_filter_virtual_key_down() -> AzFocusEventFilter { AzFocusEventFilter::VirtualKeyDown }
-#[inline] #[no_mangle] pub extern "C" fn az_focus_event_filter_virtual_key_up() -> AzFocusEventFilter { AzFocusEventFilter::VirtualKeyUp }
-#[inline] #[no_mangle] pub extern "C" fn az_focus_event_filter_focus_received() -> AzFocusEventFilter { AzFocusEventFilter::FocusReceived }
-#[inline] #[no_mangle] pub extern "C" fn az_focus_event_filter_focus_lost() -> AzFocusEventFilter { AzFocusEventFilter::FocusLost }
+#[no_mangle] #[repr(C)] pub struct AzFocusEventFilter { object: azul_core::dom::FocusEventFilter }
+#[inline] #[no_mangle] pub extern "C" fn az_focus_event_filter_mouse_over() -> AzFocusEventFilter { AzFocusEventFilter { object: azul_core::dom::FocusEventFilter::MouseOver } }
+#[inline] #[no_mangle] pub extern "C" fn az_focus_event_filter_mouse_down() -> AzFocusEventFilter { AzFocusEventFilter { object: azul_core::dom::FocusEventFilter::MouseDown } }
+#[inline] #[no_mangle] pub extern "C" fn az_focus_event_filter_left_mouse_down() -> AzFocusEventFilter { AzFocusEventFilter { object: azul_core::dom::FocusEventFilter::LeftMouseDown } }
+#[inline] #[no_mangle] pub extern "C" fn az_focus_event_filter_right_mouse_down() -> AzFocusEventFilter { AzFocusEventFilter { object: azul_core::dom::FocusEventFilter::RightMouseDown } }
+#[inline] #[no_mangle] pub extern "C" fn az_focus_event_filter_middle_mouse_down() -> AzFocusEventFilter { AzFocusEventFilter { object: azul_core::dom::FocusEventFilter::MiddleMouseDown } }
+#[inline] #[no_mangle] pub extern "C" fn az_focus_event_filter_mouse_up() -> AzFocusEventFilter { AzFocusEventFilter { object: azul_core::dom::FocusEventFilter::MouseUp } }
+#[inline] #[no_mangle] pub extern "C" fn az_focus_event_filter_left_mouse_up() -> AzFocusEventFilter { AzFocusEventFilter { object: azul_core::dom::FocusEventFilter::LeftMouseUp } }
+#[inline] #[no_mangle] pub extern "C" fn az_focus_event_filter_right_mouse_up() -> AzFocusEventFilter { AzFocusEventFilter { object: azul_core::dom::FocusEventFilter::RightMouseUp } }
+#[inline] #[no_mangle] pub extern "C" fn az_focus_event_filter_middle_mouse_up() -> AzFocusEventFilter { AzFocusEventFilter { object: azul_core::dom::FocusEventFilter::MiddleMouseUp } }
+#[inline] #[no_mangle] pub extern "C" fn az_focus_event_filter_mouse_enter() -> AzFocusEventFilter { AzFocusEventFilter { object: azul_core::dom::FocusEventFilter::MouseEnter } }
+#[inline] #[no_mangle] pub extern "C" fn az_focus_event_filter_mouse_leave() -> AzFocusEventFilter { AzFocusEventFilter { object: azul_core::dom::FocusEventFilter::MouseLeave } }
+#[inline] #[no_mangle] pub extern "C" fn az_focus_event_filter_scroll() -> AzFocusEventFilter { AzFocusEventFilter { object: azul_core::dom::FocusEventFilter::Scroll } }
+#[inline] #[no_mangle] pub extern "C" fn az_focus_event_filter_scroll_start() -> AzFocusEventFilter { AzFocusEventFilter { object: azul_core::dom::FocusEventFilter::ScrollStart } }
+#[inline] #[no_mangle] pub extern "C" fn az_focus_event_filter_scroll_end() -> AzFocusEventFilter { AzFocusEventFilter { object: azul_core::dom::FocusEventFilter::ScrollEnd } }
+#[inline] #[no_mangle] pub extern "C" fn az_focus_event_filter_text_input() -> AzFocusEventFilter { AzFocusEventFilter { object: azul_core::dom::FocusEventFilter::TextInput } }
+#[inline] #[no_mangle] pub extern "C" fn az_focus_event_filter_virtual_key_down() -> AzFocusEventFilter { AzFocusEventFilter { object: azul_core::dom::FocusEventFilter::VirtualKeyDown } }
+#[inline] #[no_mangle] pub extern "C" fn az_focus_event_filter_virtual_key_up() -> AzFocusEventFilter { AzFocusEventFilter { object: azul_core::dom::FocusEventFilter::VirtualKeyUp } }
+#[inline] #[no_mangle] pub extern "C" fn az_focus_event_filter_focus_received() -> AzFocusEventFilter { AzFocusEventFilter { object: azul_core::dom::FocusEventFilter::FocusReceived } }
+#[inline] #[no_mangle] pub extern "C" fn az_focus_event_filter_focus_lost() -> AzFocusEventFilter { AzFocusEventFilter { object: azul_core::dom::FocusEventFilter::FocusLost } }
 /// Destructor: Takes ownership of the `FocusEventFilter` pointer and deletes it.
-#[no_mangle] #[inline] #[allow(unused_variables)] pub extern "C" fn az_focus_event_filter_delete(object: &mut AzFocusEventFilter) { match object { AzFocusEventFilter::MouseOver => { }, AzFocusEventFilter::MouseDown => { }, AzFocusEventFilter::LeftMouseDown => { }, AzFocusEventFilter::RightMouseDown => { }, AzFocusEventFilter::MiddleMouseDown => { }, AzFocusEventFilter::MouseUp => { }, AzFocusEventFilter::LeftMouseUp => { }, AzFocusEventFilter::RightMouseUp => { }, AzFocusEventFilter::MiddleMouseUp => { }, AzFocusEventFilter::MouseEnter => { }, AzFocusEventFilter::MouseLeave => { }, AzFocusEventFilter::Scroll => { }, AzFocusEventFilter::ScrollStart => { }, AzFocusEventFilter::ScrollEnd => { }, AzFocusEventFilter::TextInput => { }, AzFocusEventFilter::VirtualKeyDown => { }, AzFocusEventFilter::VirtualKeyUp => { }, AzFocusEventFilter::FocusReceived => { }, AzFocusEventFilter::FocusLost => { }, }
+#[no_mangle] #[inline] #[allow(unused_variables)] pub extern "C" fn az_focus_event_filter_delete(object: &mut AzFocusEventFilter) { match object.object { azul_core::dom::FocusEventFilter::MouseOver => { }, azul_core::dom::FocusEventFilter::MouseDown => { }, azul_core::dom::FocusEventFilter::LeftMouseDown => { }, azul_core::dom::FocusEventFilter::RightMouseDown => { }, azul_core::dom::FocusEventFilter::MiddleMouseDown => { }, azul_core::dom::FocusEventFilter::MouseUp => { }, azul_core::dom::FocusEventFilter::LeftMouseUp => { }, azul_core::dom::FocusEventFilter::RightMouseUp => { }, azul_core::dom::FocusEventFilter::MiddleMouseUp => { }, azul_core::dom::FocusEventFilter::MouseEnter => { }, azul_core::dom::FocusEventFilter::MouseLeave => { }, azul_core::dom::FocusEventFilter::Scroll => { }, azul_core::dom::FocusEventFilter::ScrollStart => { }, azul_core::dom::FocusEventFilter::ScrollEnd => { }, azul_core::dom::FocusEventFilter::TextInput => { }, azul_core::dom::FocusEventFilter::VirtualKeyDown => { }, azul_core::dom::FocusEventFilter::VirtualKeyUp => { }, azul_core::dom::FocusEventFilter::FocusReceived => { }, azul_core::dom::FocusEventFilter::FocusLost => { }, }
 }
 /// Copies the object
-#[no_mangle] #[inline] pub extern "C" fn az_focus_event_filter_deep_copy(object: &AzFocusEventFilter) -> AzFocusEventFilter { object.clone() }
+#[no_mangle] #[inline] pub extern "C" fn az_focus_event_filter_deep_copy(object: &AzFocusEventFilter) -> AzFocusEventFilter { AzFocusEventFilter{ object: object.object.clone() } }
 
 /// Re-export of rust-allocated (stack based) `NotEventFilter` struct
-pub type AzNotEventFilterType = azul_core::dom::NotEventFilter;
-#[no_mangle] pub use AzNotEventFilterType as AzNotEventFilter;
-#[inline] #[no_mangle] pub extern "C" fn az_not_event_filter_hover(variant_data: AzHoverEventFilter) -> AzNotEventFilter { AzNotEventFilter::Hover(variant_data) }
-#[inline] #[no_mangle] pub extern "C" fn az_not_event_filter_focus(variant_data: AzFocusEventFilter) -> AzNotEventFilter { AzNotEventFilter::Focus(variant_data) }
+#[no_mangle] #[repr(C)] pub struct AzNotEventFilter { object: azul_core::dom::NotEventFilter }
+#[inline] #[no_mangle] pub extern "C" fn az_not_event_filter_hover(variant_data: AzHoverEventFilter) -> AzNotEventFilter { AzNotEventFilter { object: azul_core::dom::NotEventFilter::Hover(variant_data.object) } }
+#[inline] #[no_mangle] pub extern "C" fn az_not_event_filter_focus(variant_data: AzFocusEventFilter) -> AzNotEventFilter { AzNotEventFilter { object: azul_core::dom::NotEventFilter::Focus(variant_data.object) } }
 /// Destructor: Takes ownership of the `NotEventFilter` pointer and deletes it.
-#[no_mangle] #[inline] #[allow(unused_variables)] pub extern "C" fn az_not_event_filter_delete(object: &mut AzNotEventFilter) { match object { AzNotEventFilter::Hover(_) => { }, AzNotEventFilter::Focus(_) => { }, }
+#[no_mangle] #[inline] #[allow(unused_variables)] pub extern "C" fn az_not_event_filter_delete(object: &mut AzNotEventFilter) { match object.object { azul_core::dom::NotEventFilter::Hover(_) => { }, azul_core::dom::NotEventFilter::Focus(_) => { }, }
 }
 /// Copies the object
-#[no_mangle] #[inline] pub extern "C" fn az_not_event_filter_deep_copy(object: &AzNotEventFilter) -> AzNotEventFilter { object.clone() }
+#[no_mangle] #[inline] pub extern "C" fn az_not_event_filter_deep_copy(object: &AzNotEventFilter) -> AzNotEventFilter { AzNotEventFilter{ object: object.object.clone() } }
 
 /// Re-export of rust-allocated (stack based) `WindowEventFilter` struct
-pub type AzWindowEventFilterType = azul_core::dom::WindowEventFilter;
-#[no_mangle] pub use AzWindowEventFilterType as AzWindowEventFilter;
-#[inline] #[no_mangle] pub extern "C" fn az_window_event_filter_mouse_over() -> AzWindowEventFilter { AzWindowEventFilter::MouseOver }
-#[inline] #[no_mangle] pub extern "C" fn az_window_event_filter_mouse_down() -> AzWindowEventFilter { AzWindowEventFilter::MouseDown }
-#[inline] #[no_mangle] pub extern "C" fn az_window_event_filter_left_mouse_down() -> AzWindowEventFilter { AzWindowEventFilter::LeftMouseDown }
-#[inline] #[no_mangle] pub extern "C" fn az_window_event_filter_right_mouse_down() -> AzWindowEventFilter { AzWindowEventFilter::RightMouseDown }
-#[inline] #[no_mangle] pub extern "C" fn az_window_event_filter_middle_mouse_down() -> AzWindowEventFilter { AzWindowEventFilter::MiddleMouseDown }
-#[inline] #[no_mangle] pub extern "C" fn az_window_event_filter_mouse_up() -> AzWindowEventFilter { AzWindowEventFilter::MouseUp }
-#[inline] #[no_mangle] pub extern "C" fn az_window_event_filter_left_mouse_up() -> AzWindowEventFilter { AzWindowEventFilter::LeftMouseUp }
-#[inline] #[no_mangle] pub extern "C" fn az_window_event_filter_right_mouse_up() -> AzWindowEventFilter { AzWindowEventFilter::RightMouseUp }
-#[inline] #[no_mangle] pub extern "C" fn az_window_event_filter_middle_mouse_up() -> AzWindowEventFilter { AzWindowEventFilter::MiddleMouseUp }
-#[inline] #[no_mangle] pub extern "C" fn az_window_event_filter_mouse_enter() -> AzWindowEventFilter { AzWindowEventFilter::MouseEnter }
-#[inline] #[no_mangle] pub extern "C" fn az_window_event_filter_mouse_leave() -> AzWindowEventFilter { AzWindowEventFilter::MouseLeave }
-#[inline] #[no_mangle] pub extern "C" fn az_window_event_filter_scroll() -> AzWindowEventFilter { AzWindowEventFilter::Scroll }
-#[inline] #[no_mangle] pub extern "C" fn az_window_event_filter_scroll_start() -> AzWindowEventFilter { AzWindowEventFilter::ScrollStart }
-#[inline] #[no_mangle] pub extern "C" fn az_window_event_filter_scroll_end() -> AzWindowEventFilter { AzWindowEventFilter::ScrollEnd }
-#[inline] #[no_mangle] pub extern "C" fn az_window_event_filter_text_input() -> AzWindowEventFilter { AzWindowEventFilter::TextInput }
-#[inline] #[no_mangle] pub extern "C" fn az_window_event_filter_virtual_key_down() -> AzWindowEventFilter { AzWindowEventFilter::VirtualKeyDown }
-#[inline] #[no_mangle] pub extern "C" fn az_window_event_filter_virtual_key_up() -> AzWindowEventFilter { AzWindowEventFilter::VirtualKeyUp }
-#[inline] #[no_mangle] pub extern "C" fn az_window_event_filter_hovered_file() -> AzWindowEventFilter { AzWindowEventFilter::HoveredFile }
-#[inline] #[no_mangle] pub extern "C" fn az_window_event_filter_dropped_file() -> AzWindowEventFilter { AzWindowEventFilter::DroppedFile }
-#[inline] #[no_mangle] pub extern "C" fn az_window_event_filter_hovered_file_cancelled() -> AzWindowEventFilter { AzWindowEventFilter::HoveredFileCancelled }
+#[no_mangle] #[repr(C)] pub struct AzWindowEventFilter { object: azul_core::dom::WindowEventFilter }
+#[inline] #[no_mangle] pub extern "C" fn az_window_event_filter_mouse_over() -> AzWindowEventFilter { AzWindowEventFilter { object: azul_core::dom::WindowEventFilter::MouseOver } }
+#[inline] #[no_mangle] pub extern "C" fn az_window_event_filter_mouse_down() -> AzWindowEventFilter { AzWindowEventFilter { object: azul_core::dom::WindowEventFilter::MouseDown } }
+#[inline] #[no_mangle] pub extern "C" fn az_window_event_filter_left_mouse_down() -> AzWindowEventFilter { AzWindowEventFilter { object: azul_core::dom::WindowEventFilter::LeftMouseDown } }
+#[inline] #[no_mangle] pub extern "C" fn az_window_event_filter_right_mouse_down() -> AzWindowEventFilter { AzWindowEventFilter { object: azul_core::dom::WindowEventFilter::RightMouseDown } }
+#[inline] #[no_mangle] pub extern "C" fn az_window_event_filter_middle_mouse_down() -> AzWindowEventFilter { AzWindowEventFilter { object: azul_core::dom::WindowEventFilter::MiddleMouseDown } }
+#[inline] #[no_mangle] pub extern "C" fn az_window_event_filter_mouse_up() -> AzWindowEventFilter { AzWindowEventFilter { object: azul_core::dom::WindowEventFilter::MouseUp } }
+#[inline] #[no_mangle] pub extern "C" fn az_window_event_filter_left_mouse_up() -> AzWindowEventFilter { AzWindowEventFilter { object: azul_core::dom::WindowEventFilter::LeftMouseUp } }
+#[inline] #[no_mangle] pub extern "C" fn az_window_event_filter_right_mouse_up() -> AzWindowEventFilter { AzWindowEventFilter { object: azul_core::dom::WindowEventFilter::RightMouseUp } }
+#[inline] #[no_mangle] pub extern "C" fn az_window_event_filter_middle_mouse_up() -> AzWindowEventFilter { AzWindowEventFilter { object: azul_core::dom::WindowEventFilter::MiddleMouseUp } }
+#[inline] #[no_mangle] pub extern "C" fn az_window_event_filter_mouse_enter() -> AzWindowEventFilter { AzWindowEventFilter { object: azul_core::dom::WindowEventFilter::MouseEnter } }
+#[inline] #[no_mangle] pub extern "C" fn az_window_event_filter_mouse_leave() -> AzWindowEventFilter { AzWindowEventFilter { object: azul_core::dom::WindowEventFilter::MouseLeave } }
+#[inline] #[no_mangle] pub extern "C" fn az_window_event_filter_scroll() -> AzWindowEventFilter { AzWindowEventFilter { object: azul_core::dom::WindowEventFilter::Scroll } }
+#[inline] #[no_mangle] pub extern "C" fn az_window_event_filter_scroll_start() -> AzWindowEventFilter { AzWindowEventFilter { object: azul_core::dom::WindowEventFilter::ScrollStart } }
+#[inline] #[no_mangle] pub extern "C" fn az_window_event_filter_scroll_end() -> AzWindowEventFilter { AzWindowEventFilter { object: azul_core::dom::WindowEventFilter::ScrollEnd } }
+#[inline] #[no_mangle] pub extern "C" fn az_window_event_filter_text_input() -> AzWindowEventFilter { AzWindowEventFilter { object: azul_core::dom::WindowEventFilter::TextInput } }
+#[inline] #[no_mangle] pub extern "C" fn az_window_event_filter_virtual_key_down() -> AzWindowEventFilter { AzWindowEventFilter { object: azul_core::dom::WindowEventFilter::VirtualKeyDown } }
+#[inline] #[no_mangle] pub extern "C" fn az_window_event_filter_virtual_key_up() -> AzWindowEventFilter { AzWindowEventFilter { object: azul_core::dom::WindowEventFilter::VirtualKeyUp } }
+#[inline] #[no_mangle] pub extern "C" fn az_window_event_filter_hovered_file() -> AzWindowEventFilter { AzWindowEventFilter { object: azul_core::dom::WindowEventFilter::HoveredFile } }
+#[inline] #[no_mangle] pub extern "C" fn az_window_event_filter_dropped_file() -> AzWindowEventFilter { AzWindowEventFilter { object: azul_core::dom::WindowEventFilter::DroppedFile } }
+#[inline] #[no_mangle] pub extern "C" fn az_window_event_filter_hovered_file_cancelled() -> AzWindowEventFilter { AzWindowEventFilter { object: azul_core::dom::WindowEventFilter::HoveredFileCancelled } }
 /// Destructor: Takes ownership of the `WindowEventFilter` pointer and deletes it.
-#[no_mangle] #[inline] #[allow(unused_variables)] pub extern "C" fn az_window_event_filter_delete(object: &mut AzWindowEventFilter) { match object { AzWindowEventFilter::MouseOver => { }, AzWindowEventFilter::MouseDown => { }, AzWindowEventFilter::LeftMouseDown => { }, AzWindowEventFilter::RightMouseDown => { }, AzWindowEventFilter::MiddleMouseDown => { }, AzWindowEventFilter::MouseUp => { }, AzWindowEventFilter::LeftMouseUp => { }, AzWindowEventFilter::RightMouseUp => { }, AzWindowEventFilter::MiddleMouseUp => { }, AzWindowEventFilter::MouseEnter => { }, AzWindowEventFilter::MouseLeave => { }, AzWindowEventFilter::Scroll => { }, AzWindowEventFilter::ScrollStart => { }, AzWindowEventFilter::ScrollEnd => { }, AzWindowEventFilter::TextInput => { }, AzWindowEventFilter::VirtualKeyDown => { }, AzWindowEventFilter::VirtualKeyUp => { }, AzWindowEventFilter::HoveredFile => { }, AzWindowEventFilter::DroppedFile => { }, AzWindowEventFilter::HoveredFileCancelled => { }, }
+#[no_mangle] #[inline] #[allow(unused_variables)] pub extern "C" fn az_window_event_filter_delete(object: &mut AzWindowEventFilter) { match object.object { azul_core::dom::WindowEventFilter::MouseOver => { }, azul_core::dom::WindowEventFilter::MouseDown => { }, azul_core::dom::WindowEventFilter::LeftMouseDown => { }, azul_core::dom::WindowEventFilter::RightMouseDown => { }, azul_core::dom::WindowEventFilter::MiddleMouseDown => { }, azul_core::dom::WindowEventFilter::MouseUp => { }, azul_core::dom::WindowEventFilter::LeftMouseUp => { }, azul_core::dom::WindowEventFilter::RightMouseUp => { }, azul_core::dom::WindowEventFilter::MiddleMouseUp => { }, azul_core::dom::WindowEventFilter::MouseEnter => { }, azul_core::dom::WindowEventFilter::MouseLeave => { }, azul_core::dom::WindowEventFilter::Scroll => { }, azul_core::dom::WindowEventFilter::ScrollStart => { }, azul_core::dom::WindowEventFilter::ScrollEnd => { }, azul_core::dom::WindowEventFilter::TextInput => { }, azul_core::dom::WindowEventFilter::VirtualKeyDown => { }, azul_core::dom::WindowEventFilter::VirtualKeyUp => { }, azul_core::dom::WindowEventFilter::HoveredFile => { }, azul_core::dom::WindowEventFilter::DroppedFile => { }, azul_core::dom::WindowEventFilter::HoveredFileCancelled => { }, }
 }
 /// Copies the object
-#[no_mangle] #[inline] pub extern "C" fn az_window_event_filter_deep_copy(object: &AzWindowEventFilter) -> AzWindowEventFilter { object.clone() }
+#[no_mangle] #[inline] pub extern "C" fn az_window_event_filter_deep_copy(object: &AzWindowEventFilter) -> AzWindowEventFilter { AzWindowEventFilter{ object: object.object.clone() } }
 
 /// Re-export of rust-allocated (stack based) `TabIndex` struct
-pub type AzTabIndexType = azul_core::dom::TabIndex;
-#[no_mangle] pub use AzTabIndexType as AzTabIndex;
+#[no_mangle] #[repr(C)] pub struct AzTabIndex { object: azul_core::dom::TabIndex }
 /// Automatic tab index, similar to simply setting `focusable = "true"` or `tabindex = 0`, (both have the effect of making the element focusable)
-#[inline] #[no_mangle] pub extern "C" fn az_tab_index_auto() -> AzTabIndex { AzTabIndex::Auto }
+#[inline] #[no_mangle] pub extern "C" fn az_tab_index_auto() -> AzTabIndex { AzTabIndex { object: azul_core::dom::TabIndex::Auto } }
 ///  Set the tab index in relation to its parent element (`tabindex = n`)
-#[inline] #[no_mangle] pub extern "C" fn az_tab_index_override_in_parent(variant_data: usize) -> AzTabIndex { AzTabIndex::OverrideInParent(variant_data) }
+#[inline] #[no_mangle] pub extern "C" fn az_tab_index_override_in_parent(variant_data: usize) -> AzTabIndex { AzTabIndex { object: azul_core::dom::TabIndex::OverrideInParent(variant_data) } }
 /// Elements can be focused in callbacks, but are not accessible via keyboard / tab navigation (`tabindex = -1`)
-#[inline] #[no_mangle] pub extern "C" fn az_tab_index_no_keyboard_focus() -> AzTabIndex { AzTabIndex::NoKeyboardFocus }
+#[inline] #[no_mangle] pub extern "C" fn az_tab_index_no_keyboard_focus() -> AzTabIndex { AzTabIndex { object: azul_core::dom::TabIndex::NoKeyboardFocus } }
 /// Destructor: Takes ownership of the `TabIndex` pointer and deletes it.
-#[no_mangle] #[inline] #[allow(unused_variables)] pub extern "C" fn az_tab_index_delete(object: &mut AzTabIndex) { match object { AzTabIndex::Auto => { }, AzTabIndex::OverrideInParent => { }, AzTabIndex::NoKeyboardFocus => { }, }
+#[no_mangle] #[inline] #[allow(unused_variables)] pub extern "C" fn az_tab_index_delete(object: &mut AzTabIndex) { match object.object { azul_core::dom::TabIndex::Auto => { }, azul_core::dom::TabIndex::OverrideInParent(_) => { }, azul_core::dom::TabIndex::NoKeyboardFocus => { }, }
 }
 /// Copies the object
-#[no_mangle] #[inline] pub extern "C" fn az_tab_index_deep_copy(object: &AzTabIndex) -> AzTabIndex { object.clone() }
+#[no_mangle] #[inline] pub extern "C" fn az_tab_index_deep_copy(object: &AzTabIndex) -> AzTabIndex { AzTabIndex{ object: object.object.clone() } }
 
 /// Re-export of rust-allocated (stack based) `TextId` struct
-pub type AzTextIdType = azul_core::app_resources::TextId;
-#[no_mangle] pub use AzTextIdType as AzTextId;
+#[no_mangle] #[repr(C)] pub struct AzTextId { object: azul_core::app_resources::TextId }
 /// Creates a new, unique `TextId`
-#[no_mangle] #[inline] pub extern "C" fn az_text_id_new() -> AzTextId { let object: TextId = TextId::new(); object }
+#[no_mangle] #[inline] pub extern "C" fn az_text_id_new() -> AzTextId { let object: TextId = TextId::new(); AzTextId { object } }
 /// Destructor: Takes ownership of the `TextId` pointer and deletes it.
 #[no_mangle] #[inline] #[allow(unused_variables)] pub extern "C" fn az_text_id_delete(object: &mut AzTextId) { }
 /// Copies the object
-#[no_mangle] #[inline] pub extern "C" fn az_text_id_deep_copy(object: &AzTextId) -> AzTextId { object.clone() }
+#[no_mangle] #[inline] pub extern "C" fn az_text_id_deep_copy(object: &AzTextId) -> AzTextId { AzTextId{ object: object.object.clone() } }
 
 /// Re-export of rust-allocated (stack based) `ImageId` struct
-pub type AzImageIdType = azul_core::app_resources::ImageId;
-#[no_mangle] pub use AzImageIdType as AzImageId;
+#[no_mangle] #[repr(C)] pub struct AzImageId { object: azul_core::app_resources::ImageId }
 /// Creates a new, unique `ImageId`
-#[no_mangle] #[inline] pub extern "C" fn az_image_id_new() -> AzImageId { let object: ImageId = ImageId::new(); object }
+#[no_mangle] #[inline] pub extern "C" fn az_image_id_new() -> AzImageId { let object: ImageId = ImageId::new(); AzImageId { object } }
 /// Destructor: Takes ownership of the `ImageId` pointer and deletes it.
 #[no_mangle] #[inline] #[allow(unused_variables)] pub extern "C" fn az_image_id_delete(object: &mut AzImageId) { }
 /// Copies the object
-#[no_mangle] #[inline] pub extern "C" fn az_image_id_deep_copy(object: &AzImageId) -> AzImageId { object.clone() }
+#[no_mangle] #[inline] pub extern "C" fn az_image_id_deep_copy(object: &AzImageId) -> AzImageId { AzImageId{ object: object.object.clone() } }
 
 /// Re-export of rust-allocated (stack based) `FontId` struct
-pub type AzFontIdType = azul_core::app_resources::FontId;
-#[no_mangle] pub use AzFontIdType as AzFontId;
+#[no_mangle] #[repr(C)] pub struct AzFontId { object: azul_core::app_resources::FontId }
 /// Creates a new, unique `FontId`
-#[no_mangle] #[inline] pub extern "C" fn az_font_id_new() -> AzFontId { let object: FontId = FontId::new(); object }
+#[no_mangle] #[inline] pub extern "C" fn az_font_id_new() -> AzFontId { let object: FontId = FontId::new(); AzFontId { object } }
 /// Destructor: Takes ownership of the `FontId` pointer and deletes it.
 #[no_mangle] #[inline] #[allow(unused_variables)] pub extern "C" fn az_font_id_delete(object: &mut AzFontId) { }
 /// Copies the object
-#[no_mangle] #[inline] pub extern "C" fn az_font_id_deep_copy(object: &AzFontId) -> AzFontId { object.clone() }
+#[no_mangle] #[inline] pub extern "C" fn az_font_id_deep_copy(object: &AzFontId) -> AzFontId { AzFontId{ object: object.object.clone() } }
 
 /// Re-export of rust-allocated (stack based) `ImageSource` struct
-pub type AzImageSourceType = azul_core::app_resources::ImageSource;
-#[no_mangle] pub use AzImageSourceType as AzImageSource;
+#[no_mangle] #[repr(C)] pub struct AzImageSource { object: azul_core::app_resources::ImageSource }
 /// Bytes of the image, encoded in PNG / JPG / etc. format
-#[inline] #[no_mangle] pub extern "C" fn az_image_source_embedded(variant_data: AzU8VecPtr) -> AzImageSource { AzImageSource::Embedded(*az_u8_vec_downcast(variant_data)) }
+#[inline] #[no_mangle] pub extern "C" fn az_image_source_embedded(variant_data: AzU8Vec) -> AzImageSource { AzImageSource { object: azul_core::app_resources::ImageSource::Embedded(variant_data.object) } }
 /// References an (encoded!) image as a file from the file system that is loaded when necessary
-#[inline] #[no_mangle] pub extern "C" fn az_image_source_file(variant_data: AzPathBufPtr) -> AzImageSource { AzImageSource::File(*az_path_buf_downcast(variant_data)) }
+#[inline] #[no_mangle] pub extern "C" fn az_image_source_file(variant_data: AzPathBufPtr) -> AzImageSource { AzImageSource { object: azul_core::app_resources::ImageSource::File(*az_path_buf_downcast(variant_data)) } }
 /// References a decoded (!) `RawImage` as the image source
-#[inline] #[no_mangle] pub extern "C" fn az_image_source_raw(variant_data: AzRawImagePtr) -> AzImageSource { AzImageSource::Raw(*az_raw_image_downcast(variant_data)) }
+#[inline] #[no_mangle] pub extern "C" fn az_image_source_raw(variant_data: AzRawImagePtr) -> AzImageSource { AzImageSource { object: azul_core::app_resources::ImageSource::Raw(*az_raw_image_downcast(variant_data)) } }
 /// Destructor: Takes ownership of the `ImageSource` pointer and deletes it.
-#[no_mangle] #[inline] #[allow(unused_variables)] pub extern "C" fn az_image_source_delete(object: &mut AzImageSource) { match object { AzImageSource::Embedded(_) => { }, AzImageSource::File(_) => { }, AzImageSource::Raw(_) => { }, }
+#[no_mangle] #[inline] #[allow(unused_variables)] pub extern "C" fn az_image_source_delete(object: &mut AzImageSource) { match object.object { azul_core::app_resources::ImageSource::Embedded(_) => { }, azul_core::app_resources::ImageSource::File(_) => { }, azul_core::app_resources::ImageSource::Raw(_) => { }, }
 }
 /// Copies the object
-#[no_mangle] #[inline] pub extern "C" fn az_image_source_deep_copy(object: &AzImageSource) -> AzImageSource { object.clone() }
+#[no_mangle] #[inline] pub extern "C" fn az_image_source_deep_copy(object: &AzImageSource) -> AzImageSource { AzImageSource{ object: object.object.clone() } }
 
 /// Re-export of rust-allocated (stack based) `FontSource` struct
-pub type AzFontSourceType = azul_core::app_resources::FontSource;
-#[no_mangle] pub use AzFontSourceType as AzFontSource;
+#[no_mangle] #[repr(C)] pub struct AzFontSource { object: azul_core::app_resources::FontSource }
 /// Bytes are the bytes of the font file
-#[inline] #[no_mangle] pub extern "C" fn az_font_source_embedded(variant_data: AzU8VecPtr) -> AzFontSource { AzFontSource::Embedded(*az_u8_vec_downcast(variant_data)) }
+#[inline] #[no_mangle] pub extern "C" fn az_font_source_embedded(variant_data: AzU8Vec) -> AzFontSource { AzFontSource { object: azul_core::app_resources::FontSource::Embedded(variant_data.object) } }
 /// References a font from a file path, which is loaded when necessary
-#[inline] #[no_mangle] pub extern "C" fn az_font_source_file(variant_data: AzPathBufPtr) -> AzFontSource { AzFontSource::File(*az_path_buf_downcast(variant_data)) }
+#[inline] #[no_mangle] pub extern "C" fn az_font_source_file(variant_data: AzPathBufPtr) -> AzFontSource { AzFontSource { object: azul_core::app_resources::FontSource::File(*az_path_buf_downcast(variant_data)) } }
 /// References a font from from a system font identifier, such as `"Arial"` or `"Helvetica"`
-#[inline] #[no_mangle] pub extern "C" fn az_font_source_system(variant_data: AzStringPtr) -> AzFontSource { AzFontSource::System(*az_string_downcast(variant_data)) }
+#[inline] #[no_mangle] pub extern "C" fn az_font_source_system(variant_data: AzString) -> AzFontSource { AzFontSource { object: azul_core::app_resources::FontSource::System(variant_data.object) } }
 /// Destructor: Takes ownership of the `FontSource` pointer and deletes it.
-#[no_mangle] #[inline] #[allow(unused_variables)] pub extern "C" fn az_font_source_delete(object: &mut AzFontSource) { match object { AzFontSource::Embedded(_) => { }, AzFontSource::File(_) => { }, AzFontSource::System(_) => { }, }
+#[no_mangle] #[inline] #[allow(unused_variables)] pub extern "C" fn az_font_source_delete(object: &mut AzFontSource) { match object.object { azul_core::app_resources::FontSource::Embedded(_) => { }, azul_core::app_resources::FontSource::File(_) => { }, azul_core::app_resources::FontSource::System(_) => { }, }
 }
 /// Copies the object
-#[no_mangle] #[inline] pub extern "C" fn az_font_source_deep_copy(object: &AzFontSource) -> AzFontSource { object.clone() }
+#[no_mangle] #[inline] pub extern "C" fn az_font_source_deep_copy(object: &AzFontSource) -> AzFontSource { AzFontSource{ object: object.object.clone() } }
 
 /// Pointer to rust-allocated `Box<RawImage>` struct
 #[no_mangle] #[repr(C)] pub struct AzRawImagePtr { ptr: *mut c_void }
 /// Creates a new `RawImage` by loading the decoded bytes
-#[no_mangle] #[inline] pub extern "C" fn az_raw_image_new(decoded_pixels: AzU8VecPtr, width: usize, height: usize, data_format: AzRawImageFormat) -> AzRawImagePtr { let object: RawImage = RawImage { pixels: *az_u8_vec_downcast(decoded_pixels), image_dimensions: (width, height), data_format }; AzRawImagePtr { ptr: Box::into_raw(Box::new(object)) as *mut c_void } }
+#[no_mangle] #[inline] pub extern "C" fn az_raw_image_new(decoded_pixels: AzU8Vec, width: usize, height: usize, data_format: AzRawImageFormat) -> AzRawImagePtr { let object: RawImage = RawImage { pixels: decoded_pixels.object, image_dimensions: (width, height), data_format: data_format.object }; AzRawImagePtr { ptr: Box::into_raw(Box::new(object)) as *mut c_void } }
 /// Destructor: Takes ownership of the `RawImage` pointer and deletes it.
 #[no_mangle] #[inline] pub extern "C" fn az_raw_image_delete(ptr: &mut AzRawImagePtr) { let _ = unsafe { Box::<RawImage>::from_raw(ptr.ptr  as *mut RawImage) }; }
 /// Copies the pointer: WARNING: After calling this function you'll have two pointers to the same Box<`RawImage`>!.
@@ -2239,32 +2144,31 @@ pub type AzFontSourceType = azul_core::app_resources::FontSource;
 /// (private): Downcasts the `AzRawImagePtr` to a `&mut Box<RawImage>` and runs the `func` closure on it
 #[inline(always)] fn az_raw_image_downcast_refmut<F: FnOnce(&mut Box<RawImage>)>(ptr: &mut AzRawImagePtr, func: F) { let mut box_ptr: Box<RawImage> = unsafe { Box::<RawImage>::from_raw(ptr.ptr  as *mut RawImage) };func(&mut box_ptr);ptr.ptr = Box::into_raw(box_ptr) as *mut c_void; }
 /// (private): Downcasts the `AzRawImagePtr` to a `&Box<RawImage>` and runs the `func` closure on it
-#[inline(always)] fn az_raw_image_downcast_ref<F: FnOnce(&Box<RawImage>)>(ptr: &mut AzRawImagePtr, func: F) { let box_ptr: Box<RawImage> = unsafe { Box::<RawImage>::from_raw(ptr.ptr  as *mut RawImage) };func(&box_ptr);ptr.ptr = Box::into_raw(box_ptr) as *mut c_void; }
+#[inline(always)] fn az_raw_image_downcast_ref<P, F: FnOnce(&Box<RawImage>) -> P>(ptr: &mut AzRawImagePtr, func: F) -> P { let box_ptr: Box<RawImage> = unsafe { Box::<RawImage>::from_raw(ptr.ptr  as *mut RawImage) }; let ret_val = func(&box_ptr); ptr.ptr = Box::into_raw(box_ptr) as *mut c_void;ret_val }
 
 /// Re-export of rust-allocated (stack based) `RawImageFormat` struct
-pub type AzRawImageFormatType = azul_core::app_resources::RawImageFormat;
-#[no_mangle] pub use AzRawImageFormatType as AzRawImageFormat;
+#[no_mangle] #[repr(C)] pub struct AzRawImageFormat { object: azul_core::app_resources::RawImageFormat }
 /// Bytes are in the R-unsinged-8bit format
-#[inline] #[no_mangle] pub extern "C" fn az_raw_image_format_r8() -> AzRawImageFormat { AzRawImageFormat::R8 }
+#[inline] #[no_mangle] pub extern "C" fn az_raw_image_format_r8() -> AzRawImageFormat { AzRawImageFormat { object: azul_core::app_resources::RawImageFormat::R8 } }
 /// Bytes are in the R-unsinged-16bit format
-#[inline] #[no_mangle] pub extern "C" fn az_raw_image_format_r16() -> AzRawImageFormat { AzRawImageFormat::R16 }
+#[inline] #[no_mangle] pub extern "C" fn az_raw_image_format_r16() -> AzRawImageFormat { AzRawImageFormat { object: azul_core::app_resources::RawImageFormat::R16 } }
 /// Bytes are in the RG-unsinged-16bit format
-#[inline] #[no_mangle] pub extern "C" fn az_raw_image_format_rg16() -> AzRawImageFormat { AzRawImageFormat::RG16 }
+#[inline] #[no_mangle] pub extern "C" fn az_raw_image_format_rg16() -> AzRawImageFormat { AzRawImageFormat { object: azul_core::app_resources::RawImageFormat::RG16 } }
 /// Bytes are in the BRGA-unsigned-8bit format
-#[inline] #[no_mangle] pub extern "C" fn az_raw_image_format_bgra8() -> AzRawImageFormat { AzRawImageFormat::BGRA8 }
+#[inline] #[no_mangle] pub extern "C" fn az_raw_image_format_bgra8() -> AzRawImageFormat { AzRawImageFormat { object: azul_core::app_resources::RawImageFormat::BGRA8 } }
 /// Bytes are in the RGBA-floating-point-32bit format
-#[inline] #[no_mangle] pub extern "C" fn az_raw_image_format_rgbaf32() -> AzRawImageFormat { AzRawImageFormat::RGBAF32 }
+#[inline] #[no_mangle] pub extern "C" fn az_raw_image_format_rgbaf32() -> AzRawImageFormat { AzRawImageFormat { object: azul_core::app_resources::RawImageFormat::RGBAF32 } }
 /// Bytes are in the RG-unsigned-8bit format
-#[inline] #[no_mangle] pub extern "C" fn az_raw_image_format_rg8() -> AzRawImageFormat { AzRawImageFormat::RG8 }
+#[inline] #[no_mangle] pub extern "C" fn az_raw_image_format_rg8() -> AzRawImageFormat { AzRawImageFormat { object: azul_core::app_resources::RawImageFormat::RG8 } }
 /// Bytes are in the RGBA-signed-32bit format
-#[inline] #[no_mangle] pub extern "C" fn az_raw_image_format_rgbai32() -> AzRawImageFormat { AzRawImageFormat::RGBAI32 }
+#[inline] #[no_mangle] pub extern "C" fn az_raw_image_format_rgbai32() -> AzRawImageFormat { AzRawImageFormat { object: azul_core::app_resources::RawImageFormat::RGBAI32 } }
 /// Bytes are in the RGBA-unsigned-8bit format
-#[inline] #[no_mangle] pub extern "C" fn az_raw_image_format_rgba8() -> AzRawImageFormat { AzRawImageFormat::RGBA8 }
+#[inline] #[no_mangle] pub extern "C" fn az_raw_image_format_rgba8() -> AzRawImageFormat { AzRawImageFormat { object: azul_core::app_resources::RawImageFormat::RGBA8 } }
 /// Destructor: Takes ownership of the `RawImageFormat` pointer and deletes it.
-#[no_mangle] #[inline] #[allow(unused_variables)] pub extern "C" fn az_raw_image_format_delete(object: &mut AzRawImageFormat) { match object { AzRawImageFormat::R8 => { }, AzRawImageFormat::R16 => { }, AzRawImageFormat::RG16 => { }, AzRawImageFormat::BGRA8 => { }, AzRawImageFormat::RGBAF32 => { }, AzRawImageFormat::RG8 => { }, AzRawImageFormat::RGBAI32 => { }, AzRawImageFormat::RGBA8 => { }, }
+#[no_mangle] #[inline] #[allow(unused_variables)] pub extern "C" fn az_raw_image_format_delete(object: &mut AzRawImageFormat) { match object.object { azul_core::app_resources::RawImageFormat::R8 => { }, azul_core::app_resources::RawImageFormat::R16 => { }, azul_core::app_resources::RawImageFormat::RG16 => { }, azul_core::app_resources::RawImageFormat::BGRA8 => { }, azul_core::app_resources::RawImageFormat::RGBAF32 => { }, azul_core::app_resources::RawImageFormat::RG8 => { }, azul_core::app_resources::RawImageFormat::RGBAI32 => { }, azul_core::app_resources::RawImageFormat::RGBA8 => { }, }
 }
 /// Copies the object
-#[no_mangle] #[inline] pub extern "C" fn az_raw_image_format_deep_copy(object: &AzRawImageFormat) -> AzRawImageFormat { object.clone() }
+#[no_mangle] #[inline] pub extern "C" fn az_raw_image_format_deep_copy(object: &AzRawImageFormat) -> AzRawImageFormat { AzRawImageFormat{ object: object.object.clone() } }
 
 /// Pointer to rust-allocated `Box<WindowCreateOptions>` struct
 #[no_mangle] #[repr(C)] pub struct AzWindowCreateOptionsPtr { ptr: *mut c_void }
@@ -2280,4 +2184,4 @@ pub type AzRawImageFormatType = azul_core::app_resources::RawImageFormat;
 /// (private): Downcasts the `AzWindowCreateOptionsPtr` to a `&mut Box<WindowCreateOptions>` and runs the `func` closure on it
 #[inline(always)] fn az_window_create_options_downcast_refmut<F: FnOnce(&mut Box<WindowCreateOptions>)>(ptr: &mut AzWindowCreateOptionsPtr, func: F) { let mut box_ptr: Box<WindowCreateOptions> = unsafe { Box::<WindowCreateOptions>::from_raw(ptr.ptr  as *mut WindowCreateOptions) };func(&mut box_ptr);ptr.ptr = Box::into_raw(box_ptr) as *mut c_void; }
 /// (private): Downcasts the `AzWindowCreateOptionsPtr` to a `&Box<WindowCreateOptions>` and runs the `func` closure on it
-#[inline(always)] fn az_window_create_options_downcast_ref<F: FnOnce(&Box<WindowCreateOptions>)>(ptr: &mut AzWindowCreateOptionsPtr, func: F) { let box_ptr: Box<WindowCreateOptions> = unsafe { Box::<WindowCreateOptions>::from_raw(ptr.ptr  as *mut WindowCreateOptions) };func(&box_ptr);ptr.ptr = Box::into_raw(box_ptr) as *mut c_void; }
+#[inline(always)] fn az_window_create_options_downcast_ref<P, F: FnOnce(&Box<WindowCreateOptions>) -> P>(ptr: &mut AzWindowCreateOptionsPtr, func: F) -> P { let box_ptr: Box<WindowCreateOptions> = unsafe { Box::<WindowCreateOptions>::from_raw(ptr.ptr  as *mut WindowCreateOptions) }; let ret_val = func(&box_ptr); ptr.ptr = Box::into_raw(box_ptr) as *mut c_void;ret_val }
