@@ -93,7 +93,7 @@ pub mod vec {
 
     impl StringVec {
         /// Creates + allocates a Rust `Vec<String>` by **copying** it from a bytes source
-        pub fn copy_from(ptr: *const String, len: usize) -> Self { Self { object: az_string_vec_copy_from(ptr.leak(), len) } }
+        pub fn copy_from(ptr: *const String, len: usize) -> Self { Self { object: az_string_vec_copy_from(ptr, len) } }
        /// Prevents the destructor from running and returns the internal `AzStringVec`
        pub fn leak(self) -> AzStringVec { az_string_vec_deep_copy(&self.object) }
     }
@@ -114,7 +114,7 @@ pub mod path {
 
     impl PathBuf {
         /// Creates a new PathBuf from a String
-        pub fn new(path: String) -> Self { Self { ptr: az_path_buf_new(path.leak()) } }
+        pub fn new(path: String) -> Self { Self { ptr: az_path_buf_new(path.object) } }
        /// Prevents the destructor from running and returns the internal `AzPathBufPtr`
        pub fn leak(self) -> AzPathBufPtr { let p = az_path_buf_shallow_copy(&self.ptr); std::mem::forget(self); p }
     }
@@ -127,7 +127,7 @@ pub mod path {
 pub mod app {
 
     use azul_dll::*;
-    use crate::callbacks::{RefAny, LayoutCallback};
+    use crate::callbacks::{LayoutCallback, RefAny};
     use crate::window::WindowCreateOptions;
 
 
@@ -2090,7 +2090,7 @@ pub mod dom {
     use azul_dll::*;
     use crate::str::String;
     use crate::resources::{TextId, ImageId};
-    use crate::callbacks::{Callback, GlCallback, RefAny, IFrameCallback};
+    use crate::callbacks::{Callback, GlCallback, IFrameCallback, RefAny};
     use crate::vec::StringVec;
     use crate::css::CssProperty;
 
@@ -2104,57 +2104,57 @@ pub mod dom {
         /// Creates a new `body` node
         pub fn body() -> Self { Self { ptr: az_dom_body() } }
         /// Creates a new `p` node with a given `String` as the text contents
-        pub fn label(text: String) -> Self { Self { ptr: az_dom_label(text.leak()) } }
+        pub fn label(text: String) -> Self { Self { ptr: az_dom_label(text.object) } }
         /// Creates a new `p` node from a (cached) text referenced by a `TextId`
-        pub fn text(text_id: TextId) -> Self { Self { ptr: az_dom_text(text_id.leak()) } }
+        pub fn text(text_id: TextId) -> Self { Self { ptr: az_dom_text(text_id.object) } }
         /// Creates a new `img` node from a (cached) text referenced by a `ImageId`
-        pub fn image(image_id: ImageId) -> Self { Self { ptr: az_dom_image(image_id.leak()) } }
+        pub fn image(image_id: ImageId) -> Self { Self { ptr: az_dom_image(image_id.object) } }
         /// Creates a new node which will render an OpenGL texture after the layout step is finished. See the documentation for [GlCallback]() for more info about OpenGL rendering callbacks.
-        pub fn gl_texture(data: RefAny, callback: GlCallback) -> Self { Self { ptr: az_dom_gl_texture(data.leak(), callback.leak()) } }
+        pub fn gl_texture(data: RefAny, callback: GlCallback) -> Self { Self { ptr: az_dom_gl_texture(data.leak(), callback) } }
         /// Creates a new node with a callback that will return a `Dom` after being layouted. See the documentation for [IFrameCallback]() for more info about iframe callbacks.
-        pub fn iframe_callback(data: RefAny, callback: IFrameCallback) -> Self { Self { ptr: az_dom_iframe_callback(data.leak(), callback.leak()) } }
+        pub fn iframe_callback(data: RefAny, callback: IFrameCallback) -> Self { Self { ptr: az_dom_iframe_callback(data.leak(), callback) } }
         /// Adds a CSS ID (`#something`) to the DOM node
-        pub fn add_id(&mut self, id: String)  { az_dom_add_id(&mut self.ptr, id.leak()) }
+        pub fn add_id(&mut self, id: String)  { az_dom_add_id(&mut self.ptr, id.object) }
         /// Same as [`Dom::add_id`](#method.add_id), but as a builder method
-        pub fn with_id(self, id: String)  -> Dom { Dom { ptr: { az_dom_with_id(self.leak(), id.leak())} } }
+        pub fn with_id(self, id: String)  -> Dom { Dom { ptr: { az_dom_with_id(self.leak(), id.object) } } }
         /// Same as calling [`Dom::add_id`](#method.add_id) for each CSS ID, but this function **replaces** all current CSS IDs
-        pub fn set_ids(&mut self, ids: Vec<String>)  { az_dom_set_ids(&mut self.ptr, ids.leak()) }
+        pub fn set_ids(&mut self, ids: StringVec)  { az_dom_set_ids(&mut self.ptr, ids.object) }
         /// Same as [`Dom::set_ids`](#method.set_ids), but as a builder method
-        pub fn with_ids(self, ids: Vec<String>)  -> Dom { Dom { ptr: { az_dom_with_ids(self.leak(), ids.leak())} } }
+        pub fn with_ids(self, ids: StringVec)  -> Dom { Dom { ptr: { az_dom_with_ids(self.leak(), ids.object) } } }
         /// Adds a CSS class (`.something`) to the DOM node
-        pub fn add_class(&mut self, class: String)  { az_dom_add_class(&mut self.ptr, class.leak()) }
+        pub fn add_class(&mut self, class: String)  { az_dom_add_class(&mut self.ptr, class.object) }
         /// Same as [`Dom::add_class`](#method.add_class), but as a builder method
-        pub fn with_class(self, class: String)  -> Dom { Dom { ptr: { az_dom_with_class(self.leak(), class.leak())} } }
+        pub fn with_class(self, class: String)  -> Dom { Dom { ptr: { az_dom_with_class(self.leak(), class.object) } } }
         /// Same as calling [`Dom::add_class`](#method.add_class) for each class, but this function **replaces** all current classes
-        pub fn set_classes(&mut self, classes: Vec<String>)  { az_dom_set_classes(&mut self.ptr, classes.leak()) }
+        pub fn set_classes(&mut self, classes: StringVec)  { az_dom_set_classes(&mut self.ptr, classes.object) }
         /// Same as [`Dom::set_classes`](#method.set_classes), but as a builder method
-        pub fn with_classes(self, classes: Vec<String>)  -> Dom { Dom { ptr: { az_dom_with_classes(self.leak(), classes.leak())} } }
+        pub fn with_classes(self, classes: StringVec)  -> Dom { Dom { ptr: { az_dom_with_classes(self.leak(), classes.object) } } }
         /// Adds a [`Callback`](callbacks/type.Callback) that acts on the `data` the `event` happens
-        pub fn add_callback(&mut self, event: EventFilter, data: RefAny, callback: Callback)  { az_dom_add_callback(&mut self.ptr, event.leak(), data.leak(), callback.leak()) }
+        pub fn add_callback(&mut self, event: EventFilter, data: RefAny, callback: Callback)  { az_dom_add_callback(&mut self.ptr, event.object, data.leak(), callback) }
         /// Same as [`Dom::add_callback`](#method.add_callback), but as a builder method
-        pub fn with_callback(self, event: EventFilter, data: RefAny, callback: Callback)  -> Dom { Dom { ptr: { az_dom_with_callback(self.leak(), event.leak(), data.leak(), callback.leak())} } }
+        pub fn with_callback(self, event: EventFilter, data: RefAny, callback: Callback)  -> Dom { Dom { ptr: { az_dom_with_callback(self.leak(), event.object, data.leak(), callback) } } }
         /// Overrides the CSS property of this DOM node with a value (for example `"width = 200px"`)
-        pub fn add_css_override(&mut self, id: String, prop: CssProperty)  { az_dom_add_css_override(&mut self.ptr, id.leak(), prop.leak()) }
+        pub fn add_css_override(&mut self, id: String, prop: CssProperty)  { az_dom_add_css_override(&mut self.ptr, id.object, prop.object) }
         /// Same as [`Dom::add_css_override`](#method.add_css_override), but as a builder method
-        pub fn with_css_override(self, id: String, prop: CssProperty)  -> Dom { Dom { ptr: { az_dom_with_css_override(self.leak(), id.leak(), prop.leak())} } }
+        pub fn with_css_override(self, id: String, prop: CssProperty)  -> Dom { Dom { ptr: { az_dom_with_css_override(self.leak(), id.object, prop.object) } } }
         /// Sets the `is_draggable` attribute of this DOM node (default: false)
         pub fn set_is_draggable(&mut self, is_draggable: bool)  { az_dom_set_is_draggable(&mut self.ptr, is_draggable) }
         /// Same as [`Dom::set_is_draggable`](#method.set_is_draggable), but as a builder method
-        pub fn is_draggable(self, is_draggable: bool)  -> Dom { Dom { ptr: { az_dom_is_draggable(self.leak(), is_draggable)} } }
+        pub fn is_draggable(self, is_draggable: bool)  -> Dom { Dom { ptr: { az_dom_is_draggable(self.leak(), is_draggable) } } }
         /// Sets the `tabindex` attribute of this DOM node (makes an element focusable - default: None)
-        pub fn set_tab_index(&mut self, tab_index: TabIndex)  { az_dom_set_tab_index(&mut self.ptr, tab_index.leak()) }
+        pub fn set_tab_index(&mut self, tab_index: TabIndex)  { az_dom_set_tab_index(&mut self.ptr, tab_index.object) }
         /// Same as [`Dom::set_tab_index`](#method.set_tab_index), but as a builder method
-        pub fn with_tab_index(self, tab_index: TabIndex)  -> Dom { Dom { ptr: { az_dom_with_tab_index(self.leak(), tab_index.leak())} } }
+        pub fn with_tab_index(self, tab_index: TabIndex)  -> Dom { Dom { ptr: { az_dom_with_tab_index(self.leak(), tab_index.object) } } }
         /// Reparents another `Dom` to be the child node of this `Dom`
         pub fn add_child(&mut self, child: Dom)  { az_dom_add_child(&mut self.ptr, child.leak()) }
         /// Same as [`Dom::add_child`](#method.add_child), but as a builder method
-        pub fn with_child(self, child: Dom)  -> Dom { Dom { ptr: { az_dom_with_child(self.leak(), child.leak())} } }
+        pub fn with_child(self, child: Dom)  -> Dom { Dom { ptr: { az_dom_with_child(self.leak(), child.leak()) } } }
         /// Returns if the DOM node has a certain CSS ID
-        pub fn has_id(&mut self, id: String)  -> bool { bool { ptr: { az_dom_has_id(&mut self.ptr, id.leak())} } }
+        pub fn has_id(&mut self, id: String)  -> bool { az_dom_has_id(&mut self.ptr, id.object) }
         /// Returns if the DOM node has a certain CSS class
-        pub fn has_class(&mut self, class: String)  -> bool { bool { ptr: { az_dom_has_class(&mut self.ptr, class.leak())} } }
+        pub fn has_class(&mut self, class: String)  -> bool { az_dom_has_class(&mut self.ptr, class.object) }
         /// Returns the HTML String for this DOM
-        pub fn get_html_string(&mut self)  -> String { String { ptr: { az_dom_get_html_string(&mut self.ptr)} } }
+        pub fn get_html_string(&mut self)  -> String { String { object: { az_dom_get_html_string(&mut self.ptr)} } }
        /// Prevents the destructor from running and returns the internal `AzDomPtr`
        pub fn leak(self) -> AzDomPtr { let p = az_dom_shallow_copy(&self.ptr); std::mem::forget(self); p }
     }
@@ -2385,7 +2385,7 @@ pub mod resources {
 
     impl RawImage {
         /// Creates a new `RawImage` by loading the decoded bytes
-        pub fn new(decoded_pixels: U8Vec, width: usize, height: usize, data_format: RawImageFormat) -> Self { Self { ptr: az_raw_image_new(decoded_pixels.leak(), width, height, data_format.leak()) } }
+        pub fn new(decoded_pixels: U8Vec, width: usize, height: usize, data_format: RawImageFormat) -> Self { Self { ptr: az_raw_image_new(decoded_pixels.object, width, height, data_format.object) } }
        /// Prevents the destructor from running and returns the internal `AzRawImagePtr`
        pub fn leak(self) -> AzRawImagePtr { let p = az_raw_image_shallow_copy(&self.ptr); std::mem::forget(self); p }
     }

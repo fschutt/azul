@@ -205,6 +205,9 @@ def class_is_small_enum(c):
 def class_is_small_struct(c):
     return "struct_fields" in c.keys()
 
+def class_is_typedef(c):
+    return "typedef" in c.keys()
+
 def class_is_stack_allocated(c):
     class_is_boxed_object = not("external" in c.keys() and ("struct_fields" in c.keys() or "enum_fields" in c.keys() or "typedef" in c.keys() or "const" in c.keys()))
     return not(class_is_boxed_object)
@@ -273,7 +276,7 @@ def get_fn_args_c(f, class_name, class_ptr_name, apiData):
     return fn_args
 
 # Generate the string for TAKING rust-api function arguments
-def rust_bindings_fn_args(f, class_name, class_ptr_name, self_as_first_arg):
+def rust_bindings_fn_args(f, class_name, class_ptr_name, self_as_first_arg, apiData):
     fn_args = ""
 
     if self_as_first_arg:
@@ -293,13 +296,44 @@ def rust_bindings_fn_args(f, class_name, class_ptr_name, self_as_first_arg):
             if arg_name == "self":
                 continue
             arg_type = arg_object[arg_name]
-            fn_args += arg_name + ": " + arg_type + ", "
+            arg_type = arg_type.strip()
+
+            start = ""
+            if arg_type.startswith("&mut"):
+                start = "&mut "
+                arg_type = arg_type.replace("&mut", "")
+            elif arg_type.startswith("&"):
+                start = "&"
+                arg_type = arg_type.replace("&", "")
+            elif arg_type.startswith("*const"):
+                start = "*const "
+                arg_type = arg_type.replace("*const", "")
+            elif arg_type.startswith("*mut"):
+                start = "*mut "
+                arg_type = arg_type.replace("*mut", "")
+
+            arg_type = arg_type.strip()
+
+            if is_primitive_arg(arg_type):
+                fn_args += arg_name + ": " + start + arg_type + ", " # usize
+            else:
+                arg_type_class_name = search_for_class_by_rust_class_name(apiData, arg_type)
+                if arg_type_class_name is None:
+                    raise Exception("arg type " + arg_type + " not found!")
+                arg_type_class = get_class(apiData, arg_type_class_name[0], arg_type_class_name[1])
+
+                if class_is_stack_allocated(arg_type_class):
+                    fn_args += arg_name + ": " + start + arg_type_class_name[1] + ", " # .object
+                else:
+                    fn_args += arg_name + ": " + start + arg_type_class_name[1] + ", "
+
+
         fn_args = fn_args[:-2]
 
     return fn_args
 
 # Generate the string for CALLING rust-api function args
-def rust_bindings_call_fn_args(f, class_name, class_ptr_name, self_as_first_arg):
+def rust_bindings_call_fn_args(f, class_name, class_ptr_name, self_as_first_arg, apiData):
     fn_args = ""
     if self_as_first_arg:
         self_val = list(f["fn_args"][0].values())[0]
@@ -325,8 +359,19 @@ def rust_bindings_call_fn_args(f, class_name, class_ptr_name, self_as_first_arg)
                 fn_args += "&" + arg_name + ".ptr, "
             elif is_primitive_arg(arg_type):
                 fn_args += arg_name + ", "
+            elif arg_type.startswith("*const") or arg_type.startswith("*mut"):
+                fn_args += arg_name + ", "
             else:
-                fn_args += arg_name + ".leak(), "
+                arg_type_class = search_for_class_by_rust_class_name(apiData, arg_type)
+                if arg_type_class is None:
+                    raise Exception("arg type " + arg_type + " not found!")
+                arg_type_class = get_class(apiData, arg_type_class[0], arg_type_class[1])
+                if class_is_typedef(arg_type_class):
+                    fn_args += arg_name + ", "
+                elif class_is_stack_allocated(arg_type_class):
+                    fn_args += arg_name + ".object, "
+                else:
+                    fn_args += arg_name + ".leak(), "
 
         fn_args = fn_args[:-2]
 
@@ -686,8 +731,8 @@ def generate_rust_api(apiData):
                     const = c["constructors"][fn_name]
 
                     c_fn_name = fn_prefix + to_snake_case(class_name) + "_" + fn_name
-                    fn_args = rust_bindings_fn_args(const, class_name, class_ptr_name, False)
-                    fn_args_call = rust_bindings_call_fn_args(const, class_name, class_ptr_name, False)
+                    fn_args = rust_bindings_fn_args(const, class_name, class_ptr_name, False, apiData)
+                    fn_args_call = rust_bindings_call_fn_args(const, class_name, class_ptr_name, False, apiData)
 
                     fn_body = ""
 
@@ -712,8 +757,8 @@ def generate_rust_api(apiData):
                 for fn_name in c["functions"]:
                     f = c["functions"][fn_name]
 
-                    fn_args = rust_bindings_fn_args(f, class_name, class_ptr_name, True)
-                    fn_args_call = rust_bindings_call_fn_args(f, class_name, class_ptr_name, True)
+                    fn_args = rust_bindings_fn_args(f, class_name, class_ptr_name, True, apiData)
+                    fn_args_call = rust_bindings_call_fn_args(f, class_name, class_ptr_name, True, apiData)
                     c_fn_name = fn_prefix + to_snake_case(class_name) + "_" + fn_name
 
                     fn_body = ""
@@ -738,8 +783,16 @@ def generate_rust_api(apiData):
 
                     returns = ""
                     if "returns" in f.keys():
-                        returns = " -> " + f["returns"]
-                        fn_body = f["returns"] + " { ptr: { " + fn_body + "} }"
+                        return_type = f["returns"]
+                        returns = " -> " + return_type
+                        if is_primitive_arg(return_type):
+                            fn_body = fn_body
+                        else:
+                            return_type_class = search_for_class_by_rust_class_name(apiData, return_type)
+                            if class_is_stack_allocated(get_class(apiData, return_type_class[0], return_type_class[1])):
+                                fn_body = f["returns"] + " { object: { " + fn_body + "} }"
+                            else:
+                                fn_body = f["returns"] + " { ptr: { " + fn_body + " } }"
 
                     code += "        pub fn " + fn_name + "(" + fn_args + ") " +  returns + " { " + fn_body + " }\r\n"
 
