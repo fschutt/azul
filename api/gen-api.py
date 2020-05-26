@@ -70,13 +70,16 @@ def write_file(string, path):
     text_file.close()
 
 def is_primitive_arg(arg):
+    return get_stripped_arg(arg) in basic_types
+
+def get_stripped_arg(arg):
     arg = arg.replace("&", "")
     arg = arg.replace("&mut", "")
     arg = arg.replace("*const", "")
     arg = arg.replace("*const", "")
     arg = arg.replace("*mut", "")
     arg = arg.strip()
-    return arg in basic_types
+    return arg
 
 def search_imports_arg_type(c, search_type, arg_types_to_search):
     if search_type in c.keys():
@@ -188,7 +191,13 @@ def analyze_type(arg):
     starts = ""
     arg_type = ""
 
-    if arg.startswith("*const"):
+    if arg.startswith("&mut"):
+        starts = "&mut "
+        arg_type = arg.replace("&mut", "")
+    elif arg.startswith("&"):
+        starts = "&"
+        arg_type = arg.replace("&", "")
+    elif arg.startswith("*const"):
         starts = "*const "
         arg_type = arg.replace("*const", "")
     elif arg.startswith("*mut"):
@@ -298,21 +307,9 @@ def rust_bindings_fn_args(f, class_name, class_ptr_name, self_as_first_arg, apiD
             arg_type = arg_object[arg_name]
             arg_type = arg_type.strip()
 
-            start = ""
-            if arg_type.startswith("&mut"):
-                start = "&mut "
-                arg_type = arg_type.replace("&mut", "")
-            elif arg_type.startswith("&"):
-                start = "&"
-                arg_type = arg_type.replace("&", "")
-            elif arg_type.startswith("*const"):
-                start = "*const "
-                arg_type = arg_type.replace("*const", "")
-            elif arg_type.startswith("*mut"):
-                start = "*mut "
-                arg_type = arg_type.replace("*mut", "")
-
-            arg_type = arg_type.strip()
+            type_analyzed = analyze_type(arg_type)
+            start = type_analyzed[0]
+            arg_type = type_analyzed[1]
 
             if is_primitive_arg(arg_type):
                 fn_args += arg_name + ": " + start + arg_type + ", " # usize
@@ -322,8 +319,8 @@ def rust_bindings_fn_args(f, class_name, class_ptr_name, self_as_first_arg, apiD
                     raise Exception("arg type " + arg_type + " not found!")
                 arg_type_class = get_class(apiData, arg_type_class_name[0], arg_type_class_name[1])
 
-                if class_is_stack_allocated(arg_type_class):
-                    fn_args += arg_name + ": " + start + arg_type_class_name[1] + ", " # .object
+                if start == "*const " or start == "*mut ":
+                    fn_args += arg_name + ": " + start + prefix + arg_type_class_name[1] + ", "
                 else:
                     fn_args += arg_name + ": " + start + arg_type_class_name[1] + ", "
 
@@ -332,16 +329,22 @@ def rust_bindings_fn_args(f, class_name, class_ptr_name, self_as_first_arg, apiD
     return fn_args
 
 # Generate the string for CALLING rust-api function args
-def rust_bindings_call_fn_args(f, class_name, class_ptr_name, self_as_first_arg, apiData):
+def rust_bindings_call_fn_args(f, class_name, class_ptr_name, self_as_first_arg, apiData, class_is_boxed_object):
     fn_args = ""
     if self_as_first_arg:
         self_val = list(f["fn_args"][0].values())[0]
         if (self_val == "value") or (self_val == "mut value"):
             fn_args += "self.leak(), "
         elif (self_val == "refmut"):
-            fn_args += "&mut self.ptr, "
+            if class_is_boxed_object:
+                fn_args += "&mut self.ptr, "
+            else:
+                fn_args += "&mut self.object, "
         elif (self_val == "ref"):
-            fn_args += "&self.ptr, "
+            if class_is_boxed_object:
+                fn_args += "&self.ptr, "
+            else:
+                fn_args += "&self.object, "
         else:
             raise Exception("wrong self value " + self_val)
 
@@ -351,26 +354,30 @@ def rust_bindings_call_fn_args(f, class_name, class_ptr_name, self_as_first_arg,
             if arg_name == "self":
                 continue
 
-            arg_type = arg_object[arg_name]
-            if arg_type.startswith("&mut "):
-                fn_args += "&mut " + arg_name + ".ptr, "
-            elif arg_type.startswith("&"):
-                fn_args += "&" + arg_name + ".ptr, "
-            elif is_primitive_arg(arg_type):
-                fn_args += arg_name + ", "
-            elif arg_type.startswith("*const") or arg_type.startswith("*mut"):
+            arg_type = arg_object[arg_name].strip()
+            starts = ""
+            type_analyzed = analyze_type(arg_type)
+            start = type_analyzed[0]
+            arg_type = type_analyzed[1]
+
+            if is_primitive_arg(arg_type):
                 fn_args += arg_name + ", "
             else:
+                arg_type = arg_type.strip()
                 arg_type_class = search_for_class_by_rust_class_name(apiData, arg_type)
                 if arg_type_class is None:
                     raise Exception("arg type " + arg_type + " not found!")
                 arg_type_class = get_class(apiData, arg_type_class[0], arg_type_class[1])
-                if class_is_typedef(arg_type_class):
+
+                if start == "*const " or start == "*mut ":
                     fn_args += arg_name + ", "
-                elif class_is_stack_allocated(arg_type_class):
-                    fn_args += arg_name + ".object, "
                 else:
-                    fn_args += arg_name + ".leak(), "
+                    if class_is_typedef(arg_type_class):
+                        fn_args += start + arg_name + ", "
+                    elif class_is_stack_allocated(arg_type_class):
+                        fn_args += start + arg_name + ".leak(), " # .object
+                    else:
+                        fn_args += start + arg_name + ".leak(), "
 
         fn_args = fn_args[:-2]
 
@@ -731,7 +738,7 @@ def generate_rust_api(apiData):
 
                     c_fn_name = fn_prefix + to_snake_case(class_name) + "_" + fn_name
                     fn_args = rust_bindings_fn_args(const, class_name, class_ptr_name, False, apiData)
-                    fn_args_call = rust_bindings_call_fn_args(const, class_name, class_ptr_name, False, apiData)
+                    fn_args_call = rust_bindings_call_fn_args(const, class_name, class_ptr_name, False, apiData, class_is_boxed_object)
 
                     fn_body = ""
 
@@ -757,7 +764,7 @@ def generate_rust_api(apiData):
                     f = c["functions"][fn_name]
 
                     fn_args = rust_bindings_fn_args(f, class_name, class_ptr_name, True, apiData)
-                    fn_args_call = rust_bindings_call_fn_args(f, class_name, class_ptr_name, True, apiData)
+                    fn_args_call = rust_bindings_call_fn_args(f, class_name, class_ptr_name, True, apiData, class_is_boxed_object)
                     c_fn_name = fn_prefix + to_snake_case(class_name) + "_" + fn_name
 
                     fn_body = ""

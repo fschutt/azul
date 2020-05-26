@@ -13,15 +13,25 @@
 
     impl From<std::vec::Vec<std::string::String>> for crate::vec::StringVec {
         fn from(v: std::vec::Vec<std::string::String>) -> crate::vec::StringVec {
-            crate::vec::StringVec { object: v.into_iter().map(|i| azul_dll::AzString::copy_from(i.as_ptr(), i.len())).collect() }
+            let vec: Vec<AzString> = v.into_iter().map(|i| {
+                let i: std::vec::Vec<u8> = i.into_bytes();
+                az_string_from_utf8_unchecked(i.as_ptr(), i.len())
+            }).collect();
+
+            crate::vec::StringVec { object: az_string_vec_copy_from(vec.as_ptr(), vec.len()) }
         }
     }
 
     impl From<crate::vec::StringVec> for std::vec::Vec<std::string::String> {
         fn from(v: crate::vec::StringVec) -> std::vec::Vec<std::string::String> {
-            v.object.object
+            v.leak().object
             .into_iter()
-            .map(|s| unsafe { std::string::String::from_utf8_unchecked(s.as_ptr(), s.len()) })
+            .map(|s| unsafe {
+                let s_vec: std::vec::Vec<u8> = s.into_bytes().into();
+                std::string::String::from_utf8_unchecked(s_vec)
+            })
             .collect()
+
+            // delete() not necessary because StringVec is stack-allocated
         }
     }

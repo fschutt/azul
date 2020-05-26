@@ -54,6 +54,10 @@ use azul_web::app::{App, AppConfig};
 #[no_mangle] #[repr(C)] pub struct AzU8Vec { pub object: std::vec::Vec::<u8> }
 /// Creates + allocates a Rust `Vec<u8>` by **copying** it from a bytes source
 #[no_mangle] #[inline] pub extern "C" fn az_u8_vec_copy_from(ptr: *const u8, len: usize) -> AzU8Vec { let object: Vec<u8> = unsafe { std::slice::from_raw_parts(ptr, len).to_vec() }; AzU8Vec { object } }
+/// Returns the internal pointer to the start of the heap-allocated `[u8]`
+#[no_mangle] #[inline] pub extern "C" fn az_u8_vec_as_ptr(u8vec: &AzU8Vec) -> *const u8 { u8vec.object.as_ptr() }
+/// Returns the length of bytes in the heap-allocated `[u8]`
+#[no_mangle] #[inline] pub extern "C" fn az_u8_vec_len(u8vec: &AzU8Vec) -> usize { u8vec.object.len() }
 /// Destructor: Takes ownership of the `U8Vec` pointer and deletes it.
 #[no_mangle] #[inline] #[allow(unused_variables)] pub extern "C" fn az_u8_vec_delete(object: &mut AzU8Vec) { }
 /// Copies the object
@@ -61,6 +65,8 @@ use azul_web::app::{App, AppConfig};
 
 /// Wrapper over a Rust-allocated `Vec<String>`
 #[no_mangle] #[repr(C)] pub struct AzStringVec { pub object: std::vec::Vec::<String> }
+/// Creates + allocates a Rust `Vec<String>` by **copying** it from a bytes source
+#[no_mangle] #[inline] pub extern "C" fn az_string_vec_copy_from(ptr: *const AzString, len: usize) -> AzStringVec { let object: Vec<String> = unsafe { std::slice::from_raw_parts(ptr, len).into_iter().map(|s| s.object.clone()).collect() }; AzStringVec { object } }
 /// Destructor: Takes ownership of the `StringVec` pointer and deletes it.
 #[no_mangle] #[inline] #[allow(unused_variables)] pub extern "C" fn az_string_vec_delete(object: &mut AzStringVec) { }
 /// Copies the object
