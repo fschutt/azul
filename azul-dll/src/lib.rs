@@ -38,18 +38,20 @@ use azul_desktop::app::{App, AppConfig};
 #[cfg(target_arch = "wasm32")]
 use azul_web::app::{App, AppConfig};
 /// Re-export of rust-allocated (stack based) `String` struct
-#[no_mangle] #[repr(C)] pub struct AzString { object: std::string::String }
+#[no_mangle] #[repr(C)] pub struct AzString { pub object: std::string::String }
 /// Creates + allocates a Rust `String` by **copying** it from another utf8-encoded string
 #[no_mangle] #[inline] pub extern "C" fn az_string_from_utf8_unchecked(ptr: *const u8, len: usize) -> AzString { let object: String = unsafe { std::str::from_utf8_unchecked(std::slice::from_raw_parts(ptr, len)).to_string() }; AzString { object } }
 /// Creates + allocates a Rust `String` by **copying** it from another utf8-encoded string
 #[no_mangle] #[inline] pub extern "C" fn az_string_from_utf8_lossy(ptr: *const u8, len: usize) -> AzString { let object: String = unsafe { std::string::String::from_utf8_lossy(std::slice::from_raw_parts(ptr, len)).to_string() }; AzString { object } }
+/// Creates + allocates a Rust `String` by **copying** it from another utf8-encoded string
+#[no_mangle] #[inline] pub extern "C" fn az_string_into_bytes(string: AzString) -> AzU8Vec { AzU8Vec { object: string.object.into_bytes() } }
 /// Destructor: Takes ownership of the `String` pointer and deletes it.
 #[no_mangle] #[inline] #[allow(unused_variables)] pub extern "C" fn az_string_delete(object: &mut AzString) { }
 /// Copies the object
 #[no_mangle] #[inline] pub extern "C" fn az_string_deep_copy(object: &AzString) -> AzString { AzString{ object: object.object.clone() } }
 
 /// Wrapper over a Rust-allocated `Vec<u8>`
-#[no_mangle] #[repr(C)] pub struct AzU8Vec { object: std::vec::Vec::<u8> }
+#[no_mangle] #[repr(C)] pub struct AzU8Vec { pub object: std::vec::Vec::<u8> }
 /// Creates + allocates a Rust `Vec<u8>` by **copying** it from a bytes source
 #[no_mangle] #[inline] pub extern "C" fn az_u8_vec_copy_from(ptr: *const u8, len: usize) -> AzU8Vec { let object: Vec<u8> = unsafe { std::slice::from_raw_parts(ptr, len).to_vec() }; AzU8Vec { object } }
 /// Destructor: Takes ownership of the `U8Vec` pointer and deletes it.
@@ -58,9 +60,7 @@ use azul_web::app::{App, AppConfig};
 #[no_mangle] #[inline] pub extern "C" fn az_u8_vec_deep_copy(object: &AzU8Vec) -> AzU8Vec { AzU8Vec{ object: object.object.clone() } }
 
 /// Wrapper over a Rust-allocated `Vec<String>`
-#[no_mangle] #[repr(C)] pub struct AzStringVec { object: std::vec::Vec::<String> }
-/// Creates + allocates a Rust `Vec<String>` by **copying** it from a bytes source
-#[no_mangle] #[inline] pub extern "C" fn az_string_vec_copy_from(ptr: *const AzString, len: usize) -> AzStringVec { let object: Vec<String> = unsafe { std::slice::from_raw_parts(ptr, len).into_iter().map(|s| s.object.clone()).collect() }; AzStringVec { object } }
+#[no_mangle] #[repr(C)] pub struct AzStringVec { pub object: std::vec::Vec::<String> }
 /// Destructor: Takes ownership of the `StringVec` pointer and deletes it.
 #[no_mangle] #[inline] #[allow(unused_variables)] pub extern "C" fn az_string_vec_delete(object: &mut AzStringVec) { }
 /// Copies the object
@@ -1043,7 +1043,7 @@ pub type AzLayoutInfoPtrType = azul_core::callbacks::LayoutInfoPtr;
 #[inline(always)] fn az_style_word_spacing_downcast_ref<P, F: FnOnce(&Box<StyleWordSpacing>) -> P>(ptr: &mut AzStyleWordSpacingPtr, func: F) -> P { let box_ptr: Box<StyleWordSpacing> = unsafe { Box::<StyleWordSpacing>::from_raw(ptr.ptr  as *mut StyleWordSpacing) }; let ret_val = func(&box_ptr); ptr.ptr = Box::into_raw(box_ptr) as *mut c_void;ret_val }
 
 /// Re-export of rust-allocated (stack based) `BoxShadowPreDisplayItemValue` struct
-#[no_mangle] #[repr(C)] pub struct AzBoxShadowPreDisplayItemValue { object: azul_css::CssPropertyValue::<BoxShadowPreDisplayItem> }
+#[no_mangle] #[repr(C)] pub struct AzBoxShadowPreDisplayItemValue { pub object: azul_css::CssPropertyValue::<BoxShadowPreDisplayItem> }
 #[inline] #[no_mangle] pub extern "C" fn az_box_shadow_pre_display_item_value_auto() -> AzBoxShadowPreDisplayItemValue { AzBoxShadowPreDisplayItemValue { object: azul_css::CssPropertyValue::<BoxShadowPreDisplayItem>::Auto } }
 #[inline] #[no_mangle] pub extern "C" fn az_box_shadow_pre_display_item_value_none() -> AzBoxShadowPreDisplayItemValue { AzBoxShadowPreDisplayItemValue { object: azul_css::CssPropertyValue::<BoxShadowPreDisplayItem>::None } }
 #[inline] #[no_mangle] pub extern "C" fn az_box_shadow_pre_display_item_value_inherit() -> AzBoxShadowPreDisplayItemValue { AzBoxShadowPreDisplayItemValue { object: azul_css::CssPropertyValue::<BoxShadowPreDisplayItem>::Inherit } }
@@ -1056,7 +1056,7 @@ pub type AzLayoutInfoPtrType = azul_core::callbacks::LayoutInfoPtr;
 #[no_mangle] #[inline] pub extern "C" fn az_box_shadow_pre_display_item_value_deep_copy(object: &AzBoxShadowPreDisplayItemValue) -> AzBoxShadowPreDisplayItemValue { AzBoxShadowPreDisplayItemValue{ object: object.object.clone() } }
 
 /// Re-export of rust-allocated (stack based) `LayoutAlignContentValue` struct
-#[no_mangle] #[repr(C)] pub struct AzLayoutAlignContentValue { object: azul_css::CssPropertyValue::<LayoutAlignContent> }
+#[no_mangle] #[repr(C)] pub struct AzLayoutAlignContentValue { pub object: azul_css::CssPropertyValue::<LayoutAlignContent> }
 #[inline] #[no_mangle] pub extern "C" fn az_layout_align_content_value_auto() -> AzLayoutAlignContentValue { AzLayoutAlignContentValue { object: azul_css::CssPropertyValue::<LayoutAlignContent>::Auto } }
 #[inline] #[no_mangle] pub extern "C" fn az_layout_align_content_value_none() -> AzLayoutAlignContentValue { AzLayoutAlignContentValue { object: azul_css::CssPropertyValue::<LayoutAlignContent>::None } }
 #[inline] #[no_mangle] pub extern "C" fn az_layout_align_content_value_inherit() -> AzLayoutAlignContentValue { AzLayoutAlignContentValue { object: azul_css::CssPropertyValue::<LayoutAlignContent>::Inherit } }
@@ -1069,7 +1069,7 @@ pub type AzLayoutInfoPtrType = azul_core::callbacks::LayoutInfoPtr;
 #[no_mangle] #[inline] pub extern "C" fn az_layout_align_content_value_deep_copy(object: &AzLayoutAlignContentValue) -> AzLayoutAlignContentValue { AzLayoutAlignContentValue{ object: object.object.clone() } }
 
 /// Re-export of rust-allocated (stack based) `LayoutAlignItemsValue` struct
-#[no_mangle] #[repr(C)] pub struct AzLayoutAlignItemsValue { object: azul_css::CssPropertyValue::<LayoutAlignItems> }
+#[no_mangle] #[repr(C)] pub struct AzLayoutAlignItemsValue { pub object: azul_css::CssPropertyValue::<LayoutAlignItems> }
 #[inline] #[no_mangle] pub extern "C" fn az_layout_align_items_value_auto() -> AzLayoutAlignItemsValue { AzLayoutAlignItemsValue { object: azul_css::CssPropertyValue::<LayoutAlignItems>::Auto } }
 #[inline] #[no_mangle] pub extern "C" fn az_layout_align_items_value_none() -> AzLayoutAlignItemsValue { AzLayoutAlignItemsValue { object: azul_css::CssPropertyValue::<LayoutAlignItems>::None } }
 #[inline] #[no_mangle] pub extern "C" fn az_layout_align_items_value_inherit() -> AzLayoutAlignItemsValue { AzLayoutAlignItemsValue { object: azul_css::CssPropertyValue::<LayoutAlignItems>::Inherit } }
@@ -1082,7 +1082,7 @@ pub type AzLayoutInfoPtrType = azul_core::callbacks::LayoutInfoPtr;
 #[no_mangle] #[inline] pub extern "C" fn az_layout_align_items_value_deep_copy(object: &AzLayoutAlignItemsValue) -> AzLayoutAlignItemsValue { AzLayoutAlignItemsValue{ object: object.object.clone() } }
 
 /// Re-export of rust-allocated (stack based) `LayoutBottomValue` struct
-#[no_mangle] #[repr(C)] pub struct AzLayoutBottomValue { object: azul_css::CssPropertyValue::<LayoutBottom> }
+#[no_mangle] #[repr(C)] pub struct AzLayoutBottomValue { pub object: azul_css::CssPropertyValue::<LayoutBottom> }
 #[inline] #[no_mangle] pub extern "C" fn az_layout_bottom_value_auto() -> AzLayoutBottomValue { AzLayoutBottomValue { object: azul_css::CssPropertyValue::<LayoutBottom>::Auto } }
 #[inline] #[no_mangle] pub extern "C" fn az_layout_bottom_value_none() -> AzLayoutBottomValue { AzLayoutBottomValue { object: azul_css::CssPropertyValue::<LayoutBottom>::None } }
 #[inline] #[no_mangle] pub extern "C" fn az_layout_bottom_value_inherit() -> AzLayoutBottomValue { AzLayoutBottomValue { object: azul_css::CssPropertyValue::<LayoutBottom>::Inherit } }
@@ -1095,7 +1095,7 @@ pub type AzLayoutInfoPtrType = azul_core::callbacks::LayoutInfoPtr;
 #[no_mangle] #[inline] pub extern "C" fn az_layout_bottom_value_deep_copy(object: &AzLayoutBottomValue) -> AzLayoutBottomValue { AzLayoutBottomValue{ object: object.object.clone() } }
 
 /// Re-export of rust-allocated (stack based) `LayoutBoxSizingValue` struct
-#[no_mangle] #[repr(C)] pub struct AzLayoutBoxSizingValue { object: azul_css::CssPropertyValue::<LayoutBoxSizing> }
+#[no_mangle] #[repr(C)] pub struct AzLayoutBoxSizingValue { pub object: azul_css::CssPropertyValue::<LayoutBoxSizing> }
 #[inline] #[no_mangle] pub extern "C" fn az_layout_box_sizing_value_auto() -> AzLayoutBoxSizingValue { AzLayoutBoxSizingValue { object: azul_css::CssPropertyValue::<LayoutBoxSizing>::Auto } }
 #[inline] #[no_mangle] pub extern "C" fn az_layout_box_sizing_value_none() -> AzLayoutBoxSizingValue { AzLayoutBoxSizingValue { object: azul_css::CssPropertyValue::<LayoutBoxSizing>::None } }
 #[inline] #[no_mangle] pub extern "C" fn az_layout_box_sizing_value_inherit() -> AzLayoutBoxSizingValue { AzLayoutBoxSizingValue { object: azul_css::CssPropertyValue::<LayoutBoxSizing>::Inherit } }
@@ -1108,7 +1108,7 @@ pub type AzLayoutInfoPtrType = azul_core::callbacks::LayoutInfoPtr;
 #[no_mangle] #[inline] pub extern "C" fn az_layout_box_sizing_value_deep_copy(object: &AzLayoutBoxSizingValue) -> AzLayoutBoxSizingValue { AzLayoutBoxSizingValue{ object: object.object.clone() } }
 
 /// Re-export of rust-allocated (stack based) `LayoutDirectionValue` struct
-#[no_mangle] #[repr(C)] pub struct AzLayoutDirectionValue { object: azul_css::CssPropertyValue::<LayoutDirection> }
+#[no_mangle] #[repr(C)] pub struct AzLayoutDirectionValue { pub object: azul_css::CssPropertyValue::<LayoutDirection> }
 #[inline] #[no_mangle] pub extern "C" fn az_layout_direction_value_auto() -> AzLayoutDirectionValue { AzLayoutDirectionValue { object: azul_css::CssPropertyValue::<LayoutDirection>::Auto } }
 #[inline] #[no_mangle] pub extern "C" fn az_layout_direction_value_none() -> AzLayoutDirectionValue { AzLayoutDirectionValue { object: azul_css::CssPropertyValue::<LayoutDirection>::None } }
 #[inline] #[no_mangle] pub extern "C" fn az_layout_direction_value_inherit() -> AzLayoutDirectionValue { AzLayoutDirectionValue { object: azul_css::CssPropertyValue::<LayoutDirection>::Inherit } }
@@ -1121,7 +1121,7 @@ pub type AzLayoutInfoPtrType = azul_core::callbacks::LayoutInfoPtr;
 #[no_mangle] #[inline] pub extern "C" fn az_layout_direction_value_deep_copy(object: &AzLayoutDirectionValue) -> AzLayoutDirectionValue { AzLayoutDirectionValue{ object: object.object.clone() } }
 
 /// Re-export of rust-allocated (stack based) `LayoutDisplayValue` struct
-#[no_mangle] #[repr(C)] pub struct AzLayoutDisplayValue { object: azul_css::CssPropertyValue::<LayoutDisplay> }
+#[no_mangle] #[repr(C)] pub struct AzLayoutDisplayValue { pub object: azul_css::CssPropertyValue::<LayoutDisplay> }
 #[inline] #[no_mangle] pub extern "C" fn az_layout_display_value_auto() -> AzLayoutDisplayValue { AzLayoutDisplayValue { object: azul_css::CssPropertyValue::<LayoutDisplay>::Auto } }
 #[inline] #[no_mangle] pub extern "C" fn az_layout_display_value_none() -> AzLayoutDisplayValue { AzLayoutDisplayValue { object: azul_css::CssPropertyValue::<LayoutDisplay>::None } }
 #[inline] #[no_mangle] pub extern "C" fn az_layout_display_value_inherit() -> AzLayoutDisplayValue { AzLayoutDisplayValue { object: azul_css::CssPropertyValue::<LayoutDisplay>::Inherit } }
@@ -1134,7 +1134,7 @@ pub type AzLayoutInfoPtrType = azul_core::callbacks::LayoutInfoPtr;
 #[no_mangle] #[inline] pub extern "C" fn az_layout_display_value_deep_copy(object: &AzLayoutDisplayValue) -> AzLayoutDisplayValue { AzLayoutDisplayValue{ object: object.object.clone() } }
 
 /// Re-export of rust-allocated (stack based) `LayoutFlexGrowValue` struct
-#[no_mangle] #[repr(C)] pub struct AzLayoutFlexGrowValue { object: azul_css::CssPropertyValue::<LayoutFlexGrow> }
+#[no_mangle] #[repr(C)] pub struct AzLayoutFlexGrowValue { pub object: azul_css::CssPropertyValue::<LayoutFlexGrow> }
 #[inline] #[no_mangle] pub extern "C" fn az_layout_flex_grow_value_auto() -> AzLayoutFlexGrowValue { AzLayoutFlexGrowValue { object: azul_css::CssPropertyValue::<LayoutFlexGrow>::Auto } }
 #[inline] #[no_mangle] pub extern "C" fn az_layout_flex_grow_value_none() -> AzLayoutFlexGrowValue { AzLayoutFlexGrowValue { object: azul_css::CssPropertyValue::<LayoutFlexGrow>::None } }
 #[inline] #[no_mangle] pub extern "C" fn az_layout_flex_grow_value_inherit() -> AzLayoutFlexGrowValue { AzLayoutFlexGrowValue { object: azul_css::CssPropertyValue::<LayoutFlexGrow>::Inherit } }
@@ -1147,7 +1147,7 @@ pub type AzLayoutInfoPtrType = azul_core::callbacks::LayoutInfoPtr;
 #[no_mangle] #[inline] pub extern "C" fn az_layout_flex_grow_value_deep_copy(object: &AzLayoutFlexGrowValue) -> AzLayoutFlexGrowValue { AzLayoutFlexGrowValue{ object: object.object.clone() } }
 
 /// Re-export of rust-allocated (stack based) `LayoutFlexShrinkValue` struct
-#[no_mangle] #[repr(C)] pub struct AzLayoutFlexShrinkValue { object: azul_css::CssPropertyValue::<LayoutFlexShrink> }
+#[no_mangle] #[repr(C)] pub struct AzLayoutFlexShrinkValue { pub object: azul_css::CssPropertyValue::<LayoutFlexShrink> }
 #[inline] #[no_mangle] pub extern "C" fn az_layout_flex_shrink_value_auto() -> AzLayoutFlexShrinkValue { AzLayoutFlexShrinkValue { object: azul_css::CssPropertyValue::<LayoutFlexShrink>::Auto } }
 #[inline] #[no_mangle] pub extern "C" fn az_layout_flex_shrink_value_none() -> AzLayoutFlexShrinkValue { AzLayoutFlexShrinkValue { object: azul_css::CssPropertyValue::<LayoutFlexShrink>::None } }
 #[inline] #[no_mangle] pub extern "C" fn az_layout_flex_shrink_value_inherit() -> AzLayoutFlexShrinkValue { AzLayoutFlexShrinkValue { object: azul_css::CssPropertyValue::<LayoutFlexShrink>::Inherit } }
@@ -1160,7 +1160,7 @@ pub type AzLayoutInfoPtrType = azul_core::callbacks::LayoutInfoPtr;
 #[no_mangle] #[inline] pub extern "C" fn az_layout_flex_shrink_value_deep_copy(object: &AzLayoutFlexShrinkValue) -> AzLayoutFlexShrinkValue { AzLayoutFlexShrinkValue{ object: object.object.clone() } }
 
 /// Re-export of rust-allocated (stack based) `LayoutFloatValue` struct
-#[no_mangle] #[repr(C)] pub struct AzLayoutFloatValue { object: azul_css::CssPropertyValue::<LayoutFloat> }
+#[no_mangle] #[repr(C)] pub struct AzLayoutFloatValue { pub object: azul_css::CssPropertyValue::<LayoutFloat> }
 #[inline] #[no_mangle] pub extern "C" fn az_layout_float_value_auto() -> AzLayoutFloatValue { AzLayoutFloatValue { object: azul_css::CssPropertyValue::<LayoutFloat>::Auto } }
 #[inline] #[no_mangle] pub extern "C" fn az_layout_float_value_none() -> AzLayoutFloatValue { AzLayoutFloatValue { object: azul_css::CssPropertyValue::<LayoutFloat>::None } }
 #[inline] #[no_mangle] pub extern "C" fn az_layout_float_value_inherit() -> AzLayoutFloatValue { AzLayoutFloatValue { object: azul_css::CssPropertyValue::<LayoutFloat>::Inherit } }
@@ -1173,7 +1173,7 @@ pub type AzLayoutInfoPtrType = azul_core::callbacks::LayoutInfoPtr;
 #[no_mangle] #[inline] pub extern "C" fn az_layout_float_value_deep_copy(object: &AzLayoutFloatValue) -> AzLayoutFloatValue { AzLayoutFloatValue{ object: object.object.clone() } }
 
 /// Re-export of rust-allocated (stack based) `LayoutHeightValue` struct
-#[no_mangle] #[repr(C)] pub struct AzLayoutHeightValue { object: azul_css::CssPropertyValue::<LayoutHeight> }
+#[no_mangle] #[repr(C)] pub struct AzLayoutHeightValue { pub object: azul_css::CssPropertyValue::<LayoutHeight> }
 #[inline] #[no_mangle] pub extern "C" fn az_layout_height_value_auto() -> AzLayoutHeightValue { AzLayoutHeightValue { object: azul_css::CssPropertyValue::<LayoutHeight>::Auto } }
 #[inline] #[no_mangle] pub extern "C" fn az_layout_height_value_none() -> AzLayoutHeightValue { AzLayoutHeightValue { object: azul_css::CssPropertyValue::<LayoutHeight>::None } }
 #[inline] #[no_mangle] pub extern "C" fn az_layout_height_value_inherit() -> AzLayoutHeightValue { AzLayoutHeightValue { object: azul_css::CssPropertyValue::<LayoutHeight>::Inherit } }
@@ -1186,7 +1186,7 @@ pub type AzLayoutInfoPtrType = azul_core::callbacks::LayoutInfoPtr;
 #[no_mangle] #[inline] pub extern "C" fn az_layout_height_value_deep_copy(object: &AzLayoutHeightValue) -> AzLayoutHeightValue { AzLayoutHeightValue{ object: object.object.clone() } }
 
 /// Re-export of rust-allocated (stack based) `LayoutJustifyContentValue` struct
-#[no_mangle] #[repr(C)] pub struct AzLayoutJustifyContentValue { object: azul_css::CssPropertyValue::<LayoutJustifyContent> }
+#[no_mangle] #[repr(C)] pub struct AzLayoutJustifyContentValue { pub object: azul_css::CssPropertyValue::<LayoutJustifyContent> }
 #[inline] #[no_mangle] pub extern "C" fn az_layout_justify_content_value_auto() -> AzLayoutJustifyContentValue { AzLayoutJustifyContentValue { object: azul_css::CssPropertyValue::<LayoutJustifyContent>::Auto } }
 #[inline] #[no_mangle] pub extern "C" fn az_layout_justify_content_value_none() -> AzLayoutJustifyContentValue { AzLayoutJustifyContentValue { object: azul_css::CssPropertyValue::<LayoutJustifyContent>::None } }
 #[inline] #[no_mangle] pub extern "C" fn az_layout_justify_content_value_inherit() -> AzLayoutJustifyContentValue { AzLayoutJustifyContentValue { object: azul_css::CssPropertyValue::<LayoutJustifyContent>::Inherit } }
@@ -1199,7 +1199,7 @@ pub type AzLayoutInfoPtrType = azul_core::callbacks::LayoutInfoPtr;
 #[no_mangle] #[inline] pub extern "C" fn az_layout_justify_content_value_deep_copy(object: &AzLayoutJustifyContentValue) -> AzLayoutJustifyContentValue { AzLayoutJustifyContentValue{ object: object.object.clone() } }
 
 /// Re-export of rust-allocated (stack based) `LayoutLeftValue` struct
-#[no_mangle] #[repr(C)] pub struct AzLayoutLeftValue { object: azul_css::CssPropertyValue::<LayoutLeft> }
+#[no_mangle] #[repr(C)] pub struct AzLayoutLeftValue { pub object: azul_css::CssPropertyValue::<LayoutLeft> }
 #[inline] #[no_mangle] pub extern "C" fn az_layout_left_value_auto() -> AzLayoutLeftValue { AzLayoutLeftValue { object: azul_css::CssPropertyValue::<LayoutLeft>::Auto } }
 #[inline] #[no_mangle] pub extern "C" fn az_layout_left_value_none() -> AzLayoutLeftValue { AzLayoutLeftValue { object: azul_css::CssPropertyValue::<LayoutLeft>::None } }
 #[inline] #[no_mangle] pub extern "C" fn az_layout_left_value_inherit() -> AzLayoutLeftValue { AzLayoutLeftValue { object: azul_css::CssPropertyValue::<LayoutLeft>::Inherit } }
@@ -1212,7 +1212,7 @@ pub type AzLayoutInfoPtrType = azul_core::callbacks::LayoutInfoPtr;
 #[no_mangle] #[inline] pub extern "C" fn az_layout_left_value_deep_copy(object: &AzLayoutLeftValue) -> AzLayoutLeftValue { AzLayoutLeftValue{ object: object.object.clone() } }
 
 /// Re-export of rust-allocated (stack based) `LayoutMarginBottomValue` struct
-#[no_mangle] #[repr(C)] pub struct AzLayoutMarginBottomValue { object: azul_css::CssPropertyValue::<LayoutMarginBottom> }
+#[no_mangle] #[repr(C)] pub struct AzLayoutMarginBottomValue { pub object: azul_css::CssPropertyValue::<LayoutMarginBottom> }
 #[inline] #[no_mangle] pub extern "C" fn az_layout_margin_bottom_value_auto() -> AzLayoutMarginBottomValue { AzLayoutMarginBottomValue { object: azul_css::CssPropertyValue::<LayoutMarginBottom>::Auto } }
 #[inline] #[no_mangle] pub extern "C" fn az_layout_margin_bottom_value_none() -> AzLayoutMarginBottomValue { AzLayoutMarginBottomValue { object: azul_css::CssPropertyValue::<LayoutMarginBottom>::None } }
 #[inline] #[no_mangle] pub extern "C" fn az_layout_margin_bottom_value_inherit() -> AzLayoutMarginBottomValue { AzLayoutMarginBottomValue { object: azul_css::CssPropertyValue::<LayoutMarginBottom>::Inherit } }
@@ -1225,7 +1225,7 @@ pub type AzLayoutInfoPtrType = azul_core::callbacks::LayoutInfoPtr;
 #[no_mangle] #[inline] pub extern "C" fn az_layout_margin_bottom_value_deep_copy(object: &AzLayoutMarginBottomValue) -> AzLayoutMarginBottomValue { AzLayoutMarginBottomValue{ object: object.object.clone() } }
 
 /// Re-export of rust-allocated (stack based) `LayoutMarginLeftValue` struct
-#[no_mangle] #[repr(C)] pub struct AzLayoutMarginLeftValue { object: azul_css::CssPropertyValue::<LayoutMarginLeft> }
+#[no_mangle] #[repr(C)] pub struct AzLayoutMarginLeftValue { pub object: azul_css::CssPropertyValue::<LayoutMarginLeft> }
 #[inline] #[no_mangle] pub extern "C" fn az_layout_margin_left_value_auto() -> AzLayoutMarginLeftValue { AzLayoutMarginLeftValue { object: azul_css::CssPropertyValue::<LayoutMarginLeft>::Auto } }
 #[inline] #[no_mangle] pub extern "C" fn az_layout_margin_left_value_none() -> AzLayoutMarginLeftValue { AzLayoutMarginLeftValue { object: azul_css::CssPropertyValue::<LayoutMarginLeft>::None } }
 #[inline] #[no_mangle] pub extern "C" fn az_layout_margin_left_value_inherit() -> AzLayoutMarginLeftValue { AzLayoutMarginLeftValue { object: azul_css::CssPropertyValue::<LayoutMarginLeft>::Inherit } }
@@ -1238,7 +1238,7 @@ pub type AzLayoutInfoPtrType = azul_core::callbacks::LayoutInfoPtr;
 #[no_mangle] #[inline] pub extern "C" fn az_layout_margin_left_value_deep_copy(object: &AzLayoutMarginLeftValue) -> AzLayoutMarginLeftValue { AzLayoutMarginLeftValue{ object: object.object.clone() } }
 
 /// Re-export of rust-allocated (stack based) `LayoutMarginRightValue` struct
-#[no_mangle] #[repr(C)] pub struct AzLayoutMarginRightValue { object: azul_css::CssPropertyValue::<LayoutMarginRight> }
+#[no_mangle] #[repr(C)] pub struct AzLayoutMarginRightValue { pub object: azul_css::CssPropertyValue::<LayoutMarginRight> }
 #[inline] #[no_mangle] pub extern "C" fn az_layout_margin_right_value_auto() -> AzLayoutMarginRightValue { AzLayoutMarginRightValue { object: azul_css::CssPropertyValue::<LayoutMarginRight>::Auto } }
 #[inline] #[no_mangle] pub extern "C" fn az_layout_margin_right_value_none() -> AzLayoutMarginRightValue { AzLayoutMarginRightValue { object: azul_css::CssPropertyValue::<LayoutMarginRight>::None } }
 #[inline] #[no_mangle] pub extern "C" fn az_layout_margin_right_value_inherit() -> AzLayoutMarginRightValue { AzLayoutMarginRightValue { object: azul_css::CssPropertyValue::<LayoutMarginRight>::Inherit } }
@@ -1251,7 +1251,7 @@ pub type AzLayoutInfoPtrType = azul_core::callbacks::LayoutInfoPtr;
 #[no_mangle] #[inline] pub extern "C" fn az_layout_margin_right_value_deep_copy(object: &AzLayoutMarginRightValue) -> AzLayoutMarginRightValue { AzLayoutMarginRightValue{ object: object.object.clone() } }
 
 /// Re-export of rust-allocated (stack based) `LayoutMarginTopValue` struct
-#[no_mangle] #[repr(C)] pub struct AzLayoutMarginTopValue { object: azul_css::CssPropertyValue::<LayoutMarginTop> }
+#[no_mangle] #[repr(C)] pub struct AzLayoutMarginTopValue { pub object: azul_css::CssPropertyValue::<LayoutMarginTop> }
 #[inline] #[no_mangle] pub extern "C" fn az_layout_margin_top_value_auto() -> AzLayoutMarginTopValue { AzLayoutMarginTopValue { object: azul_css::CssPropertyValue::<LayoutMarginTop>::Auto } }
 #[inline] #[no_mangle] pub extern "C" fn az_layout_margin_top_value_none() -> AzLayoutMarginTopValue { AzLayoutMarginTopValue { object: azul_css::CssPropertyValue::<LayoutMarginTop>::None } }
 #[inline] #[no_mangle] pub extern "C" fn az_layout_margin_top_value_inherit() -> AzLayoutMarginTopValue { AzLayoutMarginTopValue { object: azul_css::CssPropertyValue::<LayoutMarginTop>::Inherit } }
@@ -1264,7 +1264,7 @@ pub type AzLayoutInfoPtrType = azul_core::callbacks::LayoutInfoPtr;
 #[no_mangle] #[inline] pub extern "C" fn az_layout_margin_top_value_deep_copy(object: &AzLayoutMarginTopValue) -> AzLayoutMarginTopValue { AzLayoutMarginTopValue{ object: object.object.clone() } }
 
 /// Re-export of rust-allocated (stack based) `LayoutMaxHeightValue` struct
-#[no_mangle] #[repr(C)] pub struct AzLayoutMaxHeightValue { object: azul_css::CssPropertyValue::<LayoutMaxHeight> }
+#[no_mangle] #[repr(C)] pub struct AzLayoutMaxHeightValue { pub object: azul_css::CssPropertyValue::<LayoutMaxHeight> }
 #[inline] #[no_mangle] pub extern "C" fn az_layout_max_height_value_auto() -> AzLayoutMaxHeightValue { AzLayoutMaxHeightValue { object: azul_css::CssPropertyValue::<LayoutMaxHeight>::Auto } }
 #[inline] #[no_mangle] pub extern "C" fn az_layout_max_height_value_none() -> AzLayoutMaxHeightValue { AzLayoutMaxHeightValue { object: azul_css::CssPropertyValue::<LayoutMaxHeight>::None } }
 #[inline] #[no_mangle] pub extern "C" fn az_layout_max_height_value_inherit() -> AzLayoutMaxHeightValue { AzLayoutMaxHeightValue { object: azul_css::CssPropertyValue::<LayoutMaxHeight>::Inherit } }
@@ -1277,7 +1277,7 @@ pub type AzLayoutInfoPtrType = azul_core::callbacks::LayoutInfoPtr;
 #[no_mangle] #[inline] pub extern "C" fn az_layout_max_height_value_deep_copy(object: &AzLayoutMaxHeightValue) -> AzLayoutMaxHeightValue { AzLayoutMaxHeightValue{ object: object.object.clone() } }
 
 /// Re-export of rust-allocated (stack based) `LayoutMaxWidthValue` struct
-#[no_mangle] #[repr(C)] pub struct AzLayoutMaxWidthValue { object: azul_css::CssPropertyValue::<LayoutMaxWidth> }
+#[no_mangle] #[repr(C)] pub struct AzLayoutMaxWidthValue { pub object: azul_css::CssPropertyValue::<LayoutMaxWidth> }
 #[inline] #[no_mangle] pub extern "C" fn az_layout_max_width_value_auto() -> AzLayoutMaxWidthValue { AzLayoutMaxWidthValue { object: azul_css::CssPropertyValue::<LayoutMaxWidth>::Auto } }
 #[inline] #[no_mangle] pub extern "C" fn az_layout_max_width_value_none() -> AzLayoutMaxWidthValue { AzLayoutMaxWidthValue { object: azul_css::CssPropertyValue::<LayoutMaxWidth>::None } }
 #[inline] #[no_mangle] pub extern "C" fn az_layout_max_width_value_inherit() -> AzLayoutMaxWidthValue { AzLayoutMaxWidthValue { object: azul_css::CssPropertyValue::<LayoutMaxWidth>::Inherit } }
@@ -1290,7 +1290,7 @@ pub type AzLayoutInfoPtrType = azul_core::callbacks::LayoutInfoPtr;
 #[no_mangle] #[inline] pub extern "C" fn az_layout_max_width_value_deep_copy(object: &AzLayoutMaxWidthValue) -> AzLayoutMaxWidthValue { AzLayoutMaxWidthValue{ object: object.object.clone() } }
 
 /// Re-export of rust-allocated (stack based) `LayoutMinHeightValue` struct
-#[no_mangle] #[repr(C)] pub struct AzLayoutMinHeightValue { object: azul_css::CssPropertyValue::<LayoutMinHeight> }
+#[no_mangle] #[repr(C)] pub struct AzLayoutMinHeightValue { pub object: azul_css::CssPropertyValue::<LayoutMinHeight> }
 #[inline] #[no_mangle] pub extern "C" fn az_layout_min_height_value_auto() -> AzLayoutMinHeightValue { AzLayoutMinHeightValue { object: azul_css::CssPropertyValue::<LayoutMinHeight>::Auto } }
 #[inline] #[no_mangle] pub extern "C" fn az_layout_min_height_value_none() -> AzLayoutMinHeightValue { AzLayoutMinHeightValue { object: azul_css::CssPropertyValue::<LayoutMinHeight>::None } }
 #[inline] #[no_mangle] pub extern "C" fn az_layout_min_height_value_inherit() -> AzLayoutMinHeightValue { AzLayoutMinHeightValue { object: azul_css::CssPropertyValue::<LayoutMinHeight>::Inherit } }
@@ -1303,7 +1303,7 @@ pub type AzLayoutInfoPtrType = azul_core::callbacks::LayoutInfoPtr;
 #[no_mangle] #[inline] pub extern "C" fn az_layout_min_height_value_deep_copy(object: &AzLayoutMinHeightValue) -> AzLayoutMinHeightValue { AzLayoutMinHeightValue{ object: object.object.clone() } }
 
 /// Re-export of rust-allocated (stack based) `LayoutMinWidthValue` struct
-#[no_mangle] #[repr(C)] pub struct AzLayoutMinWidthValue { object: azul_css::CssPropertyValue::<LayoutMinWidth> }
+#[no_mangle] #[repr(C)] pub struct AzLayoutMinWidthValue { pub object: azul_css::CssPropertyValue::<LayoutMinWidth> }
 #[inline] #[no_mangle] pub extern "C" fn az_layout_min_width_value_auto() -> AzLayoutMinWidthValue { AzLayoutMinWidthValue { object: azul_css::CssPropertyValue::<LayoutMinWidth>::Auto } }
 #[inline] #[no_mangle] pub extern "C" fn az_layout_min_width_value_none() -> AzLayoutMinWidthValue { AzLayoutMinWidthValue { object: azul_css::CssPropertyValue::<LayoutMinWidth>::None } }
 #[inline] #[no_mangle] pub extern "C" fn az_layout_min_width_value_inherit() -> AzLayoutMinWidthValue { AzLayoutMinWidthValue { object: azul_css::CssPropertyValue::<LayoutMinWidth>::Inherit } }
@@ -1316,7 +1316,7 @@ pub type AzLayoutInfoPtrType = azul_core::callbacks::LayoutInfoPtr;
 #[no_mangle] #[inline] pub extern "C" fn az_layout_min_width_value_deep_copy(object: &AzLayoutMinWidthValue) -> AzLayoutMinWidthValue { AzLayoutMinWidthValue{ object: object.object.clone() } }
 
 /// Re-export of rust-allocated (stack based) `LayoutPaddingBottomValue` struct
-#[no_mangle] #[repr(C)] pub struct AzLayoutPaddingBottomValue { object: azul_css::CssPropertyValue::<LayoutPaddingBottom> }
+#[no_mangle] #[repr(C)] pub struct AzLayoutPaddingBottomValue { pub object: azul_css::CssPropertyValue::<LayoutPaddingBottom> }
 #[inline] #[no_mangle] pub extern "C" fn az_layout_padding_bottom_value_auto() -> AzLayoutPaddingBottomValue { AzLayoutPaddingBottomValue { object: azul_css::CssPropertyValue::<LayoutPaddingBottom>::Auto } }
 #[inline] #[no_mangle] pub extern "C" fn az_layout_padding_bottom_value_none() -> AzLayoutPaddingBottomValue { AzLayoutPaddingBottomValue { object: azul_css::CssPropertyValue::<LayoutPaddingBottom>::None } }
 #[inline] #[no_mangle] pub extern "C" fn az_layout_padding_bottom_value_inherit() -> AzLayoutPaddingBottomValue { AzLayoutPaddingBottomValue { object: azul_css::CssPropertyValue::<LayoutPaddingBottom>::Inherit } }
@@ -1329,7 +1329,7 @@ pub type AzLayoutInfoPtrType = azul_core::callbacks::LayoutInfoPtr;
 #[no_mangle] #[inline] pub extern "C" fn az_layout_padding_bottom_value_deep_copy(object: &AzLayoutPaddingBottomValue) -> AzLayoutPaddingBottomValue { AzLayoutPaddingBottomValue{ object: object.object.clone() } }
 
 /// Re-export of rust-allocated (stack based) `LayoutPaddingLeftValue` struct
-#[no_mangle] #[repr(C)] pub struct AzLayoutPaddingLeftValue { object: azul_css::CssPropertyValue::<LayoutPaddingLeft> }
+#[no_mangle] #[repr(C)] pub struct AzLayoutPaddingLeftValue { pub object: azul_css::CssPropertyValue::<LayoutPaddingLeft> }
 #[inline] #[no_mangle] pub extern "C" fn az_layout_padding_left_value_auto() -> AzLayoutPaddingLeftValue { AzLayoutPaddingLeftValue { object: azul_css::CssPropertyValue::<LayoutPaddingLeft>::Auto } }
 #[inline] #[no_mangle] pub extern "C" fn az_layout_padding_left_value_none() -> AzLayoutPaddingLeftValue { AzLayoutPaddingLeftValue { object: azul_css::CssPropertyValue::<LayoutPaddingLeft>::None } }
 #[inline] #[no_mangle] pub extern "C" fn az_layout_padding_left_value_inherit() -> AzLayoutPaddingLeftValue { AzLayoutPaddingLeftValue { object: azul_css::CssPropertyValue::<LayoutPaddingLeft>::Inherit } }
@@ -1342,7 +1342,7 @@ pub type AzLayoutInfoPtrType = azul_core::callbacks::LayoutInfoPtr;
 #[no_mangle] #[inline] pub extern "C" fn az_layout_padding_left_value_deep_copy(object: &AzLayoutPaddingLeftValue) -> AzLayoutPaddingLeftValue { AzLayoutPaddingLeftValue{ object: object.object.clone() } }
 
 /// Re-export of rust-allocated (stack based) `LayoutPaddingRightValue` struct
-#[no_mangle] #[repr(C)] pub struct AzLayoutPaddingRightValue { object: azul_css::CssPropertyValue::<LayoutPaddingRight> }
+#[no_mangle] #[repr(C)] pub struct AzLayoutPaddingRightValue { pub object: azul_css::CssPropertyValue::<LayoutPaddingRight> }
 #[inline] #[no_mangle] pub extern "C" fn az_layout_padding_right_value_auto() -> AzLayoutPaddingRightValue { AzLayoutPaddingRightValue { object: azul_css::CssPropertyValue::<LayoutPaddingRight>::Auto } }
 #[inline] #[no_mangle] pub extern "C" fn az_layout_padding_right_value_none() -> AzLayoutPaddingRightValue { AzLayoutPaddingRightValue { object: azul_css::CssPropertyValue::<LayoutPaddingRight>::None } }
 #[inline] #[no_mangle] pub extern "C" fn az_layout_padding_right_value_inherit() -> AzLayoutPaddingRightValue { AzLayoutPaddingRightValue { object: azul_css::CssPropertyValue::<LayoutPaddingRight>::Inherit } }
@@ -1355,7 +1355,7 @@ pub type AzLayoutInfoPtrType = azul_core::callbacks::LayoutInfoPtr;
 #[no_mangle] #[inline] pub extern "C" fn az_layout_padding_right_value_deep_copy(object: &AzLayoutPaddingRightValue) -> AzLayoutPaddingRightValue { AzLayoutPaddingRightValue{ object: object.object.clone() } }
 
 /// Re-export of rust-allocated (stack based) `LayoutPaddingTopValue` struct
-#[no_mangle] #[repr(C)] pub struct AzLayoutPaddingTopValue { object: azul_css::CssPropertyValue::<LayoutPaddingTop> }
+#[no_mangle] #[repr(C)] pub struct AzLayoutPaddingTopValue { pub object: azul_css::CssPropertyValue::<LayoutPaddingTop> }
 #[inline] #[no_mangle] pub extern "C" fn az_layout_padding_top_value_auto() -> AzLayoutPaddingTopValue { AzLayoutPaddingTopValue { object: azul_css::CssPropertyValue::<LayoutPaddingTop>::Auto } }
 #[inline] #[no_mangle] pub extern "C" fn az_layout_padding_top_value_none() -> AzLayoutPaddingTopValue { AzLayoutPaddingTopValue { object: azul_css::CssPropertyValue::<LayoutPaddingTop>::None } }
 #[inline] #[no_mangle] pub extern "C" fn az_layout_padding_top_value_inherit() -> AzLayoutPaddingTopValue { AzLayoutPaddingTopValue { object: azul_css::CssPropertyValue::<LayoutPaddingTop>::Inherit } }
@@ -1368,7 +1368,7 @@ pub type AzLayoutInfoPtrType = azul_core::callbacks::LayoutInfoPtr;
 #[no_mangle] #[inline] pub extern "C" fn az_layout_padding_top_value_deep_copy(object: &AzLayoutPaddingTopValue) -> AzLayoutPaddingTopValue { AzLayoutPaddingTopValue{ object: object.object.clone() } }
 
 /// Re-export of rust-allocated (stack based) `LayoutPositionValue` struct
-#[no_mangle] #[repr(C)] pub struct AzLayoutPositionValue { object: azul_css::CssPropertyValue::<LayoutPosition> }
+#[no_mangle] #[repr(C)] pub struct AzLayoutPositionValue { pub object: azul_css::CssPropertyValue::<LayoutPosition> }
 #[inline] #[no_mangle] pub extern "C" fn az_layout_position_value_auto() -> AzLayoutPositionValue { AzLayoutPositionValue { object: azul_css::CssPropertyValue::<LayoutPosition>::Auto } }
 #[inline] #[no_mangle] pub extern "C" fn az_layout_position_value_none() -> AzLayoutPositionValue { AzLayoutPositionValue { object: azul_css::CssPropertyValue::<LayoutPosition>::None } }
 #[inline] #[no_mangle] pub extern "C" fn az_layout_position_value_inherit() -> AzLayoutPositionValue { AzLayoutPositionValue { object: azul_css::CssPropertyValue::<LayoutPosition>::Inherit } }
@@ -1381,7 +1381,7 @@ pub type AzLayoutInfoPtrType = azul_core::callbacks::LayoutInfoPtr;
 #[no_mangle] #[inline] pub extern "C" fn az_layout_position_value_deep_copy(object: &AzLayoutPositionValue) -> AzLayoutPositionValue { AzLayoutPositionValue{ object: object.object.clone() } }
 
 /// Re-export of rust-allocated (stack based) `LayoutRightValue` struct
-#[no_mangle] #[repr(C)] pub struct AzLayoutRightValue { object: azul_css::CssPropertyValue::<LayoutRight> }
+#[no_mangle] #[repr(C)] pub struct AzLayoutRightValue { pub object: azul_css::CssPropertyValue::<LayoutRight> }
 #[inline] #[no_mangle] pub extern "C" fn az_layout_right_value_auto() -> AzLayoutRightValue { AzLayoutRightValue { object: azul_css::CssPropertyValue::<LayoutRight>::Auto } }
 #[inline] #[no_mangle] pub extern "C" fn az_layout_right_value_none() -> AzLayoutRightValue { AzLayoutRightValue { object: azul_css::CssPropertyValue::<LayoutRight>::None } }
 #[inline] #[no_mangle] pub extern "C" fn az_layout_right_value_inherit() -> AzLayoutRightValue { AzLayoutRightValue { object: azul_css::CssPropertyValue::<LayoutRight>::Inherit } }
@@ -1394,7 +1394,7 @@ pub type AzLayoutInfoPtrType = azul_core::callbacks::LayoutInfoPtr;
 #[no_mangle] #[inline] pub extern "C" fn az_layout_right_value_deep_copy(object: &AzLayoutRightValue) -> AzLayoutRightValue { AzLayoutRightValue{ object: object.object.clone() } }
 
 /// Re-export of rust-allocated (stack based) `LayoutTopValue` struct
-#[no_mangle] #[repr(C)] pub struct AzLayoutTopValue { object: azul_css::CssPropertyValue::<LayoutTop> }
+#[no_mangle] #[repr(C)] pub struct AzLayoutTopValue { pub object: azul_css::CssPropertyValue::<LayoutTop> }
 #[inline] #[no_mangle] pub extern "C" fn az_layout_top_value_auto() -> AzLayoutTopValue { AzLayoutTopValue { object: azul_css::CssPropertyValue::<LayoutTop>::Auto } }
 #[inline] #[no_mangle] pub extern "C" fn az_layout_top_value_none() -> AzLayoutTopValue { AzLayoutTopValue { object: azul_css::CssPropertyValue::<LayoutTop>::None } }
 #[inline] #[no_mangle] pub extern "C" fn az_layout_top_value_inherit() -> AzLayoutTopValue { AzLayoutTopValue { object: azul_css::CssPropertyValue::<LayoutTop>::Inherit } }
@@ -1407,7 +1407,7 @@ pub type AzLayoutInfoPtrType = azul_core::callbacks::LayoutInfoPtr;
 #[no_mangle] #[inline] pub extern "C" fn az_layout_top_value_deep_copy(object: &AzLayoutTopValue) -> AzLayoutTopValue { AzLayoutTopValue{ object: object.object.clone() } }
 
 /// Re-export of rust-allocated (stack based) `LayoutWidthValue` struct
-#[no_mangle] #[repr(C)] pub struct AzLayoutWidthValue { object: azul_css::CssPropertyValue::<LayoutWidth> }
+#[no_mangle] #[repr(C)] pub struct AzLayoutWidthValue { pub object: azul_css::CssPropertyValue::<LayoutWidth> }
 #[inline] #[no_mangle] pub extern "C" fn az_layout_width_value_auto() -> AzLayoutWidthValue { AzLayoutWidthValue { object: azul_css::CssPropertyValue::<LayoutWidth>::Auto } }
 #[inline] #[no_mangle] pub extern "C" fn az_layout_width_value_none() -> AzLayoutWidthValue { AzLayoutWidthValue { object: azul_css::CssPropertyValue::<LayoutWidth>::None } }
 #[inline] #[no_mangle] pub extern "C" fn az_layout_width_value_inherit() -> AzLayoutWidthValue { AzLayoutWidthValue { object: azul_css::CssPropertyValue::<LayoutWidth>::Inherit } }
@@ -1420,7 +1420,7 @@ pub type AzLayoutInfoPtrType = azul_core::callbacks::LayoutInfoPtr;
 #[no_mangle] #[inline] pub extern "C" fn az_layout_width_value_deep_copy(object: &AzLayoutWidthValue) -> AzLayoutWidthValue { AzLayoutWidthValue{ object: object.object.clone() } }
 
 /// Re-export of rust-allocated (stack based) `LayoutWrapValue` struct
-#[no_mangle] #[repr(C)] pub struct AzLayoutWrapValue { object: azul_css::CssPropertyValue::<LayoutWrap> }
+#[no_mangle] #[repr(C)] pub struct AzLayoutWrapValue { pub object: azul_css::CssPropertyValue::<LayoutWrap> }
 #[inline] #[no_mangle] pub extern "C" fn az_layout_wrap_value_auto() -> AzLayoutWrapValue { AzLayoutWrapValue { object: azul_css::CssPropertyValue::<LayoutWrap>::Auto } }
 #[inline] #[no_mangle] pub extern "C" fn az_layout_wrap_value_none() -> AzLayoutWrapValue { AzLayoutWrapValue { object: azul_css::CssPropertyValue::<LayoutWrap>::None } }
 #[inline] #[no_mangle] pub extern "C" fn az_layout_wrap_value_inherit() -> AzLayoutWrapValue { AzLayoutWrapValue { object: azul_css::CssPropertyValue::<LayoutWrap>::Inherit } }
@@ -1433,7 +1433,7 @@ pub type AzLayoutInfoPtrType = azul_core::callbacks::LayoutInfoPtr;
 #[no_mangle] #[inline] pub extern "C" fn az_layout_wrap_value_deep_copy(object: &AzLayoutWrapValue) -> AzLayoutWrapValue { AzLayoutWrapValue{ object: object.object.clone() } }
 
 /// Re-export of rust-allocated (stack based) `OverflowValue` struct
-#[no_mangle] #[repr(C)] pub struct AzOverflowValue { object: azul_css::CssPropertyValue::<Overflow> }
+#[no_mangle] #[repr(C)] pub struct AzOverflowValue { pub object: azul_css::CssPropertyValue::<Overflow> }
 #[inline] #[no_mangle] pub extern "C" fn az_overflow_value_auto() -> AzOverflowValue { AzOverflowValue { object: azul_css::CssPropertyValue::<Overflow>::Auto } }
 #[inline] #[no_mangle] pub extern "C" fn az_overflow_value_none() -> AzOverflowValue { AzOverflowValue { object: azul_css::CssPropertyValue::<Overflow>::None } }
 #[inline] #[no_mangle] pub extern "C" fn az_overflow_value_inherit() -> AzOverflowValue { AzOverflowValue { object: azul_css::CssPropertyValue::<Overflow>::Inherit } }
@@ -1446,7 +1446,7 @@ pub type AzLayoutInfoPtrType = azul_core::callbacks::LayoutInfoPtr;
 #[no_mangle] #[inline] pub extern "C" fn az_overflow_value_deep_copy(object: &AzOverflowValue) -> AzOverflowValue { AzOverflowValue{ object: object.object.clone() } }
 
 /// Re-export of rust-allocated (stack based) `StyleBackgroundContentValue` struct
-#[no_mangle] #[repr(C)] pub struct AzStyleBackgroundContentValue { object: azul_css::CssPropertyValue::<StyleBackgroundContent> }
+#[no_mangle] #[repr(C)] pub struct AzStyleBackgroundContentValue { pub object: azul_css::CssPropertyValue::<StyleBackgroundContent> }
 #[inline] #[no_mangle] pub extern "C" fn az_style_background_content_value_auto() -> AzStyleBackgroundContentValue { AzStyleBackgroundContentValue { object: azul_css::CssPropertyValue::<StyleBackgroundContent>::Auto } }
 #[inline] #[no_mangle] pub extern "C" fn az_style_background_content_value_none() -> AzStyleBackgroundContentValue { AzStyleBackgroundContentValue { object: azul_css::CssPropertyValue::<StyleBackgroundContent>::None } }
 #[inline] #[no_mangle] pub extern "C" fn az_style_background_content_value_inherit() -> AzStyleBackgroundContentValue { AzStyleBackgroundContentValue { object: azul_css::CssPropertyValue::<StyleBackgroundContent>::Inherit } }
@@ -1459,7 +1459,7 @@ pub type AzLayoutInfoPtrType = azul_core::callbacks::LayoutInfoPtr;
 #[no_mangle] #[inline] pub extern "C" fn az_style_background_content_value_deep_copy(object: &AzStyleBackgroundContentValue) -> AzStyleBackgroundContentValue { AzStyleBackgroundContentValue{ object: object.object.clone() } }
 
 /// Re-export of rust-allocated (stack based) `StyleBackgroundPositionValue` struct
-#[no_mangle] #[repr(C)] pub struct AzStyleBackgroundPositionValue { object: azul_css::CssPropertyValue::<StyleBackgroundPosition> }
+#[no_mangle] #[repr(C)] pub struct AzStyleBackgroundPositionValue { pub object: azul_css::CssPropertyValue::<StyleBackgroundPosition> }
 #[inline] #[no_mangle] pub extern "C" fn az_style_background_position_value_auto() -> AzStyleBackgroundPositionValue { AzStyleBackgroundPositionValue { object: azul_css::CssPropertyValue::<StyleBackgroundPosition>::Auto } }
 #[inline] #[no_mangle] pub extern "C" fn az_style_background_position_value_none() -> AzStyleBackgroundPositionValue { AzStyleBackgroundPositionValue { object: azul_css::CssPropertyValue::<StyleBackgroundPosition>::None } }
 #[inline] #[no_mangle] pub extern "C" fn az_style_background_position_value_inherit() -> AzStyleBackgroundPositionValue { AzStyleBackgroundPositionValue { object: azul_css::CssPropertyValue::<StyleBackgroundPosition>::Inherit } }
@@ -1472,7 +1472,7 @@ pub type AzLayoutInfoPtrType = azul_core::callbacks::LayoutInfoPtr;
 #[no_mangle] #[inline] pub extern "C" fn az_style_background_position_value_deep_copy(object: &AzStyleBackgroundPositionValue) -> AzStyleBackgroundPositionValue { AzStyleBackgroundPositionValue{ object: object.object.clone() } }
 
 /// Re-export of rust-allocated (stack based) `StyleBackgroundRepeatValue` struct
-#[no_mangle] #[repr(C)] pub struct AzStyleBackgroundRepeatValue { object: azul_css::CssPropertyValue::<StyleBackgroundRepeat> }
+#[no_mangle] #[repr(C)] pub struct AzStyleBackgroundRepeatValue { pub object: azul_css::CssPropertyValue::<StyleBackgroundRepeat> }
 #[inline] #[no_mangle] pub extern "C" fn az_style_background_repeat_value_auto() -> AzStyleBackgroundRepeatValue { AzStyleBackgroundRepeatValue { object: azul_css::CssPropertyValue::<StyleBackgroundRepeat>::Auto } }
 #[inline] #[no_mangle] pub extern "C" fn az_style_background_repeat_value_none() -> AzStyleBackgroundRepeatValue { AzStyleBackgroundRepeatValue { object: azul_css::CssPropertyValue::<StyleBackgroundRepeat>::None } }
 #[inline] #[no_mangle] pub extern "C" fn az_style_background_repeat_value_inherit() -> AzStyleBackgroundRepeatValue { AzStyleBackgroundRepeatValue { object: azul_css::CssPropertyValue::<StyleBackgroundRepeat>::Inherit } }
@@ -1485,7 +1485,7 @@ pub type AzLayoutInfoPtrType = azul_core::callbacks::LayoutInfoPtr;
 #[no_mangle] #[inline] pub extern "C" fn az_style_background_repeat_value_deep_copy(object: &AzStyleBackgroundRepeatValue) -> AzStyleBackgroundRepeatValue { AzStyleBackgroundRepeatValue{ object: object.object.clone() } }
 
 /// Re-export of rust-allocated (stack based) `StyleBackgroundSizeValue` struct
-#[no_mangle] #[repr(C)] pub struct AzStyleBackgroundSizeValue { object: azul_css::CssPropertyValue::<StyleBackgroundSize> }
+#[no_mangle] #[repr(C)] pub struct AzStyleBackgroundSizeValue { pub object: azul_css::CssPropertyValue::<StyleBackgroundSize> }
 #[inline] #[no_mangle] pub extern "C" fn az_style_background_size_value_auto() -> AzStyleBackgroundSizeValue { AzStyleBackgroundSizeValue { object: azul_css::CssPropertyValue::<StyleBackgroundSize>::Auto } }
 #[inline] #[no_mangle] pub extern "C" fn az_style_background_size_value_none() -> AzStyleBackgroundSizeValue { AzStyleBackgroundSizeValue { object: azul_css::CssPropertyValue::<StyleBackgroundSize>::None } }
 #[inline] #[no_mangle] pub extern "C" fn az_style_background_size_value_inherit() -> AzStyleBackgroundSizeValue { AzStyleBackgroundSizeValue { object: azul_css::CssPropertyValue::<StyleBackgroundSize>::Inherit } }
@@ -1498,7 +1498,7 @@ pub type AzLayoutInfoPtrType = azul_core::callbacks::LayoutInfoPtr;
 #[no_mangle] #[inline] pub extern "C" fn az_style_background_size_value_deep_copy(object: &AzStyleBackgroundSizeValue) -> AzStyleBackgroundSizeValue { AzStyleBackgroundSizeValue{ object: object.object.clone() } }
 
 /// Re-export of rust-allocated (stack based) `StyleBorderBottomColorValue` struct
-#[no_mangle] #[repr(C)] pub struct AzStyleBorderBottomColorValue { object: azul_css::CssPropertyValue::<StyleBorderBottomColor> }
+#[no_mangle] #[repr(C)] pub struct AzStyleBorderBottomColorValue { pub object: azul_css::CssPropertyValue::<StyleBorderBottomColor> }
 #[inline] #[no_mangle] pub extern "C" fn az_style_border_bottom_color_value_auto() -> AzStyleBorderBottomColorValue { AzStyleBorderBottomColorValue { object: azul_css::CssPropertyValue::<StyleBorderBottomColor>::Auto } }
 #[inline] #[no_mangle] pub extern "C" fn az_style_border_bottom_color_value_none() -> AzStyleBorderBottomColorValue { AzStyleBorderBottomColorValue { object: azul_css::CssPropertyValue::<StyleBorderBottomColor>::None } }
 #[inline] #[no_mangle] pub extern "C" fn az_style_border_bottom_color_value_inherit() -> AzStyleBorderBottomColorValue { AzStyleBorderBottomColorValue { object: azul_css::CssPropertyValue::<StyleBorderBottomColor>::Inherit } }
@@ -1511,7 +1511,7 @@ pub type AzLayoutInfoPtrType = azul_core::callbacks::LayoutInfoPtr;
 #[no_mangle] #[inline] pub extern "C" fn az_style_border_bottom_color_value_deep_copy(object: &AzStyleBorderBottomColorValue) -> AzStyleBorderBottomColorValue { AzStyleBorderBottomColorValue{ object: object.object.clone() } }
 
 /// Re-export of rust-allocated (stack based) `StyleBorderBottomLeftRadiusValue` struct
-#[no_mangle] #[repr(C)] pub struct AzStyleBorderBottomLeftRadiusValue { object: azul_css::CssPropertyValue::<StyleBorderBottomLeftRadius> }
+#[no_mangle] #[repr(C)] pub struct AzStyleBorderBottomLeftRadiusValue { pub object: azul_css::CssPropertyValue::<StyleBorderBottomLeftRadius> }
 #[inline] #[no_mangle] pub extern "C" fn az_style_border_bottom_left_radius_value_auto() -> AzStyleBorderBottomLeftRadiusValue { AzStyleBorderBottomLeftRadiusValue { object: azul_css::CssPropertyValue::<StyleBorderBottomLeftRadius>::Auto } }
 #[inline] #[no_mangle] pub extern "C" fn az_style_border_bottom_left_radius_value_none() -> AzStyleBorderBottomLeftRadiusValue { AzStyleBorderBottomLeftRadiusValue { object: azul_css::CssPropertyValue::<StyleBorderBottomLeftRadius>::None } }
 #[inline] #[no_mangle] pub extern "C" fn az_style_border_bottom_left_radius_value_inherit() -> AzStyleBorderBottomLeftRadiusValue { AzStyleBorderBottomLeftRadiusValue { object: azul_css::CssPropertyValue::<StyleBorderBottomLeftRadius>::Inherit } }
@@ -1524,7 +1524,7 @@ pub type AzLayoutInfoPtrType = azul_core::callbacks::LayoutInfoPtr;
 #[no_mangle] #[inline] pub extern "C" fn az_style_border_bottom_left_radius_value_deep_copy(object: &AzStyleBorderBottomLeftRadiusValue) -> AzStyleBorderBottomLeftRadiusValue { AzStyleBorderBottomLeftRadiusValue{ object: object.object.clone() } }
 
 /// Re-export of rust-allocated (stack based) `StyleBorderBottomRightRadiusValue` struct
-#[no_mangle] #[repr(C)] pub struct AzStyleBorderBottomRightRadiusValue { object: azul_css::CssPropertyValue::<StyleBorderBottomRightRadius> }
+#[no_mangle] #[repr(C)] pub struct AzStyleBorderBottomRightRadiusValue { pub object: azul_css::CssPropertyValue::<StyleBorderBottomRightRadius> }
 #[inline] #[no_mangle] pub extern "C" fn az_style_border_bottom_right_radius_value_auto() -> AzStyleBorderBottomRightRadiusValue { AzStyleBorderBottomRightRadiusValue { object: azul_css::CssPropertyValue::<StyleBorderBottomRightRadius>::Auto } }
 #[inline] #[no_mangle] pub extern "C" fn az_style_border_bottom_right_radius_value_none() -> AzStyleBorderBottomRightRadiusValue { AzStyleBorderBottomRightRadiusValue { object: azul_css::CssPropertyValue::<StyleBorderBottomRightRadius>::None } }
 #[inline] #[no_mangle] pub extern "C" fn az_style_border_bottom_right_radius_value_inherit() -> AzStyleBorderBottomRightRadiusValue { AzStyleBorderBottomRightRadiusValue { object: azul_css::CssPropertyValue::<StyleBorderBottomRightRadius>::Inherit } }
@@ -1537,7 +1537,7 @@ pub type AzLayoutInfoPtrType = azul_core::callbacks::LayoutInfoPtr;
 #[no_mangle] #[inline] pub extern "C" fn az_style_border_bottom_right_radius_value_deep_copy(object: &AzStyleBorderBottomRightRadiusValue) -> AzStyleBorderBottomRightRadiusValue { AzStyleBorderBottomRightRadiusValue{ object: object.object.clone() } }
 
 /// Re-export of rust-allocated (stack based) `StyleBorderBottomStyleValue` struct
-#[no_mangle] #[repr(C)] pub struct AzStyleBorderBottomStyleValue { object: azul_css::CssPropertyValue::<StyleBorderBottomStyle> }
+#[no_mangle] #[repr(C)] pub struct AzStyleBorderBottomStyleValue { pub object: azul_css::CssPropertyValue::<StyleBorderBottomStyle> }
 #[inline] #[no_mangle] pub extern "C" fn az_style_border_bottom_style_value_auto() -> AzStyleBorderBottomStyleValue { AzStyleBorderBottomStyleValue { object: azul_css::CssPropertyValue::<StyleBorderBottomStyle>::Auto } }
 #[inline] #[no_mangle] pub extern "C" fn az_style_border_bottom_style_value_none() -> AzStyleBorderBottomStyleValue { AzStyleBorderBottomStyleValue { object: azul_css::CssPropertyValue::<StyleBorderBottomStyle>::None } }
 #[inline] #[no_mangle] pub extern "C" fn az_style_border_bottom_style_value_inherit() -> AzStyleBorderBottomStyleValue { AzStyleBorderBottomStyleValue { object: azul_css::CssPropertyValue::<StyleBorderBottomStyle>::Inherit } }
@@ -1550,7 +1550,7 @@ pub type AzLayoutInfoPtrType = azul_core::callbacks::LayoutInfoPtr;
 #[no_mangle] #[inline] pub extern "C" fn az_style_border_bottom_style_value_deep_copy(object: &AzStyleBorderBottomStyleValue) -> AzStyleBorderBottomStyleValue { AzStyleBorderBottomStyleValue{ object: object.object.clone() } }
 
 /// Re-export of rust-allocated (stack based) `StyleBorderBottomWidthValue` struct
-#[no_mangle] #[repr(C)] pub struct AzStyleBorderBottomWidthValue { object: azul_css::CssPropertyValue::<StyleBorderBottomWidth> }
+#[no_mangle] #[repr(C)] pub struct AzStyleBorderBottomWidthValue { pub object: azul_css::CssPropertyValue::<StyleBorderBottomWidth> }
 #[inline] #[no_mangle] pub extern "C" fn az_style_border_bottom_width_value_auto() -> AzStyleBorderBottomWidthValue { AzStyleBorderBottomWidthValue { object: azul_css::CssPropertyValue::<StyleBorderBottomWidth>::Auto } }
 #[inline] #[no_mangle] pub extern "C" fn az_style_border_bottom_width_value_none() -> AzStyleBorderBottomWidthValue { AzStyleBorderBottomWidthValue { object: azul_css::CssPropertyValue::<StyleBorderBottomWidth>::None } }
 #[inline] #[no_mangle] pub extern "C" fn az_style_border_bottom_width_value_inherit() -> AzStyleBorderBottomWidthValue { AzStyleBorderBottomWidthValue { object: azul_css::CssPropertyValue::<StyleBorderBottomWidth>::Inherit } }
@@ -1563,7 +1563,7 @@ pub type AzLayoutInfoPtrType = azul_core::callbacks::LayoutInfoPtr;
 #[no_mangle] #[inline] pub extern "C" fn az_style_border_bottom_width_value_deep_copy(object: &AzStyleBorderBottomWidthValue) -> AzStyleBorderBottomWidthValue { AzStyleBorderBottomWidthValue{ object: object.object.clone() } }
 
 /// Re-export of rust-allocated (stack based) `StyleBorderLeftColorValue` struct
-#[no_mangle] #[repr(C)] pub struct AzStyleBorderLeftColorValue { object: azul_css::CssPropertyValue::<StyleBorderLeftColor> }
+#[no_mangle] #[repr(C)] pub struct AzStyleBorderLeftColorValue { pub object: azul_css::CssPropertyValue::<StyleBorderLeftColor> }
 #[inline] #[no_mangle] pub extern "C" fn az_style_border_left_color_value_auto() -> AzStyleBorderLeftColorValue { AzStyleBorderLeftColorValue { object: azul_css::CssPropertyValue::<StyleBorderLeftColor>::Auto } }
 #[inline] #[no_mangle] pub extern "C" fn az_style_border_left_color_value_none() -> AzStyleBorderLeftColorValue { AzStyleBorderLeftColorValue { object: azul_css::CssPropertyValue::<StyleBorderLeftColor>::None } }
 #[inline] #[no_mangle] pub extern "C" fn az_style_border_left_color_value_inherit() -> AzStyleBorderLeftColorValue { AzStyleBorderLeftColorValue { object: azul_css::CssPropertyValue::<StyleBorderLeftColor>::Inherit } }
@@ -1576,7 +1576,7 @@ pub type AzLayoutInfoPtrType = azul_core::callbacks::LayoutInfoPtr;
 #[no_mangle] #[inline] pub extern "C" fn az_style_border_left_color_value_deep_copy(object: &AzStyleBorderLeftColorValue) -> AzStyleBorderLeftColorValue { AzStyleBorderLeftColorValue{ object: object.object.clone() } }
 
 /// Re-export of rust-allocated (stack based) `StyleBorderLeftStyleValue` struct
-#[no_mangle] #[repr(C)] pub struct AzStyleBorderLeftStyleValue { object: azul_css::CssPropertyValue::<StyleBorderLeftStyle> }
+#[no_mangle] #[repr(C)] pub struct AzStyleBorderLeftStyleValue { pub object: azul_css::CssPropertyValue::<StyleBorderLeftStyle> }
 #[inline] #[no_mangle] pub extern "C" fn az_style_border_left_style_value_auto() -> AzStyleBorderLeftStyleValue { AzStyleBorderLeftStyleValue { object: azul_css::CssPropertyValue::<StyleBorderLeftStyle>::Auto } }
 #[inline] #[no_mangle] pub extern "C" fn az_style_border_left_style_value_none() -> AzStyleBorderLeftStyleValue { AzStyleBorderLeftStyleValue { object: azul_css::CssPropertyValue::<StyleBorderLeftStyle>::None } }
 #[inline] #[no_mangle] pub extern "C" fn az_style_border_left_style_value_inherit() -> AzStyleBorderLeftStyleValue { AzStyleBorderLeftStyleValue { object: azul_css::CssPropertyValue::<StyleBorderLeftStyle>::Inherit } }
@@ -1589,7 +1589,7 @@ pub type AzLayoutInfoPtrType = azul_core::callbacks::LayoutInfoPtr;
 #[no_mangle] #[inline] pub extern "C" fn az_style_border_left_style_value_deep_copy(object: &AzStyleBorderLeftStyleValue) -> AzStyleBorderLeftStyleValue { AzStyleBorderLeftStyleValue{ object: object.object.clone() } }
 
 /// Re-export of rust-allocated (stack based) `StyleBorderLeftWidthValue` struct
-#[no_mangle] #[repr(C)] pub struct AzStyleBorderLeftWidthValue { object: azul_css::CssPropertyValue::<StyleBorderLeftWidth> }
+#[no_mangle] #[repr(C)] pub struct AzStyleBorderLeftWidthValue { pub object: azul_css::CssPropertyValue::<StyleBorderLeftWidth> }
 #[inline] #[no_mangle] pub extern "C" fn az_style_border_left_width_value_auto() -> AzStyleBorderLeftWidthValue { AzStyleBorderLeftWidthValue { object: azul_css::CssPropertyValue::<StyleBorderLeftWidth>::Auto } }
 #[inline] #[no_mangle] pub extern "C" fn az_style_border_left_width_value_none() -> AzStyleBorderLeftWidthValue { AzStyleBorderLeftWidthValue { object: azul_css::CssPropertyValue::<StyleBorderLeftWidth>::None } }
 #[inline] #[no_mangle] pub extern "C" fn az_style_border_left_width_value_inherit() -> AzStyleBorderLeftWidthValue { AzStyleBorderLeftWidthValue { object: azul_css::CssPropertyValue::<StyleBorderLeftWidth>::Inherit } }
@@ -1602,7 +1602,7 @@ pub type AzLayoutInfoPtrType = azul_core::callbacks::LayoutInfoPtr;
 #[no_mangle] #[inline] pub extern "C" fn az_style_border_left_width_value_deep_copy(object: &AzStyleBorderLeftWidthValue) -> AzStyleBorderLeftWidthValue { AzStyleBorderLeftWidthValue{ object: object.object.clone() } }
 
 /// Re-export of rust-allocated (stack based) `StyleBorderRightColorValue` struct
-#[no_mangle] #[repr(C)] pub struct AzStyleBorderRightColorValue { object: azul_css::CssPropertyValue::<StyleBorderRightColor> }
+#[no_mangle] #[repr(C)] pub struct AzStyleBorderRightColorValue { pub object: azul_css::CssPropertyValue::<StyleBorderRightColor> }
 #[inline] #[no_mangle] pub extern "C" fn az_style_border_right_color_value_auto() -> AzStyleBorderRightColorValue { AzStyleBorderRightColorValue { object: azul_css::CssPropertyValue::<StyleBorderRightColor>::Auto } }
 #[inline] #[no_mangle] pub extern "C" fn az_style_border_right_color_value_none() -> AzStyleBorderRightColorValue { AzStyleBorderRightColorValue { object: azul_css::CssPropertyValue::<StyleBorderRightColor>::None } }
 #[inline] #[no_mangle] pub extern "C" fn az_style_border_right_color_value_inherit() -> AzStyleBorderRightColorValue { AzStyleBorderRightColorValue { object: azul_css::CssPropertyValue::<StyleBorderRightColor>::Inherit } }
@@ -1615,7 +1615,7 @@ pub type AzLayoutInfoPtrType = azul_core::callbacks::LayoutInfoPtr;
 #[no_mangle] #[inline] pub extern "C" fn az_style_border_right_color_value_deep_copy(object: &AzStyleBorderRightColorValue) -> AzStyleBorderRightColorValue { AzStyleBorderRightColorValue{ object: object.object.clone() } }
 
 /// Re-export of rust-allocated (stack based) `StyleBorderRightStyleValue` struct
-#[no_mangle] #[repr(C)] pub struct AzStyleBorderRightStyleValue { object: azul_css::CssPropertyValue::<StyleBorderRightStyle> }
+#[no_mangle] #[repr(C)] pub struct AzStyleBorderRightStyleValue { pub object: azul_css::CssPropertyValue::<StyleBorderRightStyle> }
 #[inline] #[no_mangle] pub extern "C" fn az_style_border_right_style_value_auto() -> AzStyleBorderRightStyleValue { AzStyleBorderRightStyleValue { object: azul_css::CssPropertyValue::<StyleBorderRightStyle>::Auto } }
 #[inline] #[no_mangle] pub extern "C" fn az_style_border_right_style_value_none() -> AzStyleBorderRightStyleValue { AzStyleBorderRightStyleValue { object: azul_css::CssPropertyValue::<StyleBorderRightStyle>::None } }
 #[inline] #[no_mangle] pub extern "C" fn az_style_border_right_style_value_inherit() -> AzStyleBorderRightStyleValue { AzStyleBorderRightStyleValue { object: azul_css::CssPropertyValue::<StyleBorderRightStyle>::Inherit } }
@@ -1628,7 +1628,7 @@ pub type AzLayoutInfoPtrType = azul_core::callbacks::LayoutInfoPtr;
 #[no_mangle] #[inline] pub extern "C" fn az_style_border_right_style_value_deep_copy(object: &AzStyleBorderRightStyleValue) -> AzStyleBorderRightStyleValue { AzStyleBorderRightStyleValue{ object: object.object.clone() } }
 
 /// Re-export of rust-allocated (stack based) `StyleBorderRightWidthValue` struct
-#[no_mangle] #[repr(C)] pub struct AzStyleBorderRightWidthValue { object: azul_css::CssPropertyValue::<StyleBorderRightWidth> }
+#[no_mangle] #[repr(C)] pub struct AzStyleBorderRightWidthValue { pub object: azul_css::CssPropertyValue::<StyleBorderRightWidth> }
 #[inline] #[no_mangle] pub extern "C" fn az_style_border_right_width_value_auto() -> AzStyleBorderRightWidthValue { AzStyleBorderRightWidthValue { object: azul_css::CssPropertyValue::<StyleBorderRightWidth>::Auto } }
 #[inline] #[no_mangle] pub extern "C" fn az_style_border_right_width_value_none() -> AzStyleBorderRightWidthValue { AzStyleBorderRightWidthValue { object: azul_css::CssPropertyValue::<StyleBorderRightWidth>::None } }
 #[inline] #[no_mangle] pub extern "C" fn az_style_border_right_width_value_inherit() -> AzStyleBorderRightWidthValue { AzStyleBorderRightWidthValue { object: azul_css::CssPropertyValue::<StyleBorderRightWidth>::Inherit } }
@@ -1641,7 +1641,7 @@ pub type AzLayoutInfoPtrType = azul_core::callbacks::LayoutInfoPtr;
 #[no_mangle] #[inline] pub extern "C" fn az_style_border_right_width_value_deep_copy(object: &AzStyleBorderRightWidthValue) -> AzStyleBorderRightWidthValue { AzStyleBorderRightWidthValue{ object: object.object.clone() } }
 
 /// Re-export of rust-allocated (stack based) `StyleBorderTopColorValue` struct
-#[no_mangle] #[repr(C)] pub struct AzStyleBorderTopColorValue { object: azul_css::CssPropertyValue::<StyleBorderTopColor> }
+#[no_mangle] #[repr(C)] pub struct AzStyleBorderTopColorValue { pub object: azul_css::CssPropertyValue::<StyleBorderTopColor> }
 #[inline] #[no_mangle] pub extern "C" fn az_style_border_top_color_value_auto() -> AzStyleBorderTopColorValue { AzStyleBorderTopColorValue { object: azul_css::CssPropertyValue::<StyleBorderTopColor>::Auto } }
 #[inline] #[no_mangle] pub extern "C" fn az_style_border_top_color_value_none() -> AzStyleBorderTopColorValue { AzStyleBorderTopColorValue { object: azul_css::CssPropertyValue::<StyleBorderTopColor>::None } }
 #[inline] #[no_mangle] pub extern "C" fn az_style_border_top_color_value_inherit() -> AzStyleBorderTopColorValue { AzStyleBorderTopColorValue { object: azul_css::CssPropertyValue::<StyleBorderTopColor>::Inherit } }
@@ -1654,7 +1654,7 @@ pub type AzLayoutInfoPtrType = azul_core::callbacks::LayoutInfoPtr;
 #[no_mangle] #[inline] pub extern "C" fn az_style_border_top_color_value_deep_copy(object: &AzStyleBorderTopColorValue) -> AzStyleBorderTopColorValue { AzStyleBorderTopColorValue{ object: object.object.clone() } }
 
 /// Re-export of rust-allocated (stack based) `StyleBorderTopLeftRadiusValue` struct
-#[no_mangle] #[repr(C)] pub struct AzStyleBorderTopLeftRadiusValue { object: azul_css::CssPropertyValue::<StyleBorderTopLeftRadius> }
+#[no_mangle] #[repr(C)] pub struct AzStyleBorderTopLeftRadiusValue { pub object: azul_css::CssPropertyValue::<StyleBorderTopLeftRadius> }
 #[inline] #[no_mangle] pub extern "C" fn az_style_border_top_left_radius_value_auto() -> AzStyleBorderTopLeftRadiusValue { AzStyleBorderTopLeftRadiusValue { object: azul_css::CssPropertyValue::<StyleBorderTopLeftRadius>::Auto } }
 #[inline] #[no_mangle] pub extern "C" fn az_style_border_top_left_radius_value_none() -> AzStyleBorderTopLeftRadiusValue { AzStyleBorderTopLeftRadiusValue { object: azul_css::CssPropertyValue::<StyleBorderTopLeftRadius>::None } }
 #[inline] #[no_mangle] pub extern "C" fn az_style_border_top_left_radius_value_inherit() -> AzStyleBorderTopLeftRadiusValue { AzStyleBorderTopLeftRadiusValue { object: azul_css::CssPropertyValue::<StyleBorderTopLeftRadius>::Inherit } }
@@ -1667,7 +1667,7 @@ pub type AzLayoutInfoPtrType = azul_core::callbacks::LayoutInfoPtr;
 #[no_mangle] #[inline] pub extern "C" fn az_style_border_top_left_radius_value_deep_copy(object: &AzStyleBorderTopLeftRadiusValue) -> AzStyleBorderTopLeftRadiusValue { AzStyleBorderTopLeftRadiusValue{ object: object.object.clone() } }
 
 /// Re-export of rust-allocated (stack based) `StyleBorderTopRightRadiusValue` struct
-#[no_mangle] #[repr(C)] pub struct AzStyleBorderTopRightRadiusValue { object: azul_css::CssPropertyValue::<StyleBorderTopRightRadius> }
+#[no_mangle] #[repr(C)] pub struct AzStyleBorderTopRightRadiusValue { pub object: azul_css::CssPropertyValue::<StyleBorderTopRightRadius> }
 #[inline] #[no_mangle] pub extern "C" fn az_style_border_top_right_radius_value_auto() -> AzStyleBorderTopRightRadiusValue { AzStyleBorderTopRightRadiusValue { object: azul_css::CssPropertyValue::<StyleBorderTopRightRadius>::Auto } }
 #[inline] #[no_mangle] pub extern "C" fn az_style_border_top_right_radius_value_none() -> AzStyleBorderTopRightRadiusValue { AzStyleBorderTopRightRadiusValue { object: azul_css::CssPropertyValue::<StyleBorderTopRightRadius>::None } }
 #[inline] #[no_mangle] pub extern "C" fn az_style_border_top_right_radius_value_inherit() -> AzStyleBorderTopRightRadiusValue { AzStyleBorderTopRightRadiusValue { object: azul_css::CssPropertyValue::<StyleBorderTopRightRadius>::Inherit } }
@@ -1680,7 +1680,7 @@ pub type AzLayoutInfoPtrType = azul_core::callbacks::LayoutInfoPtr;
 #[no_mangle] #[inline] pub extern "C" fn az_style_border_top_right_radius_value_deep_copy(object: &AzStyleBorderTopRightRadiusValue) -> AzStyleBorderTopRightRadiusValue { AzStyleBorderTopRightRadiusValue{ object: object.object.clone() } }
 
 /// Re-export of rust-allocated (stack based) `StyleBorderTopStyleValue` struct
-#[no_mangle] #[repr(C)] pub struct AzStyleBorderTopStyleValue { object: azul_css::CssPropertyValue::<StyleBorderTopStyle> }
+#[no_mangle] #[repr(C)] pub struct AzStyleBorderTopStyleValue { pub object: azul_css::CssPropertyValue::<StyleBorderTopStyle> }
 #[inline] #[no_mangle] pub extern "C" fn az_style_border_top_style_value_auto() -> AzStyleBorderTopStyleValue { AzStyleBorderTopStyleValue { object: azul_css::CssPropertyValue::<StyleBorderTopStyle>::Auto } }
 #[inline] #[no_mangle] pub extern "C" fn az_style_border_top_style_value_none() -> AzStyleBorderTopStyleValue { AzStyleBorderTopStyleValue { object: azul_css::CssPropertyValue::<StyleBorderTopStyle>::None } }
 #[inline] #[no_mangle] pub extern "C" fn az_style_border_top_style_value_inherit() -> AzStyleBorderTopStyleValue { AzStyleBorderTopStyleValue { object: azul_css::CssPropertyValue::<StyleBorderTopStyle>::Inherit } }
@@ -1693,7 +1693,7 @@ pub type AzLayoutInfoPtrType = azul_core::callbacks::LayoutInfoPtr;
 #[no_mangle] #[inline] pub extern "C" fn az_style_border_top_style_value_deep_copy(object: &AzStyleBorderTopStyleValue) -> AzStyleBorderTopStyleValue { AzStyleBorderTopStyleValue{ object: object.object.clone() } }
 
 /// Re-export of rust-allocated (stack based) `StyleBorderTopWidthValue` struct
-#[no_mangle] #[repr(C)] pub struct AzStyleBorderTopWidthValue { object: azul_css::CssPropertyValue::<StyleBorderTopWidth> }
+#[no_mangle] #[repr(C)] pub struct AzStyleBorderTopWidthValue { pub object: azul_css::CssPropertyValue::<StyleBorderTopWidth> }
 #[inline] #[no_mangle] pub extern "C" fn az_style_border_top_width_value_auto() -> AzStyleBorderTopWidthValue { AzStyleBorderTopWidthValue { object: azul_css::CssPropertyValue::<StyleBorderTopWidth>::Auto } }
 #[inline] #[no_mangle] pub extern "C" fn az_style_border_top_width_value_none() -> AzStyleBorderTopWidthValue { AzStyleBorderTopWidthValue { object: azul_css::CssPropertyValue::<StyleBorderTopWidth>::None } }
 #[inline] #[no_mangle] pub extern "C" fn az_style_border_top_width_value_inherit() -> AzStyleBorderTopWidthValue { AzStyleBorderTopWidthValue { object: azul_css::CssPropertyValue::<StyleBorderTopWidth>::Inherit } }
@@ -1706,7 +1706,7 @@ pub type AzLayoutInfoPtrType = azul_core::callbacks::LayoutInfoPtr;
 #[no_mangle] #[inline] pub extern "C" fn az_style_border_top_width_value_deep_copy(object: &AzStyleBorderTopWidthValue) -> AzStyleBorderTopWidthValue { AzStyleBorderTopWidthValue{ object: object.object.clone() } }
 
 /// Re-export of rust-allocated (stack based) `StyleCursorValue` struct
-#[no_mangle] #[repr(C)] pub struct AzStyleCursorValue { object: azul_css::CssPropertyValue::<StyleCursor> }
+#[no_mangle] #[repr(C)] pub struct AzStyleCursorValue { pub object: azul_css::CssPropertyValue::<StyleCursor> }
 #[inline] #[no_mangle] pub extern "C" fn az_style_cursor_value_auto() -> AzStyleCursorValue { AzStyleCursorValue { object: azul_css::CssPropertyValue::<StyleCursor>::Auto } }
 #[inline] #[no_mangle] pub extern "C" fn az_style_cursor_value_none() -> AzStyleCursorValue { AzStyleCursorValue { object: azul_css::CssPropertyValue::<StyleCursor>::None } }
 #[inline] #[no_mangle] pub extern "C" fn az_style_cursor_value_inherit() -> AzStyleCursorValue { AzStyleCursorValue { object: azul_css::CssPropertyValue::<StyleCursor>::Inherit } }
@@ -1719,7 +1719,7 @@ pub type AzLayoutInfoPtrType = azul_core::callbacks::LayoutInfoPtr;
 #[no_mangle] #[inline] pub extern "C" fn az_style_cursor_value_deep_copy(object: &AzStyleCursorValue) -> AzStyleCursorValue { AzStyleCursorValue{ object: object.object.clone() } }
 
 /// Re-export of rust-allocated (stack based) `StyleFontFamilyValue` struct
-#[no_mangle] #[repr(C)] pub struct AzStyleFontFamilyValue { object: azul_css::CssPropertyValue::<StyleFontFamily> }
+#[no_mangle] #[repr(C)] pub struct AzStyleFontFamilyValue { pub object: azul_css::CssPropertyValue::<StyleFontFamily> }
 #[inline] #[no_mangle] pub extern "C" fn az_style_font_family_value_auto() -> AzStyleFontFamilyValue { AzStyleFontFamilyValue { object: azul_css::CssPropertyValue::<StyleFontFamily>::Auto } }
 #[inline] #[no_mangle] pub extern "C" fn az_style_font_family_value_none() -> AzStyleFontFamilyValue { AzStyleFontFamilyValue { object: azul_css::CssPropertyValue::<StyleFontFamily>::None } }
 #[inline] #[no_mangle] pub extern "C" fn az_style_font_family_value_inherit() -> AzStyleFontFamilyValue { AzStyleFontFamilyValue { object: azul_css::CssPropertyValue::<StyleFontFamily>::Inherit } }
@@ -1732,7 +1732,7 @@ pub type AzLayoutInfoPtrType = azul_core::callbacks::LayoutInfoPtr;
 #[no_mangle] #[inline] pub extern "C" fn az_style_font_family_value_deep_copy(object: &AzStyleFontFamilyValue) -> AzStyleFontFamilyValue { AzStyleFontFamilyValue{ object: object.object.clone() } }
 
 /// Re-export of rust-allocated (stack based) `StyleFontSizeValue` struct
-#[no_mangle] #[repr(C)] pub struct AzStyleFontSizeValue { object: azul_css::CssPropertyValue::<StyleFontSize> }
+#[no_mangle] #[repr(C)] pub struct AzStyleFontSizeValue { pub object: azul_css::CssPropertyValue::<StyleFontSize> }
 #[inline] #[no_mangle] pub extern "C" fn az_style_font_size_value_auto() -> AzStyleFontSizeValue { AzStyleFontSizeValue { object: azul_css::CssPropertyValue::<StyleFontSize>::Auto } }
 #[inline] #[no_mangle] pub extern "C" fn az_style_font_size_value_none() -> AzStyleFontSizeValue { AzStyleFontSizeValue { object: azul_css::CssPropertyValue::<StyleFontSize>::None } }
 #[inline] #[no_mangle] pub extern "C" fn az_style_font_size_value_inherit() -> AzStyleFontSizeValue { AzStyleFontSizeValue { object: azul_css::CssPropertyValue::<StyleFontSize>::Inherit } }
@@ -1745,7 +1745,7 @@ pub type AzLayoutInfoPtrType = azul_core::callbacks::LayoutInfoPtr;
 #[no_mangle] #[inline] pub extern "C" fn az_style_font_size_value_deep_copy(object: &AzStyleFontSizeValue) -> AzStyleFontSizeValue { AzStyleFontSizeValue{ object: object.object.clone() } }
 
 /// Re-export of rust-allocated (stack based) `StyleLetterSpacingValue` struct
-#[no_mangle] #[repr(C)] pub struct AzStyleLetterSpacingValue { object: azul_css::CssPropertyValue::<StyleLetterSpacing> }
+#[no_mangle] #[repr(C)] pub struct AzStyleLetterSpacingValue { pub object: azul_css::CssPropertyValue::<StyleLetterSpacing> }
 #[inline] #[no_mangle] pub extern "C" fn az_style_letter_spacing_value_auto() -> AzStyleLetterSpacingValue { AzStyleLetterSpacingValue { object: azul_css::CssPropertyValue::<StyleLetterSpacing>::Auto } }
 #[inline] #[no_mangle] pub extern "C" fn az_style_letter_spacing_value_none() -> AzStyleLetterSpacingValue { AzStyleLetterSpacingValue { object: azul_css::CssPropertyValue::<StyleLetterSpacing>::None } }
 #[inline] #[no_mangle] pub extern "C" fn az_style_letter_spacing_value_inherit() -> AzStyleLetterSpacingValue { AzStyleLetterSpacingValue { object: azul_css::CssPropertyValue::<StyleLetterSpacing>::Inherit } }
@@ -1758,7 +1758,7 @@ pub type AzLayoutInfoPtrType = azul_core::callbacks::LayoutInfoPtr;
 #[no_mangle] #[inline] pub extern "C" fn az_style_letter_spacing_value_deep_copy(object: &AzStyleLetterSpacingValue) -> AzStyleLetterSpacingValue { AzStyleLetterSpacingValue{ object: object.object.clone() } }
 
 /// Re-export of rust-allocated (stack based) `StyleLineHeightValue` struct
-#[no_mangle] #[repr(C)] pub struct AzStyleLineHeightValue { object: azul_css::CssPropertyValue::<StyleLineHeight> }
+#[no_mangle] #[repr(C)] pub struct AzStyleLineHeightValue { pub object: azul_css::CssPropertyValue::<StyleLineHeight> }
 #[inline] #[no_mangle] pub extern "C" fn az_style_line_height_value_auto() -> AzStyleLineHeightValue { AzStyleLineHeightValue { object: azul_css::CssPropertyValue::<StyleLineHeight>::Auto } }
 #[inline] #[no_mangle] pub extern "C" fn az_style_line_height_value_none() -> AzStyleLineHeightValue { AzStyleLineHeightValue { object: azul_css::CssPropertyValue::<StyleLineHeight>::None } }
 #[inline] #[no_mangle] pub extern "C" fn az_style_line_height_value_inherit() -> AzStyleLineHeightValue { AzStyleLineHeightValue { object: azul_css::CssPropertyValue::<StyleLineHeight>::Inherit } }
@@ -1771,7 +1771,7 @@ pub type AzLayoutInfoPtrType = azul_core::callbacks::LayoutInfoPtr;
 #[no_mangle] #[inline] pub extern "C" fn az_style_line_height_value_deep_copy(object: &AzStyleLineHeightValue) -> AzStyleLineHeightValue { AzStyleLineHeightValue{ object: object.object.clone() } }
 
 /// Re-export of rust-allocated (stack based) `StyleTabWidthValue` struct
-#[no_mangle] #[repr(C)] pub struct AzStyleTabWidthValue { object: azul_css::CssPropertyValue::<StyleTabWidth> }
+#[no_mangle] #[repr(C)] pub struct AzStyleTabWidthValue { pub object: azul_css::CssPropertyValue::<StyleTabWidth> }
 #[inline] #[no_mangle] pub extern "C" fn az_style_tab_width_value_auto() -> AzStyleTabWidthValue { AzStyleTabWidthValue { object: azul_css::CssPropertyValue::<StyleTabWidth>::Auto } }
 #[inline] #[no_mangle] pub extern "C" fn az_style_tab_width_value_none() -> AzStyleTabWidthValue { AzStyleTabWidthValue { object: azul_css::CssPropertyValue::<StyleTabWidth>::None } }
 #[inline] #[no_mangle] pub extern "C" fn az_style_tab_width_value_inherit() -> AzStyleTabWidthValue { AzStyleTabWidthValue { object: azul_css::CssPropertyValue::<StyleTabWidth>::Inherit } }
@@ -1784,7 +1784,7 @@ pub type AzLayoutInfoPtrType = azul_core::callbacks::LayoutInfoPtr;
 #[no_mangle] #[inline] pub extern "C" fn az_style_tab_width_value_deep_copy(object: &AzStyleTabWidthValue) -> AzStyleTabWidthValue { AzStyleTabWidthValue{ object: object.object.clone() } }
 
 /// Re-export of rust-allocated (stack based) `StyleTextAlignmentHorzValue` struct
-#[no_mangle] #[repr(C)] pub struct AzStyleTextAlignmentHorzValue { object: azul_css::CssPropertyValue::<StyleTextAlignmentHorz> }
+#[no_mangle] #[repr(C)] pub struct AzStyleTextAlignmentHorzValue { pub object: azul_css::CssPropertyValue::<StyleTextAlignmentHorz> }
 #[inline] #[no_mangle] pub extern "C" fn az_style_text_alignment_horz_value_auto() -> AzStyleTextAlignmentHorzValue { AzStyleTextAlignmentHorzValue { object: azul_css::CssPropertyValue::<StyleTextAlignmentHorz>::Auto } }
 #[inline] #[no_mangle] pub extern "C" fn az_style_text_alignment_horz_value_none() -> AzStyleTextAlignmentHorzValue { AzStyleTextAlignmentHorzValue { object: azul_css::CssPropertyValue::<StyleTextAlignmentHorz>::None } }
 #[inline] #[no_mangle] pub extern "C" fn az_style_text_alignment_horz_value_inherit() -> AzStyleTextAlignmentHorzValue { AzStyleTextAlignmentHorzValue { object: azul_css::CssPropertyValue::<StyleTextAlignmentHorz>::Inherit } }
@@ -1797,7 +1797,7 @@ pub type AzLayoutInfoPtrType = azul_core::callbacks::LayoutInfoPtr;
 #[no_mangle] #[inline] pub extern "C" fn az_style_text_alignment_horz_value_deep_copy(object: &AzStyleTextAlignmentHorzValue) -> AzStyleTextAlignmentHorzValue { AzStyleTextAlignmentHorzValue{ object: object.object.clone() } }
 
 /// Re-export of rust-allocated (stack based) `StyleTextColorValue` struct
-#[no_mangle] #[repr(C)] pub struct AzStyleTextColorValue { object: azul_css::CssPropertyValue::<StyleTextColor> }
+#[no_mangle] #[repr(C)] pub struct AzStyleTextColorValue { pub object: azul_css::CssPropertyValue::<StyleTextColor> }
 #[inline] #[no_mangle] pub extern "C" fn az_style_text_color_value_auto() -> AzStyleTextColorValue { AzStyleTextColorValue { object: azul_css::CssPropertyValue::<StyleTextColor>::Auto } }
 #[inline] #[no_mangle] pub extern "C" fn az_style_text_color_value_none() -> AzStyleTextColorValue { AzStyleTextColorValue { object: azul_css::CssPropertyValue::<StyleTextColor>::None } }
 #[inline] #[no_mangle] pub extern "C" fn az_style_text_color_value_inherit() -> AzStyleTextColorValue { AzStyleTextColorValue { object: azul_css::CssPropertyValue::<StyleTextColor>::Inherit } }
@@ -1810,7 +1810,7 @@ pub type AzLayoutInfoPtrType = azul_core::callbacks::LayoutInfoPtr;
 #[no_mangle] #[inline] pub extern "C" fn az_style_text_color_value_deep_copy(object: &AzStyleTextColorValue) -> AzStyleTextColorValue { AzStyleTextColorValue{ object: object.object.clone() } }
 
 /// Re-export of rust-allocated (stack based) `StyleWordSpacingValue` struct
-#[no_mangle] #[repr(C)] pub struct AzStyleWordSpacingValue { object: azul_css::CssPropertyValue::<StyleWordSpacing> }
+#[no_mangle] #[repr(C)] pub struct AzStyleWordSpacingValue { pub object: azul_css::CssPropertyValue::<StyleWordSpacing> }
 #[inline] #[no_mangle] pub extern "C" fn az_style_word_spacing_value_auto() -> AzStyleWordSpacingValue { AzStyleWordSpacingValue { object: azul_css::CssPropertyValue::<StyleWordSpacing>::Auto } }
 #[inline] #[no_mangle] pub extern "C" fn az_style_word_spacing_value_none() -> AzStyleWordSpacingValue { AzStyleWordSpacingValue { object: azul_css::CssPropertyValue::<StyleWordSpacing>::None } }
 #[inline] #[no_mangle] pub extern "C" fn az_style_word_spacing_value_inherit() -> AzStyleWordSpacingValue { AzStyleWordSpacingValue { object: azul_css::CssPropertyValue::<StyleWordSpacing>::Inherit } }
@@ -1823,7 +1823,7 @@ pub type AzLayoutInfoPtrType = azul_core::callbacks::LayoutInfoPtr;
 #[no_mangle] #[inline] pub extern "C" fn az_style_word_spacing_value_deep_copy(object: &AzStyleWordSpacingValue) -> AzStyleWordSpacingValue { AzStyleWordSpacingValue{ object: object.object.clone() } }
 
 /// Parsed CSS key-value pair
-#[no_mangle] #[repr(C)] pub struct AzCssProperty { object: azul_css::CssProperty }
+#[no_mangle] #[repr(C)] pub struct AzCssProperty { pub object: azul_css::CssProperty }
 #[inline] #[no_mangle] pub extern "C" fn az_css_property_text_color(variant_data: AzStyleTextColorValue) -> AzCssProperty { AzCssProperty { object: azul_css::CssProperty::TextColor(variant_data.object) } }
 #[inline] #[no_mangle] pub extern "C" fn az_css_property_font_size(variant_data: AzStyleFontSizeValue) -> AzCssProperty { AzCssProperty { object: azul_css::CssProperty::FontSize(variant_data.object) } }
 #[inline] #[no_mangle] pub extern "C" fn az_css_property_font_family(variant_data: AzStyleFontFamilyValue) -> AzCssProperty { AzCssProperty { object: azul_css::CssProperty::FontFamily(variant_data.object) } }
@@ -1965,7 +1965,7 @@ pub type AzDomPtrType = azul_core::dom::DomPtr;
 #[inline(always)] fn az_dom_downcast_ref<P, F: FnOnce(&Box<Dom>) -> P>(ptr: &mut AzDomPtr, func: F) -> P { let box_ptr: Box<Dom> = unsafe { Box::<Dom>::from_raw(ptr.ptr  as *mut Dom) }; let ret_val = func(&box_ptr); ptr.ptr = Box::into_raw(box_ptr) as *mut c_void;ret_val }
 
 /// Re-export of rust-allocated (stack based) `EventFilter` struct
-#[no_mangle] #[repr(C)] pub struct AzEventFilter { object: azul_core::dom::EventFilter }
+#[no_mangle] #[repr(C)] pub struct AzEventFilter { pub object: azul_core::dom::EventFilter }
 #[inline] #[no_mangle] pub extern "C" fn az_event_filter_hover(variant_data: AzHoverEventFilter) -> AzEventFilter { AzEventFilter { object: azul_core::dom::EventFilter::Hover(variant_data.object) } }
 #[inline] #[no_mangle] pub extern "C" fn az_event_filter_not(variant_data: AzNotEventFilter) -> AzEventFilter { AzEventFilter { object: azul_core::dom::EventFilter::Not(variant_data.object) } }
 #[inline] #[no_mangle] pub extern "C" fn az_event_filter_focus(variant_data: AzFocusEventFilter) -> AzEventFilter { AzEventFilter { object: azul_core::dom::EventFilter::Focus(variant_data.object) } }
@@ -1977,7 +1977,7 @@ pub type AzDomPtrType = azul_core::dom::DomPtr;
 #[no_mangle] #[inline] pub extern "C" fn az_event_filter_deep_copy(object: &AzEventFilter) -> AzEventFilter { AzEventFilter{ object: object.object.clone() } }
 
 /// Re-export of rust-allocated (stack based) `HoverEventFilter` struct
-#[no_mangle] #[repr(C)] pub struct AzHoverEventFilter { object: azul_core::dom::HoverEventFilter }
+#[no_mangle] #[repr(C)] pub struct AzHoverEventFilter { pub object: azul_core::dom::HoverEventFilter }
 #[inline] #[no_mangle] pub extern "C" fn az_hover_event_filter_mouse_over() -> AzHoverEventFilter { AzHoverEventFilter { object: azul_core::dom::HoverEventFilter::MouseOver } }
 #[inline] #[no_mangle] pub extern "C" fn az_hover_event_filter_mouse_down() -> AzHoverEventFilter { AzHoverEventFilter { object: azul_core::dom::HoverEventFilter::MouseDown } }
 #[inline] #[no_mangle] pub extern "C" fn az_hover_event_filter_left_mouse_down() -> AzHoverEventFilter { AzHoverEventFilter { object: azul_core::dom::HoverEventFilter::LeftMouseDown } }
@@ -2005,7 +2005,7 @@ pub type AzDomPtrType = azul_core::dom::DomPtr;
 #[no_mangle] #[inline] pub extern "C" fn az_hover_event_filter_deep_copy(object: &AzHoverEventFilter) -> AzHoverEventFilter { AzHoverEventFilter{ object: object.object.clone() } }
 
 /// Re-export of rust-allocated (stack based) `FocusEventFilter` struct
-#[no_mangle] #[repr(C)] pub struct AzFocusEventFilter { object: azul_core::dom::FocusEventFilter }
+#[no_mangle] #[repr(C)] pub struct AzFocusEventFilter { pub object: azul_core::dom::FocusEventFilter }
 #[inline] #[no_mangle] pub extern "C" fn az_focus_event_filter_mouse_over() -> AzFocusEventFilter { AzFocusEventFilter { object: azul_core::dom::FocusEventFilter::MouseOver } }
 #[inline] #[no_mangle] pub extern "C" fn az_focus_event_filter_mouse_down() -> AzFocusEventFilter { AzFocusEventFilter { object: azul_core::dom::FocusEventFilter::MouseDown } }
 #[inline] #[no_mangle] pub extern "C" fn az_focus_event_filter_left_mouse_down() -> AzFocusEventFilter { AzFocusEventFilter { object: azul_core::dom::FocusEventFilter::LeftMouseDown } }
@@ -2032,7 +2032,7 @@ pub type AzDomPtrType = azul_core::dom::DomPtr;
 #[no_mangle] #[inline] pub extern "C" fn az_focus_event_filter_deep_copy(object: &AzFocusEventFilter) -> AzFocusEventFilter { AzFocusEventFilter{ object: object.object.clone() } }
 
 /// Re-export of rust-allocated (stack based) `NotEventFilter` struct
-#[no_mangle] #[repr(C)] pub struct AzNotEventFilter { object: azul_core::dom::NotEventFilter }
+#[no_mangle] #[repr(C)] pub struct AzNotEventFilter { pub object: azul_core::dom::NotEventFilter }
 #[inline] #[no_mangle] pub extern "C" fn az_not_event_filter_hover(variant_data: AzHoverEventFilter) -> AzNotEventFilter { AzNotEventFilter { object: azul_core::dom::NotEventFilter::Hover(variant_data.object) } }
 #[inline] #[no_mangle] pub extern "C" fn az_not_event_filter_focus(variant_data: AzFocusEventFilter) -> AzNotEventFilter { AzNotEventFilter { object: azul_core::dom::NotEventFilter::Focus(variant_data.object) } }
 /// Destructor: Takes ownership of the `NotEventFilter` pointer and deletes it.
@@ -2042,7 +2042,7 @@ pub type AzDomPtrType = azul_core::dom::DomPtr;
 #[no_mangle] #[inline] pub extern "C" fn az_not_event_filter_deep_copy(object: &AzNotEventFilter) -> AzNotEventFilter { AzNotEventFilter{ object: object.object.clone() } }
 
 /// Re-export of rust-allocated (stack based) `WindowEventFilter` struct
-#[no_mangle] #[repr(C)] pub struct AzWindowEventFilter { object: azul_core::dom::WindowEventFilter }
+#[no_mangle] #[repr(C)] pub struct AzWindowEventFilter { pub object: azul_core::dom::WindowEventFilter }
 #[inline] #[no_mangle] pub extern "C" fn az_window_event_filter_mouse_over() -> AzWindowEventFilter { AzWindowEventFilter { object: azul_core::dom::WindowEventFilter::MouseOver } }
 #[inline] #[no_mangle] pub extern "C" fn az_window_event_filter_mouse_down() -> AzWindowEventFilter { AzWindowEventFilter { object: azul_core::dom::WindowEventFilter::MouseDown } }
 #[inline] #[no_mangle] pub extern "C" fn az_window_event_filter_left_mouse_down() -> AzWindowEventFilter { AzWindowEventFilter { object: azul_core::dom::WindowEventFilter::LeftMouseDown } }
@@ -2070,7 +2070,7 @@ pub type AzDomPtrType = azul_core::dom::DomPtr;
 #[no_mangle] #[inline] pub extern "C" fn az_window_event_filter_deep_copy(object: &AzWindowEventFilter) -> AzWindowEventFilter { AzWindowEventFilter{ object: object.object.clone() } }
 
 /// Re-export of rust-allocated (stack based) `TabIndex` struct
-#[no_mangle] #[repr(C)] pub struct AzTabIndex { object: azul_core::dom::TabIndex }
+#[no_mangle] #[repr(C)] pub struct AzTabIndex { pub object: azul_core::dom::TabIndex }
 /// Automatic tab index, similar to simply setting `focusable = "true"` or `tabindex = 0`, (both have the effect of making the element focusable)
 #[inline] #[no_mangle] pub extern "C" fn az_tab_index_auto() -> AzTabIndex { AzTabIndex { object: azul_core::dom::TabIndex::Auto } }
 ///  Set the tab index in relation to its parent element (`tabindex = n`)
@@ -2084,7 +2084,7 @@ pub type AzDomPtrType = azul_core::dom::DomPtr;
 #[no_mangle] #[inline] pub extern "C" fn az_tab_index_deep_copy(object: &AzTabIndex) -> AzTabIndex { AzTabIndex{ object: object.object.clone() } }
 
 /// Re-export of rust-allocated (stack based) `TextId` struct
-#[no_mangle] #[repr(C)] pub struct AzTextId { object: azul_core::app_resources::TextId }
+#[no_mangle] #[repr(C)] pub struct AzTextId { pub object: azul_core::app_resources::TextId }
 /// Creates a new, unique `TextId`
 #[no_mangle] #[inline] pub extern "C" fn az_text_id_new() -> AzTextId { let object: TextId = TextId::new(); AzTextId { object } }
 /// Destructor: Takes ownership of the `TextId` pointer and deletes it.
@@ -2093,7 +2093,7 @@ pub type AzDomPtrType = azul_core::dom::DomPtr;
 #[no_mangle] #[inline] pub extern "C" fn az_text_id_deep_copy(object: &AzTextId) -> AzTextId { AzTextId{ object: object.object.clone() } }
 
 /// Re-export of rust-allocated (stack based) `ImageId` struct
-#[no_mangle] #[repr(C)] pub struct AzImageId { object: azul_core::app_resources::ImageId }
+#[no_mangle] #[repr(C)] pub struct AzImageId { pub object: azul_core::app_resources::ImageId }
 /// Creates a new, unique `ImageId`
 #[no_mangle] #[inline] pub extern "C" fn az_image_id_new() -> AzImageId { let object: ImageId = ImageId::new(); AzImageId { object } }
 /// Destructor: Takes ownership of the `ImageId` pointer and deletes it.
@@ -2102,7 +2102,7 @@ pub type AzDomPtrType = azul_core::dom::DomPtr;
 #[no_mangle] #[inline] pub extern "C" fn az_image_id_deep_copy(object: &AzImageId) -> AzImageId { AzImageId{ object: object.object.clone() } }
 
 /// Re-export of rust-allocated (stack based) `FontId` struct
-#[no_mangle] #[repr(C)] pub struct AzFontId { object: azul_core::app_resources::FontId }
+#[no_mangle] #[repr(C)] pub struct AzFontId { pub object: azul_core::app_resources::FontId }
 /// Creates a new, unique `FontId`
 #[no_mangle] #[inline] pub extern "C" fn az_font_id_new() -> AzFontId { let object: FontId = FontId::new(); AzFontId { object } }
 /// Destructor: Takes ownership of the `FontId` pointer and deletes it.
@@ -2111,7 +2111,7 @@ pub type AzDomPtrType = azul_core::dom::DomPtr;
 #[no_mangle] #[inline] pub extern "C" fn az_font_id_deep_copy(object: &AzFontId) -> AzFontId { AzFontId{ object: object.object.clone() } }
 
 /// Re-export of rust-allocated (stack based) `ImageSource` struct
-#[no_mangle] #[repr(C)] pub struct AzImageSource { object: azul_core::app_resources::ImageSource }
+#[no_mangle] #[repr(C)] pub struct AzImageSource { pub object: azul_core::app_resources::ImageSource }
 /// Bytes of the image, encoded in PNG / JPG / etc. format
 #[inline] #[no_mangle] pub extern "C" fn az_image_source_embedded(variant_data: AzU8Vec) -> AzImageSource { AzImageSource { object: azul_core::app_resources::ImageSource::Embedded(variant_data.object) } }
 /// References an (encoded!) image as a file from the file system that is loaded when necessary
@@ -2125,7 +2125,7 @@ pub type AzDomPtrType = azul_core::dom::DomPtr;
 #[no_mangle] #[inline] pub extern "C" fn az_image_source_deep_copy(object: &AzImageSource) -> AzImageSource { AzImageSource{ object: object.object.clone() } }
 
 /// Re-export of rust-allocated (stack based) `FontSource` struct
-#[no_mangle] #[repr(C)] pub struct AzFontSource { object: azul_core::app_resources::FontSource }
+#[no_mangle] #[repr(C)] pub struct AzFontSource { pub object: azul_core::app_resources::FontSource }
 /// Bytes are the bytes of the font file
 #[inline] #[no_mangle] pub extern "C" fn az_font_source_embedded(variant_data: AzU8Vec) -> AzFontSource { AzFontSource { object: azul_core::app_resources::FontSource::Embedded(variant_data.object) } }
 /// References a font from a file path, which is loaded when necessary
@@ -2154,7 +2154,7 @@ pub type AzDomPtrType = azul_core::dom::DomPtr;
 #[inline(always)] fn az_raw_image_downcast_ref<P, F: FnOnce(&Box<RawImage>) -> P>(ptr: &mut AzRawImagePtr, func: F) -> P { let box_ptr: Box<RawImage> = unsafe { Box::<RawImage>::from_raw(ptr.ptr  as *mut RawImage) }; let ret_val = func(&box_ptr); ptr.ptr = Box::into_raw(box_ptr) as *mut c_void;ret_val }
 
 /// Re-export of rust-allocated (stack based) `RawImageFormat` struct
-#[no_mangle] #[repr(C)] pub struct AzRawImageFormat { object: azul_core::app_resources::RawImageFormat }
+#[no_mangle] #[repr(C)] pub struct AzRawImageFormat { pub object: azul_core::app_resources::RawImageFormat }
 /// Bytes are in the R-unsinged-8bit format
 #[inline] #[no_mangle] pub extern "C" fn az_raw_image_format_r8() -> AzRawImageFormat { AzRawImageFormat { object: azul_core::app_resources::RawImageFormat::R8 } }
 /// Bytes are in the R-unsinged-16bit format

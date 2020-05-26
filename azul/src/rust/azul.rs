@@ -54,6 +54,8 @@ pub mod str {
         pub fn from_utf8_unchecked(ptr: *const u8, len: usize) -> Self { Self { object: az_string_from_utf8_unchecked(ptr, len) } }
         /// Creates + allocates a Rust `String` by **copying** it from another utf8-encoded string
         pub fn from_utf8_lossy(ptr: *const u8, len: usize) -> Self { Self { object: az_string_from_utf8_lossy(ptr, len) } }
+        /// Creates + allocates a Rust `String` by **copying** it from another utf8-encoded string
+        pub fn into_bytes(self)  -> crate::vec::U8Vec { crate::vec::U8Vec { object: { az_string_into_bytes(self.leak())} } }
        /// Prevents the destructor from running and returns the internal `AzString`
        pub fn leak(self) -> AzString { az_string_deep_copy(&self.object) }
     }
@@ -69,11 +71,30 @@ pub mod vec {
 
     impl From<std::vec::Vec<u8>> for crate::vec::U8Vec {
         fn from(v: std::vec::Vec<u8>) -> crate::vec::U8Vec {
-            crate::vec::U8Vec::copy_from(v.as_ptr(), v.len()) // - copies v into a new Vec<u8>
-            // - v is deallocated here
+            crate::vec::U8Vec::copy_from(v.as_ptr(), v.len())
         }
-    }    use crate::str::String;
+    }
 
+    impl From<crate::vec::U8Vec> for std::vec::Vec<u8> {
+        fn from(v: crate::vec::U8Vec) -> std::vec::Vec<u8> {
+            unsafe { std::slice::from_raw_parts(v.object.object.as_ptr(), v.object.object.len()).to_vec() }
+        }
+    }
+
+    impl From<std::vec::Vec<std::string::String>> for crate::vec::StringVec {
+        fn from(v: std::vec::Vec<std::string::String>) -> crate::vec::StringVec {
+            crate::vec::StringVec { object: v.into_iter().map(|i| azul_dll::AzString::copy_from(i.as_ptr(), i.len())).collect() }
+        }
+    }
+
+    impl From<crate::vec::StringVec> for std::vec::Vec<std::string::String> {
+        fn from(v: crate::vec::StringVec) -> std::vec::Vec<std::string::String> {
+            v.object.object
+            .into_iter()
+            .map(|s| unsafe { std::string::String::from_utf8_unchecked(s.as_ptr(), s.len()) })
+            .collect()
+        }
+    }
 
     /// Wrapper over a Rust-allocated `Vec<u8>`
     pub struct U8Vec { pub(crate) object: AzU8Vec }
@@ -92,8 +113,6 @@ pub mod vec {
     pub struct StringVec { pub(crate) object: AzStringVec }
 
     impl StringVec {
-        /// Creates + allocates a Rust `Vec<String>` by **copying** it from a bytes source
-        pub fn copy_from(ptr: *const String, len: usize) -> Self { Self { object: az_string_vec_copy_from(ptr, len) } }
        /// Prevents the destructor from running and returns the internal `AzStringVec`
        pub fn leak(self) -> AzStringVec { az_string_vec_deep_copy(&self.object) }
     }
@@ -2089,8 +2108,8 @@ pub mod dom {
 
     use azul_dll::*;
     use crate::str::String;
-    use crate::resources::{TextId, ImageId};
-    use crate::callbacks::{Callback, GlCallback, IFrameCallback, RefAny};
+    use crate::resources::{ImageId, TextId};
+    use crate::callbacks::{RefAny, IFrameCallback, GlCallback, Callback};
     use crate::vec::StringVec;
     use crate::css::CssProperty;
 
@@ -2116,45 +2135,45 @@ pub mod dom {
         /// Adds a CSS ID (`#something`) to the DOM node
         pub fn add_id(&mut self, id: String)  { az_dom_add_id(&mut self.ptr, id.object) }
         /// Same as [`Dom::add_id`](#method.add_id), but as a builder method
-        pub fn with_id(self, id: String)  -> Dom { Dom { ptr: { az_dom_with_id(self.leak(), id.object) } } }
+        pub fn with_id(self, id: String)  -> crate::dom::Dom { crate::dom::Dom { ptr: { az_dom_with_id(self.leak(), id.object) } } }
         /// Same as calling [`Dom::add_id`](#method.add_id) for each CSS ID, but this function **replaces** all current CSS IDs
         pub fn set_ids(&mut self, ids: StringVec)  { az_dom_set_ids(&mut self.ptr, ids.object) }
         /// Same as [`Dom::set_ids`](#method.set_ids), but as a builder method
-        pub fn with_ids(self, ids: StringVec)  -> Dom { Dom { ptr: { az_dom_with_ids(self.leak(), ids.object) } } }
+        pub fn with_ids(self, ids: StringVec)  -> crate::dom::Dom { crate::dom::Dom { ptr: { az_dom_with_ids(self.leak(), ids.object) } } }
         /// Adds a CSS class (`.something`) to the DOM node
         pub fn add_class(&mut self, class: String)  { az_dom_add_class(&mut self.ptr, class.object) }
         /// Same as [`Dom::add_class`](#method.add_class), but as a builder method
-        pub fn with_class(self, class: String)  -> Dom { Dom { ptr: { az_dom_with_class(self.leak(), class.object) } } }
+        pub fn with_class(self, class: String)  -> crate::dom::Dom { crate::dom::Dom { ptr: { az_dom_with_class(self.leak(), class.object) } } }
         /// Same as calling [`Dom::add_class`](#method.add_class) for each class, but this function **replaces** all current classes
         pub fn set_classes(&mut self, classes: StringVec)  { az_dom_set_classes(&mut self.ptr, classes.object) }
         /// Same as [`Dom::set_classes`](#method.set_classes), but as a builder method
-        pub fn with_classes(self, classes: StringVec)  -> Dom { Dom { ptr: { az_dom_with_classes(self.leak(), classes.object) } } }
+        pub fn with_classes(self, classes: StringVec)  -> crate::dom::Dom { crate::dom::Dom { ptr: { az_dom_with_classes(self.leak(), classes.object) } } }
         /// Adds a [`Callback`](callbacks/type.Callback) that acts on the `data` the `event` happens
         pub fn add_callback(&mut self, event: EventFilter, data: RefAny, callback: Callback)  { az_dom_add_callback(&mut self.ptr, event.object, data.leak(), callback) }
         /// Same as [`Dom::add_callback`](#method.add_callback), but as a builder method
-        pub fn with_callback(self, event: EventFilter, data: RefAny, callback: Callback)  -> Dom { Dom { ptr: { az_dom_with_callback(self.leak(), event.object, data.leak(), callback) } } }
+        pub fn with_callback(self, event: EventFilter, data: RefAny, callback: Callback)  -> crate::dom::Dom { crate::dom::Dom { ptr: { az_dom_with_callback(self.leak(), event.object, data.leak(), callback) } } }
         /// Overrides the CSS property of this DOM node with a value (for example `"width = 200px"`)
         pub fn add_css_override(&mut self, id: String, prop: CssProperty)  { az_dom_add_css_override(&mut self.ptr, id.object, prop.object) }
         /// Same as [`Dom::add_css_override`](#method.add_css_override), but as a builder method
-        pub fn with_css_override(self, id: String, prop: CssProperty)  -> Dom { Dom { ptr: { az_dom_with_css_override(self.leak(), id.object, prop.object) } } }
+        pub fn with_css_override(self, id: String, prop: CssProperty)  -> crate::dom::Dom { crate::dom::Dom { ptr: { az_dom_with_css_override(self.leak(), id.object, prop.object) } } }
         /// Sets the `is_draggable` attribute of this DOM node (default: false)
         pub fn set_is_draggable(&mut self, is_draggable: bool)  { az_dom_set_is_draggable(&mut self.ptr, is_draggable) }
         /// Same as [`Dom::set_is_draggable`](#method.set_is_draggable), but as a builder method
-        pub fn is_draggable(self, is_draggable: bool)  -> Dom { Dom { ptr: { az_dom_is_draggable(self.leak(), is_draggable) } } }
+        pub fn is_draggable(self, is_draggable: bool)  -> crate::dom::Dom { crate::dom::Dom { ptr: { az_dom_is_draggable(self.leak(), is_draggable) } } }
         /// Sets the `tabindex` attribute of this DOM node (makes an element focusable - default: None)
         pub fn set_tab_index(&mut self, tab_index: TabIndex)  { az_dom_set_tab_index(&mut self.ptr, tab_index.object) }
         /// Same as [`Dom::set_tab_index`](#method.set_tab_index), but as a builder method
-        pub fn with_tab_index(self, tab_index: TabIndex)  -> Dom { Dom { ptr: { az_dom_with_tab_index(self.leak(), tab_index.object) } } }
+        pub fn with_tab_index(self, tab_index: TabIndex)  -> crate::dom::Dom { crate::dom::Dom { ptr: { az_dom_with_tab_index(self.leak(), tab_index.object) } } }
         /// Reparents another `Dom` to be the child node of this `Dom`
         pub fn add_child(&mut self, child: Dom)  { az_dom_add_child(&mut self.ptr, child.leak()) }
         /// Same as [`Dom::add_child`](#method.add_child), but as a builder method
-        pub fn with_child(self, child: Dom)  -> Dom { Dom { ptr: { az_dom_with_child(self.leak(), child.leak()) } } }
+        pub fn with_child(self, child: Dom)  -> crate::dom::Dom { crate::dom::Dom { ptr: { az_dom_with_child(self.leak(), child.leak()) } } }
         /// Returns if the DOM node has a certain CSS ID
         pub fn has_id(&mut self, id: String)  -> bool { az_dom_has_id(&mut self.ptr, id.object) }
         /// Returns if the DOM node has a certain CSS class
         pub fn has_class(&mut self, class: String)  -> bool { az_dom_has_class(&mut self.ptr, class.object) }
         /// Returns the HTML String for this DOM
-        pub fn get_html_string(&mut self)  -> String { String { object: { az_dom_get_html_string(&mut self.ptr)} } }
+        pub fn get_html_string(&mut self)  -> crate::str::String { crate::str::String { object: { az_dom_get_html_string(&mut self.ptr)} } }
        /// Prevents the destructor from running and returns the internal `AzDomPtr`
        pub fn leak(self) -> AzDomPtr { let p = az_dom_shallow_copy(&self.ptr); std::mem::forget(self); p }
     }

@@ -327,7 +327,6 @@ def rust_bindings_fn_args(f, class_name, class_ptr_name, self_as_first_arg, apiD
                 else:
                     fn_args += arg_name + ": " + start + arg_type_class_name[1] + ", "
 
-
         fn_args = fn_args[:-2]
 
     return fn_args
@@ -446,9 +445,9 @@ def generate_rust_dll(apiData):
                         code += "pub type " + class_ptr_name + "Type = " + external_path + ";\r\n"
                         code += "#[no_mangle] pub use " + class_ptr_name + "Type as " + class_ptr_name + ";\r\n"
                     else:
-                        code += "#[no_mangle] #[repr(C)] pub struct " + class_ptr_name + " { ptr: *mut c_void }\r\n"
+                        code += "#[no_mangle] #[repr(C)] pub struct " + class_ptr_name + " { pub ptr: *mut c_void }\r\n"
                 else:
-                    code += "#[no_mangle] #[repr(C)] pub struct " + class_ptr_name + " { object: " + external_path + " }\r\n"
+                    code += "#[no_mangle] #[repr(C)] pub struct " + class_ptr_name + " { pub object: " + external_path + " }\r\n"
 
                 if c_is_stack_allocated:
                     if class_is_small_enum(c):
@@ -538,9 +537,9 @@ def generate_rust_dll(apiData):
                         else:
                             return_type_class = search_for_class_by_rust_class_name(apiData, return_type)
                             if class_is_stack_allocated(get_class(apiData, return_type_class[0], return_type_class[1])):
-                                returns = " -> " + prefix + return_type # no postfix
+                                returns = " -> " + prefix + return_type_class[1] # no postfix
                             else:
-                                returns = " -> " + prefix + return_type + postfix
+                                returns = " -> " + prefix + return_type_class[1] + postfix
 
                     code += "#[no_mangle] #[inline] pub extern \"C\" fn " + fn_prefix + to_snake_case(class_name) + "_" + fn_name + "(" + fn_args + ")" + returns + " { "
                     code += fn_body
@@ -789,10 +788,11 @@ def generate_rust_api(apiData):
                             fn_body = fn_body
                         else:
                             return_type_class = search_for_class_by_rust_class_name(apiData, return_type)
+                            returns = " -> crate::" + return_type_class[0] + "::" + return_type_class[1]
                             if class_is_stack_allocated(get_class(apiData, return_type_class[0], return_type_class[1])):
-                                fn_body = f["returns"] + " { object: { " + fn_body + "} }"
+                                fn_body = "crate::" + return_type_class[0] + "::" + return_type_class[1] + " { object: { " + fn_body + "} }"
                             else:
-                                fn_body = f["returns"] + " { ptr: { " + fn_body + " } }"
+                                fn_body = "crate::" + return_type_class[0] + "::" + return_type_class[1] + " { ptr: { " + fn_body + " } }"
 
                     code += "        pub fn " + fn_name + "(" + fn_args + ") " +  returns + " { " + fn_body + " }\r\n"
 
