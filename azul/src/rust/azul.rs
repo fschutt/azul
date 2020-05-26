@@ -2126,7 +2126,7 @@ pub mod dom {
     use azul_dll::*;
     use crate::str::String;
     use crate::resources::{ImageId, TextId};
-    use crate::callbacks::{RefAny, IFrameCallback, GlCallback, Callback};
+    use crate::callbacks::{IFrameCallback, RefAny, GlCallback, Callback};
     use crate::vec::StringVec;
     use crate::css::CssProperty;
 

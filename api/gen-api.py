@@ -1,5 +1,6 @@
 import json
 import re
+import pprint
 
 def read_file(path):
     text_file = open(path, 'r')
@@ -58,6 +59,16 @@ c_api_patches = {
 def to_snake_case(name):
     s1 = re.sub('(.)([A-Z][a-z]+)', r'\1_\2', name)
     return re.sub('([a-z0-9])([A-Z])', r'\1_\2', s1).lower()
+
+# turns a list of functi
+# ex. "mut dom: AzDomPtr, event: AzEventFilter, data: AzRefAny, callback: AzCallback"
+# ->  "_: AzDomPtr, _: AzEventFilter, _: AzRefAny, _: AzCallback"
+def strip_fn_arg_types(arg_list):
+    arg_list1 = re.sub(r'(.*): (.*),?', r'_: \2, ', arg_list)
+    if arg_list1 != "":
+        arg_list1 = arg_list1[:-2]
+    return arg_list1.strip()
+
 
 def read_api_file(path):
     api_file_contents = read_file(path)
@@ -396,6 +407,9 @@ def generate_rust_dll(apiData):
 
     apiData = apiData[version]
 
+    structs_map = {}
+    functions_map = {}
+
     if tuple(['*']) in dll_patches.keys():
         code += dll_patches[tuple(['*'])]
 
@@ -448,12 +462,14 @@ def generate_rust_dll(apiData):
                 elif class_is_typedef:
                     code += "#[no_mangle] pub type " + class_ptr_name + " = " + external_path + ";\r\n"
                 elif class_is_boxed_object:
+                    structs_map[class_ptr_name] = [{"ptr": "*mut c_void" }]
                     if treat_external_as_ptr:
                         code += "pub type " + class_ptr_name + "Type = " + external_path + ";\r\n"
                         code += "#[no_mangle] pub use " + class_ptr_name + "Type as " + class_ptr_name + ";\r\n"
                     else:
                         code += "#[no_mangle] #[repr(C)] pub struct " + class_ptr_name + " { pub ptr: *mut c_void }\r\n"
                 else:
+                    structs_map[class_ptr_name] = [{"object": external_path }] # TODO: Use fields on "external"
                     code += "#[no_mangle] #[repr(C)] pub struct " + class_ptr_name + " { pub object: " + external_path + " }\r\n"
 
                 if c_is_stack_allocated:
@@ -465,6 +481,7 @@ def generate_rust_dll(apiData):
                             if "type" in enum.keys():
                                 variant_type = enum["type"]
                                 if is_primitive_arg(variant_type):
+                                    functions_map[str(fn_prefix + to_snake_case(class_name) + "_" + to_snake_case(enum_variant_name))] = ["variant_data: " + variant_type, class_ptr_name];
                                     code += "#[inline] #[no_mangle] pub extern \"C\" fn " + fn_prefix + to_snake_case(class_name) + "_" + to_snake_case(enum_variant_name) + "(variant_data: " + variant_type + ") -> " + class_ptr_name + " { "
                                     code += class_ptr_name + " { object: " + c["external"] + "::" + enum_variant_name + "(variant_data) }"
                                     code += " }\r\n"
@@ -475,15 +492,19 @@ def generate_rust_dll(apiData):
                                     if class_is_stack_allocated(get_class(apiData, found_class_path[0], found_class_path[1])):
                                         variant_data_class_name = prefix + found_class_path[1]
                                         fn_body = "variant_data.object"
+
+                                    functions_map[str(fn_prefix + to_snake_case(class_name) + "_" + to_snake_case(enum_variant_name))] = ["variant_data: " + variant_data_class_name, class_ptr_name];
                                     code += "#[inline] #[no_mangle] pub extern \"C\" fn " + fn_prefix + to_snake_case(class_name) + "_" + to_snake_case(enum_variant_name) + "(variant_data: " + variant_data_class_name + ") -> " + class_ptr_name + " { "
                                     code += class_ptr_name + " { object: " + c["external"] + "::" + enum_variant_name + "(" + fn_body + ") }"
                                     code += " }\r\n"
                             else:
                                 # enum variant with no arguments
+                                functions_map[str(fn_prefix + to_snake_case(class_name) + "_" + to_snake_case(enum_variant_name))] = ["", class_ptr_name];
                                 code += "#[inline] #[no_mangle] pub extern \"C\" fn " + fn_prefix + to_snake_case(class_name) + "_" + to_snake_case(enum_variant_name) + "() -> " + class_ptr_name + " { "
                                 code += class_ptr_name + " { object: " + c["external"] + "::" + enum_variant_name + " }"
                                 code += " }\r\n"
             else:
+                structs_map[class_ptr_name] = [{"ptr": "*mut c_void"}]
                 code += "#[no_mangle] #[repr(C)] pub struct " + class_ptr_name + " { ptr: *mut c_void }\r\n"
 
             if "constructors" in c.keys():
@@ -512,6 +533,7 @@ def generate_rust_dll(apiData):
 
                     fn_args = fn_args_c_api(const, class_name, class_ptr_name, False, apiData)
 
+                    functions_map[str(fn_prefix + to_snake_case(class_name) + "_" + fn_name)] = [fn_args, class_ptr_name];
                     code += "#[no_mangle] #[inline] pub extern \"C\" fn " + fn_prefix + to_snake_case(class_name) + "_" + fn_name + "(" + fn_args + ") -> " + class_ptr_name + " { "
                     code += fn_body
                     code += " }\r\n"
@@ -540,15 +562,17 @@ def generate_rust_dll(apiData):
                     if "returns" in f.keys():
                         return_type = f["returns"]
                         if is_primitive_arg(return_type):
-                            returns = " -> " + return_type
+                            returns = return_type
                         else:
                             return_type_class = search_for_class_by_rust_class_name(apiData, return_type)
                             if class_is_stack_allocated(get_class(apiData, return_type_class[0], return_type_class[1])):
-                                returns = " -> " + prefix + return_type_class[1] # no postfix
+                                returns = prefix + return_type_class[1] # no postfix
                             else:
-                                returns = " -> " + prefix + return_type_class[1] + postfix
+                                returns = prefix + return_type_class[1] + postfix
 
-                    code += "#[no_mangle] #[inline] pub extern \"C\" fn " + fn_prefix + to_snake_case(class_name) + "_" + fn_name + "(" + fn_args + ")" + returns + " { "
+                    functions_map[str(fn_prefix + to_snake_case(class_name) + "_" + fn_name)] = [fn_args, returns];
+                    return_arrow = "" if returns == "" else " -> "
+                    code += "#[no_mangle] #[inline] pub extern \"C\" fn " + fn_prefix + to_snake_case(class_name) + "_" + fn_name + "(" + fn_args + ")" + return_arrow + returns + " { "
                     code += fn_body
                     code += " }\r\n"
 
@@ -574,22 +598,26 @@ def generate_rust_dll(apiData):
 
                     # az_item_delete()
                     code += "/// Destructor: Takes ownership of the `" + class_name + "` pointer and deletes it.\r\n"
+                    functions_map[str(fn_prefix + to_snake_case(class_name) + "_delete")] = ["object: &mut " + class_ptr_name, ""];
                     code += "#[no_mangle] #[inline] #[allow(unused_variables)] pub extern \"C\" fn " + fn_prefix + to_snake_case(class_name) + "_delete" + lifetime + "(object: &mut " + class_ptr_name + ") { " + stack_delete_body + "}\r\n"
 
                     # az_item_deep_copy()
                     code += "/// Copies the object\r\n"
+                    functions_map[str(fn_prefix + to_snake_case(class_name) + "_deep_copy")] = ["object: &" + class_ptr_name, class_ptr_name];
                     code += "#[no_mangle] #[inline] pub extern \"C\" fn " + fn_prefix + to_snake_case(class_name) + "_deep_copy" + lifetime + "(object: &" + class_ptr_name + ") -> " + class_ptr_name + " { "
                     code += class_ptr_name + "{ object: object.object.clone() }"
                     code += " }\r\n"
             else:
                 # az_item_delete()
                 code += "/// Destructor: Takes ownership of the `" + class_name + "` pointer and deletes it.\r\n"
+                functions_map[str(fn_prefix + to_snake_case(class_name) + "_delete")] = ["ptr: &mut " + class_ptr_name, ""];
                 code += "#[no_mangle] #[inline] pub extern \"C\" fn " + fn_prefix + to_snake_case(class_name) + "_delete" + lifetime + "(ptr: &mut " + class_ptr_name + ") { "
                 code += "let _ = unsafe { Box::<" + rust_class_name + ">::from_raw(ptr.ptr  as *mut " + rust_class_name + ") };"
                 code += " }\r\n"
 
                 # az_item_shallow_copy()
                 code += "/// Copies the pointer: WARNING: After calling this function you'll have two pointers to the same Box<`" + class_name + "`>!.\r\n"
+                functions_map[str(fn_prefix + to_snake_case(class_name) + "_shallow_copy")] = ["ptr: &" + class_ptr_name, class_ptr_name];
                 code += "#[no_mangle] #[inline] pub extern \"C\" fn " + fn_prefix + to_snake_case(class_name) + "_shallow_copy" + lifetime + "(ptr: &" + class_ptr_name + ") -> " + class_ptr_name + " { "
                 code += class_ptr_name + " { ptr: ptr.ptr }"
                 code += " }\r\n"
@@ -623,10 +651,37 @@ def generate_rust_dll(apiData):
                 code += "ret_val"
                 code += " }\r\n"
 
+    return [code, structs_map, functions_map]
+
+def generate_dll_loader(structs_map, functions_map):
+    code = "extern crate libloading;\r\n\r\n"
+    code = "use libloading::Symbol;\r\n\r\n"
+
+    code += "pub struct AzulDll<'a> {\r\n"
+    for fn_name in functions_map.keys():
+        fn_type = functions_map[fn_name]
+        fn_args = fn_type[0]
+        fn_return = fn_type[1]
+        return_arrow = "" if fn_return == "" else " -> "
+        code += "    " + fn_name + ": Symbol<'a, extern fn(" + strip_fn_arg_types(fn_args) + ")" + return_arrow + fn_return + ">,\r\n"
+    code += "}\r\n\r\n"
+
+    code += "pub fn initialize_library(path: &str) -> Option<AzulDll> {\r\n"
+    code += "    let lib = libloading::Library::new(path).ok()?;\r\n"
+    code += "    Some(AzulDll {\r\n"
+    for fn_name in functions_map.keys():
+        fn_type = functions_map[fn_name]
+        fn_args = fn_type[0]
+        fn_return = fn_type[1]
+        return_arrow = "" if fn_return == "" else " -> "
+        code += "        " + fn_name + ": unsafe { lib.get::<extern fn(" + strip_fn_arg_types(fn_args) + ")" + return_arrow + fn_return + ">(b\"" + fn_name + "\").ok()? },\r\n"
+    code += "    })\r\n"
+    code += "}\r\n"
+
     return code
 
 # Generates the azul/rust/azul.rs file
-def generate_rust_api(apiData):
+def generate_rust_api(apiData, structs_map, functions_map):
 
     version = list(apiData.keys())[-1]
     code = "//! Auto-generated public Rust API for the Azul GUI toolkit version " + version + "\r\n"
@@ -646,6 +701,8 @@ def generate_rust_api(apiData):
 
     code += "extern crate azul_dll;"
     code += "\r\n\r\n"
+
+    # code += generate_dll_loader(structs_map, functions_map)
 
     if tuple(['*']) in rust_api_patches:
         code += rust_api_patches[tuple(['*'])]
@@ -841,8 +898,9 @@ def generate_js_api(apiData):
 
 def main():
     apiData = read_api_file(api_file_path)
-    write_file(generate_rust_dll(apiData), rust_dll_path)
-    write_file(generate_rust_api(apiData), rust_api_path)
+    rust_dll_result = generate_rust_dll(apiData)
+    write_file(rust_dll_result[0], rust_dll_path)
+    write_file(generate_rust_api(apiData, rust_dll_result[1], rust_dll_result[2]), rust_api_path)
     # write_file(generate_c_api(apiData), c_api_path)
     # write_file(generate_cpp_api(apiData), cpp_api_path)
     # write_file(generate_python_api(apiData), python_api_path)
