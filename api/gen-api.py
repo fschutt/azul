@@ -657,6 +657,16 @@ def generate_dll_loader(structs_map, functions_map):
     code = "extern crate libloading;\r\n\r\n"
 
     code += "pub mod dll {\r\n\r\n"
+    code += "    use std::ffi::c_void;\r\n\r\n"
+    for struct_name in structs_map.keys():
+        struct = structs_map[struct_name]
+        code += "    #[repr(C)] pub struct " + struct_name + " { "
+        for field in struct:
+            field_name = list(field.keys())[0]
+            field_type = list(field.values())[0]
+            code += field_name + ": " + field_type + ", "
+        code += "}\r\n"
+    code += "\r\n\r\n"
     code += "    #[cfg(unix)]\r\n"
     code += "    use libloading::os::unix::{Library, Symbol};\r\n"
     code += "    #[cfg(windows)]\r\n"
