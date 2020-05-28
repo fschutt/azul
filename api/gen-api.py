@@ -655,28 +655,40 @@ def generate_rust_dll(apiData):
 
 def generate_dll_loader(structs_map, functions_map):
     code = "extern crate libloading;\r\n\r\n"
-    code = "use libloading::Symbol;\r\n\r\n"
 
-    code += "pub struct AzulDll<'a> {\r\n"
+    code += "pub mod dll {\r\n\r\n"
+    code += "    #[cfg(unix)]\r\n"
+    code += "    use libloading::os::unix::{Library, Symbol};\r\n"
+    code += "    #[cfg(windows)]\r\n"
+    code += "    use libloading::os::windows::{Library, Symbol};\r\n\r\n"
+
+    code += "    pub struct AzulDll {\r\n"
+    code += "        lib: Box<Library>,\r\n"
     for fn_name in functions_map.keys():
         fn_type = functions_map[fn_name]
         fn_args = fn_type[0]
         fn_return = fn_type[1]
         return_arrow = "" if fn_return == "" else " -> "
-        code += "    " + fn_name + ": Symbol<'a, extern fn(" + strip_fn_arg_types(fn_args) + ")" + return_arrow + fn_return + ">,\r\n"
+        code += "        " + fn_name + ": Symbol<extern fn(" + strip_fn_arg_types(fn_args) + ")" + return_arrow + fn_return + ">,\r\n"
+    code += "    }\r\n\r\n"
+
+    code += "    pub fn initialize_library(path: &str) -> Option<AzulDll> {\r\n"
+    code += "        let lib = Library::new(path).ok()?;\r\n"
+    for fn_name in functions_map.keys():
+        fn_type = functions_map[fn_name]
+        fn_args = fn_type[0]
+        fn_return = fn_type[1]
+        return_arrow = "" if fn_return == "" else " -> "
+        code += "        let " + fn_name + " = unsafe { lib.get::<extern fn(" + strip_fn_arg_types(fn_args) + ")" + return_arrow + fn_return + ">(b\"" + fn_name + "\").ok()? };\r\n"
+
+    code += "        Some(AzulDll {\r\n"
+    code += "            lib: Box::new(lib),\r\n"
+    for fn_name in functions_map.keys():
+        code += "            " + fn_name + ",\r\n"
+
+    code += "        })\r\n"
+    code += "    }\r\n"
     code += "}\r\n\r\n"
-
-    code += "pub fn initialize_library(path: &str) -> Option<AzulDll> {\r\n"
-    code += "    let lib = libloading::Library::new(path).ok()?;\r\n"
-    code += "    Some(AzulDll {\r\n"
-    for fn_name in functions_map.keys():
-        fn_type = functions_map[fn_name]
-        fn_args = fn_type[0]
-        fn_return = fn_type[1]
-        return_arrow = "" if fn_return == "" else " -> "
-        code += "        " + fn_name + ": unsafe { lib.get::<extern fn(" + strip_fn_arg_types(fn_args) + ")" + return_arrow + fn_return + ">(b\"" + fn_name + "\").ok()? },\r\n"
-    code += "    })\r\n"
-    code += "}\r\n"
 
     return code
 
@@ -702,7 +714,7 @@ def generate_rust_api(apiData, structs_map, functions_map):
     code += "extern crate azul_dll;"
     code += "\r\n\r\n"
 
-    # code += generate_dll_loader(structs_map, functions_map)
+    code += generate_dll_loader(structs_map, functions_map)
 
     if tuple(['*']) in rust_api_patches:
         code += rust_api_patches[tuple(['*'])]

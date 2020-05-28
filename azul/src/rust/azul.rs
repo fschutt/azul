@@ -24,6 +24,2397 @@
 
 extern crate azul_dll;
 
+extern crate libloading;
+
+pub mod dll {
+
+    #[cfg(unix)]
+    use libloading::os::unix::{Library, Symbol};
+    #[cfg(windows)]
+    use libloading::os::windows::{Library, Symbol};
+
+    pub struct AzulDll {
+        lib: Box<Library>,
+        az_string_from_utf8_unchecked: Symbol<extern fn(_: usize) -> AzString>,
+        az_string_from_utf8_lossy: Symbol<extern fn(_: usize) -> AzString>,
+        az_string_into_bytes: Symbol<extern fn(_: AzString) -> AzU8Vec>,
+        az_string_delete: Symbol<extern fn(_: &mut AzString)>,
+        az_string_deep_copy: Symbol<extern fn(_: &AzString) -> AzString>,
+        az_u8_vec_copy_from: Symbol<extern fn(_: usize) -> AzU8Vec>,
+        az_u8_vec_as_ptr: Symbol<extern fn(_: &AzU8Vec) -> *const u8>,
+        az_u8_vec_len: Symbol<extern fn(_: &AzU8Vec) -> usize>,
+        az_u8_vec_delete: Symbol<extern fn(_: &mut AzU8Vec)>,
+        az_u8_vec_deep_copy: Symbol<extern fn(_: &AzU8Vec) -> AzU8Vec>,
+        az_string_vec_copy_from: Symbol<extern fn(_: usize) -> AzStringVec>,
+        az_string_vec_delete: Symbol<extern fn(_: &mut AzStringVec)>,
+        az_string_vec_deep_copy: Symbol<extern fn(_: &AzStringVec) -> AzStringVec>,
+        az_path_buf_new: Symbol<extern fn(_: AzString) -> AzPathBufPtr>,
+        az_path_buf_delete: Symbol<extern fn(_: &mut AzPathBufPtr)>,
+        az_path_buf_shallow_copy: Symbol<extern fn(_: &AzPathBufPtr) -> AzPathBufPtr>,
+        az_app_config_default: Symbol<extern fn() -> AzAppConfigPtr>,
+        az_app_config_delete: Symbol<extern fn(_: &mut AzAppConfigPtr)>,
+        az_app_config_shallow_copy: Symbol<extern fn(_: &AzAppConfigPtr) -> AzAppConfigPtr>,
+        az_app_new: Symbol<extern fn(_: AzLayoutCallback) -> AzAppPtr>,
+        az_app_run: Symbol<extern fn(_: AzWindowCreateOptionsPtr)>,
+        az_app_delete: Symbol<extern fn(_: &mut AzAppPtr)>,
+        az_app_shallow_copy: Symbol<extern fn(_: &AzAppPtr) -> AzAppPtr>,
+        az_callback_info_delete: Symbol<extern fn(_: &mut AzCallbackInfoPtr)>,
+        az_callback_info_shallow_copy: Symbol<extern fn(_: &AzCallbackInfoPtr) -> AzCallbackInfoPtr>,
+        az_i_frame_callback_info_delete: Symbol<extern fn(_: &mut AzIFrameCallbackInfoPtr)>,
+        az_i_frame_callback_info_shallow_copy: Symbol<extern fn(_: &AzIFrameCallbackInfoPtr) -> AzIFrameCallbackInfoPtr>,
+        az_i_frame_callback_return_delete: Symbol<extern fn(_: &mut AzIFrameCallbackReturnPtr)>,
+        az_i_frame_callback_return_shallow_copy: Symbol<extern fn(_: &AzIFrameCallbackReturnPtr) -> AzIFrameCallbackReturnPtr>,
+        az_gl_callback_info_delete: Symbol<extern fn(_: &mut AzGlCallbackInfoPtr)>,
+        az_gl_callback_info_shallow_copy: Symbol<extern fn(_: &AzGlCallbackInfoPtr) -> AzGlCallbackInfoPtr>,
+        az_gl_callback_return_delete: Symbol<extern fn(_: &mut AzGlCallbackReturnPtr)>,
+        az_gl_callback_return_shallow_copy: Symbol<extern fn(_: &AzGlCallbackReturnPtr) -> AzGlCallbackReturnPtr>,
+        az_layout_info_delete: Symbol<extern fn(_: &mut AzLayoutInfoPtr)>,
+        az_layout_info_shallow_copy: Symbol<extern fn(_: &AzLayoutInfoPtr) -> AzLayoutInfoPtr>,
+        az_css_native: Symbol<extern fn() -> AzCssPtr>,
+        az_css_empty: Symbol<extern fn() -> AzCssPtr>,
+        az_css_delete: Symbol<extern fn(_: &mut AzCssPtr)>,
+        az_css_shallow_copy: Symbol<extern fn(_: &AzCssPtr) -> AzCssPtr>,
+        az_box_shadow_pre_display_item_delete: Symbol<extern fn(_: &mut AzBoxShadowPreDisplayItemPtr)>,
+        az_box_shadow_pre_display_item_shallow_copy: Symbol<extern fn(_: &AzBoxShadowPreDisplayItemPtr) -> AzBoxShadowPreDisplayItemPtr>,
+        az_layout_align_content_delete: Symbol<extern fn(_: &mut AzLayoutAlignContentPtr)>,
+        az_layout_align_content_shallow_copy: Symbol<extern fn(_: &AzLayoutAlignContentPtr) -> AzLayoutAlignContentPtr>,
+        az_layout_align_items_delete: Symbol<extern fn(_: &mut AzLayoutAlignItemsPtr)>,
+        az_layout_align_items_shallow_copy: Symbol<extern fn(_: &AzLayoutAlignItemsPtr) -> AzLayoutAlignItemsPtr>,
+        az_layout_bottom_delete: Symbol<extern fn(_: &mut AzLayoutBottomPtr)>,
+        az_layout_bottom_shallow_copy: Symbol<extern fn(_: &AzLayoutBottomPtr) -> AzLayoutBottomPtr>,
+        az_layout_box_sizing_delete: Symbol<extern fn(_: &mut AzLayoutBoxSizingPtr)>,
+        az_layout_box_sizing_shallow_copy: Symbol<extern fn(_: &AzLayoutBoxSizingPtr) -> AzLayoutBoxSizingPtr>,
+        az_layout_direction_delete: Symbol<extern fn(_: &mut AzLayoutDirectionPtr)>,
+        az_layout_direction_shallow_copy: Symbol<extern fn(_: &AzLayoutDirectionPtr) -> AzLayoutDirectionPtr>,
+        az_layout_display_delete: Symbol<extern fn(_: &mut AzLayoutDisplayPtr)>,
+        az_layout_display_shallow_copy: Symbol<extern fn(_: &AzLayoutDisplayPtr) -> AzLayoutDisplayPtr>,
+        az_layout_flex_grow_delete: Symbol<extern fn(_: &mut AzLayoutFlexGrowPtr)>,
+        az_layout_flex_grow_shallow_copy: Symbol<extern fn(_: &AzLayoutFlexGrowPtr) -> AzLayoutFlexGrowPtr>,
+        az_layout_flex_shrink_delete: Symbol<extern fn(_: &mut AzLayoutFlexShrinkPtr)>,
+        az_layout_flex_shrink_shallow_copy: Symbol<extern fn(_: &AzLayoutFlexShrinkPtr) -> AzLayoutFlexShrinkPtr>,
+        az_layout_float_delete: Symbol<extern fn(_: &mut AzLayoutFloatPtr)>,
+        az_layout_float_shallow_copy: Symbol<extern fn(_: &AzLayoutFloatPtr) -> AzLayoutFloatPtr>,
+        az_layout_height_delete: Symbol<extern fn(_: &mut AzLayoutHeightPtr)>,
+        az_layout_height_shallow_copy: Symbol<extern fn(_: &AzLayoutHeightPtr) -> AzLayoutHeightPtr>,
+        az_layout_justify_content_delete: Symbol<extern fn(_: &mut AzLayoutJustifyContentPtr)>,
+        az_layout_justify_content_shallow_copy: Symbol<extern fn(_: &AzLayoutJustifyContentPtr) -> AzLayoutJustifyContentPtr>,
+        az_layout_left_delete: Symbol<extern fn(_: &mut AzLayoutLeftPtr)>,
+        az_layout_left_shallow_copy: Symbol<extern fn(_: &AzLayoutLeftPtr) -> AzLayoutLeftPtr>,
+        az_layout_margin_bottom_delete: Symbol<extern fn(_: &mut AzLayoutMarginBottomPtr)>,
+        az_layout_margin_bottom_shallow_copy: Symbol<extern fn(_: &AzLayoutMarginBottomPtr) -> AzLayoutMarginBottomPtr>,
+        az_layout_margin_left_delete: Symbol<extern fn(_: &mut AzLayoutMarginLeftPtr)>,
+        az_layout_margin_left_shallow_copy: Symbol<extern fn(_: &AzLayoutMarginLeftPtr) -> AzLayoutMarginLeftPtr>,
+        az_layout_margin_right_delete: Symbol<extern fn(_: &mut AzLayoutMarginRightPtr)>,
+        az_layout_margin_right_shallow_copy: Symbol<extern fn(_: &AzLayoutMarginRightPtr) -> AzLayoutMarginRightPtr>,
+        az_layout_margin_top_delete: Symbol<extern fn(_: &mut AzLayoutMarginTopPtr)>,
+        az_layout_margin_top_shallow_copy: Symbol<extern fn(_: &AzLayoutMarginTopPtr) -> AzLayoutMarginTopPtr>,
+        az_layout_max_height_delete: Symbol<extern fn(_: &mut AzLayoutMaxHeightPtr)>,
+        az_layout_max_height_shallow_copy: Symbol<extern fn(_: &AzLayoutMaxHeightPtr) -> AzLayoutMaxHeightPtr>,
+        az_layout_max_width_delete: Symbol<extern fn(_: &mut AzLayoutMaxWidthPtr)>,
+        az_layout_max_width_shallow_copy: Symbol<extern fn(_: &AzLayoutMaxWidthPtr) -> AzLayoutMaxWidthPtr>,
+        az_layout_min_height_delete: Symbol<extern fn(_: &mut AzLayoutMinHeightPtr)>,
+        az_layout_min_height_shallow_copy: Symbol<extern fn(_: &AzLayoutMinHeightPtr) -> AzLayoutMinHeightPtr>,
+        az_layout_min_width_delete: Symbol<extern fn(_: &mut AzLayoutMinWidthPtr)>,
+        az_layout_min_width_shallow_copy: Symbol<extern fn(_: &AzLayoutMinWidthPtr) -> AzLayoutMinWidthPtr>,
+        az_layout_padding_bottom_delete: Symbol<extern fn(_: &mut AzLayoutPaddingBottomPtr)>,
+        az_layout_padding_bottom_shallow_copy: Symbol<extern fn(_: &AzLayoutPaddingBottomPtr) -> AzLayoutPaddingBottomPtr>,
+        az_layout_padding_left_delete: Symbol<extern fn(_: &mut AzLayoutPaddingLeftPtr)>,
+        az_layout_padding_left_shallow_copy: Symbol<extern fn(_: &AzLayoutPaddingLeftPtr) -> AzLayoutPaddingLeftPtr>,
+        az_layout_padding_right_delete: Symbol<extern fn(_: &mut AzLayoutPaddingRightPtr)>,
+        az_layout_padding_right_shallow_copy: Symbol<extern fn(_: &AzLayoutPaddingRightPtr) -> AzLayoutPaddingRightPtr>,
+        az_layout_padding_top_delete: Symbol<extern fn(_: &mut AzLayoutPaddingTopPtr)>,
+        az_layout_padding_top_shallow_copy: Symbol<extern fn(_: &AzLayoutPaddingTopPtr) -> AzLayoutPaddingTopPtr>,
+        az_layout_position_delete: Symbol<extern fn(_: &mut AzLayoutPositionPtr)>,
+        az_layout_position_shallow_copy: Symbol<extern fn(_: &AzLayoutPositionPtr) -> AzLayoutPositionPtr>,
+        az_layout_right_delete: Symbol<extern fn(_: &mut AzLayoutRightPtr)>,
+        az_layout_right_shallow_copy: Symbol<extern fn(_: &AzLayoutRightPtr) -> AzLayoutRightPtr>,
+        az_layout_top_delete: Symbol<extern fn(_: &mut AzLayoutTopPtr)>,
+        az_layout_top_shallow_copy: Symbol<extern fn(_: &AzLayoutTopPtr) -> AzLayoutTopPtr>,
+        az_layout_width_delete: Symbol<extern fn(_: &mut AzLayoutWidthPtr)>,
+        az_layout_width_shallow_copy: Symbol<extern fn(_: &AzLayoutWidthPtr) -> AzLayoutWidthPtr>,
+        az_layout_wrap_delete: Symbol<extern fn(_: &mut AzLayoutWrapPtr)>,
+        az_layout_wrap_shallow_copy: Symbol<extern fn(_: &AzLayoutWrapPtr) -> AzLayoutWrapPtr>,
+        az_overflow_delete: Symbol<extern fn(_: &mut AzOverflowPtr)>,
+        az_overflow_shallow_copy: Symbol<extern fn(_: &AzOverflowPtr) -> AzOverflowPtr>,
+        az_style_background_content_delete: Symbol<extern fn(_: &mut AzStyleBackgroundContentPtr)>,
+        az_style_background_content_shallow_copy: Symbol<extern fn(_: &AzStyleBackgroundContentPtr) -> AzStyleBackgroundContentPtr>,
+        az_style_background_position_delete: Symbol<extern fn(_: &mut AzStyleBackgroundPositionPtr)>,
+        az_style_background_position_shallow_copy: Symbol<extern fn(_: &AzStyleBackgroundPositionPtr) -> AzStyleBackgroundPositionPtr>,
+        az_style_background_repeat_delete: Symbol<extern fn(_: &mut AzStyleBackgroundRepeatPtr)>,
+        az_style_background_repeat_shallow_copy: Symbol<extern fn(_: &AzStyleBackgroundRepeatPtr) -> AzStyleBackgroundRepeatPtr>,
+        az_style_background_size_delete: Symbol<extern fn(_: &mut AzStyleBackgroundSizePtr)>,
+        az_style_background_size_shallow_copy: Symbol<extern fn(_: &AzStyleBackgroundSizePtr) -> AzStyleBackgroundSizePtr>,
+        az_style_border_bottom_color_delete: Symbol<extern fn(_: &mut AzStyleBorderBottomColorPtr)>,
+        az_style_border_bottom_color_shallow_copy: Symbol<extern fn(_: &AzStyleBorderBottomColorPtr) -> AzStyleBorderBottomColorPtr>,
+        az_style_border_bottom_left_radius_delete: Symbol<extern fn(_: &mut AzStyleBorderBottomLeftRadiusPtr)>,
+        az_style_border_bottom_left_radius_shallow_copy: Symbol<extern fn(_: &AzStyleBorderBottomLeftRadiusPtr) -> AzStyleBorderBottomLeftRadiusPtr>,
+        az_style_border_bottom_right_radius_delete: Symbol<extern fn(_: &mut AzStyleBorderBottomRightRadiusPtr)>,
+        az_style_border_bottom_right_radius_shallow_copy: Symbol<extern fn(_: &AzStyleBorderBottomRightRadiusPtr) -> AzStyleBorderBottomRightRadiusPtr>,
+        az_style_border_bottom_style_delete: Symbol<extern fn(_: &mut AzStyleBorderBottomStylePtr)>,
+        az_style_border_bottom_style_shallow_copy: Symbol<extern fn(_: &AzStyleBorderBottomStylePtr) -> AzStyleBorderBottomStylePtr>,
+        az_style_border_bottom_width_delete: Symbol<extern fn(_: &mut AzStyleBorderBottomWidthPtr)>,
+        az_style_border_bottom_width_shallow_copy: Symbol<extern fn(_: &AzStyleBorderBottomWidthPtr) -> AzStyleBorderBottomWidthPtr>,
+        az_style_border_left_color_delete: Symbol<extern fn(_: &mut AzStyleBorderLeftColorPtr)>,
+        az_style_border_left_color_shallow_copy: Symbol<extern fn(_: &AzStyleBorderLeftColorPtr) -> AzStyleBorderLeftColorPtr>,
+        az_style_border_left_style_delete: Symbol<extern fn(_: &mut AzStyleBorderLeftStylePtr)>,
+        az_style_border_left_style_shallow_copy: Symbol<extern fn(_: &AzStyleBorderLeftStylePtr) -> AzStyleBorderLeftStylePtr>,
+        az_style_border_left_width_delete: Symbol<extern fn(_: &mut AzStyleBorderLeftWidthPtr)>,
+        az_style_border_left_width_shallow_copy: Symbol<extern fn(_: &AzStyleBorderLeftWidthPtr) -> AzStyleBorderLeftWidthPtr>,
+        az_style_border_right_color_delete: Symbol<extern fn(_: &mut AzStyleBorderRightColorPtr)>,
+        az_style_border_right_color_shallow_copy: Symbol<extern fn(_: &AzStyleBorderRightColorPtr) -> AzStyleBorderRightColorPtr>,
+        az_style_border_right_style_delete: Symbol<extern fn(_: &mut AzStyleBorderRightStylePtr)>,
+        az_style_border_right_style_shallow_copy: Symbol<extern fn(_: &AzStyleBorderRightStylePtr) -> AzStyleBorderRightStylePtr>,
+        az_style_border_right_width_delete: Symbol<extern fn(_: &mut AzStyleBorderRightWidthPtr)>,
+        az_style_border_right_width_shallow_copy: Symbol<extern fn(_: &AzStyleBorderRightWidthPtr) -> AzStyleBorderRightWidthPtr>,
+        az_style_border_top_color_delete: Symbol<extern fn(_: &mut AzStyleBorderTopColorPtr)>,
+        az_style_border_top_color_shallow_copy: Symbol<extern fn(_: &AzStyleBorderTopColorPtr) -> AzStyleBorderTopColorPtr>,
+        az_style_border_top_left_radius_delete: Symbol<extern fn(_: &mut AzStyleBorderTopLeftRadiusPtr)>,
+        az_style_border_top_left_radius_shallow_copy: Symbol<extern fn(_: &AzStyleBorderTopLeftRadiusPtr) -> AzStyleBorderTopLeftRadiusPtr>,
+        az_style_border_top_right_radius_delete: Symbol<extern fn(_: &mut AzStyleBorderTopRightRadiusPtr)>,
+        az_style_border_top_right_radius_shallow_copy: Symbol<extern fn(_: &AzStyleBorderTopRightRadiusPtr) -> AzStyleBorderTopRightRadiusPtr>,
+        az_style_border_top_style_delete: Symbol<extern fn(_: &mut AzStyleBorderTopStylePtr)>,
+        az_style_border_top_style_shallow_copy: Symbol<extern fn(_: &AzStyleBorderTopStylePtr) -> AzStyleBorderTopStylePtr>,
+        az_style_border_top_width_delete: Symbol<extern fn(_: &mut AzStyleBorderTopWidthPtr)>,
+        az_style_border_top_width_shallow_copy: Symbol<extern fn(_: &AzStyleBorderTopWidthPtr) -> AzStyleBorderTopWidthPtr>,
+        az_style_cursor_delete: Symbol<extern fn(_: &mut AzStyleCursorPtr)>,
+        az_style_cursor_shallow_copy: Symbol<extern fn(_: &AzStyleCursorPtr) -> AzStyleCursorPtr>,
+        az_style_font_family_delete: Symbol<extern fn(_: &mut AzStyleFontFamilyPtr)>,
+        az_style_font_family_shallow_copy: Symbol<extern fn(_: &AzStyleFontFamilyPtr) -> AzStyleFontFamilyPtr>,
+        az_style_font_size_delete: Symbol<extern fn(_: &mut AzStyleFontSizePtr)>,
+        az_style_font_size_shallow_copy: Symbol<extern fn(_: &AzStyleFontSizePtr) -> AzStyleFontSizePtr>,
+        az_style_letter_spacing_delete: Symbol<extern fn(_: &mut AzStyleLetterSpacingPtr)>,
+        az_style_letter_spacing_shallow_copy: Symbol<extern fn(_: &AzStyleLetterSpacingPtr) -> AzStyleLetterSpacingPtr>,
+        az_style_line_height_delete: Symbol<extern fn(_: &mut AzStyleLineHeightPtr)>,
+        az_style_line_height_shallow_copy: Symbol<extern fn(_: &AzStyleLineHeightPtr) -> AzStyleLineHeightPtr>,
+        az_style_tab_width_delete: Symbol<extern fn(_: &mut AzStyleTabWidthPtr)>,
+        az_style_tab_width_shallow_copy: Symbol<extern fn(_: &AzStyleTabWidthPtr) -> AzStyleTabWidthPtr>,
+        az_style_text_alignment_horz_delete: Symbol<extern fn(_: &mut AzStyleTextAlignmentHorzPtr)>,
+        az_style_text_alignment_horz_shallow_copy: Symbol<extern fn(_: &AzStyleTextAlignmentHorzPtr) -> AzStyleTextAlignmentHorzPtr>,
+        az_style_text_color_delete: Symbol<extern fn(_: &mut AzStyleTextColorPtr)>,
+        az_style_text_color_shallow_copy: Symbol<extern fn(_: &AzStyleTextColorPtr) -> AzStyleTextColorPtr>,
+        az_style_word_spacing_delete: Symbol<extern fn(_: &mut AzStyleWordSpacingPtr)>,
+        az_style_word_spacing_shallow_copy: Symbol<extern fn(_: &AzStyleWordSpacingPtr) -> AzStyleWordSpacingPtr>,
+        az_box_shadow_pre_display_item_value_auto: Symbol<extern fn() -> AzBoxShadowPreDisplayItemValue>,
+        az_box_shadow_pre_display_item_value_none: Symbol<extern fn() -> AzBoxShadowPreDisplayItemValue>,
+        az_box_shadow_pre_display_item_value_inherit: Symbol<extern fn() -> AzBoxShadowPreDisplayItemValue>,
+        az_box_shadow_pre_display_item_value_initial: Symbol<extern fn() -> AzBoxShadowPreDisplayItemValue>,
+        az_box_shadow_pre_display_item_value_exact: Symbol<extern fn(_: AzBoxShadowPreDisplayItemPtr) -> AzBoxShadowPreDisplayItemValue>,
+        az_box_shadow_pre_display_item_value_delete: Symbol<extern fn(_: &mut AzBoxShadowPreDisplayItemValue)>,
+        az_box_shadow_pre_display_item_value_deep_copy: Symbol<extern fn(_: &AzBoxShadowPreDisplayItemValue) -> AzBoxShadowPreDisplayItemValue>,
+        az_layout_align_content_value_auto: Symbol<extern fn() -> AzLayoutAlignContentValue>,
+        az_layout_align_content_value_none: Symbol<extern fn() -> AzLayoutAlignContentValue>,
+        az_layout_align_content_value_inherit: Symbol<extern fn() -> AzLayoutAlignContentValue>,
+        az_layout_align_content_value_initial: Symbol<extern fn() -> AzLayoutAlignContentValue>,
+        az_layout_align_content_value_exact: Symbol<extern fn(_: AzLayoutAlignContentPtr) -> AzLayoutAlignContentValue>,
+        az_layout_align_content_value_delete: Symbol<extern fn(_: &mut AzLayoutAlignContentValue)>,
+        az_layout_align_content_value_deep_copy: Symbol<extern fn(_: &AzLayoutAlignContentValue) -> AzLayoutAlignContentValue>,
+        az_layout_align_items_value_auto: Symbol<extern fn() -> AzLayoutAlignItemsValue>,
+        az_layout_align_items_value_none: Symbol<extern fn() -> AzLayoutAlignItemsValue>,
+        az_layout_align_items_value_inherit: Symbol<extern fn() -> AzLayoutAlignItemsValue>,
+        az_layout_align_items_value_initial: Symbol<extern fn() -> AzLayoutAlignItemsValue>,
+        az_layout_align_items_value_exact: Symbol<extern fn(_: AzLayoutAlignItemsPtr) -> AzLayoutAlignItemsValue>,
+        az_layout_align_items_value_delete: Symbol<extern fn(_: &mut AzLayoutAlignItemsValue)>,
+        az_layout_align_items_value_deep_copy: Symbol<extern fn(_: &AzLayoutAlignItemsValue) -> AzLayoutAlignItemsValue>,
+        az_layout_bottom_value_auto: Symbol<extern fn() -> AzLayoutBottomValue>,
+        az_layout_bottom_value_none: Symbol<extern fn() -> AzLayoutBottomValue>,
+        az_layout_bottom_value_inherit: Symbol<extern fn() -> AzLayoutBottomValue>,
+        az_layout_bottom_value_initial: Symbol<extern fn() -> AzLayoutBottomValue>,
+        az_layout_bottom_value_exact: Symbol<extern fn(_: AzLayoutBottomPtr) -> AzLayoutBottomValue>,
+        az_layout_bottom_value_delete: Symbol<extern fn(_: &mut AzLayoutBottomValue)>,
+        az_layout_bottom_value_deep_copy: Symbol<extern fn(_: &AzLayoutBottomValue) -> AzLayoutBottomValue>,
+        az_layout_box_sizing_value_auto: Symbol<extern fn() -> AzLayoutBoxSizingValue>,
+        az_layout_box_sizing_value_none: Symbol<extern fn() -> AzLayoutBoxSizingValue>,
+        az_layout_box_sizing_value_inherit: Symbol<extern fn() -> AzLayoutBoxSizingValue>,
+        az_layout_box_sizing_value_initial: Symbol<extern fn() -> AzLayoutBoxSizingValue>,
+        az_layout_box_sizing_value_exact: Symbol<extern fn(_: AzLayoutBoxSizingPtr) -> AzLayoutBoxSizingValue>,
+        az_layout_box_sizing_value_delete: Symbol<extern fn(_: &mut AzLayoutBoxSizingValue)>,
+        az_layout_box_sizing_value_deep_copy: Symbol<extern fn(_: &AzLayoutBoxSizingValue) -> AzLayoutBoxSizingValue>,
+        az_layout_direction_value_auto: Symbol<extern fn() -> AzLayoutDirectionValue>,
+        az_layout_direction_value_none: Symbol<extern fn() -> AzLayoutDirectionValue>,
+        az_layout_direction_value_inherit: Symbol<extern fn() -> AzLayoutDirectionValue>,
+        az_layout_direction_value_initial: Symbol<extern fn() -> AzLayoutDirectionValue>,
+        az_layout_direction_value_exact: Symbol<extern fn(_: AzLayoutDirectionPtr) -> AzLayoutDirectionValue>,
+        az_layout_direction_value_delete: Symbol<extern fn(_: &mut AzLayoutDirectionValue)>,
+        az_layout_direction_value_deep_copy: Symbol<extern fn(_: &AzLayoutDirectionValue) -> AzLayoutDirectionValue>,
+        az_layout_display_value_auto: Symbol<extern fn() -> AzLayoutDisplayValue>,
+        az_layout_display_value_none: Symbol<extern fn() -> AzLayoutDisplayValue>,
+        az_layout_display_value_inherit: Symbol<extern fn() -> AzLayoutDisplayValue>,
+        az_layout_display_value_initial: Symbol<extern fn() -> AzLayoutDisplayValue>,
+        az_layout_display_value_exact: Symbol<extern fn(_: AzLayoutDisplayPtr) -> AzLayoutDisplayValue>,
+        az_layout_display_value_delete: Symbol<extern fn(_: &mut AzLayoutDisplayValue)>,
+        az_layout_display_value_deep_copy: Symbol<extern fn(_: &AzLayoutDisplayValue) -> AzLayoutDisplayValue>,
+        az_layout_flex_grow_value_auto: Symbol<extern fn() -> AzLayoutFlexGrowValue>,
+        az_layout_flex_grow_value_none: Symbol<extern fn() -> AzLayoutFlexGrowValue>,
+        az_layout_flex_grow_value_inherit: Symbol<extern fn() -> AzLayoutFlexGrowValue>,
+        az_layout_flex_grow_value_initial: Symbol<extern fn() -> AzLayoutFlexGrowValue>,
+        az_layout_flex_grow_value_exact: Symbol<extern fn(_: AzLayoutFlexGrowPtr) -> AzLayoutFlexGrowValue>,
+        az_layout_flex_grow_value_delete: Symbol<extern fn(_: &mut AzLayoutFlexGrowValue)>,
+        az_layout_flex_grow_value_deep_copy: Symbol<extern fn(_: &AzLayoutFlexGrowValue) -> AzLayoutFlexGrowValue>,
+        az_layout_flex_shrink_value_auto: Symbol<extern fn() -> AzLayoutFlexShrinkValue>,
+        az_layout_flex_shrink_value_none: Symbol<extern fn() -> AzLayoutFlexShrinkValue>,
+        az_layout_flex_shrink_value_inherit: Symbol<extern fn() -> AzLayoutFlexShrinkValue>,
+        az_layout_flex_shrink_value_initial: Symbol<extern fn() -> AzLayoutFlexShrinkValue>,
+        az_layout_flex_shrink_value_exact: Symbol<extern fn(_: AzLayoutFlexShrinkPtr) -> AzLayoutFlexShrinkValue>,
+        az_layout_flex_shrink_value_delete: Symbol<extern fn(_: &mut AzLayoutFlexShrinkValue)>,
+        az_layout_flex_shrink_value_deep_copy: Symbol<extern fn(_: &AzLayoutFlexShrinkValue) -> AzLayoutFlexShrinkValue>,
+        az_layout_float_value_auto: Symbol<extern fn() -> AzLayoutFloatValue>,
+        az_layout_float_value_none: Symbol<extern fn() -> AzLayoutFloatValue>,
+        az_layout_float_value_inherit: Symbol<extern fn() -> AzLayoutFloatValue>,
+        az_layout_float_value_initial: Symbol<extern fn() -> AzLayoutFloatValue>,
+        az_layout_float_value_exact: Symbol<extern fn(_: AzLayoutFloatPtr) -> AzLayoutFloatValue>,
+        az_layout_float_value_delete: Symbol<extern fn(_: &mut AzLayoutFloatValue)>,
+        az_layout_float_value_deep_copy: Symbol<extern fn(_: &AzLayoutFloatValue) -> AzLayoutFloatValue>,
+        az_layout_height_value_auto: Symbol<extern fn() -> AzLayoutHeightValue>,
+        az_layout_height_value_none: Symbol<extern fn() -> AzLayoutHeightValue>,
+        az_layout_height_value_inherit: Symbol<extern fn() -> AzLayoutHeightValue>,
+        az_layout_height_value_initial: Symbol<extern fn() -> AzLayoutHeightValue>,
+        az_layout_height_value_exact: Symbol<extern fn(_: AzLayoutHeightPtr) -> AzLayoutHeightValue>,
+        az_layout_height_value_delete: Symbol<extern fn(_: &mut AzLayoutHeightValue)>,
+        az_layout_height_value_deep_copy: Symbol<extern fn(_: &AzLayoutHeightValue) -> AzLayoutHeightValue>,
+        az_layout_justify_content_value_auto: Symbol<extern fn() -> AzLayoutJustifyContentValue>,
+        az_layout_justify_content_value_none: Symbol<extern fn() -> AzLayoutJustifyContentValue>,
+        az_layout_justify_content_value_inherit: Symbol<extern fn() -> AzLayoutJustifyContentValue>,
+        az_layout_justify_content_value_initial: Symbol<extern fn() -> AzLayoutJustifyContentValue>,
+        az_layout_justify_content_value_exact: Symbol<extern fn(_: AzLayoutJustifyContentPtr) -> AzLayoutJustifyContentValue>,
+        az_layout_justify_content_value_delete: Symbol<extern fn(_: &mut AzLayoutJustifyContentValue)>,
+        az_layout_justify_content_value_deep_copy: Symbol<extern fn(_: &AzLayoutJustifyContentValue) -> AzLayoutJustifyContentValue>,
+        az_layout_left_value_auto: Symbol<extern fn() -> AzLayoutLeftValue>,
+        az_layout_left_value_none: Symbol<extern fn() -> AzLayoutLeftValue>,
+        az_layout_left_value_inherit: Symbol<extern fn() -> AzLayoutLeftValue>,
+        az_layout_left_value_initial: Symbol<extern fn() -> AzLayoutLeftValue>,
+        az_layout_left_value_exact: Symbol<extern fn(_: AzLayoutLeftPtr) -> AzLayoutLeftValue>,
+        az_layout_left_value_delete: Symbol<extern fn(_: &mut AzLayoutLeftValue)>,
+        az_layout_left_value_deep_copy: Symbol<extern fn(_: &AzLayoutLeftValue) -> AzLayoutLeftValue>,
+        az_layout_margin_bottom_value_auto: Symbol<extern fn() -> AzLayoutMarginBottomValue>,
+        az_layout_margin_bottom_value_none: Symbol<extern fn() -> AzLayoutMarginBottomValue>,
+        az_layout_margin_bottom_value_inherit: Symbol<extern fn() -> AzLayoutMarginBottomValue>,
+        az_layout_margin_bottom_value_initial: Symbol<extern fn() -> AzLayoutMarginBottomValue>,
+        az_layout_margin_bottom_value_exact: Symbol<extern fn(_: AzLayoutMarginBottomPtr) -> AzLayoutMarginBottomValue>,
+        az_layout_margin_bottom_value_delete: Symbol<extern fn(_: &mut AzLayoutMarginBottomValue)>,
+        az_layout_margin_bottom_value_deep_copy: Symbol<extern fn(_: &AzLayoutMarginBottomValue) -> AzLayoutMarginBottomValue>,
+        az_layout_margin_left_value_auto: Symbol<extern fn() -> AzLayoutMarginLeftValue>,
+        az_layout_margin_left_value_none: Symbol<extern fn() -> AzLayoutMarginLeftValue>,
+        az_layout_margin_left_value_inherit: Symbol<extern fn() -> AzLayoutMarginLeftValue>,
+        az_layout_margin_left_value_initial: Symbol<extern fn() -> AzLayoutMarginLeftValue>,
+        az_layout_margin_left_value_exact: Symbol<extern fn(_: AzLayoutMarginLeftPtr) -> AzLayoutMarginLeftValue>,
+        az_layout_margin_left_value_delete: Symbol<extern fn(_: &mut AzLayoutMarginLeftValue)>,
+        az_layout_margin_left_value_deep_copy: Symbol<extern fn(_: &AzLayoutMarginLeftValue) -> AzLayoutMarginLeftValue>,
+        az_layout_margin_right_value_auto: Symbol<extern fn() -> AzLayoutMarginRightValue>,
+        az_layout_margin_right_value_none: Symbol<extern fn() -> AzLayoutMarginRightValue>,
+        az_layout_margin_right_value_inherit: Symbol<extern fn() -> AzLayoutMarginRightValue>,
+        az_layout_margin_right_value_initial: Symbol<extern fn() -> AzLayoutMarginRightValue>,
+        az_layout_margin_right_value_exact: Symbol<extern fn(_: AzLayoutMarginRightPtr) -> AzLayoutMarginRightValue>,
+        az_layout_margin_right_value_delete: Symbol<extern fn(_: &mut AzLayoutMarginRightValue)>,
+        az_layout_margin_right_value_deep_copy: Symbol<extern fn(_: &AzLayoutMarginRightValue) -> AzLayoutMarginRightValue>,
+        az_layout_margin_top_value_auto: Symbol<extern fn() -> AzLayoutMarginTopValue>,
+        az_layout_margin_top_value_none: Symbol<extern fn() -> AzLayoutMarginTopValue>,
+        az_layout_margin_top_value_inherit: Symbol<extern fn() -> AzLayoutMarginTopValue>,
+        az_layout_margin_top_value_initial: Symbol<extern fn() -> AzLayoutMarginTopValue>,
+        az_layout_margin_top_value_exact: Symbol<extern fn(_: AzLayoutMarginTopPtr) -> AzLayoutMarginTopValue>,
+        az_layout_margin_top_value_delete: Symbol<extern fn(_: &mut AzLayoutMarginTopValue)>,
+        az_layout_margin_top_value_deep_copy: Symbol<extern fn(_: &AzLayoutMarginTopValue) -> AzLayoutMarginTopValue>,
+        az_layout_max_height_value_auto: Symbol<extern fn() -> AzLayoutMaxHeightValue>,
+        az_layout_max_height_value_none: Symbol<extern fn() -> AzLayoutMaxHeightValue>,
+        az_layout_max_height_value_inherit: Symbol<extern fn() -> AzLayoutMaxHeightValue>,
+        az_layout_max_height_value_initial: Symbol<extern fn() -> AzLayoutMaxHeightValue>,
+        az_layout_max_height_value_exact: Symbol<extern fn(_: AzLayoutMaxHeightPtr) -> AzLayoutMaxHeightValue>,
+        az_layout_max_height_value_delete: Symbol<extern fn(_: &mut AzLayoutMaxHeightValue)>,
+        az_layout_max_height_value_deep_copy: Symbol<extern fn(_: &AzLayoutMaxHeightValue) -> AzLayoutMaxHeightValue>,
+        az_layout_max_width_value_auto: Symbol<extern fn() -> AzLayoutMaxWidthValue>,
+        az_layout_max_width_value_none: Symbol<extern fn() -> AzLayoutMaxWidthValue>,
+        az_layout_max_width_value_inherit: Symbol<extern fn() -> AzLayoutMaxWidthValue>,
+        az_layout_max_width_value_initial: Symbol<extern fn() -> AzLayoutMaxWidthValue>,
+        az_layout_max_width_value_exact: Symbol<extern fn(_: AzLayoutMaxWidthPtr) -> AzLayoutMaxWidthValue>,
+        az_layout_max_width_value_delete: Symbol<extern fn(_: &mut AzLayoutMaxWidthValue)>,
+        az_layout_max_width_value_deep_copy: Symbol<extern fn(_: &AzLayoutMaxWidthValue) -> AzLayoutMaxWidthValue>,
+        az_layout_min_height_value_auto: Symbol<extern fn() -> AzLayoutMinHeightValue>,
+        az_layout_min_height_value_none: Symbol<extern fn() -> AzLayoutMinHeightValue>,
+        az_layout_min_height_value_inherit: Symbol<extern fn() -> AzLayoutMinHeightValue>,
+        az_layout_min_height_value_initial: Symbol<extern fn() -> AzLayoutMinHeightValue>,
+        az_layout_min_height_value_exact: Symbol<extern fn(_: AzLayoutMinHeightPtr) -> AzLayoutMinHeightValue>,
+        az_layout_min_height_value_delete: Symbol<extern fn(_: &mut AzLayoutMinHeightValue)>,
+        az_layout_min_height_value_deep_copy: Symbol<extern fn(_: &AzLayoutMinHeightValue) -> AzLayoutMinHeightValue>,
+        az_layout_min_width_value_auto: Symbol<extern fn() -> AzLayoutMinWidthValue>,
+        az_layout_min_width_value_none: Symbol<extern fn() -> AzLayoutMinWidthValue>,
+        az_layout_min_width_value_inherit: Symbol<extern fn() -> AzLayoutMinWidthValue>,
+        az_layout_min_width_value_initial: Symbol<extern fn() -> AzLayoutMinWidthValue>,
+        az_layout_min_width_value_exact: Symbol<extern fn(_: AzLayoutMinWidthPtr) -> AzLayoutMinWidthValue>,
+        az_layout_min_width_value_delete: Symbol<extern fn(_: &mut AzLayoutMinWidthValue)>,
+        az_layout_min_width_value_deep_copy: Symbol<extern fn(_: &AzLayoutMinWidthValue) -> AzLayoutMinWidthValue>,
+        az_layout_padding_bottom_value_auto: Symbol<extern fn() -> AzLayoutPaddingBottomValue>,
+        az_layout_padding_bottom_value_none: Symbol<extern fn() -> AzLayoutPaddingBottomValue>,
+        az_layout_padding_bottom_value_inherit: Symbol<extern fn() -> AzLayoutPaddingBottomValue>,
+        az_layout_padding_bottom_value_initial: Symbol<extern fn() -> AzLayoutPaddingBottomValue>,
+        az_layout_padding_bottom_value_exact: Symbol<extern fn(_: AzLayoutPaddingBottomPtr) -> AzLayoutPaddingBottomValue>,
+        az_layout_padding_bottom_value_delete: Symbol<extern fn(_: &mut AzLayoutPaddingBottomValue)>,
+        az_layout_padding_bottom_value_deep_copy: Symbol<extern fn(_: &AzLayoutPaddingBottomValue) -> AzLayoutPaddingBottomValue>,
+        az_layout_padding_left_value_auto: Symbol<extern fn() -> AzLayoutPaddingLeftValue>,
+        az_layout_padding_left_value_none: Symbol<extern fn() -> AzLayoutPaddingLeftValue>,
+        az_layout_padding_left_value_inherit: Symbol<extern fn() -> AzLayoutPaddingLeftValue>,
+        az_layout_padding_left_value_initial: Symbol<extern fn() -> AzLayoutPaddingLeftValue>,
+        az_layout_padding_left_value_exact: Symbol<extern fn(_: AzLayoutPaddingLeftPtr) -> AzLayoutPaddingLeftValue>,
+        az_layout_padding_left_value_delete: Symbol<extern fn(_: &mut AzLayoutPaddingLeftValue)>,
+        az_layout_padding_left_value_deep_copy: Symbol<extern fn(_: &AzLayoutPaddingLeftValue) -> AzLayoutPaddingLeftValue>,
+        az_layout_padding_right_value_auto: Symbol<extern fn() -> AzLayoutPaddingRightValue>,
+        az_layout_padding_right_value_none: Symbol<extern fn() -> AzLayoutPaddingRightValue>,
+        az_layout_padding_right_value_inherit: Symbol<extern fn() -> AzLayoutPaddingRightValue>,
+        az_layout_padding_right_value_initial: Symbol<extern fn() -> AzLayoutPaddingRightValue>,
+        az_layout_padding_right_value_exact: Symbol<extern fn(_: AzLayoutPaddingRightPtr) -> AzLayoutPaddingRightValue>,
+        az_layout_padding_right_value_delete: Symbol<extern fn(_: &mut AzLayoutPaddingRightValue)>,
+        az_layout_padding_right_value_deep_copy: Symbol<extern fn(_: &AzLayoutPaddingRightValue) -> AzLayoutPaddingRightValue>,
+        az_layout_padding_top_value_auto: Symbol<extern fn() -> AzLayoutPaddingTopValue>,
+        az_layout_padding_top_value_none: Symbol<extern fn() -> AzLayoutPaddingTopValue>,
+        az_layout_padding_top_value_inherit: Symbol<extern fn() -> AzLayoutPaddingTopValue>,
+        az_layout_padding_top_value_initial: Symbol<extern fn() -> AzLayoutPaddingTopValue>,
+        az_layout_padding_top_value_exact: Symbol<extern fn(_: AzLayoutPaddingTopPtr) -> AzLayoutPaddingTopValue>,
+        az_layout_padding_top_value_delete: Symbol<extern fn(_: &mut AzLayoutPaddingTopValue)>,
+        az_layout_padding_top_value_deep_copy: Symbol<extern fn(_: &AzLayoutPaddingTopValue) -> AzLayoutPaddingTopValue>,
+        az_layout_position_value_auto: Symbol<extern fn() -> AzLayoutPositionValue>,
+        az_layout_position_value_none: Symbol<extern fn() -> AzLayoutPositionValue>,
+        az_layout_position_value_inherit: Symbol<extern fn() -> AzLayoutPositionValue>,
+        az_layout_position_value_initial: Symbol<extern fn() -> AzLayoutPositionValue>,
+        az_layout_position_value_exact: Symbol<extern fn(_: AzLayoutPositionPtr) -> AzLayoutPositionValue>,
+        az_layout_position_value_delete: Symbol<extern fn(_: &mut AzLayoutPositionValue)>,
+        az_layout_position_value_deep_copy: Symbol<extern fn(_: &AzLayoutPositionValue) -> AzLayoutPositionValue>,
+        az_layout_right_value_auto: Symbol<extern fn() -> AzLayoutRightValue>,
+        az_layout_right_value_none: Symbol<extern fn() -> AzLayoutRightValue>,
+        az_layout_right_value_inherit: Symbol<extern fn() -> AzLayoutRightValue>,
+        az_layout_right_value_initial: Symbol<extern fn() -> AzLayoutRightValue>,
+        az_layout_right_value_exact: Symbol<extern fn(_: AzLayoutRightPtr) -> AzLayoutRightValue>,
+        az_layout_right_value_delete: Symbol<extern fn(_: &mut AzLayoutRightValue)>,
+        az_layout_right_value_deep_copy: Symbol<extern fn(_: &AzLayoutRightValue) -> AzLayoutRightValue>,
+        az_layout_top_value_auto: Symbol<extern fn() -> AzLayoutTopValue>,
+        az_layout_top_value_none: Symbol<extern fn() -> AzLayoutTopValue>,
+        az_layout_top_value_inherit: Symbol<extern fn() -> AzLayoutTopValue>,
+        az_layout_top_value_initial: Symbol<extern fn() -> AzLayoutTopValue>,
+        az_layout_top_value_exact: Symbol<extern fn(_: AzLayoutTopPtr) -> AzLayoutTopValue>,
+        az_layout_top_value_delete: Symbol<extern fn(_: &mut AzLayoutTopValue)>,
+        az_layout_top_value_deep_copy: Symbol<extern fn(_: &AzLayoutTopValue) -> AzLayoutTopValue>,
+        az_layout_width_value_auto: Symbol<extern fn() -> AzLayoutWidthValue>,
+        az_layout_width_value_none: Symbol<extern fn() -> AzLayoutWidthValue>,
+        az_layout_width_value_inherit: Symbol<extern fn() -> AzLayoutWidthValue>,
+        az_layout_width_value_initial: Symbol<extern fn() -> AzLayoutWidthValue>,
+        az_layout_width_value_exact: Symbol<extern fn(_: AzLayoutWidthPtr) -> AzLayoutWidthValue>,
+        az_layout_width_value_delete: Symbol<extern fn(_: &mut AzLayoutWidthValue)>,
+        az_layout_width_value_deep_copy: Symbol<extern fn(_: &AzLayoutWidthValue) -> AzLayoutWidthValue>,
+        az_layout_wrap_value_auto: Symbol<extern fn() -> AzLayoutWrapValue>,
+        az_layout_wrap_value_none: Symbol<extern fn() -> AzLayoutWrapValue>,
+        az_layout_wrap_value_inherit: Symbol<extern fn() -> AzLayoutWrapValue>,
+        az_layout_wrap_value_initial: Symbol<extern fn() -> AzLayoutWrapValue>,
+        az_layout_wrap_value_exact: Symbol<extern fn(_: AzLayoutWrapPtr) -> AzLayoutWrapValue>,
+        az_layout_wrap_value_delete: Symbol<extern fn(_: &mut AzLayoutWrapValue)>,
+        az_layout_wrap_value_deep_copy: Symbol<extern fn(_: &AzLayoutWrapValue) -> AzLayoutWrapValue>,
+        az_overflow_value_auto: Symbol<extern fn() -> AzOverflowValue>,
+        az_overflow_value_none: Symbol<extern fn() -> AzOverflowValue>,
+        az_overflow_value_inherit: Symbol<extern fn() -> AzOverflowValue>,
+        az_overflow_value_initial: Symbol<extern fn() -> AzOverflowValue>,
+        az_overflow_value_exact: Symbol<extern fn(_: AzOverflowPtr) -> AzOverflowValue>,
+        az_overflow_value_delete: Symbol<extern fn(_: &mut AzOverflowValue)>,
+        az_overflow_value_deep_copy: Symbol<extern fn(_: &AzOverflowValue) -> AzOverflowValue>,
+        az_style_background_content_value_auto: Symbol<extern fn() -> AzStyleBackgroundContentValue>,
+        az_style_background_content_value_none: Symbol<extern fn() -> AzStyleBackgroundContentValue>,
+        az_style_background_content_value_inherit: Symbol<extern fn() -> AzStyleBackgroundContentValue>,
+        az_style_background_content_value_initial: Symbol<extern fn() -> AzStyleBackgroundContentValue>,
+        az_style_background_content_value_exact: Symbol<extern fn(_: AzStyleBackgroundContentPtr) -> AzStyleBackgroundContentValue>,
+        az_style_background_content_value_delete: Symbol<extern fn(_: &mut AzStyleBackgroundContentValue)>,
+        az_style_background_content_value_deep_copy: Symbol<extern fn(_: &AzStyleBackgroundContentValue) -> AzStyleBackgroundContentValue>,
+        az_style_background_position_value_auto: Symbol<extern fn() -> AzStyleBackgroundPositionValue>,
+        az_style_background_position_value_none: Symbol<extern fn() -> AzStyleBackgroundPositionValue>,
+        az_style_background_position_value_inherit: Symbol<extern fn() -> AzStyleBackgroundPositionValue>,
+        az_style_background_position_value_initial: Symbol<extern fn() -> AzStyleBackgroundPositionValue>,
+        az_style_background_position_value_exact: Symbol<extern fn(_: AzStyleBackgroundPositionPtr) -> AzStyleBackgroundPositionValue>,
+        az_style_background_position_value_delete: Symbol<extern fn(_: &mut AzStyleBackgroundPositionValue)>,
+        az_style_background_position_value_deep_copy: Symbol<extern fn(_: &AzStyleBackgroundPositionValue) -> AzStyleBackgroundPositionValue>,
+        az_style_background_repeat_value_auto: Symbol<extern fn() -> AzStyleBackgroundRepeatValue>,
+        az_style_background_repeat_value_none: Symbol<extern fn() -> AzStyleBackgroundRepeatValue>,
+        az_style_background_repeat_value_inherit: Symbol<extern fn() -> AzStyleBackgroundRepeatValue>,
+        az_style_background_repeat_value_initial: Symbol<extern fn() -> AzStyleBackgroundRepeatValue>,
+        az_style_background_repeat_value_exact: Symbol<extern fn(_: AzStyleBackgroundRepeatPtr) -> AzStyleBackgroundRepeatValue>,
+        az_style_background_repeat_value_delete: Symbol<extern fn(_: &mut AzStyleBackgroundRepeatValue)>,
+        az_style_background_repeat_value_deep_copy: Symbol<extern fn(_: &AzStyleBackgroundRepeatValue) -> AzStyleBackgroundRepeatValue>,
+        az_style_background_size_value_auto: Symbol<extern fn() -> AzStyleBackgroundSizeValue>,
+        az_style_background_size_value_none: Symbol<extern fn() -> AzStyleBackgroundSizeValue>,
+        az_style_background_size_value_inherit: Symbol<extern fn() -> AzStyleBackgroundSizeValue>,
+        az_style_background_size_value_initial: Symbol<extern fn() -> AzStyleBackgroundSizeValue>,
+        az_style_background_size_value_exact: Symbol<extern fn(_: AzStyleBackgroundSizePtr) -> AzStyleBackgroundSizeValue>,
+        az_style_background_size_value_delete: Symbol<extern fn(_: &mut AzStyleBackgroundSizeValue)>,
+        az_style_background_size_value_deep_copy: Symbol<extern fn(_: &AzStyleBackgroundSizeValue) -> AzStyleBackgroundSizeValue>,
+        az_style_border_bottom_color_value_auto: Symbol<extern fn() -> AzStyleBorderBottomColorValue>,
+        az_style_border_bottom_color_value_none: Symbol<extern fn() -> AzStyleBorderBottomColorValue>,
+        az_style_border_bottom_color_value_inherit: Symbol<extern fn() -> AzStyleBorderBottomColorValue>,
+        az_style_border_bottom_color_value_initial: Symbol<extern fn() -> AzStyleBorderBottomColorValue>,
+        az_style_border_bottom_color_value_exact: Symbol<extern fn(_: AzStyleBorderBottomColorPtr) -> AzStyleBorderBottomColorValue>,
+        az_style_border_bottom_color_value_delete: Symbol<extern fn(_: &mut AzStyleBorderBottomColorValue)>,
+        az_style_border_bottom_color_value_deep_copy: Symbol<extern fn(_: &AzStyleBorderBottomColorValue) -> AzStyleBorderBottomColorValue>,
+        az_style_border_bottom_left_radius_value_auto: Symbol<extern fn() -> AzStyleBorderBottomLeftRadiusValue>,
+        az_style_border_bottom_left_radius_value_none: Symbol<extern fn() -> AzStyleBorderBottomLeftRadiusValue>,
+        az_style_border_bottom_left_radius_value_inherit: Symbol<extern fn() -> AzStyleBorderBottomLeftRadiusValue>,
+        az_style_border_bottom_left_radius_value_initial: Symbol<extern fn() -> AzStyleBorderBottomLeftRadiusValue>,
+        az_style_border_bottom_left_radius_value_exact: Symbol<extern fn(_: AzStyleBorderBottomLeftRadiusPtr) -> AzStyleBorderBottomLeftRadiusValue>,
+        az_style_border_bottom_left_radius_value_delete: Symbol<extern fn(_: &mut AzStyleBorderBottomLeftRadiusValue)>,
+        az_style_border_bottom_left_radius_value_deep_copy: Symbol<extern fn(_: &AzStyleBorderBottomLeftRadiusValue) -> AzStyleBorderBottomLeftRadiusValue>,
+        az_style_border_bottom_right_radius_value_auto: Symbol<extern fn() -> AzStyleBorderBottomRightRadiusValue>,
+        az_style_border_bottom_right_radius_value_none: Symbol<extern fn() -> AzStyleBorderBottomRightRadiusValue>,
+        az_style_border_bottom_right_radius_value_inherit: Symbol<extern fn() -> AzStyleBorderBottomRightRadiusValue>,
+        az_style_border_bottom_right_radius_value_initial: Symbol<extern fn() -> AzStyleBorderBottomRightRadiusValue>,
+        az_style_border_bottom_right_radius_value_exact: Symbol<extern fn(_: AzStyleBorderBottomRightRadiusPtr) -> AzStyleBorderBottomRightRadiusValue>,
+        az_style_border_bottom_right_radius_value_delete: Symbol<extern fn(_: &mut AzStyleBorderBottomRightRadiusValue)>,
+        az_style_border_bottom_right_radius_value_deep_copy: Symbol<extern fn(_: &AzStyleBorderBottomRightRadiusValue) -> AzStyleBorderBottomRightRadiusValue>,
+        az_style_border_bottom_style_value_auto: Symbol<extern fn() -> AzStyleBorderBottomStyleValue>,
+        az_style_border_bottom_style_value_none: Symbol<extern fn() -> AzStyleBorderBottomStyleValue>,
+        az_style_border_bottom_style_value_inherit: Symbol<extern fn() -> AzStyleBorderBottomStyleValue>,
+        az_style_border_bottom_style_value_initial: Symbol<extern fn() -> AzStyleBorderBottomStyleValue>,
+        az_style_border_bottom_style_value_exact: Symbol<extern fn(_: AzStyleBorderBottomStylePtr) -> AzStyleBorderBottomStyleValue>,
+        az_style_border_bottom_style_value_delete: Symbol<extern fn(_: &mut AzStyleBorderBottomStyleValue)>,
+        az_style_border_bottom_style_value_deep_copy: Symbol<extern fn(_: &AzStyleBorderBottomStyleValue) -> AzStyleBorderBottomStyleValue>,
+        az_style_border_bottom_width_value_auto: Symbol<extern fn() -> AzStyleBorderBottomWidthValue>,
+        az_style_border_bottom_width_value_none: Symbol<extern fn() -> AzStyleBorderBottomWidthValue>,
+        az_style_border_bottom_width_value_inherit: Symbol<extern fn() -> AzStyleBorderBottomWidthValue>,
+        az_style_border_bottom_width_value_initial: Symbol<extern fn() -> AzStyleBorderBottomWidthValue>,
+        az_style_border_bottom_width_value_exact: Symbol<extern fn(_: AzStyleBorderBottomWidthPtr) -> AzStyleBorderBottomWidthValue>,
+        az_style_border_bottom_width_value_delete: Symbol<extern fn(_: &mut AzStyleBorderBottomWidthValue)>,
+        az_style_border_bottom_width_value_deep_copy: Symbol<extern fn(_: &AzStyleBorderBottomWidthValue) -> AzStyleBorderBottomWidthValue>,
+        az_style_border_left_color_value_auto: Symbol<extern fn() -> AzStyleBorderLeftColorValue>,
+        az_style_border_left_color_value_none: Symbol<extern fn() -> AzStyleBorderLeftColorValue>,
+        az_style_border_left_color_value_inherit: Symbol<extern fn() -> AzStyleBorderLeftColorValue>,
+        az_style_border_left_color_value_initial: Symbol<extern fn() -> AzStyleBorderLeftColorValue>,
+        az_style_border_left_color_value_exact: Symbol<extern fn(_: AzStyleBorderLeftColorPtr) -> AzStyleBorderLeftColorValue>,
+        az_style_border_left_color_value_delete: Symbol<extern fn(_: &mut AzStyleBorderLeftColorValue)>,
+        az_style_border_left_color_value_deep_copy: Symbol<extern fn(_: &AzStyleBorderLeftColorValue) -> AzStyleBorderLeftColorValue>,
+        az_style_border_left_style_value_auto: Symbol<extern fn() -> AzStyleBorderLeftStyleValue>,
+        az_style_border_left_style_value_none: Symbol<extern fn() -> AzStyleBorderLeftStyleValue>,
+        az_style_border_left_style_value_inherit: Symbol<extern fn() -> AzStyleBorderLeftStyleValue>,
+        az_style_border_left_style_value_initial: Symbol<extern fn() -> AzStyleBorderLeftStyleValue>,
+        az_style_border_left_style_value_exact: Symbol<extern fn(_: AzStyleBorderLeftStylePtr) -> AzStyleBorderLeftStyleValue>,
+        az_style_border_left_style_value_delete: Symbol<extern fn(_: &mut AzStyleBorderLeftStyleValue)>,
+        az_style_border_left_style_value_deep_copy: Symbol<extern fn(_: &AzStyleBorderLeftStyleValue) -> AzStyleBorderLeftStyleValue>,
+        az_style_border_left_width_value_auto: Symbol<extern fn() -> AzStyleBorderLeftWidthValue>,
+        az_style_border_left_width_value_none: Symbol<extern fn() -> AzStyleBorderLeftWidthValue>,
+        az_style_border_left_width_value_inherit: Symbol<extern fn() -> AzStyleBorderLeftWidthValue>,
+        az_style_border_left_width_value_initial: Symbol<extern fn() -> AzStyleBorderLeftWidthValue>,
+        az_style_border_left_width_value_exact: Symbol<extern fn(_: AzStyleBorderLeftWidthPtr) -> AzStyleBorderLeftWidthValue>,
+        az_style_border_left_width_value_delete: Symbol<extern fn(_: &mut AzStyleBorderLeftWidthValue)>,
+        az_style_border_left_width_value_deep_copy: Symbol<extern fn(_: &AzStyleBorderLeftWidthValue) -> AzStyleBorderLeftWidthValue>,
+        az_style_border_right_color_value_auto: Symbol<extern fn() -> AzStyleBorderRightColorValue>,
+        az_style_border_right_color_value_none: Symbol<extern fn() -> AzStyleBorderRightColorValue>,
+        az_style_border_right_color_value_inherit: Symbol<extern fn() -> AzStyleBorderRightColorValue>,
+        az_style_border_right_color_value_initial: Symbol<extern fn() -> AzStyleBorderRightColorValue>,
+        az_style_border_right_color_value_exact: Symbol<extern fn(_: AzStyleBorderRightColorPtr) -> AzStyleBorderRightColorValue>,
+        az_style_border_right_color_value_delete: Symbol<extern fn(_: &mut AzStyleBorderRightColorValue)>,
+        az_style_border_right_color_value_deep_copy: Symbol<extern fn(_: &AzStyleBorderRightColorValue) -> AzStyleBorderRightColorValue>,
+        az_style_border_right_style_value_auto: Symbol<extern fn() -> AzStyleBorderRightStyleValue>,
+        az_style_border_right_style_value_none: Symbol<extern fn() -> AzStyleBorderRightStyleValue>,
+        az_style_border_right_style_value_inherit: Symbol<extern fn() -> AzStyleBorderRightStyleValue>,
+        az_style_border_right_style_value_initial: Symbol<extern fn() -> AzStyleBorderRightStyleValue>,
+        az_style_border_right_style_value_exact: Symbol<extern fn(_: AzStyleBorderRightStylePtr) -> AzStyleBorderRightStyleValue>,
+        az_style_border_right_style_value_delete: Symbol<extern fn(_: &mut AzStyleBorderRightStyleValue)>,
+        az_style_border_right_style_value_deep_copy: Symbol<extern fn(_: &AzStyleBorderRightStyleValue) -> AzStyleBorderRightStyleValue>,
+        az_style_border_right_width_value_auto: Symbol<extern fn() -> AzStyleBorderRightWidthValue>,
+        az_style_border_right_width_value_none: Symbol<extern fn() -> AzStyleBorderRightWidthValue>,
+        az_style_border_right_width_value_inherit: Symbol<extern fn() -> AzStyleBorderRightWidthValue>,
+        az_style_border_right_width_value_initial: Symbol<extern fn() -> AzStyleBorderRightWidthValue>,
+        az_style_border_right_width_value_exact: Symbol<extern fn(_: AzStyleBorderRightWidthPtr) -> AzStyleBorderRightWidthValue>,
+        az_style_border_right_width_value_delete: Symbol<extern fn(_: &mut AzStyleBorderRightWidthValue)>,
+        az_style_border_right_width_value_deep_copy: Symbol<extern fn(_: &AzStyleBorderRightWidthValue) -> AzStyleBorderRightWidthValue>,
+        az_style_border_top_color_value_auto: Symbol<extern fn() -> AzStyleBorderTopColorValue>,
+        az_style_border_top_color_value_none: Symbol<extern fn() -> AzStyleBorderTopColorValue>,
+        az_style_border_top_color_value_inherit: Symbol<extern fn() -> AzStyleBorderTopColorValue>,
+        az_style_border_top_color_value_initial: Symbol<extern fn() -> AzStyleBorderTopColorValue>,
+        az_style_border_top_color_value_exact: Symbol<extern fn(_: AzStyleBorderTopColorPtr) -> AzStyleBorderTopColorValue>,
+        az_style_border_top_color_value_delete: Symbol<extern fn(_: &mut AzStyleBorderTopColorValue)>,
+        az_style_border_top_color_value_deep_copy: Symbol<extern fn(_: &AzStyleBorderTopColorValue) -> AzStyleBorderTopColorValue>,
+        az_style_border_top_left_radius_value_auto: Symbol<extern fn() -> AzStyleBorderTopLeftRadiusValue>,
+        az_style_border_top_left_radius_value_none: Symbol<extern fn() -> AzStyleBorderTopLeftRadiusValue>,
+        az_style_border_top_left_radius_value_inherit: Symbol<extern fn() -> AzStyleBorderTopLeftRadiusValue>,
+        az_style_border_top_left_radius_value_initial: Symbol<extern fn() -> AzStyleBorderTopLeftRadiusValue>,
+        az_style_border_top_left_radius_value_exact: Symbol<extern fn(_: AzStyleBorderTopLeftRadiusPtr) -> AzStyleBorderTopLeftRadiusValue>,
+        az_style_border_top_left_radius_value_delete: Symbol<extern fn(_: &mut AzStyleBorderTopLeftRadiusValue)>,
+        az_style_border_top_left_radius_value_deep_copy: Symbol<extern fn(_: &AzStyleBorderTopLeftRadiusValue) -> AzStyleBorderTopLeftRadiusValue>,
+        az_style_border_top_right_radius_value_auto: Symbol<extern fn() -> AzStyleBorderTopRightRadiusValue>,
+        az_style_border_top_right_radius_value_none: Symbol<extern fn() -> AzStyleBorderTopRightRadiusValue>,
+        az_style_border_top_right_radius_value_inherit: Symbol<extern fn() -> AzStyleBorderTopRightRadiusValue>,
+        az_style_border_top_right_radius_value_initial: Symbol<extern fn() -> AzStyleBorderTopRightRadiusValue>,
+        az_style_border_top_right_radius_value_exact: Symbol<extern fn(_: AzStyleBorderTopRightRadiusPtr) -> AzStyleBorderTopRightRadiusValue>,
+        az_style_border_top_right_radius_value_delete: Symbol<extern fn(_: &mut AzStyleBorderTopRightRadiusValue)>,
+        az_style_border_top_right_radius_value_deep_copy: Symbol<extern fn(_: &AzStyleBorderTopRightRadiusValue) -> AzStyleBorderTopRightRadiusValue>,
+        az_style_border_top_style_value_auto: Symbol<extern fn() -> AzStyleBorderTopStyleValue>,
+        az_style_border_top_style_value_none: Symbol<extern fn() -> AzStyleBorderTopStyleValue>,
+        az_style_border_top_style_value_inherit: Symbol<extern fn() -> AzStyleBorderTopStyleValue>,
+        az_style_border_top_style_value_initial: Symbol<extern fn() -> AzStyleBorderTopStyleValue>,
+        az_style_border_top_style_value_exact: Symbol<extern fn(_: AzStyleBorderTopStylePtr) -> AzStyleBorderTopStyleValue>,
+        az_style_border_top_style_value_delete: Symbol<extern fn(_: &mut AzStyleBorderTopStyleValue)>,
+        az_style_border_top_style_value_deep_copy: Symbol<extern fn(_: &AzStyleBorderTopStyleValue) -> AzStyleBorderTopStyleValue>,
+        az_style_border_top_width_value_auto: Symbol<extern fn() -> AzStyleBorderTopWidthValue>,
+        az_style_border_top_width_value_none: Symbol<extern fn() -> AzStyleBorderTopWidthValue>,
+        az_style_border_top_width_value_inherit: Symbol<extern fn() -> AzStyleBorderTopWidthValue>,
+        az_style_border_top_width_value_initial: Symbol<extern fn() -> AzStyleBorderTopWidthValue>,
+        az_style_border_top_width_value_exact: Symbol<extern fn(_: AzStyleBorderTopWidthPtr) -> AzStyleBorderTopWidthValue>,
+        az_style_border_top_width_value_delete: Symbol<extern fn(_: &mut AzStyleBorderTopWidthValue)>,
+        az_style_border_top_width_value_deep_copy: Symbol<extern fn(_: &AzStyleBorderTopWidthValue) -> AzStyleBorderTopWidthValue>,
+        az_style_cursor_value_auto: Symbol<extern fn() -> AzStyleCursorValue>,
+        az_style_cursor_value_none: Symbol<extern fn() -> AzStyleCursorValue>,
+        az_style_cursor_value_inherit: Symbol<extern fn() -> AzStyleCursorValue>,
+        az_style_cursor_value_initial: Symbol<extern fn() -> AzStyleCursorValue>,
+        az_style_cursor_value_exact: Symbol<extern fn(_: AzStyleCursorPtr) -> AzStyleCursorValue>,
+        az_style_cursor_value_delete: Symbol<extern fn(_: &mut AzStyleCursorValue)>,
+        az_style_cursor_value_deep_copy: Symbol<extern fn(_: &AzStyleCursorValue) -> AzStyleCursorValue>,
+        az_style_font_family_value_auto: Symbol<extern fn() -> AzStyleFontFamilyValue>,
+        az_style_font_family_value_none: Symbol<extern fn() -> AzStyleFontFamilyValue>,
+        az_style_font_family_value_inherit: Symbol<extern fn() -> AzStyleFontFamilyValue>,
+        az_style_font_family_value_initial: Symbol<extern fn() -> AzStyleFontFamilyValue>,
+        az_style_font_family_value_exact: Symbol<extern fn(_: AzStyleFontFamilyPtr) -> AzStyleFontFamilyValue>,
+        az_style_font_family_value_delete: Symbol<extern fn(_: &mut AzStyleFontFamilyValue)>,
+        az_style_font_family_value_deep_copy: Symbol<extern fn(_: &AzStyleFontFamilyValue) -> AzStyleFontFamilyValue>,
+        az_style_font_size_value_auto: Symbol<extern fn() -> AzStyleFontSizeValue>,
+        az_style_font_size_value_none: Symbol<extern fn() -> AzStyleFontSizeValue>,
+        az_style_font_size_value_inherit: Symbol<extern fn() -> AzStyleFontSizeValue>,
+        az_style_font_size_value_initial: Symbol<extern fn() -> AzStyleFontSizeValue>,
+        az_style_font_size_value_exact: Symbol<extern fn(_: AzStyleFontSizePtr) -> AzStyleFontSizeValue>,
+        az_style_font_size_value_delete: Symbol<extern fn(_: &mut AzStyleFontSizeValue)>,
+        az_style_font_size_value_deep_copy: Symbol<extern fn(_: &AzStyleFontSizeValue) -> AzStyleFontSizeValue>,
+        az_style_letter_spacing_value_auto: Symbol<extern fn() -> AzStyleLetterSpacingValue>,
+        az_style_letter_spacing_value_none: Symbol<extern fn() -> AzStyleLetterSpacingValue>,
+        az_style_letter_spacing_value_inherit: Symbol<extern fn() -> AzStyleLetterSpacingValue>,
+        az_style_letter_spacing_value_initial: Symbol<extern fn() -> AzStyleLetterSpacingValue>,
+        az_style_letter_spacing_value_exact: Symbol<extern fn(_: AzStyleLetterSpacingPtr) -> AzStyleLetterSpacingValue>,
+        az_style_letter_spacing_value_delete: Symbol<extern fn(_: &mut AzStyleLetterSpacingValue)>,
+        az_style_letter_spacing_value_deep_copy: Symbol<extern fn(_: &AzStyleLetterSpacingValue) -> AzStyleLetterSpacingValue>,
+        az_style_line_height_value_auto: Symbol<extern fn() -> AzStyleLineHeightValue>,
+        az_style_line_height_value_none: Symbol<extern fn() -> AzStyleLineHeightValue>,
+        az_style_line_height_value_inherit: Symbol<extern fn() -> AzStyleLineHeightValue>,
+        az_style_line_height_value_initial: Symbol<extern fn() -> AzStyleLineHeightValue>,
+        az_style_line_height_value_exact: Symbol<extern fn(_: AzStyleLineHeightPtr) -> AzStyleLineHeightValue>,
+        az_style_line_height_value_delete: Symbol<extern fn(_: &mut AzStyleLineHeightValue)>,
+        az_style_line_height_value_deep_copy: Symbol<extern fn(_: &AzStyleLineHeightValue) -> AzStyleLineHeightValue>,
+        az_style_tab_width_value_auto: Symbol<extern fn() -> AzStyleTabWidthValue>,
+        az_style_tab_width_value_none: Symbol<extern fn() -> AzStyleTabWidthValue>,
+        az_style_tab_width_value_inherit: Symbol<extern fn() -> AzStyleTabWidthValue>,
+        az_style_tab_width_value_initial: Symbol<extern fn() -> AzStyleTabWidthValue>,
+        az_style_tab_width_value_exact: Symbol<extern fn(_: AzStyleTabWidthPtr) -> AzStyleTabWidthValue>,
+        az_style_tab_width_value_delete: Symbol<extern fn(_: &mut AzStyleTabWidthValue)>,
+        az_style_tab_width_value_deep_copy: Symbol<extern fn(_: &AzStyleTabWidthValue) -> AzStyleTabWidthValue>,
+        az_style_text_alignment_horz_value_auto: Symbol<extern fn() -> AzStyleTextAlignmentHorzValue>,
+        az_style_text_alignment_horz_value_none: Symbol<extern fn() -> AzStyleTextAlignmentHorzValue>,
+        az_style_text_alignment_horz_value_inherit: Symbol<extern fn() -> AzStyleTextAlignmentHorzValue>,
+        az_style_text_alignment_horz_value_initial: Symbol<extern fn() -> AzStyleTextAlignmentHorzValue>,
+        az_style_text_alignment_horz_value_exact: Symbol<extern fn(_: AzStyleTextAlignmentHorzPtr) -> AzStyleTextAlignmentHorzValue>,
+        az_style_text_alignment_horz_value_delete: Symbol<extern fn(_: &mut AzStyleTextAlignmentHorzValue)>,
+        az_style_text_alignment_horz_value_deep_copy: Symbol<extern fn(_: &AzStyleTextAlignmentHorzValue) -> AzStyleTextAlignmentHorzValue>,
+        az_style_text_color_value_auto: Symbol<extern fn() -> AzStyleTextColorValue>,
+        az_style_text_color_value_none: Symbol<extern fn() -> AzStyleTextColorValue>,
+        az_style_text_color_value_inherit: Symbol<extern fn() -> AzStyleTextColorValue>,
+        az_style_text_color_value_initial: Symbol<extern fn() -> AzStyleTextColorValue>,
+        az_style_text_color_value_exact: Symbol<extern fn(_: AzStyleTextColorPtr) -> AzStyleTextColorValue>,
+        az_style_text_color_value_delete: Symbol<extern fn(_: &mut AzStyleTextColorValue)>,
+        az_style_text_color_value_deep_copy: Symbol<extern fn(_: &AzStyleTextColorValue) -> AzStyleTextColorValue>,
+        az_style_word_spacing_value_auto: Symbol<extern fn() -> AzStyleWordSpacingValue>,
+        az_style_word_spacing_value_none: Symbol<extern fn() -> AzStyleWordSpacingValue>,
+        az_style_word_spacing_value_inherit: Symbol<extern fn() -> AzStyleWordSpacingValue>,
+        az_style_word_spacing_value_initial: Symbol<extern fn() -> AzStyleWordSpacingValue>,
+        az_style_word_spacing_value_exact: Symbol<extern fn(_: AzStyleWordSpacingPtr) -> AzStyleWordSpacingValue>,
+        az_style_word_spacing_value_delete: Symbol<extern fn(_: &mut AzStyleWordSpacingValue)>,
+        az_style_word_spacing_value_deep_copy: Symbol<extern fn(_: &AzStyleWordSpacingValue) -> AzStyleWordSpacingValue>,
+        az_css_property_text_color: Symbol<extern fn(_: AzStyleTextColorValue) -> AzCssProperty>,
+        az_css_property_font_size: Symbol<extern fn(_: AzStyleFontSizeValue) -> AzCssProperty>,
+        az_css_property_font_family: Symbol<extern fn(_: AzStyleFontFamilyValue) -> AzCssProperty>,
+        az_css_property_text_align: Symbol<extern fn(_: AzStyleTextAlignmentHorzValue) -> AzCssProperty>,
+        az_css_property_letter_spacing: Symbol<extern fn(_: AzStyleLetterSpacingValue) -> AzCssProperty>,
+        az_css_property_line_height: Symbol<extern fn(_: AzStyleLineHeightValue) -> AzCssProperty>,
+        az_css_property_word_spacing: Symbol<extern fn(_: AzStyleWordSpacingValue) -> AzCssProperty>,
+        az_css_property_tab_width: Symbol<extern fn(_: AzStyleTabWidthValue) -> AzCssProperty>,
+        az_css_property_cursor: Symbol<extern fn(_: AzStyleCursorValue) -> AzCssProperty>,
+        az_css_property_display: Symbol<extern fn(_: AzLayoutDisplayValue) -> AzCssProperty>,
+        az_css_property_float: Symbol<extern fn(_: AzLayoutFloatValue) -> AzCssProperty>,
+        az_css_property_box_sizing: Symbol<extern fn(_: AzLayoutBoxSizingValue) -> AzCssProperty>,
+        az_css_property_width: Symbol<extern fn(_: AzLayoutWidthValue) -> AzCssProperty>,
+        az_css_property_height: Symbol<extern fn(_: AzLayoutHeightValue) -> AzCssProperty>,
+        az_css_property_min_width: Symbol<extern fn(_: AzLayoutMinWidthValue) -> AzCssProperty>,
+        az_css_property_min_height: Symbol<extern fn(_: AzLayoutMinHeightValue) -> AzCssProperty>,
+        az_css_property_max_width: Symbol<extern fn(_: AzLayoutMaxWidthValue) -> AzCssProperty>,
+        az_css_property_max_height: Symbol<extern fn(_: AzLayoutMaxHeightValue) -> AzCssProperty>,
+        az_css_property_position: Symbol<extern fn(_: AzLayoutPositionValue) -> AzCssProperty>,
+        az_css_property_top: Symbol<extern fn(_: AzLayoutTopValue) -> AzCssProperty>,
+        az_css_property_right: Symbol<extern fn(_: AzLayoutRightValue) -> AzCssProperty>,
+        az_css_property_left: Symbol<extern fn(_: AzLayoutLeftValue) -> AzCssProperty>,
+        az_css_property_bottom: Symbol<extern fn(_: AzLayoutBottomValue) -> AzCssProperty>,
+        az_css_property_flex_wrap: Symbol<extern fn(_: AzLayoutWrapValue) -> AzCssProperty>,
+        az_css_property_flex_direction: Symbol<extern fn(_: AzLayoutDirectionValue) -> AzCssProperty>,
+        az_css_property_flex_grow: Symbol<extern fn(_: AzLayoutFlexGrowValue) -> AzCssProperty>,
+        az_css_property_flex_shrink: Symbol<extern fn(_: AzLayoutFlexShrinkValue) -> AzCssProperty>,
+        az_css_property_justify_content: Symbol<extern fn(_: AzLayoutJustifyContentValue) -> AzCssProperty>,
+        az_css_property_align_items: Symbol<extern fn(_: AzLayoutAlignItemsValue) -> AzCssProperty>,
+        az_css_property_align_content: Symbol<extern fn(_: AzLayoutAlignContentValue) -> AzCssProperty>,
+        az_css_property_background_content: Symbol<extern fn(_: AzStyleBackgroundContentValue) -> AzCssProperty>,
+        az_css_property_background_position: Symbol<extern fn(_: AzStyleBackgroundPositionValue) -> AzCssProperty>,
+        az_css_property_background_size: Symbol<extern fn(_: AzStyleBackgroundSizeValue) -> AzCssProperty>,
+        az_css_property_background_repeat: Symbol<extern fn(_: AzStyleBackgroundRepeatValue) -> AzCssProperty>,
+        az_css_property_overflow_x: Symbol<extern fn(_: AzOverflowValue) -> AzCssProperty>,
+        az_css_property_overflow_y: Symbol<extern fn(_: AzOverflowValue) -> AzCssProperty>,
+        az_css_property_padding_top: Symbol<extern fn(_: AzLayoutPaddingTopValue) -> AzCssProperty>,
+        az_css_property_padding_left: Symbol<extern fn(_: AzLayoutPaddingLeftValue) -> AzCssProperty>,
+        az_css_property_padding_right: Symbol<extern fn(_: AzLayoutPaddingRightValue) -> AzCssProperty>,
+        az_css_property_padding_bottom: Symbol<extern fn(_: AzLayoutPaddingBottomValue) -> AzCssProperty>,
+        az_css_property_margin_top: Symbol<extern fn(_: AzLayoutMarginTopValue) -> AzCssProperty>,
+        az_css_property_margin_left: Symbol<extern fn(_: AzLayoutMarginLeftValue) -> AzCssProperty>,
+        az_css_property_margin_right: Symbol<extern fn(_: AzLayoutMarginRightValue) -> AzCssProperty>,
+        az_css_property_margin_bottom: Symbol<extern fn(_: AzLayoutMarginBottomValue) -> AzCssProperty>,
+        az_css_property_border_top_left_radius: Symbol<extern fn(_: AzStyleBorderTopLeftRadiusValue) -> AzCssProperty>,
+        az_css_property_border_top_right_radius: Symbol<extern fn(_: AzStyleBorderTopRightRadiusValue) -> AzCssProperty>,
+        az_css_property_border_bottom_left_radius: Symbol<extern fn(_: AzStyleBorderBottomLeftRadiusValue) -> AzCssProperty>,
+        az_css_property_border_bottom_right_radius: Symbol<extern fn(_: AzStyleBorderBottomRightRadiusValue) -> AzCssProperty>,
+        az_css_property_border_top_color: Symbol<extern fn(_: AzStyleBorderTopColorValue) -> AzCssProperty>,
+        az_css_property_border_right_color: Symbol<extern fn(_: AzStyleBorderRightColorValue) -> AzCssProperty>,
+        az_css_property_border_left_color: Symbol<extern fn(_: AzStyleBorderLeftColorValue) -> AzCssProperty>,
+        az_css_property_border_bottom_color: Symbol<extern fn(_: AzStyleBorderBottomColorValue) -> AzCssProperty>,
+        az_css_property_border_top_style: Symbol<extern fn(_: AzStyleBorderTopStyleValue) -> AzCssProperty>,
+        az_css_property_border_right_style: Symbol<extern fn(_: AzStyleBorderRightStyleValue) -> AzCssProperty>,
+        az_css_property_border_left_style: Symbol<extern fn(_: AzStyleBorderLeftStyleValue) -> AzCssProperty>,
+        az_css_property_border_bottom_style: Symbol<extern fn(_: AzStyleBorderBottomStyleValue) -> AzCssProperty>,
+        az_css_property_border_top_width: Symbol<extern fn(_: AzStyleBorderTopWidthValue) -> AzCssProperty>,
+        az_css_property_border_right_width: Symbol<extern fn(_: AzStyleBorderRightWidthValue) -> AzCssProperty>,
+        az_css_property_border_left_width: Symbol<extern fn(_: AzStyleBorderLeftWidthValue) -> AzCssProperty>,
+        az_css_property_border_bottom_width: Symbol<extern fn(_: AzStyleBorderBottomWidthValue) -> AzCssProperty>,
+        az_css_property_box_shadow_left: Symbol<extern fn(_: AzBoxShadowPreDisplayItemValue) -> AzCssProperty>,
+        az_css_property_box_shadow_right: Symbol<extern fn(_: AzBoxShadowPreDisplayItemValue) -> AzCssProperty>,
+        az_css_property_box_shadow_top: Symbol<extern fn(_: AzBoxShadowPreDisplayItemValue) -> AzCssProperty>,
+        az_css_property_box_shadow_bottom: Symbol<extern fn(_: AzBoxShadowPreDisplayItemValue) -> AzCssProperty>,
+        az_css_property_delete: Symbol<extern fn(_: &mut AzCssProperty)>,
+        az_css_property_deep_copy: Symbol<extern fn(_: &AzCssProperty) -> AzCssProperty>,
+        az_dom_div: Symbol<extern fn() -> AzDomPtr>,
+        az_dom_body: Symbol<extern fn() -> AzDomPtr>,
+        az_dom_label: Symbol<extern fn(_: AzString) -> AzDomPtr>,
+        az_dom_text: Symbol<extern fn(_: AzTextId) -> AzDomPtr>,
+        az_dom_image: Symbol<extern fn(_: AzImageId) -> AzDomPtr>,
+        az_dom_gl_texture: Symbol<extern fn(_: AzGlCallback) -> AzDomPtr>,
+        az_dom_iframe_callback: Symbol<extern fn(_: AzIFrameCallback) -> AzDomPtr>,
+        az_dom_add_id: Symbol<extern fn(_: AzString)>,
+        az_dom_with_id: Symbol<extern fn(_: AzString) -> AzDomPtr>,
+        az_dom_set_ids: Symbol<extern fn(_: AzStringVec)>,
+        az_dom_with_ids: Symbol<extern fn(_: AzStringVec) -> AzDomPtr>,
+        az_dom_add_class: Symbol<extern fn(_: AzString)>,
+        az_dom_with_class: Symbol<extern fn(_: AzString) -> AzDomPtr>,
+        az_dom_set_classes: Symbol<extern fn(_: AzStringVec)>,
+        az_dom_with_classes: Symbol<extern fn(_: AzStringVec) -> AzDomPtr>,
+        az_dom_add_callback: Symbol<extern fn(_: AzCallback)>,
+        az_dom_with_callback: Symbol<extern fn(_: AzCallback) -> AzDomPtr>,
+        az_dom_add_css_override: Symbol<extern fn(_: AzCssProperty)>,
+        az_dom_with_css_override: Symbol<extern fn(_: AzCssProperty) -> AzDomPtr>,
+        az_dom_set_is_draggable: Symbol<extern fn(_: bool)>,
+        az_dom_is_draggable: Symbol<extern fn(_: bool) -> AzDomPtr>,
+        az_dom_set_tab_index: Symbol<extern fn(_: AzTabIndex)>,
+        az_dom_with_tab_index: Symbol<extern fn(_: AzTabIndex) -> AzDomPtr>,
+        az_dom_add_child: Symbol<extern fn(_: AzDomPtr)>,
+        az_dom_with_child: Symbol<extern fn(_: AzDomPtr) -> AzDomPtr>,
+        az_dom_has_id: Symbol<extern fn(_: AzString) -> bool>,
+        az_dom_has_class: Symbol<extern fn(_: AzString) -> bool>,
+        az_dom_get_html_string: Symbol<extern fn(_: &mut AzDomPtr) -> AzString>,
+        az_dom_delete: Symbol<extern fn(_: &mut AzDomPtr)>,
+        az_dom_shallow_copy: Symbol<extern fn(_: &AzDomPtr) -> AzDomPtr>,
+        az_event_filter_hover: Symbol<extern fn(_: AzHoverEventFilter) -> AzEventFilter>,
+        az_event_filter_not: Symbol<extern fn(_: AzNotEventFilter) -> AzEventFilter>,
+        az_event_filter_focus: Symbol<extern fn(_: AzFocusEventFilter) -> AzEventFilter>,
+        az_event_filter_window: Symbol<extern fn(_: AzWindowEventFilter) -> AzEventFilter>,
+        az_event_filter_delete: Symbol<extern fn(_: &mut AzEventFilter)>,
+        az_event_filter_deep_copy: Symbol<extern fn(_: &AzEventFilter) -> AzEventFilter>,
+        az_hover_event_filter_mouse_over: Symbol<extern fn() -> AzHoverEventFilter>,
+        az_hover_event_filter_mouse_down: Symbol<extern fn() -> AzHoverEventFilter>,
+        az_hover_event_filter_left_mouse_down: Symbol<extern fn() -> AzHoverEventFilter>,
+        az_hover_event_filter_right_mouse_down: Symbol<extern fn() -> AzHoverEventFilter>,
+        az_hover_event_filter_middle_mouse_down: Symbol<extern fn() -> AzHoverEventFilter>,
+        az_hover_event_filter_mouse_up: Symbol<extern fn() -> AzHoverEventFilter>,
+        az_hover_event_filter_left_mouse_up: Symbol<extern fn() -> AzHoverEventFilter>,
+        az_hover_event_filter_right_mouse_up: Symbol<extern fn() -> AzHoverEventFilter>,
+        az_hover_event_filter_middle_mouse_up: Symbol<extern fn() -> AzHoverEventFilter>,
+        az_hover_event_filter_mouse_enter: Symbol<extern fn() -> AzHoverEventFilter>,
+        az_hover_event_filter_mouse_leave: Symbol<extern fn() -> AzHoverEventFilter>,
+        az_hover_event_filter_scroll: Symbol<extern fn() -> AzHoverEventFilter>,
+        az_hover_event_filter_scroll_start: Symbol<extern fn() -> AzHoverEventFilter>,
+        az_hover_event_filter_scroll_end: Symbol<extern fn() -> AzHoverEventFilter>,
+        az_hover_event_filter_text_input: Symbol<extern fn() -> AzHoverEventFilter>,
+        az_hover_event_filter_virtual_key_down: Symbol<extern fn() -> AzHoverEventFilter>,
+        az_hover_event_filter_virtual_key_up: Symbol<extern fn() -> AzHoverEventFilter>,
+        az_hover_event_filter_hovered_file: Symbol<extern fn() -> AzHoverEventFilter>,
+        az_hover_event_filter_dropped_file: Symbol<extern fn() -> AzHoverEventFilter>,
+        az_hover_event_filter_hovered_file_cancelled: Symbol<extern fn() -> AzHoverEventFilter>,
+        az_hover_event_filter_delete: Symbol<extern fn(_: &mut AzHoverEventFilter)>,
+        az_hover_event_filter_deep_copy: Symbol<extern fn(_: &AzHoverEventFilter) -> AzHoverEventFilter>,
+        az_focus_event_filter_mouse_over: Symbol<extern fn() -> AzFocusEventFilter>,
+        az_focus_event_filter_mouse_down: Symbol<extern fn() -> AzFocusEventFilter>,
+        az_focus_event_filter_left_mouse_down: Symbol<extern fn() -> AzFocusEventFilter>,
+        az_focus_event_filter_right_mouse_down: Symbol<extern fn() -> AzFocusEventFilter>,
+        az_focus_event_filter_middle_mouse_down: Symbol<extern fn() -> AzFocusEventFilter>,
+        az_focus_event_filter_mouse_up: Symbol<extern fn() -> AzFocusEventFilter>,
+        az_focus_event_filter_left_mouse_up: Symbol<extern fn() -> AzFocusEventFilter>,
+        az_focus_event_filter_right_mouse_up: Symbol<extern fn() -> AzFocusEventFilter>,
+        az_focus_event_filter_middle_mouse_up: Symbol<extern fn() -> AzFocusEventFilter>,
+        az_focus_event_filter_mouse_enter: Symbol<extern fn() -> AzFocusEventFilter>,
+        az_focus_event_filter_mouse_leave: Symbol<extern fn() -> AzFocusEventFilter>,
+        az_focus_event_filter_scroll: Symbol<extern fn() -> AzFocusEventFilter>,
+        az_focus_event_filter_scroll_start: Symbol<extern fn() -> AzFocusEventFilter>,
+        az_focus_event_filter_scroll_end: Symbol<extern fn() -> AzFocusEventFilter>,
+        az_focus_event_filter_text_input: Symbol<extern fn() -> AzFocusEventFilter>,
+        az_focus_event_filter_virtual_key_down: Symbol<extern fn() -> AzFocusEventFilter>,
+        az_focus_event_filter_virtual_key_up: Symbol<extern fn() -> AzFocusEventFilter>,
+        az_focus_event_filter_focus_received: Symbol<extern fn() -> AzFocusEventFilter>,
+        az_focus_event_filter_focus_lost: Symbol<extern fn() -> AzFocusEventFilter>,
+        az_focus_event_filter_delete: Symbol<extern fn(_: &mut AzFocusEventFilter)>,
+        az_focus_event_filter_deep_copy: Symbol<extern fn(_: &AzFocusEventFilter) -> AzFocusEventFilter>,
+        az_not_event_filter_hover: Symbol<extern fn(_: AzHoverEventFilter) -> AzNotEventFilter>,
+        az_not_event_filter_focus: Symbol<extern fn(_: AzFocusEventFilter) -> AzNotEventFilter>,
+        az_not_event_filter_delete: Symbol<extern fn(_: &mut AzNotEventFilter)>,
+        az_not_event_filter_deep_copy: Symbol<extern fn(_: &AzNotEventFilter) -> AzNotEventFilter>,
+        az_window_event_filter_mouse_over: Symbol<extern fn() -> AzWindowEventFilter>,
+        az_window_event_filter_mouse_down: Symbol<extern fn() -> AzWindowEventFilter>,
+        az_window_event_filter_left_mouse_down: Symbol<extern fn() -> AzWindowEventFilter>,
+        az_window_event_filter_right_mouse_down: Symbol<extern fn() -> AzWindowEventFilter>,
+        az_window_event_filter_middle_mouse_down: Symbol<extern fn() -> AzWindowEventFilter>,
+        az_window_event_filter_mouse_up: Symbol<extern fn() -> AzWindowEventFilter>,
+        az_window_event_filter_left_mouse_up: Symbol<extern fn() -> AzWindowEventFilter>,
+        az_window_event_filter_right_mouse_up: Symbol<extern fn() -> AzWindowEventFilter>,
+        az_window_event_filter_middle_mouse_up: Symbol<extern fn() -> AzWindowEventFilter>,
+        az_window_event_filter_mouse_enter: Symbol<extern fn() -> AzWindowEventFilter>,
+        az_window_event_filter_mouse_leave: Symbol<extern fn() -> AzWindowEventFilter>,
+        az_window_event_filter_scroll: Symbol<extern fn() -> AzWindowEventFilter>,
+        az_window_event_filter_scroll_start: Symbol<extern fn() -> AzWindowEventFilter>,
+        az_window_event_filter_scroll_end: Symbol<extern fn() -> AzWindowEventFilter>,
+        az_window_event_filter_text_input: Symbol<extern fn() -> AzWindowEventFilter>,
+        az_window_event_filter_virtual_key_down: Symbol<extern fn() -> AzWindowEventFilter>,
+        az_window_event_filter_virtual_key_up: Symbol<extern fn() -> AzWindowEventFilter>,
+        az_window_event_filter_hovered_file: Symbol<extern fn() -> AzWindowEventFilter>,
+        az_window_event_filter_dropped_file: Symbol<extern fn() -> AzWindowEventFilter>,
+        az_window_event_filter_hovered_file_cancelled: Symbol<extern fn() -> AzWindowEventFilter>,
+        az_window_event_filter_delete: Symbol<extern fn(_: &mut AzWindowEventFilter)>,
+        az_window_event_filter_deep_copy: Symbol<extern fn(_: &AzWindowEventFilter) -> AzWindowEventFilter>,
+        az_tab_index_auto: Symbol<extern fn() -> AzTabIndex>,
+        az_tab_index_override_in_parent: Symbol<extern fn(_: usize) -> AzTabIndex>,
+        az_tab_index_no_keyboard_focus: Symbol<extern fn() -> AzTabIndex>,
+        az_tab_index_delete: Symbol<extern fn(_: &mut AzTabIndex)>,
+        az_tab_index_deep_copy: Symbol<extern fn(_: &AzTabIndex) -> AzTabIndex>,
+        az_text_id_new: Symbol<extern fn() -> AzTextId>,
+        az_text_id_delete: Symbol<extern fn(_: &mut AzTextId)>,
+        az_text_id_deep_copy: Symbol<extern fn(_: &AzTextId) -> AzTextId>,
+        az_image_id_new: Symbol<extern fn() -> AzImageId>,
+        az_image_id_delete: Symbol<extern fn(_: &mut AzImageId)>,
+        az_image_id_deep_copy: Symbol<extern fn(_: &AzImageId) -> AzImageId>,
+        az_font_id_new: Symbol<extern fn() -> AzFontId>,
+        az_font_id_delete: Symbol<extern fn(_: &mut AzFontId)>,
+        az_font_id_deep_copy: Symbol<extern fn(_: &AzFontId) -> AzFontId>,
+        az_image_source_embedded: Symbol<extern fn(_: AzU8Vec) -> AzImageSource>,
+        az_image_source_file: Symbol<extern fn(_: AzPathBufPtr) -> AzImageSource>,
+        az_image_source_raw: Symbol<extern fn(_: AzRawImagePtr) -> AzImageSource>,
+        az_image_source_delete: Symbol<extern fn(_: &mut AzImageSource)>,
+        az_image_source_deep_copy: Symbol<extern fn(_: &AzImageSource) -> AzImageSource>,
+        az_font_source_embedded: Symbol<extern fn(_: AzU8Vec) -> AzFontSource>,
+        az_font_source_file: Symbol<extern fn(_: AzPathBufPtr) -> AzFontSource>,
+        az_font_source_system: Symbol<extern fn(_: AzString) -> AzFontSource>,
+        az_font_source_delete: Symbol<extern fn(_: &mut AzFontSource)>,
+        az_font_source_deep_copy: Symbol<extern fn(_: &AzFontSource) -> AzFontSource>,
+        az_raw_image_new: Symbol<extern fn(_: AzRawImageFormat) -> AzRawImagePtr>,
+        az_raw_image_delete: Symbol<extern fn(_: &mut AzRawImagePtr)>,
+        az_raw_image_shallow_copy: Symbol<extern fn(_: &AzRawImagePtr) -> AzRawImagePtr>,
+        az_raw_image_format_r8: Symbol<extern fn() -> AzRawImageFormat>,
+        az_raw_image_format_r16: Symbol<extern fn() -> AzRawImageFormat>,
+        az_raw_image_format_rg16: Symbol<extern fn() -> AzRawImageFormat>,
+        az_raw_image_format_bgra8: Symbol<extern fn() -> AzRawImageFormat>,
+        az_raw_image_format_rgbaf32: Symbol<extern fn() -> AzRawImageFormat>,
+        az_raw_image_format_rg8: Symbol<extern fn() -> AzRawImageFormat>,
+        az_raw_image_format_rgbai32: Symbol<extern fn() -> AzRawImageFormat>,
+        az_raw_image_format_rgba8: Symbol<extern fn() -> AzRawImageFormat>,
+        az_raw_image_format_delete: Symbol<extern fn(_: &mut AzRawImageFormat)>,
+        az_raw_image_format_deep_copy: Symbol<extern fn(_: &AzRawImageFormat) -> AzRawImageFormat>,
+        az_window_create_options_new: Symbol<extern fn(_: AzCssPtr) -> AzWindowCreateOptionsPtr>,
+        az_window_create_options_delete: Symbol<extern fn(_: &mut AzWindowCreateOptionsPtr)>,
+        az_window_create_options_shallow_copy: Symbol<extern fn(_: &AzWindowCreateOptionsPtr) -> AzWindowCreateOptionsPtr>,
+    }
+
+    pub fn initialize_library(path: &str) -> Option<AzulDll> {
+        let lib = Library::new(path).ok()?;
+        let az_string_from_utf8_unchecked = unsafe { lib.get::<extern fn(_: usize) -> AzString>(b"az_string_from_utf8_unchecked").ok()? };
+        let az_string_from_utf8_lossy = unsafe { lib.get::<extern fn(_: usize) -> AzString>(b"az_string_from_utf8_lossy").ok()? };
+        let az_string_into_bytes = unsafe { lib.get::<extern fn(_: AzString) -> AzU8Vec>(b"az_string_into_bytes").ok()? };
+        let az_string_delete = unsafe { lib.get::<extern fn(_: &mut AzString)>(b"az_string_delete").ok()? };
+        let az_string_deep_copy = unsafe { lib.get::<extern fn(_: &AzString) -> AzString>(b"az_string_deep_copy").ok()? };
+        let az_u8_vec_copy_from = unsafe { lib.get::<extern fn(_: usize) -> AzU8Vec>(b"az_u8_vec_copy_from").ok()? };
+        let az_u8_vec_as_ptr = unsafe { lib.get::<extern fn(_: &AzU8Vec) -> *const u8>(b"az_u8_vec_as_ptr").ok()? };
+        let az_u8_vec_len = unsafe { lib.get::<extern fn(_: &AzU8Vec) -> usize>(b"az_u8_vec_len").ok()? };
+        let az_u8_vec_delete = unsafe { lib.get::<extern fn(_: &mut AzU8Vec)>(b"az_u8_vec_delete").ok()? };
+        let az_u8_vec_deep_copy = unsafe { lib.get::<extern fn(_: &AzU8Vec) -> AzU8Vec>(b"az_u8_vec_deep_copy").ok()? };
+        let az_string_vec_copy_from = unsafe { lib.get::<extern fn(_: usize) -> AzStringVec>(b"az_string_vec_copy_from").ok()? };
+        let az_string_vec_delete = unsafe { lib.get::<extern fn(_: &mut AzStringVec)>(b"az_string_vec_delete").ok()? };
+        let az_string_vec_deep_copy = unsafe { lib.get::<extern fn(_: &AzStringVec) -> AzStringVec>(b"az_string_vec_deep_copy").ok()? };
+        let az_path_buf_new = unsafe { lib.get::<extern fn(_: AzString) -> AzPathBufPtr>(b"az_path_buf_new").ok()? };
+        let az_path_buf_delete = unsafe { lib.get::<extern fn(_: &mut AzPathBufPtr)>(b"az_path_buf_delete").ok()? };
+        let az_path_buf_shallow_copy = unsafe { lib.get::<extern fn(_: &AzPathBufPtr) -> AzPathBufPtr>(b"az_path_buf_shallow_copy").ok()? };
+        let az_app_config_default = unsafe { lib.get::<extern fn() -> AzAppConfigPtr>(b"az_app_config_default").ok()? };
+        let az_app_config_delete = unsafe { lib.get::<extern fn(_: &mut AzAppConfigPtr)>(b"az_app_config_delete").ok()? };
+        let az_app_config_shallow_copy = unsafe { lib.get::<extern fn(_: &AzAppConfigPtr) -> AzAppConfigPtr>(b"az_app_config_shallow_copy").ok()? };
+        let az_app_new = unsafe { lib.get::<extern fn(_: AzLayoutCallback) -> AzAppPtr>(b"az_app_new").ok()? };
+        let az_app_run = unsafe { lib.get::<extern fn(_: AzWindowCreateOptionsPtr)>(b"az_app_run").ok()? };
+        let az_app_delete = unsafe { lib.get::<extern fn(_: &mut AzAppPtr)>(b"az_app_delete").ok()? };
+        let az_app_shallow_copy = unsafe { lib.get::<extern fn(_: &AzAppPtr) -> AzAppPtr>(b"az_app_shallow_copy").ok()? };
+        let az_callback_info_delete = unsafe { lib.get::<extern fn(_: &mut AzCallbackInfoPtr)>(b"az_callback_info_delete").ok()? };
+        let az_callback_info_shallow_copy = unsafe { lib.get::<extern fn(_: &AzCallbackInfoPtr) -> AzCallbackInfoPtr>(b"az_callback_info_shallow_copy").ok()? };
+        let az_i_frame_callback_info_delete = unsafe { lib.get::<extern fn(_: &mut AzIFrameCallbackInfoPtr)>(b"az_i_frame_callback_info_delete").ok()? };
+        let az_i_frame_callback_info_shallow_copy = unsafe { lib.get::<extern fn(_: &AzIFrameCallbackInfoPtr) -> AzIFrameCallbackInfoPtr>(b"az_i_frame_callback_info_shallow_copy").ok()? };
+        let az_i_frame_callback_return_delete = unsafe { lib.get::<extern fn(_: &mut AzIFrameCallbackReturnPtr)>(b"az_i_frame_callback_return_delete").ok()? };
+        let az_i_frame_callback_return_shallow_copy = unsafe { lib.get::<extern fn(_: &AzIFrameCallbackReturnPtr) -> AzIFrameCallbackReturnPtr>(b"az_i_frame_callback_return_shallow_copy").ok()? };
+        let az_gl_callback_info_delete = unsafe { lib.get::<extern fn(_: &mut AzGlCallbackInfoPtr)>(b"az_gl_callback_info_delete").ok()? };
+        let az_gl_callback_info_shallow_copy = unsafe { lib.get::<extern fn(_: &AzGlCallbackInfoPtr) -> AzGlCallbackInfoPtr>(b"az_gl_callback_info_shallow_copy").ok()? };
+        let az_gl_callback_return_delete = unsafe { lib.get::<extern fn(_: &mut AzGlCallbackReturnPtr)>(b"az_gl_callback_return_delete").ok()? };
+        let az_gl_callback_return_shallow_copy = unsafe { lib.get::<extern fn(_: &AzGlCallbackReturnPtr) -> AzGlCallbackReturnPtr>(b"az_gl_callback_return_shallow_copy").ok()? };
+        let az_layout_info_delete = unsafe { lib.get::<extern fn(_: &mut AzLayoutInfoPtr)>(b"az_layout_info_delete").ok()? };
+        let az_layout_info_shallow_copy = unsafe { lib.get::<extern fn(_: &AzLayoutInfoPtr) -> AzLayoutInfoPtr>(b"az_layout_info_shallow_copy").ok()? };
+        let az_css_native = unsafe { lib.get::<extern fn() -> AzCssPtr>(b"az_css_native").ok()? };
+        let az_css_empty = unsafe { lib.get::<extern fn() -> AzCssPtr>(b"az_css_empty").ok()? };
+        let az_css_delete = unsafe { lib.get::<extern fn(_: &mut AzCssPtr)>(b"az_css_delete").ok()? };
+        let az_css_shallow_copy = unsafe { lib.get::<extern fn(_: &AzCssPtr) -> AzCssPtr>(b"az_css_shallow_copy").ok()? };
+        let az_box_shadow_pre_display_item_delete = unsafe { lib.get::<extern fn(_: &mut AzBoxShadowPreDisplayItemPtr)>(b"az_box_shadow_pre_display_item_delete").ok()? };
+        let az_box_shadow_pre_display_item_shallow_copy = unsafe { lib.get::<extern fn(_: &AzBoxShadowPreDisplayItemPtr) -> AzBoxShadowPreDisplayItemPtr>(b"az_box_shadow_pre_display_item_shallow_copy").ok()? };
+        let az_layout_align_content_delete = unsafe { lib.get::<extern fn(_: &mut AzLayoutAlignContentPtr)>(b"az_layout_align_content_delete").ok()? };
+        let az_layout_align_content_shallow_copy = unsafe { lib.get::<extern fn(_: &AzLayoutAlignContentPtr) -> AzLayoutAlignContentPtr>(b"az_layout_align_content_shallow_copy").ok()? };
+        let az_layout_align_items_delete = unsafe { lib.get::<extern fn(_: &mut AzLayoutAlignItemsPtr)>(b"az_layout_align_items_delete").ok()? };
+        let az_layout_align_items_shallow_copy = unsafe { lib.get::<extern fn(_: &AzLayoutAlignItemsPtr) -> AzLayoutAlignItemsPtr>(b"az_layout_align_items_shallow_copy").ok()? };
+        let az_layout_bottom_delete = unsafe { lib.get::<extern fn(_: &mut AzLayoutBottomPtr)>(b"az_layout_bottom_delete").ok()? };
+        let az_layout_bottom_shallow_copy = unsafe { lib.get::<extern fn(_: &AzLayoutBottomPtr) -> AzLayoutBottomPtr>(b"az_layout_bottom_shallow_copy").ok()? };
+        let az_layout_box_sizing_delete = unsafe { lib.get::<extern fn(_: &mut AzLayoutBoxSizingPtr)>(b"az_layout_box_sizing_delete").ok()? };
+        let az_layout_box_sizing_shallow_copy = unsafe { lib.get::<extern fn(_: &AzLayoutBoxSizingPtr) -> AzLayoutBoxSizingPtr>(b"az_layout_box_sizing_shallow_copy").ok()? };
+        let az_layout_direction_delete = unsafe { lib.get::<extern fn(_: &mut AzLayoutDirectionPtr)>(b"az_layout_direction_delete").ok()? };
+        let az_layout_direction_shallow_copy = unsafe { lib.get::<extern fn(_: &AzLayoutDirectionPtr) -> AzLayoutDirectionPtr>(b"az_layout_direction_shallow_copy").ok()? };
+        let az_layout_display_delete = unsafe { lib.get::<extern fn(_: &mut AzLayoutDisplayPtr)>(b"az_layout_display_delete").ok()? };
+        let az_layout_display_shallow_copy = unsafe { lib.get::<extern fn(_: &AzLayoutDisplayPtr) -> AzLayoutDisplayPtr>(b"az_layout_display_shallow_copy").ok()? };
+        let az_layout_flex_grow_delete = unsafe { lib.get::<extern fn(_: &mut AzLayoutFlexGrowPtr)>(b"az_layout_flex_grow_delete").ok()? };
+        let az_layout_flex_grow_shallow_copy = unsafe { lib.get::<extern fn(_: &AzLayoutFlexGrowPtr) -> AzLayoutFlexGrowPtr>(b"az_layout_flex_grow_shallow_copy").ok()? };
+        let az_layout_flex_shrink_delete = unsafe { lib.get::<extern fn(_: &mut AzLayoutFlexShrinkPtr)>(b"az_layout_flex_shrink_delete").ok()? };
+        let az_layout_flex_shrink_shallow_copy = unsafe { lib.get::<extern fn(_: &AzLayoutFlexShrinkPtr) -> AzLayoutFlexShrinkPtr>(b"az_layout_flex_shrink_shallow_copy").ok()? };
+        let az_layout_float_delete = unsafe { lib.get::<extern fn(_: &mut AzLayoutFloatPtr)>(b"az_layout_float_delete").ok()? };
+        let az_layout_float_shallow_copy = unsafe { lib.get::<extern fn(_: &AzLayoutFloatPtr) -> AzLayoutFloatPtr>(b"az_layout_float_shallow_copy").ok()? };
+        let az_layout_height_delete = unsafe { lib.get::<extern fn(_: &mut AzLayoutHeightPtr)>(b"az_layout_height_delete").ok()? };
+        let az_layout_height_shallow_copy = unsafe { lib.get::<extern fn(_: &AzLayoutHeightPtr) -> AzLayoutHeightPtr>(b"az_layout_height_shallow_copy").ok()? };
+        let az_layout_justify_content_delete = unsafe { lib.get::<extern fn(_: &mut AzLayoutJustifyContentPtr)>(b"az_layout_justify_content_delete").ok()? };
+        let az_layout_justify_content_shallow_copy = unsafe { lib.get::<extern fn(_: &AzLayoutJustifyContentPtr) -> AzLayoutJustifyContentPtr>(b"az_layout_justify_content_shallow_copy").ok()? };
+        let az_layout_left_delete = unsafe { lib.get::<extern fn(_: &mut AzLayoutLeftPtr)>(b"az_layout_left_delete").ok()? };
+        let az_layout_left_shallow_copy = unsafe { lib.get::<extern fn(_: &AzLayoutLeftPtr) -> AzLayoutLeftPtr>(b"az_layout_left_shallow_copy").ok()? };
+        let az_layout_margin_bottom_delete = unsafe { lib.get::<extern fn(_: &mut AzLayoutMarginBottomPtr)>(b"az_layout_margin_bottom_delete").ok()? };
+        let az_layout_margin_bottom_shallow_copy = unsafe { lib.get::<extern fn(_: &AzLayoutMarginBottomPtr) -> AzLayoutMarginBottomPtr>(b"az_layout_margin_bottom_shallow_copy").ok()? };
+        let az_layout_margin_left_delete = unsafe { lib.get::<extern fn(_: &mut AzLayoutMarginLeftPtr)>(b"az_layout_margin_left_delete").ok()? };
+        let az_layout_margin_left_shallow_copy = unsafe { lib.get::<extern fn(_: &AzLayoutMarginLeftPtr) -> AzLayoutMarginLeftPtr>(b"az_layout_margin_left_shallow_copy").ok()? };
+        let az_layout_margin_right_delete = unsafe { lib.get::<extern fn(_: &mut AzLayoutMarginRightPtr)>(b"az_layout_margin_right_delete").ok()? };
+        let az_layout_margin_right_shallow_copy = unsafe { lib.get::<extern fn(_: &AzLayoutMarginRightPtr) -> AzLayoutMarginRightPtr>(b"az_layout_margin_right_shallow_copy").ok()? };
+        let az_layout_margin_top_delete = unsafe { lib.get::<extern fn(_: &mut AzLayoutMarginTopPtr)>(b"az_layout_margin_top_delete").ok()? };
+        let az_layout_margin_top_shallow_copy = unsafe { lib.get::<extern fn(_: &AzLayoutMarginTopPtr) -> AzLayoutMarginTopPtr>(b"az_layout_margin_top_shallow_copy").ok()? };
+        let az_layout_max_height_delete = unsafe { lib.get::<extern fn(_: &mut AzLayoutMaxHeightPtr)>(b"az_layout_max_height_delete").ok()? };
+        let az_layout_max_height_shallow_copy = unsafe { lib.get::<extern fn(_: &AzLayoutMaxHeightPtr) -> AzLayoutMaxHeightPtr>(b"az_layout_max_height_shallow_copy").ok()? };
+        let az_layout_max_width_delete = unsafe { lib.get::<extern fn(_: &mut AzLayoutMaxWidthPtr)>(b"az_layout_max_width_delete").ok()? };
+        let az_layout_max_width_shallow_copy = unsafe { lib.get::<extern fn(_: &AzLayoutMaxWidthPtr) -> AzLayoutMaxWidthPtr>(b"az_layout_max_width_shallow_copy").ok()? };
+        let az_layout_min_height_delete = unsafe { lib.get::<extern fn(_: &mut AzLayoutMinHeightPtr)>(b"az_layout_min_height_delete").ok()? };
+        let az_layout_min_height_shallow_copy = unsafe { lib.get::<extern fn(_: &AzLayoutMinHeightPtr) -> AzLayoutMinHeightPtr>(b"az_layout_min_height_shallow_copy").ok()? };
+        let az_layout_min_width_delete = unsafe { lib.get::<extern fn(_: &mut AzLayoutMinWidthPtr)>(b"az_layout_min_width_delete").ok()? };
+        let az_layout_min_width_shallow_copy = unsafe { lib.get::<extern fn(_: &AzLayoutMinWidthPtr) -> AzLayoutMinWidthPtr>(b"az_layout_min_width_shallow_copy").ok()? };
+        let az_layout_padding_bottom_delete = unsafe { lib.get::<extern fn(_: &mut AzLayoutPaddingBottomPtr)>(b"az_layout_padding_bottom_delete").ok()? };
+        let az_layout_padding_bottom_shallow_copy = unsafe { lib.get::<extern fn(_: &AzLayoutPaddingBottomPtr) -> AzLayoutPaddingBottomPtr>(b"az_layout_padding_bottom_shallow_copy").ok()? };
+        let az_layout_padding_left_delete = unsafe { lib.get::<extern fn(_: &mut AzLayoutPaddingLeftPtr)>(b"az_layout_padding_left_delete").ok()? };
+        let az_layout_padding_left_shallow_copy = unsafe { lib.get::<extern fn(_: &AzLayoutPaddingLeftPtr) -> AzLayoutPaddingLeftPtr>(b"az_layout_padding_left_shallow_copy").ok()? };
+        let az_layout_padding_right_delete = unsafe { lib.get::<extern fn(_: &mut AzLayoutPaddingRightPtr)>(b"az_layout_padding_right_delete").ok()? };
+        let az_layout_padding_right_shallow_copy = unsafe { lib.get::<extern fn(_: &AzLayoutPaddingRightPtr) -> AzLayoutPaddingRightPtr>(b"az_layout_padding_right_shallow_copy").ok()? };
+        let az_layout_padding_top_delete = unsafe { lib.get::<extern fn(_: &mut AzLayoutPaddingTopPtr)>(b"az_layout_padding_top_delete").ok()? };
+        let az_layout_padding_top_shallow_copy = unsafe { lib.get::<extern fn(_: &AzLayoutPaddingTopPtr) -> AzLayoutPaddingTopPtr>(b"az_layout_padding_top_shallow_copy").ok()? };
+        let az_layout_position_delete = unsafe { lib.get::<extern fn(_: &mut AzLayoutPositionPtr)>(b"az_layout_position_delete").ok()? };
+        let az_layout_position_shallow_copy = unsafe { lib.get::<extern fn(_: &AzLayoutPositionPtr) -> AzLayoutPositionPtr>(b"az_layout_position_shallow_copy").ok()? };
+        let az_layout_right_delete = unsafe { lib.get::<extern fn(_: &mut AzLayoutRightPtr)>(b"az_layout_right_delete").ok()? };
+        let az_layout_right_shallow_copy = unsafe { lib.get::<extern fn(_: &AzLayoutRightPtr) -> AzLayoutRightPtr>(b"az_layout_right_shallow_copy").ok()? };
+        let az_layout_top_delete = unsafe { lib.get::<extern fn(_: &mut AzLayoutTopPtr)>(b"az_layout_top_delete").ok()? };
+        let az_layout_top_shallow_copy = unsafe { lib.get::<extern fn(_: &AzLayoutTopPtr) -> AzLayoutTopPtr>(b"az_layout_top_shallow_copy").ok()? };
+        let az_layout_width_delete = unsafe { lib.get::<extern fn(_: &mut AzLayoutWidthPtr)>(b"az_layout_width_delete").ok()? };
+        let az_layout_width_shallow_copy = unsafe { lib.get::<extern fn(_: &AzLayoutWidthPtr) -> AzLayoutWidthPtr>(b"az_layout_width_shallow_copy").ok()? };
+        let az_layout_wrap_delete = unsafe { lib.get::<extern fn(_: &mut AzLayoutWrapPtr)>(b"az_layout_wrap_delete").ok()? };
+        let az_layout_wrap_shallow_copy = unsafe { lib.get::<extern fn(_: &AzLayoutWrapPtr) -> AzLayoutWrapPtr>(b"az_layout_wrap_shallow_copy").ok()? };
+        let az_overflow_delete = unsafe { lib.get::<extern fn(_: &mut AzOverflowPtr)>(b"az_overflow_delete").ok()? };
+        let az_overflow_shallow_copy = unsafe { lib.get::<extern fn(_: &AzOverflowPtr) -> AzOverflowPtr>(b"az_overflow_shallow_copy").ok()? };
+        let az_style_background_content_delete = unsafe { lib.get::<extern fn(_: &mut AzStyleBackgroundContentPtr)>(b"az_style_background_content_delete").ok()? };
+        let az_style_background_content_shallow_copy = unsafe { lib.get::<extern fn(_: &AzStyleBackgroundContentPtr) -> AzStyleBackgroundContentPtr>(b"az_style_background_content_shallow_copy").ok()? };
+        let az_style_background_position_delete = unsafe { lib.get::<extern fn(_: &mut AzStyleBackgroundPositionPtr)>(b"az_style_background_position_delete").ok()? };
+        let az_style_background_position_shallow_copy = unsafe { lib.get::<extern fn(_: &AzStyleBackgroundPositionPtr) -> AzStyleBackgroundPositionPtr>(b"az_style_background_position_shallow_copy").ok()? };
+        let az_style_background_repeat_delete = unsafe { lib.get::<extern fn(_: &mut AzStyleBackgroundRepeatPtr)>(b"az_style_background_repeat_delete").ok()? };
+        let az_style_background_repeat_shallow_copy = unsafe { lib.get::<extern fn(_: &AzStyleBackgroundRepeatPtr) -> AzStyleBackgroundRepeatPtr>(b"az_style_background_repeat_shallow_copy").ok()? };
+        let az_style_background_size_delete = unsafe { lib.get::<extern fn(_: &mut AzStyleBackgroundSizePtr)>(b"az_style_background_size_delete").ok()? };
+        let az_style_background_size_shallow_copy = unsafe { lib.get::<extern fn(_: &AzStyleBackgroundSizePtr) -> AzStyleBackgroundSizePtr>(b"az_style_background_size_shallow_copy").ok()? };
+        let az_style_border_bottom_color_delete = unsafe { lib.get::<extern fn(_: &mut AzStyleBorderBottomColorPtr)>(b"az_style_border_bottom_color_delete").ok()? };
+        let az_style_border_bottom_color_shallow_copy = unsafe { lib.get::<extern fn(_: &AzStyleBorderBottomColorPtr) -> AzStyleBorderBottomColorPtr>(b"az_style_border_bottom_color_shallow_copy").ok()? };
+        let az_style_border_bottom_left_radius_delete = unsafe { lib.get::<extern fn(_: &mut AzStyleBorderBottomLeftRadiusPtr)>(b"az_style_border_bottom_left_radius_delete").ok()? };
+        let az_style_border_bottom_left_radius_shallow_copy = unsafe { lib.get::<extern fn(_: &AzStyleBorderBottomLeftRadiusPtr) -> AzStyleBorderBottomLeftRadiusPtr>(b"az_style_border_bottom_left_radius_shallow_copy").ok()? };
+        let az_style_border_bottom_right_radius_delete = unsafe { lib.get::<extern fn(_: &mut AzStyleBorderBottomRightRadiusPtr)>(b"az_style_border_bottom_right_radius_delete").ok()? };
+        let az_style_border_bottom_right_radius_shallow_copy = unsafe { lib.get::<extern fn(_: &AzStyleBorderBottomRightRadiusPtr) -> AzStyleBorderBottomRightRadiusPtr>(b"az_style_border_bottom_right_radius_shallow_copy").ok()? };
+        let az_style_border_bottom_style_delete = unsafe { lib.get::<extern fn(_: &mut AzStyleBorderBottomStylePtr)>(b"az_style_border_bottom_style_delete").ok()? };
+        let az_style_border_bottom_style_shallow_copy = unsafe { lib.get::<extern fn(_: &AzStyleBorderBottomStylePtr) -> AzStyleBorderBottomStylePtr>(b"az_style_border_bottom_style_shallow_copy").ok()? };
+        let az_style_border_bottom_width_delete = unsafe { lib.get::<extern fn(_: &mut AzStyleBorderBottomWidthPtr)>(b"az_style_border_bottom_width_delete").ok()? };
+        let az_style_border_bottom_width_shallow_copy = unsafe { lib.get::<extern fn(_: &AzStyleBorderBottomWidthPtr) -> AzStyleBorderBottomWidthPtr>(b"az_style_border_bottom_width_shallow_copy").ok()? };
+        let az_style_border_left_color_delete = unsafe { lib.get::<extern fn(_: &mut AzStyleBorderLeftColorPtr)>(b"az_style_border_left_color_delete").ok()? };
+        let az_style_border_left_color_shallow_copy = unsafe { lib.get::<extern fn(_: &AzStyleBorderLeftColorPtr) -> AzStyleBorderLeftColorPtr>(b"az_style_border_left_color_shallow_copy").ok()? };
+        let az_style_border_left_style_delete = unsafe { lib.get::<extern fn(_: &mut AzStyleBorderLeftStylePtr)>(b"az_style_border_left_style_delete").ok()? };
+        let az_style_border_left_style_shallow_copy = unsafe { lib.get::<extern fn(_: &AzStyleBorderLeftStylePtr) -> AzStyleBorderLeftStylePtr>(b"az_style_border_left_style_shallow_copy").ok()? };
+        let az_style_border_left_width_delete = unsafe { lib.get::<extern fn(_: &mut AzStyleBorderLeftWidthPtr)>(b"az_style_border_left_width_delete").ok()? };
+        let az_style_border_left_width_shallow_copy = unsafe { lib.get::<extern fn(_: &AzStyleBorderLeftWidthPtr) -> AzStyleBorderLeftWidthPtr>(b"az_style_border_left_width_shallow_copy").ok()? };
+        let az_style_border_right_color_delete = unsafe { lib.get::<extern fn(_: &mut AzStyleBorderRightColorPtr)>(b"az_style_border_right_color_delete").ok()? };
+        let az_style_border_right_color_shallow_copy = unsafe { lib.get::<extern fn(_: &AzStyleBorderRightColorPtr) -> AzStyleBorderRightColorPtr>(b"az_style_border_right_color_shallow_copy").ok()? };
+        let az_style_border_right_style_delete = unsafe { lib.get::<extern fn(_: &mut AzStyleBorderRightStylePtr)>(b"az_style_border_right_style_delete").ok()? };
+        let az_style_border_right_style_shallow_copy = unsafe { lib.get::<extern fn(_: &AzStyleBorderRightStylePtr) -> AzStyleBorderRightStylePtr>(b"az_style_border_right_style_shallow_copy").ok()? };
+        let az_style_border_right_width_delete = unsafe { lib.get::<extern fn(_: &mut AzStyleBorderRightWidthPtr)>(b"az_style_border_right_width_delete").ok()? };
+        let az_style_border_right_width_shallow_copy = unsafe { lib.get::<extern fn(_: &AzStyleBorderRightWidthPtr) -> AzStyleBorderRightWidthPtr>(b"az_style_border_right_width_shallow_copy").ok()? };
+        let az_style_border_top_color_delete = unsafe { lib.get::<extern fn(_: &mut AzStyleBorderTopColorPtr)>(b"az_style_border_top_color_delete").ok()? };
+        let az_style_border_top_color_shallow_copy = unsafe { lib.get::<extern fn(_: &AzStyleBorderTopColorPtr) -> AzStyleBorderTopColorPtr>(b"az_style_border_top_color_shallow_copy").ok()? };
+        let az_style_border_top_left_radius_delete = unsafe { lib.get::<extern fn(_: &mut AzStyleBorderTopLeftRadiusPtr)>(b"az_style_border_top_left_radius_delete").ok()? };
+        let az_style_border_top_left_radius_shallow_copy = unsafe { lib.get::<extern fn(_: &AzStyleBorderTopLeftRadiusPtr) -> AzStyleBorderTopLeftRadiusPtr>(b"az_style_border_top_left_radius_shallow_copy").ok()? };
+        let az_style_border_top_right_radius_delete = unsafe { lib.get::<extern fn(_: &mut AzStyleBorderTopRightRadiusPtr)>(b"az_style_border_top_right_radius_delete").ok()? };
+        let az_style_border_top_right_radius_shallow_copy = unsafe { lib.get::<extern fn(_: &AzStyleBorderTopRightRadiusPtr) -> AzStyleBorderTopRightRadiusPtr>(b"az_style_border_top_right_radius_shallow_copy").ok()? };
+        let az_style_border_top_style_delete = unsafe { lib.get::<extern fn(_: &mut AzStyleBorderTopStylePtr)>(b"az_style_border_top_style_delete").ok()? };
+        let az_style_border_top_style_shallow_copy = unsafe { lib.get::<extern fn(_: &AzStyleBorderTopStylePtr) -> AzStyleBorderTopStylePtr>(b"az_style_border_top_style_shallow_copy").ok()? };
+        let az_style_border_top_width_delete = unsafe { lib.get::<extern fn(_: &mut AzStyleBorderTopWidthPtr)>(b"az_style_border_top_width_delete").ok()? };
+        let az_style_border_top_width_shallow_copy = unsafe { lib.get::<extern fn(_: &AzStyleBorderTopWidthPtr) -> AzStyleBorderTopWidthPtr>(b"az_style_border_top_width_shallow_copy").ok()? };
+        let az_style_cursor_delete = unsafe { lib.get::<extern fn(_: &mut AzStyleCursorPtr)>(b"az_style_cursor_delete").ok()? };
+        let az_style_cursor_shallow_copy = unsafe { lib.get::<extern fn(_: &AzStyleCursorPtr) -> AzStyleCursorPtr>(b"az_style_cursor_shallow_copy").ok()? };
+        let az_style_font_family_delete = unsafe { lib.get::<extern fn(_: &mut AzStyleFontFamilyPtr)>(b"az_style_font_family_delete").ok()? };
+        let az_style_font_family_shallow_copy = unsafe { lib.get::<extern fn(_: &AzStyleFontFamilyPtr) -> AzStyleFontFamilyPtr>(b"az_style_font_family_shallow_copy").ok()? };
+        let az_style_font_size_delete = unsafe { lib.get::<extern fn(_: &mut AzStyleFontSizePtr)>(b"az_style_font_size_delete").ok()? };
+        let az_style_font_size_shallow_copy = unsafe { lib.get::<extern fn(_: &AzStyleFontSizePtr) -> AzStyleFontSizePtr>(b"az_style_font_size_shallow_copy").ok()? };
+        let az_style_letter_spacing_delete = unsafe { lib.get::<extern fn(_: &mut AzStyleLetterSpacingPtr)>(b"az_style_letter_spacing_delete").ok()? };
+        let az_style_letter_spacing_shallow_copy = unsafe { lib.get::<extern fn(_: &AzStyleLetterSpacingPtr) -> AzStyleLetterSpacingPtr>(b"az_style_letter_spacing_shallow_copy").ok()? };
+        let az_style_line_height_delete = unsafe { lib.get::<extern fn(_: &mut AzStyleLineHeightPtr)>(b"az_style_line_height_delete").ok()? };
+        let az_style_line_height_shallow_copy = unsafe { lib.get::<extern fn(_: &AzStyleLineHeightPtr) -> AzStyleLineHeightPtr>(b"az_style_line_height_shallow_copy").ok()? };
+        let az_style_tab_width_delete = unsafe { lib.get::<extern fn(_: &mut AzStyleTabWidthPtr)>(b"az_style_tab_width_delete").ok()? };
+        let az_style_tab_width_shallow_copy = unsafe { lib.get::<extern fn(_: &AzStyleTabWidthPtr) -> AzStyleTabWidthPtr>(b"az_style_tab_width_shallow_copy").ok()? };
+        let az_style_text_alignment_horz_delete = unsafe { lib.get::<extern fn(_: &mut AzStyleTextAlignmentHorzPtr)>(b"az_style_text_alignment_horz_delete").ok()? };
+        let az_style_text_alignment_horz_shallow_copy = unsafe { lib.get::<extern fn(_: &AzStyleTextAlignmentHorzPtr) -> AzStyleTextAlignmentHorzPtr>(b"az_style_text_alignment_horz_shallow_copy").ok()? };
+        let az_style_text_color_delete = unsafe { lib.get::<extern fn(_: &mut AzStyleTextColorPtr)>(b"az_style_text_color_delete").ok()? };
+        let az_style_text_color_shallow_copy = unsafe { lib.get::<extern fn(_: &AzStyleTextColorPtr) -> AzStyleTextColorPtr>(b"az_style_text_color_shallow_copy").ok()? };
+        let az_style_word_spacing_delete = unsafe { lib.get::<extern fn(_: &mut AzStyleWordSpacingPtr)>(b"az_style_word_spacing_delete").ok()? };
+        let az_style_word_spacing_shallow_copy = unsafe { lib.get::<extern fn(_: &AzStyleWordSpacingPtr) -> AzStyleWordSpacingPtr>(b"az_style_word_spacing_shallow_copy").ok()? };
+        let az_box_shadow_pre_display_item_value_auto = unsafe { lib.get::<extern fn() -> AzBoxShadowPreDisplayItemValue>(b"az_box_shadow_pre_display_item_value_auto").ok()? };
+        let az_box_shadow_pre_display_item_value_none = unsafe { lib.get::<extern fn() -> AzBoxShadowPreDisplayItemValue>(b"az_box_shadow_pre_display_item_value_none").ok()? };
+        let az_box_shadow_pre_display_item_value_inherit = unsafe { lib.get::<extern fn() -> AzBoxShadowPreDisplayItemValue>(b"az_box_shadow_pre_display_item_value_inherit").ok()? };
+        let az_box_shadow_pre_display_item_value_initial = unsafe { lib.get::<extern fn() -> AzBoxShadowPreDisplayItemValue>(b"az_box_shadow_pre_display_item_value_initial").ok()? };
+        let az_box_shadow_pre_display_item_value_exact = unsafe { lib.get::<extern fn(_: AzBoxShadowPreDisplayItemPtr) -> AzBoxShadowPreDisplayItemValue>(b"az_box_shadow_pre_display_item_value_exact").ok()? };
+        let az_box_shadow_pre_display_item_value_delete = unsafe { lib.get::<extern fn(_: &mut AzBoxShadowPreDisplayItemValue)>(b"az_box_shadow_pre_display_item_value_delete").ok()? };
+        let az_box_shadow_pre_display_item_value_deep_copy = unsafe { lib.get::<extern fn(_: &AzBoxShadowPreDisplayItemValue) -> AzBoxShadowPreDisplayItemValue>(b"az_box_shadow_pre_display_item_value_deep_copy").ok()? };
+        let az_layout_align_content_value_auto = unsafe { lib.get::<extern fn() -> AzLayoutAlignContentValue>(b"az_layout_align_content_value_auto").ok()? };
+        let az_layout_align_content_value_none = unsafe { lib.get::<extern fn() -> AzLayoutAlignContentValue>(b"az_layout_align_content_value_none").ok()? };
+        let az_layout_align_content_value_inherit = unsafe { lib.get::<extern fn() -> AzLayoutAlignContentValue>(b"az_layout_align_content_value_inherit").ok()? };
+        let az_layout_align_content_value_initial = unsafe { lib.get::<extern fn() -> AzLayoutAlignContentValue>(b"az_layout_align_content_value_initial").ok()? };
+        let az_layout_align_content_value_exact = unsafe { lib.get::<extern fn(_: AzLayoutAlignContentPtr) -> AzLayoutAlignContentValue>(b"az_layout_align_content_value_exact").ok()? };
+        let az_layout_align_content_value_delete = unsafe { lib.get::<extern fn(_: &mut AzLayoutAlignContentValue)>(b"az_layout_align_content_value_delete").ok()? };
+        let az_layout_align_content_value_deep_copy = unsafe { lib.get::<extern fn(_: &AzLayoutAlignContentValue) -> AzLayoutAlignContentValue>(b"az_layout_align_content_value_deep_copy").ok()? };
+        let az_layout_align_items_value_auto = unsafe { lib.get::<extern fn() -> AzLayoutAlignItemsValue>(b"az_layout_align_items_value_auto").ok()? };
+        let az_layout_align_items_value_none = unsafe { lib.get::<extern fn() -> AzLayoutAlignItemsValue>(b"az_layout_align_items_value_none").ok()? };
+        let az_layout_align_items_value_inherit = unsafe { lib.get::<extern fn() -> AzLayoutAlignItemsValue>(b"az_layout_align_items_value_inherit").ok()? };
+        let az_layout_align_items_value_initial = unsafe { lib.get::<extern fn() -> AzLayoutAlignItemsValue>(b"az_layout_align_items_value_initial").ok()? };
+        let az_layout_align_items_value_exact = unsafe { lib.get::<extern fn(_: AzLayoutAlignItemsPtr) -> AzLayoutAlignItemsValue>(b"az_layout_align_items_value_exact").ok()? };
+        let az_layout_align_items_value_delete = unsafe { lib.get::<extern fn(_: &mut AzLayoutAlignItemsValue)>(b"az_layout_align_items_value_delete").ok()? };
+        let az_layout_align_items_value_deep_copy = unsafe { lib.get::<extern fn(_: &AzLayoutAlignItemsValue) -> AzLayoutAlignItemsValue>(b"az_layout_align_items_value_deep_copy").ok()? };
+        let az_layout_bottom_value_auto = unsafe { lib.get::<extern fn() -> AzLayoutBottomValue>(b"az_layout_bottom_value_auto").ok()? };
+        let az_layout_bottom_value_none = unsafe { lib.get::<extern fn() -> AzLayoutBottomValue>(b"az_layout_bottom_value_none").ok()? };
+        let az_layout_bottom_value_inherit = unsafe { lib.get::<extern fn() -> AzLayoutBottomValue>(b"az_layout_bottom_value_inherit").ok()? };
+        let az_layout_bottom_value_initial = unsafe { lib.get::<extern fn() -> AzLayoutBottomValue>(b"az_layout_bottom_value_initial").ok()? };
+        let az_layout_bottom_value_exact = unsafe { lib.get::<extern fn(_: AzLayoutBottomPtr) -> AzLayoutBottomValue>(b"az_layout_bottom_value_exact").ok()? };
+        let az_layout_bottom_value_delete = unsafe { lib.get::<extern fn(_: &mut AzLayoutBottomValue)>(b"az_layout_bottom_value_delete").ok()? };
+        let az_layout_bottom_value_deep_copy = unsafe { lib.get::<extern fn(_: &AzLayoutBottomValue) -> AzLayoutBottomValue>(b"az_layout_bottom_value_deep_copy").ok()? };
+        let az_layout_box_sizing_value_auto = unsafe { lib.get::<extern fn() -> AzLayoutBoxSizingValue>(b"az_layout_box_sizing_value_auto").ok()? };
+        let az_layout_box_sizing_value_none = unsafe { lib.get::<extern fn() -> AzLayoutBoxSizingValue>(b"az_layout_box_sizing_value_none").ok()? };
+        let az_layout_box_sizing_value_inherit = unsafe { lib.get::<extern fn() -> AzLayoutBoxSizingValue>(b"az_layout_box_sizing_value_inherit").ok()? };
+        let az_layout_box_sizing_value_initial = unsafe { lib.get::<extern fn() -> AzLayoutBoxSizingValue>(b"az_layout_box_sizing_value_initial").ok()? };
+        let az_layout_box_sizing_value_exact = unsafe { lib.get::<extern fn(_: AzLayoutBoxSizingPtr) -> AzLayoutBoxSizingValue>(b"az_layout_box_sizing_value_exact").ok()? };
+        let az_layout_box_sizing_value_delete = unsafe { lib.get::<extern fn(_: &mut AzLayoutBoxSizingValue)>(b"az_layout_box_sizing_value_delete").ok()? };
+        let az_layout_box_sizing_value_deep_copy = unsafe { lib.get::<extern fn(_: &AzLayoutBoxSizingValue) -> AzLayoutBoxSizingValue>(b"az_layout_box_sizing_value_deep_copy").ok()? };
+        let az_layout_direction_value_auto = unsafe { lib.get::<extern fn() -> AzLayoutDirectionValue>(b"az_layout_direction_value_auto").ok()? };
+        let az_layout_direction_value_none = unsafe { lib.get::<extern fn() -> AzLayoutDirectionValue>(b"az_layout_direction_value_none").ok()? };
+        let az_layout_direction_value_inherit = unsafe { lib.get::<extern fn() -> AzLayoutDirectionValue>(b"az_layout_direction_value_inherit").ok()? };
+        let az_layout_direction_value_initial = unsafe { lib.get::<extern fn() -> AzLayoutDirectionValue>(b"az_layout_direction_value_initial").ok()? };
+        let az_layout_direction_value_exact = unsafe { lib.get::<extern fn(_: AzLayoutDirectionPtr) -> AzLayoutDirectionValue>(b"az_layout_direction_value_exact").ok()? };
+        let az_layout_direction_value_delete = unsafe { lib.get::<extern fn(_: &mut AzLayoutDirectionValue)>(b"az_layout_direction_value_delete").ok()? };
+        let az_layout_direction_value_deep_copy = unsafe { lib.get::<extern fn(_: &AzLayoutDirectionValue) -> AzLayoutDirectionValue>(b"az_layout_direction_value_deep_copy").ok()? };
+        let az_layout_display_value_auto = unsafe { lib.get::<extern fn() -> AzLayoutDisplayValue>(b"az_layout_display_value_auto").ok()? };
+        let az_layout_display_value_none = unsafe { lib.get::<extern fn() -> AzLayoutDisplayValue>(b"az_layout_display_value_none").ok()? };
+        let az_layout_display_value_inherit = unsafe { lib.get::<extern fn() -> AzLayoutDisplayValue>(b"az_layout_display_value_inherit").ok()? };
+        let az_layout_display_value_initial = unsafe { lib.get::<extern fn() -> AzLayoutDisplayValue>(b"az_layout_display_value_initial").ok()? };
+        let az_layout_display_value_exact = unsafe { lib.get::<extern fn(_: AzLayoutDisplayPtr) -> AzLayoutDisplayValue>(b"az_layout_display_value_exact").ok()? };
+        let az_layout_display_value_delete = unsafe { lib.get::<extern fn(_: &mut AzLayoutDisplayValue)>(b"az_layout_display_value_delete").ok()? };
+        let az_layout_display_value_deep_copy = unsafe { lib.get::<extern fn(_: &AzLayoutDisplayValue) -> AzLayoutDisplayValue>(b"az_layout_display_value_deep_copy").ok()? };
+        let az_layout_flex_grow_value_auto = unsafe { lib.get::<extern fn() -> AzLayoutFlexGrowValue>(b"az_layout_flex_grow_value_auto").ok()? };
+        let az_layout_flex_grow_value_none = unsafe { lib.get::<extern fn() -> AzLayoutFlexGrowValue>(b"az_layout_flex_grow_value_none").ok()? };
+        let az_layout_flex_grow_value_inherit = unsafe { lib.get::<extern fn() -> AzLayoutFlexGrowValue>(b"az_layout_flex_grow_value_inherit").ok()? };
+        let az_layout_flex_grow_value_initial = unsafe { lib.get::<extern fn() -> AzLayoutFlexGrowValue>(b"az_layout_flex_grow_value_initial").ok()? };
+        let az_layout_flex_grow_value_exact = unsafe { lib.get::<extern fn(_: AzLayoutFlexGrowPtr) -> AzLayoutFlexGrowValue>(b"az_layout_flex_grow_value_exact").ok()? };
+        let az_layout_flex_grow_value_delete = unsafe { lib.get::<extern fn(_: &mut AzLayoutFlexGrowValue)>(b"az_layout_flex_grow_value_delete").ok()? };
+        let az_layout_flex_grow_value_deep_copy = unsafe { lib.get::<extern fn(_: &AzLayoutFlexGrowValue) -> AzLayoutFlexGrowValue>(b"az_layout_flex_grow_value_deep_copy").ok()? };
+        let az_layout_flex_shrink_value_auto = unsafe { lib.get::<extern fn() -> AzLayoutFlexShrinkValue>(b"az_layout_flex_shrink_value_auto").ok()? };
+        let az_layout_flex_shrink_value_none = unsafe { lib.get::<extern fn() -> AzLayoutFlexShrinkValue>(b"az_layout_flex_shrink_value_none").ok()? };
+        let az_layout_flex_shrink_value_inherit = unsafe { lib.get::<extern fn() -> AzLayoutFlexShrinkValue>(b"az_layout_flex_shrink_value_inherit").ok()? };
+        let az_layout_flex_shrink_value_initial = unsafe { lib.get::<extern fn() -> AzLayoutFlexShrinkValue>(b"az_layout_flex_shrink_value_initial").ok()? };
+        let az_layout_flex_shrink_value_exact = unsafe { lib.get::<extern fn(_: AzLayoutFlexShrinkPtr) -> AzLayoutFlexShrinkValue>(b"az_layout_flex_shrink_value_exact").ok()? };
+        let az_layout_flex_shrink_value_delete = unsafe { lib.get::<extern fn(_: &mut AzLayoutFlexShrinkValue)>(b"az_layout_flex_shrink_value_delete").ok()? };
+        let az_layout_flex_shrink_value_deep_copy = unsafe { lib.get::<extern fn(_: &AzLayoutFlexShrinkValue) -> AzLayoutFlexShrinkValue>(b"az_layout_flex_shrink_value_deep_copy").ok()? };
+        let az_layout_float_value_auto = unsafe { lib.get::<extern fn() -> AzLayoutFloatValue>(b"az_layout_float_value_auto").ok()? };
+        let az_layout_float_value_none = unsafe { lib.get::<extern fn() -> AzLayoutFloatValue>(b"az_layout_float_value_none").ok()? };
+        let az_layout_float_value_inherit = unsafe { lib.get::<extern fn() -> AzLayoutFloatValue>(b"az_layout_float_value_inherit").ok()? };
+        let az_layout_float_value_initial = unsafe { lib.get::<extern fn() -> AzLayoutFloatValue>(b"az_layout_float_value_initial").ok()? };
+        let az_layout_float_value_exact = unsafe { lib.get::<extern fn(_: AzLayoutFloatPtr) -> AzLayoutFloatValue>(b"az_layout_float_value_exact").ok()? };
+        let az_layout_float_value_delete = unsafe { lib.get::<extern fn(_: &mut AzLayoutFloatValue)>(b"az_layout_float_value_delete").ok()? };
+        let az_layout_float_value_deep_copy = unsafe { lib.get::<extern fn(_: &AzLayoutFloatValue) -> AzLayoutFloatValue>(b"az_layout_float_value_deep_copy").ok()? };
+        let az_layout_height_value_auto = unsafe { lib.get::<extern fn() -> AzLayoutHeightValue>(b"az_layout_height_value_auto").ok()? };
+        let az_layout_height_value_none = unsafe { lib.get::<extern fn() -> AzLayoutHeightValue>(b"az_layout_height_value_none").ok()? };
+        let az_layout_height_value_inherit = unsafe { lib.get::<extern fn() -> AzLayoutHeightValue>(b"az_layout_height_value_inherit").ok()? };
+        let az_layout_height_value_initial = unsafe { lib.get::<extern fn() -> AzLayoutHeightValue>(b"az_layout_height_value_initial").ok()? };
+        let az_layout_height_value_exact = unsafe { lib.get::<extern fn(_: AzLayoutHeightPtr) -> AzLayoutHeightValue>(b"az_layout_height_value_exact").ok()? };
+        let az_layout_height_value_delete = unsafe { lib.get::<extern fn(_: &mut AzLayoutHeightValue)>(b"az_layout_height_value_delete").ok()? };
+        let az_layout_height_value_deep_copy = unsafe { lib.get::<extern fn(_: &AzLayoutHeightValue) -> AzLayoutHeightValue>(b"az_layout_height_value_deep_copy").ok()? };
+        let az_layout_justify_content_value_auto = unsafe { lib.get::<extern fn() -> AzLayoutJustifyContentValue>(b"az_layout_justify_content_value_auto").ok()? };
+        let az_layout_justify_content_value_none = unsafe { lib.get::<extern fn() -> AzLayoutJustifyContentValue>(b"az_layout_justify_content_value_none").ok()? };
+        let az_layout_justify_content_value_inherit = unsafe { lib.get::<extern fn() -> AzLayoutJustifyContentValue>(b"az_layout_justify_content_value_inherit").ok()? };
+        let az_layout_justify_content_value_initial = unsafe { lib.get::<extern fn() -> AzLayoutJustifyContentValue>(b"az_layout_justify_content_value_initial").ok()? };
+        let az_layout_justify_content_value_exact = unsafe { lib.get::<extern fn(_: AzLayoutJustifyContentPtr) -> AzLayoutJustifyContentValue>(b"az_layout_justify_content_value_exact").ok()? };
+        let az_layout_justify_content_value_delete = unsafe { lib.get::<extern fn(_: &mut AzLayoutJustifyContentValue)>(b"az_layout_justify_content_value_delete").ok()? };
+        let az_layout_justify_content_value_deep_copy = unsafe { lib.get::<extern fn(_: &AzLayoutJustifyContentValue) -> AzLayoutJustifyContentValue>(b"az_layout_justify_content_value_deep_copy").ok()? };
+        let az_layout_left_value_auto = unsafe { lib.get::<extern fn() -> AzLayoutLeftValue>(b"az_layout_left_value_auto").ok()? };
+        let az_layout_left_value_none = unsafe { lib.get::<extern fn() -> AzLayoutLeftValue>(b"az_layout_left_value_none").ok()? };
+        let az_layout_left_value_inherit = unsafe { lib.get::<extern fn() -> AzLayoutLeftValue>(b"az_layout_left_value_inherit").ok()? };
+        let az_layout_left_value_initial = unsafe { lib.get::<extern fn() -> AzLayoutLeftValue>(b"az_layout_left_value_initial").ok()? };
+        let az_layout_left_value_exact = unsafe { lib.get::<extern fn(_: AzLayoutLeftPtr) -> AzLayoutLeftValue>(b"az_layout_left_value_exact").ok()? };
+        let az_layout_left_value_delete = unsafe { lib.get::<extern fn(_: &mut AzLayoutLeftValue)>(b"az_layout_left_value_delete").ok()? };
+        let az_layout_left_value_deep_copy = unsafe { lib.get::<extern fn(_: &AzLayoutLeftValue) -> AzLayoutLeftValue>(b"az_layout_left_value_deep_copy").ok()? };
+        let az_layout_margin_bottom_value_auto = unsafe { lib.get::<extern fn() -> AzLayoutMarginBottomValue>(b"az_layout_margin_bottom_value_auto").ok()? };
+        let az_layout_margin_bottom_value_none = unsafe { lib.get::<extern fn() -> AzLayoutMarginBottomValue>(b"az_layout_margin_bottom_value_none").ok()? };
+        let az_layout_margin_bottom_value_inherit = unsafe { lib.get::<extern fn() -> AzLayoutMarginBottomValue>(b"az_layout_margin_bottom_value_inherit").ok()? };
+        let az_layout_margin_bottom_value_initial = unsafe { lib.get::<extern fn() -> AzLayoutMarginBottomValue>(b"az_layout_margin_bottom_value_initial").ok()? };
+        let az_layout_margin_bottom_value_exact = unsafe { lib.get::<extern fn(_: AzLayoutMarginBottomPtr) -> AzLayoutMarginBottomValue>(b"az_layout_margin_bottom_value_exact").ok()? };
+        let az_layout_margin_bottom_value_delete = unsafe { lib.get::<extern fn(_: &mut AzLayoutMarginBottomValue)>(b"az_layout_margin_bottom_value_delete").ok()? };
+        let az_layout_margin_bottom_value_deep_copy = unsafe { lib.get::<extern fn(_: &AzLayoutMarginBottomValue) -> AzLayoutMarginBottomValue>(b"az_layout_margin_bottom_value_deep_copy").ok()? };
+        let az_layout_margin_left_value_auto = unsafe { lib.get::<extern fn() -> AzLayoutMarginLeftValue>(b"az_layout_margin_left_value_auto").ok()? };
+        let az_layout_margin_left_value_none = unsafe { lib.get::<extern fn() -> AzLayoutMarginLeftValue>(b"az_layout_margin_left_value_none").ok()? };
+        let az_layout_margin_left_value_inherit = unsafe { lib.get::<extern fn() -> AzLayoutMarginLeftValue>(b"az_layout_margin_left_value_inherit").ok()? };
+        let az_layout_margin_left_value_initial = unsafe { lib.get::<extern fn() -> AzLayoutMarginLeftValue>(b"az_layout_margin_left_value_initial").ok()? };
+        let az_layout_margin_left_value_exact = unsafe { lib.get::<extern fn(_: AzLayoutMarginLeftPtr) -> AzLayoutMarginLeftValue>(b"az_layout_margin_left_value_exact").ok()? };
+        let az_layout_margin_left_value_delete = unsafe { lib.get::<extern fn(_: &mut AzLayoutMarginLeftValue)>(b"az_layout_margin_left_value_delete").ok()? };
+        let az_layout_margin_left_value_deep_copy = unsafe { lib.get::<extern fn(_: &AzLayoutMarginLeftValue) -> AzLayoutMarginLeftValue>(b"az_layout_margin_left_value_deep_copy").ok()? };
+        let az_layout_margin_right_value_auto = unsafe { lib.get::<extern fn() -> AzLayoutMarginRightValue>(b"az_layout_margin_right_value_auto").ok()? };
+        let az_layout_margin_right_value_none = unsafe { lib.get::<extern fn() -> AzLayoutMarginRightValue>(b"az_layout_margin_right_value_none").ok()? };
+        let az_layout_margin_right_value_inherit = unsafe { lib.get::<extern fn() -> AzLayoutMarginRightValue>(b"az_layout_margin_right_value_inherit").ok()? };
+        let az_layout_margin_right_value_initial = unsafe { lib.get::<extern fn() -> AzLayoutMarginRightValue>(b"az_layout_margin_right_value_initial").ok()? };
+        let az_layout_margin_right_value_exact = unsafe { lib.get::<extern fn(_: AzLayoutMarginRightPtr) -> AzLayoutMarginRightValue>(b"az_layout_margin_right_value_exact").ok()? };
+        let az_layout_margin_right_value_delete = unsafe { lib.get::<extern fn(_: &mut AzLayoutMarginRightValue)>(b"az_layout_margin_right_value_delete").ok()? };
+        let az_layout_margin_right_value_deep_copy = unsafe { lib.get::<extern fn(_: &AzLayoutMarginRightValue) -> AzLayoutMarginRightValue>(b"az_layout_margin_right_value_deep_copy").ok()? };
+        let az_layout_margin_top_value_auto = unsafe { lib.get::<extern fn() -> AzLayoutMarginTopValue>(b"az_layout_margin_top_value_auto").ok()? };
+        let az_layout_margin_top_value_none = unsafe { lib.get::<extern fn() -> AzLayoutMarginTopValue>(b"az_layout_margin_top_value_none").ok()? };
+        let az_layout_margin_top_value_inherit = unsafe { lib.get::<extern fn() -> AzLayoutMarginTopValue>(b"az_layout_margin_top_value_inherit").ok()? };
+        let az_layout_margin_top_value_initial = unsafe { lib.get::<extern fn() -> AzLayoutMarginTopValue>(b"az_layout_margin_top_value_initial").ok()? };
+        let az_layout_margin_top_value_exact = unsafe { lib.get::<extern fn(_: AzLayoutMarginTopPtr) -> AzLayoutMarginTopValue>(b"az_layout_margin_top_value_exact").ok()? };
+        let az_layout_margin_top_value_delete = unsafe { lib.get::<extern fn(_: &mut AzLayoutMarginTopValue)>(b"az_layout_margin_top_value_delete").ok()? };
+        let az_layout_margin_top_value_deep_copy = unsafe { lib.get::<extern fn(_: &AzLayoutMarginTopValue) -> AzLayoutMarginTopValue>(b"az_layout_margin_top_value_deep_copy").ok()? };
+        let az_layout_max_height_value_auto = unsafe { lib.get::<extern fn() -> AzLayoutMaxHeightValue>(b"az_layout_max_height_value_auto").ok()? };
+        let az_layout_max_height_value_none = unsafe { lib.get::<extern fn() -> AzLayoutMaxHeightValue>(b"az_layout_max_height_value_none").ok()? };
+        let az_layout_max_height_value_inherit = unsafe { lib.get::<extern fn() -> AzLayoutMaxHeightValue>(b"az_layout_max_height_value_inherit").ok()? };
+        let az_layout_max_height_value_initial = unsafe { lib.get::<extern fn() -> AzLayoutMaxHeightValue>(b"az_layout_max_height_value_initial").ok()? };
+        let az_layout_max_height_value_exact = unsafe { lib.get::<extern fn(_: AzLayoutMaxHeightPtr) -> AzLayoutMaxHeightValue>(b"az_layout_max_height_value_exact").ok()? };
+        let az_layout_max_height_value_delete = unsafe { lib.get::<extern fn(_: &mut AzLayoutMaxHeightValue)>(b"az_layout_max_height_value_delete").ok()? };
+        let az_layout_max_height_value_deep_copy = unsafe { lib.get::<extern fn(_: &AzLayoutMaxHeightValue) -> AzLayoutMaxHeightValue>(b"az_layout_max_height_value_deep_copy").ok()? };
+        let az_layout_max_width_value_auto = unsafe { lib.get::<extern fn() -> AzLayoutMaxWidthValue>(b"az_layout_max_width_value_auto").ok()? };
+        let az_layout_max_width_value_none = unsafe { lib.get::<extern fn() -> AzLayoutMaxWidthValue>(b"az_layout_max_width_value_none").ok()? };
+        let az_layout_max_width_value_inherit = unsafe { lib.get::<extern fn() -> AzLayoutMaxWidthValue>(b"az_layout_max_width_value_inherit").ok()? };
+        let az_layout_max_width_value_initial = unsafe { lib.get::<extern fn() -> AzLayoutMaxWidthValue>(b"az_layout_max_width_value_initial").ok()? };
+        let az_layout_max_width_value_exact = unsafe { lib.get::<extern fn(_: AzLayoutMaxWidthPtr) -> AzLayoutMaxWidthValue>(b"az_layout_max_width_value_exact").ok()? };
+        let az_layout_max_width_value_delete = unsafe { lib.get::<extern fn(_: &mut AzLayoutMaxWidthValue)>(b"az_layout_max_width_value_delete").ok()? };
+        let az_layout_max_width_value_deep_copy = unsafe { lib.get::<extern fn(_: &AzLayoutMaxWidthValue) -> AzLayoutMaxWidthValue>(b"az_layout_max_width_value_deep_copy").ok()? };
+        let az_layout_min_height_value_auto = unsafe { lib.get::<extern fn() -> AzLayoutMinHeightValue>(b"az_layout_min_height_value_auto").ok()? };
+        let az_layout_min_height_value_none = unsafe { lib.get::<extern fn() -> AzLayoutMinHeightValue>(b"az_layout_min_height_value_none").ok()? };
+        let az_layout_min_height_value_inherit = unsafe { lib.get::<extern fn() -> AzLayoutMinHeightValue>(b"az_layout_min_height_value_inherit").ok()? };
+        let az_layout_min_height_value_initial = unsafe { lib.get::<extern fn() -> AzLayoutMinHeightValue>(b"az_layout_min_height_value_initial").ok()? };
+        let az_layout_min_height_value_exact = unsafe { lib.get::<extern fn(_: AzLayoutMinHeightPtr) -> AzLayoutMinHeightValue>(b"az_layout_min_height_value_exact").ok()? };
+        let az_layout_min_height_value_delete = unsafe { lib.get::<extern fn(_: &mut AzLayoutMinHeightValue)>(b"az_layout_min_height_value_delete").ok()? };
+        let az_layout_min_height_value_deep_copy = unsafe { lib.get::<extern fn(_: &AzLayoutMinHeightValue) -> AzLayoutMinHeightValue>(b"az_layout_min_height_value_deep_copy").ok()? };
+        let az_layout_min_width_value_auto = unsafe { lib.get::<extern fn() -> AzLayoutMinWidthValue>(b"az_layout_min_width_value_auto").ok()? };
+        let az_layout_min_width_value_none = unsafe { lib.get::<extern fn() -> AzLayoutMinWidthValue>(b"az_layout_min_width_value_none").ok()? };
+        let az_layout_min_width_value_inherit = unsafe { lib.get::<extern fn() -> AzLayoutMinWidthValue>(b"az_layout_min_width_value_inherit").ok()? };
+        let az_layout_min_width_value_initial = unsafe { lib.get::<extern fn() -> AzLayoutMinWidthValue>(b"az_layout_min_width_value_initial").ok()? };
+        let az_layout_min_width_value_exact = unsafe { lib.get::<extern fn(_: AzLayoutMinWidthPtr) -> AzLayoutMinWidthValue>(b"az_layout_min_width_value_exact").ok()? };
+        let az_layout_min_width_value_delete = unsafe { lib.get::<extern fn(_: &mut AzLayoutMinWidthValue)>(b"az_layout_min_width_value_delete").ok()? };
+        let az_layout_min_width_value_deep_copy = unsafe { lib.get::<extern fn(_: &AzLayoutMinWidthValue) -> AzLayoutMinWidthValue>(b"az_layout_min_width_value_deep_copy").ok()? };
+        let az_layout_padding_bottom_value_auto = unsafe { lib.get::<extern fn() -> AzLayoutPaddingBottomValue>(b"az_layout_padding_bottom_value_auto").ok()? };
+        let az_layout_padding_bottom_value_none = unsafe { lib.get::<extern fn() -> AzLayoutPaddingBottomValue>(b"az_layout_padding_bottom_value_none").ok()? };
+        let az_layout_padding_bottom_value_inherit = unsafe { lib.get::<extern fn() -> AzLayoutPaddingBottomValue>(b"az_layout_padding_bottom_value_inherit").ok()? };
+        let az_layout_padding_bottom_value_initial = unsafe { lib.get::<extern fn() -> AzLayoutPaddingBottomValue>(b"az_layout_padding_bottom_value_initial").ok()? };
+        let az_layout_padding_bottom_value_exact = unsafe { lib.get::<extern fn(_: AzLayoutPaddingBottomPtr) -> AzLayoutPaddingBottomValue>(b"az_layout_padding_bottom_value_exact").ok()? };
+        let az_layout_padding_bottom_value_delete = unsafe { lib.get::<extern fn(_: &mut AzLayoutPaddingBottomValue)>(b"az_layout_padding_bottom_value_delete").ok()? };
+        let az_layout_padding_bottom_value_deep_copy = unsafe { lib.get::<extern fn(_: &AzLayoutPaddingBottomValue) -> AzLayoutPaddingBottomValue>(b"az_layout_padding_bottom_value_deep_copy").ok()? };
+        let az_layout_padding_left_value_auto = unsafe { lib.get::<extern fn() -> AzLayoutPaddingLeftValue>(b"az_layout_padding_left_value_auto").ok()? };
+        let az_layout_padding_left_value_none = unsafe { lib.get::<extern fn() -> AzLayoutPaddingLeftValue>(b"az_layout_padding_left_value_none").ok()? };
+        let az_layout_padding_left_value_inherit = unsafe { lib.get::<extern fn() -> AzLayoutPaddingLeftValue>(b"az_layout_padding_left_value_inherit").ok()? };
+        let az_layout_padding_left_value_initial = unsafe { lib.get::<extern fn() -> AzLayoutPaddingLeftValue>(b"az_layout_padding_left_value_initial").ok()? };
+        let az_layout_padding_left_value_exact = unsafe { lib.get::<extern fn(_: AzLayoutPaddingLeftPtr) -> AzLayoutPaddingLeftValue>(b"az_layout_padding_left_value_exact").ok()? };
+        let az_layout_padding_left_value_delete = unsafe { lib.get::<extern fn(_: &mut AzLayoutPaddingLeftValue)>(b"az_layout_padding_left_value_delete").ok()? };
+        let az_layout_padding_left_value_deep_copy = unsafe { lib.get::<extern fn(_: &AzLayoutPaddingLeftValue) -> AzLayoutPaddingLeftValue>(b"az_layout_padding_left_value_deep_copy").ok()? };
+        let az_layout_padding_right_value_auto = unsafe { lib.get::<extern fn() -> AzLayoutPaddingRightValue>(b"az_layout_padding_right_value_auto").ok()? };
+        let az_layout_padding_right_value_none = unsafe { lib.get::<extern fn() -> AzLayoutPaddingRightValue>(b"az_layout_padding_right_value_none").ok()? };
+        let az_layout_padding_right_value_inherit = unsafe { lib.get::<extern fn() -> AzLayoutPaddingRightValue>(b"az_layout_padding_right_value_inherit").ok()? };
+        let az_layout_padding_right_value_initial = unsafe { lib.get::<extern fn() -> AzLayoutPaddingRightValue>(b"az_layout_padding_right_value_initial").ok()? };
+        let az_layout_padding_right_value_exact = unsafe { lib.get::<extern fn(_: AzLayoutPaddingRightPtr) -> AzLayoutPaddingRightValue>(b"az_layout_padding_right_value_exact").ok()? };
+        let az_layout_padding_right_value_delete = unsafe { lib.get::<extern fn(_: &mut AzLayoutPaddingRightValue)>(b"az_layout_padding_right_value_delete").ok()? };
+        let az_layout_padding_right_value_deep_copy = unsafe { lib.get::<extern fn(_: &AzLayoutPaddingRightValue) -> AzLayoutPaddingRightValue>(b"az_layout_padding_right_value_deep_copy").ok()? };
+        let az_layout_padding_top_value_auto = unsafe { lib.get::<extern fn() -> AzLayoutPaddingTopValue>(b"az_layout_padding_top_value_auto").ok()? };
+        let az_layout_padding_top_value_none = unsafe { lib.get::<extern fn() -> AzLayoutPaddingTopValue>(b"az_layout_padding_top_value_none").ok()? };
+        let az_layout_padding_top_value_inherit = unsafe { lib.get::<extern fn() -> AzLayoutPaddingTopValue>(b"az_layout_padding_top_value_inherit").ok()? };
+        let az_layout_padding_top_value_initial = unsafe { lib.get::<extern fn() -> AzLayoutPaddingTopValue>(b"az_layout_padding_top_value_initial").ok()? };
+        let az_layout_padding_top_value_exact = unsafe { lib.get::<extern fn(_: AzLayoutPaddingTopPtr) -> AzLayoutPaddingTopValue>(b"az_layout_padding_top_value_exact").ok()? };
+        let az_layout_padding_top_value_delete = unsafe { lib.get::<extern fn(_: &mut AzLayoutPaddingTopValue)>(b"az_layout_padding_top_value_delete").ok()? };
+        let az_layout_padding_top_value_deep_copy = unsafe { lib.get::<extern fn(_: &AzLayoutPaddingTopValue) -> AzLayoutPaddingTopValue>(b"az_layout_padding_top_value_deep_copy").ok()? };
+        let az_layout_position_value_auto = unsafe { lib.get::<extern fn() -> AzLayoutPositionValue>(b"az_layout_position_value_auto").ok()? };
+        let az_layout_position_value_none = unsafe { lib.get::<extern fn() -> AzLayoutPositionValue>(b"az_layout_position_value_none").ok()? };
+        let az_layout_position_value_inherit = unsafe { lib.get::<extern fn() -> AzLayoutPositionValue>(b"az_layout_position_value_inherit").ok()? };
+        let az_layout_position_value_initial = unsafe { lib.get::<extern fn() -> AzLayoutPositionValue>(b"az_layout_position_value_initial").ok()? };
+        let az_layout_position_value_exact = unsafe { lib.get::<extern fn(_: AzLayoutPositionPtr) -> AzLayoutPositionValue>(b"az_layout_position_value_exact").ok()? };
+        let az_layout_position_value_delete = unsafe { lib.get::<extern fn(_: &mut AzLayoutPositionValue)>(b"az_layout_position_value_delete").ok()? };
+        let az_layout_position_value_deep_copy = unsafe { lib.get::<extern fn(_: &AzLayoutPositionValue) -> AzLayoutPositionValue>(b"az_layout_position_value_deep_copy").ok()? };
+        let az_layout_right_value_auto = unsafe { lib.get::<extern fn() -> AzLayoutRightValue>(b"az_layout_right_value_auto").ok()? };
+        let az_layout_right_value_none = unsafe { lib.get::<extern fn() -> AzLayoutRightValue>(b"az_layout_right_value_none").ok()? };
+        let az_layout_right_value_inherit = unsafe { lib.get::<extern fn() -> AzLayoutRightValue>(b"az_layout_right_value_inherit").ok()? };
+        let az_layout_right_value_initial = unsafe { lib.get::<extern fn() -> AzLayoutRightValue>(b"az_layout_right_value_initial").ok()? };
+        let az_layout_right_value_exact = unsafe { lib.get::<extern fn(_: AzLayoutRightPtr) -> AzLayoutRightValue>(b"az_layout_right_value_exact").ok()? };
+        let az_layout_right_value_delete = unsafe { lib.get::<extern fn(_: &mut AzLayoutRightValue)>(b"az_layout_right_value_delete").ok()? };
+        let az_layout_right_value_deep_copy = unsafe { lib.get::<extern fn(_: &AzLayoutRightValue) -> AzLayoutRightValue>(b"az_layout_right_value_deep_copy").ok()? };
+        let az_layout_top_value_auto = unsafe { lib.get::<extern fn() -> AzLayoutTopValue>(b"az_layout_top_value_auto").ok()? };
+        let az_layout_top_value_none = unsafe { lib.get::<extern fn() -> AzLayoutTopValue>(b"az_layout_top_value_none").ok()? };
+        let az_layout_top_value_inherit = unsafe { lib.get::<extern fn() -> AzLayoutTopValue>(b"az_layout_top_value_inherit").ok()? };
+        let az_layout_top_value_initial = unsafe { lib.get::<extern fn() -> AzLayoutTopValue>(b"az_layout_top_value_initial").ok()? };
+        let az_layout_top_value_exact = unsafe { lib.get::<extern fn(_: AzLayoutTopPtr) -> AzLayoutTopValue>(b"az_layout_top_value_exact").ok()? };
+        let az_layout_top_value_delete = unsafe { lib.get::<extern fn(_: &mut AzLayoutTopValue)>(b"az_layout_top_value_delete").ok()? };
+        let az_layout_top_value_deep_copy = unsafe { lib.get::<extern fn(_: &AzLayoutTopValue) -> AzLayoutTopValue>(b"az_layout_top_value_deep_copy").ok()? };
+        let az_layout_width_value_auto = unsafe { lib.get::<extern fn() -> AzLayoutWidthValue>(b"az_layout_width_value_auto").ok()? };
+        let az_layout_width_value_none = unsafe { lib.get::<extern fn() -> AzLayoutWidthValue>(b"az_layout_width_value_none").ok()? };
+        let az_layout_width_value_inherit = unsafe { lib.get::<extern fn() -> AzLayoutWidthValue>(b"az_layout_width_value_inherit").ok()? };
+        let az_layout_width_value_initial = unsafe { lib.get::<extern fn() -> AzLayoutWidthValue>(b"az_layout_width_value_initial").ok()? };
+        let az_layout_width_value_exact = unsafe { lib.get::<extern fn(_: AzLayoutWidthPtr) -> AzLayoutWidthValue>(b"az_layout_width_value_exact").ok()? };
+        let az_layout_width_value_delete = unsafe { lib.get::<extern fn(_: &mut AzLayoutWidthValue)>(b"az_layout_width_value_delete").ok()? };
+        let az_layout_width_value_deep_copy = unsafe { lib.get::<extern fn(_: &AzLayoutWidthValue) -> AzLayoutWidthValue>(b"az_layout_width_value_deep_copy").ok()? };
+        let az_layout_wrap_value_auto = unsafe { lib.get::<extern fn() -> AzLayoutWrapValue>(b"az_layout_wrap_value_auto").ok()? };
+        let az_layout_wrap_value_none = unsafe { lib.get::<extern fn() -> AzLayoutWrapValue>(b"az_layout_wrap_value_none").ok()? };
+        let az_layout_wrap_value_inherit = unsafe { lib.get::<extern fn() -> AzLayoutWrapValue>(b"az_layout_wrap_value_inherit").ok()? };
+        let az_layout_wrap_value_initial = unsafe { lib.get::<extern fn() -> AzLayoutWrapValue>(b"az_layout_wrap_value_initial").ok()? };
+        let az_layout_wrap_value_exact = unsafe { lib.get::<extern fn(_: AzLayoutWrapPtr) -> AzLayoutWrapValue>(b"az_layout_wrap_value_exact").ok()? };
+        let az_layout_wrap_value_delete = unsafe { lib.get::<extern fn(_: &mut AzLayoutWrapValue)>(b"az_layout_wrap_value_delete").ok()? };
+        let az_layout_wrap_value_deep_copy = unsafe { lib.get::<extern fn(_: &AzLayoutWrapValue) -> AzLayoutWrapValue>(b"az_layout_wrap_value_deep_copy").ok()? };
+        let az_overflow_value_auto = unsafe { lib.get::<extern fn() -> AzOverflowValue>(b"az_overflow_value_auto").ok()? };
+        let az_overflow_value_none = unsafe { lib.get::<extern fn() -> AzOverflowValue>(b"az_overflow_value_none").ok()? };
+        let az_overflow_value_inherit = unsafe { lib.get::<extern fn() -> AzOverflowValue>(b"az_overflow_value_inherit").ok()? };
+        let az_overflow_value_initial = unsafe { lib.get::<extern fn() -> AzOverflowValue>(b"az_overflow_value_initial").ok()? };
+        let az_overflow_value_exact = unsafe { lib.get::<extern fn(_: AzOverflowPtr) -> AzOverflowValue>(b"az_overflow_value_exact").ok()? };
+        let az_overflow_value_delete = unsafe { lib.get::<extern fn(_: &mut AzOverflowValue)>(b"az_overflow_value_delete").ok()? };
+        let az_overflow_value_deep_copy = unsafe { lib.get::<extern fn(_: &AzOverflowValue) -> AzOverflowValue>(b"az_overflow_value_deep_copy").ok()? };
+        let az_style_background_content_value_auto = unsafe { lib.get::<extern fn() -> AzStyleBackgroundContentValue>(b"az_style_background_content_value_auto").ok()? };
+        let az_style_background_content_value_none = unsafe { lib.get::<extern fn() -> AzStyleBackgroundContentValue>(b"az_style_background_content_value_none").ok()? };
+        let az_style_background_content_value_inherit = unsafe { lib.get::<extern fn() -> AzStyleBackgroundContentValue>(b"az_style_background_content_value_inherit").ok()? };
+        let az_style_background_content_value_initial = unsafe { lib.get::<extern fn() -> AzStyleBackgroundContentValue>(b"az_style_background_content_value_initial").ok()? };
+        let az_style_background_content_value_exact = unsafe { lib.get::<extern fn(_: AzStyleBackgroundContentPtr) -> AzStyleBackgroundContentValue>(b"az_style_background_content_value_exact").ok()? };
+        let az_style_background_content_value_delete = unsafe { lib.get::<extern fn(_: &mut AzStyleBackgroundContentValue)>(b"az_style_background_content_value_delete").ok()? };
+        let az_style_background_content_value_deep_copy = unsafe { lib.get::<extern fn(_: &AzStyleBackgroundContentValue) -> AzStyleBackgroundContentValue>(b"az_style_background_content_value_deep_copy").ok()? };
+        let az_style_background_position_value_auto = unsafe { lib.get::<extern fn() -> AzStyleBackgroundPositionValue>(b"az_style_background_position_value_auto").ok()? };
+        let az_style_background_position_value_none = unsafe { lib.get::<extern fn() -> AzStyleBackgroundPositionValue>(b"az_style_background_position_value_none").ok()? };
+        let az_style_background_position_value_inherit = unsafe { lib.get::<extern fn() -> AzStyleBackgroundPositionValue>(b"az_style_background_position_value_inherit").ok()? };
+        let az_style_background_position_value_initial = unsafe { lib.get::<extern fn() -> AzStyleBackgroundPositionValue>(b"az_style_background_position_value_initial").ok()? };
+        let az_style_background_position_value_exact = unsafe { lib.get::<extern fn(_: AzStyleBackgroundPositionPtr) -> AzStyleBackgroundPositionValue>(b"az_style_background_position_value_exact").ok()? };
+        let az_style_background_position_value_delete = unsafe { lib.get::<extern fn(_: &mut AzStyleBackgroundPositionValue)>(b"az_style_background_position_value_delete").ok()? };
+        let az_style_background_position_value_deep_copy = unsafe { lib.get::<extern fn(_: &AzStyleBackgroundPositionValue) -> AzStyleBackgroundPositionValue>(b"az_style_background_position_value_deep_copy").ok()? };
+        let az_style_background_repeat_value_auto = unsafe { lib.get::<extern fn() -> AzStyleBackgroundRepeatValue>(b"az_style_background_repeat_value_auto").ok()? };
+        let az_style_background_repeat_value_none = unsafe { lib.get::<extern fn() -> AzStyleBackgroundRepeatValue>(b"az_style_background_repeat_value_none").ok()? };
+        let az_style_background_repeat_value_inherit = unsafe { lib.get::<extern fn() -> AzStyleBackgroundRepeatValue>(b"az_style_background_repeat_value_inherit").ok()? };
+        let az_style_background_repeat_value_initial = unsafe { lib.get::<extern fn() -> AzStyleBackgroundRepeatValue>(b"az_style_background_repeat_value_initial").ok()? };
+        let az_style_background_repeat_value_exact = unsafe { lib.get::<extern fn(_: AzStyleBackgroundRepeatPtr) -> AzStyleBackgroundRepeatValue>(b"az_style_background_repeat_value_exact").ok()? };
+        let az_style_background_repeat_value_delete = unsafe { lib.get::<extern fn(_: &mut AzStyleBackgroundRepeatValue)>(b"az_style_background_repeat_value_delete").ok()? };
+        let az_style_background_repeat_value_deep_copy = unsafe { lib.get::<extern fn(_: &AzStyleBackgroundRepeatValue) -> AzStyleBackgroundRepeatValue>(b"az_style_background_repeat_value_deep_copy").ok()? };
+        let az_style_background_size_value_auto = unsafe { lib.get::<extern fn() -> AzStyleBackgroundSizeValue>(b"az_style_background_size_value_auto").ok()? };
+        let az_style_background_size_value_none = unsafe { lib.get::<extern fn() -> AzStyleBackgroundSizeValue>(b"az_style_background_size_value_none").ok()? };
+        let az_style_background_size_value_inherit = unsafe { lib.get::<extern fn() -> AzStyleBackgroundSizeValue>(b"az_style_background_size_value_inherit").ok()? };
+        let az_style_background_size_value_initial = unsafe { lib.get::<extern fn() -> AzStyleBackgroundSizeValue>(b"az_style_background_size_value_initial").ok()? };
+        let az_style_background_size_value_exact = unsafe { lib.get::<extern fn(_: AzStyleBackgroundSizePtr) -> AzStyleBackgroundSizeValue>(b"az_style_background_size_value_exact").ok()? };
+        let az_style_background_size_value_delete = unsafe { lib.get::<extern fn(_: &mut AzStyleBackgroundSizeValue)>(b"az_style_background_size_value_delete").ok()? };
+        let az_style_background_size_value_deep_copy = unsafe { lib.get::<extern fn(_: &AzStyleBackgroundSizeValue) -> AzStyleBackgroundSizeValue>(b"az_style_background_size_value_deep_copy").ok()? };
+        let az_style_border_bottom_color_value_auto = unsafe { lib.get::<extern fn() -> AzStyleBorderBottomColorValue>(b"az_style_border_bottom_color_value_auto").ok()? };
+        let az_style_border_bottom_color_value_none = unsafe { lib.get::<extern fn() -> AzStyleBorderBottomColorValue>(b"az_style_border_bottom_color_value_none").ok()? };
+        let az_style_border_bottom_color_value_inherit = unsafe { lib.get::<extern fn() -> AzStyleBorderBottomColorValue>(b"az_style_border_bottom_color_value_inherit").ok()? };
+        let az_style_border_bottom_color_value_initial = unsafe { lib.get::<extern fn() -> AzStyleBorderBottomColorValue>(b"az_style_border_bottom_color_value_initial").ok()? };
+        let az_style_border_bottom_color_value_exact = unsafe { lib.get::<extern fn(_: AzStyleBorderBottomColorPtr) -> AzStyleBorderBottomColorValue>(b"az_style_border_bottom_color_value_exact").ok()? };
+        let az_style_border_bottom_color_value_delete = unsafe { lib.get::<extern fn(_: &mut AzStyleBorderBottomColorValue)>(b"az_style_border_bottom_color_value_delete").ok()? };
+        let az_style_border_bottom_color_value_deep_copy = unsafe { lib.get::<extern fn(_: &AzStyleBorderBottomColorValue) -> AzStyleBorderBottomColorValue>(b"az_style_border_bottom_color_value_deep_copy").ok()? };
+        let az_style_border_bottom_left_radius_value_auto = unsafe { lib.get::<extern fn() -> AzStyleBorderBottomLeftRadiusValue>(b"az_style_border_bottom_left_radius_value_auto").ok()? };
+        let az_style_border_bottom_left_radius_value_none = unsafe { lib.get::<extern fn() -> AzStyleBorderBottomLeftRadiusValue>(b"az_style_border_bottom_left_radius_value_none").ok()? };
+        let az_style_border_bottom_left_radius_value_inherit = unsafe { lib.get::<extern fn() -> AzStyleBorderBottomLeftRadiusValue>(b"az_style_border_bottom_left_radius_value_inherit").ok()? };
+        let az_style_border_bottom_left_radius_value_initial = unsafe { lib.get::<extern fn() -> AzStyleBorderBottomLeftRadiusValue>(b"az_style_border_bottom_left_radius_value_initial").ok()? };
+        let az_style_border_bottom_left_radius_value_exact = unsafe { lib.get::<extern fn(_: AzStyleBorderBottomLeftRadiusPtr) -> AzStyleBorderBottomLeftRadiusValue>(b"az_style_border_bottom_left_radius_value_exact").ok()? };
+        let az_style_border_bottom_left_radius_value_delete = unsafe { lib.get::<extern fn(_: &mut AzStyleBorderBottomLeftRadiusValue)>(b"az_style_border_bottom_left_radius_value_delete").ok()? };
+        let az_style_border_bottom_left_radius_value_deep_copy = unsafe { lib.get::<extern fn(_: &AzStyleBorderBottomLeftRadiusValue) -> AzStyleBorderBottomLeftRadiusValue>(b"az_style_border_bottom_left_radius_value_deep_copy").ok()? };
+        let az_style_border_bottom_right_radius_value_auto = unsafe { lib.get::<extern fn() -> AzStyleBorderBottomRightRadiusValue>(b"az_style_border_bottom_right_radius_value_auto").ok()? };
+        let az_style_border_bottom_right_radius_value_none = unsafe { lib.get::<extern fn() -> AzStyleBorderBottomRightRadiusValue>(b"az_style_border_bottom_right_radius_value_none").ok()? };
+        let az_style_border_bottom_right_radius_value_inherit = unsafe { lib.get::<extern fn() -> AzStyleBorderBottomRightRadiusValue>(b"az_style_border_bottom_right_radius_value_inherit").ok()? };
+        let az_style_border_bottom_right_radius_value_initial = unsafe { lib.get::<extern fn() -> AzStyleBorderBottomRightRadiusValue>(b"az_style_border_bottom_right_radius_value_initial").ok()? };
+        let az_style_border_bottom_right_radius_value_exact = unsafe { lib.get::<extern fn(_: AzStyleBorderBottomRightRadiusPtr) -> AzStyleBorderBottomRightRadiusValue>(b"az_style_border_bottom_right_radius_value_exact").ok()? };
+        let az_style_border_bottom_right_radius_value_delete = unsafe { lib.get::<extern fn(_: &mut AzStyleBorderBottomRightRadiusValue)>(b"az_style_border_bottom_right_radius_value_delete").ok()? };
+        let az_style_border_bottom_right_radius_value_deep_copy = unsafe { lib.get::<extern fn(_: &AzStyleBorderBottomRightRadiusValue) -> AzStyleBorderBottomRightRadiusValue>(b"az_style_border_bottom_right_radius_value_deep_copy").ok()? };
+        let az_style_border_bottom_style_value_auto = unsafe { lib.get::<extern fn() -> AzStyleBorderBottomStyleValue>(b"az_style_border_bottom_style_value_auto").ok()? };
+        let az_style_border_bottom_style_value_none = unsafe { lib.get::<extern fn() -> AzStyleBorderBottomStyleValue>(b"az_style_border_bottom_style_value_none").ok()? };
+        let az_style_border_bottom_style_value_inherit = unsafe { lib.get::<extern fn() -> AzStyleBorderBottomStyleValue>(b"az_style_border_bottom_style_value_inherit").ok()? };
+        let az_style_border_bottom_style_value_initial = unsafe { lib.get::<extern fn() -> AzStyleBorderBottomStyleValue>(b"az_style_border_bottom_style_value_initial").ok()? };
+        let az_style_border_bottom_style_value_exact = unsafe { lib.get::<extern fn(_: AzStyleBorderBottomStylePtr) -> AzStyleBorderBottomStyleValue>(b"az_style_border_bottom_style_value_exact").ok()? };
+        let az_style_border_bottom_style_value_delete = unsafe { lib.get::<extern fn(_: &mut AzStyleBorderBottomStyleValue)>(b"az_style_border_bottom_style_value_delete").ok()? };
+        let az_style_border_bottom_style_value_deep_copy = unsafe { lib.get::<extern fn(_: &AzStyleBorderBottomStyleValue) -> AzStyleBorderBottomStyleValue>(b"az_style_border_bottom_style_value_deep_copy").ok()? };
+        let az_style_border_bottom_width_value_auto = unsafe { lib.get::<extern fn() -> AzStyleBorderBottomWidthValue>(b"az_style_border_bottom_width_value_auto").ok()? };
+        let az_style_border_bottom_width_value_none = unsafe { lib.get::<extern fn() -> AzStyleBorderBottomWidthValue>(b"az_style_border_bottom_width_value_none").ok()? };
+        let az_style_border_bottom_width_value_inherit = unsafe { lib.get::<extern fn() -> AzStyleBorderBottomWidthValue>(b"az_style_border_bottom_width_value_inherit").ok()? };
+        let az_style_border_bottom_width_value_initial = unsafe { lib.get::<extern fn() -> AzStyleBorderBottomWidthValue>(b"az_style_border_bottom_width_value_initial").ok()? };
+        let az_style_border_bottom_width_value_exact = unsafe { lib.get::<extern fn(_: AzStyleBorderBottomWidthPtr) -> AzStyleBorderBottomWidthValue>(b"az_style_border_bottom_width_value_exact").ok()? };
+        let az_style_border_bottom_width_value_delete = unsafe { lib.get::<extern fn(_: &mut AzStyleBorderBottomWidthValue)>(b"az_style_border_bottom_width_value_delete").ok()? };
+        let az_style_border_bottom_width_value_deep_copy = unsafe { lib.get::<extern fn(_: &AzStyleBorderBottomWidthValue) -> AzStyleBorderBottomWidthValue>(b"az_style_border_bottom_width_value_deep_copy").ok()? };
+        let az_style_border_left_color_value_auto = unsafe { lib.get::<extern fn() -> AzStyleBorderLeftColorValue>(b"az_style_border_left_color_value_auto").ok()? };
+        let az_style_border_left_color_value_none = unsafe { lib.get::<extern fn() -> AzStyleBorderLeftColorValue>(b"az_style_border_left_color_value_none").ok()? };
+        let az_style_border_left_color_value_inherit = unsafe { lib.get::<extern fn() -> AzStyleBorderLeftColorValue>(b"az_style_border_left_color_value_inherit").ok()? };
+        let az_style_border_left_color_value_initial = unsafe { lib.get::<extern fn() -> AzStyleBorderLeftColorValue>(b"az_style_border_left_color_value_initial").ok()? };
+        let az_style_border_left_color_value_exact = unsafe { lib.get::<extern fn(_: AzStyleBorderLeftColorPtr) -> AzStyleBorderLeftColorValue>(b"az_style_border_left_color_value_exact").ok()? };
+        let az_style_border_left_color_value_delete = unsafe { lib.get::<extern fn(_: &mut AzStyleBorderLeftColorValue)>(b"az_style_border_left_color_value_delete").ok()? };
+        let az_style_border_left_color_value_deep_copy = unsafe { lib.get::<extern fn(_: &AzStyleBorderLeftColorValue) -> AzStyleBorderLeftColorValue>(b"az_style_border_left_color_value_deep_copy").ok()? };
+        let az_style_border_left_style_value_auto = unsafe { lib.get::<extern fn() -> AzStyleBorderLeftStyleValue>(b"az_style_border_left_style_value_auto").ok()? };
+        let az_style_border_left_style_value_none = unsafe { lib.get::<extern fn() -> AzStyleBorderLeftStyleValue>(b"az_style_border_left_style_value_none").ok()? };
+        let az_style_border_left_style_value_inherit = unsafe { lib.get::<extern fn() -> AzStyleBorderLeftStyleValue>(b"az_style_border_left_style_value_inherit").ok()? };
+        let az_style_border_left_style_value_initial = unsafe { lib.get::<extern fn() -> AzStyleBorderLeftStyleValue>(b"az_style_border_left_style_value_initial").ok()? };
+        let az_style_border_left_style_value_exact = unsafe { lib.get::<extern fn(_: AzStyleBorderLeftStylePtr) -> AzStyleBorderLeftStyleValue>(b"az_style_border_left_style_value_exact").ok()? };
+        let az_style_border_left_style_value_delete = unsafe { lib.get::<extern fn(_: &mut AzStyleBorderLeftStyleValue)>(b"az_style_border_left_style_value_delete").ok()? };
+        let az_style_border_left_style_value_deep_copy = unsafe { lib.get::<extern fn(_: &AzStyleBorderLeftStyleValue) -> AzStyleBorderLeftStyleValue>(b"az_style_border_left_style_value_deep_copy").ok()? };
+        let az_style_border_left_width_value_auto = unsafe { lib.get::<extern fn() -> AzStyleBorderLeftWidthValue>(b"az_style_border_left_width_value_auto").ok()? };
+        let az_style_border_left_width_value_none = unsafe { lib.get::<extern fn() -> AzStyleBorderLeftWidthValue>(b"az_style_border_left_width_value_none").ok()? };
+        let az_style_border_left_width_value_inherit = unsafe { lib.get::<extern fn() -> AzStyleBorderLeftWidthValue>(b"az_style_border_left_width_value_inherit").ok()? };
+        let az_style_border_left_width_value_initial = unsafe { lib.get::<extern fn() -> AzStyleBorderLeftWidthValue>(b"az_style_border_left_width_value_initial").ok()? };
+        let az_style_border_left_width_value_exact = unsafe { lib.get::<extern fn(_: AzStyleBorderLeftWidthPtr) -> AzStyleBorderLeftWidthValue>(b"az_style_border_left_width_value_exact").ok()? };
+        let az_style_border_left_width_value_delete = unsafe { lib.get::<extern fn(_: &mut AzStyleBorderLeftWidthValue)>(b"az_style_border_left_width_value_delete").ok()? };
+        let az_style_border_left_width_value_deep_copy = unsafe { lib.get::<extern fn(_: &AzStyleBorderLeftWidthValue) -> AzStyleBorderLeftWidthValue>(b"az_style_border_left_width_value_deep_copy").ok()? };
+        let az_style_border_right_color_value_auto = unsafe { lib.get::<extern fn() -> AzStyleBorderRightColorValue>(b"az_style_border_right_color_value_auto").ok()? };
+        let az_style_border_right_color_value_none = unsafe { lib.get::<extern fn() -> AzStyleBorderRightColorValue>(b"az_style_border_right_color_value_none").ok()? };
+        let az_style_border_right_color_value_inherit = unsafe { lib.get::<extern fn() -> AzStyleBorderRightColorValue>(b"az_style_border_right_color_value_inherit").ok()? };
+        let az_style_border_right_color_value_initial = unsafe { lib.get::<extern fn() -> AzStyleBorderRightColorValue>(b"az_style_border_right_color_value_initial").ok()? };
+        let az_style_border_right_color_value_exact = unsafe { lib.get::<extern fn(_: AzStyleBorderRightColorPtr) -> AzStyleBorderRightColorValue>(b"az_style_border_right_color_value_exact").ok()? };
+        let az_style_border_right_color_value_delete = unsafe { lib.get::<extern fn(_: &mut AzStyleBorderRightColorValue)>(b"az_style_border_right_color_value_delete").ok()? };
+        let az_style_border_right_color_value_deep_copy = unsafe { lib.get::<extern fn(_: &AzStyleBorderRightColorValue) -> AzStyleBorderRightColorValue>(b"az_style_border_right_color_value_deep_copy").ok()? };
+        let az_style_border_right_style_value_auto = unsafe { lib.get::<extern fn() -> AzStyleBorderRightStyleValue>(b"az_style_border_right_style_value_auto").ok()? };
+        let az_style_border_right_style_value_none = unsafe { lib.get::<extern fn() -> AzStyleBorderRightStyleValue>(b"az_style_border_right_style_value_none").ok()? };
+        let az_style_border_right_style_value_inherit = unsafe { lib.get::<extern fn() -> AzStyleBorderRightStyleValue>(b"az_style_border_right_style_value_inherit").ok()? };
+        let az_style_border_right_style_value_initial = unsafe { lib.get::<extern fn() -> AzStyleBorderRightStyleValue>(b"az_style_border_right_style_value_initial").ok()? };
+        let az_style_border_right_style_value_exact = unsafe { lib.get::<extern fn(_: AzStyleBorderRightStylePtr) -> AzStyleBorderRightStyleValue>(b"az_style_border_right_style_value_exact").ok()? };
+        let az_style_border_right_style_value_delete = unsafe { lib.get::<extern fn(_: &mut AzStyleBorderRightStyleValue)>(b"az_style_border_right_style_value_delete").ok()? };
+        let az_style_border_right_style_value_deep_copy = unsafe { lib.get::<extern fn(_: &AzStyleBorderRightStyleValue) -> AzStyleBorderRightStyleValue>(b"az_style_border_right_style_value_deep_copy").ok()? };
+        let az_style_border_right_width_value_auto = unsafe { lib.get::<extern fn() -> AzStyleBorderRightWidthValue>(b"az_style_border_right_width_value_auto").ok()? };
+        let az_style_border_right_width_value_none = unsafe { lib.get::<extern fn() -> AzStyleBorderRightWidthValue>(b"az_style_border_right_width_value_none").ok()? };
+        let az_style_border_right_width_value_inherit = unsafe { lib.get::<extern fn() -> AzStyleBorderRightWidthValue>(b"az_style_border_right_width_value_inherit").ok()? };
+        let az_style_border_right_width_value_initial = unsafe { lib.get::<extern fn() -> AzStyleBorderRightWidthValue>(b"az_style_border_right_width_value_initial").ok()? };
+        let az_style_border_right_width_value_exact = unsafe { lib.get::<extern fn(_: AzStyleBorderRightWidthPtr) -> AzStyleBorderRightWidthValue>(b"az_style_border_right_width_value_exact").ok()? };
+        let az_style_border_right_width_value_delete = unsafe { lib.get::<extern fn(_: &mut AzStyleBorderRightWidthValue)>(b"az_style_border_right_width_value_delete").ok()? };
+        let az_style_border_right_width_value_deep_copy = unsafe { lib.get::<extern fn(_: &AzStyleBorderRightWidthValue) -> AzStyleBorderRightWidthValue>(b"az_style_border_right_width_value_deep_copy").ok()? };
+        let az_style_border_top_color_value_auto = unsafe { lib.get::<extern fn() -> AzStyleBorderTopColorValue>(b"az_style_border_top_color_value_auto").ok()? };
+        let az_style_border_top_color_value_none = unsafe { lib.get::<extern fn() -> AzStyleBorderTopColorValue>(b"az_style_border_top_color_value_none").ok()? };
+        let az_style_border_top_color_value_inherit = unsafe { lib.get::<extern fn() -> AzStyleBorderTopColorValue>(b"az_style_border_top_color_value_inherit").ok()? };
+        let az_style_border_top_color_value_initial = unsafe { lib.get::<extern fn() -> AzStyleBorderTopColorValue>(b"az_style_border_top_color_value_initial").ok()? };
+        let az_style_border_top_color_value_exact = unsafe { lib.get::<extern fn(_: AzStyleBorderTopColorPtr) -> AzStyleBorderTopColorValue>(b"az_style_border_top_color_value_exact").ok()? };
+        let az_style_border_top_color_value_delete = unsafe { lib.get::<extern fn(_: &mut AzStyleBorderTopColorValue)>(b"az_style_border_top_color_value_delete").ok()? };
+        let az_style_border_top_color_value_deep_copy = unsafe { lib.get::<extern fn(_: &AzStyleBorderTopColorValue) -> AzStyleBorderTopColorValue>(b"az_style_border_top_color_value_deep_copy").ok()? };
+        let az_style_border_top_left_radius_value_auto = unsafe { lib.get::<extern fn() -> AzStyleBorderTopLeftRadiusValue>(b"az_style_border_top_left_radius_value_auto").ok()? };
+        let az_style_border_top_left_radius_value_none = unsafe { lib.get::<extern fn() -> AzStyleBorderTopLeftRadiusValue>(b"az_style_border_top_left_radius_value_none").ok()? };
+        let az_style_border_top_left_radius_value_inherit = unsafe { lib.get::<extern fn() -> AzStyleBorderTopLeftRadiusValue>(b"az_style_border_top_left_radius_value_inherit").ok()? };
+        let az_style_border_top_left_radius_value_initial = unsafe { lib.get::<extern fn() -> AzStyleBorderTopLeftRadiusValue>(b"az_style_border_top_left_radius_value_initial").ok()? };
+        let az_style_border_top_left_radius_value_exact = unsafe { lib.get::<extern fn(_: AzStyleBorderTopLeftRadiusPtr) -> AzStyleBorderTopLeftRadiusValue>(b"az_style_border_top_left_radius_value_exact").ok()? };
+        let az_style_border_top_left_radius_value_delete = unsafe { lib.get::<extern fn(_: &mut AzStyleBorderTopLeftRadiusValue)>(b"az_style_border_top_left_radius_value_delete").ok()? };
+        let az_style_border_top_left_radius_value_deep_copy = unsafe { lib.get::<extern fn(_: &AzStyleBorderTopLeftRadiusValue) -> AzStyleBorderTopLeftRadiusValue>(b"az_style_border_top_left_radius_value_deep_copy").ok()? };
+        let az_style_border_top_right_radius_value_auto = unsafe { lib.get::<extern fn() -> AzStyleBorderTopRightRadiusValue>(b"az_style_border_top_right_radius_value_auto").ok()? };
+        let az_style_border_top_right_radius_value_none = unsafe { lib.get::<extern fn() -> AzStyleBorderTopRightRadiusValue>(b"az_style_border_top_right_radius_value_none").ok()? };
+        let az_style_border_top_right_radius_value_inherit = unsafe { lib.get::<extern fn() -> AzStyleBorderTopRightRadiusValue>(b"az_style_border_top_right_radius_value_inherit").ok()? };
+        let az_style_border_top_right_radius_value_initial = unsafe { lib.get::<extern fn() -> AzStyleBorderTopRightRadiusValue>(b"az_style_border_top_right_radius_value_initial").ok()? };
+        let az_style_border_top_right_radius_value_exact = unsafe { lib.get::<extern fn(_: AzStyleBorderTopRightRadiusPtr) -> AzStyleBorderTopRightRadiusValue>(b"az_style_border_top_right_radius_value_exact").ok()? };
+        let az_style_border_top_right_radius_value_delete = unsafe { lib.get::<extern fn(_: &mut AzStyleBorderTopRightRadiusValue)>(b"az_style_border_top_right_radius_value_delete").ok()? };
+        let az_style_border_top_right_radius_value_deep_copy = unsafe { lib.get::<extern fn(_: &AzStyleBorderTopRightRadiusValue) -> AzStyleBorderTopRightRadiusValue>(b"az_style_border_top_right_radius_value_deep_copy").ok()? };
+        let az_style_border_top_style_value_auto = unsafe { lib.get::<extern fn() -> AzStyleBorderTopStyleValue>(b"az_style_border_top_style_value_auto").ok()? };
+        let az_style_border_top_style_value_none = unsafe { lib.get::<extern fn() -> AzStyleBorderTopStyleValue>(b"az_style_border_top_style_value_none").ok()? };
+        let az_style_border_top_style_value_inherit = unsafe { lib.get::<extern fn() -> AzStyleBorderTopStyleValue>(b"az_style_border_top_style_value_inherit").ok()? };
+        let az_style_border_top_style_value_initial = unsafe { lib.get::<extern fn() -> AzStyleBorderTopStyleValue>(b"az_style_border_top_style_value_initial").ok()? };
+        let az_style_border_top_style_value_exact = unsafe { lib.get::<extern fn(_: AzStyleBorderTopStylePtr) -> AzStyleBorderTopStyleValue>(b"az_style_border_top_style_value_exact").ok()? };
+        let az_style_border_top_style_value_delete = unsafe { lib.get::<extern fn(_: &mut AzStyleBorderTopStyleValue)>(b"az_style_border_top_style_value_delete").ok()? };
+        let az_style_border_top_style_value_deep_copy = unsafe { lib.get::<extern fn(_: &AzStyleBorderTopStyleValue) -> AzStyleBorderTopStyleValue>(b"az_style_border_top_style_value_deep_copy").ok()? };
+        let az_style_border_top_width_value_auto = unsafe { lib.get::<extern fn() -> AzStyleBorderTopWidthValue>(b"az_style_border_top_width_value_auto").ok()? };
+        let az_style_border_top_width_value_none = unsafe { lib.get::<extern fn() -> AzStyleBorderTopWidthValue>(b"az_style_border_top_width_value_none").ok()? };
+        let az_style_border_top_width_value_inherit = unsafe { lib.get::<extern fn() -> AzStyleBorderTopWidthValue>(b"az_style_border_top_width_value_inherit").ok()? };
+        let az_style_border_top_width_value_initial = unsafe { lib.get::<extern fn() -> AzStyleBorderTopWidthValue>(b"az_style_border_top_width_value_initial").ok()? };
+        let az_style_border_top_width_value_exact = unsafe { lib.get::<extern fn(_: AzStyleBorderTopWidthPtr) -> AzStyleBorderTopWidthValue>(b"az_style_border_top_width_value_exact").ok()? };
+        let az_style_border_top_width_value_delete = unsafe { lib.get::<extern fn(_: &mut AzStyleBorderTopWidthValue)>(b"az_style_border_top_width_value_delete").ok()? };
+        let az_style_border_top_width_value_deep_copy = unsafe { lib.get::<extern fn(_: &AzStyleBorderTopWidthValue) -> AzStyleBorderTopWidthValue>(b"az_style_border_top_width_value_deep_copy").ok()? };
+        let az_style_cursor_value_auto = unsafe { lib.get::<extern fn() -> AzStyleCursorValue>(b"az_style_cursor_value_auto").ok()? };
+        let az_style_cursor_value_none = unsafe { lib.get::<extern fn() -> AzStyleCursorValue>(b"az_style_cursor_value_none").ok()? };
+        let az_style_cursor_value_inherit = unsafe { lib.get::<extern fn() -> AzStyleCursorValue>(b"az_style_cursor_value_inherit").ok()? };
+        let az_style_cursor_value_initial = unsafe { lib.get::<extern fn() -> AzStyleCursorValue>(b"az_style_cursor_value_initial").ok()? };
+        let az_style_cursor_value_exact = unsafe { lib.get::<extern fn(_: AzStyleCursorPtr) -> AzStyleCursorValue>(b"az_style_cursor_value_exact").ok()? };
+        let az_style_cursor_value_delete = unsafe { lib.get::<extern fn(_: &mut AzStyleCursorValue)>(b"az_style_cursor_value_delete").ok()? };
+        let az_style_cursor_value_deep_copy = unsafe { lib.get::<extern fn(_: &AzStyleCursorValue) -> AzStyleCursorValue>(b"az_style_cursor_value_deep_copy").ok()? };
+        let az_style_font_family_value_auto = unsafe { lib.get::<extern fn() -> AzStyleFontFamilyValue>(b"az_style_font_family_value_auto").ok()? };
+        let az_style_font_family_value_none = unsafe { lib.get::<extern fn() -> AzStyleFontFamilyValue>(b"az_style_font_family_value_none").ok()? };
+        let az_style_font_family_value_inherit = unsafe { lib.get::<extern fn() -> AzStyleFontFamilyValue>(b"az_style_font_family_value_inherit").ok()? };
+        let az_style_font_family_value_initial = unsafe { lib.get::<extern fn() -> AzStyleFontFamilyValue>(b"az_style_font_family_value_initial").ok()? };
+        let az_style_font_family_value_exact = unsafe { lib.get::<extern fn(_: AzStyleFontFamilyPtr) -> AzStyleFontFamilyValue>(b"az_style_font_family_value_exact").ok()? };
+        let az_style_font_family_value_delete = unsafe { lib.get::<extern fn(_: &mut AzStyleFontFamilyValue)>(b"az_style_font_family_value_delete").ok()? };
+        let az_style_font_family_value_deep_copy = unsafe { lib.get::<extern fn(_: &AzStyleFontFamilyValue) -> AzStyleFontFamilyValue>(b"az_style_font_family_value_deep_copy").ok()? };
+        let az_style_font_size_value_auto = unsafe { lib.get::<extern fn() -> AzStyleFontSizeValue>(b"az_style_font_size_value_auto").ok()? };
+        let az_style_font_size_value_none = unsafe { lib.get::<extern fn() -> AzStyleFontSizeValue>(b"az_style_font_size_value_none").ok()? };
+        let az_style_font_size_value_inherit = unsafe { lib.get::<extern fn() -> AzStyleFontSizeValue>(b"az_style_font_size_value_inherit").ok()? };
+        let az_style_font_size_value_initial = unsafe { lib.get::<extern fn() -> AzStyleFontSizeValue>(b"az_style_font_size_value_initial").ok()? };
+        let az_style_font_size_value_exact = unsafe { lib.get::<extern fn(_: AzStyleFontSizePtr) -> AzStyleFontSizeValue>(b"az_style_font_size_value_exact").ok()? };
+        let az_style_font_size_value_delete = unsafe { lib.get::<extern fn(_: &mut AzStyleFontSizeValue)>(b"az_style_font_size_value_delete").ok()? };
+        let az_style_font_size_value_deep_copy = unsafe { lib.get::<extern fn(_: &AzStyleFontSizeValue) -> AzStyleFontSizeValue>(b"az_style_font_size_value_deep_copy").ok()? };
+        let az_style_letter_spacing_value_auto = unsafe { lib.get::<extern fn() -> AzStyleLetterSpacingValue>(b"az_style_letter_spacing_value_auto").ok()? };
+        let az_style_letter_spacing_value_none = unsafe { lib.get::<extern fn() -> AzStyleLetterSpacingValue>(b"az_style_letter_spacing_value_none").ok()? };
+        let az_style_letter_spacing_value_inherit = unsafe { lib.get::<extern fn() -> AzStyleLetterSpacingValue>(b"az_style_letter_spacing_value_inherit").ok()? };
+        let az_style_letter_spacing_value_initial = unsafe { lib.get::<extern fn() -> AzStyleLetterSpacingValue>(b"az_style_letter_spacing_value_initial").ok()? };
+        let az_style_letter_spacing_value_exact = unsafe { lib.get::<extern fn(_: AzStyleLetterSpacingPtr) -> AzStyleLetterSpacingValue>(b"az_style_letter_spacing_value_exact").ok()? };
+        let az_style_letter_spacing_value_delete = unsafe { lib.get::<extern fn(_: &mut AzStyleLetterSpacingValue)>(b"az_style_letter_spacing_value_delete").ok()? };
+        let az_style_letter_spacing_value_deep_copy = unsafe { lib.get::<extern fn(_: &AzStyleLetterSpacingValue) -> AzStyleLetterSpacingValue>(b"az_style_letter_spacing_value_deep_copy").ok()? };
+        let az_style_line_height_value_auto = unsafe { lib.get::<extern fn() -> AzStyleLineHeightValue>(b"az_style_line_height_value_auto").ok()? };
+        let az_style_line_height_value_none = unsafe { lib.get::<extern fn() -> AzStyleLineHeightValue>(b"az_style_line_height_value_none").ok()? };
+        let az_style_line_height_value_inherit = unsafe { lib.get::<extern fn() -> AzStyleLineHeightValue>(b"az_style_line_height_value_inherit").ok()? };
+        let az_style_line_height_value_initial = unsafe { lib.get::<extern fn() -> AzStyleLineHeightValue>(b"az_style_line_height_value_initial").ok()? };
+        let az_style_line_height_value_exact = unsafe { lib.get::<extern fn(_: AzStyleLineHeightPtr) -> AzStyleLineHeightValue>(b"az_style_line_height_value_exact").ok()? };
+        let az_style_line_height_value_delete = unsafe { lib.get::<extern fn(_: &mut AzStyleLineHeightValue)>(b"az_style_line_height_value_delete").ok()? };
+        let az_style_line_height_value_deep_copy = unsafe { lib.get::<extern fn(_: &AzStyleLineHeightValue) -> AzStyleLineHeightValue>(b"az_style_line_height_value_deep_copy").ok()? };
+        let az_style_tab_width_value_auto = unsafe { lib.get::<extern fn() -> AzStyleTabWidthValue>(b"az_style_tab_width_value_auto").ok()? };
+        let az_style_tab_width_value_none = unsafe { lib.get::<extern fn() -> AzStyleTabWidthValue>(b"az_style_tab_width_value_none").ok()? };
+        let az_style_tab_width_value_inherit = unsafe { lib.get::<extern fn() -> AzStyleTabWidthValue>(b"az_style_tab_width_value_inherit").ok()? };
+        let az_style_tab_width_value_initial = unsafe { lib.get::<extern fn() -> AzStyleTabWidthValue>(b"az_style_tab_width_value_initial").ok()? };
+        let az_style_tab_width_value_exact = unsafe { lib.get::<extern fn(_: AzStyleTabWidthPtr) -> AzStyleTabWidthValue>(b"az_style_tab_width_value_exact").ok()? };
+        let az_style_tab_width_value_delete = unsafe { lib.get::<extern fn(_: &mut AzStyleTabWidthValue)>(b"az_style_tab_width_value_delete").ok()? };
+        let az_style_tab_width_value_deep_copy = unsafe { lib.get::<extern fn(_: &AzStyleTabWidthValue) -> AzStyleTabWidthValue>(b"az_style_tab_width_value_deep_copy").ok()? };
+        let az_style_text_alignment_horz_value_auto = unsafe { lib.get::<extern fn() -> AzStyleTextAlignmentHorzValue>(b"az_style_text_alignment_horz_value_auto").ok()? };
+        let az_style_text_alignment_horz_value_none = unsafe { lib.get::<extern fn() -> AzStyleTextAlignmentHorzValue>(b"az_style_text_alignment_horz_value_none").ok()? };
+        let az_style_text_alignment_horz_value_inherit = unsafe { lib.get::<extern fn() -> AzStyleTextAlignmentHorzValue>(b"az_style_text_alignment_horz_value_inherit").ok()? };
+        let az_style_text_alignment_horz_value_initial = unsafe { lib.get::<extern fn() -> AzStyleTextAlignmentHorzValue>(b"az_style_text_alignment_horz_value_initial").ok()? };
+        let az_style_text_alignment_horz_value_exact = unsafe { lib.get::<extern fn(_: AzStyleTextAlignmentHorzPtr) -> AzStyleTextAlignmentHorzValue>(b"az_style_text_alignment_horz_value_exact").ok()? };
+        let az_style_text_alignment_horz_value_delete = unsafe { lib.get::<extern fn(_: &mut AzStyleTextAlignmentHorzValue)>(b"az_style_text_alignment_horz_value_delete").ok()? };
+        let az_style_text_alignment_horz_value_deep_copy = unsafe { lib.get::<extern fn(_: &AzStyleTextAlignmentHorzValue) -> AzStyleTextAlignmentHorzValue>(b"az_style_text_alignment_horz_value_deep_copy").ok()? };
+        let az_style_text_color_value_auto = unsafe { lib.get::<extern fn() -> AzStyleTextColorValue>(b"az_style_text_color_value_auto").ok()? };
+        let az_style_text_color_value_none = unsafe { lib.get::<extern fn() -> AzStyleTextColorValue>(b"az_style_text_color_value_none").ok()? };
+        let az_style_text_color_value_inherit = unsafe { lib.get::<extern fn() -> AzStyleTextColorValue>(b"az_style_text_color_value_inherit").ok()? };
+        let az_style_text_color_value_initial = unsafe { lib.get::<extern fn() -> AzStyleTextColorValue>(b"az_style_text_color_value_initial").ok()? };
+        let az_style_text_color_value_exact = unsafe { lib.get::<extern fn(_: AzStyleTextColorPtr) -> AzStyleTextColorValue>(b"az_style_text_color_value_exact").ok()? };
+        let az_style_text_color_value_delete = unsafe { lib.get::<extern fn(_: &mut AzStyleTextColorValue)>(b"az_style_text_color_value_delete").ok()? };
+        let az_style_text_color_value_deep_copy = unsafe { lib.get::<extern fn(_: &AzStyleTextColorValue) -> AzStyleTextColorValue>(b"az_style_text_color_value_deep_copy").ok()? };
+        let az_style_word_spacing_value_auto = unsafe { lib.get::<extern fn() -> AzStyleWordSpacingValue>(b"az_style_word_spacing_value_auto").ok()? };
+        let az_style_word_spacing_value_none = unsafe { lib.get::<extern fn() -> AzStyleWordSpacingValue>(b"az_style_word_spacing_value_none").ok()? };
+        let az_style_word_spacing_value_inherit = unsafe { lib.get::<extern fn() -> AzStyleWordSpacingValue>(b"az_style_word_spacing_value_inherit").ok()? };
+        let az_style_word_spacing_value_initial = unsafe { lib.get::<extern fn() -> AzStyleWordSpacingValue>(b"az_style_word_spacing_value_initial").ok()? };
+        let az_style_word_spacing_value_exact = unsafe { lib.get::<extern fn(_: AzStyleWordSpacingPtr) -> AzStyleWordSpacingValue>(b"az_style_word_spacing_value_exact").ok()? };
+        let az_style_word_spacing_value_delete = unsafe { lib.get::<extern fn(_: &mut AzStyleWordSpacingValue)>(b"az_style_word_spacing_value_delete").ok()? };
+        let az_style_word_spacing_value_deep_copy = unsafe { lib.get::<extern fn(_: &AzStyleWordSpacingValue) -> AzStyleWordSpacingValue>(b"az_style_word_spacing_value_deep_copy").ok()? };
+        let az_css_property_text_color = unsafe { lib.get::<extern fn(_: AzStyleTextColorValue) -> AzCssProperty>(b"az_css_property_text_color").ok()? };
+        let az_css_property_font_size = unsafe { lib.get::<extern fn(_: AzStyleFontSizeValue) -> AzCssProperty>(b"az_css_property_font_size").ok()? };
+        let az_css_property_font_family = unsafe { lib.get::<extern fn(_: AzStyleFontFamilyValue) -> AzCssProperty>(b"az_css_property_font_family").ok()? };
+        let az_css_property_text_align = unsafe { lib.get::<extern fn(_: AzStyleTextAlignmentHorzValue) -> AzCssProperty>(b"az_css_property_text_align").ok()? };
+        let az_css_property_letter_spacing = unsafe { lib.get::<extern fn(_: AzStyleLetterSpacingValue) -> AzCssProperty>(b"az_css_property_letter_spacing").ok()? };
+        let az_css_property_line_height = unsafe { lib.get::<extern fn(_: AzStyleLineHeightValue) -> AzCssProperty>(b"az_css_property_line_height").ok()? };
+        let az_css_property_word_spacing = unsafe { lib.get::<extern fn(_: AzStyleWordSpacingValue) -> AzCssProperty>(b"az_css_property_word_spacing").ok()? };
+        let az_css_property_tab_width = unsafe { lib.get::<extern fn(_: AzStyleTabWidthValue) -> AzCssProperty>(b"az_css_property_tab_width").ok()? };
+        let az_css_property_cursor = unsafe { lib.get::<extern fn(_: AzStyleCursorValue) -> AzCssProperty>(b"az_css_property_cursor").ok()? };
+        let az_css_property_display = unsafe { lib.get::<extern fn(_: AzLayoutDisplayValue) -> AzCssProperty>(b"az_css_property_display").ok()? };
+        let az_css_property_float = unsafe { lib.get::<extern fn(_: AzLayoutFloatValue) -> AzCssProperty>(b"az_css_property_float").ok()? };
+        let az_css_property_box_sizing = unsafe { lib.get::<extern fn(_: AzLayoutBoxSizingValue) -> AzCssProperty>(b"az_css_property_box_sizing").ok()? };
+        let az_css_property_width = unsafe { lib.get::<extern fn(_: AzLayoutWidthValue) -> AzCssProperty>(b"az_css_property_width").ok()? };
+        let az_css_property_height = unsafe { lib.get::<extern fn(_: AzLayoutHeightValue) -> AzCssProperty>(b"az_css_property_height").ok()? };
+        let az_css_property_min_width = unsafe { lib.get::<extern fn(_: AzLayoutMinWidthValue) -> AzCssProperty>(b"az_css_property_min_width").ok()? };
+        let az_css_property_min_height = unsafe { lib.get::<extern fn(_: AzLayoutMinHeightValue) -> AzCssProperty>(b"az_css_property_min_height").ok()? };
+        let az_css_property_max_width = unsafe { lib.get::<extern fn(_: AzLayoutMaxWidthValue) -> AzCssProperty>(b"az_css_property_max_width").ok()? };
+        let az_css_property_max_height = unsafe { lib.get::<extern fn(_: AzLayoutMaxHeightValue) -> AzCssProperty>(b"az_css_property_max_height").ok()? };
+        let az_css_property_position = unsafe { lib.get::<extern fn(_: AzLayoutPositionValue) -> AzCssProperty>(b"az_css_property_position").ok()? };
+        let az_css_property_top = unsafe { lib.get::<extern fn(_: AzLayoutTopValue) -> AzCssProperty>(b"az_css_property_top").ok()? };
+        let az_css_property_right = unsafe { lib.get::<extern fn(_: AzLayoutRightValue) -> AzCssProperty>(b"az_css_property_right").ok()? };
+        let az_css_property_left = unsafe { lib.get::<extern fn(_: AzLayoutLeftValue) -> AzCssProperty>(b"az_css_property_left").ok()? };
+        let az_css_property_bottom = unsafe { lib.get::<extern fn(_: AzLayoutBottomValue) -> AzCssProperty>(b"az_css_property_bottom").ok()? };
+        let az_css_property_flex_wrap = unsafe { lib.get::<extern fn(_: AzLayoutWrapValue) -> AzCssProperty>(b"az_css_property_flex_wrap").ok()? };
+        let az_css_property_flex_direction = unsafe { lib.get::<extern fn(_: AzLayoutDirectionValue) -> AzCssProperty>(b"az_css_property_flex_direction").ok()? };
+        let az_css_property_flex_grow = unsafe { lib.get::<extern fn(_: AzLayoutFlexGrowValue) -> AzCssProperty>(b"az_css_property_flex_grow").ok()? };
+        let az_css_property_flex_shrink = unsafe { lib.get::<extern fn(_: AzLayoutFlexShrinkValue) -> AzCssProperty>(b"az_css_property_flex_shrink").ok()? };
+        let az_css_property_justify_content = unsafe { lib.get::<extern fn(_: AzLayoutJustifyContentValue) -> AzCssProperty>(b"az_css_property_justify_content").ok()? };
+        let az_css_property_align_items = unsafe { lib.get::<extern fn(_: AzLayoutAlignItemsValue) -> AzCssProperty>(b"az_css_property_align_items").ok()? };
+        let az_css_property_align_content = unsafe { lib.get::<extern fn(_: AzLayoutAlignContentValue) -> AzCssProperty>(b"az_css_property_align_content").ok()? };
+        let az_css_property_background_content = unsafe { lib.get::<extern fn(_: AzStyleBackgroundContentValue) -> AzCssProperty>(b"az_css_property_background_content").ok()? };
+        let az_css_property_background_position = unsafe { lib.get::<extern fn(_: AzStyleBackgroundPositionValue) -> AzCssProperty>(b"az_css_property_background_position").ok()? };
+        let az_css_property_background_size = unsafe { lib.get::<extern fn(_: AzStyleBackgroundSizeValue) -> AzCssProperty>(b"az_css_property_background_size").ok()? };
+        let az_css_property_background_repeat = unsafe { lib.get::<extern fn(_: AzStyleBackgroundRepeatValue) -> AzCssProperty>(b"az_css_property_background_repeat").ok()? };
+        let az_css_property_overflow_x = unsafe { lib.get::<extern fn(_: AzOverflowValue) -> AzCssProperty>(b"az_css_property_overflow_x").ok()? };
+        let az_css_property_overflow_y = unsafe { lib.get::<extern fn(_: AzOverflowValue) -> AzCssProperty>(b"az_css_property_overflow_y").ok()? };
+        let az_css_property_padding_top = unsafe { lib.get::<extern fn(_: AzLayoutPaddingTopValue) -> AzCssProperty>(b"az_css_property_padding_top").ok()? };
+        let az_css_property_padding_left = unsafe { lib.get::<extern fn(_: AzLayoutPaddingLeftValue) -> AzCssProperty>(b"az_css_property_padding_left").ok()? };
+        let az_css_property_padding_right = unsafe { lib.get::<extern fn(_: AzLayoutPaddingRightValue) -> AzCssProperty>(b"az_css_property_padding_right").ok()? };
+        let az_css_property_padding_bottom = unsafe { lib.get::<extern fn(_: AzLayoutPaddingBottomValue) -> AzCssProperty>(b"az_css_property_padding_bottom").ok()? };
+        let az_css_property_margin_top = unsafe { lib.get::<extern fn(_: AzLayoutMarginTopValue) -> AzCssProperty>(b"az_css_property_margin_top").ok()? };
+        let az_css_property_margin_left = unsafe { lib.get::<extern fn(_: AzLayoutMarginLeftValue) -> AzCssProperty>(b"az_css_property_margin_left").ok()? };
+        let az_css_property_margin_right = unsafe { lib.get::<extern fn(_: AzLayoutMarginRightValue) -> AzCssProperty>(b"az_css_property_margin_right").ok()? };
+        let az_css_property_margin_bottom = unsafe { lib.get::<extern fn(_: AzLayoutMarginBottomValue) -> AzCssProperty>(b"az_css_property_margin_bottom").ok()? };
+        let az_css_property_border_top_left_radius = unsafe { lib.get::<extern fn(_: AzStyleBorderTopLeftRadiusValue) -> AzCssProperty>(b"az_css_property_border_top_left_radius").ok()? };
+        let az_css_property_border_top_right_radius = unsafe { lib.get::<extern fn(_: AzStyleBorderTopRightRadiusValue) -> AzCssProperty>(b"az_css_property_border_top_right_radius").ok()? };
+        let az_css_property_border_bottom_left_radius = unsafe { lib.get::<extern fn(_: AzStyleBorderBottomLeftRadiusValue) -> AzCssProperty>(b"az_css_property_border_bottom_left_radius").ok()? };
+        let az_css_property_border_bottom_right_radius = unsafe { lib.get::<extern fn(_: AzStyleBorderBottomRightRadiusValue) -> AzCssProperty>(b"az_css_property_border_bottom_right_radius").ok()? };
+        let az_css_property_border_top_color = unsafe { lib.get::<extern fn(_: AzStyleBorderTopColorValue) -> AzCssProperty>(b"az_css_property_border_top_color").ok()? };
+        let az_css_property_border_right_color = unsafe { lib.get::<extern fn(_: AzStyleBorderRightColorValue) -> AzCssProperty>(b"az_css_property_border_right_color").ok()? };
+        let az_css_property_border_left_color = unsafe { lib.get::<extern fn(_: AzStyleBorderLeftColorValue) -> AzCssProperty>(b"az_css_property_border_left_color").ok()? };
+        let az_css_property_border_bottom_color = unsafe { lib.get::<extern fn(_: AzStyleBorderBottomColorValue) -> AzCssProperty>(b"az_css_property_border_bottom_color").ok()? };
+        let az_css_property_border_top_style = unsafe { lib.get::<extern fn(_: AzStyleBorderTopStyleValue) -> AzCssProperty>(b"az_css_property_border_top_style").ok()? };
+        let az_css_property_border_right_style = unsafe { lib.get::<extern fn(_: AzStyleBorderRightStyleValue) -> AzCssProperty>(b"az_css_property_border_right_style").ok()? };
+        let az_css_property_border_left_style = unsafe { lib.get::<extern fn(_: AzStyleBorderLeftStyleValue) -> AzCssProperty>(b"az_css_property_border_left_style").ok()? };
+        let az_css_property_border_bottom_style = unsafe { lib.get::<extern fn(_: AzStyleBorderBottomStyleValue) -> AzCssProperty>(b"az_css_property_border_bottom_style").ok()? };
+        let az_css_property_border_top_width = unsafe { lib.get::<extern fn(_: AzStyleBorderTopWidthValue) -> AzCssProperty>(b"az_css_property_border_top_width").ok()? };
+        let az_css_property_border_right_width = unsafe { lib.get::<extern fn(_: AzStyleBorderRightWidthValue) -> AzCssProperty>(b"az_css_property_border_right_width").ok()? };
+        let az_css_property_border_left_width = unsafe { lib.get::<extern fn(_: AzStyleBorderLeftWidthValue) -> AzCssProperty>(b"az_css_property_border_left_width").ok()? };
+        let az_css_property_border_bottom_width = unsafe { lib.get::<extern fn(_: AzStyleBorderBottomWidthValue) -> AzCssProperty>(b"az_css_property_border_bottom_width").ok()? };
+        let az_css_property_box_shadow_left = unsafe { lib.get::<extern fn(_: AzBoxShadowPreDisplayItemValue) -> AzCssProperty>(b"az_css_property_box_shadow_left").ok()? };
+        let az_css_property_box_shadow_right = unsafe { lib.get::<extern fn(_: AzBoxShadowPreDisplayItemValue) -> AzCssProperty>(b"az_css_property_box_shadow_right").ok()? };
+        let az_css_property_box_shadow_top = unsafe { lib.get::<extern fn(_: AzBoxShadowPreDisplayItemValue) -> AzCssProperty>(b"az_css_property_box_shadow_top").ok()? };
+        let az_css_property_box_shadow_bottom = unsafe { lib.get::<extern fn(_: AzBoxShadowPreDisplayItemValue) -> AzCssProperty>(b"az_css_property_box_shadow_bottom").ok()? };
+        let az_css_property_delete = unsafe { lib.get::<extern fn(_: &mut AzCssProperty)>(b"az_css_property_delete").ok()? };
+        let az_css_property_deep_copy = unsafe { lib.get::<extern fn(_: &AzCssProperty) -> AzCssProperty>(b"az_css_property_deep_copy").ok()? };
+        let az_dom_div = unsafe { lib.get::<extern fn() -> AzDomPtr>(b"az_dom_div").ok()? };
+        let az_dom_body = unsafe { lib.get::<extern fn() -> AzDomPtr>(b"az_dom_body").ok()? };
+        let az_dom_label = unsafe { lib.get::<extern fn(_: AzString) -> AzDomPtr>(b"az_dom_label").ok()? };
+        let az_dom_text = unsafe { lib.get::<extern fn(_: AzTextId) -> AzDomPtr>(b"az_dom_text").ok()? };
+        let az_dom_image = unsafe { lib.get::<extern fn(_: AzImageId) -> AzDomPtr>(b"az_dom_image").ok()? };
+        let az_dom_gl_texture = unsafe { lib.get::<extern fn(_: AzGlCallback) -> AzDomPtr>(b"az_dom_gl_texture").ok()? };
+        let az_dom_iframe_callback = unsafe { lib.get::<extern fn(_: AzIFrameCallback) -> AzDomPtr>(b"az_dom_iframe_callback").ok()? };
+        let az_dom_add_id = unsafe { lib.get::<extern fn(_: AzString)>(b"az_dom_add_id").ok()? };
+        let az_dom_with_id = unsafe { lib.get::<extern fn(_: AzString) -> AzDomPtr>(b"az_dom_with_id").ok()? };
+        let az_dom_set_ids = unsafe { lib.get::<extern fn(_: AzStringVec)>(b"az_dom_set_ids").ok()? };
+        let az_dom_with_ids = unsafe { lib.get::<extern fn(_: AzStringVec) -> AzDomPtr>(b"az_dom_with_ids").ok()? };
+        let az_dom_add_class = unsafe { lib.get::<extern fn(_: AzString)>(b"az_dom_add_class").ok()? };
+        let az_dom_with_class = unsafe { lib.get::<extern fn(_: AzString) -> AzDomPtr>(b"az_dom_with_class").ok()? };
+        let az_dom_set_classes = unsafe { lib.get::<extern fn(_: AzStringVec)>(b"az_dom_set_classes").ok()? };
+        let az_dom_with_classes = unsafe { lib.get::<extern fn(_: AzStringVec) -> AzDomPtr>(b"az_dom_with_classes").ok()? };
+        let az_dom_add_callback = unsafe { lib.get::<extern fn(_: AzCallback)>(b"az_dom_add_callback").ok()? };
+        let az_dom_with_callback = unsafe { lib.get::<extern fn(_: AzCallback) -> AzDomPtr>(b"az_dom_with_callback").ok()? };
+        let az_dom_add_css_override = unsafe { lib.get::<extern fn(_: AzCssProperty)>(b"az_dom_add_css_override").ok()? };
+        let az_dom_with_css_override = unsafe { lib.get::<extern fn(_: AzCssProperty) -> AzDomPtr>(b"az_dom_with_css_override").ok()? };
+        let az_dom_set_is_draggable = unsafe { lib.get::<extern fn(_: bool)>(b"az_dom_set_is_draggable").ok()? };
+        let az_dom_is_draggable = unsafe { lib.get::<extern fn(_: bool) -> AzDomPtr>(b"az_dom_is_draggable").ok()? };
+        let az_dom_set_tab_index = unsafe { lib.get::<extern fn(_: AzTabIndex)>(b"az_dom_set_tab_index").ok()? };
+        let az_dom_with_tab_index = unsafe { lib.get::<extern fn(_: AzTabIndex) -> AzDomPtr>(b"az_dom_with_tab_index").ok()? };
+        let az_dom_add_child = unsafe { lib.get::<extern fn(_: AzDomPtr)>(b"az_dom_add_child").ok()? };
+        let az_dom_with_child = unsafe { lib.get::<extern fn(_: AzDomPtr) -> AzDomPtr>(b"az_dom_with_child").ok()? };
+        let az_dom_has_id = unsafe { lib.get::<extern fn(_: AzString) -> bool>(b"az_dom_has_id").ok()? };
+        let az_dom_has_class = unsafe { lib.get::<extern fn(_: AzString) -> bool>(b"az_dom_has_class").ok()? };
+        let az_dom_get_html_string = unsafe { lib.get::<extern fn(_: &mut AzDomPtr) -> AzString>(b"az_dom_get_html_string").ok()? };
+        let az_dom_delete = unsafe { lib.get::<extern fn(_: &mut AzDomPtr)>(b"az_dom_delete").ok()? };
+        let az_dom_shallow_copy = unsafe { lib.get::<extern fn(_: &AzDomPtr) -> AzDomPtr>(b"az_dom_shallow_copy").ok()? };
+        let az_event_filter_hover = unsafe { lib.get::<extern fn(_: AzHoverEventFilter) -> AzEventFilter>(b"az_event_filter_hover").ok()? };
+        let az_event_filter_not = unsafe { lib.get::<extern fn(_: AzNotEventFilter) -> AzEventFilter>(b"az_event_filter_not").ok()? };
+        let az_event_filter_focus = unsafe { lib.get::<extern fn(_: AzFocusEventFilter) -> AzEventFilter>(b"az_event_filter_focus").ok()? };
+        let az_event_filter_window = unsafe { lib.get::<extern fn(_: AzWindowEventFilter) -> AzEventFilter>(b"az_event_filter_window").ok()? };
+        let az_event_filter_delete = unsafe { lib.get::<extern fn(_: &mut AzEventFilter)>(b"az_event_filter_delete").ok()? };
+        let az_event_filter_deep_copy = unsafe { lib.get::<extern fn(_: &AzEventFilter) -> AzEventFilter>(b"az_event_filter_deep_copy").ok()? };
+        let az_hover_event_filter_mouse_over = unsafe { lib.get::<extern fn() -> AzHoverEventFilter>(b"az_hover_event_filter_mouse_over").ok()? };
+        let az_hover_event_filter_mouse_down = unsafe { lib.get::<extern fn() -> AzHoverEventFilter>(b"az_hover_event_filter_mouse_down").ok()? };
+        let az_hover_event_filter_left_mouse_down = unsafe { lib.get::<extern fn() -> AzHoverEventFilter>(b"az_hover_event_filter_left_mouse_down").ok()? };
+        let az_hover_event_filter_right_mouse_down = unsafe { lib.get::<extern fn() -> AzHoverEventFilter>(b"az_hover_event_filter_right_mouse_down").ok()? };
+        let az_hover_event_filter_middle_mouse_down = unsafe { lib.get::<extern fn() -> AzHoverEventFilter>(b"az_hover_event_filter_middle_mouse_down").ok()? };
+        let az_hover_event_filter_mouse_up = unsafe { lib.get::<extern fn() -> AzHoverEventFilter>(b"az_hover_event_filter_mouse_up").ok()? };
+        let az_hover_event_filter_left_mouse_up = unsafe { lib.get::<extern fn() -> AzHoverEventFilter>(b"az_hover_event_filter_left_mouse_up").ok()? };
+        let az_hover_event_filter_right_mouse_up = unsafe { lib.get::<extern fn() -> AzHoverEventFilter>(b"az_hover_event_filter_right_mouse_up").ok()? };
+        let az_hover_event_filter_middle_mouse_up = unsafe { lib.get::<extern fn() -> AzHoverEventFilter>(b"az_hover_event_filter_middle_mouse_up").ok()? };
+        let az_hover_event_filter_mouse_enter = unsafe { lib.get::<extern fn() -> AzHoverEventFilter>(b"az_hover_event_filter_mouse_enter").ok()? };
+        let az_hover_event_filter_mouse_leave = unsafe { lib.get::<extern fn() -> AzHoverEventFilter>(b"az_hover_event_filter_mouse_leave").ok()? };
+        let az_hover_event_filter_scroll = unsafe { lib.get::<extern fn() -> AzHoverEventFilter>(b"az_hover_event_filter_scroll").ok()? };
+        let az_hover_event_filter_scroll_start = unsafe { lib.get::<extern fn() -> AzHoverEventFilter>(b"az_hover_event_filter_scroll_start").ok()? };
+        let az_hover_event_filter_scroll_end = unsafe { lib.get::<extern fn() -> AzHoverEventFilter>(b"az_hover_event_filter_scroll_end").ok()? };
+        let az_hover_event_filter_text_input = unsafe { lib.get::<extern fn() -> AzHoverEventFilter>(b"az_hover_event_filter_text_input").ok()? };
+        let az_hover_event_filter_virtual_key_down = unsafe { lib.get::<extern fn() -> AzHoverEventFilter>(b"az_hover_event_filter_virtual_key_down").ok()? };
+        let az_hover_event_filter_virtual_key_up = unsafe { lib.get::<extern fn() -> AzHoverEventFilter>(b"az_hover_event_filter_virtual_key_up").ok()? };
+        let az_hover_event_filter_hovered_file = unsafe { lib.get::<extern fn() -> AzHoverEventFilter>(b"az_hover_event_filter_hovered_file").ok()? };
+        let az_hover_event_filter_dropped_file = unsafe { lib.get::<extern fn() -> AzHoverEventFilter>(b"az_hover_event_filter_dropped_file").ok()? };
+        let az_hover_event_filter_hovered_file_cancelled = unsafe { lib.get::<extern fn() -> AzHoverEventFilter>(b"az_hover_event_filter_hovered_file_cancelled").ok()? };
+        let az_hover_event_filter_delete = unsafe { lib.get::<extern fn(_: &mut AzHoverEventFilter)>(b"az_hover_event_filter_delete").ok()? };
+        let az_hover_event_filter_deep_copy = unsafe { lib.get::<extern fn(_: &AzHoverEventFilter) -> AzHoverEventFilter>(b"az_hover_event_filter_deep_copy").ok()? };
+        let az_focus_event_filter_mouse_over = unsafe { lib.get::<extern fn() -> AzFocusEventFilter>(b"az_focus_event_filter_mouse_over").ok()? };
+        let az_focus_event_filter_mouse_down = unsafe { lib.get::<extern fn() -> AzFocusEventFilter>(b"az_focus_event_filter_mouse_down").ok()? };
+        let az_focus_event_filter_left_mouse_down = unsafe { lib.get::<extern fn() -> AzFocusEventFilter>(b"az_focus_event_filter_left_mouse_down").ok()? };
+        let az_focus_event_filter_right_mouse_down = unsafe { lib.get::<extern fn() -> AzFocusEventFilter>(b"az_focus_event_filter_right_mouse_down").ok()? };
+        let az_focus_event_filter_middle_mouse_down = unsafe { lib.get::<extern fn() -> AzFocusEventFilter>(b"az_focus_event_filter_middle_mouse_down").ok()? };
+        let az_focus_event_filter_mouse_up = unsafe { lib.get::<extern fn() -> AzFocusEventFilter>(b"az_focus_event_filter_mouse_up").ok()? };
+        let az_focus_event_filter_left_mouse_up = unsafe { lib.get::<extern fn() -> AzFocusEventFilter>(b"az_focus_event_filter_left_mouse_up").ok()? };
+        let az_focus_event_filter_right_mouse_up = unsafe { lib.get::<extern fn() -> AzFocusEventFilter>(b"az_focus_event_filter_right_mouse_up").ok()? };
+        let az_focus_event_filter_middle_mouse_up = unsafe { lib.get::<extern fn() -> AzFocusEventFilter>(b"az_focus_event_filter_middle_mouse_up").ok()? };
+        let az_focus_event_filter_mouse_enter = unsafe { lib.get::<extern fn() -> AzFocusEventFilter>(b"az_focus_event_filter_mouse_enter").ok()? };
+        let az_focus_event_filter_mouse_leave = unsafe { lib.get::<extern fn() -> AzFocusEventFilter>(b"az_focus_event_filter_mouse_leave").ok()? };
+        let az_focus_event_filter_scroll = unsafe { lib.get::<extern fn() -> AzFocusEventFilter>(b"az_focus_event_filter_scroll").ok()? };
+        let az_focus_event_filter_scroll_start = unsafe { lib.get::<extern fn() -> AzFocusEventFilter>(b"az_focus_event_filter_scroll_start").ok()? };
+        let az_focus_event_filter_scroll_end = unsafe { lib.get::<extern fn() -> AzFocusEventFilter>(b"az_focus_event_filter_scroll_end").ok()? };
+        let az_focus_event_filter_text_input = unsafe { lib.get::<extern fn() -> AzFocusEventFilter>(b"az_focus_event_filter_text_input").ok()? };
+        let az_focus_event_filter_virtual_key_down = unsafe { lib.get::<extern fn() -> AzFocusEventFilter>(b"az_focus_event_filter_virtual_key_down").ok()? };
+        let az_focus_event_filter_virtual_key_up = unsafe { lib.get::<extern fn() -> AzFocusEventFilter>(b"az_focus_event_filter_virtual_key_up").ok()? };
+        let az_focus_event_filter_focus_received = unsafe { lib.get::<extern fn() -> AzFocusEventFilter>(b"az_focus_event_filter_focus_received").ok()? };
+        let az_focus_event_filter_focus_lost = unsafe { lib.get::<extern fn() -> AzFocusEventFilter>(b"az_focus_event_filter_focus_lost").ok()? };
+        let az_focus_event_filter_delete = unsafe { lib.get::<extern fn(_: &mut AzFocusEventFilter)>(b"az_focus_event_filter_delete").ok()? };
+        let az_focus_event_filter_deep_copy = unsafe { lib.get::<extern fn(_: &AzFocusEventFilter) -> AzFocusEventFilter>(b"az_focus_event_filter_deep_copy").ok()? };
+        let az_not_event_filter_hover = unsafe { lib.get::<extern fn(_: AzHoverEventFilter) -> AzNotEventFilter>(b"az_not_event_filter_hover").ok()? };
+        let az_not_event_filter_focus = unsafe { lib.get::<extern fn(_: AzFocusEventFilter) -> AzNotEventFilter>(b"az_not_event_filter_focus").ok()? };
+        let az_not_event_filter_delete = unsafe { lib.get::<extern fn(_: &mut AzNotEventFilter)>(b"az_not_event_filter_delete").ok()? };
+        let az_not_event_filter_deep_copy = unsafe { lib.get::<extern fn(_: &AzNotEventFilter) -> AzNotEventFilter>(b"az_not_event_filter_deep_copy").ok()? };
+        let az_window_event_filter_mouse_over = unsafe { lib.get::<extern fn() -> AzWindowEventFilter>(b"az_window_event_filter_mouse_over").ok()? };
+        let az_window_event_filter_mouse_down = unsafe { lib.get::<extern fn() -> AzWindowEventFilter>(b"az_window_event_filter_mouse_down").ok()? };
+        let az_window_event_filter_left_mouse_down = unsafe { lib.get::<extern fn() -> AzWindowEventFilter>(b"az_window_event_filter_left_mouse_down").ok()? };
+        let az_window_event_filter_right_mouse_down = unsafe { lib.get::<extern fn() -> AzWindowEventFilter>(b"az_window_event_filter_right_mouse_down").ok()? };
+        let az_window_event_filter_middle_mouse_down = unsafe { lib.get::<extern fn() -> AzWindowEventFilter>(b"az_window_event_filter_middle_mouse_down").ok()? };
+        let az_window_event_filter_mouse_up = unsafe { lib.get::<extern fn() -> AzWindowEventFilter>(b"az_window_event_filter_mouse_up").ok()? };
+        let az_window_event_filter_left_mouse_up = unsafe { lib.get::<extern fn() -> AzWindowEventFilter>(b"az_window_event_filter_left_mouse_up").ok()? };
+        let az_window_event_filter_right_mouse_up = unsafe { lib.get::<extern fn() -> AzWindowEventFilter>(b"az_window_event_filter_right_mouse_up").ok()? };
+        let az_window_event_filter_middle_mouse_up = unsafe { lib.get::<extern fn() -> AzWindowEventFilter>(b"az_window_event_filter_middle_mouse_up").ok()? };
+        let az_window_event_filter_mouse_enter = unsafe { lib.get::<extern fn() -> AzWindowEventFilter>(b"az_window_event_filter_mouse_enter").ok()? };
+        let az_window_event_filter_mouse_leave = unsafe { lib.get::<extern fn() -> AzWindowEventFilter>(b"az_window_event_filter_mouse_leave").ok()? };
+        let az_window_event_filter_scroll = unsafe { lib.get::<extern fn() -> AzWindowEventFilter>(b"az_window_event_filter_scroll").ok()? };
+        let az_window_event_filter_scroll_start = unsafe { lib.get::<extern fn() -> AzWindowEventFilter>(b"az_window_event_filter_scroll_start").ok()? };
+        let az_window_event_filter_scroll_end = unsafe { lib.get::<extern fn() -> AzWindowEventFilter>(b"az_window_event_filter_scroll_end").ok()? };
+        let az_window_event_filter_text_input = unsafe { lib.get::<extern fn() -> AzWindowEventFilter>(b"az_window_event_filter_text_input").ok()? };
+        let az_window_event_filter_virtual_key_down = unsafe { lib.get::<extern fn() -> AzWindowEventFilter>(b"az_window_event_filter_virtual_key_down").ok()? };
+        let az_window_event_filter_virtual_key_up = unsafe { lib.get::<extern fn() -> AzWindowEventFilter>(b"az_window_event_filter_virtual_key_up").ok()? };
+        let az_window_event_filter_hovered_file = unsafe { lib.get::<extern fn() -> AzWindowEventFilter>(b"az_window_event_filter_hovered_file").ok()? };
+        let az_window_event_filter_dropped_file = unsafe { lib.get::<extern fn() -> AzWindowEventFilter>(b"az_window_event_filter_dropped_file").ok()? };
+        let az_window_event_filter_hovered_file_cancelled = unsafe { lib.get::<extern fn() -> AzWindowEventFilter>(b"az_window_event_filter_hovered_file_cancelled").ok()? };
+        let az_window_event_filter_delete = unsafe { lib.get::<extern fn(_: &mut AzWindowEventFilter)>(b"az_window_event_filter_delete").ok()? };
+        let az_window_event_filter_deep_copy = unsafe { lib.get::<extern fn(_: &AzWindowEventFilter) -> AzWindowEventFilter>(b"az_window_event_filter_deep_copy").ok()? };
+        let az_tab_index_auto = unsafe { lib.get::<extern fn() -> AzTabIndex>(b"az_tab_index_auto").ok()? };
+        let az_tab_index_override_in_parent = unsafe { lib.get::<extern fn(_: usize) -> AzTabIndex>(b"az_tab_index_override_in_parent").ok()? };
+        let az_tab_index_no_keyboard_focus = unsafe { lib.get::<extern fn() -> AzTabIndex>(b"az_tab_index_no_keyboard_focus").ok()? };
+        let az_tab_index_delete = unsafe { lib.get::<extern fn(_: &mut AzTabIndex)>(b"az_tab_index_delete").ok()? };
+        let az_tab_index_deep_copy = unsafe { lib.get::<extern fn(_: &AzTabIndex) -> AzTabIndex>(b"az_tab_index_deep_copy").ok()? };
+        let az_text_id_new = unsafe { lib.get::<extern fn() -> AzTextId>(b"az_text_id_new").ok()? };
+        let az_text_id_delete = unsafe { lib.get::<extern fn(_: &mut AzTextId)>(b"az_text_id_delete").ok()? };
+        let az_text_id_deep_copy = unsafe { lib.get::<extern fn(_: &AzTextId) -> AzTextId>(b"az_text_id_deep_copy").ok()? };
+        let az_image_id_new = unsafe { lib.get::<extern fn() -> AzImageId>(b"az_image_id_new").ok()? };
+        let az_image_id_delete = unsafe { lib.get::<extern fn(_: &mut AzImageId)>(b"az_image_id_delete").ok()? };
+        let az_image_id_deep_copy = unsafe { lib.get::<extern fn(_: &AzImageId) -> AzImageId>(b"az_image_id_deep_copy").ok()? };
+        let az_font_id_new = unsafe { lib.get::<extern fn() -> AzFontId>(b"az_font_id_new").ok()? };
+        let az_font_id_delete = unsafe { lib.get::<extern fn(_: &mut AzFontId)>(b"az_font_id_delete").ok()? };
+        let az_font_id_deep_copy = unsafe { lib.get::<extern fn(_: &AzFontId) -> AzFontId>(b"az_font_id_deep_copy").ok()? };
+        let az_image_source_embedded = unsafe { lib.get::<extern fn(_: AzU8Vec) -> AzImageSource>(b"az_image_source_embedded").ok()? };
+        let az_image_source_file = unsafe { lib.get::<extern fn(_: AzPathBufPtr) -> AzImageSource>(b"az_image_source_file").ok()? };
+        let az_image_source_raw = unsafe { lib.get::<extern fn(_: AzRawImagePtr) -> AzImageSource>(b"az_image_source_raw").ok()? };
+        let az_image_source_delete = unsafe { lib.get::<extern fn(_: &mut AzImageSource)>(b"az_image_source_delete").ok()? };
+        let az_image_source_deep_copy = unsafe { lib.get::<extern fn(_: &AzImageSource) -> AzImageSource>(b"az_image_source_deep_copy").ok()? };
+        let az_font_source_embedded = unsafe { lib.get::<extern fn(_: AzU8Vec) -> AzFontSource>(b"az_font_source_embedded").ok()? };
+        let az_font_source_file = unsafe { lib.get::<extern fn(_: AzPathBufPtr) -> AzFontSource>(b"az_font_source_file").ok()? };
+        let az_font_source_system = unsafe { lib.get::<extern fn(_: AzString) -> AzFontSource>(b"az_font_source_system").ok()? };
+        let az_font_source_delete = unsafe { lib.get::<extern fn(_: &mut AzFontSource)>(b"az_font_source_delete").ok()? };
+        let az_font_source_deep_copy = unsafe { lib.get::<extern fn(_: &AzFontSource) -> AzFontSource>(b"az_font_source_deep_copy").ok()? };
+        let az_raw_image_new = unsafe { lib.get::<extern fn(_: AzRawImageFormat) -> AzRawImagePtr>(b"az_raw_image_new").ok()? };
+        let az_raw_image_delete = unsafe { lib.get::<extern fn(_: &mut AzRawImagePtr)>(b"az_raw_image_delete").ok()? };
+        let az_raw_image_shallow_copy = unsafe { lib.get::<extern fn(_: &AzRawImagePtr) -> AzRawImagePtr>(b"az_raw_image_shallow_copy").ok()? };
+        let az_raw_image_format_r8 = unsafe { lib.get::<extern fn() -> AzRawImageFormat>(b"az_raw_image_format_r8").ok()? };
+        let az_raw_image_format_r16 = unsafe { lib.get::<extern fn() -> AzRawImageFormat>(b"az_raw_image_format_r16").ok()? };
+        let az_raw_image_format_rg16 = unsafe { lib.get::<extern fn() -> AzRawImageFormat>(b"az_raw_image_format_rg16").ok()? };
+        let az_raw_image_format_bgra8 = unsafe { lib.get::<extern fn() -> AzRawImageFormat>(b"az_raw_image_format_bgra8").ok()? };
+        let az_raw_image_format_rgbaf32 = unsafe { lib.get::<extern fn() -> AzRawImageFormat>(b"az_raw_image_format_rgbaf32").ok()? };
+        let az_raw_image_format_rg8 = unsafe { lib.get::<extern fn() -> AzRawImageFormat>(b"az_raw_image_format_rg8").ok()? };
+        let az_raw_image_format_rgbai32 = unsafe { lib.get::<extern fn() -> AzRawImageFormat>(b"az_raw_image_format_rgbai32").ok()? };
+        let az_raw_image_format_rgba8 = unsafe { lib.get::<extern fn() -> AzRawImageFormat>(b"az_raw_image_format_rgba8").ok()? };
+        let az_raw_image_format_delete = unsafe { lib.get::<extern fn(_: &mut AzRawImageFormat)>(b"az_raw_image_format_delete").ok()? };
+        let az_raw_image_format_deep_copy = unsafe { lib.get::<extern fn(_: &AzRawImageFormat) -> AzRawImageFormat>(b"az_raw_image_format_deep_copy").ok()? };
+        let az_window_create_options_new = unsafe { lib.get::<extern fn(_: AzCssPtr) -> AzWindowCreateOptionsPtr>(b"az_window_create_options_new").ok()? };
+        let az_window_create_options_delete = unsafe { lib.get::<extern fn(_: &mut AzWindowCreateOptionsPtr)>(b"az_window_create_options_delete").ok()? };
+        let az_window_create_options_shallow_copy = unsafe { lib.get::<extern fn(_: &AzWindowCreateOptionsPtr) -> AzWindowCreateOptionsPtr>(b"az_window_create_options_shallow_copy").ok()? };
+        Some(AzulDll {
+            lib: Box::new(lib),
+            az_string_from_utf8_unchecked,
+            az_string_from_utf8_lossy,
+            az_string_into_bytes,
+            az_string_delete,
+            az_string_deep_copy,
+            az_u8_vec_copy_from,
+            az_u8_vec_as_ptr,
+            az_u8_vec_len,
+            az_u8_vec_delete,
+            az_u8_vec_deep_copy,
+            az_string_vec_copy_from,
+            az_string_vec_delete,
+            az_string_vec_deep_copy,
+            az_path_buf_new,
+            az_path_buf_delete,
+            az_path_buf_shallow_copy,
+            az_app_config_default,
+            az_app_config_delete,
+            az_app_config_shallow_copy,
+            az_app_new,
+            az_app_run,
+            az_app_delete,
+            az_app_shallow_copy,
+            az_callback_info_delete,
+            az_callback_info_shallow_copy,
+            az_i_frame_callback_info_delete,
+            az_i_frame_callback_info_shallow_copy,
+            az_i_frame_callback_return_delete,
+            az_i_frame_callback_return_shallow_copy,
+            az_gl_callback_info_delete,
+            az_gl_callback_info_shallow_copy,
+            az_gl_callback_return_delete,
+            az_gl_callback_return_shallow_copy,
+            az_layout_info_delete,
+            az_layout_info_shallow_copy,
+            az_css_native,
+            az_css_empty,
+            az_css_delete,
+            az_css_shallow_copy,
+            az_box_shadow_pre_display_item_delete,
+            az_box_shadow_pre_display_item_shallow_copy,
+            az_layout_align_content_delete,
+            az_layout_align_content_shallow_copy,
+            az_layout_align_items_delete,
+            az_layout_align_items_shallow_copy,
+            az_layout_bottom_delete,
+            az_layout_bottom_shallow_copy,
+            az_layout_box_sizing_delete,
+            az_layout_box_sizing_shallow_copy,
+            az_layout_direction_delete,
+            az_layout_direction_shallow_copy,
+            az_layout_display_delete,
+            az_layout_display_shallow_copy,
+            az_layout_flex_grow_delete,
+            az_layout_flex_grow_shallow_copy,
+            az_layout_flex_shrink_delete,
+            az_layout_flex_shrink_shallow_copy,
+            az_layout_float_delete,
+            az_layout_float_shallow_copy,
+            az_layout_height_delete,
+            az_layout_height_shallow_copy,
+            az_layout_justify_content_delete,
+            az_layout_justify_content_shallow_copy,
+            az_layout_left_delete,
+            az_layout_left_shallow_copy,
+            az_layout_margin_bottom_delete,
+            az_layout_margin_bottom_shallow_copy,
+            az_layout_margin_left_delete,
+            az_layout_margin_left_shallow_copy,
+            az_layout_margin_right_delete,
+            az_layout_margin_right_shallow_copy,
+            az_layout_margin_top_delete,
+            az_layout_margin_top_shallow_copy,
+            az_layout_max_height_delete,
+            az_layout_max_height_shallow_copy,
+            az_layout_max_width_delete,
+            az_layout_max_width_shallow_copy,
+            az_layout_min_height_delete,
+            az_layout_min_height_shallow_copy,
+            az_layout_min_width_delete,
+            az_layout_min_width_shallow_copy,
+            az_layout_padding_bottom_delete,
+            az_layout_padding_bottom_shallow_copy,
+            az_layout_padding_left_delete,
+            az_layout_padding_left_shallow_copy,
+            az_layout_padding_right_delete,
+            az_layout_padding_right_shallow_copy,
+            az_layout_padding_top_delete,
+            az_layout_padding_top_shallow_copy,
+            az_layout_position_delete,
+            az_layout_position_shallow_copy,
+            az_layout_right_delete,
+            az_layout_right_shallow_copy,
+            az_layout_top_delete,
+            az_layout_top_shallow_copy,
+            az_layout_width_delete,
+            az_layout_width_shallow_copy,
+            az_layout_wrap_delete,
+            az_layout_wrap_shallow_copy,
+            az_overflow_delete,
+            az_overflow_shallow_copy,
+            az_style_background_content_delete,
+            az_style_background_content_shallow_copy,
+            az_style_background_position_delete,
+            az_style_background_position_shallow_copy,
+            az_style_background_repeat_delete,
+            az_style_background_repeat_shallow_copy,
+            az_style_background_size_delete,
+            az_style_background_size_shallow_copy,
+            az_style_border_bottom_color_delete,
+            az_style_border_bottom_color_shallow_copy,
+            az_style_border_bottom_left_radius_delete,
+            az_style_border_bottom_left_radius_shallow_copy,
+            az_style_border_bottom_right_radius_delete,
+            az_style_border_bottom_right_radius_shallow_copy,
+            az_style_border_bottom_style_delete,
+            az_style_border_bottom_style_shallow_copy,
+            az_style_border_bottom_width_delete,
+            az_style_border_bottom_width_shallow_copy,
+            az_style_border_left_color_delete,
+            az_style_border_left_color_shallow_copy,
+            az_style_border_left_style_delete,
+            az_style_border_left_style_shallow_copy,
+            az_style_border_left_width_delete,
+            az_style_border_left_width_shallow_copy,
+            az_style_border_right_color_delete,
+            az_style_border_right_color_shallow_copy,
+            az_style_border_right_style_delete,
+            az_style_border_right_style_shallow_copy,
+            az_style_border_right_width_delete,
+            az_style_border_right_width_shallow_copy,
+            az_style_border_top_color_delete,
+            az_style_border_top_color_shallow_copy,
+            az_style_border_top_left_radius_delete,
+            az_style_border_top_left_radius_shallow_copy,
+            az_style_border_top_right_radius_delete,
+            az_style_border_top_right_radius_shallow_copy,
+            az_style_border_top_style_delete,
+            az_style_border_top_style_shallow_copy,
+            az_style_border_top_width_delete,
+            az_style_border_top_width_shallow_copy,
+            az_style_cursor_delete,
+            az_style_cursor_shallow_copy,
+            az_style_font_family_delete,
+            az_style_font_family_shallow_copy,
+            az_style_font_size_delete,
+            az_style_font_size_shallow_copy,
+            az_style_letter_spacing_delete,
+            az_style_letter_spacing_shallow_copy,
+            az_style_line_height_delete,
+            az_style_line_height_shallow_copy,
+            az_style_tab_width_delete,
+            az_style_tab_width_shallow_copy,
+            az_style_text_alignment_horz_delete,
+            az_style_text_alignment_horz_shallow_copy,
+            az_style_text_color_delete,
+            az_style_text_color_shallow_copy,
+            az_style_word_spacing_delete,
+            az_style_word_spacing_shallow_copy,
+            az_box_shadow_pre_display_item_value_auto,
+            az_box_shadow_pre_display_item_value_none,
+            az_box_shadow_pre_display_item_value_inherit,
+            az_box_shadow_pre_display_item_value_initial,
+            az_box_shadow_pre_display_item_value_exact,
+            az_box_shadow_pre_display_item_value_delete,
+            az_box_shadow_pre_display_item_value_deep_copy,
+            az_layout_align_content_value_auto,
+            az_layout_align_content_value_none,
+            az_layout_align_content_value_inherit,
+            az_layout_align_content_value_initial,
+            az_layout_align_content_value_exact,
+            az_layout_align_content_value_delete,
+            az_layout_align_content_value_deep_copy,
+            az_layout_align_items_value_auto,
+            az_layout_align_items_value_none,
+            az_layout_align_items_value_inherit,
+            az_layout_align_items_value_initial,
+            az_layout_align_items_value_exact,
+            az_layout_align_items_value_delete,
+            az_layout_align_items_value_deep_copy,
+            az_layout_bottom_value_auto,
+            az_layout_bottom_value_none,
+            az_layout_bottom_value_inherit,
+            az_layout_bottom_value_initial,
+            az_layout_bottom_value_exact,
+            az_layout_bottom_value_delete,
+            az_layout_bottom_value_deep_copy,
+            az_layout_box_sizing_value_auto,
+            az_layout_box_sizing_value_none,
+            az_layout_box_sizing_value_inherit,
+            az_layout_box_sizing_value_initial,
+            az_layout_box_sizing_value_exact,
+            az_layout_box_sizing_value_delete,
+            az_layout_box_sizing_value_deep_copy,
+            az_layout_direction_value_auto,
+            az_layout_direction_value_none,
+            az_layout_direction_value_inherit,
+            az_layout_direction_value_initial,
+            az_layout_direction_value_exact,
+            az_layout_direction_value_delete,
+            az_layout_direction_value_deep_copy,
+            az_layout_display_value_auto,
+            az_layout_display_value_none,
+            az_layout_display_value_inherit,
+            az_layout_display_value_initial,
+            az_layout_display_value_exact,
+            az_layout_display_value_delete,
+            az_layout_display_value_deep_copy,
+            az_layout_flex_grow_value_auto,
+            az_layout_flex_grow_value_none,
+            az_layout_flex_grow_value_inherit,
+            az_layout_flex_grow_value_initial,
+            az_layout_flex_grow_value_exact,
+            az_layout_flex_grow_value_delete,
+            az_layout_flex_grow_value_deep_copy,
+            az_layout_flex_shrink_value_auto,
+            az_layout_flex_shrink_value_none,
+            az_layout_flex_shrink_value_inherit,
+            az_layout_flex_shrink_value_initial,
+            az_layout_flex_shrink_value_exact,
+            az_layout_flex_shrink_value_delete,
+            az_layout_flex_shrink_value_deep_copy,
+            az_layout_float_value_auto,
+            az_layout_float_value_none,
+            az_layout_float_value_inherit,
+            az_layout_float_value_initial,
+            az_layout_float_value_exact,
+            az_layout_float_value_delete,
+            az_layout_float_value_deep_copy,
+            az_layout_height_value_auto,
+            az_layout_height_value_none,
+            az_layout_height_value_inherit,
+            az_layout_height_value_initial,
+            az_layout_height_value_exact,
+            az_layout_height_value_delete,
+            az_layout_height_value_deep_copy,
+            az_layout_justify_content_value_auto,
+            az_layout_justify_content_value_none,
+            az_layout_justify_content_value_inherit,
+            az_layout_justify_content_value_initial,
+            az_layout_justify_content_value_exact,
+            az_layout_justify_content_value_delete,
+            az_layout_justify_content_value_deep_copy,
+            az_layout_left_value_auto,
+            az_layout_left_value_none,
+            az_layout_left_value_inherit,
+            az_layout_left_value_initial,
+            az_layout_left_value_exact,
+            az_layout_left_value_delete,
+            az_layout_left_value_deep_copy,
+            az_layout_margin_bottom_value_auto,
+            az_layout_margin_bottom_value_none,
+            az_layout_margin_bottom_value_inherit,
+            az_layout_margin_bottom_value_initial,
+            az_layout_margin_bottom_value_exact,
+            az_layout_margin_bottom_value_delete,
+            az_layout_margin_bottom_value_deep_copy,
+            az_layout_margin_left_value_auto,
+            az_layout_margin_left_value_none,
+            az_layout_margin_left_value_inherit,
+            az_layout_margin_left_value_initial,
+            az_layout_margin_left_value_exact,
+            az_layout_margin_left_value_delete,
+            az_layout_margin_left_value_deep_copy,
+            az_layout_margin_right_value_auto,
+            az_layout_margin_right_value_none,
+            az_layout_margin_right_value_inherit,
+            az_layout_margin_right_value_initial,
+            az_layout_margin_right_value_exact,
+            az_layout_margin_right_value_delete,
+            az_layout_margin_right_value_deep_copy,
+            az_layout_margin_top_value_auto,
+            az_layout_margin_top_value_none,
+            az_layout_margin_top_value_inherit,
+            az_layout_margin_top_value_initial,
+            az_layout_margin_top_value_exact,
+            az_layout_margin_top_value_delete,
+            az_layout_margin_top_value_deep_copy,
+            az_layout_max_height_value_auto,
+            az_layout_max_height_value_none,
+            az_layout_max_height_value_inherit,
+            az_layout_max_height_value_initial,
+            az_layout_max_height_value_exact,
+            az_layout_max_height_value_delete,
+            az_layout_max_height_value_deep_copy,
+            az_layout_max_width_value_auto,
+            az_layout_max_width_value_none,
+            az_layout_max_width_value_inherit,
+            az_layout_max_width_value_initial,
+            az_layout_max_width_value_exact,
+            az_layout_max_width_value_delete,
+            az_layout_max_width_value_deep_copy,
+            az_layout_min_height_value_auto,
+            az_layout_min_height_value_none,
+            az_layout_min_height_value_inherit,
+            az_layout_min_height_value_initial,
+            az_layout_min_height_value_exact,
+            az_layout_min_height_value_delete,
+            az_layout_min_height_value_deep_copy,
+            az_layout_min_width_value_auto,
+            az_layout_min_width_value_none,
+            az_layout_min_width_value_inherit,
+            az_layout_min_width_value_initial,
+            az_layout_min_width_value_exact,
+            az_layout_min_width_value_delete,
+            az_layout_min_width_value_deep_copy,
+            az_layout_padding_bottom_value_auto,
+            az_layout_padding_bottom_value_none,
+            az_layout_padding_bottom_value_inherit,
+            az_layout_padding_bottom_value_initial,
+            az_layout_padding_bottom_value_exact,
+            az_layout_padding_bottom_value_delete,
+            az_layout_padding_bottom_value_deep_copy,
+            az_layout_padding_left_value_auto,
+            az_layout_padding_left_value_none,
+            az_layout_padding_left_value_inherit,
+            az_layout_padding_left_value_initial,
+            az_layout_padding_left_value_exact,
+            az_layout_padding_left_value_delete,
+            az_layout_padding_left_value_deep_copy,
+            az_layout_padding_right_value_auto,
+            az_layout_padding_right_value_none,
+            az_layout_padding_right_value_inherit,
+            az_layout_padding_right_value_initial,
+            az_layout_padding_right_value_exact,
+            az_layout_padding_right_value_delete,
+            az_layout_padding_right_value_deep_copy,
+            az_layout_padding_top_value_auto,
+            az_layout_padding_top_value_none,
+            az_layout_padding_top_value_inherit,
+            az_layout_padding_top_value_initial,
+            az_layout_padding_top_value_exact,
+            az_layout_padding_top_value_delete,
+            az_layout_padding_top_value_deep_copy,
+            az_layout_position_value_auto,
+            az_layout_position_value_none,
+            az_layout_position_value_inherit,
+            az_layout_position_value_initial,
+            az_layout_position_value_exact,
+            az_layout_position_value_delete,
+            az_layout_position_value_deep_copy,
+            az_layout_right_value_auto,
+            az_layout_right_value_none,
+            az_layout_right_value_inherit,
+            az_layout_right_value_initial,
+            az_layout_right_value_exact,
+            az_layout_right_value_delete,
+            az_layout_right_value_deep_copy,
+            az_layout_top_value_auto,
+            az_layout_top_value_none,
+            az_layout_top_value_inherit,
+            az_layout_top_value_initial,
+            az_layout_top_value_exact,
+            az_layout_top_value_delete,
+            az_layout_top_value_deep_copy,
+            az_layout_width_value_auto,
+            az_layout_width_value_none,
+            az_layout_width_value_inherit,
+            az_layout_width_value_initial,
+            az_layout_width_value_exact,
+            az_layout_width_value_delete,
+            az_layout_width_value_deep_copy,
+            az_layout_wrap_value_auto,
+            az_layout_wrap_value_none,
+            az_layout_wrap_value_inherit,
+            az_layout_wrap_value_initial,
+            az_layout_wrap_value_exact,
+            az_layout_wrap_value_delete,
+            az_layout_wrap_value_deep_copy,
+            az_overflow_value_auto,
+            az_overflow_value_none,
+            az_overflow_value_inherit,
+            az_overflow_value_initial,
+            az_overflow_value_exact,
+            az_overflow_value_delete,
+            az_overflow_value_deep_copy,
+            az_style_background_content_value_auto,
+            az_style_background_content_value_none,
+            az_style_background_content_value_inherit,
+            az_style_background_content_value_initial,
+            az_style_background_content_value_exact,
+            az_style_background_content_value_delete,
+            az_style_background_content_value_deep_copy,
+            az_style_background_position_value_auto,
+            az_style_background_position_value_none,
+            az_style_background_position_value_inherit,
+            az_style_background_position_value_initial,
+            az_style_background_position_value_exact,
+            az_style_background_position_value_delete,
+            az_style_background_position_value_deep_copy,
+            az_style_background_repeat_value_auto,
+            az_style_background_repeat_value_none,
+            az_style_background_repeat_value_inherit,
+            az_style_background_repeat_value_initial,
+            az_style_background_repeat_value_exact,
+            az_style_background_repeat_value_delete,
+            az_style_background_repeat_value_deep_copy,
+            az_style_background_size_value_auto,
+            az_style_background_size_value_none,
+            az_style_background_size_value_inherit,
+            az_style_background_size_value_initial,
+            az_style_background_size_value_exact,
+            az_style_background_size_value_delete,
+            az_style_background_size_value_deep_copy,
+            az_style_border_bottom_color_value_auto,
+            az_style_border_bottom_color_value_none,
+            az_style_border_bottom_color_value_inherit,
+            az_style_border_bottom_color_value_initial,
+            az_style_border_bottom_color_value_exact,
+            az_style_border_bottom_color_value_delete,
+            az_style_border_bottom_color_value_deep_copy,
+            az_style_border_bottom_left_radius_value_auto,
+            az_style_border_bottom_left_radius_value_none,
+            az_style_border_bottom_left_radius_value_inherit,
+            az_style_border_bottom_left_radius_value_initial,
+            az_style_border_bottom_left_radius_value_exact,
+            az_style_border_bottom_left_radius_value_delete,
+            az_style_border_bottom_left_radius_value_deep_copy,
+            az_style_border_bottom_right_radius_value_auto,
+            az_style_border_bottom_right_radius_value_none,
+            az_style_border_bottom_right_radius_value_inherit,
+            az_style_border_bottom_right_radius_value_initial,
+            az_style_border_bottom_right_radius_value_exact,
+            az_style_border_bottom_right_radius_value_delete,
+            az_style_border_bottom_right_radius_value_deep_copy,
+            az_style_border_bottom_style_value_auto,
+            az_style_border_bottom_style_value_none,
+            az_style_border_bottom_style_value_inherit,
+            az_style_border_bottom_style_value_initial,
+            az_style_border_bottom_style_value_exact,
+            az_style_border_bottom_style_value_delete,
+            az_style_border_bottom_style_value_deep_copy,
+            az_style_border_bottom_width_value_auto,
+            az_style_border_bottom_width_value_none,
+            az_style_border_bottom_width_value_inherit,
+            az_style_border_bottom_width_value_initial,
+            az_style_border_bottom_width_value_exact,
+            az_style_border_bottom_width_value_delete,
+            az_style_border_bottom_width_value_deep_copy,
+            az_style_border_left_color_value_auto,
+            az_style_border_left_color_value_none,
+            az_style_border_left_color_value_inherit,
+            az_style_border_left_color_value_initial,
+            az_style_border_left_color_value_exact,
+            az_style_border_left_color_value_delete,
+            az_style_border_left_color_value_deep_copy,
+            az_style_border_left_style_value_auto,
+            az_style_border_left_style_value_none,
+            az_style_border_left_style_value_inherit,
+            az_style_border_left_style_value_initial,
+            az_style_border_left_style_value_exact,
+            az_style_border_left_style_value_delete,
+            az_style_border_left_style_value_deep_copy,
+            az_style_border_left_width_value_auto,
+            az_style_border_left_width_value_none,
+            az_style_border_left_width_value_inherit,
+            az_style_border_left_width_value_initial,
+            az_style_border_left_width_value_exact,
+            az_style_border_left_width_value_delete,
+            az_style_border_left_width_value_deep_copy,
+            az_style_border_right_color_value_auto,
+            az_style_border_right_color_value_none,
+            az_style_border_right_color_value_inherit,
+            az_style_border_right_color_value_initial,
+            az_style_border_right_color_value_exact,
+            az_style_border_right_color_value_delete,
+            az_style_border_right_color_value_deep_copy,
+            az_style_border_right_style_value_auto,
+            az_style_border_right_style_value_none,
+            az_style_border_right_style_value_inherit,
+            az_style_border_right_style_value_initial,
+            az_style_border_right_style_value_exact,
+            az_style_border_right_style_value_delete,
+            az_style_border_right_style_value_deep_copy,
+            az_style_border_right_width_value_auto,
+            az_style_border_right_width_value_none,
+            az_style_border_right_width_value_inherit,
+            az_style_border_right_width_value_initial,
+            az_style_border_right_width_value_exact,
+            az_style_border_right_width_value_delete,
+            az_style_border_right_width_value_deep_copy,
+            az_style_border_top_color_value_auto,
+            az_style_border_top_color_value_none,
+            az_style_border_top_color_value_inherit,
+            az_style_border_top_color_value_initial,
+            az_style_border_top_color_value_exact,
+            az_style_border_top_color_value_delete,
+            az_style_border_top_color_value_deep_copy,
+            az_style_border_top_left_radius_value_auto,
+            az_style_border_top_left_radius_value_none,
+            az_style_border_top_left_radius_value_inherit,
+            az_style_border_top_left_radius_value_initial,
+            az_style_border_top_left_radius_value_exact,
+            az_style_border_top_left_radius_value_delete,
+            az_style_border_top_left_radius_value_deep_copy,
+            az_style_border_top_right_radius_value_auto,
+            az_style_border_top_right_radius_value_none,
+            az_style_border_top_right_radius_value_inherit,
+            az_style_border_top_right_radius_value_initial,
+            az_style_border_top_right_radius_value_exact,
+            az_style_border_top_right_radius_value_delete,
+            az_style_border_top_right_radius_value_deep_copy,
+            az_style_border_top_style_value_auto,
+            az_style_border_top_style_value_none,
+            az_style_border_top_style_value_inherit,
+            az_style_border_top_style_value_initial,
+            az_style_border_top_style_value_exact,
+            az_style_border_top_style_value_delete,
+            az_style_border_top_style_value_deep_copy,
+            az_style_border_top_width_value_auto,
+            az_style_border_top_width_value_none,
+            az_style_border_top_width_value_inherit,
+            az_style_border_top_width_value_initial,
+            az_style_border_top_width_value_exact,
+            az_style_border_top_width_value_delete,
+            az_style_border_top_width_value_deep_copy,
+            az_style_cursor_value_auto,
+            az_style_cursor_value_none,
+            az_style_cursor_value_inherit,
+            az_style_cursor_value_initial,
+            az_style_cursor_value_exact,
+            az_style_cursor_value_delete,
+            az_style_cursor_value_deep_copy,
+            az_style_font_family_value_auto,
+            az_style_font_family_value_none,
+            az_style_font_family_value_inherit,
+            az_style_font_family_value_initial,
+            az_style_font_family_value_exact,
+            az_style_font_family_value_delete,
+            az_style_font_family_value_deep_copy,
+            az_style_font_size_value_auto,
+            az_style_font_size_value_none,
+            az_style_font_size_value_inherit,
+            az_style_font_size_value_initial,
+            az_style_font_size_value_exact,
+            az_style_font_size_value_delete,
+            az_style_font_size_value_deep_copy,
+            az_style_letter_spacing_value_auto,
+            az_style_letter_spacing_value_none,
+            az_style_letter_spacing_value_inherit,
+            az_style_letter_spacing_value_initial,
+            az_style_letter_spacing_value_exact,
+            az_style_letter_spacing_value_delete,
+            az_style_letter_spacing_value_deep_copy,
+            az_style_line_height_value_auto,
+            az_style_line_height_value_none,
+            az_style_line_height_value_inherit,
+            az_style_line_height_value_initial,
+            az_style_line_height_value_exact,
+            az_style_line_height_value_delete,
+            az_style_line_height_value_deep_copy,
+            az_style_tab_width_value_auto,
+            az_style_tab_width_value_none,
+            az_style_tab_width_value_inherit,
+            az_style_tab_width_value_initial,
+            az_style_tab_width_value_exact,
+            az_style_tab_width_value_delete,
+            az_style_tab_width_value_deep_copy,
+            az_style_text_alignment_horz_value_auto,
+            az_style_text_alignment_horz_value_none,
+            az_style_text_alignment_horz_value_inherit,
+            az_style_text_alignment_horz_value_initial,
+            az_style_text_alignment_horz_value_exact,
+            az_style_text_alignment_horz_value_delete,
+            az_style_text_alignment_horz_value_deep_copy,
+            az_style_text_color_value_auto,
+            az_style_text_color_value_none,
+            az_style_text_color_value_inherit,
+            az_style_text_color_value_initial,
+            az_style_text_color_value_exact,
+            az_style_text_color_value_delete,
+            az_style_text_color_value_deep_copy,
+            az_style_word_spacing_value_auto,
+            az_style_word_spacing_value_none,
+            az_style_word_spacing_value_inherit,
+            az_style_word_spacing_value_initial,
+            az_style_word_spacing_value_exact,
+            az_style_word_spacing_value_delete,
+            az_style_word_spacing_value_deep_copy,
+            az_css_property_text_color,
+            az_css_property_font_size,
+            az_css_property_font_family,
+            az_css_property_text_align,
+            az_css_property_letter_spacing,
+            az_css_property_line_height,
+            az_css_property_word_spacing,
+            az_css_property_tab_width,
+            az_css_property_cursor,
+            az_css_property_display,
+            az_css_property_float,
+            az_css_property_box_sizing,
+            az_css_property_width,
+            az_css_property_height,
+            az_css_property_min_width,
+            az_css_property_min_height,
+            az_css_property_max_width,
+            az_css_property_max_height,
+            az_css_property_position,
+            az_css_property_top,
+            az_css_property_right,
+            az_css_property_left,
+            az_css_property_bottom,
+            az_css_property_flex_wrap,
+            az_css_property_flex_direction,
+            az_css_property_flex_grow,
+            az_css_property_flex_shrink,
+            az_css_property_justify_content,
+            az_css_property_align_items,
+            az_css_property_align_content,
+            az_css_property_background_content,
+            az_css_property_background_position,
+            az_css_property_background_size,
+            az_css_property_background_repeat,
+            az_css_property_overflow_x,
+            az_css_property_overflow_y,
+            az_css_property_padding_top,
+            az_css_property_padding_left,
+            az_css_property_padding_right,
+            az_css_property_padding_bottom,
+            az_css_property_margin_top,
+            az_css_property_margin_left,
+            az_css_property_margin_right,
+            az_css_property_margin_bottom,
+            az_css_property_border_top_left_radius,
+            az_css_property_border_top_right_radius,
+            az_css_property_border_bottom_left_radius,
+            az_css_property_border_bottom_right_radius,
+            az_css_property_border_top_color,
+            az_css_property_border_right_color,
+            az_css_property_border_left_color,
+            az_css_property_border_bottom_color,
+            az_css_property_border_top_style,
+            az_css_property_border_right_style,
+            az_css_property_border_left_style,
+            az_css_property_border_bottom_style,
+            az_css_property_border_top_width,
+            az_css_property_border_right_width,
+            az_css_property_border_left_width,
+            az_css_property_border_bottom_width,
+            az_css_property_box_shadow_left,
+            az_css_property_box_shadow_right,
+            az_css_property_box_shadow_top,
+            az_css_property_box_shadow_bottom,
+            az_css_property_delete,
+            az_css_property_deep_copy,
+            az_dom_div,
+            az_dom_body,
+            az_dom_label,
+            az_dom_text,
+            az_dom_image,
+            az_dom_gl_texture,
+            az_dom_iframe_callback,
+            az_dom_add_id,
+            az_dom_with_id,
+            az_dom_set_ids,
+            az_dom_with_ids,
+            az_dom_add_class,
+            az_dom_with_class,
+            az_dom_set_classes,
+            az_dom_with_classes,
+            az_dom_add_callback,
+            az_dom_with_callback,
+            az_dom_add_css_override,
+            az_dom_with_css_override,
+            az_dom_set_is_draggable,
+            az_dom_is_draggable,
+            az_dom_set_tab_index,
+            az_dom_with_tab_index,
+            az_dom_add_child,
+            az_dom_with_child,
+            az_dom_has_id,
+            az_dom_has_class,
+            az_dom_get_html_string,
+            az_dom_delete,
+            az_dom_shallow_copy,
+            az_event_filter_hover,
+            az_event_filter_not,
+            az_event_filter_focus,
+            az_event_filter_window,
+            az_event_filter_delete,
+            az_event_filter_deep_copy,
+            az_hover_event_filter_mouse_over,
+            az_hover_event_filter_mouse_down,
+            az_hover_event_filter_left_mouse_down,
+            az_hover_event_filter_right_mouse_down,
+            az_hover_event_filter_middle_mouse_down,
+            az_hover_event_filter_mouse_up,
+            az_hover_event_filter_left_mouse_up,
+            az_hover_event_filter_right_mouse_up,
+            az_hover_event_filter_middle_mouse_up,
+            az_hover_event_filter_mouse_enter,
+            az_hover_event_filter_mouse_leave,
+            az_hover_event_filter_scroll,
+            az_hover_event_filter_scroll_start,
+            az_hover_event_filter_scroll_end,
+            az_hover_event_filter_text_input,
+            az_hover_event_filter_virtual_key_down,
+            az_hover_event_filter_virtual_key_up,
+            az_hover_event_filter_hovered_file,
+            az_hover_event_filter_dropped_file,
+            az_hover_event_filter_hovered_file_cancelled,
+            az_hover_event_filter_delete,
+            az_hover_event_filter_deep_copy,
+            az_focus_event_filter_mouse_over,
+            az_focus_event_filter_mouse_down,
+            az_focus_event_filter_left_mouse_down,
+            az_focus_event_filter_right_mouse_down,
+            az_focus_event_filter_middle_mouse_down,
+            az_focus_event_filter_mouse_up,
+            az_focus_event_filter_left_mouse_up,
+            az_focus_event_filter_right_mouse_up,
+            az_focus_event_filter_middle_mouse_up,
+            az_focus_event_filter_mouse_enter,
+            az_focus_event_filter_mouse_leave,
+            az_focus_event_filter_scroll,
+            az_focus_event_filter_scroll_start,
+            az_focus_event_filter_scroll_end,
+            az_focus_event_filter_text_input,
+            az_focus_event_filter_virtual_key_down,
+            az_focus_event_filter_virtual_key_up,
+            az_focus_event_filter_focus_received,
+            az_focus_event_filter_focus_lost,
+            az_focus_event_filter_delete,
+            az_focus_event_filter_deep_copy,
+            az_not_event_filter_hover,
+            az_not_event_filter_focus,
+            az_not_event_filter_delete,
+            az_not_event_filter_deep_copy,
+            az_window_event_filter_mouse_over,
+            az_window_event_filter_mouse_down,
+            az_window_event_filter_left_mouse_down,
+            az_window_event_filter_right_mouse_down,
+            az_window_event_filter_middle_mouse_down,
+            az_window_event_filter_mouse_up,
+            az_window_event_filter_left_mouse_up,
+            az_window_event_filter_right_mouse_up,
+            az_window_event_filter_middle_mouse_up,
+            az_window_event_filter_mouse_enter,
+            az_window_event_filter_mouse_leave,
+            az_window_event_filter_scroll,
+            az_window_event_filter_scroll_start,
+            az_window_event_filter_scroll_end,
+            az_window_event_filter_text_input,
+            az_window_event_filter_virtual_key_down,
+            az_window_event_filter_virtual_key_up,
+            az_window_event_filter_hovered_file,
+            az_window_event_filter_dropped_file,
+            az_window_event_filter_hovered_file_cancelled,
+            az_window_event_filter_delete,
+            az_window_event_filter_deep_copy,
+            az_tab_index_auto,
+            az_tab_index_override_in_parent,
+            az_tab_index_no_keyboard_focus,
+            az_tab_index_delete,
+            az_tab_index_deep_copy,
+            az_text_id_new,
+            az_text_id_delete,
+            az_text_id_deep_copy,
+            az_image_id_new,
+            az_image_id_delete,
+            az_image_id_deep_copy,
+            az_font_id_new,
+            az_font_id_delete,
+            az_font_id_deep_copy,
+            az_image_source_embedded,
+            az_image_source_file,
+            az_image_source_raw,
+            az_image_source_delete,
+            az_image_source_deep_copy,
+            az_font_source_embedded,
+            az_font_source_file,
+            az_font_source_system,
+            az_font_source_delete,
+            az_font_source_deep_copy,
+            az_raw_image_new,
+            az_raw_image_delete,
+            az_raw_image_shallow_copy,
+            az_raw_image_format_r8,
+            az_raw_image_format_r16,
+            az_raw_image_format_rg16,
+            az_raw_image_format_bgra8,
+            az_raw_image_format_rgbaf32,
+            az_raw_image_format_rg8,
+            az_raw_image_format_rgbai32,
+            az_raw_image_format_rgba8,
+            az_raw_image_format_delete,
+            az_raw_image_format_deep_copy,
+            az_window_create_options_new,
+            az_window_create_options_delete,
+            az_window_create_options_shallow_copy,
+        })
+    }
+}
+
 /// Module to re-export common structs (`App`, `AppConfig`, `Css`, `Dom`, `WindowCreateOptions`, `RefAny`, `LayoutInfo`)
 pub mod prelude {
     pub use crate::{
@@ -2125,8 +4516,8 @@ pub mod dom {
 
     use azul_dll::*;
     use crate::str::String;
-    use crate::resources::{ImageId, TextId};
-    use crate::callbacks::{IFrameCallback, RefAny, GlCallback, Callback};
+    use crate::resources::{TextId, ImageId};
+    use crate::callbacks::{Callback, GlCallback, RefAny, IFrameCallback};
     use crate::vec::StringVec;
     use crate::css::CssProperty;
 
