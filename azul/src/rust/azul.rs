@@ -4672,7 +4672,7 @@ pub mod dom {
     use azul_dll::*;
     use crate::str::String;
     use crate::resources::{ImageId, TextId};
-    use crate::callbacks::{IFrameCallback, Callback, RefAny, GlCallback};
+    use crate::callbacks::{IFrameCallback, GlCallback, Callback, RefAny};
     use crate::vec::StringVec;
     use crate::css::CssProperty;
 
@@ -4872,7 +4872,7 @@ pub mod dom {
         pub fn auto() -> Self { Self { object: az_tab_index_auto() }  }
         ///  Set the tab index in relation to its parent element (`tabindex = n`)
         pub fn override_in_parent(variant_data: usize) -> Self { Self { object: az_tab_index_override_in_parent(variant_data) }}
-        /// Elements can be focused in callbacks, but are not accessible via keyboard / tab navigation (`tabindex = -1`)
+        /// Elements can be focused in callbacks, but are not accessible via keyboard / tab navigation (`tabindex = -1` ) 
         pub fn no_keyboard_focus() -> Self { Self { object: az_tab_index_no_keyboard_focus() }  }
        /// Prevents the destructor from running and returns the internal `AzTabIndex`
        pub fn leak(self) -> AzTabIndex { az_tab_index_deep_copy(&self.object) }

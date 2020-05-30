@@ -2081,7 +2081,7 @@ pub type AzDomPtrType = azul_core::dom::DomPtr;
 #[inline] #[no_mangle] pub extern "C" fn az_tab_index_auto() -> AzTabIndex { AzTabIndex { object: azul_core::dom::TabIndex::Auto } }
 ///  Set the tab index in relation to its parent element (`tabindex = n`)
 #[inline] #[no_mangle] pub extern "C" fn az_tab_index_override_in_parent(variant_data: usize) -> AzTabIndex { AzTabIndex { object: azul_core::dom::TabIndex::OverrideInParent(variant_data) } }
-/// Elements can be focused in callbacks, but are not accessible via keyboard / tab navigation (`tabindex = -1`)
+/// Elements can be focused in callbacks, but are not accessible via keyboard / tab navigation (`tabindex = -1` ) 
 #[inline] #[no_mangle] pub extern "C" fn az_tab_index_no_keyboard_focus() -> AzTabIndex { AzTabIndex { object: azul_core::dom::TabIndex::NoKeyboardFocus } }
 /// Destructor: Takes ownership of the `TabIndex` pointer and deletes it.
 #[no_mangle] #[inline] #[allow(unused_variables)] pub extern "C" fn az_tab_index_delete(object: &mut AzTabIndex) { match object.object { azul_core::dom::TabIndex::Auto => { }, azul_core::dom::TabIndex::OverrideInParent(_) => { }, azul_core::dom::TabIndex::NoKeyboardFocus => { }, }

@@ -474,12 +474,14 @@ def generate_rust_dll(apiData):
 
                 if c_is_stack_allocated:
                     if class_is_small_enum(c):
-                        for enum_variant_name in c["enum_fields"].keys():
-                            enum = c["enum_fields"][enum_variant_name]
-                            if "doc" in enum.keys():
-                                code += "/// " + enum["doc"] + "\r\n"
-                            if "type" in enum.keys():
-                                variant_type = enum["type"]
+
+                        for enum_variant in c["enum_fields"]:
+                            enum_variant_name = list(enum_variant.keys())[0]
+                            enum_variant = list(enum_variant.values())[0]
+                            if "doc" in enum_variant.keys():
+                                code += "/// " + enum_variant["doc"] + "\r\n"
+                            if "type" in enum_variant.keys():
+                                variant_type = enum_variant["type"]
                                 if is_primitive_arg(variant_type):
                                     functions_map[str(fn_prefix + to_snake_case(class_name) + "_" + to_snake_case(enum_variant_name))] = ["variant_data: " + variant_type, class_ptr_name];
                                     code += "#[inline] #[no_mangle] pub extern \"C\" fn " + fn_prefix + to_snake_case(class_name) + "_" + to_snake_case(enum_variant_name) + "(variant_data: " + variant_type + ") -> " + class_ptr_name + " { "
@@ -588,8 +590,9 @@ def generate_rust_dll(apiData):
                     stack_delete_body = ""
                     if class_is_small_enum(c):
                         stack_delete_body += "match object.object { "
-                        for enum_variant_name in c["enum_fields"].keys():
-                            enum_variant = c["enum_fields"][enum_variant_name]
+                        for enum_variant in c["enum_fields"]:
+                            enum_variant_name = list(enum_variant.keys())[0]
+                            enum_variant = list(enum_variant.values())[0]
                             if "type" in enum_variant.keys():
                                 stack_delete_body += c["external"] + "::" + enum_variant_name + "(_) => { }, "
                             else:
@@ -789,12 +792,13 @@ def generate_rust_api(apiData, structs_map, functions_map):
 
             if c_is_stack_allocated:
                 if class_is_small_enum(c):
-                    for enum_variant_name in c["enum_fields"].keys():
-                        enum = c["enum_fields"][enum_variant_name]
-                        if "doc" in enum.keys():
-                            code += "        /// " + enum["doc"] + "\r\n"
-                        if "type" in enum.keys():
-                            variant_type = enum["type"]
+                    for enum_variant in c["enum_fields"]:
+                        enum_variant_name = list(enum_variant.keys())[0]
+                        enum_variant = list(enum_variant.values())[0]
+                        if "doc" in enum_variant.keys():
+                            code += "        /// " + enum_variant["doc"] + "\r\n"
+                        if "type" in enum_variant.keys():
+                            variant_type = enum_variant["type"]
                             if is_primitive_arg(variant_type):
                                 code += "        pub fn " + to_snake_case(enum_variant_name) + "(variant_data: " + variant_type + ") -> Self { "
                                 code += "Self { object: " + fn_prefix + to_snake_case(class_name) + "_" + to_snake_case(enum_variant_name) + "(variant_data) }"
