@@ -1,1690 +1,1907 @@
 {
    "0.1.0": {
-      "str": {
-         "doc": "Definition of azuls internal String type + functions for conversion from `std::String`",
-         "classes": {
-            "String": {
-               "external": "std::string::String",
-               "struct_fields": [
-                  { "vec": { "type": "Vec<u8>" } }
-               ],
-               "constructors": {
-                    "from_utf8_unchecked": {
-                      "doc": "Creates + allocates a Rust `String` by **copying** it from another utf8-encoded string",
-                      "fn_args": [
-                         {"ptr": "*const u8"},
-                         {"len": "usize"}
-                      ],
-                      "fn_body": "unsafe { std::str::from_utf8_unchecked(std::slice::from_raw_parts(ptr, len)).to_string() }"
-                    },
-                    "from_utf8_lossy": {
-                      "doc": "Creates + allocates a Rust `String` by **copying** it from another utf8-encoded string",
-                      "fn_args": [
-                         {"ptr": "*const u8"},
-                         {"len": "usize"}
-                      ],
-                      "fn_body": "unsafe { std::string::String::from_utf8_lossy(std::slice::from_raw_parts(ptr, len)).to_string() }"
-                    }
-                },
-                "functions": {
-                    "into_bytes": {
-                        "doc": "Creates + allocates a Rust `String` by **copying** it from another utf8-encoded string",
-                        "fn_args": [
-                           {"self": "value"}
-                        ],
-                        "returns": "Vec<u8>",
-                        "fn_body": "AzU8Vec { object: string.object.into_bytes() }"
-                    }
-                }
-            }
-         }
-      },
-      "vec": {
-         "doc": "Definition of azuls internal `U8Vec` type + functions for conversion from `std::Vec`",
-         "classes": {
-            "U8Vec": {
-               "doc": "Wrapper over a Rust-allocated `Vec<u8>`",
-               "rust_class_name": "Vec<u8>",
-               "external": "std::vec::Vec::<u8>",
-               "struct_fields": [
-                  { "ptr": { "type": "*const u8" } },
-                  { "len": { "type": "usize" } },
-                  { "capacity": { "type": "usize" } }
-               ],
-               "constructors": {
-                  "copy_from": {
-                     "doc": "Creates + allocates a Rust `Vec<u8>` by **copying** it from a bytes source",
-                     "fn_args": [
-                        {"ptr": "*const u8"},
-                        {"len": "usize"}
-                     ],
-                     "fn_body": "unsafe { std::slice::from_raw_parts(ptr, len).to_vec() }"
-                  }
-               },
-               "functions": {
-                    "as_ptr": {
-                        "doc": "Returns the internal pointer to the start of the heap-allocated `[u8]`",
-                        "fn_args": [
-                           {"self": "ref"}
-                        ],
-                        "returns": "*const u8",
-                        "fn_body": "u8vec.object.as_ptr()"
-                    },
-                    "len": {
-                        "doc": "Returns the length of bytes in the heap-allocated `[u8]`",
-                        "fn_args": [
-                           {"self": "ref"}
-                        ],
-                        "returns": "usize",
-                        "fn_body": "u8vec.object.len()"
-                    }
-               }
-            },
-            "StringVec": {
-               "doc": "Wrapper over a Rust-allocated `Vec<String>`",
-               "rust_class_name": "Vec<String>",
-               "external": "std::vec::Vec::<String>",
-               "struct_fields": [
-                    { "ptr": { "type": "*const String" } },
-                    { "len": { "type": "usize" } },
-                    { "capacity": { "type": "usize" } }
-               ],
-               "constructors": {
-                  "copy_from": {
-                     "doc": "Creates + allocates a Rust `Vec<String>` by **copying** it from a bytes source",
-                     "fn_args": [
-                        {"ptr": "*const String"},
-                        {"len": "usize"}
-                     ],
-                     "fn_body": "unsafe { std::slice::from_raw_parts(ptr, len).into_iter().map(|s| s.object.clone()).collect() }"
-                  }
-               }
-            }
-         }
-      },
-      "path": {
-         "doc": "Definition of azuls internal `PathBuf` type + functions for conversion from `std::PathBuf`",
-         "classes": {
-            "PathBuf": {
-               "doc": "Wrapper over a Rust-allocated `PathBuf`",
-               "constructors": {
-                  "new": {
-                     "doc": "Creates a new PathBuf from a String",
-                     "fn_args": [
-                        {"path": "String"}
-                     ],
-                     "fn_body": "std::path::PathBuf::from(path.object)"
-                  }
-               }
-            }
-         }
-      },
-      "app": {
-         "doc": "`App` construction and configuration",
-         "classes": {
-            "AppConfig": {
-               "constructors": {
-                  "default": {
-                     "doc": "Creates a new AppConfig with default values",
-                     "fn_body": "AppConfig::default()"
-                  }
-               }
-            },
-            "App": {
-               "constructors":{
-                  "new": {
-                     "doc":"Creates a new App instance from the given `AppConfig`",
-                     "fn_args": [
-                        {"data": "RefAny"},
-                        {"config": "AppConfig"},
-                        {"callback": "LayoutCallback"}
-                     ],
-                     "use_patches": ["rust"],
-                     "fn_body": "App::new(data, *az_app_config_downcast(config), callback).unwrap()"
-                  }
-               },
-               "functions": {
-                  "run": {
-                     "doc": "Runs the application. Due to platform restrictions (specifically `WinMain` on Windows), this function never returns.",
-                     "fn_args": [
-                        {"self": "value"},
-                        {"window": "WindowCreateOptions"}
-                     ],
-                     "fn_body":"az_app_downcast(app).run(*az_window_create_options_downcast(window))"
-                  }
-               }
-            }
-         }
-      },
-      "callbacks": {
-         "doc": "Callback type definitions + struct definitions of `CallbackInfo`s",
-         "classes": {
-            "LayoutCallback": { "use_patches": ["dll", "rust"], "typedef": true },
+		"str": {
+			"doc": "Definition of azuls internal `String` wrappers",
+			"classes": {
+				"String": {
+					"external": "std::string::String",
+					"struct_fields": [
+						{ "vec": { "type": "Vec<u8>" } }
+					],
+					"constructors": {
+						"from_utf8_unchecked": {
+							"doc": "Creates + allocates a Rust `String` by **copying** it from another utf8-encoded string",
+							"fn_args": [
+							{"ptr": "*const u8"},
+							{"len": "usize"}
+							],
+							"fn_body": "unsafe { std::str::from_utf8_unchecked(std::slice::from_raw_parts(ptr, len)).to_string() }"
+						},
+						"from_utf8_lossy": {
+							"doc": "Creates + allocates a Rust `String` by **copying** it from another utf8-encoded string",
+							"fn_args": [
+							{"ptr": "*const u8"},
+							{"len": "usize"}
+							],
+							"fn_body": "unsafe { std::string::String::from_utf8_lossy(std::slice::from_raw_parts(ptr, len)).to_string() }"
+						}
+					},
+					"functions": {
+						"into_bytes": {
+							"doc": "Creates + allocates a Rust `String` by **copying** it from another utf8-encoded string",
+							"fn_args": [
+								{"self": "value"}
+							],
+							"returns": "Vec<u8>",
+							"fn_body": "AzU8Vec { object: string.object.into_bytes() }"
+						}
+					}
+				}
+			}
+		},
+		"vec": {
+			"doc": "Definition of azuls internal `Vec<*>` wrappers",
+			"classes": {
+				"U8Vec": {
+					"doc": "Wrapper over a Rust-allocated `Vec<u8>`",
+					"rust_class_name": "Vec<u8>",
+					"external": "std::vec::Vec::<u8>",
+					"struct_fields": [
+						{ "ptr": { "type": "*const u8" } },
+						{ "len": { "type": "usize" } },
+						{ "capacity": { "type": "usize" } }
+					],
+					"constructors": {
+						"copy_from": {
+						"doc": "Creates + allocates a Rust `Vec<u8>` by **copying** it from a bytes source",
+						"fn_args": [
+							{"ptr": "*const u8"},
+							{"len": "usize"}
+						],
+						"fn_body": "unsafe { std::slice::from_raw_parts(ptr, len).to_vec() }"
+						}
+					},
+					"functions": {
+						"as_ptr": {
+							"doc": "Returns the internal pointer to the start of the heap-allocated `[u8]`",
+							"fn_args": [
+								{"self": "ref"}
+							],
+							"returns": "*const u8",
+							"fn_body": "u8vec.object.as_ptr()"
+						},
+						"len": {
+							"doc": "Returns the length of bytes in the heap-allocated `[u8]`",
+							"fn_args": [
+								{"self": "ref"}
+							],
+							"returns": "usize",
+							"fn_body": "u8vec.object.len()"
+						}
+					}
+				},
+				"StringVec": {
+					"doc": "Wrapper over a Rust-allocated `Vec<String>`",
+					"rust_class_name": "Vec<String>",
+					"external": "std::vec::Vec::<String>",
+					"struct_fields": [
+						{ "ptr": { "type": "*const String" } },
+						{ "len": { "type": "usize" } },
+						{ "capacity": { "type": "usize" } }
+					],
+					"constructors": {
+						"copy_from": {
+							"doc": "Creates + allocates a Rust `Vec<String>` by **copying** it from a bytes source",
+							"fn_args": [
+								{"ptr": "*const String"},
+								{"len": "usize"}
+							],
+							"fn_body": "unsafe { std::slice::from_raw_parts(ptr, len).into_iter().map(|s| s.object.clone()).collect() }"
+						}
+					}
+				},
+				"GradientStopPreVec": {
+					"doc": "Wrapper over a Rust-allocated `Vec<GradientStopPre>`",
+					"rust_class_name": "Vec<GradientStopPre>",
+					"external": "std::vec::Vec::<GradientStopPre>",
+					"struct_fields": [
+						{ "ptr": { "type": "*const GradientStopPre" } },
+						{ "len": { "type": "usize" } },
+						{ "capacity": { "type": "usize" } }
+					],
+					"constructors": {
+						"copy_from": {
+							"doc": "Creates + allocates a Rust `Vec<GradientStopPre>` by **copying** it from a bytes source",
+							"fn_args": [
+								{"ptr": "*const GradientStopPre"},
+								{"len": "usize"}
+							],
+							"fn_body": "unsafe { std::slice::from_raw_parts(ptr, len).into_iter().map(|s| s.object.clone()).collect() }"
+						}
+					}
+				}
+			}
+		},
+		"path": {
+			"doc": "Definition of azuls internal `PathBuf` type + functions for conversion from `std::PathBuf`",
+			"classes": {
+				"PathBuf": {
+					"doc": "Wrapper over a Rust-allocated `PathBuf`",
+					"constructors": {
+						"new": {
+						"doc": "Creates a new PathBuf from a String",
+						"fn_args": [
+							{"path": "String"}
+						],
+						"fn_body": "std::path::PathBuf::from(path.object)"
+						}
+					}
+				}
+			}
+		},
+		"option": {
+			"doc": "Definition of azuls internal `Option<*>` wrappers",
+			"classes": {
+				"OptionPercentageValue": {
+					"rust_class_name": "Option<PercentageValue>",
+					"enum_fields": [
+						{"None": {}},
+						{"Some": { "type": "PercentageValue" }}
+					]
+				}
+			}
+		},
+		"app": {
+			"doc": "`App` construction and configuration",
+			"classes": {
+				"AppConfig": {
+					"constructors": {
+						"default": {
+						"doc": "Creates a new AppConfig with default values",
+						"fn_body": "AppConfig::default()"
+						}
+					}
+				},
+				"App": {
+					"constructors":{
+						"new": {
+						"doc":"Creates a new App instance from the given `AppConfig`",
+						"fn_args": [
+							{"data": "RefAny"},
+							{"config": "AppConfig"},
+							{"callback": "LayoutCallback"}
+						],
+						"use_patches": ["rust"],
+						"fn_body": "App::new(data, *az_app_config_downcast(config), callback).unwrap()"
+						}
+					},
+					"functions": {
+						"run": {
+						"doc": "Runs the application. Due to platform restrictions (specifically `WinMain` on Windows), this function never returns.",
+						"fn_args": [
+							{"self": "value"},
+							{"window": "WindowCreateOptions"}
+						],
+						"fn_body":"az_app_downcast(app).run(*az_window_create_options_downcast(window))"
+						}
+					}
+				}
+			}
+		},
+		"callbacks": {
+			"doc": "Callback type definitions + struct definitions of `CallbackInfo`s",
+			"classes": {
+				"LayoutCallback": { "use_patches": ["dll", "rust"], "typedef": true },
 
-            "Callback": { "use_patches": ["dll", "rust"], "typedef": true },
-            "CallbackInfo": {
-               "external": "azul_impl::callbacks::CallbackInfoPtr",
-               "rust_class_name": "CallbackInfo<'a>",
-               "is_boxed_object": true
-            },
-            "UpdateScreen": { "external": "Option<()>", "use_patches": ["rust"], "typedef": true },
-            "Redraw": { "external": "azul_impl::callbacks::Redraw", "use_patches": ["rust"], "const": "UpdateScreen" },
-            "DontRedraw": { "external": "azul_impl::callbacks::DontRedraw", "use_patches": ["rust"], "const": "UpdateScreen" },
+				"Callback": { "use_patches": ["dll", "rust"], "typedef": true },
+				"CallbackInfo": {
+					"external": "azul_impl::callbacks::CallbackInfoPtr",
+					"rust_class_name": "CallbackInfo<'a>",
+					"is_boxed_object": true
+				},
+				"UpdateScreen": { "external": "Option<()>", "use_patches": ["rust"], "typedef": true },
+				"Redraw": { "external": "azul_impl::callbacks::Redraw", "use_patches": ["rust"], "const": "UpdateScreen" },
+				"DontRedraw": { "external": "azul_impl::callbacks::DontRedraw", "use_patches": ["rust"], "const": "UpdateScreen" },
 
-            "IFrameCallback": { "use_patches": ["dll", "rust"], "typedef": true },
-            "IFrameCallbackInfo": {
-               "external": "azul_impl::callbacks::IFrameCallbackInfoPtr",
-               "rust_class_name": "IFrameCallbackInfo<'a>",
-               "is_boxed_object": true
-            },
-            "IFrameCallbackReturn": {
-               "external": "azul_impl::callbacks::IFrameCallbackReturnPtr",
-               "is_boxed_object": true
-            },
+				"IFrameCallback": { "use_patches": ["dll", "rust"], "typedef": true },
+				"IFrameCallbackInfo": {
+					"external": "azul_impl::callbacks::IFrameCallbackInfoPtr",
+					"rust_class_name": "IFrameCallbackInfo<'a>",
+					"is_boxed_object": true
+				},
+				"IFrameCallbackReturn": {
+					"external": "azul_impl::callbacks::IFrameCallbackReturnPtr",
+					"is_boxed_object": true
+				},
 
-            "GlCallback": { "use_patches": ["dll", "rust"], "typedef": true },
-            "GlCallbackInfo": {
-               "external": "azul_impl::callbacks::GlCallbackInfoPtr",
-               "rust_class_name": "GlCallbackInfo<'a>",
-               "is_boxed_object": true
-            },
-            "GlCallbackReturn": {
-               "external": "azul_impl::callbacks::GlCallbackReturnPtr",
-               "is_boxed_object": true
-            },
+				"GlCallback": { "use_patches": ["dll", "rust"], "typedef": true },
+				"GlCallbackInfo": {
+					"external": "azul_impl::callbacks::GlCallbackInfoPtr",
+					"rust_class_name": "GlCallbackInfo<'a>",
+					"is_boxed_object": true
+				},
+				"GlCallbackReturn": {
+					"external": "azul_impl::callbacks::GlCallbackReturnPtr",
+					"is_boxed_object": true
+				},
 
-            "RefAny": { "use_patches": ["dll", "rust"] },
-            "LayoutInfo": {
-               "rust_class_name": "LayoutInfo<'a>",
-               "external": "azul_impl::callbacks::LayoutInfoPtr",
-               "is_boxed_object": true
-            }
-         }
-      },
-      "css": {
-         "doc": "`Css` parsing module",
-         "classes": {
-            "Css": {
-               "constructors": {
-                  "native": {
-                     "doc": "Loads the native style for the given operating system",
-                     "fn_body":"css::native()"
-                  },
-                  "empty": {
-                     "doc": "Returns an empty CSS style",
-                     "fn_body":"css::empty()"
-                  },
-                  "from_string": {
-                     "doc": "Returns a CSS style parsed from a `String`",
-                     "fn_args": [
-                        {"s": "String"}
-                     ],
-                     "fn_body":"css::from_str(&s.object).unwrap()"
-                  },
-                  "override_native": {
-                     "doc": "Appends a parsed stylesheet to `Css::native()`",
-                     "fn_args": [
-                        {"s": "String"}
-                     ],
-                     "fn_body":"css::override_native(&s.object).unwrap()"
-                  }
-               }
-            },
-            "CssHotReloader": {
-                "rust_class_name": "Box<dyn HotReloadHandler>",
-                "constructors": {
-                    "new": {
-                        "doc": "Creates a `HotReloadHandler` that hot-reloads a CSS file every X milliseconds",
-                        "fn_args": [
-                            {"path": "PathBuf"},
-                            {"reload_ms": "u64"}
-                        ],
-                        "fn_body":"css::hot_reload(*az_path_buf_downcast(path), Duration::from_millis(reload_ms))"
-                    },
-                    "override_native": {
-                        "doc": "Creates a `HotReloadHandler` that overrides the `Css::native()` stylesheet with a CSS file, reloaded every X milliseconds",
-                        "fn_args": [
-                            {"path": "PathBuf"},
-                            {"reload_ms": "u64"}
-                        ],
-                        "fn_body":"css::hot_reload_override_native(*az_path_buf_downcast(path), Duration::from_millis(reload_ms))"
-                    }
-                }
-            },
-            "ColorU": {
-                "external": "azul_impl::css::ColorU",
-                "struct_fields": [
-                    {"r": {"type": "u8"}},
-                    {"g": {"type": "u8"}},
-                    {"b": {"type": "u8"}},
-                    {"a": {"type": "u8"}}
-                ]
-            },
-            "SizeMetric": {
-                "external": "azul_impl::css::SizeMetric",
-                "enum_fields": [
-                    {"Px": {}},
-                    {"Pt": {}},
-                    {"Em": {}},
-                    {"Percent": {}}
-                ]
-            },
-            "FloatValue": {
-                "external": "azul_impl::css::FloatValue",
-                "struct_fields": [
-                    {"number": {"type": "isize"}}
-                ]
-            },
-            "PixelValue": {
-                "external": "azul_impl::css::PixelValue",
-                "struct_fields": [
-                    {"metric": {"type": "SizeMetric"}},
-                    {"number": {"type": "FloatValue"}}
-                ]
-            },
-            "PixelValueNoPercent": {
-                "external": "azul_impl::css::PixelValueNoPercent",
-                "struct_fields": [
-                    {"inner": {"type": "PixelValue"}}
-                ]
-            },
-            "BoxShadowClipMode": {
-                "external": "azul_impl::css::BoxShadowClipMode",
-                "enum_fields": [
-                    {"Outset": {}},
-                    {"Inset": {}}
-                ]
-            },
-            "BoxShadowPreDisplayItem": {
-                "external": "azul_impl::css::BoxShadowPreDisplayItem",
-                "struct_fields": [
-                    { "offset": {"type": "[PixelValueNoPercent;2]" }},
-                    { "color": {"type": "ColorU" }},
-                    { "blur_radius": {"type": "PixelValueNoPercent" }},
-                    { "spread_radius": {"type": "PixelValueNoPercent" }},
-                    { "clip_mode": {"type": "BoxShadowClipMode" }}
-                ]
-            },
-            "LayoutAlignContent": {
-                "external": "azul_impl::css::LayoutAlignContent",
-                "enum_fields": [
-                    {"Stretch": {"doc": "Default value. Lines stretch to take up the remaining space"}},
-                    {"Center": {"doc": "Lines are packed toward the center of the flex container"}},
-                    {"Start": {"doc": "Lines are packed toward the start of the flex container"}},
-                    {"End": {"doc": "Lines are packed toward the end of the flex container"}},
-                    {"SpaceBetween": {"doc": "Lines are evenly distributed in the flex container"}},
-                    {"SpaceAround": {"doc": "Lines are evenly distributed in the flex container, with half-size spaces on either end"}}
-                ]
-            },
-            "LayoutAlignItems": {
-                "external": "azul_impl::css::LayoutAlignItems",
-                "enum_fields": [
-                    {"Stretch": {"doc": "Items are stretched to fit the container"}},
-                    {"Center": {"doc": "Items are positioned at the center of the container"}},
-                    {"Start": {"doc": "Items are positioned at the beginning of the container"}},
-                    {"End": {"doc": "Items are positioned at the end of the container"}}
-                ]
-            },
-            "LayoutBottom": {
-                "external": "azul_impl::css::LayoutBottom",
-                "struct_fields": [
-                    {"inner": {"type": "PixelValue"}}
-                ]
-            },
-            "LayoutBoxSizing": {
-                "constructors": { }
-            },
-            "LayoutDirection": {
-                "constructors": { }
-            },
-            "LayoutDisplay": {
-                "constructors": { }
-            },
-            "LayoutFlexGrow": {
-                "constructors": { }
-            },
-            "LayoutFlexShrink": {
-                "constructors": { }
-            },
-            "LayoutFloat": {
-                "constructors": { }
-            },
-            "LayoutHeight": {
-                "constructors": { }
-            },
-            "LayoutJustifyContent": {
-                "constructors": { }
-            },
-            "LayoutLeft": {
-                "constructors": { }
-            },
-            "LayoutMarginBottom": {
-                "constructors": { }
-            },
-            "LayoutMarginLeft": {
-                "constructors": { }
-            },
-            "LayoutMarginRight": {
-                "constructors": { }
-            },
-            "LayoutMarginTop": {
-                "constructors": { }
-            },
-            "LayoutMaxHeight": {
-                "constructors": { }
-            },
-            "LayoutMaxWidth": {
-                "constructors": { }
-            },
-            "LayoutMinHeight": {
-                "constructors": { }
-            },
-            "LayoutMinWidth": {
-                "constructors": { }
-            },
-            "LayoutPaddingBottom": {
-                "constructors": { }
-            },
-            "LayoutPaddingLeft": {
-                "constructors": { }
-            },
-            "LayoutPaddingRight": {
-                "constructors": { }
-            },
-            "LayoutPaddingTop": {
-                "constructors": { }
-            },
-            "LayoutPosition": {
-                "constructors": { }
-            },
-            "LayoutRight": {
-                "constructors": { }
-            },
-            "LayoutTop": {
-                "constructors": { }
-            },
-            "LayoutWidth": {
-                "constructors": { }
-            },
-            "LayoutWrap": {
-                "constructors": { }
-            },
-            "Overflow": {
-                "constructors": { }
-            },
-            "Overflow": {
-                "constructors": { }
-            },
-            "StyleBackgroundContent": {
-                "constructors": { }
-            },
-            "StyleBackgroundPosition": {
-                "constructors": { }
-            },
-            "StyleBackgroundRepeat": {
-                "constructors": { }
-            },
-            "StyleBackgroundSize": {
-                "constructors": { }
-            },
-            "StyleBorderBottomColor": {
-                "constructors": { }
-            },
-            "StyleBorderBottomLeftRadius": {
-                "constructors": { }
-            },
-            "StyleBorderBottomRightRadius": {
-                "constructors": { }
-            },
-            "StyleBorderBottomStyle": {
-                "constructors": { }
-            },
-            "StyleBorderBottomWidth": {
-                "constructors": { }
-            },
-            "StyleBorderLeftColor": {
-                "constructors": { }
-            },
-            "StyleBorderLeftStyle": {
-                "constructors": { }
-            },
-            "StyleBorderLeftWidth": {
-                "constructors": { }
-            },
-            "StyleBorderRightColor": {
-                "constructors": { }
-            },
-            "StyleBorderRightStyle": {
-                "constructors": { }
-            },
-            "StyleBorderRightWidth": {
-                "constructors": { }
-            },
-            "StyleBorderTopColor": {
-                "constructors": { }
-            },
-            "StyleBorderTopLeftRadius": {
-                "constructors": { }
-            },
-            "StyleBorderTopRightRadius": {
-                "constructors": { }
-            },
-            "StyleBorderTopStyle": {
-                "constructors": { }
-            },
-            "StyleBorderTopWidth": {
-                "constructors": { }
-            },
-            "StyleCursor": {
-                "constructors": { }
-            },
-            "StyleFontFamily": {
-                "constructors": { }
-            },
-            "StyleFontSize": {
-                "constructors": { }
-            },
-            "StyleLetterSpacing": {
-                "constructors": { }
-            },
-            "StyleLineHeight": {
-                "constructors": { }
-            },
-            "StyleTabWidth": {
-                "constructors": { }
-            },
-            "StyleTextAlignmentHorz": {
-                "constructors": { }
-            },
-            "StyleTextColor": {
-                "constructors": { }
-            },
-            "StyleWordSpacing": {
-                "constructors": { }
-            },
-            "BoxShadowPreDisplayItemValue": {
-                "rust_class_name": "CssPropertyValue<BoxShadowPreDisplayItem>",
-                "external": "azul_impl::css::CssPropertyValue::<BoxShadowPreDisplayItem>",
-                "enum_fields": [
-                    { "Auto": { }} ,
-                    { "None": { }} ,
-                    { "Inherit": { }} ,
-                    { "Initial": { }} ,
-                    { "Exact": { "type": "BoxShadowPreDisplayItem" }}
-                 ]
-            },
-            "LayoutAlignContentValue": {
-                "rust_class_name": "CssPropertyValue<LayoutAlignContent>",
-                "external": "azul_impl::css::CssPropertyValue::<LayoutAlignContent>",
-                "enum_fields": [
-                    { "Auto": { }} ,
-                    { "None": { }} ,
-                    { "Inherit": { }} ,
-                    { "Initial": { }} ,
-                    { "Exact": { "type": "LayoutAlignContent" }}
-                 ]
-            },
-            "LayoutAlignItemsValue": {
-                "rust_class_name": "CssPropertyValue<LayoutAlignItems>",
-                "external": "azul_impl::css::CssPropertyValue::<LayoutAlignItems>",
-                "enum_fields": [
-                    { "Auto": { }} ,
-                    { "None": { }} ,
-                    { "Inherit": { }} ,
-                    { "Initial": { }} ,
-                    { "Exact": { "type": "LayoutAlignItems" }}
-                 ]
-            },
-            "LayoutBottomValue": {
-                "rust_class_name": "CssPropertyValue<LayoutBottom>",
-                "external": "azul_impl::css::CssPropertyValue::<LayoutBottom>",
-                "enum_fields": [
-                    { "Auto": { }} ,
-                    { "None": { }} ,
-                    { "Inherit": { }} ,
-                    { "Initial": { }} ,
-                    { "Exact": { "type": "LayoutBottom" }}
-                 ]
-            },
-            "LayoutBoxSizingValue": {
-                "rust_class_name": "CssPropertyValue<LayoutBoxSizing>",
-                "external": "azul_impl::css::CssPropertyValue::<LayoutBoxSizing>",
-                "enum_fields": [
-                    { "Auto": { }} ,
-                    { "None": { }} ,
-                    { "Inherit": { }} ,
-                    { "Initial": { }} ,
-                    { "Exact": { "type": "LayoutBoxSizing" }}
-                 ]
-            },
-            "LayoutDirectionValue": {
-                "rust_class_name": "CssPropertyValue<LayoutDirection>",
-                "external": "azul_impl::css::CssPropertyValue::<LayoutDirection>",
-                "enum_fields": [
-                    { "Auto": { }} ,
-                    { "None": { }} ,
-                    { "Inherit": { }} ,
-                    { "Initial": { }} ,
-                    { "Exact": { "type": "LayoutDirection" }}
-                 ]
-            },
-            "LayoutDisplayValue": {
-                "rust_class_name": "CssPropertyValue<LayoutDisplay>",
-                "external": "azul_impl::css::CssPropertyValue::<LayoutDisplay>",
-                "enum_fields": [
-                    { "Auto": { }} ,
-                    { "None": { }} ,
-                    { "Inherit": { }} ,
-                    { "Initial": { }} ,
-                    { "Exact": { "type": "LayoutDisplay" }}
-                 ]
-            },
-            "LayoutFlexGrowValue": {
-                "rust_class_name": "CssPropertyValue<LayoutFlexGrow>",
-                "external": "azul_impl::css::CssPropertyValue::<LayoutFlexGrow>",
-                "enum_fields": [
-                    { "Auto": { }} ,
-                    { "None": { }} ,
-                    { "Inherit": { }} ,
-                    { "Initial": { }} ,
-                    { "Exact": { "type": "LayoutFlexGrow" }}
-                 ]
-            },
-            "LayoutFlexShrinkValue": {
-                "rust_class_name": "CssPropertyValue<LayoutFlexShrink>",
-                "external": "azul_impl::css::CssPropertyValue::<LayoutFlexShrink>",
-                "enum_fields": [
-                    { "Auto": { }} ,
-                    { "None": { }} ,
-                    { "Inherit": { }} ,
-                    { "Initial": { }} ,
-                    { "Exact": { "type": "LayoutFlexShrink" }}
-                 ]
-            },
-            "LayoutFloatValue": {
-                "rust_class_name": "CssPropertyValue<LayoutFloat>",
-                "external": "azul_impl::css::CssPropertyValue::<LayoutFloat>",
-                "enum_fields": [
-                    { "Auto": { }} ,
-                    { "None": { }} ,
-                    { "Inherit": { }} ,
-                    { "Initial": { }} ,
-                    { "Exact": { "type": "LayoutFloat" }}
-                 ]
-            },
-            "LayoutHeightValue": {
-                "rust_class_name": "CssPropertyValue<LayoutHeight>",
-                "external": "azul_impl::css::CssPropertyValue::<LayoutHeight>",
-                "enum_fields": [
-                    { "Auto": { }} ,
-                    { "None": { }} ,
-                    { "Inherit": { }} ,
-                    { "Initial": { }} ,
-                    { "Exact": { "type": "LayoutHeight" }}
-                 ]
-            },
-            "LayoutJustifyContentValue": {
-                "rust_class_name": "CssPropertyValue<LayoutJustifyContent>",
-                "external": "azul_impl::css::CssPropertyValue::<LayoutJustifyContent>",
-                "enum_fields": [
-                    { "Auto": { }} ,
-                    { "None": { }} ,
-                    { "Inherit": { }} ,
-                    { "Initial": { }} ,
-                    { "Exact": { "type": "LayoutJustifyContent" }}
-                 ]
-            },
-            "LayoutLeftValue": {
-                "rust_class_name": "CssPropertyValue<LayoutLeft>",
-                "external": "azul_impl::css::CssPropertyValue::<LayoutLeft>",
-                "enum_fields": [
-                    { "Auto": { }} ,
-                    { "None": { }} ,
-                    { "Inherit": { }} ,
-                    { "Initial": { }} ,
-                    { "Exact": { "type": "LayoutLeft" }}
-                 ]
-            },
-            "LayoutMarginBottomValue": {
-                "rust_class_name": "CssPropertyValue<LayoutMarginBottom>",
-                "external": "azul_impl::css::CssPropertyValue::<LayoutMarginBottom>",
-                "enum_fields": [
-                    { "Auto": { }} ,
-                    { "None": { }} ,
-                    { "Inherit": { }} ,
-                    { "Initial": { }} ,
-                    { "Exact": { "type": "LayoutMarginBottom" }}
-                 ]
-            },
-            "LayoutMarginLeftValue": {
-                "rust_class_name": "CssPropertyValue<LayoutMarginLeft>",
-                "external": "azul_impl::css::CssPropertyValue::<LayoutMarginLeft>",
-                "enum_fields": [
-                    { "Auto": { }} ,
-                    { "None": { }} ,
-                    { "Inherit": { }} ,
-                    { "Initial": { }} ,
-                    { "Exact": { "type": "LayoutMarginLeft" }}
-                 ]
-            },
-            "LayoutMarginRightValue": {
-                "rust_class_name": "CssPropertyValue<LayoutMarginRight>",
-                "external": "azul_impl::css::CssPropertyValue::<LayoutMarginRight>",
-                "enum_fields": [
-                    { "Auto": { }} ,
-                    { "None": { }} ,
-                    { "Inherit": { }} ,
-                    { "Initial": { }} ,
-                    { "Exact": { "type": "LayoutMarginRight" }}
-                 ]
-            },
-            "LayoutMarginTopValue": {
-                "rust_class_name": "CssPropertyValue<LayoutMarginTop>",
-                "external": "azul_impl::css::CssPropertyValue::<LayoutMarginTop>",
-                "enum_fields": [
-                    { "Auto": { }} ,
-                    { "None": { }} ,
-                    { "Inherit": { }} ,
-                    { "Initial": { }} ,
-                    { "Exact": { "type": "LayoutMarginTop" }}
-                 ]
-            },
-            "LayoutMaxHeightValue": {
-                "rust_class_name": "CssPropertyValue<LayoutMaxHeight>",
-                "external": "azul_impl::css::CssPropertyValue::<LayoutMaxHeight>",
-                "enum_fields": [
-                    { "Auto": { }} ,
-                    { "None": { }} ,
-                    { "Inherit": { }} ,
-                    { "Initial": { }} ,
-                    { "Exact": { "type": "LayoutMaxHeight" }}
-                 ]
-            },
-            "LayoutMaxWidthValue": {
-                "rust_class_name": "CssPropertyValue<LayoutMaxWidth>",
-                "external": "azul_impl::css::CssPropertyValue::<LayoutMaxWidth>",
-                "enum_fields": [
-                    { "Auto": { }} ,
-                    { "None": { }} ,
-                    { "Inherit": { }} ,
-                    { "Initial": { }} ,
-                    { "Exact": { "type": "LayoutMaxWidth" }}
-                 ]
-            },
-            "LayoutMinHeightValue": {
-                "rust_class_name": "CssPropertyValue<LayoutMinHeight>",
-                "external": "azul_impl::css::CssPropertyValue::<LayoutMinHeight>",
-                "enum_fields": [
-                    { "Auto": { }} ,
-                    { "None": { }} ,
-                    { "Inherit": { }} ,
-                    { "Initial": { }} ,
-                    { "Exact": { "type": "LayoutMinHeight" }}
-                 ]
-            },
-            "LayoutMinWidthValue": {
-                "rust_class_name": "CssPropertyValue<LayoutMinWidth>",
-                "external": "azul_impl::css::CssPropertyValue::<LayoutMinWidth>",
-                "enum_fields": [
-                    { "Auto": { }} ,
-                    { "None": { }} ,
-                    { "Inherit": { }} ,
-                    { "Initial": { }} ,
-                    { "Exact": { "type": "LayoutMinWidth" }}
-                 ]
-            },
-            "LayoutPaddingBottomValue": {
-                "rust_class_name": "CssPropertyValue<LayoutPaddingBottom>",
-                "external": "azul_impl::css::CssPropertyValue::<LayoutPaddingBottom>",
-                "enum_fields": [
-                    { "Auto": { }} ,
-                    { "None": { }} ,
-                    { "Inherit": { }} ,
-                    { "Initial": { }} ,
-                    { "Exact": { "type": "LayoutPaddingBottom" }}
-                 ]
-            },
-            "LayoutPaddingLeftValue": {
-                "rust_class_name": "CssPropertyValue<LayoutPaddingLeft>",
-                "external": "azul_impl::css::CssPropertyValue::<LayoutPaddingLeft>",
-                "enum_fields": [
-                    { "Auto": { }} ,
-                    { "None": { }} ,
-                    { "Inherit": { }} ,
-                    { "Initial": { }} ,
-                    { "Exact": { "type": "LayoutPaddingLeft" }}
-                 ]
-            },
-            "LayoutPaddingRightValue": {
-                "rust_class_name": "CssPropertyValue<LayoutPaddingRight>",
-                "external": "azul_impl::css::CssPropertyValue::<LayoutPaddingRight>",
-                "enum_fields": [
-                    { "Auto": { }} ,
-                    { "None": { }} ,
-                    { "Inherit": { }} ,
-                    { "Initial": { }} ,
-                    { "Exact": { "type": "LayoutPaddingRight" }}
-                 ]
-            },
-            "LayoutPaddingTopValue": {
-                "rust_class_name": "CssPropertyValue<LayoutPaddingTop>",
-                "external": "azul_impl::css::CssPropertyValue::<LayoutPaddingTop>",
-                "enum_fields": [
-                    { "Auto": { }} ,
-                    { "None": { }} ,
-                    { "Inherit": { }} ,
-                    { "Initial": { }} ,
-                    { "Exact": { "type": "LayoutPaddingTop" }}
-                 ]
-            },
-            "LayoutPositionValue": {
-                "rust_class_name": "CssPropertyValue<LayoutPosition>",
-                "external": "azul_impl::css::CssPropertyValue::<LayoutPosition>",
-                "enum_fields": [
-                    { "Auto": { }} ,
-                    { "None": { }} ,
-                    { "Inherit": { }} ,
-                    { "Initial": { }} ,
-                    { "Exact": { "type": "LayoutPosition" }}
-                 ]
-            },
-            "LayoutRightValue": {
-                "rust_class_name": "CssPropertyValue<LayoutRight>",
-                "external": "azul_impl::css::CssPropertyValue::<LayoutRight>",
-                "enum_fields": [
-                    { "Auto": { }} ,
-                    { "None": { }} ,
-                    { "Inherit": { }} ,
-                    { "Initial": { }} ,
-                    { "Exact": { "type": "LayoutRight" }}
-                 ]
-            },
-            "LayoutTopValue": {
-                "rust_class_name": "CssPropertyValue<LayoutTop>",
-                "external": "azul_impl::css::CssPropertyValue::<LayoutTop>",
-                "enum_fields": [
-                    { "Auto": { }} ,
-                    { "None": { }} ,
-                    { "Inherit": { }} ,
-                    { "Initial": { }} ,
-                    { "Exact": { "type": "LayoutTop" }}
-                 ]
-            },
-            "LayoutWidthValue": {
-                "rust_class_name": "CssPropertyValue<LayoutWidth>",
-                "external": "azul_impl::css::CssPropertyValue::<LayoutWidth>",
-                "enum_fields": [
-                    { "Auto": { }} ,
-                    { "None": { }} ,
-                    { "Inherit": { }} ,
-                    { "Initial": { }} ,
-                    { "Exact": { "type": "LayoutWidth" }}
-                 ]
-            },
-            "LayoutWrapValue": {
-                "rust_class_name": "CssPropertyValue<LayoutWrap>",
-                "external": "azul_impl::css::CssPropertyValue::<LayoutWrap>",
-                "enum_fields": [
-                    { "Auto": { }} ,
-                    { "None": { }} ,
-                    { "Inherit": { }} ,
-                    { "Initial": { }} ,
-                    { "Exact": { "type": "LayoutWrap" }}
-                 ]
-            },
-            "OverflowValue": {
-                "rust_class_name": "CssPropertyValue<Overflow>",
-                "external": "azul_impl::css::CssPropertyValue::<Overflow>",
-                "enum_fields": [
-                    { "Auto": { }} ,
-                    { "None": { }} ,
-                    { "Inherit": { }} ,
-                    { "Initial": { }} ,
-                    { "Exact": { "type": "Overflow" }}
-                 ]
-            },
-            "OverflowValue": {
-                "rust_class_name": "CssPropertyValue<Overflow>",
-                "external": "azul_impl::css::CssPropertyValue::<Overflow>",
-                "enum_fields": [
-                    { "Auto": { }} ,
-                    { "None": { }} ,
-                    { "Inherit": { }} ,
-                    { "Initial": { }} ,
-                    { "Exact": { "type": "Overflow" }}
-                 ]
-            },
-            "StyleBackgroundContentValue": {
-                "rust_class_name": "CssPropertyValue<StyleBackgroundContent>",
-                "external": "azul_impl::css::CssPropertyValue::<StyleBackgroundContent>",
-                "enum_fields": [
-                    { "Auto": { }} ,
-                    { "None": { }} ,
-                    { "Inherit": { }} ,
-                    { "Initial": { }} ,
-                    { "Exact": { "type": "StyleBackgroundContent" }}
-                 ]
-            },
-            "StyleBackgroundPositionValue": {
-                "rust_class_name": "CssPropertyValue<StyleBackgroundPosition>",
-                "external": "azul_impl::css::CssPropertyValue::<StyleBackgroundPosition>",
-                "enum_fields": [
-                    { "Auto": { }} ,
-                    { "None": { }} ,
-                    { "Inherit": { }} ,
-                    { "Initial": { }} ,
-                    { "Exact": { "type": "StyleBackgroundPosition" }}
-                 ]
-            },
-            "StyleBackgroundRepeatValue": {
-                "rust_class_name": "CssPropertyValue<StyleBackgroundRepeat>",
-                "external": "azul_impl::css::CssPropertyValue::<StyleBackgroundRepeat>",
-                "enum_fields": [
-                    { "Auto": { }} ,
-                    { "None": { }} ,
-                    { "Inherit": { }} ,
-                    { "Initial": { }} ,
-                    { "Exact": { "type": "StyleBackgroundRepeat" }}
-                 ]
-            },
-            "StyleBackgroundSizeValue": {
-                "rust_class_name": "CssPropertyValue<StyleBackgroundSize>",
-                "external": "azul_impl::css::CssPropertyValue::<StyleBackgroundSize>",
-                "enum_fields": [
-                    { "Auto": { }} ,
-                    { "None": { }} ,
-                    { "Inherit": { }} ,
-                    { "Initial": { }} ,
-                    { "Exact": { "type": "StyleBackgroundSize" }}
-                 ]
-            },
-            "StyleBorderBottomColorValue": {
-                "rust_class_name": "CssPropertyValue<StyleBorderBottomColor>",
-                "external": "azul_impl::css::CssPropertyValue::<StyleBorderBottomColor>",
-                "enum_fields": [
-                    { "Auto": { }} ,
-                    { "None": { }} ,
-                    { "Inherit": { }} ,
-                    { "Initial": { }} ,
-                    { "Exact": { "type": "StyleBorderBottomColor" }}
-                 ]
-            },
-            "StyleBorderBottomLeftRadiusValue": {
-                "rust_class_name": "CssPropertyValue<StyleBorderBottomLeftRadius>",
-                "external": "azul_impl::css::CssPropertyValue::<StyleBorderBottomLeftRadius>",
-                "enum_fields": [
-                    { "Auto": { }} ,
-                    { "None": { }} ,
-                    { "Inherit": { }} ,
-                    { "Initial": { }} ,
-                    { "Exact": { "type": "StyleBorderBottomLeftRadius" }}
-                 ]
-            },
-            "StyleBorderBottomRightRadiusValue": {
-                "rust_class_name": "CssPropertyValue<StyleBorderBottomRightRadius>",
-                "external": "azul_impl::css::CssPropertyValue::<StyleBorderBottomRightRadius>",
-                "enum_fields": [
-                    { "Auto": { }} ,
-                    { "None": { }} ,
-                    { "Inherit": { }} ,
-                    { "Initial": { }} ,
-                    { "Exact": { "type": "StyleBorderBottomRightRadius" }}
-                 ]
-            },
-            "StyleBorderBottomStyleValue": {
-                "rust_class_name": "CssPropertyValue<StyleBorderBottomStyle>",
-                "external": "azul_impl::css::CssPropertyValue::<StyleBorderBottomStyle>",
-                "enum_fields": [
-                    { "Auto": { }} ,
-                    { "None": { }} ,
-                    { "Inherit": { }} ,
-                    { "Initial": { }} ,
-                    { "Exact": { "type": "StyleBorderBottomStyle" }}
-                 ]
-            },
-            "StyleBorderBottomWidthValue": {
-                "rust_class_name": "CssPropertyValue<StyleBorderBottomWidth>",
-                "external": "azul_impl::css::CssPropertyValue::<StyleBorderBottomWidth>",
-                "enum_fields": [
-                    { "Auto": { }} ,
-                    { "None": { }} ,
-                    { "Inherit": { }} ,
-                    { "Initial": { }} ,
-                    { "Exact": { "type": "StyleBorderBottomWidth" }}
-                 ]
-            },
-            "StyleBorderLeftColorValue": {
-                "rust_class_name": "CssPropertyValue<StyleBorderLeftColor>",
-                "external": "azul_impl::css::CssPropertyValue::<StyleBorderLeftColor>",
-                "enum_fields": [
-                    { "Auto": { }} ,
-                    { "None": { }} ,
-                    { "Inherit": { }} ,
-                    { "Initial": { }} ,
-                    { "Exact": { "type": "StyleBorderLeftColor" }}
-                 ]
-            },
-            "StyleBorderLeftStyleValue": {
-                "rust_class_name": "CssPropertyValue<StyleBorderLeftStyle>",
-                "external": "azul_impl::css::CssPropertyValue::<StyleBorderLeftStyle>",
-                "enum_fields": [
-                    { "Auto": { }} ,
-                    { "None": { }} ,
-                    { "Inherit": { }} ,
-                    { "Initial": { }} ,
-                    { "Exact": { "type": "StyleBorderLeftStyle" }}
-                 ]
-            },
-            "StyleBorderLeftWidthValue": {
-                "rust_class_name": "CssPropertyValue<StyleBorderLeftWidth>",
-                "external": "azul_impl::css::CssPropertyValue::<StyleBorderLeftWidth>",
-                "enum_fields": [
-                    { "Auto": { }} ,
-                    { "None": { }} ,
-                    { "Inherit": { }} ,
-                    { "Initial": { }} ,
-                    { "Exact": { "type": "StyleBorderLeftWidth" }}
-                 ]
-            },
-            "StyleBorderRightColorValue": {
-                "rust_class_name": "CssPropertyValue<StyleBorderRightColor>",
-                "external": "azul_impl::css::CssPropertyValue::<StyleBorderRightColor>",
-                "enum_fields": [
-                    { "Auto": { }} ,
-                    { "None": { }} ,
-                    { "Inherit": { }} ,
-                    { "Initial": { }} ,
-                    { "Exact": { "type": "StyleBorderRightColor" }}
-                 ]
-            },
-            "StyleBorderRightStyleValue": {
-                "rust_class_name": "CssPropertyValue<StyleBorderRightStyle>",
-                "external": "azul_impl::css::CssPropertyValue::<StyleBorderRightStyle>",
-                "enum_fields": [
-                    { "Auto": { }} ,
-                    { "None": { }} ,
-                    { "Inherit": { }} ,
-                    { "Initial": { }} ,
-                    { "Exact": { "type": "StyleBorderRightStyle" }}
-                 ]
-            },
-            "StyleBorderRightWidthValue": {
-                "rust_class_name": "CssPropertyValue<StyleBorderRightWidth>",
-                "external": "azul_impl::css::CssPropertyValue::<StyleBorderRightWidth>",
-                "enum_fields": [
-                    { "Auto": { }} ,
-                    { "None": { }} ,
-                    { "Inherit": { }} ,
-                    { "Initial": { }} ,
-                    { "Exact": { "type": "StyleBorderRightWidth" }}
-                 ]
-            },
-            "StyleBorderTopColorValue": {
-                "rust_class_name": "CssPropertyValue<StyleBorderTopColor>",
-                "external": "azul_impl::css::CssPropertyValue::<StyleBorderTopColor>",
-                "enum_fields": [
-                    { "Auto": { }} ,
-                    { "None": { }} ,
-                    { "Inherit": { }} ,
-                    { "Initial": { }} ,
-                    { "Exact": { "type": "StyleBorderTopColor" }}
-                 ]
-            },
-            "StyleBorderTopLeftRadiusValue": {
-                "rust_class_name": "CssPropertyValue<StyleBorderTopLeftRadius>",
-                "external": "azul_impl::css::CssPropertyValue::<StyleBorderTopLeftRadius>",
-                "enum_fields": [
-                    { "Auto": { }} ,
-                    { "None": { }} ,
-                    { "Inherit": { }} ,
-                    { "Initial": { }} ,
-                    { "Exact": { "type": "StyleBorderTopLeftRadius" }}
-                 ]
-            },
-            "StyleBorderTopRightRadiusValue": {
-                "rust_class_name": "CssPropertyValue<StyleBorderTopRightRadius>",
-                "external": "azul_impl::css::CssPropertyValue::<StyleBorderTopRightRadius>",
-                "enum_fields": [
-                    { "Auto": { }} ,
-                    { "None": { }} ,
-                    { "Inherit": { }} ,
-                    { "Initial": { }} ,
-                    { "Exact": { "type": "StyleBorderTopRightRadius" }}
-                 ]
-            },
-            "StyleBorderTopStyleValue": {
-                "rust_class_name": "CssPropertyValue<StyleBorderTopStyle>",
-                "external": "azul_impl::css::CssPropertyValue::<StyleBorderTopStyle>",
-                "enum_fields": [
-                    { "Auto": { }} ,
-                    { "None": { }} ,
-                    { "Inherit": { }} ,
-                    { "Initial": { }} ,
-                    { "Exact": { "type": "StyleBorderTopStyle" }}
-                 ]
-            },
-            "StyleBorderTopWidthValue": {
-                "rust_class_name": "CssPropertyValue<StyleBorderTopWidth>",
-                "external": "azul_impl::css::CssPropertyValue::<StyleBorderTopWidth>",
-                "enum_fields": [
-                    { "Auto": { }} ,
-                    { "None": { }} ,
-                    { "Inherit": { }} ,
-                    { "Initial": { }} ,
-                    { "Exact": { "type": "StyleBorderTopWidth" }}
-                 ]
-            },
-            "StyleCursorValue": {
-                "rust_class_name": "CssPropertyValue<StyleCursor>",
-                "external": "azul_impl::css::CssPropertyValue::<StyleCursor>",
-                "enum_fields": [
-                    { "Auto": { }} ,
-                    { "None": { }} ,
-                    { "Inherit": { }} ,
-                    { "Initial": { }} ,
-                    { "Exact": { "type": "StyleCursor" }}
-                 ]
-            },
-            "StyleFontFamilyValue": {
-                "rust_class_name": "CssPropertyValue<StyleFontFamily>",
-                "external": "azul_impl::css::CssPropertyValue::<StyleFontFamily>",
-                "enum_fields": [
-                    { "Auto": { }} ,
-                    { "None": { }} ,
-                    { "Inherit": { }} ,
-                    { "Initial": { }} ,
-                    { "Exact": { "type": "StyleFontFamily" }}
-                 ]
-            },
-            "StyleFontSizeValue": {
-                "rust_class_name": "CssPropertyValue<StyleFontSize>",
-                "external": "azul_impl::css::CssPropertyValue::<StyleFontSize>",
-                "enum_fields": [
-                    { "Auto": { }} ,
-                    { "None": { }} ,
-                    { "Inherit": { }} ,
-                    { "Initial": { }} ,
-                    { "Exact": { "type": "StyleFontSize" }}
-                 ]
-            },
-            "StyleLetterSpacingValue": {
-                "rust_class_name": "CssPropertyValue<StyleLetterSpacing>",
-                "external": "azul_impl::css::CssPropertyValue::<StyleLetterSpacing>",
-                "enum_fields": [
-                    { "Auto": { }} ,
-                    { "None": { }} ,
-                    { "Inherit": { }} ,
-                    { "Initial": { }} ,
-                    { "Exact": { "type": "StyleLetterSpacing" }}
-                 ]
-            },
-            "StyleLineHeightValue": {
-                "rust_class_name": "CssPropertyValue<StyleLineHeight>",
-                "external": "azul_impl::css::CssPropertyValue::<StyleLineHeight>",
-                "enum_fields": [
-                    { "Auto": { }} ,
-                    { "None": { }} ,
-                    { "Inherit": { }} ,
-                    { "Initial": { }} ,
-                    { "Exact": { "type": "StyleLineHeight" }}
-                 ]
-            },
-            "StyleTabWidthValue": {
-                "rust_class_name": "CssPropertyValue<StyleTabWidth>",
-                "external": "azul_impl::css::CssPropertyValue::<StyleTabWidth>",
-                "enum_fields": [
-                    { "Auto": { }} ,
-                    { "None": { }} ,
-                    { "Inherit": { }} ,
-                    { "Initial": { }} ,
-                    { "Exact": { "type": "StyleTabWidth" }}
-                 ]
-            },
-            "StyleTextAlignmentHorzValue": {
-                "rust_class_name": "CssPropertyValue<StyleTextAlignmentHorz>",
-                "external": "azul_impl::css::CssPropertyValue::<StyleTextAlignmentHorz>",
-                "enum_fields": [
-                    { "Auto": { }} ,
-                    { "None": { }} ,
-                    { "Inherit": { }} ,
-                    { "Initial": { }} ,
-                    { "Exact": { "type": "StyleTextAlignmentHorz" }}
-                 ]
-            },
-            "StyleTextColorValue": {
-                "rust_class_name": "CssPropertyValue<StyleTextColor>",
-                "external": "azul_impl::css::CssPropertyValue::<StyleTextColor>",
-                "enum_fields": [
-                    { "Auto": { }} ,
-                    { "None": { }} ,
-                    { "Inherit": { }} ,
-                    { "Initial": { }} ,
-                    { "Exact": { "type": "StyleTextColor" }}
-                 ]
-            },
-            "StyleWordSpacingValue": {
-                "rust_class_name": "CssPropertyValue<StyleWordSpacing>",
-                "external": "azul_impl::css::CssPropertyValue::<StyleWordSpacing>",
-                "enum_fields": [
-                    { "Auto": { }} ,
-                    { "None": { }} ,
-                    { "Inherit": { }} ,
-                    { "Initial": { }} ,
-                    { "Exact": { "type": "StyleWordSpacing" }}
-                 ]
-            },
-            "CssProperty": {
-               "doc": "Parsed CSS key-value pair",
-               "external": "azul_impl::css::CssProperty",
-               "enum_fields": [
-                  { "TextColor": { "type": "CssPropertyValue<StyleTextColor>" }} ,
-                  { "FontSize": { "type": "CssPropertyValue<StyleFontSize>" }} ,
-                  { "FontFamily": { "type": "CssPropertyValue<StyleFontFamily>" }} ,
-                  { "TextAlign": { "type": "CssPropertyValue<StyleTextAlignmentHorz>" }} ,
-                  { "LetterSpacing": { "type": "CssPropertyValue<StyleLetterSpacing>" }} ,
-                  { "LineHeight": { "type": "CssPropertyValue<StyleLineHeight>" }} ,
-                  { "WordSpacing": { "type": "CssPropertyValue<StyleWordSpacing>" }} ,
-                  { "TabWidth": { "type": "CssPropertyValue<StyleTabWidth>" }} ,
-                  { "Cursor": { "type": "CssPropertyValue<StyleCursor>" }} ,
-                  { "Display": { "type": "CssPropertyValue<LayoutDisplay>" }} ,
-                  { "Float": { "type": "CssPropertyValue<LayoutFloat>" }} ,
-                  { "BoxSizing": { "type": "CssPropertyValue<LayoutBoxSizing>" }} ,
-                  { "Width": { "type": "CssPropertyValue<LayoutWidth>" }} ,
-                  { "Height": { "type": "CssPropertyValue<LayoutHeight>" }} ,
-                  { "MinWidth": { "type": "CssPropertyValue<LayoutMinWidth>" }} ,
-                  { "MinHeight": { "type": "CssPropertyValue<LayoutMinHeight>" }} ,
-                  { "MaxWidth": { "type": "CssPropertyValue<LayoutMaxWidth>" }} ,
-                  { "MaxHeight": { "type": "CssPropertyValue<LayoutMaxHeight>" }} ,
-                  { "Position": { "type": "CssPropertyValue<LayoutPosition>" }} ,
-                  { "Top": { "type": "CssPropertyValue<LayoutTop>" }} ,
-                  { "Right": { "type": "CssPropertyValue<LayoutRight>" }} ,
-                  { "Left": { "type": "CssPropertyValue<LayoutLeft>" }} ,
-                  { "Bottom": { "type": "CssPropertyValue<LayoutBottom>" }} ,
-                  { "FlexWrap": { "type": "CssPropertyValue<LayoutWrap>" }} ,
-                  { "FlexDirection": { "type": "CssPropertyValue<LayoutDirection>" }} ,
-                  { "FlexGrow": { "type": "CssPropertyValue<LayoutFlexGrow>" }} ,
-                  { "FlexShrink": { "type": "CssPropertyValue<LayoutFlexShrink>" }} ,
-                  { "JustifyContent": { "type": "CssPropertyValue<LayoutJustifyContent>" }} ,
-                  { "AlignItems": { "type": "CssPropertyValue<LayoutAlignItems>" }} ,
-                  { "AlignContent": { "type": "CssPropertyValue<LayoutAlignContent>" }} ,
-                  { "BackgroundContent": { "type": "CssPropertyValue<StyleBackgroundContent>" }} ,
-                  { "BackgroundPosition": { "type": "CssPropertyValue<StyleBackgroundPosition>" }} ,
-                  { "BackgroundSize": { "type": "CssPropertyValue<StyleBackgroundSize>" }} ,
-                  { "BackgroundRepeat": { "type": "CssPropertyValue<StyleBackgroundRepeat>" }} ,
-                  { "OverflowX": { "type": "CssPropertyValue<Overflow>" }} ,
-                  { "OverflowY": { "type": "CssPropertyValue<Overflow>" }} ,
-                  { "PaddingTop": { "type": "CssPropertyValue<LayoutPaddingTop>" }} ,
-                  { "PaddingLeft": { "type": "CssPropertyValue<LayoutPaddingLeft>" }} ,
-                  { "PaddingRight": { "type": "CssPropertyValue<LayoutPaddingRight>" }} ,
-                  { "PaddingBottom": { "type": "CssPropertyValue<LayoutPaddingBottom>" }} ,
-                  { "MarginTop": { "type": "CssPropertyValue<LayoutMarginTop>" }} ,
-                  { "MarginLeft": { "type": "CssPropertyValue<LayoutMarginLeft>" }} ,
-                  { "MarginRight": { "type": "CssPropertyValue<LayoutMarginRight>" }} ,
-                  { "MarginBottom": { "type": "CssPropertyValue<LayoutMarginBottom>" }} ,
-                  { "BorderTopLeftRadius": { "type": "CssPropertyValue<StyleBorderTopLeftRadius>" }} ,
-                  { "BorderTopRightRadius": { "type": "CssPropertyValue<StyleBorderTopRightRadius>" }} ,
-                  { "BorderBottomLeftRadius": { "type": "CssPropertyValue<StyleBorderBottomLeftRadius>" }} ,
-                  { "BorderBottomRightRadius": { "type": "CssPropertyValue<StyleBorderBottomRightRadius>" }} ,
-                  { "BorderTopColor": { "type": "CssPropertyValue<StyleBorderTopColor>" }} ,
-                  { "BorderRightColor": { "type": "CssPropertyValue<StyleBorderRightColor>" }} ,
-                  { "BorderLeftColor": { "type": "CssPropertyValue<StyleBorderLeftColor>" }} ,
-                  { "BorderBottomColor": { "type": "CssPropertyValue<StyleBorderBottomColor>" }} ,
-                  { "BorderTopStyle": { "type": "CssPropertyValue<StyleBorderTopStyle>" }} ,
-                  { "BorderRightStyle": { "type": "CssPropertyValue<StyleBorderRightStyle>" }} ,
-                  { "BorderLeftStyle": { "type": "CssPropertyValue<StyleBorderLeftStyle>" }} ,
-                  { "BorderBottomStyle": { "type": "CssPropertyValue<StyleBorderBottomStyle>" }} ,
-                  { "BorderTopWidth": { "type": "CssPropertyValue<StyleBorderTopWidth>" }} ,
-                  { "BorderRightWidth": { "type": "CssPropertyValue<StyleBorderRightWidth>" }} ,
-                  { "BorderLeftWidth": { "type": "CssPropertyValue<StyleBorderLeftWidth>" }} ,
-                  { "BorderBottomWidth": { "type": "CssPropertyValue<StyleBorderBottomWidth>" }} ,
-                  { "BoxShadowLeft": { "type": "CssPropertyValue<BoxShadowPreDisplayItem>" }} ,
-                  { "BoxShadowRight": { "type": "CssPropertyValue<BoxShadowPreDisplayItem>" }} ,
-                  { "BoxShadowTop": { "type": "CssPropertyValue<BoxShadowPreDisplayItem>" }} ,
-                  { "BoxShadowBottom": { "type": "CssPropertyValue<BoxShadowPreDisplayItem>" }}
-                ]
-            }
-         }
-      },
-      "dom": {
-         "doc": "`Dom` construction and configuration",
-         "classes": {
-            "Dom": {
-               "external": "azul_impl::dom::DomPtr",
-               "is_boxed_object": true,
-               "constructors": {
-                  "div": {
-                     "doc": "Creates a new `div` node",
-                     "fn_body":"Dom::div()"
-                  },
-                  "body": {
-                     "doc": "Creates a new `body` node",
-                     "fn_body":"Dom::body()"
-                  },
-                  "label": {
-                     "doc": "Creates a new `p` node with a given `String` as the text contents",
-                     "fn_args": [
-                        {"text": "String"}
-                     ],
-                     "fn_body": "Dom::label(text.object)"
-                  },
-                  "text": {
-                     "doc": "Creates a new `p` node from a (cached) text referenced by a `TextId`",
-                     "fn_args": [
-                        {"text_id": "TextId"}
-                     ],
-                     "fn_body": "Dom::text(text_id.object)"
-                  },
-                  "image": {
-                     "doc": "Creates a new `img` node from a (cached) text referenced by a `ImageId`",
-                     "fn_args": [
-                        {"image_id": "ImageId"}
-                     ],
-                     "fn_body": "Dom::image(image_id.object)"
-                  },
-                  "gl_texture": {
-                     "doc": "Creates a new node which will render an OpenGL texture after the layout step is finished. See the documentation for [GlCallback]() for more info about OpenGL rendering callbacks.",
-                     "fn_args": [
-                        {"data": "RefAny"},
-                        {"callback": "GlCallback"}
-                     ],
-                     "fn_body": "Dom::gl_texture(callback, data)"
-                  },
-                  "iframe_callback": {
-                     "doc": "Creates a new node with a callback that will return a `Dom` after being layouted. See the documentation for [IFrameCallback]() for more info about iframe callbacks.",
-                     "fn_args": [
-                        {"data": "RefAny"},
-                        {"callback": "IFrameCallback"}
-                     ],
-                     "fn_body": "Dom::iframe(callback, data)"
-                  }
-               },
-               "functions": {
-                  "add_id": {
-                     "doc": "Adds a CSS ID (`#something`) to the DOM node",
-                     "fn_args": [
-                        {"self": "refmut"},
-                        {"id": "String"}
-                     ],
-                     "fn_body": "az_dom_downcast_refmut(dom, |d| { d.add_id(id.object); })"
-                  },
-                  "with_id": {
-                     "doc": "Same as [`Dom::add_id`](#method.add_id), but as a builder method",
-                     "fn_args": [
-                        {"self": "mut value"},
-                        {"id": "String"}
-                     ],
-                     "returns": "Dom",
-                     "fn_body": "az_dom_add_id(&mut dom, id); dom"
-                  },
-                  "set_ids": {
-                     "doc": "Same as calling [`Dom::add_id`](#method.add_id) for each CSS ID, but this function **replaces** all current CSS IDs",
-                     "fn_args": [
-                        {"self": "refmut"},
-                        {"ids": "Vec<String>"}
-                     ],
-                     "fn_body": "az_dom_downcast_refmut(dom, |d| { d.set_ids(ids.object); })"
-                  },
-                  "with_ids": {
-                     "doc": "Same as [`Dom::set_ids`](#method.set_ids), but as a builder method",
-                     "fn_args": [
-                        {"self": "mut value"},
-                        {"ids": "Vec<String>"}
-                     ],
-                     "returns": "Dom",
-                     "fn_body": "az_dom_set_ids(&mut dom, ids); dom"
-                  },
-                  "add_class": {
-                     "doc": "Adds a CSS class (`.something`) to the DOM node",
-                     "fn_args": [
-                        {"self": "refmut"},
-                        {"class": "String"}
-                     ],
-                     "fn_body": "az_dom_downcast_refmut(dom, |d| { d.add_class(class.object); })"
-                  },
-                  "with_class": {
-                     "doc": "Same as [`Dom::add_class`](#method.add_class), but as a builder method",
-                     "fn_args": [
-                        {"self": "mut value"},
-                        {"class": "String"}
-                     ],
-                     "returns": "Dom",
-                     "fn_body": "az_dom_add_class(&mut dom, class); dom"
-                  },
-                  "set_classes": {
-                     "doc": "Same as calling [`Dom::add_class`](#method.add_class) for each class, but this function **replaces** all current classes",
-                     "fn_args": [
-                        {"self": "refmut"},
-                        {"classes": "Vec<String>"}
-                     ],
-                     "fn_body": "az_dom_downcast_refmut(dom, |d| { (*d).set_classes(classes.object); })"
-                  },
-                  "with_classes": {
-                     "doc": "Same as [`Dom::set_classes`](#method.set_classes), but as a builder method",
-                     "fn_args": [
-                        {"self": "mut value"},
-                        {"classes": "Vec<String>"}
-                     ],
-                     "returns": "Dom",
-                     "fn_body": "az_dom_set_classes(&mut dom, classes); dom"
-                  },
-                  "add_callback": {
-                     "doc": "Adds a [`Callback`](callbacks/type.Callback) that acts on the `data` the `event` happens",
-                     "fn_args": [
-                        {"self": "refmut"},
-                        {"event": "EventFilter"},
-                        {"data": "RefAny"},
-                        {"callback": "Callback"}
-                     ],
-                     "fn_body": "az_dom_downcast_refmut(dom, |d| { d.add_callback(event.object, callback, data); })"
-                  },
-                  "with_callback": {
-                     "doc": "Same as [`Dom::add_callback`](#method.add_callback), but as a builder method",
-                     "fn_args": [
-                        {"self": "mut value"},
-                        {"event": "EventFilter"},
-                        {"data": "RefAny"},
-                        {"callback": "Callback"}
-                     ],
-                     "returns": "Dom",
-                     "fn_body": "az_dom_add_callback(&mut dom, event, data, callback); dom"
-                  },
-                  "add_css_override": {
-                     "doc": "Overrides the CSS property of this DOM node with a value (for example `\"width = 200px\"`)",
-                     "fn_args": [
-                        {"self": "refmut"},
-                        {"id": "String"},
-                        {"prop": "CssProperty"}
-                     ],
-                     "fn_body": "az_dom_downcast_refmut(dom, |d| { d.add_css_override(id.object, prop.object); })"
-                  },
-                  "with_css_override": {
-                     "doc": "Same as [`Dom::add_css_override`](#method.add_css_override), but as a builder method",
-                     "fn_args": [
-                        {"self": "mut value"},
-                        {"id": "String"},
-                        {"prop": "CssProperty"}
-                     ],
-                     "returns": "Dom",
-                     "fn_body": "az_dom_add_css_override(&mut dom, id, prop); dom"
-                  },
-                  "set_is_draggable": {
-                     "doc": "Sets the `is_draggable` attribute of this DOM node (default: false)",
-                     "fn_args": [
-                        {"self": "refmut"},
-                        {"is_draggable": "bool"}
-                     ],
-                     "fn_body": "az_dom_downcast_refmut(dom, |d| { d.set_draggable(is_draggable); })"
-                  },
-                  "is_draggable": {
-                     "doc": "Same as [`Dom::set_is_draggable`](#method.set_is_draggable), but as a builder method",
-                     "fn_args": [
-                        {"self": "mut value"},
-                        {"is_draggable": "bool"}
-                     ],
-                     "returns": "Dom",
-                     "fn_body": "az_dom_set_is_draggable(&mut dom, is_draggable); dom"
-                  },
-                  "set_tab_index": {
-                     "doc": "Sets the `tabindex` attribute of this DOM node (makes an element focusable - default: None)",
-                     "fn_args": [
-                        {"self": "refmut"},
-                        {"tab_index": "TabIndex"}
-                     ],
-                     "fn_body": "az_dom_downcast_refmut(dom, |d| { d.set_tab_index(tab_index.object); })"
-                  },
-                  "with_tab_index": {
-                     "doc": "Same as [`Dom::set_tab_index`](#method.set_tab_index), but as a builder method",
-                     "fn_args": [
-                        {"self": "mut value"},
-                        {"tab_index": "TabIndex"}
-                     ],
-                     "returns": "Dom",
-                     "fn_body": "az_dom_set_tab_index(&mut dom, tab_index); dom"
-                  },
-                  "add_child": {
-                     "doc": "Reparents another `Dom` to be the child node of this `Dom`",
-                     "fn_args": [
-                        {"self": "refmut"},
-                        {"child": "Dom"}
-                     ],
-                     "fn_body": "az_dom_downcast_refmut(dom, |d| { d.add_child(*az_dom_downcast(child)); })"
-                  },
-                  "with_child": {
-                     "doc": "Same as [`Dom::add_child`](#method.add_child), but as a builder method",
-                     "fn_args": [
-                        {"self": "mut value"},
-                        {"child": "Dom"}
-                     ],
-                     "returns": "Dom",
-                     "fn_body": "az_dom_add_child(&mut dom, child); dom"
-                  },
-                  "has_id": {
-                     "doc": "Returns if the DOM node has a certain CSS ID",
-                     "fn_args": [
-                        {"self": "refmut"},
-                        {"id": "String"}
-                     ],
-                     "returns": "bool",
-                     "fn_body": "az_dom_downcast_ref(dom, |d| { d.has_id(&id.object) })"
-                  },
-                  "has_class": {
-                     "doc": "Returns if the DOM node has a certain CSS class",
-                     "fn_args": [
-                        {"self": "refmut"},
-                        {"class": "String"}
-                     ],
-                     "returns": "bool",
-                     "fn_body": "az_dom_downcast_ref(dom, |d| { d.has_class(&class.object) })"
-                  },
-                  "get_html_string": {
-                     "doc": "Returns the HTML String for this DOM",
-                     "fn_args": [
-                        {"self": "refmut"}
-                     ],
-                     "returns": "String",
-                     "fn_body": "AzString { object: az_dom_downcast_ref(dom, |d| { d.get_html_string() }) }"
-                  }
-               }
-            },
-            "EventFilter": {
-               "external": "azul_impl::dom::EventFilter",
-               "enum_fields": [
-                  { "Hover": {"type": "HoverEventFilter" } },
-                  { "Not": {"type": "NotEventFilter" } },
-                  { "Focus": {"type": "FocusEventFilter" } },
-                  { "Window": {"type": "WindowEventFilter" } }
-               ]
-            },
-            "HoverEventFilter": {
-               "external": "azul_impl::dom::HoverEventFilter",
-               "enum_fields": [
-                  { "MouseOver": {}} ,
-                  { "MouseDown": {}} ,
-                  { "LeftMouseDown": {}} ,
-                  { "RightMouseDown": {}} ,
-                  { "MiddleMouseDown": {}} ,
-                  { "MouseUp": {}} ,
-                  { "LeftMouseUp": {}} ,
-                  { "RightMouseUp": {}} ,
-                  { "MiddleMouseUp": {}} ,
-                  { "MouseEnter": {}} ,
-                  { "MouseLeave": {}} ,
-                  { "Scroll": {}} ,
-                  { "ScrollStart": {}} ,
-                  { "ScrollEnd": {}} ,
-                  { "TextInput": {}} ,
-                  { "VirtualKeyDown": {}} ,
-                  { "VirtualKeyUp": {}} ,
-                  { "HoveredFile": {}} ,
-                  { "DroppedFile": {}} ,
-                  { "HoveredFileCancelled": {}}
-                ]
-            },
-            "FocusEventFilter": {
-               "external": "azul_impl::dom::FocusEventFilter",
-               "enum_fields": [
-                  { "MouseOver": {}} ,
-                  { "MouseDown": {}} ,
-                  { "LeftMouseDown": {}} ,
-                  { "RightMouseDown": {}} ,
-                  { "MiddleMouseDown": {}} ,
-                  { "MouseUp": {}} ,
-                  { "LeftMouseUp": {}} ,
-                  { "RightMouseUp": {}} ,
-                  { "MiddleMouseUp": {}} ,
-                  { "MouseEnter": {}} ,
-                  { "MouseLeave": {}} ,
-                  { "Scroll": {}} ,
-                  { "ScrollStart": {}} ,
-                  { "ScrollEnd": {}} ,
-                  { "TextInput": {}} ,
-                  { "VirtualKeyDown": {}} ,
-                  { "VirtualKeyUp": {}} ,
-                  { "FocusReceived": {}} ,
-                  { "FocusLost": {}}
-                ]
-            },
-            "NotEventFilter": {
-               "external": "azul_impl::dom::NotEventFilter",
-               "enum_fields": [
-                  { "Hover": {"type": "HoverEventFilter" } },
-                  { "Focus": {"type": "FocusEventFilter" } }
-               ]
-            },
-            "WindowEventFilter": {
-               "external": "azul_impl::dom::WindowEventFilter",
-               "enum_fields": [
-                  { "MouseOver": {}} ,
-                  { "MouseDown": {}} ,
-                  { "LeftMouseDown": {}} ,
-                  { "RightMouseDown": {}} ,
-                  { "MiddleMouseDown": {}} ,
-                  { "MouseUp": {}} ,
-                  { "LeftMouseUp": {}} ,
-                  { "RightMouseUp": {}} ,
-                  { "MiddleMouseUp": {}} ,
-                  { "MouseEnter": {}} ,
-                  { "MouseLeave": {}} ,
-                  { "Scroll": {}} ,
-                  { "ScrollStart": {}} ,
-                  { "ScrollEnd": {}} ,
-                  { "TextInput": {}} ,
-                  { "VirtualKeyDown": {}} ,
-                  { "VirtualKeyUp": {}} ,
-                  { "HoveredFile": {}} ,
-                  { "DroppedFile": {}} ,
-                  { "HoveredFileCancelled": {}}
-                ]
-            },
-            "TabIndex": {
-               "external": "azul_impl::dom::TabIndex",
-               "enum_fields": [
-                  { "Auto": { "doc": "Automatic tab index, similar to simply setting `focusable = \"true\"` or `tabindex = 0`, (both have the effect of making the element focusable)" }} ,
-                  { "OverrideInParent": { "type": "usize", "doc": " Set the tab index in relation to its parent element (`tabindex = n`)" }} ,
-                  { "NoKeyboardFocus": { "doc": "Elements can be focused in callbacks, but are not accessible via keyboard / tab navigation (`tabindex = -1` ) "}}
-               ]
-            }
-         }
-      },
-      "resources": {
-         "doc": "Struct definition for image / font / text IDs",
-         "classes": {
-            "TextId": {
-               "external": "azul_impl::resources::TextId",
-               "struct_fields": [
-                  { "id": { "type": "usize" } }
-               ],
-               "constructors": {
-                  "new": {
-                     "doc": "Creates a new, unique `TextId`",
-                     "fn_body":"TextId::new()"
-                  }
-               }
-            },
-            "ImageId": {
-               "external": "azul_impl::resources::ImageId",
-               "struct_fields": [
-                  { "id": { "type": "usize" } }
-               ],
-               "constructors": {
-                  "new": {
-                     "doc": "Creates a new, unique `ImageId`",
-                     "fn_body":"ImageId::new()"
-                  }
-               }
-            },
-            "FontId": {
-               "external": "azul_impl::resources::FontId",
-               "struct_fields": [
-                  { "id": { "type": "usize" } }
-               ],
-               "constructors": {
-                  "new": {
-                     "doc": "Creates a new, unique `FontId`",
-                     "fn_body":"FontId::new()"
-                  }
-               }
-            },
-            "ImageSource": {
-               "external": "azul_impl::resources::ImageSource",
-               "enum_fields": [
-                  { "Embedded": {"type": "Vec<u8>", "doc": "Bytes of the image, encoded in PNG / JPG / etc. format" } },
-                  { "File": {"type": "PathBuf", "doc": "References an (encoded!) image as a file from the file system that is loaded when necessary" } },
-                  { "Raw": {"type": "RawImage", "doc": "References a decoded (!) `RawImage` as the image source" } }
-               ]
-            },
-            "FontSource": {
-               "external": "azul_impl::resources::FontSource",
-               "enum_fields": [
-                  { "Embedded": {"type": "Vec<u8>", "doc": "Bytes are the bytes of the font file" } },
-                  { "File": {"type": "PathBuf", "doc": "References a font from a file path, which is loaded when necessary" } },
-                  { "System": {"type": "String", "doc": "References a font from from a system font identifier, such as `\"Arial\"` or `\"Helvetica\"`" } }
-               ]
-            },
-            "RawImage": {
-               "constructors": {
-                  "new": {
-                     "doc": "Creates a new `RawImage` by loading the decoded bytes",
-                     "fn_args": [
-                        {"decoded_pixels": "U8Vec"},
-                        {"width": "usize"},
-                        {"height": "usize"},
-                        {"data_format": "RawImageFormat"}
-                     ],
-                     "fn_body": "RawImage { pixels: decoded_pixels.object, image_dimensions: (width, height), data_format: data_format.object }"
-                  }
-               }
-            },
-            "RawImageFormat": {
-               "external": "azul_impl::resources::RawImageFormat",
-               "enum_fields": [
-                  { "R8": {"doc": "Bytes are in the R-unsinged-8bit format" } },
-                  { "R16": {"doc": "Bytes are in the R-unsinged-16bit format" } },
-                  { "RG16": {"doc": "Bytes are in the RG-unsinged-16bit format" } },
-                  { "BGRA8": {"doc": "Bytes are in the BRGA-unsigned-8bit format" } },
-                  { "RGBAF32": {"doc": "Bytes are in the RGBA-floating-point-32bit format" } },
-                  { "RG8": {"doc": "Bytes are in the RG-unsigned-8bit format" } },
-                  { "RGBAI32": {"doc": "Bytes are in the RGBA-signed-32bit format" } },
-                  { "RGBA8": {"doc": "Bytes are in the RGBA-unsigned-8bit format" } }
-               ]
-            }
-         }
-      },
-      "window": {
-         "doc": "Window creation / startup configuration",
-         "classes": {
-            "WindowCreateOptions": {
-               "rust_class_name": "WindowCreateOptions",
-               "constructors": {
-                  "new": {
-                     "fn_args":[
-                        {"css": "Css"}
-                     ],
-                     "fn_body":"WindowCreateOptions::new(*az_css_downcast(css))"
-                  }
-               }
-            }
-         }
-      }
+				"RefAny": { "use_patches": ["dll", "rust"] },
+				"LayoutInfo": {
+					"rust_class_name": "LayoutInfo<'a>",
+					"external": "azul_impl::callbacks::LayoutInfoPtr",
+					"is_boxed_object": true
+				}
+			}
+		},
+		"css": {
+			"doc": "`Css` parsing module",
+			"classes": {
+				"Css": {
+					"constructors": {
+						"native": {
+						"doc": "Loads the native style for the given operating system",
+						"fn_body":"css::native()"
+						},
+						"empty": {
+						"doc": "Returns an empty CSS style",
+						"fn_body":"css::empty()"
+						},
+						"from_string": {
+						"doc": "Returns a CSS style parsed from a `String`",
+						"fn_args": [
+							{"s": "String"}
+						],
+						"fn_body":"css::from_str(&s.object).unwrap()"
+						},
+						"override_native": {
+						"doc": "Appends a parsed stylesheet to `Css::native()`",
+						"fn_args": [
+							{"s": "String"}
+						],
+						"fn_body":"css::override_native(&s.object).unwrap()"
+						}
+					}
+				},
+				"CssHotReloader": {
+					"rust_class_name": "Box<dyn HotReloadHandler>",
+					"constructors": {
+						"new": {
+							"doc": "Creates a `HotReloadHandler` that hot-reloads a CSS file every X milliseconds",
+							"fn_args": [
+								{"path": "PathBuf"},
+								{"reload_ms": "u64"}
+							],
+							"fn_body":"css::hot_reload(*az_path_buf_downcast(path), Duration::from_millis(reload_ms))"
+						},
+						"override_native": {
+							"doc": "Creates a `HotReloadHandler` that overrides the `Css::native()` stylesheet with a CSS file, reloaded every X milliseconds",
+							"fn_args": [
+								{"path": "PathBuf"},
+								{"reload_ms": "u64"}
+							],
+							"fn_body":"css::hot_reload_override_native(*az_path_buf_downcast(path), Duration::from_millis(reload_ms))"
+						}
+					}
+				},
+				"ColorU": {
+					"external": "azul_impl::css::ColorU",
+					"struct_fields": [
+						{"r": {"type": "u8"}},
+						{"g": {"type": "u8"}},
+						{"b": {"type": "u8"}},
+						{"a": {"type": "u8"}}
+					]
+				},
+				"SizeMetric": {
+					"external": "azul_impl::css::SizeMetric",
+					"enum_fields": [
+						{"Px": {}},
+						{"Pt": {}},
+						{"Em": {}},
+						{"Percent": {}}
+					]
+				},
+				"FloatValue": {
+					"external": "azul_impl::css::FloatValue",
+					"struct_fields": [
+						{"number": {"type": "isize"}}
+					]
+				},
+				"PixelValue": {
+					"external": "azul_impl::css::PixelValue",
+					"struct_fields": [
+						{"metric": {"type": "SizeMetric"}},
+						{"number": {"type": "FloatValue"}}
+					]
+				},
+				"PixelValueNoPercent": {
+					"external": "azul_impl::css::PixelValueNoPercent",
+					"struct_fields": [
+						{"inner": {"type": "PixelValue"}}
+					]
+				},
+				"BoxShadowClipMode": {
+					"external": "azul_impl::css::BoxShadowClipMode",
+					"enum_fields": [
+						{"Outset": {}},
+						{"Inset": {}}
+					]
+				},
+				"BoxShadowPreDisplayItem": {
+					"external": "azul_impl::css::BoxShadowPreDisplayItem",
+					"struct_fields": [
+						{ "offset": {"type": "[PixelValueNoPercent;2]" }},
+						{ "color": {"type": "ColorU" }},
+						{ "blur_radius": {"type": "PixelValueNoPercent" }},
+						{ "spread_radius": {"type": "PixelValueNoPercent" }},
+						{ "clip_mode": {"type": "BoxShadowClipMode" }}
+					]
+				},
+				"LayoutAlignContent": {
+					"external": "azul_impl::css::LayoutAlignContent",
+					"enum_fields": [
+						{"Stretch": {"doc": "Default value. Lines stretch to take up the remaining space"}},
+						{"Center": {"doc": "Lines are packed toward the center of the flex container"}},
+						{"Start": {"doc": "Lines are packed toward the start of the flex container"}},
+						{"End": {"doc": "Lines are packed toward the end of the flex container"}},
+						{"SpaceBetween": {"doc": "Lines are evenly distributed in the flex container"}},
+						{"SpaceAround": {"doc": "Lines are evenly distributed in the flex container, with half-size spaces on either end"}}
+					]
+				},
+				"LayoutAlignItems": {
+					"external": "azul_impl::css::LayoutAlignItems",
+					"enum_fields": [
+						{"Stretch": {"doc": "Items are stretched to fit the container"}},
+						{"Center": {"doc": "Items are positioned at the center of the container"}},
+						{"Start": {"doc": "Items are positioned at the beginning of the container"}},
+						{"End": {"doc": "Items are positioned at the end of the container"}}
+					]
+				},
+				"LayoutBottom": {
+					"external": "azul_impl::css::LayoutBottom",
+					"struct_fields": [
+						{"inner": {"type": "PixelValue"}}
+					]
+				},
+				"LayoutBoxSizing": {
+					"external": "azul_impl::css::LayoutBoxSizing",
+					"enum_fields": [
+						{"ContentBox": {}},
+						{"BorderBox": {}}
+					]
+				},
+				"LayoutDirection": {
+					"external": "azul_impl::css::LayoutDirection",
+					"enum_fields": [
+						{"Row": {}},
+						{"RowReverse": {}},
+						{"Column": {}},
+						{"ColumnReverse": {}}
+					]
+				},
+				"LayoutDisplay": {
+					"external": "azul_impl::css::LayoutDisplay",
+					"enum_fields": [
+						{"Flex": {}},
+						{"Block": {}},
+						{"InlineBlock": {}}
+					]
+				},
+				"LayoutFlexGrow": {
+					"external": "azul_impl::css::LayoutFlexGrow",
+					"struct_fields": [
+						{"inner": { "type": "FloatValue" }}
+					]
+				},
+				"LayoutFlexShrink": {
+					"external": "azul_impl::css::LayoutFlexShrink",
+					"struct_fields": [
+						{"inner": { "type": "FloatValue" }}
+					]
+				},
+				"LayoutFloat": {
+					"external": "azul_impl::css::LayoutFloat",
+					"enum_fields": [
+						{"Left": {}},
+						{"Right": {}}
+					]
+				},
+				"LayoutHeight": {
+					"external": "azul_impl::css::LayoutHeight",
+					"struct_fields": [
+						{"inner": { "type": "PixelValue" }}
+					]
+				},
+				"LayoutJustifyContent": {
+					"external": "azul_impl::css::LayoutJustifyContent",
+					"enum_fields": [
+					    {"Start": {"doc": "Default value. Items are positioned at the beginning of the container"}},
+					    {"End": {"doc": "Items are positioned at the end of the container"}},
+					    {"Center": {"doc": "Items are positioned at the center of the container"}},
+					    {"SpaceBetween": {"doc": "Items are positioned with space between the lines"}},
+					    {"SpaceAround": {"doc": "Items are positioned with space before, between, and after the lines"}},
+					    {"SpaceEvenly": {"doc": "Items are distributed so that the spacing between any two adjacent alignment subjects, before the first alignment subject, and after the last alignment subject is the same"}}
+					]
+				},
+				"LayoutLeft": {
+					"external": "azul_impl::css::LayoutLeft",
+					"struct_fields": [
+						{"inner": { "type": "PixelValue" }}
+					]
+				},
+				"LayoutMarginBottom": {
+					"external": "azul_impl::css::LayoutLeft",
+					"struct_fields": [
+						{"inner": { "type": "PixelValue" }}
+					]
+				},
+				"LayoutMarginLeft": {
+					"external": "azul_impl::css::LayoutMarginLeft",
+					"struct_fields": [
+						{"inner": { "type": "PixelValue" }}
+					]
+				},
+				"LayoutMarginRight": {
+					"external": "azul_impl::css::LayoutMarginRight",
+					"struct_fields": [
+						{"inner": { "type": "PixelValue" }}
+					]
+				},
+				"LayoutMarginTop": {
+					"external": "azul_impl::css::LayoutMarginTop",
+					"struct_fields": [
+						{"inner": { "type": "PixelValue" }}
+					]
+				},
+				"LayoutMaxHeight": {
+					"external": "azul_impl::css::LayoutMaxHeight",
+					"struct_fields": [
+						{"inner": { "type": "PixelValue" }}
+					]
+				},
+				"LayoutMaxWidth": {
+					"external": "azul_impl::css::LayoutMaxWidth",
+					"struct_fields": [
+						{"inner": { "type": "PixelValue" }}
+					]
+				},
+				"LayoutMinHeight": {
+					"external": "azul_impl::css::LayoutMinHeight",
+					"struct_fields": [
+						{"inner": { "type": "PixelValue" }}
+					]
+				},
+				"LayoutMinWidth": {
+					"external": "azul_impl::css::LayoutMinWidth",
+					"struct_fields": [
+						{"inner": { "type": "PixelValue" }}
+					]
+				},
+				"LayoutPaddingBottom": {
+					"external": "azul_impl::css::LayoutPaddingBottom",
+					"struct_fields": [
+						{"inner": { "type": "PixelValue" }}
+					]
+				},
+				"LayoutPaddingLeft": {
+					"external": "azul_impl::css::LayoutPaddingLeft",
+					"struct_fields": [
+						{"inner": { "type": "PixelValue" }}
+					]
+				},
+				"LayoutPaddingRight": {
+					"external": "azul_impl::css::LayoutPaddingRight",
+					"struct_fields": [
+						{"inner": { "type": "PixelValue" }}
+					]
+				},
+				"LayoutPaddingTop": {
+					"external": "azul_impl::css::LayoutPaddingTop",
+					"struct_fields": [
+						{"inner": { "type": "PixelValue" }}
+					]
+				},
+				"LayoutPosition": {
+					"external": "azul_impl::css::LayoutPosition",
+					"enum_fields": [
+						{"Static": {}},
+						{"Relative": {}},
+						{"Absolute": {}},
+						{"Fixed": {}}
+					]
+				},
+				"LayoutRight": {
+					"external": "azul_impl::css::LayoutRight",
+					"struct_fields": [
+						{"inner": { "type": "PixelValue" }}
+					]
+				},
+				"LayoutTop": {
+					"external": "azul_impl::css::LayoutTop",
+					"struct_fields": [
+						{"inner": { "type": "PixelValue" }}
+					]
+				},
+				"LayoutWidth": {
+					"external": "azul_impl::css::LayoutWidth",
+					"struct_fields": [
+						{"inner": { "type": "PixelValue" }}
+					]
+				},
+				"LayoutWrap": {
+					"external": "azul_impl::css::LayoutWrap",
+					"enum_fields": [
+						{"Wrap": {}},
+						{"NoWrap": {}}
+					]
+				},
+				"Overflow": {
+					"external": "azul_impl::css::LayoutWrap",
+					"enum_fields": [
+					    {"Scroll": {"doc": "Always shows a scroll bar, overflows on scroll"}},
+					    {"Auto": {"doc": "Does not show a scroll bar by default, only when text is overflowing"}},
+					    {"Hidden": {"doc": "Never shows a scroll bar, simply clips text"}},
+					    {"Visible": {"doc": "Doesn't show a scroll bar, simply overflows the text"}}
+					]
+				},
+				"FloatValue": {
+					"external": "azul_impl::css::FloatValue",
+					"struct_fields": [
+						{ "number": {"type": "isize" }}
+					]
+				},
+				"PercentageValue": {
+					"external": "azul_impl::css::PercentageValue",
+					"struct_fields": [
+						{ "number": {"type": "FloatValue" }}
+					]
+				},
+				"GradientStopPre": {
+					"external": "azul_impl::css::GradientStopPre",
+					"struct_fields": [
+						{"offset": {"type": "Option<PercentageValue>"}},
+						{"color": {"type": "ColorU"}}
+					]
+				},
+				"DirectionCorner": {
+					"external": "azul_impl::css::DirectionCorner",
+					"enum_fields": [
+						{"Right": {}},
+						{"Left": {}},
+						{"Top": {}},
+						{"Bottom": {}},
+						{"TopRight": {}},
+						{"TopLeft": {}},
+						{"BottomRight": {}},
+						{"BottomLeft": {}}
+					]
+				},
+				"DirectionCorners": {
+					"external": "azul_impl::css::DirectionCorners",
+					"struct_fields": [
+						{"from": {"type": "DirectionCorner"}},
+						{"to": {"type": "DirectionCorner"}}
+					]
+				},
+				"Direction": {
+					"external": "azul_impl::css::Direction",
+					"enum_fields": [
+						{"Angle": {"type": "FloatValue"}},
+						{"FromTo": {"type": "DirectionCorners"}}
+					]
+				},
+				"ExtendMode": {
+					"external": "azul_impl::css::Direction",
+					"enum_fields": [
+						{"Clamp": {}},
+						{"Repeat": {}}
+					]
+				},
+				"LinearGradient": {
+					"external": "azul_impl::css::LinearGradient",
+					"struct_fields": [
+						{"direction": {"type": "Direction"}},
+						{"extend_mode": {"type": "ExtendMode"}},
+						{"stops": {"type": "Vec<GradientStopPre>"}}
+					]
+				},
+				"Shape": {
+					"external": "azul_impl::css::Shape",
+					"enum_fields": [
+						{"Ellipse": {}},
+						{"Circle": {}}
+					]
+				},
+				"RadialGradient": {
+					"external": "azul_impl::css::RadialGradient",
+					"struct_fields": [
+						{"shape": {"type": "Shape"}},
+						{"extend_mode": {"type": "ExtendMode"}},
+						{"stops": {"type": "Vec<GradientStopPre>"}}
+					]
+				},
+				"CssImageId": {
+					"external": "azul_impl::css::CssImageId",
+					"struct_fields": [
+						{"inner": {"type": "String"}}
+					]
+				},
+				"StyleBackgroundContent": {
+					"external": "azul_impl::css::StyleBackgroundContent",
+					"enum_fields": [
+						{"LinearGradient": {"type": "LinearGradient"}},
+						{"RadialGradient": {"type": "RadialGradient"}},
+						{"Image": {"type": "CssImageId"}},
+						{"Color": {"type": "ColorU"}}
+					]
+				},
+				"StyleBackgroundPosition": {
+					"constructors": { }
+				},
+				"StyleBackgroundRepeat": {
+					"constructors": { }
+				},
+				"StyleBackgroundSize": {
+					"constructors": { }
+				},
+				"StyleBorderBottomColor": {
+					"constructors": { }
+				},
+				"StyleBorderBottomLeftRadius": {
+					"constructors": { }
+				},
+				"StyleBorderBottomRightRadius": {
+					"constructors": { }
+				},
+				"StyleBorderBottomStyle": {
+					"constructors": { }
+				},
+				"StyleBorderBottomWidth": {
+					"constructors": { }
+				},
+				"StyleBorderLeftColor": {
+					"constructors": { }
+				},
+				"StyleBorderLeftStyle": {
+					"constructors": { }
+				},
+				"StyleBorderLeftWidth": {
+					"constructors": { }
+				},
+				"StyleBorderRightColor": {
+					"constructors": { }
+				},
+				"StyleBorderRightStyle": {
+					"constructors": { }
+				},
+				"StyleBorderRightWidth": {
+					"constructors": { }
+				},
+				"StyleBorderTopColor": {
+					"constructors": { }
+				},
+				"StyleBorderTopLeftRadius": {
+					"constructors": { }
+				},
+				"StyleBorderTopRightRadius": {
+					"constructors": { }
+				},
+				"StyleBorderTopStyle": {
+					"constructors": { }
+				},
+				"StyleBorderTopWidth": {
+					"constructors": { }
+				},
+				"StyleCursor": {
+					"constructors": { }
+				},
+				"StyleFontFamily": {
+					"constructors": { }
+				},
+				"StyleFontSize": {
+					"constructors": { }
+				},
+				"StyleLetterSpacing": {
+					"constructors": { }
+				},
+				"StyleLineHeight": {
+					"constructors": { }
+				},
+				"StyleTabWidth": {
+					"constructors": { }
+				},
+				"StyleTextAlignmentHorz": {
+					"constructors": { }
+				},
+				"StyleTextColor": {
+					"constructors": { }
+				},
+				"StyleWordSpacing": {
+					"constructors": { }
+				},
+				"BoxShadowPreDisplayItemValue": {
+					"rust_class_name": "CssPropertyValue<BoxShadowPreDisplayItem>",
+					"external": "azul_impl::css::CssPropertyValue::<BoxShadowPreDisplayItem>",
+					"enum_fields": [
+						{ "Auto": { }} ,
+						{ "None": { }} ,
+						{ "Inherit": { }} ,
+						{ "Initial": { }} ,
+						{ "Exact": { "type": "BoxShadowPreDisplayItem" }}
+					]
+				},
+				"LayoutAlignContentValue": {
+					"rust_class_name": "CssPropertyValue<LayoutAlignContent>",
+					"external": "azul_impl::css::CssPropertyValue::<LayoutAlignContent>",
+					"enum_fields": [
+						{ "Auto": { }} ,
+						{ "None": { }} ,
+						{ "Inherit": { }} ,
+						{ "Initial": { }} ,
+						{ "Exact": { "type": "LayoutAlignContent" }}
+					]
+				},
+				"LayoutAlignItemsValue": {
+					"rust_class_name": "CssPropertyValue<LayoutAlignItems>",
+					"external": "azul_impl::css::CssPropertyValue::<LayoutAlignItems>",
+					"enum_fields": [
+						{ "Auto": { }} ,
+						{ "None": { }} ,
+						{ "Inherit": { }} ,
+						{ "Initial": { }} ,
+						{ "Exact": { "type": "LayoutAlignItems" }}
+					]
+				},
+				"LayoutBottomValue": {
+					"rust_class_name": "CssPropertyValue<LayoutBottom>",
+					"external": "azul_impl::css::CssPropertyValue::<LayoutBottom>",
+					"enum_fields": [
+						{ "Auto": { }} ,
+						{ "None": { }} ,
+						{ "Inherit": { }} ,
+						{ "Initial": { }} ,
+						{ "Exact": { "type": "LayoutBottom" }}
+					]
+				},
+				"LayoutBoxSizingValue": {
+					"rust_class_name": "CssPropertyValue<LayoutBoxSizing>",
+					"external": "azul_impl::css::CssPropertyValue::<LayoutBoxSizing>",
+					"enum_fields": [
+						{ "Auto": { }} ,
+						{ "None": { }} ,
+						{ "Inherit": { }} ,
+						{ "Initial": { }} ,
+						{ "Exact": { "type": "LayoutBoxSizing" }}
+					]
+				},
+				"LayoutDirectionValue": {
+					"rust_class_name": "CssPropertyValue<LayoutDirection>",
+					"external": "azul_impl::css::CssPropertyValue::<LayoutDirection>",
+					"enum_fields": [
+						{ "Auto": { }} ,
+						{ "None": { }} ,
+						{ "Inherit": { }} ,
+						{ "Initial": { }} ,
+						{ "Exact": { "type": "LayoutDirection" }}
+					]
+				},
+				"LayoutDisplayValue": {
+					"rust_class_name": "CssPropertyValue<LayoutDisplay>",
+					"external": "azul_impl::css::CssPropertyValue::<LayoutDisplay>",
+					"enum_fields": [
+						{ "Auto": { }} ,
+						{ "None": { }} ,
+						{ "Inherit": { }} ,
+						{ "Initial": { }} ,
+						{ "Exact": { "type": "LayoutDisplay" }}
+					]
+				},
+				"LayoutFlexGrowValue": {
+					"rust_class_name": "CssPropertyValue<LayoutFlexGrow>",
+					"external": "azul_impl::css::CssPropertyValue::<LayoutFlexGrow>",
+					"enum_fields": [
+						{ "Auto": { }} ,
+						{ "None": { }} ,
+						{ "Inherit": { }} ,
+						{ "Initial": { }} ,
+						{ "Exact": { "type": "LayoutFlexGrow" }}
+					]
+				},
+				"LayoutFlexShrinkValue": {
+					"rust_class_name": "CssPropertyValue<LayoutFlexShrink>",
+					"external": "azul_impl::css::CssPropertyValue::<LayoutFlexShrink>",
+					"enum_fields": [
+						{ "Auto": { }} ,
+						{ "None": { }} ,
+						{ "Inherit": { }} ,
+						{ "Initial": { }} ,
+						{ "Exact": { "type": "LayoutFlexShrink" }}
+					]
+				},
+				"LayoutFloatValue": {
+					"rust_class_name": "CssPropertyValue<LayoutFloat>",
+					"external": "azul_impl::css::CssPropertyValue::<LayoutFloat>",
+					"enum_fields": [
+						{ "Auto": { }} ,
+						{ "None": { }} ,
+						{ "Inherit": { }} ,
+						{ "Initial": { }} ,
+						{ "Exact": { "type": "LayoutFloat" }}
+					]
+				},
+				"LayoutHeightValue": {
+					"rust_class_name": "CssPropertyValue<LayoutHeight>",
+					"external": "azul_impl::css::CssPropertyValue::<LayoutHeight>",
+					"enum_fields": [
+						{ "Auto": { }} ,
+						{ "None": { }} ,
+						{ "Inherit": { }} ,
+						{ "Initial": { }} ,
+						{ "Exact": { "type": "LayoutHeight" }}
+					]
+				},
+				"LayoutJustifyContentValue": {
+					"rust_class_name": "CssPropertyValue<LayoutJustifyContent>",
+					"external": "azul_impl::css::CssPropertyValue::<LayoutJustifyContent>",
+					"enum_fields": [
+						{ "Auto": { }} ,
+						{ "None": { }} ,
+						{ "Inherit": { }} ,
+						{ "Initial": { }} ,
+						{ "Exact": { "type": "LayoutJustifyContent" }}
+					]
+				},
+				"LayoutLeftValue": {
+					"rust_class_name": "CssPropertyValue<LayoutLeft>",
+					"external": "azul_impl::css::CssPropertyValue::<LayoutLeft>",
+					"enum_fields": [
+						{ "Auto": { }} ,
+						{ "None": { }} ,
+						{ "Inherit": { }} ,
+						{ "Initial": { }} ,
+						{ "Exact": { "type": "LayoutLeft" }}
+					]
+				},
+				"LayoutMarginBottomValue": {
+					"rust_class_name": "CssPropertyValue<LayoutMarginBottom>",
+					"external": "azul_impl::css::CssPropertyValue::<LayoutMarginBottom>",
+					"enum_fields": [
+						{ "Auto": { }} ,
+						{ "None": { }} ,
+						{ "Inherit": { }} ,
+						{ "Initial": { }} ,
+						{ "Exact": { "type": "LayoutMarginBottom" }}
+					]
+				},
+				"LayoutMarginLeftValue": {
+					"rust_class_name": "CssPropertyValue<LayoutMarginLeft>",
+					"external": "azul_impl::css::CssPropertyValue::<LayoutMarginLeft>",
+					"enum_fields": [
+						{ "Auto": { }} ,
+						{ "None": { }} ,
+						{ "Inherit": { }} ,
+						{ "Initial": { }} ,
+						{ "Exact": { "type": "LayoutMarginLeft" }}
+					]
+				},
+				"LayoutMarginRightValue": {
+					"rust_class_name": "CssPropertyValue<LayoutMarginRight>",
+					"external": "azul_impl::css::CssPropertyValue::<LayoutMarginRight>",
+					"enum_fields": [
+						{ "Auto": { }} ,
+						{ "None": { }} ,
+						{ "Inherit": { }} ,
+						{ "Initial": { }} ,
+						{ "Exact": { "type": "LayoutMarginRight" }}
+					]
+				},
+				"LayoutMarginTopValue": {
+					"rust_class_name": "CssPropertyValue<LayoutMarginTop>",
+					"external": "azul_impl::css::CssPropertyValue::<LayoutMarginTop>",
+					"enum_fields": [
+						{ "Auto": { }} ,
+						{ "None": { }} ,
+						{ "Inherit": { }} ,
+						{ "Initial": { }} ,
+						{ "Exact": { "type": "LayoutMarginTop" }}
+					]
+				},
+				"LayoutMaxHeightValue": {
+					"rust_class_name": "CssPropertyValue<LayoutMaxHeight>",
+					"external": "azul_impl::css::CssPropertyValue::<LayoutMaxHeight>",
+					"enum_fields": [
+						{ "Auto": { }} ,
+						{ "None": { }} ,
+						{ "Inherit": { }} ,
+						{ "Initial": { }} ,
+						{ "Exact": { "type": "LayoutMaxHeight" }}
+					]
+				},
+				"LayoutMaxWidthValue": {
+					"rust_class_name": "CssPropertyValue<LayoutMaxWidth>",
+					"external": "azul_impl::css::CssPropertyValue::<LayoutMaxWidth>",
+					"enum_fields": [
+						{ "Auto": { }} ,
+						{ "None": { }} ,
+						{ "Inherit": { }} ,
+						{ "Initial": { }} ,
+						{ "Exact": { "type": "LayoutMaxWidth" }}
+					]
+				},
+				"LayoutMinHeightValue": {
+					"rust_class_name": "CssPropertyValue<LayoutMinHeight>",
+					"external": "azul_impl::css::CssPropertyValue::<LayoutMinHeight>",
+					"enum_fields": [
+						{ "Auto": { }} ,
+						{ "None": { }} ,
+						{ "Inherit": { }} ,
+						{ "Initial": { }} ,
+						{ "Exact": { "type": "LayoutMinHeight" }}
+					]
+				},
+				"LayoutMinWidthValue": {
+					"rust_class_name": "CssPropertyValue<LayoutMinWidth>",
+					"external": "azul_impl::css::CssPropertyValue::<LayoutMinWidth>",
+					"enum_fields": [
+						{ "Auto": { }} ,
+						{ "None": { }} ,
+						{ "Inherit": { }} ,
+						{ "Initial": { }} ,
+						{ "Exact": { "type": "LayoutMinWidth" }}
+					]
+				},
+				"LayoutPaddingBottomValue": {
+					"rust_class_name": "CssPropertyValue<LayoutPaddingBottom>",
+					"external": "azul_impl::css::CssPropertyValue::<LayoutPaddingBottom>",
+					"enum_fields": [
+						{ "Auto": { }} ,
+						{ "None": { }} ,
+						{ "Inherit": { }} ,
+						{ "Initial": { }} ,
+						{ "Exact": { "type": "LayoutPaddingBottom" }}
+					]
+				},
+				"LayoutPaddingLeftValue": {
+					"rust_class_name": "CssPropertyValue<LayoutPaddingLeft>",
+					"external": "azul_impl::css::CssPropertyValue::<LayoutPaddingLeft>",
+					"enum_fields": [
+						{ "Auto": { }} ,
+						{ "None": { }} ,
+						{ "Inherit": { }} ,
+						{ "Initial": { }} ,
+						{ "Exact": { "type": "LayoutPaddingLeft" }}
+					]
+				},
+				"LayoutPaddingRightValue": {
+					"rust_class_name": "CssPropertyValue<LayoutPaddingRight>",
+					"external": "azul_impl::css::CssPropertyValue::<LayoutPaddingRight>",
+					"enum_fields": [
+						{ "Auto": { }} ,
+						{ "None": { }} ,
+						{ "Inherit": { }} ,
+						{ "Initial": { }} ,
+						{ "Exact": { "type": "LayoutPaddingRight" }}
+					]
+				},
+				"LayoutPaddingTopValue": {
+					"rust_class_name": "CssPropertyValue<LayoutPaddingTop>",
+					"external": "azul_impl::css::CssPropertyValue::<LayoutPaddingTop>",
+					"enum_fields": [
+						{ "Auto": { }} ,
+						{ "None": { }} ,
+						{ "Inherit": { }} ,
+						{ "Initial": { }} ,
+						{ "Exact": { "type": "LayoutPaddingTop" }}
+					]
+				},
+				"LayoutPositionValue": {
+					"rust_class_name": "CssPropertyValue<LayoutPosition>",
+					"external": "azul_impl::css::CssPropertyValue::<LayoutPosition>",
+					"enum_fields": [
+						{ "Auto": { }} ,
+						{ "None": { }} ,
+						{ "Inherit": { }} ,
+						{ "Initial": { }} ,
+						{ "Exact": { "type": "LayoutPosition" }}
+					]
+				},
+				"LayoutRightValue": {
+					"rust_class_name": "CssPropertyValue<LayoutRight>",
+					"external": "azul_impl::css::CssPropertyValue::<LayoutRight>",
+					"enum_fields": [
+						{ "Auto": { }} ,
+						{ "None": { }} ,
+						{ "Inherit": { }} ,
+						{ "Initial": { }} ,
+						{ "Exact": { "type": "LayoutRight" }}
+					]
+				},
+				"LayoutTopValue": {
+					"rust_class_name": "CssPropertyValue<LayoutTop>",
+					"external": "azul_impl::css::CssPropertyValue::<LayoutTop>",
+					"enum_fields": [
+						{ "Auto": { }} ,
+						{ "None": { }} ,
+						{ "Inherit": { }} ,
+						{ "Initial": { }} ,
+						{ "Exact": { "type": "LayoutTop" }}
+					]
+				},
+				"LayoutWidthValue": {
+					"rust_class_name": "CssPropertyValue<LayoutWidth>",
+					"external": "azul_impl::css::CssPropertyValue::<LayoutWidth>",
+					"enum_fields": [
+						{ "Auto": { }} ,
+						{ "None": { }} ,
+						{ "Inherit": { }} ,
+						{ "Initial": { }} ,
+						{ "Exact": { "type": "LayoutWidth" }}
+					]
+				},
+				"LayoutWrapValue": {
+					"rust_class_name": "CssPropertyValue<LayoutWrap>",
+					"external": "azul_impl::css::CssPropertyValue::<LayoutWrap>",
+					"enum_fields": [
+						{ "Auto": { }} ,
+						{ "None": { }} ,
+						{ "Inherit": { }} ,
+						{ "Initial": { }} ,
+						{ "Exact": { "type": "LayoutWrap" }}
+					]
+				},
+				"OverflowValue": {
+					"rust_class_name": "CssPropertyValue<Overflow>",
+					"external": "azul_impl::css::CssPropertyValue::<Overflow>",
+					"enum_fields": [
+						{ "Auto": { }} ,
+						{ "None": { }} ,
+						{ "Inherit": { }} ,
+						{ "Initial": { }} ,
+						{ "Exact": { "type": "Overflow" }}
+					]
+				},
+				"OverflowValue": {
+					"rust_class_name": "CssPropertyValue<Overflow>",
+					"external": "azul_impl::css::CssPropertyValue::<Overflow>",
+					"enum_fields": [
+						{ "Auto": { }} ,
+						{ "None": { }} ,
+						{ "Inherit": { }} ,
+						{ "Initial": { }} ,
+						{ "Exact": { "type": "Overflow" }}
+					]
+				},
+				"StyleBackgroundContentValue": {
+					"rust_class_name": "CssPropertyValue<StyleBackgroundContent>",
+					"external": "azul_impl::css::CssPropertyValue::<StyleBackgroundContent>",
+					"enum_fields": [
+						{ "Auto": { }} ,
+						{ "None": { }} ,
+						{ "Inherit": { }} ,
+						{ "Initial": { }} ,
+						{ "Exact": { "type": "StyleBackgroundContent" }}
+					]
+				},
+				"StyleBackgroundPositionValue": {
+					"rust_class_name": "CssPropertyValue<StyleBackgroundPosition>",
+					"external": "azul_impl::css::CssPropertyValue::<StyleBackgroundPosition>",
+					"enum_fields": [
+						{ "Auto": { }} ,
+						{ "None": { }} ,
+						{ "Inherit": { }} ,
+						{ "Initial": { }} ,
+						{ "Exact": { "type": "StyleBackgroundPosition" }}
+					]
+				},
+				"StyleBackgroundRepeatValue": {
+					"rust_class_name": "CssPropertyValue<StyleBackgroundRepeat>",
+					"external": "azul_impl::css::CssPropertyValue::<StyleBackgroundRepeat>",
+					"enum_fields": [
+						{ "Auto": { }} ,
+						{ "None": { }} ,
+						{ "Inherit": { }} ,
+						{ "Initial": { }} ,
+						{ "Exact": { "type": "StyleBackgroundRepeat" }}
+					]
+				},
+				"StyleBackgroundSizeValue": {
+					"rust_class_name": "CssPropertyValue<StyleBackgroundSize>",
+					"external": "azul_impl::css::CssPropertyValue::<StyleBackgroundSize>",
+					"enum_fields": [
+						{ "Auto": { }} ,
+						{ "None": { }} ,
+						{ "Inherit": { }} ,
+						{ "Initial": { }} ,
+						{ "Exact": { "type": "StyleBackgroundSize" }}
+					]
+				},
+				"StyleBorderBottomColorValue": {
+					"rust_class_name": "CssPropertyValue<StyleBorderBottomColor>",
+					"external": "azul_impl::css::CssPropertyValue::<StyleBorderBottomColor>",
+					"enum_fields": [
+						{ "Auto": { }} ,
+						{ "None": { }} ,
+						{ "Inherit": { }} ,
+						{ "Initial": { }} ,
+						{ "Exact": { "type": "StyleBorderBottomColor" }}
+					]
+				},
+				"StyleBorderBottomLeftRadiusValue": {
+					"rust_class_name": "CssPropertyValue<StyleBorderBottomLeftRadius>",
+					"external": "azul_impl::css::CssPropertyValue::<StyleBorderBottomLeftRadius>",
+					"enum_fields": [
+						{ "Auto": { }} ,
+						{ "None": { }} ,
+						{ "Inherit": { }} ,
+						{ "Initial": { }} ,
+						{ "Exact": { "type": "StyleBorderBottomLeftRadius" }}
+					]
+				},
+				"StyleBorderBottomRightRadiusValue": {
+					"rust_class_name": "CssPropertyValue<StyleBorderBottomRightRadius>",
+					"external": "azul_impl::css::CssPropertyValue::<StyleBorderBottomRightRadius>",
+					"enum_fields": [
+						{ "Auto": { }} ,
+						{ "None": { }} ,
+						{ "Inherit": { }} ,
+						{ "Initial": { }} ,
+						{ "Exact": { "type": "StyleBorderBottomRightRadius" }}
+					]
+				},
+				"StyleBorderBottomStyleValue": {
+					"rust_class_name": "CssPropertyValue<StyleBorderBottomStyle>",
+					"external": "azul_impl::css::CssPropertyValue::<StyleBorderBottomStyle>",
+					"enum_fields": [
+						{ "Auto": { }} ,
+						{ "None": { }} ,
+						{ "Inherit": { }} ,
+						{ "Initial": { }} ,
+						{ "Exact": { "type": "StyleBorderBottomStyle" }}
+					]
+				},
+				"StyleBorderBottomWidthValue": {
+					"rust_class_name": "CssPropertyValue<StyleBorderBottomWidth>",
+					"external": "azul_impl::css::CssPropertyValue::<StyleBorderBottomWidth>",
+					"enum_fields": [
+						{ "Auto": { }} ,
+						{ "None": { }} ,
+						{ "Inherit": { }} ,
+						{ "Initial": { }} ,
+						{ "Exact": { "type": "StyleBorderBottomWidth" }}
+					]
+				},
+				"StyleBorderLeftColorValue": {
+					"rust_class_name": "CssPropertyValue<StyleBorderLeftColor>",
+					"external": "azul_impl::css::CssPropertyValue::<StyleBorderLeftColor>",
+					"enum_fields": [
+						{ "Auto": { }} ,
+						{ "None": { }} ,
+						{ "Inherit": { }} ,
+						{ "Initial": { }} ,
+						{ "Exact": { "type": "StyleBorderLeftColor" }}
+					]
+				},
+				"StyleBorderLeftStyleValue": {
+					"rust_class_name": "CssPropertyValue<StyleBorderLeftStyle>",
+					"external": "azul_impl::css::CssPropertyValue::<StyleBorderLeftStyle>",
+					"enum_fields": [
+						{ "Auto": { }} ,
+						{ "None": { }} ,
+						{ "Inherit": { }} ,
+						{ "Initial": { }} ,
+						{ "Exact": { "type": "StyleBorderLeftStyle" }}
+					]
+				},
+				"StyleBorderLeftWidthValue": {
+					"rust_class_name": "CssPropertyValue<StyleBorderLeftWidth>",
+					"external": "azul_impl::css::CssPropertyValue::<StyleBorderLeftWidth>",
+					"enum_fields": [
+						{ "Auto": { }} ,
+						{ "None": { }} ,
+						{ "Inherit": { }} ,
+						{ "Initial": { }} ,
+						{ "Exact": { "type": "StyleBorderLeftWidth" }}
+					]
+				},
+				"StyleBorderRightColorValue": {
+					"rust_class_name": "CssPropertyValue<StyleBorderRightColor>",
+					"external": "azul_impl::css::CssPropertyValue::<StyleBorderRightColor>",
+					"enum_fields": [
+						{ "Auto": { }} ,
+						{ "None": { }} ,
+						{ "Inherit": { }} ,
+						{ "Initial": { }} ,
+						{ "Exact": { "type": "StyleBorderRightColor" }}
+					]
+				},
+				"StyleBorderRightStyleValue": {
+					"rust_class_name": "CssPropertyValue<StyleBorderRightStyle>",
+					"external": "azul_impl::css::CssPropertyValue::<StyleBorderRightStyle>",
+					"enum_fields": [
+						{ "Auto": { }} ,
+						{ "None": { }} ,
+						{ "Inherit": { }} ,
+						{ "Initial": { }} ,
+						{ "Exact": { "type": "StyleBorderRightStyle" }}
+					]
+				},
+				"StyleBorderRightWidthValue": {
+					"rust_class_name": "CssPropertyValue<StyleBorderRightWidth>",
+					"external": "azul_impl::css::CssPropertyValue::<StyleBorderRightWidth>",
+					"enum_fields": [
+						{ "Auto": { }} ,
+						{ "None": { }} ,
+						{ "Inherit": { }} ,
+						{ "Initial": { }} ,
+						{ "Exact": { "type": "StyleBorderRightWidth" }}
+					]
+				},
+				"StyleBorderTopColorValue": {
+					"rust_class_name": "CssPropertyValue<StyleBorderTopColor>",
+					"external": "azul_impl::css::CssPropertyValue::<StyleBorderTopColor>",
+					"enum_fields": [
+						{ "Auto": { }} ,
+						{ "None": { }} ,
+						{ "Inherit": { }} ,
+						{ "Initial": { }} ,
+						{ "Exact": { "type": "StyleBorderTopColor" }}
+					]
+				},
+				"StyleBorderTopLeftRadiusValue": {
+					"rust_class_name": "CssPropertyValue<StyleBorderTopLeftRadius>",
+					"external": "azul_impl::css::CssPropertyValue::<StyleBorderTopLeftRadius>",
+					"enum_fields": [
+						{ "Auto": { }} ,
+						{ "None": { }} ,
+						{ "Inherit": { }} ,
+						{ "Initial": { }} ,
+						{ "Exact": { "type": "StyleBorderTopLeftRadius" }}
+					]
+				},
+				"StyleBorderTopRightRadiusValue": {
+					"rust_class_name": "CssPropertyValue<StyleBorderTopRightRadius>",
+					"external": "azul_impl::css::CssPropertyValue::<StyleBorderTopRightRadius>",
+					"enum_fields": [
+						{ "Auto": { }} ,
+						{ "None": { }} ,
+						{ "Inherit": { }} ,
+						{ "Initial": { }} ,
+						{ "Exact": { "type": "StyleBorderTopRightRadius" }}
+					]
+				},
+				"StyleBorderTopStyleValue": {
+					"rust_class_name": "CssPropertyValue<StyleBorderTopStyle>",
+					"external": "azul_impl::css::CssPropertyValue::<StyleBorderTopStyle>",
+					"enum_fields": [
+						{ "Auto": { }} ,
+						{ "None": { }} ,
+						{ "Inherit": { }} ,
+						{ "Initial": { }} ,
+						{ "Exact": { "type": "StyleBorderTopStyle" }}
+					]
+				},
+				"StyleBorderTopWidthValue": {
+					"rust_class_name": "CssPropertyValue<StyleBorderTopWidth>",
+					"external": "azul_impl::css::CssPropertyValue::<StyleBorderTopWidth>",
+					"enum_fields": [
+						{ "Auto": { }} ,
+						{ "None": { }} ,
+						{ "Inherit": { }} ,
+						{ "Initial": { }} ,
+						{ "Exact": { "type": "StyleBorderTopWidth" }}
+					]
+				},
+				"StyleCursorValue": {
+					"rust_class_name": "CssPropertyValue<StyleCursor>",
+					"external": "azul_impl::css::CssPropertyValue::<StyleCursor>",
+					"enum_fields": [
+						{ "Auto": { }} ,
+						{ "None": { }} ,
+						{ "Inherit": { }} ,
+						{ "Initial": { }} ,
+						{ "Exact": { "type": "StyleCursor" }}
+					]
+				},
+				"StyleFontFamilyValue": {
+					"rust_class_name": "CssPropertyValue<StyleFontFamily>",
+					"external": "azul_impl::css::CssPropertyValue::<StyleFontFamily>",
+					"enum_fields": [
+						{ "Auto": { }} ,
+						{ "None": { }} ,
+						{ "Inherit": { }} ,
+						{ "Initial": { }} ,
+						{ "Exact": { "type": "StyleFontFamily" }}
+					]
+				},
+				"StyleFontSizeValue": {
+					"rust_class_name": "CssPropertyValue<StyleFontSize>",
+					"external": "azul_impl::css::CssPropertyValue::<StyleFontSize>",
+					"enum_fields": [
+						{ "Auto": { }} ,
+						{ "None": { }} ,
+						{ "Inherit": { }} ,
+						{ "Initial": { }} ,
+						{ "Exact": { "type": "StyleFontSize" }}
+					]
+				},
+				"StyleLetterSpacingValue": {
+					"rust_class_name": "CssPropertyValue<StyleLetterSpacing>",
+					"external": "azul_impl::css::CssPropertyValue::<StyleLetterSpacing>",
+					"enum_fields": [
+						{ "Auto": { }} ,
+						{ "None": { }} ,
+						{ "Inherit": { }} ,
+						{ "Initial": { }} ,
+						{ "Exact": { "type": "StyleLetterSpacing" }}
+					]
+				},
+				"StyleLineHeightValue": {
+					"rust_class_name": "CssPropertyValue<StyleLineHeight>",
+					"external": "azul_impl::css::CssPropertyValue::<StyleLineHeight>",
+					"enum_fields": [
+						{ "Auto": { }} ,
+						{ "None": { }} ,
+						{ "Inherit": { }} ,
+						{ "Initial": { }} ,
+						{ "Exact": { "type": "StyleLineHeight" }}
+					]
+				},
+				"StyleTabWidthValue": {
+					"rust_class_name": "CssPropertyValue<StyleTabWidth>",
+					"external": "azul_impl::css::CssPropertyValue::<StyleTabWidth>",
+					"enum_fields": [
+						{ "Auto": { }} ,
+						{ "None": { }} ,
+						{ "Inherit": { }} ,
+						{ "Initial": { }} ,
+						{ "Exact": { "type": "StyleTabWidth" }}
+					]
+				},
+				"StyleTextAlignmentHorzValue": {
+					"rust_class_name": "CssPropertyValue<StyleTextAlignmentHorz>",
+					"external": "azul_impl::css::CssPropertyValue::<StyleTextAlignmentHorz>",
+					"enum_fields": [
+						{ "Auto": { }} ,
+						{ "None": { }} ,
+						{ "Inherit": { }} ,
+						{ "Initial": { }} ,
+						{ "Exact": { "type": "StyleTextAlignmentHorz" }}
+					]
+				},
+				"StyleTextColorValue": {
+					"rust_class_name": "CssPropertyValue<StyleTextColor>",
+					"external": "azul_impl::css::CssPropertyValue::<StyleTextColor>",
+					"enum_fields": [
+						{ "Auto": { }} ,
+						{ "None": { }} ,
+						{ "Inherit": { }} ,
+						{ "Initial": { }} ,
+						{ "Exact": { "type": "StyleTextColor" }}
+					]
+				},
+				"StyleWordSpacingValue": {
+					"rust_class_name": "CssPropertyValue<StyleWordSpacing>",
+					"external": "azul_impl::css::CssPropertyValue::<StyleWordSpacing>",
+					"enum_fields": [
+						{ "Auto": { }} ,
+						{ "None": { }} ,
+						{ "Inherit": { }} ,
+						{ "Initial": { }} ,
+						{ "Exact": { "type": "StyleWordSpacing" }}
+					]
+				},
+				"CssProperty": {
+					"doc": "Parsed CSS key-value pair",
+					"external": "azul_impl::css::CssProperty",
+					"enum_fields": [
+						{ "TextColor": { "type": "CssPropertyValue<StyleTextColor>" }} ,
+						{ "FontSize": { "type": "CssPropertyValue<StyleFontSize>" }} ,
+						{ "FontFamily": { "type": "CssPropertyValue<StyleFontFamily>" }} ,
+						{ "TextAlign": { "type": "CssPropertyValue<StyleTextAlignmentHorz>" }} ,
+						{ "LetterSpacing": { "type": "CssPropertyValue<StyleLetterSpacing>" }} ,
+						{ "LineHeight": { "type": "CssPropertyValue<StyleLineHeight>" }} ,
+						{ "WordSpacing": { "type": "CssPropertyValue<StyleWordSpacing>" }} ,
+						{ "TabWidth": { "type": "CssPropertyValue<StyleTabWidth>" }} ,
+						{ "Cursor": { "type": "CssPropertyValue<StyleCursor>" }} ,
+						{ "Display": { "type": "CssPropertyValue<LayoutDisplay>" }} ,
+						{ "Float": { "type": "CssPropertyValue<LayoutFloat>" }} ,
+						{ "BoxSizing": { "type": "CssPropertyValue<LayoutBoxSizing>" }} ,
+						{ "Width": { "type": "CssPropertyValue<LayoutWidth>" }} ,
+						{ "Height": { "type": "CssPropertyValue<LayoutHeight>" }} ,
+						{ "MinWidth": { "type": "CssPropertyValue<LayoutMinWidth>" }} ,
+						{ "MinHeight": { "type": "CssPropertyValue<LayoutMinHeight>" }} ,
+						{ "MaxWidth": { "type": "CssPropertyValue<LayoutMaxWidth>" }} ,
+						{ "MaxHeight": { "type": "CssPropertyValue<LayoutMaxHeight>" }} ,
+						{ "Position": { "type": "CssPropertyValue<LayoutPosition>" }} ,
+						{ "Top": { "type": "CssPropertyValue<LayoutTop>" }} ,
+						{ "Right": { "type": "CssPropertyValue<LayoutRight>" }} ,
+						{ "Left": { "type": "CssPropertyValue<LayoutLeft>" }} ,
+						{ "Bottom": { "type": "CssPropertyValue<LayoutBottom>" }} ,
+						{ "FlexWrap": { "type": "CssPropertyValue<LayoutWrap>" }} ,
+						{ "FlexDirection": { "type": "CssPropertyValue<LayoutDirection>" }} ,
+						{ "FlexGrow": { "type": "CssPropertyValue<LayoutFlexGrow>" }} ,
+						{ "FlexShrink": { "type": "CssPropertyValue<LayoutFlexShrink>" }} ,
+						{ "JustifyContent": { "type": "CssPropertyValue<LayoutJustifyContent>" }} ,
+						{ "AlignItems": { "type": "CssPropertyValue<LayoutAlignItems>" }} ,
+						{ "AlignContent": { "type": "CssPropertyValue<LayoutAlignContent>" }} ,
+						{ "BackgroundContent": { "type": "CssPropertyValue<StyleBackgroundContent>" }} ,
+						{ "BackgroundPosition": { "type": "CssPropertyValue<StyleBackgroundPosition>" }} ,
+						{ "BackgroundSize": { "type": "CssPropertyValue<StyleBackgroundSize>" }} ,
+						{ "BackgroundRepeat": { "type": "CssPropertyValue<StyleBackgroundRepeat>" }} ,
+						{ "OverflowX": { "type": "CssPropertyValue<Overflow>" }} ,
+						{ "OverflowY": { "type": "CssPropertyValue<Overflow>" }} ,
+						{ "PaddingTop": { "type": "CssPropertyValue<LayoutPaddingTop>" }} ,
+						{ "PaddingLeft": { "type": "CssPropertyValue<LayoutPaddingLeft>" }} ,
+						{ "PaddingRight": { "type": "CssPropertyValue<LayoutPaddingRight>" }} ,
+						{ "PaddingBottom": { "type": "CssPropertyValue<LayoutPaddingBottom>" }} ,
+						{ "MarginTop": { "type": "CssPropertyValue<LayoutMarginTop>" }} ,
+						{ "MarginLeft": { "type": "CssPropertyValue<LayoutMarginLeft>" }} ,
+						{ "MarginRight": { "type": "CssPropertyValue<LayoutMarginRight>" }} ,
+						{ "MarginBottom": { "type": "CssPropertyValue<LayoutMarginBottom>" }} ,
+						{ "BorderTopLeftRadius": { "type": "CssPropertyValue<StyleBorderTopLeftRadius>" }} ,
+						{ "BorderTopRightRadius": { "type": "CssPropertyValue<StyleBorderTopRightRadius>" }} ,
+						{ "BorderBottomLeftRadius": { "type": "CssPropertyValue<StyleBorderBottomLeftRadius>" }} ,
+						{ "BorderBottomRightRadius": { "type": "CssPropertyValue<StyleBorderBottomRightRadius>" }} ,
+						{ "BorderTopColor": { "type": "CssPropertyValue<StyleBorderTopColor>" }} ,
+						{ "BorderRightColor": { "type": "CssPropertyValue<StyleBorderRightColor>" }} ,
+						{ "BorderLeftColor": { "type": "CssPropertyValue<StyleBorderLeftColor>" }} ,
+						{ "BorderBottomColor": { "type": "CssPropertyValue<StyleBorderBottomColor>" }} ,
+						{ "BorderTopStyle": { "type": "CssPropertyValue<StyleBorderTopStyle>" }} ,
+						{ "BorderRightStyle": { "type": "CssPropertyValue<StyleBorderRightStyle>" }} ,
+						{ "BorderLeftStyle": { "type": "CssPropertyValue<StyleBorderLeftStyle>" }} ,
+						{ "BorderBottomStyle": { "type": "CssPropertyValue<StyleBorderBottomStyle>" }} ,
+						{ "BorderTopWidth": { "type": "CssPropertyValue<StyleBorderTopWidth>" }} ,
+						{ "BorderRightWidth": { "type": "CssPropertyValue<StyleBorderRightWidth>" }} ,
+						{ "BorderLeftWidth": { "type": "CssPropertyValue<StyleBorderLeftWidth>" }} ,
+						{ "BorderBottomWidth": { "type": "CssPropertyValue<StyleBorderBottomWidth>" }} ,
+						{ "BoxShadowLeft": { "type": "CssPropertyValue<BoxShadowPreDisplayItem>" }} ,
+						{ "BoxShadowRight": { "type": "CssPropertyValue<BoxShadowPreDisplayItem>" }} ,
+						{ "BoxShadowTop": { "type": "CssPropertyValue<BoxShadowPreDisplayItem>" }} ,
+						{ "BoxShadowBottom": { "type": "CssPropertyValue<BoxShadowPreDisplayItem>" }}
+					]
+				}
+			}
+		},
+		"dom": {
+			"doc": "`Dom` construction and configuration",
+			"classes": {
+				"Dom": {
+					"external": "azul_impl::dom::DomPtr",
+					"is_boxed_object": true,
+					"constructors": {
+						"div": {
+						"doc": "Creates a new `div` node",
+						"fn_body":"Dom::div()"
+						},
+						"body": {
+						"doc": "Creates a new `body` node",
+						"fn_body":"Dom::body()"
+						},
+						"label": {
+						"doc": "Creates a new `p` node with a given `String` as the text contents",
+						"fn_args": [
+							{"text": "String"}
+						],
+						"fn_body": "Dom::label(text.object)"
+						},
+						"text": {
+						"doc": "Creates a new `p` node from a (cached) text referenced by a `TextId`",
+						"fn_args": [
+							{"text_id": "TextId"}
+						],
+						"fn_body": "Dom::text(text_id.object)"
+						},
+						"image": {
+						"doc": "Creates a new `img` node from a (cached) text referenced by a `ImageId`",
+						"fn_args": [
+							{"image_id": "ImageId"}
+						],
+						"fn_body": "Dom::image(image_id.object)"
+						},
+						"gl_texture": {
+						"doc": "Creates a new node which will render an OpenGL texture after the layout step is finished. See the documentation for [GlCallback]() for more info about OpenGL rendering callbacks.",
+						"fn_args": [
+							{"data": "RefAny"},
+							{"callback": "GlCallback"}
+						],
+						"fn_body": "Dom::gl_texture(callback, data)"
+						},
+						"iframe_callback": {
+						"doc": "Creates a new node with a callback that will return a `Dom` after being layouted. See the documentation for [IFrameCallback]() for more info about iframe callbacks.",
+						"fn_args": [
+							{"data": "RefAny"},
+							{"callback": "IFrameCallback"}
+						],
+						"fn_body": "Dom::iframe(callback, data)"
+						}
+					},
+					"functions": {
+						"add_id": {
+						"doc": "Adds a CSS ID (`#something`) to the DOM node",
+						"fn_args": [
+							{"self": "refmut"},
+							{"id": "String"}
+						],
+						"fn_body": "az_dom_downcast_refmut(dom, |d| { d.add_id(id.object); })"
+						},
+						"with_id": {
+						"doc": "Same as [`Dom::add_id`](#method.add_id), but as a builder method",
+						"fn_args": [
+							{"self": "mut value"},
+							{"id": "String"}
+						],
+						"returns": "Dom",
+						"fn_body": "az_dom_add_id(&mut dom, id); dom"
+						},
+						"set_ids": {
+						"doc": "Same as calling [`Dom::add_id`](#method.add_id) for each CSS ID, but this function **replaces** all current CSS IDs",
+						"fn_args": [
+							{"self": "refmut"},
+							{"ids": "Vec<String>"}
+						],
+						"fn_body": "az_dom_downcast_refmut(dom, |d| { d.set_ids(ids.object); })"
+						},
+						"with_ids": {
+						"doc": "Same as [`Dom::set_ids`](#method.set_ids), but as a builder method",
+						"fn_args": [
+							{"self": "mut value"},
+							{"ids": "Vec<String>"}
+						],
+						"returns": "Dom",
+						"fn_body": "az_dom_set_ids(&mut dom, ids); dom"
+						},
+						"add_class": {
+						"doc": "Adds a CSS class (`.something`) to the DOM node",
+						"fn_args": [
+							{"self": "refmut"},
+							{"class": "String"}
+						],
+						"fn_body": "az_dom_downcast_refmut(dom, |d| { d.add_class(class.object); })"
+						},
+						"with_class": {
+						"doc": "Same as [`Dom::add_class`](#method.add_class), but as a builder method",
+						"fn_args": [
+							{"self": "mut value"},
+							{"class": "String"}
+						],
+						"returns": "Dom",
+						"fn_body": "az_dom_add_class(&mut dom, class); dom"
+						},
+						"set_classes": {
+						"doc": "Same as calling [`Dom::add_class`](#method.add_class) for each class, but this function **replaces** all current classes",
+						"fn_args": [
+							{"self": "refmut"},
+							{"classes": "Vec<String>"}
+						],
+						"fn_body": "az_dom_downcast_refmut(dom, |d| { (*d).set_classes(classes.object); })"
+						},
+						"with_classes": {
+						"doc": "Same as [`Dom::set_classes`](#method.set_classes), but as a builder method",
+						"fn_args": [
+							{"self": "mut value"},
+							{"classes": "Vec<String>"}
+						],
+						"returns": "Dom",
+						"fn_body": "az_dom_set_classes(&mut dom, classes); dom"
+						},
+						"add_callback": {
+						"doc": "Adds a [`Callback`](callbacks/type.Callback) that acts on the `data` the `event` happens",
+						"fn_args": [
+							{"self": "refmut"},
+							{"event": "EventFilter"},
+							{"data": "RefAny"},
+							{"callback": "Callback"}
+						],
+						"fn_body": "az_dom_downcast_refmut(dom, |d| { d.add_callback(event.object, callback, data); })"
+						},
+						"with_callback": {
+						"doc": "Same as [`Dom::add_callback`](#method.add_callback), but as a builder method",
+						"fn_args": [
+							{"self": "mut value"},
+							{"event": "EventFilter"},
+							{"data": "RefAny"},
+							{"callback": "Callback"}
+						],
+						"returns": "Dom",
+						"fn_body": "az_dom_add_callback(&mut dom, event, data, callback); dom"
+						},
+						"add_css_override": {
+						"doc": "Overrides the CSS property of this DOM node with a value (for example `\"width = 200px\"`)",
+						"fn_args": [
+							{"self": "refmut"},
+							{"id": "String"},
+							{"prop": "CssProperty"}
+						],
+						"fn_body": "az_dom_downcast_refmut(dom, |d| { d.add_css_override(id.object, prop.object); })"
+						},
+						"with_css_override": {
+						"doc": "Same as [`Dom::add_css_override`](#method.add_css_override), but as a builder method",
+						"fn_args": [
+							{"self": "mut value"},
+							{"id": "String"},
+							{"prop": "CssProperty"}
+						],
+						"returns": "Dom",
+						"fn_body": "az_dom_add_css_override(&mut dom, id, prop); dom"
+						},
+						"set_is_draggable": {
+						"doc": "Sets the `is_draggable` attribute of this DOM node (default: false)",
+						"fn_args": [
+							{"self": "refmut"},
+							{"is_draggable": "bool"}
+						],
+						"fn_body": "az_dom_downcast_refmut(dom, |d| { d.set_draggable(is_draggable); })"
+						},
+						"is_draggable": {
+						"doc": "Same as [`Dom::set_is_draggable`](#method.set_is_draggable), but as a builder method",
+						"fn_args": [
+							{"self": "mut value"},
+							{"is_draggable": "bool"}
+						],
+						"returns": "Dom",
+						"fn_body": "az_dom_set_is_draggable(&mut dom, is_draggable); dom"
+						},
+						"set_tab_index": {
+						"doc": "Sets the `tabindex` attribute of this DOM node (makes an element focusable - default: None)",
+						"fn_args": [
+							{"self": "refmut"},
+							{"tab_index": "TabIndex"}
+						],
+						"fn_body": "az_dom_downcast_refmut(dom, |d| { d.set_tab_index(tab_index.object); })"
+						},
+						"with_tab_index": {
+						"doc": "Same as [`Dom::set_tab_index`](#method.set_tab_index), but as a builder method",
+						"fn_args": [
+							{"self": "mut value"},
+							{"tab_index": "TabIndex"}
+						],
+						"returns": "Dom",
+						"fn_body": "az_dom_set_tab_index(&mut dom, tab_index); dom"
+						},
+						"add_child": {
+						"doc": "Reparents another `Dom` to be the child node of this `Dom`",
+						"fn_args": [
+							{"self": "refmut"},
+							{"child": "Dom"}
+						],
+						"fn_body": "az_dom_downcast_refmut(dom, |d| { d.add_child(*az_dom_downcast(child)); })"
+						},
+						"with_child": {
+						"doc": "Same as [`Dom::add_child`](#method.add_child), but as a builder method",
+						"fn_args": [
+							{"self": "mut value"},
+							{"child": "Dom"}
+						],
+						"returns": "Dom",
+						"fn_body": "az_dom_add_child(&mut dom, child); dom"
+						},
+						"has_id": {
+						"doc": "Returns if the DOM node has a certain CSS ID",
+						"fn_args": [
+							{"self": "refmut"},
+							{"id": "String"}
+						],
+						"returns": "bool",
+						"fn_body": "az_dom_downcast_ref(dom, |d| { d.has_id(&id.object) })"
+						},
+						"has_class": {
+						"doc": "Returns if the DOM node has a certain CSS class",
+						"fn_args": [
+							{"self": "refmut"},
+							{"class": "String"}
+						],
+						"returns": "bool",
+						"fn_body": "az_dom_downcast_ref(dom, |d| { d.has_class(&class.object) })"
+						},
+						"get_html_string": {
+						"doc": "Returns the HTML String for this DOM",
+						"fn_args": [
+							{"self": "refmut"}
+						],
+						"returns": "String",
+						"fn_body": "AzString { object: az_dom_downcast_ref(dom, |d| { d.get_html_string() }) }"
+						}
+					}
+				},
+				"EventFilter": {
+					"external": "azul_impl::dom::EventFilter",
+					"enum_fields": [
+						{ "Hover": {"type": "HoverEventFilter" } },
+						{ "Not": {"type": "NotEventFilter" } },
+						{ "Focus": {"type": "FocusEventFilter" } },
+						{ "Window": {"type": "WindowEventFilter" } }
+					]
+				},
+				"HoverEventFilter": {
+					"external": "azul_impl::dom::HoverEventFilter",
+					"enum_fields": [
+						{ "MouseOver": {}} ,
+						{ "MouseDown": {}} ,
+						{ "LeftMouseDown": {}} ,
+						{ "RightMouseDown": {}} ,
+						{ "MiddleMouseDown": {}} ,
+						{ "MouseUp": {}} ,
+						{ "LeftMouseUp": {}} ,
+						{ "RightMouseUp": {}} ,
+						{ "MiddleMouseUp": {}} ,
+						{ "MouseEnter": {}} ,
+						{ "MouseLeave": {}} ,
+						{ "Scroll": {}} ,
+						{ "ScrollStart": {}} ,
+						{ "ScrollEnd": {}} ,
+						{ "TextInput": {}} ,
+						{ "VirtualKeyDown": {}} ,
+						{ "VirtualKeyUp": {}} ,
+						{ "HoveredFile": {}} ,
+						{ "DroppedFile": {}} ,
+						{ "HoveredFileCancelled": {}}
+					]
+				},
+				"FocusEventFilter": {
+					"external": "azul_impl::dom::FocusEventFilter",
+					"enum_fields": [
+						{ "MouseOver": {}} ,
+						{ "MouseDown": {}} ,
+						{ "LeftMouseDown": {}} ,
+						{ "RightMouseDown": {}} ,
+						{ "MiddleMouseDown": {}} ,
+						{ "MouseUp": {}} ,
+						{ "LeftMouseUp": {}} ,
+						{ "RightMouseUp": {}} ,
+						{ "MiddleMouseUp": {}} ,
+						{ "MouseEnter": {}} ,
+						{ "MouseLeave": {}} ,
+						{ "Scroll": {}} ,
+						{ "ScrollStart": {}} ,
+						{ "ScrollEnd": {}} ,
+						{ "TextInput": {}} ,
+						{ "VirtualKeyDown": {}} ,
+						{ "VirtualKeyUp": {}} ,
+						{ "FocusReceived": {}} ,
+						{ "FocusLost": {}}
+					]
+				},
+				"NotEventFilter": {
+					"external": "azul_impl::dom::NotEventFilter",
+					"enum_fields": [
+						{ "Hover": {"type": "HoverEventFilter" } },
+						{ "Focus": {"type": "FocusEventFilter" } }
+					]
+				},
+				"WindowEventFilter": {
+					"external": "azul_impl::dom::WindowEventFilter",
+					"enum_fields": [
+						{ "MouseOver": {}} ,
+						{ "MouseDown": {}} ,
+						{ "LeftMouseDown": {}} ,
+						{ "RightMouseDown": {}} ,
+						{ "MiddleMouseDown": {}} ,
+						{ "MouseUp": {}} ,
+						{ "LeftMouseUp": {}} ,
+						{ "RightMouseUp": {}} ,
+						{ "MiddleMouseUp": {}} ,
+						{ "MouseEnter": {}} ,
+						{ "MouseLeave": {}} ,
+						{ "Scroll": {}} ,
+						{ "ScrollStart": {}} ,
+						{ "ScrollEnd": {}} ,
+						{ "TextInput": {}} ,
+						{ "VirtualKeyDown": {}} ,
+						{ "VirtualKeyUp": {}} ,
+						{ "HoveredFile": {}} ,
+						{ "DroppedFile": {}} ,
+						{ "HoveredFileCancelled": {}}
+					]
+				},
+				"TabIndex": {
+					"external": "azul_impl::dom::TabIndex",
+					"enum_fields": [
+						{ "Auto": { "doc": "Automatic tab index, similar to simply setting `focusable = \"true\"` or `tabindex = 0`, (both have the effect of making the element focusable)" }} ,
+						{ "OverrideInParent": { "type": "usize", "doc": " Set the tab index in relation to its parent element (`tabindex = n`)" }} ,
+						{ "NoKeyboardFocus": { "doc": "Elements can be focused in callbacks, but are not accessible via keyboard / tab navigation (`tabindex = -1` ) "}}
+					]
+				}
+			}
+		},
+		"resources": {
+			"doc": "Struct definition for image / font / text IDs",
+			"classes": {
+				"TextId": {
+					"external": "azul_impl::resources::TextId",
+					"struct_fields": [
+						{ "id": { "type": "usize" } }
+					],
+					"constructors": {
+						"new": {
+						"doc": "Creates a new, unique `TextId`",
+						"fn_body":"TextId::new()"
+						}
+					}
+				},
+				"ImageId": {
+					"external": "azul_impl::resources::ImageId",
+					"struct_fields": [
+						{ "id": { "type": "usize" } }
+					],
+					"constructors": {
+						"new": {
+						"doc": "Creates a new, unique `ImageId`",
+						"fn_body":"ImageId::new()"
+						}
+					}
+				},
+				"FontId": {
+					"external": "azul_impl::resources::FontId",
+					"struct_fields": [
+						{ "id": { "type": "usize" } }
+					],
+					"constructors": {
+						"new": {
+						"doc": "Creates a new, unique `FontId`",
+						"fn_body":"FontId::new()"
+						}
+					}
+				},
+				"ImageSource": {
+					"external": "azul_impl::resources::ImageSource",
+					"enum_fields": [
+						{ "Embedded": {"type": "Vec<u8>", "doc": "Bytes of the image, encoded in PNG / JPG / etc. format" } },
+						{ "File": {"type": "PathBuf", "doc": "References an (encoded!) image as a file from the file system that is loaded when necessary" } },
+						{ "Raw": {"type": "RawImage", "doc": "References a decoded (!) `RawImage` as the image source" } }
+					]
+				},
+				"FontSource": {
+					"external": "azul_impl::resources::FontSource",
+					"enum_fields": [
+						{ "Embedded": {"type": "Vec<u8>", "doc": "Bytes are the bytes of the font file" } },
+						{ "File": {"type": "PathBuf", "doc": "References a font from a file path, which is loaded when necessary" } },
+						{ "System": {"type": "String", "doc": "References a font from from a system font identifier, such as `\"Arial\"` or `\"Helvetica\"`" } }
+					]
+				},
+				"RawImage": {
+					"constructors": {
+						"new": {
+						"doc": "Creates a new `RawImage` by loading the decoded bytes",
+						"fn_args": [
+							{"decoded_pixels": "U8Vec"},
+							{"width": "usize"},
+							{"height": "usize"},
+							{"data_format": "RawImageFormat"}
+						],
+						"fn_body": "RawImage { pixels: decoded_pixels.object, image_dimensions: (width, height), data_format: data_format.object }"
+						}
+					}
+				},
+				"RawImageFormat": {
+					"external": "azul_impl::resources::RawImageFormat",
+					"enum_fields": [
+						{ "R8": {"doc": "Bytes are in the R-unsinged-8bit format" } },
+						{ "R16": {"doc": "Bytes are in the R-unsinged-16bit format" } },
+						{ "RG16": {"doc": "Bytes are in the RG-unsinged-16bit format" } },
+						{ "BGRA8": {"doc": "Bytes are in the BRGA-unsigned-8bit format" } },
+						{ "RGBAF32": {"doc": "Bytes are in the RGBA-floating-point-32bit format" } },
+						{ "RG8": {"doc": "Bytes are in the RG-unsigned-8bit format" } },
+						{ "RGBAI32": {"doc": "Bytes are in the RGBA-signed-32bit format" } },
+						{ "RGBA8": {"doc": "Bytes are in the RGBA-unsigned-8bit format" } }
+					]
+				}
+			}
+		},
+		"window": {
+			"doc": "Window creation / startup configuration",
+			"classes": {
+				"WindowCreateOptions": {
+					"rust_class_name": "WindowCreateOptions",
+					"constructors": {
+						"new": {
+						"fn_args":[
+							{"css": "Css"}
+						],
+						"fn_body":"WindowCreateOptions::new(*az_css_downcast(css))"
+						}
+					}
+				}
+			}
+		}
    }
 }

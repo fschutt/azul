@@ -43,7 +43,15 @@ pub(crate) mod dll {
         pub len: usize,
         pub capacity: usize,
     }
+    #[repr(C)] pub struct AzGradientStopPreVec {
+        pub ptr: *const AzGradientStopPre,
+        pub len: usize,
+        pub capacity: usize,
+    }
     #[repr(C)] pub struct AzPathBufPtr {
+        pub ptr: *mut c_void,
+    }
+    #[repr(C)] pub struct AzOptionPercentageValuePtr {
         pub ptr: *mut c_void,
     }
     #[repr(C)] pub struct AzAppConfigPtr {
@@ -126,89 +134,157 @@ pub(crate) mod dll {
     #[repr(C)] pub struct AzLayoutBottom {
         pub inner: AzPixelValue,
     }
-    #[repr(C)] pub struct AzLayoutBoxSizingPtr {
-        pub ptr: *mut c_void,
+    #[repr(C)] pub enum AzLayoutBoxSizing {
+        ContentBox,
+        BorderBox,
     }
-    #[repr(C)] pub struct AzLayoutDirectionPtr {
-        pub ptr: *mut c_void,
+    #[repr(C)] pub enum AzLayoutDirection {
+        Row,
+        RowReverse,
+        Column,
+        ColumnReverse,
     }
-    #[repr(C)] pub struct AzLayoutDisplayPtr {
-        pub ptr: *mut c_void,
+    #[repr(C)] pub enum AzLayoutDisplay {
+        Flex,
+        Block,
+        InlineBlock,
     }
-    #[repr(C)] pub struct AzLayoutFlexGrowPtr {
-        pub ptr: *mut c_void,
+    #[repr(C)] pub struct AzLayoutFlexGrow {
+        pub inner: AzFloatValue,
     }
-    #[repr(C)] pub struct AzLayoutFlexShrinkPtr {
-        pub ptr: *mut c_void,
+    #[repr(C)] pub struct AzLayoutFlexShrink {
+        pub inner: AzFloatValue,
     }
-    #[repr(C)] pub struct AzLayoutFloatPtr {
-        pub ptr: *mut c_void,
+    #[repr(C)] pub enum AzLayoutFloat {
+        Left,
+        Right,
     }
-    #[repr(C)] pub struct AzLayoutHeightPtr {
-        pub ptr: *mut c_void,
+    #[repr(C)] pub struct AzLayoutHeight {
+        pub inner: AzPixelValue,
     }
-    #[repr(C)] pub struct AzLayoutJustifyContentPtr {
-        pub ptr: *mut c_void,
+    #[repr(C)] pub enum AzLayoutJustifyContent {
+        Start,
+        End,
+        Center,
+        SpaceBetween,
+        SpaceAround,
+        SpaceEvenly,
     }
-    #[repr(C)] pub struct AzLayoutLeftPtr {
-        pub ptr: *mut c_void,
+    #[repr(C)] pub struct AzLayoutLeft {
+        pub inner: AzPixelValue,
     }
-    #[repr(C)] pub struct AzLayoutMarginBottomPtr {
-        pub ptr: *mut c_void,
+    #[repr(C)] pub struct AzLayoutMarginBottom {
+        pub inner: AzPixelValue,
     }
-    #[repr(C)] pub struct AzLayoutMarginLeftPtr {
-        pub ptr: *mut c_void,
+    #[repr(C)] pub struct AzLayoutMarginLeft {
+        pub inner: AzPixelValue,
     }
-    #[repr(C)] pub struct AzLayoutMarginRightPtr {
-        pub ptr: *mut c_void,
+    #[repr(C)] pub struct AzLayoutMarginRight {
+        pub inner: AzPixelValue,
     }
-    #[repr(C)] pub struct AzLayoutMarginTopPtr {
-        pub ptr: *mut c_void,
+    #[repr(C)] pub struct AzLayoutMarginTop {
+        pub inner: AzPixelValue,
     }
-    #[repr(C)] pub struct AzLayoutMaxHeightPtr {
-        pub ptr: *mut c_void,
+    #[repr(C)] pub struct AzLayoutMaxHeight {
+        pub inner: AzPixelValue,
     }
-    #[repr(C)] pub struct AzLayoutMaxWidthPtr {
-        pub ptr: *mut c_void,
+    #[repr(C)] pub struct AzLayoutMaxWidth {
+        pub inner: AzPixelValue,
     }
-    #[repr(C)] pub struct AzLayoutMinHeightPtr {
-        pub ptr: *mut c_void,
+    #[repr(C)] pub struct AzLayoutMinHeight {
+        pub inner: AzPixelValue,
     }
-    #[repr(C)] pub struct AzLayoutMinWidthPtr {
-        pub ptr: *mut c_void,
+    #[repr(C)] pub struct AzLayoutMinWidth {
+        pub inner: AzPixelValue,
     }
-    #[repr(C)] pub struct AzLayoutPaddingBottomPtr {
-        pub ptr: *mut c_void,
+    #[repr(C)] pub struct AzLayoutPaddingBottom {
+        pub inner: AzPixelValue,
     }
-    #[repr(C)] pub struct AzLayoutPaddingLeftPtr {
-        pub ptr: *mut c_void,
+    #[repr(C)] pub struct AzLayoutPaddingLeft {
+        pub inner: AzPixelValue,
     }
-    #[repr(C)] pub struct AzLayoutPaddingRightPtr {
-        pub ptr: *mut c_void,
+    #[repr(C)] pub struct AzLayoutPaddingRight {
+        pub inner: AzPixelValue,
     }
-    #[repr(C)] pub struct AzLayoutPaddingTopPtr {
-        pub ptr: *mut c_void,
+    #[repr(C)] pub struct AzLayoutPaddingTop {
+        pub inner: AzPixelValue,
     }
-    #[repr(C)] pub struct AzLayoutPositionPtr {
-        pub ptr: *mut c_void,
+    #[repr(C)] pub enum AzLayoutPosition {
+        Static,
+        Relative,
+        Absolute,
+        Fixed,
     }
-    #[repr(C)] pub struct AzLayoutRightPtr {
-        pub ptr: *mut c_void,
+    #[repr(C)] pub struct AzLayoutRight {
+        pub inner: AzPixelValue,
     }
-    #[repr(C)] pub struct AzLayoutTopPtr {
-        pub ptr: *mut c_void,
+    #[repr(C)] pub struct AzLayoutTop {
+        pub inner: AzPixelValue,
     }
-    #[repr(C)] pub struct AzLayoutWidthPtr {
-        pub ptr: *mut c_void,
+    #[repr(C)] pub struct AzLayoutWidth {
+        pub inner: AzPixelValue,
     }
-    #[repr(C)] pub struct AzLayoutWrapPtr {
-        pub ptr: *mut c_void,
+    #[repr(C)] pub enum AzLayoutWrap {
+        Wrap,
+        NoWrap,
     }
-    #[repr(C)] pub struct AzOverflowPtr {
-        pub ptr: *mut c_void,
+    #[repr(C)] pub enum AzOverflow {
+        Scroll,
+        Auto,
+        Hidden,
+        Visible,
     }
-    #[repr(C)] pub struct AzStyleBackgroundContentPtr {
-        pub ptr: *mut c_void,
+    #[repr(C)] pub struct AzPercentageValue {
+        pub number: AzFloatValue,
+    }
+    #[repr(C)] pub struct AzGradientStopPre {
+        pub offset: AzOptionPercentageValue,
+        pub color: AzColorU,
+    }
+    #[repr(C)] pub enum AzDirectionCorner {
+        Right,
+        Left,
+        Top,
+        Bottom,
+        TopRight,
+        TopLeft,
+        BottomRight,
+        BottomLeft,
+    }
+    #[repr(C)] pub struct AzDirectionCorners {
+        pub from: AzDirectionCorner,
+        pub to: AzDirectionCorner,
+    }
+    #[repr(C, u8)] pub enum AzDirection {
+        Angle(AzFloatValue),
+        FromTo(AzDirectionCorners),
+    }
+    #[repr(C)] pub enum AzExtendMode {
+        Clamp,
+        Repeat,
+    }
+    #[repr(C)] pub struct AzLinearGradient {
+        pub direction: AzDirection,
+        pub extend_mode: AzExtendMode,
+        pub stops: AzGradientStopPreVec,
+    }
+    #[repr(C)] pub enum AzShape {
+        Ellipse,
+        Circle,
+    }
+    #[repr(C)] pub struct AzRadialGradient {
+        pub shape: AzShape,
+        pub extend_mode: AzExtendMode,
+        pub stops: AzGradientStopPreVec,
+    }
+    #[repr(C)] pub struct AzCssImageId {
+        pub inner: AzString,
+    }
+    #[repr(C, u8)] pub enum AzStyleBackgroundContent {
+        LinearGradient(AzLinearGradient),
+        RadialGradient(AzRadialGradient),
+        Image(AzCssImageId),
+        Color(AzColorU),
     }
     #[repr(C)] pub struct AzStyleBackgroundPositionPtr {
         pub ptr: *mut c_void,
@@ -920,9 +996,14 @@ pub(crate) mod dll {
         az_string_vec_copy_from: Symbol<extern fn(_: usize) -> AzStringVec>,
         az_string_vec_delete: Symbol<extern fn(_: &mut AzStringVec)>,
         az_string_vec_deep_copy: Symbol<extern fn(_: &AzStringVec) -> AzStringVec>,
+        az_gradient_stop_pre_vec_copy_from: Symbol<extern fn(_: usize) -> AzGradientStopPreVec>,
+        az_gradient_stop_pre_vec_delete: Symbol<extern fn(_: &mut AzGradientStopPreVec)>,
+        az_gradient_stop_pre_vec_deep_copy: Symbol<extern fn(_: &AzGradientStopPreVec) -> AzGradientStopPreVec>,
         az_path_buf_new: Symbol<extern fn(_: AzString) -> AzPathBufPtr>,
         az_path_buf_delete: Symbol<extern fn(_: &mut AzPathBufPtr)>,
         az_path_buf_shallow_copy: Symbol<extern fn(_: &AzPathBufPtr) -> AzPathBufPtr>,
+        az_option_percentage_value_delete: Symbol<extern fn(_: &mut AzOptionPercentageValuePtr)>,
+        az_option_percentage_value_shallow_copy: Symbol<extern fn(_: &AzOptionPercentageValuePtr) -> AzOptionPercentageValuePtr>,
         az_app_config_default: Symbol<extern fn() -> AzAppConfigPtr>,
         az_app_config_delete: Symbol<extern fn(_: &mut AzAppConfigPtr)>,
         az_app_config_shallow_copy: Symbol<extern fn(_: &AzAppConfigPtr) -> AzAppConfigPtr>,
@@ -988,62 +1069,127 @@ pub(crate) mod dll {
         az_layout_align_items_deep_copy: Symbol<extern fn(_: &AzLayoutAlignItems) -> AzLayoutAlignItems>,
         az_layout_bottom_delete: Symbol<extern fn(_: &mut AzLayoutBottom)>,
         az_layout_bottom_deep_copy: Symbol<extern fn(_: &AzLayoutBottom) -> AzLayoutBottom>,
-        az_layout_box_sizing_delete: Symbol<extern fn(_: &mut AzLayoutBoxSizingPtr)>,
-        az_layout_box_sizing_shallow_copy: Symbol<extern fn(_: &AzLayoutBoxSizingPtr) -> AzLayoutBoxSizingPtr>,
-        az_layout_direction_delete: Symbol<extern fn(_: &mut AzLayoutDirectionPtr)>,
-        az_layout_direction_shallow_copy: Symbol<extern fn(_: &AzLayoutDirectionPtr) -> AzLayoutDirectionPtr>,
-        az_layout_display_delete: Symbol<extern fn(_: &mut AzLayoutDisplayPtr)>,
-        az_layout_display_shallow_copy: Symbol<extern fn(_: &AzLayoutDisplayPtr) -> AzLayoutDisplayPtr>,
-        az_layout_flex_grow_delete: Symbol<extern fn(_: &mut AzLayoutFlexGrowPtr)>,
-        az_layout_flex_grow_shallow_copy: Symbol<extern fn(_: &AzLayoutFlexGrowPtr) -> AzLayoutFlexGrowPtr>,
-        az_layout_flex_shrink_delete: Symbol<extern fn(_: &mut AzLayoutFlexShrinkPtr)>,
-        az_layout_flex_shrink_shallow_copy: Symbol<extern fn(_: &AzLayoutFlexShrinkPtr) -> AzLayoutFlexShrinkPtr>,
-        az_layout_float_delete: Symbol<extern fn(_: &mut AzLayoutFloatPtr)>,
-        az_layout_float_shallow_copy: Symbol<extern fn(_: &AzLayoutFloatPtr) -> AzLayoutFloatPtr>,
-        az_layout_height_delete: Symbol<extern fn(_: &mut AzLayoutHeightPtr)>,
-        az_layout_height_shallow_copy: Symbol<extern fn(_: &AzLayoutHeightPtr) -> AzLayoutHeightPtr>,
-        az_layout_justify_content_delete: Symbol<extern fn(_: &mut AzLayoutJustifyContentPtr)>,
-        az_layout_justify_content_shallow_copy: Symbol<extern fn(_: &AzLayoutJustifyContentPtr) -> AzLayoutJustifyContentPtr>,
-        az_layout_left_delete: Symbol<extern fn(_: &mut AzLayoutLeftPtr)>,
-        az_layout_left_shallow_copy: Symbol<extern fn(_: &AzLayoutLeftPtr) -> AzLayoutLeftPtr>,
-        az_layout_margin_bottom_delete: Symbol<extern fn(_: &mut AzLayoutMarginBottomPtr)>,
-        az_layout_margin_bottom_shallow_copy: Symbol<extern fn(_: &AzLayoutMarginBottomPtr) -> AzLayoutMarginBottomPtr>,
-        az_layout_margin_left_delete: Symbol<extern fn(_: &mut AzLayoutMarginLeftPtr)>,
-        az_layout_margin_left_shallow_copy: Symbol<extern fn(_: &AzLayoutMarginLeftPtr) -> AzLayoutMarginLeftPtr>,
-        az_layout_margin_right_delete: Symbol<extern fn(_: &mut AzLayoutMarginRightPtr)>,
-        az_layout_margin_right_shallow_copy: Symbol<extern fn(_: &AzLayoutMarginRightPtr) -> AzLayoutMarginRightPtr>,
-        az_layout_margin_top_delete: Symbol<extern fn(_: &mut AzLayoutMarginTopPtr)>,
-        az_layout_margin_top_shallow_copy: Symbol<extern fn(_: &AzLayoutMarginTopPtr) -> AzLayoutMarginTopPtr>,
-        az_layout_max_height_delete: Symbol<extern fn(_: &mut AzLayoutMaxHeightPtr)>,
-        az_layout_max_height_shallow_copy: Symbol<extern fn(_: &AzLayoutMaxHeightPtr) -> AzLayoutMaxHeightPtr>,
-        az_layout_max_width_delete: Symbol<extern fn(_: &mut AzLayoutMaxWidthPtr)>,
-        az_layout_max_width_shallow_copy: Symbol<extern fn(_: &AzLayoutMaxWidthPtr) -> AzLayoutMaxWidthPtr>,
-        az_layout_min_height_delete: Symbol<extern fn(_: &mut AzLayoutMinHeightPtr)>,
-        az_layout_min_height_shallow_copy: Symbol<extern fn(_: &AzLayoutMinHeightPtr) -> AzLayoutMinHeightPtr>,
-        az_layout_min_width_delete: Symbol<extern fn(_: &mut AzLayoutMinWidthPtr)>,
-        az_layout_min_width_shallow_copy: Symbol<extern fn(_: &AzLayoutMinWidthPtr) -> AzLayoutMinWidthPtr>,
-        az_layout_padding_bottom_delete: Symbol<extern fn(_: &mut AzLayoutPaddingBottomPtr)>,
-        az_layout_padding_bottom_shallow_copy: Symbol<extern fn(_: &AzLayoutPaddingBottomPtr) -> AzLayoutPaddingBottomPtr>,
-        az_layout_padding_left_delete: Symbol<extern fn(_: &mut AzLayoutPaddingLeftPtr)>,
-        az_layout_padding_left_shallow_copy: Symbol<extern fn(_: &AzLayoutPaddingLeftPtr) -> AzLayoutPaddingLeftPtr>,
-        az_layout_padding_right_delete: Symbol<extern fn(_: &mut AzLayoutPaddingRightPtr)>,
-        az_layout_padding_right_shallow_copy: Symbol<extern fn(_: &AzLayoutPaddingRightPtr) -> AzLayoutPaddingRightPtr>,
-        az_layout_padding_top_delete: Symbol<extern fn(_: &mut AzLayoutPaddingTopPtr)>,
-        az_layout_padding_top_shallow_copy: Symbol<extern fn(_: &AzLayoutPaddingTopPtr) -> AzLayoutPaddingTopPtr>,
-        az_layout_position_delete: Symbol<extern fn(_: &mut AzLayoutPositionPtr)>,
-        az_layout_position_shallow_copy: Symbol<extern fn(_: &AzLayoutPositionPtr) -> AzLayoutPositionPtr>,
-        az_layout_right_delete: Symbol<extern fn(_: &mut AzLayoutRightPtr)>,
-        az_layout_right_shallow_copy: Symbol<extern fn(_: &AzLayoutRightPtr) -> AzLayoutRightPtr>,
-        az_layout_top_delete: Symbol<extern fn(_: &mut AzLayoutTopPtr)>,
-        az_layout_top_shallow_copy: Symbol<extern fn(_: &AzLayoutTopPtr) -> AzLayoutTopPtr>,
-        az_layout_width_delete: Symbol<extern fn(_: &mut AzLayoutWidthPtr)>,
-        az_layout_width_shallow_copy: Symbol<extern fn(_: &AzLayoutWidthPtr) -> AzLayoutWidthPtr>,
-        az_layout_wrap_delete: Symbol<extern fn(_: &mut AzLayoutWrapPtr)>,
-        az_layout_wrap_shallow_copy: Symbol<extern fn(_: &AzLayoutWrapPtr) -> AzLayoutWrapPtr>,
-        az_overflow_delete: Symbol<extern fn(_: &mut AzOverflowPtr)>,
-        az_overflow_shallow_copy: Symbol<extern fn(_: &AzOverflowPtr) -> AzOverflowPtr>,
-        az_style_background_content_delete: Symbol<extern fn(_: &mut AzStyleBackgroundContentPtr)>,
-        az_style_background_content_shallow_copy: Symbol<extern fn(_: &AzStyleBackgroundContentPtr) -> AzStyleBackgroundContentPtr>,
+        az_layout_box_sizing_content_box: Symbol<extern fn() -> AzLayoutBoxSizing>,
+        az_layout_box_sizing_border_box: Symbol<extern fn() -> AzLayoutBoxSizing>,
+        az_layout_box_sizing_delete: Symbol<extern fn(_: &mut AzLayoutBoxSizing)>,
+        az_layout_box_sizing_deep_copy: Symbol<extern fn(_: &AzLayoutBoxSizing) -> AzLayoutBoxSizing>,
+        az_layout_direction_row: Symbol<extern fn() -> AzLayoutDirection>,
+        az_layout_direction_row_reverse: Symbol<extern fn() -> AzLayoutDirection>,
+        az_layout_direction_column: Symbol<extern fn() -> AzLayoutDirection>,
+        az_layout_direction_column_reverse: Symbol<extern fn() -> AzLayoutDirection>,
+        az_layout_direction_delete: Symbol<extern fn(_: &mut AzLayoutDirection)>,
+        az_layout_direction_deep_copy: Symbol<extern fn(_: &AzLayoutDirection) -> AzLayoutDirection>,
+        az_layout_display_flex: Symbol<extern fn() -> AzLayoutDisplay>,
+        az_layout_display_block: Symbol<extern fn() -> AzLayoutDisplay>,
+        az_layout_display_inline_block: Symbol<extern fn() -> AzLayoutDisplay>,
+        az_layout_display_delete: Symbol<extern fn(_: &mut AzLayoutDisplay)>,
+        az_layout_display_deep_copy: Symbol<extern fn(_: &AzLayoutDisplay) -> AzLayoutDisplay>,
+        az_layout_flex_grow_delete: Symbol<extern fn(_: &mut AzLayoutFlexGrow)>,
+        az_layout_flex_grow_deep_copy: Symbol<extern fn(_: &AzLayoutFlexGrow) -> AzLayoutFlexGrow>,
+        az_layout_flex_shrink_delete: Symbol<extern fn(_: &mut AzLayoutFlexShrink)>,
+        az_layout_flex_shrink_deep_copy: Symbol<extern fn(_: &AzLayoutFlexShrink) -> AzLayoutFlexShrink>,
+        az_layout_float_left: Symbol<extern fn() -> AzLayoutFloat>,
+        az_layout_float_right: Symbol<extern fn() -> AzLayoutFloat>,
+        az_layout_float_delete: Symbol<extern fn(_: &mut AzLayoutFloat)>,
+        az_layout_float_deep_copy: Symbol<extern fn(_: &AzLayoutFloat) -> AzLayoutFloat>,
+        az_layout_height_delete: Symbol<extern fn(_: &mut AzLayoutHeight)>,
+        az_layout_height_deep_copy: Symbol<extern fn(_: &AzLayoutHeight) -> AzLayoutHeight>,
+        az_layout_justify_content_start: Symbol<extern fn() -> AzLayoutJustifyContent>,
+        az_layout_justify_content_end: Symbol<extern fn() -> AzLayoutJustifyContent>,
+        az_layout_justify_content_center: Symbol<extern fn() -> AzLayoutJustifyContent>,
+        az_layout_justify_content_space_between: Symbol<extern fn() -> AzLayoutJustifyContent>,
+        az_layout_justify_content_space_around: Symbol<extern fn() -> AzLayoutJustifyContent>,
+        az_layout_justify_content_space_evenly: Symbol<extern fn() -> AzLayoutJustifyContent>,
+        az_layout_justify_content_delete: Symbol<extern fn(_: &mut AzLayoutJustifyContent)>,
+        az_layout_justify_content_deep_copy: Symbol<extern fn(_: &AzLayoutJustifyContent) -> AzLayoutJustifyContent>,
+        az_layout_left_delete: Symbol<extern fn(_: &mut AzLayoutLeft)>,
+        az_layout_left_deep_copy: Symbol<extern fn(_: &AzLayoutLeft) -> AzLayoutLeft>,
+        az_layout_margin_bottom_delete: Symbol<extern fn(_: &mut AzLayoutMarginBottom)>,
+        az_layout_margin_bottom_deep_copy: Symbol<extern fn(_: &AzLayoutMarginBottom) -> AzLayoutMarginBottom>,
+        az_layout_margin_left_delete: Symbol<extern fn(_: &mut AzLayoutMarginLeft)>,
+        az_layout_margin_left_deep_copy: Symbol<extern fn(_: &AzLayoutMarginLeft) -> AzLayoutMarginLeft>,
+        az_layout_margin_right_delete: Symbol<extern fn(_: &mut AzLayoutMarginRight)>,
+        az_layout_margin_right_deep_copy: Symbol<extern fn(_: &AzLayoutMarginRight) -> AzLayoutMarginRight>,
+        az_layout_margin_top_delete: Symbol<extern fn(_: &mut AzLayoutMarginTop)>,
+        az_layout_margin_top_deep_copy: Symbol<extern fn(_: &AzLayoutMarginTop) -> AzLayoutMarginTop>,
+        az_layout_max_height_delete: Symbol<extern fn(_: &mut AzLayoutMaxHeight)>,
+        az_layout_max_height_deep_copy: Symbol<extern fn(_: &AzLayoutMaxHeight) -> AzLayoutMaxHeight>,
+        az_layout_max_width_delete: Symbol<extern fn(_: &mut AzLayoutMaxWidth)>,
+        az_layout_max_width_deep_copy: Symbol<extern fn(_: &AzLayoutMaxWidth) -> AzLayoutMaxWidth>,
+        az_layout_min_height_delete: Symbol<extern fn(_: &mut AzLayoutMinHeight)>,
+        az_layout_min_height_deep_copy: Symbol<extern fn(_: &AzLayoutMinHeight) -> AzLayoutMinHeight>,
+        az_layout_min_width_delete: Symbol<extern fn(_: &mut AzLayoutMinWidth)>,
+        az_layout_min_width_deep_copy: Symbol<extern fn(_: &AzLayoutMinWidth) -> AzLayoutMinWidth>,
+        az_layout_padding_bottom_delete: Symbol<extern fn(_: &mut AzLayoutPaddingBottom)>,
+        az_layout_padding_bottom_deep_copy: Symbol<extern fn(_: &AzLayoutPaddingBottom) -> AzLayoutPaddingBottom>,
+        az_layout_padding_left_delete: Symbol<extern fn(_: &mut AzLayoutPaddingLeft)>,
+        az_layout_padding_left_deep_copy: Symbol<extern fn(_: &AzLayoutPaddingLeft) -> AzLayoutPaddingLeft>,
+        az_layout_padding_right_delete: Symbol<extern fn(_: &mut AzLayoutPaddingRight)>,
+        az_layout_padding_right_deep_copy: Symbol<extern fn(_: &AzLayoutPaddingRight) -> AzLayoutPaddingRight>,
+        az_layout_padding_top_delete: Symbol<extern fn(_: &mut AzLayoutPaddingTop)>,
+        az_layout_padding_top_deep_copy: Symbol<extern fn(_: &AzLayoutPaddingTop) -> AzLayoutPaddingTop>,
+        az_layout_position_static: Symbol<extern fn() -> AzLayoutPosition>,
+        az_layout_position_relative: Symbol<extern fn() -> AzLayoutPosition>,
+        az_layout_position_absolute: Symbol<extern fn() -> AzLayoutPosition>,
+        az_layout_position_fixed: Symbol<extern fn() -> AzLayoutPosition>,
+        az_layout_position_delete: Symbol<extern fn(_: &mut AzLayoutPosition)>,
+        az_layout_position_deep_copy: Symbol<extern fn(_: &AzLayoutPosition) -> AzLayoutPosition>,
+        az_layout_right_delete: Symbol<extern fn(_: &mut AzLayoutRight)>,
+        az_layout_right_deep_copy: Symbol<extern fn(_: &AzLayoutRight) -> AzLayoutRight>,
+        az_layout_top_delete: Symbol<extern fn(_: &mut AzLayoutTop)>,
+        az_layout_top_deep_copy: Symbol<extern fn(_: &AzLayoutTop) -> AzLayoutTop>,
+        az_layout_width_delete: Symbol<extern fn(_: &mut AzLayoutWidth)>,
+        az_layout_width_deep_copy: Symbol<extern fn(_: &AzLayoutWidth) -> AzLayoutWidth>,
+        az_layout_wrap_wrap: Symbol<extern fn() -> AzLayoutWrap>,
+        az_layout_wrap_no_wrap: Symbol<extern fn() -> AzLayoutWrap>,
+        az_layout_wrap_delete: Symbol<extern fn(_: &mut AzLayoutWrap)>,
+        az_layout_wrap_deep_copy: Symbol<extern fn(_: &AzLayoutWrap) -> AzLayoutWrap>,
+        az_overflow_scroll: Symbol<extern fn() -> AzOverflow>,
+        az_overflow_auto: Symbol<extern fn() -> AzOverflow>,
+        az_overflow_hidden: Symbol<extern fn() -> AzOverflow>,
+        az_overflow_visible: Symbol<extern fn() -> AzOverflow>,
+        az_overflow_delete: Symbol<extern fn(_: &mut AzOverflow)>,
+        az_overflow_deep_copy: Symbol<extern fn(_: &AzOverflow) -> AzOverflow>,
+        az_percentage_value_delete: Symbol<extern fn(_: &mut AzPercentageValue)>,
+        az_percentage_value_deep_copy: Symbol<extern fn(_: &AzPercentageValue) -> AzPercentageValue>,
+        az_gradient_stop_pre_delete: Symbol<extern fn(_: &mut AzGradientStopPre)>,
+        az_gradient_stop_pre_deep_copy: Symbol<extern fn(_: &AzGradientStopPre) -> AzGradientStopPre>,
+        az_direction_corner_right: Symbol<extern fn() -> AzDirectionCorner>,
+        az_direction_corner_left: Symbol<extern fn() -> AzDirectionCorner>,
+        az_direction_corner_top: Symbol<extern fn() -> AzDirectionCorner>,
+        az_direction_corner_bottom: Symbol<extern fn() -> AzDirectionCorner>,
+        az_direction_corner_top_right: Symbol<extern fn() -> AzDirectionCorner>,
+        az_direction_corner_top_left: Symbol<extern fn() -> AzDirectionCorner>,
+        az_direction_corner_bottom_right: Symbol<extern fn() -> AzDirectionCorner>,
+        az_direction_corner_bottom_left: Symbol<extern fn() -> AzDirectionCorner>,
+        az_direction_corner_delete: Symbol<extern fn(_: &mut AzDirectionCorner)>,
+        az_direction_corner_deep_copy: Symbol<extern fn(_: &AzDirectionCorner) -> AzDirectionCorner>,
+        az_direction_corners_delete: Symbol<extern fn(_: &mut AzDirectionCorners)>,
+        az_direction_corners_deep_copy: Symbol<extern fn(_: &AzDirectionCorners) -> AzDirectionCorners>,
+        az_direction_angle: Symbol<extern fn(_: AzFloatValue) -> AzDirection>,
+        az_direction_from_to: Symbol<extern fn(_: AzDirectionCorners) -> AzDirection>,
+        az_direction_delete: Symbol<extern fn(_: &mut AzDirection)>,
+        az_direction_deep_copy: Symbol<extern fn(_: &AzDirection) -> AzDirection>,
+        az_extend_mode_clamp: Symbol<extern fn() -> AzExtendMode>,
+        az_extend_mode_repeat: Symbol<extern fn() -> AzExtendMode>,
+        az_extend_mode_delete: Symbol<extern fn(_: &mut AzExtendMode)>,
+        az_extend_mode_deep_copy: Symbol<extern fn(_: &AzExtendMode) -> AzExtendMode>,
+        az_linear_gradient_delete: Symbol<extern fn(_: &mut AzLinearGradient)>,
+        az_linear_gradient_deep_copy: Symbol<extern fn(_: &AzLinearGradient) -> AzLinearGradient>,
+        az_shape_ellipse: Symbol<extern fn() -> AzShape>,
+        az_shape_circle: Symbol<extern fn() -> AzShape>,
+        az_shape_delete: Symbol<extern fn(_: &mut AzShape)>,
+        az_shape_deep_copy: Symbol<extern fn(_: &AzShape) -> AzShape>,
+        az_radial_gradient_delete: Symbol<extern fn(_: &mut AzRadialGradient)>,
+        az_radial_gradient_deep_copy: Symbol<extern fn(_: &AzRadialGradient) -> AzRadialGradient>,
+        az_css_image_id_delete: Symbol<extern fn(_: &mut AzCssImageId)>,
+        az_css_image_id_deep_copy: Symbol<extern fn(_: &AzCssImageId) -> AzCssImageId>,
+        az_style_background_content_linear_gradient: Symbol<extern fn(_: AzLinearGradient) -> AzStyleBackgroundContent>,
+        az_style_background_content_radial_gradient: Symbol<extern fn(_: AzRadialGradient) -> AzStyleBackgroundContent>,
+        az_style_background_content_image: Symbol<extern fn(_: AzCssImageId) -> AzStyleBackgroundContent>,
+        az_style_background_content_color: Symbol<extern fn(_: AzColorU) -> AzStyleBackgroundContent>,
+        az_style_background_content_delete: Symbol<extern fn(_: &mut AzStyleBackgroundContent)>,
+        az_style_background_content_deep_copy: Symbol<extern fn(_: &AzStyleBackgroundContent) -> AzStyleBackgroundContent>,
         az_style_background_position_delete: Symbol<extern fn(_: &mut AzStyleBackgroundPositionPtr)>,
         az_style_background_position_shallow_copy: Symbol<extern fn(_: &AzStyleBackgroundPositionPtr) -> AzStyleBackgroundPositionPtr>,
         az_style_background_repeat_delete: Symbol<extern fn(_: &mut AzStyleBackgroundRepeatPtr)>,
@@ -1132,196 +1278,196 @@ pub(crate) mod dll {
         az_layout_box_sizing_value_none: Symbol<extern fn() -> AzLayoutBoxSizingValue>,
         az_layout_box_sizing_value_inherit: Symbol<extern fn() -> AzLayoutBoxSizingValue>,
         az_layout_box_sizing_value_initial: Symbol<extern fn() -> AzLayoutBoxSizingValue>,
-        az_layout_box_sizing_value_exact: Symbol<extern fn(_: AzLayoutBoxSizingPtr) -> AzLayoutBoxSizingValue>,
+        az_layout_box_sizing_value_exact: Symbol<extern fn(_: AzLayoutBoxSizing) -> AzLayoutBoxSizingValue>,
         az_layout_box_sizing_value_delete: Symbol<extern fn(_: &mut AzLayoutBoxSizingValue)>,
         az_layout_box_sizing_value_deep_copy: Symbol<extern fn(_: &AzLayoutBoxSizingValue) -> AzLayoutBoxSizingValue>,
         az_layout_direction_value_auto: Symbol<extern fn() -> AzLayoutDirectionValue>,
         az_layout_direction_value_none: Symbol<extern fn() -> AzLayoutDirectionValue>,
         az_layout_direction_value_inherit: Symbol<extern fn() -> AzLayoutDirectionValue>,
         az_layout_direction_value_initial: Symbol<extern fn() -> AzLayoutDirectionValue>,
-        az_layout_direction_value_exact: Symbol<extern fn(_: AzLayoutDirectionPtr) -> AzLayoutDirectionValue>,
+        az_layout_direction_value_exact: Symbol<extern fn(_: AzLayoutDirection) -> AzLayoutDirectionValue>,
         az_layout_direction_value_delete: Symbol<extern fn(_: &mut AzLayoutDirectionValue)>,
         az_layout_direction_value_deep_copy: Symbol<extern fn(_: &AzLayoutDirectionValue) -> AzLayoutDirectionValue>,
         az_layout_display_value_auto: Symbol<extern fn() -> AzLayoutDisplayValue>,
         az_layout_display_value_none: Symbol<extern fn() -> AzLayoutDisplayValue>,
         az_layout_display_value_inherit: Symbol<extern fn() -> AzLayoutDisplayValue>,
         az_layout_display_value_initial: Symbol<extern fn() -> AzLayoutDisplayValue>,
-        az_layout_display_value_exact: Symbol<extern fn(_: AzLayoutDisplayPtr) -> AzLayoutDisplayValue>,
+        az_layout_display_value_exact: Symbol<extern fn(_: AzLayoutDisplay) -> AzLayoutDisplayValue>,
         az_layout_display_value_delete: Symbol<extern fn(_: &mut AzLayoutDisplayValue)>,
         az_layout_display_value_deep_copy: Symbol<extern fn(_: &AzLayoutDisplayValue) -> AzLayoutDisplayValue>,
         az_layout_flex_grow_value_auto: Symbol<extern fn() -> AzLayoutFlexGrowValue>,
         az_layout_flex_grow_value_none: Symbol<extern fn() -> AzLayoutFlexGrowValue>,
         az_layout_flex_grow_value_inherit: Symbol<extern fn() -> AzLayoutFlexGrowValue>,
         az_layout_flex_grow_value_initial: Symbol<extern fn() -> AzLayoutFlexGrowValue>,
-        az_layout_flex_grow_value_exact: Symbol<extern fn(_: AzLayoutFlexGrowPtr) -> AzLayoutFlexGrowValue>,
+        az_layout_flex_grow_value_exact: Symbol<extern fn(_: AzLayoutFlexGrow) -> AzLayoutFlexGrowValue>,
         az_layout_flex_grow_value_delete: Symbol<extern fn(_: &mut AzLayoutFlexGrowValue)>,
         az_layout_flex_grow_value_deep_copy: Symbol<extern fn(_: &AzLayoutFlexGrowValue) -> AzLayoutFlexGrowValue>,
         az_layout_flex_shrink_value_auto: Symbol<extern fn() -> AzLayoutFlexShrinkValue>,
         az_layout_flex_shrink_value_none: Symbol<extern fn() -> AzLayoutFlexShrinkValue>,
         az_layout_flex_shrink_value_inherit: Symbol<extern fn() -> AzLayoutFlexShrinkValue>,
         az_layout_flex_shrink_value_initial: Symbol<extern fn() -> AzLayoutFlexShrinkValue>,
-        az_layout_flex_shrink_value_exact: Symbol<extern fn(_: AzLayoutFlexShrinkPtr) -> AzLayoutFlexShrinkValue>,
+        az_layout_flex_shrink_value_exact: Symbol<extern fn(_: AzLayoutFlexShrink) -> AzLayoutFlexShrinkValue>,
         az_layout_flex_shrink_value_delete: Symbol<extern fn(_: &mut AzLayoutFlexShrinkValue)>,
         az_layout_flex_shrink_value_deep_copy: Symbol<extern fn(_: &AzLayoutFlexShrinkValue) -> AzLayoutFlexShrinkValue>,
         az_layout_float_value_auto: Symbol<extern fn() -> AzLayoutFloatValue>,
         az_layout_float_value_none: Symbol<extern fn() -> AzLayoutFloatValue>,
         az_layout_float_value_inherit: Symbol<extern fn() -> AzLayoutFloatValue>,
         az_layout_float_value_initial: Symbol<extern fn() -> AzLayoutFloatValue>,
-        az_layout_float_value_exact: Symbol<extern fn(_: AzLayoutFloatPtr) -> AzLayoutFloatValue>,
+        az_layout_float_value_exact: Symbol<extern fn(_: AzLayoutFloat) -> AzLayoutFloatValue>,
         az_layout_float_value_delete: Symbol<extern fn(_: &mut AzLayoutFloatValue)>,
         az_layout_float_value_deep_copy: Symbol<extern fn(_: &AzLayoutFloatValue) -> AzLayoutFloatValue>,
         az_layout_height_value_auto: Symbol<extern fn() -> AzLayoutHeightValue>,
         az_layout_height_value_none: Symbol<extern fn() -> AzLayoutHeightValue>,
         az_layout_height_value_inherit: Symbol<extern fn() -> AzLayoutHeightValue>,
         az_layout_height_value_initial: Symbol<extern fn() -> AzLayoutHeightValue>,
-        az_layout_height_value_exact: Symbol<extern fn(_: AzLayoutHeightPtr) -> AzLayoutHeightValue>,
+        az_layout_height_value_exact: Symbol<extern fn(_: AzLayoutHeight) -> AzLayoutHeightValue>,
         az_layout_height_value_delete: Symbol<extern fn(_: &mut AzLayoutHeightValue)>,
         az_layout_height_value_deep_copy: Symbol<extern fn(_: &AzLayoutHeightValue) -> AzLayoutHeightValue>,
         az_layout_justify_content_value_auto: Symbol<extern fn() -> AzLayoutJustifyContentValue>,
         az_layout_justify_content_value_none: Symbol<extern fn() -> AzLayoutJustifyContentValue>,
         az_layout_justify_content_value_inherit: Symbol<extern fn() -> AzLayoutJustifyContentValue>,
         az_layout_justify_content_value_initial: Symbol<extern fn() -> AzLayoutJustifyContentValue>,
-        az_layout_justify_content_value_exact: Symbol<extern fn(_: AzLayoutJustifyContentPtr) -> AzLayoutJustifyContentValue>,
+        az_layout_justify_content_value_exact: Symbol<extern fn(_: AzLayoutJustifyContent) -> AzLayoutJustifyContentValue>,
         az_layout_justify_content_value_delete: Symbol<extern fn(_: &mut AzLayoutJustifyContentValue)>,
         az_layout_justify_content_value_deep_copy: Symbol<extern fn(_: &AzLayoutJustifyContentValue) -> AzLayoutJustifyContentValue>,
         az_layout_left_value_auto: Symbol<extern fn() -> AzLayoutLeftValue>,
         az_layout_left_value_none: Symbol<extern fn() -> AzLayoutLeftValue>,
         az_layout_left_value_inherit: Symbol<extern fn() -> AzLayoutLeftValue>,
         az_layout_left_value_initial: Symbol<extern fn() -> AzLayoutLeftValue>,
-        az_layout_left_value_exact: Symbol<extern fn(_: AzLayoutLeftPtr) -> AzLayoutLeftValue>,
+        az_layout_left_value_exact: Symbol<extern fn(_: AzLayoutLeft) -> AzLayoutLeftValue>,
         az_layout_left_value_delete: Symbol<extern fn(_: &mut AzLayoutLeftValue)>,
         az_layout_left_value_deep_copy: Symbol<extern fn(_: &AzLayoutLeftValue) -> AzLayoutLeftValue>,
         az_layout_margin_bottom_value_auto: Symbol<extern fn() -> AzLayoutMarginBottomValue>,
         az_layout_margin_bottom_value_none: Symbol<extern fn() -> AzLayoutMarginBottomValue>,
         az_layout_margin_bottom_value_inherit: Symbol<extern fn() -> AzLayoutMarginBottomValue>,
         az_layout_margin_bottom_value_initial: Symbol<extern fn() -> AzLayoutMarginBottomValue>,
-        az_layout_margin_bottom_value_exact: Symbol<extern fn(_: AzLayoutMarginBottomPtr) -> AzLayoutMarginBottomValue>,
+        az_layout_margin_bottom_value_exact: Symbol<extern fn(_: AzLayoutMarginBottom) -> AzLayoutMarginBottomValue>,
         az_layout_margin_bottom_value_delete: Symbol<extern fn(_: &mut AzLayoutMarginBottomValue)>,
         az_layout_margin_bottom_value_deep_copy: Symbol<extern fn(_: &AzLayoutMarginBottomValue) -> AzLayoutMarginBottomValue>,
         az_layout_margin_left_value_auto: Symbol<extern fn() -> AzLayoutMarginLeftValue>,
         az_layout_margin_left_value_none: Symbol<extern fn() -> AzLayoutMarginLeftValue>,
         az_layout_margin_left_value_inherit: Symbol<extern fn() -> AzLayoutMarginLeftValue>,
         az_layout_margin_left_value_initial: Symbol<extern fn() -> AzLayoutMarginLeftValue>,
-        az_layout_margin_left_value_exact: Symbol<extern fn(_: AzLayoutMarginLeftPtr) -> AzLayoutMarginLeftValue>,
+        az_layout_margin_left_value_exact: Symbol<extern fn(_: AzLayoutMarginLeft) -> AzLayoutMarginLeftValue>,
         az_layout_margin_left_value_delete: Symbol<extern fn(_: &mut AzLayoutMarginLeftValue)>,
         az_layout_margin_left_value_deep_copy: Symbol<extern fn(_: &AzLayoutMarginLeftValue) -> AzLayoutMarginLeftValue>,
         az_layout_margin_right_value_auto: Symbol<extern fn() -> AzLayoutMarginRightValue>,
         az_layout_margin_right_value_none: Symbol<extern fn() -> AzLayoutMarginRightValue>,
         az_layout_margin_right_value_inherit: Symbol<extern fn() -> AzLayoutMarginRightValue>,
         az_layout_margin_right_value_initial: Symbol<extern fn() -> AzLayoutMarginRightValue>,
-        az_layout_margin_right_value_exact: Symbol<extern fn(_: AzLayoutMarginRightPtr) -> AzLayoutMarginRightValue>,
+        az_layout_margin_right_value_exact: Symbol<extern fn(_: AzLayoutMarginRight) -> AzLayoutMarginRightValue>,
         az_layout_margin_right_value_delete: Symbol<extern fn(_: &mut AzLayoutMarginRightValue)>,
         az_layout_margin_right_value_deep_copy: Symbol<extern fn(_: &AzLayoutMarginRightValue) -> AzLayoutMarginRightValue>,
         az_layout_margin_top_value_auto: Symbol<extern fn() -> AzLayoutMarginTopValue>,
         az_layout_margin_top_value_none: Symbol<extern fn() -> AzLayoutMarginTopValue>,
         az_layout_margin_top_value_inherit: Symbol<extern fn() -> AzLayoutMarginTopValue>,
         az_layout_margin_top_value_initial: Symbol<extern fn() -> AzLayoutMarginTopValue>,
-        az_layout_margin_top_value_exact: Symbol<extern fn(_: AzLayoutMarginTopPtr) -> AzLayoutMarginTopValue>,
+        az_layout_margin_top_value_exact: Symbol<extern fn(_: AzLayoutMarginTop) -> AzLayoutMarginTopValue>,
         az_layout_margin_top_value_delete: Symbol<extern fn(_: &mut AzLayoutMarginTopValue)>,
         az_layout_margin_top_value_deep_copy: Symbol<extern fn(_: &AzLayoutMarginTopValue) -> AzLayoutMarginTopValue>,
         az_layout_max_height_value_auto: Symbol<extern fn() -> AzLayoutMaxHeightValue>,
         az_layout_max_height_value_none: Symbol<extern fn() -> AzLayoutMaxHeightValue>,
         az_layout_max_height_value_inherit: Symbol<extern fn() -> AzLayoutMaxHeightValue>,
         az_layout_max_height_value_initial: Symbol<extern fn() -> AzLayoutMaxHeightValue>,
-        az_layout_max_height_value_exact: Symbol<extern fn(_: AzLayoutMaxHeightPtr) -> AzLayoutMaxHeightValue>,
+        az_layout_max_height_value_exact: Symbol<extern fn(_: AzLayoutMaxHeight) -> AzLayoutMaxHeightValue>,
         az_layout_max_height_value_delete: Symbol<extern fn(_: &mut AzLayoutMaxHeightValue)>,
         az_layout_max_height_value_deep_copy: Symbol<extern fn(_: &AzLayoutMaxHeightValue) -> AzLayoutMaxHeightValue>,
         az_layout_max_width_value_auto: Symbol<extern fn() -> AzLayoutMaxWidthValue>,
         az_layout_max_width_value_none: Symbol<extern fn() -> AzLayoutMaxWidthValue>,
         az_layout_max_width_value_inherit: Symbol<extern fn() -> AzLayoutMaxWidthValue>,
         az_layout_max_width_value_initial: Symbol<extern fn() -> AzLayoutMaxWidthValue>,
-        az_layout_max_width_value_exact: Symbol<extern fn(_: AzLayoutMaxWidthPtr) -> AzLayoutMaxWidthValue>,
+        az_layout_max_width_value_exact: Symbol<extern fn(_: AzLayoutMaxWidth) -> AzLayoutMaxWidthValue>,
         az_layout_max_width_value_delete: Symbol<extern fn(_: &mut AzLayoutMaxWidthValue)>,
         az_layout_max_width_value_deep_copy: Symbol<extern fn(_: &AzLayoutMaxWidthValue) -> AzLayoutMaxWidthValue>,
         az_layout_min_height_value_auto: Symbol<extern fn() -> AzLayoutMinHeightValue>,
         az_layout_min_height_value_none: Symbol<extern fn() -> AzLayoutMinHeightValue>,
         az_layout_min_height_value_inherit: Symbol<extern fn() -> AzLayoutMinHeightValue>,
         az_layout_min_height_value_initial: Symbol<extern fn() -> AzLayoutMinHeightValue>,
-        az_layout_min_height_value_exact: Symbol<extern fn(_: AzLayoutMinHeightPtr) -> AzLayoutMinHeightValue>,
+        az_layout_min_height_value_exact: Symbol<extern fn(_: AzLayoutMinHeight) -> AzLayoutMinHeightValue>,
         az_layout_min_height_value_delete: Symbol<extern fn(_: &mut AzLayoutMinHeightValue)>,
         az_layout_min_height_value_deep_copy: Symbol<extern fn(_: &AzLayoutMinHeightValue) -> AzLayoutMinHeightValue>,
         az_layout_min_width_value_auto: Symbol<extern fn() -> AzLayoutMinWidthValue>,
         az_layout_min_width_value_none: Symbol<extern fn() -> AzLayoutMinWidthValue>,
         az_layout_min_width_value_inherit: Symbol<extern fn() -> AzLayoutMinWidthValue>,
         az_layout_min_width_value_initial: Symbol<extern fn() -> AzLayoutMinWidthValue>,
-        az_layout_min_width_value_exact: Symbol<extern fn(_: AzLayoutMinWidthPtr) -> AzLayoutMinWidthValue>,
+        az_layout_min_width_value_exact: Symbol<extern fn(_: AzLayoutMinWidth) -> AzLayoutMinWidthValue>,
         az_layout_min_width_value_delete: Symbol<extern fn(_: &mut AzLayoutMinWidthValue)>,
         az_layout_min_width_value_deep_copy: Symbol<extern fn(_: &AzLayoutMinWidthValue) -> AzLayoutMinWidthValue>,
         az_layout_padding_bottom_value_auto: Symbol<extern fn() -> AzLayoutPaddingBottomValue>,
         az_layout_padding_bottom_value_none: Symbol<extern fn() -> AzLayoutPaddingBottomValue>,
         az_layout_padding_bottom_value_inherit: Symbol<extern fn() -> AzLayoutPaddingBottomValue>,
         az_layout_padding_bottom_value_initial: Symbol<extern fn() -> AzLayoutPaddingBottomValue>,
-        az_layout_padding_bottom_value_exact: Symbol<extern fn(_: AzLayoutPaddingBottomPtr) -> AzLayoutPaddingBottomValue>,
+        az_layout_padding_bottom_value_exact: Symbol<extern fn(_: AzLayoutPaddingBottom) -> AzLayoutPaddingBottomValue>,
         az_layout_padding_bottom_value_delete: Symbol<extern fn(_: &mut AzLayoutPaddingBottomValue)>,
         az_layout_padding_bottom_value_deep_copy: Symbol<extern fn(_: &AzLayoutPaddingBottomValue) -> AzLayoutPaddingBottomValue>,
         az_layout_padding_left_value_auto: Symbol<extern fn() -> AzLayoutPaddingLeftValue>,
         az_layout_padding_left_value_none: Symbol<extern fn() -> AzLayoutPaddingLeftValue>,
         az_layout_padding_left_value_inherit: Symbol<extern fn() -> AzLayoutPaddingLeftValue>,
         az_layout_padding_left_value_initial: Symbol<extern fn() -> AzLayoutPaddingLeftValue>,
-        az_layout_padding_left_value_exact: Symbol<extern fn(_: AzLayoutPaddingLeftPtr) -> AzLayoutPaddingLeftValue>,
+        az_layout_padding_left_value_exact: Symbol<extern fn(_: AzLayoutPaddingLeft) -> AzLayoutPaddingLeftValue>,
         az_layout_padding_left_value_delete: Symbol<extern fn(_: &mut AzLayoutPaddingLeftValue)>,
         az_layout_padding_left_value_deep_copy: Symbol<extern fn(_: &AzLayoutPaddingLeftValue) -> AzLayoutPaddingLeftValue>,
         az_layout_padding_right_value_auto: Symbol<extern fn() -> AzLayoutPaddingRightValue>,
         az_layout_padding_right_value_none: Symbol<extern fn() -> AzLayoutPaddingRightValue>,
         az_layout_padding_right_value_inherit: Symbol<extern fn() -> AzLayoutPaddingRightValue>,
         az_layout_padding_right_value_initial: Symbol<extern fn() -> AzLayoutPaddingRightValue>,
-        az_layout_padding_right_value_exact: Symbol<extern fn(_: AzLayoutPaddingRightPtr) -> AzLayoutPaddingRightValue>,
+        az_layout_padding_right_value_exact: Symbol<extern fn(_: AzLayoutPaddingRight) -> AzLayoutPaddingRightValue>,
         az_layout_padding_right_value_delete: Symbol<extern fn(_: &mut AzLayoutPaddingRightValue)>,
         az_layout_padding_right_value_deep_copy: Symbol<extern fn(_: &AzLayoutPaddingRightValue) -> AzLayoutPaddingRightValue>,
         az_layout_padding_top_value_auto: Symbol<extern fn() -> AzLayoutPaddingTopValue>,
         az_layout_padding_top_value_none: Symbol<extern fn() -> AzLayoutPaddingTopValue>,
         az_layout_padding_top_value_inherit: Symbol<extern fn() -> AzLayoutPaddingTopValue>,
         az_layout_padding_top_value_initial: Symbol<extern fn() -> AzLayoutPaddingTopValue>,
-        az_layout_padding_top_value_exact: Symbol<extern fn(_: AzLayoutPaddingTopPtr) -> AzLayoutPaddingTopValue>,
+        az_layout_padding_top_value_exact: Symbol<extern fn(_: AzLayoutPaddingTop) -> AzLayoutPaddingTopValue>,
         az_layout_padding_top_value_delete: Symbol<extern fn(_: &mut AzLayoutPaddingTopValue)>,
         az_layout_padding_top_value_deep_copy: Symbol<extern fn(_: &AzLayoutPaddingTopValue) -> AzLayoutPaddingTopValue>,
         az_layout_position_value_auto: Symbol<extern fn() -> AzLayoutPositionValue>,
         az_layout_position_value_none: Symbol<extern fn() -> AzLayoutPositionValue>,
         az_layout_position_value_inherit: Symbol<extern fn() -> AzLayoutPositionValue>,
         az_layout_position_value_initial: Symbol<extern fn() -> AzLayoutPositionValue>,
-        az_layout_position_value_exact: Symbol<extern fn(_: AzLayoutPositionPtr) -> AzLayoutPositionValue>,
+        az_layout_position_value_exact: Symbol<extern fn(_: AzLayoutPosition) -> AzLayoutPositionValue>,
         az_layout_position_value_delete: Symbol<extern fn(_: &mut AzLayoutPositionValue)>,
         az_layout_position_value_deep_copy: Symbol<extern fn(_: &AzLayoutPositionValue) -> AzLayoutPositionValue>,
         az_layout_right_value_auto: Symbol<extern fn() -> AzLayoutRightValue>,
         az_layout_right_value_none: Symbol<extern fn() -> AzLayoutRightValue>,
         az_layout_right_value_inherit: Symbol<extern fn() -> AzLayoutRightValue>,
         az_layout_right_value_initial: Symbol<extern fn() -> AzLayoutRightValue>,
-        az_layout_right_value_exact: Symbol<extern fn(_: AzLayoutRightPtr) -> AzLayoutRightValue>,
+        az_layout_right_value_exact: Symbol<extern fn(_: AzLayoutRight) -> AzLayoutRightValue>,
         az_layout_right_value_delete: Symbol<extern fn(_: &mut AzLayoutRightValue)>,
         az_layout_right_value_deep_copy: Symbol<extern fn(_: &AzLayoutRightValue) -> AzLayoutRightValue>,
         az_layout_top_value_auto: Symbol<extern fn() -> AzLayoutTopValue>,
         az_layout_top_value_none: Symbol<extern fn() -> AzLayoutTopValue>,
         az_layout_top_value_inherit: Symbol<extern fn() -> AzLayoutTopValue>,
         az_layout_top_value_initial: Symbol<extern fn() -> AzLayoutTopValue>,
-        az_layout_top_value_exact: Symbol<extern fn(_: AzLayoutTopPtr) -> AzLayoutTopValue>,
+        az_layout_top_value_exact: Symbol<extern fn(_: AzLayoutTop) -> AzLayoutTopValue>,
         az_layout_top_value_delete: Symbol<extern fn(_: &mut AzLayoutTopValue)>,
         az_layout_top_value_deep_copy: Symbol<extern fn(_: &AzLayoutTopValue) -> AzLayoutTopValue>,
         az_layout_width_value_auto: Symbol<extern fn() -> AzLayoutWidthValue>,
         az_layout_width_value_none: Symbol<extern fn() -> AzLayoutWidthValue>,
         az_layout_width_value_inherit: Symbol<extern fn() -> AzLayoutWidthValue>,
         az_layout_width_value_initial: Symbol<extern fn() -> AzLayoutWidthValue>,
-        az_layout_width_value_exact: Symbol<extern fn(_: AzLayoutWidthPtr) -> AzLayoutWidthValue>,
+        az_layout_width_value_exact: Symbol<extern fn(_: AzLayoutWidth) -> AzLayoutWidthValue>,
         az_layout_width_value_delete: Symbol<extern fn(_: &mut AzLayoutWidthValue)>,
         az_layout_width_value_deep_copy: Symbol<extern fn(_: &AzLayoutWidthValue) -> AzLayoutWidthValue>,
         az_layout_wrap_value_auto: Symbol<extern fn() -> AzLayoutWrapValue>,
         az_layout_wrap_value_none: Symbol<extern fn() -> AzLayoutWrapValue>,
         az_layout_wrap_value_inherit: Symbol<extern fn() -> AzLayoutWrapValue>,
         az_layout_wrap_value_initial: Symbol<extern fn() -> AzLayoutWrapValue>,
-        az_layout_wrap_value_exact: Symbol<extern fn(_: AzLayoutWrapPtr) -> AzLayoutWrapValue>,
+        az_layout_wrap_value_exact: Symbol<extern fn(_: AzLayoutWrap) -> AzLayoutWrapValue>,
         az_layout_wrap_value_delete: Symbol<extern fn(_: &mut AzLayoutWrapValue)>,
         az_layout_wrap_value_deep_copy: Symbol<extern fn(_: &AzLayoutWrapValue) -> AzLayoutWrapValue>,
         az_overflow_value_auto: Symbol<extern fn() -> AzOverflowValue>,
         az_overflow_value_none: Symbol<extern fn() -> AzOverflowValue>,
         az_overflow_value_inherit: Symbol<extern fn() -> AzOverflowValue>,
         az_overflow_value_initial: Symbol<extern fn() -> AzOverflowValue>,
-        az_overflow_value_exact: Symbol<extern fn(_: AzOverflowPtr) -> AzOverflowValue>,
+        az_overflow_value_exact: Symbol<extern fn(_: AzOverflow) -> AzOverflowValue>,
         az_overflow_value_delete: Symbol<extern fn(_: &mut AzOverflowValue)>,
         az_overflow_value_deep_copy: Symbol<extern fn(_: &AzOverflowValue) -> AzOverflowValue>,
         az_style_background_content_value_auto: Symbol<extern fn() -> AzStyleBackgroundContentValue>,
         az_style_background_content_value_none: Symbol<extern fn() -> AzStyleBackgroundContentValue>,
         az_style_background_content_value_inherit: Symbol<extern fn() -> AzStyleBackgroundContentValue>,
         az_style_background_content_value_initial: Symbol<extern fn() -> AzStyleBackgroundContentValue>,
-        az_style_background_content_value_exact: Symbol<extern fn(_: AzStyleBackgroundContentPtr) -> AzStyleBackgroundContentValue>,
+        az_style_background_content_value_exact: Symbol<extern fn(_: AzStyleBackgroundContent) -> AzStyleBackgroundContentValue>,
         az_style_background_content_value_delete: Symbol<extern fn(_: &mut AzStyleBackgroundContentValue)>,
         az_style_background_content_value_deep_copy: Symbol<extern fn(_: &AzStyleBackgroundContentValue) -> AzStyleBackgroundContentValue>,
         az_style_background_position_value_auto: Symbol<extern fn() -> AzStyleBackgroundPositionValue>,
@@ -1748,9 +1894,14 @@ pub(crate) mod dll {
         let az_string_vec_copy_from = unsafe { lib.get::<extern fn(_: usize) -> AzStringVec>(b"az_string_vec_copy_from").ok()? };
         let az_string_vec_delete = unsafe { lib.get::<extern fn(_: &mut AzStringVec)>(b"az_string_vec_delete").ok()? };
         let az_string_vec_deep_copy = unsafe { lib.get::<extern fn(_: &AzStringVec) -> AzStringVec>(b"az_string_vec_deep_copy").ok()? };
+        let az_gradient_stop_pre_vec_copy_from = unsafe { lib.get::<extern fn(_: usize) -> AzGradientStopPreVec>(b"az_gradient_stop_pre_vec_copy_from").ok()? };
+        let az_gradient_stop_pre_vec_delete = unsafe { lib.get::<extern fn(_: &mut AzGradientStopPreVec)>(b"az_gradient_stop_pre_vec_delete").ok()? };
+        let az_gradient_stop_pre_vec_deep_copy = unsafe { lib.get::<extern fn(_: &AzGradientStopPreVec) -> AzGradientStopPreVec>(b"az_gradient_stop_pre_vec_deep_copy").ok()? };
         let az_path_buf_new = unsafe { lib.get::<extern fn(_: AzString) -> AzPathBufPtr>(b"az_path_buf_new").ok()? };
         let az_path_buf_delete = unsafe { lib.get::<extern fn(_: &mut AzPathBufPtr)>(b"az_path_buf_delete").ok()? };
         let az_path_buf_shallow_copy = unsafe { lib.get::<extern fn(_: &AzPathBufPtr) -> AzPathBufPtr>(b"az_path_buf_shallow_copy").ok()? };
+        let az_option_percentage_value_delete = unsafe { lib.get::<extern fn(_: &mut AzOptionPercentageValuePtr)>(b"az_option_percentage_value_delete").ok()? };
+        let az_option_percentage_value_shallow_copy = unsafe { lib.get::<extern fn(_: &AzOptionPercentageValuePtr) -> AzOptionPercentageValuePtr>(b"az_option_percentage_value_shallow_copy").ok()? };
         let az_app_config_default = unsafe { lib.get::<extern fn() -> AzAppConfigPtr>(b"az_app_config_default").ok()? };
         let az_app_config_delete = unsafe { lib.get::<extern fn(_: &mut AzAppConfigPtr)>(b"az_app_config_delete").ok()? };
         let az_app_config_shallow_copy = unsafe { lib.get::<extern fn(_: &AzAppConfigPtr) -> AzAppConfigPtr>(b"az_app_config_shallow_copy").ok()? };
@@ -1816,62 +1967,127 @@ pub(crate) mod dll {
         let az_layout_align_items_deep_copy = unsafe { lib.get::<extern fn(_: &AzLayoutAlignItems) -> AzLayoutAlignItems>(b"az_layout_align_items_deep_copy").ok()? };
         let az_layout_bottom_delete = unsafe { lib.get::<extern fn(_: &mut AzLayoutBottom)>(b"az_layout_bottom_delete").ok()? };
         let az_layout_bottom_deep_copy = unsafe { lib.get::<extern fn(_: &AzLayoutBottom) -> AzLayoutBottom>(b"az_layout_bottom_deep_copy").ok()? };
-        let az_layout_box_sizing_delete = unsafe { lib.get::<extern fn(_: &mut AzLayoutBoxSizingPtr)>(b"az_layout_box_sizing_delete").ok()? };
-        let az_layout_box_sizing_shallow_copy = unsafe { lib.get::<extern fn(_: &AzLayoutBoxSizingPtr) -> AzLayoutBoxSizingPtr>(b"az_layout_box_sizing_shallow_copy").ok()? };
-        let az_layout_direction_delete = unsafe { lib.get::<extern fn(_: &mut AzLayoutDirectionPtr)>(b"az_layout_direction_delete").ok()? };
-        let az_layout_direction_shallow_copy = unsafe { lib.get::<extern fn(_: &AzLayoutDirectionPtr) -> AzLayoutDirectionPtr>(b"az_layout_direction_shallow_copy").ok()? };
-        let az_layout_display_delete = unsafe { lib.get::<extern fn(_: &mut AzLayoutDisplayPtr)>(b"az_layout_display_delete").ok()? };
-        let az_layout_display_shallow_copy = unsafe { lib.get::<extern fn(_: &AzLayoutDisplayPtr) -> AzLayoutDisplayPtr>(b"az_layout_display_shallow_copy").ok()? };
-        let az_layout_flex_grow_delete = unsafe { lib.get::<extern fn(_: &mut AzLayoutFlexGrowPtr)>(b"az_layout_flex_grow_delete").ok()? };
-        let az_layout_flex_grow_shallow_copy = unsafe { lib.get::<extern fn(_: &AzLayoutFlexGrowPtr) -> AzLayoutFlexGrowPtr>(b"az_layout_flex_grow_shallow_copy").ok()? };
-        let az_layout_flex_shrink_delete = unsafe { lib.get::<extern fn(_: &mut AzLayoutFlexShrinkPtr)>(b"az_layout_flex_shrink_delete").ok()? };
-        let az_layout_flex_shrink_shallow_copy = unsafe { lib.get::<extern fn(_: &AzLayoutFlexShrinkPtr) -> AzLayoutFlexShrinkPtr>(b"az_layout_flex_shrink_shallow_copy").ok()? };
-        let az_layout_float_delete = unsafe { lib.get::<extern fn(_: &mut AzLayoutFloatPtr)>(b"az_layout_float_delete").ok()? };
-        let az_layout_float_shallow_copy = unsafe { lib.get::<extern fn(_: &AzLayoutFloatPtr) -> AzLayoutFloatPtr>(b"az_layout_float_shallow_copy").ok()? };
-        let az_layout_height_delete = unsafe { lib.get::<extern fn(_: &mut AzLayoutHeightPtr)>(b"az_layout_height_delete").ok()? };
-        let az_layout_height_shallow_copy = unsafe { lib.get::<extern fn(_: &AzLayoutHeightPtr) -> AzLayoutHeightPtr>(b"az_layout_height_shallow_copy").ok()? };
-        let az_layout_justify_content_delete = unsafe { lib.get::<extern fn(_: &mut AzLayoutJustifyContentPtr)>(b"az_layout_justify_content_delete").ok()? };
-        let az_layout_justify_content_shallow_copy = unsafe { lib.get::<extern fn(_: &AzLayoutJustifyContentPtr) -> AzLayoutJustifyContentPtr>(b"az_layout_justify_content_shallow_copy").ok()? };
-        let az_layout_left_delete = unsafe { lib.get::<extern fn(_: &mut AzLayoutLeftPtr)>(b"az_layout_left_delete").ok()? };
-        let az_layout_left_shallow_copy = unsafe { lib.get::<extern fn(_: &AzLayoutLeftPtr) -> AzLayoutLeftPtr>(b"az_layout_left_shallow_copy").ok()? };
-        let az_layout_margin_bottom_delete = unsafe { lib.get::<extern fn(_: &mut AzLayoutMarginBottomPtr)>(b"az_layout_margin_bottom_delete").ok()? };
-        let az_layout_margin_bottom_shallow_copy = unsafe { lib.get::<extern fn(_: &AzLayoutMarginBottomPtr) -> AzLayoutMarginBottomPtr>(b"az_layout_margin_bottom_shallow_copy").ok()? };
-        let az_layout_margin_left_delete = unsafe { lib.get::<extern fn(_: &mut AzLayoutMarginLeftPtr)>(b"az_layout_margin_left_delete").ok()? };
-        let az_layout_margin_left_shallow_copy = unsafe { lib.get::<extern fn(_: &AzLayoutMarginLeftPtr) -> AzLayoutMarginLeftPtr>(b"az_layout_margin_left_shallow_copy").ok()? };
-        let az_layout_margin_right_delete = unsafe { lib.get::<extern fn(_: &mut AzLayoutMarginRightPtr)>(b"az_layout_margin_right_delete").ok()? };
-        let az_layout_margin_right_shallow_copy = unsafe { lib.get::<extern fn(_: &AzLayoutMarginRightPtr) -> AzLayoutMarginRightPtr>(b"az_layout_margin_right_shallow_copy").ok()? };
-        let az_layout_margin_top_delete = unsafe { lib.get::<extern fn(_: &mut AzLayoutMarginTopPtr)>(b"az_layout_margin_top_delete").ok()? };
-        let az_layout_margin_top_shallow_copy = unsafe { lib.get::<extern fn(_: &AzLayoutMarginTopPtr) -> AzLayoutMarginTopPtr>(b"az_layout_margin_top_shallow_copy").ok()? };
-        let az_layout_max_height_delete = unsafe { lib.get::<extern fn(_: &mut AzLayoutMaxHeightPtr)>(b"az_layout_max_height_delete").ok()? };
-        let az_layout_max_height_shallow_copy = unsafe { lib.get::<extern fn(_: &AzLayoutMaxHeightPtr) -> AzLayoutMaxHeightPtr>(b"az_layout_max_height_shallow_copy").ok()? };
-        let az_layout_max_width_delete = unsafe { lib.get::<extern fn(_: &mut AzLayoutMaxWidthPtr)>(b"az_layout_max_width_delete").ok()? };
-        let az_layout_max_width_shallow_copy = unsafe { lib.get::<extern fn(_: &AzLayoutMaxWidthPtr) -> AzLayoutMaxWidthPtr>(b"az_layout_max_width_shallow_copy").ok()? };
-        let az_layout_min_height_delete = unsafe { lib.get::<extern fn(_: &mut AzLayoutMinHeightPtr)>(b"az_layout_min_height_delete").ok()? };
-        let az_layout_min_height_shallow_copy = unsafe { lib.get::<extern fn(_: &AzLayoutMinHeightPtr) -> AzLayoutMinHeightPtr>(b"az_layout_min_height_shallow_copy").ok()? };
-        let az_layout_min_width_delete = unsafe { lib.get::<extern fn(_: &mut AzLayoutMinWidthPtr)>(b"az_layout_min_width_delete").ok()? };
-        let az_layout_min_width_shallow_copy = unsafe { lib.get::<extern fn(_: &AzLayoutMinWidthPtr) -> AzLayoutMinWidthPtr>(b"az_layout_min_width_shallow_copy").ok()? };
-        let az_layout_padding_bottom_delete = unsafe { lib.get::<extern fn(_: &mut AzLayoutPaddingBottomPtr)>(b"az_layout_padding_bottom_delete").ok()? };
-        let az_layout_padding_bottom_shallow_copy = unsafe { lib.get::<extern fn(_: &AzLayoutPaddingBottomPtr) -> AzLayoutPaddingBottomPtr>(b"az_layout_padding_bottom_shallow_copy").ok()? };
-        let az_layout_padding_left_delete = unsafe { lib.get::<extern fn(_: &mut AzLayoutPaddingLeftPtr)>(b"az_layout_padding_left_delete").ok()? };
-        let az_layout_padding_left_shallow_copy = unsafe { lib.get::<extern fn(_: &AzLayoutPaddingLeftPtr) -> AzLayoutPaddingLeftPtr>(b"az_layout_padding_left_shallow_copy").ok()? };
-        let az_layout_padding_right_delete = unsafe { lib.get::<extern fn(_: &mut AzLayoutPaddingRightPtr)>(b"az_layout_padding_right_delete").ok()? };
-        let az_layout_padding_right_shallow_copy = unsafe { lib.get::<extern fn(_: &AzLayoutPaddingRightPtr) -> AzLayoutPaddingRightPtr>(b"az_layout_padding_right_shallow_copy").ok()? };
-        let az_layout_padding_top_delete = unsafe { lib.get::<extern fn(_: &mut AzLayoutPaddingTopPtr)>(b"az_layout_padding_top_delete").ok()? };
-        let az_layout_padding_top_shallow_copy = unsafe { lib.get::<extern fn(_: &AzLayoutPaddingTopPtr) -> AzLayoutPaddingTopPtr>(b"az_layout_padding_top_shallow_copy").ok()? };
-        let az_layout_position_delete = unsafe { lib.get::<extern fn(_: &mut AzLayoutPositionPtr)>(b"az_layout_position_delete").ok()? };
-        let az_layout_position_shallow_copy = unsafe { lib.get::<extern fn(_: &AzLayoutPositionPtr) -> AzLayoutPositionPtr>(b"az_layout_position_shallow_copy").ok()? };
-        let az_layout_right_delete = unsafe { lib.get::<extern fn(_: &mut AzLayoutRightPtr)>(b"az_layout_right_delete").ok()? };
-        let az_layout_right_shallow_copy = unsafe { lib.get::<extern fn(_: &AzLayoutRightPtr) -> AzLayoutRightPtr>(b"az_layout_right_shallow_copy").ok()? };
-        let az_layout_top_delete = unsafe { lib.get::<extern fn(_: &mut AzLayoutTopPtr)>(b"az_layout_top_delete").ok()? };
-        let az_layout_top_shallow_copy = unsafe { lib.get::<extern fn(_: &AzLayoutTopPtr) -> AzLayoutTopPtr>(b"az_layout_top_shallow_copy").ok()? };
-        let az_layout_width_delete = unsafe { lib.get::<extern fn(_: &mut AzLayoutWidthPtr)>(b"az_layout_width_delete").ok()? };
-        let az_layout_width_shallow_copy = unsafe { lib.get::<extern fn(_: &AzLayoutWidthPtr) -> AzLayoutWidthPtr>(b"az_layout_width_shallow_copy").ok()? };
-        let az_layout_wrap_delete = unsafe { lib.get::<extern fn(_: &mut AzLayoutWrapPtr)>(b"az_layout_wrap_delete").ok()? };
-        let az_layout_wrap_shallow_copy = unsafe { lib.get::<extern fn(_: &AzLayoutWrapPtr) -> AzLayoutWrapPtr>(b"az_layout_wrap_shallow_copy").ok()? };
-        let az_overflow_delete = unsafe { lib.get::<extern fn(_: &mut AzOverflowPtr)>(b"az_overflow_delete").ok()? };
-        let az_overflow_shallow_copy = unsafe { lib.get::<extern fn(_: &AzOverflowPtr) -> AzOverflowPtr>(b"az_overflow_shallow_copy").ok()? };
-        let az_style_background_content_delete = unsafe { lib.get::<extern fn(_: &mut AzStyleBackgroundContentPtr)>(b"az_style_background_content_delete").ok()? };
-        let az_style_background_content_shallow_copy = unsafe { lib.get::<extern fn(_: &AzStyleBackgroundContentPtr) -> AzStyleBackgroundContentPtr>(b"az_style_background_content_shallow_copy").ok()? };
+        let az_layout_box_sizing_content_box = unsafe { lib.get::<extern fn() -> AzLayoutBoxSizing>(b"az_layout_box_sizing_content_box").ok()? };
+        let az_layout_box_sizing_border_box = unsafe { lib.get::<extern fn() -> AzLayoutBoxSizing>(b"az_layout_box_sizing_border_box").ok()? };
+        let az_layout_box_sizing_delete = unsafe { lib.get::<extern fn(_: &mut AzLayoutBoxSizing)>(b"az_layout_box_sizing_delete").ok()? };
+        let az_layout_box_sizing_deep_copy = unsafe { lib.get::<extern fn(_: &AzLayoutBoxSizing) -> AzLayoutBoxSizing>(b"az_layout_box_sizing_deep_copy").ok()? };
+        let az_layout_direction_row = unsafe { lib.get::<extern fn() -> AzLayoutDirection>(b"az_layout_direction_row").ok()? };
+        let az_layout_direction_row_reverse = unsafe { lib.get::<extern fn() -> AzLayoutDirection>(b"az_layout_direction_row_reverse").ok()? };
+        let az_layout_direction_column = unsafe { lib.get::<extern fn() -> AzLayoutDirection>(b"az_layout_direction_column").ok()? };
+        let az_layout_direction_column_reverse = unsafe { lib.get::<extern fn() -> AzLayoutDirection>(b"az_layout_direction_column_reverse").ok()? };
+        let az_layout_direction_delete = unsafe { lib.get::<extern fn(_: &mut AzLayoutDirection)>(b"az_layout_direction_delete").ok()? };
+        let az_layout_direction_deep_copy = unsafe { lib.get::<extern fn(_: &AzLayoutDirection) -> AzLayoutDirection>(b"az_layout_direction_deep_copy").ok()? };
+        let az_layout_display_flex = unsafe { lib.get::<extern fn() -> AzLayoutDisplay>(b"az_layout_display_flex").ok()? };
+        let az_layout_display_block = unsafe { lib.get::<extern fn() -> AzLayoutDisplay>(b"az_layout_display_block").ok()? };
+        let az_layout_display_inline_block = unsafe { lib.get::<extern fn() -> AzLayoutDisplay>(b"az_layout_display_inline_block").ok()? };
+        let az_layout_display_delete = unsafe { lib.get::<extern fn(_: &mut AzLayoutDisplay)>(b"az_layout_display_delete").ok()? };
+        let az_layout_display_deep_copy = unsafe { lib.get::<extern fn(_: &AzLayoutDisplay) -> AzLayoutDisplay>(b"az_layout_display_deep_copy").ok()? };
+        let az_layout_flex_grow_delete = unsafe { lib.get::<extern fn(_: &mut AzLayoutFlexGrow)>(b"az_layout_flex_grow_delete").ok()? };
+        let az_layout_flex_grow_deep_copy = unsafe { lib.get::<extern fn(_: &AzLayoutFlexGrow) -> AzLayoutFlexGrow>(b"az_layout_flex_grow_deep_copy").ok()? };
+        let az_layout_flex_shrink_delete = unsafe { lib.get::<extern fn(_: &mut AzLayoutFlexShrink)>(b"az_layout_flex_shrink_delete").ok()? };
+        let az_layout_flex_shrink_deep_copy = unsafe { lib.get::<extern fn(_: &AzLayoutFlexShrink) -> AzLayoutFlexShrink>(b"az_layout_flex_shrink_deep_copy").ok()? };
+        let az_layout_float_left = unsafe { lib.get::<extern fn() -> AzLayoutFloat>(b"az_layout_float_left").ok()? };
+        let az_layout_float_right = unsafe { lib.get::<extern fn() -> AzLayoutFloat>(b"az_layout_float_right").ok()? };
+        let az_layout_float_delete = unsafe { lib.get::<extern fn(_: &mut AzLayoutFloat)>(b"az_layout_float_delete").ok()? };
+        let az_layout_float_deep_copy = unsafe { lib.get::<extern fn(_: &AzLayoutFloat) -> AzLayoutFloat>(b"az_layout_float_deep_copy").ok()? };
+        let az_layout_height_delete = unsafe { lib.get::<extern fn(_: &mut AzLayoutHeight)>(b"az_layout_height_delete").ok()? };
+        let az_layout_height_deep_copy = unsafe { lib.get::<extern fn(_: &AzLayoutHeight) -> AzLayoutHeight>(b"az_layout_height_deep_copy").ok()? };
+        let az_layout_justify_content_start = unsafe { lib.get::<extern fn() -> AzLayoutJustifyContent>(b"az_layout_justify_content_start").ok()? };
+        let az_layout_justify_content_end = unsafe { lib.get::<extern fn() -> AzLayoutJustifyContent>(b"az_layout_justify_content_end").ok()? };
+        let az_layout_justify_content_center = unsafe { lib.get::<extern fn() -> AzLayoutJustifyContent>(b"az_layout_justify_content_center").ok()? };
+        let az_layout_justify_content_space_between = unsafe { lib.get::<extern fn() -> AzLayoutJustifyContent>(b"az_layout_justify_content_space_between").ok()? };
+        let az_layout_justify_content_space_around = unsafe { lib.get::<extern fn() -> AzLayoutJustifyContent>(b"az_layout_justify_content_space_around").ok()? };
+        let az_layout_justify_content_space_evenly = unsafe { lib.get::<extern fn() -> AzLayoutJustifyContent>(b"az_layout_justify_content_space_evenly").ok()? };
+        let az_layout_justify_content_delete = unsafe { lib.get::<extern fn(_: &mut AzLayoutJustifyContent)>(b"az_layout_justify_content_delete").ok()? };
+        let az_layout_justify_content_deep_copy = unsafe { lib.get::<extern fn(_: &AzLayoutJustifyContent) -> AzLayoutJustifyContent>(b"az_layout_justify_content_deep_copy").ok()? };
+        let az_layout_left_delete = unsafe { lib.get::<extern fn(_: &mut AzLayoutLeft)>(b"az_layout_left_delete").ok()? };
+        let az_layout_left_deep_copy = unsafe { lib.get::<extern fn(_: &AzLayoutLeft) -> AzLayoutLeft>(b"az_layout_left_deep_copy").ok()? };
+        let az_layout_margin_bottom_delete = unsafe { lib.get::<extern fn(_: &mut AzLayoutMarginBottom)>(b"az_layout_margin_bottom_delete").ok()? };
+        let az_layout_margin_bottom_deep_copy = unsafe { lib.get::<extern fn(_: &AzLayoutMarginBottom) -> AzLayoutMarginBottom>(b"az_layout_margin_bottom_deep_copy").ok()? };
+        let az_layout_margin_left_delete = unsafe { lib.get::<extern fn(_: &mut AzLayoutMarginLeft)>(b"az_layout_margin_left_delete").ok()? };
+        let az_layout_margin_left_deep_copy = unsafe { lib.get::<extern fn(_: &AzLayoutMarginLeft) -> AzLayoutMarginLeft>(b"az_layout_margin_left_deep_copy").ok()? };
+        let az_layout_margin_right_delete = unsafe { lib.get::<extern fn(_: &mut AzLayoutMarginRight)>(b"az_layout_margin_right_delete").ok()? };
+        let az_layout_margin_right_deep_copy = unsafe { lib.get::<extern fn(_: &AzLayoutMarginRight) -> AzLayoutMarginRight>(b"az_layout_margin_right_deep_copy").ok()? };
+        let az_layout_margin_top_delete = unsafe { lib.get::<extern fn(_: &mut AzLayoutMarginTop)>(b"az_layout_margin_top_delete").ok()? };
+        let az_layout_margin_top_deep_copy = unsafe { lib.get::<extern fn(_: &AzLayoutMarginTop) -> AzLayoutMarginTop>(b"az_layout_margin_top_deep_copy").ok()? };
+        let az_layout_max_height_delete = unsafe { lib.get::<extern fn(_: &mut AzLayoutMaxHeight)>(b"az_layout_max_height_delete").ok()? };
+        let az_layout_max_height_deep_copy = unsafe { lib.get::<extern fn(_: &AzLayoutMaxHeight) -> AzLayoutMaxHeight>(b"az_layout_max_height_deep_copy").ok()? };
+        let az_layout_max_width_delete = unsafe { lib.get::<extern fn(_: &mut AzLayoutMaxWidth)>(b"az_layout_max_width_delete").ok()? };
+        let az_layout_max_width_deep_copy = unsafe { lib.get::<extern fn(_: &AzLayoutMaxWidth) -> AzLayoutMaxWidth>(b"az_layout_max_width_deep_copy").ok()? };
+        let az_layout_min_height_delete = unsafe { lib.get::<extern fn(_: &mut AzLayoutMinHeight)>(b"az_layout_min_height_delete").ok()? };
+        let az_layout_min_height_deep_copy = unsafe { lib.get::<extern fn(_: &AzLayoutMinHeight) -> AzLayoutMinHeight>(b"az_layout_min_height_deep_copy").ok()? };
+        let az_layout_min_width_delete = unsafe { lib.get::<extern fn(_: &mut AzLayoutMinWidth)>(b"az_layout_min_width_delete").ok()? };
+        let az_layout_min_width_deep_copy = unsafe { lib.get::<extern fn(_: &AzLayoutMinWidth) -> AzLayoutMinWidth>(b"az_layout_min_width_deep_copy").ok()? };
+        let az_layout_padding_bottom_delete = unsafe { lib.get::<extern fn(_: &mut AzLayoutPaddingBottom)>(b"az_layout_padding_bottom_delete").ok()? };
+        let az_layout_padding_bottom_deep_copy = unsafe { lib.get::<extern fn(_: &AzLayoutPaddingBottom) -> AzLayoutPaddingBottom>(b"az_layout_padding_bottom_deep_copy").ok()? };
+        let az_layout_padding_left_delete = unsafe { lib.get::<extern fn(_: &mut AzLayoutPaddingLeft)>(b"az_layout_padding_left_delete").ok()? };
+        let az_layout_padding_left_deep_copy = unsafe { lib.get::<extern fn(_: &AzLayoutPaddingLeft) -> AzLayoutPaddingLeft>(b"az_layout_padding_left_deep_copy").ok()? };
+        let az_layout_padding_right_delete = unsafe { lib.get::<extern fn(_: &mut AzLayoutPaddingRight)>(b"az_layout_padding_right_delete").ok()? };
+        let az_layout_padding_right_deep_copy = unsafe { lib.get::<extern fn(_: &AzLayoutPaddingRight) -> AzLayoutPaddingRight>(b"az_layout_padding_right_deep_copy").ok()? };
+        let az_layout_padding_top_delete = unsafe { lib.get::<extern fn(_: &mut AzLayoutPaddingTop)>(b"az_layout_padding_top_delete").ok()? };
+        let az_layout_padding_top_deep_copy = unsafe { lib.get::<extern fn(_: &AzLayoutPaddingTop) -> AzLayoutPaddingTop>(b"az_layout_padding_top_deep_copy").ok()? };
+        let az_layout_position_static = unsafe { lib.get::<extern fn() -> AzLayoutPosition>(b"az_layout_position_static").ok()? };
+        let az_layout_position_relative = unsafe { lib.get::<extern fn() -> AzLayoutPosition>(b"az_layout_position_relative").ok()? };
+        let az_layout_position_absolute = unsafe { lib.get::<extern fn() -> AzLayoutPosition>(b"az_layout_position_absolute").ok()? };
+        let az_layout_position_fixed = unsafe { lib.get::<extern fn() -> AzLayoutPosition>(b"az_layout_position_fixed").ok()? };
+        let az_layout_position_delete = unsafe { lib.get::<extern fn(_: &mut AzLayoutPosition)>(b"az_layout_position_delete").ok()? };
+        let az_layout_position_deep_copy = unsafe { lib.get::<extern fn(_: &AzLayoutPosition) -> AzLayoutPosition>(b"az_layout_position_deep_copy").ok()? };
+        let az_layout_right_delete = unsafe { lib.get::<extern fn(_: &mut AzLayoutRight)>(b"az_layout_right_delete").ok()? };
+        let az_layout_right_deep_copy = unsafe { lib.get::<extern fn(_: &AzLayoutRight) -> AzLayoutRight>(b"az_layout_right_deep_copy").ok()? };
+        let az_layout_top_delete = unsafe { lib.get::<extern fn(_: &mut AzLayoutTop)>(b"az_layout_top_delete").ok()? };
+        let az_layout_top_deep_copy = unsafe { lib.get::<extern fn(_: &AzLayoutTop) -> AzLayoutTop>(b"az_layout_top_deep_copy").ok()? };
+        let az_layout_width_delete = unsafe { lib.get::<extern fn(_: &mut AzLayoutWidth)>(b"az_layout_width_delete").ok()? };
+        let az_layout_width_deep_copy = unsafe { lib.get::<extern fn(_: &AzLayoutWidth) -> AzLayoutWidth>(b"az_layout_width_deep_copy").ok()? };
+        let az_layout_wrap_wrap = unsafe { lib.get::<extern fn() -> AzLayoutWrap>(b"az_layout_wrap_wrap").ok()? };
+        let az_layout_wrap_no_wrap = unsafe { lib.get::<extern fn() -> AzLayoutWrap>(b"az_layout_wrap_no_wrap").ok()? };
+        let az_layout_wrap_delete = unsafe { lib.get::<extern fn(_: &mut AzLayoutWrap)>(b"az_layout_wrap_delete").ok()? };
+        let az_layout_wrap_deep_copy = unsafe { lib.get::<extern fn(_: &AzLayoutWrap) -> AzLayoutWrap>(b"az_layout_wrap_deep_copy").ok()? };
+        let az_overflow_scroll = unsafe { lib.get::<extern fn() -> AzOverflow>(b"az_overflow_scroll").ok()? };
+        let az_overflow_auto = unsafe { lib.get::<extern fn() -> AzOverflow>(b"az_overflow_auto").ok()? };
+        let az_overflow_hidden = unsafe { lib.get::<extern fn() -> AzOverflow>(b"az_overflow_hidden").ok()? };
+        let az_overflow_visible = unsafe { lib.get::<extern fn() -> AzOverflow>(b"az_overflow_visible").ok()? };
+        let az_overflow_delete = unsafe { lib.get::<extern fn(_: &mut AzOverflow)>(b"az_overflow_delete").ok()? };
+        let az_overflow_deep_copy = unsafe { lib.get::<extern fn(_: &AzOverflow) -> AzOverflow>(b"az_overflow_deep_copy").ok()? };
+        let az_percentage_value_delete = unsafe { lib.get::<extern fn(_: &mut AzPercentageValue)>(b"az_percentage_value_delete").ok()? };
+        let az_percentage_value_deep_copy = unsafe { lib.get::<extern fn(_: &AzPercentageValue) -> AzPercentageValue>(b"az_percentage_value_deep_copy").ok()? };
+        let az_gradient_stop_pre_delete = unsafe { lib.get::<extern fn(_: &mut AzGradientStopPre)>(b"az_gradient_stop_pre_delete").ok()? };
+        let az_gradient_stop_pre_deep_copy = unsafe { lib.get::<extern fn(_: &AzGradientStopPre) -> AzGradientStopPre>(b"az_gradient_stop_pre_deep_copy").ok()? };
+        let az_direction_corner_right = unsafe { lib.get::<extern fn() -> AzDirectionCorner>(b"az_direction_corner_right").ok()? };
+        let az_direction_corner_left = unsafe { lib.get::<extern fn() -> AzDirectionCorner>(b"az_direction_corner_left").ok()? };
+        let az_direction_corner_top = unsafe { lib.get::<extern fn() -> AzDirectionCorner>(b"az_direction_corner_top").ok()? };
+        let az_direction_corner_bottom = unsafe { lib.get::<extern fn() -> AzDirectionCorner>(b"az_direction_corner_bottom").ok()? };
+        let az_direction_corner_top_right = unsafe { lib.get::<extern fn() -> AzDirectionCorner>(b"az_direction_corner_top_right").ok()? };
+        let az_direction_corner_top_left = unsafe { lib.get::<extern fn() -> AzDirectionCorner>(b"az_direction_corner_top_left").ok()? };
+        let az_direction_corner_bottom_right = unsafe { lib.get::<extern fn() -> AzDirectionCorner>(b"az_direction_corner_bottom_right").ok()? };
+        let az_direction_corner_bottom_left = unsafe { lib.get::<extern fn() -> AzDirectionCorner>(b"az_direction_corner_bottom_left").ok()? };
+        let az_direction_corner_delete = unsafe { lib.get::<extern fn(_: &mut AzDirectionCorner)>(b"az_direction_corner_delete").ok()? };
+        let az_direction_corner_deep_copy = unsafe { lib.get::<extern fn(_: &AzDirectionCorner) -> AzDirectionCorner>(b"az_direction_corner_deep_copy").ok()? };
+        let az_direction_corners_delete = unsafe { lib.get::<extern fn(_: &mut AzDirectionCorners)>(b"az_direction_corners_delete").ok()? };
+        let az_direction_corners_deep_copy = unsafe { lib.get::<extern fn(_: &AzDirectionCorners) -> AzDirectionCorners>(b"az_direction_corners_deep_copy").ok()? };
+        let az_direction_angle = unsafe { lib.get::<extern fn(_: AzFloatValue) -> AzDirection>(b"az_direction_angle").ok()? };
+        let az_direction_from_to = unsafe { lib.get::<extern fn(_: AzDirectionCorners) -> AzDirection>(b"az_direction_from_to").ok()? };
+        let az_direction_delete = unsafe { lib.get::<extern fn(_: &mut AzDirection)>(b"az_direction_delete").ok()? };
+        let az_direction_deep_copy = unsafe { lib.get::<extern fn(_: &AzDirection) -> AzDirection>(b"az_direction_deep_copy").ok()? };
+        let az_extend_mode_clamp = unsafe { lib.get::<extern fn() -> AzExtendMode>(b"az_extend_mode_clamp").ok()? };
+        let az_extend_mode_repeat = unsafe { lib.get::<extern fn() -> AzExtendMode>(b"az_extend_mode_repeat").ok()? };
+        let az_extend_mode_delete = unsafe { lib.get::<extern fn(_: &mut AzExtendMode)>(b"az_extend_mode_delete").ok()? };
+        let az_extend_mode_deep_copy = unsafe { lib.get::<extern fn(_: &AzExtendMode) -> AzExtendMode>(b"az_extend_mode_deep_copy").ok()? };
+        let az_linear_gradient_delete = unsafe { lib.get::<extern fn(_: &mut AzLinearGradient)>(b"az_linear_gradient_delete").ok()? };
+        let az_linear_gradient_deep_copy = unsafe { lib.get::<extern fn(_: &AzLinearGradient) -> AzLinearGradient>(b"az_linear_gradient_deep_copy").ok()? };
+        let az_shape_ellipse = unsafe { lib.get::<extern fn() -> AzShape>(b"az_shape_ellipse").ok()? };
+        let az_shape_circle = unsafe { lib.get::<extern fn() -> AzShape>(b"az_shape_circle").ok()? };
+        let az_shape_delete = unsafe { lib.get::<extern fn(_: &mut AzShape)>(b"az_shape_delete").ok()? };
+        let az_shape_deep_copy = unsafe { lib.get::<extern fn(_: &AzShape) -> AzShape>(b"az_shape_deep_copy").ok()? };
+        let az_radial_gradient_delete = unsafe { lib.get::<extern fn(_: &mut AzRadialGradient)>(b"az_radial_gradient_delete").ok()? };
+        let az_radial_gradient_deep_copy = unsafe { lib.get::<extern fn(_: &AzRadialGradient) -> AzRadialGradient>(b"az_radial_gradient_deep_copy").ok()? };
+        let az_css_image_id_delete = unsafe { lib.get::<extern fn(_: &mut AzCssImageId)>(b"az_css_image_id_delete").ok()? };
+        let az_css_image_id_deep_copy = unsafe { lib.get::<extern fn(_: &AzCssImageId) -> AzCssImageId>(b"az_css_image_id_deep_copy").ok()? };
+        let az_style_background_content_linear_gradient = unsafe { lib.get::<extern fn(_: AzLinearGradient) -> AzStyleBackgroundContent>(b"az_style_background_content_linear_gradient").ok()? };
+        let az_style_background_content_radial_gradient = unsafe { lib.get::<extern fn(_: AzRadialGradient) -> AzStyleBackgroundContent>(b"az_style_background_content_radial_gradient").ok()? };
+        let az_style_background_content_image = unsafe { lib.get::<extern fn(_: AzCssImageId) -> AzStyleBackgroundContent>(b"az_style_background_content_image").ok()? };
+        let az_style_background_content_color = unsafe { lib.get::<extern fn(_: AzColorU) -> AzStyleBackgroundContent>(b"az_style_background_content_color").ok()? };
+        let az_style_background_content_delete = unsafe { lib.get::<extern fn(_: &mut AzStyleBackgroundContent)>(b"az_style_background_content_delete").ok()? };
+        let az_style_background_content_deep_copy = unsafe { lib.get::<extern fn(_: &AzStyleBackgroundContent) -> AzStyleBackgroundContent>(b"az_style_background_content_deep_copy").ok()? };
         let az_style_background_position_delete = unsafe { lib.get::<extern fn(_: &mut AzStyleBackgroundPositionPtr)>(b"az_style_background_position_delete").ok()? };
         let az_style_background_position_shallow_copy = unsafe { lib.get::<extern fn(_: &AzStyleBackgroundPositionPtr) -> AzStyleBackgroundPositionPtr>(b"az_style_background_position_shallow_copy").ok()? };
         let az_style_background_repeat_delete = unsafe { lib.get::<extern fn(_: &mut AzStyleBackgroundRepeatPtr)>(b"az_style_background_repeat_delete").ok()? };
@@ -1960,196 +2176,196 @@ pub(crate) mod dll {
         let az_layout_box_sizing_value_none = unsafe { lib.get::<extern fn() -> AzLayoutBoxSizingValue>(b"az_layout_box_sizing_value_none").ok()? };
         let az_layout_box_sizing_value_inherit = unsafe { lib.get::<extern fn() -> AzLayoutBoxSizingValue>(b"az_layout_box_sizing_value_inherit").ok()? };
         let az_layout_box_sizing_value_initial = unsafe { lib.get::<extern fn() -> AzLayoutBoxSizingValue>(b"az_layout_box_sizing_value_initial").ok()? };
-        let az_layout_box_sizing_value_exact = unsafe { lib.get::<extern fn(_: AzLayoutBoxSizingPtr) -> AzLayoutBoxSizingValue>(b"az_layout_box_sizing_value_exact").ok()? };
+        let az_layout_box_sizing_value_exact = unsafe { lib.get::<extern fn(_: AzLayoutBoxSizing) -> AzLayoutBoxSizingValue>(b"az_layout_box_sizing_value_exact").ok()? };
         let az_layout_box_sizing_value_delete = unsafe { lib.get::<extern fn(_: &mut AzLayoutBoxSizingValue)>(b"az_layout_box_sizing_value_delete").ok()? };
         let az_layout_box_sizing_value_deep_copy = unsafe { lib.get::<extern fn(_: &AzLayoutBoxSizingValue) -> AzLayoutBoxSizingValue>(b"az_layout_box_sizing_value_deep_copy").ok()? };
         let az_layout_direction_value_auto = unsafe { lib.get::<extern fn() -> AzLayoutDirectionValue>(b"az_layout_direction_value_auto").ok()? };
         let az_layout_direction_value_none = unsafe { lib.get::<extern fn() -> AzLayoutDirectionValue>(b"az_layout_direction_value_none").ok()? };
         let az_layout_direction_value_inherit = unsafe { lib.get::<extern fn() -> AzLayoutDirectionValue>(b"az_layout_direction_value_inherit").ok()? };
         let az_layout_direction_value_initial = unsafe { lib.get::<extern fn() -> AzLayoutDirectionValue>(b"az_layout_direction_value_initial").ok()? };
-        let az_layout_direction_value_exact = unsafe { lib.get::<extern fn(_: AzLayoutDirectionPtr) -> AzLayoutDirectionValue>(b"az_layout_direction_value_exact").ok()? };
+        let az_layout_direction_value_exact = unsafe { lib.get::<extern fn(_: AzLayoutDirection) -> AzLayoutDirectionValue>(b"az_layout_direction_value_exact").ok()? };
         let az_layout_direction_value_delete = unsafe { lib.get::<extern fn(_: &mut AzLayoutDirectionValue)>(b"az_layout_direction_value_delete").ok()? };
         let az_layout_direction_value_deep_copy = unsafe { lib.get::<extern fn(_: &AzLayoutDirectionValue) -> AzLayoutDirectionValue>(b"az_layout_direction_value_deep_copy").ok()? };
         let az_layout_display_value_auto = unsafe { lib.get::<extern fn() -> AzLayoutDisplayValue>(b"az_layout_display_value_auto").ok()? };
         let az_layout_display_value_none = unsafe { lib.get::<extern fn() -> AzLayoutDisplayValue>(b"az_layout_display_value_none").ok()? };
         let az_layout_display_value_inherit = unsafe { lib.get::<extern fn() -> AzLayoutDisplayValue>(b"az_layout_display_value_inherit").ok()? };
         let az_layout_display_value_initial = unsafe { lib.get::<extern fn() -> AzLayoutDisplayValue>(b"az_layout_display_value_initial").ok()? };
-        let az_layout_display_value_exact = unsafe { lib.get::<extern fn(_: AzLayoutDisplayPtr) -> AzLayoutDisplayValue>(b"az_layout_display_value_exact").ok()? };
+        let az_layout_display_value_exact = unsafe { lib.get::<extern fn(_: AzLayoutDisplay) -> AzLayoutDisplayValue>(b"az_layout_display_value_exact").ok()? };
         let az_layout_display_value_delete = unsafe { lib.get::<extern fn(_: &mut AzLayoutDisplayValue)>(b"az_layout_display_value_delete").ok()? };
         let az_layout_display_value_deep_copy = unsafe { lib.get::<extern fn(_: &AzLayoutDisplayValue) -> AzLayoutDisplayValue>(b"az_layout_display_value_deep_copy").ok()? };
         let az_layout_flex_grow_value_auto = unsafe { lib.get::<extern fn() -> AzLayoutFlexGrowValue>(b"az_layout_flex_grow_value_auto").ok()? };
         let az_layout_flex_grow_value_none = unsafe { lib.get::<extern fn() -> AzLayoutFlexGrowValue>(b"az_layout_flex_grow_value_none").ok()? };
         let az_layout_flex_grow_value_inherit = unsafe { lib.get::<extern fn() -> AzLayoutFlexGrowValue>(b"az_layout_flex_grow_value_inherit").ok()? };
         let az_layout_flex_grow_value_initial = unsafe { lib.get::<extern fn() -> AzLayoutFlexGrowValue>(b"az_layout_flex_grow_value_initial").ok()? };
-        let az_layout_flex_grow_value_exact = unsafe { lib.get::<extern fn(_: AzLayoutFlexGrowPtr) -> AzLayoutFlexGrowValue>(b"az_layout_flex_grow_value_exact").ok()? };
+        let az_layout_flex_grow_value_exact = unsafe { lib.get::<extern fn(_: AzLayoutFlexGrow) -> AzLayoutFlexGrowValue>(b"az_layout_flex_grow_value_exact").ok()? };
         let az_layout_flex_grow_value_delete = unsafe { lib.get::<extern fn(_: &mut AzLayoutFlexGrowValue)>(b"az_layout_flex_grow_value_delete").ok()? };
         let az_layout_flex_grow_value_deep_copy = unsafe { lib.get::<extern fn(_: &AzLayoutFlexGrowValue) -> AzLayoutFlexGrowValue>(b"az_layout_flex_grow_value_deep_copy").ok()? };
         let az_layout_flex_shrink_value_auto = unsafe { lib.get::<extern fn() -> AzLayoutFlexShrinkValue>(b"az_layout_flex_shrink_value_auto").ok()? };
         let az_layout_flex_shrink_value_none = unsafe { lib.get::<extern fn() -> AzLayoutFlexShrinkValue>(b"az_layout_flex_shrink_value_none").ok()? };
         let az_layout_flex_shrink_value_inherit = unsafe { lib.get::<extern fn() -> AzLayoutFlexShrinkValue>(b"az_layout_flex_shrink_value_inherit").ok()? };
         let az_layout_flex_shrink_value_initial = unsafe { lib.get::<extern fn() -> AzLayoutFlexShrinkValue>(b"az_layout_flex_shrink_value_initial").ok()? };
-        let az_layout_flex_shrink_value_exact = unsafe { lib.get::<extern fn(_: AzLayoutFlexShrinkPtr) -> AzLayoutFlexShrinkValue>(b"az_layout_flex_shrink_value_exact").ok()? };
+        let az_layout_flex_shrink_value_exact = unsafe { lib.get::<extern fn(_: AzLayoutFlexShrink) -> AzLayoutFlexShrinkValue>(b"az_layout_flex_shrink_value_exact").ok()? };
         let az_layout_flex_shrink_value_delete = unsafe { lib.get::<extern fn(_: &mut AzLayoutFlexShrinkValue)>(b"az_layout_flex_shrink_value_delete").ok()? };
         let az_layout_flex_shrink_value_deep_copy = unsafe { lib.get::<extern fn(_: &AzLayoutFlexShrinkValue) -> AzLayoutFlexShrinkValue>(b"az_layout_flex_shrink_value_deep_copy").ok()? };
         let az_layout_float_value_auto = unsafe { lib.get::<extern fn() -> AzLayoutFloatValue>(b"az_layout_float_value_auto").ok()? };
         let az_layout_float_value_none = unsafe { lib.get::<extern fn() -> AzLayoutFloatValue>(b"az_layout_float_value_none").ok()? };
         let az_layout_float_value_inherit = unsafe { lib.get::<extern fn() -> AzLayoutFloatValue>(b"az_layout_float_value_inherit").ok()? };
         let az_layout_float_value_initial = unsafe { lib.get::<extern fn() -> AzLayoutFloatValue>(b"az_layout_float_value_initial").ok()? };
-        let az_layout_float_value_exact = unsafe { lib.get::<extern fn(_: AzLayoutFloatPtr) -> AzLayoutFloatValue>(b"az_layout_float_value_exact").ok()? };
+        let az_layout_float_value_exact = unsafe { lib.get::<extern fn(_: AzLayoutFloat) -> AzLayoutFloatValue>(b"az_layout_float_value_exact").ok()? };
         let az_layout_float_value_delete = unsafe { lib.get::<extern fn(_: &mut AzLayoutFloatValue)>(b"az_layout_float_value_delete").ok()? };
         let az_layout_float_value_deep_copy = unsafe { lib.get::<extern fn(_: &AzLayoutFloatValue) -> AzLayoutFloatValue>(b"az_layout_float_value_deep_copy").ok()? };
         let az_layout_height_value_auto = unsafe { lib.get::<extern fn() -> AzLayoutHeightValue>(b"az_layout_height_value_auto").ok()? };
         let az_layout_height_value_none = unsafe { lib.get::<extern fn() -> AzLayoutHeightValue>(b"az_layout_height_value_none").ok()? };
         let az_layout_height_value_inherit = unsafe { lib.get::<extern fn() -> AzLayoutHeightValue>(b"az_layout_height_value_inherit").ok()? };
         let az_layout_height_value_initial = unsafe { lib.get::<extern fn() -> AzLayoutHeightValue>(b"az_layout_height_value_initial").ok()? };
-        let az_layout_height_value_exact = unsafe { lib.get::<extern fn(_: AzLayoutHeightPtr) -> AzLayoutHeightValue>(b"az_layout_height_value_exact").ok()? };
+        let az_layout_height_value_exact = unsafe { lib.get::<extern fn(_: AzLayoutHeight) -> AzLayoutHeightValue>(b"az_layout_height_value_exact").ok()? };
         let az_layout_height_value_delete = unsafe { lib.get::<extern fn(_: &mut AzLayoutHeightValue)>(b"az_layout_height_value_delete").ok()? };
         let az_layout_height_value_deep_copy = unsafe { lib.get::<extern fn(_: &AzLayoutHeightValue) -> AzLayoutHeightValue>(b"az_layout_height_value_deep_copy").ok()? };
         let az_layout_justify_content_value_auto = unsafe { lib.get::<extern fn() -> AzLayoutJustifyContentValue>(b"az_layout_justify_content_value_auto").ok()? };
         let az_layout_justify_content_value_none = unsafe { lib.get::<extern fn() -> AzLayoutJustifyContentValue>(b"az_layout_justify_content_value_none").ok()? };
         let az_layout_justify_content_value_inherit = unsafe { lib.get::<extern fn() -> AzLayoutJustifyContentValue>(b"az_layout_justify_content_value_inherit").ok()? };
         let az_layout_justify_content_value_initial = unsafe { lib.get::<extern fn() -> AzLayoutJustifyContentValue>(b"az_layout_justify_content_value_initial").ok()? };
-        let az_layout_justify_content_value_exact = unsafe { lib.get::<extern fn(_: AzLayoutJustifyContentPtr) -> AzLayoutJustifyContentValue>(b"az_layout_justify_content_value_exact").ok()? };
+        let az_layout_justify_content_value_exact = unsafe { lib.get::<extern fn(_: AzLayoutJustifyContent) -> AzLayoutJustifyContentValue>(b"az_layout_justify_content_value_exact").ok()? };
         let az_layout_justify_content_value_delete = unsafe { lib.get::<extern fn(_: &mut AzLayoutJustifyContentValue)>(b"az_layout_justify_content_value_delete").ok()? };
         let az_layout_justify_content_value_deep_copy = unsafe { lib.get::<extern fn(_: &AzLayoutJustifyContentValue) -> AzLayoutJustifyContentValue>(b"az_layout_justify_content_value_deep_copy").ok()? };
         let az_layout_left_value_auto = unsafe { lib.get::<extern fn() -> AzLayoutLeftValue>(b"az_layout_left_value_auto").ok()? };
         let az_layout_left_value_none = unsafe { lib.get::<extern fn() -> AzLayoutLeftValue>(b"az_layout_left_value_none").ok()? };
         let az_layout_left_value_inherit = unsafe { lib.get::<extern fn() -> AzLayoutLeftValue>(b"az_layout_left_value_inherit").ok()? };
         let az_layout_left_value_initial = unsafe { lib.get::<extern fn() -> AzLayoutLeftValue>(b"az_layout_left_value_initial").ok()? };
-        let az_layout_left_value_exact = unsafe { lib.get::<extern fn(_: AzLayoutLeftPtr) -> AzLayoutLeftValue>(b"az_layout_left_value_exact").ok()? };
+        let az_layout_left_value_exact = unsafe { lib.get::<extern fn(_: AzLayoutLeft) -> AzLayoutLeftValue>(b"az_layout_left_value_exact").ok()? };
         let az_layout_left_value_delete = unsafe { lib.get::<extern fn(_: &mut AzLayoutLeftValue)>(b"az_layout_left_value_delete").ok()? };
         let az_layout_left_value_deep_copy = unsafe { lib.get::<extern fn(_: &AzLayoutLeftValue) -> AzLayoutLeftValue>(b"az_layout_left_value_deep_copy").ok()? };
         let az_layout_margin_bottom_value_auto = unsafe { lib.get::<extern fn() -> AzLayoutMarginBottomValue>(b"az_layout_margin_bottom_value_auto").ok()? };
         let az_layout_margin_bottom_value_none = unsafe { lib.get::<extern fn() -> AzLayoutMarginBottomValue>(b"az_layout_margin_bottom_value_none").ok()? };
         let az_layout_margin_bottom_value_inherit = unsafe { lib.get::<extern fn() -> AzLayoutMarginBottomValue>(b"az_layout_margin_bottom_value_inherit").ok()? };
         let az_layout_margin_bottom_value_initial = unsafe { lib.get::<extern fn() -> AzLayoutMarginBottomValue>(b"az_layout_margin_bottom_value_initial").ok()? };
-        let az_layout_margin_bottom_value_exact = unsafe { lib.get::<extern fn(_: AzLayoutMarginBottomPtr) -> AzLayoutMarginBottomValue>(b"az_layout_margin_bottom_value_exact").ok()? };
+        let az_layout_margin_bottom_value_exact = unsafe { lib.get::<extern fn(_: AzLayoutMarginBottom) -> AzLayoutMarginBottomValue>(b"az_layout_margin_bottom_value_exact").ok()? };
         let az_layout_margin_bottom_value_delete = unsafe { lib.get::<extern fn(_: &mut AzLayoutMarginBottomValue)>(b"az_layout_margin_bottom_value_delete").ok()? };
         let az_layout_margin_bottom_value_deep_copy = unsafe { lib.get::<extern fn(_: &AzLayoutMarginBottomValue) -> AzLayoutMarginBottomValue>(b"az_layout_margin_bottom_value_deep_copy").ok()? };
         let az_layout_margin_left_value_auto = unsafe { lib.get::<extern fn() -> AzLayoutMarginLeftValue>(b"az_layout_margin_left_value_auto").ok()? };
         let az_layout_margin_left_value_none = unsafe { lib.get::<extern fn() -> AzLayoutMarginLeftValue>(b"az_layout_margin_left_value_none").ok()? };
         let az_layout_margin_left_value_inherit = unsafe { lib.get::<extern fn() -> AzLayoutMarginLeftValue>(b"az_layout_margin_left_value_inherit").ok()? };
         let az_layout_margin_left_value_initial = unsafe { lib.get::<extern fn() -> AzLayoutMarginLeftValue>(b"az_layout_margin_left_value_initial").ok()? };
-        let az_layout_margin_left_value_exact = unsafe { lib.get::<extern fn(_: AzLayoutMarginLeftPtr) -> AzLayoutMarginLeftValue>(b"az_layout_margin_left_value_exact").ok()? };
+        let az_layout_margin_left_value_exact = unsafe { lib.get::<extern fn(_: AzLayoutMarginLeft) -> AzLayoutMarginLeftValue>(b"az_layout_margin_left_value_exact").ok()? };
         let az_layout_margin_left_value_delete = unsafe { lib.get::<extern fn(_: &mut AzLayoutMarginLeftValue)>(b"az_layout_margin_left_value_delete").ok()? };
         let az_layout_margin_left_value_deep_copy = unsafe { lib.get::<extern fn(_: &AzLayoutMarginLeftValue) -> AzLayoutMarginLeftValue>(b"az_layout_margin_left_value_deep_copy").ok()? };
         let az_layout_margin_right_value_auto = unsafe { lib.get::<extern fn() -> AzLayoutMarginRightValue>(b"az_layout_margin_right_value_auto").ok()? };
         let az_layout_margin_right_value_none = unsafe { lib.get::<extern fn() -> AzLayoutMarginRightValue>(b"az_layout_margin_right_value_none").ok()? };
         let az_layout_margin_right_value_inherit = unsafe { lib.get::<extern fn() -> AzLayoutMarginRightValue>(b"az_layout_margin_right_value_inherit").ok()? };
         let az_layout_margin_right_value_initial = unsafe { lib.get::<extern fn() -> AzLayoutMarginRightValue>(b"az_layout_margin_right_value_initial").ok()? };
-        let az_layout_margin_right_value_exact = unsafe { lib.get::<extern fn(_: AzLayoutMarginRightPtr) -> AzLayoutMarginRightValue>(b"az_layout_margin_right_value_exact").ok()? };
+        let az_layout_margin_right_value_exact = unsafe { lib.get::<extern fn(_: AzLayoutMarginRight) -> AzLayoutMarginRightValue>(b"az_layout_margin_right_value_exact").ok()? };
         let az_layout_margin_right_value_delete = unsafe { lib.get::<extern fn(_: &mut AzLayoutMarginRightValue)>(b"az_layout_margin_right_value_delete").ok()? };
         let az_layout_margin_right_value_deep_copy = unsafe { lib.get::<extern fn(_: &AzLayoutMarginRightValue) -> AzLayoutMarginRightValue>(b"az_layout_margin_right_value_deep_copy").ok()? };
         let az_layout_margin_top_value_auto = unsafe { lib.get::<extern fn() -> AzLayoutMarginTopValue>(b"az_layout_margin_top_value_auto").ok()? };
         let az_layout_margin_top_value_none = unsafe { lib.get::<extern fn() -> AzLayoutMarginTopValue>(b"az_layout_margin_top_value_none").ok()? };
         let az_layout_margin_top_value_inherit = unsafe { lib.get::<extern fn() -> AzLayoutMarginTopValue>(b"az_layout_margin_top_value_inherit").ok()? };
         let az_layout_margin_top_value_initial = unsafe { lib.get::<extern fn() -> AzLayoutMarginTopValue>(b"az_layout_margin_top_value_initial").ok()? };
-        let az_layout_margin_top_value_exact = unsafe { lib.get::<extern fn(_: AzLayoutMarginTopPtr) -> AzLayoutMarginTopValue>(b"az_layout_margin_top_value_exact").ok()? };
+        let az_layout_margin_top_value_exact = unsafe { lib.get::<extern fn(_: AzLayoutMarginTop) -> AzLayoutMarginTopValue>(b"az_layout_margin_top_value_exact").ok()? };
         let az_layout_margin_top_value_delete = unsafe { lib.get::<extern fn(_: &mut AzLayoutMarginTopValue)>(b"az_layout_margin_top_value_delete").ok()? };
         let az_layout_margin_top_value_deep_copy = unsafe { lib.get::<extern fn(_: &AzLayoutMarginTopValue) -> AzLayoutMarginTopValue>(b"az_layout_margin_top_value_deep_copy").ok()? };
         let az_layout_max_height_value_auto = unsafe { lib.get::<extern fn() -> AzLayoutMaxHeightValue>(b"az_layout_max_height_value_auto").ok()? };
         let az_layout_max_height_value_none = unsafe { lib.get::<extern fn() -> AzLayoutMaxHeightValue>(b"az_layout_max_height_value_none").ok()? };
         let az_layout_max_height_value_inherit = unsafe { lib.get::<extern fn() -> AzLayoutMaxHeightValue>(b"az_layout_max_height_value_inherit").ok()? };
         let az_layout_max_height_value_initial = unsafe { lib.get::<extern fn() -> AzLayoutMaxHeightValue>(b"az_layout_max_height_value_initial").ok()? };
-        let az_layout_max_height_value_exact = unsafe { lib.get::<extern fn(_: AzLayoutMaxHeightPtr) -> AzLayoutMaxHeightValue>(b"az_layout_max_height_value_exact").ok()? };
+        let az_layout_max_height_value_exact = unsafe { lib.get::<extern fn(_: AzLayoutMaxHeight) -> AzLayoutMaxHeightValue>(b"az_layout_max_height_value_exact").ok()? };
         let az_layout_max_height_value_delete = unsafe { lib.get::<extern fn(_: &mut AzLayoutMaxHeightValue)>(b"az_layout_max_height_value_delete").ok()? };
         let az_layout_max_height_value_deep_copy = unsafe { lib.get::<extern fn(_: &AzLayoutMaxHeightValue) -> AzLayoutMaxHeightValue>(b"az_layout_max_height_value_deep_copy").ok()? };
         let az_layout_max_width_value_auto = unsafe { lib.get::<extern fn() -> AzLayoutMaxWidthValue>(b"az_layout_max_width_value_auto").ok()? };
         let az_layout_max_width_value_none = unsafe { lib.get::<extern fn() -> AzLayoutMaxWidthValue>(b"az_layout_max_width_value_none").ok()? };
         let az_layout_max_width_value_inherit = unsafe { lib.get::<extern fn() -> AzLayoutMaxWidthValue>(b"az_layout_max_width_value_inherit").ok()? };
         let az_layout_max_width_value_initial = unsafe { lib.get::<extern fn() -> AzLayoutMaxWidthValue>(b"az_layout_max_width_value_initial").ok()? };
-        let az_layout_max_width_value_exact = unsafe { lib.get::<extern fn(_: AzLayoutMaxWidthPtr) -> AzLayoutMaxWidthValue>(b"az_layout_max_width_value_exact").ok()? };
+        let az_layout_max_width_value_exact = unsafe { lib.get::<extern fn(_: AzLayoutMaxWidth) -> AzLayoutMaxWidthValue>(b"az_layout_max_width_value_exact").ok()? };
         let az_layout_max_width_value_delete = unsafe { lib.get::<extern fn(_: &mut AzLayoutMaxWidthValue)>(b"az_layout_max_width_value_delete").ok()? };
         let az_layout_max_width_value_deep_copy = unsafe { lib.get::<extern fn(_: &AzLayoutMaxWidthValue) -> AzLayoutMaxWidthValue>(b"az_layout_max_width_value_deep_copy").ok()? };
         let az_layout_min_height_value_auto = unsafe { lib.get::<extern fn() -> AzLayoutMinHeightValue>(b"az_layout_min_height_value_auto").ok()? };
         let az_layout_min_height_value_none = unsafe { lib.get::<extern fn() -> AzLayoutMinHeightValue>(b"az_layout_min_height_value_none").ok()? };
         let az_layout_min_height_value_inherit = unsafe { lib.get::<extern fn() -> AzLayoutMinHeightValue>(b"az_layout_min_height_value_inherit").ok()? };
         let az_layout_min_height_value_initial = unsafe { lib.get::<extern fn() -> AzLayoutMinHeightValue>(b"az_layout_min_height_value_initial").ok()? };
-        let az_layout_min_height_value_exact = unsafe { lib.get::<extern fn(_: AzLayoutMinHeightPtr) -> AzLayoutMinHeightValue>(b"az_layout_min_height_value_exact").ok()? };
+        let az_layout_min_height_value_exact = unsafe { lib.get::<extern fn(_: AzLayoutMinHeight) -> AzLayoutMinHeightValue>(b"az_layout_min_height_value_exact").ok()? };
         let az_layout_min_height_value_delete = unsafe { lib.get::<extern fn(_: &mut AzLayoutMinHeightValue)>(b"az_layout_min_height_value_delete").ok()? };
         let az_layout_min_height_value_deep_copy = unsafe { lib.get::<extern fn(_: &AzLayoutMinHeightValue) -> AzLayoutMinHeightValue>(b"az_layout_min_height_value_deep_copy").ok()? };
         let az_layout_min_width_value_auto = unsafe { lib.get::<extern fn() -> AzLayoutMinWidthValue>(b"az_layout_min_width_value_auto").ok()? };
         let az_layout_min_width_value_none = unsafe { lib.get::<extern fn() -> AzLayoutMinWidthValue>(b"az_layout_min_width_value_none").ok()? };
         let az_layout_min_width_value_inherit = unsafe { lib.get::<extern fn() -> AzLayoutMinWidthValue>(b"az_layout_min_width_value_inherit").ok()? };
         let az_layout_min_width_value_initial = unsafe { lib.get::<extern fn() -> AzLayoutMinWidthValue>(b"az_layout_min_width_value_initial").ok()? };
-        let az_layout_min_width_value_exact = unsafe { lib.get::<extern fn(_: AzLayoutMinWidthPtr) -> AzLayoutMinWidthValue>(b"az_layout_min_width_value_exact").ok()? };
+        let az_layout_min_width_value_exact = unsafe { lib.get::<extern fn(_: AzLayoutMinWidth) -> AzLayoutMinWidthValue>(b"az_layout_min_width_value_exact").ok()? };
         let az_layout_min_width_value_delete = unsafe { lib.get::<extern fn(_: &mut AzLayoutMinWidthValue)>(b"az_layout_min_width_value_delete").ok()? };
         let az_layout_min_width_value_deep_copy = unsafe { lib.get::<extern fn(_: &AzLayoutMinWidthValue) -> AzLayoutMinWidthValue>(b"az_layout_min_width_value_deep_copy").ok()? };
         let az_layout_padding_bottom_value_auto = unsafe { lib.get::<extern fn() -> AzLayoutPaddingBottomValue>(b"az_layout_padding_bottom_value_auto").ok()? };
         let az_layout_padding_bottom_value_none = unsafe { lib.get::<extern fn() -> AzLayoutPaddingBottomValue>(b"az_layout_padding_bottom_value_none").ok()? };
         let az_layout_padding_bottom_value_inherit = unsafe { lib.get::<extern fn() -> AzLayoutPaddingBottomValue>(b"az_layout_padding_bottom_value_inherit").ok()? };
         let az_layout_padding_bottom_value_initial = unsafe { lib.get::<extern fn() -> AzLayoutPaddingBottomValue>(b"az_layout_padding_bottom_value_initial").ok()? };
-        let az_layout_padding_bottom_value_exact = unsafe { lib.get::<extern fn(_: AzLayoutPaddingBottomPtr) -> AzLayoutPaddingBottomValue>(b"az_layout_padding_bottom_value_exact").ok()? };
+        let az_layout_padding_bottom_value_exact = unsafe { lib.get::<extern fn(_: AzLayoutPaddingBottom) -> AzLayoutPaddingBottomValue>(b"az_layout_padding_bottom_value_exact").ok()? };
         let az_layout_padding_bottom_value_delete = unsafe { lib.get::<extern fn(_: &mut AzLayoutPaddingBottomValue)>(b"az_layout_padding_bottom_value_delete").ok()? };
         let az_layout_padding_bottom_value_deep_copy = unsafe { lib.get::<extern fn(_: &AzLayoutPaddingBottomValue) -> AzLayoutPaddingBottomValue>(b"az_layout_padding_bottom_value_deep_copy").ok()? };
         let az_layout_padding_left_value_auto = unsafe { lib.get::<extern fn() -> AzLayoutPaddingLeftValue>(b"az_layout_padding_left_value_auto").ok()? };
         let az_layout_padding_left_value_none = unsafe { lib.get::<extern fn() -> AzLayoutPaddingLeftValue>(b"az_layout_padding_left_value_none").ok()? };
         let az_layout_padding_left_value_inherit = unsafe { lib.get::<extern fn() -> AzLayoutPaddingLeftValue>(b"az_layout_padding_left_value_inherit").ok()? };
         let az_layout_padding_left_value_initial = unsafe { lib.get::<extern fn() -> AzLayoutPaddingLeftValue>(b"az_layout_padding_left_value_initial").ok()? };
-        let az_layout_padding_left_value_exact = unsafe { lib.get::<extern fn(_: AzLayoutPaddingLeftPtr) -> AzLayoutPaddingLeftValue>(b"az_layout_padding_left_value_exact").ok()? };
+        let az_layout_padding_left_value_exact = unsafe { lib.get::<extern fn(_: AzLayoutPaddingLeft) -> AzLayoutPaddingLeftValue>(b"az_layout_padding_left_value_exact").ok()? };
         let az_layout_padding_left_value_delete = unsafe { lib.get::<extern fn(_: &mut AzLayoutPaddingLeftValue)>(b"az_layout_padding_left_value_delete").ok()? };
         let az_layout_padding_left_value_deep_copy = unsafe { lib.get::<extern fn(_: &AzLayoutPaddingLeftValue) -> AzLayoutPaddingLeftValue>(b"az_layout_padding_left_value_deep_copy").ok()? };
         let az_layout_padding_right_value_auto = unsafe { lib.get::<extern fn() -> AzLayoutPaddingRightValue>(b"az_layout_padding_right_value_auto").ok()? };
         let az_layout_padding_right_value_none = unsafe { lib.get::<extern fn() -> AzLayoutPaddingRightValue>(b"az_layout_padding_right_value_none").ok()? };
         let az_layout_padding_right_value_inherit = unsafe { lib.get::<extern fn() -> AzLayoutPaddingRightValue>(b"az_layout_padding_right_value_inherit").ok()? };
         let az_layout_padding_right_value_initial = unsafe { lib.get::<extern fn() -> AzLayoutPaddingRightValue>(b"az_layout_padding_right_value_initial").ok()? };
-        let az_layout_padding_right_value_exact = unsafe { lib.get::<extern fn(_: AzLayoutPaddingRightPtr) -> AzLayoutPaddingRightValue>(b"az_layout_padding_right_value_exact").ok()? };
+        let az_layout_padding_right_value_exact = unsafe { lib.get::<extern fn(_: AzLayoutPaddingRight) -> AzLayoutPaddingRightValue>(b"az_layout_padding_right_value_exact").ok()? };
         let az_layout_padding_right_value_delete = unsafe { lib.get::<extern fn(_: &mut AzLayoutPaddingRightValue)>(b"az_layout_padding_right_value_delete").ok()? };
         let az_layout_padding_right_value_deep_copy = unsafe { lib.get::<extern fn(_: &AzLayoutPaddingRightValue) -> AzLayoutPaddingRightValue>(b"az_layout_padding_right_value_deep_copy").ok()? };
         let az_layout_padding_top_value_auto = unsafe { lib.get::<extern fn() -> AzLayoutPaddingTopValue>(b"az_layout_padding_top_value_auto").ok()? };
         let az_layout_padding_top_value_none = unsafe { lib.get::<extern fn() -> AzLayoutPaddingTopValue>(b"az_layout_padding_top_value_none").ok()? };
         let az_layout_padding_top_value_inherit = unsafe { lib.get::<extern fn() -> AzLayoutPaddingTopValue>(b"az_layout_padding_top_value_inherit").ok()? };
         let az_layout_padding_top_value_initial = unsafe { lib.get::<extern fn() -> AzLayoutPaddingTopValue>(b"az_layout_padding_top_value_initial").ok()? };
-        let az_layout_padding_top_value_exact = unsafe { lib.get::<extern fn(_: AzLayoutPaddingTopPtr) -> AzLayoutPaddingTopValue>(b"az_layout_padding_top_value_exact").ok()? };
+        let az_layout_padding_top_value_exact = unsafe { lib.get::<extern fn(_: AzLayoutPaddingTop) -> AzLayoutPaddingTopValue>(b"az_layout_padding_top_value_exact").ok()? };
         let az_layout_padding_top_value_delete = unsafe { lib.get::<extern fn(_: &mut AzLayoutPaddingTopValue)>(b"az_layout_padding_top_value_delete").ok()? };
         let az_layout_padding_top_value_deep_copy = unsafe { lib.get::<extern fn(_: &AzLayoutPaddingTopValue) -> AzLayoutPaddingTopValue>(b"az_layout_padding_top_value_deep_copy").ok()? };
         let az_layout_position_value_auto = unsafe { lib.get::<extern fn() -> AzLayoutPositionValue>(b"az_layout_position_value_auto").ok()? };
         let az_layout_position_value_none = unsafe { lib.get::<extern fn() -> AzLayoutPositionValue>(b"az_layout_position_value_none").ok()? };
         let az_layout_position_value_inherit = unsafe { lib.get::<extern fn() -> AzLayoutPositionValue>(b"az_layout_position_value_inherit").ok()? };
         let az_layout_position_value_initial = unsafe { lib.get::<extern fn() -> AzLayoutPositionValue>(b"az_layout_position_value_initial").ok()? };
-        let az_layout_position_value_exact = unsafe { lib.get::<extern fn(_: AzLayoutPositionPtr) -> AzLayoutPositionValue>(b"az_layout_position_value_exact").ok()? };
+        let az_layout_position_value_exact = unsafe { lib.get::<extern fn(_: AzLayoutPosition) -> AzLayoutPositionValue>(b"az_layout_position_value_exact").ok()? };
         let az_layout_position_value_delete = unsafe { lib.get::<extern fn(_: &mut AzLayoutPositionValue)>(b"az_layout_position_value_delete").ok()? };
         let az_layout_position_value_deep_copy = unsafe { lib.get::<extern fn(_: &AzLayoutPositionValue) -> AzLayoutPositionValue>(b"az_layout_position_value_deep_copy").ok()? };
         let az_layout_right_value_auto = unsafe { lib.get::<extern fn() -> AzLayoutRightValue>(b"az_layout_right_value_auto").ok()? };
         let az_layout_right_value_none = unsafe { lib.get::<extern fn() -> AzLayoutRightValue>(b"az_layout_right_value_none").ok()? };
         let az_layout_right_value_inherit = unsafe { lib.get::<extern fn() -> AzLayoutRightValue>(b"az_layout_right_value_inherit").ok()? };
         let az_layout_right_value_initial = unsafe { lib.get::<extern fn() -> AzLayoutRightValue>(b"az_layout_right_value_initial").ok()? };
-        let az_layout_right_value_exact = unsafe { lib.get::<extern fn(_: AzLayoutRightPtr) -> AzLayoutRightValue>(b"az_layout_right_value_exact").ok()? };
+        let az_layout_right_value_exact = unsafe { lib.get::<extern fn(_: AzLayoutRight) -> AzLayoutRightValue>(b"az_layout_right_value_exact").ok()? };
         let az_layout_right_value_delete = unsafe { lib.get::<extern fn(_: &mut AzLayoutRightValue)>(b"az_layout_right_value_delete").ok()? };
         let az_layout_right_value_deep_copy = unsafe { lib.get::<extern fn(_: &AzLayoutRightValue) -> AzLayoutRightValue>(b"az_layout_right_value_deep_copy").ok()? };
         let az_layout_top_value_auto = unsafe { lib.get::<extern fn() -> AzLayoutTopValue>(b"az_layout_top_value_auto").ok()? };
         let az_layout_top_value_none = unsafe { lib.get::<extern fn() -> AzLayoutTopValue>(b"az_layout_top_value_none").ok()? };
         let az_layout_top_value_inherit = unsafe { lib.get::<extern fn() -> AzLayoutTopValue>(b"az_layout_top_value_inherit").ok()? };
         let az_layout_top_value_initial = unsafe { lib.get::<extern fn() -> AzLayoutTopValue>(b"az_layout_top_value_initial").ok()? };
-        let az_layout_top_value_exact = unsafe { lib.get::<extern fn(_: AzLayoutTopPtr) -> AzLayoutTopValue>(b"az_layout_top_value_exact").ok()? };
+        let az_layout_top_value_exact = unsafe { lib.get::<extern fn(_: AzLayoutTop) -> AzLayoutTopValue>(b"az_layout_top_value_exact").ok()? };
         let az_layout_top_value_delete = unsafe { lib.get::<extern fn(_: &mut AzLayoutTopValue)>(b"az_layout_top_value_delete").ok()? };
         let az_layout_top_value_deep_copy = unsafe { lib.get::<extern fn(_: &AzLayoutTopValue) -> AzLayoutTopValue>(b"az_layout_top_value_deep_copy").ok()? };
         let az_layout_width_value_auto = unsafe { lib.get::<extern fn() -> AzLayoutWidthValue>(b"az_layout_width_value_auto").ok()? };
         let az_layout_width_value_none = unsafe { lib.get::<extern fn() -> AzLayoutWidthValue>(b"az_layout_width_value_none").ok()? };
         let az_layout_width_value_inherit = unsafe { lib.get::<extern fn() -> AzLayoutWidthValue>(b"az_layout_width_value_inherit").ok()? };
         let az_layout_width_value_initial = unsafe { lib.get::<extern fn() -> AzLayoutWidthValue>(b"az_layout_width_value_initial").ok()? };
-        let az_layout_width_value_exact = unsafe { lib.get::<extern fn(_: AzLayoutWidthPtr) -> AzLayoutWidthValue>(b"az_layout_width_value_exact").ok()? };
+        let az_layout_width_value_exact = unsafe { lib.get::<extern fn(_: AzLayoutWidth) -> AzLayoutWidthValue>(b"az_layout_width_value_exact").ok()? };
         let az_layout_width_value_delete = unsafe { lib.get::<extern fn(_: &mut AzLayoutWidthValue)>(b"az_layout_width_value_delete").ok()? };
         let az_layout_width_value_deep_copy = unsafe { lib.get::<extern fn(_: &AzLayoutWidthValue) -> AzLayoutWidthValue>(b"az_layout_width_value_deep_copy").ok()? };
         let az_layout_wrap_value_auto = unsafe { lib.get::<extern fn() -> AzLayoutWrapValue>(b"az_layout_wrap_value_auto").ok()? };
         let az_layout_wrap_value_none = unsafe { lib.get::<extern fn() -> AzLayoutWrapValue>(b"az_layout_wrap_value_none").ok()? };
         let az_layout_wrap_value_inherit = unsafe { lib.get::<extern fn() -> AzLayoutWrapValue>(b"az_layout_wrap_value_inherit").ok()? };
         let az_layout_wrap_value_initial = unsafe { lib.get::<extern fn() -> AzLayoutWrapValue>(b"az_layout_wrap_value_initial").ok()? };
-        let az_layout_wrap_value_exact = unsafe { lib.get::<extern fn(_: AzLayoutWrapPtr) -> AzLayoutWrapValue>(b"az_layout_wrap_value_exact").ok()? };
+        let az_layout_wrap_value_exact = unsafe { lib.get::<extern fn(_: AzLayoutWrap) -> AzLayoutWrapValue>(b"az_layout_wrap_value_exact").ok()? };
         let az_layout_wrap_value_delete = unsafe { lib.get::<extern fn(_: &mut AzLayoutWrapValue)>(b"az_layout_wrap_value_delete").ok()? };
         let az_layout_wrap_value_deep_copy = unsafe { lib.get::<extern fn(_: &AzLayoutWrapValue) -> AzLayoutWrapValue>(b"az_layout_wrap_value_deep_copy").ok()? };
         let az_overflow_value_auto = unsafe { lib.get::<extern fn() -> AzOverflowValue>(b"az_overflow_value_auto").ok()? };
         let az_overflow_value_none = unsafe { lib.get::<extern fn() -> AzOverflowValue>(b"az_overflow_value_none").ok()? };
         let az_overflow_value_inherit = unsafe { lib.get::<extern fn() -> AzOverflowValue>(b"az_overflow_value_inherit").ok()? };
         let az_overflow_value_initial = unsafe { lib.get::<extern fn() -> AzOverflowValue>(b"az_overflow_value_initial").ok()? };
-        let az_overflow_value_exact = unsafe { lib.get::<extern fn(_: AzOverflowPtr) -> AzOverflowValue>(b"az_overflow_value_exact").ok()? };
+        let az_overflow_value_exact = unsafe { lib.get::<extern fn(_: AzOverflow) -> AzOverflowValue>(b"az_overflow_value_exact").ok()? };
         let az_overflow_value_delete = unsafe { lib.get::<extern fn(_: &mut AzOverflowValue)>(b"az_overflow_value_delete").ok()? };
         let az_overflow_value_deep_copy = unsafe { lib.get::<extern fn(_: &AzOverflowValue) -> AzOverflowValue>(b"az_overflow_value_deep_copy").ok()? };
         let az_style_background_content_value_auto = unsafe { lib.get::<extern fn() -> AzStyleBackgroundContentValue>(b"az_style_background_content_value_auto").ok()? };
         let az_style_background_content_value_none = unsafe { lib.get::<extern fn() -> AzStyleBackgroundContentValue>(b"az_style_background_content_value_none").ok()? };
         let az_style_background_content_value_inherit = unsafe { lib.get::<extern fn() -> AzStyleBackgroundContentValue>(b"az_style_background_content_value_inherit").ok()? };
         let az_style_background_content_value_initial = unsafe { lib.get::<extern fn() -> AzStyleBackgroundContentValue>(b"az_style_background_content_value_initial").ok()? };
-        let az_style_background_content_value_exact = unsafe { lib.get::<extern fn(_: AzStyleBackgroundContentPtr) -> AzStyleBackgroundContentValue>(b"az_style_background_content_value_exact").ok()? };
+        let az_style_background_content_value_exact = unsafe { lib.get::<extern fn(_: AzStyleBackgroundContent) -> AzStyleBackgroundContentValue>(b"az_style_background_content_value_exact").ok()? };
         let az_style_background_content_value_delete = unsafe { lib.get::<extern fn(_: &mut AzStyleBackgroundContentValue)>(b"az_style_background_content_value_delete").ok()? };
         let az_style_background_content_value_deep_copy = unsafe { lib.get::<extern fn(_: &AzStyleBackgroundContentValue) -> AzStyleBackgroundContentValue>(b"az_style_background_content_value_deep_copy").ok()? };
         let az_style_background_position_value_auto = unsafe { lib.get::<extern fn() -> AzStyleBackgroundPositionValue>(b"az_style_background_position_value_auto").ok()? };
@@ -2574,9 +2790,14 @@ pub(crate) mod dll {
             az_string_vec_copy_from,
             az_string_vec_delete,
             az_string_vec_deep_copy,
+            az_gradient_stop_pre_vec_copy_from,
+            az_gradient_stop_pre_vec_delete,
+            az_gradient_stop_pre_vec_deep_copy,
             az_path_buf_new,
             az_path_buf_delete,
             az_path_buf_shallow_copy,
+            az_option_percentage_value_delete,
+            az_option_percentage_value_shallow_copy,
             az_app_config_default,
             az_app_config_delete,
             az_app_config_shallow_copy,
@@ -2642,62 +2863,127 @@ pub(crate) mod dll {
             az_layout_align_items_deep_copy,
             az_layout_bottom_delete,
             az_layout_bottom_deep_copy,
+            az_layout_box_sizing_content_box,
+            az_layout_box_sizing_border_box,
             az_layout_box_sizing_delete,
-            az_layout_box_sizing_shallow_copy,
+            az_layout_box_sizing_deep_copy,
+            az_layout_direction_row,
+            az_layout_direction_row_reverse,
+            az_layout_direction_column,
+            az_layout_direction_column_reverse,
             az_layout_direction_delete,
-            az_layout_direction_shallow_copy,
+            az_layout_direction_deep_copy,
+            az_layout_display_flex,
+            az_layout_display_block,
+            az_layout_display_inline_block,
             az_layout_display_delete,
-            az_layout_display_shallow_copy,
+            az_layout_display_deep_copy,
             az_layout_flex_grow_delete,
-            az_layout_flex_grow_shallow_copy,
+            az_layout_flex_grow_deep_copy,
             az_layout_flex_shrink_delete,
-            az_layout_flex_shrink_shallow_copy,
+            az_layout_flex_shrink_deep_copy,
+            az_layout_float_left,
+            az_layout_float_right,
             az_layout_float_delete,
-            az_layout_float_shallow_copy,
+            az_layout_float_deep_copy,
             az_layout_height_delete,
-            az_layout_height_shallow_copy,
+            az_layout_height_deep_copy,
+            az_layout_justify_content_start,
+            az_layout_justify_content_end,
+            az_layout_justify_content_center,
+            az_layout_justify_content_space_between,
+            az_layout_justify_content_space_around,
+            az_layout_justify_content_space_evenly,
             az_layout_justify_content_delete,
-            az_layout_justify_content_shallow_copy,
+            az_layout_justify_content_deep_copy,
             az_layout_left_delete,
-            az_layout_left_shallow_copy,
+            az_layout_left_deep_copy,
             az_layout_margin_bottom_delete,
-            az_layout_margin_bottom_shallow_copy,
+            az_layout_margin_bottom_deep_copy,
             az_layout_margin_left_delete,
-            az_layout_margin_left_shallow_copy,
+            az_layout_margin_left_deep_copy,
             az_layout_margin_right_delete,
-            az_layout_margin_right_shallow_copy,
+            az_layout_margin_right_deep_copy,
             az_layout_margin_top_delete,
-            az_layout_margin_top_shallow_copy,
+            az_layout_margin_top_deep_copy,
             az_layout_max_height_delete,
-            az_layout_max_height_shallow_copy,
+            az_layout_max_height_deep_copy,
             az_layout_max_width_delete,
-            az_layout_max_width_shallow_copy,
+            az_layout_max_width_deep_copy,
             az_layout_min_height_delete,
-            az_layout_min_height_shallow_copy,
+            az_layout_min_height_deep_copy,
             az_layout_min_width_delete,
-            az_layout_min_width_shallow_copy,
+            az_layout_min_width_deep_copy,
             az_layout_padding_bottom_delete,
-            az_layout_padding_bottom_shallow_copy,
+            az_layout_padding_bottom_deep_copy,
             az_layout_padding_left_delete,
-            az_layout_padding_left_shallow_copy,
+            az_layout_padding_left_deep_copy,
             az_layout_padding_right_delete,
-            az_layout_padding_right_shallow_copy,
+            az_layout_padding_right_deep_copy,
             az_layout_padding_top_delete,
-            az_layout_padding_top_shallow_copy,
+            az_layout_padding_top_deep_copy,
+            az_layout_position_static,
+            az_layout_position_relative,
+            az_layout_position_absolute,
+            az_layout_position_fixed,
             az_layout_position_delete,
-            az_layout_position_shallow_copy,
+            az_layout_position_deep_copy,
             az_layout_right_delete,
-            az_layout_right_shallow_copy,
+            az_layout_right_deep_copy,
             az_layout_top_delete,
-            az_layout_top_shallow_copy,
+            az_layout_top_deep_copy,
             az_layout_width_delete,
-            az_layout_width_shallow_copy,
+            az_layout_width_deep_copy,
+            az_layout_wrap_wrap,
+            az_layout_wrap_no_wrap,
             az_layout_wrap_delete,
-            az_layout_wrap_shallow_copy,
+            az_layout_wrap_deep_copy,
+            az_overflow_scroll,
+            az_overflow_auto,
+            az_overflow_hidden,
+            az_overflow_visible,
             az_overflow_delete,
-            az_overflow_shallow_copy,
+            az_overflow_deep_copy,
+            az_percentage_value_delete,
+            az_percentage_value_deep_copy,
+            az_gradient_stop_pre_delete,
+            az_gradient_stop_pre_deep_copy,
+            az_direction_corner_right,
+            az_direction_corner_left,
+            az_direction_corner_top,
+            az_direction_corner_bottom,
+            az_direction_corner_top_right,
+            az_direction_corner_top_left,
+            az_direction_corner_bottom_right,
+            az_direction_corner_bottom_left,
+            az_direction_corner_delete,
+            az_direction_corner_deep_copy,
+            az_direction_corners_delete,
+            az_direction_corners_deep_copy,
+            az_direction_angle,
+            az_direction_from_to,
+            az_direction_delete,
+            az_direction_deep_copy,
+            az_extend_mode_clamp,
+            az_extend_mode_repeat,
+            az_extend_mode_delete,
+            az_extend_mode_deep_copy,
+            az_linear_gradient_delete,
+            az_linear_gradient_deep_copy,
+            az_shape_ellipse,
+            az_shape_circle,
+            az_shape_delete,
+            az_shape_deep_copy,
+            az_radial_gradient_delete,
+            az_radial_gradient_deep_copy,
+            az_css_image_id_delete,
+            az_css_image_id_deep_copy,
+            az_style_background_content_linear_gradient,
+            az_style_background_content_radial_gradient,
+            az_style_background_content_image,
+            az_style_background_content_color,
             az_style_background_content_delete,
-            az_style_background_content_shallow_copy,
+            az_style_background_content_deep_copy,
             az_style_background_position_delete,
             az_style_background_position_shallow_copy,
             az_style_background_repeat_delete,
@@ -3400,7 +3686,7 @@ pub mod prelude {
     };
 }
 
-/// Definition of azuls internal String type + functions for conversion from `std::String`
+/// Definition of azuls internal `String` wrappers
 #[allow(dead_code, unused_imports)]
 pub mod str {
 
@@ -3430,7 +3716,7 @@ pub mod str {
     impl Drop for String { fn drop(&mut self) { az_string_delete(&mut self.object); } }
 }
 
-/// Definition of azuls internal `U8Vec` type + functions for conversion from `std::Vec`
+/// Definition of azuls internal `Vec<*>` wrappers
 #[allow(dead_code, unused_imports)]
 pub mod vec {
 
@@ -3472,6 +3758,7 @@ pub mod vec {
             // delete() not necessary because StringVec is stack-allocated
         }
     }    use crate::str::String;
+    use crate::css::GradientStopPre;
 
 
     /// Wrapper over a Rust-allocated `Vec<u8>`
@@ -3502,6 +3789,19 @@ pub mod vec {
     }
 
     impl Drop for StringVec { fn drop(&mut self) { az_string_vec_delete(&mut self.object); } }
+
+
+    /// Wrapper over a Rust-allocated `Vec<GradientStopPre>`
+    pub struct GradientStopPreVec { pub(crate) object: AzGradientStopPreVec }
+
+    impl GradientStopPreVec {
+        /// Creates + allocates a Rust `Vec<GradientStopPre>` by **copying** it from a bytes source
+        pub fn copy_from(ptr: *const AzGradientStopPre, len: usize) -> Self { Self { object: az_gradient_stop_pre_vec_copy_from(ptr, len) } }
+       /// Prevents the destructor from running and returns the internal `AzGradientStopPreVec`
+       pub fn leak(self) -> AzGradientStopPreVec { az_gradient_stop_pre_vec_deep_copy(&self.object) }
+    }
+
+    impl Drop for GradientStopPreVec { fn drop(&mut self) { az_gradient_stop_pre_vec_delete(&mut self.object); } }
 }
 
 /// Definition of azuls internal `PathBuf` type + functions for conversion from `std::PathBuf`
@@ -3525,12 +3825,30 @@ pub mod path {
     impl Drop for PathBuf { fn drop(&mut self) { az_path_buf_delete(&mut self.ptr); } }
 }
 
+/// Definition of azuls internal `Option<*>` wrappers
+#[allow(dead_code, unused_imports)]
+pub mod option {
+
+    use azul_dll::*;
+
+
+    /// `OptionPercentageValue` struct
+    pub struct OptionPercentageValue { pub(crate) ptr: AzOptionPercentageValuePtr }
+
+    impl OptionPercentageValue {
+       /// Prevents the destructor from running and returns the internal `AzOptionPercentageValuePtr`
+       pub fn leak(self) -> AzOptionPercentageValuePtr { let p = az_option_percentage_value_shallow_copy(&self.ptr); std::mem::forget(self); p }
+    }
+
+    impl Drop for OptionPercentageValue { fn drop(&mut self) { az_option_percentage_value_delete(&mut self.ptr); } }
+}
+
 /// `App` construction and configuration
 #[allow(dead_code, unused_imports)]
 pub mod app {
 
     use azul_dll::*;
-    use crate::callbacks::{RefAny, LayoutCallback};
+    use crate::callbacks::{LayoutCallback, RefAny};
     use crate::window::WindowCreateOptions;
 
 
@@ -3949,311 +4267,476 @@ pub mod css {
 
 
     /// `LayoutBoxSizing` struct
-    pub struct LayoutBoxSizing { pub(crate) ptr: AzLayoutBoxSizingPtr }
+    pub struct LayoutBoxSizing { pub(crate) object: AzLayoutBoxSizing }
 
     impl LayoutBoxSizing {
-       /// Prevents the destructor from running and returns the internal `AzLayoutBoxSizingPtr`
-       pub fn leak(self) -> AzLayoutBoxSizingPtr { let p = az_layout_box_sizing_shallow_copy(&self.ptr); std::mem::forget(self); p }
+        pub fn content_box() -> Self { Self { object: az_layout_box_sizing_content_box() }  }
+        pub fn border_box() -> Self { Self { object: az_layout_box_sizing_border_box() }  }
+       /// Prevents the destructor from running and returns the internal `AzLayoutBoxSizing`
+       pub fn leak(self) -> AzLayoutBoxSizing { az_layout_box_sizing_deep_copy(&self.object) }
     }
 
-    impl Drop for LayoutBoxSizing { fn drop(&mut self) { az_layout_box_sizing_delete(&mut self.ptr); } }
+    impl Drop for LayoutBoxSizing { fn drop(&mut self) { az_layout_box_sizing_delete(&mut self.object); } }
 
 
     /// `LayoutDirection` struct
-    pub struct LayoutDirection { pub(crate) ptr: AzLayoutDirectionPtr }
+    pub struct LayoutDirection { pub(crate) object: AzLayoutDirection }
 
     impl LayoutDirection {
-       /// Prevents the destructor from running and returns the internal `AzLayoutDirectionPtr`
-       pub fn leak(self) -> AzLayoutDirectionPtr { let p = az_layout_direction_shallow_copy(&self.ptr); std::mem::forget(self); p }
+        pub fn row() -> Self { Self { object: az_layout_direction_row() }  }
+        pub fn row_reverse() -> Self { Self { object: az_layout_direction_row_reverse() }  }
+        pub fn column() -> Self { Self { object: az_layout_direction_column() }  }
+        pub fn column_reverse() -> Self { Self { object: az_layout_direction_column_reverse() }  }
+       /// Prevents the destructor from running and returns the internal `AzLayoutDirection`
+       pub fn leak(self) -> AzLayoutDirection { az_layout_direction_deep_copy(&self.object) }
     }
 
-    impl Drop for LayoutDirection { fn drop(&mut self) { az_layout_direction_delete(&mut self.ptr); } }
+    impl Drop for LayoutDirection { fn drop(&mut self) { az_layout_direction_delete(&mut self.object); } }
 
 
     /// `LayoutDisplay` struct
-    pub struct LayoutDisplay { pub(crate) ptr: AzLayoutDisplayPtr }
+    pub struct LayoutDisplay { pub(crate) object: AzLayoutDisplay }
 
     impl LayoutDisplay {
-       /// Prevents the destructor from running and returns the internal `AzLayoutDisplayPtr`
-       pub fn leak(self) -> AzLayoutDisplayPtr { let p = az_layout_display_shallow_copy(&self.ptr); std::mem::forget(self); p }
+        pub fn flex() -> Self { Self { object: az_layout_display_flex() }  }
+        pub fn block() -> Self { Self { object: az_layout_display_block() }  }
+        pub fn inline_block() -> Self { Self { object: az_layout_display_inline_block() }  }
+       /// Prevents the destructor from running and returns the internal `AzLayoutDisplay`
+       pub fn leak(self) -> AzLayoutDisplay { az_layout_display_deep_copy(&self.object) }
     }
 
-    impl Drop for LayoutDisplay { fn drop(&mut self) { az_layout_display_delete(&mut self.ptr); } }
+    impl Drop for LayoutDisplay { fn drop(&mut self) { az_layout_display_delete(&mut self.object); } }
 
 
     /// `LayoutFlexGrow` struct
-    pub struct LayoutFlexGrow { pub(crate) ptr: AzLayoutFlexGrowPtr }
+    pub struct LayoutFlexGrow { pub(crate) object: AzLayoutFlexGrow }
 
     impl LayoutFlexGrow {
-       /// Prevents the destructor from running and returns the internal `AzLayoutFlexGrowPtr`
-       pub fn leak(self) -> AzLayoutFlexGrowPtr { let p = az_layout_flex_grow_shallow_copy(&self.ptr); std::mem::forget(self); p }
+       /// Prevents the destructor from running and returns the internal `AzLayoutFlexGrow`
+       pub fn leak(self) -> AzLayoutFlexGrow { az_layout_flex_grow_deep_copy(&self.object) }
     }
 
-    impl Drop for LayoutFlexGrow { fn drop(&mut self) { az_layout_flex_grow_delete(&mut self.ptr); } }
+    impl Drop for LayoutFlexGrow { fn drop(&mut self) { az_layout_flex_grow_delete(&mut self.object); } }
 
 
     /// `LayoutFlexShrink` struct
-    pub struct LayoutFlexShrink { pub(crate) ptr: AzLayoutFlexShrinkPtr }
+    pub struct LayoutFlexShrink { pub(crate) object: AzLayoutFlexShrink }
 
     impl LayoutFlexShrink {
-       /// Prevents the destructor from running and returns the internal `AzLayoutFlexShrinkPtr`
-       pub fn leak(self) -> AzLayoutFlexShrinkPtr { let p = az_layout_flex_shrink_shallow_copy(&self.ptr); std::mem::forget(self); p }
+       /// Prevents the destructor from running and returns the internal `AzLayoutFlexShrink`
+       pub fn leak(self) -> AzLayoutFlexShrink { az_layout_flex_shrink_deep_copy(&self.object) }
     }
 
-    impl Drop for LayoutFlexShrink { fn drop(&mut self) { az_layout_flex_shrink_delete(&mut self.ptr); } }
+    impl Drop for LayoutFlexShrink { fn drop(&mut self) { az_layout_flex_shrink_delete(&mut self.object); } }
 
 
     /// `LayoutFloat` struct
-    pub struct LayoutFloat { pub(crate) ptr: AzLayoutFloatPtr }
+    pub struct LayoutFloat { pub(crate) object: AzLayoutFloat }
 
     impl LayoutFloat {
-       /// Prevents the destructor from running and returns the internal `AzLayoutFloatPtr`
-       pub fn leak(self) -> AzLayoutFloatPtr { let p = az_layout_float_shallow_copy(&self.ptr); std::mem::forget(self); p }
+        pub fn left() -> Self { Self { object: az_layout_float_left() }  }
+        pub fn right() -> Self { Self { object: az_layout_float_right() }  }
+       /// Prevents the destructor from running and returns the internal `AzLayoutFloat`
+       pub fn leak(self) -> AzLayoutFloat { az_layout_float_deep_copy(&self.object) }
     }
 
-    impl Drop for LayoutFloat { fn drop(&mut self) { az_layout_float_delete(&mut self.ptr); } }
+    impl Drop for LayoutFloat { fn drop(&mut self) { az_layout_float_delete(&mut self.object); } }
 
 
     /// `LayoutHeight` struct
-    pub struct LayoutHeight { pub(crate) ptr: AzLayoutHeightPtr }
+    pub struct LayoutHeight { pub(crate) object: AzLayoutHeight }
 
     impl LayoutHeight {
-       /// Prevents the destructor from running and returns the internal `AzLayoutHeightPtr`
-       pub fn leak(self) -> AzLayoutHeightPtr { let p = az_layout_height_shallow_copy(&self.ptr); std::mem::forget(self); p }
+       /// Prevents the destructor from running and returns the internal `AzLayoutHeight`
+       pub fn leak(self) -> AzLayoutHeight { az_layout_height_deep_copy(&self.object) }
     }
 
-    impl Drop for LayoutHeight { fn drop(&mut self) { az_layout_height_delete(&mut self.ptr); } }
+    impl Drop for LayoutHeight { fn drop(&mut self) { az_layout_height_delete(&mut self.object); } }
 
 
     /// `LayoutJustifyContent` struct
-    pub struct LayoutJustifyContent { pub(crate) ptr: AzLayoutJustifyContentPtr }
+    pub struct LayoutJustifyContent { pub(crate) object: AzLayoutJustifyContent }
 
     impl LayoutJustifyContent {
-       /// Prevents the destructor from running and returns the internal `AzLayoutJustifyContentPtr`
-       pub fn leak(self) -> AzLayoutJustifyContentPtr { let p = az_layout_justify_content_shallow_copy(&self.ptr); std::mem::forget(self); p }
+        /// Default value. Items are positioned at the beginning of the container
+        pub fn start() -> Self { Self { object: az_layout_justify_content_start() }  }
+        /// Items are positioned at the end of the container
+        pub fn end() -> Self { Self { object: az_layout_justify_content_end() }  }
+        /// Items are positioned at the center of the container
+        pub fn center() -> Self { Self { object: az_layout_justify_content_center() }  }
+        /// Items are positioned with space between the lines
+        pub fn space_between() -> Self { Self { object: az_layout_justify_content_space_between() }  }
+        /// Items are positioned with space before, between, and after the lines
+        pub fn space_around() -> Self { Self { object: az_layout_justify_content_space_around() }  }
+        /// Items are distributed so that the spacing between any two adjacent alignment subjects, before the first alignment subject, and after the last alignment subject is the same
+        pub fn space_evenly() -> Self { Self { object: az_layout_justify_content_space_evenly() }  }
+       /// Prevents the destructor from running and returns the internal `AzLayoutJustifyContent`
+       pub fn leak(self) -> AzLayoutJustifyContent { az_layout_justify_content_deep_copy(&self.object) }
     }
 
-    impl Drop for LayoutJustifyContent { fn drop(&mut self) { az_layout_justify_content_delete(&mut self.ptr); } }
+    impl Drop for LayoutJustifyContent { fn drop(&mut self) { az_layout_justify_content_delete(&mut self.object); } }
 
 
     /// `LayoutLeft` struct
-    pub struct LayoutLeft { pub(crate) ptr: AzLayoutLeftPtr }
+    pub struct LayoutLeft { pub(crate) object: AzLayoutLeft }
 
     impl LayoutLeft {
-       /// Prevents the destructor from running and returns the internal `AzLayoutLeftPtr`
-       pub fn leak(self) -> AzLayoutLeftPtr { let p = az_layout_left_shallow_copy(&self.ptr); std::mem::forget(self); p }
+       /// Prevents the destructor from running and returns the internal `AzLayoutLeft`
+       pub fn leak(self) -> AzLayoutLeft { az_layout_left_deep_copy(&self.object) }
     }
 
-    impl Drop for LayoutLeft { fn drop(&mut self) { az_layout_left_delete(&mut self.ptr); } }
+    impl Drop for LayoutLeft { fn drop(&mut self) { az_layout_left_delete(&mut self.object); } }
 
 
     /// `LayoutMarginBottom` struct
-    pub struct LayoutMarginBottom { pub(crate) ptr: AzLayoutMarginBottomPtr }
+    pub struct LayoutMarginBottom { pub(crate) object: AzLayoutMarginBottom }
 
     impl LayoutMarginBottom {
-       /// Prevents the destructor from running and returns the internal `AzLayoutMarginBottomPtr`
-       pub fn leak(self) -> AzLayoutMarginBottomPtr { let p = az_layout_margin_bottom_shallow_copy(&self.ptr); std::mem::forget(self); p }
+       /// Prevents the destructor from running and returns the internal `AzLayoutMarginBottom`
+       pub fn leak(self) -> AzLayoutMarginBottom { az_layout_margin_bottom_deep_copy(&self.object) }
     }
 
-    impl Drop for LayoutMarginBottom { fn drop(&mut self) { az_layout_margin_bottom_delete(&mut self.ptr); } }
+    impl Drop for LayoutMarginBottom { fn drop(&mut self) { az_layout_margin_bottom_delete(&mut self.object); } }
 
 
     /// `LayoutMarginLeft` struct
-    pub struct LayoutMarginLeft { pub(crate) ptr: AzLayoutMarginLeftPtr }
+    pub struct LayoutMarginLeft { pub(crate) object: AzLayoutMarginLeft }
 
     impl LayoutMarginLeft {
-       /// Prevents the destructor from running and returns the internal `AzLayoutMarginLeftPtr`
-       pub fn leak(self) -> AzLayoutMarginLeftPtr { let p = az_layout_margin_left_shallow_copy(&self.ptr); std::mem::forget(self); p }
+       /// Prevents the destructor from running and returns the internal `AzLayoutMarginLeft`
+       pub fn leak(self) -> AzLayoutMarginLeft { az_layout_margin_left_deep_copy(&self.object) }
     }
 
-    impl Drop for LayoutMarginLeft { fn drop(&mut self) { az_layout_margin_left_delete(&mut self.ptr); } }
+    impl Drop for LayoutMarginLeft { fn drop(&mut self) { az_layout_margin_left_delete(&mut self.object); } }
 
 
     /// `LayoutMarginRight` struct
-    pub struct LayoutMarginRight { pub(crate) ptr: AzLayoutMarginRightPtr }
+    pub struct LayoutMarginRight { pub(crate) object: AzLayoutMarginRight }
 
     impl LayoutMarginRight {
-       /// Prevents the destructor from running and returns the internal `AzLayoutMarginRightPtr`
-       pub fn leak(self) -> AzLayoutMarginRightPtr { let p = az_layout_margin_right_shallow_copy(&self.ptr); std::mem::forget(self); p }
+       /// Prevents the destructor from running and returns the internal `AzLayoutMarginRight`
+       pub fn leak(self) -> AzLayoutMarginRight { az_layout_margin_right_deep_copy(&self.object) }
     }
 
-    impl Drop for LayoutMarginRight { fn drop(&mut self) { az_layout_margin_right_delete(&mut self.ptr); } }
+    impl Drop for LayoutMarginRight { fn drop(&mut self) { az_layout_margin_right_delete(&mut self.object); } }
 
 
     /// `LayoutMarginTop` struct
-    pub struct LayoutMarginTop { pub(crate) ptr: AzLayoutMarginTopPtr }
+    pub struct LayoutMarginTop { pub(crate) object: AzLayoutMarginTop }
 
     impl LayoutMarginTop {
-       /// Prevents the destructor from running and returns the internal `AzLayoutMarginTopPtr`
-       pub fn leak(self) -> AzLayoutMarginTopPtr { let p = az_layout_margin_top_shallow_copy(&self.ptr); std::mem::forget(self); p }
+       /// Prevents the destructor from running and returns the internal `AzLayoutMarginTop`
+       pub fn leak(self) -> AzLayoutMarginTop { az_layout_margin_top_deep_copy(&self.object) }
     }
 
-    impl Drop for LayoutMarginTop { fn drop(&mut self) { az_layout_margin_top_delete(&mut self.ptr); } }
+    impl Drop for LayoutMarginTop { fn drop(&mut self) { az_layout_margin_top_delete(&mut self.object); } }
 
 
     /// `LayoutMaxHeight` struct
-    pub struct LayoutMaxHeight { pub(crate) ptr: AzLayoutMaxHeightPtr }
+    pub struct LayoutMaxHeight { pub(crate) object: AzLayoutMaxHeight }
 
     impl LayoutMaxHeight {
-       /// Prevents the destructor from running and returns the internal `AzLayoutMaxHeightPtr`
-       pub fn leak(self) -> AzLayoutMaxHeightPtr { let p = az_layout_max_height_shallow_copy(&self.ptr); std::mem::forget(self); p }
+       /// Prevents the destructor from running and returns the internal `AzLayoutMaxHeight`
+       pub fn leak(self) -> AzLayoutMaxHeight { az_layout_max_height_deep_copy(&self.object) }
     }
 
-    impl Drop for LayoutMaxHeight { fn drop(&mut self) { az_layout_max_height_delete(&mut self.ptr); } }
+    impl Drop for LayoutMaxHeight { fn drop(&mut self) { az_layout_max_height_delete(&mut self.object); } }
 
 
     /// `LayoutMaxWidth` struct
-    pub struct LayoutMaxWidth { pub(crate) ptr: AzLayoutMaxWidthPtr }
+    pub struct LayoutMaxWidth { pub(crate) object: AzLayoutMaxWidth }
 
     impl LayoutMaxWidth {
-       /// Prevents the destructor from running and returns the internal `AzLayoutMaxWidthPtr`
-       pub fn leak(self) -> AzLayoutMaxWidthPtr { let p = az_layout_max_width_shallow_copy(&self.ptr); std::mem::forget(self); p }
+       /// Prevents the destructor from running and returns the internal `AzLayoutMaxWidth`
+       pub fn leak(self) -> AzLayoutMaxWidth { az_layout_max_width_deep_copy(&self.object) }
     }
 
-    impl Drop for LayoutMaxWidth { fn drop(&mut self) { az_layout_max_width_delete(&mut self.ptr); } }
+    impl Drop for LayoutMaxWidth { fn drop(&mut self) { az_layout_max_width_delete(&mut self.object); } }
 
 
     /// `LayoutMinHeight` struct
-    pub struct LayoutMinHeight { pub(crate) ptr: AzLayoutMinHeightPtr }
+    pub struct LayoutMinHeight { pub(crate) object: AzLayoutMinHeight }
 
     impl LayoutMinHeight {
-       /// Prevents the destructor from running and returns the internal `AzLayoutMinHeightPtr`
-       pub fn leak(self) -> AzLayoutMinHeightPtr { let p = az_layout_min_height_shallow_copy(&self.ptr); std::mem::forget(self); p }
+       /// Prevents the destructor from running and returns the internal `AzLayoutMinHeight`
+       pub fn leak(self) -> AzLayoutMinHeight { az_layout_min_height_deep_copy(&self.object) }
     }
 
-    impl Drop for LayoutMinHeight { fn drop(&mut self) { az_layout_min_height_delete(&mut self.ptr); } }
+    impl Drop for LayoutMinHeight { fn drop(&mut self) { az_layout_min_height_delete(&mut self.object); } }
 
 
     /// `LayoutMinWidth` struct
-    pub struct LayoutMinWidth { pub(crate) ptr: AzLayoutMinWidthPtr }
+    pub struct LayoutMinWidth { pub(crate) object: AzLayoutMinWidth }
 
     impl LayoutMinWidth {
-       /// Prevents the destructor from running and returns the internal `AzLayoutMinWidthPtr`
-       pub fn leak(self) -> AzLayoutMinWidthPtr { let p = az_layout_min_width_shallow_copy(&self.ptr); std::mem::forget(self); p }
+       /// Prevents the destructor from running and returns the internal `AzLayoutMinWidth`
+       pub fn leak(self) -> AzLayoutMinWidth { az_layout_min_width_deep_copy(&self.object) }
     }
 
-    impl Drop for LayoutMinWidth { fn drop(&mut self) { az_layout_min_width_delete(&mut self.ptr); } }
+    impl Drop for LayoutMinWidth { fn drop(&mut self) { az_layout_min_width_delete(&mut self.object); } }
 
 
     /// `LayoutPaddingBottom` struct
-    pub struct LayoutPaddingBottom { pub(crate) ptr: AzLayoutPaddingBottomPtr }
+    pub struct LayoutPaddingBottom { pub(crate) object: AzLayoutPaddingBottom }
 
     impl LayoutPaddingBottom {
-       /// Prevents the destructor from running and returns the internal `AzLayoutPaddingBottomPtr`
-       pub fn leak(self) -> AzLayoutPaddingBottomPtr { let p = az_layout_padding_bottom_shallow_copy(&self.ptr); std::mem::forget(self); p }
+       /// Prevents the destructor from running and returns the internal `AzLayoutPaddingBottom`
+       pub fn leak(self) -> AzLayoutPaddingBottom { az_layout_padding_bottom_deep_copy(&self.object) }
     }
 
-    impl Drop for LayoutPaddingBottom { fn drop(&mut self) { az_layout_padding_bottom_delete(&mut self.ptr); } }
+    impl Drop for LayoutPaddingBottom { fn drop(&mut self) { az_layout_padding_bottom_delete(&mut self.object); } }
 
 
     /// `LayoutPaddingLeft` struct
-    pub struct LayoutPaddingLeft { pub(crate) ptr: AzLayoutPaddingLeftPtr }
+    pub struct LayoutPaddingLeft { pub(crate) object: AzLayoutPaddingLeft }
 
     impl LayoutPaddingLeft {
-       /// Prevents the destructor from running and returns the internal `AzLayoutPaddingLeftPtr`
-       pub fn leak(self) -> AzLayoutPaddingLeftPtr { let p = az_layout_padding_left_shallow_copy(&self.ptr); std::mem::forget(self); p }
+       /// Prevents the destructor from running and returns the internal `AzLayoutPaddingLeft`
+       pub fn leak(self) -> AzLayoutPaddingLeft { az_layout_padding_left_deep_copy(&self.object) }
     }
 
-    impl Drop for LayoutPaddingLeft { fn drop(&mut self) { az_layout_padding_left_delete(&mut self.ptr); } }
+    impl Drop for LayoutPaddingLeft { fn drop(&mut self) { az_layout_padding_left_delete(&mut self.object); } }
 
 
     /// `LayoutPaddingRight` struct
-    pub struct LayoutPaddingRight { pub(crate) ptr: AzLayoutPaddingRightPtr }
+    pub struct LayoutPaddingRight { pub(crate) object: AzLayoutPaddingRight }
 
     impl LayoutPaddingRight {
-       /// Prevents the destructor from running and returns the internal `AzLayoutPaddingRightPtr`
-       pub fn leak(self) -> AzLayoutPaddingRightPtr { let p = az_layout_padding_right_shallow_copy(&self.ptr); std::mem::forget(self); p }
+       /// Prevents the destructor from running and returns the internal `AzLayoutPaddingRight`
+       pub fn leak(self) -> AzLayoutPaddingRight { az_layout_padding_right_deep_copy(&self.object) }
     }
 
-    impl Drop for LayoutPaddingRight { fn drop(&mut self) { az_layout_padding_right_delete(&mut self.ptr); } }
+    impl Drop for LayoutPaddingRight { fn drop(&mut self) { az_layout_padding_right_delete(&mut self.object); } }
 
 
     /// `LayoutPaddingTop` struct
-    pub struct LayoutPaddingTop { pub(crate) ptr: AzLayoutPaddingTopPtr }
+    pub struct LayoutPaddingTop { pub(crate) object: AzLayoutPaddingTop }
 
     impl LayoutPaddingTop {
-       /// Prevents the destructor from running and returns the internal `AzLayoutPaddingTopPtr`
-       pub fn leak(self) -> AzLayoutPaddingTopPtr { let p = az_layout_padding_top_shallow_copy(&self.ptr); std::mem::forget(self); p }
+       /// Prevents the destructor from running and returns the internal `AzLayoutPaddingTop`
+       pub fn leak(self) -> AzLayoutPaddingTop { az_layout_padding_top_deep_copy(&self.object) }
     }
 
-    impl Drop for LayoutPaddingTop { fn drop(&mut self) { az_layout_padding_top_delete(&mut self.ptr); } }
+    impl Drop for LayoutPaddingTop { fn drop(&mut self) { az_layout_padding_top_delete(&mut self.object); } }
 
 
     /// `LayoutPosition` struct
-    pub struct LayoutPosition { pub(crate) ptr: AzLayoutPositionPtr }
+    pub struct LayoutPosition { pub(crate) object: AzLayoutPosition }
 
     impl LayoutPosition {
-       /// Prevents the destructor from running and returns the internal `AzLayoutPositionPtr`
-       pub fn leak(self) -> AzLayoutPositionPtr { let p = az_layout_position_shallow_copy(&self.ptr); std::mem::forget(self); p }
+        pub fn static() -> Self { Self { object: az_layout_position_static() }  }
+        pub fn relative() -> Self { Self { object: az_layout_position_relative() }  }
+        pub fn absolute() -> Self { Self { object: az_layout_position_absolute() }  }
+        pub fn fixed() -> Self { Self { object: az_layout_position_fixed() }  }
+       /// Prevents the destructor from running and returns the internal `AzLayoutPosition`
+       pub fn leak(self) -> AzLayoutPosition { az_layout_position_deep_copy(&self.object) }
     }
 
-    impl Drop for LayoutPosition { fn drop(&mut self) { az_layout_position_delete(&mut self.ptr); } }
+    impl Drop for LayoutPosition { fn drop(&mut self) { az_layout_position_delete(&mut self.object); } }
 
 
     /// `LayoutRight` struct
-    pub struct LayoutRight { pub(crate) ptr: AzLayoutRightPtr }
+    pub struct LayoutRight { pub(crate) object: AzLayoutRight }
 
     impl LayoutRight {
-       /// Prevents the destructor from running and returns the internal `AzLayoutRightPtr`
-       pub fn leak(self) -> AzLayoutRightPtr { let p = az_layout_right_shallow_copy(&self.ptr); std::mem::forget(self); p }
+       /// Prevents the destructor from running and returns the internal `AzLayoutRight`
+       pub fn leak(self) -> AzLayoutRight { az_layout_right_deep_copy(&self.object) }
     }
 
-    impl Drop for LayoutRight { fn drop(&mut self) { az_layout_right_delete(&mut self.ptr); } }
+    impl Drop for LayoutRight { fn drop(&mut self) { az_layout_right_delete(&mut self.object); } }
 
 
     /// `LayoutTop` struct
-    pub struct LayoutTop { pub(crate) ptr: AzLayoutTopPtr }
+    pub struct LayoutTop { pub(crate) object: AzLayoutTop }
 
     impl LayoutTop {
-       /// Prevents the destructor from running and returns the internal `AzLayoutTopPtr`
-       pub fn leak(self) -> AzLayoutTopPtr { let p = az_layout_top_shallow_copy(&self.ptr); std::mem::forget(self); p }
+       /// Prevents the destructor from running and returns the internal `AzLayoutTop`
+       pub fn leak(self) -> AzLayoutTop { az_layout_top_deep_copy(&self.object) }
     }
 
-    impl Drop for LayoutTop { fn drop(&mut self) { az_layout_top_delete(&mut self.ptr); } }
+    impl Drop for LayoutTop { fn drop(&mut self) { az_layout_top_delete(&mut self.object); } }
 
 
     /// `LayoutWidth` struct
-    pub struct LayoutWidth { pub(crate) ptr: AzLayoutWidthPtr }
+    pub struct LayoutWidth { pub(crate) object: AzLayoutWidth }
 
     impl LayoutWidth {
-       /// Prevents the destructor from running and returns the internal `AzLayoutWidthPtr`
-       pub fn leak(self) -> AzLayoutWidthPtr { let p = az_layout_width_shallow_copy(&self.ptr); std::mem::forget(self); p }
+       /// Prevents the destructor from running and returns the internal `AzLayoutWidth`
+       pub fn leak(self) -> AzLayoutWidth { az_layout_width_deep_copy(&self.object) }
     }
 
-    impl Drop for LayoutWidth { fn drop(&mut self) { az_layout_width_delete(&mut self.ptr); } }
+    impl Drop for LayoutWidth { fn drop(&mut self) { az_layout_width_delete(&mut self.object); } }
 
 
     /// `LayoutWrap` struct
-    pub struct LayoutWrap { pub(crate) ptr: AzLayoutWrapPtr }
+    pub struct LayoutWrap { pub(crate) object: AzLayoutWrap }
 
     impl LayoutWrap {
-       /// Prevents the destructor from running and returns the internal `AzLayoutWrapPtr`
-       pub fn leak(self) -> AzLayoutWrapPtr { let p = az_layout_wrap_shallow_copy(&self.ptr); std::mem::forget(self); p }
+        pub fn wrap() -> Self { Self { object: az_layout_wrap_wrap() }  }
+        pub fn no_wrap() -> Self { Self { object: az_layout_wrap_no_wrap() }  }
+       /// Prevents the destructor from running and returns the internal `AzLayoutWrap`
+       pub fn leak(self) -> AzLayoutWrap { az_layout_wrap_deep_copy(&self.object) }
     }
 
-    impl Drop for LayoutWrap { fn drop(&mut self) { az_layout_wrap_delete(&mut self.ptr); } }
+    impl Drop for LayoutWrap { fn drop(&mut self) { az_layout_wrap_delete(&mut self.object); } }
 
 
     /// `Overflow` struct
-    pub struct Overflow { pub(crate) ptr: AzOverflowPtr }
+    pub struct Overflow { pub(crate) object: AzOverflow }
 
     impl Overflow {
-       /// Prevents the destructor from running and returns the internal `AzOverflowPtr`
-       pub fn leak(self) -> AzOverflowPtr { let p = az_overflow_shallow_copy(&self.ptr); std::mem::forget(self); p }
+        /// Always shows a scroll bar, overflows on scroll
+        pub fn scroll() -> Self { Self { object: az_overflow_scroll() }  }
+        /// Does not show a scroll bar by default, only when text is overflowing
+        pub fn auto() -> Self { Self { object: az_overflow_auto() }  }
+        /// Never shows a scroll bar, simply clips text
+        pub fn hidden() -> Self { Self { object: az_overflow_hidden() }  }
+        /// Doesn't show a scroll bar, simply overflows the text
+        pub fn visible() -> Self { Self { object: az_overflow_visible() }  }
+       /// Prevents the destructor from running and returns the internal `AzOverflow`
+       pub fn leak(self) -> AzOverflow { az_overflow_deep_copy(&self.object) }
     }
 
-    impl Drop for Overflow { fn drop(&mut self) { az_overflow_delete(&mut self.ptr); } }
+    impl Drop for Overflow { fn drop(&mut self) { az_overflow_delete(&mut self.object); } }
+
+
+    /// `PercentageValue` struct
+    pub struct PercentageValue { pub(crate) object: AzPercentageValue }
+
+    impl PercentageValue {
+       /// Prevents the destructor from running and returns the internal `AzPercentageValue`
+       pub fn leak(self) -> AzPercentageValue { az_percentage_value_deep_copy(&self.object) }
+    }
+
+    impl Drop for PercentageValue { fn drop(&mut self) { az_percentage_value_delete(&mut self.object); } }
+
+
+    /// `GradientStopPre` struct
+    pub struct GradientStopPre { pub(crate) object: AzGradientStopPre }
+
+    impl GradientStopPre {
+       /// Prevents the destructor from running and returns the internal `AzGradientStopPre`
+       pub fn leak(self) -> AzGradientStopPre { az_gradient_stop_pre_deep_copy(&self.object) }
+    }
+
+    impl Drop for GradientStopPre { fn drop(&mut self) { az_gradient_stop_pre_delete(&mut self.object); } }
+
+
+    /// `DirectionCorner` struct
+    pub struct DirectionCorner { pub(crate) object: AzDirectionCorner }
+
+    impl DirectionCorner {
+        pub fn right() -> Self { Self { object: az_direction_corner_right() }  }
+        pub fn left() -> Self { Self { object: az_direction_corner_left() }  }
+        pub fn top() -> Self { Self { object: az_direction_corner_top() }  }
+        pub fn bottom() -> Self { Self { object: az_direction_corner_bottom() }  }
+        pub fn top_right() -> Self { Self { object: az_direction_corner_top_right() }  }
+        pub fn top_left() -> Self { Self { object: az_direction_corner_top_left() }  }
+        pub fn bottom_right() -> Self { Self { object: az_direction_corner_bottom_right() }  }
+        pub fn bottom_left() -> Self { Self { object: az_direction_corner_bottom_left() }  }
+       /// Prevents the destructor from running and returns the internal `AzDirectionCorner`
+       pub fn leak(self) -> AzDirectionCorner { az_direction_corner_deep_copy(&self.object) }
+    }
+
+    impl Drop for DirectionCorner { fn drop(&mut self) { az_direction_corner_delete(&mut self.object); } }
+
+
+    /// `DirectionCorners` struct
+    pub struct DirectionCorners { pub(crate) object: AzDirectionCorners }
+
+    impl DirectionCorners {
+       /// Prevents the destructor from running and returns the internal `AzDirectionCorners`
+       pub fn leak(self) -> AzDirectionCorners { az_direction_corners_deep_copy(&self.object) }
+    }
+
+    impl Drop for DirectionCorners { fn drop(&mut self) { az_direction_corners_delete(&mut self.object); } }
+
+
+    /// `Direction` struct
+    pub struct Direction { pub(crate) object: AzDirection }
+
+    impl Direction {
+        pub fn angle(variant_data: crate::css::FloatValue) -> Self { Self { object: az_direction_angle(variant_data.leak()) }}
+        pub fn from_to(variant_data: crate::css::DirectionCorners) -> Self { Self { object: az_direction_from_to(variant_data.leak()) }}
+       /// Prevents the destructor from running and returns the internal `AzDirection`
+       pub fn leak(self) -> AzDirection { az_direction_deep_copy(&self.object) }
+    }
+
+    impl Drop for Direction { fn drop(&mut self) { az_direction_delete(&mut self.object); } }
+
+
+    /// `ExtendMode` struct
+    pub struct ExtendMode { pub(crate) object: AzExtendMode }
+
+    impl ExtendMode {
+        pub fn clamp() -> Self { Self { object: az_extend_mode_clamp() }  }
+        pub fn repeat() -> Self { Self { object: az_extend_mode_repeat() }  }
+       /// Prevents the destructor from running and returns the internal `AzExtendMode`
+       pub fn leak(self) -> AzExtendMode { az_extend_mode_deep_copy(&self.object) }
+    }
+
+    impl Drop for ExtendMode { fn drop(&mut self) { az_extend_mode_delete(&mut self.object); } }
+
+
+    /// `LinearGradient` struct
+    pub struct LinearGradient { pub(crate) object: AzLinearGradient }
+
+    impl LinearGradient {
+       /// Prevents the destructor from running and returns the internal `AzLinearGradient`
+       pub fn leak(self) -> AzLinearGradient { az_linear_gradient_deep_copy(&self.object) }
+    }
+
+    impl Drop for LinearGradient { fn drop(&mut self) { az_linear_gradient_delete(&mut self.object); } }
+
+
+    /// `Shape` struct
+    pub struct Shape { pub(crate) object: AzShape }
+
+    impl Shape {
+        pub fn ellipse() -> Self { Self { object: az_shape_ellipse() }  }
+        pub fn circle() -> Self { Self { object: az_shape_circle() }  }
+       /// Prevents the destructor from running and returns the internal `AzShape`
+       pub fn leak(self) -> AzShape { az_shape_deep_copy(&self.object) }
+    }
+
+    impl Drop for Shape { fn drop(&mut self) { az_shape_delete(&mut self.object); } }
+
+
+    /// `RadialGradient` struct
+    pub struct RadialGradient { pub(crate) object: AzRadialGradient }
+
+    impl RadialGradient {
+       /// Prevents the destructor from running and returns the internal `AzRadialGradient`
+       pub fn leak(self) -> AzRadialGradient { az_radial_gradient_deep_copy(&self.object) }
+    }
+
+    impl Drop for RadialGradient { fn drop(&mut self) { az_radial_gradient_delete(&mut self.object); } }
+
+
+    /// `CssImageId` struct
+    pub struct CssImageId { pub(crate) object: AzCssImageId }
+
+    impl CssImageId {
+       /// Prevents the destructor from running and returns the internal `AzCssImageId`
+       pub fn leak(self) -> AzCssImageId { az_css_image_id_deep_copy(&self.object) }
+    }
+
+    impl Drop for CssImageId { fn drop(&mut self) { az_css_image_id_delete(&mut self.object); } }
 
 
     /// `StyleBackgroundContent` struct
-    pub struct StyleBackgroundContent { pub(crate) ptr: AzStyleBackgroundContentPtr }
+    pub struct StyleBackgroundContent { pub(crate) object: AzStyleBackgroundContent }
 
     impl StyleBackgroundContent {
-       /// Prevents the destructor from running and returns the internal `AzStyleBackgroundContentPtr`
-       pub fn leak(self) -> AzStyleBackgroundContentPtr { let p = az_style_background_content_shallow_copy(&self.ptr); std::mem::forget(self); p }
+        pub fn linear_gradient(variant_data: crate::css::LinearGradient) -> Self { Self { object: az_style_background_content_linear_gradient(variant_data.leak()) }}
+        pub fn radial_gradient(variant_data: crate::css::RadialGradient) -> Self { Self { object: az_style_background_content_radial_gradient(variant_data.leak()) }}
+        pub fn image(variant_data: crate::css::CssImageId) -> Self { Self { object: az_style_background_content_image(variant_data.leak()) }}
+        pub fn color(variant_data: crate::css::ColorU) -> Self { Self { object: az_style_background_content_color(variant_data.leak()) }}
+       /// Prevents the destructor from running and returns the internal `AzStyleBackgroundContent`
+       pub fn leak(self) -> AzStyleBackgroundContent { az_style_background_content_deep_copy(&self.object) }
     }
 
-    impl Drop for StyleBackgroundContent { fn drop(&mut self) { az_style_background_content_delete(&mut self.ptr); } }
+    impl Drop for StyleBackgroundContent { fn drop(&mut self) { az_style_background_content_delete(&mut self.object); } }
 
 
     /// `StyleBackgroundPosition` struct

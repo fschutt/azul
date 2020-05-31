@@ -1,8 +1,137 @@
+#![feature(vec_into_raw_parts)]
+
 //! Provides a public API with datatypes used to describe style properties of DOM nodes.
 
 use std::collections::BTreeMap;
 use std::fmt;
 use crate::css::CssPropertyValue;
+
+macro_rules! impl_option {($struct_type:ident, $struct_name:ident) => (
+    #[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
+    #[repr(C, u8)]
+    pub enum $struct_name {
+        None,
+        Some($struct_type)
+    }
+
+    impl From<$struct_name> for Option<$struct_type> {
+        fn from(o: $struct_name) -> Option<$struct_type> {
+            match o {
+                $struct_name::None => None,
+                $struct_name::Some(t) => Some(t),
+            }
+        }
+    }
+
+    impl From<Option<$struct_type>> for $struct_name {
+        fn from(o: Option<$struct_type>) -> $struct_name {
+            match o {
+                None => $struct_name::None,
+                Some(t) => $struct_name::Some(t),
+            }
+        }
+    }
+)}
+
+macro_rules! impl_vec {($struct_type:ident, $struct_name:ident) => (
+
+    #[repr(C)]
+    pub struct $struct_name {
+        pub ptr: *mut $struct_type,
+        pub len: usize,
+        pub cap: usize,
+    }
+
+    impl $struct_name {
+        pub fn foreach<U, F: FnMut(&$struct_type) -> Result<(), U>>(&self, closure: F) -> Result<(), U> {
+            let v1: Vec<$struct_type> = unsafe { Vec::from_raw_parts(self.ptr, self.len, self.cap) };
+            for i in &v1 { closure(i)?; }
+            let _ = Vec::into_raw_parts(v1);
+            Ok(())
+        }
+    }
+
+    impl fmt::Debug for $struct_name {
+        fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+            let v1: Vec<$struct_type> = unsafe { Vec::from_raw_parts(self.ptr, self.len, self.cap) };
+            let res = v1.fmt(f);
+            let _ = Vec::into_raw_parts(v1);
+            res
+        }
+    }
+
+    impl From<Vec<$struct_type>> for $struct_name {
+        fn from(input: Vec<$struct_type>) -> $struct_name {
+            let (ptr, len, cap) = Vec::into_raw_parts(input);
+            $struct_name { ptr, len, cap }
+        }
+    }
+
+    impl From<$struct_name> for Vec<$struct_type> {
+        fn from(input: $struct_name) -> Vec<$struct_type> {
+            unsafe { Vec::from_raw_parts(input.ptr, input.len, input.cap) }
+        }
+    }
+
+    impl PartialOrd for $struct_name {
+        fn partial_cmp(&self, rhs: &Self) -> Option<std::cmp::Ordering> {
+            let v1: Vec<$struct_type> = unsafe { Vec::from_raw_parts(self.ptr, self.len, self.cap) };
+            let v2: Vec<$struct_type> = unsafe { Vec::from_raw_parts(rhs.ptr, rhs.len, rhs.cap) };
+            let result = v1.partial_cmp(&v2);
+            let _ = Vec::into_raw_parts(v1);
+            let _ = Vec::into_raw_parts(v2);
+            result
+        }
+    }
+
+    impl Ord for $struct_name {
+        fn cmp(&self, rhs: &Self) -> std::cmp::Ordering {
+            let v1: Vec<$struct_type> = unsafe { Vec::from_raw_parts(self.ptr, self.len, self.cap) };
+            let v2: Vec<$struct_type> = unsafe { Vec::from_raw_parts(rhs.ptr, rhs.len, rhs.cap) };
+            let result = v1.cmp(&v2);
+            let _ = Vec::into_raw_parts(v1);
+            let _ = Vec::into_raw_parts(v2);
+            result
+        }
+    }
+
+    impl Clone for $struct_name {
+        fn clone(&self) -> Self {
+            let v: Vec<$struct_type> = unsafe { Vec::from_raw_parts(self.ptr, self.len, self.cap) };
+            let v2 = v.clone();
+            let _ = Vec::into_raw_parts(v);
+            let (ptr, len, cap) = Vec::into_raw_parts(v2);
+            $struct_name { ptr, len, cap }
+        }
+    }
+
+    impl PartialEq for $struct_name {
+        fn eq(&self, other: &Self) -> bool {
+            let v1: Vec<$struct_type> = unsafe { Vec::from_raw_parts(self.ptr, self.len, self.cap) };
+            let v2: Vec<$struct_type> = unsafe { Vec::from_raw_parts(other.ptr, other.len, other.cap) };
+            let is_eq = v1.eq(&v2);
+            let _ = Vec::into_raw_parts(v1); let _ = Vec::into_raw_parts(v2);
+            is_eq
+        }
+    }
+
+    impl Eq for $struct_name { }
+
+    impl std::hash::Hash for $struct_name {
+        fn hash<H>(&self, state: &mut H) where H: std::hash::Hasher {
+            let v1: Vec<$struct_type> = unsafe { Vec::from_raw_parts(self.ptr, self.len, self.cap) };
+            v1.hash(state);
+            let _ = Vec::into_raw_parts(v1);
+        }
+    }
+
+    impl Drop for $struct_name {
+        fn drop(&mut self) {
+            let mut v: Vec<$struct_type> = unsafe { Vec::from_raw_parts(self.ptr, self.len, self.cap) };
+            // let v drop here
+        }
+    }
+)}
 
 pub trait FormatAsCssValue {
     fn format_as_css_value(&self, f: &mut fmt::Formatter) -> fmt::Result;
@@ -395,6 +524,7 @@ impl fmt::Display for BoxShadowClipMode {
 
 /// Whether a `gradient` should be repeated or clamped to the edges.
 #[derive(Debug, Copy, Clone, PartialEq, Ord, PartialOrd, Eq, Hash)]
+#[repr(C)]
 pub enum ExtendMode {
     Clamp,
     Repeat,
@@ -402,6 +532,7 @@ pub enum ExtendMode {
 
 /// Style of a `border`: solid, double, dash, ridge, etc.
 #[derive(Debug, Copy, Clone, PartialEq, Ord, PartialOrd, Eq, Hash)]
+#[repr(C)]
 pub enum BorderStyle {
     None,
     Solid,
@@ -1731,6 +1862,7 @@ impl fmt::Display for BoxShadowPreDisplayItem {
 }
 
 #[derive(Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
+#[repr(C, u8)]
 pub enum StyleBackgroundContent {
     LinearGradient(LinearGradient),
     RadialGradient(RadialGradient),
@@ -1765,11 +1897,15 @@ impl<'a> From<CssImageId> for StyleBackgroundContent {
     }
 }
 
+impl_vec!(GradientStopPre, GradientStopPreVec);
+
+
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
+#[repr(C)]
 pub struct LinearGradient {
     pub direction: Direction,
     pub extend_mode: ExtendMode,
-    pub stops: Vec<GradientStopPre>,
+    pub stops: GradientStopPreVec,
 }
 
 impl fmt::Display for LinearGradient {
@@ -1780,18 +1916,17 @@ impl fmt::Display for LinearGradient {
         };
 
         write!(f, "{}({}", prefix, self.direction)?;
-        for s in &self.stops {
-            write!(f, ", {}", s)?;
-        }
+        self.stops.foreach(|s| write!(f, ", {}", s))?;
         write!(f, ")")
     }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
+#[repr(C)]
 pub struct RadialGradient {
     pub shape: Shape,
     pub extend_mode: ExtendMode,
-    pub stops: Vec<GradientStopPre>,
+    pub stops: GradientStopPreVec,
 }
 
 impl fmt::Display for RadialGradient {
@@ -1802,19 +1937,31 @@ impl fmt::Display for RadialGradient {
         };
 
         write!(f, "{}({}", prefix, self.shape)?;
-        for s in &self.stops {
-            write!(f, ", {}", s)?;
-        }
+        self.stops.foreach(|s| write!(f, ", {}", s))?;
         write!(f, ")")
+    }
+}
+
+#[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
+#[repr(C)]
+pub struct DirectionCorners {
+    pub from: DirectionCorner,
+    pub to: DirectionCorner,
+}
+
+impl fmt::Display for DirectionCorners {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        write!(f, "to {}", self.to)
     }
 }
 
 /// CSS direction (necessary for gradients). Can either be a fixed angle or
 /// a direction ("to right" / "to left", etc.).
 #[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
+#[repr(C, u8)]
 pub enum Direction {
     Angle(FloatValue),
-    FromTo(DirectionCorner, DirectionCorner),
+    FromTo(DirectionCorners),
 }
 
 impl fmt::Display for Direction {
@@ -1822,7 +1969,7 @@ impl fmt::Display for Direction {
         use self::Direction::*;
         match self {
             Angle(d) => write!(f, "{}deg", d.get()),
-            FromTo(_, t) => write!(f, "to {}", t),
+            FromTo(ft) => write!(f, "{}", ft),
         }
     }
 }
@@ -1889,14 +2036,15 @@ impl Direction {
 
                 (start_point_location, end_point_location)
             },
-            Direction::FromTo(from, to) => {
-                (from.to_point(rect), to.to_point(rect))
+            Direction::FromTo(ft) => {
+                (ft.from.to_point(rect), ft.to.to_point(rect))
             }
         }
     }
 }
 
 #[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
+#[repr(C)]
 pub enum Shape {
     Ellipse,
     Circle,
@@ -2069,26 +2217,29 @@ pub enum GradientType {
 /// of the original source text. For example, when parsing a style
 /// from CSS, the original string can be deallocated afterwards.
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
-pub struct CssImageId(pub String);
+#[repr(C)]
+pub struct CssImageId { pub inner: String }
 
 impl fmt::Display for CssImageId {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        write!(f, "{}", self.0)
+        write!(f, "{}", self.inner)
     }
 }
 
+impl_option!(PercentageValue, OptionPercentageValue);
 
 #[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
+#[repr(C)]
 pub struct GradientStopPre {
     // this is set to None if there was no offset that could be parsed
-    pub offset: Option<PercentageValue>,
+    pub offset: OptionPercentageValue,
     pub color: ColorU,
 }
 
 impl fmt::Display for GradientStopPre {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         self.color.write_hash(f)?;
-        if let Some(offset) = self.offset {
+        if let OptionPercentageValue::Some(offset) = self.offset {
             write!(f, " {}", offset)?;
         }
         Ok(())
