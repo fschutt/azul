@@ -14,27 +14,18 @@
 #![allow(unused_imports)]
 
 extern crate azul_core;
-extern crate azul_css;
 #[cfg(target_arch = "wasm32")]
-extern crate azul_web;
+extern crate azul_web as azul_impl;
 #[cfg(not(target_arch = "wasm32"))]
-extern crate azul_desktop;
+extern crate azul_desktop as azul_impl;
 
 use core::ffi::c_void;
 use std::{path::PathBuf, vec::Vec, string::String, time::Duration};
-use azul_core::{
+use azul_impl::{
+    css::{self, *},
     dom::Dom,
     callbacks::{RefAny, LayoutInfo, Callback, CallbackInfo, GlCallbackInfo, GlCallbackReturn, IFrameCallbackInfo, IFrameCallbackReturn},
     window::WindowCreateOptions,
-    app_resources::{RawImage, RawImageFormat, FontId, TextId, ImageId},
-};
-#[cfg(not(target_arch = "wasm32"))]
-use azul_desktop::{
-    css,
-    app::{App, AppConfig}
-};
-#[cfg(target_arch = "wasm32")]
-use azul_web::{
-    css,
+    resources::{RawImage, RawImageFormat, FontId, TextId, ImageId},
     app::{App, AppConfig}
 };

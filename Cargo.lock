@@ -113,9 +113,7 @@ name = "azul-dll"
 version = "0.0.1"
 dependencies = [
  "azul-core",
- "azul-css",
  "azul-desktop",
- "azul-native-style",
  "azul-web",
 ]
 

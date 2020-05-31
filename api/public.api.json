@@ -159,40 +159,40 @@
 
             "Callback": { "use_patches": ["dll", "rust"], "typedef": true },
             "CallbackInfo": {
-               "external": "azul_core::callbacks::CallbackInfoPtr",
+               "external": "azul_impl::callbacks::CallbackInfoPtr",
                "rust_class_name": "CallbackInfo<'a>",
                "is_boxed_object": true
             },
             "UpdateScreen": { "external": "Option<()>", "use_patches": ["rust"], "typedef": true },
-            "Redraw": { "external": "azul_core::callbacks::Redraw", "use_patches": ["rust"], "const": "UpdateScreen" },
-            "DontRedraw": { "external": "azul_core::callbacks::DontRedraw", "use_patches": ["rust"], "const": "UpdateScreen" },
+            "Redraw": { "external": "azul_impl::callbacks::Redraw", "use_patches": ["rust"], "const": "UpdateScreen" },
+            "DontRedraw": { "external": "azul_impl::callbacks::DontRedraw", "use_patches": ["rust"], "const": "UpdateScreen" },
 
             "IFrameCallback": { "use_patches": ["dll", "rust"], "typedef": true },
             "IFrameCallbackInfo": {
-               "external": "azul_core::callbacks::IFrameCallbackInfoPtr",
+               "external": "azul_impl::callbacks::IFrameCallbackInfoPtr",
                "rust_class_name": "IFrameCallbackInfo<'a>",
                "is_boxed_object": true
             },
             "IFrameCallbackReturn": {
-               "external": "azul_core::callbacks::IFrameCallbackReturnPtr",
+               "external": "azul_impl::callbacks::IFrameCallbackReturnPtr",
                "is_boxed_object": true
             },
 
             "GlCallback": { "use_patches": ["dll", "rust"], "typedef": true },
             "GlCallbackInfo": {
-               "external": "azul_core::callbacks::GlCallbackInfoPtr",
+               "external": "azul_impl::callbacks::GlCallbackInfoPtr",
                "rust_class_name": "GlCallbackInfo<'a>",
                "is_boxed_object": true
             },
             "GlCallbackReturn": {
-               "external": "azul_core::callbacks::GlCallbackReturnPtr",
+               "external": "azul_impl::callbacks::GlCallbackReturnPtr",
                "is_boxed_object": true
             },
 
             "RefAny": { "use_patches": ["dll", "rust"] },
             "LayoutInfo": {
                "rust_class_name": "LayoutInfo<'a>",
-               "external": "azul_core::callbacks::LayoutInfoPtr",
+               "external": "azul_impl::callbacks::LayoutInfoPtr",
                "is_boxed_object": true
             }
          }
@@ -215,14 +215,14 @@
                      "fn_args": [
                         {"s": "String"}
                      ],
-                     "fn_body":"css::from_str(&*az_string_downcast(s)).unwrap()"
+                     "fn_body":"css::from_str(&s.object).unwrap()"
                   },
                   "override_native": {
                      "doc": "Appends a parsed stylesheet to `Css::native()`",
                      "fn_args": [
                         {"s": "String"}
                      ],
-                     "fn_body":"css::override_native(&*az_string_downcast(s)).unwrap()"
+                     "fn_body":"css::override_native(&s.object).unwrap()"
                   }
                }
             },
@@ -233,7 +233,7 @@
                         "doc": "Creates a `HotReloadHandler` that hot-reloads a CSS file every X milliseconds",
                         "fn_args": [
                             {"path": "PathBuf"},
-                            {"reload_ms": "usize"}
+                            {"reload_ms": "u64"}
                         ],
                         "fn_body":"css::hot_reload(*az_path_buf_downcast(path), Duration::from_millis(reload_ms))"
                     },
@@ -241,14 +241,14 @@
                         "doc": "Creates a `HotReloadHandler` that overrides the `Css::native()` stylesheet with a CSS file, reloaded every X milliseconds",
                         "fn_args": [
                             {"path": "PathBuf"},
-                            {"reload_ms": "usize"}
+                            {"reload_ms": "u64"}
                         ],
-                        "fn_body":"css::override_native(*az_path_buf_downcast(path), Duration::from_millis(reload_ms))"
+                        "fn_body":"css::hot_reload_override_native(*az_path_buf_downcast(path), Duration::from_millis(reload_ms))"
                     }
                 }
             },
             "ColorU": {
-                "external": "azul_css::ColorU",
+                "external": "azul_impl::css::ColorU",
                 "struct_fields": [
                     {"r": "u8"},
                     {"g": "u8"},
@@ -257,7 +257,7 @@
                 ]
             },
             "SizeMetric": {
-                "external": "azul_css::SizeMetric",
+                "external": "azul_impl::css::SizeMetric",
                 "enum_fields": [
                     {"Px": {}},
                     {"Pt": {}},
@@ -266,33 +266,33 @@
                 ]
             },
             "FloatValue": {
-                "external": "azul_css::FloatValue",
+                "external": "azul_impl::css::FloatValue",
                 "struct_fields": [
                     {"number": "isize"}
                 ]
             },
             "PixelValue": {
-                "external": "azul_css::PixelValue",
+                "external": "azul_impl::css::PixelValue",
                 "struct_fields": [
                     {"metric": "SizeMetric"},
                     {"number": "FloatValue"}
                 ]
             },
             "PixelValueNoPercent": {
-                "external": "azul_css::PixelValueNoPercent",
+                "external": "azul_impl::css::PixelValueNoPercent",
                 "struct_fields": [
                     {"inner": "PixelValue"}
                 ]
             },
             "BoxShadowClipMode": {
-                "external": "azul_css::BoxShadowClipMode",
+                "external": "azul_impl::css::BoxShadowClipMode",
                 "enum_fields": [
                     {"Outset": {}},
                     {"Inset": {}}
                 ]
             },
             "BoxShadowPreDisplayItem": {
-                "external": "azul_css::BoxShadowPreDisplayItem",
+                "external": "azul_impl::css::BoxShadowPreDisplayItem",
                 "struct_fields": [
                     { "offset": "[PixelValueNoPercent;2]" },
                     { "color": "ColorU" },
@@ -303,7 +303,7 @@
                 "constructors": { }
             },
             "LayoutAlignContent": {
-                "external": "azul_css::LayoutAlignContent",
+                "external": "azul_impl::css::LayoutAlignContent",
                 "constructors": { }
             },
             "LayoutAlignItems": {
@@ -485,7 +485,7 @@
             },
             "BoxShadowPreDisplayItemValue": {
                 "rust_class_name": "CssPropertyValue<BoxShadowPreDisplayItem>",
-                "external": "azul_css::CssPropertyValue::<BoxShadowPreDisplayItem>",
+                "external": "azul_impl::css::CssPropertyValue::<BoxShadowPreDisplayItem>",
                 "enum_fields": [
                     { "Auto": { }} ,
                     { "None": { }} ,
@@ -496,7 +496,7 @@
             },
             "LayoutAlignContentValue": {
                 "rust_class_name": "CssPropertyValue<LayoutAlignContent>",
-                "external": "azul_css::CssPropertyValue::<LayoutAlignContent>",
+                "external": "azul_impl::css::CssPropertyValue::<LayoutAlignContent>",
                 "enum_fields": [
                     { "Auto": { }} ,
                     { "None": { }} ,
@@ -507,7 +507,7 @@
             },
             "LayoutAlignItemsValue": {
                 "rust_class_name": "CssPropertyValue<LayoutAlignItems>",
-                "external": "azul_css::CssPropertyValue::<LayoutAlignItems>",
+                "external": "azul_impl::css::CssPropertyValue::<LayoutAlignItems>",
                 "enum_fields": [
                     { "Auto": { }} ,
                     { "None": { }} ,
@@ -518,7 +518,7 @@
             },
             "LayoutBottomValue": {
                 "rust_class_name": "CssPropertyValue<LayoutBottom>",
-                "external": "azul_css::CssPropertyValue::<LayoutBottom>",
+                "external": "azul_impl::css::CssPropertyValue::<LayoutBottom>",
                 "enum_fields": [
                     { "Auto": { }} ,
                     { "None": { }} ,
@@ -529,7 +529,7 @@
             },
             "LayoutBoxSizingValue": {
                 "rust_class_name": "CssPropertyValue<LayoutBoxSizing>",
-                "external": "azul_css::CssPropertyValue::<LayoutBoxSizing>",
+                "external": "azul_impl::css::CssPropertyValue::<LayoutBoxSizing>",
                 "enum_fields": [
                     { "Auto": { }} ,
                     { "None": { }} ,
@@ -540,7 +540,7 @@
             },
             "LayoutDirectionValue": {
                 "rust_class_name": "CssPropertyValue<LayoutDirection>",
-                "external": "azul_css::CssPropertyValue::<LayoutDirection>",
+                "external": "azul_impl::css::CssPropertyValue::<LayoutDirection>",
                 "enum_fields": [
                     { "Auto": { }} ,
                     { "None": { }} ,
@@ -551,7 +551,7 @@
             },
             "LayoutDisplayValue": {
                 "rust_class_name": "CssPropertyValue<LayoutDisplay>",
-                "external": "azul_css::CssPropertyValue::<LayoutDisplay>",
+                "external": "azul_impl::css::CssPropertyValue::<LayoutDisplay>",
                 "enum_fields": [
                     { "Auto": { }} ,
                     { "None": { }} ,
@@ -562,7 +562,7 @@
             },
             "LayoutFlexGrowValue": {
                 "rust_class_name": "CssPropertyValue<LayoutFlexGrow>",
-                "external": "azul_css::CssPropertyValue::<LayoutFlexGrow>",
+                "external": "azul_impl::css::CssPropertyValue::<LayoutFlexGrow>",
                 "enum_fields": [
                     { "Auto": { }} ,
                     { "None": { }} ,
@@ -573,7 +573,7 @@
             },
             "LayoutFlexShrinkValue": {
                 "rust_class_name": "CssPropertyValue<LayoutFlexShrink>",
-                "external": "azul_css::CssPropertyValue::<LayoutFlexShrink>",
+                "external": "azul_impl::css::CssPropertyValue::<LayoutFlexShrink>",
                 "enum_fields": [
                     { "Auto": { }} ,
                     { "None": { }} ,
@@ -584,7 +584,7 @@
             },
             "LayoutFloatValue": {
                 "rust_class_name": "CssPropertyValue<LayoutFloat>",
-                "external": "azul_css::CssPropertyValue::<LayoutFloat>",
+                "external": "azul_impl::css::CssPropertyValue::<LayoutFloat>",
                 "enum_fields": [
                     { "Auto": { }} ,
                     { "None": { }} ,
@@ -595,7 +595,7 @@
             },
             "LayoutHeightValue": {
                 "rust_class_name": "CssPropertyValue<LayoutHeight>",
-                "external": "azul_css::CssPropertyValue::<LayoutHeight>",
+                "external": "azul_impl::css::CssPropertyValue::<LayoutHeight>",
                 "enum_fields": [
                     { "Auto": { }} ,
                     { "None": { }} ,
@@ -606,7 +606,7 @@
             },
             "LayoutJustifyContentValue": {
                 "rust_class_name": "CssPropertyValue<LayoutJustifyContent>",
-                "external": "azul_css::CssPropertyValue::<LayoutJustifyContent>",
+                "external": "azul_impl::css::CssPropertyValue::<LayoutJustifyContent>",
                 "enum_fields": [
                     { "Auto": { }} ,
                     { "None": { }} ,
@@ -617,7 +617,7 @@
             },
             "LayoutLeftValue": {
                 "rust_class_name": "CssPropertyValue<LayoutLeft>",
-                "external": "azul_css::CssPropertyValue::<LayoutLeft>",
+                "external": "azul_impl::css::CssPropertyValue::<LayoutLeft>",
                 "enum_fields": [
                     { "Auto": { }} ,
                     { "None": { }} ,
@@ -628,7 +628,7 @@
             },
             "LayoutMarginBottomValue": {
                 "rust_class_name": "CssPropertyValue<LayoutMarginBottom>",
-                "external": "azul_css::CssPropertyValue::<LayoutMarginBottom>",
+                "external": "azul_impl::css::CssPropertyValue::<LayoutMarginBottom>",
                 "enum_fields": [
                     { "Auto": { }} ,
                     { "None": { }} ,
@@ -639,7 +639,7 @@
             },
             "LayoutMarginLeftValue": {
                 "rust_class_name": "CssPropertyValue<LayoutMarginLeft>",
-                "external": "azul_css::CssPropertyValue::<LayoutMarginLeft>",
+                "external": "azul_impl::css::CssPropertyValue::<LayoutMarginLeft>",
                 "enum_fields": [
                     { "Auto": { }} ,
                     { "None": { }} ,
@@ -650,7 +650,7 @@
             },
             "LayoutMarginRightValue": {
                 "rust_class_name": "CssPropertyValue<LayoutMarginRight>",
-                "external": "azul_css::CssPropertyValue::<LayoutMarginRight>",
+                "external": "azul_impl::css::CssPropertyValue::<LayoutMarginRight>",
                 "enum_fields": [
                     { "Auto": { }} ,
                     { "None": { }} ,
@@ -661,7 +661,7 @@
             },
             "LayoutMarginTopValue": {
                 "rust_class_name": "CssPropertyValue<LayoutMarginTop>",
-                "external": "azul_css::CssPropertyValue::<LayoutMarginTop>",
+                "external": "azul_impl::css::CssPropertyValue::<LayoutMarginTop>",
                 "enum_fields": [
                     { "Auto": { }} ,
                     { "None": { }} ,
@@ -672,7 +672,7 @@
             },
             "LayoutMaxHeightValue": {
                 "rust_class_name": "CssPropertyValue<LayoutMaxHeight>",
-                "external": "azul_css::CssPropertyValue::<LayoutMaxHeight>",
+                "external": "azul_impl::css::CssPropertyValue::<LayoutMaxHeight>",
                 "enum_fields": [
                     { "Auto": { }} ,
                     { "None": { }} ,
@@ -683,7 +683,7 @@
             },
             "LayoutMaxWidthValue": {
                 "rust_class_name": "CssPropertyValue<LayoutMaxWidth>",
-                "external": "azul_css::CssPropertyValue::<LayoutMaxWidth>",
+                "external": "azul_impl::css::CssPropertyValue::<LayoutMaxWidth>",
                 "enum_fields": [
                     { "Auto": { }} ,
                     { "None": { }} ,
@@ -694,7 +694,7 @@
             },
             "LayoutMinHeightValue": {
                 "rust_class_name": "CssPropertyValue<LayoutMinHeight>",
-                "external": "azul_css::CssPropertyValue::<LayoutMinHeight>",
+                "external": "azul_impl::css::CssPropertyValue::<LayoutMinHeight>",
                 "enum_fields": [
                     { "Auto": { }} ,
                     { "None": { }} ,
@@ -705,7 +705,7 @@
             },
             "LayoutMinWidthValue": {
                 "rust_class_name": "CssPropertyValue<LayoutMinWidth>",
-                "external": "azul_css::CssPropertyValue::<LayoutMinWidth>",
+                "external": "azul_impl::css::CssPropertyValue::<LayoutMinWidth>",
                 "enum_fields": [
                     { "Auto": { }} ,
                     { "None": { }} ,
@@ -716,7 +716,7 @@
             },
             "LayoutPaddingBottomValue": {
                 "rust_class_name": "CssPropertyValue<LayoutPaddingBottom>",
-                "external": "azul_css::CssPropertyValue::<LayoutPaddingBottom>",
+                "external": "azul_impl::css::CssPropertyValue::<LayoutPaddingBottom>",
                 "enum_fields": [
                     { "Auto": { }} ,
                     { "None": { }} ,
@@ -727,7 +727,7 @@
             },
             "LayoutPaddingLeftValue": {
                 "rust_class_name": "CssPropertyValue<LayoutPaddingLeft>",
-                "external": "azul_css::CssPropertyValue::<LayoutPaddingLeft>",
+                "external": "azul_impl::css::CssPropertyValue::<LayoutPaddingLeft>",
                 "enum_fields": [
                     { "Auto": { }} ,
                     { "None": { }} ,
@@ -738,7 +738,7 @@
             },
             "LayoutPaddingRightValue": {
                 "rust_class_name": "CssPropertyValue<LayoutPaddingRight>",
-                "external": "azul_css::CssPropertyValue::<LayoutPaddingRight>",
+                "external": "azul_impl::css::CssPropertyValue::<LayoutPaddingRight>",
                 "enum_fields": [
                     { "Auto": { }} ,
                     { "None": { }} ,
@@ -749,7 +749,7 @@
             },
             "LayoutPaddingTopValue": {
                 "rust_class_name": "CssPropertyValue<LayoutPaddingTop>",
-                "external": "azul_css::CssPropertyValue::<LayoutPaddingTop>",
+                "external": "azul_impl::css::CssPropertyValue::<LayoutPaddingTop>",
                 "enum_fields": [
                     { "Auto": { }} ,
                     { "None": { }} ,
@@ -760,7 +760,7 @@
             },
             "LayoutPositionValue": {
                 "rust_class_name": "CssPropertyValue<LayoutPosition>",
-                "external": "azul_css::CssPropertyValue::<LayoutPosition>",
+                "external": "azul_impl::css::CssPropertyValue::<LayoutPosition>",
                 "enum_fields": [
                     { "Auto": { }} ,
                     { "None": { }} ,
@@ -771,7 +771,7 @@
             },
             "LayoutRightValue": {
                 "rust_class_name": "CssPropertyValue<LayoutRight>",
-                "external": "azul_css::CssPropertyValue::<LayoutRight>",
+                "external": "azul_impl::css::CssPropertyValue::<LayoutRight>",
                 "enum_fields": [
                     { "Auto": { }} ,
                     { "None": { }} ,
@@ -782,7 +782,7 @@
             },
             "LayoutTopValue": {
                 "rust_class_name": "CssPropertyValue<LayoutTop>",
-                "external": "azul_css::CssPropertyValue::<LayoutTop>",
+                "external": "azul_impl::css::CssPropertyValue::<LayoutTop>",
                 "enum_fields": [
                     { "Auto": { }} ,
                     { "None": { }} ,
@@ -793,7 +793,7 @@
             },
             "LayoutWidthValue": {
                 "rust_class_name": "CssPropertyValue<LayoutWidth>",
-                "external": "azul_css::CssPropertyValue::<LayoutWidth>",
+                "external": "azul_impl::css::CssPropertyValue::<LayoutWidth>",
                 "enum_fields": [
                     { "Auto": { }} ,
                     { "None": { }} ,
@@ -804,7 +804,7 @@
             },
             "LayoutWrapValue": {
                 "rust_class_name": "CssPropertyValue<LayoutWrap>",
-                "external": "azul_css::CssPropertyValue::<LayoutWrap>",
+                "external": "azul_impl::css::CssPropertyValue::<LayoutWrap>",
                 "enum_fields": [
                     { "Auto": { }} ,
                     { "None": { }} ,
@@ -815,7 +815,7 @@
             },
             "OverflowValue": {
                 "rust_class_name": "CssPropertyValue<Overflow>",
-                "external": "azul_css::CssPropertyValue::<Overflow>",
+                "external": "azul_impl::css::CssPropertyValue::<Overflow>",
                 "enum_fields": [
                     { "Auto": { }} ,
                     { "None": { }} ,
@@ -826,7 +826,7 @@
             },
             "OverflowValue": {
                 "rust_class_name": "CssPropertyValue<Overflow>",
-                "external": "azul_css::CssPropertyValue::<Overflow>",
+                "external": "azul_impl::css::CssPropertyValue::<Overflow>",
                 "enum_fields": [
                     { "Auto": { }} ,
                     { "None": { }} ,
@@ -837,7 +837,7 @@
             },
             "StyleBackgroundContentValue": {
                 "rust_class_name": "CssPropertyValue<StyleBackgroundContent>",
-                "external": "azul_css::CssPropertyValue::<StyleBackgroundContent>",
+                "external": "azul_impl::css::CssPropertyValue::<StyleBackgroundContent>",
                 "enum_fields": [
                     { "Auto": { }} ,
                     { "None": { }} ,
@@ -848,7 +848,7 @@
             },
             "StyleBackgroundPositionValue": {
                 "rust_class_name": "CssPropertyValue<StyleBackgroundPosition>",
-                "external": "azul_css::CssPropertyValue::<StyleBackgroundPosition>",
+                "external": "azul_impl::css::CssPropertyValue::<StyleBackgroundPosition>",
                 "enum_fields": [
                     { "Auto": { }} ,
                     { "None": { }} ,
@@ -859,7 +859,7 @@
             },
             "StyleBackgroundRepeatValue": {
                 "rust_class_name": "CssPropertyValue<StyleBackgroundRepeat>",
-                "external": "azul_css::CssPropertyValue::<StyleBackgroundRepeat>",
+                "external": "azul_impl::css::CssPropertyValue::<StyleBackgroundRepeat>",
                 "enum_fields": [
                     { "Auto": { }} ,
                     { "None": { }} ,
@@ -870,7 +870,7 @@
             },
             "StyleBackgroundSizeValue": {
                 "rust_class_name": "CssPropertyValue<StyleBackgroundSize>",
-                "external": "azul_css::CssPropertyValue::<StyleBackgroundSize>",
+                "external": "azul_impl::css::CssPropertyValue::<StyleBackgroundSize>",
                 "enum_fields": [
                     { "Auto": { }} ,
                     { "None": { }} ,
@@ -881,7 +881,7 @@
             },
             "StyleBorderBottomColorValue": {
                 "rust_class_name": "CssPropertyValue<StyleBorderBottomColor>",
-                "external": "azul_css::CssPropertyValue::<StyleBorderBottomColor>",
+                "external": "azul_impl::css::CssPropertyValue::<StyleBorderBottomColor>",
                 "enum_fields": [
                     { "Auto": { }} ,
                     { "None": { }} ,
@@ -892,7 +892,7 @@
             },
             "StyleBorderBottomLeftRadiusValue": {
                 "rust_class_name": "CssPropertyValue<StyleBorderBottomLeftRadius>",
-                "external": "azul_css::CssPropertyValue::<StyleBorderBottomLeftRadius>",
+                "external": "azul_impl::css::CssPropertyValue::<StyleBorderBottomLeftRadius>",
                 "enum_fields": [
                     { "Auto": { }} ,
                     { "None": { }} ,
@@ -903,7 +903,7 @@
             },
             "StyleBorderBottomRightRadiusValue": {
                 "rust_class_name": "CssPropertyValue<StyleBorderBottomRightRadius>",
-                "external": "azul_css::CssPropertyValue::<StyleBorderBottomRightRadius>",
+                "external": "azul_impl::css::CssPropertyValue::<StyleBorderBottomRightRadius>",
                 "enum_fields": [
                     { "Auto": { }} ,
                     { "None": { }} ,
@@ -914,7 +914,7 @@
             },
             "StyleBorderBottomStyleValue": {
                 "rust_class_name": "CssPropertyValue<StyleBorderBottomStyle>",
-                "external": "azul_css::CssPropertyValue::<StyleBorderBottomStyle>",
+                "external": "azul_impl::css::CssPropertyValue::<StyleBorderBottomStyle>",
                 "enum_fields": [
                     { "Auto": { }} ,
                     { "None": { }} ,
@@ -925,7 +925,7 @@
             },
             "StyleBorderBottomWidthValue": {
                 "rust_class_name": "CssPropertyValue<StyleBorderBottomWidth>",
-                "external": "azul_css::CssPropertyValue::<StyleBorderBottomWidth>",
+                "external": "azul_impl::css::CssPropertyValue::<StyleBorderBottomWidth>",
                 "enum_fields": [
                     { "Auto": { }} ,
                     { "None": { }} ,
@@ -936,7 +936,7 @@
             },
             "StyleBorderLeftColorValue": {
                 "rust_class_name": "CssPropertyValue<StyleBorderLeftColor>",
-                "external": "azul_css::CssPropertyValue::<StyleBorderLeftColor>",
+                "external": "azul_impl::css::CssPropertyValue::<StyleBorderLeftColor>",
                 "enum_fields": [
                     { "Auto": { }} ,
                     { "None": { }} ,
@@ -947,7 +947,7 @@
             },
             "StyleBorderLeftStyleValue": {
                 "rust_class_name": "CssPropertyValue<StyleBorderLeftStyle>",
-                "external": "azul_css::CssPropertyValue::<StyleBorderLeftStyle>",
+                "external": "azul_impl::css::CssPropertyValue::<StyleBorderLeftStyle>",
                 "enum_fields": [
                     { "Auto": { }} ,
                     { "None": { }} ,
@@ -958,7 +958,7 @@
             },
             "StyleBorderLeftWidthValue": {
                 "rust_class_name": "CssPropertyValue<StyleBorderLeftWidth>",
-                "external": "azul_css::CssPropertyValue::<StyleBorderLeftWidth>",
+                "external": "azul_impl::css::CssPropertyValue::<StyleBorderLeftWidth>",
                 "enum_fields": [
                     { "Auto": { }} ,
                     { "None": { }} ,
@@ -969,7 +969,7 @@
             },
             "StyleBorderRightColorValue": {
                 "rust_class_name": "CssPropertyValue<StyleBorderRightColor>",
-                "external": "azul_css::CssPropertyValue::<StyleBorderRightColor>",
+                "external": "azul_impl::css::CssPropertyValue::<StyleBorderRightColor>",
                 "enum_fields": [
                     { "Auto": { }} ,
                     { "None": { }} ,
@@ -980,7 +980,7 @@
             },
             "StyleBorderRightStyleValue": {
                 "rust_class_name": "CssPropertyValue<StyleBorderRightStyle>",
-                "external": "azul_css::CssPropertyValue::<StyleBorderRightStyle>",
+                "external": "azul_impl::css::CssPropertyValue::<StyleBorderRightStyle>",
                 "enum_fields": [
                     { "Auto": { }} ,
                     { "None": { }} ,
@@ -991,7 +991,7 @@
             },
             "StyleBorderRightWidthValue": {
                 "rust_class_name": "CssPropertyValue<StyleBorderRightWidth>",
-                "external": "azul_css::CssPropertyValue::<StyleBorderRightWidth>",
+                "external": "azul_impl::css::CssPropertyValue::<StyleBorderRightWidth>",
                 "enum_fields": [
                     { "Auto": { }} ,
                     { "None": { }} ,
@@ -1002,7 +1002,7 @@
             },
             "StyleBorderTopColorValue": {
                 "rust_class_name": "CssPropertyValue<StyleBorderTopColor>",
-                "external": "azul_css::CssPropertyValue::<StyleBorderTopColor>",
+                "external": "azul_impl::css::CssPropertyValue::<StyleBorderTopColor>",
                 "enum_fields": [
                     { "Auto": { }} ,
                     { "None": { }} ,
@@ -1013,7 +1013,7 @@
             },
             "StyleBorderTopLeftRadiusValue": {
                 "rust_class_name": "CssPropertyValue<StyleBorderTopLeftRadius>",
-                "external": "azul_css::CssPropertyValue::<StyleBorderTopLeftRadius>",
+                "external": "azul_impl::css::CssPropertyValue::<StyleBorderTopLeftRadius>",
                 "enum_fields": [
                     { "Auto": { }} ,
                     { "None": { }} ,
@@ -1024,7 +1024,7 @@
             },
             "StyleBorderTopRightRadiusValue": {
                 "rust_class_name": "CssPropertyValue<StyleBorderTopRightRadius>",
-                "external": "azul_css::CssPropertyValue::<StyleBorderTopRightRadius>",
+                "external": "azul_impl::css::CssPropertyValue::<StyleBorderTopRightRadius>",
                 "enum_fields": [
                     { "Auto": { }} ,
                     { "None": { }} ,
@@ -1035,7 +1035,7 @@
             },
             "StyleBorderTopStyleValue": {
                 "rust_class_name": "CssPropertyValue<StyleBorderTopStyle>",
-                "external": "azul_css::CssPropertyValue::<StyleBorderTopStyle>",
+                "external": "azul_impl::css::CssPropertyValue::<StyleBorderTopStyle>",
                 "enum_fields": [
                     { "Auto": { }} ,
                     { "None": { }} ,
@@ -1046,7 +1046,7 @@
             },
             "StyleBorderTopWidthValue": {
                 "rust_class_name": "CssPropertyValue<StyleBorderTopWidth>",
-                "external": "azul_css::CssPropertyValue::<StyleBorderTopWidth>",
+                "external": "azul_impl::css::CssPropertyValue::<StyleBorderTopWidth>",
                 "enum_fields": [
                     { "Auto": { }} ,
                     { "None": { }} ,
@@ -1057,7 +1057,7 @@
             },
             "StyleCursorValue": {
                 "rust_class_name": "CssPropertyValue<StyleCursor>",
-                "external": "azul_css::CssPropertyValue::<StyleCursor>",
+                "external": "azul_impl::css::CssPropertyValue::<StyleCursor>",
                 "enum_fields": [
                     { "Auto": { }} ,
                     { "None": { }} ,
@@ -1068,7 +1068,7 @@
             },
             "StyleFontFamilyValue": {
                 "rust_class_name": "CssPropertyValue<StyleFontFamily>",
-                "external": "azul_css::CssPropertyValue::<StyleFontFamily>",
+                "external": "azul_impl::css::CssPropertyValue::<StyleFontFamily>",
                 "enum_fields": [
                     { "Auto": { }} ,
                     { "None": { }} ,
@@ -1079,7 +1079,7 @@
             },
             "StyleFontSizeValue": {
                 "rust_class_name": "CssPropertyValue<StyleFontSize>",
-                "external": "azul_css::CssPropertyValue::<StyleFontSize>",
+                "external": "azul_impl::css::CssPropertyValue::<StyleFontSize>",
                 "enum_fields": [
                     { "Auto": { }} ,
                     { "None": { }} ,
@@ -1090,7 +1090,7 @@
             },
             "StyleLetterSpacingValue": {
                 "rust_class_name": "CssPropertyValue<StyleLetterSpacing>",
-                "external": "azul_css::CssPropertyValue::<StyleLetterSpacing>",
+                "external": "azul_impl::css::CssPropertyValue::<StyleLetterSpacing>",
                 "enum_fields": [
                     { "Auto": { }} ,
                     { "None": { }} ,
@@ -1101,7 +1101,7 @@
             },
             "StyleLineHeightValue": {
                 "rust_class_name": "CssPropertyValue<StyleLineHeight>",
-                "external": "azul_css::CssPropertyValue::<StyleLineHeight>",
+                "external": "azul_impl::css::CssPropertyValue::<StyleLineHeight>",
                 "enum_fields": [
                     { "Auto": { }} ,
                     { "None": { }} ,
@@ -1112,7 +1112,7 @@
             },
             "StyleTabWidthValue": {
                 "rust_class_name": "CssPropertyValue<StyleTabWidth>",
-                "external": "azul_css::CssPropertyValue::<StyleTabWidth>",
+                "external": "azul_impl::css::CssPropertyValue::<StyleTabWidth>",
                 "enum_fields": [
                     { "Auto": { }} ,
                     { "None": { }} ,
@@ -1123,7 +1123,7 @@
             },
             "StyleTextAlignmentHorzValue": {
                 "rust_class_name": "CssPropertyValue<StyleTextAlignmentHorz>",
-                "external": "azul_css::CssPropertyValue::<StyleTextAlignmentHorz>",
+                "external": "azul_impl::css::CssPropertyValue::<StyleTextAlignmentHorz>",
                 "enum_fields": [
                     { "Auto": { }} ,
                     { "None": { }} ,
@@ -1134,7 +1134,7 @@
             },
             "StyleTextColorValue": {
                 "rust_class_name": "CssPropertyValue<StyleTextColor>",
-                "external": "azul_css::CssPropertyValue::<StyleTextColor>",
+                "external": "azul_impl::css::CssPropertyValue::<StyleTextColor>",
                 "enum_fields": [
                     { "Auto": { }} ,
                     { "None": { }} ,
@@ -1145,7 +1145,7 @@
             },
             "StyleWordSpacingValue": {
                 "rust_class_name": "CssPropertyValue<StyleWordSpacing>",
-                "external": "azul_css::CssPropertyValue::<StyleWordSpacing>",
+                "external": "azul_impl::css::CssPropertyValue::<StyleWordSpacing>",
                 "enum_fields": [
                     { "Auto": { }} ,
                     { "None": { }} ,
@@ -1156,7 +1156,7 @@
             },
             "CssProperty": {
                "doc": "Parsed CSS key-value pair",
-               "external": "azul_css::CssProperty",
+               "external": "azul_impl::css::CssProperty",
                "enum_fields": [
                   { "TextColor": { "type": "CssPropertyValue<StyleTextColor>" }} ,
                   { "FontSize": { "type": "CssPropertyValue<StyleFontSize>" }} ,
@@ -1230,7 +1230,7 @@
          "doc": "`Dom` construction and configuration",
          "classes": {
             "Dom": {
-               "external": "azul_core::dom::DomPtr",
+               "external": "azul_impl::dom::DomPtr",
                "is_boxed_object": true,
                "constructors": {
                   "div": {
@@ -1468,7 +1468,7 @@
                }
             },
             "EventFilter": {
-               "external": "azul_core::dom::EventFilter",
+               "external": "azul_impl::dom::EventFilter",
                "enum_fields": [
                   { "Hover": {"type": "HoverEventFilter" } },
                   { "Not": {"type": "NotEventFilter" } },
@@ -1477,7 +1477,7 @@
                ]
             },
             "HoverEventFilter": {
-               "external": "azul_core::dom::HoverEventFilter",
+               "external": "azul_impl::dom::HoverEventFilter",
                "enum_fields": [
                   { "MouseOver": {}} ,
                   { "MouseDown": {}} ,
@@ -1502,7 +1502,7 @@
                 ]
             },
             "FocusEventFilter": {
-               "external": "azul_core::dom::FocusEventFilter",
+               "external": "azul_impl::dom::FocusEventFilter",
                "enum_fields": [
                   { "MouseOver": {}} ,
                   { "MouseDown": {}} ,
@@ -1526,14 +1526,14 @@
                 ]
             },
             "NotEventFilter": {
-               "external": "azul_core::dom::NotEventFilter",
+               "external": "azul_impl::dom::NotEventFilter",
                "enum_fields": [
                   { "Hover": {"type": "HoverEventFilter" } },
                   { "Focus": {"type": "FocusEventFilter" } }
                ]
             },
             "WindowEventFilter": {
-               "external": "azul_core::dom::WindowEventFilter",
+               "external": "azul_impl::dom::WindowEventFilter",
                "enum_fields": [
                   { "MouseOver": {}} ,
                   { "MouseDown": {}} ,
@@ -1558,7 +1558,7 @@
                 ]
             },
             "TabIndex": {
-               "external": "azul_core::dom::TabIndex",
+               "external": "azul_impl::dom::TabIndex",
                "enum_fields": [
                   { "Auto": { "doc": "Automatic tab index, similar to simply setting `focusable = \"true\"` or `tabindex = 0`, (both have the effect of making the element focusable)" }} ,
                   { "OverrideInParent": { "type": "usize", "doc": " Set the tab index in relation to its parent element (`tabindex = n`)" }} ,
@@ -1571,7 +1571,7 @@
          "doc": "Struct definition for image / font / text IDs",
          "classes": {
             "TextId": {
-               "external": "azul_core::app_resources::TextId",
+               "external": "azul_impl::resources::TextId",
                "struct_fields": [
                   { "id": { "type": "usize" } }
                ],
@@ -1583,7 +1583,7 @@
                }
             },
             "ImageId": {
-               "external": "azul_core::app_resources::ImageId",
+               "external": "azul_impl::resources::ImageId",
                "struct_fields": [
                   { "id": { "type": "usize" } }
                ],
@@ -1595,7 +1595,7 @@
                }
             },
             "FontId": {
-               "external": "azul_core::app_resources::FontId",
+               "external": "azul_impl::resources::FontId",
                "struct_fields": [
                   { "id": { "type": "usize" } }
                ],
@@ -1607,7 +1607,7 @@
                }
             },
             "ImageSource": {
-               "external": "azul_core::app_resources::ImageSource",
+               "external": "azul_impl::resources::ImageSource",
                "enum_fields": [
                   { "Embedded": {"type": "Vec<u8>", "doc": "Bytes of the image, encoded in PNG / JPG / etc. format" } },
                   { "File": {"type": "PathBuf", "doc": "References an (encoded!) image as a file from the file system that is loaded when necessary" } },
@@ -1615,7 +1615,7 @@
                ]
             },
             "FontSource": {
-               "external": "azul_core::app_resources::FontSource",
+               "external": "azul_impl::resources::FontSource",
                "enum_fields": [
                   { "Embedded": {"type": "Vec<u8>", "doc": "Bytes are the bytes of the font file" } },
                   { "File": {"type": "PathBuf", "doc": "References a font from a file path, which is loaded when necessary" } },
@@ -1637,7 +1637,7 @@
                }
             },
             "RawImageFormat": {
-               "external": "azul_core::app_resources::RawImageFormat",
+               "external": "azul_impl::resources::RawImageFormat",
                "enum_fields": [
                   { "R8": {"doc": "Bytes are in the R-unsinged-8bit format" } },
                   { "R16": {"doc": "Bytes are in the R-unsinged-16bit format" } },

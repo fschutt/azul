@@ -12,8 +12,6 @@ edition = "2018"
 
 [dependencies]
 azul-core = { path = "../azul-core", version = "0.0.2", default-features = false, features = ["opengl"] }
-azul-css  = { path = "../azul-css", version = "0.0.1", default-features = false }
-azul-native-style = { path = "../azul-native-style", version = "0.0.1", default-features = false }
 
 [target.'cfg(not(target_arch = "wasm32"))'.dependencies]
 azul-desktop = { path = "../azul-desktop", version = "0.0.5", default-features = false }

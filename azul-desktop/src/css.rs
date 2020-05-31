@@ -53,6 +53,11 @@ pub mod native_style {
     pub use azul_native_style::*;
 }
 
+/// Returns an empty CSS style
+pub fn empty() -> Css {
+    Css::empty()
+}
+
 /// Returns a style with the native appearance for the operating system. Convenience wrapper
 /// for functionality from the the `azul-native-style` crate.
 #[cfg(feature = "native_style")]
