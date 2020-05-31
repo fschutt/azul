@@ -307,22 +307,22 @@ impl StyleBorderWidths {
 
     #[inline]
     pub fn left_width(&self) -> f32 {
-        self.left.unwrap_or_default().get_property_owned().unwrap_or_default().0.to_pixels(0.0)
+        self.left.unwrap_or_default().get_property_owned().unwrap_or_default().inner.to_pixels(0.0)
     }
 
     #[inline]
     pub fn right_width(&self) -> f32 {
-        self.right.unwrap_or_default().get_property_owned().unwrap_or_default().0.to_pixels(0.0)
+        self.right.unwrap_or_default().get_property_owned().unwrap_or_default().inner.to_pixels(0.0)
     }
 
     #[inline]
     pub fn top_width(&self) -> f32 {
-        self.top.unwrap_or_default().get_property_owned().unwrap_or_default().0.to_pixels(0.0)
+        self.top.unwrap_or_default().get_property_owned().unwrap_or_default().inner.to_pixels(0.0)
     }
 
     #[inline]
     pub fn bottom_width(&self) -> f32 {
-        self.bottom.unwrap_or_default().get_property_owned().unwrap_or_default().0.to_pixels(0.0)
+        self.bottom.unwrap_or_default().get_property_owned().unwrap_or_default().inner.to_pixels(0.0)
     }
 
     #[inline]
@@ -1200,7 +1200,7 @@ pub fn displaylist_handle_rect<'a>(
 
                 use crate::ui_solver::DEFAULT_FONT_COLOR;
 
-                let text_color = rect.style.text_color.and_then(|tc| tc.get_property().cloned()).unwrap_or(DEFAULT_FONT_COLOR).0;
+                let text_color = rect.style.text_color.and_then(|tc| tc.get_property().cloned()).unwrap_or(DEFAULT_FONT_COLOR).inner;
                 let positioned_words = &layout_result.solved_layouts[dom_id].positioned_word_cache[&rect_idx];
                 let font_instance_key = positioned_words.1;
 

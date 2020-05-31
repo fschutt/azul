@@ -84,7 +84,7 @@ macro_rules! typed_pixel_value_parser {
         #[doc = $test_str]
         #[doc = "```"]
         pub fn $fn<'a>(input: &'a str) -> Result<$return, PixelParseError<'a>> {
-            parse_pixel_value(input).and_then(|e| Ok($return(e)))
+            parse_pixel_value(input).and_then(|e| Ok($return { inner: e }))
         }
     };
     ($fn:ident, $return:ident) => {
@@ -180,15 +180,15 @@ pub fn parse_css_property<'a>(key: CssPropertyType, value: &'a str) -> Result<Cs
             BorderBottomLeftRadius      => parse_style_border_bottom_left_radius(value)?.into(),
             BorderBottomRightRadius     => parse_style_border_bottom_right_radius(value)?.into(),
 
-            BorderTopColor              => StyleBorderTopColor(parse_css_color(value)?).into(),
-            BorderRightColor            => StyleBorderRightColor(parse_css_color(value)?).into(),
-            BorderLeftColor             => StyleBorderLeftColor(parse_css_color(value)?).into(),
-            BorderBottomColor           => StyleBorderBottomColor(parse_css_color(value)?).into(),
+            BorderTopColor              => StyleBorderTopColor { inner: parse_css_color(value)? }.into(),
+            BorderRightColor            => StyleBorderRightColor { inner: parse_css_color(value)? }.into(),
+            BorderLeftColor             => StyleBorderLeftColor { inner: parse_css_color(value)? }.into(),
+            BorderBottomColor           => StyleBorderBottomColor { inner: parse_css_color(value)? }.into(),
 
-            BorderTopStyle              => StyleBorderTopStyle(parse_style_border_style(value)?).into(),
-            BorderRightStyle            => StyleBorderRightStyle(parse_style_border_style(value)?).into(),
-            BorderLeftStyle             => StyleBorderLeftStyle(parse_style_border_style(value)?).into(),
-            BorderBottomStyle           => StyleBorderBottomStyle(parse_style_border_style(value)?).into(),
+            BorderTopStyle              => StyleBorderTopStyle { inner: parse_style_border_style(value)? }.into(),
+            BorderRightStyle            => StyleBorderRightStyle { inner: parse_style_border_style(value)? }.into(),
+            BorderLeftStyle             => StyleBorderLeftStyle { inner: parse_style_border_style(value)? }.into(),
+            BorderBottomStyle           => StyleBorderBottomStyle { inner: parse_style_border_style(value)? }.into(),
 
             BorderTopWidth              => parse_style_border_top_width(value)?.into(),
             BorderRightWidth            => parse_style_border_right_width(value)?.into(),
@@ -233,7 +233,7 @@ pub fn parse_combined_css_property<'a>(key: CombinedCssPropertyType, value: &'a 
             PixelValueWithAuto::Initial => CssProperty::initial(CssPropertyType::$prop_type),
             PixelValueWithAuto::Inherit => CssProperty::inherit(CssPropertyType::$prop_type),
             PixelValueWithAuto::Auto => CssProperty::auto(CssPropertyType::$prop_type),
-            PixelValueWithAuto::Exact(x) => CssProperty::$prop_type($wrapper(x).into()),
+            PixelValueWithAuto::Exact(x) => CssProperty::$prop_type($wrapper { inner: x }.into()),
         }
     )}
 
@@ -334,10 +334,10 @@ pub fn parse_combined_css_property<'a>(key: CombinedCssPropertyType, value: &'a 
         BorderRadius => {
             let border_radius = parse_style_border_radius(value)?;
             Ok(vec![
-                CssProperty::BorderTopLeftRadius(StyleBorderTopLeftRadius(border_radius.top_left).into()),
-                CssProperty::BorderTopRightRadius(StyleBorderTopRightRadius(border_radius.top_right).into()),
-                CssProperty::BorderBottomLeftRadius(StyleBorderBottomLeftRadius(border_radius.bottom_left).into()),
-                CssProperty::BorderBottomRightRadius(StyleBorderBottomRightRadius(border_radius.bottom_right).into()),
+                CssProperty::BorderTopLeftRadius(StyleBorderTopLeftRadius { inner: border_radius.top_left }.into()),
+                CssProperty::BorderTopRightRadius(StyleBorderTopRightRadius { inner: border_radius.top_right }.into()),
+                CssProperty::BorderBottomLeftRadius(StyleBorderBottomLeftRadius { inner: border_radius.bottom_left }.into()),
+                CssProperty::BorderBottomRightRadius(StyleBorderBottomRightRadius { inner: border_radius.bottom_right }.into()),
             ])
         },
         Overflow => {
@@ -368,52 +368,50 @@ pub fn parse_combined_css_property<'a>(key: CombinedCssPropertyType, value: &'a 
         Border => {
             let border = parse_style_border(value)?;
             Ok(vec![
-               CssProperty::BorderTopColor(StyleBorderTopColor(border.border_color).into()),
-               CssProperty::BorderRightColor(StyleBorderRightColor(border.border_color).into()),
-               CssProperty::BorderLeftColor(StyleBorderLeftColor(border.border_color).into()),
-               CssProperty::BorderBottomColor(StyleBorderBottomColor(border.border_color).into()),
-
-               CssProperty::BorderTopStyle(StyleBorderTopStyle(border.border_style).into()),
-               CssProperty::BorderRightStyle(StyleBorderRightStyle(border.border_style).into()),
-               CssProperty::BorderLeftStyle(StyleBorderLeftStyle(border.border_style).into()),
-               CssProperty::BorderBottomStyle(StyleBorderBottomStyle(border.border_style).into()),
-
-               CssProperty::BorderTopWidth(StyleBorderTopWidth(border.border_width).into()),
-               CssProperty::BorderRightWidth(StyleBorderRightWidth(border.border_width).into()),
-               CssProperty::BorderLeftWidth(StyleBorderLeftWidth(border.border_width).into()),
-               CssProperty::BorderBottomWidth(StyleBorderBottomWidth(border.border_width).into()),
+               CssProperty::BorderTopColor(StyleBorderTopColor { inner: border.border_color }.into()),
+               CssProperty::BorderRightColor(StyleBorderRightColor { inner: border.border_color }.into()),
+               CssProperty::BorderLeftColor(StyleBorderLeftColor { inner: border.border_color }.into()),
+               CssProperty::BorderBottomColor(StyleBorderBottomColor { inner: border.border_color }.into()),
+               CssProperty::BorderTopStyle(StyleBorderTopStyle { inner: border.border_style }.into()),
+               CssProperty::BorderRightStyle(StyleBorderRightStyle { inner: border.border_style }.into()),
+               CssProperty::BorderLeftStyle(StyleBorderLeftStyle { inner: border.border_style }.into()),
+               CssProperty::BorderBottomStyle(StyleBorderBottomStyle { inner: border.border_style }.into()),
+               CssProperty::BorderTopWidth(StyleBorderTopWidth { inner: border.border_width }.into()),
+               CssProperty::BorderRightWidth(StyleBorderRightWidth { inner: border.border_width }.into()),
+               CssProperty::BorderLeftWidth(StyleBorderLeftWidth { inner: border.border_width }.into()),
+               CssProperty::BorderBottomWidth(StyleBorderBottomWidth { inner: border.border_width }.into()),
             ])
         },
         BorderLeft => {
             let border = parse_style_border(value)?;
             Ok(vec![
-               CssProperty::BorderLeftColor(StyleBorderLeftColor(border.border_color).into()),
-               CssProperty::BorderLeftStyle(StyleBorderLeftStyle(border.border_style).into()),
-               CssProperty::BorderLeftWidth(StyleBorderLeftWidth(border.border_width).into()),
+               CssProperty::BorderLeftColor(StyleBorderLeftColor { inner: border.border_color }.into()),
+               CssProperty::BorderLeftStyle(StyleBorderLeftStyle { inner: border.border_style }.into()),
+               CssProperty::BorderLeftWidth(StyleBorderLeftWidth { inner: border.border_width }.into()),
             ])
         },
         BorderRight => {
             let border = parse_style_border(value)?;
             Ok(vec![
-               CssProperty::BorderRightColor(StyleBorderRightColor(border.border_color).into()),
-               CssProperty::BorderRightStyle(StyleBorderRightStyle(border.border_style).into()),
-               CssProperty::BorderRightWidth(StyleBorderRightWidth(border.border_width).into()),
+               CssProperty::BorderRightColor(StyleBorderRightColor { inner: border.border_color }.into()),
+               CssProperty::BorderRightStyle(StyleBorderRightStyle { inner: border.border_style }.into()),
+               CssProperty::BorderRightWidth(StyleBorderRightWidth { inner: border.border_width }.into()),
             ])
         },
         BorderTop => {
             let border = parse_style_border(value)?;
             Ok(vec![
-               CssProperty::BorderTopColor(StyleBorderTopColor(border.border_color).into()),
-               CssProperty::BorderTopStyle(StyleBorderTopStyle(border.border_style).into()),
-               CssProperty::BorderTopWidth(StyleBorderTopWidth(border.border_width).into()),
+               CssProperty::BorderTopColor(StyleBorderTopColor { inner: border.border_color }.into()),
+               CssProperty::BorderTopStyle(StyleBorderTopStyle { inner: border.border_style }.into()),
+               CssProperty::BorderTopWidth(StyleBorderTopWidth { inner: border.border_width }.into()),
             ])
         },
         BorderBottom => {
             let border = parse_style_border(value)?;
             Ok(vec![
-               CssProperty::BorderBottomColor(StyleBorderBottomColor(border.border_color).into()),
-               CssProperty::BorderBottomStyle(StyleBorderBottomStyle(border.border_style).into()),
-               CssProperty::BorderBottomWidth(StyleBorderBottomWidth(border.border_width).into()),
+               CssProperty::BorderBottomColor(StyleBorderBottomColor { inner: border.border_color }.into()),
+               CssProperty::BorderBottomStyle(StyleBorderBottomStyle { inner: border.border_style }.into()),
+               CssProperty::BorderBottomWidth(StyleBorderBottomWidth { inner: border.border_width }.into()),
             ])
         },
         BoxShadow => {
@@ -891,7 +889,7 @@ pub fn parse_float_value(input: &str)
 pub fn parse_style_text_color<'a>(input: &'a str)
 -> Result<StyleTextColor, CssColorParseError<'a>>
 {
-    parse_css_color(input).and_then(|ok| Ok(StyleTextColor(ok)))
+    parse_css_color(input).and_then(|ok| Ok(StyleTextColor { inner: ok }))
 }
 
 /// Parse a built-in background color
@@ -2229,7 +2227,7 @@ impl_display!{FlexGrowParseError<'a>, {
 
 pub fn parse_layout_flex_grow<'a>(input: &'a str) -> Result<LayoutFlexGrow, FlexGrowParseError<'a>> {
     match parse_float_value(input) {
-        Ok(o) => Ok(LayoutFlexGrow(o)),
+        Ok(o) => Ok(LayoutFlexGrow { inner: o }),
         Err(e) => Err(FlexGrowParseError::ParseFloat(e, input)),
     }
 }
@@ -2245,7 +2243,7 @@ impl_display!{FlexShrinkParseError<'a>, {
 
 pub fn parse_layout_flex_shrink<'a>(input: &'a str) -> Result<LayoutFlexShrink, FlexShrinkParseError<'a>> {
     match parse_float_value(input) {
-        Ok(o) => Ok(LayoutFlexShrink(o)),
+        Ok(o) => Ok(LayoutFlexShrink { inner: o }),
         Err(e) => Err(FlexShrinkParseError::ParseFloat(e, input)),
     }
 }
@@ -2253,13 +2251,13 @@ pub fn parse_layout_flex_shrink<'a>(input: &'a str) -> Result<LayoutFlexShrink, 
 pub fn parse_style_tab_width(input: &str)
 -> Result<StyleTabWidth, PercentageParseError>
 {
-    parse_percentage_value(input).and_then(|e| Ok(StyleTabWidth(e)))
+    parse_percentage_value(input).and_then(|e| Ok(StyleTabWidth { inner: e }))
 }
 
 pub fn parse_style_line_height(input: &str)
 -> Result<StyleLineHeight, PercentageParseError>
 {
-    parse_percentage_value(input).and_then(|e| Ok(StyleLineHeight(e)))
+    parse_percentage_value(input).and_then(|e| Ok(StyleLineHeight { inner: e }))
 }
 
 typed_pixel_value_parser!(parse_style_font_size, StyleFontSize);
@@ -2308,7 +2306,7 @@ pub fn parse_style_font_family<'a>(input: &'a str) -> Result<StyleFontFamily, Cs
         let font = font.trim_matches('\'');
         let font = font.trim_matches('\"');
         let font = font.trim();
-        fonts.push(FontId(font.into()));
+        fonts.push(FontId { inner: font.into() });
     }
 
     Ok(StyleFontFamily {

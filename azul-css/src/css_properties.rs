@@ -478,7 +478,7 @@ pub struct NinePatchBorder {
 macro_rules! derive_debug_zero {($struct:ident) => (
     impl fmt::Debug for $struct {
         fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-            write!(f, "{:?}", self.0)
+            write!(f, "{:?}", self.inner)
         }
     }
 )}
@@ -486,7 +486,7 @@ macro_rules! derive_debug_zero {($struct:ident) => (
 macro_rules! derive_display_zero {($struct:ident) => (
     impl fmt::Display for $struct {
         fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-            write!(f, "{}", self.0)
+            write!(f, "{}", self.inner)
         }
     }
 )}
@@ -501,23 +501,23 @@ macro_rules! impl_pixel_value {($struct:ident) => (
     impl $struct {
         #[inline]
         pub fn px(value: f32) -> Self {
-            $struct(PixelValue::px(value))
+            $struct { inner: PixelValue::px(value) }
         }
 
         #[inline]
         pub fn em(value: f32) -> Self {
-            $struct(PixelValue::em(value))
+            $struct { inner: PixelValue::em(value) }
         }
 
         #[inline]
         pub fn pt(value: f32) -> Self {
-            $struct(PixelValue::pt(value))
+            $struct { inner: PixelValue::pt(value) }
         }
     }
 
     impl FormatAsCssValue for $struct {
         fn format_as_css_value(&self, f: &mut fmt::Formatter) -> fmt::Result {
-            self.0.format_as_css_value(f)
+            self.inner.format_as_css_value(f)
         }
     }
 )}
@@ -525,19 +525,19 @@ macro_rules! impl_pixel_value {($struct:ident) => (
 macro_rules! impl_percentage_value{($struct:ident) => (
     impl ::std::fmt::Display for $struct {
         fn fmt(&self, f: &mut ::std::fmt::Formatter) -> ::std::fmt::Result {
-            write!(f, "{}%", self.0.get())
+            write!(f, "{}%", self.inner.get())
         }
     }
 
     impl ::std::fmt::Debug for $struct {
         fn fmt(&self, f: &mut ::std::fmt::Formatter) -> ::std::fmt::Result {
-            write!(f, "{}%", self.0.get())
+            write!(f, "{}%", self.inner.get())
         }
     }
 
     impl FormatAsCssValue for $struct {
         fn format_as_css_value(&self, f: &mut fmt::Formatter) -> fmt::Result {
-            write!(f, "{}%", self.0.get())
+            write!(f, "{}%", self.inner.get())
         }
     }
 )}
@@ -545,19 +545,19 @@ macro_rules! impl_percentage_value{($struct:ident) => (
 macro_rules! impl_float_value{($struct:ident) => (
     impl ::std::fmt::Display for $struct {
         fn fmt(&self, f: &mut ::std::fmt::Formatter) -> ::std::fmt::Result {
-            write!(f, "{}", self.0.get())
+            write!(f, "{}", self.inner.get())
         }
     }
 
     impl ::std::fmt::Debug for $struct {
         fn fmt(&self, f: &mut ::std::fmt::Formatter) -> ::std::fmt::Result {
-            write!(f, "{}", self.0.get())
+            write!(f, "{}", self.inner.get())
         }
     }
 
     impl FormatAsCssValue for $struct {
         fn format_as_css_value(&self, f: &mut fmt::Formatter) -> fmt::Result {
-            write!(f, "{}", self.0.get())
+            write!(f, "{}", self.inner.get())
         }
     }
 )}
@@ -1594,7 +1594,8 @@ impl Default for StyleBackgroundRepeat {
 
 /// Represents a `color` attribute
 #[derive(Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
-pub struct StyleTextColor(pub ColorU);
+#[repr(C)]
+pub struct StyleTextColor { pub inner: ColorU }
 
 derive_debug_zero!(StyleTextColor);
 derive_display_zero!(StyleTextColor);
@@ -1603,16 +1604,20 @@ derive_display_zero!(StyleTextColor);
 
 /// Represents a `border-top-width` attribute
 #[derive(Default, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
-pub struct StyleBorderTopLeftRadius(pub PixelValue);
+#[repr(C)]
+pub struct StyleBorderTopLeftRadius { pub inner: PixelValue }
 /// Represents a `border-left-width` attribute
 #[derive(Default, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
-pub struct StyleBorderBottomLeftRadius(pub PixelValue);
+#[repr(C)]
+pub struct StyleBorderBottomLeftRadius { pub inner: PixelValue }
 /// Represents a `border-right-width` attribute
 #[derive(Default, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
-pub struct StyleBorderTopRightRadius(pub PixelValue);
+#[repr(C)]
+pub struct StyleBorderTopRightRadius { pub inner: PixelValue }
 /// Represents a `border-bottom-width` attribute
 #[derive(Default, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
-pub struct StyleBorderBottomRightRadius(pub PixelValue);
+#[repr(C)]
+pub struct StyleBorderBottomRightRadius { pub inner: PixelValue }
 
 impl_pixel_value!(StyleBorderTopLeftRadius);
 impl_pixel_value!(StyleBorderBottomLeftRadius);
@@ -1621,16 +1626,20 @@ impl_pixel_value!(StyleBorderBottomRightRadius);
 
 /// Represents a `border-top-width` attribute
 #[derive(Default, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
-pub struct StyleBorderTopWidth(pub PixelValue);
+#[repr(C)]
+pub struct StyleBorderTopWidth { pub inner: PixelValue }
 /// Represents a `border-left-width` attribute
 #[derive(Default, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
-pub struct StyleBorderLeftWidth(pub PixelValue);
+#[repr(C)]
+pub struct StyleBorderLeftWidth { pub inner: PixelValue }
 /// Represents a `border-right-width` attribute
 #[derive(Default, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
-pub struct StyleBorderRightWidth(pub PixelValue);
+#[repr(C)]
+pub struct StyleBorderRightWidth { pub inner: PixelValue }
 /// Represents a `border-bottom-width` attribute
 #[derive(Default, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
-pub struct StyleBorderBottomWidth(pub PixelValue);
+#[repr(C)]
+pub struct StyleBorderBottomWidth { pub inner: PixelValue }
 
 impl_pixel_value!(StyleBorderTopWidth);
 impl_pixel_value!(StyleBorderLeftWidth);
@@ -1639,16 +1648,20 @@ impl_pixel_value!(StyleBorderBottomWidth);
 
 /// Represents a `border-top-width` attribute
 #[derive(Default, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
-pub struct StyleBorderTopStyle(pub BorderStyle);
+#[repr(C)]
+pub struct StyleBorderTopStyle { pub inner: BorderStyle }
 /// Represents a `border-left-width` attribute
 #[derive(Default, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
-pub struct StyleBorderLeftStyle(pub BorderStyle);
+#[repr(C)]
+pub struct StyleBorderLeftStyle { pub inner: BorderStyle }
 /// Represents a `border-right-width` attribute
 #[derive(Default, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
-pub struct StyleBorderRightStyle(pub BorderStyle);
+#[repr(C)]
+pub struct StyleBorderRightStyle { pub inner: BorderStyle }
 /// Represents a `border-bottom-width` attribute
 #[derive(Default, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
-pub struct StyleBorderBottomStyle(pub BorderStyle);
+#[repr(C)]
+pub struct StyleBorderBottomStyle { pub inner: BorderStyle }
 
 derive_debug_zero!(StyleBorderTopStyle);
 derive_debug_zero!(StyleBorderLeftStyle);
@@ -1662,16 +1675,20 @@ derive_display_zero!(StyleBorderRightStyle);
 
 /// Represents a `border-top-width` attribute
 #[derive(Default, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
-pub struct StyleBorderTopColor(pub ColorU);
+#[repr(C)]
+pub struct StyleBorderTopColor { pub inner: ColorU }
 /// Represents a `border-left-width` attribute
 #[derive(Default, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
-pub struct StyleBorderLeftColor(pub ColorU);
+#[repr(C)]
+pub struct StyleBorderLeftColor { pub inner: ColorU }
 /// Represents a `border-right-width` attribute
 #[derive(Default, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
-pub struct StyleBorderRightColor(pub ColorU);
+#[repr(C)]
+pub struct StyleBorderRightColor { pub inner: ColorU }
 /// Represents a `border-bottom-width` attribute
 #[derive(Default, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
-pub struct StyleBorderBottomColor(pub ColorU);
+#[repr(C)]
+pub struct StyleBorderBottomColor { pub inner: ColorU }
 
 derive_debug_zero!(StyleBorderTopColor);
 derive_debug_zero!(StyleBorderLeftColor);
@@ -1896,6 +1913,7 @@ impl fmt::Display for Shape {
 }
 
 #[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
+#[repr(C)]
 pub enum StyleCursor {
     /// `alias`
     Alias,
@@ -2079,22 +2097,28 @@ impl fmt::Display for GradientStopPre {
 
 /// Represents a `width` attribute
 #[derive(Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
-pub struct LayoutWidth(pub PixelValue);
+#[repr(C)]
+pub struct LayoutWidth { pub inner: PixelValue }
 /// Represents a `min-width` attribute
 #[derive(Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
-pub struct LayoutMinWidth(pub PixelValue);
+#[repr(C)]
+pub struct LayoutMinWidth { pub inner: PixelValue }
 /// Represents a `max-width` attribute
 #[derive(Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
-pub struct LayoutMaxWidth(pub PixelValue);
+#[repr(C)]
+pub struct LayoutMaxWidth { pub inner: PixelValue }
 /// Represents a `height` attribute
 #[derive(Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
-pub struct LayoutHeight(pub PixelValue);
+#[repr(C)]
+pub struct LayoutHeight { pub inner: PixelValue }
 /// Represents a `min-height` attribute
 #[derive(Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
-pub struct LayoutMinHeight(pub PixelValue);
+#[repr(C)]
+pub struct LayoutMinHeight { pub inner: PixelValue }
 /// Represents a `max-height` attribute
 #[derive(Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
-pub struct LayoutMaxHeight(pub PixelValue);
+#[repr(C)]
+pub struct LayoutMaxHeight { pub inner: PixelValue }
 
 impl_pixel_value!(LayoutWidth);
 impl_pixel_value!(LayoutHeight);
@@ -2105,16 +2129,20 @@ impl_pixel_value!(LayoutMaxHeight);
 
 /// Represents a `top` attribute
 #[derive(Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
-pub struct LayoutTop(pub PixelValue);
+#[repr(C)]
+pub struct LayoutTop { pub inner: PixelValue }
 /// Represents a `left` attribute
 #[derive(Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
-pub struct LayoutLeft(pub PixelValue);
+#[repr(C)]
+pub struct LayoutLeft { pub inner: PixelValue }
 /// Represents a `right` attribute
 #[derive(Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
-pub struct LayoutRight(pub PixelValue);
+#[repr(C)]
+pub struct LayoutRight { pub inner: PixelValue }
 /// Represents a `bottom` attribute
 #[derive(Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
-pub struct LayoutBottom(pub PixelValue);
+#[repr(C)]
+pub struct LayoutBottom { pub inner: PixelValue }
 
 impl_pixel_value!(LayoutTop);
 impl_pixel_value!(LayoutBottom);
@@ -2123,16 +2151,20 @@ impl_pixel_value!(LayoutLeft);
 
 /// Represents a `padding-top` attribute
 #[derive(Default, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
-pub struct LayoutPaddingTop(pub PixelValue);
+#[repr(C)]
+pub struct LayoutPaddingTop { pub inner: PixelValue }
 /// Represents a `padding-left` attribute
 #[derive(Default, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
-pub struct LayoutPaddingLeft(pub PixelValue);
+#[repr(C)]
+pub struct LayoutPaddingLeft { pub inner: PixelValue }
 /// Represents a `padding-right` attribute
 #[derive(Default, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
-pub struct LayoutPaddingRight(pub PixelValue);
+#[repr(C)]
+pub struct LayoutPaddingRight { pub inner: PixelValue }
 /// Represents a `padding-bottom` attribute
 #[derive(Default, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
-pub struct LayoutPaddingBottom(pub PixelValue);
+#[repr(C)]
+pub struct LayoutPaddingBottom { pub inner: PixelValue }
 
 impl_pixel_value!(LayoutPaddingTop);
 impl_pixel_value!(LayoutPaddingBottom);
@@ -2141,16 +2173,20 @@ impl_pixel_value!(LayoutPaddingLeft);
 
 /// Represents a `padding-top` attribute
 #[derive(Default, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
-pub struct LayoutMarginTop(pub PixelValue);
+#[repr(C)]
+pub struct LayoutMarginTop { pub inner: PixelValue }
 /// Represents a `padding-left` attribute
 #[derive(Default, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
-pub struct LayoutMarginLeft(pub PixelValue);
+#[repr(C)]
+pub struct LayoutMarginLeft { pub inner: PixelValue }
 /// Represents a `padding-right` attribute
 #[derive(Default, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
-pub struct LayoutMarginRight(pub PixelValue);
+#[repr(C)]
+pub struct LayoutMarginRight { pub inner: PixelValue }
 /// Represents a `padding-bottom` attribute
 #[derive(Default, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
-pub struct LayoutMarginBottom(pub PixelValue);
+#[repr(C)]
+pub struct LayoutMarginBottom { pub inner: PixelValue }
 
 impl_pixel_value!(LayoutMarginTop);
 impl_pixel_value!(LayoutMarginBottom);
@@ -2159,21 +2195,23 @@ impl_pixel_value!(LayoutMarginLeft);
 
 /// Represents a `flex-grow` attribute
 #[derive(Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
-pub struct LayoutFlexGrow(pub FloatValue);
+#[repr(C)]
+pub struct LayoutFlexGrow { pub inner: FloatValue }
 
 impl Default for LayoutFlexGrow {
     fn default() -> Self {
-        LayoutFlexGrow(FloatValue::const_new(0))
+        LayoutFlexGrow { inner: FloatValue::const_new(0) }
     }
 }
 
 /// Represents a `flex-shrink` attribute
 #[derive(Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
-pub struct LayoutFlexShrink(pub FloatValue);
+#[repr(C)]
+pub struct LayoutFlexShrink { pub inner: FloatValue }
 
 impl Default for LayoutFlexShrink {
     fn default() -> Self {
-        LayoutFlexShrink(FloatValue::const_new(0))
+        LayoutFlexShrink { inner: FloatValue::const_new(0) }
     }
 }
 
@@ -2182,6 +2220,7 @@ impl_float_value!(LayoutFlexShrink);
 
 /// Represents a `flex-direction` attribute - default: `Column`
 #[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
+#[repr(C)]
 pub enum LayoutDirection {
     Row,
     RowReverse,
@@ -2212,6 +2251,7 @@ impl LayoutDirection {
 
 /// Represents a `flex-direction` attribute - default: `Column`
 #[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
+#[repr(C)]
 pub enum LayoutBoxSizing {
     ContentBox,
     BorderBox,
@@ -2225,20 +2265,24 @@ impl Default for LayoutBoxSizing {
 
 /// Represents a `line-height` attribute
 #[derive(Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
-pub struct StyleLineHeight(pub PercentageValue);
+#[repr(C)]
+pub struct StyleLineHeight { pub inner: PercentageValue }
 /// Represents a `tab-width` attribute
 #[derive(Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
-pub struct StyleTabWidth(pub PercentageValue);
+#[repr(C)]
+pub struct StyleTabWidth { pub inner: PercentageValue }
 
 impl_percentage_value!(StyleTabWidth);
 impl_percentage_value!(StyleLineHeight);
 
 /// Represents a `letter-spacing` attribute
 #[derive(Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
-pub struct StyleLetterSpacing(pub PixelValue);
+#[repr(C)]
+pub struct StyleLetterSpacing { pub inner: PixelValue }
 /// Represents a `word-spacing` attribute
 #[derive(Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
-pub struct StyleWordSpacing(pub PixelValue);
+#[repr(C)]
+pub struct StyleWordSpacing { pub inner: PixelValue }
 
 impl_pixel_value!(StyleLetterSpacing);
 impl_pixel_value!(StyleWordSpacing);
@@ -2247,6 +2291,7 @@ impl_pixel_value!(StyleWordSpacing);
 /// makes decisions based on horizontal / vertical direction easier to write.
 /// Use `LayoutDirection::get_axis()` to get the axis for a given `LayoutDirection`.
 #[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
+#[repr(C)]
 pub enum LayoutAxis {
     Horizontal,
     Vertical,
@@ -2254,6 +2299,7 @@ pub enum LayoutAxis {
 
 /// Represents a `display` attribute
 #[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
+#[repr(C)]
 pub enum LayoutDisplay {
     Flex,
     Block,
@@ -2268,6 +2314,7 @@ impl Default for LayoutDisplay {
 
 /// Represents a `float` attribute
 #[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
+#[repr(C)]
 pub enum LayoutFloat {
     Left,
     Right,
@@ -2284,6 +2331,7 @@ impl Default for LayoutFloat {
 ///
 /// NOTE: No inline positioning is supported.
 #[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
+#[repr(C)]
 pub enum LayoutPosition {
     Static,
     Relative,
@@ -2299,6 +2347,7 @@ impl Default for LayoutPosition {
 
 /// Represents a `flex-wrap` attribute - default: `Wrap`
 #[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
+#[repr(C)]
 pub enum LayoutWrap {
     Wrap,
     NoWrap,
@@ -2312,6 +2361,7 @@ impl Default for LayoutWrap {
 
 /// Represents a `justify-content` attribute
 #[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
+#[repr(C)]
 pub enum LayoutJustifyContent {
     /// Default value. Items are positioned at the beginning of the container
     Start,
@@ -2336,6 +2386,7 @@ impl Default for LayoutJustifyContent {
 
 /// Represents a `align-items` attribute
 #[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
+#[repr(C)]
 pub enum LayoutAlignItems {
     /// Items are stretched to fit the container
     Stretch,
@@ -2355,6 +2406,7 @@ impl Default for LayoutAlignItems {
 
 /// Represents a `align-content` attribute
 #[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
+#[repr(C)]
 pub enum LayoutAlignContent {
     /// Default value. Lines stretch to take up the remaining space
     Stretch,
@@ -2379,6 +2431,7 @@ impl Default for LayoutAlignContent {
 /// Represents a `overflow-x` or `overflow-y` property, see
 /// [`TextOverflowBehaviour`](./struct.TextOverflowBehaviour.html) - default: `Auto`
 #[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
+#[repr(C)]
 pub enum Overflow {
     /// Always shows a scroll bar, overflows on scroll
     Scroll,
@@ -2421,6 +2474,7 @@ impl Overflow {
 
 /// Horizontal text alignment enum (left, center, right) - default: `Center`
 #[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
+#[repr(C)]
 pub enum StyleTextAlignmentHorz {
     Left,
     Center,
@@ -2435,6 +2489,7 @@ impl Default for StyleTextAlignmentHorz {
 
 /// Vertical text alignment enum (top, center, bottom) - default: `Center`
 #[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
+#[repr(C)]
 pub enum StyleTextAlignmentVert {
     Top,
     Center,
@@ -2559,9 +2614,9 @@ pub struct ScrollbarInfo {
 impl Default for ScrollbarInfo {
     fn default() -> Self {
         ScrollbarInfo {
-            width: LayoutWidth(PixelValue::px(17.0)),
-            padding_left: LayoutPaddingLeft(PixelValue::px(2.0)),
-            padding_right: LayoutPaddingRight(PixelValue::px(2.0)),
+            width: LayoutWidth::px(17.0),
+            padding_left: LayoutPaddingLeft::px(2.0),
+            padding_right: LayoutPaddingRight::px(2.0),
             track: RectStyle {
                 background: Some(CssPropertyValue::Exact(StyleBackgroundContent::Color(ColorU {
                     r: 241, g: 241, b: 241, a: 255
@@ -2638,7 +2693,8 @@ impl RectLayout {
 
 /// Represents a `font-size` attribute
 #[derive(Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
-pub struct StyleFontSize(pub PixelValue);
+#[repr(C)]
+pub struct StyleFontSize { pub inner: PixelValue }
 
 impl_pixel_value!(StyleFontSize);
 
@@ -2650,10 +2706,10 @@ pub struct StyleFontFamily {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
-pub struct FontId(pub String);
+pub struct FontId { pub inner: String }
 
 impl FontId {
     pub fn get_str(&self) -> &str {
-        &self.0
+        &self.inner
     }
 }

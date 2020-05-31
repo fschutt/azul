@@ -229,7 +229,7 @@ fn format_color_value(c: &ColorU) -> String {
 macro_rules! impl_float_value_fmt {($struct_name:ident) => (
     impl FormatAsRustCode for $struct_name {
         fn format_as_rust_code(&self, _tabs: usize) -> String {
-            format!("{}({})", stringify!($struct_name), format_float_value(&self.0))
+            format!("{}({})", stringify!($struct_name), format_float_value(&self.inner))
         }
     }
 )}
@@ -240,7 +240,7 @@ impl_float_value_fmt!(LayoutFlexShrink);
 macro_rules! impl_percentage_value_fmt {($struct_name:ident) => (
     impl FormatAsRustCode for $struct_name {
         fn format_as_rust_code(&self, _tabs: usize) -> String {
-            format!("{}({})", stringify!($struct_name), format_percentage_value(&self.0))
+            format!("{}({})", stringify!($struct_name), format_percentage_value(&self.inner))
         }
     }
 )}
@@ -251,7 +251,7 @@ impl_percentage_value_fmt!(StyleLineHeight);
 macro_rules! impl_pixel_value_fmt {($struct_name:ident) => (
     impl FormatAsRustCode for $struct_name {
         fn format_as_rust_code(&self, _tabs: usize) -> String {
-            format!("{}({})", stringify!($struct_name), format_pixel_value(&self.0))
+            format!("{}({})", stringify!($struct_name), format_pixel_value(&self.inner))
         }
     }
 )}
@@ -293,7 +293,7 @@ impl_pixel_value_fmt!(LayoutLeft);
 macro_rules! impl_color_value_fmt {($struct_name:ty) => (
     impl FormatAsRustCode for $struct_name {
         fn format_as_rust_code(&self, _tabs: usize) -> String {
-            format!("{}({})", stringify!($struct_name), format_color_value(&self.0))
+            format!("{}({})", stringify!($struct_name), format_color_value(&self.inner))
         }
     }
 )}
@@ -531,7 +531,7 @@ fn format_gradient_stop(g: &GradientStopPre) -> String {
 fn format_font_ids(stops: &[FontId], tabs: usize) -> String {
     let t = String::from("    ").repeat(tabs);
     stops.iter()
-        .map(|s| format!("FontId({:?})", s.0))
+        .map(|s| format!("FontId({:?})", s.inner))
         .collect::<Vec<_>>()
         .join(&format!(",\r\n{}", t))
 }
@@ -578,25 +578,25 @@ fn format_background_position_vertical(b: &BackgroundPositionVertical) -> String
 
 impl FormatAsRustCode for StyleBorderTopStyle {
     fn format_as_rust_code(&self, tabs: usize) -> String {
-        format!("StyleBorderTopStyle({})", &self.0.format_as_rust_code(tabs))
+        format!("StyleBorderTopStyle({})", &self.inner.format_as_rust_code(tabs))
     }
 }
 
 impl FormatAsRustCode for StyleBorderRightStyle {
     fn format_as_rust_code(&self, tabs: usize) -> String {
-        format!("StyleBorderRightStyle({})", &self.0.format_as_rust_code(tabs))
+        format!("StyleBorderRightStyle({})", &self.inner.format_as_rust_code(tabs))
     }
 }
 
 impl FormatAsRustCode for StyleBorderLeftStyle {
     fn format_as_rust_code(&self, tabs: usize) -> String {
-        format!("StyleBorderLeftStyle({})", &self.0.format_as_rust_code(tabs))
+        format!("StyleBorderLeftStyle({})", &self.inner.format_as_rust_code(tabs))
     }
 }
 
 impl FormatAsRustCode for StyleBorderBottomStyle {
     fn format_as_rust_code(&self, tabs: usize) -> String {
-        format!("StyleBorderBottomStyle({})", &self.0.format_as_rust_code(tabs))
+        format!("StyleBorderBottomStyle({})", &self.inner.format_as_rust_code(tabs))
     }
 }
 

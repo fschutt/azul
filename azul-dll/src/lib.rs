@@ -341,44 +341,48 @@ pub type AzLayoutInfoPtrType = azul_impl::callbacks::LayoutInfoPtr;
 /// Copies the object
 #[no_mangle] #[inline] pub extern "C" fn az_box_shadow_pre_display_item_deep_copy(object: &AzBoxShadowPreDisplayItem) -> AzBoxShadowPreDisplayItem { AzBoxShadowPreDisplayItem{ object: object.object.clone() } }
 
-/// Pointer to rust-allocated `Box<LayoutAlignContent>` struct
-#[no_mangle] #[repr(C)] pub struct AzLayoutAlignContentPtr { pub ptr: *mut c_void }
+/// Re-export of rust-allocated (stack based) `LayoutAlignContent` struct
+#[no_mangle] #[repr(C)] pub struct AzLayoutAlignContent { pub object: azul_impl::css::LayoutAlignContent }
+/// Default value. Lines stretch to take up the remaining space
+#[inline] #[no_mangle] pub extern "C" fn az_layout_align_content_stretch() -> AzLayoutAlignContent { AzLayoutAlignContent { object: azul_impl::css::LayoutAlignContent::Stretch } }
+/// Lines are packed toward the center of the flex container
+#[inline] #[no_mangle] pub extern "C" fn az_layout_align_content_center() -> AzLayoutAlignContent { AzLayoutAlignContent { object: azul_impl::css::LayoutAlignContent::Center } }
+/// Lines are packed toward the start of the flex container
+#[inline] #[no_mangle] pub extern "C" fn az_layout_align_content_start() -> AzLayoutAlignContent { AzLayoutAlignContent { object: azul_impl::css::LayoutAlignContent::Start } }
+/// Lines are packed toward the end of the flex container
+#[inline] #[no_mangle] pub extern "C" fn az_layout_align_content_end() -> AzLayoutAlignContent { AzLayoutAlignContent { object: azul_impl::css::LayoutAlignContent::End } }
+/// Lines are evenly distributed in the flex container
+#[inline] #[no_mangle] pub extern "C" fn az_layout_align_content_space_between() -> AzLayoutAlignContent { AzLayoutAlignContent { object: azul_impl::css::LayoutAlignContent::SpaceBetween } }
+/// Lines are evenly distributed in the flex container, with half-size spaces on either end
+#[inline] #[no_mangle] pub extern "C" fn az_layout_align_content_space_around() -> AzLayoutAlignContent { AzLayoutAlignContent { object: azul_impl::css::LayoutAlignContent::SpaceAround } }
 /// Destructor: Takes ownership of the `LayoutAlignContent` pointer and deletes it.
-#[no_mangle] #[inline] pub extern "C" fn az_layout_align_content_delete(ptr: &mut AzLayoutAlignContentPtr) { let _ = unsafe { Box::<LayoutAlignContent>::from_raw(ptr.ptr  as *mut LayoutAlignContent) }; }
-/// Copies the pointer: WARNING: After calling this function you'll have two pointers to the same Box<`LayoutAlignContent`>!.
-#[no_mangle] #[inline] pub extern "C" fn az_layout_align_content_shallow_copy(ptr: &AzLayoutAlignContentPtr) -> AzLayoutAlignContentPtr { AzLayoutAlignContentPtr { ptr: ptr.ptr } }
-/// (private): Downcasts the `AzLayoutAlignContentPtr` to a `Box<LayoutAlignContent>`. Note that this takes ownership of the pointer.
-#[inline(always)] fn az_layout_align_content_downcast(ptr: AzLayoutAlignContentPtr) -> Box<LayoutAlignContent> { unsafe { Box::<LayoutAlignContent>::from_raw(ptr.ptr  as *mut LayoutAlignContent) } }
-/// (private): Downcasts the `AzLayoutAlignContentPtr` to a `&mut Box<LayoutAlignContent>` and runs the `func` closure on it
-#[inline(always)] fn az_layout_align_content_downcast_refmut<F: FnOnce(&mut Box<LayoutAlignContent>)>(ptr: &mut AzLayoutAlignContentPtr, func: F) { let mut box_ptr: Box<LayoutAlignContent> = unsafe { Box::<LayoutAlignContent>::from_raw(ptr.ptr  as *mut LayoutAlignContent) };func(&mut box_ptr);ptr.ptr = Box::into_raw(box_ptr) as *mut c_void; }
-/// (private): Downcasts the `AzLayoutAlignContentPtr` to a `&Box<LayoutAlignContent>` and runs the `func` closure on it
-#[inline(always)] fn az_layout_align_content_downcast_ref<P, F: FnOnce(&Box<LayoutAlignContent>) -> P>(ptr: &mut AzLayoutAlignContentPtr, func: F) -> P { let box_ptr: Box<LayoutAlignContent> = unsafe { Box::<LayoutAlignContent>::from_raw(ptr.ptr  as *mut LayoutAlignContent) }; let ret_val = func(&box_ptr); ptr.ptr = Box::into_raw(box_ptr) as *mut c_void;ret_val }
+#[no_mangle] #[inline] #[allow(unused_variables)] pub extern "C" fn az_layout_align_content_delete(object: &mut AzLayoutAlignContent) { match object.object { azul_impl::css::LayoutAlignContent::Stretch => { }, azul_impl::css::LayoutAlignContent::Center => { }, azul_impl::css::LayoutAlignContent::Start => { }, azul_impl::css::LayoutAlignContent::End => { }, azul_impl::css::LayoutAlignContent::SpaceBetween => { }, azul_impl::css::LayoutAlignContent::SpaceAround => { }, }
+}
+/// Copies the object
+#[no_mangle] #[inline] pub extern "C" fn az_layout_align_content_deep_copy(object: &AzLayoutAlignContent) -> AzLayoutAlignContent { AzLayoutAlignContent{ object: object.object.clone() } }
 
-/// Pointer to rust-allocated `Box<LayoutAlignItems>` struct
-#[no_mangle] #[repr(C)] pub struct AzLayoutAlignItemsPtr { ptr: *mut c_void }
+/// Re-export of rust-allocated (stack based) `LayoutAlignItems` struct
+#[no_mangle] #[repr(C)] pub struct AzLayoutAlignItems { pub object: azul_impl::css::LayoutAlignItems }
+/// Items are stretched to fit the container
+#[inline] #[no_mangle] pub extern "C" fn az_layout_align_items_stretch() -> AzLayoutAlignItems { AzLayoutAlignItems { object: azul_impl::css::LayoutAlignItems::Stretch } }
+/// Items are positioned at the center of the container
+#[inline] #[no_mangle] pub extern "C" fn az_layout_align_items_center() -> AzLayoutAlignItems { AzLayoutAlignItems { object: azul_impl::css::LayoutAlignItems::Center } }
+/// Items are positioned at the beginning of the container
+#[inline] #[no_mangle] pub extern "C" fn az_layout_align_items_start() -> AzLayoutAlignItems { AzLayoutAlignItems { object: azul_impl::css::LayoutAlignItems::Start } }
+/// Items are positioned at the end of the container
+#[inline] #[no_mangle] pub extern "C" fn az_layout_align_items_end() -> AzLayoutAlignItems { AzLayoutAlignItems { object: azul_impl::css::LayoutAlignItems::End } }
 /// Destructor: Takes ownership of the `LayoutAlignItems` pointer and deletes it.
-#[no_mangle] #[inline] pub extern "C" fn az_layout_align_items_delete(ptr: &mut AzLayoutAlignItemsPtr) { let _ = unsafe { Box::<LayoutAlignItems>::from_raw(ptr.ptr  as *mut LayoutAlignItems) }; }
-/// Copies the pointer: WARNING: After calling this function you'll have two pointers to the same Box<`LayoutAlignItems`>!.
-#[no_mangle] #[inline] pub extern "C" fn az_layout_align_items_shallow_copy(ptr: &AzLayoutAlignItemsPtr) -> AzLayoutAlignItemsPtr { AzLayoutAlignItemsPtr { ptr: ptr.ptr } }
-/// (private): Downcasts the `AzLayoutAlignItemsPtr` to a `Box<LayoutAlignItems>`. Note that this takes ownership of the pointer.
-#[inline(always)] fn az_layout_align_items_downcast(ptr: AzLayoutAlignItemsPtr) -> Box<LayoutAlignItems> { unsafe { Box::<LayoutAlignItems>::from_raw(ptr.ptr  as *mut LayoutAlignItems) } }
-/// (private): Downcasts the `AzLayoutAlignItemsPtr` to a `&mut Box<LayoutAlignItems>` and runs the `func` closure on it
-#[inline(always)] fn az_layout_align_items_downcast_refmut<F: FnOnce(&mut Box<LayoutAlignItems>)>(ptr: &mut AzLayoutAlignItemsPtr, func: F) { let mut box_ptr: Box<LayoutAlignItems> = unsafe { Box::<LayoutAlignItems>::from_raw(ptr.ptr  as *mut LayoutAlignItems) };func(&mut box_ptr);ptr.ptr = Box::into_raw(box_ptr) as *mut c_void; }
-/// (private): Downcasts the `AzLayoutAlignItemsPtr` to a `&Box<LayoutAlignItems>` and runs the `func` closure on it
-#[inline(always)] fn az_layout_align_items_downcast_ref<P, F: FnOnce(&Box<LayoutAlignItems>) -> P>(ptr: &mut AzLayoutAlignItemsPtr, func: F) -> P { let box_ptr: Box<LayoutAlignItems> = unsafe { Box::<LayoutAlignItems>::from_raw(ptr.ptr  as *mut LayoutAlignItems) }; let ret_val = func(&box_ptr); ptr.ptr = Box::into_raw(box_ptr) as *mut c_void;ret_val }
+#[no_mangle] #[inline] #[allow(unused_variables)] pub extern "C" fn az_layout_align_items_delete(object: &mut AzLayoutAlignItems) { match object.object { azul_impl::css::LayoutAlignItems::Stretch => { }, azul_impl::css::LayoutAlignItems::Center => { }, azul_impl::css::LayoutAlignItems::Start => { }, azul_impl::css::LayoutAlignItems::End => { }, }
+}
+/// Copies the object
+#[no_mangle] #[inline] pub extern "C" fn az_layout_align_items_deep_copy(object: &AzLayoutAlignItems) -> AzLayoutAlignItems { AzLayoutAlignItems{ object: object.object.clone() } }
 
-/// Pointer to rust-allocated `Box<LayoutBottom>` struct
-#[no_mangle] #[repr(C)] pub struct AzLayoutBottomPtr { ptr: *mut c_void }
+/// Re-export of rust-allocated (stack based) `LayoutBottom` struct
+#[no_mangle] #[repr(C)] pub struct AzLayoutBottom { pub object: azul_impl::css::LayoutBottom }
 /// Destructor: Takes ownership of the `LayoutBottom` pointer and deletes it.
-#[no_mangle] #[inline] pub extern "C" fn az_layout_bottom_delete(ptr: &mut AzLayoutBottomPtr) { let _ = unsafe { Box::<LayoutBottom>::from_raw(ptr.ptr  as *mut LayoutBottom) }; }
-/// Copies the pointer: WARNING: After calling this function you'll have two pointers to the same Box<`LayoutBottom`>!.
-#[no_mangle] #[inline] pub extern "C" fn az_layout_bottom_shallow_copy(ptr: &AzLayoutBottomPtr) -> AzLayoutBottomPtr { AzLayoutBottomPtr { ptr: ptr.ptr } }
-/// (private): Downcasts the `AzLayoutBottomPtr` to a `Box<LayoutBottom>`. Note that this takes ownership of the pointer.
-#[inline(always)] fn az_layout_bottom_downcast(ptr: AzLayoutBottomPtr) -> Box<LayoutBottom> { unsafe { Box::<LayoutBottom>::from_raw(ptr.ptr  as *mut LayoutBottom) } }
-/// (private): Downcasts the `AzLayoutBottomPtr` to a `&mut Box<LayoutBottom>` and runs the `func` closure on it
-#[inline(always)] fn az_layout_bottom_downcast_refmut<F: FnOnce(&mut Box<LayoutBottom>)>(ptr: &mut AzLayoutBottomPtr, func: F) { let mut box_ptr: Box<LayoutBottom> = unsafe { Box::<LayoutBottom>::from_raw(ptr.ptr  as *mut LayoutBottom) };func(&mut box_ptr);ptr.ptr = Box::into_raw(box_ptr) as *mut c_void; }
-/// (private): Downcasts the `AzLayoutBottomPtr` to a `&Box<LayoutBottom>` and runs the `func` closure on it
-#[inline(always)] fn az_layout_bottom_downcast_ref<P, F: FnOnce(&Box<LayoutBottom>) -> P>(ptr: &mut AzLayoutBottomPtr, func: F) -> P { let box_ptr: Box<LayoutBottom> = unsafe { Box::<LayoutBottom>::from_raw(ptr.ptr  as *mut LayoutBottom) }; let ret_val = func(&box_ptr); ptr.ptr = Box::into_raw(box_ptr) as *mut c_void;ret_val }
+#[no_mangle] #[inline] #[allow(unused_variables)] pub extern "C" fn az_layout_bottom_delete(object: &mut AzLayoutBottom) { }
+/// Copies the object
+#[no_mangle] #[inline] pub extern "C" fn az_layout_bottom_deep_copy(object: &AzLayoutBottom) -> AzLayoutBottom { AzLayoutBottom{ object: object.object.clone() } }
 
 /// Pointer to rust-allocated `Box<LayoutBoxSizing>` struct
 #[no_mangle] #[repr(C)] pub struct AzLayoutBoxSizingPtr { ptr: *mut c_void }
@@ -1127,7 +1131,7 @@ pub type AzLayoutInfoPtrType = azul_impl::callbacks::LayoutInfoPtr;
 #[inline] #[no_mangle] pub extern "C" fn az_layout_align_content_value_none() -> AzLayoutAlignContentValue { AzLayoutAlignContentValue { object: azul_impl::css::CssPropertyValue::<LayoutAlignContent>::None } }
 #[inline] #[no_mangle] pub extern "C" fn az_layout_align_content_value_inherit() -> AzLayoutAlignContentValue { AzLayoutAlignContentValue { object: azul_impl::css::CssPropertyValue::<LayoutAlignContent>::Inherit } }
 #[inline] #[no_mangle] pub extern "C" fn az_layout_align_content_value_initial() -> AzLayoutAlignContentValue { AzLayoutAlignContentValue { object: azul_impl::css::CssPropertyValue::<LayoutAlignContent>::Initial } }
-#[inline] #[no_mangle] pub extern "C" fn az_layout_align_content_value_exact(variant_data: AzLayoutAlignContentPtr) -> AzLayoutAlignContentValue { AzLayoutAlignContentValue { object: azul_impl::css::CssPropertyValue::<LayoutAlignContent>::Exact(*az_layout_align_content_downcast(variant_data)) } }
+#[inline] #[no_mangle] pub extern "C" fn az_layout_align_content_value_exact(variant_data: AzLayoutAlignContent) -> AzLayoutAlignContentValue { AzLayoutAlignContentValue { object: azul_impl::css::CssPropertyValue::<LayoutAlignContent>::Exact(variant_data.object) } }
 /// Destructor: Takes ownership of the `LayoutAlignContentValue` pointer and deletes it.
 #[no_mangle] #[inline] #[allow(unused_variables)] pub extern "C" fn az_layout_align_content_value_delete(object: &mut AzLayoutAlignContentValue) { match object.object { azul_impl::css::CssPropertyValue::<LayoutAlignContent>::Auto => { }, azul_impl::css::CssPropertyValue::<LayoutAlignContent>::None => { }, azul_impl::css::CssPropertyValue::<LayoutAlignContent>::Inherit => { }, azul_impl::css::CssPropertyValue::<LayoutAlignContent>::Initial => { }, azul_impl::css::CssPropertyValue::<LayoutAlignContent>::Exact(_) => { }, }
 }
@@ -1140,7 +1144,7 @@ pub type AzLayoutInfoPtrType = azul_impl::callbacks::LayoutInfoPtr;
 #[inline] #[no_mangle] pub extern "C" fn az_layout_align_items_value_none() -> AzLayoutAlignItemsValue { AzLayoutAlignItemsValue { object: azul_impl::css::CssPropertyValue::<LayoutAlignItems>::None } }
 #[inline] #[no_mangle] pub extern "C" fn az_layout_align_items_value_inherit() -> AzLayoutAlignItemsValue { AzLayoutAlignItemsValue { object: azul_impl::css::CssPropertyValue::<LayoutAlignItems>::Inherit } }
 #[inline] #[no_mangle] pub extern "C" fn az_layout_align_items_value_initial() -> AzLayoutAlignItemsValue { AzLayoutAlignItemsValue { object: azul_impl::css::CssPropertyValue::<LayoutAlignItems>::Initial } }
-#[inline] #[no_mangle] pub extern "C" fn az_layout_align_items_value_exact(variant_data: AzLayoutAlignItemsPtr) -> AzLayoutAlignItemsValue { AzLayoutAlignItemsValue { object: azul_impl::css::CssPropertyValue::<LayoutAlignItems>::Exact(*az_layout_align_items_downcast(variant_data)) } }
+#[inline] #[no_mangle] pub extern "C" fn az_layout_align_items_value_exact(variant_data: AzLayoutAlignItems) -> AzLayoutAlignItemsValue { AzLayoutAlignItemsValue { object: azul_impl::css::CssPropertyValue::<LayoutAlignItems>::Exact(variant_data.object) } }
 /// Destructor: Takes ownership of the `LayoutAlignItemsValue` pointer and deletes it.
 #[no_mangle] #[inline] #[allow(unused_variables)] pub extern "C" fn az_layout_align_items_value_delete(object: &mut AzLayoutAlignItemsValue) { match object.object { azul_impl::css::CssPropertyValue::<LayoutAlignItems>::Auto => { }, azul_impl::css::CssPropertyValue::<LayoutAlignItems>::None => { }, azul_impl::css::CssPropertyValue::<LayoutAlignItems>::Inherit => { }, azul_impl::css::CssPropertyValue::<LayoutAlignItems>::Initial => { }, azul_impl::css::CssPropertyValue::<LayoutAlignItems>::Exact(_) => { }, }
 }
@@ -1153,7 +1157,7 @@ pub type AzLayoutInfoPtrType = azul_impl::callbacks::LayoutInfoPtr;
 #[inline] #[no_mangle] pub extern "C" fn az_layout_bottom_value_none() -> AzLayoutBottomValue { AzLayoutBottomValue { object: azul_impl::css::CssPropertyValue::<LayoutBottom>::None } }
 #[inline] #[no_mangle] pub extern "C" fn az_layout_bottom_value_inherit() -> AzLayoutBottomValue { AzLayoutBottomValue { object: azul_impl::css::CssPropertyValue::<LayoutBottom>::Inherit } }
 #[inline] #[no_mangle] pub extern "C" fn az_layout_bottom_value_initial() -> AzLayoutBottomValue { AzLayoutBottomValue { object: azul_impl::css::CssPropertyValue::<LayoutBottom>::Initial } }
-#[inline] #[no_mangle] pub extern "C" fn az_layout_bottom_value_exact(variant_data: AzLayoutBottomPtr) -> AzLayoutBottomValue { AzLayoutBottomValue { object: azul_impl::css::CssPropertyValue::<LayoutBottom>::Exact(*az_layout_bottom_downcast(variant_data)) } }
+#[inline] #[no_mangle] pub extern "C" fn az_layout_bottom_value_exact(variant_data: AzLayoutBottom) -> AzLayoutBottomValue { AzLayoutBottomValue { object: azul_impl::css::CssPropertyValue::<LayoutBottom>::Exact(variant_data.object) } }
 /// Destructor: Takes ownership of the `LayoutBottomValue` pointer and deletes it.
 #[no_mangle] #[inline] #[allow(unused_variables)] pub extern "C" fn az_layout_bottom_value_delete(object: &mut AzLayoutBottomValue) { match object.object { azul_impl::css::CssPropertyValue::<LayoutBottom>::Auto => { }, azul_impl::css::CssPropertyValue::<LayoutBottom>::None => { }, azul_impl::css::CssPropertyValue::<LayoutBottom>::Inherit => { }, azul_impl::css::CssPropertyValue::<LayoutBottom>::Initial => { }, azul_impl::css::CssPropertyValue::<LayoutBottom>::Exact(_) => { }, }
 }

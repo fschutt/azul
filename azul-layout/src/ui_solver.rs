@@ -109,7 +109,7 @@ pub fn create_scaled_words(
             &loaded_font.font_bytes,
             loaded_font.font_index as u32,
             loaded_font.font_metrics,
-            font_size.0.to_pixels(DEFAULT_FONT_SIZE_PX as f32),
+            font_size.inner.to_pixels(DEFAULT_FONT_SIZE_PX as f32),
         );
 
         Some((*node_id, (scaled_words, *font_instance_key)))

@@ -852,7 +852,7 @@ pub fn garbage_collect_fonts_and_images<U: FontImageApi>(
 
 pub fn font_size_to_au(font_size: StyleFontSize) -> Au {
     use crate::ui_solver::DEFAULT_FONT_SIZE_PX;
-    Au::from_px(font_size.0.to_pixels(DEFAULT_FONT_SIZE_PX as f32))
+    Au::from_px(font_size.inner.to_pixels(DEFAULT_FONT_SIZE_PX as f32))
 }
 
 pub type FontInstanceFlags = u32;

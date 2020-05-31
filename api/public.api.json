@@ -303,18 +303,33 @@
                     { "blur_radius": {"type": "PixelValueNoPercent" }},
                     { "spread_radius": {"type": "PixelValueNoPercent" }},
                     { "clip_mode": {"type": "BoxShadowClipMode" }}
-                ],
-                "constructors": { }
+                ]
             },
             "LayoutAlignContent": {
                 "external": "azul_impl::css::LayoutAlignContent",
-                "constructors": { }
+                "enum_fields": [
+                    {"Stretch": {"doc": "Default value. Lines stretch to take up the remaining space"}},
+                    {"Center": {"doc": "Lines are packed toward the center of the flex container"}},
+                    {"Start": {"doc": "Lines are packed toward the start of the flex container"}},
+                    {"End": {"doc": "Lines are packed toward the end of the flex container"}},
+                    {"SpaceBetween": {"doc": "Lines are evenly distributed in the flex container"}},
+                    {"SpaceAround": {"doc": "Lines are evenly distributed in the flex container, with half-size spaces on either end"}}
+                ]
             },
             "LayoutAlignItems": {
-                "constructors": { }
+                "external": "azul_impl::css::LayoutAlignItems",
+                "enum_fields": [
+                    {"Stretch": {"doc": "Items are stretched to fit the container"}},
+                    {"Center": {"doc": "Items are positioned at the center of the container"}},
+                    {"Start": {"doc": "Items are positioned at the beginning of the container"}},
+                    {"End": {"doc": "Items are positioned at the end of the container"}}
+                ]
             },
             "LayoutBottom": {
-                "constructors": { }
+                "external": "azul_impl::css::LayoutBottom",
+                "struct_fields": [
+                    {"inner": {"type": "PixelValue"}}
+                ]
             },
             "LayoutBoxSizing": {
                 "constructors": { }

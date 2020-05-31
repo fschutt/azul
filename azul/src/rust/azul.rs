@@ -109,14 +109,22 @@ pub(crate) mod dll {
         pub spread_radius: AzPixelValueNoPercent,
         pub clip_mode: AzBoxShadowClipMode,
     }
-    #[repr(C)] pub struct AzLayoutAlignContentPtr {
-        pub ptr: *mut c_void,
+    #[repr(C)] pub enum AzLayoutAlignContent {
+        Stretch,
+        Center,
+        Start,
+        End,
+        SpaceBetween,
+        SpaceAround,
     }
-    #[repr(C)] pub struct AzLayoutAlignItemsPtr {
-        pub ptr: *mut c_void,
+    #[repr(C)] pub enum AzLayoutAlignItems {
+        Stretch,
+        Center,
+        Start,
+        End,
     }
-    #[repr(C)] pub struct AzLayoutBottomPtr {
-        pub ptr: *mut c_void,
+    #[repr(C)] pub struct AzLayoutBottom {
+        pub inner: AzPixelValue,
     }
     #[repr(C)] pub struct AzLayoutBoxSizingPtr {
         pub ptr: *mut c_void,
@@ -964,12 +972,22 @@ pub(crate) mod dll {
         az_box_shadow_clip_mode_deep_copy: Symbol<extern fn(_: &AzBoxShadowClipMode) -> AzBoxShadowClipMode>,
         az_box_shadow_pre_display_item_delete: Symbol<extern fn(_: &mut AzBoxShadowPreDisplayItem)>,
         az_box_shadow_pre_display_item_deep_copy: Symbol<extern fn(_: &AzBoxShadowPreDisplayItem) -> AzBoxShadowPreDisplayItem>,
-        az_layout_align_content_delete: Symbol<extern fn(_: &mut AzLayoutAlignContentPtr)>,
-        az_layout_align_content_shallow_copy: Symbol<extern fn(_: &AzLayoutAlignContentPtr) -> AzLayoutAlignContentPtr>,
-        az_layout_align_items_delete: Symbol<extern fn(_: &mut AzLayoutAlignItemsPtr)>,
-        az_layout_align_items_shallow_copy: Symbol<extern fn(_: &AzLayoutAlignItemsPtr) -> AzLayoutAlignItemsPtr>,
-        az_layout_bottom_delete: Symbol<extern fn(_: &mut AzLayoutBottomPtr)>,
-        az_layout_bottom_shallow_copy: Symbol<extern fn(_: &AzLayoutBottomPtr) -> AzLayoutBottomPtr>,
+        az_layout_align_content_stretch: Symbol<extern fn() -> AzLayoutAlignContent>,
+        az_layout_align_content_center: Symbol<extern fn() -> AzLayoutAlignContent>,
+        az_layout_align_content_start: Symbol<extern fn() -> AzLayoutAlignContent>,
+        az_layout_align_content_end: Symbol<extern fn() -> AzLayoutAlignContent>,
+        az_layout_align_content_space_between: Symbol<extern fn() -> AzLayoutAlignContent>,
+        az_layout_align_content_space_around: Symbol<extern fn() -> AzLayoutAlignContent>,
+        az_layout_align_content_delete: Symbol<extern fn(_: &mut AzLayoutAlignContent)>,
+        az_layout_align_content_deep_copy: Symbol<extern fn(_: &AzLayoutAlignContent) -> AzLayoutAlignContent>,
+        az_layout_align_items_stretch: Symbol<extern fn() -> AzLayoutAlignItems>,
+        az_layout_align_items_center: Symbol<extern fn() -> AzLayoutAlignItems>,
+        az_layout_align_items_start: Symbol<extern fn() -> AzLayoutAlignItems>,
+        az_layout_align_items_end: Symbol<extern fn() -> AzLayoutAlignItems>,
+        az_layout_align_items_delete: Symbol<extern fn(_: &mut AzLayoutAlignItems)>,
+        az_layout_align_items_deep_copy: Symbol<extern fn(_: &AzLayoutAlignItems) -> AzLayoutAlignItems>,
+        az_layout_bottom_delete: Symbol<extern fn(_: &mut AzLayoutBottom)>,
+        az_layout_bottom_deep_copy: Symbol<extern fn(_: &AzLayoutBottom) -> AzLayoutBottom>,
         az_layout_box_sizing_delete: Symbol<extern fn(_: &mut AzLayoutBoxSizingPtr)>,
         az_layout_box_sizing_shallow_copy: Symbol<extern fn(_: &AzLayoutBoxSizingPtr) -> AzLayoutBoxSizingPtr>,
         az_layout_direction_delete: Symbol<extern fn(_: &mut AzLayoutDirectionPtr)>,
@@ -1093,21 +1111,21 @@ pub(crate) mod dll {
         az_layout_align_content_value_none: Symbol<extern fn() -> AzLayoutAlignContentValue>,
         az_layout_align_content_value_inherit: Symbol<extern fn() -> AzLayoutAlignContentValue>,
         az_layout_align_content_value_initial: Symbol<extern fn() -> AzLayoutAlignContentValue>,
-        az_layout_align_content_value_exact: Symbol<extern fn(_: AzLayoutAlignContentPtr) -> AzLayoutAlignContentValue>,
+        az_layout_align_content_value_exact: Symbol<extern fn(_: AzLayoutAlignContent) -> AzLayoutAlignContentValue>,
         az_layout_align_content_value_delete: Symbol<extern fn(_: &mut AzLayoutAlignContentValue)>,
         az_layout_align_content_value_deep_copy: Symbol<extern fn(_: &AzLayoutAlignContentValue) -> AzLayoutAlignContentValue>,
         az_layout_align_items_value_auto: Symbol<extern fn() -> AzLayoutAlignItemsValue>,
         az_layout_align_items_value_none: Symbol<extern fn() -> AzLayoutAlignItemsValue>,
         az_layout_align_items_value_inherit: Symbol<extern fn() -> AzLayoutAlignItemsValue>,
         az_layout_align_items_value_initial: Symbol<extern fn() -> AzLayoutAlignItemsValue>,
-        az_layout_align_items_value_exact: Symbol<extern fn(_: AzLayoutAlignItemsPtr) -> AzLayoutAlignItemsValue>,
+        az_layout_align_items_value_exact: Symbol<extern fn(_: AzLayoutAlignItems) -> AzLayoutAlignItemsValue>,
         az_layout_align_items_value_delete: Symbol<extern fn(_: &mut AzLayoutAlignItemsValue)>,
         az_layout_align_items_value_deep_copy: Symbol<extern fn(_: &AzLayoutAlignItemsValue) -> AzLayoutAlignItemsValue>,
         az_layout_bottom_value_auto: Symbol<extern fn() -> AzLayoutBottomValue>,
         az_layout_bottom_value_none: Symbol<extern fn() -> AzLayoutBottomValue>,
         az_layout_bottom_value_inherit: Symbol<extern fn() -> AzLayoutBottomValue>,
         az_layout_bottom_value_initial: Symbol<extern fn() -> AzLayoutBottomValue>,
-        az_layout_bottom_value_exact: Symbol<extern fn(_: AzLayoutBottomPtr) -> AzLayoutBottomValue>,
+        az_layout_bottom_value_exact: Symbol<extern fn(_: AzLayoutBottom) -> AzLayoutBottomValue>,
         az_layout_bottom_value_delete: Symbol<extern fn(_: &mut AzLayoutBottomValue)>,
         az_layout_bottom_value_deep_copy: Symbol<extern fn(_: &AzLayoutBottomValue) -> AzLayoutBottomValue>,
         az_layout_box_sizing_value_auto: Symbol<extern fn() -> AzLayoutBoxSizingValue>,
@@ -1782,12 +1800,22 @@ pub(crate) mod dll {
         let az_box_shadow_clip_mode_deep_copy = unsafe { lib.get::<extern fn(_: &AzBoxShadowClipMode) -> AzBoxShadowClipMode>(b"az_box_shadow_clip_mode_deep_copy").ok()? };
         let az_box_shadow_pre_display_item_delete = unsafe { lib.get::<extern fn(_: &mut AzBoxShadowPreDisplayItem)>(b"az_box_shadow_pre_display_item_delete").ok()? };
         let az_box_shadow_pre_display_item_deep_copy = unsafe { lib.get::<extern fn(_: &AzBoxShadowPreDisplayItem) -> AzBoxShadowPreDisplayItem>(b"az_box_shadow_pre_display_item_deep_copy").ok()? };
-        let az_layout_align_content_delete = unsafe { lib.get::<extern fn(_: &mut AzLayoutAlignContentPtr)>(b"az_layout_align_content_delete").ok()? };
-        let az_layout_align_content_shallow_copy = unsafe { lib.get::<extern fn(_: &AzLayoutAlignContentPtr) -> AzLayoutAlignContentPtr>(b"az_layout_align_content_shallow_copy").ok()? };
-        let az_layout_align_items_delete = unsafe { lib.get::<extern fn(_: &mut AzLayoutAlignItemsPtr)>(b"az_layout_align_items_delete").ok()? };
-        let az_layout_align_items_shallow_copy = unsafe { lib.get::<extern fn(_: &AzLayoutAlignItemsPtr) -> AzLayoutAlignItemsPtr>(b"az_layout_align_items_shallow_copy").ok()? };
-        let az_layout_bottom_delete = unsafe { lib.get::<extern fn(_: &mut AzLayoutBottomPtr)>(b"az_layout_bottom_delete").ok()? };
-        let az_layout_bottom_shallow_copy = unsafe { lib.get::<extern fn(_: &AzLayoutBottomPtr) -> AzLayoutBottomPtr>(b"az_layout_bottom_shallow_copy").ok()? };
+        let az_layout_align_content_stretch = unsafe { lib.get::<extern fn() -> AzLayoutAlignContent>(b"az_layout_align_content_stretch").ok()? };
+        let az_layout_align_content_center = unsafe { lib.get::<extern fn() -> AzLayoutAlignContent>(b"az_layout_align_content_center").ok()? };
+        let az_layout_align_content_start = unsafe { lib.get::<extern fn() -> AzLayoutAlignContent>(b"az_layout_align_content_start").ok()? };
+        let az_layout_align_content_end = unsafe { lib.get::<extern fn() -> AzLayoutAlignContent>(b"az_layout_align_content_end").ok()? };
+        let az_layout_align_content_space_between = unsafe { lib.get::<extern fn() -> AzLayoutAlignContent>(b"az_layout_align_content_space_between").ok()? };
+        let az_layout_align_content_space_around = unsafe { lib.get::<extern fn() -> AzLayoutAlignContent>(b"az_layout_align_content_space_around").ok()? };
+        let az_layout_align_content_delete = unsafe { lib.get::<extern fn(_: &mut AzLayoutAlignContent)>(b"az_layout_align_content_delete").ok()? };
+        let az_layout_align_content_deep_copy = unsafe { lib.get::<extern fn(_: &AzLayoutAlignContent) -> AzLayoutAlignContent>(b"az_layout_align_content_deep_copy").ok()? };
+        let az_layout_align_items_stretch = unsafe { lib.get::<extern fn() -> AzLayoutAlignItems>(b"az_layout_align_items_stretch").ok()? };
+        let az_layout_align_items_center = unsafe { lib.get::<extern fn() -> AzLayoutAlignItems>(b"az_layout_align_items_center").ok()? };
+        let az_layout_align_items_start = unsafe { lib.get::<extern fn() -> AzLayoutAlignItems>(b"az_layout_align_items_start").ok()? };
+        let az_layout_align_items_end = unsafe { lib.get::<extern fn() -> AzLayoutAlignItems>(b"az_layout_align_items_end").ok()? };
+        let az_layout_align_items_delete = unsafe { lib.get::<extern fn(_: &mut AzLayoutAlignItems)>(b"az_layout_align_items_delete").ok()? };
+        let az_layout_align_items_deep_copy = unsafe { lib.get::<extern fn(_: &AzLayoutAlignItems) -> AzLayoutAlignItems>(b"az_layout_align_items_deep_copy").ok()? };
+        let az_layout_bottom_delete = unsafe { lib.get::<extern fn(_: &mut AzLayoutBottom)>(b"az_layout_bottom_delete").ok()? };
+        let az_layout_bottom_deep_copy = unsafe { lib.get::<extern fn(_: &AzLayoutBottom) -> AzLayoutBottom>(b"az_layout_bottom_deep_copy").ok()? };
         let az_layout_box_sizing_delete = unsafe { lib.get::<extern fn(_: &mut AzLayoutBoxSizingPtr)>(b"az_layout_box_sizing_delete").ok()? };
         let az_layout_box_sizing_shallow_copy = unsafe { lib.get::<extern fn(_: &AzLayoutBoxSizingPtr) -> AzLayoutBoxSizingPtr>(b"az_layout_box_sizing_shallow_copy").ok()? };
         let az_layout_direction_delete = unsafe { lib.get::<extern fn(_: &mut AzLayoutDirectionPtr)>(b"az_layout_direction_delete").ok()? };
@@ -1911,21 +1939,21 @@ pub(crate) mod dll {
         let az_layout_align_content_value_none = unsafe { lib.get::<extern fn() -> AzLayoutAlignContentValue>(b"az_layout_align_content_value_none").ok()? };
         let az_layout_align_content_value_inherit = unsafe { lib.get::<extern fn() -> AzLayoutAlignContentValue>(b"az_layout_align_content_value_inherit").ok()? };
         let az_layout_align_content_value_initial = unsafe { lib.get::<extern fn() -> AzLayoutAlignContentValue>(b"az_layout_align_content_value_initial").ok()? };
-        let az_layout_align_content_value_exact = unsafe { lib.get::<extern fn(_: AzLayoutAlignContentPtr) -> AzLayoutAlignContentValue>(b"az_layout_align_content_value_exact").ok()? };
+        let az_layout_align_content_value_exact = unsafe { lib.get::<extern fn(_: AzLayoutAlignContent) -> AzLayoutAlignContentValue>(b"az_layout_align_content_value_exact").ok()? };
         let az_layout_align_content_value_delete = unsafe { lib.get::<extern fn(_: &mut AzLayoutAlignContentValue)>(b"az_layout_align_content_value_delete").ok()? };
         let az_layout_align_content_value_deep_copy = unsafe { lib.get::<extern fn(_: &AzLayoutAlignContentValue) -> AzLayoutAlignContentValue>(b"az_layout_align_content_value_deep_copy").ok()? };
         let az_layout_align_items_value_auto = unsafe { lib.get::<extern fn() -> AzLayoutAlignItemsValue>(b"az_layout_align_items_value_auto").ok()? };
         let az_layout_align_items_value_none = unsafe { lib.get::<extern fn() -> AzLayoutAlignItemsValue>(b"az_layout_align_items_value_none").ok()? };
         let az_layout_align_items_value_inherit = unsafe { lib.get::<extern fn() -> AzLayoutAlignItemsValue>(b"az_layout_align_items_value_inherit").ok()? };
         let az_layout_align_items_value_initial = unsafe { lib.get::<extern fn() -> AzLayoutAlignItemsValue>(b"az_layout_align_items_value_initial").ok()? };
-        let az_layout_align_items_value_exact = unsafe { lib.get::<extern fn(_: AzLayoutAlignItemsPtr) -> AzLayoutAlignItemsValue>(b"az_layout_align_items_value_exact").ok()? };
+        let az_layout_align_items_value_exact = unsafe { lib.get::<extern fn(_: AzLayoutAlignItems) -> AzLayoutAlignItemsValue>(b"az_layout_align_items_value_exact").ok()? };
         let az_layout_align_items_value_delete = unsafe { lib.get::<extern fn(_: &mut AzLayoutAlignItemsValue)>(b"az_layout_align_items_value_delete").ok()? };
         let az_layout_align_items_value_deep_copy = unsafe { lib.get::<extern fn(_: &AzLayoutAlignItemsValue) -> AzLayoutAlignItemsValue>(b"az_layout_align_items_value_deep_copy").ok()? };
         let az_layout_bottom_value_auto = unsafe { lib.get::<extern fn() -> AzLayoutBottomValue>(b"az_layout_bottom_value_auto").ok()? };
         let az_layout_bottom_value_none = unsafe { lib.get::<extern fn() -> AzLayoutBottomValue>(b"az_layout_bottom_value_none").ok()? };
         let az_layout_bottom_value_inherit = unsafe { lib.get::<extern fn() -> AzLayoutBottomValue>(b"az_layout_bottom_value_inherit").ok()? };
         let az_layout_bottom_value_initial = unsafe { lib.get::<extern fn() -> AzLayoutBottomValue>(b"az_layout_bottom_value_initial").ok()? };
-        let az_layout_bottom_value_exact = unsafe { lib.get::<extern fn(_: AzLayoutBottomPtr) -> AzLayoutBottomValue>(b"az_layout_bottom_value_exact").ok()? };
+        let az_layout_bottom_value_exact = unsafe { lib.get::<extern fn(_: AzLayoutBottom) -> AzLayoutBottomValue>(b"az_layout_bottom_value_exact").ok()? };
         let az_layout_bottom_value_delete = unsafe { lib.get::<extern fn(_: &mut AzLayoutBottomValue)>(b"az_layout_bottom_value_delete").ok()? };
         let az_layout_bottom_value_deep_copy = unsafe { lib.get::<extern fn(_: &AzLayoutBottomValue) -> AzLayoutBottomValue>(b"az_layout_bottom_value_deep_copy").ok()? };
         let az_layout_box_sizing_value_auto = unsafe { lib.get::<extern fn() -> AzLayoutBoxSizingValue>(b"az_layout_box_sizing_value_auto").ok()? };
@@ -2598,12 +2626,22 @@ pub(crate) mod dll {
             az_box_shadow_clip_mode_deep_copy,
             az_box_shadow_pre_display_item_delete,
             az_box_shadow_pre_display_item_deep_copy,
+            az_layout_align_content_stretch,
+            az_layout_align_content_center,
+            az_layout_align_content_start,
+            az_layout_align_content_end,
+            az_layout_align_content_space_between,
+            az_layout_align_content_space_around,
             az_layout_align_content_delete,
-            az_layout_align_content_shallow_copy,
+            az_layout_align_content_deep_copy,
+            az_layout_align_items_stretch,
+            az_layout_align_items_center,
+            az_layout_align_items_start,
+            az_layout_align_items_end,
             az_layout_align_items_delete,
-            az_layout_align_items_shallow_copy,
+            az_layout_align_items_deep_copy,
             az_layout_bottom_delete,
-            az_layout_bottom_shallow_copy,
+            az_layout_bottom_deep_copy,
             az_layout_box_sizing_delete,
             az_layout_box_sizing_shallow_copy,
             az_layout_direction_delete,
@@ -3492,7 +3530,7 @@ pub mod path {
 pub mod app {
 
     use azul_dll::*;
-    use crate::callbacks::{LayoutCallback, RefAny};
+    use crate::callbacks::{RefAny, LayoutCallback};
     use crate::window::WindowCreateOptions;
 
 
@@ -3858,36 +3896,56 @@ pub mod css {
 
 
     /// `LayoutAlignContent` struct
-    pub struct LayoutAlignContent { pub(crate) ptr: AzLayoutAlignContentPtr }
+    pub struct LayoutAlignContent { pub(crate) object: AzLayoutAlignContent }
 
     impl LayoutAlignContent {
-       /// Prevents the destructor from running and returns the internal `AzLayoutAlignContentPtr`
-       pub fn leak(self) -> AzLayoutAlignContentPtr { let p = az_layout_align_content_shallow_copy(&self.ptr); std::mem::forget(self); p }
+        /// Default value. Lines stretch to take up the remaining space
+        pub fn stretch() -> Self { Self { object: az_layout_align_content_stretch() }  }
+        /// Lines are packed toward the center of the flex container
+        pub fn center() -> Self { Self { object: az_layout_align_content_center() }  }
+        /// Lines are packed toward the start of the flex container
+        pub fn start() -> Self { Self { object: az_layout_align_content_start() }  }
+        /// Lines are packed toward the end of the flex container
+        pub fn end() -> Self { Self { object: az_layout_align_content_end() }  }
+        /// Lines are evenly distributed in the flex container
+        pub fn space_between() -> Self { Self { object: az_layout_align_content_space_between() }  }
+        /// Lines are evenly distributed in the flex container, with half-size spaces on either end
+        pub fn space_around() -> Self { Self { object: az_layout_align_content_space_around() }  }
+       /// Prevents the destructor from running and returns the internal `AzLayoutAlignContent`
+       pub fn leak(self) -> AzLayoutAlignContent { az_layout_align_content_deep_copy(&self.object) }
     }
 
-    impl Drop for LayoutAlignContent { fn drop(&mut self) { az_layout_align_content_delete(&mut self.ptr); } }
+    impl Drop for LayoutAlignContent { fn drop(&mut self) { az_layout_align_content_delete(&mut self.object); } }
 
 
     /// `LayoutAlignItems` struct
-    pub struct LayoutAlignItems { pub(crate) ptr: AzLayoutAlignItemsPtr }
+    pub struct LayoutAlignItems { pub(crate) object: AzLayoutAlignItems }
 
     impl LayoutAlignItems {
-       /// Prevents the destructor from running and returns the internal `AzLayoutAlignItemsPtr`
-       pub fn leak(self) -> AzLayoutAlignItemsPtr { let p = az_layout_align_items_shallow_copy(&self.ptr); std::mem::forget(self); p }
+        /// Items are stretched to fit the container
+        pub fn stretch() -> Self { Self { object: az_layout_align_items_stretch() }  }
+        /// Items are positioned at the center of the container
+        pub fn center() -> Self { Self { object: az_layout_align_items_center() }  }
+        /// Items are positioned at the beginning of the container
+        pub fn start() -> Self { Self { object: az_layout_align_items_start() }  }
+        /// Items are positioned at the end of the container
+        pub fn end() -> Self { Self { object: az_layout_align_items_end() }  }
+       /// Prevents the destructor from running and returns the internal `AzLayoutAlignItems`
+       pub fn leak(self) -> AzLayoutAlignItems { az_layout_align_items_deep_copy(&self.object) }
     }
 
-    impl Drop for LayoutAlignItems { fn drop(&mut self) { az_layout_align_items_delete(&mut self.ptr); } }
+    impl Drop for LayoutAlignItems { fn drop(&mut self) { az_layout_align_items_delete(&mut self.object); } }
 
 
     /// `LayoutBottom` struct
-    pub struct LayoutBottom { pub(crate) ptr: AzLayoutBottomPtr }
+    pub struct LayoutBottom { pub(crate) object: AzLayoutBottom }
 
     impl LayoutBottom {
-       /// Prevents the destructor from running and returns the internal `AzLayoutBottomPtr`
-       pub fn leak(self) -> AzLayoutBottomPtr { let p = az_layout_bottom_shallow_copy(&self.ptr); std::mem::forget(self); p }
+       /// Prevents the destructor from running and returns the internal `AzLayoutBottom`
+       pub fn leak(self) -> AzLayoutBottom { az_layout_bottom_deep_copy(&self.object) }
     }
 
-    impl Drop for LayoutBottom { fn drop(&mut self) { az_layout_bottom_delete(&mut self.ptr); } }
+    impl Drop for LayoutBottom { fn drop(&mut self) { az_layout_bottom_delete(&mut self.object); } }
 
 
     /// `LayoutBoxSizing` struct
@@ -5548,7 +5606,7 @@ pub mod dom {
     use azul_dll::*;
     use crate::str::String;
     use crate::resources::{TextId, ImageId};
-    use crate::callbacks::{Callback, GlCallback, IFrameCallback, RefAny};
+    use crate::callbacks::{RefAny, GlCallback, Callback, IFrameCallback};
     use crate::vec::StringVec;
     use crate::css::CssProperty;
 

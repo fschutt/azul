@@ -855,17 +855,17 @@ pub fn wr_translate_border_radius(border_radius: StyleBorderRadius, rect_size: C
 
     // The "w / h" is necessary to convert percentage-based values into pixels, for example "border-radius: 50%;"
 
-    let top_left_px_h = top_left.and_then(|tl| tl.get_property_or_default()).unwrap_or_default().0.to_pixels(w);
-    let top_left_px_v = top_left.and_then(|tl| tl.get_property_or_default()).unwrap_or_default().0.to_pixels(h);
+    let top_left_px_h = top_left.and_then(|tl| tl.get_property_or_default()).unwrap_or_default().inner.to_pixels(w);
+    let top_left_px_v = top_left.and_then(|tl| tl.get_property_or_default()).unwrap_or_default().inner.to_pixels(h);
 
-    let top_right_px_h = top_right.and_then(|tr| tr.get_property_or_default()).unwrap_or_default().0.to_pixels(w);
-    let top_right_px_v = top_right.and_then(|tr| tr.get_property_or_default()).unwrap_or_default().0.to_pixels(h);
+    let top_right_px_h = top_right.and_then(|tr| tr.get_property_or_default()).unwrap_or_default().inner.to_pixels(w);
+    let top_right_px_v = top_right.and_then(|tr| tr.get_property_or_default()).unwrap_or_default().inner.to_pixels(h);
 
-    let bottom_left_px_h = bottom_left.and_then(|bl| bl.get_property_or_default()).unwrap_or_default().0.to_pixels(w);
-    let bottom_left_px_v = bottom_left.and_then(|bl| bl.get_property_or_default()).unwrap_or_default().0.to_pixels(h);
+    let bottom_left_px_h = bottom_left.and_then(|bl| bl.get_property_or_default()).unwrap_or_default().inner.to_pixels(w);
+    let bottom_left_px_v = bottom_left.and_then(|bl| bl.get_property_or_default()).unwrap_or_default().inner.to_pixels(h);
 
-    let bottom_right_px_h = bottom_right.and_then(|br| br.get_property_or_default()).unwrap_or_default().0.to_pixels(w);
-    let bottom_right_px_v = bottom_right.and_then(|br| br.get_property_or_default()).unwrap_or_default().0.to_pixels(h);
+    let bottom_right_px_h = bottom_right.and_then(|br| br.get_property_or_default()).unwrap_or_default().inner.to_pixels(w);
+    let bottom_right_px_v = bottom_right.and_then(|br| br.get_property_or_default()).unwrap_or_default().inner.to_pixels(h);
 
     WrBorderRadius {
         top_left: WrLayoutSize::new(top_left_px_h, top_left_px_v),
@@ -2103,17 +2103,17 @@ mod border {
         };
 
         let (width_top, width_right, width_bottom, width_left) = (
-            widths.top.map(|w| w.map_property(|w| w.0)).and_then(CssPropertyValue::get_property_or_default),
-            widths.right.map(|w| w.map_property(|w| w.0)).and_then(CssPropertyValue::get_property_or_default),
-            widths.bottom.map(|w| w.map_property(|w| w.0)).and_then(CssPropertyValue::get_property_or_default),
-            widths.left.map(|w| w.map_property(|w| w.0)).and_then(CssPropertyValue::get_property_or_default),
+            widths.top.map(|w| w.map_property(|w| w.inner)).and_then(CssPropertyValue::get_property_or_default),
+            widths.right.map(|w| w.map_property(|w| w.inner)).and_then(CssPropertyValue::get_property_or_default),
+            widths.bottom.map(|w| w.map_property(|w| w.inner)).and_then(CssPropertyValue::get_property_or_default),
+            widths.left.map(|w| w.map_property(|w| w.inner)).and_then(CssPropertyValue::get_property_or_default),
         );
 
         let (style_top, style_right, style_bottom, style_left) = (
-            get_border_style_normalized(styles.top.map(|s| s.map_property(|s| s.0))),
-            get_border_style_normalized(styles.right.map(|s| s.map_property(|s| s.0))),
-            get_border_style_normalized(styles.bottom.map(|s| s.map_property(|s| s.0))),
-            get_border_style_normalized(styles.left.map(|s| s.map_property(|s| s.0))),
+            get_border_style_normalized(styles.top.map(|s| s.map_property(|s| s.inner))),
+            get_border_style_normalized(styles.right.map(|s| s.map_property(|s| s.inner))),
+            get_border_style_normalized(styles.bottom.map(|s| s.map_property(|s| s.inner))),
+            get_border_style_normalized(styles.left.map(|s| s.map_property(|s| s.inner))),
         );
 
         let no_border_style =
@@ -2153,10 +2153,10 @@ mod border {
         );
 
         let border_details = WrBorderDetails::Normal(WrNormalBorder {
-            top:    WrBorderSide { color: wr_translate_color_u(color_top.0).into(), style: translate_wr_border(style_top, width_top) },
-            left:   WrBorderSide { color: wr_translate_color_u(color_left.0).into(), style: translate_wr_border(style_left, width_left) },
-            right:  WrBorderSide { color: wr_translate_color_u(color_right.0).into(), style: translate_wr_border(style_right, width_right) },
-            bottom: WrBorderSide { color: wr_translate_color_u(color_bottom.0).into(), style: translate_wr_border(style_bottom, width_bottom) },
+            top:    WrBorderSide { color: wr_translate_color_u(color_top.inner).into(), style: translate_wr_border(style_top, width_top) },
+            left:   WrBorderSide { color: wr_translate_color_u(color_left.inner).into(), style: translate_wr_border(style_left, width_left) },
+            right:  WrBorderSide { color: wr_translate_color_u(color_right.inner).into(), style: translate_wr_border(style_right, width_right) },
+            bottom: WrBorderSide { color: wr_translate_color_u(color_bottom.inner).into(), style: translate_wr_border(style_bottom, width_bottom) },
             radius: if has_no_border_radius { WrBorderRadius::zero() } else { wr_translate_border_radius(radii, rect_size) },
             do_aa: true, // it isn't known when it's possible to set this to false
         });
