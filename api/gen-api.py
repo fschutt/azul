@@ -500,7 +500,10 @@ def generate_rust_dll(apiData):
                                     code += class_ptr_name + " { object: " + c["external"] + "::" + enum_variant_name + "(variant_data) }"
                                     code += " }\r\n"
                                 else:
-                                    found_class_path = search_for_class_by_rust_class_name(apiData, variant_type)
+                                    analyzed_arg_type = analyze_type(variant_type)
+                                    found_class_path = search_for_class_by_rust_class_name(apiData, analyzed_arg_type[1])
+                                    if found_class_path is None:
+                                        print("variant type " + variant_type + " not found (object " + class_name + " " + enum_variant_name + "!")
                                     variant_data_class_name = prefix + found_class_path[1] + postfix
                                     fn_body = "*" + fn_prefix + to_snake_case(found_class_path[1]) + "_downcast(variant_data)"
                                     if class_is_stack_allocated(get_class(apiData, found_class_path[0], found_class_path[1])):
@@ -855,8 +858,9 @@ def generate_rust_api(apiData, structs_map, functions_map):
                                 code += "Self { object: " + fn_prefix + to_snake_case(class_name) + "_" + to_snake_case(enum_variant_name) + "(variant_data) }"
                                 code += "}\r\n"
                             else:
-                                found_class_path = search_for_class_by_rust_class_name(apiData, variant_type)
-                                stack_enum_args = "crate::" + found_class_path[0] + "::" + found_class_path[1]
+                                analyzed_arg_type = analyze_type(variant_type)
+                                found_class_path = search_for_class_by_rust_class_name(apiData, analyzed_arg_type[1])
+                                stack_enum_args = analyzed_arg_type[0] + "crate::" + found_class_path[0] + "::" + found_class_path[1] + analyzed_arg_type[2]
                                 code += "        pub fn " + to_snake_case(enum_variant_name) + "(variant_data: " + stack_enum_args + ") -> Self { "
                                 code += "Self { object: " + fn_prefix + to_snake_case(class_name) + "_" + to_snake_case(enum_variant_name) + "(variant_data.leak()) }"
                                 code += "}\r\n"

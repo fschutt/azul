@@ -1670,14 +1670,16 @@ impl Default for SizeMetric {
 
 /// Represents a `background-size` attribute
 #[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
+#[repr(C, u8)]
 pub enum StyleBackgroundSize {
-    ExactSize(PixelValue, PixelValue),
+    ExactSize([PixelValue;2]),
     Contain,
     Cover,
 }
 
 /// Represents a `background-position` attribute
 #[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
+#[repr(C)]
 pub struct StyleBackgroundPosition {
     pub horizontal: BackgroundPositionHorizontal,
     pub vertical: BackgroundPositionVertical,
@@ -1693,6 +1695,7 @@ impl Default for StyleBackgroundPosition {
 }
 
 #[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
+#[repr(C, u8)]
 pub enum BackgroundPositionHorizontal {
     Left,
     Center,
@@ -1701,6 +1704,7 @@ pub enum BackgroundPositionHorizontal {
 }
 
 #[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
+#[repr(C, u8)]
 pub enum BackgroundPositionVertical {
     Top,
     Center,
@@ -1710,6 +1714,7 @@ pub enum BackgroundPositionVertical {
 
 /// Represents a `background-repeat` attribute
 #[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
+#[repr(C)]
 pub enum StyleBackgroundRepeat {
     NoRepeat,
     Repeat,
@@ -1898,7 +1903,7 @@ impl<'a> From<CssImageId> for StyleBackgroundContent {
 }
 
 impl_vec!(GradientStopPre, GradientStopPreVec);
-
+impl_vec!(String, StringVec);
 
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
 #[repr(C)]
@@ -2851,16 +2856,8 @@ impl_pixel_value!(StyleFontSize);
 
 /// Represents a `font-family` attribute
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
+#[repr(C)]
 pub struct StyleFontFamily {
     // fonts in order of precedence, i.e. "Webly Sleeky UI", "monospace", etc.
-    pub fonts: Vec<FontId>
-}
-
-#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
-pub struct FontId { pub inner: String }
-
-impl FontId {
-    pub fn get_str(&self) -> &str {
-        &self.inner
-    }
+    pub fonts: StringVec,
 }

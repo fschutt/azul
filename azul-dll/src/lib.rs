@@ -740,174 +740,147 @@ pub type AzLayoutInfoPtrType = azul_impl::callbacks::LayoutInfoPtr;
 /// Copies the object
 #[no_mangle] #[inline] pub extern "C" fn az_style_background_content_deep_copy(object: &AzStyleBackgroundContent) -> AzStyleBackgroundContent { AzStyleBackgroundContent{ object: object.object.clone() } }
 
-/// Pointer to rust-allocated `Box<StyleBackgroundPosition>` struct
-#[no_mangle] #[repr(C)] pub struct AzStyleBackgroundPositionPtr { ptr: *mut c_void }
+/// Re-export of rust-allocated (stack based) `BackgroundPositionHorizontal` struct
+#[no_mangle] #[repr(C)] pub struct AzBackgroundPositionHorizontal { pub object: azul_impl::css::BackgroundPositionHorizontal }
+#[inline] #[no_mangle] pub extern "C" fn az_background_position_horizontal_left,() -> AzBackgroundPositionHorizontal { AzBackgroundPositionHorizontal { object: azul_impl::css::BackgroundPositionHorizontal::Left, } }
+#[inline] #[no_mangle] pub extern "C" fn az_background_position_horizontal_center() -> AzBackgroundPositionHorizontal { AzBackgroundPositionHorizontal { object: azul_impl::css::BackgroundPositionHorizontal::Center } }
+#[inline] #[no_mangle] pub extern "C" fn az_background_position_horizontal_right() -> AzBackgroundPositionHorizontal { AzBackgroundPositionHorizontal { object: azul_impl::css::BackgroundPositionHorizontal::Right } }
+#[inline] #[no_mangle] pub extern "C" fn az_background_position_horizontal_exact(variant_data: AzPixelValue) -> AzBackgroundPositionHorizontal { AzBackgroundPositionHorizontal { object: azul_impl::css::BackgroundPositionHorizontal::Exact(variant_data.object) } }
+/// Destructor: Takes ownership of the `BackgroundPositionHorizontal` pointer and deletes it.
+#[no_mangle] #[inline] #[allow(unused_variables)] pub extern "C" fn az_background_position_horizontal_delete(object: &mut AzBackgroundPositionHorizontal) { match object.object { azul_impl::css::BackgroundPositionHorizontal::Left, => { }, azul_impl::css::BackgroundPositionHorizontal::Center => { }, azul_impl::css::BackgroundPositionHorizontal::Right => { }, azul_impl::css::BackgroundPositionHorizontal::Exact(_) => { }, }
+}
+/// Copies the object
+#[no_mangle] #[inline] pub extern "C" fn az_background_position_horizontal_deep_copy(object: &AzBackgroundPositionHorizontal) -> AzBackgroundPositionHorizontal { AzBackgroundPositionHorizontal{ object: object.object.clone() } }
+
+/// Re-export of rust-allocated (stack based) `BackgroundPositionVertical` struct
+#[no_mangle] #[repr(C)] pub struct AzBackgroundPositionVertical { pub object: azul_impl::css::BackgroundPositionHorizontal }
+#[inline] #[no_mangle] pub extern "C" fn az_background_position_vertical_top() -> AzBackgroundPositionVertical { AzBackgroundPositionVertical { object: azul_impl::css::BackgroundPositionHorizontal::Top } }
+#[inline] #[no_mangle] pub extern "C" fn az_background_position_vertical_center() -> AzBackgroundPositionVertical { AzBackgroundPositionVertical { object: azul_impl::css::BackgroundPositionHorizontal::Center } }
+#[inline] #[no_mangle] pub extern "C" fn az_background_position_vertical_bottom() -> AzBackgroundPositionVertical { AzBackgroundPositionVertical { object: azul_impl::css::BackgroundPositionHorizontal::Bottom } }
+#[inline] #[no_mangle] pub extern "C" fn az_background_position_vertical_exact(variant_data: AzPixelValue) -> AzBackgroundPositionVertical { AzBackgroundPositionVertical { object: azul_impl::css::BackgroundPositionHorizontal::Exact(variant_data.object) } }
+/// Destructor: Takes ownership of the `BackgroundPositionVertical` pointer and deletes it.
+#[no_mangle] #[inline] #[allow(unused_variables)] pub extern "C" fn az_background_position_vertical_delete(object: &mut AzBackgroundPositionVertical) { match object.object { azul_impl::css::BackgroundPositionHorizontal::Top => { }, azul_impl::css::BackgroundPositionHorizontal::Center => { }, azul_impl::css::BackgroundPositionHorizontal::Bottom => { }, azul_impl::css::BackgroundPositionHorizontal::Exact(_) => { }, }
+}
+/// Copies the object
+#[no_mangle] #[inline] pub extern "C" fn az_background_position_vertical_deep_copy(object: &AzBackgroundPositionVertical) -> AzBackgroundPositionVertical { AzBackgroundPositionVertical{ object: object.object.clone() } }
+
+/// Re-export of rust-allocated (stack based) `StyleBackgroundPosition` struct
+#[no_mangle] #[repr(C)] pub struct AzStyleBackgroundPosition { pub object: azul_impl::css::StyleBackgroundPosition }
 /// Destructor: Takes ownership of the `StyleBackgroundPosition` pointer and deletes it.
-#[no_mangle] #[inline] pub extern "C" fn az_style_background_position_delete(ptr: &mut AzStyleBackgroundPositionPtr) { let _ = unsafe { Box::<StyleBackgroundPosition>::from_raw(ptr.ptr  as *mut StyleBackgroundPosition) }; }
-/// Copies the pointer: WARNING: After calling this function you'll have two pointers to the same Box<`StyleBackgroundPosition`>!.
-#[no_mangle] #[inline] pub extern "C" fn az_style_background_position_shallow_copy(ptr: &AzStyleBackgroundPositionPtr) -> AzStyleBackgroundPositionPtr { AzStyleBackgroundPositionPtr { ptr: ptr.ptr } }
-/// (private): Downcasts the `AzStyleBackgroundPositionPtr` to a `Box<StyleBackgroundPosition>`. Note that this takes ownership of the pointer.
-#[inline(always)] fn az_style_background_position_downcast(ptr: AzStyleBackgroundPositionPtr) -> Box<StyleBackgroundPosition> { unsafe { Box::<StyleBackgroundPosition>::from_raw(ptr.ptr  as *mut StyleBackgroundPosition) } }
-/// (private): Downcasts the `AzStyleBackgroundPositionPtr` to a `&mut Box<StyleBackgroundPosition>` and runs the `func` closure on it
-#[inline(always)] fn az_style_background_position_downcast_refmut<F: FnOnce(&mut Box<StyleBackgroundPosition>)>(ptr: &mut AzStyleBackgroundPositionPtr, func: F) { let mut box_ptr: Box<StyleBackgroundPosition> = unsafe { Box::<StyleBackgroundPosition>::from_raw(ptr.ptr  as *mut StyleBackgroundPosition) };func(&mut box_ptr);ptr.ptr = Box::into_raw(box_ptr) as *mut c_void; }
-/// (private): Downcasts the `AzStyleBackgroundPositionPtr` to a `&Box<StyleBackgroundPosition>` and runs the `func` closure on it
-#[inline(always)] fn az_style_background_position_downcast_ref<P, F: FnOnce(&Box<StyleBackgroundPosition>) -> P>(ptr: &mut AzStyleBackgroundPositionPtr, func: F) -> P { let box_ptr: Box<StyleBackgroundPosition> = unsafe { Box::<StyleBackgroundPosition>::from_raw(ptr.ptr  as *mut StyleBackgroundPosition) }; let ret_val = func(&box_ptr); ptr.ptr = Box::into_raw(box_ptr) as *mut c_void;ret_val }
+#[no_mangle] #[inline] #[allow(unused_variables)] pub extern "C" fn az_style_background_position_delete(object: &mut AzStyleBackgroundPosition) { }
+/// Copies the object
+#[no_mangle] #[inline] pub extern "C" fn az_style_background_position_deep_copy(object: &AzStyleBackgroundPosition) -> AzStyleBackgroundPosition { AzStyleBackgroundPosition{ object: object.object.clone() } }
 
-/// Pointer to rust-allocated `Box<StyleBackgroundRepeat>` struct
-#[no_mangle] #[repr(C)] pub struct AzStyleBackgroundRepeatPtr { ptr: *mut c_void }
+/// Re-export of rust-allocated (stack based) `StyleBackgroundRepeat` struct
+#[no_mangle] #[repr(C)] pub struct AzStyleBackgroundRepeat { pub object: azul_impl::css::StyleBackgroundRepeat }
+#[inline] #[no_mangle] pub extern "C" fn az_style_background_repeat_no_repeat() -> AzStyleBackgroundRepeat { AzStyleBackgroundRepeat { object: azul_impl::css::StyleBackgroundRepeat::NoRepeat } }
+#[inline] #[no_mangle] pub extern "C" fn az_style_background_repeat_repeat() -> AzStyleBackgroundRepeat { AzStyleBackgroundRepeat { object: azul_impl::css::StyleBackgroundRepeat::Repeat } }
+#[inline] #[no_mangle] pub extern "C" fn az_style_background_repeat_repeat_x() -> AzStyleBackgroundRepeat { AzStyleBackgroundRepeat { object: azul_impl::css::StyleBackgroundRepeat::RepeatX } }
+#[inline] #[no_mangle] pub extern "C" fn az_style_background_repeat_repeat_y() -> AzStyleBackgroundRepeat { AzStyleBackgroundRepeat { object: azul_impl::css::StyleBackgroundRepeat::RepeatY } }
 /// Destructor: Takes ownership of the `StyleBackgroundRepeat` pointer and deletes it.
-#[no_mangle] #[inline] pub extern "C" fn az_style_background_repeat_delete(ptr: &mut AzStyleBackgroundRepeatPtr) { let _ = unsafe { Box::<StyleBackgroundRepeat>::from_raw(ptr.ptr  as *mut StyleBackgroundRepeat) }; }
-/// Copies the pointer: WARNING: After calling this function you'll have two pointers to the same Box<`StyleBackgroundRepeat`>!.
-#[no_mangle] #[inline] pub extern "C" fn az_style_background_repeat_shallow_copy(ptr: &AzStyleBackgroundRepeatPtr) -> AzStyleBackgroundRepeatPtr { AzStyleBackgroundRepeatPtr { ptr: ptr.ptr } }
-/// (private): Downcasts the `AzStyleBackgroundRepeatPtr` to a `Box<StyleBackgroundRepeat>`. Note that this takes ownership of the pointer.
-#[inline(always)] fn az_style_background_repeat_downcast(ptr: AzStyleBackgroundRepeatPtr) -> Box<StyleBackgroundRepeat> { unsafe { Box::<StyleBackgroundRepeat>::from_raw(ptr.ptr  as *mut StyleBackgroundRepeat) } }
-/// (private): Downcasts the `AzStyleBackgroundRepeatPtr` to a `&mut Box<StyleBackgroundRepeat>` and runs the `func` closure on it
-#[inline(always)] fn az_style_background_repeat_downcast_refmut<F: FnOnce(&mut Box<StyleBackgroundRepeat>)>(ptr: &mut AzStyleBackgroundRepeatPtr, func: F) { let mut box_ptr: Box<StyleBackgroundRepeat> = unsafe { Box::<StyleBackgroundRepeat>::from_raw(ptr.ptr  as *mut StyleBackgroundRepeat) };func(&mut box_ptr);ptr.ptr = Box::into_raw(box_ptr) as *mut c_void; }
-/// (private): Downcasts the `AzStyleBackgroundRepeatPtr` to a `&Box<StyleBackgroundRepeat>` and runs the `func` closure on it
-#[inline(always)] fn az_style_background_repeat_downcast_ref<P, F: FnOnce(&Box<StyleBackgroundRepeat>) -> P>(ptr: &mut AzStyleBackgroundRepeatPtr, func: F) -> P { let box_ptr: Box<StyleBackgroundRepeat> = unsafe { Box::<StyleBackgroundRepeat>::from_raw(ptr.ptr  as *mut StyleBackgroundRepeat) }; let ret_val = func(&box_ptr); ptr.ptr = Box::into_raw(box_ptr) as *mut c_void;ret_val }
+#[no_mangle] #[inline] #[allow(unused_variables)] pub extern "C" fn az_style_background_repeat_delete(object: &mut AzStyleBackgroundRepeat) { match object.object { azul_impl::css::StyleBackgroundRepeat::NoRepeat => { }, azul_impl::css::StyleBackgroundRepeat::Repeat => { }, azul_impl::css::StyleBackgroundRepeat::RepeatX => { }, azul_impl::css::StyleBackgroundRepeat::RepeatY => { }, }
+}
+/// Copies the object
+#[no_mangle] #[inline] pub extern "C" fn az_style_background_repeat_deep_copy(object: &AzStyleBackgroundRepeat) -> AzStyleBackgroundRepeat { AzStyleBackgroundRepeat{ object: object.object.clone() } }
 
-/// Pointer to rust-allocated `Box<StyleBackgroundSize>` struct
-#[no_mangle] #[repr(C)] pub struct AzStyleBackgroundSizePtr { ptr: *mut c_void }
+/// Re-export of rust-allocated (stack based) `StyleBackgroundSize` struct
+#[no_mangle] #[repr(C)] pub struct AzStyleBackgroundSize { pub object: azul_impl::css::StyleBackgroundSize }
+#[inline] #[no_mangle] pub extern "C" fn az_style_background_size_exact_size(variant_data: AzPixelValue) -> AzStyleBackgroundSize { AzStyleBackgroundSize { object: azul_impl::css::StyleBackgroundSize::ExactSize(variant_data.object) } }
+#[inline] #[no_mangle] pub extern "C" fn az_style_background_size_contain() -> AzStyleBackgroundSize { AzStyleBackgroundSize { object: azul_impl::css::StyleBackgroundSize::Contain } }
+#[inline] #[no_mangle] pub extern "C" fn az_style_background_size_cover() -> AzStyleBackgroundSize { AzStyleBackgroundSize { object: azul_impl::css::StyleBackgroundSize::Cover } }
 /// Destructor: Takes ownership of the `StyleBackgroundSize` pointer and deletes it.
-#[no_mangle] #[inline] pub extern "C" fn az_style_background_size_delete(ptr: &mut AzStyleBackgroundSizePtr) { let _ = unsafe { Box::<StyleBackgroundSize>::from_raw(ptr.ptr  as *mut StyleBackgroundSize) }; }
-/// Copies the pointer: WARNING: After calling this function you'll have two pointers to the same Box<`StyleBackgroundSize`>!.
-#[no_mangle] #[inline] pub extern "C" fn az_style_background_size_shallow_copy(ptr: &AzStyleBackgroundSizePtr) -> AzStyleBackgroundSizePtr { AzStyleBackgroundSizePtr { ptr: ptr.ptr } }
-/// (private): Downcasts the `AzStyleBackgroundSizePtr` to a `Box<StyleBackgroundSize>`. Note that this takes ownership of the pointer.
-#[inline(always)] fn az_style_background_size_downcast(ptr: AzStyleBackgroundSizePtr) -> Box<StyleBackgroundSize> { unsafe { Box::<StyleBackgroundSize>::from_raw(ptr.ptr  as *mut StyleBackgroundSize) } }
-/// (private): Downcasts the `AzStyleBackgroundSizePtr` to a `&mut Box<StyleBackgroundSize>` and runs the `func` closure on it
-#[inline(always)] fn az_style_background_size_downcast_refmut<F: FnOnce(&mut Box<StyleBackgroundSize>)>(ptr: &mut AzStyleBackgroundSizePtr, func: F) { let mut box_ptr: Box<StyleBackgroundSize> = unsafe { Box::<StyleBackgroundSize>::from_raw(ptr.ptr  as *mut StyleBackgroundSize) };func(&mut box_ptr);ptr.ptr = Box::into_raw(box_ptr) as *mut c_void; }
-/// (private): Downcasts the `AzStyleBackgroundSizePtr` to a `&Box<StyleBackgroundSize>` and runs the `func` closure on it
-#[inline(always)] fn az_style_background_size_downcast_ref<P, F: FnOnce(&Box<StyleBackgroundSize>) -> P>(ptr: &mut AzStyleBackgroundSizePtr, func: F) -> P { let box_ptr: Box<StyleBackgroundSize> = unsafe { Box::<StyleBackgroundSize>::from_raw(ptr.ptr  as *mut StyleBackgroundSize) }; let ret_val = func(&box_ptr); ptr.ptr = Box::into_raw(box_ptr) as *mut c_void;ret_val }
+#[no_mangle] #[inline] #[allow(unused_variables)] pub extern "C" fn az_style_background_size_delete(object: &mut AzStyleBackgroundSize) { match object.object { azul_impl::css::StyleBackgroundSize::ExactSize(_) => { }, azul_impl::css::StyleBackgroundSize::Contain => { }, azul_impl::css::StyleBackgroundSize::Cover => { }, }
+}
+/// Copies the object
+#[no_mangle] #[inline] pub extern "C" fn az_style_background_size_deep_copy(object: &AzStyleBackgroundSize) -> AzStyleBackgroundSize { AzStyleBackgroundSize{ object: object.object.clone() } }
 
-/// Pointer to rust-allocated `Box<StyleBorderBottomColor>` struct
-#[no_mangle] #[repr(C)] pub struct AzStyleBorderBottomColorPtr { ptr: *mut c_void }
+/// Re-export of rust-allocated (stack based) `StyleBorderBottomColor` struct
+#[no_mangle] #[repr(C)] pub struct AzStyleBorderBottomColor { pub object: azul_impl::css::StyleBorderBottomColor }
 /// Destructor: Takes ownership of the `StyleBorderBottomColor` pointer and deletes it.
-#[no_mangle] #[inline] pub extern "C" fn az_style_border_bottom_color_delete(ptr: &mut AzStyleBorderBottomColorPtr) { let _ = unsafe { Box::<StyleBorderBottomColor>::from_raw(ptr.ptr  as *mut StyleBorderBottomColor) }; }
-/// Copies the pointer: WARNING: After calling this function you'll have two pointers to the same Box<`StyleBorderBottomColor`>!.
-#[no_mangle] #[inline] pub extern "C" fn az_style_border_bottom_color_shallow_copy(ptr: &AzStyleBorderBottomColorPtr) -> AzStyleBorderBottomColorPtr { AzStyleBorderBottomColorPtr { ptr: ptr.ptr } }
-/// (private): Downcasts the `AzStyleBorderBottomColorPtr` to a `Box<StyleBorderBottomColor>`. Note that this takes ownership of the pointer.
-#[inline(always)] fn az_style_border_bottom_color_downcast(ptr: AzStyleBorderBottomColorPtr) -> Box<StyleBorderBottomColor> { unsafe { Box::<StyleBorderBottomColor>::from_raw(ptr.ptr  as *mut StyleBorderBottomColor) } }
-/// (private): Downcasts the `AzStyleBorderBottomColorPtr` to a `&mut Box<StyleBorderBottomColor>` and runs the `func` closure on it
-#[inline(always)] fn az_style_border_bottom_color_downcast_refmut<F: FnOnce(&mut Box<StyleBorderBottomColor>)>(ptr: &mut AzStyleBorderBottomColorPtr, func: F) { let mut box_ptr: Box<StyleBorderBottomColor> = unsafe { Box::<StyleBorderBottomColor>::from_raw(ptr.ptr  as *mut StyleBorderBottomColor) };func(&mut box_ptr);ptr.ptr = Box::into_raw(box_ptr) as *mut c_void; }
-/// (private): Downcasts the `AzStyleBorderBottomColorPtr` to a `&Box<StyleBorderBottomColor>` and runs the `func` closure on it
-#[inline(always)] fn az_style_border_bottom_color_downcast_ref<P, F: FnOnce(&Box<StyleBorderBottomColor>) -> P>(ptr: &mut AzStyleBorderBottomColorPtr, func: F) -> P { let box_ptr: Box<StyleBorderBottomColor> = unsafe { Box::<StyleBorderBottomColor>::from_raw(ptr.ptr  as *mut StyleBorderBottomColor) }; let ret_val = func(&box_ptr); ptr.ptr = Box::into_raw(box_ptr) as *mut c_void;ret_val }
+#[no_mangle] #[inline] #[allow(unused_variables)] pub extern "C" fn az_style_border_bottom_color_delete(object: &mut AzStyleBorderBottomColor) { }
+/// Copies the object
+#[no_mangle] #[inline] pub extern "C" fn az_style_border_bottom_color_deep_copy(object: &AzStyleBorderBottomColor) -> AzStyleBorderBottomColor { AzStyleBorderBottomColor{ object: object.object.clone() } }
 
-/// Pointer to rust-allocated `Box<StyleBorderBottomLeftRadius>` struct
-#[no_mangle] #[repr(C)] pub struct AzStyleBorderBottomLeftRadiusPtr { ptr: *mut c_void }
+/// Re-export of rust-allocated (stack based) `StyleBorderBottomLeftRadius` struct
+#[no_mangle] #[repr(C)] pub struct AzStyleBorderBottomLeftRadius { pub object: azul_impl::css::StyleBorderBottomLeftRadius }
 /// Destructor: Takes ownership of the `StyleBorderBottomLeftRadius` pointer and deletes it.
-#[no_mangle] #[inline] pub extern "C" fn az_style_border_bottom_left_radius_delete(ptr: &mut AzStyleBorderBottomLeftRadiusPtr) { let _ = unsafe { Box::<StyleBorderBottomLeftRadius>::from_raw(ptr.ptr  as *mut StyleBorderBottomLeftRadius) }; }
-/// Copies the pointer: WARNING: After calling this function you'll have two pointers to the same Box<`StyleBorderBottomLeftRadius`>!.
-#[no_mangle] #[inline] pub extern "C" fn az_style_border_bottom_left_radius_shallow_copy(ptr: &AzStyleBorderBottomLeftRadiusPtr) -> AzStyleBorderBottomLeftRadiusPtr { AzStyleBorderBottomLeftRadiusPtr { ptr: ptr.ptr } }
-/// (private): Downcasts the `AzStyleBorderBottomLeftRadiusPtr` to a `Box<StyleBorderBottomLeftRadius>`. Note that this takes ownership of the pointer.
-#[inline(always)] fn az_style_border_bottom_left_radius_downcast(ptr: AzStyleBorderBottomLeftRadiusPtr) -> Box<StyleBorderBottomLeftRadius> { unsafe { Box::<StyleBorderBottomLeftRadius>::from_raw(ptr.ptr  as *mut StyleBorderBottomLeftRadius) } }
-/// (private): Downcasts the `AzStyleBorderBottomLeftRadiusPtr` to a `&mut Box<StyleBorderBottomLeftRadius>` and runs the `func` closure on it
-#[inline(always)] fn az_style_border_bottom_left_radius_downcast_refmut<F: FnOnce(&mut Box<StyleBorderBottomLeftRadius>)>(ptr: &mut AzStyleBorderBottomLeftRadiusPtr, func: F) { let mut box_ptr: Box<StyleBorderBottomLeftRadius> = unsafe { Box::<StyleBorderBottomLeftRadius>::from_raw(ptr.ptr  as *mut StyleBorderBottomLeftRadius) };func(&mut box_ptr);ptr.ptr = Box::into_raw(box_ptr) as *mut c_void; }
-/// (private): Downcasts the `AzStyleBorderBottomLeftRadiusPtr` to a `&Box<StyleBorderBottomLeftRadius>` and runs the `func` closure on it
-#[inline(always)] fn az_style_border_bottom_left_radius_downcast_ref<P, F: FnOnce(&Box<StyleBorderBottomLeftRadius>) -> P>(ptr: &mut AzStyleBorderBottomLeftRadiusPtr, func: F) -> P { let box_ptr: Box<StyleBorderBottomLeftRadius> = unsafe { Box::<StyleBorderBottomLeftRadius>::from_raw(ptr.ptr  as *mut StyleBorderBottomLeftRadius) }; let ret_val = func(&box_ptr); ptr.ptr = Box::into_raw(box_ptr) as *mut c_void;ret_val }
+#[no_mangle] #[inline] #[allow(unused_variables)] pub extern "C" fn az_style_border_bottom_left_radius_delete(object: &mut AzStyleBorderBottomLeftRadius) { }
+/// Copies the object
+#[no_mangle] #[inline] pub extern "C" fn az_style_border_bottom_left_radius_deep_copy(object: &AzStyleBorderBottomLeftRadius) -> AzStyleBorderBottomLeftRadius { AzStyleBorderBottomLeftRadius{ object: object.object.clone() } }
 
-/// Pointer to rust-allocated `Box<StyleBorderBottomRightRadius>` struct
-#[no_mangle] #[repr(C)] pub struct AzStyleBorderBottomRightRadiusPtr { ptr: *mut c_void }
+/// Re-export of rust-allocated (stack based) `StyleBorderBottomRightRadius` struct
+#[no_mangle] #[repr(C)] pub struct AzStyleBorderBottomRightRadius { pub object: azul_impl::css::StyleBorderBottomRightRadius }
 /// Destructor: Takes ownership of the `StyleBorderBottomRightRadius` pointer and deletes it.
-#[no_mangle] #[inline] pub extern "C" fn az_style_border_bottom_right_radius_delete(ptr: &mut AzStyleBorderBottomRightRadiusPtr) { let _ = unsafe { Box::<StyleBorderBottomRightRadius>::from_raw(ptr.ptr  as *mut StyleBorderBottomRightRadius) }; }
-/// Copies the pointer: WARNING: After calling this function you'll have two pointers to the same Box<`StyleBorderBottomRightRadius`>!.
-#[no_mangle] #[inline] pub extern "C" fn az_style_border_bottom_right_radius_shallow_copy(ptr: &AzStyleBorderBottomRightRadiusPtr) -> AzStyleBorderBottomRightRadiusPtr { AzStyleBorderBottomRightRadiusPtr { ptr: ptr.ptr } }
-/// (private): Downcasts the `AzStyleBorderBottomRightRadiusPtr` to a `Box<StyleBorderBottomRightRadius>`. Note that this takes ownership of the pointer.
-#[inline(always)] fn az_style_border_bottom_right_radius_downcast(ptr: AzStyleBorderBottomRightRadiusPtr) -> Box<StyleBorderBottomRightRadius> { unsafe { Box::<StyleBorderBottomRightRadius>::from_raw(ptr.ptr  as *mut StyleBorderBottomRightRadius) } }
-/// (private): Downcasts the `AzStyleBorderBottomRightRadiusPtr` to a `&mut Box<StyleBorderBottomRightRadius>` and runs the `func` closure on it
-#[inline(always)] fn az_style_border_bottom_right_radius_downcast_refmut<F: FnOnce(&mut Box<StyleBorderBottomRightRadius>)>(ptr: &mut AzStyleBorderBottomRightRadiusPtr, func: F) { let mut box_ptr: Box<StyleBorderBottomRightRadius> = unsafe { Box::<StyleBorderBottomRightRadius>::from_raw(ptr.ptr  as *mut StyleBorderBottomRightRadius) };func(&mut box_ptr);ptr.ptr = Box::into_raw(box_ptr) as *mut c_void; }
-/// (private): Downcasts the `AzStyleBorderBottomRightRadiusPtr` to a `&Box<StyleBorderBottomRightRadius>` and runs the `func` closure on it
-#[inline(always)] fn az_style_border_bottom_right_radius_downcast_ref<P, F: FnOnce(&Box<StyleBorderBottomRightRadius>) -> P>(ptr: &mut AzStyleBorderBottomRightRadiusPtr, func: F) -> P { let box_ptr: Box<StyleBorderBottomRightRadius> = unsafe { Box::<StyleBorderBottomRightRadius>::from_raw(ptr.ptr  as *mut StyleBorderBottomRightRadius) }; let ret_val = func(&box_ptr); ptr.ptr = Box::into_raw(box_ptr) as *mut c_void;ret_val }
+#[no_mangle] #[inline] #[allow(unused_variables)] pub extern "C" fn az_style_border_bottom_right_radius_delete(object: &mut AzStyleBorderBottomRightRadius) { }
+/// Copies the object
+#[no_mangle] #[inline] pub extern "C" fn az_style_border_bottom_right_radius_deep_copy(object: &AzStyleBorderBottomRightRadius) -> AzStyleBorderBottomRightRadius { AzStyleBorderBottomRightRadius{ object: object.object.clone() } }
 
-/// Pointer to rust-allocated `Box<StyleBorderBottomStyle>` struct
-#[no_mangle] #[repr(C)] pub struct AzStyleBorderBottomStylePtr { ptr: *mut c_void }
+/// Re-export of rust-allocated (stack based) `BorderStyle` struct
+#[no_mangle] #[repr(C)] pub struct AzBorderStyle { pub object: azul_impl::css::BorderStyle }
+#[inline] #[no_mangle] pub extern "C" fn az_border_style_none() -> AzBorderStyle { AzBorderStyle { object: azul_impl::css::BorderStyle::None } }
+#[inline] #[no_mangle] pub extern "C" fn az_border_style_solid() -> AzBorderStyle { AzBorderStyle { object: azul_impl::css::BorderStyle::Solid } }
+#[inline] #[no_mangle] pub extern "C" fn az_border_style_double() -> AzBorderStyle { AzBorderStyle { object: azul_impl::css::BorderStyle::Double } }
+#[inline] #[no_mangle] pub extern "C" fn az_border_style_dotted() -> AzBorderStyle { AzBorderStyle { object: azul_impl::css::BorderStyle::Dotted } }
+#[inline] #[no_mangle] pub extern "C" fn az_border_style_dashed() -> AzBorderStyle { AzBorderStyle { object: azul_impl::css::BorderStyle::Dashed } }
+#[inline] #[no_mangle] pub extern "C" fn az_border_style_hidden() -> AzBorderStyle { AzBorderStyle { object: azul_impl::css::BorderStyle::Hidden } }
+#[inline] #[no_mangle] pub extern "C" fn az_border_style_groove() -> AzBorderStyle { AzBorderStyle { object: azul_impl::css::BorderStyle::Groove } }
+#[inline] #[no_mangle] pub extern "C" fn az_border_style_ridge() -> AzBorderStyle { AzBorderStyle { object: azul_impl::css::BorderStyle::Ridge } }
+#[inline] #[no_mangle] pub extern "C" fn az_border_style_inset() -> AzBorderStyle { AzBorderStyle { object: azul_impl::css::BorderStyle::Inset } }
+#[inline] #[no_mangle] pub extern "C" fn az_border_style_outset() -> AzBorderStyle { AzBorderStyle { object: azul_impl::css::BorderStyle::Outset } }
+/// Destructor: Takes ownership of the `BorderStyle` pointer and deletes it.
+#[no_mangle] #[inline] #[allow(unused_variables)] pub extern "C" fn az_border_style_delete(object: &mut AzBorderStyle) { match object.object { azul_impl::css::BorderStyle::None => { }, azul_impl::css::BorderStyle::Solid => { }, azul_impl::css::BorderStyle::Double => { }, azul_impl::css::BorderStyle::Dotted => { }, azul_impl::css::BorderStyle::Dashed => { }, azul_impl::css::BorderStyle::Hidden => { }, azul_impl::css::BorderStyle::Groove => { }, azul_impl::css::BorderStyle::Ridge => { }, azul_impl::css::BorderStyle::Inset => { }, azul_impl::css::BorderStyle::Outset => { }, }
+}
+/// Copies the object
+#[no_mangle] #[inline] pub extern "C" fn az_border_style_deep_copy(object: &AzBorderStyle) -> AzBorderStyle { AzBorderStyle{ object: object.object.clone() } }
+
+/// Re-export of rust-allocated (stack based) `StyleBorderBottomStyle` struct
+#[no_mangle] #[repr(C)] pub struct AzStyleBorderBottomStyle { pub object: azul_impl::css::StyleBorderBottomStyle }
 /// Destructor: Takes ownership of the `StyleBorderBottomStyle` pointer and deletes it.
-#[no_mangle] #[inline] pub extern "C" fn az_style_border_bottom_style_delete(ptr: &mut AzStyleBorderBottomStylePtr) { let _ = unsafe { Box::<StyleBorderBottomStyle>::from_raw(ptr.ptr  as *mut StyleBorderBottomStyle) }; }
-/// Copies the pointer: WARNING: After calling this function you'll have two pointers to the same Box<`StyleBorderBottomStyle`>!.
-#[no_mangle] #[inline] pub extern "C" fn az_style_border_bottom_style_shallow_copy(ptr: &AzStyleBorderBottomStylePtr) -> AzStyleBorderBottomStylePtr { AzStyleBorderBottomStylePtr { ptr: ptr.ptr } }
-/// (private): Downcasts the `AzStyleBorderBottomStylePtr` to a `Box<StyleBorderBottomStyle>`. Note that this takes ownership of the pointer.
-#[inline(always)] fn az_style_border_bottom_style_downcast(ptr: AzStyleBorderBottomStylePtr) -> Box<StyleBorderBottomStyle> { unsafe { Box::<StyleBorderBottomStyle>::from_raw(ptr.ptr  as *mut StyleBorderBottomStyle) } }
-/// (private): Downcasts the `AzStyleBorderBottomStylePtr` to a `&mut Box<StyleBorderBottomStyle>` and runs the `func` closure on it
-#[inline(always)] fn az_style_border_bottom_style_downcast_refmut<F: FnOnce(&mut Box<StyleBorderBottomStyle>)>(ptr: &mut AzStyleBorderBottomStylePtr, func: F) { let mut box_ptr: Box<StyleBorderBottomStyle> = unsafe { Box::<StyleBorderBottomStyle>::from_raw(ptr.ptr  as *mut StyleBorderBottomStyle) };func(&mut box_ptr);ptr.ptr = Box::into_raw(box_ptr) as *mut c_void; }
-/// (private): Downcasts the `AzStyleBorderBottomStylePtr` to a `&Box<StyleBorderBottomStyle>` and runs the `func` closure on it
-#[inline(always)] fn az_style_border_bottom_style_downcast_ref<P, F: FnOnce(&Box<StyleBorderBottomStyle>) -> P>(ptr: &mut AzStyleBorderBottomStylePtr, func: F) -> P { let box_ptr: Box<StyleBorderBottomStyle> = unsafe { Box::<StyleBorderBottomStyle>::from_raw(ptr.ptr  as *mut StyleBorderBottomStyle) }; let ret_val = func(&box_ptr); ptr.ptr = Box::into_raw(box_ptr) as *mut c_void;ret_val }
+#[no_mangle] #[inline] #[allow(unused_variables)] pub extern "C" fn az_style_border_bottom_style_delete(object: &mut AzStyleBorderBottomStyle) { }
+/// Copies the object
+#[no_mangle] #[inline] pub extern "C" fn az_style_border_bottom_style_deep_copy(object: &AzStyleBorderBottomStyle) -> AzStyleBorderBottomStyle { AzStyleBorderBottomStyle{ object: object.object.clone() } }
 
-/// Pointer to rust-allocated `Box<StyleBorderBottomWidth>` struct
-#[no_mangle] #[repr(C)] pub struct AzStyleBorderBottomWidthPtr { ptr: *mut c_void }
+/// Re-export of rust-allocated (stack based) `StyleBorderBottomWidth` struct
+#[no_mangle] #[repr(C)] pub struct AzStyleBorderBottomWidth { pub object: azul_impl::css::StyleBorderBottomWidth }
 /// Destructor: Takes ownership of the `StyleBorderBottomWidth` pointer and deletes it.
-#[no_mangle] #[inline] pub extern "C" fn az_style_border_bottom_width_delete(ptr: &mut AzStyleBorderBottomWidthPtr) { let _ = unsafe { Box::<StyleBorderBottomWidth>::from_raw(ptr.ptr  as *mut StyleBorderBottomWidth) }; }
-/// Copies the pointer: WARNING: After calling this function you'll have two pointers to the same Box<`StyleBorderBottomWidth`>!.
-#[no_mangle] #[inline] pub extern "C" fn az_style_border_bottom_width_shallow_copy(ptr: &AzStyleBorderBottomWidthPtr) -> AzStyleBorderBottomWidthPtr { AzStyleBorderBottomWidthPtr { ptr: ptr.ptr } }
-/// (private): Downcasts the `AzStyleBorderBottomWidthPtr` to a `Box<StyleBorderBottomWidth>`. Note that this takes ownership of the pointer.
-#[inline(always)] fn az_style_border_bottom_width_downcast(ptr: AzStyleBorderBottomWidthPtr) -> Box<StyleBorderBottomWidth> { unsafe { Box::<StyleBorderBottomWidth>::from_raw(ptr.ptr  as *mut StyleBorderBottomWidth) } }
-/// (private): Downcasts the `AzStyleBorderBottomWidthPtr` to a `&mut Box<StyleBorderBottomWidth>` and runs the `func` closure on it
-#[inline(always)] fn az_style_border_bottom_width_downcast_refmut<F: FnOnce(&mut Box<StyleBorderBottomWidth>)>(ptr: &mut AzStyleBorderBottomWidthPtr, func: F) { let mut box_ptr: Box<StyleBorderBottomWidth> = unsafe { Box::<StyleBorderBottomWidth>::from_raw(ptr.ptr  as *mut StyleBorderBottomWidth) };func(&mut box_ptr);ptr.ptr = Box::into_raw(box_ptr) as *mut c_void; }
-/// (private): Downcasts the `AzStyleBorderBottomWidthPtr` to a `&Box<StyleBorderBottomWidth>` and runs the `func` closure on it
-#[inline(always)] fn az_style_border_bottom_width_downcast_ref<P, F: FnOnce(&Box<StyleBorderBottomWidth>) -> P>(ptr: &mut AzStyleBorderBottomWidthPtr, func: F) -> P { let box_ptr: Box<StyleBorderBottomWidth> = unsafe { Box::<StyleBorderBottomWidth>::from_raw(ptr.ptr  as *mut StyleBorderBottomWidth) }; let ret_val = func(&box_ptr); ptr.ptr = Box::into_raw(box_ptr) as *mut c_void;ret_val }
+#[no_mangle] #[inline] #[allow(unused_variables)] pub extern "C" fn az_style_border_bottom_width_delete(object: &mut AzStyleBorderBottomWidth) { }
+/// Copies the object
+#[no_mangle] #[inline] pub extern "C" fn az_style_border_bottom_width_deep_copy(object: &AzStyleBorderBottomWidth) -> AzStyleBorderBottomWidth { AzStyleBorderBottomWidth{ object: object.object.clone() } }
 
-/// Pointer to rust-allocated `Box<StyleBorderLeftColor>` struct
-#[no_mangle] #[repr(C)] pub struct AzStyleBorderLeftColorPtr { ptr: *mut c_void }
+/// Re-export of rust-allocated (stack based) `StyleBorderLeftColor` struct
+#[no_mangle] #[repr(C)] pub struct AzStyleBorderLeftColor { pub object: azul_impl::css::StyleBorderLeftColor }
 /// Destructor: Takes ownership of the `StyleBorderLeftColor` pointer and deletes it.
-#[no_mangle] #[inline] pub extern "C" fn az_style_border_left_color_delete(ptr: &mut AzStyleBorderLeftColorPtr) { let _ = unsafe { Box::<StyleBorderLeftColor>::from_raw(ptr.ptr  as *mut StyleBorderLeftColor) }; }
-/// Copies the pointer: WARNING: After calling this function you'll have two pointers to the same Box<`StyleBorderLeftColor`>!.
-#[no_mangle] #[inline] pub extern "C" fn az_style_border_left_color_shallow_copy(ptr: &AzStyleBorderLeftColorPtr) -> AzStyleBorderLeftColorPtr { AzStyleBorderLeftColorPtr { ptr: ptr.ptr } }
-/// (private): Downcasts the `AzStyleBorderLeftColorPtr` to a `Box<StyleBorderLeftColor>`. Note that this takes ownership of the pointer.
-#[inline(always)] fn az_style_border_left_color_downcast(ptr: AzStyleBorderLeftColorPtr) -> Box<StyleBorderLeftColor> { unsafe { Box::<StyleBorderLeftColor>::from_raw(ptr.ptr  as *mut StyleBorderLeftColor) } }
-/// (private): Downcasts the `AzStyleBorderLeftColorPtr` to a `&mut Box<StyleBorderLeftColor>` and runs the `func` closure on it
-#[inline(always)] fn az_style_border_left_color_downcast_refmut<F: FnOnce(&mut Box<StyleBorderLeftColor>)>(ptr: &mut AzStyleBorderLeftColorPtr, func: F) { let mut box_ptr: Box<StyleBorderLeftColor> = unsafe { Box::<StyleBorderLeftColor>::from_raw(ptr.ptr  as *mut StyleBorderLeftColor) };func(&mut box_ptr);ptr.ptr = Box::into_raw(box_ptr) as *mut c_void; }
-/// (private): Downcasts the `AzStyleBorderLeftColorPtr` to a `&Box<StyleBorderLeftColor>` and runs the `func` closure on it
-#[inline(always)] fn az_style_border_left_color_downcast_ref<P, F: FnOnce(&Box<StyleBorderLeftColor>) -> P>(ptr: &mut AzStyleBorderLeftColorPtr, func: F) -> P { let box_ptr: Box<StyleBorderLeftColor> = unsafe { Box::<StyleBorderLeftColor>::from_raw(ptr.ptr  as *mut StyleBorderLeftColor) }; let ret_val = func(&box_ptr); ptr.ptr = Box::into_raw(box_ptr) as *mut c_void;ret_val }
+#[no_mangle] #[inline] #[allow(unused_variables)] pub extern "C" fn az_style_border_left_color_delete(object: &mut AzStyleBorderLeftColor) { }
+/// Copies the object
+#[no_mangle] #[inline] pub extern "C" fn az_style_border_left_color_deep_copy(object: &AzStyleBorderLeftColor) -> AzStyleBorderLeftColor { AzStyleBorderLeftColor{ object: object.object.clone() } }
 
-/// Pointer to rust-allocated `Box<StyleBorderLeftStyle>` struct
-#[no_mangle] #[repr(C)] pub struct AzStyleBorderLeftStylePtr { ptr: *mut c_void }
+/// Re-export of rust-allocated (stack based) `StyleBorderLeftStyle` struct
+#[no_mangle] #[repr(C)] pub struct AzStyleBorderLeftStyle { pub object: azul_impl::css::StyleBorderLeftStyle }
 /// Destructor: Takes ownership of the `StyleBorderLeftStyle` pointer and deletes it.
-#[no_mangle] #[inline] pub extern "C" fn az_style_border_left_style_delete(ptr: &mut AzStyleBorderLeftStylePtr) { let _ = unsafe { Box::<StyleBorderLeftStyle>::from_raw(ptr.ptr  as *mut StyleBorderLeftStyle) }; }
-/// Copies the pointer: WARNING: After calling this function you'll have two pointers to the same Box<`StyleBorderLeftStyle`>!.
-#[no_mangle] #[inline] pub extern "C" fn az_style_border_left_style_shallow_copy(ptr: &AzStyleBorderLeftStylePtr) -> AzStyleBorderLeftStylePtr { AzStyleBorderLeftStylePtr { ptr: ptr.ptr } }
-/// (private): Downcasts the `AzStyleBorderLeftStylePtr` to a `Box<StyleBorderLeftStyle>`. Note that this takes ownership of the pointer.
-#[inline(always)] fn az_style_border_left_style_downcast(ptr: AzStyleBorderLeftStylePtr) -> Box<StyleBorderLeftStyle> { unsafe { Box::<StyleBorderLeftStyle>::from_raw(ptr.ptr  as *mut StyleBorderLeftStyle) } }
-/// (private): Downcasts the `AzStyleBorderLeftStylePtr` to a `&mut Box<StyleBorderLeftStyle>` and runs the `func` closure on it
-#[inline(always)] fn az_style_border_left_style_downcast_refmut<F: FnOnce(&mut Box<StyleBorderLeftStyle>)>(ptr: &mut AzStyleBorderLeftStylePtr, func: F) { let mut box_ptr: Box<StyleBorderLeftStyle> = unsafe { Box::<StyleBorderLeftStyle>::from_raw(ptr.ptr  as *mut StyleBorderLeftStyle) };func(&mut box_ptr);ptr.ptr = Box::into_raw(box_ptr) as *mut c_void; }
-/// (private): Downcasts the `AzStyleBorderLeftStylePtr` to a `&Box<StyleBorderLeftStyle>` and runs the `func` closure on it
-#[inline(always)] fn az_style_border_left_style_downcast_ref<P, F: FnOnce(&Box<StyleBorderLeftStyle>) -> P>(ptr: &mut AzStyleBorderLeftStylePtr, func: F) -> P { let box_ptr: Box<StyleBorderLeftStyle> = unsafe { Box::<StyleBorderLeftStyle>::from_raw(ptr.ptr  as *mut StyleBorderLeftStyle) }; let ret_val = func(&box_ptr); ptr.ptr = Box::into_raw(box_ptr) as *mut c_void;ret_val }
+#[no_mangle] #[inline] #[allow(unused_variables)] pub extern "C" fn az_style_border_left_style_delete(object: &mut AzStyleBorderLeftStyle) { }
+/// Copies the object
+#[no_mangle] #[inline] pub extern "C" fn az_style_border_left_style_deep_copy(object: &AzStyleBorderLeftStyle) -> AzStyleBorderLeftStyle { AzStyleBorderLeftStyle{ object: object.object.clone() } }
 
-/// Pointer to rust-allocated `Box<StyleBorderLeftWidth>` struct
-#[no_mangle] #[repr(C)] pub struct AzStyleBorderLeftWidthPtr { ptr: *mut c_void }
+/// Re-export of rust-allocated (stack based) `StyleBorderLeftWidth` struct
+#[no_mangle] #[repr(C)] pub struct AzStyleBorderLeftWidth { pub object: azul_impl::css::StyleBorderLeftWidth }
 /// Destructor: Takes ownership of the `StyleBorderLeftWidth` pointer and deletes it.
-#[no_mangle] #[inline] pub extern "C" fn az_style_border_left_width_delete(ptr: &mut AzStyleBorderLeftWidthPtr) { let _ = unsafe { Box::<StyleBorderLeftWidth>::from_raw(ptr.ptr  as *mut StyleBorderLeftWidth) }; }
-/// Copies the pointer: WARNING: After calling this function you'll have two pointers to the same Box<`StyleBorderLeftWidth`>!.
-#[no_mangle] #[inline] pub extern "C" fn az_style_border_left_width_shallow_copy(ptr: &AzStyleBorderLeftWidthPtr) -> AzStyleBorderLeftWidthPtr { AzStyleBorderLeftWidthPtr { ptr: ptr.ptr } }
-/// (private): Downcasts the `AzStyleBorderLeftWidthPtr` to a `Box<StyleBorderLeftWidth>`. Note that this takes ownership of the pointer.
-#[inline(always)] fn az_style_border_left_width_downcast(ptr: AzStyleBorderLeftWidthPtr) -> Box<StyleBorderLeftWidth> { unsafe { Box::<StyleBorderLeftWidth>::from_raw(ptr.ptr  as *mut StyleBorderLeftWidth) } }
-/// (private): Downcasts the `AzStyleBorderLeftWidthPtr` to a `&mut Box<StyleBorderLeftWidth>` and runs the `func` closure on it
-#[inline(always)] fn az_style_border_left_width_downcast_refmut<F: FnOnce(&mut Box<StyleBorderLeftWidth>)>(ptr: &mut AzStyleBorderLeftWidthPtr, func: F) { let mut box_ptr: Box<StyleBorderLeftWidth> = unsafe { Box::<StyleBorderLeftWidth>::from_raw(ptr.ptr  as *mut StyleBorderLeftWidth) };func(&mut box_ptr);ptr.ptr = Box::into_raw(box_ptr) as *mut c_void; }
-/// (private): Downcasts the `AzStyleBorderLeftWidthPtr` to a `&Box<StyleBorderLeftWidth>` and runs the `func` closure on it
-#[inline(always)] fn az_style_border_left_width_downcast_ref<P, F: FnOnce(&Box<StyleBorderLeftWidth>) -> P>(ptr: &mut AzStyleBorderLeftWidthPtr, func: F) -> P { let box_ptr: Box<StyleBorderLeftWidth> = unsafe { Box::<StyleBorderLeftWidth>::from_raw(ptr.ptr  as *mut StyleBorderLeftWidth) }; let ret_val = func(&box_ptr); ptr.ptr = Box::into_raw(box_ptr) as *mut c_void;ret_val }
+#[no_mangle] #[inline] #[allow(unused_variables)] pub extern "C" fn az_style_border_left_width_delete(object: &mut AzStyleBorderLeftWidth) { }
+/// Copies the object
+#[no_mangle] #[inline] pub extern "C" fn az_style_border_left_width_deep_copy(object: &AzStyleBorderLeftWidth) -> AzStyleBorderLeftWidth { AzStyleBorderLeftWidth{ object: object.object.clone() } }
 
-/// Pointer to rust-allocated `Box<StyleBorderRightColor>` struct
-#[no_mangle] #[repr(C)] pub struct AzStyleBorderRightColorPtr { ptr: *mut c_void }
+/// Re-export of rust-allocated (stack based) `StyleBorderRightColor` struct
+#[no_mangle] #[repr(C)] pub struct AzStyleBorderRightColor { pub object: azul_impl::css::StyleBorderRightColor }
 /// Destructor: Takes ownership of the `StyleBorderRightColor` pointer and deletes it.
-#[no_mangle] #[inline] pub extern "C" fn az_style_border_right_color_delete(ptr: &mut AzStyleBorderRightColorPtr) { let _ = unsafe { Box::<StyleBorderRightColor>::from_raw(ptr.ptr  as *mut StyleBorderRightColor) }; }
-/// Copies the pointer: WARNING: After calling this function you'll have two pointers to the same Box<`StyleBorderRightColor`>!.
-#[no_mangle] #[inline] pub extern "C" fn az_style_border_right_color_shallow_copy(ptr: &AzStyleBorderRightColorPtr) -> AzStyleBorderRightColorPtr { AzStyleBorderRightColorPtr { ptr: ptr.ptr } }
-/// (private): Downcasts the `AzStyleBorderRightColorPtr` to a `Box<StyleBorderRightColor>`. Note that this takes ownership of the pointer.
-#[inline(always)] fn az_style_border_right_color_downcast(ptr: AzStyleBorderRightColorPtr) -> Box<StyleBorderRightColor> { unsafe { Box::<StyleBorderRightColor>::from_raw(ptr.ptr  as *mut StyleBorderRightColor) } }
-/// (private): Downcasts the `AzStyleBorderRightColorPtr` to a `&mut Box<StyleBorderRightColor>` and runs the `func` closure on it
-#[inline(always)] fn az_style_border_right_color_downcast_refmut<F: FnOnce(&mut Box<StyleBorderRightColor>)>(ptr: &mut AzStyleBorderRightColorPtr, func: F) { let mut box_ptr: Box<StyleBorderRightColor> = unsafe { Box::<StyleBorderRightColor>::from_raw(ptr.ptr  as *mut StyleBorderRightColor) };func(&mut box_ptr);ptr.ptr = Box::into_raw(box_ptr) as *mut c_void; }
-/// (private): Downcasts the `AzStyleBorderRightColorPtr` to a `&Box<StyleBorderRightColor>` and runs the `func` closure on it
-#[inline(always)] fn az_style_border_right_color_downcast_ref<P, F: FnOnce(&Box<StyleBorderRightColor>) -> P>(ptr: &mut AzStyleBorderRightColorPtr, func: F) -> P { let box_ptr: Box<StyleBorderRightColor> = unsafe { Box::<StyleBorderRightColor>::from_raw(ptr.ptr  as *mut StyleBorderRightColor) }; let ret_val = func(&box_ptr); ptr.ptr = Box::into_raw(box_ptr) as *mut c_void;ret_val }
+#[no_mangle] #[inline] #[allow(unused_variables)] pub extern "C" fn az_style_border_right_color_delete(object: &mut AzStyleBorderRightColor) { }
+/// Copies the object
+#[no_mangle] #[inline] pub extern "C" fn az_style_border_right_color_deep_copy(object: &AzStyleBorderRightColor) -> AzStyleBorderRightColor { AzStyleBorderRightColor{ object: object.object.clone() } }
 
-/// Pointer to rust-allocated `Box<StyleBorderRightStyle>` struct
-#[no_mangle] #[repr(C)] pub struct AzStyleBorderRightStylePtr { ptr: *mut c_void }
+/// Re-export of rust-allocated (stack based) `StyleBorderRightStyle` struct
+#[no_mangle] #[repr(C)] pub struct AzStyleBorderRightStyle { pub object: azul_impl::css::StyleBorderRightStyle }
 /// Destructor: Takes ownership of the `StyleBorderRightStyle` pointer and deletes it.
-#[no_mangle] #[inline] pub extern "C" fn az_style_border_right_style_delete(ptr: &mut AzStyleBorderRightStylePtr) { let _ = unsafe { Box::<StyleBorderRightStyle>::from_raw(ptr.ptr  as *mut StyleBorderRightStyle) }; }
-/// Copies the pointer: WARNING: After calling this function you'll have two pointers to the same Box<`StyleBorderRightStyle`>!.
-#[no_mangle] #[inline] pub extern "C" fn az_style_border_right_style_shallow_copy(ptr: &AzStyleBorderRightStylePtr) -> AzStyleBorderRightStylePtr { AzStyleBorderRightStylePtr { ptr: ptr.ptr } }
-/// (private): Downcasts the `AzStyleBorderRightStylePtr` to a `Box<StyleBorderRightStyle>`. Note that this takes ownership of the pointer.
-#[inline(always)] fn az_style_border_right_style_downcast(ptr: AzStyleBorderRightStylePtr) -> Box<StyleBorderRightStyle> { unsafe { Box::<StyleBorderRightStyle>::from_raw(ptr.ptr  as *mut StyleBorderRightStyle) } }
-/// (private): Downcasts the `AzStyleBorderRightStylePtr` to a `&mut Box<StyleBorderRightStyle>` and runs the `func` closure on it
-#[inline(always)] fn az_style_border_right_style_downcast_refmut<F: FnOnce(&mut Box<StyleBorderRightStyle>)>(ptr: &mut AzStyleBorderRightStylePtr, func: F) { let mut box_ptr: Box<StyleBorderRightStyle> = unsafe { Box::<StyleBorderRightStyle>::from_raw(ptr.ptr  as *mut StyleBorderRightStyle) };func(&mut box_ptr);ptr.ptr = Box::into_raw(box_ptr) as *mut c_void; }
-/// (private): Downcasts the `AzStyleBorderRightStylePtr` to a `&Box<StyleBorderRightStyle>` and runs the `func` closure on it
-#[inline(always)] fn az_style_border_right_style_downcast_ref<P, F: FnOnce(&Box<StyleBorderRightStyle>) -> P>(ptr: &mut AzStyleBorderRightStylePtr, func: F) -> P { let box_ptr: Box<StyleBorderRightStyle> = unsafe { Box::<StyleBorderRightStyle>::from_raw(ptr.ptr  as *mut StyleBorderRightStyle) }; let ret_val = func(&box_ptr); ptr.ptr = Box::into_raw(box_ptr) as *mut c_void;ret_val }
+#[no_mangle] #[inline] #[allow(unused_variables)] pub extern "C" fn az_style_border_right_style_delete(object: &mut AzStyleBorderRightStyle) { }
+/// Copies the object
+#[no_mangle] #[inline] pub extern "C" fn az_style_border_right_style_deep_copy(object: &AzStyleBorderRightStyle) -> AzStyleBorderRightStyle { AzStyleBorderRightStyle{ object: object.object.clone() } }
 
 /// Pointer to rust-allocated `Box<StyleBorderRightWidth>` struct
 #[no_mangle] #[repr(C)] pub struct AzStyleBorderRightWidthPtr { ptr: *mut c_void }
@@ -922,187 +895,138 @@ pub type AzLayoutInfoPtrType = azul_impl::callbacks::LayoutInfoPtr;
 /// (private): Downcasts the `AzStyleBorderRightWidthPtr` to a `&Box<StyleBorderRightWidth>` and runs the `func` closure on it
 #[inline(always)] fn az_style_border_right_width_downcast_ref<P, F: FnOnce(&Box<StyleBorderRightWidth>) -> P>(ptr: &mut AzStyleBorderRightWidthPtr, func: F) -> P { let box_ptr: Box<StyleBorderRightWidth> = unsafe { Box::<StyleBorderRightWidth>::from_raw(ptr.ptr  as *mut StyleBorderRightWidth) }; let ret_val = func(&box_ptr); ptr.ptr = Box::into_raw(box_ptr) as *mut c_void;ret_val }
 
-/// Pointer to rust-allocated `Box<StyleBorderTopColor>` struct
-#[no_mangle] #[repr(C)] pub struct AzStyleBorderTopColorPtr { ptr: *mut c_void }
+/// Re-export of rust-allocated (stack based) `StyleBorderTopColor` struct
+#[no_mangle] #[repr(C)] pub struct AzStyleBorderTopColor { pub object: azul_impl::css::StyleBorderTopColor }
 /// Destructor: Takes ownership of the `StyleBorderTopColor` pointer and deletes it.
-#[no_mangle] #[inline] pub extern "C" fn az_style_border_top_color_delete(ptr: &mut AzStyleBorderTopColorPtr) { let _ = unsafe { Box::<StyleBorderTopColor>::from_raw(ptr.ptr  as *mut StyleBorderTopColor) }; }
-/// Copies the pointer: WARNING: After calling this function you'll have two pointers to the same Box<`StyleBorderTopColor`>!.
-#[no_mangle] #[inline] pub extern "C" fn az_style_border_top_color_shallow_copy(ptr: &AzStyleBorderTopColorPtr) -> AzStyleBorderTopColorPtr { AzStyleBorderTopColorPtr { ptr: ptr.ptr } }
-/// (private): Downcasts the `AzStyleBorderTopColorPtr` to a `Box<StyleBorderTopColor>`. Note that this takes ownership of the pointer.
-#[inline(always)] fn az_style_border_top_color_downcast(ptr: AzStyleBorderTopColorPtr) -> Box<StyleBorderTopColor> { unsafe { Box::<StyleBorderTopColor>::from_raw(ptr.ptr  as *mut StyleBorderTopColor) } }
-/// (private): Downcasts the `AzStyleBorderTopColorPtr` to a `&mut Box<StyleBorderTopColor>` and runs the `func` closure on it
-#[inline(always)] fn az_style_border_top_color_downcast_refmut<F: FnOnce(&mut Box<StyleBorderTopColor>)>(ptr: &mut AzStyleBorderTopColorPtr, func: F) { let mut box_ptr: Box<StyleBorderTopColor> = unsafe { Box::<StyleBorderTopColor>::from_raw(ptr.ptr  as *mut StyleBorderTopColor) };func(&mut box_ptr);ptr.ptr = Box::into_raw(box_ptr) as *mut c_void; }
-/// (private): Downcasts the `AzStyleBorderTopColorPtr` to a `&Box<StyleBorderTopColor>` and runs the `func` closure on it
-#[inline(always)] fn az_style_border_top_color_downcast_ref<P, F: FnOnce(&Box<StyleBorderTopColor>) -> P>(ptr: &mut AzStyleBorderTopColorPtr, func: F) -> P { let box_ptr: Box<StyleBorderTopColor> = unsafe { Box::<StyleBorderTopColor>::from_raw(ptr.ptr  as *mut StyleBorderTopColor) }; let ret_val = func(&box_ptr); ptr.ptr = Box::into_raw(box_ptr) as *mut c_void;ret_val }
+#[no_mangle] #[inline] #[allow(unused_variables)] pub extern "C" fn az_style_border_top_color_delete(object: &mut AzStyleBorderTopColor) { }
+/// Copies the object
+#[no_mangle] #[inline] pub extern "C" fn az_style_border_top_color_deep_copy(object: &AzStyleBorderTopColor) -> AzStyleBorderTopColor { AzStyleBorderTopColor{ object: object.object.clone() } }
 
-/// Pointer to rust-allocated `Box<StyleBorderTopLeftRadius>` struct
-#[no_mangle] #[repr(C)] pub struct AzStyleBorderTopLeftRadiusPtr { ptr: *mut c_void }
+/// Re-export of rust-allocated (stack based) `StyleBorderTopLeftRadius` struct
+#[no_mangle] #[repr(C)] pub struct AzStyleBorderTopLeftRadius { pub object: azul_impl::css::StyleBorderTopLeftRadius }
 /// Destructor: Takes ownership of the `StyleBorderTopLeftRadius` pointer and deletes it.
-#[no_mangle] #[inline] pub extern "C" fn az_style_border_top_left_radius_delete(ptr: &mut AzStyleBorderTopLeftRadiusPtr) { let _ = unsafe { Box::<StyleBorderTopLeftRadius>::from_raw(ptr.ptr  as *mut StyleBorderTopLeftRadius) }; }
-/// Copies the pointer: WARNING: After calling this function you'll have two pointers to the same Box<`StyleBorderTopLeftRadius`>!.
-#[no_mangle] #[inline] pub extern "C" fn az_style_border_top_left_radius_shallow_copy(ptr: &AzStyleBorderTopLeftRadiusPtr) -> AzStyleBorderTopLeftRadiusPtr { AzStyleBorderTopLeftRadiusPtr { ptr: ptr.ptr } }
-/// (private): Downcasts the `AzStyleBorderTopLeftRadiusPtr` to a `Box<StyleBorderTopLeftRadius>`. Note that this takes ownership of the pointer.
-#[inline(always)] fn az_style_border_top_left_radius_downcast(ptr: AzStyleBorderTopLeftRadiusPtr) -> Box<StyleBorderTopLeftRadius> { unsafe { Box::<StyleBorderTopLeftRadius>::from_raw(ptr.ptr  as *mut StyleBorderTopLeftRadius) } }
-/// (private): Downcasts the `AzStyleBorderTopLeftRadiusPtr` to a `&mut Box<StyleBorderTopLeftRadius>` and runs the `func` closure on it
-#[inline(always)] fn az_style_border_top_left_radius_downcast_refmut<F: FnOnce(&mut Box<StyleBorderTopLeftRadius>)>(ptr: &mut AzStyleBorderTopLeftRadiusPtr, func: F) { let mut box_ptr: Box<StyleBorderTopLeftRadius> = unsafe { Box::<StyleBorderTopLeftRadius>::from_raw(ptr.ptr  as *mut StyleBorderTopLeftRadius) };func(&mut box_ptr);ptr.ptr = Box::into_raw(box_ptr) as *mut c_void; }
-/// (private): Downcasts the `AzStyleBorderTopLeftRadiusPtr` to a `&Box<StyleBorderTopLeftRadius>` and runs the `func` closure on it
-#[inline(always)] fn az_style_border_top_left_radius_downcast_ref<P, F: FnOnce(&Box<StyleBorderTopLeftRadius>) -> P>(ptr: &mut AzStyleBorderTopLeftRadiusPtr, func: F) -> P { let box_ptr: Box<StyleBorderTopLeftRadius> = unsafe { Box::<StyleBorderTopLeftRadius>::from_raw(ptr.ptr  as *mut StyleBorderTopLeftRadius) }; let ret_val = func(&box_ptr); ptr.ptr = Box::into_raw(box_ptr) as *mut c_void;ret_val }
+#[no_mangle] #[inline] #[allow(unused_variables)] pub extern "C" fn az_style_border_top_left_radius_delete(object: &mut AzStyleBorderTopLeftRadius) { }
+/// Copies the object
+#[no_mangle] #[inline] pub extern "C" fn az_style_border_top_left_radius_deep_copy(object: &AzStyleBorderTopLeftRadius) -> AzStyleBorderTopLeftRadius { AzStyleBorderTopLeftRadius{ object: object.object.clone() } }
 
-/// Pointer to rust-allocated `Box<StyleBorderTopRightRadius>` struct
-#[no_mangle] #[repr(C)] pub struct AzStyleBorderTopRightRadiusPtr { ptr: *mut c_void }
+/// Re-export of rust-allocated (stack based) `StyleBorderTopRightRadius` struct
+#[no_mangle] #[repr(C)] pub struct AzStyleBorderTopRightRadius { pub object: azul_impl::css::StyleBorderTopRightRadius }
 /// Destructor: Takes ownership of the `StyleBorderTopRightRadius` pointer and deletes it.
-#[no_mangle] #[inline] pub extern "C" fn az_style_border_top_right_radius_delete(ptr: &mut AzStyleBorderTopRightRadiusPtr) { let _ = unsafe { Box::<StyleBorderTopRightRadius>::from_raw(ptr.ptr  as *mut StyleBorderTopRightRadius) }; }
-/// Copies the pointer: WARNING: After calling this function you'll have two pointers to the same Box<`StyleBorderTopRightRadius`>!.
-#[no_mangle] #[inline] pub extern "C" fn az_style_border_top_right_radius_shallow_copy(ptr: &AzStyleBorderTopRightRadiusPtr) -> AzStyleBorderTopRightRadiusPtr { AzStyleBorderTopRightRadiusPtr { ptr: ptr.ptr } }
-/// (private): Downcasts the `AzStyleBorderTopRightRadiusPtr` to a `Box<StyleBorderTopRightRadius>`. Note that this takes ownership of the pointer.
-#[inline(always)] fn az_style_border_top_right_radius_downcast(ptr: AzStyleBorderTopRightRadiusPtr) -> Box<StyleBorderTopRightRadius> { unsafe { Box::<StyleBorderTopRightRadius>::from_raw(ptr.ptr  as *mut StyleBorderTopRightRadius) } }
-/// (private): Downcasts the `AzStyleBorderTopRightRadiusPtr` to a `&mut Box<StyleBorderTopRightRadius>` and runs the `func` closure on it
-#[inline(always)] fn az_style_border_top_right_radius_downcast_refmut<F: FnOnce(&mut Box<StyleBorderTopRightRadius>)>(ptr: &mut AzStyleBorderTopRightRadiusPtr, func: F) { let mut box_ptr: Box<StyleBorderTopRightRadius> = unsafe { Box::<StyleBorderTopRightRadius>::from_raw(ptr.ptr  as *mut StyleBorderTopRightRadius) };func(&mut box_ptr);ptr.ptr = Box::into_raw(box_ptr) as *mut c_void; }
-/// (private): Downcasts the `AzStyleBorderTopRightRadiusPtr` to a `&Box<StyleBorderTopRightRadius>` and runs the `func` closure on it
-#[inline(always)] fn az_style_border_top_right_radius_downcast_ref<P, F: FnOnce(&Box<StyleBorderTopRightRadius>) -> P>(ptr: &mut AzStyleBorderTopRightRadiusPtr, func: F) -> P { let box_ptr: Box<StyleBorderTopRightRadius> = unsafe { Box::<StyleBorderTopRightRadius>::from_raw(ptr.ptr  as *mut StyleBorderTopRightRadius) }; let ret_val = func(&box_ptr); ptr.ptr = Box::into_raw(box_ptr) as *mut c_void;ret_val }
+#[no_mangle] #[inline] #[allow(unused_variables)] pub extern "C" fn az_style_border_top_right_radius_delete(object: &mut AzStyleBorderTopRightRadius) { }
+/// Copies the object
+#[no_mangle] #[inline] pub extern "C" fn az_style_border_top_right_radius_deep_copy(object: &AzStyleBorderTopRightRadius) -> AzStyleBorderTopRightRadius { AzStyleBorderTopRightRadius{ object: object.object.clone() } }
 
-/// Pointer to rust-allocated `Box<StyleBorderTopStyle>` struct
-#[no_mangle] #[repr(C)] pub struct AzStyleBorderTopStylePtr { ptr: *mut c_void }
+/// Re-export of rust-allocated (stack based) `StyleBorderTopStyle` struct
+#[no_mangle] #[repr(C)] pub struct AzStyleBorderTopStyle { pub object: azul_impl::css::StyleBorderTopStyle }
 /// Destructor: Takes ownership of the `StyleBorderTopStyle` pointer and deletes it.
-#[no_mangle] #[inline] pub extern "C" fn az_style_border_top_style_delete(ptr: &mut AzStyleBorderTopStylePtr) { let _ = unsafe { Box::<StyleBorderTopStyle>::from_raw(ptr.ptr  as *mut StyleBorderTopStyle) }; }
-/// Copies the pointer: WARNING: After calling this function you'll have two pointers to the same Box<`StyleBorderTopStyle`>!.
-#[no_mangle] #[inline] pub extern "C" fn az_style_border_top_style_shallow_copy(ptr: &AzStyleBorderTopStylePtr) -> AzStyleBorderTopStylePtr { AzStyleBorderTopStylePtr { ptr: ptr.ptr } }
-/// (private): Downcasts the `AzStyleBorderTopStylePtr` to a `Box<StyleBorderTopStyle>`. Note that this takes ownership of the pointer.
-#[inline(always)] fn az_style_border_top_style_downcast(ptr: AzStyleBorderTopStylePtr) -> Box<StyleBorderTopStyle> { unsafe { Box::<StyleBorderTopStyle>::from_raw(ptr.ptr  as *mut StyleBorderTopStyle) } }
-/// (private): Downcasts the `AzStyleBorderTopStylePtr` to a `&mut Box<StyleBorderTopStyle>` and runs the `func` closure on it
-#[inline(always)] fn az_style_border_top_style_downcast_refmut<F: FnOnce(&mut Box<StyleBorderTopStyle>)>(ptr: &mut AzStyleBorderTopStylePtr, func: F) { let mut box_ptr: Box<StyleBorderTopStyle> = unsafe { Box::<StyleBorderTopStyle>::from_raw(ptr.ptr  as *mut StyleBorderTopStyle) };func(&mut box_ptr);ptr.ptr = Box::into_raw(box_ptr) as *mut c_void; }
-/// (private): Downcasts the `AzStyleBorderTopStylePtr` to a `&Box<StyleBorderTopStyle>` and runs the `func` closure on it
-#[inline(always)] fn az_style_border_top_style_downcast_ref<P, F: FnOnce(&Box<StyleBorderTopStyle>) -> P>(ptr: &mut AzStyleBorderTopStylePtr, func: F) -> P { let box_ptr: Box<StyleBorderTopStyle> = unsafe { Box::<StyleBorderTopStyle>::from_raw(ptr.ptr  as *mut StyleBorderTopStyle) }; let ret_val = func(&box_ptr); ptr.ptr = Box::into_raw(box_ptr) as *mut c_void;ret_val }
+#[no_mangle] #[inline] #[allow(unused_variables)] pub extern "C" fn az_style_border_top_style_delete(object: &mut AzStyleBorderTopStyle) { }
+/// Copies the object
+#[no_mangle] #[inline] pub extern "C" fn az_style_border_top_style_deep_copy(object: &AzStyleBorderTopStyle) -> AzStyleBorderTopStyle { AzStyleBorderTopStyle{ object: object.object.clone() } }
 
-/// Pointer to rust-allocated `Box<StyleBorderTopWidth>` struct
-#[no_mangle] #[repr(C)] pub struct AzStyleBorderTopWidthPtr { ptr: *mut c_void }
+/// Re-export of rust-allocated (stack based) `StyleBorderTopWidth` struct
+#[no_mangle] #[repr(C)] pub struct AzStyleBorderTopWidth { pub object: azul_impl::css::StyleBorderTopWidth }
 /// Destructor: Takes ownership of the `StyleBorderTopWidth` pointer and deletes it.
-#[no_mangle] #[inline] pub extern "C" fn az_style_border_top_width_delete(ptr: &mut AzStyleBorderTopWidthPtr) { let _ = unsafe { Box::<StyleBorderTopWidth>::from_raw(ptr.ptr  as *mut StyleBorderTopWidth) }; }
-/// Copies the pointer: WARNING: After calling this function you'll have two pointers to the same Box<`StyleBorderTopWidth`>!.
-#[no_mangle] #[inline] pub extern "C" fn az_style_border_top_width_shallow_copy(ptr: &AzStyleBorderTopWidthPtr) -> AzStyleBorderTopWidthPtr { AzStyleBorderTopWidthPtr { ptr: ptr.ptr } }
-/// (private): Downcasts the `AzStyleBorderTopWidthPtr` to a `Box<StyleBorderTopWidth>`. Note that this takes ownership of the pointer.
-#[inline(always)] fn az_style_border_top_width_downcast(ptr: AzStyleBorderTopWidthPtr) -> Box<StyleBorderTopWidth> { unsafe { Box::<StyleBorderTopWidth>::from_raw(ptr.ptr  as *mut StyleBorderTopWidth) } }
-/// (private): Downcasts the `AzStyleBorderTopWidthPtr` to a `&mut Box<StyleBorderTopWidth>` and runs the `func` closure on it
-#[inline(always)] fn az_style_border_top_width_downcast_refmut<F: FnOnce(&mut Box<StyleBorderTopWidth>)>(ptr: &mut AzStyleBorderTopWidthPtr, func: F) { let mut box_ptr: Box<StyleBorderTopWidth> = unsafe { Box::<StyleBorderTopWidth>::from_raw(ptr.ptr  as *mut StyleBorderTopWidth) };func(&mut box_ptr);ptr.ptr = Box::into_raw(box_ptr) as *mut c_void; }
-/// (private): Downcasts the `AzStyleBorderTopWidthPtr` to a `&Box<StyleBorderTopWidth>` and runs the `func` closure on it
-#[inline(always)] fn az_style_border_top_width_downcast_ref<P, F: FnOnce(&Box<StyleBorderTopWidth>) -> P>(ptr: &mut AzStyleBorderTopWidthPtr, func: F) -> P { let box_ptr: Box<StyleBorderTopWidth> = unsafe { Box::<StyleBorderTopWidth>::from_raw(ptr.ptr  as *mut StyleBorderTopWidth) }; let ret_val = func(&box_ptr); ptr.ptr = Box::into_raw(box_ptr) as *mut c_void;ret_val }
+#[no_mangle] #[inline] #[allow(unused_variables)] pub extern "C" fn az_style_border_top_width_delete(object: &mut AzStyleBorderTopWidth) { }
+/// Copies the object
+#[no_mangle] #[inline] pub extern "C" fn az_style_border_top_width_deep_copy(object: &AzStyleBorderTopWidth) -> AzStyleBorderTopWidth { AzStyleBorderTopWidth{ object: object.object.clone() } }
 
-/// Pointer to rust-allocated `Box<StyleCursor>` struct
-#[no_mangle] #[repr(C)] pub struct AzStyleCursorPtr { ptr: *mut c_void }
+/// Re-export of rust-allocated (stack based) `StyleCursor` struct
+#[no_mangle] #[repr(C)] pub struct AzStyleCursor { pub object: azul_impl::css::StyleCursor }
+#[inline] #[no_mangle] pub extern "C" fn az_style_cursor_alias() -> AzStyleCursor { AzStyleCursor { object: azul_impl::css::StyleCursor::Alias } }
+#[inline] #[no_mangle] pub extern "C" fn az_style_cursor_all_scroll() -> AzStyleCursor { AzStyleCursor { object: azul_impl::css::StyleCursor::AllScroll } }
+#[inline] #[no_mangle] pub extern "C" fn az_style_cursor_cell() -> AzStyleCursor { AzStyleCursor { object: azul_impl::css::StyleCursor::Cell } }
+#[inline] #[no_mangle] pub extern "C" fn az_style_cursor_col_resize() -> AzStyleCursor { AzStyleCursor { object: azul_impl::css::StyleCursor::ColResize } }
+#[inline] #[no_mangle] pub extern "C" fn az_style_cursor_context_menu() -> AzStyleCursor { AzStyleCursor { object: azul_impl::css::StyleCursor::ContextMenu } }
+#[inline] #[no_mangle] pub extern "C" fn az_style_cursor_copy() -> AzStyleCursor { AzStyleCursor { object: azul_impl::css::StyleCursor::Copy } }
+#[inline] #[no_mangle] pub extern "C" fn az_style_cursor_crosshair() -> AzStyleCursor { AzStyleCursor { object: azul_impl::css::StyleCursor::Crosshair } }
+#[inline] #[no_mangle] pub extern "C" fn az_style_cursor_default() -> AzStyleCursor { AzStyleCursor { object: azul_impl::css::StyleCursor::Default } }
+#[inline] #[no_mangle] pub extern "C" fn az_style_cursor_e_resize() -> AzStyleCursor { AzStyleCursor { object: azul_impl::css::StyleCursor::EResize } }
+#[inline] #[no_mangle] pub extern "C" fn az_style_cursor_ew_resize() -> AzStyleCursor { AzStyleCursor { object: azul_impl::css::StyleCursor::EwResize } }
+#[inline] #[no_mangle] pub extern "C" fn az_style_cursor_grab() -> AzStyleCursor { AzStyleCursor { object: azul_impl::css::StyleCursor::Grab } }
+#[inline] #[no_mangle] pub extern "C" fn az_style_cursor_grabbing() -> AzStyleCursor { AzStyleCursor { object: azul_impl::css::StyleCursor::Grabbing } }
+#[inline] #[no_mangle] pub extern "C" fn az_style_cursor_help() -> AzStyleCursor { AzStyleCursor { object: azul_impl::css::StyleCursor::Help } }
+#[inline] #[no_mangle] pub extern "C" fn az_style_cursor_move() -> AzStyleCursor { AzStyleCursor { object: azul_impl::css::StyleCursor::Move } }
+#[inline] #[no_mangle] pub extern "C" fn az_style_cursor_n_resize() -> AzStyleCursor { AzStyleCursor { object: azul_impl::css::StyleCursor::NResize } }
+#[inline] #[no_mangle] pub extern "C" fn az_style_cursor_ns_resize() -> AzStyleCursor { AzStyleCursor { object: azul_impl::css::StyleCursor::NsResize } }
+#[inline] #[no_mangle] pub extern "C" fn az_style_cursor_nesw_resize() -> AzStyleCursor { AzStyleCursor { object: azul_impl::css::StyleCursor::NeswResize } }
+#[inline] #[no_mangle] pub extern "C" fn az_style_cursor_nwse_resize() -> AzStyleCursor { AzStyleCursor { object: azul_impl::css::StyleCursor::NwseResize } }
+#[inline] #[no_mangle] pub extern "C" fn az_style_cursor_pointer() -> AzStyleCursor { AzStyleCursor { object: azul_impl::css::StyleCursor::Pointer } }
+#[inline] #[no_mangle] pub extern "C" fn az_style_cursor_progress() -> AzStyleCursor { AzStyleCursor { object: azul_impl::css::StyleCursor::Progress } }
+#[inline] #[no_mangle] pub extern "C" fn az_style_cursor_row_resize() -> AzStyleCursor { AzStyleCursor { object: azul_impl::css::StyleCursor::RowResize } }
+#[inline] #[no_mangle] pub extern "C" fn az_style_cursor_s_resize() -> AzStyleCursor { AzStyleCursor { object: azul_impl::css::StyleCursor::SResize } }
+#[inline] #[no_mangle] pub extern "C" fn az_style_cursor_se_resize() -> AzStyleCursor { AzStyleCursor { object: azul_impl::css::StyleCursor::SeResize } }
+#[inline] #[no_mangle] pub extern "C" fn az_style_cursor_text() -> AzStyleCursor { AzStyleCursor { object: azul_impl::css::StyleCursor::Text } }
+#[inline] #[no_mangle] pub extern "C" fn az_style_cursor_unset() -> AzStyleCursor { AzStyleCursor { object: azul_impl::css::StyleCursor::Unset } }
+#[inline] #[no_mangle] pub extern "C" fn az_style_cursor_vertical_text() -> AzStyleCursor { AzStyleCursor { object: azul_impl::css::StyleCursor::VerticalText } }
+#[inline] #[no_mangle] pub extern "C" fn az_style_cursor_w_resize() -> AzStyleCursor { AzStyleCursor { object: azul_impl::css::StyleCursor::WResize } }
+#[inline] #[no_mangle] pub extern "C" fn az_style_cursor_wait() -> AzStyleCursor { AzStyleCursor { object: azul_impl::css::StyleCursor::Wait } }
+#[inline] #[no_mangle] pub extern "C" fn az_style_cursor_zoom_in() -> AzStyleCursor { AzStyleCursor { object: azul_impl::css::StyleCursor::ZoomIn } }
+#[inline] #[no_mangle] pub extern "C" fn az_style_cursor_zoom_out() -> AzStyleCursor { AzStyleCursor { object: azul_impl::css::StyleCursor::ZoomOut } }
 /// Destructor: Takes ownership of the `StyleCursor` pointer and deletes it.
-#[no_mangle] #[inline] pub extern "C" fn az_style_cursor_delete(ptr: &mut AzStyleCursorPtr) { let _ = unsafe { Box::<StyleCursor>::from_raw(ptr.ptr  as *mut StyleCursor) }; }
-/// Copies the pointer: WARNING: After calling this function you'll have two pointers to the same Box<`StyleCursor`>!.
-#[no_mangle] #[inline] pub extern "C" fn az_style_cursor_shallow_copy(ptr: &AzStyleCursorPtr) -> AzStyleCursorPtr { AzStyleCursorPtr { ptr: ptr.ptr } }
-/// (private): Downcasts the `AzStyleCursorPtr` to a `Box<StyleCursor>`. Note that this takes ownership of the pointer.
-#[inline(always)] fn az_style_cursor_downcast(ptr: AzStyleCursorPtr) -> Box<StyleCursor> { unsafe { Box::<StyleCursor>::from_raw(ptr.ptr  as *mut StyleCursor) } }
-/// (private): Downcasts the `AzStyleCursorPtr` to a `&mut Box<StyleCursor>` and runs the `func` closure on it
-#[inline(always)] fn az_style_cursor_downcast_refmut<F: FnOnce(&mut Box<StyleCursor>)>(ptr: &mut AzStyleCursorPtr, func: F) { let mut box_ptr: Box<StyleCursor> = unsafe { Box::<StyleCursor>::from_raw(ptr.ptr  as *mut StyleCursor) };func(&mut box_ptr);ptr.ptr = Box::into_raw(box_ptr) as *mut c_void; }
-/// (private): Downcasts the `AzStyleCursorPtr` to a `&Box<StyleCursor>` and runs the `func` closure on it
-#[inline(always)] fn az_style_cursor_downcast_ref<P, F: FnOnce(&Box<StyleCursor>) -> P>(ptr: &mut AzStyleCursorPtr, func: F) -> P { let box_ptr: Box<StyleCursor> = unsafe { Box::<StyleCursor>::from_raw(ptr.ptr  as *mut StyleCursor) }; let ret_val = func(&box_ptr); ptr.ptr = Box::into_raw(box_ptr) as *mut c_void;ret_val }
+#[no_mangle] #[inline] #[allow(unused_variables)] pub extern "C" fn az_style_cursor_delete(object: &mut AzStyleCursor) { match object.object { azul_impl::css::StyleCursor::Alias => { }, azul_impl::css::StyleCursor::AllScroll => { }, azul_impl::css::StyleCursor::Cell => { }, azul_impl::css::StyleCursor::ColResize => { }, azul_impl::css::StyleCursor::ContextMenu => { }, azul_impl::css::StyleCursor::Copy => { }, azul_impl::css::StyleCursor::Crosshair => { }, azul_impl::css::StyleCursor::Default => { }, azul_impl::css::StyleCursor::EResize => { }, azul_impl::css::StyleCursor::EwResize => { }, azul_impl::css::StyleCursor::Grab => { }, azul_impl::css::StyleCursor::Grabbing => { }, azul_impl::css::StyleCursor::Help => { }, azul_impl::css::StyleCursor::Move => { }, azul_impl::css::StyleCursor::NResize => { }, azul_impl::css::StyleCursor::NsResize => { }, azul_impl::css::StyleCursor::NeswResize => { }, azul_impl::css::StyleCursor::NwseResize => { }, azul_impl::css::StyleCursor::Pointer => { }, azul_impl::css::StyleCursor::Progress => { }, azul_impl::css::StyleCursor::RowResize => { }, azul_impl::css::StyleCursor::SResize => { }, azul_impl::css::StyleCursor::SeResize => { }, azul_impl::css::StyleCursor::Text => { }, azul_impl::css::StyleCursor::Unset => { }, azul_impl::css::StyleCursor::VerticalText => { }, azul_impl::css::StyleCursor::WResize => { }, azul_impl::css::StyleCursor::Wait => { }, azul_impl::css::StyleCursor::ZoomIn => { }, azul_impl::css::StyleCursor::ZoomOut => { }, }
+}
+/// Copies the object
+#[no_mangle] #[inline] pub extern "C" fn az_style_cursor_deep_copy(object: &AzStyleCursor) -> AzStyleCursor { AzStyleCursor{ object: object.object.clone() } }
 
-/// Pointer to rust-allocated `Box<StyleFontFamily>` struct
-#[no_mangle] #[repr(C)] pub struct AzStyleFontFamilyPtr { ptr: *mut c_void }
+/// Re-export of rust-allocated (stack based) `StyleFontFamily` struct
+#[no_mangle] #[repr(C)] pub struct AzStyleFontFamily { pub object: azul_impl::css::StyleFontFamily }
 /// Destructor: Takes ownership of the `StyleFontFamily` pointer and deletes it.
-#[no_mangle] #[inline] pub extern "C" fn az_style_font_family_delete(ptr: &mut AzStyleFontFamilyPtr) { let _ = unsafe { Box::<StyleFontFamily>::from_raw(ptr.ptr  as *mut StyleFontFamily) }; }
-/// Copies the pointer: WARNING: After calling this function you'll have two pointers to the same Box<`StyleFontFamily`>!.
-#[no_mangle] #[inline] pub extern "C" fn az_style_font_family_shallow_copy(ptr: &AzStyleFontFamilyPtr) -> AzStyleFontFamilyPtr { AzStyleFontFamilyPtr { ptr: ptr.ptr } }
-/// (private): Downcasts the `AzStyleFontFamilyPtr` to a `Box<StyleFontFamily>`. Note that this takes ownership of the pointer.
-#[inline(always)] fn az_style_font_family_downcast(ptr: AzStyleFontFamilyPtr) -> Box<StyleFontFamily> { unsafe { Box::<StyleFontFamily>::from_raw(ptr.ptr  as *mut StyleFontFamily) } }
-/// (private): Downcasts the `AzStyleFontFamilyPtr` to a `&mut Box<StyleFontFamily>` and runs the `func` closure on it
-#[inline(always)] fn az_style_font_family_downcast_refmut<F: FnOnce(&mut Box<StyleFontFamily>)>(ptr: &mut AzStyleFontFamilyPtr, func: F) { let mut box_ptr: Box<StyleFontFamily> = unsafe { Box::<StyleFontFamily>::from_raw(ptr.ptr  as *mut StyleFontFamily) };func(&mut box_ptr);ptr.ptr = Box::into_raw(box_ptr) as *mut c_void; }
-/// (private): Downcasts the `AzStyleFontFamilyPtr` to a `&Box<StyleFontFamily>` and runs the `func` closure on it
-#[inline(always)] fn az_style_font_family_downcast_ref<P, F: FnOnce(&Box<StyleFontFamily>) -> P>(ptr: &mut AzStyleFontFamilyPtr, func: F) -> P { let box_ptr: Box<StyleFontFamily> = unsafe { Box::<StyleFontFamily>::from_raw(ptr.ptr  as *mut StyleFontFamily) }; let ret_val = func(&box_ptr); ptr.ptr = Box::into_raw(box_ptr) as *mut c_void;ret_val }
+#[no_mangle] #[inline] #[allow(unused_variables)] pub extern "C" fn az_style_font_family_delete(object: &mut AzStyleFontFamily) { }
+/// Copies the object
+#[no_mangle] #[inline] pub extern "C" fn az_style_font_family_deep_copy(object: &AzStyleFontFamily) -> AzStyleFontFamily { AzStyleFontFamily{ object: object.object.clone() } }
 
-/// Pointer to rust-allocated `Box<StyleFontSize>` struct
-#[no_mangle] #[repr(C)] pub struct AzStyleFontSizePtr { ptr: *mut c_void }
+/// Re-export of rust-allocated (stack based) `StyleFontSize` struct
+#[no_mangle] #[repr(C)] pub struct AzStyleFontSize { pub object: azul_impl::css::StyleFontSize }
 /// Destructor: Takes ownership of the `StyleFontSize` pointer and deletes it.
-#[no_mangle] #[inline] pub extern "C" fn az_style_font_size_delete(ptr: &mut AzStyleFontSizePtr) { let _ = unsafe { Box::<StyleFontSize>::from_raw(ptr.ptr  as *mut StyleFontSize) }; }
-/// Copies the pointer: WARNING: After calling this function you'll have two pointers to the same Box<`StyleFontSize`>!.
-#[no_mangle] #[inline] pub extern "C" fn az_style_font_size_shallow_copy(ptr: &AzStyleFontSizePtr) -> AzStyleFontSizePtr { AzStyleFontSizePtr { ptr: ptr.ptr } }
-/// (private): Downcasts the `AzStyleFontSizePtr` to a `Box<StyleFontSize>`. Note that this takes ownership of the pointer.
-#[inline(always)] fn az_style_font_size_downcast(ptr: AzStyleFontSizePtr) -> Box<StyleFontSize> { unsafe { Box::<StyleFontSize>::from_raw(ptr.ptr  as *mut StyleFontSize) } }
-/// (private): Downcasts the `AzStyleFontSizePtr` to a `&mut Box<StyleFontSize>` and runs the `func` closure on it
-#[inline(always)] fn az_style_font_size_downcast_refmut<F: FnOnce(&mut Box<StyleFontSize>)>(ptr: &mut AzStyleFontSizePtr, func: F) { let mut box_ptr: Box<StyleFontSize> = unsafe { Box::<StyleFontSize>::from_raw(ptr.ptr  as *mut StyleFontSize) };func(&mut box_ptr);ptr.ptr = Box::into_raw(box_ptr) as *mut c_void; }
-/// (private): Downcasts the `AzStyleFontSizePtr` to a `&Box<StyleFontSize>` and runs the `func` closure on it
-#[inline(always)] fn az_style_font_size_downcast_ref<P, F: FnOnce(&Box<StyleFontSize>) -> P>(ptr: &mut AzStyleFontSizePtr, func: F) -> P { let box_ptr: Box<StyleFontSize> = unsafe { Box::<StyleFontSize>::from_raw(ptr.ptr  as *mut StyleFontSize) }; let ret_val = func(&box_ptr); ptr.ptr = Box::into_raw(box_ptr) as *mut c_void;ret_val }
+#[no_mangle] #[inline] #[allow(unused_variables)] pub extern "C" fn az_style_font_size_delete(object: &mut AzStyleFontSize) { }
+/// Copies the object
+#[no_mangle] #[inline] pub extern "C" fn az_style_font_size_deep_copy(object: &AzStyleFontSize) -> AzStyleFontSize { AzStyleFontSize{ object: object.object.clone() } }
 
-/// Pointer to rust-allocated `Box<StyleLetterSpacing>` struct
-#[no_mangle] #[repr(C)] pub struct AzStyleLetterSpacingPtr { ptr: *mut c_void }
+/// Re-export of rust-allocated (stack based) `StyleLetterSpacing` struct
+#[no_mangle] #[repr(C)] pub struct AzStyleLetterSpacing { pub object: azul_impl::css::StyleLetterSpacing }
 /// Destructor: Takes ownership of the `StyleLetterSpacing` pointer and deletes it.
-#[no_mangle] #[inline] pub extern "C" fn az_style_letter_spacing_delete(ptr: &mut AzStyleLetterSpacingPtr) { let _ = unsafe { Box::<StyleLetterSpacing>::from_raw(ptr.ptr  as *mut StyleLetterSpacing) }; }
-/// Copies the pointer: WARNING: After calling this function you'll have two pointers to the same Box<`StyleLetterSpacing`>!.
-#[no_mangle] #[inline] pub extern "C" fn az_style_letter_spacing_shallow_copy(ptr: &AzStyleLetterSpacingPtr) -> AzStyleLetterSpacingPtr { AzStyleLetterSpacingPtr { ptr: ptr.ptr } }
-/// (private): Downcasts the `AzStyleLetterSpacingPtr` to a `Box<StyleLetterSpacing>`. Note that this takes ownership of the pointer.
-#[inline(always)] fn az_style_letter_spacing_downcast(ptr: AzStyleLetterSpacingPtr) -> Box<StyleLetterSpacing> { unsafe { Box::<StyleLetterSpacing>::from_raw(ptr.ptr  as *mut StyleLetterSpacing) } }
-/// (private): Downcasts the `AzStyleLetterSpacingPtr` to a `&mut Box<StyleLetterSpacing>` and runs the `func` closure on it
-#[inline(always)] fn az_style_letter_spacing_downcast_refmut<F: FnOnce(&mut Box<StyleLetterSpacing>)>(ptr: &mut AzStyleLetterSpacingPtr, func: F) { let mut box_ptr: Box<StyleLetterSpacing> = unsafe { Box::<StyleLetterSpacing>::from_raw(ptr.ptr  as *mut StyleLetterSpacing) };func(&mut box_ptr);ptr.ptr = Box::into_raw(box_ptr) as *mut c_void; }
-/// (private): Downcasts the `AzStyleLetterSpacingPtr` to a `&Box<StyleLetterSpacing>` and runs the `func` closure on it
-#[inline(always)] fn az_style_letter_spacing_downcast_ref<P, F: FnOnce(&Box<StyleLetterSpacing>) -> P>(ptr: &mut AzStyleLetterSpacingPtr, func: F) -> P { let box_ptr: Box<StyleLetterSpacing> = unsafe { Box::<StyleLetterSpacing>::from_raw(ptr.ptr  as *mut StyleLetterSpacing) }; let ret_val = func(&box_ptr); ptr.ptr = Box::into_raw(box_ptr) as *mut c_void;ret_val }
+#[no_mangle] #[inline] #[allow(unused_variables)] pub extern "C" fn az_style_letter_spacing_delete(object: &mut AzStyleLetterSpacing) { }
+/// Copies the object
+#[no_mangle] #[inline] pub extern "C" fn az_style_letter_spacing_deep_copy(object: &AzStyleLetterSpacing) -> AzStyleLetterSpacing { AzStyleLetterSpacing{ object: object.object.clone() } }
 
-/// Pointer to rust-allocated `Box<StyleLineHeight>` struct
-#[no_mangle] #[repr(C)] pub struct AzStyleLineHeightPtr { ptr: *mut c_void }
+/// Re-export of rust-allocated (stack based) `StyleLineHeight` struct
+#[no_mangle] #[repr(C)] pub struct AzStyleLineHeight { pub object: azul_impl::css::StyleLineHeight }
 /// Destructor: Takes ownership of the `StyleLineHeight` pointer and deletes it.
-#[no_mangle] #[inline] pub extern "C" fn az_style_line_height_delete(ptr: &mut AzStyleLineHeightPtr) { let _ = unsafe { Box::<StyleLineHeight>::from_raw(ptr.ptr  as *mut StyleLineHeight) }; }
-/// Copies the pointer: WARNING: After calling this function you'll have two pointers to the same Box<`StyleLineHeight`>!.
-#[no_mangle] #[inline] pub extern "C" fn az_style_line_height_shallow_copy(ptr: &AzStyleLineHeightPtr) -> AzStyleLineHeightPtr { AzStyleLineHeightPtr { ptr: ptr.ptr } }
-/// (private): Downcasts the `AzStyleLineHeightPtr` to a `Box<StyleLineHeight>`. Note that this takes ownership of the pointer.
-#[inline(always)] fn az_style_line_height_downcast(ptr: AzStyleLineHeightPtr) -> Box<StyleLineHeight> { unsafe { Box::<StyleLineHeight>::from_raw(ptr.ptr  as *mut StyleLineHeight) } }
-/// (private): Downcasts the `AzStyleLineHeightPtr` to a `&mut Box<StyleLineHeight>` and runs the `func` closure on it
-#[inline(always)] fn az_style_line_height_downcast_refmut<F: FnOnce(&mut Box<StyleLineHeight>)>(ptr: &mut AzStyleLineHeightPtr, func: F) { let mut box_ptr: Box<StyleLineHeight> = unsafe { Box::<StyleLineHeight>::from_raw(ptr.ptr  as *mut StyleLineHeight) };func(&mut box_ptr);ptr.ptr = Box::into_raw(box_ptr) as *mut c_void; }
-/// (private): Downcasts the `AzStyleLineHeightPtr` to a `&Box<StyleLineHeight>` and runs the `func` closure on it
-#[inline(always)] fn az_style_line_height_downcast_ref<P, F: FnOnce(&Box<StyleLineHeight>) -> P>(ptr: &mut AzStyleLineHeightPtr, func: F) -> P { let box_ptr: Box<StyleLineHeight> = unsafe { Box::<StyleLineHeight>::from_raw(ptr.ptr  as *mut StyleLineHeight) }; let ret_val = func(&box_ptr); ptr.ptr = Box::into_raw(box_ptr) as *mut c_void;ret_val }
+#[no_mangle] #[inline] #[allow(unused_variables)] pub extern "C" fn az_style_line_height_delete(object: &mut AzStyleLineHeight) { }
+/// Copies the object
+#[no_mangle] #[inline] pub extern "C" fn az_style_line_height_deep_copy(object: &AzStyleLineHeight) -> AzStyleLineHeight { AzStyleLineHeight{ object: object.object.clone() } }
 
-/// Pointer to rust-allocated `Box<StyleTabWidth>` struct
-#[no_mangle] #[repr(C)] pub struct AzStyleTabWidthPtr { ptr: *mut c_void }
+/// Re-export of rust-allocated (stack based) `StyleTabWidth` struct
+#[no_mangle] #[repr(C)] pub struct AzStyleTabWidth { pub object: azul_impl::css::StyleLineHeight }
 /// Destructor: Takes ownership of the `StyleTabWidth` pointer and deletes it.
-#[no_mangle] #[inline] pub extern "C" fn az_style_tab_width_delete(ptr: &mut AzStyleTabWidthPtr) { let _ = unsafe { Box::<StyleTabWidth>::from_raw(ptr.ptr  as *mut StyleTabWidth) }; }
-/// Copies the pointer: WARNING: After calling this function you'll have two pointers to the same Box<`StyleTabWidth`>!.
-#[no_mangle] #[inline] pub extern "C" fn az_style_tab_width_shallow_copy(ptr: &AzStyleTabWidthPtr) -> AzStyleTabWidthPtr { AzStyleTabWidthPtr { ptr: ptr.ptr } }
-/// (private): Downcasts the `AzStyleTabWidthPtr` to a `Box<StyleTabWidth>`. Note that this takes ownership of the pointer.
-#[inline(always)] fn az_style_tab_width_downcast(ptr: AzStyleTabWidthPtr) -> Box<StyleTabWidth> { unsafe { Box::<StyleTabWidth>::from_raw(ptr.ptr  as *mut StyleTabWidth) } }
-/// (private): Downcasts the `AzStyleTabWidthPtr` to a `&mut Box<StyleTabWidth>` and runs the `func` closure on it
-#[inline(always)] fn az_style_tab_width_downcast_refmut<F: FnOnce(&mut Box<StyleTabWidth>)>(ptr: &mut AzStyleTabWidthPtr, func: F) { let mut box_ptr: Box<StyleTabWidth> = unsafe { Box::<StyleTabWidth>::from_raw(ptr.ptr  as *mut StyleTabWidth) };func(&mut box_ptr);ptr.ptr = Box::into_raw(box_ptr) as *mut c_void; }
-/// (private): Downcasts the `AzStyleTabWidthPtr` to a `&Box<StyleTabWidth>` and runs the `func` closure on it
-#[inline(always)] fn az_style_tab_width_downcast_ref<P, F: FnOnce(&Box<StyleTabWidth>) -> P>(ptr: &mut AzStyleTabWidthPtr, func: F) -> P { let box_ptr: Box<StyleTabWidth> = unsafe { Box::<StyleTabWidth>::from_raw(ptr.ptr  as *mut StyleTabWidth) }; let ret_val = func(&box_ptr); ptr.ptr = Box::into_raw(box_ptr) as *mut c_void;ret_val }
+#[no_mangle] #[inline] #[allow(unused_variables)] pub extern "C" fn az_style_tab_width_delete(object: &mut AzStyleTabWidth) { }
+/// Copies the object
+#[no_mangle] #[inline] pub extern "C" fn az_style_tab_width_deep_copy(object: &AzStyleTabWidth) -> AzStyleTabWidth { AzStyleTabWidth{ object: object.object.clone() } }
 
-/// Pointer to rust-allocated `Box<StyleTextAlignmentHorz>` struct
-#[no_mangle] #[repr(C)] pub struct AzStyleTextAlignmentHorzPtr { ptr: *mut c_void }
+/// Re-export of rust-allocated (stack based) `StyleTextAlignmentHorz` struct
+#[no_mangle] #[repr(C)] pub struct AzStyleTextAlignmentHorz { pub object: azul_impl::css::StyleTextAlignmentHorz }
+#[inline] #[no_mangle] pub extern "C" fn az_style_text_alignment_horz_left() -> AzStyleTextAlignmentHorz { AzStyleTextAlignmentHorz { object: azul_impl::css::StyleTextAlignmentHorz::Left } }
+#[inline] #[no_mangle] pub extern "C" fn az_style_text_alignment_horz_center() -> AzStyleTextAlignmentHorz { AzStyleTextAlignmentHorz { object: azul_impl::css::StyleTextAlignmentHorz::Center } }
+#[inline] #[no_mangle] pub extern "C" fn az_style_text_alignment_horz_right() -> AzStyleTextAlignmentHorz { AzStyleTextAlignmentHorz { object: azul_impl::css::StyleTextAlignmentHorz::Right } }
 /// Destructor: Takes ownership of the `StyleTextAlignmentHorz` pointer and deletes it.
-#[no_mangle] #[inline] pub extern "C" fn az_style_text_alignment_horz_delete(ptr: &mut AzStyleTextAlignmentHorzPtr) { let _ = unsafe { Box::<StyleTextAlignmentHorz>::from_raw(ptr.ptr  as *mut StyleTextAlignmentHorz) }; }
-/// Copies the pointer: WARNING: After calling this function you'll have two pointers to the same Box<`StyleTextAlignmentHorz`>!.
-#[no_mangle] #[inline] pub extern "C" fn az_style_text_alignment_horz_shallow_copy(ptr: &AzStyleTextAlignmentHorzPtr) -> AzStyleTextAlignmentHorzPtr { AzStyleTextAlignmentHorzPtr { ptr: ptr.ptr } }
-/// (private): Downcasts the `AzStyleTextAlignmentHorzPtr` to a `Box<StyleTextAlignmentHorz>`. Note that this takes ownership of the pointer.
-#[inline(always)] fn az_style_text_alignment_horz_downcast(ptr: AzStyleTextAlignmentHorzPtr) -> Box<StyleTextAlignmentHorz> { unsafe { Box::<StyleTextAlignmentHorz>::from_raw(ptr.ptr  as *mut StyleTextAlignmentHorz) } }
-/// (private): Downcasts the `AzStyleTextAlignmentHorzPtr` to a `&mut Box<StyleTextAlignmentHorz>` and runs the `func` closure on it
-#[inline(always)] fn az_style_text_alignment_horz_downcast_refmut<F: FnOnce(&mut Box<StyleTextAlignmentHorz>)>(ptr: &mut AzStyleTextAlignmentHorzPtr, func: F) { let mut box_ptr: Box<StyleTextAlignmentHorz> = unsafe { Box::<StyleTextAlignmentHorz>::from_raw(ptr.ptr  as *mut StyleTextAlignmentHorz) };func(&mut box_ptr);ptr.ptr = Box::into_raw(box_ptr) as *mut c_void; }
-/// (private): Downcasts the `AzStyleTextAlignmentHorzPtr` to a `&Box<StyleTextAlignmentHorz>` and runs the `func` closure on it
-#[inline(always)] fn az_style_text_alignment_horz_downcast_ref<P, F: FnOnce(&Box<StyleTextAlignmentHorz>) -> P>(ptr: &mut AzStyleTextAlignmentHorzPtr, func: F) -> P { let box_ptr: Box<StyleTextAlignmentHorz> = unsafe { Box::<StyleTextAlignmentHorz>::from_raw(ptr.ptr  as *mut StyleTextAlignmentHorz) }; let ret_val = func(&box_ptr); ptr.ptr = Box::into_raw(box_ptr) as *mut c_void;ret_val }
+#[no_mangle] #[inline] #[allow(unused_variables)] pub extern "C" fn az_style_text_alignment_horz_delete(object: &mut AzStyleTextAlignmentHorz) { match object.object { azul_impl::css::StyleTextAlignmentHorz::Left => { }, azul_impl::css::StyleTextAlignmentHorz::Center => { }, azul_impl::css::StyleTextAlignmentHorz::Right => { }, }
+}
+/// Copies the object
+#[no_mangle] #[inline] pub extern "C" fn az_style_text_alignment_horz_deep_copy(object: &AzStyleTextAlignmentHorz) -> AzStyleTextAlignmentHorz { AzStyleTextAlignmentHorz{ object: object.object.clone() } }
 
-/// Pointer to rust-allocated `Box<StyleTextColor>` struct
-#[no_mangle] #[repr(C)] pub struct AzStyleTextColorPtr { ptr: *mut c_void }
+/// Re-export of rust-allocated (stack based) `StyleTextColor` struct
+#[no_mangle] #[repr(C)] pub struct AzStyleTextColor { pub object: azul_impl::css::StyleTextColor }
 /// Destructor: Takes ownership of the `StyleTextColor` pointer and deletes it.
-#[no_mangle] #[inline] pub extern "C" fn az_style_text_color_delete(ptr: &mut AzStyleTextColorPtr) { let _ = unsafe { Box::<StyleTextColor>::from_raw(ptr.ptr  as *mut StyleTextColor) }; }
-/// Copies the pointer: WARNING: After calling this function you'll have two pointers to the same Box<`StyleTextColor`>!.
-#[no_mangle] #[inline] pub extern "C" fn az_style_text_color_shallow_copy(ptr: &AzStyleTextColorPtr) -> AzStyleTextColorPtr { AzStyleTextColorPtr { ptr: ptr.ptr } }
-/// (private): Downcasts the `AzStyleTextColorPtr` to a `Box<StyleTextColor>`. Note that this takes ownership of the pointer.
-#[inline(always)] fn az_style_text_color_downcast(ptr: AzStyleTextColorPtr) -> Box<StyleTextColor> { unsafe { Box::<StyleTextColor>::from_raw(ptr.ptr  as *mut StyleTextColor) } }
-/// (private): Downcasts the `AzStyleTextColorPtr` to a `&mut Box<StyleTextColor>` and runs the `func` closure on it
-#[inline(always)] fn az_style_text_color_downcast_refmut<F: FnOnce(&mut Box<StyleTextColor>)>(ptr: &mut AzStyleTextColorPtr, func: F) { let mut box_ptr: Box<StyleTextColor> = unsafe { Box::<StyleTextColor>::from_raw(ptr.ptr  as *mut StyleTextColor) };func(&mut box_ptr);ptr.ptr = Box::into_raw(box_ptr) as *mut c_void; }
-/// (private): Downcasts the `AzStyleTextColorPtr` to a `&Box<StyleTextColor>` and runs the `func` closure on it
-#[inline(always)] fn az_style_text_color_downcast_ref<P, F: FnOnce(&Box<StyleTextColor>) -> P>(ptr: &mut AzStyleTextColorPtr, func: F) -> P { let box_ptr: Box<StyleTextColor> = unsafe { Box::<StyleTextColor>::from_raw(ptr.ptr  as *mut StyleTextColor) }; let ret_val = func(&box_ptr); ptr.ptr = Box::into_raw(box_ptr) as *mut c_void;ret_val }
+#[no_mangle] #[inline] #[allow(unused_variables)] pub extern "C" fn az_style_text_color_delete(object: &mut AzStyleTextColor) { }
+/// Copies the object
+#[no_mangle] #[inline] pub extern "C" fn az_style_text_color_deep_copy(object: &AzStyleTextColor) -> AzStyleTextColor { AzStyleTextColor{ object: object.object.clone() } }
 
-/// Pointer to rust-allocated `Box<StyleWordSpacing>` struct
-#[no_mangle] #[repr(C)] pub struct AzStyleWordSpacingPtr { ptr: *mut c_void }
+/// Re-export of rust-allocated (stack based) `StyleWordSpacing` struct
+#[no_mangle] #[repr(C)] pub struct AzStyleWordSpacing { pub object: azul_impl::css::StyleWordSpacing }
 /// Destructor: Takes ownership of the `StyleWordSpacing` pointer and deletes it.
-#[no_mangle] #[inline] pub extern "C" fn az_style_word_spacing_delete(ptr: &mut AzStyleWordSpacingPtr) { let _ = unsafe { Box::<StyleWordSpacing>::from_raw(ptr.ptr  as *mut StyleWordSpacing) }; }
-/// Copies the pointer: WARNING: After calling this function you'll have two pointers to the same Box<`StyleWordSpacing`>!.
-#[no_mangle] #[inline] pub extern "C" fn az_style_word_spacing_shallow_copy(ptr: &AzStyleWordSpacingPtr) -> AzStyleWordSpacingPtr { AzStyleWordSpacingPtr { ptr: ptr.ptr } }
-/// (private): Downcasts the `AzStyleWordSpacingPtr` to a `Box<StyleWordSpacing>`. Note that this takes ownership of the pointer.
-#[inline(always)] fn az_style_word_spacing_downcast(ptr: AzStyleWordSpacingPtr) -> Box<StyleWordSpacing> { unsafe { Box::<StyleWordSpacing>::from_raw(ptr.ptr  as *mut StyleWordSpacing) } }
-/// (private): Downcasts the `AzStyleWordSpacingPtr` to a `&mut Box<StyleWordSpacing>` and runs the `func` closure on it
-#[inline(always)] fn az_style_word_spacing_downcast_refmut<F: FnOnce(&mut Box<StyleWordSpacing>)>(ptr: &mut AzStyleWordSpacingPtr, func: F) { let mut box_ptr: Box<StyleWordSpacing> = unsafe { Box::<StyleWordSpacing>::from_raw(ptr.ptr  as *mut StyleWordSpacing) };func(&mut box_ptr);ptr.ptr = Box::into_raw(box_ptr) as *mut c_void; }
-/// (private): Downcasts the `AzStyleWordSpacingPtr` to a `&Box<StyleWordSpacing>` and runs the `func` closure on it
-#[inline(always)] fn az_style_word_spacing_downcast_ref<P, F: FnOnce(&Box<StyleWordSpacing>) -> P>(ptr: &mut AzStyleWordSpacingPtr, func: F) -> P { let box_ptr: Box<StyleWordSpacing> = unsafe { Box::<StyleWordSpacing>::from_raw(ptr.ptr  as *mut StyleWordSpacing) }; let ret_val = func(&box_ptr); ptr.ptr = Box::into_raw(box_ptr) as *mut c_void;ret_val }
+#[no_mangle] #[inline] #[allow(unused_variables)] pub extern "C" fn az_style_word_spacing_delete(object: &mut AzStyleWordSpacing) { }
+/// Copies the object
+#[no_mangle] #[inline] pub extern "C" fn az_style_word_spacing_deep_copy(object: &AzStyleWordSpacing) -> AzStyleWordSpacing { AzStyleWordSpacing{ object: object.object.clone() } }
 
 /// Re-export of rust-allocated (stack based) `BoxShadowPreDisplayItemValue` struct
 #[no_mangle] #[repr(C)] pub struct AzBoxShadowPreDisplayItemValue { pub object: azul_impl::css::CssPropertyValue::<BoxShadowPreDisplayItem> }
@@ -1526,7 +1450,7 @@ pub type AzLayoutInfoPtrType = azul_impl::callbacks::LayoutInfoPtr;
 #[inline] #[no_mangle] pub extern "C" fn az_style_background_position_value_none() -> AzStyleBackgroundPositionValue { AzStyleBackgroundPositionValue { object: azul_impl::css::CssPropertyValue::<StyleBackgroundPosition>::None } }
 #[inline] #[no_mangle] pub extern "C" fn az_style_background_position_value_inherit() -> AzStyleBackgroundPositionValue { AzStyleBackgroundPositionValue { object: azul_impl::css::CssPropertyValue::<StyleBackgroundPosition>::Inherit } }
 #[inline] #[no_mangle] pub extern "C" fn az_style_background_position_value_initial() -> AzStyleBackgroundPositionValue { AzStyleBackgroundPositionValue { object: azul_impl::css::CssPropertyValue::<StyleBackgroundPosition>::Initial } }
-#[inline] #[no_mangle] pub extern "C" fn az_style_background_position_value_exact(variant_data: AzStyleBackgroundPositionPtr) -> AzStyleBackgroundPositionValue { AzStyleBackgroundPositionValue { object: azul_impl::css::CssPropertyValue::<StyleBackgroundPosition>::Exact(*az_style_background_position_downcast(variant_data)) } }
+#[inline] #[no_mangle] pub extern "C" fn az_style_background_position_value_exact(variant_data: AzStyleBackgroundPosition) -> AzStyleBackgroundPositionValue { AzStyleBackgroundPositionValue { object: azul_impl::css::CssPropertyValue::<StyleBackgroundPosition>::Exact(variant_data.object) } }
 /// Destructor: Takes ownership of the `StyleBackgroundPositionValue` pointer and deletes it.
 #[no_mangle] #[inline] #[allow(unused_variables)] pub extern "C" fn az_style_background_position_value_delete(object: &mut AzStyleBackgroundPositionValue) { match object.object { azul_impl::css::CssPropertyValue::<StyleBackgroundPosition>::Auto => { }, azul_impl::css::CssPropertyValue::<StyleBackgroundPosition>::None => { }, azul_impl::css::CssPropertyValue::<StyleBackgroundPosition>::Inherit => { }, azul_impl::css::CssPropertyValue::<StyleBackgroundPosition>::Initial => { }, azul_impl::css::CssPropertyValue::<StyleBackgroundPosition>::Exact(_) => { }, }
 }
@@ -1539,7 +1463,7 @@ pub type AzLayoutInfoPtrType = azul_impl::callbacks::LayoutInfoPtr;
 #[inline] #[no_mangle] pub extern "C" fn az_style_background_repeat_value_none() -> AzStyleBackgroundRepeatValue { AzStyleBackgroundRepeatValue { object: azul_impl::css::CssPropertyValue::<StyleBackgroundRepeat>::None } }
 #[inline] #[no_mangle] pub extern "C" fn az_style_background_repeat_value_inherit() -> AzStyleBackgroundRepeatValue { AzStyleBackgroundRepeatValue { object: azul_impl::css::CssPropertyValue::<StyleBackgroundRepeat>::Inherit } }
 #[inline] #[no_mangle] pub extern "C" fn az_style_background_repeat_value_initial() -> AzStyleBackgroundRepeatValue { AzStyleBackgroundRepeatValue { object: azul_impl::css::CssPropertyValue::<StyleBackgroundRepeat>::Initial } }
-#[inline] #[no_mangle] pub extern "C" fn az_style_background_repeat_value_exact(variant_data: AzStyleBackgroundRepeatPtr) -> AzStyleBackgroundRepeatValue { AzStyleBackgroundRepeatValue { object: azul_impl::css::CssPropertyValue::<StyleBackgroundRepeat>::Exact(*az_style_background_repeat_downcast(variant_data)) } }
+#[inline] #[no_mangle] pub extern "C" fn az_style_background_repeat_value_exact(variant_data: AzStyleBackgroundRepeat) -> AzStyleBackgroundRepeatValue { AzStyleBackgroundRepeatValue { object: azul_impl::css::CssPropertyValue::<StyleBackgroundRepeat>::Exact(variant_data.object) } }
 /// Destructor: Takes ownership of the `StyleBackgroundRepeatValue` pointer and deletes it.
 #[no_mangle] #[inline] #[allow(unused_variables)] pub extern "C" fn az_style_background_repeat_value_delete(object: &mut AzStyleBackgroundRepeatValue) { match object.object { azul_impl::css::CssPropertyValue::<StyleBackgroundRepeat>::Auto => { }, azul_impl::css::CssPropertyValue::<StyleBackgroundRepeat>::None => { }, azul_impl::css::CssPropertyValue::<StyleBackgroundRepeat>::Inherit => { }, azul_impl::css::CssPropertyValue::<StyleBackgroundRepeat>::Initial => { }, azul_impl::css::CssPropertyValue::<StyleBackgroundRepeat>::Exact(_) => { }, }
 }
@@ -1552,7 +1476,7 @@ pub type AzLayoutInfoPtrType = azul_impl::callbacks::LayoutInfoPtr;
 #[inline] #[no_mangle] pub extern "C" fn az_style_background_size_value_none() -> AzStyleBackgroundSizeValue { AzStyleBackgroundSizeValue { object: azul_impl::css::CssPropertyValue::<StyleBackgroundSize>::None } }
 #[inline] #[no_mangle] pub extern "C" fn az_style_background_size_value_inherit() -> AzStyleBackgroundSizeValue { AzStyleBackgroundSizeValue { object: azul_impl::css::CssPropertyValue::<StyleBackgroundSize>::Inherit } }
 #[inline] #[no_mangle] pub extern "C" fn az_style_background_size_value_initial() -> AzStyleBackgroundSizeValue { AzStyleBackgroundSizeValue { object: azul_impl::css::CssPropertyValue::<StyleBackgroundSize>::Initial } }
-#[inline] #[no_mangle] pub extern "C" fn az_style_background_size_value_exact(variant_data: AzStyleBackgroundSizePtr) -> AzStyleBackgroundSizeValue { AzStyleBackgroundSizeValue { object: azul_impl::css::CssPropertyValue::<StyleBackgroundSize>::Exact(*az_style_background_size_downcast(variant_data)) } }
+#[inline] #[no_mangle] pub extern "C" fn az_style_background_size_value_exact(variant_data: AzStyleBackgroundSize) -> AzStyleBackgroundSizeValue { AzStyleBackgroundSizeValue { object: azul_impl::css::CssPropertyValue::<StyleBackgroundSize>::Exact(variant_data.object) } }
 /// Destructor: Takes ownership of the `StyleBackgroundSizeValue` pointer and deletes it.
 #[no_mangle] #[inline] #[allow(unused_variables)] pub extern "C" fn az_style_background_size_value_delete(object: &mut AzStyleBackgroundSizeValue) { match object.object { azul_impl::css::CssPropertyValue::<StyleBackgroundSize>::Auto => { }, azul_impl::css::CssPropertyValue::<StyleBackgroundSize>::None => { }, azul_impl::css::CssPropertyValue::<StyleBackgroundSize>::Inherit => { }, azul_impl::css::CssPropertyValue::<StyleBackgroundSize>::Initial => { }, azul_impl::css::CssPropertyValue::<StyleBackgroundSize>::Exact(_) => { }, }
 }
@@ -1565,7 +1489,7 @@ pub type AzLayoutInfoPtrType = azul_impl::callbacks::LayoutInfoPtr;
 #[inline] #[no_mangle] pub extern "C" fn az_style_border_bottom_color_value_none() -> AzStyleBorderBottomColorValue { AzStyleBorderBottomColorValue { object: azul_impl::css::CssPropertyValue::<StyleBorderBottomColor>::None } }
 #[inline] #[no_mangle] pub extern "C" fn az_style_border_bottom_color_value_inherit() -> AzStyleBorderBottomColorValue { AzStyleBorderBottomColorValue { object: azul_impl::css::CssPropertyValue::<StyleBorderBottomColor>::Inherit } }
 #[inline] #[no_mangle] pub extern "C" fn az_style_border_bottom_color_value_initial() -> AzStyleBorderBottomColorValue { AzStyleBorderBottomColorValue { object: azul_impl::css::CssPropertyValue::<StyleBorderBottomColor>::Initial } }
-#[inline] #[no_mangle] pub extern "C" fn az_style_border_bottom_color_value_exact(variant_data: AzStyleBorderBottomColorPtr) -> AzStyleBorderBottomColorValue { AzStyleBorderBottomColorValue { object: azul_impl::css::CssPropertyValue::<StyleBorderBottomColor>::Exact(*az_style_border_bottom_color_downcast(variant_data)) } }
+#[inline] #[no_mangle] pub extern "C" fn az_style_border_bottom_color_value_exact(variant_data: AzStyleBorderBottomColor) -> AzStyleBorderBottomColorValue { AzStyleBorderBottomColorValue { object: azul_impl::css::CssPropertyValue::<StyleBorderBottomColor>::Exact(variant_data.object) } }
 /// Destructor: Takes ownership of the `StyleBorderBottomColorValue` pointer and deletes it.
 #[no_mangle] #[inline] #[allow(unused_variables)] pub extern "C" fn az_style_border_bottom_color_value_delete(object: &mut AzStyleBorderBottomColorValue) { match object.object { azul_impl::css::CssPropertyValue::<StyleBorderBottomColor>::Auto => { }, azul_impl::css::CssPropertyValue::<StyleBorderBottomColor>::None => { }, azul_impl::css::CssPropertyValue::<StyleBorderBottomColor>::Inherit => { }, azul_impl::css::CssPropertyValue::<StyleBorderBottomColor>::Initial => { }, azul_impl::css::CssPropertyValue::<StyleBorderBottomColor>::Exact(_) => { }, }
 }
@@ -1578,7 +1502,7 @@ pub type AzLayoutInfoPtrType = azul_impl::callbacks::LayoutInfoPtr;
 #[inline] #[no_mangle] pub extern "C" fn az_style_border_bottom_left_radius_value_none() -> AzStyleBorderBottomLeftRadiusValue { AzStyleBorderBottomLeftRadiusValue { object: azul_impl::css::CssPropertyValue::<StyleBorderBottomLeftRadius>::None } }
 #[inline] #[no_mangle] pub extern "C" fn az_style_border_bottom_left_radius_value_inherit() -> AzStyleBorderBottomLeftRadiusValue { AzStyleBorderBottomLeftRadiusValue { object: azul_impl::css::CssPropertyValue::<StyleBorderBottomLeftRadius>::Inherit } }
 #[inline] #[no_mangle] pub extern "C" fn az_style_border_bottom_left_radius_value_initial() -> AzStyleBorderBottomLeftRadiusValue { AzStyleBorderBottomLeftRadiusValue { object: azul_impl::css::CssPropertyValue::<StyleBorderBottomLeftRadius>::Initial } }
-#[inline] #[no_mangle] pub extern "C" fn az_style_border_bottom_left_radius_value_exact(variant_data: AzStyleBorderBottomLeftRadiusPtr) -> AzStyleBorderBottomLeftRadiusValue { AzStyleBorderBottomLeftRadiusValue { object: azul_impl::css::CssPropertyValue::<StyleBorderBottomLeftRadius>::Exact(*az_style_border_bottom_left_radius_downcast(variant_data)) } }
+#[inline] #[no_mangle] pub extern "C" fn az_style_border_bottom_left_radius_value_exact(variant_data: AzStyleBorderBottomLeftRadius) -> AzStyleBorderBottomLeftRadiusValue { AzStyleBorderBottomLeftRadiusValue { object: azul_impl::css::CssPropertyValue::<StyleBorderBottomLeftRadius>::Exact(variant_data.object) } }
 /// Destructor: Takes ownership of the `StyleBorderBottomLeftRadiusValue` pointer and deletes it.
 #[no_mangle] #[inline] #[allow(unused_variables)] pub extern "C" fn az_style_border_bottom_left_radius_value_delete(object: &mut AzStyleBorderBottomLeftRadiusValue) { match object.object { azul_impl::css::CssPropertyValue::<StyleBorderBottomLeftRadius>::Auto => { }, azul_impl::css::CssPropertyValue::<StyleBorderBottomLeftRadius>::None => { }, azul_impl::css::CssPropertyValue::<StyleBorderBottomLeftRadius>::Inherit => { }, azul_impl::css::CssPropertyValue::<StyleBorderBottomLeftRadius>::Initial => { }, azul_impl::css::CssPropertyValue::<StyleBorderBottomLeftRadius>::Exact(_) => { }, }
 }
@@ -1591,7 +1515,7 @@ pub type AzLayoutInfoPtrType = azul_impl::callbacks::LayoutInfoPtr;
 #[inline] #[no_mangle] pub extern "C" fn az_style_border_bottom_right_radius_value_none() -> AzStyleBorderBottomRightRadiusValue { AzStyleBorderBottomRightRadiusValue { object: azul_impl::css::CssPropertyValue::<StyleBorderBottomRightRadius>::None } }
 #[inline] #[no_mangle] pub extern "C" fn az_style_border_bottom_right_radius_value_inherit() -> AzStyleBorderBottomRightRadiusValue { AzStyleBorderBottomRightRadiusValue { object: azul_impl::css::CssPropertyValue::<StyleBorderBottomRightRadius>::Inherit } }
 #[inline] #[no_mangle] pub extern "C" fn az_style_border_bottom_right_radius_value_initial() -> AzStyleBorderBottomRightRadiusValue { AzStyleBorderBottomRightRadiusValue { object: azul_impl::css::CssPropertyValue::<StyleBorderBottomRightRadius>::Initial } }
-#[inline] #[no_mangle] pub extern "C" fn az_style_border_bottom_right_radius_value_exact(variant_data: AzStyleBorderBottomRightRadiusPtr) -> AzStyleBorderBottomRightRadiusValue { AzStyleBorderBottomRightRadiusValue { object: azul_impl::css::CssPropertyValue::<StyleBorderBottomRightRadius>::Exact(*az_style_border_bottom_right_radius_downcast(variant_data)) } }
+#[inline] #[no_mangle] pub extern "C" fn az_style_border_bottom_right_radius_value_exact(variant_data: AzStyleBorderBottomRightRadius) -> AzStyleBorderBottomRightRadiusValue { AzStyleBorderBottomRightRadiusValue { object: azul_impl::css::CssPropertyValue::<StyleBorderBottomRightRadius>::Exact(variant_data.object) } }
 /// Destructor: Takes ownership of the `StyleBorderBottomRightRadiusValue` pointer and deletes it.
 #[no_mangle] #[inline] #[allow(unused_variables)] pub extern "C" fn az_style_border_bottom_right_radius_value_delete(object: &mut AzStyleBorderBottomRightRadiusValue) { match object.object { azul_impl::css::CssPropertyValue::<StyleBorderBottomRightRadius>::Auto => { }, azul_impl::css::CssPropertyValue::<StyleBorderBottomRightRadius>::None => { }, azul_impl::css::CssPropertyValue::<StyleBorderBottomRightRadius>::Inherit => { }, azul_impl::css::CssPropertyValue::<StyleBorderBottomRightRadius>::Initial => { }, azul_impl::css::CssPropertyValue::<StyleBorderBottomRightRadius>::Exact(_) => { }, }
 }
@@ -1604,7 +1528,7 @@ pub type AzLayoutInfoPtrType = azul_impl::callbacks::LayoutInfoPtr;
 #[inline] #[no_mangle] pub extern "C" fn az_style_border_bottom_style_value_none() -> AzStyleBorderBottomStyleValue { AzStyleBorderBottomStyleValue { object: azul_impl::css::CssPropertyValue::<StyleBorderBottomStyle>::None } }
 #[inline] #[no_mangle] pub extern "C" fn az_style_border_bottom_style_value_inherit() -> AzStyleBorderBottomStyleValue { AzStyleBorderBottomStyleValue { object: azul_impl::css::CssPropertyValue::<StyleBorderBottomStyle>::Inherit } }
 #[inline] #[no_mangle] pub extern "C" fn az_style_border_bottom_style_value_initial() -> AzStyleBorderBottomStyleValue { AzStyleBorderBottomStyleValue { object: azul_impl::css::CssPropertyValue::<StyleBorderBottomStyle>::Initial } }
-#[inline] #[no_mangle] pub extern "C" fn az_style_border_bottom_style_value_exact(variant_data: AzStyleBorderBottomStylePtr) -> AzStyleBorderBottomStyleValue { AzStyleBorderBottomStyleValue { object: azul_impl::css::CssPropertyValue::<StyleBorderBottomStyle>::Exact(*az_style_border_bottom_style_downcast(variant_data)) } }
+#[inline] #[no_mangle] pub extern "C" fn az_style_border_bottom_style_value_exact(variant_data: AzStyleBorderBottomStyle) -> AzStyleBorderBottomStyleValue { AzStyleBorderBottomStyleValue { object: azul_impl::css::CssPropertyValue::<StyleBorderBottomStyle>::Exact(variant_data.object) } }
 /// Destructor: Takes ownership of the `StyleBorderBottomStyleValue` pointer and deletes it.
 #[no_mangle] #[inline] #[allow(unused_variables)] pub extern "C" fn az_style_border_bottom_style_value_delete(object: &mut AzStyleBorderBottomStyleValue) { match object.object { azul_impl::css::CssPropertyValue::<StyleBorderBottomStyle>::Auto => { }, azul_impl::css::CssPropertyValue::<StyleBorderBottomStyle>::None => { }, azul_impl::css::CssPropertyValue::<StyleBorderBottomStyle>::Inherit => { }, azul_impl::css::CssPropertyValue::<StyleBorderBottomStyle>::Initial => { }, azul_impl::css::CssPropertyValue::<StyleBorderBottomStyle>::Exact(_) => { }, }
 }
@@ -1617,7 +1541,7 @@ pub type AzLayoutInfoPtrType = azul_impl::callbacks::LayoutInfoPtr;
 #[inline] #[no_mangle] pub extern "C" fn az_style_border_bottom_width_value_none() -> AzStyleBorderBottomWidthValue { AzStyleBorderBottomWidthValue { object: azul_impl::css::CssPropertyValue::<StyleBorderBottomWidth>::None } }
 #[inline] #[no_mangle] pub extern "C" fn az_style_border_bottom_width_value_inherit() -> AzStyleBorderBottomWidthValue { AzStyleBorderBottomWidthValue { object: azul_impl::css::CssPropertyValue::<StyleBorderBottomWidth>::Inherit } }
 #[inline] #[no_mangle] pub extern "C" fn az_style_border_bottom_width_value_initial() -> AzStyleBorderBottomWidthValue { AzStyleBorderBottomWidthValue { object: azul_impl::css::CssPropertyValue::<StyleBorderBottomWidth>::Initial } }
-#[inline] #[no_mangle] pub extern "C" fn az_style_border_bottom_width_value_exact(variant_data: AzStyleBorderBottomWidthPtr) -> AzStyleBorderBottomWidthValue { AzStyleBorderBottomWidthValue { object: azul_impl::css::CssPropertyValue::<StyleBorderBottomWidth>::Exact(*az_style_border_bottom_width_downcast(variant_data)) } }
+#[inline] #[no_mangle] pub extern "C" fn az_style_border_bottom_width_value_exact(variant_data: AzStyleBorderBottomWidth) -> AzStyleBorderBottomWidthValue { AzStyleBorderBottomWidthValue { object: azul_impl::css::CssPropertyValue::<StyleBorderBottomWidth>::Exact(variant_data.object) } }
 /// Destructor: Takes ownership of the `StyleBorderBottomWidthValue` pointer and deletes it.
 #[no_mangle] #[inline] #[allow(unused_variables)] pub extern "C" fn az_style_border_bottom_width_value_delete(object: &mut AzStyleBorderBottomWidthValue) { match object.object { azul_impl::css::CssPropertyValue::<StyleBorderBottomWidth>::Auto => { }, azul_impl::css::CssPropertyValue::<StyleBorderBottomWidth>::None => { }, azul_impl::css::CssPropertyValue::<StyleBorderBottomWidth>::Inherit => { }, azul_impl::css::CssPropertyValue::<StyleBorderBottomWidth>::Initial => { }, azul_impl::css::CssPropertyValue::<StyleBorderBottomWidth>::Exact(_) => { }, }
 }
@@ -1630,7 +1554,7 @@ pub type AzLayoutInfoPtrType = azul_impl::callbacks::LayoutInfoPtr;
 #[inline] #[no_mangle] pub extern "C" fn az_style_border_left_color_value_none() -> AzStyleBorderLeftColorValue { AzStyleBorderLeftColorValue { object: azul_impl::css::CssPropertyValue::<StyleBorderLeftColor>::None } }
 #[inline] #[no_mangle] pub extern "C" fn az_style_border_left_color_value_inherit() -> AzStyleBorderLeftColorValue { AzStyleBorderLeftColorValue { object: azul_impl::css::CssPropertyValue::<StyleBorderLeftColor>::Inherit } }
 #[inline] #[no_mangle] pub extern "C" fn az_style_border_left_color_value_initial() -> AzStyleBorderLeftColorValue { AzStyleBorderLeftColorValue { object: azul_impl::css::CssPropertyValue::<StyleBorderLeftColor>::Initial } }
-#[inline] #[no_mangle] pub extern "C" fn az_style_border_left_color_value_exact(variant_data: AzStyleBorderLeftColorPtr) -> AzStyleBorderLeftColorValue { AzStyleBorderLeftColorValue { object: azul_impl::css::CssPropertyValue::<StyleBorderLeftColor>::Exact(*az_style_border_left_color_downcast(variant_data)) } }
+#[inline] #[no_mangle] pub extern "C" fn az_style_border_left_color_value_exact(variant_data: AzStyleBorderLeftColor) -> AzStyleBorderLeftColorValue { AzStyleBorderLeftColorValue { object: azul_impl::css::CssPropertyValue::<StyleBorderLeftColor>::Exact(variant_data.object) } }
 /// Destructor: Takes ownership of the `StyleBorderLeftColorValue` pointer and deletes it.
 #[no_mangle] #[inline] #[allow(unused_variables)] pub extern "C" fn az_style_border_left_color_value_delete(object: &mut AzStyleBorderLeftColorValue) { match object.object { azul_impl::css::CssPropertyValue::<StyleBorderLeftColor>::Auto => { }, azul_impl::css::CssPropertyValue::<StyleBorderLeftColor>::None => { }, azul_impl::css::CssPropertyValue::<StyleBorderLeftColor>::Inherit => { }, azul_impl::css::CssPropertyValue::<StyleBorderLeftColor>::Initial => { }, azul_impl::css::CssPropertyValue::<StyleBorderLeftColor>::Exact(_) => { }, }
 }
@@ -1643,7 +1567,7 @@ pub type AzLayoutInfoPtrType = azul_impl::callbacks::LayoutInfoPtr;
 #[inline] #[no_mangle] pub extern "C" fn az_style_border_left_style_value_none() -> AzStyleBorderLeftStyleValue { AzStyleBorderLeftStyleValue { object: azul_impl::css::CssPropertyValue::<StyleBorderLeftStyle>::None } }
 #[inline] #[no_mangle] pub extern "C" fn az_style_border_left_style_value_inherit() -> AzStyleBorderLeftStyleValue { AzStyleBorderLeftStyleValue { object: azul_impl::css::CssPropertyValue::<StyleBorderLeftStyle>::Inherit } }
 #[inline] #[no_mangle] pub extern "C" fn az_style_border_left_style_value_initial() -> AzStyleBorderLeftStyleValue { AzStyleBorderLeftStyleValue { object: azul_impl::css::CssPropertyValue::<StyleBorderLeftStyle>::Initial } }
-#[inline] #[no_mangle] pub extern "C" fn az_style_border_left_style_value_exact(variant_data: AzStyleBorderLeftStylePtr) -> AzStyleBorderLeftStyleValue { AzStyleBorderLeftStyleValue { object: azul_impl::css::CssPropertyValue::<StyleBorderLeftStyle>::Exact(*az_style_border_left_style_downcast(variant_data)) } }
+#[inline] #[no_mangle] pub extern "C" fn az_style_border_left_style_value_exact(variant_data: AzStyleBorderLeftStyle) -> AzStyleBorderLeftStyleValue { AzStyleBorderLeftStyleValue { object: azul_impl::css::CssPropertyValue::<StyleBorderLeftStyle>::Exact(variant_data.object) } }
 /// Destructor: Takes ownership of the `StyleBorderLeftStyleValue` pointer and deletes it.
 #[no_mangle] #[inline] #[allow(unused_variables)] pub extern "C" fn az_style_border_left_style_value_delete(object: &mut AzStyleBorderLeftStyleValue) { match object.object { azul_impl::css::CssPropertyValue::<StyleBorderLeftStyle>::Auto => { }, azul_impl::css::CssPropertyValue::<StyleBorderLeftStyle>::None => { }, azul_impl::css::CssPropertyValue::<StyleBorderLeftStyle>::Inherit => { }, azul_impl::css::CssPropertyValue::<StyleBorderLeftStyle>::Initial => { }, azul_impl::css::CssPropertyValue::<StyleBorderLeftStyle>::Exact(_) => { }, }
 }
@@ -1656,7 +1580,7 @@ pub type AzLayoutInfoPtrType = azul_impl::callbacks::LayoutInfoPtr;
 #[inline] #[no_mangle] pub extern "C" fn az_style_border_left_width_value_none() -> AzStyleBorderLeftWidthValue { AzStyleBorderLeftWidthValue { object: azul_impl::css::CssPropertyValue::<StyleBorderLeftWidth>::None } }
 #[inline] #[no_mangle] pub extern "C" fn az_style_border_left_width_value_inherit() -> AzStyleBorderLeftWidthValue { AzStyleBorderLeftWidthValue { object: azul_impl::css::CssPropertyValue::<StyleBorderLeftWidth>::Inherit } }
 #[inline] #[no_mangle] pub extern "C" fn az_style_border_left_width_value_initial() -> AzStyleBorderLeftWidthValue { AzStyleBorderLeftWidthValue { object: azul_impl::css::CssPropertyValue::<StyleBorderLeftWidth>::Initial } }
-#[inline] #[no_mangle] pub extern "C" fn az_style_border_left_width_value_exact(variant_data: AzStyleBorderLeftWidthPtr) -> AzStyleBorderLeftWidthValue { AzStyleBorderLeftWidthValue { object: azul_impl::css::CssPropertyValue::<StyleBorderLeftWidth>::Exact(*az_style_border_left_width_downcast(variant_data)) } }
+#[inline] #[no_mangle] pub extern "C" fn az_style_border_left_width_value_exact(variant_data: AzStyleBorderLeftWidth) -> AzStyleBorderLeftWidthValue { AzStyleBorderLeftWidthValue { object: azul_impl::css::CssPropertyValue::<StyleBorderLeftWidth>::Exact(variant_data.object) } }
 /// Destructor: Takes ownership of the `StyleBorderLeftWidthValue` pointer and deletes it.
 #[no_mangle] #[inline] #[allow(unused_variables)] pub extern "C" fn az_style_border_left_width_value_delete(object: &mut AzStyleBorderLeftWidthValue) { match object.object { azul_impl::css::CssPropertyValue::<StyleBorderLeftWidth>::Auto => { }, azul_impl::css::CssPropertyValue::<StyleBorderLeftWidth>::None => { }, azul_impl::css::CssPropertyValue::<StyleBorderLeftWidth>::Inherit => { }, azul_impl::css::CssPropertyValue::<StyleBorderLeftWidth>::Initial => { }, azul_impl::css::CssPropertyValue::<StyleBorderLeftWidth>::Exact(_) => { }, }
 }
@@ -1669,7 +1593,7 @@ pub type AzLayoutInfoPtrType = azul_impl::callbacks::LayoutInfoPtr;
 #[inline] #[no_mangle] pub extern "C" fn az_style_border_right_color_value_none() -> AzStyleBorderRightColorValue { AzStyleBorderRightColorValue { object: azul_impl::css::CssPropertyValue::<StyleBorderRightColor>::None } }
 #[inline] #[no_mangle] pub extern "C" fn az_style_border_right_color_value_inherit() -> AzStyleBorderRightColorValue { AzStyleBorderRightColorValue { object: azul_impl::css::CssPropertyValue::<StyleBorderRightColor>::Inherit } }
 #[inline] #[no_mangle] pub extern "C" fn az_style_border_right_color_value_initial() -> AzStyleBorderRightColorValue { AzStyleBorderRightColorValue { object: azul_impl::css::CssPropertyValue::<StyleBorderRightColor>::Initial } }
-#[inline] #[no_mangle] pub extern "C" fn az_style_border_right_color_value_exact(variant_data: AzStyleBorderRightColorPtr) -> AzStyleBorderRightColorValue { AzStyleBorderRightColorValue { object: azul_impl::css::CssPropertyValue::<StyleBorderRightColor>::Exact(*az_style_border_right_color_downcast(variant_data)) } }
+#[inline] #[no_mangle] pub extern "C" fn az_style_border_right_color_value_exact(variant_data: AzStyleBorderRightColor) -> AzStyleBorderRightColorValue { AzStyleBorderRightColorValue { object: azul_impl::css::CssPropertyValue::<StyleBorderRightColor>::Exact(variant_data.object) } }
 /// Destructor: Takes ownership of the `StyleBorderRightColorValue` pointer and deletes it.
 #[no_mangle] #[inline] #[allow(unused_variables)] pub extern "C" fn az_style_border_right_color_value_delete(object: &mut AzStyleBorderRightColorValue) { match object.object { azul_impl::css::CssPropertyValue::<StyleBorderRightColor>::Auto => { }, azul_impl::css::CssPropertyValue::<StyleBorderRightColor>::None => { }, azul_impl::css::CssPropertyValue::<StyleBorderRightColor>::Inherit => { }, azul_impl::css::CssPropertyValue::<StyleBorderRightColor>::Initial => { }, azul_impl::css::CssPropertyValue::<StyleBorderRightColor>::Exact(_) => { }, }
 }
@@ -1682,7 +1606,7 @@ pub type AzLayoutInfoPtrType = azul_impl::callbacks::LayoutInfoPtr;
 #[inline] #[no_mangle] pub extern "C" fn az_style_border_right_style_value_none() -> AzStyleBorderRightStyleValue { AzStyleBorderRightStyleValue { object: azul_impl::css::CssPropertyValue::<StyleBorderRightStyle>::None } }
 #[inline] #[no_mangle] pub extern "C" fn az_style_border_right_style_value_inherit() -> AzStyleBorderRightStyleValue { AzStyleBorderRightStyleValue { object: azul_impl::css::CssPropertyValue::<StyleBorderRightStyle>::Inherit } }
 #[inline] #[no_mangle] pub extern "C" fn az_style_border_right_style_value_initial() -> AzStyleBorderRightStyleValue { AzStyleBorderRightStyleValue { object: azul_impl::css::CssPropertyValue::<StyleBorderRightStyle>::Initial } }
-#[inline] #[no_mangle] pub extern "C" fn az_style_border_right_style_value_exact(variant_data: AzStyleBorderRightStylePtr) -> AzStyleBorderRightStyleValue { AzStyleBorderRightStyleValue { object: azul_impl::css::CssPropertyValue::<StyleBorderRightStyle>::Exact(*az_style_border_right_style_downcast(variant_data)) } }
+#[inline] #[no_mangle] pub extern "C" fn az_style_border_right_style_value_exact(variant_data: AzStyleBorderRightStyle) -> AzStyleBorderRightStyleValue { AzStyleBorderRightStyleValue { object: azul_impl::css::CssPropertyValue::<StyleBorderRightStyle>::Exact(variant_data.object) } }
 /// Destructor: Takes ownership of the `StyleBorderRightStyleValue` pointer and deletes it.
 #[no_mangle] #[inline] #[allow(unused_variables)] pub extern "C" fn az_style_border_right_style_value_delete(object: &mut AzStyleBorderRightStyleValue) { match object.object { azul_impl::css::CssPropertyValue::<StyleBorderRightStyle>::Auto => { }, azul_impl::css::CssPropertyValue::<StyleBorderRightStyle>::None => { }, azul_impl::css::CssPropertyValue::<StyleBorderRightStyle>::Inherit => { }, azul_impl::css::CssPropertyValue::<StyleBorderRightStyle>::Initial => { }, azul_impl::css::CssPropertyValue::<StyleBorderRightStyle>::Exact(_) => { }, }
 }
@@ -1708,7 +1632,7 @@ pub type AzLayoutInfoPtrType = azul_impl::callbacks::LayoutInfoPtr;
 #[inline] #[no_mangle] pub extern "C" fn az_style_border_top_color_value_none() -> AzStyleBorderTopColorValue { AzStyleBorderTopColorValue { object: azul_impl::css::CssPropertyValue::<StyleBorderTopColor>::None } }
 #[inline] #[no_mangle] pub extern "C" fn az_style_border_top_color_value_inherit() -> AzStyleBorderTopColorValue { AzStyleBorderTopColorValue { object: azul_impl::css::CssPropertyValue::<StyleBorderTopColor>::Inherit } }
 #[inline] #[no_mangle] pub extern "C" fn az_style_border_top_color_value_initial() -> AzStyleBorderTopColorValue { AzStyleBorderTopColorValue { object: azul_impl::css::CssPropertyValue::<StyleBorderTopColor>::Initial } }
-#[inline] #[no_mangle] pub extern "C" fn az_style_border_top_color_value_exact(variant_data: AzStyleBorderTopColorPtr) -> AzStyleBorderTopColorValue { AzStyleBorderTopColorValue { object: azul_impl::css::CssPropertyValue::<StyleBorderTopColor>::Exact(*az_style_border_top_color_downcast(variant_data)) } }
+#[inline] #[no_mangle] pub extern "C" fn az_style_border_top_color_value_exact(variant_data: AzStyleBorderTopColor) -> AzStyleBorderTopColorValue { AzStyleBorderTopColorValue { object: azul_impl::css::CssPropertyValue::<StyleBorderTopColor>::Exact(variant_data.object) } }
 /// Destructor: Takes ownership of the `StyleBorderTopColorValue` pointer and deletes it.
 #[no_mangle] #[inline] #[allow(unused_variables)] pub extern "C" fn az_style_border_top_color_value_delete(object: &mut AzStyleBorderTopColorValue) { match object.object { azul_impl::css::CssPropertyValue::<StyleBorderTopColor>::Auto => { }, azul_impl::css::CssPropertyValue::<StyleBorderTopColor>::None => { }, azul_impl::css::CssPropertyValue::<StyleBorderTopColor>::Inherit => { }, azul_impl::css::CssPropertyValue::<StyleBorderTopColor>::Initial => { }, azul_impl::css::CssPropertyValue::<StyleBorderTopColor>::Exact(_) => { }, }
 }
@@ -1721,7 +1645,7 @@ pub type AzLayoutInfoPtrType = azul_impl::callbacks::LayoutInfoPtr;
 #[inline] #[no_mangle] pub extern "C" fn az_style_border_top_left_radius_value_none() -> AzStyleBorderTopLeftRadiusValue { AzStyleBorderTopLeftRadiusValue { object: azul_impl::css::CssPropertyValue::<StyleBorderTopLeftRadius>::None } }
 #[inline] #[no_mangle] pub extern "C" fn az_style_border_top_left_radius_value_inherit() -> AzStyleBorderTopLeftRadiusValue { AzStyleBorderTopLeftRadiusValue { object: azul_impl::css::CssPropertyValue::<StyleBorderTopLeftRadius>::Inherit } }
 #[inline] #[no_mangle] pub extern "C" fn az_style_border_top_left_radius_value_initial() -> AzStyleBorderTopLeftRadiusValue { AzStyleBorderTopLeftRadiusValue { object: azul_impl::css::CssPropertyValue::<StyleBorderTopLeftRadius>::Initial } }
-#[inline] #[no_mangle] pub extern "C" fn az_style_border_top_left_radius_value_exact(variant_data: AzStyleBorderTopLeftRadiusPtr) -> AzStyleBorderTopLeftRadiusValue { AzStyleBorderTopLeftRadiusValue { object: azul_impl::css::CssPropertyValue::<StyleBorderTopLeftRadius>::Exact(*az_style_border_top_left_radius_downcast(variant_data)) } }
+#[inline] #[no_mangle] pub extern "C" fn az_style_border_top_left_radius_value_exact(variant_data: AzStyleBorderTopLeftRadius) -> AzStyleBorderTopLeftRadiusValue { AzStyleBorderTopLeftRadiusValue { object: azul_impl::css::CssPropertyValue::<StyleBorderTopLeftRadius>::Exact(variant_data.object) } }
 /// Destructor: Takes ownership of the `StyleBorderTopLeftRadiusValue` pointer and deletes it.
 #[no_mangle] #[inline] #[allow(unused_variables)] pub extern "C" fn az_style_border_top_left_radius_value_delete(object: &mut AzStyleBorderTopLeftRadiusValue) { match object.object { azul_impl::css::CssPropertyValue::<StyleBorderTopLeftRadius>::Auto => { }, azul_impl::css::CssPropertyValue::<StyleBorderTopLeftRadius>::None => { }, azul_impl::css::CssPropertyValue::<StyleBorderTopLeftRadius>::Inherit => { }, azul_impl::css::CssPropertyValue::<StyleBorderTopLeftRadius>::Initial => { }, azul_impl::css::CssPropertyValue::<StyleBorderTopLeftRadius>::Exact(_) => { }, }
 }
@@ -1734,7 +1658,7 @@ pub type AzLayoutInfoPtrType = azul_impl::callbacks::LayoutInfoPtr;
 #[inline] #[no_mangle] pub extern "C" fn az_style_border_top_right_radius_value_none() -> AzStyleBorderTopRightRadiusValue { AzStyleBorderTopRightRadiusValue { object: azul_impl::css::CssPropertyValue::<StyleBorderTopRightRadius>::None } }
 #[inline] #[no_mangle] pub extern "C" fn az_style_border_top_right_radius_value_inherit() -> AzStyleBorderTopRightRadiusValue { AzStyleBorderTopRightRadiusValue { object: azul_impl::css::CssPropertyValue::<StyleBorderTopRightRadius>::Inherit } }
 #[inline] #[no_mangle] pub extern "C" fn az_style_border_top_right_radius_value_initial() -> AzStyleBorderTopRightRadiusValue { AzStyleBorderTopRightRadiusValue { object: azul_impl::css::CssPropertyValue::<StyleBorderTopRightRadius>::Initial } }
-#[inline] #[no_mangle] pub extern "C" fn az_style_border_top_right_radius_value_exact(variant_data: AzStyleBorderTopRightRadiusPtr) -> AzStyleBorderTopRightRadiusValue { AzStyleBorderTopRightRadiusValue { object: azul_impl::css::CssPropertyValue::<StyleBorderTopRightRadius>::Exact(*az_style_border_top_right_radius_downcast(variant_data)) } }
+#[inline] #[no_mangle] pub extern "C" fn az_style_border_top_right_radius_value_exact(variant_data: AzStyleBorderTopRightRadius) -> AzStyleBorderTopRightRadiusValue { AzStyleBorderTopRightRadiusValue { object: azul_impl::css::CssPropertyValue::<StyleBorderTopRightRadius>::Exact(variant_data.object) } }
 /// Destructor: Takes ownership of the `StyleBorderTopRightRadiusValue` pointer and deletes it.
 #[no_mangle] #[inline] #[allow(unused_variables)] pub extern "C" fn az_style_border_top_right_radius_value_delete(object: &mut AzStyleBorderTopRightRadiusValue) { match object.object { azul_impl::css::CssPropertyValue::<StyleBorderTopRightRadius>::Auto => { }, azul_impl::css::CssPropertyValue::<StyleBorderTopRightRadius>::None => { }, azul_impl::css::CssPropertyValue::<StyleBorderTopRightRadius>::Inherit => { }, azul_impl::css::CssPropertyValue::<StyleBorderTopRightRadius>::Initial => { }, azul_impl::css::CssPropertyValue::<StyleBorderTopRightRadius>::Exact(_) => { }, }
 }
@@ -1747,7 +1671,7 @@ pub type AzLayoutInfoPtrType = azul_impl::callbacks::LayoutInfoPtr;
 #[inline] #[no_mangle] pub extern "C" fn az_style_border_top_style_value_none() -> AzStyleBorderTopStyleValue { AzStyleBorderTopStyleValue { object: azul_impl::css::CssPropertyValue::<StyleBorderTopStyle>::None } }
 #[inline] #[no_mangle] pub extern "C" fn az_style_border_top_style_value_inherit() -> AzStyleBorderTopStyleValue { AzStyleBorderTopStyleValue { object: azul_impl::css::CssPropertyValue::<StyleBorderTopStyle>::Inherit } }
 #[inline] #[no_mangle] pub extern "C" fn az_style_border_top_style_value_initial() -> AzStyleBorderTopStyleValue { AzStyleBorderTopStyleValue { object: azul_impl::css::CssPropertyValue::<StyleBorderTopStyle>::Initial } }
-#[inline] #[no_mangle] pub extern "C" fn az_style_border_top_style_value_exact(variant_data: AzStyleBorderTopStylePtr) -> AzStyleBorderTopStyleValue { AzStyleBorderTopStyleValue { object: azul_impl::css::CssPropertyValue::<StyleBorderTopStyle>::Exact(*az_style_border_top_style_downcast(variant_data)) } }
+#[inline] #[no_mangle] pub extern "C" fn az_style_border_top_style_value_exact(variant_data: AzStyleBorderTopStyle) -> AzStyleBorderTopStyleValue { AzStyleBorderTopStyleValue { object: azul_impl::css::CssPropertyValue::<StyleBorderTopStyle>::Exact(variant_data.object) } }
 /// Destructor: Takes ownership of the `StyleBorderTopStyleValue` pointer and deletes it.
 #[no_mangle] #[inline] #[allow(unused_variables)] pub extern "C" fn az_style_border_top_style_value_delete(object: &mut AzStyleBorderTopStyleValue) { match object.object { azul_impl::css::CssPropertyValue::<StyleBorderTopStyle>::Auto => { }, azul_impl::css::CssPropertyValue::<StyleBorderTopStyle>::None => { }, azul_impl::css::CssPropertyValue::<StyleBorderTopStyle>::Inherit => { }, azul_impl::css::CssPropertyValue::<StyleBorderTopStyle>::Initial => { }, azul_impl::css::CssPropertyValue::<StyleBorderTopStyle>::Exact(_) => { }, }
 }
@@ -1760,7 +1684,7 @@ pub type AzLayoutInfoPtrType = azul_impl::callbacks::LayoutInfoPtr;
 #[inline] #[no_mangle] pub extern "C" fn az_style_border_top_width_value_none() -> AzStyleBorderTopWidthValue { AzStyleBorderTopWidthValue { object: azul_impl::css::CssPropertyValue::<StyleBorderTopWidth>::None } }
 #[inline] #[no_mangle] pub extern "C" fn az_style_border_top_width_value_inherit() -> AzStyleBorderTopWidthValue { AzStyleBorderTopWidthValue { object: azul_impl::css::CssPropertyValue::<StyleBorderTopWidth>::Inherit } }
 #[inline] #[no_mangle] pub extern "C" fn az_style_border_top_width_value_initial() -> AzStyleBorderTopWidthValue { AzStyleBorderTopWidthValue { object: azul_impl::css::CssPropertyValue::<StyleBorderTopWidth>::Initial } }
-#[inline] #[no_mangle] pub extern "C" fn az_style_border_top_width_value_exact(variant_data: AzStyleBorderTopWidthPtr) -> AzStyleBorderTopWidthValue { AzStyleBorderTopWidthValue { object: azul_impl::css::CssPropertyValue::<StyleBorderTopWidth>::Exact(*az_style_border_top_width_downcast(variant_data)) } }
+#[inline] #[no_mangle] pub extern "C" fn az_style_border_top_width_value_exact(variant_data: AzStyleBorderTopWidth) -> AzStyleBorderTopWidthValue { AzStyleBorderTopWidthValue { object: azul_impl::css::CssPropertyValue::<StyleBorderTopWidth>::Exact(variant_data.object) } }
 /// Destructor: Takes ownership of the `StyleBorderTopWidthValue` pointer and deletes it.
 #[no_mangle] #[inline] #[allow(unused_variables)] pub extern "C" fn az_style_border_top_width_value_delete(object: &mut AzStyleBorderTopWidthValue) { match object.object { azul_impl::css::CssPropertyValue::<StyleBorderTopWidth>::Auto => { }, azul_impl::css::CssPropertyValue::<StyleBorderTopWidth>::None => { }, azul_impl::css::CssPropertyValue::<StyleBorderTopWidth>::Inherit => { }, azul_impl::css::CssPropertyValue::<StyleBorderTopWidth>::Initial => { }, azul_impl::css::CssPropertyValue::<StyleBorderTopWidth>::Exact(_) => { }, }
 }
@@ -1773,7 +1697,7 @@ pub type AzLayoutInfoPtrType = azul_impl::callbacks::LayoutInfoPtr;
 #[inline] #[no_mangle] pub extern "C" fn az_style_cursor_value_none() -> AzStyleCursorValue { AzStyleCursorValue { object: azul_impl::css::CssPropertyValue::<StyleCursor>::None } }
 #[inline] #[no_mangle] pub extern "C" fn az_style_cursor_value_inherit() -> AzStyleCursorValue { AzStyleCursorValue { object: azul_impl::css::CssPropertyValue::<StyleCursor>::Inherit } }
 #[inline] #[no_mangle] pub extern "C" fn az_style_cursor_value_initial() -> AzStyleCursorValue { AzStyleCursorValue { object: azul_impl::css::CssPropertyValue::<StyleCursor>::Initial } }
-#[inline] #[no_mangle] pub extern "C" fn az_style_cursor_value_exact(variant_data: AzStyleCursorPtr) -> AzStyleCursorValue { AzStyleCursorValue { object: azul_impl::css::CssPropertyValue::<StyleCursor>::Exact(*az_style_cursor_downcast(variant_data)) } }
+#[inline] #[no_mangle] pub extern "C" fn az_style_cursor_value_exact(variant_data: AzStyleCursor) -> AzStyleCursorValue { AzStyleCursorValue { object: azul_impl::css::CssPropertyValue::<StyleCursor>::Exact(variant_data.object) } }
 /// Destructor: Takes ownership of the `StyleCursorValue` pointer and deletes it.
 #[no_mangle] #[inline] #[allow(unused_variables)] pub extern "C" fn az_style_cursor_value_delete(object: &mut AzStyleCursorValue) { match object.object { azul_impl::css::CssPropertyValue::<StyleCursor>::Auto => { }, azul_impl::css::CssPropertyValue::<StyleCursor>::None => { }, azul_impl::css::CssPropertyValue::<StyleCursor>::Inherit => { }, azul_impl::css::CssPropertyValue::<StyleCursor>::Initial => { }, azul_impl::css::CssPropertyValue::<StyleCursor>::Exact(_) => { }, }
 }
@@ -1786,7 +1710,7 @@ pub type AzLayoutInfoPtrType = azul_impl::callbacks::LayoutInfoPtr;
 #[inline] #[no_mangle] pub extern "C" fn az_style_font_family_value_none() -> AzStyleFontFamilyValue { AzStyleFontFamilyValue { object: azul_impl::css::CssPropertyValue::<StyleFontFamily>::None } }
 #[inline] #[no_mangle] pub extern "C" fn az_style_font_family_value_inherit() -> AzStyleFontFamilyValue { AzStyleFontFamilyValue { object: azul_impl::css::CssPropertyValue::<StyleFontFamily>::Inherit } }
 #[inline] #[no_mangle] pub extern "C" fn az_style_font_family_value_initial() -> AzStyleFontFamilyValue { AzStyleFontFamilyValue { object: azul_impl::css::CssPropertyValue::<StyleFontFamily>::Initial } }
-#[inline] #[no_mangle] pub extern "C" fn az_style_font_family_value_exact(variant_data: AzStyleFontFamilyPtr) -> AzStyleFontFamilyValue { AzStyleFontFamilyValue { object: azul_impl::css::CssPropertyValue::<StyleFontFamily>::Exact(*az_style_font_family_downcast(variant_data)) } }
+#[inline] #[no_mangle] pub extern "C" fn az_style_font_family_value_exact(variant_data: AzStyleFontFamily) -> AzStyleFontFamilyValue { AzStyleFontFamilyValue { object: azul_impl::css::CssPropertyValue::<StyleFontFamily>::Exact(variant_data.object) } }
 /// Destructor: Takes ownership of the `StyleFontFamilyValue` pointer and deletes it.
 #[no_mangle] #[inline] #[allow(unused_variables)] pub extern "C" fn az_style_font_family_value_delete(object: &mut AzStyleFontFamilyValue) { match object.object { azul_impl::css::CssPropertyValue::<StyleFontFamily>::Auto => { }, azul_impl::css::CssPropertyValue::<StyleFontFamily>::None => { }, azul_impl::css::CssPropertyValue::<StyleFontFamily>::Inherit => { }, azul_impl::css::CssPropertyValue::<StyleFontFamily>::Initial => { }, azul_impl::css::CssPropertyValue::<StyleFontFamily>::Exact(_) => { }, }
 }
@@ -1799,7 +1723,7 @@ pub type AzLayoutInfoPtrType = azul_impl::callbacks::LayoutInfoPtr;
 #[inline] #[no_mangle] pub extern "C" fn az_style_font_size_value_none() -> AzStyleFontSizeValue { AzStyleFontSizeValue { object: azul_impl::css::CssPropertyValue::<StyleFontSize>::None } }
 #[inline] #[no_mangle] pub extern "C" fn az_style_font_size_value_inherit() -> AzStyleFontSizeValue { AzStyleFontSizeValue { object: azul_impl::css::CssPropertyValue::<StyleFontSize>::Inherit } }
 #[inline] #[no_mangle] pub extern "C" fn az_style_font_size_value_initial() -> AzStyleFontSizeValue { AzStyleFontSizeValue { object: azul_impl::css::CssPropertyValue::<StyleFontSize>::Initial } }
-#[inline] #[no_mangle] pub extern "C" fn az_style_font_size_value_exact(variant_data: AzStyleFontSizePtr) -> AzStyleFontSizeValue { AzStyleFontSizeValue { object: azul_impl::css::CssPropertyValue::<StyleFontSize>::Exact(*az_style_font_size_downcast(variant_data)) } }
+#[inline] #[no_mangle] pub extern "C" fn az_style_font_size_value_exact(variant_data: AzStyleFontSize) -> AzStyleFontSizeValue { AzStyleFontSizeValue { object: azul_impl::css::CssPropertyValue::<StyleFontSize>::Exact(variant_data.object) } }
 /// Destructor: Takes ownership of the `StyleFontSizeValue` pointer and deletes it.
 #[no_mangle] #[inline] #[allow(unused_variables)] pub extern "C" fn az_style_font_size_value_delete(object: &mut AzStyleFontSizeValue) { match object.object { azul_impl::css::CssPropertyValue::<StyleFontSize>::Auto => { }, azul_impl::css::CssPropertyValue::<StyleFontSize>::None => { }, azul_impl::css::CssPropertyValue::<StyleFontSize>::Inherit => { }, azul_impl::css::CssPropertyValue::<StyleFontSize>::Initial => { }, azul_impl::css::CssPropertyValue::<StyleFontSize>::Exact(_) => { }, }
 }
@@ -1812,7 +1736,7 @@ pub type AzLayoutInfoPtrType = azul_impl::callbacks::LayoutInfoPtr;
 #[inline] #[no_mangle] pub extern "C" fn az_style_letter_spacing_value_none() -> AzStyleLetterSpacingValue { AzStyleLetterSpacingValue { object: azul_impl::css::CssPropertyValue::<StyleLetterSpacing>::None } }
 #[inline] #[no_mangle] pub extern "C" fn az_style_letter_spacing_value_inherit() -> AzStyleLetterSpacingValue { AzStyleLetterSpacingValue { object: azul_impl::css::CssPropertyValue::<StyleLetterSpacing>::Inherit } }
 #[inline] #[no_mangle] pub extern "C" fn az_style_letter_spacing_value_initial() -> AzStyleLetterSpacingValue { AzStyleLetterSpacingValue { object: azul_impl::css::CssPropertyValue::<StyleLetterSpacing>::Initial } }
-#[inline] #[no_mangle] pub extern "C" fn az_style_letter_spacing_value_exact(variant_data: AzStyleLetterSpacingPtr) -> AzStyleLetterSpacingValue { AzStyleLetterSpacingValue { object: azul_impl::css::CssPropertyValue::<StyleLetterSpacing>::Exact(*az_style_letter_spacing_downcast(variant_data)) } }
+#[inline] #[no_mangle] pub extern "C" fn az_style_letter_spacing_value_exact(variant_data: AzStyleLetterSpacing) -> AzStyleLetterSpacingValue { AzStyleLetterSpacingValue { object: azul_impl::css::CssPropertyValue::<StyleLetterSpacing>::Exact(variant_data.object) } }
 /// Destructor: Takes ownership of the `StyleLetterSpacingValue` pointer and deletes it.
 #[no_mangle] #[inline] #[allow(unused_variables)] pub extern "C" fn az_style_letter_spacing_value_delete(object: &mut AzStyleLetterSpacingValue) { match object.object { azul_impl::css::CssPropertyValue::<StyleLetterSpacing>::Auto => { }, azul_impl::css::CssPropertyValue::<StyleLetterSpacing>::None => { }, azul_impl::css::CssPropertyValue::<StyleLetterSpacing>::Inherit => { }, azul_impl::css::CssPropertyValue::<StyleLetterSpacing>::Initial => { }, azul_impl::css::CssPropertyValue::<StyleLetterSpacing>::Exact(_) => { }, }
 }
@@ -1825,7 +1749,7 @@ pub type AzLayoutInfoPtrType = azul_impl::callbacks::LayoutInfoPtr;
 #[inline] #[no_mangle] pub extern "C" fn az_style_line_height_value_none() -> AzStyleLineHeightValue { AzStyleLineHeightValue { object: azul_impl::css::CssPropertyValue::<StyleLineHeight>::None } }
 #[inline] #[no_mangle] pub extern "C" fn az_style_line_height_value_inherit() -> AzStyleLineHeightValue { AzStyleLineHeightValue { object: azul_impl::css::CssPropertyValue::<StyleLineHeight>::Inherit } }
 #[inline] #[no_mangle] pub extern "C" fn az_style_line_height_value_initial() -> AzStyleLineHeightValue { AzStyleLineHeightValue { object: azul_impl::css::CssPropertyValue::<StyleLineHeight>::Initial } }
-#[inline] #[no_mangle] pub extern "C" fn az_style_line_height_value_exact(variant_data: AzStyleLineHeightPtr) -> AzStyleLineHeightValue { AzStyleLineHeightValue { object: azul_impl::css::CssPropertyValue::<StyleLineHeight>::Exact(*az_style_line_height_downcast(variant_data)) } }
+#[inline] #[no_mangle] pub extern "C" fn az_style_line_height_value_exact(variant_data: AzStyleLineHeight) -> AzStyleLineHeightValue { AzStyleLineHeightValue { object: azul_impl::css::CssPropertyValue::<StyleLineHeight>::Exact(variant_data.object) } }
 /// Destructor: Takes ownership of the `StyleLineHeightValue` pointer and deletes it.
 #[no_mangle] #[inline] #[allow(unused_variables)] pub extern "C" fn az_style_line_height_value_delete(object: &mut AzStyleLineHeightValue) { match object.object { azul_impl::css::CssPropertyValue::<StyleLineHeight>::Auto => { }, azul_impl::css::CssPropertyValue::<StyleLineHeight>::None => { }, azul_impl::css::CssPropertyValue::<StyleLineHeight>::Inherit => { }, azul_impl::css::CssPropertyValue::<StyleLineHeight>::Initial => { }, azul_impl::css::CssPropertyValue::<StyleLineHeight>::Exact(_) => { }, }
 }
@@ -1838,7 +1762,7 @@ pub type AzLayoutInfoPtrType = azul_impl::callbacks::LayoutInfoPtr;
 #[inline] #[no_mangle] pub extern "C" fn az_style_tab_width_value_none() -> AzStyleTabWidthValue { AzStyleTabWidthValue { object: azul_impl::css::CssPropertyValue::<StyleTabWidth>::None } }
 #[inline] #[no_mangle] pub extern "C" fn az_style_tab_width_value_inherit() -> AzStyleTabWidthValue { AzStyleTabWidthValue { object: azul_impl::css::CssPropertyValue::<StyleTabWidth>::Inherit } }
 #[inline] #[no_mangle] pub extern "C" fn az_style_tab_width_value_initial() -> AzStyleTabWidthValue { AzStyleTabWidthValue { object: azul_impl::css::CssPropertyValue::<StyleTabWidth>::Initial } }
-#[inline] #[no_mangle] pub extern "C" fn az_style_tab_width_value_exact(variant_data: AzStyleTabWidthPtr) -> AzStyleTabWidthValue { AzStyleTabWidthValue { object: azul_impl::css::CssPropertyValue::<StyleTabWidth>::Exact(*az_style_tab_width_downcast(variant_data)) } }
+#[inline] #[no_mangle] pub extern "C" fn az_style_tab_width_value_exact(variant_data: AzStyleTabWidth) -> AzStyleTabWidthValue { AzStyleTabWidthValue { object: azul_impl::css::CssPropertyValue::<StyleTabWidth>::Exact(variant_data.object) } }
 /// Destructor: Takes ownership of the `StyleTabWidthValue` pointer and deletes it.
 #[no_mangle] #[inline] #[allow(unused_variables)] pub extern "C" fn az_style_tab_width_value_delete(object: &mut AzStyleTabWidthValue) { match object.object { azul_impl::css::CssPropertyValue::<StyleTabWidth>::Auto => { }, azul_impl::css::CssPropertyValue::<StyleTabWidth>::None => { }, azul_impl::css::CssPropertyValue::<StyleTabWidth>::Inherit => { }, azul_impl::css::CssPropertyValue::<StyleTabWidth>::Initial => { }, azul_impl::css::CssPropertyValue::<StyleTabWidth>::Exact(_) => { }, }
 }
@@ -1851,7 +1775,7 @@ pub type AzLayoutInfoPtrType = azul_impl::callbacks::LayoutInfoPtr;
 #[inline] #[no_mangle] pub extern "C" fn az_style_text_alignment_horz_value_none() -> AzStyleTextAlignmentHorzValue { AzStyleTextAlignmentHorzValue { object: azul_impl::css::CssPropertyValue::<StyleTextAlignmentHorz>::None } }
 #[inline] #[no_mangle] pub extern "C" fn az_style_text_alignment_horz_value_inherit() -> AzStyleTextAlignmentHorzValue { AzStyleTextAlignmentHorzValue { object: azul_impl::css::CssPropertyValue::<StyleTextAlignmentHorz>::Inherit } }
 #[inline] #[no_mangle] pub extern "C" fn az_style_text_alignment_horz_value_initial() -> AzStyleTextAlignmentHorzValue { AzStyleTextAlignmentHorzValue { object: azul_impl::css::CssPropertyValue::<StyleTextAlignmentHorz>::Initial } }
-#[inline] #[no_mangle] pub extern "C" fn az_style_text_alignment_horz_value_exact(variant_data: AzStyleTextAlignmentHorzPtr) -> AzStyleTextAlignmentHorzValue { AzStyleTextAlignmentHorzValue { object: azul_impl::css::CssPropertyValue::<StyleTextAlignmentHorz>::Exact(*az_style_text_alignment_horz_downcast(variant_data)) } }
+#[inline] #[no_mangle] pub extern "C" fn az_style_text_alignment_horz_value_exact(variant_data: AzStyleTextAlignmentHorz) -> AzStyleTextAlignmentHorzValue { AzStyleTextAlignmentHorzValue { object: azul_impl::css::CssPropertyValue::<StyleTextAlignmentHorz>::Exact(variant_data.object) } }
 /// Destructor: Takes ownership of the `StyleTextAlignmentHorzValue` pointer and deletes it.
 #[no_mangle] #[inline] #[allow(unused_variables)] pub extern "C" fn az_style_text_alignment_horz_value_delete(object: &mut AzStyleTextAlignmentHorzValue) { match object.object { azul_impl::css::CssPropertyValue::<StyleTextAlignmentHorz>::Auto => { }, azul_impl::css::CssPropertyValue::<StyleTextAlignmentHorz>::None => { }, azul_impl::css::CssPropertyValue::<StyleTextAlignmentHorz>::Inherit => { }, azul_impl::css::CssPropertyValue::<StyleTextAlignmentHorz>::Initial => { }, azul_impl::css::CssPropertyValue::<StyleTextAlignmentHorz>::Exact(_) => { }, }
 }
@@ -1864,7 +1788,7 @@ pub type AzLayoutInfoPtrType = azul_impl::callbacks::LayoutInfoPtr;
 #[inline] #[no_mangle] pub extern "C" fn az_style_text_color_value_none() -> AzStyleTextColorValue { AzStyleTextColorValue { object: azul_impl::css::CssPropertyValue::<StyleTextColor>::None } }
 #[inline] #[no_mangle] pub extern "C" fn az_style_text_color_value_inherit() -> AzStyleTextColorValue { AzStyleTextColorValue { object: azul_impl::css::CssPropertyValue::<StyleTextColor>::Inherit } }
 #[inline] #[no_mangle] pub extern "C" fn az_style_text_color_value_initial() -> AzStyleTextColorValue { AzStyleTextColorValue { object: azul_impl::css::CssPropertyValue::<StyleTextColor>::Initial } }
-#[inline] #[no_mangle] pub extern "C" fn az_style_text_color_value_exact(variant_data: AzStyleTextColorPtr) -> AzStyleTextColorValue { AzStyleTextColorValue { object: azul_impl::css::CssPropertyValue::<StyleTextColor>::Exact(*az_style_text_color_downcast(variant_data)) } }
+#[inline] #[no_mangle] pub extern "C" fn az_style_text_color_value_exact(variant_data: AzStyleTextColor) -> AzStyleTextColorValue { AzStyleTextColorValue { object: azul_impl::css::CssPropertyValue::<StyleTextColor>::Exact(variant_data.object) } }
 /// Destructor: Takes ownership of the `StyleTextColorValue` pointer and deletes it.
 #[no_mangle] #[inline] #[allow(unused_variables)] pub extern "C" fn az_style_text_color_value_delete(object: &mut AzStyleTextColorValue) { match object.object { azul_impl::css::CssPropertyValue::<StyleTextColor>::Auto => { }, azul_impl::css::CssPropertyValue::<StyleTextColor>::None => { }, azul_impl::css::CssPropertyValue::<StyleTextColor>::Inherit => { }, azul_impl::css::CssPropertyValue::<StyleTextColor>::Initial => { }, azul_impl::css::CssPropertyValue::<StyleTextColor>::Exact(_) => { }, }
 }
@@ -1877,7 +1801,7 @@ pub type AzLayoutInfoPtrType = azul_impl::callbacks::LayoutInfoPtr;
 #[inline] #[no_mangle] pub extern "C" fn az_style_word_spacing_value_none() -> AzStyleWordSpacingValue { AzStyleWordSpacingValue { object: azul_impl::css::CssPropertyValue::<StyleWordSpacing>::None } }
 #[inline] #[no_mangle] pub extern "C" fn az_style_word_spacing_value_inherit() -> AzStyleWordSpacingValue { AzStyleWordSpacingValue { object: azul_impl::css::CssPropertyValue::<StyleWordSpacing>::Inherit } }
 #[inline] #[no_mangle] pub extern "C" fn az_style_word_spacing_value_initial() -> AzStyleWordSpacingValue { AzStyleWordSpacingValue { object: azul_impl::css::CssPropertyValue::<StyleWordSpacing>::Initial } }
-#[inline] #[no_mangle] pub extern "C" fn az_style_word_spacing_value_exact(variant_data: AzStyleWordSpacingPtr) -> AzStyleWordSpacingValue { AzStyleWordSpacingValue { object: azul_impl::css::CssPropertyValue::<StyleWordSpacing>::Exact(*az_style_word_spacing_downcast(variant_data)) } }
+#[inline] #[no_mangle] pub extern "C" fn az_style_word_spacing_value_exact(variant_data: AzStyleWordSpacing) -> AzStyleWordSpacingValue { AzStyleWordSpacingValue { object: azul_impl::css::CssPropertyValue::<StyleWordSpacing>::Exact(variant_data.object) } }
 /// Destructor: Takes ownership of the `StyleWordSpacingValue` pointer and deletes it.
 #[no_mangle] #[inline] #[allow(unused_variables)] pub extern "C" fn az_style_word_spacing_value_delete(object: &mut AzStyleWordSpacingValue) { match object.object { azul_impl::css::CssPropertyValue::<StyleWordSpacing>::Auto => { }, azul_impl::css::CssPropertyValue::<StyleWordSpacing>::None => { }, azul_impl::css::CssPropertyValue::<StyleWordSpacing>::Inherit => { }, azul_impl::css::CssPropertyValue::<StyleWordSpacing>::Initial => { }, azul_impl::css::CssPropertyValue::<StyleWordSpacing>::Exact(_) => { }, }
 }
