@@ -14,7 +14,7 @@ postfix = "Ptr"
 basic_types = [
     "bool", "char", "f32", "f64", "fn", "i128", "i16",
     "i32", "i64", "i8", "isize", "slice", "u128", "u16",
-    "u32", "u64", "u8", "()", "usize"
+    "u32", "u64", "u8", "()", "usize", "c_void"
 ]
 
 azul_readme_path = "../azul/README.md"
@@ -201,6 +201,7 @@ def fn_args_c_api(f, class_name, class_ptr_name, self_as_first_arg, apiData):
 def analyze_type(arg):
     starts = ""
     arg_type = ""
+    ends = ""
 
     if arg.startswith("&mut"):
         starts = "&mut "
@@ -217,7 +218,15 @@ def analyze_type(arg):
     else:
         arg_type = arg
 
-    return [starts, arg_type.strip()]
+    arg_type = arg_type.strip()
+
+    if arg_type.startswith("[") and arg_type.endswith("]"):
+        starts += "["
+        arg_type_array = arg_type[1:].split(";")
+        arg_type = arg_type_array[0]
+        ends += ";" + arg_type_array[1]
+
+    return [starts, arg_type, ends]
 
 def class_is_small_enum(c):
     return "enum_fields" in c.keys()
@@ -462,14 +471,17 @@ def generate_rust_dll(apiData):
                 elif class_is_typedef:
                     code += "#[no_mangle] pub type " + class_ptr_name + " = " + external_path + ";\r\n"
                 elif class_is_boxed_object:
-                    structs_map[class_ptr_name] = [{"ptr": "*mut c_void" }]
+                    structs_map[class_ptr_name] = {"struct": [{"ptr": {"type": "*mut c_void" }}]}
                     if treat_external_as_ptr:
                         code += "pub type " + class_ptr_name + "Type = " + external_path + ";\r\n"
                         code += "#[no_mangle] pub use " + class_ptr_name + "Type as " + class_ptr_name + ";\r\n"
                     else:
                         code += "#[no_mangle] #[repr(C)] pub struct " + class_ptr_name + " { pub ptr: *mut c_void }\r\n"
                 else:
-                    structs_map[class_ptr_name] = [{"object": external_path }] # TODO: Use fields on "external"
+                    if "struct_fields" in c.keys():
+                        structs_map[class_ptr_name] = {"struct": c["struct_fields"]}
+                    elif "enum_fields" in c.keys():
+                        structs_map[class_ptr_name] = {"enum": c["enum_fields"]}
                     code += "#[no_mangle] #[repr(C)] pub struct " + class_ptr_name + " { pub object: " + external_path + " }\r\n"
 
                 if c_is_stack_allocated:
@@ -506,7 +518,7 @@ def generate_rust_dll(apiData):
                                 code += class_ptr_name + " { object: " + c["external"] + "::" + enum_variant_name + " }"
                                 code += " }\r\n"
             else:
-                structs_map[class_ptr_name] = [{"ptr": "*mut c_void"}]
+                structs_map[class_ptr_name] = {"struct": [{"ptr": {"type": "*mut c_void"}}]}
                 code += "#[no_mangle] #[repr(C)] pub struct " + class_ptr_name + " { ptr: *mut c_void }\r\n"
 
             if "constructors" in c.keys():
@@ -656,20 +668,59 @@ def generate_rust_dll(apiData):
 
     return [code, structs_map, functions_map]
 
-def generate_dll_loader(structs_map, functions_map):
+def generate_dll_loader(apiData, structs_map, functions_map):
     code = "extern crate libloading;\r\n\r\n"
 
-    code += "pub mod dll {\r\n\r\n"
+    code += "pub(crate) mod dll {\r\n\r\n"
     code += "    use std::ffi::c_void;\r\n\r\n"
     for struct_name in structs_map.keys():
         struct = structs_map[struct_name]
-        code += "    #[repr(C)] pub struct " + struct_name + " { "
-        for field in struct:
-            field_name = list(field.keys())[0]
-            field_type = list(field.values())[0]
-            code += field_name + ": " + field_type + ", "
-        code += "}\r\n"
-    code += "\r\n\r\n"
+        if "struct" in struct.keys():
+            struct = struct["struct"]
+            code += "    #[repr(C)] pub struct " + struct_name + " {\r\n"
+            for field in struct:
+                field_name = list(field.keys())[0]
+                field_type = list(field.values())[0]
+                if "type" in field_type:
+                    field_type = field_type["type"]
+                    if is_primitive_arg(field_type):
+                        code += "        pub " + field_name + ": " + field_type + ",\r\n"
+                    else:
+                        analyzed_arg_type = analyze_type(field_type)
+                        field_type_class_path = search_for_class_by_rust_class_name(apiData, analyzed_arg_type[1])
+                        code += "        pub " + field_name + ": " + analyzed_arg_type[0] + prefix + field_type_class_path[1] + analyzed_arg_type[2] + ",\r\n"
+                else:
+                    print("struct " + struct_name + " does not have a type on field " + field_name)
+                    raise Exception("error")
+            code += "    }\r\n"
+        elif "enum" in struct.keys():
+            enum = struct["enum"]
+            repr = "#[repr(C)]"
+            for variant in enum:
+                variant_name = list(variant.keys())[0]
+                variant = list(variant.values())[0]
+                if "type" in variant.keys():
+                    repr = "#[repr(C, u8)]"
+
+            code += "    " + repr + " pub enum " + struct_name + " {\r\n"
+            for variant in enum:
+                variant_name = list(variant.keys())[0]
+                variant = list(variant.values())[0]
+                if "type" in variant.keys():
+                    variant_type = variant["type"]
+                    if is_primitive_arg(variant_type):
+                        code += "        " + variant_name + "(" + variant_type + "),\r\n"
+                    else:
+                        analyzed_arg_type = analyze_type(variant_type)
+                        field_type_class_path = search_for_class_by_rust_class_name(apiData, analyzed_arg_type[1])
+                        code += "        " + variant_name + "(" + analyzed_arg_type[0] + prefix + field_type_class_path[1] + analyzed_arg_type[2] + "),\r\n"
+                else:
+                    code += "        " + variant_name + ",\r\n"
+            code += "    }\r\n"
+
+    code += "\r\n"
+    code += "\r\n"
+
     code += "    #[cfg(unix)]\r\n"
     code += "    use libloading::os::unix::{Library, Symbol};\r\n"
     code += "    #[cfg(windows)]\r\n"
@@ -727,12 +778,12 @@ def generate_rust_api(apiData, structs_map, functions_map):
     code += "extern crate azul_dll;"
     code += "\r\n\r\n"
 
-    code += generate_dll_loader(structs_map, functions_map)
+    apiData = apiData[version]
+
+    code += generate_dll_loader(apiData, structs_map, functions_map)
 
     if tuple(['*']) in rust_api_patches:
         code += rust_api_patches[tuple(['*'])]
-
-    apiData = apiData[version]
 
     for module_name in apiData.keys():
         module_doc = None
@@ -855,7 +906,6 @@ def generate_rust_api(apiData, structs_map, functions_map):
                     if tuple([module_name, class_name, fn_name]) in rust_api_patches.keys() \
                     and "use_patches" in const.keys() \
                     and "rust" in const["use_patches"]:
-                        print("ok - " + str(tuple([module_name, class_name, fn_name])))
                         fn_body = rust_api_patches[tuple([module_name, class_name, fn_name])]
                     else:
                         fn_body = c_fn_name + "(" + fn_args_call + ")"

@@ -26,166 +26,870 @@ extern crate azul_dll;
 
 extern crate libloading;
 
-pub mod dll {
+pub(crate) mod dll {
 
     use std::ffi::c_void;
 
-    #[repr(C)] pub struct AzString { object: std::string::String, }
-    #[repr(C)] pub struct AzU8Vec { object: std::vec::Vec::<u8>, }
-    #[repr(C)] pub struct AzStringVec { object: std::vec::Vec::<String>, }
-    #[repr(C)] pub struct AzPathBufPtr { ptr: *mut c_void, }
-    #[repr(C)] pub struct AzAppConfigPtr { ptr: *mut c_void, }
-    #[repr(C)] pub struct AzAppPtr { ptr: *mut c_void, }
-    #[repr(C)] pub struct AzCallbackInfoPtr { ptr: *mut c_void, }
-    #[repr(C)] pub struct AzIFrameCallbackInfoPtr { ptr: *mut c_void, }
-    #[repr(C)] pub struct AzIFrameCallbackReturnPtr { ptr: *mut c_void, }
-    #[repr(C)] pub struct AzGlCallbackInfoPtr { ptr: *mut c_void, }
-    #[repr(C)] pub struct AzGlCallbackReturnPtr { ptr: *mut c_void, }
-    #[repr(C)] pub struct AzLayoutInfoPtr { ptr: *mut c_void, }
-    #[repr(C)] pub struct AzCssPtr { ptr: *mut c_void, }
-    #[repr(C)] pub struct AzCssHotReloaderPtr { ptr: *mut c_void, }
-    #[repr(C)] pub struct AzColorU { object: azul_impl::css::ColorU, }
-    #[repr(C)] pub struct AzSizeMetric { object: azul_impl::css::SizeMetric, }
-    #[repr(C)] pub struct AzFloatValue { object: azul_impl::css::FloatValue, }
-    #[repr(C)] pub struct AzPixelValue { object: azul_impl::css::PixelValue, }
-    #[repr(C)] pub struct AzPixelValueNoPercent { object: azul_impl::css::PixelValueNoPercent, }
-    #[repr(C)] pub struct AzBoxShadowClipMode { object: azul_impl::css::BoxShadowClipMode, }
-    #[repr(C)] pub struct AzBoxShadowPreDisplayItem { object: azul_impl::css::BoxShadowPreDisplayItem, }
-    #[repr(C)] pub struct AzLayoutAlignContentPtr { ptr: *mut c_void, }
-    #[repr(C)] pub struct AzLayoutAlignItemsPtr { ptr: *mut c_void, }
-    #[repr(C)] pub struct AzLayoutBottomPtr { ptr: *mut c_void, }
-    #[repr(C)] pub struct AzLayoutBoxSizingPtr { ptr: *mut c_void, }
-    #[repr(C)] pub struct AzLayoutDirectionPtr { ptr: *mut c_void, }
-    #[repr(C)] pub struct AzLayoutDisplayPtr { ptr: *mut c_void, }
-    #[repr(C)] pub struct AzLayoutFlexGrowPtr { ptr: *mut c_void, }
-    #[repr(C)] pub struct AzLayoutFlexShrinkPtr { ptr: *mut c_void, }
-    #[repr(C)] pub struct AzLayoutFloatPtr { ptr: *mut c_void, }
-    #[repr(C)] pub struct AzLayoutHeightPtr { ptr: *mut c_void, }
-    #[repr(C)] pub struct AzLayoutJustifyContentPtr { ptr: *mut c_void, }
-    #[repr(C)] pub struct AzLayoutLeftPtr { ptr: *mut c_void, }
-    #[repr(C)] pub struct AzLayoutMarginBottomPtr { ptr: *mut c_void, }
-    #[repr(C)] pub struct AzLayoutMarginLeftPtr { ptr: *mut c_void, }
-    #[repr(C)] pub struct AzLayoutMarginRightPtr { ptr: *mut c_void, }
-    #[repr(C)] pub struct AzLayoutMarginTopPtr { ptr: *mut c_void, }
-    #[repr(C)] pub struct AzLayoutMaxHeightPtr { ptr: *mut c_void, }
-    #[repr(C)] pub struct AzLayoutMaxWidthPtr { ptr: *mut c_void, }
-    #[repr(C)] pub struct AzLayoutMinHeightPtr { ptr: *mut c_void, }
-    #[repr(C)] pub struct AzLayoutMinWidthPtr { ptr: *mut c_void, }
-    #[repr(C)] pub struct AzLayoutPaddingBottomPtr { ptr: *mut c_void, }
-    #[repr(C)] pub struct AzLayoutPaddingLeftPtr { ptr: *mut c_void, }
-    #[repr(C)] pub struct AzLayoutPaddingRightPtr { ptr: *mut c_void, }
-    #[repr(C)] pub struct AzLayoutPaddingTopPtr { ptr: *mut c_void, }
-    #[repr(C)] pub struct AzLayoutPositionPtr { ptr: *mut c_void, }
-    #[repr(C)] pub struct AzLayoutRightPtr { ptr: *mut c_void, }
-    #[repr(C)] pub struct AzLayoutTopPtr { ptr: *mut c_void, }
-    #[repr(C)] pub struct AzLayoutWidthPtr { ptr: *mut c_void, }
-    #[repr(C)] pub struct AzLayoutWrapPtr { ptr: *mut c_void, }
-    #[repr(C)] pub struct AzOverflowPtr { ptr: *mut c_void, }
-    #[repr(C)] pub struct AzStyleBackgroundContentPtr { ptr: *mut c_void, }
-    #[repr(C)] pub struct AzStyleBackgroundPositionPtr { ptr: *mut c_void, }
-    #[repr(C)] pub struct AzStyleBackgroundRepeatPtr { ptr: *mut c_void, }
-    #[repr(C)] pub struct AzStyleBackgroundSizePtr { ptr: *mut c_void, }
-    #[repr(C)] pub struct AzStyleBorderBottomColorPtr { ptr: *mut c_void, }
-    #[repr(C)] pub struct AzStyleBorderBottomLeftRadiusPtr { ptr: *mut c_void, }
-    #[repr(C)] pub struct AzStyleBorderBottomRightRadiusPtr { ptr: *mut c_void, }
-    #[repr(C)] pub struct AzStyleBorderBottomStylePtr { ptr: *mut c_void, }
-    #[repr(C)] pub struct AzStyleBorderBottomWidthPtr { ptr: *mut c_void, }
-    #[repr(C)] pub struct AzStyleBorderLeftColorPtr { ptr: *mut c_void, }
-    #[repr(C)] pub struct AzStyleBorderLeftStylePtr { ptr: *mut c_void, }
-    #[repr(C)] pub struct AzStyleBorderLeftWidthPtr { ptr: *mut c_void, }
-    #[repr(C)] pub struct AzStyleBorderRightColorPtr { ptr: *mut c_void, }
-    #[repr(C)] pub struct AzStyleBorderRightStylePtr { ptr: *mut c_void, }
-    #[repr(C)] pub struct AzStyleBorderRightWidthPtr { ptr: *mut c_void, }
-    #[repr(C)] pub struct AzStyleBorderTopColorPtr { ptr: *mut c_void, }
-    #[repr(C)] pub struct AzStyleBorderTopLeftRadiusPtr { ptr: *mut c_void, }
-    #[repr(C)] pub struct AzStyleBorderTopRightRadiusPtr { ptr: *mut c_void, }
-    #[repr(C)] pub struct AzStyleBorderTopStylePtr { ptr: *mut c_void, }
-    #[repr(C)] pub struct AzStyleBorderTopWidthPtr { ptr: *mut c_void, }
-    #[repr(C)] pub struct AzStyleCursorPtr { ptr: *mut c_void, }
-    #[repr(C)] pub struct AzStyleFontFamilyPtr { ptr: *mut c_void, }
-    #[repr(C)] pub struct AzStyleFontSizePtr { ptr: *mut c_void, }
-    #[repr(C)] pub struct AzStyleLetterSpacingPtr { ptr: *mut c_void, }
-    #[repr(C)] pub struct AzStyleLineHeightPtr { ptr: *mut c_void, }
-    #[repr(C)] pub struct AzStyleTabWidthPtr { ptr: *mut c_void, }
-    #[repr(C)] pub struct AzStyleTextAlignmentHorzPtr { ptr: *mut c_void, }
-    #[repr(C)] pub struct AzStyleTextColorPtr { ptr: *mut c_void, }
-    #[repr(C)] pub struct AzStyleWordSpacingPtr { ptr: *mut c_void, }
-    #[repr(C)] pub struct AzBoxShadowPreDisplayItemValue { object: azul_impl::css::CssPropertyValue::<BoxShadowPreDisplayItem>, }
-    #[repr(C)] pub struct AzLayoutAlignContentValue { object: azul_impl::css::CssPropertyValue::<LayoutAlignContent>, }
-    #[repr(C)] pub struct AzLayoutAlignItemsValue { object: azul_impl::css::CssPropertyValue::<LayoutAlignItems>, }
-    #[repr(C)] pub struct AzLayoutBottomValue { object: azul_impl::css::CssPropertyValue::<LayoutBottom>, }
-    #[repr(C)] pub struct AzLayoutBoxSizingValue { object: azul_impl::css::CssPropertyValue::<LayoutBoxSizing>, }
-    #[repr(C)] pub struct AzLayoutDirectionValue { object: azul_impl::css::CssPropertyValue::<LayoutDirection>, }
-    #[repr(C)] pub struct AzLayoutDisplayValue { object: azul_impl::css::CssPropertyValue::<LayoutDisplay>, }
-    #[repr(C)] pub struct AzLayoutFlexGrowValue { object: azul_impl::css::CssPropertyValue::<LayoutFlexGrow>, }
-    #[repr(C)] pub struct AzLayoutFlexShrinkValue { object: azul_impl::css::CssPropertyValue::<LayoutFlexShrink>, }
-    #[repr(C)] pub struct AzLayoutFloatValue { object: azul_impl::css::CssPropertyValue::<LayoutFloat>, }
-    #[repr(C)] pub struct AzLayoutHeightValue { object: azul_impl::css::CssPropertyValue::<LayoutHeight>, }
-    #[repr(C)] pub struct AzLayoutJustifyContentValue { object: azul_impl::css::CssPropertyValue::<LayoutJustifyContent>, }
-    #[repr(C)] pub struct AzLayoutLeftValue { object: azul_impl::css::CssPropertyValue::<LayoutLeft>, }
-    #[repr(C)] pub struct AzLayoutMarginBottomValue { object: azul_impl::css::CssPropertyValue::<LayoutMarginBottom>, }
-    #[repr(C)] pub struct AzLayoutMarginLeftValue { object: azul_impl::css::CssPropertyValue::<LayoutMarginLeft>, }
-    #[repr(C)] pub struct AzLayoutMarginRightValue { object: azul_impl::css::CssPropertyValue::<LayoutMarginRight>, }
-    #[repr(C)] pub struct AzLayoutMarginTopValue { object: azul_impl::css::CssPropertyValue::<LayoutMarginTop>, }
-    #[repr(C)] pub struct AzLayoutMaxHeightValue { object: azul_impl::css::CssPropertyValue::<LayoutMaxHeight>, }
-    #[repr(C)] pub struct AzLayoutMaxWidthValue { object: azul_impl::css::CssPropertyValue::<LayoutMaxWidth>, }
-    #[repr(C)] pub struct AzLayoutMinHeightValue { object: azul_impl::css::CssPropertyValue::<LayoutMinHeight>, }
-    #[repr(C)] pub struct AzLayoutMinWidthValue { object: azul_impl::css::CssPropertyValue::<LayoutMinWidth>, }
-    #[repr(C)] pub struct AzLayoutPaddingBottomValue { object: azul_impl::css::CssPropertyValue::<LayoutPaddingBottom>, }
-    #[repr(C)] pub struct AzLayoutPaddingLeftValue { object: azul_impl::css::CssPropertyValue::<LayoutPaddingLeft>, }
-    #[repr(C)] pub struct AzLayoutPaddingRightValue { object: azul_impl::css::CssPropertyValue::<LayoutPaddingRight>, }
-    #[repr(C)] pub struct AzLayoutPaddingTopValue { object: azul_impl::css::CssPropertyValue::<LayoutPaddingTop>, }
-    #[repr(C)] pub struct AzLayoutPositionValue { object: azul_impl::css::CssPropertyValue::<LayoutPosition>, }
-    #[repr(C)] pub struct AzLayoutRightValue { object: azul_impl::css::CssPropertyValue::<LayoutRight>, }
-    #[repr(C)] pub struct AzLayoutTopValue { object: azul_impl::css::CssPropertyValue::<LayoutTop>, }
-    #[repr(C)] pub struct AzLayoutWidthValue { object: azul_impl::css::CssPropertyValue::<LayoutWidth>, }
-    #[repr(C)] pub struct AzLayoutWrapValue { object: azul_impl::css::CssPropertyValue::<LayoutWrap>, }
-    #[repr(C)] pub struct AzOverflowValue { object: azul_impl::css::CssPropertyValue::<Overflow>, }
-    #[repr(C)] pub struct AzStyleBackgroundContentValue { object: azul_impl::css::CssPropertyValue::<StyleBackgroundContent>, }
-    #[repr(C)] pub struct AzStyleBackgroundPositionValue { object: azul_impl::css::CssPropertyValue::<StyleBackgroundPosition>, }
-    #[repr(C)] pub struct AzStyleBackgroundRepeatValue { object: azul_impl::css::CssPropertyValue::<StyleBackgroundRepeat>, }
-    #[repr(C)] pub struct AzStyleBackgroundSizeValue { object: azul_impl::css::CssPropertyValue::<StyleBackgroundSize>, }
-    #[repr(C)] pub struct AzStyleBorderBottomColorValue { object: azul_impl::css::CssPropertyValue::<StyleBorderBottomColor>, }
-    #[repr(C)] pub struct AzStyleBorderBottomLeftRadiusValue { object: azul_impl::css::CssPropertyValue::<StyleBorderBottomLeftRadius>, }
-    #[repr(C)] pub struct AzStyleBorderBottomRightRadiusValue { object: azul_impl::css::CssPropertyValue::<StyleBorderBottomRightRadius>, }
-    #[repr(C)] pub struct AzStyleBorderBottomStyleValue { object: azul_impl::css::CssPropertyValue::<StyleBorderBottomStyle>, }
-    #[repr(C)] pub struct AzStyleBorderBottomWidthValue { object: azul_impl::css::CssPropertyValue::<StyleBorderBottomWidth>, }
-    #[repr(C)] pub struct AzStyleBorderLeftColorValue { object: azul_impl::css::CssPropertyValue::<StyleBorderLeftColor>, }
-    #[repr(C)] pub struct AzStyleBorderLeftStyleValue { object: azul_impl::css::CssPropertyValue::<StyleBorderLeftStyle>, }
-    #[repr(C)] pub struct AzStyleBorderLeftWidthValue { object: azul_impl::css::CssPropertyValue::<StyleBorderLeftWidth>, }
-    #[repr(C)] pub struct AzStyleBorderRightColorValue { object: azul_impl::css::CssPropertyValue::<StyleBorderRightColor>, }
-    #[repr(C)] pub struct AzStyleBorderRightStyleValue { object: azul_impl::css::CssPropertyValue::<StyleBorderRightStyle>, }
-    #[repr(C)] pub struct AzStyleBorderRightWidthValue { object: azul_impl::css::CssPropertyValue::<StyleBorderRightWidth>, }
-    #[repr(C)] pub struct AzStyleBorderTopColorValue { object: azul_impl::css::CssPropertyValue::<StyleBorderTopColor>, }
-    #[repr(C)] pub struct AzStyleBorderTopLeftRadiusValue { object: azul_impl::css::CssPropertyValue::<StyleBorderTopLeftRadius>, }
-    #[repr(C)] pub struct AzStyleBorderTopRightRadiusValue { object: azul_impl::css::CssPropertyValue::<StyleBorderTopRightRadius>, }
-    #[repr(C)] pub struct AzStyleBorderTopStyleValue { object: azul_impl::css::CssPropertyValue::<StyleBorderTopStyle>, }
-    #[repr(C)] pub struct AzStyleBorderTopWidthValue { object: azul_impl::css::CssPropertyValue::<StyleBorderTopWidth>, }
-    #[repr(C)] pub struct AzStyleCursorValue { object: azul_impl::css::CssPropertyValue::<StyleCursor>, }
-    #[repr(C)] pub struct AzStyleFontFamilyValue { object: azul_impl::css::CssPropertyValue::<StyleFontFamily>, }
-    #[repr(C)] pub struct AzStyleFontSizeValue { object: azul_impl::css::CssPropertyValue::<StyleFontSize>, }
-    #[repr(C)] pub struct AzStyleLetterSpacingValue { object: azul_impl::css::CssPropertyValue::<StyleLetterSpacing>, }
-    #[repr(C)] pub struct AzStyleLineHeightValue { object: azul_impl::css::CssPropertyValue::<StyleLineHeight>, }
-    #[repr(C)] pub struct AzStyleTabWidthValue { object: azul_impl::css::CssPropertyValue::<StyleTabWidth>, }
-    #[repr(C)] pub struct AzStyleTextAlignmentHorzValue { object: azul_impl::css::CssPropertyValue::<StyleTextAlignmentHorz>, }
-    #[repr(C)] pub struct AzStyleTextColorValue { object: azul_impl::css::CssPropertyValue::<StyleTextColor>, }
-    #[repr(C)] pub struct AzStyleWordSpacingValue { object: azul_impl::css::CssPropertyValue::<StyleWordSpacing>, }
-    #[repr(C)] pub struct AzCssProperty { object: azul_impl::css::CssProperty, }
-    #[repr(C)] pub struct AzDomPtr { ptr: *mut c_void, }
-    #[repr(C)] pub struct AzEventFilter { object: azul_impl::dom::EventFilter, }
-    #[repr(C)] pub struct AzHoverEventFilter { object: azul_impl::dom::HoverEventFilter, }
-    #[repr(C)] pub struct AzFocusEventFilter { object: azul_impl::dom::FocusEventFilter, }
-    #[repr(C)] pub struct AzNotEventFilter { object: azul_impl::dom::NotEventFilter, }
-    #[repr(C)] pub struct AzWindowEventFilter { object: azul_impl::dom::WindowEventFilter, }
-    #[repr(C)] pub struct AzTabIndex { object: azul_impl::dom::TabIndex, }
-    #[repr(C)] pub struct AzTextId { object: azul_impl::resources::TextId, }
-    #[repr(C)] pub struct AzImageId { object: azul_impl::resources::ImageId, }
-    #[repr(C)] pub struct AzFontId { object: azul_impl::resources::FontId, }
-    #[repr(C)] pub struct AzImageSource { object: azul_impl::resources::ImageSource, }
-    #[repr(C)] pub struct AzFontSource { object: azul_impl::resources::FontSource, }
-    #[repr(C)] pub struct AzRawImagePtr { ptr: *mut c_void, }
-    #[repr(C)] pub struct AzRawImageFormat { object: azul_impl::resources::RawImageFormat, }
-    #[repr(C)] pub struct AzWindowCreateOptionsPtr { ptr: *mut c_void, }
+    #[repr(C)] pub struct AzString {
+        pub vec: AzU8Vec,
+    }
+    #[repr(C)] pub struct AzU8Vec {
+        pub ptr: *const u8,
+        pub len: usize,
+        pub capacity: usize,
+    }
+    #[repr(C)] pub struct AzStringVec {
+        pub ptr: *const AzString,
+        pub len: usize,
+        pub capacity: usize,
+    }
+    #[repr(C)] pub struct AzPathBufPtr {
+        pub ptr: *mut c_void,
+    }
+    #[repr(C)] pub struct AzAppConfigPtr {
+        pub ptr: *mut c_void,
+    }
+    #[repr(C)] pub struct AzAppPtr {
+        pub ptr: *mut c_void,
+    }
+    #[repr(C)] pub struct AzCallbackInfoPtr {
+        pub ptr: *mut c_void,
+    }
+    #[repr(C)] pub struct AzIFrameCallbackInfoPtr {
+        pub ptr: *mut c_void,
+    }
+    #[repr(C)] pub struct AzIFrameCallbackReturnPtr {
+        pub ptr: *mut c_void,
+    }
+    #[repr(C)] pub struct AzGlCallbackInfoPtr {
+        pub ptr: *mut c_void,
+    }
+    #[repr(C)] pub struct AzGlCallbackReturnPtr {
+        pub ptr: *mut c_void,
+    }
+    #[repr(C)] pub struct AzLayoutInfoPtr {
+        pub ptr: *mut c_void,
+    }
+    #[repr(C)] pub struct AzCssPtr {
+        pub ptr: *mut c_void,
+    }
+    #[repr(C)] pub struct AzCssHotReloaderPtr {
+        pub ptr: *mut c_void,
+    }
+    #[repr(C)] pub struct AzColorU {
+        pub r: u8,
+        pub g: u8,
+        pub b: u8,
+        pub a: u8,
+    }
+    #[repr(C)] pub enum AzSizeMetric {
+        Px,
+        Pt,
+        Em,
+        Percent,
+    }
+    #[repr(C)] pub struct AzFloatValue {
+        pub number: isize,
+    }
+    #[repr(C)] pub struct AzPixelValue {
+        pub metric: AzSizeMetric,
+        pub number: AzFloatValue,
+    }
+    #[repr(C)] pub struct AzPixelValueNoPercent {
+        pub inner: AzPixelValue,
+    }
+    #[repr(C)] pub enum AzBoxShadowClipMode {
+        Outset,
+        Inset,
+    }
+    #[repr(C)] pub struct AzBoxShadowPreDisplayItem {
+        pub offset: [AzPixelValueNoPercent;2],
+        pub color: AzColorU,
+        pub blur_radius: AzPixelValueNoPercent,
+        pub spread_radius: AzPixelValueNoPercent,
+        pub clip_mode: AzBoxShadowClipMode,
+    }
+    #[repr(C)] pub struct AzLayoutAlignContentPtr {
+        pub ptr: *mut c_void,
+    }
+    #[repr(C)] pub struct AzLayoutAlignItemsPtr {
+        pub ptr: *mut c_void,
+    }
+    #[repr(C)] pub struct AzLayoutBottomPtr {
+        pub ptr: *mut c_void,
+    }
+    #[repr(C)] pub struct AzLayoutBoxSizingPtr {
+        pub ptr: *mut c_void,
+    }
+    #[repr(C)] pub struct AzLayoutDirectionPtr {
+        pub ptr: *mut c_void,
+    }
+    #[repr(C)] pub struct AzLayoutDisplayPtr {
+        pub ptr: *mut c_void,
+    }
+    #[repr(C)] pub struct AzLayoutFlexGrowPtr {
+        pub ptr: *mut c_void,
+    }
+    #[repr(C)] pub struct AzLayoutFlexShrinkPtr {
+        pub ptr: *mut c_void,
+    }
+    #[repr(C)] pub struct AzLayoutFloatPtr {
+        pub ptr: *mut c_void,
+    }
+    #[repr(C)] pub struct AzLayoutHeightPtr {
+        pub ptr: *mut c_void,
+    }
+    #[repr(C)] pub struct AzLayoutJustifyContentPtr {
+        pub ptr: *mut c_void,
+    }
+    #[repr(C)] pub struct AzLayoutLeftPtr {
+        pub ptr: *mut c_void,
+    }
+    #[repr(C)] pub struct AzLayoutMarginBottomPtr {
+        pub ptr: *mut c_void,
+    }
+    #[repr(C)] pub struct AzLayoutMarginLeftPtr {
+        pub ptr: *mut c_void,
+    }
+    #[repr(C)] pub struct AzLayoutMarginRightPtr {
+        pub ptr: *mut c_void,
+    }
+    #[repr(C)] pub struct AzLayoutMarginTopPtr {
+        pub ptr: *mut c_void,
+    }
+    #[repr(C)] pub struct AzLayoutMaxHeightPtr {
+        pub ptr: *mut c_void,
+    }
+    #[repr(C)] pub struct AzLayoutMaxWidthPtr {
+        pub ptr: *mut c_void,
+    }
+    #[repr(C)] pub struct AzLayoutMinHeightPtr {
+        pub ptr: *mut c_void,
+    }
+    #[repr(C)] pub struct AzLayoutMinWidthPtr {
+        pub ptr: *mut c_void,
+    }
+    #[repr(C)] pub struct AzLayoutPaddingBottomPtr {
+        pub ptr: *mut c_void,
+    }
+    #[repr(C)] pub struct AzLayoutPaddingLeftPtr {
+        pub ptr: *mut c_void,
+    }
+    #[repr(C)] pub struct AzLayoutPaddingRightPtr {
+        pub ptr: *mut c_void,
+    }
+    #[repr(C)] pub struct AzLayoutPaddingTopPtr {
+        pub ptr: *mut c_void,
+    }
+    #[repr(C)] pub struct AzLayoutPositionPtr {
+        pub ptr: *mut c_void,
+    }
+    #[repr(C)] pub struct AzLayoutRightPtr {
+        pub ptr: *mut c_void,
+    }
+    #[repr(C)] pub struct AzLayoutTopPtr {
+        pub ptr: *mut c_void,
+    }
+    #[repr(C)] pub struct AzLayoutWidthPtr {
+        pub ptr: *mut c_void,
+    }
+    #[repr(C)] pub struct AzLayoutWrapPtr {
+        pub ptr: *mut c_void,
+    }
+    #[repr(C)] pub struct AzOverflowPtr {
+        pub ptr: *mut c_void,
+    }
+    #[repr(C)] pub struct AzStyleBackgroundContentPtr {
+        pub ptr: *mut c_void,
+    }
+    #[repr(C)] pub struct AzStyleBackgroundPositionPtr {
+        pub ptr: *mut c_void,
+    }
+    #[repr(C)] pub struct AzStyleBackgroundRepeatPtr {
+        pub ptr: *mut c_void,
+    }
+    #[repr(C)] pub struct AzStyleBackgroundSizePtr {
+        pub ptr: *mut c_void,
+    }
+    #[repr(C)] pub struct AzStyleBorderBottomColorPtr {
+        pub ptr: *mut c_void,
+    }
+    #[repr(C)] pub struct AzStyleBorderBottomLeftRadiusPtr {
+        pub ptr: *mut c_void,
+    }
+    #[repr(C)] pub struct AzStyleBorderBottomRightRadiusPtr {
+        pub ptr: *mut c_void,
+    }
+    #[repr(C)] pub struct AzStyleBorderBottomStylePtr {
+        pub ptr: *mut c_void,
+    }
+    #[repr(C)] pub struct AzStyleBorderBottomWidthPtr {
+        pub ptr: *mut c_void,
+    }
+    #[repr(C)] pub struct AzStyleBorderLeftColorPtr {
+        pub ptr: *mut c_void,
+    }
+    #[repr(C)] pub struct AzStyleBorderLeftStylePtr {
+        pub ptr: *mut c_void,
+    }
+    #[repr(C)] pub struct AzStyleBorderLeftWidthPtr {
+        pub ptr: *mut c_void,
+    }
+    #[repr(C)] pub struct AzStyleBorderRightColorPtr {
+        pub ptr: *mut c_void,
+    }
+    #[repr(C)] pub struct AzStyleBorderRightStylePtr {
+        pub ptr: *mut c_void,
+    }
+    #[repr(C)] pub struct AzStyleBorderRightWidthPtr {
+        pub ptr: *mut c_void,
+    }
+    #[repr(C)] pub struct AzStyleBorderTopColorPtr {
+        pub ptr: *mut c_void,
+    }
+    #[repr(C)] pub struct AzStyleBorderTopLeftRadiusPtr {
+        pub ptr: *mut c_void,
+    }
+    #[repr(C)] pub struct AzStyleBorderTopRightRadiusPtr {
+        pub ptr: *mut c_void,
+    }
+    #[repr(C)] pub struct AzStyleBorderTopStylePtr {
+        pub ptr: *mut c_void,
+    }
+    #[repr(C)] pub struct AzStyleBorderTopWidthPtr {
+        pub ptr: *mut c_void,
+    }
+    #[repr(C)] pub struct AzStyleCursorPtr {
+        pub ptr: *mut c_void,
+    }
+    #[repr(C)] pub struct AzStyleFontFamilyPtr {
+        pub ptr: *mut c_void,
+    }
+    #[repr(C)] pub struct AzStyleFontSizePtr {
+        pub ptr: *mut c_void,
+    }
+    #[repr(C)] pub struct AzStyleLetterSpacingPtr {
+        pub ptr: *mut c_void,
+    }
+    #[repr(C)] pub struct AzStyleLineHeightPtr {
+        pub ptr: *mut c_void,
+    }
+    #[repr(C)] pub struct AzStyleTabWidthPtr {
+        pub ptr: *mut c_void,
+    }
+    #[repr(C)] pub struct AzStyleTextAlignmentHorzPtr {
+        pub ptr: *mut c_void,
+    }
+    #[repr(C)] pub struct AzStyleTextColorPtr {
+        pub ptr: *mut c_void,
+    }
+    #[repr(C)] pub struct AzStyleWordSpacingPtr {
+        pub ptr: *mut c_void,
+    }
+    #[repr(C, u8)] pub enum AzBoxShadowPreDisplayItemValue {
+        Auto,
+        None,
+        Inherit,
+        Initial,
+        Exact(AzBoxShadowPreDisplayItem),
+    }
+    #[repr(C, u8)] pub enum AzLayoutAlignContentValue {
+        Auto,
+        None,
+        Inherit,
+        Initial,
+        Exact(AzLayoutAlignContent),
+    }
+    #[repr(C, u8)] pub enum AzLayoutAlignItemsValue {
+        Auto,
+        None,
+        Inherit,
+        Initial,
+        Exact(AzLayoutAlignItems),
+    }
+    #[repr(C, u8)] pub enum AzLayoutBottomValue {
+        Auto,
+        None,
+        Inherit,
+        Initial,
+        Exact(AzLayoutBottom),
+    }
+    #[repr(C, u8)] pub enum AzLayoutBoxSizingValue {
+        Auto,
+        None,
+        Inherit,
+        Initial,
+        Exact(AzLayoutBoxSizing),
+    }
+    #[repr(C, u8)] pub enum AzLayoutDirectionValue {
+        Auto,
+        None,
+        Inherit,
+        Initial,
+        Exact(AzLayoutDirection),
+    }
+    #[repr(C, u8)] pub enum AzLayoutDisplayValue {
+        Auto,
+        None,
+        Inherit,
+        Initial,
+        Exact(AzLayoutDisplay),
+    }
+    #[repr(C, u8)] pub enum AzLayoutFlexGrowValue {
+        Auto,
+        None,
+        Inherit,
+        Initial,
+        Exact(AzLayoutFlexGrow),
+    }
+    #[repr(C, u8)] pub enum AzLayoutFlexShrinkValue {
+        Auto,
+        None,
+        Inherit,
+        Initial,
+        Exact(AzLayoutFlexShrink),
+    }
+    #[repr(C, u8)] pub enum AzLayoutFloatValue {
+        Auto,
+        None,
+        Inherit,
+        Initial,
+        Exact(AzLayoutFloat),
+    }
+    #[repr(C, u8)] pub enum AzLayoutHeightValue {
+        Auto,
+        None,
+        Inherit,
+        Initial,
+        Exact(AzLayoutHeight),
+    }
+    #[repr(C, u8)] pub enum AzLayoutJustifyContentValue {
+        Auto,
+        None,
+        Inherit,
+        Initial,
+        Exact(AzLayoutJustifyContent),
+    }
+    #[repr(C, u8)] pub enum AzLayoutLeftValue {
+        Auto,
+        None,
+        Inherit,
+        Initial,
+        Exact(AzLayoutLeft),
+    }
+    #[repr(C, u8)] pub enum AzLayoutMarginBottomValue {
+        Auto,
+        None,
+        Inherit,
+        Initial,
+        Exact(AzLayoutMarginBottom),
+    }
+    #[repr(C, u8)] pub enum AzLayoutMarginLeftValue {
+        Auto,
+        None,
+        Inherit,
+        Initial,
+        Exact(AzLayoutMarginLeft),
+    }
+    #[repr(C, u8)] pub enum AzLayoutMarginRightValue {
+        Auto,
+        None,
+        Inherit,
+        Initial,
+        Exact(AzLayoutMarginRight),
+    }
+    #[repr(C, u8)] pub enum AzLayoutMarginTopValue {
+        Auto,
+        None,
+        Inherit,
+        Initial,
+        Exact(AzLayoutMarginTop),
+    }
+    #[repr(C, u8)] pub enum AzLayoutMaxHeightValue {
+        Auto,
+        None,
+        Inherit,
+        Initial,
+        Exact(AzLayoutMaxHeight),
+    }
+    #[repr(C, u8)] pub enum AzLayoutMaxWidthValue {
+        Auto,
+        None,
+        Inherit,
+        Initial,
+        Exact(AzLayoutMaxWidth),
+    }
+    #[repr(C, u8)] pub enum AzLayoutMinHeightValue {
+        Auto,
+        None,
+        Inherit,
+        Initial,
+        Exact(AzLayoutMinHeight),
+    }
+    #[repr(C, u8)] pub enum AzLayoutMinWidthValue {
+        Auto,
+        None,
+        Inherit,
+        Initial,
+        Exact(AzLayoutMinWidth),
+    }
+    #[repr(C, u8)] pub enum AzLayoutPaddingBottomValue {
+        Auto,
+        None,
+        Inherit,
+        Initial,
+        Exact(AzLayoutPaddingBottom),
+    }
+    #[repr(C, u8)] pub enum AzLayoutPaddingLeftValue {
+        Auto,
+        None,
+        Inherit,
+        Initial,
+        Exact(AzLayoutPaddingLeft),
+    }
+    #[repr(C, u8)] pub enum AzLayoutPaddingRightValue {
+        Auto,
+        None,
+        Inherit,
+        Initial,
+        Exact(AzLayoutPaddingRight),
+    }
+    #[repr(C, u8)] pub enum AzLayoutPaddingTopValue {
+        Auto,
+        None,
+        Inherit,
+        Initial,
+        Exact(AzLayoutPaddingTop),
+    }
+    #[repr(C, u8)] pub enum AzLayoutPositionValue {
+        Auto,
+        None,
+        Inherit,
+        Initial,
+        Exact(AzLayoutPosition),
+    }
+    #[repr(C, u8)] pub enum AzLayoutRightValue {
+        Auto,
+        None,
+        Inherit,
+        Initial,
+        Exact(AzLayoutRight),
+    }
+    #[repr(C, u8)] pub enum AzLayoutTopValue {
+        Auto,
+        None,
+        Inherit,
+        Initial,
+        Exact(AzLayoutTop),
+    }
+    #[repr(C, u8)] pub enum AzLayoutWidthValue {
+        Auto,
+        None,
+        Inherit,
+        Initial,
+        Exact(AzLayoutWidth),
+    }
+    #[repr(C, u8)] pub enum AzLayoutWrapValue {
+        Auto,
+        None,
+        Inherit,
+        Initial,
+        Exact(AzLayoutWrap),
+    }
+    #[repr(C, u8)] pub enum AzOverflowValue {
+        Auto,
+        None,
+        Inherit,
+        Initial,
+        Exact(AzOverflow),
+    }
+    #[repr(C, u8)] pub enum AzStyleBackgroundContentValue {
+        Auto,
+        None,
+        Inherit,
+        Initial,
+        Exact(AzStyleBackgroundContent),
+    }
+    #[repr(C, u8)] pub enum AzStyleBackgroundPositionValue {
+        Auto,
+        None,
+        Inherit,
+        Initial,
+        Exact(AzStyleBackgroundPosition),
+    }
+    #[repr(C, u8)] pub enum AzStyleBackgroundRepeatValue {
+        Auto,
+        None,
+        Inherit,
+        Initial,
+        Exact(AzStyleBackgroundRepeat),
+    }
+    #[repr(C, u8)] pub enum AzStyleBackgroundSizeValue {
+        Auto,
+        None,
+        Inherit,
+        Initial,
+        Exact(AzStyleBackgroundSize),
+    }
+    #[repr(C, u8)] pub enum AzStyleBorderBottomColorValue {
+        Auto,
+        None,
+        Inherit,
+        Initial,
+        Exact(AzStyleBorderBottomColor),
+    }
+    #[repr(C, u8)] pub enum AzStyleBorderBottomLeftRadiusValue {
+        Auto,
+        None,
+        Inherit,
+        Initial,
+        Exact(AzStyleBorderBottomLeftRadius),
+    }
+    #[repr(C, u8)] pub enum AzStyleBorderBottomRightRadiusValue {
+        Auto,
+        None,
+        Inherit,
+        Initial,
+        Exact(AzStyleBorderBottomRightRadius),
+    }
+    #[repr(C, u8)] pub enum AzStyleBorderBottomStyleValue {
+        Auto,
+        None,
+        Inherit,
+        Initial,
+        Exact(AzStyleBorderBottomStyle),
+    }
+    #[repr(C, u8)] pub enum AzStyleBorderBottomWidthValue {
+        Auto,
+        None,
+        Inherit,
+        Initial,
+        Exact(AzStyleBorderBottomWidth),
+    }
+    #[repr(C, u8)] pub enum AzStyleBorderLeftColorValue {
+        Auto,
+        None,
+        Inherit,
+        Initial,
+        Exact(AzStyleBorderLeftColor),
+    }
+    #[repr(C, u8)] pub enum AzStyleBorderLeftStyleValue {
+        Auto,
+        None,
+        Inherit,
+        Initial,
+        Exact(AzStyleBorderLeftStyle),
+    }
+    #[repr(C, u8)] pub enum AzStyleBorderLeftWidthValue {
+        Auto,
+        None,
+        Inherit,
+        Initial,
+        Exact(AzStyleBorderLeftWidth),
+    }
+    #[repr(C, u8)] pub enum AzStyleBorderRightColorValue {
+        Auto,
+        None,
+        Inherit,
+        Initial,
+        Exact(AzStyleBorderRightColor),
+    }
+    #[repr(C, u8)] pub enum AzStyleBorderRightStyleValue {
+        Auto,
+        None,
+        Inherit,
+        Initial,
+        Exact(AzStyleBorderRightStyle),
+    }
+    #[repr(C, u8)] pub enum AzStyleBorderRightWidthValue {
+        Auto,
+        None,
+        Inherit,
+        Initial,
+        Exact(AzStyleBorderRightWidth),
+    }
+    #[repr(C, u8)] pub enum AzStyleBorderTopColorValue {
+        Auto,
+        None,
+        Inherit,
+        Initial,
+        Exact(AzStyleBorderTopColor),
+    }
+    #[repr(C, u8)] pub enum AzStyleBorderTopLeftRadiusValue {
+        Auto,
+        None,
+        Inherit,
+        Initial,
+        Exact(AzStyleBorderTopLeftRadius),
+    }
+    #[repr(C, u8)] pub enum AzStyleBorderTopRightRadiusValue {
+        Auto,
+        None,
+        Inherit,
+        Initial,
+        Exact(AzStyleBorderTopRightRadius),
+    }
+    #[repr(C, u8)] pub enum AzStyleBorderTopStyleValue {
+        Auto,
+        None,
+        Inherit,
+        Initial,
+        Exact(AzStyleBorderTopStyle),
+    }
+    #[repr(C, u8)] pub enum AzStyleBorderTopWidthValue {
+        Auto,
+        None,
+        Inherit,
+        Initial,
+        Exact(AzStyleBorderTopWidth),
+    }
+    #[repr(C, u8)] pub enum AzStyleCursorValue {
+        Auto,
+        None,
+        Inherit,
+        Initial,
+        Exact(AzStyleCursor),
+    }
+    #[repr(C, u8)] pub enum AzStyleFontFamilyValue {
+        Auto,
+        None,
+        Inherit,
+        Initial,
+        Exact(AzStyleFontFamily),
+    }
+    #[repr(C, u8)] pub enum AzStyleFontSizeValue {
+        Auto,
+        None,
+        Inherit,
+        Initial,
+        Exact(AzStyleFontSize),
+    }
+    #[repr(C, u8)] pub enum AzStyleLetterSpacingValue {
+        Auto,
+        None,
+        Inherit,
+        Initial,
+        Exact(AzStyleLetterSpacing),
+    }
+    #[repr(C, u8)] pub enum AzStyleLineHeightValue {
+        Auto,
+        None,
+        Inherit,
+        Initial,
+        Exact(AzStyleLineHeight),
+    }
+    #[repr(C, u8)] pub enum AzStyleTabWidthValue {
+        Auto,
+        None,
+        Inherit,
+        Initial,
+        Exact(AzStyleTabWidth),
+    }
+    #[repr(C, u8)] pub enum AzStyleTextAlignmentHorzValue {
+        Auto,
+        None,
+        Inherit,
+        Initial,
+        Exact(AzStyleTextAlignmentHorz),
+    }
+    #[repr(C, u8)] pub enum AzStyleTextColorValue {
+        Auto,
+        None,
+        Inherit,
+        Initial,
+        Exact(AzStyleTextColor),
+    }
+    #[repr(C, u8)] pub enum AzStyleWordSpacingValue {
+        Auto,
+        None,
+        Inherit,
+        Initial,
+        Exact(AzStyleWordSpacing),
+    }
+    #[repr(C, u8)] pub enum AzCssProperty {
+        TextColor(AzStyleTextColorValue),
+        FontSize(AzStyleFontSizeValue),
+        FontFamily(AzStyleFontFamilyValue),
+        TextAlign(AzStyleTextAlignmentHorzValue),
+        LetterSpacing(AzStyleLetterSpacingValue),
+        LineHeight(AzStyleLineHeightValue),
+        WordSpacing(AzStyleWordSpacingValue),
+        TabWidth(AzStyleTabWidthValue),
+        Cursor(AzStyleCursorValue),
+        Display(AzLayoutDisplayValue),
+        Float(AzLayoutFloatValue),
+        BoxSizing(AzLayoutBoxSizingValue),
+        Width(AzLayoutWidthValue),
+        Height(AzLayoutHeightValue),
+        MinWidth(AzLayoutMinWidthValue),
+        MinHeight(AzLayoutMinHeightValue),
+        MaxWidth(AzLayoutMaxWidthValue),
+        MaxHeight(AzLayoutMaxHeightValue),
+        Position(AzLayoutPositionValue),
+        Top(AzLayoutTopValue),
+        Right(AzLayoutRightValue),
+        Left(AzLayoutLeftValue),
+        Bottom(AzLayoutBottomValue),
+        FlexWrap(AzLayoutWrapValue),
+        FlexDirection(AzLayoutDirectionValue),
+        FlexGrow(AzLayoutFlexGrowValue),
+        FlexShrink(AzLayoutFlexShrinkValue),
+        JustifyContent(AzLayoutJustifyContentValue),
+        AlignItems(AzLayoutAlignItemsValue),
+        AlignContent(AzLayoutAlignContentValue),
+        BackgroundContent(AzStyleBackgroundContentValue),
+        BackgroundPosition(AzStyleBackgroundPositionValue),
+        BackgroundSize(AzStyleBackgroundSizeValue),
+        BackgroundRepeat(AzStyleBackgroundRepeatValue),
+        OverflowX(AzOverflowValue),
+        OverflowY(AzOverflowValue),
+        PaddingTop(AzLayoutPaddingTopValue),
+        PaddingLeft(AzLayoutPaddingLeftValue),
+        PaddingRight(AzLayoutPaddingRightValue),
+        PaddingBottom(AzLayoutPaddingBottomValue),
+        MarginTop(AzLayoutMarginTopValue),
+        MarginLeft(AzLayoutMarginLeftValue),
+        MarginRight(AzLayoutMarginRightValue),
+        MarginBottom(AzLayoutMarginBottomValue),
+        BorderTopLeftRadius(AzStyleBorderTopLeftRadiusValue),
+        BorderTopRightRadius(AzStyleBorderTopRightRadiusValue),
+        BorderBottomLeftRadius(AzStyleBorderBottomLeftRadiusValue),
+        BorderBottomRightRadius(AzStyleBorderBottomRightRadiusValue),
+        BorderTopColor(AzStyleBorderTopColorValue),
+        BorderRightColor(AzStyleBorderRightColorValue),
+        BorderLeftColor(AzStyleBorderLeftColorValue),
+        BorderBottomColor(AzStyleBorderBottomColorValue),
+        BorderTopStyle(AzStyleBorderTopStyleValue),
+        BorderRightStyle(AzStyleBorderRightStyleValue),
+        BorderLeftStyle(AzStyleBorderLeftStyleValue),
+        BorderBottomStyle(AzStyleBorderBottomStyleValue),
+        BorderTopWidth(AzStyleBorderTopWidthValue),
+        BorderRightWidth(AzStyleBorderRightWidthValue),
+        BorderLeftWidth(AzStyleBorderLeftWidthValue),
+        BorderBottomWidth(AzStyleBorderBottomWidthValue),
+        BoxShadowLeft(AzBoxShadowPreDisplayItemValue),
+        BoxShadowRight(AzBoxShadowPreDisplayItemValue),
+        BoxShadowTop(AzBoxShadowPreDisplayItemValue),
+        BoxShadowBottom(AzBoxShadowPreDisplayItemValue),
+    }
+    #[repr(C)] pub struct AzDomPtr {
+        pub ptr: *mut c_void,
+    }
+    #[repr(C, u8)] pub enum AzEventFilter {
+        Hover(AzHoverEventFilter),
+        Not(AzNotEventFilter),
+        Focus(AzFocusEventFilter),
+        Window(AzWindowEventFilter),
+    }
+    #[repr(C)] pub enum AzHoverEventFilter {
+        MouseOver,
+        MouseDown,
+        LeftMouseDown,
+        RightMouseDown,
+        MiddleMouseDown,
+        MouseUp,
+        LeftMouseUp,
+        RightMouseUp,
+        MiddleMouseUp,
+        MouseEnter,
+        MouseLeave,
+        Scroll,
+        ScrollStart,
+        ScrollEnd,
+        TextInput,
+        VirtualKeyDown,
+        VirtualKeyUp,
+        HoveredFile,
+        DroppedFile,
+        HoveredFileCancelled,
+    }
+    #[repr(C)] pub enum AzFocusEventFilter {
+        MouseOver,
+        MouseDown,
+        LeftMouseDown,
+        RightMouseDown,
+        MiddleMouseDown,
+        MouseUp,
+        LeftMouseUp,
+        RightMouseUp,
+        MiddleMouseUp,
+        MouseEnter,
+        MouseLeave,
+        Scroll,
+        ScrollStart,
+        ScrollEnd,
+        TextInput,
+        VirtualKeyDown,
+        VirtualKeyUp,
+        FocusReceived,
+        FocusLost,
+    }
+    #[repr(C, u8)] pub enum AzNotEventFilter {
+        Hover(AzHoverEventFilter),
+        Focus(AzFocusEventFilter),
+    }
+    #[repr(C)] pub enum AzWindowEventFilter {
+        MouseOver,
+        MouseDown,
+        LeftMouseDown,
+        RightMouseDown,
+        MiddleMouseDown,
+        MouseUp,
+        LeftMouseUp,
+        RightMouseUp,
+        MiddleMouseUp,
+        MouseEnter,
+        MouseLeave,
+        Scroll,
+        ScrollStart,
+        ScrollEnd,
+        TextInput,
+        VirtualKeyDown,
+        VirtualKeyUp,
+        HoveredFile,
+        DroppedFile,
+        HoveredFileCancelled,
+    }
+    #[repr(C, u8)] pub enum AzTabIndex {
+        Auto,
+        OverrideInParent(usize),
+        NoKeyboardFocus,
+    }
+    #[repr(C)] pub struct AzTextId {
+        pub id: usize,
+    }
+    #[repr(C)] pub struct AzImageId {
+        pub id: usize,
+    }
+    #[repr(C)] pub struct AzFontId {
+        pub id: usize,
+    }
+    #[repr(C, u8)] pub enum AzImageSource {
+        Embedded(AzU8Vec),
+        File(AzPathBuf),
+        Raw(AzRawImage),
+    }
+    #[repr(C, u8)] pub enum AzFontSource {
+        Embedded(AzU8Vec),
+        File(AzPathBuf),
+        System(AzString),
+    }
+    #[repr(C)] pub struct AzRawImagePtr {
+        pub ptr: *mut c_void,
+    }
+    #[repr(C)] pub enum AzRawImageFormat {
+        R8,
+        R16,
+        RG16,
+        BGRA8,
+        RGBAF32,
+        RG8,
+        RGBAI32,
+        RGBA8,
+    }
+    #[repr(C)] pub struct AzWindowCreateOptionsPtr {
+        pub ptr: *mut c_void,
+    }
 
 
     #[cfg(unix)]
@@ -4844,7 +5548,7 @@ pub mod dom {
     use azul_dll::*;
     use crate::str::String;
     use crate::resources::{TextId, ImageId};
-    use crate::callbacks::{IFrameCallback, Callback, RefAny, GlCallback};
+    use crate::callbacks::{Callback, GlCallback, IFrameCallback, RefAny};
     use crate::vec::StringVec;
     use crate::css::CssProperty;
 

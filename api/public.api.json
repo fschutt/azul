@@ -47,7 +47,9 @@
                "rust_class_name": "Vec<u8>",
                "external": "std::vec::Vec::<u8>",
                "struct_fields": [
-                  { "vec": { "type": "Vec<u8>" } }
+                  { "ptr": { "type": "*const u8" } },
+                  { "len": { "type": "usize" } },
+                  { "capacity": { "type": "usize" } }
                ],
                "constructors": {
                   "copy_from": {
@@ -83,7 +85,9 @@
                "rust_class_name": "Vec<String>",
                "external": "std::vec::Vec::<String>",
                "struct_fields": [
-                  { "vec": { "type": "Vec<String>" } }
+                    { "ptr": { "type": "*const String" } },
+                    { "len": { "type": "usize" } },
+                    { "capacity": { "type": "usize" } }
                ],
                "constructors": {
                   "copy_from": {
@@ -250,10 +254,10 @@
             "ColorU": {
                 "external": "azul_impl::css::ColorU",
                 "struct_fields": [
-                    {"r": "u8"},
-                    {"g": "u8"},
-                    {"b": "u8"},
-                    {"a": "u8"}
+                    {"r": {"type": "u8"}},
+                    {"g": {"type": "u8"}},
+                    {"b": {"type": "u8"}},
+                    {"a": {"type": "u8"}}
                 ]
             },
             "SizeMetric": {
@@ -268,20 +272,20 @@
             "FloatValue": {
                 "external": "azul_impl::css::FloatValue",
                 "struct_fields": [
-                    {"number": "isize"}
+                    {"number": {"type": "isize"}}
                 ]
             },
             "PixelValue": {
                 "external": "azul_impl::css::PixelValue",
                 "struct_fields": [
-                    {"metric": "SizeMetric"},
-                    {"number": "FloatValue"}
+                    {"metric": {"type": "SizeMetric"}},
+                    {"number": {"type": "FloatValue"}}
                 ]
             },
             "PixelValueNoPercent": {
                 "external": "azul_impl::css::PixelValueNoPercent",
                 "struct_fields": [
-                    {"inner": "PixelValue"}
+                    {"inner": {"type": "PixelValue"}}
                 ]
             },
             "BoxShadowClipMode": {
@@ -294,11 +298,11 @@
             "BoxShadowPreDisplayItem": {
                 "external": "azul_impl::css::BoxShadowPreDisplayItem",
                 "struct_fields": [
-                    { "offset": "[PixelValueNoPercent;2]" },
-                    { "color": "ColorU" },
-                    { "blur_radius": "PixelValueNoPercent" },
-                    { "spread_radius": "PixelValueNoPercent" },
-                    { "clip_mode": "BoxShadowClipMode" }
+                    { "offset": {"type": "[PixelValueNoPercent;2]" }},
+                    { "color": {"type": "ColorU" }},
+                    { "blur_radius": {"type": "PixelValueNoPercent" }},
+                    { "spread_radius": {"type": "PixelValueNoPercent" }},
+                    { "clip_mode": {"type": "BoxShadowClipMode" }}
                 ],
                 "constructors": { }
             },
