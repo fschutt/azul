@@ -268,6 +268,56 @@ pub type AzLayoutInfoPtrType = azul_core::callbacks::LayoutInfoPtr;
 /// (private): Downcasts the `AzCssPtr` to a `&Box<Css>` and runs the `func` closure on it
 #[inline(always)] fn az_css_downcast_ref<P, F: FnOnce(&Box<Css>) -> P>(ptr: &mut AzCssPtr, func: F) -> P { let box_ptr: Box<Css> = unsafe { Box::<Css>::from_raw(ptr.ptr  as *mut Css) }; let ret_val = func(&box_ptr); ptr.ptr = Box::into_raw(box_ptr) as *mut c_void;ret_val }
 
+/// Re-export of rust-allocated (stack based) `ColorU` struct
+#[no_mangle] #[repr(C)] pub struct AzColorU { pub object: azul_css::ColorU }
+/// Destructor: Takes ownership of the `ColorU` pointer and deletes it.
+#[no_mangle] #[inline] #[allow(unused_variables)] pub extern "C" fn az_color_u_delete(object: &mut AzColorU) { }
+/// Copies the object
+#[no_mangle] #[inline] pub extern "C" fn az_color_u_deep_copy(object: &AzColorU) -> AzColorU { AzColorU{ object: object.object.clone() } }
+
+/// Re-export of rust-allocated (stack based) `SizeMetric` struct
+#[no_mangle] #[repr(C)] pub struct AzSizeMetric { pub object: azul_css::SizeMetric }
+#[inline] #[no_mangle] pub extern "C" fn az_size_metric_px() -> AzSizeMetric { AzSizeMetric { object: azul_css::SizeMetric::Px } }
+#[inline] #[no_mangle] pub extern "C" fn az_size_metric_pt() -> AzSizeMetric { AzSizeMetric { object: azul_css::SizeMetric::Pt } }
+#[inline] #[no_mangle] pub extern "C" fn az_size_metric_em() -> AzSizeMetric { AzSizeMetric { object: azul_css::SizeMetric::Em } }
+#[inline] #[no_mangle] pub extern "C" fn az_size_metric_percent() -> AzSizeMetric { AzSizeMetric { object: azul_css::SizeMetric::Percent } }
+/// Destructor: Takes ownership of the `SizeMetric` pointer and deletes it.
+#[no_mangle] #[inline] #[allow(unused_variables)] pub extern "C" fn az_size_metric_delete(object: &mut AzSizeMetric) { match object.object { azul_css::SizeMetric::Px => { }, azul_css::SizeMetric::Pt => { }, azul_css::SizeMetric::Em => { }, azul_css::SizeMetric::Percent => { }, }
+}
+/// Copies the object
+#[no_mangle] #[inline] pub extern "C" fn az_size_metric_deep_copy(object: &AzSizeMetric) -> AzSizeMetric { AzSizeMetric{ object: object.object.clone() } }
+
+/// Re-export of rust-allocated (stack based) `FloatValue` struct
+#[no_mangle] #[repr(C)] pub struct AzFloatValue { pub object: azul_css::FloatValue }
+/// Destructor: Takes ownership of the `FloatValue` pointer and deletes it.
+#[no_mangle] #[inline] #[allow(unused_variables)] pub extern "C" fn az_float_value_delete(object: &mut AzFloatValue) { }
+/// Copies the object
+#[no_mangle] #[inline] pub extern "C" fn az_float_value_deep_copy(object: &AzFloatValue) -> AzFloatValue { AzFloatValue{ object: object.object.clone() } }
+
+/// Re-export of rust-allocated (stack based) `PixelValue` struct
+#[no_mangle] #[repr(C)] pub struct AzPixelValue { pub object: azul_css::PixelValue }
+/// Destructor: Takes ownership of the `PixelValue` pointer and deletes it.
+#[no_mangle] #[inline] #[allow(unused_variables)] pub extern "C" fn az_pixel_value_delete(object: &mut AzPixelValue) { }
+/// Copies the object
+#[no_mangle] #[inline] pub extern "C" fn az_pixel_value_deep_copy(object: &AzPixelValue) -> AzPixelValue { AzPixelValue{ object: object.object.clone() } }
+
+/// Re-export of rust-allocated (stack based) `PixelValueNoPercent` struct
+#[no_mangle] #[repr(C)] pub struct AzPixelValueNoPercent { pub object: azul_css::PixelValueNoPercent }
+/// Destructor: Takes ownership of the `PixelValueNoPercent` pointer and deletes it.
+#[no_mangle] #[inline] #[allow(unused_variables)] pub extern "C" fn az_pixel_value_no_percent_delete(object: &mut AzPixelValueNoPercent) { }
+/// Copies the object
+#[no_mangle] #[inline] pub extern "C" fn az_pixel_value_no_percent_deep_copy(object: &AzPixelValueNoPercent) -> AzPixelValueNoPercent { AzPixelValueNoPercent{ object: object.object.clone() } }
+
+/// Re-export of rust-allocated (stack based) `BoxShadowClipMode` struct
+#[no_mangle] #[repr(C)] pub struct AzBoxShadowClipMode { pub object: azul_css::BoxShadowClipMode }
+#[inline] #[no_mangle] pub extern "C" fn az_box_shadow_clip_mode_outset() -> AzBoxShadowClipMode { AzBoxShadowClipMode { object: azul_css::BoxShadowClipMode::Outset } }
+#[inline] #[no_mangle] pub extern "C" fn az_box_shadow_clip_mode_inset() -> AzBoxShadowClipMode { AzBoxShadowClipMode { object: azul_css::BoxShadowClipMode::Inset } }
+/// Destructor: Takes ownership of the `BoxShadowClipMode` pointer and deletes it.
+#[no_mangle] #[inline] #[allow(unused_variables)] pub extern "C" fn az_box_shadow_clip_mode_delete(object: &mut AzBoxShadowClipMode) { match object.object { azul_css::BoxShadowClipMode::Outset => { }, azul_css::BoxShadowClipMode::Inset => { }, }
+}
+/// Copies the object
+#[no_mangle] #[inline] pub extern "C" fn az_box_shadow_clip_mode_deep_copy(object: &AzBoxShadowClipMode) -> AzBoxShadowClipMode { AzBoxShadowClipMode{ object: object.object.clone() } }
+
 /// Pointer to rust-allocated `Box<BoxShadowPreDisplayItem>` struct
 #[no_mangle] #[repr(C)] pub struct AzBoxShadowPreDisplayItemPtr { ptr: *mut c_void }
 /// Destructor: Takes ownership of the `BoxShadowPreDisplayItem` pointer and deletes it.

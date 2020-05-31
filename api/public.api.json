@@ -212,7 +212,59 @@
                   }
                }
             },
+            "ColorU": {
+                "external": "azul_css::ColorU",
+                "struct_fields": [
+                    {"r": "u8"},
+                    {"g": "u8"},
+                    {"b": "u8"},
+                    {"a": "u8"}
+                ]
+            },
+            "SizeMetric": {
+                "external": "azul_css::SizeMetric",
+                "enum_fields": [
+                    {"Px": {}},
+                    {"Pt": {}},
+                    {"Em": {}},
+                    {"Percent": {}}
+                ]
+            },
+            "FloatValue": {
+                "external": "azul_css::FloatValue",
+                "struct_fields": [
+                    {"number": "isize"}
+                ]
+            },
+            "PixelValue": {
+                "external": "azul_css::PixelValue",
+                "struct_fields": [
+                    {"metric": "SizeMetric"},
+                    {"number": "FloatValue"}
+                ]
+            },
+            "PixelValueNoPercent": {
+                "external": "azul_css::PixelValueNoPercent",
+                "struct_fields": [
+                    {"inner": "PixelValue"}
+                ]
+            },
+            "BoxShadowClipMode": {
+                "external": "azul_css::BoxShadowClipMode",
+                "enum_fields": [
+                    {"Outset": {}},
+                    {"Inset": {}}
+                ]
+            },
             "BoxShadowPreDisplayItem": {
+                "exxternal": "azul_css::BoxShadowPreDisplayItem",
+                "struct_fields": [
+                    { "offset": "[PixelValueNoPercent;2]" },
+                    { "color": "ColorU" },
+                    { "blur_radius": "PixelValueNoPercent" },
+                    { "spread_radius": "PixelValueNoPercent" },
+                    { "clip_mode": "BoxShadowClipMode" }
+                ],
                 "constructors": { }
             },
             "LayoutAlignContent": {

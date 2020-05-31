@@ -758,13 +758,14 @@ pub fn parse_pixel_value<'a>(input: &'a str)
 
 pub fn parse_pixel_value_no_percent<'a>(input: &'a str)
 -> Result<PixelValueNoPercent, PixelParseError<'a>> {
-    Ok(PixelValueNoPercent(
+    Ok(PixelValueNoPercent {
+        inner:
         parse_pixel_value_inner(input, &[
             ("px", SizeMetric::Px),
             ("em", SizeMetric::Em),
             ("pt", SizeMetric::Pt),
         ])?
-    ))
+    })
 }
 
 /// parse a single value such as "15px"
@@ -1499,10 +1500,13 @@ pub fn parse_style_box_shadow<'a>(input: &'a str)
     let count = input_iter.clone().count();
 
     let mut box_shadow = BoxShadowPreDisplayItem {
-        offset: [PixelValueNoPercent(PixelValue::const_px(0)), PixelValueNoPercent(PixelValue::const_px(0))],
+        offset: [
+            PixelValueNoPercent { inner: PixelValue::const_px(0) },
+            PixelValueNoPercent { inner: PixelValue::const_px(0) }
+        ],
         color: ColorU { r: 0, g: 0, b: 0, a: 255 },
-        blur_radius: PixelValueNoPercent(PixelValue::const_px(0)),
-        spread_radius: PixelValueNoPercent(PixelValue::const_px(0)),
+        blur_radius: PixelValueNoPercent { inner: PixelValue::const_px(0) },
+        spread_radius: PixelValueNoPercent { inner: PixelValue::const_px(0) },
         clip_mode: BoxShadowClipMode::Outset,
     };
 
@@ -2513,8 +2517,8 @@ mod css_tests {
             parse_style_box_shadow("5px 10px"),
             Ok(BoxShadowPreDisplayItem {
                 offset: [
-                    PixelValueNoPercent(PixelValue::px(5.0)),
-                    PixelValueNoPercent(PixelValue::px(10.0))
+                    PixelValueNoPercent { inner: PixelValue::px(5.0) },
+                    PixelValueNoPercent { inner: PixelValue::px(10.0) },
                 ],
                 color: ColorU {
                     r: 0,
@@ -2522,8 +2526,8 @@ mod css_tests {
                     b: 0,
                     a: 255
                 },
-                blur_radius: PixelValueNoPercent(PixelValue::px(0.0)),
-                spread_radius: PixelValueNoPercent(PixelValue::px(0.0)),
+                blur_radius: PixelValueNoPercent { inner: PixelValue::px(0.0) },
+                spread_radius: PixelValueNoPercent { inner: PixelValue::px(0.0) },
                 clip_mode: BoxShadowClipMode::Outset,
             })
         );
@@ -2535,8 +2539,8 @@ mod css_tests {
             parse_style_box_shadow("5px 10px #888888"),
             Ok(BoxShadowPreDisplayItem {
                 offset: [
-                    PixelValueNoPercent(PixelValue::px(5.0)),
-                    PixelValueNoPercent(PixelValue::px(10.0))
+                    PixelValueNoPercent { inner: PixelValue::px(5.0) },
+                    PixelValueNoPercent { inner: PixelValue::px(10.0) },
                 ],
                 color: ColorU {
                     r: 136,
@@ -2544,8 +2548,8 @@ mod css_tests {
                     b: 136,
                     a: 255
                 },
-                blur_radius: PixelValueNoPercent(PixelValue::px(0.0)),
-                spread_radius: PixelValueNoPercent(PixelValue::px(0.0)),
+                blur_radius: PixelValueNoPercent { inner: PixelValue::px(0.0) },
+                spread_radius: PixelValueNoPercent { inner: PixelValue::px(0.0) },
                 clip_mode: BoxShadowClipMode::Outset,
             })
         );
@@ -2557,8 +2561,8 @@ mod css_tests {
             parse_style_box_shadow("5px 10px inset"),
             Ok(BoxShadowPreDisplayItem {
                 offset: [
-                    PixelValueNoPercent(PixelValue::px(5.0)),
-                    PixelValueNoPercent(PixelValue::px(10.0))
+                    PixelValueNoPercent { inner: PixelValue::px(5.0) },
+                    PixelValueNoPercent { inner: PixelValue::px(10.0) },
                 ],
                 color: ColorU {
                     r: 0,
@@ -2566,8 +2570,8 @@ mod css_tests {
                     b: 0,
                     a: 255
                 },
-                blur_radius: PixelValueNoPercent(PixelValue::px(0.0)),
-                spread_radius: PixelValueNoPercent(PixelValue::px(0.0)),
+                blur_radius: PixelValueNoPercent { inner: PixelValue::px(0.0) },
+                spread_radius: PixelValueNoPercent { inner: PixelValue::px(0.0) },
                 clip_mode: BoxShadowClipMode::Inset,
             })
         );
@@ -2579,8 +2583,8 @@ mod css_tests {
             parse_style_box_shadow("5px 10px outset"),
             Ok(BoxShadowPreDisplayItem {
                 offset: [
-                    PixelValueNoPercent(PixelValue::px(5.0)),
-                    PixelValueNoPercent(PixelValue::px(10.0))
+                    PixelValueNoPercent { inner: PixelValue::px(5.0) },
+                    PixelValueNoPercent { inner: PixelValue::px(10.0) },
                 ],
                 color: ColorU {
                     r: 0,
@@ -2588,8 +2592,8 @@ mod css_tests {
                     b: 0,
                     a: 255
                 },
-                blur_radius: PixelValueNoPercent(PixelValue::px(0.0)),
-                spread_radius: PixelValueNoPercent(PixelValue::px(0.0)),
+                blur_radius: PixelValueNoPercent { inner: PixelValue::px(0.0) },
+                spread_radius: PixelValueNoPercent { inner: PixelValue::px(0.0) },
                 clip_mode: BoxShadowClipMode::Outset,
             })
         );
@@ -2601,8 +2605,8 @@ mod css_tests {
             parse_style_box_shadow("5px 10px 5px #888888"),
             Ok(BoxShadowPreDisplayItem {
                 offset: [
-                    PixelValueNoPercent(PixelValue::px(5.0)),
-                    PixelValueNoPercent(PixelValue::px(10.0))
+                    PixelValueNoPercent { inner: PixelValue::px(5.0) },
+                    PixelValueNoPercent { inner: PixelValue::px(10.0) },
                 ],
                 color: ColorU {
                     r: 136,
@@ -2610,8 +2614,8 @@ mod css_tests {
                     b: 136,
                     a: 255
                 },
-                blur_radius: PixelValueNoPercent(PixelValue::px(5.0)),
-                spread_radius: PixelValueNoPercent(PixelValue::px(0.0)),
+                blur_radius: PixelValueNoPercent { inner: PixelValue::px(5.0) },
+                spread_radius: PixelValueNoPercent { inner: PixelValue::px(0.0) },
                 clip_mode: BoxShadowClipMode::Outset,
             })
         );
@@ -2623,8 +2627,8 @@ mod css_tests {
             parse_style_box_shadow("5px 10px #888888 inset"),
             Ok(BoxShadowPreDisplayItem {
                 offset: [
-                    PixelValueNoPercent(PixelValue::px(5.0)),
-                    PixelValueNoPercent(PixelValue::px(10.0))
+                    PixelValueNoPercent { inner: PixelValue::px(5.0) },
+                    PixelValueNoPercent { inner: PixelValue::px(10.0) },
                 ],
                 color: ColorU {
                     r: 136,
@@ -2632,8 +2636,8 @@ mod css_tests {
                     b: 136,
                     a: 255
                 },
-                blur_radius: PixelValueNoPercent(PixelValue::px(0.0)),
-                spread_radius: PixelValueNoPercent(PixelValue::px(0.0)),
+                blur_radius: PixelValueNoPercent { inner: PixelValue::px(0.0) },
+                spread_radius: PixelValueNoPercent { inner: PixelValue::px(0.0) },
                 clip_mode: BoxShadowClipMode::Inset,
             })
         );
@@ -2645,8 +2649,8 @@ mod css_tests {
             parse_style_box_shadow("5px 10px 5px #888888 inset"),
             Ok(BoxShadowPreDisplayItem {
                 offset: [
-                    PixelValueNoPercent(PixelValue::px(5.0)),
-                    PixelValueNoPercent(PixelValue::px(10.0))
+                    PixelValueNoPercent { inner: PixelValue::px(5.0) },
+                    PixelValueNoPercent { inner: PixelValue::px(10.0) },
                 ],
                 color: ColorU {
                     r: 136,
@@ -2654,8 +2658,8 @@ mod css_tests {
                     b: 136,
                     a: 255
                 },
-                blur_radius: PixelValueNoPercent(PixelValue::px(5.0)),
-                spread_radius: PixelValueNoPercent(PixelValue::px(0.0)),
+                blur_radius: PixelValueNoPercent { inner: PixelValue::px(5.0) },
+                spread_radius: PixelValueNoPercent { inner: PixelValue::px(0.0) },
                 clip_mode: BoxShadowClipMode::Inset,
             })
         );
@@ -2667,8 +2671,8 @@ mod css_tests {
             parse_style_box_shadow("5px 10px 5px 10px #888888"),
             Ok(BoxShadowPreDisplayItem {
                 offset: [
-                    PixelValueNoPercent(PixelValue::px(5.0)),
-                    PixelValueNoPercent(PixelValue::px(10.0)),
+                    PixelValueNoPercent { inner: PixelValue::px(5.0) },
+                    PixelValueNoPercent { inner: PixelValue::px(10.0) },
                 ],
                 color: ColorU {
                     r: 136,
@@ -2676,8 +2680,8 @@ mod css_tests {
                     b: 136,
                     a: 255
                 },
-                blur_radius: PixelValueNoPercent(PixelValue::px(5.0)),
-                spread_radius: PixelValueNoPercent(PixelValue::px(10.0)),
+                blur_radius: PixelValueNoPercent { inner: PixelValue::px(5.0) },
+                spread_radius: PixelValueNoPercent { inner: PixelValue::px(10.0) },
                 clip_mode: BoxShadowClipMode::Outset,
             })
         );
@@ -2689,8 +2693,8 @@ mod css_tests {
             parse_style_box_shadow("5px 10px 5px 10px #888888 inset"),
             Ok(BoxShadowPreDisplayItem {
                 offset: [
-                    PixelValueNoPercent(PixelValue::px(5.0)),
-                    PixelValueNoPercent(PixelValue::px(10.0))
+                    PixelValueNoPercent { inner: PixelValue::px(5.0) },
+                    PixelValueNoPercent { inner: PixelValue::px(10.0) },
                 ],
                 color: ColorU {
                     r: 136,
@@ -2698,8 +2702,8 @@ mod css_tests {
                     b: 136,
                     a: 255
                 },
-                blur_radius: PixelValueNoPercent(PixelValue::px(5.0)),
-                spread_radius: PixelValueNoPercent(PixelValue::px(10.0)),
+                blur_radius: PixelValueNoPercent { inner: PixelValue::px(5.0) },
+                spread_radius: PixelValueNoPercent { inner: PixelValue::px(10.0) },
                 clip_mode: BoxShadowClipMode::Inset,
             })
         );

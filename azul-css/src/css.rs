@@ -122,6 +122,7 @@ pub struct DynamicCssProperty {
 }
 
 #[derive(Copy, Clone, PartialEq, Eq, Hash, PartialOrd, Ord)]
+#[repr(C, u8)] // necessary for ABI stability
 pub enum CssPropertyValue<T> {
     Auto,
     None,

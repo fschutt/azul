@@ -43,6 +43,12 @@ pub mod dll {
     #[repr(C)] pub struct AzGlCallbackReturnPtr { ptr: *mut c_void, }
     #[repr(C)] pub struct AzLayoutInfoPtr { ptr: *mut c_void, }
     #[repr(C)] pub struct AzCssPtr { ptr: *mut c_void, }
+    #[repr(C)] pub struct AzColorU { object: azul_css::ColorU, }
+    #[repr(C)] pub struct AzSizeMetric { object: azul_css::SizeMetric, }
+    #[repr(C)] pub struct AzFloatValue { object: azul_css::FloatValue, }
+    #[repr(C)] pub struct AzPixelValue { object: azul_css::PixelValue, }
+    #[repr(C)] pub struct AzPixelValueNoPercent { object: azul_css::PixelValueNoPercent, }
+    #[repr(C)] pub struct AzBoxShadowClipMode { object: azul_css::BoxShadowClipMode, }
     #[repr(C)] pub struct AzBoxShadowPreDisplayItemPtr { ptr: *mut c_void, }
     #[repr(C)] pub struct AzLayoutAlignContentPtr { ptr: *mut c_void, }
     #[repr(C)] pub struct AzLayoutAlignItemsPtr { ptr: *mut c_void, }
@@ -227,6 +233,24 @@ pub mod dll {
         az_css_empty: Symbol<extern fn() -> AzCssPtr>,
         az_css_delete: Symbol<extern fn(_: &mut AzCssPtr)>,
         az_css_shallow_copy: Symbol<extern fn(_: &AzCssPtr) -> AzCssPtr>,
+        az_color_u_delete: Symbol<extern fn(_: &mut AzColorU)>,
+        az_color_u_deep_copy: Symbol<extern fn(_: &AzColorU) -> AzColorU>,
+        az_size_metric_px: Symbol<extern fn() -> AzSizeMetric>,
+        az_size_metric_pt: Symbol<extern fn() -> AzSizeMetric>,
+        az_size_metric_em: Symbol<extern fn() -> AzSizeMetric>,
+        az_size_metric_percent: Symbol<extern fn() -> AzSizeMetric>,
+        az_size_metric_delete: Symbol<extern fn(_: &mut AzSizeMetric)>,
+        az_size_metric_deep_copy: Symbol<extern fn(_: &AzSizeMetric) -> AzSizeMetric>,
+        az_float_value_delete: Symbol<extern fn(_: &mut AzFloatValue)>,
+        az_float_value_deep_copy: Symbol<extern fn(_: &AzFloatValue) -> AzFloatValue>,
+        az_pixel_value_delete: Symbol<extern fn(_: &mut AzPixelValue)>,
+        az_pixel_value_deep_copy: Symbol<extern fn(_: &AzPixelValue) -> AzPixelValue>,
+        az_pixel_value_no_percent_delete: Symbol<extern fn(_: &mut AzPixelValueNoPercent)>,
+        az_pixel_value_no_percent_deep_copy: Symbol<extern fn(_: &AzPixelValueNoPercent) -> AzPixelValueNoPercent>,
+        az_box_shadow_clip_mode_outset: Symbol<extern fn() -> AzBoxShadowClipMode>,
+        az_box_shadow_clip_mode_inset: Symbol<extern fn() -> AzBoxShadowClipMode>,
+        az_box_shadow_clip_mode_delete: Symbol<extern fn(_: &mut AzBoxShadowClipMode)>,
+        az_box_shadow_clip_mode_deep_copy: Symbol<extern fn(_: &AzBoxShadowClipMode) -> AzBoxShadowClipMode>,
         az_box_shadow_pre_display_item_delete: Symbol<extern fn(_: &mut AzBoxShadowPreDisplayItemPtr)>,
         az_box_shadow_pre_display_item_shallow_copy: Symbol<extern fn(_: &AzBoxShadowPreDisplayItemPtr) -> AzBoxShadowPreDisplayItemPtr>,
         az_layout_align_content_delete: Symbol<extern fn(_: &mut AzLayoutAlignContentPtr)>,
@@ -1021,6 +1045,24 @@ pub mod dll {
         let az_css_empty = unsafe { lib.get::<extern fn() -> AzCssPtr>(b"az_css_empty").ok()? };
         let az_css_delete = unsafe { lib.get::<extern fn(_: &mut AzCssPtr)>(b"az_css_delete").ok()? };
         let az_css_shallow_copy = unsafe { lib.get::<extern fn(_: &AzCssPtr) -> AzCssPtr>(b"az_css_shallow_copy").ok()? };
+        let az_color_u_delete = unsafe { lib.get::<extern fn(_: &mut AzColorU)>(b"az_color_u_delete").ok()? };
+        let az_color_u_deep_copy = unsafe { lib.get::<extern fn(_: &AzColorU) -> AzColorU>(b"az_color_u_deep_copy").ok()? };
+        let az_size_metric_px = unsafe { lib.get::<extern fn() -> AzSizeMetric>(b"az_size_metric_px").ok()? };
+        let az_size_metric_pt = unsafe { lib.get::<extern fn() -> AzSizeMetric>(b"az_size_metric_pt").ok()? };
+        let az_size_metric_em = unsafe { lib.get::<extern fn() -> AzSizeMetric>(b"az_size_metric_em").ok()? };
+        let az_size_metric_percent = unsafe { lib.get::<extern fn() -> AzSizeMetric>(b"az_size_metric_percent").ok()? };
+        let az_size_metric_delete = unsafe { lib.get::<extern fn(_: &mut AzSizeMetric)>(b"az_size_metric_delete").ok()? };
+        let az_size_metric_deep_copy = unsafe { lib.get::<extern fn(_: &AzSizeMetric) -> AzSizeMetric>(b"az_size_metric_deep_copy").ok()? };
+        let az_float_value_delete = unsafe { lib.get::<extern fn(_: &mut AzFloatValue)>(b"az_float_value_delete").ok()? };
+        let az_float_value_deep_copy = unsafe { lib.get::<extern fn(_: &AzFloatValue) -> AzFloatValue>(b"az_float_value_deep_copy").ok()? };
+        let az_pixel_value_delete = unsafe { lib.get::<extern fn(_: &mut AzPixelValue)>(b"az_pixel_value_delete").ok()? };
+        let az_pixel_value_deep_copy = unsafe { lib.get::<extern fn(_: &AzPixelValue) -> AzPixelValue>(b"az_pixel_value_deep_copy").ok()? };
+        let az_pixel_value_no_percent_delete = unsafe { lib.get::<extern fn(_: &mut AzPixelValueNoPercent)>(b"az_pixel_value_no_percent_delete").ok()? };
+        let az_pixel_value_no_percent_deep_copy = unsafe { lib.get::<extern fn(_: &AzPixelValueNoPercent) -> AzPixelValueNoPercent>(b"az_pixel_value_no_percent_deep_copy").ok()? };
+        let az_box_shadow_clip_mode_outset = unsafe { lib.get::<extern fn() -> AzBoxShadowClipMode>(b"az_box_shadow_clip_mode_outset").ok()? };
+        let az_box_shadow_clip_mode_inset = unsafe { lib.get::<extern fn() -> AzBoxShadowClipMode>(b"az_box_shadow_clip_mode_inset").ok()? };
+        let az_box_shadow_clip_mode_delete = unsafe { lib.get::<extern fn(_: &mut AzBoxShadowClipMode)>(b"az_box_shadow_clip_mode_delete").ok()? };
+        let az_box_shadow_clip_mode_deep_copy = unsafe { lib.get::<extern fn(_: &AzBoxShadowClipMode) -> AzBoxShadowClipMode>(b"az_box_shadow_clip_mode_deep_copy").ok()? };
         let az_box_shadow_pre_display_item_delete = unsafe { lib.get::<extern fn(_: &mut AzBoxShadowPreDisplayItemPtr)>(b"az_box_shadow_pre_display_item_delete").ok()? };
         let az_box_shadow_pre_display_item_shallow_copy = unsafe { lib.get::<extern fn(_: &AzBoxShadowPreDisplayItemPtr) -> AzBoxShadowPreDisplayItemPtr>(b"az_box_shadow_pre_display_item_shallow_copy").ok()? };
         let az_layout_align_content_delete = unsafe { lib.get::<extern fn(_: &mut AzLayoutAlignContentPtr)>(b"az_layout_align_content_delete").ok()? };
@@ -1813,6 +1855,24 @@ pub mod dll {
             az_css_empty,
             az_css_delete,
             az_css_shallow_copy,
+            az_color_u_delete,
+            az_color_u_deep_copy,
+            az_size_metric_px,
+            az_size_metric_pt,
+            az_size_metric_em,
+            az_size_metric_percent,
+            az_size_metric_delete,
+            az_size_metric_deep_copy,
+            az_float_value_delete,
+            az_float_value_deep_copy,
+            az_pixel_value_delete,
+            az_pixel_value_deep_copy,
+            az_pixel_value_no_percent_delete,
+            az_pixel_value_no_percent_deep_copy,
+            az_box_shadow_clip_mode_outset,
+            az_box_shadow_clip_mode_inset,
+            az_box_shadow_clip_mode_delete,
+            az_box_shadow_clip_mode_deep_copy,
             az_box_shadow_pre_display_item_delete,
             az_box_shadow_pre_display_item_shallow_copy,
             az_layout_align_content_delete,
@@ -2968,6 +3028,78 @@ pub mod css {
     }
 
     impl Drop for Css { fn drop(&mut self) { az_css_delete(&mut self.ptr); } }
+
+
+    /// `ColorU` struct
+    pub struct ColorU { pub(crate) object: AzColorU }
+
+    impl ColorU {
+       /// Prevents the destructor from running and returns the internal `AzColorU`
+       pub fn leak(self) -> AzColorU { az_color_u_deep_copy(&self.object) }
+    }
+
+    impl Drop for ColorU { fn drop(&mut self) { az_color_u_delete(&mut self.object); } }
+
+
+    /// `SizeMetric` struct
+    pub struct SizeMetric { pub(crate) object: AzSizeMetric }
+
+    impl SizeMetric {
+        pub fn px() -> Self { Self { object: az_size_metric_px() }  }
+        pub fn pt() -> Self { Self { object: az_size_metric_pt() }  }
+        pub fn em() -> Self { Self { object: az_size_metric_em() }  }
+        pub fn percent() -> Self { Self { object: az_size_metric_percent() }  }
+       /// Prevents the destructor from running and returns the internal `AzSizeMetric`
+       pub fn leak(self) -> AzSizeMetric { az_size_metric_deep_copy(&self.object) }
+    }
+
+    impl Drop for SizeMetric { fn drop(&mut self) { az_size_metric_delete(&mut self.object); } }
+
+
+    /// `FloatValue` struct
+    pub struct FloatValue { pub(crate) object: AzFloatValue }
+
+    impl FloatValue {
+       /// Prevents the destructor from running and returns the internal `AzFloatValue`
+       pub fn leak(self) -> AzFloatValue { az_float_value_deep_copy(&self.object) }
+    }
+
+    impl Drop for FloatValue { fn drop(&mut self) { az_float_value_delete(&mut self.object); } }
+
+
+    /// `PixelValue` struct
+    pub struct PixelValue { pub(crate) object: AzPixelValue }
+
+    impl PixelValue {
+       /// Prevents the destructor from running and returns the internal `AzPixelValue`
+       pub fn leak(self) -> AzPixelValue { az_pixel_value_deep_copy(&self.object) }
+    }
+
+    impl Drop for PixelValue { fn drop(&mut self) { az_pixel_value_delete(&mut self.object); } }
+
+
+    /// `PixelValueNoPercent` struct
+    pub struct PixelValueNoPercent { pub(crate) object: AzPixelValueNoPercent }
+
+    impl PixelValueNoPercent {
+       /// Prevents the destructor from running and returns the internal `AzPixelValueNoPercent`
+       pub fn leak(self) -> AzPixelValueNoPercent { az_pixel_value_no_percent_deep_copy(&self.object) }
+    }
+
+    impl Drop for PixelValueNoPercent { fn drop(&mut self) { az_pixel_value_no_percent_delete(&mut self.object); } }
+
+
+    /// `BoxShadowClipMode` struct
+    pub struct BoxShadowClipMode { pub(crate) object: AzBoxShadowClipMode }
+
+    impl BoxShadowClipMode {
+        pub fn outset() -> Self { Self { object: az_box_shadow_clip_mode_outset() }  }
+        pub fn inset() -> Self { Self { object: az_box_shadow_clip_mode_inset() }  }
+       /// Prevents the destructor from running and returns the internal `AzBoxShadowClipMode`
+       pub fn leak(self) -> AzBoxShadowClipMode { az_box_shadow_clip_mode_deep_copy(&self.object) }
+    }
+
+    impl Drop for BoxShadowClipMode { fn drop(&mut self) { az_box_shadow_clip_mode_delete(&mut self.object); } }
 
 
     /// `BoxShadowPreDisplayItem` struct
@@ -4671,8 +4803,8 @@ pub mod dom {
 
     use azul_dll::*;
     use crate::str::String;
-    use crate::resources::{ImageId, TextId};
-    use crate::callbacks::{IFrameCallback, GlCallback, Callback, RefAny};
+    use crate::resources::{TextId, ImageId};
+    use crate::callbacks::{Callback, IFrameCallback, GlCallback, RefAny};
     use crate::vec::StringVec;
     use crate::css::CssProperty;
 

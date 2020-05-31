@@ -269,6 +269,7 @@ impl PixelSize {
 
 /// Offsets of the border-width calculations
 #[derive(Debug, Copy, Clone, PartialEq, Ord, PartialOrd, Eq, Hash)]
+#[repr(C)]
 pub struct LayoutSideOffsets {
     pub top: FloatValue,
     pub right: FloatValue,
@@ -278,6 +279,7 @@ pub struct LayoutSideOffsets {
 
 /// u8-based color, range 0 to 255 (similar to webrenders ColorU)
 #[derive(Copy, Clone, PartialEq, Ord, PartialOrd, Eq, Hash)]
+#[repr(C)]
 pub struct ColorU { pub r: u8, pub g: u8, pub b: u8, pub a: u8 }
 
 impl Default for ColorU { fn default() -> Self { ColorU::BLACK } }
@@ -367,6 +369,7 @@ pub struct NormalBorder {
 }
 
 #[derive(Debug, Copy, Clone, PartialEq, Ord, PartialOrd, Eq, Hash)]
+#[repr(C)]
 pub struct BorderSide {
     pub color: ColorU,
     pub style: BorderStyle,
@@ -374,6 +377,7 @@ pub struct BorderSide {
 
 /// What direction should a `box-shadow` be clipped in (inset or outset)
 #[derive(Debug, Copy, Clone, PartialEq, Ord, PartialOrd, Eq, Hash)]
+#[repr(C)]
 pub enum BoxShadowClipMode {
     Outset,
     Inset,
@@ -1306,22 +1310,24 @@ const FP_PRECISION_MULTIPLIER_CONST: isize = FP_PRECISION_MULTIPLIER as isize;
 
 /// Same as PixelValue, but doesn't allow a "%" sign
 #[derive(Default, Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
-pub struct PixelValueNoPercent(pub PixelValue);
+#[repr(C)]
+pub struct PixelValueNoPercent { pub inner: PixelValue }
 
 impl fmt::Display for PixelValueNoPercent {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        write!(f, "{}", self.0)
+        write!(f, "{}", self.inner)
     }
 }
 
 impl PixelValueNoPercent {
     pub fn to_pixels(&self) -> f32 {
-        self.0.to_pixels(0.0)
+        self.inner.to_pixels(0.0)
     }
 }
 
 /// FloatValue, but associated with a certain metric (i.e. px, em, etc.)
 #[derive(Default, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
+#[repr(C)]
 pub struct PixelValue {
     pub metric: SizeMetric,
     pub number: FloatValue,
@@ -1445,6 +1451,7 @@ impl PixelValue {
 /// Wrapper around FloatValue, represents a percentage instead
 /// of just being a regular floating-point value, i.e `5` = `5%`
 #[derive(Default, Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
+#[repr(C)]
 pub struct PercentageValue {
     number: FloatValue,
 }
@@ -1475,6 +1482,7 @@ impl PercentageValue {
 /// Wrapper around an f32 value that is internally casted to an isize,
 /// in order to provide hash-ability (to avoid numerical instability).
 #[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
+#[repr(C)]
 pub struct FloatValue {
     pub number: isize,
 }
@@ -1517,6 +1525,7 @@ impl From<f32> for FloatValue {
 
 /// Enum representing the metric associated with a number (px, pt, em, etc.)
 #[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
+#[repr(C)]
 pub enum SizeMetric {
     Px,
     Pt,
@@ -1683,6 +1692,7 @@ pub struct StyleBorderSide {
 
 // missing StyleBorderRadius & LayoutRect
 #[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
+#[repr(C)]
 pub struct BoxShadowPreDisplayItem {
     pub offset: [PixelValueNoPercent;2],
     pub color: ColorU,
