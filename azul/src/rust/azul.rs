@@ -43,13 +43,14 @@ pub mod dll {
     #[repr(C)] pub struct AzGlCallbackReturnPtr { ptr: *mut c_void, }
     #[repr(C)] pub struct AzLayoutInfoPtr { ptr: *mut c_void, }
     #[repr(C)] pub struct AzCssPtr { ptr: *mut c_void, }
+    #[repr(C)] pub struct AzCssHotReloaderPtr { ptr: *mut c_void, }
     #[repr(C)] pub struct AzColorU { object: azul_css::ColorU, }
     #[repr(C)] pub struct AzSizeMetric { object: azul_css::SizeMetric, }
     #[repr(C)] pub struct AzFloatValue { object: azul_css::FloatValue, }
     #[repr(C)] pub struct AzPixelValue { object: azul_css::PixelValue, }
     #[repr(C)] pub struct AzPixelValueNoPercent { object: azul_css::PixelValueNoPercent, }
     #[repr(C)] pub struct AzBoxShadowClipMode { object: azul_css::BoxShadowClipMode, }
-    #[repr(C)] pub struct AzBoxShadowPreDisplayItemPtr { ptr: *mut c_void, }
+    #[repr(C)] pub struct AzBoxShadowPreDisplayItem { object: azul_css::BoxShadowPreDisplayItem, }
     #[repr(C)] pub struct AzLayoutAlignContentPtr { ptr: *mut c_void, }
     #[repr(C)] pub struct AzLayoutAlignItemsPtr { ptr: *mut c_void, }
     #[repr(C)] pub struct AzLayoutBottomPtr { ptr: *mut c_void, }
@@ -231,8 +232,14 @@ pub mod dll {
         az_layout_info_shallow_copy: Symbol<extern fn(_: &AzLayoutInfoPtr) -> AzLayoutInfoPtr>,
         az_css_native: Symbol<extern fn() -> AzCssPtr>,
         az_css_empty: Symbol<extern fn() -> AzCssPtr>,
+        az_css_from_string: Symbol<extern fn(_: AzString) -> AzCssPtr>,
+        az_css_override_native: Symbol<extern fn(_: AzString) -> AzCssPtr>,
         az_css_delete: Symbol<extern fn(_: &mut AzCssPtr)>,
         az_css_shallow_copy: Symbol<extern fn(_: &AzCssPtr) -> AzCssPtr>,
+        az_css_hot_reloader_new: Symbol<extern fn(_: usize) -> AzCssHotReloaderPtr>,
+        az_css_hot_reloader_override_native: Symbol<extern fn(_: usize) -> AzCssHotReloaderPtr>,
+        az_css_hot_reloader_delete: Symbol<extern fn(_: &mut AzCssHotReloaderPtr)>,
+        az_css_hot_reloader_shallow_copy: Symbol<extern fn(_: &AzCssHotReloaderPtr) -> AzCssHotReloaderPtr>,
         az_color_u_delete: Symbol<extern fn(_: &mut AzColorU)>,
         az_color_u_deep_copy: Symbol<extern fn(_: &AzColorU) -> AzColorU>,
         az_size_metric_px: Symbol<extern fn() -> AzSizeMetric>,
@@ -251,8 +258,8 @@ pub mod dll {
         az_box_shadow_clip_mode_inset: Symbol<extern fn() -> AzBoxShadowClipMode>,
         az_box_shadow_clip_mode_delete: Symbol<extern fn(_: &mut AzBoxShadowClipMode)>,
         az_box_shadow_clip_mode_deep_copy: Symbol<extern fn(_: &AzBoxShadowClipMode) -> AzBoxShadowClipMode>,
-        az_box_shadow_pre_display_item_delete: Symbol<extern fn(_: &mut AzBoxShadowPreDisplayItemPtr)>,
-        az_box_shadow_pre_display_item_shallow_copy: Symbol<extern fn(_: &AzBoxShadowPreDisplayItemPtr) -> AzBoxShadowPreDisplayItemPtr>,
+        az_box_shadow_pre_display_item_delete: Symbol<extern fn(_: &mut AzBoxShadowPreDisplayItem)>,
+        az_box_shadow_pre_display_item_deep_copy: Symbol<extern fn(_: &AzBoxShadowPreDisplayItem) -> AzBoxShadowPreDisplayItem>,
         az_layout_align_content_delete: Symbol<extern fn(_: &mut AzLayoutAlignContentPtr)>,
         az_layout_align_content_shallow_copy: Symbol<extern fn(_: &AzLayoutAlignContentPtr) -> AzLayoutAlignContentPtr>,
         az_layout_align_items_delete: Symbol<extern fn(_: &mut AzLayoutAlignItemsPtr)>,
@@ -375,7 +382,7 @@ pub mod dll {
         az_box_shadow_pre_display_item_value_none: Symbol<extern fn() -> AzBoxShadowPreDisplayItemValue>,
         az_box_shadow_pre_display_item_value_inherit: Symbol<extern fn() -> AzBoxShadowPreDisplayItemValue>,
         az_box_shadow_pre_display_item_value_initial: Symbol<extern fn() -> AzBoxShadowPreDisplayItemValue>,
-        az_box_shadow_pre_display_item_value_exact: Symbol<extern fn(_: AzBoxShadowPreDisplayItemPtr) -> AzBoxShadowPreDisplayItemValue>,
+        az_box_shadow_pre_display_item_value_exact: Symbol<extern fn(_: AzBoxShadowPreDisplayItem) -> AzBoxShadowPreDisplayItemValue>,
         az_box_shadow_pre_display_item_value_delete: Symbol<extern fn(_: &mut AzBoxShadowPreDisplayItemValue)>,
         az_box_shadow_pre_display_item_value_deep_copy: Symbol<extern fn(_: &AzBoxShadowPreDisplayItemValue) -> AzBoxShadowPreDisplayItemValue>,
         az_layout_align_content_value_auto: Symbol<extern fn() -> AzLayoutAlignContentValue>,
@@ -1043,8 +1050,14 @@ pub mod dll {
         let az_layout_info_shallow_copy = unsafe { lib.get::<extern fn(_: &AzLayoutInfoPtr) -> AzLayoutInfoPtr>(b"az_layout_info_shallow_copy").ok()? };
         let az_css_native = unsafe { lib.get::<extern fn() -> AzCssPtr>(b"az_css_native").ok()? };
         let az_css_empty = unsafe { lib.get::<extern fn() -> AzCssPtr>(b"az_css_empty").ok()? };
+        let az_css_from_string = unsafe { lib.get::<extern fn(_: AzString) -> AzCssPtr>(b"az_css_from_string").ok()? };
+        let az_css_override_native = unsafe { lib.get::<extern fn(_: AzString) -> AzCssPtr>(b"az_css_override_native").ok()? };
         let az_css_delete = unsafe { lib.get::<extern fn(_: &mut AzCssPtr)>(b"az_css_delete").ok()? };
         let az_css_shallow_copy = unsafe { lib.get::<extern fn(_: &AzCssPtr) -> AzCssPtr>(b"az_css_shallow_copy").ok()? };
+        let az_css_hot_reloader_new = unsafe { lib.get::<extern fn(_: usize) -> AzCssHotReloaderPtr>(b"az_css_hot_reloader_new").ok()? };
+        let az_css_hot_reloader_override_native = unsafe { lib.get::<extern fn(_: usize) -> AzCssHotReloaderPtr>(b"az_css_hot_reloader_override_native").ok()? };
+        let az_css_hot_reloader_delete = unsafe { lib.get::<extern fn(_: &mut AzCssHotReloaderPtr)>(b"az_css_hot_reloader_delete").ok()? };
+        let az_css_hot_reloader_shallow_copy = unsafe { lib.get::<extern fn(_: &AzCssHotReloaderPtr) -> AzCssHotReloaderPtr>(b"az_css_hot_reloader_shallow_copy").ok()? };
         let az_color_u_delete = unsafe { lib.get::<extern fn(_: &mut AzColorU)>(b"az_color_u_delete").ok()? };
         let az_color_u_deep_copy = unsafe { lib.get::<extern fn(_: &AzColorU) -> AzColorU>(b"az_color_u_deep_copy").ok()? };
         let az_size_metric_px = unsafe { lib.get::<extern fn() -> AzSizeMetric>(b"az_size_metric_px").ok()? };
@@ -1063,8 +1076,8 @@ pub mod dll {
         let az_box_shadow_clip_mode_inset = unsafe { lib.get::<extern fn() -> AzBoxShadowClipMode>(b"az_box_shadow_clip_mode_inset").ok()? };
         let az_box_shadow_clip_mode_delete = unsafe { lib.get::<extern fn(_: &mut AzBoxShadowClipMode)>(b"az_box_shadow_clip_mode_delete").ok()? };
         let az_box_shadow_clip_mode_deep_copy = unsafe { lib.get::<extern fn(_: &AzBoxShadowClipMode) -> AzBoxShadowClipMode>(b"az_box_shadow_clip_mode_deep_copy").ok()? };
-        let az_box_shadow_pre_display_item_delete = unsafe { lib.get::<extern fn(_: &mut AzBoxShadowPreDisplayItemPtr)>(b"az_box_shadow_pre_display_item_delete").ok()? };
-        let az_box_shadow_pre_display_item_shallow_copy = unsafe { lib.get::<extern fn(_: &AzBoxShadowPreDisplayItemPtr) -> AzBoxShadowPreDisplayItemPtr>(b"az_box_shadow_pre_display_item_shallow_copy").ok()? };
+        let az_box_shadow_pre_display_item_delete = unsafe { lib.get::<extern fn(_: &mut AzBoxShadowPreDisplayItem)>(b"az_box_shadow_pre_display_item_delete").ok()? };
+        let az_box_shadow_pre_display_item_deep_copy = unsafe { lib.get::<extern fn(_: &AzBoxShadowPreDisplayItem) -> AzBoxShadowPreDisplayItem>(b"az_box_shadow_pre_display_item_deep_copy").ok()? };
         let az_layout_align_content_delete = unsafe { lib.get::<extern fn(_: &mut AzLayoutAlignContentPtr)>(b"az_layout_align_content_delete").ok()? };
         let az_layout_align_content_shallow_copy = unsafe { lib.get::<extern fn(_: &AzLayoutAlignContentPtr) -> AzLayoutAlignContentPtr>(b"az_layout_align_content_shallow_copy").ok()? };
         let az_layout_align_items_delete = unsafe { lib.get::<extern fn(_: &mut AzLayoutAlignItemsPtr)>(b"az_layout_align_items_delete").ok()? };
@@ -1187,7 +1200,7 @@ pub mod dll {
         let az_box_shadow_pre_display_item_value_none = unsafe { lib.get::<extern fn() -> AzBoxShadowPreDisplayItemValue>(b"az_box_shadow_pre_display_item_value_none").ok()? };
         let az_box_shadow_pre_display_item_value_inherit = unsafe { lib.get::<extern fn() -> AzBoxShadowPreDisplayItemValue>(b"az_box_shadow_pre_display_item_value_inherit").ok()? };
         let az_box_shadow_pre_display_item_value_initial = unsafe { lib.get::<extern fn() -> AzBoxShadowPreDisplayItemValue>(b"az_box_shadow_pre_display_item_value_initial").ok()? };
-        let az_box_shadow_pre_display_item_value_exact = unsafe { lib.get::<extern fn(_: AzBoxShadowPreDisplayItemPtr) -> AzBoxShadowPreDisplayItemValue>(b"az_box_shadow_pre_display_item_value_exact").ok()? };
+        let az_box_shadow_pre_display_item_value_exact = unsafe { lib.get::<extern fn(_: AzBoxShadowPreDisplayItem) -> AzBoxShadowPreDisplayItemValue>(b"az_box_shadow_pre_display_item_value_exact").ok()? };
         let az_box_shadow_pre_display_item_value_delete = unsafe { lib.get::<extern fn(_: &mut AzBoxShadowPreDisplayItemValue)>(b"az_box_shadow_pre_display_item_value_delete").ok()? };
         let az_box_shadow_pre_display_item_value_deep_copy = unsafe { lib.get::<extern fn(_: &AzBoxShadowPreDisplayItemValue) -> AzBoxShadowPreDisplayItemValue>(b"az_box_shadow_pre_display_item_value_deep_copy").ok()? };
         let az_layout_align_content_value_auto = unsafe { lib.get::<extern fn() -> AzLayoutAlignContentValue>(b"az_layout_align_content_value_auto").ok()? };
@@ -1853,8 +1866,14 @@ pub mod dll {
             az_layout_info_shallow_copy,
             az_css_native,
             az_css_empty,
+            az_css_from_string,
+            az_css_override_native,
             az_css_delete,
             az_css_shallow_copy,
+            az_css_hot_reloader_new,
+            az_css_hot_reloader_override_native,
+            az_css_hot_reloader_delete,
+            az_css_hot_reloader_shallow_copy,
             az_color_u_delete,
             az_color_u_deep_copy,
             az_size_metric_px,
@@ -1874,7 +1893,7 @@ pub mod dll {
             az_box_shadow_clip_mode_delete,
             az_box_shadow_clip_mode_deep_copy,
             az_box_shadow_pre_display_item_delete,
-            az_box_shadow_pre_display_item_shallow_copy,
+            az_box_shadow_pre_display_item_deep_copy,
             az_layout_align_content_delete,
             az_layout_align_content_shallow_copy,
             az_layout_align_items_delete,
@@ -2769,7 +2788,7 @@ pub mod path {
 pub mod app {
 
     use azul_dll::*;
-    use crate::callbacks::{LayoutCallback, RefAny};
+    use crate::callbacks::{RefAny, LayoutCallback};
     use crate::window::WindowCreateOptions;
 
 
@@ -3013,6 +3032,8 @@ pub type GlCallback = fn(AzGlCallbackInfoPtr) -> AzGlCallbackReturnPtr;
 pub mod css {
 
     use azul_dll::*;
+    use crate::str::String;
+    use crate::path::PathBuf;
 
 
     /// `Css` struct
@@ -3023,11 +3044,30 @@ pub mod css {
         pub fn native() -> Self { Self { ptr: az_css_native() } }
         /// Returns an empty CSS style
         pub fn empty() -> Self { Self { ptr: az_css_empty() } }
+        /// Returns a CSS style parsed from a `String`
+        pub fn from_string(s: String) -> Self { Self { ptr: az_css_from_string(s.leak()) } }
+        /// Appends a parsed stylesheet to `Css::native()`
+        pub fn override_native(s: String) -> Self { Self { ptr: az_css_override_native(s.leak()) } }
        /// Prevents the destructor from running and returns the internal `AzCssPtr`
        pub fn leak(self) -> AzCssPtr { let p = az_css_shallow_copy(&self.ptr); std::mem::forget(self); p }
     }
 
     impl Drop for Css { fn drop(&mut self) { az_css_delete(&mut self.ptr); } }
+
+
+    /// `CssHotReloader` struct
+    pub struct CssHotReloader { pub(crate) ptr: AzCssHotReloaderPtr }
+
+    impl CssHotReloader {
+        /// Creates a `HotReloadHandler` that hot-reloads a CSS file every X milliseconds
+        pub fn new(path: PathBuf, reload_ms: usize) -> Self { Self { ptr: az_css_hot_reloader_new(path.leak(), reload_ms) } }
+        /// Creates a `HotReloadHandler` that overrides the `Css::native()` stylesheet with a CSS file, reloaded every X milliseconds
+        pub fn override_native(path: PathBuf, reload_ms: usize) -> Self { Self { ptr: az_css_hot_reloader_override_native(path.leak(), reload_ms) } }
+       /// Prevents the destructor from running and returns the internal `AzCssHotReloaderPtr`
+       pub fn leak(self) -> AzCssHotReloaderPtr { let p = az_css_hot_reloader_shallow_copy(&self.ptr); std::mem::forget(self); p }
+    }
+
+    impl Drop for CssHotReloader { fn drop(&mut self) { az_css_hot_reloader_delete(&mut self.ptr); } }
 
 
     /// `ColorU` struct
@@ -3103,14 +3143,14 @@ pub mod css {
 
 
     /// `BoxShadowPreDisplayItem` struct
-    pub struct BoxShadowPreDisplayItem { pub(crate) ptr: AzBoxShadowPreDisplayItemPtr }
+    pub struct BoxShadowPreDisplayItem { pub(crate) object: AzBoxShadowPreDisplayItem }
 
     impl BoxShadowPreDisplayItem {
-       /// Prevents the destructor from running and returns the internal `AzBoxShadowPreDisplayItemPtr`
-       pub fn leak(self) -> AzBoxShadowPreDisplayItemPtr { let p = az_box_shadow_pre_display_item_shallow_copy(&self.ptr); std::mem::forget(self); p }
+       /// Prevents the destructor from running and returns the internal `AzBoxShadowPreDisplayItem`
+       pub fn leak(self) -> AzBoxShadowPreDisplayItem { az_box_shadow_pre_display_item_deep_copy(&self.object) }
     }
 
-    impl Drop for BoxShadowPreDisplayItem { fn drop(&mut self) { az_box_shadow_pre_display_item_delete(&mut self.ptr); } }
+    impl Drop for BoxShadowPreDisplayItem { fn drop(&mut self) { az_box_shadow_pre_display_item_delete(&mut self.object); } }
 
 
     /// `LayoutAlignContent` struct
@@ -4803,8 +4843,8 @@ pub mod dom {
 
     use azul_dll::*;
     use crate::str::String;
-    use crate::resources::{TextId, ImageId};
-    use crate::callbacks::{Callback, IFrameCallback, GlCallback, RefAny};
+    use crate::resources::{ImageId, TextId};
+    use crate::callbacks::{GlCallback, RefAny, IFrameCallback, Callback};
     use crate::vec::StringVec;
     use crate::css::CssProperty;
 

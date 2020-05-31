@@ -204,13 +204,48 @@
                "constructors": {
                   "native": {
                      "doc": "Loads the native style for the given operating system",
-                     "fn_body":"azul_native_style::native()"
+                     "fn_body":"css::native()"
                   },
                   "empty": {
                      "doc": "Returns an empty CSS style",
-                     "fn_body":"Css::empty()"
+                     "fn_body":"css::empty()"
+                  },
+                  "from_string": {
+                     "doc": "Returns a CSS style parsed from a `String`",
+                     "fn_args": [
+                        {"s": "String"}
+                     ],
+                     "fn_body":"css::from_str(&*az_string_downcast(s)).unwrap()"
+                  },
+                  "override_native": {
+                     "doc": "Appends a parsed stylesheet to `Css::native()`",
+                     "fn_args": [
+                        {"s": "String"}
+                     ],
+                     "fn_body":"css::override_native(&*az_string_downcast(s)).unwrap()"
                   }
                }
+            },
+            "CssHotReloader": {
+                "rust_class_name": "Box<dyn HotReloadHandler>",
+                "constructors": {
+                    "new": {
+                        "doc": "Creates a `HotReloadHandler` that hot-reloads a CSS file every X milliseconds",
+                        "fn_args": [
+                            {"path": "PathBuf"},
+                            {"reload_ms": "usize"}
+                        ],
+                        "fn_body":"css::hot_reload(*az_path_buf_downcast(path), Duration::from_millis(reload_ms))"
+                    },
+                    "override_native": {
+                        "doc": "Creates a `HotReloadHandler` that overrides the `Css::native()` stylesheet with a CSS file, reloaded every X milliseconds",
+                        "fn_args": [
+                            {"path": "PathBuf"},
+                            {"reload_ms": "usize"}
+                        ],
+                        "fn_body":"css::override_native(*az_path_buf_downcast(path), Duration::from_millis(reload_ms))"
+                    }
+                }
             },
             "ColorU": {
                 "external": "azul_css::ColorU",
@@ -257,7 +292,7 @@
                 ]
             },
             "BoxShadowPreDisplayItem": {
-                "exxternal": "azul_css::BoxShadowPreDisplayItem",
+                "external": "azul_css::BoxShadowPreDisplayItem",
                 "struct_fields": [
                     { "offset": "[PixelValueNoPercent;2]" },
                     { "color": "ColorU" },
@@ -268,6 +303,7 @@
                 "constructors": { }
             },
             "LayoutAlignContent": {
+                "external": "azul_css::LayoutAlignContent",
                 "constructors": { }
             },
             "LayoutAlignItems": {

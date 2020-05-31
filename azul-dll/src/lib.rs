@@ -18,25 +18,29 @@
 
 extern crate azul_core;
 extern crate azul_css;
-extern crate azul_native_style;
 #[cfg(target_arch = "wasm32")]
 extern crate azul_web;
 #[cfg(not(target_arch = "wasm32"))]
 extern crate azul_desktop;
 
 use core::ffi::c_void;
-use std::path::PathBuf;
+use std::{path::PathBuf, vec::Vec, string::String, time::Duration};
 use azul_core::{
     dom::Dom,
     callbacks::{RefAny, LayoutInfo, Callback, CallbackInfo, GlCallbackInfo, GlCallbackReturn, IFrameCallbackInfo, IFrameCallbackReturn},
     window::WindowCreateOptions,
     app_resources::{RawImage, RawImageFormat, FontId, TextId, ImageId},
 };
-use azul_css::*;
 #[cfg(not(target_arch = "wasm32"))]
-use azul_desktop::app::{App, AppConfig};
+use azul_desktop::{
+    css,
+    app::{App, AppConfig}
+};
 #[cfg(target_arch = "wasm32")]
-use azul_web::app::{App, AppConfig};
+use azul_web::{
+    css,
+    app::{App, AppConfig}
+};
 /// Re-export of rust-allocated (stack based) `String` struct
 #[no_mangle] #[repr(C)] pub struct AzString { pub object: std::string::String }
 /// Creates + allocates a Rust `String` by **copying** it from another utf8-encoded string
@@ -254,9 +258,13 @@ pub type AzLayoutInfoPtrType = azul_core::callbacks::LayoutInfoPtr;
 /// Pointer to rust-allocated `Box<Css>` struct
 #[no_mangle] #[repr(C)] pub struct AzCssPtr { ptr: *mut c_void }
 /// Loads the native style for the given operating system
-#[no_mangle] #[inline] pub extern "C" fn az_css_native() -> AzCssPtr { let object: Css = azul_native_style::native(); AzCssPtr { ptr: Box::into_raw(Box::new(object)) as *mut c_void } }
+#[no_mangle] #[inline] pub extern "C" fn az_css_native() -> AzCssPtr { let object: Css = css::native(); AzCssPtr { ptr: Box::into_raw(Box::new(object)) as *mut c_void } }
 /// Returns an empty CSS style
-#[no_mangle] #[inline] pub extern "C" fn az_css_empty() -> AzCssPtr { let object: Css = Css::empty(); AzCssPtr { ptr: Box::into_raw(Box::new(object)) as *mut c_void } }
+#[no_mangle] #[inline] pub extern "C" fn az_css_empty() -> AzCssPtr { let object: Css = css::empty(); AzCssPtr { ptr: Box::into_raw(Box::new(object)) as *mut c_void } }
+/// Returns a CSS style parsed from a `String`
+#[no_mangle] #[inline] pub extern "C" fn az_css_from_string(s: AzString) -> AzCssPtr { let object: Css = css::from_str(&*az_string_downcast(s)).unwrap(); AzCssPtr { ptr: Box::into_raw(Box::new(object)) as *mut c_void } }
+/// Appends a parsed stylesheet to `Css::native()`
+#[no_mangle] #[inline] pub extern "C" fn az_css_override_native(s: AzString) -> AzCssPtr { let object: Css = css::override_native(&*az_string_downcast(s)).unwrap(); AzCssPtr { ptr: Box::into_raw(Box::new(object)) as *mut c_void } }
 /// Destructor: Takes ownership of the `Css` pointer and deletes it.
 #[no_mangle] #[inline] pub extern "C" fn az_css_delete(ptr: &mut AzCssPtr) { let _ = unsafe { Box::<Css>::from_raw(ptr.ptr  as *mut Css) }; }
 /// Copies the pointer: WARNING: After calling this function you'll have two pointers to the same Box<`Css`>!.
@@ -267,6 +275,23 @@ pub type AzLayoutInfoPtrType = azul_core::callbacks::LayoutInfoPtr;
 #[inline(always)] fn az_css_downcast_refmut<F: FnOnce(&mut Box<Css>)>(ptr: &mut AzCssPtr, func: F) { let mut box_ptr: Box<Css> = unsafe { Box::<Css>::from_raw(ptr.ptr  as *mut Css) };func(&mut box_ptr);ptr.ptr = Box::into_raw(box_ptr) as *mut c_void; }
 /// (private): Downcasts the `AzCssPtr` to a `&Box<Css>` and runs the `func` closure on it
 #[inline(always)] fn az_css_downcast_ref<P, F: FnOnce(&Box<Css>) -> P>(ptr: &mut AzCssPtr, func: F) -> P { let box_ptr: Box<Css> = unsafe { Box::<Css>::from_raw(ptr.ptr  as *mut Css) }; let ret_val = func(&box_ptr); ptr.ptr = Box::into_raw(box_ptr) as *mut c_void;ret_val }
+
+/// Pointer to rust-allocated `Box<CssHotReloader>` struct
+#[no_mangle] #[repr(C)] pub struct AzCssHotReloaderPtr { ptr: *mut c_void }
+/// Creates a `HotReloadHandler` that hot-reloads a CSS file every X milliseconds
+#[no_mangle] #[inline] pub extern "C" fn az_css_hot_reloader_new(path: AzPathBufPtr, reload_ms: usize) -> AzCssHotReloaderPtr { let object: Box<dyn HotReloadHandler> = css::hot_reload(*az_path_buf_downcast(path), Duration::from_millis(reload_ms)); AzCssHotReloaderPtr { ptr: Box::into_raw(Box::new(object)) as *mut c_void } }
+/// Creates a `HotReloadHandler` that overrides the `Css::native()` stylesheet with a CSS file, reloaded every X milliseconds
+#[no_mangle] #[inline] pub extern "C" fn az_css_hot_reloader_override_native(path: AzPathBufPtr, reload_ms: usize) -> AzCssHotReloaderPtr { let object: Box<dyn HotReloadHandler> = css::override_native(*az_path_buf_downcast(path), Duration::from_millis(reload_ms)); AzCssHotReloaderPtr { ptr: Box::into_raw(Box::new(object)) as *mut c_void } }
+/// Destructor: Takes ownership of the `CssHotReloader` pointer and deletes it.
+#[no_mangle] #[inline] pub extern "C" fn az_css_hot_reloader_delete(ptr: &mut AzCssHotReloaderPtr) { let _ = unsafe { Box::<Box<dyn HotReloadHandler>>::from_raw(ptr.ptr  as *mut Box<dyn HotReloadHandler>) }; }
+/// Copies the pointer: WARNING: After calling this function you'll have two pointers to the same Box<`CssHotReloader`>!.
+#[no_mangle] #[inline] pub extern "C" fn az_css_hot_reloader_shallow_copy(ptr: &AzCssHotReloaderPtr) -> AzCssHotReloaderPtr { AzCssHotReloaderPtr { ptr: ptr.ptr } }
+/// (private): Downcasts the `AzCssHotReloaderPtr` to a `Box<Box<dyn HotReloadHandler>>`. Note that this takes ownership of the pointer.
+#[inline(always)] fn az_css_hot_reloader_downcast(ptr: AzCssHotReloaderPtr) -> Box<Box<dyn HotReloadHandler>> { unsafe { Box::<Box<dyn HotReloadHandler>>::from_raw(ptr.ptr  as *mut Box<dyn HotReloadHandler>) } }
+/// (private): Downcasts the `AzCssHotReloaderPtr` to a `&mut Box<Box<dyn HotReloadHandler>>` and runs the `func` closure on it
+#[inline(always)] fn az_css_hot_reloader_downcast_refmut<F: FnOnce(&mut Box<Box<dyn HotReloadHandler>>)>(ptr: &mut AzCssHotReloaderPtr, func: F) { let mut box_ptr: Box<Box<dyn HotReloadHandler>> = unsafe { Box::<Box<dyn HotReloadHandler>>::from_raw(ptr.ptr  as *mut Box<dyn HotReloadHandler>) };func(&mut box_ptr);ptr.ptr = Box::into_raw(box_ptr) as *mut c_void; }
+/// (private): Downcasts the `AzCssHotReloaderPtr` to a `&Box<Box<dyn HotReloadHandler>>` and runs the `func` closure on it
+#[inline(always)] fn az_css_hot_reloader_downcast_ref<P, F: FnOnce(&Box<Box<dyn HotReloadHandler>>) -> P>(ptr: &mut AzCssHotReloaderPtr, func: F) -> P { let box_ptr: Box<Box<dyn HotReloadHandler>> = unsafe { Box::<Box<dyn HotReloadHandler>>::from_raw(ptr.ptr  as *mut Box<dyn HotReloadHandler>) }; let ret_val = func(&box_ptr); ptr.ptr = Box::into_raw(box_ptr) as *mut c_void;ret_val }
 
 /// Re-export of rust-allocated (stack based) `ColorU` struct
 #[no_mangle] #[repr(C)] pub struct AzColorU { pub object: azul_css::ColorU }
@@ -318,21 +343,15 @@ pub type AzLayoutInfoPtrType = azul_core::callbacks::LayoutInfoPtr;
 /// Copies the object
 #[no_mangle] #[inline] pub extern "C" fn az_box_shadow_clip_mode_deep_copy(object: &AzBoxShadowClipMode) -> AzBoxShadowClipMode { AzBoxShadowClipMode{ object: object.object.clone() } }
 
-/// Pointer to rust-allocated `Box<BoxShadowPreDisplayItem>` struct
-#[no_mangle] #[repr(C)] pub struct AzBoxShadowPreDisplayItemPtr { ptr: *mut c_void }
+/// Re-export of rust-allocated (stack based) `BoxShadowPreDisplayItem` struct
+#[no_mangle] #[repr(C)] pub struct AzBoxShadowPreDisplayItem { pub object: azul_css::BoxShadowPreDisplayItem }
 /// Destructor: Takes ownership of the `BoxShadowPreDisplayItem` pointer and deletes it.
-#[no_mangle] #[inline] pub extern "C" fn az_box_shadow_pre_display_item_delete(ptr: &mut AzBoxShadowPreDisplayItemPtr) { let _ = unsafe { Box::<BoxShadowPreDisplayItem>::from_raw(ptr.ptr  as *mut BoxShadowPreDisplayItem) }; }
-/// Copies the pointer: WARNING: After calling this function you'll have two pointers to the same Box<`BoxShadowPreDisplayItem`>!.
-#[no_mangle] #[inline] pub extern "C" fn az_box_shadow_pre_display_item_shallow_copy(ptr: &AzBoxShadowPreDisplayItemPtr) -> AzBoxShadowPreDisplayItemPtr { AzBoxShadowPreDisplayItemPtr { ptr: ptr.ptr } }
-/// (private): Downcasts the `AzBoxShadowPreDisplayItemPtr` to a `Box<BoxShadowPreDisplayItem>`. Note that this takes ownership of the pointer.
-#[inline(always)] fn az_box_shadow_pre_display_item_downcast(ptr: AzBoxShadowPreDisplayItemPtr) -> Box<BoxShadowPreDisplayItem> { unsafe { Box::<BoxShadowPreDisplayItem>::from_raw(ptr.ptr  as *mut BoxShadowPreDisplayItem) } }
-/// (private): Downcasts the `AzBoxShadowPreDisplayItemPtr` to a `&mut Box<BoxShadowPreDisplayItem>` and runs the `func` closure on it
-#[inline(always)] fn az_box_shadow_pre_display_item_downcast_refmut<F: FnOnce(&mut Box<BoxShadowPreDisplayItem>)>(ptr: &mut AzBoxShadowPreDisplayItemPtr, func: F) { let mut box_ptr: Box<BoxShadowPreDisplayItem> = unsafe { Box::<BoxShadowPreDisplayItem>::from_raw(ptr.ptr  as *mut BoxShadowPreDisplayItem) };func(&mut box_ptr);ptr.ptr = Box::into_raw(box_ptr) as *mut c_void; }
-/// (private): Downcasts the `AzBoxShadowPreDisplayItemPtr` to a `&Box<BoxShadowPreDisplayItem>` and runs the `func` closure on it
-#[inline(always)] fn az_box_shadow_pre_display_item_downcast_ref<P, F: FnOnce(&Box<BoxShadowPreDisplayItem>) -> P>(ptr: &mut AzBoxShadowPreDisplayItemPtr, func: F) -> P { let box_ptr: Box<BoxShadowPreDisplayItem> = unsafe { Box::<BoxShadowPreDisplayItem>::from_raw(ptr.ptr  as *mut BoxShadowPreDisplayItem) }; let ret_val = func(&box_ptr); ptr.ptr = Box::into_raw(box_ptr) as *mut c_void;ret_val }
+#[no_mangle] #[inline] #[allow(unused_variables)] pub extern "C" fn az_box_shadow_pre_display_item_delete(object: &mut AzBoxShadowPreDisplayItem) { }
+/// Copies the object
+#[no_mangle] #[inline] pub extern "C" fn az_box_shadow_pre_display_item_deep_copy(object: &AzBoxShadowPreDisplayItem) -> AzBoxShadowPreDisplayItem { AzBoxShadowPreDisplayItem{ object: object.object.clone() } }
 
 /// Pointer to rust-allocated `Box<LayoutAlignContent>` struct
-#[no_mangle] #[repr(C)] pub struct AzLayoutAlignContentPtr { ptr: *mut c_void }
+#[no_mangle] #[repr(C)] pub struct AzLayoutAlignContentPtr { pub ptr: *mut c_void }
 /// Destructor: Takes ownership of the `LayoutAlignContent` pointer and deletes it.
 #[no_mangle] #[inline] pub extern "C" fn az_layout_align_content_delete(ptr: &mut AzLayoutAlignContentPtr) { let _ = unsafe { Box::<LayoutAlignContent>::from_raw(ptr.ptr  as *mut LayoutAlignContent) }; }
 /// Copies the pointer: WARNING: After calling this function you'll have two pointers to the same Box<`LayoutAlignContent`>!.
@@ -1104,7 +1123,7 @@ pub type AzLayoutInfoPtrType = azul_core::callbacks::LayoutInfoPtr;
 #[inline] #[no_mangle] pub extern "C" fn az_box_shadow_pre_display_item_value_none() -> AzBoxShadowPreDisplayItemValue { AzBoxShadowPreDisplayItemValue { object: azul_css::CssPropertyValue::<BoxShadowPreDisplayItem>::None } }
 #[inline] #[no_mangle] pub extern "C" fn az_box_shadow_pre_display_item_value_inherit() -> AzBoxShadowPreDisplayItemValue { AzBoxShadowPreDisplayItemValue { object: azul_css::CssPropertyValue::<BoxShadowPreDisplayItem>::Inherit } }
 #[inline] #[no_mangle] pub extern "C" fn az_box_shadow_pre_display_item_value_initial() -> AzBoxShadowPreDisplayItemValue { AzBoxShadowPreDisplayItemValue { object: azul_css::CssPropertyValue::<BoxShadowPreDisplayItem>::Initial } }
-#[inline] #[no_mangle] pub extern "C" fn az_box_shadow_pre_display_item_value_exact(variant_data: AzBoxShadowPreDisplayItemPtr) -> AzBoxShadowPreDisplayItemValue { AzBoxShadowPreDisplayItemValue { object: azul_css::CssPropertyValue::<BoxShadowPreDisplayItem>::Exact(*az_box_shadow_pre_display_item_downcast(variant_data)) } }
+#[inline] #[no_mangle] pub extern "C" fn az_box_shadow_pre_display_item_value_exact(variant_data: AzBoxShadowPreDisplayItem) -> AzBoxShadowPreDisplayItemValue { AzBoxShadowPreDisplayItemValue { object: azul_css::CssPropertyValue::<BoxShadowPreDisplayItem>::Exact(variant_data.object) } }
 /// Destructor: Takes ownership of the `BoxShadowPreDisplayItemValue` pointer and deletes it.
 #[no_mangle] #[inline] #[allow(unused_variables)] pub extern "C" fn az_box_shadow_pre_display_item_value_delete(object: &mut AzBoxShadowPreDisplayItemValue) { match object.object { azul_css::CssPropertyValue::<BoxShadowPreDisplayItem>::Auto => { }, azul_css::CssPropertyValue::<BoxShadowPreDisplayItem>::None => { }, azul_css::CssPropertyValue::<BoxShadowPreDisplayItem>::Inherit => { }, azul_css::CssPropertyValue::<BoxShadowPreDisplayItem>::Initial => { }, azul_css::CssPropertyValue::<BoxShadowPreDisplayItem>::Exact(_) => { }, }
 }
