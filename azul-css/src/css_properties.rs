@@ -30,6 +30,15 @@ macro_rules! impl_option {($struct_type:ident, $struct_name:ident) => (
             }
         }
     }
+
+    impl $struct_name {
+        pub fn as_option(&self) -> Option<&$struct_type> {
+            match self {
+                $struct_name::None => None,
+                $struct_name::Some(t) => Some(t),
+            }
+        }
+    }
 )}
 
 pub trait FormatAsCssValue {

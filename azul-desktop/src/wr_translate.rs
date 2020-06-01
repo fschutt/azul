@@ -1488,9 +1488,9 @@ mod background {
         offset_info.clip_rect.origin.x += offset.x;
         offset_info.clip_rect.origin.y += offset.y;
 
-        let stops: Vec<WrGradientStop> = radial_gradient.stops.iter().map(|gradient_pre|
+        let stops: Vec<WrGradientStop> = radial_gradient.stops.as_ref().iter().map(|gradient_pre|
             WrGradientStop {
-                offset: gradient_pre.offset.unwrap().get(),
+                offset: gradient_pre.offset.as_option().unwrap().get(),
                 color: wr_translate_color_u(gradient_pre.color).into(),
             }).collect();
 
@@ -1540,9 +1540,9 @@ mod background {
         offset_info.clip_rect.origin.x += offset.x;
         offset_info.clip_rect.origin.y += offset.y;
 
-        let stops: Vec<WrGradientStop> = linear_gradient.stops.iter().map(|gradient_pre|
+        let stops: Vec<WrGradientStop> = linear_gradient.stops.as_ref().iter().map(|gradient_pre|
             WrGradientStop {
-                offset: gradient_pre.offset.unwrap().get() / 100.0,
+                offset: gradient_pre.offset.as_option().unwrap().get() / 100.0,
                 color: wr_translate_color_u(gradient_pre.color).into(),
             }).collect();
 
@@ -1671,7 +1671,7 @@ mod background {
         };
 
         let ratio = match bg_size {
-            StyleBackgroundSize::ExactSize(w, h) => {
+            StyleBackgroundSize::ExactSize([w, h]) => {
                 let w = w.to_pixels(info.clip_rect.size.width);
                 let h = h.to_pixels(info.clip_rect.size.height);
                 w.min(h)
