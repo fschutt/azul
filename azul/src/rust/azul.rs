@@ -4101,7 +4101,7 @@ pub mod option {
 pub mod app {
 
     use azul_dll::*;
-    use crate::callbacks::{RefAny, LayoutCallback};
+    use crate::callbacks::{LayoutCallback, RefAny};
     use crate::window::WindowCreateOptions;
 
 
@@ -6433,7 +6433,7 @@ pub mod dom {
     use azul_dll::*;
     use crate::str::String;
     use crate::resources::{ImageId, TextId};
-    use crate::callbacks::{RefAny, IFrameCallback, GlCallback, Callback};
+    use crate::callbacks::{RefAny, Callback, GlCallback, IFrameCallback};
     use crate::vec::StringVec;
     use crate::css::CssProperty;
 

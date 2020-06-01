@@ -1,10 +1,9 @@
-#![feature(vec_into_raw_parts)]
-
 //! Provides a public API with datatypes used to describe style properties of DOM nodes.
 
 use std::collections::BTreeMap;
 use std::fmt;
 use crate::css::CssPropertyValue;
+use crate::{AzString, StringVec, GradientStopPreVec};
 
 macro_rules! impl_option {($struct_type:ident, $struct_name:ident) => (
     #[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
@@ -29,106 +28,6 @@ macro_rules! impl_option {($struct_type:ident, $struct_name:ident) => (
                 None => $struct_name::None,
                 Some(t) => $struct_name::Some(t),
             }
-        }
-    }
-)}
-
-macro_rules! impl_vec {($struct_type:ident, $struct_name:ident) => (
-
-    #[repr(C)]
-    pub struct $struct_name {
-        pub ptr: *mut $struct_type,
-        pub len: usize,
-        pub cap: usize,
-    }
-
-    impl $struct_name {
-        pub fn foreach<U, F: FnMut(&$struct_type) -> Result<(), U>>(&self, closure: F) -> Result<(), U> {
-            let v1: Vec<$struct_type> = unsafe { Vec::from_raw_parts(self.ptr, self.len, self.cap) };
-            for i in &v1 { closure(i)?; }
-            let _ = Vec::into_raw_parts(v1);
-            Ok(())
-        }
-    }
-
-    impl fmt::Debug for $struct_name {
-        fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-            let v1: Vec<$struct_type> = unsafe { Vec::from_raw_parts(self.ptr, self.len, self.cap) };
-            let res = v1.fmt(f);
-            let _ = Vec::into_raw_parts(v1);
-            res
-        }
-    }
-
-    impl From<Vec<$struct_type>> for $struct_name {
-        fn from(input: Vec<$struct_type>) -> $struct_name {
-            let (ptr, len, cap) = Vec::into_raw_parts(input);
-            $struct_name { ptr, len, cap }
-        }
-    }
-
-    impl From<$struct_name> for Vec<$struct_type> {
-        fn from(input: $struct_name) -> Vec<$struct_type> {
-            unsafe { Vec::from_raw_parts(input.ptr, input.len, input.cap) }
-        }
-    }
-
-    impl PartialOrd for $struct_name {
-        fn partial_cmp(&self, rhs: &Self) -> Option<std::cmp::Ordering> {
-            let v1: Vec<$struct_type> = unsafe { Vec::from_raw_parts(self.ptr, self.len, self.cap) };
-            let v2: Vec<$struct_type> = unsafe { Vec::from_raw_parts(rhs.ptr, rhs.len, rhs.cap) };
-            let result = v1.partial_cmp(&v2);
-            let _ = Vec::into_raw_parts(v1);
-            let _ = Vec::into_raw_parts(v2);
-            result
-        }
-    }
-
-    impl Ord for $struct_name {
-        fn cmp(&self, rhs: &Self) -> std::cmp::Ordering {
-            let v1: Vec<$struct_type> = unsafe { Vec::from_raw_parts(self.ptr, self.len, self.cap) };
-            let v2: Vec<$struct_type> = unsafe { Vec::from_raw_parts(rhs.ptr, rhs.len, rhs.cap) };
-            let result = v1.cmp(&v2);
-            let _ = Vec::into_raw_parts(v1);
-            let _ = Vec::into_raw_parts(v2);
-            result
-        }
-    }
-
-    impl Clone for $struct_name {
-        fn clone(&self) -> Self {
-            let v: Vec<$struct_type> = unsafe { Vec::from_raw_parts(self.ptr, self.len, self.cap) };
-            let v2 = v.clone();
-            let _ = Vec::into_raw_parts(v);
-            let (ptr, len, cap) = Vec::into_raw_parts(v2);
-            $struct_name { ptr, len, cap }
-        }
-    }
-
-    impl PartialEq for $struct_name {
-        fn eq(&self, other: &Self) -> bool {
-            let v1: Vec<$struct_type> = unsafe { Vec::from_raw_parts(self.ptr, self.len, self.cap) };
-            let v2: Vec<$struct_type> = unsafe { Vec::from_raw_parts(other.ptr, other.len, other.cap) };
-            let is_eq = v1.eq(&v2);
-            let _ = Vec::into_raw_parts(v1); let _ = Vec::into_raw_parts(v2);
-            is_eq
-        }
-    }
-
-    impl Eq for $struct_name { }
-
-    impl std::hash::Hash for $struct_name {
-        fn hash<H>(&self, state: &mut H) where H: std::hash::Hasher {
-            let v1: Vec<$struct_type> = unsafe { Vec::from_raw_parts(self.ptr, self.len, self.cap) };
-            v1.hash(state);
-            let _ = Vec::into_raw_parts(v1);
-        }
-    }
-
-    impl Drop for $struct_name {
-        fn drop(&mut self) {
-            let mut v: Vec<$struct_type> = unsafe { Vec::from_raw_parts(self.ptr, self.len, self.cap) };
-            // let v drop here
         }
     }
 )}
@@ -1902,9 +1801,6 @@ impl<'a> From<CssImageId> for StyleBackgroundContent {
     }
 }
 
-impl_vec!(GradientStopPre, GradientStopPreVec);
-impl_vec!(String, StringVec);
-
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
 #[repr(C)]
 pub struct LinearGradient {
@@ -2223,7 +2119,7 @@ pub enum GradientType {
 /// from CSS, the original string can be deallocated afterwards.
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
 #[repr(C)]
-pub struct CssImageId { pub inner: String }
+pub struct CssImageId { pub inner: AzString }
 
 impl fmt::Display for CssImageId {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
