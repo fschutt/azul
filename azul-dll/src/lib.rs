@@ -498,7 +498,7 @@ pub type AzLayoutInfoPtrType = azul_impl::callbacks::LayoutInfoPtr;
 #[no_mangle] #[inline] pub extern "C" fn az_layout_left_deep_copy(object: &AzLayoutLeft) -> AzLayoutLeft { AzLayoutLeft{ object: object.object.clone() } }
 
 /// Re-export of rust-allocated (stack based) `LayoutMarginBottom` struct
-#[no_mangle] #[repr(C)] pub struct AzLayoutMarginBottom { pub object: azul_impl::css::LayoutLeft }
+#[no_mangle] #[repr(C)] pub struct AzLayoutMarginBottom { pub object: azul_impl::css::LayoutMarginBottom }
 /// Destructor: Takes ownership of the `LayoutMarginBottom` pointer and deletes it.
 #[no_mangle] #[inline] #[allow(unused_variables)] pub extern "C" fn az_layout_margin_bottom_delete(object: &mut AzLayoutMarginBottom) { }
 /// Copies the object
@@ -625,17 +625,17 @@ pub type AzLayoutInfoPtrType = azul_impl::callbacks::LayoutInfoPtr;
 #[no_mangle] #[inline] pub extern "C" fn az_layout_wrap_deep_copy(object: &AzLayoutWrap) -> AzLayoutWrap { AzLayoutWrap{ object: object.object.clone() } }
 
 /// Re-export of rust-allocated (stack based) `Overflow` struct
-#[no_mangle] #[repr(C)] pub struct AzOverflow { pub object: azul_impl::css::LayoutWrap }
+#[no_mangle] #[repr(C)] pub struct AzOverflow { pub object: azul_impl::css::Overflow }
 /// Always shows a scroll bar, overflows on scroll
-#[inline] #[no_mangle] pub extern "C" fn az_overflow_scroll() -> AzOverflow { AzOverflow { object: azul_impl::css::LayoutWrap::Scroll } }
+#[inline] #[no_mangle] pub extern "C" fn az_overflow_scroll() -> AzOverflow { AzOverflow { object: azul_impl::css::Overflow::Scroll } }
 /// Does not show a scroll bar by default, only when text is overflowing
-#[inline] #[no_mangle] pub extern "C" fn az_overflow_auto() -> AzOverflow { AzOverflow { object: azul_impl::css::LayoutWrap::Auto } }
+#[inline] #[no_mangle] pub extern "C" fn az_overflow_auto() -> AzOverflow { AzOverflow { object: azul_impl::css::Overflow::Auto } }
 /// Never shows a scroll bar, simply clips text
-#[inline] #[no_mangle] pub extern "C" fn az_overflow_hidden() -> AzOverflow { AzOverflow { object: azul_impl::css::LayoutWrap::Hidden } }
+#[inline] #[no_mangle] pub extern "C" fn az_overflow_hidden() -> AzOverflow { AzOverflow { object: azul_impl::css::Overflow::Hidden } }
 /// Doesn't show a scroll bar, simply overflows the text
-#[inline] #[no_mangle] pub extern "C" fn az_overflow_visible() -> AzOverflow { AzOverflow { object: azul_impl::css::LayoutWrap::Visible } }
+#[inline] #[no_mangle] pub extern "C" fn az_overflow_visible() -> AzOverflow { AzOverflow { object: azul_impl::css::Overflow::Visible } }
 /// Destructor: Takes ownership of the `Overflow` pointer and deletes it.
-#[no_mangle] #[inline] #[allow(unused_variables)] pub extern "C" fn az_overflow_delete(object: &mut AzOverflow) { match object.object { azul_impl::css::LayoutWrap::Scroll => { }, azul_impl::css::LayoutWrap::Auto => { }, azul_impl::css::LayoutWrap::Hidden => { }, azul_impl::css::LayoutWrap::Visible => { }, }
+#[no_mangle] #[inline] #[allow(unused_variables)] pub extern "C" fn az_overflow_delete(object: &mut AzOverflow) { match object.object { azul_impl::css::Overflow::Scroll => { }, azul_impl::css::Overflow::Auto => { }, azul_impl::css::Overflow::Hidden => { }, azul_impl::css::Overflow::Visible => { }, }
 }
 /// Copies the object
 #[no_mangle] #[inline] pub extern "C" fn az_overflow_deep_copy(object: &AzOverflow) -> AzOverflow { AzOverflow{ object: object.object.clone() } }
@@ -688,11 +688,11 @@ pub type AzLayoutInfoPtrType = azul_impl::callbacks::LayoutInfoPtr;
 #[no_mangle] #[inline] pub extern "C" fn az_direction_deep_copy(object: &AzDirection) -> AzDirection { AzDirection{ object: object.object.clone() } }
 
 /// Re-export of rust-allocated (stack based) `ExtendMode` struct
-#[no_mangle] #[repr(C)] pub struct AzExtendMode { pub object: azul_impl::css::Direction }
-#[inline] #[no_mangle] pub extern "C" fn az_extend_mode_clamp() -> AzExtendMode { AzExtendMode { object: azul_impl::css::Direction::Clamp } }
-#[inline] #[no_mangle] pub extern "C" fn az_extend_mode_repeat() -> AzExtendMode { AzExtendMode { object: azul_impl::css::Direction::Repeat } }
+#[no_mangle] #[repr(C)] pub struct AzExtendMode { pub object: azul_impl::css::ExtendMode }
+#[inline] #[no_mangle] pub extern "C" fn az_extend_mode_clamp() -> AzExtendMode { AzExtendMode { object: azul_impl::css::ExtendMode::Clamp } }
+#[inline] #[no_mangle] pub extern "C" fn az_extend_mode_repeat() -> AzExtendMode { AzExtendMode { object: azul_impl::css::ExtendMode::Repeat } }
 /// Destructor: Takes ownership of the `ExtendMode` pointer and deletes it.
-#[no_mangle] #[inline] #[allow(unused_variables)] pub extern "C" fn az_extend_mode_delete(object: &mut AzExtendMode) { match object.object { azul_impl::css::Direction::Clamp => { }, azul_impl::css::Direction::Repeat => { }, }
+#[no_mangle] #[inline] #[allow(unused_variables)] pub extern "C" fn az_extend_mode_delete(object: &mut AzExtendMode) { match object.object { azul_impl::css::ExtendMode::Clamp => { }, azul_impl::css::ExtendMode::Repeat => { }, }
 }
 /// Copies the object
 #[no_mangle] #[inline] pub extern "C" fn az_extend_mode_deep_copy(object: &AzExtendMode) -> AzExtendMode { AzExtendMode{ object: object.object.clone() } }
@@ -742,24 +742,24 @@ pub type AzLayoutInfoPtrType = azul_impl::callbacks::LayoutInfoPtr;
 
 /// Re-export of rust-allocated (stack based) `BackgroundPositionHorizontal` struct
 #[no_mangle] #[repr(C)] pub struct AzBackgroundPositionHorizontal { pub object: azul_impl::css::BackgroundPositionHorizontal }
-#[inline] #[no_mangle] pub extern "C" fn az_background_position_horizontal_left,() -> AzBackgroundPositionHorizontal { AzBackgroundPositionHorizontal { object: azul_impl::css::BackgroundPositionHorizontal::Left, } }
+#[inline] #[no_mangle] pub extern "C" fn az_background_position_horizontal_left() -> AzBackgroundPositionHorizontal { AzBackgroundPositionHorizontal { object: azul_impl::css::BackgroundPositionHorizontal::Left } }
 #[inline] #[no_mangle] pub extern "C" fn az_background_position_horizontal_center() -> AzBackgroundPositionHorizontal { AzBackgroundPositionHorizontal { object: azul_impl::css::BackgroundPositionHorizontal::Center } }
 #[inline] #[no_mangle] pub extern "C" fn az_background_position_horizontal_right() -> AzBackgroundPositionHorizontal { AzBackgroundPositionHorizontal { object: azul_impl::css::BackgroundPositionHorizontal::Right } }
 #[inline] #[no_mangle] pub extern "C" fn az_background_position_horizontal_exact(variant_data: AzPixelValue) -> AzBackgroundPositionHorizontal { AzBackgroundPositionHorizontal { object: azul_impl::css::BackgroundPositionHorizontal::Exact(variant_data.object) } }
 /// Destructor: Takes ownership of the `BackgroundPositionHorizontal` pointer and deletes it.
-#[no_mangle] #[inline] #[allow(unused_variables)] pub extern "C" fn az_background_position_horizontal_delete(object: &mut AzBackgroundPositionHorizontal) { match object.object { azul_impl::css::BackgroundPositionHorizontal::Left, => { }, azul_impl::css::BackgroundPositionHorizontal::Center => { }, azul_impl::css::BackgroundPositionHorizontal::Right => { }, azul_impl::css::BackgroundPositionHorizontal::Exact(_) => { }, }
+#[no_mangle] #[inline] #[allow(unused_variables)] pub extern "C" fn az_background_position_horizontal_delete(object: &mut AzBackgroundPositionHorizontal) { match object.object { azul_impl::css::BackgroundPositionHorizontal::Left => { }, azul_impl::css::BackgroundPositionHorizontal::Center => { }, azul_impl::css::BackgroundPositionHorizontal::Right => { }, azul_impl::css::BackgroundPositionHorizontal::Exact(_) => { }, }
 }
 /// Copies the object
 #[no_mangle] #[inline] pub extern "C" fn az_background_position_horizontal_deep_copy(object: &AzBackgroundPositionHorizontal) -> AzBackgroundPositionHorizontal { AzBackgroundPositionHorizontal{ object: object.object.clone() } }
 
 /// Re-export of rust-allocated (stack based) `BackgroundPositionVertical` struct
-#[no_mangle] #[repr(C)] pub struct AzBackgroundPositionVertical { pub object: azul_impl::css::BackgroundPositionHorizontal }
-#[inline] #[no_mangle] pub extern "C" fn az_background_position_vertical_top() -> AzBackgroundPositionVertical { AzBackgroundPositionVertical { object: azul_impl::css::BackgroundPositionHorizontal::Top } }
-#[inline] #[no_mangle] pub extern "C" fn az_background_position_vertical_center() -> AzBackgroundPositionVertical { AzBackgroundPositionVertical { object: azul_impl::css::BackgroundPositionHorizontal::Center } }
-#[inline] #[no_mangle] pub extern "C" fn az_background_position_vertical_bottom() -> AzBackgroundPositionVertical { AzBackgroundPositionVertical { object: azul_impl::css::BackgroundPositionHorizontal::Bottom } }
-#[inline] #[no_mangle] pub extern "C" fn az_background_position_vertical_exact(variant_data: AzPixelValue) -> AzBackgroundPositionVertical { AzBackgroundPositionVertical { object: azul_impl::css::BackgroundPositionHorizontal::Exact(variant_data.object) } }
+#[no_mangle] #[repr(C)] pub struct AzBackgroundPositionVertical { pub object: azul_impl::css::BackgroundPositionVertical }
+#[inline] #[no_mangle] pub extern "C" fn az_background_position_vertical_top() -> AzBackgroundPositionVertical { AzBackgroundPositionVertical { object: azul_impl::css::BackgroundPositionVertical::Top } }
+#[inline] #[no_mangle] pub extern "C" fn az_background_position_vertical_center() -> AzBackgroundPositionVertical { AzBackgroundPositionVertical { object: azul_impl::css::BackgroundPositionVertical::Center } }
+#[inline] #[no_mangle] pub extern "C" fn az_background_position_vertical_bottom() -> AzBackgroundPositionVertical { AzBackgroundPositionVertical { object: azul_impl::css::BackgroundPositionVertical::Bottom } }
+#[inline] #[no_mangle] pub extern "C" fn az_background_position_vertical_exact(variant_data: AzPixelValue) -> AzBackgroundPositionVertical { AzBackgroundPositionVertical { object: azul_impl::css::BackgroundPositionVertical::Exact(variant_data.object) } }
 /// Destructor: Takes ownership of the `BackgroundPositionVertical` pointer and deletes it.
-#[no_mangle] #[inline] #[allow(unused_variables)] pub extern "C" fn az_background_position_vertical_delete(object: &mut AzBackgroundPositionVertical) { match object.object { azul_impl::css::BackgroundPositionHorizontal::Top => { }, azul_impl::css::BackgroundPositionHorizontal::Center => { }, azul_impl::css::BackgroundPositionHorizontal::Bottom => { }, azul_impl::css::BackgroundPositionHorizontal::Exact(_) => { }, }
+#[no_mangle] #[inline] #[allow(unused_variables)] pub extern "C" fn az_background_position_vertical_delete(object: &mut AzBackgroundPositionVertical) { match object.object { azul_impl::css::BackgroundPositionVertical::Top => { }, azul_impl::css::BackgroundPositionVertical::Center => { }, azul_impl::css::BackgroundPositionVertical::Bottom => { }, azul_impl::css::BackgroundPositionVertical::Exact(_) => { }, }
 }
 /// Copies the object
 #[no_mangle] #[inline] pub extern "C" fn az_background_position_vertical_deep_copy(object: &AzBackgroundPositionVertical) -> AzBackgroundPositionVertical { AzBackgroundPositionVertical{ object: object.object.clone() } }
@@ -997,7 +997,7 @@ pub type AzLayoutInfoPtrType = azul_impl::callbacks::LayoutInfoPtr;
 #[no_mangle] #[inline] pub extern "C" fn az_style_line_height_deep_copy(object: &AzStyleLineHeight) -> AzStyleLineHeight { AzStyleLineHeight{ object: object.object.clone() } }
 
 /// Re-export of rust-allocated (stack based) `StyleTabWidth` struct
-#[no_mangle] #[repr(C)] pub struct AzStyleTabWidth { pub object: azul_impl::css::StyleLineHeight }
+#[no_mangle] #[repr(C)] pub struct AzStyleTabWidth { pub object: azul_impl::css::StyleTabWidth }
 /// Destructor: Takes ownership of the `StyleTabWidth` pointer and deletes it.
 #[no_mangle] #[inline] #[allow(unused_variables)] pub extern "C" fn az_style_tab_width_delete(object: &mut AzStyleTabWidth) { }
 /// Copies the object

@@ -1,5 +1,5 @@
 {
-   "0.1.0": {
+	"0.1.0": {
 		"str": {
 			"doc": "Definition of azuls internal `String` wrappers",
 			"classes": {
@@ -415,12 +415,12 @@
 				"LayoutJustifyContent": {
 					"external": "azul_impl::css::LayoutJustifyContent",
 					"enum_fields": [
-					    {"Start": {"doc": "Default value. Items are positioned at the beginning of the container"}},
-					    {"End": {"doc": "Items are positioned at the end of the container"}},
-					    {"Center": {"doc": "Items are positioned at the center of the container"}},
-					    {"SpaceBetween": {"doc": "Items are positioned with space between the lines"}},
-					    {"SpaceAround": {"doc": "Items are positioned with space before, between, and after the lines"}},
-					    {"SpaceEvenly": {"doc": "Items are distributed so that the spacing between any two adjacent alignment subjects, before the first alignment subject, and after the last alignment subject is the same"}}
+						 {"Start": {"doc": "Default value. Items are positioned at the beginning of the container"}},
+						 {"End": {"doc": "Items are positioned at the end of the container"}},
+						 {"Center": {"doc": "Items are positioned at the center of the container"}},
+						 {"SpaceBetween": {"doc": "Items are positioned with space between the lines"}},
+						 {"SpaceAround": {"doc": "Items are positioned with space before, between, and after the lines"}},
+						 {"SpaceEvenly": {"doc": "Items are distributed so that the spacing between any two adjacent alignment subjects, before the first alignment subject, and after the last alignment subject is the same"}}
 					]
 				},
 				"LayoutLeft": {
@@ -430,7 +430,7 @@
 					]
 				},
 				"LayoutMarginBottom": {
-					"external": "azul_impl::css::LayoutLeft",
+					"external": "azul_impl::css::LayoutMarginBottom",
 					"struct_fields": [
 						{"inner": { "type": "PixelValue" }}
 					]
@@ -536,12 +536,12 @@
 					]
 				},
 				"Overflow": {
-					"external": "azul_impl::css::LayoutWrap",
+					"external": "azul_impl::css::Overflow",
 					"enum_fields": [
-					    {"Scroll": {"doc": "Always shows a scroll bar, overflows on scroll"}},
-					    {"Auto": {"doc": "Does not show a scroll bar by default, only when text is overflowing"}},
-					    {"Hidden": {"doc": "Never shows a scroll bar, simply clips text"}},
-					    {"Visible": {"doc": "Doesn't show a scroll bar, simply overflows the text"}}
+						 {"Scroll": {"doc": "Always shows a scroll bar, overflows on scroll"}},
+						 {"Auto": {"doc": "Does not show a scroll bar by default, only when text is overflowing"}},
+						 {"Hidden": {"doc": "Never shows a scroll bar, simply clips text"}},
+						 {"Visible": {"doc": "Doesn't show a scroll bar, simply overflows the text"}}
 					]
 				},
 				"FloatValue": {
@@ -591,7 +591,7 @@
 					]
 				},
 				"ExtendMode": {
-					"external": "azul_impl::css::Direction",
+					"external": "azul_impl::css::ExtendMode",
 					"enum_fields": [
 						{"Clamp": {}},
 						{"Repeat": {}}
@@ -638,14 +638,14 @@
 				"BackgroundPositionHorizontal": {
 					"external": "azul_impl::css::BackgroundPositionHorizontal",
 					"enum_fields": [
-						{"Left,": {}},
+						{"Left": {}},
 						{"Center": {}},
 						{"Right": {}},
 						{"Exact": {"type": "PixelValue"}}
 					]
 				},
 				"BackgroundPositionVertical": {
-					"external": "azul_impl::css::BackgroundPositionHorizontal",
+					"external": "azul_impl::css::BackgroundPositionVertical",
 					"enum_fields": [
 						{"Top": {}},
 						{"Center": {}},
@@ -845,7 +845,7 @@
 					]
 				},
 				"StyleTabWidth": {
-					"external": "azul_impl::css::StyleLineHeight",
+					"external": "azul_impl::css::StyleTabWidth",
 					"struct_fields": [
 						{"inner": {"type": "PercentageValue"}}
 					]
@@ -1198,17 +1198,6 @@
 						{ "Inherit": { }} ,
 						{ "Initial": { }} ,
 						{ "Exact": { "type": "LayoutWrap" }}
-					]
-				},
-				"OverflowValue": {
-					"rust_class_name": "CssPropertyValue<Overflow>",
-					"external": "azul_impl::css::CssPropertyValue::<Overflow>",
-					"enum_fields": [
-						{ "Auto": { }} ,
-						{ "None": { }} ,
-						{ "Inherit": { }} ,
-						{ "Initial": { }} ,
-						{ "Exact": { "type": "Overflow" }}
 					]
 				},
 				"OverflowValue": {
@@ -2054,5 +2043,5 @@
 				}
 			}
 		}
-   }
+	}
 }

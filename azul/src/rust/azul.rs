@@ -287,7 +287,7 @@ pub(crate) mod dll {
         Color(AzColorU),
     }
     #[repr(C, u8)] pub enum AzBackgroundPositionHorizontal {
-        Left,,
+        Left,
         Center,
         Right,
         Exact(AzPixelValue),
@@ -1251,7 +1251,7 @@ pub(crate) mod dll {
         az_style_background_content_color: Symbol<extern fn(_: AzColorU) -> AzStyleBackgroundContent>,
         az_style_background_content_delete: Symbol<extern fn(_: &mut AzStyleBackgroundContent)>,
         az_style_background_content_deep_copy: Symbol<extern fn(_: &AzStyleBackgroundContent) -> AzStyleBackgroundContent>,
-        az_background_position_horizontal_left,: Symbol<extern fn() -> AzBackgroundPositionHorizontal>,
+        az_background_position_horizontal_left: Symbol<extern fn() -> AzBackgroundPositionHorizontal>,
         az_background_position_horizontal_center: Symbol<extern fn() -> AzBackgroundPositionHorizontal>,
         az_background_position_horizontal_right: Symbol<extern fn() -> AzBackgroundPositionHorizontal>,
         az_background_position_horizontal_exact: Symbol<extern fn(_: AzPixelValue) -> AzBackgroundPositionHorizontal>,
@@ -2213,7 +2213,7 @@ pub(crate) mod dll {
         let az_style_background_content_color = unsafe { lib.get::<extern fn(_: AzColorU) -> AzStyleBackgroundContent>(b"az_style_background_content_color").ok()? };
         let az_style_background_content_delete = unsafe { lib.get::<extern fn(_: &mut AzStyleBackgroundContent)>(b"az_style_background_content_delete").ok()? };
         let az_style_background_content_deep_copy = unsafe { lib.get::<extern fn(_: &AzStyleBackgroundContent) -> AzStyleBackgroundContent>(b"az_style_background_content_deep_copy").ok()? };
-        let az_background_position_horizontal_left, = unsafe { lib.get::<extern fn() -> AzBackgroundPositionHorizontal>(b"az_background_position_horizontal_left,").ok()? };
+        let az_background_position_horizontal_left = unsafe { lib.get::<extern fn() -> AzBackgroundPositionHorizontal>(b"az_background_position_horizontal_left").ok()? };
         let az_background_position_horizontal_center = unsafe { lib.get::<extern fn() -> AzBackgroundPositionHorizontal>(b"az_background_position_horizontal_center").ok()? };
         let az_background_position_horizontal_right = unsafe { lib.get::<extern fn() -> AzBackgroundPositionHorizontal>(b"az_background_position_horizontal_right").ok()? };
         let az_background_position_horizontal_exact = unsafe { lib.get::<extern fn(_: AzPixelValue) -> AzBackgroundPositionHorizontal>(b"az_background_position_horizontal_exact").ok()? };
@@ -3173,7 +3173,7 @@ pub(crate) mod dll {
             az_style_background_content_color,
             az_style_background_content_delete,
             az_style_background_content_deep_copy,
-            az_background_position_horizontal_left,,
+            az_background_position_horizontal_left,
             az_background_position_horizontal_center,
             az_background_position_horizontal_right,
             az_background_position_horizontal_exact,
@@ -4996,7 +4996,7 @@ pub mod css {
     pub struct BackgroundPositionHorizontal { pub(crate) object: AzBackgroundPositionHorizontal }
 
     impl BackgroundPositionHorizontal {
-        pub fn left,() -> Self { Self { object: az_background_position_horizontal_left,() }  }
+        pub fn left() -> Self { Self { object: az_background_position_horizontal_left() }  }
         pub fn center() -> Self { Self { object: az_background_position_horizontal_center() }  }
         pub fn right() -> Self { Self { object: az_background_position_horizontal_right() }  }
         pub fn exact(variant_data: crate::css::PixelValue) -> Self { Self { object: az_background_position_horizontal_exact(variant_data.leak()) }}
@@ -6433,7 +6433,7 @@ pub mod dom {
     use azul_dll::*;
     use crate::str::String;
     use crate::resources::{ImageId, TextId};
-    use crate::callbacks::{Callback, RefAny, IFrameCallback, GlCallback};
+    use crate::callbacks::{GlCallback, Callback, IFrameCallback, RefAny};
     use crate::vec::StringVec;
     use crate::css::CssProperty;
 
