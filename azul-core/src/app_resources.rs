@@ -1141,7 +1141,7 @@ impl Au {
 pub fn get_font_id(rect_style: &RectStyle) -> &str {
     use crate::ui_solver::DEFAULT_FONT_ID;
     let font_id = rect_style.font_family.as_ref().and_then(|family| family.get_property()?.fonts.get(0));
-    font_id.map(|f| f.get_str()).unwrap_or(DEFAULT_FONT_ID)
+    font_id.map(|f| f.as_str()).unwrap_or(DEFAULT_FONT_ID)
 }
 
 pub fn get_font_size(rect_style: &RectStyle) -> StyleFontSize {
@@ -1204,7 +1204,7 @@ pub fn scan_ui_description_for_image_keys(
             _ => {
                 let background = display_rect.style.background.as_ref().and_then(|bg| bg.get_property())?;
                 let css_image_id = background.get_css_image_id()?;
-                let image_id = app_resources.get_css_image_id(&css_image_id.0)?;
+                let image_id = app_resources.get_css_image_id(css_image_id.inner.as_str())?;
                 Some(*image_id)
             }
         }

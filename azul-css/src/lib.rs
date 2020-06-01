@@ -21,6 +21,13 @@ macro_rules! impl_vec {($struct_type:ident, $struct_name:ident) => (
 
     impl $struct_name {
 
+        pub fn get(&self, index: usize) -> Option<&$struct_type> {
+            let v1: &[$struct_type] = unsafe { std::slice::from_raw_parts(self.ptr, self.len) };
+            let res = v1.get(index);
+            std::mem::forget(v1);
+            res
+        }
+
         pub fn foreach<U, F: FnMut(&$struct_type) -> Result<(), U>>(&self, mut closure: F) -> Result<(), U> {
             let v1: &[$struct_type] = unsafe { std::slice::from_raw_parts(self.ptr, self.len) };
             for i in v1.iter() { closure(i)?; }
@@ -132,6 +139,12 @@ impl fmt::Display for AzString {
         let res = s.fmt(f);
         std::mem::forget(s);
         res
+    }
+}
+
+impl AzString {
+    pub fn as_str(&self) -> &str {
+        unsafe { std::str::from_utf8_unchecked(std::slice::from_raw_parts(self.vec.ptr, self.vec.len)) }
     }
 }
 

@@ -1171,7 +1171,7 @@ pub fn displaylist_handle_rect<'a>(
         use azul_css::{CssImageId, StyleBackgroundContent::*};
 
         fn get_image_info(app_resources: &AppResources, pipeline_id: &PipelineId, style_image_id: &CssImageId) -> Option<RectBackground> {
-            let image_id = app_resources.get_css_image_id(&style_image_id.0)?;
+            let image_id = app_resources.get_css_image_id(style_image_id.inner.as_str())?;
             let image_info = app_resources.get_image_info(pipeline_id, image_id)?;
             Some(RectBackground::Image(*image_info))
         }
