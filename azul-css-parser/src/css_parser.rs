@@ -4,9 +4,9 @@ use std::num::{ParseIntError, ParseFloatError};
 use azul_css::{
     CssPropertyType, CssProperty, CombinedCssPropertyType, CssPropertyValue,
     Overflow, Shape, PixelValue, PixelValueNoPercent, PercentageValue, FloatValue, ColorU,
-    GradientStopPre, RadialGradient, DirectionCorner, Direction, CssImageId,
+    GradientStopPre, RadialGradient, DirectionCorner, DirectionCorners, Direction, CssImageId,
     LinearGradient, BoxShadowPreDisplayItem, StyleBorderSide, BorderStyle,
-    SizeMetric, BoxShadowClipMode, ExtendMode, FontId, GradientType,
+    SizeMetric, BoxShadowClipMode, ExtendMode, GradientType, OptionPercentageValue,
     BackgroundPositionHorizontal, BackgroundPositionVertical,
 
     StyleTextColor, StyleFontSize, StyleFontFamily, StyleTextAlignmentHorz,
@@ -1127,7 +1127,7 @@ pub fn parse_color_hsl_components<'a>(components: &mut dyn Iterator<Item = &'a s
         let dir = parse_direction(c)?;
         match dir {
             Direction::Angle(deg) => Ok(deg.get()),
-            Direction::FromTo(_, _) => return Err(CssColorParseError::UnsupportedDirection(c)),
+            Direction::FromTo(_) => return Err(CssColorParseError::UnsupportedDirection(c)),
         }
     }
 
@@ -1792,7 +1792,7 @@ pub fn parse_gradient<'a>(input: &'a str, background_type: GradientType)
     // default shape: ellipse
     let mut shape = Shape::Ellipse;
     // default gradient: from top to bottom
-    let mut direction = Direction::FromTo(DirectionCorner::Top, DirectionCorner::Bottom);
+    let mut direction = Direction::FromTo(DirectionCorners { from: DirectionCorner::Top, to: DirectionCorner::Bottom });
 
     let mut first_is_direction = false;
     let mut first_is_shape = false;
@@ -1843,28 +1843,28 @@ pub fn parse_gradient<'a>(input: &'a str, background_type: GradientType)
             Ok(StyleBackgroundContent::LinearGradient(LinearGradient {
                 direction: direction,
                 extend_mode: ExtendMode::Clamp,
-                stops: color_stops,
+                stops: color_stops.into(),
             }))
         },
         GradientType::RepeatingLinearGradient => {
             Ok(StyleBackgroundContent::LinearGradient(LinearGradient {
                 direction: direction,
                 extend_mode: ExtendMode::Repeat,
-                stops: color_stops,
+                stops: color_stops.into(),
             }))
         },
         GradientType::RadialGradient => {
             Ok(StyleBackgroundContent::RadialGradient(RadialGradient {
                 shape: shape,
                 extend_mode: ExtendMode::Clamp,
-                stops: color_stops,
+                stops: color_stops.into(),
             }))
         },
         GradientType::RepeatingRadialGradient => {
             Ok(StyleBackgroundContent::RadialGradient(RadialGradient {
                 shape: shape,
                 extend_mode: ExtendMode::Repeat,
-                stops: color_stops,
+                stops: color_stops.into(),
             }))
         },
     }
@@ -1880,16 +1880,16 @@ pub fn normalize_color_stops(color_stops: &mut Vec<GradientStopPre>) {
     'outer: for i in 0..color_stop_len {
         let offset = color_stops[i].offset;
         match offset {
-            Some(s) => {
+            OptionPercentageValue::Some(s) => {
                 last_stop = s;
                 increase_stop_cnt = None;
             },
-            None => {
+            OptionPercentageValue::None => {
                 let (_, next) = color_stops.split_at_mut(i);
 
                 if let Some(increase_stop_cnt) = increase_stop_cnt {
                     last_stop = PercentageValue::new(last_stop.get() + increase_stop_cnt);
-                    next[0].offset = Some(last_stop);
+                    next[0].offset = OptionPercentageValue::Some(last_stop);
                     continue 'outer;
                 }
 
@@ -1901,7 +1901,7 @@ pub fn normalize_color_stops(color_stops: &mut Vec<GradientStopPre>) {
                     let mut next_iter = next.iter();
                     next_iter.next();
                     'inner: for next_stop in next_iter {
-                        if let Some(off) = next_stop.offset {
+                        if let OptionPercentageValue::Some(off) = next_stop.offset {
                             next_value = Some(off);
                             break 'inner;
                         } else {
@@ -1914,12 +1914,12 @@ pub fn normalize_color_stops(color_stops: &mut Vec<GradientStopPre>) {
                 let increase = (next_value.get() / (next_count as f32)) - (last_stop.get() / (next_count as f32)) ;
                 increase_stop_cnt = Some(increase);
                 if next_count == 1 && (color_stop_len - i) == 1 {
-                    next[0].offset = Some(last_stop);
+                    next[0].offset = OptionPercentageValue::Some(last_stop);
                 } else {
                     if i == 0 {
-                        next[0].offset = Some(PercentageValue::new(0.0));
+                        next[0].offset = OptionPercentageValue::Some(PercentageValue::new(0.0));
                     } else {
-                        next[0].offset = Some(last_stop);
+                        next[0].offset = OptionPercentageValue::Some(last_stop);
                         // last_stop += increase;
                     }
                 }
@@ -1930,7 +1930,7 @@ pub fn normalize_color_stops(color_stops: &mut Vec<GradientStopPre>) {
 
 impl<'a> From<QuoteStripped<'a>> for CssImageId {
     fn from(input: QuoteStripped<'a>) -> Self {
-        CssImageId(input.0.to_string())
+        CssImageId { inner: input.0.to_string().into() }
     }
 }
 
@@ -2028,8 +2028,8 @@ pub fn parse_gradient_stop<'a>(input: &'a str)
 
     let color = parse_css_color(color_str)?;
     let offset = match percentage_str {
-        None => None,
-        Some(s) => Some(parse_percentage(s).map_err(|e| Percentage(e))?)
+        None => OptionPercentageValue::None,
+        Some(s) => OptionPercentageValue::Some(parse_percentage(s).map_err(|e| Percentage(e))?)
     };
 
     Ok(GradientStopPre { offset, color: color })
@@ -2121,7 +2121,7 @@ pub fn parse_direction<'a>(input: &'a str)
                 2 => {
                     // "to right"
                     let start = end.opposite();
-                    Ok(Direction::FromTo(start, end))
+                    Ok(Direction::FromTo(DirectionCorners { from: start, to: end }))
                 },
                 3 => {
                     // "to bottom right"
@@ -2131,7 +2131,7 @@ pub fn parse_direction<'a>(input: &'a str)
                     // "Bottom, Right" -> "BottomRight"
                     let new_end = beginning.combine(&new_end).ok_or(CssDirectionParseError::Error(input))?;
                     let start = new_end.opposite();
-                    Ok(Direction::FromTo(start, new_end))
+                    Ok(Direction::FromTo(DirectionCorners { from: start, to: new_end }))
                 },
                 _ => { Err(CssDirectionParseError::InvalidArguments(input)) }
             };
@@ -2290,9 +2290,9 @@ impl<'a> From<UnclosedQuotesError<'a>> for CssStyleFontFamilyParseError<'a> {
 /// # use azul_css::{StyleFontFamily, FontId};
 /// let input = "\"Helvetica\", 'Arial', Times New Roman";
 /// let fonts = vec![
-///     FontId("Helvetica".into()),
-///     FontId("Arial".into()),
-///     FontId("Times New Roman".into())
+///     "Helvetica".into(),
+///     "Arial".into(),
+///     "Times New Roman".into()
 /// ];
 ///
 /// assert_eq!(parse_style_font_family(input), Ok(StyleFontFamily { fonts }));
@@ -2306,12 +2306,10 @@ pub fn parse_style_font_family<'a>(input: &'a str) -> Result<StyleFontFamily, Cs
         let font = font.trim_matches('\'');
         let font = font.trim_matches('\"');
         let font = font.trim();
-        fonts.push(FontId { inner: font.into() });
+        fonts.push(font.to_string());
     }
 
-    Ok(StyleFontFamily {
-        fonts: fonts,
-    })
+    Ok(StyleFontFamily { fonts: fonts.into() })
 }
 
 #[derive(Debug, Copy, Clone, PartialEq, Eq, Ord, PartialOrd)]

@@ -229,3 +229,17 @@ impl Drop for AzString {
 impl_vec!(u8, U8Vec);
 impl_vec!(AzString, StringVec);
 impl_vec!(GradientStopPre, GradientStopPreVec);
+
+impl From<Vec<String>> for StringVec {
+    fn from(v: Vec<String>) -> StringVec {
+        let new_v: Vec<AzString> = v.into_iter().map(|s| s.into()).collect();
+        new_v.into()
+    }
+}
+
+impl From<StringVec> for Vec<String> {
+    fn from(v: StringVec) -> Vec<String> {
+        let v: Vec<AzString> = v.into();
+        v.into_iter().map(|s| s.into()).collect()
+    }
+}
