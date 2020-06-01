@@ -367,7 +367,7 @@ impl FormatAsRustCode for StyleBackgroundSize {
         match self {
             StyleBackgroundSize::Contain => String::from("StyleBackgroundSize::Contain"),
             StyleBackgroundSize::Cover => String::from("StyleBackgroundSize::Cover"),
-            StyleBackgroundSize::ExactSize(w, h) => format!("StyleBackgroundSize::ExactSize({}, {})", format_pixel_value(w), format_pixel_value(h)),
+            StyleBackgroundSize::ExactSize([w, h]) => format!("StyleBackgroundSize::ExactSize([{}, {}])", format_pixel_value(w), format_pixel_value(h)),
         }
     }
 }
@@ -487,7 +487,7 @@ impl FormatAsRustCode for StyleBackgroundContent {
 fn format_direction(d: &Direction, tabs: usize) -> String {
     match d {
         Direction::Angle(fv) => format!("Direction::Angle({})", format_float_value(fv)),
-        Direction::FromTo(from, to) => format!("Direction::FromTo({}, {})",
+        Direction::FromTo(DirectionCorners { from, to }) => format!("Direction::FromTo(DirectionCorners {{ from: {}, to: {} }})",
             from.format_as_rust_code(tabs + 1), to.format_as_rust_code(tabs + 1)
         ),
     }
@@ -499,7 +499,7 @@ fn format_linear_gradient(l: &LinearGradient, tabs: usize) -> String {
     format!("LinearGradient {{\r\n{}direction: {},\r\n{}extend_mode: {},\r\n{}stops: vec![\r\n{}{}\r\n{}],\r\n{}}}",
         t1, format_direction(&l.direction, tabs + 1), t1,
         l.extend_mode.format_as_rust_code(tabs + 1), t1,
-        t1, format_gradient_stops(&l.stops, tabs), t1, t,
+        t1, format_gradient_stops(l.stops.as_ref(), tabs), t1, t,
     )
 }
 
@@ -517,21 +517,24 @@ fn format_radial_gradient(r: &RadialGradient, tabs: usize) -> String {
     format!("RadialGradient {{\r\n{}shape: {},\r\n{}extend_mode: {},\r\n{}stops: vec![\r\n{}{}\r\n{}],\r\n{}}}",
         t1, r.shape.format_as_rust_code(tabs + 1), t1,
         r.extend_mode.format_as_rust_code(tabs + 1), t1,
-        t1, format_gradient_stops(&r.stops, tabs + 1), t1, t,
+        t1, format_gradient_stops(r.stops.as_ref(), tabs + 1), t1, t,
     )
 }
 
 fn format_gradient_stop(g: &GradientStopPre) -> String {
     format!("GradientStopPre {{ offset: {}, color: {} }}",
-        g.offset.as_ref().map(|s| format_percentage_value(s)).unwrap_or(format!("None")),
+        {
+            let offset: Option<PercentageValue> = g.offset.into();
+            offset.as_ref().map(|s| format_percentage_value(s)).unwrap_or(format!("None"))
+        },
         format_color_value(&g.color),
     )
 }
 
-fn format_font_ids(stops: &[FontId], tabs: usize) -> String {
+fn format_font_ids(stops: &[AzString], tabs: usize) -> String {
     let t = String::from("    ").repeat(tabs);
     stops.iter()
-        .map(|s| format!("FontId({:?})", s.inner))
+        .map(|s| format!("{:?}", s))
         .collect::<Vec<_>>()
         .join(&format!(",\r\n{}", t))
 }
@@ -541,7 +544,7 @@ impl FormatAsRustCode for StyleFontFamily {
         let t = String::from("    ").repeat(tabs);
         let t1 = String::from("    ").repeat(tabs + 1);
         format!("StyleFontFamily {{ fonts: vec![\r\n{}{}\r\n{}]\r\n{}}}",
-            t1, format_font_ids(&self.fonts, tabs + 1), t1, t
+            t1, format_font_ids(self.fonts.as_ref(), tabs + 1), t1, t
         )
     }
 }

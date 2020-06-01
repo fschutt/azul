@@ -45,6 +45,12 @@ macro_rules! impl_vec {($struct_type:ident, $struct_name:ident) => (
         }
     }
 
+    impl AsRef<[$struct_type]> for $struct_name {
+        fn as_ref(&self) -> &[$struct_type] {
+            unsafe { std::slice::from_raw_parts(self.ptr, self.len) }
+        }
+    }
+
     impl fmt::Debug for $struct_name {
         fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
             let v1: &[$struct_type] = unsafe { std::slice::from_raw_parts(self.ptr, self.len) };
@@ -132,6 +138,12 @@ macro_rules! impl_vec {($struct_type:ident, $struct_name:ident) => (
 
 #[repr(C)]
 pub struct AzString { vec: U8Vec }
+
+impl AsRef<str> for AzString {
+    fn as_ref(&self) -> &str {
+        self.as_str()
+    }
+}
 
 impl fmt::Display for AzString {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
