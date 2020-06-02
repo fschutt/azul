@@ -5,7 +5,7 @@ use std::{
 };
 use azul_css::{
     LayoutPoint, LayoutRect, LayoutSize,
-    RectStyle, StyleFontSize, ColorU,
+    RectStyle, StyleFontSize, ColorU, U8Vec, AzString
 };
 use crate::{
     FastHashMap, FastHashSet,
@@ -332,23 +332,25 @@ unique_id!(ImageId, IMAGE_ID_COUNTER);
 unique_id!(FontId, FONT_ID_COUNTER);
 
 #[derive(Debug, Clone, PartialEq, Eq)]
+#[repr(C)]
 pub enum ImageSource {
     /// The image is embedded inside the binary file
-    Embedded(Vec<u8>),
+    Embedded(U8Vec),
     /// The image is already decoded and loaded from a set of bytes
     Raw(RawImage),
     /// The image is loaded from a file
-    File(PathBuf),
+    File(AzString),
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
+#[repr(C)]
 pub enum FontSource {
     /// The font is embedded inside the binary file
-    Embedded(Vec<u8>),
+    Embedded(U8Vec),
     /// The font is loaded from a file
-    File(PathBuf),
+    File(AzString),
     /// The font is a system built-in font
-    System(String),
+    System(AzString),
 }
 
 impl fmt::Display for FontSource {
@@ -370,9 +372,11 @@ pub enum ImmediateFontId {
 
 /// Raw image made up of raw pixels (either BRGA8 or A8)
 #[derive(Debug, Clone, PartialEq, Eq)]
+#[repr(C)]
 pub struct RawImage {
-    pub pixels: Vec<u8>,
-    pub image_dimensions: (usize, usize),
+    pub pixels: U8Vec,
+    pub width: usize,
+    pub height: usize,
     pub data_format: RawImageFormat,
 }
 

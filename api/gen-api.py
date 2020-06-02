@@ -359,12 +359,12 @@ def rust_bindings_call_fn_args(f, class_name, class_ptr_name, self_as_first_arg,
             if class_is_boxed_object:
                 fn_args += "&mut self.ptr, "
             else:
-                fn_args += "&mut self.object, "
+                fn_args += "&mut self, "
         elif (self_val == "ref"):
             if class_is_boxed_object:
                 fn_args += "&self.ptr, "
             else:
-                fn_args += "&self.object, "
+                fn_args += "&self, "
         else:
             raise Exception("wrong self value " + self_val)
 
@@ -395,7 +395,7 @@ def rust_bindings_call_fn_args(f, class_name, class_ptr_name, self_as_first_arg,
                     if class_is_typedef(arg_type_class):
                         fn_args += start + arg_name + ", "
                     elif class_is_stack_allocated(arg_type_class):
-                        fn_args += start + arg_name + ".leak(), " # .object
+                        fn_args += start + arg_name + ", " # .object
                     else:
                         fn_args += start + arg_name + ".leak(), "
 
@@ -482,44 +482,8 @@ def generate_rust_dll(apiData):
                         structs_map[class_ptr_name] = {"struct": c["struct_fields"]}
                     elif "enum_fields" in c.keys():
                         structs_map[class_ptr_name] = {"enum": c["enum_fields"]}
-                    code += "#[no_mangle] #[repr(C)] pub struct " + class_ptr_name + " { pub object: " + external_path + " }\r\n"
+                    code += "pub use " + external_path + " as " + class_ptr_name + ";\r\n"
 
-                if c_is_stack_allocated:
-                    if class_is_small_enum(c):
-
-                        for enum_variant in c["enum_fields"]:
-                            enum_variant_name = list(enum_variant.keys())[0]
-                            enum_variant = list(enum_variant.values())[0]
-                            if "doc" in enum_variant.keys():
-                                code += "/// " + enum_variant["doc"] + "\r\n"
-                            if "type" in enum_variant.keys():
-                                variant_type = enum_variant["type"]
-                                if is_primitive_arg(variant_type):
-                                    functions_map[str(fn_prefix + to_snake_case(class_name) + "_" + to_snake_case(enum_variant_name))] = ["variant_data: " + variant_type, class_ptr_name];
-                                    code += "#[inline] #[no_mangle] pub extern \"C\" fn " + fn_prefix + to_snake_case(class_name) + "_" + to_snake_case(enum_variant_name) + "(variant_data: " + variant_type + ") -> " + class_ptr_name + " { "
-                                    code += class_ptr_name + " { object: " + c["external"] + "::" + enum_variant_name + "(variant_data) }"
-                                    code += " }\r\n"
-                                else:
-                                    analyzed_arg_type = analyze_type(variant_type)
-                                    found_class_path = search_for_class_by_rust_class_name(apiData, analyzed_arg_type[1])
-                                    if found_class_path is None:
-                                        print("variant type " + variant_type + " not found (object " + class_name + " " + enum_variant_name + "!")
-                                    variant_data_class_name = prefix + found_class_path[1] + postfix
-                                    fn_body = "*" + fn_prefix + to_snake_case(found_class_path[1]) + "_downcast(variant_data)"
-                                    if class_is_stack_allocated(get_class(apiData, found_class_path[0], found_class_path[1])):
-                                        variant_data_class_name = prefix + found_class_path[1]
-                                        fn_body = "variant_data.object"
-
-                                    functions_map[str(fn_prefix + to_snake_case(class_name) + "_" + to_snake_case(enum_variant_name))] = ["variant_data: " + variant_data_class_name, class_ptr_name];
-                                    code += "#[inline] #[no_mangle] pub extern \"C\" fn " + fn_prefix + to_snake_case(class_name) + "_" + to_snake_case(enum_variant_name) + "(variant_data: " + variant_data_class_name + ") -> " + class_ptr_name + " { "
-                                    code += class_ptr_name + " { object: " + c["external"] + "::" + enum_variant_name + "(" + fn_body + ") }"
-                                    code += " }\r\n"
-                            else:
-                                # enum variant with no arguments
-                                functions_map[str(fn_prefix + to_snake_case(class_name) + "_" + to_snake_case(enum_variant_name))] = ["", class_ptr_name];
-                                code += "#[inline] #[no_mangle] pub extern \"C\" fn " + fn_prefix + to_snake_case(class_name) + "_" + to_snake_case(enum_variant_name) + "() -> " + class_ptr_name + " { "
-                                code += class_ptr_name + " { object: " + c["external"] + "::" + enum_variant_name + " }"
-                                code += " }\r\n"
             else:
                 structs_map[class_ptr_name] = {"struct": [{"ptr": {"type": "*mut c_void"}}]}
                 code += "#[no_mangle] #[repr(C)] pub struct " + class_ptr_name + " { ptr: *mut c_void }\r\n"
@@ -538,7 +502,7 @@ def generate_rust_dll(apiData):
                     else:
                         fn_body += "let object: " + rust_class_name + " = " + const["fn_body"] + "; " # note: security check, that the returned object is of the correct type
                         if c_is_stack_allocated:
-                            fn_body += class_ptr_name + " { object }"
+                            fn_body += "object"
                         else:
                             fn_body += class_ptr_name + " { ptr: Box::into_raw(Box::new(object)) as *mut c_void }"
 
@@ -582,6 +546,8 @@ def generate_rust_dll(apiData):
                             returns = return_type
                         else:
                             return_type_class = search_for_class_by_rust_class_name(apiData, return_type)
+                            if return_type_class is None:
+                                print("rust-dll: (line 549): no return_type_class found for " + return_type)
                             if class_is_stack_allocated(get_class(apiData, return_type_class[0], return_type_class[1])):
                                 returns = prefix + return_type_class[1] # no postfix
                             else:
@@ -604,7 +570,7 @@ def generate_rust_dll(apiData):
                     # Generate the destructor for an enum
                     stack_delete_body = ""
                     if class_is_small_enum(c):
-                        stack_delete_body += "match object.object { "
+                        stack_delete_body += "match object { "
                         for enum_variant in c["enum_fields"]:
                             enum_variant_name = list(enum_variant.keys())[0]
                             enum_variant = list(enum_variant.values())[0]
@@ -623,7 +589,7 @@ def generate_rust_dll(apiData):
                     code += "/// Copies the object\r\n"
                     functions_map[str(fn_prefix + to_snake_case(class_name) + "_deep_copy")] = ["object: &" + class_ptr_name, class_ptr_name];
                     code += "#[no_mangle] #[inline] pub extern \"C\" fn " + fn_prefix + to_snake_case(class_name) + "_deep_copy" + lifetime + "(object: &" + class_ptr_name + ") -> " + class_ptr_name + " { "
-                    code += class_ptr_name + "{ object: object.object.clone() }"
+                    code += "object.clone()"
                     code += " }\r\n"
             else:
                 # az_item_delete()
@@ -691,6 +657,8 @@ def generate_dll_loader(apiData, structs_map, functions_map):
                     else:
                         analyzed_arg_type = analyze_type(field_type)
                         field_type_class_path = search_for_class_by_rust_class_name(apiData, analyzed_arg_type[1])
+                        if field_type_class_path is None:
+                            print("no field_type_class_path found for " + str(analyzed_arg_type))
                         code += "        pub " + field_name + ": " + analyzed_arg_type[0] + prefix + field_type_class_path[1] + analyzed_arg_type[2] + ",\r\n"
                 else:
                     print("struct " + struct_name + " does not have a type on field " + field_name)
@@ -855,19 +823,19 @@ def generate_rust_api(apiData, structs_map, functions_map):
                             variant_type = enum_variant["type"]
                             if is_primitive_arg(variant_type):
                                 code += "        pub fn " + to_snake_case(enum_variant_name) + "(variant_data: " + variant_type + ") -> Self { "
-                                code += "Self { object: " + fn_prefix + to_snake_case(class_name) + "_" + to_snake_case(enum_variant_name) + "(variant_data) }"
+                                code += fn_prefix + to_snake_case(class_name) + "_" + to_snake_case(enum_variant_name) + "(variant_data)"
                                 code += "}\r\n"
                             else:
                                 analyzed_arg_type = analyze_type(variant_type)
                                 found_class_path = search_for_class_by_rust_class_name(apiData, analyzed_arg_type[1])
                                 stack_enum_args = analyzed_arg_type[0] + "crate::" + found_class_path[0] + "::" + found_class_path[1] + analyzed_arg_type[2]
                                 code += "        pub fn " + to_snake_case(enum_variant_name) + "(variant_data: " + stack_enum_args + ") -> Self { "
-                                code += "Self { object: " + fn_prefix + to_snake_case(class_name) + "_" + to_snake_case(enum_variant_name) + "(variant_data.leak()) }"
+                                code += fn_prefix + to_snake_case(class_name) + "_" + to_snake_case(enum_variant_name) + "(variant_data.leak())"
                                 code += "}\r\n"
                         else:
                             # enum variant with no arguments
                             code += "        pub fn " + to_snake_case(enum_variant_name) + "() -> Self { "
-                            code += "Self { object: " + fn_prefix + to_snake_case(class_name) + "_" + to_snake_case(enum_variant_name) + "() } "
+                            code += fn_prefix + to_snake_case(class_name) + "_" + to_snake_case(enum_variant_name) + "() "
                             code += " }\r\n"
 
             if "constructors" in c.keys():
@@ -886,7 +854,7 @@ def generate_rust_api(apiData, structs_map, functions_map):
                         fn_body = rust_api_patches[tuple([module_name, class_name, fn_name])]
                     else:
                         if c_is_stack_allocated:
-                            fn_body = "Self { object: " + c_fn_name + "(" + fn_args_call + ") }"
+                            fn_body = c_fn_name + "(" + fn_args_call + ")"
                         else:
                             fn_body = "Self { ptr: " + c_fn_name + "(" + fn_args_call + ") }"
 
@@ -934,7 +902,7 @@ def generate_rust_api(apiData, structs_map, functions_map):
                             return_type_class = search_for_class_by_rust_class_name(apiData, return_type)
                             returns = " -> crate::" + return_type_class[0] + "::" + return_type_class[1]
                             if class_is_stack_allocated(get_class(apiData, return_type_class[0], return_type_class[1])):
-                                fn_body = "crate::" + return_type_class[0] + "::" + return_type_class[1] + " { object: { " + fn_body + "} }"
+                                fn_body = "{ " + fn_body + "}"
                             else:
                                 fn_body = "crate::" + return_type_class[0] + "::" + return_type_class[1] + " { ptr: { " + fn_body + " } }"
 
@@ -945,14 +913,10 @@ def generate_rust_api(apiData, structs_map, functions_map):
                     leak_fn_body = "let p = " +  fn_prefix + to_snake_case(class_name) + "_shallow_copy(&self.ptr); std::mem::forget(self); p"
                     code += "       /// Prevents the destructor from running and returns the internal `" + class_ptr_name + "`\r\n"
                     code += "       pub fn leak(self) -> " + class_ptr_name + " { " + leak_fn_body + " }\r\n"
-                else:
-                    code += "       /// Prevents the destructor from running and returns the internal `" + class_ptr_name + "`\r\n"
-                    leak_fn_body = fn_prefix + to_snake_case(class_name) + "_deep_copy(&self.object)"
-                    code += "       pub fn leak(self) -> " + class_ptr_name + " { " + leak_fn_body + " }\r\n"
 
                 code += "    }\r\n\r\n" # end of class
 
-                destructor_fn_object = "self.ptr" if class_is_boxed_object else "self.object"
+                destructor_fn_object = "self.ptr" if class_is_boxed_object else "self"
                 code += "    impl Drop for " + class_name + " { fn drop(&mut self) { " + fn_prefix + to_snake_case(class_name) + "_delete(&mut " + destructor_fn_object + "); } }\r\n"
 
         code += "}\r\n\r\n" # end of module

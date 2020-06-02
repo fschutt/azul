@@ -4,24 +4,24 @@
 			"doc": "Definition of azuls internal `String` wrappers",
 			"classes": {
 				"String": {
-					"external": "std::string::String",
+					"external": "azul_css::AzString",
 					"struct_fields": [
-						{ "vec": { "type": "Vec<u8>" } }
+						{ "vec": { "type": "U8Vec" } }
 					],
 					"constructors": {
 						"from_utf8_unchecked": {
 							"doc": "Creates + allocates a Rust `String` by **copying** it from another utf8-encoded string",
 							"fn_args": [
-							{"ptr": "*const u8"},
-							{"len": "usize"}
+								{"ptr": "*const u8"},
+								{"len": "usize"}
 							],
 							"fn_body": "unsafe { std::str::from_utf8_unchecked(std::slice::from_raw_parts(ptr, len)).to_string() }"
 						},
 						"from_utf8_lossy": {
 							"doc": "Creates + allocates a Rust `String` by **copying** it from another utf8-encoded string",
 							"fn_args": [
-							{"ptr": "*const u8"},
-							{"len": "usize"}
+								{"ptr": "*const u8"},
+								{"len": "usize"}
 							],
 							"fn_body": "unsafe { std::string::String::from_utf8_lossy(std::slice::from_raw_parts(ptr, len)).to_string() }"
 						}
@@ -32,8 +32,8 @@
 							"fn_args": [
 								{"self": "value"}
 							],
-							"returns": "Vec<u8>",
-							"fn_body": "AzU8Vec { object: string.object.into_bytes() }"
+							"returns": "U8Vec",
+							"fn_body": "string.into_bytes()"
 						}
 					}
 				}
@@ -43,99 +43,31 @@
 			"doc": "Definition of azuls internal `Vec<*>` wrappers",
 			"classes": {
 				"U8Vec": {
-					"doc": "Wrapper over a Rust-allocated `Vec<u8>`",
-					"rust_class_name": "Vec<u8>",
-					"external": "std::vec::Vec::<u8>",
+					"doc": "Wrapper over a Rust-allocated `U8Vec`",
+					"external": "azul_css::U8Vec",
 					"struct_fields": [
 						{ "ptr": { "type": "*const u8" } },
 						{ "len": { "type": "usize" } },
 						{ "cap": { "type": "usize" } }
-					],
-					"constructors": {
-						"copy_from": {
-						"doc": "Creates + allocates a Rust `Vec<u8>` by **copying** it from a bytes source",
-						"fn_args": [
-							{"ptr": "*const u8"},
-							{"len": "usize"}
-						],
-						"fn_body": "unsafe { std::slice::from_raw_parts(ptr, len).to_vec() }"
-						}
-					},
-					"functions": {
-						"as_ptr": {
-							"doc": "Returns the internal pointer to the start of the heap-allocated `[u8]`",
-							"fn_args": [
-								{"self": "ref"}
-							],
-							"returns": "*const u8",
-							"fn_body": "u8vec.object.as_ptr()"
-						},
-						"len": {
-							"doc": "Returns the length of bytes in the heap-allocated `[u8]`",
-							"fn_args": [
-								{"self": "ref"}
-							],
-							"returns": "usize",
-							"fn_body": "u8vec.object.len()"
-						}
-					}
+					]
 				},
 				"StringVec": {
-					"doc": "Wrapper over a Rust-allocated `Vec<String>`",
-					"rust_class_name": "Vec<String>",
-					"external": "std::vec::Vec::<String>",
+					"doc": "Wrapper over a Rust-allocated `StringVec`",
+					"external": "azul_css::StringVec",
 					"struct_fields": [
 						{ "ptr": { "type": "*const String" } },
 						{ "len": { "type": "usize" } },
 						{ "cap": { "type": "usize" } }
-					],
-					"constructors": {
-						"copy_from": {
-							"doc": "Creates + allocates a Rust `Vec<String>` by **copying** it from a bytes source",
-							"fn_args": [
-								{"ptr": "*const String"},
-								{"len": "usize"}
-							],
-							"fn_body": "unsafe { std::slice::from_raw_parts(ptr, len).into_iter().map(|s| s.object.clone()).collect() }"
-						}
-					}
+					]
 				},
 				"GradientStopPreVec": {
-					"doc": "Wrapper over a Rust-allocated `Vec<GradientStopPre>`",
-					"rust_class_name": "Vec<GradientStopPre>",
-					"external": "std::vec::Vec::<GradientStopPre>",
+					"doc": "Wrapper over a Rust-allocated `GradientStopPreVec`",
+					"external": "azul_css::GradientStopPreVec",
 					"struct_fields": [
 						{ "ptr": { "type": "*const GradientStopPre" } },
 						{ "len": { "type": "usize" } },
 						{ "cap": { "type": "usize" } }
-					],
-					"constructors": {
-						"copy_from": {
-							"doc": "Creates + allocates a Rust `Vec<GradientStopPre>` by **copying** it from a bytes source",
-							"fn_args": [
-								{"ptr": "*const GradientStopPre"},
-								{"len": "usize"}
-							],
-							"fn_body": "unsafe { std::slice::from_raw_parts(ptr, len).into_iter().map(|s| s.object.clone()).collect() }"
-						}
-					}
-				}
-			}
-		},
-		"path": {
-			"doc": "Definition of azuls internal `PathBuf` type + functions for conversion from `std::PathBuf`",
-			"classes": {
-				"PathBuf": {
-					"doc": "Wrapper over a Rust-allocated `PathBuf`",
-					"constructors": {
-						"new": {
-						"doc": "Creates a new PathBuf from a String",
-						"fn_args": [
-							{"path": "String"}
-						],
-						"fn_body": "std::path::PathBuf::from(path.object)"
-						}
-					}
+					]
 				}
 			}
 		},
@@ -143,7 +75,7 @@
 			"doc": "Definition of azuls internal `Option<*>` wrappers",
 			"classes": {
 				"OptionPercentageValue": {
-					"rust_class_name": "Option<PercentageValue>",
+					"external": "azul_css::OptionPercentageValue",
 					"enum_fields": [
 						{"None": {}},
 						{"Some": { "type": "PercentageValue" }}
@@ -268,7 +200,7 @@
 						"new": {
 							"doc": "Creates a `HotReloadHandler` that hot-reloads a CSS file every X milliseconds",
 							"fn_args": [
-								{"path": "PathBuf"},
+								{"path": "String"},
 								{"reload_ms": "u64"}
 							],
 							"fn_body":"css::hot_reload(*az_path_buf_downcast(path), Duration::from_millis(reload_ms))"
@@ -276,7 +208,7 @@
 						"override_native": {
 							"doc": "Creates a `HotReloadHandler` that overrides the `Css::native()` stylesheet with a CSS file, reloaded every X milliseconds",
 							"fn_args": [
-								{"path": "PathBuf"},
+								{"path": "String"},
 								{"reload_ms": "u64"}
 							],
 							"fn_body":"css::hot_reload_override_native(*az_path_buf_downcast(path), Duration::from_millis(reload_ms))"
@@ -559,7 +491,7 @@
 				"GradientStopPre": {
 					"external": "azul_impl::css::GradientStopPre",
 					"struct_fields": [
-						{"offset": {"type": "Option<PercentageValue>"}},
+						{"offset": {"type": "OptionPercentageValue"}},
 						{"color": {"type": "ColorU"}}
 					]
 				},
@@ -602,7 +534,7 @@
 					"struct_fields": [
 						{"direction": {"type": "Direction"}},
 						{"extend_mode": {"type": "ExtendMode"}},
-						{"stops": {"type": "Vec<GradientStopPre>"}}
+						{"stops": {"type": "GradientStopPreVec"}}
 					]
 				},
 				"Shape": {
@@ -617,7 +549,7 @@
 					"struct_fields": [
 						{"shape": {"type": "Shape"}},
 						{"extend_mode": {"type": "ExtendMode"}},
-						{"stops": {"type": "Vec<GradientStopPre>"}}
+						{"stops": {"type": "GradientStopPreVec"}}
 					]
 				},
 				"CssImageId": {
@@ -823,7 +755,7 @@
 				"StyleFontFamily": {
 					"external": "azul_impl::css::StyleFontFamily",
 					"struct_fields": [
-						{"fonts": {"type": "Vec<String>"}}
+						{"fonts": {"type": "StringVec"}}
 					]
 				},
 				"StyleFontSize": {
@@ -1677,7 +1609,7 @@
 							"doc": "Same as calling [`Dom::add_id`](#method.add_id) for each CSS ID, but this function **replaces** all current CSS IDs",
 							"fn_args": [
 								{"self": "refmut"},
-								{"ids": "Vec<String>"}
+								{"ids": "StringVec"}
 							],
 							"fn_body": "az_dom_downcast_refmut(dom, |d| { d.set_ids(ids.object); })"
 						},
@@ -1685,7 +1617,7 @@
 							"doc": "Same as [`Dom::set_ids`](#method.set_ids), but as a builder method",
 							"fn_args": [
 								{"self": "mut value"},
-								{"ids": "Vec<String>"}
+								{"ids": "StringVec"}
 							],
 							"returns": "Dom",
 							"fn_body": "az_dom_set_ids(&mut dom, ids); dom"
@@ -1711,7 +1643,7 @@
 							"doc": "Same as calling [`Dom::add_class`](#method.add_class) for each class, but this function **replaces** all current classes",
 							"fn_args": [
 								{"self": "refmut"},
-								{"classes": "Vec<String>"}
+								{"classes": "StringVec"}
 							],
 							"fn_body": "az_dom_downcast_refmut(dom, |d| { (*d).set_classes(classes.object); })"
 						},
@@ -1719,7 +1651,7 @@
 							"doc": "Same as [`Dom::set_classes`](#method.set_classes), but as a builder method",
 							"fn_args": [
 								{"self": "mut value"},
-								{"classes": "Vec<String>"}
+								{"classes": "StringVec"}
 							],
 							"returns": "Dom",
 							"fn_body": "az_dom_set_classes(&mut dom, classes); dom"
@@ -1985,20 +1917,27 @@
 				"ImageSource": {
 					"external": "azul_impl::resources::ImageSource",
 					"enum_fields": [
-						{ "Embedded": {"type": "Vec<u8>", "doc": "Bytes of the image, encoded in PNG / JPG / etc. format" } },
-						{ "File": {"type": "PathBuf", "doc": "References an (encoded!) image as a file from the file system that is loaded when necessary" } },
+						{ "Embedded": {"type": "U8Vec", "doc": "Bytes of the image, encoded in PNG / JPG / etc. format" } },
+						{ "File": {"type": "String", "doc": "References an (encoded!) image as a file from the file system that is loaded when necessary" } },
 						{ "Raw": {"type": "RawImage", "doc": "References a decoded (!) `RawImage` as the image source" } }
 					]
 				},
 				"FontSource": {
 					"external": "azul_impl::resources::FontSource",
 					"enum_fields": [
-						{ "Embedded": {"type": "Vec<u8>", "doc": "Bytes are the bytes of the font file" } },
-						{ "File": {"type": "PathBuf", "doc": "References a font from a file path, which is loaded when necessary" } },
+						{ "Embedded": {"type": "U8Vec", "doc": "Bytes are the bytes of the font file" } },
+						{ "File": {"type": "String", "doc": "References a font from a file path, which is loaded when necessary" } },
 						{ "System": {"type": "String", "doc": "References a font from from a system font identifier, such as `\"Arial\"` or `\"Helvetica\"`" } }
 					]
 				},
 				"RawImage": {
+					"external": "azul_impl::resources::RawImage",
+					"struct_fields": [
+						{"pixels": {"type": "U8Vec"}},
+						{"width": {"type": "usize"}},
+						{"height": {"type": "usize"}},
+						{"data_format": {"type": "RawImageFormat"}}
+					],
 					"constructors": {
 						"new": {
 						"doc": "Creates a new `RawImage` by loading the decoded bytes",
