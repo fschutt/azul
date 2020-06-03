@@ -13,3 +13,8 @@ members = [
     "azul-css-parser",
     "azul-native-style",
 ]
+
+[profile.release]
+lto = true
+panic = "abort"
+codegen-units = 1

@@ -1,0 +1,25 @@
+    Analyzing target/release/libazul.so
+
+ File  .text    Size                  Crate Name
+ 0.8%   1.5% 74.4KiB         azul_webrender azul_webrender::shade::Shaders::new
+ 0.7%   1.5% 72.7KiB           azul_desktop azul_desktop::app::send_user_event
+ 0.6%   1.2% 61.4KiB                  gleam gleam::ffi_gl::Gl::load_with
+ 0.6%   1.1% 56.1KiB         azul_webrender azul_webrender::scene_building::SceneBuilder::build_item
+ 0.6%   1.1% 54.3KiB              azul_core azul_core::ui_state::UiState::new
+ 0.4%   0.8% 41.7KiB           jpeg_decoder jpeg_decoder::decoder::Decoder<R>::decode_internal
+ 0.4%   0.8% 41.2KiB                  image image::dynimage::load
+ 0.4%   0.8% 38.5KiB         azul_webrender azul_webrender::batch::BatchBuilder::add_prim_to_batch
+ 0.4%   0.7% 35.6KiB         azul_webrender azul_webrender::render_backend::RenderBackend::process_api_msg
+ 0.4%   0.7% 35.3KiB              azul_core azul_core::window_state::determine_callbacks
+ 0.3%   0.7% 33.9KiB         azul_webrender azul_webrender::picture::PicturePrimitive::take_context
+ 0.3%   0.7% 33.7KiB           azul_desktop azul_desktop::app::App::run_inner
+ 0.3%   0.6% 31.1KiB         azul_webrender azul_webrender::renderer::Renderer::new
+ 0.3%   0.6% 30.6KiB         azul_webrender azul_webrender::scene_builder_thread::SceneBuilderThread::process_transaction
+ 0.3%   0.6% 30.1KiB         azul_webrender azul_webrender::prim_store::PrimitiveStore::prepare_interned_prim_for_render
+ 0.3%   0.6% 28.9KiB                inflate inflate::InflateStream::next_state
+ 0.3%   0.6% 27.7KiB         azul_webrender azul_webrender::renderer::Renderer::draw_frame
+ 0.3%   0.5% 26.4KiB            azul_layout azul_layout::SolvedUi::new
+ 0.2%   0.5% 24.4KiB smithay_client_toolkit smithay_client_toolkit::keyboard::ffi::XkbCommon::open
+ 0.2%   0.5% 23.7KiB         azul_webrender azul_webrender::scene_builder_thread::SceneBuilderThread::run
+42.0%  82.8%  4.0MiB                        And 6929 smaller methods. Use -n N to show more.
+50.7% 100.0%  4.9MiB                        .text section size, the file size is 9.6MiB

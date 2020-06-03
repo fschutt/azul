@@ -520,7 +520,7 @@ def generate_rust_dll(apiData):
                     fn_args = fn_args_c_api(const, class_name, class_ptr_name, False, apiData)
 
                     functions_map[str(fn_prefix + to_snake_case(class_name) + "_" + fn_name)] = [fn_args, class_ptr_name];
-                    code += "#[no_mangle] #[inline] pub extern \"C\" fn " + fn_prefix + to_snake_case(class_name) + "_" + fn_name + "(" + fn_args + ") -> " + class_ptr_name + " { "
+                    code += "#[no_mangle] pub extern \"C\" fn " + fn_prefix + to_snake_case(class_name) + "_" + fn_name + "(" + fn_args + ") -> " + class_ptr_name + " { "
                     code += fn_body
                     code += " }\r\n"
 
@@ -560,7 +560,7 @@ def generate_rust_dll(apiData):
 
                     functions_map[str(fn_prefix + to_snake_case(class_name) + "_" + fn_name)] = [fn_args, returns];
                     return_arrow = "" if returns == "" else " -> "
-                    code += "#[no_mangle] #[inline] pub extern \"C\" fn " + fn_prefix + to_snake_case(class_name) + "_" + fn_name + "(" + fn_args + ")" + return_arrow + returns + " { "
+                    code += "#[no_mangle] pub extern \"C\" fn " + fn_prefix + to_snake_case(class_name) + "_" + fn_name + "(" + fn_args + ")" + return_arrow + returns + " { "
                     code += fn_body
                     code += " }\r\n"
 
@@ -588,26 +588,26 @@ def generate_rust_dll(apiData):
                     # az_item_delete()
                     code += "/// Destructor: Takes ownership of the `" + class_name + "` pointer and deletes it.\r\n"
                     functions_map[str(fn_prefix + to_snake_case(class_name) + "_delete")] = ["object: &mut " + class_ptr_name, ""];
-                    code += "#[no_mangle] #[inline] #[allow(unused_variables)] pub extern \"C\" fn " + fn_prefix + to_snake_case(class_name) + "_delete" + lifetime + "(object: &mut " + class_ptr_name + ") { " + stack_delete_body + "}\r\n"
+                    code += "#[no_mangle] #[allow(unused_variables)] pub extern \"C\" fn " + fn_prefix + to_snake_case(class_name) + "_delete" + lifetime + "(object: &mut " + class_ptr_name + ") { " + stack_delete_body + "}\r\n"
 
                     # az_item_deep_copy()
                     code += "/// Copies the object\r\n"
                     functions_map[str(fn_prefix + to_snake_case(class_name) + "_deep_copy")] = ["object: &" + class_ptr_name, class_ptr_name];
-                    code += "#[no_mangle] #[inline] pub extern \"C\" fn " + fn_prefix + to_snake_case(class_name) + "_deep_copy" + lifetime + "(object: &" + class_ptr_name + ") -> " + class_ptr_name + " { "
+                    code += "#[no_mangle] pub extern \"C\" fn " + fn_prefix + to_snake_case(class_name) + "_deep_copy" + lifetime + "(object: &" + class_ptr_name + ") -> " + class_ptr_name + " { "
                     code += "object.clone()"
                     code += " }\r\n"
             else:
                 # az_item_delete()
                 code += "/// Destructor: Takes ownership of the `" + class_name + "` pointer and deletes it.\r\n"
                 functions_map[str(fn_prefix + to_snake_case(class_name) + "_delete")] = ["ptr: &mut " + class_ptr_name, ""];
-                code += "#[no_mangle] #[inline] pub extern \"C\" fn " + fn_prefix + to_snake_case(class_name) + "_delete" + lifetime + "(ptr: &mut " + class_ptr_name + ") { "
+                code += "#[no_mangle] pub extern \"C\" fn " + fn_prefix + to_snake_case(class_name) + "_delete" + lifetime + "(ptr: &mut " + class_ptr_name + ") { "
                 code += "let _ = unsafe { Box::<" + rust_class_name + ">::from_raw(ptr.ptr  as *mut " + rust_class_name + ") };"
                 code += " }\r\n"
 
                 # az_item_shallow_copy()
                 code += "/// Copies the pointer: WARNING: After calling this function you'll have two pointers to the same Box<`" + class_name + "`>!.\r\n"
                 functions_map[str(fn_prefix + to_snake_case(class_name) + "_shallow_copy")] = ["ptr: &" + class_ptr_name, class_ptr_name];
-                code += "#[no_mangle] #[inline] pub extern \"C\" fn " + fn_prefix + to_snake_case(class_name) + "_shallow_copy" + lifetime + "(ptr: &" + class_ptr_name + ") -> " + class_ptr_name + " { "
+                code += "#[no_mangle] pub extern \"C\" fn " + fn_prefix + to_snake_case(class_name) + "_shallow_copy" + lifetime + "(ptr: &" + class_ptr_name + ") -> " + class_ptr_name + " { "
                 code += class_ptr_name + " { ptr: ptr.ptr }"
                 code += " }\r\n"
 

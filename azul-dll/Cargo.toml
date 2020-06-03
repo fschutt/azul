@@ -10,6 +10,15 @@ categories = ["gui"]
 repository = "https://github.com/maps4print/azul"
 edition = "2018"
 
+[lib]
+name = "azul"
+crate-type = ["rlib", "cdylib"]
+
+[profile.release]
+lto = true
+panic = "abort"
+codegen-units = 1
+
 [dependencies]
 azul-core = { path = "../azul-core", version = "0.0.2", default-features = false, features = ["opengl"] }
 

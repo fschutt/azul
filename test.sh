@@ -8,5 +8,9 @@ cd ./azul-dll
 cargo build --all-features --release # build the DLL
 cd ..
 
-RUST_BACKTRACE=full cargo check --example public
+cd ./target/release
+strip ./libazul.so
+cd ../..
+
+# RUST_BACKTRACE=full cargo check --example public
 # cargo doc --no-deps --open
