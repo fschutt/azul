@@ -2484,15 +2484,23 @@ pub type GlCallback = fn(AzGlCallbackInfoPtr) -> AzGlCallbackReturnPtr;
     impl Drop for GlCallbackReturn { fn drop(&mut self) { az_gl_callback_return_delete(&mut self.ptr); } }
 
 
-    use azul_dll::AzRefAny as AzRefAnyCore;
-
-    /// `RefAny` struct
-    #[repr(transparent)]
-    pub struct RefAny(pub(crate) AzRefAnyCore);
+    #[no_mangle]
+    #[repr(C)]
+    pub struct RefAny {
+        pub _internal_ptr: *const c_void,
+        pub _internal_len: usize,
+        pub _internal_layout_size: usize,
+        pub _internal_layout_align: usize,
+        pub type_id: u64,
+        pub type_name: AzString,
+        pub strong_count: usize,
+        pub is_currently_mutable: bool,
+        pub custom_destructor: fn(RefAny),
+    }
 
     impl Clone for RefAny {
         fn clone(&self) -> Self {
-            RefAny(az_ref_any_shallow_copy(&self.0))
+            RefAny(az_ref_any_shallow_copy(&self))
         }
     }
 
@@ -2502,7 +2510,7 @@ pub type GlCallback = fn(AzGlCallbackInfoPtr) -> AzGlCallbackReturnPtr;
         pub fn new<T: 'static>(value: T) -> Self {
             use azul_dll::*;
 
-            fn default_custom_destructor<U: 'static>(ptr: AzRefAnyCore) {
+            fn default_custom_destructor<U: 'static>(ptr: RefAny) {
                 use std::{mem, ptr};
 
                 // note: in the default constructor, we do not need to check whether U == T
@@ -2527,8 +2535,8 @@ pub type GlCallback = fn(AzGlCallbackInfoPtr) -> AzGlCallbackReturnPtr;
             Self(s)
         }
 
-        /// Returns the inner `AzRefAnyCore`
-        pub fn leak(self) -> AzRefAnyCore {
+        /// Returns the inner `RefAny`
+        pub fn leak(self) -> RefAny {
             use std::mem;
             let s = az_ref_any_core_copy(&self.0);
             mem::forget(self); // do not run destructor
@@ -4395,7 +4403,7 @@ pub mod dom {
     use azul_dll::*;
     use crate::str::String;
     use crate::resources::{ImageId, TextId};
-    use crate::callbacks::{GlCallback, IFrameCallback, RefAny, Callback};
+    use crate::callbacks::{IFrameCallback, RefAny, Callback, GlCallback};
     use crate::vec::StringVec;
     use crate::css::CssProperty;
 

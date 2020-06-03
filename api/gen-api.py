@@ -482,7 +482,9 @@ def generate_rust_dll(apiData):
                         structs_map[class_ptr_name] = {"struct": c["struct_fields"]}
                     elif "enum_fields" in c.keys():
                         structs_map[class_ptr_name] = {"enum": c["enum_fields"]}
-                    code += "pub use " + external_path + " as " + class_ptr_name + ";\r\n"
+
+                    code += "pub type " + class_ptr_name + "Type = " + external_path + ";\r\n"
+                    code += "#[no_mangle] pub use " + class_ptr_name + "Type as " + class_ptr_name + ";\r\n"
 
             else:
                 structs_map[class_ptr_name] = {"struct": [{"ptr": {"type": "*mut c_void"}}]}

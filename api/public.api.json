@@ -4,7 +4,7 @@
 			"doc": "Definition of azuls internal `String` wrappers",
 			"classes": {
 				"String": {
-					"external": "azul_css::AzString",
+					"external": "azul_impl::css::AzString",
 					"struct_fields": [
 						{ "vec": { "type": "U8Vec" } }
 					],
@@ -44,7 +44,7 @@
 			"classes": {
 				"U8Vec": {
 					"doc": "Wrapper over a Rust-allocated `U8Vec`",
-					"external": "azul_css::U8Vec",
+					"external": "azul_impl::css::U8Vec",
 					"struct_fields": [
 						{ "ptr": { "type": "*const u8" } },
 						{ "len": { "type": "usize" } },
@@ -53,7 +53,7 @@
 				},
 				"StringVec": {
 					"doc": "Wrapper over a Rust-allocated `StringVec`",
-					"external": "azul_css::StringVec",
+					"external": "azul_impl::css::StringVec",
 					"struct_fields": [
 						{ "ptr": { "type": "*const String" } },
 						{ "len": { "type": "usize" } },
@@ -62,7 +62,7 @@
 				},
 				"GradientStopPreVec": {
 					"doc": "Wrapper over a Rust-allocated `GradientStopPreVec`",
-					"external": "azul_css::GradientStopPreVec",
+					"external": "azul_impl::css::GradientStopPreVec",
 					"struct_fields": [
 						{ "ptr": { "type": "*const GradientStopPre" } },
 						{ "len": { "type": "usize" } },
@@ -75,7 +75,7 @@
 			"doc": "Definition of azuls internal `Option<*>` wrappers",
 			"classes": {
 				"OptionPercentageValue": {
-					"external": "azul_css::OptionPercentageValue",
+					"external": "azul_impl::css::OptionPercentageValue",
 					"enum_fields": [
 						{"None": {}},
 						{"Some": { "type": "PercentageValue" }}
@@ -183,14 +183,14 @@
 							"fn_args": [
 								{"s": "String"}
 							],
-							"fn_body":"css::from_str(&s.object).unwrap()"
+							"fn_body":"css::from_str(s.as_str()).unwrap()"
 						},
 						"override_native": {
 							"doc": "Appends a parsed stylesheet to `Css::native()`",
 							"fn_args": [
 								{"s": "String"}
 							],
-							"fn_body":"css::override_native(&s.object).unwrap()"
+							"fn_body":"css::override_native(s.as_str()).unwrap()"
 						}
 					}
 				},
@@ -203,7 +203,7 @@
 								{"path": "String"},
 								{"reload_ms": "u64"}
 							],
-							"fn_body":"css::hot_reload(*az_path_buf_downcast(path), Duration::from_millis(reload_ms))"
+							"fn_body":"{ let path: String = path.into(); css::hot_reload(std::path::PathBuf::from(path), Duration::from_millis(reload_ms)) }"
 						},
 						"override_native": {
 							"doc": "Creates a `HotReloadHandler` that overrides the `Css::native()` stylesheet with a CSS file, reloaded every X milliseconds",
@@ -211,7 +211,7 @@
 								{"path": "String"},
 								{"reload_ms": "u64"}
 							],
-							"fn_body":"css::hot_reload_override_native(*az_path_buf_downcast(path), Duration::from_millis(reload_ms))"
+							"fn_body":"{ let path: String = path.into(); css::hot_reload_override_native(std::path::PathBuf::from(path), Duration::from_millis(reload_ms)) }"
 						}
 					}
 				},
@@ -1554,21 +1554,21 @@
 							"fn_args": [
 								{"text": "String"}
 							],
-							"fn_body": "Dom::label(text.object)"
+							"fn_body": "Dom::label(text.into())"
 						},
 						"text": {
 							"doc": "Creates a new `p` node from a (cached) text referenced by a `TextId`",
 							"fn_args": [
 								{"text_id": "TextId"}
 							],
-							"fn_body": "Dom::text(text_id.object)"
+							"fn_body": "Dom::text(text_id)"
 						},
 						"image": {
 							"doc": "Creates a new `img` node from a (cached) text referenced by a `ImageId`",
 							"fn_args": [
 								{"image_id": "ImageId"}
 							],
-							"fn_body": "Dom::image(image_id.object)"
+							"fn_body": "Dom::image(image_id)"
 						},
 						"gl_texture": {
 							"doc": "Creates a new node which will render an OpenGL texture after the layout step is finished. See the documentation for [GlCallback]() for more info about OpenGL rendering callbacks.",
@@ -1947,7 +1947,7 @@
 							{"height": "usize"},
 							{"data_format": "RawImageFormat"}
 						],
-						"fn_body": "RawImage { pixels: decoded_pixels.object, image_dimensions: (width, height), data_format: data_format.object }"
+						"fn_body": "RawImage { pixels: decoded_pixels, width, height, data_format: data_format }"
 						}
 					}
 				},

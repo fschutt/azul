@@ -79,19 +79,21 @@ pub mod font_loading {
     pub fn font_source_get_bytes_inner(font_source: &FontSource) -> Result<(Vec<u8>, i32), FontReloadError> {
 
         match font_source {
-            FontSource::Embedded(font_bytes) => Ok((font_bytes.to_vec(), DEFAULT_FONT_INDEX)),
+            FontSource::Embedded(font_bytes) => Ok((font_bytes.clone().into(), DEFAULT_FONT_INDEX)),
             FontSource::File(file_path) => {
-                std::fs::read(file_path)
+                let file_path: String = file_path.clone().into();
+                let file_path = PathBuf::from(file_path);
+                std::fs::read(&file_path)
                 .map_err(|e| FontReloadError::Io(e, file_path.clone()))
                 .map(|font_bytes| (font_bytes, DEFAULT_FONT_INDEX))
             },
             FontSource::System(id) => {
                 #[cfg(feature = "font_loading")] {
-                    crate::font::load_system_font(id)
-                    .ok_or(FontReloadError::FontNotFound(id.clone()))
+                    crate::font::load_system_font(id.as_str())
+                    .ok_or(FontReloadError::FontNotFound(id.clone().into()))
                 }
                 #[cfg(not(feature = "font_loading"))] {
-                    Err(FontReloadError::FontLoadingNotActive(id.clone()))
+                    Err(FontReloadError::FontLoadingNotActive(id.clone().into()))
                 }
             },
         }
@@ -146,7 +148,7 @@ pub mod image_loading {
             ImageSource::Embedded(bytes) => {
                 #[cfg(feature = "image_loading")] {
                     use crate::image::decode_image_data;
-                    decode_image_data(bytes.to_vec()).map_err(|e| ImageReloadError::DecodingError(e))
+                    decode_image_data(bytes.clone().into()).map_err(|e| ImageReloadError::DecodingError(e))
                 }
                 #[cfg(not(feature = "image_loading"))] {
                     Err(ImageReloadError::DecodingModuleNotActive)
@@ -155,10 +157,10 @@ pub mod image_loading {
             ImageSource::Raw(raw_image) => {
                 use std::sync::Arc;
                 use azul_core::app_resources::is_image_opaque;
-                let is_opaque = is_image_opaque(raw_image.data_format, &raw_image.pixels[..]);
+                let is_opaque = is_image_opaque(raw_image.data_format, &raw_image.pixels.as_ref());
                 let descriptor = ImageDescriptor {
                     format: raw_image.data_format,
-                    dimensions: raw_image.image_dimensions,
+                    dimensions: (raw_image.width, raw_image.height),
                     stride: None,
                     offset: 0,
                     flags: ImageDescriptorFlags {
@@ -166,14 +168,16 @@ pub mod image_loading {
                         allow_mipmaps: true,
                     },
                 };
-                let data = ImageData::Raw(Arc::new(raw_image.pixels.clone()));
+                let data = ImageData::Raw(Arc::new(raw_image.pixels.clone().into()));
                 Ok(LoadedImageSource { image_bytes_decoded: data, image_descriptor: descriptor })
             },
             ImageSource::File(file_path) => {
                 #[cfg(feature = "image_loading")] {
                     use std::fs;
                     use crate::image::decode_image_data;
-                    let bytes = fs::read(file_path).map_err(|e| ImageReloadError::Io(e, file_path.clone()))?;
+                    let file_path: String = file_path.clone().into();
+                    let file_path = PathBuf::from(file_path);
+                    let bytes = fs::read(&file_path).map_err(|e| ImageReloadError::Io(e, file_path.clone()))?;
                     decode_image_data(bytes).map_err(|e| ImageReloadError::DecodingError(e))
                 }
                 #[cfg(not(feature = "image_loading"))] {

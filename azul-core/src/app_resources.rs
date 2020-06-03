@@ -1,6 +1,5 @@
 use std::{
     fmt,
-    path::PathBuf,
     sync::{Arc, atomic::{AtomicUsize, Ordering}},
 };
 use azul_css::{
@@ -358,7 +357,7 @@ impl fmt::Display for FontSource {
         use self::FontSource::*;
         match self {
             Embedded(e) => write!(f, "Embedded(0x{:x})", e.as_ptr() as *const _ as usize),
-            File(p) => write!(f, "\"{}\"", p.as_path().to_string_lossy()),
+            File(p) => write!(f, "\"{}\"", p),
             System(id) => write!(f, "\"{}\"", id),
         }
     }
@@ -1376,7 +1375,7 @@ pub fn build_add_font_resource_updates<T: FontImageApi>(
                             None => continue,
                         }
                     },
-                    Unresolved(css_font_id) => FontSource::System(css_font_id.clone()),
+                    Unresolved(css_font_id) => FontSource::System(css_font_id.clone().into()),
                 };
 
                 let loaded_font_source = match (font_source_load_fn.0)(&font_source) {

@@ -7,7 +7,7 @@ use std::{
     ffi::c_void,
     alloc::Layout,
 };
-use azul_css::{LayoutPoint, LayoutRect, LayoutSize, CssPath};
+use azul_css::{LayoutPoint, AzString, LayoutRect, LayoutSize, CssPath};
 #[cfg(feature = "css_parser")]
 use azul_css_parser::CssPathParseError;
 use crate::{
@@ -50,16 +50,16 @@ pub const Redraw: Option<()> = Some(());
 #[allow(non_upper_case_globals)]
 pub const DontRedraw: Option<()> = None;
 
+#[derive(Debug, Hash, PartialEq, PartialOrd, Ord, Eq)]
 #[no_mangle]
 #[repr(C)]
-#[derive(Debug, Hash, PartialEq, PartialOrd, Ord, Eq)]
 pub struct RefAny {
     pub _internal_ptr: *const c_void,
     pub _internal_len: usize,
     pub _internal_layout_size: usize,
     pub _internal_layout_align: usize,
     pub type_id: u64,
-    pub type_name: String,
+    pub type_name: AzString,
     pub strong_count: usize,
     pub is_currently_mutable: bool,
     pub custom_destructor: fn(RefAny),
@@ -84,7 +84,7 @@ impl Clone for RefAny {
 impl RefAny {
 
     #[inline]
-    pub fn new_c(ptr: *const u8, len: usize, type_id: u64, type_name: String, custom_destructor: fn(RefAny)) -> Self {
+    pub fn new_c(ptr: *const u8, len: usize, type_id: u64, type_name: AzString, custom_destructor: fn(RefAny)) -> Self {
         use std::{alloc, ptr};
 
         // cast the struct as bytes
