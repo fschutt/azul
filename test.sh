@@ -12,5 +12,5 @@ cd ./target/release
 strip ./libazul.so
 cd ../..
 
-# RUST_BACKTRACE=full cargo check --example public
+RUST_BACKTRACE=full cargo check --example public
 # cargo doc --no-deps --open

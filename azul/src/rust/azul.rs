@@ -22,8 +22,6 @@
 // SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
 
 
-extern crate azul_dll;
-
 extern crate libloading;
 
 pub(crate) mod dll {
@@ -2231,7 +2229,7 @@ pub mod prelude {
 #[allow(dead_code, unused_imports)]
 pub mod str {
 
-    use azul_dll::*;
+    use crate::dll::*;
 
     impl From<std::string::String> for crate::str::String {
         fn from(s: std::string::String) -> crate::str::String {
@@ -2259,7 +2257,7 @@ pub mod str {
 #[allow(dead_code, unused_imports)]
 pub mod vec {
 
-    use azul_dll::*;
+    use crate::dll::*;
 
     impl From<std::vec::Vec<u8>> for crate::vec::U8Vec {
         fn from(v: std::vec::Vec<u8>) -> crate::vec::U8Vec {
@@ -2335,7 +2333,7 @@ pub mod vec {
 #[allow(dead_code, unused_imports)]
 pub mod option {
 
-    use azul_dll::*;
+    use crate::dll::*;
 
 
     /// `OptionPercentageValue` struct
@@ -2353,8 +2351,8 @@ pub mod option {
 #[allow(dead_code, unused_imports)]
 pub mod app {
 
-    use azul_dll::*;
-    use crate::callbacks::{LayoutCallback, RefAny};
+    use crate::dll::*;
+    use crate::callbacks::{RefAny, LayoutCallback};
     use crate::window::WindowCreateOptions;
 
 
@@ -2395,7 +2393,7 @@ pub mod app {
 #[allow(dead_code, unused_imports)]
 pub mod callbacks {
 
-    use azul_dll::*;
+    use crate::dll::*;
 
 
     use crate::dom::Dom;
@@ -2605,7 +2603,7 @@ pub type GlCallback = fn(AzGlCallbackInfoPtr) -> AzGlCallbackReturnPtr;
 #[allow(dead_code, unused_imports)]
 pub mod css {
 
-    use azul_dll::*;
+    use crate::dll::*;
     use crate::str::String;
 
 
@@ -4412,10 +4410,10 @@ pub mod css {
 #[allow(dead_code, unused_imports)]
 pub mod dom {
 
-    use azul_dll::*;
+    use crate::dll::*;
     use crate::str::String;
     use crate::resources::{ImageId, TextId};
-    use crate::callbacks::{Callback, IFrameCallback, GlCallback, RefAny};
+    use crate::callbacks::{RefAny, IFrameCallback, Callback, GlCallback};
     use crate::vec::StringVec;
     use crate::css::CssProperty;
 
@@ -4616,7 +4614,7 @@ pub mod dom {
 #[allow(dead_code, unused_imports)]
 pub mod resources {
 
-    use azul_dll::*;
+    use crate::dll::*;
     use crate::vec::U8Vec;
 
 
@@ -4723,7 +4721,7 @@ pub mod resources {
 #[allow(dead_code, unused_imports)]
 pub mod window {
 
-    use azul_dll::*;
+    use crate::dll::*;
     use crate::css::Css;
 
 

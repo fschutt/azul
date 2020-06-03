@@ -751,9 +751,6 @@ def generate_rust_api(apiData, structs_map, functions_map):
         code += "// " + line + "\r\n"
     code += "\r\n\r\n"
 
-    code += "extern crate azul_dll;"
-    code += "\r\n\r\n"
-
     apiData = apiData[version]
 
     code += generate_dll_loader(apiData, structs_map, functions_map)
@@ -773,7 +770,7 @@ def generate_rust_api(apiData, structs_map, functions_map):
 
         code += "#[allow(dead_code, unused_imports)]\r\n"
         code += "pub mod " + module_name + " {\r\n\r\n"
-        code += "    use azul_dll::*;\r\n"
+        code += "    use crate::dll::*;\r\n"
 
         if tuple([module_name]) in rust_api_patches:
             code += rust_api_patches[tuple([module_name])]
