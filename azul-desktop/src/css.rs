@@ -36,13 +36,13 @@
 //! | `border`,  `-top`, `-left`, `-right`, `-bottom`    |              |             |            |                  |
 //! | `box-shadow`, `-top`, `-left`, `-right`, `-bottom` |              |             |            |                  |
 
-use std::time::Instant;
-#[cfg(debug_assertions)]
-use std::time::Duration;
-#[cfg(debug_assertions)]
-use std::path::PathBuf;
 #[cfg(feature = "css_parser")]
-use azul_css_parser::{self, CssParseError};
+use {
+    std::time::Duration,
+    std::time::Instant,
+    std::path::PathBuf,
+    azul_css_parser::{self, CssParseError}
+};
 pub use azul_css::*;
 #[cfg(feature = "css_parser")]
 pub mod css_parser {
@@ -81,14 +81,14 @@ pub fn override_native(input: &str) -> Result<Css, CssParseError> {
 
 /// Allows dynamic reloading of a CSS file during an applications runtime, useful for
 /// changing the look & feel while the application is running.
-#[cfg(all(debug_assertions, feature = "css_parser"))]
+#[cfg(all(feature = "css_parser"))]
 pub fn hot_reload<P: Into<PathBuf>>(file_path: P, reload_interval: Duration) -> Box<dyn HotReloadHandler> {
     Box::new(azul_css_parser::HotReloader::new(file_path).with_reload_interval(reload_interval))
 }
 
 /// Same as `Self::hot_reload`, but appends the given file to the
 /// `Self::native()` style before the hot-reloaded styles, similar to `override_native`.
-#[cfg(all(debug_assertions, feature = "css_parser", feature = "native_style"))]
+#[cfg(all(feature = "css_parser", feature = "native_style"))]
 pub fn hot_reload_override_native<P: Into<PathBuf>>(file_path: P, reload_interval: Duration) -> Box<dyn HotReloadHandler> {
     Box::new(HotReloadOverrideHandler::new(native(), hot_reload(file_path, reload_interval)))
 }

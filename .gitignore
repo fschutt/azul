@@ -6,3 +6,5 @@ target/
 *.log
 .idea/*
 out.txt
+*.dll
+*.so
