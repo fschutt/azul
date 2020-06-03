@@ -1052,8 +1052,10 @@ pub(crate) mod dll {
         az_string_deep_copy: Symbol<extern fn(_: &AzString) -> AzString>,
         az_u8_vec_delete: Symbol<extern fn(_: &mut AzU8Vec)>,
         az_u8_vec_deep_copy: Symbol<extern fn(_: &AzU8Vec) -> AzU8Vec>,
+        az_string_vec_copy_from: Symbol<extern fn(_: usize) -> AzStringVec>,
         az_string_vec_delete: Symbol<extern fn(_: &mut AzStringVec)>,
         az_string_vec_deep_copy: Symbol<extern fn(_: &AzStringVec) -> AzStringVec>,
+        az_gradient_stop_pre_vec_copy_from: Symbol<extern fn(_: usize) -> AzGradientStopPreVec>,
         az_gradient_stop_pre_vec_delete: Symbol<extern fn(_: &mut AzGradientStopPreVec)>,
         az_gradient_stop_pre_vec_deep_copy: Symbol<extern fn(_: &AzGradientStopPreVec) -> AzGradientStopPreVec>,
         az_option_percentage_value_delete: Symbol<extern fn(_: &mut AzOptionPercentageValue)>,
@@ -1441,8 +1443,10 @@ pub(crate) mod dll {
         let az_string_deep_copy = unsafe { lib.get::<extern fn(_: &AzString) -> AzString>(b"az_string_deep_copy").ok()? };
         let az_u8_vec_delete = unsafe { lib.get::<extern fn(_: &mut AzU8Vec)>(b"az_u8_vec_delete").ok()? };
         let az_u8_vec_deep_copy = unsafe { lib.get::<extern fn(_: &AzU8Vec) -> AzU8Vec>(b"az_u8_vec_deep_copy").ok()? };
+        let az_string_vec_copy_from = unsafe { lib.get::<extern fn(_: usize) -> AzStringVec>(b"az_string_vec_copy_from").ok()? };
         let az_string_vec_delete = unsafe { lib.get::<extern fn(_: &mut AzStringVec)>(b"az_string_vec_delete").ok()? };
         let az_string_vec_deep_copy = unsafe { lib.get::<extern fn(_: &AzStringVec) -> AzStringVec>(b"az_string_vec_deep_copy").ok()? };
+        let az_gradient_stop_pre_vec_copy_from = unsafe { lib.get::<extern fn(_: usize) -> AzGradientStopPreVec>(b"az_gradient_stop_pre_vec_copy_from").ok()? };
         let az_gradient_stop_pre_vec_delete = unsafe { lib.get::<extern fn(_: &mut AzGradientStopPreVec)>(b"az_gradient_stop_pre_vec_delete").ok()? };
         let az_gradient_stop_pre_vec_deep_copy = unsafe { lib.get::<extern fn(_: &AzGradientStopPreVec) -> AzGradientStopPreVec>(b"az_gradient_stop_pre_vec_deep_copy").ok()? };
         let az_option_percentage_value_delete = unsafe { lib.get::<extern fn(_: &mut AzOptionPercentageValue)>(b"az_option_percentage_value_delete").ok()? };
@@ -1828,8 +1832,10 @@ pub(crate) mod dll {
             az_string_deep_copy,
             az_u8_vec_delete,
             az_u8_vec_deep_copy,
+            az_string_vec_copy_from,
             az_string_vec_delete,
             az_string_vec_deep_copy,
+            az_gradient_stop_pre_vec_copy_from,
             az_gradient_stop_pre_vec_delete,
             az_gradient_stop_pre_vec_deep_copy,
             az_option_percentage_value_delete,
@@ -2290,7 +2296,9 @@ pub mod vec {
 
             // delete() not necessary because StringVec is stack-allocated
         }
-    }
+    }    use crate::str::String;
+    use crate::css::GradientStopPre;
+
 
     /// Wrapper over a Rust-allocated `U8Vec`
     pub struct U8Vec { pub(crate) object: AzU8Vec }
@@ -2305,6 +2313,8 @@ pub mod vec {
     pub struct StringVec { pub(crate) object: AzStringVec }
 
     impl StringVec {
+        /// Creates + allocates a Rust `Vec<String>` by **copying** it from a bytes source
+        pub fn copy_from(ptr: *const AzString, len: usize) -> Self { az_string_vec_copy_from(ptr, len) }
     }
 
     impl Drop for StringVec { fn drop(&mut self) { az_string_vec_delete(&mut self); } }
@@ -2314,6 +2324,8 @@ pub mod vec {
     pub struct GradientStopPreVec { pub(crate) object: AzGradientStopPreVec }
 
     impl GradientStopPreVec {
+        /// Creates + allocates a Rust `Vec<GradientStopPre>` by **copying** it from a bytes source
+        pub fn copy_from(ptr: *const AzGradientStopPre, len: usize) -> Self { az_gradient_stop_pre_vec_copy_from(ptr, len) }
     }
 
     impl Drop for GradientStopPreVec { fn drop(&mut self) { az_gradient_stop_pre_vec_delete(&mut self); } }
@@ -2342,7 +2354,7 @@ pub mod option {
 pub mod app {
 
     use azul_dll::*;
-    use crate::callbacks::{RefAny, LayoutCallback};
+    use crate::callbacks::{LayoutCallback, RefAny};
     use crate::window::WindowCreateOptions;
 
 
@@ -4403,7 +4415,7 @@ pub mod dom {
     use azul_dll::*;
     use crate::str::String;
     use crate::resources::{ImageId, TextId};
-    use crate::callbacks::{IFrameCallback, RefAny, Callback, GlCallback};
+    use crate::callbacks::{Callback, RefAny, GlCallback, IFrameCallback};
     use crate::vec::StringVec;
     use crate::css::CssProperty;
 

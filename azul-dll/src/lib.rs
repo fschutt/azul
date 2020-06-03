@@ -36,9 +36,9 @@ use azul_impl::{
 pub type AzStringType = azul_impl::css::AzString;
 #[no_mangle] pub use AzStringType as AzString;
 /// Creates + allocates a Rust `String` by **copying** it from another utf8-encoded string
-#[no_mangle] #[inline] pub extern "C" fn az_string_from_utf8_unchecked(ptr: *const u8, len: usize) -> AzString { let object: String = unsafe { std::str::from_utf8_unchecked(std::slice::from_raw_parts(ptr, len)).to_string() }; object }
+#[no_mangle] #[inline] pub extern "C" fn az_string_from_utf8_unchecked(ptr: *const u8, len: usize) -> AzString { unsafe { std::str::from_utf8_unchecked(std::slice::from_raw_parts(ptr, len)).to_string() }.into() }
 /// Creates + allocates a Rust `String` by **copying** it from another utf8-encoded string
-#[no_mangle] #[inline] pub extern "C" fn az_string_from_utf8_lossy(ptr: *const u8, len: usize) -> AzString { let object: String = unsafe { std::string::String::from_utf8_lossy(std::slice::from_raw_parts(ptr, len)).to_string() }; object }
+#[no_mangle] #[inline] pub extern "C" fn az_string_from_utf8_lossy(ptr: *const u8, len: usize) -> AzString { unsafe { std::string::String::from_utf8_lossy(std::slice::from_raw_parts(ptr, len)).to_string() }.into() }
 /// Creates + allocates a Rust `String` by **copying** it from another utf8-encoded string
 #[no_mangle] #[inline] pub extern "C" fn az_string_into_bytes(string: AzString) -> AzU8Vec { string.into_bytes() }
 /// Destructor: Takes ownership of the `String` pointer and deletes it.
@@ -57,6 +57,8 @@ pub type AzU8VecType = azul_impl::css::U8Vec;
 /// Wrapper over a Rust-allocated `StringVec`
 pub type AzStringVecType = azul_impl::css::StringVec;
 #[no_mangle] pub use AzStringVecType as AzStringVec;
+/// Creates + allocates a Rust `Vec<String>` by **copying** it from a bytes source
+#[no_mangle] #[inline] pub extern "C" fn az_string_vec_copy_from(ptr: *const AzString, len: usize) -> AzStringVec { unsafe { std::slice::from_raw_parts(ptr, len).into_iter().map(|s| s.clone()).collect::<Vec<_>>() }.into() }
 /// Destructor: Takes ownership of the `StringVec` pointer and deletes it.
 #[no_mangle] #[inline] #[allow(unused_variables)] pub extern "C" fn az_string_vec_delete(object: &mut AzStringVec) { }
 /// Copies the object
@@ -65,6 +67,8 @@ pub type AzStringVecType = azul_impl::css::StringVec;
 /// Wrapper over a Rust-allocated `GradientStopPreVec`
 pub type AzGradientStopPreVecType = azul_impl::css::GradientStopPreVec;
 #[no_mangle] pub use AzGradientStopPreVecType as AzGradientStopPreVec;
+/// Creates + allocates a Rust `Vec<GradientStopPre>` by **copying** it from a bytes source
+#[no_mangle] #[inline] pub extern "C" fn az_gradient_stop_pre_vec_copy_from(ptr: *const AzGradientStopPre, len: usize) -> AzGradientStopPreVec { unsafe { std::slice::from_raw_parts(ptr, len).into_iter().map(|s| s.clone()).collect::<Vec<_>>() }.into() }
 /// Destructor: Takes ownership of the `GradientStopPreVec` pointer and deletes it.
 #[no_mangle] #[inline] #[allow(unused_variables)] pub extern "C" fn az_gradient_stop_pre_vec_delete(object: &mut AzGradientStopPreVec) { }
 /// Copies the object
@@ -204,7 +208,7 @@ pub use ::azul_core::callbacks::RefAny as AzRefAny;
 
 /// Creates a new `RefAny` instance
 #[no_mangle] pub extern "C" fn az_ref_any_new(ptr: *const u8, len: usize, type_id: u64, type_name: AzString, custom_destructor: fn(AzRefAny)) -> AzRefAny {
-    AzRefAny::new_c(ptr, len, type_id, type_name.object, custom_destructor)
+    AzRefAny::new_c(ptr, len, type_id, type_name, custom_destructor)
 }
 /// Returns the internal pointer of the `RefAny` as a `*mut c_void` or a nullptr if the types don't match
 #[no_mangle] pub extern "C" fn az_ref_any_get_ptr(ptr: &AzRefAny, len: usize, type_id: u64) -> *const c_void { ptr.get_ptr(len, type_id) }
@@ -1499,7 +1503,7 @@ pub type AzDomPtrType = azul_impl::dom::DomPtr;
 /// Creates a new `body` node
 #[no_mangle] #[inline] pub extern "C" fn az_dom_body() -> AzDomPtr { let object: Dom = Dom::body(); AzDomPtr { ptr: Box::into_raw(Box::new(object)) as *mut c_void } }
 /// Creates a new `p` node with a given `String` as the text contents
-#[no_mangle] #[inline] pub extern "C" fn az_dom_label(text: AzString) -> AzDomPtr { let object: Dom = Dom::label(text.into()); AzDomPtr { ptr: Box::into_raw(Box::new(object)) as *mut c_void } }
+#[no_mangle] #[inline] pub extern "C" fn az_dom_label(text: AzString) -> AzDomPtr { let object: Dom = Dom::label(text.into_string()); AzDomPtr { ptr: Box::into_raw(Box::new(object)) as *mut c_void } }
 /// Creates a new `p` node from a (cached) text referenced by a `TextId`
 #[no_mangle] #[inline] pub extern "C" fn az_dom_text(text_id: AzTextId) -> AzDomPtr { let object: Dom = Dom::text(text_id); AzDomPtr { ptr: Box::into_raw(Box::new(object)) as *mut c_void } }
 /// Creates a new `img` node from a (cached) text referenced by a `ImageId`
@@ -1509,27 +1513,27 @@ pub type AzDomPtrType = azul_impl::dom::DomPtr;
 /// Creates a new node with a callback that will return a `Dom` after being layouted. See the documentation for [IFrameCallback]() for more info about iframe callbacks.
 #[no_mangle] #[inline] pub extern "C" fn az_dom_iframe_callback(data: AzRefAny, callback: AzIFrameCallback) -> AzDomPtr { let object: Dom = Dom::iframe(callback, data); AzDomPtr { ptr: Box::into_raw(Box::new(object)) as *mut c_void } }
 /// Adds a CSS ID (`#something`) to the DOM node
-#[no_mangle] #[inline] pub extern "C" fn az_dom_add_id(dom: &mut AzDomPtr, id: AzString) { az_dom_downcast_refmut(dom, |d| { d.add_id(id.object); }) }
+#[no_mangle] #[inline] pub extern "C" fn az_dom_add_id(dom: &mut AzDomPtr, id: AzString) { az_dom_downcast_refmut(dom, |d| { d.add_id(id.into_string()); }) }
 /// Same as [`Dom::add_id`](#method.add_id), but as a builder method
 #[no_mangle] #[inline] pub extern "C" fn az_dom_with_id(mut dom: AzDomPtr, id: AzString) -> AzDomPtr { az_dom_add_id(&mut dom, id); dom }
 /// Same as calling [`Dom::add_id`](#method.add_id) for each CSS ID, but this function **replaces** all current CSS IDs
-#[no_mangle] #[inline] pub extern "C" fn az_dom_set_ids(dom: &mut AzDomPtr, ids: AzStringVec) { az_dom_downcast_refmut(dom, |d| { d.set_ids(ids.object); }) }
+#[no_mangle] #[inline] pub extern "C" fn az_dom_set_ids(dom: &mut AzDomPtr, ids: AzStringVec) { az_dom_downcast_refmut(dom, |d| { d.set_ids(ids.into()); }) }
 /// Same as [`Dom::set_ids`](#method.set_ids), but as a builder method
 #[no_mangle] #[inline] pub extern "C" fn az_dom_with_ids(mut dom: AzDomPtr, ids: AzStringVec) -> AzDomPtr { az_dom_set_ids(&mut dom, ids); dom }
 /// Adds a CSS class (`.something`) to the DOM node
-#[no_mangle] #[inline] pub extern "C" fn az_dom_add_class(dom: &mut AzDomPtr, class: AzString) { az_dom_downcast_refmut(dom, |d| { d.add_class(class.object); }) }
+#[no_mangle] #[inline] pub extern "C" fn az_dom_add_class(dom: &mut AzDomPtr, class: AzString) { az_dom_downcast_refmut(dom, |d| { d.add_class(class.into_string()); }) }
 /// Same as [`Dom::add_class`](#method.add_class), but as a builder method
 #[no_mangle] #[inline] pub extern "C" fn az_dom_with_class(mut dom: AzDomPtr, class: AzString) -> AzDomPtr { az_dom_add_class(&mut dom, class); dom }
 /// Same as calling [`Dom::add_class`](#method.add_class) for each class, but this function **replaces** all current classes
-#[no_mangle] #[inline] pub extern "C" fn az_dom_set_classes(dom: &mut AzDomPtr, classes: AzStringVec) { az_dom_downcast_refmut(dom, |d| { (*d).set_classes(classes.object); }) }
+#[no_mangle] #[inline] pub extern "C" fn az_dom_set_classes(dom: &mut AzDomPtr, classes: AzStringVec) { az_dom_downcast_refmut(dom, |d| { (*d).set_classes(classes.into()); }) }
 /// Same as [`Dom::set_classes`](#method.set_classes), but as a builder method
 #[no_mangle] #[inline] pub extern "C" fn az_dom_with_classes(mut dom: AzDomPtr, classes: AzStringVec) -> AzDomPtr { az_dom_set_classes(&mut dom, classes); dom }
 /// Adds a [`Callback`](callbacks/type.Callback) that acts on the `data` the `event` happens
-#[no_mangle] #[inline] pub extern "C" fn az_dom_add_callback(dom: &mut AzDomPtr, event: AzEventFilter, data: AzRefAny, callback: AzCallback) { az_dom_downcast_refmut(dom, |d| { d.add_callback(event.object, callback, data); }) }
+#[no_mangle] #[inline] pub extern "C" fn az_dom_add_callback(dom: &mut AzDomPtr, event: AzEventFilter, data: AzRefAny, callback: AzCallback) { az_dom_downcast_refmut(dom, |d| { d.add_callback(event, callback, data); }) }
 /// Same as [`Dom::add_callback`](#method.add_callback), but as a builder method
 #[no_mangle] #[inline] pub extern "C" fn az_dom_with_callback(mut dom: AzDomPtr, event: AzEventFilter, data: AzRefAny, callback: AzCallback) -> AzDomPtr { az_dom_add_callback(&mut dom, event, data, callback); dom }
 /// Overrides the CSS property of this DOM node with a value (for example `"width = 200px"`)
-#[no_mangle] #[inline] pub extern "C" fn az_dom_add_css_override(dom: &mut AzDomPtr, id: AzString, prop: AzCssProperty) { az_dom_downcast_refmut(dom, |d| { d.add_css_override(id.object, prop.object); }) }
+#[no_mangle] #[inline] pub extern "C" fn az_dom_add_css_override(dom: &mut AzDomPtr, id: AzString, prop: AzCssProperty) { az_dom_downcast_refmut(dom, |d| { d.add_css_override(id, prop); }) }
 /// Same as [`Dom::add_css_override`](#method.add_css_override), but as a builder method
 #[no_mangle] #[inline] pub extern "C" fn az_dom_with_css_override(mut dom: AzDomPtr, id: AzString, prop: AzCssProperty) -> AzDomPtr { az_dom_add_css_override(&mut dom, id, prop); dom }
 /// Sets the `is_draggable` attribute of this DOM node (default: false)
@@ -1537,7 +1541,7 @@ pub type AzDomPtrType = azul_impl::dom::DomPtr;
 /// Same as [`Dom::set_is_draggable`](#method.set_is_draggable), but as a builder method
 #[no_mangle] #[inline] pub extern "C" fn az_dom_is_draggable(mut dom: AzDomPtr, is_draggable: bool) -> AzDomPtr { az_dom_set_is_draggable(&mut dom, is_draggable); dom }
 /// Sets the `tabindex` attribute of this DOM node (makes an element focusable - default: None)
-#[no_mangle] #[inline] pub extern "C" fn az_dom_set_tab_index(dom: &mut AzDomPtr, tab_index: AzTabIndex) { az_dom_downcast_refmut(dom, |d| { d.set_tab_index(tab_index.object); }) }
+#[no_mangle] #[inline] pub extern "C" fn az_dom_set_tab_index(dom: &mut AzDomPtr, tab_index: AzTabIndex) { az_dom_downcast_refmut(dom, |d| { d.set_tab_index(tab_index); }) }
 /// Same as [`Dom::set_tab_index`](#method.set_tab_index), but as a builder method
 #[no_mangle] #[inline] pub extern "C" fn az_dom_with_tab_index(mut dom: AzDomPtr, tab_index: AzTabIndex) -> AzDomPtr { az_dom_set_tab_index(&mut dom, tab_index); dom }
 /// Reparents another `Dom` to be the child node of this `Dom`
@@ -1545,11 +1549,11 @@ pub type AzDomPtrType = azul_impl::dom::DomPtr;
 /// Same as [`Dom::add_child`](#method.add_child), but as a builder method
 #[no_mangle] #[inline] pub extern "C" fn az_dom_with_child(mut dom: AzDomPtr, child: AzDomPtr) -> AzDomPtr { az_dom_add_child(&mut dom, child); dom }
 /// Returns if the DOM node has a certain CSS ID
-#[no_mangle] #[inline] pub extern "C" fn az_dom_has_id(dom: &mut AzDomPtr, id: AzString) -> bool { az_dom_downcast_ref(dom, |d| { d.has_id(&id.object) }) }
+#[no_mangle] #[inline] pub extern "C" fn az_dom_has_id(dom: &mut AzDomPtr, id: AzString) -> bool { az_dom_downcast_ref(dom, |d| { d.has_id(id.as_ref()) }) }
 /// Returns if the DOM node has a certain CSS class
-#[no_mangle] #[inline] pub extern "C" fn az_dom_has_class(dom: &mut AzDomPtr, class: AzString) -> bool { az_dom_downcast_ref(dom, |d| { d.has_class(&class.object) }) }
+#[no_mangle] #[inline] pub extern "C" fn az_dom_has_class(dom: &mut AzDomPtr, class: AzString) -> bool { az_dom_downcast_ref(dom, |d| { d.has_class(class.as_ref()) }) }
 /// Returns the HTML String for this DOM
-#[no_mangle] #[inline] pub extern "C" fn az_dom_get_html_string(dom: &mut AzDomPtr) -> AzString { AzString { object: az_dom_downcast_ref(dom, |d| { d.get_html_string() }) } }
+#[no_mangle] #[inline] pub extern "C" fn az_dom_get_html_string(dom: &mut AzDomPtr) -> AzString { az_dom_downcast_ref(dom, |d| { d.get_html_string() }).into() }
 /// Destructor: Takes ownership of the `Dom` pointer and deletes it.
 #[no_mangle] #[inline] pub extern "C" fn az_dom_delete(ptr: &mut AzDomPtr) { let _ = unsafe { Box::<Dom>::from_raw(ptr.ptr  as *mut Dom) }; }
 /// Copies the pointer: WARNING: After calling this function you'll have two pointers to the same Box<`Dom`>!.
@@ -1619,7 +1623,7 @@ pub type AzTabIndexType = azul_impl::dom::TabIndex;
 pub type AzTextIdType = azul_impl::resources::TextId;
 #[no_mangle] pub use AzTextIdType as AzTextId;
 /// Creates a new, unique `TextId`
-#[no_mangle] #[inline] pub extern "C" fn az_text_id_new() -> AzTextId { let object: TextId = TextId::new(); object }
+#[no_mangle] #[inline] pub extern "C" fn az_text_id_new() -> AzTextId { TextId::new() }
 /// Destructor: Takes ownership of the `TextId` pointer and deletes it.
 #[no_mangle] #[inline] #[allow(unused_variables)] pub extern "C" fn az_text_id_delete(object: &mut AzTextId) { }
 /// Copies the object
@@ -1629,7 +1633,7 @@ pub type AzTextIdType = azul_impl::resources::TextId;
 pub type AzImageIdType = azul_impl::resources::ImageId;
 #[no_mangle] pub use AzImageIdType as AzImageId;
 /// Creates a new, unique `ImageId`
-#[no_mangle] #[inline] pub extern "C" fn az_image_id_new() -> AzImageId { let object: ImageId = ImageId::new(); object }
+#[no_mangle] #[inline] pub extern "C" fn az_image_id_new() -> AzImageId { ImageId::new() }
 /// Destructor: Takes ownership of the `ImageId` pointer and deletes it.
 #[no_mangle] #[inline] #[allow(unused_variables)] pub extern "C" fn az_image_id_delete(object: &mut AzImageId) { }
 /// Copies the object
@@ -1639,7 +1643,7 @@ pub type AzImageIdType = azul_impl::resources::ImageId;
 pub type AzFontIdType = azul_impl::resources::FontId;
 #[no_mangle] pub use AzFontIdType as AzFontId;
 /// Creates a new, unique `FontId`
-#[no_mangle] #[inline] pub extern "C" fn az_font_id_new() -> AzFontId { let object: FontId = FontId::new(); object }
+#[no_mangle] #[inline] pub extern "C" fn az_font_id_new() -> AzFontId { FontId::new() }
 /// Destructor: Takes ownership of the `FontId` pointer and deletes it.
 #[no_mangle] #[inline] #[allow(unused_variables)] pub extern "C" fn az_font_id_delete(object: &mut AzFontId) { }
 /// Copies the object
@@ -1667,7 +1671,7 @@ pub type AzFontSourceType = azul_impl::resources::FontSource;
 pub type AzRawImageType = azul_impl::resources::RawImage;
 #[no_mangle] pub use AzRawImageType as AzRawImage;
 /// Creates a new `RawImage` by loading the decoded bytes
-#[no_mangle] #[inline] pub extern "C" fn az_raw_image_new(decoded_pixels: AzU8Vec, width: usize, height: usize, data_format: AzRawImageFormat) -> AzRawImage { let object: RawImage = RawImage { pixels: decoded_pixels, width, height, data_format: data_format }; object }
+#[no_mangle] #[inline] pub extern "C" fn az_raw_image_new(decoded_pixels: AzU8Vec, width: usize, height: usize, data_format: AzRawImageFormat) -> AzRawImage { RawImage { pixels: decoded_pixels, width, height, data_format: data_format } }
 /// Destructor: Takes ownership of the `RawImage` pointer and deletes it.
 #[no_mangle] #[inline] #[allow(unused_variables)] pub extern "C" fn az_raw_image_delete(object: &mut AzRawImage) { }
 /// Copies the object

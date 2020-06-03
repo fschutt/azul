@@ -159,8 +159,19 @@ impl fmt::Display for AzString {
 }
 
 impl AzString {
+    #[inline]
     pub fn as_str(&self) -> &str {
         unsafe { std::str::from_utf8_unchecked(std::slice::from_raw_parts(self.vec.ptr, self.vec.len)) }
+    }
+    #[inline]
+    pub fn into_string(self) -> String {
+        String::from(self)
+    }
+    #[inline]
+    pub fn into_bytes(self) -> U8Vec {
+        let self_vec = U8Vec { ptr: self.vec.ptr, len: self.vec.len, cap: self.vec.cap };
+        std::mem::forget(self); // don't run destructor
+        self_vec
     }
 }
 

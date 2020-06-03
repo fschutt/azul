@@ -15,7 +15,7 @@
 								{"ptr": "*const u8"},
 								{"len": "usize"}
 							],
-							"fn_body": "unsafe { std::str::from_utf8_unchecked(std::slice::from_raw_parts(ptr, len)).to_string() }"
+							"fn_body": "unsafe { std::str::from_utf8_unchecked(std::slice::from_raw_parts(ptr, len)).to_string() }.into()"
 						},
 						"from_utf8_lossy": {
 							"doc": "Creates + allocates a Rust `String` by **copying** it from another utf8-encoded string",
@@ -23,7 +23,7 @@
 								{"ptr": "*const u8"},
 								{"len": "usize"}
 							],
-							"fn_body": "unsafe { std::string::String::from_utf8_lossy(std::slice::from_raw_parts(ptr, len)).to_string() }"
+							"fn_body": "unsafe { std::string::String::from_utf8_lossy(std::slice::from_raw_parts(ptr, len)).to_string() }.into()"
 						}
 					},
 					"functions": {
@@ -58,7 +58,17 @@
 						{ "ptr": { "type": "*const String" } },
 						{ "len": { "type": "usize" } },
 						{ "cap": { "type": "usize" } }
-					]
+					],
+					"constructors": {
+					    "copy_from": {
+					        "doc": "Creates + allocates a Rust `Vec<String>` by **copying** it from a bytes source",
+					        "fn_args": [
+					            {"ptr": "*const String"},
+					            {"len": "usize"}
+					        ],
+					        "fn_body": "unsafe { std::slice::from_raw_parts(ptr, len).into_iter().map(|s| s.clone()).collect::<Vec<_>>() }.into()"
+					    }
+					}
 				},
 				"GradientStopPreVec": {
 					"doc": "Wrapper over a Rust-allocated `GradientStopPreVec`",
@@ -67,7 +77,17 @@
 						{ "ptr": { "type": "*const GradientStopPre" } },
 						{ "len": { "type": "usize" } },
 						{ "cap": { "type": "usize" } }
-					]
+					],
+					"constructors": {
+					    "copy_from": {
+					        "doc": "Creates + allocates a Rust `Vec<GradientStopPre>` by **copying** it from a bytes source",
+					        "fn_args": [
+					            {"ptr": "*const GradientStopPre"},
+					            {"len": "usize"}
+					        ],
+					        "fn_body": "unsafe { std::slice::from_raw_parts(ptr, len).into_iter().map(|s| s.clone()).collect::<Vec<_>>() }.into()"
+					    }
+					}
 				}
 			}
 		},
@@ -1554,7 +1574,7 @@
 							"fn_args": [
 								{"text": "String"}
 							],
-							"fn_body": "Dom::label(text.into())"
+							"fn_body": "Dom::label(text.into_string())"
 						},
 						"text": {
 							"doc": "Creates a new `p` node from a (cached) text referenced by a `TextId`",
@@ -1594,7 +1614,7 @@
 								{"self": "refmut"},
 								{"id": "String"}
 							],
-							"fn_body": "az_dom_downcast_refmut(dom, |d| { d.add_id(id.object); })"
+							"fn_body": "az_dom_downcast_refmut(dom, |d| { d.add_id(id.into_string()); })"
 						},
 						"with_id": {
 							"doc": "Same as [`Dom::add_id`](#method.add_id), but as a builder method",
@@ -1611,7 +1631,7 @@
 								{"self": "refmut"},
 								{"ids": "StringVec"}
 							],
-							"fn_body": "az_dom_downcast_refmut(dom, |d| { d.set_ids(ids.object); })"
+							"fn_body": "az_dom_downcast_refmut(dom, |d| { d.set_ids(ids.into()); })"
 						},
 						"with_ids": {
 							"doc": "Same as [`Dom::set_ids`](#method.set_ids), but as a builder method",
@@ -1628,7 +1648,7 @@
 								{"self": "refmut"},
 								{"class": "String"}
 							],
-							"fn_body": "az_dom_downcast_refmut(dom, |d| { d.add_class(class.object); })"
+							"fn_body": "az_dom_downcast_refmut(dom, |d| { d.add_class(class.into_string()); })"
 						},
 						"with_class": {
 							"doc": "Same as [`Dom::add_class`](#method.add_class), but as a builder method",
@@ -1645,7 +1665,7 @@
 								{"self": "refmut"},
 								{"classes": "StringVec"}
 							],
-							"fn_body": "az_dom_downcast_refmut(dom, |d| { (*d).set_classes(classes.object); })"
+							"fn_body": "az_dom_downcast_refmut(dom, |d| { (*d).set_classes(classes.into()); })"
 						},
 						"with_classes": {
 							"doc": "Same as [`Dom::set_classes`](#method.set_classes), but as a builder method",
@@ -1664,7 +1684,7 @@
 								{"data": "RefAny"},
 								{"callback": "Callback"}
 							],
-							"fn_body": "az_dom_downcast_refmut(dom, |d| { d.add_callback(event.object, callback, data); })"
+							"fn_body": "az_dom_downcast_refmut(dom, |d| { d.add_callback(event, callback, data); })"
 						},
 						"with_callback": {
 							"doc": "Same as [`Dom::add_callback`](#method.add_callback), but as a builder method",
@@ -1684,7 +1704,7 @@
 								{"id": "String"},
 								{"prop": "CssProperty"}
 							],
-							"fn_body": "az_dom_downcast_refmut(dom, |d| { d.add_css_override(id.object, prop.object); })"
+							"fn_body": "az_dom_downcast_refmut(dom, |d| { d.add_css_override(id, prop); })"
 						},
 						"with_css_override": {
 							"doc": "Same as [`Dom::add_css_override`](#method.add_css_override), but as a builder method",
@@ -1719,7 +1739,7 @@
 								{"self": "refmut"},
 								{"tab_index": "TabIndex"}
 							],
-							"fn_body": "az_dom_downcast_refmut(dom, |d| { d.set_tab_index(tab_index.object); })"
+							"fn_body": "az_dom_downcast_refmut(dom, |d| { d.set_tab_index(tab_index); })"
 						},
 						"with_tab_index": {
 							"doc": "Same as [`Dom::set_tab_index`](#method.set_tab_index), but as a builder method",
@@ -1754,7 +1774,7 @@
 								{"id": "String"}
 							],
 							"returns": "bool",
-							"fn_body": "az_dom_downcast_ref(dom, |d| { d.has_id(&id.object) })"
+							"fn_body": "az_dom_downcast_ref(dom, |d| { d.has_id(id.as_ref()) })"
 						},
 						"has_class": {
 							"doc": "Returns if the DOM node has a certain CSS class",
@@ -1763,7 +1783,7 @@
 								{"class": "String"}
 							],
 							"returns": "bool",
-							"fn_body": "az_dom_downcast_ref(dom, |d| { d.has_class(&class.object) })"
+							"fn_body": "az_dom_downcast_ref(dom, |d| { d.has_class(class.as_ref()) })"
 						},
 						"get_html_string": {
 							"doc": "Returns the HTML String for this DOM",
@@ -1771,7 +1791,7 @@
 								{"self": "refmut"}
 							],
 							"returns": "String",
-							"fn_body": "AzString { object: az_dom_downcast_ref(dom, |d| { d.get_html_string() }) }"
+							"fn_body": "az_dom_downcast_ref(dom, |d| { d.get_html_string() }).into()"
 						}
 					}
 				},

@@ -502,10 +502,10 @@ def generate_rust_dll(apiData):
                     and "dll" in const["use_patches"]:
                         fn_body = dll_patches[tuple([module_name, class_name, fn_name])]
                     else:
-                        fn_body += "let object: " + rust_class_name + " = " + const["fn_body"] + "; " # note: security check, that the returned object is of the correct type
                         if c_is_stack_allocated:
-                            fn_body += "object"
+                            fn_body += const["fn_body"]
                         else:
+                            fn_body += "let object: " + rust_class_name + " = " + const["fn_body"] + "; " # note: security check, that the returned object is of the correct type
                             fn_body += class_ptr_name + " { ptr: Box::into_raw(Box::new(object)) as *mut c_void }"
 
                     if "doc" in const.keys():
