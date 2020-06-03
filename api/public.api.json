@@ -705,7 +705,10 @@
 					]
 				},
 				"StyleBorderRightWidth": {
-					"constructors": { }
+					"external": "azul_impl::css::StyleBorderRightWidth",
+					"struct_fields": [
+						{"inner": {"type": "PixelValue"}}
+					]
 				},
 				"StyleBorderTopColor": {
 					"external": "azul_impl::css::StyleBorderTopColor",

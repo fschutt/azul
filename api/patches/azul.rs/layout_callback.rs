@@ -9,6 +9,6 @@
 
     pub(crate) static mut CALLBACK: LayoutCallback = default_callback;
 
-    pub(crate) fn translate_callback(data: azul_dll::AzRefAny, layout: azul_dll::AzLayoutInfoPtr) -> azul_dll::AzDomPtr {
+    pub(crate) fn translate_callback(data: crate::dll::AzRefAny, layout: crate::dll::AzLayoutInfoPtr) -> crate::dll::AzDomPtr {
         unsafe { CALLBACK(RefAny(data), LayoutInfo { ptr: layout }) }.leak()
     }

@@ -351,8 +351,8 @@ pub(crate) mod dll {
     #[repr(C)] pub struct AzStyleBorderRightStyle {
         pub inner: AzBorderStyle,
     }
-    #[repr(C)] pub struct AzStyleBorderRightWidthPtr {
-        pub ptr: *mut c_void,
+    #[repr(C)] pub struct AzStyleBorderRightWidth {
+        pub inner: AzPixelValue,
     }
     #[repr(C)] pub struct AzStyleBorderTopColor {
         pub inner: AzColorU,
@@ -1215,8 +1215,8 @@ pub(crate) mod dll {
         az_style_border_right_color_deep_copy: Symbol<extern fn(_: &AzStyleBorderRightColor) -> AzStyleBorderRightColor>,
         az_style_border_right_style_delete: Symbol<extern fn(_: &mut AzStyleBorderRightStyle)>,
         az_style_border_right_style_deep_copy: Symbol<extern fn(_: &AzStyleBorderRightStyle) -> AzStyleBorderRightStyle>,
-        az_style_border_right_width_delete: Symbol<extern fn(_: &mut AzStyleBorderRightWidthPtr)>,
-        az_style_border_right_width_shallow_copy: Symbol<extern fn(_: &AzStyleBorderRightWidthPtr) -> AzStyleBorderRightWidthPtr>,
+        az_style_border_right_width_delete: Symbol<extern fn(_: &mut AzStyleBorderRightWidth)>,
+        az_style_border_right_width_deep_copy: Symbol<extern fn(_: &AzStyleBorderRightWidth) -> AzStyleBorderRightWidth>,
         az_style_border_top_color_delete: Symbol<extern fn(_: &mut AzStyleBorderTopColor)>,
         az_style_border_top_color_deep_copy: Symbol<extern fn(_: &AzStyleBorderTopColor) -> AzStyleBorderTopColor>,
         az_style_border_top_left_radius_delete: Symbol<extern fn(_: &mut AzStyleBorderTopLeftRadius)>,
@@ -1606,8 +1606,8 @@ pub(crate) mod dll {
         let az_style_border_right_color_deep_copy = unsafe { lib.get::<extern fn(_: &AzStyleBorderRightColor) -> AzStyleBorderRightColor>(b"az_style_border_right_color_deep_copy").ok()? };
         let az_style_border_right_style_delete = unsafe { lib.get::<extern fn(_: &mut AzStyleBorderRightStyle)>(b"az_style_border_right_style_delete").ok()? };
         let az_style_border_right_style_deep_copy = unsafe { lib.get::<extern fn(_: &AzStyleBorderRightStyle) -> AzStyleBorderRightStyle>(b"az_style_border_right_style_deep_copy").ok()? };
-        let az_style_border_right_width_delete = unsafe { lib.get::<extern fn(_: &mut AzStyleBorderRightWidthPtr)>(b"az_style_border_right_width_delete").ok()? };
-        let az_style_border_right_width_shallow_copy = unsafe { lib.get::<extern fn(_: &AzStyleBorderRightWidthPtr) -> AzStyleBorderRightWidthPtr>(b"az_style_border_right_width_shallow_copy").ok()? };
+        let az_style_border_right_width_delete = unsafe { lib.get::<extern fn(_: &mut AzStyleBorderRightWidth)>(b"az_style_border_right_width_delete").ok()? };
+        let az_style_border_right_width_deep_copy = unsafe { lib.get::<extern fn(_: &AzStyleBorderRightWidth) -> AzStyleBorderRightWidth>(b"az_style_border_right_width_deep_copy").ok()? };
         let az_style_border_top_color_delete = unsafe { lib.get::<extern fn(_: &mut AzStyleBorderTopColor)>(b"az_style_border_top_color_delete").ok()? };
         let az_style_border_top_color_deep_copy = unsafe { lib.get::<extern fn(_: &AzStyleBorderTopColor) -> AzStyleBorderTopColor>(b"az_style_border_top_color_deep_copy").ok()? };
         let az_style_border_top_left_radius_delete = unsafe { lib.get::<extern fn(_: &mut AzStyleBorderTopLeftRadius)>(b"az_style_border_top_left_radius_delete").ok()? };
@@ -1996,7 +1996,7 @@ pub(crate) mod dll {
             az_style_border_right_style_delete,
             az_style_border_right_style_deep_copy,
             az_style_border_right_width_delete,
-            az_style_border_right_width_shallow_copy,
+            az_style_border_right_width_deep_copy,
             az_style_border_top_color_delete,
             az_style_border_top_color_deep_copy,
             az_style_border_top_left_radius_delete,
@@ -2407,7 +2407,7 @@ pub mod callbacks {
 
     pub(crate) static mut CALLBACK: LayoutCallback = default_callback;
 
-    pub(crate) fn translate_callback(data: azul_dll::AzRefAny, layout: azul_dll::AzLayoutInfoPtr) -> azul_dll::AzDomPtr {
+    pub(crate) fn translate_callback(data: crate::dll::AzRefAny, layout: crate::dll::AzLayoutInfoPtr) -> crate::dll::AzDomPtr {
         unsafe { CALLBACK(RefAny(data), LayoutInfo { ptr: layout }) }.leak()
     }
 
@@ -3324,14 +3324,12 @@ pub mod css {
 
 
     /// `StyleBorderRightWidth` struct
-    pub struct StyleBorderRightWidth { pub(crate) ptr: AzStyleBorderRightWidthPtr }
+    pub struct StyleBorderRightWidth { pub(crate) object: AzStyleBorderRightWidth }
 
     impl StyleBorderRightWidth {
-       /// Prevents the destructor from running and returns the internal `AzStyleBorderRightWidthPtr`
-       pub fn leak(self) -> AzStyleBorderRightWidthPtr { let p = az_style_border_right_width_shallow_copy(&self.ptr); std::mem::forget(self); p }
     }
 
-    impl Drop for StyleBorderRightWidth { fn drop(&mut self) { az_style_border_right_width_delete(&mut self.ptr); } }
+    impl Drop for StyleBorderRightWidth { fn drop(&mut self) { az_style_border_right_width_delete(&mut self); } }
 
 
     /// `StyleBorderTopColor` struct
@@ -4413,7 +4411,7 @@ pub mod dom {
     use crate::dll::*;
     use crate::str::String;
     use crate::resources::{ImageId, TextId};
-    use crate::callbacks::{RefAny, IFrameCallback, Callback, GlCallback};
+    use crate::callbacks::{Callback, IFrameCallback, RefAny, GlCallback};
     use crate::vec::StringVec;
     use crate::css::CssProperty;
 

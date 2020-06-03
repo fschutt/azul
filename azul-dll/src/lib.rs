@@ -821,18 +821,13 @@ pub type AzStyleBorderRightStyleType = azul_impl::css::StyleBorderRightStyle;
 /// Copies the object
 #[no_mangle] pub extern "C" fn az_style_border_right_style_deep_copy(object: &AzStyleBorderRightStyle) -> AzStyleBorderRightStyle { object.clone() }
 
-/// Pointer to rust-allocated `Box<StyleBorderRightWidth>` struct
-#[no_mangle] #[repr(C)] pub struct AzStyleBorderRightWidthPtr { ptr: *mut c_void }
+/// Re-export of rust-allocated (stack based) `StyleBorderRightWidth` struct
+pub type AzStyleBorderRightWidthType = azul_impl::css::StyleBorderRightWidth;
+#[no_mangle] pub use AzStyleBorderRightWidthType as AzStyleBorderRightWidth;
 /// Destructor: Takes ownership of the `StyleBorderRightWidth` pointer and deletes it.
-#[no_mangle] pub extern "C" fn az_style_border_right_width_delete(ptr: &mut AzStyleBorderRightWidthPtr) { let _ = unsafe { Box::<StyleBorderRightWidth>::from_raw(ptr.ptr  as *mut StyleBorderRightWidth) }; }
-/// Copies the pointer: WARNING: After calling this function you'll have two pointers to the same Box<`StyleBorderRightWidth`>!.
-#[no_mangle] pub extern "C" fn az_style_border_right_width_shallow_copy(ptr: &AzStyleBorderRightWidthPtr) -> AzStyleBorderRightWidthPtr { AzStyleBorderRightWidthPtr { ptr: ptr.ptr } }
-/// (private): Downcasts the `AzStyleBorderRightWidthPtr` to a `Box<StyleBorderRightWidth>`. Note that this takes ownership of the pointer.
-#[inline(always)] fn az_style_border_right_width_downcast(ptr: AzStyleBorderRightWidthPtr) -> Box<StyleBorderRightWidth> { unsafe { Box::<StyleBorderRightWidth>::from_raw(ptr.ptr  as *mut StyleBorderRightWidth) } }
-/// (private): Downcasts the `AzStyleBorderRightWidthPtr` to a `&mut Box<StyleBorderRightWidth>` and runs the `func` closure on it
-#[inline(always)] fn az_style_border_right_width_downcast_refmut<F: FnOnce(&mut Box<StyleBorderRightWidth>)>(ptr: &mut AzStyleBorderRightWidthPtr, func: F) { let mut box_ptr: Box<StyleBorderRightWidth> = unsafe { Box::<StyleBorderRightWidth>::from_raw(ptr.ptr  as *mut StyleBorderRightWidth) };func(&mut box_ptr);ptr.ptr = Box::into_raw(box_ptr) as *mut c_void; }
-/// (private): Downcasts the `AzStyleBorderRightWidthPtr` to a `&Box<StyleBorderRightWidth>` and runs the `func` closure on it
-#[inline(always)] fn az_style_border_right_width_downcast_ref<P, F: FnOnce(&Box<StyleBorderRightWidth>) -> P>(ptr: &mut AzStyleBorderRightWidthPtr, func: F) -> P { let box_ptr: Box<StyleBorderRightWidth> = unsafe { Box::<StyleBorderRightWidth>::from_raw(ptr.ptr  as *mut StyleBorderRightWidth) }; let ret_val = func(&box_ptr); ptr.ptr = Box::into_raw(box_ptr) as *mut c_void;ret_val }
+#[no_mangle] #[allow(unused_variables)] pub extern "C" fn az_style_border_right_width_delete(object: &mut AzStyleBorderRightWidth) { }
+/// Copies the object
+#[no_mangle] pub extern "C" fn az_style_border_right_width_deep_copy(object: &AzStyleBorderRightWidth) -> AzStyleBorderRightWidth { object.clone() }
 
 /// Re-export of rust-allocated (stack based) `StyleBorderTopColor` struct
 pub type AzStyleBorderTopColorType = azul_impl::css::StyleBorderTopColor;
