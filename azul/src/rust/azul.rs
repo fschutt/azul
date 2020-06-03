@@ -23,7 +23,8 @@
 
 
 extern crate libloading;
-
+#[macro_use]
+extern crate lazy_static;
 pub(crate) mod dll {
 
     use std::ffi::c_void;
@@ -1042,394 +1043,394 @@ pub(crate) mod dll {
     use libloading::os::windows::{Library, Symbol};
 
     pub struct AzulDll {
-        lib: Box<Library>,
-        az_string_from_utf8_unchecked: Symbol<extern fn(_: usize) -> AzString>,
-        az_string_from_utf8_lossy: Symbol<extern fn(_: usize) -> AzString>,
-        az_string_into_bytes: Symbol<extern fn(_: AzString) -> AzU8Vec>,
-        az_string_delete: Symbol<extern fn(_: &mut AzString)>,
-        az_string_deep_copy: Symbol<extern fn(_: &AzString) -> AzString>,
-        az_u8_vec_delete: Symbol<extern fn(_: &mut AzU8Vec)>,
-        az_u8_vec_deep_copy: Symbol<extern fn(_: &AzU8Vec) -> AzU8Vec>,
-        az_string_vec_copy_from: Symbol<extern fn(_: usize) -> AzStringVec>,
-        az_string_vec_delete: Symbol<extern fn(_: &mut AzStringVec)>,
-        az_string_vec_deep_copy: Symbol<extern fn(_: &AzStringVec) -> AzStringVec>,
-        az_gradient_stop_pre_vec_copy_from: Symbol<extern fn(_: usize) -> AzGradientStopPreVec>,
-        az_gradient_stop_pre_vec_delete: Symbol<extern fn(_: &mut AzGradientStopPreVec)>,
-        az_gradient_stop_pre_vec_deep_copy: Symbol<extern fn(_: &AzGradientStopPreVec) -> AzGradientStopPreVec>,
-        az_option_percentage_value_delete: Symbol<extern fn(_: &mut AzOptionPercentageValue)>,
-        az_option_percentage_value_deep_copy: Symbol<extern fn(_: &AzOptionPercentageValue) -> AzOptionPercentageValue>,
-        az_app_config_default: Symbol<extern fn() -> AzAppConfigPtr>,
-        az_app_config_delete: Symbol<extern fn(_: &mut AzAppConfigPtr)>,
-        az_app_config_shallow_copy: Symbol<extern fn(_: &AzAppConfigPtr) -> AzAppConfigPtr>,
-        az_app_new: Symbol<extern fn(_: AzLayoutCallback) -> AzAppPtr>,
-        az_app_run: Symbol<extern fn(_: AzWindowCreateOptionsPtr)>,
-        az_app_delete: Symbol<extern fn(_: &mut AzAppPtr)>,
-        az_app_shallow_copy: Symbol<extern fn(_: &AzAppPtr) -> AzAppPtr>,
-        az_callback_info_delete: Symbol<extern fn(_: &mut AzCallbackInfoPtr)>,
-        az_callback_info_shallow_copy: Symbol<extern fn(_: &AzCallbackInfoPtr) -> AzCallbackInfoPtr>,
-        az_i_frame_callback_info_delete: Symbol<extern fn(_: &mut AzIFrameCallbackInfoPtr)>,
-        az_i_frame_callback_info_shallow_copy: Symbol<extern fn(_: &AzIFrameCallbackInfoPtr) -> AzIFrameCallbackInfoPtr>,
-        az_i_frame_callback_return_delete: Symbol<extern fn(_: &mut AzIFrameCallbackReturnPtr)>,
-        az_i_frame_callback_return_shallow_copy: Symbol<extern fn(_: &AzIFrameCallbackReturnPtr) -> AzIFrameCallbackReturnPtr>,
-        az_gl_callback_info_delete: Symbol<extern fn(_: &mut AzGlCallbackInfoPtr)>,
-        az_gl_callback_info_shallow_copy: Symbol<extern fn(_: &AzGlCallbackInfoPtr) -> AzGlCallbackInfoPtr>,
-        az_gl_callback_return_delete: Symbol<extern fn(_: &mut AzGlCallbackReturnPtr)>,
-        az_gl_callback_return_shallow_copy: Symbol<extern fn(_: &AzGlCallbackReturnPtr) -> AzGlCallbackReturnPtr>,
-        az_layout_info_delete: Symbol<extern fn(_: &mut AzLayoutInfoPtr)>,
-        az_layout_info_shallow_copy: Symbol<extern fn(_: &AzLayoutInfoPtr) -> AzLayoutInfoPtr>,
-        az_css_native: Symbol<extern fn() -> AzCssPtr>,
-        az_css_empty: Symbol<extern fn() -> AzCssPtr>,
-        az_css_from_string: Symbol<extern fn(_: AzString) -> AzCssPtr>,
-        az_css_override_native: Symbol<extern fn(_: AzString) -> AzCssPtr>,
-        az_css_delete: Symbol<extern fn(_: &mut AzCssPtr)>,
-        az_css_shallow_copy: Symbol<extern fn(_: &AzCssPtr) -> AzCssPtr>,
-        az_css_hot_reloader_new: Symbol<extern fn(_: u64) -> AzCssHotReloaderPtr>,
-        az_css_hot_reloader_override_native: Symbol<extern fn(_: u64) -> AzCssHotReloaderPtr>,
-        az_css_hot_reloader_delete: Symbol<extern fn(_: &mut AzCssHotReloaderPtr)>,
-        az_css_hot_reloader_shallow_copy: Symbol<extern fn(_: &AzCssHotReloaderPtr) -> AzCssHotReloaderPtr>,
-        az_color_u_delete: Symbol<extern fn(_: &mut AzColorU)>,
-        az_color_u_deep_copy: Symbol<extern fn(_: &AzColorU) -> AzColorU>,
-        az_size_metric_delete: Symbol<extern fn(_: &mut AzSizeMetric)>,
-        az_size_metric_deep_copy: Symbol<extern fn(_: &AzSizeMetric) -> AzSizeMetric>,
-        az_float_value_delete: Symbol<extern fn(_: &mut AzFloatValue)>,
-        az_float_value_deep_copy: Symbol<extern fn(_: &AzFloatValue) -> AzFloatValue>,
-        az_pixel_value_delete: Symbol<extern fn(_: &mut AzPixelValue)>,
-        az_pixel_value_deep_copy: Symbol<extern fn(_: &AzPixelValue) -> AzPixelValue>,
-        az_pixel_value_no_percent_delete: Symbol<extern fn(_: &mut AzPixelValueNoPercent)>,
-        az_pixel_value_no_percent_deep_copy: Symbol<extern fn(_: &AzPixelValueNoPercent) -> AzPixelValueNoPercent>,
-        az_box_shadow_clip_mode_delete: Symbol<extern fn(_: &mut AzBoxShadowClipMode)>,
-        az_box_shadow_clip_mode_deep_copy: Symbol<extern fn(_: &AzBoxShadowClipMode) -> AzBoxShadowClipMode>,
-        az_box_shadow_pre_display_item_delete: Symbol<extern fn(_: &mut AzBoxShadowPreDisplayItem)>,
-        az_box_shadow_pre_display_item_deep_copy: Symbol<extern fn(_: &AzBoxShadowPreDisplayItem) -> AzBoxShadowPreDisplayItem>,
-        az_layout_align_content_delete: Symbol<extern fn(_: &mut AzLayoutAlignContent)>,
-        az_layout_align_content_deep_copy: Symbol<extern fn(_: &AzLayoutAlignContent) -> AzLayoutAlignContent>,
-        az_layout_align_items_delete: Symbol<extern fn(_: &mut AzLayoutAlignItems)>,
-        az_layout_align_items_deep_copy: Symbol<extern fn(_: &AzLayoutAlignItems) -> AzLayoutAlignItems>,
-        az_layout_bottom_delete: Symbol<extern fn(_: &mut AzLayoutBottom)>,
-        az_layout_bottom_deep_copy: Symbol<extern fn(_: &AzLayoutBottom) -> AzLayoutBottom>,
-        az_layout_box_sizing_delete: Symbol<extern fn(_: &mut AzLayoutBoxSizing)>,
-        az_layout_box_sizing_deep_copy: Symbol<extern fn(_: &AzLayoutBoxSizing) -> AzLayoutBoxSizing>,
-        az_layout_direction_delete: Symbol<extern fn(_: &mut AzLayoutDirection)>,
-        az_layout_direction_deep_copy: Symbol<extern fn(_: &AzLayoutDirection) -> AzLayoutDirection>,
-        az_layout_display_delete: Symbol<extern fn(_: &mut AzLayoutDisplay)>,
-        az_layout_display_deep_copy: Symbol<extern fn(_: &AzLayoutDisplay) -> AzLayoutDisplay>,
-        az_layout_flex_grow_delete: Symbol<extern fn(_: &mut AzLayoutFlexGrow)>,
-        az_layout_flex_grow_deep_copy: Symbol<extern fn(_: &AzLayoutFlexGrow) -> AzLayoutFlexGrow>,
-        az_layout_flex_shrink_delete: Symbol<extern fn(_: &mut AzLayoutFlexShrink)>,
-        az_layout_flex_shrink_deep_copy: Symbol<extern fn(_: &AzLayoutFlexShrink) -> AzLayoutFlexShrink>,
-        az_layout_float_delete: Symbol<extern fn(_: &mut AzLayoutFloat)>,
-        az_layout_float_deep_copy: Symbol<extern fn(_: &AzLayoutFloat) -> AzLayoutFloat>,
-        az_layout_height_delete: Symbol<extern fn(_: &mut AzLayoutHeight)>,
-        az_layout_height_deep_copy: Symbol<extern fn(_: &AzLayoutHeight) -> AzLayoutHeight>,
-        az_layout_justify_content_delete: Symbol<extern fn(_: &mut AzLayoutJustifyContent)>,
-        az_layout_justify_content_deep_copy: Symbol<extern fn(_: &AzLayoutJustifyContent) -> AzLayoutJustifyContent>,
-        az_layout_left_delete: Symbol<extern fn(_: &mut AzLayoutLeft)>,
-        az_layout_left_deep_copy: Symbol<extern fn(_: &AzLayoutLeft) -> AzLayoutLeft>,
-        az_layout_margin_bottom_delete: Symbol<extern fn(_: &mut AzLayoutMarginBottom)>,
-        az_layout_margin_bottom_deep_copy: Symbol<extern fn(_: &AzLayoutMarginBottom) -> AzLayoutMarginBottom>,
-        az_layout_margin_left_delete: Symbol<extern fn(_: &mut AzLayoutMarginLeft)>,
-        az_layout_margin_left_deep_copy: Symbol<extern fn(_: &AzLayoutMarginLeft) -> AzLayoutMarginLeft>,
-        az_layout_margin_right_delete: Symbol<extern fn(_: &mut AzLayoutMarginRight)>,
-        az_layout_margin_right_deep_copy: Symbol<extern fn(_: &AzLayoutMarginRight) -> AzLayoutMarginRight>,
-        az_layout_margin_top_delete: Symbol<extern fn(_: &mut AzLayoutMarginTop)>,
-        az_layout_margin_top_deep_copy: Symbol<extern fn(_: &AzLayoutMarginTop) -> AzLayoutMarginTop>,
-        az_layout_max_height_delete: Symbol<extern fn(_: &mut AzLayoutMaxHeight)>,
-        az_layout_max_height_deep_copy: Symbol<extern fn(_: &AzLayoutMaxHeight) -> AzLayoutMaxHeight>,
-        az_layout_max_width_delete: Symbol<extern fn(_: &mut AzLayoutMaxWidth)>,
-        az_layout_max_width_deep_copy: Symbol<extern fn(_: &AzLayoutMaxWidth) -> AzLayoutMaxWidth>,
-        az_layout_min_height_delete: Symbol<extern fn(_: &mut AzLayoutMinHeight)>,
-        az_layout_min_height_deep_copy: Symbol<extern fn(_: &AzLayoutMinHeight) -> AzLayoutMinHeight>,
-        az_layout_min_width_delete: Symbol<extern fn(_: &mut AzLayoutMinWidth)>,
-        az_layout_min_width_deep_copy: Symbol<extern fn(_: &AzLayoutMinWidth) -> AzLayoutMinWidth>,
-        az_layout_padding_bottom_delete: Symbol<extern fn(_: &mut AzLayoutPaddingBottom)>,
-        az_layout_padding_bottom_deep_copy: Symbol<extern fn(_: &AzLayoutPaddingBottom) -> AzLayoutPaddingBottom>,
-        az_layout_padding_left_delete: Symbol<extern fn(_: &mut AzLayoutPaddingLeft)>,
-        az_layout_padding_left_deep_copy: Symbol<extern fn(_: &AzLayoutPaddingLeft) -> AzLayoutPaddingLeft>,
-        az_layout_padding_right_delete: Symbol<extern fn(_: &mut AzLayoutPaddingRight)>,
-        az_layout_padding_right_deep_copy: Symbol<extern fn(_: &AzLayoutPaddingRight) -> AzLayoutPaddingRight>,
-        az_layout_padding_top_delete: Symbol<extern fn(_: &mut AzLayoutPaddingTop)>,
-        az_layout_padding_top_deep_copy: Symbol<extern fn(_: &AzLayoutPaddingTop) -> AzLayoutPaddingTop>,
-        az_layout_position_delete: Symbol<extern fn(_: &mut AzLayoutPosition)>,
-        az_layout_position_deep_copy: Symbol<extern fn(_: &AzLayoutPosition) -> AzLayoutPosition>,
-        az_layout_right_delete: Symbol<extern fn(_: &mut AzLayoutRight)>,
-        az_layout_right_deep_copy: Symbol<extern fn(_: &AzLayoutRight) -> AzLayoutRight>,
-        az_layout_top_delete: Symbol<extern fn(_: &mut AzLayoutTop)>,
-        az_layout_top_deep_copy: Symbol<extern fn(_: &AzLayoutTop) -> AzLayoutTop>,
-        az_layout_width_delete: Symbol<extern fn(_: &mut AzLayoutWidth)>,
-        az_layout_width_deep_copy: Symbol<extern fn(_: &AzLayoutWidth) -> AzLayoutWidth>,
-        az_layout_wrap_delete: Symbol<extern fn(_: &mut AzLayoutWrap)>,
-        az_layout_wrap_deep_copy: Symbol<extern fn(_: &AzLayoutWrap) -> AzLayoutWrap>,
-        az_overflow_delete: Symbol<extern fn(_: &mut AzOverflow)>,
-        az_overflow_deep_copy: Symbol<extern fn(_: &AzOverflow) -> AzOverflow>,
-        az_percentage_value_delete: Symbol<extern fn(_: &mut AzPercentageValue)>,
-        az_percentage_value_deep_copy: Symbol<extern fn(_: &AzPercentageValue) -> AzPercentageValue>,
-        az_gradient_stop_pre_delete: Symbol<extern fn(_: &mut AzGradientStopPre)>,
-        az_gradient_stop_pre_deep_copy: Symbol<extern fn(_: &AzGradientStopPre) -> AzGradientStopPre>,
-        az_direction_corner_delete: Symbol<extern fn(_: &mut AzDirectionCorner)>,
-        az_direction_corner_deep_copy: Symbol<extern fn(_: &AzDirectionCorner) -> AzDirectionCorner>,
-        az_direction_corners_delete: Symbol<extern fn(_: &mut AzDirectionCorners)>,
-        az_direction_corners_deep_copy: Symbol<extern fn(_: &AzDirectionCorners) -> AzDirectionCorners>,
-        az_direction_delete: Symbol<extern fn(_: &mut AzDirection)>,
-        az_direction_deep_copy: Symbol<extern fn(_: &AzDirection) -> AzDirection>,
-        az_extend_mode_delete: Symbol<extern fn(_: &mut AzExtendMode)>,
-        az_extend_mode_deep_copy: Symbol<extern fn(_: &AzExtendMode) -> AzExtendMode>,
-        az_linear_gradient_delete: Symbol<extern fn(_: &mut AzLinearGradient)>,
-        az_linear_gradient_deep_copy: Symbol<extern fn(_: &AzLinearGradient) -> AzLinearGradient>,
-        az_shape_delete: Symbol<extern fn(_: &mut AzShape)>,
-        az_shape_deep_copy: Symbol<extern fn(_: &AzShape) -> AzShape>,
-        az_radial_gradient_delete: Symbol<extern fn(_: &mut AzRadialGradient)>,
-        az_radial_gradient_deep_copy: Symbol<extern fn(_: &AzRadialGradient) -> AzRadialGradient>,
-        az_css_image_id_delete: Symbol<extern fn(_: &mut AzCssImageId)>,
-        az_css_image_id_deep_copy: Symbol<extern fn(_: &AzCssImageId) -> AzCssImageId>,
-        az_style_background_content_delete: Symbol<extern fn(_: &mut AzStyleBackgroundContent)>,
-        az_style_background_content_deep_copy: Symbol<extern fn(_: &AzStyleBackgroundContent) -> AzStyleBackgroundContent>,
-        az_background_position_horizontal_delete: Symbol<extern fn(_: &mut AzBackgroundPositionHorizontal)>,
-        az_background_position_horizontal_deep_copy: Symbol<extern fn(_: &AzBackgroundPositionHorizontal) -> AzBackgroundPositionHorizontal>,
-        az_background_position_vertical_delete: Symbol<extern fn(_: &mut AzBackgroundPositionVertical)>,
-        az_background_position_vertical_deep_copy: Symbol<extern fn(_: &AzBackgroundPositionVertical) -> AzBackgroundPositionVertical>,
-        az_style_background_position_delete: Symbol<extern fn(_: &mut AzStyleBackgroundPosition)>,
-        az_style_background_position_deep_copy: Symbol<extern fn(_: &AzStyleBackgroundPosition) -> AzStyleBackgroundPosition>,
-        az_style_background_repeat_delete: Symbol<extern fn(_: &mut AzStyleBackgroundRepeat)>,
-        az_style_background_repeat_deep_copy: Symbol<extern fn(_: &AzStyleBackgroundRepeat) -> AzStyleBackgroundRepeat>,
-        az_style_background_size_delete: Symbol<extern fn(_: &mut AzStyleBackgroundSize)>,
-        az_style_background_size_deep_copy: Symbol<extern fn(_: &AzStyleBackgroundSize) -> AzStyleBackgroundSize>,
-        az_style_border_bottom_color_delete: Symbol<extern fn(_: &mut AzStyleBorderBottomColor)>,
-        az_style_border_bottom_color_deep_copy: Symbol<extern fn(_: &AzStyleBorderBottomColor) -> AzStyleBorderBottomColor>,
-        az_style_border_bottom_left_radius_delete: Symbol<extern fn(_: &mut AzStyleBorderBottomLeftRadius)>,
-        az_style_border_bottom_left_radius_deep_copy: Symbol<extern fn(_: &AzStyleBorderBottomLeftRadius) -> AzStyleBorderBottomLeftRadius>,
-        az_style_border_bottom_right_radius_delete: Symbol<extern fn(_: &mut AzStyleBorderBottomRightRadius)>,
-        az_style_border_bottom_right_radius_deep_copy: Symbol<extern fn(_: &AzStyleBorderBottomRightRadius) -> AzStyleBorderBottomRightRadius>,
-        az_border_style_delete: Symbol<extern fn(_: &mut AzBorderStyle)>,
-        az_border_style_deep_copy: Symbol<extern fn(_: &AzBorderStyle) -> AzBorderStyle>,
-        az_style_border_bottom_style_delete: Symbol<extern fn(_: &mut AzStyleBorderBottomStyle)>,
-        az_style_border_bottom_style_deep_copy: Symbol<extern fn(_: &AzStyleBorderBottomStyle) -> AzStyleBorderBottomStyle>,
-        az_style_border_bottom_width_delete: Symbol<extern fn(_: &mut AzStyleBorderBottomWidth)>,
-        az_style_border_bottom_width_deep_copy: Symbol<extern fn(_: &AzStyleBorderBottomWidth) -> AzStyleBorderBottomWidth>,
-        az_style_border_left_color_delete: Symbol<extern fn(_: &mut AzStyleBorderLeftColor)>,
-        az_style_border_left_color_deep_copy: Symbol<extern fn(_: &AzStyleBorderLeftColor) -> AzStyleBorderLeftColor>,
-        az_style_border_left_style_delete: Symbol<extern fn(_: &mut AzStyleBorderLeftStyle)>,
-        az_style_border_left_style_deep_copy: Symbol<extern fn(_: &AzStyleBorderLeftStyle) -> AzStyleBorderLeftStyle>,
-        az_style_border_left_width_delete: Symbol<extern fn(_: &mut AzStyleBorderLeftWidth)>,
-        az_style_border_left_width_deep_copy: Symbol<extern fn(_: &AzStyleBorderLeftWidth) -> AzStyleBorderLeftWidth>,
-        az_style_border_right_color_delete: Symbol<extern fn(_: &mut AzStyleBorderRightColor)>,
-        az_style_border_right_color_deep_copy: Symbol<extern fn(_: &AzStyleBorderRightColor) -> AzStyleBorderRightColor>,
-        az_style_border_right_style_delete: Symbol<extern fn(_: &mut AzStyleBorderRightStyle)>,
-        az_style_border_right_style_deep_copy: Symbol<extern fn(_: &AzStyleBorderRightStyle) -> AzStyleBorderRightStyle>,
-        az_style_border_right_width_delete: Symbol<extern fn(_: &mut AzStyleBorderRightWidth)>,
-        az_style_border_right_width_deep_copy: Symbol<extern fn(_: &AzStyleBorderRightWidth) -> AzStyleBorderRightWidth>,
-        az_style_border_top_color_delete: Symbol<extern fn(_: &mut AzStyleBorderTopColor)>,
-        az_style_border_top_color_deep_copy: Symbol<extern fn(_: &AzStyleBorderTopColor) -> AzStyleBorderTopColor>,
-        az_style_border_top_left_radius_delete: Symbol<extern fn(_: &mut AzStyleBorderTopLeftRadius)>,
-        az_style_border_top_left_radius_deep_copy: Symbol<extern fn(_: &AzStyleBorderTopLeftRadius) -> AzStyleBorderTopLeftRadius>,
-        az_style_border_top_right_radius_delete: Symbol<extern fn(_: &mut AzStyleBorderTopRightRadius)>,
-        az_style_border_top_right_radius_deep_copy: Symbol<extern fn(_: &AzStyleBorderTopRightRadius) -> AzStyleBorderTopRightRadius>,
-        az_style_border_top_style_delete: Symbol<extern fn(_: &mut AzStyleBorderTopStyle)>,
-        az_style_border_top_style_deep_copy: Symbol<extern fn(_: &AzStyleBorderTopStyle) -> AzStyleBorderTopStyle>,
-        az_style_border_top_width_delete: Symbol<extern fn(_: &mut AzStyleBorderTopWidth)>,
-        az_style_border_top_width_deep_copy: Symbol<extern fn(_: &AzStyleBorderTopWidth) -> AzStyleBorderTopWidth>,
-        az_style_cursor_delete: Symbol<extern fn(_: &mut AzStyleCursor)>,
-        az_style_cursor_deep_copy: Symbol<extern fn(_: &AzStyleCursor) -> AzStyleCursor>,
-        az_style_font_family_delete: Symbol<extern fn(_: &mut AzStyleFontFamily)>,
-        az_style_font_family_deep_copy: Symbol<extern fn(_: &AzStyleFontFamily) -> AzStyleFontFamily>,
-        az_style_font_size_delete: Symbol<extern fn(_: &mut AzStyleFontSize)>,
-        az_style_font_size_deep_copy: Symbol<extern fn(_: &AzStyleFontSize) -> AzStyleFontSize>,
-        az_style_letter_spacing_delete: Symbol<extern fn(_: &mut AzStyleLetterSpacing)>,
-        az_style_letter_spacing_deep_copy: Symbol<extern fn(_: &AzStyleLetterSpacing) -> AzStyleLetterSpacing>,
-        az_style_line_height_delete: Symbol<extern fn(_: &mut AzStyleLineHeight)>,
-        az_style_line_height_deep_copy: Symbol<extern fn(_: &AzStyleLineHeight) -> AzStyleLineHeight>,
-        az_style_tab_width_delete: Symbol<extern fn(_: &mut AzStyleTabWidth)>,
-        az_style_tab_width_deep_copy: Symbol<extern fn(_: &AzStyleTabWidth) -> AzStyleTabWidth>,
-        az_style_text_alignment_horz_delete: Symbol<extern fn(_: &mut AzStyleTextAlignmentHorz)>,
-        az_style_text_alignment_horz_deep_copy: Symbol<extern fn(_: &AzStyleTextAlignmentHorz) -> AzStyleTextAlignmentHorz>,
-        az_style_text_color_delete: Symbol<extern fn(_: &mut AzStyleTextColor)>,
-        az_style_text_color_deep_copy: Symbol<extern fn(_: &AzStyleTextColor) -> AzStyleTextColor>,
-        az_style_word_spacing_delete: Symbol<extern fn(_: &mut AzStyleWordSpacing)>,
-        az_style_word_spacing_deep_copy: Symbol<extern fn(_: &AzStyleWordSpacing) -> AzStyleWordSpacing>,
-        az_box_shadow_pre_display_item_value_delete: Symbol<extern fn(_: &mut AzBoxShadowPreDisplayItemValue)>,
-        az_box_shadow_pre_display_item_value_deep_copy: Symbol<extern fn(_: &AzBoxShadowPreDisplayItemValue) -> AzBoxShadowPreDisplayItemValue>,
-        az_layout_align_content_value_delete: Symbol<extern fn(_: &mut AzLayoutAlignContentValue)>,
-        az_layout_align_content_value_deep_copy: Symbol<extern fn(_: &AzLayoutAlignContentValue) -> AzLayoutAlignContentValue>,
-        az_layout_align_items_value_delete: Symbol<extern fn(_: &mut AzLayoutAlignItemsValue)>,
-        az_layout_align_items_value_deep_copy: Symbol<extern fn(_: &AzLayoutAlignItemsValue) -> AzLayoutAlignItemsValue>,
-        az_layout_bottom_value_delete: Symbol<extern fn(_: &mut AzLayoutBottomValue)>,
-        az_layout_bottom_value_deep_copy: Symbol<extern fn(_: &AzLayoutBottomValue) -> AzLayoutBottomValue>,
-        az_layout_box_sizing_value_delete: Symbol<extern fn(_: &mut AzLayoutBoxSizingValue)>,
-        az_layout_box_sizing_value_deep_copy: Symbol<extern fn(_: &AzLayoutBoxSizingValue) -> AzLayoutBoxSizingValue>,
-        az_layout_direction_value_delete: Symbol<extern fn(_: &mut AzLayoutDirectionValue)>,
-        az_layout_direction_value_deep_copy: Symbol<extern fn(_: &AzLayoutDirectionValue) -> AzLayoutDirectionValue>,
-        az_layout_display_value_delete: Symbol<extern fn(_: &mut AzLayoutDisplayValue)>,
-        az_layout_display_value_deep_copy: Symbol<extern fn(_: &AzLayoutDisplayValue) -> AzLayoutDisplayValue>,
-        az_layout_flex_grow_value_delete: Symbol<extern fn(_: &mut AzLayoutFlexGrowValue)>,
-        az_layout_flex_grow_value_deep_copy: Symbol<extern fn(_: &AzLayoutFlexGrowValue) -> AzLayoutFlexGrowValue>,
-        az_layout_flex_shrink_value_delete: Symbol<extern fn(_: &mut AzLayoutFlexShrinkValue)>,
-        az_layout_flex_shrink_value_deep_copy: Symbol<extern fn(_: &AzLayoutFlexShrinkValue) -> AzLayoutFlexShrinkValue>,
-        az_layout_float_value_delete: Symbol<extern fn(_: &mut AzLayoutFloatValue)>,
-        az_layout_float_value_deep_copy: Symbol<extern fn(_: &AzLayoutFloatValue) -> AzLayoutFloatValue>,
-        az_layout_height_value_delete: Symbol<extern fn(_: &mut AzLayoutHeightValue)>,
-        az_layout_height_value_deep_copy: Symbol<extern fn(_: &AzLayoutHeightValue) -> AzLayoutHeightValue>,
-        az_layout_justify_content_value_delete: Symbol<extern fn(_: &mut AzLayoutJustifyContentValue)>,
-        az_layout_justify_content_value_deep_copy: Symbol<extern fn(_: &AzLayoutJustifyContentValue) -> AzLayoutJustifyContentValue>,
-        az_layout_left_value_delete: Symbol<extern fn(_: &mut AzLayoutLeftValue)>,
-        az_layout_left_value_deep_copy: Symbol<extern fn(_: &AzLayoutLeftValue) -> AzLayoutLeftValue>,
-        az_layout_margin_bottom_value_delete: Symbol<extern fn(_: &mut AzLayoutMarginBottomValue)>,
-        az_layout_margin_bottom_value_deep_copy: Symbol<extern fn(_: &AzLayoutMarginBottomValue) -> AzLayoutMarginBottomValue>,
-        az_layout_margin_left_value_delete: Symbol<extern fn(_: &mut AzLayoutMarginLeftValue)>,
-        az_layout_margin_left_value_deep_copy: Symbol<extern fn(_: &AzLayoutMarginLeftValue) -> AzLayoutMarginLeftValue>,
-        az_layout_margin_right_value_delete: Symbol<extern fn(_: &mut AzLayoutMarginRightValue)>,
-        az_layout_margin_right_value_deep_copy: Symbol<extern fn(_: &AzLayoutMarginRightValue) -> AzLayoutMarginRightValue>,
-        az_layout_margin_top_value_delete: Symbol<extern fn(_: &mut AzLayoutMarginTopValue)>,
-        az_layout_margin_top_value_deep_copy: Symbol<extern fn(_: &AzLayoutMarginTopValue) -> AzLayoutMarginTopValue>,
-        az_layout_max_height_value_delete: Symbol<extern fn(_: &mut AzLayoutMaxHeightValue)>,
-        az_layout_max_height_value_deep_copy: Symbol<extern fn(_: &AzLayoutMaxHeightValue) -> AzLayoutMaxHeightValue>,
-        az_layout_max_width_value_delete: Symbol<extern fn(_: &mut AzLayoutMaxWidthValue)>,
-        az_layout_max_width_value_deep_copy: Symbol<extern fn(_: &AzLayoutMaxWidthValue) -> AzLayoutMaxWidthValue>,
-        az_layout_min_height_value_delete: Symbol<extern fn(_: &mut AzLayoutMinHeightValue)>,
-        az_layout_min_height_value_deep_copy: Symbol<extern fn(_: &AzLayoutMinHeightValue) -> AzLayoutMinHeightValue>,
-        az_layout_min_width_value_delete: Symbol<extern fn(_: &mut AzLayoutMinWidthValue)>,
-        az_layout_min_width_value_deep_copy: Symbol<extern fn(_: &AzLayoutMinWidthValue) -> AzLayoutMinWidthValue>,
-        az_layout_padding_bottom_value_delete: Symbol<extern fn(_: &mut AzLayoutPaddingBottomValue)>,
-        az_layout_padding_bottom_value_deep_copy: Symbol<extern fn(_: &AzLayoutPaddingBottomValue) -> AzLayoutPaddingBottomValue>,
-        az_layout_padding_left_value_delete: Symbol<extern fn(_: &mut AzLayoutPaddingLeftValue)>,
-        az_layout_padding_left_value_deep_copy: Symbol<extern fn(_: &AzLayoutPaddingLeftValue) -> AzLayoutPaddingLeftValue>,
-        az_layout_padding_right_value_delete: Symbol<extern fn(_: &mut AzLayoutPaddingRightValue)>,
-        az_layout_padding_right_value_deep_copy: Symbol<extern fn(_: &AzLayoutPaddingRightValue) -> AzLayoutPaddingRightValue>,
-        az_layout_padding_top_value_delete: Symbol<extern fn(_: &mut AzLayoutPaddingTopValue)>,
-        az_layout_padding_top_value_deep_copy: Symbol<extern fn(_: &AzLayoutPaddingTopValue) -> AzLayoutPaddingTopValue>,
-        az_layout_position_value_delete: Symbol<extern fn(_: &mut AzLayoutPositionValue)>,
-        az_layout_position_value_deep_copy: Symbol<extern fn(_: &AzLayoutPositionValue) -> AzLayoutPositionValue>,
-        az_layout_right_value_delete: Symbol<extern fn(_: &mut AzLayoutRightValue)>,
-        az_layout_right_value_deep_copy: Symbol<extern fn(_: &AzLayoutRightValue) -> AzLayoutRightValue>,
-        az_layout_top_value_delete: Symbol<extern fn(_: &mut AzLayoutTopValue)>,
-        az_layout_top_value_deep_copy: Symbol<extern fn(_: &AzLayoutTopValue) -> AzLayoutTopValue>,
-        az_layout_width_value_delete: Symbol<extern fn(_: &mut AzLayoutWidthValue)>,
-        az_layout_width_value_deep_copy: Symbol<extern fn(_: &AzLayoutWidthValue) -> AzLayoutWidthValue>,
-        az_layout_wrap_value_delete: Symbol<extern fn(_: &mut AzLayoutWrapValue)>,
-        az_layout_wrap_value_deep_copy: Symbol<extern fn(_: &AzLayoutWrapValue) -> AzLayoutWrapValue>,
-        az_overflow_value_delete: Symbol<extern fn(_: &mut AzOverflowValue)>,
-        az_overflow_value_deep_copy: Symbol<extern fn(_: &AzOverflowValue) -> AzOverflowValue>,
-        az_style_background_content_value_delete: Symbol<extern fn(_: &mut AzStyleBackgroundContentValue)>,
-        az_style_background_content_value_deep_copy: Symbol<extern fn(_: &AzStyleBackgroundContentValue) -> AzStyleBackgroundContentValue>,
-        az_style_background_position_value_delete: Symbol<extern fn(_: &mut AzStyleBackgroundPositionValue)>,
-        az_style_background_position_value_deep_copy: Symbol<extern fn(_: &AzStyleBackgroundPositionValue) -> AzStyleBackgroundPositionValue>,
-        az_style_background_repeat_value_delete: Symbol<extern fn(_: &mut AzStyleBackgroundRepeatValue)>,
-        az_style_background_repeat_value_deep_copy: Symbol<extern fn(_: &AzStyleBackgroundRepeatValue) -> AzStyleBackgroundRepeatValue>,
-        az_style_background_size_value_delete: Symbol<extern fn(_: &mut AzStyleBackgroundSizeValue)>,
-        az_style_background_size_value_deep_copy: Symbol<extern fn(_: &AzStyleBackgroundSizeValue) -> AzStyleBackgroundSizeValue>,
-        az_style_border_bottom_color_value_delete: Symbol<extern fn(_: &mut AzStyleBorderBottomColorValue)>,
-        az_style_border_bottom_color_value_deep_copy: Symbol<extern fn(_: &AzStyleBorderBottomColorValue) -> AzStyleBorderBottomColorValue>,
-        az_style_border_bottom_left_radius_value_delete: Symbol<extern fn(_: &mut AzStyleBorderBottomLeftRadiusValue)>,
-        az_style_border_bottom_left_radius_value_deep_copy: Symbol<extern fn(_: &AzStyleBorderBottomLeftRadiusValue) -> AzStyleBorderBottomLeftRadiusValue>,
-        az_style_border_bottom_right_radius_value_delete: Symbol<extern fn(_: &mut AzStyleBorderBottomRightRadiusValue)>,
-        az_style_border_bottom_right_radius_value_deep_copy: Symbol<extern fn(_: &AzStyleBorderBottomRightRadiusValue) -> AzStyleBorderBottomRightRadiusValue>,
-        az_style_border_bottom_style_value_delete: Symbol<extern fn(_: &mut AzStyleBorderBottomStyleValue)>,
-        az_style_border_bottom_style_value_deep_copy: Symbol<extern fn(_: &AzStyleBorderBottomStyleValue) -> AzStyleBorderBottomStyleValue>,
-        az_style_border_bottom_width_value_delete: Symbol<extern fn(_: &mut AzStyleBorderBottomWidthValue)>,
-        az_style_border_bottom_width_value_deep_copy: Symbol<extern fn(_: &AzStyleBorderBottomWidthValue) -> AzStyleBorderBottomWidthValue>,
-        az_style_border_left_color_value_delete: Symbol<extern fn(_: &mut AzStyleBorderLeftColorValue)>,
-        az_style_border_left_color_value_deep_copy: Symbol<extern fn(_: &AzStyleBorderLeftColorValue) -> AzStyleBorderLeftColorValue>,
-        az_style_border_left_style_value_delete: Symbol<extern fn(_: &mut AzStyleBorderLeftStyleValue)>,
-        az_style_border_left_style_value_deep_copy: Symbol<extern fn(_: &AzStyleBorderLeftStyleValue) -> AzStyleBorderLeftStyleValue>,
-        az_style_border_left_width_value_delete: Symbol<extern fn(_: &mut AzStyleBorderLeftWidthValue)>,
-        az_style_border_left_width_value_deep_copy: Symbol<extern fn(_: &AzStyleBorderLeftWidthValue) -> AzStyleBorderLeftWidthValue>,
-        az_style_border_right_color_value_delete: Symbol<extern fn(_: &mut AzStyleBorderRightColorValue)>,
-        az_style_border_right_color_value_deep_copy: Symbol<extern fn(_: &AzStyleBorderRightColorValue) -> AzStyleBorderRightColorValue>,
-        az_style_border_right_style_value_delete: Symbol<extern fn(_: &mut AzStyleBorderRightStyleValue)>,
-        az_style_border_right_style_value_deep_copy: Symbol<extern fn(_: &AzStyleBorderRightStyleValue) -> AzStyleBorderRightStyleValue>,
-        az_style_border_right_width_value_delete: Symbol<extern fn(_: &mut AzStyleBorderRightWidthValue)>,
-        az_style_border_right_width_value_deep_copy: Symbol<extern fn(_: &AzStyleBorderRightWidthValue) -> AzStyleBorderRightWidthValue>,
-        az_style_border_top_color_value_delete: Symbol<extern fn(_: &mut AzStyleBorderTopColorValue)>,
-        az_style_border_top_color_value_deep_copy: Symbol<extern fn(_: &AzStyleBorderTopColorValue) -> AzStyleBorderTopColorValue>,
-        az_style_border_top_left_radius_value_delete: Symbol<extern fn(_: &mut AzStyleBorderTopLeftRadiusValue)>,
-        az_style_border_top_left_radius_value_deep_copy: Symbol<extern fn(_: &AzStyleBorderTopLeftRadiusValue) -> AzStyleBorderTopLeftRadiusValue>,
-        az_style_border_top_right_radius_value_delete: Symbol<extern fn(_: &mut AzStyleBorderTopRightRadiusValue)>,
-        az_style_border_top_right_radius_value_deep_copy: Symbol<extern fn(_: &AzStyleBorderTopRightRadiusValue) -> AzStyleBorderTopRightRadiusValue>,
-        az_style_border_top_style_value_delete: Symbol<extern fn(_: &mut AzStyleBorderTopStyleValue)>,
-        az_style_border_top_style_value_deep_copy: Symbol<extern fn(_: &AzStyleBorderTopStyleValue) -> AzStyleBorderTopStyleValue>,
-        az_style_border_top_width_value_delete: Symbol<extern fn(_: &mut AzStyleBorderTopWidthValue)>,
-        az_style_border_top_width_value_deep_copy: Symbol<extern fn(_: &AzStyleBorderTopWidthValue) -> AzStyleBorderTopWidthValue>,
-        az_style_cursor_value_delete: Symbol<extern fn(_: &mut AzStyleCursorValue)>,
-        az_style_cursor_value_deep_copy: Symbol<extern fn(_: &AzStyleCursorValue) -> AzStyleCursorValue>,
-        az_style_font_family_value_delete: Symbol<extern fn(_: &mut AzStyleFontFamilyValue)>,
-        az_style_font_family_value_deep_copy: Symbol<extern fn(_: &AzStyleFontFamilyValue) -> AzStyleFontFamilyValue>,
-        az_style_font_size_value_delete: Symbol<extern fn(_: &mut AzStyleFontSizeValue)>,
-        az_style_font_size_value_deep_copy: Symbol<extern fn(_: &AzStyleFontSizeValue) -> AzStyleFontSizeValue>,
-        az_style_letter_spacing_value_delete: Symbol<extern fn(_: &mut AzStyleLetterSpacingValue)>,
-        az_style_letter_spacing_value_deep_copy: Symbol<extern fn(_: &AzStyleLetterSpacingValue) -> AzStyleLetterSpacingValue>,
-        az_style_line_height_value_delete: Symbol<extern fn(_: &mut AzStyleLineHeightValue)>,
-        az_style_line_height_value_deep_copy: Symbol<extern fn(_: &AzStyleLineHeightValue) -> AzStyleLineHeightValue>,
-        az_style_tab_width_value_delete: Symbol<extern fn(_: &mut AzStyleTabWidthValue)>,
-        az_style_tab_width_value_deep_copy: Symbol<extern fn(_: &AzStyleTabWidthValue) -> AzStyleTabWidthValue>,
-        az_style_text_alignment_horz_value_delete: Symbol<extern fn(_: &mut AzStyleTextAlignmentHorzValue)>,
-        az_style_text_alignment_horz_value_deep_copy: Symbol<extern fn(_: &AzStyleTextAlignmentHorzValue) -> AzStyleTextAlignmentHorzValue>,
-        az_style_text_color_value_delete: Symbol<extern fn(_: &mut AzStyleTextColorValue)>,
-        az_style_text_color_value_deep_copy: Symbol<extern fn(_: &AzStyleTextColorValue) -> AzStyleTextColorValue>,
-        az_style_word_spacing_value_delete: Symbol<extern fn(_: &mut AzStyleWordSpacingValue)>,
-        az_style_word_spacing_value_deep_copy: Symbol<extern fn(_: &AzStyleWordSpacingValue) -> AzStyleWordSpacingValue>,
-        az_css_property_delete: Symbol<extern fn(_: &mut AzCssProperty)>,
-        az_css_property_deep_copy: Symbol<extern fn(_: &AzCssProperty) -> AzCssProperty>,
-        az_dom_div: Symbol<extern fn() -> AzDomPtr>,
-        az_dom_body: Symbol<extern fn() -> AzDomPtr>,
-        az_dom_label: Symbol<extern fn(_: AzString) -> AzDomPtr>,
-        az_dom_text: Symbol<extern fn(_: AzTextId) -> AzDomPtr>,
-        az_dom_image: Symbol<extern fn(_: AzImageId) -> AzDomPtr>,
-        az_dom_gl_texture: Symbol<extern fn(_: AzGlCallback) -> AzDomPtr>,
-        az_dom_iframe_callback: Symbol<extern fn(_: AzIFrameCallback) -> AzDomPtr>,
-        az_dom_add_id: Symbol<extern fn(_: AzString)>,
-        az_dom_with_id: Symbol<extern fn(_: AzString) -> AzDomPtr>,
-        az_dom_set_ids: Symbol<extern fn(_: AzStringVec)>,
-        az_dom_with_ids: Symbol<extern fn(_: AzStringVec) -> AzDomPtr>,
-        az_dom_add_class: Symbol<extern fn(_: AzString)>,
-        az_dom_with_class: Symbol<extern fn(_: AzString) -> AzDomPtr>,
-        az_dom_set_classes: Symbol<extern fn(_: AzStringVec)>,
-        az_dom_with_classes: Symbol<extern fn(_: AzStringVec) -> AzDomPtr>,
-        az_dom_add_callback: Symbol<extern fn(_: AzCallback)>,
-        az_dom_with_callback: Symbol<extern fn(_: AzCallback) -> AzDomPtr>,
-        az_dom_add_css_override: Symbol<extern fn(_: AzCssProperty)>,
-        az_dom_with_css_override: Symbol<extern fn(_: AzCssProperty) -> AzDomPtr>,
-        az_dom_set_is_draggable: Symbol<extern fn(_: bool)>,
-        az_dom_is_draggable: Symbol<extern fn(_: bool) -> AzDomPtr>,
-        az_dom_set_tab_index: Symbol<extern fn(_: AzTabIndex)>,
-        az_dom_with_tab_index: Symbol<extern fn(_: AzTabIndex) -> AzDomPtr>,
-        az_dom_add_child: Symbol<extern fn(_: AzDomPtr)>,
-        az_dom_with_child: Symbol<extern fn(_: AzDomPtr) -> AzDomPtr>,
-        az_dom_has_id: Symbol<extern fn(_: AzString) -> bool>,
-        az_dom_has_class: Symbol<extern fn(_: AzString) -> bool>,
-        az_dom_get_html_string: Symbol<extern fn(_: &mut AzDomPtr) -> AzString>,
-        az_dom_delete: Symbol<extern fn(_: &mut AzDomPtr)>,
-        az_dom_shallow_copy: Symbol<extern fn(_: &AzDomPtr) -> AzDomPtr>,
-        az_event_filter_delete: Symbol<extern fn(_: &mut AzEventFilter)>,
-        az_event_filter_deep_copy: Symbol<extern fn(_: &AzEventFilter) -> AzEventFilter>,
-        az_hover_event_filter_delete: Symbol<extern fn(_: &mut AzHoverEventFilter)>,
-        az_hover_event_filter_deep_copy: Symbol<extern fn(_: &AzHoverEventFilter) -> AzHoverEventFilter>,
-        az_focus_event_filter_delete: Symbol<extern fn(_: &mut AzFocusEventFilter)>,
-        az_focus_event_filter_deep_copy: Symbol<extern fn(_: &AzFocusEventFilter) -> AzFocusEventFilter>,
-        az_not_event_filter_delete: Symbol<extern fn(_: &mut AzNotEventFilter)>,
-        az_not_event_filter_deep_copy: Symbol<extern fn(_: &AzNotEventFilter) -> AzNotEventFilter>,
-        az_window_event_filter_delete: Symbol<extern fn(_: &mut AzWindowEventFilter)>,
-        az_window_event_filter_deep_copy: Symbol<extern fn(_: &AzWindowEventFilter) -> AzWindowEventFilter>,
-        az_tab_index_delete: Symbol<extern fn(_: &mut AzTabIndex)>,
-        az_tab_index_deep_copy: Symbol<extern fn(_: &AzTabIndex) -> AzTabIndex>,
-        az_text_id_new: Symbol<extern fn() -> AzTextId>,
-        az_text_id_delete: Symbol<extern fn(_: &mut AzTextId)>,
-        az_text_id_deep_copy: Symbol<extern fn(_: &AzTextId) -> AzTextId>,
-        az_image_id_new: Symbol<extern fn() -> AzImageId>,
-        az_image_id_delete: Symbol<extern fn(_: &mut AzImageId)>,
-        az_image_id_deep_copy: Symbol<extern fn(_: &AzImageId) -> AzImageId>,
-        az_font_id_new: Symbol<extern fn() -> AzFontId>,
-        az_font_id_delete: Symbol<extern fn(_: &mut AzFontId)>,
-        az_font_id_deep_copy: Symbol<extern fn(_: &AzFontId) -> AzFontId>,
-        az_image_source_delete: Symbol<extern fn(_: &mut AzImageSource)>,
-        az_image_source_deep_copy: Symbol<extern fn(_: &AzImageSource) -> AzImageSource>,
-        az_font_source_delete: Symbol<extern fn(_: &mut AzFontSource)>,
-        az_font_source_deep_copy: Symbol<extern fn(_: &AzFontSource) -> AzFontSource>,
-        az_raw_image_new: Symbol<extern fn(_: AzRawImageFormat) -> AzRawImage>,
-        az_raw_image_delete: Symbol<extern fn(_: &mut AzRawImage)>,
-        az_raw_image_deep_copy: Symbol<extern fn(_: &AzRawImage) -> AzRawImage>,
-        az_raw_image_format_delete: Symbol<extern fn(_: &mut AzRawImageFormat)>,
-        az_raw_image_format_deep_copy: Symbol<extern fn(_: &AzRawImageFormat) -> AzRawImageFormat>,
-        az_window_create_options_new: Symbol<extern fn(_: AzCssPtr) -> AzWindowCreateOptionsPtr>,
-        az_window_create_options_delete: Symbol<extern fn(_: &mut AzWindowCreateOptionsPtr)>,
-        az_window_create_options_shallow_copy: Symbol<extern fn(_: &AzWindowCreateOptionsPtr) -> AzWindowCreateOptionsPtr>,
+        pub lib: Box<Library>,
+        pub az_string_from_utf8_unchecked: Symbol<extern fn(_: usize) -> AzString>,
+        pub az_string_from_utf8_lossy: Symbol<extern fn(_: usize) -> AzString>,
+        pub az_string_into_bytes: Symbol<extern fn(_: AzString) -> AzU8Vec>,
+        pub az_string_delete: Symbol<extern fn(_: &mut AzString)>,
+        pub az_string_deep_copy: Symbol<extern fn(_: &AzString) -> AzString>,
+        pub az_u8_vec_delete: Symbol<extern fn(_: &mut AzU8Vec)>,
+        pub az_u8_vec_deep_copy: Symbol<extern fn(_: &AzU8Vec) -> AzU8Vec>,
+        pub az_string_vec_copy_from: Symbol<extern fn(_: usize) -> AzStringVec>,
+        pub az_string_vec_delete: Symbol<extern fn(_: &mut AzStringVec)>,
+        pub az_string_vec_deep_copy: Symbol<extern fn(_: &AzStringVec) -> AzStringVec>,
+        pub az_gradient_stop_pre_vec_copy_from: Symbol<extern fn(_: usize) -> AzGradientStopPreVec>,
+        pub az_gradient_stop_pre_vec_delete: Symbol<extern fn(_: &mut AzGradientStopPreVec)>,
+        pub az_gradient_stop_pre_vec_deep_copy: Symbol<extern fn(_: &AzGradientStopPreVec) -> AzGradientStopPreVec>,
+        pub az_option_percentage_value_delete: Symbol<extern fn(_: &mut AzOptionPercentageValue)>,
+        pub az_option_percentage_value_deep_copy: Symbol<extern fn(_: &AzOptionPercentageValue) -> AzOptionPercentageValue>,
+        pub az_app_config_default: Symbol<extern fn() -> AzAppConfigPtr>,
+        pub az_app_config_delete: Symbol<extern fn(_: &mut AzAppConfigPtr)>,
+        pub az_app_config_shallow_copy: Symbol<extern fn(_: &AzAppConfigPtr) -> AzAppConfigPtr>,
+        pub az_app_new: Symbol<extern fn(_: AzLayoutCallback) -> AzAppPtr>,
+        pub az_app_run: Symbol<extern fn(_: AzWindowCreateOptionsPtr)>,
+        pub az_app_delete: Symbol<extern fn(_: &mut AzAppPtr)>,
+        pub az_app_shallow_copy: Symbol<extern fn(_: &AzAppPtr) -> AzAppPtr>,
+        pub az_callback_info_delete: Symbol<extern fn(_: &mut AzCallbackInfoPtr)>,
+        pub az_callback_info_shallow_copy: Symbol<extern fn(_: &AzCallbackInfoPtr) -> AzCallbackInfoPtr>,
+        pub az_i_frame_callback_info_delete: Symbol<extern fn(_: &mut AzIFrameCallbackInfoPtr)>,
+        pub az_i_frame_callback_info_shallow_copy: Symbol<extern fn(_: &AzIFrameCallbackInfoPtr) -> AzIFrameCallbackInfoPtr>,
+        pub az_i_frame_callback_return_delete: Symbol<extern fn(_: &mut AzIFrameCallbackReturnPtr)>,
+        pub az_i_frame_callback_return_shallow_copy: Symbol<extern fn(_: &AzIFrameCallbackReturnPtr) -> AzIFrameCallbackReturnPtr>,
+        pub az_gl_callback_info_delete: Symbol<extern fn(_: &mut AzGlCallbackInfoPtr)>,
+        pub az_gl_callback_info_shallow_copy: Symbol<extern fn(_: &AzGlCallbackInfoPtr) -> AzGlCallbackInfoPtr>,
+        pub az_gl_callback_return_delete: Symbol<extern fn(_: &mut AzGlCallbackReturnPtr)>,
+        pub az_gl_callback_return_shallow_copy: Symbol<extern fn(_: &AzGlCallbackReturnPtr) -> AzGlCallbackReturnPtr>,
+        pub az_layout_info_delete: Symbol<extern fn(_: &mut AzLayoutInfoPtr)>,
+        pub az_layout_info_shallow_copy: Symbol<extern fn(_: &AzLayoutInfoPtr) -> AzLayoutInfoPtr>,
+        pub az_css_native: Symbol<extern fn() -> AzCssPtr>,
+        pub az_css_empty: Symbol<extern fn() -> AzCssPtr>,
+        pub az_css_from_string: Symbol<extern fn(_: AzString) -> AzCssPtr>,
+        pub az_css_override_native: Symbol<extern fn(_: AzString) -> AzCssPtr>,
+        pub az_css_delete: Symbol<extern fn(_: &mut AzCssPtr)>,
+        pub az_css_shallow_copy: Symbol<extern fn(_: &AzCssPtr) -> AzCssPtr>,
+        pub az_css_hot_reloader_new: Symbol<extern fn(_: u64) -> AzCssHotReloaderPtr>,
+        pub az_css_hot_reloader_override_native: Symbol<extern fn(_: u64) -> AzCssHotReloaderPtr>,
+        pub az_css_hot_reloader_delete: Symbol<extern fn(_: &mut AzCssHotReloaderPtr)>,
+        pub az_css_hot_reloader_shallow_copy: Symbol<extern fn(_: &AzCssHotReloaderPtr) -> AzCssHotReloaderPtr>,
+        pub az_color_u_delete: Symbol<extern fn(_: &mut AzColorU)>,
+        pub az_color_u_deep_copy: Symbol<extern fn(_: &AzColorU) -> AzColorU>,
+        pub az_size_metric_delete: Symbol<extern fn(_: &mut AzSizeMetric)>,
+        pub az_size_metric_deep_copy: Symbol<extern fn(_: &AzSizeMetric) -> AzSizeMetric>,
+        pub az_float_value_delete: Symbol<extern fn(_: &mut AzFloatValue)>,
+        pub az_float_value_deep_copy: Symbol<extern fn(_: &AzFloatValue) -> AzFloatValue>,
+        pub az_pixel_value_delete: Symbol<extern fn(_: &mut AzPixelValue)>,
+        pub az_pixel_value_deep_copy: Symbol<extern fn(_: &AzPixelValue) -> AzPixelValue>,
+        pub az_pixel_value_no_percent_delete: Symbol<extern fn(_: &mut AzPixelValueNoPercent)>,
+        pub az_pixel_value_no_percent_deep_copy: Symbol<extern fn(_: &AzPixelValueNoPercent) -> AzPixelValueNoPercent>,
+        pub az_box_shadow_clip_mode_delete: Symbol<extern fn(_: &mut AzBoxShadowClipMode)>,
+        pub az_box_shadow_clip_mode_deep_copy: Symbol<extern fn(_: &AzBoxShadowClipMode) -> AzBoxShadowClipMode>,
+        pub az_box_shadow_pre_display_item_delete: Symbol<extern fn(_: &mut AzBoxShadowPreDisplayItem)>,
+        pub az_box_shadow_pre_display_item_deep_copy: Symbol<extern fn(_: &AzBoxShadowPreDisplayItem) -> AzBoxShadowPreDisplayItem>,
+        pub az_layout_align_content_delete: Symbol<extern fn(_: &mut AzLayoutAlignContent)>,
+        pub az_layout_align_content_deep_copy: Symbol<extern fn(_: &AzLayoutAlignContent) -> AzLayoutAlignContent>,
+        pub az_layout_align_items_delete: Symbol<extern fn(_: &mut AzLayoutAlignItems)>,
+        pub az_layout_align_items_deep_copy: Symbol<extern fn(_: &AzLayoutAlignItems) -> AzLayoutAlignItems>,
+        pub az_layout_bottom_delete: Symbol<extern fn(_: &mut AzLayoutBottom)>,
+        pub az_layout_bottom_deep_copy: Symbol<extern fn(_: &AzLayoutBottom) -> AzLayoutBottom>,
+        pub az_layout_box_sizing_delete: Symbol<extern fn(_: &mut AzLayoutBoxSizing)>,
+        pub az_layout_box_sizing_deep_copy: Symbol<extern fn(_: &AzLayoutBoxSizing) -> AzLayoutBoxSizing>,
+        pub az_layout_direction_delete: Symbol<extern fn(_: &mut AzLayoutDirection)>,
+        pub az_layout_direction_deep_copy: Symbol<extern fn(_: &AzLayoutDirection) -> AzLayoutDirection>,
+        pub az_layout_display_delete: Symbol<extern fn(_: &mut AzLayoutDisplay)>,
+        pub az_layout_display_deep_copy: Symbol<extern fn(_: &AzLayoutDisplay) -> AzLayoutDisplay>,
+        pub az_layout_flex_grow_delete: Symbol<extern fn(_: &mut AzLayoutFlexGrow)>,
+        pub az_layout_flex_grow_deep_copy: Symbol<extern fn(_: &AzLayoutFlexGrow) -> AzLayoutFlexGrow>,
+        pub az_layout_flex_shrink_delete: Symbol<extern fn(_: &mut AzLayoutFlexShrink)>,
+        pub az_layout_flex_shrink_deep_copy: Symbol<extern fn(_: &AzLayoutFlexShrink) -> AzLayoutFlexShrink>,
+        pub az_layout_float_delete: Symbol<extern fn(_: &mut AzLayoutFloat)>,
+        pub az_layout_float_deep_copy: Symbol<extern fn(_: &AzLayoutFloat) -> AzLayoutFloat>,
+        pub az_layout_height_delete: Symbol<extern fn(_: &mut AzLayoutHeight)>,
+        pub az_layout_height_deep_copy: Symbol<extern fn(_: &AzLayoutHeight) -> AzLayoutHeight>,
+        pub az_layout_justify_content_delete: Symbol<extern fn(_: &mut AzLayoutJustifyContent)>,
+        pub az_layout_justify_content_deep_copy: Symbol<extern fn(_: &AzLayoutJustifyContent) -> AzLayoutJustifyContent>,
+        pub az_layout_left_delete: Symbol<extern fn(_: &mut AzLayoutLeft)>,
+        pub az_layout_left_deep_copy: Symbol<extern fn(_: &AzLayoutLeft) -> AzLayoutLeft>,
+        pub az_layout_margin_bottom_delete: Symbol<extern fn(_: &mut AzLayoutMarginBottom)>,
+        pub az_layout_margin_bottom_deep_copy: Symbol<extern fn(_: &AzLayoutMarginBottom) -> AzLayoutMarginBottom>,
+        pub az_layout_margin_left_delete: Symbol<extern fn(_: &mut AzLayoutMarginLeft)>,
+        pub az_layout_margin_left_deep_copy: Symbol<extern fn(_: &AzLayoutMarginLeft) -> AzLayoutMarginLeft>,
+        pub az_layout_margin_right_delete: Symbol<extern fn(_: &mut AzLayoutMarginRight)>,
+        pub az_layout_margin_right_deep_copy: Symbol<extern fn(_: &AzLayoutMarginRight) -> AzLayoutMarginRight>,
+        pub az_layout_margin_top_delete: Symbol<extern fn(_: &mut AzLayoutMarginTop)>,
+        pub az_layout_margin_top_deep_copy: Symbol<extern fn(_: &AzLayoutMarginTop) -> AzLayoutMarginTop>,
+        pub az_layout_max_height_delete: Symbol<extern fn(_: &mut AzLayoutMaxHeight)>,
+        pub az_layout_max_height_deep_copy: Symbol<extern fn(_: &AzLayoutMaxHeight) -> AzLayoutMaxHeight>,
+        pub az_layout_max_width_delete: Symbol<extern fn(_: &mut AzLayoutMaxWidth)>,
+        pub az_layout_max_width_deep_copy: Symbol<extern fn(_: &AzLayoutMaxWidth) -> AzLayoutMaxWidth>,
+        pub az_layout_min_height_delete: Symbol<extern fn(_: &mut AzLayoutMinHeight)>,
+        pub az_layout_min_height_deep_copy: Symbol<extern fn(_: &AzLayoutMinHeight) -> AzLayoutMinHeight>,
+        pub az_layout_min_width_delete: Symbol<extern fn(_: &mut AzLayoutMinWidth)>,
+        pub az_layout_min_width_deep_copy: Symbol<extern fn(_: &AzLayoutMinWidth) -> AzLayoutMinWidth>,
+        pub az_layout_padding_bottom_delete: Symbol<extern fn(_: &mut AzLayoutPaddingBottom)>,
+        pub az_layout_padding_bottom_deep_copy: Symbol<extern fn(_: &AzLayoutPaddingBottom) -> AzLayoutPaddingBottom>,
+        pub az_layout_padding_left_delete: Symbol<extern fn(_: &mut AzLayoutPaddingLeft)>,
+        pub az_layout_padding_left_deep_copy: Symbol<extern fn(_: &AzLayoutPaddingLeft) -> AzLayoutPaddingLeft>,
+        pub az_layout_padding_right_delete: Symbol<extern fn(_: &mut AzLayoutPaddingRight)>,
+        pub az_layout_padding_right_deep_copy: Symbol<extern fn(_: &AzLayoutPaddingRight) -> AzLayoutPaddingRight>,
+        pub az_layout_padding_top_delete: Symbol<extern fn(_: &mut AzLayoutPaddingTop)>,
+        pub az_layout_padding_top_deep_copy: Symbol<extern fn(_: &AzLayoutPaddingTop) -> AzLayoutPaddingTop>,
+        pub az_layout_position_delete: Symbol<extern fn(_: &mut AzLayoutPosition)>,
+        pub az_layout_position_deep_copy: Symbol<extern fn(_: &AzLayoutPosition) -> AzLayoutPosition>,
+        pub az_layout_right_delete: Symbol<extern fn(_: &mut AzLayoutRight)>,
+        pub az_layout_right_deep_copy: Symbol<extern fn(_: &AzLayoutRight) -> AzLayoutRight>,
+        pub az_layout_top_delete: Symbol<extern fn(_: &mut AzLayoutTop)>,
+        pub az_layout_top_deep_copy: Symbol<extern fn(_: &AzLayoutTop) -> AzLayoutTop>,
+        pub az_layout_width_delete: Symbol<extern fn(_: &mut AzLayoutWidth)>,
+        pub az_layout_width_deep_copy: Symbol<extern fn(_: &AzLayoutWidth) -> AzLayoutWidth>,
+        pub az_layout_wrap_delete: Symbol<extern fn(_: &mut AzLayoutWrap)>,
+        pub az_layout_wrap_deep_copy: Symbol<extern fn(_: &AzLayoutWrap) -> AzLayoutWrap>,
+        pub az_overflow_delete: Symbol<extern fn(_: &mut AzOverflow)>,
+        pub az_overflow_deep_copy: Symbol<extern fn(_: &AzOverflow) -> AzOverflow>,
+        pub az_percentage_value_delete: Symbol<extern fn(_: &mut AzPercentageValue)>,
+        pub az_percentage_value_deep_copy: Symbol<extern fn(_: &AzPercentageValue) -> AzPercentageValue>,
+        pub az_gradient_stop_pre_delete: Symbol<extern fn(_: &mut AzGradientStopPre)>,
+        pub az_gradient_stop_pre_deep_copy: Symbol<extern fn(_: &AzGradientStopPre) -> AzGradientStopPre>,
+        pub az_direction_corner_delete: Symbol<extern fn(_: &mut AzDirectionCorner)>,
+        pub az_direction_corner_deep_copy: Symbol<extern fn(_: &AzDirectionCorner) -> AzDirectionCorner>,
+        pub az_direction_corners_delete: Symbol<extern fn(_: &mut AzDirectionCorners)>,
+        pub az_direction_corners_deep_copy: Symbol<extern fn(_: &AzDirectionCorners) -> AzDirectionCorners>,
+        pub az_direction_delete: Symbol<extern fn(_: &mut AzDirection)>,
+        pub az_direction_deep_copy: Symbol<extern fn(_: &AzDirection) -> AzDirection>,
+        pub az_extend_mode_delete: Symbol<extern fn(_: &mut AzExtendMode)>,
+        pub az_extend_mode_deep_copy: Symbol<extern fn(_: &AzExtendMode) -> AzExtendMode>,
+        pub az_linear_gradient_delete: Symbol<extern fn(_: &mut AzLinearGradient)>,
+        pub az_linear_gradient_deep_copy: Symbol<extern fn(_: &AzLinearGradient) -> AzLinearGradient>,
+        pub az_shape_delete: Symbol<extern fn(_: &mut AzShape)>,
+        pub az_shape_deep_copy: Symbol<extern fn(_: &AzShape) -> AzShape>,
+        pub az_radial_gradient_delete: Symbol<extern fn(_: &mut AzRadialGradient)>,
+        pub az_radial_gradient_deep_copy: Symbol<extern fn(_: &AzRadialGradient) -> AzRadialGradient>,
+        pub az_css_image_id_delete: Symbol<extern fn(_: &mut AzCssImageId)>,
+        pub az_css_image_id_deep_copy: Symbol<extern fn(_: &AzCssImageId) -> AzCssImageId>,
+        pub az_style_background_content_delete: Symbol<extern fn(_: &mut AzStyleBackgroundContent)>,
+        pub az_style_background_content_deep_copy: Symbol<extern fn(_: &AzStyleBackgroundContent) -> AzStyleBackgroundContent>,
+        pub az_background_position_horizontal_delete: Symbol<extern fn(_: &mut AzBackgroundPositionHorizontal)>,
+        pub az_background_position_horizontal_deep_copy: Symbol<extern fn(_: &AzBackgroundPositionHorizontal) -> AzBackgroundPositionHorizontal>,
+        pub az_background_position_vertical_delete: Symbol<extern fn(_: &mut AzBackgroundPositionVertical)>,
+        pub az_background_position_vertical_deep_copy: Symbol<extern fn(_: &AzBackgroundPositionVertical) -> AzBackgroundPositionVertical>,
+        pub az_style_background_position_delete: Symbol<extern fn(_: &mut AzStyleBackgroundPosition)>,
+        pub az_style_background_position_deep_copy: Symbol<extern fn(_: &AzStyleBackgroundPosition) -> AzStyleBackgroundPosition>,
+        pub az_style_background_repeat_delete: Symbol<extern fn(_: &mut AzStyleBackgroundRepeat)>,
+        pub az_style_background_repeat_deep_copy: Symbol<extern fn(_: &AzStyleBackgroundRepeat) -> AzStyleBackgroundRepeat>,
+        pub az_style_background_size_delete: Symbol<extern fn(_: &mut AzStyleBackgroundSize)>,
+        pub az_style_background_size_deep_copy: Symbol<extern fn(_: &AzStyleBackgroundSize) -> AzStyleBackgroundSize>,
+        pub az_style_border_bottom_color_delete: Symbol<extern fn(_: &mut AzStyleBorderBottomColor)>,
+        pub az_style_border_bottom_color_deep_copy: Symbol<extern fn(_: &AzStyleBorderBottomColor) -> AzStyleBorderBottomColor>,
+        pub az_style_border_bottom_left_radius_delete: Symbol<extern fn(_: &mut AzStyleBorderBottomLeftRadius)>,
+        pub az_style_border_bottom_left_radius_deep_copy: Symbol<extern fn(_: &AzStyleBorderBottomLeftRadius) -> AzStyleBorderBottomLeftRadius>,
+        pub az_style_border_bottom_right_radius_delete: Symbol<extern fn(_: &mut AzStyleBorderBottomRightRadius)>,
+        pub az_style_border_bottom_right_radius_deep_copy: Symbol<extern fn(_: &AzStyleBorderBottomRightRadius) -> AzStyleBorderBottomRightRadius>,
+        pub az_border_style_delete: Symbol<extern fn(_: &mut AzBorderStyle)>,
+        pub az_border_style_deep_copy: Symbol<extern fn(_: &AzBorderStyle) -> AzBorderStyle>,
+        pub az_style_border_bottom_style_delete: Symbol<extern fn(_: &mut AzStyleBorderBottomStyle)>,
+        pub az_style_border_bottom_style_deep_copy: Symbol<extern fn(_: &AzStyleBorderBottomStyle) -> AzStyleBorderBottomStyle>,
+        pub az_style_border_bottom_width_delete: Symbol<extern fn(_: &mut AzStyleBorderBottomWidth)>,
+        pub az_style_border_bottom_width_deep_copy: Symbol<extern fn(_: &AzStyleBorderBottomWidth) -> AzStyleBorderBottomWidth>,
+        pub az_style_border_left_color_delete: Symbol<extern fn(_: &mut AzStyleBorderLeftColor)>,
+        pub az_style_border_left_color_deep_copy: Symbol<extern fn(_: &AzStyleBorderLeftColor) -> AzStyleBorderLeftColor>,
+        pub az_style_border_left_style_delete: Symbol<extern fn(_: &mut AzStyleBorderLeftStyle)>,
+        pub az_style_border_left_style_deep_copy: Symbol<extern fn(_: &AzStyleBorderLeftStyle) -> AzStyleBorderLeftStyle>,
+        pub az_style_border_left_width_delete: Symbol<extern fn(_: &mut AzStyleBorderLeftWidth)>,
+        pub az_style_border_left_width_deep_copy: Symbol<extern fn(_: &AzStyleBorderLeftWidth) -> AzStyleBorderLeftWidth>,
+        pub az_style_border_right_color_delete: Symbol<extern fn(_: &mut AzStyleBorderRightColor)>,
+        pub az_style_border_right_color_deep_copy: Symbol<extern fn(_: &AzStyleBorderRightColor) -> AzStyleBorderRightColor>,
+        pub az_style_border_right_style_delete: Symbol<extern fn(_: &mut AzStyleBorderRightStyle)>,
+        pub az_style_border_right_style_deep_copy: Symbol<extern fn(_: &AzStyleBorderRightStyle) -> AzStyleBorderRightStyle>,
+        pub az_style_border_right_width_delete: Symbol<extern fn(_: &mut AzStyleBorderRightWidth)>,
+        pub az_style_border_right_width_deep_copy: Symbol<extern fn(_: &AzStyleBorderRightWidth) -> AzStyleBorderRightWidth>,
+        pub az_style_border_top_color_delete: Symbol<extern fn(_: &mut AzStyleBorderTopColor)>,
+        pub az_style_border_top_color_deep_copy: Symbol<extern fn(_: &AzStyleBorderTopColor) -> AzStyleBorderTopColor>,
+        pub az_style_border_top_left_radius_delete: Symbol<extern fn(_: &mut AzStyleBorderTopLeftRadius)>,
+        pub az_style_border_top_left_radius_deep_copy: Symbol<extern fn(_: &AzStyleBorderTopLeftRadius) -> AzStyleBorderTopLeftRadius>,
+        pub az_style_border_top_right_radius_delete: Symbol<extern fn(_: &mut AzStyleBorderTopRightRadius)>,
+        pub az_style_border_top_right_radius_deep_copy: Symbol<extern fn(_: &AzStyleBorderTopRightRadius) -> AzStyleBorderTopRightRadius>,
+        pub az_style_border_top_style_delete: Symbol<extern fn(_: &mut AzStyleBorderTopStyle)>,
+        pub az_style_border_top_style_deep_copy: Symbol<extern fn(_: &AzStyleBorderTopStyle) -> AzStyleBorderTopStyle>,
+        pub az_style_border_top_width_delete: Symbol<extern fn(_: &mut AzStyleBorderTopWidth)>,
+        pub az_style_border_top_width_deep_copy: Symbol<extern fn(_: &AzStyleBorderTopWidth) -> AzStyleBorderTopWidth>,
+        pub az_style_cursor_delete: Symbol<extern fn(_: &mut AzStyleCursor)>,
+        pub az_style_cursor_deep_copy: Symbol<extern fn(_: &AzStyleCursor) -> AzStyleCursor>,
+        pub az_style_font_family_delete: Symbol<extern fn(_: &mut AzStyleFontFamily)>,
+        pub az_style_font_family_deep_copy: Symbol<extern fn(_: &AzStyleFontFamily) -> AzStyleFontFamily>,
+        pub az_style_font_size_delete: Symbol<extern fn(_: &mut AzStyleFontSize)>,
+        pub az_style_font_size_deep_copy: Symbol<extern fn(_: &AzStyleFontSize) -> AzStyleFontSize>,
+        pub az_style_letter_spacing_delete: Symbol<extern fn(_: &mut AzStyleLetterSpacing)>,
+        pub az_style_letter_spacing_deep_copy: Symbol<extern fn(_: &AzStyleLetterSpacing) -> AzStyleLetterSpacing>,
+        pub az_style_line_height_delete: Symbol<extern fn(_: &mut AzStyleLineHeight)>,
+        pub az_style_line_height_deep_copy: Symbol<extern fn(_: &AzStyleLineHeight) -> AzStyleLineHeight>,
+        pub az_style_tab_width_delete: Symbol<extern fn(_: &mut AzStyleTabWidth)>,
+        pub az_style_tab_width_deep_copy: Symbol<extern fn(_: &AzStyleTabWidth) -> AzStyleTabWidth>,
+        pub az_style_text_alignment_horz_delete: Symbol<extern fn(_: &mut AzStyleTextAlignmentHorz)>,
+        pub az_style_text_alignment_horz_deep_copy: Symbol<extern fn(_: &AzStyleTextAlignmentHorz) -> AzStyleTextAlignmentHorz>,
+        pub az_style_text_color_delete: Symbol<extern fn(_: &mut AzStyleTextColor)>,
+        pub az_style_text_color_deep_copy: Symbol<extern fn(_: &AzStyleTextColor) -> AzStyleTextColor>,
+        pub az_style_word_spacing_delete: Symbol<extern fn(_: &mut AzStyleWordSpacing)>,
+        pub az_style_word_spacing_deep_copy: Symbol<extern fn(_: &AzStyleWordSpacing) -> AzStyleWordSpacing>,
+        pub az_box_shadow_pre_display_item_value_delete: Symbol<extern fn(_: &mut AzBoxShadowPreDisplayItemValue)>,
+        pub az_box_shadow_pre_display_item_value_deep_copy: Symbol<extern fn(_: &AzBoxShadowPreDisplayItemValue) -> AzBoxShadowPreDisplayItemValue>,
+        pub az_layout_align_content_value_delete: Symbol<extern fn(_: &mut AzLayoutAlignContentValue)>,
+        pub az_layout_align_content_value_deep_copy: Symbol<extern fn(_: &AzLayoutAlignContentValue) -> AzLayoutAlignContentValue>,
+        pub az_layout_align_items_value_delete: Symbol<extern fn(_: &mut AzLayoutAlignItemsValue)>,
+        pub az_layout_align_items_value_deep_copy: Symbol<extern fn(_: &AzLayoutAlignItemsValue) -> AzLayoutAlignItemsValue>,
+        pub az_layout_bottom_value_delete: Symbol<extern fn(_: &mut AzLayoutBottomValue)>,
+        pub az_layout_bottom_value_deep_copy: Symbol<extern fn(_: &AzLayoutBottomValue) -> AzLayoutBottomValue>,
+        pub az_layout_box_sizing_value_delete: Symbol<extern fn(_: &mut AzLayoutBoxSizingValue)>,
+        pub az_layout_box_sizing_value_deep_copy: Symbol<extern fn(_: &AzLayoutBoxSizingValue) -> AzLayoutBoxSizingValue>,
+        pub az_layout_direction_value_delete: Symbol<extern fn(_: &mut AzLayoutDirectionValue)>,
+        pub az_layout_direction_value_deep_copy: Symbol<extern fn(_: &AzLayoutDirectionValue) -> AzLayoutDirectionValue>,
+        pub az_layout_display_value_delete: Symbol<extern fn(_: &mut AzLayoutDisplayValue)>,
+        pub az_layout_display_value_deep_copy: Symbol<extern fn(_: &AzLayoutDisplayValue) -> AzLayoutDisplayValue>,
+        pub az_layout_flex_grow_value_delete: Symbol<extern fn(_: &mut AzLayoutFlexGrowValue)>,
+        pub az_layout_flex_grow_value_deep_copy: Symbol<extern fn(_: &AzLayoutFlexGrowValue) -> AzLayoutFlexGrowValue>,
+        pub az_layout_flex_shrink_value_delete: Symbol<extern fn(_: &mut AzLayoutFlexShrinkValue)>,
+        pub az_layout_flex_shrink_value_deep_copy: Symbol<extern fn(_: &AzLayoutFlexShrinkValue) -> AzLayoutFlexShrinkValue>,
+        pub az_layout_float_value_delete: Symbol<extern fn(_: &mut AzLayoutFloatValue)>,
+        pub az_layout_float_value_deep_copy: Symbol<extern fn(_: &AzLayoutFloatValue) -> AzLayoutFloatValue>,
+        pub az_layout_height_value_delete: Symbol<extern fn(_: &mut AzLayoutHeightValue)>,
+        pub az_layout_height_value_deep_copy: Symbol<extern fn(_: &AzLayoutHeightValue) -> AzLayoutHeightValue>,
+        pub az_layout_justify_content_value_delete: Symbol<extern fn(_: &mut AzLayoutJustifyContentValue)>,
+        pub az_layout_justify_content_value_deep_copy: Symbol<extern fn(_: &AzLayoutJustifyContentValue) -> AzLayoutJustifyContentValue>,
+        pub az_layout_left_value_delete: Symbol<extern fn(_: &mut AzLayoutLeftValue)>,
+        pub az_layout_left_value_deep_copy: Symbol<extern fn(_: &AzLayoutLeftValue) -> AzLayoutLeftValue>,
+        pub az_layout_margin_bottom_value_delete: Symbol<extern fn(_: &mut AzLayoutMarginBottomValue)>,
+        pub az_layout_margin_bottom_value_deep_copy: Symbol<extern fn(_: &AzLayoutMarginBottomValue) -> AzLayoutMarginBottomValue>,
+        pub az_layout_margin_left_value_delete: Symbol<extern fn(_: &mut AzLayoutMarginLeftValue)>,
+        pub az_layout_margin_left_value_deep_copy: Symbol<extern fn(_: &AzLayoutMarginLeftValue) -> AzLayoutMarginLeftValue>,
+        pub az_layout_margin_right_value_delete: Symbol<extern fn(_: &mut AzLayoutMarginRightValue)>,
+        pub az_layout_margin_right_value_deep_copy: Symbol<extern fn(_: &AzLayoutMarginRightValue) -> AzLayoutMarginRightValue>,
+        pub az_layout_margin_top_value_delete: Symbol<extern fn(_: &mut AzLayoutMarginTopValue)>,
+        pub az_layout_margin_top_value_deep_copy: Symbol<extern fn(_: &AzLayoutMarginTopValue) -> AzLayoutMarginTopValue>,
+        pub az_layout_max_height_value_delete: Symbol<extern fn(_: &mut AzLayoutMaxHeightValue)>,
+        pub az_layout_max_height_value_deep_copy: Symbol<extern fn(_: &AzLayoutMaxHeightValue) -> AzLayoutMaxHeightValue>,
+        pub az_layout_max_width_value_delete: Symbol<extern fn(_: &mut AzLayoutMaxWidthValue)>,
+        pub az_layout_max_width_value_deep_copy: Symbol<extern fn(_: &AzLayoutMaxWidthValue) -> AzLayoutMaxWidthValue>,
+        pub az_layout_min_height_value_delete: Symbol<extern fn(_: &mut AzLayoutMinHeightValue)>,
+        pub az_layout_min_height_value_deep_copy: Symbol<extern fn(_: &AzLayoutMinHeightValue) -> AzLayoutMinHeightValue>,
+        pub az_layout_min_width_value_delete: Symbol<extern fn(_: &mut AzLayoutMinWidthValue)>,
+        pub az_layout_min_width_value_deep_copy: Symbol<extern fn(_: &AzLayoutMinWidthValue) -> AzLayoutMinWidthValue>,
+        pub az_layout_padding_bottom_value_delete: Symbol<extern fn(_: &mut AzLayoutPaddingBottomValue)>,
+        pub az_layout_padding_bottom_value_deep_copy: Symbol<extern fn(_: &AzLayoutPaddingBottomValue) -> AzLayoutPaddingBottomValue>,
+        pub az_layout_padding_left_value_delete: Symbol<extern fn(_: &mut AzLayoutPaddingLeftValue)>,
+        pub az_layout_padding_left_value_deep_copy: Symbol<extern fn(_: &AzLayoutPaddingLeftValue) -> AzLayoutPaddingLeftValue>,
+        pub az_layout_padding_right_value_delete: Symbol<extern fn(_: &mut AzLayoutPaddingRightValue)>,
+        pub az_layout_padding_right_value_deep_copy: Symbol<extern fn(_: &AzLayoutPaddingRightValue) -> AzLayoutPaddingRightValue>,
+        pub az_layout_padding_top_value_delete: Symbol<extern fn(_: &mut AzLayoutPaddingTopValue)>,
+        pub az_layout_padding_top_value_deep_copy: Symbol<extern fn(_: &AzLayoutPaddingTopValue) -> AzLayoutPaddingTopValue>,
+        pub az_layout_position_value_delete: Symbol<extern fn(_: &mut AzLayoutPositionValue)>,
+        pub az_layout_position_value_deep_copy: Symbol<extern fn(_: &AzLayoutPositionValue) -> AzLayoutPositionValue>,
+        pub az_layout_right_value_delete: Symbol<extern fn(_: &mut AzLayoutRightValue)>,
+        pub az_layout_right_value_deep_copy: Symbol<extern fn(_: &AzLayoutRightValue) -> AzLayoutRightValue>,
+        pub az_layout_top_value_delete: Symbol<extern fn(_: &mut AzLayoutTopValue)>,
+        pub az_layout_top_value_deep_copy: Symbol<extern fn(_: &AzLayoutTopValue) -> AzLayoutTopValue>,
+        pub az_layout_width_value_delete: Symbol<extern fn(_: &mut AzLayoutWidthValue)>,
+        pub az_layout_width_value_deep_copy: Symbol<extern fn(_: &AzLayoutWidthValue) -> AzLayoutWidthValue>,
+        pub az_layout_wrap_value_delete: Symbol<extern fn(_: &mut AzLayoutWrapValue)>,
+        pub az_layout_wrap_value_deep_copy: Symbol<extern fn(_: &AzLayoutWrapValue) -> AzLayoutWrapValue>,
+        pub az_overflow_value_delete: Symbol<extern fn(_: &mut AzOverflowValue)>,
+        pub az_overflow_value_deep_copy: Symbol<extern fn(_: &AzOverflowValue) -> AzOverflowValue>,
+        pub az_style_background_content_value_delete: Symbol<extern fn(_: &mut AzStyleBackgroundContentValue)>,
+        pub az_style_background_content_value_deep_copy: Symbol<extern fn(_: &AzStyleBackgroundContentValue) -> AzStyleBackgroundContentValue>,
+        pub az_style_background_position_value_delete: Symbol<extern fn(_: &mut AzStyleBackgroundPositionValue)>,
+        pub az_style_background_position_value_deep_copy: Symbol<extern fn(_: &AzStyleBackgroundPositionValue) -> AzStyleBackgroundPositionValue>,
+        pub az_style_background_repeat_value_delete: Symbol<extern fn(_: &mut AzStyleBackgroundRepeatValue)>,
+        pub az_style_background_repeat_value_deep_copy: Symbol<extern fn(_: &AzStyleBackgroundRepeatValue) -> AzStyleBackgroundRepeatValue>,
+        pub az_style_background_size_value_delete: Symbol<extern fn(_: &mut AzStyleBackgroundSizeValue)>,
+        pub az_style_background_size_value_deep_copy: Symbol<extern fn(_: &AzStyleBackgroundSizeValue) -> AzStyleBackgroundSizeValue>,
+        pub az_style_border_bottom_color_value_delete: Symbol<extern fn(_: &mut AzStyleBorderBottomColorValue)>,
+        pub az_style_border_bottom_color_value_deep_copy: Symbol<extern fn(_: &AzStyleBorderBottomColorValue) -> AzStyleBorderBottomColorValue>,
+        pub az_style_border_bottom_left_radius_value_delete: Symbol<extern fn(_: &mut AzStyleBorderBottomLeftRadiusValue)>,
+        pub az_style_border_bottom_left_radius_value_deep_copy: Symbol<extern fn(_: &AzStyleBorderBottomLeftRadiusValue) -> AzStyleBorderBottomLeftRadiusValue>,
+        pub az_style_border_bottom_right_radius_value_delete: Symbol<extern fn(_: &mut AzStyleBorderBottomRightRadiusValue)>,
+        pub az_style_border_bottom_right_radius_value_deep_copy: Symbol<extern fn(_: &AzStyleBorderBottomRightRadiusValue) -> AzStyleBorderBottomRightRadiusValue>,
+        pub az_style_border_bottom_style_value_delete: Symbol<extern fn(_: &mut AzStyleBorderBottomStyleValue)>,
+        pub az_style_border_bottom_style_value_deep_copy: Symbol<extern fn(_: &AzStyleBorderBottomStyleValue) -> AzStyleBorderBottomStyleValue>,
+        pub az_style_border_bottom_width_value_delete: Symbol<extern fn(_: &mut AzStyleBorderBottomWidthValue)>,
+        pub az_style_border_bottom_width_value_deep_copy: Symbol<extern fn(_: &AzStyleBorderBottomWidthValue) -> AzStyleBorderBottomWidthValue>,
+        pub az_style_border_left_color_value_delete: Symbol<extern fn(_: &mut AzStyleBorderLeftColorValue)>,
+        pub az_style_border_left_color_value_deep_copy: Symbol<extern fn(_: &AzStyleBorderLeftColorValue) -> AzStyleBorderLeftColorValue>,
+        pub az_style_border_left_style_value_delete: Symbol<extern fn(_: &mut AzStyleBorderLeftStyleValue)>,
+        pub az_style_border_left_style_value_deep_copy: Symbol<extern fn(_: &AzStyleBorderLeftStyleValue) -> AzStyleBorderLeftStyleValue>,
+        pub az_style_border_left_width_value_delete: Symbol<extern fn(_: &mut AzStyleBorderLeftWidthValue)>,
+        pub az_style_border_left_width_value_deep_copy: Symbol<extern fn(_: &AzStyleBorderLeftWidthValue) -> AzStyleBorderLeftWidthValue>,
+        pub az_style_border_right_color_value_delete: Symbol<extern fn(_: &mut AzStyleBorderRightColorValue)>,
+        pub az_style_border_right_color_value_deep_copy: Symbol<extern fn(_: &AzStyleBorderRightColorValue) -> AzStyleBorderRightColorValue>,
+        pub az_style_border_right_style_value_delete: Symbol<extern fn(_: &mut AzStyleBorderRightStyleValue)>,
+        pub az_style_border_right_style_value_deep_copy: Symbol<extern fn(_: &AzStyleBorderRightStyleValue) -> AzStyleBorderRightStyleValue>,
+        pub az_style_border_right_width_value_delete: Symbol<extern fn(_: &mut AzStyleBorderRightWidthValue)>,
+        pub az_style_border_right_width_value_deep_copy: Symbol<extern fn(_: &AzStyleBorderRightWidthValue) -> AzStyleBorderRightWidthValue>,
+        pub az_style_border_top_color_value_delete: Symbol<extern fn(_: &mut AzStyleBorderTopColorValue)>,
+        pub az_style_border_top_color_value_deep_copy: Symbol<extern fn(_: &AzStyleBorderTopColorValue) -> AzStyleBorderTopColorValue>,
+        pub az_style_border_top_left_radius_value_delete: Symbol<extern fn(_: &mut AzStyleBorderTopLeftRadiusValue)>,
+        pub az_style_border_top_left_radius_value_deep_copy: Symbol<extern fn(_: &AzStyleBorderTopLeftRadiusValue) -> AzStyleBorderTopLeftRadiusValue>,
+        pub az_style_border_top_right_radius_value_delete: Symbol<extern fn(_: &mut AzStyleBorderTopRightRadiusValue)>,
+        pub az_style_border_top_right_radius_value_deep_copy: Symbol<extern fn(_: &AzStyleBorderTopRightRadiusValue) -> AzStyleBorderTopRightRadiusValue>,
+        pub az_style_border_top_style_value_delete: Symbol<extern fn(_: &mut AzStyleBorderTopStyleValue)>,
+        pub az_style_border_top_style_value_deep_copy: Symbol<extern fn(_: &AzStyleBorderTopStyleValue) -> AzStyleBorderTopStyleValue>,
+        pub az_style_border_top_width_value_delete: Symbol<extern fn(_: &mut AzStyleBorderTopWidthValue)>,
+        pub az_style_border_top_width_value_deep_copy: Symbol<extern fn(_: &AzStyleBorderTopWidthValue) -> AzStyleBorderTopWidthValue>,
+        pub az_style_cursor_value_delete: Symbol<extern fn(_: &mut AzStyleCursorValue)>,
+        pub az_style_cursor_value_deep_copy: Symbol<extern fn(_: &AzStyleCursorValue) -> AzStyleCursorValue>,
+        pub az_style_font_family_value_delete: Symbol<extern fn(_: &mut AzStyleFontFamilyValue)>,
+        pub az_style_font_family_value_deep_copy: Symbol<extern fn(_: &AzStyleFontFamilyValue) -> AzStyleFontFamilyValue>,
+        pub az_style_font_size_value_delete: Symbol<extern fn(_: &mut AzStyleFontSizeValue)>,
+        pub az_style_font_size_value_deep_copy: Symbol<extern fn(_: &AzStyleFontSizeValue) -> AzStyleFontSizeValue>,
+        pub az_style_letter_spacing_value_delete: Symbol<extern fn(_: &mut AzStyleLetterSpacingValue)>,
+        pub az_style_letter_spacing_value_deep_copy: Symbol<extern fn(_: &AzStyleLetterSpacingValue) -> AzStyleLetterSpacingValue>,
+        pub az_style_line_height_value_delete: Symbol<extern fn(_: &mut AzStyleLineHeightValue)>,
+        pub az_style_line_height_value_deep_copy: Symbol<extern fn(_: &AzStyleLineHeightValue) -> AzStyleLineHeightValue>,
+        pub az_style_tab_width_value_delete: Symbol<extern fn(_: &mut AzStyleTabWidthValue)>,
+        pub az_style_tab_width_value_deep_copy: Symbol<extern fn(_: &AzStyleTabWidthValue) -> AzStyleTabWidthValue>,
+        pub az_style_text_alignment_horz_value_delete: Symbol<extern fn(_: &mut AzStyleTextAlignmentHorzValue)>,
+        pub az_style_text_alignment_horz_value_deep_copy: Symbol<extern fn(_: &AzStyleTextAlignmentHorzValue) -> AzStyleTextAlignmentHorzValue>,
+        pub az_style_text_color_value_delete: Symbol<extern fn(_: &mut AzStyleTextColorValue)>,
+        pub az_style_text_color_value_deep_copy: Symbol<extern fn(_: &AzStyleTextColorValue) -> AzStyleTextColorValue>,
+        pub az_style_word_spacing_value_delete: Symbol<extern fn(_: &mut AzStyleWordSpacingValue)>,
+        pub az_style_word_spacing_value_deep_copy: Symbol<extern fn(_: &AzStyleWordSpacingValue) -> AzStyleWordSpacingValue>,
+        pub az_css_property_delete: Symbol<extern fn(_: &mut AzCssProperty)>,
+        pub az_css_property_deep_copy: Symbol<extern fn(_: &AzCssProperty) -> AzCssProperty>,
+        pub az_dom_div: Symbol<extern fn() -> AzDomPtr>,
+        pub az_dom_body: Symbol<extern fn() -> AzDomPtr>,
+        pub az_dom_label: Symbol<extern fn(_: AzString) -> AzDomPtr>,
+        pub az_dom_text: Symbol<extern fn(_: AzTextId) -> AzDomPtr>,
+        pub az_dom_image: Symbol<extern fn(_: AzImageId) -> AzDomPtr>,
+        pub az_dom_gl_texture: Symbol<extern fn(_: AzGlCallback) -> AzDomPtr>,
+        pub az_dom_iframe_callback: Symbol<extern fn(_: AzIFrameCallback) -> AzDomPtr>,
+        pub az_dom_add_id: Symbol<extern fn(_: AzString)>,
+        pub az_dom_with_id: Symbol<extern fn(_: AzString) -> AzDomPtr>,
+        pub az_dom_set_ids: Symbol<extern fn(_: AzStringVec)>,
+        pub az_dom_with_ids: Symbol<extern fn(_: AzStringVec) -> AzDomPtr>,
+        pub az_dom_add_class: Symbol<extern fn(_: AzString)>,
+        pub az_dom_with_class: Symbol<extern fn(_: AzString) -> AzDomPtr>,
+        pub az_dom_set_classes: Symbol<extern fn(_: AzStringVec)>,
+        pub az_dom_with_classes: Symbol<extern fn(_: AzStringVec) -> AzDomPtr>,
+        pub az_dom_add_callback: Symbol<extern fn(_: AzCallback)>,
+        pub az_dom_with_callback: Symbol<extern fn(_: AzCallback) -> AzDomPtr>,
+        pub az_dom_add_css_override: Symbol<extern fn(_: AzCssProperty)>,
+        pub az_dom_with_css_override: Symbol<extern fn(_: AzCssProperty) -> AzDomPtr>,
+        pub az_dom_set_is_draggable: Symbol<extern fn(_: bool)>,
+        pub az_dom_is_draggable: Symbol<extern fn(_: bool) -> AzDomPtr>,
+        pub az_dom_set_tab_index: Symbol<extern fn(_: AzTabIndex)>,
+        pub az_dom_with_tab_index: Symbol<extern fn(_: AzTabIndex) -> AzDomPtr>,
+        pub az_dom_add_child: Symbol<extern fn(_: AzDomPtr)>,
+        pub az_dom_with_child: Symbol<extern fn(_: AzDomPtr) -> AzDomPtr>,
+        pub az_dom_has_id: Symbol<extern fn(_: AzString) -> bool>,
+        pub az_dom_has_class: Symbol<extern fn(_: AzString) -> bool>,
+        pub az_dom_get_html_string: Symbol<extern fn(_: &mut AzDomPtr) -> AzString>,
+        pub az_dom_delete: Symbol<extern fn(_: &mut AzDomPtr)>,
+        pub az_dom_shallow_copy: Symbol<extern fn(_: &AzDomPtr) -> AzDomPtr>,
+        pub az_event_filter_delete: Symbol<extern fn(_: &mut AzEventFilter)>,
+        pub az_event_filter_deep_copy: Symbol<extern fn(_: &AzEventFilter) -> AzEventFilter>,
+        pub az_hover_event_filter_delete: Symbol<extern fn(_: &mut AzHoverEventFilter)>,
+        pub az_hover_event_filter_deep_copy: Symbol<extern fn(_: &AzHoverEventFilter) -> AzHoverEventFilter>,
+        pub az_focus_event_filter_delete: Symbol<extern fn(_: &mut AzFocusEventFilter)>,
+        pub az_focus_event_filter_deep_copy: Symbol<extern fn(_: &AzFocusEventFilter) -> AzFocusEventFilter>,
+        pub az_not_event_filter_delete: Symbol<extern fn(_: &mut AzNotEventFilter)>,
+        pub az_not_event_filter_deep_copy: Symbol<extern fn(_: &AzNotEventFilter) -> AzNotEventFilter>,
+        pub az_window_event_filter_delete: Symbol<extern fn(_: &mut AzWindowEventFilter)>,
+        pub az_window_event_filter_deep_copy: Symbol<extern fn(_: &AzWindowEventFilter) -> AzWindowEventFilter>,
+        pub az_tab_index_delete: Symbol<extern fn(_: &mut AzTabIndex)>,
+        pub az_tab_index_deep_copy: Symbol<extern fn(_: &AzTabIndex) -> AzTabIndex>,
+        pub az_text_id_new: Symbol<extern fn() -> AzTextId>,
+        pub az_text_id_delete: Symbol<extern fn(_: &mut AzTextId)>,
+        pub az_text_id_deep_copy: Symbol<extern fn(_: &AzTextId) -> AzTextId>,
+        pub az_image_id_new: Symbol<extern fn() -> AzImageId>,
+        pub az_image_id_delete: Symbol<extern fn(_: &mut AzImageId)>,
+        pub az_image_id_deep_copy: Symbol<extern fn(_: &AzImageId) -> AzImageId>,
+        pub az_font_id_new: Symbol<extern fn() -> AzFontId>,
+        pub az_font_id_delete: Symbol<extern fn(_: &mut AzFontId)>,
+        pub az_font_id_deep_copy: Symbol<extern fn(_: &AzFontId) -> AzFontId>,
+        pub az_image_source_delete: Symbol<extern fn(_: &mut AzImageSource)>,
+        pub az_image_source_deep_copy: Symbol<extern fn(_: &AzImageSource) -> AzImageSource>,
+        pub az_font_source_delete: Symbol<extern fn(_: &mut AzFontSource)>,
+        pub az_font_source_deep_copy: Symbol<extern fn(_: &AzFontSource) -> AzFontSource>,
+        pub az_raw_image_new: Symbol<extern fn(_: AzRawImageFormat) -> AzRawImage>,
+        pub az_raw_image_delete: Symbol<extern fn(_: &mut AzRawImage)>,
+        pub az_raw_image_deep_copy: Symbol<extern fn(_: &AzRawImage) -> AzRawImage>,
+        pub az_raw_image_format_delete: Symbol<extern fn(_: &mut AzRawImageFormat)>,
+        pub az_raw_image_format_deep_copy: Symbol<extern fn(_: &AzRawImageFormat) -> AzRawImageFormat>,
+        pub az_window_create_options_new: Symbol<extern fn(_: AzCssPtr) -> AzWindowCreateOptionsPtr>,
+        pub az_window_create_options_delete: Symbol<extern fn(_: &mut AzWindowCreateOptionsPtr)>,
+        pub az_window_create_options_shallow_copy: Symbol<extern fn(_: &AzWindowCreateOptionsPtr) -> AzWindowCreateOptionsPtr>,
     }
 
     pub fn initialize_library(path: &str) -> Option<AzulDll> {
@@ -2212,6 +2213,13 @@ pub(crate) mod dll {
             az_window_create_options_shallow_copy,
         })
     }
+
+    const LIB_BYTES: &[u8] = include_bytes!("../../../target/debug/libazul.so");
+
+    lazy_static! {
+        pub(crate) static ref LIB: AzulDll = { std::fs::write("./azul.so", LIB_BYTES).unwrap(); initialize_library("./azul.so").unwrap() };
+    }
+
 }
 
 /// Module to re-export common structs (`App`, `AppConfig`, `Css`, `Dom`, `WindowCreateOptions`, `RefAny`, `LayoutInfo`)
@@ -2239,18 +2247,18 @@ pub mod str {
     }
 
     /// `String` struct
-    pub struct String { pub(crate) object: AzString }
+    pub use crate::dll::AzString as String;
 
     impl String {
         /// Creates + allocates a Rust `String` by **copying** it from another utf8-encoded string
-        pub fn from_utf8_unchecked(ptr: *const u8, len: usize) -> Self { az_string_from_utf8_unchecked(ptr, len) }
+        pub fn from_utf8_unchecked(ptr: *const u8, len: usize) -> Self { (crate::dll::LIB.az_string_from_utf8_unchecked)(ptr, len) }
         /// Creates + allocates a Rust `String` by **copying** it from another utf8-encoded string
-        pub fn from_utf8_lossy(ptr: *const u8, len: usize) -> Self { az_string_from_utf8_lossy(ptr, len) }
+        pub fn from_utf8_lossy(ptr: *const u8, len: usize) -> Self { (crate::dll::LIB.az_string_from_utf8_lossy)(ptr, len) }
         /// Creates + allocates a Rust `String` by **copying** it from another utf8-encoded string
-        pub fn into_bytes(self)  -> crate::vec::U8Vec { { az_string_into_bytes(self.leak())} }
+        pub fn into_bytes(self)  -> crate::vec::U8Vec { { (crate::dll::LIB.az_string_into_bytes)(self.leak())} }
     }
 
-    impl Drop for String { fn drop(&mut self) { az_string_delete(&mut self); } }
+    impl Drop for String { fn drop(&mut self) { (crate::dll::LIB.az_string_delete)(&mut self); } }
 }
 
 /// Definition of azuls internal `Vec<*>` wrappers
@@ -2299,34 +2307,31 @@ pub mod vec {
 
 
     /// Wrapper over a Rust-allocated `U8Vec`
-    pub struct U8Vec { pub(crate) object: AzU8Vec }
+    pub use crate::dll::AzU8Vec as U8Vec;
 
-    impl U8Vec {
-    }
-
-    impl Drop for U8Vec { fn drop(&mut self) { az_u8_vec_delete(&mut self); } }
+    impl Drop for U8Vec { fn drop(&mut self) { (crate::dll::LIB.az_u8_vec_delete)(&mut self); } }
 
 
     /// Wrapper over a Rust-allocated `StringVec`
-    pub struct StringVec { pub(crate) object: AzStringVec }
+    pub use crate::dll::AzStringVec as StringVec;
 
     impl StringVec {
         /// Creates + allocates a Rust `Vec<String>` by **copying** it from a bytes source
-        pub fn copy_from(ptr: *const AzString, len: usize) -> Self { az_string_vec_copy_from(ptr, len) }
+        pub fn copy_from(ptr: *const AzString, len: usize) -> Self { (crate::dll::LIB.az_string_vec_copy_from)(ptr, len) }
     }
 
-    impl Drop for StringVec { fn drop(&mut self) { az_string_vec_delete(&mut self); } }
+    impl Drop for StringVec { fn drop(&mut self) { (crate::dll::LIB.az_string_vec_delete)(&mut self); } }
 
 
     /// Wrapper over a Rust-allocated `GradientStopPreVec`
-    pub struct GradientStopPreVec { pub(crate) object: AzGradientStopPreVec }
+    pub use crate::dll::AzGradientStopPreVec as GradientStopPreVec;
 
     impl GradientStopPreVec {
         /// Creates + allocates a Rust `Vec<GradientStopPre>` by **copying** it from a bytes source
-        pub fn copy_from(ptr: *const AzGradientStopPre, len: usize) -> Self { az_gradient_stop_pre_vec_copy_from(ptr, len) }
+        pub fn copy_from(ptr: *const AzGradientStopPre, len: usize) -> Self { (crate::dll::LIB.az_gradient_stop_pre_vec_copy_from)(ptr, len) }
     }
 
-    impl Drop for GradientStopPreVec { fn drop(&mut self) { az_gradient_stop_pre_vec_delete(&mut self); } }
+    impl Drop for GradientStopPreVec { fn drop(&mut self) { (crate::dll::LIB.az_gradient_stop_pre_vec_delete)(&mut self); } }
 }
 
 /// Definition of azuls internal `Option<*>` wrappers
@@ -2337,14 +2342,9 @@ pub mod option {
 
 
     /// `OptionPercentageValue` struct
-    pub struct OptionPercentageValue { pub(crate) object: AzOptionPercentageValue }
+    pub use crate::dll::AzOptionPercentageValue as OptionPercentageValue;
 
-    impl OptionPercentageValue {
-        pub fn none() -> Self { az_option_percentage_value_none()  }
-        pub fn some(variant_data: crate::css::PercentageValue) -> Self { az_option_percentage_value_some(variant_data.leak())}
-    }
-
-    impl Drop for OptionPercentageValue { fn drop(&mut self) { az_option_percentage_value_delete(&mut self); } }
+    impl Drop for OptionPercentageValue { fn drop(&mut self) { (crate::dll::LIB.az_option_percentage_value_delete)(&mut self); } }
 }
 
 /// `App` construction and configuration
@@ -2352,25 +2352,23 @@ pub mod option {
 pub mod app {
 
     use crate::dll::*;
-    use crate::callbacks::{RefAny, LayoutCallback};
+    use crate::callbacks::{LayoutCallback, RefAny};
     use crate::window::WindowCreateOptions;
 
 
     /// `AppConfig` struct
-    pub struct AppConfig { pub(crate) ptr: AzAppConfigPtr }
+    pub use crate::dll::AzAppConfigPtr as AppConfig;
 
     impl AppConfig {
         /// Creates a new AppConfig with default values
-        pub fn default() -> Self { Self { ptr: az_app_config_default() } }
-       /// Prevents the destructor from running and returns the internal `AzAppConfigPtr`
-       pub fn leak(self) -> AzAppConfigPtr { let p = az_app_config_shallow_copy(&self.ptr); std::mem::forget(self); p }
+        pub fn default() -> Self { (crate::dll::LIB.az_app_config_default)() }
     }
 
-    impl Drop for AppConfig { fn drop(&mut self) { az_app_config_delete(&mut self.ptr); } }
+    impl Drop for AppConfig { fn drop(&mut self) { (crate::dll::LIB.az_app_config_delete)(&mut self); } }
 
 
     /// `App` struct
-    pub struct App { pub(crate) ptr: AzAppPtr }
+    pub use crate::dll::AzAppPtr as App;
 
     impl App {
         /// Creates a new App instance from the given `AppConfig`
@@ -2381,12 +2379,10 @@ pub mod app {
             }
  }
         /// Runs the application. Due to platform restrictions (specifically `WinMain` on Windows), this function never returns.
-        pub fn run(self, window: WindowCreateOptions)  { az_app_run(self.leak(), window.leak()) }
-       /// Prevents the destructor from running and returns the internal `AzAppPtr`
-       pub fn leak(self) -> AzAppPtr { let p = az_app_shallow_copy(&self.ptr); std::mem::forget(self); p }
+        pub fn run(self, window: WindowCreateOptions)  { (crate::dll::LIB.az_app_run)(self.leak(), window) }
     }
 
-    impl Drop for App { fn drop(&mut self) { az_app_delete(&mut self.ptr); } }
+    impl Drop for App { fn drop(&mut self) { (crate::dll::LIB.az_app_delete)(&mut self); } }
 }
 
 /// Callback type definitions + struct definitions of `CallbackInfo`s
@@ -2412,20 +2408,15 @@ pub mod callbacks {
     }
 
 
-/// Return type of a regular callback - currently `AzUpdateScreen`
-pub type CallbackReturn = AzUpdateScreen;
-/// Callback for responding to window events
-pub type Callback = fn(AzCallbackInfoPtr) -> AzCallbackReturn;
+    /// Return type of a regular callback - currently `AzUpdateScreen`
+    pub type CallbackReturn = AzUpdateScreen;
+    /// Callback for responding to window events
+    pub type Callback = fn(AzCallbackInfoPtr) -> AzCallbackReturn;
 
     /// `CallbackInfo` struct
-    pub struct CallbackInfo { pub(crate) ptr: AzCallbackInfoPtr }
+    pub use crate::dll::AzCallbackInfoPtr as CallbackInfo;
 
-    impl CallbackInfo {
-       /// Prevents the destructor from running and returns the internal `AzCallbackInfoPtr`
-       pub fn leak(self) -> AzCallbackInfoPtr { let p = az_callback_info_shallow_copy(&self.ptr); std::mem::forget(self); p }
-    }
-
-    impl Drop for CallbackInfo { fn drop(&mut self) { az_callback_info_delete(&mut self.ptr); } }
+    impl Drop for CallbackInfo { fn drop(&mut self) { (crate::dll::LIB.az_callback_info_delete)(&mut self); } }
 
 
     /// `UpdateScreen` struct
@@ -2435,63 +2426,43 @@ pub type Callback = fn(AzCallbackInfoPtr) -> AzCallbackReturn;
 
 
     /// `Redraw` struct
-    pub static REDRAW: AzUpdateScreen = AzRedraw;
+    pub use crate::dll::AzRedraw as Redraw;
 
 
 
     /// `DontRedraw` struct
-    pub static DONT_REDRAW: AzUpdateScreen = AzDontRedraw;
+    pub use crate::dll::AzDontRedraw as DontRedraw;
 
 
 
-/// Callback for rendering iframes (infinite data structures that have to know how large they are rendered)
-pub type IFrameCallback = fn(AzIFrameCallbackInfoPtr) -> AzIFrameCallbackReturnPtr;
+    /// Callback for rendering iframes (infinite data structures that have to know how large they are rendered)
+    pub type IFrameCallback = fn(AzIFrameCallbackInfoPtr) -> AzIFrameCallbackReturnPtr;
 
     /// `IFrameCallbackInfo` struct
-    pub struct IFrameCallbackInfo { pub(crate) ptr: AzIFrameCallbackInfoPtr }
+    pub use crate::dll::AzIFrameCallbackInfoPtr as IFrameCallbackInfo;
 
-    impl IFrameCallbackInfo {
-       /// Prevents the destructor from running and returns the internal `AzIFrameCallbackInfoPtr`
-       pub fn leak(self) -> AzIFrameCallbackInfoPtr { let p = az_i_frame_callback_info_shallow_copy(&self.ptr); std::mem::forget(self); p }
-    }
-
-    impl Drop for IFrameCallbackInfo { fn drop(&mut self) { az_i_frame_callback_info_delete(&mut self.ptr); } }
+    impl Drop for IFrameCallbackInfo { fn drop(&mut self) { (crate::dll::LIB.az_i_frame_callback_info_delete)(&mut self); } }
 
 
     /// `IFrameCallbackReturn` struct
-    pub struct IFrameCallbackReturn { pub(crate) ptr: AzIFrameCallbackReturnPtr }
+    pub use crate::dll::AzIFrameCallbackReturnPtr as IFrameCallbackReturn;
 
-    impl IFrameCallbackReturn {
-       /// Prevents the destructor from running and returns the internal `AzIFrameCallbackReturnPtr`
-       pub fn leak(self) -> AzIFrameCallbackReturnPtr { let p = az_i_frame_callback_return_shallow_copy(&self.ptr); std::mem::forget(self); p }
-    }
-
-    impl Drop for IFrameCallbackReturn { fn drop(&mut self) { az_i_frame_callback_return_delete(&mut self.ptr); } }
+    impl Drop for IFrameCallbackReturn { fn drop(&mut self) { (crate::dll::LIB.az_i_frame_callback_return_delete)(&mut self); } }
 
 
-/// Callback for rendering to an OpenGL texture
-pub type GlCallback = fn(AzGlCallbackInfoPtr) -> AzGlCallbackReturnPtr;
+    /// Callback for rendering to an OpenGL texture
+    pub type GlCallback = fn(AzGlCallbackInfoPtr) -> AzGlCallbackReturnPtr;
 
     /// `GlCallbackInfo` struct
-    pub struct GlCallbackInfo { pub(crate) ptr: AzGlCallbackInfoPtr }
+    pub use crate::dll::AzGlCallbackInfoPtr as GlCallbackInfo;
 
-    impl GlCallbackInfo {
-       /// Prevents the destructor from running and returns the internal `AzGlCallbackInfoPtr`
-       pub fn leak(self) -> AzGlCallbackInfoPtr { let p = az_gl_callback_info_shallow_copy(&self.ptr); std::mem::forget(self); p }
-    }
-
-    impl Drop for GlCallbackInfo { fn drop(&mut self) { az_gl_callback_info_delete(&mut self.ptr); } }
+    impl Drop for GlCallbackInfo { fn drop(&mut self) { (crate::dll::LIB.az_gl_callback_info_delete)(&mut self); } }
 
 
     /// `GlCallbackReturn` struct
-    pub struct GlCallbackReturn { pub(crate) ptr: AzGlCallbackReturnPtr }
+    pub use crate::dll::AzGlCallbackReturnPtr as GlCallbackReturn;
 
-    impl GlCallbackReturn {
-       /// Prevents the destructor from running and returns the internal `AzGlCallbackReturnPtr`
-       pub fn leak(self) -> AzGlCallbackReturnPtr { let p = az_gl_callback_return_shallow_copy(&self.ptr); std::mem::forget(self); p }
-    }
-
-    impl Drop for GlCallbackReturn { fn drop(&mut self) { az_gl_callback_return_delete(&mut self.ptr); } }
+    impl Drop for GlCallbackReturn { fn drop(&mut self) { (crate::dll::LIB.az_gl_callback_return_delete)(&mut self); } }
 
 
     #[no_mangle]
@@ -2518,7 +2489,7 @@ pub type GlCallback = fn(AzGlCallbackInfoPtr) -> AzGlCallbackReturnPtr;
 
         /// Creates a new, type-erased pointer by casting the `T` value into a `Vec<u8>` and saving the length + type ID
         pub fn new<T: 'static>(value: T) -> Self {
-            use azul_dll::*;
+            use crate::dll::*;
 
             fn default_custom_destructor<U: 'static>(ptr: RefAny) {
                 use std::{mem, ptr};
@@ -2538,7 +2509,7 @@ pub type GlCallback = fn(AzGlCallbackInfoPtr) -> AzGlCallbackReturnPtr;
                 (&value as *const T) as *const u8,
                 ::std::mem::size_of::<T>(),
                 Self::get_type_id::<T>() as u64,
-                crate::str::String::from_utf8_unchecked(type_name_str.as_ptr(), type_name_str.len()).leak(),
+                crate::str::String::from_utf8_unchecked(type_name_str.as_ptr(), type_name_str.len()),
                 default_custom_destructor::<T>,
             );
             ::std::mem::forget(value); // do not run the destructor of T here!
@@ -2548,7 +2519,7 @@ pub type GlCallback = fn(AzGlCallbackInfoPtr) -> AzGlCallbackReturnPtr;
         /// Returns the inner `RefAny`
         pub fn leak(self) -> RefAny {
             use std::mem;
-            let s = az_ref_any_core_copy(&self.0);
+            let s = az_ref_any_core_copy(&self);
             mem::forget(self); // do not run destructor
             s
         }
@@ -2557,16 +2528,16 @@ pub type GlCallback = fn(AzGlCallbackInfoPtr) -> AzGlCallbackReturnPtr;
         #[inline]
         pub fn downcast_ref<'a, U: 'static>(&'a self) -> Option<&'a U> {
             use std::ptr;
-            let ptr = az_ref_any_get_ptr(&self.0, self.0._internal_len, Self::get_type_id::<U>());
-            if ptr == ptr::null() { None } else { Some(unsafe { &*(self.0._internal_ptr as *const U) as &'a U }) }
+            let ptr = az_ref_any_get_ptr(&self, self._internal_len, Self::get_type_id::<U>());
+            if ptr == ptr::null() { None } else { Some(unsafe { &*(self._internal_ptr as *const U) as &'a U }) }
         }
 
         /// Downcasts the type-erased pointer to a type `&mut U`, returns `None` if the types don't match
         #[inline]
         pub fn downcast_mut<'a, U: 'static>(&'a mut self) -> Option<&'a mut U> {
             use std::ptr;
-            let ptr = az_ref_any_get_mut_ptr(&self.0, self.0._internal_len, Self::get_type_id::<U>());
-            if ptr == ptr::null_mut() { None } else { Some(unsafe { &mut *(self.0._internal_ptr as *mut U) as &'a mut U }) }
+            let ptr = az_ref_any_get_mut_ptr(&self, self._internal_len, Self::get_type_id::<U>());
+            if ptr == ptr::null_mut() { None } else { Some(unsafe { &mut *(self._internal_ptr as *mut U) as &'a mut U }) }
         }
 
         #[inline]
@@ -2583,20 +2554,15 @@ pub type GlCallback = fn(AzGlCallbackInfoPtr) -> AzGlCallbackReturnPtr;
 
     impl Drop for RefAny {
         fn drop(&mut self) {
-            az_ref_any_delete(&mut self.0);
+            az_ref_any_delete(&mut self);
         }
     }
 
 
     /// `LayoutInfo` struct
-    pub struct LayoutInfo { pub(crate) ptr: AzLayoutInfoPtr }
+    pub use crate::dll::AzLayoutInfoPtr as LayoutInfo;
 
-    impl LayoutInfo {
-       /// Prevents the destructor from running and returns the internal `AzLayoutInfoPtr`
-       pub fn leak(self) -> AzLayoutInfoPtr { let p = az_layout_info_shallow_copy(&self.ptr); std::mem::forget(self); p }
-    }
-
-    impl Drop for LayoutInfo { fn drop(&mut self) { az_layout_info_delete(&mut self.ptr); } }
+    impl Drop for LayoutInfo { fn drop(&mut self) { (crate::dll::LIB.az_layout_info_delete)(&mut self); } }
 }
 
 /// `Css` parsing module
@@ -2608,1800 +2574,873 @@ pub mod css {
 
 
     /// `Css` struct
-    pub struct Css { pub(crate) ptr: AzCssPtr }
+    pub use crate::dll::AzCssPtr as Css;
 
     impl Css {
         /// Loads the native style for the given operating system
-        pub fn native() -> Self { Self { ptr: az_css_native() } }
+        pub fn native() -> Self { (crate::dll::LIB.az_css_native)() }
         /// Returns an empty CSS style
-        pub fn empty() -> Self { Self { ptr: az_css_empty() } }
+        pub fn empty() -> Self { (crate::dll::LIB.az_css_empty)() }
         /// Returns a CSS style parsed from a `String`
-        pub fn from_string(s: String) -> Self { Self { ptr: az_css_from_string(s) } }
+        pub fn from_string(s: String) -> Self { (crate::dll::LIB.az_css_from_string)(s) }
         /// Appends a parsed stylesheet to `Css::native()`
-        pub fn override_native(s: String) -> Self { Self { ptr: az_css_override_native(s) } }
-       /// Prevents the destructor from running and returns the internal `AzCssPtr`
-       pub fn leak(self) -> AzCssPtr { let p = az_css_shallow_copy(&self.ptr); std::mem::forget(self); p }
+        pub fn override_native(s: String) -> Self { (crate::dll::LIB.az_css_override_native)(s) }
     }
 
-    impl Drop for Css { fn drop(&mut self) { az_css_delete(&mut self.ptr); } }
+    impl Drop for Css { fn drop(&mut self) { (crate::dll::LIB.az_css_delete)(&mut self); } }
 
 
     /// `CssHotReloader` struct
-    pub struct CssHotReloader { pub(crate) ptr: AzCssHotReloaderPtr }
+    pub use crate::dll::AzCssHotReloaderPtr as CssHotReloader;
 
     impl CssHotReloader {
         /// Creates a `HotReloadHandler` that hot-reloads a CSS file every X milliseconds
-        pub fn new(path: String, reload_ms: u64) -> Self { Self { ptr: az_css_hot_reloader_new(path, reload_ms) } }
+        pub fn new(path: String, reload_ms: u64) -> Self { (crate::dll::LIB.az_css_hot_reloader_new)(path, reload_ms) }
         /// Creates a `HotReloadHandler` that overrides the `Css::native()` stylesheet with a CSS file, reloaded every X milliseconds
-        pub fn override_native(path: String, reload_ms: u64) -> Self { Self { ptr: az_css_hot_reloader_override_native(path, reload_ms) } }
-       /// Prevents the destructor from running and returns the internal `AzCssHotReloaderPtr`
-       pub fn leak(self) -> AzCssHotReloaderPtr { let p = az_css_hot_reloader_shallow_copy(&self.ptr); std::mem::forget(self); p }
+        pub fn override_native(path: String, reload_ms: u64) -> Self { (crate::dll::LIB.az_css_hot_reloader_override_native)(path, reload_ms) }
     }
 
-    impl Drop for CssHotReloader { fn drop(&mut self) { az_css_hot_reloader_delete(&mut self.ptr); } }
+    impl Drop for CssHotReloader { fn drop(&mut self) { (crate::dll::LIB.az_css_hot_reloader_delete)(&mut self); } }
 
 
     /// `ColorU` struct
-    pub struct ColorU { pub(crate) object: AzColorU }
+    pub use crate::dll::AzColorU as ColorU;
 
-    impl ColorU {
-    }
-
-    impl Drop for ColorU { fn drop(&mut self) { az_color_u_delete(&mut self); } }
+    impl Drop for ColorU { fn drop(&mut self) { (crate::dll::LIB.az_color_u_delete)(&mut self); } }
 
 
     /// `SizeMetric` struct
-    pub struct SizeMetric { pub(crate) object: AzSizeMetric }
+    pub use crate::dll::AzSizeMetric as SizeMetric;
 
-    impl SizeMetric {
-        pub fn px() -> Self { az_size_metric_px()  }
-        pub fn pt() -> Self { az_size_metric_pt()  }
-        pub fn em() -> Self { az_size_metric_em()  }
-        pub fn percent() -> Self { az_size_metric_percent()  }
-    }
-
-    impl Drop for SizeMetric { fn drop(&mut self) { az_size_metric_delete(&mut self); } }
+    impl Drop for SizeMetric { fn drop(&mut self) { (crate::dll::LIB.az_size_metric_delete)(&mut self); } }
 
 
     /// `FloatValue` struct
-    pub struct FloatValue { pub(crate) object: AzFloatValue }
+    pub use crate::dll::AzFloatValue as FloatValue;
 
-    impl FloatValue {
-    }
-
-    impl Drop for FloatValue { fn drop(&mut self) { az_float_value_delete(&mut self); } }
+    impl Drop for FloatValue { fn drop(&mut self) { (crate::dll::LIB.az_float_value_delete)(&mut self); } }
 
 
     /// `PixelValue` struct
-    pub struct PixelValue { pub(crate) object: AzPixelValue }
+    pub use crate::dll::AzPixelValue as PixelValue;
 
-    impl PixelValue {
-    }
-
-    impl Drop for PixelValue { fn drop(&mut self) { az_pixel_value_delete(&mut self); } }
+    impl Drop for PixelValue { fn drop(&mut self) { (crate::dll::LIB.az_pixel_value_delete)(&mut self); } }
 
 
     /// `PixelValueNoPercent` struct
-    pub struct PixelValueNoPercent { pub(crate) object: AzPixelValueNoPercent }
+    pub use crate::dll::AzPixelValueNoPercent as PixelValueNoPercent;
 
-    impl PixelValueNoPercent {
-    }
-
-    impl Drop for PixelValueNoPercent { fn drop(&mut self) { az_pixel_value_no_percent_delete(&mut self); } }
+    impl Drop for PixelValueNoPercent { fn drop(&mut self) { (crate::dll::LIB.az_pixel_value_no_percent_delete)(&mut self); } }
 
 
     /// `BoxShadowClipMode` struct
-    pub struct BoxShadowClipMode { pub(crate) object: AzBoxShadowClipMode }
+    pub use crate::dll::AzBoxShadowClipMode as BoxShadowClipMode;
 
-    impl BoxShadowClipMode {
-        pub fn outset() -> Self { az_box_shadow_clip_mode_outset()  }
-        pub fn inset() -> Self { az_box_shadow_clip_mode_inset()  }
-    }
-
-    impl Drop for BoxShadowClipMode { fn drop(&mut self) { az_box_shadow_clip_mode_delete(&mut self); } }
+    impl Drop for BoxShadowClipMode { fn drop(&mut self) { (crate::dll::LIB.az_box_shadow_clip_mode_delete)(&mut self); } }
 
 
     /// `BoxShadowPreDisplayItem` struct
-    pub struct BoxShadowPreDisplayItem { pub(crate) object: AzBoxShadowPreDisplayItem }
+    pub use crate::dll::AzBoxShadowPreDisplayItem as BoxShadowPreDisplayItem;
 
-    impl BoxShadowPreDisplayItem {
-    }
-
-    impl Drop for BoxShadowPreDisplayItem { fn drop(&mut self) { az_box_shadow_pre_display_item_delete(&mut self); } }
+    impl Drop for BoxShadowPreDisplayItem { fn drop(&mut self) { (crate::dll::LIB.az_box_shadow_pre_display_item_delete)(&mut self); } }
 
 
     /// `LayoutAlignContent` struct
-    pub struct LayoutAlignContent { pub(crate) object: AzLayoutAlignContent }
+    pub use crate::dll::AzLayoutAlignContent as LayoutAlignContent;
 
-    impl LayoutAlignContent {
-        /// Default value. Lines stretch to take up the remaining space
-        pub fn stretch() -> Self { az_layout_align_content_stretch()  }
-        /// Lines are packed toward the center of the flex container
-        pub fn center() -> Self { az_layout_align_content_center()  }
-        /// Lines are packed toward the start of the flex container
-        pub fn start() -> Self { az_layout_align_content_start()  }
-        /// Lines are packed toward the end of the flex container
-        pub fn end() -> Self { az_layout_align_content_end()  }
-        /// Lines are evenly distributed in the flex container
-        pub fn space_between() -> Self { az_layout_align_content_space_between()  }
-        /// Lines are evenly distributed in the flex container, with half-size spaces on either end
-        pub fn space_around() -> Self { az_layout_align_content_space_around()  }
-    }
-
-    impl Drop for LayoutAlignContent { fn drop(&mut self) { az_layout_align_content_delete(&mut self); } }
+    impl Drop for LayoutAlignContent { fn drop(&mut self) { (crate::dll::LIB.az_layout_align_content_delete)(&mut self); } }
 
 
     /// `LayoutAlignItems` struct
-    pub struct LayoutAlignItems { pub(crate) object: AzLayoutAlignItems }
+    pub use crate::dll::AzLayoutAlignItems as LayoutAlignItems;
 
-    impl LayoutAlignItems {
-        /// Items are stretched to fit the container
-        pub fn stretch() -> Self { az_layout_align_items_stretch()  }
-        /// Items are positioned at the center of the container
-        pub fn center() -> Self { az_layout_align_items_center()  }
-        /// Items are positioned at the beginning of the container
-        pub fn start() -> Self { az_layout_align_items_start()  }
-        /// Items are positioned at the end of the container
-        pub fn end() -> Self { az_layout_align_items_end()  }
-    }
-
-    impl Drop for LayoutAlignItems { fn drop(&mut self) { az_layout_align_items_delete(&mut self); } }
+    impl Drop for LayoutAlignItems { fn drop(&mut self) { (crate::dll::LIB.az_layout_align_items_delete)(&mut self); } }
 
 
     /// `LayoutBottom` struct
-    pub struct LayoutBottom { pub(crate) object: AzLayoutBottom }
+    pub use crate::dll::AzLayoutBottom as LayoutBottom;
 
-    impl LayoutBottom {
-    }
-
-    impl Drop for LayoutBottom { fn drop(&mut self) { az_layout_bottom_delete(&mut self); } }
+    impl Drop for LayoutBottom { fn drop(&mut self) { (crate::dll::LIB.az_layout_bottom_delete)(&mut self); } }
 
 
     /// `LayoutBoxSizing` struct
-    pub struct LayoutBoxSizing { pub(crate) object: AzLayoutBoxSizing }
+    pub use crate::dll::AzLayoutBoxSizing as LayoutBoxSizing;
 
-    impl LayoutBoxSizing {
-        pub fn content_box() -> Self { az_layout_box_sizing_content_box()  }
-        pub fn border_box() -> Self { az_layout_box_sizing_border_box()  }
-    }
-
-    impl Drop for LayoutBoxSizing { fn drop(&mut self) { az_layout_box_sizing_delete(&mut self); } }
+    impl Drop for LayoutBoxSizing { fn drop(&mut self) { (crate::dll::LIB.az_layout_box_sizing_delete)(&mut self); } }
 
 
     /// `LayoutDirection` struct
-    pub struct LayoutDirection { pub(crate) object: AzLayoutDirection }
+    pub use crate::dll::AzLayoutDirection as LayoutDirection;
 
-    impl LayoutDirection {
-        pub fn row() -> Self { az_layout_direction_row()  }
-        pub fn row_reverse() -> Self { az_layout_direction_row_reverse()  }
-        pub fn column() -> Self { az_layout_direction_column()  }
-        pub fn column_reverse() -> Self { az_layout_direction_column_reverse()  }
-    }
-
-    impl Drop for LayoutDirection { fn drop(&mut self) { az_layout_direction_delete(&mut self); } }
+    impl Drop for LayoutDirection { fn drop(&mut self) { (crate::dll::LIB.az_layout_direction_delete)(&mut self); } }
 
 
     /// `LayoutDisplay` struct
-    pub struct LayoutDisplay { pub(crate) object: AzLayoutDisplay }
+    pub use crate::dll::AzLayoutDisplay as LayoutDisplay;
 
-    impl LayoutDisplay {
-        pub fn flex() -> Self { az_layout_display_flex()  }
-        pub fn block() -> Self { az_layout_display_block()  }
-        pub fn inline_block() -> Self { az_layout_display_inline_block()  }
-    }
-
-    impl Drop for LayoutDisplay { fn drop(&mut self) { az_layout_display_delete(&mut self); } }
+    impl Drop for LayoutDisplay { fn drop(&mut self) { (crate::dll::LIB.az_layout_display_delete)(&mut self); } }
 
 
     /// `LayoutFlexGrow` struct
-    pub struct LayoutFlexGrow { pub(crate) object: AzLayoutFlexGrow }
+    pub use crate::dll::AzLayoutFlexGrow as LayoutFlexGrow;
 
-    impl LayoutFlexGrow {
-    }
-
-    impl Drop for LayoutFlexGrow { fn drop(&mut self) { az_layout_flex_grow_delete(&mut self); } }
+    impl Drop for LayoutFlexGrow { fn drop(&mut self) { (crate::dll::LIB.az_layout_flex_grow_delete)(&mut self); } }
 
 
     /// `LayoutFlexShrink` struct
-    pub struct LayoutFlexShrink { pub(crate) object: AzLayoutFlexShrink }
+    pub use crate::dll::AzLayoutFlexShrink as LayoutFlexShrink;
 
-    impl LayoutFlexShrink {
-    }
-
-    impl Drop for LayoutFlexShrink { fn drop(&mut self) { az_layout_flex_shrink_delete(&mut self); } }
+    impl Drop for LayoutFlexShrink { fn drop(&mut self) { (crate::dll::LIB.az_layout_flex_shrink_delete)(&mut self); } }
 
 
     /// `LayoutFloat` struct
-    pub struct LayoutFloat { pub(crate) object: AzLayoutFloat }
+    pub use crate::dll::AzLayoutFloat as LayoutFloat;
 
-    impl LayoutFloat {
-        pub fn left() -> Self { az_layout_float_left()  }
-        pub fn right() -> Self { az_layout_float_right()  }
-    }
-
-    impl Drop for LayoutFloat { fn drop(&mut self) { az_layout_float_delete(&mut self); } }
+    impl Drop for LayoutFloat { fn drop(&mut self) { (crate::dll::LIB.az_layout_float_delete)(&mut self); } }
 
 
     /// `LayoutHeight` struct
-    pub struct LayoutHeight { pub(crate) object: AzLayoutHeight }
+    pub use crate::dll::AzLayoutHeight as LayoutHeight;
 
-    impl LayoutHeight {
-    }
-
-    impl Drop for LayoutHeight { fn drop(&mut self) { az_layout_height_delete(&mut self); } }
+    impl Drop for LayoutHeight { fn drop(&mut self) { (crate::dll::LIB.az_layout_height_delete)(&mut self); } }
 
 
     /// `LayoutJustifyContent` struct
-    pub struct LayoutJustifyContent { pub(crate) object: AzLayoutJustifyContent }
+    pub use crate::dll::AzLayoutJustifyContent as LayoutJustifyContent;
 
-    impl LayoutJustifyContent {
-        /// Default value. Items are positioned at the beginning of the container
-        pub fn start() -> Self { az_layout_justify_content_start()  }
-        /// Items are positioned at the end of the container
-        pub fn end() -> Self { az_layout_justify_content_end()  }
-        /// Items are positioned at the center of the container
-        pub fn center() -> Self { az_layout_justify_content_center()  }
-        /// Items are positioned with space between the lines
-        pub fn space_between() -> Self { az_layout_justify_content_space_between()  }
-        /// Items are positioned with space before, between, and after the lines
-        pub fn space_around() -> Self { az_layout_justify_content_space_around()  }
-        /// Items are distributed so that the spacing between any two adjacent alignment subjects, before the first alignment subject, and after the last alignment subject is the same
-        pub fn space_evenly() -> Self { az_layout_justify_content_space_evenly()  }
-    }
-
-    impl Drop for LayoutJustifyContent { fn drop(&mut self) { az_layout_justify_content_delete(&mut self); } }
+    impl Drop for LayoutJustifyContent { fn drop(&mut self) { (crate::dll::LIB.az_layout_justify_content_delete)(&mut self); } }
 
 
     /// `LayoutLeft` struct
-    pub struct LayoutLeft { pub(crate) object: AzLayoutLeft }
+    pub use crate::dll::AzLayoutLeft as LayoutLeft;
 
-    impl LayoutLeft {
-    }
-
-    impl Drop for LayoutLeft { fn drop(&mut self) { az_layout_left_delete(&mut self); } }
+    impl Drop for LayoutLeft { fn drop(&mut self) { (crate::dll::LIB.az_layout_left_delete)(&mut self); } }
 
 
     /// `LayoutMarginBottom` struct
-    pub struct LayoutMarginBottom { pub(crate) object: AzLayoutMarginBottom }
+    pub use crate::dll::AzLayoutMarginBottom as LayoutMarginBottom;
 
-    impl LayoutMarginBottom {
-    }
-
-    impl Drop for LayoutMarginBottom { fn drop(&mut self) { az_layout_margin_bottom_delete(&mut self); } }
+    impl Drop for LayoutMarginBottom { fn drop(&mut self) { (crate::dll::LIB.az_layout_margin_bottom_delete)(&mut self); } }
 
 
     /// `LayoutMarginLeft` struct
-    pub struct LayoutMarginLeft { pub(crate) object: AzLayoutMarginLeft }
+    pub use crate::dll::AzLayoutMarginLeft as LayoutMarginLeft;
 
-    impl LayoutMarginLeft {
-    }
-
-    impl Drop for LayoutMarginLeft { fn drop(&mut self) { az_layout_margin_left_delete(&mut self); } }
+    impl Drop for LayoutMarginLeft { fn drop(&mut self) { (crate::dll::LIB.az_layout_margin_left_delete)(&mut self); } }
 
 
     /// `LayoutMarginRight` struct
-    pub struct LayoutMarginRight { pub(crate) object: AzLayoutMarginRight }
+    pub use crate::dll::AzLayoutMarginRight as LayoutMarginRight;
 
-    impl LayoutMarginRight {
-    }
-
-    impl Drop for LayoutMarginRight { fn drop(&mut self) { az_layout_margin_right_delete(&mut self); } }
+    impl Drop for LayoutMarginRight { fn drop(&mut self) { (crate::dll::LIB.az_layout_margin_right_delete)(&mut self); } }
 
 
     /// `LayoutMarginTop` struct
-    pub struct LayoutMarginTop { pub(crate) object: AzLayoutMarginTop }
+    pub use crate::dll::AzLayoutMarginTop as LayoutMarginTop;
 
-    impl LayoutMarginTop {
-    }
-
-    impl Drop for LayoutMarginTop { fn drop(&mut self) { az_layout_margin_top_delete(&mut self); } }
+    impl Drop for LayoutMarginTop { fn drop(&mut self) { (crate::dll::LIB.az_layout_margin_top_delete)(&mut self); } }
 
 
     /// `LayoutMaxHeight` struct
-    pub struct LayoutMaxHeight { pub(crate) object: AzLayoutMaxHeight }
+    pub use crate::dll::AzLayoutMaxHeight as LayoutMaxHeight;
 
-    impl LayoutMaxHeight {
-    }
-
-    impl Drop for LayoutMaxHeight { fn drop(&mut self) { az_layout_max_height_delete(&mut self); } }
+    impl Drop for LayoutMaxHeight { fn drop(&mut self) { (crate::dll::LIB.az_layout_max_height_delete)(&mut self); } }
 
 
     /// `LayoutMaxWidth` struct
-    pub struct LayoutMaxWidth { pub(crate) object: AzLayoutMaxWidth }
+    pub use crate::dll::AzLayoutMaxWidth as LayoutMaxWidth;
 
-    impl LayoutMaxWidth {
-    }
-
-    impl Drop for LayoutMaxWidth { fn drop(&mut self) { az_layout_max_width_delete(&mut self); } }
+    impl Drop for LayoutMaxWidth { fn drop(&mut self) { (crate::dll::LIB.az_layout_max_width_delete)(&mut self); } }
 
 
     /// `LayoutMinHeight` struct
-    pub struct LayoutMinHeight { pub(crate) object: AzLayoutMinHeight }
+    pub use crate::dll::AzLayoutMinHeight as LayoutMinHeight;
 
-    impl LayoutMinHeight {
-    }
-
-    impl Drop for LayoutMinHeight { fn drop(&mut self) { az_layout_min_height_delete(&mut self); } }
+    impl Drop for LayoutMinHeight { fn drop(&mut self) { (crate::dll::LIB.az_layout_min_height_delete)(&mut self); } }
 
 
     /// `LayoutMinWidth` struct
-    pub struct LayoutMinWidth { pub(crate) object: AzLayoutMinWidth }
+    pub use crate::dll::AzLayoutMinWidth as LayoutMinWidth;
 
-    impl LayoutMinWidth {
-    }
-
-    impl Drop for LayoutMinWidth { fn drop(&mut self) { az_layout_min_width_delete(&mut self); } }
+    impl Drop for LayoutMinWidth { fn drop(&mut self) { (crate::dll::LIB.az_layout_min_width_delete)(&mut self); } }
 
 
     /// `LayoutPaddingBottom` struct
-    pub struct LayoutPaddingBottom { pub(crate) object: AzLayoutPaddingBottom }
+    pub use crate::dll::AzLayoutPaddingBottom as LayoutPaddingBottom;
 
-    impl LayoutPaddingBottom {
-    }
-
-    impl Drop for LayoutPaddingBottom { fn drop(&mut self) { az_layout_padding_bottom_delete(&mut self); } }
+    impl Drop for LayoutPaddingBottom { fn drop(&mut self) { (crate::dll::LIB.az_layout_padding_bottom_delete)(&mut self); } }
 
 
     /// `LayoutPaddingLeft` struct
-    pub struct LayoutPaddingLeft { pub(crate) object: AzLayoutPaddingLeft }
+    pub use crate::dll::AzLayoutPaddingLeft as LayoutPaddingLeft;
 
-    impl LayoutPaddingLeft {
-    }
-
-    impl Drop for LayoutPaddingLeft { fn drop(&mut self) { az_layout_padding_left_delete(&mut self); } }
+    impl Drop for LayoutPaddingLeft { fn drop(&mut self) { (crate::dll::LIB.az_layout_padding_left_delete)(&mut self); } }
 
 
     /// `LayoutPaddingRight` struct
-    pub struct LayoutPaddingRight { pub(crate) object: AzLayoutPaddingRight }
+    pub use crate::dll::AzLayoutPaddingRight as LayoutPaddingRight;
 
-    impl LayoutPaddingRight {
-    }
-
-    impl Drop for LayoutPaddingRight { fn drop(&mut self) { az_layout_padding_right_delete(&mut self); } }
+    impl Drop for LayoutPaddingRight { fn drop(&mut self) { (crate::dll::LIB.az_layout_padding_right_delete)(&mut self); } }
 
 
     /// `LayoutPaddingTop` struct
-    pub struct LayoutPaddingTop { pub(crate) object: AzLayoutPaddingTop }
+    pub use crate::dll::AzLayoutPaddingTop as LayoutPaddingTop;
 
-    impl LayoutPaddingTop {
-    }
-
-    impl Drop for LayoutPaddingTop { fn drop(&mut self) { az_layout_padding_top_delete(&mut self); } }
+    impl Drop for LayoutPaddingTop { fn drop(&mut self) { (crate::dll::LIB.az_layout_padding_top_delete)(&mut self); } }
 
 
     /// `LayoutPosition` struct
-    pub struct LayoutPosition { pub(crate) object: AzLayoutPosition }
+    pub use crate::dll::AzLayoutPosition as LayoutPosition;
 
-    impl LayoutPosition {
-        pub fn static() -> Self { az_layout_position_static()  }
-        pub fn relative() -> Self { az_layout_position_relative()  }
-        pub fn absolute() -> Self { az_layout_position_absolute()  }
-        pub fn fixed() -> Self { az_layout_position_fixed()  }
-    }
-
-    impl Drop for LayoutPosition { fn drop(&mut self) { az_layout_position_delete(&mut self); } }
+    impl Drop for LayoutPosition { fn drop(&mut self) { (crate::dll::LIB.az_layout_position_delete)(&mut self); } }
 
 
     /// `LayoutRight` struct
-    pub struct LayoutRight { pub(crate) object: AzLayoutRight }
+    pub use crate::dll::AzLayoutRight as LayoutRight;
 
-    impl LayoutRight {
-    }
-
-    impl Drop for LayoutRight { fn drop(&mut self) { az_layout_right_delete(&mut self); } }
+    impl Drop for LayoutRight { fn drop(&mut self) { (crate::dll::LIB.az_layout_right_delete)(&mut self); } }
 
 
     /// `LayoutTop` struct
-    pub struct LayoutTop { pub(crate) object: AzLayoutTop }
+    pub use crate::dll::AzLayoutTop as LayoutTop;
 
-    impl LayoutTop {
-    }
-
-    impl Drop for LayoutTop { fn drop(&mut self) { az_layout_top_delete(&mut self); } }
+    impl Drop for LayoutTop { fn drop(&mut self) { (crate::dll::LIB.az_layout_top_delete)(&mut self); } }
 
 
     /// `LayoutWidth` struct
-    pub struct LayoutWidth { pub(crate) object: AzLayoutWidth }
+    pub use crate::dll::AzLayoutWidth as LayoutWidth;
 
-    impl LayoutWidth {
-    }
-
-    impl Drop for LayoutWidth { fn drop(&mut self) { az_layout_width_delete(&mut self); } }
+    impl Drop for LayoutWidth { fn drop(&mut self) { (crate::dll::LIB.az_layout_width_delete)(&mut self); } }
 
 
     /// `LayoutWrap` struct
-    pub struct LayoutWrap { pub(crate) object: AzLayoutWrap }
+    pub use crate::dll::AzLayoutWrap as LayoutWrap;
 
-    impl LayoutWrap {
-        pub fn wrap() -> Self { az_layout_wrap_wrap()  }
-        pub fn no_wrap() -> Self { az_layout_wrap_no_wrap()  }
-    }
-
-    impl Drop for LayoutWrap { fn drop(&mut self) { az_layout_wrap_delete(&mut self); } }
+    impl Drop for LayoutWrap { fn drop(&mut self) { (crate::dll::LIB.az_layout_wrap_delete)(&mut self); } }
 
 
     /// `Overflow` struct
-    pub struct Overflow { pub(crate) object: AzOverflow }
+    pub use crate::dll::AzOverflow as Overflow;
 
-    impl Overflow {
-        /// Always shows a scroll bar, overflows on scroll
-        pub fn scroll() -> Self { az_overflow_scroll()  }
-        /// Does not show a scroll bar by default, only when text is overflowing
-        pub fn auto() -> Self { az_overflow_auto()  }
-        /// Never shows a scroll bar, simply clips text
-        pub fn hidden() -> Self { az_overflow_hidden()  }
-        /// Doesn't show a scroll bar, simply overflows the text
-        pub fn visible() -> Self { az_overflow_visible()  }
-    }
-
-    impl Drop for Overflow { fn drop(&mut self) { az_overflow_delete(&mut self); } }
+    impl Drop for Overflow { fn drop(&mut self) { (crate::dll::LIB.az_overflow_delete)(&mut self); } }
 
 
     /// `PercentageValue` struct
-    pub struct PercentageValue { pub(crate) object: AzPercentageValue }
+    pub use crate::dll::AzPercentageValue as PercentageValue;
 
-    impl PercentageValue {
-    }
-
-    impl Drop for PercentageValue { fn drop(&mut self) { az_percentage_value_delete(&mut self); } }
+    impl Drop for PercentageValue { fn drop(&mut self) { (crate::dll::LIB.az_percentage_value_delete)(&mut self); } }
 
 
     /// `GradientStopPre` struct
-    pub struct GradientStopPre { pub(crate) object: AzGradientStopPre }
+    pub use crate::dll::AzGradientStopPre as GradientStopPre;
 
-    impl GradientStopPre {
-    }
-
-    impl Drop for GradientStopPre { fn drop(&mut self) { az_gradient_stop_pre_delete(&mut self); } }
+    impl Drop for GradientStopPre { fn drop(&mut self) { (crate::dll::LIB.az_gradient_stop_pre_delete)(&mut self); } }
 
 
     /// `DirectionCorner` struct
-    pub struct DirectionCorner { pub(crate) object: AzDirectionCorner }
+    pub use crate::dll::AzDirectionCorner as DirectionCorner;
 
-    impl DirectionCorner {
-        pub fn right() -> Self { az_direction_corner_right()  }
-        pub fn left() -> Self { az_direction_corner_left()  }
-        pub fn top() -> Self { az_direction_corner_top()  }
-        pub fn bottom() -> Self { az_direction_corner_bottom()  }
-        pub fn top_right() -> Self { az_direction_corner_top_right()  }
-        pub fn top_left() -> Self { az_direction_corner_top_left()  }
-        pub fn bottom_right() -> Self { az_direction_corner_bottom_right()  }
-        pub fn bottom_left() -> Self { az_direction_corner_bottom_left()  }
-    }
-
-    impl Drop for DirectionCorner { fn drop(&mut self) { az_direction_corner_delete(&mut self); } }
+    impl Drop for DirectionCorner { fn drop(&mut self) { (crate::dll::LIB.az_direction_corner_delete)(&mut self); } }
 
 
     /// `DirectionCorners` struct
-    pub struct DirectionCorners { pub(crate) object: AzDirectionCorners }
+    pub use crate::dll::AzDirectionCorners as DirectionCorners;
 
-    impl DirectionCorners {
-    }
-
-    impl Drop for DirectionCorners { fn drop(&mut self) { az_direction_corners_delete(&mut self); } }
+    impl Drop for DirectionCorners { fn drop(&mut self) { (crate::dll::LIB.az_direction_corners_delete)(&mut self); } }
 
 
     /// `Direction` struct
-    pub struct Direction { pub(crate) object: AzDirection }
+    pub use crate::dll::AzDirection as Direction;
 
-    impl Direction {
-        pub fn angle(variant_data: crate::css::FloatValue) -> Self { az_direction_angle(variant_data.leak())}
-        pub fn from_to(variant_data: crate::css::DirectionCorners) -> Self { az_direction_from_to(variant_data.leak())}
-    }
-
-    impl Drop for Direction { fn drop(&mut self) { az_direction_delete(&mut self); } }
+    impl Drop for Direction { fn drop(&mut self) { (crate::dll::LIB.az_direction_delete)(&mut self); } }
 
 
     /// `ExtendMode` struct
-    pub struct ExtendMode { pub(crate) object: AzExtendMode }
+    pub use crate::dll::AzExtendMode as ExtendMode;
 
-    impl ExtendMode {
-        pub fn clamp() -> Self { az_extend_mode_clamp()  }
-        pub fn repeat() -> Self { az_extend_mode_repeat()  }
-    }
-
-    impl Drop for ExtendMode { fn drop(&mut self) { az_extend_mode_delete(&mut self); } }
+    impl Drop for ExtendMode { fn drop(&mut self) { (crate::dll::LIB.az_extend_mode_delete)(&mut self); } }
 
 
     /// `LinearGradient` struct
-    pub struct LinearGradient { pub(crate) object: AzLinearGradient }
+    pub use crate::dll::AzLinearGradient as LinearGradient;
 
-    impl LinearGradient {
-    }
-
-    impl Drop for LinearGradient { fn drop(&mut self) { az_linear_gradient_delete(&mut self); } }
+    impl Drop for LinearGradient { fn drop(&mut self) { (crate::dll::LIB.az_linear_gradient_delete)(&mut self); } }
 
 
     /// `Shape` struct
-    pub struct Shape { pub(crate) object: AzShape }
+    pub use crate::dll::AzShape as Shape;
 
-    impl Shape {
-        pub fn ellipse() -> Self { az_shape_ellipse()  }
-        pub fn circle() -> Self { az_shape_circle()  }
-    }
-
-    impl Drop for Shape { fn drop(&mut self) { az_shape_delete(&mut self); } }
+    impl Drop for Shape { fn drop(&mut self) { (crate::dll::LIB.az_shape_delete)(&mut self); } }
 
 
     /// `RadialGradient` struct
-    pub struct RadialGradient { pub(crate) object: AzRadialGradient }
+    pub use crate::dll::AzRadialGradient as RadialGradient;
 
-    impl RadialGradient {
-    }
-
-    impl Drop for RadialGradient { fn drop(&mut self) { az_radial_gradient_delete(&mut self); } }
+    impl Drop for RadialGradient { fn drop(&mut self) { (crate::dll::LIB.az_radial_gradient_delete)(&mut self); } }
 
 
     /// `CssImageId` struct
-    pub struct CssImageId { pub(crate) object: AzCssImageId }
+    pub use crate::dll::AzCssImageId as CssImageId;
 
-    impl CssImageId {
-    }
-
-    impl Drop for CssImageId { fn drop(&mut self) { az_css_image_id_delete(&mut self); } }
+    impl Drop for CssImageId { fn drop(&mut self) { (crate::dll::LIB.az_css_image_id_delete)(&mut self); } }
 
 
     /// `StyleBackgroundContent` struct
-    pub struct StyleBackgroundContent { pub(crate) object: AzStyleBackgroundContent }
+    pub use crate::dll::AzStyleBackgroundContent as StyleBackgroundContent;
 
-    impl StyleBackgroundContent {
-        pub fn linear_gradient(variant_data: crate::css::LinearGradient) -> Self { az_style_background_content_linear_gradient(variant_data.leak())}
-        pub fn radial_gradient(variant_data: crate::css::RadialGradient) -> Self { az_style_background_content_radial_gradient(variant_data.leak())}
-        pub fn image(variant_data: crate::css::CssImageId) -> Self { az_style_background_content_image(variant_data.leak())}
-        pub fn color(variant_data: crate::css::ColorU) -> Self { az_style_background_content_color(variant_data.leak())}
-    }
-
-    impl Drop for StyleBackgroundContent { fn drop(&mut self) { az_style_background_content_delete(&mut self); } }
+    impl Drop for StyleBackgroundContent { fn drop(&mut self) { (crate::dll::LIB.az_style_background_content_delete)(&mut self); } }
 
 
     /// `BackgroundPositionHorizontal` struct
-    pub struct BackgroundPositionHorizontal { pub(crate) object: AzBackgroundPositionHorizontal }
+    pub use crate::dll::AzBackgroundPositionHorizontal as BackgroundPositionHorizontal;
 
-    impl BackgroundPositionHorizontal {
-        pub fn left() -> Self { az_background_position_horizontal_left()  }
-        pub fn center() -> Self { az_background_position_horizontal_center()  }
-        pub fn right() -> Self { az_background_position_horizontal_right()  }
-        pub fn exact(variant_data: crate::css::PixelValue) -> Self { az_background_position_horizontal_exact(variant_data.leak())}
-    }
-
-    impl Drop for BackgroundPositionHorizontal { fn drop(&mut self) { az_background_position_horizontal_delete(&mut self); } }
+    impl Drop for BackgroundPositionHorizontal { fn drop(&mut self) { (crate::dll::LIB.az_background_position_horizontal_delete)(&mut self); } }
 
 
     /// `BackgroundPositionVertical` struct
-    pub struct BackgroundPositionVertical { pub(crate) object: AzBackgroundPositionVertical }
+    pub use crate::dll::AzBackgroundPositionVertical as BackgroundPositionVertical;
 
-    impl BackgroundPositionVertical {
-        pub fn top() -> Self { az_background_position_vertical_top()  }
-        pub fn center() -> Self { az_background_position_vertical_center()  }
-        pub fn bottom() -> Self { az_background_position_vertical_bottom()  }
-        pub fn exact(variant_data: crate::css::PixelValue) -> Self { az_background_position_vertical_exact(variant_data.leak())}
-    }
-
-    impl Drop for BackgroundPositionVertical { fn drop(&mut self) { az_background_position_vertical_delete(&mut self); } }
+    impl Drop for BackgroundPositionVertical { fn drop(&mut self) { (crate::dll::LIB.az_background_position_vertical_delete)(&mut self); } }
 
 
     /// `StyleBackgroundPosition` struct
-    pub struct StyleBackgroundPosition { pub(crate) object: AzStyleBackgroundPosition }
+    pub use crate::dll::AzStyleBackgroundPosition as StyleBackgroundPosition;
 
-    impl StyleBackgroundPosition {
-    }
-
-    impl Drop for StyleBackgroundPosition { fn drop(&mut self) { az_style_background_position_delete(&mut self); } }
+    impl Drop for StyleBackgroundPosition { fn drop(&mut self) { (crate::dll::LIB.az_style_background_position_delete)(&mut self); } }
 
 
     /// `StyleBackgroundRepeat` struct
-    pub struct StyleBackgroundRepeat { pub(crate) object: AzStyleBackgroundRepeat }
+    pub use crate::dll::AzStyleBackgroundRepeat as StyleBackgroundRepeat;
 
-    impl StyleBackgroundRepeat {
-        pub fn no_repeat() -> Self { az_style_background_repeat_no_repeat()  }
-        pub fn repeat() -> Self { az_style_background_repeat_repeat()  }
-        pub fn repeat_x() -> Self { az_style_background_repeat_repeat_x()  }
-        pub fn repeat_y() -> Self { az_style_background_repeat_repeat_y()  }
-    }
-
-    impl Drop for StyleBackgroundRepeat { fn drop(&mut self) { az_style_background_repeat_delete(&mut self); } }
+    impl Drop for StyleBackgroundRepeat { fn drop(&mut self) { (crate::dll::LIB.az_style_background_repeat_delete)(&mut self); } }
 
 
     /// `StyleBackgroundSize` struct
-    pub struct StyleBackgroundSize { pub(crate) object: AzStyleBackgroundSize }
+    pub use crate::dll::AzStyleBackgroundSize as StyleBackgroundSize;
 
-    impl StyleBackgroundSize {
-        pub fn exact_size(variant_data: [crate::css::PixelValue;2]) -> Self { az_style_background_size_exact_size(variant_data.leak())}
-        pub fn contain() -> Self { az_style_background_size_contain()  }
-        pub fn cover() -> Self { az_style_background_size_cover()  }
-    }
-
-    impl Drop for StyleBackgroundSize { fn drop(&mut self) { az_style_background_size_delete(&mut self); } }
+    impl Drop for StyleBackgroundSize { fn drop(&mut self) { (crate::dll::LIB.az_style_background_size_delete)(&mut self); } }
 
 
     /// `StyleBorderBottomColor` struct
-    pub struct StyleBorderBottomColor { pub(crate) object: AzStyleBorderBottomColor }
+    pub use crate::dll::AzStyleBorderBottomColor as StyleBorderBottomColor;
 
-    impl StyleBorderBottomColor {
-    }
-
-    impl Drop for StyleBorderBottomColor { fn drop(&mut self) { az_style_border_bottom_color_delete(&mut self); } }
+    impl Drop for StyleBorderBottomColor { fn drop(&mut self) { (crate::dll::LIB.az_style_border_bottom_color_delete)(&mut self); } }
 
 
     /// `StyleBorderBottomLeftRadius` struct
-    pub struct StyleBorderBottomLeftRadius { pub(crate) object: AzStyleBorderBottomLeftRadius }
+    pub use crate::dll::AzStyleBorderBottomLeftRadius as StyleBorderBottomLeftRadius;
 
-    impl StyleBorderBottomLeftRadius {
-    }
-
-    impl Drop for StyleBorderBottomLeftRadius { fn drop(&mut self) { az_style_border_bottom_left_radius_delete(&mut self); } }
+    impl Drop for StyleBorderBottomLeftRadius { fn drop(&mut self) { (crate::dll::LIB.az_style_border_bottom_left_radius_delete)(&mut self); } }
 
 
     /// `StyleBorderBottomRightRadius` struct
-    pub struct StyleBorderBottomRightRadius { pub(crate) object: AzStyleBorderBottomRightRadius }
+    pub use crate::dll::AzStyleBorderBottomRightRadius as StyleBorderBottomRightRadius;
 
-    impl StyleBorderBottomRightRadius {
-    }
-
-    impl Drop for StyleBorderBottomRightRadius { fn drop(&mut self) { az_style_border_bottom_right_radius_delete(&mut self); } }
+    impl Drop for StyleBorderBottomRightRadius { fn drop(&mut self) { (crate::dll::LIB.az_style_border_bottom_right_radius_delete)(&mut self); } }
 
 
     /// `BorderStyle` struct
-    pub struct BorderStyle { pub(crate) object: AzBorderStyle }
+    pub use crate::dll::AzBorderStyle as BorderStyle;
 
-    impl BorderStyle {
-        pub fn none() -> Self { az_border_style_none()  }
-        pub fn solid() -> Self { az_border_style_solid()  }
-        pub fn double() -> Self { az_border_style_double()  }
-        pub fn dotted() -> Self { az_border_style_dotted()  }
-        pub fn dashed() -> Self { az_border_style_dashed()  }
-        pub fn hidden() -> Self { az_border_style_hidden()  }
-        pub fn groove() -> Self { az_border_style_groove()  }
-        pub fn ridge() -> Self { az_border_style_ridge()  }
-        pub fn inset() -> Self { az_border_style_inset()  }
-        pub fn outset() -> Self { az_border_style_outset()  }
-    }
-
-    impl Drop for BorderStyle { fn drop(&mut self) { az_border_style_delete(&mut self); } }
+    impl Drop for BorderStyle { fn drop(&mut self) { (crate::dll::LIB.az_border_style_delete)(&mut self); } }
 
 
     /// `StyleBorderBottomStyle` struct
-    pub struct StyleBorderBottomStyle { pub(crate) object: AzStyleBorderBottomStyle }
+    pub use crate::dll::AzStyleBorderBottomStyle as StyleBorderBottomStyle;
 
-    impl StyleBorderBottomStyle {
-    }
-
-    impl Drop for StyleBorderBottomStyle { fn drop(&mut self) { az_style_border_bottom_style_delete(&mut self); } }
+    impl Drop for StyleBorderBottomStyle { fn drop(&mut self) { (crate::dll::LIB.az_style_border_bottom_style_delete)(&mut self); } }
 
 
     /// `StyleBorderBottomWidth` struct
-    pub struct StyleBorderBottomWidth { pub(crate) object: AzStyleBorderBottomWidth }
+    pub use crate::dll::AzStyleBorderBottomWidth as StyleBorderBottomWidth;
 
-    impl StyleBorderBottomWidth {
-    }
-
-    impl Drop for StyleBorderBottomWidth { fn drop(&mut self) { az_style_border_bottom_width_delete(&mut self); } }
+    impl Drop for StyleBorderBottomWidth { fn drop(&mut self) { (crate::dll::LIB.az_style_border_bottom_width_delete)(&mut self); } }
 
 
     /// `StyleBorderLeftColor` struct
-    pub struct StyleBorderLeftColor { pub(crate) object: AzStyleBorderLeftColor }
+    pub use crate::dll::AzStyleBorderLeftColor as StyleBorderLeftColor;
 
-    impl StyleBorderLeftColor {
-    }
-
-    impl Drop for StyleBorderLeftColor { fn drop(&mut self) { az_style_border_left_color_delete(&mut self); } }
+    impl Drop for StyleBorderLeftColor { fn drop(&mut self) { (crate::dll::LIB.az_style_border_left_color_delete)(&mut self); } }
 
 
     /// `StyleBorderLeftStyle` struct
-    pub struct StyleBorderLeftStyle { pub(crate) object: AzStyleBorderLeftStyle }
+    pub use crate::dll::AzStyleBorderLeftStyle as StyleBorderLeftStyle;
 
-    impl StyleBorderLeftStyle {
-    }
-
-    impl Drop for StyleBorderLeftStyle { fn drop(&mut self) { az_style_border_left_style_delete(&mut self); } }
+    impl Drop for StyleBorderLeftStyle { fn drop(&mut self) { (crate::dll::LIB.az_style_border_left_style_delete)(&mut self); } }
 
 
     /// `StyleBorderLeftWidth` struct
-    pub struct StyleBorderLeftWidth { pub(crate) object: AzStyleBorderLeftWidth }
+    pub use crate::dll::AzStyleBorderLeftWidth as StyleBorderLeftWidth;
 
-    impl StyleBorderLeftWidth {
-    }
-
-    impl Drop for StyleBorderLeftWidth { fn drop(&mut self) { az_style_border_left_width_delete(&mut self); } }
+    impl Drop for StyleBorderLeftWidth { fn drop(&mut self) { (crate::dll::LIB.az_style_border_left_width_delete)(&mut self); } }
 
 
     /// `StyleBorderRightColor` struct
-    pub struct StyleBorderRightColor { pub(crate) object: AzStyleBorderRightColor }
+    pub use crate::dll::AzStyleBorderRightColor as StyleBorderRightColor;
 
-    impl StyleBorderRightColor {
-    }
-
-    impl Drop for StyleBorderRightColor { fn drop(&mut self) { az_style_border_right_color_delete(&mut self); } }
+    impl Drop for StyleBorderRightColor { fn drop(&mut self) { (crate::dll::LIB.az_style_border_right_color_delete)(&mut self); } }
 
 
     /// `StyleBorderRightStyle` struct
-    pub struct StyleBorderRightStyle { pub(crate) object: AzStyleBorderRightStyle }
+    pub use crate::dll::AzStyleBorderRightStyle as StyleBorderRightStyle;
 
-    impl StyleBorderRightStyle {
-    }
-
-    impl Drop for StyleBorderRightStyle { fn drop(&mut self) { az_style_border_right_style_delete(&mut self); } }
+    impl Drop for StyleBorderRightStyle { fn drop(&mut self) { (crate::dll::LIB.az_style_border_right_style_delete)(&mut self); } }
 
 
     /// `StyleBorderRightWidth` struct
-    pub struct StyleBorderRightWidth { pub(crate) object: AzStyleBorderRightWidth }
+    pub use crate::dll::AzStyleBorderRightWidth as StyleBorderRightWidth;
 
-    impl StyleBorderRightWidth {
-    }
-
-    impl Drop for StyleBorderRightWidth { fn drop(&mut self) { az_style_border_right_width_delete(&mut self); } }
+    impl Drop for StyleBorderRightWidth { fn drop(&mut self) { (crate::dll::LIB.az_style_border_right_width_delete)(&mut self); } }
 
 
     /// `StyleBorderTopColor` struct
-    pub struct StyleBorderTopColor { pub(crate) object: AzStyleBorderTopColor }
+    pub use crate::dll::AzStyleBorderTopColor as StyleBorderTopColor;
 
-    impl StyleBorderTopColor {
-    }
-
-    impl Drop for StyleBorderTopColor { fn drop(&mut self) { az_style_border_top_color_delete(&mut self); } }
+    impl Drop for StyleBorderTopColor { fn drop(&mut self) { (crate::dll::LIB.az_style_border_top_color_delete)(&mut self); } }
 
 
     /// `StyleBorderTopLeftRadius` struct
-    pub struct StyleBorderTopLeftRadius { pub(crate) object: AzStyleBorderTopLeftRadius }
+    pub use crate::dll::AzStyleBorderTopLeftRadius as StyleBorderTopLeftRadius;
 
-    impl StyleBorderTopLeftRadius {
-    }
-
-    impl Drop for StyleBorderTopLeftRadius { fn drop(&mut self) { az_style_border_top_left_radius_delete(&mut self); } }
+    impl Drop for StyleBorderTopLeftRadius { fn drop(&mut self) { (crate::dll::LIB.az_style_border_top_left_radius_delete)(&mut self); } }
 
 
     /// `StyleBorderTopRightRadius` struct
-    pub struct StyleBorderTopRightRadius { pub(crate) object: AzStyleBorderTopRightRadius }
+    pub use crate::dll::AzStyleBorderTopRightRadius as StyleBorderTopRightRadius;
 
-    impl StyleBorderTopRightRadius {
-    }
-
-    impl Drop for StyleBorderTopRightRadius { fn drop(&mut self) { az_style_border_top_right_radius_delete(&mut self); } }
+    impl Drop for StyleBorderTopRightRadius { fn drop(&mut self) { (crate::dll::LIB.az_style_border_top_right_radius_delete)(&mut self); } }
 
 
     /// `StyleBorderTopStyle` struct
-    pub struct StyleBorderTopStyle { pub(crate) object: AzStyleBorderTopStyle }
+    pub use crate::dll::AzStyleBorderTopStyle as StyleBorderTopStyle;
 
-    impl StyleBorderTopStyle {
-    }
-
-    impl Drop for StyleBorderTopStyle { fn drop(&mut self) { az_style_border_top_style_delete(&mut self); } }
+    impl Drop for StyleBorderTopStyle { fn drop(&mut self) { (crate::dll::LIB.az_style_border_top_style_delete)(&mut self); } }
 
 
     /// `StyleBorderTopWidth` struct
-    pub struct StyleBorderTopWidth { pub(crate) object: AzStyleBorderTopWidth }
+    pub use crate::dll::AzStyleBorderTopWidth as StyleBorderTopWidth;
 
-    impl StyleBorderTopWidth {
-    }
-
-    impl Drop for StyleBorderTopWidth { fn drop(&mut self) { az_style_border_top_width_delete(&mut self); } }
+    impl Drop for StyleBorderTopWidth { fn drop(&mut self) { (crate::dll::LIB.az_style_border_top_width_delete)(&mut self); } }
 
 
     /// `StyleCursor` struct
-    pub struct StyleCursor { pub(crate) object: AzStyleCursor }
+    pub use crate::dll::AzStyleCursor as StyleCursor;
 
-    impl StyleCursor {
-        pub fn alias() -> Self { az_style_cursor_alias()  }
-        pub fn all_scroll() -> Self { az_style_cursor_all_scroll()  }
-        pub fn cell() -> Self { az_style_cursor_cell()  }
-        pub fn col_resize() -> Self { az_style_cursor_col_resize()  }
-        pub fn context_menu() -> Self { az_style_cursor_context_menu()  }
-        pub fn copy() -> Self { az_style_cursor_copy()  }
-        pub fn crosshair() -> Self { az_style_cursor_crosshair()  }
-        pub fn default() -> Self { az_style_cursor_default()  }
-        pub fn e_resize() -> Self { az_style_cursor_e_resize()  }
-        pub fn ew_resize() -> Self { az_style_cursor_ew_resize()  }
-        pub fn grab() -> Self { az_style_cursor_grab()  }
-        pub fn grabbing() -> Self { az_style_cursor_grabbing()  }
-        pub fn help() -> Self { az_style_cursor_help()  }
-        pub fn move() -> Self { az_style_cursor_move()  }
-        pub fn n_resize() -> Self { az_style_cursor_n_resize()  }
-        pub fn ns_resize() -> Self { az_style_cursor_ns_resize()  }
-        pub fn nesw_resize() -> Self { az_style_cursor_nesw_resize()  }
-        pub fn nwse_resize() -> Self { az_style_cursor_nwse_resize()  }
-        pub fn pointer() -> Self { az_style_cursor_pointer()  }
-        pub fn progress() -> Self { az_style_cursor_progress()  }
-        pub fn row_resize() -> Self { az_style_cursor_row_resize()  }
-        pub fn s_resize() -> Self { az_style_cursor_s_resize()  }
-        pub fn se_resize() -> Self { az_style_cursor_se_resize()  }
-        pub fn text() -> Self { az_style_cursor_text()  }
-        pub fn unset() -> Self { az_style_cursor_unset()  }
-        pub fn vertical_text() -> Self { az_style_cursor_vertical_text()  }
-        pub fn w_resize() -> Self { az_style_cursor_w_resize()  }
-        pub fn wait() -> Self { az_style_cursor_wait()  }
-        pub fn zoom_in() -> Self { az_style_cursor_zoom_in()  }
-        pub fn zoom_out() -> Self { az_style_cursor_zoom_out()  }
-    }
-
-    impl Drop for StyleCursor { fn drop(&mut self) { az_style_cursor_delete(&mut self); } }
+    impl Drop for StyleCursor { fn drop(&mut self) { (crate::dll::LIB.az_style_cursor_delete)(&mut self); } }
 
 
     /// `StyleFontFamily` struct
-    pub struct StyleFontFamily { pub(crate) object: AzStyleFontFamily }
+    pub use crate::dll::AzStyleFontFamily as StyleFontFamily;
 
-    impl StyleFontFamily {
-    }
-
-    impl Drop for StyleFontFamily { fn drop(&mut self) { az_style_font_family_delete(&mut self); } }
+    impl Drop for StyleFontFamily { fn drop(&mut self) { (crate::dll::LIB.az_style_font_family_delete)(&mut self); } }
 
 
     /// `StyleFontSize` struct
-    pub struct StyleFontSize { pub(crate) object: AzStyleFontSize }
+    pub use crate::dll::AzStyleFontSize as StyleFontSize;
 
-    impl StyleFontSize {
-    }
-
-    impl Drop for StyleFontSize { fn drop(&mut self) { az_style_font_size_delete(&mut self); } }
+    impl Drop for StyleFontSize { fn drop(&mut self) { (crate::dll::LIB.az_style_font_size_delete)(&mut self); } }
 
 
     /// `StyleLetterSpacing` struct
-    pub struct StyleLetterSpacing { pub(crate) object: AzStyleLetterSpacing }
+    pub use crate::dll::AzStyleLetterSpacing as StyleLetterSpacing;
 
-    impl StyleLetterSpacing {
-    }
-
-    impl Drop for StyleLetterSpacing { fn drop(&mut self) { az_style_letter_spacing_delete(&mut self); } }
+    impl Drop for StyleLetterSpacing { fn drop(&mut self) { (crate::dll::LIB.az_style_letter_spacing_delete)(&mut self); } }
 
 
     /// `StyleLineHeight` struct
-    pub struct StyleLineHeight { pub(crate) object: AzStyleLineHeight }
+    pub use crate::dll::AzStyleLineHeight as StyleLineHeight;
 
-    impl StyleLineHeight {
-    }
-
-    impl Drop for StyleLineHeight { fn drop(&mut self) { az_style_line_height_delete(&mut self); } }
+    impl Drop for StyleLineHeight { fn drop(&mut self) { (crate::dll::LIB.az_style_line_height_delete)(&mut self); } }
 
 
     /// `StyleTabWidth` struct
-    pub struct StyleTabWidth { pub(crate) object: AzStyleTabWidth }
+    pub use crate::dll::AzStyleTabWidth as StyleTabWidth;
 
-    impl StyleTabWidth {
-    }
-
-    impl Drop for StyleTabWidth { fn drop(&mut self) { az_style_tab_width_delete(&mut self); } }
+    impl Drop for StyleTabWidth { fn drop(&mut self) { (crate::dll::LIB.az_style_tab_width_delete)(&mut self); } }
 
 
     /// `StyleTextAlignmentHorz` struct
-    pub struct StyleTextAlignmentHorz { pub(crate) object: AzStyleTextAlignmentHorz }
+    pub use crate::dll::AzStyleTextAlignmentHorz as StyleTextAlignmentHorz;
 
-    impl StyleTextAlignmentHorz {
-        pub fn left() -> Self { az_style_text_alignment_horz_left()  }
-        pub fn center() -> Self { az_style_text_alignment_horz_center()  }
-        pub fn right() -> Self { az_style_text_alignment_horz_right()  }
-    }
-
-    impl Drop for StyleTextAlignmentHorz { fn drop(&mut self) { az_style_text_alignment_horz_delete(&mut self); } }
+    impl Drop for StyleTextAlignmentHorz { fn drop(&mut self) { (crate::dll::LIB.az_style_text_alignment_horz_delete)(&mut self); } }
 
 
     /// `StyleTextColor` struct
-    pub struct StyleTextColor { pub(crate) object: AzStyleTextColor }
+    pub use crate::dll::AzStyleTextColor as StyleTextColor;
 
-    impl StyleTextColor {
-    }
-
-    impl Drop for StyleTextColor { fn drop(&mut self) { az_style_text_color_delete(&mut self); } }
+    impl Drop for StyleTextColor { fn drop(&mut self) { (crate::dll::LIB.az_style_text_color_delete)(&mut self); } }
 
 
     /// `StyleWordSpacing` struct
-    pub struct StyleWordSpacing { pub(crate) object: AzStyleWordSpacing }
+    pub use crate::dll::AzStyleWordSpacing as StyleWordSpacing;
 
-    impl StyleWordSpacing {
-    }
-
-    impl Drop for StyleWordSpacing { fn drop(&mut self) { az_style_word_spacing_delete(&mut self); } }
+    impl Drop for StyleWordSpacing { fn drop(&mut self) { (crate::dll::LIB.az_style_word_spacing_delete)(&mut self); } }
 
 
     /// `BoxShadowPreDisplayItemValue` struct
-    pub struct BoxShadowPreDisplayItemValue { pub(crate) object: AzBoxShadowPreDisplayItemValue }
+    pub use crate::dll::AzBoxShadowPreDisplayItemValue as BoxShadowPreDisplayItemValue;
 
-    impl BoxShadowPreDisplayItemValue {
-        pub fn auto() -> Self { az_box_shadow_pre_display_item_value_auto()  }
-        pub fn none() -> Self { az_box_shadow_pre_display_item_value_none()  }
-        pub fn inherit() -> Self { az_box_shadow_pre_display_item_value_inherit()  }
-        pub fn initial() -> Self { az_box_shadow_pre_display_item_value_initial()  }
-        pub fn exact(variant_data: crate::css::BoxShadowPreDisplayItem) -> Self { az_box_shadow_pre_display_item_value_exact(variant_data.leak())}
-    }
-
-    impl Drop for BoxShadowPreDisplayItemValue { fn drop(&mut self) { az_box_shadow_pre_display_item_value_delete(&mut self); } }
+    impl Drop for BoxShadowPreDisplayItemValue { fn drop(&mut self) { (crate::dll::LIB.az_box_shadow_pre_display_item_value_delete)(&mut self); } }
 
 
     /// `LayoutAlignContentValue` struct
-    pub struct LayoutAlignContentValue { pub(crate) object: AzLayoutAlignContentValue }
+    pub use crate::dll::AzLayoutAlignContentValue as LayoutAlignContentValue;
 
-    impl LayoutAlignContentValue {
-        pub fn auto() -> Self { az_layout_align_content_value_auto()  }
-        pub fn none() -> Self { az_layout_align_content_value_none()  }
-        pub fn inherit() -> Self { az_layout_align_content_value_inherit()  }
-        pub fn initial() -> Self { az_layout_align_content_value_initial()  }
-        pub fn exact(variant_data: crate::css::LayoutAlignContent) -> Self { az_layout_align_content_value_exact(variant_data.leak())}
-    }
-
-    impl Drop for LayoutAlignContentValue { fn drop(&mut self) { az_layout_align_content_value_delete(&mut self); } }
+    impl Drop for LayoutAlignContentValue { fn drop(&mut self) { (crate::dll::LIB.az_layout_align_content_value_delete)(&mut self); } }
 
 
     /// `LayoutAlignItemsValue` struct
-    pub struct LayoutAlignItemsValue { pub(crate) object: AzLayoutAlignItemsValue }
+    pub use crate::dll::AzLayoutAlignItemsValue as LayoutAlignItemsValue;
 
-    impl LayoutAlignItemsValue {
-        pub fn auto() -> Self { az_layout_align_items_value_auto()  }
-        pub fn none() -> Self { az_layout_align_items_value_none()  }
-        pub fn inherit() -> Self { az_layout_align_items_value_inherit()  }
-        pub fn initial() -> Self { az_layout_align_items_value_initial()  }
-        pub fn exact(variant_data: crate::css::LayoutAlignItems) -> Self { az_layout_align_items_value_exact(variant_data.leak())}
-    }
-
-    impl Drop for LayoutAlignItemsValue { fn drop(&mut self) { az_layout_align_items_value_delete(&mut self); } }
+    impl Drop for LayoutAlignItemsValue { fn drop(&mut self) { (crate::dll::LIB.az_layout_align_items_value_delete)(&mut self); } }
 
 
     /// `LayoutBottomValue` struct
-    pub struct LayoutBottomValue { pub(crate) object: AzLayoutBottomValue }
+    pub use crate::dll::AzLayoutBottomValue as LayoutBottomValue;
 
-    impl LayoutBottomValue {
-        pub fn auto() -> Self { az_layout_bottom_value_auto()  }
-        pub fn none() -> Self { az_layout_bottom_value_none()  }
-        pub fn inherit() -> Self { az_layout_bottom_value_inherit()  }
-        pub fn initial() -> Self { az_layout_bottom_value_initial()  }
-        pub fn exact(variant_data: crate::css::LayoutBottom) -> Self { az_layout_bottom_value_exact(variant_data.leak())}
-    }
-
-    impl Drop for LayoutBottomValue { fn drop(&mut self) { az_layout_bottom_value_delete(&mut self); } }
+    impl Drop for LayoutBottomValue { fn drop(&mut self) { (crate::dll::LIB.az_layout_bottom_value_delete)(&mut self); } }
 
 
     /// `LayoutBoxSizingValue` struct
-    pub struct LayoutBoxSizingValue { pub(crate) object: AzLayoutBoxSizingValue }
+    pub use crate::dll::AzLayoutBoxSizingValue as LayoutBoxSizingValue;
 
-    impl LayoutBoxSizingValue {
-        pub fn auto() -> Self { az_layout_box_sizing_value_auto()  }
-        pub fn none() -> Self { az_layout_box_sizing_value_none()  }
-        pub fn inherit() -> Self { az_layout_box_sizing_value_inherit()  }
-        pub fn initial() -> Self { az_layout_box_sizing_value_initial()  }
-        pub fn exact(variant_data: crate::css::LayoutBoxSizing) -> Self { az_layout_box_sizing_value_exact(variant_data.leak())}
-    }
-
-    impl Drop for LayoutBoxSizingValue { fn drop(&mut self) { az_layout_box_sizing_value_delete(&mut self); } }
+    impl Drop for LayoutBoxSizingValue { fn drop(&mut self) { (crate::dll::LIB.az_layout_box_sizing_value_delete)(&mut self); } }
 
 
     /// `LayoutDirectionValue` struct
-    pub struct LayoutDirectionValue { pub(crate) object: AzLayoutDirectionValue }
+    pub use crate::dll::AzLayoutDirectionValue as LayoutDirectionValue;
 
-    impl LayoutDirectionValue {
-        pub fn auto() -> Self { az_layout_direction_value_auto()  }
-        pub fn none() -> Self { az_layout_direction_value_none()  }
-        pub fn inherit() -> Self { az_layout_direction_value_inherit()  }
-        pub fn initial() -> Self { az_layout_direction_value_initial()  }
-        pub fn exact(variant_data: crate::css::LayoutDirection) -> Self { az_layout_direction_value_exact(variant_data.leak())}
-    }
-
-    impl Drop for LayoutDirectionValue { fn drop(&mut self) { az_layout_direction_value_delete(&mut self); } }
+    impl Drop for LayoutDirectionValue { fn drop(&mut self) { (crate::dll::LIB.az_layout_direction_value_delete)(&mut self); } }
 
 
     /// `LayoutDisplayValue` struct
-    pub struct LayoutDisplayValue { pub(crate) object: AzLayoutDisplayValue }
+    pub use crate::dll::AzLayoutDisplayValue as LayoutDisplayValue;
 
-    impl LayoutDisplayValue {
-        pub fn auto() -> Self { az_layout_display_value_auto()  }
-        pub fn none() -> Self { az_layout_display_value_none()  }
-        pub fn inherit() -> Self { az_layout_display_value_inherit()  }
-        pub fn initial() -> Self { az_layout_display_value_initial()  }
-        pub fn exact(variant_data: crate::css::LayoutDisplay) -> Self { az_layout_display_value_exact(variant_data.leak())}
-    }
-
-    impl Drop for LayoutDisplayValue { fn drop(&mut self) { az_layout_display_value_delete(&mut self); } }
+    impl Drop for LayoutDisplayValue { fn drop(&mut self) { (crate::dll::LIB.az_layout_display_value_delete)(&mut self); } }
 
 
     /// `LayoutFlexGrowValue` struct
-    pub struct LayoutFlexGrowValue { pub(crate) object: AzLayoutFlexGrowValue }
+    pub use crate::dll::AzLayoutFlexGrowValue as LayoutFlexGrowValue;
 
-    impl LayoutFlexGrowValue {
-        pub fn auto() -> Self { az_layout_flex_grow_value_auto()  }
-        pub fn none() -> Self { az_layout_flex_grow_value_none()  }
-        pub fn inherit() -> Self { az_layout_flex_grow_value_inherit()  }
-        pub fn initial() -> Self { az_layout_flex_grow_value_initial()  }
-        pub fn exact(variant_data: crate::css::LayoutFlexGrow) -> Self { az_layout_flex_grow_value_exact(variant_data.leak())}
-    }
-
-    impl Drop for LayoutFlexGrowValue { fn drop(&mut self) { az_layout_flex_grow_value_delete(&mut self); } }
+    impl Drop for LayoutFlexGrowValue { fn drop(&mut self) { (crate::dll::LIB.az_layout_flex_grow_value_delete)(&mut self); } }
 
 
     /// `LayoutFlexShrinkValue` struct
-    pub struct LayoutFlexShrinkValue { pub(crate) object: AzLayoutFlexShrinkValue }
+    pub use crate::dll::AzLayoutFlexShrinkValue as LayoutFlexShrinkValue;
 
-    impl LayoutFlexShrinkValue {
-        pub fn auto() -> Self { az_layout_flex_shrink_value_auto()  }
-        pub fn none() -> Self { az_layout_flex_shrink_value_none()  }
-        pub fn inherit() -> Self { az_layout_flex_shrink_value_inherit()  }
-        pub fn initial() -> Self { az_layout_flex_shrink_value_initial()  }
-        pub fn exact(variant_data: crate::css::LayoutFlexShrink) -> Self { az_layout_flex_shrink_value_exact(variant_data.leak())}
-    }
-
-    impl Drop for LayoutFlexShrinkValue { fn drop(&mut self) { az_layout_flex_shrink_value_delete(&mut self); } }
+    impl Drop for LayoutFlexShrinkValue { fn drop(&mut self) { (crate::dll::LIB.az_layout_flex_shrink_value_delete)(&mut self); } }
 
 
     /// `LayoutFloatValue` struct
-    pub struct LayoutFloatValue { pub(crate) object: AzLayoutFloatValue }
+    pub use crate::dll::AzLayoutFloatValue as LayoutFloatValue;
 
-    impl LayoutFloatValue {
-        pub fn auto() -> Self { az_layout_float_value_auto()  }
-        pub fn none() -> Self { az_layout_float_value_none()  }
-        pub fn inherit() -> Self { az_layout_float_value_inherit()  }
-        pub fn initial() -> Self { az_layout_float_value_initial()  }
-        pub fn exact(variant_data: crate::css::LayoutFloat) -> Self { az_layout_float_value_exact(variant_data.leak())}
-    }
-
-    impl Drop for LayoutFloatValue { fn drop(&mut self) { az_layout_float_value_delete(&mut self); } }
+    impl Drop for LayoutFloatValue { fn drop(&mut self) { (crate::dll::LIB.az_layout_float_value_delete)(&mut self); } }
 
 
     /// `LayoutHeightValue` struct
-    pub struct LayoutHeightValue { pub(crate) object: AzLayoutHeightValue }
+    pub use crate::dll::AzLayoutHeightValue as LayoutHeightValue;
 
-    impl LayoutHeightValue {
-        pub fn auto() -> Self { az_layout_height_value_auto()  }
-        pub fn none() -> Self { az_layout_height_value_none()  }
-        pub fn inherit() -> Self { az_layout_height_value_inherit()  }
-        pub fn initial() -> Self { az_layout_height_value_initial()  }
-        pub fn exact(variant_data: crate::css::LayoutHeight) -> Self { az_layout_height_value_exact(variant_data.leak())}
-    }
-
-    impl Drop for LayoutHeightValue { fn drop(&mut self) { az_layout_height_value_delete(&mut self); } }
+    impl Drop for LayoutHeightValue { fn drop(&mut self) { (crate::dll::LIB.az_layout_height_value_delete)(&mut self); } }
 
 
     /// `LayoutJustifyContentValue` struct
-    pub struct LayoutJustifyContentValue { pub(crate) object: AzLayoutJustifyContentValue }
+    pub use crate::dll::AzLayoutJustifyContentValue as LayoutJustifyContentValue;
 
-    impl LayoutJustifyContentValue {
-        pub fn auto() -> Self { az_layout_justify_content_value_auto()  }
-        pub fn none() -> Self { az_layout_justify_content_value_none()  }
-        pub fn inherit() -> Self { az_layout_justify_content_value_inherit()  }
-        pub fn initial() -> Self { az_layout_justify_content_value_initial()  }
-        pub fn exact(variant_data: crate::css::LayoutJustifyContent) -> Self { az_layout_justify_content_value_exact(variant_data.leak())}
-    }
-
-    impl Drop for LayoutJustifyContentValue { fn drop(&mut self) { az_layout_justify_content_value_delete(&mut self); } }
+    impl Drop for LayoutJustifyContentValue { fn drop(&mut self) { (crate::dll::LIB.az_layout_justify_content_value_delete)(&mut self); } }
 
 
     /// `LayoutLeftValue` struct
-    pub struct LayoutLeftValue { pub(crate) object: AzLayoutLeftValue }
+    pub use crate::dll::AzLayoutLeftValue as LayoutLeftValue;
 
-    impl LayoutLeftValue {
-        pub fn auto() -> Self { az_layout_left_value_auto()  }
-        pub fn none() -> Self { az_layout_left_value_none()  }
-        pub fn inherit() -> Self { az_layout_left_value_inherit()  }
-        pub fn initial() -> Self { az_layout_left_value_initial()  }
-        pub fn exact(variant_data: crate::css::LayoutLeft) -> Self { az_layout_left_value_exact(variant_data.leak())}
-    }
-
-    impl Drop for LayoutLeftValue { fn drop(&mut self) { az_layout_left_value_delete(&mut self); } }
+    impl Drop for LayoutLeftValue { fn drop(&mut self) { (crate::dll::LIB.az_layout_left_value_delete)(&mut self); } }
 
 
     /// `LayoutMarginBottomValue` struct
-    pub struct LayoutMarginBottomValue { pub(crate) object: AzLayoutMarginBottomValue }
+    pub use crate::dll::AzLayoutMarginBottomValue as LayoutMarginBottomValue;
 
-    impl LayoutMarginBottomValue {
-        pub fn auto() -> Self { az_layout_margin_bottom_value_auto()  }
-        pub fn none() -> Self { az_layout_margin_bottom_value_none()  }
-        pub fn inherit() -> Self { az_layout_margin_bottom_value_inherit()  }
-        pub fn initial() -> Self { az_layout_margin_bottom_value_initial()  }
-        pub fn exact(variant_data: crate::css::LayoutMarginBottom) -> Self { az_layout_margin_bottom_value_exact(variant_data.leak())}
-    }
-
-    impl Drop for LayoutMarginBottomValue { fn drop(&mut self) { az_layout_margin_bottom_value_delete(&mut self); } }
+    impl Drop for LayoutMarginBottomValue { fn drop(&mut self) { (crate::dll::LIB.az_layout_margin_bottom_value_delete)(&mut self); } }
 
 
     /// `LayoutMarginLeftValue` struct
-    pub struct LayoutMarginLeftValue { pub(crate) object: AzLayoutMarginLeftValue }
+    pub use crate::dll::AzLayoutMarginLeftValue as LayoutMarginLeftValue;
 
-    impl LayoutMarginLeftValue {
-        pub fn auto() -> Self { az_layout_margin_left_value_auto()  }
-        pub fn none() -> Self { az_layout_margin_left_value_none()  }
-        pub fn inherit() -> Self { az_layout_margin_left_value_inherit()  }
-        pub fn initial() -> Self { az_layout_margin_left_value_initial()  }
-        pub fn exact(variant_data: crate::css::LayoutMarginLeft) -> Self { az_layout_margin_left_value_exact(variant_data.leak())}
-    }
-
-    impl Drop for LayoutMarginLeftValue { fn drop(&mut self) { az_layout_margin_left_value_delete(&mut self); } }
+    impl Drop for LayoutMarginLeftValue { fn drop(&mut self) { (crate::dll::LIB.az_layout_margin_left_value_delete)(&mut self); } }
 
 
     /// `LayoutMarginRightValue` struct
-    pub struct LayoutMarginRightValue { pub(crate) object: AzLayoutMarginRightValue }
+    pub use crate::dll::AzLayoutMarginRightValue as LayoutMarginRightValue;
 
-    impl LayoutMarginRightValue {
-        pub fn auto() -> Self { az_layout_margin_right_value_auto()  }
-        pub fn none() -> Self { az_layout_margin_right_value_none()  }
-        pub fn inherit() -> Self { az_layout_margin_right_value_inherit()  }
-        pub fn initial() -> Self { az_layout_margin_right_value_initial()  }
-        pub fn exact(variant_data: crate::css::LayoutMarginRight) -> Self { az_layout_margin_right_value_exact(variant_data.leak())}
-    }
-
-    impl Drop for LayoutMarginRightValue { fn drop(&mut self) { az_layout_margin_right_value_delete(&mut self); } }
+    impl Drop for LayoutMarginRightValue { fn drop(&mut self) { (crate::dll::LIB.az_layout_margin_right_value_delete)(&mut self); } }
 
 
     /// `LayoutMarginTopValue` struct
-    pub struct LayoutMarginTopValue { pub(crate) object: AzLayoutMarginTopValue }
+    pub use crate::dll::AzLayoutMarginTopValue as LayoutMarginTopValue;
 
-    impl LayoutMarginTopValue {
-        pub fn auto() -> Self { az_layout_margin_top_value_auto()  }
-        pub fn none() -> Self { az_layout_margin_top_value_none()  }
-        pub fn inherit() -> Self { az_layout_margin_top_value_inherit()  }
-        pub fn initial() -> Self { az_layout_margin_top_value_initial()  }
-        pub fn exact(variant_data: crate::css::LayoutMarginTop) -> Self { az_layout_margin_top_value_exact(variant_data.leak())}
-    }
-
-    impl Drop for LayoutMarginTopValue { fn drop(&mut self) { az_layout_margin_top_value_delete(&mut self); } }
+    impl Drop for LayoutMarginTopValue { fn drop(&mut self) { (crate::dll::LIB.az_layout_margin_top_value_delete)(&mut self); } }
 
 
     /// `LayoutMaxHeightValue` struct
-    pub struct LayoutMaxHeightValue { pub(crate) object: AzLayoutMaxHeightValue }
+    pub use crate::dll::AzLayoutMaxHeightValue as LayoutMaxHeightValue;
 
-    impl LayoutMaxHeightValue {
-        pub fn auto() -> Self { az_layout_max_height_value_auto()  }
-        pub fn none() -> Self { az_layout_max_height_value_none()  }
-        pub fn inherit() -> Self { az_layout_max_height_value_inherit()  }
-        pub fn initial() -> Self { az_layout_max_height_value_initial()  }
-        pub fn exact(variant_data: crate::css::LayoutMaxHeight) -> Self { az_layout_max_height_value_exact(variant_data.leak())}
-    }
-
-    impl Drop for LayoutMaxHeightValue { fn drop(&mut self) { az_layout_max_height_value_delete(&mut self); } }
+    impl Drop for LayoutMaxHeightValue { fn drop(&mut self) { (crate::dll::LIB.az_layout_max_height_value_delete)(&mut self); } }
 
 
     /// `LayoutMaxWidthValue` struct
-    pub struct LayoutMaxWidthValue { pub(crate) object: AzLayoutMaxWidthValue }
+    pub use crate::dll::AzLayoutMaxWidthValue as LayoutMaxWidthValue;
 
-    impl LayoutMaxWidthValue {
-        pub fn auto() -> Self { az_layout_max_width_value_auto()  }
-        pub fn none() -> Self { az_layout_max_width_value_none()  }
-        pub fn inherit() -> Self { az_layout_max_width_value_inherit()  }
-        pub fn initial() -> Self { az_layout_max_width_value_initial()  }
-        pub fn exact(variant_data: crate::css::LayoutMaxWidth) -> Self { az_layout_max_width_value_exact(variant_data.leak())}
-    }
-
-    impl Drop for LayoutMaxWidthValue { fn drop(&mut self) { az_layout_max_width_value_delete(&mut self); } }
+    impl Drop for LayoutMaxWidthValue { fn drop(&mut self) { (crate::dll::LIB.az_layout_max_width_value_delete)(&mut self); } }
 
 
     /// `LayoutMinHeightValue` struct
-    pub struct LayoutMinHeightValue { pub(crate) object: AzLayoutMinHeightValue }
+    pub use crate::dll::AzLayoutMinHeightValue as LayoutMinHeightValue;
 
-    impl LayoutMinHeightValue {
-        pub fn auto() -> Self { az_layout_min_height_value_auto()  }
-        pub fn none() -> Self { az_layout_min_height_value_none()  }
-        pub fn inherit() -> Self { az_layout_min_height_value_inherit()  }
-        pub fn initial() -> Self { az_layout_min_height_value_initial()  }
-        pub fn exact(variant_data: crate::css::LayoutMinHeight) -> Self { az_layout_min_height_value_exact(variant_data.leak())}
-    }
-
-    impl Drop for LayoutMinHeightValue { fn drop(&mut self) { az_layout_min_height_value_delete(&mut self); } }
+    impl Drop for LayoutMinHeightValue { fn drop(&mut self) { (crate::dll::LIB.az_layout_min_height_value_delete)(&mut self); } }
 
 
     /// `LayoutMinWidthValue` struct
-    pub struct LayoutMinWidthValue { pub(crate) object: AzLayoutMinWidthValue }
+    pub use crate::dll::AzLayoutMinWidthValue as LayoutMinWidthValue;
 
-    impl LayoutMinWidthValue {
-        pub fn auto() -> Self { az_layout_min_width_value_auto()  }
-        pub fn none() -> Self { az_layout_min_width_value_none()  }
-        pub fn inherit() -> Self { az_layout_min_width_value_inherit()  }
-        pub fn initial() -> Self { az_layout_min_width_value_initial()  }
-        pub fn exact(variant_data: crate::css::LayoutMinWidth) -> Self { az_layout_min_width_value_exact(variant_data.leak())}
-    }
-
-    impl Drop for LayoutMinWidthValue { fn drop(&mut self) { az_layout_min_width_value_delete(&mut self); } }
+    impl Drop for LayoutMinWidthValue { fn drop(&mut self) { (crate::dll::LIB.az_layout_min_width_value_delete)(&mut self); } }
 
 
     /// `LayoutPaddingBottomValue` struct
-    pub struct LayoutPaddingBottomValue { pub(crate) object: AzLayoutPaddingBottomValue }
+    pub use crate::dll::AzLayoutPaddingBottomValue as LayoutPaddingBottomValue;
 
-    impl LayoutPaddingBottomValue {
-        pub fn auto() -> Self { az_layout_padding_bottom_value_auto()  }
-        pub fn none() -> Self { az_layout_padding_bottom_value_none()  }
-        pub fn inherit() -> Self { az_layout_padding_bottom_value_inherit()  }
-        pub fn initial() -> Self { az_layout_padding_bottom_value_initial()  }
-        pub fn exact(variant_data: crate::css::LayoutPaddingBottom) -> Self { az_layout_padding_bottom_value_exact(variant_data.leak())}
-    }
-
-    impl Drop for LayoutPaddingBottomValue { fn drop(&mut self) { az_layout_padding_bottom_value_delete(&mut self); } }
+    impl Drop for LayoutPaddingBottomValue { fn drop(&mut self) { (crate::dll::LIB.az_layout_padding_bottom_value_delete)(&mut self); } }
 
 
     /// `LayoutPaddingLeftValue` struct
-    pub struct LayoutPaddingLeftValue { pub(crate) object: AzLayoutPaddingLeftValue }
+    pub use crate::dll::AzLayoutPaddingLeftValue as LayoutPaddingLeftValue;
 
-    impl LayoutPaddingLeftValue {
-        pub fn auto() -> Self { az_layout_padding_left_value_auto()  }
-        pub fn none() -> Self { az_layout_padding_left_value_none()  }
-        pub fn inherit() -> Self { az_layout_padding_left_value_inherit()  }
-        pub fn initial() -> Self { az_layout_padding_left_value_initial()  }
-        pub fn exact(variant_data: crate::css::LayoutPaddingLeft) -> Self { az_layout_padding_left_value_exact(variant_data.leak())}
-    }
-
-    impl Drop for LayoutPaddingLeftValue { fn drop(&mut self) { az_layout_padding_left_value_delete(&mut self); } }
+    impl Drop for LayoutPaddingLeftValue { fn drop(&mut self) { (crate::dll::LIB.az_layout_padding_left_value_delete)(&mut self); } }
 
 
     /// `LayoutPaddingRightValue` struct
-    pub struct LayoutPaddingRightValue { pub(crate) object: AzLayoutPaddingRightValue }
+    pub use crate::dll::AzLayoutPaddingRightValue as LayoutPaddingRightValue;
 
-    impl LayoutPaddingRightValue {
-        pub fn auto() -> Self { az_layout_padding_right_value_auto()  }
-        pub fn none() -> Self { az_layout_padding_right_value_none()  }
-        pub fn inherit() -> Self { az_layout_padding_right_value_inherit()  }
-        pub fn initial() -> Self { az_layout_padding_right_value_initial()  }
-        pub fn exact(variant_data: crate::css::LayoutPaddingRight) -> Self { az_layout_padding_right_value_exact(variant_data.leak())}
-    }
-
-    impl Drop for LayoutPaddingRightValue { fn drop(&mut self) { az_layout_padding_right_value_delete(&mut self); } }
+    impl Drop for LayoutPaddingRightValue { fn drop(&mut self) { (crate::dll::LIB.az_layout_padding_right_value_delete)(&mut self); } }
 
 
     /// `LayoutPaddingTopValue` struct
-    pub struct LayoutPaddingTopValue { pub(crate) object: AzLayoutPaddingTopValue }
+    pub use crate::dll::AzLayoutPaddingTopValue as LayoutPaddingTopValue;
 
-    impl LayoutPaddingTopValue {
-        pub fn auto() -> Self { az_layout_padding_top_value_auto()  }
-        pub fn none() -> Self { az_layout_padding_top_value_none()  }
-        pub fn inherit() -> Self { az_layout_padding_top_value_inherit()  }
-        pub fn initial() -> Self { az_layout_padding_top_value_initial()  }
-        pub fn exact(variant_data: crate::css::LayoutPaddingTop) -> Self { az_layout_padding_top_value_exact(variant_data.leak())}
-    }
-
-    impl Drop for LayoutPaddingTopValue { fn drop(&mut self) { az_layout_padding_top_value_delete(&mut self); } }
+    impl Drop for LayoutPaddingTopValue { fn drop(&mut self) { (crate::dll::LIB.az_layout_padding_top_value_delete)(&mut self); } }
 
 
     /// `LayoutPositionValue` struct
-    pub struct LayoutPositionValue { pub(crate) object: AzLayoutPositionValue }
+    pub use crate::dll::AzLayoutPositionValue as LayoutPositionValue;
 
-    impl LayoutPositionValue {
-        pub fn auto() -> Self { az_layout_position_value_auto()  }
-        pub fn none() -> Self { az_layout_position_value_none()  }
-        pub fn inherit() -> Self { az_layout_position_value_inherit()  }
-        pub fn initial() -> Self { az_layout_position_value_initial()  }
-        pub fn exact(variant_data: crate::css::LayoutPosition) -> Self { az_layout_position_value_exact(variant_data.leak())}
-    }
-
-    impl Drop for LayoutPositionValue { fn drop(&mut self) { az_layout_position_value_delete(&mut self); } }
+    impl Drop for LayoutPositionValue { fn drop(&mut self) { (crate::dll::LIB.az_layout_position_value_delete)(&mut self); } }
 
 
     /// `LayoutRightValue` struct
-    pub struct LayoutRightValue { pub(crate) object: AzLayoutRightValue }
+    pub use crate::dll::AzLayoutRightValue as LayoutRightValue;
 
-    impl LayoutRightValue {
-        pub fn auto() -> Self { az_layout_right_value_auto()  }
-        pub fn none() -> Self { az_layout_right_value_none()  }
-        pub fn inherit() -> Self { az_layout_right_value_inherit()  }
-        pub fn initial() -> Self { az_layout_right_value_initial()  }
-        pub fn exact(variant_data: crate::css::LayoutRight) -> Self { az_layout_right_value_exact(variant_data.leak())}
-    }
-
-    impl Drop for LayoutRightValue { fn drop(&mut self) { az_layout_right_value_delete(&mut self); } }
+    impl Drop for LayoutRightValue { fn drop(&mut self) { (crate::dll::LIB.az_layout_right_value_delete)(&mut self); } }
 
 
     /// `LayoutTopValue` struct
-    pub struct LayoutTopValue { pub(crate) object: AzLayoutTopValue }
+    pub use crate::dll::AzLayoutTopValue as LayoutTopValue;
 
-    impl LayoutTopValue {
-        pub fn auto() -> Self { az_layout_top_value_auto()  }
-        pub fn none() -> Self { az_layout_top_value_none()  }
-        pub fn inherit() -> Self { az_layout_top_value_inherit()  }
-        pub fn initial() -> Self { az_layout_top_value_initial()  }
-        pub fn exact(variant_data: crate::css::LayoutTop) -> Self { az_layout_top_value_exact(variant_data.leak())}
-    }
-
-    impl Drop for LayoutTopValue { fn drop(&mut self) { az_layout_top_value_delete(&mut self); } }
+    impl Drop for LayoutTopValue { fn drop(&mut self) { (crate::dll::LIB.az_layout_top_value_delete)(&mut self); } }
 
 
     /// `LayoutWidthValue` struct
-    pub struct LayoutWidthValue { pub(crate) object: AzLayoutWidthValue }
+    pub use crate::dll::AzLayoutWidthValue as LayoutWidthValue;
 
-    impl LayoutWidthValue {
-        pub fn auto() -> Self { az_layout_width_value_auto()  }
-        pub fn none() -> Self { az_layout_width_value_none()  }
-        pub fn inherit() -> Self { az_layout_width_value_inherit()  }
-        pub fn initial() -> Self { az_layout_width_value_initial()  }
-        pub fn exact(variant_data: crate::css::LayoutWidth) -> Self { az_layout_width_value_exact(variant_data.leak())}
-    }
-
-    impl Drop for LayoutWidthValue { fn drop(&mut self) { az_layout_width_value_delete(&mut self); } }
+    impl Drop for LayoutWidthValue { fn drop(&mut self) { (crate::dll::LIB.az_layout_width_value_delete)(&mut self); } }
 
 
     /// `LayoutWrapValue` struct
-    pub struct LayoutWrapValue { pub(crate) object: AzLayoutWrapValue }
+    pub use crate::dll::AzLayoutWrapValue as LayoutWrapValue;
 
-    impl LayoutWrapValue {
-        pub fn auto() -> Self { az_layout_wrap_value_auto()  }
-        pub fn none() -> Self { az_layout_wrap_value_none()  }
-        pub fn inherit() -> Self { az_layout_wrap_value_inherit()  }
-        pub fn initial() -> Self { az_layout_wrap_value_initial()  }
-        pub fn exact(variant_data: crate::css::LayoutWrap) -> Self { az_layout_wrap_value_exact(variant_data.leak())}
-    }
-
-    impl Drop for LayoutWrapValue { fn drop(&mut self) { az_layout_wrap_value_delete(&mut self); } }
+    impl Drop for LayoutWrapValue { fn drop(&mut self) { (crate::dll::LIB.az_layout_wrap_value_delete)(&mut self); } }
 
 
     /// `OverflowValue` struct
-    pub struct OverflowValue { pub(crate) object: AzOverflowValue }
+    pub use crate::dll::AzOverflowValue as OverflowValue;
 
-    impl OverflowValue {
-        pub fn auto() -> Self { az_overflow_value_auto()  }
-        pub fn none() -> Self { az_overflow_value_none()  }
-        pub fn inherit() -> Self { az_overflow_value_inherit()  }
-        pub fn initial() -> Self { az_overflow_value_initial()  }
-        pub fn exact(variant_data: crate::css::Overflow) -> Self { az_overflow_value_exact(variant_data.leak())}
-    }
-
-    impl Drop for OverflowValue { fn drop(&mut self) { az_overflow_value_delete(&mut self); } }
+    impl Drop for OverflowValue { fn drop(&mut self) { (crate::dll::LIB.az_overflow_value_delete)(&mut self); } }
 
 
     /// `StyleBackgroundContentValue` struct
-    pub struct StyleBackgroundContentValue { pub(crate) object: AzStyleBackgroundContentValue }
+    pub use crate::dll::AzStyleBackgroundContentValue as StyleBackgroundContentValue;
 
-    impl StyleBackgroundContentValue {
-        pub fn auto() -> Self { az_style_background_content_value_auto()  }
-        pub fn none() -> Self { az_style_background_content_value_none()  }
-        pub fn inherit() -> Self { az_style_background_content_value_inherit()  }
-        pub fn initial() -> Self { az_style_background_content_value_initial()  }
-        pub fn exact(variant_data: crate::css::StyleBackgroundContent) -> Self { az_style_background_content_value_exact(variant_data.leak())}
-    }
-
-    impl Drop for StyleBackgroundContentValue { fn drop(&mut self) { az_style_background_content_value_delete(&mut self); } }
+    impl Drop for StyleBackgroundContentValue { fn drop(&mut self) { (crate::dll::LIB.az_style_background_content_value_delete)(&mut self); } }
 
 
     /// `StyleBackgroundPositionValue` struct
-    pub struct StyleBackgroundPositionValue { pub(crate) object: AzStyleBackgroundPositionValue }
+    pub use crate::dll::AzStyleBackgroundPositionValue as StyleBackgroundPositionValue;
 
-    impl StyleBackgroundPositionValue {
-        pub fn auto() -> Self { az_style_background_position_value_auto()  }
-        pub fn none() -> Self { az_style_background_position_value_none()  }
-        pub fn inherit() -> Self { az_style_background_position_value_inherit()  }
-        pub fn initial() -> Self { az_style_background_position_value_initial()  }
-        pub fn exact(variant_data: crate::css::StyleBackgroundPosition) -> Self { az_style_background_position_value_exact(variant_data.leak())}
-    }
-
-    impl Drop for StyleBackgroundPositionValue { fn drop(&mut self) { az_style_background_position_value_delete(&mut self); } }
+    impl Drop for StyleBackgroundPositionValue { fn drop(&mut self) { (crate::dll::LIB.az_style_background_position_value_delete)(&mut self); } }
 
 
     /// `StyleBackgroundRepeatValue` struct
-    pub struct StyleBackgroundRepeatValue { pub(crate) object: AzStyleBackgroundRepeatValue }
+    pub use crate::dll::AzStyleBackgroundRepeatValue as StyleBackgroundRepeatValue;
 
-    impl StyleBackgroundRepeatValue {
-        pub fn auto() -> Self { az_style_background_repeat_value_auto()  }
-        pub fn none() -> Self { az_style_background_repeat_value_none()  }
-        pub fn inherit() -> Self { az_style_background_repeat_value_inherit()  }
-        pub fn initial() -> Self { az_style_background_repeat_value_initial()  }
-        pub fn exact(variant_data: crate::css::StyleBackgroundRepeat) -> Self { az_style_background_repeat_value_exact(variant_data.leak())}
-    }
-
-    impl Drop for StyleBackgroundRepeatValue { fn drop(&mut self) { az_style_background_repeat_value_delete(&mut self); } }
+    impl Drop for StyleBackgroundRepeatValue { fn drop(&mut self) { (crate::dll::LIB.az_style_background_repeat_value_delete)(&mut self); } }
 
 
     /// `StyleBackgroundSizeValue` struct
-    pub struct StyleBackgroundSizeValue { pub(crate) object: AzStyleBackgroundSizeValue }
+    pub use crate::dll::AzStyleBackgroundSizeValue as StyleBackgroundSizeValue;
 
-    impl StyleBackgroundSizeValue {
-        pub fn auto() -> Self { az_style_background_size_value_auto()  }
-        pub fn none() -> Self { az_style_background_size_value_none()  }
-        pub fn inherit() -> Self { az_style_background_size_value_inherit()  }
-        pub fn initial() -> Self { az_style_background_size_value_initial()  }
-        pub fn exact(variant_data: crate::css::StyleBackgroundSize) -> Self { az_style_background_size_value_exact(variant_data.leak())}
-    }
-
-    impl Drop for StyleBackgroundSizeValue { fn drop(&mut self) { az_style_background_size_value_delete(&mut self); } }
+    impl Drop for StyleBackgroundSizeValue { fn drop(&mut self) { (crate::dll::LIB.az_style_background_size_value_delete)(&mut self); } }
 
 
     /// `StyleBorderBottomColorValue` struct
-    pub struct StyleBorderBottomColorValue { pub(crate) object: AzStyleBorderBottomColorValue }
+    pub use crate::dll::AzStyleBorderBottomColorValue as StyleBorderBottomColorValue;
 
-    impl StyleBorderBottomColorValue {
-        pub fn auto() -> Self { az_style_border_bottom_color_value_auto()  }
-        pub fn none() -> Self { az_style_border_bottom_color_value_none()  }
-        pub fn inherit() -> Self { az_style_border_bottom_color_value_inherit()  }
-        pub fn initial() -> Self { az_style_border_bottom_color_value_initial()  }
-        pub fn exact(variant_data: crate::css::StyleBorderBottomColor) -> Self { az_style_border_bottom_color_value_exact(variant_data.leak())}
-    }
-
-    impl Drop for StyleBorderBottomColorValue { fn drop(&mut self) { az_style_border_bottom_color_value_delete(&mut self); } }
+    impl Drop for StyleBorderBottomColorValue { fn drop(&mut self) { (crate::dll::LIB.az_style_border_bottom_color_value_delete)(&mut self); } }
 
 
     /// `StyleBorderBottomLeftRadiusValue` struct
-    pub struct StyleBorderBottomLeftRadiusValue { pub(crate) object: AzStyleBorderBottomLeftRadiusValue }
+    pub use crate::dll::AzStyleBorderBottomLeftRadiusValue as StyleBorderBottomLeftRadiusValue;
 
-    impl StyleBorderBottomLeftRadiusValue {
-        pub fn auto() -> Self { az_style_border_bottom_left_radius_value_auto()  }
-        pub fn none() -> Self { az_style_border_bottom_left_radius_value_none()  }
-        pub fn inherit() -> Self { az_style_border_bottom_left_radius_value_inherit()  }
-        pub fn initial() -> Self { az_style_border_bottom_left_radius_value_initial()  }
-        pub fn exact(variant_data: crate::css::StyleBorderBottomLeftRadius) -> Self { az_style_border_bottom_left_radius_value_exact(variant_data.leak())}
-    }
-
-    impl Drop for StyleBorderBottomLeftRadiusValue { fn drop(&mut self) { az_style_border_bottom_left_radius_value_delete(&mut self); } }
+    impl Drop for StyleBorderBottomLeftRadiusValue { fn drop(&mut self) { (crate::dll::LIB.az_style_border_bottom_left_radius_value_delete)(&mut self); } }
 
 
     /// `StyleBorderBottomRightRadiusValue` struct
-    pub struct StyleBorderBottomRightRadiusValue { pub(crate) object: AzStyleBorderBottomRightRadiusValue }
+    pub use crate::dll::AzStyleBorderBottomRightRadiusValue as StyleBorderBottomRightRadiusValue;
 
-    impl StyleBorderBottomRightRadiusValue {
-        pub fn auto() -> Self { az_style_border_bottom_right_radius_value_auto()  }
-        pub fn none() -> Self { az_style_border_bottom_right_radius_value_none()  }
-        pub fn inherit() -> Self { az_style_border_bottom_right_radius_value_inherit()  }
-        pub fn initial() -> Self { az_style_border_bottom_right_radius_value_initial()  }
-        pub fn exact(variant_data: crate::css::StyleBorderBottomRightRadius) -> Self { az_style_border_bottom_right_radius_value_exact(variant_data.leak())}
-    }
-
-    impl Drop for StyleBorderBottomRightRadiusValue { fn drop(&mut self) { az_style_border_bottom_right_radius_value_delete(&mut self); } }
+    impl Drop for StyleBorderBottomRightRadiusValue { fn drop(&mut self) { (crate::dll::LIB.az_style_border_bottom_right_radius_value_delete)(&mut self); } }
 
 
     /// `StyleBorderBottomStyleValue` struct
-    pub struct StyleBorderBottomStyleValue { pub(crate) object: AzStyleBorderBottomStyleValue }
+    pub use crate::dll::AzStyleBorderBottomStyleValue as StyleBorderBottomStyleValue;
 
-    impl StyleBorderBottomStyleValue {
-        pub fn auto() -> Self { az_style_border_bottom_style_value_auto()  }
-        pub fn none() -> Self { az_style_border_bottom_style_value_none()  }
-        pub fn inherit() -> Self { az_style_border_bottom_style_value_inherit()  }
-        pub fn initial() -> Self { az_style_border_bottom_style_value_initial()  }
-        pub fn exact(variant_data: crate::css::StyleBorderBottomStyle) -> Self { az_style_border_bottom_style_value_exact(variant_data.leak())}
-    }
-
-    impl Drop for StyleBorderBottomStyleValue { fn drop(&mut self) { az_style_border_bottom_style_value_delete(&mut self); } }
+    impl Drop for StyleBorderBottomStyleValue { fn drop(&mut self) { (crate::dll::LIB.az_style_border_bottom_style_value_delete)(&mut self); } }
 
 
     /// `StyleBorderBottomWidthValue` struct
-    pub struct StyleBorderBottomWidthValue { pub(crate) object: AzStyleBorderBottomWidthValue }
+    pub use crate::dll::AzStyleBorderBottomWidthValue as StyleBorderBottomWidthValue;
 
-    impl StyleBorderBottomWidthValue {
-        pub fn auto() -> Self { az_style_border_bottom_width_value_auto()  }
-        pub fn none() -> Self { az_style_border_bottom_width_value_none()  }
-        pub fn inherit() -> Self { az_style_border_bottom_width_value_inherit()  }
-        pub fn initial() -> Self { az_style_border_bottom_width_value_initial()  }
-        pub fn exact(variant_data: crate::css::StyleBorderBottomWidth) -> Self { az_style_border_bottom_width_value_exact(variant_data.leak())}
-    }
-
-    impl Drop for StyleBorderBottomWidthValue { fn drop(&mut self) { az_style_border_bottom_width_value_delete(&mut self); } }
+    impl Drop for StyleBorderBottomWidthValue { fn drop(&mut self) { (crate::dll::LIB.az_style_border_bottom_width_value_delete)(&mut self); } }
 
 
     /// `StyleBorderLeftColorValue` struct
-    pub struct StyleBorderLeftColorValue { pub(crate) object: AzStyleBorderLeftColorValue }
+    pub use crate::dll::AzStyleBorderLeftColorValue as StyleBorderLeftColorValue;
 
-    impl StyleBorderLeftColorValue {
-        pub fn auto() -> Self { az_style_border_left_color_value_auto()  }
-        pub fn none() -> Self { az_style_border_left_color_value_none()  }
-        pub fn inherit() -> Self { az_style_border_left_color_value_inherit()  }
-        pub fn initial() -> Self { az_style_border_left_color_value_initial()  }
-        pub fn exact(variant_data: crate::css::StyleBorderLeftColor) -> Self { az_style_border_left_color_value_exact(variant_data.leak())}
-    }
-
-    impl Drop for StyleBorderLeftColorValue { fn drop(&mut self) { az_style_border_left_color_value_delete(&mut self); } }
+    impl Drop for StyleBorderLeftColorValue { fn drop(&mut self) { (crate::dll::LIB.az_style_border_left_color_value_delete)(&mut self); } }
 
 
     /// `StyleBorderLeftStyleValue` struct
-    pub struct StyleBorderLeftStyleValue { pub(crate) object: AzStyleBorderLeftStyleValue }
+    pub use crate::dll::AzStyleBorderLeftStyleValue as StyleBorderLeftStyleValue;
 
-    impl StyleBorderLeftStyleValue {
-        pub fn auto() -> Self { az_style_border_left_style_value_auto()  }
-        pub fn none() -> Self { az_style_border_left_style_value_none()  }
-        pub fn inherit() -> Self { az_style_border_left_style_value_inherit()  }
-        pub fn initial() -> Self { az_style_border_left_style_value_initial()  }
-        pub fn exact(variant_data: crate::css::StyleBorderLeftStyle) -> Self { az_style_border_left_style_value_exact(variant_data.leak())}
-    }
-
-    impl Drop for StyleBorderLeftStyleValue { fn drop(&mut self) { az_style_border_left_style_value_delete(&mut self); } }
+    impl Drop for StyleBorderLeftStyleValue { fn drop(&mut self) { (crate::dll::LIB.az_style_border_left_style_value_delete)(&mut self); } }
 
 
     /// `StyleBorderLeftWidthValue` struct
-    pub struct StyleBorderLeftWidthValue { pub(crate) object: AzStyleBorderLeftWidthValue }
+    pub use crate::dll::AzStyleBorderLeftWidthValue as StyleBorderLeftWidthValue;
 
-    impl StyleBorderLeftWidthValue {
-        pub fn auto() -> Self { az_style_border_left_width_value_auto()  }
-        pub fn none() -> Self { az_style_border_left_width_value_none()  }
-        pub fn inherit() -> Self { az_style_border_left_width_value_inherit()  }
-        pub fn initial() -> Self { az_style_border_left_width_value_initial()  }
-        pub fn exact(variant_data: crate::css::StyleBorderLeftWidth) -> Self { az_style_border_left_width_value_exact(variant_data.leak())}
-    }
-
-    impl Drop for StyleBorderLeftWidthValue { fn drop(&mut self) { az_style_border_left_width_value_delete(&mut self); } }
+    impl Drop for StyleBorderLeftWidthValue { fn drop(&mut self) { (crate::dll::LIB.az_style_border_left_width_value_delete)(&mut self); } }
 
 
     /// `StyleBorderRightColorValue` struct
-    pub struct StyleBorderRightColorValue { pub(crate) object: AzStyleBorderRightColorValue }
+    pub use crate::dll::AzStyleBorderRightColorValue as StyleBorderRightColorValue;
 
-    impl StyleBorderRightColorValue {
-        pub fn auto() -> Self { az_style_border_right_color_value_auto()  }
-        pub fn none() -> Self { az_style_border_right_color_value_none()  }
-        pub fn inherit() -> Self { az_style_border_right_color_value_inherit()  }
-        pub fn initial() -> Self { az_style_border_right_color_value_initial()  }
-        pub fn exact(variant_data: crate::css::StyleBorderRightColor) -> Self { az_style_border_right_color_value_exact(variant_data.leak())}
-    }
-
-    impl Drop for StyleBorderRightColorValue { fn drop(&mut self) { az_style_border_right_color_value_delete(&mut self); } }
+    impl Drop for StyleBorderRightColorValue { fn drop(&mut self) { (crate::dll::LIB.az_style_border_right_color_value_delete)(&mut self); } }
 
 
     /// `StyleBorderRightStyleValue` struct
-    pub struct StyleBorderRightStyleValue { pub(crate) object: AzStyleBorderRightStyleValue }
+    pub use crate::dll::AzStyleBorderRightStyleValue as StyleBorderRightStyleValue;
 
-    impl StyleBorderRightStyleValue {
-        pub fn auto() -> Self { az_style_border_right_style_value_auto()  }
-        pub fn none() -> Self { az_style_border_right_style_value_none()  }
-        pub fn inherit() -> Self { az_style_border_right_style_value_inherit()  }
-        pub fn initial() -> Self { az_style_border_right_style_value_initial()  }
-        pub fn exact(variant_data: crate::css::StyleBorderRightStyle) -> Self { az_style_border_right_style_value_exact(variant_data.leak())}
-    }
-
-    impl Drop for StyleBorderRightStyleValue { fn drop(&mut self) { az_style_border_right_style_value_delete(&mut self); } }
+    impl Drop for StyleBorderRightStyleValue { fn drop(&mut self) { (crate::dll::LIB.az_style_border_right_style_value_delete)(&mut self); } }
 
 
     /// `StyleBorderRightWidthValue` struct
-    pub struct StyleBorderRightWidthValue { pub(crate) object: AzStyleBorderRightWidthValue }
+    pub use crate::dll::AzStyleBorderRightWidthValue as StyleBorderRightWidthValue;
 
-    impl StyleBorderRightWidthValue {
-        pub fn auto() -> Self { az_style_border_right_width_value_auto()  }
-        pub fn none() -> Self { az_style_border_right_width_value_none()  }
-        pub fn inherit() -> Self { az_style_border_right_width_value_inherit()  }
-        pub fn initial() -> Self { az_style_border_right_width_value_initial()  }
-        pub fn exact(variant_data: crate::css::StyleBorderRightWidth) -> Self { az_style_border_right_width_value_exact(variant_data.leak())}
-    }
-
-    impl Drop for StyleBorderRightWidthValue { fn drop(&mut self) { az_style_border_right_width_value_delete(&mut self); } }
+    impl Drop for StyleBorderRightWidthValue { fn drop(&mut self) { (crate::dll::LIB.az_style_border_right_width_value_delete)(&mut self); } }
 
 
     /// `StyleBorderTopColorValue` struct
-    pub struct StyleBorderTopColorValue { pub(crate) object: AzStyleBorderTopColorValue }
+    pub use crate::dll::AzStyleBorderTopColorValue as StyleBorderTopColorValue;
 
-    impl StyleBorderTopColorValue {
-        pub fn auto() -> Self { az_style_border_top_color_value_auto()  }
-        pub fn none() -> Self { az_style_border_top_color_value_none()  }
-        pub fn inherit() -> Self { az_style_border_top_color_value_inherit()  }
-        pub fn initial() -> Self { az_style_border_top_color_value_initial()  }
-        pub fn exact(variant_data: crate::css::StyleBorderTopColor) -> Self { az_style_border_top_color_value_exact(variant_data.leak())}
-    }
-
-    impl Drop for StyleBorderTopColorValue { fn drop(&mut self) { az_style_border_top_color_value_delete(&mut self); } }
+    impl Drop for StyleBorderTopColorValue { fn drop(&mut self) { (crate::dll::LIB.az_style_border_top_color_value_delete)(&mut self); } }
 
 
     /// `StyleBorderTopLeftRadiusValue` struct
-    pub struct StyleBorderTopLeftRadiusValue { pub(crate) object: AzStyleBorderTopLeftRadiusValue }
+    pub use crate::dll::AzStyleBorderTopLeftRadiusValue as StyleBorderTopLeftRadiusValue;
 
-    impl StyleBorderTopLeftRadiusValue {
-        pub fn auto() -> Self { az_style_border_top_left_radius_value_auto()  }
-        pub fn none() -> Self { az_style_border_top_left_radius_value_none()  }
-        pub fn inherit() -> Self { az_style_border_top_left_radius_value_inherit()  }
-        pub fn initial() -> Self { az_style_border_top_left_radius_value_initial()  }
-        pub fn exact(variant_data: crate::css::StyleBorderTopLeftRadius) -> Self { az_style_border_top_left_radius_value_exact(variant_data.leak())}
-    }
-
-    impl Drop for StyleBorderTopLeftRadiusValue { fn drop(&mut self) { az_style_border_top_left_radius_value_delete(&mut self); } }
+    impl Drop for StyleBorderTopLeftRadiusValue { fn drop(&mut self) { (crate::dll::LIB.az_style_border_top_left_radius_value_delete)(&mut self); } }
 
 
     /// `StyleBorderTopRightRadiusValue` struct
-    pub struct StyleBorderTopRightRadiusValue { pub(crate) object: AzStyleBorderTopRightRadiusValue }
+    pub use crate::dll::AzStyleBorderTopRightRadiusValue as StyleBorderTopRightRadiusValue;
 
-    impl StyleBorderTopRightRadiusValue {
-        pub fn auto() -> Self { az_style_border_top_right_radius_value_auto()  }
-        pub fn none() -> Self { az_style_border_top_right_radius_value_none()  }
-        pub fn inherit() -> Self { az_style_border_top_right_radius_value_inherit()  }
-        pub fn initial() -> Self { az_style_border_top_right_radius_value_initial()  }
-        pub fn exact(variant_data: crate::css::StyleBorderTopRightRadius) -> Self { az_style_border_top_right_radius_value_exact(variant_data.leak())}
-    }
-
-    impl Drop for StyleBorderTopRightRadiusValue { fn drop(&mut self) { az_style_border_top_right_radius_value_delete(&mut self); } }
+    impl Drop for StyleBorderTopRightRadiusValue { fn drop(&mut self) { (crate::dll::LIB.az_style_border_top_right_radius_value_delete)(&mut self); } }
 
 
     /// `StyleBorderTopStyleValue` struct
-    pub struct StyleBorderTopStyleValue { pub(crate) object: AzStyleBorderTopStyleValue }
+    pub use crate::dll::AzStyleBorderTopStyleValue as StyleBorderTopStyleValue;
 
-    impl StyleBorderTopStyleValue {
-        pub fn auto() -> Self { az_style_border_top_style_value_auto()  }
-        pub fn none() -> Self { az_style_border_top_style_value_none()  }
-        pub fn inherit() -> Self { az_style_border_top_style_value_inherit()  }
-        pub fn initial() -> Self { az_style_border_top_style_value_initial()  }
-        pub fn exact(variant_data: crate::css::StyleBorderTopStyle) -> Self { az_style_border_top_style_value_exact(variant_data.leak())}
-    }
-
-    impl Drop for StyleBorderTopStyleValue { fn drop(&mut self) { az_style_border_top_style_value_delete(&mut self); } }
+    impl Drop for StyleBorderTopStyleValue { fn drop(&mut self) { (crate::dll::LIB.az_style_border_top_style_value_delete)(&mut self); } }
 
 
     /// `StyleBorderTopWidthValue` struct
-    pub struct StyleBorderTopWidthValue { pub(crate) object: AzStyleBorderTopWidthValue }
+    pub use crate::dll::AzStyleBorderTopWidthValue as StyleBorderTopWidthValue;
 
-    impl StyleBorderTopWidthValue {
-        pub fn auto() -> Self { az_style_border_top_width_value_auto()  }
-        pub fn none() -> Self { az_style_border_top_width_value_none()  }
-        pub fn inherit() -> Self { az_style_border_top_width_value_inherit()  }
-        pub fn initial() -> Self { az_style_border_top_width_value_initial()  }
-        pub fn exact(variant_data: crate::css::StyleBorderTopWidth) -> Self { az_style_border_top_width_value_exact(variant_data.leak())}
-    }
-
-    impl Drop for StyleBorderTopWidthValue { fn drop(&mut self) { az_style_border_top_width_value_delete(&mut self); } }
+    impl Drop for StyleBorderTopWidthValue { fn drop(&mut self) { (crate::dll::LIB.az_style_border_top_width_value_delete)(&mut self); } }
 
 
     /// `StyleCursorValue` struct
-    pub struct StyleCursorValue { pub(crate) object: AzStyleCursorValue }
+    pub use crate::dll::AzStyleCursorValue as StyleCursorValue;
 
-    impl StyleCursorValue {
-        pub fn auto() -> Self { az_style_cursor_value_auto()  }
-        pub fn none() -> Self { az_style_cursor_value_none()  }
-        pub fn inherit() -> Self { az_style_cursor_value_inherit()  }
-        pub fn initial() -> Self { az_style_cursor_value_initial()  }
-        pub fn exact(variant_data: crate::css::StyleCursor) -> Self { az_style_cursor_value_exact(variant_data.leak())}
-    }
-
-    impl Drop for StyleCursorValue { fn drop(&mut self) { az_style_cursor_value_delete(&mut self); } }
+    impl Drop for StyleCursorValue { fn drop(&mut self) { (crate::dll::LIB.az_style_cursor_value_delete)(&mut self); } }
 
 
     /// `StyleFontFamilyValue` struct
-    pub struct StyleFontFamilyValue { pub(crate) object: AzStyleFontFamilyValue }
+    pub use crate::dll::AzStyleFontFamilyValue as StyleFontFamilyValue;
 
-    impl StyleFontFamilyValue {
-        pub fn auto() -> Self { az_style_font_family_value_auto()  }
-        pub fn none() -> Self { az_style_font_family_value_none()  }
-        pub fn inherit() -> Self { az_style_font_family_value_inherit()  }
-        pub fn initial() -> Self { az_style_font_family_value_initial()  }
-        pub fn exact(variant_data: crate::css::StyleFontFamily) -> Self { az_style_font_family_value_exact(variant_data.leak())}
-    }
-
-    impl Drop for StyleFontFamilyValue { fn drop(&mut self) { az_style_font_family_value_delete(&mut self); } }
+    impl Drop for StyleFontFamilyValue { fn drop(&mut self) { (crate::dll::LIB.az_style_font_family_value_delete)(&mut self); } }
 
 
     /// `StyleFontSizeValue` struct
-    pub struct StyleFontSizeValue { pub(crate) object: AzStyleFontSizeValue }
+    pub use crate::dll::AzStyleFontSizeValue as StyleFontSizeValue;
 
-    impl StyleFontSizeValue {
-        pub fn auto() -> Self { az_style_font_size_value_auto()  }
-        pub fn none() -> Self { az_style_font_size_value_none()  }
-        pub fn inherit() -> Self { az_style_font_size_value_inherit()  }
-        pub fn initial() -> Self { az_style_font_size_value_initial()  }
-        pub fn exact(variant_data: crate::css::StyleFontSize) -> Self { az_style_font_size_value_exact(variant_data.leak())}
-    }
-
-    impl Drop for StyleFontSizeValue { fn drop(&mut self) { az_style_font_size_value_delete(&mut self); } }
+    impl Drop for StyleFontSizeValue { fn drop(&mut self) { (crate::dll::LIB.az_style_font_size_value_delete)(&mut self); } }
 
 
     /// `StyleLetterSpacingValue` struct
-    pub struct StyleLetterSpacingValue { pub(crate) object: AzStyleLetterSpacingValue }
+    pub use crate::dll::AzStyleLetterSpacingValue as StyleLetterSpacingValue;
 
-    impl StyleLetterSpacingValue {
-        pub fn auto() -> Self { az_style_letter_spacing_value_auto()  }
-        pub fn none() -> Self { az_style_letter_spacing_value_none()  }
-        pub fn inherit() -> Self { az_style_letter_spacing_value_inherit()  }
-        pub fn initial() -> Self { az_style_letter_spacing_value_initial()  }
-        pub fn exact(variant_data: crate::css::StyleLetterSpacing) -> Self { az_style_letter_spacing_value_exact(variant_data.leak())}
-    }
-
-    impl Drop for StyleLetterSpacingValue { fn drop(&mut self) { az_style_letter_spacing_value_delete(&mut self); } }
+    impl Drop for StyleLetterSpacingValue { fn drop(&mut self) { (crate::dll::LIB.az_style_letter_spacing_value_delete)(&mut self); } }
 
 
     /// `StyleLineHeightValue` struct
-    pub struct StyleLineHeightValue { pub(crate) object: AzStyleLineHeightValue }
+    pub use crate::dll::AzStyleLineHeightValue as StyleLineHeightValue;
 
-    impl StyleLineHeightValue {
-        pub fn auto() -> Self { az_style_line_height_value_auto()  }
-        pub fn none() -> Self { az_style_line_height_value_none()  }
-        pub fn inherit() -> Self { az_style_line_height_value_inherit()  }
-        pub fn initial() -> Self { az_style_line_height_value_initial()  }
-        pub fn exact(variant_data: crate::css::StyleLineHeight) -> Self { az_style_line_height_value_exact(variant_data.leak())}
-    }
-
-    impl Drop for StyleLineHeightValue { fn drop(&mut self) { az_style_line_height_value_delete(&mut self); } }
+    impl Drop for StyleLineHeightValue { fn drop(&mut self) { (crate::dll::LIB.az_style_line_height_value_delete)(&mut self); } }
 
 
     /// `StyleTabWidthValue` struct
-    pub struct StyleTabWidthValue { pub(crate) object: AzStyleTabWidthValue }
+    pub use crate::dll::AzStyleTabWidthValue as StyleTabWidthValue;
 
-    impl StyleTabWidthValue {
-        pub fn auto() -> Self { az_style_tab_width_value_auto()  }
-        pub fn none() -> Self { az_style_tab_width_value_none()  }
-        pub fn inherit() -> Self { az_style_tab_width_value_inherit()  }
-        pub fn initial() -> Self { az_style_tab_width_value_initial()  }
-        pub fn exact(variant_data: crate::css::StyleTabWidth) -> Self { az_style_tab_width_value_exact(variant_data.leak())}
-    }
-
-    impl Drop for StyleTabWidthValue { fn drop(&mut self) { az_style_tab_width_value_delete(&mut self); } }
+    impl Drop for StyleTabWidthValue { fn drop(&mut self) { (crate::dll::LIB.az_style_tab_width_value_delete)(&mut self); } }
 
 
     /// `StyleTextAlignmentHorzValue` struct
-    pub struct StyleTextAlignmentHorzValue { pub(crate) object: AzStyleTextAlignmentHorzValue }
+    pub use crate::dll::AzStyleTextAlignmentHorzValue as StyleTextAlignmentHorzValue;
 
-    impl StyleTextAlignmentHorzValue {
-        pub fn auto() -> Self { az_style_text_alignment_horz_value_auto()  }
-        pub fn none() -> Self { az_style_text_alignment_horz_value_none()  }
-        pub fn inherit() -> Self { az_style_text_alignment_horz_value_inherit()  }
-        pub fn initial() -> Self { az_style_text_alignment_horz_value_initial()  }
-        pub fn exact(variant_data: crate::css::StyleTextAlignmentHorz) -> Self { az_style_text_alignment_horz_value_exact(variant_data.leak())}
-    }
-
-    impl Drop for StyleTextAlignmentHorzValue { fn drop(&mut self) { az_style_text_alignment_horz_value_delete(&mut self); } }
+    impl Drop for StyleTextAlignmentHorzValue { fn drop(&mut self) { (crate::dll::LIB.az_style_text_alignment_horz_value_delete)(&mut self); } }
 
 
     /// `StyleTextColorValue` struct
-    pub struct StyleTextColorValue { pub(crate) object: AzStyleTextColorValue }
+    pub use crate::dll::AzStyleTextColorValue as StyleTextColorValue;
 
-    impl StyleTextColorValue {
-        pub fn auto() -> Self { az_style_text_color_value_auto()  }
-        pub fn none() -> Self { az_style_text_color_value_none()  }
-        pub fn inherit() -> Self { az_style_text_color_value_inherit()  }
-        pub fn initial() -> Self { az_style_text_color_value_initial()  }
-        pub fn exact(variant_data: crate::css::StyleTextColor) -> Self { az_style_text_color_value_exact(variant_data.leak())}
-    }
-
-    impl Drop for StyleTextColorValue { fn drop(&mut self) { az_style_text_color_value_delete(&mut self); } }
+    impl Drop for StyleTextColorValue { fn drop(&mut self) { (crate::dll::LIB.az_style_text_color_value_delete)(&mut self); } }
 
 
     /// `StyleWordSpacingValue` struct
-    pub struct StyleWordSpacingValue { pub(crate) object: AzStyleWordSpacingValue }
+    pub use crate::dll::AzStyleWordSpacingValue as StyleWordSpacingValue;
 
-    impl StyleWordSpacingValue {
-        pub fn auto() -> Self { az_style_word_spacing_value_auto()  }
-        pub fn none() -> Self { az_style_word_spacing_value_none()  }
-        pub fn inherit() -> Self { az_style_word_spacing_value_inherit()  }
-        pub fn initial() -> Self { az_style_word_spacing_value_initial()  }
-        pub fn exact(variant_data: crate::css::StyleWordSpacing) -> Self { az_style_word_spacing_value_exact(variant_data.leak())}
-    }
-
-    impl Drop for StyleWordSpacingValue { fn drop(&mut self) { az_style_word_spacing_value_delete(&mut self); } }
+    impl Drop for StyleWordSpacingValue { fn drop(&mut self) { (crate::dll::LIB.az_style_word_spacing_value_delete)(&mut self); } }
 
 
     /// Parsed CSS key-value pair
-    pub struct CssProperty { pub(crate) object: AzCssProperty }
+    pub use crate::dll::AzCssProperty as CssProperty;
 
-    impl CssProperty {
-        pub fn text_color(variant_data: crate::css::StyleTextColorValue) -> Self { az_css_property_text_color(variant_data.leak())}
-        pub fn font_size(variant_data: crate::css::StyleFontSizeValue) -> Self { az_css_property_font_size(variant_data.leak())}
-        pub fn font_family(variant_data: crate::css::StyleFontFamilyValue) -> Self { az_css_property_font_family(variant_data.leak())}
-        pub fn text_align(variant_data: crate::css::StyleTextAlignmentHorzValue) -> Self { az_css_property_text_align(variant_data.leak())}
-        pub fn letter_spacing(variant_data: crate::css::StyleLetterSpacingValue) -> Self { az_css_property_letter_spacing(variant_data.leak())}
-        pub fn line_height(variant_data: crate::css::StyleLineHeightValue) -> Self { az_css_property_line_height(variant_data.leak())}
-        pub fn word_spacing(variant_data: crate::css::StyleWordSpacingValue) -> Self { az_css_property_word_spacing(variant_data.leak())}
-        pub fn tab_width(variant_data: crate::css::StyleTabWidthValue) -> Self { az_css_property_tab_width(variant_data.leak())}
-        pub fn cursor(variant_data: crate::css::StyleCursorValue) -> Self { az_css_property_cursor(variant_data.leak())}
-        pub fn display(variant_data: crate::css::LayoutDisplayValue) -> Self { az_css_property_display(variant_data.leak())}
-        pub fn float(variant_data: crate::css::LayoutFloatValue) -> Self { az_css_property_float(variant_data.leak())}
-        pub fn box_sizing(variant_data: crate::css::LayoutBoxSizingValue) -> Self { az_css_property_box_sizing(variant_data.leak())}
-        pub fn width(variant_data: crate::css::LayoutWidthValue) -> Self { az_css_property_width(variant_data.leak())}
-        pub fn height(variant_data: crate::css::LayoutHeightValue) -> Self { az_css_property_height(variant_data.leak())}
-        pub fn min_width(variant_data: crate::css::LayoutMinWidthValue) -> Self { az_css_property_min_width(variant_data.leak())}
-        pub fn min_height(variant_data: crate::css::LayoutMinHeightValue) -> Self { az_css_property_min_height(variant_data.leak())}
-        pub fn max_width(variant_data: crate::css::LayoutMaxWidthValue) -> Self { az_css_property_max_width(variant_data.leak())}
-        pub fn max_height(variant_data: crate::css::LayoutMaxHeightValue) -> Self { az_css_property_max_height(variant_data.leak())}
-        pub fn position(variant_data: crate::css::LayoutPositionValue) -> Self { az_css_property_position(variant_data.leak())}
-        pub fn top(variant_data: crate::css::LayoutTopValue) -> Self { az_css_property_top(variant_data.leak())}
-        pub fn right(variant_data: crate::css::LayoutRightValue) -> Self { az_css_property_right(variant_data.leak())}
-        pub fn left(variant_data: crate::css::LayoutLeftValue) -> Self { az_css_property_left(variant_data.leak())}
-        pub fn bottom(variant_data: crate::css::LayoutBottomValue) -> Self { az_css_property_bottom(variant_data.leak())}
-        pub fn flex_wrap(variant_data: crate::css::LayoutWrapValue) -> Self { az_css_property_flex_wrap(variant_data.leak())}
-        pub fn flex_direction(variant_data: crate::css::LayoutDirectionValue) -> Self { az_css_property_flex_direction(variant_data.leak())}
-        pub fn flex_grow(variant_data: crate::css::LayoutFlexGrowValue) -> Self { az_css_property_flex_grow(variant_data.leak())}
-        pub fn flex_shrink(variant_data: crate::css::LayoutFlexShrinkValue) -> Self { az_css_property_flex_shrink(variant_data.leak())}
-        pub fn justify_content(variant_data: crate::css::LayoutJustifyContentValue) -> Self { az_css_property_justify_content(variant_data.leak())}
-        pub fn align_items(variant_data: crate::css::LayoutAlignItemsValue) -> Self { az_css_property_align_items(variant_data.leak())}
-        pub fn align_content(variant_data: crate::css::LayoutAlignContentValue) -> Self { az_css_property_align_content(variant_data.leak())}
-        pub fn background_content(variant_data: crate::css::StyleBackgroundContentValue) -> Self { az_css_property_background_content(variant_data.leak())}
-        pub fn background_position(variant_data: crate::css::StyleBackgroundPositionValue) -> Self { az_css_property_background_position(variant_data.leak())}
-        pub fn background_size(variant_data: crate::css::StyleBackgroundSizeValue) -> Self { az_css_property_background_size(variant_data.leak())}
-        pub fn background_repeat(variant_data: crate::css::StyleBackgroundRepeatValue) -> Self { az_css_property_background_repeat(variant_data.leak())}
-        pub fn overflow_x(variant_data: crate::css::OverflowValue) -> Self { az_css_property_overflow_x(variant_data.leak())}
-        pub fn overflow_y(variant_data: crate::css::OverflowValue) -> Self { az_css_property_overflow_y(variant_data.leak())}
-        pub fn padding_top(variant_data: crate::css::LayoutPaddingTopValue) -> Self { az_css_property_padding_top(variant_data.leak())}
-        pub fn padding_left(variant_data: crate::css::LayoutPaddingLeftValue) -> Self { az_css_property_padding_left(variant_data.leak())}
-        pub fn padding_right(variant_data: crate::css::LayoutPaddingRightValue) -> Self { az_css_property_padding_right(variant_data.leak())}
-        pub fn padding_bottom(variant_data: crate::css::LayoutPaddingBottomValue) -> Self { az_css_property_padding_bottom(variant_data.leak())}
-        pub fn margin_top(variant_data: crate::css::LayoutMarginTopValue) -> Self { az_css_property_margin_top(variant_data.leak())}
-        pub fn margin_left(variant_data: crate::css::LayoutMarginLeftValue) -> Self { az_css_property_margin_left(variant_data.leak())}
-        pub fn margin_right(variant_data: crate::css::LayoutMarginRightValue) -> Self { az_css_property_margin_right(variant_data.leak())}
-        pub fn margin_bottom(variant_data: crate::css::LayoutMarginBottomValue) -> Self { az_css_property_margin_bottom(variant_data.leak())}
-        pub fn border_top_left_radius(variant_data: crate::css::StyleBorderTopLeftRadiusValue) -> Self { az_css_property_border_top_left_radius(variant_data.leak())}
-        pub fn border_top_right_radius(variant_data: crate::css::StyleBorderTopRightRadiusValue) -> Self { az_css_property_border_top_right_radius(variant_data.leak())}
-        pub fn border_bottom_left_radius(variant_data: crate::css::StyleBorderBottomLeftRadiusValue) -> Self { az_css_property_border_bottom_left_radius(variant_data.leak())}
-        pub fn border_bottom_right_radius(variant_data: crate::css::StyleBorderBottomRightRadiusValue) -> Self { az_css_property_border_bottom_right_radius(variant_data.leak())}
-        pub fn border_top_color(variant_data: crate::css::StyleBorderTopColorValue) -> Self { az_css_property_border_top_color(variant_data.leak())}
-        pub fn border_right_color(variant_data: crate::css::StyleBorderRightColorValue) -> Self { az_css_property_border_right_color(variant_data.leak())}
-        pub fn border_left_color(variant_data: crate::css::StyleBorderLeftColorValue) -> Self { az_css_property_border_left_color(variant_data.leak())}
-        pub fn border_bottom_color(variant_data: crate::css::StyleBorderBottomColorValue) -> Self { az_css_property_border_bottom_color(variant_data.leak())}
-        pub fn border_top_style(variant_data: crate::css::StyleBorderTopStyleValue) -> Self { az_css_property_border_top_style(variant_data.leak())}
-        pub fn border_right_style(variant_data: crate::css::StyleBorderRightStyleValue) -> Self { az_css_property_border_right_style(variant_data.leak())}
-        pub fn border_left_style(variant_data: crate::css::StyleBorderLeftStyleValue) -> Self { az_css_property_border_left_style(variant_data.leak())}
-        pub fn border_bottom_style(variant_data: crate::css::StyleBorderBottomStyleValue) -> Self { az_css_property_border_bottom_style(variant_data.leak())}
-        pub fn border_top_width(variant_data: crate::css::StyleBorderTopWidthValue) -> Self { az_css_property_border_top_width(variant_data.leak())}
-        pub fn border_right_width(variant_data: crate::css::StyleBorderRightWidthValue) -> Self { az_css_property_border_right_width(variant_data.leak())}
-        pub fn border_left_width(variant_data: crate::css::StyleBorderLeftWidthValue) -> Self { az_css_property_border_left_width(variant_data.leak())}
-        pub fn border_bottom_width(variant_data: crate::css::StyleBorderBottomWidthValue) -> Self { az_css_property_border_bottom_width(variant_data.leak())}
-        pub fn box_shadow_left(variant_data: crate::css::BoxShadowPreDisplayItemValue) -> Self { az_css_property_box_shadow_left(variant_data.leak())}
-        pub fn box_shadow_right(variant_data: crate::css::BoxShadowPreDisplayItemValue) -> Self { az_css_property_box_shadow_right(variant_data.leak())}
-        pub fn box_shadow_top(variant_data: crate::css::BoxShadowPreDisplayItemValue) -> Self { az_css_property_box_shadow_top(variant_data.leak())}
-        pub fn box_shadow_bottom(variant_data: crate::css::BoxShadowPreDisplayItemValue) -> Self { az_css_property_box_shadow_bottom(variant_data.leak())}
-    }
-
-    impl Drop for CssProperty { fn drop(&mut self) { az_css_property_delete(&mut self); } }
+    impl Drop for CssProperty { fn drop(&mut self) { (crate::dll::LIB.az_css_property_delete)(&mut self); } }
 }
 
 /// `Dom` construction and configuration
@@ -4410,202 +3449,111 @@ pub mod dom {
 
     use crate::dll::*;
     use crate::str::String;
-    use crate::resources::{ImageId, TextId};
-    use crate::callbacks::{Callback, IFrameCallback, RefAny, GlCallback};
+    use crate::resources::{TextId, ImageId};
+    use crate::callbacks::{Callback, IFrameCallback, GlCallback, RefAny};
     use crate::vec::StringVec;
     use crate::css::CssProperty;
 
 
     /// `Dom` struct
-    pub struct Dom { pub(crate) ptr: AzDomPtr }
+    pub use crate::dll::AzDomPtr as Dom;
 
     impl Dom {
         /// Creates a new `div` node
-        pub fn div() -> Self { Self { ptr: az_dom_div() } }
+        pub fn div() -> Self { (crate::dll::LIB.az_dom_div)() }
         /// Creates a new `body` node
-        pub fn body() -> Self { Self { ptr: az_dom_body() } }
+        pub fn body() -> Self { (crate::dll::LIB.az_dom_body)() }
         /// Creates a new `p` node with a given `String` as the text contents
-        pub fn label(text: String) -> Self { Self { ptr: az_dom_label(text) } }
+        pub fn label(text: String) -> Self { (crate::dll::LIB.az_dom_label)(text) }
         /// Creates a new `p` node from a (cached) text referenced by a `TextId`
-        pub fn text(text_id: TextId) -> Self { Self { ptr: az_dom_text(text_id) } }
+        pub fn text(text_id: TextId) -> Self { (crate::dll::LIB.az_dom_text)(text_id) }
         /// Creates a new `img` node from a (cached) text referenced by a `ImageId`
-        pub fn image(image_id: ImageId) -> Self { Self { ptr: az_dom_image(image_id) } }
+        pub fn image(image_id: ImageId) -> Self { (crate::dll::LIB.az_dom_image)(image_id) }
         /// Creates a new node which will render an OpenGL texture after the layout step is finished. See the documentation for [GlCallback]() for more info about OpenGL rendering callbacks.
-        pub fn gl_texture(data: RefAny, callback: GlCallback) -> Self { Self { ptr: az_dom_gl_texture(data.leak(), callback) } }
+        pub fn gl_texture(data: RefAny, callback: GlCallback) -> Self { (crate::dll::LIB.az_dom_gl_texture)(data, callback) }
         /// Creates a new node with a callback that will return a `Dom` after being layouted. See the documentation for [IFrameCallback]() for more info about iframe callbacks.
-        pub fn iframe_callback(data: RefAny, callback: IFrameCallback) -> Self { Self { ptr: az_dom_iframe_callback(data.leak(), callback) } }
+        pub fn iframe_callback(data: RefAny, callback: IFrameCallback) -> Self { (crate::dll::LIB.az_dom_iframe_callback)(data, callback) }
         /// Adds a CSS ID (`#something`) to the DOM node
-        pub fn add_id(&mut self, id: String)  { az_dom_add_id(&mut self.ptr, id) }
+        pub fn add_id(&mut self, id: String)  { (crate::dll::LIB.az_dom_add_id)(&mut self.ptr, id) }
         /// Same as [`Dom::add_id`](#method.add_id), but as a builder method
-        pub fn with_id(self, id: String)  -> crate::dom::Dom { crate::dom::Dom { ptr: { az_dom_with_id(self.leak(), id) } } }
+        pub fn with_id(self, id: String)  -> crate::dom::Dom { { (crate::dll::LIB.az_dom_with_id)(self.leak(), id)} }
         /// Same as calling [`Dom::add_id`](#method.add_id) for each CSS ID, but this function **replaces** all current CSS IDs
-        pub fn set_ids(&mut self, ids: StringVec)  { az_dom_set_ids(&mut self.ptr, ids) }
+        pub fn set_ids(&mut self, ids: StringVec)  { (crate::dll::LIB.az_dom_set_ids)(&mut self.ptr, ids) }
         /// Same as [`Dom::set_ids`](#method.set_ids), but as a builder method
-        pub fn with_ids(self, ids: StringVec)  -> crate::dom::Dom { crate::dom::Dom { ptr: { az_dom_with_ids(self.leak(), ids) } } }
+        pub fn with_ids(self, ids: StringVec)  -> crate::dom::Dom { { (crate::dll::LIB.az_dom_with_ids)(self.leak(), ids)} }
         /// Adds a CSS class (`.something`) to the DOM node
-        pub fn add_class(&mut self, class: String)  { az_dom_add_class(&mut self.ptr, class) }
+        pub fn add_class(&mut self, class: String)  { (crate::dll::LIB.az_dom_add_class)(&mut self.ptr, class) }
         /// Same as [`Dom::add_class`](#method.add_class), but as a builder method
-        pub fn with_class(self, class: String)  -> crate::dom::Dom { crate::dom::Dom { ptr: { az_dom_with_class(self.leak(), class) } } }
+        pub fn with_class(self, class: String)  -> crate::dom::Dom { { (crate::dll::LIB.az_dom_with_class)(self.leak(), class)} }
         /// Same as calling [`Dom::add_class`](#method.add_class) for each class, but this function **replaces** all current classes
-        pub fn set_classes(&mut self, classes: StringVec)  { az_dom_set_classes(&mut self.ptr, classes) }
+        pub fn set_classes(&mut self, classes: StringVec)  { (crate::dll::LIB.az_dom_set_classes)(&mut self.ptr, classes) }
         /// Same as [`Dom::set_classes`](#method.set_classes), but as a builder method
-        pub fn with_classes(self, classes: StringVec)  -> crate::dom::Dom { crate::dom::Dom { ptr: { az_dom_with_classes(self.leak(), classes) } } }
+        pub fn with_classes(self, classes: StringVec)  -> crate::dom::Dom { { (crate::dll::LIB.az_dom_with_classes)(self.leak(), classes)} }
         /// Adds a [`Callback`](callbacks/type.Callback) that acts on the `data` the `event` happens
-        pub fn add_callback(&mut self, event: EventFilter, data: RefAny, callback: Callback)  { az_dom_add_callback(&mut self.ptr, event, data.leak(), callback) }
+        pub fn add_callback(&mut self, event: EventFilter, data: RefAny, callback: Callback)  { (crate::dll::LIB.az_dom_add_callback)(&mut self.ptr, event, data, callback) }
         /// Same as [`Dom::add_callback`](#method.add_callback), but as a builder method
-        pub fn with_callback(self, event: EventFilter, data: RefAny, callback: Callback)  -> crate::dom::Dom { crate::dom::Dom { ptr: { az_dom_with_callback(self.leak(), event, data.leak(), callback) } } }
+        pub fn with_callback(self, event: EventFilter, data: RefAny, callback: Callback)  -> crate::dom::Dom { { (crate::dll::LIB.az_dom_with_callback)(self.leak(), event, data, callback)} }
         /// Overrides the CSS property of this DOM node with a value (for example `"width = 200px"`)
-        pub fn add_css_override(&mut self, id: String, prop: CssProperty)  { az_dom_add_css_override(&mut self.ptr, id, prop) }
+        pub fn add_css_override(&mut self, id: String, prop: CssProperty)  { (crate::dll::LIB.az_dom_add_css_override)(&mut self.ptr, id, prop) }
         /// Same as [`Dom::add_css_override`](#method.add_css_override), but as a builder method
-        pub fn with_css_override(self, id: String, prop: CssProperty)  -> crate::dom::Dom { crate::dom::Dom { ptr: { az_dom_with_css_override(self.leak(), id, prop) } } }
+        pub fn with_css_override(self, id: String, prop: CssProperty)  -> crate::dom::Dom { { (crate::dll::LIB.az_dom_with_css_override)(self.leak(), id, prop)} }
         /// Sets the `is_draggable` attribute of this DOM node (default: false)
-        pub fn set_is_draggable(&mut self, is_draggable: bool)  { az_dom_set_is_draggable(&mut self.ptr, is_draggable) }
+        pub fn set_is_draggable(&mut self, is_draggable: bool)  { (crate::dll::LIB.az_dom_set_is_draggable)(&mut self.ptr, is_draggable) }
         /// Same as [`Dom::set_is_draggable`](#method.set_is_draggable), but as a builder method
-        pub fn is_draggable(self, is_draggable: bool)  -> crate::dom::Dom { crate::dom::Dom { ptr: { az_dom_is_draggable(self.leak(), is_draggable) } } }
+        pub fn is_draggable(self, is_draggable: bool)  -> crate::dom::Dom { { (crate::dll::LIB.az_dom_is_draggable)(self.leak(), is_draggable)} }
         /// Sets the `tabindex` attribute of this DOM node (makes an element focusable - default: None)
-        pub fn set_tab_index(&mut self, tab_index: TabIndex)  { az_dom_set_tab_index(&mut self.ptr, tab_index) }
+        pub fn set_tab_index(&mut self, tab_index: TabIndex)  { (crate::dll::LIB.az_dom_set_tab_index)(&mut self.ptr, tab_index) }
         /// Same as [`Dom::set_tab_index`](#method.set_tab_index), but as a builder method
-        pub fn with_tab_index(self, tab_index: TabIndex)  -> crate::dom::Dom { crate::dom::Dom { ptr: { az_dom_with_tab_index(self.leak(), tab_index) } } }
+        pub fn with_tab_index(self, tab_index: TabIndex)  -> crate::dom::Dom { { (crate::dll::LIB.az_dom_with_tab_index)(self.leak(), tab_index)} }
         /// Reparents another `Dom` to be the child node of this `Dom`
-        pub fn add_child(&mut self, child: Dom)  { az_dom_add_child(&mut self.ptr, child.leak()) }
+        pub fn add_child(&mut self, child: Dom)  { (crate::dll::LIB.az_dom_add_child)(&mut self.ptr, child) }
         /// Same as [`Dom::add_child`](#method.add_child), but as a builder method
-        pub fn with_child(self, child: Dom)  -> crate::dom::Dom { crate::dom::Dom { ptr: { az_dom_with_child(self.leak(), child.leak()) } } }
+        pub fn with_child(self, child: Dom)  -> crate::dom::Dom { { (crate::dll::LIB.az_dom_with_child)(self.leak(), child)} }
         /// Returns if the DOM node has a certain CSS ID
-        pub fn has_id(&mut self, id: String)  -> bool { az_dom_has_id(&mut self.ptr, id) }
+        pub fn has_id(&mut self, id: String)  -> bool { (crate::dll::LIB.az_dom_has_id)(&mut self.ptr, id) }
         /// Returns if the DOM node has a certain CSS class
-        pub fn has_class(&mut self, class: String)  -> bool { az_dom_has_class(&mut self.ptr, class) }
+        pub fn has_class(&mut self, class: String)  -> bool { (crate::dll::LIB.az_dom_has_class)(&mut self.ptr, class) }
         /// Returns the HTML String for this DOM
-        pub fn get_html_string(&mut self)  -> crate::str::String { { az_dom_get_html_string(&mut self.ptr)} }
-       /// Prevents the destructor from running and returns the internal `AzDomPtr`
-       pub fn leak(self) -> AzDomPtr { let p = az_dom_shallow_copy(&self.ptr); std::mem::forget(self); p }
+        pub fn get_html_string(&mut self)  -> crate::str::String { { (crate::dll::LIB.az_dom_get_html_string)(&mut self.ptr)} }
     }
 
-    impl Drop for Dom { fn drop(&mut self) { az_dom_delete(&mut self.ptr); } }
+    impl Drop for Dom { fn drop(&mut self) { (crate::dll::LIB.az_dom_delete)(&mut self); } }
 
 
     /// `EventFilter` struct
-    pub struct EventFilter { pub(crate) object: AzEventFilter }
+    pub use crate::dll::AzEventFilter as EventFilter;
 
-    impl EventFilter {
-        pub fn hover(variant_data: crate::dom::HoverEventFilter) -> Self { az_event_filter_hover(variant_data.leak())}
-        pub fn not(variant_data: crate::dom::NotEventFilter) -> Self { az_event_filter_not(variant_data.leak())}
-        pub fn focus(variant_data: crate::dom::FocusEventFilter) -> Self { az_event_filter_focus(variant_data.leak())}
-        pub fn window(variant_data: crate::dom::WindowEventFilter) -> Self { az_event_filter_window(variant_data.leak())}
-    }
-
-    impl Drop for EventFilter { fn drop(&mut self) { az_event_filter_delete(&mut self); } }
+    impl Drop for EventFilter { fn drop(&mut self) { (crate::dll::LIB.az_event_filter_delete)(&mut self); } }
 
 
     /// `HoverEventFilter` struct
-    pub struct HoverEventFilter { pub(crate) object: AzHoverEventFilter }
+    pub use crate::dll::AzHoverEventFilter as HoverEventFilter;
 
-    impl HoverEventFilter {
-        pub fn mouse_over() -> Self { az_hover_event_filter_mouse_over()  }
-        pub fn mouse_down() -> Self { az_hover_event_filter_mouse_down()  }
-        pub fn left_mouse_down() -> Self { az_hover_event_filter_left_mouse_down()  }
-        pub fn right_mouse_down() -> Self { az_hover_event_filter_right_mouse_down()  }
-        pub fn middle_mouse_down() -> Self { az_hover_event_filter_middle_mouse_down()  }
-        pub fn mouse_up() -> Self { az_hover_event_filter_mouse_up()  }
-        pub fn left_mouse_up() -> Self { az_hover_event_filter_left_mouse_up()  }
-        pub fn right_mouse_up() -> Self { az_hover_event_filter_right_mouse_up()  }
-        pub fn middle_mouse_up() -> Self { az_hover_event_filter_middle_mouse_up()  }
-        pub fn mouse_enter() -> Self { az_hover_event_filter_mouse_enter()  }
-        pub fn mouse_leave() -> Self { az_hover_event_filter_mouse_leave()  }
-        pub fn scroll() -> Self { az_hover_event_filter_scroll()  }
-        pub fn scroll_start() -> Self { az_hover_event_filter_scroll_start()  }
-        pub fn scroll_end() -> Self { az_hover_event_filter_scroll_end()  }
-        pub fn text_input() -> Self { az_hover_event_filter_text_input()  }
-        pub fn virtual_key_down() -> Self { az_hover_event_filter_virtual_key_down()  }
-        pub fn virtual_key_up() -> Self { az_hover_event_filter_virtual_key_up()  }
-        pub fn hovered_file() -> Self { az_hover_event_filter_hovered_file()  }
-        pub fn dropped_file() -> Self { az_hover_event_filter_dropped_file()  }
-        pub fn hovered_file_cancelled() -> Self { az_hover_event_filter_hovered_file_cancelled()  }
-    }
-
-    impl Drop for HoverEventFilter { fn drop(&mut self) { az_hover_event_filter_delete(&mut self); } }
+    impl Drop for HoverEventFilter { fn drop(&mut self) { (crate::dll::LIB.az_hover_event_filter_delete)(&mut self); } }
 
 
     /// `FocusEventFilter` struct
-    pub struct FocusEventFilter { pub(crate) object: AzFocusEventFilter }
+    pub use crate::dll::AzFocusEventFilter as FocusEventFilter;
 
-    impl FocusEventFilter {
-        pub fn mouse_over() -> Self { az_focus_event_filter_mouse_over()  }
-        pub fn mouse_down() -> Self { az_focus_event_filter_mouse_down()  }
-        pub fn left_mouse_down() -> Self { az_focus_event_filter_left_mouse_down()  }
-        pub fn right_mouse_down() -> Self { az_focus_event_filter_right_mouse_down()  }
-        pub fn middle_mouse_down() -> Self { az_focus_event_filter_middle_mouse_down()  }
-        pub fn mouse_up() -> Self { az_focus_event_filter_mouse_up()  }
-        pub fn left_mouse_up() -> Self { az_focus_event_filter_left_mouse_up()  }
-        pub fn right_mouse_up() -> Self { az_focus_event_filter_right_mouse_up()  }
-        pub fn middle_mouse_up() -> Self { az_focus_event_filter_middle_mouse_up()  }
-        pub fn mouse_enter() -> Self { az_focus_event_filter_mouse_enter()  }
-        pub fn mouse_leave() -> Self { az_focus_event_filter_mouse_leave()  }
-        pub fn scroll() -> Self { az_focus_event_filter_scroll()  }
-        pub fn scroll_start() -> Self { az_focus_event_filter_scroll_start()  }
-        pub fn scroll_end() -> Self { az_focus_event_filter_scroll_end()  }
-        pub fn text_input() -> Self { az_focus_event_filter_text_input()  }
-        pub fn virtual_key_down() -> Self { az_focus_event_filter_virtual_key_down()  }
-        pub fn virtual_key_up() -> Self { az_focus_event_filter_virtual_key_up()  }
-        pub fn focus_received() -> Self { az_focus_event_filter_focus_received()  }
-        pub fn focus_lost() -> Self { az_focus_event_filter_focus_lost()  }
-    }
-
-    impl Drop for FocusEventFilter { fn drop(&mut self) { az_focus_event_filter_delete(&mut self); } }
+    impl Drop for FocusEventFilter { fn drop(&mut self) { (crate::dll::LIB.az_focus_event_filter_delete)(&mut self); } }
 
 
     /// `NotEventFilter` struct
-    pub struct NotEventFilter { pub(crate) object: AzNotEventFilter }
+    pub use crate::dll::AzNotEventFilter as NotEventFilter;
 
-    impl NotEventFilter {
-        pub fn hover(variant_data: crate::dom::HoverEventFilter) -> Self { az_not_event_filter_hover(variant_data.leak())}
-        pub fn focus(variant_data: crate::dom::FocusEventFilter) -> Self { az_not_event_filter_focus(variant_data.leak())}
-    }
-
-    impl Drop for NotEventFilter { fn drop(&mut self) { az_not_event_filter_delete(&mut self); } }
+    impl Drop for NotEventFilter { fn drop(&mut self) { (crate::dll::LIB.az_not_event_filter_delete)(&mut self); } }
 
 
     /// `WindowEventFilter` struct
-    pub struct WindowEventFilter { pub(crate) object: AzWindowEventFilter }
+    pub use crate::dll::AzWindowEventFilter as WindowEventFilter;
 
-    impl WindowEventFilter {
-        pub fn mouse_over() -> Self { az_window_event_filter_mouse_over()  }
-        pub fn mouse_down() -> Self { az_window_event_filter_mouse_down()  }
-        pub fn left_mouse_down() -> Self { az_window_event_filter_left_mouse_down()  }
-        pub fn right_mouse_down() -> Self { az_window_event_filter_right_mouse_down()  }
-        pub fn middle_mouse_down() -> Self { az_window_event_filter_middle_mouse_down()  }
-        pub fn mouse_up() -> Self { az_window_event_filter_mouse_up()  }
-        pub fn left_mouse_up() -> Self { az_window_event_filter_left_mouse_up()  }
-        pub fn right_mouse_up() -> Self { az_window_event_filter_right_mouse_up()  }
-        pub fn middle_mouse_up() -> Self { az_window_event_filter_middle_mouse_up()  }
-        pub fn mouse_enter() -> Self { az_window_event_filter_mouse_enter()  }
-        pub fn mouse_leave() -> Self { az_window_event_filter_mouse_leave()  }
-        pub fn scroll() -> Self { az_window_event_filter_scroll()  }
-        pub fn scroll_start() -> Self { az_window_event_filter_scroll_start()  }
-        pub fn scroll_end() -> Self { az_window_event_filter_scroll_end()  }
-        pub fn text_input() -> Self { az_window_event_filter_text_input()  }
-        pub fn virtual_key_down() -> Self { az_window_event_filter_virtual_key_down()  }
-        pub fn virtual_key_up() -> Self { az_window_event_filter_virtual_key_up()  }
-        pub fn hovered_file() -> Self { az_window_event_filter_hovered_file()  }
-        pub fn dropped_file() -> Self { az_window_event_filter_dropped_file()  }
-        pub fn hovered_file_cancelled() -> Self { az_window_event_filter_hovered_file_cancelled()  }
-    }
-
-    impl Drop for WindowEventFilter { fn drop(&mut self) { az_window_event_filter_delete(&mut self); } }
+    impl Drop for WindowEventFilter { fn drop(&mut self) { (crate::dll::LIB.az_window_event_filter_delete)(&mut self); } }
 
 
     /// `TabIndex` struct
-    pub struct TabIndex { pub(crate) object: AzTabIndex }
+    pub use crate::dll::AzTabIndex as TabIndex;
 
-    impl TabIndex {
-        /// Automatic tab index, similar to simply setting `focusable = "true"` or `tabindex = 0`, (both have the effect of making the element focusable)
-        pub fn auto() -> Self { az_tab_index_auto()  }
-        ///  Set the tab index in relation to its parent element (`tabindex = n`)
-        pub fn override_in_parent(variant_data: usize) -> Self { az_tab_index_override_in_parent(variant_data)}
-        /// Elements can be focused in callbacks, but are not accessible via keyboard / tab navigation (`tabindex = -1` ) 
-        pub fn no_keyboard_focus() -> Self { az_tab_index_no_keyboard_focus()  }
-    }
-
-    impl Drop for TabIndex { fn drop(&mut self) { az_tab_index_delete(&mut self); } }
+    impl Drop for TabIndex { fn drop(&mut self) { (crate::dll::LIB.az_tab_index_delete)(&mut self); } }
 }
 
 /// Struct definition for image / font / text IDs
@@ -4617,102 +3565,65 @@ pub mod resources {
 
 
     /// `TextId` struct
-    pub struct TextId { pub(crate) object: AzTextId }
+    pub use crate::dll::AzTextId as TextId;
 
     impl TextId {
         /// Creates a new, unique `TextId`
-        pub fn new() -> Self { az_text_id_new() }
+        pub fn new() -> Self { (crate::dll::LIB.az_text_id_new)() }
     }
 
-    impl Drop for TextId { fn drop(&mut self) { az_text_id_delete(&mut self); } }
+    impl Drop for TextId { fn drop(&mut self) { (crate::dll::LIB.az_text_id_delete)(&mut self); } }
 
 
     /// `ImageId` struct
-    pub struct ImageId { pub(crate) object: AzImageId }
+    pub use crate::dll::AzImageId as ImageId;
 
     impl ImageId {
         /// Creates a new, unique `ImageId`
-        pub fn new() -> Self { az_image_id_new() }
+        pub fn new() -> Self { (crate::dll::LIB.az_image_id_new)() }
     }
 
-    impl Drop for ImageId { fn drop(&mut self) { az_image_id_delete(&mut self); } }
+    impl Drop for ImageId { fn drop(&mut self) { (crate::dll::LIB.az_image_id_delete)(&mut self); } }
 
 
     /// `FontId` struct
-    pub struct FontId { pub(crate) object: AzFontId }
+    pub use crate::dll::AzFontId as FontId;
 
     impl FontId {
         /// Creates a new, unique `FontId`
-        pub fn new() -> Self { az_font_id_new() }
+        pub fn new() -> Self { (crate::dll::LIB.az_font_id_new)() }
     }
 
-    impl Drop for FontId { fn drop(&mut self) { az_font_id_delete(&mut self); } }
+    impl Drop for FontId { fn drop(&mut self) { (crate::dll::LIB.az_font_id_delete)(&mut self); } }
 
 
     /// `ImageSource` struct
-    pub struct ImageSource { pub(crate) object: AzImageSource }
+    pub use crate::dll::AzImageSource as ImageSource;
 
-    impl ImageSource {
-        /// Bytes of the image, encoded in PNG / JPG / etc. format
-        pub fn embedded(variant_data: crate::vec::U8Vec) -> Self { az_image_source_embedded(variant_data.leak())}
-        /// References an (encoded!) image as a file from the file system that is loaded when necessary
-        pub fn file(variant_data: crate::str::String) -> Self { az_image_source_file(variant_data.leak())}
-        /// References a decoded (!) `RawImage` as the image source
-        pub fn raw(variant_data: crate::resources::RawImage) -> Self { az_image_source_raw(variant_data.leak())}
-    }
-
-    impl Drop for ImageSource { fn drop(&mut self) { az_image_source_delete(&mut self); } }
+    impl Drop for ImageSource { fn drop(&mut self) { (crate::dll::LIB.az_image_source_delete)(&mut self); } }
 
 
     /// `FontSource` struct
-    pub struct FontSource { pub(crate) object: AzFontSource }
+    pub use crate::dll::AzFontSource as FontSource;
 
-    impl FontSource {
-        /// Bytes are the bytes of the font file
-        pub fn embedded(variant_data: crate::vec::U8Vec) -> Self { az_font_source_embedded(variant_data.leak())}
-        /// References a font from a file path, which is loaded when necessary
-        pub fn file(variant_data: crate::str::String) -> Self { az_font_source_file(variant_data.leak())}
-        /// References a font from from a system font identifier, such as `"Arial"` or `"Helvetica"`
-        pub fn system(variant_data: crate::str::String) -> Self { az_font_source_system(variant_data.leak())}
-    }
-
-    impl Drop for FontSource { fn drop(&mut self) { az_font_source_delete(&mut self); } }
+    impl Drop for FontSource { fn drop(&mut self) { (crate::dll::LIB.az_font_source_delete)(&mut self); } }
 
 
     /// `RawImage` struct
-    pub struct RawImage { pub(crate) object: AzRawImage }
+    pub use crate::dll::AzRawImage as RawImage;
 
     impl RawImage {
         /// Creates a new `RawImage` by loading the decoded bytes
-        pub fn new(decoded_pixels: U8Vec, width: usize, height: usize, data_format: RawImageFormat) -> Self { az_raw_image_new(decoded_pixels, width, height, data_format) }
+        pub fn new(decoded_pixels: U8Vec, width: usize, height: usize, data_format: RawImageFormat) -> Self { (crate::dll::LIB.az_raw_image_new)(decoded_pixels, width, height, data_format) }
     }
 
-    impl Drop for RawImage { fn drop(&mut self) { az_raw_image_delete(&mut self); } }
+    impl Drop for RawImage { fn drop(&mut self) { (crate::dll::LIB.az_raw_image_delete)(&mut self); } }
 
 
     /// `RawImageFormat` struct
-    pub struct RawImageFormat { pub(crate) object: AzRawImageFormat }
+    pub use crate::dll::AzRawImageFormat as RawImageFormat;
 
-    impl RawImageFormat {
-        /// Bytes are in the R-unsinged-8bit format
-        pub fn r8() -> Self { az_raw_image_format_r8()  }
-        /// Bytes are in the R-unsinged-16bit format
-        pub fn r16() -> Self { az_raw_image_format_r16()  }
-        /// Bytes are in the RG-unsinged-16bit format
-        pub fn rg16() -> Self { az_raw_image_format_rg16()  }
-        /// Bytes are in the BRGA-unsigned-8bit format
-        pub fn bgra8() -> Self { az_raw_image_format_bgra8()  }
-        /// Bytes are in the RGBA-floating-point-32bit format
-        pub fn rgbaf32() -> Self { az_raw_image_format_rgbaf32()  }
-        /// Bytes are in the RG-unsigned-8bit format
-        pub fn rg8() -> Self { az_raw_image_format_rg8()  }
-        /// Bytes are in the RGBA-signed-32bit format
-        pub fn rgbai32() -> Self { az_raw_image_format_rgbai32()  }
-        /// Bytes are in the RGBA-unsigned-8bit format
-        pub fn rgba8() -> Self { az_raw_image_format_rgba8()  }
-    }
-
-    impl Drop for RawImageFormat { fn drop(&mut self) { az_raw_image_format_delete(&mut self); } }
+    impl Drop for RawImageFormat { fn drop(&mut self) { (crate::dll::LIB.az_raw_image_format_delete)(&mut self); } }
 }
 
 /// Window creation / startup configuration
@@ -4724,15 +3635,13 @@ pub mod window {
 
 
     /// `WindowCreateOptions` struct
-    pub struct WindowCreateOptions { pub(crate) ptr: AzWindowCreateOptionsPtr }
+    pub use crate::dll::AzWindowCreateOptionsPtr as WindowCreateOptions;
 
     impl WindowCreateOptions {
         /// Creates a new `WindowCreateOptions` instance.
-        pub fn new(css: Css) -> Self { Self { ptr: az_window_create_options_new(css.leak()) } }
-       /// Prevents the destructor from running and returns the internal `AzWindowCreateOptionsPtr`
-       pub fn leak(self) -> AzWindowCreateOptionsPtr { let p = az_window_create_options_shallow_copy(&self.ptr); std::mem::forget(self); p }
+        pub fn new(css: Css) -> Self { (crate::dll::LIB.az_window_create_options_new)(css) }
     }
 
-    impl Drop for WindowCreateOptions { fn drop(&mut self) { az_window_create_options_delete(&mut self.ptr); } }
+    impl Drop for WindowCreateOptions { fn drop(&mut self) { (crate::dll::LIB.az_window_create_options_delete)(&mut self); } }
 }
 

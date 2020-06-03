@@ -22,7 +22,7 @@
 
         /// Creates a new, type-erased pointer by casting the `T` value into a `Vec<u8>` and saving the length + type ID
         pub fn new<T: 'static>(value: T) -> Self {
-            use azul_dll::*;
+            use crate::dll::*;
 
             fn default_custom_destructor<U: 'static>(ptr: RefAny) {
                 use std::{mem, ptr};
@@ -42,7 +42,7 @@
                 (&value as *const T) as *const u8,
                 ::std::mem::size_of::<T>(),
                 Self::get_type_id::<T>() as u64,
-                crate::str::String::from_utf8_unchecked(type_name_str.as_ptr(), type_name_str.len()).leak(),
+                crate::str::String::from_utf8_unchecked(type_name_str.as_ptr(), type_name_str.len()),
                 default_custom_destructor::<T>,
             );
             ::std::mem::forget(value); // do not run the destructor of T here!
@@ -52,7 +52,7 @@
         /// Returns the inner `RefAny`
         pub fn leak(self) -> RefAny {
             use std::mem;
-            let s = az_ref_any_core_copy(&self.0);
+            let s = az_ref_any_core_copy(&self);
             mem::forget(self); // do not run destructor
             s
         }
@@ -61,16 +61,16 @@
         #[inline]
         pub fn downcast_ref<'a, U: 'static>(&'a self) -> Option<&'a U> {
             use std::ptr;
-            let ptr = az_ref_any_get_ptr(&self.0, self.0._internal_len, Self::get_type_id::<U>());
-            if ptr == ptr::null() { None } else { Some(unsafe { &*(self.0._internal_ptr as *const U) as &'a U }) }
+            let ptr = az_ref_any_get_ptr(&self, self._internal_len, Self::get_type_id::<U>());
+            if ptr == ptr::null() { None } else { Some(unsafe { &*(self._internal_ptr as *const U) as &'a U }) }
         }
 
         /// Downcasts the type-erased pointer to a type `&mut U`, returns `None` if the types don't match
         #[inline]
         pub fn downcast_mut<'a, U: 'static>(&'a mut self) -> Option<&'a mut U> {
             use std::ptr;
-            let ptr = az_ref_any_get_mut_ptr(&self.0, self.0._internal_len, Self::get_type_id::<U>());
-            if ptr == ptr::null_mut() { None } else { Some(unsafe { &mut *(self.0._internal_ptr as *mut U) as &'a mut U }) }
+            let ptr = az_ref_any_get_mut_ptr(&self, self._internal_len, Self::get_type_id::<U>());
+            if ptr == ptr::null_mut() { None } else { Some(unsafe { &mut *(self._internal_ptr as *mut U) as &'a mut U }) }
         }
 
         #[inline]
@@ -87,6 +87,6 @@
 
     impl Drop for RefAny {
         fn drop(&mut self) {
-            az_ref_any_delete(&mut self.0);
+            az_ref_any_delete(&mut self);
         }
     }

@@ -397,7 +397,7 @@ def rust_bindings_call_fn_args(f, class_name, class_ptr_name, self_as_first_arg,
                     elif class_is_stack_allocated(arg_type_class):
                         fn_args += start + arg_name + ", " # .object
                     else:
-                        fn_args += start + arg_name + ".leak(), "
+                        fn_args += start + arg_name + ", "
 
         fn_args = fn_args[:-2]
 
@@ -643,10 +643,11 @@ def generate_rust_dll(apiData):
     return [code, structs_map, functions_map]
 
 def generate_dll_loader(apiData, structs_map, functions_map):
-    code = "extern crate libloading;\r\n\r\n"
 
+    code = ""
     code += "pub(crate) mod dll {\r\n\r\n"
     code += "    use std::ffi::c_void;\r\n\r\n"
+
     for struct_name in structs_map.keys():
         struct = structs_map[struct_name]
         if "struct" in struct.keys():
@@ -703,13 +704,13 @@ def generate_dll_loader(apiData, structs_map, functions_map):
     code += "    use libloading::os::windows::{Library, Symbol};\r\n\r\n"
 
     code += "    pub struct AzulDll {\r\n"
-    code += "        lib: Box<Library>,\r\n"
+    code += "        pub lib: Box<Library>,\r\n"
     for fn_name in functions_map.keys():
         fn_type = functions_map[fn_name]
         fn_args = fn_type[0]
         fn_return = fn_type[1]
         return_arrow = "" if fn_return == "" else " -> "
-        code += "        " + fn_name + ": Symbol<extern fn(" + strip_fn_arg_types(fn_args) + ")" + return_arrow + fn_return + ">,\r\n"
+        code += "        pub " + fn_name + ": Symbol<extern fn(" + strip_fn_arg_types(fn_args) + ")" + return_arrow + fn_return + ">,\r\n"
     code += "    }\r\n\r\n"
 
     code += "    pub fn initialize_library(path: &str) -> Option<AzulDll> {\r\n"
@@ -727,7 +728,14 @@ def generate_dll_loader(apiData, structs_map, functions_map):
         code += "            " + fn_name + ",\r\n"
 
     code += "        })\r\n"
-    code += "    }\r\n"
+    code += "    }\r\n\r\n"
+
+    # Generate loading function
+    code += "    const LIB_BYTES: &[u8] = include_bytes!(\"../../../target/debug/libazul.so\");\r\n\r\n" # TODO: use proper path here!
+    code += "    lazy_static! {\r\n"
+    code += "        pub(crate) static ref LIB: AzulDll = { std::fs::write(\"./azul.so\", LIB_BYTES).unwrap(); initialize_library(\"./azul.so\").unwrap() };\r\n"
+    code += "    }\r\n\r\n"
+
     code += "}\r\n\r\n"
 
     return code
@@ -750,6 +758,9 @@ def generate_rust_api(apiData, structs_map, functions_map):
     for line in license.splitlines():
         code += "// " + line + "\r\n"
     code += "\r\n\r\n"
+    code += "extern crate libloading;\r\n"
+    code += "#[macro_use]\r\n"
+    code += "extern crate lazy_static;\r\n"
 
     apiData = apiData[version]
 
@@ -801,125 +812,80 @@ def generate_rust_api(apiData, structs_map, functions_map):
             else:
                 code += "    /// `" + class_name + "` struct\r\n    "
 
-            if c_is_stack_allocated:
-                if class_is_typedef:
-                    code += "pub struct " + class_name + " { pub(crate) object: " +  class_ptr_name + " }\r\n    "
-                elif class_is_const:
-                    code += "pub static " + to_snake_case(class_name).upper() + ": " + prefix + c["const"] + " = " + class_ptr_name + ";\r\n\r\n"
-                else:
-                    code += "pub struct " + class_name + " { pub(crate) object: " +  class_ptr_name + " }\r\n\r\n"
-            else:
-                code += "pub struct " + class_name + " { pub(crate) ptr: " +  class_ptr_name + " }\r\n\r\n"
+            code += "pub use crate::dll::" + class_ptr_name + " as " + class_name + ";\r\n\r\n"
 
-            if not(class_is_const or class_is_typedef):
+            should_emit_impl = not(class_is_const or class_is_typedef) and (("constructors" in c.keys() and len(c["constructors"]) > 0) or ("functions" in c.keys() and len(c["functions"]) > 0))
+            if should_emit_impl:
                 code += "    impl " + class_name + " {\r\n"
 
-            if c_is_stack_allocated:
-                if class_is_small_enum(c):
-                    for enum_variant in c["enum_fields"]:
-                        enum_variant_name = list(enum_variant.keys())[0]
-                        enum_variant = list(enum_variant.values())[0]
-                        if "doc" in enum_variant.keys():
-                            code += "        /// " + enum_variant["doc"] + "\r\n"
-                        if "type" in enum_variant.keys():
-                            variant_type = enum_variant["type"]
-                            if is_primitive_arg(variant_type):
-                                code += "        pub fn " + to_snake_case(enum_variant_name) + "(variant_data: " + variant_type + ") -> Self { "
-                                code += fn_prefix + to_snake_case(class_name) + "_" + to_snake_case(enum_variant_name) + "(variant_data)"
-                                code += "}\r\n"
+                if "constructors" in c.keys():
+                    for fn_name in c["constructors"]:
+                        const = c["constructors"][fn_name]
+
+                        c_fn_name = fn_prefix + to_snake_case(class_name) + "_" + fn_name
+                        fn_args = rust_bindings_fn_args(const, class_name, class_ptr_name, False, apiData)
+                        fn_args_call = rust_bindings_call_fn_args(const, class_name, class_ptr_name, False, apiData, class_is_boxed_object)
+
+                        fn_body = ""
+
+                        if tuple([module_name, class_name, fn_name]) in rust_api_patches.keys() \
+                        and "use_patches" in const.keys() \
+                        and "rust" in const["use_patches"]:
+                            fn_body = rust_api_patches[tuple([module_name, class_name, fn_name])]
+                        else:
+                            fn_body = "(crate::dll::LIB." + c_fn_name + ")(" + fn_args_call + ")"
+
+                        if "doc" in const.keys():
+                            code += "        /// " + const["doc"] + "\r\n"
+                        else:
+                            code += "        /// Creates a new `" + class_name + "` instance.\r\n"
+
+                        code += "        pub fn " + fn_name + "(" + fn_args + ") -> Self { " + fn_body + " }\r\n"
+
+                if "functions" in c.keys():
+                    for fn_name in c["functions"]:
+                        f = c["functions"][fn_name]
+
+                        fn_args = rust_bindings_fn_args(f, class_name, class_ptr_name, True, apiData)
+                        fn_args_call = rust_bindings_call_fn_args(f, class_name, class_ptr_name, True, apiData, class_is_boxed_object)
+                        c_fn_name = fn_prefix + to_snake_case(class_name) + "_" + fn_name
+
+                        fn_body = ""
+
+                        if tuple([module_name, class_name, fn_name]) in rust_api_patches.keys() \
+                        and "use_patches" in const.keys() \
+                        and "rust" in const["use_patches"]:
+                            fn_body = rust_api_patches[tuple([module_name, class_name, fn_name])]
+                        else:
+                            fn_body = "(crate::dll::LIB." + c_fn_name + ")(" + fn_args_call + ")"
+
+                        if tuple([module_name, class_name, fn_name]) in rust_api_patches:
+                            code += rust_api_patches[tuple([module_name, class_name, fn_name])]
+                            if "use_patches" in f.keys() and f["use_patches"]:
+                                continue
+
+                        if "doc" in f.keys():
+                            code += "        /// " + f["doc"] + "\r\n"
+                        else:
+                            code += "        /// Calls the `" + class_name + "::" + fn_name + "` function.\r\n"
+
+                        returns = ""
+                        if "returns" in f.keys():
+                            return_type = f["returns"]
+                            returns = " -> " + return_type
+                            if is_primitive_arg(return_type):
+                                fn_body = fn_body
                             else:
-                                analyzed_arg_type = analyze_type(variant_type)
-                                found_class_path = search_for_class_by_rust_class_name(apiData, analyzed_arg_type[1])
-                                stack_enum_args = analyzed_arg_type[0] + "crate::" + found_class_path[0] + "::" + found_class_path[1] + analyzed_arg_type[2]
-                                code += "        pub fn " + to_snake_case(enum_variant_name) + "(variant_data: " + stack_enum_args + ") -> Self { "
-                                code += fn_prefix + to_snake_case(class_name) + "_" + to_snake_case(enum_variant_name) + "(variant_data.leak())"
-                                code += "}\r\n"
-                        else:
-                            # enum variant with no arguments
-                            code += "        pub fn " + to_snake_case(enum_variant_name) + "() -> Self { "
-                            code += fn_prefix + to_snake_case(class_name) + "_" + to_snake_case(enum_variant_name) + "() "
-                            code += " }\r\n"
-
-            if "constructors" in c.keys():
-                for fn_name in c["constructors"]:
-                    const = c["constructors"][fn_name]
-
-                    c_fn_name = fn_prefix + to_snake_case(class_name) + "_" + fn_name
-                    fn_args = rust_bindings_fn_args(const, class_name, class_ptr_name, False, apiData)
-                    fn_args_call = rust_bindings_call_fn_args(const, class_name, class_ptr_name, False, apiData, class_is_boxed_object)
-
-                    fn_body = ""
-
-                    if tuple([module_name, class_name, fn_name]) in rust_api_patches.keys() \
-                    and "use_patches" in const.keys() \
-                    and "rust" in const["use_patches"]:
-                        fn_body = rust_api_patches[tuple([module_name, class_name, fn_name])]
-                    else:
-                        if c_is_stack_allocated:
-                            fn_body = c_fn_name + "(" + fn_args_call + ")"
-                        else:
-                            fn_body = "Self { ptr: " + c_fn_name + "(" + fn_args_call + ") }"
-
-                    if "doc" in const.keys():
-                        code += "        /// " + const["doc"] + "\r\n"
-                    else:
-                        code += "        /// Creates a new `" + class_name + "` instance.\r\n"
-
-                    code += "        pub fn " + fn_name + "(" + fn_args + ") -> Self { " + fn_body + " }\r\n"
-
-            if "functions" in c.keys():
-                for fn_name in c["functions"]:
-                    f = c["functions"][fn_name]
-
-                    fn_args = rust_bindings_fn_args(f, class_name, class_ptr_name, True, apiData)
-                    fn_args_call = rust_bindings_call_fn_args(f, class_name, class_ptr_name, True, apiData, class_is_boxed_object)
-                    c_fn_name = fn_prefix + to_snake_case(class_name) + "_" + fn_name
-
-                    fn_body = ""
-
-                    if tuple([module_name, class_name, fn_name]) in rust_api_patches.keys() \
-                    and "use_patches" in const.keys() \
-                    and "rust" in const["use_patches"]:
-                        fn_body = rust_api_patches[tuple([module_name, class_name, fn_name])]
-                    else:
-                        fn_body = c_fn_name + "(" + fn_args_call + ")"
-
-                    if tuple([module_name, class_name, fn_name]) in rust_api_patches:
-                        code += rust_api_patches[tuple([module_name, class_name, fn_name])]
-                        if "use_patches" in f.keys() and f["use_patches"]:
-                            continue
-
-                    if "doc" in f.keys():
-                        code += "        /// " + f["doc"] + "\r\n"
-                    else:
-                        code += "        /// Calls the `" + class_name + "::" + fn_name + "` function.\r\n"
-
-                    returns = ""
-                    if "returns" in f.keys():
-                        return_type = f["returns"]
-                        returns = " -> " + return_type
-                        if is_primitive_arg(return_type):
-                            fn_body = fn_body
-                        else:
-                            return_type_class = search_for_class_by_rust_class_name(apiData, return_type)
-                            returns = " -> crate::" + return_type_class[0] + "::" + return_type_class[1]
-                            if class_is_stack_allocated(get_class(apiData, return_type_class[0], return_type_class[1])):
+                                return_type_class = search_for_class_by_rust_class_name(apiData, return_type)
+                                returns = " -> crate::" + return_type_class[0] + "::" + return_type_class[1]
                                 fn_body = "{ " + fn_body + "}"
-                            else:
-                                fn_body = "crate::" + return_type_class[0] + "::" + return_type_class[1] + " { ptr: { " + fn_body + " } }"
 
-                    code += "        pub fn " + fn_name + "(" + fn_args + ") " +  returns + " { " + fn_body + " }\r\n"
-
-            if not(class_is_const or class_is_typedef):
-                if class_is_boxed_object:
-                    leak_fn_body = "let p = " +  fn_prefix + to_snake_case(class_name) + "_shallow_copy(&self.ptr); std::mem::forget(self); p"
-                    code += "       /// Prevents the destructor from running and returns the internal `" + class_ptr_name + "`\r\n"
-                    code += "       pub fn leak(self) -> " + class_ptr_name + " { " + leak_fn_body + " }\r\n"
+                        code += "        pub fn " + fn_name + "(" + fn_args + ") " +  returns + " { " + fn_body + " }\r\n"
 
                 code += "    }\r\n\r\n" # end of class
 
-                destructor_fn_object = "self.ptr" if class_is_boxed_object else "self"
-                code += "    impl Drop for " + class_name + " { fn drop(&mut self) { " + fn_prefix + to_snake_case(class_name) + "_delete(&mut " + destructor_fn_object + "); } }\r\n"
+            if not(class_is_const or class_is_typedef):
+                code += "    impl Drop for " + class_name + " { fn drop(&mut self) { (crate::dll::LIB." + fn_prefix + to_snake_case(class_name) + "_delete)(&mut self); } }\r\n"
 
         code += "}\r\n\r\n" # end of module
 
@@ -945,7 +911,7 @@ def generate_js_api(apiData):
 def main():
     apiData = read_api_file(api_file_path)
     rust_dll_result = generate_rust_dll(apiData)
-    write_file(rust_dll_result[0], rust_dll_path)
+    # write_file(rust_dll_result[0], rust_dll_path)
     write_file(generate_rust_api(apiData, rust_dll_result[1], rust_dll_result[2]), rust_api_path)
     # write_file(generate_c_api(apiData), c_api_path)
     # write_file(generate_cpp_api(apiData), cpp_api_path)
