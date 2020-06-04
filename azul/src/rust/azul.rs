@@ -23,8 +23,6 @@
 
 
 extern crate libloading;
-#[macro_use]
-extern crate lazy_static;
 pub(crate) mod dll {
 
     use std::ffi::c_void;
@@ -2216,10 +2214,26 @@ pub(crate) mod dll {
 
     const LIB_BYTES: &[u8] = include_bytes!("../../../target/debug/libazul.so");
 
-    lazy_static! {
-        pub(crate) static ref LIB: AzulDll = { std::fs::write("./azul.so", LIB_BYTES).unwrap(); initialize_library("./azul.so").unwrap() };
-    }
+    use std::{mem::MaybeUninit, sync::atomic::{AtomicBool, Ordering}};
 
+    static LIBRARY_IS_INITIALIZED: AtomicBool = AtomicBool::new(false);
+    static mut AZUL_DLL: MaybeUninit<AzulDll> = MaybeUninit::<AzulDll>::uninit();
+
+    fn load_library_inner() -> Option<AzulDll> { std::fs::write("./azul.so", LIB_BYTES).ok()?; initialize_library("./azul.so") }
+
+    pub(crate) fn get_azul_dll() -> &'static AzulDll { 
+        if !LIBRARY_IS_INITIALIZED.load(Ordering::SeqCst) {
+           match load_library_inner() {
+               Some(s) => {
+                   unsafe { AZUL_DLL = MaybeUninit::new(a) };
+                   LIBRARY_IS_INITIALIZED.store(true, Ordering::SeqCst);
+               },
+               None => { println!("failed to initialize libazul dll"); std::process::exit(-1); }
+           }
+        }
+
+        unsafe { &*AZUL_DLL.as_ptr() }
+    }
 }
 
 /// Module to re-export common structs (`App`, `AppConfig`, `Css`, `Dom`, `WindowCreateOptions`, `RefAny`, `LayoutInfo`)
@@ -2251,14 +2265,14 @@ pub mod str {
 
     impl String {
         /// Creates + allocates a Rust `String` by **copying** it from another utf8-encoded string
-        pub fn from_utf8_unchecked(ptr: *const u8, len: usize) -> Self { (crate::dll::LIB.az_string_from_utf8_unchecked)(ptr, len) }
+        pub fn from_utf8_unchecked(ptr: *const u8, len: usize) -> Self { (crate::dll::get_azul_dll().az_string_from_utf8_unchecked)(ptr, len) }
         /// Creates + allocates a Rust `String` by **copying** it from another utf8-encoded string
-        pub fn from_utf8_lossy(ptr: *const u8, len: usize) -> Self { (crate::dll::LIB.az_string_from_utf8_lossy)(ptr, len) }
+        pub fn from_utf8_lossy(ptr: *const u8, len: usize) -> Self { (crate::dll::get_azul_dll().az_string_from_utf8_lossy)(ptr, len) }
         /// Creates + allocates a Rust `String` by **copying** it from another utf8-encoded string
-        pub fn into_bytes(self)  -> crate::vec::U8Vec { { (crate::dll::LIB.az_string_into_bytes)(self.leak())} }
+        pub fn into_bytes(self)  -> crate::vec::U8Vec { { (crate::dll::get_azul_dll().az_string_into_bytes)(self.leak())} }
     }
 
-    impl Drop for String { fn drop(&mut self) { (crate::dll::LIB.az_string_delete)(&mut self); } }
+    impl Drop for String { fn drop(&mut self) { (crate::dll::get_azul_dll().az_string_delete)(&mut self); } }
 }
 
 /// Definition of azuls internal `Vec<*>` wrappers
@@ -2309,7 +2323,7 @@ pub mod vec {
     /// Wrapper over a Rust-allocated `U8Vec`
     pub use crate::dll::AzU8Vec as U8Vec;
 
-    impl Drop for U8Vec { fn drop(&mut self) { (crate::dll::LIB.az_u8_vec_delete)(&mut self); } }
+    impl Drop for U8Vec { fn drop(&mut self) { (crate::dll::get_azul_dll().az_u8_vec_delete)(&mut self); } }
 
 
     /// Wrapper over a Rust-allocated `StringVec`
@@ -2317,10 +2331,10 @@ pub mod vec {
 
     impl StringVec {
         /// Creates + allocates a Rust `Vec<String>` by **copying** it from a bytes source
-        pub fn copy_from(ptr: *const AzString, len: usize) -> Self { (crate::dll::LIB.az_string_vec_copy_from)(ptr, len) }
+        pub fn copy_from(ptr: *const AzString, len: usize) -> Self { (crate::dll::get_azul_dll().az_string_vec_copy_from)(ptr, len) }
     }
 
-    impl Drop for StringVec { fn drop(&mut self) { (crate::dll::LIB.az_string_vec_delete)(&mut self); } }
+    impl Drop for StringVec { fn drop(&mut self) { (crate::dll::get_azul_dll().az_string_vec_delete)(&mut self); } }
 
 
     /// Wrapper over a Rust-allocated `GradientStopPreVec`
@@ -2328,10 +2342,10 @@ pub mod vec {
 
     impl GradientStopPreVec {
         /// Creates + allocates a Rust `Vec<GradientStopPre>` by **copying** it from a bytes source
-        pub fn copy_from(ptr: *const AzGradientStopPre, len: usize) -> Self { (crate::dll::LIB.az_gradient_stop_pre_vec_copy_from)(ptr, len) }
+        pub fn copy_from(ptr: *const AzGradientStopPre, len: usize) -> Self { (crate::dll::get_azul_dll().az_gradient_stop_pre_vec_copy_from)(ptr, len) }
     }
 
-    impl Drop for GradientStopPreVec { fn drop(&mut self) { (crate::dll::LIB.az_gradient_stop_pre_vec_delete)(&mut self); } }
+    impl Drop for GradientStopPreVec { fn drop(&mut self) { (crate::dll::get_azul_dll().az_gradient_stop_pre_vec_delete)(&mut self); } }
 }
 
 /// Definition of azuls internal `Option<*>` wrappers
@@ -2344,7 +2358,7 @@ pub mod option {
     /// `OptionPercentageValue` struct
     pub use crate::dll::AzOptionPercentageValue as OptionPercentageValue;
 
-    impl Drop for OptionPercentageValue { fn drop(&mut self) { (crate::dll::LIB.az_option_percentage_value_delete)(&mut self); } }
+    impl Drop for OptionPercentageValue { fn drop(&mut self) { (crate::dll::get_azul_dll().az_option_percentage_value_delete)(&mut self); } }
 }
 
 /// `App` construction and configuration
@@ -2352,7 +2366,7 @@ pub mod option {
 pub mod app {
 
     use crate::dll::*;
-    use crate::callbacks::{LayoutCallback, RefAny};
+    use crate::callbacks::{RefAny, LayoutCallback};
     use crate::window::WindowCreateOptions;
 
 
@@ -2361,10 +2375,10 @@ pub mod app {
 
     impl AppConfig {
         /// Creates a new AppConfig with default values
-        pub fn default() -> Self { (crate::dll::LIB.az_app_config_default)() }
+        pub fn default() -> Self { (crate::dll::get_azul_dll().az_app_config_default)() }
     }
 
-    impl Drop for AppConfig { fn drop(&mut self) { (crate::dll::LIB.az_app_config_delete)(&mut self); } }
+    impl Drop for AppConfig { fn drop(&mut self) { (crate::dll::get_azul_dll().az_app_config_delete)(&mut self); } }
 
 
     /// `App` struct
@@ -2379,10 +2393,10 @@ pub mod app {
             }
  }
         /// Runs the application. Due to platform restrictions (specifically `WinMain` on Windows), this function never returns.
-        pub fn run(self, window: WindowCreateOptions)  { (crate::dll::LIB.az_app_run)(self.leak(), window) }
+        pub fn run(self, window: WindowCreateOptions)  { (crate::dll::get_azul_dll().az_app_run)(self.leak(), window) }
     }
 
-    impl Drop for App { fn drop(&mut self) { (crate::dll::LIB.az_app_delete)(&mut self); } }
+    impl Drop for App { fn drop(&mut self) { (crate::dll::get_azul_dll().az_app_delete)(&mut self); } }
 }
 
 /// Callback type definitions + struct definitions of `CallbackInfo`s
@@ -2416,7 +2430,7 @@ pub mod callbacks {
     /// `CallbackInfo` struct
     pub use crate::dll::AzCallbackInfoPtr as CallbackInfo;
 
-    impl Drop for CallbackInfo { fn drop(&mut self) { (crate::dll::LIB.az_callback_info_delete)(&mut self); } }
+    impl Drop for CallbackInfo { fn drop(&mut self) { (crate::dll::get_azul_dll().az_callback_info_delete)(&mut self); } }
 
 
     /// `UpdateScreen` struct
@@ -2441,13 +2455,13 @@ pub mod callbacks {
     /// `IFrameCallbackInfo` struct
     pub use crate::dll::AzIFrameCallbackInfoPtr as IFrameCallbackInfo;
 
-    impl Drop for IFrameCallbackInfo { fn drop(&mut self) { (crate::dll::LIB.az_i_frame_callback_info_delete)(&mut self); } }
+    impl Drop for IFrameCallbackInfo { fn drop(&mut self) { (crate::dll::get_azul_dll().az_i_frame_callback_info_delete)(&mut self); } }
 
 
     /// `IFrameCallbackReturn` struct
     pub use crate::dll::AzIFrameCallbackReturnPtr as IFrameCallbackReturn;
 
-    impl Drop for IFrameCallbackReturn { fn drop(&mut self) { (crate::dll::LIB.az_i_frame_callback_return_delete)(&mut self); } }
+    impl Drop for IFrameCallbackReturn { fn drop(&mut self) { (crate::dll::get_azul_dll().az_i_frame_callback_return_delete)(&mut self); } }
 
 
     /// Callback for rendering to an OpenGL texture
@@ -2456,13 +2470,13 @@ pub mod callbacks {
     /// `GlCallbackInfo` struct
     pub use crate::dll::AzGlCallbackInfoPtr as GlCallbackInfo;
 
-    impl Drop for GlCallbackInfo { fn drop(&mut self) { (crate::dll::LIB.az_gl_callback_info_delete)(&mut self); } }
+    impl Drop for GlCallbackInfo { fn drop(&mut self) { (crate::dll::get_azul_dll().az_gl_callback_info_delete)(&mut self); } }
 
 
     /// `GlCallbackReturn` struct
     pub use crate::dll::AzGlCallbackReturnPtr as GlCallbackReturn;
 
-    impl Drop for GlCallbackReturn { fn drop(&mut self) { (crate::dll::LIB.az_gl_callback_return_delete)(&mut self); } }
+    impl Drop for GlCallbackReturn { fn drop(&mut self) { (crate::dll::get_azul_dll().az_gl_callback_return_delete)(&mut self); } }
 
 
     #[no_mangle]
@@ -2562,7 +2576,7 @@ pub mod callbacks {
     /// `LayoutInfo` struct
     pub use crate::dll::AzLayoutInfoPtr as LayoutInfo;
 
-    impl Drop for LayoutInfo { fn drop(&mut self) { (crate::dll::LIB.az_layout_info_delete)(&mut self); } }
+    impl Drop for LayoutInfo { fn drop(&mut self) { (crate::dll::get_azul_dll().az_layout_info_delete)(&mut self); } }
 }
 
 /// `Css` parsing module
@@ -2578,16 +2592,16 @@ pub mod css {
 
     impl Css {
         /// Loads the native style for the given operating system
-        pub fn native() -> Self { (crate::dll::LIB.az_css_native)() }
+        pub fn native() -> Self { (crate::dll::get_azul_dll().az_css_native)() }
         /// Returns an empty CSS style
-        pub fn empty() -> Self { (crate::dll::LIB.az_css_empty)() }
+        pub fn empty() -> Self { (crate::dll::get_azul_dll().az_css_empty)() }
         /// Returns a CSS style parsed from a `String`
-        pub fn from_string(s: String) -> Self { (crate::dll::LIB.az_css_from_string)(s) }
+        pub fn from_string(s: String) -> Self { (crate::dll::get_azul_dll().az_css_from_string)(s) }
         /// Appends a parsed stylesheet to `Css::native()`
-        pub fn override_native(s: String) -> Self { (crate::dll::LIB.az_css_override_native)(s) }
+        pub fn override_native(s: String) -> Self { (crate::dll::get_azul_dll().az_css_override_native)(s) }
     }
 
-    impl Drop for Css { fn drop(&mut self) { (crate::dll::LIB.az_css_delete)(&mut self); } }
+    impl Drop for Css { fn drop(&mut self) { (crate::dll::get_azul_dll().az_css_delete)(&mut self); } }
 
 
     /// `CssHotReloader` struct
@@ -2595,852 +2609,852 @@ pub mod css {
 
     impl CssHotReloader {
         /// Creates a `HotReloadHandler` that hot-reloads a CSS file every X milliseconds
-        pub fn new(path: String, reload_ms: u64) -> Self { (crate::dll::LIB.az_css_hot_reloader_new)(path, reload_ms) }
+        pub fn new(path: String, reload_ms: u64) -> Self { (crate::dll::get_azul_dll().az_css_hot_reloader_new)(path, reload_ms) }
         /// Creates a `HotReloadHandler` that overrides the `Css::native()` stylesheet with a CSS file, reloaded every X milliseconds
-        pub fn override_native(path: String, reload_ms: u64) -> Self { (crate::dll::LIB.az_css_hot_reloader_override_native)(path, reload_ms) }
+        pub fn override_native(path: String, reload_ms: u64) -> Self { (crate::dll::get_azul_dll().az_css_hot_reloader_override_native)(path, reload_ms) }
     }
 
-    impl Drop for CssHotReloader { fn drop(&mut self) { (crate::dll::LIB.az_css_hot_reloader_delete)(&mut self); } }
+    impl Drop for CssHotReloader { fn drop(&mut self) { (crate::dll::get_azul_dll().az_css_hot_reloader_delete)(&mut self); } }
 
 
     /// `ColorU` struct
     pub use crate::dll::AzColorU as ColorU;
 
-    impl Drop for ColorU { fn drop(&mut self) { (crate::dll::LIB.az_color_u_delete)(&mut self); } }
+    impl Drop for ColorU { fn drop(&mut self) { (crate::dll::get_azul_dll().az_color_u_delete)(&mut self); } }
 
 
     /// `SizeMetric` struct
     pub use crate::dll::AzSizeMetric as SizeMetric;
 
-    impl Drop for SizeMetric { fn drop(&mut self) { (crate::dll::LIB.az_size_metric_delete)(&mut self); } }
+    impl Drop for SizeMetric { fn drop(&mut self) { (crate::dll::get_azul_dll().az_size_metric_delete)(&mut self); } }
 
 
     /// `FloatValue` struct
     pub use crate::dll::AzFloatValue as FloatValue;
 
-    impl Drop for FloatValue { fn drop(&mut self) { (crate::dll::LIB.az_float_value_delete)(&mut self); } }
+    impl Drop for FloatValue { fn drop(&mut self) { (crate::dll::get_azul_dll().az_float_value_delete)(&mut self); } }
 
 
     /// `PixelValue` struct
     pub use crate::dll::AzPixelValue as PixelValue;
 
-    impl Drop for PixelValue { fn drop(&mut self) { (crate::dll::LIB.az_pixel_value_delete)(&mut self); } }
+    impl Drop for PixelValue { fn drop(&mut self) { (crate::dll::get_azul_dll().az_pixel_value_delete)(&mut self); } }
 
 
     /// `PixelValueNoPercent` struct
     pub use crate::dll::AzPixelValueNoPercent as PixelValueNoPercent;
 
-    impl Drop for PixelValueNoPercent { fn drop(&mut self) { (crate::dll::LIB.az_pixel_value_no_percent_delete)(&mut self); } }
+    impl Drop for PixelValueNoPercent { fn drop(&mut self) { (crate::dll::get_azul_dll().az_pixel_value_no_percent_delete)(&mut self); } }
 
 
     /// `BoxShadowClipMode` struct
     pub use crate::dll::AzBoxShadowClipMode as BoxShadowClipMode;
 
-    impl Drop for BoxShadowClipMode { fn drop(&mut self) { (crate::dll::LIB.az_box_shadow_clip_mode_delete)(&mut self); } }
+    impl Drop for BoxShadowClipMode { fn drop(&mut self) { (crate::dll::get_azul_dll().az_box_shadow_clip_mode_delete)(&mut self); } }
 
 
     /// `BoxShadowPreDisplayItem` struct
     pub use crate::dll::AzBoxShadowPreDisplayItem as BoxShadowPreDisplayItem;
 
-    impl Drop for BoxShadowPreDisplayItem { fn drop(&mut self) { (crate::dll::LIB.az_box_shadow_pre_display_item_delete)(&mut self); } }
+    impl Drop for BoxShadowPreDisplayItem { fn drop(&mut self) { (crate::dll::get_azul_dll().az_box_shadow_pre_display_item_delete)(&mut self); } }
 
 
     /// `LayoutAlignContent` struct
     pub use crate::dll::AzLayoutAlignContent as LayoutAlignContent;
 
-    impl Drop for LayoutAlignContent { fn drop(&mut self) { (crate::dll::LIB.az_layout_align_content_delete)(&mut self); } }
+    impl Drop for LayoutAlignContent { fn drop(&mut self) { (crate::dll::get_azul_dll().az_layout_align_content_delete)(&mut self); } }
 
 
     /// `LayoutAlignItems` struct
     pub use crate::dll::AzLayoutAlignItems as LayoutAlignItems;
 
-    impl Drop for LayoutAlignItems { fn drop(&mut self) { (crate::dll::LIB.az_layout_align_items_delete)(&mut self); } }
+    impl Drop for LayoutAlignItems { fn drop(&mut self) { (crate::dll::get_azul_dll().az_layout_align_items_delete)(&mut self); } }
 
 
     /// `LayoutBottom` struct
     pub use crate::dll::AzLayoutBottom as LayoutBottom;
 
-    impl Drop for LayoutBottom { fn drop(&mut self) { (crate::dll::LIB.az_layout_bottom_delete)(&mut self); } }
+    impl Drop for LayoutBottom { fn drop(&mut self) { (crate::dll::get_azul_dll().az_layout_bottom_delete)(&mut self); } }
 
 
     /// `LayoutBoxSizing` struct
     pub use crate::dll::AzLayoutBoxSizing as LayoutBoxSizing;
 
-    impl Drop for LayoutBoxSizing { fn drop(&mut self) { (crate::dll::LIB.az_layout_box_sizing_delete)(&mut self); } }
+    impl Drop for LayoutBoxSizing { fn drop(&mut self) { (crate::dll::get_azul_dll().az_layout_box_sizing_delete)(&mut self); } }
 
 
     /// `LayoutDirection` struct
     pub use crate::dll::AzLayoutDirection as LayoutDirection;
 
-    impl Drop for LayoutDirection { fn drop(&mut self) { (crate::dll::LIB.az_layout_direction_delete)(&mut self); } }
+    impl Drop for LayoutDirection { fn drop(&mut self) { (crate::dll::get_azul_dll().az_layout_direction_delete)(&mut self); } }
 
 
     /// `LayoutDisplay` struct
     pub use crate::dll::AzLayoutDisplay as LayoutDisplay;
 
-    impl Drop for LayoutDisplay { fn drop(&mut self) { (crate::dll::LIB.az_layout_display_delete)(&mut self); } }
+    impl Drop for LayoutDisplay { fn drop(&mut self) { (crate::dll::get_azul_dll().az_layout_display_delete)(&mut self); } }
 
 
     /// `LayoutFlexGrow` struct
     pub use crate::dll::AzLayoutFlexGrow as LayoutFlexGrow;
 
-    impl Drop for LayoutFlexGrow { fn drop(&mut self) { (crate::dll::LIB.az_layout_flex_grow_delete)(&mut self); } }
+    impl Drop for LayoutFlexGrow { fn drop(&mut self) { (crate::dll::get_azul_dll().az_layout_flex_grow_delete)(&mut self); } }
 
 
     /// `LayoutFlexShrink` struct
     pub use crate::dll::AzLayoutFlexShrink as LayoutFlexShrink;
 
-    impl Drop for LayoutFlexShrink { fn drop(&mut self) { (crate::dll::LIB.az_layout_flex_shrink_delete)(&mut self); } }
+    impl Drop for LayoutFlexShrink { fn drop(&mut self) { (crate::dll::get_azul_dll().az_layout_flex_shrink_delete)(&mut self); } }
 
 
     /// `LayoutFloat` struct
     pub use crate::dll::AzLayoutFloat as LayoutFloat;
 
-    impl Drop for LayoutFloat { fn drop(&mut self) { (crate::dll::LIB.az_layout_float_delete)(&mut self); } }
+    impl Drop for LayoutFloat { fn drop(&mut self) { (crate::dll::get_azul_dll().az_layout_float_delete)(&mut self); } }
 
 
     /// `LayoutHeight` struct
     pub use crate::dll::AzLayoutHeight as LayoutHeight;
 
-    impl Drop for LayoutHeight { fn drop(&mut self) { (crate::dll::LIB.az_layout_height_delete)(&mut self); } }
+    impl Drop for LayoutHeight { fn drop(&mut self) { (crate::dll::get_azul_dll().az_layout_height_delete)(&mut self); } }
 
 
     /// `LayoutJustifyContent` struct
     pub use crate::dll::AzLayoutJustifyContent as LayoutJustifyContent;
 
-    impl Drop for LayoutJustifyContent { fn drop(&mut self) { (crate::dll::LIB.az_layout_justify_content_delete)(&mut self); } }
+    impl Drop for LayoutJustifyContent { fn drop(&mut self) { (crate::dll::get_azul_dll().az_layout_justify_content_delete)(&mut self); } }
 
 
     /// `LayoutLeft` struct
     pub use crate::dll::AzLayoutLeft as LayoutLeft;
 
-    impl Drop for LayoutLeft { fn drop(&mut self) { (crate::dll::LIB.az_layout_left_delete)(&mut self); } }
+    impl Drop for LayoutLeft { fn drop(&mut self) { (crate::dll::get_azul_dll().az_layout_left_delete)(&mut self); } }
 
 
     /// `LayoutMarginBottom` struct
     pub use crate::dll::AzLayoutMarginBottom as LayoutMarginBottom;
 
-    impl Drop for LayoutMarginBottom { fn drop(&mut self) { (crate::dll::LIB.az_layout_margin_bottom_delete)(&mut self); } }
+    impl Drop for LayoutMarginBottom { fn drop(&mut self) { (crate::dll::get_azul_dll().az_layout_margin_bottom_delete)(&mut self); } }
 
 
     /// `LayoutMarginLeft` struct
     pub use crate::dll::AzLayoutMarginLeft as LayoutMarginLeft;
 
-    impl Drop for LayoutMarginLeft { fn drop(&mut self) { (crate::dll::LIB.az_layout_margin_left_delete)(&mut self); } }
+    impl Drop for LayoutMarginLeft { fn drop(&mut self) { (crate::dll::get_azul_dll().az_layout_margin_left_delete)(&mut self); } }
 
 
     /// `LayoutMarginRight` struct
     pub use crate::dll::AzLayoutMarginRight as LayoutMarginRight;
 
-    impl Drop for LayoutMarginRight { fn drop(&mut self) { (crate::dll::LIB.az_layout_margin_right_delete)(&mut self); } }
+    impl Drop for LayoutMarginRight { fn drop(&mut self) { (crate::dll::get_azul_dll().az_layout_margin_right_delete)(&mut self); } }
 
 
     /// `LayoutMarginTop` struct
     pub use crate::dll::AzLayoutMarginTop as LayoutMarginTop;
 
-    impl Drop for LayoutMarginTop { fn drop(&mut self) { (crate::dll::LIB.az_layout_margin_top_delete)(&mut self); } }
+    impl Drop for LayoutMarginTop { fn drop(&mut self) { (crate::dll::get_azul_dll().az_layout_margin_top_delete)(&mut self); } }
 
 
     /// `LayoutMaxHeight` struct
     pub use crate::dll::AzLayoutMaxHeight as LayoutMaxHeight;
 
-    impl Drop for LayoutMaxHeight { fn drop(&mut self) { (crate::dll::LIB.az_layout_max_height_delete)(&mut self); } }
+    impl Drop for LayoutMaxHeight { fn drop(&mut self) { (crate::dll::get_azul_dll().az_layout_max_height_delete)(&mut self); } }
 
 
     /// `LayoutMaxWidth` struct
     pub use crate::dll::AzLayoutMaxWidth as LayoutMaxWidth;
 
-    impl Drop for LayoutMaxWidth { fn drop(&mut self) { (crate::dll::LIB.az_layout_max_width_delete)(&mut self); } }
+    impl Drop for LayoutMaxWidth { fn drop(&mut self) { (crate::dll::get_azul_dll().az_layout_max_width_delete)(&mut self); } }
 
 
     /// `LayoutMinHeight` struct
     pub use crate::dll::AzLayoutMinHeight as LayoutMinHeight;
 
-    impl Drop for LayoutMinHeight { fn drop(&mut self) { (crate::dll::LIB.az_layout_min_height_delete)(&mut self); } }
+    impl Drop for LayoutMinHeight { fn drop(&mut self) { (crate::dll::get_azul_dll().az_layout_min_height_delete)(&mut self); } }
 
 
     /// `LayoutMinWidth` struct
     pub use crate::dll::AzLayoutMinWidth as LayoutMinWidth;
 
-    impl Drop for LayoutMinWidth { fn drop(&mut self) { (crate::dll::LIB.az_layout_min_width_delete)(&mut self); } }
+    impl Drop for LayoutMinWidth { fn drop(&mut self) { (crate::dll::get_azul_dll().az_layout_min_width_delete)(&mut self); } }
 
 
     /// `LayoutPaddingBottom` struct
     pub use crate::dll::AzLayoutPaddingBottom as LayoutPaddingBottom;
 
-    impl Drop for LayoutPaddingBottom { fn drop(&mut self) { (crate::dll::LIB.az_layout_padding_bottom_delete)(&mut self); } }
+    impl Drop for LayoutPaddingBottom { fn drop(&mut self) { (crate::dll::get_azul_dll().az_layout_padding_bottom_delete)(&mut self); } }
 
 
     /// `LayoutPaddingLeft` struct
     pub use crate::dll::AzLayoutPaddingLeft as LayoutPaddingLeft;
 
-    impl Drop for LayoutPaddingLeft { fn drop(&mut self) { (crate::dll::LIB.az_layout_padding_left_delete)(&mut self); } }
+    impl Drop for LayoutPaddingLeft { fn drop(&mut self) { (crate::dll::get_azul_dll().az_layout_padding_left_delete)(&mut self); } }
 
 
     /// `LayoutPaddingRight` struct
     pub use crate::dll::AzLayoutPaddingRight as LayoutPaddingRight;
 
-    impl Drop for LayoutPaddingRight { fn drop(&mut self) { (crate::dll::LIB.az_layout_padding_right_delete)(&mut self); } }
+    impl Drop for LayoutPaddingRight { fn drop(&mut self) { (crate::dll::get_azul_dll().az_layout_padding_right_delete)(&mut self); } }
 
 
     /// `LayoutPaddingTop` struct
     pub use crate::dll::AzLayoutPaddingTop as LayoutPaddingTop;
 
-    impl Drop for LayoutPaddingTop { fn drop(&mut self) { (crate::dll::LIB.az_layout_padding_top_delete)(&mut self); } }
+    impl Drop for LayoutPaddingTop { fn drop(&mut self) { (crate::dll::get_azul_dll().az_layout_padding_top_delete)(&mut self); } }
 
 
     /// `LayoutPosition` struct
     pub use crate::dll::AzLayoutPosition as LayoutPosition;
 
-    impl Drop for LayoutPosition { fn drop(&mut self) { (crate::dll::LIB.az_layout_position_delete)(&mut self); } }
+    impl Drop for LayoutPosition { fn drop(&mut self) { (crate::dll::get_azul_dll().az_layout_position_delete)(&mut self); } }
 
 
     /// `LayoutRight` struct
     pub use crate::dll::AzLayoutRight as LayoutRight;
 
-    impl Drop for LayoutRight { fn drop(&mut self) { (crate::dll::LIB.az_layout_right_delete)(&mut self); } }
+    impl Drop for LayoutRight { fn drop(&mut self) { (crate::dll::get_azul_dll().az_layout_right_delete)(&mut self); } }
 
 
     /// `LayoutTop` struct
     pub use crate::dll::AzLayoutTop as LayoutTop;
 
-    impl Drop for LayoutTop { fn drop(&mut self) { (crate::dll::LIB.az_layout_top_delete)(&mut self); } }
+    impl Drop for LayoutTop { fn drop(&mut self) { (crate::dll::get_azul_dll().az_layout_top_delete)(&mut self); } }
 
 
     /// `LayoutWidth` struct
     pub use crate::dll::AzLayoutWidth as LayoutWidth;
 
-    impl Drop for LayoutWidth { fn drop(&mut self) { (crate::dll::LIB.az_layout_width_delete)(&mut self); } }
+    impl Drop for LayoutWidth { fn drop(&mut self) { (crate::dll::get_azul_dll().az_layout_width_delete)(&mut self); } }
 
 
     /// `LayoutWrap` struct
     pub use crate::dll::AzLayoutWrap as LayoutWrap;
 
-    impl Drop for LayoutWrap { fn drop(&mut self) { (crate::dll::LIB.az_layout_wrap_delete)(&mut self); } }
+    impl Drop for LayoutWrap { fn drop(&mut self) { (crate::dll::get_azul_dll().az_layout_wrap_delete)(&mut self); } }
 
 
     /// `Overflow` struct
     pub use crate::dll::AzOverflow as Overflow;
 
-    impl Drop for Overflow { fn drop(&mut self) { (crate::dll::LIB.az_overflow_delete)(&mut self); } }
+    impl Drop for Overflow { fn drop(&mut self) { (crate::dll::get_azul_dll().az_overflow_delete)(&mut self); } }
 
 
     /// `PercentageValue` struct
     pub use crate::dll::AzPercentageValue as PercentageValue;
 
-    impl Drop for PercentageValue { fn drop(&mut self) { (crate::dll::LIB.az_percentage_value_delete)(&mut self); } }
+    impl Drop for PercentageValue { fn drop(&mut self) { (crate::dll::get_azul_dll().az_percentage_value_delete)(&mut self); } }
 
 
     /// `GradientStopPre` struct
     pub use crate::dll::AzGradientStopPre as GradientStopPre;
 
-    impl Drop for GradientStopPre { fn drop(&mut self) { (crate::dll::LIB.az_gradient_stop_pre_delete)(&mut self); } }
+    impl Drop for GradientStopPre { fn drop(&mut self) { (crate::dll::get_azul_dll().az_gradient_stop_pre_delete)(&mut self); } }
 
 
     /// `DirectionCorner` struct
     pub use crate::dll::AzDirectionCorner as DirectionCorner;
 
-    impl Drop for DirectionCorner { fn drop(&mut self) { (crate::dll::LIB.az_direction_corner_delete)(&mut self); } }
+    impl Drop for DirectionCorner { fn drop(&mut self) { (crate::dll::get_azul_dll().az_direction_corner_delete)(&mut self); } }
 
 
     /// `DirectionCorners` struct
     pub use crate::dll::AzDirectionCorners as DirectionCorners;
 
-    impl Drop for DirectionCorners { fn drop(&mut self) { (crate::dll::LIB.az_direction_corners_delete)(&mut self); } }
+    impl Drop for DirectionCorners { fn drop(&mut self) { (crate::dll::get_azul_dll().az_direction_corners_delete)(&mut self); } }
 
 
     /// `Direction` struct
     pub use crate::dll::AzDirection as Direction;
 
-    impl Drop for Direction { fn drop(&mut self) { (crate::dll::LIB.az_direction_delete)(&mut self); } }
+    impl Drop for Direction { fn drop(&mut self) { (crate::dll::get_azul_dll().az_direction_delete)(&mut self); } }
 
 
     /// `ExtendMode` struct
     pub use crate::dll::AzExtendMode as ExtendMode;
 
-    impl Drop for ExtendMode { fn drop(&mut self) { (crate::dll::LIB.az_extend_mode_delete)(&mut self); } }
+    impl Drop for ExtendMode { fn drop(&mut self) { (crate::dll::get_azul_dll().az_extend_mode_delete)(&mut self); } }
 
 
     /// `LinearGradient` struct
     pub use crate::dll::AzLinearGradient as LinearGradient;
 
-    impl Drop for LinearGradient { fn drop(&mut self) { (crate::dll::LIB.az_linear_gradient_delete)(&mut self); } }
+    impl Drop for LinearGradient { fn drop(&mut self) { (crate::dll::get_azul_dll().az_linear_gradient_delete)(&mut self); } }
 
 
     /// `Shape` struct
     pub use crate::dll::AzShape as Shape;
 
-    impl Drop for Shape { fn drop(&mut self) { (crate::dll::LIB.az_shape_delete)(&mut self); } }
+    impl Drop for Shape { fn drop(&mut self) { (crate::dll::get_azul_dll().az_shape_delete)(&mut self); } }
 
 
     /// `RadialGradient` struct
     pub use crate::dll::AzRadialGradient as RadialGradient;
 
-    impl Drop for RadialGradient { fn drop(&mut self) { (crate::dll::LIB.az_radial_gradient_delete)(&mut self); } }
+    impl Drop for RadialGradient { fn drop(&mut self) { (crate::dll::get_azul_dll().az_radial_gradient_delete)(&mut self); } }
 
 
     /// `CssImageId` struct
     pub use crate::dll::AzCssImageId as CssImageId;
 
-    impl Drop for CssImageId { fn drop(&mut self) { (crate::dll::LIB.az_css_image_id_delete)(&mut self); } }
+    impl Drop for CssImageId { fn drop(&mut self) { (crate::dll::get_azul_dll().az_css_image_id_delete)(&mut self); } }
 
 
     /// `StyleBackgroundContent` struct
     pub use crate::dll::AzStyleBackgroundContent as StyleBackgroundContent;
 
-    impl Drop for StyleBackgroundContent { fn drop(&mut self) { (crate::dll::LIB.az_style_background_content_delete)(&mut self); } }
+    impl Drop for StyleBackgroundContent { fn drop(&mut self) { (crate::dll::get_azul_dll().az_style_background_content_delete)(&mut self); } }
 
 
     /// `BackgroundPositionHorizontal` struct
     pub use crate::dll::AzBackgroundPositionHorizontal as BackgroundPositionHorizontal;
 
-    impl Drop for BackgroundPositionHorizontal { fn drop(&mut self) { (crate::dll::LIB.az_background_position_horizontal_delete)(&mut self); } }
+    impl Drop for BackgroundPositionHorizontal { fn drop(&mut self) { (crate::dll::get_azul_dll().az_background_position_horizontal_delete)(&mut self); } }
 
 
     /// `BackgroundPositionVertical` struct
     pub use crate::dll::AzBackgroundPositionVertical as BackgroundPositionVertical;
 
-    impl Drop for BackgroundPositionVertical { fn drop(&mut self) { (crate::dll::LIB.az_background_position_vertical_delete)(&mut self); } }
+    impl Drop for BackgroundPositionVertical { fn drop(&mut self) { (crate::dll::get_azul_dll().az_background_position_vertical_delete)(&mut self); } }
 
 
     /// `StyleBackgroundPosition` struct
     pub use crate::dll::AzStyleBackgroundPosition as StyleBackgroundPosition;
 
-    impl Drop for StyleBackgroundPosition { fn drop(&mut self) { (crate::dll::LIB.az_style_background_position_delete)(&mut self); } }
+    impl Drop for StyleBackgroundPosition { fn drop(&mut self) { (crate::dll::get_azul_dll().az_style_background_position_delete)(&mut self); } }
 
 
     /// `StyleBackgroundRepeat` struct
     pub use crate::dll::AzStyleBackgroundRepeat as StyleBackgroundRepeat;
 
-    impl Drop for StyleBackgroundRepeat { fn drop(&mut self) { (crate::dll::LIB.az_style_background_repeat_delete)(&mut self); } }
+    impl Drop for StyleBackgroundRepeat { fn drop(&mut self) { (crate::dll::get_azul_dll().az_style_background_repeat_delete)(&mut self); } }
 
 
     /// `StyleBackgroundSize` struct
     pub use crate::dll::AzStyleBackgroundSize as StyleBackgroundSize;
 
-    impl Drop for StyleBackgroundSize { fn drop(&mut self) { (crate::dll::LIB.az_style_background_size_delete)(&mut self); } }
+    impl Drop for StyleBackgroundSize { fn drop(&mut self) { (crate::dll::get_azul_dll().az_style_background_size_delete)(&mut self); } }
 
 
     /// `StyleBorderBottomColor` struct
     pub use crate::dll::AzStyleBorderBottomColor as StyleBorderBottomColor;
 
-    impl Drop for StyleBorderBottomColor { fn drop(&mut self) { (crate::dll::LIB.az_style_border_bottom_color_delete)(&mut self); } }
+    impl Drop for StyleBorderBottomColor { fn drop(&mut self) { (crate::dll::get_azul_dll().az_style_border_bottom_color_delete)(&mut self); } }
 
 
     /// `StyleBorderBottomLeftRadius` struct
     pub use crate::dll::AzStyleBorderBottomLeftRadius as StyleBorderBottomLeftRadius;
 
-    impl Drop for StyleBorderBottomLeftRadius { fn drop(&mut self) { (crate::dll::LIB.az_style_border_bottom_left_radius_delete)(&mut self); } }
+    impl Drop for StyleBorderBottomLeftRadius { fn drop(&mut self) { (crate::dll::get_azul_dll().az_style_border_bottom_left_radius_delete)(&mut self); } }
 
 
     /// `StyleBorderBottomRightRadius` struct
     pub use crate::dll::AzStyleBorderBottomRightRadius as StyleBorderBottomRightRadius;
 
-    impl Drop for StyleBorderBottomRightRadius { fn drop(&mut self) { (crate::dll::LIB.az_style_border_bottom_right_radius_delete)(&mut self); } }
+    impl Drop for StyleBorderBottomRightRadius { fn drop(&mut self) { (crate::dll::get_azul_dll().az_style_border_bottom_right_radius_delete)(&mut self); } }
 
 
     /// `BorderStyle` struct
     pub use crate::dll::AzBorderStyle as BorderStyle;
 
-    impl Drop for BorderStyle { fn drop(&mut self) { (crate::dll::LIB.az_border_style_delete)(&mut self); } }
+    impl Drop for BorderStyle { fn drop(&mut self) { (crate::dll::get_azul_dll().az_border_style_delete)(&mut self); } }
 
 
     /// `StyleBorderBottomStyle` struct
     pub use crate::dll::AzStyleBorderBottomStyle as StyleBorderBottomStyle;
 
-    impl Drop for StyleBorderBottomStyle { fn drop(&mut self) { (crate::dll::LIB.az_style_border_bottom_style_delete)(&mut self); } }
+    impl Drop for StyleBorderBottomStyle { fn drop(&mut self) { (crate::dll::get_azul_dll().az_style_border_bottom_style_delete)(&mut self); } }
 
 
     /// `StyleBorderBottomWidth` struct
     pub use crate::dll::AzStyleBorderBottomWidth as StyleBorderBottomWidth;
 
-    impl Drop for StyleBorderBottomWidth { fn drop(&mut self) { (crate::dll::LIB.az_style_border_bottom_width_delete)(&mut self); } }
+    impl Drop for StyleBorderBottomWidth { fn drop(&mut self) { (crate::dll::get_azul_dll().az_style_border_bottom_width_delete)(&mut self); } }
 
 
     /// `StyleBorderLeftColor` struct
     pub use crate::dll::AzStyleBorderLeftColor as StyleBorderLeftColor;
 
-    impl Drop for StyleBorderLeftColor { fn drop(&mut self) { (crate::dll::LIB.az_style_border_left_color_delete)(&mut self); } }
+    impl Drop for StyleBorderLeftColor { fn drop(&mut self) { (crate::dll::get_azul_dll().az_style_border_left_color_delete)(&mut self); } }
 
 
     /// `StyleBorderLeftStyle` struct
     pub use crate::dll::AzStyleBorderLeftStyle as StyleBorderLeftStyle;
 
-    impl Drop for StyleBorderLeftStyle { fn drop(&mut self) { (crate::dll::LIB.az_style_border_left_style_delete)(&mut self); } }
+    impl Drop for StyleBorderLeftStyle { fn drop(&mut self) { (crate::dll::get_azul_dll().az_style_border_left_style_delete)(&mut self); } }
 
 
     /// `StyleBorderLeftWidth` struct
     pub use crate::dll::AzStyleBorderLeftWidth as StyleBorderLeftWidth;
 
-    impl Drop for StyleBorderLeftWidth { fn drop(&mut self) { (crate::dll::LIB.az_style_border_left_width_delete)(&mut self); } }
+    impl Drop for StyleBorderLeftWidth { fn drop(&mut self) { (crate::dll::get_azul_dll().az_style_border_left_width_delete)(&mut self); } }
 
 
     /// `StyleBorderRightColor` struct
     pub use crate::dll::AzStyleBorderRightColor as StyleBorderRightColor;
 
-    impl Drop for StyleBorderRightColor { fn drop(&mut self) { (crate::dll::LIB.az_style_border_right_color_delete)(&mut self); } }
+    impl Drop for StyleBorderRightColor { fn drop(&mut self) { (crate::dll::get_azul_dll().az_style_border_right_color_delete)(&mut self); } }
 
 
     /// `StyleBorderRightStyle` struct
     pub use crate::dll::AzStyleBorderRightStyle as StyleBorderRightStyle;
 
-    impl Drop for StyleBorderRightStyle { fn drop(&mut self) { (crate::dll::LIB.az_style_border_right_style_delete)(&mut self); } }
+    impl Drop for StyleBorderRightStyle { fn drop(&mut self) { (crate::dll::get_azul_dll().az_style_border_right_style_delete)(&mut self); } }
 
 
     /// `StyleBorderRightWidth` struct
     pub use crate::dll::AzStyleBorderRightWidth as StyleBorderRightWidth;
 
-    impl Drop for StyleBorderRightWidth { fn drop(&mut self) { (crate::dll::LIB.az_style_border_right_width_delete)(&mut self); } }
+    impl Drop for StyleBorderRightWidth { fn drop(&mut self) { (crate::dll::get_azul_dll().az_style_border_right_width_delete)(&mut self); } }
 
 
     /// `StyleBorderTopColor` struct
     pub use crate::dll::AzStyleBorderTopColor as StyleBorderTopColor;
 
-    impl Drop for StyleBorderTopColor { fn drop(&mut self) { (crate::dll::LIB.az_style_border_top_color_delete)(&mut self); } }
+    impl Drop for StyleBorderTopColor { fn drop(&mut self) { (crate::dll::get_azul_dll().az_style_border_top_color_delete)(&mut self); } }
 
 
     /// `StyleBorderTopLeftRadius` struct
     pub use crate::dll::AzStyleBorderTopLeftRadius as StyleBorderTopLeftRadius;
 
-    impl Drop for StyleBorderTopLeftRadius { fn drop(&mut self) { (crate::dll::LIB.az_style_border_top_left_radius_delete)(&mut self); } }
+    impl Drop for StyleBorderTopLeftRadius { fn drop(&mut self) { (crate::dll::get_azul_dll().az_style_border_top_left_radius_delete)(&mut self); } }
 
 
     /// `StyleBorderTopRightRadius` struct
     pub use crate::dll::AzStyleBorderTopRightRadius as StyleBorderTopRightRadius;
 
-    impl Drop for StyleBorderTopRightRadius { fn drop(&mut self) { (crate::dll::LIB.az_style_border_top_right_radius_delete)(&mut self); } }
+    impl Drop for StyleBorderTopRightRadius { fn drop(&mut self) { (crate::dll::get_azul_dll().az_style_border_top_right_radius_delete)(&mut self); } }
 
 
     /// `StyleBorderTopStyle` struct
     pub use crate::dll::AzStyleBorderTopStyle as StyleBorderTopStyle;
 
-    impl Drop for StyleBorderTopStyle { fn drop(&mut self) { (crate::dll::LIB.az_style_border_top_style_delete)(&mut self); } }
+    impl Drop for StyleBorderTopStyle { fn drop(&mut self) { (crate::dll::get_azul_dll().az_style_border_top_style_delete)(&mut self); } }
 
 
     /// `StyleBorderTopWidth` struct
     pub use crate::dll::AzStyleBorderTopWidth as StyleBorderTopWidth;
 
-    impl Drop for StyleBorderTopWidth { fn drop(&mut self) { (crate::dll::LIB.az_style_border_top_width_delete)(&mut self); } }
+    impl Drop for StyleBorderTopWidth { fn drop(&mut self) { (crate::dll::get_azul_dll().az_style_border_top_width_delete)(&mut self); } }
 
 
     /// `StyleCursor` struct
     pub use crate::dll::AzStyleCursor as StyleCursor;
 
-    impl Drop for StyleCursor { fn drop(&mut self) { (crate::dll::LIB.az_style_cursor_delete)(&mut self); } }
+    impl Drop for StyleCursor { fn drop(&mut self) { (crate::dll::get_azul_dll().az_style_cursor_delete)(&mut self); } }
 
 
     /// `StyleFontFamily` struct
     pub use crate::dll::AzStyleFontFamily as StyleFontFamily;
 
-    impl Drop for StyleFontFamily { fn drop(&mut self) { (crate::dll::LIB.az_style_font_family_delete)(&mut self); } }
+    impl Drop for StyleFontFamily { fn drop(&mut self) { (crate::dll::get_azul_dll().az_style_font_family_delete)(&mut self); } }
 
 
     /// `StyleFontSize` struct
     pub use crate::dll::AzStyleFontSize as StyleFontSize;
 
-    impl Drop for StyleFontSize { fn drop(&mut self) { (crate::dll::LIB.az_style_font_size_delete)(&mut self); } }
+    impl Drop for StyleFontSize { fn drop(&mut self) { (crate::dll::get_azul_dll().az_style_font_size_delete)(&mut self); } }
 
 
     /// `StyleLetterSpacing` struct
     pub use crate::dll::AzStyleLetterSpacing as StyleLetterSpacing;
 
-    impl Drop for StyleLetterSpacing { fn drop(&mut self) { (crate::dll::LIB.az_style_letter_spacing_delete)(&mut self); } }
+    impl Drop for StyleLetterSpacing { fn drop(&mut self) { (crate::dll::get_azul_dll().az_style_letter_spacing_delete)(&mut self); } }
 
 
     /// `StyleLineHeight` struct
     pub use crate::dll::AzStyleLineHeight as StyleLineHeight;
 
-    impl Drop for StyleLineHeight { fn drop(&mut self) { (crate::dll::LIB.az_style_line_height_delete)(&mut self); } }
+    impl Drop for StyleLineHeight { fn drop(&mut self) { (crate::dll::get_azul_dll().az_style_line_height_delete)(&mut self); } }
 
 
     /// `StyleTabWidth` struct
     pub use crate::dll::AzStyleTabWidth as StyleTabWidth;
 
-    impl Drop for StyleTabWidth { fn drop(&mut self) { (crate::dll::LIB.az_style_tab_width_delete)(&mut self); } }
+    impl Drop for StyleTabWidth { fn drop(&mut self) { (crate::dll::get_azul_dll().az_style_tab_width_delete)(&mut self); } }
 
 
     /// `StyleTextAlignmentHorz` struct
     pub use crate::dll::AzStyleTextAlignmentHorz as StyleTextAlignmentHorz;
 
-    impl Drop for StyleTextAlignmentHorz { fn drop(&mut self) { (crate::dll::LIB.az_style_text_alignment_horz_delete)(&mut self); } }
+    impl Drop for StyleTextAlignmentHorz { fn drop(&mut self) { (crate::dll::get_azul_dll().az_style_text_alignment_horz_delete)(&mut self); } }
 
 
     /// `StyleTextColor` struct
     pub use crate::dll::AzStyleTextColor as StyleTextColor;
 
-    impl Drop for StyleTextColor { fn drop(&mut self) { (crate::dll::LIB.az_style_text_color_delete)(&mut self); } }
+    impl Drop for StyleTextColor { fn drop(&mut self) { (crate::dll::get_azul_dll().az_style_text_color_delete)(&mut self); } }
 
 
     /// `StyleWordSpacing` struct
     pub use crate::dll::AzStyleWordSpacing as StyleWordSpacing;
 
-    impl Drop for StyleWordSpacing { fn drop(&mut self) { (crate::dll::LIB.az_style_word_spacing_delete)(&mut self); } }
+    impl Drop for StyleWordSpacing { fn drop(&mut self) { (crate::dll::get_azul_dll().az_style_word_spacing_delete)(&mut self); } }
 
 
     /// `BoxShadowPreDisplayItemValue` struct
     pub use crate::dll::AzBoxShadowPreDisplayItemValue as BoxShadowPreDisplayItemValue;
 
-    impl Drop for BoxShadowPreDisplayItemValue { fn drop(&mut self) { (crate::dll::LIB.az_box_shadow_pre_display_item_value_delete)(&mut self); } }
+    impl Drop for BoxShadowPreDisplayItemValue { fn drop(&mut self) { (crate::dll::get_azul_dll().az_box_shadow_pre_display_item_value_delete)(&mut self); } }
 
 
     /// `LayoutAlignContentValue` struct
     pub use crate::dll::AzLayoutAlignContentValue as LayoutAlignContentValue;
 
-    impl Drop for LayoutAlignContentValue { fn drop(&mut self) { (crate::dll::LIB.az_layout_align_content_value_delete)(&mut self); } }
+    impl Drop for LayoutAlignContentValue { fn drop(&mut self) { (crate::dll::get_azul_dll().az_layout_align_content_value_delete)(&mut self); } }
 
 
     /// `LayoutAlignItemsValue` struct
     pub use crate::dll::AzLayoutAlignItemsValue as LayoutAlignItemsValue;
 
-    impl Drop for LayoutAlignItemsValue { fn drop(&mut self) { (crate::dll::LIB.az_layout_align_items_value_delete)(&mut self); } }
+    impl Drop for LayoutAlignItemsValue { fn drop(&mut self) { (crate::dll::get_azul_dll().az_layout_align_items_value_delete)(&mut self); } }
 
 
     /// `LayoutBottomValue` struct
     pub use crate::dll::AzLayoutBottomValue as LayoutBottomValue;
 
-    impl Drop for LayoutBottomValue { fn drop(&mut self) { (crate::dll::LIB.az_layout_bottom_value_delete)(&mut self); } }
+    impl Drop for LayoutBottomValue { fn drop(&mut self) { (crate::dll::get_azul_dll().az_layout_bottom_value_delete)(&mut self); } }
 
 
     /// `LayoutBoxSizingValue` struct
     pub use crate::dll::AzLayoutBoxSizingValue as LayoutBoxSizingValue;
 
-    impl Drop for LayoutBoxSizingValue { fn drop(&mut self) { (crate::dll::LIB.az_layout_box_sizing_value_delete)(&mut self); } }
+    impl Drop for LayoutBoxSizingValue { fn drop(&mut self) { (crate::dll::get_azul_dll().az_layout_box_sizing_value_delete)(&mut self); } }
 
 
     /// `LayoutDirectionValue` struct
     pub use crate::dll::AzLayoutDirectionValue as LayoutDirectionValue;
 
-    impl Drop for LayoutDirectionValue { fn drop(&mut self) { (crate::dll::LIB.az_layout_direction_value_delete)(&mut self); } }
+    impl Drop for LayoutDirectionValue { fn drop(&mut self) { (crate::dll::get_azul_dll().az_layout_direction_value_delete)(&mut self); } }
 
 
     /// `LayoutDisplayValue` struct
     pub use crate::dll::AzLayoutDisplayValue as LayoutDisplayValue;
 
-    impl Drop for LayoutDisplayValue { fn drop(&mut self) { (crate::dll::LIB.az_layout_display_value_delete)(&mut self); } }
+    impl Drop for LayoutDisplayValue { fn drop(&mut self) { (crate::dll::get_azul_dll().az_layout_display_value_delete)(&mut self); } }
 
 
     /// `LayoutFlexGrowValue` struct
     pub use crate::dll::AzLayoutFlexGrowValue as LayoutFlexGrowValue;
 
-    impl Drop for LayoutFlexGrowValue { fn drop(&mut self) { (crate::dll::LIB.az_layout_flex_grow_value_delete)(&mut self); } }
+    impl Drop for LayoutFlexGrowValue { fn drop(&mut self) { (crate::dll::get_azul_dll().az_layout_flex_grow_value_delete)(&mut self); } }
 
 
     /// `LayoutFlexShrinkValue` struct
     pub use crate::dll::AzLayoutFlexShrinkValue as LayoutFlexShrinkValue;
 
-    impl Drop for LayoutFlexShrinkValue { fn drop(&mut self) { (crate::dll::LIB.az_layout_flex_shrink_value_delete)(&mut self); } }
+    impl Drop for LayoutFlexShrinkValue { fn drop(&mut self) { (crate::dll::get_azul_dll().az_layout_flex_shrink_value_delete)(&mut self); } }
 
 
     /// `LayoutFloatValue` struct
     pub use crate::dll::AzLayoutFloatValue as LayoutFloatValue;
 
-    impl Drop for LayoutFloatValue { fn drop(&mut self) { (crate::dll::LIB.az_layout_float_value_delete)(&mut self); } }
+    impl Drop for LayoutFloatValue { fn drop(&mut self) { (crate::dll::get_azul_dll().az_layout_float_value_delete)(&mut self); } }
 
 
     /// `LayoutHeightValue` struct
     pub use crate::dll::AzLayoutHeightValue as LayoutHeightValue;
 
-    impl Drop for LayoutHeightValue { fn drop(&mut self) { (crate::dll::LIB.az_layout_height_value_delete)(&mut self); } }
+    impl Drop for LayoutHeightValue { fn drop(&mut self) { (crate::dll::get_azul_dll().az_layout_height_value_delete)(&mut self); } }
 
 
     /// `LayoutJustifyContentValue` struct
     pub use crate::dll::AzLayoutJustifyContentValue as LayoutJustifyContentValue;
 
-    impl Drop for LayoutJustifyContentValue { fn drop(&mut self) { (crate::dll::LIB.az_layout_justify_content_value_delete)(&mut self); } }
+    impl Drop for LayoutJustifyContentValue { fn drop(&mut self) { (crate::dll::get_azul_dll().az_layout_justify_content_value_delete)(&mut self); } }
 
 
     /// `LayoutLeftValue` struct
     pub use crate::dll::AzLayoutLeftValue as LayoutLeftValue;
 
-    impl Drop for LayoutLeftValue { fn drop(&mut self) { (crate::dll::LIB.az_layout_left_value_delete)(&mut self); } }
+    impl Drop for LayoutLeftValue { fn drop(&mut self) { (crate::dll::get_azul_dll().az_layout_left_value_delete)(&mut self); } }
 
 
     /// `LayoutMarginBottomValue` struct
     pub use crate::dll::AzLayoutMarginBottomValue as LayoutMarginBottomValue;
 
-    impl Drop for LayoutMarginBottomValue { fn drop(&mut self) { (crate::dll::LIB.az_layout_margin_bottom_value_delete)(&mut self); } }
+    impl Drop for LayoutMarginBottomValue { fn drop(&mut self) { (crate::dll::get_azul_dll().az_layout_margin_bottom_value_delete)(&mut self); } }
 
 
     /// `LayoutMarginLeftValue` struct
     pub use crate::dll::AzLayoutMarginLeftValue as LayoutMarginLeftValue;
 
-    impl Drop for LayoutMarginLeftValue { fn drop(&mut self) { (crate::dll::LIB.az_layout_margin_left_value_delete)(&mut self); } }
+    impl Drop for LayoutMarginLeftValue { fn drop(&mut self) { (crate::dll::get_azul_dll().az_layout_margin_left_value_delete)(&mut self); } }
 
 
     /// `LayoutMarginRightValue` struct
     pub use crate::dll::AzLayoutMarginRightValue as LayoutMarginRightValue;
 
-    impl Drop for LayoutMarginRightValue { fn drop(&mut self) { (crate::dll::LIB.az_layout_margin_right_value_delete)(&mut self); } }
+    impl Drop for LayoutMarginRightValue { fn drop(&mut self) { (crate::dll::get_azul_dll().az_layout_margin_right_value_delete)(&mut self); } }
 
 
     /// `LayoutMarginTopValue` struct
     pub use crate::dll::AzLayoutMarginTopValue as LayoutMarginTopValue;
 
-    impl Drop for LayoutMarginTopValue { fn drop(&mut self) { (crate::dll::LIB.az_layout_margin_top_value_delete)(&mut self); } }
+    impl Drop for LayoutMarginTopValue { fn drop(&mut self) { (crate::dll::get_azul_dll().az_layout_margin_top_value_delete)(&mut self); } }
 
 
     /// `LayoutMaxHeightValue` struct
     pub use crate::dll::AzLayoutMaxHeightValue as LayoutMaxHeightValue;
 
-    impl Drop for LayoutMaxHeightValue { fn drop(&mut self) { (crate::dll::LIB.az_layout_max_height_value_delete)(&mut self); } }
+    impl Drop for LayoutMaxHeightValue { fn drop(&mut self) { (crate::dll::get_azul_dll().az_layout_max_height_value_delete)(&mut self); } }
 
 
     /// `LayoutMaxWidthValue` struct
     pub use crate::dll::AzLayoutMaxWidthValue as LayoutMaxWidthValue;
 
-    impl Drop for LayoutMaxWidthValue { fn drop(&mut self) { (crate::dll::LIB.az_layout_max_width_value_delete)(&mut self); } }
+    impl Drop for LayoutMaxWidthValue { fn drop(&mut self) { (crate::dll::get_azul_dll().az_layout_max_width_value_delete)(&mut self); } }
 
 
     /// `LayoutMinHeightValue` struct
     pub use crate::dll::AzLayoutMinHeightValue as LayoutMinHeightValue;
 
-    impl Drop for LayoutMinHeightValue { fn drop(&mut self) { (crate::dll::LIB.az_layout_min_height_value_delete)(&mut self); } }
+    impl Drop for LayoutMinHeightValue { fn drop(&mut self) { (crate::dll::get_azul_dll().az_layout_min_height_value_delete)(&mut self); } }
 
 
     /// `LayoutMinWidthValue` struct
     pub use crate::dll::AzLayoutMinWidthValue as LayoutMinWidthValue;
 
-    impl Drop for LayoutMinWidthValue { fn drop(&mut self) { (crate::dll::LIB.az_layout_min_width_value_delete)(&mut self); } }
+    impl Drop for LayoutMinWidthValue { fn drop(&mut self) { (crate::dll::get_azul_dll().az_layout_min_width_value_delete)(&mut self); } }
 
 
     /// `LayoutPaddingBottomValue` struct
     pub use crate::dll::AzLayoutPaddingBottomValue as LayoutPaddingBottomValue;
 
-    impl Drop for LayoutPaddingBottomValue { fn drop(&mut self) { (crate::dll::LIB.az_layout_padding_bottom_value_delete)(&mut self); } }
+    impl Drop for LayoutPaddingBottomValue { fn drop(&mut self) { (crate::dll::get_azul_dll().az_layout_padding_bottom_value_delete)(&mut self); } }
 
 
     /// `LayoutPaddingLeftValue` struct
     pub use crate::dll::AzLayoutPaddingLeftValue as LayoutPaddingLeftValue;
 
-    impl Drop for LayoutPaddingLeftValue { fn drop(&mut self) { (crate::dll::LIB.az_layout_padding_left_value_delete)(&mut self); } }
+    impl Drop for LayoutPaddingLeftValue { fn drop(&mut self) { (crate::dll::get_azul_dll().az_layout_padding_left_value_delete)(&mut self); } }
 
 
     /// `LayoutPaddingRightValue` struct
     pub use crate::dll::AzLayoutPaddingRightValue as LayoutPaddingRightValue;
 
-    impl Drop for LayoutPaddingRightValue { fn drop(&mut self) { (crate::dll::LIB.az_layout_padding_right_value_delete)(&mut self); } }
+    impl Drop for LayoutPaddingRightValue { fn drop(&mut self) { (crate::dll::get_azul_dll().az_layout_padding_right_value_delete)(&mut self); } }
 
 
     /// `LayoutPaddingTopValue` struct
     pub use crate::dll::AzLayoutPaddingTopValue as LayoutPaddingTopValue;
 
-    impl Drop for LayoutPaddingTopValue { fn drop(&mut self) { (crate::dll::LIB.az_layout_padding_top_value_delete)(&mut self); } }
+    impl Drop for LayoutPaddingTopValue { fn drop(&mut self) { (crate::dll::get_azul_dll().az_layout_padding_top_value_delete)(&mut self); } }
 
 
     /// `LayoutPositionValue` struct
     pub use crate::dll::AzLayoutPositionValue as LayoutPositionValue;
 
-    impl Drop for LayoutPositionValue { fn drop(&mut self) { (crate::dll::LIB.az_layout_position_value_delete)(&mut self); } }
+    impl Drop for LayoutPositionValue { fn drop(&mut self) { (crate::dll::get_azul_dll().az_layout_position_value_delete)(&mut self); } }
 
 
     /// `LayoutRightValue` struct
     pub use crate::dll::AzLayoutRightValue as LayoutRightValue;
 
-    impl Drop for LayoutRightValue { fn drop(&mut self) { (crate::dll::LIB.az_layout_right_value_delete)(&mut self); } }
+    impl Drop for LayoutRightValue { fn drop(&mut self) { (crate::dll::get_azul_dll().az_layout_right_value_delete)(&mut self); } }
 
 
     /// `LayoutTopValue` struct
     pub use crate::dll::AzLayoutTopValue as LayoutTopValue;
 
-    impl Drop for LayoutTopValue { fn drop(&mut self) { (crate::dll::LIB.az_layout_top_value_delete)(&mut self); } }
+    impl Drop for LayoutTopValue { fn drop(&mut self) { (crate::dll::get_azul_dll().az_layout_top_value_delete)(&mut self); } }
 
 
     /// `LayoutWidthValue` struct
     pub use crate::dll::AzLayoutWidthValue as LayoutWidthValue;
 
-    impl Drop for LayoutWidthValue { fn drop(&mut self) { (crate::dll::LIB.az_layout_width_value_delete)(&mut self); } }
+    impl Drop for LayoutWidthValue { fn drop(&mut self) { (crate::dll::get_azul_dll().az_layout_width_value_delete)(&mut self); } }
 
 
     /// `LayoutWrapValue` struct
     pub use crate::dll::AzLayoutWrapValue as LayoutWrapValue;
 
-    impl Drop for LayoutWrapValue { fn drop(&mut self) { (crate::dll::LIB.az_layout_wrap_value_delete)(&mut self); } }
+    impl Drop for LayoutWrapValue { fn drop(&mut self) { (crate::dll::get_azul_dll().az_layout_wrap_value_delete)(&mut self); } }
 
 
     /// `OverflowValue` struct
     pub use crate::dll::AzOverflowValue as OverflowValue;
 
-    impl Drop for OverflowValue { fn drop(&mut self) { (crate::dll::LIB.az_overflow_value_delete)(&mut self); } }
+    impl Drop for OverflowValue { fn drop(&mut self) { (crate::dll::get_azul_dll().az_overflow_value_delete)(&mut self); } }
 
 
     /// `StyleBackgroundContentValue` struct
     pub use crate::dll::AzStyleBackgroundContentValue as StyleBackgroundContentValue;
 
-    impl Drop for StyleBackgroundContentValue { fn drop(&mut self) { (crate::dll::LIB.az_style_background_content_value_delete)(&mut self); } }
+    impl Drop for StyleBackgroundContentValue { fn drop(&mut self) { (crate::dll::get_azul_dll().az_style_background_content_value_delete)(&mut self); } }
 
 
     /// `StyleBackgroundPositionValue` struct
     pub use crate::dll::AzStyleBackgroundPositionValue as StyleBackgroundPositionValue;
 
-    impl Drop for StyleBackgroundPositionValue { fn drop(&mut self) { (crate::dll::LIB.az_style_background_position_value_delete)(&mut self); } }
+    impl Drop for StyleBackgroundPositionValue { fn drop(&mut self) { (crate::dll::get_azul_dll().az_style_background_position_value_delete)(&mut self); } }
 
 
     /// `StyleBackgroundRepeatValue` struct
     pub use crate::dll::AzStyleBackgroundRepeatValue as StyleBackgroundRepeatValue;
 
-    impl Drop for StyleBackgroundRepeatValue { fn drop(&mut self) { (crate::dll::LIB.az_style_background_repeat_value_delete)(&mut self); } }
+    impl Drop for StyleBackgroundRepeatValue { fn drop(&mut self) { (crate::dll::get_azul_dll().az_style_background_repeat_value_delete)(&mut self); } }
 
 
     /// `StyleBackgroundSizeValue` struct
     pub use crate::dll::AzStyleBackgroundSizeValue as StyleBackgroundSizeValue;
 
-    impl Drop for StyleBackgroundSizeValue { fn drop(&mut self) { (crate::dll::LIB.az_style_background_size_value_delete)(&mut self); } }
+    impl Drop for StyleBackgroundSizeValue { fn drop(&mut self) { (crate::dll::get_azul_dll().az_style_background_size_value_delete)(&mut self); } }
 
 
     /// `StyleBorderBottomColorValue` struct
     pub use crate::dll::AzStyleBorderBottomColorValue as StyleBorderBottomColorValue;
 
-    impl Drop for StyleBorderBottomColorValue { fn drop(&mut self) { (crate::dll::LIB.az_style_border_bottom_color_value_delete)(&mut self); } }
+    impl Drop for StyleBorderBottomColorValue { fn drop(&mut self) { (crate::dll::get_azul_dll().az_style_border_bottom_color_value_delete)(&mut self); } }
 
 
     /// `StyleBorderBottomLeftRadiusValue` struct
     pub use crate::dll::AzStyleBorderBottomLeftRadiusValue as StyleBorderBottomLeftRadiusValue;
 
-    impl Drop for StyleBorderBottomLeftRadiusValue { fn drop(&mut self) { (crate::dll::LIB.az_style_border_bottom_left_radius_value_delete)(&mut self); } }
+    impl Drop for StyleBorderBottomLeftRadiusValue { fn drop(&mut self) { (crate::dll::get_azul_dll().az_style_border_bottom_left_radius_value_delete)(&mut self); } }
 
 
     /// `StyleBorderBottomRightRadiusValue` struct
     pub use crate::dll::AzStyleBorderBottomRightRadiusValue as StyleBorderBottomRightRadiusValue;
 
-    impl Drop for StyleBorderBottomRightRadiusValue { fn drop(&mut self) { (crate::dll::LIB.az_style_border_bottom_right_radius_value_delete)(&mut self); } }
+    impl Drop for StyleBorderBottomRightRadiusValue { fn drop(&mut self) { (crate::dll::get_azul_dll().az_style_border_bottom_right_radius_value_delete)(&mut self); } }
 
 
     /// `StyleBorderBottomStyleValue` struct
     pub use crate::dll::AzStyleBorderBottomStyleValue as StyleBorderBottomStyleValue;
 
-    impl Drop for StyleBorderBottomStyleValue { fn drop(&mut self) { (crate::dll::LIB.az_style_border_bottom_style_value_delete)(&mut self); } }
+    impl Drop for StyleBorderBottomStyleValue { fn drop(&mut self) { (crate::dll::get_azul_dll().az_style_border_bottom_style_value_delete)(&mut self); } }
 
 
     /// `StyleBorderBottomWidthValue` struct
     pub use crate::dll::AzStyleBorderBottomWidthValue as StyleBorderBottomWidthValue;
 
-    impl Drop for StyleBorderBottomWidthValue { fn drop(&mut self) { (crate::dll::LIB.az_style_border_bottom_width_value_delete)(&mut self); } }
+    impl Drop for StyleBorderBottomWidthValue { fn drop(&mut self) { (crate::dll::get_azul_dll().az_style_border_bottom_width_value_delete)(&mut self); } }
 
 
     /// `StyleBorderLeftColorValue` struct
     pub use crate::dll::AzStyleBorderLeftColorValue as StyleBorderLeftColorValue;
 
-    impl Drop for StyleBorderLeftColorValue { fn drop(&mut self) { (crate::dll::LIB.az_style_border_left_color_value_delete)(&mut self); } }
+    impl Drop for StyleBorderLeftColorValue { fn drop(&mut self) { (crate::dll::get_azul_dll().az_style_border_left_color_value_delete)(&mut self); } }
 
 
     /// `StyleBorderLeftStyleValue` struct
     pub use crate::dll::AzStyleBorderLeftStyleValue as StyleBorderLeftStyleValue;
 
-    impl Drop for StyleBorderLeftStyleValue { fn drop(&mut self) { (crate::dll::LIB.az_style_border_left_style_value_delete)(&mut self); } }
+    impl Drop for StyleBorderLeftStyleValue { fn drop(&mut self) { (crate::dll::get_azul_dll().az_style_border_left_style_value_delete)(&mut self); } }
 
 
     /// `StyleBorderLeftWidthValue` struct
     pub use crate::dll::AzStyleBorderLeftWidthValue as StyleBorderLeftWidthValue;
 
-    impl Drop for StyleBorderLeftWidthValue { fn drop(&mut self) { (crate::dll::LIB.az_style_border_left_width_value_delete)(&mut self); } }
+    impl Drop for StyleBorderLeftWidthValue { fn drop(&mut self) { (crate::dll::get_azul_dll().az_style_border_left_width_value_delete)(&mut self); } }
 
 
     /// `StyleBorderRightColorValue` struct
     pub use crate::dll::AzStyleBorderRightColorValue as StyleBorderRightColorValue;
 
-    impl Drop for StyleBorderRightColorValue { fn drop(&mut self) { (crate::dll::LIB.az_style_border_right_color_value_delete)(&mut self); } }
+    impl Drop for StyleBorderRightColorValue { fn drop(&mut self) { (crate::dll::get_azul_dll().az_style_border_right_color_value_delete)(&mut self); } }
 
 
     /// `StyleBorderRightStyleValue` struct
     pub use crate::dll::AzStyleBorderRightStyleValue as StyleBorderRightStyleValue;
 
-    impl Drop for StyleBorderRightStyleValue { fn drop(&mut self) { (crate::dll::LIB.az_style_border_right_style_value_delete)(&mut self); } }
+    impl Drop for StyleBorderRightStyleValue { fn drop(&mut self) { (crate::dll::get_azul_dll().az_style_border_right_style_value_delete)(&mut self); } }
 
 
     /// `StyleBorderRightWidthValue` struct
     pub use crate::dll::AzStyleBorderRightWidthValue as StyleBorderRightWidthValue;
 
-    impl Drop for StyleBorderRightWidthValue { fn drop(&mut self) { (crate::dll::LIB.az_style_border_right_width_value_delete)(&mut self); } }
+    impl Drop for StyleBorderRightWidthValue { fn drop(&mut self) { (crate::dll::get_azul_dll().az_style_border_right_width_value_delete)(&mut self); } }
 
 
     /// `StyleBorderTopColorValue` struct
     pub use crate::dll::AzStyleBorderTopColorValue as StyleBorderTopColorValue;
 
-    impl Drop for StyleBorderTopColorValue { fn drop(&mut self) { (crate::dll::LIB.az_style_border_top_color_value_delete)(&mut self); } }
+    impl Drop for StyleBorderTopColorValue { fn drop(&mut self) { (crate::dll::get_azul_dll().az_style_border_top_color_value_delete)(&mut self); } }
 
 
     /// `StyleBorderTopLeftRadiusValue` struct
     pub use crate::dll::AzStyleBorderTopLeftRadiusValue as StyleBorderTopLeftRadiusValue;
 
-    impl Drop for StyleBorderTopLeftRadiusValue { fn drop(&mut self) { (crate::dll::LIB.az_style_border_top_left_radius_value_delete)(&mut self); } }
+    impl Drop for StyleBorderTopLeftRadiusValue { fn drop(&mut self) { (crate::dll::get_azul_dll().az_style_border_top_left_radius_value_delete)(&mut self); } }
 
 
     /// `StyleBorderTopRightRadiusValue` struct
     pub use crate::dll::AzStyleBorderTopRightRadiusValue as StyleBorderTopRightRadiusValue;
 
-    impl Drop for StyleBorderTopRightRadiusValue { fn drop(&mut self) { (crate::dll::LIB.az_style_border_top_right_radius_value_delete)(&mut self); } }
+    impl Drop for StyleBorderTopRightRadiusValue { fn drop(&mut self) { (crate::dll::get_azul_dll().az_style_border_top_right_radius_value_delete)(&mut self); } }
 
 
     /// `StyleBorderTopStyleValue` struct
     pub use crate::dll::AzStyleBorderTopStyleValue as StyleBorderTopStyleValue;
 
-    impl Drop for StyleBorderTopStyleValue { fn drop(&mut self) { (crate::dll::LIB.az_style_border_top_style_value_delete)(&mut self); } }
+    impl Drop for StyleBorderTopStyleValue { fn drop(&mut self) { (crate::dll::get_azul_dll().az_style_border_top_style_value_delete)(&mut self); } }
 
 
     /// `StyleBorderTopWidthValue` struct
     pub use crate::dll::AzStyleBorderTopWidthValue as StyleBorderTopWidthValue;
 
-    impl Drop for StyleBorderTopWidthValue { fn drop(&mut self) { (crate::dll::LIB.az_style_border_top_width_value_delete)(&mut self); } }
+    impl Drop for StyleBorderTopWidthValue { fn drop(&mut self) { (crate::dll::get_azul_dll().az_style_border_top_width_value_delete)(&mut self); } }
 
 
     /// `StyleCursorValue` struct
     pub use crate::dll::AzStyleCursorValue as StyleCursorValue;
 
-    impl Drop for StyleCursorValue { fn drop(&mut self) { (crate::dll::LIB.az_style_cursor_value_delete)(&mut self); } }
+    impl Drop for StyleCursorValue { fn drop(&mut self) { (crate::dll::get_azul_dll().az_style_cursor_value_delete)(&mut self); } }
 
 
     /// `StyleFontFamilyValue` struct
     pub use crate::dll::AzStyleFontFamilyValue as StyleFontFamilyValue;
 
-    impl Drop for StyleFontFamilyValue { fn drop(&mut self) { (crate::dll::LIB.az_style_font_family_value_delete)(&mut self); } }
+    impl Drop for StyleFontFamilyValue { fn drop(&mut self) { (crate::dll::get_azul_dll().az_style_font_family_value_delete)(&mut self); } }
 
 
     /// `StyleFontSizeValue` struct
     pub use crate::dll::AzStyleFontSizeValue as StyleFontSizeValue;
 
-    impl Drop for StyleFontSizeValue { fn drop(&mut self) { (crate::dll::LIB.az_style_font_size_value_delete)(&mut self); } }
+    impl Drop for StyleFontSizeValue { fn drop(&mut self) { (crate::dll::get_azul_dll().az_style_font_size_value_delete)(&mut self); } }
 
 
     /// `StyleLetterSpacingValue` struct
     pub use crate::dll::AzStyleLetterSpacingValue as StyleLetterSpacingValue;
 
-    impl Drop for StyleLetterSpacingValue { fn drop(&mut self) { (crate::dll::LIB.az_style_letter_spacing_value_delete)(&mut self); } }
+    impl Drop for StyleLetterSpacingValue { fn drop(&mut self) { (crate::dll::get_azul_dll().az_style_letter_spacing_value_delete)(&mut self); } }
 
 
     /// `StyleLineHeightValue` struct
     pub use crate::dll::AzStyleLineHeightValue as StyleLineHeightValue;
 
-    impl Drop for StyleLineHeightValue { fn drop(&mut self) { (crate::dll::LIB.az_style_line_height_value_delete)(&mut self); } }
+    impl Drop for StyleLineHeightValue { fn drop(&mut self) { (crate::dll::get_azul_dll().az_style_line_height_value_delete)(&mut self); } }
 
 
     /// `StyleTabWidthValue` struct
     pub use crate::dll::AzStyleTabWidthValue as StyleTabWidthValue;
 
-    impl Drop for StyleTabWidthValue { fn drop(&mut self) { (crate::dll::LIB.az_style_tab_width_value_delete)(&mut self); } }
+    impl Drop for StyleTabWidthValue { fn drop(&mut self) { (crate::dll::get_azul_dll().az_style_tab_width_value_delete)(&mut self); } }
 
 
     /// `StyleTextAlignmentHorzValue` struct
     pub use crate::dll::AzStyleTextAlignmentHorzValue as StyleTextAlignmentHorzValue;
 
-    impl Drop for StyleTextAlignmentHorzValue { fn drop(&mut self) { (crate::dll::LIB.az_style_text_alignment_horz_value_delete)(&mut self); } }
+    impl Drop for StyleTextAlignmentHorzValue { fn drop(&mut self) { (crate::dll::get_azul_dll().az_style_text_alignment_horz_value_delete)(&mut self); } }
 
 
     /// `StyleTextColorValue` struct
     pub use crate::dll::AzStyleTextColorValue as StyleTextColorValue;
 
-    impl Drop for StyleTextColorValue { fn drop(&mut self) { (crate::dll::LIB.az_style_text_color_value_delete)(&mut self); } }
+    impl Drop for StyleTextColorValue { fn drop(&mut self) { (crate::dll::get_azul_dll().az_style_text_color_value_delete)(&mut self); } }
 
 
     /// `StyleWordSpacingValue` struct
     pub use crate::dll::AzStyleWordSpacingValue as StyleWordSpacingValue;
 
-    impl Drop for StyleWordSpacingValue { fn drop(&mut self) { (crate::dll::LIB.az_style_word_spacing_value_delete)(&mut self); } }
+    impl Drop for StyleWordSpacingValue { fn drop(&mut self) { (crate::dll::get_azul_dll().az_style_word_spacing_value_delete)(&mut self); } }
 
 
     /// Parsed CSS key-value pair
     pub use crate::dll::AzCssProperty as CssProperty;
 
-    impl Drop for CssProperty { fn drop(&mut self) { (crate::dll::LIB.az_css_property_delete)(&mut self); } }
+    impl Drop for CssProperty { fn drop(&mut self) { (crate::dll::get_azul_dll().az_css_property_delete)(&mut self); } }
 }
 
 /// `Dom` construction and configuration
@@ -3450,7 +3464,7 @@ pub mod dom {
     use crate::dll::*;
     use crate::str::String;
     use crate::resources::{TextId, ImageId};
-    use crate::callbacks::{Callback, IFrameCallback, GlCallback, RefAny};
+    use crate::callbacks::{RefAny, IFrameCallback, GlCallback, Callback};
     use crate::vec::StringVec;
     use crate::css::CssProperty;
 
@@ -3460,100 +3474,100 @@ pub mod dom {
 
     impl Dom {
         /// Creates a new `div` node
-        pub fn div() -> Self { (crate::dll::LIB.az_dom_div)() }
+        pub fn div() -> Self { (crate::dll::get_azul_dll().az_dom_div)() }
         /// Creates a new `body` node
-        pub fn body() -> Self { (crate::dll::LIB.az_dom_body)() }
+        pub fn body() -> Self { (crate::dll::get_azul_dll().az_dom_body)() }
         /// Creates a new `p` node with a given `String` as the text contents
-        pub fn label(text: String) -> Self { (crate::dll::LIB.az_dom_label)(text) }
+        pub fn label(text: String) -> Self { (crate::dll::get_azul_dll().az_dom_label)(text) }
         /// Creates a new `p` node from a (cached) text referenced by a `TextId`
-        pub fn text(text_id: TextId) -> Self { (crate::dll::LIB.az_dom_text)(text_id) }
+        pub fn text(text_id: TextId) -> Self { (crate::dll::get_azul_dll().az_dom_text)(text_id) }
         /// Creates a new `img` node from a (cached) text referenced by a `ImageId`
-        pub fn image(image_id: ImageId) -> Self { (crate::dll::LIB.az_dom_image)(image_id) }
+        pub fn image(image_id: ImageId) -> Self { (crate::dll::get_azul_dll().az_dom_image)(image_id) }
         /// Creates a new node which will render an OpenGL texture after the layout step is finished. See the documentation for [GlCallback]() for more info about OpenGL rendering callbacks.
-        pub fn gl_texture(data: RefAny, callback: GlCallback) -> Self { (crate::dll::LIB.az_dom_gl_texture)(data, callback) }
+        pub fn gl_texture(data: RefAny, callback: GlCallback) -> Self { (crate::dll::get_azul_dll().az_dom_gl_texture)(data, callback) }
         /// Creates a new node with a callback that will return a `Dom` after being layouted. See the documentation for [IFrameCallback]() for more info about iframe callbacks.
-        pub fn iframe_callback(data: RefAny, callback: IFrameCallback) -> Self { (crate::dll::LIB.az_dom_iframe_callback)(data, callback) }
+        pub fn iframe_callback(data: RefAny, callback: IFrameCallback) -> Self { (crate::dll::get_azul_dll().az_dom_iframe_callback)(data, callback) }
         /// Adds a CSS ID (`#something`) to the DOM node
-        pub fn add_id(&mut self, id: String)  { (crate::dll::LIB.az_dom_add_id)(&mut self.ptr, id) }
+        pub fn add_id(&mut self, id: String)  { (crate::dll::get_azul_dll().az_dom_add_id)(&mut self.ptr, id) }
         /// Same as [`Dom::add_id`](#method.add_id), but as a builder method
-        pub fn with_id(self, id: String)  -> crate::dom::Dom { { (crate::dll::LIB.az_dom_with_id)(self.leak(), id)} }
+        pub fn with_id(self, id: String)  -> crate::dom::Dom { { (crate::dll::get_azul_dll().az_dom_with_id)(self.leak(), id)} }
         /// Same as calling [`Dom::add_id`](#method.add_id) for each CSS ID, but this function **replaces** all current CSS IDs
-        pub fn set_ids(&mut self, ids: StringVec)  { (crate::dll::LIB.az_dom_set_ids)(&mut self.ptr, ids) }
+        pub fn set_ids(&mut self, ids: StringVec)  { (crate::dll::get_azul_dll().az_dom_set_ids)(&mut self.ptr, ids) }
         /// Same as [`Dom::set_ids`](#method.set_ids), but as a builder method
-        pub fn with_ids(self, ids: StringVec)  -> crate::dom::Dom { { (crate::dll::LIB.az_dom_with_ids)(self.leak(), ids)} }
+        pub fn with_ids(self, ids: StringVec)  -> crate::dom::Dom { { (crate::dll::get_azul_dll().az_dom_with_ids)(self.leak(), ids)} }
         /// Adds a CSS class (`.something`) to the DOM node
-        pub fn add_class(&mut self, class: String)  { (crate::dll::LIB.az_dom_add_class)(&mut self.ptr, class) }
+        pub fn add_class(&mut self, class: String)  { (crate::dll::get_azul_dll().az_dom_add_class)(&mut self.ptr, class) }
         /// Same as [`Dom::add_class`](#method.add_class), but as a builder method
-        pub fn with_class(self, class: String)  -> crate::dom::Dom { { (crate::dll::LIB.az_dom_with_class)(self.leak(), class)} }
+        pub fn with_class(self, class: String)  -> crate::dom::Dom { { (crate::dll::get_azul_dll().az_dom_with_class)(self.leak(), class)} }
         /// Same as calling [`Dom::add_class`](#method.add_class) for each class, but this function **replaces** all current classes
-        pub fn set_classes(&mut self, classes: StringVec)  { (crate::dll::LIB.az_dom_set_classes)(&mut self.ptr, classes) }
+        pub fn set_classes(&mut self, classes: StringVec)  { (crate::dll::get_azul_dll().az_dom_set_classes)(&mut self.ptr, classes) }
         /// Same as [`Dom::set_classes`](#method.set_classes), but as a builder method
-        pub fn with_classes(self, classes: StringVec)  -> crate::dom::Dom { { (crate::dll::LIB.az_dom_with_classes)(self.leak(), classes)} }
+        pub fn with_classes(self, classes: StringVec)  -> crate::dom::Dom { { (crate::dll::get_azul_dll().az_dom_with_classes)(self.leak(), classes)} }
         /// Adds a [`Callback`](callbacks/type.Callback) that acts on the `data` the `event` happens
-        pub fn add_callback(&mut self, event: EventFilter, data: RefAny, callback: Callback)  { (crate::dll::LIB.az_dom_add_callback)(&mut self.ptr, event, data, callback) }
+        pub fn add_callback(&mut self, event: EventFilter, data: RefAny, callback: Callback)  { (crate::dll::get_azul_dll().az_dom_add_callback)(&mut self.ptr, event, data, callback) }
         /// Same as [`Dom::add_callback`](#method.add_callback), but as a builder method
-        pub fn with_callback(self, event: EventFilter, data: RefAny, callback: Callback)  -> crate::dom::Dom { { (crate::dll::LIB.az_dom_with_callback)(self.leak(), event, data, callback)} }
+        pub fn with_callback(self, event: EventFilter, data: RefAny, callback: Callback)  -> crate::dom::Dom { { (crate::dll::get_azul_dll().az_dom_with_callback)(self.leak(), event, data, callback)} }
         /// Overrides the CSS property of this DOM node with a value (for example `"width = 200px"`)
-        pub fn add_css_override(&mut self, id: String, prop: CssProperty)  { (crate::dll::LIB.az_dom_add_css_override)(&mut self.ptr, id, prop) }
+        pub fn add_css_override(&mut self, id: String, prop: CssProperty)  { (crate::dll::get_azul_dll().az_dom_add_css_override)(&mut self.ptr, id, prop) }
         /// Same as [`Dom::add_css_override`](#method.add_css_override), but as a builder method
-        pub fn with_css_override(self, id: String, prop: CssProperty)  -> crate::dom::Dom { { (crate::dll::LIB.az_dom_with_css_override)(self.leak(), id, prop)} }
+        pub fn with_css_override(self, id: String, prop: CssProperty)  -> crate::dom::Dom { { (crate::dll::get_azul_dll().az_dom_with_css_override)(self.leak(), id, prop)} }
         /// Sets the `is_draggable` attribute of this DOM node (default: false)
-        pub fn set_is_draggable(&mut self, is_draggable: bool)  { (crate::dll::LIB.az_dom_set_is_draggable)(&mut self.ptr, is_draggable) }
+        pub fn set_is_draggable(&mut self, is_draggable: bool)  { (crate::dll::get_azul_dll().az_dom_set_is_draggable)(&mut self.ptr, is_draggable) }
         /// Same as [`Dom::set_is_draggable`](#method.set_is_draggable), but as a builder method
-        pub fn is_draggable(self, is_draggable: bool)  -> crate::dom::Dom { { (crate::dll::LIB.az_dom_is_draggable)(self.leak(), is_draggable)} }
+        pub fn is_draggable(self, is_draggable: bool)  -> crate::dom::Dom { { (crate::dll::get_azul_dll().az_dom_is_draggable)(self.leak(), is_draggable)} }
         /// Sets the `tabindex` attribute of this DOM node (makes an element focusable - default: None)
-        pub fn set_tab_index(&mut self, tab_index: TabIndex)  { (crate::dll::LIB.az_dom_set_tab_index)(&mut self.ptr, tab_index) }
+        pub fn set_tab_index(&mut self, tab_index: TabIndex)  { (crate::dll::get_azul_dll().az_dom_set_tab_index)(&mut self.ptr, tab_index) }
         /// Same as [`Dom::set_tab_index`](#method.set_tab_index), but as a builder method
-        pub fn with_tab_index(self, tab_index: TabIndex)  -> crate::dom::Dom { { (crate::dll::LIB.az_dom_with_tab_index)(self.leak(), tab_index)} }
+        pub fn with_tab_index(self, tab_index: TabIndex)  -> crate::dom::Dom { { (crate::dll::get_azul_dll().az_dom_with_tab_index)(self.leak(), tab_index)} }
         /// Reparents another `Dom` to be the child node of this `Dom`
-        pub fn add_child(&mut self, child: Dom)  { (crate::dll::LIB.az_dom_add_child)(&mut self.ptr, child) }
+        pub fn add_child(&mut self, child: Dom)  { (crate::dll::get_azul_dll().az_dom_add_child)(&mut self.ptr, child) }
         /// Same as [`Dom::add_child`](#method.add_child), but as a builder method
-        pub fn with_child(self, child: Dom)  -> crate::dom::Dom { { (crate::dll::LIB.az_dom_with_child)(self.leak(), child)} }
+        pub fn with_child(self, child: Dom)  -> crate::dom::Dom { { (crate::dll::get_azul_dll().az_dom_with_child)(self.leak(), child)} }
         /// Returns if the DOM node has a certain CSS ID
-        pub fn has_id(&mut self, id: String)  -> bool { (crate::dll::LIB.az_dom_has_id)(&mut self.ptr, id) }
+        pub fn has_id(&mut self, id: String)  -> bool { (crate::dll::get_azul_dll().az_dom_has_id)(&mut self.ptr, id) }
         /// Returns if the DOM node has a certain CSS class
-        pub fn has_class(&mut self, class: String)  -> bool { (crate::dll::LIB.az_dom_has_class)(&mut self.ptr, class) }
+        pub fn has_class(&mut self, class: String)  -> bool { (crate::dll::get_azul_dll().az_dom_has_class)(&mut self.ptr, class) }
         /// Returns the HTML String for this DOM
-        pub fn get_html_string(&mut self)  -> crate::str::String { { (crate::dll::LIB.az_dom_get_html_string)(&mut self.ptr)} }
+        pub fn get_html_string(&mut self)  -> crate::str::String { { (crate::dll::get_azul_dll().az_dom_get_html_string)(&mut self.ptr)} }
     }
 
-    impl Drop for Dom { fn drop(&mut self) { (crate::dll::LIB.az_dom_delete)(&mut self); } }
+    impl Drop for Dom { fn drop(&mut self) { (crate::dll::get_azul_dll().az_dom_delete)(&mut self); } }
 
 
     /// `EventFilter` struct
     pub use crate::dll::AzEventFilter as EventFilter;
 
-    impl Drop for EventFilter { fn drop(&mut self) { (crate::dll::LIB.az_event_filter_delete)(&mut self); } }
+    impl Drop for EventFilter { fn drop(&mut self) { (crate::dll::get_azul_dll().az_event_filter_delete)(&mut self); } }
 
 
     /// `HoverEventFilter` struct
     pub use crate::dll::AzHoverEventFilter as HoverEventFilter;
 
-    impl Drop for HoverEventFilter { fn drop(&mut self) { (crate::dll::LIB.az_hover_event_filter_delete)(&mut self); } }
+    impl Drop for HoverEventFilter { fn drop(&mut self) { (crate::dll::get_azul_dll().az_hover_event_filter_delete)(&mut self); } }
 
 
     /// `FocusEventFilter` struct
     pub use crate::dll::AzFocusEventFilter as FocusEventFilter;
 
-    impl Drop for FocusEventFilter { fn drop(&mut self) { (crate::dll::LIB.az_focus_event_filter_delete)(&mut self); } }
+    impl Drop for FocusEventFilter { fn drop(&mut self) { (crate::dll::get_azul_dll().az_focus_event_filter_delete)(&mut self); } }
 
 
     /// `NotEventFilter` struct
     pub use crate::dll::AzNotEventFilter as NotEventFilter;
 
-    impl Drop for NotEventFilter { fn drop(&mut self) { (crate::dll::LIB.az_not_event_filter_delete)(&mut self); } }
+    impl Drop for NotEventFilter { fn drop(&mut self) { (crate::dll::get_azul_dll().az_not_event_filter_delete)(&mut self); } }
 
 
     /// `WindowEventFilter` struct
     pub use crate::dll::AzWindowEventFilter as WindowEventFilter;
 
-    impl Drop for WindowEventFilter { fn drop(&mut self) { (crate::dll::LIB.az_window_event_filter_delete)(&mut self); } }
+    impl Drop for WindowEventFilter { fn drop(&mut self) { (crate::dll::get_azul_dll().az_window_event_filter_delete)(&mut self); } }
 
 
     /// `TabIndex` struct
     pub use crate::dll::AzTabIndex as TabIndex;
 
-    impl Drop for TabIndex { fn drop(&mut self) { (crate::dll::LIB.az_tab_index_delete)(&mut self); } }
+    impl Drop for TabIndex { fn drop(&mut self) { (crate::dll::get_azul_dll().az_tab_index_delete)(&mut self); } }
 }
 
 /// Struct definition for image / font / text IDs
@@ -3569,10 +3583,10 @@ pub mod resources {
 
     impl TextId {
         /// Creates a new, unique `TextId`
-        pub fn new() -> Self { (crate::dll::LIB.az_text_id_new)() }
+        pub fn new() -> Self { (crate::dll::get_azul_dll().az_text_id_new)() }
     }
 
-    impl Drop for TextId { fn drop(&mut self) { (crate::dll::LIB.az_text_id_delete)(&mut self); } }
+    impl Drop for TextId { fn drop(&mut self) { (crate::dll::get_azul_dll().az_text_id_delete)(&mut self); } }
 
 
     /// `ImageId` struct
@@ -3580,10 +3594,10 @@ pub mod resources {
 
     impl ImageId {
         /// Creates a new, unique `ImageId`
-        pub fn new() -> Self { (crate::dll::LIB.az_image_id_new)() }
+        pub fn new() -> Self { (crate::dll::get_azul_dll().az_image_id_new)() }
     }
 
-    impl Drop for ImageId { fn drop(&mut self) { (crate::dll::LIB.az_image_id_delete)(&mut self); } }
+    impl Drop for ImageId { fn drop(&mut self) { (crate::dll::get_azul_dll().az_image_id_delete)(&mut self); } }
 
 
     /// `FontId` struct
@@ -3591,22 +3605,22 @@ pub mod resources {
 
     impl FontId {
         /// Creates a new, unique `FontId`
-        pub fn new() -> Self { (crate::dll::LIB.az_font_id_new)() }
+        pub fn new() -> Self { (crate::dll::get_azul_dll().az_font_id_new)() }
     }
 
-    impl Drop for FontId { fn drop(&mut self) { (crate::dll::LIB.az_font_id_delete)(&mut self); } }
+    impl Drop for FontId { fn drop(&mut self) { (crate::dll::get_azul_dll().az_font_id_delete)(&mut self); } }
 
 
     /// `ImageSource` struct
     pub use crate::dll::AzImageSource as ImageSource;
 
-    impl Drop for ImageSource { fn drop(&mut self) { (crate::dll::LIB.az_image_source_delete)(&mut self); } }
+    impl Drop for ImageSource { fn drop(&mut self) { (crate::dll::get_azul_dll().az_image_source_delete)(&mut self); } }
 
 
     /// `FontSource` struct
     pub use crate::dll::AzFontSource as FontSource;
 
-    impl Drop for FontSource { fn drop(&mut self) { (crate::dll::LIB.az_font_source_delete)(&mut self); } }
+    impl Drop for FontSource { fn drop(&mut self) { (crate::dll::get_azul_dll().az_font_source_delete)(&mut self); } }
 
 
     /// `RawImage` struct
@@ -3614,16 +3628,16 @@ pub mod resources {
 
     impl RawImage {
         /// Creates a new `RawImage` by loading the decoded bytes
-        pub fn new(decoded_pixels: U8Vec, width: usize, height: usize, data_format: RawImageFormat) -> Self { (crate::dll::LIB.az_raw_image_new)(decoded_pixels, width, height, data_format) }
+        pub fn new(decoded_pixels: U8Vec, width: usize, height: usize, data_format: RawImageFormat) -> Self { (crate::dll::get_azul_dll().az_raw_image_new)(decoded_pixels, width, height, data_format) }
     }
 
-    impl Drop for RawImage { fn drop(&mut self) { (crate::dll::LIB.az_raw_image_delete)(&mut self); } }
+    impl Drop for RawImage { fn drop(&mut self) { (crate::dll::get_azul_dll().az_raw_image_delete)(&mut self); } }
 
 
     /// `RawImageFormat` struct
     pub use crate::dll::AzRawImageFormat as RawImageFormat;
 
-    impl Drop for RawImageFormat { fn drop(&mut self) { (crate::dll::LIB.az_raw_image_format_delete)(&mut self); } }
+    impl Drop for RawImageFormat { fn drop(&mut self) { (crate::dll::get_azul_dll().az_raw_image_format_delete)(&mut self); } }
 }
 
 /// Window creation / startup configuration
@@ -3639,9 +3653,9 @@ pub mod window {
 
     impl WindowCreateOptions {
         /// Creates a new `WindowCreateOptions` instance.
-        pub fn new(css: Css) -> Self { (crate::dll::LIB.az_window_create_options_new)(css) }
+        pub fn new(css: Css) -> Self { (crate::dll::get_azul_dll().az_window_create_options_new)(css) }
     }
 
-    impl Drop for WindowCreateOptions { fn drop(&mut self) { (crate::dll::LIB.az_window_create_options_delete)(&mut self); } }
+    impl Drop for WindowCreateOptions { fn drop(&mut self) { (crate::dll::get_azul_dll().az_window_create_options_delete)(&mut self); } }
 }
 

@@ -732,10 +732,36 @@ def generate_dll_loader(apiData, structs_map, functions_map):
 
     # Generate loading function
     code += "    const LIB_BYTES: &[u8] = include_bytes!(\"../../../target/debug/libazul.so\");\r\n\r\n" # TODO: use proper path here!
-    code += "    lazy_static! {\r\n"
-    code += "        pub(crate) static ref LIB: AzulDll = { std::fs::write(\"./azul.so\", LIB_BYTES).unwrap(); initialize_library(\"./azul.so\").unwrap() };\r\n"
-    code += "    }\r\n\r\n"
+    """
 
+
+pub struct A { p: usize }
+
+
+#[inline(never)]
+
+
+    """
+    code += "    use std::{mem::MaybeUninit, sync::atomic::{AtomicBool, Ordering}};\r\n"
+    code += "\r\n"
+    code += "    static LIBRARY_IS_INITIALIZED: AtomicBool = AtomicBool::new(false);\r\n"
+    code += "    static mut AZUL_DLL: MaybeUninit<AzulDll> = MaybeUninit::<AzulDll>::uninit();\r\n"
+    code += "\r\n"
+    code += "    fn load_library_inner() -> Option<AzulDll> { std::fs::write(\"./azul.so\", LIB_BYTES).ok()?; initialize_library(\"./azul.so\") }\r\n"
+    code += "\r\n"
+    code += "    pub(crate) fn get_azul_dll() -> &'static AzulDll { \r\n"
+    code += "        if !LIBRARY_IS_INITIALIZED.load(Ordering::SeqCst) {\r\n"
+    code += "           match load_library_inner() {\r\n"
+    code += "               Some(s) => {\r\n"
+    code += "                   unsafe { AZUL_DLL = MaybeUninit::new(a) };\r\n"
+    code += "                   LIBRARY_IS_INITIALIZED.store(true, Ordering::SeqCst);\r\n"
+    code += "               },\r\n"
+    code += "               None => { println!(\"failed to initialize libazul dll\"); std::process::exit(-1); }\r\n"
+    code += "           }\r\n"
+    code += "        }\r\n"
+    code += "\r\n"
+    code += "        unsafe { &*AZUL_DLL.as_ptr() }\r\n"
+    code += "    }\r\n"
     code += "}\r\n\r\n"
 
     return code
@@ -759,8 +785,6 @@ def generate_rust_api(apiData, structs_map, functions_map):
         code += "// " + line + "\r\n"
     code += "\r\n\r\n"
     code += "extern crate libloading;\r\n"
-    code += "#[macro_use]\r\n"
-    code += "extern crate lazy_static;\r\n"
 
     apiData = apiData[version]
 
@@ -833,7 +857,7 @@ def generate_rust_api(apiData, structs_map, functions_map):
                         and "rust" in const["use_patches"]:
                             fn_body = rust_api_patches[tuple([module_name, class_name, fn_name])]
                         else:
-                            fn_body = "(crate::dll::LIB." + c_fn_name + ")(" + fn_args_call + ")"
+                            fn_body = "(crate::dll::get_azul_dll()." + c_fn_name + ")(" + fn_args_call + ")"
 
                         if "doc" in const.keys():
                             code += "        /// " + const["doc"] + "\r\n"
@@ -857,7 +881,7 @@ def generate_rust_api(apiData, structs_map, functions_map):
                         and "rust" in const["use_patches"]:
                             fn_body = rust_api_patches[tuple([module_name, class_name, fn_name])]
                         else:
-                            fn_body = "(crate::dll::LIB." + c_fn_name + ")(" + fn_args_call + ")"
+                            fn_body = "(crate::dll::get_azul_dll()." + c_fn_name + ")(" + fn_args_call + ")"
 
                         if tuple([module_name, class_name, fn_name]) in rust_api_patches:
                             code += rust_api_patches[tuple([module_name, class_name, fn_name])]
@@ -885,7 +909,7 @@ def generate_rust_api(apiData, structs_map, functions_map):
                 code += "    }\r\n\r\n" # end of class
 
             if not(class_is_const or class_is_typedef):
-                code += "    impl Drop for " + class_name + " { fn drop(&mut self) { (crate::dll::LIB." + fn_prefix + to_snake_case(class_name) + "_delete)(&mut self); } }\r\n"
+                code += "    impl Drop for " + class_name + " { fn drop(&mut self) { (crate::dll::get_azul_dll()." + fn_prefix + to_snake_case(class_name) + "_delete)(&mut self); } }\r\n"
 
         code += "}\r\n\r\n" # end of module
 

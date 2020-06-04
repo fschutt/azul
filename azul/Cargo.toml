@@ -22,7 +22,6 @@ path = "src/rust/azul.rs"
 
 [dependencies]
 libloading = "0.6.2"
-lazy_static = "1.4.0"
 
 [[example]]
 name = "public"
