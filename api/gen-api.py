@@ -60,13 +60,22 @@ def to_snake_case(name):
     s1 = re.sub('(.)([A-Z][a-z]+)', r'\1_\2', name)
     return re.sub('([a-z0-9])([A-Z])', r'\1_\2', s1).lower()
 
-# turns a list of functi
+# turns a list of function args into function pointer args
 # ex. "mut dom: AzDomPtr, event: AzEventFilter, data: AzRefAny, callback: AzCallback"
 # ->  "_: AzDomPtr, _: AzEventFilter, _: AzRefAny, _: AzCallback"
 def strip_fn_arg_types(arg_list):
-    arg_list1 = re.sub(r'(.*): (.*),?', r'_: \2, ', arg_list)
+    if len(arg_list) == 0:
+        return ""
+
+    arg_list1 = ""
+
+    for item in arg_list.split(","):
+        part_b = item.split(":")[1]
+        arg_list1 += "_: " + part_b + ", "
+
     if arg_list1 != "":
         arg_list1 = arg_list1[:-2]
+
     return arg_list1.strip()
 
 
@@ -731,17 +740,9 @@ def generate_dll_loader(apiData, structs_map, functions_map):
     code += "    }\r\n\r\n"
 
     # Generate loading function
-    code += "    const LIB_BYTES: &[u8] = include_bytes!(\"../../../target/debug/libazul.so\");\r\n\r\n" # TODO: use proper path here!
-    """
-
-
-pub struct A { p: usize }
-
-
-#[inline(never)]
-
-
-    """
+    # TODO: use proper path here!
+    code += "    const LIB_BYTES: &[u8] = include_bytes!(\"../../../target/debug/libazul.so\");\r\n"
+    code += "\r\n"
     code += "    use std::{mem::MaybeUninit, sync::atomic::{AtomicBool, Ordering}};\r\n"
     code += "\r\n"
     code += "    static LIBRARY_IS_INITIALIZED: AtomicBool = AtomicBool::new(false);\r\n"
@@ -769,7 +770,7 @@ pub struct A { p: usize }
     code += "        if !LIBRARY_IS_INITIALIZED.load(Ordering::SeqCst) {\r\n"
     code += "           match load_library_inner() {\r\n"
     code += "               Some(s) => {\r\n"
-    code += "                   unsafe { AZUL_DLL = MaybeUninit::new(a) };\r\n"
+    code += "                   unsafe { AZUL_DLL = MaybeUninit::new(s) };\r\n"
     code += "                   LIBRARY_IS_INITIALIZED.store(true, Ordering::SeqCst);\r\n"
     code += "               },\r\n"
     code += "               None => { println!(\"failed to initialize libazul dll\"); std::process::exit(-1); }\r\n"
