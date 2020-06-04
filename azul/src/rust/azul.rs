@@ -2358,6 +2358,14 @@ pub mod str {
         }
     }
 
+    impl From<crate::str::String> for std::string::String {
+        fn from(s: crate::str::String) -> std::string::String {
+            let s_bytes = s.into_bytes();
+            std::string::String::from_utf8_unchecked(s_bytes.into()) // - copies s into a new String
+            // - s_bytes is deallocated here
+        }
+    }
+
     /// `String` struct
     pub use crate::dll::AzString as String;
 
@@ -3539,7 +3547,7 @@ pub mod dom {
     use crate::dll::*;
     use crate::str::String;
     use crate::resources::{TextId, ImageId};
-    use crate::callbacks::{GlCallback, RefAny, IFrameCallback, Callback};
+    use crate::callbacks::{GlCallback, IFrameCallback, Callback, RefAny};
     use crate::vec::StringVec;
     use crate::css::CssProperty;
 

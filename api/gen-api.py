@@ -959,7 +959,7 @@ def generate_js_api(apiData):
 def main():
     apiData = read_api_file(api_file_path)
     rust_dll_result = generate_rust_dll(apiData)
-    write_file(rust_dll_result[0], rust_dll_path)
+    # write_file(rust_dll_result[0], rust_dll_path)
     write_file(generate_rust_api(apiData, rust_dll_result[1], rust_dll_result[2]), rust_api_path)
     # write_file(generate_c_api(apiData), c_api_path)
     # write_file(generate_cpp_api(apiData), cpp_api_path)
