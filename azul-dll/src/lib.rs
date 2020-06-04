@@ -51,6 +51,14 @@ pub type AzStringType = azul_impl::css::AzString;
 /// Wrapper over a Rust-allocated `U8Vec`
 pub type AzU8VecType = azul_impl::css::U8Vec;
 #[no_mangle] pub use AzU8VecType as AzU8Vec;
+/// Creates + allocates a Rust `Vec<String>` by **copying** it from a bytes source
+#[no_mangle] pub extern "C" fn az_u8_vec_copy_from(ptr: *const u8, len: usize) -> AzU8Vec { unsafe { std::slice::from_raw_parts(ptr, len).iter().copied().collect::<Vec<_>>() }.into() }
+/// Returns the internal pointer to the (azul-dll allocated) [u8]
+#[no_mangle] pub extern "C" fn az_u8_vec_as_ptr(u8vec: &AzU8Vec) -> *const u8 { u8vec.as_ptr() }
+/// Returns the length of the internal `Vec<u8>`
+#[no_mangle] pub extern "C" fn az_u8_vec_len(u8vec: &AzU8Vec) -> usize { u8vec.len() }
+/// Returns the capacity of the internal `Vec<u8>`
+#[no_mangle] pub extern "C" fn az_u8_vec_capacity(u8vec: &AzU8Vec) -> usize { u8vec.cap() }
 /// Destructor: Takes ownership of the `U8Vec` pointer and deletes it.
 #[no_mangle] #[allow(unused_variables)] pub extern "C" fn az_u8_vec_delete(object: &mut AzU8Vec) { }
 /// Copies the object
@@ -61,6 +69,12 @@ pub type AzStringVecType = azul_impl::css::StringVec;
 #[no_mangle] pub use AzStringVecType as AzStringVec;
 /// Creates + allocates a Rust `Vec<String>` by **copying** it from a bytes source
 #[no_mangle] pub extern "C" fn az_string_vec_copy_from(ptr: *const AzString, len: usize) -> AzStringVec { unsafe { std::slice::from_raw_parts(ptr, len).into_iter().map(|s| s.clone()).collect::<Vec<_>>() }.into() }
+/// Returns the internal pointer to the (azul-dll allocated) [AzString]
+#[no_mangle] pub extern "C" fn az_string_vec_as_ptr(stringvec: &AzStringVec) -> *const AzString { stringvec.as_ptr() }
+/// Returns the length of the internal `Vec<AzString>`
+#[no_mangle] pub extern "C" fn az_string_vec_len(stringvec: &AzStringVec) -> usize { stringvec.len() }
+/// Returns the capacity of the internal `Vec<AzString>`
+#[no_mangle] pub extern "C" fn az_string_vec_capacity(stringvec: &AzStringVec) -> usize { stringvec.cap() }
 /// Destructor: Takes ownership of the `StringVec` pointer and deletes it.
 #[no_mangle] #[allow(unused_variables)] pub extern "C" fn az_string_vec_delete(object: &mut AzStringVec) { }
 /// Copies the object
@@ -71,6 +85,12 @@ pub type AzGradientStopPreVecType = azul_impl::css::GradientStopPreVec;
 #[no_mangle] pub use AzGradientStopPreVecType as AzGradientStopPreVec;
 /// Creates + allocates a Rust `Vec<GradientStopPre>` by **copying** it from a bytes source
 #[no_mangle] pub extern "C" fn az_gradient_stop_pre_vec_copy_from(ptr: *const AzGradientStopPre, len: usize) -> AzGradientStopPreVec { unsafe { std::slice::from_raw_parts(ptr, len).into_iter().map(|s| s.clone()).collect::<Vec<_>>() }.into() }
+/// Returns the internal pointer to the (azul-dll allocated) [GradientStopPre]
+#[no_mangle] pub extern "C" fn az_gradient_stop_pre_vec_as_ptr(gradientstopprevec: &AzGradientStopPreVec) -> *const AzGradientStopPre { gradientstopprevec.as_ptr() }
+/// Returns the length of the internal `Vec<GradientStopPre>`
+#[no_mangle] pub extern "C" fn az_gradient_stop_pre_vec_len(gradientstopprevec: &AzGradientStopPreVec) -> usize { gradientstopprevec.len() }
+/// Returns the capacity of the internal `Vec<GradientStopPre>`
+#[no_mangle] pub extern "C" fn az_gradient_stop_pre_vec_capacity(gradientstopprevec: &AzGradientStopPreVec) -> usize { gradientstopprevec.cap() }
 /// Destructor: Takes ownership of the `GradientStopPreVec` pointer and deletes it.
 #[no_mangle] #[allow(unused_variables)] pub extern "C" fn az_gradient_stop_pre_vec_delete(object: &mut AzGradientStopPreVec) { }
 /// Copies the object

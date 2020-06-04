@@ -49,7 +49,43 @@
 						{ "ptr": { "type": "*const u8" } },
 						{ "len": { "type": "usize" } },
 						{ "cap": { "type": "usize" } }
-					]
+					],
+					"constructors": {
+					    "copy_from": {
+					        "doc": "Creates + allocates a Rust `Vec<String>` by **copying** it from a bytes source",
+					        "fn_args": [
+					            {"ptr": "*const u8"},
+					            {"len": "usize"}
+					        ],
+					        "fn_body": "unsafe { std::slice::from_raw_parts(ptr, len).iter().copied().collect::<Vec<_>>() }.into()"
+					    }
+					},
+					"functions": {
+						"as_ptr": {
+							"doc": "Returns the internal pointer to the (azul-dll allocated) [u8]",
+							"fn_args": [
+								{"self": "ref"}
+							],
+							"returns": "*const u8",
+							"fn_body": "u8vec.as_ptr()"
+						},
+						"len": {
+							"doc": "Returns the length of the internal `Vec<u8>`",
+							"fn_args": [
+								{"self": "ref"}
+							],
+							"returns": "usize",
+							"fn_body": "u8vec.len()"
+						},
+						"capacity": {
+							"doc": "Returns the capacity of the internal `Vec<u8>`",
+							"fn_args": [
+								{"self": "ref"}
+							],
+							"returns": "usize",
+							"fn_body": "u8vec.cap()"
+						}
+					}
 				},
 				"StringVec": {
 					"doc": "Wrapper over a Rust-allocated `StringVec`",
@@ -68,6 +104,32 @@
 					        ],
 					        "fn_body": "unsafe { std::slice::from_raw_parts(ptr, len).into_iter().map(|s| s.clone()).collect::<Vec<_>>() }.into()"
 					    }
+					},
+					"functions": {
+						"as_ptr": {
+							"doc": "Returns the internal pointer to the (azul-dll allocated) [AzString]",
+							"fn_args": [
+								{"self": "ref"}
+							],
+							"returns": "*const String",
+							"fn_body": "stringvec.as_ptr()"
+						},
+						"len": {
+							"doc": "Returns the length of the internal `Vec<AzString>`",
+							"fn_args": [
+								{"self": "ref"}
+							],
+							"returns": "usize",
+							"fn_body": "stringvec.len()"
+						},
+						"capacity": {
+							"doc": "Returns the capacity of the internal `Vec<AzString>`",
+							"fn_args": [
+								{"self": "ref"}
+							],
+							"returns": "usize",
+							"fn_body": "stringvec.cap()"
+						}
 					}
 				},
 				"GradientStopPreVec": {
@@ -87,6 +149,32 @@
 					        ],
 					        "fn_body": "unsafe { std::slice::from_raw_parts(ptr, len).into_iter().map(|s| s.clone()).collect::<Vec<_>>() }.into()"
 					    }
+					},
+					"functions": {
+						"as_ptr": {
+							"doc": "Returns the internal pointer to the (azul-dll allocated) [GradientStopPre]",
+							"fn_args": [
+								{"self": "ref"}
+							],
+							"returns": "*const GradientStopPre",
+							"fn_body": "gradientstopprevec.as_ptr()"
+						},
+						"len": {
+							"doc": "Returns the length of the internal `Vec<GradientStopPre>`",
+							"fn_args": [
+								{"self": "ref"}
+							],
+							"returns": "usize",
+							"fn_body": "gradientstopprevec.len()"
+						},
+						"capacity": {
+							"doc": "Returns the capacity of the internal `Vec<GradientStopPre>`",
+							"fn_args": [
+								{"self": "ref"}
+							],
+							"returns": "usize",
+							"fn_body": "gradientstopprevec.cap()"
+						}
 					}
 				}
 			}

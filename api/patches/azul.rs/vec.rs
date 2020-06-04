@@ -1,4 +1,3 @@
-
     impl From<std::vec::Vec<u8>> for crate::vec::U8Vec {
         fn from(v: std::vec::Vec<u8>) -> crate::vec::U8Vec {
             crate::vec::U8Vec::copy_from(v.as_ptr(), v.len())
@@ -18,13 +17,13 @@
                 (crate::dll::get_azul_dll().az_string_from_utf8_unchecked)(i.as_ptr(), i.len())
             }).collect();
 
-            crate::vec::StringVec { object: (crate::dll::get_azul_dll().az_string_vec_copy_from)(vec.as_ptr(), vec.len()) }
+            (crate::dll::get_azul_dll().az_string_vec_copy_from)(vec.as_ptr(), vec.len())
         }
     }
 
     impl From<crate::vec::StringVec> for std::vec::Vec<std::string::String> {
         fn from(v: crate::vec::StringVec) -> std::vec::Vec<std::string::String> {
-            v.leak().object
+            v
             .into_iter()
             .map(|s| unsafe {
                 let s_vec: std::vec::Vec<u8> = s.into_bytes().into();

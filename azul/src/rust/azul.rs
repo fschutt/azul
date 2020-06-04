@@ -1075,12 +1075,22 @@ pub(crate) mod dll {
         pub az_string_into_bytes: Symbol<extern fn(_:  AzString) -> AzU8Vec>,
         pub az_string_delete: Symbol<extern fn(_:  &mut AzString)>,
         pub az_string_deep_copy: Symbol<extern fn(_:  &AzString) -> AzString>,
+        pub az_u8_vec_copy_from: Symbol<extern fn(_:  *const u8, _:  usize) -> AzU8Vec>,
+        pub az_u8_vec_as_ptr: Symbol<extern fn(_:  &AzU8Vec) -> *const u8>,
+        pub az_u8_vec_len: Symbol<extern fn(_:  &AzU8Vec) -> usize>,
+        pub az_u8_vec_capacity: Symbol<extern fn(_:  &AzU8Vec) -> usize>,
         pub az_u8_vec_delete: Symbol<extern fn(_:  &mut AzU8Vec)>,
         pub az_u8_vec_deep_copy: Symbol<extern fn(_:  &AzU8Vec) -> AzU8Vec>,
         pub az_string_vec_copy_from: Symbol<extern fn(_:  *const AzString, _:  usize) -> AzStringVec>,
+        pub az_string_vec_as_ptr: Symbol<extern fn(_:  &AzStringVec) -> *const AzString>,
+        pub az_string_vec_len: Symbol<extern fn(_:  &AzStringVec) -> usize>,
+        pub az_string_vec_capacity: Symbol<extern fn(_:  &AzStringVec) -> usize>,
         pub az_string_vec_delete: Symbol<extern fn(_:  &mut AzStringVec)>,
         pub az_string_vec_deep_copy: Symbol<extern fn(_:  &AzStringVec) -> AzStringVec>,
         pub az_gradient_stop_pre_vec_copy_from: Symbol<extern fn(_:  *const AzGradientStopPre, _:  usize) -> AzGradientStopPreVec>,
+        pub az_gradient_stop_pre_vec_as_ptr: Symbol<extern fn(_:  &AzGradientStopPreVec) -> *const AzGradientStopPre>,
+        pub az_gradient_stop_pre_vec_len: Symbol<extern fn(_:  &AzGradientStopPreVec) -> usize>,
+        pub az_gradient_stop_pre_vec_capacity: Symbol<extern fn(_:  &AzGradientStopPreVec) -> usize>,
         pub az_gradient_stop_pre_vec_delete: Symbol<extern fn(_:  &mut AzGradientStopPreVec)>,
         pub az_gradient_stop_pre_vec_deep_copy: Symbol<extern fn(_:  &AzGradientStopPreVec) -> AzGradientStopPreVec>,
         pub az_option_percentage_value_delete: Symbol<extern fn(_:  &mut AzOptionPercentageValue)>,
@@ -1459,6 +1469,12 @@ pub(crate) mod dll {
         pub az_window_create_options_new: Symbol<extern fn(_:  AzCssPtr) -> AzWindowCreateOptionsPtr>,
         pub az_window_create_options_delete: Symbol<extern fn(_:  &mut AzWindowCreateOptionsPtr)>,
         pub az_window_create_options_shallow_copy: Symbol<extern fn(_:  &AzWindowCreateOptionsPtr) -> AzWindowCreateOptionsPtr>,
+        pub az_ref_any_new: Symbol<extern fn(_:  *const u8, _:  usize, _:  u64, _:  AzString, _:  fn(AzRefAny)) -> AzRefAny>,
+        pub az_ref_any_get_ptr: Symbol<extern fn(_:  &AzRefAny, _:  usize, _:  u64) -> *const c_void>,
+        pub az_ref_any_get_mut_ptr: Symbol<extern fn(_:  &AzRefAny, _:  usize, _:  u64) -> *mut c_void>,
+        pub az_ref_any_shallow_copy: Symbol<extern fn(_:  &AzRefAny) -> AzRefAny>,
+        pub az_ref_any_delete: Symbol<extern fn(_:  &mut AzRefAny)>,
+        pub az_ref_any_core_copy: Symbol<extern fn(_:  &AzRefAny) -> AzRefAny>,
     }
 
     pub fn initialize_library(path: &std::path::Path) -> Option<AzulDll> {
@@ -1468,12 +1484,22 @@ pub(crate) mod dll {
         let az_string_into_bytes = unsafe { lib.get::<extern fn(_:  AzString) -> AzU8Vec>(b"az_string_into_bytes").ok()? };
         let az_string_delete = unsafe { lib.get::<extern fn(_:  &mut AzString)>(b"az_string_delete").ok()? };
         let az_string_deep_copy = unsafe { lib.get::<extern fn(_:  &AzString) -> AzString>(b"az_string_deep_copy").ok()? };
+        let az_u8_vec_copy_from = unsafe { lib.get::<extern fn(_:  *const u8, _:  usize) -> AzU8Vec>(b"az_u8_vec_copy_from").ok()? };
+        let az_u8_vec_as_ptr = unsafe { lib.get::<extern fn(_:  &AzU8Vec) -> *const u8>(b"az_u8_vec_as_ptr").ok()? };
+        let az_u8_vec_len = unsafe { lib.get::<extern fn(_:  &AzU8Vec) -> usize>(b"az_u8_vec_len").ok()? };
+        let az_u8_vec_capacity = unsafe { lib.get::<extern fn(_:  &AzU8Vec) -> usize>(b"az_u8_vec_capacity").ok()? };
         let az_u8_vec_delete = unsafe { lib.get::<extern fn(_:  &mut AzU8Vec)>(b"az_u8_vec_delete").ok()? };
         let az_u8_vec_deep_copy = unsafe { lib.get::<extern fn(_:  &AzU8Vec) -> AzU8Vec>(b"az_u8_vec_deep_copy").ok()? };
         let az_string_vec_copy_from = unsafe { lib.get::<extern fn(_:  *const AzString, _:  usize) -> AzStringVec>(b"az_string_vec_copy_from").ok()? };
+        let az_string_vec_as_ptr = unsafe { lib.get::<extern fn(_:  &AzStringVec) -> *const AzString>(b"az_string_vec_as_ptr").ok()? };
+        let az_string_vec_len = unsafe { lib.get::<extern fn(_:  &AzStringVec) -> usize>(b"az_string_vec_len").ok()? };
+        let az_string_vec_capacity = unsafe { lib.get::<extern fn(_:  &AzStringVec) -> usize>(b"az_string_vec_capacity").ok()? };
         let az_string_vec_delete = unsafe { lib.get::<extern fn(_:  &mut AzStringVec)>(b"az_string_vec_delete").ok()? };
         let az_string_vec_deep_copy = unsafe { lib.get::<extern fn(_:  &AzStringVec) -> AzStringVec>(b"az_string_vec_deep_copy").ok()? };
         let az_gradient_stop_pre_vec_copy_from = unsafe { lib.get::<extern fn(_:  *const AzGradientStopPre, _:  usize) -> AzGradientStopPreVec>(b"az_gradient_stop_pre_vec_copy_from").ok()? };
+        let az_gradient_stop_pre_vec_as_ptr = unsafe { lib.get::<extern fn(_:  &AzGradientStopPreVec) -> *const AzGradientStopPre>(b"az_gradient_stop_pre_vec_as_ptr").ok()? };
+        let az_gradient_stop_pre_vec_len = unsafe { lib.get::<extern fn(_:  &AzGradientStopPreVec) -> usize>(b"az_gradient_stop_pre_vec_len").ok()? };
+        let az_gradient_stop_pre_vec_capacity = unsafe { lib.get::<extern fn(_:  &AzGradientStopPreVec) -> usize>(b"az_gradient_stop_pre_vec_capacity").ok()? };
         let az_gradient_stop_pre_vec_delete = unsafe { lib.get::<extern fn(_:  &mut AzGradientStopPreVec)>(b"az_gradient_stop_pre_vec_delete").ok()? };
         let az_gradient_stop_pre_vec_deep_copy = unsafe { lib.get::<extern fn(_:  &AzGradientStopPreVec) -> AzGradientStopPreVec>(b"az_gradient_stop_pre_vec_deep_copy").ok()? };
         let az_option_percentage_value_delete = unsafe { lib.get::<extern fn(_:  &mut AzOptionPercentageValue)>(b"az_option_percentage_value_delete").ok()? };
@@ -1852,6 +1878,12 @@ pub(crate) mod dll {
         let az_window_create_options_new = unsafe { lib.get::<extern fn(_:  AzCssPtr) -> AzWindowCreateOptionsPtr>(b"az_window_create_options_new").ok()? };
         let az_window_create_options_delete = unsafe { lib.get::<extern fn(_:  &mut AzWindowCreateOptionsPtr)>(b"az_window_create_options_delete").ok()? };
         let az_window_create_options_shallow_copy = unsafe { lib.get::<extern fn(_:  &AzWindowCreateOptionsPtr) -> AzWindowCreateOptionsPtr>(b"az_window_create_options_shallow_copy").ok()? };
+        let az_ref_any_new = unsafe { lib.get::<extern fn(_:  *const u8, _:  usize, _:  u64, _:  AzString, _:  fn(AzRefAny)) -> AzRefAny>(b"az_ref_any_new").ok()? };
+        let az_ref_any_get_ptr = unsafe { lib.get::<extern fn(_:  &AzRefAny, _:  usize, _:  u64) -> *const c_void>(b"az_ref_any_get_ptr").ok()? };
+        let az_ref_any_get_mut_ptr = unsafe { lib.get::<extern fn(_:  &AzRefAny, _:  usize, _:  u64) -> *mut c_void>(b"az_ref_any_get_mut_ptr").ok()? };
+        let az_ref_any_shallow_copy = unsafe { lib.get::<extern fn(_:  &AzRefAny) -> AzRefAny>(b"az_ref_any_shallow_copy").ok()? };
+        let az_ref_any_delete = unsafe { lib.get::<extern fn(_:  &mut AzRefAny)>(b"az_ref_any_delete").ok()? };
+        let az_ref_any_core_copy = unsafe { lib.get::<extern fn(_:  &AzRefAny) -> AzRefAny>(b"az_ref_any_core_copy").ok()? };
         Some(AzulDll {
             lib: Box::new(lib),
             az_string_from_utf8_unchecked,
@@ -1859,12 +1891,22 @@ pub(crate) mod dll {
             az_string_into_bytes,
             az_string_delete,
             az_string_deep_copy,
+            az_u8_vec_copy_from,
+            az_u8_vec_as_ptr,
+            az_u8_vec_len,
+            az_u8_vec_capacity,
             az_u8_vec_delete,
             az_u8_vec_deep_copy,
             az_string_vec_copy_from,
+            az_string_vec_as_ptr,
+            az_string_vec_len,
+            az_string_vec_capacity,
             az_string_vec_delete,
             az_string_vec_deep_copy,
             az_gradient_stop_pre_vec_copy_from,
+            az_gradient_stop_pre_vec_as_ptr,
+            az_gradient_stop_pre_vec_len,
+            az_gradient_stop_pre_vec_capacity,
             az_gradient_stop_pre_vec_delete,
             az_gradient_stop_pre_vec_deep_copy,
             az_option_percentage_value_delete,
@@ -2243,6 +2285,12 @@ pub(crate) mod dll {
             az_window_create_options_new,
             az_window_create_options_delete,
             az_window_create_options_shallow_copy,
+            az_ref_any_new,
+            az_ref_any_get_ptr,
+            az_ref_any_get_mut_ptr,
+            az_ref_any_shallow_copy,
+            az_ref_any_delete,
+            az_ref_any_core_copy,
         })
     }
 
@@ -2319,7 +2367,7 @@ pub mod str {
         /// Creates + allocates a Rust `String` by **copying** it from another utf8-encoded string
         pub fn from_utf8_lossy(ptr: *const u8, len: usize) -> Self { (crate::dll::get_azul_dll().az_string_from_utf8_lossy)(ptr, len) }
         /// Creates + allocates a Rust `String` by **copying** it from another utf8-encoded string
-        pub fn into_bytes(self)  -> crate::vec::U8Vec { { (crate::dll::get_azul_dll().az_string_into_bytes)(self.leak())} }
+        pub fn into_bytes(self)  -> crate::vec::U8Vec { { (crate::dll::get_azul_dll().az_string_into_bytes)(self)} }
     }
 
     impl Drop for String { fn drop(&mut self) { (crate::dll::get_azul_dll().az_string_delete)(&mut self); } }
@@ -2330,7 +2378,6 @@ pub mod str {
 pub mod vec {
 
     use crate::dll::*;
-
     impl From<std::vec::Vec<u8>> for crate::vec::U8Vec {
         fn from(v: std::vec::Vec<u8>) -> crate::vec::U8Vec {
             crate::vec::U8Vec::copy_from(v.as_ptr(), v.len())
@@ -2350,13 +2397,13 @@ pub mod vec {
                 (crate::dll::get_azul_dll().az_string_from_utf8_unchecked)(i.as_ptr(), i.len())
             }).collect();
 
-            crate::vec::StringVec { object: (crate::dll::get_azul_dll().az_string_vec_copy_from)(vec.as_ptr(), vec.len()) }
+            (crate::dll::get_azul_dll().az_string_vec_copy_from)(vec.as_ptr(), vec.len())
         }
     }
 
     impl From<crate::vec::StringVec> for std::vec::Vec<std::string::String> {
         fn from(v: crate::vec::StringVec) -> std::vec::Vec<std::string::String> {
-            v.leak().object
+            v
             .into_iter()
             .map(|s| unsafe {
                 let s_vec: std::vec::Vec<u8> = s.into_bytes().into();
@@ -2373,6 +2420,17 @@ pub mod vec {
     /// Wrapper over a Rust-allocated `U8Vec`
     pub use crate::dll::AzU8Vec as U8Vec;
 
+    impl U8Vec {
+        /// Creates + allocates a Rust `Vec<String>` by **copying** it from a bytes source
+        pub fn copy_from(ptr: *const u8, len: usize) -> Self { (crate::dll::get_azul_dll().az_u8_vec_copy_from)(ptr, len) }
+        /// Returns the internal pointer to the (azul-dll allocated) [u8]
+        pub fn as_ptr(&self)  -> *const u8 { (crate::dll::get_azul_dll().az_u8_vec_as_ptr)(&self) }
+        /// Returns the length of the internal `Vec<u8>`
+        pub fn len(&self)  -> usize { (crate::dll::get_azul_dll().az_u8_vec_len)(&self) }
+        /// Returns the capacity of the internal `Vec<u8>`
+        pub fn capacity(&self)  -> usize { (crate::dll::get_azul_dll().az_u8_vec_capacity)(&self) }
+    }
+
     impl Drop for U8Vec { fn drop(&mut self) { (crate::dll::get_azul_dll().az_u8_vec_delete)(&mut self); } }
 
 
@@ -2382,6 +2440,12 @@ pub mod vec {
     impl StringVec {
         /// Creates + allocates a Rust `Vec<String>` by **copying** it from a bytes source
         pub fn copy_from(ptr: *const AzString, len: usize) -> Self { (crate::dll::get_azul_dll().az_string_vec_copy_from)(ptr, len) }
+        /// Returns the internal pointer to the (azul-dll allocated) [AzString]
+        pub fn as_ptr(&self)  ->*const  crate::str::String { { (crate::dll::get_azul_dll().az_string_vec_as_ptr)(&self)} }
+        /// Returns the length of the internal `Vec<AzString>`
+        pub fn len(&self)  -> usize { (crate::dll::get_azul_dll().az_string_vec_len)(&self) }
+        /// Returns the capacity of the internal `Vec<AzString>`
+        pub fn capacity(&self)  -> usize { (crate::dll::get_azul_dll().az_string_vec_capacity)(&self) }
     }
 
     impl Drop for StringVec { fn drop(&mut self) { (crate::dll::get_azul_dll().az_string_vec_delete)(&mut self); } }
@@ -2393,6 +2457,12 @@ pub mod vec {
     impl GradientStopPreVec {
         /// Creates + allocates a Rust `Vec<GradientStopPre>` by **copying** it from a bytes source
         pub fn copy_from(ptr: *const AzGradientStopPre, len: usize) -> Self { (crate::dll::get_azul_dll().az_gradient_stop_pre_vec_copy_from)(ptr, len) }
+        /// Returns the internal pointer to the (azul-dll allocated) [GradientStopPre]
+        pub fn as_ptr(&self)  ->*const  crate::css::GradientStopPre { { (crate::dll::get_azul_dll().az_gradient_stop_pre_vec_as_ptr)(&self)} }
+        /// Returns the length of the internal `Vec<GradientStopPre>`
+        pub fn len(&self)  -> usize { (crate::dll::get_azul_dll().az_gradient_stop_pre_vec_len)(&self) }
+        /// Returns the capacity of the internal `Vec<GradientStopPre>`
+        pub fn capacity(&self)  -> usize { (crate::dll::get_azul_dll().az_gradient_stop_pre_vec_capacity)(&self) }
     }
 
     impl Drop for GradientStopPreVec { fn drop(&mut self) { (crate::dll::get_azul_dll().az_gradient_stop_pre_vec_delete)(&mut self); } }
@@ -2438,7 +2508,7 @@ pub mod app {
         /// Creates a new App instance from the given `AppConfig`
         pub fn new(data: RefAny, config: AppConfig, callback: LayoutCallback) -> Self { (crate::dll::get_azul_dll().az_app_new)(data, config, callback) }
         /// Runs the application. Due to platform restrictions (specifically `WinMain` on Windows), this function never returns.
-        pub fn run(self, window: WindowCreateOptions)  { (crate::dll::get_azul_dll().az_app_run)(self.leak(), window) }
+        pub fn run(self, window: WindowCreateOptions)  { (crate::dll::get_azul_dll().az_app_run)(self, window) }
     }
 
     impl Drop for App { fn drop(&mut self) { (crate::dll::get_azul_dll().az_app_delete)(&mut self); } }
@@ -2532,7 +2602,7 @@ pub mod callbacks {
                 default_custom_destructor::<T>,
             );
             ::std::mem::forget(value); // do not run the destructor of T here!
-            Self(s)
+            s
         }
 
         /// Returns the inner `RefAny`
@@ -3469,7 +3539,7 @@ pub mod dom {
     use crate::dll::*;
     use crate::str::String;
     use crate::resources::{TextId, ImageId};
-    use crate::callbacks::{IFrameCallback, Callback, RefAny, GlCallback};
+    use crate::callbacks::{GlCallback, RefAny, IFrameCallback, Callback};
     use crate::vec::StringVec;
     use crate::css::CssProperty;
 
@@ -3493,47 +3563,47 @@ pub mod dom {
         /// Creates a new node with a callback that will return a `Dom` after being layouted. See the documentation for [IFrameCallback]() for more info about iframe callbacks.
         pub fn iframe_callback(data: RefAny, callback: IFrameCallback) -> Self { (crate::dll::get_azul_dll().az_dom_iframe_callback)(data, callback) }
         /// Adds a CSS ID (`#something`) to the DOM node
-        pub fn add_id(&mut self, id: String)  { (crate::dll::get_azul_dll().az_dom_add_id)(&mut self.ptr, id) }
+        pub fn add_id(&mut self, id: String)  { (crate::dll::get_azul_dll().az_dom_add_id)(&mut self, id) }
         /// Same as [`Dom::add_id`](#method.add_id), but as a builder method
-        pub fn with_id(self, id: String)  -> crate::dom::Dom { { (crate::dll::get_azul_dll().az_dom_with_id)(self.leak(), id)} }
+        pub fn with_id(self, id: String)  -> crate::dom::Dom { { (crate::dll::get_azul_dll().az_dom_with_id)(self, id)} }
         /// Same as calling [`Dom::add_id`](#method.add_id) for each CSS ID, but this function **replaces** all current CSS IDs
-        pub fn set_ids(&mut self, ids: StringVec)  { (crate::dll::get_azul_dll().az_dom_set_ids)(&mut self.ptr, ids) }
+        pub fn set_ids(&mut self, ids: StringVec)  { (crate::dll::get_azul_dll().az_dom_set_ids)(&mut self, ids) }
         /// Same as [`Dom::set_ids`](#method.set_ids), but as a builder method
-        pub fn with_ids(self, ids: StringVec)  -> crate::dom::Dom { { (crate::dll::get_azul_dll().az_dom_with_ids)(self.leak(), ids)} }
+        pub fn with_ids(self, ids: StringVec)  -> crate::dom::Dom { { (crate::dll::get_azul_dll().az_dom_with_ids)(self, ids)} }
         /// Adds a CSS class (`.something`) to the DOM node
-        pub fn add_class(&mut self, class: String)  { (crate::dll::get_azul_dll().az_dom_add_class)(&mut self.ptr, class) }
+        pub fn add_class(&mut self, class: String)  { (crate::dll::get_azul_dll().az_dom_add_class)(&mut self, class) }
         /// Same as [`Dom::add_class`](#method.add_class), but as a builder method
-        pub fn with_class(self, class: String)  -> crate::dom::Dom { { (crate::dll::get_azul_dll().az_dom_with_class)(self.leak(), class)} }
+        pub fn with_class(self, class: String)  -> crate::dom::Dom { { (crate::dll::get_azul_dll().az_dom_with_class)(self, class)} }
         /// Same as calling [`Dom::add_class`](#method.add_class) for each class, but this function **replaces** all current classes
-        pub fn set_classes(&mut self, classes: StringVec)  { (crate::dll::get_azul_dll().az_dom_set_classes)(&mut self.ptr, classes) }
+        pub fn set_classes(&mut self, classes: StringVec)  { (crate::dll::get_azul_dll().az_dom_set_classes)(&mut self, classes) }
         /// Same as [`Dom::set_classes`](#method.set_classes), but as a builder method
-        pub fn with_classes(self, classes: StringVec)  -> crate::dom::Dom { { (crate::dll::get_azul_dll().az_dom_with_classes)(self.leak(), classes)} }
+        pub fn with_classes(self, classes: StringVec)  -> crate::dom::Dom { { (crate::dll::get_azul_dll().az_dom_with_classes)(self, classes)} }
         /// Adds a [`Callback`](callbacks/type.Callback) that acts on the `data` the `event` happens
-        pub fn add_callback(&mut self, event: EventFilter, data: RefAny, callback: Callback)  { (crate::dll::get_azul_dll().az_dom_add_callback)(&mut self.ptr, event, data, callback) }
+        pub fn add_callback(&mut self, event: EventFilter, data: RefAny, callback: Callback)  { (crate::dll::get_azul_dll().az_dom_add_callback)(&mut self, event, data, callback) }
         /// Same as [`Dom::add_callback`](#method.add_callback), but as a builder method
-        pub fn with_callback(self, event: EventFilter, data: RefAny, callback: Callback)  -> crate::dom::Dom { { (crate::dll::get_azul_dll().az_dom_with_callback)(self.leak(), event, data, callback)} }
+        pub fn with_callback(self, event: EventFilter, data: RefAny, callback: Callback)  -> crate::dom::Dom { { (crate::dll::get_azul_dll().az_dom_with_callback)(self, event, data, callback)} }
         /// Overrides the CSS property of this DOM node with a value (for example `"width = 200px"`)
-        pub fn add_css_override(&mut self, id: String, prop: CssProperty)  { (crate::dll::get_azul_dll().az_dom_add_css_override)(&mut self.ptr, id, prop) }
+        pub fn add_css_override(&mut self, id: String, prop: CssProperty)  { (crate::dll::get_azul_dll().az_dom_add_css_override)(&mut self, id, prop) }
         /// Same as [`Dom::add_css_override`](#method.add_css_override), but as a builder method
-        pub fn with_css_override(self, id: String, prop: CssProperty)  -> crate::dom::Dom { { (crate::dll::get_azul_dll().az_dom_with_css_override)(self.leak(), id, prop)} }
+        pub fn with_css_override(self, id: String, prop: CssProperty)  -> crate::dom::Dom { { (crate::dll::get_azul_dll().az_dom_with_css_override)(self, id, prop)} }
         /// Sets the `is_draggable` attribute of this DOM node (default: false)
-        pub fn set_is_draggable(&mut self, is_draggable: bool)  { (crate::dll::get_azul_dll().az_dom_set_is_draggable)(&mut self.ptr, is_draggable) }
+        pub fn set_is_draggable(&mut self, is_draggable: bool)  { (crate::dll::get_azul_dll().az_dom_set_is_draggable)(&mut self, is_draggable) }
         /// Same as [`Dom::set_is_draggable`](#method.set_is_draggable), but as a builder method
-        pub fn is_draggable(self, is_draggable: bool)  -> crate::dom::Dom { { (crate::dll::get_azul_dll().az_dom_is_draggable)(self.leak(), is_draggable)} }
+        pub fn is_draggable(self, is_draggable: bool)  -> crate::dom::Dom { { (crate::dll::get_azul_dll().az_dom_is_draggable)(self, is_draggable)} }
         /// Sets the `tabindex` attribute of this DOM node (makes an element focusable - default: None)
-        pub fn set_tab_index(&mut self, tab_index: TabIndex)  { (crate::dll::get_azul_dll().az_dom_set_tab_index)(&mut self.ptr, tab_index) }
+        pub fn set_tab_index(&mut self, tab_index: TabIndex)  { (crate::dll::get_azul_dll().az_dom_set_tab_index)(&mut self, tab_index) }
         /// Same as [`Dom::set_tab_index`](#method.set_tab_index), but as a builder method
-        pub fn with_tab_index(self, tab_index: TabIndex)  -> crate::dom::Dom { { (crate::dll::get_azul_dll().az_dom_with_tab_index)(self.leak(), tab_index)} }
+        pub fn with_tab_index(self, tab_index: TabIndex)  -> crate::dom::Dom { { (crate::dll::get_azul_dll().az_dom_with_tab_index)(self, tab_index)} }
         /// Reparents another `Dom` to be the child node of this `Dom`
-        pub fn add_child(&mut self, child: Dom)  { (crate::dll::get_azul_dll().az_dom_add_child)(&mut self.ptr, child) }
+        pub fn add_child(&mut self, child: Dom)  { (crate::dll::get_azul_dll().az_dom_add_child)(&mut self, child) }
         /// Same as [`Dom::add_child`](#method.add_child), but as a builder method
-        pub fn with_child(self, child: Dom)  -> crate::dom::Dom { { (crate::dll::get_azul_dll().az_dom_with_child)(self.leak(), child)} }
+        pub fn with_child(self, child: Dom)  -> crate::dom::Dom { { (crate::dll::get_azul_dll().az_dom_with_child)(self, child)} }
         /// Returns if the DOM node has a certain CSS ID
-        pub fn has_id(&mut self, id: String)  -> bool { (crate::dll::get_azul_dll().az_dom_has_id)(&mut self.ptr, id) }
+        pub fn has_id(&mut self, id: String)  -> bool { (crate::dll::get_azul_dll().az_dom_has_id)(&mut self, id) }
         /// Returns if the DOM node has a certain CSS class
-        pub fn has_class(&mut self, class: String)  -> bool { (crate::dll::get_azul_dll().az_dom_has_class)(&mut self.ptr, class) }
+        pub fn has_class(&mut self, class: String)  -> bool { (crate::dll::get_azul_dll().az_dom_has_class)(&mut self, class) }
         /// Returns the HTML String for this DOM
-        pub fn get_html_string(&mut self)  -> crate::str::String { { (crate::dll::get_azul_dll().az_dom_get_html_string)(&mut self.ptr)} }
+        pub fn get_html_string(&mut self)  -> crate::str::String { { (crate::dll::get_azul_dll().az_dom_get_html_string)(&mut self)} }
     }
 
     impl Drop for Dom { fn drop(&mut self) { (crate::dll::get_azul_dll().az_dom_delete)(&mut self); } }

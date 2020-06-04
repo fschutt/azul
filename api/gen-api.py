@@ -363,17 +363,11 @@ def rust_bindings_call_fn_args(f, class_name, class_ptr_name, self_as_first_arg,
     if self_as_first_arg:
         self_val = list(f["fn_args"][0].values())[0]
         if (self_val == "value") or (self_val == "mut value"):
-            fn_args += "self.leak(), "
+            fn_args += "self, "
         elif (self_val == "refmut"):
-            if class_is_boxed_object:
-                fn_args += "&mut self.ptr, "
-            else:
-                fn_args += "&mut self, "
+            fn_args += "&mut self, "
         elif (self_val == "ref"):
-            if class_is_boxed_object:
-                fn_args += "&self.ptr, "
-            else:
-                fn_args += "&self, "
+            fn_args += "&self, "
         else:
             raise Exception("wrong self value " + self_val)
 
@@ -559,13 +553,14 @@ def generate_rust_dll(apiData):
                         if is_primitive_arg(return_type):
                             returns = return_type
                         else:
-                            return_type_class = search_for_class_by_rust_class_name(apiData, return_type)
+                            analyzed_return_type = analyze_type(return_type)
+                            return_type_class = search_for_class_by_rust_class_name(apiData, analyzed_return_type[1])
                             if return_type_class is None:
                                 print("rust-dll: (line 549): no return_type_class found for " + return_type)
                             if class_is_stack_allocated(get_class(apiData, return_type_class[0], return_type_class[1])):
-                                returns = prefix + return_type_class[1] # no postfix
+                                returns = analyzed_return_type[0] + prefix + return_type_class[1] + analyzed_return_type[2] # no postfix
                             else:
-                                returns = prefix + return_type_class[1] + postfix
+                                returns = analyzed_return_type[0] + prefix + return_type_class[1] + postfix + analyzed_return_type[2]
 
                     functions_map[str(fn_prefix + to_snake_case(class_name) + "_" + fn_name)] = [fn_args, returns];
                     return_arrow = "" if returns == "" else " -> "
@@ -648,6 +643,14 @@ def generate_rust_dll(apiData):
                 code += "ptr.ptr = Box::into_raw(box_ptr) as *mut c_void;"
                 code += "ret_val"
                 code += " }\r\n"
+
+    # Add the RefAny functions (from /patches/azul_dll/refany.rs) to the functions_map
+    functions_map["az_ref_any_new"] = ["ptr: *const u8, len: usize, type_id: u64, type_name: AzString, custom_destructor: fn(AzRefAny)", "AzRefAny"]
+    functions_map["az_ref_any_get_ptr"] = ["ptr: &AzRefAny, len: usize, type_id: u64", "*const c_void"]
+    functions_map["az_ref_any_get_mut_ptr"] = ["ptr: &AzRefAny, len: usize, type_id: u64", "*mut c_void"]
+    functions_map["az_ref_any_shallow_copy"] = ["ptr: &AzRefAny", "AzRefAny"]
+    functions_map["az_ref_any_delete"] = ["ptr: &mut AzRefAny", ""]
+    functions_map["az_ref_any_core_copy"] = ["ptr: &AzRefAny", "AzRefAny"]
 
     return [code, structs_map, functions_map]
 
@@ -920,8 +923,9 @@ def generate_rust_api(apiData, structs_map, functions_map):
                             if is_primitive_arg(return_type):
                                 fn_body = fn_body
                             else:
-                                return_type_class = search_for_class_by_rust_class_name(apiData, return_type)
-                                returns = " -> crate::" + return_type_class[0] + "::" + return_type_class[1]
+                                analyzed_return_type = analyze_type(return_type)
+                                return_type_class = search_for_class_by_rust_class_name(apiData, analyzed_return_type[1])
+                                returns = " ->" + analyzed_return_type[0] + " crate::" + return_type_class[0] + "::" + return_type_class[1] + analyzed_return_type[2]
                                 fn_body = "{ " + fn_body + "}"
 
                         code += "        pub fn " + fn_name + "(" + fn_args + ") " +  returns + " { " + fn_body + " }\r\n"
@@ -955,7 +959,7 @@ def generate_js_api(apiData):
 def main():
     apiData = read_api_file(api_file_path)
     rust_dll_result = generate_rust_dll(apiData)
-    # write_file(rust_dll_result[0], rust_dll_path)
+    write_file(rust_dll_result[0], rust_dll_path)
     write_file(generate_rust_api(apiData, rust_dll_result[1], rust_dll_result[2]), rust_api_path)
     # write_file(generate_c_api(apiData), c_api_path)
     # write_file(generate_cpp_api(apiData), cpp_api_path)

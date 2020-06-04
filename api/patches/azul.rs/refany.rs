@@ -34,7 +34,7 @@
                 default_custom_destructor::<T>,
             );
             ::std::mem::forget(value); // do not run the destructor of T here!
-            Self(s)
+            s
         }
 
         /// Returns the inner `RefAny`

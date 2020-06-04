@@ -25,6 +25,14 @@ macro_rules! impl_vec {($struct_type:ident, $struct_name:ident) => (
             self.ptr as *const $struct_type
         }
 
+        pub fn len(&self) -> usize {
+            self.len
+        }
+
+        pub fn cap(&self) -> usize {
+            self.cap
+        }
+
         pub fn get(&self, index: usize) -> Option<&$struct_type> {
             let v1: &[$struct_type] = unsafe { std::slice::from_raw_parts(self.ptr, self.len) };
             let res = v1.get(index);
