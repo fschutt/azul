@@ -740,7 +740,7 @@ def generate_dll_loader(apiData, structs_map, functions_map):
 
     # Generate loading function
     # TODO: use proper path here!
-    code += "    const LIB_BYTES: &[u8] = include_bytes!(\"../../../target/debug/libazul.so\");\r\n"
+    code += "    const LIB_BYTES: &[u8] = include_bytes!(\"../../../target/release/libazul.so\");\r\n"
     code += "\r\n"
     code += "    use std::{mem::MaybeUninit, sync::atomic::{AtomicBool, Ordering}};\r\n"
     code += "\r\n"

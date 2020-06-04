@@ -13,6 +13,7 @@ edition = "2018"
 [lib]
 name = "azul"
 crate-type = ["rlib", "cdylib"]
+doc = false
 
 [profile.release]
 lto = true

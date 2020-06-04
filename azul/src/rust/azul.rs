@@ -2294,7 +2294,7 @@ pub(crate) mod dll {
         })
     }
 
-    const LIB_BYTES: &[u8] = include_bytes!("../../../target/debug/libazul.so");
+    const LIB_BYTES: &[u8] = include_bytes!("../../../target/release/libazul.so");
 
     use std::{mem::MaybeUninit, sync::atomic::{AtomicBool, Ordering}};
 
@@ -3548,7 +3548,7 @@ pub mod dom {
     use crate::dll::*;
     use crate::str::String;
     use crate::resources::{TextId, ImageId};
-    use crate::callbacks::{Callback, GlCallback, IFrameCallback, RefAny};
+    use crate::callbacks::{GlCallback, IFrameCallback, Callback, RefAny};
     use crate::vec::StringVec;
     use crate::css::CssProperty;
 
