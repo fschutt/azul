@@ -2219,7 +2219,23 @@ pub(crate) mod dll {
     static LIBRARY_IS_INITIALIZED: AtomicBool = AtomicBool::new(false);
     static mut AZUL_DLL: MaybeUninit<AzulDll> = MaybeUninit::<AzulDll>::uninit();
 
-    fn load_library_inner() -> Option<AzulDll> { std::fs::write("./azul.so", LIB_BYTES).ok()?; initialize_library("./azul.so") }
+    #[cfg(unix)]
+    const DLL_FILE_NAME: &str = "./azul.so";
+    #[cfg(windows)]
+    const DLL_FILE_NAME: &str = "./azul.dll";
+
+    fn load_library_inner() -> Option<AzulDll> {
+
+        let current_exe_path = std::env::current_exe().ok()?;
+        let mut library_path = current_exe_path.parent()?.to_path_buf();
+        library_path.push(DLL_FILE_NAME);
+
+        if !library_path.exists() {
+           std::fs::write(library_path, LIB_BYTES).ok()?;
+        }
+
+        initialize_library(library_path)
+    }
 
     pub(crate) fn get_azul_dll() -> &'static AzulDll { 
         if !LIBRARY_IS_INITIALIZED.load(Ordering::SeqCst) {
@@ -3464,7 +3480,7 @@ pub mod dom {
     use crate::dll::*;
     use crate::str::String;
     use crate::resources::{TextId, ImageId};
-    use crate::callbacks::{RefAny, IFrameCallback, GlCallback, Callback};
+    use crate::callbacks::{GlCallback, RefAny, Callback, IFrameCallback};
     use crate::vec::StringVec;
     use crate::css::CssProperty;
 
