@@ -41,13 +41,13 @@ rust_api_patches = {
     tuple(['*']): read_file("./patches/azul.rs/header.rs"),
     tuple(['str']): read_file("./patches/azul.rs/string.rs"),
     tuple(['vec']): read_file("./patches/azul.rs/vec.rs"),
+    tuple(['dll']): read_file("./patches/azul.rs/dll.rs"),
     tuple(['callbacks', 'RefAny']): read_file("./patches/azul.rs/refany.rs"),
     tuple(['callbacks', 'UpdateScreen']): read_file("./patches/azul.rs/update_screen.rs"),
     tuple(['callbacks', 'LayoutCallback']): read_file("./patches/azul.rs/layout_callback.rs"),
     tuple(['callbacks', 'Callback']): read_file("./patches/azul.rs/callback.rs"),
     tuple(['callbacks', 'GlCallback']): read_file("./patches/azul.rs/gl_callback.rs"),
     tuple(['callbacks', 'IFrameCallback']): read_file("./patches/azul.rs/iframe_callback.rs"),
-    tuple(['app', 'App', 'new']): read_file("./patches/azul.rs/app_new.rs"),
 }
 
 c_api_patches = {
@@ -657,6 +657,9 @@ def generate_dll_loader(apiData, structs_map, functions_map):
     code += "pub(crate) mod dll {\r\n\r\n"
     code += "    use std::ffi::c_void;\r\n\r\n"
 
+    if tuple(['dll']) in rust_api_patches.keys():
+        code += rust_api_patches[tuple(['dll'])]
+
     for struct_name in structs_map.keys():
         struct = structs_map[struct_name]
         if "struct" in struct.keys():
@@ -952,7 +955,7 @@ def generate_js_api(apiData):
 def main():
     apiData = read_api_file(api_file_path)
     rust_dll_result = generate_rust_dll(apiData)
-    # write_file(rust_dll_result[0], rust_dll_path)
+    write_file(rust_dll_result[0], rust_dll_path)
     write_file(generate_rust_api(apiData, rust_dll_result[1], rust_dll_result[2]), rust_api_path)
     # write_file(generate_c_api(apiData), c_api_path)
     # write_file(generate_cpp_api(apiData), cpp_api_path)

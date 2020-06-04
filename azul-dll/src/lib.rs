@@ -136,14 +136,14 @@ pub type AzCallbackInfoPtrType = azul_impl::callbacks::CallbackInfoPtr;
 /// (private): Downcasts the `AzCallbackInfoPtr` to a `&Box<CallbackInfo<'a>>` and runs the `func` closure on it
 #[inline(always)] fn az_callback_info_downcast_ref<'a, P, F: FnOnce(&Box<CallbackInfo<'a>>) -> P>(ptr: &mut AzCallbackInfoPtr, func: F) -> P { let box_ptr: Box<CallbackInfo<'a>> = unsafe { Box::<CallbackInfo<'a>>::from_raw(ptr.ptr  as *mut CallbackInfo<'a>) }; let ret_val = func(&box_ptr); ptr.ptr = Box::into_raw(box_ptr) as *mut c_void;ret_val }
 
-/// Re-export of rust-allocated (stack based) `UpdateScreen` struct
-#[no_mangle] pub type AzUpdateScreen = Option<()>;
-
-/// Re-export of rust-allocated (stack based) `Redraw` struct
-#[no_mangle] pub static AzRedraw: AzUpdateScreen = azul_impl::callbacks::Redraw;
-
-/// Re-export of rust-allocated (stack based) `DontRedraw` struct
-#[no_mangle] pub static AzDontRedraw: AzUpdateScreen = azul_impl::callbacks::DontRedraw;
+/// Specifies if the screen should be updated after the callback function has returned
+pub type AzUpdateScreenType = azul_impl::callbacks::UpdateScreen;
+#[no_mangle] pub use AzUpdateScreenType as AzUpdateScreen;
+/// Destructor: Takes ownership of the `UpdateScreen` pointer and deletes it.
+#[no_mangle] #[allow(unused_variables)] pub extern "C" fn az_update_screen_delete(object: &mut AzUpdateScreen) { match object { azul_impl::callbacks::UpdateScreen::Redraw => { }, azul_impl::callbacks::UpdateScreen::DontRedraw => { }, }
+}
+/// Copies the object
+#[no_mangle] pub extern "C" fn az_update_screen_deep_copy(object: &AzUpdateScreen) -> AzUpdateScreen { object.clone() }
 
 /// Callback for rendering iframes (infinite data structures that have to know how large they are rendered)
 pub type AzIFrameCallback = fn(AzIFrameCallbackInfoPtr) -> AzIFrameCallbackReturnPtr;

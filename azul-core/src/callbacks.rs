@@ -32,23 +32,30 @@ use crate::gl::Texture;
 #[cfg(feature = "opengl")]
 use gleam::gl::Gl;
 
-/// A callback function has to return if the screen should be updated after the
-/// function has run.
-///
-/// NOTE: This is currently a typedef for `Option<()>`, so that you can use
-/// the `?` operator in callbacks (to simply not redraw if there is an error).
-/// This was an enum previously, but since Rust doesn't have a "custom try" operator,
-/// this led to a lot of usability problems. In the future, this might change back
-/// to an enum therefore the constants "Redraw" and "DontRedraw" are not capitalized,
-/// to minimize breakage.
-pub type UpdateScreen = Option<()>;
-/// After the callback is called, the screen needs to redraw
-/// (layout() function being called again).
-#[allow(non_upper_case_globals)]
-pub const Redraw: Option<()> = Some(());
-/// The screen does not need to redraw after the callback has been called.
-#[allow(non_upper_case_globals)]
-pub const DontRedraw: Option<()> = None;
+/// Specifies if the screen should be updated after the callback function has returned
+#[repr(C)]
+#[derive(Copy, Clone, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
+pub enum UpdateScreen {
+    /// After the callback is called, the screen needs to redraw (layout() function being called again)
+    Redraw,
+    /// The screen does not need to redraw after the callback has been called
+    DontRedraw,
+}
+
+impl UpdateScreen {
+    pub fn into_option(self) -> Option<()> { self.into() }
+}
+impl From<UpdateScreen> for Option<()> {
+    fn from(o: UpdateScreen) -> Option<()> {
+        match o { UpdateScreen::DontRedraw => None, UpdateScreen::Redraw => Some(()) }
+    }
+}
+
+impl<T> From<Option<T>> for UpdateScreen {
+    fn from(o: Option<T>) -> Self {
+        match o { None => UpdateScreen::DontRedraw, Some(_) => UpdateScreen::Redraw }
+    }
+}
 
 #[derive(Debug, Hash, PartialEq, PartialOrd, Ord, Eq)]
 #[no_mangle]
@@ -697,7 +704,7 @@ pub fn call_callbacks(
         needs_relayout_hover_active: callbacks_filter_list.values().any(|v| v.needs_relayout_anyways),
         needs_restyle_focus_changed: false,
         should_scroll_render: false,
-        callbacks_update_screen: DontRedraw,
+        callbacks_update_screen: UpdateScreen::DontRedraw,
         modified_window_state: full_window_state.clone().into(),
     };
     let mut new_focus_target = None;
@@ -772,8 +779,8 @@ pub fn call_callbacks(
                 // Invoke callback
                 let callback_return = (callback.0)(ptr);
 
-                if callback_return == Redraw {
-                    ret.callbacks_update_screen = Redraw;
+                if callback_return == UpdateScreen::Redraw {
+                    ret.callbacks_update_screen = UpdateScreen::Redraw;
                 }
 
                 if let Some(new_focus) = new_focus.clone() {

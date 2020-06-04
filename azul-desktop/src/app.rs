@@ -34,7 +34,7 @@ use azul_core::{
     gl::GlShader,
     ui_state::UiState,
     ui_solver::ScrolledNodes,
-    callbacks::{RefAny, LayoutCallback, HitTestItem, Redraw},
+    callbacks::{RefAny, LayoutCallback, HitTestItem, UpdateScreen},
     task::{Task, Timer, TimerId},
     window::{AzulUpdateEvent, CallbacksOfHitTest, KeyboardState, WindowId},
     callbacks::PipelineId,
@@ -680,7 +680,7 @@ impl App {
                     // If timers are running, check whether they need to redraw
                     let should_redraw_timers = run_all_timers(&mut timers, &mut data, &mut resources);
                     let should_redraw_tasks = clean_up_finished_tasks(&mut tasks, &mut timers);
-                    let should_redraw_timers_tasks = [should_redraw_timers, should_redraw_tasks].iter().any(|i| *i == Redraw);
+                    let should_redraw_timers_tasks = [should_redraw_timers, should_redraw_tasks].iter().any(|i| *i == UpdateScreen::Redraw);
 
                     if should_redraw_timers_tasks {
                         *control_flow = ControlFlow::Poll;
@@ -903,7 +903,7 @@ fn send_user_event<'a>(
                     // Application state has been updated, now figure out what to update from the callbacks
 
                     // TODO: .any() or .all() ??
-                    callbacks_update_screen = call_callbacks_results.iter().any(|cr| cr.callbacks_update_screen == Redraw);
+                    callbacks_update_screen = call_callbacks_results.iter().any(|cr| cr.callbacks_update_screen == UpdateScreen::Redraw);
                     callbacks_set_new_focus_target = call_callbacks_results.iter().any(|cr| cr.needs_restyle_focus_changed);
                     callbacks_hover_restyle = call_callbacks_results.iter().any(|cr| cr.needs_restyle_hover_active);
                     callbacks_hover_relayout = call_callbacks_results.iter().any(|cr| cr.needs_relayout_hover_active);

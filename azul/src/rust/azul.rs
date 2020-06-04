@@ -27,6 +27,19 @@ pub(crate) mod dll {
 
     use std::ffi::c_void;
 
+    #[no_mangle]
+    #[repr(C)]
+    pub struct AzRefAny {
+        pub _internal_ptr: *const c_void,
+        pub _internal_len: usize,
+        pub _internal_layout_size: usize,
+        pub _internal_layout_align: usize,
+        pub type_id: u64,
+        pub type_name: AzString,
+        pub strong_count: usize,
+        pub is_currently_mutable: bool,
+        pub custom_destructor: fn(RefAny),
+    }
     #[repr(C)] pub struct AzString {
         pub vec: AzU8Vec,
     }
@@ -57,6 +70,10 @@ pub(crate) mod dll {
     }
     #[repr(C)] pub struct AzCallbackInfoPtr {
         pub ptr: *mut c_void,
+    }
+    #[repr(C)] pub enum AzUpdateScreen {
+        Redraw,
+        DontRedraw,
     }
     #[repr(C)] pub struct AzIFrameCallbackInfoPtr {
         pub ptr: *mut c_void,
@@ -1066,6 +1083,8 @@ pub(crate) mod dll {
         pub az_app_shallow_copy: Symbol<extern fn(_:  &AzAppPtr) -> AzAppPtr>,
         pub az_callback_info_delete: Symbol<extern fn(_:  &mut AzCallbackInfoPtr)>,
         pub az_callback_info_shallow_copy: Symbol<extern fn(_:  &AzCallbackInfoPtr) -> AzCallbackInfoPtr>,
+        pub az_update_screen_delete: Symbol<extern fn(_:  &mut AzUpdateScreen)>,
+        pub az_update_screen_deep_copy: Symbol<extern fn(_:  &AzUpdateScreen) -> AzUpdateScreen>,
         pub az_i_frame_callback_info_delete: Symbol<extern fn(_:  &mut AzIFrameCallbackInfoPtr)>,
         pub az_i_frame_callback_info_shallow_copy: Symbol<extern fn(_:  &AzIFrameCallbackInfoPtr) -> AzIFrameCallbackInfoPtr>,
         pub az_i_frame_callback_return_delete: Symbol<extern fn(_:  &mut AzIFrameCallbackReturnPtr)>,
@@ -1457,6 +1476,8 @@ pub(crate) mod dll {
         let az_app_shallow_copy = unsafe { lib.get::<extern fn(_:  &AzAppPtr) -> AzAppPtr>(b"az_app_shallow_copy").ok()? };
         let az_callback_info_delete = unsafe { lib.get::<extern fn(_:  &mut AzCallbackInfoPtr)>(b"az_callback_info_delete").ok()? };
         let az_callback_info_shallow_copy = unsafe { lib.get::<extern fn(_:  &AzCallbackInfoPtr) -> AzCallbackInfoPtr>(b"az_callback_info_shallow_copy").ok()? };
+        let az_update_screen_delete = unsafe { lib.get::<extern fn(_:  &mut AzUpdateScreen)>(b"az_update_screen_delete").ok()? };
+        let az_update_screen_deep_copy = unsafe { lib.get::<extern fn(_:  &AzUpdateScreen) -> AzUpdateScreen>(b"az_update_screen_deep_copy").ok()? };
         let az_i_frame_callback_info_delete = unsafe { lib.get::<extern fn(_:  &mut AzIFrameCallbackInfoPtr)>(b"az_i_frame_callback_info_delete").ok()? };
         let az_i_frame_callback_info_shallow_copy = unsafe { lib.get::<extern fn(_:  &AzIFrameCallbackInfoPtr) -> AzIFrameCallbackInfoPtr>(b"az_i_frame_callback_info_shallow_copy").ok()? };
         let az_i_frame_callback_return_delete = unsafe { lib.get::<extern fn(_:  &mut AzIFrameCallbackReturnPtr)>(b"az_i_frame_callback_return_delete").ok()? };
@@ -1846,6 +1867,8 @@ pub(crate) mod dll {
             az_app_shallow_copy,
             az_callback_info_delete,
             az_callback_info_shallow_copy,
+            az_update_screen_delete,
+            az_update_screen_deep_copy,
             az_i_frame_callback_info_delete,
             az_i_frame_callback_info_shallow_copy,
             az_i_frame_callback_return_delete,
@@ -2305,7 +2328,7 @@ pub mod vec {
 
     impl From<crate::vec::U8Vec> for std::vec::Vec<u8> {
         fn from(v: crate::vec::U8Vec) -> std::vec::Vec<u8> {
-            unsafe { std::slice::from_raw_parts(v.object.object.as_ptr(), v.object.object.len()).to_vec() }
+            unsafe { std::slice::from_raw_parts(v.as_ptr(), v.len()) }.to_vec()
         }
     }
 
@@ -2313,10 +2336,10 @@ pub mod vec {
         fn from(v: std::vec::Vec<std::string::String>) -> crate::vec::StringVec {
             let vec: Vec<AzString> = v.into_iter().map(|i| {
                 let i: std::vec::Vec<u8> = i.into_bytes();
-                az_string_from_utf8_unchecked(i.as_ptr(), i.len())
+                (crate::dll::get_azul_dll().az_string_from_utf8_unchecked)(i.as_ptr(), i.len())
             }).collect();
 
-            crate::vec::StringVec { object: az_string_vec_copy_from(vec.as_ptr(), vec.len()) }
+            crate::vec::StringVec { object: (crate::dll::get_azul_dll().az_string_vec_copy_from)(vec.as_ptr(), vec.len()) }
         }
     }
 
@@ -2382,7 +2405,7 @@ pub mod option {
 pub mod app {
 
     use crate::dll::*;
-    use crate::callbacks::{LayoutCallback, RefAny};
+    use crate::callbacks::{RefAny, LayoutCallback};
     use crate::window::WindowCreateOptions;
 
 
@@ -2402,12 +2425,7 @@ pub mod app {
 
     impl App {
         /// Creates a new App instance from the given `AppConfig`
-        pub fn new(data: RefAny, config: AppConfig, callback: LayoutCallback) -> Self { 
-            unsafe { crate::callbacks::CALLBACK = callback };
-            Self {
-                ptr: az_app_new(data.leak(), config.leak(), crate::callbacks::translate_callback)
-            }
- }
+        pub fn new(data: RefAny, config: AppConfig, callback: LayoutCallback) -> Self { (crate::dll::get_azul_dll().az_app_new)(data, config, callback) }
         /// Runs the application. Due to platform restrictions (specifically `WinMain` on Windows), this function never returns.
         pub fn run(self, window: WindowCreateOptions)  { (crate::dll::get_azul_dll().az_app_run)(self.leak(), window) }
     }
@@ -2424,19 +2442,8 @@ pub mod callbacks {
 
     use crate::dom::Dom;
 
-    /// Callback fn that returns the layout
+    /// Callback fn that returns the DOM of the app
     pub type LayoutCallback = fn(RefAny, LayoutInfo) -> Dom;
-
-    fn default_callback(_: RefAny, _: LayoutInfo) -> Dom {
-        Dom::div()
-    }
-
-    pub(crate) static mut CALLBACK: LayoutCallback = default_callback;
-
-    pub(crate) fn translate_callback(data: crate::dll::AzRefAny, layout: crate::dll::AzLayoutInfoPtr) -> crate::dll::AzDomPtr {
-        unsafe { CALLBACK(RefAny(data), LayoutInfo { ptr: layout }) }.leak()
-    }
-
 
     /// Return type of a regular callback - currently `AzUpdateScreen`
     pub type CallbackReturn = AzUpdateScreen;
@@ -2449,20 +2456,10 @@ pub mod callbacks {
     impl Drop for CallbackInfo { fn drop(&mut self) { (crate::dll::get_azul_dll().az_callback_info_delete)(&mut self); } }
 
 
-    /// `UpdateScreen` struct
-    pub struct UpdateScreen { pub(crate) object: AzUpdateScreen }
+    /// Specifies if the screen should be updated after the callback function has returned
+    pub use crate::dll::AzUpdateScreen as UpdateScreen;
 
-    impl<T> From<Option<T>> for UpdateScreen { fn from(o: Option<T>) -> Self { Self { object: match o { None => AzDontRedraw, Some(_) => AzRedraw }} } }
-
-
-    /// `Redraw` struct
-    pub use crate::dll::AzRedraw as Redraw;
-
-
-
-    /// `DontRedraw` struct
-    pub use crate::dll::AzDontRedraw as DontRedraw;
-
+    impl Drop for UpdateScreen { fn drop(&mut self) { (crate::dll::get_azul_dll().az_update_screen_delete)(&mut self); } }
 
 
     /// Callback for rendering iframes (infinite data structures that have to know how large they are rendered)
@@ -2495,19 +2492,7 @@ pub mod callbacks {
     impl Drop for GlCallbackReturn { fn drop(&mut self) { (crate::dll::get_azul_dll().az_gl_callback_return_delete)(&mut self); } }
 
 
-    #[no_mangle]
-    #[repr(C)]
-    pub struct RefAny {
-        pub _internal_ptr: *const c_void,
-        pub _internal_len: usize,
-        pub _internal_layout_size: usize,
-        pub _internal_layout_align: usize,
-        pub type_id: u64,
-        pub type_name: AzString,
-        pub strong_count: usize,
-        pub is_currently_mutable: bool,
-        pub custom_destructor: fn(RefAny),
-    }
+    use crate::dll::AzRefAny;
 
     impl Clone for RefAny {
         fn clone(&self) -> Self {
@@ -3479,8 +3464,8 @@ pub mod dom {
 
     use crate::dll::*;
     use crate::str::String;
-    use crate::resources::{ImageId, TextId};
-    use crate::callbacks::{IFrameCallback, RefAny, Callback, GlCallback};
+    use crate::resources::{TextId, ImageId};
+    use crate::callbacks::{GlCallback, RefAny, Callback, IFrameCallback};
     use crate::vec::StringVec;
     use crate::css::CssProperty;
 

@@ -21,7 +21,7 @@ use crate::{
     app_resources::Epoch,
     dom::{DomId, EventFilter},
     id_tree::NodeId,
-    callbacks::{PipelineId, DocumentId, Callback, ScrollPosition, HitTestItem, UpdateScreen, Redraw},
+    callbacks::{PipelineId, DocumentId, Callback, ScrollPosition, HitTestItem, UpdateScreen},
     ui_solver::{OverflowingScrollNode, ExternalScrollId, ScrolledNodes},
     ui_state::UiState,
     display_list::{SolvedLayoutCache, GlTextureCache, CachedDisplayList},
@@ -592,7 +592,7 @@ impl CallCallbacksResult {
 
     pub fn should_relayout(&self) -> bool {
         self.needs_relayout_hover_active ||
-        self.callbacks_update_screen == Redraw
+        self.callbacks_update_screen == UpdateScreen::Redraw
     }
 
     pub fn should_restyle(&self) -> bool {

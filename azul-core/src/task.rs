@@ -6,7 +6,7 @@ use std::{
 use crate::{
     FastHashMap,
     callbacks::{
-        Redraw, DontRedraw, TimerCallback, TimerCallbackInfo, RefAny,
+        TimerCallback, TimerCallbackInfo, RefAny,
         TimerCallbackReturn, TimerCallbackType, UpdateScreen,
     },
     app_resources::AppResources,
@@ -111,7 +111,7 @@ impl Timer {
         // Check if the timers timeout is reached
         if let Some(timeout) = self.timeout {
             if instant_now - self.created > timeout {
-                return (DontRedraw, TerminateTimer::Terminate);
+                return (UpdateScreen::DontRedraw, TerminateTimer::Terminate);
             }
         }
 
@@ -121,7 +121,7 @@ impl Timer {
                 None => self.created + delay,
             };
             if instant_now - last_run < interval {
-                return (DontRedraw, TerminateTimer::Continue);
+                return (UpdateScreen::DontRedraw, TerminateTimer::Continue);
             }
         }
 
@@ -278,7 +278,7 @@ pub fn run_all_timers(
     resources: &mut AppResources,
 ) -> UpdateScreen {
 
-    let mut should_update_screen = DontRedraw;
+    let mut should_update_screen = UpdateScreen::DontRedraw;
     let mut timers_to_terminate = Vec::new();
 
     for (key, timer) in timers.iter_mut() {
@@ -287,8 +287,8 @@ pub fn run_all_timers(
             app_resources: resources,
         });
 
-        if should_update == Redraw {
-            should_update_screen = Redraw;
+        if should_update == UpdateScreen::Redraw {
+            should_update_screen = UpdateScreen::Redraw;
         }
 
         if should_terminate == TerminateTimer::Terminate {
@@ -333,8 +333,8 @@ pub fn clean_up_finished_tasks(
     }
 
     if old_count == new_count && timers_is_empty {
-        DontRedraw
+        UpdateScreen::DontRedraw
     } else {
-        Redraw
+        UpdateScreen::Redraw
     }
 }

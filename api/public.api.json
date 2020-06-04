@@ -123,7 +123,6 @@
 							{"config": "AppConfig"},
 							{"callback": "LayoutCallback"}
 						],
-						"use_patches": ["rust"],
 						"fn_body": "App::new(data, *az_app_config_downcast(config), callback).unwrap()"
 						}
 					},
@@ -151,10 +150,14 @@
 					"rust_class_name": "CallbackInfo<'a>",
 					"is_boxed_object": true
 				},
-				"UpdateScreen": { "external": "Option<()>", "use_patches": ["rust"], "typedef": true },
-				"Redraw": { "external": "azul_impl::callbacks::Redraw", "use_patches": ["rust"], "const": "UpdateScreen" },
-				"DontRedraw": { "external": "azul_impl::callbacks::DontRedraw", "use_patches": ["rust"], "const": "UpdateScreen" },
-
+				"UpdateScreen": {
+					"external": "azul_impl::callbacks::UpdateScreen",
+					"doc": "Specifies if the screen should be updated after the callback function has returned",
+					"enum_fields": [
+						{"Redraw": {"doc": "After the callback is called, the screen needs to redraw (layout() function being called again)"}},
+						{"DontRedraw": {"doc": "The screen does not need to redraw after the callback has been called"}}
+					]
+				},
 				"IFrameCallback": { "use_patches": ["dll", "rust"], "typedef": true },
 				"IFrameCallbackInfo": {
 					"external": "azul_impl::callbacks::IFrameCallbackInfoPtr",
