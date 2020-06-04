@@ -75,6 +75,6 @@
 
     impl Drop for RefAny {
         fn drop(&mut self) {
-            (crate::dll::get_azul_dll().az_ref_any_delete)(&mut self);
+            (crate::dll::get_azul_dll().az_ref_any_delete)(self);
         }
     }

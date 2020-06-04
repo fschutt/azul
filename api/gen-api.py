@@ -362,14 +362,7 @@ def rust_bindings_call_fn_args(f, class_name, class_ptr_name, self_as_first_arg,
     fn_args = ""
     if self_as_first_arg:
         self_val = list(f["fn_args"][0].values())[0]
-        if (self_val == "value") or (self_val == "mut value"):
-            fn_args += "self, "
-        elif (self_val == "refmut"):
-            fn_args += "&mut self, "
-        elif (self_val == "ref"):
-            fn_args += "&self, "
-        else:
-            raise Exception("wrong self value " + self_val)
+        fn_args += "self, "
 
     if "fn_args" in f.keys():
         for arg_object in f["fn_args"]:
@@ -766,7 +759,7 @@ def generate_dll_loader(apiData, structs_map, functions_map):
     code += "        library_path.push(DLL_FILE_NAME);\r\n"
     code += "\r\n"
     code += "        if !library_path.exists() {\r\n"
-    code += "           std::fs::write(library_path, LIB_BYTES).ok()?;\r\n"
+    code += "           std::fs::write(&library_path, LIB_BYTES).ok()?;\r\n"
     code += "        }\r\n"
     code += "\r\n"
     code += "        initialize_library(&library_path)\r\n"
@@ -933,7 +926,7 @@ def generate_rust_api(apiData, structs_map, functions_map):
                 code += "    }\r\n\r\n" # end of class
 
             if not(class_is_const or class_is_typedef):
-                code += "    impl Drop for " + class_name + " { fn drop(&mut self) { (crate::dll::get_azul_dll()." + fn_prefix + to_snake_case(class_name) + "_delete)(&mut self); } }\r\n"
+                code += "    impl Drop for " + class_name + " { fn drop(&mut self) { (crate::dll::get_azul_dll()." + fn_prefix + to_snake_case(class_name) + "_delete)(self); } }\r\n"
 
         code += "}\r\n\r\n" # end of module
 

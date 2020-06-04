@@ -23,9 +23,10 @@
 
     impl From<crate::vec::StringVec> for std::vec::Vec<std::string::String> {
         fn from(v: crate::vec::StringVec) -> std::vec::Vec<std::string::String> {
-            v
-            .into_iter()
+            unsafe { std::slice::from_raw_parts(v.ptr, v.len) }
+            .iter()
             .map(|s| unsafe {
+                let s: AzString = (crate::dll::get_azul_dll().az_string_deep_copy)(s);
                 let s_vec: std::vec::Vec<u8> = s.into_bytes().into();
                 std::string::String::from_utf8_unchecked(s_vec)
             })
