@@ -1,2 +1,1 @@
-    /// Callback for rendering to an OpenGL texture
-    pub type GlCallback = fn(AzGlCallbackInfoPtr) -> AzGlCallbackReturnPtr;
+    pub use crate::dll::AzGlCallback as GlCallback;

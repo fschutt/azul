@@ -725,7 +725,7 @@ def generate_dll_loader(apiData, structs_map, functions_map):
         code += "        pub " + fn_name + ": Symbol<extern fn(" + strip_fn_arg_types(fn_args) + ")" + return_arrow + fn_return + ">,\r\n"
     code += "    }\r\n\r\n"
 
-    code += "    pub fn initialize_library(path: &str) -> Option<AzulDll> {\r\n"
+    code += "    pub fn initialize_library(path: &std::path::Path) -> Option<AzulDll> {\r\n"
     code += "        let lib = Library::new(path).ok()?;\r\n"
     for fn_name in functions_map.keys():
         fn_type = functions_map[fn_name]
@@ -766,7 +766,7 @@ def generate_dll_loader(apiData, structs_map, functions_map):
     code += "           std::fs::write(library_path, LIB_BYTES).ok()?;\r\n"
     code += "        }\r\n"
     code += "\r\n"
-    code += "        initialize_library(library_path)\r\n"
+    code += "        initialize_library(&library_path)\r\n"
     code += "    }\r\n"
     code += "\r\n"
     code += "    pub(crate) fn get_azul_dll() -> &'static AzulDll { \r\n"
@@ -955,7 +955,7 @@ def generate_js_api(apiData):
 def main():
     apiData = read_api_file(api_file_path)
     rust_dll_result = generate_rust_dll(apiData)
-    write_file(rust_dll_result[0], rust_dll_path)
+    # write_file(rust_dll_result[0], rust_dll_path)
     write_file(generate_rust_api(apiData, rust_dll_result[1], rust_dll_result[2]), rust_api_path)
     # write_file(generate_c_api(apiData), c_api_path)
     # write_file(generate_cpp_api(apiData), cpp_api_path)

@@ -1,8 +1,8 @@
-    use crate::dll::AzRefAny;
+    pub use crate::dll::AzRefAny as RefAny;
 
     impl Clone for RefAny {
         fn clone(&self) -> Self {
-            RefAny(az_ref_any_shallow_copy(&self))
+            (crate::dll::get_azul_dll().az_ref_any_shallow_copy)(&self)
         }
     }
 
@@ -26,7 +26,7 @@
             }
 
             let type_name_str = ::std::any::type_name::<T>();
-            let s = az_ref_any_new(
+            let s = (crate::dll::get_azul_dll().az_ref_any_new)(
                 (&value as *const T) as *const u8,
                 ::std::mem::size_of::<T>(),
                 Self::get_type_id::<T>() as u64,
@@ -40,7 +40,7 @@
         /// Returns the inner `RefAny`
         pub fn leak(self) -> RefAny {
             use std::mem;
-            let s = az_ref_any_core_copy(&self);
+            let s = (crate::dll::get_azul_dll().az_ref_any_core_copy)(&self);
             mem::forget(self); // do not run destructor
             s
         }
@@ -49,7 +49,7 @@
         #[inline]
         pub fn downcast_ref<'a, U: 'static>(&'a self) -> Option<&'a U> {
             use std::ptr;
-            let ptr = az_ref_any_get_ptr(&self, self._internal_len, Self::get_type_id::<U>());
+            let ptr = (crate::dll::get_azul_dll().az_ref_any_get_ptr)(&self, self._internal_len, Self::get_type_id::<U>());
             if ptr == ptr::null() { None } else { Some(unsafe { &*(self._internal_ptr as *const U) as &'a U }) }
         }
 
@@ -57,7 +57,7 @@
         #[inline]
         pub fn downcast_mut<'a, U: 'static>(&'a mut self) -> Option<&'a mut U> {
             use std::ptr;
-            let ptr = az_ref_any_get_mut_ptr(&self, self._internal_len, Self::get_type_id::<U>());
+            let ptr = (crate::dll::get_azul_dll().az_ref_any_get_mut_ptr)(&self, self._internal_len, Self::get_type_id::<U>());
             if ptr == ptr::null_mut() { None } else { Some(unsafe { &mut *(self._internal_ptr as *mut U) as &'a mut U }) }
         }
 
@@ -75,6 +75,6 @@
 
     impl Drop for RefAny {
         fn drop(&mut self) {
-            az_ref_any_delete(&mut self);
+            (crate::dll::get_azul_dll().az_ref_any_delete)(&mut self);
         }
     }

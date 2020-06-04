@@ -38,8 +38,19 @@ pub(crate) mod dll {
         pub type_name: AzString,
         pub strong_count: usize,
         pub is_currently_mutable: bool,
-        pub custom_destructor: fn(RefAny),
+        pub custom_destructor: fn(AzRefAny),
     }
+
+    /// Return type of a regular callback - currently `AzUpdateScreen`
+    pub type AzCallbackReturn = AzUpdateScreen;
+    /// Callback for responding to window events
+    pub type AzCallback = fn(AzCallbackInfoPtr) -> AzCallbackReturn;
+    /// Callback fn that returns the DOM of the app
+    pub type AzLayoutCallback = fn(AzRefAny, AzLayoutInfoPtr) -> AzDomPtr;
+    /// Callback for rendering to an OpenGL texture
+    pub type AzGlCallback = fn(AzGlCallbackInfoPtr) -> AzGlCallbackReturnPtr;
+    /// Callback for rendering iframes (infinite data structures that have to know how large they are rendered)
+    pub type AzIFrameCallback = fn(AzIFrameCallbackInfoPtr) -> AzIFrameCallbackReturnPtr;
     #[repr(C)] pub struct AzString {
         pub vec: AzU8Vec,
     }
@@ -1450,7 +1461,7 @@ pub(crate) mod dll {
         pub az_window_create_options_shallow_copy: Symbol<extern fn(_:  &AzWindowCreateOptionsPtr) -> AzWindowCreateOptionsPtr>,
     }
 
-    pub fn initialize_library(path: &str) -> Option<AzulDll> {
+    pub fn initialize_library(path: &std::path::Path) -> Option<AzulDll> {
         let lib = Library::new(path).ok()?;
         let az_string_from_utf8_unchecked = unsafe { lib.get::<extern fn(_:  *const u8, _:  usize) -> AzString>(b"az_string_from_utf8_unchecked").ok()? };
         let az_string_from_utf8_lossy = unsafe { lib.get::<extern fn(_:  *const u8, _:  usize) -> AzString>(b"az_string_from_utf8_lossy").ok()? };
@@ -2257,7 +2268,7 @@ pub(crate) mod dll {
            std::fs::write(library_path, LIB_BYTES).ok()?;
         }
 
-        initialize_library(library_path)
+        initialize_library(&library_path)
     }
 
     pub(crate) fn get_azul_dll() -> &'static AzulDll { 
@@ -2405,7 +2416,7 @@ pub mod option {
 pub mod app {
 
     use crate::dll::*;
-    use crate::callbacks::{RefAny, LayoutCallback};
+    use crate::callbacks::{LayoutCallback, RefAny};
     use crate::window::WindowCreateOptions;
 
 
@@ -2440,15 +2451,10 @@ pub mod callbacks {
     use crate::dll::*;
 
 
-    use crate::dom::Dom;
+    pub use crate::dll::AzLayoutCallback as LayoutCallback;
 
-    /// Callback fn that returns the DOM of the app
-    pub type LayoutCallback = fn(RefAny, LayoutInfo) -> Dom;
-
-    /// Return type of a regular callback - currently `AzUpdateScreen`
-    pub type CallbackReturn = AzUpdateScreen;
-    /// Callback for responding to window events
-    pub type Callback = fn(AzCallbackInfoPtr) -> AzCallbackReturn;
+    pub use crate::dll::AzCallbackReturn as CallbackReturn;
+    pub use crate::dll::AzCallback as Callback;
 
     /// `CallbackInfo` struct
     pub use crate::dll::AzCallbackInfoPtr as CallbackInfo;
@@ -2462,8 +2468,7 @@ pub mod callbacks {
     impl Drop for UpdateScreen { fn drop(&mut self) { (crate::dll::get_azul_dll().az_update_screen_delete)(&mut self); } }
 
 
-    /// Callback for rendering iframes (infinite data structures that have to know how large they are rendered)
-    pub type IFrameCallback = fn(AzIFrameCallbackInfoPtr) -> AzIFrameCallbackReturnPtr;
+    pub use crate::dll::AzIFrameCallback as IFrameCallback;
 
     /// `IFrameCallbackInfo` struct
     pub use crate::dll::AzIFrameCallbackInfoPtr as IFrameCallbackInfo;
@@ -2477,8 +2482,7 @@ pub mod callbacks {
     impl Drop for IFrameCallbackReturn { fn drop(&mut self) { (crate::dll::get_azul_dll().az_i_frame_callback_return_delete)(&mut self); } }
 
 
-    /// Callback for rendering to an OpenGL texture
-    pub type GlCallback = fn(AzGlCallbackInfoPtr) -> AzGlCallbackReturnPtr;
+    pub use crate::dll::AzGlCallback as GlCallback;
 
     /// `GlCallbackInfo` struct
     pub use crate::dll::AzGlCallbackInfoPtr as GlCallbackInfo;
@@ -2492,11 +2496,11 @@ pub mod callbacks {
     impl Drop for GlCallbackReturn { fn drop(&mut self) { (crate::dll::get_azul_dll().az_gl_callback_return_delete)(&mut self); } }
 
 
-    use crate::dll::AzRefAny;
+    pub use crate::dll::AzRefAny as RefAny;
 
     impl Clone for RefAny {
         fn clone(&self) -> Self {
-            RefAny(az_ref_any_shallow_copy(&self))
+            (crate::dll::get_azul_dll().az_ref_any_shallow_copy)(&self)
         }
     }
 
@@ -2520,7 +2524,7 @@ pub mod callbacks {
             }
 
             let type_name_str = ::std::any::type_name::<T>();
-            let s = az_ref_any_new(
+            let s = (crate::dll::get_azul_dll().az_ref_any_new)(
                 (&value as *const T) as *const u8,
                 ::std::mem::size_of::<T>(),
                 Self::get_type_id::<T>() as u64,
@@ -2534,7 +2538,7 @@ pub mod callbacks {
         /// Returns the inner `RefAny`
         pub fn leak(self) -> RefAny {
             use std::mem;
-            let s = az_ref_any_core_copy(&self);
+            let s = (crate::dll::get_azul_dll().az_ref_any_core_copy)(&self);
             mem::forget(self); // do not run destructor
             s
         }
@@ -2543,7 +2547,7 @@ pub mod callbacks {
         #[inline]
         pub fn downcast_ref<'a, U: 'static>(&'a self) -> Option<&'a U> {
             use std::ptr;
-            let ptr = az_ref_any_get_ptr(&self, self._internal_len, Self::get_type_id::<U>());
+            let ptr = (crate::dll::get_azul_dll().az_ref_any_get_ptr)(&self, self._internal_len, Self::get_type_id::<U>());
             if ptr == ptr::null() { None } else { Some(unsafe { &*(self._internal_ptr as *const U) as &'a U }) }
         }
 
@@ -2551,7 +2555,7 @@ pub mod callbacks {
         #[inline]
         pub fn downcast_mut<'a, U: 'static>(&'a mut self) -> Option<&'a mut U> {
             use std::ptr;
-            let ptr = az_ref_any_get_mut_ptr(&self, self._internal_len, Self::get_type_id::<U>());
+            let ptr = (crate::dll::get_azul_dll().az_ref_any_get_mut_ptr)(&self, self._internal_len, Self::get_type_id::<U>());
             if ptr == ptr::null_mut() { None } else { Some(unsafe { &mut *(self._internal_ptr as *mut U) as &'a mut U }) }
         }
 
@@ -2569,7 +2573,7 @@ pub mod callbacks {
 
     impl Drop for RefAny {
         fn drop(&mut self) {
-            az_ref_any_delete(&mut self);
+            (crate::dll::get_azul_dll().az_ref_any_delete)(&mut self);
         }
     }
 
@@ -3465,7 +3469,7 @@ pub mod dom {
     use crate::dll::*;
     use crate::str::String;
     use crate::resources::{TextId, ImageId};
-    use crate::callbacks::{GlCallback, RefAny, Callback, IFrameCallback};
+    use crate::callbacks::{IFrameCallback, Callback, RefAny, GlCallback};
     use crate::vec::StringVec;
     use crate::css::CssProperty;
 
