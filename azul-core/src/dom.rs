@@ -170,6 +170,7 @@ impl NodeType {
 
 /// When to call a callback action - `On::MouseOver`, `On::MouseOut`, etc.
 #[derive(Debug, Copy, Clone, PartialEq, Eq, Hash, PartialOrd, Ord)]
+#[repr(C)]
 pub enum On {
     /// Mouse cursor is hovering over the element
     MouseOver,
@@ -238,6 +239,7 @@ pub enum On {
 /// to a more specific event) and use
 ///
 #[derive(Debug, Copy, Clone, PartialEq, Eq, Hash, PartialOrd, Ord)]
+#[repr(C, u8)]
 pub enum EventFilter {
     /// Calls the attached callback when the mouse is actively over the
     /// given element.
@@ -326,6 +328,7 @@ impl From<On> for EventFilter {
 
 /// Event filter that only fires when an element is hovered over
 #[derive(Debug, Copy, Clone, PartialEq, Eq, Hash, PartialOrd, Ord)]
+#[repr(C)]
 pub enum HoverEventFilter {
     MouseOver,
     MouseDown,
@@ -381,6 +384,7 @@ impl HoverEventFilter {
 /// This is useful for cleanly implementing things like popover dialogs or dropdown boxes that
 /// want to close when the user clicks any where *but* the item itself.
 #[derive(Debug, Copy, Clone, PartialEq, Eq, Hash, PartialOrd, Ord)]
+#[repr(C, u8)]
 pub enum NotEventFilter {
     Hover(HoverEventFilter),
     Focus(FocusEventFilter),
@@ -391,6 +395,7 @@ pub enum NotEventFilter {
 /// **Important**: In order for this to fire, the item must have a `tabindex` attribute
 /// (to indicate that the item is focus-able).
 #[derive(Debug, Copy, Clone, PartialEq, Eq, Hash, PartialOrd, Ord)]
+#[repr(C)]
 pub enum FocusEventFilter {
     MouseOver,
     MouseDown,
@@ -416,6 +421,7 @@ pub enum FocusEventFilter {
 /// Event filter that fires when any action fires on the entire window
 /// (regardless of whether any element is hovered or focused over).
 #[derive(Debug, Copy, Clone, PartialEq, Eq, Hash, PartialOrd, Ord)]
+#[repr(C)]
 pub enum WindowEventFilter {
     MouseOver,
     MouseDown,
@@ -470,6 +476,7 @@ impl WindowEventFilter {
 }
 
 /// Represents one single DOM node (node type, classes, ids and callbacks are stored here)
+#[repr(C)]
 pub struct NodeData {
     /// `div`
     node_type: NodeType,
@@ -506,6 +513,7 @@ pub struct NodeData {
 }
 
 #[derive(Debug, Copy, Clone, PartialEq, Eq, Ord, PartialOrd, Hash)]
+#[repr(C)]
 pub enum TabIndex {
     /// Automatic tab index, similar to simply setting `focusable = "true"` or `tabindex = 0`
     /// (both have the effect of making the element focusable).
@@ -824,6 +832,7 @@ impl NodeData {
 }
 
 /// The document model, similar to HTML. This is a create-only structure, you don't actually read anything back
+#[repr(C)]
 pub struct Dom {
     pub root: NodeData,
     pub children: Vec<Dom>,

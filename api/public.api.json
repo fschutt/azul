@@ -1889,6 +1889,32 @@
 						}
 					}
 				},
+				"On": {
+					"external": "azul_impl::dom::On",
+					"doc": "When to call a callback action - `On::MouseOver`, `On::MouseOut`, etc.",
+					"enum_fields": [
+						{ "MouseOver": {"doc": "Mouse cursor is hovering over the element"}},
+						{ "MouseDown": {"doc": "Mouse cursor has is over element and is pressed (not good for \"click\" events - use `MouseUp` instead)"}},
+						{ "LeftMouseDown": {"doc": "(Specialization of `MouseDown`). Fires only if the left mouse button has been pressed while cursor was over the element"}},
+						{ "MiddleMouseDown": {"doc": "(Specialization of `MouseDown`). Fires only if the middle mouse button has been pressed while cursor was over the element"}},
+						{ "RightMouseDown": {"doc": "(Specialization of `MouseDown`). Fires only if the right mouse button has been pressed while cursor was over the element"}},
+						{ "MouseUp": {"doc": "Mouse button has been released while cursor was over the element"}},
+						{ "LeftMouseUp": {"doc": "(Specialization of `MouseUp`). Fires only if the left mouse button has been released while cursor was over the element"}},
+						{ "MiddleMouseUp": {"doc": "(Specialization of `MouseUp`). Fires only if the middle mouse button has been released while cursor was over the element"}},
+						{ "RightMouseUp": {"doc": "(Specialization of `MouseUp`). Fires only if the right mouse button has been released while cursor was over the element"}},
+						{ "MouseEnter": {"doc": "Mouse cursor has entered the element"}},
+						{ "MouseLeave": {"doc": "Mouse cursor has left the element"}},
+						{ "Scroll": {"doc": "Mousewheel / touchpad scrolling"}},
+						{ "TextInput": {"doc": "The window received a unicode character (also respects the system locale)"}},
+						{ "VirtualKeyDown": {"doc": "Check `keyboard_state.current_char` to get the current pressed character"}},
+						{ "VirtualKeyUp": {"doc": "A **virtual keycode** was pressed. Note: This is only the virtual keycode, not the actual char. If you want to get the character, use `TextInput` instead. **NOTE**: A virtual key does not have to map to a printable character. You can get all currently pressed virtual keycodes in the `keyboard_state.current_virtual_keycodes` and / or just the last keycode in the `keyboard_state.latest_virtual_keycode`."}},
+						{ "HoveredFile": {"doc": ""}},
+						{ "DroppedFile": {"doc": ""}},
+						{ "HoveredFileCancelled": {"doc": ""}},
+						{ "FocusReceived": {"doc": ""}},
+						{ "FocusLost": {"doc": ""}}
+					]
+				},
 				"EventFilter": {
 					"external": "azul_impl::dom::EventFilter",
 					"enum_fields": [

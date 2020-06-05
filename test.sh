@@ -6,11 +6,14 @@ cd ..
 
 cd ./azul-dll
 cargo build --all-features --release # build the DLL
-# cargo build --all-features # build the DLL
 cd ..
 
 cd ./target/release
 strip ./libazul.so
+cd ../..
+
+cd ./target/debug/examples
+rm ./azul.so
 cd ../..
 
 # cargo doc --no-deps --open

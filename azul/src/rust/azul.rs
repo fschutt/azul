@@ -943,6 +943,28 @@ pub(crate) mod dll {
     #[repr(C)] pub struct AzDomPtr {
         pub ptr: *mut c_void,
     }
+    #[repr(C)] pub enum AzOn {
+        MouseOver,
+        MouseDown,
+        LeftMouseDown,
+        MiddleMouseDown,
+        RightMouseDown,
+        MouseUp,
+        LeftMouseUp,
+        MiddleMouseUp,
+        RightMouseUp,
+        MouseEnter,
+        MouseLeave,
+        Scroll,
+        TextInput,
+        VirtualKeyDown,
+        VirtualKeyUp,
+        HoveredFile,
+        DroppedFile,
+        HoveredFileCancelled,
+        FocusReceived,
+        FocusLost,
+    }
     #[repr(C, u8)] pub enum AzEventFilter {
         Hover(AzHoverEventFilter),
         Not(AzNotEventFilter),
@@ -1436,6 +1458,8 @@ pub(crate) mod dll {
         pub az_dom_get_html_string: Symbol<extern fn(_:  &mut AzDomPtr) -> AzString>,
         pub az_dom_delete: Symbol<extern fn(_:  &mut AzDomPtr)>,
         pub az_dom_shallow_copy: Symbol<extern fn(_:  &AzDomPtr) -> AzDomPtr>,
+        pub az_on_delete: Symbol<extern fn(_:  &mut AzOn)>,
+        pub az_on_deep_copy: Symbol<extern fn(_:  &AzOn) -> AzOn>,
         pub az_event_filter_delete: Symbol<extern fn(_:  &mut AzEventFilter)>,
         pub az_event_filter_deep_copy: Symbol<extern fn(_:  &AzEventFilter) -> AzEventFilter>,
         pub az_hover_event_filter_delete: Symbol<extern fn(_:  &mut AzHoverEventFilter)>,
@@ -1845,6 +1869,8 @@ pub(crate) mod dll {
         let az_dom_get_html_string = unsafe { lib.get::<extern fn(_:  &mut AzDomPtr) -> AzString>(b"az_dom_get_html_string").ok()? };
         let az_dom_delete = unsafe { lib.get::<extern fn(_:  &mut AzDomPtr)>(b"az_dom_delete").ok()? };
         let az_dom_shallow_copy = unsafe { lib.get::<extern fn(_:  &AzDomPtr) -> AzDomPtr>(b"az_dom_shallow_copy").ok()? };
+        let az_on_delete = unsafe { lib.get::<extern fn(_:  &mut AzOn)>(b"az_on_delete").ok()? };
+        let az_on_deep_copy = unsafe { lib.get::<extern fn(_:  &AzOn) -> AzOn>(b"az_on_deep_copy").ok()? };
         let az_event_filter_delete = unsafe { lib.get::<extern fn(_:  &mut AzEventFilter)>(b"az_event_filter_delete").ok()? };
         let az_event_filter_deep_copy = unsafe { lib.get::<extern fn(_:  &AzEventFilter) -> AzEventFilter>(b"az_event_filter_deep_copy").ok()? };
         let az_hover_event_filter_delete = unsafe { lib.get::<extern fn(_:  &mut AzHoverEventFilter)>(b"az_hover_event_filter_delete").ok()? };
@@ -2252,6 +2278,8 @@ pub(crate) mod dll {
             az_dom_get_html_string,
             az_dom_delete,
             az_dom_shallow_copy,
+            az_on_delete,
+            az_on_deep_copy,
             az_event_filter_delete,
             az_event_filter_deep_copy,
             az_hover_event_filter_delete,
@@ -3547,8 +3575,8 @@ pub mod dom {
 
     use crate::dll::*;
     use crate::str::String;
-    use crate::resources::{TextId, ImageId};
-    use crate::callbacks::{GlCallback, IFrameCallback, Callback, RefAny};
+    use crate::resources::{ImageId, TextId};
+    use crate::callbacks::{Callback, GlCallback, IFrameCallback, RefAny};
     use crate::vec::StringVec;
     use crate::css::CssProperty;
 
@@ -3616,6 +3644,12 @@ pub mod dom {
     }
 
     impl Drop for Dom { fn drop(&mut self) { (crate::dll::get_azul_dll().az_dom_delete)(self); } }
+
+
+    /// When to call a callback action - `On::MouseOver`, `On::MouseOut`, etc.
+    pub use crate::dll::AzOn as On;
+
+    impl Drop for On { fn drop(&mut self) { (crate::dll::get_azul_dll().az_on_delete)(self); } }
 
 
     /// `EventFilter` struct

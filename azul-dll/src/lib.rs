@@ -1582,6 +1582,15 @@ pub type AzDomPtrType = azul_impl::dom::DomPtr;
 /// (private): Downcasts the `AzDomPtr` to a `&Box<Dom>` and runs the `func` closure on it
 #[inline(always)] fn az_dom_downcast_ref<P, F: FnOnce(&Box<Dom>) -> P>(ptr: &mut AzDomPtr, func: F) -> P { let box_ptr: Box<Dom> = unsafe { Box::<Dom>::from_raw(ptr.ptr  as *mut Dom) }; let ret_val = func(&box_ptr); ptr.ptr = Box::into_raw(box_ptr) as *mut c_void;ret_val }
 
+/// When to call a callback action - `On::MouseOver`, `On::MouseOut`, etc.
+pub type AzOnType = azul_impl::dom::On;
+#[no_mangle] pub use AzOnType as AzOn;
+/// Destructor: Takes ownership of the `On` pointer and deletes it.
+#[no_mangle] #[allow(unused_variables)] pub extern "C" fn az_on_delete(object: &mut AzOn) { match object { azul_impl::dom::On::MouseOver => { }, azul_impl::dom::On::MouseDown => { }, azul_impl::dom::On::LeftMouseDown => { }, azul_impl::dom::On::MiddleMouseDown => { }, azul_impl::dom::On::RightMouseDown => { }, azul_impl::dom::On::MouseUp => { }, azul_impl::dom::On::LeftMouseUp => { }, azul_impl::dom::On::MiddleMouseUp => { }, azul_impl::dom::On::RightMouseUp => { }, azul_impl::dom::On::MouseEnter => { }, azul_impl::dom::On::MouseLeave => { }, azul_impl::dom::On::Scroll => { }, azul_impl::dom::On::TextInput => { }, azul_impl::dom::On::VirtualKeyDown => { }, azul_impl::dom::On::VirtualKeyUp => { }, azul_impl::dom::On::HoveredFile => { }, azul_impl::dom::On::DroppedFile => { }, azul_impl::dom::On::HoveredFileCancelled => { }, azul_impl::dom::On::FocusReceived => { }, azul_impl::dom::On::FocusLost => { }, }
+}
+/// Copies the object
+#[no_mangle] pub extern "C" fn az_on_deep_copy(object: &AzOn) -> AzOn { object.clone() }
+
 /// Re-export of rust-allocated (stack based) `EventFilter` struct
 pub type AzEventFilterType = azul_impl::dom::EventFilter;
 #[no_mangle] pub use AzEventFilterType as AzEventFilter;
