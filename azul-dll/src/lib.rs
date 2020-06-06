@@ -160,7 +160,7 @@ pub type AzCallbackInfoPtrType = azul_impl::callbacks::CallbackInfoPtr;
 pub type AzUpdateScreenType = azul_impl::callbacks::UpdateScreen;
 #[no_mangle] pub use AzUpdateScreenType as AzUpdateScreen;
 /// Destructor: Takes ownership of the `UpdateScreen` pointer and deletes it.
-#[no_mangle] #[allow(unused_variables)] pub extern "C" fn az_update_screen_delete(object: &mut AzUpdateScreen) { match object { azul_impl::callbacks::UpdateScreen::Redraw => { }, azul_impl::callbacks::UpdateScreen::DontRedraw => { }, }
+#[no_mangle] #[allow(unused_variables)] pub extern "C" fn az_update_screen_delete(object: &mut AzUpdateScreen) { match object { azul_impl::callbacks::UpdateScreen::Redraw => { }, azul_impl::callbacks::UpdateScreen::DontRedraw => { }, azul_impl::callbacks::UpdateScreen::UpdateScrollStates => { }, azul_impl::callbacks::UpdateScreen::UpdateTransforms => { }, }
 }
 /// Copies the object
 #[no_mangle] pub extern "C" fn az_update_screen_deep_copy(object: &AzUpdateScreen) -> AzUpdateScreen { object.clone() }

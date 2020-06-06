@@ -243,7 +243,9 @@
 					"doc": "Specifies if the screen should be updated after the callback function has returned",
 					"enum_fields": [
 						{"Redraw": {"doc": "After the callback is called, the screen needs to redraw (layout() function being called again)"}},
-						{"DontRedraw": {"doc": "The screen does not need to redraw after the callback has been called"}}
+						{"DontRedraw": {"doc": "The screen does not need to redraw after the callback has been called"}},
+						{"UpdateScrollStates": {"doc": "The callback only changed the scroll positions of nodes (no re-layout is done)"}},
+						{"UpdateTransforms": {"doc": "Update **scroll states + GPU transforms** and redraw (no re-layout is done)"}}
 					]
 				},
 				"IFrameCallback": { "use_patches": ["dll", "rust"], "typedef": true },

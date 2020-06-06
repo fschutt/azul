@@ -40,6 +40,10 @@ pub enum UpdateScreen {
     Redraw,
     /// The screen does not need to redraw after the callback has been called
     DontRedraw,
+    /// The callback only changed the scroll positions of nodes (no re-layout is done)
+    UpdateScrollStates,
+    /// Update **scroll states + GPU transforms** and redraw (no re-layout is done)
+    UpdateTransforms,
 }
 
 impl UpdateScreen {
@@ -47,7 +51,7 @@ impl UpdateScreen {
 }
 impl From<UpdateScreen> for Option<()> {
     fn from(o: UpdateScreen) -> Option<()> {
-        match o { UpdateScreen::DontRedraw => None, UpdateScreen::Redraw => Some(()) }
+        match o { UpdateScreen::DontRedraw => None, _ => Some(()) }
     }
 }
 

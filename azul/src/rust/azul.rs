@@ -85,6 +85,8 @@ pub(crate) mod dll {
     #[repr(C)] pub enum AzUpdateScreen {
         Redraw,
         DontRedraw,
+        UpdateScrollStates,
+        UpdateTransforms,
     }
     #[repr(C)] pub struct AzIFrameCallbackInfoPtr {
         pub ptr: *mut c_void,
