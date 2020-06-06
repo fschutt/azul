@@ -268,9 +268,8 @@ impl std::hash::Hash for AzString {
 
 impl Drop for AzString {
     fn drop(&mut self) {
-        let _v1: String = unsafe { String::from_raw_parts(self.vec.ptr, self.vec.len, self.vec.cap) };
-        std::mem::forget(self); // don't let the destructor of self.vec run
-        // v1 drops here
+        // NOTE: dropping self.vec would lead to a double-free,
+        // since U8Vec::drop() is automatically called here
     }
 }
 
