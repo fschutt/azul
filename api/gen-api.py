@@ -155,6 +155,7 @@ def get_all_imports(apiData, module, module_name):
             use_str = classes[0]
         else:
             use_str = "{"
+            classes.sort()
             for c in classes:
                 use_str += c + ", "
             use_str = use_str[:-2]
