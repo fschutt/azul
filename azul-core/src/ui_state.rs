@@ -9,15 +9,14 @@ use crate::{
     dom::{
         Dom, CompactDom, DomId, TagId, TabIndex,
         HoverEventFilter, FocusEventFilter, NotEventFilter,
-        WindowEventFilter,
+        WindowEventFilter, IFrameNode,
     },
     callbacks::{
-        LayoutInfo, Callback, LayoutCallback,
-        IFrameCallback, RefAny,
+        LayoutInfo, Callback, LayoutCallback, RefAny,
     },
 };
 #[cfg(feature = "opengl")]
-use crate::callbacks::GlCallback;
+use crate::dom::GlTextureNode;
 
 pub struct UiState {
     /// Unique identifier for the DOM
@@ -148,7 +147,7 @@ impl UiState {
         macro_rules! filter_step_0 {
             ($event_filter:ident, $callback_type:ty, $data_source:expr, $filter_func:ident) => {{
                 let node_hover_callbacks: BTreeMap<$event_filter, $callback_type> = $data_source.iter()
-                .filter_map(|(event_filter, cb)| event_filter.$filter_func().map(|not_evt| (not_evt, cb.clone())))
+                .filter_map(|callback_data| callback_data.event.$filter_func().map(|not_evt| (not_evt, (callback_data.callback, callback_data.data.clone()))))
                 .collect();
                 node_hover_callbacks
             }};
@@ -251,7 +250,7 @@ impl UiState {
                 // .with_tab_index() - so this "fixes" this behaviour so that if at least one FocusEventFilter
                 // is set, the item automatically gets a tabindex attribute assigned.
                 let should_insert_tabindex_auto = !focus_callbacks.is_empty();
-                let node_tab_index = node.get_tab_index().or(if should_insert_tabindex_auto { Some(TabIndex::Auto) } else { None });
+                let node_tab_index = node.get_tab_index().as_option().copied().or(if should_insert_tabindex_auto { Some(TabIndex::Auto) } else { None });
 
                 if let Some(tab_index) = node_tab_index {
                     let tag_id = node_tag_id.unwrap_or_else(|| TagId::new());
@@ -266,7 +265,12 @@ impl UiState {
 
                 // Collect all the styling overrides into one hash map
                 if !node.get_dynamic_css_overrides().is_empty() {
-                    dynamic_css_overrides.insert(node_id, node.get_dynamic_css_overrides().iter().cloned().collect());
+                    dynamic_css_overrides.insert(node_id,
+                        node
+                        .get_dynamic_css_overrides()
+                        .iter()
+                        .map(|override_property| (override_property.property_id.clone().into_string(), override_property.override_value.clone()))
+                        .collect());
                 }
             }
         }
@@ -299,17 +303,14 @@ impl UiState {
         use std::ffi::c_void;
         use crate::callbacks::LayoutInfoPtr;
 
-        let layout_info_box = Box::new(layout_info);
-        let layout_info_box_ptr = Box::into_raw(layout_info_box) as *mut c_void;
+        let layout_info_box_ptr = Box::into_raw(Box::new(layout_info)) as *mut c_void;
 
-        let dom_ptr = (layout_callback)(
+        let dom = (layout_callback)(
             data.clone(),
             LayoutInfoPtr { ptr: layout_info_box_ptr }
         );
 
-        let dom = unsafe { Box::<Dom>::from_raw(dom_ptr.ptr as *mut Dom) };
-
-        Self::new(*dom, parent_dom)
+        Self::new(dom, parent_dom)
     }
 
     pub fn create_tags_for_hover_nodes(&mut self, hover_nodes: &BTreeMap<NodeId, HoverGroup>) {
@@ -326,7 +327,7 @@ impl UiState {
         }
     }
 
-    pub fn scan_for_iframe_callbacks(&self) -> Vec<(NodeId, &(IFrameCallback, RefAny))> {
+    pub fn scan_for_iframe_callbacks(&self) -> Vec<(NodeId, &IFrameNode)> {
         use crate::dom::NodeType::IFrame;
         self.dom.arena.node_hierarchy.linear_iter().filter_map(|node_id| {
             let node_data = &self.dom.arena.node_data[node_id];
@@ -338,7 +339,7 @@ impl UiState {
     }
 
     #[cfg(feature = "opengl")]
-    pub fn scan_for_gltexture_callbacks(&self) -> Vec<(NodeId, &(GlCallback, RefAny))> {
+    pub fn scan_for_gltexture_callbacks(&self) -> Vec<(NodeId, &GlTextureNode)> {
         use crate::dom::NodeType::GlTexture;
         self.dom.arena.node_hierarchy.linear_iter().filter_map(|node_id| {
             let node_data = &self.dom.arena.node_data[node_id];

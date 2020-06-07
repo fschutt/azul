@@ -5,42 +5,6 @@ use std::fmt;
 use crate::css::CssPropertyValue;
 use crate::{AzString, StringVec, GradientStopPreVec};
 
-macro_rules! impl_option {($struct_type:ident, $struct_name:ident) => (
-    #[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
-    #[repr(C, u8)]
-    pub enum $struct_name {
-        None,
-        Some($struct_type)
-    }
-
-    impl From<$struct_name> for Option<$struct_type> {
-        fn from(o: $struct_name) -> Option<$struct_type> {
-            match o {
-                $struct_name::None => None,
-                $struct_name::Some(t) => Some(t),
-            }
-        }
-    }
-
-    impl From<Option<$struct_type>> for $struct_name {
-        fn from(o: Option<$struct_type>) -> $struct_name {
-            match o {
-                None => $struct_name::None,
-                Some(t) => $struct_name::Some(t),
-            }
-        }
-    }
-
-    impl $struct_name {
-        pub fn as_option(&self) -> Option<&$struct_type> {
-            match self {
-                $struct_name::None => None,
-                $struct_name::Some(t) => Some(t),
-            }
-        }
-    }
-)}
-
 pub trait FormatAsCssValue {
     fn format_as_css_value(&self, f: &mut fmt::Formatter) -> fmt::Result;
 }

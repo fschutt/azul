@@ -712,7 +712,10 @@ impl SolvedLayout {
             );
 
             // Now the size of rects are known, render all the OpenGL textures
-            for (node_id, (cb, ptr)) in ui_state.scan_for_gltexture_callbacks() {
+            for (node_id, gl_texture_node) in ui_state.scan_for_gltexture_callbacks() {
+
+                let cb = gl_texture_node.callback;
+                let ptr = &gl_texture_node.data;
 
                 // Invoke OpenGL callback, render texture
                 let rect_size = layout_result.rects[node_id].size;
@@ -762,7 +765,10 @@ impl SolvedLayout {
             }
 
             // Call IFrames and recurse
-            for (node_id, (cb, ptr)) in ui_state.scan_for_iframe_callbacks() {
+            for (node_id, iframe_node) in ui_state.scan_for_iframe_callbacks() {
+
+                let cb = iframe_node.callback;
+                let ptr = &iframe_node.data;
 
                 let size = layout_result.rects[node_id].size;
                 let hidpi_bounds = HidpiAdjustedBounds::from_bounds(

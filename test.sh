@@ -13,7 +13,7 @@ strip ./libazul.so
 cd ../..
 
 cd ./target/debug/examples
-rm ./azul.so
+rm -f ./azul.so
 cd ../..
 
 # cargo doc --no-deps --open

@@ -262,7 +262,7 @@ impl ScrollStates {
         ScrollStates::default()
     }
 
-    #[must_use]
+    #[must_use = "function marks the scroll node as dirty, therefore marked as must_use"]
     pub fn get_scroll_position(&self, scroll_id: &ExternalScrollId) -> Option<LayoutPoint> {
         self.0.get(&scroll_id).map(|entry| entry.get())
     }
@@ -276,7 +276,7 @@ impl ScrollStates {
     }
 
     /// NOTE: This has to be a getter, because we need to update
-    #[must_use]
+    #[must_use = "function marks the scroll ID as dirty, therefore the function is must_use"]
     pub fn get_scroll_position_and_mark_as_used(&mut self, scroll_id: &ExternalScrollId) -> Option<LayoutPoint> {
         let entry = self.0.get_mut(&scroll_id)?;
         Some(entry.get_and_mark_as_used())

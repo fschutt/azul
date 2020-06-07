@@ -46,16 +46,38 @@ pub(crate) mod dll {
     /// Callback for responding to window events
     pub type AzCallback = fn(AzCallbackInfoPtr) -> AzCallbackReturn;
     /// Callback fn that returns the DOM of the app
-    pub type AzLayoutCallback = fn(AzRefAny, AzLayoutInfoPtr) -> AzDomPtr;
+    pub type AzLayoutCallback = fn(AzRefAny, AzLayoutInfoPtr) -> AzDom;
     /// Callback for rendering to an OpenGL texture
     pub type AzGlCallback = fn(AzGlCallbackInfoPtr) -> AzGlCallbackReturnPtr;
     /// Callback for rendering iframes (infinite data structures that have to know how large they are rendered)
     pub type AzIFrameCallback = fn(AzIFrameCallbackInfoPtr) -> AzIFrameCallbackReturnPtr;
+
+    impl From<AzOn> for AzEventFilter {
+        fn from(on: AzOn) -> AzEventFilter {
+            on.into_event_filter()
+        }
+    }
+
     #[repr(C)] pub struct AzString {
         pub vec: AzU8Vec,
     }
     #[repr(C)] pub struct AzU8Vec {
         pub ptr: *const u8,
+        pub len: usize,
+        pub cap: usize,
+    }
+    #[repr(C)] pub struct AzCallbackDataVec {
+        pub ptr: *const AzCallbackData,
+        pub len: usize,
+        pub cap: usize,
+    }
+    #[repr(C)] pub struct AzOverridePropertyVec {
+        pub ptr: *const AzOverrideProperty,
+        pub len: usize,
+        pub cap: usize,
+    }
+    #[repr(C)] pub struct AzDomVec {
+        pub ptr: *const AzDom,
         pub len: usize,
         pub cap: usize,
     }
@@ -72,6 +94,10 @@ pub(crate) mod dll {
     #[repr(C, u8)] pub enum AzOptionPercentageValue {
         None,
         Some(AzPercentageValue),
+    }
+    #[repr(C, u8)] pub enum AzOptionTabIndex {
+        None,
+        Some(AzTabIndex),
     }
     #[repr(C)] pub struct AzAppConfigPtr {
         pub ptr: *mut c_void,
@@ -942,8 +968,45 @@ pub(crate) mod dll {
         BoxShadowTop(AzBoxShadowPreDisplayItemValue),
         BoxShadowBottom(AzBoxShadowPreDisplayItemValue),
     }
-    #[repr(C)] pub struct AzDomPtr {
-        pub ptr: *mut c_void,
+    #[repr(C)] pub struct AzDom {
+        pub root: AzNodeData,
+        pub children: AzDomVec,
+        pub estimated_total_children: usize,
+    }
+    #[repr(C)] pub struct AzGlTextureNode {
+        pub callback: AzGlCallback,
+        pub data: AzRefAny,
+    }
+    #[repr(C)] pub struct AzIFrameNode {
+        pub callback: AzIFrameCallback,
+        pub data: AzRefAny,
+    }
+    #[repr(C)] pub struct AzCallbackData {
+        pub event: AzEventFilter,
+        pub callback: AzCallback,
+        pub data: AzRefAny,
+    }
+    #[repr(C)] pub struct AzOverrideProperty {
+        pub property_id: AzString,
+        pub override_value: AzCssProperty,
+    }
+    #[repr(C)] pub struct AzNodeData {
+        pub node_type: AzNodeType,
+        pub ids: AzStringVec,
+        pub classes: AzStringVec,
+        pub callbacks: AzCallbackDataVec,
+        pub dynamic_css_overrides: AzOverridePropertyVec,
+        pub is_draggable: bool,
+        pub tab_index: AzOptionTabIndex,
+    }
+    #[repr(C, u8)] pub enum AzNodeType {
+        Div,
+        Body,
+        Label(AzString),
+        Text(AzTextId),
+        Image(AzImageId),
+        GlTexture(AzGlTextureNode),
+        IFrame(AzIFrameNode),
     }
     #[repr(C)] pub enum AzOn {
         MouseOver,
@@ -1105,6 +1168,24 @@ pub(crate) mod dll {
         pub az_u8_vec_capacity: Symbol<extern fn(_:  &AzU8Vec) -> usize>,
         pub az_u8_vec_delete: Symbol<extern fn(_:  &mut AzU8Vec)>,
         pub az_u8_vec_deep_copy: Symbol<extern fn(_:  &AzU8Vec) -> AzU8Vec>,
+        pub az_callback_data_vec_copy_from: Symbol<extern fn(_:  *const AzCallbackData, _:  usize) -> AzCallbackDataVec>,
+        pub az_callback_data_vec_as_ptr: Symbol<extern fn(_:  &AzCallbackDataVec) -> *const AzCallbackData>,
+        pub az_callback_data_vec_len: Symbol<extern fn(_:  &AzCallbackDataVec) -> usize>,
+        pub az_callback_data_vec_capacity: Symbol<extern fn(_:  &AzCallbackDataVec) -> usize>,
+        pub az_callback_data_vec_delete: Symbol<extern fn(_:  &mut AzCallbackDataVec)>,
+        pub az_callback_data_vec_deep_copy: Symbol<extern fn(_:  &AzCallbackDataVec) -> AzCallbackDataVec>,
+        pub az_override_property_vec_copy_from: Symbol<extern fn(_:  *const AzOverrideProperty, _:  usize) -> AzOverridePropertyVec>,
+        pub az_override_property_vec_as_ptr: Symbol<extern fn(_:  &AzOverridePropertyVec) -> *const AzOverrideProperty>,
+        pub az_override_property_vec_len: Symbol<extern fn(_:  &AzOverridePropertyVec) -> usize>,
+        pub az_override_property_vec_capacity: Symbol<extern fn(_:  &AzOverridePropertyVec) -> usize>,
+        pub az_override_property_vec_delete: Symbol<extern fn(_:  &mut AzOverridePropertyVec)>,
+        pub az_override_property_vec_deep_copy: Symbol<extern fn(_:  &AzOverridePropertyVec) -> AzOverridePropertyVec>,
+        pub az_dom_vec_copy_from: Symbol<extern fn(_:  *const AzDom, _:  usize) -> AzDomVec>,
+        pub az_dom_vec_as_ptr: Symbol<extern fn(_:  &AzDomVec) -> *const AzDom>,
+        pub az_dom_vec_len: Symbol<extern fn(_:  &AzDomVec) -> usize>,
+        pub az_dom_vec_capacity: Symbol<extern fn(_:  &AzDomVec) -> usize>,
+        pub az_dom_vec_delete: Symbol<extern fn(_:  &mut AzDomVec)>,
+        pub az_dom_vec_deep_copy: Symbol<extern fn(_:  &AzDomVec) -> AzDomVec>,
         pub az_string_vec_copy_from: Symbol<extern fn(_:  *const AzString, _:  usize) -> AzStringVec>,
         pub az_string_vec_as_ptr: Symbol<extern fn(_:  &AzStringVec) -> *const AzString>,
         pub az_string_vec_len: Symbol<extern fn(_:  &AzStringVec) -> usize>,
@@ -1119,6 +1200,8 @@ pub(crate) mod dll {
         pub az_gradient_stop_pre_vec_deep_copy: Symbol<extern fn(_:  &AzGradientStopPreVec) -> AzGradientStopPreVec>,
         pub az_option_percentage_value_delete: Symbol<extern fn(_:  &mut AzOptionPercentageValue)>,
         pub az_option_percentage_value_deep_copy: Symbol<extern fn(_:  &AzOptionPercentageValue) -> AzOptionPercentageValue>,
+        pub az_option_tab_index_delete: Symbol<extern fn(_:  &mut AzOptionTabIndex)>,
+        pub az_option_tab_index_deep_copy: Symbol<extern fn(_:  &AzOptionTabIndex) -> AzOptionTabIndex>,
         pub az_app_config_default: Symbol<extern fn() -> AzAppConfigPtr>,
         pub az_app_config_delete: Symbol<extern fn(_:  &mut AzAppConfigPtr)>,
         pub az_app_config_shallow_copy: Symbol<extern fn(_:  &AzAppConfigPtr) -> AzAppConfigPtr>,
@@ -1430,36 +1513,49 @@ pub(crate) mod dll {
         pub az_style_word_spacing_value_deep_copy: Symbol<extern fn(_:  &AzStyleWordSpacingValue) -> AzStyleWordSpacingValue>,
         pub az_css_property_delete: Symbol<extern fn(_:  &mut AzCssProperty)>,
         pub az_css_property_deep_copy: Symbol<extern fn(_:  &AzCssProperty) -> AzCssProperty>,
-        pub az_dom_div: Symbol<extern fn() -> AzDomPtr>,
-        pub az_dom_body: Symbol<extern fn() -> AzDomPtr>,
-        pub az_dom_label: Symbol<extern fn(_:  AzString) -> AzDomPtr>,
-        pub az_dom_text: Symbol<extern fn(_:  AzTextId) -> AzDomPtr>,
-        pub az_dom_image: Symbol<extern fn(_:  AzImageId) -> AzDomPtr>,
-        pub az_dom_gl_texture: Symbol<extern fn(_:  AzRefAny, _:  AzGlCallback) -> AzDomPtr>,
-        pub az_dom_iframe_callback: Symbol<extern fn(_:  AzRefAny, _:  AzIFrameCallback) -> AzDomPtr>,
-        pub az_dom_add_id: Symbol<extern fn(_:  &mut AzDomPtr, _:  AzString)>,
-        pub az_dom_with_id: Symbol<extern fn(_:  AzDomPtr, _:  AzString) -> AzDomPtr>,
-        pub az_dom_set_ids: Symbol<extern fn(_:  &mut AzDomPtr, _:  AzStringVec)>,
-        pub az_dom_with_ids: Symbol<extern fn(_:  AzDomPtr, _:  AzStringVec) -> AzDomPtr>,
-        pub az_dom_add_class: Symbol<extern fn(_:  &mut AzDomPtr, _:  AzString)>,
-        pub az_dom_with_class: Symbol<extern fn(_:  AzDomPtr, _:  AzString) -> AzDomPtr>,
-        pub az_dom_set_classes: Symbol<extern fn(_:  &mut AzDomPtr, _:  AzStringVec)>,
-        pub az_dom_with_classes: Symbol<extern fn(_:  AzDomPtr, _:  AzStringVec) -> AzDomPtr>,
-        pub az_dom_add_callback: Symbol<extern fn(_:  &mut AzDomPtr, _:  AzEventFilter, _:  AzRefAny, _:  AzCallback)>,
-        pub az_dom_with_callback: Symbol<extern fn(_:  AzDomPtr, _:  AzEventFilter, _:  AzRefAny, _:  AzCallback) -> AzDomPtr>,
-        pub az_dom_add_css_override: Symbol<extern fn(_:  &mut AzDomPtr, _:  AzString, _:  AzCssProperty)>,
-        pub az_dom_with_css_override: Symbol<extern fn(_:  AzDomPtr, _:  AzString, _:  AzCssProperty) -> AzDomPtr>,
-        pub az_dom_set_is_draggable: Symbol<extern fn(_:  &mut AzDomPtr, _:  bool)>,
-        pub az_dom_is_draggable: Symbol<extern fn(_:  AzDomPtr, _:  bool) -> AzDomPtr>,
-        pub az_dom_set_tab_index: Symbol<extern fn(_:  &mut AzDomPtr, _:  AzTabIndex)>,
-        pub az_dom_with_tab_index: Symbol<extern fn(_:  AzDomPtr, _:  AzTabIndex) -> AzDomPtr>,
-        pub az_dom_add_child: Symbol<extern fn(_:  &mut AzDomPtr, _:  AzDomPtr)>,
-        pub az_dom_with_child: Symbol<extern fn(_:  AzDomPtr, _:  AzDomPtr) -> AzDomPtr>,
-        pub az_dom_has_id: Symbol<extern fn(_:  &mut AzDomPtr, _:  AzString) -> bool>,
-        pub az_dom_has_class: Symbol<extern fn(_:  &mut AzDomPtr, _:  AzString) -> bool>,
-        pub az_dom_get_html_string: Symbol<extern fn(_:  &mut AzDomPtr) -> AzString>,
-        pub az_dom_delete: Symbol<extern fn(_:  &mut AzDomPtr)>,
-        pub az_dom_shallow_copy: Symbol<extern fn(_:  &AzDomPtr) -> AzDomPtr>,
+        pub az_dom_div: Symbol<extern fn() -> AzDom>,
+        pub az_dom_body: Symbol<extern fn() -> AzDom>,
+        pub az_dom_label: Symbol<extern fn(_:  AzString) -> AzDom>,
+        pub az_dom_text: Symbol<extern fn(_:  AzTextId) -> AzDom>,
+        pub az_dom_image: Symbol<extern fn(_:  AzImageId) -> AzDom>,
+        pub az_dom_gl_texture: Symbol<extern fn(_:  AzRefAny, _:  AzGlCallback) -> AzDom>,
+        pub az_dom_iframe_callback: Symbol<extern fn(_:  AzRefAny, _:  AzIFrameCallback) -> AzDom>,
+        pub az_dom_add_id: Symbol<extern fn(_:  &mut AzDom, _:  AzString)>,
+        pub az_dom_with_id: Symbol<extern fn(_:  AzDom, _:  AzString) -> AzDom>,
+        pub az_dom_set_ids: Symbol<extern fn(_:  &mut AzDom, _:  AzStringVec)>,
+        pub az_dom_with_ids: Symbol<extern fn(_:  AzDom, _:  AzStringVec) -> AzDom>,
+        pub az_dom_add_class: Symbol<extern fn(_:  &mut AzDom, _:  AzString)>,
+        pub az_dom_with_class: Symbol<extern fn(_:  AzDom, _:  AzString) -> AzDom>,
+        pub az_dom_set_classes: Symbol<extern fn(_:  &mut AzDom, _:  AzStringVec)>,
+        pub az_dom_with_classes: Symbol<extern fn(_:  AzDom, _:  AzStringVec) -> AzDom>,
+        pub az_dom_add_callback: Symbol<extern fn(_:  &mut AzDom, _:  AzEventFilter, _:  AzRefAny, _:  AzCallback)>,
+        pub az_dom_with_callback: Symbol<extern fn(_:  AzDom, _:  AzEventFilter, _:  AzRefAny, _:  AzCallback) -> AzDom>,
+        pub az_dom_add_css_override: Symbol<extern fn(_:  &mut AzDom, _:  AzString, _:  AzCssProperty)>,
+        pub az_dom_with_css_override: Symbol<extern fn(_:  AzDom, _:  AzString, _:  AzCssProperty) -> AzDom>,
+        pub az_dom_set_is_draggable: Symbol<extern fn(_:  &mut AzDom, _:  bool)>,
+        pub az_dom_is_draggable: Symbol<extern fn(_:  AzDom, _:  bool) -> AzDom>,
+        pub az_dom_set_tab_index: Symbol<extern fn(_:  &mut AzDom, _:  AzTabIndex)>,
+        pub az_dom_with_tab_index: Symbol<extern fn(_:  AzDom, _:  AzTabIndex) -> AzDom>,
+        pub az_dom_add_child: Symbol<extern fn(_:  &mut AzDom, _:  AzDom)>,
+        pub az_dom_with_child: Symbol<extern fn(_:  AzDom, _:  AzDom) -> AzDom>,
+        pub az_dom_has_id: Symbol<extern fn(_:  &mut AzDom, _:  AzString) -> bool>,
+        pub az_dom_has_class: Symbol<extern fn(_:  &mut AzDom, _:  AzString) -> bool>,
+        pub az_dom_get_html_string: Symbol<extern fn(_:  &mut AzDom) -> AzString>,
+        pub az_dom_delete: Symbol<extern fn(_:  &mut AzDom)>,
+        pub az_dom_deep_copy: Symbol<extern fn(_:  &AzDom) -> AzDom>,
+        pub az_gl_texture_node_delete: Symbol<extern fn(_:  &mut AzGlTextureNode)>,
+        pub az_gl_texture_node_deep_copy: Symbol<extern fn(_:  &AzGlTextureNode) -> AzGlTextureNode>,
+        pub az_i_frame_node_delete: Symbol<extern fn(_:  &mut AzIFrameNode)>,
+        pub az_i_frame_node_deep_copy: Symbol<extern fn(_:  &AzIFrameNode) -> AzIFrameNode>,
+        pub az_callback_data_delete: Symbol<extern fn(_:  &mut AzCallbackData)>,
+        pub az_callback_data_deep_copy: Symbol<extern fn(_:  &AzCallbackData) -> AzCallbackData>,
+        pub az_override_property_delete: Symbol<extern fn(_:  &mut AzOverrideProperty)>,
+        pub az_override_property_deep_copy: Symbol<extern fn(_:  &AzOverrideProperty) -> AzOverrideProperty>,
+        pub az_node_data_delete: Symbol<extern fn(_:  &mut AzNodeData)>,
+        pub az_node_data_deep_copy: Symbol<extern fn(_:  &AzNodeData) -> AzNodeData>,
+        pub az_node_type_delete: Symbol<extern fn(_:  &mut AzNodeType)>,
+        pub az_node_type_deep_copy: Symbol<extern fn(_:  &AzNodeType) -> AzNodeType>,
+        pub az_on_into_event_filter: Symbol<extern fn(_:  AzOn) -> AzEventFilter>,
         pub az_on_delete: Symbol<extern fn(_:  &mut AzOn)>,
         pub az_on_deep_copy: Symbol<extern fn(_:  &AzOn) -> AzOn>,
         pub az_event_filter_delete: Symbol<extern fn(_:  &mut AzEventFilter)>,
@@ -1516,6 +1612,24 @@ pub(crate) mod dll {
         let az_u8_vec_capacity = unsafe { lib.get::<extern fn(_:  &AzU8Vec) -> usize>(b"az_u8_vec_capacity").ok()? };
         let az_u8_vec_delete = unsafe { lib.get::<extern fn(_:  &mut AzU8Vec)>(b"az_u8_vec_delete").ok()? };
         let az_u8_vec_deep_copy = unsafe { lib.get::<extern fn(_:  &AzU8Vec) -> AzU8Vec>(b"az_u8_vec_deep_copy").ok()? };
+        let az_callback_data_vec_copy_from = unsafe { lib.get::<extern fn(_:  *const AzCallbackData, _:  usize) -> AzCallbackDataVec>(b"az_callback_data_vec_copy_from").ok()? };
+        let az_callback_data_vec_as_ptr = unsafe { lib.get::<extern fn(_:  &AzCallbackDataVec) -> *const AzCallbackData>(b"az_callback_data_vec_as_ptr").ok()? };
+        let az_callback_data_vec_len = unsafe { lib.get::<extern fn(_:  &AzCallbackDataVec) -> usize>(b"az_callback_data_vec_len").ok()? };
+        let az_callback_data_vec_capacity = unsafe { lib.get::<extern fn(_:  &AzCallbackDataVec) -> usize>(b"az_callback_data_vec_capacity").ok()? };
+        let az_callback_data_vec_delete = unsafe { lib.get::<extern fn(_:  &mut AzCallbackDataVec)>(b"az_callback_data_vec_delete").ok()? };
+        let az_callback_data_vec_deep_copy = unsafe { lib.get::<extern fn(_:  &AzCallbackDataVec) -> AzCallbackDataVec>(b"az_callback_data_vec_deep_copy").ok()? };
+        let az_override_property_vec_copy_from = unsafe { lib.get::<extern fn(_:  *const AzOverrideProperty, _:  usize) -> AzOverridePropertyVec>(b"az_override_property_vec_copy_from").ok()? };
+        let az_override_property_vec_as_ptr = unsafe { lib.get::<extern fn(_:  &AzOverridePropertyVec) -> *const AzOverrideProperty>(b"az_override_property_vec_as_ptr").ok()? };
+        let az_override_property_vec_len = unsafe { lib.get::<extern fn(_:  &AzOverridePropertyVec) -> usize>(b"az_override_property_vec_len").ok()? };
+        let az_override_property_vec_capacity = unsafe { lib.get::<extern fn(_:  &AzOverridePropertyVec) -> usize>(b"az_override_property_vec_capacity").ok()? };
+        let az_override_property_vec_delete = unsafe { lib.get::<extern fn(_:  &mut AzOverridePropertyVec)>(b"az_override_property_vec_delete").ok()? };
+        let az_override_property_vec_deep_copy = unsafe { lib.get::<extern fn(_:  &AzOverridePropertyVec) -> AzOverridePropertyVec>(b"az_override_property_vec_deep_copy").ok()? };
+        let az_dom_vec_copy_from = unsafe { lib.get::<extern fn(_:  *const AzDom, _:  usize) -> AzDomVec>(b"az_dom_vec_copy_from").ok()? };
+        let az_dom_vec_as_ptr = unsafe { lib.get::<extern fn(_:  &AzDomVec) -> *const AzDom>(b"az_dom_vec_as_ptr").ok()? };
+        let az_dom_vec_len = unsafe { lib.get::<extern fn(_:  &AzDomVec) -> usize>(b"az_dom_vec_len").ok()? };
+        let az_dom_vec_capacity = unsafe { lib.get::<extern fn(_:  &AzDomVec) -> usize>(b"az_dom_vec_capacity").ok()? };
+        let az_dom_vec_delete = unsafe { lib.get::<extern fn(_:  &mut AzDomVec)>(b"az_dom_vec_delete").ok()? };
+        let az_dom_vec_deep_copy = unsafe { lib.get::<extern fn(_:  &AzDomVec) -> AzDomVec>(b"az_dom_vec_deep_copy").ok()? };
         let az_string_vec_copy_from = unsafe { lib.get::<extern fn(_:  *const AzString, _:  usize) -> AzStringVec>(b"az_string_vec_copy_from").ok()? };
         let az_string_vec_as_ptr = unsafe { lib.get::<extern fn(_:  &AzStringVec) -> *const AzString>(b"az_string_vec_as_ptr").ok()? };
         let az_string_vec_len = unsafe { lib.get::<extern fn(_:  &AzStringVec) -> usize>(b"az_string_vec_len").ok()? };
@@ -1530,6 +1644,8 @@ pub(crate) mod dll {
         let az_gradient_stop_pre_vec_deep_copy = unsafe { lib.get::<extern fn(_:  &AzGradientStopPreVec) -> AzGradientStopPreVec>(b"az_gradient_stop_pre_vec_deep_copy").ok()? };
         let az_option_percentage_value_delete = unsafe { lib.get::<extern fn(_:  &mut AzOptionPercentageValue)>(b"az_option_percentage_value_delete").ok()? };
         let az_option_percentage_value_deep_copy = unsafe { lib.get::<extern fn(_:  &AzOptionPercentageValue) -> AzOptionPercentageValue>(b"az_option_percentage_value_deep_copy").ok()? };
+        let az_option_tab_index_delete = unsafe { lib.get::<extern fn(_:  &mut AzOptionTabIndex)>(b"az_option_tab_index_delete").ok()? };
+        let az_option_tab_index_deep_copy = unsafe { lib.get::<extern fn(_:  &AzOptionTabIndex) -> AzOptionTabIndex>(b"az_option_tab_index_deep_copy").ok()? };
         let az_app_config_default = unsafe { lib.get::<extern fn() -> AzAppConfigPtr>(b"az_app_config_default").ok()? };
         let az_app_config_delete = unsafe { lib.get::<extern fn(_:  &mut AzAppConfigPtr)>(b"az_app_config_delete").ok()? };
         let az_app_config_shallow_copy = unsafe { lib.get::<extern fn(_:  &AzAppConfigPtr) -> AzAppConfigPtr>(b"az_app_config_shallow_copy").ok()? };
@@ -1841,36 +1957,49 @@ pub(crate) mod dll {
         let az_style_word_spacing_value_deep_copy = unsafe { lib.get::<extern fn(_:  &AzStyleWordSpacingValue) -> AzStyleWordSpacingValue>(b"az_style_word_spacing_value_deep_copy").ok()? };
         let az_css_property_delete = unsafe { lib.get::<extern fn(_:  &mut AzCssProperty)>(b"az_css_property_delete").ok()? };
         let az_css_property_deep_copy = unsafe { lib.get::<extern fn(_:  &AzCssProperty) -> AzCssProperty>(b"az_css_property_deep_copy").ok()? };
-        let az_dom_div = unsafe { lib.get::<extern fn() -> AzDomPtr>(b"az_dom_div").ok()? };
-        let az_dom_body = unsafe { lib.get::<extern fn() -> AzDomPtr>(b"az_dom_body").ok()? };
-        let az_dom_label = unsafe { lib.get::<extern fn(_:  AzString) -> AzDomPtr>(b"az_dom_label").ok()? };
-        let az_dom_text = unsafe { lib.get::<extern fn(_:  AzTextId) -> AzDomPtr>(b"az_dom_text").ok()? };
-        let az_dom_image = unsafe { lib.get::<extern fn(_:  AzImageId) -> AzDomPtr>(b"az_dom_image").ok()? };
-        let az_dom_gl_texture = unsafe { lib.get::<extern fn(_:  AzRefAny, _:  AzGlCallback) -> AzDomPtr>(b"az_dom_gl_texture").ok()? };
-        let az_dom_iframe_callback = unsafe { lib.get::<extern fn(_:  AzRefAny, _:  AzIFrameCallback) -> AzDomPtr>(b"az_dom_iframe_callback").ok()? };
-        let az_dom_add_id = unsafe { lib.get::<extern fn(_:  &mut AzDomPtr, _:  AzString)>(b"az_dom_add_id").ok()? };
-        let az_dom_with_id = unsafe { lib.get::<extern fn(_:  AzDomPtr, _:  AzString) -> AzDomPtr>(b"az_dom_with_id").ok()? };
-        let az_dom_set_ids = unsafe { lib.get::<extern fn(_:  &mut AzDomPtr, _:  AzStringVec)>(b"az_dom_set_ids").ok()? };
-        let az_dom_with_ids = unsafe { lib.get::<extern fn(_:  AzDomPtr, _:  AzStringVec) -> AzDomPtr>(b"az_dom_with_ids").ok()? };
-        let az_dom_add_class = unsafe { lib.get::<extern fn(_:  &mut AzDomPtr, _:  AzString)>(b"az_dom_add_class").ok()? };
-        let az_dom_with_class = unsafe { lib.get::<extern fn(_:  AzDomPtr, _:  AzString) -> AzDomPtr>(b"az_dom_with_class").ok()? };
-        let az_dom_set_classes = unsafe { lib.get::<extern fn(_:  &mut AzDomPtr, _:  AzStringVec)>(b"az_dom_set_classes").ok()? };
-        let az_dom_with_classes = unsafe { lib.get::<extern fn(_:  AzDomPtr, _:  AzStringVec) -> AzDomPtr>(b"az_dom_with_classes").ok()? };
-        let az_dom_add_callback = unsafe { lib.get::<extern fn(_:  &mut AzDomPtr, _:  AzEventFilter, _:  AzRefAny, _:  AzCallback)>(b"az_dom_add_callback").ok()? };
-        let az_dom_with_callback = unsafe { lib.get::<extern fn(_:  AzDomPtr, _:  AzEventFilter, _:  AzRefAny, _:  AzCallback) -> AzDomPtr>(b"az_dom_with_callback").ok()? };
-        let az_dom_add_css_override = unsafe { lib.get::<extern fn(_:  &mut AzDomPtr, _:  AzString, _:  AzCssProperty)>(b"az_dom_add_css_override").ok()? };
-        let az_dom_with_css_override = unsafe { lib.get::<extern fn(_:  AzDomPtr, _:  AzString, _:  AzCssProperty) -> AzDomPtr>(b"az_dom_with_css_override").ok()? };
-        let az_dom_set_is_draggable = unsafe { lib.get::<extern fn(_:  &mut AzDomPtr, _:  bool)>(b"az_dom_set_is_draggable").ok()? };
-        let az_dom_is_draggable = unsafe { lib.get::<extern fn(_:  AzDomPtr, _:  bool) -> AzDomPtr>(b"az_dom_is_draggable").ok()? };
-        let az_dom_set_tab_index = unsafe { lib.get::<extern fn(_:  &mut AzDomPtr, _:  AzTabIndex)>(b"az_dom_set_tab_index").ok()? };
-        let az_dom_with_tab_index = unsafe { lib.get::<extern fn(_:  AzDomPtr, _:  AzTabIndex) -> AzDomPtr>(b"az_dom_with_tab_index").ok()? };
-        let az_dom_add_child = unsafe { lib.get::<extern fn(_:  &mut AzDomPtr, _:  AzDomPtr)>(b"az_dom_add_child").ok()? };
-        let az_dom_with_child = unsafe { lib.get::<extern fn(_:  AzDomPtr, _:  AzDomPtr) -> AzDomPtr>(b"az_dom_with_child").ok()? };
-        let az_dom_has_id = unsafe { lib.get::<extern fn(_:  &mut AzDomPtr, _:  AzString) -> bool>(b"az_dom_has_id").ok()? };
-        let az_dom_has_class = unsafe { lib.get::<extern fn(_:  &mut AzDomPtr, _:  AzString) -> bool>(b"az_dom_has_class").ok()? };
-        let az_dom_get_html_string = unsafe { lib.get::<extern fn(_:  &mut AzDomPtr) -> AzString>(b"az_dom_get_html_string").ok()? };
-        let az_dom_delete = unsafe { lib.get::<extern fn(_:  &mut AzDomPtr)>(b"az_dom_delete").ok()? };
-        let az_dom_shallow_copy = unsafe { lib.get::<extern fn(_:  &AzDomPtr) -> AzDomPtr>(b"az_dom_shallow_copy").ok()? };
+        let az_dom_div = unsafe { lib.get::<extern fn() -> AzDom>(b"az_dom_div").ok()? };
+        let az_dom_body = unsafe { lib.get::<extern fn() -> AzDom>(b"az_dom_body").ok()? };
+        let az_dom_label = unsafe { lib.get::<extern fn(_:  AzString) -> AzDom>(b"az_dom_label").ok()? };
+        let az_dom_text = unsafe { lib.get::<extern fn(_:  AzTextId) -> AzDom>(b"az_dom_text").ok()? };
+        let az_dom_image = unsafe { lib.get::<extern fn(_:  AzImageId) -> AzDom>(b"az_dom_image").ok()? };
+        let az_dom_gl_texture = unsafe { lib.get::<extern fn(_:  AzRefAny, _:  AzGlCallback) -> AzDom>(b"az_dom_gl_texture").ok()? };
+        let az_dom_iframe_callback = unsafe { lib.get::<extern fn(_:  AzRefAny, _:  AzIFrameCallback) -> AzDom>(b"az_dom_iframe_callback").ok()? };
+        let az_dom_add_id = unsafe { lib.get::<extern fn(_:  &mut AzDom, _:  AzString)>(b"az_dom_add_id").ok()? };
+        let az_dom_with_id = unsafe { lib.get::<extern fn(_:  AzDom, _:  AzString) -> AzDom>(b"az_dom_with_id").ok()? };
+        let az_dom_set_ids = unsafe { lib.get::<extern fn(_:  &mut AzDom, _:  AzStringVec)>(b"az_dom_set_ids").ok()? };
+        let az_dom_with_ids = unsafe { lib.get::<extern fn(_:  AzDom, _:  AzStringVec) -> AzDom>(b"az_dom_with_ids").ok()? };
+        let az_dom_add_class = unsafe { lib.get::<extern fn(_:  &mut AzDom, _:  AzString)>(b"az_dom_add_class").ok()? };
+        let az_dom_with_class = unsafe { lib.get::<extern fn(_:  AzDom, _:  AzString) -> AzDom>(b"az_dom_with_class").ok()? };
+        let az_dom_set_classes = unsafe { lib.get::<extern fn(_:  &mut AzDom, _:  AzStringVec)>(b"az_dom_set_classes").ok()? };
+        let az_dom_with_classes = unsafe { lib.get::<extern fn(_:  AzDom, _:  AzStringVec) -> AzDom>(b"az_dom_with_classes").ok()? };
+        let az_dom_add_callback = unsafe { lib.get::<extern fn(_:  &mut AzDom, _:  AzEventFilter, _:  AzRefAny, _:  AzCallback)>(b"az_dom_add_callback").ok()? };
+        let az_dom_with_callback = unsafe { lib.get::<extern fn(_:  AzDom, _:  AzEventFilter, _:  AzRefAny, _:  AzCallback) -> AzDom>(b"az_dom_with_callback").ok()? };
+        let az_dom_add_css_override = unsafe { lib.get::<extern fn(_:  &mut AzDom, _:  AzString, _:  AzCssProperty)>(b"az_dom_add_css_override").ok()? };
+        let az_dom_with_css_override = unsafe { lib.get::<extern fn(_:  AzDom, _:  AzString, _:  AzCssProperty) -> AzDom>(b"az_dom_with_css_override").ok()? };
+        let az_dom_set_is_draggable = unsafe { lib.get::<extern fn(_:  &mut AzDom, _:  bool)>(b"az_dom_set_is_draggable").ok()? };
+        let az_dom_is_draggable = unsafe { lib.get::<extern fn(_:  AzDom, _:  bool) -> AzDom>(b"az_dom_is_draggable").ok()? };
+        let az_dom_set_tab_index = unsafe { lib.get::<extern fn(_:  &mut AzDom, _:  AzTabIndex)>(b"az_dom_set_tab_index").ok()? };
+        let az_dom_with_tab_index = unsafe { lib.get::<extern fn(_:  AzDom, _:  AzTabIndex) -> AzDom>(b"az_dom_with_tab_index").ok()? };
+        let az_dom_add_child = unsafe { lib.get::<extern fn(_:  &mut AzDom, _:  AzDom)>(b"az_dom_add_child").ok()? };
+        let az_dom_with_child = unsafe { lib.get::<extern fn(_:  AzDom, _:  AzDom) -> AzDom>(b"az_dom_with_child").ok()? };
+        let az_dom_has_id = unsafe { lib.get::<extern fn(_:  &mut AzDom, _:  AzString) -> bool>(b"az_dom_has_id").ok()? };
+        let az_dom_has_class = unsafe { lib.get::<extern fn(_:  &mut AzDom, _:  AzString) -> bool>(b"az_dom_has_class").ok()? };
+        let az_dom_get_html_string = unsafe { lib.get::<extern fn(_:  &mut AzDom) -> AzString>(b"az_dom_get_html_string").ok()? };
+        let az_dom_delete = unsafe { lib.get::<extern fn(_:  &mut AzDom)>(b"az_dom_delete").ok()? };
+        let az_dom_deep_copy = unsafe { lib.get::<extern fn(_:  &AzDom) -> AzDom>(b"az_dom_deep_copy").ok()? };
+        let az_gl_texture_node_delete = unsafe { lib.get::<extern fn(_:  &mut AzGlTextureNode)>(b"az_gl_texture_node_delete").ok()? };
+        let az_gl_texture_node_deep_copy = unsafe { lib.get::<extern fn(_:  &AzGlTextureNode) -> AzGlTextureNode>(b"az_gl_texture_node_deep_copy").ok()? };
+        let az_i_frame_node_delete = unsafe { lib.get::<extern fn(_:  &mut AzIFrameNode)>(b"az_i_frame_node_delete").ok()? };
+        let az_i_frame_node_deep_copy = unsafe { lib.get::<extern fn(_:  &AzIFrameNode) -> AzIFrameNode>(b"az_i_frame_node_deep_copy").ok()? };
+        let az_callback_data_delete = unsafe { lib.get::<extern fn(_:  &mut AzCallbackData)>(b"az_callback_data_delete").ok()? };
+        let az_callback_data_deep_copy = unsafe { lib.get::<extern fn(_:  &AzCallbackData) -> AzCallbackData>(b"az_callback_data_deep_copy").ok()? };
+        let az_override_property_delete = unsafe { lib.get::<extern fn(_:  &mut AzOverrideProperty)>(b"az_override_property_delete").ok()? };
+        let az_override_property_deep_copy = unsafe { lib.get::<extern fn(_:  &AzOverrideProperty) -> AzOverrideProperty>(b"az_override_property_deep_copy").ok()? };
+        let az_node_data_delete = unsafe { lib.get::<extern fn(_:  &mut AzNodeData)>(b"az_node_data_delete").ok()? };
+        let az_node_data_deep_copy = unsafe { lib.get::<extern fn(_:  &AzNodeData) -> AzNodeData>(b"az_node_data_deep_copy").ok()? };
+        let az_node_type_delete = unsafe { lib.get::<extern fn(_:  &mut AzNodeType)>(b"az_node_type_delete").ok()? };
+        let az_node_type_deep_copy = unsafe { lib.get::<extern fn(_:  &AzNodeType) -> AzNodeType>(b"az_node_type_deep_copy").ok()? };
+        let az_on_into_event_filter = unsafe { lib.get::<extern fn(_:  AzOn) -> AzEventFilter>(b"az_on_into_event_filter").ok()? };
         let az_on_delete = unsafe { lib.get::<extern fn(_:  &mut AzOn)>(b"az_on_delete").ok()? };
         let az_on_deep_copy = unsafe { lib.get::<extern fn(_:  &AzOn) -> AzOn>(b"az_on_deep_copy").ok()? };
         let az_event_filter_delete = unsafe { lib.get::<extern fn(_:  &mut AzEventFilter)>(b"az_event_filter_delete").ok()? };
@@ -1925,6 +2054,24 @@ pub(crate) mod dll {
             az_u8_vec_capacity,
             az_u8_vec_delete,
             az_u8_vec_deep_copy,
+            az_callback_data_vec_copy_from,
+            az_callback_data_vec_as_ptr,
+            az_callback_data_vec_len,
+            az_callback_data_vec_capacity,
+            az_callback_data_vec_delete,
+            az_callback_data_vec_deep_copy,
+            az_override_property_vec_copy_from,
+            az_override_property_vec_as_ptr,
+            az_override_property_vec_len,
+            az_override_property_vec_capacity,
+            az_override_property_vec_delete,
+            az_override_property_vec_deep_copy,
+            az_dom_vec_copy_from,
+            az_dom_vec_as_ptr,
+            az_dom_vec_len,
+            az_dom_vec_capacity,
+            az_dom_vec_delete,
+            az_dom_vec_deep_copy,
             az_string_vec_copy_from,
             az_string_vec_as_ptr,
             az_string_vec_len,
@@ -1939,6 +2086,8 @@ pub(crate) mod dll {
             az_gradient_stop_pre_vec_deep_copy,
             az_option_percentage_value_delete,
             az_option_percentage_value_deep_copy,
+            az_option_tab_index_delete,
+            az_option_tab_index_deep_copy,
             az_app_config_default,
             az_app_config_delete,
             az_app_config_shallow_copy,
@@ -2279,7 +2428,20 @@ pub(crate) mod dll {
             az_dom_has_class,
             az_dom_get_html_string,
             az_dom_delete,
-            az_dom_shallow_copy,
+            az_dom_deep_copy,
+            az_gl_texture_node_delete,
+            az_gl_texture_node_deep_copy,
+            az_i_frame_node_delete,
+            az_i_frame_node_deep_copy,
+            az_callback_data_delete,
+            az_callback_data_deep_copy,
+            az_override_property_delete,
+            az_override_property_deep_copy,
+            az_node_data_delete,
+            az_node_data_deep_copy,
+            az_node_type_delete,
+            az_node_type_deep_copy,
+            az_on_into_event_filter,
             az_on_delete,
             az_on_deep_copy,
             az_event_filter_delete,
@@ -2452,7 +2614,8 @@ pub mod vec {
 
             // delete() not necessary because StringVec is stack-allocated
         }
-    }    use crate::str::String;
+    }    use crate::dom::{CallbackData, Dom, OverrideProperty};
+    use crate::str::String;
     use crate::css::GradientStopPre;
 
 
@@ -2460,7 +2623,7 @@ pub mod vec {
     pub use crate::dll::AzU8Vec as U8Vec;
 
     impl U8Vec {
-        /// Creates + allocates a Rust `Vec<String>` by **copying** it from a bytes source
+        /// Creates + allocates a Rust `Vec<u8>` by **copying** it from a bytes source
         pub fn copy_from(ptr: *const u8, len: usize) -> Self { (crate::dll::get_azul_dll().az_u8_vec_copy_from)(ptr, len) }
         /// Returns the internal pointer to the (azul-dll allocated) [u8]
         pub fn as_ptr(&self)  -> *const u8 { (crate::dll::get_azul_dll().az_u8_vec_as_ptr)(self) }
@@ -2471,6 +2634,57 @@ pub mod vec {
     }
 
     impl Drop for U8Vec { fn drop(&mut self) { (crate::dll::get_azul_dll().az_u8_vec_delete)(self); } }
+
+
+    /// Wrapper over a Rust-allocated `CallbackData`
+    pub use crate::dll::AzCallbackDataVec as CallbackDataVec;
+
+    impl CallbackDataVec {
+        /// Creates + allocates a Rust `Vec<CallbackData>` by **copying** it from a bytes source
+        pub fn copy_from(ptr: *const AzCallbackData, len: usize) -> Self { (crate::dll::get_azul_dll().az_callback_data_vec_copy_from)(ptr, len) }
+        /// Returns the internal pointer to the (azul-dll allocated) [CallbackData]
+        pub fn as_ptr(&self)  ->*const  crate::dom::CallbackData { { (crate::dll::get_azul_dll().az_callback_data_vec_as_ptr)(self)} }
+        /// Returns the length of the internal `Vec<CallbackData>`
+        pub fn len(&self)  -> usize { (crate::dll::get_azul_dll().az_callback_data_vec_len)(self) }
+        /// Returns the capacity of the internal `Vec<CallbackData>`
+        pub fn capacity(&self)  -> usize { (crate::dll::get_azul_dll().az_callback_data_vec_capacity)(self) }
+    }
+
+    impl Drop for CallbackDataVec { fn drop(&mut self) { (crate::dll::get_azul_dll().az_callback_data_vec_delete)(self); } }
+
+
+    /// Wrapper over a Rust-allocated `OverridePropertyVec`
+    pub use crate::dll::AzOverridePropertyVec as OverridePropertyVec;
+
+    impl OverridePropertyVec {
+        /// Creates + allocates a Rust `Vec<OverrideProperty>` by **copying** it from a bytes source
+        pub fn copy_from(ptr: *const AzOverrideProperty, len: usize) -> Self { (crate::dll::get_azul_dll().az_override_property_vec_copy_from)(ptr, len) }
+        /// Returns the internal pointer to the (azul-dll allocated) [OverrideProperty]
+        pub fn as_ptr(&self)  ->*const  crate::dom::OverrideProperty { { (crate::dll::get_azul_dll().az_override_property_vec_as_ptr)(self)} }
+        /// Returns the length of the internal `Vec<OverrideProperty>`
+        pub fn len(&self)  -> usize { (crate::dll::get_azul_dll().az_override_property_vec_len)(self) }
+        /// Returns the capacity of the internal `Vec<OverrideProperty>`
+        pub fn capacity(&self)  -> usize { (crate::dll::get_azul_dll().az_override_property_vec_capacity)(self) }
+    }
+
+    impl Drop for OverridePropertyVec { fn drop(&mut self) { (crate::dll::get_azul_dll().az_override_property_vec_delete)(self); } }
+
+
+    /// Wrapper over a Rust-allocated `DomVec`
+    pub use crate::dll::AzDomVec as DomVec;
+
+    impl DomVec {
+        /// Creates + allocates a Rust `Vec<Dom>` by **copying** it from a bytes source
+        pub fn copy_from(ptr: *const AzDom, len: usize) -> Self { (crate::dll::get_azul_dll().az_dom_vec_copy_from)(ptr, len) }
+        /// Returns the internal pointer to the (azul-dll allocated) [Dom]
+        pub fn as_ptr(&self)  ->*const  crate::dom::Dom { { (crate::dll::get_azul_dll().az_dom_vec_as_ptr)(self)} }
+        /// Returns the length of the internal `Vec<Dom>`
+        pub fn len(&self)  -> usize { (crate::dll::get_azul_dll().az_dom_vec_len)(self) }
+        /// Returns the capacity of the internal `Vec<Dom>`
+        pub fn capacity(&self)  -> usize { (crate::dll::get_azul_dll().az_dom_vec_capacity)(self) }
+    }
+
+    impl Drop for DomVec { fn drop(&mut self) { (crate::dll::get_azul_dll().az_dom_vec_delete)(self); } }
 
 
     /// Wrapper over a Rust-allocated `StringVec`
@@ -2518,6 +2732,12 @@ pub mod option {
     pub use crate::dll::AzOptionPercentageValue as OptionPercentageValue;
 
     impl Drop for OptionPercentageValue { fn drop(&mut self) { (crate::dll::get_azul_dll().az_option_percentage_value_delete)(self); } }
+
+
+    /// `OptionTabIndex` struct
+    pub use crate::dll::AzOptionTabIndex as OptionTabIndex;
+
+    impl Drop for OptionTabIndex { fn drop(&mut self) { (crate::dll::get_azul_dll().az_option_tab_index_delete)(self); } }
 }
 
 /// `App` construction and configuration
@@ -3584,7 +3804,7 @@ pub mod dom {
 
 
     /// `Dom` struct
-    pub use crate::dll::AzDomPtr as Dom;
+    pub use crate::dll::AzDom as Dom;
 
     impl Dom {
         /// Creates a new `div` node
@@ -3648,8 +3868,49 @@ pub mod dom {
     impl Drop for Dom { fn drop(&mut self) { (crate::dll::get_azul_dll().az_dom_delete)(self); } }
 
 
+    /// `GlTextureNode` struct
+    pub use crate::dll::AzGlTextureNode as GlTextureNode;
+
+    impl Drop for GlTextureNode { fn drop(&mut self) { (crate::dll::get_azul_dll().az_gl_texture_node_delete)(self); } }
+
+
+    /// `IFrameNode` struct
+    pub use crate::dll::AzIFrameNode as IFrameNode;
+
+    impl Drop for IFrameNode { fn drop(&mut self) { (crate::dll::get_azul_dll().az_i_frame_node_delete)(self); } }
+
+
+    /// `CallbackData` struct
+    pub use crate::dll::AzCallbackData as CallbackData;
+
+    impl Drop for CallbackData { fn drop(&mut self) { (crate::dll::get_azul_dll().az_callback_data_delete)(self); } }
+
+
+    /// `OverrideProperty` struct
+    pub use crate::dll::AzOverrideProperty as OverrideProperty;
+
+    impl Drop for OverrideProperty { fn drop(&mut self) { (crate::dll::get_azul_dll().az_override_property_delete)(self); } }
+
+
+    /// Represents one single DOM node (node type, classes, ids and callbacks are stored here)
+    pub use crate::dll::AzNodeData as NodeData;
+
+    impl Drop for NodeData { fn drop(&mut self) { (crate::dll::get_azul_dll().az_node_data_delete)(self); } }
+
+
+    /// List of core DOM node types built-into by `azul`
+    pub use crate::dll::AzNodeType as NodeType;
+
+    impl Drop for NodeType { fn drop(&mut self) { (crate::dll::get_azul_dll().az_node_type_delete)(self); } }
+
+
     /// When to call a callback action - `On::MouseOver`, `On::MouseOut`, etc.
     pub use crate::dll::AzOn as On;
+
+    impl On {
+        /// Converts the `On` shorthand into a `EventFilter`
+        pub fn into_event_filter(self)  -> crate::dom::EventFilter { { (crate::dll::get_azul_dll().az_on_into_event_filter)(self)} }
+    }
 
     impl Drop for On { fn drop(&mut self) { (crate::dll::get_azul_dll().az_on_delete)(self); } }
 

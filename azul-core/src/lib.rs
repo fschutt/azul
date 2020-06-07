@@ -1,5 +1,6 @@
 //! Shared datatypes for azul-* crates
 
+#[macro_use(impl_option, impl_vec)]
 extern crate azul_css;
 #[cfg(feature = "opengl")]
 extern crate gleam;

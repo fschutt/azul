@@ -3,7 +3,6 @@ use std::{
     hash::{Hash, Hasher},
     sync::atomic::{AtomicUsize, Ordering},
     iter::FromIterator,
-    ffi::c_void,
 };
 use crate::{
     callbacks::{
@@ -16,7 +15,7 @@ use crate::{
 };
 #[cfg(feature = "opengl")]
 use crate::callbacks::{GlCallback, GlCallbackType};
-use azul_css::{NodeTypePath, CssProperty};
+use azul_css::{AzString, StringVec, NodeTypePath, CssProperty};
 pub use crate::id_tree::{NodeHierarchy, Node, NodeId};
 
 static TAG_ID: AtomicUsize = AtomicUsize::new(1);
@@ -115,14 +114,15 @@ impl DomId {
 pub struct DomHash(pub u64);
 
 /// List of core DOM node types built-into by `azul`.
-#[derive(Debug, Clone, PartialEq, Hash, Eq)]
+#[derive(Debug, Clone, PartialEq, Hash, Eq, PartialOrd, Ord)]
+#[repr(C, u8)]
 pub enum NodeType {
     /// Regular div with no particular type of data attached
     Div,
     /// Same as div, but only for the root node
     Body,
     /// A small label that can be (optionally) be selectable with the mouse
-    Label(String),
+    Label(AzString),
     /// Larger amount of text, that has to be cached
     Text(TextId),
     /// An image that is rendered by WebRender. The id is acquired by the
@@ -132,9 +132,9 @@ pub enum NodeType {
     /// Equality and Hash values are only checked by the OpenGl texture ID,
     /// Azul does not check that the contents of two textures are the same
     #[cfg(feature = "opengl")]
-    GlTexture((GlCallback, RefAny)),
+    GlTexture(GlTextureNode),
     /// DOM that gets passed its width / height during the layout
-    IFrame((IFrameCallback, RefAny)),
+    IFrame(IFrameNode),
 }
 
 impl NodeType {
@@ -475,17 +475,48 @@ impl WindowEventFilter {
     }
 }
 
+#[cfg(feature = "opengl")]
+#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
+#[repr(C)]
+pub struct GlTextureNode {
+    pub callback: GlCallback,
+    pub data: RefAny,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
+#[repr(C)]
+pub struct IFrameNode {
+    pub callback: IFrameCallback,
+    pub data: RefAny,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
+#[repr(C)]
+pub struct CallbackData {
+    pub event: EventFilter,
+    pub callback: Callback,
+    pub data: RefAny,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
+#[repr(C)]
+pub struct OverrideProperty {
+    pub property_id: AzString,
+    pub override_value: CssProperty,
+}
+
 /// Represents one single DOM node (node type, classes, ids and callbacks are stored here)
 #[repr(C)]
+#[derive(Clone, PartialEq, Eq, Hash, PartialOrd, Ord)]
 pub struct NodeData {
     /// `div`
     node_type: NodeType,
     /// `#main #something`
-    ids: Vec<String>,
+    ids: StringVec,
     /// `.myclass .otherclass`
-    classes: Vec<String>,
+    classes: StringVec,
     /// `On::MouseUp` -> `Callback(my_button_click_handler)`
-    callbacks: Vec<(EventFilter, (Callback, RefAny))>,
+    callbacks: CallbackDataVec,
     /// Override certain dynamic styling properties in this frame. For this,
     /// these properties have to have a name (the ID).
     ///
@@ -501,7 +532,7 @@ pub struct NodeData {
     ///     dynamic_css_overrides: vec![("my_custom_width".into(), CssProperty::Width(LayoutWidth::px(500.0)))]
     /// }
     /// ```
-    dynamic_css_overrides: Vec<(String, CssProperty)>,
+    dynamic_css_overrides: OverridePropertyVec,
     /// Whether this div can be dragged or not, similar to `draggable = "true"` in HTML, .
     ///
     /// **TODO**: Currently doesn't do anything, since the drag & drop implementation is missing, API stub.
@@ -509,7 +540,7 @@ pub struct NodeData {
     /// Whether this div can be focused, and if yes, in what default to `None` (not focusable).
     /// Note that without this, there can be no `On::FocusReceived` (equivalent to onfocus),
     /// `On::FocusLost` (equivalent to onblur), etc. events.
-    tab_index: Option<TabIndex>,
+    tab_index: OptionTabIndex,
 }
 
 #[derive(Debug, Copy, Clone, PartialEq, Eq, Ord, PartialOrd, Hash)]
@@ -554,63 +585,16 @@ impl TabIndex {
         }
     }
 }
+
 impl Default for TabIndex {
     fn default() -> Self {
         TabIndex::Auto
     }
 }
 
-impl PartialEq for NodeData {
-    fn eq(&self, other: &Self) -> bool {
-        self.node_type == other.node_type &&
-        self.ids == other.ids &&
-        self.classes == other.classes &&
-        self.callbacks == other.callbacks &&
-        self.dynamic_css_overrides == other.dynamic_css_overrides &&
-        self.is_draggable == other.is_draggable &&
-        self.tab_index == other.tab_index
-    }
-}
-
-impl Eq for NodeData { }
-
 impl Default for NodeData {
     fn default() -> Self {
         NodeData::new(NodeType::Div)
-    }
-}
-
-impl Hash for NodeData {
-    fn hash<H: Hasher>(&self, state: &mut H) {
-        self.node_type.hash(state);
-        for id in &self.ids {
-            id.hash(state);
-        }
-        for class in &self.classes {
-            class.hash(state);
-        }
-        for callback in &self.callbacks {
-            callback.hash(state);
-        }
-        for dynamic_css_override in &self.dynamic_css_overrides {
-            dynamic_css_override.hash(state);
-        }
-        self.is_draggable.hash(state);
-        self.tab_index.hash(state);
-    }
-}
-
-impl Clone for NodeData {
-    fn clone(&self) -> Self {
-        Self {
-            node_type: self.node_type.clone(),
-            ids: self.ids.clone(),
-            classes: self.classes.clone(),
-            callbacks: self.callbacks.clone(),
-            dynamic_css_overrides: self.dynamic_css_overrides.clone(),
-            is_draggable: self.is_draggable.clone(),
-            tab_index: self.tab_index.clone(),
-        }
     }
 }
 
@@ -660,7 +644,7 @@ fn node_data_to_string(node_data: &NodeData) -> String {
         String::new()
     };
 
-    let tabindex = if let Some(tab_index) = node_data.tab_index {
+    let tabindex = if let OptionTabIndex::Some(tab_index) = node_data.tab_index {
         format!(" tabindex=\"{}\"", tab_index.get_index())
     } else {
         String::new()
@@ -669,13 +653,13 @@ fn node_data_to_string(node_data: &NodeData) -> String {
     let callbacks = if node_data.callbacks.is_empty() {
         String::new()
     } else {
-        format!(" callbacks=\"{}\"", node_data.callbacks.iter().map(|(evt, cb)| format!("({:?}={:?})", evt, cb)).collect::<Vec<String>>().join(" "))
+        format!(" callbacks=\"{}\"", node_data.callbacks.iter().map(|callbackdata| format!("({:?}={:?})", callbackdata.event, callbackdata.callback)).collect::<Vec<String>>().join(" "))
     };
 
     let css_overrides = if node_data.dynamic_css_overrides.is_empty() {
         String::new()
     } else {
-        format!(" css-overrides=\"{}\"", node_data.dynamic_css_overrides.iter().map(|(id, prop)| format!("{}={:?};", id, prop)).collect::<Vec<String>>().join(" "))
+        format!(" css-overrides=\"{}\"", node_data.dynamic_css_overrides.iter().map(|overrideprop| format!("{}={:?};", overrideprop.property_id, overrideprop.override_value)).collect::<Vec<String>>().join(" "))
     };
 
     format!("{}{}{}{}{}{}", id_string, class_string, tabindex, draggable, callbacks, css_overrides)
@@ -691,7 +675,7 @@ impl fmt::Debug for NodeData {
         if !self.callbacks.is_empty() { write!(f, "\tcallbacks: {:?}", self.callbacks)?; }
         if !self.dynamic_css_overrides.is_empty() { write!(f, "\tdynamic_css_overrides: {:?}", self.dynamic_css_overrides)?; }
         if self.is_draggable { write!(f, "\tis_draggable: {:?}", self.is_draggable)?; }
-        if let Some(t) = self.tab_index { write!(f, "\ttab_index: {:?}", t)?; }
+        if let OptionTabIndex::Some(t) = self.tab_index { write!(f, "\ttab_index: {:?}", t)?; }
         write!(f, "}}")?;
         Ok(())
     }
@@ -701,15 +685,15 @@ impl NodeData {
 
     /// Creates a new `NodeData` instance from a given `NodeType`
     #[inline]
-    pub const fn new(node_type: NodeType) -> Self {
+    pub fn new(node_type: NodeType) -> Self {
         Self {
             node_type,
-            ids: Vec::new(),
-            classes: Vec::new(),
-            callbacks: Vec::new(),
-            dynamic_css_overrides: Vec::new(),
+            ids: StringVec::new(),
+            classes: StringVec::new(),
+            callbacks: CallbackDataVec::new(),
+            dynamic_css_overrides: OverridePropertyVec::new(),
             is_draggable: false,
-            tab_index: None,
+            tab_index: OptionTabIndex::None,
         }
     }
 
@@ -721,12 +705,12 @@ impl NodeData {
 
     /// Checks whether this node has the searched ID attached
     pub fn has_id(&self, id: &str) -> bool {
-        self.ids.iter().any(|self_id| self_id == id)
+        self.ids.iter().any(|self_id| self_id.as_str() == id)
     }
 
     /// Checks whether this node has the searched class attached
     pub fn has_class(&self, class: &str) -> bool {
-        self.classes.iter().any(|self_class| self_class == class)
+        self.classes.iter().any(|self_class| self_class.as_str() == class)
     }
 
     pub fn calculate_node_data_hash(&self) -> DomHash {
@@ -741,45 +725,43 @@ impl NodeData {
 
     /// Shorthand for `NodeData::new(NodeType::Body)`.
     #[inline(always)]
-    pub const fn body() -> Self {
+    pub fn body() -> Self {
         Self::new(NodeType::Body)
     }
 
     /// Shorthand for `NodeData::new(NodeType::Div)`.
     #[inline(always)]
-    pub const fn div() -> Self {
+    pub fn div() -> Self {
         Self::new(NodeType::Div)
     }
 
     /// Shorthand for `NodeData::new(NodeType::Label(value.into()))`
     #[inline(always)]
-    pub fn label<S: Into<String>>(value: S) -> Self {
+    pub fn label<S: Into<AzString>>(value: S) -> Self {
         Self::new(NodeType::Label(value.into()))
     }
 
     /// Shorthand for `NodeData::new(NodeType::Text(text_id))`
     #[inline(always)]
-    pub const fn text(text_id: TextId) -> Self {
+    pub fn text(text_id: TextId) -> Self {
         Self::new(NodeType::Text(text_id))
     }
 
     /// Shorthand for `NodeData::new(NodeType::Image(image_id))`
     #[inline(always)]
-    pub const fn image(image: ImageId) -> Self {
+    pub fn image(image: ImageId) -> Self {
         Self::new(NodeType::Image(image))
     }
 
-    /// Shorthand for `NodeData::new(NodeType::GlTexture((callback, ptr)))`
     #[inline(always)]
     #[cfg(feature = "opengl")]
-    pub fn gl_texture(callback: GlCallbackType, ptr: RefAny) -> Self {
-        Self::new(NodeType::GlTexture((GlCallback(callback), ptr)))
+    pub fn gl_texture(callback: GlCallbackType, data: RefAny) -> Self {
+        Self::new(NodeType::GlTexture(GlTextureNode { callback: GlCallback(callback), data }))
     }
 
-    /// Shorthand for `NodeData::new(NodeType::IFrame((callback, ptr)))`
     #[inline(always)]
-    pub fn iframe(callback: IFrameCallbackType, ptr: RefAny) -> Self {
-        Self::new(NodeType::IFrame((IFrameCallback(callback), ptr)))
+    pub fn iframe(callback: IFrameCallbackType, data: RefAny) -> Self {
+        Self::new(NodeType::IFrame(IFrameNode { callback: IFrameCallback(callback), data }))
     }
 
     // NOTE: Getters are used here in order to allow changing the memory allocator for the NodeData
@@ -788,93 +770,71 @@ impl NodeData {
     #[inline(always)]
     pub const fn get_node_type(&self) -> &NodeType { &self.node_type }
     #[inline(always)]
-    pub const fn get_ids(&self) -> &Vec<String> { &self.ids }
+    pub const fn get_ids(&self) -> &StringVec { &self.ids }
     #[inline(always)]
-    pub const fn get_classes(&self) -> &Vec<String> { &self.classes }
+    pub const fn get_classes(&self) -> &StringVec { &self.classes }
     #[inline(always)]
-    pub const fn get_callbacks(&self) -> &Vec<(EventFilter, (Callback, RefAny))> { &self.callbacks }
+    pub const fn get_callbacks(&self) -> &CallbackDataVec { &self.callbacks }
     #[inline(always)]
-    pub const fn get_dynamic_css_overrides(&self) -> &Vec<(String, CssProperty)> { &self.dynamic_css_overrides }
+    pub const fn get_dynamic_css_overrides(&self) -> &OverridePropertyVec { &self.dynamic_css_overrides }
     #[inline(always)]
     pub const fn get_is_draggable(&self) -> bool { self.is_draggable }
     #[inline(always)]
-    pub const fn get_tab_index(&self) -> Option<TabIndex> { self.tab_index }
+    pub const fn get_tab_index(&self) -> OptionTabIndex { self.tab_index }
 
     #[inline(always)]
     pub fn set_node_type(&mut self, node_type: NodeType) { self.node_type = node_type; }
     #[inline(always)]
-    pub fn set_ids(&mut self, ids: Vec<String>) { self.ids = ids; }
+    pub fn set_ids(&mut self, ids: StringVec) { self.ids = ids; }
     #[inline(always)]
-    pub fn set_classes(&mut self, classes: Vec<String>) { self.classes = classes; }
+    pub fn set_classes(&mut self, classes: StringVec) { self.classes = classes; }
     #[inline(always)]
-    pub fn set_callbacks(&mut self, callbacks: Vec<(EventFilter, (Callback, RefAny))>) { self.callbacks = callbacks; }
+    pub fn set_callbacks(&mut self, callbacks: CallbackDataVec) { self.callbacks = callbacks; }
     #[inline(always)]
-    pub fn set_dynamic_css_overrides(&mut self, dynamic_css_overrides: Vec<(String, CssProperty)>) { self.dynamic_css_overrides = dynamic_css_overrides; }
+    pub fn set_dynamic_css_overrides(&mut self, dynamic_css_overrides: OverridePropertyVec) { self.dynamic_css_overrides = dynamic_css_overrides; }
     #[inline(always)]
     pub fn set_is_draggable(&mut self, is_draggable: bool) { self.is_draggable = is_draggable; }
     #[inline(always)]
-    pub fn set_tab_index(&mut self, tab_index: Option<TabIndex>) { self.tab_index = tab_index; }
+    pub fn set_tab_index(&mut self, tab_index: OptionTabIndex) { self.tab_index = tab_index; }
 
     #[inline(always)]
     pub fn with_node_type(self, node_type: NodeType) -> Self { Self { node_type, .. self } }
     #[inline(always)]
-    pub fn with_ids(self, ids: Vec<String>) -> Self { Self { ids, .. self } }
+    pub fn with_ids(self, ids: StringVec) -> Self { Self { ids, .. self } }
     #[inline(always)]
-    pub fn with_classes(self, classes: Vec<String>) -> Self { Self { classes, .. self } }
+    pub fn with_classes(self, classes: StringVec) -> Self { Self { classes, .. self } }
     #[inline(always)]
-    pub fn with_callbacks(self, callbacks: Vec<(EventFilter, (Callback, RefAny))>) -> Self { Self { callbacks, .. self } }
+    pub fn with_callbacks(self, callbacks: CallbackDataVec) -> Self { Self { callbacks, .. self } }
     #[inline(always)]
-    pub fn with_dynamic_css_overrides(self, dynamic_css_overrides: Vec<(String, CssProperty)>) -> Self { Self { dynamic_css_overrides, .. self } }
+    pub fn with_dynamic_css_overrides(self, dynamic_css_overrides: OverridePropertyVec) -> Self { Self { dynamic_css_overrides, .. self } }
     #[inline(always)]
     pub fn is_draggable(self, is_draggable: bool) -> Self { Self { is_draggable, .. self } }
     #[inline(always)]
-    pub fn with_tab_index(self, tab_index: Option<TabIndex>) -> Self { Self { tab_index, .. self } }
+    pub fn with_tab_index(self, tab_index: OptionTabIndex) -> Self { Self { tab_index, .. self } }
 }
 
 /// The document model, similar to HTML. This is a create-only structure, you don't actually read anything back
 #[repr(C)]
+#[derive(Clone, PartialEq, Eq, Hash, PartialOrd, Ord)]
 pub struct Dom {
     pub root: NodeData,
-    pub children: Vec<Dom>,
+    pub children: DomVec,
     // Tracks the number of sub-children of the current children, so that
     // the `Dom` can be converted into a `CompactDom`
     estimated_total_children: usize,
 }
 
-/// Pointer to rust-allocated `Box<Dom<*mut c_void>>` struct
-#[no_mangle] #[repr(C)] pub struct DomPtr { pub ptr: *mut c_void }
-
-impl Clone for Dom {
-    fn clone(&self) -> Self {
-        Dom {
-            root: self.root.clone(),
-            children: self.children.clone(),
-            estimated_total_children: self.estimated_total_children,
-        }
-    }
-}
-
-fn compare_dom(a: &Dom, b: &Dom) -> bool {
-    a.root == b.root &&
-    a.estimated_total_children == b.estimated_total_children &&
-    a.children.len() == b.children.len() &&
-    a.children.iter().zip(b.children.iter()).all(|(a, b)| compare_dom(a, b))
-}
-
-impl PartialEq for Dom {
-    fn eq(&self, rhs: &Self) -> bool {
-        compare_dom(self, rhs)
-    }
-}
-
-impl Eq for Dom { }
+impl_vec!(Dom, DomVec);
+impl_vec!(OverrideProperty, OverridePropertyVec);
+impl_vec!(CallbackData, CallbackDataVec);
+impl_option!(TabIndex, OptionTabIndex);
 
 fn print_dom(d: &Dom, f: &mut fmt::Formatter) -> fmt::Result {
     write!(f, "Dom {{\r\n")?;
     write!(f, "\troot: {:#?}", d.root)?;
     write!(f, "\testimated_total_children: {:#?}", d.estimated_total_children)?;
     write!(f, "\tchildren: [")?;
-    for c in &d.children {
+    for c in d.children.iter() {
         print_dom(c, f)?;
     }
     write!(f, "\t]")?;
@@ -908,12 +868,12 @@ impl FromIterator<Dom> for Dom {
 impl FromIterator<NodeData> for Dom {
     fn from_iter<I: IntoIterator<Item=NodeData>>(iter: I) -> Self {
 
-        let children = iter.into_iter().map(|c| Dom { root: c, children: Vec::new(), estimated_total_children: 0 }).collect::<Vec<_>>();
+        let children = iter.into_iter().map(|c| Dom { root: c, children: DomVec::new(), estimated_total_children: 0 }).collect::<DomVec>();
         let estimated_total_children = children.len();
 
         Dom {
             root: NodeData::div(),
-            children,
+            children: children,
             estimated_total_children,
         }
     }
@@ -1114,10 +1074,10 @@ impl Dom {
     /// Creates an empty DOM with a give `NodeType`. Note: This is a `const fn` and
     /// doesn't allocate, it only allocates once you add at least one child node.
     #[inline]
-    pub const fn new(node_type: NodeType) -> Self {
+    pub fn new(node_type: NodeType) -> Self {
         Self {
             root: NodeData::new(node_type),
-            children: Vec::new(),
+            children: DomVec::new(),
             estimated_total_children: 0,
         }
     }
@@ -1127,52 +1087,52 @@ impl Dom {
     pub fn with_capacity(node_type: NodeType, cap: usize) -> Self {
         Self {
             root: NodeData::new(node_type),
-            children: Vec::with_capacity(cap),
+            children: DomVec::with_capacity(cap),
             estimated_total_children: 0,
         }
     }
 
     /// Shorthand for `Dom::new(NodeType::Div)`.
     #[inline(always)]
-    pub const fn div() -> Self {
+    pub fn div() -> Self {
         Self::new(NodeType::Div)
     }
 
     /// Shorthand for `Dom::new(NodeType::Body)`.
     #[inline(always)]
-    pub const fn body() -> Self {
+    pub fn body() -> Self {
         Self::new(NodeType::Body)
     }
 
     /// Shorthand for `Dom::new(NodeType::Label(value.into()))`
     #[inline(always)]
-    pub fn label<S: Into<String>>(value: S) -> Self {
+    pub fn label<S: Into<AzString>>(value: S) -> Self {
         Self::new(NodeType::Label(value.into()))
     }
 
     /// Shorthand for `Dom::new(NodeType::Text(text_id))`
     #[inline(always)]
-    pub const fn text(text_id: TextId) -> Self {
+    pub fn text(text_id: TextId) -> Self {
         Self::new(NodeType::Text(text_id))
     }
 
     /// Shorthand for `Dom::new(NodeType::Image(image_id))`
     #[inline(always)]
-    pub const fn image(image: ImageId) -> Self {
+    pub fn image(image: ImageId) -> Self {
         Self::new(NodeType::Image(image))
     }
 
     /// Shorthand for `Dom::new(NodeType::GlTexture((callback, ptr)))`
     #[inline(always)]
     #[cfg(feature = "opengl")]
-    pub fn gl_texture<I: Into<RefAny>>(callback: GlCallbackType, ptr: I) -> Self {
-        Self::new(NodeType::GlTexture((GlCallback(callback), ptr.into())))
+    pub fn gl_texture(callback: GlCallbackType, data: RefAny) -> Self {
+        Self::new(NodeType::GlTexture(GlTextureNode { callback: GlCallback(callback), data }))
     }
 
     /// Shorthand for `Dom::new(NodeType::IFrame((callback, ptr)))`
     #[inline(always)]
-    pub fn iframe<I: Into<RefAny>>(callback: IFrameCallbackType, ptr: I) -> Self {
-        Self::new(NodeType::IFrame((IFrameCallback(callback), ptr.into())))
+    pub fn iframe(callback: IFrameCallbackType, data: RefAny) -> Self {
+        Self::new(NodeType::IFrame(IFrameNode { callback: IFrameCallback(callback), data }))
     }
 
     /// Adds a child DOM to the current DOM
@@ -1185,14 +1145,14 @@ impl Dom {
 
     /// Same as `id`, but easier to use for method chaining in a builder-style pattern
     #[inline]
-    pub fn with_id<S: Into<String>>(mut self, id: S) -> Self {
+    pub fn with_id<S: Into<AzString>>(mut self, id: S) -> Self {
         self.add_id(id);
         self
     }
 
     /// Same as `id`, but easier to use for method chaining in a builder-style pattern
     #[inline]
-    pub fn with_class<S: Into<String>>(mut self, class: S) -> Self {
+    pub fn with_class<S: Into<AzString>>(mut self, class: S) -> Self {
         self.add_class(class);
         self
     }
@@ -1211,7 +1171,7 @@ impl Dom {
     }
 
     #[inline]
-    pub fn with_css_override<S: Into<String>>(mut self, id: S, property: CssProperty) -> Self {
+    pub fn with_css_override<S: Into<AzString>>(mut self, id: S, property: CssProperty) -> Self {
         self.add_css_override(id, property);
         self
     }
@@ -1229,34 +1189,34 @@ impl Dom {
     }
 
     #[inline]
-    pub fn add_id<S: Into<String>>(&mut self, id: S) {
+    pub fn add_id<S: Into<AzString>>(&mut self, id: S) {
         self.root.ids.push(id.into());
     }
 
     #[inline(always)]
-    pub fn set_ids(&mut self, ids: Vec<String>) { self.root.set_ids(ids); }
+    pub fn set_ids(&mut self, ids: StringVec) { self.root.set_ids(ids); }
 
     #[inline]
-    pub fn add_class<S: Into<String>>(&mut self, class: S) {
+    pub fn add_class<S: Into<AzString>>(&mut self, class: S) {
         self.root.classes.push(class.into());
     }
 
     #[inline(always)]
-    pub fn set_classes(&mut self, classes: Vec<String>) { self.root.set_classes(classes); }
+    pub fn set_classes(&mut self, classes: StringVec) { self.root.set_classes(classes); }
 
     #[inline]
-    pub fn add_callback<O: Into<EventFilter>>(&mut self, on: O, callback: CallbackType, ptr: RefAny) {
-        self.root.callbacks.push((on.into(), (Callback(callback), ptr)));
+    pub fn add_callback<O: Into<EventFilter>>(&mut self, on: O, callback: CallbackType, data: RefAny) {
+        self.root.callbacks.push(CallbackData { event: on.into(), callback: Callback(callback), data });
     }
 
     #[inline]
-    pub fn add_css_override<S: Into<String>, P: Into<CssProperty>>(&mut self, override_id: S, property: P) {
-        self.root.dynamic_css_overrides.push((override_id.into(), property.into()));
+    pub fn add_css_override<S: Into<AzString>, P: Into<CssProperty>>(&mut self, override_id: S, property: P) {
+        self.root.dynamic_css_overrides.push(OverrideProperty { property_id: override_id.into(), override_value: property.into() });
     }
 
     #[inline]
     pub fn set_tab_index(&mut self, tab_index: TabIndex) {
-        self.root.tab_index = Some(tab_index);
+        self.root.tab_index = OptionTabIndex::Some(tab_index);
     }
 
     #[inline]
@@ -1313,7 +1273,7 @@ fn get_html_string_inner(dom: &Dom, output: &mut String, indent: usize) {
 
     if !print_self_closing_tag {
 
-        for c in &dom.children {
+        for c in dom.children.iter() {
             get_html_string_inner(c, output, indent + 1);
         }
 

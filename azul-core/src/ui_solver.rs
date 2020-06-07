@@ -61,12 +61,12 @@ impl InlineTextLayout {
     }
 
     #[inline]
-    #[must_use]
+    #[must_use = "get_bounds calls union(self.lines) and is expensive to call"]
     pub fn get_bounds(&self) -> LayoutRect {
         LayoutRect::union(self.lines.iter().map(|c| c.bounds)).unwrap_or(LayoutRect::zero())
     }
 
-    #[must_use]
+    #[must_use = "function is expensive to call since it iterates + collects over self.lines"]
     pub fn get_children_horizontal_diff_to_right_edge(&self, parent: &LayoutRect) -> Vec<f32> {
         let parent_right_edge = parent.origin.x + parent.size.width;
         let parent_left_edge = parent.origin.x;

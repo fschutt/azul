@@ -1,5 +1,6 @@
 //! Types and methods used to describe the style of an application
 use crate::css_properties::{CssProperty, CssPropertyType};
+use crate::AzString;
 use std::fmt;
 
 /// Css stylesheet - contains a parsed CSS stylesheet in "rule blocks",
@@ -371,15 +372,16 @@ impl fmt::Debug for CssPath {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash, PartialOrd, Ord)]
+#[repr(C, u8)]
 pub enum CssPathSelector {
     /// Represents the `*` selector
     Global,
     /// `div`, `p`, etc.
     Type(NodeTypePath),
     /// `.something`
-    Class(String),
+    Class(AzString),
     /// `#something`
-    Id(String),
+    Id(AzString),
     /// `:something`
     PseudoSelector(CssPathPseudoSelector),
     /// Represents the `>` selector
@@ -410,6 +412,7 @@ impl fmt::Display for CssPathSelector {
 }
 
 #[derive(Debug, Copy, Clone, PartialEq, Eq, Hash, PartialOrd, Ord)]
+#[repr(C, u8)]
 pub enum CssPathPseudoSelector {
     /// `:first`
     First,
@@ -426,6 +429,7 @@ pub enum CssPathPseudoSelector {
 }
 
 #[derive(Debug, Copy, Clone, PartialEq, Eq, Hash, PartialOrd, Ord)]
+#[repr(C, u8)]
 pub enum CssNthChildSelector {
     Number(usize),
     Even,

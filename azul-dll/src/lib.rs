@@ -51,7 +51,7 @@ pub type AzStringType = azul_impl::css::AzString;
 /// Wrapper over a Rust-allocated `U8Vec`
 pub type AzU8VecType = azul_impl::css::U8Vec;
 #[no_mangle] pub use AzU8VecType as AzU8Vec;
-/// Creates + allocates a Rust `Vec<String>` by **copying** it from a bytes source
+/// Creates + allocates a Rust `Vec<u8>` by **copying** it from a bytes source
 #[no_mangle] pub extern "C" fn az_u8_vec_copy_from(ptr: *const u8, len: usize) -> AzU8Vec { unsafe { std::slice::from_raw_parts(ptr, len).iter().copied().collect::<Vec<_>>() }.into() }
 /// Returns the internal pointer to the (azul-dll allocated) [u8]
 #[no_mangle] pub extern "C" fn az_u8_vec_as_ptr(u8vec: &AzU8Vec) -> *const u8 { u8vec.as_ptr() }
@@ -63,6 +63,54 @@ pub type AzU8VecType = azul_impl::css::U8Vec;
 #[no_mangle] #[allow(unused_variables)] pub extern "C" fn az_u8_vec_delete(object: &mut AzU8Vec) { }
 /// Copies the object
 #[no_mangle] pub extern "C" fn az_u8_vec_deep_copy(object: &AzU8Vec) -> AzU8Vec { object.clone() }
+
+/// Wrapper over a Rust-allocated `CallbackData`
+pub type AzCallbackDataVecType = azul_impl::dom::CallbackDataVec;
+#[no_mangle] pub use AzCallbackDataVecType as AzCallbackDataVec;
+/// Creates + allocates a Rust `Vec<CallbackData>` by **copying** it from a bytes source
+#[no_mangle] pub extern "C" fn az_callback_data_vec_copy_from(ptr: *const AzCallbackData, len: usize) -> AzCallbackDataVec { unsafe { std::slice::from_raw_parts(ptr, len).iter().cloned().collect::<Vec<_>>() }.into() }
+/// Returns the internal pointer to the (azul-dll allocated) [CallbackData]
+#[no_mangle] pub extern "C" fn az_callback_data_vec_as_ptr(callbackdatavec: &AzCallbackDataVec) -> *const AzCallbackData { callbackdatavec.as_ptr() }
+/// Returns the length of the internal `Vec<CallbackData>`
+#[no_mangle] pub extern "C" fn az_callback_data_vec_len(callbackdatavec: &AzCallbackDataVec) -> usize { callbackdatavec.len() }
+/// Returns the capacity of the internal `Vec<CallbackData>`
+#[no_mangle] pub extern "C" fn az_callback_data_vec_capacity(callbackdatavec: &AzCallbackDataVec) -> usize { callbackdatavec.cap() }
+/// Destructor: Takes ownership of the `CallbackDataVec` pointer and deletes it.
+#[no_mangle] #[allow(unused_variables)] pub extern "C" fn az_callback_data_vec_delete(object: &mut AzCallbackDataVec) { }
+/// Copies the object
+#[no_mangle] pub extern "C" fn az_callback_data_vec_deep_copy(object: &AzCallbackDataVec) -> AzCallbackDataVec { object.clone() }
+
+/// Wrapper over a Rust-allocated `OverridePropertyVec`
+pub type AzOverridePropertyVecType = azul_impl::dom::OverridePropertyVec;
+#[no_mangle] pub use AzOverridePropertyVecType as AzOverridePropertyVec;
+/// Creates + allocates a Rust `Vec<OverrideProperty>` by **copying** it from a bytes source
+#[no_mangle] pub extern "C" fn az_override_property_vec_copy_from(ptr: *const AzOverrideProperty, len: usize) -> AzOverridePropertyVec { unsafe { std::slice::from_raw_parts(ptr, len).iter().cloned().collect::<Vec<_>>() }.into() }
+/// Returns the internal pointer to the (azul-dll allocated) [OverrideProperty]
+#[no_mangle] pub extern "C" fn az_override_property_vec_as_ptr(overridepropertyvec: &AzOverridePropertyVec) -> *const AzOverrideProperty { overridepropertyvec.as_ptr() }
+/// Returns the length of the internal `Vec<OverrideProperty>`
+#[no_mangle] pub extern "C" fn az_override_property_vec_len(overridepropertyvec: &AzOverridePropertyVec) -> usize { overridepropertyvec.len() }
+/// Returns the capacity of the internal `Vec<OverrideProperty>`
+#[no_mangle] pub extern "C" fn az_override_property_vec_capacity(overridepropertyvec: &AzOverridePropertyVec) -> usize { overridepropertyvec.cap() }
+/// Destructor: Takes ownership of the `OverridePropertyVec` pointer and deletes it.
+#[no_mangle] #[allow(unused_variables)] pub extern "C" fn az_override_property_vec_delete(object: &mut AzOverridePropertyVec) { }
+/// Copies the object
+#[no_mangle] pub extern "C" fn az_override_property_vec_deep_copy(object: &AzOverridePropertyVec) -> AzOverridePropertyVec { object.clone() }
+
+/// Wrapper over a Rust-allocated `DomVec`
+pub type AzDomVecType = azul_impl::dom::DomVec;
+#[no_mangle] pub use AzDomVecType as AzDomVec;
+/// Creates + allocates a Rust `Vec<Dom>` by **copying** it from a bytes source
+#[no_mangle] pub extern "C" fn az_dom_vec_copy_from(ptr: *const AzDom, len: usize) -> AzDomVec { unsafe { std::slice::from_raw_parts(ptr, len).iter().cloned().collect::<Vec<_>>() }.into() }
+/// Returns the internal pointer to the (azul-dll allocated) [Dom]
+#[no_mangle] pub extern "C" fn az_dom_vec_as_ptr(domvec: &AzDomVec) -> *const AzDom { domvec.as_ptr() }
+/// Returns the length of the internal `Vec<Dom>`
+#[no_mangle] pub extern "C" fn az_dom_vec_len(domvec: &AzDomVec) -> usize { domvec.len() }
+/// Returns the capacity of the internal `Vec<Dom>`
+#[no_mangle] pub extern "C" fn az_dom_vec_capacity(domvec: &AzDomVec) -> usize { domvec.cap() }
+/// Destructor: Takes ownership of the `DomVec` pointer and deletes it.
+#[no_mangle] #[allow(unused_variables)] pub extern "C" fn az_dom_vec_delete(object: &mut AzDomVec) { }
+/// Copies the object
+#[no_mangle] pub extern "C" fn az_dom_vec_deep_copy(object: &AzDomVec) -> AzDomVec { object.clone() }
 
 /// Wrapper over a Rust-allocated `StringVec`
 pub type AzStringVecType = azul_impl::css::StringVec;
@@ -105,6 +153,15 @@ pub type AzOptionPercentageValueType = azul_impl::css::OptionPercentageValue;
 /// Copies the object
 #[no_mangle] pub extern "C" fn az_option_percentage_value_deep_copy(object: &AzOptionPercentageValue) -> AzOptionPercentageValue { object.clone() }
 
+/// Re-export of rust-allocated (stack based) `OptionTabIndex` struct
+pub type AzOptionTabIndexType = azul_impl::dom::OptionTabIndex;
+#[no_mangle] pub use AzOptionTabIndexType as AzOptionTabIndex;
+/// Destructor: Takes ownership of the `OptionTabIndex` pointer and deletes it.
+#[no_mangle] #[allow(unused_variables)] pub extern "C" fn az_option_tab_index_delete(object: &mut AzOptionTabIndex) { match object { azul_impl::dom::OptionTabIndex::None => { }, azul_impl::dom::OptionTabIndex::Some(_) => { }, }
+}
+/// Copies the object
+#[no_mangle] pub extern "C" fn az_option_tab_index_deep_copy(object: &AzOptionTabIndex) -> AzOptionTabIndex { object.clone() }
+
 /// Pointer to rust-allocated `Box<AppConfig>` struct
 #[no_mangle] #[repr(C)] pub struct AzAppConfigPtr { ptr: *mut c_void }
 /// Creates a new AppConfig with default values
@@ -138,7 +195,7 @@ pub type AzOptionPercentageValueType = azul_impl::css::OptionPercentageValue;
 #[inline(always)] fn az_app_downcast_ref<P, F: FnOnce(&Box<App>) -> P>(ptr: &mut AzAppPtr, func: F) -> P { let box_ptr: Box<App> = unsafe { Box::<App>::from_raw(ptr.ptr  as *mut App) }; let ret_val = func(&box_ptr); ptr.ptr = Box::into_raw(box_ptr) as *mut c_void;ret_val }
 
 /// The layout() callback fn
-pub type AzLayoutCallback = fn(AzRefAny, AzLayoutInfoPtr) -> AzDomPtr;
+pub type AzLayoutCallback = fn(AzRefAny, AzLayoutInfoPtr) -> AzDom;
 pub type AzCallbackReturn = AzUpdateScreen;
 /// Callback for responding to window events
 pub type AzCallback = fn(AzCallbackInfoPtr) -> AzCallbackReturn;
@@ -1512,79 +1569,124 @@ pub type AzCssPropertyType = azul_impl::css::CssProperty;
 /// Copies the object
 #[no_mangle] pub extern "C" fn az_css_property_deep_copy(object: &AzCssProperty) -> AzCssProperty { object.clone() }
 
-/// Pointer to rust-allocated `Box<Dom>` struct
-pub type AzDomPtrType = azul_impl::dom::DomPtr;
-#[no_mangle] pub use AzDomPtrType as AzDomPtr;
+/// Re-export of rust-allocated (stack based) `Dom` struct
+pub type AzDomType = azul_impl::dom::Dom;
+#[no_mangle] pub use AzDomType as AzDom;
 /// Creates a new `div` node
-#[no_mangle] pub extern "C" fn az_dom_div() -> AzDomPtr { let object: Dom = Dom::div(); AzDomPtr { ptr: Box::into_raw(Box::new(object)) as *mut c_void } }
+#[no_mangle] pub extern "C" fn az_dom_div() -> AzDom { Dom::div() }
 /// Creates a new `body` node
-#[no_mangle] pub extern "C" fn az_dom_body() -> AzDomPtr { let object: Dom = Dom::body(); AzDomPtr { ptr: Box::into_raw(Box::new(object)) as *mut c_void } }
+#[no_mangle] pub extern "C" fn az_dom_body() -> AzDom { Dom::body() }
 /// Creates a new `p` node with a given `String` as the text contents
-#[no_mangle] pub extern "C" fn az_dom_label(text: AzString) -> AzDomPtr { let object: Dom = Dom::label(text.into_string()); AzDomPtr { ptr: Box::into_raw(Box::new(object)) as *mut c_void } }
+#[no_mangle] pub extern "C" fn az_dom_label(text: AzString) -> AzDom { Dom::label(text.into_string()) }
 /// Creates a new `p` node from a (cached) text referenced by a `TextId`
-#[no_mangle] pub extern "C" fn az_dom_text(text_id: AzTextId) -> AzDomPtr { let object: Dom = Dom::text(text_id); AzDomPtr { ptr: Box::into_raw(Box::new(object)) as *mut c_void } }
+#[no_mangle] pub extern "C" fn az_dom_text(text_id: AzTextId) -> AzDom { Dom::text(text_id) }
 /// Creates a new `img` node from a (cached) text referenced by a `ImageId`
-#[no_mangle] pub extern "C" fn az_dom_image(image_id: AzImageId) -> AzDomPtr { let object: Dom = Dom::image(image_id); AzDomPtr { ptr: Box::into_raw(Box::new(object)) as *mut c_void } }
+#[no_mangle] pub extern "C" fn az_dom_image(image_id: AzImageId) -> AzDom { Dom::image(image_id) }
 /// Creates a new node which will render an OpenGL texture after the layout step is finished. See the documentation for [GlCallback]() for more info about OpenGL rendering callbacks.
-#[no_mangle] pub extern "C" fn az_dom_gl_texture(data: AzRefAny, callback: AzGlCallback) -> AzDomPtr { let object: Dom = Dom::gl_texture(callback, data); AzDomPtr { ptr: Box::into_raw(Box::new(object)) as *mut c_void } }
+#[no_mangle] pub extern "C" fn az_dom_gl_texture(data: AzRefAny, callback: AzGlCallback) -> AzDom { Dom::gl_texture(callback, data) }
 /// Creates a new node with a callback that will return a `Dom` after being layouted. See the documentation for [IFrameCallback]() for more info about iframe callbacks.
-#[no_mangle] pub extern "C" fn az_dom_iframe_callback(data: AzRefAny, callback: AzIFrameCallback) -> AzDomPtr { let object: Dom = Dom::iframe(callback, data); AzDomPtr { ptr: Box::into_raw(Box::new(object)) as *mut c_void } }
+#[no_mangle] pub extern "C" fn az_dom_iframe_callback(data: AzRefAny, callback: AzIFrameCallback) -> AzDom { Dom::iframe(callback, data) }
 /// Adds a CSS ID (`#something`) to the DOM node
-#[no_mangle] pub extern "C" fn az_dom_add_id(dom: &mut AzDomPtr, id: AzString) { az_dom_downcast_refmut(dom, |d| { d.add_id(id.into_string()); }) }
+#[no_mangle] pub extern "C" fn az_dom_add_id(dom: &mut AzDom, id: AzString) { dom.add_id(id); }
 /// Same as [`Dom::add_id`](#method.add_id), but as a builder method
-#[no_mangle] pub extern "C" fn az_dom_with_id(mut dom: AzDomPtr, id: AzString) -> AzDomPtr { az_dom_add_id(&mut dom, id); dom }
+#[no_mangle] pub extern "C" fn az_dom_with_id(mut dom: AzDom, id: AzString) -> AzDom { az_dom_add_id(&mut dom, id); dom }
 /// Same as calling [`Dom::add_id`](#method.add_id) for each CSS ID, but this function **replaces** all current CSS IDs
-#[no_mangle] pub extern "C" fn az_dom_set_ids(dom: &mut AzDomPtr, ids: AzStringVec) { az_dom_downcast_refmut(dom, |d| { d.set_ids(ids.into()); }) }
+#[no_mangle] pub extern "C" fn az_dom_set_ids(dom: &mut AzDom, ids: AzStringVec) { dom.set_ids(ids); }
 /// Same as [`Dom::set_ids`](#method.set_ids), but as a builder method
-#[no_mangle] pub extern "C" fn az_dom_with_ids(mut dom: AzDomPtr, ids: AzStringVec) -> AzDomPtr { az_dom_set_ids(&mut dom, ids); dom }
+#[no_mangle] pub extern "C" fn az_dom_with_ids(mut dom: AzDom, ids: AzStringVec) -> AzDom { az_dom_set_ids(&mut dom, ids); dom }
 /// Adds a CSS class (`.something`) to the DOM node
-#[no_mangle] pub extern "C" fn az_dom_add_class(dom: &mut AzDomPtr, class: AzString) { az_dom_downcast_refmut(dom, |d| { d.add_class(class.into_string()); }) }
+#[no_mangle] pub extern "C" fn az_dom_add_class(dom: &mut AzDom, class: AzString) { dom.add_class(class); }
 /// Same as [`Dom::add_class`](#method.add_class), but as a builder method
-#[no_mangle] pub extern "C" fn az_dom_with_class(mut dom: AzDomPtr, class: AzString) -> AzDomPtr { az_dom_add_class(&mut dom, class); dom }
+#[no_mangle] pub extern "C" fn az_dom_with_class(mut dom: AzDom, class: AzString) -> AzDom { az_dom_add_class(&mut dom, class); dom }
 /// Same as calling [`Dom::add_class`](#method.add_class) for each class, but this function **replaces** all current classes
-#[no_mangle] pub extern "C" fn az_dom_set_classes(dom: &mut AzDomPtr, classes: AzStringVec) { az_dom_downcast_refmut(dom, |d| { (*d).set_classes(classes.into()); }) }
+#[no_mangle] pub extern "C" fn az_dom_set_classes(dom: &mut AzDom, classes: AzStringVec) { dom.set_classes(classes); }
 /// Same as [`Dom::set_classes`](#method.set_classes), but as a builder method
-#[no_mangle] pub extern "C" fn az_dom_with_classes(mut dom: AzDomPtr, classes: AzStringVec) -> AzDomPtr { az_dom_set_classes(&mut dom, classes); dom }
+#[no_mangle] pub extern "C" fn az_dom_with_classes(mut dom: AzDom, classes: AzStringVec) -> AzDom { az_dom_set_classes(&mut dom, classes); dom }
 /// Adds a [`Callback`](callbacks/type.Callback) that acts on the `data` the `event` happens
-#[no_mangle] pub extern "C" fn az_dom_add_callback(dom: &mut AzDomPtr, event: AzEventFilter, data: AzRefAny, callback: AzCallback) { az_dom_downcast_refmut(dom, |d| { d.add_callback(event, callback, data); }) }
+#[no_mangle] pub extern "C" fn az_dom_add_callback(dom: &mut AzDom, event: AzEventFilter, data: AzRefAny, callback: AzCallback) { dom.add_callback(event, callback, data); }
 /// Same as [`Dom::add_callback`](#method.add_callback), but as a builder method
-#[no_mangle] pub extern "C" fn az_dom_with_callback(mut dom: AzDomPtr, event: AzEventFilter, data: AzRefAny, callback: AzCallback) -> AzDomPtr { az_dom_add_callback(&mut dom, event, data, callback); dom }
+#[no_mangle] pub extern "C" fn az_dom_with_callback(mut dom: AzDom, event: AzEventFilter, data: AzRefAny, callback: AzCallback) -> AzDom { az_dom_add_callback(&mut dom, event, data, callback); dom }
 /// Overrides the CSS property of this DOM node with a value (for example `"width = 200px"`)
-#[no_mangle] pub extern "C" fn az_dom_add_css_override(dom: &mut AzDomPtr, id: AzString, prop: AzCssProperty) { az_dom_downcast_refmut(dom, |d| { d.add_css_override(id, prop); }) }
+#[no_mangle] pub extern "C" fn az_dom_add_css_override(dom: &mut AzDom, id: AzString, prop: AzCssProperty) { dom.add_css_override(id, prop); }
 /// Same as [`Dom::add_css_override`](#method.add_css_override), but as a builder method
-#[no_mangle] pub extern "C" fn az_dom_with_css_override(mut dom: AzDomPtr, id: AzString, prop: AzCssProperty) -> AzDomPtr { az_dom_add_css_override(&mut dom, id, prop); dom }
+#[no_mangle] pub extern "C" fn az_dom_with_css_override(mut dom: AzDom, id: AzString, prop: AzCssProperty) -> AzDom { az_dom_add_css_override(&mut dom, id, prop); dom }
 /// Sets the `is_draggable` attribute of this DOM node (default: false)
-#[no_mangle] pub extern "C" fn az_dom_set_is_draggable(dom: &mut AzDomPtr, is_draggable: bool) { az_dom_downcast_refmut(dom, |d| { d.set_draggable(is_draggable); }) }
+#[no_mangle] pub extern "C" fn az_dom_set_is_draggable(dom: &mut AzDom, is_draggable: bool) { dom.set_draggable(is_draggable); }
 /// Same as [`Dom::set_is_draggable`](#method.set_is_draggable), but as a builder method
-#[no_mangle] pub extern "C" fn az_dom_is_draggable(mut dom: AzDomPtr, is_draggable: bool) -> AzDomPtr { az_dom_set_is_draggable(&mut dom, is_draggable); dom }
+#[no_mangle] pub extern "C" fn az_dom_is_draggable(mut dom: AzDom, is_draggable: bool) -> AzDom { az_dom_set_is_draggable(&mut dom, is_draggable); dom }
 /// Sets the `tabindex` attribute of this DOM node (makes an element focusable - default: None)
-#[no_mangle] pub extern "C" fn az_dom_set_tab_index(dom: &mut AzDomPtr, tab_index: AzTabIndex) { az_dom_downcast_refmut(dom, |d| { d.set_tab_index(tab_index); }) }
+#[no_mangle] pub extern "C" fn az_dom_set_tab_index(dom: &mut AzDom, tab_index: AzTabIndex) { dom.set_tab_index(tab_index); }
 /// Same as [`Dom::set_tab_index`](#method.set_tab_index), but as a builder method
-#[no_mangle] pub extern "C" fn az_dom_with_tab_index(mut dom: AzDomPtr, tab_index: AzTabIndex) -> AzDomPtr { az_dom_set_tab_index(&mut dom, tab_index); dom }
+#[no_mangle] pub extern "C" fn az_dom_with_tab_index(mut dom: AzDom, tab_index: AzTabIndex) -> AzDom { az_dom_set_tab_index(&mut dom, tab_index); dom }
 /// Reparents another `Dom` to be the child node of this `Dom`
-#[no_mangle] pub extern "C" fn az_dom_add_child(dom: &mut AzDomPtr, child: AzDomPtr) { az_dom_downcast_refmut(dom, |d| { d.add_child(*az_dom_downcast(child)); }) }
+#[no_mangle] pub extern "C" fn az_dom_add_child(dom: &mut AzDom, child: AzDom) { dom.add_child(child); }
 /// Same as [`Dom::add_child`](#method.add_child), but as a builder method
-#[no_mangle] pub extern "C" fn az_dom_with_child(mut dom: AzDomPtr, child: AzDomPtr) -> AzDomPtr { az_dom_add_child(&mut dom, child); dom }
+#[no_mangle] pub extern "C" fn az_dom_with_child(mut dom: AzDom, child: AzDom) -> AzDom { az_dom_add_child(&mut dom, child); dom }
 /// Returns if the DOM node has a certain CSS ID
-#[no_mangle] pub extern "C" fn az_dom_has_id(dom: &mut AzDomPtr, id: AzString) -> bool { az_dom_downcast_ref(dom, |d| { d.has_id(id.as_ref()) }) }
+#[no_mangle] pub extern "C" fn az_dom_has_id(dom: &mut AzDom, id: AzString) -> bool { dom.has_id(id.as_ref()) }
 /// Returns if the DOM node has a certain CSS class
-#[no_mangle] pub extern "C" fn az_dom_has_class(dom: &mut AzDomPtr, class: AzString) -> bool { az_dom_downcast_ref(dom, |d| { d.has_class(class.as_ref()) }) }
+#[no_mangle] pub extern "C" fn az_dom_has_class(dom: &mut AzDom, class: AzString) -> bool { dom.has_class(class.as_ref()) }
 /// Returns the HTML String for this DOM
-#[no_mangle] pub extern "C" fn az_dom_get_html_string(dom: &mut AzDomPtr) -> AzString { az_dom_downcast_ref(dom, |d| { d.get_html_string() }).into() }
+#[no_mangle] pub extern "C" fn az_dom_get_html_string(dom: &mut AzDom) -> AzString { dom.get_html_string().into() }
 /// Destructor: Takes ownership of the `Dom` pointer and deletes it.
-#[no_mangle] pub extern "C" fn az_dom_delete(ptr: &mut AzDomPtr) { let _ = unsafe { Box::<Dom>::from_raw(ptr.ptr  as *mut Dom) }; }
-/// Copies the pointer: WARNING: After calling this function you'll have two pointers to the same Box<`Dom`>!.
-#[no_mangle] pub extern "C" fn az_dom_shallow_copy(ptr: &AzDomPtr) -> AzDomPtr { AzDomPtr { ptr: ptr.ptr } }
-/// (private): Downcasts the `AzDomPtr` to a `Box<Dom>`. Note that this takes ownership of the pointer.
-#[inline(always)] fn az_dom_downcast(ptr: AzDomPtr) -> Box<Dom> { unsafe { Box::<Dom>::from_raw(ptr.ptr  as *mut Dom) } }
-/// (private): Downcasts the `AzDomPtr` to a `&mut Box<Dom>` and runs the `func` closure on it
-#[inline(always)] fn az_dom_downcast_refmut<F: FnOnce(&mut Box<Dom>)>(ptr: &mut AzDomPtr, func: F) { let mut box_ptr: Box<Dom> = unsafe { Box::<Dom>::from_raw(ptr.ptr  as *mut Dom) };func(&mut box_ptr);ptr.ptr = Box::into_raw(box_ptr) as *mut c_void; }
-/// (private): Downcasts the `AzDomPtr` to a `&Box<Dom>` and runs the `func` closure on it
-#[inline(always)] fn az_dom_downcast_ref<P, F: FnOnce(&Box<Dom>) -> P>(ptr: &mut AzDomPtr, func: F) -> P { let box_ptr: Box<Dom> = unsafe { Box::<Dom>::from_raw(ptr.ptr  as *mut Dom) }; let ret_val = func(&box_ptr); ptr.ptr = Box::into_raw(box_ptr) as *mut c_void;ret_val }
+#[no_mangle] #[allow(unused_variables)] pub extern "C" fn az_dom_delete(object: &mut AzDom) { }
+/// Copies the object
+#[no_mangle] pub extern "C" fn az_dom_deep_copy(object: &AzDom) -> AzDom { object.clone() }
+
+/// Re-export of rust-allocated (stack based) `GlTextureNode` struct
+pub type AzGlTextureNodeType = azul_impl::dom::GlTextureNode;
+#[no_mangle] pub use AzGlTextureNodeType as AzGlTextureNode;
+/// Destructor: Takes ownership of the `GlTextureNode` pointer and deletes it.
+#[no_mangle] #[allow(unused_variables)] pub extern "C" fn az_gl_texture_node_delete(object: &mut AzGlTextureNode) { }
+/// Copies the object
+#[no_mangle] pub extern "C" fn az_gl_texture_node_deep_copy(object: &AzGlTextureNode) -> AzGlTextureNode { object.clone() }
+
+/// Re-export of rust-allocated (stack based) `IFrameNode` struct
+pub type AzIFrameNodeType = azul_impl::dom::IFrameNode;
+#[no_mangle] pub use AzIFrameNodeType as AzIFrameNode;
+/// Destructor: Takes ownership of the `IFrameNode` pointer and deletes it.
+#[no_mangle] #[allow(unused_variables)] pub extern "C" fn az_i_frame_node_delete(object: &mut AzIFrameNode) { }
+/// Copies the object
+#[no_mangle] pub extern "C" fn az_i_frame_node_deep_copy(object: &AzIFrameNode) -> AzIFrameNode { object.clone() }
+
+/// Re-export of rust-allocated (stack based) `CallbackData` struct
+pub type AzCallbackDataType = azul_impl::dom::CallbackData;
+#[no_mangle] pub use AzCallbackDataType as AzCallbackData;
+/// Destructor: Takes ownership of the `CallbackData` pointer and deletes it.
+#[no_mangle] #[allow(unused_variables)] pub extern "C" fn az_callback_data_delete(object: &mut AzCallbackData) { }
+/// Copies the object
+#[no_mangle] pub extern "C" fn az_callback_data_deep_copy(object: &AzCallbackData) -> AzCallbackData { object.clone() }
+
+/// Re-export of rust-allocated (stack based) `OverrideProperty` struct
+pub type AzOverridePropertyType = azul_impl::dom::OverrideProperty;
+#[no_mangle] pub use AzOverridePropertyType as AzOverrideProperty;
+/// Destructor: Takes ownership of the `OverrideProperty` pointer and deletes it.
+#[no_mangle] #[allow(unused_variables)] pub extern "C" fn az_override_property_delete(object: &mut AzOverrideProperty) { }
+/// Copies the object
+#[no_mangle] pub extern "C" fn az_override_property_deep_copy(object: &AzOverrideProperty) -> AzOverrideProperty { object.clone() }
+
+/// Represents one single DOM node (node type, classes, ids and callbacks are stored here)
+pub type AzNodeDataType = azul_impl::dom::NodeData;
+#[no_mangle] pub use AzNodeDataType as AzNodeData;
+/// Destructor: Takes ownership of the `NodeData` pointer and deletes it.
+#[no_mangle] #[allow(unused_variables)] pub extern "C" fn az_node_data_delete(object: &mut AzNodeData) { }
+/// Copies the object
+#[no_mangle] pub extern "C" fn az_node_data_deep_copy(object: &AzNodeData) -> AzNodeData { object.clone() }
+
+/// List of core DOM node types built-into by `azul`
+pub type AzNodeTypeType = azul_impl::dom::NodeType;
+#[no_mangle] pub use AzNodeTypeType as AzNodeType;
+/// Destructor: Takes ownership of the `NodeType` pointer and deletes it.
+#[no_mangle] #[allow(unused_variables)] pub extern "C" fn az_node_type_delete(object: &mut AzNodeType) { match object { azul_impl::dom::NodeType::Div => { }, azul_impl::dom::NodeType::Body => { }, azul_impl::dom::NodeType::Label(_) => { }, azul_impl::dom::NodeType::Text(_) => { }, azul_impl::dom::NodeType::Image(_) => { }, azul_impl::dom::NodeType::GlTexture(_) => { }, azul_impl::dom::NodeType::IFrame(_) => { }, }
+}
+/// Copies the object
+#[no_mangle] pub extern "C" fn az_node_type_deep_copy(object: &AzNodeType) -> AzNodeType { object.clone() }
 
 /// When to call a callback action - `On::MouseOver`, `On::MouseOut`, etc.
 pub type AzOnType = azul_impl::dom::On;
 #[no_mangle] pub use AzOnType as AzOn;
+/// Converts the `On` shorthand into a `EventFilter`
+#[no_mangle] pub extern "C" fn az_on_into_event_filter(on: AzOn) -> AzEventFilter { on.into() }
 /// Destructor: Takes ownership of the `On` pointer and deletes it.
 #[no_mangle] #[allow(unused_variables)] pub extern "C" fn az_on_delete(object: &mut AzOn) { match object { azul_impl::dom::On::MouseOver => { }, azul_impl::dom::On::MouseDown => { }, azul_impl::dom::On::LeftMouseDown => { }, azul_impl::dom::On::MiddleMouseDown => { }, azul_impl::dom::On::RightMouseDown => { }, azul_impl::dom::On::MouseUp => { }, azul_impl::dom::On::LeftMouseUp => { }, azul_impl::dom::On::MiddleMouseUp => { }, azul_impl::dom::On::RightMouseUp => { }, azul_impl::dom::On::MouseEnter => { }, azul_impl::dom::On::MouseLeave => { }, azul_impl::dom::On::Scroll => { }, azul_impl::dom::On::TextInput => { }, azul_impl::dom::On::VirtualKeyDown => { }, azul_impl::dom::On::VirtualKeyUp => { }, azul_impl::dom::On::HoveredFile => { }, azul_impl::dom::On::DroppedFile => { }, azul_impl::dom::On::HoveredFileCancelled => { }, azul_impl::dom::On::FocusReceived => { }, azul_impl::dom::On::FocusLost => { }, }
 }

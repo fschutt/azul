@@ -368,10 +368,10 @@ pub fn parse_css_path<'a>(input: &'a str) -> Result<CssPath, CssPathParseError<'
                 selectors.push(CssPathSelector::Type(NodeTypePath::from_str(div_type)?));
             },
             Token::IdSelector(id) => {
-                selectors.push(CssPathSelector::Id(id.to_string()));
+                selectors.push(CssPathSelector::Id(id.to_string().into()));
             },
             Token::ClassSelector(class) => {
-                selectors.push(CssPathSelector::Class(class.to_string()));
+                selectors.push(CssPathSelector::Class(class.to_string().into()));
             },
             Token::Combinator(Combinator::GreaterThan) => {
                 selectors.push(CssPathSelector::DirectChildren);
@@ -520,11 +520,11 @@ fn new_from_str_inner<'a>(css_string: &'a str, tokenizer: &mut Tokenizer<'a>)
             },
             Token::IdSelector(id) => {
                 check_parser_is_outside_block!();
-                last_path.push(CssPathSelector::Id(id.to_string()));
+                last_path.push(CssPathSelector::Id(id.to_string().into()));
             },
             Token::ClassSelector(class) => {
                 check_parser_is_outside_block!();
-                last_path.push(CssPathSelector::Class(class.to_string()));
+                last_path.push(CssPathSelector::Class(class.to_string().into()));
             },
             Token::Combinator(Combinator::GreaterThan) => {
                 check_parser_is_outside_block!();

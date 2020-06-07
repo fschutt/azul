@@ -17,8 +17,15 @@
     /// Callback for responding to window events
     pub type AzCallback = fn(AzCallbackInfoPtr) -> AzCallbackReturn;
     /// Callback fn that returns the DOM of the app
-    pub type AzLayoutCallback = fn(AzRefAny, AzLayoutInfoPtr) -> AzDomPtr;
+    pub type AzLayoutCallback = fn(AzRefAny, AzLayoutInfoPtr) -> AzDom;
     /// Callback for rendering to an OpenGL texture
     pub type AzGlCallback = fn(AzGlCallbackInfoPtr) -> AzGlCallbackReturnPtr;
     /// Callback for rendering iframes (infinite data structures that have to know how large they are rendered)
     pub type AzIFrameCallback = fn(AzIFrameCallbackInfoPtr) -> AzIFrameCallbackReturnPtr;
+
+    impl From<AzOn> for AzEventFilter {
+        fn from(on: AzOn) -> AzEventFilter {
+            on.into_event_filter()
+        }
+    }
+

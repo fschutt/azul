@@ -52,7 +52,7 @@
 					],
 					"constructors": {
 					    "copy_from": {
-					        "doc": "Creates + allocates a Rust `Vec<String>` by **copying** it from a bytes source",
+					        "doc": "Creates + allocates a Rust `Vec<u8>` by **copying** it from a bytes source",
 					        "fn_args": [
 					            {"ptr": "*const u8"},
 					            {"len": "usize"}
@@ -84,6 +84,141 @@
 							],
 							"returns": "usize",
 							"fn_body": "u8vec.cap()"
+						}
+					}
+				},
+				"CallbackDataVec": {
+					"doc": "Wrapper over a Rust-allocated `CallbackData`",
+					"external": "azul_impl::dom::CallbackDataVec",
+					"struct_fields": [
+						{ "ptr": { "type": "*const CallbackData" } },
+						{ "len": { "type": "usize" } },
+						{ "cap": { "type": "usize" } }
+					],
+					"constructors": {
+					    "copy_from": {
+					        "doc": "Creates + allocates a Rust `Vec<CallbackData>` by **copying** it from a bytes source",
+					        "fn_args": [
+					            {"ptr": "*const CallbackData"},
+					            {"len": "usize"}
+					        ],
+					        "fn_body": "unsafe { std::slice::from_raw_parts(ptr, len).iter().cloned().collect::<Vec<_>>() }.into()"
+					    }
+					},
+					"functions": {
+						"as_ptr": {
+							"doc": "Returns the internal pointer to the (azul-dll allocated) [CallbackData]",
+							"fn_args": [
+								{"self": "ref"}
+							],
+							"returns": "*const CallbackData",
+							"fn_body": "callbackdatavec.as_ptr()"
+						},
+						"len": {
+							"doc": "Returns the length of the internal `Vec<CallbackData>`",
+							"fn_args": [
+								{"self": "ref"}
+							],
+							"returns": "usize",
+							"fn_body": "callbackdatavec.len()"
+						},
+						"capacity": {
+							"doc": "Returns the capacity of the internal `Vec<CallbackData>`",
+							"fn_args": [
+								{"self": "ref"}
+							],
+							"returns": "usize",
+							"fn_body": "callbackdatavec.cap()"
+						}
+					}
+				},
+				"OverridePropertyVec": {
+					"doc": "Wrapper over a Rust-allocated `OverridePropertyVec`",
+					"external": "azul_impl::dom::OverridePropertyVec",
+					"struct_fields": [
+						{ "ptr": { "type": "*const OverrideProperty" } },
+						{ "len": { "type": "usize" } },
+						{ "cap": { "type": "usize" } }
+					],
+					"constructors": {
+					    "copy_from": {
+					        "doc": "Creates + allocates a Rust `Vec<OverrideProperty>` by **copying** it from a bytes source",
+					        "fn_args": [
+					            {"ptr": "*const OverrideProperty"},
+					            {"len": "usize"}
+					        ],
+					        "fn_body": "unsafe { std::slice::from_raw_parts(ptr, len).iter().cloned().collect::<Vec<_>>() }.into()"
+					    }
+					},
+					"functions": {
+						"as_ptr": {
+							"doc": "Returns the internal pointer to the (azul-dll allocated) [OverrideProperty]",
+							"fn_args": [
+								{"self": "ref"}
+							],
+							"returns": "*const OverrideProperty",
+							"fn_body": "overridepropertyvec.as_ptr()"
+						},
+						"len": {
+							"doc": "Returns the length of the internal `Vec<OverrideProperty>`",
+							"fn_args": [
+								{"self": "ref"}
+							],
+							"returns": "usize",
+							"fn_body": "overridepropertyvec.len()"
+						},
+						"capacity": {
+							"doc": "Returns the capacity of the internal `Vec<OverrideProperty>`",
+							"fn_args": [
+								{"self": "ref"}
+							],
+							"returns": "usize",
+							"fn_body": "overridepropertyvec.cap()"
+						}
+					}
+				},
+				"DomVec": {
+					"doc": "Wrapper over a Rust-allocated `DomVec`",
+					"external": "azul_impl::dom::DomVec",
+					"struct_fields": [
+						{ "ptr": { "type": "*const Dom" } },
+						{ "len": { "type": "usize" } },
+						{ "cap": { "type": "usize" } }
+					],
+					"constructors": {
+					    "copy_from": {
+					        "doc": "Creates + allocates a Rust `Vec<Dom>` by **copying** it from a bytes source",
+					        "fn_args": [
+					            {"ptr": "*const Dom"},
+					            {"len": "usize"}
+					        ],
+					        "fn_body": "unsafe { std::slice::from_raw_parts(ptr, len).iter().cloned().collect::<Vec<_>>() }.into()"
+					    }
+					},
+					"functions": {
+						"as_ptr": {
+							"doc": "Returns the internal pointer to the (azul-dll allocated) [Dom]",
+							"fn_args": [
+								{"self": "ref"}
+							],
+							"returns": "*const Dom",
+							"fn_body": "domvec.as_ptr()"
+						},
+						"len": {
+							"doc": "Returns the length of the internal `Vec<Dom>`",
+							"fn_args": [
+								{"self": "ref"}
+							],
+							"returns": "usize",
+							"fn_body": "domvec.len()"
+						},
+						"capacity": {
+							"doc": "Returns the capacity of the internal `Vec<Dom>`",
+							"fn_args": [
+								{"self": "ref"}
+							],
+							"returns": "usize",
+							"fn_body": "domvec.cap()"
 						}
 					}
 				},
@@ -187,6 +322,13 @@
 					"enum_fields": [
 						{"None": {}},
 						{"Some": { "type": "PercentageValue" }}
+					]
+				},
+				"OptionTabIndex": {
+					"external": "azul_impl::dom::OptionTabIndex",
+					"enum_fields": [
+						{"None": {}},
+						{"Some": { "type": "TabIndex" }}
 					]
 				}
 			}
@@ -1654,8 +1796,12 @@
 			"doc": "`Dom` construction and configuration",
 			"classes": {
 				"Dom": {
-					"external": "azul_impl::dom::DomPtr",
-					"is_boxed_object": true,
+					"external": "azul_impl::dom::Dom",
+					"struct_fields": [
+						{"root": {"type": "NodeData"}},
+						{"children": {"type": "DomVec"}},
+						{"estimated_total_children": {"type": "usize"}}
+					],
 					"constructors": {
 						"div": {
 							"doc": "Creates a new `div` node",
@@ -1710,7 +1856,7 @@
 								{"self": "refmut"},
 								{"id": "String"}
 							],
-							"fn_body": "az_dom_downcast_refmut(dom, |d| { d.add_id(id.into_string()); })"
+							"fn_body": "dom.add_id(id);"
 						},
 						"with_id": {
 							"doc": "Same as [`Dom::add_id`](#method.add_id), but as a builder method",
@@ -1727,7 +1873,7 @@
 								{"self": "refmut"},
 								{"ids": "StringVec"}
 							],
-							"fn_body": "az_dom_downcast_refmut(dom, |d| { d.set_ids(ids.into()); })"
+							"fn_body": "dom.set_ids(ids);"
 						},
 						"with_ids": {
 							"doc": "Same as [`Dom::set_ids`](#method.set_ids), but as a builder method",
@@ -1744,7 +1890,7 @@
 								{"self": "refmut"},
 								{"class": "String"}
 							],
-							"fn_body": "az_dom_downcast_refmut(dom, |d| { d.add_class(class.into_string()); })"
+							"fn_body": "dom.add_class(class);"
 						},
 						"with_class": {
 							"doc": "Same as [`Dom::add_class`](#method.add_class), but as a builder method",
@@ -1761,7 +1907,7 @@
 								{"self": "refmut"},
 								{"classes": "StringVec"}
 							],
-							"fn_body": "az_dom_downcast_refmut(dom, |d| { (*d).set_classes(classes.into()); })"
+							"fn_body": "dom.set_classes(classes);"
 						},
 						"with_classes": {
 							"doc": "Same as [`Dom::set_classes`](#method.set_classes), but as a builder method",
@@ -1780,7 +1926,7 @@
 								{"data": "RefAny"},
 								{"callback": "Callback"}
 							],
-							"fn_body": "az_dom_downcast_refmut(dom, |d| { d.add_callback(event, callback, data); })"
+							"fn_body": "dom.add_callback(event, callback, data);"
 						},
 						"with_callback": {
 							"doc": "Same as [`Dom::add_callback`](#method.add_callback), but as a builder method",
@@ -1800,7 +1946,7 @@
 								{"id": "String"},
 								{"prop": "CssProperty"}
 							],
-							"fn_body": "az_dom_downcast_refmut(dom, |d| { d.add_css_override(id, prop); })"
+							"fn_body": "dom.add_css_override(id, prop);"
 						},
 						"with_css_override": {
 							"doc": "Same as [`Dom::add_css_override`](#method.add_css_override), but as a builder method",
@@ -1818,7 +1964,7 @@
 								{"self": "refmut"},
 								{"is_draggable": "bool"}
 							],
-							"fn_body": "az_dom_downcast_refmut(dom, |d| { d.set_draggable(is_draggable); })"
+							"fn_body": "dom.set_draggable(is_draggable);"
 						},
 						"is_draggable": {
 							"doc": "Same as [`Dom::set_is_draggable`](#method.set_is_draggable), but as a builder method",
@@ -1835,7 +1981,7 @@
 								{"self": "refmut"},
 								{"tab_index": "TabIndex"}
 							],
-							"fn_body": "az_dom_downcast_refmut(dom, |d| { d.set_tab_index(tab_index); })"
+							"fn_body": "dom.set_tab_index(tab_index);"
 						},
 						"with_tab_index": {
 							"doc": "Same as [`Dom::set_tab_index`](#method.set_tab_index), but as a builder method",
@@ -1852,7 +1998,7 @@
 								{"self": "refmut"},
 								{"child": "Dom"}
 							],
-							"fn_body": "az_dom_downcast_refmut(dom, |d| { d.add_child(*az_dom_downcast(child)); })"
+							"fn_body": "dom.add_child(child);"
 						},
 						"with_child": {
 							"doc": "Same as [`Dom::add_child`](#method.add_child), but as a builder method",
@@ -1870,7 +2016,7 @@
 								{"id": "String"}
 							],
 							"returns": "bool",
-							"fn_body": "az_dom_downcast_ref(dom, |d| { d.has_id(id.as_ref()) })"
+							"fn_body": "dom.has_id(id.as_ref())"
 						},
 						"has_class": {
 							"doc": "Returns if the DOM node has a certain CSS class",
@@ -1879,7 +2025,7 @@
 								{"class": "String"}
 							],
 							"returns": "bool",
-							"fn_body": "az_dom_downcast_ref(dom, |d| { d.has_class(class.as_ref()) })"
+							"fn_body": "dom.has_class(class.as_ref())"
 						},
 						"get_html_string": {
 							"doc": "Returns the HTML String for this DOM",
@@ -1887,9 +2033,64 @@
 								{"self": "refmut"}
 							],
 							"returns": "String",
-							"fn_body": "az_dom_downcast_ref(dom, |d| { d.get_html_string() }).into()"
+							"fn_body": "dom.get_html_string().into()"
 						}
 					}
+				},
+				"GlTextureNode": {
+					"external": "azul_impl::dom::GlTextureNode",
+					"struct_fields": [
+						{"callback": {"type": "GlCallback"}},
+						{"data": {"type": "RefAny"}}
+					]
+				},
+				"IFrameNode": {
+					"external": "azul_impl::dom::IFrameNode",
+					"struct_fields": [
+						{"callback": {"type": "IFrameCallback"}},
+						{"data": {"type": "RefAny"}}
+					]
+				},
+				"CallbackData": {
+					"external": "azul_impl::dom::CallbackData",
+					"struct_fields": [
+						{"event": {"type": "EventFilter"}},
+						{"callback": {"type": "Callback"}},
+						{"data": {"type": "RefAny"}}
+					]
+				},
+				"OverrideProperty": {
+					"external": "azul_impl::dom::OverrideProperty",
+					"struct_fields": [
+						{"property_id": {"type": "String"}},
+						{"override_value": {"type": "CssProperty"}}
+					]
+				},
+				"NodeData": {
+					"doc": "Represents one single DOM node (node type, classes, ids and callbacks are stored here)",
+					"external": "azul_impl::dom::NodeData",
+					"struct_fields": [
+						{"node_type": {"type": "NodeType", "doc": "Stores the type of the node, i.e. `div`, `img`, `p`, etc."}},
+						{"ids": {"type": "StringVec", "doc": "Stores the ids of the node, i.e. `[#main, #something]`"}},
+						{"classes": {"type": "StringVec", "doc": "Stores the classes of the node, i.e. `[.myclass, .otherclass]`"}},
+						{"callbacks": {"type": "CallbackDataVec", "doc": "Stores the callbacks of the node, i.e. `On::MouseUp` -> `Callback(my_button_click_handler)`"}},
+						{"dynamic_css_overrides": {"type": "OverridePropertyVec", "doc": "Override certain dynamic styling properties for this DOM node"}},
+						{"is_draggable": {"type": "bool", "doc": "Whether this div can be dragged or not, similar to `draggable = \"true\"` in HTML"}},
+						{"tab_index": {"type": "OptionTabIndex", "doc": "Whether this div can be focused, and if yes, in what default to `None` (not focusable). Note that without this, there can be no `On::FocusReceived` / `On::FocusLost` (equivalent to onfocus). For this reason, this is automatically set to `TabIndex::Auto` if a callback with `On::Focus*` is inserted"}}
+					]
+				},
+				"NodeType": {
+					"doc": "List of core DOM node types built-into by `azul`",
+					"external": "azul_impl::dom::NodeType",
+					"enum_fields": [
+						{"Div": {"doc": "Regular div with no particular type of data attached"}},
+						{"Body": {"doc": "Same as div, but only for the root node"}},
+						{"Label": {"type": "String", "doc": "Equivalent to the HTML `<p>` tag, a small label that can be (optionally) be selected by the user"}},
+						{"Text": {"type": "TextId", "doc": "Equivalent to the HTML `<p>` tag, but for a larger text whose layout can be cached"}},
+						{"Image": {"type": "ImageId", "doc": "Equivalent to the HTML `<img>` tag, references an image via its ID, the ID is created by the `add_image()` function(s)"}},
+						{"GlTexture": {"type": "GlTextureNode", "doc": "OpenGL texture, behaves same as a `<canvas>` / `img` node. Can be selected in CSS with the `\"gltexture\"` selector."}},
+						{"IFrame": {"type": "IFrameNode", "doc": "Callback that renders a DOM when invoked with a width / height after the layout of the parent DOM is done. Can be selected in CSS with the `\"iframe\"` selector."}}
+					]
 				},
 				"On": {
 					"external": "azul_impl::dom::On",
@@ -1915,7 +2116,17 @@
 						{ "HoveredFileCancelled": {"doc": ""}},
 						{ "FocusReceived": {"doc": ""}},
 						{ "FocusLost": {"doc": ""}}
-					]
+					],
+					"functions": {
+						"into_event_filter": {
+							"doc": "Converts the `On` shorthand into a `EventFilter`",
+							"fn_args": [
+								{"self": "value"}
+							],
+							"returns": "EventFilter",
+							"fn_body": "on.into()"
+						}
+					}
 				},
 				"EventFilter": {
 					"external": "azul_impl::dom::EventFilter",

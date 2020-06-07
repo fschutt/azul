@@ -13,7 +13,7 @@ use azul_css_parser::CssPathParseError;
 use crate::{
     FastHashMap,
     app_resources::{AppResources, IdNamespace, Words, WordPositions, ScaledWords, LayoutedGlyphs},
-    dom::{Dom, DomPtr, DomId, TagId, NodeType, NodeData},
+    dom::{Dom, DomId, TagId, NodeType, NodeData},
     display_list::CachedDisplayList,
     ui_state::UiState,
     ui_description::UiDescription,
@@ -49,6 +49,7 @@ pub enum UpdateScreen {
 impl UpdateScreen {
     pub fn into_option(self) -> Option<()> { self.into() }
 }
+
 impl From<UpdateScreen> for Option<()> {
     fn from(o: UpdateScreen) -> Option<()> {
         match o { UpdateScreen::DontRedraw => None, _ => Some(()) }
@@ -175,7 +176,7 @@ pub type PipelineSourceId = u32;
 ///
 /// See azul-core/ui_state.rs:298 for how the memory is managed
 /// across the callback boundary.
-pub type LayoutCallback = fn(RefAny, LayoutInfoPtr) -> DomPtr;
+pub type LayoutCallback = fn(RefAny, LayoutInfoPtr) -> Dom;
 
 /// Information about a scroll frame, given to the user by the framework
 #[derive(Debug, Copy, Clone, PartialEq, PartialOrd)]
@@ -750,7 +751,7 @@ pub fn call_callbacks(
                 let callback = ui_state.get_dom().arena.node_data
                     .get(*node_id)
                     .map(|nd| nd.get_callbacks())
-                    .and_then(|dc| dc.iter().find_map(|(evt, cb)| if evt == event_filter { Some(cb) } else { None }));
+                    .and_then(|dc| dc.iter().find_map(|cb_data| if cb_data.event == *event_filter { Some((cb_data.callback, &cb_data.data)) } else { None }));
 
                 let (callback, callback_ptr) = match callback {
                     Some(s) => s,

@@ -2,14 +2,7 @@
 
 use std::fmt;
 
-mod css;
-mod css_properties;
-mod hot_reload;
-
-pub use crate::css::*;
-pub use crate::css_properties::*;
-pub use crate::hot_reload::*;
-
+#[macro_export]
 macro_rules! impl_vec {($struct_type:ident, $struct_name:ident) => (
 
     #[repr(C)]
@@ -21,12 +14,49 @@ macro_rules! impl_vec {($struct_type:ident, $struct_name:ident) => (
 
     impl $struct_name {
 
+        pub fn new() -> Self {
+            Vec::<$struct_type>::new().into()
+        }
+
+        pub fn with_capacity(cap: usize) -> Self {
+            Vec::<$struct_type>::with_capacity(cap).into()
+        }
+
+        pub fn push(&mut self, val: $struct_type) {
+            let mut v: Vec<$struct_type> = unsafe { Vec::from_raw_parts(self.ptr, self.len, self.cap) };
+            v.push(val);
+            let (ptr, len, cap) = Self::into_raw_parts(v);
+            self.ptr = ptr;
+            self.len = len;
+            self.cap = cap;
+        }
+
+        pub fn iter(&self) -> std::slice::Iter<$struct_type> {
+            let v1: &[$struct_type] = unsafe { std::slice::from_raw_parts(self.ptr, self.len) };
+            v1.iter()
+        }
+
+        pub fn iter_mut(&mut self) -> std::slice::IterMut<$struct_type> {
+            let v1: &mut [$struct_type] = unsafe { std::slice::from_raw_parts_mut(self.ptr, self.len) };
+            v1.iter_mut()
+        }
+
+        pub fn into_iter(self) -> std::vec::IntoIter<$struct_type> {
+            let v1: Vec<$struct_type> = unsafe { std::vec::Vec::from_raw_parts(self.ptr, self.len, self.cap) };
+            std::mem::forget(self); // do not run destructor of self
+            v1.into_iter()
+        }
+
         pub fn as_ptr(&self) -> *const $struct_type {
             self.ptr as *const $struct_type
         }
 
         pub fn len(&self) -> usize {
             self.len
+        }
+
+        pub fn is_empty(&self) -> bool {
+            self.len == 0
         }
 
         pub fn cap(&self) -> usize {
@@ -54,6 +84,13 @@ macro_rules! impl_vec {($struct_type:ident, $struct_name:ident) => (
             let cap = v.capacity();
             std::mem::forget(v);
             (ptr, len, cap)
+        }
+    }
+
+    impl std::iter::FromIterator<$struct_type> for $struct_name {
+        fn from_iter<T>(iter: T) -> Self where T: IntoIterator<Item = $struct_type> {
+            let v: Vec<$struct_type> = Vec::from_iter(iter);
+            v.into()
         }
     }
 
@@ -144,6 +181,43 @@ macro_rules! impl_vec {($struct_type:ident, $struct_name:ident) => (
         fn drop(&mut self) {
             let _v: Vec<$struct_type> = unsafe { Vec::from_raw_parts(self.ptr, self.len, self.cap) };
             // let v drop here
+        }
+    }
+)}
+
+#[macro_export]
+macro_rules! impl_option {($struct_type:ident, $struct_name:ident) => (
+    #[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
+    #[repr(C, u8)]
+    pub enum $struct_name {
+        None,
+        Some($struct_type)
+    }
+
+    impl From<$struct_name> for Option<$struct_type> {
+        fn from(o: $struct_name) -> Option<$struct_type> {
+            match o {
+                $struct_name::None => None,
+                $struct_name::Some(t) => Some(t),
+            }
+        }
+    }
+
+    impl From<Option<$struct_type>> for $struct_name {
+        fn from(o: Option<$struct_type>) -> $struct_name {
+            match o {
+                None => $struct_name::None,
+                Some(t) => $struct_name::Some(t),
+            }
+        }
+    }
+
+    impl $struct_name {
+        pub fn as_option(&self) -> Option<&$struct_type> {
+            match self {
+                $struct_name::None => None,
+                $struct_name::Some(t) => Some(t),
+            }
         }
     }
 )}
@@ -290,3 +364,11 @@ impl From<StringVec> for Vec<String> {
         v.into_iter().map(|s| s.into()).collect()
     }
 }
+
+mod css;
+mod css_properties;
+mod hot_reload;
+
+pub use crate::css::*;
+pub use crate::css_properties::*;
+pub use crate::hot_reload::*;

@@ -271,7 +271,7 @@ impl<T> Drop for Thread<T> {
 }
 
 /// Run all currently registered timers
-#[must_use]
+#[must_use = "the UpdateScreen result of running timers should not be ignored"]
 pub fn run_all_timers(
     timers: &mut FastHashMap<TimerId, Timer>,
     data: &mut RefAny,
@@ -304,7 +304,7 @@ pub fn run_all_timers(
 }
 
 /// Remove all tasks that have finished executing
-#[must_use]
+#[must_use = "the UpdateScreen result of running tasks should not be ignored"]
 pub fn clean_up_finished_tasks(
     tasks: &mut Vec<Task>,
     timers: &mut FastHashMap<TimerId, Timer>,

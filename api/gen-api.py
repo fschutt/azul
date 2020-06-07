@@ -61,8 +61,8 @@ def to_snake_case(name):
     return re.sub('([a-z0-9])([A-Z])', r'\1_\2', s1).lower()
 
 # turns a list of function args into function pointer args
-# ex. "mut dom: AzDomPtr, event: AzEventFilter, data: AzRefAny, callback: AzCallback"
-# ->  "_: AzDomPtr, _: AzEventFilter, _: AzRefAny, _: AzCallback"
+# ex. "mut dom: AzDom, event: AzEventFilter, data: AzRefAny, callback: AzCallback"
+# ->  "_: AzDom, _: AzEventFilter, _: AzRefAny, _: AzCallback"
 def strip_fn_arg_types(arg_list):
     if len(arg_list) == 0:
         return ""
