@@ -1,8 +1,10 @@
 use std::{
     sync::{Arc, Mutex, Weak, atomic::{AtomicUsize, Ordering}},
     thread::{self, JoinHandle},
-    time::{Duration, Instant},
+    ffi::c_void,
 };
+use std::time::Instant as StdInstant;
+use std::time::Duration as StdDuration;
 use crate::{
     FastHashMap,
     callbacks::{
@@ -14,6 +16,7 @@ use crate::{
 
 /// Should a timer terminate or not - used to remove active timers
 #[derive(Debug, Copy, Clone, PartialEq, Eq)]
+#[repr(C)]
 pub enum TerminateTimer {
     /// Remove the timer from the list of active timers
     Terminate,
@@ -25,6 +28,7 @@ static MAX_DAEMON_ID: AtomicUsize = AtomicUsize::new(0);
 
 /// ID for uniquely identifying a timer
 #[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
+#[repr(C)]
 pub struct TimerId { id: usize }
 
 impl TimerId {
@@ -33,6 +37,60 @@ impl TimerId {
         TimerId { id: MAX_DAEMON_ID.fetch_add(1, Ordering::SeqCst) }
     }
 }
+
+#[repr(C)]
+pub struct AzInstantPtr { /* ptr: *const StdInstant */ ptr: *const c_void }
+
+impl AzInstantPtr {
+    fn now() -> Self { StdInstant::now().into() }
+    fn get(&self) -> Instant { let p = unsafe { Box::<StdInstant>::from_raw(self.ptr as *mut AzInstantPtr) }; let val = *p; std::mem::forget(p); val }
+}
+
+impl Clone for AzInstantPtr {
+    fn clone(&self) -> Self {
+        self.get().into()
+    }
+}
+
+impl From<StdInstant> for AzInstantPtr {
+    fn from(s: StdInstant) -> AzInstantPtr {
+        Self { ptr: Box::into_raw(Box::new(s)) }
+    }
+}
+
+impl From<StdInstant> for AzInstantPtr {
+    fn from(s: StdInstant) -> AzInstantPtr {
+        Self { ptr: Box::into_raw(Box::new(s)) }
+    }
+}
+
+impl Drop for AzInstantPtr {
+    fn drop(&mut self) {
+        let _ = unsafe { Box::<StdInstant>::from_raw(self.ptr as *mut AzInstantPtr) };
+    }
+}
+
+#[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
+#[repr(C)]
+pub struct AzDuration {
+    pub secs: u64,
+    pub nanos: u32,
+}
+
+impl From<StdDuration> for AzDuration {
+    fn from(d: StdDuration) -> AzDuration {
+        AzDuration { secs: d.as_secs(), nanos: d.as_nanos() }
+    }
+}
+
+impl From<AzDuration> for StdDuration {
+    fn from(d: AzDuration) -> StdDuration {
+        StdDuration::new(d.secs, d.nanos)
+    }
+}
+
+impl_option!(AzInstantPtr, OptionInstantPtr);
+impl_option!(AzDuration, OptionDuration);
 
 /// A `Timer` is a function that is run on every frame.
 ///
@@ -44,21 +102,22 @@ impl TimerId {
 /// The callback of a `Timer` should be fast enough to run under 16ms,
 /// otherwise running timers will block the main UI thread.
 #[derive(Debug, Copy, Clone, PartialEq, Eq, Hash)]
+#[repr(C)]
 pub struct Timer {
     /// Stores when the timer was created (usually acquired by `Instant::now()`)
-    pub created: Instant,
+    pub created: AzInstantPtr,
     /// When the timer was last called (`None` only when the timer hasn't been called yet).
-    pub last_run: Option<Instant>,
+    pub last_run: OptionInstantPtr,
     /// If the timer shouldn't start instantly, but rather be delayed by a certain timeframe
-    pub delay: Option<Duration>,
+    pub delay: OptionDuration,
     /// How frequently the timer should run, i.e. set this to `Some(Duration::from_millis(16))`
     /// to run the timer every 16ms. If this value is set to `None`, (the default), the timer
     /// will execute the timer as-fast-as-possible (i.e. at a faster framerate
     /// than the framework itself) - which might be  performance intensive.
-    pub interval: Option<Duration>,
+    pub interval: OptionDuration,
     /// When to stop the timer (for example, you can stop the
     /// execution after 5s using `Some(Duration::from_secs(5))`).
-    pub timeout: Option<Duration>,
+    pub timeout: OptionDuration,
     /// Callback to be called for this timer
     pub callback: TimerCallback,
 }
@@ -73,7 +132,7 @@ impl Timer {
             delay: None,
             interval: None,
             timeout: None,
-            callback: TimerCallback(callback),
+            callback: TimerCallback { cb: callback },
         }
     }
 
@@ -208,6 +267,7 @@ pub struct Thread<T> {
 
 /// Error that can happen while calling `.block()`
 #[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
+#[repr(C)]
 pub enum BlockError {
     /// Arc::into_inner() failed
     ArcUnlockError,

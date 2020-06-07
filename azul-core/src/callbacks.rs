@@ -270,37 +270,37 @@ macro_rules! impl_callback {($callback_value:ident) => (
     impl ::std::fmt::Debug for $callback_value {
         fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
             let callback = stringify!($callback_value);
-            write!(f, "{} @ 0x{:x}", callback, self.0 as usize)
+            write!(f, "{} @ 0x{:x}", callback, self.cb as usize)
         }
     }
 
     impl Clone for $callback_value {
         fn clone(&self) -> Self {
-            $callback_value(self.0.clone())
+            $callback_value(self.cb.clone())
         }
     }
 
     impl ::std::hash::Hash for $callback_value {
         fn hash<H>(&self, state: &mut H) where H: ::std::hash::Hasher {
-            state.write_usize(self.0 as usize);
+            state.write_usize(self.cb as usize);
         }
     }
 
     impl PartialEq for $callback_value {
         fn eq(&self, rhs: &Self) -> bool {
-            self.0 as usize == rhs.0 as usize
+            self.cb as usize == rhs.cb as usize
         }
     }
 
     impl PartialOrd for $callback_value {
         fn partial_cmp(&self, other: &Self) -> Option<::std::cmp::Ordering> {
-            Some((self.0 as usize).cmp(&(other.0 as usize)))
+            Some((self.cb as usize).cmp(&(other.cb as usize)))
         }
     }
 
     impl Ord for $callback_value {
         fn cmp(&self, other: &Self) -> ::std::cmp::Ordering {
-            (self.0 as usize).cmp(&(other.0 as usize))
+            (self.cb as usize).cmp(&(other.cb as usize))
         }
     }
 
@@ -325,7 +325,8 @@ macro_rules! impl_get_gl_context {() => {
 /// The style is not affected by this, so if you make changes to the window's style
 /// inside the function, the screen will not be automatically redrawn, unless you return
 /// an `UpdateScreen::Redraw` from the function
-pub struct Callback(pub CallbackType);
+#[repr(C)]
+pub struct Callback { pub cb: CallbackType }
 impl_callback!(Callback);
 
 /// Information about the callback that is passed to the callback whenever a callback is invoked
@@ -373,7 +374,7 @@ pub struct CallbackInfo<'a> {
 }
 
 /// Pointer to rust-allocated `Box<CallbackInfo<'a>>` struct
-#[no_mangle] #[repr(C)] pub struct CallbackInfoPtr { pub ptr: *mut c_void }
+#[repr(C)] pub struct CallbackInfoPtr { pub ptr: *mut c_void }
 
 pub type CallbackReturn = UpdateScreen;
 pub type CallbackType = fn(CallbackInfoPtr) -> CallbackReturn;
@@ -428,7 +429,8 @@ impl<'a> CallbackInfo<'a> {
 
 /// Callbacks that returns a rendered OpenGL texture
 #[cfg(feature = "opengl")]
-pub struct GlCallback(pub GlCallbackType);
+#[repr(C)]
+pub struct GlCallback { pub cb: GlCallbackType }
 #[cfg(feature = "opengl")]
 impl_callback!(GlCallback);
 
@@ -439,7 +441,7 @@ pub struct GlCallbackInfo<'a> {
 }
 
 /// Pointer to rust-allocated `Box<GlCallbackInfo<'a>>` struct
-#[no_mangle] #[repr(C)] pub struct GlCallbackInfoPtr { pub ptr: *mut c_void }
+#[repr(C)] pub struct GlCallbackInfoPtr { pub ptr: *mut c_void }
 
 #[cfg(feature = "opengl")]
 #[repr(C)]
@@ -455,7 +457,8 @@ pub type GlCallbackType = fn(GlCallbackInfoPtr) -> GlCallbackReturnPtr;
 
 /// Callback that, given a rectangle area on the screen, returns the DOM
 /// appropriate for that bounds (useful for infinite lists)
-pub struct IFrameCallback(pub IFrameCallbackType);
+#[repr(C)]
+pub struct IFrameCallback { pub cb: IFrameCallbackType }
 impl_callback!(IFrameCallback);
 
 pub struct IFrameCallbackInfo<'a> {
@@ -478,14 +481,23 @@ pub type IFrameCallbackType = fn(IFrameCallbackInfoPtr) -> IFrameCallbackReturnP
 // -- timer callback
 
 /// Callback that can runs on every frame on the main thread - can modify the app data model
-pub struct TimerCallback(pub TimerCallbackType);
+#[repr(C)]
+pub struct TimerCallback { pub cb: TimerCallbackType }
 impl_callback!(TimerCallback);
+
 pub struct TimerCallbackInfo<'a> {
     pub state: &'a mut RefAny,
     pub app_resources: &'a mut AppResources,
 }
-pub type TimerCallbackReturn = (UpdateScreen, TerminateTimer);
-pub type TimerCallbackType = fn(TimerCallbackInfo) -> TimerCallbackReturn;
+/// Pointer to rust-allocated `Box<TimerCallbackInfo<'a>>` struct
+#[repr(C)] pub struct TimerCallbackInfoPtr { pub ptr: *mut c_void }
+
+#[repr(C)]
+pub struct TimerCallbackReturn {
+    pub should_update: UpdateScreen,
+    pub should_terminate: TerminateTimer,
+}
+pub type TimerCallbackType = fn(TimerCallbackInfoPtr) -> TimerCallbackReturn;
 
 /// Pointer to rust-allocated `Box<LayoutInfo<'a>>` struct
 #[no_mangle] #[repr(C)] pub struct LayoutInfoPtr { pub ptr: *mut c_void }

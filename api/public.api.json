@@ -330,6 +330,28 @@
 						{"None": {}},
 						{"Some": { "type": "TabIndex" }}
 					]
+				},
+				"OptionDuration": {
+					"external": "azul_impl::task::OptionDuration"
+				},
+				"OptionInstant": {
+					"external": "azul_impl::task::OptionInstant"
+				}
+			}
+		},
+		"time": {
+			"doc": "Rust wrappers for `Instant` / `Duration` classes",
+			"classes": {
+				"Instant": {
+					"external": "azul_impl::task::AzInstantPtr",
+					"is_boxed_object": true
+				},
+				"Duration": {
+					"external": "azul_impl::task::AzDuration",
+					"struct_fields": [
+						{"secs": {"type": "u64"}},
+						{"nanos": {"type": "u32"}}
+					]
 				}
 			}
 		},
@@ -339,8 +361,8 @@
 				"AppConfig": {
 					"constructors": {
 						"default": {
-						"doc": "Creates a new AppConfig with default values",
-						"fn_body": "AppConfig::default()"
+							"doc": "Creates a new AppConfig with default values",
+							"fn_body": "AppConfig::default()"
 						}
 					}
 				},
@@ -372,9 +394,21 @@
 		"callbacks": {
 			"doc": "Callback type definitions + struct definitions of `CallbackInfo`s",
 			"classes": {
-				"LayoutCallback": { "use_patches": ["dll", "rust"], "typedef": true },
+				"LayoutCallback": {
+					"external": "azul_impl::callbacks::LayoutCallback",
+					"struct_fields": [
+						{"cb": {"type": "LayoutCallbackType"}}
+					]
+				},
+				"LayoutCallbackType": { "use_patches": ["dll", "rust"], "typedef": true },
 
-				"Callback": { "use_patches": ["dll", "rust"], "typedef": true },
+				"Callback": {
+					"external": "azul_impl::callbacks::Callback",
+					"struct_fields": [
+						{"cb": {"type": "CallbackType"}}
+					]
+				},
+				"CallbackType": { "use_patches": ["dll", "rust"], "typedef": true },
 				"CallbackInfo": {
 					"external": "azul_impl::callbacks::CallbackInfoPtr",
 					"rust_class_name": "CallbackInfo<'a>",
@@ -390,7 +424,14 @@
 						{"UpdateTransforms": {"doc": "Update **scroll states + GPU transforms** and redraw (no re-layout is done)"}}
 					]
 				},
-				"IFrameCallback": { "use_patches": ["dll", "rust"], "typedef": true },
+
+				"IFrameCallback": {
+					"external": "azul_impl::callbacks::IFrameCallback",
+					"struct_fields": [
+						{"cb": {"type": "IFrameCallbackType"}}
+					]
+				},
+				"IFrameCallbackType": { "use_patches": ["dll", "rust"], "typedef": true },
 				"IFrameCallbackInfo": {
 					"external": "azul_impl::callbacks::IFrameCallbackInfoPtr",
 					"rust_class_name": "IFrameCallbackInfo<'a>",
@@ -401,7 +442,13 @@
 					"is_boxed_object": true
 				},
 
-				"GlCallback": { "use_patches": ["dll", "rust"], "typedef": true },
+				"GlCallback": {
+					"external": "azul_impl::callbacks::GlCallback",
+					"struct_fields": [
+						{"cb": {"type": "GlCallbackType"}}
+					]
+				},
+				"GlCallbackType": { "use_patches": ["dll", "rust"], "typedef": true },
 				"GlCallbackInfo": {
 					"external": "azul_impl::callbacks::GlCallbackInfoPtr",
 					"rust_class_name": "GlCallbackInfo<'a>",
@@ -2315,6 +2362,52 @@
 						{ "RG8": {"doc": "Bytes are in the RG-unsigned-8bit format" } },
 						{ "RGBAI32": {"doc": "Bytes are in the RGBA-signed-32bit format" } },
 						{ "RGBA8": {"doc": "Bytes are in the RGBA-unsigned-8bit format" } }
+					]
+				}
+			}
+		},
+		"task": {
+			"doc": "Asyncronous timers / task / thread handlers for easy async loading",
+			"classes": {
+				"Timer": {
+					"external": "azul_impl::task::Timer"
+				},
+				"Task": {
+					"external": "azul_impl::task::Task"
+				},
+				"Thread": {
+					"external": "azul_impl::task::Thread"
+				},
+				"TimerCallback": {
+					"external": "azul_impl::callbacks::TimerCallback",
+					"struct_fields": [
+						{"cb": {"type": "TimerCallbackType"}}
+					]
+				},
+				"TimerCallbackType": { "use_patches": ["dll", "rust"], "typedef": true },
+				"DropCheck": {
+					"external": "azul_impl::task::DropCheck"
+				},
+				"TimerId": {
+					"external": "azul_impl::task::TimerId",
+					"struct_fields": [
+						{"id": {"type": "usize"}}
+					]
+				},
+				"TerminateTimer": {
+					"external": "azul_impl::task::TerminateTimer",
+					"doc": "Should a timer terminate or not - used to remove active timers",
+					"enum_fields": [
+						{"Terminate": {"doc": "Remove the timer from the list of active timers"}},
+						{"Continue": {"doc": "Do nothing and let the timers continue to run"}}
+					]
+				},
+				"BlockError": {
+					"external": "azul_impl::task::BlockError",
+					"enum_fields": [
+						{"ArcUnlockError": {"doc": "Arc::into_inner() failed"}},
+						{"ThreadJoinError": {"doc": "The background thread panicked"}},
+						{"MutexIntoInnerError": {"doc": "Mutex::into_inner() failed"}}
 					]
 				}
 			}
