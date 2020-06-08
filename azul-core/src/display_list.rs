@@ -1,7 +1,6 @@
 use std::{
     fmt,
     collections::BTreeMap,
-    rc::Rc,
 };
 use azul_css::{
     LayoutPoint, LayoutSize, LayoutRect,
@@ -36,9 +35,7 @@ use crate::{
     },
 };
 #[cfg(feature = "opengl")]
-use crate::gl::Texture;
-#[cfg(feature = "opengl")]
-use gleam::gl::Gl;
+use crate::gl::{Texture, OptionTexture, GlContextPtr};
 
 pub type GlyphIndex = u32;
 
@@ -627,7 +624,7 @@ impl SolvedLayout {
         epoch: Epoch,
         pipeline_id: PipelineId,
         full_window_state: &FullWindowState,
-        gl_context: Rc<dyn Gl>,
+        gl_context: GlContextPtr,
         render_api: &mut U,
         app_resources: &mut AppResources,
         ui_states: &mut BTreeMap<DomId, UiState>,
@@ -658,7 +655,7 @@ impl SolvedLayout {
             ui_description: &UiDescription,
             pipeline_id: &PipelineId,
             bounds: LayoutRect,
-            gl_context: Rc<dyn Gl>,
+            gl_context: GlContextPtr,
             layout_func: LayoutFn,
             load_font_fn: LoadFontFn,
             load_image_fn: LoadImageFn,
@@ -757,7 +754,7 @@ impl SolvedLayout {
                     tex
                 };
 
-                if let Some(t) = texture {
+                if let OptionTexture::Some(t) = texture {
                     solved_textures
                         .entry(dom_id.clone())
                         .or_insert_with(|| BTreeMap::default())
@@ -798,7 +795,7 @@ impl SolvedLayout {
                     };
 
                     let ptr = IFrameCallbackInfoPtr { ptr: Box::into_raw(Box::new(callback_info)) as *mut c_void };
-                    let iframe_callback_return_ptr = (cb.0)(ptr);
+                    let iframe_callback_return_ptr = (cb.cb)(ptr);
                     let iframe_callback_return = unsafe { Box::from_raw(iframe_callback_return_ptr.ptr as *mut IFrameCallbackReturn) };
                     let dom = iframe_callback_return.dom;
                     dom

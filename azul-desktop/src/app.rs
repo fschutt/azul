@@ -1,5 +1,4 @@
 use std::{
-    rc::Rc,
     time::{Duration, Instant},
     collections::BTreeMap,
 };
@@ -11,7 +10,7 @@ use glutin::{
     event::ModifiersState as GlutinModifiersState,
     event_loop::EventLoopWindowTarget as GlutinEventLoopWindowTarget,
 };
-use gleam::gl::{self, Gl, GLuint};
+use gleam::gl::{self, GLuint};
 use webrender::{
     PipelineInfo as WrPipelineInfo,
     Renderer as WrRenderer,
@@ -31,7 +30,7 @@ use azul_core::{
     FastHashMap,
     window::{RendererType, WindowCreateOptions, WindowSize, DebugState, WindowState, FullWindowState},
     dom::{DomId, NodeId, ScrollTagId},
-    gl::GlShader,
+    gl::{GlShader, GlContextPtr},
     ui_state::UiState,
     ui_solver::ScrolledNodes,
     callbacks::{RefAny, LayoutCallback, HitTestItem, UpdateScreen},
@@ -157,8 +156,8 @@ impl Default for AppConfig {
             debug_state: DebugState::default(),
             background_color: COLOR_WHITE,
             min_frame_duration: Duration::from_millis(30),
-            font_loading_fn: LoadFontFn(::azulc::font_loading::font_source_get_bytes), // assumes "font_loading" feature enabled
-            image_loading_fn: LoadImageFn(::azulc::image_loading::image_source_get_bytes), // assumes "image_loading" feature enabled
+            font_loading_fn: LoadFontFn { cb: azulc::font_loading::font_source_get_bytes }, // assumes "font_loading" feature enabled
+            image_loading_fn: LoadImageFn { cb: azulc::image_loading::image_source_get_bytes }, // assumes "image_loading" feature enabled
         }
     }
 }
@@ -715,7 +714,7 @@ struct EventLoopData<'a> {
     render_api: &'a mut WrApi,
     renderer: &'a mut Option<WrRenderer>,
     hidden_context: &'a mut HeadlessContextState,
-    gl_context: Rc<dyn Gl>,
+    gl_context: GlContextPtr,
 }
 
 /// Similar to `events_loop_proxy.send_user_event(ev)`, however, when dispatching events using glutin,
@@ -1210,7 +1209,7 @@ fn initialize_full_window_states(
 #[cfg(not(test))]
 fn initialize_ui_state_cache(
     data: &RefAny,
-    gl_context: Rc<dyn Gl>,
+    gl_context: GlContextPtr,
     app_resources: &AppResources,
     windows: &BTreeMap<GlutinWindowId, Window>,
     full_window_states: &mut BTreeMap<GlutinWindowId, FullWindowState>,
@@ -1272,7 +1271,7 @@ fn hot_reload_css(
 
 fn call_layout_fn(
     data: &RefAny,
-    gl_context: Rc<dyn Gl>,
+    gl_context: GlContextPtr,
     app_resources: &AppResources,
     full_window_state: &FullWindowState,
     layout_callback: LayoutCallback,
@@ -1537,7 +1536,7 @@ fn render_inner(
     headless_shared_context: &mut HeadlessContextState,
     render_api: &mut WrApi,
     renderer: &mut WrRenderer,
-    gl_context: Rc<dyn Gl>,
+    gl_context: GlContextPtr,
     mut txn: WrTransaction,
     background_color: ColorU,
 ) {
@@ -1684,14 +1683,14 @@ const DISPLAY_FRAGMENT_SHADER: &str = "
 static mut DISPLAY_SHADER: Option<GlShader> = None;
 
 /// Compiles the display vertex / fragment shader, returns the compiled shaders.
-fn compile_screen_shader(context: Rc<dyn Gl>) -> GLuint {
+fn compile_screen_shader(context: GlContextPtr) -> GLuint {
     unsafe { DISPLAY_SHADER.get_or_insert_with(|| {
         GlShader::new(context, DISPLAY_VERTEX_SHADER, DISPLAY_FRAGMENT_SHADER).unwrap()
     }) }.program_id
 }
 
 // Draws a texture to the currently bound framebuffer. Texture has to be cleaned up by the caller.
-fn draw_texture_to_screen(context: Rc<dyn Gl>, texture: GLuint, framebuffer_size: WrDeviceIntSize) {
+fn draw_texture_to_screen(context: GlContextPtr, texture: GLuint, framebuffer_size: WrDeviceIntSize) {
 
     context.bind_framebuffer(gl::FRAMEBUFFER, 0);
 

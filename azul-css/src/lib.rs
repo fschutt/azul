@@ -227,6 +227,15 @@ macro_rules! impl_option {
             Some($struct_type)
         }
 
+        impl $struct_name {
+            pub fn into_option(self) -> Option<$struct_type> {
+                match self {
+                    $struct_name::None => None,
+                    $struct_name::Some(t) => Some(t),
+                }
+            }
+        }
+
         impl_option_inner!($struct_type, $struct_name);
     );
     ($struct_type:ident, $struct_name:ident, copy = false) => (
@@ -237,6 +246,15 @@ macro_rules! impl_option {
             Some($struct_type)
         }
 
+        impl $struct_name {
+            pub fn into_option(&self) -> Option<$struct_type> {
+                match self {
+                    $struct_name::None => None,
+                    $struct_name::Some(t) => Some(t.clone()),
+                }
+            }
+        }
+
         impl_option_inner!($struct_type, $struct_name);
     );
     ($struct_type:ident, $struct_name:ident) => (
@@ -245,6 +263,15 @@ macro_rules! impl_option {
         pub enum $struct_name {
             None,
             Some($struct_type)
+        }
+
+        impl $struct_name {
+            pub fn into_option(&self) -> Option<$struct_type> {
+                match self {
+                    $struct_name::None => None,
+                    $struct_name::Some(t) => Some(*t),
+                }
+            }
         }
 
         impl_option_inner!($struct_type, $struct_name);

@@ -1,6 +1,5 @@
 use std::{
     fmt,
-    rc::Rc,
     collections::BTreeMap,
 };
 use webrender::{
@@ -23,7 +22,7 @@ use glutin::{
     CreationError as GlutinCreationError, ContextBuilder, Context, WindowedContext,
     NotCurrent, PossiblyCurrent,
 };
-use gleam::gl::{self, Gl};
+use gleam::gl;
 use clipboard2::{Clipboard as _, ClipboardError, SystemClipboard};
 use azul_css::ColorU;
 use crate::{
@@ -35,6 +34,7 @@ use azul_core::{
     display_list::{CachedDisplayList, SolvedLayoutCache, GlTextureCache},
     window::WindowId,
     app_resources::{Epoch, AppResources},
+    gl::GlContextPtr,
 };
 pub use glutin::monitor::MonitorHandle;
 pub use azul_core::window::*;
@@ -790,7 +790,7 @@ pub(crate) struct FakeDisplay {
     /// Event loop that all windows share
     pub(crate) hidden_event_loop: EventLoop<()>,
     /// Stores the GL context (function pointers) that are shared across all windows
-    pub(crate) gl_context: Rc<dyn Gl>,
+    pub(crate) gl_context: GlContextPtr,
 }
 
 impl fmt::Debug for FakeDisplay {
@@ -821,16 +821,16 @@ impl FakeDisplay {
         })
     }
 
-    pub fn get_gl_context(&self) -> Rc<dyn Gl> {
+    pub fn get_gl_context(&self) -> GlContextPtr {
         self.gl_context.clone()
     }
 }
 
-fn get_gl_context(gl_window: &Context<PossiblyCurrent>) -> Result<Rc<dyn Gl>, GlutinCreationError> {
+fn get_gl_context(gl_window: &Context<PossiblyCurrent>) -> Result<GlContextPtr, GlutinCreationError> {
     use glutin::Api;
     match gl_window.get_api() {
-        Api::OpenGl => Ok(unsafe { gl::GlFns::load_with(|symbol| gl_window.get_proc_address(symbol) as *const _) }),
-        Api::OpenGlEs => Ok(unsafe { gl::GlesFns::load_with(|symbol| gl_window.get_proc_address(symbol) as *const _ ) }),
+        Api::OpenGl => Ok(GlContextPtr::new(unsafe { gl::GlFns::load_with(|symbol| gl_window.get_proc_address(symbol) as *const _) })),
+        Api::OpenGlEs => Ok(GlContextPtr::new(unsafe { gl::GlesFns::load_with(|symbol| gl_window.get_proc_address(symbol) as *const _ ) })),
         Api::WebGl => Err(GlutinCreationError::NoBackendAvailable("WebGL".into())),
     }
 }
@@ -979,7 +979,7 @@ fn create_renderer(
     renderer_type: RendererType,
     device_pixel_ratio: f32,
     device_size: WrDeviceIntSize,
-) -> Result<(WrRenderer, WrRenderApi, HeadlessContextState, Rc<dyn Gl>), RendererCreationError> {
+) -> Result<(WrRenderer, WrRenderApi, HeadlessContextState, GlContextPtr), RendererCreationError> {
 
     use self::RendererType::*;
 
@@ -996,7 +996,7 @@ fn create_renderer(
             let mut headless_context = HeadlessContextState::NotCurrent(gl_context);
             headless_context.make_current();
             let gl_context = get_gl_context(headless_context.headless_context().unwrap()).unwrap();
-            let (renderer, sender) = WrRenderer::new(gl_context.clone(), notifier, opts_native, WR_SHADER_CACHE, device_size)
+            let (renderer, sender) = WrRenderer::new(gl_context.get().clone(), notifier, opts_native, WR_SHADER_CACHE, device_size)
                 .map_err(|_| RendererCreationError::Wr)?;
             (renderer, sender, headless_context, gl_context)
         },
@@ -1005,7 +1005,7 @@ fn create_renderer(
             let mut headless_context = HeadlessContextState::NotCurrent(gl_context);
             headless_context.make_current();
             let gl_context = get_gl_context(headless_context.headless_context().unwrap()).unwrap();
-            let (renderer, sender) = WrRenderer::new(gl_context.clone(), notifier, opts_osmesa, WR_SHADER_CACHE, device_size)
+            let (renderer, sender) = WrRenderer::new(gl_context.get().clone(), notifier, opts_osmesa, WR_SHADER_CACHE, device_size)
                 .map_err(|_| RendererCreationError::Wr)?;
             (renderer, sender, headless_context, gl_context)
         },
@@ -1016,7 +1016,7 @@ fn create_renderer(
                     let mut headless_context = HeadlessContextState::NotCurrent(gl_context);
                     headless_context.make_current();
                     let gl_context = get_gl_context(headless_context.headless_context().unwrap()).unwrap();
-                    let (renderer, sender) = WrRenderer::new(gl_context.clone(), notifier, opts_native, WR_SHADER_CACHE, device_size)
+                    let (renderer, sender) = WrRenderer::new(gl_context.get().clone(), notifier, opts_native, WR_SHADER_CACHE, device_size)
                         .map_err(|_| RendererCreationError::Wr)?;
                     (renderer, sender, headless_context, gl_context)
                 },
@@ -1025,7 +1025,7 @@ fn create_renderer(
                     let mut headless_context = HeadlessContextState::NotCurrent(gl_context);
                     headless_context.make_current();
                     let gl_context = get_gl_context(headless_context.headless_context().unwrap()).unwrap();
-                    let (renderer, sender) = WrRenderer::new(gl_context.clone(), notifier, opts_native, WR_SHADER_CACHE, device_size)
+                    let (renderer, sender) = WrRenderer::new(gl_context.get().clone(), notifier, opts_native, WR_SHADER_CACHE, device_size)
                         .map_err(|_| RendererCreationError::Wr)?;
                     (renderer, sender, headless_context, gl_context)
                 },

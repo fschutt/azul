@@ -87,7 +87,7 @@ impl Clone for AzInstantPtr {
 
 impl From<StdInstant> for AzInstantPtr {
     fn from(s: StdInstant) -> AzInstantPtr {
-        Self { ptr: Box::into_raw(Box::new(s)) }
+        Self { ptr: Box::into_raw(Box::new(s)) as *const c_void }
     }
 }
 
@@ -112,7 +112,7 @@ pub struct AzDuration {
 
 impl From<StdDuration> for AzDuration {
     fn from(d: StdDuration) -> AzDuration {
-        AzDuration { secs: d.as_secs(), nanos: d.as_nanos() }
+        AzDuration { secs: d.as_secs(), nanos: d.subsec_nanos() }
     }
 }
 
@@ -126,6 +126,7 @@ impl AzDuration {
     pub fn from_secs(secs: u64) -> Self { StdDuration::from_secs(secs).into() }
     pub fn from_millis(millis: u64) -> Self { StdDuration::from_millis(millis).into() }
     pub fn from_nanos(nanos: u64) -> Self { StdDuration::from_nanos(nanos).into() }
+    pub fn get(&self) -> StdDuration { (*self).into() }
 }
 
 impl_option!(AzInstantPtr, OptionInstantPtr, copy = false);
@@ -167,10 +168,10 @@ impl Timer {
     pub fn new(callback: TimerCallbackType) -> Self {
         Timer {
             created: AzInstantPtr::new(StdInstant::now()),
-            last_run: None,
-            delay: None,
-            interval: None,
-            timeout: None,
+            last_run: OptionInstantPtr::None,
+            delay: OptionDuration::None,
+            interval: OptionDuration::None,
+            timeout: OptionDuration::None,
             callback: TimerCallback { cb: callback },
         }
     }
@@ -206,29 +207,29 @@ impl Timer {
         use crate::callbacks::TimerCallbackInfoPtr;
 
         let instant_now = StdInstant::now();
-        let delay = self.delay.unwrap_or_else(|| StdDuration::from_millis(0).into());
+        let delay = self.delay.clone().into_option().unwrap_or_else(|| AzDuration::from_millis(0));
 
         // Check if the timers timeout is reached
-        if let Some(timeout) = self.timeout {
-            if instant_now - self.created > timeout {
-                return (UpdateScreen::DontRedraw, TerminateTimer::Terminate);
+        if let OptionDuration::Some(timeout) = self.timeout {
+            if instant_now - self.created.get() > timeout.get() {
+                return TimerCallbackReturn { should_update: UpdateScreen::DontRedraw, should_terminate: TerminateTimer::Terminate };
             }
         }
 
-        if let Some(interval) = self.interval {
-            let last_run = match self.last_run {
-                Some(s) => s,
-                None => self.created + delay,
+        if let OptionDuration::Some(interval) = self.interval {
+            let last_run = match self.last_run.as_option() {
+                Some(s) => s.get(),
+                None => self.created.get() + delay.get(),
             };
-            if instant_now - last_run < interval {
-                return (UpdateScreen::DontRedraw, TerminateTimer::Continue);
+            if instant_now - last_run < interval.get() {
+                return TimerCallbackReturn { should_update: UpdateScreen::DontRedraw, should_terminate: TerminateTimer::Continue };
             }
         }
 
         let info_ptr = TimerCallbackInfoPtr { ptr: Box::into_raw(Box::new(info)) as *const c_void };
-        let res = (self.callback.0)(info_ptr);
+        let res = (self.callback.cb)(info_ptr);
 
-        self.last_run = Some(instant_now);
+        self.last_run = OptionInstantPtr::Some(instant_now.into());
 
         res
     }
@@ -384,7 +385,7 @@ pub fn run_all_timers(
     let mut timers_to_terminate = Vec::new();
 
     for (key, timer) in timers.iter_mut() {
-        let (should_update, should_terminate) = timer.invoke(TimerCallbackInfo {
+        let TimerCallbackReturn { should_update, should_terminate } = timer.invoke(TimerCallbackInfo {
             state: data,
             app_resources: resources,
         });
@@ -417,8 +418,8 @@ pub fn clean_up_finished_tasks(
 
     tasks.retain(|task| {
         if task.is_finished() {
-            if let Some(timer) = task.after_completion_timer {
-                timers_to_add.push((TimerId::new(), timer));
+            if let Some(timer) = &task.after_completion_timer {
+                timers_to_add.push((TimerId::new(), timer.clone()));
             }
             false
         } else {

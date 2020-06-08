@@ -1017,14 +1017,17 @@ fn unimplemented() -> ! {
     panic!("You cannot call OpenGL functions on the VirtualGlDriver");
 }
 
+#[cfg(feature = "opengl")]
 #[repr(C)]
 pub struct GlContextPtr { /* *const Rc<dyn Gl> */ pub ptr: *const c_void }
 
+#[cfg(feature = "opengl")]
 impl GlContextPtr {
-    pub fn new(context: Rc<dyn Gl>) -> Self { Self { ptr: Box::into_raw(Box::new(context))} }
-    pub fn get(&self) -> &Rc<dyn Gl> { let p = unsafe { Box::from_raw(self.ptr as *mut Rc<dyn Gl>) }; &p }
+    pub fn new(context: Rc<dyn Gl>) -> Self { Self { ptr: Box::into_raw(Box::new(context)) as *const c_void } }
+    pub fn get<'a>(&'a self) -> &'a Rc<dyn Gl> { unsafe { &*(self.ptr as *const Rc<dyn Gl>) } }
 }
 
+#[cfg(feature = "opengl")]
 impl GlContextPtr {
     pub fn get_type(&self) -> GlType { self.get().get_type() }
     pub fn buffer_data_untyped(&self, target: GLenum, size: GLsizeiptr, data: *const GLvoid, usage: GLenum) { self.get().buffer_data_untyped(target, size, data, usage, ) }
@@ -1247,12 +1250,14 @@ impl GlContextPtr {
     pub fn copy_sub_texture_3d_angle(&self, source_id: GLuint, source_level: GLint, dest_target: GLenum, dest_id: GLuint, dest_level: GLint, x_offset: GLint, y_offset: GLint, z_offset: GLint, x: GLint, y: GLint, z: GLint, width: GLsizei, height: GLsizei, depth: GLsizei, unpack_flip_y: GLboolean, unpack_premultiply_alpha: GLboolean, unpack_unmultiply_alpha: GLboolean) { self.get().copy_sub_texture_3d_angle(source_id, source_level, dest_target, dest_id, dest_level, x_offset, y_offset, z_offset, x, y, z, width, height, depth, unpack_flip_y, unpack_premultiply_alpha, unpack_unmultiply_alpha) }
 }
 
+#[cfg(feature = "opengl")]
 impl Clone for GlContextPtr {
     fn clone(&self) -> Self {
-        Self::new(self.get.clone())
+        Self::new(self.get().clone())
     }
 }
 
+#[cfg(feature = "opengl")]
 impl Drop for GlContextPtr {
     fn drop(&mut self) {
         let _ = unsafe { Box::from_raw(self.ptr as *mut Rc<dyn Gl>) };
@@ -1413,7 +1418,7 @@ impl VertexLayout {
 
         const VERTICES_ARE_NORMALIZED: bool = false;
 
-        let gl_context = &*shader.gl_context;
+        let gl_context = &shader.gl_context;
 
         let mut offset = 0;
 
@@ -1440,7 +1445,7 @@ impl VertexLayout {
 
     /// Unsets the vertex buffer description
     pub fn unbind(&self, shader: &GlShader) {
-        let gl_context = &*shader.gl_context;
+        let gl_context = &shader.gl_context;
         for vertex_attribute in self.fields.iter() {
             let attribute_location = vertex_attribute.layout_location
                 .map(|ll| ll as i32)
@@ -1517,7 +1522,7 @@ pub trait VertexLayoutDescription {
 pub struct VertexArrayObject {
     pub vertex_layout: VertexLayout,
     pub vao_id: GLuint,
-    pub gl_context: Rc<dyn Gl>,
+    pub gl_context: GlContextPtr,
 }
 
 impl Drop for VertexArrayObject {
@@ -1529,7 +1534,7 @@ impl Drop for VertexArrayObject {
 pub struct VertexBuffer<T: VertexLayoutDescription> {
     pub vertex_buffer_id: GLuint,
     pub vertex_buffer_len: usize,
-    pub gl_context: Rc<dyn Gl>,
+    pub gl_context: GlContextPtr,
     pub vao: VertexArrayObject,
     pub vertex_buffer_type: PhantomData<T>,
 
@@ -1702,7 +1707,7 @@ pub enum UniformType {
 
 impl UniformType {
     /// Set a specific uniform
-    pub fn set(self, gl_context: &dyn Gl, location: GLint) {
+    pub fn set(self, gl_context: &Rc<dyn Gl>, location: GLint) {
         use self::UniformType::*;
         match self {
             Float(r) => gl_context.uniform_1f(location, r),
@@ -1724,9 +1729,10 @@ impl UniformType {
     }
 }
 
+#[repr(C)]
 pub struct GlShader {
     pub program_id: GLuint,
-    pub gl_context: Rc<dyn Gl>,
+    pub gl_context: GlContextPtr,
 }
 
 impl ::std::fmt::Display for GlShader {
@@ -1836,7 +1842,7 @@ impl GlShader {
     /// Compiles and creates a new OpenGL shader, created from a vertex and a fragment shader string.
     ///
     /// If the shader fails to compile, the shader object gets automatically deleted, no cleanup necessary.
-    pub fn new(gl_context: Rc<dyn Gl>, vertex_shader: &str, fragment_shader: &str) -> Result<Self, GlShaderCreateError> {
+    pub fn new(gl_context: GlContextPtr, vertex_shader: &str, fragment_shader: &str) -> Result<Self, GlShaderCreateError> {
 
         // Check whether the OpenGL implementation supports a shader compiler...
         let mut shader_compiler_supported = [gl::FALSE];
@@ -1922,7 +1928,7 @@ impl GlShader {
 
         const INDEX_TYPE: GLuint = gl::UNSIGNED_INT;
 
-        let gl_context = &*self.gl_context;
+        let gl_context = &self.gl_context;
 
         // save the OpenGL state
         let mut current_multisample = [0_u8];
@@ -2011,7 +2017,7 @@ impl GlShader {
             for (uniform_index, uniform) in uniforms.iter().enumerate() {
                 if current_uniforms[uniform_index] != Some(uniform.uniform_type) {
                     let uniform_location = uniform_locations[&uniform.name];
-                    uniform.uniform_type.set(gl_context, uniform_location);
+                    uniform.uniform_type.set(gl_context.get(), uniform_location);
                     current_uniforms[uniform_index] = Some(uniform.uniform_type);
                 }
             }

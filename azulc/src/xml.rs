@@ -545,7 +545,7 @@ pub fn layout_dom(dom: Dom, css: &Css, root_size: LogicalSize) -> CachedDisplayL
         dom::DomId,
         display_list::SolvedLayout,
         callbacks::PipelineId,
-        gl::VirtualGlDriver,
+        gl::{VirtualGlDriver, GlContextPtr},
         window::{WindowSize, FullWindowState},
     };
 
@@ -565,7 +565,7 @@ pub fn layout_dom(dom: Dom, css: &Css, root_size: LogicalSize) -> CachedDisplayL
     // Note: while the VirtualGlDriver will crash on everything,
     // triggering that behaviour is virtually impossible because
     // there is no way to create OpenGL callbacks in the XML code
-    let gl_context = Rc::new(VirtualGlDriver::new());
+    let gl_context = GlContextPtr::new(Rc::new(VirtualGlDriver::new()));
     let pipeline_id = PipelineId::new();
     let epoch = Epoch(0);
 
@@ -594,8 +594,8 @@ pub fn layout_dom(dom: Dom, css: &Css, root_size: LogicalSize) -> CachedDisplayL
         &mut ui_descriptions,
         azul_core::gl::insert_into_active_gl_textures,
         azul_layout::ui_solver::do_the_layout,
-        LoadFontFn(crate::font_loading::font_source_get_bytes),
-        LoadImageFn(crate::image_loading::image_source_get_bytes),
+        LoadFontFn { cb: crate::font_loading::font_source_get_bytes },
+        LoadImageFn { cb: crate::image_loading::image_source_get_bytes },
     );
 
     CachedDisplayList::new(

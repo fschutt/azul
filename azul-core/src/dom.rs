@@ -1132,7 +1132,7 @@ impl Dom {
     /// Shorthand for `Dom::new(NodeType::IFrame((callback, ptr)))`
     #[inline(always)]
     pub fn iframe(callback: IFrameCallbackType, data: RefAny) -> Self {
-        Self::new(NodeType::IFrame(IFrameNode { callback: IFrameCallback { callback }, data }))
+        Self::new(NodeType::IFrame(IFrameNode { callback: IFrameCallback { cb: callback }, data }))
     }
 
     /// Adds a child DOM to the current DOM

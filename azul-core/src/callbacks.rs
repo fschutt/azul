@@ -488,7 +488,7 @@ pub struct TimerCallbackInfo<'a> {
 }
 
 /// Pointer to rust-allocated `Box<TimerCallbackInfo<'a>>` struct
-#[repr(C)] pub struct TimerCallbackInfoPtr { pub ptr: *mut c_void }
+#[repr(C)] pub struct TimerCallbackInfoPtr { pub ptr: *const c_void }
 
 #[repr(C)]
 pub struct TimerCallbackReturn {
