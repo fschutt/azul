@@ -744,8 +744,9 @@ impl SolvedLayout {
                     };
 
                     let ptr = GlCallbackInfoPtr { ptr: Box::into_raw(Box::new(callback_info)) as *mut c_void };
-                    let gl_callback_return_ptr = (cb.0)(ptr);
+                    let gl_callback_return_ptr = (cb.cb)(ptr);
                     let gl_callback_return = unsafe { Box::from_raw(gl_callback_return_ptr.ptr as *mut GlCallbackReturn) };
+                    let gl_callback_return = *gl_callback_return;
                     let tex = gl_callback_return.texture;
 
                     // Reset the framebuffer and SRGB color target to 0

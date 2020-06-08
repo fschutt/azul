@@ -2,7 +2,6 @@ use std::{
     fmt,
     sync::atomic::{AtomicUsize, Ordering},
     collections::BTreeMap,
-    rc::Rc,
     hash::Hash,
     ffi::c_void,
     alloc::Layout,
@@ -28,9 +27,7 @@ use crate::{
 };
 
 #[cfg(feature = "opengl")]
-use crate::gl::Texture;
-#[cfg(feature = "opengl")]
-use gleam::gl::Gl;
+use crate::gl::{OptionTexture, GlContextPtr};
 
 /// Specifies if the screen should be updated after the callback function has returned
 #[repr(C)]
@@ -276,7 +273,7 @@ macro_rules! impl_callback {($callback_value:ident) => (
 
     impl Clone for $callback_value {
         fn clone(&self) -> Self {
-            $callback_value(self.cb.clone())
+            $callback_value { cb: self.cb.clone() }
         }
     }
 
@@ -312,7 +309,7 @@ macro_rules! impl_callback {($callback_value:ident) => (
 macro_rules! impl_get_gl_context {() => {
     /// Returns a reference-counted pointer to the OpenGL context
     #[cfg(feature = "opengl")]
-    pub fn get_gl_context(&self) -> Rc<dyn Gl> {
+    pub fn get_gl_context(&self) -> GlContextPtr {
         self.gl_context.clone()
     }
 };}
@@ -345,7 +342,7 @@ pub struct CallbackInfo<'a> {
     pub cached_display_list: &'a CachedDisplayList,
     /// An Rc to the OpenGL context, in order to be able to render to OpenGL textures
     #[cfg(feature = "opengl")]
-    pub gl_context: Rc<dyn Gl>,
+    pub gl_context: GlContextPtr,
     /// See [`AppState.resources`](./struct.AppState.html#structfield.resources)
     pub resources : &'a mut AppResources,
     /// Currently running timers (polling functions, run on the main thread)
@@ -445,7 +442,7 @@ pub struct GlCallbackInfo<'a> {
 
 #[cfg(feature = "opengl")]
 #[repr(C)]
-pub struct GlCallbackReturn { pub texture: Option<Texture> }
+pub struct GlCallbackReturn { pub texture: OptionTexture }
 
 /// Pointer to rust-allocated `Box<GlCallbackReturn>` struct
 #[no_mangle] #[repr(C)] pub struct GlCallbackReturnPtr { pub ptr: *mut c_void }
@@ -489,6 +486,7 @@ pub struct TimerCallbackInfo<'a> {
     pub state: &'a mut RefAny,
     pub app_resources: &'a mut AppResources,
 }
+
 /// Pointer to rust-allocated `Box<TimerCallbackInfo<'a>>` struct
 #[repr(C)] pub struct TimerCallbackInfoPtr { pub ptr: *mut c_void }
 
@@ -497,6 +495,7 @@ pub struct TimerCallbackReturn {
     pub should_update: UpdateScreen,
     pub should_terminate: TerminateTimer,
 }
+
 pub type TimerCallbackType = fn(TimerCallbackInfoPtr) -> TimerCallbackReturn;
 
 /// Pointer to rust-allocated `Box<LayoutInfo<'a>>` struct
@@ -522,7 +521,7 @@ pub struct LayoutInfo<'a> {
     /// An Rc to the original OpenGL context - this is only so that
     /// the user can create textures and other OpenGL content in the window
     #[cfg(feature = "opengl")]
-    pub gl_context: Rc<dyn Gl>,
+    pub gl_context: GlContextPtr,
     /// Allows the layout() function to reference app resources such as FontIDs or ImageIDs
     pub resources: &'a AppResources,
 }
@@ -712,7 +711,7 @@ pub fn call_callbacks(
     layout_result: &BTreeMap<DomId, LayoutResult>,
     scrolled_nodes: &BTreeMap<DomId, ScrolledNodes>,
     cached_display_list: &CachedDisplayList,
-    gl_context: Rc<dyn Gl>,
+    gl_context: GlContextPtr,
     resources: &mut AppResources,
 ) -> CallCallbacksResult {
 
@@ -794,7 +793,7 @@ pub fn call_callbacks(
                 let ptr = CallbackInfoPtr { ptr: Box::into_raw(Box::new(callback_info)) as *mut c_void };
 
                 // Invoke callback
-                let callback_return = (callback.0)(ptr);
+                let callback_return = (callback.cb)(ptr);
 
                 if callback_return == UpdateScreen::Redraw {
                     ret.callbacks_update_screen = UpdateScreen::Redraw;

@@ -324,6 +324,13 @@
 						{"Some": { "type": "PercentageValue" }}
 					]
 				},
+				"OptionTexture": {
+					"external": "azul_impl::gl::OptionTexture",
+					"enum_fields": [
+						{"None": {}},
+						{"Some": { "type": "Texture" }}
+					]
+				},
 				"OptionTabIndex": {
 					"external": "azul_impl::dom::OptionTabIndex",
 					"enum_fields": [
@@ -455,8 +462,10 @@
 					"is_boxed_object": true
 				},
 				"GlCallbackReturn": {
-					"external": "azul_impl::callbacks::GlCallbackReturnPtr",
-					"is_boxed_object": true
+					"external": "azul_impl::callbacks::GlCallbackReturn",
+					"struct_fields": [
+						{"texture": { "type": "OptionTexture" }}
+					]
 				},
 
 				"RefAny": { "use_patches": ["dll", "rust"] },
@@ -2275,6 +2284,31 @@
 				}
 			}
 		},
+		"gl": {
+			"doc": "OpenGl helper types (`Texture`, `GlContext`, etc.)",
+			"classes": {
+				"GlContextPtr": {
+					"external": "azul_impl::gl::GlContextPtr",
+					"is_boxed_object": true
+				},
+				"Texture": {
+					"external": "azul_impl::gl::Texture",
+					"struct_fields": [
+						{"texture_id": {"type": "u32", "doc": "Raw OpenGL texture ID"}},
+						{"flags": {"type": "TextureFlags", "doc": "Hints and flags for optimization purposes"}},
+						{"size": {"type": "LogicalSize", "doc": "Size of this texture (in pixels)"}},
+						{"gl_context": {"type": "GlContextPtr", "doc": "A reference-counted pointer to the OpenGL context (so that the texture can be deleted in the destructor)"}}
+					]
+				},
+				"TextureFlags": {
+					"external": "azul_impl::gl::TextureFlags",
+					"struct_fields": [
+						{"is_opaque": {"type": "bool", "doc": "Whether this texture contains an alpha component"}},
+						{"is_video_texture": {"type": "bool", "doc": "Optimization: use the compositor instead of OpenGL for energy efficiency"}}
+					]
+				}
+			}
+		},
 		"resources": {
 			"doc": "Struct definition for image / font / text IDs",
 			"classes": {
@@ -2385,6 +2419,13 @@
 					]
 				},
 				"TimerCallbackType": { "use_patches": ["dll", "rust"], "typedef": true },
+				"TimerCallbackReturn": {
+					"external": "azul_impl::callbacks::TimerCallbackReturn",
+					"struct_fields": [
+						{"should_update": {"type": "UpdateScreen"}},
+						{"should_terminate": {"type": "TerminateTimer"}}
+					]
+				},
 				"DropCheck": {
 					"external": "azul_impl::task::DropCheck"
 				},
@@ -2425,6 +2466,13 @@
 						"fn_body":"WindowCreateOptions::new(*az_css_downcast(css))"
 						}
 					}
+				},
+				"LogicalSize": {
+					"external": "azul_impl::window::LogicalSize",
+					"struct_fields": [
+						{"width": {"type": "f32"}},
+						{"height": {"type": "f32"}}
+					]
 				}
 			}
 		}

@@ -95,6 +95,10 @@ pub(crate) mod dll {
         None,
         Some(AzPercentageValue),
     }
+    #[repr(C, u8)] pub enum AzOptionTexture {
+        None,
+        Some(AzTexture),
+    }
     #[repr(C, u8)] pub enum AzOptionTabIndex {
         None,
         Some(AzTabIndex),
@@ -121,14 +125,8 @@ pub(crate) mod dll {
     #[repr(C)] pub struct AzLayoutCallback {
         pub cb: AzLayoutCallbackType,
     }
-    #[repr(C)] pub struct AzLayoutCallbackTypePtr {
-        pub ptr: *mut c_void,
-    }
     #[repr(C)] pub struct AzCallback {
         pub cb: AzCallbackType,
-    }
-    #[repr(C)] pub struct AzCallbackTypePtr {
-        pub ptr: *mut c_void,
     }
     #[repr(C)] pub struct AzCallbackInfoPtr {
         pub ptr: *mut c_void,
@@ -142,9 +140,6 @@ pub(crate) mod dll {
     #[repr(C)] pub struct AzIFrameCallback {
         pub cb: AzIFrameCallbackType,
     }
-    #[repr(C)] pub struct AzIFrameCallbackTypePtr {
-        pub ptr: *mut c_void,
-    }
     #[repr(C)] pub struct AzIFrameCallbackInfoPtr {
         pub ptr: *mut c_void,
     }
@@ -154,14 +149,11 @@ pub(crate) mod dll {
     #[repr(C)] pub struct AzGlCallback {
         pub cb: AzGlCallbackType,
     }
-    #[repr(C)] pub struct AzGlCallbackTypePtr {
-        pub ptr: *mut c_void,
-    }
     #[repr(C)] pub struct AzGlCallbackInfoPtr {
         pub ptr: *mut c_void,
     }
-    #[repr(C)] pub struct AzGlCallbackReturnPtr {
-        pub ptr: *mut c_void,
+    #[repr(C)] pub struct AzGlCallbackReturn {
+        pub texture: AzOptionTexture,
     }
     #[repr(C)] pub struct AzLayoutInfoPtr {
         pub ptr: *mut c_void,
@@ -1147,6 +1139,19 @@ pub(crate) mod dll {
         OverrideInParent(usize),
         NoKeyboardFocus,
     }
+    #[repr(C)] pub struct AzGlContextPtrPtr {
+        pub ptr: *mut c_void,
+    }
+    #[repr(C)] pub struct AzTexture {
+        pub texture_id: u32,
+        pub flags: AzTextureFlags,
+        pub size: AzLogicalSize,
+        pub gl_context: AzGlContextPtr,
+    }
+    #[repr(C)] pub struct AzTextureFlags {
+        pub is_opaque: bool,
+        pub is_video_texture: bool,
+    }
     #[repr(C)] pub struct AzTextId {
         pub id: usize,
     }
@@ -1197,6 +1202,10 @@ pub(crate) mod dll {
     #[repr(C)] pub struct AzTimerCallbackTypePtr {
         pub ptr: *mut c_void,
     }
+    #[repr(C)] pub struct AzTimerCallbackReturn {
+        pub should_update: AzUpdateScreen,
+        pub should_terminate: AzTerminateTimer,
+    }
     #[repr(C)] pub struct AzDropCheckPtr {
         pub ptr: *mut c_void,
     }
@@ -1214,6 +1223,10 @@ pub(crate) mod dll {
     }
     #[repr(C)] pub struct AzWindowCreateOptionsPtr {
         pub ptr: *mut c_void,
+    }
+    #[repr(C)] pub struct AzLogicalSize {
+        pub width: f32,
+        pub height: f32,
     }
 
 
@@ -1267,6 +1280,8 @@ pub(crate) mod dll {
         pub az_gradient_stop_pre_vec_deep_copy: Symbol<extern fn(_:  &AzGradientStopPreVec) -> AzGradientStopPreVec>,
         pub az_option_percentage_value_delete: Symbol<extern fn(_:  &mut AzOptionPercentageValue)>,
         pub az_option_percentage_value_deep_copy: Symbol<extern fn(_:  &AzOptionPercentageValue) -> AzOptionPercentageValue>,
+        pub az_option_texture_delete: Symbol<extern fn(_:  &mut AzOptionTexture)>,
+        pub az_option_texture_deep_copy: Symbol<extern fn(_:  &AzOptionTexture) -> AzOptionTexture>,
         pub az_option_tab_index_delete: Symbol<extern fn(_:  &mut AzOptionTabIndex)>,
         pub az_option_tab_index_deep_copy: Symbol<extern fn(_:  &AzOptionTabIndex) -> AzOptionTabIndex>,
         pub az_option_duration_delete: Symbol<extern fn(_:  &mut AzOptionDurationPtr)>,
@@ -1286,32 +1301,24 @@ pub(crate) mod dll {
         pub az_app_shallow_copy: Symbol<extern fn(_:  &AzAppPtr) -> AzAppPtr>,
         pub az_layout_callback_delete: Symbol<extern fn(_:  &mut AzLayoutCallback)>,
         pub az_layout_callback_deep_copy: Symbol<extern fn(_:  &AzLayoutCallback) -> AzLayoutCallback>,
-        pub az_layout_callback_type_delete: Symbol<extern fn(_:  &mut AzLayoutCallbackTypePtr)>,
-        pub az_layout_callback_type_shallow_copy: Symbol<extern fn(_:  &AzLayoutCallbackTypePtr) -> AzLayoutCallbackTypePtr>,
         pub az_callback_delete: Symbol<extern fn(_:  &mut AzCallback)>,
         pub az_callback_deep_copy: Symbol<extern fn(_:  &AzCallback) -> AzCallback>,
-        pub az_callback_type_delete: Symbol<extern fn(_:  &mut AzCallbackTypePtr)>,
-        pub az_callback_type_shallow_copy: Symbol<extern fn(_:  &AzCallbackTypePtr) -> AzCallbackTypePtr>,
         pub az_callback_info_delete: Symbol<extern fn(_:  &mut AzCallbackInfoPtr)>,
         pub az_callback_info_shallow_copy: Symbol<extern fn(_:  &AzCallbackInfoPtr) -> AzCallbackInfoPtr>,
         pub az_update_screen_delete: Symbol<extern fn(_:  &mut AzUpdateScreen)>,
         pub az_update_screen_deep_copy: Symbol<extern fn(_:  &AzUpdateScreen) -> AzUpdateScreen>,
         pub az_i_frame_callback_delete: Symbol<extern fn(_:  &mut AzIFrameCallback)>,
         pub az_i_frame_callback_deep_copy: Symbol<extern fn(_:  &AzIFrameCallback) -> AzIFrameCallback>,
-        pub az_i_frame_callback_type_delete: Symbol<extern fn(_:  &mut AzIFrameCallbackTypePtr)>,
-        pub az_i_frame_callback_type_shallow_copy: Symbol<extern fn(_:  &AzIFrameCallbackTypePtr) -> AzIFrameCallbackTypePtr>,
         pub az_i_frame_callback_info_delete: Symbol<extern fn(_:  &mut AzIFrameCallbackInfoPtr)>,
         pub az_i_frame_callback_info_shallow_copy: Symbol<extern fn(_:  &AzIFrameCallbackInfoPtr) -> AzIFrameCallbackInfoPtr>,
         pub az_i_frame_callback_return_delete: Symbol<extern fn(_:  &mut AzIFrameCallbackReturnPtr)>,
         pub az_i_frame_callback_return_shallow_copy: Symbol<extern fn(_:  &AzIFrameCallbackReturnPtr) -> AzIFrameCallbackReturnPtr>,
         pub az_gl_callback_delete: Symbol<extern fn(_:  &mut AzGlCallback)>,
         pub az_gl_callback_deep_copy: Symbol<extern fn(_:  &AzGlCallback) -> AzGlCallback>,
-        pub az_gl_callback_type_delete: Symbol<extern fn(_:  &mut AzGlCallbackTypePtr)>,
-        pub az_gl_callback_type_shallow_copy: Symbol<extern fn(_:  &AzGlCallbackTypePtr) -> AzGlCallbackTypePtr>,
         pub az_gl_callback_info_delete: Symbol<extern fn(_:  &mut AzGlCallbackInfoPtr)>,
         pub az_gl_callback_info_shallow_copy: Symbol<extern fn(_:  &AzGlCallbackInfoPtr) -> AzGlCallbackInfoPtr>,
-        pub az_gl_callback_return_delete: Symbol<extern fn(_:  &mut AzGlCallbackReturnPtr)>,
-        pub az_gl_callback_return_shallow_copy: Symbol<extern fn(_:  &AzGlCallbackReturnPtr) -> AzGlCallbackReturnPtr>,
+        pub az_gl_callback_return_delete: Symbol<extern fn(_:  &mut AzGlCallbackReturn)>,
+        pub az_gl_callback_return_deep_copy: Symbol<extern fn(_:  &AzGlCallbackReturn) -> AzGlCallbackReturn>,
         pub az_layout_info_delete: Symbol<extern fn(_:  &mut AzLayoutInfoPtr)>,
         pub az_layout_info_shallow_copy: Symbol<extern fn(_:  &AzLayoutInfoPtr) -> AzLayoutInfoPtr>,
         pub az_css_native: Symbol<extern fn() -> AzCssPtr>,
@@ -1661,6 +1668,12 @@ pub(crate) mod dll {
         pub az_window_event_filter_deep_copy: Symbol<extern fn(_:  &AzWindowEventFilter) -> AzWindowEventFilter>,
         pub az_tab_index_delete: Symbol<extern fn(_:  &mut AzTabIndex)>,
         pub az_tab_index_deep_copy: Symbol<extern fn(_:  &AzTabIndex) -> AzTabIndex>,
+        pub az_gl_context_ptr_delete: Symbol<extern fn(_:  &mut AzGlContextPtrPtr)>,
+        pub az_gl_context_ptr_shallow_copy: Symbol<extern fn(_:  &AzGlContextPtrPtr) -> AzGlContextPtrPtr>,
+        pub az_texture_delete: Symbol<extern fn(_:  &mut AzTexture)>,
+        pub az_texture_deep_copy: Symbol<extern fn(_:  &AzTexture) -> AzTexture>,
+        pub az_texture_flags_delete: Symbol<extern fn(_:  &mut AzTextureFlags)>,
+        pub az_texture_flags_deep_copy: Symbol<extern fn(_:  &AzTextureFlags) -> AzTextureFlags>,
         pub az_text_id_new: Symbol<extern fn() -> AzTextId>,
         pub az_text_id_delete: Symbol<extern fn(_:  &mut AzTextId)>,
         pub az_text_id_deep_copy: Symbol<extern fn(_:  &AzTextId) -> AzTextId>,
@@ -1689,6 +1702,8 @@ pub(crate) mod dll {
         pub az_timer_callback_deep_copy: Symbol<extern fn(_:  &AzTimerCallback) -> AzTimerCallback>,
         pub az_timer_callback_type_delete: Symbol<extern fn(_:  &mut AzTimerCallbackTypePtr)>,
         pub az_timer_callback_type_shallow_copy: Symbol<extern fn(_:  &AzTimerCallbackTypePtr) -> AzTimerCallbackTypePtr>,
+        pub az_timer_callback_return_delete: Symbol<extern fn(_:  &mut AzTimerCallbackReturn)>,
+        pub az_timer_callback_return_deep_copy: Symbol<extern fn(_:  &AzTimerCallbackReturn) -> AzTimerCallbackReturn>,
         pub az_drop_check_delete: Symbol<extern fn(_:  &mut AzDropCheckPtr)>,
         pub az_drop_check_shallow_copy: Symbol<extern fn(_:  &AzDropCheckPtr) -> AzDropCheckPtr>,
         pub az_timer_id_delete: Symbol<extern fn(_:  &mut AzTimerId)>,
@@ -1700,6 +1715,8 @@ pub(crate) mod dll {
         pub az_window_create_options_new: Symbol<extern fn(_:  AzCssPtr) -> AzWindowCreateOptionsPtr>,
         pub az_window_create_options_delete: Symbol<extern fn(_:  &mut AzWindowCreateOptionsPtr)>,
         pub az_window_create_options_shallow_copy: Symbol<extern fn(_:  &AzWindowCreateOptionsPtr) -> AzWindowCreateOptionsPtr>,
+        pub az_logical_size_delete: Symbol<extern fn(_:  &mut AzLogicalSize)>,
+        pub az_logical_size_deep_copy: Symbol<extern fn(_:  &AzLogicalSize) -> AzLogicalSize>,
         pub az_ref_any_new: Symbol<extern fn(_:  *const u8, _:  usize, _:  u64, _:  AzString, _:  fn(AzRefAny)) -> AzRefAny>,
         pub az_ref_any_get_ptr: Symbol<extern fn(_:  &AzRefAny, _:  usize, _:  u64) -> *const c_void>,
         pub az_ref_any_get_mut_ptr: Symbol<extern fn(_:  &AzRefAny, _:  usize, _:  u64) -> *mut c_void>,
@@ -1753,6 +1770,8 @@ pub(crate) mod dll {
         let az_gradient_stop_pre_vec_deep_copy = unsafe { lib.get::<extern fn(_:  &AzGradientStopPreVec) -> AzGradientStopPreVec>(b"az_gradient_stop_pre_vec_deep_copy").ok()? };
         let az_option_percentage_value_delete = unsafe { lib.get::<extern fn(_:  &mut AzOptionPercentageValue)>(b"az_option_percentage_value_delete").ok()? };
         let az_option_percentage_value_deep_copy = unsafe { lib.get::<extern fn(_:  &AzOptionPercentageValue) -> AzOptionPercentageValue>(b"az_option_percentage_value_deep_copy").ok()? };
+        let az_option_texture_delete = unsafe { lib.get::<extern fn(_:  &mut AzOptionTexture)>(b"az_option_texture_delete").ok()? };
+        let az_option_texture_deep_copy = unsafe { lib.get::<extern fn(_:  &AzOptionTexture) -> AzOptionTexture>(b"az_option_texture_deep_copy").ok()? };
         let az_option_tab_index_delete = unsafe { lib.get::<extern fn(_:  &mut AzOptionTabIndex)>(b"az_option_tab_index_delete").ok()? };
         let az_option_tab_index_deep_copy = unsafe { lib.get::<extern fn(_:  &AzOptionTabIndex) -> AzOptionTabIndex>(b"az_option_tab_index_deep_copy").ok()? };
         let az_option_duration_delete = unsafe { lib.get::<extern fn(_:  &mut AzOptionDurationPtr)>(b"az_option_duration_delete").ok()? };
@@ -1772,32 +1791,24 @@ pub(crate) mod dll {
         let az_app_shallow_copy = unsafe { lib.get::<extern fn(_:  &AzAppPtr) -> AzAppPtr>(b"az_app_shallow_copy").ok()? };
         let az_layout_callback_delete = unsafe { lib.get::<extern fn(_:  &mut AzLayoutCallback)>(b"az_layout_callback_delete").ok()? };
         let az_layout_callback_deep_copy = unsafe { lib.get::<extern fn(_:  &AzLayoutCallback) -> AzLayoutCallback>(b"az_layout_callback_deep_copy").ok()? };
-        let az_layout_callback_type_delete = unsafe { lib.get::<extern fn(_:  &mut AzLayoutCallbackTypePtr)>(b"az_layout_callback_type_delete").ok()? };
-        let az_layout_callback_type_shallow_copy = unsafe { lib.get::<extern fn(_:  &AzLayoutCallbackTypePtr) -> AzLayoutCallbackTypePtr>(b"az_layout_callback_type_shallow_copy").ok()? };
         let az_callback_delete = unsafe { lib.get::<extern fn(_:  &mut AzCallback)>(b"az_callback_delete").ok()? };
         let az_callback_deep_copy = unsafe { lib.get::<extern fn(_:  &AzCallback) -> AzCallback>(b"az_callback_deep_copy").ok()? };
-        let az_callback_type_delete = unsafe { lib.get::<extern fn(_:  &mut AzCallbackTypePtr)>(b"az_callback_type_delete").ok()? };
-        let az_callback_type_shallow_copy = unsafe { lib.get::<extern fn(_:  &AzCallbackTypePtr) -> AzCallbackTypePtr>(b"az_callback_type_shallow_copy").ok()? };
         let az_callback_info_delete = unsafe { lib.get::<extern fn(_:  &mut AzCallbackInfoPtr)>(b"az_callback_info_delete").ok()? };
         let az_callback_info_shallow_copy = unsafe { lib.get::<extern fn(_:  &AzCallbackInfoPtr) -> AzCallbackInfoPtr>(b"az_callback_info_shallow_copy").ok()? };
         let az_update_screen_delete = unsafe { lib.get::<extern fn(_:  &mut AzUpdateScreen)>(b"az_update_screen_delete").ok()? };
         let az_update_screen_deep_copy = unsafe { lib.get::<extern fn(_:  &AzUpdateScreen) -> AzUpdateScreen>(b"az_update_screen_deep_copy").ok()? };
         let az_i_frame_callback_delete = unsafe { lib.get::<extern fn(_:  &mut AzIFrameCallback)>(b"az_i_frame_callback_delete").ok()? };
         let az_i_frame_callback_deep_copy = unsafe { lib.get::<extern fn(_:  &AzIFrameCallback) -> AzIFrameCallback>(b"az_i_frame_callback_deep_copy").ok()? };
-        let az_i_frame_callback_type_delete = unsafe { lib.get::<extern fn(_:  &mut AzIFrameCallbackTypePtr)>(b"az_i_frame_callback_type_delete").ok()? };
-        let az_i_frame_callback_type_shallow_copy = unsafe { lib.get::<extern fn(_:  &AzIFrameCallbackTypePtr) -> AzIFrameCallbackTypePtr>(b"az_i_frame_callback_type_shallow_copy").ok()? };
         let az_i_frame_callback_info_delete = unsafe { lib.get::<extern fn(_:  &mut AzIFrameCallbackInfoPtr)>(b"az_i_frame_callback_info_delete").ok()? };
         let az_i_frame_callback_info_shallow_copy = unsafe { lib.get::<extern fn(_:  &AzIFrameCallbackInfoPtr) -> AzIFrameCallbackInfoPtr>(b"az_i_frame_callback_info_shallow_copy").ok()? };
         let az_i_frame_callback_return_delete = unsafe { lib.get::<extern fn(_:  &mut AzIFrameCallbackReturnPtr)>(b"az_i_frame_callback_return_delete").ok()? };
         let az_i_frame_callback_return_shallow_copy = unsafe { lib.get::<extern fn(_:  &AzIFrameCallbackReturnPtr) -> AzIFrameCallbackReturnPtr>(b"az_i_frame_callback_return_shallow_copy").ok()? };
         let az_gl_callback_delete = unsafe { lib.get::<extern fn(_:  &mut AzGlCallback)>(b"az_gl_callback_delete").ok()? };
         let az_gl_callback_deep_copy = unsafe { lib.get::<extern fn(_:  &AzGlCallback) -> AzGlCallback>(b"az_gl_callback_deep_copy").ok()? };
-        let az_gl_callback_type_delete = unsafe { lib.get::<extern fn(_:  &mut AzGlCallbackTypePtr)>(b"az_gl_callback_type_delete").ok()? };
-        let az_gl_callback_type_shallow_copy = unsafe { lib.get::<extern fn(_:  &AzGlCallbackTypePtr) -> AzGlCallbackTypePtr>(b"az_gl_callback_type_shallow_copy").ok()? };
         let az_gl_callback_info_delete = unsafe { lib.get::<extern fn(_:  &mut AzGlCallbackInfoPtr)>(b"az_gl_callback_info_delete").ok()? };
         let az_gl_callback_info_shallow_copy = unsafe { lib.get::<extern fn(_:  &AzGlCallbackInfoPtr) -> AzGlCallbackInfoPtr>(b"az_gl_callback_info_shallow_copy").ok()? };
-        let az_gl_callback_return_delete = unsafe { lib.get::<extern fn(_:  &mut AzGlCallbackReturnPtr)>(b"az_gl_callback_return_delete").ok()? };
-        let az_gl_callback_return_shallow_copy = unsafe { lib.get::<extern fn(_:  &AzGlCallbackReturnPtr) -> AzGlCallbackReturnPtr>(b"az_gl_callback_return_shallow_copy").ok()? };
+        let az_gl_callback_return_delete = unsafe { lib.get::<extern fn(_:  &mut AzGlCallbackReturn)>(b"az_gl_callback_return_delete").ok()? };
+        let az_gl_callback_return_deep_copy = unsafe { lib.get::<extern fn(_:  &AzGlCallbackReturn) -> AzGlCallbackReturn>(b"az_gl_callback_return_deep_copy").ok()? };
         let az_layout_info_delete = unsafe { lib.get::<extern fn(_:  &mut AzLayoutInfoPtr)>(b"az_layout_info_delete").ok()? };
         let az_layout_info_shallow_copy = unsafe { lib.get::<extern fn(_:  &AzLayoutInfoPtr) -> AzLayoutInfoPtr>(b"az_layout_info_shallow_copy").ok()? };
         let az_css_native = unsafe { lib.get::<extern fn() -> AzCssPtr>(b"az_css_native").ok()? };
@@ -2147,6 +2158,12 @@ pub(crate) mod dll {
         let az_window_event_filter_deep_copy = unsafe { lib.get::<extern fn(_:  &AzWindowEventFilter) -> AzWindowEventFilter>(b"az_window_event_filter_deep_copy").ok()? };
         let az_tab_index_delete = unsafe { lib.get::<extern fn(_:  &mut AzTabIndex)>(b"az_tab_index_delete").ok()? };
         let az_tab_index_deep_copy = unsafe { lib.get::<extern fn(_:  &AzTabIndex) -> AzTabIndex>(b"az_tab_index_deep_copy").ok()? };
+        let az_gl_context_ptr_delete = unsafe { lib.get::<extern fn(_:  &mut AzGlContextPtrPtr)>(b"az_gl_context_ptr_delete").ok()? };
+        let az_gl_context_ptr_shallow_copy = unsafe { lib.get::<extern fn(_:  &AzGlContextPtrPtr) -> AzGlContextPtrPtr>(b"az_gl_context_ptr_shallow_copy").ok()? };
+        let az_texture_delete = unsafe { lib.get::<extern fn(_:  &mut AzTexture)>(b"az_texture_delete").ok()? };
+        let az_texture_deep_copy = unsafe { lib.get::<extern fn(_:  &AzTexture) -> AzTexture>(b"az_texture_deep_copy").ok()? };
+        let az_texture_flags_delete = unsafe { lib.get::<extern fn(_:  &mut AzTextureFlags)>(b"az_texture_flags_delete").ok()? };
+        let az_texture_flags_deep_copy = unsafe { lib.get::<extern fn(_:  &AzTextureFlags) -> AzTextureFlags>(b"az_texture_flags_deep_copy").ok()? };
         let az_text_id_new = unsafe { lib.get::<extern fn() -> AzTextId>(b"az_text_id_new").ok()? };
         let az_text_id_delete = unsafe { lib.get::<extern fn(_:  &mut AzTextId)>(b"az_text_id_delete").ok()? };
         let az_text_id_deep_copy = unsafe { lib.get::<extern fn(_:  &AzTextId) -> AzTextId>(b"az_text_id_deep_copy").ok()? };
@@ -2175,6 +2192,8 @@ pub(crate) mod dll {
         let az_timer_callback_deep_copy = unsafe { lib.get::<extern fn(_:  &AzTimerCallback) -> AzTimerCallback>(b"az_timer_callback_deep_copy").ok()? };
         let az_timer_callback_type_delete = unsafe { lib.get::<extern fn(_:  &mut AzTimerCallbackTypePtr)>(b"az_timer_callback_type_delete").ok()? };
         let az_timer_callback_type_shallow_copy = unsafe { lib.get::<extern fn(_:  &AzTimerCallbackTypePtr) -> AzTimerCallbackTypePtr>(b"az_timer_callback_type_shallow_copy").ok()? };
+        let az_timer_callback_return_delete = unsafe { lib.get::<extern fn(_:  &mut AzTimerCallbackReturn)>(b"az_timer_callback_return_delete").ok()? };
+        let az_timer_callback_return_deep_copy = unsafe { lib.get::<extern fn(_:  &AzTimerCallbackReturn) -> AzTimerCallbackReturn>(b"az_timer_callback_return_deep_copy").ok()? };
         let az_drop_check_delete = unsafe { lib.get::<extern fn(_:  &mut AzDropCheckPtr)>(b"az_drop_check_delete").ok()? };
         let az_drop_check_shallow_copy = unsafe { lib.get::<extern fn(_:  &AzDropCheckPtr) -> AzDropCheckPtr>(b"az_drop_check_shallow_copy").ok()? };
         let az_timer_id_delete = unsafe { lib.get::<extern fn(_:  &mut AzTimerId)>(b"az_timer_id_delete").ok()? };
@@ -2186,6 +2205,8 @@ pub(crate) mod dll {
         let az_window_create_options_new = unsafe { lib.get::<extern fn(_:  AzCssPtr) -> AzWindowCreateOptionsPtr>(b"az_window_create_options_new").ok()? };
         let az_window_create_options_delete = unsafe { lib.get::<extern fn(_:  &mut AzWindowCreateOptionsPtr)>(b"az_window_create_options_delete").ok()? };
         let az_window_create_options_shallow_copy = unsafe { lib.get::<extern fn(_:  &AzWindowCreateOptionsPtr) -> AzWindowCreateOptionsPtr>(b"az_window_create_options_shallow_copy").ok()? };
+        let az_logical_size_delete = unsafe { lib.get::<extern fn(_:  &mut AzLogicalSize)>(b"az_logical_size_delete").ok()? };
+        let az_logical_size_deep_copy = unsafe { lib.get::<extern fn(_:  &AzLogicalSize) -> AzLogicalSize>(b"az_logical_size_deep_copy").ok()? };
         let az_ref_any_new = unsafe { lib.get::<extern fn(_:  *const u8, _:  usize, _:  u64, _:  AzString, _:  fn(AzRefAny)) -> AzRefAny>(b"az_ref_any_new").ok()? };
         let az_ref_any_get_ptr = unsafe { lib.get::<extern fn(_:  &AzRefAny, _:  usize, _:  u64) -> *const c_void>(b"az_ref_any_get_ptr").ok()? };
         let az_ref_any_get_mut_ptr = unsafe { lib.get::<extern fn(_:  &AzRefAny, _:  usize, _:  u64) -> *mut c_void>(b"az_ref_any_get_mut_ptr").ok()? };
@@ -2237,6 +2258,8 @@ pub(crate) mod dll {
             az_gradient_stop_pre_vec_deep_copy,
             az_option_percentage_value_delete,
             az_option_percentage_value_deep_copy,
+            az_option_texture_delete,
+            az_option_texture_deep_copy,
             az_option_tab_index_delete,
             az_option_tab_index_deep_copy,
             az_option_duration_delete,
@@ -2256,32 +2279,24 @@ pub(crate) mod dll {
             az_app_shallow_copy,
             az_layout_callback_delete,
             az_layout_callback_deep_copy,
-            az_layout_callback_type_delete,
-            az_layout_callback_type_shallow_copy,
             az_callback_delete,
             az_callback_deep_copy,
-            az_callback_type_delete,
-            az_callback_type_shallow_copy,
             az_callback_info_delete,
             az_callback_info_shallow_copy,
             az_update_screen_delete,
             az_update_screen_deep_copy,
             az_i_frame_callback_delete,
             az_i_frame_callback_deep_copy,
-            az_i_frame_callback_type_delete,
-            az_i_frame_callback_type_shallow_copy,
             az_i_frame_callback_info_delete,
             az_i_frame_callback_info_shallow_copy,
             az_i_frame_callback_return_delete,
             az_i_frame_callback_return_shallow_copy,
             az_gl_callback_delete,
             az_gl_callback_deep_copy,
-            az_gl_callback_type_delete,
-            az_gl_callback_type_shallow_copy,
             az_gl_callback_info_delete,
             az_gl_callback_info_shallow_copy,
             az_gl_callback_return_delete,
-            az_gl_callback_return_shallow_copy,
+            az_gl_callback_return_deep_copy,
             az_layout_info_delete,
             az_layout_info_shallow_copy,
             az_css_native,
@@ -2631,6 +2646,12 @@ pub(crate) mod dll {
             az_window_event_filter_deep_copy,
             az_tab_index_delete,
             az_tab_index_deep_copy,
+            az_gl_context_ptr_delete,
+            az_gl_context_ptr_shallow_copy,
+            az_texture_delete,
+            az_texture_deep_copy,
+            az_texture_flags_delete,
+            az_texture_flags_deep_copy,
             az_text_id_new,
             az_text_id_delete,
             az_text_id_deep_copy,
@@ -2659,6 +2680,8 @@ pub(crate) mod dll {
             az_timer_callback_deep_copy,
             az_timer_callback_type_delete,
             az_timer_callback_type_shallow_copy,
+            az_timer_callback_return_delete,
+            az_timer_callback_return_deep_copy,
             az_drop_check_delete,
             az_drop_check_shallow_copy,
             az_timer_id_delete,
@@ -2670,6 +2693,8 @@ pub(crate) mod dll {
             az_window_create_options_new,
             az_window_create_options_delete,
             az_window_create_options_shallow_copy,
+            az_logical_size_delete,
+            az_logical_size_deep_copy,
             az_ref_any_new,
             az_ref_any_get_ptr,
             az_ref_any_get_mut_ptr,
@@ -2927,6 +2952,12 @@ pub mod option {
     impl Drop for OptionPercentageValue { fn drop(&mut self) { (crate::dll::get_azul_dll().az_option_percentage_value_delete)(self); } }
 
 
+    /// `OptionTexture` struct
+    pub use crate::dll::AzOptionTexture as OptionTexture;
+
+    impl Drop for OptionTexture { fn drop(&mut self) { (crate::dll::get_azul_dll().az_option_texture_delete)(self); } }
+
+
     /// `OptionTabIndex` struct
     pub use crate::dll::AzOptionTabIndex as OptionTabIndex;
 
@@ -3010,10 +3041,7 @@ pub mod callbacks {
     impl Drop for LayoutCallback { fn drop(&mut self) { (crate::dll::get_azul_dll().az_layout_callback_delete)(self); } }
 
 
-    /// `LayoutCallbackType` struct
-    pub use crate::dll::AzLayoutCallbackTypePtr as LayoutCallbackType;
-
-
+    pub use crate::dll::AzLayoutCallbackType as LayoutCallbackType;
 
     /// `Callback` struct
     pub use crate::dll::AzCallback as Callback;
@@ -3021,10 +3049,8 @@ pub mod callbacks {
     impl Drop for Callback { fn drop(&mut self) { (crate::dll::get_azul_dll().az_callback_delete)(self); } }
 
 
-    /// `CallbackType` struct
-    pub use crate::dll::AzCallbackTypePtr as CallbackType;
-
-
+    pub use crate::dll::AzCallbackReturn as CallbackReturn;
+    pub use crate::dll::AzCallbackType as CallbackType;
 
     /// `CallbackInfo` struct
     pub use crate::dll::AzCallbackInfoPtr as CallbackInfo;
@@ -3044,10 +3070,7 @@ pub mod callbacks {
     impl Drop for IFrameCallback { fn drop(&mut self) { (crate::dll::get_azul_dll().az_i_frame_callback_delete)(self); } }
 
 
-    /// `IFrameCallbackType` struct
-    pub use crate::dll::AzIFrameCallbackTypePtr as IFrameCallbackType;
-
-
+    pub use crate::dll::AzIFrameCallbackType as IFrameCallbackType;
 
     /// `IFrameCallbackInfo` struct
     pub use crate::dll::AzIFrameCallbackInfoPtr as IFrameCallbackInfo;
@@ -3067,10 +3090,7 @@ pub mod callbacks {
     impl Drop for GlCallback { fn drop(&mut self) { (crate::dll::get_azul_dll().az_gl_callback_delete)(self); } }
 
 
-    /// `GlCallbackType` struct
-    pub use crate::dll::AzGlCallbackTypePtr as GlCallbackType;
-
-
+    pub use crate::dll::AzGlCallbackType as GlCallbackType;
 
     /// `GlCallbackInfo` struct
     pub use crate::dll::AzGlCallbackInfoPtr as GlCallbackInfo;
@@ -3079,7 +3099,7 @@ pub mod callbacks {
 
 
     /// `GlCallbackReturn` struct
-    pub use crate::dll::AzGlCallbackReturnPtr as GlCallbackReturn;
+    pub use crate::dll::AzGlCallbackReturn as GlCallbackReturn;
 
     impl Drop for GlCallbackReturn { fn drop(&mut self) { (crate::dll::get_azul_dll().az_gl_callback_return_delete)(self); } }
 
@@ -4210,6 +4230,31 @@ pub mod dom {
     impl Drop for TabIndex { fn drop(&mut self) { (crate::dll::get_azul_dll().az_tab_index_delete)(self); } }
 }
 
+/// OpenGl helper types (`Texture`, `GlContext`, etc.)
+#[allow(dead_code, unused_imports)]
+pub mod gl {
+
+    use crate::dll::*;
+
+
+    /// `GlContextPtr` struct
+    pub use crate::dll::AzGlContextPtrPtr as GlContextPtr;
+
+    impl Drop for GlContextPtr { fn drop(&mut self) { (crate::dll::get_azul_dll().az_gl_context_ptr_delete)(self); } }
+
+
+    /// `Texture` struct
+    pub use crate::dll::AzTexture as Texture;
+
+    impl Drop for Texture { fn drop(&mut self) { (crate::dll::get_azul_dll().az_texture_delete)(self); } }
+
+
+    /// `TextureFlags` struct
+    pub use crate::dll::AzTextureFlags as TextureFlags;
+
+    impl Drop for TextureFlags { fn drop(&mut self) { (crate::dll::get_azul_dll().az_texture_flags_delete)(self); } }
+}
+
 /// Struct definition for image / font / text IDs
 #[allow(dead_code, unused_imports)]
 pub mod resources {
@@ -4316,6 +4361,12 @@ pub mod task {
 
 
 
+    /// `TimerCallbackReturn` struct
+    pub use crate::dll::AzTimerCallbackReturn as TimerCallbackReturn;
+
+    impl Drop for TimerCallbackReturn { fn drop(&mut self) { (crate::dll::get_azul_dll().az_timer_callback_return_delete)(self); } }
+
+
     /// `DropCheck` struct
     pub use crate::dll::AzDropCheckPtr as DropCheck;
 
@@ -4357,5 +4408,11 @@ pub mod window {
     }
 
     impl Drop for WindowCreateOptions { fn drop(&mut self) { (crate::dll::get_azul_dll().az_window_create_options_delete)(self); } }
+
+
+    /// `LogicalSize` struct
+    pub use crate::dll::AzLogicalSize as LogicalSize;
+
+    impl Drop for LogicalSize { fn drop(&mut self) { (crate::dll::get_azul_dll().az_logical_size_delete)(self); } }
 }
 

@@ -43,7 +43,8 @@ pub struct AzInstantPtr { /* ptr: *const StdInstant */ ptr: *const c_void }
 
 impl AzInstantPtr {
     fn now() -> Self { StdInstant::now().into() }
-    fn get(&self) -> Instant { let p = unsafe { Box::<StdInstant>::from_raw(self.ptr as *mut AzInstantPtr) }; let val = *p; std::mem::forget(p); val }
+    fn new(instant: StdInstant) -> Self { instant.into() }
+    fn get(&self) -> StdInstant { let p = unsafe { Box::<StdInstant>::from_raw(self.ptr as *mut StdInstant) }; let val = *p; std::mem::forget(p); val }
 }
 
 impl Clone for AzInstantPtr {
@@ -58,15 +59,15 @@ impl From<StdInstant> for AzInstantPtr {
     }
 }
 
-impl From<StdInstant> for AzInstantPtr {
-    fn from(s: StdInstant) -> AzInstantPtr {
-        Self { ptr: Box::into_raw(Box::new(s)) }
+impl From<AzInstantPtr> for StdInstant {
+    fn from(s: AzInstantPtr) -> StdInstant {
+        s.get()
     }
 }
 
 impl Drop for AzInstantPtr {
     fn drop(&mut self) {
-        let _ = unsafe { Box::<StdInstant>::from_raw(self.ptr as *mut AzInstantPtr) };
+        let _ = unsafe { Box::<StdInstant>::from_raw(self.ptr as *mut StdInstant) };
     }
 }
 
@@ -89,7 +90,13 @@ impl From<AzDuration> for StdDuration {
     }
 }
 
-impl_option!(AzInstantPtr, OptionInstantPtr);
+impl AzDuration {
+    pub fn from_secs(secs: u64) -> Self { StdDuration::from_secs(secs).into() }
+    pub fn from_millis(millis: u64) -> Self { StdDuration::from_millis(millis).into() }
+    pub fn from_nanos(nanos: u64) -> Self { StdDuration::from_nanos(nanos).into() }
+}
+
+impl_option!(AzInstantPtr, OptionInstantPtr, copy = false);
 impl_option!(AzDuration, OptionDuration);
 
 /// A `Timer` is a function that is run on every frame.
@@ -101,7 +108,7 @@ impl_option!(AzDuration, OptionDuration);
 ///
 /// The callback of a `Timer` should be fast enough to run under 16ms,
 /// otherwise running timers will block the main UI thread.
-#[derive(Debug, Copy, Clone, PartialEq, Eq, Hash)]
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
 #[repr(C)]
 pub struct Timer {
     /// Stores when the timer was created (usually acquired by `Instant::now()`)
@@ -127,7 +134,7 @@ impl Timer {
     /// Create a new timer
     pub fn new(callback: TimerCallbackType) -> Self {
         Timer {
-            created: Instant::now(),
+            created: AzInstantPtr::new(StdInstant::now()),
             last_run: None,
             delay: None,
             interval: None,
@@ -139,24 +146,24 @@ impl Timer {
     /// Delays the timer to not start immediately but rather
     /// start after a certain time frame has elapsed.
     #[inline]
-    pub fn with_delay(mut self, delay: Duration) -> Self {
-        self.delay = Some(delay);
+    pub fn with_delay(mut self, delay: AzDuration) -> Self {
+        self.delay = OptionDuration::Some(delay);
         self
     }
 
     /// Converts the timer into a timer, running the function only
     /// if the given `Duration` has elapsed since the last run
     #[inline]
-    pub fn with_interval(mut self, interval: Duration) -> Self {
-        self.interval = Some(interval);
+    pub fn with_interval(mut self, interval: AzDuration) -> Self {
+        self.interval = OptionDuration::Some(interval);
         self
     }
 
     /// Converts the timer into a countdown, by giving it a maximum duration
     /// (counted from the creation of the Timer, not the first use).
     #[inline]
-    pub fn with_timeout(mut self, timeout: Duration) -> Self {
-        self.timeout = Some(timeout);
+    pub fn with_timeout(mut self, timeout: AzDuration) -> Self {
+        self.timeout = OptionDuration::Some(timeout);
         self
     }
 
@@ -164,8 +171,10 @@ impl Timer {
     /// the `self.timeout` allow it to
     pub fn invoke<'a>(&mut self, info: TimerCallbackInfo<'a>) -> TimerCallbackReturn {
 
-        let instant_now = Instant::now();
-        let delay = self.delay.unwrap_or_else(|| Duration::from_millis(0));
+        use crate::callbacks::TimerCallbackInfoPtr;
+
+        let instant_now = StdInstant::now();
+        let delay = self.delay.unwrap_or_else(|| StdDuration::from_millis(0).into());
 
         // Check if the timers timeout is reached
         if let Some(timeout) = self.timeout {
@@ -184,7 +193,8 @@ impl Timer {
             }
         }
 
-        let res = (self.callback.0)(info);
+        let info_ptr = TimerCallbackInfoPtr { ptr: Box::into_raw(Box::new(info)) as *const c_void };
+        let res = (self.callback.0)(info_ptr);
 
         self.last_run = Some(instant_now);
 

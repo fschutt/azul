@@ -186,13 +186,8 @@ macro_rules! impl_vec {($struct_type:ident, $struct_name:ident) => (
 )}
 
 #[macro_export]
-macro_rules! impl_option {($struct_type:ident, $struct_name:ident) => (
-    #[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
-    #[repr(C, u8)]
-    pub enum $struct_name {
-        None,
-        Some($struct_type)
-    }
+macro_rules! impl_option_inner {
+    ($struct_type:ident, $struct_name:ident) => (
 
     impl From<$struct_name> for Option<$struct_type> {
         fn from(o: $struct_name) -> Option<$struct_type> {
@@ -221,6 +216,40 @@ macro_rules! impl_option {($struct_type:ident, $struct_name:ident) => (
         }
     }
 )}
+
+#[macro_export]
+macro_rules! impl_option {
+    ($struct_type:ident, $struct_name:ident, copy = false, clone = false) => (
+        #[derive(Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
+        #[repr(C, u8)]
+        pub enum $struct_name {
+            None,
+            Some($struct_type)
+        }
+
+        impl_option_inner!($struct_type, $struct_name);
+    );
+    ($struct_type:ident, $struct_name:ident, copy = false) => (
+        #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
+        #[repr(C, u8)]
+        pub enum $struct_name {
+            None,
+            Some($struct_type)
+        }
+
+        impl_option_inner!($struct_type, $struct_name);
+    );
+    ($struct_type:ident, $struct_name:ident) => (
+        #[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
+        #[repr(C, u8)]
+        pub enum $struct_name {
+            None,
+            Some($struct_type)
+        }
+
+        impl_option_inner!($struct_type, $struct_name);
+    );
+}
 
 #[repr(C)]
 pub struct AzString { vec: U8Vec }

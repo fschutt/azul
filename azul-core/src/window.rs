@@ -1281,24 +1281,28 @@ impl CallbacksOfHitTest {
 }
 
 #[derive(Debug, Copy, Clone, PartialEq, PartialOrd)]
+#[repr(C)]
 pub struct LogicalPosition {
     pub x: f32,
     pub y: f32,
 }
 
 #[derive(Debug, Copy, Clone, PartialEq, PartialOrd)]
+#[repr(C)]
 pub struct LogicalSize {
     pub width: f32,
     pub height: f32,
 }
 
 #[derive(Debug, Copy, Clone, PartialEq, PartialOrd)]
+#[repr(C)]
 pub struct PhysicalPosition<T> {
     pub x: T,
     pub y: T,
 }
 
 #[derive(Debug, Copy, Clone, PartialEq, PartialOrd)]
+#[repr(C)]
 pub struct PhysicalSize<T> {
     pub width: T,
     pub height: T,

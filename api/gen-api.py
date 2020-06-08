@@ -31,10 +31,10 @@ js_api_path = "../azul/src/js/azul.js"
 dll_patches = {
     tuple(['*']): read_file("./patches/azul-dll/header.rs"),
     tuple(['callbacks', 'RefAny']): read_file("./patches/azul-dll/refany.rs"),
-    tuple(['callbacks', 'LayoutCallback']): read_file("./patches/azul-dll/layout_callback.rs"),
-    tuple(['callbacks', 'Callback']): read_file("./patches/azul-dll/callback.rs"),
-    tuple(['callbacks', 'GlCallback']): read_file("./patches/azul-dll/gl_callback.rs"),
-    tuple(['callbacks', 'IFrameCallback']): read_file("./patches/azul-dll/iframe_callback.rs"),
+    tuple(['callbacks', 'LayoutCallbackType']): read_file("./patches/azul-dll/layout_callback_type.rs"),
+    tuple(['callbacks', 'CallbackType']): read_file("./patches/azul-dll/callback_type.rs"),
+    tuple(['callbacks', 'GlCallbackType']): read_file("./patches/azul-dll/gl_callback_type.rs"),
+    tuple(['callbacks', 'IFrameCallbackType']): read_file("./patches/azul-dll/iframe_callback_type.rs"),
 }
 
 rust_api_patches = {
@@ -44,10 +44,10 @@ rust_api_patches = {
     tuple(['dll']): read_file("./patches/azul.rs/dll.rs"),
     tuple(['callbacks', 'RefAny']): read_file("./patches/azul.rs/refany.rs"),
     tuple(['callbacks', 'UpdateScreen']): read_file("./patches/azul.rs/update_screen.rs"),
-    tuple(['callbacks', 'LayoutCallback']): read_file("./patches/azul.rs/layout_callback.rs"),
-    tuple(['callbacks', 'Callback']): read_file("./patches/azul.rs/callback.rs"),
-    tuple(['callbacks', 'GlCallback']): read_file("./patches/azul.rs/gl_callback.rs"),
-    tuple(['callbacks', 'IFrameCallback']): read_file("./patches/azul.rs/iframe_callback.rs"),
+    tuple(['callbacks', 'LayoutCallbackType']): read_file("./patches/azul.rs/layout_callback_type.rs"),
+    tuple(['callbacks', 'CallbackType']): read_file("./patches/azul.rs/callback_type.rs"),
+    tuple(['callbacks', 'GlCallbackType']): read_file("./patches/azul.rs/gl_callback_type.rs"),
+    tuple(['callbacks', 'IFrameCallbackType']): read_file("./patches/azul.rs/iframe_callback_type.rs"),
 }
 
 c_api_patches = {

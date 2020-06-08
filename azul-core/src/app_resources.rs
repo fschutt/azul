@@ -1286,9 +1286,11 @@ pub struct LoadedFontSource {
     pub font_metrics: FontMetrics,
 }
 
-pub struct LoadFontFn(pub fn(&FontSource) -> Option<LoadedFontSource>);
+#[repr(C)]
+pub struct LoadFontFn { pub cb: fn(&FontSource) -> Option<LoadedFontSource> }
 impl_callback!(LoadFontFn);
-pub struct LoadImageFn(pub fn(&ImageSource) -> Option<LoadedImageSource>);
+#[repr(C)]
+pub struct LoadImageFn { pub cb: fn(&ImageSource) -> Option<LoadedImageSource> }
 impl_callback!(LoadImageFn);
 
 /// Given the fonts of the current frame, returns `AddFont` and `AddFontInstance`s of
@@ -1378,7 +1380,7 @@ pub fn build_add_font_resource_updates<T: FontImageApi>(
                     Unresolved(css_font_id) => FontSource::System(css_font_id.clone().into()),
                 };
 
-                let loaded_font_source = match (font_source_load_fn.0)(&font_source) {
+                let loaded_font_source = match (font_source_load_fn.cb)(&font_source) {
                     Some(s) => s,
                     None => continue,
                 };
@@ -1429,7 +1431,7 @@ pub fn build_add_image_resource_updates<T: FontImageApi>(
     .filter(|image_id| !app_resources.currently_registered_images[pipeline_id].contains_key(*image_id))
     .filter_map(|image_id| {
         let image_source = app_resources.image_sources.get(image_id)?;
-        let LoadedImageSource { image_bytes_decoded, image_descriptor } = (image_source_load_fn.0)(image_source)?;
+        let LoadedImageSource { image_bytes_decoded, image_descriptor } = (image_source_load_fn.cb)(image_source)?;
         let key = render_api.new_image_key();
         let add_image = AddImage { key, data: image_bytes_decoded, descriptor: image_descriptor, tiling: None };
         Some((*image_id, AddImageMsg(add_image, ImageInfo { key, descriptor: image_descriptor })))

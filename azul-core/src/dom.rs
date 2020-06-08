@@ -756,12 +756,12 @@ impl NodeData {
     #[inline(always)]
     #[cfg(feature = "opengl")]
     pub fn gl_texture(callback: GlCallbackType, data: RefAny) -> Self {
-        Self::new(NodeType::GlTexture(GlTextureNode { callback: GlCallback(callback), data }))
+        Self::new(NodeType::GlTexture(GlTextureNode { callback: GlCallback { cb: callback }, data }))
     }
 
     #[inline(always)]
     pub fn iframe(callback: IFrameCallbackType, data: RefAny) -> Self {
-        Self::new(NodeType::IFrame(IFrameNode { callback: IFrameCallback(callback), data }))
+        Self::new(NodeType::IFrame(IFrameNode { callback: IFrameCallback { cb: callback }, data }))
     }
 
     // NOTE: Getters are used here in order to allow changing the memory allocator for the NodeData
@@ -1126,13 +1126,13 @@ impl Dom {
     #[inline(always)]
     #[cfg(feature = "opengl")]
     pub fn gl_texture(callback: GlCallbackType, data: RefAny) -> Self {
-        Self::new(NodeType::GlTexture(GlTextureNode { callback: GlCallback(callback), data }))
+        Self::new(NodeType::GlTexture(GlTextureNode { callback: GlCallback { cb: callback }, data }))
     }
 
     /// Shorthand for `Dom::new(NodeType::IFrame((callback, ptr)))`
     #[inline(always)]
     pub fn iframe(callback: IFrameCallbackType, data: RefAny) -> Self {
-        Self::new(NodeType::IFrame(IFrameNode { callback: IFrameCallback(callback), data }))
+        Self::new(NodeType::IFrame(IFrameNode { callback: IFrameCallback { callback }, data }))
     }
 
     /// Adds a child DOM to the current DOM
@@ -1206,7 +1206,7 @@ impl Dom {
 
     #[inline]
     pub fn add_callback<O: Into<EventFilter>>(&mut self, on: O, callback: CallbackType, data: RefAny) {
-        self.root.callbacks.push(CallbackData { event: on.into(), callback: Callback(callback), data });
+        self.root.callbacks.push(CallbackData { event: on.into(), callback: Callback { cb: callback }, data });
     }
 
     #[inline]

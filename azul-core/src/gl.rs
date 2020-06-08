@@ -118,6 +118,7 @@ pub fn gl_textures_clear_opengl_cache() {
 /// This makes it easier to debug OpenGL calls, to
 /// sandbox / analyze / optimize and replay them (so that they don't interfere)
 /// with other rendering tasks
+#[repr(C)]
 pub struct VirtualGlDriver {
     // TODO: create a "virtual" driver that only stores and replays OpenGL calls
     // - the VirtualGlDriver doesn't actually do anything, except store the OpenGL calls
@@ -1075,7 +1076,29 @@ fn unimplemented() -> ! {
     panic!("You cannot call OpenGL functions on the VirtualGlDriver");
 }
 
+#[repr(C)]
+pub struct GlContextPtr { /* *const Rc<dyn Gl> */ pub ptr: *const c_void }
+
+impl GlContextPtr {
+    pub fn new(context: Rc<dyn Gl>) -> Self { Self { ptr: Box::into_raw(Box::new(context))} }
+    pub fn get(&self) -> &Rc<dyn Gl> { let p = unsafe { Box::from_raw(self.ptr as *mut Rc<dyn Gl>) }; &p }
+}
+
+impl Clone for GlContextPtr {
+    fn clone(&self) -> Self {
+        Self::new(self.get.clone())
+    }
+}
+
+impl Drop for GlContextPtr {
+    fn drop(&mut self) {
+        let _ = unsafe { Box::from_raw(self.ptr as *mut Rc<dyn Gl>) };
+    }
+}
+
 /// OpenGL texture, use `ReadOnlyWindow::create_texture` to create a texture
+#[derive(Debug, PartialEq, PartialOrd, Eq, Ord, Hash)]
+#[repr(C)]
 pub struct Texture {
     /// Raw OpenGL texture ID
     pub texture_id: GLuint,
@@ -1084,10 +1107,13 @@ pub struct Texture {
     /// Size of this texture (in pixels)
     pub size: LogicalSize,
     /// A reference-counted pointer to the OpenGL context (so that the texture can be deleted in the destructor)
-    pub gl_context: Rc<dyn Gl>,
+    pub gl_context: GlContextPtr,
 }
 
+impl_option!(Texture, OptionTexture, copy = false, clone = false);
+
 #[derive(Debug, Copy, Clone, PartialEq, PartialOrd, Eq, Ord, Hash)]
+#[repr(C)]
 pub struct TextureFlags {
     /// Whether this texture contains an alpha component
     pub is_opaque: bool,
