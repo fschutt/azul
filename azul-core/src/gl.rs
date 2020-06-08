@@ -1097,7 +1097,6 @@ impl Drop for GlContextPtr {
 }
 
 /// OpenGL texture, use `ReadOnlyWindow::create_texture` to create a texture
-#[derive(Debug, PartialEq, PartialOrd, Eq, Ord, Hash)]
 #[repr(C)]
 pub struct Texture {
     /// Raw OpenGL texture ID

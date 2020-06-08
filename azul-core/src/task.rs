@@ -41,6 +41,38 @@ impl TimerId {
 #[repr(C)]
 pub struct AzInstantPtr { /* ptr: *const StdInstant */ ptr: *const c_void }
 
+impl std::fmt::Debug for AzInstantPtr {
+    fn fmt(&self, f: &mut ::std::fmt::Formatter) -> ::std::fmt::Result {
+        write!(f, "{:?}", self.get())
+    }
+}
+
+impl std::hash::Hash for AzInstantPtr {
+    fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
+        self.get().hash(state);
+    }
+}
+
+impl PartialEq for AzInstantPtr {
+    fn eq(&self, other: &AzInstantPtr) -> bool {
+        self.get() == other.get()
+    }
+}
+
+impl Eq for AzInstantPtr { }
+
+impl PartialOrd for AzInstantPtr {
+    fn partial_cmp(&self, other: &Self) -> Option<::std::cmp::Ordering> {
+        Some((self.get()).cmp(&(other.get())))
+    }
+}
+
+impl Ord for AzInstantPtr {
+    fn cmp(&self, other: &Self) -> ::std::cmp::Ordering {
+        (self.get()).cmp(&(other.get()))
+    }
+}
+
 impl AzInstantPtr {
     fn now() -> Self { StdInstant::now().into() }
     fn new(instant: StdInstant) -> Self { instant.into() }
