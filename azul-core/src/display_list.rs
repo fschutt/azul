@@ -35,7 +35,7 @@ use crate::{
     },
 };
 #[cfg(feature = "opengl")]
-use crate::gl::{Texture, OptionTexture, GlContextPtr};
+use crate::gl::{Texture, GlContextPtr};
 
 pub type GlyphIndex = u32;
 
@@ -722,7 +722,7 @@ impl SolvedLayout {
                 let mut window_size_height_stops = Vec::new();
 
                 let texture = {
-                    use crate::callbacks::{GlCallbackInfoPtr, GlCallbackReturn};
+                    use crate::callbacks::GlCallbackInfoPtr;
                     use std::ffi::c_void;
 
                     let callback_info = GlCallbackInfo {
@@ -741,10 +741,8 @@ impl SolvedLayout {
                     };
 
                     let ptr = GlCallbackInfoPtr { ptr: Box::into_raw(Box::new(callback_info)) as *mut c_void };
-                    let gl_callback_return_ptr = (cb.cb)(ptr);
-                    let gl_callback_return = unsafe { Box::from_raw(gl_callback_return_ptr.ptr as *mut GlCallbackReturn) };
-                    let gl_callback_return = *gl_callback_return;
-                    let tex = gl_callback_return.texture;
+                    let gl_callback_return = (cb.cb)(ptr);
+                    let tex: Option<Texture> = gl_callback_return.texture.into();
 
                     // Reset the framebuffer and SRGB color target to 0
                     gl_context.bind_framebuffer(gl::FRAMEBUFFER, 0);
@@ -754,7 +752,7 @@ impl SolvedLayout {
                     tex
                 };
 
-                if let OptionTexture::Some(t) = texture {
+                if let Some(t) = texture {
                     solved_textures
                         .entry(dom_id.clone())
                         .or_insert_with(|| BTreeMap::default())
@@ -779,7 +777,9 @@ impl SolvedLayout {
                 let mut window_size_height_stops = Vec::new();
 
                 let iframe_dom = {
-                    use crate::callbacks::{IFrameCallbackInfoPtr, IFrameCallbackReturn};
+
+                    use crate::callbacks::IFrameCallbackInfoPtr;
+                    use crate::dom::Dom;
                     use std::ffi::c_void;
 
                     let callback_info = IFrameCallbackInfo {
@@ -795,9 +795,8 @@ impl SolvedLayout {
                     };
 
                     let ptr = IFrameCallbackInfoPtr { ptr: Box::into_raw(Box::new(callback_info)) as *mut c_void };
-                    let iframe_callback_return_ptr = (cb.cb)(ptr);
-                    let iframe_callback_return = unsafe { Box::from_raw(iframe_callback_return_ptr.ptr as *mut IFrameCallbackReturn) };
-                    let dom = iframe_callback_return.dom;
+                    let iframe_callback_return = (cb.cb)(ptr);
+                    let dom: Option<Dom> = iframe_callback_return.dom.into();
                     dom
                 };
 

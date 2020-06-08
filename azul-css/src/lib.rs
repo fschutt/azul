@@ -278,6 +278,99 @@ macro_rules! impl_option {
     );
 }
 
+#[macro_export]
+macro_rules! impl_result_inner {
+    ($ok_struct_type:ident, $err_struct_type:ident, $struct_name:ident) => (
+
+    impl From<$struct_name> for Result<$ok_struct_type, $err_struct_type> {
+        fn from(o: $struct_name) -> Result<$ok_struct_type, $err_struct_type> {
+            match o {
+                $struct_name::Ok(o) => Ok(o),
+                $struct_name::Err(e) => Err(e),
+            }
+        }
+    }
+
+    impl From<Result<$ok_struct_type, $err_struct_type>> for $struct_name {
+        fn from(o: Result<$ok_struct_type, $err_struct_type>) -> $struct_name {
+            match o {
+                Ok(o) => $struct_name::Ok(o),
+                Err(e) => $struct_name::Err(e),
+            }
+        }
+    }
+
+    impl $struct_name {
+        pub fn as_result(&self) -> Result<&$ok_struct_type, &$err_struct_type> {
+            match self {
+                $struct_name::Ok(o) => Ok(o),
+                $struct_name::Err(e) => Err(e),
+            }
+        }
+    }
+)}
+
+#[macro_export]
+macro_rules! impl_result {
+    ($ok_struct_type:ident, $err_struct_type:ident, $struct_name:ident, copy = false, clone = false) => (
+        #[derive(Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
+        #[repr(C, u8)]
+        pub enum $struct_name {
+            Ok($ok_struct_type),
+            Err($err_struct_type),
+        }
+
+        impl $struct_name {
+            pub fn into_result(self) -> Result<$ok_struct_type, $err_struct_type> {
+                match self {
+                    $struct_name::Ok(o) => Ok(o),
+                    $struct_name::Err(e) => Err(e),
+                }
+            }
+        }
+
+        impl_result_inner!($ok_struct_type, $err_struct_type, $struct_name);
+    );
+    ($ok_struct_type:ident, $err_struct_type:ident, $struct_name:ident, copy = false) => (
+        #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
+        #[repr(C, u8)]
+        pub enum $struct_name {
+            Ok($ok_struct_type),
+            Err($err_struct_type),
+        }
+
+        impl $struct_name {
+            pub fn into_result(&self) -> Result<$ok_struct_type, $err_struct_type> {
+                match self {
+                    $struct_name::Ok(o) => Ok(o.clone()),
+                    $struct_name::Err(e) => Err(e.clone()),
+                }
+            }
+        }
+
+        impl_result_inner!($ok_struct_type, $err_struct_type, $struct_name);
+    );
+    ($ok_struct_type:ident, $err_struct_type:ident, $struct_name:ident) => (
+        #[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
+        #[repr(C, u8)]
+        pub enum $struct_name {
+            Ok($ok_struct_type),
+            Err($err_struct_type),
+        }
+
+        impl $struct_name {
+            pub fn into_result(&self) -> Result<$ok_struct_type, $err_struct_type> {
+                match self {
+                    $struct_name::Ok(o) => Ok(*o),
+                    $struct_name::Err(e) => Err(*e),
+                }
+            }
+        }
+
+        impl_result_inner!($ok_struct_type, $err_struct_type, $struct_name);
+    );
+}
+
 #[repr(C)]
 pub struct AzString { vec: U8Vec }
 

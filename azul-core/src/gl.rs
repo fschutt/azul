@@ -1573,9 +1573,9 @@ impl<T: VertexLayoutDescription> VertexBuffer<T> {
         let mut current_vertex_buffer = [0_i32];
         let mut current_index_buffer = [0_i32];
 
-        unsafe { gl_context.get_integer_v(gl::VERTEX_ARRAY, &mut current_vertex_array) };
-        unsafe { gl_context.get_integer_v(gl::ARRAY_BUFFER, &mut current_vertex_buffer) };
-        unsafe { gl_context.get_integer_v(gl::ELEMENT_ARRAY_BUFFER, &mut current_index_buffer) };
+        gl_context.get_integer_v(gl::VERTEX_ARRAY, &mut current_vertex_array);
+        gl_context.get_integer_v(gl::ARRAY_BUFFER, &mut current_vertex_buffer);
+        gl_context.get_integer_v(gl::ELEMENT_ARRAY_BUFFER, &mut current_index_buffer);
 
         let vertex_array_object = gl_context.gen_vertex_arrays(1);
         let vertex_array_object = vertex_array_object[0];
@@ -1846,7 +1846,7 @@ impl GlShader {
 
         // Check whether the OpenGL implementation supports a shader compiler...
         let mut shader_compiler_supported = [gl::FALSE];
-        unsafe { gl_context.get_boolean_v(gl::SHADER_COMPILER, &mut shader_compiler_supported) };
+        gl_context.get_boolean_v(gl::SHADER_COMPILER, &mut shader_compiler_supported);
         if shader_compiler_supported[0] == gl::FALSE {
             // Implementation only supports binary shaders
             return Err(GlShaderCreateError::NoShaderCompiler);
@@ -1940,14 +1940,14 @@ impl GlShader {
         let mut current_renderbuffers = [0_i32];
         let mut current_texture_2d = [0_i32];
 
-        unsafe { gl_context.get_boolean_v(gl::MULTISAMPLE, &mut current_multisample) };
-        unsafe { gl_context.get_integer_v(gl::ARRAY_BUFFER_BINDING, &mut current_vertex_buffer) };
-        unsafe { gl_context.get_integer_v(gl::ELEMENT_ARRAY_BUFFER_BINDING, &mut current_index_buffer) };
-        unsafe { gl_context.get_integer_v(gl::CURRENT_PROGRAM, &mut current_program) };
-        unsafe { gl_context.get_integer_v(gl::VERTEX_ARRAY_BINDING, &mut current_vertex_array_object) };
-        unsafe { gl_context.get_integer_v(gl::RENDERBUFFER, &mut current_renderbuffers) };
-        unsafe { gl_context.get_integer_v(gl::FRAMEBUFFER, &mut current_framebuffers) };
-        unsafe { gl_context.get_integer_v(gl::TEXTURE_2D, &mut current_texture_2d) };
+        gl_context.get_boolean_v(gl::MULTISAMPLE, &mut current_multisample);
+        gl_context.get_integer_v(gl::ARRAY_BUFFER_BINDING, &mut current_vertex_buffer);
+        gl_context.get_integer_v(gl::ELEMENT_ARRAY_BUFFER_BINDING, &mut current_index_buffer);
+        gl_context.get_integer_v(gl::CURRENT_PROGRAM, &mut current_program);
+        gl_context.get_integer_v(gl::VERTEX_ARRAY_BINDING, &mut current_vertex_array_object);
+        gl_context.get_integer_v(gl::RENDERBUFFER, &mut current_renderbuffers);
+        gl_context.get_integer_v(gl::FRAMEBUFFER, &mut current_framebuffers);
+        gl_context.get_integer_v(gl::TEXTURE_2D, &mut current_texture_2d);
 
         // 1. Create the texture + framebuffer
 

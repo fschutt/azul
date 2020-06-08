@@ -35,6 +35,7 @@ dll_patches = {
     tuple(['callbacks', 'CallbackType']): read_file("./patches/azul-dll/callback_type.rs"),
     tuple(['callbacks', 'GlCallbackType']): read_file("./patches/azul-dll/gl_callback_type.rs"),
     tuple(['callbacks', 'IFrameCallbackType']): read_file("./patches/azul-dll/iframe_callback_type.rs"),
+    tuple(['callbacks', 'TaskCallbackType']): read_file("./patches/azul-dll/task_callback_type.rs"),
 }
 
 rust_api_patches = {
@@ -48,6 +49,8 @@ rust_api_patches = {
     tuple(['callbacks', 'CallbackType']): read_file("./patches/azul.rs/callback_type.rs"),
     tuple(['callbacks', 'GlCallbackType']): read_file("./patches/azul.rs/gl_callback_type.rs"),
     tuple(['callbacks', 'IFrameCallbackType']): read_file("./patches/azul.rs/iframe_callback_type.rs"),
+    tuple(['callbacks', 'ThreadCallbackType']): read_file("./patches/azul.rs/thread_callback_type.rs"),
+    tuple(['callbacks', 'TaskCallbackType']): read_file("./patches/azul.rs/task_callback_type.rs"),
 }
 
 c_api_patches = {
@@ -212,6 +215,9 @@ def analyze_type(arg):
     starts = ""
     arg_type = ""
     ends = ""
+
+    if type(arg) is dict:
+        print("expected string, got dict: " + str(arg))
 
     if arg.startswith("&mut"):
         starts = "&mut "
@@ -473,8 +479,8 @@ def generate_rust_dll(apiData):
                 elif class_is_boxed_object:
                     structs_map[class_ptr_name] = {"struct": [{"ptr": {"type": "*mut c_void" }}]}
                     if treat_external_as_ptr:
-                        code += "pub type " + class_ptr_name + "Type = " + external_path + ";\r\n"
-                        code += "#[no_mangle] pub use " + class_ptr_name + "Type as " + class_ptr_name + ";\r\n"
+                        code += "pub type " + class_ptr_name + "TT = " + external_path + ";\r\n"
+                        code += "#[no_mangle] pub use " + class_ptr_name + "TT as " + class_ptr_name + ";\r\n"
                     else:
                         code += "#[no_mangle] #[repr(C)] pub struct " + class_ptr_name + " { pub ptr: *mut c_void }\r\n"
                 else:
@@ -483,8 +489,8 @@ def generate_rust_dll(apiData):
                     elif "enum_fields" in c.keys():
                         structs_map[class_ptr_name] = {"enum": c["enum_fields"]}
 
-                    code += "pub type " + class_ptr_name + "Type = " + external_path + ";\r\n"
-                    code += "#[no_mangle] pub use " + class_ptr_name + "Type as " + class_ptr_name + ";\r\n"
+                    code += "pub type " + class_ptr_name + "TT = " + external_path + ";\r\n"
+                    code += "#[no_mangle] pub use " + class_ptr_name + "TT as " + class_ptr_name + ";\r\n"
 
             else:
                 structs_map[class_ptr_name] = {"struct": [{"ptr": {"type": "*mut c_void"}}]}

@@ -10,12 +10,13 @@ use crate::{
     callbacks::{
         TimerCallback, TimerCallbackInfo, RefAny,
         TimerCallbackReturn, TimerCallbackType, UpdateScreen,
+        ThreadCallbackType, TaskCallbackType,
     },
     app_resources::AppResources,
 };
 
 /// Should a timer terminate or not - used to remove active timers
-#[derive(Debug, Copy, Clone, PartialEq, Eq)]
+#[derive(Copy, Clone, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
 #[repr(C)]
 pub enum TerminateTimer {
     /// Remove the timer from the list of active timers
@@ -39,7 +40,7 @@ impl TimerId {
 }
 
 #[repr(C)]
-pub struct AzInstantPtr { /* ptr: *const StdInstant */ ptr: *const c_void }
+pub struct AzInstantPtr { /* ptr: *const StdInstant */ pub ptr: *const c_void }
 
 impl std::fmt::Debug for AzInstantPtr {
     fn fmt(&self, f: &mut ::std::fmt::Formatter) -> ::std::fmt::Result {
@@ -74,7 +75,7 @@ impl Ord for AzInstantPtr {
 }
 
 impl AzInstantPtr {
-    fn now() -> Self { StdInstant::now().into() }
+    pub fn now() -> Self { StdInstant::now().into() }
     fn new(instant: StdInstant) -> Self { instant.into() }
     fn get(&self) -> StdInstant { let p = unsafe { Box::<StdInstant>::from_raw(self.ptr as *mut StdInstant) }; let val = *p; std::mem::forget(p); val }
 }
@@ -240,6 +241,20 @@ impl Timer {
 /// block the main thread, simply let it go out of scope naturally.
 pub struct DropCheck(Arc<()>);
 
+#[repr(C)]
+pub struct DropCheckPtr { /* *const DropCheck */ pub ptr: *const c_void }
+
+impl DropCheckPtr {
+    pub fn new(d: DropCheck) -> Self { Self { ptr: Box::into_raw(Box::new(d)) as *const c_void }}
+    pub fn get(&self) -> &DropCheck { unsafe { &*(self.ptr as *const DropCheck) } }
+}
+
+impl Drop for DropCheckPtr {
+    fn drop(&mut self) {
+        let _ = unsafe { Box::from_raw(self.ptr as *mut DropCheck) };
+    }
+}
+
 /// A `Task` is a seperate thread that is owned by the framework.
 ///
 /// In difference to a `Thread`, you don't have to `await()` the result of a `Task`,
@@ -257,16 +272,37 @@ pub struct Task {
     pub after_completion_timer: Option<Timer>,
 }
 
-pub type TaskCallback<U> = fn(Arc<Mutex<U>>, DropCheck) -> UpdateScreen;
+#[repr(C)]
+pub struct ArcMutexRefAnyPtr { /* *const Arc<Mutex<RefAny>> */ pub ptr: *const c_void }
+
+impl ArcMutexRefAnyPtr {
+    pub fn new(d: Arc<Mutex<RefAny>>) -> Self { Self { ptr: Box::into_raw(Box::new(d)) as *const c_void }}
+    pub fn get(&self) -> &Arc<Mutex<RefAny>> { unsafe { &*(self.ptr as *const Arc<Mutex<RefAny>>) } }
+}
+
+impl Clone for ArcMutexRefAnyPtr {
+    fn clone(&self) -> Self {
+        Self::new(self.get().clone())
+    }
+}
+
+unsafe impl Send for ArcMutexRefAnyPtr { }
+unsafe impl Sync for ArcMutexRefAnyPtr { }
+
+impl Drop for ArcMutexRefAnyPtr {
+    fn drop(&mut self) {
+        let _ = unsafe { Box::from_raw(self.ptr as *mut Arc<Mutex<RefAny>>) };
+    }
+}
 
 impl Task {
 
     /// Creates a new task from a callback and a set of input data - which has to be wrapped in an `Arc<Mutex<T>>>`.
-    pub fn new<U: Send + 'static>(data: Arc<Mutex<U>>, callback: TaskCallback<U>) -> Self {
+    pub fn new(data: ArcMutexRefAnyPtr, callback: TaskCallbackType) -> Self {
 
         let thread_check = Arc::new(());
         let thread_weak = Arc::downgrade(&thread_check);
-        let thread_handle = thread::spawn(move || callback(data, DropCheck(thread_check)));
+        let thread_handle = thread::spawn(move || callback(data, DropCheckPtr::new(DropCheck(thread_check))));
 
         Self {
             join_handle: Some(thread_handle),
@@ -304,8 +340,8 @@ impl Drop for Task {
 /// # Warning
 ///
 /// `Thread` panics if it goes out of scope before `.block()` was called.
-pub struct Thread<T> {
-    join_handle: Option<JoinHandle<T>>,
+pub struct Thread {
+    join_handle: Option<JoinHandle<RefAny>>,
 }
 
 /// Error that can happen while calling `.block()`
@@ -320,7 +356,7 @@ pub enum BlockError {
     MutexIntoInnerError,
 }
 
-impl<T> Thread<T> {
+impl Thread {
 
     /// Creates a new thread that spawns a certain (pure) function on a separate thread.
     /// This is a workaround until `await` is implemented. Note that invoking this function
@@ -350,22 +386,23 @@ impl<T> Thread<T> {
     /// assert_eq!(result_2, Ok(11));
     /// assert_eq!(result_3, Ok(21));
     /// ```
-    pub fn new<U>(initial_data: U, callback: fn(U) -> T) -> Self where T: Send + 'static, U: Send + 'static {
+    pub fn new(initial_data: RefAny, callback: ThreadCallbackType) -> Self {
         Self {
             join_handle: Some(thread::spawn(move || callback(initial_data))),
         }
     }
 
-    /// Block until the internal thread has finished and return T
-    pub fn block(mut self) -> Result<T, BlockError> {
+    /// Block until the internal thread has finished and returns the result of the operation
+    pub fn block(mut self) -> ResultRefAnyBlockError {
         // .block() can only be called once, so these .unwrap()s are safe
         let handle = self.join_handle.take().unwrap();
-        let data = handle.join().map_err(|_| BlockError::ThreadJoinError)?;
-        Ok(data)
+        handle.join().map_err(|_| BlockError::ThreadJoinError).into()
     }
 }
 
-impl<T> Drop for Thread<T> {
+impl_result!(RefAny, BlockError, ResultRefAnyBlockError, copy = false);
+
+impl Drop for Thread {
     fn drop(&mut self) {
         if self.join_handle.take().is_some() {
             panic!("Thread has not been await()-ed correctly!");

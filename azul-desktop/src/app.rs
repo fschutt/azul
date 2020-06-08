@@ -1577,81 +1577,76 @@ fn render_inner(
 
     let background_color_f: ColorF = background_color.into();
 
+    // NOTE: The `hidden_display` must share the OpenGL context with the `window`,
+    // otherwise this will segfault! Use `ContextBuilder::with_shared_lists` to share the
+    // OpenGL context across different windows.
+    //
+    // The context **must** be made current before calling `.bind_framebuffer()`,
+    // otherwise EGL will panic with EGL_BAD_MATCH. The current context has to be the
+    // hidden_display context, otherwise this will segfault on Windows.
+    headless_shared_context.make_current();
 
-    unsafe {
+    let mut current_program = [0_i32];
+    gl_context.get_integer_v(gl::CURRENT_PROGRAM, &mut current_program);
 
-        // NOTE: The `hidden_display` must share the OpenGL context with the `window`,
-        // otherwise this will segfault! Use `ContextBuilder::with_shared_lists` to share the
-        // OpenGL context across different windows.
-        //
-        // The context **must** be made current before calling `.bind_framebuffer()`,
-        // otherwise EGL will panic with EGL_BAD_MATCH. The current context has to be the
-        // hidden_display context, otherwise this will segfault on Windows.
-        headless_shared_context.make_current();
+    // Generate a framebuffer (that will contain the final, rendered screen output).
+    let framebuffers = gl_context.gen_framebuffers(1);
+    gl_context.bind_framebuffer(gl::FRAMEBUFFER, framebuffers[0]);
 
-        let mut current_program = [0_i32];
-        gl_context.get_integer_v(gl::CURRENT_PROGRAM, &mut current_program);
+    // Create the texture to render to
+    let textures = gl_context.gen_textures(1);
 
-        // Generate a framebuffer (that will contain the final, rendered screen output).
-        let framebuffers = gl_context.gen_framebuffers(1);
-        gl_context.bind_framebuffer(gl::FRAMEBUFFER, framebuffers[0]);
+    gl_context.bind_texture(gl::TEXTURE_2D, textures[0]);
+    gl_context.tex_image_2d(gl::TEXTURE_2D, 0, gl::RGB as i32, framebuffer_size.width, framebuffer_size.height, 0, gl::RGB, gl::UNSIGNED_BYTE, None);
 
-        // Create the texture to render to
-        let textures = gl_context.gen_textures(1);
+    gl_context.tex_parameter_i(gl::TEXTURE_2D, gl::TEXTURE_MAG_FILTER, gl::NEAREST as i32);
+    gl_context.tex_parameter_i(gl::TEXTURE_2D, gl::TEXTURE_MIN_FILTER, gl::NEAREST as i32);
+    gl_context.tex_parameter_i(gl::TEXTURE_2D, gl::TEXTURE_WRAP_S, gl::CLAMP_TO_EDGE as i32);
+    gl_context.tex_parameter_i(gl::TEXTURE_2D, gl::TEXTURE_WRAP_T, gl::CLAMP_TO_EDGE as i32);
 
-        gl_context.bind_texture(gl::TEXTURE_2D, textures[0]);
-        gl_context.tex_image_2d(gl::TEXTURE_2D, 0, gl::RGB as i32, framebuffer_size.width, framebuffer_size.height, 0, gl::RGB, gl::UNSIGNED_BYTE, None);
+    let depthbuffers = gl_context.gen_renderbuffers(1);
+    gl_context.bind_renderbuffer(gl::RENDERBUFFER, depthbuffers[0]);
+    gl_context.renderbuffer_storage(gl::RENDERBUFFER, gl::DEPTH_COMPONENT, framebuffer_size.width, framebuffer_size.height);
+    gl_context.framebuffer_renderbuffer(gl::FRAMEBUFFER, gl::DEPTH_ATTACHMENT, gl::RENDERBUFFER, depthbuffers[0]);
 
-        gl_context.tex_parameter_i(gl::TEXTURE_2D, gl::TEXTURE_MAG_FILTER, gl::NEAREST as i32);
-        gl_context.tex_parameter_i(gl::TEXTURE_2D, gl::TEXTURE_MIN_FILTER, gl::NEAREST as i32);
-        gl_context.tex_parameter_i(gl::TEXTURE_2D, gl::TEXTURE_WRAP_S, gl::CLAMP_TO_EDGE as i32);
-        gl_context.tex_parameter_i(gl::TEXTURE_2D, gl::TEXTURE_WRAP_T, gl::CLAMP_TO_EDGE as i32);
+    // Set "textures[0]" as the color attachement #0
+    gl_context.framebuffer_texture_2d(gl::FRAMEBUFFER, gl::COLOR_ATTACHMENT0, gl::TEXTURE_2D, textures[0], 0);
 
-        let depthbuffers = gl_context.gen_renderbuffers(1);
-        gl_context.bind_renderbuffer(gl::RENDERBUFFER, depthbuffers[0]);
-        gl_context.renderbuffer_storage(gl::RENDERBUFFER, gl::DEPTH_COMPONENT, framebuffer_size.width, framebuffer_size.height);
-        gl_context.framebuffer_renderbuffer(gl::FRAMEBUFFER, gl::DEPTH_ATTACHMENT, gl::RENDERBUFFER, depthbuffers[0]);
+    gl_context.draw_buffers(&[gl::COLOR_ATTACHMENT0]);
 
-        // Set "textures[0]" as the color attachement #0
-        gl_context.framebuffer_texture_2d(gl::FRAMEBUFFER, gl::COLOR_ATTACHMENT0, gl::TEXTURE_2D, textures[0], 0);
+    // Check that the framebuffer is complete
+    debug_assert!(gl_context.check_frame_buffer_status(gl::FRAMEBUFFER) == gl::FRAMEBUFFER_COMPLETE);
 
-        gl_context.draw_buffers(&[gl::COLOR_ATTACHMENT0]);
+    // Disable SRGB and multisample, otherwise, WebRender will crash
+    gl_context.disable(gl::FRAMEBUFFER_SRGB);
+    gl_context.disable(gl::MULTISAMPLE);
+    gl_context.disable(gl::POLYGON_SMOOTH);
 
-        // Check that the framebuffer is complete
-        debug_assert!(gl_context.check_frame_buffer_status(gl::FRAMEBUFFER) == gl::FRAMEBUFFER_COMPLETE);
+    // Invoke WebRender to render the frame - renders to the currently bound FB
+    gl_context.clear_color(background_color_f.r, background_color_f.g, background_color_f.b, background_color_f.a);
+    gl_context.clear(gl::COLOR_BUFFER_BIT);
+    gl_context.clear_depth(0.0);
+    gl_context.clear(gl::DEPTH_BUFFER_BIT);
+    renderer.render(framebuffer_size).unwrap();
 
-        // Disable SRGB and multisample, otherwise, WebRender will crash
-        gl_context.disable(gl::FRAMEBUFFER_SRGB);
-        gl_context.disable(gl::MULTISAMPLE);
-        gl_context.disable(gl::POLYGON_SMOOTH);
+    // FBOs can't be shared between windows, but textures can.
+    // In order to draw on the windows backbuffer, first make the window current, then draw to FB 0
+    headless_shared_context.make_not_current();
+    window.display.make_current();
+    draw_texture_to_screen(gl_context.clone(), textures[0], framebuffer_size);
+    window.display.windowed_context().unwrap().swap_buffers().unwrap();
+    window.display.make_not_current();
+    headless_shared_context.make_current();
 
-        // Invoke WebRender to render the frame - renders to the currently bound FB
-        gl_context.clear_color(background_color_f.r, background_color_f.g, background_color_f.b, background_color_f.a);
-        gl_context.clear(gl::COLOR_BUFFER_BIT);
-        gl_context.clear_depth(0.0);
-        gl_context.clear(gl::DEPTH_BUFFER_BIT);
-        renderer.render(framebuffer_size).unwrap();
+    // Only delete the texture here...
+    gl_context.delete_framebuffers(&framebuffers);
+    gl_context.delete_renderbuffers(&depthbuffers);
+    gl_context.delete_textures(&textures);
 
-        // FBOs can't be shared between windows, but textures can.
-        // In order to draw on the windows backbuffer, first make the window current, then draw to FB 0
-        headless_shared_context.make_not_current();
-        window.display.make_current();
-        draw_texture_to_screen(gl_context.clone(), textures[0], framebuffer_size);
-        window.display.windowed_context().unwrap().swap_buffers().unwrap();
-        window.display.make_not_current();
-        headless_shared_context.make_current();
-
-        // Only delete the texture here...
-        gl_context.delete_framebuffers(&framebuffers);
-        gl_context.delete_renderbuffers(&depthbuffers);
-        gl_context.delete_textures(&textures);
-
-        gl_context.bind_framebuffer(gl::FRAMEBUFFER, 0);
-        gl_context.bind_texture(gl::TEXTURE_2D, 0);
-        gl_context.use_program(current_program[0] as u32);
-        headless_shared_context.make_not_current();
-    };
-
+    gl_context.bind_framebuffer(gl::FRAMEBUFFER, 0);
+    gl_context.bind_texture(gl::TEXTURE_2D, 0);
+    gl_context.use_program(current_program[0] as u32);
+    headless_shared_context.make_not_current();
 }
 
 /// When called with glDrawArrays(0, 3), generates a simple triangle that

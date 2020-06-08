@@ -828,6 +828,7 @@ impl_vec!(Dom, DomVec);
 impl_vec!(OverrideProperty, OverridePropertyVec);
 impl_vec!(CallbackData, CallbackDataVec);
 impl_option!(TabIndex, OptionTabIndex);
+impl_option!(Dom, OptionDom, copy = false);
 
 fn print_dom(d: &Dom, f: &mut fmt::Formatter) -> fmt::Result {
     write!(f, "Dom {{\r\n")?;

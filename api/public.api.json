@@ -324,6 +324,13 @@
 						{"Some": { "type": "PercentageValue" }}
 					]
 				},
+				"OptionDom": {
+					"external": "azul_impl::dom::OptionDom",
+					"enum_fields": [
+						{"None": {}},
+						{"Some": { "type": "Dom" }}
+					]
+				},
 				"OptionTexture": {
 					"external": "azul_impl::gl::OptionTexture",
 					"enum_fields": [
@@ -339,19 +346,45 @@
 					]
 				},
 				"OptionDuration": {
-					"external": "azul_impl::task::OptionDuration"
+					"external": "azul_impl::task::OptionDuration",
+					"enum_fields": [
+						{"None": {}},
+						{"Some": { "type": "Duration" }}
+					]
 				},
-				"OptionInstant": {
-					"external": "azul_impl::task::OptionInstant"
+				"OptionInstantPtr": {
+					"external": "azul_impl::task::OptionInstantPtr",
+					"enum_fields": [
+						{"None": {}},
+						{"Some": { "type": "InstantPtr" }}
+					]
+				}
+			}
+		},
+		"result": {
+			"doc": "Definition of azuls internal `Option<*>` wrappers",
+			"classes": {
+				"ResultRefAnyBlockError": {
+					"external": "azul_impl::task::ResultRefAnyBlockError",
+					"enum_fields": [
+						{"Ok": {"type": "RefAny"}},
+						{"Err": { "type": "BlockError" }}
+					]
 				}
 			}
 		},
 		"time": {
 			"doc": "Rust wrappers for `Instant` / `Duration` classes",
 			"classes": {
-				"Instant": {
+				"InstantPtr": {
 					"external": "azul_impl::task::AzInstantPtr",
-					"is_boxed_object": true
+					"rust_class_name": "std::time::Instant",
+					"is_boxed_object": true,
+					"constructors": {
+						"now": {
+							"fn_body": "AzInstantPtr::now()"
+						}
+					}
 				},
 				"Duration": {
 					"external": "azul_impl::task::AzDuration",
@@ -380,7 +413,7 @@
 						"fn_args": [
 							{"data": "RefAny"},
 							{"config": "AppConfig"},
-							{"callback": "LayoutCallback"}
+							{"callback": "LayoutCallbackType"}
 						],
 						"fn_body": "App::new(data, *az_app_config_downcast(config), callback).unwrap()"
 						}
@@ -445,8 +478,10 @@
 					"is_boxed_object": true
 				},
 				"IFrameCallbackReturn": {
-					"external": "azul_impl::callbacks::IFrameCallbackReturnPtr",
-					"is_boxed_object": true
+					"external": "azul_impl::callbacks::IFrameCallbackReturn",
+					"struct_fields": [
+						{"dom": { "type": "OptionDom" }}
+					]
 				},
 
 				"GlCallback": {
@@ -467,6 +502,8 @@
 						{"texture": { "type": "OptionTexture" }}
 					]
 				},
+
+				"ThreadCallbackType": { "use_patches": ["dll", "rust"], "typedef": true },
 
 				"RefAny": { "use_patches": ["dll", "rust"] },
 				"LayoutInfo": {
@@ -1892,15 +1929,15 @@
 							"doc": "Creates a new node which will render an OpenGL texture after the layout step is finished. See the documentation for [GlCallback]() for more info about OpenGL rendering callbacks.",
 							"fn_args": [
 								{"data": "RefAny"},
-								{"callback": "GlCallback"}
+								{"callback": "GlCallbackType"}
 							],
 							"fn_body": "Dom::gl_texture(callback, data)"
 						},
-						"iframe_callback": {
+						"iframe": {
 							"doc": "Creates a new node with a callback that will return a `Dom` after being layouted. See the documentation for [IFrameCallback]() for more info about iframe callbacks.",
 							"fn_args": [
 								{"data": "RefAny"},
-								{"callback": "IFrameCallback"}
+								{"callback": "IFrameCallbackType"}
 							],
 							"fn_body": "Dom::iframe(callback, data)"
 						}
@@ -1980,7 +2017,7 @@
 								{"self": "refmut"},
 								{"event": "EventFilter"},
 								{"data": "RefAny"},
-								{"callback": "Callback"}
+								{"callback": "CallbackType"}
 							],
 							"fn_body": "dom.add_callback(event, callback, data);"
 						},
@@ -1990,7 +2027,7 @@
 								{"self": "mut value"},
 								{"event": "EventFilter"},
 								{"data": "RefAny"},
-								{"callback": "Callback"}
+								{"callback": "CallbackType"}
 							],
 							"returns": "Dom",
 							"fn_body": "az_dom_add_callback(&mut dom, event, data, callback); dom"
@@ -2289,7 +2326,9 @@
 			"classes": {
 				"GlContextPtr": {
 					"external": "azul_impl::gl::GlContextPtr",
-					"is_boxed_object": true
+					"struct_fields": [
+						{"ptr": {"type": "*const c_void"}}
+					]
 				},
 				"Texture": {
 					"external": "azul_impl::gl::Texture",
@@ -2403,14 +2442,52 @@
 		"task": {
 			"doc": "Asyncronous timers / task / thread handlers for easy async loading",
 			"classes": {
+				"DropCheckPtr": {
+					"external": "azul_impl::task::DropCheckPtr",
+					"rust_class_name": "azul_impl::task::DropCheck",
+					"is_boxed_object": true
+				},
+				"ArcMutexRefAnyPtr": {
+					"external": "azul_impl::task::ArcMutexRefAnyPtr",
+					"rust_class_name": "std::sync::Arc<std::sync::Mutex<RefAny>>",
+					"is_boxed_object": true
+				},
 				"Timer": {
-					"external": "azul_impl::task::Timer"
+					"external": "azul_impl::task::Timer",
+					"struct_fields": [
+						{"created": {"type": "InstantPtr", "doc": "Stores when the timer was created (usually acquired by `Instant::now()`)"}},
+						{"last_run": {"type": "OptionInstantPtr", "doc": "When the timer was last called (`None` only when the timer hasn't been called yet)"}},
+						{"delay": {"type": "OptionInstantPtr", "doc": "If the timer shouldn't start instantly, but rather be delayed by a certain duration"}},
+						{"interval": {"type": "OptionDuration", "doc": "How frequently the timer should run, i.e. set this to `Some(Duration::from_millis(16))` to run the timer every 16ms. If this value is set to `None`, (the default), the timer will execute the timer as-fast-as-possible (i.e. at a faster framerate than the framework itself) - which might be  performance intensive."}},
+						{"timeout": {"type": "OptionDuration", "doc": "When to stop the timer (for example, you can stop the execution after 5s using `Some(Duration::from_secs(5))`)."}},
+						{"callback": {"type": "TimerCallback", "doc": "Callback to be called for this timer"}}
+					]
 				},
 				"Task": {
 					"external": "azul_impl::task::Task"
 				},
 				"Thread": {
-					"external": "azul_impl::task::Thread"
+					"external": "azul_impl::task::Thread",
+					"constructors": {
+						"new": {
+							"doc": "Creates and starts a new thread that calls the `callback` on the `data`.",
+							"fn_args": [
+								{"data": "RefAny"},
+								{"callback": "ThreadCallbackType"}
+							],
+							"fn_body": "Thread::new(data, callback)"
+						}
+					},
+					"functions": {
+						"block": {
+							"doc": "Blocks until the internal thread has finished and returns the result of the operation",
+							"fn_args": [
+								{"self": "value"}
+							],
+							"returns": "ResultRefAnyBlockError",
+							"fn_body": "(*az_thread_downcast(thread)).block()"
+						}
+					}
 				},
 				"TimerCallback": {
 					"external": "azul_impl::callbacks::TimerCallback",

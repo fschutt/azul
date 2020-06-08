@@ -12,7 +12,7 @@ use azul_css_parser::CssPathParseError;
 use crate::{
     FastHashMap,
     app_resources::{AppResources, IdNamespace, Words, WordPositions, ScaledWords, LayoutedGlyphs},
-    dom::{Dom, DomId, TagId, NodeType, NodeData},
+    dom::{Dom, OptionDom, DomId, TagId, NodeType, NodeData},
     display_list::CachedDisplayList,
     ui_state::UiState,
     ui_description::UiDescription,
@@ -23,7 +23,7 @@ use crate::{
         KeyboardState, MouseState, LogicalSize, PhysicalSize,
         UpdateFocusWarning, CallCallbacksResult, ScrollStates,
     },
-    task::{Timer, TerminateTimer, Task, TimerId},
+    task::{Timer, DropCheckPtr, TerminateTimer, ArcMutexRefAnyPtr, Task, TimerId},
 };
 
 #[cfg(feature = "opengl")]
@@ -73,6 +73,8 @@ pub struct RefAny {
     pub is_currently_mutable: bool,
     pub custom_destructor: fn(RefAny),
 }
+
+unsafe impl Send for RefAny { }
 
 impl Clone for RefAny {
     fn clone(&self) -> Self {
@@ -444,11 +446,8 @@ pub struct GlCallbackInfo<'a> {
 #[repr(C)]
 pub struct GlCallbackReturn { pub texture: OptionTexture }
 
-/// Pointer to rust-allocated `Box<GlCallbackReturn>` struct
-#[no_mangle] #[repr(C)] pub struct GlCallbackReturnPtr { pub ptr: *mut c_void }
-
 #[cfg(feature = "opengl")]
-pub type GlCallbackType = fn(GlCallbackInfoPtr) -> GlCallbackReturnPtr;
+pub type GlCallbackType = fn(GlCallbackInfoPtr) -> GlCallbackReturn;
 
 // -- iframe callback
 
@@ -467,13 +466,17 @@ pub struct IFrameCallbackInfo<'a> {
 /// Pointer to rust-allocated `Box<IFrameCallbackInfo<'a>>` struct
 #[no_mangle] #[repr(C)] pub struct IFrameCallbackInfoPtr { pub ptr: *mut c_void }
 
+#[derive(Clone)]
 #[repr(C)]
-pub struct IFrameCallbackReturn { pub dom: Option<Dom> } // todo: return virtual scrolling frames!
+pub struct IFrameCallbackReturn { pub dom: OptionDom } // todo: return virtual scrolling frames!
 
-/// Pointer to rust-allocated `Box<IFrameCallbackReturn>` struct
-#[no_mangle] #[repr(C)] pub struct IFrameCallbackReturnPtr { pub ptr: *mut c_void }
+pub type IFrameCallbackType = fn(IFrameCallbackInfoPtr) -> IFrameCallbackReturn;
 
-pub type IFrameCallbackType = fn(IFrameCallbackInfoPtr) -> IFrameCallbackReturnPtr;
+// -- thread callback
+pub type ThreadCallbackType = fn(RefAny) -> RefAny;
+
+// --  task callback
+pub type TaskCallbackType = fn(ArcMutexRefAnyPtr, DropCheckPtr) -> UpdateScreen;
 
 // -- timer callback
 
@@ -490,6 +493,7 @@ pub struct TimerCallbackInfo<'a> {
 /// Pointer to rust-allocated `Box<TimerCallbackInfo<'a>>` struct
 #[repr(C)] pub struct TimerCallbackInfoPtr { pub ptr: *const c_void }
 
+#[derive(Copy, Clone, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
 #[repr(C)]
 pub struct TimerCallbackReturn {
     pub should_update: UpdateScreen,
