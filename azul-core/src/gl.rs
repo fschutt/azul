@@ -990,39 +990,11 @@ impl Gl for VirtualGlDriver {
         unimplemented()
     }
 
-    fn copy_texture_chromium(
-        &self,
-        source_id: GLuint,
-        source_level: GLint,
-        dest_target: GLenum,
-        dest_id: GLuint,
-        dest_level: GLint,
-        internal_format: GLint,
-        dest_type: GLenum,
-        unpack_flip_y: GLboolean,
-        unpack_premultiply_alpha: GLboolean,
-        unpack_unmultiply_alpha: GLboolean
-    ) {
+    fn copy_texture_chromium(&self, source_id: GLuint, source_level: GLint, dest_target: GLenum, dest_id: GLuint, dest_level: GLint, internal_format: GLint, dest_type: GLenum, unpack_flip_y: GLboolean, unpack_premultiply_alpha: GLboolean, unpack_unmultiply_alpha: GLboolean) {
         unimplemented()
     }
 
-    fn copy_sub_texture_chromium(
-        &self,
-        source_id: GLuint,
-        source_level: GLint,
-        dest_target: GLenum,
-        dest_id: GLuint,
-        dest_level: GLint,
-        x_offset: GLint,
-        y_offset: GLint,
-        x: GLint,
-        y: GLint,
-        width: GLsizei,
-        height: GLsizei,
-        unpack_flip_y: GLboolean,
-        unpack_premultiply_alpha: GLboolean,
-        unpack_unmultiply_alpha: GLboolean
-    ) {
+    fn copy_sub_texture_chromium(&self, source_id: GLuint, source_level: GLint, dest_target: GLenum, dest_id: GLuint, dest_level: GLint, x_offset: GLint, y_offset: GLint, x: GLint, y: GLint, width: GLsizei, height: GLsizei, unpack_flip_y: GLboolean, unpack_premultiply_alpha: GLboolean, unpack_unmultiply_alpha: GLboolean) {
         unimplemented()
     }
 
@@ -1032,42 +1004,11 @@ impl Gl for VirtualGlDriver {
         unimplemented()
     }
 
-    fn copy_texture_3d_angle(
-        &self,
-        source_id: GLuint,
-        source_level: GLint,
-        dest_target: GLenum,
-        dest_id: GLuint,
-        dest_level: GLint,
-        internal_format: GLint,
-        dest_type: GLenum,
-        unpack_flip_y: GLboolean,
-        unpack_premultiply_alpha: GLboolean,
-        unpack_unmultiply_alpha: GLboolean
-    ) {
+    fn copy_texture_3d_angle( &self, source_id: GLuint, source_level: GLint, dest_target: GLenum, dest_id: GLuint, dest_level: GLint, internal_format: GLint, dest_type: GLenum, unpack_flip_y: GLboolean, unpack_premultiply_alpha: GLboolean, unpack_unmultiply_alpha: GLboolean) {
         unimplemented()
     }
 
-    fn copy_sub_texture_3d_angle(
-        &self,
-        source_id: GLuint,
-        source_level: GLint,
-        dest_target: GLenum,
-        dest_id: GLuint,
-        dest_level: GLint,
-        x_offset: GLint,
-        y_offset: GLint,
-        z_offset: GLint,
-        x: GLint,
-        y: GLint,
-        z: GLint,
-        width: GLsizei,
-        height: GLsizei,
-        depth: GLsizei,
-        unpack_flip_y: GLboolean,
-        unpack_premultiply_alpha: GLboolean,
-        unpack_unmultiply_alpha: GLboolean
-    ) {
+    fn copy_sub_texture_3d_angle(&self, source_id: GLuint, source_level: GLint, dest_target: GLenum, dest_id: GLuint, dest_level: GLint, x_offset: GLint, y_offset: GLint, z_offset: GLint, x: GLint, y: GLint, z: GLint, width: GLsizei, height: GLsizei, depth: GLsizei, unpack_flip_y: GLboolean, unpack_premultiply_alpha: GLboolean, unpack_unmultiply_alpha: GLboolean) {
         unimplemented()
     }
 }
@@ -1082,6 +1023,228 @@ pub struct GlContextPtr { /* *const Rc<dyn Gl> */ pub ptr: *const c_void }
 impl GlContextPtr {
     pub fn new(context: Rc<dyn Gl>) -> Self { Self { ptr: Box::into_raw(Box::new(context))} }
     pub fn get(&self) -> &Rc<dyn Gl> { let p = unsafe { Box::from_raw(self.ptr as *mut Rc<dyn Gl>) }; &p }
+}
+
+impl GlContextPtr {
+    pub fn get_type(&self) -> GlType { self.get().get_type() }
+    pub fn buffer_data_untyped(&self, target: GLenum, size: GLsizeiptr, data: *const GLvoid, usage: GLenum) { self.get().buffer_data_untyped(target, size, data, usage, ) }
+    pub fn buffer_sub_data_untyped(&self, target: GLenum, offset: isize, size: GLsizeiptr, data: *const GLvoid) { self.get().buffer_sub_data_untyped(target, offset, size, data) }
+    pub fn map_buffer(&self, target: GLenum, access: GLbitfield) -> *mut c_void { self.get().map_buffer(target, access) }
+    pub fn map_buffer_range(&self, target: GLenum, offset: GLintptr, length: GLsizeiptr, access: GLbitfield) -> *mut c_void { self.get().map_buffer_range(target, offset, length, access) }
+    pub fn unmap_buffer(&self, target: GLenum) -> GLboolean { self.get().unmap_buffer(target) }
+    pub fn tex_buffer(&self, target: GLenum, internal_format: GLenum, buffer: GLuint) { self.get().tex_buffer(target, internal_format, buffer) }
+    pub fn shader_source(&self, shader: GLuint, strings: &[&[u8]]) { self.get().shader_source(shader, strings) }
+    pub fn read_buffer(&self, mode: GLenum) { self.get().read_buffer(mode) }
+    pub fn read_pixels_into_buffer(&self, x: GLint, y: GLint, width: GLsizei, height: GLsizei, format: GLenum, pixel_type: GLenum, dst_buffer: &mut [u8]) { self.get().read_pixels_into_buffer(x, y, width, height, format, pixel_type, dst_buffer) }
+    pub fn read_pixels(&self, x: GLint, y: GLint, width: GLsizei, height: GLsizei, format: GLenum, pixel_type: GLenum) -> Vec<u8> { self.get().read_pixels(x, y, width, height, format, pixel_type) }
+    pub fn read_pixels_into_pbo(&self, x: GLint, y: GLint, width: GLsizei, height: GLsizei, format: GLenum, pixel_type: GLenum) { unsafe {  self.get().read_pixels_into_pbo(x, y, width, height, format, pixel_type)} }
+    pub fn sample_coverage(&self, value: GLclampf, invert: bool) { self.get().sample_coverage(value, invert) }
+    pub fn polygon_offset(&self, factor: GLfloat, units: GLfloat) { self.get().polygon_offset(factor, units) }
+    pub fn pixel_store_i(&self, name: GLenum, param: GLint) { self.get().pixel_store_i(name, param) }
+    pub fn gen_buffers(&self, n: GLsizei) -> Vec<GLuint> { self.get().gen_buffers(n) }
+    pub fn gen_renderbuffers(&self, n: GLsizei) -> Vec<GLuint> { self.get().gen_renderbuffers(n) }
+    pub fn gen_framebuffers(&self, n: GLsizei) -> Vec<GLuint> { self.get().gen_framebuffers(n) }
+    pub fn gen_textures(&self, n: GLsizei) -> Vec<GLuint> { self.get().gen_textures(n) }
+    pub fn gen_vertex_arrays(&self, n: GLsizei) -> Vec<GLuint> { self.get().gen_vertex_arrays(n) }
+    pub fn gen_queries(&self, n: GLsizei) -> Vec<GLuint> { self.get().gen_queries(n) }
+    pub fn begin_query(&self, target: GLenum, id: GLuint) { self.get().begin_query(target, id) }
+    pub fn end_query(&self, target: GLenum) { self.get().end_query(target) }
+    pub fn query_counter(&self, id: GLuint, target: GLenum) { self.get().query_counter(id, target) }
+    pub fn get_query_object_iv(&self, id: GLuint, pname: GLenum) -> i32 { self.get().get_query_object_iv(id, pname) }
+    pub fn get_query_object_uiv(&self, id: GLuint, pname: GLenum) -> u32 { self.get().get_query_object_uiv(id, pname) }
+    pub fn get_query_object_i64v(&self, id: GLuint, pname: GLenum) -> i64 { self.get().get_query_object_i64v(id, pname) }
+    pub fn get_query_object_ui64v(&self, id: GLuint, pname: GLenum) -> u64 { self.get().get_query_object_ui64v(id, pname) }
+    pub fn delete_queries(&self, queries: &[GLuint]) { self.get().delete_queries(queries) }
+    pub fn delete_vertex_arrays(&self, vertex_arrays: &[GLuint]) { self.get().delete_vertex_arrays(vertex_arrays) }
+    pub fn delete_buffers(&self, buffers: &[GLuint]) { self.get().delete_buffers(buffers) }
+    pub fn delete_renderbuffers(&self, renderbuffers: &[GLuint]) { self.get().delete_renderbuffers(renderbuffers) }
+    pub fn delete_framebuffers(&self, framebuffers: &[GLuint]) { self.get().delete_framebuffers(framebuffers) }
+    pub fn delete_textures(&self, textures: &[GLuint]) { self.get().delete_textures(textures) }
+    pub fn framebuffer_renderbuffer(&self, target: GLenum, attachment: GLenum, renderbuffertarget: GLenum, renderbuffer: GLuint) { self.get().framebuffer_renderbuffer(target, attachment, renderbuffertarget, renderbuffer) }
+    pub fn renderbuffer_storage(&self, target: GLenum, internalformat: GLenum, width: GLsizei, height: GLsizei) { self.get().renderbuffer_storage(target, internalformat, width, height) }
+    pub fn depth_func(&self, func: GLenum) { self.get().depth_func(func) }
+    pub fn active_texture(&self, texture: GLenum) { self.get().active_texture(texture) }
+    pub fn attach_shader(&self, program: GLuint, shader: GLuint) { self.get().attach_shader(program, shader) }
+    pub fn bind_attrib_location(&self, program: GLuint, index: GLuint, name: &str) { self.get().bind_attrib_location(program, index, name) }
+    pub fn get_uniform_iv(&self, program: GLuint, location: GLint, result: &mut [GLint]) { unsafe {  self.get().get_uniform_iv(program, location, result)} }
+    pub fn get_uniform_fv(&self, program: GLuint, location: GLint, result: &mut [GLfloat]) { unsafe {  self.get().get_uniform_fv(program, location, result)} }
+    pub fn get_uniform_block_index(&self, program: GLuint, name: &str) -> GLuint { self.get().get_uniform_block_index(program, name) }
+    pub fn get_uniform_indices(&self,  program: GLuint, names: &[&str]) -> Vec<GLuint> { self.get().get_uniform_indices( program,  names) }
+    pub fn bind_buffer_base(&self, target: GLenum, index: GLuint, buffer: GLuint) { self.get().bind_buffer_base(target, index, buffer) }
+    pub fn bind_buffer_range(&self, target: GLenum, index: GLuint, buffer: GLuint, offset: GLintptr, size: GLsizeiptr) { self.get().bind_buffer_range(target, index, buffer, offset, size) }
+    pub fn uniform_block_binding(&self, program: GLuint, uniform_block_index: GLuint, uniform_block_binding: GLuint) { self.get().uniform_block_binding(program, uniform_block_index, uniform_block_binding) }
+    pub fn bind_buffer(&self, target: GLenum, buffer: GLuint) { self.get().bind_buffer(target, buffer) }
+    pub fn bind_vertex_array(&self, vao: GLuint) { self.get().bind_vertex_array(vao) }
+    pub fn bind_renderbuffer(&self, target: GLenum, renderbuffer: GLuint) { self.get().bind_renderbuffer(target, renderbuffer) }
+    pub fn bind_framebuffer(&self, target: GLenum, framebuffer: GLuint) { self.get().bind_framebuffer(target, framebuffer) }
+    pub fn bind_texture(&self, target: GLenum, texture: GLuint) { self.get().bind_texture(target, texture) }
+    pub fn draw_buffers(&self, bufs: &[GLenum]) { self.get().draw_buffers(bufs) }
+    pub fn tex_image_2d(&self, target: GLenum, level: GLint, internal_format: GLint, width: GLsizei, height: GLsizei, border: GLint, format: GLenum, ty: GLenum, opt_data: Option<&[u8]>) { self.get().tex_image_2d(target, level, internal_format, width, height, border, format, ty, opt_data) }
+    pub fn compressed_tex_image_2d(&self, target: GLenum, level: GLint, internal_format: GLenum, width: GLsizei, height: GLsizei, border: GLint, data: &[u8]) { self.get().compressed_tex_image_2d(target, level, internal_format, width, height, border, data) }
+    pub fn compressed_tex_sub_image_2d(&self, target: GLenum, level: GLint, xoffset: GLint, yoffset: GLint, width: GLsizei, height: GLsizei, format: GLenum, data: &[u8]) { self.get().compressed_tex_sub_image_2d(target, level, xoffset, yoffset, width, height, format, data) }
+    pub fn tex_image_3d(&self, target: GLenum, level: GLint, internal_format: GLint, width: GLsizei, height: GLsizei, depth: GLsizei, border: GLint, format: GLenum, ty: GLenum, opt_data: Option<&[u8]>) { self.get().tex_image_3d(target, level, internal_format, width, height, depth, border, format, ty, opt_data) }
+    pub fn copy_tex_image_2d(&self, target: GLenum, level: GLint, internal_format: GLenum, x: GLint, y: GLint, width: GLsizei, height: GLsizei, border: GLint) { self.get().copy_tex_image_2d(target, level, internal_format, x, y, width, height, border) }
+    pub fn copy_tex_sub_image_2d(&self, target: GLenum, level: GLint, xoffset: GLint, yoffset: GLint, x: GLint, y: GLint, width: GLsizei, height: GLsizei) { self.get().copy_tex_sub_image_2d(target, level, xoffset, yoffset, x, y, width, height) }
+    pub fn copy_tex_sub_image_3d(&self, target: GLenum, level: GLint, xoffset: GLint, yoffset: GLint, zoffset: GLint, x: GLint, y: GLint, width: GLsizei, height: GLsizei) { self.get().copy_tex_sub_image_3d(target, level, xoffset, yoffset, zoffset, x, y, width, height) }
+    pub fn tex_sub_image_2d(&self, target: GLenum, level: GLint, xoffset: GLint, yoffset: GLint, width: GLsizei, height: GLsizei, format: GLenum, ty: GLenum, data: &[u8]) { self.get().tex_sub_image_2d(target, level, xoffset, yoffset, width, height, format, ty, data) }
+    pub fn tex_sub_image_2d_pbo(&self, target: GLenum, level: GLint, xoffset: GLint, yoffset: GLint, width: GLsizei, height: GLsizei, format: GLenum, ty: GLenum, offset: usize) { self.get().tex_sub_image_2d_pbo(target, level, xoffset, yoffset, width, height, format, ty, offset) }
+    pub fn tex_sub_image_3d(&self, target: GLenum, level: GLint, xoffset: GLint, yoffset: GLint, zoffset: GLint, width: GLsizei, height: GLsizei, depth: GLsizei, format: GLenum, ty: GLenum, data: &[u8]) { self.get().tex_sub_image_3d(target, level, xoffset, yoffset, zoffset, width, height, depth, format, ty, data) }
+    pub fn tex_sub_image_3d_pbo(&self, target: GLenum, level: GLint, xoffset: GLint, yoffset: GLint, zoffset: GLint, width: GLsizei, height: GLsizei, depth: GLsizei, format: GLenum, ty: GLenum, offset: usize) { self.get().tex_sub_image_3d_pbo(target, level, xoffset, yoffset, zoffset, width, height, depth, format, ty, offset) }
+    pub fn tex_storage_2d(&self, target: GLenum, levels: GLint, internal_format: GLenum, width: GLsizei, height: GLsizei) { self.get().tex_storage_2d(target, levels, internal_format, width, height) }
+    pub fn tex_storage_3d(&self, target: GLenum, levels: GLint, internal_format: GLenum, width: GLsizei, height: GLsizei, depth: GLsizei) { self.get().tex_storage_3d(target, levels, internal_format, width, height, depth) }
+    pub fn get_tex_image_into_buffer(&self, target: GLenum, level: GLint, format: GLenum, ty: GLenum, output: &mut [u8]) { self.get().get_tex_image_into_buffer(target, level, format, ty, output) }
+    pub fn copy_image_sub_data(&self, src_name: GLuint, src_target: GLenum, src_level: GLint, src_x: GLint, src_y: GLint, src_z: GLint, dst_name: GLuint, dst_target: GLenum, dst_level: GLint, dst_x: GLint, dst_y: GLint, dst_z: GLint, src_width: GLsizei, src_height: GLsizei, src_depth: GLsizei) { unsafe {  self.get().copy_image_sub_data(src_name, src_target, src_level, src_x, src_y, src_z, dst_name, dst_target, dst_level, dst_x, dst_y, dst_z, src_width, src_height, src_depth)} }
+    pub fn invalidate_framebuffer(&self, target: GLenum, attachments: &[GLenum]) { self.get().invalidate_framebuffer(target, attachments) }
+    pub fn invalidate_sub_framebuffer(&self, target: GLenum, attachments: &[GLenum], xoffset: GLint, yoffset: GLint, width: GLsizei, height: GLsizei) { self.get().invalidate_sub_framebuffer(target, attachments, xoffset, yoffset, width, height) }
+    pub fn get_integer_v(&self, name: GLenum, result: &mut [GLint]) { unsafe {  self.get().get_integer_v(name, result)} }
+    pub fn get_integer_64v(&self, name: GLenum, result: &mut [GLint64]) { unsafe {  self.get().get_integer_64v(name, result)} }
+    pub fn get_integer_iv(&self, name: GLenum, index: GLuint, result: &mut [GLint]) { unsafe {  self.get().get_integer_iv(name, index, result)} }
+    pub fn get_integer_64iv(&self, name: GLenum, index: GLuint, result: &mut [GLint64]) { unsafe {  self.get().get_integer_64iv(name, index, result)} }
+    pub fn get_boolean_v(&self, name: GLenum, result: &mut [GLboolean]) { unsafe {  self.get().get_boolean_v(name, result)} }
+    pub fn get_float_v(&self, name: GLenum, result: &mut [GLfloat]) { unsafe {  self.get().get_float_v(name, result)} }
+    pub fn get_framebuffer_attachment_parameter_iv(&self, target: GLenum, attachment: GLenum, pname: GLenum) -> GLint { self.get().get_framebuffer_attachment_parameter_iv(target, attachment, pname) }
+    pub fn get_renderbuffer_parameter_iv(&self, target: GLenum, pname: GLenum) -> GLint { self.get().get_renderbuffer_parameter_iv(target, pname) }
+    pub fn get_tex_parameter_iv(&self, target: GLenum, name: GLenum) -> GLint { self.get().get_tex_parameter_iv(target, name) }
+    pub fn get_tex_parameter_fv(&self, target: GLenum, name: GLenum) -> GLfloat { self.get().get_tex_parameter_fv(target, name) }
+    pub fn tex_parameter_i(&self, target: GLenum, pname: GLenum, param: GLint) { self.get().tex_parameter_i(target, pname, param) }
+    pub fn tex_parameter_f(&self, target: GLenum, pname: GLenum, param: GLfloat) { self.get().tex_parameter_f(target, pname, param) }
+    pub fn framebuffer_texture_2d(&self, target: GLenum, attachment: GLenum, textarget: GLenum, texture: GLuint, level: GLint) { self.get().framebuffer_texture_2d(target, attachment, textarget, texture, level) }
+    pub fn framebuffer_texture_layer(&self, target: GLenum, attachment: GLenum, texture: GLuint, level: GLint, layer: GLint) { self.get().framebuffer_texture_layer(target, attachment, texture, level, layer) }
+    pub fn blit_framebuffer(&self, src_x0: GLint, src_y0: GLint, src_x1: GLint, src_y1: GLint, dst_x0: GLint, dst_y0: GLint, dst_x1: GLint, dst_y1: GLint, mask: GLbitfield, filter: GLenum) { self.get().blit_framebuffer(src_x0, src_y0, src_x1, src_y1, dst_x0, dst_y0, dst_x1, dst_y1, mask, filter) }
+    pub fn vertex_attrib_4f(&self, index: GLuint, x: GLfloat, y: GLfloat, z: GLfloat, w: GLfloat) { self.get().vertex_attrib_4f(index, x, y, z, w) }
+    pub fn vertex_attrib_pointer_f32(&self, index: GLuint, size: GLint, normalized: bool, stride: GLsizei, offset: GLuint) { self.get().vertex_attrib_pointer_f32(index, size, normalized, stride, offset) }
+    pub fn vertex_attrib_pointer(&self, index: GLuint, size: GLint, type_: GLenum, normalized: bool, stride: GLsizei, offset: GLuint) { self.get().vertex_attrib_pointer(index, size, type_, normalized, stride, offset) }
+    pub fn vertex_attrib_i_pointer(&self, index: GLuint, size: GLint, type_: GLenum, stride: GLsizei, offset: GLuint) { self.get().vertex_attrib_i_pointer(index, size, type_, stride, offset) }
+    pub fn vertex_attrib_divisor(&self, index: GLuint, divisor: GLuint) { self.get().vertex_attrib_divisor(index, divisor) }
+    pub fn viewport(&self, x: GLint, y: GLint, width: GLsizei, height: GLsizei) { self.get().viewport(x, y, width, height) }
+    pub fn scissor(&self, x: GLint, y: GLint, width: GLsizei, height: GLsizei) { self.get().scissor(x, y, width, height) }
+    pub fn line_width(&self, width: GLfloat) { self.get().line_width(width) }
+    pub fn use_program(&self, program: GLuint) { self.get().use_program(program) }
+    pub fn validate_program(&self, program: GLuint) { self.get().validate_program(program) }
+    pub fn draw_arrays(&self, mode: GLenum, first: GLint, count: GLsizei) { self.get().draw_arrays(mode, first, count) }
+    pub fn draw_arrays_instanced(&self, mode: GLenum, first: GLint, count: GLsizei, primcount: GLsizei) { self.get().draw_arrays_instanced(mode, first, count, primcount) }
+    pub fn draw_elements(&self, mode: GLenum, count: GLsizei, element_type: GLenum, indices_offset: GLuint) { self.get().draw_elements(mode, count, element_type, indices_offset) }
+    pub fn draw_elements_instanced(&self, mode: GLenum, count: GLsizei, element_type: GLenum, indices_offset: GLuint, primcount: GLsizei) { self.get().draw_elements_instanced(mode, count, element_type, indices_offset, primcount) }
+    pub fn blend_color(&self, r: f32, g: f32, b: f32, a: f32) { self.get().blend_color(r, g, b, a) }
+    pub fn blend_func(&self, sfactor: GLenum, dfactor: GLenum) { self.get().blend_func(sfactor, dfactor) }
+    pub fn blend_func_separate(&self, src_rgb: GLenum, dest_rgb: GLenum, src_alpha: GLenum, dest_alpha: GLenum) { self.get().blend_func_separate(src_rgb, dest_rgb, src_alpha, dest_alpha) }
+    pub fn blend_equation(&self, mode: GLenum) { self.get().blend_equation(mode) }
+    pub fn blend_equation_separate(&self, mode_rgb: GLenum, mode_alpha: GLenum) { self.get().blend_equation_separate(mode_rgb, mode_alpha) }
+    pub fn color_mask(&self, r: bool, g: bool, b: bool, a: bool) { self.get().color_mask(r, g, b, a) }
+    pub fn cull_face(&self, mode: GLenum) { self.get().cull_face(mode) }
+    pub fn front_face(&self, mode: GLenum) { self.get().front_face(mode) }
+    pub fn enable(&self, cap: GLenum) { self.get().enable(cap) }
+    pub fn disable(&self, cap: GLenum) { self.get().disable(cap) }
+    pub fn hint(&self, param_name: GLenum, param_val: GLenum) { self.get().hint(param_name, param_val) }
+    pub fn is_enabled(&self, cap: GLenum) -> GLboolean { self.get().is_enabled(cap) }
+    pub fn is_shader(&self, shader: GLuint) -> GLboolean { self.get().is_shader(shader) }
+    pub fn is_texture(&self, texture: GLenum) -> GLboolean { self.get().is_texture(texture) }
+    pub fn is_framebuffer(&self, framebuffer: GLenum) -> GLboolean { self.get().is_framebuffer(framebuffer) }
+    pub fn is_renderbuffer(&self, renderbuffer: GLenum) -> GLboolean { self.get().is_renderbuffer(renderbuffer) }
+    pub fn check_frame_buffer_status(&self, target: GLenum) -> GLenum { self.get().check_frame_buffer_status(target) }
+    pub fn enable_vertex_attrib_array(&self, index: GLuint) { self.get().enable_vertex_attrib_array(index) }
+    pub fn disable_vertex_attrib_array(&self, index: GLuint) { self.get().disable_vertex_attrib_array(index) }
+    pub fn uniform_1f(&self, location: GLint, v0: GLfloat) { self.get().uniform_1f(location, v0) }
+    pub fn uniform_1fv(&self, location: GLint, values: &[f32]) { self.get().uniform_1fv(location, values) }
+    pub fn uniform_1i(&self, location: GLint, v0: GLint) { self.get().uniform_1i(location, v0) }
+    pub fn uniform_1iv(&self, location: GLint, values: &[i32]) { self.get().uniform_1iv(location, values) }
+    pub fn uniform_1ui(&self, location: GLint, v0: GLuint) { self.get().uniform_1ui(location, v0) }
+    pub fn uniform_2f(&self, location: GLint, v0: GLfloat, v1: GLfloat) { self.get().uniform_2f(location, v0, v1) }
+    pub fn uniform_2fv(&self, location: GLint, values: &[f32]) { self.get().uniform_2fv(location, values) }
+    pub fn uniform_2i(&self, location: GLint, v0: GLint, v1: GLint) { self.get().uniform_2i(location, v0, v1) }
+    pub fn uniform_2iv(&self, location: GLint, values: &[i32]) { self.get().uniform_2iv(location, values) }
+    pub fn uniform_2ui(&self, location: GLint, v0: GLuint, v1: GLuint) { self.get().uniform_2ui(location, v0, v1) }
+    pub fn uniform_3f(&self, location: GLint, v0: GLfloat, v1: GLfloat, v2: GLfloat) { self.get().uniform_3f(location, v0, v1, v2) }
+    pub fn uniform_3fv(&self, location: GLint, values: &[f32]) { self.get().uniform_3fv(location, values) }
+    pub fn uniform_3i(&self, location: GLint, v0: GLint, v1: GLint, v2: GLint) { self.get().uniform_3i(location, v0, v1, v2) }
+    pub fn uniform_3iv(&self, location: GLint, values: &[i32]) { self.get().uniform_3iv(location, values) }
+    pub fn uniform_3ui(&self, location: GLint, v0: GLuint, v1: GLuint, v2: GLuint) { self.get().uniform_3ui(location, v0, v1, v2) }
+    pub fn uniform_4f(&self, location: GLint, x: GLfloat, y: GLfloat, z: GLfloat, w: GLfloat) { self.get().uniform_4f(location, x, y, z, w) }
+    pub fn uniform_4i(&self, location: GLint, x: GLint, y: GLint, z: GLint, w: GLint) { self.get().uniform_4i(location, x, y, z, w) }
+    pub fn uniform_4iv(&self, location: GLint, values: &[i32]) { self.get().uniform_4iv(location, values) }
+    pub fn uniform_4ui(&self, location: GLint, x: GLuint, y: GLuint, z: GLuint, w: GLuint) { self.get().uniform_4ui(location, x, y, z, w) }
+    pub fn uniform_4fv(&self, location: GLint, values: &[f32]) { self.get().uniform_4fv(location, values) }
+    pub fn uniform_matrix_2fv(&self, location: GLint, transpose: bool, value: &[f32]) { self.get().uniform_matrix_2fv(location, transpose, value) }
+    pub fn uniform_matrix_3fv(&self, location: GLint, transpose: bool, value: &[f32]) { self.get().uniform_matrix_3fv(location, transpose, value) }
+    pub fn uniform_matrix_4fv(&self, location: GLint, transpose: bool, value: &[f32]) { self.get().uniform_matrix_4fv(location, transpose, value) }
+    pub fn depth_mask(&self, flag: bool) { self.get().depth_mask(flag) }
+    pub fn depth_range(&self, near: f64, far: f64) { self.get().depth_range(near, far) }
+    pub fn get_active_attrib(&self, program: GLuint, index: GLuint) -> (i32, u32, String) { self.get().get_active_attrib(program, index) }
+    pub fn get_active_uniform(&self, program: GLuint, index: GLuint) -> (i32, u32, String) { self.get().get_active_uniform(program, index) }
+    pub fn get_active_uniforms_iv(&self, program: GLuint, indices: Vec<GLuint>, pname: GLenum) -> Vec<GLint> { self.get().get_active_uniforms_iv(program, indices, pname) }
+    pub fn get_active_uniform_block_i(&self, program: GLuint, index: GLuint, pname: GLenum) -> GLint { self.get().get_active_uniform_block_i(program, index, pname) }
+    pub fn get_active_uniform_block_iv(&self, program: GLuint, index: GLuint, pname: GLenum) -> Vec<GLint> { self.get().get_active_uniform_block_iv(program, index, pname) }
+    pub fn get_active_uniform_block_name(&self, program: GLuint, index: GLuint) -> String { self.get().get_active_uniform_block_name(program, index) }
+    pub fn get_attrib_location(&self, program: GLuint, name: &str) -> c_int { self.get().get_attrib_location(program, name) }
+    pub fn get_frag_data_location(&self, program: GLuint, name: &str) -> c_int { self.get().get_frag_data_location(program, name) }
+    pub fn get_uniform_location(&self, program: GLuint, name: &str) -> c_int { self.get().get_uniform_location(program, name) }
+    pub fn get_program_info_log(&self, program: GLuint) -> String { self.get().get_program_info_log(program) }
+    pub fn get_program_iv(&self, program: GLuint, pname: GLenum, result: &mut [GLint]) { unsafe {  self.get().get_program_iv(program, pname, result)} }
+    pub fn get_program_binary(&self, program: GLuint) -> (Vec<u8>, GLenum) { self.get().get_program_binary(program) }
+    pub fn program_binary(&self, program: GLuint, format: GLenum, binary: &[u8]) { self.get().program_binary(program, format, binary) }
+    pub fn program_parameter_i(&self, program: GLuint, pname: GLenum, value: GLint) { self.get().program_parameter_i(program, pname, value) }
+    pub fn get_vertex_attrib_iv(&self, index: GLuint, pname: GLenum, result: &mut [GLint]) { unsafe {  self.get().get_vertex_attrib_iv(index, pname, result)} }
+    pub fn get_vertex_attrib_fv(&self, index: GLuint, pname: GLenum, result: &mut [GLfloat]) { unsafe {  self.get().get_vertex_attrib_fv(index, pname, result)} }
+    pub fn get_vertex_attrib_pointer_v(&self, index: GLuint, pname: GLenum) -> GLsizeiptr { self.get().get_vertex_attrib_pointer_v(index, pname) }
+    pub fn get_buffer_parameter_iv(&self, target: GLuint, pname: GLenum) -> GLint { self.get().get_buffer_parameter_iv(target, pname) }
+    pub fn get_shader_info_log(&self, shader: GLuint) -> String { self.get().get_shader_info_log(shader) }
+    pub fn get_string(&self, which: GLenum) -> String { self.get().get_string(which) }
+    pub fn get_string_i(&self, which: GLenum, index: GLuint) -> String { self.get().get_string_i(which, index) }
+    pub fn get_shader_iv(&self, shader: GLuint, pname: GLenum, result: &mut [GLint]) { unsafe {  self.get().get_shader_iv(shader, pname, result)} }
+    pub fn get_shader_precision_format(&self, shader_type: GLuint, precision_type: GLuint) -> (GLint, GLint, GLint) { self.get().get_shader_precision_format(shader_type, precision_type) }
+    pub fn compile_shader(&self, shader: GLuint) { self.get().compile_shader(shader) }
+    pub fn create_program(&self) -> GLuint { self.get().create_program() }
+    pub fn delete_program(&self, program: GLuint) { self.get().delete_program(program) }
+    pub fn create_shader(&self, shader_type: GLenum) -> GLuint { self.get().create_shader(shader_type) }
+    pub fn delete_shader(&self, shader: GLuint) { self.get().delete_shader(shader) }
+    pub fn detach_shader(&self, program: GLuint, shader: GLuint) { self.get().detach_shader(program, shader) }
+    pub fn link_program(&self, program: GLuint) { self.get().link_program(program) }
+    pub fn clear_color(&self, r: f32, g: f32, b: f32, a: f32) { self.get().clear_color(r, g, b, a) }
+    pub fn clear(&self, buffer_mask: GLbitfield) { self.get().clear(buffer_mask) }
+    pub fn clear_depth(&self, depth: f64) { self.get().clear_depth(depth) }
+    pub fn clear_stencil(&self, s: GLint) { self.get().clear_stencil(s) }
+    pub fn flush(&self) { self.get().flush() }
+    pub fn finish(&self) { self.get().finish() }
+    pub fn get_error(&self) -> GLenum { self.get().get_error() }
+    pub fn stencil_mask(&self, mask: GLuint) { self.get().stencil_mask(mask) }
+    pub fn stencil_mask_separate(&self, face: GLenum, mask: GLuint) { self.get().stencil_mask_separate(face, mask) }
+    pub fn stencil_func(&self, func: GLenum, ref_: GLint, mask: GLuint) { self.get().stencil_func(func, ref_, mask) }
+    pub fn stencil_func_separate(&self, face: GLenum, func: GLenum, ref_: GLint, mask: GLuint) { self.get().stencil_func_separate(face, func, ref_, mask) }
+    pub fn stencil_op(&self, sfail: GLenum, dpfail: GLenum, dppass: GLenum) { self.get().stencil_op(sfail, dpfail, dppass) }
+    pub fn stencil_op_separate(&self, face: GLenum, sfail: GLenum, dpfail: GLenum, dppass: GLenum) { self.get().stencil_op_separate(face, sfail, dpfail, dppass) }
+    pub fn egl_image_target_texture2d_oes(&self, target: GLenum, image: GLeglImageOES) { self.get().egl_image_target_texture2d_oes(target, image) }
+    pub fn generate_mipmap(&self, target: GLenum) { self.get().generate_mipmap(target) }
+    pub fn insert_event_marker_ext(&self, message: &str) { self.get().insert_event_marker_ext(message) }
+    pub fn push_group_marker_ext(&self, message: &str) { self.get().push_group_marker_ext(message) }
+    pub fn pop_group_marker_ext(&self) { self.get().pop_group_marker_ext() }
+    pub fn debug_message_insert_khr(&self, source: GLenum, type_: GLenum, id: GLuint, severity: GLenum, message: &str) { self.get().debug_message_insert_khr(source, type_, id, severity, message) }
+    pub fn push_debug_group_khr(&self, source: GLenum, id: GLuint, message: &str) { self.get().push_debug_group_khr(source, id, message) }
+    pub fn pop_debug_group_khr(&self) { self.get().pop_debug_group_khr() }
+    pub fn fence_sync(&self, condition: GLenum, flags: GLbitfield) -> GLsync { self.get().fence_sync(condition, flags) }
+    pub fn client_wait_sync(&self, sync: GLsync, flags: GLbitfield, timeout: GLuint64) { self.get().client_wait_sync(sync, flags, timeout) }
+    pub fn wait_sync(&self, sync: GLsync, flags: GLbitfield, timeout: GLuint64) { self.get().wait_sync(sync, flags, timeout) }
+    pub fn delete_sync(&self, sync: GLsync) { self.get().delete_sync(sync) }
+    pub fn texture_range_apple(&self, target: GLenum, data: &[u8]) { self.get().texture_range_apple(target, data) }
+    pub fn gen_fences_apple(&self, n: GLsizei) -> Vec<GLuint> { self.get().gen_fences_apple(n) }
+    pub fn delete_fences_apple(&self, fences: &[GLuint]) { self.get().delete_fences_apple(fences) }
+    pub fn set_fence_apple(&self, fence: GLuint) { self.get().set_fence_apple(fence) }
+    pub fn finish_fence_apple(&self, fence: GLuint) { self.get().finish_fence_apple(fence) }
+    pub fn test_fence_apple(&self, fence: GLuint) { self.get().test_fence_apple(fence) }
+    pub fn test_object_apple(&self, object: GLenum, name: GLuint) -> GLboolean { self.get().test_object_apple(object, name) }
+    pub fn finish_object_apple(&self, object: GLenum, name: GLuint) { self.get().finish_object_apple(object, name) }
+    pub fn get_frag_data_index( &self, program: GLuint, name: &str) -> GLint { self.get().get_frag_data_index(program, name) }
+    pub fn blend_barrier_khr(&self) { self.get().blend_barrier_khr() }
+    pub fn bind_frag_data_location_indexed( &self, program: GLuint, color_number: GLuint, index: GLuint, name: &str) { self.get().bind_frag_data_location_indexed(program, color_number, index, name) }
+    pub fn get_debug_messages(&self) -> Vec<DebugMessage> { self.get().get_debug_messages() }
+    pub fn provoking_vertex_angle(&self, mode: GLenum) { self.get().provoking_vertex_angle(mode) }
+    pub fn gen_vertex_arrays_apple(&self, n: GLsizei) -> Vec<GLuint> { self.get().gen_vertex_arrays_apple(n) }
+    pub fn bind_vertex_array_apple(&self, vao: GLuint) { self.get().bind_vertex_array_apple(vao) }
+    pub fn delete_vertex_arrays_apple(&self, vertex_arrays: &[GLuint]) { self.get().delete_vertex_arrays_apple(vertex_arrays) }
+    pub fn copy_texture_chromium(&self, source_id: GLuint, source_level: GLint, dest_target: GLenum, dest_id: GLuint, dest_level: GLint, internal_format: GLint, dest_type: GLenum, unpack_flip_y: GLboolean, unpack_premultiply_alpha: GLboolean, unpack_unmultiply_alpha: GLboolean) { self.get().copy_texture_chromium(source_id, source_level, dest_target, dest_id, dest_level, internal_format, dest_type, unpack_flip_y, unpack_premultiply_alpha, unpack_unmultiply_alpha) }
+    pub fn copy_sub_texture_chromium(&self, source_id: GLuint, source_level: GLint, dest_target: GLenum, dest_id: GLuint, dest_level: GLint, x_offset: GLint, y_offset: GLint, x: GLint, y: GLint, width: GLsizei, height: GLsizei, unpack_flip_y: GLboolean, unpack_premultiply_alpha: GLboolean, unpack_unmultiply_alpha: GLboolean) { self.get().copy_sub_texture_chromium(source_id, source_level, dest_target, dest_id, dest_level, x_offset, y_offset, x, y, width, height, unpack_flip_y, unpack_premultiply_alpha, unpack_unmultiply_alpha) }
+    pub fn egl_image_target_renderbuffer_storage_oes(&self, target: u32, image: *const c_void) { self.get().egl_image_target_renderbuffer_storage_oes(target, image) }
+    pub fn copy_texture_3d_angle( &self, source_id: GLuint, source_level: GLint, dest_target: GLenum, dest_id: GLuint, dest_level: GLint, internal_format: GLint, dest_type: GLenum, unpack_flip_y: GLboolean, unpack_premultiply_alpha: GLboolean, unpack_unmultiply_alpha: GLboolean) { self.get().copy_texture_3d_angle(source_id, source_level, dest_target, dest_id, dest_level, internal_format, dest_type, unpack_flip_y, unpack_premultiply_alpha, unpack_unmultiply_alpha) }
+    pub fn copy_sub_texture_3d_angle(&self, source_id: GLuint, source_level: GLint, dest_target: GLenum, dest_id: GLuint, dest_level: GLint, x_offset: GLint, y_offset: GLint, z_offset: GLint, x: GLint, y: GLint, z: GLint, width: GLsizei, height: GLsizei, depth: GLsizei, unpack_flip_y: GLboolean, unpack_premultiply_alpha: GLboolean, unpack_unmultiply_alpha: GLboolean) { self.get().copy_sub_texture_3d_angle(source_id, source_level, dest_target, dest_id, dest_level, x_offset, y_offset, z_offset, x, y, z, width, height, depth, unpack_flip_y, unpack_premultiply_alpha, unpack_unmultiply_alpha) }
 }
 
 impl Clone for GlContextPtr {
