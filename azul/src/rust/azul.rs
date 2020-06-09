@@ -66,32 +66,32 @@ pub(crate) mod dll {
         pub vec: AzU8Vec,
     }
     #[repr(C)] pub struct AzU8Vec {
-        pub ptr: *const u8,
+        pub(crate) ptr: *const u8,
         pub len: usize,
         pub cap: usize,
     }
     #[repr(C)] pub struct AzCallbackDataVec {
-        pub ptr: *const AzCallbackData,
+        pub(crate) ptr: *const AzCallbackData,
         pub len: usize,
         pub cap: usize,
     }
     #[repr(C)] pub struct AzOverridePropertyVec {
-        pub ptr: *const AzOverrideProperty,
+        pub(crate) ptr: *const AzOverrideProperty,
         pub len: usize,
         pub cap: usize,
     }
     #[repr(C)] pub struct AzDomVec {
-        pub ptr: *const AzDom,
+        pub(crate) ptr: *const AzDom,
         pub len: usize,
         pub cap: usize,
     }
     #[repr(C)] pub struct AzStringVec {
-        pub ptr: *const AzString,
+        pub(crate) ptr: *const AzString,
         pub len: usize,
         pub cap: usize,
     }
     #[repr(C)] pub struct AzGradientStopPreVec {
-        pub ptr: *const AzGradientStopPre,
+        pub(crate) ptr: *const AzGradientStopPre,
         pub len: usize,
         pub cap: usize,
     }
@@ -124,17 +124,17 @@ pub(crate) mod dll {
         Err(AzBlockError),
     }
     #[repr(C)] pub struct AzInstantPtr {
-        pub ptr: *mut c_void,
+        pub(crate) ptr: *mut c_void,
     }
     #[repr(C)] pub struct AzDuration {
         pub secs: u64,
         pub nanos: u32,
     }
     #[repr(C)] pub struct AzAppConfigPtr {
-        pub ptr: *mut c_void,
+        pub(crate) ptr: *mut c_void,
     }
     #[repr(C)] pub struct AzAppPtr {
-        pub ptr: *mut c_void,
+        pub(crate) ptr: *mut c_void,
     }
     #[repr(C)] pub struct AzLayoutCallback {
         pub cb: AzLayoutCallbackType,
@@ -143,7 +143,7 @@ pub(crate) mod dll {
         pub cb: AzCallbackType,
     }
     #[repr(C)] pub struct AzCallbackInfoPtr {
-        pub ptr: *mut c_void,
+        pub(crate) ptr: *mut c_void,
     }
     #[repr(C)] pub enum AzUpdateScreen {
         Redraw,
@@ -155,7 +155,7 @@ pub(crate) mod dll {
         pub cb: AzIFrameCallbackType,
     }
     #[repr(C)] pub struct AzIFrameCallbackInfoPtr {
-        pub ptr: *mut c_void,
+        pub(crate) ptr: *mut c_void,
     }
     #[repr(C)] pub struct AzIFrameCallbackReturn {
         pub dom: AzOptionDom,
@@ -164,19 +164,19 @@ pub(crate) mod dll {
         pub cb: AzGlCallbackType,
     }
     #[repr(C)] pub struct AzGlCallbackInfoPtr {
-        pub ptr: *mut c_void,
+        pub(crate) ptr: *mut c_void,
     }
     #[repr(C)] pub struct AzGlCallbackReturn {
         pub texture: AzOptionTexture,
     }
     #[repr(C)] pub struct AzLayoutInfoPtr {
-        pub ptr: *mut c_void,
+        pub(crate) ptr: *mut c_void,
     }
     #[repr(C)] pub struct AzCssPtr {
-        pub ptr: *mut c_void,
+        pub(crate) ptr: *mut c_void,
     }
     #[repr(C)] pub struct AzCssHotReloaderPtr {
-        pub ptr: *mut c_void,
+        pub(crate) ptr: *mut c_void,
     }
     #[repr(C)] pub struct AzColorU {
         pub r: u8,
@@ -1154,7 +1154,7 @@ pub(crate) mod dll {
         NoKeyboardFocus,
     }
     #[repr(C)] pub struct AzGlContextPtr {
-        pub ptr: *const c_void,
+        pub(crate) ptr: *const c_void,
     }
     #[repr(C)] pub struct AzTexture {
         pub texture_id: u32,
@@ -1202,13 +1202,13 @@ pub(crate) mod dll {
         RGBA8,
     }
     #[repr(C)] pub struct AzDropCheckPtrPtr {
-        pub ptr: *mut c_void,
+        pub(crate) ptr: *mut c_void,
     }
     #[repr(C)] pub struct AzArcMutexRefAnyPtr {
-        pub ptr: *mut c_void,
+        pub(crate) ptr: *mut c_void,
     }
     #[repr(C)] pub struct AzTimerCallbackInfoPtr {
-        pub ptr: *mut c_void,
+        pub(crate) ptr: *mut c_void,
     }
     #[repr(C)] pub struct AzTimer {
         pub created: AzInstantPtr,
@@ -1219,23 +1219,23 @@ pub(crate) mod dll {
         pub callback: AzTimerCallback,
     }
     #[repr(C)] pub struct AzTaskPtr {
-        pub ptr: *mut c_void,
+        pub(crate) ptr: *mut c_void,
     }
     #[repr(C)] pub struct AzThreadPtr {
-        pub ptr: *mut c_void,
+        pub(crate) ptr: *mut c_void,
     }
     #[repr(C)] pub struct AzTimerCallback {
         pub cb: AzTimerCallbackType,
     }
     #[repr(C)] pub struct AzTimerCallbackTypePtr {
-        pub ptr: *mut c_void,
+        pub(crate) ptr: *mut c_void,
     }
     #[repr(C)] pub struct AzTimerCallbackReturn {
         pub should_update: AzUpdateScreen,
         pub should_terminate: AzTerminateTimer,
     }
     #[repr(C)] pub struct AzDropCheckPtr {
-        pub ptr: *mut c_void,
+        pub(crate) ptr: *mut c_void,
     }
     #[repr(C)] pub struct AzTimerId {
         pub id: usize,
@@ -1250,7 +1250,7 @@ pub(crate) mod dll {
         MutexIntoInnerError,
     }
     #[repr(C)] pub struct AzWindowCreateOptionsPtr {
-        pub ptr: *mut c_void,
+        pub(crate) ptr: *mut c_void,
     }
     #[repr(C)] pub struct AzLogicalSize {
         pub width: f32,
@@ -4159,7 +4159,42 @@ pub mod css {
 pub mod dom {
 
     use crate::dll::*;
-    use crate::str::String;
+impl std::iter::FromIterator<Dom> for Dom {
+    fn from_iter<I: IntoIterator<Item=Dom>>(iter: I) -> Self {
+
+        let mut estimated_total_children = 0;
+        let children = iter.into_iter().map(|c| {
+            estimated_total_children += c.estimated_total_children + 1;
+            c
+        }).collect();
+
+        Dom {
+            root: NodeData::new(NodeType::Div),
+            children,
+            estimated_total_children,
+        }
+    }
+}
+
+impl std::iter::FromIterator<NodeData> for Dom {
+    fn from_iter<I: IntoIterator<Item=NodeData>>(iter: I) -> Self {
+        use crate::vec::DomVec;
+        let children = iter.into_iter().map(|c| Dom { root: c, children: DomVec::new(), estimated_total_children: 0 }).collect::<DomVec>();
+        let estimated_total_children = children.len();
+
+        Dom {
+            root: NodeData::new(NodeType::Div),
+            children: children,
+            estimated_total_children,
+        }
+    }
+}
+
+impl std::iter::FromIterator<NodeType> for Dom {
+    fn from_iter<I: IntoIterator<Item=NodeType>>(iter: I) -> Self {
+        iter.into_iter().map(|i| NodeData { node_type: i, .. NodeData::default() }).collect()
+    }
+}    use crate::str::String;
     use crate::resources::{ImageId, TextId};
     use crate::callbacks::{CallbackType, GlCallbackType, IFrameCallbackType, RefAny};
     use crate::vec::StringVec;

@@ -43,6 +43,7 @@ rust_api_patches = {
     tuple(['*']): read_file("./patches/azul.rs/header.rs"),
     tuple(['str']): read_file("./patches/azul.rs/string.rs"),
     tuple(['vec']): read_file("./patches/azul.rs/vec.rs"),
+    tuple(['dom']): read_file("./patches/azul.rs/dom.rs"),
     tuple(['dll']): read_file("./patches/azul.rs/dll.rs"),
     tuple(['callbacks', 'RefAny']): read_file("./patches/azul.rs/refany.rs"),
     tuple(['callbacks', 'UpdateScreen']): read_file("./patches/azul.rs/update_screen.rs"),
@@ -679,7 +680,11 @@ def generate_dll_loader(apiData, structs_map, functions_map):
                 if "type" in field_type:
                     field_type = field_type["type"]
                     if is_primitive_arg(field_type):
-                        code += "        pub " + field_name + ": " + field_type + ",\r\n"
+                        if field_name == "ptr":
+                            code += "        pub(crate) "
+                        else:
+                            code += "        pub "
+                        code += field_name + ": " + field_type + ",\r\n"
                     else:
                         analyzed_arg_type = analyze_type(field_type)
                         field_type_class_path = search_for_class_by_rust_class_name(apiData, analyzed_arg_type[1])
@@ -688,10 +693,14 @@ def generate_dll_loader(apiData, structs_map, functions_map):
 
                         found_c = get_class(apiData, field_type_class_path[0], field_type_class_path[1])
                         treat_external_as_ptr = "external" in found_c.keys() and "is_boxed_object" in found_c.keys() and found_c["is_boxed_object"]
-                        if treat_external_as_ptr:
-                            code += "        pub " + field_name + ": " + analyzed_arg_type[0] + prefix + field_type_class_path[1] + postfix + analyzed_arg_type[2] + ",\r\n"
+                        if field_name == "ptr":
+                            code += "        pub(crate) "
                         else:
-                            code += "        pub " + field_name + ": " + analyzed_arg_type[0] + prefix + field_type_class_path[1] + analyzed_arg_type[2] + ",\r\n"
+                            code += "        pub "
+                        if treat_external_as_ptr:
+                            code += field_name + ": " + analyzed_arg_type[0] + prefix + field_type_class_path[1] + postfix + analyzed_arg_type[2] + ",\r\n"
+                        else:
+                            code += field_name + ": " + analyzed_arg_type[0] + prefix + field_type_class_path[1] + analyzed_arg_type[2] + ",\r\n"
                 else:
                     print("struct " + struct_name + " does not have a type on field " + field_name)
                     raise Exception("error")
