@@ -15,13 +15,17 @@
     /// Return type of a regular callback - currently `AzUpdateScreen`
     pub type AzCallbackReturn = AzUpdateScreen;
     /// Callback for responding to window events
-    pub type AzCallback = fn(AzCallbackInfoPtr) -> AzCallbackReturn;
+    pub type AzCallbackType = fn(AzCallbackInfoPtr) -> AzCallbackReturn;
     /// Callback fn that returns the DOM of the app
-    pub type AzLayoutCallback = fn(AzRefAny, AzLayoutInfoPtr) -> AzDom;
+    pub type AzLayoutCallbackType = fn(AzRefAny, AzLayoutInfoPtr) -> AzDom;
     /// Callback for rendering to an OpenGL texture
-    pub type AzGlCallback = fn(AzGlCallbackInfoPtr) -> AzGlCallbackReturnPtr;
+    pub type AzGlCallbackType = fn(AzGlCallbackInfoPtr) -> AzGlCallbackReturn;
     /// Callback for rendering iframes (infinite data structures that have to know how large they are rendered)
-    pub type AzIFrameCallback = fn(AzIFrameCallbackInfoPtr) -> AzIFrameCallbackReturnPtr;
+    pub type AzIFrameCallbackType = fn(AzIFrameCallbackInfoPtr) -> AzIFrameCallbackReturn;
+
+    pub type AzTimerCallbackType = fn(AzTimerCallbackInfoPtr) -> AzTimerCallbackReturn;
+    pub type AzThreadCallbackType = fn(AzRefAny) -> AzRefAny;
+    pub type AzTaskCallbackType= fn(AzArcMutexRefAnyPtr, AzDropCheckPtr) -> AzUpdateScreen;
 
     impl From<AzOn> for AzEventFilter {
         fn from(on: AzOn) -> AzEventFilter {

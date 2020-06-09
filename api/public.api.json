@@ -333,6 +333,7 @@
 				},
 				"OptionTexture": {
 					"external": "azul_impl::gl::OptionTexture",
+					"clone": false,
 					"enum_fields": [
 						{"None": {}},
 						{"Some": { "type": "Texture" }}
@@ -352,11 +353,11 @@
 						{"Some": { "type": "Duration" }}
 					]
 				},
-				"OptionInstantPtr": {
+				"OptionInstant": {
 					"external": "azul_impl::task::OptionInstantPtr",
 					"enum_fields": [
 						{"None": {}},
-						{"Some": { "type": "InstantPtr" }}
+						{"Some": { "type": "Instant" }}
 					]
 				}
 			}
@@ -376,13 +377,13 @@
 		"time": {
 			"doc": "Rust wrappers for `Instant` / `Duration` classes",
 			"classes": {
-				"InstantPtr": {
+				"Instant": {
 					"external": "azul_impl::task::AzInstantPtr",
 					"rust_class_name": "std::time::Instant",
 					"is_boxed_object": true,
 					"constructors": {
 						"now": {
-							"fn_body": "AzInstantPtr::now()"
+							"fn_body": "std::time::Instant::now()"
 						}
 					}
 				},
@@ -498,6 +499,7 @@
 				},
 				"GlCallbackReturn": {
 					"external": "azul_impl::callbacks::GlCallbackReturn",
+					"clone": false,
 					"struct_fields": [
 						{"texture": { "type": "OptionTexture" }}
 					]
@@ -2332,6 +2334,7 @@
 				},
 				"Texture": {
 					"external": "azul_impl::gl::Texture",
+					"clone": false,
 					"struct_fields": [
 						{"texture_id": {"type": "u32", "doc": "Raw OpenGL texture ID"}},
 						{"flags": {"type": "TextureFlags", "doc": "Hints and flags for optimization purposes"}},
@@ -2447,17 +2450,22 @@
 					"rust_class_name": "azul_impl::task::DropCheck",
 					"is_boxed_object": true
 				},
-				"ArcMutexRefAnyPtr": {
+				"ArcMutexRefAny": {
 					"external": "azul_impl::task::ArcMutexRefAnyPtr",
 					"rust_class_name": "std::sync::Arc<std::sync::Mutex<RefAny>>",
+					"is_boxed_object": true
+				},
+				"TimerCallbackInfo": {
+					"external": "azul_impl::callbacks::TimerCallbackInfoPtr",
+					"rust_class_name": "azul_impl::callbacks::TimerCallbackInfo<'a>",
 					"is_boxed_object": true
 				},
 				"Timer": {
 					"external": "azul_impl::task::Timer",
 					"struct_fields": [
-						{"created": {"type": "InstantPtr", "doc": "Stores when the timer was created (usually acquired by `Instant::now()`)"}},
-						{"last_run": {"type": "OptionInstantPtr", "doc": "When the timer was last called (`None` only when the timer hasn't been called yet)"}},
-						{"delay": {"type": "OptionInstantPtr", "doc": "If the timer shouldn't start instantly, but rather be delayed by a certain duration"}},
+						{"created": {"type": "Instant", "doc": "Stores when the timer was created (usually acquired by `Instant::now()`)"}},
+						{"last_run": {"type": "OptionInstant", "doc": "When the timer was last called (`None` only when the timer hasn't been called yet)"}},
+						{"delay": {"type": "OptionInstant", "doc": "If the timer shouldn't start instantly, but rather be delayed by a certain duration"}},
 						{"interval": {"type": "OptionDuration", "doc": "How frequently the timer should run, i.e. set this to `Some(Duration::from_millis(16))` to run the timer every 16ms. If this value is set to `None`, (the default), the timer will execute the timer as-fast-as-possible (i.e. at a faster framerate than the framework itself) - which might be  performance intensive."}},
 						{"timeout": {"type": "OptionDuration", "doc": "When to stop the timer (for example, you can stop the execution after 5s using `Some(Duration::from_secs(5))`)."}},
 						{"callback": {"type": "TimerCallback", "doc": "Callback to be called for this timer"}}

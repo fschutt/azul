@@ -35,6 +35,7 @@ dll_patches = {
     tuple(['callbacks', 'CallbackType']): read_file("./patches/azul-dll/callback_type.rs"),
     tuple(['callbacks', 'GlCallbackType']): read_file("./patches/azul-dll/gl_callback_type.rs"),
     tuple(['callbacks', 'IFrameCallbackType']): read_file("./patches/azul-dll/iframe_callback_type.rs"),
+    tuple(['callbacks', 'ThreadCallbackType']): read_file("./patches/azul-dll/thread_callback_type.rs"),
     tuple(['callbacks', 'TaskCallbackType']): read_file("./patches/azul-dll/task_callback_type.rs"),
 }
 
@@ -450,6 +451,9 @@ def generate_rust_dll(apiData):
 
             class_is_boxed_object = not(class_is_stack_allocated(c))
             class_is_const = "const" in c.keys()
+            class_can_be_cloned = True
+            if "clone" in c.keys():
+                class_can_be_cloned = c["clone"]
             class_is_typedef = "typedef" in c.keys() and c["typedef"]
             treat_external_as_ptr = "external" in c.keys() and "is_boxed_object" in c.keys() and c["is_boxed_object"]
 
@@ -594,12 +598,13 @@ def generate_rust_dll(apiData):
                     functions_map[str(fn_prefix + to_snake_case(class_name) + "_delete")] = ["object: &mut " + class_ptr_name, ""];
                     code += "#[no_mangle] #[allow(unused_variables)] pub extern \"C\" fn " + fn_prefix + to_snake_case(class_name) + "_delete" + lifetime + "(object: &mut " + class_ptr_name + ") { " + stack_delete_body + "}\r\n"
 
-                    # az_item_deep_copy()
-                    code += "/// Copies the object\r\n"
-                    functions_map[str(fn_prefix + to_snake_case(class_name) + "_deep_copy")] = ["object: &" + class_ptr_name, class_ptr_name];
-                    code += "#[no_mangle] pub extern \"C\" fn " + fn_prefix + to_snake_case(class_name) + "_deep_copy" + lifetime + "(object: &" + class_ptr_name + ") -> " + class_ptr_name + " { "
-                    code += "object.clone()"
-                    code += " }\r\n"
+                    if class_can_be_cloned:
+                        # az_item_deep_copy()
+                        code += "/// Clones the object\r\n"
+                        functions_map[str(fn_prefix + to_snake_case(class_name) + "_deep_copy")] = ["object: &" + class_ptr_name, class_ptr_name];
+                        code += "#[no_mangle] pub extern \"C\" fn " + fn_prefix + to_snake_case(class_name) + "_deep_copy" + lifetime + "(object: &" + class_ptr_name + ") -> " + class_ptr_name + " { "
+                        code += "object.clone()"
+                        code += " }\r\n"
             else:
                 # az_item_delete()
                 code += "/// Destructor: Takes ownership of the `" + class_name + "` pointer and deletes it.\r\n"
