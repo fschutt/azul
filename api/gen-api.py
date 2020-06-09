@@ -685,7 +685,13 @@ def generate_dll_loader(apiData, structs_map, functions_map):
                         field_type_class_path = search_for_class_by_rust_class_name(apiData, analyzed_arg_type[1])
                         if field_type_class_path is None:
                             print("no field_type_class_path found for " + str(analyzed_arg_type))
-                        code += "        pub " + field_name + ": " + analyzed_arg_type[0] + prefix + field_type_class_path[1] + analyzed_arg_type[2] + ",\r\n"
+
+                        found_c = get_class(apiData, field_type_class_path[0], field_type_class_path[1])
+                        treat_external_as_ptr = "external" in found_c.keys() and "is_boxed_object" in found_c.keys() and found_c["is_boxed_object"]
+                        if treat_external_as_ptr:
+                            code += "        pub " + field_name + ": " + analyzed_arg_type[0] + prefix + field_type_class_path[1] + postfix + analyzed_arg_type[2] + ",\r\n"
+                        else:
+                            code += "        pub " + field_name + ": " + analyzed_arg_type[0] + prefix + field_type_class_path[1] + analyzed_arg_type[2] + ",\r\n"
                 else:
                     print("struct " + struct_name + " does not have a type on field " + field_name)
                     raise Exception("error")
@@ -710,7 +716,12 @@ def generate_dll_loader(apiData, structs_map, functions_map):
                     else:
                         analyzed_arg_type = analyze_type(variant_type)
                         field_type_class_path = search_for_class_by_rust_class_name(apiData, analyzed_arg_type[1])
-                        code += "        " + variant_name + "(" + analyzed_arg_type[0] + prefix + field_type_class_path[1] + analyzed_arg_type[2] + "),\r\n"
+                        found_c = get_class(apiData, field_type_class_path[0], field_type_class_path[1])
+                        treat_external_as_ptr = "external" in found_c.keys() and "is_boxed_object" in found_c.keys() and found_c["is_boxed_object"]
+                        if treat_external_as_ptr:
+                            code += "        " + variant_name + "(" + analyzed_arg_type[0] + prefix + field_type_class_path[1] + postfix + analyzed_arg_type[2] + "),\r\n"
+                        else:
+                            code += "        " + variant_name + "(" + analyzed_arg_type[0] + prefix + field_type_class_path[1] + analyzed_arg_type[2] + "),\r\n"
                 else:
                     code += "        " + variant_name + ",\r\n"
             code += "    }\r\n"

@@ -117,7 +117,7 @@ pub(crate) mod dll {
     }
     #[repr(C, u8)] pub enum AzOptionInstant {
         None,
-        Some(AzInstant),
+        Some(AzInstantPtr),
     }
     #[repr(C, u8)] pub enum AzResultRefAnyBlockError {
         Ok(AzRefAny),
@@ -1211,7 +1211,7 @@ pub(crate) mod dll {
         pub ptr: *mut c_void,
     }
     #[repr(C)] pub struct AzTimer {
-        pub created: AzInstant,
+        pub created: AzInstantPtr,
         pub last_run: AzOptionInstant,
         pub delay: AzOptionInstant,
         pub interval: AzOptionDuration,
