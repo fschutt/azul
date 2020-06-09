@@ -9,16 +9,36 @@ keywords = ["gui", "user-interface", "svg", "graphics", "css" ]
 categories = ["gui"]
 repository = "https://github.com/maps4print/azul"
 edition = "2018"
+build = "build.rs"
+
+[[bin]]
+name = "azul-dll"
+path = "main.rs"
+edition = "2018"
 
 [lib]
 name = "azul"
-crate-type = ["rlib", "cdylib"]
+edition = "2018"
+crate-type = ["cdylib"]
 doc = false
 
-[profile.release]
+[profile.dev]
+opt-level = 3
 lto = true
 panic = "abort"
 codegen-units = 1
+debug = false
+strip = "symbols"
+overflow_checks = false
+
+[profile.release]
+opt-level = 3
+lto = true
+panic = "abort"
+codegen-units = 1
+debug = false
+strip = "symbols"
+overflow_checks = false
 
 [dependencies]
 azul-core = { path = "../azul-core", version = "0.0.2", default-features = false, features = ["opengl"] }
@@ -28,6 +48,10 @@ azul-desktop = { path = "../azul-desktop", version = "0.0.5", default-features =
 
 [target.'cfg(target_arch = "wasm32")'.dependencies]
 azul-web = { path = "../azul-web", version = "0.0.5", default-features = false }
+
+[build-dependencies]
+tar = "0.4"
+flate2 = "1.0.14"
 
 [features]
 default = ["logging", "native_style", "css_parser", "image_loading", "font_loading", "text_layout"]
