@@ -61,12 +61,6 @@ pub type AzU8VecTT = azul_impl::css::U8Vec;
 #[no_mangle] pub use AzU8VecTT as AzU8Vec;
 /// Creates + allocates a Rust `Vec<u8>` by **copying** it from a bytes source
 #[no_mangle] pub extern "C" fn az_u8_vec_copy_from(ptr: *const u8, len: usize) -> AzU8Vec { unsafe { std::slice::from_raw_parts(ptr, len).iter().copied().collect::<Vec<_>>() }.into() }
-/// Returns the internal pointer to the (azul-dll allocated) [u8]
-#[no_mangle] pub extern "C" fn az_u8_vec_as_ptr(u8vec: &AzU8Vec) -> *const u8 { u8vec.as_ptr() }
-/// Returns the length of the internal `Vec<u8>`
-#[no_mangle] pub extern "C" fn az_u8_vec_len(u8vec: &AzU8Vec) -> usize { u8vec.len() }
-/// Returns the capacity of the internal `Vec<u8>`
-#[no_mangle] pub extern "C" fn az_u8_vec_capacity(u8vec: &AzU8Vec) -> usize { u8vec.cap() }
 /// Destructor: Takes ownership of the `U8Vec` pointer and deletes it.
 #[no_mangle] #[allow(unused_variables)] pub extern "C" fn az_u8_vec_delete(object: &mut AzU8Vec) { }
 /// Clones the object
@@ -77,12 +71,6 @@ pub type AzCallbackDataVecTT = azul_impl::dom::CallbackDataVec;
 #[no_mangle] pub use AzCallbackDataVecTT as AzCallbackDataVec;
 /// Creates + allocates a Rust `Vec<CallbackData>` by **copying** it from a bytes source
 #[no_mangle] pub extern "C" fn az_callback_data_vec_copy_from(ptr: *const AzCallbackData, len: usize) -> AzCallbackDataVec { unsafe { std::slice::from_raw_parts(ptr, len).iter().cloned().collect::<Vec<_>>() }.into() }
-/// Returns the internal pointer to the (azul-dll allocated) [CallbackData]
-#[no_mangle] pub extern "C" fn az_callback_data_vec_as_ptr(callbackdatavec: &AzCallbackDataVec) -> *const AzCallbackData { callbackdatavec.as_ptr() }
-/// Returns the length of the internal `Vec<CallbackData>`
-#[no_mangle] pub extern "C" fn az_callback_data_vec_len(callbackdatavec: &AzCallbackDataVec) -> usize { callbackdatavec.len() }
-/// Returns the capacity of the internal `Vec<CallbackData>`
-#[no_mangle] pub extern "C" fn az_callback_data_vec_capacity(callbackdatavec: &AzCallbackDataVec) -> usize { callbackdatavec.cap() }
 /// Destructor: Takes ownership of the `CallbackDataVec` pointer and deletes it.
 #[no_mangle] #[allow(unused_variables)] pub extern "C" fn az_callback_data_vec_delete(object: &mut AzCallbackDataVec) { }
 /// Clones the object
@@ -93,12 +81,6 @@ pub type AzOverridePropertyVecTT = azul_impl::dom::OverridePropertyVec;
 #[no_mangle] pub use AzOverridePropertyVecTT as AzOverridePropertyVec;
 /// Creates + allocates a Rust `Vec<OverrideProperty>` by **copying** it from a bytes source
 #[no_mangle] pub extern "C" fn az_override_property_vec_copy_from(ptr: *const AzOverrideProperty, len: usize) -> AzOverridePropertyVec { unsafe { std::slice::from_raw_parts(ptr, len).iter().cloned().collect::<Vec<_>>() }.into() }
-/// Returns the internal pointer to the (azul-dll allocated) [OverrideProperty]
-#[no_mangle] pub extern "C" fn az_override_property_vec_as_ptr(overridepropertyvec: &AzOverridePropertyVec) -> *const AzOverrideProperty { overridepropertyvec.as_ptr() }
-/// Returns the length of the internal `Vec<OverrideProperty>`
-#[no_mangle] pub extern "C" fn az_override_property_vec_len(overridepropertyvec: &AzOverridePropertyVec) -> usize { overridepropertyvec.len() }
-/// Returns the capacity of the internal `Vec<OverrideProperty>`
-#[no_mangle] pub extern "C" fn az_override_property_vec_capacity(overridepropertyvec: &AzOverridePropertyVec) -> usize { overridepropertyvec.cap() }
 /// Destructor: Takes ownership of the `OverridePropertyVec` pointer and deletes it.
 #[no_mangle] #[allow(unused_variables)] pub extern "C" fn az_override_property_vec_delete(object: &mut AzOverridePropertyVec) { }
 /// Clones the object
@@ -109,12 +91,6 @@ pub type AzDomVecTT = azul_impl::dom::DomVec;
 #[no_mangle] pub use AzDomVecTT as AzDomVec;
 /// Creates + allocates a Rust `Vec<Dom>` by **copying** it from a bytes source
 #[no_mangle] pub extern "C" fn az_dom_vec_copy_from(ptr: *const AzDom, len: usize) -> AzDomVec { unsafe { std::slice::from_raw_parts(ptr, len).iter().cloned().collect::<Vec<_>>() }.into() }
-/// Returns the internal pointer to the (azul-dll allocated) [Dom]
-#[no_mangle] pub extern "C" fn az_dom_vec_as_ptr(domvec: &AzDomVec) -> *const AzDom { domvec.as_ptr() }
-/// Returns the length of the internal `Vec<Dom>`
-#[no_mangle] pub extern "C" fn az_dom_vec_len(domvec: &AzDomVec) -> usize { domvec.len() }
-/// Returns the capacity of the internal `Vec<Dom>`
-#[no_mangle] pub extern "C" fn az_dom_vec_capacity(domvec: &AzDomVec) -> usize { domvec.cap() }
 /// Destructor: Takes ownership of the `DomVec` pointer and deletes it.
 #[no_mangle] #[allow(unused_variables)] pub extern "C" fn az_dom_vec_delete(object: &mut AzDomVec) { }
 /// Clones the object
@@ -125,12 +101,6 @@ pub type AzStringVecTT = azul_impl::css::StringVec;
 #[no_mangle] pub use AzStringVecTT as AzStringVec;
 /// Creates + allocates a Rust `Vec<String>` by **copying** it from a bytes source
 #[no_mangle] pub extern "C" fn az_string_vec_copy_from(ptr: *const AzString, len: usize) -> AzStringVec { unsafe { std::slice::from_raw_parts(ptr, len).into_iter().map(|s| s.clone()).collect::<Vec<_>>() }.into() }
-/// Returns the internal pointer to the (azul-dll allocated) [AzString]
-#[no_mangle] pub extern "C" fn az_string_vec_as_ptr(stringvec: &AzStringVec) -> *const AzString { stringvec.as_ptr() }
-/// Returns the length of the internal `Vec<AzString>`
-#[no_mangle] pub extern "C" fn az_string_vec_len(stringvec: &AzStringVec) -> usize { stringvec.len() }
-/// Returns the capacity of the internal `Vec<AzString>`
-#[no_mangle] pub extern "C" fn az_string_vec_capacity(stringvec: &AzStringVec) -> usize { stringvec.cap() }
 /// Destructor: Takes ownership of the `StringVec` pointer and deletes it.
 #[no_mangle] #[allow(unused_variables)] pub extern "C" fn az_string_vec_delete(object: &mut AzStringVec) { }
 /// Clones the object
@@ -141,12 +111,6 @@ pub type AzGradientStopPreVecTT = azul_impl::css::GradientStopPreVec;
 #[no_mangle] pub use AzGradientStopPreVecTT as AzGradientStopPreVec;
 /// Creates + allocates a Rust `Vec<GradientStopPre>` by **copying** it from a bytes source
 #[no_mangle] pub extern "C" fn az_gradient_stop_pre_vec_copy_from(ptr: *const AzGradientStopPre, len: usize) -> AzGradientStopPreVec { unsafe { std::slice::from_raw_parts(ptr, len).into_iter().map(|s| s.clone()).collect::<Vec<_>>() }.into() }
-/// Returns the internal pointer to the (azul-dll allocated) [GradientStopPre]
-#[no_mangle] pub extern "C" fn az_gradient_stop_pre_vec_as_ptr(gradientstopprevec: &AzGradientStopPreVec) -> *const AzGradientStopPre { gradientstopprevec.as_ptr() }
-/// Returns the length of the internal `Vec<GradientStopPre>`
-#[no_mangle] pub extern "C" fn az_gradient_stop_pre_vec_len(gradientstopprevec: &AzGradientStopPreVec) -> usize { gradientstopprevec.len() }
-/// Returns the capacity of the internal `Vec<GradientStopPre>`
-#[no_mangle] pub extern "C" fn az_gradient_stop_pre_vec_capacity(gradientstopprevec: &AzGradientStopPreVec) -> usize { gradientstopprevec.cap() }
 /// Destructor: Takes ownership of the `GradientStopPreVec` pointer and deletes it.
 #[no_mangle] #[allow(unused_variables)] pub extern "C" fn az_gradient_stop_pre_vec_delete(object: &mut AzGradientStopPreVec) { }
 /// Clones the object
@@ -376,8 +340,38 @@ pub type AzGlCallbackReturnTT = azul_impl::callbacks::GlCallbackReturn;
 /// Destructor: Takes ownership of the `GlCallbackReturn` pointer and deletes it.
 #[no_mangle] #[allow(unused_variables)] pub extern "C" fn az_gl_callback_return_delete(object: &mut AzGlCallbackReturn) { }
 
+/// Re-export of rust-allocated (stack based) `TimerCallback` struct
+pub type AzTimerCallbackTT = azul_impl::callbacks::TimerCallback;
+#[no_mangle] pub use AzTimerCallbackTT as AzTimerCallback;
+/// Destructor: Takes ownership of the `TimerCallback` pointer and deletes it.
+#[no_mangle] #[allow(unused_variables)] pub extern "C" fn az_timer_callback_delete(object: &mut AzTimerCallback) { }
+/// Clones the object
+#[no_mangle] pub extern "C" fn az_timer_callback_deep_copy(object: &AzTimerCallback) -> AzTimerCallback { object.clone() }
+
+/// Pointer to rust-allocated `Box<TimerCallbackType>` struct
+#[no_mangle] #[repr(C)] pub struct AzTimerCallbackTypePtr { ptr: *mut c_void }
+/// Destructor: Takes ownership of the `TimerCallbackType` pointer and deletes it.
+#[no_mangle] pub extern "C" fn az_timer_callback_type_delete(ptr: &mut AzTimerCallbackTypePtr) { let _ = unsafe { Box::<TimerCallbackType>::from_raw(ptr.ptr  as *mut TimerCallbackType) }; }
+/// Copies the pointer: WARNING: After calling this function you'll have two pointers to the same Box<`TimerCallbackType`>!.
+#[no_mangle] pub extern "C" fn az_timer_callback_type_shallow_copy(ptr: &AzTimerCallbackTypePtr) -> AzTimerCallbackTypePtr { AzTimerCallbackTypePtr { ptr: ptr.ptr } }
+/// (private): Downcasts the `AzTimerCallbackTypePtr` to a `Box<TimerCallbackType>`. Note that this takes ownership of the pointer.
+#[inline(always)] fn az_timer_callback_type_downcast(ptr: AzTimerCallbackTypePtr) -> Box<TimerCallbackType> { unsafe { Box::<TimerCallbackType>::from_raw(ptr.ptr  as *mut TimerCallbackType) } }
+/// (private): Downcasts the `AzTimerCallbackTypePtr` to a `&mut Box<TimerCallbackType>` and runs the `func` closure on it
+#[inline(always)] fn az_timer_callback_type_downcast_refmut<F: FnOnce(&mut Box<TimerCallbackType>)>(ptr: &mut AzTimerCallbackTypePtr, func: F) { let mut box_ptr: Box<TimerCallbackType> = unsafe { Box::<TimerCallbackType>::from_raw(ptr.ptr  as *mut TimerCallbackType) };func(&mut box_ptr);ptr.ptr = Box::into_raw(box_ptr) as *mut c_void; }
+/// (private): Downcasts the `AzTimerCallbackTypePtr` to a `&Box<TimerCallbackType>` and runs the `func` closure on it
+#[inline(always)] fn az_timer_callback_type_downcast_ref<P, F: FnOnce(&Box<TimerCallbackType>) -> P>(ptr: &mut AzTimerCallbackTypePtr, func: F) -> P { let box_ptr: Box<TimerCallbackType> = unsafe { Box::<TimerCallbackType>::from_raw(ptr.ptr  as *mut TimerCallbackType) }; let ret_val = func(&box_ptr); ptr.ptr = Box::into_raw(box_ptr) as *mut c_void;ret_val }
+
+/// Re-export of rust-allocated (stack based) `TimerCallbackReturn` struct
+pub type AzTimerCallbackReturnTT = azul_impl::callbacks::TimerCallbackReturn;
+#[no_mangle] pub use AzTimerCallbackReturnTT as AzTimerCallbackReturn;
+/// Destructor: Takes ownership of the `TimerCallbackReturn` pointer and deletes it.
+#[no_mangle] #[allow(unused_variables)] pub extern "C" fn az_timer_callback_return_delete(object: &mut AzTimerCallbackReturn) { }
+/// Clones the object
+#[no_mangle] pub extern "C" fn az_timer_callback_return_deep_copy(object: &AzTimerCallbackReturn) -> AzTimerCallbackReturn { object.clone() }
+
 pub type AzThreadCallbackType = fn(AzRefAny) -> AzRefAny;
 
+pub type AzTaskCallbackType = fn(AzArcMutexRefAnyPtr, AzDropCheckPtr) -> AzUpdateScreen;
 /// Pointer to rust-allocated `Box<RefAny>` struct
 pub use ::azul_core::callbacks::RefAny as AzRefAny;
 
@@ -1764,6 +1758,10 @@ pub type AzOverridePropertyTT = azul_impl::dom::OverrideProperty;
 /// Represents one single DOM node (node type, classes, ids and callbacks are stored here)
 pub type AzNodeDataTT = azul_impl::dom::NodeData;
 #[no_mangle] pub use AzNodeDataTT as AzNodeData;
+/// Creates a new node without any classes or ids from a NodeType
+#[no_mangle] pub extern "C" fn az_node_data_new(node_type: AzNodeType) -> AzNodeData { azul_impl::dom::NodeData::new(node_type) }
+/// Creates a default (div) node without any classes
+#[no_mangle] pub extern "C" fn az_node_data_default() -> AzNodeData { azul_impl::dom::NodeData::default() }
 /// Destructor: Takes ownership of the `NodeData` pointer and deletes it.
 #[no_mangle] #[allow(unused_variables)] pub extern "C" fn az_node_data_delete(object: &mut AzNodeData) { }
 /// Clones the object
@@ -1984,6 +1982,10 @@ pub type AzTimerTT = azul_impl::task::Timer;
 
 /// Pointer to rust-allocated `Box<Task>` struct
 #[no_mangle] #[repr(C)] pub struct AzTaskPtr { pub ptr: *mut c_void }
+/// Creates and starts a new `Task`
+#[no_mangle] pub extern "C" fn az_task_new(data: AzArcMutexRefAnyPtr, callback: AzTaskCallbackType) -> AzTaskPtr { let object: Task = azul_impl::task::Task::new(data, callback); AzTaskPtr { ptr: Box::into_raw(Box::new(object)) as *mut c_void } }
+/// Creates and starts a new `Task`
+#[no_mangle] pub extern "C" fn az_task_then(task: AzTaskPtr, timer: AzTimer) -> AzTaskPtr { AzTaskPtr { ptr: Box::into_raw(Box::new(az_task_downcast(task).then(timer))) as *mut c_void } }
 /// Destructor: Takes ownership of the `Task` pointer and deletes it.
 #[no_mangle] pub extern "C" fn az_task_delete(ptr: &mut AzTaskPtr) { let _ = unsafe { Box::<Task>::from_raw(ptr.ptr  as *mut Task) }; }
 /// Copies the pointer: WARNING: After calling this function you'll have two pointers to the same Box<`Task`>!.
@@ -2012,37 +2014,9 @@ pub type AzTimerTT = azul_impl::task::Timer;
 /// (private): Downcasts the `AzThreadPtr` to a `&Box<Thread>` and runs the `func` closure on it
 #[inline(always)] fn az_thread_downcast_ref<P, F: FnOnce(&Box<Thread>) -> P>(ptr: &mut AzThreadPtr, func: F) -> P { let box_ptr: Box<Thread> = unsafe { Box::<Thread>::from_raw(ptr.ptr  as *mut Thread) }; let ret_val = func(&box_ptr); ptr.ptr = Box::into_raw(box_ptr) as *mut c_void;ret_val }
 
-/// Re-export of rust-allocated (stack based) `TimerCallback` struct
-pub type AzTimerCallbackTT = azul_impl::callbacks::TimerCallback;
-#[no_mangle] pub use AzTimerCallbackTT as AzTimerCallback;
-/// Destructor: Takes ownership of the `TimerCallback` pointer and deletes it.
-#[no_mangle] #[allow(unused_variables)] pub extern "C" fn az_timer_callback_delete(object: &mut AzTimerCallback) { }
-/// Clones the object
-#[no_mangle] pub extern "C" fn az_timer_callback_deep_copy(object: &AzTimerCallback) -> AzTimerCallback { object.clone() }
-
-/// Pointer to rust-allocated `Box<TimerCallbackType>` struct
-#[no_mangle] #[repr(C)] pub struct AzTimerCallbackTypePtr { ptr: *mut c_void }
-/// Destructor: Takes ownership of the `TimerCallbackType` pointer and deletes it.
-#[no_mangle] pub extern "C" fn az_timer_callback_type_delete(ptr: &mut AzTimerCallbackTypePtr) { let _ = unsafe { Box::<TimerCallbackType>::from_raw(ptr.ptr  as *mut TimerCallbackType) }; }
-/// Copies the pointer: WARNING: After calling this function you'll have two pointers to the same Box<`TimerCallbackType`>!.
-#[no_mangle] pub extern "C" fn az_timer_callback_type_shallow_copy(ptr: &AzTimerCallbackTypePtr) -> AzTimerCallbackTypePtr { AzTimerCallbackTypePtr { ptr: ptr.ptr } }
-/// (private): Downcasts the `AzTimerCallbackTypePtr` to a `Box<TimerCallbackType>`. Note that this takes ownership of the pointer.
-#[inline(always)] fn az_timer_callback_type_downcast(ptr: AzTimerCallbackTypePtr) -> Box<TimerCallbackType> { unsafe { Box::<TimerCallbackType>::from_raw(ptr.ptr  as *mut TimerCallbackType) } }
-/// (private): Downcasts the `AzTimerCallbackTypePtr` to a `&mut Box<TimerCallbackType>` and runs the `func` closure on it
-#[inline(always)] fn az_timer_callback_type_downcast_refmut<F: FnOnce(&mut Box<TimerCallbackType>)>(ptr: &mut AzTimerCallbackTypePtr, func: F) { let mut box_ptr: Box<TimerCallbackType> = unsafe { Box::<TimerCallbackType>::from_raw(ptr.ptr  as *mut TimerCallbackType) };func(&mut box_ptr);ptr.ptr = Box::into_raw(box_ptr) as *mut c_void; }
-/// (private): Downcasts the `AzTimerCallbackTypePtr` to a `&Box<TimerCallbackType>` and runs the `func` closure on it
-#[inline(always)] fn az_timer_callback_type_downcast_ref<P, F: FnOnce(&Box<TimerCallbackType>) -> P>(ptr: &mut AzTimerCallbackTypePtr, func: F) -> P { let box_ptr: Box<TimerCallbackType> = unsafe { Box::<TimerCallbackType>::from_raw(ptr.ptr  as *mut TimerCallbackType) }; let ret_val = func(&box_ptr); ptr.ptr = Box::into_raw(box_ptr) as *mut c_void;ret_val }
-
-/// Re-export of rust-allocated (stack based) `TimerCallbackReturn` struct
-pub type AzTimerCallbackReturnTT = azul_impl::callbacks::TimerCallbackReturn;
-#[no_mangle] pub use AzTimerCallbackReturnTT as AzTimerCallbackReturn;
-/// Destructor: Takes ownership of the `TimerCallbackReturn` pointer and deletes it.
-#[no_mangle] #[allow(unused_variables)] pub extern "C" fn az_timer_callback_return_delete(object: &mut AzTimerCallbackReturn) { }
-/// Clones the object
-#[no_mangle] pub extern "C" fn az_timer_callback_return_deep_copy(object: &AzTimerCallbackReturn) -> AzTimerCallbackReturn { object.clone() }
-
 /// Pointer to rust-allocated `Box<DropCheck>` struct
-#[no_mangle] #[repr(C)] pub struct AzDropCheckPtr { pub ptr: *mut c_void }
+pub type AzDropCheckPtrTT = azul_impl::task::DropCheckPtr;
+#[no_mangle] pub use AzDropCheckPtrTT as AzDropCheckPtr;
 /// Destructor: Takes ownership of the `DropCheck` pointer and deletes it.
 #[no_mangle] pub extern "C" fn az_drop_check_delete(ptr: &mut AzDropCheckPtr) { let _ = unsafe { Box::<DropCheck>::from_raw(ptr.ptr  as *mut DropCheck) }; }
 /// Copies the pointer: WARNING: After calling this function you'll have two pointers to the same Box<`DropCheck`>!.

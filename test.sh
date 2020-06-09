@@ -1,20 +1,27 @@
 set -e
 
+# generate the DLL C-API
 cd ./api
 python3 ./gen-api.py
 cd ..
 
+mkdir -p ~/.cargo/lib/azul-dll-0.0.1/target/release
+
+# build the DLL
 cd ./azul-dll
-cargo build --all-features --release # build the DLL
+RUSTFLAGS='-C link-arg=-s' cargo build --all-features --release
+# cargo install --path .
 cd ..
 
-cd ./target/release
-strip ./libazul.so
-cd ../..
+cp ./target/release/libazul.so ~/.cargo/lib/azul-dll-0.0.1/target/release
 
-cd ./target/debug/examples
-rm -f ./azul.so
-cd ../..
+if [ -d "./target/debug/examples" ]; then
+    # remove the stale azul.so object
+    cd ./target/debug/examples
+    rm -f ./azul.so
+    cd ../..
+fi
 
-# cargo doc --no-deps --open
+# run the public example
+RUST_BACKTRACE=full cargo build --example public
 RUST_BACKTRACE=full cargo run --example public

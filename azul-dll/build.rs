@@ -9,6 +9,7 @@ use std::ffi::OsStr;
 use std::fs::DirEntry;
 use std::io::Write;
 use std::io::Read;
+use std::io::{BufReader, BufRead};
 
 fn main() {
 
@@ -45,30 +46,22 @@ fn main() {
     let _ = fs::remove_file(&format!("{}/build.rs", dll_output_path));
 
     // 4. run "cargo build --release" in the dll_output_path
-    let mut child = Command::new(env!("CARGO"))
+    let child = Command::new(env!("CARGO"))
         .current_dir(dll_output_path)
-        .stdout(Stdio::inherit())
+        .stdout(Stdio::piped())
         .env("RUSTFLAGS", "-C link-arg=-s")
         .args(&["build", "--release", "--lib", "--package", env!("CARGO_PKG_NAME")])
         .spawn()
         .expect("cargo build --release failed to start");
 
+    let child_stdout = child.stdout.expect("cannot access stdout");
 
-    loop {
-        match child.try_wait() {
-            Ok(Some(_)) => { break; },
-            Ok(None) => {
-                if let Some(stdout) = child.stdout.as_mut() {
-                    let mut stdout_so_far = Vec::new();
-                    stdout.read(&mut stdout_so_far).unwrap();
-                    if !stdout_so_far.is_empty() {
-                        println!("{}", String::from_utf8_lossy(&stdout_so_far));
-                    }
-                }
-            }
-            Err(e) => { panic!("{}", e); },
-        }
-    }
+    let reader = BufReader::new(child_stdout);
+
+    reader
+        .lines()
+        .filter_map(|line| line.ok())
+        .for_each(|line| println!("{}", line));
 
     // finished, the output file is now built in "~/.cargo/lib/azul-dll-0.1.0/target/release/libazul.so"
 }

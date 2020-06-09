@@ -169,6 +169,16 @@ pub(crate) mod dll {
     #[repr(C)] pub struct AzGlCallbackReturn {
         pub texture: AzOptionTexture,
     }
+    #[repr(C)] pub struct AzTimerCallback {
+        pub cb: AzTimerCallbackType,
+    }
+    #[repr(C)] pub struct AzTimerCallbackTypePtr {
+        pub(crate) ptr: *mut c_void,
+    }
+    #[repr(C)] pub struct AzTimerCallbackReturn {
+        pub should_update: AzUpdateScreen,
+        pub should_terminate: AzTerminateTimer,
+    }
     #[repr(C)] pub struct AzLayoutInfoPtr {
         pub(crate) ptr: *mut c_void,
     }
@@ -1224,16 +1234,6 @@ pub(crate) mod dll {
     #[repr(C)] pub struct AzThreadPtr {
         pub(crate) ptr: *mut c_void,
     }
-    #[repr(C)] pub struct AzTimerCallback {
-        pub cb: AzTimerCallbackType,
-    }
-    #[repr(C)] pub struct AzTimerCallbackTypePtr {
-        pub(crate) ptr: *mut c_void,
-    }
-    #[repr(C)] pub struct AzTimerCallbackReturn {
-        pub should_update: AzUpdateScreen,
-        pub should_terminate: AzTerminateTimer,
-    }
     #[repr(C)] pub struct AzDropCheckPtr {
         pub(crate) ptr: *mut c_void,
     }
@@ -1271,39 +1271,21 @@ pub(crate) mod dll {
         pub az_string_delete: Symbol<extern fn(_:  &mut AzString)>,
         pub az_string_deep_copy: Symbol<extern fn(_:  &AzString) -> AzString>,
         pub az_u8_vec_copy_from: Symbol<extern fn(_:  *const u8, _:  usize) -> AzU8Vec>,
-        pub az_u8_vec_as_ptr: Symbol<extern fn(_:  &AzU8Vec) -> *const u8>,
-        pub az_u8_vec_len: Symbol<extern fn(_:  &AzU8Vec) -> usize>,
-        pub az_u8_vec_capacity: Symbol<extern fn(_:  &AzU8Vec) -> usize>,
         pub az_u8_vec_delete: Symbol<extern fn(_:  &mut AzU8Vec)>,
         pub az_u8_vec_deep_copy: Symbol<extern fn(_:  &AzU8Vec) -> AzU8Vec>,
         pub az_callback_data_vec_copy_from: Symbol<extern fn(_:  *const AzCallbackData, _:  usize) -> AzCallbackDataVec>,
-        pub az_callback_data_vec_as_ptr: Symbol<extern fn(_:  &AzCallbackDataVec) -> *const AzCallbackData>,
-        pub az_callback_data_vec_len: Symbol<extern fn(_:  &AzCallbackDataVec) -> usize>,
-        pub az_callback_data_vec_capacity: Symbol<extern fn(_:  &AzCallbackDataVec) -> usize>,
         pub az_callback_data_vec_delete: Symbol<extern fn(_:  &mut AzCallbackDataVec)>,
         pub az_callback_data_vec_deep_copy: Symbol<extern fn(_:  &AzCallbackDataVec) -> AzCallbackDataVec>,
         pub az_override_property_vec_copy_from: Symbol<extern fn(_:  *const AzOverrideProperty, _:  usize) -> AzOverridePropertyVec>,
-        pub az_override_property_vec_as_ptr: Symbol<extern fn(_:  &AzOverridePropertyVec) -> *const AzOverrideProperty>,
-        pub az_override_property_vec_len: Symbol<extern fn(_:  &AzOverridePropertyVec) -> usize>,
-        pub az_override_property_vec_capacity: Symbol<extern fn(_:  &AzOverridePropertyVec) -> usize>,
         pub az_override_property_vec_delete: Symbol<extern fn(_:  &mut AzOverridePropertyVec)>,
         pub az_override_property_vec_deep_copy: Symbol<extern fn(_:  &AzOverridePropertyVec) -> AzOverridePropertyVec>,
         pub az_dom_vec_copy_from: Symbol<extern fn(_:  *const AzDom, _:  usize) -> AzDomVec>,
-        pub az_dom_vec_as_ptr: Symbol<extern fn(_:  &AzDomVec) -> *const AzDom>,
-        pub az_dom_vec_len: Symbol<extern fn(_:  &AzDomVec) -> usize>,
-        pub az_dom_vec_capacity: Symbol<extern fn(_:  &AzDomVec) -> usize>,
         pub az_dom_vec_delete: Symbol<extern fn(_:  &mut AzDomVec)>,
         pub az_dom_vec_deep_copy: Symbol<extern fn(_:  &AzDomVec) -> AzDomVec>,
         pub az_string_vec_copy_from: Symbol<extern fn(_:  *const AzString, _:  usize) -> AzStringVec>,
-        pub az_string_vec_as_ptr: Symbol<extern fn(_:  &AzStringVec) -> *const AzString>,
-        pub az_string_vec_len: Symbol<extern fn(_:  &AzStringVec) -> usize>,
-        pub az_string_vec_capacity: Symbol<extern fn(_:  &AzStringVec) -> usize>,
         pub az_string_vec_delete: Symbol<extern fn(_:  &mut AzStringVec)>,
         pub az_string_vec_deep_copy: Symbol<extern fn(_:  &AzStringVec) -> AzStringVec>,
         pub az_gradient_stop_pre_vec_copy_from: Symbol<extern fn(_:  *const AzGradientStopPre, _:  usize) -> AzGradientStopPreVec>,
-        pub az_gradient_stop_pre_vec_as_ptr: Symbol<extern fn(_:  &AzGradientStopPreVec) -> *const AzGradientStopPre>,
-        pub az_gradient_stop_pre_vec_len: Symbol<extern fn(_:  &AzGradientStopPreVec) -> usize>,
-        pub az_gradient_stop_pre_vec_capacity: Symbol<extern fn(_:  &AzGradientStopPreVec) -> usize>,
         pub az_gradient_stop_pre_vec_delete: Symbol<extern fn(_:  &mut AzGradientStopPreVec)>,
         pub az_gradient_stop_pre_vec_deep_copy: Symbol<extern fn(_:  &AzGradientStopPreVec) -> AzGradientStopPreVec>,
         pub az_option_percentage_value_delete: Symbol<extern fn(_:  &mut AzOptionPercentageValue)>,
@@ -1350,6 +1332,12 @@ pub(crate) mod dll {
         pub az_gl_callback_info_delete: Symbol<extern fn(_:  &mut AzGlCallbackInfoPtr)>,
         pub az_gl_callback_info_shallow_copy: Symbol<extern fn(_:  &AzGlCallbackInfoPtr) -> AzGlCallbackInfoPtr>,
         pub az_gl_callback_return_delete: Symbol<extern fn(_:  &mut AzGlCallbackReturn)>,
+        pub az_timer_callback_delete: Symbol<extern fn(_:  &mut AzTimerCallback)>,
+        pub az_timer_callback_deep_copy: Symbol<extern fn(_:  &AzTimerCallback) -> AzTimerCallback>,
+        pub az_timer_callback_type_delete: Symbol<extern fn(_:  &mut AzTimerCallbackTypePtr)>,
+        pub az_timer_callback_type_shallow_copy: Symbol<extern fn(_:  &AzTimerCallbackTypePtr) -> AzTimerCallbackTypePtr>,
+        pub az_timer_callback_return_delete: Symbol<extern fn(_:  &mut AzTimerCallbackReturn)>,
+        pub az_timer_callback_return_deep_copy: Symbol<extern fn(_:  &AzTimerCallbackReturn) -> AzTimerCallbackReturn>,
         pub az_layout_info_delete: Symbol<extern fn(_:  &mut AzLayoutInfoPtr)>,
         pub az_layout_info_shallow_copy: Symbol<extern fn(_:  &AzLayoutInfoPtr) -> AzLayoutInfoPtr>,
         pub az_css_native: Symbol<extern fn() -> AzCssPtr>,
@@ -1680,6 +1668,8 @@ pub(crate) mod dll {
         pub az_callback_data_deep_copy: Symbol<extern fn(_:  &AzCallbackData) -> AzCallbackData>,
         pub az_override_property_delete: Symbol<extern fn(_:  &mut AzOverrideProperty)>,
         pub az_override_property_deep_copy: Symbol<extern fn(_:  &AzOverrideProperty) -> AzOverrideProperty>,
+        pub az_node_data_new: Symbol<extern fn(_:  AzNodeType) -> AzNodeData>,
+        pub az_node_data_default: Symbol<extern fn() -> AzNodeData>,
         pub az_node_data_delete: Symbol<extern fn(_:  &mut AzNodeData)>,
         pub az_node_data_deep_copy: Symbol<extern fn(_:  &AzNodeData) -> AzNodeData>,
         pub az_node_type_delete: Symbol<extern fn(_:  &mut AzNodeType)>,
@@ -1730,18 +1720,14 @@ pub(crate) mod dll {
         pub az_timer_callback_info_shallow_copy: Symbol<extern fn(_:  &AzTimerCallbackInfoPtr) -> AzTimerCallbackInfoPtr>,
         pub az_timer_delete: Symbol<extern fn(_:  &mut AzTimer)>,
         pub az_timer_deep_copy: Symbol<extern fn(_:  &AzTimer) -> AzTimer>,
+        pub az_task_new: Symbol<extern fn(_:  AzArcMutexRefAnyPtr, _:  AzTaskCallbackType) -> AzTaskPtr>,
+        pub az_task_then: Symbol<extern fn(_:  AzTaskPtr, _:  AzTimer) -> AzTaskPtr>,
         pub az_task_delete: Symbol<extern fn(_:  &mut AzTaskPtr)>,
         pub az_task_shallow_copy: Symbol<extern fn(_:  &AzTaskPtr) -> AzTaskPtr>,
         pub az_thread_new: Symbol<extern fn(_:  AzRefAny, _:  AzThreadCallbackType) -> AzThreadPtr>,
         pub az_thread_block: Symbol<extern fn(_:  AzThreadPtr) -> AzResultRefAnyBlockError>,
         pub az_thread_delete: Symbol<extern fn(_:  &mut AzThreadPtr)>,
         pub az_thread_shallow_copy: Symbol<extern fn(_:  &AzThreadPtr) -> AzThreadPtr>,
-        pub az_timer_callback_delete: Symbol<extern fn(_:  &mut AzTimerCallback)>,
-        pub az_timer_callback_deep_copy: Symbol<extern fn(_:  &AzTimerCallback) -> AzTimerCallback>,
-        pub az_timer_callback_type_delete: Symbol<extern fn(_:  &mut AzTimerCallbackTypePtr)>,
-        pub az_timer_callback_type_shallow_copy: Symbol<extern fn(_:  &AzTimerCallbackTypePtr) -> AzTimerCallbackTypePtr>,
-        pub az_timer_callback_return_delete: Symbol<extern fn(_:  &mut AzTimerCallbackReturn)>,
-        pub az_timer_callback_return_deep_copy: Symbol<extern fn(_:  &AzTimerCallbackReturn) -> AzTimerCallbackReturn>,
         pub az_drop_check_delete: Symbol<extern fn(_:  &mut AzDropCheckPtr)>,
         pub az_drop_check_shallow_copy: Symbol<extern fn(_:  &AzDropCheckPtr) -> AzDropCheckPtr>,
         pub az_timer_id_delete: Symbol<extern fn(_:  &mut AzTimerId)>,
@@ -1771,39 +1757,21 @@ pub(crate) mod dll {
         let az_string_delete = unsafe { lib.get::<extern fn(_:  &mut AzString)>(b"az_string_delete").ok()? };
         let az_string_deep_copy = unsafe { lib.get::<extern fn(_:  &AzString) -> AzString>(b"az_string_deep_copy").ok()? };
         let az_u8_vec_copy_from = unsafe { lib.get::<extern fn(_:  *const u8, _:  usize) -> AzU8Vec>(b"az_u8_vec_copy_from").ok()? };
-        let az_u8_vec_as_ptr = unsafe { lib.get::<extern fn(_:  &AzU8Vec) -> *const u8>(b"az_u8_vec_as_ptr").ok()? };
-        let az_u8_vec_len = unsafe { lib.get::<extern fn(_:  &AzU8Vec) -> usize>(b"az_u8_vec_len").ok()? };
-        let az_u8_vec_capacity = unsafe { lib.get::<extern fn(_:  &AzU8Vec) -> usize>(b"az_u8_vec_capacity").ok()? };
         let az_u8_vec_delete = unsafe { lib.get::<extern fn(_:  &mut AzU8Vec)>(b"az_u8_vec_delete").ok()? };
         let az_u8_vec_deep_copy = unsafe { lib.get::<extern fn(_:  &AzU8Vec) -> AzU8Vec>(b"az_u8_vec_deep_copy").ok()? };
         let az_callback_data_vec_copy_from = unsafe { lib.get::<extern fn(_:  *const AzCallbackData, _:  usize) -> AzCallbackDataVec>(b"az_callback_data_vec_copy_from").ok()? };
-        let az_callback_data_vec_as_ptr = unsafe { lib.get::<extern fn(_:  &AzCallbackDataVec) -> *const AzCallbackData>(b"az_callback_data_vec_as_ptr").ok()? };
-        let az_callback_data_vec_len = unsafe { lib.get::<extern fn(_:  &AzCallbackDataVec) -> usize>(b"az_callback_data_vec_len").ok()? };
-        let az_callback_data_vec_capacity = unsafe { lib.get::<extern fn(_:  &AzCallbackDataVec) -> usize>(b"az_callback_data_vec_capacity").ok()? };
         let az_callback_data_vec_delete = unsafe { lib.get::<extern fn(_:  &mut AzCallbackDataVec)>(b"az_callback_data_vec_delete").ok()? };
         let az_callback_data_vec_deep_copy = unsafe { lib.get::<extern fn(_:  &AzCallbackDataVec) -> AzCallbackDataVec>(b"az_callback_data_vec_deep_copy").ok()? };
         let az_override_property_vec_copy_from = unsafe { lib.get::<extern fn(_:  *const AzOverrideProperty, _:  usize) -> AzOverridePropertyVec>(b"az_override_property_vec_copy_from").ok()? };
-        let az_override_property_vec_as_ptr = unsafe { lib.get::<extern fn(_:  &AzOverridePropertyVec) -> *const AzOverrideProperty>(b"az_override_property_vec_as_ptr").ok()? };
-        let az_override_property_vec_len = unsafe { lib.get::<extern fn(_:  &AzOverridePropertyVec) -> usize>(b"az_override_property_vec_len").ok()? };
-        let az_override_property_vec_capacity = unsafe { lib.get::<extern fn(_:  &AzOverridePropertyVec) -> usize>(b"az_override_property_vec_capacity").ok()? };
         let az_override_property_vec_delete = unsafe { lib.get::<extern fn(_:  &mut AzOverridePropertyVec)>(b"az_override_property_vec_delete").ok()? };
         let az_override_property_vec_deep_copy = unsafe { lib.get::<extern fn(_:  &AzOverridePropertyVec) -> AzOverridePropertyVec>(b"az_override_property_vec_deep_copy").ok()? };
         let az_dom_vec_copy_from = unsafe { lib.get::<extern fn(_:  *const AzDom, _:  usize) -> AzDomVec>(b"az_dom_vec_copy_from").ok()? };
-        let az_dom_vec_as_ptr = unsafe { lib.get::<extern fn(_:  &AzDomVec) -> *const AzDom>(b"az_dom_vec_as_ptr").ok()? };
-        let az_dom_vec_len = unsafe { lib.get::<extern fn(_:  &AzDomVec) -> usize>(b"az_dom_vec_len").ok()? };
-        let az_dom_vec_capacity = unsafe { lib.get::<extern fn(_:  &AzDomVec) -> usize>(b"az_dom_vec_capacity").ok()? };
         let az_dom_vec_delete = unsafe { lib.get::<extern fn(_:  &mut AzDomVec)>(b"az_dom_vec_delete").ok()? };
         let az_dom_vec_deep_copy = unsafe { lib.get::<extern fn(_:  &AzDomVec) -> AzDomVec>(b"az_dom_vec_deep_copy").ok()? };
         let az_string_vec_copy_from = unsafe { lib.get::<extern fn(_:  *const AzString, _:  usize) -> AzStringVec>(b"az_string_vec_copy_from").ok()? };
-        let az_string_vec_as_ptr = unsafe { lib.get::<extern fn(_:  &AzStringVec) -> *const AzString>(b"az_string_vec_as_ptr").ok()? };
-        let az_string_vec_len = unsafe { lib.get::<extern fn(_:  &AzStringVec) -> usize>(b"az_string_vec_len").ok()? };
-        let az_string_vec_capacity = unsafe { lib.get::<extern fn(_:  &AzStringVec) -> usize>(b"az_string_vec_capacity").ok()? };
         let az_string_vec_delete = unsafe { lib.get::<extern fn(_:  &mut AzStringVec)>(b"az_string_vec_delete").ok()? };
         let az_string_vec_deep_copy = unsafe { lib.get::<extern fn(_:  &AzStringVec) -> AzStringVec>(b"az_string_vec_deep_copy").ok()? };
         let az_gradient_stop_pre_vec_copy_from = unsafe { lib.get::<extern fn(_:  *const AzGradientStopPre, _:  usize) -> AzGradientStopPreVec>(b"az_gradient_stop_pre_vec_copy_from").ok()? };
-        let az_gradient_stop_pre_vec_as_ptr = unsafe { lib.get::<extern fn(_:  &AzGradientStopPreVec) -> *const AzGradientStopPre>(b"az_gradient_stop_pre_vec_as_ptr").ok()? };
-        let az_gradient_stop_pre_vec_len = unsafe { lib.get::<extern fn(_:  &AzGradientStopPreVec) -> usize>(b"az_gradient_stop_pre_vec_len").ok()? };
-        let az_gradient_stop_pre_vec_capacity = unsafe { lib.get::<extern fn(_:  &AzGradientStopPreVec) -> usize>(b"az_gradient_stop_pre_vec_capacity").ok()? };
         let az_gradient_stop_pre_vec_delete = unsafe { lib.get::<extern fn(_:  &mut AzGradientStopPreVec)>(b"az_gradient_stop_pre_vec_delete").ok()? };
         let az_gradient_stop_pre_vec_deep_copy = unsafe { lib.get::<extern fn(_:  &AzGradientStopPreVec) -> AzGradientStopPreVec>(b"az_gradient_stop_pre_vec_deep_copy").ok()? };
         let az_option_percentage_value_delete = unsafe { lib.get::<extern fn(_:  &mut AzOptionPercentageValue)>(b"az_option_percentage_value_delete").ok()? };
@@ -1850,6 +1818,12 @@ pub(crate) mod dll {
         let az_gl_callback_info_delete = unsafe { lib.get::<extern fn(_:  &mut AzGlCallbackInfoPtr)>(b"az_gl_callback_info_delete").ok()? };
         let az_gl_callback_info_shallow_copy = unsafe { lib.get::<extern fn(_:  &AzGlCallbackInfoPtr) -> AzGlCallbackInfoPtr>(b"az_gl_callback_info_shallow_copy").ok()? };
         let az_gl_callback_return_delete = unsafe { lib.get::<extern fn(_:  &mut AzGlCallbackReturn)>(b"az_gl_callback_return_delete").ok()? };
+        let az_timer_callback_delete = unsafe { lib.get::<extern fn(_:  &mut AzTimerCallback)>(b"az_timer_callback_delete").ok()? };
+        let az_timer_callback_deep_copy = unsafe { lib.get::<extern fn(_:  &AzTimerCallback) -> AzTimerCallback>(b"az_timer_callback_deep_copy").ok()? };
+        let az_timer_callback_type_delete = unsafe { lib.get::<extern fn(_:  &mut AzTimerCallbackTypePtr)>(b"az_timer_callback_type_delete").ok()? };
+        let az_timer_callback_type_shallow_copy = unsafe { lib.get::<extern fn(_:  &AzTimerCallbackTypePtr) -> AzTimerCallbackTypePtr>(b"az_timer_callback_type_shallow_copy").ok()? };
+        let az_timer_callback_return_delete = unsafe { lib.get::<extern fn(_:  &mut AzTimerCallbackReturn)>(b"az_timer_callback_return_delete").ok()? };
+        let az_timer_callback_return_deep_copy = unsafe { lib.get::<extern fn(_:  &AzTimerCallbackReturn) -> AzTimerCallbackReturn>(b"az_timer_callback_return_deep_copy").ok()? };
         let az_layout_info_delete = unsafe { lib.get::<extern fn(_:  &mut AzLayoutInfoPtr)>(b"az_layout_info_delete").ok()? };
         let az_layout_info_shallow_copy = unsafe { lib.get::<extern fn(_:  &AzLayoutInfoPtr) -> AzLayoutInfoPtr>(b"az_layout_info_shallow_copy").ok()? };
         let az_css_native = unsafe { lib.get::<extern fn() -> AzCssPtr>(b"az_css_native").ok()? };
@@ -2180,6 +2154,8 @@ pub(crate) mod dll {
         let az_callback_data_deep_copy = unsafe { lib.get::<extern fn(_:  &AzCallbackData) -> AzCallbackData>(b"az_callback_data_deep_copy").ok()? };
         let az_override_property_delete = unsafe { lib.get::<extern fn(_:  &mut AzOverrideProperty)>(b"az_override_property_delete").ok()? };
         let az_override_property_deep_copy = unsafe { lib.get::<extern fn(_:  &AzOverrideProperty) -> AzOverrideProperty>(b"az_override_property_deep_copy").ok()? };
+        let az_node_data_new = unsafe { lib.get::<extern fn(_:  AzNodeType) -> AzNodeData>(b"az_node_data_new").ok()? };
+        let az_node_data_default = unsafe { lib.get::<extern fn() -> AzNodeData>(b"az_node_data_default").ok()? };
         let az_node_data_delete = unsafe { lib.get::<extern fn(_:  &mut AzNodeData)>(b"az_node_data_delete").ok()? };
         let az_node_data_deep_copy = unsafe { lib.get::<extern fn(_:  &AzNodeData) -> AzNodeData>(b"az_node_data_deep_copy").ok()? };
         let az_node_type_delete = unsafe { lib.get::<extern fn(_:  &mut AzNodeType)>(b"az_node_type_delete").ok()? };
@@ -2230,18 +2206,14 @@ pub(crate) mod dll {
         let az_timer_callback_info_shallow_copy = unsafe { lib.get::<extern fn(_:  &AzTimerCallbackInfoPtr) -> AzTimerCallbackInfoPtr>(b"az_timer_callback_info_shallow_copy").ok()? };
         let az_timer_delete = unsafe { lib.get::<extern fn(_:  &mut AzTimer)>(b"az_timer_delete").ok()? };
         let az_timer_deep_copy = unsafe { lib.get::<extern fn(_:  &AzTimer) -> AzTimer>(b"az_timer_deep_copy").ok()? };
+        let az_task_new = unsafe { lib.get::<extern fn(_:  AzArcMutexRefAnyPtr, _:  AzTaskCallbackType) -> AzTaskPtr>(b"az_task_new").ok()? };
+        let az_task_then = unsafe { lib.get::<extern fn(_:  AzTaskPtr, _:  AzTimer) -> AzTaskPtr>(b"az_task_then").ok()? };
         let az_task_delete = unsafe { lib.get::<extern fn(_:  &mut AzTaskPtr)>(b"az_task_delete").ok()? };
         let az_task_shallow_copy = unsafe { lib.get::<extern fn(_:  &AzTaskPtr) -> AzTaskPtr>(b"az_task_shallow_copy").ok()? };
         let az_thread_new = unsafe { lib.get::<extern fn(_:  AzRefAny, _:  AzThreadCallbackType) -> AzThreadPtr>(b"az_thread_new").ok()? };
         let az_thread_block = unsafe { lib.get::<extern fn(_:  AzThreadPtr) -> AzResultRefAnyBlockError>(b"az_thread_block").ok()? };
         let az_thread_delete = unsafe { lib.get::<extern fn(_:  &mut AzThreadPtr)>(b"az_thread_delete").ok()? };
         let az_thread_shallow_copy = unsafe { lib.get::<extern fn(_:  &AzThreadPtr) -> AzThreadPtr>(b"az_thread_shallow_copy").ok()? };
-        let az_timer_callback_delete = unsafe { lib.get::<extern fn(_:  &mut AzTimerCallback)>(b"az_timer_callback_delete").ok()? };
-        let az_timer_callback_deep_copy = unsafe { lib.get::<extern fn(_:  &AzTimerCallback) -> AzTimerCallback>(b"az_timer_callback_deep_copy").ok()? };
-        let az_timer_callback_type_delete = unsafe { lib.get::<extern fn(_:  &mut AzTimerCallbackTypePtr)>(b"az_timer_callback_type_delete").ok()? };
-        let az_timer_callback_type_shallow_copy = unsafe { lib.get::<extern fn(_:  &AzTimerCallbackTypePtr) -> AzTimerCallbackTypePtr>(b"az_timer_callback_type_shallow_copy").ok()? };
-        let az_timer_callback_return_delete = unsafe { lib.get::<extern fn(_:  &mut AzTimerCallbackReturn)>(b"az_timer_callback_return_delete").ok()? };
-        let az_timer_callback_return_deep_copy = unsafe { lib.get::<extern fn(_:  &AzTimerCallbackReturn) -> AzTimerCallbackReturn>(b"az_timer_callback_return_deep_copy").ok()? };
         let az_drop_check_delete = unsafe { lib.get::<extern fn(_:  &mut AzDropCheckPtr)>(b"az_drop_check_delete").ok()? };
         let az_drop_check_shallow_copy = unsafe { lib.get::<extern fn(_:  &AzDropCheckPtr) -> AzDropCheckPtr>(b"az_drop_check_shallow_copy").ok()? };
         let az_timer_id_delete = unsafe { lib.get::<extern fn(_:  &mut AzTimerId)>(b"az_timer_id_delete").ok()? };
@@ -2269,39 +2241,21 @@ pub(crate) mod dll {
             az_string_delete,
             az_string_deep_copy,
             az_u8_vec_copy_from,
-            az_u8_vec_as_ptr,
-            az_u8_vec_len,
-            az_u8_vec_capacity,
             az_u8_vec_delete,
             az_u8_vec_deep_copy,
             az_callback_data_vec_copy_from,
-            az_callback_data_vec_as_ptr,
-            az_callback_data_vec_len,
-            az_callback_data_vec_capacity,
             az_callback_data_vec_delete,
             az_callback_data_vec_deep_copy,
             az_override_property_vec_copy_from,
-            az_override_property_vec_as_ptr,
-            az_override_property_vec_len,
-            az_override_property_vec_capacity,
             az_override_property_vec_delete,
             az_override_property_vec_deep_copy,
             az_dom_vec_copy_from,
-            az_dom_vec_as_ptr,
-            az_dom_vec_len,
-            az_dom_vec_capacity,
             az_dom_vec_delete,
             az_dom_vec_deep_copy,
             az_string_vec_copy_from,
-            az_string_vec_as_ptr,
-            az_string_vec_len,
-            az_string_vec_capacity,
             az_string_vec_delete,
             az_string_vec_deep_copy,
             az_gradient_stop_pre_vec_copy_from,
-            az_gradient_stop_pre_vec_as_ptr,
-            az_gradient_stop_pre_vec_len,
-            az_gradient_stop_pre_vec_capacity,
             az_gradient_stop_pre_vec_delete,
             az_gradient_stop_pre_vec_deep_copy,
             az_option_percentage_value_delete,
@@ -2348,6 +2302,12 @@ pub(crate) mod dll {
             az_gl_callback_info_delete,
             az_gl_callback_info_shallow_copy,
             az_gl_callback_return_delete,
+            az_timer_callback_delete,
+            az_timer_callback_deep_copy,
+            az_timer_callback_type_delete,
+            az_timer_callback_type_shallow_copy,
+            az_timer_callback_return_delete,
+            az_timer_callback_return_deep_copy,
             az_layout_info_delete,
             az_layout_info_shallow_copy,
             az_css_native,
@@ -2678,6 +2638,8 @@ pub(crate) mod dll {
             az_callback_data_deep_copy,
             az_override_property_delete,
             az_override_property_deep_copy,
+            az_node_data_new,
+            az_node_data_default,
             az_node_data_delete,
             az_node_data_deep_copy,
             az_node_type_delete,
@@ -2728,18 +2690,14 @@ pub(crate) mod dll {
             az_timer_callback_info_shallow_copy,
             az_timer_delete,
             az_timer_deep_copy,
+            az_task_new,
+            az_task_then,
             az_task_delete,
             az_task_shallow_copy,
             az_thread_new,
             az_thread_block,
             az_thread_delete,
             az_thread_shallow_copy,
-            az_timer_callback_delete,
-            az_timer_callback_deep_copy,
-            az_timer_callback_type_delete,
-            az_timer_callback_type_shallow_copy,
-            az_timer_callback_return_delete,
-            az_timer_callback_return_deep_copy,
             az_drop_check_delete,
             az_drop_check_shallow_copy,
             az_timer_id_delete,
@@ -2762,7 +2720,10 @@ pub(crate) mod dll {
         })
     }
 
-    const LIB_BYTES: &[u8] = include_bytes!("../../../target/release/libazul.so");
+    #[cfg(unix)]
+    const LIB_BYTES: &[u8] = include_bytes!(concat!(env!("CARGO_HOME"), "/lib/", "azul-dll-", env!("CARGO_PKG_VERSION"), "/target/release/libazul.so")); /* !!! IF THIS LINE SHOWS AN ERROR, IT MEANS YOU FORGOT TO RUN "cargo install --version 0.1.0 azul-dll" */
+    #[cfg(windows)]
+    const LIB_BYTES: &[u8] = include_bytes!(concat!(env!("CARGO_HOME"), "/lib/", "azul-dll-", env!("CARGO_PKG_VERSION", "/target/release/azul.dll"))); /* !!! IF THIS LINE SHOWS AN ERROR, IT MEANS YOU FORGOT TO RUN "cargo install --version 0.1.0 azul-dll" */
 
     use std::{mem::MaybeUninit, sync::atomic::{AtomicBool, Ordering}};
 
@@ -2846,6 +2807,7 @@ pub mod str {
         pub fn into_bytes(self)  -> crate::vec::U8Vec { { (crate::dll::get_azul_dll().az_string_into_bytes)(self)} }
     }
 
+    impl Clone for String { fn clone(&self) -> Self { (crate::dll::get_azul_dll().az_string_deep_copy)(self) } }
     impl Drop for String { fn drop(&mut self) { (crate::dll::get_azul_dll().az_string_delete)(self); } }
 }
 
@@ -2854,17 +2816,116 @@ pub mod str {
 pub mod vec {
 
     use crate::dll::*;
-    impl From<std::vec::Vec<u8>> for crate::vec::U8Vec {
-        fn from(v: std::vec::Vec<u8>) -> crate::vec::U8Vec {
-            crate::vec::U8Vec::copy_from(v.as_ptr(), v.len())
-        }
-    }
+    #[macro_export]
+    macro_rules! impl_vec {($struct_type:ident, $struct_name:ident) => (
 
-    impl From<crate::vec::U8Vec> for std::vec::Vec<u8> {
-        fn from(v: crate::vec::U8Vec) -> std::vec::Vec<u8> {
-            unsafe { std::slice::from_raw_parts(v.as_ptr(), v.len()) }.to_vec()
+        impl $struct_name {
+
+            pub fn new() -> Self {
+                Vec::<$struct_type>::new().into()
+            }
+
+            pub fn with_capacity(cap: usize) -> Self {
+                Vec::<$struct_type>::with_capacity(cap).into()
+            }
+
+            pub fn push(&mut self, val: $struct_type) {
+                let mut v: Vec<$struct_type> = unsafe { Vec::from_raw_parts(self.ptr as *mut $struct_type, self.len, self.cap) };
+                v.push(val);
+                let (ptr, len, cap) = Self::into_raw_parts(v);
+                self.ptr = ptr;
+                self.len = len;
+                self.cap = cap;
+            }
+
+            pub fn iter(&self) -> std::slice::Iter<$struct_type> {
+                let v1: &[$struct_type] = unsafe { std::slice::from_raw_parts(self.ptr, self.len) };
+                v1.iter()
+            }
+
+            pub fn iter_mut(&mut self) -> std::slice::IterMut<$struct_type> {
+                let v1: &mut [$struct_type] = unsafe { std::slice::from_raw_parts_mut(self.ptr as *mut $struct_type, self.len) };
+                v1.iter_mut()
+            }
+
+            pub fn into_iter(self) -> std::vec::IntoIter<$struct_type> {
+                let v1: Vec<$struct_type> = unsafe { std::vec::Vec::from_raw_parts(self.ptr as *mut $struct_type, self.len, self.cap) };
+                std::mem::forget(self); // do not run destructor of self
+                v1.into_iter()
+            }
+
+            pub fn as_ptr(&self) -> *const $struct_type {
+                self.ptr as *const $struct_type
+            }
+
+            pub fn len(&self) -> usize {
+                self.len
+            }
+
+            pub fn is_empty(&self) -> bool {
+                self.len == 0
+            }
+
+            pub fn cap(&self) -> usize {
+                self.cap
+            }
+
+            pub fn get(&self, index: usize) -> Option<&$struct_type> {
+                let v1: &[$struct_type] = unsafe { std::slice::from_raw_parts(self.ptr, self.len) };
+                let res = v1.get(index);
+                std::mem::forget(v1);
+                res
+            }
+
+            pub fn foreach<U, F: FnMut(&$struct_type) -> Result<(), U>>(&self, mut closure: F) -> Result<(), U> {
+                let v1: &[$struct_type] = unsafe { std::slice::from_raw_parts(self.ptr, self.len) };
+                for i in v1.iter() { closure(i)?; }
+                std::mem::forget(v1);
+                Ok(())
+            }
+
+            /// Same as Vec::into_raw_parts(self), prevents destructor from running
+            fn into_raw_parts(mut v: Vec<$struct_type>) -> (*mut $struct_type, usize, usize) {
+                let ptr = v.as_mut_ptr();
+                let len = v.len();
+                let cap = v.capacity();
+                std::mem::forget(v);
+                (ptr, len, cap)
+            }
         }
-    }
+
+        impl std::iter::FromIterator<$struct_type> for $struct_name {
+            fn from_iter<T>(iter: T) -> Self where T: IntoIterator<Item = $struct_type> {
+                let v: Vec<$struct_type> = Vec::from_iter(iter);
+                v.into()
+            }
+        }
+
+        impl AsRef<[$struct_type]> for $struct_name {
+            fn as_ref(&self) -> &[$struct_type] {
+                unsafe { std::slice::from_raw_parts(self.ptr, self.len) }
+            }
+        }
+
+        impl From<Vec<$struct_type>> for $struct_name {
+            fn from(v: Vec<$struct_type>) -> $struct_name {
+                $struct_name::copy_from(v.as_ptr(), v.len())
+            }
+        }
+
+        impl From<$struct_name> for Vec<$struct_type> {
+            fn from(v: $struct_name) -> Vec<$struct_type> {
+                unsafe { std::slice::from_raw_parts(v.as_ptr(), v.len()) }.to_vec()
+            }
+        }
+    )}
+
+    impl_vec!(u8, U8Vec);
+    impl_vec!(CallbackData, CallbackDataVec);
+    impl_vec!(OverrideProperty, OverridePropertyVec);
+    impl_vec!(Dom, DomVec);
+    impl_vec!(AzString, StringVec);
+    impl_vec!(GradientStopPre, GradientStopPreVec);
 
     impl From<std::vec::Vec<std::string::String>> for crate::vec::StringVec {
         fn from(v: std::vec::Vec<std::string::String>) -> crate::vec::StringVec {
@@ -2901,14 +2962,9 @@ pub mod vec {
     impl U8Vec {
         /// Creates + allocates a Rust `Vec<u8>` by **copying** it from a bytes source
         pub fn copy_from(ptr: *const u8, len: usize) -> Self { (crate::dll::get_azul_dll().az_u8_vec_copy_from)(ptr, len) }
-        /// Returns the internal pointer to the (azul-dll allocated) [u8]
-        pub fn as_ptr(&self)  -> *const u8 { (crate::dll::get_azul_dll().az_u8_vec_as_ptr)(self) }
-        /// Returns the length of the internal `Vec<u8>`
-        pub fn len(&self)  -> usize { (crate::dll::get_azul_dll().az_u8_vec_len)(self) }
-        /// Returns the capacity of the internal `Vec<u8>`
-        pub fn capacity(&self)  -> usize { (crate::dll::get_azul_dll().az_u8_vec_capacity)(self) }
     }
 
+    impl Clone for U8Vec { fn clone(&self) -> Self { (crate::dll::get_azul_dll().az_u8_vec_deep_copy)(self) } }
     impl Drop for U8Vec { fn drop(&mut self) { (crate::dll::get_azul_dll().az_u8_vec_delete)(self); } }
 
 
@@ -2918,14 +2974,9 @@ pub mod vec {
     impl CallbackDataVec {
         /// Creates + allocates a Rust `Vec<CallbackData>` by **copying** it from a bytes source
         pub fn copy_from(ptr: *const AzCallbackData, len: usize) -> Self { (crate::dll::get_azul_dll().az_callback_data_vec_copy_from)(ptr, len) }
-        /// Returns the internal pointer to the (azul-dll allocated) [CallbackData]
-        pub fn as_ptr(&self)  ->*const  crate::dom::CallbackData { { (crate::dll::get_azul_dll().az_callback_data_vec_as_ptr)(self)} }
-        /// Returns the length of the internal `Vec<CallbackData>`
-        pub fn len(&self)  -> usize { (crate::dll::get_azul_dll().az_callback_data_vec_len)(self) }
-        /// Returns the capacity of the internal `Vec<CallbackData>`
-        pub fn capacity(&self)  -> usize { (crate::dll::get_azul_dll().az_callback_data_vec_capacity)(self) }
     }
 
+    impl Clone for CallbackDataVec { fn clone(&self) -> Self { (crate::dll::get_azul_dll().az_callback_data_vec_deep_copy)(self) } }
     impl Drop for CallbackDataVec { fn drop(&mut self) { (crate::dll::get_azul_dll().az_callback_data_vec_delete)(self); } }
 
 
@@ -2935,14 +2986,9 @@ pub mod vec {
     impl OverridePropertyVec {
         /// Creates + allocates a Rust `Vec<OverrideProperty>` by **copying** it from a bytes source
         pub fn copy_from(ptr: *const AzOverrideProperty, len: usize) -> Self { (crate::dll::get_azul_dll().az_override_property_vec_copy_from)(ptr, len) }
-        /// Returns the internal pointer to the (azul-dll allocated) [OverrideProperty]
-        pub fn as_ptr(&self)  ->*const  crate::dom::OverrideProperty { { (crate::dll::get_azul_dll().az_override_property_vec_as_ptr)(self)} }
-        /// Returns the length of the internal `Vec<OverrideProperty>`
-        pub fn len(&self)  -> usize { (crate::dll::get_azul_dll().az_override_property_vec_len)(self) }
-        /// Returns the capacity of the internal `Vec<OverrideProperty>`
-        pub fn capacity(&self)  -> usize { (crate::dll::get_azul_dll().az_override_property_vec_capacity)(self) }
     }
 
+    impl Clone for OverridePropertyVec { fn clone(&self) -> Self { (crate::dll::get_azul_dll().az_override_property_vec_deep_copy)(self) } }
     impl Drop for OverridePropertyVec { fn drop(&mut self) { (crate::dll::get_azul_dll().az_override_property_vec_delete)(self); } }
 
 
@@ -2952,14 +2998,9 @@ pub mod vec {
     impl DomVec {
         /// Creates + allocates a Rust `Vec<Dom>` by **copying** it from a bytes source
         pub fn copy_from(ptr: *const AzDom, len: usize) -> Self { (crate::dll::get_azul_dll().az_dom_vec_copy_from)(ptr, len) }
-        /// Returns the internal pointer to the (azul-dll allocated) [Dom]
-        pub fn as_ptr(&self)  ->*const  crate::dom::Dom { { (crate::dll::get_azul_dll().az_dom_vec_as_ptr)(self)} }
-        /// Returns the length of the internal `Vec<Dom>`
-        pub fn len(&self)  -> usize { (crate::dll::get_azul_dll().az_dom_vec_len)(self) }
-        /// Returns the capacity of the internal `Vec<Dom>`
-        pub fn capacity(&self)  -> usize { (crate::dll::get_azul_dll().az_dom_vec_capacity)(self) }
     }
 
+    impl Clone for DomVec { fn clone(&self) -> Self { (crate::dll::get_azul_dll().az_dom_vec_deep_copy)(self) } }
     impl Drop for DomVec { fn drop(&mut self) { (crate::dll::get_azul_dll().az_dom_vec_delete)(self); } }
 
 
@@ -2969,14 +3010,9 @@ pub mod vec {
     impl StringVec {
         /// Creates + allocates a Rust `Vec<String>` by **copying** it from a bytes source
         pub fn copy_from(ptr: *const AzString, len: usize) -> Self { (crate::dll::get_azul_dll().az_string_vec_copy_from)(ptr, len) }
-        /// Returns the internal pointer to the (azul-dll allocated) [AzString]
-        pub fn as_ptr(&self)  ->*const  crate::str::String { { (crate::dll::get_azul_dll().az_string_vec_as_ptr)(self)} }
-        /// Returns the length of the internal `Vec<AzString>`
-        pub fn len(&self)  -> usize { (crate::dll::get_azul_dll().az_string_vec_len)(self) }
-        /// Returns the capacity of the internal `Vec<AzString>`
-        pub fn capacity(&self)  -> usize { (crate::dll::get_azul_dll().az_string_vec_capacity)(self) }
     }
 
+    impl Clone for StringVec { fn clone(&self) -> Self { (crate::dll::get_azul_dll().az_string_vec_deep_copy)(self) } }
     impl Drop for StringVec { fn drop(&mut self) { (crate::dll::get_azul_dll().az_string_vec_delete)(self); } }
 
 
@@ -2986,14 +3022,9 @@ pub mod vec {
     impl GradientStopPreVec {
         /// Creates + allocates a Rust `Vec<GradientStopPre>` by **copying** it from a bytes source
         pub fn copy_from(ptr: *const AzGradientStopPre, len: usize) -> Self { (crate::dll::get_azul_dll().az_gradient_stop_pre_vec_copy_from)(ptr, len) }
-        /// Returns the internal pointer to the (azul-dll allocated) [GradientStopPre]
-        pub fn as_ptr(&self)  ->*const  crate::css::GradientStopPre { { (crate::dll::get_azul_dll().az_gradient_stop_pre_vec_as_ptr)(self)} }
-        /// Returns the length of the internal `Vec<GradientStopPre>`
-        pub fn len(&self)  -> usize { (crate::dll::get_azul_dll().az_gradient_stop_pre_vec_len)(self) }
-        /// Returns the capacity of the internal `Vec<GradientStopPre>`
-        pub fn capacity(&self)  -> usize { (crate::dll::get_azul_dll().az_gradient_stop_pre_vec_capacity)(self) }
     }
 
+    impl Clone for GradientStopPreVec { fn clone(&self) -> Self { (crate::dll::get_azul_dll().az_gradient_stop_pre_vec_deep_copy)(self) } }
     impl Drop for GradientStopPreVec { fn drop(&mut self) { (crate::dll::get_azul_dll().az_gradient_stop_pre_vec_delete)(self); } }
 }
 
@@ -3007,12 +3038,14 @@ pub mod option {
     /// `OptionPercentageValue` struct
     pub use crate::dll::AzOptionPercentageValue as OptionPercentageValue;
 
+    impl Clone for OptionPercentageValue { fn clone(&self) -> Self { (crate::dll::get_azul_dll().az_option_percentage_value_deep_copy)(self) } }
     impl Drop for OptionPercentageValue { fn drop(&mut self) { (crate::dll::get_azul_dll().az_option_percentage_value_delete)(self); } }
 
 
     /// `OptionDom` struct
     pub use crate::dll::AzOptionDom as OptionDom;
 
+    impl Clone for OptionDom { fn clone(&self) -> Self { (crate::dll::get_azul_dll().az_option_dom_deep_copy)(self) } }
     impl Drop for OptionDom { fn drop(&mut self) { (crate::dll::get_azul_dll().az_option_dom_delete)(self); } }
 
 
@@ -3025,18 +3058,21 @@ pub mod option {
     /// `OptionTabIndex` struct
     pub use crate::dll::AzOptionTabIndex as OptionTabIndex;
 
+    impl Clone for OptionTabIndex { fn clone(&self) -> Self { (crate::dll::get_azul_dll().az_option_tab_index_deep_copy)(self) } }
     impl Drop for OptionTabIndex { fn drop(&mut self) { (crate::dll::get_azul_dll().az_option_tab_index_delete)(self); } }
 
 
     /// `OptionDuration` struct
     pub use crate::dll::AzOptionDuration as OptionDuration;
 
+    impl Clone for OptionDuration { fn clone(&self) -> Self { (crate::dll::get_azul_dll().az_option_duration_deep_copy)(self) } }
     impl Drop for OptionDuration { fn drop(&mut self) { (crate::dll::get_azul_dll().az_option_duration_delete)(self); } }
 
 
     /// `OptionInstant` struct
     pub use crate::dll::AzOptionInstant as OptionInstant;
 
+    impl Clone for OptionInstant { fn clone(&self) -> Self { (crate::dll::get_azul_dll().az_option_instant_deep_copy)(self) } }
     impl Drop for OptionInstant { fn drop(&mut self) { (crate::dll::get_azul_dll().az_option_instant_delete)(self); } }
 }
 
@@ -3050,6 +3086,7 @@ pub mod result {
     /// `ResultRefAnyBlockError` struct
     pub use crate::dll::AzResultRefAnyBlockError as ResultRefAnyBlockError;
 
+    impl Clone for ResultRefAnyBlockError { fn clone(&self) -> Self { (crate::dll::get_azul_dll().az_result_ref_any_block_error_deep_copy)(self) } }
     impl Drop for ResultRefAnyBlockError { fn drop(&mut self) { (crate::dll::get_azul_dll().az_result_ref_any_block_error_delete)(self); } }
 }
 
@@ -3074,6 +3111,7 @@ pub mod time {
     /// `Duration` struct
     pub use crate::dll::AzDuration as Duration;
 
+    impl Clone for Duration { fn clone(&self) -> Self { (crate::dll::get_azul_dll().az_duration_deep_copy)(self) } }
     impl Drop for Duration { fn drop(&mut self) { (crate::dll::get_azul_dll().az_duration_delete)(self); } }
 }
 
@@ -3120,6 +3158,7 @@ pub mod callbacks {
     /// `LayoutCallback` struct
     pub use crate::dll::AzLayoutCallback as LayoutCallback;
 
+    impl Clone for LayoutCallback { fn clone(&self) -> Self { (crate::dll::get_azul_dll().az_layout_callback_deep_copy)(self) } }
     impl Drop for LayoutCallback { fn drop(&mut self) { (crate::dll::get_azul_dll().az_layout_callback_delete)(self); } }
 
 
@@ -3128,6 +3167,7 @@ pub mod callbacks {
     /// `Callback` struct
     pub use crate::dll::AzCallback as Callback;
 
+    impl Clone for Callback { fn clone(&self) -> Self { (crate::dll::get_azul_dll().az_callback_deep_copy)(self) } }
     impl Drop for Callback { fn drop(&mut self) { (crate::dll::get_azul_dll().az_callback_delete)(self); } }
 
 
@@ -3143,12 +3183,14 @@ pub mod callbacks {
     /// Specifies if the screen should be updated after the callback function has returned
     pub use crate::dll::AzUpdateScreen as UpdateScreen;
 
+    impl Clone for UpdateScreen { fn clone(&self) -> Self { (crate::dll::get_azul_dll().az_update_screen_deep_copy)(self) } }
     impl Drop for UpdateScreen { fn drop(&mut self) { (crate::dll::get_azul_dll().az_update_screen_delete)(self); } }
 
 
     /// `IFrameCallback` struct
     pub use crate::dll::AzIFrameCallback as IFrameCallback;
 
+    impl Clone for IFrameCallback { fn clone(&self) -> Self { (crate::dll::get_azul_dll().az_i_frame_callback_deep_copy)(self) } }
     impl Drop for IFrameCallback { fn drop(&mut self) { (crate::dll::get_azul_dll().az_i_frame_callback_delete)(self); } }
 
 
@@ -3163,12 +3205,14 @@ pub mod callbacks {
     /// `IFrameCallbackReturn` struct
     pub use crate::dll::AzIFrameCallbackReturn as IFrameCallbackReturn;
 
+    impl Clone for IFrameCallbackReturn { fn clone(&self) -> Self { (crate::dll::get_azul_dll().az_i_frame_callback_return_deep_copy)(self) } }
     impl Drop for IFrameCallbackReturn { fn drop(&mut self) { (crate::dll::get_azul_dll().az_i_frame_callback_return_delete)(self); } }
 
 
     /// `GlCallback` struct
     pub use crate::dll::AzGlCallback as GlCallback;
 
+    impl Clone for GlCallback { fn clone(&self) -> Self { (crate::dll::get_azul_dll().az_gl_callback_deep_copy)(self) } }
     impl Drop for GlCallback { fn drop(&mut self) { (crate::dll::get_azul_dll().az_gl_callback_delete)(self); } }
 
 
@@ -3186,7 +3230,28 @@ pub mod callbacks {
     impl Drop for GlCallbackReturn { fn drop(&mut self) { (crate::dll::get_azul_dll().az_gl_callback_return_delete)(self); } }
 
 
+    /// `TimerCallback` struct
+    pub use crate::dll::AzTimerCallback as TimerCallback;
+
+    impl Clone for TimerCallback { fn clone(&self) -> Self { (crate::dll::get_azul_dll().az_timer_callback_deep_copy)(self) } }
+    impl Drop for TimerCallback { fn drop(&mut self) { (crate::dll::get_azul_dll().az_timer_callback_delete)(self); } }
+
+
+    /// `TimerCallbackType` struct
+    pub use crate::dll::AzTimerCallbackTypePtr as TimerCallbackType;
+
+
+
+    /// `TimerCallbackReturn` struct
+    pub use crate::dll::AzTimerCallbackReturn as TimerCallbackReturn;
+
+    impl Clone for TimerCallbackReturn { fn clone(&self) -> Self { (crate::dll::get_azul_dll().az_timer_callback_return_deep_copy)(self) } }
+    impl Drop for TimerCallbackReturn { fn drop(&mut self) { (crate::dll::get_azul_dll().az_timer_callback_return_delete)(self); } }
+
+
     pub use crate::dll::AzThreadCallbackType as ThreadCallbackType;
+
+    pub use crate::dll::AzTaskCallbackType as TaskCallbackType;
 
     pub use crate::dll::AzRefAny as RefAny;
 
@@ -3317,840 +3382,980 @@ pub mod css {
     /// `ColorU` struct
     pub use crate::dll::AzColorU as ColorU;
 
+    impl Clone for ColorU { fn clone(&self) -> Self { (crate::dll::get_azul_dll().az_color_u_deep_copy)(self) } }
     impl Drop for ColorU { fn drop(&mut self) { (crate::dll::get_azul_dll().az_color_u_delete)(self); } }
 
 
     /// `SizeMetric` struct
     pub use crate::dll::AzSizeMetric as SizeMetric;
 
+    impl Clone for SizeMetric { fn clone(&self) -> Self { (crate::dll::get_azul_dll().az_size_metric_deep_copy)(self) } }
     impl Drop for SizeMetric { fn drop(&mut self) { (crate::dll::get_azul_dll().az_size_metric_delete)(self); } }
 
 
     /// `FloatValue` struct
     pub use crate::dll::AzFloatValue as FloatValue;
 
+    impl Clone for FloatValue { fn clone(&self) -> Self { (crate::dll::get_azul_dll().az_float_value_deep_copy)(self) } }
     impl Drop for FloatValue { fn drop(&mut self) { (crate::dll::get_azul_dll().az_float_value_delete)(self); } }
 
 
     /// `PixelValue` struct
     pub use crate::dll::AzPixelValue as PixelValue;
 
+    impl Clone for PixelValue { fn clone(&self) -> Self { (crate::dll::get_azul_dll().az_pixel_value_deep_copy)(self) } }
     impl Drop for PixelValue { fn drop(&mut self) { (crate::dll::get_azul_dll().az_pixel_value_delete)(self); } }
 
 
     /// `PixelValueNoPercent` struct
     pub use crate::dll::AzPixelValueNoPercent as PixelValueNoPercent;
 
+    impl Clone for PixelValueNoPercent { fn clone(&self) -> Self { (crate::dll::get_azul_dll().az_pixel_value_no_percent_deep_copy)(self) } }
     impl Drop for PixelValueNoPercent { fn drop(&mut self) { (crate::dll::get_azul_dll().az_pixel_value_no_percent_delete)(self); } }
 
 
     /// `BoxShadowClipMode` struct
     pub use crate::dll::AzBoxShadowClipMode as BoxShadowClipMode;
 
+    impl Clone for BoxShadowClipMode { fn clone(&self) -> Self { (crate::dll::get_azul_dll().az_box_shadow_clip_mode_deep_copy)(self) } }
     impl Drop for BoxShadowClipMode { fn drop(&mut self) { (crate::dll::get_azul_dll().az_box_shadow_clip_mode_delete)(self); } }
 
 
     /// `BoxShadowPreDisplayItem` struct
     pub use crate::dll::AzBoxShadowPreDisplayItem as BoxShadowPreDisplayItem;
 
+    impl Clone for BoxShadowPreDisplayItem { fn clone(&self) -> Self { (crate::dll::get_azul_dll().az_box_shadow_pre_display_item_deep_copy)(self) } }
     impl Drop for BoxShadowPreDisplayItem { fn drop(&mut self) { (crate::dll::get_azul_dll().az_box_shadow_pre_display_item_delete)(self); } }
 
 
     /// `LayoutAlignContent` struct
     pub use crate::dll::AzLayoutAlignContent as LayoutAlignContent;
 
+    impl Clone for LayoutAlignContent { fn clone(&self) -> Self { (crate::dll::get_azul_dll().az_layout_align_content_deep_copy)(self) } }
     impl Drop for LayoutAlignContent { fn drop(&mut self) { (crate::dll::get_azul_dll().az_layout_align_content_delete)(self); } }
 
 
     /// `LayoutAlignItems` struct
     pub use crate::dll::AzLayoutAlignItems as LayoutAlignItems;
 
+    impl Clone for LayoutAlignItems { fn clone(&self) -> Self { (crate::dll::get_azul_dll().az_layout_align_items_deep_copy)(self) } }
     impl Drop for LayoutAlignItems { fn drop(&mut self) { (crate::dll::get_azul_dll().az_layout_align_items_delete)(self); } }
 
 
     /// `LayoutBottom` struct
     pub use crate::dll::AzLayoutBottom as LayoutBottom;
 
+    impl Clone for LayoutBottom { fn clone(&self) -> Self { (crate::dll::get_azul_dll().az_layout_bottom_deep_copy)(self) } }
     impl Drop for LayoutBottom { fn drop(&mut self) { (crate::dll::get_azul_dll().az_layout_bottom_delete)(self); } }
 
 
     /// `LayoutBoxSizing` struct
     pub use crate::dll::AzLayoutBoxSizing as LayoutBoxSizing;
 
+    impl Clone for LayoutBoxSizing { fn clone(&self) -> Self { (crate::dll::get_azul_dll().az_layout_box_sizing_deep_copy)(self) } }
     impl Drop for LayoutBoxSizing { fn drop(&mut self) { (crate::dll::get_azul_dll().az_layout_box_sizing_delete)(self); } }
 
 
     /// `LayoutDirection` struct
     pub use crate::dll::AzLayoutDirection as LayoutDirection;
 
+    impl Clone for LayoutDirection { fn clone(&self) -> Self { (crate::dll::get_azul_dll().az_layout_direction_deep_copy)(self) } }
     impl Drop for LayoutDirection { fn drop(&mut self) { (crate::dll::get_azul_dll().az_layout_direction_delete)(self); } }
 
 
     /// `LayoutDisplay` struct
     pub use crate::dll::AzLayoutDisplay as LayoutDisplay;
 
+    impl Clone for LayoutDisplay { fn clone(&self) -> Self { (crate::dll::get_azul_dll().az_layout_display_deep_copy)(self) } }
     impl Drop for LayoutDisplay { fn drop(&mut self) { (crate::dll::get_azul_dll().az_layout_display_delete)(self); } }
 
 
     /// `LayoutFlexGrow` struct
     pub use crate::dll::AzLayoutFlexGrow as LayoutFlexGrow;
 
+    impl Clone for LayoutFlexGrow { fn clone(&self) -> Self { (crate::dll::get_azul_dll().az_layout_flex_grow_deep_copy)(self) } }
     impl Drop for LayoutFlexGrow { fn drop(&mut self) { (crate::dll::get_azul_dll().az_layout_flex_grow_delete)(self); } }
 
 
     /// `LayoutFlexShrink` struct
     pub use crate::dll::AzLayoutFlexShrink as LayoutFlexShrink;
 
+    impl Clone for LayoutFlexShrink { fn clone(&self) -> Self { (crate::dll::get_azul_dll().az_layout_flex_shrink_deep_copy)(self) } }
     impl Drop for LayoutFlexShrink { fn drop(&mut self) { (crate::dll::get_azul_dll().az_layout_flex_shrink_delete)(self); } }
 
 
     /// `LayoutFloat` struct
     pub use crate::dll::AzLayoutFloat as LayoutFloat;
 
+    impl Clone for LayoutFloat { fn clone(&self) -> Self { (crate::dll::get_azul_dll().az_layout_float_deep_copy)(self) } }
     impl Drop for LayoutFloat { fn drop(&mut self) { (crate::dll::get_azul_dll().az_layout_float_delete)(self); } }
 
 
     /// `LayoutHeight` struct
     pub use crate::dll::AzLayoutHeight as LayoutHeight;
 
+    impl Clone for LayoutHeight { fn clone(&self) -> Self { (crate::dll::get_azul_dll().az_layout_height_deep_copy)(self) } }
     impl Drop for LayoutHeight { fn drop(&mut self) { (crate::dll::get_azul_dll().az_layout_height_delete)(self); } }
 
 
     /// `LayoutJustifyContent` struct
     pub use crate::dll::AzLayoutJustifyContent as LayoutJustifyContent;
 
+    impl Clone for LayoutJustifyContent { fn clone(&self) -> Self { (crate::dll::get_azul_dll().az_layout_justify_content_deep_copy)(self) } }
     impl Drop for LayoutJustifyContent { fn drop(&mut self) { (crate::dll::get_azul_dll().az_layout_justify_content_delete)(self); } }
 
 
     /// `LayoutLeft` struct
     pub use crate::dll::AzLayoutLeft as LayoutLeft;
 
+    impl Clone for LayoutLeft { fn clone(&self) -> Self { (crate::dll::get_azul_dll().az_layout_left_deep_copy)(self) } }
     impl Drop for LayoutLeft { fn drop(&mut self) { (crate::dll::get_azul_dll().az_layout_left_delete)(self); } }
 
 
     /// `LayoutMarginBottom` struct
     pub use crate::dll::AzLayoutMarginBottom as LayoutMarginBottom;
 
+    impl Clone for LayoutMarginBottom { fn clone(&self) -> Self { (crate::dll::get_azul_dll().az_layout_margin_bottom_deep_copy)(self) } }
     impl Drop for LayoutMarginBottom { fn drop(&mut self) { (crate::dll::get_azul_dll().az_layout_margin_bottom_delete)(self); } }
 
 
     /// `LayoutMarginLeft` struct
     pub use crate::dll::AzLayoutMarginLeft as LayoutMarginLeft;
 
+    impl Clone for LayoutMarginLeft { fn clone(&self) -> Self { (crate::dll::get_azul_dll().az_layout_margin_left_deep_copy)(self) } }
     impl Drop for LayoutMarginLeft { fn drop(&mut self) { (crate::dll::get_azul_dll().az_layout_margin_left_delete)(self); } }
 
 
     /// `LayoutMarginRight` struct
     pub use crate::dll::AzLayoutMarginRight as LayoutMarginRight;
 
+    impl Clone for LayoutMarginRight { fn clone(&self) -> Self { (crate::dll::get_azul_dll().az_layout_margin_right_deep_copy)(self) } }
     impl Drop for LayoutMarginRight { fn drop(&mut self) { (crate::dll::get_azul_dll().az_layout_margin_right_delete)(self); } }
 
 
     /// `LayoutMarginTop` struct
     pub use crate::dll::AzLayoutMarginTop as LayoutMarginTop;
 
+    impl Clone for LayoutMarginTop { fn clone(&self) -> Self { (crate::dll::get_azul_dll().az_layout_margin_top_deep_copy)(self) } }
     impl Drop for LayoutMarginTop { fn drop(&mut self) { (crate::dll::get_azul_dll().az_layout_margin_top_delete)(self); } }
 
 
     /// `LayoutMaxHeight` struct
     pub use crate::dll::AzLayoutMaxHeight as LayoutMaxHeight;
 
+    impl Clone for LayoutMaxHeight { fn clone(&self) -> Self { (crate::dll::get_azul_dll().az_layout_max_height_deep_copy)(self) } }
     impl Drop for LayoutMaxHeight { fn drop(&mut self) { (crate::dll::get_azul_dll().az_layout_max_height_delete)(self); } }
 
 
     /// `LayoutMaxWidth` struct
     pub use crate::dll::AzLayoutMaxWidth as LayoutMaxWidth;
 
+    impl Clone for LayoutMaxWidth { fn clone(&self) -> Self { (crate::dll::get_azul_dll().az_layout_max_width_deep_copy)(self) } }
     impl Drop for LayoutMaxWidth { fn drop(&mut self) { (crate::dll::get_azul_dll().az_layout_max_width_delete)(self); } }
 
 
     /// `LayoutMinHeight` struct
     pub use crate::dll::AzLayoutMinHeight as LayoutMinHeight;
 
+    impl Clone for LayoutMinHeight { fn clone(&self) -> Self { (crate::dll::get_azul_dll().az_layout_min_height_deep_copy)(self) } }
     impl Drop for LayoutMinHeight { fn drop(&mut self) { (crate::dll::get_azul_dll().az_layout_min_height_delete)(self); } }
 
 
     /// `LayoutMinWidth` struct
     pub use crate::dll::AzLayoutMinWidth as LayoutMinWidth;
 
+    impl Clone for LayoutMinWidth { fn clone(&self) -> Self { (crate::dll::get_azul_dll().az_layout_min_width_deep_copy)(self) } }
     impl Drop for LayoutMinWidth { fn drop(&mut self) { (crate::dll::get_azul_dll().az_layout_min_width_delete)(self); } }
 
 
     /// `LayoutPaddingBottom` struct
     pub use crate::dll::AzLayoutPaddingBottom as LayoutPaddingBottom;
 
+    impl Clone for LayoutPaddingBottom { fn clone(&self) -> Self { (crate::dll::get_azul_dll().az_layout_padding_bottom_deep_copy)(self) } }
     impl Drop for LayoutPaddingBottom { fn drop(&mut self) { (crate::dll::get_azul_dll().az_layout_padding_bottom_delete)(self); } }
 
 
     /// `LayoutPaddingLeft` struct
     pub use crate::dll::AzLayoutPaddingLeft as LayoutPaddingLeft;
 
+    impl Clone for LayoutPaddingLeft { fn clone(&self) -> Self { (crate::dll::get_azul_dll().az_layout_padding_left_deep_copy)(self) } }
     impl Drop for LayoutPaddingLeft { fn drop(&mut self) { (crate::dll::get_azul_dll().az_layout_padding_left_delete)(self); } }
 
 
     /// `LayoutPaddingRight` struct
     pub use crate::dll::AzLayoutPaddingRight as LayoutPaddingRight;
 
+    impl Clone for LayoutPaddingRight { fn clone(&self) -> Self { (crate::dll::get_azul_dll().az_layout_padding_right_deep_copy)(self) } }
     impl Drop for LayoutPaddingRight { fn drop(&mut self) { (crate::dll::get_azul_dll().az_layout_padding_right_delete)(self); } }
 
 
     /// `LayoutPaddingTop` struct
     pub use crate::dll::AzLayoutPaddingTop as LayoutPaddingTop;
 
+    impl Clone for LayoutPaddingTop { fn clone(&self) -> Self { (crate::dll::get_azul_dll().az_layout_padding_top_deep_copy)(self) } }
     impl Drop for LayoutPaddingTop { fn drop(&mut self) { (crate::dll::get_azul_dll().az_layout_padding_top_delete)(self); } }
 
 
     /// `LayoutPosition` struct
     pub use crate::dll::AzLayoutPosition as LayoutPosition;
 
+    impl Clone for LayoutPosition { fn clone(&self) -> Self { (crate::dll::get_azul_dll().az_layout_position_deep_copy)(self) } }
     impl Drop for LayoutPosition { fn drop(&mut self) { (crate::dll::get_azul_dll().az_layout_position_delete)(self); } }
 
 
     /// `LayoutRight` struct
     pub use crate::dll::AzLayoutRight as LayoutRight;
 
+    impl Clone for LayoutRight { fn clone(&self) -> Self { (crate::dll::get_azul_dll().az_layout_right_deep_copy)(self) } }
     impl Drop for LayoutRight { fn drop(&mut self) { (crate::dll::get_azul_dll().az_layout_right_delete)(self); } }
 
 
     /// `LayoutTop` struct
     pub use crate::dll::AzLayoutTop as LayoutTop;
 
+    impl Clone for LayoutTop { fn clone(&self) -> Self { (crate::dll::get_azul_dll().az_layout_top_deep_copy)(self) } }
     impl Drop for LayoutTop { fn drop(&mut self) { (crate::dll::get_azul_dll().az_layout_top_delete)(self); } }
 
 
     /// `LayoutWidth` struct
     pub use crate::dll::AzLayoutWidth as LayoutWidth;
 
+    impl Clone for LayoutWidth { fn clone(&self) -> Self { (crate::dll::get_azul_dll().az_layout_width_deep_copy)(self) } }
     impl Drop for LayoutWidth { fn drop(&mut self) { (crate::dll::get_azul_dll().az_layout_width_delete)(self); } }
 
 
     /// `LayoutWrap` struct
     pub use crate::dll::AzLayoutWrap as LayoutWrap;
 
+    impl Clone for LayoutWrap { fn clone(&self) -> Self { (crate::dll::get_azul_dll().az_layout_wrap_deep_copy)(self) } }
     impl Drop for LayoutWrap { fn drop(&mut self) { (crate::dll::get_azul_dll().az_layout_wrap_delete)(self); } }
 
 
     /// `Overflow` struct
     pub use crate::dll::AzOverflow as Overflow;
 
+    impl Clone for Overflow { fn clone(&self) -> Self { (crate::dll::get_azul_dll().az_overflow_deep_copy)(self) } }
     impl Drop for Overflow { fn drop(&mut self) { (crate::dll::get_azul_dll().az_overflow_delete)(self); } }
 
 
     /// `PercentageValue` struct
     pub use crate::dll::AzPercentageValue as PercentageValue;
 
+    impl Clone for PercentageValue { fn clone(&self) -> Self { (crate::dll::get_azul_dll().az_percentage_value_deep_copy)(self) } }
     impl Drop for PercentageValue { fn drop(&mut self) { (crate::dll::get_azul_dll().az_percentage_value_delete)(self); } }
 
 
     /// `GradientStopPre` struct
     pub use crate::dll::AzGradientStopPre as GradientStopPre;
 
+    impl Clone for GradientStopPre { fn clone(&self) -> Self { (crate::dll::get_azul_dll().az_gradient_stop_pre_deep_copy)(self) } }
     impl Drop for GradientStopPre { fn drop(&mut self) { (crate::dll::get_azul_dll().az_gradient_stop_pre_delete)(self); } }
 
 
     /// `DirectionCorner` struct
     pub use crate::dll::AzDirectionCorner as DirectionCorner;
 
+    impl Clone for DirectionCorner { fn clone(&self) -> Self { (crate::dll::get_azul_dll().az_direction_corner_deep_copy)(self) } }
     impl Drop for DirectionCorner { fn drop(&mut self) { (crate::dll::get_azul_dll().az_direction_corner_delete)(self); } }
 
 
     /// `DirectionCorners` struct
     pub use crate::dll::AzDirectionCorners as DirectionCorners;
 
+    impl Clone for DirectionCorners { fn clone(&self) -> Self { (crate::dll::get_azul_dll().az_direction_corners_deep_copy)(self) } }
     impl Drop for DirectionCorners { fn drop(&mut self) { (crate::dll::get_azul_dll().az_direction_corners_delete)(self); } }
 
 
     /// `Direction` struct
     pub use crate::dll::AzDirection as Direction;
 
+    impl Clone for Direction { fn clone(&self) -> Self { (crate::dll::get_azul_dll().az_direction_deep_copy)(self) } }
     impl Drop for Direction { fn drop(&mut self) { (crate::dll::get_azul_dll().az_direction_delete)(self); } }
 
 
     /// `ExtendMode` struct
     pub use crate::dll::AzExtendMode as ExtendMode;
 
+    impl Clone for ExtendMode { fn clone(&self) -> Self { (crate::dll::get_azul_dll().az_extend_mode_deep_copy)(self) } }
     impl Drop for ExtendMode { fn drop(&mut self) { (crate::dll::get_azul_dll().az_extend_mode_delete)(self); } }
 
 
     /// `LinearGradient` struct
     pub use crate::dll::AzLinearGradient as LinearGradient;
 
+    impl Clone for LinearGradient { fn clone(&self) -> Self { (crate::dll::get_azul_dll().az_linear_gradient_deep_copy)(self) } }
     impl Drop for LinearGradient { fn drop(&mut self) { (crate::dll::get_azul_dll().az_linear_gradient_delete)(self); } }
 
 
     /// `Shape` struct
     pub use crate::dll::AzShape as Shape;
 
+    impl Clone for Shape { fn clone(&self) -> Self { (crate::dll::get_azul_dll().az_shape_deep_copy)(self) } }
     impl Drop for Shape { fn drop(&mut self) { (crate::dll::get_azul_dll().az_shape_delete)(self); } }
 
 
     /// `RadialGradient` struct
     pub use crate::dll::AzRadialGradient as RadialGradient;
 
+    impl Clone for RadialGradient { fn clone(&self) -> Self { (crate::dll::get_azul_dll().az_radial_gradient_deep_copy)(self) } }
     impl Drop for RadialGradient { fn drop(&mut self) { (crate::dll::get_azul_dll().az_radial_gradient_delete)(self); } }
 
 
     /// `CssImageId` struct
     pub use crate::dll::AzCssImageId as CssImageId;
 
+    impl Clone for CssImageId { fn clone(&self) -> Self { (crate::dll::get_azul_dll().az_css_image_id_deep_copy)(self) } }
     impl Drop for CssImageId { fn drop(&mut self) { (crate::dll::get_azul_dll().az_css_image_id_delete)(self); } }
 
 
     /// `StyleBackgroundContent` struct
     pub use crate::dll::AzStyleBackgroundContent as StyleBackgroundContent;
 
+    impl Clone for StyleBackgroundContent { fn clone(&self) -> Self { (crate::dll::get_azul_dll().az_style_background_content_deep_copy)(self) } }
     impl Drop for StyleBackgroundContent { fn drop(&mut self) { (crate::dll::get_azul_dll().az_style_background_content_delete)(self); } }
 
 
     /// `BackgroundPositionHorizontal` struct
     pub use crate::dll::AzBackgroundPositionHorizontal as BackgroundPositionHorizontal;
 
+    impl Clone for BackgroundPositionHorizontal { fn clone(&self) -> Self { (crate::dll::get_azul_dll().az_background_position_horizontal_deep_copy)(self) } }
     impl Drop for BackgroundPositionHorizontal { fn drop(&mut self) { (crate::dll::get_azul_dll().az_background_position_horizontal_delete)(self); } }
 
 
     /// `BackgroundPositionVertical` struct
     pub use crate::dll::AzBackgroundPositionVertical as BackgroundPositionVertical;
 
+    impl Clone for BackgroundPositionVertical { fn clone(&self) -> Self { (crate::dll::get_azul_dll().az_background_position_vertical_deep_copy)(self) } }
     impl Drop for BackgroundPositionVertical { fn drop(&mut self) { (crate::dll::get_azul_dll().az_background_position_vertical_delete)(self); } }
 
 
     /// `StyleBackgroundPosition` struct
     pub use crate::dll::AzStyleBackgroundPosition as StyleBackgroundPosition;
 
+    impl Clone for StyleBackgroundPosition { fn clone(&self) -> Self { (crate::dll::get_azul_dll().az_style_background_position_deep_copy)(self) } }
     impl Drop for StyleBackgroundPosition { fn drop(&mut self) { (crate::dll::get_azul_dll().az_style_background_position_delete)(self); } }
 
 
     /// `StyleBackgroundRepeat` struct
     pub use crate::dll::AzStyleBackgroundRepeat as StyleBackgroundRepeat;
 
+    impl Clone for StyleBackgroundRepeat { fn clone(&self) -> Self { (crate::dll::get_azul_dll().az_style_background_repeat_deep_copy)(self) } }
     impl Drop for StyleBackgroundRepeat { fn drop(&mut self) { (crate::dll::get_azul_dll().az_style_background_repeat_delete)(self); } }
 
 
     /// `StyleBackgroundSize` struct
     pub use crate::dll::AzStyleBackgroundSize as StyleBackgroundSize;
 
+    impl Clone for StyleBackgroundSize { fn clone(&self) -> Self { (crate::dll::get_azul_dll().az_style_background_size_deep_copy)(self) } }
     impl Drop for StyleBackgroundSize { fn drop(&mut self) { (crate::dll::get_azul_dll().az_style_background_size_delete)(self); } }
 
 
     /// `StyleBorderBottomColor` struct
     pub use crate::dll::AzStyleBorderBottomColor as StyleBorderBottomColor;
 
+    impl Clone for StyleBorderBottomColor { fn clone(&self) -> Self { (crate::dll::get_azul_dll().az_style_border_bottom_color_deep_copy)(self) } }
     impl Drop for StyleBorderBottomColor { fn drop(&mut self) { (crate::dll::get_azul_dll().az_style_border_bottom_color_delete)(self); } }
 
 
     /// `StyleBorderBottomLeftRadius` struct
     pub use crate::dll::AzStyleBorderBottomLeftRadius as StyleBorderBottomLeftRadius;
 
+    impl Clone for StyleBorderBottomLeftRadius { fn clone(&self) -> Self { (crate::dll::get_azul_dll().az_style_border_bottom_left_radius_deep_copy)(self) } }
     impl Drop for StyleBorderBottomLeftRadius { fn drop(&mut self) { (crate::dll::get_azul_dll().az_style_border_bottom_left_radius_delete)(self); } }
 
 
     /// `StyleBorderBottomRightRadius` struct
     pub use crate::dll::AzStyleBorderBottomRightRadius as StyleBorderBottomRightRadius;
 
+    impl Clone for StyleBorderBottomRightRadius { fn clone(&self) -> Self { (crate::dll::get_azul_dll().az_style_border_bottom_right_radius_deep_copy)(self) } }
     impl Drop for StyleBorderBottomRightRadius { fn drop(&mut self) { (crate::dll::get_azul_dll().az_style_border_bottom_right_radius_delete)(self); } }
 
 
     /// `BorderStyle` struct
     pub use crate::dll::AzBorderStyle as BorderStyle;
 
+    impl Clone for BorderStyle { fn clone(&self) -> Self { (crate::dll::get_azul_dll().az_border_style_deep_copy)(self) } }
     impl Drop for BorderStyle { fn drop(&mut self) { (crate::dll::get_azul_dll().az_border_style_delete)(self); } }
 
 
     /// `StyleBorderBottomStyle` struct
     pub use crate::dll::AzStyleBorderBottomStyle as StyleBorderBottomStyle;
 
+    impl Clone for StyleBorderBottomStyle { fn clone(&self) -> Self { (crate::dll::get_azul_dll().az_style_border_bottom_style_deep_copy)(self) } }
     impl Drop for StyleBorderBottomStyle { fn drop(&mut self) { (crate::dll::get_azul_dll().az_style_border_bottom_style_delete)(self); } }
 
 
     /// `StyleBorderBottomWidth` struct
     pub use crate::dll::AzStyleBorderBottomWidth as StyleBorderBottomWidth;
 
+    impl Clone for StyleBorderBottomWidth { fn clone(&self) -> Self { (crate::dll::get_azul_dll().az_style_border_bottom_width_deep_copy)(self) } }
     impl Drop for StyleBorderBottomWidth { fn drop(&mut self) { (crate::dll::get_azul_dll().az_style_border_bottom_width_delete)(self); } }
 
 
     /// `StyleBorderLeftColor` struct
     pub use crate::dll::AzStyleBorderLeftColor as StyleBorderLeftColor;
 
+    impl Clone for StyleBorderLeftColor { fn clone(&self) -> Self { (crate::dll::get_azul_dll().az_style_border_left_color_deep_copy)(self) } }
     impl Drop for StyleBorderLeftColor { fn drop(&mut self) { (crate::dll::get_azul_dll().az_style_border_left_color_delete)(self); } }
 
 
     /// `StyleBorderLeftStyle` struct
     pub use crate::dll::AzStyleBorderLeftStyle as StyleBorderLeftStyle;
 
+    impl Clone for StyleBorderLeftStyle { fn clone(&self) -> Self { (crate::dll::get_azul_dll().az_style_border_left_style_deep_copy)(self) } }
     impl Drop for StyleBorderLeftStyle { fn drop(&mut self) { (crate::dll::get_azul_dll().az_style_border_left_style_delete)(self); } }
 
 
     /// `StyleBorderLeftWidth` struct
     pub use crate::dll::AzStyleBorderLeftWidth as StyleBorderLeftWidth;
 
+    impl Clone for StyleBorderLeftWidth { fn clone(&self) -> Self { (crate::dll::get_azul_dll().az_style_border_left_width_deep_copy)(self) } }
     impl Drop for StyleBorderLeftWidth { fn drop(&mut self) { (crate::dll::get_azul_dll().az_style_border_left_width_delete)(self); } }
 
 
     /// `StyleBorderRightColor` struct
     pub use crate::dll::AzStyleBorderRightColor as StyleBorderRightColor;
 
+    impl Clone for StyleBorderRightColor { fn clone(&self) -> Self { (crate::dll::get_azul_dll().az_style_border_right_color_deep_copy)(self) } }
     impl Drop for StyleBorderRightColor { fn drop(&mut self) { (crate::dll::get_azul_dll().az_style_border_right_color_delete)(self); } }
 
 
     /// `StyleBorderRightStyle` struct
     pub use crate::dll::AzStyleBorderRightStyle as StyleBorderRightStyle;
 
+    impl Clone for StyleBorderRightStyle { fn clone(&self) -> Self { (crate::dll::get_azul_dll().az_style_border_right_style_deep_copy)(self) } }
     impl Drop for StyleBorderRightStyle { fn drop(&mut self) { (crate::dll::get_azul_dll().az_style_border_right_style_delete)(self); } }
 
 
     /// `StyleBorderRightWidth` struct
     pub use crate::dll::AzStyleBorderRightWidth as StyleBorderRightWidth;
 
+    impl Clone for StyleBorderRightWidth { fn clone(&self) -> Self { (crate::dll::get_azul_dll().az_style_border_right_width_deep_copy)(self) } }
     impl Drop for StyleBorderRightWidth { fn drop(&mut self) { (crate::dll::get_azul_dll().az_style_border_right_width_delete)(self); } }
 
 
     /// `StyleBorderTopColor` struct
     pub use crate::dll::AzStyleBorderTopColor as StyleBorderTopColor;
 
+    impl Clone for StyleBorderTopColor { fn clone(&self) -> Self { (crate::dll::get_azul_dll().az_style_border_top_color_deep_copy)(self) } }
     impl Drop for StyleBorderTopColor { fn drop(&mut self) { (crate::dll::get_azul_dll().az_style_border_top_color_delete)(self); } }
 
 
     /// `StyleBorderTopLeftRadius` struct
     pub use crate::dll::AzStyleBorderTopLeftRadius as StyleBorderTopLeftRadius;
 
+    impl Clone for StyleBorderTopLeftRadius { fn clone(&self) -> Self { (crate::dll::get_azul_dll().az_style_border_top_left_radius_deep_copy)(self) } }
     impl Drop for StyleBorderTopLeftRadius { fn drop(&mut self) { (crate::dll::get_azul_dll().az_style_border_top_left_radius_delete)(self); } }
 
 
     /// `StyleBorderTopRightRadius` struct
     pub use crate::dll::AzStyleBorderTopRightRadius as StyleBorderTopRightRadius;
 
+    impl Clone for StyleBorderTopRightRadius { fn clone(&self) -> Self { (crate::dll::get_azul_dll().az_style_border_top_right_radius_deep_copy)(self) } }
     impl Drop for StyleBorderTopRightRadius { fn drop(&mut self) { (crate::dll::get_azul_dll().az_style_border_top_right_radius_delete)(self); } }
 
 
     /// `StyleBorderTopStyle` struct
     pub use crate::dll::AzStyleBorderTopStyle as StyleBorderTopStyle;
 
+    impl Clone for StyleBorderTopStyle { fn clone(&self) -> Self { (crate::dll::get_azul_dll().az_style_border_top_style_deep_copy)(self) } }
     impl Drop for StyleBorderTopStyle { fn drop(&mut self) { (crate::dll::get_azul_dll().az_style_border_top_style_delete)(self); } }
 
 
     /// `StyleBorderTopWidth` struct
     pub use crate::dll::AzStyleBorderTopWidth as StyleBorderTopWidth;
 
+    impl Clone for StyleBorderTopWidth { fn clone(&self) -> Self { (crate::dll::get_azul_dll().az_style_border_top_width_deep_copy)(self) } }
     impl Drop for StyleBorderTopWidth { fn drop(&mut self) { (crate::dll::get_azul_dll().az_style_border_top_width_delete)(self); } }
 
 
     /// `StyleCursor` struct
     pub use crate::dll::AzStyleCursor as StyleCursor;
 
+    impl Clone for StyleCursor { fn clone(&self) -> Self { (crate::dll::get_azul_dll().az_style_cursor_deep_copy)(self) } }
     impl Drop for StyleCursor { fn drop(&mut self) { (crate::dll::get_azul_dll().az_style_cursor_delete)(self); } }
 
 
     /// `StyleFontFamily` struct
     pub use crate::dll::AzStyleFontFamily as StyleFontFamily;
 
+    impl Clone for StyleFontFamily { fn clone(&self) -> Self { (crate::dll::get_azul_dll().az_style_font_family_deep_copy)(self) } }
     impl Drop for StyleFontFamily { fn drop(&mut self) { (crate::dll::get_azul_dll().az_style_font_family_delete)(self); } }
 
 
     /// `StyleFontSize` struct
     pub use crate::dll::AzStyleFontSize as StyleFontSize;
 
+    impl Clone for StyleFontSize { fn clone(&self) -> Self { (crate::dll::get_azul_dll().az_style_font_size_deep_copy)(self) } }
     impl Drop for StyleFontSize { fn drop(&mut self) { (crate::dll::get_azul_dll().az_style_font_size_delete)(self); } }
 
 
     /// `StyleLetterSpacing` struct
     pub use crate::dll::AzStyleLetterSpacing as StyleLetterSpacing;
 
+    impl Clone for StyleLetterSpacing { fn clone(&self) -> Self { (crate::dll::get_azul_dll().az_style_letter_spacing_deep_copy)(self) } }
     impl Drop for StyleLetterSpacing { fn drop(&mut self) { (crate::dll::get_azul_dll().az_style_letter_spacing_delete)(self); } }
 
 
     /// `StyleLineHeight` struct
     pub use crate::dll::AzStyleLineHeight as StyleLineHeight;
 
+    impl Clone for StyleLineHeight { fn clone(&self) -> Self { (crate::dll::get_azul_dll().az_style_line_height_deep_copy)(self) } }
     impl Drop for StyleLineHeight { fn drop(&mut self) { (crate::dll::get_azul_dll().az_style_line_height_delete)(self); } }
 
 
     /// `StyleTabWidth` struct
     pub use crate::dll::AzStyleTabWidth as StyleTabWidth;
 
+    impl Clone for StyleTabWidth { fn clone(&self) -> Self { (crate::dll::get_azul_dll().az_style_tab_width_deep_copy)(self) } }
     impl Drop for StyleTabWidth { fn drop(&mut self) { (crate::dll::get_azul_dll().az_style_tab_width_delete)(self); } }
 
 
     /// `StyleTextAlignmentHorz` struct
     pub use crate::dll::AzStyleTextAlignmentHorz as StyleTextAlignmentHorz;
 
+    impl Clone for StyleTextAlignmentHorz { fn clone(&self) -> Self { (crate::dll::get_azul_dll().az_style_text_alignment_horz_deep_copy)(self) } }
     impl Drop for StyleTextAlignmentHorz { fn drop(&mut self) { (crate::dll::get_azul_dll().az_style_text_alignment_horz_delete)(self); } }
 
 
     /// `StyleTextColor` struct
     pub use crate::dll::AzStyleTextColor as StyleTextColor;
 
+    impl Clone for StyleTextColor { fn clone(&self) -> Self { (crate::dll::get_azul_dll().az_style_text_color_deep_copy)(self) } }
     impl Drop for StyleTextColor { fn drop(&mut self) { (crate::dll::get_azul_dll().az_style_text_color_delete)(self); } }
 
 
     /// `StyleWordSpacing` struct
     pub use crate::dll::AzStyleWordSpacing as StyleWordSpacing;
 
+    impl Clone for StyleWordSpacing { fn clone(&self) -> Self { (crate::dll::get_azul_dll().az_style_word_spacing_deep_copy)(self) } }
     impl Drop for StyleWordSpacing { fn drop(&mut self) { (crate::dll::get_azul_dll().az_style_word_spacing_delete)(self); } }
 
 
     /// `BoxShadowPreDisplayItemValue` struct
     pub use crate::dll::AzBoxShadowPreDisplayItemValue as BoxShadowPreDisplayItemValue;
 
+    impl Clone for BoxShadowPreDisplayItemValue { fn clone(&self) -> Self { (crate::dll::get_azul_dll().az_box_shadow_pre_display_item_value_deep_copy)(self) } }
     impl Drop for BoxShadowPreDisplayItemValue { fn drop(&mut self) { (crate::dll::get_azul_dll().az_box_shadow_pre_display_item_value_delete)(self); } }
 
 
     /// `LayoutAlignContentValue` struct
     pub use crate::dll::AzLayoutAlignContentValue as LayoutAlignContentValue;
 
+    impl Clone for LayoutAlignContentValue { fn clone(&self) -> Self { (crate::dll::get_azul_dll().az_layout_align_content_value_deep_copy)(self) } }
     impl Drop for LayoutAlignContentValue { fn drop(&mut self) { (crate::dll::get_azul_dll().az_layout_align_content_value_delete)(self); } }
 
 
     /// `LayoutAlignItemsValue` struct
     pub use crate::dll::AzLayoutAlignItemsValue as LayoutAlignItemsValue;
 
+    impl Clone for LayoutAlignItemsValue { fn clone(&self) -> Self { (crate::dll::get_azul_dll().az_layout_align_items_value_deep_copy)(self) } }
     impl Drop for LayoutAlignItemsValue { fn drop(&mut self) { (crate::dll::get_azul_dll().az_layout_align_items_value_delete)(self); } }
 
 
     /// `LayoutBottomValue` struct
     pub use crate::dll::AzLayoutBottomValue as LayoutBottomValue;
 
+    impl Clone for LayoutBottomValue { fn clone(&self) -> Self { (crate::dll::get_azul_dll().az_layout_bottom_value_deep_copy)(self) } }
     impl Drop for LayoutBottomValue { fn drop(&mut self) { (crate::dll::get_azul_dll().az_layout_bottom_value_delete)(self); } }
 
 
     /// `LayoutBoxSizingValue` struct
     pub use crate::dll::AzLayoutBoxSizingValue as LayoutBoxSizingValue;
 
+    impl Clone for LayoutBoxSizingValue { fn clone(&self) -> Self { (crate::dll::get_azul_dll().az_layout_box_sizing_value_deep_copy)(self) } }
     impl Drop for LayoutBoxSizingValue { fn drop(&mut self) { (crate::dll::get_azul_dll().az_layout_box_sizing_value_delete)(self); } }
 
 
     /// `LayoutDirectionValue` struct
     pub use crate::dll::AzLayoutDirectionValue as LayoutDirectionValue;
 
+    impl Clone for LayoutDirectionValue { fn clone(&self) -> Self { (crate::dll::get_azul_dll().az_layout_direction_value_deep_copy)(self) } }
     impl Drop for LayoutDirectionValue { fn drop(&mut self) { (crate::dll::get_azul_dll().az_layout_direction_value_delete)(self); } }
 
 
     /// `LayoutDisplayValue` struct
     pub use crate::dll::AzLayoutDisplayValue as LayoutDisplayValue;
 
+    impl Clone for LayoutDisplayValue { fn clone(&self) -> Self { (crate::dll::get_azul_dll().az_layout_display_value_deep_copy)(self) } }
     impl Drop for LayoutDisplayValue { fn drop(&mut self) { (crate::dll::get_azul_dll().az_layout_display_value_delete)(self); } }
 
 
     /// `LayoutFlexGrowValue` struct
     pub use crate::dll::AzLayoutFlexGrowValue as LayoutFlexGrowValue;
 
+    impl Clone for LayoutFlexGrowValue { fn clone(&self) -> Self { (crate::dll::get_azul_dll().az_layout_flex_grow_value_deep_copy)(self) } }
     impl Drop for LayoutFlexGrowValue { fn drop(&mut self) { (crate::dll::get_azul_dll().az_layout_flex_grow_value_delete)(self); } }
 
 
     /// `LayoutFlexShrinkValue` struct
     pub use crate::dll::AzLayoutFlexShrinkValue as LayoutFlexShrinkValue;
 
+    impl Clone for LayoutFlexShrinkValue { fn clone(&self) -> Self { (crate::dll::get_azul_dll().az_layout_flex_shrink_value_deep_copy)(self) } }
     impl Drop for LayoutFlexShrinkValue { fn drop(&mut self) { (crate::dll::get_azul_dll().az_layout_flex_shrink_value_delete)(self); } }
 
 
     /// `LayoutFloatValue` struct
     pub use crate::dll::AzLayoutFloatValue as LayoutFloatValue;
 
+    impl Clone for LayoutFloatValue { fn clone(&self) -> Self { (crate::dll::get_azul_dll().az_layout_float_value_deep_copy)(self) } }
     impl Drop for LayoutFloatValue { fn drop(&mut self) { (crate::dll::get_azul_dll().az_layout_float_value_delete)(self); } }
 
 
     /// `LayoutHeightValue` struct
     pub use crate::dll::AzLayoutHeightValue as LayoutHeightValue;
 
+    impl Clone for LayoutHeightValue { fn clone(&self) -> Self { (crate::dll::get_azul_dll().az_layout_height_value_deep_copy)(self) } }
     impl Drop for LayoutHeightValue { fn drop(&mut self) { (crate::dll::get_azul_dll().az_layout_height_value_delete)(self); } }
 
 
     /// `LayoutJustifyContentValue` struct
     pub use crate::dll::AzLayoutJustifyContentValue as LayoutJustifyContentValue;
 
+    impl Clone for LayoutJustifyContentValue { fn clone(&self) -> Self { (crate::dll::get_azul_dll().az_layout_justify_content_value_deep_copy)(self) } }
     impl Drop for LayoutJustifyContentValue { fn drop(&mut self) { (crate::dll::get_azul_dll().az_layout_justify_content_value_delete)(self); } }
 
 
     /// `LayoutLeftValue` struct
     pub use crate::dll::AzLayoutLeftValue as LayoutLeftValue;
 
+    impl Clone for LayoutLeftValue { fn clone(&self) -> Self { (crate::dll::get_azul_dll().az_layout_left_value_deep_copy)(self) } }
     impl Drop for LayoutLeftValue { fn drop(&mut self) { (crate::dll::get_azul_dll().az_layout_left_value_delete)(self); } }
 
 
     /// `LayoutMarginBottomValue` struct
     pub use crate::dll::AzLayoutMarginBottomValue as LayoutMarginBottomValue;
 
+    impl Clone for LayoutMarginBottomValue { fn clone(&self) -> Self { (crate::dll::get_azul_dll().az_layout_margin_bottom_value_deep_copy)(self) } }
     impl Drop for LayoutMarginBottomValue { fn drop(&mut self) { (crate::dll::get_azul_dll().az_layout_margin_bottom_value_delete)(self); } }
 
 
     /// `LayoutMarginLeftValue` struct
     pub use crate::dll::AzLayoutMarginLeftValue as LayoutMarginLeftValue;
 
+    impl Clone for LayoutMarginLeftValue { fn clone(&self) -> Self { (crate::dll::get_azul_dll().az_layout_margin_left_value_deep_copy)(self) } }
     impl Drop for LayoutMarginLeftValue { fn drop(&mut self) { (crate::dll::get_azul_dll().az_layout_margin_left_value_delete)(self); } }
 
 
     /// `LayoutMarginRightValue` struct
     pub use crate::dll::AzLayoutMarginRightValue as LayoutMarginRightValue;
 
+    impl Clone for LayoutMarginRightValue { fn clone(&self) -> Self { (crate::dll::get_azul_dll().az_layout_margin_right_value_deep_copy)(self) } }
     impl Drop for LayoutMarginRightValue { fn drop(&mut self) { (crate::dll::get_azul_dll().az_layout_margin_right_value_delete)(self); } }
 
 
     /// `LayoutMarginTopValue` struct
     pub use crate::dll::AzLayoutMarginTopValue as LayoutMarginTopValue;
 
+    impl Clone for LayoutMarginTopValue { fn clone(&self) -> Self { (crate::dll::get_azul_dll().az_layout_margin_top_value_deep_copy)(self) } }
     impl Drop for LayoutMarginTopValue { fn drop(&mut self) { (crate::dll::get_azul_dll().az_layout_margin_top_value_delete)(self); } }
 
 
     /// `LayoutMaxHeightValue` struct
     pub use crate::dll::AzLayoutMaxHeightValue as LayoutMaxHeightValue;
 
+    impl Clone for LayoutMaxHeightValue { fn clone(&self) -> Self { (crate::dll::get_azul_dll().az_layout_max_height_value_deep_copy)(self) } }
     impl Drop for LayoutMaxHeightValue { fn drop(&mut self) { (crate::dll::get_azul_dll().az_layout_max_height_value_delete)(self); } }
 
 
     /// `LayoutMaxWidthValue` struct
     pub use crate::dll::AzLayoutMaxWidthValue as LayoutMaxWidthValue;
 
+    impl Clone for LayoutMaxWidthValue { fn clone(&self) -> Self { (crate::dll::get_azul_dll().az_layout_max_width_value_deep_copy)(self) } }
     impl Drop for LayoutMaxWidthValue { fn drop(&mut self) { (crate::dll::get_azul_dll().az_layout_max_width_value_delete)(self); } }
 
 
     /// `LayoutMinHeightValue` struct
     pub use crate::dll::AzLayoutMinHeightValue as LayoutMinHeightValue;
 
+    impl Clone for LayoutMinHeightValue { fn clone(&self) -> Self { (crate::dll::get_azul_dll().az_layout_min_height_value_deep_copy)(self) } }
     impl Drop for LayoutMinHeightValue { fn drop(&mut self) { (crate::dll::get_azul_dll().az_layout_min_height_value_delete)(self); } }
 
 
     /// `LayoutMinWidthValue` struct
     pub use crate::dll::AzLayoutMinWidthValue as LayoutMinWidthValue;
 
+    impl Clone for LayoutMinWidthValue { fn clone(&self) -> Self { (crate::dll::get_azul_dll().az_layout_min_width_value_deep_copy)(self) } }
     impl Drop for LayoutMinWidthValue { fn drop(&mut self) { (crate::dll::get_azul_dll().az_layout_min_width_value_delete)(self); } }
 
 
     /// `LayoutPaddingBottomValue` struct
     pub use crate::dll::AzLayoutPaddingBottomValue as LayoutPaddingBottomValue;
 
+    impl Clone for LayoutPaddingBottomValue { fn clone(&self) -> Self { (crate::dll::get_azul_dll().az_layout_padding_bottom_value_deep_copy)(self) } }
     impl Drop for LayoutPaddingBottomValue { fn drop(&mut self) { (crate::dll::get_azul_dll().az_layout_padding_bottom_value_delete)(self); } }
 
 
     /// `LayoutPaddingLeftValue` struct
     pub use crate::dll::AzLayoutPaddingLeftValue as LayoutPaddingLeftValue;
 
+    impl Clone for LayoutPaddingLeftValue { fn clone(&self) -> Self { (crate::dll::get_azul_dll().az_layout_padding_left_value_deep_copy)(self) } }
     impl Drop for LayoutPaddingLeftValue { fn drop(&mut self) { (crate::dll::get_azul_dll().az_layout_padding_left_value_delete)(self); } }
 
 
     /// `LayoutPaddingRightValue` struct
     pub use crate::dll::AzLayoutPaddingRightValue as LayoutPaddingRightValue;
 
+    impl Clone for LayoutPaddingRightValue { fn clone(&self) -> Self { (crate::dll::get_azul_dll().az_layout_padding_right_value_deep_copy)(self) } }
     impl Drop for LayoutPaddingRightValue { fn drop(&mut self) { (crate::dll::get_azul_dll().az_layout_padding_right_value_delete)(self); } }
 
 
     /// `LayoutPaddingTopValue` struct
     pub use crate::dll::AzLayoutPaddingTopValue as LayoutPaddingTopValue;
 
+    impl Clone for LayoutPaddingTopValue { fn clone(&self) -> Self { (crate::dll::get_azul_dll().az_layout_padding_top_value_deep_copy)(self) } }
     impl Drop for LayoutPaddingTopValue { fn drop(&mut self) { (crate::dll::get_azul_dll().az_layout_padding_top_value_delete)(self); } }
 
 
     /// `LayoutPositionValue` struct
     pub use crate::dll::AzLayoutPositionValue as LayoutPositionValue;
 
+    impl Clone for LayoutPositionValue { fn clone(&self) -> Self { (crate::dll::get_azul_dll().az_layout_position_value_deep_copy)(self) } }
     impl Drop for LayoutPositionValue { fn drop(&mut self) { (crate::dll::get_azul_dll().az_layout_position_value_delete)(self); } }
 
 
     /// `LayoutRightValue` struct
     pub use crate::dll::AzLayoutRightValue as LayoutRightValue;
 
+    impl Clone for LayoutRightValue { fn clone(&self) -> Self { (crate::dll::get_azul_dll().az_layout_right_value_deep_copy)(self) } }
     impl Drop for LayoutRightValue { fn drop(&mut self) { (crate::dll::get_azul_dll().az_layout_right_value_delete)(self); } }
 
 
     /// `LayoutTopValue` struct
     pub use crate::dll::AzLayoutTopValue as LayoutTopValue;
 
+    impl Clone for LayoutTopValue { fn clone(&self) -> Self { (crate::dll::get_azul_dll().az_layout_top_value_deep_copy)(self) } }
     impl Drop for LayoutTopValue { fn drop(&mut self) { (crate::dll::get_azul_dll().az_layout_top_value_delete)(self); } }
 
 
     /// `LayoutWidthValue` struct
     pub use crate::dll::AzLayoutWidthValue as LayoutWidthValue;
 
+    impl Clone for LayoutWidthValue { fn clone(&self) -> Self { (crate::dll::get_azul_dll().az_layout_width_value_deep_copy)(self) } }
     impl Drop for LayoutWidthValue { fn drop(&mut self) { (crate::dll::get_azul_dll().az_layout_width_value_delete)(self); } }
 
 
     /// `LayoutWrapValue` struct
     pub use crate::dll::AzLayoutWrapValue as LayoutWrapValue;
 
+    impl Clone for LayoutWrapValue { fn clone(&self) -> Self { (crate::dll::get_azul_dll().az_layout_wrap_value_deep_copy)(self) } }
     impl Drop for LayoutWrapValue { fn drop(&mut self) { (crate::dll::get_azul_dll().az_layout_wrap_value_delete)(self); } }
 
 
     /// `OverflowValue` struct
     pub use crate::dll::AzOverflowValue as OverflowValue;
 
+    impl Clone for OverflowValue { fn clone(&self) -> Self { (crate::dll::get_azul_dll().az_overflow_value_deep_copy)(self) } }
     impl Drop for OverflowValue { fn drop(&mut self) { (crate::dll::get_azul_dll().az_overflow_value_delete)(self); } }
 
 
     /// `StyleBackgroundContentValue` struct
     pub use crate::dll::AzStyleBackgroundContentValue as StyleBackgroundContentValue;
 
+    impl Clone for StyleBackgroundContentValue { fn clone(&self) -> Self { (crate::dll::get_azul_dll().az_style_background_content_value_deep_copy)(self) } }
     impl Drop for StyleBackgroundContentValue { fn drop(&mut self) { (crate::dll::get_azul_dll().az_style_background_content_value_delete)(self); } }
 
 
     /// `StyleBackgroundPositionValue` struct
     pub use crate::dll::AzStyleBackgroundPositionValue as StyleBackgroundPositionValue;
 
+    impl Clone for StyleBackgroundPositionValue { fn clone(&self) -> Self { (crate::dll::get_azul_dll().az_style_background_position_value_deep_copy)(self) } }
     impl Drop for StyleBackgroundPositionValue { fn drop(&mut self) { (crate::dll::get_azul_dll().az_style_background_position_value_delete)(self); } }
 
 
     /// `StyleBackgroundRepeatValue` struct
     pub use crate::dll::AzStyleBackgroundRepeatValue as StyleBackgroundRepeatValue;
 
+    impl Clone for StyleBackgroundRepeatValue { fn clone(&self) -> Self { (crate::dll::get_azul_dll().az_style_background_repeat_value_deep_copy)(self) } }
     impl Drop for StyleBackgroundRepeatValue { fn drop(&mut self) { (crate::dll::get_azul_dll().az_style_background_repeat_value_delete)(self); } }
 
 
     /// `StyleBackgroundSizeValue` struct
     pub use crate::dll::AzStyleBackgroundSizeValue as StyleBackgroundSizeValue;
 
+    impl Clone for StyleBackgroundSizeValue { fn clone(&self) -> Self { (crate::dll::get_azul_dll().az_style_background_size_value_deep_copy)(self) } }
     impl Drop for StyleBackgroundSizeValue { fn drop(&mut self) { (crate::dll::get_azul_dll().az_style_background_size_value_delete)(self); } }
 
 
     /// `StyleBorderBottomColorValue` struct
     pub use crate::dll::AzStyleBorderBottomColorValue as StyleBorderBottomColorValue;
 
+    impl Clone for StyleBorderBottomColorValue { fn clone(&self) -> Self { (crate::dll::get_azul_dll().az_style_border_bottom_color_value_deep_copy)(self) } }
     impl Drop for StyleBorderBottomColorValue { fn drop(&mut self) { (crate::dll::get_azul_dll().az_style_border_bottom_color_value_delete)(self); } }
 
 
     /// `StyleBorderBottomLeftRadiusValue` struct
     pub use crate::dll::AzStyleBorderBottomLeftRadiusValue as StyleBorderBottomLeftRadiusValue;
 
+    impl Clone for StyleBorderBottomLeftRadiusValue { fn clone(&self) -> Self { (crate::dll::get_azul_dll().az_style_border_bottom_left_radius_value_deep_copy)(self) } }
     impl Drop for StyleBorderBottomLeftRadiusValue { fn drop(&mut self) { (crate::dll::get_azul_dll().az_style_border_bottom_left_radius_value_delete)(self); } }
 
 
     /// `StyleBorderBottomRightRadiusValue` struct
     pub use crate::dll::AzStyleBorderBottomRightRadiusValue as StyleBorderBottomRightRadiusValue;
 
+    impl Clone for StyleBorderBottomRightRadiusValue { fn clone(&self) -> Self { (crate::dll::get_azul_dll().az_style_border_bottom_right_radius_value_deep_copy)(self) } }
     impl Drop for StyleBorderBottomRightRadiusValue { fn drop(&mut self) { (crate::dll::get_azul_dll().az_style_border_bottom_right_radius_value_delete)(self); } }
 
 
     /// `StyleBorderBottomStyleValue` struct
     pub use crate::dll::AzStyleBorderBottomStyleValue as StyleBorderBottomStyleValue;
 
+    impl Clone for StyleBorderBottomStyleValue { fn clone(&self) -> Self { (crate::dll::get_azul_dll().az_style_border_bottom_style_value_deep_copy)(self) } }
     impl Drop for StyleBorderBottomStyleValue { fn drop(&mut self) { (crate::dll::get_azul_dll().az_style_border_bottom_style_value_delete)(self); } }
 
 
     /// `StyleBorderBottomWidthValue` struct
     pub use crate::dll::AzStyleBorderBottomWidthValue as StyleBorderBottomWidthValue;
 
+    impl Clone for StyleBorderBottomWidthValue { fn clone(&self) -> Self { (crate::dll::get_azul_dll().az_style_border_bottom_width_value_deep_copy)(self) } }
     impl Drop for StyleBorderBottomWidthValue { fn drop(&mut self) { (crate::dll::get_azul_dll().az_style_border_bottom_width_value_delete)(self); } }
 
 
     /// `StyleBorderLeftColorValue` struct
     pub use crate::dll::AzStyleBorderLeftColorValue as StyleBorderLeftColorValue;
 
+    impl Clone for StyleBorderLeftColorValue { fn clone(&self) -> Self { (crate::dll::get_azul_dll().az_style_border_left_color_value_deep_copy)(self) } }
     impl Drop for StyleBorderLeftColorValue { fn drop(&mut self) { (crate::dll::get_azul_dll().az_style_border_left_color_value_delete)(self); } }
 
 
     /// `StyleBorderLeftStyleValue` struct
     pub use crate::dll::AzStyleBorderLeftStyleValue as StyleBorderLeftStyleValue;
 
+    impl Clone for StyleBorderLeftStyleValue { fn clone(&self) -> Self { (crate::dll::get_azul_dll().az_style_border_left_style_value_deep_copy)(self) } }
     impl Drop for StyleBorderLeftStyleValue { fn drop(&mut self) { (crate::dll::get_azul_dll().az_style_border_left_style_value_delete)(self); } }
 
 
     /// `StyleBorderLeftWidthValue` struct
     pub use crate::dll::AzStyleBorderLeftWidthValue as StyleBorderLeftWidthValue;
 
+    impl Clone for StyleBorderLeftWidthValue { fn clone(&self) -> Self { (crate::dll::get_azul_dll().az_style_border_left_width_value_deep_copy)(self) } }
     impl Drop for StyleBorderLeftWidthValue { fn drop(&mut self) { (crate::dll::get_azul_dll().az_style_border_left_width_value_delete)(self); } }
 
 
     /// `StyleBorderRightColorValue` struct
     pub use crate::dll::AzStyleBorderRightColorValue as StyleBorderRightColorValue;
 
+    impl Clone for StyleBorderRightColorValue { fn clone(&self) -> Self { (crate::dll::get_azul_dll().az_style_border_right_color_value_deep_copy)(self) } }
     impl Drop for StyleBorderRightColorValue { fn drop(&mut self) { (crate::dll::get_azul_dll().az_style_border_right_color_value_delete)(self); } }
 
 
     /// `StyleBorderRightStyleValue` struct
     pub use crate::dll::AzStyleBorderRightStyleValue as StyleBorderRightStyleValue;
 
+    impl Clone for StyleBorderRightStyleValue { fn clone(&self) -> Self { (crate::dll::get_azul_dll().az_style_border_right_style_value_deep_copy)(self) } }
     impl Drop for StyleBorderRightStyleValue { fn drop(&mut self) { (crate::dll::get_azul_dll().az_style_border_right_style_value_delete)(self); } }
 
 
     /// `StyleBorderRightWidthValue` struct
     pub use crate::dll::AzStyleBorderRightWidthValue as StyleBorderRightWidthValue;
 
+    impl Clone for StyleBorderRightWidthValue { fn clone(&self) -> Self { (crate::dll::get_azul_dll().az_style_border_right_width_value_deep_copy)(self) } }
     impl Drop for StyleBorderRightWidthValue { fn drop(&mut self) { (crate::dll::get_azul_dll().az_style_border_right_width_value_delete)(self); } }
 
 
     /// `StyleBorderTopColorValue` struct
     pub use crate::dll::AzStyleBorderTopColorValue as StyleBorderTopColorValue;
 
+    impl Clone for StyleBorderTopColorValue { fn clone(&self) -> Self { (crate::dll::get_azul_dll().az_style_border_top_color_value_deep_copy)(self) } }
     impl Drop for StyleBorderTopColorValue { fn drop(&mut self) { (crate::dll::get_azul_dll().az_style_border_top_color_value_delete)(self); } }
 
 
     /// `StyleBorderTopLeftRadiusValue` struct
     pub use crate::dll::AzStyleBorderTopLeftRadiusValue as StyleBorderTopLeftRadiusValue;
 
+    impl Clone for StyleBorderTopLeftRadiusValue { fn clone(&self) -> Self { (crate::dll::get_azul_dll().az_style_border_top_left_radius_value_deep_copy)(self) } }
     impl Drop for StyleBorderTopLeftRadiusValue { fn drop(&mut self) { (crate::dll::get_azul_dll().az_style_border_top_left_radius_value_delete)(self); } }
 
 
     /// `StyleBorderTopRightRadiusValue` struct
     pub use crate::dll::AzStyleBorderTopRightRadiusValue as StyleBorderTopRightRadiusValue;
 
+    impl Clone for StyleBorderTopRightRadiusValue { fn clone(&self) -> Self { (crate::dll::get_azul_dll().az_style_border_top_right_radius_value_deep_copy)(self) } }
     impl Drop for StyleBorderTopRightRadiusValue { fn drop(&mut self) { (crate::dll::get_azul_dll().az_style_border_top_right_radius_value_delete)(self); } }
 
 
     /// `StyleBorderTopStyleValue` struct
     pub use crate::dll::AzStyleBorderTopStyleValue as StyleBorderTopStyleValue;
 
+    impl Clone for StyleBorderTopStyleValue { fn clone(&self) -> Self { (crate::dll::get_azul_dll().az_style_border_top_style_value_deep_copy)(self) } }
     impl Drop for StyleBorderTopStyleValue { fn drop(&mut self) { (crate::dll::get_azul_dll().az_style_border_top_style_value_delete)(self); } }
 
 
     /// `StyleBorderTopWidthValue` struct
     pub use crate::dll::AzStyleBorderTopWidthValue as StyleBorderTopWidthValue;
 
+    impl Clone for StyleBorderTopWidthValue { fn clone(&self) -> Self { (crate::dll::get_azul_dll().az_style_border_top_width_value_deep_copy)(self) } }
     impl Drop for StyleBorderTopWidthValue { fn drop(&mut self) { (crate::dll::get_azul_dll().az_style_border_top_width_value_delete)(self); } }
 
 
     /// `StyleCursorValue` struct
     pub use crate::dll::AzStyleCursorValue as StyleCursorValue;
 
+    impl Clone for StyleCursorValue { fn clone(&self) -> Self { (crate::dll::get_azul_dll().az_style_cursor_value_deep_copy)(self) } }
     impl Drop for StyleCursorValue { fn drop(&mut self) { (crate::dll::get_azul_dll().az_style_cursor_value_delete)(self); } }
 
 
     /// `StyleFontFamilyValue` struct
     pub use crate::dll::AzStyleFontFamilyValue as StyleFontFamilyValue;
 
+    impl Clone for StyleFontFamilyValue { fn clone(&self) -> Self { (crate::dll::get_azul_dll().az_style_font_family_value_deep_copy)(self) } }
     impl Drop for StyleFontFamilyValue { fn drop(&mut self) { (crate::dll::get_azul_dll().az_style_font_family_value_delete)(self); } }
 
 
     /// `StyleFontSizeValue` struct
     pub use crate::dll::AzStyleFontSizeValue as StyleFontSizeValue;
 
+    impl Clone for StyleFontSizeValue { fn clone(&self) -> Self { (crate::dll::get_azul_dll().az_style_font_size_value_deep_copy)(self) } }
     impl Drop for StyleFontSizeValue { fn drop(&mut self) { (crate::dll::get_azul_dll().az_style_font_size_value_delete)(self); } }
 
 
     /// `StyleLetterSpacingValue` struct
     pub use crate::dll::AzStyleLetterSpacingValue as StyleLetterSpacingValue;
 
+    impl Clone for StyleLetterSpacingValue { fn clone(&self) -> Self { (crate::dll::get_azul_dll().az_style_letter_spacing_value_deep_copy)(self) } }
     impl Drop for StyleLetterSpacingValue { fn drop(&mut self) { (crate::dll::get_azul_dll().az_style_letter_spacing_value_delete)(self); } }
 
 
     /// `StyleLineHeightValue` struct
     pub use crate::dll::AzStyleLineHeightValue as StyleLineHeightValue;
 
+    impl Clone for StyleLineHeightValue { fn clone(&self) -> Self { (crate::dll::get_azul_dll().az_style_line_height_value_deep_copy)(self) } }
     impl Drop for StyleLineHeightValue { fn drop(&mut self) { (crate::dll::get_azul_dll().az_style_line_height_value_delete)(self); } }
 
 
     /// `StyleTabWidthValue` struct
     pub use crate::dll::AzStyleTabWidthValue as StyleTabWidthValue;
 
+    impl Clone for StyleTabWidthValue { fn clone(&self) -> Self { (crate::dll::get_azul_dll().az_style_tab_width_value_deep_copy)(self) } }
     impl Drop for StyleTabWidthValue { fn drop(&mut self) { (crate::dll::get_azul_dll().az_style_tab_width_value_delete)(self); } }
 
 
     /// `StyleTextAlignmentHorzValue` struct
     pub use crate::dll::AzStyleTextAlignmentHorzValue as StyleTextAlignmentHorzValue;
 
+    impl Clone for StyleTextAlignmentHorzValue { fn clone(&self) -> Self { (crate::dll::get_azul_dll().az_style_text_alignment_horz_value_deep_copy)(self) } }
     impl Drop for StyleTextAlignmentHorzValue { fn drop(&mut self) { (crate::dll::get_azul_dll().az_style_text_alignment_horz_value_delete)(self); } }
 
 
     /// `StyleTextColorValue` struct
     pub use crate::dll::AzStyleTextColorValue as StyleTextColorValue;
 
+    impl Clone for StyleTextColorValue { fn clone(&self) -> Self { (crate::dll::get_azul_dll().az_style_text_color_value_deep_copy)(self) } }
     impl Drop for StyleTextColorValue { fn drop(&mut self) { (crate::dll::get_azul_dll().az_style_text_color_value_delete)(self); } }
 
 
     /// `StyleWordSpacingValue` struct
     pub use crate::dll::AzStyleWordSpacingValue as StyleWordSpacingValue;
 
+    impl Clone for StyleWordSpacingValue { fn clone(&self) -> Self { (crate::dll::get_azul_dll().az_style_word_spacing_value_deep_copy)(self) } }
     impl Drop for StyleWordSpacingValue { fn drop(&mut self) { (crate::dll::get_azul_dll().az_style_word_spacing_value_delete)(self); } }
 
 
     /// Parsed CSS key-value pair
     pub use crate::dll::AzCssProperty as CssProperty;
 
+    impl Clone for CssProperty { fn clone(&self) -> Self { (crate::dll::get_azul_dll().az_css_property_deep_copy)(self) } }
     impl Drop for CssProperty { fn drop(&mut self) { (crate::dll::get_azul_dll().az_css_property_delete)(self); } }
 }
 
@@ -4192,7 +4397,11 @@ impl std::iter::FromIterator<NodeData> for Dom {
 
 impl std::iter::FromIterator<NodeType> for Dom {
     fn from_iter<I: IntoIterator<Item=NodeType>>(iter: I) -> Self {
-        iter.into_iter().map(|i| NodeData { node_type: i, .. NodeData::default() }).collect()
+        iter.into_iter().map(|i| {
+            let mut nd = NodeData::default();
+            nd.node_type = i;
+            nd
+        }).collect()
     }
 }    use crate::str::String;
     use crate::resources::{ImageId, TextId};
@@ -4263,42 +4472,56 @@ impl std::iter::FromIterator<NodeType> for Dom {
         pub fn get_html_string(&mut self)  -> crate::str::String { { (crate::dll::get_azul_dll().az_dom_get_html_string)(self)} }
     }
 
+    impl Clone for Dom { fn clone(&self) -> Self { (crate::dll::get_azul_dll().az_dom_deep_copy)(self) } }
     impl Drop for Dom { fn drop(&mut self) { (crate::dll::get_azul_dll().az_dom_delete)(self); } }
 
 
     /// `GlTextureNode` struct
     pub use crate::dll::AzGlTextureNode as GlTextureNode;
 
+    impl Clone for GlTextureNode { fn clone(&self) -> Self { (crate::dll::get_azul_dll().az_gl_texture_node_deep_copy)(self) } }
     impl Drop for GlTextureNode { fn drop(&mut self) { (crate::dll::get_azul_dll().az_gl_texture_node_delete)(self); } }
 
 
     /// `IFrameNode` struct
     pub use crate::dll::AzIFrameNode as IFrameNode;
 
+    impl Clone for IFrameNode { fn clone(&self) -> Self { (crate::dll::get_azul_dll().az_i_frame_node_deep_copy)(self) } }
     impl Drop for IFrameNode { fn drop(&mut self) { (crate::dll::get_azul_dll().az_i_frame_node_delete)(self); } }
 
 
     /// `CallbackData` struct
     pub use crate::dll::AzCallbackData as CallbackData;
 
+    impl Clone for CallbackData { fn clone(&self) -> Self { (crate::dll::get_azul_dll().az_callback_data_deep_copy)(self) } }
     impl Drop for CallbackData { fn drop(&mut self) { (crate::dll::get_azul_dll().az_callback_data_delete)(self); } }
 
 
     /// `OverrideProperty` struct
     pub use crate::dll::AzOverrideProperty as OverrideProperty;
 
+    impl Clone for OverrideProperty { fn clone(&self) -> Self { (crate::dll::get_azul_dll().az_override_property_deep_copy)(self) } }
     impl Drop for OverrideProperty { fn drop(&mut self) { (crate::dll::get_azul_dll().az_override_property_delete)(self); } }
 
 
     /// Represents one single DOM node (node type, classes, ids and callbacks are stored here)
     pub use crate::dll::AzNodeData as NodeData;
 
+    impl NodeData {
+        /// Creates a new node without any classes or ids from a NodeType
+        pub fn new(node_type: NodeType) -> Self { (crate::dll::get_azul_dll().az_node_data_new)(node_type) }
+        /// Creates a default (div) node without any classes
+        pub fn default() -> Self { (crate::dll::get_azul_dll().az_node_data_default)() }
+    }
+
+    impl Clone for NodeData { fn clone(&self) -> Self { (crate::dll::get_azul_dll().az_node_data_deep_copy)(self) } }
     impl Drop for NodeData { fn drop(&mut self) { (crate::dll::get_azul_dll().az_node_data_delete)(self); } }
 
 
     /// List of core DOM node types built-into by `azul`
     pub use crate::dll::AzNodeType as NodeType;
 
+    impl Clone for NodeType { fn clone(&self) -> Self { (crate::dll::get_azul_dll().az_node_type_deep_copy)(self) } }
     impl Drop for NodeType { fn drop(&mut self) { (crate::dll::get_azul_dll().az_node_type_delete)(self); } }
 
 
@@ -4310,42 +4533,49 @@ impl std::iter::FromIterator<NodeType> for Dom {
         pub fn into_event_filter(self)  -> crate::dom::EventFilter { { (crate::dll::get_azul_dll().az_on_into_event_filter)(self)} }
     }
 
+    impl Clone for On { fn clone(&self) -> Self { (crate::dll::get_azul_dll().az_on_deep_copy)(self) } }
     impl Drop for On { fn drop(&mut self) { (crate::dll::get_azul_dll().az_on_delete)(self); } }
 
 
     /// `EventFilter` struct
     pub use crate::dll::AzEventFilter as EventFilter;
 
+    impl Clone for EventFilter { fn clone(&self) -> Self { (crate::dll::get_azul_dll().az_event_filter_deep_copy)(self) } }
     impl Drop for EventFilter { fn drop(&mut self) { (crate::dll::get_azul_dll().az_event_filter_delete)(self); } }
 
 
     /// `HoverEventFilter` struct
     pub use crate::dll::AzHoverEventFilter as HoverEventFilter;
 
+    impl Clone for HoverEventFilter { fn clone(&self) -> Self { (crate::dll::get_azul_dll().az_hover_event_filter_deep_copy)(self) } }
     impl Drop for HoverEventFilter { fn drop(&mut self) { (crate::dll::get_azul_dll().az_hover_event_filter_delete)(self); } }
 
 
     /// `FocusEventFilter` struct
     pub use crate::dll::AzFocusEventFilter as FocusEventFilter;
 
+    impl Clone for FocusEventFilter { fn clone(&self) -> Self { (crate::dll::get_azul_dll().az_focus_event_filter_deep_copy)(self) } }
     impl Drop for FocusEventFilter { fn drop(&mut self) { (crate::dll::get_azul_dll().az_focus_event_filter_delete)(self); } }
 
 
     /// `NotEventFilter` struct
     pub use crate::dll::AzNotEventFilter as NotEventFilter;
 
+    impl Clone for NotEventFilter { fn clone(&self) -> Self { (crate::dll::get_azul_dll().az_not_event_filter_deep_copy)(self) } }
     impl Drop for NotEventFilter { fn drop(&mut self) { (crate::dll::get_azul_dll().az_not_event_filter_delete)(self); } }
 
 
     /// `WindowEventFilter` struct
     pub use crate::dll::AzWindowEventFilter as WindowEventFilter;
 
+    impl Clone for WindowEventFilter { fn clone(&self) -> Self { (crate::dll::get_azul_dll().az_window_event_filter_deep_copy)(self) } }
     impl Drop for WindowEventFilter { fn drop(&mut self) { (crate::dll::get_azul_dll().az_window_event_filter_delete)(self); } }
 
 
     /// `TabIndex` struct
     pub use crate::dll::AzTabIndex as TabIndex;
 
+    impl Clone for TabIndex { fn clone(&self) -> Self { (crate::dll::get_azul_dll().az_tab_index_deep_copy)(self) } }
     impl Drop for TabIndex { fn drop(&mut self) { (crate::dll::get_azul_dll().az_tab_index_delete)(self); } }
 }
 
@@ -4359,6 +4589,7 @@ pub mod gl {
     /// `GlContextPtr` struct
     pub use crate::dll::AzGlContextPtr as GlContextPtr;
 
+    impl Clone for GlContextPtr { fn clone(&self) -> Self { (crate::dll::get_azul_dll().az_gl_context_ptr_deep_copy)(self) } }
     impl Drop for GlContextPtr { fn drop(&mut self) { (crate::dll::get_azul_dll().az_gl_context_ptr_delete)(self); } }
 
 
@@ -4371,6 +4602,7 @@ pub mod gl {
     /// `TextureFlags` struct
     pub use crate::dll::AzTextureFlags as TextureFlags;
 
+    impl Clone for TextureFlags { fn clone(&self) -> Self { (crate::dll::get_azul_dll().az_texture_flags_deep_copy)(self) } }
     impl Drop for TextureFlags { fn drop(&mut self) { (crate::dll::get_azul_dll().az_texture_flags_delete)(self); } }
 }
 
@@ -4390,6 +4622,7 @@ pub mod resources {
         pub fn new() -> Self { (crate::dll::get_azul_dll().az_text_id_new)() }
     }
 
+    impl Clone for TextId { fn clone(&self) -> Self { (crate::dll::get_azul_dll().az_text_id_deep_copy)(self) } }
     impl Drop for TextId { fn drop(&mut self) { (crate::dll::get_azul_dll().az_text_id_delete)(self); } }
 
 
@@ -4401,6 +4634,7 @@ pub mod resources {
         pub fn new() -> Self { (crate::dll::get_azul_dll().az_image_id_new)() }
     }
 
+    impl Clone for ImageId { fn clone(&self) -> Self { (crate::dll::get_azul_dll().az_image_id_deep_copy)(self) } }
     impl Drop for ImageId { fn drop(&mut self) { (crate::dll::get_azul_dll().az_image_id_delete)(self); } }
 
 
@@ -4412,18 +4646,21 @@ pub mod resources {
         pub fn new() -> Self { (crate::dll::get_azul_dll().az_font_id_new)() }
     }
 
+    impl Clone for FontId { fn clone(&self) -> Self { (crate::dll::get_azul_dll().az_font_id_deep_copy)(self) } }
     impl Drop for FontId { fn drop(&mut self) { (crate::dll::get_azul_dll().az_font_id_delete)(self); } }
 
 
     /// `ImageSource` struct
     pub use crate::dll::AzImageSource as ImageSource;
 
+    impl Clone for ImageSource { fn clone(&self) -> Self { (crate::dll::get_azul_dll().az_image_source_deep_copy)(self) } }
     impl Drop for ImageSource { fn drop(&mut self) { (crate::dll::get_azul_dll().az_image_source_delete)(self); } }
 
 
     /// `FontSource` struct
     pub use crate::dll::AzFontSource as FontSource;
 
+    impl Clone for FontSource { fn clone(&self) -> Self { (crate::dll::get_azul_dll().az_font_source_deep_copy)(self) } }
     impl Drop for FontSource { fn drop(&mut self) { (crate::dll::get_azul_dll().az_font_source_delete)(self); } }
 
 
@@ -4435,12 +4672,14 @@ pub mod resources {
         pub fn new(decoded_pixels: U8Vec, width: usize, height: usize, data_format: RawImageFormat) -> Self { (crate::dll::get_azul_dll().az_raw_image_new)(decoded_pixels, width, height, data_format) }
     }
 
+    impl Clone for RawImage { fn clone(&self) -> Self { (crate::dll::get_azul_dll().az_raw_image_deep_copy)(self) } }
     impl Drop for RawImage { fn drop(&mut self) { (crate::dll::get_azul_dll().az_raw_image_delete)(self); } }
 
 
     /// `RawImageFormat` struct
     pub use crate::dll::AzRawImageFormat as RawImageFormat;
 
+    impl Clone for RawImageFormat { fn clone(&self) -> Self { (crate::dll::get_azul_dll().az_raw_image_format_deep_copy)(self) } }
     impl Drop for RawImageFormat { fn drop(&mut self) { (crate::dll::get_azul_dll().az_raw_image_format_delete)(self); } }
 }
 
@@ -4449,7 +4688,7 @@ pub mod resources {
 pub mod task {
 
     use crate::dll::*;
-    use crate::callbacks::{RefAny, ThreadCallbackType};
+    use crate::callbacks::{RefAny, TaskCallbackType, ThreadCallbackType};
 
 
     /// `DropCheckPtr` struct
@@ -4473,11 +4712,19 @@ pub mod task {
     /// `Timer` struct
     pub use crate::dll::AzTimer as Timer;
 
+    impl Clone for Timer { fn clone(&self) -> Self { (crate::dll::get_azul_dll().az_timer_deep_copy)(self) } }
     impl Drop for Timer { fn drop(&mut self) { (crate::dll::get_azul_dll().az_timer_delete)(self); } }
 
 
     /// `Task` struct
     pub use crate::dll::AzTaskPtr as Task;
+
+    impl Task {
+        /// Creates and starts a new `Task`
+        pub fn new(data: ArcMutexRefAny, callback: TaskCallbackType) -> Self { (crate::dll::get_azul_dll().az_task_new)(data, callback) }
+        /// Creates and starts a new `Task`
+        pub fn then(self, timer: Timer)  -> crate::task::Task { { (crate::dll::get_azul_dll().az_task_then)(self, timer)} }
+    }
 
     impl Drop for Task { fn drop(&mut self) { (crate::dll::get_azul_dll().az_task_delete)(self); } }
 
@@ -4495,23 +4742,6 @@ pub mod task {
     impl Drop for Thread { fn drop(&mut self) { (crate::dll::get_azul_dll().az_thread_delete)(self); } }
 
 
-    /// `TimerCallback` struct
-    pub use crate::dll::AzTimerCallback as TimerCallback;
-
-    impl Drop for TimerCallback { fn drop(&mut self) { (crate::dll::get_azul_dll().az_timer_callback_delete)(self); } }
-
-
-    /// `TimerCallbackType` struct
-    pub use crate::dll::AzTimerCallbackTypePtr as TimerCallbackType;
-
-
-
-    /// `TimerCallbackReturn` struct
-    pub use crate::dll::AzTimerCallbackReturn as TimerCallbackReturn;
-
-    impl Drop for TimerCallbackReturn { fn drop(&mut self) { (crate::dll::get_azul_dll().az_timer_callback_return_delete)(self); } }
-
-
     /// `DropCheck` struct
     pub use crate::dll::AzDropCheckPtr as DropCheck;
 
@@ -4521,18 +4751,21 @@ pub mod task {
     /// `TimerId` struct
     pub use crate::dll::AzTimerId as TimerId;
 
+    impl Clone for TimerId { fn clone(&self) -> Self { (crate::dll::get_azul_dll().az_timer_id_deep_copy)(self) } }
     impl Drop for TimerId { fn drop(&mut self) { (crate::dll::get_azul_dll().az_timer_id_delete)(self); } }
 
 
     /// Should a timer terminate or not - used to remove active timers
     pub use crate::dll::AzTerminateTimer as TerminateTimer;
 
+    impl Clone for TerminateTimer { fn clone(&self) -> Self { (crate::dll::get_azul_dll().az_terminate_timer_deep_copy)(self) } }
     impl Drop for TerminateTimer { fn drop(&mut self) { (crate::dll::get_azul_dll().az_terminate_timer_delete)(self); } }
 
 
     /// `BlockError` struct
     pub use crate::dll::AzBlockError as BlockError;
 
+    impl Clone for BlockError { fn clone(&self) -> Self { (crate::dll::get_azul_dll().az_block_error_deep_copy)(self) } }
     impl Drop for BlockError { fn drop(&mut self) { (crate::dll::get_azul_dll().az_block_error_delete)(self); } }
 }
 
@@ -4558,6 +4791,7 @@ pub mod window {
     /// `LogicalSize` struct
     pub use crate::dll::AzLogicalSize as LogicalSize;
 
+    impl Clone for LogicalSize { fn clone(&self) -> Self { (crate::dll::get_azul_dll().az_logical_size_deep_copy)(self) } }
     impl Drop for LogicalSize { fn drop(&mut self) { (crate::dll::get_azul_dll().az_logical_size_delete)(self); } }
 }
 

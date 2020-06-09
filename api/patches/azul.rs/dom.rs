@@ -31,6 +31,10 @@ impl std::iter::FromIterator<NodeData> for Dom {
 
 impl std::iter::FromIterator<NodeType> for Dom {
     fn from_iter<I: IntoIterator<Item=NodeType>>(iter: I) -> Self {
-        iter.into_iter().map(|i| NodeData { node_type: i, .. NodeData::default() }).collect()
+        iter.into_iter().map(|i| {
+            let mut nd = NodeData::default();
+            nd.node_type = i;
+            nd
+        }).collect()
     }
 }

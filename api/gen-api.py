@@ -599,7 +599,7 @@ def generate_rust_dll(apiData):
                     functions_map[str(fn_prefix + to_snake_case(class_name) + "_delete")] = ["object: &mut " + class_ptr_name, ""];
                     code += "#[no_mangle] #[allow(unused_variables)] pub extern \"C\" fn " + fn_prefix + to_snake_case(class_name) + "_delete" + lifetime + "(object: &mut " + class_ptr_name + ") { " + stack_delete_body + "}\r\n"
 
-                    if class_can_be_cloned:
+                    if class_can_be_cloned and lifetime == "":
                         # az_item_deep_copy()
                         code += "/// Clones the object\r\n"
                         functions_map[str(fn_prefix + to_snake_case(class_name) + "_deep_copy")] = ["object: &" + class_ptr_name, class_ptr_name];
@@ -660,7 +660,7 @@ def generate_rust_dll(apiData):
 
     return [code, structs_map, functions_map]
 
-def generate_dll_loader(apiData, structs_map, functions_map):
+def generate_dll_loader(apiData, structs_map, functions_map, version):
 
     code = ""
     code += "pub(crate) mod dll {\r\n\r\n"
@@ -772,7 +772,12 @@ def generate_dll_loader(apiData, structs_map, functions_map):
 
     # Generate loading function
     # TODO: use proper path here!
-    code += "    const LIB_BYTES: &[u8] = include_bytes!(\"../../../target/release/libazul.so\");\r\n"
+
+    warning = "/* !!! IF THIS LINE SHOWS AN ERROR, IT MEANS YOU FORGOT TO RUN \"cargo install --version " + str(version) + " azul-dll\" */"
+    code += "    #[cfg(unix)]\r\n"
+    code += "    const LIB_BYTES: &[u8] = include_bytes!(concat!(env!(\"CARGO_HOME\"), \"/lib/\", \"azul-dll-\", env!(\"CARGO_PKG_VERSION\"), \"/target/release/libazul.so\")); " + warning + "\r\n"
+    code += "    #[cfg(windows)]\r\n"
+    code += "    const LIB_BYTES: &[u8] = include_bytes!(concat!(env!(\"CARGO_HOME\"), \"/lib/\", \"azul-dll-\", env!(\"CARGO_PKG_VERSION\", \"/target/release/azul.dll\"))); " + warning + "\r\n"
     code += "\r\n"
     code += "    use std::{mem::MaybeUninit, sync::atomic::{AtomicBool, Ordering}};\r\n"
     code += "\r\n"
@@ -836,7 +841,7 @@ def generate_rust_api(apiData, structs_map, functions_map):
 
     apiData = apiData[version]
 
-    code += generate_dll_loader(apiData, structs_map, functions_map)
+    code += generate_dll_loader(apiData, structs_map, functions_map, version)
 
     if tuple(['*']) in rust_api_patches:
         code += rust_api_patches[tuple(['*'])]
@@ -867,6 +872,9 @@ def generate_rust_api(apiData, structs_map, functions_map):
             class_is_const = "const" in c.keys()
             class_is_typedef = "typedef" in c.keys() and c["typedef"]
             treat_external_as_ptr = "external" in c.keys() and "is_boxed_object" in c.keys() and c["is_boxed_object"]
+            class_can_be_cloned = True
+            if "clone" in c.keys():
+                class_can_be_cloned = c["clone"]
 
             c_is_stack_allocated = not(class_is_boxed_object)
             class_ptr_name = prefix + class_name + postfix
@@ -956,6 +964,17 @@ def generate_rust_api(apiData, structs_map, functions_map):
                         code += "        pub fn " + fn_name + "(" + fn_args + ") " +  returns + " { " + fn_body + " }\r\n"
 
                 code += "    }\r\n\r\n" # end of class
+
+            rust_class_name = class_name
+            if "rust_class_name" in c.keys():
+                rust_class_name = c["rust_class_name"]
+
+            lifetime = ""
+            if "<'a>" in rust_class_name:
+                lifetime = "<'a>"
+
+            if c_is_stack_allocated and class_can_be_cloned and lifetime == "" and not(class_is_const or class_is_typedef):
+                code += "    impl Clone for " + class_name + " { fn clone(&self) -> Self { (crate::dll::get_azul_dll()." + fn_prefix + to_snake_case(class_name) + "_deep_copy)(self) } }\r\n"
 
             if not(class_is_const or class_is_typedef):
                 code += "    impl Drop for " + class_name + " { fn drop(&mut self) { (crate::dll::get_azul_dll()." + fn_prefix + to_snake_case(class_name) + "_delete)(self); } }\r\n"

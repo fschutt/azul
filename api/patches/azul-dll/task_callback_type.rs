@@ -1,1 +1,1 @@
-pub type AzTaskCallbackType = fn(ArcMutexRefAnyPtr, DropCheckPtr) -> UpdateScreen;
+pub type AzTaskCallbackType = fn(AzArcMutexRefAnyPtr, AzDropCheckPtr) -> AzUpdateScreen;
