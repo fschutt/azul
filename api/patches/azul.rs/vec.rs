@@ -1,4 +1,3 @@
-    #[macro_export]
     macro_rules! impl_vec {($struct_type:ident, $struct_name:ident) => (
 
         impl $struct_name {
