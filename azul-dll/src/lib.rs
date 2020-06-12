@@ -77,7 +77,7 @@ pub type AzCallbackDataVecTT = azul_impl::dom::CallbackDataVec;
 #[no_mangle] pub extern "C" fn az_callback_data_vec_deep_copy(object: &AzCallbackDataVec) -> AzCallbackDataVec { object.clone() }
 
 /// Wrapper over a Rust-allocated `Vec<DebugMessage>`
-pub type AzDebugMessageVecTT = azul_impl::gl::DebugMessageVec;
+pub type AzDebugMessageVecTT = azul_impl::gl::AzDebugMessageVec;
 #[no_mangle] pub use AzDebugMessageVecTT as AzDebugMessageVec;
 /// Creates + allocates a Rust `Vec<DebugMessage>` by **copying** it from a bytes source
 #[no_mangle] pub extern "C" fn az_debug_message_vec_copy_from(ptr: *const AzDebugMessage, len: usize) -> AzDebugMessageVec { unsafe { std::slice::from_raw_parts(ptr, len).iter().cloned().collect::<Vec<_>>() }.into() }
@@ -2147,317 +2147,317 @@ pub type AzGlContextPtrTT = azul_impl::gl::GlContextPtr;
 // Equivalent to the Rust `GlContextPtr::tex_sub_image_3d()` function.
 #[no_mangle] pub extern "C" fn az_gl_context_ptr_tex_sub_image_3d(glcontextptr: &AzGlContextPtr, target: u32, level: i32, xoffset: i32, yoffset: i32, zoffset: i32, width: i32, height: i32, depth: i32, format: u32, ty: u32, data: AzU8VecRef) { glcontextptr.tex_sub_image_3d(target, level, xoffset, yoffset, zoffset, width, height, depth, format, ty, data) }
 // Equivalent to the Rust `GlContextPtr::tex_sub_image_3d_pbo()` function.
-#[no_mangle] pub extern "C" fn az_gl_context_ptr_tex_sub_image_3d_pbo(glcontextptr: &AzGlContextPtr, target: u32, level: i32, xoffset: i32, yoffset: i32, zoffset: i32, width: i32, height: i32, depth: i32, format: u32, ty: u32, offset: usize) { glfunctionptr.tex_sub_image_3d_pbo(target, level, xoffset, yoffset, zoffset, width, height, depth, format, ty, offset) }
+#[no_mangle] pub extern "C" fn az_gl_context_ptr_tex_sub_image_3d_pbo(glcontextptr: &AzGlContextPtr, target: u32, level: i32, xoffset: i32, yoffset: i32, zoffset: i32, width: i32, height: i32, depth: i32, format: u32, ty: u32, offset: usize) { glcontextptr.tex_sub_image_3d_pbo(target, level, xoffset, yoffset, zoffset, width, height, depth, format, ty, offset) }
 // Equivalent to the Rust `GlContextPtr::tex_storage_2d()` function.
-#[no_mangle] pub extern "C" fn az_gl_context_ptr_tex_storage_2d(glcontextptr: &AzGlContextPtr, target: u32, levels: i32, internal_format: u32, width: i32, height: i32) { glfunctionptr.tex_storage_2d(target, levels, internal_format, width, height) }
+#[no_mangle] pub extern "C" fn az_gl_context_ptr_tex_storage_2d(glcontextptr: &AzGlContextPtr, target: u32, levels: i32, internal_format: u32, width: i32, height: i32) { glcontextptr.tex_storage_2d(target, levels, internal_format, width, height) }
 // Equivalent to the Rust `GlContextPtr::tex_storage_3d()` function.
-#[no_mangle] pub extern "C" fn az_gl_context_ptr_tex_storage_3d(glcontextptr: &AzGlContextPtr, target: u32, levels: i32, internal_format: u32, width: i32, height: i32, depth: i32) { glfunctionptr.tex_storage_3d(target, levels, internal_format, width, height, depth) }
+#[no_mangle] pub extern "C" fn az_gl_context_ptr_tex_storage_3d(glcontextptr: &AzGlContextPtr, target: u32, levels: i32, internal_format: u32, width: i32, height: i32, depth: i32) { glcontextptr.tex_storage_3d(target, levels, internal_format, width, height, depth) }
 // Equivalent to the Rust `GlContextPtr::get_tex_image_into_buffer()` function.
-#[no_mangle] pub extern "C" fn az_gl_context_ptr_get_tex_image_into_buffer(glcontextptr: &AzGlContextPtr, target: u32, level: i32, format: u32, ty: u32, output: AzU8VecRefMut) { glfunctionptr.get_tex_image_into_buffer(target, level, format, ty, output) }
+#[no_mangle] pub extern "C" fn az_gl_context_ptr_get_tex_image_into_buffer(glcontextptr: &AzGlContextPtr, target: u32, level: i32, format: u32, ty: u32, output: AzU8VecRefMut) { glcontextptr.get_tex_image_into_buffer(target, level, format, ty, output) }
 // Equivalent to the Rust `GlContextPtr::copy_image_sub_data()` function.
-#[no_mangle] pub extern "C" fn az_gl_context_ptr_copy_image_sub_data(glcontextptr: &AzGlContextPtr, src_name: u32, src_target: u32, src_level: i32, src_x: i32, src_y: i32, src_z: i32, dst_name: u32, dst_target: u32, dst_level: i32, dst_x: i32, dst_y: i32, dst_z: i32, src_width: i32, src_height: i32, src_depth: i32) { glfunctionptr.copy_image_sub_data(src_name, src_target, src_level, src_x, src_y, src_z, dst_name, dst_target, dst_level, dst_x, dst_y, dst_z, src_width, src_height, src_depth) }
+#[no_mangle] pub extern "C" fn az_gl_context_ptr_copy_image_sub_data(glcontextptr: &AzGlContextPtr, src_name: u32, src_target: u32, src_level: i32, src_x: i32, src_y: i32, src_z: i32, dst_name: u32, dst_target: u32, dst_level: i32, dst_x: i32, dst_y: i32, dst_z: i32, src_width: i32, src_height: i32, src_depth: i32) { glcontextptr.copy_image_sub_data(src_name, src_target, src_level, src_x, src_y, src_z, dst_name, dst_target, dst_level, dst_x, dst_y, dst_z, src_width, src_height, src_depth) }
 // Equivalent to the Rust `GlContextPtr::invalidate_framebuffer()` function.
-#[no_mangle] pub extern "C" fn az_gl_context_ptr_invalidate_framebuffer(glcontextptr: &AzGlContextPtr, target: u32, attachments: AzGLuintVecRef) { glfunctionptr.invalidate_framebuffer(target, attachments) }
+#[no_mangle] pub extern "C" fn az_gl_context_ptr_invalidate_framebuffer(glcontextptr: &AzGlContextPtr, target: u32, attachments: AzGLuintVecRef) { glcontextptr.invalidate_framebuffer(target, attachments) }
 // Equivalent to the Rust `GlContextPtr::invalidate_sub_framebuffer()` function.
-#[no_mangle] pub extern "C" fn az_gl_context_ptr_invalidate_sub_framebuffer(glcontextptr: &AzGlContextPtr, target: u32, attachments: AzGLuintVecRef, xoffset: i32, yoffset: i32, width: i32, height: i32) { glfunctionptr.invalidate_sub_framebuffer(target, attachments, xoffset, yoffset, width, height) }
+#[no_mangle] pub extern "C" fn az_gl_context_ptr_invalidate_sub_framebuffer(glcontextptr: &AzGlContextPtr, target: u32, attachments: AzGLuintVecRef, xoffset: i32, yoffset: i32, width: i32, height: i32) { glcontextptr.invalidate_sub_framebuffer(target, attachments, xoffset, yoffset, width, height) }
 // Equivalent to the Rust `GlContextPtr::get_integer_v()` function.
-#[no_mangle] pub extern "C" fn az_gl_context_ptr_get_integer_v(glcontextptr: &AzGlContextPtr, name: u32, result: AzGLintVecRefMut) { glfunctionptr.get_integer_v(name, result) }
+#[no_mangle] pub extern "C" fn az_gl_context_ptr_get_integer_v(glcontextptr: &AzGlContextPtr, name: u32, result: AzGLintVecRefMut) { glcontextptr.get_integer_v(name, result) }
 // Equivalent to the Rust `GlContextPtr::get_integer_64v()` function.
-#[no_mangle] pub extern "C" fn az_gl_context_ptr_get_integer_64v(glcontextptr: &AzGlContextPtr, name: u32, result: AzGLint64VecRefMut) { glfunctionptr.get_integer_64v(name, result) }
+#[no_mangle] pub extern "C" fn az_gl_context_ptr_get_integer_64v(glcontextptr: &AzGlContextPtr, name: u32, result: AzGLint64VecRefMut) { glcontextptr.get_integer_64v(name, result) }
 // Equivalent to the Rust `GlContextPtr::get_integer_iv()` function.
-#[no_mangle] pub extern "C" fn az_gl_context_ptr_get_integer_iv(glcontextptr: &AzGlContextPtr, name: u32, index: u32, result: AzGLintVecRefMut) { glfunctionptr.get_integer_iv(name, index, result) }
+#[no_mangle] pub extern "C" fn az_gl_context_ptr_get_integer_iv(glcontextptr: &AzGlContextPtr, name: u32, index: u32, result: AzGLintVecRefMut) { glcontextptr.get_integer_iv(name, index, result) }
 // Equivalent to the Rust `GlContextPtr::get_integer_64iv()` function.
-#[no_mangle] pub extern "C" fn az_gl_context_ptr_get_integer_64iv(glcontextptr: &AzGlContextPtr, name: u32, index: u32, result: AzGLint64VecRefMut) { glfunctionptr.get_integer_64iv(name, index, result) }
+#[no_mangle] pub extern "C" fn az_gl_context_ptr_get_integer_64iv(glcontextptr: &AzGlContextPtr, name: u32, index: u32, result: AzGLint64VecRefMut) { glcontextptr.get_integer_64iv(name, index, result) }
 // Equivalent to the Rust `GlContextPtr::get_boolean_v()` function.
-#[no_mangle] pub extern "C" fn az_gl_context_ptr_get_boolean_v(glcontextptr: &AzGlContextPtr, name: u32, result: AzGLbooleanVecRefMut) { glfunctionptr.get_boolean_v(name, result) }
+#[no_mangle] pub extern "C" fn az_gl_context_ptr_get_boolean_v(glcontextptr: &AzGlContextPtr, name: u32, result: AzGLbooleanVecRefMut) { glcontextptr.get_boolean_v(name, result) }
 // Equivalent to the Rust `GlContextPtr::get_float_v()` function.
-#[no_mangle] pub extern "C" fn az_gl_context_ptr_get_float_v(glcontextptr: &AzGlContextPtr, name: u32, result: AzGLfloatVecRefMut) { glfunctionptr.get_float_v(name, result) }
+#[no_mangle] pub extern "C" fn az_gl_context_ptr_get_float_v(glcontextptr: &AzGlContextPtr, name: u32, result: AzGLfloatVecRefMut) { glcontextptr.get_float_v(name, result) }
 // Equivalent to the Rust `GlContextPtr::get_framebuffer_attachment_parameter_iv()` function.
-#[no_mangle] pub extern "C" fn az_gl_context_ptr_get_framebuffer_attachment_parameter_iv(glcontextptr: &AzGlContextPtr, target: u32, attachment: u32, pname: u32) -> i32 { glfunctionptr.get_framebuffer_attachment_parameter_iv(target, attachment, pname) }
+#[no_mangle] pub extern "C" fn az_gl_context_ptr_get_framebuffer_attachment_parameter_iv(glcontextptr: &AzGlContextPtr, target: u32, attachment: u32, pname: u32) -> i32 { glcontextptr.get_framebuffer_attachment_parameter_iv(target, attachment, pname) }
 // Equivalent to the Rust `GlContextPtr::get_renderbuffer_parameter_iv()` function.
-#[no_mangle] pub extern "C" fn az_gl_context_ptr_get_renderbuffer_parameter_iv(glcontextptr: &AzGlContextPtr, target: u32, pname: u32) -> i32 { glfunctionptr.get_renderbuffer_parameter_iv(target, pname) }
+#[no_mangle] pub extern "C" fn az_gl_context_ptr_get_renderbuffer_parameter_iv(glcontextptr: &AzGlContextPtr, target: u32, pname: u32) -> i32 { glcontextptr.get_renderbuffer_parameter_iv(target, pname) }
 // Equivalent to the Rust `GlContextPtr::get_tex_parameter_iv()` function.
-#[no_mangle] pub extern "C" fn az_gl_context_ptr_get_tex_parameter_iv(glcontextptr: &AzGlContextPtr, target: u32, name: u32) -> i32 { glfunctionptr.get_tex_parameter_iv(target, name) }
+#[no_mangle] pub extern "C" fn az_gl_context_ptr_get_tex_parameter_iv(glcontextptr: &AzGlContextPtr, target: u32, name: u32) -> i32 { glcontextptr.get_tex_parameter_iv(target, name) }
 // Equivalent to the Rust `GlContextPtr::get_tex_parameter_fv()` function.
-#[no_mangle] pub extern "C" fn az_gl_context_ptr_get_tex_parameter_fv(glcontextptr: &AzGlContextPtr, target: u32, name: u32) -> f32 { glfunctionptr.get_tex_parameter_fv(target, name) }
+#[no_mangle] pub extern "C" fn az_gl_context_ptr_get_tex_parameter_fv(glcontextptr: &AzGlContextPtr, target: u32, name: u32) -> f32 { glcontextptr.get_tex_parameter_fv(target, name) }
 // Equivalent to the Rust `GlContextPtr::tex_parameter_i()` function.
-#[no_mangle] pub extern "C" fn az_gl_context_ptr_tex_parameter_i(glcontextptr: &AzGlContextPtr, target: u32, pname: u32, param: i32) { glfunctionptr.tex_parameter_i(target, pname, param) }
+#[no_mangle] pub extern "C" fn az_gl_context_ptr_tex_parameter_i(glcontextptr: &AzGlContextPtr, target: u32, pname: u32, param: i32) { glcontextptr.tex_parameter_i(target, pname, param) }
 // Equivalent to the Rust `GlContextPtr::tex_parameter_f()` function.
-#[no_mangle] pub extern "C" fn az_gl_context_ptr_tex_parameter_f(glcontextptr: &AzGlContextPtr, target: u32, pname: u32, param: f32) { glfunctionptr.tex_parameter_f(target, pname, param) }
+#[no_mangle] pub extern "C" fn az_gl_context_ptr_tex_parameter_f(glcontextptr: &AzGlContextPtr, target: u32, pname: u32, param: f32) { glcontextptr.tex_parameter_f(target, pname, param) }
 // Equivalent to the Rust `GlContextPtr::framebuffer_texture_2d()` function.
-#[no_mangle] pub extern "C" fn az_gl_context_ptr_framebuffer_texture_2d(glcontextptr: &AzGlContextPtr, target: u32, attachment: u32, textarget: u32, texture: u32, level: i32) { glfunctionptr.framebuffer_texture_2d(target, attachment, textarget, texture, level) }
+#[no_mangle] pub extern "C" fn az_gl_context_ptr_framebuffer_texture_2d(glcontextptr: &AzGlContextPtr, target: u32, attachment: u32, textarget: u32, texture: u32, level: i32) { glcontextptr.framebuffer_texture_2d(target, attachment, textarget, texture, level) }
 // Equivalent to the Rust `GlContextPtr::framebuffer_texture_layer()` function.
-#[no_mangle] pub extern "C" fn az_gl_context_ptr_framebuffer_texture_layer(glcontextptr: &AzGlContextPtr, target: u32, attachment: u32, texture: u32, level: i32, layer: i32) { glfunctionptr.framebuffer_texture_layer(target, attachment, texture, level, layer) }
+#[no_mangle] pub extern "C" fn az_gl_context_ptr_framebuffer_texture_layer(glcontextptr: &AzGlContextPtr, target: u32, attachment: u32, texture: u32, level: i32, layer: i32) { glcontextptr.framebuffer_texture_layer(target, attachment, texture, level, layer) }
 // Equivalent to the Rust `GlContextPtr::blit_framebuffer()` function.
-#[no_mangle] pub extern "C" fn az_gl_context_ptr_blit_framebuffer(glcontextptr: &AzGlContextPtr, src_x0: i32, src_y0: i32, src_x1: i32, src_y1: i32, dst_x0: i32, dst_y0: i32, dst_x1: i32, dst_y1: i32, mask: u32, filter: u32) { glfunctionptr.blit_framebuffer(src_x0, src_y0, src_x1, src_y1, dst_x0, dst_y0, dst_x1, dst_y1, mask, filter) }
+#[no_mangle] pub extern "C" fn az_gl_context_ptr_blit_framebuffer(glcontextptr: &AzGlContextPtr, src_x0: i32, src_y0: i32, src_x1: i32, src_y1: i32, dst_x0: i32, dst_y0: i32, dst_x1: i32, dst_y1: i32, mask: u32, filter: u32) { glcontextptr.blit_framebuffer(src_x0, src_y0, src_x1, src_y1, dst_x0, dst_y0, dst_x1, dst_y1, mask, filter) }
 // Equivalent to the Rust `GlContextPtr::vertex_attrib_4f()` function.
-#[no_mangle] pub extern "C" fn az_gl_context_ptr_vertex_attrib_4f(glcontextptr: &AzGlContextPtr, index: u32, x: f32, y: f32, z: f32, w: f32) { glfunctionptr.vertex_attrib_4f(index, x, y, z, w) }
+#[no_mangle] pub extern "C" fn az_gl_context_ptr_vertex_attrib_4f(glcontextptr: &AzGlContextPtr, index: u32, x: f32, y: f32, z: f32, w: f32) { glcontextptr.vertex_attrib_4f(index, x, y, z, w) }
 // Equivalent to the Rust `GlContextPtr::vertex_attrib_pointer_f32()` function.
-#[no_mangle] pub extern "C" fn az_gl_context_ptr_vertex_attrib_pointer_f32(glcontextptr: &AzGlContextPtr, index: u32, size: i32, normalized: bool, stride: i32, offset: u32) { glfunctionptr.vertex_attrib_pointer_f32(index, size, normalized, stride, offset) }
+#[no_mangle] pub extern "C" fn az_gl_context_ptr_vertex_attrib_pointer_f32(glcontextptr: &AzGlContextPtr, index: u32, size: i32, normalized: bool, stride: i32, offset: u32) { glcontextptr.vertex_attrib_pointer_f32(index, size, normalized, stride, offset) }
 // Equivalent to the Rust `GlContextPtr::vertex_attrib_pointer()` function.
-#[no_mangle] pub extern "C" fn az_gl_context_ptr_vertex_attrib_pointer(glcontextptr: &AzGlContextPtr, index: u32, size: i32, type_: u32, normalized: bool, stride: i32, offset: u32) { glfunctionptr.vertex_attrib_pointer(index, size, type_, normalized, stride, offset) }
+#[no_mangle] pub extern "C" fn az_gl_context_ptr_vertex_attrib_pointer(glcontextptr: &AzGlContextPtr, index: u32, size: i32, type_: u32, normalized: bool, stride: i32, offset: u32) { glcontextptr.vertex_attrib_pointer(index, size, type_, normalized, stride, offset) }
 // Equivalent to the Rust `GlContextPtr::vertex_attrib_i_pointer()` function.
-#[no_mangle] pub extern "C" fn az_gl_context_ptr_vertex_attrib_i_pointer(glcontextptr: &AzGlContextPtr, index: u32, size: i32, type_: u32, stride: i32, offset: u32) { glfunctionptr.vertex_attrib_i_pointer(index, size, type_, stride, offset) }
+#[no_mangle] pub extern "C" fn az_gl_context_ptr_vertex_attrib_i_pointer(glcontextptr: &AzGlContextPtr, index: u32, size: i32, type_: u32, stride: i32, offset: u32) { glcontextptr.vertex_attrib_i_pointer(index, size, type_, stride, offset) }
 // Equivalent to the Rust `GlContextPtr::vertex_attrib_divisor()` function.
-#[no_mangle] pub extern "C" fn az_gl_context_ptr_vertex_attrib_divisor(glcontextptr: &AzGlContextPtr, index: u32, divisor: u32) { glfunctionptr.vertex_attrib_divisor(index, divisor) }
+#[no_mangle] pub extern "C" fn az_gl_context_ptr_vertex_attrib_divisor(glcontextptr: &AzGlContextPtr, index: u32, divisor: u32) { glcontextptr.vertex_attrib_divisor(index, divisor) }
 // Equivalent to the Rust `GlContextPtr::viewport()` function.
-#[no_mangle] pub extern "C" fn az_gl_context_ptr_viewport(glcontextptr: &AzGlContextPtr, x: i32, y: i32, width: i32, height: i32) { glfunctionptr.viewport(x, y, width, height) }
+#[no_mangle] pub extern "C" fn az_gl_context_ptr_viewport(glcontextptr: &AzGlContextPtr, x: i32, y: i32, width: i32, height: i32) { glcontextptr.viewport(x, y, width, height) }
 // Equivalent to the Rust `GlContextPtr::scissor()` function.
-#[no_mangle] pub extern "C" fn az_gl_context_ptr_scissor(glcontextptr: &AzGlContextPtr, x: i32, y: i32, width: i32, height: i32) { glfunctionptr.scissor(x, y, width, height) }
+#[no_mangle] pub extern "C" fn az_gl_context_ptr_scissor(glcontextptr: &AzGlContextPtr, x: i32, y: i32, width: i32, height: i32) { glcontextptr.scissor(x, y, width, height) }
 // Equivalent to the Rust `GlContextPtr::line_width()` function.
-#[no_mangle] pub extern "C" fn az_gl_context_ptr_line_width(glcontextptr: &AzGlContextPtr, width: f32) { glfunctionptr.line_width(width) }
+#[no_mangle] pub extern "C" fn az_gl_context_ptr_line_width(glcontextptr: &AzGlContextPtr, width: f32) { glcontextptr.line_width(width) }
 // Equivalent to the Rust `GlContextPtr::use_program()` function.
-#[no_mangle] pub extern "C" fn az_gl_context_ptr_use_program(glcontextptr: &AzGlContextPtr, program: u32) { glfunctionptr.use_program(program) }
+#[no_mangle] pub extern "C" fn az_gl_context_ptr_use_program(glcontextptr: &AzGlContextPtr, program: u32) { glcontextptr.use_program(program) }
 // Equivalent to the Rust `GlContextPtr::validate_program()` function.
-#[no_mangle] pub extern "C" fn az_gl_context_ptr_validate_program(glcontextptr: &AzGlContextPtr, program: u32) { glfunctionptr.validate_program(program) }
+#[no_mangle] pub extern "C" fn az_gl_context_ptr_validate_program(glcontextptr: &AzGlContextPtr, program: u32) { glcontextptr.validate_program(program) }
 // Equivalent to the Rust `GlContextPtr::draw_arrays()` function.
-#[no_mangle] pub extern "C" fn az_gl_context_ptr_draw_arrays(glcontextptr: &AzGlContextPtr, mode: u32, first: i32, count: i32) { glfunctionptr.draw_arrays(mode, first, count) }
+#[no_mangle] pub extern "C" fn az_gl_context_ptr_draw_arrays(glcontextptr: &AzGlContextPtr, mode: u32, first: i32, count: i32) { glcontextptr.draw_arrays(mode, first, count) }
 // Equivalent to the Rust `GlContextPtr::draw_arrays_instanced()` function.
-#[no_mangle] pub extern "C" fn az_gl_context_ptr_draw_arrays_instanced(glcontextptr: &AzGlContextPtr, mode: u32, first: i32, count: i32, primcount: i32) { glfunctionptr.draw_arrays_instanced(mode, first, count, primcount) }
+#[no_mangle] pub extern "C" fn az_gl_context_ptr_draw_arrays_instanced(glcontextptr: &AzGlContextPtr, mode: u32, first: i32, count: i32, primcount: i32) { glcontextptr.draw_arrays_instanced(mode, first, count, primcount) }
 // Equivalent to the Rust `GlContextPtr::draw_elements()` function.
-#[no_mangle] pub extern "C" fn az_gl_context_ptr_draw_elements(glcontextptr: &AzGlContextPtr, mode: u32, count: i32, element_type: u32, indices_offset: u32) { glfunctionptr.draw_elements(mode, count, element_type, indices_offset) }
+#[no_mangle] pub extern "C" fn az_gl_context_ptr_draw_elements(glcontextptr: &AzGlContextPtr, mode: u32, count: i32, element_type: u32, indices_offset: u32) { glcontextptr.draw_elements(mode, count, element_type, indices_offset) }
 // Equivalent to the Rust `GlContextPtr::draw_elements_instanced()` function.
-#[no_mangle] pub extern "C" fn az_gl_context_ptr_draw_elements_instanced(glcontextptr: &AzGlContextPtr, mode: u32, count: i32, element_type: u32, indices_offset: u32, primcount: i32) { glfunctionptr.draw_elements_instanced(mode, count, element_type, indices_offset, primcount) }
+#[no_mangle] pub extern "C" fn az_gl_context_ptr_draw_elements_instanced(glcontextptr: &AzGlContextPtr, mode: u32, count: i32, element_type: u32, indices_offset: u32, primcount: i32) { glcontextptr.draw_elements_instanced(mode, count, element_type, indices_offset, primcount) }
 // Equivalent to the Rust `GlContextPtr::blend_color()` function.
-#[no_mangle] pub extern "C" fn az_gl_context_ptr_blend_color(glcontextptr: &AzGlContextPtr, r: f32, g: f32, b: f32, a: f32) { glfunctionptr.blend_color(r, g, b, a) }
+#[no_mangle] pub extern "C" fn az_gl_context_ptr_blend_color(glcontextptr: &AzGlContextPtr, r: f32, g: f32, b: f32, a: f32) { glcontextptr.blend_color(r, g, b, a) }
 // Equivalent to the Rust `GlContextPtr::blend_func()` function.
-#[no_mangle] pub extern "C" fn az_gl_context_ptr_blend_func(glcontextptr: &AzGlContextPtr, sfactor: u32, dfactor: u32) { glfunctionptr.blend_func(sfactor, dfactor) }
+#[no_mangle] pub extern "C" fn az_gl_context_ptr_blend_func(glcontextptr: &AzGlContextPtr, sfactor: u32, dfactor: u32) { glcontextptr.blend_func(sfactor, dfactor) }
 // Equivalent to the Rust `GlContextPtr::blend_func_separate()` function.
-#[no_mangle] pub extern "C" fn az_gl_context_ptr_blend_func_separate(glcontextptr: &AzGlContextPtr, src_rgb: u32, dest_rgb: u32, src_alpha: u32, dest_alpha: u32) { glfunctionptr.blend_func_separate(src_rgb, dest_rgb, src_alpha, dest_alpha) }
+#[no_mangle] pub extern "C" fn az_gl_context_ptr_blend_func_separate(glcontextptr: &AzGlContextPtr, src_rgb: u32, dest_rgb: u32, src_alpha: u32, dest_alpha: u32) { glcontextptr.blend_func_separate(src_rgb, dest_rgb, src_alpha, dest_alpha) }
 // Equivalent to the Rust `GlContextPtr::blend_equation()` function.
-#[no_mangle] pub extern "C" fn az_gl_context_ptr_blend_equation(glcontextptr: &AzGlContextPtr, mode: u32) { glfunctionptr.blend_equation(mode) }
+#[no_mangle] pub extern "C" fn az_gl_context_ptr_blend_equation(glcontextptr: &AzGlContextPtr, mode: u32) { glcontextptr.blend_equation(mode) }
 // Equivalent to the Rust `GlContextPtr::blend_equation_separate()` function.
-#[no_mangle] pub extern "C" fn az_gl_context_ptr_blend_equation_separate(glcontextptr: &AzGlContextPtr, mode_rgb: u32, mode_alpha: u32) { glfunctionptr.blend_equation_separate(mode_rgb, mode_alpha) }
+#[no_mangle] pub extern "C" fn az_gl_context_ptr_blend_equation_separate(glcontextptr: &AzGlContextPtr, mode_rgb: u32, mode_alpha: u32) { glcontextptr.blend_equation_separate(mode_rgb, mode_alpha) }
 // Equivalent to the Rust `GlContextPtr::color_mask()` function.
-#[no_mangle] pub extern "C" fn az_gl_context_ptr_color_mask(glcontextptr: &AzGlContextPtr, r: bool, g: bool, b: bool, a: bool) { glfunctionptr.color_mask(r, g, b, a) }
+#[no_mangle] pub extern "C" fn az_gl_context_ptr_color_mask(glcontextptr: &AzGlContextPtr, r: bool, g: bool, b: bool, a: bool) { glcontextptr.color_mask(r, g, b, a) }
 // Equivalent to the Rust `GlContextPtr::cull_face()` function.
-#[no_mangle] pub extern "C" fn az_gl_context_ptr_cull_face(glcontextptr: &AzGlContextPtr, mode: u32) { glfunctionptr.cull_face(mode) }
+#[no_mangle] pub extern "C" fn az_gl_context_ptr_cull_face(glcontextptr: &AzGlContextPtr, mode: u32) { glcontextptr.cull_face(mode) }
 // Equivalent to the Rust `GlContextPtr::front_face()` function.
-#[no_mangle] pub extern "C" fn az_gl_context_ptr_front_face(glcontextptr: &AzGlContextPtr, mode: u32) { glfunctionptr.front_face(mode) }
+#[no_mangle] pub extern "C" fn az_gl_context_ptr_front_face(glcontextptr: &AzGlContextPtr, mode: u32) { glcontextptr.front_face(mode) }
 // Equivalent to the Rust `GlContextPtr::enable()` function.
-#[no_mangle] pub extern "C" fn az_gl_context_ptr_enable(glcontextptr: &AzGlContextPtr, cap: u32) { glfunctionptr.enable(cap) }
+#[no_mangle] pub extern "C" fn az_gl_context_ptr_enable(glcontextptr: &AzGlContextPtr, cap: u32) { glcontextptr.enable(cap) }
 // Equivalent to the Rust `GlContextPtr::disable()` function.
-#[no_mangle] pub extern "C" fn az_gl_context_ptr_disable(glcontextptr: &AzGlContextPtr, cap: u32) { glfunctionptr.disable(cap) }
+#[no_mangle] pub extern "C" fn az_gl_context_ptr_disable(glcontextptr: &AzGlContextPtr, cap: u32) { glcontextptr.disable(cap) }
 // Equivalent to the Rust `GlContextPtr::hint()` function.
-#[no_mangle] pub extern "C" fn az_gl_context_ptr_hint(glcontextptr: &AzGlContextPtr, param_name: u32, param_val: u32) { glfunctionptr.hint(param_name, param_val) }
+#[no_mangle] pub extern "C" fn az_gl_context_ptr_hint(glcontextptr: &AzGlContextPtr, param_name: u32, param_val: u32) { glcontextptr.hint(param_name, param_val) }
 // Equivalent to the Rust `GlContextPtr::is_enabled()` function.
-#[no_mangle] pub extern "C" fn az_gl_context_ptr_is_enabled(glcontextptr: &AzGlContextPtr, cap: u32) -> u8 { glfunctionptr.is_enabled(cap) }
+#[no_mangle] pub extern "C" fn az_gl_context_ptr_is_enabled(glcontextptr: &AzGlContextPtr, cap: u32) -> u8 { glcontextptr.is_enabled(cap) }
 // Equivalent to the Rust `GlContextPtr::is_shader()` function.
-#[no_mangle] pub extern "C" fn az_gl_context_ptr_is_shader(glcontextptr: &AzGlContextPtr, shader: u32) -> u8 { glfunctionptr.is_shader(shader) }
+#[no_mangle] pub extern "C" fn az_gl_context_ptr_is_shader(glcontextptr: &AzGlContextPtr, shader: u32) -> u8 { glcontextptr.is_shader(shader) }
 // Equivalent to the Rust `GlContextPtr::is_texture()` function.
-#[no_mangle] pub extern "C" fn az_gl_context_ptr_is_texture(glcontextptr: &AzGlContextPtr, texture: u32) -> u8 { glfunctionptr.is_texture(texture) }
+#[no_mangle] pub extern "C" fn az_gl_context_ptr_is_texture(glcontextptr: &AzGlContextPtr, texture: u32) -> u8 { glcontextptr.is_texture(texture) }
 // Equivalent to the Rust `GlContextPtr::is_framebuffer()` function.
-#[no_mangle] pub extern "C" fn az_gl_context_ptr_is_framebuffer(glcontextptr: &AzGlContextPtr, framebuffer: u32) -> u8 { glfunctionptr.is_framebuffer(framebuffer) }
+#[no_mangle] pub extern "C" fn az_gl_context_ptr_is_framebuffer(glcontextptr: &AzGlContextPtr, framebuffer: u32) -> u8 { glcontextptr.is_framebuffer(framebuffer) }
 // Equivalent to the Rust `GlContextPtr::is_renderbuffer()` function.
-#[no_mangle] pub extern "C" fn az_gl_context_ptr_is_renderbuffer(glcontextptr: &AzGlContextPtr, renderbuffer: u32) -> u8 { glfunctionptr.is_renderbuffer(renderbuffer) }
+#[no_mangle] pub extern "C" fn az_gl_context_ptr_is_renderbuffer(glcontextptr: &AzGlContextPtr, renderbuffer: u32) -> u8 { glcontextptr.is_renderbuffer(renderbuffer) }
 // Equivalent to the Rust `GlContextPtr::check_frame_buffer_status()` function.
-#[no_mangle] pub extern "C" fn az_gl_context_ptr_check_frame_buffer_status(glcontextptr: &AzGlContextPtr, target: u32) -> u32 { glfunctionptr.check_frame_buffer_status(target) }
+#[no_mangle] pub extern "C" fn az_gl_context_ptr_check_frame_buffer_status(glcontextptr: &AzGlContextPtr, target: u32) -> u32 { glcontextptr.check_frame_buffer_status(target) }
 // Equivalent to the Rust `GlContextPtr::enable_vertex_attrib_array()` function.
-#[no_mangle] pub extern "C" fn az_gl_context_ptr_enable_vertex_attrib_array(glcontextptr: &AzGlContextPtr, index: u32) { glfunctionptr.enable_vertex_attrib_array(index) }
+#[no_mangle] pub extern "C" fn az_gl_context_ptr_enable_vertex_attrib_array(glcontextptr: &AzGlContextPtr, index: u32) { glcontextptr.enable_vertex_attrib_array(index) }
 // Equivalent to the Rust `GlContextPtr::disable_vertex_attrib_array()` function.
-#[no_mangle] pub extern "C" fn az_gl_context_ptr_disable_vertex_attrib_array(glcontextptr: &AzGlContextPtr, index: u32) { glfunctionptr.disable_vertex_attrib_array(index) }
+#[no_mangle] pub extern "C" fn az_gl_context_ptr_disable_vertex_attrib_array(glcontextptr: &AzGlContextPtr, index: u32) { glcontextptr.disable_vertex_attrib_array(index) }
 // Equivalent to the Rust `GlContextPtr::uniform_1f()` function.
-#[no_mangle] pub extern "C" fn az_gl_context_ptr_uniform_1f(glcontextptr: &AzGlContextPtr, location: i32, v0: f32) { glfunctionptr.uniform_1f(location, v0) }
+#[no_mangle] pub extern "C" fn az_gl_context_ptr_uniform_1f(glcontextptr: &AzGlContextPtr, location: i32, v0: f32) { glcontextptr.uniform_1f(location, v0) }
 // Equivalent to the Rust `GlContextPtr::uniform_1fv()` function.
-#[no_mangle] pub extern "C" fn az_gl_context_ptr_uniform_1fv(glcontextptr: &AzGlContextPtr, location: i32, values: AzF32VecRef) { glfunctionptr.uniform_1fv(location, values) }
+#[no_mangle] pub extern "C" fn az_gl_context_ptr_uniform_1fv(glcontextptr: &AzGlContextPtr, location: i32, values: AzF32VecRef) { glcontextptr.uniform_1fv(location, values) }
 // Equivalent to the Rust `GlContextPtr::uniform_1i()` function.
-#[no_mangle] pub extern "C" fn az_gl_context_ptr_uniform_1i(glcontextptr: &AzGlContextPtr, location: i32, v0: i32) { glfunctionptr.uniform_1i(location, v0) }
+#[no_mangle] pub extern "C" fn az_gl_context_ptr_uniform_1i(glcontextptr: &AzGlContextPtr, location: i32, v0: i32) { glcontextptr.uniform_1i(location, v0) }
 // Equivalent to the Rust `GlContextPtr::uniform_1iv()` function.
-#[no_mangle] pub extern "C" fn az_gl_context_ptr_uniform_1iv(glcontextptr: &AzGlContextPtr, location: i32, values: AzI32VecRef) { glfunctionptr.uniform_1iv(location, values) }
+#[no_mangle] pub extern "C" fn az_gl_context_ptr_uniform_1iv(glcontextptr: &AzGlContextPtr, location: i32, values: AzI32VecRef) { glcontextptr.uniform_1iv(location, values) }
 // Equivalent to the Rust `GlContextPtr::uniform_1ui()` function.
-#[no_mangle] pub extern "C" fn az_gl_context_ptr_uniform_1ui(glcontextptr: &AzGlContextPtr, location: i32, v0: u32) { glfunctionptr.uniform_1ui(location, v0) }
+#[no_mangle] pub extern "C" fn az_gl_context_ptr_uniform_1ui(glcontextptr: &AzGlContextPtr, location: i32, v0: u32) { glcontextptr.uniform_1ui(location, v0) }
 // Equivalent to the Rust `GlContextPtr::uniform_2f()` function.
-#[no_mangle] pub extern "C" fn az_gl_context_ptr_uniform_2f(glcontextptr: &AzGlContextPtr, location: i32, v0: f32, v1: f32) { glfunctionptr.uniform_2f(location, v0, v1) }
+#[no_mangle] pub extern "C" fn az_gl_context_ptr_uniform_2f(glcontextptr: &AzGlContextPtr, location: i32, v0: f32, v1: f32) { glcontextptr.uniform_2f(location, v0, v1) }
 // Equivalent to the Rust `GlContextPtr::uniform_2fv()` function.
-#[no_mangle] pub extern "C" fn az_gl_context_ptr_uniform_2fv(glcontextptr: &AzGlContextPtr, location: i32, values: AzF32VecRef) { glfunctionptr.uniform_2fv(location, values) }
+#[no_mangle] pub extern "C" fn az_gl_context_ptr_uniform_2fv(glcontextptr: &AzGlContextPtr, location: i32, values: AzF32VecRef) { glcontextptr.uniform_2fv(location, values) }
 // Equivalent to the Rust `GlContextPtr::uniform_2i()` function.
-#[no_mangle] pub extern "C" fn az_gl_context_ptr_uniform_2i(glcontextptr: &AzGlContextPtr, location: i32, v0: i32, v1: i32) { glfunctionptr.uniform_2i(location, v0, v1) }
+#[no_mangle] pub extern "C" fn az_gl_context_ptr_uniform_2i(glcontextptr: &AzGlContextPtr, location: i32, v0: i32, v1: i32) { glcontextptr.uniform_2i(location, v0, v1) }
 // Equivalent to the Rust `GlContextPtr::uniform_2iv()` function.
-#[no_mangle] pub extern "C" fn az_gl_context_ptr_uniform_2iv(glcontextptr: &AzGlContextPtr, location: i32, values: AzI32VecRef) { glfunctionptr.uniform_2iv(location, values) }
+#[no_mangle] pub extern "C" fn az_gl_context_ptr_uniform_2iv(glcontextptr: &AzGlContextPtr, location: i32, values: AzI32VecRef) { glcontextptr.uniform_2iv(location, values) }
 // Equivalent to the Rust `GlContextPtr::uniform_2ui()` function.
-#[no_mangle] pub extern "C" fn az_gl_context_ptr_uniform_2ui(glcontextptr: &AzGlContextPtr, location: i32, v0: u32, v1: u32) { glfunctionptr.uniform_2ui(location, v0, v1) }
+#[no_mangle] pub extern "C" fn az_gl_context_ptr_uniform_2ui(glcontextptr: &AzGlContextPtr, location: i32, v0: u32, v1: u32) { glcontextptr.uniform_2ui(location, v0, v1) }
 // Equivalent to the Rust `GlContextPtr::uniform_3f()` function.
-#[no_mangle] pub extern "C" fn az_gl_context_ptr_uniform_3f(glcontextptr: &AzGlContextPtr, location: i32, v0: f32, v1: f32, v2: f32) { glfunctionptr.uniform_3f(location, v0, v1, v2) }
+#[no_mangle] pub extern "C" fn az_gl_context_ptr_uniform_3f(glcontextptr: &AzGlContextPtr, location: i32, v0: f32, v1: f32, v2: f32) { glcontextptr.uniform_3f(location, v0, v1, v2) }
 // Equivalent to the Rust `GlContextPtr::uniform_3fv()` function.
-#[no_mangle] pub extern "C" fn az_gl_context_ptr_uniform_3fv(glcontextptr: &AzGlContextPtr, location: i32, values: AzF32VecRef) { glfunctionptr.uniform_3fv(location, values) }
+#[no_mangle] pub extern "C" fn az_gl_context_ptr_uniform_3fv(glcontextptr: &AzGlContextPtr, location: i32, values: AzF32VecRef) { glcontextptr.uniform_3fv(location, values) }
 // Equivalent to the Rust `GlContextPtr::uniform_3i()` function.
-#[no_mangle] pub extern "C" fn az_gl_context_ptr_uniform_3i(glcontextptr: &AzGlContextPtr, location: i32, v0: i32, v1: i32, v2: i32) { glfunctionptr.uniform_3i(location, v0, v1, v2) }
+#[no_mangle] pub extern "C" fn az_gl_context_ptr_uniform_3i(glcontextptr: &AzGlContextPtr, location: i32, v0: i32, v1: i32, v2: i32) { glcontextptr.uniform_3i(location, v0, v1, v2) }
 // Equivalent to the Rust `GlContextPtr::uniform_3iv()` function.
-#[no_mangle] pub extern "C" fn az_gl_context_ptr_uniform_3iv(glcontextptr: &AzGlContextPtr, location: i32, values: AzI32VecRef) { glfunctionptr.uniform_3iv(location, values) }
+#[no_mangle] pub extern "C" fn az_gl_context_ptr_uniform_3iv(glcontextptr: &AzGlContextPtr, location: i32, values: AzI32VecRef) { glcontextptr.uniform_3iv(location, values) }
 // Equivalent to the Rust `GlContextPtr::uniform_3ui()` function.
-#[no_mangle] pub extern "C" fn az_gl_context_ptr_uniform_3ui(glcontextptr: &AzGlContextPtr, location: i32, v0: u32, v1: u32, v2: u32) { glfunctionptr.uniform_3ui(location, v0, v1, v2) }
+#[no_mangle] pub extern "C" fn az_gl_context_ptr_uniform_3ui(glcontextptr: &AzGlContextPtr, location: i32, v0: u32, v1: u32, v2: u32) { glcontextptr.uniform_3ui(location, v0, v1, v2) }
 // Equivalent to the Rust `GlContextPtr::uniform_4f()` function.
-#[no_mangle] pub extern "C" fn az_gl_context_ptr_uniform_4f(glcontextptr: &AzGlContextPtr, location: i32, x: f32, y: f32, z: f32, w: f32) { glfunctionptr.uniform_4f(location, x, y, z, w) }
+#[no_mangle] pub extern "C" fn az_gl_context_ptr_uniform_4f(glcontextptr: &AzGlContextPtr, location: i32, x: f32, y: f32, z: f32, w: f32) { glcontextptr.uniform_4f(location, x, y, z, w) }
 // Equivalent to the Rust `GlContextPtr::uniform_4i()` function.
-#[no_mangle] pub extern "C" fn az_gl_context_ptr_uniform_4i(glcontextptr: &AzGlContextPtr, location: i32, x: i32, y: i32, z: i32, w: i32) { glfunctionptr.uniform_4i(location, x, y, z, w) }
+#[no_mangle] pub extern "C" fn az_gl_context_ptr_uniform_4i(glcontextptr: &AzGlContextPtr, location: i32, x: i32, y: i32, z: i32, w: i32) { glcontextptr.uniform_4i(location, x, y, z, w) }
 // Equivalent to the Rust `GlContextPtr::uniform_4iv()` function.
-#[no_mangle] pub extern "C" fn az_gl_context_ptr_uniform_4iv(glcontextptr: &AzGlContextPtr, location: i32, values: AzI32VecRef) { glfunctionptr.uniform_4iv(location, values) }
+#[no_mangle] pub extern "C" fn az_gl_context_ptr_uniform_4iv(glcontextptr: &AzGlContextPtr, location: i32, values: AzI32VecRef) { glcontextptr.uniform_4iv(location, values) }
 // Equivalent to the Rust `GlContextPtr::uniform_4ui()` function.
-#[no_mangle] pub extern "C" fn az_gl_context_ptr_uniform_4ui(glcontextptr: &AzGlContextPtr, location: i32, x: u32, y: u32, z: u32, w: u32) { glfunctionptr.uniform_4ui(location, x, y, z, w) }
+#[no_mangle] pub extern "C" fn az_gl_context_ptr_uniform_4ui(glcontextptr: &AzGlContextPtr, location: i32, x: u32, y: u32, z: u32, w: u32) { glcontextptr.uniform_4ui(location, x, y, z, w) }
 // Equivalent to the Rust `GlContextPtr::uniform_4fv()` function.
-#[no_mangle] pub extern "C" fn az_gl_context_ptr_uniform_4fv(glcontextptr: &AzGlContextPtr, location: i32, values: AzF32VecRef) { glfunctionptr.uniform_4fv(location, values) }
+#[no_mangle] pub extern "C" fn az_gl_context_ptr_uniform_4fv(glcontextptr: &AzGlContextPtr, location: i32, values: AzF32VecRef) { glcontextptr.uniform_4fv(location, values) }
 // Equivalent to the Rust `GlContextPtr::uniform_matrix_2fv()` function.
-#[no_mangle] pub extern "C" fn az_gl_context_ptr_uniform_matrix_2fv(glcontextptr: &AzGlContextPtr, location: i32, transpose: bool, value: AzF32VecRef) { glfunctionptr.uniform_matrix_2fv(location, transpose, value) }
+#[no_mangle] pub extern "C" fn az_gl_context_ptr_uniform_matrix_2fv(glcontextptr: &AzGlContextPtr, location: i32, transpose: bool, value: AzF32VecRef) { glcontextptr.uniform_matrix_2fv(location, transpose, value) }
 // Equivalent to the Rust `GlContextPtr::uniform_matrix_3fv()` function.
-#[no_mangle] pub extern "C" fn az_gl_context_ptr_uniform_matrix_3fv(glcontextptr: &AzGlContextPtr, location: i32, transpose: bool, value: AzF32VecRef) { glfunctionptr.uniform_matrix_3fv(location, transpose, value) }
+#[no_mangle] pub extern "C" fn az_gl_context_ptr_uniform_matrix_3fv(glcontextptr: &AzGlContextPtr, location: i32, transpose: bool, value: AzF32VecRef) { glcontextptr.uniform_matrix_3fv(location, transpose, value) }
 // Equivalent to the Rust `GlContextPtr::uniform_matrix_4fv()` function.
-#[no_mangle] pub extern "C" fn az_gl_context_ptr_uniform_matrix_4fv(glcontextptr: &AzGlContextPtr, location: i32, transpose: bool, value: AzF32VecRef) { glfunctionptr.uniform_matrix_4fv(location, transpose, value) }
+#[no_mangle] pub extern "C" fn az_gl_context_ptr_uniform_matrix_4fv(glcontextptr: &AzGlContextPtr, location: i32, transpose: bool, value: AzF32VecRef) { glcontextptr.uniform_matrix_4fv(location, transpose, value) }
 // Equivalent to the Rust `GlContextPtr::depth_mask()` function.
-#[no_mangle] pub extern "C" fn az_gl_context_ptr_depth_mask(glcontextptr: &AzGlContextPtr, flag: bool) { glfunctionptr.depth_mask(flag) }
+#[no_mangle] pub extern "C" fn az_gl_context_ptr_depth_mask(glcontextptr: &AzGlContextPtr, flag: bool) { glcontextptr.depth_mask(flag) }
 // Equivalent to the Rust `GlContextPtr::depth_range()` function.
-#[no_mangle] pub extern "C" fn az_gl_context_ptr_depth_range(glcontextptr: &AzGlContextPtr, near: f64, far: f64) { glfunctionptr.depth_range(near, far) }
+#[no_mangle] pub extern "C" fn az_gl_context_ptr_depth_range(glcontextptr: &AzGlContextPtr, near: f64, far: f64) { glcontextptr.depth_range(near, far) }
 // Equivalent to the Rust `GlContextPtr::get_active_attrib()` function.
-#[no_mangle] pub extern "C" fn az_gl_context_ptr_get_active_attrib(glcontextptr: &AzGlContextPtr, program: u32, index: u32) -> AzGetActiveAttribReturn { glfunctionptr.get_active_attrib(program, index) }
+#[no_mangle] pub extern "C" fn az_gl_context_ptr_get_active_attrib(glcontextptr: &AzGlContextPtr, program: u32, index: u32) -> AzGetActiveAttribReturn { glcontextptr.get_active_attrib(program, index) }
 // Equivalent to the Rust `GlContextPtr::get_active_uniform()` function.
-#[no_mangle] pub extern "C" fn az_gl_context_ptr_get_active_uniform(glcontextptr: &AzGlContextPtr, program: u32, index: u32) -> AzGetActiveUniformReturn { glfunctionptr.get_active_uniform(program, index) }
+#[no_mangle] pub extern "C" fn az_gl_context_ptr_get_active_uniform(glcontextptr: &AzGlContextPtr, program: u32, index: u32) -> AzGetActiveUniformReturn { glcontextptr.get_active_uniform(program, index) }
 // Equivalent to the Rust `GlContextPtr::get_active_uniforms_iv()` function.
-#[no_mangle] pub extern "C" fn az_gl_context_ptr_get_active_uniforms_iv(glcontextptr: &AzGlContextPtr, program: u32, indices: AzGLuintVec, pname: u32) -> AzGLintVec { glfunctionptr.get_active_uniforms_iv(program, indices, pname) }
+#[no_mangle] pub extern "C" fn az_gl_context_ptr_get_active_uniforms_iv(glcontextptr: &AzGlContextPtr, program: u32, indices: AzGLuintVec, pname: u32) -> AzGLintVec { glcontextptr.get_active_uniforms_iv(program, indices, pname) }
 // Equivalent to the Rust `GlContextPtr::get_active_uniform_block_i()` function.
-#[no_mangle] pub extern "C" fn az_gl_context_ptr_get_active_uniform_block_i(glcontextptr: &AzGlContextPtr, program: u32, index: u32, pname: u32) -> i32 { glfunctionptr.get_active_uniform_block_i(program, index, pname) }
+#[no_mangle] pub extern "C" fn az_gl_context_ptr_get_active_uniform_block_i(glcontextptr: &AzGlContextPtr, program: u32, index: u32, pname: u32) -> i32 { glcontextptr.get_active_uniform_block_i(program, index, pname) }
 // Equivalent to the Rust `GlContextPtr::get_active_uniform_block_iv()` function.
-#[no_mangle] pub extern "C" fn az_gl_context_ptr_get_active_uniform_block_iv(glcontextptr: &AzGlContextPtr, program: u32, index: u32, pname: u32) -> AzGLintVec { glfunctionptr.get_active_uniform_block_iv(program, index, pname) }
+#[no_mangle] pub extern "C" fn az_gl_context_ptr_get_active_uniform_block_iv(glcontextptr: &AzGlContextPtr, program: u32, index: u32, pname: u32) -> AzGLintVec { glcontextptr.get_active_uniform_block_iv(program, index, pname) }
 // Equivalent to the Rust `GlContextPtr::get_active_uniform_block_name()` function.
-#[no_mangle] pub extern "C" fn az_gl_context_ptr_get_active_uniform_block_name(glcontextptr: &AzGlContextPtr, program: u32, index: u32) -> AzString { glfunctionptr.get_active_uniform_block_name(program, index) }
+#[no_mangle] pub extern "C" fn az_gl_context_ptr_get_active_uniform_block_name(glcontextptr: &AzGlContextPtr, program: u32, index: u32) -> AzString { glcontextptr.get_active_uniform_block_name(program, index) }
 // Equivalent to the Rust `GlContextPtr::get_attrib_location()` function.
-#[no_mangle] pub extern "C" fn az_gl_context_ptr_get_attrib_location(glcontextptr: &AzGlContextPtr, program: u32, name: AzRefstr) -> i32 { glfunctionptr.get_attrib_location(program, name) }
+#[no_mangle] pub extern "C" fn az_gl_context_ptr_get_attrib_location(glcontextptr: &AzGlContextPtr, program: u32, name: AzRefstr) -> i32 { glcontextptr.get_attrib_location(program, name) }
 // Equivalent to the Rust `GlContextPtr::get_frag_data_location()` function.
-#[no_mangle] pub extern "C" fn az_gl_context_ptr_get_frag_data_location(glcontextptr: &AzGlContextPtr, program: u32, name: AzRefstr) -> i32 { glfunctionptr.get_frag_data_location(program, name) }
+#[no_mangle] pub extern "C" fn az_gl_context_ptr_get_frag_data_location(glcontextptr: &AzGlContextPtr, program: u32, name: AzRefstr) -> i32 { glcontextptr.get_frag_data_location(program, name) }
 // Equivalent to the Rust `GlContextPtr::get_uniform_location()` function.
-#[no_mangle] pub extern "C" fn az_gl_context_ptr_get_uniform_location(glcontextptr: &AzGlContextPtr, program: u32, name: AzRefstr) -> i32 { glfunctionptr.get_uniform_location(program, name) }
+#[no_mangle] pub extern "C" fn az_gl_context_ptr_get_uniform_location(glcontextptr: &AzGlContextPtr, program: u32, name: AzRefstr) -> i32 { glcontextptr.get_uniform_location(program, name) }
 // Equivalent to the Rust `GlContextPtr::get_program_info_log()` function.
-#[no_mangle] pub extern "C" fn az_gl_context_ptr_get_program_info_log(glcontextptr: &AzGlContextPtr, program: u32) -> AzString { glfunctionptr.get_program_info_log(program) }
+#[no_mangle] pub extern "C" fn az_gl_context_ptr_get_program_info_log(glcontextptr: &AzGlContextPtr, program: u32) -> AzString { glcontextptr.get_program_info_log(program) }
 // Equivalent to the Rust `GlContextPtr::get_program_iv()` function.
-#[no_mangle] pub extern "C" fn az_gl_context_ptr_get_program_iv(glcontextptr: &AzGlContextPtr, program: u32, pname: u32, result: AzGLintVecRefMut) { glfunctionptr.get_program_iv(program, pname, result) }
+#[no_mangle] pub extern "C" fn az_gl_context_ptr_get_program_iv(glcontextptr: &AzGlContextPtr, program: u32, pname: u32, result: AzGLintVecRefMut) { glcontextptr.get_program_iv(program, pname, result) }
 // Equivalent to the Rust `GlContextPtr::get_program_binary()` function.
-#[no_mangle] pub extern "C" fn az_gl_context_ptr_get_program_binary(glcontextptr: &AzGlContextPtr, program: u32) -> AzGetProgramBinaryReturn { glfunctionptr.get_program_binary(program) }
+#[no_mangle] pub extern "C" fn az_gl_context_ptr_get_program_binary(glcontextptr: &AzGlContextPtr, program: u32) -> AzGetProgramBinaryReturn { glcontextptr.get_program_binary(program) }
 // Equivalent to the Rust `GlContextPtr::program_binary()` function.
-#[no_mangle] pub extern "C" fn az_gl_context_ptr_program_binary(glcontextptr: &AzGlContextPtr, program: u32, format: u32, binary: AzU8VecRef) { glfunctionptr.program_binary(program, format, binary) }
+#[no_mangle] pub extern "C" fn az_gl_context_ptr_program_binary(glcontextptr: &AzGlContextPtr, program: u32, format: u32, binary: AzU8VecRef) { glcontextptr.program_binary(program, format, binary) }
 // Equivalent to the Rust `GlContextPtr::program_parameter_i()` function.
-#[no_mangle] pub extern "C" fn az_gl_context_ptr_program_parameter_i(glcontextptr: &AzGlContextPtr, program: u32, pname: u32, value: i32) { glfunctionptr.program_parameter_i(program, pname, value) }
+#[no_mangle] pub extern "C" fn az_gl_context_ptr_program_parameter_i(glcontextptr: &AzGlContextPtr, program: u32, pname: u32, value: i32) { glcontextptr.program_parameter_i(program, pname, value) }
 // Equivalent to the Rust `GlContextPtr::get_vertex_attrib_iv()` function.
-#[no_mangle] pub extern "C" fn az_gl_context_ptr_get_vertex_attrib_iv(glcontextptr: &AzGlContextPtr, index: u32, pname: u32, result: AzGLintVecRefMut) { glfunctionptr.get_vertex_attrib_iv(index, pname, result) }
+#[no_mangle] pub extern "C" fn az_gl_context_ptr_get_vertex_attrib_iv(glcontextptr: &AzGlContextPtr, index: u32, pname: u32, result: AzGLintVecRefMut) { glcontextptr.get_vertex_attrib_iv(index, pname, result) }
 // Equivalent to the Rust `GlContextPtr::get_vertex_attrib_fv()` function.
-#[no_mangle] pub extern "C" fn az_gl_context_ptr_get_vertex_attrib_fv(glcontextptr: &AzGlContextPtr, index: u32, pname: u32, result: AzGLfloatVecRefMut) { glfunctionptr.get_vertex_attrib_fv(index, pname, result) }
+#[no_mangle] pub extern "C" fn az_gl_context_ptr_get_vertex_attrib_fv(glcontextptr: &AzGlContextPtr, index: u32, pname: u32, result: AzGLfloatVecRefMut) { glcontextptr.get_vertex_attrib_fv(index, pname, result) }
 // Equivalent to the Rust `GlContextPtr::get_vertex_attrib_pointer_v()` function.
-#[no_mangle] pub extern "C" fn az_gl_context_ptr_get_vertex_attrib_pointer_v(glcontextptr: &AzGlContextPtr, index: u32, pname: u32) -> isize { glfunctionptr.get_vertex_attrib_pointer_v(index, pname) }
+#[no_mangle] pub extern "C" fn az_gl_context_ptr_get_vertex_attrib_pointer_v(glcontextptr: &AzGlContextPtr, index: u32, pname: u32) -> isize { glcontextptr.get_vertex_attrib_pointer_v(index, pname) }
 // Equivalent to the Rust `GlContextPtr::get_buffer_parameter_iv()` function.
-#[no_mangle] pub extern "C" fn az_gl_context_ptr_get_buffer_parameter_iv(glcontextptr: &AzGlContextPtr, target: u32, pname: u32) -> i32 { glfunctionptr.get_buffer_parameter_iv(target, pname) }
+#[no_mangle] pub extern "C" fn az_gl_context_ptr_get_buffer_parameter_iv(glcontextptr: &AzGlContextPtr, target: u32, pname: u32) -> i32 { glcontextptr.get_buffer_parameter_iv(target, pname) }
 // Equivalent to the Rust `GlContextPtr::get_shader_info_log()` function.
-#[no_mangle] pub extern "C" fn az_gl_context_ptr_get_shader_info_log(glcontextptr: &AzGlContextPtr, shader: u32) -> AzString { glfunctionptr.get_shader_info_log(shader) }
+#[no_mangle] pub extern "C" fn az_gl_context_ptr_get_shader_info_log(glcontextptr: &AzGlContextPtr, shader: u32) -> AzString { glcontextptr.get_shader_info_log(shader) }
 // Equivalent to the Rust `GlContextPtr::get_string()` function.
-#[no_mangle] pub extern "C" fn az_gl_context_ptr_get_string(glcontextptr: &AzGlContextPtr, which: u32) -> AzString { glfunctionptr.get_string(which) }
+#[no_mangle] pub extern "C" fn az_gl_context_ptr_get_string(glcontextptr: &AzGlContextPtr, which: u32) -> AzString { glcontextptr.get_string(which) }
 // Equivalent to the Rust `GlContextPtr::get_string_i()` function.
-#[no_mangle] pub extern "C" fn az_gl_context_ptr_get_string_i(glcontextptr: &AzGlContextPtr, which: u32, index: u32) -> AzString { glfunctionptr.get_string_i(which, index) }
+#[no_mangle] pub extern "C" fn az_gl_context_ptr_get_string_i(glcontextptr: &AzGlContextPtr, which: u32, index: u32) -> AzString { glcontextptr.get_string_i(which, index) }
 // Equivalent to the Rust `GlContextPtr::get_shader_iv()` function.
-#[no_mangle] pub extern "C" fn az_gl_context_ptr_get_shader_iv(glcontextptr: &AzGlContextPtr, shader: u32, pname: u32, result: AzGLintVecRefMut) { glfunctionptr.get_shader_iv(shader, pname, result) }
+#[no_mangle] pub extern "C" fn az_gl_context_ptr_get_shader_iv(glcontextptr: &AzGlContextPtr, shader: u32, pname: u32, result: AzGLintVecRefMut) { glcontextptr.get_shader_iv(shader, pname, result) }
 // Equivalent to the Rust `GlContextPtr::get_shader_precision_format()` function.
-#[no_mangle] pub extern "C" fn az_gl_context_ptr_get_shader_precision_format(glcontextptr: &AzGlContextPtr, shader_type: u32, precision_type: u32) -> [i32;3] { glfunctionptr.get_shader_precision_format(shader_type, precision_type) }
+#[no_mangle] pub extern "C" fn az_gl_context_ptr_get_shader_precision_format(glcontextptr: &AzGlContextPtr, shader_type: u32, precision_type: u32) -> [i32;3] { glcontextptr.get_shader_precision_format(shader_type, precision_type) }
 // Equivalent to the Rust `GlContextPtr::compile_shader()` function.
-#[no_mangle] pub extern "C" fn az_gl_context_ptr_compile_shader(glcontextptr: &AzGlContextPtr, shader: u32) { glfunctionptr.compile_shader(shader) }
+#[no_mangle] pub extern "C" fn az_gl_context_ptr_compile_shader(glcontextptr: &AzGlContextPtr, shader: u32) { glcontextptr.compile_shader(shader) }
 // Equivalent to the Rust `GlContextPtr::create_program()` function.
-#[no_mangle] pub extern "C" fn az_gl_context_ptr_create_program(glcontextptr: &AzGlContextPtr) -> u32 { glfunctionptr.create_program() }
+#[no_mangle] pub extern "C" fn az_gl_context_ptr_create_program(glcontextptr: &AzGlContextPtr) -> u32 { glcontextptr.create_program() }
 // Equivalent to the Rust `GlContextPtr::delete_program()` function.
-#[no_mangle] pub extern "C" fn az_gl_context_ptr_delete_program(glcontextptr: &AzGlContextPtr, program: u32) { glfunctionptr.delete_program(program) }
+#[no_mangle] pub extern "C" fn az_gl_context_ptr_delete_program(glcontextptr: &AzGlContextPtr, program: u32) { glcontextptr.delete_program(program) }
 // Equivalent to the Rust `GlContextPtr::create_shader()` function.
-#[no_mangle] pub extern "C" fn az_gl_context_ptr_create_shader(glcontextptr: &AzGlContextPtr, shader_type: u32) -> u32 { glfunctionptr.create_shader(shader_type) }
+#[no_mangle] pub extern "C" fn az_gl_context_ptr_create_shader(glcontextptr: &AzGlContextPtr, shader_type: u32) -> u32 { glcontextptr.create_shader(shader_type) }
 // Equivalent to the Rust `GlContextPtr::delete_shader()` function.
-#[no_mangle] pub extern "C" fn az_gl_context_ptr_delete_shader(glcontextptr: &AzGlContextPtr, shader: u32) { glfunctionptr.delete_shader(shader) }
+#[no_mangle] pub extern "C" fn az_gl_context_ptr_delete_shader(glcontextptr: &AzGlContextPtr, shader: u32) { glcontextptr.delete_shader(shader) }
 // Equivalent to the Rust `GlContextPtr::detach_shader()` function.
-#[no_mangle] pub extern "C" fn az_gl_context_ptr_detach_shader(glcontextptr: &AzGlContextPtr, program: u32, shader: u32) { glfunctionptr.detach_shader(program, shader) }
+#[no_mangle] pub extern "C" fn az_gl_context_ptr_detach_shader(glcontextptr: &AzGlContextPtr, program: u32, shader: u32) { glcontextptr.detach_shader(program, shader) }
 // Equivalent to the Rust `GlContextPtr::link_program()` function.
-#[no_mangle] pub extern "C" fn az_gl_context_ptr_link_program(glcontextptr: &AzGlContextPtr, program: u32) { glfunctionptr.link_program(program) }
+#[no_mangle] pub extern "C" fn az_gl_context_ptr_link_program(glcontextptr: &AzGlContextPtr, program: u32) { glcontextptr.link_program(program) }
 // Equivalent to the Rust `GlContextPtr::clear_color()` function.
-#[no_mangle] pub extern "C" fn az_gl_context_ptr_clear_color(glcontextptr: &AzGlContextPtr, r: f32, g: f32, b: f32, a: f32) { glfunctionptr.clear_color(r, g, b, a) }
+#[no_mangle] pub extern "C" fn az_gl_context_ptr_clear_color(glcontextptr: &AzGlContextPtr, r: f32, g: f32, b: f32, a: f32) { glcontextptr.clear_color(r, g, b, a) }
 // Equivalent to the Rust `GlContextPtr::clear()` function.
-#[no_mangle] pub extern "C" fn az_gl_context_ptr_clear(glcontextptr: &AzGlContextPtr, buffer_mask: u32) { glfunctionptr.clear(buffer_mask) }
+#[no_mangle] pub extern "C" fn az_gl_context_ptr_clear(glcontextptr: &AzGlContextPtr, buffer_mask: u32) { glcontextptr.clear(buffer_mask) }
 // Equivalent to the Rust `GlContextPtr::clear_depth()` function.
-#[no_mangle] pub extern "C" fn az_gl_context_ptr_clear_depth(glcontextptr: &AzGlContextPtr, depth: f64) { glfunctionptr.clear_depth(depth) }
+#[no_mangle] pub extern "C" fn az_gl_context_ptr_clear_depth(glcontextptr: &AzGlContextPtr, depth: f64) { glcontextptr.clear_depth(depth) }
 // Equivalent to the Rust `GlContextPtr::clear_stencil()` function.
-#[no_mangle] pub extern "C" fn az_gl_context_ptr_clear_stencil(glcontextptr: &AzGlContextPtr, s: i32) { glfunctionptr.clear_stencil(s) }
+#[no_mangle] pub extern "C" fn az_gl_context_ptr_clear_stencil(glcontextptr: &AzGlContextPtr, s: i32) { glcontextptr.clear_stencil(s) }
 // Equivalent to the Rust `GlContextPtr::flush()` function.
-#[no_mangle] pub extern "C" fn az_gl_context_ptr_flush(glcontextptr: &AzGlContextPtr) { glfunctionptr.flush() }
+#[no_mangle] pub extern "C" fn az_gl_context_ptr_flush(glcontextptr: &AzGlContextPtr) { glcontextptr.flush() }
 // Equivalent to the Rust `GlContextPtr::finish()` function.
-#[no_mangle] pub extern "C" fn az_gl_context_ptr_finish(glcontextptr: &AzGlContextPtr) { glfunctionptr.finish() }
+#[no_mangle] pub extern "C" fn az_gl_context_ptr_finish(glcontextptr: &AzGlContextPtr) { glcontextptr.finish() }
 // Equivalent to the Rust `GlContextPtr::get_error()` function.
-#[no_mangle] pub extern "C" fn az_gl_context_ptr_get_error(glcontextptr: &AzGlContextPtr) -> u32 { glfunctionptr.get_error() }
+#[no_mangle] pub extern "C" fn az_gl_context_ptr_get_error(glcontextptr: &AzGlContextPtr) -> u32 { glcontextptr.get_error() }
 // Equivalent to the Rust `GlContextPtr::stencil_mask()` function.
-#[no_mangle] pub extern "C" fn az_gl_context_ptr_stencil_mask(glcontextptr: &AzGlContextPtr, mask: u32) { glfunctionptr.stencil_mask(mask) }
+#[no_mangle] pub extern "C" fn az_gl_context_ptr_stencil_mask(glcontextptr: &AzGlContextPtr, mask: u32) { glcontextptr.stencil_mask(mask) }
 // Equivalent to the Rust `GlContextPtr::stencil_mask_separate()` function.
-#[no_mangle] pub extern "C" fn az_gl_context_ptr_stencil_mask_separate(glcontextptr: &AzGlContextPtr, face: u32, mask: u32) { glfunctionptr.stencil_mask_separate(face, mask) }
+#[no_mangle] pub extern "C" fn az_gl_context_ptr_stencil_mask_separate(glcontextptr: &AzGlContextPtr, face: u32, mask: u32) { glcontextptr.stencil_mask_separate(face, mask) }
 // Equivalent to the Rust `GlContextPtr::stencil_func()` function.
-#[no_mangle] pub extern "C" fn az_gl_context_ptr_stencil_func(glcontextptr: &AzGlContextPtr, func: u32, ref_: i32, mask: u32) { glfunctionptr.stencil_func(func, ref_, mask) }
+#[no_mangle] pub extern "C" fn az_gl_context_ptr_stencil_func(glcontextptr: &AzGlContextPtr, func: u32, ref_: i32, mask: u32) { glcontextptr.stencil_func(func, ref_, mask) }
 // Equivalent to the Rust `GlContextPtr::stencil_func_separate()` function.
-#[no_mangle] pub extern "C" fn az_gl_context_ptr_stencil_func_separate(glcontextptr: &AzGlContextPtr, face: u32, func: u32, ref_: i32, mask: u32) { glfunctionptr.stencil_func_separate(face, func, ref_, mask) }
+#[no_mangle] pub extern "C" fn az_gl_context_ptr_stencil_func_separate(glcontextptr: &AzGlContextPtr, face: u32, func: u32, ref_: i32, mask: u32) { glcontextptr.stencil_func_separate(face, func, ref_, mask) }
 // Equivalent to the Rust `GlContextPtr::stencil_op()` function.
-#[no_mangle] pub extern "C" fn az_gl_context_ptr_stencil_op(glcontextptr: &AzGlContextPtr, sfail: u32, dpfail: u32, dppass: u32) { glfunctionptr.stencil_op(sfail, dpfail, dppass) }
+#[no_mangle] pub extern "C" fn az_gl_context_ptr_stencil_op(glcontextptr: &AzGlContextPtr, sfail: u32, dpfail: u32, dppass: u32) { glcontextptr.stencil_op(sfail, dpfail, dppass) }
 // Equivalent to the Rust `GlContextPtr::stencil_op_separate()` function.
-#[no_mangle] pub extern "C" fn az_gl_context_ptr_stencil_op_separate(glcontextptr: &AzGlContextPtr, face: u32, sfail: u32, dpfail: u32, dppass: u32) { glfunctionptr.stencil_op_separate(face, sfail, dpfail, dppass) }
+#[no_mangle] pub extern "C" fn az_gl_context_ptr_stencil_op_separate(glcontextptr: &AzGlContextPtr, face: u32, sfail: u32, dpfail: u32, dppass: u32) { glcontextptr.stencil_op_separate(face, sfail, dpfail, dppass) }
 // Equivalent to the Rust `GlContextPtr::egl_image_target_texture2d_oes()` function.
-#[no_mangle] pub extern "C" fn az_gl_context_ptr_egl_image_target_texture2d_oes(glcontextptr: &AzGlContextPtr, target: u32, image: *const c_void) { glfunctionptr.egl_image_target_texture2d_oes(target, image) }
+#[no_mangle] pub extern "C" fn az_gl_context_ptr_egl_image_target_texture2d_oes(glcontextptr: &AzGlContextPtr, target: u32, image: *const c_void) { glcontextptr.egl_image_target_texture2d_oes(target, image) }
 // Equivalent to the Rust `GlContextPtr::generate_mipmap()` function.
-#[no_mangle] pub extern "C" fn az_gl_context_ptr_generate_mipmap(glcontextptr: &AzGlContextPtr, target: u32) { glfunctionptr.generate_mipmap(target) }
+#[no_mangle] pub extern "C" fn az_gl_context_ptr_generate_mipmap(glcontextptr: &AzGlContextPtr, target: u32) { glcontextptr.generate_mipmap(target) }
 // Equivalent to the Rust `GlContextPtr::insert_event_marker_ext()` function.
-#[no_mangle] pub extern "C" fn az_gl_context_ptr_insert_event_marker_ext(glcontextptr: &AzGlContextPtr, message: AzRefstr) { glfunctionptr.insert_event_marker_ext(message) }
+#[no_mangle] pub extern "C" fn az_gl_context_ptr_insert_event_marker_ext(glcontextptr: &AzGlContextPtr, message: AzRefstr) { glcontextptr.insert_event_marker_ext(message) }
 // Equivalent to the Rust `GlContextPtr::push_group_marker_ext()` function.
-#[no_mangle] pub extern "C" fn az_gl_context_ptr_push_group_marker_ext(glcontextptr: &AzGlContextPtr, message: AzRefstr) { glfunctionptr.push_group_marker_ext(message) }
+#[no_mangle] pub extern "C" fn az_gl_context_ptr_push_group_marker_ext(glcontextptr: &AzGlContextPtr, message: AzRefstr) { glcontextptr.push_group_marker_ext(message) }
 // Equivalent to the Rust `GlContextPtr::pop_group_marker_ext()` function.
-#[no_mangle] pub extern "C" fn az_gl_context_ptr_pop_group_marker_ext(glcontextptr: &AzGlContextPtr) { glfunctionptr.pop_group_marker_ext() }
+#[no_mangle] pub extern "C" fn az_gl_context_ptr_pop_group_marker_ext(glcontextptr: &AzGlContextPtr) { glcontextptr.pop_group_marker_ext() }
 // Equivalent to the Rust `GlContextPtr::debug_message_insert_khr()` function.
-#[no_mangle] pub extern "C" fn az_gl_context_ptr_debug_message_insert_khr(glcontextptr: &AzGlContextPtr, source: u32, type_: u32, id: u32, severity: u32, message: AzRefstr) { glfunctionptr.debug_message_insert_khr(source, type_, id, severity, message) }
+#[no_mangle] pub extern "C" fn az_gl_context_ptr_debug_message_insert_khr(glcontextptr: &AzGlContextPtr, source: u32, type_: u32, id: u32, severity: u32, message: AzRefstr) { glcontextptr.debug_message_insert_khr(source, type_, id, severity, message) }
 // Equivalent to the Rust `GlContextPtr::push_debug_group_khr()` function.
-#[no_mangle] pub extern "C" fn az_gl_context_ptr_push_debug_group_khr(glcontextptr: &AzGlContextPtr, source: u32, id: u32, message: AzRefstr) { glfunctionptr.push_debug_group_khr(source, id, message) }
+#[no_mangle] pub extern "C" fn az_gl_context_ptr_push_debug_group_khr(glcontextptr: &AzGlContextPtr, source: u32, id: u32, message: AzRefstr) { glcontextptr.push_debug_group_khr(source, id, message) }
 // Equivalent to the Rust `GlContextPtr::pop_debug_group_khr()` function.
-#[no_mangle] pub extern "C" fn az_gl_context_ptr_pop_debug_group_khr(glcontextptr: &AzGlContextPtr) { glfunctionptr.pop_debug_group_khr() }
+#[no_mangle] pub extern "C" fn az_gl_context_ptr_pop_debug_group_khr(glcontextptr: &AzGlContextPtr) { glcontextptr.pop_debug_group_khr() }
 // Equivalent to the Rust `GlContextPtr::fence_sync()` function.
-#[no_mangle] pub extern "C" fn az_gl_context_ptr_fence_sync(glcontextptr: &AzGlContextPtr, condition: u32, flags: u32) -> AzGLsyncPtr { glfunctionptr.fence_sync(condition, flags) }
+#[no_mangle] pub extern "C" fn az_gl_context_ptr_fence_sync(glcontextptr: &AzGlContextPtr, condition: u32, flags: u32) -> AzGLsyncPtr { glcontextptr.fence_sync(condition, flags) }
 // Equivalent to the Rust `GlContextPtr::client_wait_sync()` function.
-#[no_mangle] pub extern "C" fn az_gl_context_ptr_client_wait_sync(glcontextptr: &AzGlContextPtr, sync: AzGLsyncPtr, flags: u32, timeout: u64) { glfunctionptr.client_wait_sync(sync, flags, timeout) }
+#[no_mangle] pub extern "C" fn az_gl_context_ptr_client_wait_sync(glcontextptr: &AzGlContextPtr, sync: AzGLsyncPtr, flags: u32, timeout: u64) { glcontextptr.client_wait_sync(sync, flags, timeout) }
 // Equivalent to the Rust `GlContextPtr::wait_sync()` function.
-#[no_mangle] pub extern "C" fn az_gl_context_ptr_wait_sync(glcontextptr: &AzGlContextPtr, sync: AzGLsyncPtr, flags: u32, timeout: u64) { glfunctionptr.wait_sync(sync, flags, timeout) }
+#[no_mangle] pub extern "C" fn az_gl_context_ptr_wait_sync(glcontextptr: &AzGlContextPtr, sync: AzGLsyncPtr, flags: u32, timeout: u64) { glcontextptr.wait_sync(sync, flags, timeout) }
 // Equivalent to the Rust `GlContextPtr::delete_sync()` function.
-#[no_mangle] pub extern "C" fn az_gl_context_ptr_delete_sync(glcontextptr: &AzGlContextPtr, sync: AzGLsyncPtr) { glfunctionptr.delete_sync(sync) }
+#[no_mangle] pub extern "C" fn az_gl_context_ptr_delete_sync(glcontextptr: &AzGlContextPtr, sync: AzGLsyncPtr) { glcontextptr.delete_sync(sync) }
 // Equivalent to the Rust `GlContextPtr::texture_range_apple()` function.
-#[no_mangle] pub extern "C" fn az_gl_context_ptr_texture_range_apple(glcontextptr: &AzGlContextPtr, target: u32, data: AzU8VecRef) { glfunctionptr.texture_range_apple(target, data) }
+#[no_mangle] pub extern "C" fn az_gl_context_ptr_texture_range_apple(glcontextptr: &AzGlContextPtr, target: u32, data: AzU8VecRef) { glcontextptr.texture_range_apple(target, data) }
 // Equivalent to the Rust `GlContextPtr::gen_fences_apple()` function.
-#[no_mangle] pub extern "C" fn az_gl_context_ptr_gen_fences_apple(glcontextptr: &AzGlContextPtr, n: i32) -> AzGLuintVec { glfunctionptr.gen_fences_apple(n) }
+#[no_mangle] pub extern "C" fn az_gl_context_ptr_gen_fences_apple(glcontextptr: &AzGlContextPtr, n: i32) -> AzGLuintVec { glcontextptr.gen_fences_apple(n) }
 // Equivalent to the Rust `GlContextPtr::delete_fences_apple()` function.
-#[no_mangle] pub extern "C" fn az_gl_context_ptr_delete_fences_apple(glcontextptr: &AzGlContextPtr, fences: AzGLuintVecRef) { glfunctionptr.delete_fences_apple(fences) }
+#[no_mangle] pub extern "C" fn az_gl_context_ptr_delete_fences_apple(glcontextptr: &AzGlContextPtr, fences: AzGLuintVecRef) { glcontextptr.delete_fences_apple(fences) }
 // Equivalent to the Rust `GlContextPtr::set_fence_apple()` function.
-#[no_mangle] pub extern "C" fn az_gl_context_ptr_set_fence_apple(glcontextptr: &AzGlContextPtr, fence: u32) { glfunctionptr.set_fence_apple(fence) }
+#[no_mangle] pub extern "C" fn az_gl_context_ptr_set_fence_apple(glcontextptr: &AzGlContextPtr, fence: u32) { glcontextptr.set_fence_apple(fence) }
 // Equivalent to the Rust `GlContextPtr::finish_fence_apple()` function.
-#[no_mangle] pub extern "C" fn az_gl_context_ptr_finish_fence_apple(glcontextptr: &AzGlContextPtr, fence: u32) { glfunctionptr.finish_fence_apple(fence) }
+#[no_mangle] pub extern "C" fn az_gl_context_ptr_finish_fence_apple(glcontextptr: &AzGlContextPtr, fence: u32) { glcontextptr.finish_fence_apple(fence) }
 // Equivalent to the Rust `GlContextPtr::test_fence_apple()` function.
-#[no_mangle] pub extern "C" fn az_gl_context_ptr_test_fence_apple(glcontextptr: &AzGlContextPtr, fence: u32) { glfunctionptr.test_fence_apple(fence) }
+#[no_mangle] pub extern "C" fn az_gl_context_ptr_test_fence_apple(glcontextptr: &AzGlContextPtr, fence: u32) { glcontextptr.test_fence_apple(fence) }
 // Equivalent to the Rust `GlContextPtr::test_object_apple()` function.
-#[no_mangle] pub extern "C" fn az_gl_context_ptr_test_object_apple(glcontextptr: &AzGlContextPtr, object: u32, name: u32) -> u8 { glfunctionptr.test_object_apple(object, name) }
+#[no_mangle] pub extern "C" fn az_gl_context_ptr_test_object_apple(glcontextptr: &AzGlContextPtr, object: u32, name: u32) -> u8 { glcontextptr.test_object_apple(object, name) }
 // Equivalent to the Rust `GlContextPtr::finish_object_apple()` function.
-#[no_mangle] pub extern "C" fn az_gl_context_ptr_finish_object_apple(glcontextptr: &AzGlContextPtr, object: u32, name: u32) { glfunctionptr.finish_object_apple(object, name) }
+#[no_mangle] pub extern "C" fn az_gl_context_ptr_finish_object_apple(glcontextptr: &AzGlContextPtr, object: u32, name: u32) { glcontextptr.finish_object_apple(object, name) }
 // Equivalent to the Rust `GlContextPtr::get_frag_data_index()` function.
-#[no_mangle] pub extern "C" fn az_gl_context_ptr_get_frag_data_index(glcontextptr: &AzGlContextPtr, program: u32, name: AzRefstr) -> i32 { glfunctionptr.get_frag_data_index(program, name) }
+#[no_mangle] pub extern "C" fn az_gl_context_ptr_get_frag_data_index(glcontextptr: &AzGlContextPtr, program: u32, name: AzRefstr) -> i32 { glcontextptr.get_frag_data_index(program, name) }
 // Equivalent to the Rust `GlContextPtr::blend_barrier_khr()` function.
-#[no_mangle] pub extern "C" fn az_gl_context_ptr_blend_barrier_khr(glcontextptr: &AzGlContextPtr) { glfunctionptr.blend_barrier_khr() }
+#[no_mangle] pub extern "C" fn az_gl_context_ptr_blend_barrier_khr(glcontextptr: &AzGlContextPtr) { glcontextptr.blend_barrier_khr() }
 // Equivalent to the Rust `GlContextPtr::bind_frag_data_location_indexed()` function.
-#[no_mangle] pub extern "C" fn az_gl_context_ptr_bind_frag_data_location_indexed(glcontextptr: &AzGlContextPtr, program: u32, color_number: u32, index: u32, name: AzRefstr) { glfunctionptr.bind_frag_data_location_indexed(program, color_number, index, name) }
+#[no_mangle] pub extern "C" fn az_gl_context_ptr_bind_frag_data_location_indexed(glcontextptr: &AzGlContextPtr, program: u32, color_number: u32, index: u32, name: AzRefstr) { glcontextptr.bind_frag_data_location_indexed(program, color_number, index, name) }
 // Equivalent to the Rust `GlContextPtr::get_debug_messages()` function.
-#[no_mangle] pub extern "C" fn az_gl_context_ptr_get_debug_messages(glcontextptr: &AzGlContextPtr) -> AzDebugMessageVec { glfunctionptr.get_debug_messages() }
+#[no_mangle] pub extern "C" fn az_gl_context_ptr_get_debug_messages(glcontextptr: &AzGlContextPtr) -> AzDebugMessageVec { glcontextptr.get_debug_messages() }
 // Equivalent to the Rust `GlContextPtr::provoking_vertex_angle()` function.
-#[no_mangle] pub extern "C" fn az_gl_context_ptr_provoking_vertex_angle(glcontextptr: &AzGlContextPtr, mode: u32) { glfunctionptr.provoking_vertex_angle(mode) }
+#[no_mangle] pub extern "C" fn az_gl_context_ptr_provoking_vertex_angle(glcontextptr: &AzGlContextPtr, mode: u32) { glcontextptr.provoking_vertex_angle(mode) }
 // Equivalent to the Rust `GlContextPtr::gen_vertex_arrays_apple()` function.
-#[no_mangle] pub extern "C" fn az_gl_context_ptr_gen_vertex_arrays_apple(glcontextptr: &AzGlContextPtr, n: i32) -> AzGLuintVec { glfunctionptr.gen_vertex_arrays_apple(n) }
+#[no_mangle] pub extern "C" fn az_gl_context_ptr_gen_vertex_arrays_apple(glcontextptr: &AzGlContextPtr, n: i32) -> AzGLuintVec { glcontextptr.gen_vertex_arrays_apple(n) }
 // Equivalent to the Rust `GlContextPtr::bind_vertex_array_apple()` function.
-#[no_mangle] pub extern "C" fn az_gl_context_ptr_bind_vertex_array_apple(glcontextptr: &AzGlContextPtr, vao: u32) { glfunctionptr.bind_vertex_array_apple(vao) }
+#[no_mangle] pub extern "C" fn az_gl_context_ptr_bind_vertex_array_apple(glcontextptr: &AzGlContextPtr, vao: u32) { glcontextptr.bind_vertex_array_apple(vao) }
 // Equivalent to the Rust `GlContextPtr::delete_vertex_arrays_apple()` function.
-#[no_mangle] pub extern "C" fn az_gl_context_ptr_delete_vertex_arrays_apple(glcontextptr: &AzGlContextPtr, vertex_arrays: AzGLuintVecRef) { glfunctionptr.delete_vertex_arrays_apple(vertex_arrays) }
+#[no_mangle] pub extern "C" fn az_gl_context_ptr_delete_vertex_arrays_apple(glcontextptr: &AzGlContextPtr, vertex_arrays: AzGLuintVecRef) { glcontextptr.delete_vertex_arrays_apple(vertex_arrays) }
 // Equivalent to the Rust `GlContextPtr::copy_texture_chromium()` function.
-#[no_mangle] pub extern "C" fn az_gl_context_ptr_copy_texture_chromium(glcontextptr: &AzGlContextPtr, source_id: u32, source_level: i32, dest_target: u32, dest_id: u32, dest_level: i32, internal_format: i32, dest_type: u32, unpack_flip_y: u8, unpack_premultiply_alpha: u8, unpack_unmultiply_alpha: u8) { glfunctionptr.copy_texture_chromium(source_id, source_level, dest_target, dest_id, dest_level, internal_format, dest_type, unpack_flip_y, unpack_premultiply_alpha, unpack_unmultiply_alpha) }
+#[no_mangle] pub extern "C" fn az_gl_context_ptr_copy_texture_chromium(glcontextptr: &AzGlContextPtr, source_id: u32, source_level: i32, dest_target: u32, dest_id: u32, dest_level: i32, internal_format: i32, dest_type: u32, unpack_flip_y: u8, unpack_premultiply_alpha: u8, unpack_unmultiply_alpha: u8) { glcontextptr.copy_texture_chromium(source_id, source_level, dest_target, dest_id, dest_level, internal_format, dest_type, unpack_flip_y, unpack_premultiply_alpha, unpack_unmultiply_alpha) }
 // Equivalent to the Rust `GlContextPtr::copy_sub_texture_chromium()` function.
-#[no_mangle] pub extern "C" fn az_gl_context_ptr_copy_sub_texture_chromium(glcontextptr: &AzGlContextPtr, source_id: u32, source_level: i32, dest_target: u32, dest_id: u32, dest_level: i32, x_offset: i32, y_offset: i32, x: i32, y: i32, width: i32, height: i32, unpack_flip_y: u8, unpack_premultiply_alpha: u8, unpack_unmultiply_alpha: u8) { glfunctionptr.copy_sub_texture_chromium(source_id, source_level, dest_target, dest_id, dest_level, x_offset, y_offset, x, y, width, height, unpack_flip_y, unpack_premultiply_alpha, unpack_unmultiply_alpha) }
+#[no_mangle] pub extern "C" fn az_gl_context_ptr_copy_sub_texture_chromium(glcontextptr: &AzGlContextPtr, source_id: u32, source_level: i32, dest_target: u32, dest_id: u32, dest_level: i32, x_offset: i32, y_offset: i32, x: i32, y: i32, width: i32, height: i32, unpack_flip_y: u8, unpack_premultiply_alpha: u8, unpack_unmultiply_alpha: u8) { glcontextptr.copy_sub_texture_chromium(source_id, source_level, dest_target, dest_id, dest_level, x_offset, y_offset, x, y, width, height, unpack_flip_y, unpack_premultiply_alpha, unpack_unmultiply_alpha) }
 // Equivalent to the Rust `GlContextPtr::egl_image_target_renderbuffer_storage_oes()` function.
-#[no_mangle] pub extern "C" fn az_gl_context_ptr_egl_image_target_renderbuffer_storage_oes(glcontextptr: &AzGlContextPtr, target: u32, image: *const c_void) { glfunctionptr.egl_image_target_renderbuffer_storage_oes(target, image) }
+#[no_mangle] pub extern "C" fn az_gl_context_ptr_egl_image_target_renderbuffer_storage_oes(glcontextptr: &AzGlContextPtr, target: u32, image: *const c_void) { glcontextptr.egl_image_target_renderbuffer_storage_oes(target, image) }
 // Equivalent to the Rust `GlContextPtr::copy_texture_3d_angle()` function.
-#[no_mangle] pub extern "C" fn az_gl_context_ptr_copy_texture_3d_angle(glcontextptr: &AzGlContextPtr, source_id: u32, source_level: i32, dest_target: u32, dest_id: u32, dest_level: i32, internal_format: i32, dest_type: u32, unpack_flip_y: u8, unpack_premultiply_alpha: u8, unpack_unmultiply_alpha: u8) { glfunctionptr.copy_texture_3d_angle(source_id, source_level, dest_target, dest_id, dest_level, internal_format, dest_type, unpack_flip_y, unpack_premultiply_alpha, unpack_unmultiply_alpha) }
+#[no_mangle] pub extern "C" fn az_gl_context_ptr_copy_texture_3d_angle(glcontextptr: &AzGlContextPtr, source_id: u32, source_level: i32, dest_target: u32, dest_id: u32, dest_level: i32, internal_format: i32, dest_type: u32, unpack_flip_y: u8, unpack_premultiply_alpha: u8, unpack_unmultiply_alpha: u8) { glcontextptr.copy_texture_3d_angle(source_id, source_level, dest_target, dest_id, dest_level, internal_format, dest_type, unpack_flip_y, unpack_premultiply_alpha, unpack_unmultiply_alpha) }
 // Equivalent to the Rust `GlContextPtr::copy_sub_texture_3d_angle()` function.
-#[no_mangle] pub extern "C" fn az_gl_context_ptr_copy_sub_texture_3d_angle(glcontextptr: &AzGlContextPtr, source_id: u32, source_level: i32, dest_target: u32, dest_id: u32, dest_level: i32, x_offset: i32, y_offset: i32, z_offset: i32, x: i32, y: i32, z: i32, width: i32, height: i32, depth: i32, unpack_flip_y: u8, unpack_premultiply_alpha: u8, unpack_unmultiply_alpha: u8) { glfunctionptr.copy_sub_texture_3d_angle(source_id, source_level, dest_target, dest_id, dest_level, x_offset, y_offset, z_offset, x, y, z, width, height, depth, unpack_flip_y, unpack_premultiply_alpha, unpack_unmultiply_alpha) }
+#[no_mangle] pub extern "C" fn az_gl_context_ptr_copy_sub_texture_3d_angle(glcontextptr: &AzGlContextPtr, source_id: u32, source_level: i32, dest_target: u32, dest_id: u32, dest_level: i32, x_offset: i32, y_offset: i32, z_offset: i32, x: i32, y: i32, z: i32, width: i32, height: i32, depth: i32, unpack_flip_y: u8, unpack_premultiply_alpha: u8, unpack_unmultiply_alpha: u8) { glcontextptr.copy_sub_texture_3d_angle(source_id, source_level, dest_target, dest_id, dest_level, x_offset, y_offset, z_offset, x, y, z, width, height, depth, unpack_flip_y, unpack_premultiply_alpha, unpack_unmultiply_alpha) }
 /// Destructor: Takes ownership of the `GlContextPtr` pointer and deletes it.
 #[no_mangle] #[allow(unused_variables)] pub extern "C" fn az_gl_context_ptr_delete(object: &mut AzGlContextPtr) { }
 /// Clones the object

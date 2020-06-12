@@ -82,7 +82,7 @@
 				},
 				"DebugMessageVec": {
 					"doc": "Wrapper over a Rust-allocated `Vec<DebugMessage>`",
-					"external": "azul_impl::gl::DebugMessageVec",
+					"external": "azul_impl::gl::AzDebugMessageVec",
 					"struct_fields": [
 						{ "ptr": { "type": "*const DebugMessage" } },
 						{ "len": { "type": "usize" } },
@@ -3013,98 +3013,98 @@
 					            {"self": "ref"},
 					            {"target": "u32"}, {"level": "i32"}, {"xoffset": "i32"}, {"yoffset": "i32"}, {"zoffset": "i32"}, {"width": "i32"}, {"height": "i32"}, {"depth": "i32"}, {"format": "u32"}, {"ty": "u32"}, {"offset": "usize"}
 					        ],
-					        "fn_body": "glfunctionptr.tex_sub_image_3d_pbo(target, level, xoffset, yoffset, zoffset, width, height, depth, format, ty, offset)"
+					        "fn_body": "glcontextptr.tex_sub_image_3d_pbo(target, level, xoffset, yoffset, zoffset, width, height, depth, format, ty, offset)"
 					    },
 					    "tex_storage_2d": {
 					        "fn_args": [
 					            {"self": "ref"},
 					            {"target": "u32"}, {"levels": "i32"}, {"internal_format": "u32"}, {"width": "i32"}, {"height": "i32"}
 					        ],
-					        "fn_body": "glfunctionptr.tex_storage_2d(target, levels, internal_format, width, height)"
+					        "fn_body": "glcontextptr.tex_storage_2d(target, levels, internal_format, width, height)"
 					    },
 					    "tex_storage_3d": {
 					        "fn_args": [
 					            {"self": "ref"},
 					            {"target": "u32"}, {"levels": "i32"}, {"internal_format": "u32"}, {"width": "i32"}, {"height": "i32"}, {"depth": "i32"}
 					        ],
-					        "fn_body": "glfunctionptr.tex_storage_3d(target, levels, internal_format, width, height, depth)"
+					        "fn_body": "glcontextptr.tex_storage_3d(target, levels, internal_format, width, height, depth)"
 					    },
 					    "get_tex_image_into_buffer": {
 					        "fn_args": [
 					            {"self": "ref"},
 					            {"target": "u32"}, {"level": "i32"}, {"format": "u32"}, {"ty": "u32"}, {"output": "U8VecRefMut"}
 					        ],
-					        "fn_body": "glfunctionptr.get_tex_image_into_buffer(target, level, format, ty, output)"
+					        "fn_body": "glcontextptr.get_tex_image_into_buffer(target, level, format, ty, output)"
 					    },
 					    "copy_image_sub_data": {
 					        "fn_args": [
 					            {"self": "ref"},
 					            {"src_name": "u32"}, {"src_target": "u32"}, {"src_level": "i32"}, {"src_x": "i32"}, {"src_y": "i32"}, {"src_z": "i32"}, {"dst_name": "u32"}, {"dst_target": "u32"}, {"dst_level": "i32"}, {"dst_x": "i32"}, {"dst_y": "i32"}, {"dst_z": "i32"}, {"src_width": "i32"}, {"src_height": "i32"}, {"src_depth": "i32"}
 					        ],
-					        "fn_body": "glfunctionptr.copy_image_sub_data(src_name, src_target, src_level, src_x, src_y, src_z, dst_name, dst_target, dst_level, dst_x, dst_y, dst_z, src_width, src_height, src_depth)"
+					        "fn_body": "glcontextptr.copy_image_sub_data(src_name, src_target, src_level, src_x, src_y, src_z, dst_name, dst_target, dst_level, dst_x, dst_y, dst_z, src_width, src_height, src_depth)"
 					    },
 					    "invalidate_framebuffer": {
 					        "fn_args": [
 					            {"self": "ref"},
 					            {"target": "u32"}, {"attachments": "GLuintVecRef"}
 					        ],
-					        "fn_body": "glfunctionptr.invalidate_framebuffer(target, attachments)"
+					        "fn_body": "glcontextptr.invalidate_framebuffer(target, attachments)"
 					    },
 					    "invalidate_sub_framebuffer": {
 					        "fn_args": [
 					            {"self": "ref"},
 					            {"target": "u32"}, {"attachments": "GLuintVecRef"}, {"xoffset": "i32"}, {"yoffset": "i32"}, {"width": "i32"}, {"height": "i32"}
 					        ],
-					        "fn_body": "glfunctionptr.invalidate_sub_framebuffer(target, attachments, xoffset, yoffset, width, height)"
+					        "fn_body": "glcontextptr.invalidate_sub_framebuffer(target, attachments, xoffset, yoffset, width, height)"
 					    },
 					    "get_integer_v": {
 					        "fn_args": [
 					            {"self": "ref"},
 					            {"name": "u32"}, {"result": "GLintVecRefMut"}
 					        ],
-					        "fn_body": "glfunctionptr.get_integer_v(name, result)"
+					        "fn_body": "glcontextptr.get_integer_v(name, result)"
 					    },
 					    "get_integer_64v": {
 					        "fn_args": [
 					            {"self": "ref"},
 					            {"name": "u32"}, {"result": "GLint64VecRefMut"}
 					        ],
-					        "fn_body": "glfunctionptr.get_integer_64v(name, result)"
+					        "fn_body": "glcontextptr.get_integer_64v(name, result)"
 					    },
 					    "get_integer_iv": {
 					        "fn_args": [
 					            {"self": "ref"},
 					            {"name": "u32"}, {"index": "u32"}, {"result": "GLintVecRefMut"}
 					        ],
-					        "fn_body": "glfunctionptr.get_integer_iv(name, index, result)"
+					        "fn_body": "glcontextptr.get_integer_iv(name, index, result)"
 					    },
 					    "get_integer_64iv": {
 					        "fn_args": [
 					            {"self": "ref"},
 					            {"name": "u32"}, {"index": "u32"}, {"result": "GLint64VecRefMut"}
 					        ],
-					        "fn_body": "glfunctionptr.get_integer_64iv(name, index, result)"
+					        "fn_body": "glcontextptr.get_integer_64iv(name, index, result)"
 					    },
 					    "get_boolean_v": {
 					        "fn_args": [
 					            {"self": "ref"},
 					            {"name": "u32"}, {"result": "GLbooleanVecRefMut"}
 					        ],
-					        "fn_body": "glfunctionptr.get_boolean_v(name, result)"
+					        "fn_body": "glcontextptr.get_boolean_v(name, result)"
 					    },
 					    "get_float_v": {
 					        "fn_args": [
 					            {"self": "ref"},
 					            {"name": "u32"}, {"result": "GLfloatVecRefMut"}
 					        ],
-					        "fn_body": "glfunctionptr.get_float_v(name, result)"
+					        "fn_body": "glcontextptr.get_float_v(name, result)"
 					    },
 					    "get_framebuffer_attachment_parameter_iv": {
 					        "fn_args": [
 					            {"self": "ref"},
 					            {"target": "u32"}, {"attachment": "u32"}, {"pname": "u32"}
 					        ],
-					        "fn_body": "glfunctionptr.get_framebuffer_attachment_parameter_iv(target, attachment, pname)",
+					        "fn_body": "glcontextptr.get_framebuffer_attachment_parameter_iv(target, attachment, pname)",
 					        "returns": "i32"
 					    },
 					    "get_renderbuffer_parameter_iv": {
@@ -3112,7 +3112,7 @@
 					            {"self": "ref"},
 					            {"target": "u32"}, {"pname": "u32"}
 					        ],
-					        "fn_body": "glfunctionptr.get_renderbuffer_parameter_iv(target, pname)",
+					        "fn_body": "glcontextptr.get_renderbuffer_parameter_iv(target, pname)",
 					        "returns": "i32"
 					    },
 					    "get_tex_parameter_iv": {
@@ -3120,7 +3120,7 @@
 					            {"self": "ref"},
 					            {"target": "u32"}, {"name": "u32"}
 					        ],
-					        "fn_body": "glfunctionptr.get_tex_parameter_iv(target, name)",
+					        "fn_body": "glcontextptr.get_tex_parameter_iv(target, name)",
 					        "returns": "i32"
 					    },
 					    "get_tex_parameter_fv": {
@@ -3128,7 +3128,7 @@
 					            {"self": "ref"},
 					            {"target": "u32"}, {"name": "u32"}
 					        ],
-					        "fn_body": "glfunctionptr.get_tex_parameter_fv(target, name)",
+					        "fn_body": "glcontextptr.get_tex_parameter_fv(target, name)",
 					        "returns": "f32"
 					    },
 					    "tex_parameter_i": {
@@ -3136,70 +3136,70 @@
 					            {"self": "ref"},
 					            {"target": "u32"}, {"pname": "u32"}, {"param": "i32"}
 					        ],
-					        "fn_body": "glfunctionptr.tex_parameter_i(target, pname, param)"
+					        "fn_body": "glcontextptr.tex_parameter_i(target, pname, param)"
 					    },
 					    "tex_parameter_f": {
 					        "fn_args": [
 					            {"self": "ref"},
 					            {"target": "u32"}, {"pname": "u32"}, {"param": "f32"}
 					        ],
-					        "fn_body": "glfunctionptr.tex_parameter_f(target, pname, param)"
+					        "fn_body": "glcontextptr.tex_parameter_f(target, pname, param)"
 					    },
 					    "framebuffer_texture_2d": {
 					        "fn_args": [
 					            {"self": "ref"},
 					            {"target": "u32"}, {"attachment": "u32"}, {"textarget": "u32"}, {"texture": "u32"}, {"level": "i32"}
 					        ],
-					        "fn_body": "glfunctionptr.framebuffer_texture_2d(target, attachment, textarget, texture, level)"
+					        "fn_body": "glcontextptr.framebuffer_texture_2d(target, attachment, textarget, texture, level)"
 					    },
 					    "framebuffer_texture_layer": {
 					        "fn_args": [
 					            {"self": "ref"},
 					            {"target": "u32"}, {"attachment": "u32"}, {"texture": "u32"}, {"level": "i32"}, {"layer": "i32"}
 					        ],
-					        "fn_body": "glfunctionptr.framebuffer_texture_layer(target, attachment, texture, level, layer)"
+					        "fn_body": "glcontextptr.framebuffer_texture_layer(target, attachment, texture, level, layer)"
 					    },
 					    "blit_framebuffer": {
 					        "fn_args": [
 					            {"self": "ref"},
 					            {"src_x0": "i32"}, {"src_y0": "i32"}, {"src_x1": "i32"}, {"src_y1": "i32"}, {"dst_x0": "i32"}, {"dst_y0": "i32"}, {"dst_x1": "i32"}, {"dst_y1": "i32"}, {"mask": "u32"}, {"filter": "u32"}
 					        ],
-					        "fn_body": "glfunctionptr.blit_framebuffer(src_x0, src_y0, src_x1, src_y1, dst_x0, dst_y0, dst_x1, dst_y1, mask, filter)"
+					        "fn_body": "glcontextptr.blit_framebuffer(src_x0, src_y0, src_x1, src_y1, dst_x0, dst_y0, dst_x1, dst_y1, mask, filter)"
 					    },
 					    "vertex_attrib_4f": {
 					        "fn_args": [
 					            {"self": "ref"},
 					            {"index": "u32"}, {"x": "f32"}, {"y": "f32"}, {"z": "f32"}, {"w": "f32"}
 					        ],
-					        "fn_body": "glfunctionptr.vertex_attrib_4f(index, x, y, z, w)"
+					        "fn_body": "glcontextptr.vertex_attrib_4f(index, x, y, z, w)"
 					    },
 					    "vertex_attrib_pointer_f32": {
 					        "fn_args": [
 					            {"self": "ref"},
 					            {"index": "u32"}, {"size": "i32"}, {"normalized": "bool"}, {"stride": "i32"}, {"offset": "u32"}
 					        ],
-					        "fn_body": "glfunctionptr.vertex_attrib_pointer_f32(index, size, normalized, stride, offset)"
+					        "fn_body": "glcontextptr.vertex_attrib_pointer_f32(index, size, normalized, stride, offset)"
 					    },
 					    "vertex_attrib_pointer": {
 					        "fn_args": [
 					            {"self": "ref"},
 					            {"index": "u32"}, {"size": "i32"}, {"type_": "u32"}, {"normalized": "bool"}, {"stride": "i32"}, {"offset": "u32"}
 					        ],
-					        "fn_body": "glfunctionptr.vertex_attrib_pointer(index, size, type_, normalized, stride, offset)"
+					        "fn_body": "glcontextptr.vertex_attrib_pointer(index, size, type_, normalized, stride, offset)"
 					    },
 					    "vertex_attrib_i_pointer": {
 					        "fn_args": [
 					            {"self": "ref"},
 					            {"index": "u32"}, {"size": "i32"}, {"type_": "u32"}, {"stride": "i32"}, {"offset": "u32"}
 					        ],
-					        "fn_body": "glfunctionptr.vertex_attrib_i_pointer(index, size, type_, stride, offset)"
+					        "fn_body": "glcontextptr.vertex_attrib_i_pointer(index, size, type_, stride, offset)"
 					    },
 					    "vertex_attrib_divisor": {
 					        "fn_args": [
 					            {"self": "ref"},
 					            {"index": "u32"}, {"divisor": "u32"}
 					        ],
-					        "fn_body": "glfunctionptr.vertex_attrib_divisor(index, divisor)"
+					        "fn_body": "glcontextptr.vertex_attrib_divisor(index, divisor)"
 					    },
 					    "viewport": {
 					        "fn_args": [
@@ -3209,7 +3209,7 @@
 					            {"width": "i32"},
 					            {"height": "i32"}
 					        ],
-					        "fn_body": "glfunctionptr.viewport(x, y, width, height)"
+					        "fn_body": "glcontextptr.viewport(x, y, width, height)"
 					    },
 					    "scissor": {
 					        "fn_args": [
@@ -3219,140 +3219,140 @@
 					            {"width": "i32"},
 					            {"height": "i32"}
 					        ],
-					        "fn_body": "glfunctionptr.scissor(x, y, width, height)"
+					        "fn_body": "glcontextptr.scissor(x, y, width, height)"
 					    },
 					    "line_width": {
 					        "fn_args": [
 					            {"self": "ref"},
 					            {"width": "f32"}
 					        ],
-					        "fn_body": "glfunctionptr.line_width(width)"
+					        "fn_body": "glcontextptr.line_width(width)"
 					    },
 					    "use_program": {
 					        "fn_args": [
 					            {"self": "ref"},
 					            {"program": "u32"}
 					        ],
-					        "fn_body": "glfunctionptr.use_program(program)"
+					        "fn_body": "glcontextptr.use_program(program)"
 					    },
 					    "validate_program": {
 					        "fn_args": [
 					            {"self": "ref"},
 					            {"program": "u32"}
 					        ],
-					        "fn_body": "glfunctionptr.validate_program(program)"
+					        "fn_body": "glcontextptr.validate_program(program)"
 					    },
 					    "draw_arrays": {
 					        "fn_args": [
 					            {"self": "ref"},
 					            {"mode": "u32"}, {"first": "i32"}, {"count": "i32"}
 					        ],
-					        "fn_body": "glfunctionptr.draw_arrays(mode, first, count)"
+					        "fn_body": "glcontextptr.draw_arrays(mode, first, count)"
 					    },
 					    "draw_arrays_instanced": {
 					        "fn_args": [
 					            {"self": "ref"},
 					            {"mode": "u32"}, {"first": "i32"}, {"count": "i32"}, {"primcount": "i32"}
 					        ],
-					        "fn_body": "glfunctionptr.draw_arrays_instanced(mode, first, count, primcount)"
+					        "fn_body": "glcontextptr.draw_arrays_instanced(mode, first, count, primcount)"
 					    },
 					    "draw_elements": {
 					        "fn_args": [
 					            {"self": "ref"},
 					            {"mode": "u32"}, {"count": "i32"}, {"element_type": "u32"}, {"indices_offset": "u32"}
 					        ],
-					        "fn_body": "glfunctionptr.draw_elements(mode, count, element_type, indices_offset)"
+					        "fn_body": "glcontextptr.draw_elements(mode, count, element_type, indices_offset)"
 					    },
 					    "draw_elements_instanced": {
 					        "fn_args": [
 					            {"self": "ref"},
 					            {"mode": "u32"}, {"count": "i32"}, {"element_type": "u32"}, {"indices_offset": "u32"}, {"primcount": "i32"}
 					        ],
-					        "fn_body": "glfunctionptr.draw_elements_instanced(mode, count, element_type, indices_offset, primcount)"
+					        "fn_body": "glcontextptr.draw_elements_instanced(mode, count, element_type, indices_offset, primcount)"
 					    },
 					    "blend_color": {
 					        "fn_args": [
 					            {"self": "ref"},
 					            {"r": "f32"}, {"g": "f32"}, {"b": "f32"}, {"a": "f32"}
 					        ],
-					        "fn_body": "glfunctionptr.blend_color(r, g, b, a)"
+					        "fn_body": "glcontextptr.blend_color(r, g, b, a)"
 					    },
 					    "blend_func": {
 					        "fn_args": [
 					            {"self": "ref"},
 					            {"sfactor": "u32"}, {"dfactor": "u32"}
 					        ],
-					        "fn_body": "glfunctionptr.blend_func(sfactor, dfactor)"
+					        "fn_body": "glcontextptr.blend_func(sfactor, dfactor)"
 					    },
 					    "blend_func_separate": {
 					        "fn_args": [
 					            {"self": "ref"},
 					            {"src_rgb": "u32"}, {"dest_rgb": "u32"}, {"src_alpha": "u32"}, {"dest_alpha": "u32"}
 					        ],
-					        "fn_body": "glfunctionptr.blend_func_separate(src_rgb, dest_rgb, src_alpha, dest_alpha)"
+					        "fn_body": "glcontextptr.blend_func_separate(src_rgb, dest_rgb, src_alpha, dest_alpha)"
 					    },
 					    "blend_equation": {
 					        "fn_args": [
 					            {"self": "ref"},
 					            {"mode": "u32"}
 					        ],
-					        "fn_body": "glfunctionptr.blend_equation(mode)"
+					        "fn_body": "glcontextptr.blend_equation(mode)"
 					    },
 					    "blend_equation_separate": {
 					        "fn_args": [
 					            {"self": "ref"},
 					            {"mode_rgb": "u32"}, {"mode_alpha": "u32"}
 					        ],
-					        "fn_body": "glfunctionptr.blend_equation_separate(mode_rgb, mode_alpha)"
+					        "fn_body": "glcontextptr.blend_equation_separate(mode_rgb, mode_alpha)"
 					    },
 					    "color_mask": {
 					        "fn_args": [
 					            {"self": "ref"},
 					            {"r": "bool"}, {"g": "bool"}, {"b": "bool"}, {"a": "bool"}
 					        ],
-					        "fn_body": "glfunctionptr.color_mask(r, g, b, a)"
+					        "fn_body": "glcontextptr.color_mask(r, g, b, a)"
 					    },
 					    "cull_face": {
 					        "fn_args": [
 					            {"self": "ref"},
 					            {"mode": "u32"}
 					        ],
-					        "fn_body": "glfunctionptr.cull_face(mode)"
+					        "fn_body": "glcontextptr.cull_face(mode)"
 					    },
 					    "front_face": {
 					        "fn_args": [
 					            {"self": "ref"},
 					            {"mode": "u32"}
 					        ],
-					        "fn_body": "glfunctionptr.front_face(mode)"
+					        "fn_body": "glcontextptr.front_face(mode)"
 					    },
 					    "enable": {
 					        "fn_args": [
 					            {"self": "ref"},
 					            {"cap": "u32"}
 					        ],
-					        "fn_body": "glfunctionptr.enable(cap)"
+					        "fn_body": "glcontextptr.enable(cap)"
 					    },
 					    "disable": {
 					        "fn_args": [
 					            {"self": "ref"},
 					            {"cap": "u32"}
 					        ],
-					        "fn_body": "glfunctionptr.disable(cap)"
+					        "fn_body": "glcontextptr.disable(cap)"
 					    },
 					    "hint": {
 					        "fn_args": [
 					            {"self": "ref"},
 					            {"param_name": "u32"}, {"param_val": "u32"}
 					        ],
-					        "fn_body": "glfunctionptr.hint(param_name, param_val)"
+					        "fn_body": "glcontextptr.hint(param_name, param_val)"
 					    },
 					    "is_enabled": {
 					        "fn_args": [
 					            {"self": "ref"},
 					            {"cap": "u32"}
 					        ],
-					        "fn_body": "glfunctionptr.is_enabled(cap)",
+					        "fn_body": "glcontextptr.is_enabled(cap)",
 					        "returns": "u8"
 					    },
 					    "is_shader": {
@@ -3360,7 +3360,7 @@
 					            {"self": "ref"},
 					            {"shader": "u32"}
 					        ],
-					        "fn_body": "glfunctionptr.is_shader(shader)",
+					        "fn_body": "glcontextptr.is_shader(shader)",
 					        "returns": "u8"
 					    },
 					    "is_texture": {
@@ -3368,7 +3368,7 @@
 					            {"self": "ref"},
 					            {"texture": "u32"}
 					        ],
-					        "fn_body": "glfunctionptr.is_texture(texture)",
+					        "fn_body": "glcontextptr.is_texture(texture)",
 					        "returns": "u8"
 					    },
 					    "is_framebuffer": {
@@ -3376,7 +3376,7 @@
 					            {"self": "ref"},
 					            {"framebuffer": "u32"}
 					        ],
-					        "fn_body": "glfunctionptr.is_framebuffer(framebuffer)",
+					        "fn_body": "glcontextptr.is_framebuffer(framebuffer)",
 					        "returns": "u8"
 					    },
 					    "is_renderbuffer": {
@@ -3384,7 +3384,7 @@
 					            {"self": "ref"},
 					            {"renderbuffer": "u32"}
 					        ],
-					        "fn_body": "glfunctionptr.is_renderbuffer(renderbuffer)",
+					        "fn_body": "glcontextptr.is_renderbuffer(renderbuffer)",
 					        "returns": "u8"
 					    },
 					    "check_frame_buffer_status": {
@@ -3392,7 +3392,7 @@
 					            {"self": "ref"},
 					            {"target": "u32"}
 					        ],
-					        "fn_body": "glfunctionptr.check_frame_buffer_status(target)",
+					        "fn_body": "glcontextptr.check_frame_buffer_status(target)",
 					        "returns": "u32"
 					    },
 					    "enable_vertex_attrib_array": {
@@ -3400,196 +3400,196 @@
 					            {"self": "ref"},
 					            {"index": "u32"}
 					        ],
-					        "fn_body": "glfunctionptr.enable_vertex_attrib_array(index)"
+					        "fn_body": "glcontextptr.enable_vertex_attrib_array(index)"
 					    },
 					    "disable_vertex_attrib_array": {
 					        "fn_args": [
 					            {"self": "ref"},
 					            {"index": "u32"}
 					        ],
-					        "fn_body": "glfunctionptr.disable_vertex_attrib_array(index)"
+					        "fn_body": "glcontextptr.disable_vertex_attrib_array(index)"
 					    },
 					    "uniform_1f": {
 					        "fn_args": [
 					            {"self": "ref"},
 					            {"location": "i32"}, {"v0": "f32"}
 					        ],
-					        "fn_body": "glfunctionptr.uniform_1f(location, v0)"
+					        "fn_body": "glcontextptr.uniform_1f(location, v0)"
 					    },
 					    "uniform_1fv": {
 					        "fn_args": [
 					            {"self": "ref"},
 					            {"location": "i32"}, {"values": "F32VecRef"}
 					        ],
-					        "fn_body": "glfunctionptr.uniform_1fv(location, values)"
+					        "fn_body": "glcontextptr.uniform_1fv(location, values)"
 					    },
 					    "uniform_1i": {
 					        "fn_args": [
 					            {"self": "ref"},
 					            {"location": "i32"}, {"v0": "i32"}
 					        ],
-					        "fn_body": "glfunctionptr.uniform_1i(location, v0)"
+					        "fn_body": "glcontextptr.uniform_1i(location, v0)"
 					    },
 					    "uniform_1iv": {
 					        "fn_args": [
 					            {"self": "ref"},
 					            {"location": "i32"}, {"values": "I32VecRef"}
 					        ],
-					        "fn_body": "glfunctionptr.uniform_1iv(location, values)"
+					        "fn_body": "glcontextptr.uniform_1iv(location, values)"
 					    },
 					    "uniform_1ui": {
 					        "fn_args": [
 					            {"self": "ref"},
 					            {"location": "i32"}, {"v0": "u32"}
 					        ],
-					        "fn_body": "glfunctionptr.uniform_1ui(location, v0)"
+					        "fn_body": "glcontextptr.uniform_1ui(location, v0)"
 					    },
 					    "uniform_2f": {
 					        "fn_args": [
 					            {"self": "ref"},
 					            {"location": "i32"}, {"v0": "f32"}, {"v1": "f32"}
 					        ],
-					        "fn_body": "glfunctionptr.uniform_2f(location, v0, v1)"
+					        "fn_body": "glcontextptr.uniform_2f(location, v0, v1)"
 					    },
 					    "uniform_2fv": {
 					        "fn_args": [
 					            {"self": "ref"},
 					            {"location": "i32"}, {"values": "F32VecRef"}
 					        ],
-					        "fn_body": "glfunctionptr.uniform_2fv(location, values)"
+					        "fn_body": "glcontextptr.uniform_2fv(location, values)"
 					    },
 					    "uniform_2i": {
 					        "fn_args": [
 					            {"self": "ref"},
 					            {"location": "i32"}, {"v0": "i32"}, {"v1": "i32"}
 					        ],
-					        "fn_body": "glfunctionptr.uniform_2i(location, v0, v1)"
+					        "fn_body": "glcontextptr.uniform_2i(location, v0, v1)"
 					    },
 					    "uniform_2iv": {
 					        "fn_args": [
 					            {"self": "ref"},
 					            {"location": "i32"}, {"values": "I32VecRef"}
 					        ],
-					        "fn_body": "glfunctionptr.uniform_2iv(location, values)"
+					        "fn_body": "glcontextptr.uniform_2iv(location, values)"
 					    },
 					    "uniform_2ui": {
 					        "fn_args": [
 					            {"self": "ref"},
 					            {"location": "i32"}, {"v0": "u32"}, {"v1": "u32"}
 					        ],
-					        "fn_body": "glfunctionptr.uniform_2ui(location, v0, v1)"
+					        "fn_body": "glcontextptr.uniform_2ui(location, v0, v1)"
 					    },
 					    "uniform_3f": {
 					        "fn_args": [
 					            {"self": "ref"},
 					            {"location": "i32"}, {"v0": "f32"}, {"v1": "f32"}, {"v2": "f32"}
 					        ],
-					        "fn_body": "glfunctionptr.uniform_3f(location, v0, v1, v2)"
+					        "fn_body": "glcontextptr.uniform_3f(location, v0, v1, v2)"
 					    },
 					    "uniform_3fv": {
 					        "fn_args": [
 					            {"self": "ref"},
 					            {"location": "i32"}, {"values": "F32VecRef"}
 					        ],
-					        "fn_body": "glfunctionptr.uniform_3fv(location, values)"
+					        "fn_body": "glcontextptr.uniform_3fv(location, values)"
 					    },
 					    "uniform_3i": {
 					        "fn_args": [
 					            {"self": "ref"},
 					            {"location": "i32"}, {"v0": "i32"}, {"v1": "i32"}, {"v2": "i32"}
 					        ],
-					        "fn_body": "glfunctionptr.uniform_3i(location, v0, v1, v2)"
+					        "fn_body": "glcontextptr.uniform_3i(location, v0, v1, v2)"
 					    },
 					    "uniform_3iv": {
 					        "fn_args": [
 					            {"self": "ref"},
 					            {"location": "i32"}, {"values": "I32VecRef"}
 					        ],
-					        "fn_body": "glfunctionptr.uniform_3iv(location, values)"
+					        "fn_body": "glcontextptr.uniform_3iv(location, values)"
 					    },
 					    "uniform_3ui": {
 					        "fn_args": [
 					            {"self": "ref"},
 					            {"location": "i32"}, {"v0": "u32"}, {"v1": "u32"}, {"v2": "u32"}
 					        ],
-					        "fn_body": "glfunctionptr.uniform_3ui(location, v0, v1, v2)"
+					        "fn_body": "glcontextptr.uniform_3ui(location, v0, v1, v2)"
 					    },
 					    "uniform_4f": {
 					        "fn_args": [
 					            {"self": "ref"},
 					            {"location": "i32"}, {"x": "f32"}, {"y": "f32"}, {"z": "f32"}, {"w": "f32"}
 					        ],
-					        "fn_body": "glfunctionptr.uniform_4f(location, x, y, z, w)"
+					        "fn_body": "glcontextptr.uniform_4f(location, x, y, z, w)"
 					    },
 					    "uniform_4i": {
 					        "fn_args": [
 					            {"self": "ref"},
 					            {"location": "i32"}, {"x": "i32"}, {"y": "i32"}, {"z": "i32"}, {"w": "i32"}
 					        ],
-					        "fn_body": "glfunctionptr.uniform_4i(location, x, y, z, w)"
+					        "fn_body": "glcontextptr.uniform_4i(location, x, y, z, w)"
 					    },
 					    "uniform_4iv": {
 					        "fn_args": [
 					            {"self": "ref"},
 					            {"location": "i32"}, {"values": "I32VecRef"}
 					        ],
-					        "fn_body": "glfunctionptr.uniform_4iv(location, values)"
+					        "fn_body": "glcontextptr.uniform_4iv(location, values)"
 					    },
 					    "uniform_4ui": {
 					        "fn_args": [
 					            {"self": "ref"},
 					            {"location": "i32"}, {"x": "u32"}, {"y": "u32"}, {"z": "u32"}, {"w": "u32"}
 					        ],
-					        "fn_body": "glfunctionptr.uniform_4ui(location, x, y, z, w)"
+					        "fn_body": "glcontextptr.uniform_4ui(location, x, y, z, w)"
 					    },
 					    "uniform_4fv": {
 					        "fn_args": [
 					            {"self": "ref"},
 					            {"location": "i32"}, {"values": "F32VecRef"}
 					        ],
-					        "fn_body": "glfunctionptr.uniform_4fv(location, values)"
+					        "fn_body": "glcontextptr.uniform_4fv(location, values)"
 					    },
 					    "uniform_matrix_2fv": {
 					        "fn_args": [
 					            {"self": "ref"},
 					            {"location": "i32"}, {"transpose": "bool"}, {"value": "F32VecRef"}
 					        ],
-					        "fn_body": "glfunctionptr.uniform_matrix_2fv(location, transpose, value)"
+					        "fn_body": "glcontextptr.uniform_matrix_2fv(location, transpose, value)"
 					    },
 					    "uniform_matrix_3fv": {
 					        "fn_args": [
 					            {"self": "ref"},
 					            {"location": "i32"}, {"transpose": "bool"}, {"value": "F32VecRef"}
 					        ],
-					        "fn_body": "glfunctionptr.uniform_matrix_3fv(location, transpose, value)"
+					        "fn_body": "glcontextptr.uniform_matrix_3fv(location, transpose, value)"
 					    },
 					    "uniform_matrix_4fv": {
 					        "fn_args": [
 					            {"self": "ref"},
 					            {"location": "i32"}, {"transpose": "bool"}, {"value": "F32VecRef"}
 					        ],
-					        "fn_body": "glfunctionptr.uniform_matrix_4fv(location, transpose, value)"
+					        "fn_body": "glcontextptr.uniform_matrix_4fv(location, transpose, value)"
 					    },
 					    "depth_mask": {
 					        "fn_args": [
 					            {"self": "ref"},
 					            {"flag": "bool"}
 					        ],
-					        "fn_body": "glfunctionptr.depth_mask(flag)"
+					        "fn_body": "glcontextptr.depth_mask(flag)"
 					    },
 					    "depth_range": {
 					        "fn_args": [
 					            {"self": "ref"},
 					            {"near": "f64"}, {"far": "f64"}
 					        ],
-					        "fn_body": "glfunctionptr.depth_range(near, far)"
+					        "fn_body": "glcontextptr.depth_range(near, far)"
 					    },
 					    "get_active_attrib": {
 					        "fn_args": [
 					            {"self": "ref"},
 					            {"program": "u32"}, {"index": "u32"}
 					        ],
-					        "fn_body": "glfunctionptr.get_active_attrib(program, index)",
+					        "fn_body": "glcontextptr.get_active_attrib(program, index)",
 					        "returns": "GetActiveAttribReturn"
 					    },
 					    "get_active_uniform": {
@@ -3597,7 +3597,7 @@
 					            {"self": "ref"},
 					            {"program": "u32"}, {"index": "u32"}
 					        ],
-					        "fn_body": "glfunctionptr.get_active_uniform(program, index)",
+					        "fn_body": "glcontextptr.get_active_uniform(program, index)",
 					        "returns": "GetActiveUniformReturn"
 					    },
 					    "get_active_uniforms_iv": {
@@ -3605,7 +3605,7 @@
 					            {"self": "ref"},
 					            {"program": "u32"}, {"indices": "GLuintVec"}, {"pname": "u32"}
 					        ],
-					        "fn_body": "glfunctionptr.get_active_uniforms_iv(program, indices, pname)",
+					        "fn_body": "glcontextptr.get_active_uniforms_iv(program, indices, pname)",
 					        "returns": "GLintVec"
 					    },
 					    "get_active_uniform_block_i": {
@@ -3613,7 +3613,7 @@
 					            {"self": "ref"},
 					            {"program": "u32"}, {"index": "u32"}, {"pname": "u32"}
 					        ],
-					        "fn_body": "glfunctionptr.get_active_uniform_block_i(program, index, pname)",
+					        "fn_body": "glcontextptr.get_active_uniform_block_i(program, index, pname)",
 					        "returns": "i32"
 					    },
 					    "get_active_uniform_block_iv": {
@@ -3621,7 +3621,7 @@
 					            {"self": "ref"},
 					            {"program": "u32"}, {"index": "u32"}, {"pname": "u32"}
 					        ],
-					        "fn_body": "glfunctionptr.get_active_uniform_block_iv(program, index, pname)",
+					        "fn_body": "glcontextptr.get_active_uniform_block_iv(program, index, pname)",
 					        "returns": "GLintVec"
 					    },
 					    "get_active_uniform_block_name": {
@@ -3629,7 +3629,7 @@
 					            {"self": "ref"},
 					            {"program": "u32"}, {"index": "u32"}
 					        ],
-					        "fn_body": "glfunctionptr.get_active_uniform_block_name(program, index)",
+					        "fn_body": "glcontextptr.get_active_uniform_block_name(program, index)",
 					        "returns": "String"
 					    },
 					    "get_attrib_location": {
@@ -3637,7 +3637,7 @@
 					            {"self": "ref"},
 					            {"program": "u32"}, {"name": "Refstr"}
 					        ],
-					        "fn_body": "glfunctionptr.get_attrib_location(program, name)",
+					        "fn_body": "glcontextptr.get_attrib_location(program, name)",
 					        "returns": "i32"
 					    },
 					    "get_frag_data_location": {
@@ -3645,7 +3645,7 @@
 					            {"self": "ref"},
 					            {"program": "u32"}, {"name": "Refstr"}
 					        ],
-					        "fn_body": "glfunctionptr.get_frag_data_location(program, name)",
+					        "fn_body": "glcontextptr.get_frag_data_location(program, name)",
 					        "returns": "i32"
 					    },
 					    "get_uniform_location": {
@@ -3653,7 +3653,7 @@
 					            {"self": "ref"},
 					            {"program": "u32"}, {"name": "Refstr"}
 					        ],
-					        "fn_body": "glfunctionptr.get_uniform_location(program, name)",
+					        "fn_body": "glcontextptr.get_uniform_location(program, name)",
 					        "returns": "i32"
 					    },
 					    "get_program_info_log": {
@@ -3661,7 +3661,7 @@
 					            {"self": "ref"},
 					            {"program": "u32"}
 					        ],
-					        "fn_body": "glfunctionptr.get_program_info_log(program)",
+					        "fn_body": "glcontextptr.get_program_info_log(program)",
 					        "returns": "String"
 					    },
 					    "get_program_iv": {
@@ -3669,14 +3669,14 @@
 					            {"self": "ref"},
 					            {"program": "u32"}, {"pname": "u32"}, {"result": "GLintVecRefMut"}
 					        ],
-					        "fn_body": "glfunctionptr.get_program_iv(program, pname, result)"
+					        "fn_body": "glcontextptr.get_program_iv(program, pname, result)"
 					    },
 					    "get_program_binary": {
 					        "fn_args": [
 					            {"self": "ref"},
 					            {"program": "u32"}
 					        ],
-					        "fn_body": "glfunctionptr.get_program_binary(program)",
+					        "fn_body": "glcontextptr.get_program_binary(program)",
 					        "returns": "GetProgramBinaryReturn"
 					    },
 					    "program_binary": {
@@ -3684,35 +3684,35 @@
 					            {"self": "ref"},
 					            {"program": "u32"}, {"format": "u32"}, {"binary": "U8VecRef"}
 					        ],
-					        "fn_body": "glfunctionptr.program_binary(program, format, binary)"
+					        "fn_body": "glcontextptr.program_binary(program, format, binary)"
 					    },
 					    "program_parameter_i": {
 					        "fn_args": [
 					            {"self": "ref"},
 					            {"program": "u32"}, {"pname": "u32"}, {"value": "i32"}
 					        ],
-					        "fn_body": "glfunctionptr.program_parameter_i(program, pname, value)"
+					        "fn_body": "glcontextptr.program_parameter_i(program, pname, value)"
 					    },
 					    "get_vertex_attrib_iv": {
 					        "fn_args": [
 					            {"self": "ref"},
 					            {"index": "u32"}, {"pname": "u32"}, {"result": "GLintVecRefMut"}
 					        ],
-					        "fn_body": "glfunctionptr.get_vertex_attrib_iv(index, pname, result)"
+					        "fn_body": "glcontextptr.get_vertex_attrib_iv(index, pname, result)"
 					    },
 					    "get_vertex_attrib_fv": {
 					        "fn_args": [
 					            {"self": "ref"},
 					            {"index": "u32"}, {"pname": "u32"}, {"result": "GLfloatVecRefMut"}
 					        ],
-					        "fn_body": "glfunctionptr.get_vertex_attrib_fv(index, pname, result)"
+					        "fn_body": "glcontextptr.get_vertex_attrib_fv(index, pname, result)"
 					    },
 					    "get_vertex_attrib_pointer_v": {
 					        "fn_args": [
 					            {"self": "ref"},
 					            {"index": "u32"}, {"pname": "u32"}
 					        ],
-					        "fn_body": "glfunctionptr.get_vertex_attrib_pointer_v(index, pname)",
+					        "fn_body": "glcontextptr.get_vertex_attrib_pointer_v(index, pname)",
 					        "returns": "isize"
 					    },
 					    "get_buffer_parameter_iv": {
@@ -3720,7 +3720,7 @@
 					            {"self": "ref"},
 					            {"target": "u32"}, {"pname": "u32"}
 					        ],
-					        "fn_body": "glfunctionptr.get_buffer_parameter_iv(target, pname)",
+					        "fn_body": "glcontextptr.get_buffer_parameter_iv(target, pname)",
 					        "returns": "i32"
 					    },
 					    "get_shader_info_log": {
@@ -3728,7 +3728,7 @@
 					            {"self": "ref"},
 					            {"shader": "u32"}
 					        ],
-					        "fn_body": "glfunctionptr.get_shader_info_log(shader)",
+					        "fn_body": "glcontextptr.get_shader_info_log(shader)",
 					        "returns": "String"
 					    },
 					    "get_string": {
@@ -3736,7 +3736,7 @@
 					            {"self": "ref"},
 					            {"which": "u32"}
 					        ],
-					        "fn_body": "glfunctionptr.get_string(which)",
+					        "fn_body": "glcontextptr.get_string(which)",
 					        "returns": "String"
 					    },
 					    "get_string_i": {
@@ -3744,7 +3744,7 @@
 					            {"self": "ref"},
 					            {"which": "u32"}, {"index": "u32"}
 					        ],
-					        "fn_body": "glfunctionptr.get_string_i(which, index)",
+					        "fn_body": "glcontextptr.get_string_i(which, index)",
 					        "returns": "String"
 					    },
 					    "get_shader_iv": {
@@ -3752,14 +3752,14 @@
 					            {"self": "ref"},
 					            {"shader": "u32"}, {"pname": "u32"}, {"result": "GLintVecRefMut"}
 					        ],
-					        "fn_body": "glfunctionptr.get_shader_iv(shader, pname, result)"
+					        "fn_body": "glcontextptr.get_shader_iv(shader, pname, result)"
 					    },
 					    "get_shader_precision_format": {
 					        "fn_args": [
 					            {"self": "ref"},
 					            {"shader_type": "u32"}, {"precision_type": "u32"}
 					        ],
-					        "fn_body": "glfunctionptr.get_shader_precision_format(shader_type, precision_type)",
+					        "fn_body": "glcontextptr.get_shader_precision_format(shader_type, precision_type)",
 					        "returns": "[i32;3]"
 					    },
 					    "compile_shader": {
@@ -3767,13 +3767,13 @@
 					            {"self": "ref"},
 					            {"shader": "u32"}
 					        ],
-					        "fn_body": "glfunctionptr.compile_shader(shader)"
+					        "fn_body": "glcontextptr.compile_shader(shader)"
 					    },
 					    "create_program": {
 					        "fn_args": [
 					            {"self": "ref"}
 					        ],
-					        "fn_body": "glfunctionptr.create_program()",
+					        "fn_body": "glcontextptr.create_program()",
 					        "returns": "u32"
 					    },
 					    "delete_program": {
@@ -3781,14 +3781,14 @@
 					            {"self": "ref"},
 					            {"program": "u32"}
 					        ],
-					        "fn_body": "glfunctionptr.delete_program(program)"
+					        "fn_body": "glcontextptr.delete_program(program)"
 					    },
 					    "create_shader": {
 					        "fn_args": [
 					            {"self": "ref"},
 					            {"shader_type": "u32"}
 					        ],
-					        "fn_body": "glfunctionptr.create_shader(shader_type)",
+					        "fn_body": "glcontextptr.create_shader(shader_type)",
 					        "returns": "u32"
 					    },
 					    "delete_shader": {
@@ -3796,67 +3796,67 @@
 					            {"self": "ref"},
 					            {"shader": "u32"}
 					        ],
-					        "fn_body": "glfunctionptr.delete_shader(shader)"
+					        "fn_body": "glcontextptr.delete_shader(shader)"
 					    },
 					    "detach_shader": {
 					        "fn_args": [
 					            {"self": "ref"},
 					            {"program": "u32"}, {"shader": "u32"}
 					        ],
-					        "fn_body": "glfunctionptr.detach_shader(program, shader)"
+					        "fn_body": "glcontextptr.detach_shader(program, shader)"
 					    },
 					    "link_program": {
 					        "fn_args": [
 					            {"self": "ref"},
 					            {"program": "u32"}
 					        ],
-					        "fn_body": "glfunctionptr.link_program(program)"
+					        "fn_body": "glcontextptr.link_program(program)"
 					    },
 					    "clear_color": {
 					        "fn_args": [
 					            {"self": "ref"},
 					            {"r": "f32"}, {"g": "f32"}, {"b": "f32"}, {"a": "f32"}
 					        ],
-					        "fn_body": "glfunctionptr.clear_color(r, g, b, a)"
+					        "fn_body": "glcontextptr.clear_color(r, g, b, a)"
 					    },
 					    "clear": {
 					        "fn_args": [
 					            {"self": "ref"},
 					            {"buffer_mask": "u32"}
 					        ],
-					        "fn_body": "glfunctionptr.clear(buffer_mask)"
+					        "fn_body": "glcontextptr.clear(buffer_mask)"
 					    },
 					    "clear_depth": {
 					        "fn_args": [
 					            {"self": "ref"},
 					            {"depth": "f64"}
 					        ],
-					        "fn_body": "glfunctionptr.clear_depth(depth)"
+					        "fn_body": "glcontextptr.clear_depth(depth)"
 					    },
 					    "clear_stencil": {
 					        "fn_args": [
 					            {"self": "ref"},
 					            {"s": "i32"}
 					        ],
-					        "fn_body": "glfunctionptr.clear_stencil(s)"
+					        "fn_body": "glcontextptr.clear_stencil(s)"
 					    },
 					    "flush": {
 					        "fn_args": [
 					            {"self": "ref"}
 					        ],
-					        "fn_body": "glfunctionptr.flush()"
+					        "fn_body": "glcontextptr.flush()"
 					    },
 					    "finish": {
 					        "fn_args": [
 					            {"self": "ref"}
 					        ],
-					        "fn_body": "glfunctionptr.finish()"
+					        "fn_body": "glcontextptr.finish()"
 					    },
 					    "get_error": {
 					        "fn_args": [
 					            {"self": "ref"}
 					        ],
-					        "fn_body": "glfunctionptr.get_error()",
+					        "fn_body": "glcontextptr.get_error()",
 					        "returns": "u32"
 					    },
 					    "stencil_mask": {
@@ -3864,103 +3864,103 @@
 					            {"self": "ref"},
 					            {"mask": "u32"}
 					        ],
-					        "fn_body": "glfunctionptr.stencil_mask(mask)"
+					        "fn_body": "glcontextptr.stencil_mask(mask)"
 					    },
 					    "stencil_mask_separate": {
 					        "fn_args": [
 					            {"self": "ref"},
 					            {"face": "u32"}, {"mask": "u32"}
 					        ],
-					        "fn_body": "glfunctionptr.stencil_mask_separate(face, mask)"
+					        "fn_body": "glcontextptr.stencil_mask_separate(face, mask)"
 					    },
 					    "stencil_func": {
 					        "fn_args": [
 					            {"self": "ref"},
 					            {"func": "u32"}, {"ref_": "i32"}, {"mask": "u32"}
 					        ],
-					        "fn_body": "glfunctionptr.stencil_func(func, ref_, mask)"
+					        "fn_body": "glcontextptr.stencil_func(func, ref_, mask)"
 					    },
 					    "stencil_func_separate": {
 					        "fn_args": [
 					            {"self": "ref"},
 					            {"face": "u32"}, {"func": "u32"}, {"ref_": "i32"}, {"mask": "u32"}
 					        ],
-					        "fn_body": "glfunctionptr.stencil_func_separate(face, func, ref_, mask)"
+					        "fn_body": "glcontextptr.stencil_func_separate(face, func, ref_, mask)"
 					    },
 					    "stencil_op": {
 					        "fn_args": [
 					            {"self": "ref"},
 					            {"sfail": "u32"}, {"dpfail": "u32"}, {"dppass": "u32"}
 					        ],
-					        "fn_body": "glfunctionptr.stencil_op(sfail, dpfail, dppass)"
+					        "fn_body": "glcontextptr.stencil_op(sfail, dpfail, dppass)"
 					    },
 					    "stencil_op_separate": {
 					        "fn_args": [
 					            {"self": "ref"},
 					            {"face": "u32"}, {"sfail": "u32"}, {"dpfail": "u32"}, {"dppass": "u32"}
 					        ],
-					        "fn_body": "glfunctionptr.stencil_op_separate(face, sfail, dpfail, dppass)"
+					        "fn_body": "glcontextptr.stencil_op_separate(face, sfail, dpfail, dppass)"
 					    },
 					    "egl_image_target_texture2d_oes": {
 					        "fn_args": [
 					            {"self": "ref"},
 					            {"target": "u32"}, {"image": "*const c_void"}
 					        ],
-					        "fn_body": "glfunctionptr.egl_image_target_texture2d_oes(target, image)"
+					        "fn_body": "glcontextptr.egl_image_target_texture2d_oes(target, image)"
 					    },
 					    "generate_mipmap": {
 					        "fn_args": [
 					            {"self": "ref"},
 					            {"target": "u32"}
 					        ],
-					        "fn_body": "glfunctionptr.generate_mipmap(target)"
+					        "fn_body": "glcontextptr.generate_mipmap(target)"
 					    },
 					    "insert_event_marker_ext": {
 					        "fn_args": [
 					            {"self": "ref"},
 					            {"message": "Refstr"}
 					        ],
-					        "fn_body": "glfunctionptr.insert_event_marker_ext(message)"
+					        "fn_body": "glcontextptr.insert_event_marker_ext(message)"
 					    },
 					    "push_group_marker_ext": {
 					        "fn_args": [
 					            {"self": "ref"},
 					            {"message": "Refstr"}
 					        ],
-					        "fn_body": "glfunctionptr.push_group_marker_ext(message)"
+					        "fn_body": "glcontextptr.push_group_marker_ext(message)"
 					    },
 					    "pop_group_marker_ext": {
 					        "fn_args": [
 					            {"self": "ref"}
 					        ],
-					        "fn_body": "glfunctionptr.pop_group_marker_ext()"
+					        "fn_body": "glcontextptr.pop_group_marker_ext()"
 					    },
 					    "debug_message_insert_khr": {
 					        "fn_args": [
 					            {"self": "ref"},
 					            {"source": "u32"}, {"type_": "u32"}, {"id": "u32"}, {"severity": "u32"}, {"message": "Refstr"}
 					        ],
-					        "fn_body": "glfunctionptr.debug_message_insert_khr(source, type_, id, severity, message)"
+					        "fn_body": "glcontextptr.debug_message_insert_khr(source, type_, id, severity, message)"
 					    },
 					    "push_debug_group_khr": {
 					        "fn_args": [
 					            {"self": "ref"},
 					            {"source": "u32"}, {"id": "u32"}, {"message": "Refstr"}
 					        ],
-					        "fn_body": "glfunctionptr.push_debug_group_khr(source, id, message)"
+					        "fn_body": "glcontextptr.push_debug_group_khr(source, id, message)"
 					    },
 					    "pop_debug_group_khr": {
 					        "fn_args": [
 					            {"self": "ref"}
 					        ],
-					        "fn_body": "glfunctionptr.pop_debug_group_khr()"
+					        "fn_body": "glcontextptr.pop_debug_group_khr()"
 					    },
 					    "fence_sync": {
 					        "fn_args": [
 					            {"self": "ref"},
 					            {"condition": "u32"}, {"flags": "u32"}
 					        ],
-					        "fn_body": "glfunctionptr.fence_sync(condition, flags)",
+					        "fn_body": "glcontextptr.fence_sync(condition, flags)",
 					        "returns": "GLsyncPtr"
 					    },
 					    "client_wait_sync": {
@@ -3968,35 +3968,35 @@
 					            {"self": "ref"},
 					            {"sync": "GLsyncPtr"}, {"flags": "u32"}, {"timeout": "u64"}
 					        ],
-					        "fn_body": "glfunctionptr.client_wait_sync(sync, flags, timeout)"
+					        "fn_body": "glcontextptr.client_wait_sync(sync, flags, timeout)"
 					    },
 					    "wait_sync": {
 					        "fn_args": [
 					            {"self": "ref"},
 					            {"sync": "GLsyncPtr"}, {"flags": "u32"}, {"timeout": "u64"}
 					        ],
-					        "fn_body": "glfunctionptr.wait_sync(sync, flags, timeout)"
+					        "fn_body": "glcontextptr.wait_sync(sync, flags, timeout)"
 					    },
 					    "delete_sync": {
 					        "fn_args": [
 					            {"self": "ref"},
 					            {"sync": "GLsyncPtr"}
 					        ],
-					        "fn_body": "glfunctionptr.delete_sync(sync)"
+					        "fn_body": "glcontextptr.delete_sync(sync)"
 					    },
 					    "texture_range_apple": {
 					        "fn_args": [
 					            {"self": "ref"},
 					            {"target": "u32"}, {"data": "U8VecRef"}
 					        ],
-					        "fn_body": "glfunctionptr.texture_range_apple(target, data)"
+					        "fn_body": "glcontextptr.texture_range_apple(target, data)"
 					    },
 					    "gen_fences_apple": {
 					        "fn_args": [
 					            {"self": "ref"},
 					            {"n": "i32"}
 					        ],
-					        "fn_body": "glfunctionptr.gen_fences_apple(n)",
+					        "fn_body": "glcontextptr.gen_fences_apple(n)",
 					        "returns": "GLuintVec"
 					    },
 					    "delete_fences_apple": {
@@ -4004,35 +4004,35 @@
 					            {"self": "ref"},
 					            {"fences": "GLuintVecRef"}
 					        ],
-					        "fn_body": "glfunctionptr.delete_fences_apple(fences)"
+					        "fn_body": "glcontextptr.delete_fences_apple(fences)"
 					    },
 					    "set_fence_apple": {
 					        "fn_args": [
 					            {"self": "ref"},
 					            {"fence": "u32"}
 					        ],
-					        "fn_body": "glfunctionptr.set_fence_apple(fence)"
+					        "fn_body": "glcontextptr.set_fence_apple(fence)"
 					    },
 					    "finish_fence_apple": {
 					        "fn_args": [
 					            {"self": "ref"},
 					            {"fence": "u32"}
 					        ],
-					        "fn_body": "glfunctionptr.finish_fence_apple(fence)"
+					        "fn_body": "glcontextptr.finish_fence_apple(fence)"
 					    },
 					    "test_fence_apple": {
 					        "fn_args": [
 					            {"self": "ref"},
 					            {"fence": "u32"}
 					        ],
-					        "fn_body": "glfunctionptr.test_fence_apple(fence)"
+					        "fn_body": "glcontextptr.test_fence_apple(fence)"
 					    },
 					    "test_object_apple": {
 					        "fn_args": [
 					            {"self": "ref"},
 					            {"object": "u32"}, {"name": "u32"}
 					        ],
-					        "fn_body": "glfunctionptr.test_object_apple(object, name)",
+					        "fn_body": "glcontextptr.test_object_apple(object, name)",
 					        "returns": "u8"
 					    },
 					    "finish_object_apple": {
@@ -4040,34 +4040,34 @@
 					            {"self": "ref"},
 					            {"object": "u32"}, {"name": "u32"}
 					        ],
-					        "fn_body": "glfunctionptr.finish_object_apple(object, name)"
+					        "fn_body": "glcontextptr.finish_object_apple(object, name)"
 					    },
 					    "get_frag_data_index": {
 					        "fn_args": [
 					            {"self": "ref"},
 					            {"program": "u32"}, {"name": "Refstr"}
 					        ],
-					        "fn_body": "glfunctionptr.get_frag_data_index(program, name)",
+					        "fn_body": "glcontextptr.get_frag_data_index(program, name)",
 					        "returns": "i32"
 					    },
 					    "blend_barrier_khr": {
 					        "fn_args": [
 					            {"self": "ref"}
 					        ],
-					        "fn_body": "glfunctionptr.blend_barrier_khr()"
+					        "fn_body": "glcontextptr.blend_barrier_khr()"
 					    },
 					    "bind_frag_data_location_indexed": {
 					        "fn_args": [
 					            {"self": "ref"},
 					            {"program": "u32"}, {"color_number": "u32"}, {"index": "u32"}, {"name": "Refstr"}
 					        ],
-					        "fn_body": "glfunctionptr.bind_frag_data_location_indexed(program, color_number, index, name)"
+					        "fn_body": "glcontextptr.bind_frag_data_location_indexed(program, color_number, index, name)"
 					    },
 					    "get_debug_messages": {
 					        "fn_args": [
 					            {"self": "ref"}
 					        ],
-					        "fn_body": "glfunctionptr.get_debug_messages()",
+					        "fn_body": "glcontextptr.get_debug_messages()",
 					        "returns": "DebugMessageVec"
 					    },
 					    "provoking_vertex_angle": {
@@ -4075,14 +4075,14 @@
 					            {"self": "ref"},
 					            {"mode": "u32"}
 					        ],
-					        "fn_body": "glfunctionptr.provoking_vertex_angle(mode)"
+					        "fn_body": "glcontextptr.provoking_vertex_angle(mode)"
 					    },
 					    "gen_vertex_arrays_apple": {
 					        "fn_args": [
 					            {"self": "ref"},
 					            {"n": "i32"}
 					        ],
-					        "fn_body": "glfunctionptr.gen_vertex_arrays_apple(n)",
+					        "fn_body": "glcontextptr.gen_vertex_arrays_apple(n)",
 					        "returns": "GLuintVec"
 					    },
 					    "bind_vertex_array_apple": {
@@ -4090,49 +4090,49 @@
 					            {"self": "ref"},
 					            {"vao": "u32"}
 					        ],
-					        "fn_body": "glfunctionptr.bind_vertex_array_apple(vao)"
+					        "fn_body": "glcontextptr.bind_vertex_array_apple(vao)"
 					    },
 					    "delete_vertex_arrays_apple": {
 					        "fn_args": [
 					            {"self": "ref"},
 					            {"vertex_arrays": "GLuintVecRef"}
 					        ],
-					        "fn_body": "glfunctionptr.delete_vertex_arrays_apple(vertex_arrays)"
+					        "fn_body": "glcontextptr.delete_vertex_arrays_apple(vertex_arrays)"
 					    },
 					    "copy_texture_chromium": {
 					        "fn_args": [
 					            {"self": "ref"},
 					            {"source_id": "u32"}, {"source_level": "i32"}, {"dest_target": "u32"}, {"dest_id": "u32"}, {"dest_level": "i32"}, {"internal_format": "i32"}, {"dest_type": "u32"}, {"unpack_flip_y": "u8"}, {"unpack_premultiply_alpha": "u8"}, {"unpack_unmultiply_alpha": "u8"}
 					        ],
-					        "fn_body": "glfunctionptr.copy_texture_chromium(source_id, source_level, dest_target, dest_id, dest_level, internal_format, dest_type, unpack_flip_y, unpack_premultiply_alpha, unpack_unmultiply_alpha)"
+					        "fn_body": "glcontextptr.copy_texture_chromium(source_id, source_level, dest_target, dest_id, dest_level, internal_format, dest_type, unpack_flip_y, unpack_premultiply_alpha, unpack_unmultiply_alpha)"
 					    },
 					    "copy_sub_texture_chromium": {
 					        "fn_args": [
 					            {"self": "ref"},
 					            {"source_id": "u32"}, {"source_level": "i32"}, {"dest_target": "u32"}, {"dest_id": "u32"}, {"dest_level": "i32"}, {"x_offset": "i32"}, {"y_offset": "i32"}, {"x": "i32"}, {"y": "i32"}, {"width": "i32"}, {"height": "i32"}, {"unpack_flip_y": "u8"}, {"unpack_premultiply_alpha": "u8"}, {"unpack_unmultiply_alpha": "u8"}
 					        ],
-					        "fn_body": "glfunctionptr.copy_sub_texture_chromium(source_id, source_level, dest_target, dest_id, dest_level, x_offset, y_offset, x, y, width, height, unpack_flip_y, unpack_premultiply_alpha, unpack_unmultiply_alpha)"
+					        "fn_body": "glcontextptr.copy_sub_texture_chromium(source_id, source_level, dest_target, dest_id, dest_level, x_offset, y_offset, x, y, width, height, unpack_flip_y, unpack_premultiply_alpha, unpack_unmultiply_alpha)"
 					    },
 					    "egl_image_target_renderbuffer_storage_oes": {
 					        "fn_args": [
 					            {"self": "ref"},
 					            {"target": "u32"}, {"image": "*const c_void"}
 					        ],
-					        "fn_body": "glfunctionptr.egl_image_target_renderbuffer_storage_oes(target, image)"
+					        "fn_body": "glcontextptr.egl_image_target_renderbuffer_storage_oes(target, image)"
 					    },
 					    "copy_texture_3d_angle": {
 					        "fn_args": [
 					            {"self": "ref"},
 					            {"source_id": "u32"}, {"source_level": "i32"}, {"dest_target": "u32"}, {"dest_id": "u32"}, {"dest_level": "i32"}, {"internal_format": "i32"}, {"dest_type": "u32"}, {"unpack_flip_y": "u8"}, {"unpack_premultiply_alpha": "u8"}, {"unpack_unmultiply_alpha": "u8"}
 					        ],
-					        "fn_body": "glfunctionptr.copy_texture_3d_angle(source_id, source_level, dest_target, dest_id, dest_level, internal_format, dest_type, unpack_flip_y, unpack_premultiply_alpha, unpack_unmultiply_alpha)"
+					        "fn_body": "glcontextptr.copy_texture_3d_angle(source_id, source_level, dest_target, dest_id, dest_level, internal_format, dest_type, unpack_flip_y, unpack_premultiply_alpha, unpack_unmultiply_alpha)"
 					    },
 					    "copy_sub_texture_3d_angle": {
 					        "fn_args": [
 					            {"self": "ref"},
 					            {"source_id": "u32"}, {"source_level": "i32"}, {"dest_target": "u32"}, {"dest_id": "u32"}, {"dest_level": "i32"}, {"x_offset": "i32"}, {"y_offset": "i32"}, {"z_offset": "i32"}, {"x": "i32"}, {"y": "i32"}, {"z": "i32"}, {"width": "i32"}, {"height": "i32"}, {"depth": "i32"}, {"unpack_flip_y": "u8"}, {"unpack_premultiply_alpha": "u8"}, {"unpack_unmultiply_alpha": "u8"}
 					        ],
-					        "fn_body": "glfunctionptr.copy_sub_texture_3d_angle(source_id, source_level, dest_target, dest_id, dest_level, x_offset, y_offset, z_offset, x, y, z, width, height, depth, unpack_flip_y, unpack_premultiply_alpha, unpack_unmultiply_alpha)"
+					        "fn_body": "glcontextptr.copy_sub_texture_3d_angle(source_id, source_level, dest_target, dest_id, dest_level, x_offset, y_offset, z_offset, x, y, z, width, height, depth, unpack_flip_y, unpack_premultiply_alpha, unpack_unmultiply_alpha)"
 					    }
 					}
 				},

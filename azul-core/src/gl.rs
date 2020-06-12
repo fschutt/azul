@@ -1,5 +1,6 @@
 #![allow(unused_variables)]
 use std::{
+    fmt,
     rc::Rc,
     hash::{Hasher, Hash},
     ffi::c_void,
@@ -13,7 +14,7 @@ use crate::{
     app_resources::{Epoch, ExternalImageId},
     callbacks::PipelineId,
 };
-use azul_css::{ColorU, ColorF};
+use azul_css::{AzString, StringVec, U8Vec, ColorU, ColorF};
 
 /// Typedef for an OpenGL handle
 pub type GLuint = u32;
@@ -29,6 +30,7 @@ pub type GLbitfield = u32;
 pub type GLsizei = i32;
 pub type GLclampf = f32;
 pub type GLfloat = f32;
+pub type GLeglImageOES = *const c_void;
 
 // &str
 #[repr(C)]
@@ -38,7 +40,7 @@ pub struct Refstr {
 }
 
 impl Refstr {
-    fn as_str(&self) -> &str { unsafe { std::str::from_raw(std::slice::from_raw(self.ptr, self.len)) } }
+    fn as_str(&self) -> &str { unsafe { std::str::from_utf8_unchecked(std::slice::from_raw_parts(self.ptr, self.len)) } }
 }
 
 // &[&str]
@@ -48,8 +50,8 @@ pub struct RefstrVecRef {
     pub len: usize,
 }
 
-impl GLfloatVecRefMut {
-    fn as_slice(&self) -> &[Refstr] { unsafe { std::slice::from_raw_mut(self.ptr, self.len) } }
+impl RefstrVecRef {
+    fn as_slice(&self) -> &[Refstr] { unsafe { std::slice::from_raw_parts(self.ptr, self.len) } }
 }
 
 // &mut [GLfloat]
@@ -60,7 +62,7 @@ pub struct GLint64VecRefMut {
 }
 
 impl GLint64VecRefMut {
-    fn as_mut_slice(&mut self) -> &mut [GLint64] { unsafe { std::slice::from_raw_mut(self.ptr, self.len) } }
+    fn as_mut_slice(&mut self) -> &mut [GLint64] { unsafe { std::slice::from_raw_parts_mut(self.ptr, self.len) } }
 }
 
 // &mut [GLfloat]
@@ -71,7 +73,7 @@ pub struct GLfloatVecRefMut {
 }
 
 impl GLfloatVecRefMut {
-    fn as_mut_slice(&mut self) -> &mut [GLfloat] { unsafe { std::slice::from_raw_mut(self.ptr, self.len) } }
+    fn as_mut_slice(&mut self) -> &mut [GLfloat] { unsafe { std::slice::from_raw_parts_mut(self.ptr, self.len) } }
 }
 
 // &mut [GLint]
@@ -82,7 +84,7 @@ pub struct GLintVecRefMut {
 }
 
 impl GLintVecRefMut {
-    fn as_mut_slice(&mut self) -> &mut [GLint] { unsafe { std::slice::from_raw_mut(self.ptr, self.len) } }
+    fn as_mut_slice(&mut self) -> &mut [GLint] { unsafe { std::slice::from_raw_parts_mut(self.ptr, self.len) } }
 }
 
 // &[GLuint]
@@ -93,7 +95,7 @@ pub struct GLuintVecRef {
 }
 
 impl GLuintVecRef {
-    fn as_slice(&self) -> &[GLuint] { unsafe { std::slice::from_raw(self.ptr, self.len) } }
+    fn as_slice(&self) -> &[GLuint] { unsafe { std::slice::from_raw_parts(self.ptr, self.len) } }
 }
 
 // &[u8]
@@ -104,7 +106,39 @@ pub struct U8VecRef {
 }
 
 impl U8VecRef {
-    fn as_slice(&self) -> &[u8] { unsafe { std::slice::from_raw(self.ptr, self.len) } }
+    fn as_slice(&self) -> &[u8] { unsafe { std::slice::from_raw_parts(self.ptr, self.len) } }
+}
+
+impl fmt::Debug for U8VecRef {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        self.as_slice().fmt(f)
+    }
+}
+
+impl PartialOrd for U8VecRef {
+    fn partial_cmp(&self, rhs: &Self) -> Option<std::cmp::Ordering> {
+        self.as_slice().partial_cmp(rhs.as_slice())
+    }
+}
+
+impl Ord for U8VecRef {
+    fn cmp(&self, rhs: &Self) -> std::cmp::Ordering {
+        self.as_slice().cmp(rhs.as_slice())
+    }
+}
+
+impl PartialEq for U8VecRef {
+    fn eq(&self, rhs: &Self) -> bool {
+        self.as_slice().eq(rhs.as_slice())
+    }
+}
+
+impl Eq for U8VecRef { }
+
+impl std::hash::Hash for U8VecRef {
+    fn hash<H>(&self, state: &mut H) where H: std::hash::Hasher {
+        self.as_slice().hash(state)
+    }
 }
 
 // &[f32]
@@ -115,7 +149,7 @@ pub struct F32VecRef {
 }
 
 impl F32VecRef {
-    fn as_slice(&self) -> &[f32] { unsafe { std::slice::from_raw(self.ptr, self.len) } }
+    fn as_slice(&self) -> &[f32] { unsafe { std::slice::from_raw_parts(self.ptr, self.len) } }
 }
 
 // &[i32]
@@ -126,7 +160,7 @@ pub struct I32VecRef {
 }
 
 impl I32VecRef {
-    fn as_slice(&self) -> &[i32] { unsafe { std::slice::from_raw(self.ptr, self.len) } }
+    fn as_slice(&self) -> &[i32] { unsafe { std::slice::from_raw_parts(self.ptr, self.len) } }
 }
 
 // &mut [u8]
@@ -137,7 +171,7 @@ pub struct GLbooleanVecRefMut {
 }
 
 impl GLbooleanVecRefMut {
-    fn as_mut_slice(&mut self) -> &mut [GLboolean] { unsafe { std::slice::from_raw_mut(self.ptr, self.len) } }
+    fn as_mut_slice(&mut self) -> &mut [GLboolean] { unsafe { std::slice::from_raw_parts_mut(self.ptr, self.len) } }
 }
 
 // &mut [u8]
@@ -148,11 +182,12 @@ pub struct U8VecRefMut {
 }
 
 impl U8VecRefMut {
-    fn as_mut_slice(&mut self) -> &mut [u8] { unsafe { std::slice::from_raw_mut(self.ptr, self.len) } }
+    fn as_mut_slice(&mut self) -> &mut [u8] { unsafe { std::slice::from_raw_parts_mut(self.ptr, self.len) } }
 }
 
-impl_option!(U8VecRef, OptionU8VecRef);
+impl_option!(U8VecRef, OptionU8VecRef, copy = false, clone = false);
 
+#[derive(Debug, Clone, PartialEq, Eq, Ord, PartialOrd, Hash)]
 #[repr(C)]
 pub struct AzDebugMessage {
     pub message: AzString,
@@ -163,7 +198,6 @@ pub struct AzDebugMessage {
 }
 
 impl_vec!(AzDebugMessage, AzDebugMessageVec);
-impl_vec!(GLuint, GLuintVec);
 impl_vec!(GLint, GLintVec);
 impl_vec!(GLuint, GLuintVec);
 
@@ -198,8 +232,9 @@ pub struct GetActiveAttribReturn {
     pub _2: AzString,
 }
 
+// (i32, u32, AzString)
 #[repr(C)]
-pub struct GetActiveAttribReturn {
+pub struct GetActiveUniformReturn {
     pub _0: i32,
     pub _1: u32,
     pub _2: AzString,
@@ -213,13 +248,6 @@ pub struct GLsyncPtr {
 impl GLsyncPtr {
     pub fn new(p: gleam::gl::GLsync) -> Self { Self { ptr: p as *const c_void } }
     pub fn get(self) -> gleam::gl::GLsync { self.ptr as gleam::gl::GLsync }
-}
-
-#[repr(C)]
-pub struct GetActiveUniformReturn {
-    pub _0: i32,
-    pub _1: u32,
-    pub _2: AzString,
 }
 
 /// Each pipeline (window) has its own OpenGL textures. GL Textures can technically
@@ -1111,19 +1139,19 @@ impl Gl for VirtualGlDriver {
         unimplemented()
     }
 
-    fn fence_sync(&self, condition: GLenum, flags: GLbitfield) -> GLsync {
+    fn fence_sync(&self, condition: GLenum, flags: GLbitfield) -> gleam::gl::GLsync {
         unimplemented()
     }
 
-    fn client_wait_sync(&self, sync: GLsync, flags: GLbitfield, timeout: GLuint64) {
+    fn client_wait_sync(&self, sync: gleam::gl::GLsync, flags: GLbitfield, timeout: GLuint64) {
         unimplemented()
     }
 
-    fn wait_sync(&self, sync: GLsync, flags: GLbitfield, timeout: GLuint64) {
+    fn wait_sync(&self, sync: gleam::gl::GLsync, flags: GLbitfield, timeout: GLuint64) {
         unimplemented()
     }
 
-    fn delete_sync(&self, sync: GLsync) {
+    fn delete_sync(&self, sync: gleam::gl::GLsync) {
         unimplemented()
     }
 
@@ -1232,16 +1260,21 @@ impl GlContextPtr {
 
 #[cfg(feature = "opengl")]
 impl GlContextPtr {
-    pub fn get_type(&self) -> AzGlType { match self.get().get_type().into() }
+    pub fn get_type(&self) -> AzGlType { self.get().get_type().into() }
     pub fn buffer_data_untyped(&self, target: GLenum, size: GLsizeiptr, data: *const GLvoid, usage: GLenum) { self.get().buffer_data_untyped(target, size, data, usage, ) }
     pub fn buffer_sub_data_untyped(&self, target: GLenum, offset: isize, size: GLsizeiptr, data: *const GLvoid) { self.get().buffer_sub_data_untyped(target, offset, size, data) }
     pub fn map_buffer(&self, target: GLenum, access: GLbitfield) -> *mut c_void { self.get().map_buffer(target, access) }
     pub fn map_buffer_range(&self, target: GLenum, offset: GLintptr, length: GLsizeiptr, access: GLbitfield) -> *mut c_void { self.get().map_buffer_range(target, offset, length, access) }
     pub fn unmap_buffer(&self, target: GLenum) -> GLboolean { self.get().unmap_buffer(target) }
     pub fn tex_buffer(&self, target: GLenum, internal_format: GLenum, buffer: GLuint) { self.get().tex_buffer(target, internal_format, buffer) }
-    pub fn shader_source(&self, shader: GLuint, strings: StringVec) { let shaders_as_bytes = strings.into_iter().map(|s| s.into_bytes()).collect::<Vec<_>>(); self.get().shader_source(shader, &strings) }
+    pub fn shader_source(&self, shader: GLuint, strings: StringVec) {
+        fn str_to_bytes(input: &str) -> Vec<u8> { let mut v: Vec<u8> = input.into(); v.push(0); v }
+        let shaders_as_bytes = strings.into_iter().map(|s| str_to_bytes(s.as_str())).collect::<Vec<_>>();
+        let shaders_as_bytes = shaders_as_bytes.iter().map(|s| s.as_ref()).collect::<Vec<_>>();
+        self.get().shader_source(shader, &shaders_as_bytes)
+    }
     pub fn read_buffer(&self, mode: GLenum) { self.get().read_buffer(mode) }
-    pub fn read_pixels_into_buffer(&self, x: GLint, y: GLint, width: GLsizei, height: GLsizei, format: GLenum, pixel_type: GLenum, dst_buffer: U8VecRefMut) { self.get().read_pixels_into_buffer(x, y, width, height, format, pixel_type, dst_buffer.as_mut_slice()) }
+    pub fn read_pixels_into_buffer(&self, x: GLint, y: GLint, width: GLsizei, height: GLsizei, format: GLenum, pixel_type: GLenum, mut dst_buffer: U8VecRefMut) { self.get().read_pixels_into_buffer(x, y, width, height, format, pixel_type, dst_buffer.as_mut_slice()) }
     pub fn read_pixels(&self, x: GLint, y: GLint, width: GLsizei, height: GLsizei, format: GLenum, pixel_type: GLenum) -> Vec<u8> { self.get().read_pixels(x, y, width, height, format, pixel_type) }
     pub fn read_pixels_into_pbo(&self, x: GLint, y: GLint, width: GLsizei, height: GLsizei, format: GLenum, pixel_type: GLenum) { unsafe {  self.get().read_pixels_into_pbo(x, y, width, height, format, pixel_type)} }
     pub fn sample_coverage(&self, value: GLclampf, invert: bool) { self.get().sample_coverage(value, invert) }
@@ -1298,7 +1331,7 @@ impl GlContextPtr {
     pub fn tex_sub_image_3d_pbo(&self, target: GLenum, level: GLint, xoffset: GLint, yoffset: GLint, zoffset: GLint, width: GLsizei, height: GLsizei, depth: GLsizei, format: GLenum, ty: GLenum, offset: usize) { self.get().tex_sub_image_3d_pbo(target, level, xoffset, yoffset, zoffset, width, height, depth, format, ty, offset) }
     pub fn tex_storage_2d(&self, target: GLenum, levels: GLint, internal_format: GLenum, width: GLsizei, height: GLsizei) { self.get().tex_storage_2d(target, levels, internal_format, width, height) }
     pub fn tex_storage_3d(&self, target: GLenum, levels: GLint, internal_format: GLenum, width: GLsizei, height: GLsizei, depth: GLsizei) { self.get().tex_storage_3d(target, levels, internal_format, width, height, depth) }
-    pub fn get_tex_image_into_buffer(&self, target: GLenum, level: GLint, format: GLenum, ty: GLenum, output: U8VecRefMut) { self.get().get_tex_image_into_buffer(target, level, format, ty, output.as_mut_slice()) }
+    pub fn get_tex_image_into_buffer(&self, target: GLenum, level: GLint, format: GLenum, ty: GLenum, mut output: U8VecRefMut) { self.get().get_tex_image_into_buffer(target, level, format, ty, output.as_mut_slice()) }
     pub fn copy_image_sub_data(&self, src_name: GLuint, src_target: GLenum, src_level: GLint, src_x: GLint, src_y: GLint, src_z: GLint, dst_name: GLuint, dst_target: GLenum, dst_level: GLint, dst_x: GLint, dst_y: GLint, dst_z: GLint, src_width: GLsizei, src_height: GLsizei, src_depth: GLsizei) { unsafe {  self.get().copy_image_sub_data(src_name, src_target, src_level, src_x, src_y, src_z, dst_name, dst_target, dst_level, dst_x, dst_y, dst_z, src_width, src_height, src_depth)} }
     pub fn invalidate_framebuffer(&self, target: GLenum, attachments: &[GLenum]) { self.get().invalidate_framebuffer(target, attachments) }
     pub fn invalidate_sub_framebuffer(&self, target: GLenum, attachments: &[GLenum], xoffset: GLint, yoffset: GLint, width: GLsizei, height: GLsizei) { self.get().invalidate_sub_framebuffer(target, attachments, xoffset, yoffset, width, height) }
@@ -1426,10 +1459,10 @@ impl GlContextPtr {
     pub fn debug_message_insert_khr(&self, source: GLenum, type_: GLenum, id: GLuint, severity: GLenum, message: &str) { self.get().debug_message_insert_khr(source, type_, id, severity, message) }
     pub fn push_debug_group_khr(&self, source: GLenum, id: GLuint, message: &str) { self.get().push_debug_group_khr(source, id, message) }
     pub fn pop_debug_group_khr(&self) { self.get().pop_debug_group_khr() }
-    pub fn fence_sync(&self, condition: GLenum, flags: GLbitfield) -> GLsync { self.get().fence_sync(condition, flags) }
-    pub fn client_wait_sync(&self, sync: GLsync, flags: GLbitfield, timeout: GLuint64) { self.get().client_wait_sync(sync, flags, timeout) }
-    pub fn wait_sync(&self, sync: GLsync, flags: GLbitfield, timeout: GLuint64) { self.get().wait_sync(sync, flags, timeout) }
-    pub fn delete_sync(&self, sync: GLsync) { self.get().delete_sync(sync) }
+    pub fn fence_sync(&self, condition: GLenum, flags: GLbitfield) -> GLsyncPtr { GLsyncPtr::new(self.get().fence_sync(condition, flags)) }
+    pub fn client_wait_sync(&self, sync: GLsyncPtr, flags: GLbitfield, timeout: GLuint64) { self.get().client_wait_sync(sync.get(), flags, timeout) }
+    pub fn wait_sync(&self, sync: GLsyncPtr, flags: GLbitfield, timeout: GLuint64) { self.get().wait_sync(sync.get(), flags, timeout) }
+    pub fn delete_sync(&self, sync: GLsyncPtr) { self.get().delete_sync(sync.get()) }
     pub fn texture_range_apple(&self, target: GLenum, data: &[u8]) { self.get().texture_range_apple(target, data) }
     pub fn gen_fences_apple(&self, n: GLsizei) -> Vec<GLuint> { self.get().gen_fences_apple(n) }
     pub fn delete_fences_apple(&self, fences: &[GLuint]) { self.get().delete_fences_apple(fences) }
@@ -1441,7 +1474,7 @@ impl GlContextPtr {
     pub fn get_frag_data_index( &self, program: GLuint, name: &str) -> GLint { self.get().get_frag_data_index(program, name) }
     pub fn blend_barrier_khr(&self) { self.get().blend_barrier_khr() }
     pub fn bind_frag_data_location_indexed( &self, program: GLuint, color_number: GLuint, index: GLuint, name: &str) { self.get().bind_frag_data_location_indexed(program, color_number, index, name) }
-    pub fn get_debug_messages(&self) -> AzDebugMessageVec { let dmv: Vec<AzDebugMessage> = self.get().get_debug_messages().into_iter().map(|d| AzDebugMessage { message: message.into(), source, ty, id, severity }).collect(); dmv.into() }
+    pub fn get_debug_messages(&self) -> AzDebugMessageVec { let dmv: Vec<AzDebugMessage> = self.get().get_debug_messages().into_iter().map(|d| AzDebugMessage { message: d.message.into(), source: d.source, ty: d.ty, id: d.ty, severity: d.severity }).collect(); dmv.into() }
     pub fn provoking_vertex_angle(&self, mode: GLenum) { self.get().provoking_vertex_angle(mode) }
     pub fn gen_vertex_arrays_apple(&self, n: GLsizei) -> Vec<GLuint> { self.get().gen_vertex_arrays_apple(n) }
     pub fn bind_vertex_array_apple(&self, vao: GLuint) { self.get().bind_vertex_array_apple(vao) }
@@ -2055,19 +2088,10 @@ impl GlShader {
             return Err(GlShaderCreateError::NoShaderCompiler);
         }
 
-        fn str_to_bytes(input: &str) -> Vec<u8> {
-            let mut v: Vec<u8> = input.into();
-            v.push(0);
-            v
-        }
-
-        let vertex_shader_source = str_to_bytes(vertex_shader);
-        let fragment_shader_source = str_to_bytes(fragment_shader);
-
         // Compile vertex shader
 
         let vertex_shader_object = gl_context.create_shader(gl::VERTEX_SHADER);
-        gl_context.shader_source(vertex_shader_object, &[&vertex_shader_source]);
+        gl_context.shader_source(vertex_shader_object, vec![AzString::from(vertex_shader.to_string())].into());
         gl_context.compile_shader(vertex_shader_object);
 
         #[cfg(debug_assertions)] {
@@ -2081,7 +2105,7 @@ impl GlShader {
         // Compile fragment shader
 
         let fragment_shader_object = gl_context.create_shader(gl::FRAGMENT_SHADER);
-        gl_context.shader_source(fragment_shader_object, &[&fragment_shader_source]);
+        gl_context.shader_source(fragment_shader_object, vec![AzString::from(fragment_shader.to_string())].into());
         gl_context.compile_shader(fragment_shader_object);
 
         #[cfg(debug_assertions)] {
