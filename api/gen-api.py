@@ -555,10 +555,10 @@ def generate_rust_dll(apiData):
                     returns = ""
                     if "returns" in f.keys():
                         return_type = f["returns"]
-                        if is_primitive_arg(return_type):
+                        analyzed_return_type = analyze_type(return_type)
+                        if is_primitive_arg(analyzed_return_type[1]):
                             returns = return_type
                         else:
-                            analyzed_return_type = analyze_type(return_type)
                             return_type_class = search_for_class_by_rust_class_name(apiData, analyzed_return_type[1])
                             if return_type_class is None:
                                 print("rust-dll: (line 549): no return_type_class found for " + return_type)
@@ -953,11 +953,13 @@ def generate_rust_api(apiData, structs_map, functions_map):
                         if "returns" in f.keys():
                             return_type = f["returns"]
                             returns = " -> " + return_type
-                            if is_primitive_arg(return_type):
+                            analyzed_return_type = analyze_type(return_type)
+                            if is_primitive_arg(analyzed_return_type[1]):
                                 fn_body = fn_body
                             else:
-                                analyzed_return_type = analyze_type(return_type)
                                 return_type_class = search_for_class_by_rust_class_name(apiData, analyzed_return_type[1])
+                                if return_type_class is None:
+                                    print("no return type found for return type: " + return_type)
                                 returns = " ->" + analyzed_return_type[0] + " crate::" + return_type_class[0] + "::" + return_type_class[1] + analyzed_return_type[2]
                                 fn_body = "{ " + fn_body + "}"
 

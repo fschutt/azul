@@ -107,6 +107,7 @@
     impl_vec!(Dom, DomVec);
     impl_vec!(AzString, StringVec);
     impl_vec!(GradientStopPre, GradientStopPreVec);
+    impl_vec!(DebugMessage, DebugMessageVec);
 
     impl From<std::vec::Vec<std::string::String>> for crate::vec::StringVec {
         fn from(v: std::vec::Vec<std::string::String>) -> crate::vec::StringVec {
