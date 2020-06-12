@@ -204,8 +204,6 @@ pub type AzOptionU8VecRefTT = azul_impl::gl::OptionU8VecRef;
 /// Destructor: Takes ownership of the `OptionU8VecRef` pointer and deletes it.
 #[no_mangle] #[allow(unused_variables)] pub extern "C" fn az_option_u8_vec_ref_delete(object: &mut AzOptionU8VecRef) { match object { azul_impl::gl::OptionU8VecRef::None => { }, azul_impl::gl::OptionU8VecRef::Some(_) => { }, }
 }
-/// Clones the object
-#[no_mangle] pub extern "C" fn az_option_u8_vec_ref_deep_copy(object: &AzOptionU8VecRef) -> AzOptionU8VecRef { object.clone() }
 
 /// Re-export of rust-allocated (stack based) `ResultRefAnyBlockError` struct
 pub type AzResultRefAnyBlockErrorTT = azul_impl::task::ResultRefAnyBlockError;
@@ -1902,88 +1900,66 @@ pub type AzU8VecRefTT = azul_impl::gl::U8VecRef;
 #[no_mangle] pub use AzU8VecRefTT as AzU8VecRef;
 /// Destructor: Takes ownership of the `U8VecRef` pointer and deletes it.
 #[no_mangle] #[allow(unused_variables)] pub extern "C" fn az_u8_vec_ref_delete(object: &mut AzU8VecRef) { }
-/// Clones the object
-#[no_mangle] pub extern "C" fn az_u8_vec_ref_deep_copy(object: &AzU8VecRef) -> AzU8VecRef { object.clone() }
 
 /// C-ABI stable reexport of `&mut [u8]`
 pub type AzU8VecRefMutTT = azul_impl::gl::U8VecRefMut;
 #[no_mangle] pub use AzU8VecRefMutTT as AzU8VecRefMut;
 /// Destructor: Takes ownership of the `U8VecRefMut` pointer and deletes it.
 #[no_mangle] #[allow(unused_variables)] pub extern "C" fn az_u8_vec_ref_mut_delete(object: &mut AzU8VecRefMut) { }
-/// Clones the object
-#[no_mangle] pub extern "C" fn az_u8_vec_ref_mut_deep_copy(object: &AzU8VecRefMut) -> AzU8VecRefMut { object.clone() }
 
 /// C-ABI stable reexport of `&[f32]`
 pub type AzF32VecRefTT = azul_impl::gl::F32VecRef;
 #[no_mangle] pub use AzF32VecRefTT as AzF32VecRef;
 /// Destructor: Takes ownership of the `F32VecRef` pointer and deletes it.
 #[no_mangle] #[allow(unused_variables)] pub extern "C" fn az_f32_vec_ref_delete(object: &mut AzF32VecRef) { }
-/// Clones the object
-#[no_mangle] pub extern "C" fn az_f32_vec_ref_deep_copy(object: &AzF32VecRef) -> AzF32VecRef { object.clone() }
 
 /// C-ABI stable reexport of `&[i32]`
 pub type AzI32VecRefTT = azul_impl::gl::I32VecRef;
 #[no_mangle] pub use AzI32VecRefTT as AzI32VecRef;
 /// Destructor: Takes ownership of the `I32VecRef` pointer and deletes it.
 #[no_mangle] #[allow(unused_variables)] pub extern "C" fn az_i32_vec_ref_delete(object: &mut AzI32VecRef) { }
-/// Clones the object
-#[no_mangle] pub extern "C" fn az_i32_vec_ref_deep_copy(object: &AzI32VecRef) -> AzI32VecRef { object.clone() }
 
 /// C-ABI stable reexport of `&[GLuint]` aka `&[u32]`
 pub type AzGLuintVecRefTT = azul_impl::gl::GLuintVecRef;
 #[no_mangle] pub use AzGLuintVecRefTT as AzGLuintVecRef;
 /// Destructor: Takes ownership of the `GLuintVecRef` pointer and deletes it.
 #[no_mangle] #[allow(unused_variables)] pub extern "C" fn az_g_luint_vec_ref_delete(object: &mut AzGLuintVecRef) { }
-/// Clones the object
-#[no_mangle] pub extern "C" fn az_g_luint_vec_ref_deep_copy(object: &AzGLuintVecRef) -> AzGLuintVecRef { object.clone() }
 
 /// C-ABI stable reexport of `&mut [GLint]` aka `&mut [i32]`
 pub type AzGLintVecRefMutTT = azul_impl::gl::GLintVecRefMut;
 #[no_mangle] pub use AzGLintVecRefMutTT as AzGLintVecRefMut;
 /// Destructor: Takes ownership of the `GLintVecRefMut` pointer and deletes it.
 #[no_mangle] #[allow(unused_variables)] pub extern "C" fn az_g_lint_vec_ref_mut_delete(object: &mut AzGLintVecRefMut) { }
-/// Clones the object
-#[no_mangle] pub extern "C" fn az_g_lint_vec_ref_mut_deep_copy(object: &AzGLintVecRefMut) -> AzGLintVecRefMut { object.clone() }
 
 /// C-ABI stable reexport of `&mut [GLint64]` aka `&mut [i64]`
 pub type AzGLint64VecRefMutTT = azul_impl::gl::GLint64VecRefMut;
 #[no_mangle] pub use AzGLint64VecRefMutTT as AzGLint64VecRefMut;
 /// Destructor: Takes ownership of the `GLint64VecRefMut` pointer and deletes it.
 #[no_mangle] #[allow(unused_variables)] pub extern "C" fn az_g_lint64_vec_ref_mut_delete(object: &mut AzGLint64VecRefMut) { }
-/// Clones the object
-#[no_mangle] pub extern "C" fn az_g_lint64_vec_ref_mut_deep_copy(object: &AzGLint64VecRefMut) -> AzGLint64VecRefMut { object.clone() }
 
 /// C-ABI stable reexport of `&mut [GLboolean]` aka `&mut [u8]`
 pub type AzGLbooleanVecRefMutTT = azul_impl::gl::GLbooleanVecRefMut;
 #[no_mangle] pub use AzGLbooleanVecRefMutTT as AzGLbooleanVecRefMut;
 /// Destructor: Takes ownership of the `GLbooleanVecRefMut` pointer and deletes it.
 #[no_mangle] #[allow(unused_variables)] pub extern "C" fn az_g_lboolean_vec_ref_mut_delete(object: &mut AzGLbooleanVecRefMut) { }
-/// Clones the object
-#[no_mangle] pub extern "C" fn az_g_lboolean_vec_ref_mut_deep_copy(object: &AzGLbooleanVecRefMut) -> AzGLbooleanVecRefMut { object.clone() }
 
 /// C-ABI stable reexport of `&mut [GLfloat]` aka `&mut [f32]`
 pub type AzGLfloatVecRefMutTT = azul_impl::gl::GLfloatVecRefMut;
 #[no_mangle] pub use AzGLfloatVecRefMutTT as AzGLfloatVecRefMut;
 /// Destructor: Takes ownership of the `GLfloatVecRefMut` pointer and deletes it.
 #[no_mangle] #[allow(unused_variables)] pub extern "C" fn az_g_lfloat_vec_ref_mut_delete(object: &mut AzGLfloatVecRefMut) { }
-/// Clones the object
-#[no_mangle] pub extern "C" fn az_g_lfloat_vec_ref_mut_deep_copy(object: &AzGLfloatVecRefMut) -> AzGLfloatVecRefMut { object.clone() }
 
 /// C-ABI stable reexport of `&[Refstr]` aka `&mut [&str]`
 pub type AzRefstrVecRefTT = azul_impl::gl::RefstrVecRef;
 #[no_mangle] pub use AzRefstrVecRefTT as AzRefstrVecRef;
 /// Destructor: Takes ownership of the `RefstrVecRef` pointer and deletes it.
 #[no_mangle] #[allow(unused_variables)] pub extern "C" fn az_refstr_vec_ref_delete(object: &mut AzRefstrVecRef) { }
-/// Clones the object
-#[no_mangle] pub extern "C" fn az_refstr_vec_ref_deep_copy(object: &AzRefstrVecRef) -> AzRefstrVecRef { object.clone() }
 
 /// C-ABI stable reexport of `&str`
 pub type AzRefstrTT = azul_impl::gl::Refstr;
 #[no_mangle] pub use AzRefstrTT as AzRefstr;
 /// Destructor: Takes ownership of the `Refstr` pointer and deletes it.
 #[no_mangle] #[allow(unused_variables)] pub extern "C" fn az_refstr_delete(object: &mut AzRefstr) { }
-/// Clones the object
-#[no_mangle] pub extern "C" fn az_refstr_deep_copy(object: &AzRefstr) -> AzRefstr { object.clone() }
 
 /// C-ABI stable reexport of `(U8Vec, u32)`
 pub type AzGetProgramBinaryReturnTT = azul_impl::gl::GetProgramBinaryReturn;
@@ -2006,8 +1982,6 @@ pub type AzGLsyncPtrTT = azul_impl::gl::GetActiveAttribReturn;
 #[no_mangle] pub use AzGLsyncPtrTT as AzGLsyncPtr;
 /// Destructor: Takes ownership of the `GLsyncPtr` pointer and deletes it.
 #[no_mangle] #[allow(unused_variables)] pub extern "C" fn az_g_lsync_ptr_delete(object: &mut AzGLsyncPtr) { }
-/// Clones the object
-#[no_mangle] pub extern "C" fn az_g_lsync_ptr_deep_copy(object: &AzGLsyncPtr) -> AzGLsyncPtr { object.clone() }
 
 /// C-ABI stable reexport of `(i32, u32, AzString)`
 pub type AzGetActiveUniformReturnTT = azul_impl::gl::GetActiveUniformReturn;

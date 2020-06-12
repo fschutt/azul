@@ -1400,7 +1400,6 @@ pub(crate) mod dll {
         pub az_option_instant_delete: Symbol<extern fn(_:  &mut AzOptionInstant)>,
         pub az_option_instant_deep_copy: Symbol<extern fn(_:  &AzOptionInstant) -> AzOptionInstant>,
         pub az_option_u8_vec_ref_delete: Symbol<extern fn(_:  &mut AzOptionU8VecRef)>,
-        pub az_option_u8_vec_ref_deep_copy: Symbol<extern fn(_:  &AzOptionU8VecRef) -> AzOptionU8VecRef>,
         pub az_result_ref_any_block_error_delete: Symbol<extern fn(_:  &mut AzResultRefAnyBlockError)>,
         pub az_result_ref_any_block_error_deep_copy: Symbol<extern fn(_:  &AzResultRefAnyBlockError) -> AzResultRefAnyBlockError>,
         pub az_instant_now: Symbol<extern fn() -> AzInstantPtr>,
@@ -1796,33 +1795,21 @@ pub(crate) mod dll {
         pub az_debug_message_delete: Symbol<extern fn(_:  &mut AzDebugMessage)>,
         pub az_debug_message_deep_copy: Symbol<extern fn(_:  &AzDebugMessage) -> AzDebugMessage>,
         pub az_u8_vec_ref_delete: Symbol<extern fn(_:  &mut AzU8VecRef)>,
-        pub az_u8_vec_ref_deep_copy: Symbol<extern fn(_:  &AzU8VecRef) -> AzU8VecRef>,
         pub az_u8_vec_ref_mut_delete: Symbol<extern fn(_:  &mut AzU8VecRefMut)>,
-        pub az_u8_vec_ref_mut_deep_copy: Symbol<extern fn(_:  &AzU8VecRefMut) -> AzU8VecRefMut>,
         pub az_f32_vec_ref_delete: Symbol<extern fn(_:  &mut AzF32VecRef)>,
-        pub az_f32_vec_ref_deep_copy: Symbol<extern fn(_:  &AzF32VecRef) -> AzF32VecRef>,
         pub az_i32_vec_ref_delete: Symbol<extern fn(_:  &mut AzI32VecRef)>,
-        pub az_i32_vec_ref_deep_copy: Symbol<extern fn(_:  &AzI32VecRef) -> AzI32VecRef>,
         pub az_g_luint_vec_ref_delete: Symbol<extern fn(_:  &mut AzGLuintVecRef)>,
-        pub az_g_luint_vec_ref_deep_copy: Symbol<extern fn(_:  &AzGLuintVecRef) -> AzGLuintVecRef>,
         pub az_g_lint_vec_ref_mut_delete: Symbol<extern fn(_:  &mut AzGLintVecRefMut)>,
-        pub az_g_lint_vec_ref_mut_deep_copy: Symbol<extern fn(_:  &AzGLintVecRefMut) -> AzGLintVecRefMut>,
         pub az_g_lint64_vec_ref_mut_delete: Symbol<extern fn(_:  &mut AzGLint64VecRefMut)>,
-        pub az_g_lint64_vec_ref_mut_deep_copy: Symbol<extern fn(_:  &AzGLint64VecRefMut) -> AzGLint64VecRefMut>,
         pub az_g_lboolean_vec_ref_mut_delete: Symbol<extern fn(_:  &mut AzGLbooleanVecRefMut)>,
-        pub az_g_lboolean_vec_ref_mut_deep_copy: Symbol<extern fn(_:  &AzGLbooleanVecRefMut) -> AzGLbooleanVecRefMut>,
         pub az_g_lfloat_vec_ref_mut_delete: Symbol<extern fn(_:  &mut AzGLfloatVecRefMut)>,
-        pub az_g_lfloat_vec_ref_mut_deep_copy: Symbol<extern fn(_:  &AzGLfloatVecRefMut) -> AzGLfloatVecRefMut>,
         pub az_refstr_vec_ref_delete: Symbol<extern fn(_:  &mut AzRefstrVecRef)>,
-        pub az_refstr_vec_ref_deep_copy: Symbol<extern fn(_:  &AzRefstrVecRef) -> AzRefstrVecRef>,
         pub az_refstr_delete: Symbol<extern fn(_:  &mut AzRefstr)>,
-        pub az_refstr_deep_copy: Symbol<extern fn(_:  &AzRefstr) -> AzRefstr>,
         pub az_get_program_binary_return_delete: Symbol<extern fn(_:  &mut AzGetProgramBinaryReturn)>,
         pub az_get_program_binary_return_deep_copy: Symbol<extern fn(_:  &AzGetProgramBinaryReturn) -> AzGetProgramBinaryReturn>,
         pub az_get_active_attrib_return_delete: Symbol<extern fn(_:  &mut AzGetActiveAttribReturn)>,
         pub az_get_active_attrib_return_deep_copy: Symbol<extern fn(_:  &AzGetActiveAttribReturn) -> AzGetActiveAttribReturn>,
         pub az_g_lsync_ptr_delete: Symbol<extern fn(_:  &mut AzGLsyncPtr)>,
-        pub az_g_lsync_ptr_deep_copy: Symbol<extern fn(_:  &AzGLsyncPtr) -> AzGLsyncPtr>,
         pub az_get_active_uniform_return_delete: Symbol<extern fn(_:  &mut AzGetActiveUniformReturn)>,
         pub az_get_active_uniform_return_deep_copy: Symbol<extern fn(_:  &AzGetActiveUniformReturn) -> AzGetActiveUniformReturn>,
         pub az_gl_context_ptr_get_type: Symbol<extern fn(_:  &AzGlContextPtr) -> AzGlType>,
@@ -2150,7 +2137,6 @@ pub(crate) mod dll {
         let az_option_instant_delete = unsafe { lib.get::<extern fn(_:  &mut AzOptionInstant)>(b"az_option_instant_delete").ok()? };
         let az_option_instant_deep_copy = unsafe { lib.get::<extern fn(_:  &AzOptionInstant) -> AzOptionInstant>(b"az_option_instant_deep_copy").ok()? };
         let az_option_u8_vec_ref_delete = unsafe { lib.get::<extern fn(_:  &mut AzOptionU8VecRef)>(b"az_option_u8_vec_ref_delete").ok()? };
-        let az_option_u8_vec_ref_deep_copy = unsafe { lib.get::<extern fn(_:  &AzOptionU8VecRef) -> AzOptionU8VecRef>(b"az_option_u8_vec_ref_deep_copy").ok()? };
         let az_result_ref_any_block_error_delete = unsafe { lib.get::<extern fn(_:  &mut AzResultRefAnyBlockError)>(b"az_result_ref_any_block_error_delete").ok()? };
         let az_result_ref_any_block_error_deep_copy = unsafe { lib.get::<extern fn(_:  &AzResultRefAnyBlockError) -> AzResultRefAnyBlockError>(b"az_result_ref_any_block_error_deep_copy").ok()? };
         let az_instant_now = unsafe { lib.get::<extern fn() -> AzInstantPtr>(b"az_instant_now").ok()? };
@@ -2546,33 +2532,21 @@ pub(crate) mod dll {
         let az_debug_message_delete = unsafe { lib.get::<extern fn(_:  &mut AzDebugMessage)>(b"az_debug_message_delete").ok()? };
         let az_debug_message_deep_copy = unsafe { lib.get::<extern fn(_:  &AzDebugMessage) -> AzDebugMessage>(b"az_debug_message_deep_copy").ok()? };
         let az_u8_vec_ref_delete = unsafe { lib.get::<extern fn(_:  &mut AzU8VecRef)>(b"az_u8_vec_ref_delete").ok()? };
-        let az_u8_vec_ref_deep_copy = unsafe { lib.get::<extern fn(_:  &AzU8VecRef) -> AzU8VecRef>(b"az_u8_vec_ref_deep_copy").ok()? };
         let az_u8_vec_ref_mut_delete = unsafe { lib.get::<extern fn(_:  &mut AzU8VecRefMut)>(b"az_u8_vec_ref_mut_delete").ok()? };
-        let az_u8_vec_ref_mut_deep_copy = unsafe { lib.get::<extern fn(_:  &AzU8VecRefMut) -> AzU8VecRefMut>(b"az_u8_vec_ref_mut_deep_copy").ok()? };
         let az_f32_vec_ref_delete = unsafe { lib.get::<extern fn(_:  &mut AzF32VecRef)>(b"az_f32_vec_ref_delete").ok()? };
-        let az_f32_vec_ref_deep_copy = unsafe { lib.get::<extern fn(_:  &AzF32VecRef) -> AzF32VecRef>(b"az_f32_vec_ref_deep_copy").ok()? };
         let az_i32_vec_ref_delete = unsafe { lib.get::<extern fn(_:  &mut AzI32VecRef)>(b"az_i32_vec_ref_delete").ok()? };
-        let az_i32_vec_ref_deep_copy = unsafe { lib.get::<extern fn(_:  &AzI32VecRef) -> AzI32VecRef>(b"az_i32_vec_ref_deep_copy").ok()? };
         let az_g_luint_vec_ref_delete = unsafe { lib.get::<extern fn(_:  &mut AzGLuintVecRef)>(b"az_g_luint_vec_ref_delete").ok()? };
-        let az_g_luint_vec_ref_deep_copy = unsafe { lib.get::<extern fn(_:  &AzGLuintVecRef) -> AzGLuintVecRef>(b"az_g_luint_vec_ref_deep_copy").ok()? };
         let az_g_lint_vec_ref_mut_delete = unsafe { lib.get::<extern fn(_:  &mut AzGLintVecRefMut)>(b"az_g_lint_vec_ref_mut_delete").ok()? };
-        let az_g_lint_vec_ref_mut_deep_copy = unsafe { lib.get::<extern fn(_:  &AzGLintVecRefMut) -> AzGLintVecRefMut>(b"az_g_lint_vec_ref_mut_deep_copy").ok()? };
         let az_g_lint64_vec_ref_mut_delete = unsafe { lib.get::<extern fn(_:  &mut AzGLint64VecRefMut)>(b"az_g_lint64_vec_ref_mut_delete").ok()? };
-        let az_g_lint64_vec_ref_mut_deep_copy = unsafe { lib.get::<extern fn(_:  &AzGLint64VecRefMut) -> AzGLint64VecRefMut>(b"az_g_lint64_vec_ref_mut_deep_copy").ok()? };
         let az_g_lboolean_vec_ref_mut_delete = unsafe { lib.get::<extern fn(_:  &mut AzGLbooleanVecRefMut)>(b"az_g_lboolean_vec_ref_mut_delete").ok()? };
-        let az_g_lboolean_vec_ref_mut_deep_copy = unsafe { lib.get::<extern fn(_:  &AzGLbooleanVecRefMut) -> AzGLbooleanVecRefMut>(b"az_g_lboolean_vec_ref_mut_deep_copy").ok()? };
         let az_g_lfloat_vec_ref_mut_delete = unsafe { lib.get::<extern fn(_:  &mut AzGLfloatVecRefMut)>(b"az_g_lfloat_vec_ref_mut_delete").ok()? };
-        let az_g_lfloat_vec_ref_mut_deep_copy = unsafe { lib.get::<extern fn(_:  &AzGLfloatVecRefMut) -> AzGLfloatVecRefMut>(b"az_g_lfloat_vec_ref_mut_deep_copy").ok()? };
         let az_refstr_vec_ref_delete = unsafe { lib.get::<extern fn(_:  &mut AzRefstrVecRef)>(b"az_refstr_vec_ref_delete").ok()? };
-        let az_refstr_vec_ref_deep_copy = unsafe { lib.get::<extern fn(_:  &AzRefstrVecRef) -> AzRefstrVecRef>(b"az_refstr_vec_ref_deep_copy").ok()? };
         let az_refstr_delete = unsafe { lib.get::<extern fn(_:  &mut AzRefstr)>(b"az_refstr_delete").ok()? };
-        let az_refstr_deep_copy = unsafe { lib.get::<extern fn(_:  &AzRefstr) -> AzRefstr>(b"az_refstr_deep_copy").ok()? };
         let az_get_program_binary_return_delete = unsafe { lib.get::<extern fn(_:  &mut AzGetProgramBinaryReturn)>(b"az_get_program_binary_return_delete").ok()? };
         let az_get_program_binary_return_deep_copy = unsafe { lib.get::<extern fn(_:  &AzGetProgramBinaryReturn) -> AzGetProgramBinaryReturn>(b"az_get_program_binary_return_deep_copy").ok()? };
         let az_get_active_attrib_return_delete = unsafe { lib.get::<extern fn(_:  &mut AzGetActiveAttribReturn)>(b"az_get_active_attrib_return_delete").ok()? };
         let az_get_active_attrib_return_deep_copy = unsafe { lib.get::<extern fn(_:  &AzGetActiveAttribReturn) -> AzGetActiveAttribReturn>(b"az_get_active_attrib_return_deep_copy").ok()? };
         let az_g_lsync_ptr_delete = unsafe { lib.get::<extern fn(_:  &mut AzGLsyncPtr)>(b"az_g_lsync_ptr_delete").ok()? };
-        let az_g_lsync_ptr_deep_copy = unsafe { lib.get::<extern fn(_:  &AzGLsyncPtr) -> AzGLsyncPtr>(b"az_g_lsync_ptr_deep_copy").ok()? };
         let az_get_active_uniform_return_delete = unsafe { lib.get::<extern fn(_:  &mut AzGetActiveUniformReturn)>(b"az_get_active_uniform_return_delete").ok()? };
         let az_get_active_uniform_return_deep_copy = unsafe { lib.get::<extern fn(_:  &AzGetActiveUniformReturn) -> AzGetActiveUniformReturn>(b"az_get_active_uniform_return_deep_copy").ok()? };
         let az_gl_context_ptr_get_type = unsafe { lib.get::<extern fn(_:  &AzGlContextPtr) -> AzGlType>(b"az_gl_context_ptr_get_type").ok()? };
@@ -2898,7 +2872,6 @@ pub(crate) mod dll {
             az_option_instant_delete,
             az_option_instant_deep_copy,
             az_option_u8_vec_ref_delete,
-            az_option_u8_vec_ref_deep_copy,
             az_result_ref_any_block_error_delete,
             az_result_ref_any_block_error_deep_copy,
             az_instant_now,
@@ -3294,33 +3267,21 @@ pub(crate) mod dll {
             az_debug_message_delete,
             az_debug_message_deep_copy,
             az_u8_vec_ref_delete,
-            az_u8_vec_ref_deep_copy,
             az_u8_vec_ref_mut_delete,
-            az_u8_vec_ref_mut_deep_copy,
             az_f32_vec_ref_delete,
-            az_f32_vec_ref_deep_copy,
             az_i32_vec_ref_delete,
-            az_i32_vec_ref_deep_copy,
             az_g_luint_vec_ref_delete,
-            az_g_luint_vec_ref_deep_copy,
             az_g_lint_vec_ref_mut_delete,
-            az_g_lint_vec_ref_mut_deep_copy,
             az_g_lint64_vec_ref_mut_delete,
-            az_g_lint64_vec_ref_mut_deep_copy,
             az_g_lboolean_vec_ref_mut_delete,
-            az_g_lboolean_vec_ref_mut_deep_copy,
             az_g_lfloat_vec_ref_mut_delete,
-            az_g_lfloat_vec_ref_mut_deep_copy,
             az_refstr_vec_ref_delete,
-            az_refstr_vec_ref_deep_copy,
             az_refstr_delete,
-            az_refstr_deep_copy,
             az_get_program_binary_return_delete,
             az_get_program_binary_return_deep_copy,
             az_get_active_attrib_return_delete,
             az_get_active_attrib_return_deep_copy,
             az_g_lsync_ptr_delete,
-            az_g_lsync_ptr_deep_copy,
             az_get_active_uniform_return_delete,
             az_get_active_uniform_return_deep_copy,
             az_gl_context_ptr_get_type,
@@ -3999,7 +3960,6 @@ pub mod option {
     /// `OptionU8VecRef` struct
     pub use crate::dll::AzOptionU8VecRef as OptionU8VecRef;
 
-    impl Clone for OptionU8VecRef { fn clone(&self) -> Self { (crate::dll::get_azul_dll().az_option_u8_vec_ref_deep_copy)(self) } }
     impl Drop for OptionU8VecRef { fn drop(&mut self) { (crate::dll::get_azul_dll().az_option_u8_vec_ref_delete)(self); } }
 }
 
@@ -5532,77 +5492,66 @@ pub mod gl {
     /// C-ABI stable reexport of `&[u8]`
     pub use crate::dll::AzU8VecRef as U8VecRef;
 
-    impl Clone for U8VecRef { fn clone(&self) -> Self { (crate::dll::get_azul_dll().az_u8_vec_ref_deep_copy)(self) } }
     impl Drop for U8VecRef { fn drop(&mut self) { (crate::dll::get_azul_dll().az_u8_vec_ref_delete)(self); } }
 
 
     /// C-ABI stable reexport of `&mut [u8]`
     pub use crate::dll::AzU8VecRefMut as U8VecRefMut;
 
-    impl Clone for U8VecRefMut { fn clone(&self) -> Self { (crate::dll::get_azul_dll().az_u8_vec_ref_mut_deep_copy)(self) } }
     impl Drop for U8VecRefMut { fn drop(&mut self) { (crate::dll::get_azul_dll().az_u8_vec_ref_mut_delete)(self); } }
 
 
     /// C-ABI stable reexport of `&[f32]`
     pub use crate::dll::AzF32VecRef as F32VecRef;
 
-    impl Clone for F32VecRef { fn clone(&self) -> Self { (crate::dll::get_azul_dll().az_f32_vec_ref_deep_copy)(self) } }
     impl Drop for F32VecRef { fn drop(&mut self) { (crate::dll::get_azul_dll().az_f32_vec_ref_delete)(self); } }
 
 
     /// C-ABI stable reexport of `&[i32]`
     pub use crate::dll::AzI32VecRef as I32VecRef;
 
-    impl Clone for I32VecRef { fn clone(&self) -> Self { (crate::dll::get_azul_dll().az_i32_vec_ref_deep_copy)(self) } }
     impl Drop for I32VecRef { fn drop(&mut self) { (crate::dll::get_azul_dll().az_i32_vec_ref_delete)(self); } }
 
 
     /// C-ABI stable reexport of `&[GLuint]` aka `&[u32]`
     pub use crate::dll::AzGLuintVecRef as GLuintVecRef;
 
-    impl Clone for GLuintVecRef { fn clone(&self) -> Self { (crate::dll::get_azul_dll().az_g_luint_vec_ref_deep_copy)(self) } }
     impl Drop for GLuintVecRef { fn drop(&mut self) { (crate::dll::get_azul_dll().az_g_luint_vec_ref_delete)(self); } }
 
 
     /// C-ABI stable reexport of `&mut [GLint]` aka `&mut [i32]`
     pub use crate::dll::AzGLintVecRefMut as GLintVecRefMut;
 
-    impl Clone for GLintVecRefMut { fn clone(&self) -> Self { (crate::dll::get_azul_dll().az_g_lint_vec_ref_mut_deep_copy)(self) } }
     impl Drop for GLintVecRefMut { fn drop(&mut self) { (crate::dll::get_azul_dll().az_g_lint_vec_ref_mut_delete)(self); } }
 
 
     /// C-ABI stable reexport of `&mut [GLint64]` aka `&mut [i64]`
     pub use crate::dll::AzGLint64VecRefMut as GLint64VecRefMut;
 
-    impl Clone for GLint64VecRefMut { fn clone(&self) -> Self { (crate::dll::get_azul_dll().az_g_lint64_vec_ref_mut_deep_copy)(self) } }
     impl Drop for GLint64VecRefMut { fn drop(&mut self) { (crate::dll::get_azul_dll().az_g_lint64_vec_ref_mut_delete)(self); } }
 
 
     /// C-ABI stable reexport of `&mut [GLboolean]` aka `&mut [u8]`
     pub use crate::dll::AzGLbooleanVecRefMut as GLbooleanVecRefMut;
 
-    impl Clone for GLbooleanVecRefMut { fn clone(&self) -> Self { (crate::dll::get_azul_dll().az_g_lboolean_vec_ref_mut_deep_copy)(self) } }
     impl Drop for GLbooleanVecRefMut { fn drop(&mut self) { (crate::dll::get_azul_dll().az_g_lboolean_vec_ref_mut_delete)(self); } }
 
 
     /// C-ABI stable reexport of `&mut [GLfloat]` aka `&mut [f32]`
     pub use crate::dll::AzGLfloatVecRefMut as GLfloatVecRefMut;
 
-    impl Clone for GLfloatVecRefMut { fn clone(&self) -> Self { (crate::dll::get_azul_dll().az_g_lfloat_vec_ref_mut_deep_copy)(self) } }
     impl Drop for GLfloatVecRefMut { fn drop(&mut self) { (crate::dll::get_azul_dll().az_g_lfloat_vec_ref_mut_delete)(self); } }
 
 
     /// C-ABI stable reexport of `&[Refstr]` aka `&mut [&str]`
     pub use crate::dll::AzRefstrVecRef as RefstrVecRef;
 
-    impl Clone for RefstrVecRef { fn clone(&self) -> Self { (crate::dll::get_azul_dll().az_refstr_vec_ref_deep_copy)(self) } }
     impl Drop for RefstrVecRef { fn drop(&mut self) { (crate::dll::get_azul_dll().az_refstr_vec_ref_delete)(self); } }
 
 
     /// C-ABI stable reexport of `&str`
     pub use crate::dll::AzRefstr as Refstr;
 
-    impl Clone for Refstr { fn clone(&self) -> Self { (crate::dll::get_azul_dll().az_refstr_deep_copy)(self) } }
     impl Drop for Refstr { fn drop(&mut self) { (crate::dll::get_azul_dll().az_refstr_delete)(self); } }
 
 
@@ -5623,7 +5572,6 @@ pub mod gl {
     /// C-ABI stable reexport of `(i32, u32, AzString)`
     pub use crate::dll::AzGLsyncPtr as GLsyncPtr;
 
-    impl Clone for GLsyncPtr { fn clone(&self) -> Self { (crate::dll::get_azul_dll().az_g_lsync_ptr_deep_copy)(self) } }
     impl Drop for GLsyncPtr { fn drop(&mut self) { (crate::dll::get_azul_dll().az_g_lsync_ptr_delete)(self); } }
 
 
