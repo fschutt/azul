@@ -43,6 +43,12 @@ impl Refstr {
     fn as_str(&self) -> &str { unsafe { std::str::from_utf8_unchecked(std::slice::from_raw_parts(self.ptr, self.len)) } }
 }
 
+impl From<&str> for Refstr {
+    fn from(s: &str) -> Self {
+        Self { ptr: s.as_ptr(), len: s.len() }
+    }
+}
+
 // &[&str]
 #[repr(C)]
 pub struct RefstrVecRef {
@@ -54,11 +60,23 @@ impl RefstrVecRef {
     fn as_slice(&self) -> &[Refstr] { unsafe { std::slice::from_raw_parts(self.ptr, self.len) } }
 }
 
-// &mut [GLfloat]
+impl From<&[Refstr]> for RefstrVecRef {
+    fn from(s: &[Refstr]) -> Self {
+        Self { ptr: s.as_ptr(), len: s.len() }
+    }
+}
+
+// &mut [GLint64]
 #[repr(C)]
 pub struct GLint64VecRefMut {
     pub ptr: *mut i64,
     pub len: usize,
+}
+
+impl From<&mut [GLint64]> for GLint64VecRefMut {
+    fn from(s: &mut [GLint64]) -> Self {
+        Self { ptr: s.as_mut_ptr(), len: s.len() }
+    }
 }
 
 impl GLint64VecRefMut {
@@ -72,6 +90,12 @@ pub struct GLfloatVecRefMut {
     pub len: usize,
 }
 
+impl From<&mut [GLfloat]> for GLfloatVecRefMut {
+    fn from(s: &mut [GLfloat]) -> Self {
+        Self { ptr: s.as_mut_ptr(), len: s.len() }
+    }
+}
+
 impl GLfloatVecRefMut {
     fn as_mut_slice(&mut self) -> &mut [GLfloat] { unsafe { std::slice::from_raw_parts_mut(self.ptr, self.len) } }
 }
@@ -81,6 +105,12 @@ impl GLfloatVecRefMut {
 pub struct GLintVecRefMut {
     pub ptr: *mut i32,
     pub len: usize,
+}
+
+impl From<&mut [GLint]> for GLintVecRefMut {
+    fn from(s: &mut [GLint]) -> Self {
+        Self { ptr: s.as_mut_ptr(), len: s.len() }
+    }
 }
 
 impl GLintVecRefMut {
@@ -94,6 +124,12 @@ pub struct GLuintVecRef {
     pub len: usize,
 }
 
+impl From<&[GLuint]> for GLuintVecRef {
+    fn from(s: &[GLuint]) -> Self {
+        Self { ptr: s.as_ptr(), len: s.len() }
+    }
+}
+
 impl GLuintVecRef {
     fn as_slice(&self) -> &[GLuint] { unsafe { std::slice::from_raw_parts(self.ptr, self.len) } }
 }
@@ -103,6 +139,12 @@ impl GLuintVecRef {
 pub struct U8VecRef {
     pub ptr: *const u8,
     pub len: usize,
+}
+
+impl From<&[u8]> for U8VecRef {
+    fn from(s: &[u8]) -> Self {
+        Self { ptr: s.as_ptr(), len: s.len() }
+    }
 }
 
 impl U8VecRef {
@@ -148,6 +190,12 @@ pub struct F32VecRef {
     pub len: usize,
 }
 
+impl From<&[f32]> for F32VecRef {
+    fn from(s: &[f32]) -> Self {
+        Self { ptr: s.as_ptr(), len: s.len() }
+    }
+}
+
 impl F32VecRef {
     fn as_slice(&self) -> &[f32] { unsafe { std::slice::from_raw_parts(self.ptr, self.len) } }
 }
@@ -157,6 +205,12 @@ impl F32VecRef {
 pub struct I32VecRef {
     pub ptr: *const i32,
     pub len: usize,
+}
+
+impl From<&[i32]> for I32VecRef {
+    fn from(s: &[i32]) -> Self {
+        Self { ptr: s.as_ptr(), len: s.len() }
+    }
 }
 
 impl I32VecRef {
@@ -170,6 +224,12 @@ pub struct GLbooleanVecRefMut {
     pub len: usize,
 }
 
+impl From<&mut [GLboolean]> for GLbooleanVecRefMut {
+    fn from(s: &mut [GLboolean]) -> Self {
+        Self { ptr: s.as_mut_ptr(), len: s.len() }
+    }
+}
+
 impl GLbooleanVecRefMut {
     fn as_mut_slice(&mut self) -> &mut [GLboolean] { unsafe { std::slice::from_raw_parts_mut(self.ptr, self.len) } }
 }
@@ -179,6 +239,12 @@ impl GLbooleanVecRefMut {
 pub struct U8VecRefMut {
     pub ptr: *mut u8,
     pub len: usize,
+}
+
+impl From<&mut [u8]> for U8VecRefMut {
+    fn from(s: &mut [u8]) -> Self {
+        Self { ptr: s.as_mut_ptr(), len: s.len() }
+    }
 }
 
 impl U8VecRefMut {
@@ -201,6 +267,7 @@ impl_vec!(AzDebugMessage, AzDebugMessageVec);
 impl_vec!(GLint, GLintVec);
 impl_vec!(GLuint, GLuintVec);
 
+#[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
 #[repr(C)]
 pub enum AzGlType {
     Gl,
@@ -218,6 +285,7 @@ impl From<GlType> for AzGlType {
 }
 
 // (U8Vec, u32)
+#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
 #[repr(C)]
 pub struct GetProgramBinaryReturn {
     pub _0: U8Vec,
@@ -225,6 +293,7 @@ pub struct GetProgramBinaryReturn {
 }
 
 // (i32, u32, AzString)
+#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
 #[repr(C)]
 pub struct GetActiveAttribReturn {
     pub _0: i32,
@@ -233,6 +302,7 @@ pub struct GetActiveAttribReturn {
 }
 
 // (i32, u32, AzString)
+#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
 #[repr(C)]
 pub struct GetActiveUniformReturn {
     pub _0: i32,
@@ -1275,17 +1345,17 @@ impl GlContextPtr {
     }
     pub fn read_buffer(&self, mode: GLenum) { self.get().read_buffer(mode) }
     pub fn read_pixels_into_buffer(&self, x: GLint, y: GLint, width: GLsizei, height: GLsizei, format: GLenum, pixel_type: GLenum, mut dst_buffer: U8VecRefMut) { self.get().read_pixels_into_buffer(x, y, width, height, format, pixel_type, dst_buffer.as_mut_slice()) }
-    pub fn read_pixels(&self, x: GLint, y: GLint, width: GLsizei, height: GLsizei, format: GLenum, pixel_type: GLenum) -> Vec<u8> { self.get().read_pixels(x, y, width, height, format, pixel_type) }
+    pub fn read_pixels(&self, x: GLint, y: GLint, width: GLsizei, height: GLsizei, format: GLenum, pixel_type: GLenum) -> U8Vec { self.get().read_pixels(x, y, width, height, format, pixel_type).into() }
     pub fn read_pixels_into_pbo(&self, x: GLint, y: GLint, width: GLsizei, height: GLsizei, format: GLenum, pixel_type: GLenum) { unsafe {  self.get().read_pixels_into_pbo(x, y, width, height, format, pixel_type)} }
     pub fn sample_coverage(&self, value: GLclampf, invert: bool) { self.get().sample_coverage(value, invert) }
     pub fn polygon_offset(&self, factor: GLfloat, units: GLfloat) { self.get().polygon_offset(factor, units) }
     pub fn pixel_store_i(&self, name: GLenum, param: GLint) { self.get().pixel_store_i(name, param) }
-    pub fn gen_buffers(&self, n: GLsizei) -> Vec<GLuint> { self.get().gen_buffers(n) }
-    pub fn gen_renderbuffers(&self, n: GLsizei) -> Vec<GLuint> { self.get().gen_renderbuffers(n) }
-    pub fn gen_framebuffers(&self, n: GLsizei) -> Vec<GLuint> { self.get().gen_framebuffers(n) }
-    pub fn gen_textures(&self, n: GLsizei) -> Vec<GLuint> { self.get().gen_textures(n) }
-    pub fn gen_vertex_arrays(&self, n: GLsizei) -> Vec<GLuint> { self.get().gen_vertex_arrays(n) }
-    pub fn gen_queries(&self, n: GLsizei) -> Vec<GLuint> { self.get().gen_queries(n) }
+    pub fn gen_buffers(&self, n: GLsizei) -> GLuintVec { self.get().gen_buffers(n).into() }
+    pub fn gen_renderbuffers(&self, n: GLsizei) -> GLuintVec { self.get().gen_renderbuffers(n).into() }
+    pub fn gen_framebuffers(&self, n: GLsizei) -> GLuintVec { self.get().gen_framebuffers(n).into() }
+    pub fn gen_textures(&self, n: GLsizei) -> GLuintVec { self.get().gen_textures(n).into() }
+    pub fn gen_vertex_arrays(&self, n: GLsizei) -> GLuintVec { self.get().gen_vertex_arrays(n).into() }
+    pub fn gen_queries(&self, n: GLsizei) -> GLuintVec { self.get().gen_queries(n).into() }
     pub fn begin_query(&self, target: GLenum, id: GLuint) { self.get().begin_query(target, id) }
     pub fn end_query(&self, target: GLenum) { self.get().end_query(target) }
     pub fn query_counter(&self, id: GLuint, target: GLenum) { self.get().query_counter(id, target) }
@@ -1293,12 +1363,12 @@ impl GlContextPtr {
     pub fn get_query_object_uiv(&self, id: GLuint, pname: GLenum) -> u32 { self.get().get_query_object_uiv(id, pname) }
     pub fn get_query_object_i64v(&self, id: GLuint, pname: GLenum) -> i64 { self.get().get_query_object_i64v(id, pname) }
     pub fn get_query_object_ui64v(&self, id: GLuint, pname: GLenum) -> u64 { self.get().get_query_object_ui64v(id, pname) }
-    pub fn delete_queries(&self, queries: &[GLuint]) { self.get().delete_queries(queries) }
-    pub fn delete_vertex_arrays(&self, vertex_arrays: &[GLuint]) { self.get().delete_vertex_arrays(vertex_arrays) }
-    pub fn delete_buffers(&self, buffers: &[GLuint]) { self.get().delete_buffers(buffers) }
-    pub fn delete_renderbuffers(&self, renderbuffers: &[GLuint]) { self.get().delete_renderbuffers(renderbuffers) }
-    pub fn delete_framebuffers(&self, framebuffers: &[GLuint]) { self.get().delete_framebuffers(framebuffers) }
-    pub fn delete_textures(&self, textures: &[GLuint]) { self.get().delete_textures(textures) }
+    pub fn delete_queries(&self, queries: GLuintVecRef) { self.get().delete_queries(queries.as_slice()) }
+    pub fn delete_vertex_arrays(&self, vertex_arrays: GLuintVecRef) { self.get().delete_vertex_arrays(vertex_arrays.as_slice()) }
+    pub fn delete_buffers(&self, buffers: GLuintVecRef) { self.get().delete_buffers(buffers.as_slice()) }
+    pub fn delete_renderbuffers(&self, renderbuffers: GLuintVecRef) { self.get().delete_renderbuffers(renderbuffers.as_slice()) }
+    pub fn delete_framebuffers(&self, framebuffers: GLuintVecRef) { self.get().delete_framebuffers(framebuffers.as_slice()) }
+    pub fn delete_textures(&self, textures: GLuintVecRef) { self.get().delete_textures(textures.as_slice()) }
     pub fn framebuffer_renderbuffer(&self, target: GLenum, attachment: GLenum, renderbuffertarget: GLenum, renderbuffer: GLuint) { self.get().framebuffer_renderbuffer(target, attachment, renderbuffertarget, renderbuffer) }
     pub fn renderbuffer_storage(&self, target: GLenum, internalformat: GLenum, width: GLsizei, height: GLsizei) { self.get().renderbuffer_storage(target, internalformat, width, height) }
     pub fn depth_func(&self, func: GLenum) { self.get().depth_func(func) }
@@ -1637,7 +1707,7 @@ impl_traits_for_gl_object!(Texture, texture_id);
 
 impl Drop for Texture {
     fn drop(&mut self) {
-        self.gl_context.delete_textures(&[self.texture_id]);
+        self.gl_context.delete_textures((&[self.texture_id])[..].into());
     }
 }
 
@@ -1763,7 +1833,7 @@ pub struct VertexArrayObject {
 
 impl Drop for VertexArrayObject {
     fn drop(&mut self) {
-        self.gl_context.delete_vertex_arrays(&[self.vao_id]);
+        self.gl_context.delete_vertex_arrays((&[self.vao_id])[..].into());
     }
 }
 
@@ -1793,7 +1863,7 @@ impl_traits_for_gl_object!(VertexBuffer<T: VertexLayoutDescription>, vertex_buff
 
 impl<T: VertexLayoutDescription> Drop for VertexBuffer<T> {
     fn drop(&mut self) {
-        self.gl_context.delete_buffers(&[self.vertex_buffer_id, self.index_buffer_id]);
+        self.gl_context.delete_buffers((&[self.vertex_buffer_id, self.index_buffer_id])[..].into());
     }
 }
 
@@ -1814,18 +1884,18 @@ impl<T: VertexLayoutDescription> VertexBuffer<T> {
         gl_context.get_integer_v(gl::ELEMENT_ARRAY_BUFFER, &mut current_index_buffer);
 
         let vertex_array_object = gl_context.gen_vertex_arrays(1);
-        let vertex_array_object = vertex_array_object[0];
+        let vertex_array_object = vertex_array_object.get(0).unwrap();
 
         let vertex_buffer_id = gl_context.gen_buffers(1);
-        let vertex_buffer_id = vertex_buffer_id[0];
+        let vertex_buffer_id = vertex_buffer_id.get(0).unwrap();
 
         let index_buffer_id = gl_context.gen_buffers(1);
-        let index_buffer_id = index_buffer_id[0];
+        let index_buffer_id = index_buffer_id.get(0).unwrap();
 
-        gl_context.bind_vertex_array(vertex_array_object);
+        gl_context.bind_vertex_array(*vertex_array_object);
 
         // Upload vertex data to GPU
-        gl_context.bind_buffer(gl::ARRAY_BUFFER, vertex_buffer_id);
+        gl_context.bind_buffer(gl::ARRAY_BUFFER, *vertex_buffer_id);
         gl_context.buffer_data_untyped(
             gl::ARRAY_BUFFER,
             (mem::size_of::<T>() * vertices.len()) as isize,
@@ -1834,7 +1904,7 @@ impl<T: VertexLayoutDescription> VertexBuffer<T> {
         );
 
         // Generate the index buffer + upload data
-        gl_context.bind_buffer(gl::ELEMENT_ARRAY_BUFFER, index_buffer_id);
+        gl_context.bind_buffer(gl::ELEMENT_ARRAY_BUFFER, *index_buffer_id);
         gl_context.buffer_data_untyped(
             gl::ELEMENT_ARRAY_BUFFER,
             (mem::size_of::<u32>() * indices.len()) as isize,
@@ -1851,16 +1921,16 @@ impl<T: VertexLayoutDescription> VertexBuffer<T> {
         gl_context.bind_vertex_array(current_vertex_array[0] as u32);
 
         Self {
-            vertex_buffer_id,
+            vertex_buffer_id: *vertex_buffer_id,
             vertex_buffer_len: vertices.len(),
             gl_context: gl_context.clone(),
             vao: VertexArrayObject {
                 vertex_layout: vertex_description,
-                vao_id: vertex_array_object,
+                vao_id: *vertex_array_object,
                 gl_context,
             },
             vertex_buffer_type: PhantomData,
-            index_buffer_id,
+            index_buffer_id: *index_buffer_id,
             index_buffer_len: indices.len(),
             index_buffer_format,
         }
@@ -2179,26 +2249,26 @@ impl GlShader {
         // 1. Create the texture + framebuffer
 
         let textures = gl_context.gen_textures(1);
-        let texture_id = textures[0];
+        let texture_id = textures.get(0).unwrap();
         let framebuffers = gl_context.gen_framebuffers(1);
-        let framebuffer_id = framebuffers[0];
-        gl_context.bind_framebuffer(gl::FRAMEBUFFER, framebuffer_id);
+        let framebuffer_id = framebuffers.get(0).unwrap();
+        gl_context.bind_framebuffer(gl::FRAMEBUFFER, *framebuffer_id);
 
         let depthbuffers = gl_context.gen_renderbuffers(1);
-        let depthbuffer_id = depthbuffers[0];
+        let depthbuffer_id = depthbuffers.get(0).unwrap();
 
-        gl_context.bind_texture(gl::TEXTURE_2D, texture_id);
+        gl_context.bind_texture(gl::TEXTURE_2D, *texture_id);
         gl_context.tex_image_2d(gl::TEXTURE_2D, 0, gl::RGBA as i32, texture_size.width as i32, texture_size.height as i32, 0, gl::RGBA, gl::UNSIGNED_BYTE, None);
         gl_context.tex_parameter_i(gl::TEXTURE_2D, gl::TEXTURE_MAG_FILTER, gl::NEAREST as i32);
         gl_context.tex_parameter_i(gl::TEXTURE_2D, gl::TEXTURE_MIN_FILTER, gl::NEAREST as i32);
         gl_context.tex_parameter_i(gl::TEXTURE_2D, gl::TEXTURE_WRAP_S, gl::CLAMP_TO_EDGE as i32);
         gl_context.tex_parameter_i(gl::TEXTURE_2D, gl::TEXTURE_WRAP_T, gl::CLAMP_TO_EDGE as i32);
 
-        gl_context.bind_renderbuffer(gl::RENDERBUFFER, depthbuffer_id);
+        gl_context.bind_renderbuffer(gl::RENDERBUFFER, *depthbuffer_id);
         gl_context.renderbuffer_storage(gl::RENDERBUFFER, gl::DEPTH_COMPONENT, texture_size.width as i32, texture_size.height as i32);
-        gl_context.framebuffer_renderbuffer(gl::FRAMEBUFFER, gl::DEPTH_ATTACHMENT, gl::RENDERBUFFER, depthbuffer_id);
+        gl_context.framebuffer_renderbuffer(gl::FRAMEBUFFER, gl::DEPTH_ATTACHMENT, gl::RENDERBUFFER, *depthbuffer_id);
 
-        gl_context.framebuffer_texture_2d(gl::FRAMEBUFFER, gl::COLOR_ATTACHMENT0, gl::TEXTURE_2D, texture_id, 0);
+        gl_context.framebuffer_texture_2d(gl::FRAMEBUFFER, gl::COLOR_ATTACHMENT0, gl::TEXTURE_2D, *texture_id, 0);
         gl_context.draw_buffers(&[gl::COLOR_ATTACHMENT0]);
         gl_context.viewport(0, 0, texture_size.width as i32, texture_size.height as i32);
 
@@ -2262,11 +2332,11 @@ impl GlShader {
         gl_context.bind_buffer(gl::ARRAY_BUFFER, current_vertex_buffer[0] as u32);
         gl_context.use_program(current_program[0] as u32);
 
-        gl_context.delete_framebuffers(&[framebuffer_id]);
-        gl_context.delete_renderbuffers(&[depthbuffer_id]);
+        gl_context.delete_framebuffers((&[*framebuffer_id])[..].into());
+        gl_context.delete_renderbuffers((&[*depthbuffer_id])[..].into());
 
         Texture {
-            texture_id,
+            texture_id: *texture_id,
             size: texture_size,
             flags: TextureFlags {
                 is_opaque: true,

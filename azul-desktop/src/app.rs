@@ -1591,12 +1591,12 @@ fn render_inner(
 
     // Generate a framebuffer (that will contain the final, rendered screen output).
     let framebuffers = gl_context.gen_framebuffers(1);
-    gl_context.bind_framebuffer(gl::FRAMEBUFFER, framebuffers[0]);
+    gl_context.bind_framebuffer(gl::FRAMEBUFFER, framebuffers.get(0).copied().unwrap());
 
     // Create the texture to render to
     let textures = gl_context.gen_textures(1);
 
-    gl_context.bind_texture(gl::TEXTURE_2D, textures[0]);
+    gl_context.bind_texture(gl::TEXTURE_2D, textures.get(0).copied().unwrap());
     gl_context.tex_image_2d(gl::TEXTURE_2D, 0, gl::RGB as i32, framebuffer_size.width, framebuffer_size.height, 0, gl::RGB, gl::UNSIGNED_BYTE, None);
 
     gl_context.tex_parameter_i(gl::TEXTURE_2D, gl::TEXTURE_MAG_FILTER, gl::NEAREST as i32);
@@ -1605,12 +1605,12 @@ fn render_inner(
     gl_context.tex_parameter_i(gl::TEXTURE_2D, gl::TEXTURE_WRAP_T, gl::CLAMP_TO_EDGE as i32);
 
     let depthbuffers = gl_context.gen_renderbuffers(1);
-    gl_context.bind_renderbuffer(gl::RENDERBUFFER, depthbuffers[0]);
+    gl_context.bind_renderbuffer(gl::RENDERBUFFER, depthbuffers.get(0).copied().unwrap());
     gl_context.renderbuffer_storage(gl::RENDERBUFFER, gl::DEPTH_COMPONENT, framebuffer_size.width, framebuffer_size.height);
-    gl_context.framebuffer_renderbuffer(gl::FRAMEBUFFER, gl::DEPTH_ATTACHMENT, gl::RENDERBUFFER, depthbuffers[0]);
+    gl_context.framebuffer_renderbuffer(gl::FRAMEBUFFER, gl::DEPTH_ATTACHMENT, gl::RENDERBUFFER, depthbuffers.get(0).copied().unwrap());
 
     // Set "textures[0]" as the color attachement #0
-    gl_context.framebuffer_texture_2d(gl::FRAMEBUFFER, gl::COLOR_ATTACHMENT0, gl::TEXTURE_2D, textures[0], 0);
+    gl_context.framebuffer_texture_2d(gl::FRAMEBUFFER, gl::COLOR_ATTACHMENT0, gl::TEXTURE_2D, textures.get(0).copied().unwrap(), 0);
 
     gl_context.draw_buffers(&[gl::COLOR_ATTACHMENT0]);
 
@@ -1633,15 +1633,15 @@ fn render_inner(
     // In order to draw on the windows backbuffer, first make the window current, then draw to FB 0
     headless_shared_context.make_not_current();
     window.display.make_current();
-    draw_texture_to_screen(gl_context.clone(), textures[0], framebuffer_size);
+    draw_texture_to_screen(gl_context.clone(), textures.get(0).copied().unwrap(), framebuffer_size);
     window.display.windowed_context().unwrap().swap_buffers().unwrap();
     window.display.make_not_current();
     headless_shared_context.make_current();
 
     // Only delete the texture here...
-    gl_context.delete_framebuffers(&framebuffers);
-    gl_context.delete_renderbuffers(&depthbuffers);
-    gl_context.delete_textures(&textures);
+    gl_context.delete_framebuffers(framebuffers.as_ref().into());
+    gl_context.delete_renderbuffers(depthbuffers.as_ref().into());
+    gl_context.delete_textures(textures.as_ref().into());
 
     gl_context.bind_framebuffer(gl::FRAMEBUFFER, 0);
     gl_context.bind_texture(gl::TEXTURE_2D, 0);
@@ -1708,10 +1708,10 @@ fn draw_texture_to_screen(context: GlContextPtr, texture: GLuint, framebuffer_si
     // which is only available in OGL 3.3)
 
     let vao = context.gen_vertex_arrays(1);
-    context.bind_vertex_array(vao[0]);
+    context.bind_vertex_array(vao.get(0).copied().unwrap());
     context.viewport(0, 0, framebuffer_size.width, framebuffer_size.height);
     context.draw_arrays(gl::TRIANGLE_STRIP, 0, 3);
-    context.delete_vertex_arrays(&vao);
+    context.delete_vertex_arrays(vao.as_ref().into());
 
     context.bind_vertex_array(0);
     context.use_program(0);
