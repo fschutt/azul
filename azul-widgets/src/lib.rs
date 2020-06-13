@@ -10,8 +10,6 @@ extern crate azul;
 #[cfg(feature = "fonts")]
 extern crate stb_truetype;
 #[cfg(feature = "svg")]
-extern crate gleam;
-#[cfg(feature = "svg")]
 extern crate lyon;
 #[cfg(feature = "svg_parsing")]
 extern crate usvg;

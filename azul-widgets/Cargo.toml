@@ -14,7 +14,6 @@ edition = "2018"
 
 [dependencies]
 azul                    = { path = "../azul", version = "0.0.1",  default-features = false }
-gleam                   = { version = "0.11.0", default-features = false, optional = true }
 lyon                    = { version = "0.15.5", default-features = false, optional = true }
 usvg                    = { version = "0.9.0",  default-features = false, optional = true }
 serde_derive            = { version = "1",      default-features = false, optional = true }
@@ -26,7 +25,7 @@ default = []
 # The SVG rendering module is pretty huge since it needs lyon - if you don't use
 # SVG rendering in your app, you can turn this off to increase compilation
 # speed and decrease your binary size
-svg = ["lyon", "gleam"]
+svg = ["lyon"]
 # This is for activating **parsing** of SVG files. If you, for example, just
 # want to draw shapes on the screen, you do not need to activate this feature,
 # this is just for parsing the SVG from a file.

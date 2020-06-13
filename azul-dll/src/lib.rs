@@ -1992,7 +1992,7 @@ pub type AzGetActiveAttribReturnTT = azul_impl::gl::GetActiveAttribReturn;
 /// Clones the object
 #[no_mangle] pub extern "C" fn az_get_active_attrib_return_deep_copy(object: &AzGetActiveAttribReturn) -> AzGetActiveAttribReturn { object.clone() }
 
-/// C-ABI stable reexport of `(i32, u32, AzString)`
+/// C-ABI stable reexport of `*const gleam::gl::GLsync`
 pub type AzGLsyncPtrTT = azul_impl::gl::GLsyncPtr;
 #[no_mangle] pub use AzGLsyncPtrTT as AzGLsyncPtr;
 /// Destructor: Takes ownership of the `GLsyncPtr` pointer and deletes it.

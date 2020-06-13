@@ -25,7 +25,7 @@ use std::io::{Error as IoError};
 #[cfg(feature = "svg_parsing")]
 use usvg::{Error as SvgError};
 use azul_css::{ColorU, ColorF};
-use gleam::gl::{self, Gl};
+use azul::gl;
 use azul_core::{
     FastHashMap,
     gl::{

@@ -2415,7 +2415,7 @@
 				},
 				"GLsyncPtr": {
 					"external": "azul_impl::gl::GLsyncPtr",
-					"doc": "C-ABI stable reexport of `(i32, u32, AzString)`",
+					"doc": "C-ABI stable reexport of `*const gleam::gl::GLsync`",
 					"treat_as_boxed_object": true,
 					"clone": false,
 					"struct_fields": [

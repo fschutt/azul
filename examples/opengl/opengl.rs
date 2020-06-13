@@ -1,56 +1,51 @@
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
 extern crate azul;
-extern crate gleam;
+extern crate azul_widgets;
 
-use azul::prelude::*;
-use azul::widgets::button::Button;
-use gleam::gl;
-
-const CSS: &str = "
-    texture {
-        width: 100%;
-        height: 100%;
-        border: 4px solid green;
-        box-sizing: border-box;
-    }
-
-    #the_button {
-        width: 200px;
-        height: 50px;
-        position: absolute;
-        top: 50px;
-        left: 50px;
-    }
-";
+use azul_widgets::button::Button;
+use azul::{
+    prelude::*,
+    gl,
+    callbacks::{GlCallbackInfo, GlCallbackReturn}
+};
 
 struct OpenGlAppState { }
 
-struct Mock { }
+fn layout(data: RefAny, _: LayoutInfo) -> Dom {
+    Dom::gl_texture(render_my_texture, data.clone())                     // <- the Rc<OpenGlAppState> is cloned here
+    .with_child(Button::with_label("Hello").dom().with_id("the_button")) //        |
+}                                                                        //        |
+                                                                         //        |
+fn render_my_texture(info: GlCallbackInfo) -> GlCallbackReturn {         //        |
+                                                                         //        |
+    // to get access to the OpenGlAppState:                              //        |
+    // let state = info.get_data::<OpenGlAppState>()?;                   // <------| - and the cloned RefAny can be
+    // or mutable access:                                                //        |   downcasted here in the callback
+    // let state = info.get_data_mut::<OpenGlAppState>()?;               // <------|
 
-impl Layout for OpenGlAppState {
-    fn layout(&self, _info: LayoutInfo) -> Dom<Self> {
-        Dom::gl_texture(render_my_texture, Ref::new(Mock { }))
-        .with_child(Button::with_label("Hello").dom().with_id("the_button"))
+    let gl_context = info.get_gl_context();
+    let texture_size = info.get_bounds_logical();
+
+    println!("rendering frame ...");
+
+    GlCallbackReturn {
+        // If the texture is None, the rect will simply be rendered as transparent
+        texture: render_my_texture_inner(gl_context, texture_size).into()
     }
 }
 
-fn render_my_texture(info: GlCallbackInfo) -> GlCallbackReturn {
-
-    println!("rendering opengl state!");
-
-    let texture_size = info.bounds.get_logical_size();
-    let gl_context = info.layout_info.gl_context.clone();
+fn render_my_texture_inner(gl_context: &GlContextPtr, texture_size: LogicalSize) -> Option<Texture> {
 
     let framebuffers = gl_context.gen_framebuffers(1);
-    gl_context.bind_framebuffer(gl::FRAMEBUFFER, framebuffers[0]);
+    gl_context.bind_framebuffer(gl::FRAMEBUFFER, framebuffers.get(0).copied()?);
 
     gl_context.enable(gl::TEXTURE_2D);
 
     // Create the texture to render to
     let textures = gl_context.gen_textures(1);
 
-    gl_context.bind_texture(gl::TEXTURE_2D, textures[0]);
+    gl_context.bind_texture(gl::TEXTURE_2D, textures.get(0).copied()?);
     gl_context.tex_image_2d(gl::TEXTURE_2D, 0, gl::RGB as i32, texture_size.width as i32, texture_size.height as i32, 0, gl::RGB, gl::UNSIGNED_BYTE, None);
 
     gl_context.tex_parameter_i(gl::TEXTURE_2D, gl::TEXTURE_MAG_FILTER, gl::NEAREST as i32);
@@ -59,12 +54,12 @@ fn render_my_texture(info: GlCallbackInfo) -> GlCallbackReturn {
     gl_context.tex_parameter_i(gl::TEXTURE_2D, gl::TEXTURE_WRAP_T, gl::CLAMP_TO_EDGE as i32);
 
     let depthbuffers = gl_context.gen_renderbuffers(1);
-    gl_context.bind_renderbuffer(gl::RENDERBUFFER, depthbuffers[0]);
+    gl_context.bind_renderbuffer(gl::RENDERBUFFER, depthbuffers.get(0).copied()?);
     gl_context.renderbuffer_storage(gl::RENDERBUFFER, gl::DEPTH_COMPONENT, texture_size.width as i32, texture_size.height as i32);
-    gl_context.framebuffer_renderbuffer(gl::FRAMEBUFFER, gl::DEPTH_ATTACHMENT, gl::RENDERBUFFER, depthbuffers[0]);
+    gl_context.framebuffer_renderbuffer(gl::FRAMEBUFFER, gl::DEPTH_ATTACHMENT, gl::RENDERBUFFER, depthbuffers.get(0).copied()?);
 
     // Set "textures[0]" as the color attachement #0
-    gl_context.framebuffer_texture_2d(gl::FRAMEBUFFER, gl::COLOR_ATTACHMENT0, gl::TEXTURE_2D, textures[0], 0);
+    gl_context.framebuffer_texture_2d(gl::FRAMEBUFFER, gl::COLOR_ATTACHMENT0, gl::TEXTURE_2D, textures.get(0).copied()?, 0);
 
     // Check that the framebuffer is complete
     debug_assert!(gl_context.check_frame_buffer_status(gl::FRAMEBUFFER) == gl::FRAMEBUFFER_COMPLETE);
@@ -81,22 +76,31 @@ fn render_my_texture(info: GlCallbackInfo) -> GlCallbackReturn {
     gl_context.clear_depth(0.0);
     gl_context.clear(gl::DEPTH_BUFFER_BIT);
 
-    gl_context.delete_framebuffers(&framebuffers);
-    gl_context.delete_renderbuffers(&depthbuffers);
+    // cleanup: note: no delete_textures(), OpenGL texture ID is returned to azul
+    gl_context.delete_framebuffers(framebuffers[..].into());
+    gl_context.delete_renderbuffers(depthbuffers[..].into());
     gl_context.active_texture(0);
     gl_context.bind_texture(gl::TEXTURE_2D, 0);
     gl_context.bind_framebuffer(gl::FRAMEBUFFER, 0);
     gl_context.bind_renderbuffer(gl::RENDERBUFFER, 0);
-
-    Some(Texture {
-        texture_id: textures[0],
-        size: texture_size,
-        gl_context,
-    })
 }
 
 fn main() {
-    let app = App::new(OpenGlAppState { }, AppConfig::default()).unwrap();
-    let css = css::override_native(CSS).unwrap();
+    let app = App::new(RefAny::new(OpenGlAppState { }), AppConfig::default()).unwrap();
+    let css = Css::override_native(String::from("
+        texture {
+            width: 100%;
+            height: 100%;
+            border: 4px solid green;
+            box-sizing: border-box;
+        }
+        #the_button {
+            width: 200px;
+            height: 50px;
+            position: absolute;
+            top: 50px;
+            left: 50px;
+        }
+    ").into()).unwrap();
     app.run(WindowCreateOptions::new(css));
 }
