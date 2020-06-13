@@ -467,13 +467,16 @@ def generate_rust_dll(apiData):
             else:
                 class_ptr_name = prefix + class_name + postfix
 
+            struct_doc = ""
             if "doc" in c.keys():
-                code += "/// " + c["doc"] + "\r\n"
+                struct_doc = c["doc"]
             else:
                 if c_is_stack_allocated:
-                    code += "/// Re-export of rust-allocated (stack based) `" + class_name + "` struct\r\n"
+                    struct_doc = "Re-export of rust-allocated (stack based) `" + class_name + "` struct"
                 else:
-                    code += "/// Pointer to rust-allocated `Box<" + class_name + ">` struct\r\n"
+                    struct_doc = "Pointer to rust-allocated `Box<" + class_name + ">` struct"
+
+            code += "/// " + struct_doc  + "\r\n"
 
             if "external" in c.keys():
                 external_path = c["external"]
@@ -482,7 +485,7 @@ def generate_rust_dll(apiData):
                 elif class_is_typedef:
                     code += "#[no_mangle] pub type " + class_ptr_name + " = " + external_path + ";\r\n"
                 elif class_is_boxed_object:
-                    structs_map[class_ptr_name] = {"struct": [{"ptr": {"type": "*mut c_void" }}]}
+                    structs_map[class_ptr_name] = {"doc": struct_doc, "struct": [{"ptr": {"type": "*mut c_void" }}]}
                     if treat_external_as_ptr:
                         code += "pub type " + class_ptr_name + "TT = " + external_path + ";\r\n"
                         code += "#[no_mangle] pub use " + class_ptr_name + "TT as " + class_ptr_name + ";\r\n"
@@ -490,15 +493,15 @@ def generate_rust_dll(apiData):
                         code += "#[no_mangle] #[repr(C)] pub struct " + class_ptr_name + " { pub ptr: *mut c_void }\r\n"
                 else:
                     if "struct_fields" in c.keys():
-                        structs_map[class_ptr_name] = {"struct": c["struct_fields"]}
+                        structs_map[class_ptr_name] = {"doc": struct_doc, "struct": c["struct_fields"]}
                     elif "enum_fields" in c.keys():
-                        structs_map[class_ptr_name] = {"enum": c["enum_fields"]}
+                        structs_map[class_ptr_name] = {"doc": struct_doc, "enum": c["enum_fields"]}
 
                     code += "pub type " + class_ptr_name + "TT = " + external_path + ";\r\n"
                     code += "#[no_mangle] pub use " + class_ptr_name + "TT as " + class_ptr_name + ";\r\n"
 
             else:
-                structs_map[class_ptr_name] = {"struct": [{"ptr": {"type": "*mut c_void"}}]}
+                structs_map[class_ptr_name] = {"doc": struct_doc, "struct": [{"ptr": {"type": "*mut c_void"}}]}
                 code += "#[no_mangle] #[repr(C)] pub struct " + class_ptr_name + " { ptr: *mut c_void }\r\n"
 
             if "constructors" in c.keys():
@@ -671,6 +674,12 @@ def generate_dll_loader(apiData, structs_map, functions_map, version):
 
     for struct_name in structs_map.keys():
         struct = structs_map[struct_name]
+
+        if "doc" in struct.keys():
+            code += "    /// " + struct["doc"] + "\r\n"
+        else:
+            code += "    /// `" + struct_name + "` struct\r\n"
+
         if "struct" in struct.keys():
             struct = struct["struct"]
             code += "    #[repr(C)] pub struct " + struct_name + " {\r\n"
