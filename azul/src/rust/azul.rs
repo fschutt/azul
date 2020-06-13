@@ -1,5 +1,9 @@
-//! Auto-generated public Rust API for the Azul GUI toolkit version 0.1.0
+#![doc(
+    html_logo_url = "https://raw.githubusercontent.com/maps4print/azul/master/assets/images/azul_logo_full_min.svg.png",
+    html_favicon_url = "https://raw.githubusercontent.com/maps4print/azul/master/assets/images/favicon.ico",
+)]//! Auto-generated public Rust API for the Azul GUI toolkit version 0.1.0
 //!
+
 // Copyright 2017 Maps4Print Einzelunternehmung
 // 
 // Permission is hereby granted, free of charge, to any person obtaining
@@ -133,6 +137,10 @@ pub(crate) mod dll {
     #[repr(C, u8)] pub enum AzOptionInstant {
         None,
         Some(AzInstantPtr),
+    }
+    #[repr(C, u8)] pub enum AzOptionUsize {
+        None,
+        Some(usize),
     }
     #[repr(C, u8)] pub enum AzOptionU8VecRef {
         None,
@@ -1213,6 +1221,10 @@ pub(crate) mod dll {
         pub(crate) ptr: *mut u32,
         pub len: usize,
     }
+    #[repr(C)] pub struct AzGLenumVecRef {
+        pub(crate) ptr: *mut u32,
+        pub len: usize,
+    }
     #[repr(C)] pub struct AzGLintVecRefMut {
         pub(crate) ptr: *mut i32,
         pub len: usize,
@@ -1399,6 +1411,8 @@ pub(crate) mod dll {
         pub az_option_duration_deep_copy: Symbol<extern fn(_:  &AzOptionDuration) -> AzOptionDuration>,
         pub az_option_instant_delete: Symbol<extern fn(_:  &mut AzOptionInstant)>,
         pub az_option_instant_deep_copy: Symbol<extern fn(_:  &AzOptionInstant) -> AzOptionInstant>,
+        pub az_option_usize_delete: Symbol<extern fn(_:  &mut AzOptionUsize)>,
+        pub az_option_usize_deep_copy: Symbol<extern fn(_:  &AzOptionUsize) -> AzOptionUsize>,
         pub az_option_u8_vec_ref_delete: Symbol<extern fn(_:  &mut AzOptionU8VecRef)>,
         pub az_result_ref_any_block_error_delete: Symbol<extern fn(_:  &mut AzResultRefAnyBlockError)>,
         pub az_result_ref_any_block_error_deep_copy: Symbol<extern fn(_:  &AzResultRefAnyBlockError) -> AzResultRefAnyBlockError>,
@@ -1799,6 +1813,7 @@ pub(crate) mod dll {
         pub az_f32_vec_ref_delete: Symbol<extern fn(_:  &mut AzF32VecRef)>,
         pub az_i32_vec_ref_delete: Symbol<extern fn(_:  &mut AzI32VecRef)>,
         pub az_g_luint_vec_ref_delete: Symbol<extern fn(_:  &mut AzGLuintVecRef)>,
+        pub az_g_lenum_vec_ref_delete: Symbol<extern fn(_:  &mut AzGLenumVecRef)>,
         pub az_g_lint_vec_ref_mut_delete: Symbol<extern fn(_:  &mut AzGLintVecRefMut)>,
         pub az_g_lint64_vec_ref_mut_delete: Symbol<extern fn(_:  &mut AzGLint64VecRefMut)>,
         pub az_g_lboolean_vec_ref_mut_delete: Symbol<extern fn(_:  &mut AzGLbooleanVecRefMut)>,
@@ -1864,7 +1879,7 @@ pub(crate) mod dll {
         pub az_gl_context_ptr_bind_renderbuffer: Symbol<extern fn(_:  &AzGlContextPtr, _:  u32, _:  u32)>,
         pub az_gl_context_ptr_bind_framebuffer: Symbol<extern fn(_:  &AzGlContextPtr, _:  u32, _:  u32)>,
         pub az_gl_context_ptr_bind_texture: Symbol<extern fn(_:  &AzGlContextPtr, _:  u32, _:  u32)>,
-        pub az_gl_context_ptr_draw_buffers: Symbol<extern fn(_:  &AzGlContextPtr, _:  AzGLuintVecRef)>,
+        pub az_gl_context_ptr_draw_buffers: Symbol<extern fn(_:  &AzGlContextPtr, _:  AzGLenumVecRef)>,
         pub az_gl_context_ptr_tex_image_2d: Symbol<extern fn(_:  &AzGlContextPtr, _:  u32, _:  i32, _:  i32, _:  i32, _:  i32, _:  i32, _:  u32, _:  u32, _:  AzOptionU8VecRef)>,
         pub az_gl_context_ptr_compressed_tex_image_2d: Symbol<extern fn(_:  &AzGlContextPtr, _:  u32, _:  i32, _:  u32, _:  i32, _:  i32, _:  i32, _:  AzU8VecRef)>,
         pub az_gl_context_ptr_compressed_tex_sub_image_2d: Symbol<extern fn(_:  &AzGlContextPtr, _:  u32, _:  i32, _:  i32, _:  i32, _:  i32, _:  i32, _:  u32, _:  AzU8VecRef)>,
@@ -1880,8 +1895,8 @@ pub(crate) mod dll {
         pub az_gl_context_ptr_tex_storage_3d: Symbol<extern fn(_:  &AzGlContextPtr, _:  u32, _:  i32, _:  u32, _:  i32, _:  i32, _:  i32)>,
         pub az_gl_context_ptr_get_tex_image_into_buffer: Symbol<extern fn(_:  &AzGlContextPtr, _:  u32, _:  i32, _:  u32, _:  u32, _:  AzU8VecRefMut)>,
         pub az_gl_context_ptr_copy_image_sub_data: Symbol<extern fn(_:  &AzGlContextPtr, _:  u32, _:  u32, _:  i32, _:  i32, _:  i32, _:  i32, _:  u32, _:  u32, _:  i32, _:  i32, _:  i32, _:  i32, _:  i32, _:  i32, _:  i32)>,
-        pub az_gl_context_ptr_invalidate_framebuffer: Symbol<extern fn(_:  &AzGlContextPtr, _:  u32, _:  AzGLuintVecRef)>,
-        pub az_gl_context_ptr_invalidate_sub_framebuffer: Symbol<extern fn(_:  &AzGlContextPtr, _:  u32, _:  AzGLuintVecRef, _:  i32, _:  i32, _:  i32, _:  i32)>,
+        pub az_gl_context_ptr_invalidate_framebuffer: Symbol<extern fn(_:  &AzGlContextPtr, _:  u32, _:  AzGLenumVecRef)>,
+        pub az_gl_context_ptr_invalidate_sub_framebuffer: Symbol<extern fn(_:  &AzGlContextPtr, _:  u32, _:  AzGLenumVecRef, _:  i32, _:  i32, _:  i32, _:  i32)>,
         pub az_gl_context_ptr_get_integer_v: Symbol<extern fn(_:  &AzGlContextPtr, _:  u32, _:  AzGLintVecRefMut)>,
         pub az_gl_context_ptr_get_integer_64v: Symbol<extern fn(_:  &AzGlContextPtr, _:  u32, _:  AzGLint64VecRefMut)>,
         pub az_gl_context_ptr_get_integer_iv: Symbol<extern fn(_:  &AzGlContextPtr, _:  u32, _:  u32, _:  AzGLintVecRefMut)>,
@@ -2136,6 +2151,8 @@ pub(crate) mod dll {
         let az_option_duration_deep_copy = unsafe { lib.get::<extern fn(_:  &AzOptionDuration) -> AzOptionDuration>(b"az_option_duration_deep_copy").ok()? };
         let az_option_instant_delete = unsafe { lib.get::<extern fn(_:  &mut AzOptionInstant)>(b"az_option_instant_delete").ok()? };
         let az_option_instant_deep_copy = unsafe { lib.get::<extern fn(_:  &AzOptionInstant) -> AzOptionInstant>(b"az_option_instant_deep_copy").ok()? };
+        let az_option_usize_delete = unsafe { lib.get::<extern fn(_:  &mut AzOptionUsize)>(b"az_option_usize_delete").ok()? };
+        let az_option_usize_deep_copy = unsafe { lib.get::<extern fn(_:  &AzOptionUsize) -> AzOptionUsize>(b"az_option_usize_deep_copy").ok()? };
         let az_option_u8_vec_ref_delete = unsafe { lib.get::<extern fn(_:  &mut AzOptionU8VecRef)>(b"az_option_u8_vec_ref_delete").ok()? };
         let az_result_ref_any_block_error_delete = unsafe { lib.get::<extern fn(_:  &mut AzResultRefAnyBlockError)>(b"az_result_ref_any_block_error_delete").ok()? };
         let az_result_ref_any_block_error_deep_copy = unsafe { lib.get::<extern fn(_:  &AzResultRefAnyBlockError) -> AzResultRefAnyBlockError>(b"az_result_ref_any_block_error_deep_copy").ok()? };
@@ -2536,6 +2553,7 @@ pub(crate) mod dll {
         let az_f32_vec_ref_delete = unsafe { lib.get::<extern fn(_:  &mut AzF32VecRef)>(b"az_f32_vec_ref_delete").ok()? };
         let az_i32_vec_ref_delete = unsafe { lib.get::<extern fn(_:  &mut AzI32VecRef)>(b"az_i32_vec_ref_delete").ok()? };
         let az_g_luint_vec_ref_delete = unsafe { lib.get::<extern fn(_:  &mut AzGLuintVecRef)>(b"az_g_luint_vec_ref_delete").ok()? };
+        let az_g_lenum_vec_ref_delete = unsafe { lib.get::<extern fn(_:  &mut AzGLenumVecRef)>(b"az_g_lenum_vec_ref_delete").ok()? };
         let az_g_lint_vec_ref_mut_delete = unsafe { lib.get::<extern fn(_:  &mut AzGLintVecRefMut)>(b"az_g_lint_vec_ref_mut_delete").ok()? };
         let az_g_lint64_vec_ref_mut_delete = unsafe { lib.get::<extern fn(_:  &mut AzGLint64VecRefMut)>(b"az_g_lint64_vec_ref_mut_delete").ok()? };
         let az_g_lboolean_vec_ref_mut_delete = unsafe { lib.get::<extern fn(_:  &mut AzGLbooleanVecRefMut)>(b"az_g_lboolean_vec_ref_mut_delete").ok()? };
@@ -2601,7 +2619,7 @@ pub(crate) mod dll {
         let az_gl_context_ptr_bind_renderbuffer = unsafe { lib.get::<extern fn(_:  &AzGlContextPtr, _:  u32, _:  u32)>(b"az_gl_context_ptr_bind_renderbuffer").ok()? };
         let az_gl_context_ptr_bind_framebuffer = unsafe { lib.get::<extern fn(_:  &AzGlContextPtr, _:  u32, _:  u32)>(b"az_gl_context_ptr_bind_framebuffer").ok()? };
         let az_gl_context_ptr_bind_texture = unsafe { lib.get::<extern fn(_:  &AzGlContextPtr, _:  u32, _:  u32)>(b"az_gl_context_ptr_bind_texture").ok()? };
-        let az_gl_context_ptr_draw_buffers = unsafe { lib.get::<extern fn(_:  &AzGlContextPtr, _:  AzGLuintVecRef)>(b"az_gl_context_ptr_draw_buffers").ok()? };
+        let az_gl_context_ptr_draw_buffers = unsafe { lib.get::<extern fn(_:  &AzGlContextPtr, _:  AzGLenumVecRef)>(b"az_gl_context_ptr_draw_buffers").ok()? };
         let az_gl_context_ptr_tex_image_2d = unsafe { lib.get::<extern fn(_:  &AzGlContextPtr, _:  u32, _:  i32, _:  i32, _:  i32, _:  i32, _:  i32, _:  u32, _:  u32, _:  AzOptionU8VecRef)>(b"az_gl_context_ptr_tex_image_2d").ok()? };
         let az_gl_context_ptr_compressed_tex_image_2d = unsafe { lib.get::<extern fn(_:  &AzGlContextPtr, _:  u32, _:  i32, _:  u32, _:  i32, _:  i32, _:  i32, _:  AzU8VecRef)>(b"az_gl_context_ptr_compressed_tex_image_2d").ok()? };
         let az_gl_context_ptr_compressed_tex_sub_image_2d = unsafe { lib.get::<extern fn(_:  &AzGlContextPtr, _:  u32, _:  i32, _:  i32, _:  i32, _:  i32, _:  i32, _:  u32, _:  AzU8VecRef)>(b"az_gl_context_ptr_compressed_tex_sub_image_2d").ok()? };
@@ -2617,8 +2635,8 @@ pub(crate) mod dll {
         let az_gl_context_ptr_tex_storage_3d = unsafe { lib.get::<extern fn(_:  &AzGlContextPtr, _:  u32, _:  i32, _:  u32, _:  i32, _:  i32, _:  i32)>(b"az_gl_context_ptr_tex_storage_3d").ok()? };
         let az_gl_context_ptr_get_tex_image_into_buffer = unsafe { lib.get::<extern fn(_:  &AzGlContextPtr, _:  u32, _:  i32, _:  u32, _:  u32, _:  AzU8VecRefMut)>(b"az_gl_context_ptr_get_tex_image_into_buffer").ok()? };
         let az_gl_context_ptr_copy_image_sub_data = unsafe { lib.get::<extern fn(_:  &AzGlContextPtr, _:  u32, _:  u32, _:  i32, _:  i32, _:  i32, _:  i32, _:  u32, _:  u32, _:  i32, _:  i32, _:  i32, _:  i32, _:  i32, _:  i32, _:  i32)>(b"az_gl_context_ptr_copy_image_sub_data").ok()? };
-        let az_gl_context_ptr_invalidate_framebuffer = unsafe { lib.get::<extern fn(_:  &AzGlContextPtr, _:  u32, _:  AzGLuintVecRef)>(b"az_gl_context_ptr_invalidate_framebuffer").ok()? };
-        let az_gl_context_ptr_invalidate_sub_framebuffer = unsafe { lib.get::<extern fn(_:  &AzGlContextPtr, _:  u32, _:  AzGLuintVecRef, _:  i32, _:  i32, _:  i32, _:  i32)>(b"az_gl_context_ptr_invalidate_sub_framebuffer").ok()? };
+        let az_gl_context_ptr_invalidate_framebuffer = unsafe { lib.get::<extern fn(_:  &AzGlContextPtr, _:  u32, _:  AzGLenumVecRef)>(b"az_gl_context_ptr_invalidate_framebuffer").ok()? };
+        let az_gl_context_ptr_invalidate_sub_framebuffer = unsafe { lib.get::<extern fn(_:  &AzGlContextPtr, _:  u32, _:  AzGLenumVecRef, _:  i32, _:  i32, _:  i32, _:  i32)>(b"az_gl_context_ptr_invalidate_sub_framebuffer").ok()? };
         let az_gl_context_ptr_get_integer_v = unsafe { lib.get::<extern fn(_:  &AzGlContextPtr, _:  u32, _:  AzGLintVecRefMut)>(b"az_gl_context_ptr_get_integer_v").ok()? };
         let az_gl_context_ptr_get_integer_64v = unsafe { lib.get::<extern fn(_:  &AzGlContextPtr, _:  u32, _:  AzGLint64VecRefMut)>(b"az_gl_context_ptr_get_integer_64v").ok()? };
         let az_gl_context_ptr_get_integer_iv = unsafe { lib.get::<extern fn(_:  &AzGlContextPtr, _:  u32, _:  u32, _:  AzGLintVecRefMut)>(b"az_gl_context_ptr_get_integer_iv").ok()? };
@@ -2871,6 +2889,8 @@ pub(crate) mod dll {
             az_option_duration_deep_copy,
             az_option_instant_delete,
             az_option_instant_deep_copy,
+            az_option_usize_delete,
+            az_option_usize_deep_copy,
             az_option_u8_vec_ref_delete,
             az_result_ref_any_block_error_delete,
             az_result_ref_any_block_error_deep_copy,
@@ -3271,6 +3291,7 @@ pub(crate) mod dll {
             az_f32_vec_ref_delete,
             az_i32_vec_ref_delete,
             az_g_luint_vec_ref_delete,
+            az_g_lenum_vec_ref_delete,
             az_g_lint_vec_ref_mut_delete,
             az_g_lint64_vec_ref_mut_delete,
             az_g_lboolean_vec_ref_mut_delete,
@@ -3623,6 +3644,7 @@ pub mod prelude {
 pub mod str {
 
     use crate::dll::*;
+    use std::ffi::c_void;
 
     impl From<std::string::String> for crate::str::String {
         fn from(s: std::string::String) -> crate::str::String {
@@ -3660,6 +3682,7 @@ pub mod str {
 pub mod vec {
 
     use crate::dll::*;
+    use std::ffi::c_void;
     macro_rules! impl_vec {($struct_type:ident, $struct_name:ident) => (
 
         impl $struct_name {
@@ -3914,6 +3937,7 @@ pub mod vec {
 pub mod option {
 
     use crate::dll::*;
+    use std::ffi::c_void;
 
 
     /// `OptionPercentageValue` struct
@@ -3957,6 +3981,13 @@ pub mod option {
     impl Drop for OptionInstant { fn drop(&mut self) { (crate::dll::get_azul_dll().az_option_instant_delete)(self); } }
 
 
+    /// `OptionUsize` struct
+    pub use crate::dll::AzOptionUsize as OptionUsize;
+
+    impl Clone for OptionUsize { fn clone(&self) -> Self { (crate::dll::get_azul_dll().az_option_usize_deep_copy)(self) } }
+    impl Drop for OptionUsize { fn drop(&mut self) { (crate::dll::get_azul_dll().az_option_usize_delete)(self); } }
+
+
     /// `OptionU8VecRef` struct
     pub use crate::dll::AzOptionU8VecRef as OptionU8VecRef;
 
@@ -3968,6 +3999,7 @@ pub mod option {
 pub mod result {
 
     use crate::dll::*;
+    use std::ffi::c_void;
 
 
     /// `ResultRefAnyBlockError` struct
@@ -3982,6 +4014,7 @@ pub mod result {
 pub mod time {
 
     use crate::dll::*;
+    use std::ffi::c_void;
 
 
     /// `Instant` struct
@@ -4007,6 +4040,7 @@ pub mod time {
 pub mod app {
 
     use crate::dll::*;
+    use std::ffi::c_void;
     use crate::callbacks::{LayoutCallbackType, RefAny};
     use crate::window::WindowCreateOptions;
 
@@ -4040,6 +4074,7 @@ pub mod app {
 pub mod callbacks {
 
     use crate::dll::*;
+    use std::ffi::c_void;
 
 
     /// `LayoutCallback` struct
@@ -4233,6 +4268,7 @@ pub mod callbacks {
 pub mod css {
 
     use crate::dll::*;
+    use std::ffi::c_void;
     use crate::str::String;
 
 
@@ -5251,6 +5287,7 @@ pub mod css {
 pub mod dom {
 
     use crate::dll::*;
+    use std::ffi::c_void;
 impl std::iter::FromIterator<Dom> for Dom {
     fn from_iter<I: IntoIterator<Item=Dom>>(iter: I) -> Self {
 
@@ -5471,6 +5508,7 @@ impl std::iter::FromIterator<NodeType> for Dom {
 pub mod gl {
 
     use crate::dll::*;
+    use std::ffi::c_void;
     use crate::vec::{GLuintVec, StringVec};
     use crate::option::OptionU8VecRef;
 
@@ -5517,6 +5555,12 @@ pub mod gl {
     pub use crate::dll::AzGLuintVecRef as GLuintVecRef;
 
     impl Drop for GLuintVecRef { fn drop(&mut self) { (crate::dll::get_azul_dll().az_g_luint_vec_ref_delete)(self); } }
+
+
+    /// C-ABI stable reexport of `&[GLenum]` aka `&[u32]`
+    pub use crate::dll::AzGLenumVecRef as GLenumVecRef;
+
+    impl Drop for GLenumVecRef { fn drop(&mut self) { (crate::dll::get_azul_dll().az_g_lenum_vec_ref_delete)(self); } }
 
 
     /// C-ABI stable reexport of `&mut [GLint]` aka `&mut [i32]`
@@ -5691,7 +5735,7 @@ pub mod gl {
         /// Calls the `GlContextPtr::bind_texture` function.
         pub fn bind_texture(&self, target: u32, texture: u32)  { (crate::dll::get_azul_dll().az_gl_context_ptr_bind_texture)(self, target, texture) }
         /// Calls the `GlContextPtr::draw_buffers` function.
-        pub fn draw_buffers(&self, bufs: GLuintVecRef)  { (crate::dll::get_azul_dll().az_gl_context_ptr_draw_buffers)(self, bufs) }
+        pub fn draw_buffers(&self, bufs: GLenumVecRef)  { (crate::dll::get_azul_dll().az_gl_context_ptr_draw_buffers)(self, bufs) }
         /// Calls the `GlContextPtr::tex_image_2d` function.
         pub fn tex_image_2d(&self, target: u32, level: i32, internal_format: i32, width: i32, height: i32, border: i32, format: u32, ty: u32, opt_data: OptionU8VecRef)  { (crate::dll::get_azul_dll().az_gl_context_ptr_tex_image_2d)(self, target, level, internal_format, width, height, border, format, ty, opt_data) }
         /// Calls the `GlContextPtr::compressed_tex_image_2d` function.
@@ -5723,9 +5767,9 @@ pub mod gl {
         /// Calls the `GlContextPtr::copy_image_sub_data` function.
         pub fn copy_image_sub_data(&self, src_name: u32, src_target: u32, src_level: i32, src_x: i32, src_y: i32, src_z: i32, dst_name: u32, dst_target: u32, dst_level: i32, dst_x: i32, dst_y: i32, dst_z: i32, src_width: i32, src_height: i32, src_depth: i32)  { (crate::dll::get_azul_dll().az_gl_context_ptr_copy_image_sub_data)(self, src_name, src_target, src_level, src_x, src_y, src_z, dst_name, dst_target, dst_level, dst_x, dst_y, dst_z, src_width, src_height, src_depth) }
         /// Calls the `GlContextPtr::invalidate_framebuffer` function.
-        pub fn invalidate_framebuffer(&self, target: u32, attachments: GLuintVecRef)  { (crate::dll::get_azul_dll().az_gl_context_ptr_invalidate_framebuffer)(self, target, attachments) }
+        pub fn invalidate_framebuffer(&self, target: u32, attachments: GLenumVecRef)  { (crate::dll::get_azul_dll().az_gl_context_ptr_invalidate_framebuffer)(self, target, attachments) }
         /// Calls the `GlContextPtr::invalidate_sub_framebuffer` function.
-        pub fn invalidate_sub_framebuffer(&self, target: u32, attachments: GLuintVecRef, xoffset: i32, yoffset: i32, width: i32, height: i32)  { (crate::dll::get_azul_dll().az_gl_context_ptr_invalidate_sub_framebuffer)(self, target, attachments, xoffset, yoffset, width, height) }
+        pub fn invalidate_sub_framebuffer(&self, target: u32, attachments: GLenumVecRef, xoffset: i32, yoffset: i32, width: i32, height: i32)  { (crate::dll::get_azul_dll().az_gl_context_ptr_invalidate_sub_framebuffer)(self, target, attachments, xoffset, yoffset, width, height) }
         /// Calls the `GlContextPtr::get_integer_v` function.
         pub fn get_integer_v(&self, name: u32, result: GLintVecRefMut)  { (crate::dll::get_azul_dll().az_gl_context_ptr_get_integer_v)(self, name, result) }
         /// Calls the `GlContextPtr::get_integer_64v` function.
@@ -6048,6 +6092,7 @@ pub mod gl {
 pub mod resources {
 
     use crate::dll::*;
+    use std::ffi::c_void;
     use crate::vec::U8Vec;
 
 
@@ -6125,6 +6170,7 @@ pub mod resources {
 pub mod task {
 
     use crate::dll::*;
+    use std::ffi::c_void;
     use crate::callbacks::{RefAny, TaskCallbackType, ThreadCallbackType};
 
 
@@ -6211,6 +6257,7 @@ pub mod task {
 pub mod window {
 
     use crate::dll::*;
+    use std::ffi::c_void;
     use crate::css::Css;
 
 

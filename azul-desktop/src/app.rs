@@ -1587,7 +1587,7 @@ fn render_inner(
     headless_shared_context.make_current();
 
     let mut current_program = [0_i32];
-    gl_context.get_integer_v(gl::CURRENT_PROGRAM, &mut current_program);
+    gl_context.get_integer_v(gl::CURRENT_PROGRAM, (&mut current_program[..]).into());
 
     // Generate a framebuffer (that will contain the final, rendered screen output).
     let framebuffers = gl_context.gen_framebuffers(1);
@@ -1597,7 +1597,7 @@ fn render_inner(
     let textures = gl_context.gen_textures(1);
 
     gl_context.bind_texture(gl::TEXTURE_2D, textures.get(0).copied().unwrap());
-    gl_context.tex_image_2d(gl::TEXTURE_2D, 0, gl::RGB as i32, framebuffer_size.width, framebuffer_size.height, 0, gl::RGB, gl::UNSIGNED_BYTE, None);
+    gl_context.tex_image_2d(gl::TEXTURE_2D, 0, gl::RGB as i32, framebuffer_size.width, framebuffer_size.height, 0, gl::RGB, gl::UNSIGNED_BYTE, None.into());
 
     gl_context.tex_parameter_i(gl::TEXTURE_2D, gl::TEXTURE_MAG_FILTER, gl::NEAREST as i32);
     gl_context.tex_parameter_i(gl::TEXTURE_2D, gl::TEXTURE_MIN_FILTER, gl::NEAREST as i32);
@@ -1612,7 +1612,7 @@ fn render_inner(
     // Set "textures[0]" as the color attachement #0
     gl_context.framebuffer_texture_2d(gl::FRAMEBUFFER, gl::COLOR_ATTACHMENT0, gl::TEXTURE_2D, textures.get(0).copied().unwrap(), 0);
 
-    gl_context.draw_buffers(&[gl::COLOR_ATTACHMENT0]);
+    gl_context.draw_buffers([gl::COLOR_ATTACHMENT0][..].into());
 
     // Check that the framebuffer is complete
     debug_assert!(gl_context.check_frame_buffer_status(gl::FRAMEBUFFER) == gl::FRAMEBUFFER_COMPLETE);
@@ -1691,7 +1691,7 @@ fn draw_texture_to_screen(context: GlContextPtr, texture: GLuint, framebuffer_si
 
     // Compile or get the cached shader
     let shader = compile_screen_shader(context.clone());
-    let texture_location = context.get_uniform_location(shader, "fScreenTex");
+    let texture_location = context.get_uniform_location(shader, "fScreenTex".into());
 
     // The uniform value for a sampler refers to the texture unit, not the texture id, i.e.:
     //

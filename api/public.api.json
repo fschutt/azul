@@ -261,6 +261,13 @@
 						{"Some": { "type": "Instant" }}
 					]
 				},
+				"OptionUsize": {
+					"external": "azul_impl::gl::OptionUsize",
+					"enum_fields": [
+						{"None": {}},
+						{"Some": { "type": "usize" }}
+					]
+				},
 				"OptionU8VecRef": {
 					"external": "azul_impl::gl::OptionU8VecRef",
 					"clone": false,
@@ -2326,6 +2333,15 @@
 						{"len": {"type": "usize"}}
 					]
 				},
+				"GLenumVecRef": {
+					"external": "azul_impl::gl::GLenumVecRef",
+					"doc": "C-ABI stable reexport of `&[GLenum]` aka `&[u32]`",
+					"clone": false,
+					"struct_fields": [
+						{"ptr": {"type": "*mut u32"}},
+						{"len": {"type": "usize"}}
+					]
+				},
 				"GLintVecRefMut": {
 					"external": "azul_impl::gl::GLintVecRefMut",
 					"doc": "C-ABI stable reexport of `&mut [GLint]` aka `&mut [i32]`",
@@ -2398,7 +2414,7 @@
 					]
 				},
 				"GLsyncPtr": {
-					"external": "azul_impl::gl::GetActiveAttribReturn",
+					"external": "azul_impl::gl::GLsyncPtr",
 					"doc": "C-ABI stable reexport of `(i32, u32, AzString)`",
 					"treat_as_boxed_object": true,
 					"clone": false,
@@ -2869,7 +2885,7 @@
 					    "draw_buffers": {
 					        "fn_args": [
 					            {"self": "ref"},
-					            {"bufs": "GLuintVecRef"}
+					            {"bufs": "GLenumVecRef"}
 					        ],
 					        "fn_body": "glcontextptr.draw_buffers(bufs)"
 					    },
@@ -3059,14 +3075,14 @@
 					    "invalidate_framebuffer": {
 					        "fn_args": [
 					            {"self": "ref"},
-					            {"target": "u32"}, {"attachments": "GLuintVecRef"}
+					            {"target": "u32"}, {"attachments": "GLenumVecRef"}
 					        ],
 					        "fn_body": "glcontextptr.invalidate_framebuffer(target, attachments)"
 					    },
 					    "invalidate_sub_framebuffer": {
 					        "fn_args": [
 					            {"self": "ref"},
-					            {"target": "u32"}, {"attachments": "GLuintVecRef"}, {"xoffset": "i32"}, {"yoffset": "i32"}, {"width": "i32"}, {"height": "i32"}
+					            {"target": "u32"}, {"attachments": "GLenumVecRef"}, {"xoffset": "i32"}, {"yoffset": "i32"}, {"width": "i32"}, {"height": "i32"}
 					        ],
 					        "fn_body": "glcontextptr.invalidate_sub_framebuffer(target, attachments, xoffset, yoffset, width, height)"
 					    },

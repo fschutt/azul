@@ -198,6 +198,15 @@ pub type AzOptionInstantTT = azul_impl::task::OptionInstantPtr;
 /// Clones the object
 #[no_mangle] pub extern "C" fn az_option_instant_deep_copy(object: &AzOptionInstant) -> AzOptionInstant { object.clone() }
 
+/// Re-export of rust-allocated (stack based) `OptionUsize` struct
+pub type AzOptionUsizeTT = azul_impl::gl::OptionUsize;
+#[no_mangle] pub use AzOptionUsizeTT as AzOptionUsize;
+/// Destructor: Takes ownership of the `OptionUsize` pointer and deletes it.
+#[no_mangle] #[allow(unused_variables)] pub extern "C" fn az_option_usize_delete(object: &mut AzOptionUsize) { match object { azul_impl::gl::OptionUsize::None => { }, azul_impl::gl::OptionUsize::Some(_) => { }, }
+}
+/// Clones the object
+#[no_mangle] pub extern "C" fn az_option_usize_deep_copy(object: &AzOptionUsize) -> AzOptionUsize { object.clone() }
+
 /// Re-export of rust-allocated (stack based) `OptionU8VecRef` struct
 pub type AzOptionU8VecRefTT = azul_impl::gl::OptionU8VecRef;
 #[no_mangle] pub use AzOptionU8VecRefTT as AzOptionU8VecRef;
@@ -1925,6 +1934,12 @@ pub type AzGLuintVecRefTT = azul_impl::gl::GLuintVecRef;
 /// Destructor: Takes ownership of the `GLuintVecRef` pointer and deletes it.
 #[no_mangle] #[allow(unused_variables)] pub extern "C" fn az_g_luint_vec_ref_delete(object: &mut AzGLuintVecRef) { }
 
+/// C-ABI stable reexport of `&[GLenum]` aka `&[u32]`
+pub type AzGLenumVecRefTT = azul_impl::gl::GLenumVecRef;
+#[no_mangle] pub use AzGLenumVecRefTT as AzGLenumVecRef;
+/// Destructor: Takes ownership of the `GLenumVecRef` pointer and deletes it.
+#[no_mangle] #[allow(unused_variables)] pub extern "C" fn az_g_lenum_vec_ref_delete(object: &mut AzGLenumVecRef) { }
+
 /// C-ABI stable reexport of `&mut [GLint]` aka `&mut [i32]`
 pub type AzGLintVecRefMutTT = azul_impl::gl::GLintVecRefMut;
 #[no_mangle] pub use AzGLintVecRefMutTT as AzGLintVecRefMut;
@@ -1978,7 +1993,7 @@ pub type AzGetActiveAttribReturnTT = azul_impl::gl::GetActiveAttribReturn;
 #[no_mangle] pub extern "C" fn az_get_active_attrib_return_deep_copy(object: &AzGetActiveAttribReturn) -> AzGetActiveAttribReturn { object.clone() }
 
 /// C-ABI stable reexport of `(i32, u32, AzString)`
-pub type AzGLsyncPtrTT = azul_impl::gl::GetActiveAttribReturn;
+pub type AzGLsyncPtrTT = azul_impl::gl::GLsyncPtr;
 #[no_mangle] pub use AzGLsyncPtrTT as AzGLsyncPtr;
 /// Destructor: Takes ownership of the `GLsyncPtr` pointer and deletes it.
 #[no_mangle] #[allow(unused_variables)] pub extern "C" fn az_g_lsync_ptr_delete(object: &mut AzGLsyncPtr) { }
@@ -2099,7 +2114,7 @@ pub type AzGlContextPtrTT = azul_impl::gl::GlContextPtr;
 // Equivalent to the Rust `GlContextPtr::bind_texture()` function.
 #[no_mangle] pub extern "C" fn az_gl_context_ptr_bind_texture(glcontextptr: &AzGlContextPtr, target: u32, texture: u32) { glcontextptr.bind_texture(target, texture) }
 // Equivalent to the Rust `GlContextPtr::draw_buffers()` function.
-#[no_mangle] pub extern "C" fn az_gl_context_ptr_draw_buffers(glcontextptr: &AzGlContextPtr, bufs: AzGLuintVecRef) { glcontextptr.draw_buffers(bufs) }
+#[no_mangle] pub extern "C" fn az_gl_context_ptr_draw_buffers(glcontextptr: &AzGlContextPtr, bufs: AzGLenumVecRef) { glcontextptr.draw_buffers(bufs) }
 // Equivalent to the Rust `GlContextPtr::tex_image_2d()` function.
 #[no_mangle] pub extern "C" fn az_gl_context_ptr_tex_image_2d(glcontextptr: &AzGlContextPtr, target: u32, level: i32, internal_format: i32, width: i32, height: i32, border: i32, format: u32, ty: u32, opt_data: AzOptionU8VecRef) { glcontextptr.tex_image_2d(target, level, internal_format, width, height, border, format, ty, opt_data) }
 // Equivalent to the Rust `GlContextPtr::compressed_tex_image_2d()` function.
@@ -2131,9 +2146,9 @@ pub type AzGlContextPtrTT = azul_impl::gl::GlContextPtr;
 // Equivalent to the Rust `GlContextPtr::copy_image_sub_data()` function.
 #[no_mangle] pub extern "C" fn az_gl_context_ptr_copy_image_sub_data(glcontextptr: &AzGlContextPtr, src_name: u32, src_target: u32, src_level: i32, src_x: i32, src_y: i32, src_z: i32, dst_name: u32, dst_target: u32, dst_level: i32, dst_x: i32, dst_y: i32, dst_z: i32, src_width: i32, src_height: i32, src_depth: i32) { glcontextptr.copy_image_sub_data(src_name, src_target, src_level, src_x, src_y, src_z, dst_name, dst_target, dst_level, dst_x, dst_y, dst_z, src_width, src_height, src_depth) }
 // Equivalent to the Rust `GlContextPtr::invalidate_framebuffer()` function.
-#[no_mangle] pub extern "C" fn az_gl_context_ptr_invalidate_framebuffer(glcontextptr: &AzGlContextPtr, target: u32, attachments: AzGLuintVecRef) { glcontextptr.invalidate_framebuffer(target, attachments) }
+#[no_mangle] pub extern "C" fn az_gl_context_ptr_invalidate_framebuffer(glcontextptr: &AzGlContextPtr, target: u32, attachments: AzGLenumVecRef) { glcontextptr.invalidate_framebuffer(target, attachments) }
 // Equivalent to the Rust `GlContextPtr::invalidate_sub_framebuffer()` function.
-#[no_mangle] pub extern "C" fn az_gl_context_ptr_invalidate_sub_framebuffer(glcontextptr: &AzGlContextPtr, target: u32, attachments: AzGLuintVecRef, xoffset: i32, yoffset: i32, width: i32, height: i32) { glcontextptr.invalidate_sub_framebuffer(target, attachments, xoffset, yoffset, width, height) }
+#[no_mangle] pub extern "C" fn az_gl_context_ptr_invalidate_sub_framebuffer(glcontextptr: &AzGlContextPtr, target: u32, attachments: AzGLenumVecRef, xoffset: i32, yoffset: i32, width: i32, height: i32) { glcontextptr.invalidate_sub_framebuffer(target, attachments, xoffset, yoffset, width, height) }
 // Equivalent to the Rust `GlContextPtr::get_integer_v()` function.
 #[no_mangle] pub extern "C" fn az_gl_context_ptr_get_integer_v(glcontextptr: &AzGlContextPtr, name: u32, result: AzGLintVecRefMut) { glcontextptr.get_integer_v(name, result) }
 // Equivalent to the Rust `GlContextPtr::get_integer_64v()` function.

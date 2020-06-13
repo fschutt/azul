@@ -823,8 +823,16 @@ def generate_dll_loader(apiData, structs_map, functions_map, version):
 def generate_rust_api(apiData, structs_map, functions_map):
 
     version = list(apiData.keys())[-1]
-    code = "//! Auto-generated public Rust API for the Azul GUI toolkit version " + version + "\r\n"
+    code = ""
+    code += "#![doc(\r\n"
+    code += "    html_logo_url = \"https://raw.githubusercontent.com/maps4print/azul/master/assets/images/azul_logo_full_min.svg.png\",\r\n"
+    code += "    html_favicon_url = \"https://raw.githubusercontent.com/maps4print/azul/master/assets/images/favicon.ico\",\r\n"
+    code += ")]"
+    code += ""
+    code += ""
+    code += "//! Auto-generated public Rust API for the Azul GUI toolkit version " + version + "\r\n"
     code += "//!\r\n"
+    code += "\r\n"
 
     # readme = read_file(azul_readme_path)
     #
@@ -859,6 +867,7 @@ def generate_rust_api(apiData, structs_map, functions_map):
         code += "#[allow(dead_code, unused_imports)]\r\n"
         code += "pub mod " + module_name + " {\r\n\r\n"
         code += "    use crate::dll::*;\r\n"
+        code += "    use std::ffi::c_void;\r\n"
 
         if tuple([module_name]) in rust_api_patches:
             code += rust_api_patches[tuple([module_name])]
