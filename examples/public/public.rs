@@ -7,9 +7,14 @@ struct Data {
 }
 
 fn layout(data: RefAny, _info: LayoutInfo) -> Dom {
-    let data = data.downcast_ref::<Data>().expect("wrong downcast");
-    Dom::body()
-        .with_child(Dom::label(format!("hello: {}", data.counter).into()))
+    let data = data.borrow::<Data>().expect("wrong downcast");
+    let dom = Dom::body()
+        .with_child(Dom::label(format!("hello: {}", data.counter).into()));
+
+    println!("dom (client side): {}", dom.get_html_string());
+    println!("size of dom (client side): {}", std::mem::size_of::<Dom>());
+
+    dom
 }
 
 fn main() {

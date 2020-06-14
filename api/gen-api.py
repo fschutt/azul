@@ -30,13 +30,13 @@ js_api_path = "../azul/src/js/azul.js"
 
 dll_patches = {
     tuple(['*']): read_file("./patches/azul-dll/header.rs"),
-    tuple(['callbacks', 'RefAny']): read_file("./patches/azul-dll/refany.rs"),
     tuple(['callbacks', 'LayoutCallbackType']): read_file("./patches/azul-dll/layout_callback_type.rs"),
     tuple(['callbacks', 'CallbackType']): read_file("./patches/azul-dll/callback_type.rs"),
     tuple(['callbacks', 'GlCallbackType']): read_file("./patches/azul-dll/gl_callback_type.rs"),
     tuple(['callbacks', 'IFrameCallbackType']): read_file("./patches/azul-dll/iframe_callback_type.rs"),
     tuple(['callbacks', 'ThreadCallbackType']): read_file("./patches/azul-dll/thread_callback_type.rs"),
     tuple(['callbacks', 'TaskCallbackType']): read_file("./patches/azul-dll/task_callback_type.rs"),
+    tuple(['callbacks', 'RefAnyDestructorType']): read_file("./patches/azul-dll/ref_any_destructor_type.rs"),
 }
 
 rust_api_patches = {
@@ -45,8 +45,9 @@ rust_api_patches = {
     tuple(['vec']): read_file("./patches/azul.rs/vec.rs"),
     tuple(['dom']): read_file("./patches/azul.rs/dom.rs"),
     tuple(['dll']): read_file("./patches/azul.rs/dll.rs"),
-    tuple(['gl']): read_file("./patches/azul.rs/gl_types.rs"),
-    tuple(['callbacks', 'RefAny']): read_file("./patches/azul.rs/refany.rs"),
+    tuple(['gl']): read_file("./patches/azul.rs/gl.rs"),
+    tuple(['dom', 'EventFilter']): read_file("./patches/azul.rs/event_filter.rs"),
+    tuple(['callbacks']): read_file("./patches/azul.rs/callbacks.rs"),
     tuple(['callbacks', 'UpdateScreen']): read_file("./patches/azul.rs/update_screen.rs"),
     tuple(['callbacks', 'LayoutCallbackType']): read_file("./patches/azul.rs/layout_callback_type.rs"),
     tuple(['callbacks', 'CallbackType']): read_file("./patches/azul.rs/callback_type.rs"),
@@ -54,6 +55,7 @@ rust_api_patches = {
     tuple(['callbacks', 'IFrameCallbackType']): read_file("./patches/azul.rs/iframe_callback_type.rs"),
     tuple(['callbacks', 'ThreadCallbackType']): read_file("./patches/azul.rs/thread_callback_type.rs"),
     tuple(['callbacks', 'TaskCallbackType']): read_file("./patches/azul.rs/task_callback_type.rs"),
+    tuple(['callbacks', 'RefAnyDestructorType']): read_file("./patches/azul.rs/ref_any_destructor_type.rs"),
 }
 
 c_api_patches = {
@@ -616,51 +618,31 @@ def generate_rust_dll(apiData):
                 functions_map[str(fn_prefix + to_snake_case(class_name) + "_delete")] = ["ptr: &mut " + class_ptr_name, ""];
                 code += "#[no_mangle] pub extern \"C\" fn " + fn_prefix + to_snake_case(class_name) + "_delete" + lifetime + "(ptr: &mut " + class_ptr_name + ") { "
                 code += "let _ = unsafe { Box::<" + rust_class_name + ">::from_raw(ptr.ptr  as *mut " + rust_class_name + ") };"
-                code += " }\r\n"
-
-                # az_item_shallow_copy()
-                code += "/// Copies the pointer: WARNING: After calling this function you'll have two pointers to the same Box<`" + class_name + "`>!.\r\n"
-                functions_map[str(fn_prefix + to_snake_case(class_name) + "_shallow_copy")] = ["ptr: &" + class_ptr_name, class_ptr_name];
-                code += "#[no_mangle] pub extern \"C\" fn " + fn_prefix + to_snake_case(class_name) + "_shallow_copy" + lifetime + "(ptr: &" + class_ptr_name + ") -> " + class_ptr_name + " { "
-                code += class_ptr_name + " { ptr: ptr.ptr }"
-                code += " }\r\n"
+                code += "}\r\n"
 
                 # az_item_downcast()
                 code += "/// (private): Downcasts the `" + class_ptr_name + "` to a `Box<" + rust_class_name + ">`. Note that this takes ownership of the pointer.\r\n"
                 code += "#[inline(always)] fn " + fn_prefix + to_snake_case(class_name) + "_downcast" + lifetime + "(ptr: " + class_ptr_name + ") -> Box<" + rust_class_name + "> { "
-                code += "unsafe { Box::<" + rust_class_name + ">::from_raw(ptr.ptr  as *mut " + rust_class_name + ") }"
-                code += " }\r\n"
+                code += "    unsafe { Box::<" + rust_class_name + ">::from_raw(ptr.ptr  as *mut " + rust_class_name + ") }"
+                code += "}\r\n"
 
                 # az_item_downcast_refmut()
-                downcast_refmut_generics = "<F: FnOnce(&mut Box<" + rust_class_name + ">)>"
+                downcast_refmut_generics = "<P, F: FnOnce(&mut " + rust_class_name + ") -> P>"
                 if lifetime == "<'a>":
-                    downcast_refmut_generics = "<'a, F: FnOnce(&mut Box<" + rust_class_name + ">)>"
+                    downcast_refmut_generics = "<'a, P, F: FnOnce(&mut " + rust_class_name + ") -> P>"
                 code += "/// (private): Downcasts the `" + class_ptr_name + "` to a `&mut Box<" + rust_class_name + ">` and runs the `func` closure on it\r\n"
-                code += "#[inline(always)] fn " + fn_prefix + to_snake_case(class_name) + "_downcast_refmut" + downcast_refmut_generics + "(ptr: &mut " + class_ptr_name + ", func: F) { "
-                code += "let mut box_ptr: Box<" + rust_class_name + "> = unsafe { Box::<" + rust_class_name + ">::from_raw(ptr.ptr  as *mut " + rust_class_name + ") };"
-                code += "func(&mut box_ptr);"
-                code += "ptr.ptr = Box::into_raw(box_ptr) as *mut c_void;"
-                code += " }\r\n"
+                code += "#[inline(always)] fn " + fn_prefix + to_snake_case(class_name) + "_downcast_refmut" + downcast_refmut_generics + "(ptr: &mut " + class_ptr_name + ", func: F) -> P { "
+                code += "    func(unsafe { &mut *(ptr.ptr as *mut " + rust_class_name + ") })"
+                code += "}\r\n"
 
                 # az_item_downcast_ref()
-                downcast_ref_generics = "<P, F: FnOnce(&Box<" + rust_class_name + ">) -> P>"
+                downcast_ref_generics = "<P, F: FnOnce(&" + rust_class_name + ") -> P>"
                 if lifetime == "<'a>":
-                    downcast_ref_generics = "<'a, P, F: FnOnce(&Box<" + rust_class_name + ">) -> P>"
+                    downcast_ref_generics = "<'a, P, F: FnOnce(&" + rust_class_name + ") -> P>"
                 code += "/// (private): Downcasts the `" + class_ptr_name + "` to a `&Box<" + rust_class_name + ">` and runs the `func` closure on it\r\n"
                 code += "#[inline(always)] fn " + fn_prefix + to_snake_case(class_name) + "_downcast_ref" + downcast_ref_generics + "(ptr: &mut " + class_ptr_name + ", func: F) -> P { "
-                code += "let box_ptr: Box<" + rust_class_name + "> = unsafe { Box::<" + rust_class_name + ">::from_raw(ptr.ptr  as *mut " + rust_class_name + ") }; "
-                code += "let ret_val = func(&box_ptr); "
-                code += "ptr.ptr = Box::into_raw(box_ptr) as *mut c_void;"
-                code += "ret_val"
-                code += " }\r\n"
-
-    # Add the RefAny functions (from /patches/azul_dll/refany.rs) to the functions_map
-    functions_map["az_ref_any_new"] = ["ptr: *const u8, len: usize, type_id: u64, type_name: AzString, custom_destructor: fn(AzRefAny)", "AzRefAny"]
-    functions_map["az_ref_any_get_ptr"] = ["ptr: &AzRefAny, len: usize, type_id: u64", "*const c_void"]
-    functions_map["az_ref_any_get_mut_ptr"] = ["ptr: &AzRefAny, len: usize, type_id: u64", "*mut c_void"]
-    functions_map["az_ref_any_shallow_copy"] = ["ptr: &AzRefAny", "AzRefAny"]
-    functions_map["az_ref_any_delete"] = ["ptr: &mut AzRefAny", ""]
-    functions_map["az_ref_any_core_copy"] = ["ptr: &AzRefAny", "AzRefAny"]
+                code += "    func(unsafe { &*(ptr.ptr as *const " + rust_class_name + ") })"
+                code += "}\r\n"
 
     return [code, structs_map, functions_map]
 
@@ -763,16 +745,16 @@ def generate_dll_loader(apiData, structs_map, functions_map, version):
         code += "        pub " + fn_name + ": Symbol<extern fn(" + strip_fn_arg_types(fn_args) + ")" + return_arrow + fn_return + ">,\r\n"
     code += "    }\r\n\r\n"
 
-    code += "    pub fn initialize_library(path: &std::path::Path) -> Option<AzulDll> {\r\n"
-    code += "        let lib = Library::new(path).ok()?;\r\n"
+    code += "    pub fn initialize_library(path: &std::path::Path) -> Result<AzulDll, &'static str> {\r\n"
+    code += "        let lib = Library::new(path).map_err(|_| \"library is not a DLL file (?!)\")?;\r\n"
     for fn_name in functions_map.keys():
         fn_type = functions_map[fn_name]
         fn_args = fn_type[0]
         fn_return = fn_type[1]
         return_arrow = "" if fn_return == "" else " -> "
-        code += "        let " + fn_name + " = unsafe { lib.get::<extern fn(" + strip_fn_arg_types(fn_args) + ")" + return_arrow + fn_return + ">(b\"" + fn_name + "\").ok()? };\r\n"
+        code += "        let " + fn_name + " = unsafe { lib.get::<extern fn(" + strip_fn_arg_types(fn_args) + ")" + return_arrow + fn_return + ">(b\"" + fn_name + "\").map_err(|_| \"" + fn_name + "\")? };\r\n"
 
-    code += "        Some(AzulDll {\r\n"
+    code += "        Ok(AzulDll {\r\n"
     code += "            lib: Box::new(lib),\r\n"
     for fn_name in functions_map.keys():
         code += "            " + fn_name + ",\r\n"
@@ -799,14 +781,14 @@ def generate_dll_loader(apiData, structs_map, functions_map, version):
     code += "    #[cfg(windows)]\r\n"
     code += "    const DLL_FILE_NAME: &str = \"./azul.dll\";\r\n"
     code += "\r\n"
-    code += "    fn load_library_inner() -> Option<AzulDll> {\r\n"
+    code += "    fn load_library_inner() -> Result<AzulDll, &'static str> {\r\n"
     code += "\r\n"
-    code += "        let current_exe_path = std::env::current_exe().ok()?;\r\n"
-    code += "        let mut library_path = current_exe_path.parent()?.to_path_buf();\r\n"
+    code += "        let current_exe_path = std::env::current_exe().map_err(|_| \"current exe has no current dir (?!)\")?;\r\n"
+    code += "        let mut library_path = current_exe_path.parent().ok_or(\"current exe has no parent (?!)\")?.to_path_buf();\r\n"
     code += "        library_path.push(DLL_FILE_NAME);\r\n"
     code += "\r\n"
     code += "        if !library_path.exists() {\r\n"
-    code += "           std::fs::write(&library_path, LIB_BYTES).ok()?;\r\n"
+    code += "           std::fs::write(&library_path, LIB_BYTES).map_err(|_| \"could not unpack DLL\")?;\r\n"
     code += "        }\r\n"
     code += "\r\n"
     code += "        initialize_library(&library_path)\r\n"
@@ -815,11 +797,11 @@ def generate_dll_loader(apiData, structs_map, functions_map, version):
     code += "    pub(crate) fn get_azul_dll() -> &'static AzulDll { \r\n"
     code += "        if !LIBRARY_IS_INITIALIZED.load(Ordering::SeqCst) {\r\n"
     code += "           match load_library_inner() {\r\n"
-    code += "               Some(s) => {\r\n"
+    code += "               Ok(s) => {\r\n"
     code += "                   unsafe { AZUL_DLL = MaybeUninit::new(s) };\r\n"
     code += "                   LIBRARY_IS_INITIALIZED.store(true, Ordering::SeqCst);\r\n"
     code += "               },\r\n"
-    code += "               None => { println!(\"failed to initialize libazul dll\"); std::process::exit(-1); }\r\n"
+    code += "               Err(e) => { println!(\"failed to initialize libazul dll: missing function {}\", e); std::process::exit(-1); }\r\n"
     code += "           }\r\n"
     code += "        }\r\n"
     code += "\r\n"

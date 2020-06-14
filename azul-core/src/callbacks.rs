@@ -59,8 +59,74 @@ impl<T> From<Option<T>> for UpdateScreen {
     }
 }
 
+#[repr(C)]
+pub struct RefAnySharingInfoInner {
+    pub num_copies: AtomicUsize,
+    pub num_refs: AtomicUsize,
+    pub num_mutable_refs: AtomicUsize,
+}
+
+impl RefAnySharingInfoInner {
+    const fn initial() -> Self {
+        Self {
+            num_copies: AtomicUsize::new(1),
+            num_refs: AtomicUsize::new(0),
+            num_mutable_refs: AtomicUsize::new(0),
+        }
+    }
+}
+
 #[derive(Debug, Hash, PartialEq, PartialOrd, Ord, Eq)]
-#[no_mangle]
+#[repr(C)]
+pub struct RefAnySharingInfo {
+    pub ptr: *const c_void, /* *const RefAnySharingInfoInner */
+}
+
+impl Drop for RefAnySharingInfo {
+    fn drop(&mut self) {
+        println!("RefAnySharingInfo::drop!", );
+        let _ = unsafe { Box::from_raw(self.ptr as *mut RefAnySharingInfoInner) };
+    }
+}
+
+impl RefAnySharingInfo {
+
+    fn new(r: RefAnySharingInfoInner) -> Self {
+        println!("RefAnySharingInfo::new!", );
+        RefAnySharingInfo { ptr: Box::into_raw(Box::new(r)) as *const c_void }
+    }
+    fn downcast(&self) -> &RefAnySharingInfoInner { unsafe { &*(self.ptr as *const RefAnySharingInfoInner) } }
+    fn downcast_mut(&mut self) -> &mut RefAnySharingInfoInner { unsafe { &mut *(self.ptr as *mut RefAnySharingInfoInner) } }
+
+    /// Runtime check to check whether this `RefAny` can be borrowed
+    pub fn can_be_shared(&self) -> bool {
+        self.downcast().num_mutable_refs.load(Ordering::SeqCst) == 0
+    }
+
+    /// Runtime check to check whether this `RefAny` can be borrowed mutably
+    pub fn can_be_shared_mut(&self) -> bool {
+        let info = self.downcast();
+        info.num_mutable_refs.load(Ordering::SeqCst) == 0 && info.num_refs.load(Ordering::SeqCst) == 0
+    }
+
+    pub fn increase_ref(&mut self) {
+        self.downcast_mut().num_refs.fetch_add(1, Ordering::SeqCst);
+    }
+
+    pub fn decrease_ref(&mut self) {
+        self.downcast_mut().num_refs.fetch_sub(1, Ordering::SeqCst);
+    }
+
+    pub fn increase_refmut(&mut self) {
+        self.downcast_mut().num_mutable_refs.fetch_add(1, Ordering::SeqCst);
+    }
+
+    pub fn decrease_refmut(&mut self) {
+        self.downcast_mut().num_mutable_refs.fetch_sub(1, Ordering::SeqCst);
+    }
+}
+
+#[derive(Debug, Hash, PartialEq, PartialOrd, Ord, Eq)]
 #[repr(C)]
 pub struct RefAny {
     pub _internal_ptr: *const c_void,
@@ -69,15 +135,17 @@ pub struct RefAny {
     pub _internal_layout_align: usize,
     pub type_id: u64,
     pub type_name: AzString,
-    pub strong_count: usize,
-    pub is_currently_mutable: bool,
-    pub custom_destructor: fn(RefAny),
+    pub _sharing_info_ptr: *const RefAnySharingInfo,
+    pub custom_destructor: fn(*const c_void),
 }
 
+// the refcount of RefAny is atomic, therefore `RefAny` is not `Send`
+// however, RefAny is not Sync, since the data access is not protected by a lock!
 unsafe impl Send for RefAny { }
 
 impl Clone for RefAny {
     fn clone(&self) -> Self {
+        unsafe { (&mut *(self._sharing_info_ptr as *mut RefAnySharingInfo)).downcast_mut().num_copies.fetch_add(1, Ordering::SeqCst); };
         Self {
             _internal_ptr: self._internal_ptr,
             _internal_len: self._internal_len,
@@ -85,8 +153,7 @@ impl Clone for RefAny {
             _internal_layout_align: self._internal_layout_align,
             type_id: self.type_id,
             type_name: self.type_name.clone(),
-            strong_count: self.strong_count + 1, // TODO: handle overflow
-            is_currently_mutable: self.is_currently_mutable,
+            _sharing_info_ptr: self._sharing_info_ptr,
             custom_destructor: self.custom_destructor,
         }
     }
@@ -94,19 +161,19 @@ impl Clone for RefAny {
 
 impl RefAny {
 
-    #[inline]
-    pub fn new_c(ptr: *const u8, len: usize, type_id: u64, type_name: AzString, custom_destructor: fn(RefAny)) -> Self {
+    pub fn new_c(ptr: *const c_void, len: usize, type_id: u64, type_name: AzString, custom_destructor: fn(*const c_void)) -> Self {
         use std::{alloc, ptr};
 
         // cast the struct as bytes
-        let struct_as_bytes = unsafe { ::std::slice::from_raw_parts(ptr, len) };
+        let struct_as_bytes = unsafe { ::std::slice::from_raw_parts(ptr as *const u8, len) };
 
         // allocate + copy the struct to the heap
         let layout = Layout::for_value(&*struct_as_bytes);
         let heap_struct_as_bytes = unsafe { alloc::alloc(layout) };
         unsafe { ptr::copy_nonoverlapping(struct_as_bytes.as_ptr(), heap_struct_as_bytes, struct_as_bytes.len()) };
 
-        // TODO: allocate + leak the boolean for specifying whether this struct is mutable
+        println!("RefAny::new!");
+        let sharing_info_ptr = Box::into_raw(Box::new(RefAnySharingInfo::new(RefAnySharingInfoInner::initial())));
 
         Self {
             _internal_ptr: heap_struct_as_bytes as *const c_void,
@@ -115,42 +182,65 @@ impl RefAny {
             _internal_layout_align: layout.align(),
             type_id,
             type_name,
-            strong_count: 0,
-            is_currently_mutable: true,
+            _sharing_info_ptr: sharing_info_ptr,
             custom_destructor,
         }
     }
 
-    // Warning: may return nullptr
-    #[inline]
-    pub fn get_ptr(&self, len: usize, type_id: u64) -> *const c_void {
-        use std::ptr;
-        if self.is_currently_mutable && len == self._internal_len && type_id == self.type_id {
-            self._internal_ptr
-        } else {
-            ptr::null()
-        }
+    pub fn is_type(&self, type_id: u64) -> bool {
+        self.type_id == type_id
     }
 
-    // Warning: may return nullptr
-    #[inline]
-    pub fn get_mut_ptr(&self, len: usize, type_id: u64) -> *mut c_void {
-        use std::ptr;
-        if self.is_currently_mutable && len == self._internal_len && type_id == self.type_id {
-            self._internal_ptr as *mut c_void
-        } else {
-            ptr::null_mut()
-        }
+    pub fn get_type_id(&self) -> u64 {
+        self.type_id
     }
 
-    #[inline]
-    pub fn drop_c(self) {
+    pub fn get_type_name(&self) -> AzString {
+        self.type_name.clone()
+    }
+
+    /// Runtime check to check whether this `RefAny` can be borrowed
+    pub fn can_be_shared(&self) -> bool {
+        let info = unsafe { &*self._sharing_info_ptr };
+        info.can_be_shared()
+    }
+
+    /// Runtime check to check whether this `RefAny` can be borrowed mutably
+    pub fn can_be_shared_mut(&self) -> bool {
+        let info = unsafe { &mut *(self._sharing_info_ptr as *mut RefAnySharingInfo) };
+        info.can_be_shared_mut()
+    }
+
+    pub fn increase_ref(&self) {
+        let info = unsafe { &mut *(self._sharing_info_ptr as *mut RefAnySharingInfo) };
+        info.increase_ref()
+    }
+
+    pub fn decrease_ref(&self) {
+        let info = unsafe { &mut *(self._sharing_info_ptr as *mut RefAnySharingInfo) };
+        info.decrease_ref()
+    }
+
+    pub fn increase_refmut(&self) {
+        let info = unsafe { &mut *(self._sharing_info_ptr as *mut RefAnySharingInfo) };
+        info.increase_refmut()
+    }
+
+    pub fn decrease_refmut(&self) {
+        let info = unsafe { &mut *(self._sharing_info_ptr as *mut RefAnySharingInfo) };
+        info.decrease_refmut()
+    }
+}
+
+impl Drop for RefAny {
+    fn drop(&mut self) {
         use std::alloc;
-        if self.strong_count == 0 {
-            unsafe {
-                (self.custom_destructor)(self.clone());
-                alloc::dealloc(self._internal_ptr as *mut u8, Layout::from_size_align_unchecked(self._internal_layout_size, self._internal_layout_align));
-            }
+        let info = unsafe { &*self._sharing_info_ptr };
+        if info.downcast().num_copies.load(Ordering::SeqCst) <= 1 {
+            (self.custom_destructor)(self._internal_ptr);
+            println!("RefAny::drop!");
+            unsafe { alloc::dealloc(self._internal_ptr as *mut u8, Layout::from_size_align_unchecked(self._internal_layout_size, self._internal_layout_align)); }
+            unsafe { let _ = Box::from_raw(self._sharing_info_ptr as *mut RefAnySharingInfo); }
         }
     }
 }
@@ -375,6 +465,13 @@ pub struct CallbackInfo<'a> {
 /// Pointer to rust-allocated `Box<CallbackInfo<'a>>` struct
 #[repr(C)] pub struct CallbackInfoPtr { pub ptr: *mut c_void }
 
+impl Drop for CallbackInfoPtr {
+    fn drop<'a>(&mut self) {
+        println!("CallbackInfoPtr::drop!", );
+        let _ = unsafe { Box::<CallbackInfo<'a>>::from_raw(self.ptr as *mut CallbackInfo<'a>) };
+    }
+}
+
 pub type CallbackReturn = UpdateScreen;
 pub type CallbackType = fn(CallbackInfoPtr) -> CallbackReturn;
 
@@ -442,6 +539,13 @@ pub struct GlCallbackInfo<'a> {
 /// Pointer to rust-allocated `Box<GlCallbackInfo<'a>>` struct
 #[repr(C)] pub struct GlCallbackInfoPtr { pub ptr: *mut c_void }
 
+impl Drop for GlCallbackInfoPtr {
+    fn drop<'a>(&mut self) {
+        println!("GlCallbackInfoPtr::drop!", );
+        let _ = unsafe { Box::<GlCallbackInfo<'a>>::from_raw(self.ptr as *mut GlCallbackInfo<'a>) };
+    }
+}
+
 #[cfg(feature = "opengl")]
 #[repr(C)]
 pub struct GlCallbackReturn { pub texture: OptionTexture }
@@ -464,7 +568,14 @@ pub struct IFrameCallbackInfo<'a> {
 }
 
 /// Pointer to rust-allocated `Box<IFrameCallbackInfo<'a>>` struct
-#[no_mangle] #[repr(C)] pub struct IFrameCallbackInfoPtr { pub ptr: *mut c_void }
+#[repr(C)] pub struct IFrameCallbackInfoPtr { pub ptr: *mut c_void }
+
+impl Drop for IFrameCallbackInfoPtr {
+    fn drop<'a>(&mut self) {
+        println!("IFrameCallbackInfoPtr::drop!");
+        let _ = unsafe { Box::<IFrameCallbackInfo<'a>>::from_raw(self.ptr as *mut IFrameCallbackInfo<'a>) };
+    }
+}
 
 #[derive(Clone)]
 #[repr(C)]
@@ -493,6 +604,13 @@ pub struct TimerCallbackInfo<'a> {
 /// Pointer to rust-allocated `Box<TimerCallbackInfo<'a>>` struct
 #[repr(C)] pub struct TimerCallbackInfoPtr { pub ptr: *const c_void }
 
+impl Drop for TimerCallbackInfoPtr {
+    fn drop<'a>(&mut self) {
+        println!("TimerCallbackInfoPtr::drop!");
+        let _ = unsafe { Box::<TimerCallbackInfo<'a>>::from_raw(self.ptr as *mut TimerCallbackInfo<'a>) };
+    }
+}
+
 #[derive(Copy, Clone, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
 #[repr(C)]
 pub struct TimerCallbackReturn {
@@ -503,7 +621,14 @@ pub struct TimerCallbackReturn {
 pub type TimerCallbackType = fn(TimerCallbackInfoPtr) -> TimerCallbackReturn;
 
 /// Pointer to rust-allocated `Box<LayoutInfo<'a>>` struct
-#[no_mangle] #[repr(C)] pub struct LayoutInfoPtr { pub ptr: *mut c_void }
+#[repr(C)] pub struct LayoutInfoPtr { pub ptr: *mut c_void }
+
+impl Drop for LayoutInfoPtr {
+    fn drop<'a>(&mut self) {
+        println!("LayoutInfoPtr::drop!");
+        let _ = unsafe { Box::<LayoutInfo<'a>>::from_raw(self.ptr as *mut LayoutInfo<'a>) };
+    }
+}
 
 /// Gives the `layout()` function access to the `AppResources` and the `Window`
 /// (for querying images and fonts, as well as width / height)
@@ -794,6 +919,7 @@ pub fn call_callbacks(
                     cursor_in_viewport: hit_item.as_ref().map(|hi| (hi.point_in_viewport.x, hi.point_in_viewport.y)),
                 };
 
+                println!("CallbackInfoPtr::new!");
                 let ptr = CallbackInfoPtr { ptr: Box::into_raw(Box::new(callback_info)) as *mut c_void };
 
                 // Invoke callback

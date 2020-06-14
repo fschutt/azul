@@ -31,20 +31,6 @@ pub(crate) mod dll {
 
     use std::ffi::c_void;
 
-    #[no_mangle]
-    #[repr(C)]
-    pub struct AzRefAny {
-        pub _internal_ptr: *const c_void,
-        pub _internal_len: usize,
-        pub _internal_layout_size: usize,
-        pub _internal_layout_align: usize,
-        pub type_id: u64,
-        pub type_name: AzString,
-        pub strong_count: usize,
-        pub is_currently_mutable: bool,
-        pub custom_destructor: fn(AzRefAny),
-    }
-
     /// Return type of a regular callback - currently `AzUpdateScreen`
     pub type AzCallbackReturn = AzUpdateScreen;
     /// Callback for responding to window events
@@ -55,16 +41,14 @@ pub(crate) mod dll {
     pub type AzGlCallbackType = fn(AzGlCallbackInfoPtr) -> AzGlCallbackReturn;
     /// Callback for rendering iframes (infinite data structures that have to know how large they are rendered)
     pub type AzIFrameCallbackType = fn(AzIFrameCallbackInfoPtr) -> AzIFrameCallbackReturn;
-
+    /// Callback for rendering iframes (infinite data structures that have to know how large they are rendered)
+    pub type AzRefAnyDestructorType = fn(*const c_void);
+    /// Callback for the `Timer` class
     pub type AzTimerCallbackType = fn(AzTimerCallbackInfoPtr) -> AzTimerCallbackReturn;
+    /// Callback for the `Thread` class
     pub type AzThreadCallbackType = fn(AzRefAny) -> AzRefAny;
+    /// Callback for the `Task` class
     pub type AzTaskCallbackType= fn(AzArcMutexRefAnyPtr, AzDropCheckPtr) -> AzUpdateScreen;
-
-    impl From<AzOn> for AzEventFilter {
-        fn from(on: AzOn) -> AzEventFilter {
-            on.into_event_filter()
-        }
-    }
 
     /// Re-export of rust-allocated (stack based) `String` struct
     #[repr(C)] pub struct AzString {
@@ -241,6 +225,21 @@ pub(crate) mod dll {
     #[repr(C)] pub struct AzTimerCallbackReturn {
         pub should_update: AzUpdateScreen,
         pub should_terminate: AzTerminateTimer,
+    }
+    /// Re-export of rust-allocated (stack based) `RefAnySharingInfo` struct
+    #[repr(C)] pub struct AzRefAnySharingInfo {
+        pub(crate) ptr: *const c_void,
+    }
+    /// RefAny is a reference-counted, type-erased pointer, which stores a reference to a struct. `RefAny` can be up- and downcasted (this usually done via generics and can't be expressed in the Rust API)
+    #[repr(C)] pub struct AzRefAny {
+        pub _internal_ptr: *const c_void,
+        pub _internal_len: usize,
+        pub _internal_layout_size: usize,
+        pub _internal_layout_align: usize,
+        pub type_id: u64,
+        pub type_name: AzString,
+        pub _sharing_info_ptr: *const AzRefAnySharingInfo,
+        pub custom_destructor: AzRefAnyDestructorType,
     }
     /// Pointer to rust-allocated `Box<LayoutInfo>` struct
     #[repr(C)] pub struct AzLayoutInfoPtr {
@@ -1418,12 +1417,12 @@ pub(crate) mod dll {
     }
     /// C-ABI stable reexport of `&[GLuint]` aka `&[u32]`
     #[repr(C)] pub struct AzGLuintVecRef {
-        pub(crate) ptr: *mut u32,
+        pub(crate) ptr: *const u32,
         pub len: usize,
     }
     /// C-ABI stable reexport of `&[GLenum]` aka `&[u32]`
     #[repr(C)] pub struct AzGLenumVecRef {
-        pub(crate) ptr: *mut u32,
+        pub(crate) ptr: *const u32,
         pub len: usize,
     }
     /// C-ABI stable reexport of `&mut [GLint]` aka `&mut [i32]`
@@ -1448,7 +1447,7 @@ pub(crate) mod dll {
     }
     /// C-ABI stable reexport of `&[Refstr]` aka `&mut [&str]`
     #[repr(C)] pub struct AzRefstrVecRef {
-        pub(crate) ptr: *mut AzRefstr,
+        pub(crate) ptr: *const AzRefstr,
         pub len: usize,
     }
     /// C-ABI stable reexport of `&str`
@@ -1651,53 +1650,61 @@ pub(crate) mod dll {
         pub az_result_ref_any_block_error_deep_copy: Symbol<extern fn(_:  &AzResultRefAnyBlockError) -> AzResultRefAnyBlockError>,
         pub az_instant_now: Symbol<extern fn() -> AzInstantPtr>,
         pub az_instant_delete: Symbol<extern fn(_:  &mut AzInstantPtr)>,
-        pub az_instant_shallow_copy: Symbol<extern fn(_:  &AzInstantPtr) -> AzInstantPtr>,
         pub az_duration_delete: Symbol<extern fn(_:  &mut AzDuration)>,
         pub az_duration_deep_copy: Symbol<extern fn(_:  &AzDuration) -> AzDuration>,
         pub az_app_config_default: Symbol<extern fn() -> AzAppConfigPtr>,
         pub az_app_config_delete: Symbol<extern fn(_:  &mut AzAppConfigPtr)>,
-        pub az_app_config_shallow_copy: Symbol<extern fn(_:  &AzAppConfigPtr) -> AzAppConfigPtr>,
         pub az_app_new: Symbol<extern fn(_:  AzRefAny, _:  AzAppConfigPtr, _:  AzLayoutCallbackType) -> AzAppPtr>,
         pub az_app_run: Symbol<extern fn(_:  AzAppPtr, _:  AzWindowCreateOptionsPtr)>,
         pub az_app_delete: Symbol<extern fn(_:  &mut AzAppPtr)>,
-        pub az_app_shallow_copy: Symbol<extern fn(_:  &AzAppPtr) -> AzAppPtr>,
         pub az_layout_callback_delete: Symbol<extern fn(_:  &mut AzLayoutCallback)>,
         pub az_layout_callback_deep_copy: Symbol<extern fn(_:  &AzLayoutCallback) -> AzLayoutCallback>,
         pub az_callback_delete: Symbol<extern fn(_:  &mut AzCallback)>,
         pub az_callback_deep_copy: Symbol<extern fn(_:  &AzCallback) -> AzCallback>,
         pub az_callback_info_delete: Symbol<extern fn(_:  &mut AzCallbackInfoPtr)>,
-        pub az_callback_info_shallow_copy: Symbol<extern fn(_:  &AzCallbackInfoPtr) -> AzCallbackInfoPtr>,
         pub az_update_screen_delete: Symbol<extern fn(_:  &mut AzUpdateScreen)>,
         pub az_update_screen_deep_copy: Symbol<extern fn(_:  &AzUpdateScreen) -> AzUpdateScreen>,
         pub az_i_frame_callback_delete: Symbol<extern fn(_:  &mut AzIFrameCallback)>,
         pub az_i_frame_callback_deep_copy: Symbol<extern fn(_:  &AzIFrameCallback) -> AzIFrameCallback>,
         pub az_i_frame_callback_info_delete: Symbol<extern fn(_:  &mut AzIFrameCallbackInfoPtr)>,
-        pub az_i_frame_callback_info_shallow_copy: Symbol<extern fn(_:  &AzIFrameCallbackInfoPtr) -> AzIFrameCallbackInfoPtr>,
         pub az_i_frame_callback_return_delete: Symbol<extern fn(_:  &mut AzIFrameCallbackReturn)>,
         pub az_i_frame_callback_return_deep_copy: Symbol<extern fn(_:  &AzIFrameCallbackReturn) -> AzIFrameCallbackReturn>,
         pub az_gl_callback_delete: Symbol<extern fn(_:  &mut AzGlCallback)>,
         pub az_gl_callback_deep_copy: Symbol<extern fn(_:  &AzGlCallback) -> AzGlCallback>,
         pub az_gl_callback_info_delete: Symbol<extern fn(_:  &mut AzGlCallbackInfoPtr)>,
-        pub az_gl_callback_info_shallow_copy: Symbol<extern fn(_:  &AzGlCallbackInfoPtr) -> AzGlCallbackInfoPtr>,
         pub az_gl_callback_return_delete: Symbol<extern fn(_:  &mut AzGlCallbackReturn)>,
         pub az_timer_callback_delete: Symbol<extern fn(_:  &mut AzTimerCallback)>,
         pub az_timer_callback_deep_copy: Symbol<extern fn(_:  &AzTimerCallback) -> AzTimerCallback>,
         pub az_timer_callback_type_delete: Symbol<extern fn(_:  &mut AzTimerCallbackTypePtr)>,
-        pub az_timer_callback_type_shallow_copy: Symbol<extern fn(_:  &AzTimerCallbackTypePtr) -> AzTimerCallbackTypePtr>,
         pub az_timer_callback_return_delete: Symbol<extern fn(_:  &mut AzTimerCallbackReturn)>,
         pub az_timer_callback_return_deep_copy: Symbol<extern fn(_:  &AzTimerCallbackReturn) -> AzTimerCallbackReturn>,
+        pub az_ref_any_sharing_info_can_be_shared: Symbol<extern fn(_:  &AzRefAnySharingInfo) -> bool>,
+        pub az_ref_any_sharing_info_can_be_shared_mut: Symbol<extern fn(_:  &AzRefAnySharingInfo) -> bool>,
+        pub az_ref_any_sharing_info_increase_ref: Symbol<extern fn(_:  &mut AzRefAnySharingInfo)>,
+        pub az_ref_any_sharing_info_decrease_ref: Symbol<extern fn(_:  &mut AzRefAnySharingInfo)>,
+        pub az_ref_any_sharing_info_increase_refmut: Symbol<extern fn(_:  &mut AzRefAnySharingInfo)>,
+        pub az_ref_any_sharing_info_decrease_refmut: Symbol<extern fn(_:  &mut AzRefAnySharingInfo)>,
+        pub az_ref_any_sharing_info_delete: Symbol<extern fn(_:  &mut AzRefAnySharingInfo)>,
+        pub az_ref_any_new_c: Symbol<extern fn(_:  *const c_void, _:  usize, _:  u64, _:  AzString, _:  AzRefAnyDestructorType) -> AzRefAny>,
+        pub az_ref_any_is_type: Symbol<extern fn(_:  &AzRefAny, _:  u64) -> bool>,
+        pub az_ref_any_get_type_name: Symbol<extern fn(_:  &AzRefAny) -> AzString>,
+        pub az_ref_any_can_be_shared: Symbol<extern fn(_:  &AzRefAny) -> bool>,
+        pub az_ref_any_can_be_shared_mut: Symbol<extern fn(_:  &AzRefAny) -> bool>,
+        pub az_ref_any_increase_ref: Symbol<extern fn(_:  &AzRefAny)>,
+        pub az_ref_any_decrease_ref: Symbol<extern fn(_:  &AzRefAny)>,
+        pub az_ref_any_increase_refmut: Symbol<extern fn(_:  &AzRefAny)>,
+        pub az_ref_any_decrease_refmut: Symbol<extern fn(_:  &AzRefAny)>,
+        pub az_ref_any_delete: Symbol<extern fn(_:  &mut AzRefAny)>,
+        pub az_ref_any_deep_copy: Symbol<extern fn(_:  &AzRefAny) -> AzRefAny>,
         pub az_layout_info_delete: Symbol<extern fn(_:  &mut AzLayoutInfoPtr)>,
-        pub az_layout_info_shallow_copy: Symbol<extern fn(_:  &AzLayoutInfoPtr) -> AzLayoutInfoPtr>,
         pub az_css_native: Symbol<extern fn() -> AzCssPtr>,
         pub az_css_empty: Symbol<extern fn() -> AzCssPtr>,
         pub az_css_from_string: Symbol<extern fn(_:  AzString) -> AzCssPtr>,
         pub az_css_override_native: Symbol<extern fn(_:  AzString) -> AzCssPtr>,
         pub az_css_delete: Symbol<extern fn(_:  &mut AzCssPtr)>,
-        pub az_css_shallow_copy: Symbol<extern fn(_:  &AzCssPtr) -> AzCssPtr>,
         pub az_css_hot_reloader_new: Symbol<extern fn(_:  AzString, _:  u64) -> AzCssHotReloaderPtr>,
         pub az_css_hot_reloader_override_native: Symbol<extern fn(_:  AzString, _:  u64) -> AzCssHotReloaderPtr>,
         pub az_css_hot_reloader_delete: Symbol<extern fn(_:  &mut AzCssHotReloaderPtr)>,
-        pub az_css_hot_reloader_shallow_copy: Symbol<extern fn(_:  &AzCssHotReloaderPtr) -> AzCssHotReloaderPtr>,
         pub az_color_u_delete: Symbol<extern fn(_:  &mut AzColorU)>,
         pub az_color_u_deep_copy: Symbol<extern fn(_:  &AzColorU) -> AzColorU>,
         pub az_size_metric_delete: Symbol<extern fn(_:  &mut AzSizeMetric)>,
@@ -2005,7 +2012,7 @@ pub(crate) mod dll {
         pub az_dom_with_child: Symbol<extern fn(_:  AzDom, _:  AzDom) -> AzDom>,
         pub az_dom_has_id: Symbol<extern fn(_:  &mut AzDom, _:  AzString) -> bool>,
         pub az_dom_has_class: Symbol<extern fn(_:  &mut AzDom, _:  AzString) -> bool>,
-        pub az_dom_get_html_string: Symbol<extern fn(_:  &mut AzDom) -> AzString>,
+        pub az_dom_get_html_string: Symbol<extern fn(_:  &AzDom) -> AzString>,
         pub az_dom_delete: Symbol<extern fn(_:  &mut AzDom)>,
         pub az_dom_deep_copy: Symbol<extern fn(_:  &AzDom) -> AzDom>,
         pub az_gl_texture_node_delete: Symbol<extern fn(_:  &mut AzGlTextureNode)>,
@@ -2303,23 +2310,17 @@ pub(crate) mod dll {
         pub az_raw_image_format_delete: Symbol<extern fn(_:  &mut AzRawImageFormat)>,
         pub az_raw_image_format_deep_copy: Symbol<extern fn(_:  &AzRawImageFormat) -> AzRawImageFormat>,
         pub az_drop_check_ptr_delete: Symbol<extern fn(_:  &mut AzDropCheckPtrPtr)>,
-        pub az_drop_check_ptr_shallow_copy: Symbol<extern fn(_:  &AzDropCheckPtrPtr) -> AzDropCheckPtrPtr>,
         pub az_arc_mutex_ref_any_delete: Symbol<extern fn(_:  &mut AzArcMutexRefAnyPtr)>,
-        pub az_arc_mutex_ref_any_shallow_copy: Symbol<extern fn(_:  &AzArcMutexRefAnyPtr) -> AzArcMutexRefAnyPtr>,
         pub az_timer_callback_info_delete: Symbol<extern fn(_:  &mut AzTimerCallbackInfoPtr)>,
-        pub az_timer_callback_info_shallow_copy: Symbol<extern fn(_:  &AzTimerCallbackInfoPtr) -> AzTimerCallbackInfoPtr>,
         pub az_timer_delete: Symbol<extern fn(_:  &mut AzTimer)>,
         pub az_timer_deep_copy: Symbol<extern fn(_:  &AzTimer) -> AzTimer>,
         pub az_task_new: Symbol<extern fn(_:  AzArcMutexRefAnyPtr, _:  AzTaskCallbackType) -> AzTaskPtr>,
         pub az_task_then: Symbol<extern fn(_:  AzTaskPtr, _:  AzTimer) -> AzTaskPtr>,
         pub az_task_delete: Symbol<extern fn(_:  &mut AzTaskPtr)>,
-        pub az_task_shallow_copy: Symbol<extern fn(_:  &AzTaskPtr) -> AzTaskPtr>,
         pub az_thread_new: Symbol<extern fn(_:  AzRefAny, _:  AzThreadCallbackType) -> AzThreadPtr>,
         pub az_thread_block: Symbol<extern fn(_:  AzThreadPtr) -> AzResultRefAnyBlockError>,
         pub az_thread_delete: Symbol<extern fn(_:  &mut AzThreadPtr)>,
-        pub az_thread_shallow_copy: Symbol<extern fn(_:  &AzThreadPtr) -> AzThreadPtr>,
         pub az_drop_check_delete: Symbol<extern fn(_:  &mut AzDropCheckPtr)>,
-        pub az_drop_check_shallow_copy: Symbol<extern fn(_:  &AzDropCheckPtr) -> AzDropCheckPtr>,
         pub az_timer_id_delete: Symbol<extern fn(_:  &mut AzTimerId)>,
         pub az_timer_id_deep_copy: Symbol<extern fn(_:  &AzTimerId) -> AzTimerId>,
         pub az_terminate_timer_delete: Symbol<extern fn(_:  &mut AzTerminateTimer)>,
@@ -2328,756 +2329,744 @@ pub(crate) mod dll {
         pub az_block_error_deep_copy: Symbol<extern fn(_:  &AzBlockError) -> AzBlockError>,
         pub az_window_create_options_new: Symbol<extern fn(_:  AzCssPtr) -> AzWindowCreateOptionsPtr>,
         pub az_window_create_options_delete: Symbol<extern fn(_:  &mut AzWindowCreateOptionsPtr)>,
-        pub az_window_create_options_shallow_copy: Symbol<extern fn(_:  &AzWindowCreateOptionsPtr) -> AzWindowCreateOptionsPtr>,
         pub az_logical_size_delete: Symbol<extern fn(_:  &mut AzLogicalSize)>,
         pub az_logical_size_deep_copy: Symbol<extern fn(_:  &AzLogicalSize) -> AzLogicalSize>,
-        pub az_ref_any_new: Symbol<extern fn(_:  *const u8, _:  usize, _:  u64, _:  AzString, _:  fn(AzRefAny)) -> AzRefAny>,
-        pub az_ref_any_get_ptr: Symbol<extern fn(_:  &AzRefAny, _:  usize, _:  u64) -> *const c_void>,
-        pub az_ref_any_get_mut_ptr: Symbol<extern fn(_:  &AzRefAny, _:  usize, _:  u64) -> *mut c_void>,
-        pub az_ref_any_shallow_copy: Symbol<extern fn(_:  &AzRefAny) -> AzRefAny>,
-        pub az_ref_any_delete: Symbol<extern fn(_:  &mut AzRefAny)>,
-        pub az_ref_any_core_copy: Symbol<extern fn(_:  &AzRefAny) -> AzRefAny>,
     }
 
-    pub fn initialize_library(path: &std::path::Path) -> Option<AzulDll> {
-        let lib = Library::new(path).ok()?;
-        let az_string_from_utf8_unchecked = unsafe { lib.get::<extern fn(_:  *const u8, _:  usize) -> AzString>(b"az_string_from_utf8_unchecked").ok()? };
-        let az_string_from_utf8_lossy = unsafe { lib.get::<extern fn(_:  *const u8, _:  usize) -> AzString>(b"az_string_from_utf8_lossy").ok()? };
-        let az_string_into_bytes = unsafe { lib.get::<extern fn(_:  AzString) -> AzU8Vec>(b"az_string_into_bytes").ok()? };
-        let az_string_delete = unsafe { lib.get::<extern fn(_:  &mut AzString)>(b"az_string_delete").ok()? };
-        let az_string_deep_copy = unsafe { lib.get::<extern fn(_:  &AzString) -> AzString>(b"az_string_deep_copy").ok()? };
-        let az_u8_vec_copy_from = unsafe { lib.get::<extern fn(_:  *const u8, _:  usize) -> AzU8Vec>(b"az_u8_vec_copy_from").ok()? };
-        let az_u8_vec_delete = unsafe { lib.get::<extern fn(_:  &mut AzU8Vec)>(b"az_u8_vec_delete").ok()? };
-        let az_u8_vec_deep_copy = unsafe { lib.get::<extern fn(_:  &AzU8Vec) -> AzU8Vec>(b"az_u8_vec_deep_copy").ok()? };
-        let az_callback_data_vec_copy_from = unsafe { lib.get::<extern fn(_:  *const AzCallbackData, _:  usize) -> AzCallbackDataVec>(b"az_callback_data_vec_copy_from").ok()? };
-        let az_callback_data_vec_delete = unsafe { lib.get::<extern fn(_:  &mut AzCallbackDataVec)>(b"az_callback_data_vec_delete").ok()? };
-        let az_callback_data_vec_deep_copy = unsafe { lib.get::<extern fn(_:  &AzCallbackDataVec) -> AzCallbackDataVec>(b"az_callback_data_vec_deep_copy").ok()? };
-        let az_debug_message_vec_copy_from = unsafe { lib.get::<extern fn(_:  *const AzDebugMessage, _:  usize) -> AzDebugMessageVec>(b"az_debug_message_vec_copy_from").ok()? };
-        let az_debug_message_vec_delete = unsafe { lib.get::<extern fn(_:  &mut AzDebugMessageVec)>(b"az_debug_message_vec_delete").ok()? };
-        let az_debug_message_vec_deep_copy = unsafe { lib.get::<extern fn(_:  &AzDebugMessageVec) -> AzDebugMessageVec>(b"az_debug_message_vec_deep_copy").ok()? };
-        let az_g_luint_vec_copy_from = unsafe { lib.get::<extern fn(_:  *const u32, _:  usize) -> AzGLuintVec>(b"az_g_luint_vec_copy_from").ok()? };
-        let az_g_luint_vec_delete = unsafe { lib.get::<extern fn(_:  &mut AzGLuintVec)>(b"az_g_luint_vec_delete").ok()? };
-        let az_g_luint_vec_deep_copy = unsafe { lib.get::<extern fn(_:  &AzGLuintVec) -> AzGLuintVec>(b"az_g_luint_vec_deep_copy").ok()? };
-        let az_g_lint_vec_copy_from = unsafe { lib.get::<extern fn(_:  *const i32, _:  usize) -> AzGLintVec>(b"az_g_lint_vec_copy_from").ok()? };
-        let az_g_lint_vec_delete = unsafe { lib.get::<extern fn(_:  &mut AzGLintVec)>(b"az_g_lint_vec_delete").ok()? };
-        let az_g_lint_vec_deep_copy = unsafe { lib.get::<extern fn(_:  &AzGLintVec) -> AzGLintVec>(b"az_g_lint_vec_deep_copy").ok()? };
-        let az_override_property_vec_copy_from = unsafe { lib.get::<extern fn(_:  *const AzOverrideProperty, _:  usize) -> AzOverridePropertyVec>(b"az_override_property_vec_copy_from").ok()? };
-        let az_override_property_vec_delete = unsafe { lib.get::<extern fn(_:  &mut AzOverridePropertyVec)>(b"az_override_property_vec_delete").ok()? };
-        let az_override_property_vec_deep_copy = unsafe { lib.get::<extern fn(_:  &AzOverridePropertyVec) -> AzOverridePropertyVec>(b"az_override_property_vec_deep_copy").ok()? };
-        let az_dom_vec_copy_from = unsafe { lib.get::<extern fn(_:  *const AzDom, _:  usize) -> AzDomVec>(b"az_dom_vec_copy_from").ok()? };
-        let az_dom_vec_delete = unsafe { lib.get::<extern fn(_:  &mut AzDomVec)>(b"az_dom_vec_delete").ok()? };
-        let az_dom_vec_deep_copy = unsafe { lib.get::<extern fn(_:  &AzDomVec) -> AzDomVec>(b"az_dom_vec_deep_copy").ok()? };
-        let az_string_vec_copy_from = unsafe { lib.get::<extern fn(_:  *const AzString, _:  usize) -> AzStringVec>(b"az_string_vec_copy_from").ok()? };
-        let az_string_vec_delete = unsafe { lib.get::<extern fn(_:  &mut AzStringVec)>(b"az_string_vec_delete").ok()? };
-        let az_string_vec_deep_copy = unsafe { lib.get::<extern fn(_:  &AzStringVec) -> AzStringVec>(b"az_string_vec_deep_copy").ok()? };
-        let az_gradient_stop_pre_vec_copy_from = unsafe { lib.get::<extern fn(_:  *const AzGradientStopPre, _:  usize) -> AzGradientStopPreVec>(b"az_gradient_stop_pre_vec_copy_from").ok()? };
-        let az_gradient_stop_pre_vec_delete = unsafe { lib.get::<extern fn(_:  &mut AzGradientStopPreVec)>(b"az_gradient_stop_pre_vec_delete").ok()? };
-        let az_gradient_stop_pre_vec_deep_copy = unsafe { lib.get::<extern fn(_:  &AzGradientStopPreVec) -> AzGradientStopPreVec>(b"az_gradient_stop_pre_vec_deep_copy").ok()? };
-        let az_option_percentage_value_delete = unsafe { lib.get::<extern fn(_:  &mut AzOptionPercentageValue)>(b"az_option_percentage_value_delete").ok()? };
-        let az_option_percentage_value_deep_copy = unsafe { lib.get::<extern fn(_:  &AzOptionPercentageValue) -> AzOptionPercentageValue>(b"az_option_percentage_value_deep_copy").ok()? };
-        let az_option_dom_delete = unsafe { lib.get::<extern fn(_:  &mut AzOptionDom)>(b"az_option_dom_delete").ok()? };
-        let az_option_dom_deep_copy = unsafe { lib.get::<extern fn(_:  &AzOptionDom) -> AzOptionDom>(b"az_option_dom_deep_copy").ok()? };
-        let az_option_texture_delete = unsafe { lib.get::<extern fn(_:  &mut AzOptionTexture)>(b"az_option_texture_delete").ok()? };
-        let az_option_tab_index_delete = unsafe { lib.get::<extern fn(_:  &mut AzOptionTabIndex)>(b"az_option_tab_index_delete").ok()? };
-        let az_option_tab_index_deep_copy = unsafe { lib.get::<extern fn(_:  &AzOptionTabIndex) -> AzOptionTabIndex>(b"az_option_tab_index_deep_copy").ok()? };
-        let az_option_duration_delete = unsafe { lib.get::<extern fn(_:  &mut AzOptionDuration)>(b"az_option_duration_delete").ok()? };
-        let az_option_duration_deep_copy = unsafe { lib.get::<extern fn(_:  &AzOptionDuration) -> AzOptionDuration>(b"az_option_duration_deep_copy").ok()? };
-        let az_option_instant_delete = unsafe { lib.get::<extern fn(_:  &mut AzOptionInstant)>(b"az_option_instant_delete").ok()? };
-        let az_option_instant_deep_copy = unsafe { lib.get::<extern fn(_:  &AzOptionInstant) -> AzOptionInstant>(b"az_option_instant_deep_copy").ok()? };
-        let az_option_usize_delete = unsafe { lib.get::<extern fn(_:  &mut AzOptionUsize)>(b"az_option_usize_delete").ok()? };
-        let az_option_usize_deep_copy = unsafe { lib.get::<extern fn(_:  &AzOptionUsize) -> AzOptionUsize>(b"az_option_usize_deep_copy").ok()? };
-        let az_option_u8_vec_ref_delete = unsafe { lib.get::<extern fn(_:  &mut AzOptionU8VecRef)>(b"az_option_u8_vec_ref_delete").ok()? };
-        let az_result_ref_any_block_error_delete = unsafe { lib.get::<extern fn(_:  &mut AzResultRefAnyBlockError)>(b"az_result_ref_any_block_error_delete").ok()? };
-        let az_result_ref_any_block_error_deep_copy = unsafe { lib.get::<extern fn(_:  &AzResultRefAnyBlockError) -> AzResultRefAnyBlockError>(b"az_result_ref_any_block_error_deep_copy").ok()? };
-        let az_instant_now = unsafe { lib.get::<extern fn() -> AzInstantPtr>(b"az_instant_now").ok()? };
-        let az_instant_delete = unsafe { lib.get::<extern fn(_:  &mut AzInstantPtr)>(b"az_instant_delete").ok()? };
-        let az_instant_shallow_copy = unsafe { lib.get::<extern fn(_:  &AzInstantPtr) -> AzInstantPtr>(b"az_instant_shallow_copy").ok()? };
-        let az_duration_delete = unsafe { lib.get::<extern fn(_:  &mut AzDuration)>(b"az_duration_delete").ok()? };
-        let az_duration_deep_copy = unsafe { lib.get::<extern fn(_:  &AzDuration) -> AzDuration>(b"az_duration_deep_copy").ok()? };
-        let az_app_config_default = unsafe { lib.get::<extern fn() -> AzAppConfigPtr>(b"az_app_config_default").ok()? };
-        let az_app_config_delete = unsafe { lib.get::<extern fn(_:  &mut AzAppConfigPtr)>(b"az_app_config_delete").ok()? };
-        let az_app_config_shallow_copy = unsafe { lib.get::<extern fn(_:  &AzAppConfigPtr) -> AzAppConfigPtr>(b"az_app_config_shallow_copy").ok()? };
-        let az_app_new = unsafe { lib.get::<extern fn(_:  AzRefAny, _:  AzAppConfigPtr, _:  AzLayoutCallbackType) -> AzAppPtr>(b"az_app_new").ok()? };
-        let az_app_run = unsafe { lib.get::<extern fn(_:  AzAppPtr, _:  AzWindowCreateOptionsPtr)>(b"az_app_run").ok()? };
-        let az_app_delete = unsafe { lib.get::<extern fn(_:  &mut AzAppPtr)>(b"az_app_delete").ok()? };
-        let az_app_shallow_copy = unsafe { lib.get::<extern fn(_:  &AzAppPtr) -> AzAppPtr>(b"az_app_shallow_copy").ok()? };
-        let az_layout_callback_delete = unsafe { lib.get::<extern fn(_:  &mut AzLayoutCallback)>(b"az_layout_callback_delete").ok()? };
-        let az_layout_callback_deep_copy = unsafe { lib.get::<extern fn(_:  &AzLayoutCallback) -> AzLayoutCallback>(b"az_layout_callback_deep_copy").ok()? };
-        let az_callback_delete = unsafe { lib.get::<extern fn(_:  &mut AzCallback)>(b"az_callback_delete").ok()? };
-        let az_callback_deep_copy = unsafe { lib.get::<extern fn(_:  &AzCallback) -> AzCallback>(b"az_callback_deep_copy").ok()? };
-        let az_callback_info_delete = unsafe { lib.get::<extern fn(_:  &mut AzCallbackInfoPtr)>(b"az_callback_info_delete").ok()? };
-        let az_callback_info_shallow_copy = unsafe { lib.get::<extern fn(_:  &AzCallbackInfoPtr) -> AzCallbackInfoPtr>(b"az_callback_info_shallow_copy").ok()? };
-        let az_update_screen_delete = unsafe { lib.get::<extern fn(_:  &mut AzUpdateScreen)>(b"az_update_screen_delete").ok()? };
-        let az_update_screen_deep_copy = unsafe { lib.get::<extern fn(_:  &AzUpdateScreen) -> AzUpdateScreen>(b"az_update_screen_deep_copy").ok()? };
-        let az_i_frame_callback_delete = unsafe { lib.get::<extern fn(_:  &mut AzIFrameCallback)>(b"az_i_frame_callback_delete").ok()? };
-        let az_i_frame_callback_deep_copy = unsafe { lib.get::<extern fn(_:  &AzIFrameCallback) -> AzIFrameCallback>(b"az_i_frame_callback_deep_copy").ok()? };
-        let az_i_frame_callback_info_delete = unsafe { lib.get::<extern fn(_:  &mut AzIFrameCallbackInfoPtr)>(b"az_i_frame_callback_info_delete").ok()? };
-        let az_i_frame_callback_info_shallow_copy = unsafe { lib.get::<extern fn(_:  &AzIFrameCallbackInfoPtr) -> AzIFrameCallbackInfoPtr>(b"az_i_frame_callback_info_shallow_copy").ok()? };
-        let az_i_frame_callback_return_delete = unsafe { lib.get::<extern fn(_:  &mut AzIFrameCallbackReturn)>(b"az_i_frame_callback_return_delete").ok()? };
-        let az_i_frame_callback_return_deep_copy = unsafe { lib.get::<extern fn(_:  &AzIFrameCallbackReturn) -> AzIFrameCallbackReturn>(b"az_i_frame_callback_return_deep_copy").ok()? };
-        let az_gl_callback_delete = unsafe { lib.get::<extern fn(_:  &mut AzGlCallback)>(b"az_gl_callback_delete").ok()? };
-        let az_gl_callback_deep_copy = unsafe { lib.get::<extern fn(_:  &AzGlCallback) -> AzGlCallback>(b"az_gl_callback_deep_copy").ok()? };
-        let az_gl_callback_info_delete = unsafe { lib.get::<extern fn(_:  &mut AzGlCallbackInfoPtr)>(b"az_gl_callback_info_delete").ok()? };
-        let az_gl_callback_info_shallow_copy = unsafe { lib.get::<extern fn(_:  &AzGlCallbackInfoPtr) -> AzGlCallbackInfoPtr>(b"az_gl_callback_info_shallow_copy").ok()? };
-        let az_gl_callback_return_delete = unsafe { lib.get::<extern fn(_:  &mut AzGlCallbackReturn)>(b"az_gl_callback_return_delete").ok()? };
-        let az_timer_callback_delete = unsafe { lib.get::<extern fn(_:  &mut AzTimerCallback)>(b"az_timer_callback_delete").ok()? };
-        let az_timer_callback_deep_copy = unsafe { lib.get::<extern fn(_:  &AzTimerCallback) -> AzTimerCallback>(b"az_timer_callback_deep_copy").ok()? };
-        let az_timer_callback_type_delete = unsafe { lib.get::<extern fn(_:  &mut AzTimerCallbackTypePtr)>(b"az_timer_callback_type_delete").ok()? };
-        let az_timer_callback_type_shallow_copy = unsafe { lib.get::<extern fn(_:  &AzTimerCallbackTypePtr) -> AzTimerCallbackTypePtr>(b"az_timer_callback_type_shallow_copy").ok()? };
-        let az_timer_callback_return_delete = unsafe { lib.get::<extern fn(_:  &mut AzTimerCallbackReturn)>(b"az_timer_callback_return_delete").ok()? };
-        let az_timer_callback_return_deep_copy = unsafe { lib.get::<extern fn(_:  &AzTimerCallbackReturn) -> AzTimerCallbackReturn>(b"az_timer_callback_return_deep_copy").ok()? };
-        let az_layout_info_delete = unsafe { lib.get::<extern fn(_:  &mut AzLayoutInfoPtr)>(b"az_layout_info_delete").ok()? };
-        let az_layout_info_shallow_copy = unsafe { lib.get::<extern fn(_:  &AzLayoutInfoPtr) -> AzLayoutInfoPtr>(b"az_layout_info_shallow_copy").ok()? };
-        let az_css_native = unsafe { lib.get::<extern fn() -> AzCssPtr>(b"az_css_native").ok()? };
-        let az_css_empty = unsafe { lib.get::<extern fn() -> AzCssPtr>(b"az_css_empty").ok()? };
-        let az_css_from_string = unsafe { lib.get::<extern fn(_:  AzString) -> AzCssPtr>(b"az_css_from_string").ok()? };
-        let az_css_override_native = unsafe { lib.get::<extern fn(_:  AzString) -> AzCssPtr>(b"az_css_override_native").ok()? };
-        let az_css_delete = unsafe { lib.get::<extern fn(_:  &mut AzCssPtr)>(b"az_css_delete").ok()? };
-        let az_css_shallow_copy = unsafe { lib.get::<extern fn(_:  &AzCssPtr) -> AzCssPtr>(b"az_css_shallow_copy").ok()? };
-        let az_css_hot_reloader_new = unsafe { lib.get::<extern fn(_:  AzString, _:  u64) -> AzCssHotReloaderPtr>(b"az_css_hot_reloader_new").ok()? };
-        let az_css_hot_reloader_override_native = unsafe { lib.get::<extern fn(_:  AzString, _:  u64) -> AzCssHotReloaderPtr>(b"az_css_hot_reloader_override_native").ok()? };
-        let az_css_hot_reloader_delete = unsafe { lib.get::<extern fn(_:  &mut AzCssHotReloaderPtr)>(b"az_css_hot_reloader_delete").ok()? };
-        let az_css_hot_reloader_shallow_copy = unsafe { lib.get::<extern fn(_:  &AzCssHotReloaderPtr) -> AzCssHotReloaderPtr>(b"az_css_hot_reloader_shallow_copy").ok()? };
-        let az_color_u_delete = unsafe { lib.get::<extern fn(_:  &mut AzColorU)>(b"az_color_u_delete").ok()? };
-        let az_color_u_deep_copy = unsafe { lib.get::<extern fn(_:  &AzColorU) -> AzColorU>(b"az_color_u_deep_copy").ok()? };
-        let az_size_metric_delete = unsafe { lib.get::<extern fn(_:  &mut AzSizeMetric)>(b"az_size_metric_delete").ok()? };
-        let az_size_metric_deep_copy = unsafe { lib.get::<extern fn(_:  &AzSizeMetric) -> AzSizeMetric>(b"az_size_metric_deep_copy").ok()? };
-        let az_float_value_delete = unsafe { lib.get::<extern fn(_:  &mut AzFloatValue)>(b"az_float_value_delete").ok()? };
-        let az_float_value_deep_copy = unsafe { lib.get::<extern fn(_:  &AzFloatValue) -> AzFloatValue>(b"az_float_value_deep_copy").ok()? };
-        let az_pixel_value_delete = unsafe { lib.get::<extern fn(_:  &mut AzPixelValue)>(b"az_pixel_value_delete").ok()? };
-        let az_pixel_value_deep_copy = unsafe { lib.get::<extern fn(_:  &AzPixelValue) -> AzPixelValue>(b"az_pixel_value_deep_copy").ok()? };
-        let az_pixel_value_no_percent_delete = unsafe { lib.get::<extern fn(_:  &mut AzPixelValueNoPercent)>(b"az_pixel_value_no_percent_delete").ok()? };
-        let az_pixel_value_no_percent_deep_copy = unsafe { lib.get::<extern fn(_:  &AzPixelValueNoPercent) -> AzPixelValueNoPercent>(b"az_pixel_value_no_percent_deep_copy").ok()? };
-        let az_box_shadow_clip_mode_delete = unsafe { lib.get::<extern fn(_:  &mut AzBoxShadowClipMode)>(b"az_box_shadow_clip_mode_delete").ok()? };
-        let az_box_shadow_clip_mode_deep_copy = unsafe { lib.get::<extern fn(_:  &AzBoxShadowClipMode) -> AzBoxShadowClipMode>(b"az_box_shadow_clip_mode_deep_copy").ok()? };
-        let az_box_shadow_pre_display_item_delete = unsafe { lib.get::<extern fn(_:  &mut AzBoxShadowPreDisplayItem)>(b"az_box_shadow_pre_display_item_delete").ok()? };
-        let az_box_shadow_pre_display_item_deep_copy = unsafe { lib.get::<extern fn(_:  &AzBoxShadowPreDisplayItem) -> AzBoxShadowPreDisplayItem>(b"az_box_shadow_pre_display_item_deep_copy").ok()? };
-        let az_layout_align_content_delete = unsafe { lib.get::<extern fn(_:  &mut AzLayoutAlignContent)>(b"az_layout_align_content_delete").ok()? };
-        let az_layout_align_content_deep_copy = unsafe { lib.get::<extern fn(_:  &AzLayoutAlignContent) -> AzLayoutAlignContent>(b"az_layout_align_content_deep_copy").ok()? };
-        let az_layout_align_items_delete = unsafe { lib.get::<extern fn(_:  &mut AzLayoutAlignItems)>(b"az_layout_align_items_delete").ok()? };
-        let az_layout_align_items_deep_copy = unsafe { lib.get::<extern fn(_:  &AzLayoutAlignItems) -> AzLayoutAlignItems>(b"az_layout_align_items_deep_copy").ok()? };
-        let az_layout_bottom_delete = unsafe { lib.get::<extern fn(_:  &mut AzLayoutBottom)>(b"az_layout_bottom_delete").ok()? };
-        let az_layout_bottom_deep_copy = unsafe { lib.get::<extern fn(_:  &AzLayoutBottom) -> AzLayoutBottom>(b"az_layout_bottom_deep_copy").ok()? };
-        let az_layout_box_sizing_delete = unsafe { lib.get::<extern fn(_:  &mut AzLayoutBoxSizing)>(b"az_layout_box_sizing_delete").ok()? };
-        let az_layout_box_sizing_deep_copy = unsafe { lib.get::<extern fn(_:  &AzLayoutBoxSizing) -> AzLayoutBoxSizing>(b"az_layout_box_sizing_deep_copy").ok()? };
-        let az_layout_direction_delete = unsafe { lib.get::<extern fn(_:  &mut AzLayoutDirection)>(b"az_layout_direction_delete").ok()? };
-        let az_layout_direction_deep_copy = unsafe { lib.get::<extern fn(_:  &AzLayoutDirection) -> AzLayoutDirection>(b"az_layout_direction_deep_copy").ok()? };
-        let az_layout_display_delete = unsafe { lib.get::<extern fn(_:  &mut AzLayoutDisplay)>(b"az_layout_display_delete").ok()? };
-        let az_layout_display_deep_copy = unsafe { lib.get::<extern fn(_:  &AzLayoutDisplay) -> AzLayoutDisplay>(b"az_layout_display_deep_copy").ok()? };
-        let az_layout_flex_grow_delete = unsafe { lib.get::<extern fn(_:  &mut AzLayoutFlexGrow)>(b"az_layout_flex_grow_delete").ok()? };
-        let az_layout_flex_grow_deep_copy = unsafe { lib.get::<extern fn(_:  &AzLayoutFlexGrow) -> AzLayoutFlexGrow>(b"az_layout_flex_grow_deep_copy").ok()? };
-        let az_layout_flex_shrink_delete = unsafe { lib.get::<extern fn(_:  &mut AzLayoutFlexShrink)>(b"az_layout_flex_shrink_delete").ok()? };
-        let az_layout_flex_shrink_deep_copy = unsafe { lib.get::<extern fn(_:  &AzLayoutFlexShrink) -> AzLayoutFlexShrink>(b"az_layout_flex_shrink_deep_copy").ok()? };
-        let az_layout_float_delete = unsafe { lib.get::<extern fn(_:  &mut AzLayoutFloat)>(b"az_layout_float_delete").ok()? };
-        let az_layout_float_deep_copy = unsafe { lib.get::<extern fn(_:  &AzLayoutFloat) -> AzLayoutFloat>(b"az_layout_float_deep_copy").ok()? };
-        let az_layout_height_delete = unsafe { lib.get::<extern fn(_:  &mut AzLayoutHeight)>(b"az_layout_height_delete").ok()? };
-        let az_layout_height_deep_copy = unsafe { lib.get::<extern fn(_:  &AzLayoutHeight) -> AzLayoutHeight>(b"az_layout_height_deep_copy").ok()? };
-        let az_layout_justify_content_delete = unsafe { lib.get::<extern fn(_:  &mut AzLayoutJustifyContent)>(b"az_layout_justify_content_delete").ok()? };
-        let az_layout_justify_content_deep_copy = unsafe { lib.get::<extern fn(_:  &AzLayoutJustifyContent) -> AzLayoutJustifyContent>(b"az_layout_justify_content_deep_copy").ok()? };
-        let az_layout_left_delete = unsafe { lib.get::<extern fn(_:  &mut AzLayoutLeft)>(b"az_layout_left_delete").ok()? };
-        let az_layout_left_deep_copy = unsafe { lib.get::<extern fn(_:  &AzLayoutLeft) -> AzLayoutLeft>(b"az_layout_left_deep_copy").ok()? };
-        let az_layout_margin_bottom_delete = unsafe { lib.get::<extern fn(_:  &mut AzLayoutMarginBottom)>(b"az_layout_margin_bottom_delete").ok()? };
-        let az_layout_margin_bottom_deep_copy = unsafe { lib.get::<extern fn(_:  &AzLayoutMarginBottom) -> AzLayoutMarginBottom>(b"az_layout_margin_bottom_deep_copy").ok()? };
-        let az_layout_margin_left_delete = unsafe { lib.get::<extern fn(_:  &mut AzLayoutMarginLeft)>(b"az_layout_margin_left_delete").ok()? };
-        let az_layout_margin_left_deep_copy = unsafe { lib.get::<extern fn(_:  &AzLayoutMarginLeft) -> AzLayoutMarginLeft>(b"az_layout_margin_left_deep_copy").ok()? };
-        let az_layout_margin_right_delete = unsafe { lib.get::<extern fn(_:  &mut AzLayoutMarginRight)>(b"az_layout_margin_right_delete").ok()? };
-        let az_layout_margin_right_deep_copy = unsafe { lib.get::<extern fn(_:  &AzLayoutMarginRight) -> AzLayoutMarginRight>(b"az_layout_margin_right_deep_copy").ok()? };
-        let az_layout_margin_top_delete = unsafe { lib.get::<extern fn(_:  &mut AzLayoutMarginTop)>(b"az_layout_margin_top_delete").ok()? };
-        let az_layout_margin_top_deep_copy = unsafe { lib.get::<extern fn(_:  &AzLayoutMarginTop) -> AzLayoutMarginTop>(b"az_layout_margin_top_deep_copy").ok()? };
-        let az_layout_max_height_delete = unsafe { lib.get::<extern fn(_:  &mut AzLayoutMaxHeight)>(b"az_layout_max_height_delete").ok()? };
-        let az_layout_max_height_deep_copy = unsafe { lib.get::<extern fn(_:  &AzLayoutMaxHeight) -> AzLayoutMaxHeight>(b"az_layout_max_height_deep_copy").ok()? };
-        let az_layout_max_width_delete = unsafe { lib.get::<extern fn(_:  &mut AzLayoutMaxWidth)>(b"az_layout_max_width_delete").ok()? };
-        let az_layout_max_width_deep_copy = unsafe { lib.get::<extern fn(_:  &AzLayoutMaxWidth) -> AzLayoutMaxWidth>(b"az_layout_max_width_deep_copy").ok()? };
-        let az_layout_min_height_delete = unsafe { lib.get::<extern fn(_:  &mut AzLayoutMinHeight)>(b"az_layout_min_height_delete").ok()? };
-        let az_layout_min_height_deep_copy = unsafe { lib.get::<extern fn(_:  &AzLayoutMinHeight) -> AzLayoutMinHeight>(b"az_layout_min_height_deep_copy").ok()? };
-        let az_layout_min_width_delete = unsafe { lib.get::<extern fn(_:  &mut AzLayoutMinWidth)>(b"az_layout_min_width_delete").ok()? };
-        let az_layout_min_width_deep_copy = unsafe { lib.get::<extern fn(_:  &AzLayoutMinWidth) -> AzLayoutMinWidth>(b"az_layout_min_width_deep_copy").ok()? };
-        let az_layout_padding_bottom_delete = unsafe { lib.get::<extern fn(_:  &mut AzLayoutPaddingBottom)>(b"az_layout_padding_bottom_delete").ok()? };
-        let az_layout_padding_bottom_deep_copy = unsafe { lib.get::<extern fn(_:  &AzLayoutPaddingBottom) -> AzLayoutPaddingBottom>(b"az_layout_padding_bottom_deep_copy").ok()? };
-        let az_layout_padding_left_delete = unsafe { lib.get::<extern fn(_:  &mut AzLayoutPaddingLeft)>(b"az_layout_padding_left_delete").ok()? };
-        let az_layout_padding_left_deep_copy = unsafe { lib.get::<extern fn(_:  &AzLayoutPaddingLeft) -> AzLayoutPaddingLeft>(b"az_layout_padding_left_deep_copy").ok()? };
-        let az_layout_padding_right_delete = unsafe { lib.get::<extern fn(_:  &mut AzLayoutPaddingRight)>(b"az_layout_padding_right_delete").ok()? };
-        let az_layout_padding_right_deep_copy = unsafe { lib.get::<extern fn(_:  &AzLayoutPaddingRight) -> AzLayoutPaddingRight>(b"az_layout_padding_right_deep_copy").ok()? };
-        let az_layout_padding_top_delete = unsafe { lib.get::<extern fn(_:  &mut AzLayoutPaddingTop)>(b"az_layout_padding_top_delete").ok()? };
-        let az_layout_padding_top_deep_copy = unsafe { lib.get::<extern fn(_:  &AzLayoutPaddingTop) -> AzLayoutPaddingTop>(b"az_layout_padding_top_deep_copy").ok()? };
-        let az_layout_position_delete = unsafe { lib.get::<extern fn(_:  &mut AzLayoutPosition)>(b"az_layout_position_delete").ok()? };
-        let az_layout_position_deep_copy = unsafe { lib.get::<extern fn(_:  &AzLayoutPosition) -> AzLayoutPosition>(b"az_layout_position_deep_copy").ok()? };
-        let az_layout_right_delete = unsafe { lib.get::<extern fn(_:  &mut AzLayoutRight)>(b"az_layout_right_delete").ok()? };
-        let az_layout_right_deep_copy = unsafe { lib.get::<extern fn(_:  &AzLayoutRight) -> AzLayoutRight>(b"az_layout_right_deep_copy").ok()? };
-        let az_layout_top_delete = unsafe { lib.get::<extern fn(_:  &mut AzLayoutTop)>(b"az_layout_top_delete").ok()? };
-        let az_layout_top_deep_copy = unsafe { lib.get::<extern fn(_:  &AzLayoutTop) -> AzLayoutTop>(b"az_layout_top_deep_copy").ok()? };
-        let az_layout_width_delete = unsafe { lib.get::<extern fn(_:  &mut AzLayoutWidth)>(b"az_layout_width_delete").ok()? };
-        let az_layout_width_deep_copy = unsafe { lib.get::<extern fn(_:  &AzLayoutWidth) -> AzLayoutWidth>(b"az_layout_width_deep_copy").ok()? };
-        let az_layout_wrap_delete = unsafe { lib.get::<extern fn(_:  &mut AzLayoutWrap)>(b"az_layout_wrap_delete").ok()? };
-        let az_layout_wrap_deep_copy = unsafe { lib.get::<extern fn(_:  &AzLayoutWrap) -> AzLayoutWrap>(b"az_layout_wrap_deep_copy").ok()? };
-        let az_overflow_delete = unsafe { lib.get::<extern fn(_:  &mut AzOverflow)>(b"az_overflow_delete").ok()? };
-        let az_overflow_deep_copy = unsafe { lib.get::<extern fn(_:  &AzOverflow) -> AzOverflow>(b"az_overflow_deep_copy").ok()? };
-        let az_percentage_value_delete = unsafe { lib.get::<extern fn(_:  &mut AzPercentageValue)>(b"az_percentage_value_delete").ok()? };
-        let az_percentage_value_deep_copy = unsafe { lib.get::<extern fn(_:  &AzPercentageValue) -> AzPercentageValue>(b"az_percentage_value_deep_copy").ok()? };
-        let az_gradient_stop_pre_delete = unsafe { lib.get::<extern fn(_:  &mut AzGradientStopPre)>(b"az_gradient_stop_pre_delete").ok()? };
-        let az_gradient_stop_pre_deep_copy = unsafe { lib.get::<extern fn(_:  &AzGradientStopPre) -> AzGradientStopPre>(b"az_gradient_stop_pre_deep_copy").ok()? };
-        let az_direction_corner_delete = unsafe { lib.get::<extern fn(_:  &mut AzDirectionCorner)>(b"az_direction_corner_delete").ok()? };
-        let az_direction_corner_deep_copy = unsafe { lib.get::<extern fn(_:  &AzDirectionCorner) -> AzDirectionCorner>(b"az_direction_corner_deep_copy").ok()? };
-        let az_direction_corners_delete = unsafe { lib.get::<extern fn(_:  &mut AzDirectionCorners)>(b"az_direction_corners_delete").ok()? };
-        let az_direction_corners_deep_copy = unsafe { lib.get::<extern fn(_:  &AzDirectionCorners) -> AzDirectionCorners>(b"az_direction_corners_deep_copy").ok()? };
-        let az_direction_delete = unsafe { lib.get::<extern fn(_:  &mut AzDirection)>(b"az_direction_delete").ok()? };
-        let az_direction_deep_copy = unsafe { lib.get::<extern fn(_:  &AzDirection) -> AzDirection>(b"az_direction_deep_copy").ok()? };
-        let az_extend_mode_delete = unsafe { lib.get::<extern fn(_:  &mut AzExtendMode)>(b"az_extend_mode_delete").ok()? };
-        let az_extend_mode_deep_copy = unsafe { lib.get::<extern fn(_:  &AzExtendMode) -> AzExtendMode>(b"az_extend_mode_deep_copy").ok()? };
-        let az_linear_gradient_delete = unsafe { lib.get::<extern fn(_:  &mut AzLinearGradient)>(b"az_linear_gradient_delete").ok()? };
-        let az_linear_gradient_deep_copy = unsafe { lib.get::<extern fn(_:  &AzLinearGradient) -> AzLinearGradient>(b"az_linear_gradient_deep_copy").ok()? };
-        let az_shape_delete = unsafe { lib.get::<extern fn(_:  &mut AzShape)>(b"az_shape_delete").ok()? };
-        let az_shape_deep_copy = unsafe { lib.get::<extern fn(_:  &AzShape) -> AzShape>(b"az_shape_deep_copy").ok()? };
-        let az_radial_gradient_delete = unsafe { lib.get::<extern fn(_:  &mut AzRadialGradient)>(b"az_radial_gradient_delete").ok()? };
-        let az_radial_gradient_deep_copy = unsafe { lib.get::<extern fn(_:  &AzRadialGradient) -> AzRadialGradient>(b"az_radial_gradient_deep_copy").ok()? };
-        let az_css_image_id_delete = unsafe { lib.get::<extern fn(_:  &mut AzCssImageId)>(b"az_css_image_id_delete").ok()? };
-        let az_css_image_id_deep_copy = unsafe { lib.get::<extern fn(_:  &AzCssImageId) -> AzCssImageId>(b"az_css_image_id_deep_copy").ok()? };
-        let az_style_background_content_delete = unsafe { lib.get::<extern fn(_:  &mut AzStyleBackgroundContent)>(b"az_style_background_content_delete").ok()? };
-        let az_style_background_content_deep_copy = unsafe { lib.get::<extern fn(_:  &AzStyleBackgroundContent) -> AzStyleBackgroundContent>(b"az_style_background_content_deep_copy").ok()? };
-        let az_background_position_horizontal_delete = unsafe { lib.get::<extern fn(_:  &mut AzBackgroundPositionHorizontal)>(b"az_background_position_horizontal_delete").ok()? };
-        let az_background_position_horizontal_deep_copy = unsafe { lib.get::<extern fn(_:  &AzBackgroundPositionHorizontal) -> AzBackgroundPositionHorizontal>(b"az_background_position_horizontal_deep_copy").ok()? };
-        let az_background_position_vertical_delete = unsafe { lib.get::<extern fn(_:  &mut AzBackgroundPositionVertical)>(b"az_background_position_vertical_delete").ok()? };
-        let az_background_position_vertical_deep_copy = unsafe { lib.get::<extern fn(_:  &AzBackgroundPositionVertical) -> AzBackgroundPositionVertical>(b"az_background_position_vertical_deep_copy").ok()? };
-        let az_style_background_position_delete = unsafe { lib.get::<extern fn(_:  &mut AzStyleBackgroundPosition)>(b"az_style_background_position_delete").ok()? };
-        let az_style_background_position_deep_copy = unsafe { lib.get::<extern fn(_:  &AzStyleBackgroundPosition) -> AzStyleBackgroundPosition>(b"az_style_background_position_deep_copy").ok()? };
-        let az_style_background_repeat_delete = unsafe { lib.get::<extern fn(_:  &mut AzStyleBackgroundRepeat)>(b"az_style_background_repeat_delete").ok()? };
-        let az_style_background_repeat_deep_copy = unsafe { lib.get::<extern fn(_:  &AzStyleBackgroundRepeat) -> AzStyleBackgroundRepeat>(b"az_style_background_repeat_deep_copy").ok()? };
-        let az_style_background_size_delete = unsafe { lib.get::<extern fn(_:  &mut AzStyleBackgroundSize)>(b"az_style_background_size_delete").ok()? };
-        let az_style_background_size_deep_copy = unsafe { lib.get::<extern fn(_:  &AzStyleBackgroundSize) -> AzStyleBackgroundSize>(b"az_style_background_size_deep_copy").ok()? };
-        let az_style_border_bottom_color_delete = unsafe { lib.get::<extern fn(_:  &mut AzStyleBorderBottomColor)>(b"az_style_border_bottom_color_delete").ok()? };
-        let az_style_border_bottom_color_deep_copy = unsafe { lib.get::<extern fn(_:  &AzStyleBorderBottomColor) -> AzStyleBorderBottomColor>(b"az_style_border_bottom_color_deep_copy").ok()? };
-        let az_style_border_bottom_left_radius_delete = unsafe { lib.get::<extern fn(_:  &mut AzStyleBorderBottomLeftRadius)>(b"az_style_border_bottom_left_radius_delete").ok()? };
-        let az_style_border_bottom_left_radius_deep_copy = unsafe { lib.get::<extern fn(_:  &AzStyleBorderBottomLeftRadius) -> AzStyleBorderBottomLeftRadius>(b"az_style_border_bottom_left_radius_deep_copy").ok()? };
-        let az_style_border_bottom_right_radius_delete = unsafe { lib.get::<extern fn(_:  &mut AzStyleBorderBottomRightRadius)>(b"az_style_border_bottom_right_radius_delete").ok()? };
-        let az_style_border_bottom_right_radius_deep_copy = unsafe { lib.get::<extern fn(_:  &AzStyleBorderBottomRightRadius) -> AzStyleBorderBottomRightRadius>(b"az_style_border_bottom_right_radius_deep_copy").ok()? };
-        let az_border_style_delete = unsafe { lib.get::<extern fn(_:  &mut AzBorderStyle)>(b"az_border_style_delete").ok()? };
-        let az_border_style_deep_copy = unsafe { lib.get::<extern fn(_:  &AzBorderStyle) -> AzBorderStyle>(b"az_border_style_deep_copy").ok()? };
-        let az_style_border_bottom_style_delete = unsafe { lib.get::<extern fn(_:  &mut AzStyleBorderBottomStyle)>(b"az_style_border_bottom_style_delete").ok()? };
-        let az_style_border_bottom_style_deep_copy = unsafe { lib.get::<extern fn(_:  &AzStyleBorderBottomStyle) -> AzStyleBorderBottomStyle>(b"az_style_border_bottom_style_deep_copy").ok()? };
-        let az_style_border_bottom_width_delete = unsafe { lib.get::<extern fn(_:  &mut AzStyleBorderBottomWidth)>(b"az_style_border_bottom_width_delete").ok()? };
-        let az_style_border_bottom_width_deep_copy = unsafe { lib.get::<extern fn(_:  &AzStyleBorderBottomWidth) -> AzStyleBorderBottomWidth>(b"az_style_border_bottom_width_deep_copy").ok()? };
-        let az_style_border_left_color_delete = unsafe { lib.get::<extern fn(_:  &mut AzStyleBorderLeftColor)>(b"az_style_border_left_color_delete").ok()? };
-        let az_style_border_left_color_deep_copy = unsafe { lib.get::<extern fn(_:  &AzStyleBorderLeftColor) -> AzStyleBorderLeftColor>(b"az_style_border_left_color_deep_copy").ok()? };
-        let az_style_border_left_style_delete = unsafe { lib.get::<extern fn(_:  &mut AzStyleBorderLeftStyle)>(b"az_style_border_left_style_delete").ok()? };
-        let az_style_border_left_style_deep_copy = unsafe { lib.get::<extern fn(_:  &AzStyleBorderLeftStyle) -> AzStyleBorderLeftStyle>(b"az_style_border_left_style_deep_copy").ok()? };
-        let az_style_border_left_width_delete = unsafe { lib.get::<extern fn(_:  &mut AzStyleBorderLeftWidth)>(b"az_style_border_left_width_delete").ok()? };
-        let az_style_border_left_width_deep_copy = unsafe { lib.get::<extern fn(_:  &AzStyleBorderLeftWidth) -> AzStyleBorderLeftWidth>(b"az_style_border_left_width_deep_copy").ok()? };
-        let az_style_border_right_color_delete = unsafe { lib.get::<extern fn(_:  &mut AzStyleBorderRightColor)>(b"az_style_border_right_color_delete").ok()? };
-        let az_style_border_right_color_deep_copy = unsafe { lib.get::<extern fn(_:  &AzStyleBorderRightColor) -> AzStyleBorderRightColor>(b"az_style_border_right_color_deep_copy").ok()? };
-        let az_style_border_right_style_delete = unsafe { lib.get::<extern fn(_:  &mut AzStyleBorderRightStyle)>(b"az_style_border_right_style_delete").ok()? };
-        let az_style_border_right_style_deep_copy = unsafe { lib.get::<extern fn(_:  &AzStyleBorderRightStyle) -> AzStyleBorderRightStyle>(b"az_style_border_right_style_deep_copy").ok()? };
-        let az_style_border_right_width_delete = unsafe { lib.get::<extern fn(_:  &mut AzStyleBorderRightWidth)>(b"az_style_border_right_width_delete").ok()? };
-        let az_style_border_right_width_deep_copy = unsafe { lib.get::<extern fn(_:  &AzStyleBorderRightWidth) -> AzStyleBorderRightWidth>(b"az_style_border_right_width_deep_copy").ok()? };
-        let az_style_border_top_color_delete = unsafe { lib.get::<extern fn(_:  &mut AzStyleBorderTopColor)>(b"az_style_border_top_color_delete").ok()? };
-        let az_style_border_top_color_deep_copy = unsafe { lib.get::<extern fn(_:  &AzStyleBorderTopColor) -> AzStyleBorderTopColor>(b"az_style_border_top_color_deep_copy").ok()? };
-        let az_style_border_top_left_radius_delete = unsafe { lib.get::<extern fn(_:  &mut AzStyleBorderTopLeftRadius)>(b"az_style_border_top_left_radius_delete").ok()? };
-        let az_style_border_top_left_radius_deep_copy = unsafe { lib.get::<extern fn(_:  &AzStyleBorderTopLeftRadius) -> AzStyleBorderTopLeftRadius>(b"az_style_border_top_left_radius_deep_copy").ok()? };
-        let az_style_border_top_right_radius_delete = unsafe { lib.get::<extern fn(_:  &mut AzStyleBorderTopRightRadius)>(b"az_style_border_top_right_radius_delete").ok()? };
-        let az_style_border_top_right_radius_deep_copy = unsafe { lib.get::<extern fn(_:  &AzStyleBorderTopRightRadius) -> AzStyleBorderTopRightRadius>(b"az_style_border_top_right_radius_deep_copy").ok()? };
-        let az_style_border_top_style_delete = unsafe { lib.get::<extern fn(_:  &mut AzStyleBorderTopStyle)>(b"az_style_border_top_style_delete").ok()? };
-        let az_style_border_top_style_deep_copy = unsafe { lib.get::<extern fn(_:  &AzStyleBorderTopStyle) -> AzStyleBorderTopStyle>(b"az_style_border_top_style_deep_copy").ok()? };
-        let az_style_border_top_width_delete = unsafe { lib.get::<extern fn(_:  &mut AzStyleBorderTopWidth)>(b"az_style_border_top_width_delete").ok()? };
-        let az_style_border_top_width_deep_copy = unsafe { lib.get::<extern fn(_:  &AzStyleBorderTopWidth) -> AzStyleBorderTopWidth>(b"az_style_border_top_width_deep_copy").ok()? };
-        let az_style_cursor_delete = unsafe { lib.get::<extern fn(_:  &mut AzStyleCursor)>(b"az_style_cursor_delete").ok()? };
-        let az_style_cursor_deep_copy = unsafe { lib.get::<extern fn(_:  &AzStyleCursor) -> AzStyleCursor>(b"az_style_cursor_deep_copy").ok()? };
-        let az_style_font_family_delete = unsafe { lib.get::<extern fn(_:  &mut AzStyleFontFamily)>(b"az_style_font_family_delete").ok()? };
-        let az_style_font_family_deep_copy = unsafe { lib.get::<extern fn(_:  &AzStyleFontFamily) -> AzStyleFontFamily>(b"az_style_font_family_deep_copy").ok()? };
-        let az_style_font_size_delete = unsafe { lib.get::<extern fn(_:  &mut AzStyleFontSize)>(b"az_style_font_size_delete").ok()? };
-        let az_style_font_size_deep_copy = unsafe { lib.get::<extern fn(_:  &AzStyleFontSize) -> AzStyleFontSize>(b"az_style_font_size_deep_copy").ok()? };
-        let az_style_letter_spacing_delete = unsafe { lib.get::<extern fn(_:  &mut AzStyleLetterSpacing)>(b"az_style_letter_spacing_delete").ok()? };
-        let az_style_letter_spacing_deep_copy = unsafe { lib.get::<extern fn(_:  &AzStyleLetterSpacing) -> AzStyleLetterSpacing>(b"az_style_letter_spacing_deep_copy").ok()? };
-        let az_style_line_height_delete = unsafe { lib.get::<extern fn(_:  &mut AzStyleLineHeight)>(b"az_style_line_height_delete").ok()? };
-        let az_style_line_height_deep_copy = unsafe { lib.get::<extern fn(_:  &AzStyleLineHeight) -> AzStyleLineHeight>(b"az_style_line_height_deep_copy").ok()? };
-        let az_style_tab_width_delete = unsafe { lib.get::<extern fn(_:  &mut AzStyleTabWidth)>(b"az_style_tab_width_delete").ok()? };
-        let az_style_tab_width_deep_copy = unsafe { lib.get::<extern fn(_:  &AzStyleTabWidth) -> AzStyleTabWidth>(b"az_style_tab_width_deep_copy").ok()? };
-        let az_style_text_alignment_horz_delete = unsafe { lib.get::<extern fn(_:  &mut AzStyleTextAlignmentHorz)>(b"az_style_text_alignment_horz_delete").ok()? };
-        let az_style_text_alignment_horz_deep_copy = unsafe { lib.get::<extern fn(_:  &AzStyleTextAlignmentHorz) -> AzStyleTextAlignmentHorz>(b"az_style_text_alignment_horz_deep_copy").ok()? };
-        let az_style_text_color_delete = unsafe { lib.get::<extern fn(_:  &mut AzStyleTextColor)>(b"az_style_text_color_delete").ok()? };
-        let az_style_text_color_deep_copy = unsafe { lib.get::<extern fn(_:  &AzStyleTextColor) -> AzStyleTextColor>(b"az_style_text_color_deep_copy").ok()? };
-        let az_style_word_spacing_delete = unsafe { lib.get::<extern fn(_:  &mut AzStyleWordSpacing)>(b"az_style_word_spacing_delete").ok()? };
-        let az_style_word_spacing_deep_copy = unsafe { lib.get::<extern fn(_:  &AzStyleWordSpacing) -> AzStyleWordSpacing>(b"az_style_word_spacing_deep_copy").ok()? };
-        let az_box_shadow_pre_display_item_value_delete = unsafe { lib.get::<extern fn(_:  &mut AzBoxShadowPreDisplayItemValue)>(b"az_box_shadow_pre_display_item_value_delete").ok()? };
-        let az_box_shadow_pre_display_item_value_deep_copy = unsafe { lib.get::<extern fn(_:  &AzBoxShadowPreDisplayItemValue) -> AzBoxShadowPreDisplayItemValue>(b"az_box_shadow_pre_display_item_value_deep_copy").ok()? };
-        let az_layout_align_content_value_delete = unsafe { lib.get::<extern fn(_:  &mut AzLayoutAlignContentValue)>(b"az_layout_align_content_value_delete").ok()? };
-        let az_layout_align_content_value_deep_copy = unsafe { lib.get::<extern fn(_:  &AzLayoutAlignContentValue) -> AzLayoutAlignContentValue>(b"az_layout_align_content_value_deep_copy").ok()? };
-        let az_layout_align_items_value_delete = unsafe { lib.get::<extern fn(_:  &mut AzLayoutAlignItemsValue)>(b"az_layout_align_items_value_delete").ok()? };
-        let az_layout_align_items_value_deep_copy = unsafe { lib.get::<extern fn(_:  &AzLayoutAlignItemsValue) -> AzLayoutAlignItemsValue>(b"az_layout_align_items_value_deep_copy").ok()? };
-        let az_layout_bottom_value_delete = unsafe { lib.get::<extern fn(_:  &mut AzLayoutBottomValue)>(b"az_layout_bottom_value_delete").ok()? };
-        let az_layout_bottom_value_deep_copy = unsafe { lib.get::<extern fn(_:  &AzLayoutBottomValue) -> AzLayoutBottomValue>(b"az_layout_bottom_value_deep_copy").ok()? };
-        let az_layout_box_sizing_value_delete = unsafe { lib.get::<extern fn(_:  &mut AzLayoutBoxSizingValue)>(b"az_layout_box_sizing_value_delete").ok()? };
-        let az_layout_box_sizing_value_deep_copy = unsafe { lib.get::<extern fn(_:  &AzLayoutBoxSizingValue) -> AzLayoutBoxSizingValue>(b"az_layout_box_sizing_value_deep_copy").ok()? };
-        let az_layout_direction_value_delete = unsafe { lib.get::<extern fn(_:  &mut AzLayoutDirectionValue)>(b"az_layout_direction_value_delete").ok()? };
-        let az_layout_direction_value_deep_copy = unsafe { lib.get::<extern fn(_:  &AzLayoutDirectionValue) -> AzLayoutDirectionValue>(b"az_layout_direction_value_deep_copy").ok()? };
-        let az_layout_display_value_delete = unsafe { lib.get::<extern fn(_:  &mut AzLayoutDisplayValue)>(b"az_layout_display_value_delete").ok()? };
-        let az_layout_display_value_deep_copy = unsafe { lib.get::<extern fn(_:  &AzLayoutDisplayValue) -> AzLayoutDisplayValue>(b"az_layout_display_value_deep_copy").ok()? };
-        let az_layout_flex_grow_value_delete = unsafe { lib.get::<extern fn(_:  &mut AzLayoutFlexGrowValue)>(b"az_layout_flex_grow_value_delete").ok()? };
-        let az_layout_flex_grow_value_deep_copy = unsafe { lib.get::<extern fn(_:  &AzLayoutFlexGrowValue) -> AzLayoutFlexGrowValue>(b"az_layout_flex_grow_value_deep_copy").ok()? };
-        let az_layout_flex_shrink_value_delete = unsafe { lib.get::<extern fn(_:  &mut AzLayoutFlexShrinkValue)>(b"az_layout_flex_shrink_value_delete").ok()? };
-        let az_layout_flex_shrink_value_deep_copy = unsafe { lib.get::<extern fn(_:  &AzLayoutFlexShrinkValue) -> AzLayoutFlexShrinkValue>(b"az_layout_flex_shrink_value_deep_copy").ok()? };
-        let az_layout_float_value_delete = unsafe { lib.get::<extern fn(_:  &mut AzLayoutFloatValue)>(b"az_layout_float_value_delete").ok()? };
-        let az_layout_float_value_deep_copy = unsafe { lib.get::<extern fn(_:  &AzLayoutFloatValue) -> AzLayoutFloatValue>(b"az_layout_float_value_deep_copy").ok()? };
-        let az_layout_height_value_delete = unsafe { lib.get::<extern fn(_:  &mut AzLayoutHeightValue)>(b"az_layout_height_value_delete").ok()? };
-        let az_layout_height_value_deep_copy = unsafe { lib.get::<extern fn(_:  &AzLayoutHeightValue) -> AzLayoutHeightValue>(b"az_layout_height_value_deep_copy").ok()? };
-        let az_layout_justify_content_value_delete = unsafe { lib.get::<extern fn(_:  &mut AzLayoutJustifyContentValue)>(b"az_layout_justify_content_value_delete").ok()? };
-        let az_layout_justify_content_value_deep_copy = unsafe { lib.get::<extern fn(_:  &AzLayoutJustifyContentValue) -> AzLayoutJustifyContentValue>(b"az_layout_justify_content_value_deep_copy").ok()? };
-        let az_layout_left_value_delete = unsafe { lib.get::<extern fn(_:  &mut AzLayoutLeftValue)>(b"az_layout_left_value_delete").ok()? };
-        let az_layout_left_value_deep_copy = unsafe { lib.get::<extern fn(_:  &AzLayoutLeftValue) -> AzLayoutLeftValue>(b"az_layout_left_value_deep_copy").ok()? };
-        let az_layout_margin_bottom_value_delete = unsafe { lib.get::<extern fn(_:  &mut AzLayoutMarginBottomValue)>(b"az_layout_margin_bottom_value_delete").ok()? };
-        let az_layout_margin_bottom_value_deep_copy = unsafe { lib.get::<extern fn(_:  &AzLayoutMarginBottomValue) -> AzLayoutMarginBottomValue>(b"az_layout_margin_bottom_value_deep_copy").ok()? };
-        let az_layout_margin_left_value_delete = unsafe { lib.get::<extern fn(_:  &mut AzLayoutMarginLeftValue)>(b"az_layout_margin_left_value_delete").ok()? };
-        let az_layout_margin_left_value_deep_copy = unsafe { lib.get::<extern fn(_:  &AzLayoutMarginLeftValue) -> AzLayoutMarginLeftValue>(b"az_layout_margin_left_value_deep_copy").ok()? };
-        let az_layout_margin_right_value_delete = unsafe { lib.get::<extern fn(_:  &mut AzLayoutMarginRightValue)>(b"az_layout_margin_right_value_delete").ok()? };
-        let az_layout_margin_right_value_deep_copy = unsafe { lib.get::<extern fn(_:  &AzLayoutMarginRightValue) -> AzLayoutMarginRightValue>(b"az_layout_margin_right_value_deep_copy").ok()? };
-        let az_layout_margin_top_value_delete = unsafe { lib.get::<extern fn(_:  &mut AzLayoutMarginTopValue)>(b"az_layout_margin_top_value_delete").ok()? };
-        let az_layout_margin_top_value_deep_copy = unsafe { lib.get::<extern fn(_:  &AzLayoutMarginTopValue) -> AzLayoutMarginTopValue>(b"az_layout_margin_top_value_deep_copy").ok()? };
-        let az_layout_max_height_value_delete = unsafe { lib.get::<extern fn(_:  &mut AzLayoutMaxHeightValue)>(b"az_layout_max_height_value_delete").ok()? };
-        let az_layout_max_height_value_deep_copy = unsafe { lib.get::<extern fn(_:  &AzLayoutMaxHeightValue) -> AzLayoutMaxHeightValue>(b"az_layout_max_height_value_deep_copy").ok()? };
-        let az_layout_max_width_value_delete = unsafe { lib.get::<extern fn(_:  &mut AzLayoutMaxWidthValue)>(b"az_layout_max_width_value_delete").ok()? };
-        let az_layout_max_width_value_deep_copy = unsafe { lib.get::<extern fn(_:  &AzLayoutMaxWidthValue) -> AzLayoutMaxWidthValue>(b"az_layout_max_width_value_deep_copy").ok()? };
-        let az_layout_min_height_value_delete = unsafe { lib.get::<extern fn(_:  &mut AzLayoutMinHeightValue)>(b"az_layout_min_height_value_delete").ok()? };
-        let az_layout_min_height_value_deep_copy = unsafe { lib.get::<extern fn(_:  &AzLayoutMinHeightValue) -> AzLayoutMinHeightValue>(b"az_layout_min_height_value_deep_copy").ok()? };
-        let az_layout_min_width_value_delete = unsafe { lib.get::<extern fn(_:  &mut AzLayoutMinWidthValue)>(b"az_layout_min_width_value_delete").ok()? };
-        let az_layout_min_width_value_deep_copy = unsafe { lib.get::<extern fn(_:  &AzLayoutMinWidthValue) -> AzLayoutMinWidthValue>(b"az_layout_min_width_value_deep_copy").ok()? };
-        let az_layout_padding_bottom_value_delete = unsafe { lib.get::<extern fn(_:  &mut AzLayoutPaddingBottomValue)>(b"az_layout_padding_bottom_value_delete").ok()? };
-        let az_layout_padding_bottom_value_deep_copy = unsafe { lib.get::<extern fn(_:  &AzLayoutPaddingBottomValue) -> AzLayoutPaddingBottomValue>(b"az_layout_padding_bottom_value_deep_copy").ok()? };
-        let az_layout_padding_left_value_delete = unsafe { lib.get::<extern fn(_:  &mut AzLayoutPaddingLeftValue)>(b"az_layout_padding_left_value_delete").ok()? };
-        let az_layout_padding_left_value_deep_copy = unsafe { lib.get::<extern fn(_:  &AzLayoutPaddingLeftValue) -> AzLayoutPaddingLeftValue>(b"az_layout_padding_left_value_deep_copy").ok()? };
-        let az_layout_padding_right_value_delete = unsafe { lib.get::<extern fn(_:  &mut AzLayoutPaddingRightValue)>(b"az_layout_padding_right_value_delete").ok()? };
-        let az_layout_padding_right_value_deep_copy = unsafe { lib.get::<extern fn(_:  &AzLayoutPaddingRightValue) -> AzLayoutPaddingRightValue>(b"az_layout_padding_right_value_deep_copy").ok()? };
-        let az_layout_padding_top_value_delete = unsafe { lib.get::<extern fn(_:  &mut AzLayoutPaddingTopValue)>(b"az_layout_padding_top_value_delete").ok()? };
-        let az_layout_padding_top_value_deep_copy = unsafe { lib.get::<extern fn(_:  &AzLayoutPaddingTopValue) -> AzLayoutPaddingTopValue>(b"az_layout_padding_top_value_deep_copy").ok()? };
-        let az_layout_position_value_delete = unsafe { lib.get::<extern fn(_:  &mut AzLayoutPositionValue)>(b"az_layout_position_value_delete").ok()? };
-        let az_layout_position_value_deep_copy = unsafe { lib.get::<extern fn(_:  &AzLayoutPositionValue) -> AzLayoutPositionValue>(b"az_layout_position_value_deep_copy").ok()? };
-        let az_layout_right_value_delete = unsafe { lib.get::<extern fn(_:  &mut AzLayoutRightValue)>(b"az_layout_right_value_delete").ok()? };
-        let az_layout_right_value_deep_copy = unsafe { lib.get::<extern fn(_:  &AzLayoutRightValue) -> AzLayoutRightValue>(b"az_layout_right_value_deep_copy").ok()? };
-        let az_layout_top_value_delete = unsafe { lib.get::<extern fn(_:  &mut AzLayoutTopValue)>(b"az_layout_top_value_delete").ok()? };
-        let az_layout_top_value_deep_copy = unsafe { lib.get::<extern fn(_:  &AzLayoutTopValue) -> AzLayoutTopValue>(b"az_layout_top_value_deep_copy").ok()? };
-        let az_layout_width_value_delete = unsafe { lib.get::<extern fn(_:  &mut AzLayoutWidthValue)>(b"az_layout_width_value_delete").ok()? };
-        let az_layout_width_value_deep_copy = unsafe { lib.get::<extern fn(_:  &AzLayoutWidthValue) -> AzLayoutWidthValue>(b"az_layout_width_value_deep_copy").ok()? };
-        let az_layout_wrap_value_delete = unsafe { lib.get::<extern fn(_:  &mut AzLayoutWrapValue)>(b"az_layout_wrap_value_delete").ok()? };
-        let az_layout_wrap_value_deep_copy = unsafe { lib.get::<extern fn(_:  &AzLayoutWrapValue) -> AzLayoutWrapValue>(b"az_layout_wrap_value_deep_copy").ok()? };
-        let az_overflow_value_delete = unsafe { lib.get::<extern fn(_:  &mut AzOverflowValue)>(b"az_overflow_value_delete").ok()? };
-        let az_overflow_value_deep_copy = unsafe { lib.get::<extern fn(_:  &AzOverflowValue) -> AzOverflowValue>(b"az_overflow_value_deep_copy").ok()? };
-        let az_style_background_content_value_delete = unsafe { lib.get::<extern fn(_:  &mut AzStyleBackgroundContentValue)>(b"az_style_background_content_value_delete").ok()? };
-        let az_style_background_content_value_deep_copy = unsafe { lib.get::<extern fn(_:  &AzStyleBackgroundContentValue) -> AzStyleBackgroundContentValue>(b"az_style_background_content_value_deep_copy").ok()? };
-        let az_style_background_position_value_delete = unsafe { lib.get::<extern fn(_:  &mut AzStyleBackgroundPositionValue)>(b"az_style_background_position_value_delete").ok()? };
-        let az_style_background_position_value_deep_copy = unsafe { lib.get::<extern fn(_:  &AzStyleBackgroundPositionValue) -> AzStyleBackgroundPositionValue>(b"az_style_background_position_value_deep_copy").ok()? };
-        let az_style_background_repeat_value_delete = unsafe { lib.get::<extern fn(_:  &mut AzStyleBackgroundRepeatValue)>(b"az_style_background_repeat_value_delete").ok()? };
-        let az_style_background_repeat_value_deep_copy = unsafe { lib.get::<extern fn(_:  &AzStyleBackgroundRepeatValue) -> AzStyleBackgroundRepeatValue>(b"az_style_background_repeat_value_deep_copy").ok()? };
-        let az_style_background_size_value_delete = unsafe { lib.get::<extern fn(_:  &mut AzStyleBackgroundSizeValue)>(b"az_style_background_size_value_delete").ok()? };
-        let az_style_background_size_value_deep_copy = unsafe { lib.get::<extern fn(_:  &AzStyleBackgroundSizeValue) -> AzStyleBackgroundSizeValue>(b"az_style_background_size_value_deep_copy").ok()? };
-        let az_style_border_bottom_color_value_delete = unsafe { lib.get::<extern fn(_:  &mut AzStyleBorderBottomColorValue)>(b"az_style_border_bottom_color_value_delete").ok()? };
-        let az_style_border_bottom_color_value_deep_copy = unsafe { lib.get::<extern fn(_:  &AzStyleBorderBottomColorValue) -> AzStyleBorderBottomColorValue>(b"az_style_border_bottom_color_value_deep_copy").ok()? };
-        let az_style_border_bottom_left_radius_value_delete = unsafe { lib.get::<extern fn(_:  &mut AzStyleBorderBottomLeftRadiusValue)>(b"az_style_border_bottom_left_radius_value_delete").ok()? };
-        let az_style_border_bottom_left_radius_value_deep_copy = unsafe { lib.get::<extern fn(_:  &AzStyleBorderBottomLeftRadiusValue) -> AzStyleBorderBottomLeftRadiusValue>(b"az_style_border_bottom_left_radius_value_deep_copy").ok()? };
-        let az_style_border_bottom_right_radius_value_delete = unsafe { lib.get::<extern fn(_:  &mut AzStyleBorderBottomRightRadiusValue)>(b"az_style_border_bottom_right_radius_value_delete").ok()? };
-        let az_style_border_bottom_right_radius_value_deep_copy = unsafe { lib.get::<extern fn(_:  &AzStyleBorderBottomRightRadiusValue) -> AzStyleBorderBottomRightRadiusValue>(b"az_style_border_bottom_right_radius_value_deep_copy").ok()? };
-        let az_style_border_bottom_style_value_delete = unsafe { lib.get::<extern fn(_:  &mut AzStyleBorderBottomStyleValue)>(b"az_style_border_bottom_style_value_delete").ok()? };
-        let az_style_border_bottom_style_value_deep_copy = unsafe { lib.get::<extern fn(_:  &AzStyleBorderBottomStyleValue) -> AzStyleBorderBottomStyleValue>(b"az_style_border_bottom_style_value_deep_copy").ok()? };
-        let az_style_border_bottom_width_value_delete = unsafe { lib.get::<extern fn(_:  &mut AzStyleBorderBottomWidthValue)>(b"az_style_border_bottom_width_value_delete").ok()? };
-        let az_style_border_bottom_width_value_deep_copy = unsafe { lib.get::<extern fn(_:  &AzStyleBorderBottomWidthValue) -> AzStyleBorderBottomWidthValue>(b"az_style_border_bottom_width_value_deep_copy").ok()? };
-        let az_style_border_left_color_value_delete = unsafe { lib.get::<extern fn(_:  &mut AzStyleBorderLeftColorValue)>(b"az_style_border_left_color_value_delete").ok()? };
-        let az_style_border_left_color_value_deep_copy = unsafe { lib.get::<extern fn(_:  &AzStyleBorderLeftColorValue) -> AzStyleBorderLeftColorValue>(b"az_style_border_left_color_value_deep_copy").ok()? };
-        let az_style_border_left_style_value_delete = unsafe { lib.get::<extern fn(_:  &mut AzStyleBorderLeftStyleValue)>(b"az_style_border_left_style_value_delete").ok()? };
-        let az_style_border_left_style_value_deep_copy = unsafe { lib.get::<extern fn(_:  &AzStyleBorderLeftStyleValue) -> AzStyleBorderLeftStyleValue>(b"az_style_border_left_style_value_deep_copy").ok()? };
-        let az_style_border_left_width_value_delete = unsafe { lib.get::<extern fn(_:  &mut AzStyleBorderLeftWidthValue)>(b"az_style_border_left_width_value_delete").ok()? };
-        let az_style_border_left_width_value_deep_copy = unsafe { lib.get::<extern fn(_:  &AzStyleBorderLeftWidthValue) -> AzStyleBorderLeftWidthValue>(b"az_style_border_left_width_value_deep_copy").ok()? };
-        let az_style_border_right_color_value_delete = unsafe { lib.get::<extern fn(_:  &mut AzStyleBorderRightColorValue)>(b"az_style_border_right_color_value_delete").ok()? };
-        let az_style_border_right_color_value_deep_copy = unsafe { lib.get::<extern fn(_:  &AzStyleBorderRightColorValue) -> AzStyleBorderRightColorValue>(b"az_style_border_right_color_value_deep_copy").ok()? };
-        let az_style_border_right_style_value_delete = unsafe { lib.get::<extern fn(_:  &mut AzStyleBorderRightStyleValue)>(b"az_style_border_right_style_value_delete").ok()? };
-        let az_style_border_right_style_value_deep_copy = unsafe { lib.get::<extern fn(_:  &AzStyleBorderRightStyleValue) -> AzStyleBorderRightStyleValue>(b"az_style_border_right_style_value_deep_copy").ok()? };
-        let az_style_border_right_width_value_delete = unsafe { lib.get::<extern fn(_:  &mut AzStyleBorderRightWidthValue)>(b"az_style_border_right_width_value_delete").ok()? };
-        let az_style_border_right_width_value_deep_copy = unsafe { lib.get::<extern fn(_:  &AzStyleBorderRightWidthValue) -> AzStyleBorderRightWidthValue>(b"az_style_border_right_width_value_deep_copy").ok()? };
-        let az_style_border_top_color_value_delete = unsafe { lib.get::<extern fn(_:  &mut AzStyleBorderTopColorValue)>(b"az_style_border_top_color_value_delete").ok()? };
-        let az_style_border_top_color_value_deep_copy = unsafe { lib.get::<extern fn(_:  &AzStyleBorderTopColorValue) -> AzStyleBorderTopColorValue>(b"az_style_border_top_color_value_deep_copy").ok()? };
-        let az_style_border_top_left_radius_value_delete = unsafe { lib.get::<extern fn(_:  &mut AzStyleBorderTopLeftRadiusValue)>(b"az_style_border_top_left_radius_value_delete").ok()? };
-        let az_style_border_top_left_radius_value_deep_copy = unsafe { lib.get::<extern fn(_:  &AzStyleBorderTopLeftRadiusValue) -> AzStyleBorderTopLeftRadiusValue>(b"az_style_border_top_left_radius_value_deep_copy").ok()? };
-        let az_style_border_top_right_radius_value_delete = unsafe { lib.get::<extern fn(_:  &mut AzStyleBorderTopRightRadiusValue)>(b"az_style_border_top_right_radius_value_delete").ok()? };
-        let az_style_border_top_right_radius_value_deep_copy = unsafe { lib.get::<extern fn(_:  &AzStyleBorderTopRightRadiusValue) -> AzStyleBorderTopRightRadiusValue>(b"az_style_border_top_right_radius_value_deep_copy").ok()? };
-        let az_style_border_top_style_value_delete = unsafe { lib.get::<extern fn(_:  &mut AzStyleBorderTopStyleValue)>(b"az_style_border_top_style_value_delete").ok()? };
-        let az_style_border_top_style_value_deep_copy = unsafe { lib.get::<extern fn(_:  &AzStyleBorderTopStyleValue) -> AzStyleBorderTopStyleValue>(b"az_style_border_top_style_value_deep_copy").ok()? };
-        let az_style_border_top_width_value_delete = unsafe { lib.get::<extern fn(_:  &mut AzStyleBorderTopWidthValue)>(b"az_style_border_top_width_value_delete").ok()? };
-        let az_style_border_top_width_value_deep_copy = unsafe { lib.get::<extern fn(_:  &AzStyleBorderTopWidthValue) -> AzStyleBorderTopWidthValue>(b"az_style_border_top_width_value_deep_copy").ok()? };
-        let az_style_cursor_value_delete = unsafe { lib.get::<extern fn(_:  &mut AzStyleCursorValue)>(b"az_style_cursor_value_delete").ok()? };
-        let az_style_cursor_value_deep_copy = unsafe { lib.get::<extern fn(_:  &AzStyleCursorValue) -> AzStyleCursorValue>(b"az_style_cursor_value_deep_copy").ok()? };
-        let az_style_font_family_value_delete = unsafe { lib.get::<extern fn(_:  &mut AzStyleFontFamilyValue)>(b"az_style_font_family_value_delete").ok()? };
-        let az_style_font_family_value_deep_copy = unsafe { lib.get::<extern fn(_:  &AzStyleFontFamilyValue) -> AzStyleFontFamilyValue>(b"az_style_font_family_value_deep_copy").ok()? };
-        let az_style_font_size_value_delete = unsafe { lib.get::<extern fn(_:  &mut AzStyleFontSizeValue)>(b"az_style_font_size_value_delete").ok()? };
-        let az_style_font_size_value_deep_copy = unsafe { lib.get::<extern fn(_:  &AzStyleFontSizeValue) -> AzStyleFontSizeValue>(b"az_style_font_size_value_deep_copy").ok()? };
-        let az_style_letter_spacing_value_delete = unsafe { lib.get::<extern fn(_:  &mut AzStyleLetterSpacingValue)>(b"az_style_letter_spacing_value_delete").ok()? };
-        let az_style_letter_spacing_value_deep_copy = unsafe { lib.get::<extern fn(_:  &AzStyleLetterSpacingValue) -> AzStyleLetterSpacingValue>(b"az_style_letter_spacing_value_deep_copy").ok()? };
-        let az_style_line_height_value_delete = unsafe { lib.get::<extern fn(_:  &mut AzStyleLineHeightValue)>(b"az_style_line_height_value_delete").ok()? };
-        let az_style_line_height_value_deep_copy = unsafe { lib.get::<extern fn(_:  &AzStyleLineHeightValue) -> AzStyleLineHeightValue>(b"az_style_line_height_value_deep_copy").ok()? };
-        let az_style_tab_width_value_delete = unsafe { lib.get::<extern fn(_:  &mut AzStyleTabWidthValue)>(b"az_style_tab_width_value_delete").ok()? };
-        let az_style_tab_width_value_deep_copy = unsafe { lib.get::<extern fn(_:  &AzStyleTabWidthValue) -> AzStyleTabWidthValue>(b"az_style_tab_width_value_deep_copy").ok()? };
-        let az_style_text_alignment_horz_value_delete = unsafe { lib.get::<extern fn(_:  &mut AzStyleTextAlignmentHorzValue)>(b"az_style_text_alignment_horz_value_delete").ok()? };
-        let az_style_text_alignment_horz_value_deep_copy = unsafe { lib.get::<extern fn(_:  &AzStyleTextAlignmentHorzValue) -> AzStyleTextAlignmentHorzValue>(b"az_style_text_alignment_horz_value_deep_copy").ok()? };
-        let az_style_text_color_value_delete = unsafe { lib.get::<extern fn(_:  &mut AzStyleTextColorValue)>(b"az_style_text_color_value_delete").ok()? };
-        let az_style_text_color_value_deep_copy = unsafe { lib.get::<extern fn(_:  &AzStyleTextColorValue) -> AzStyleTextColorValue>(b"az_style_text_color_value_deep_copy").ok()? };
-        let az_style_word_spacing_value_delete = unsafe { lib.get::<extern fn(_:  &mut AzStyleWordSpacingValue)>(b"az_style_word_spacing_value_delete").ok()? };
-        let az_style_word_spacing_value_deep_copy = unsafe { lib.get::<extern fn(_:  &AzStyleWordSpacingValue) -> AzStyleWordSpacingValue>(b"az_style_word_spacing_value_deep_copy").ok()? };
-        let az_css_property_delete = unsafe { lib.get::<extern fn(_:  &mut AzCssProperty)>(b"az_css_property_delete").ok()? };
-        let az_css_property_deep_copy = unsafe { lib.get::<extern fn(_:  &AzCssProperty) -> AzCssProperty>(b"az_css_property_deep_copy").ok()? };
-        let az_dom_div = unsafe { lib.get::<extern fn() -> AzDom>(b"az_dom_div").ok()? };
-        let az_dom_body = unsafe { lib.get::<extern fn() -> AzDom>(b"az_dom_body").ok()? };
-        let az_dom_label = unsafe { lib.get::<extern fn(_:  AzString) -> AzDom>(b"az_dom_label").ok()? };
-        let az_dom_text = unsafe { lib.get::<extern fn(_:  AzTextId) -> AzDom>(b"az_dom_text").ok()? };
-        let az_dom_image = unsafe { lib.get::<extern fn(_:  AzImageId) -> AzDom>(b"az_dom_image").ok()? };
-        let az_dom_gl_texture = unsafe { lib.get::<extern fn(_:  AzRefAny, _:  AzGlCallbackType) -> AzDom>(b"az_dom_gl_texture").ok()? };
-        let az_dom_iframe = unsafe { lib.get::<extern fn(_:  AzRefAny, _:  AzIFrameCallbackType) -> AzDom>(b"az_dom_iframe").ok()? };
-        let az_dom_add_id = unsafe { lib.get::<extern fn(_:  &mut AzDom, _:  AzString)>(b"az_dom_add_id").ok()? };
-        let az_dom_with_id = unsafe { lib.get::<extern fn(_:  AzDom, _:  AzString) -> AzDom>(b"az_dom_with_id").ok()? };
-        let az_dom_set_ids = unsafe { lib.get::<extern fn(_:  &mut AzDom, _:  AzStringVec)>(b"az_dom_set_ids").ok()? };
-        let az_dom_with_ids = unsafe { lib.get::<extern fn(_:  AzDom, _:  AzStringVec) -> AzDom>(b"az_dom_with_ids").ok()? };
-        let az_dom_add_class = unsafe { lib.get::<extern fn(_:  &mut AzDom, _:  AzString)>(b"az_dom_add_class").ok()? };
-        let az_dom_with_class = unsafe { lib.get::<extern fn(_:  AzDom, _:  AzString) -> AzDom>(b"az_dom_with_class").ok()? };
-        let az_dom_set_classes = unsafe { lib.get::<extern fn(_:  &mut AzDom, _:  AzStringVec)>(b"az_dom_set_classes").ok()? };
-        let az_dom_with_classes = unsafe { lib.get::<extern fn(_:  AzDom, _:  AzStringVec) -> AzDom>(b"az_dom_with_classes").ok()? };
-        let az_dom_add_callback = unsafe { lib.get::<extern fn(_:  &mut AzDom, _:  AzEventFilter, _:  AzRefAny, _:  AzCallbackType)>(b"az_dom_add_callback").ok()? };
-        let az_dom_with_callback = unsafe { lib.get::<extern fn(_:  AzDom, _:  AzEventFilter, _:  AzRefAny, _:  AzCallbackType) -> AzDom>(b"az_dom_with_callback").ok()? };
-        let az_dom_add_css_override = unsafe { lib.get::<extern fn(_:  &mut AzDom, _:  AzString, _:  AzCssProperty)>(b"az_dom_add_css_override").ok()? };
-        let az_dom_with_css_override = unsafe { lib.get::<extern fn(_:  AzDom, _:  AzString, _:  AzCssProperty) -> AzDom>(b"az_dom_with_css_override").ok()? };
-        let az_dom_set_is_draggable = unsafe { lib.get::<extern fn(_:  &mut AzDom, _:  bool)>(b"az_dom_set_is_draggable").ok()? };
-        let az_dom_is_draggable = unsafe { lib.get::<extern fn(_:  AzDom, _:  bool) -> AzDom>(b"az_dom_is_draggable").ok()? };
-        let az_dom_set_tab_index = unsafe { lib.get::<extern fn(_:  &mut AzDom, _:  AzTabIndex)>(b"az_dom_set_tab_index").ok()? };
-        let az_dom_with_tab_index = unsafe { lib.get::<extern fn(_:  AzDom, _:  AzTabIndex) -> AzDom>(b"az_dom_with_tab_index").ok()? };
-        let az_dom_add_child = unsafe { lib.get::<extern fn(_:  &mut AzDom, _:  AzDom)>(b"az_dom_add_child").ok()? };
-        let az_dom_with_child = unsafe { lib.get::<extern fn(_:  AzDom, _:  AzDom) -> AzDom>(b"az_dom_with_child").ok()? };
-        let az_dom_has_id = unsafe { lib.get::<extern fn(_:  &mut AzDom, _:  AzString) -> bool>(b"az_dom_has_id").ok()? };
-        let az_dom_has_class = unsafe { lib.get::<extern fn(_:  &mut AzDom, _:  AzString) -> bool>(b"az_dom_has_class").ok()? };
-        let az_dom_get_html_string = unsafe { lib.get::<extern fn(_:  &mut AzDom) -> AzString>(b"az_dom_get_html_string").ok()? };
-        let az_dom_delete = unsafe { lib.get::<extern fn(_:  &mut AzDom)>(b"az_dom_delete").ok()? };
-        let az_dom_deep_copy = unsafe { lib.get::<extern fn(_:  &AzDom) -> AzDom>(b"az_dom_deep_copy").ok()? };
-        let az_gl_texture_node_delete = unsafe { lib.get::<extern fn(_:  &mut AzGlTextureNode)>(b"az_gl_texture_node_delete").ok()? };
-        let az_gl_texture_node_deep_copy = unsafe { lib.get::<extern fn(_:  &AzGlTextureNode) -> AzGlTextureNode>(b"az_gl_texture_node_deep_copy").ok()? };
-        let az_i_frame_node_delete = unsafe { lib.get::<extern fn(_:  &mut AzIFrameNode)>(b"az_i_frame_node_delete").ok()? };
-        let az_i_frame_node_deep_copy = unsafe { lib.get::<extern fn(_:  &AzIFrameNode) -> AzIFrameNode>(b"az_i_frame_node_deep_copy").ok()? };
-        let az_callback_data_delete = unsafe { lib.get::<extern fn(_:  &mut AzCallbackData)>(b"az_callback_data_delete").ok()? };
-        let az_callback_data_deep_copy = unsafe { lib.get::<extern fn(_:  &AzCallbackData) -> AzCallbackData>(b"az_callback_data_deep_copy").ok()? };
-        let az_override_property_delete = unsafe { lib.get::<extern fn(_:  &mut AzOverrideProperty)>(b"az_override_property_delete").ok()? };
-        let az_override_property_deep_copy = unsafe { lib.get::<extern fn(_:  &AzOverrideProperty) -> AzOverrideProperty>(b"az_override_property_deep_copy").ok()? };
-        let az_node_data_new = unsafe { lib.get::<extern fn(_:  AzNodeType) -> AzNodeData>(b"az_node_data_new").ok()? };
-        let az_node_data_default = unsafe { lib.get::<extern fn() -> AzNodeData>(b"az_node_data_default").ok()? };
-        let az_node_data_delete = unsafe { lib.get::<extern fn(_:  &mut AzNodeData)>(b"az_node_data_delete").ok()? };
-        let az_node_data_deep_copy = unsafe { lib.get::<extern fn(_:  &AzNodeData) -> AzNodeData>(b"az_node_data_deep_copy").ok()? };
-        let az_node_type_delete = unsafe { lib.get::<extern fn(_:  &mut AzNodeType)>(b"az_node_type_delete").ok()? };
-        let az_node_type_deep_copy = unsafe { lib.get::<extern fn(_:  &AzNodeType) -> AzNodeType>(b"az_node_type_deep_copy").ok()? };
-        let az_on_into_event_filter = unsafe { lib.get::<extern fn(_:  AzOn) -> AzEventFilter>(b"az_on_into_event_filter").ok()? };
-        let az_on_delete = unsafe { lib.get::<extern fn(_:  &mut AzOn)>(b"az_on_delete").ok()? };
-        let az_on_deep_copy = unsafe { lib.get::<extern fn(_:  &AzOn) -> AzOn>(b"az_on_deep_copy").ok()? };
-        let az_event_filter_delete = unsafe { lib.get::<extern fn(_:  &mut AzEventFilter)>(b"az_event_filter_delete").ok()? };
-        let az_event_filter_deep_copy = unsafe { lib.get::<extern fn(_:  &AzEventFilter) -> AzEventFilter>(b"az_event_filter_deep_copy").ok()? };
-        let az_hover_event_filter_delete = unsafe { lib.get::<extern fn(_:  &mut AzHoverEventFilter)>(b"az_hover_event_filter_delete").ok()? };
-        let az_hover_event_filter_deep_copy = unsafe { lib.get::<extern fn(_:  &AzHoverEventFilter) -> AzHoverEventFilter>(b"az_hover_event_filter_deep_copy").ok()? };
-        let az_focus_event_filter_delete = unsafe { lib.get::<extern fn(_:  &mut AzFocusEventFilter)>(b"az_focus_event_filter_delete").ok()? };
-        let az_focus_event_filter_deep_copy = unsafe { lib.get::<extern fn(_:  &AzFocusEventFilter) -> AzFocusEventFilter>(b"az_focus_event_filter_deep_copy").ok()? };
-        let az_not_event_filter_delete = unsafe { lib.get::<extern fn(_:  &mut AzNotEventFilter)>(b"az_not_event_filter_delete").ok()? };
-        let az_not_event_filter_deep_copy = unsafe { lib.get::<extern fn(_:  &AzNotEventFilter) -> AzNotEventFilter>(b"az_not_event_filter_deep_copy").ok()? };
-        let az_window_event_filter_delete = unsafe { lib.get::<extern fn(_:  &mut AzWindowEventFilter)>(b"az_window_event_filter_delete").ok()? };
-        let az_window_event_filter_deep_copy = unsafe { lib.get::<extern fn(_:  &AzWindowEventFilter) -> AzWindowEventFilter>(b"az_window_event_filter_deep_copy").ok()? };
-        let az_tab_index_delete = unsafe { lib.get::<extern fn(_:  &mut AzTabIndex)>(b"az_tab_index_delete").ok()? };
-        let az_tab_index_deep_copy = unsafe { lib.get::<extern fn(_:  &AzTabIndex) -> AzTabIndex>(b"az_tab_index_deep_copy").ok()? };
-        let az_gl_type_delete = unsafe { lib.get::<extern fn(_:  &mut AzGlType)>(b"az_gl_type_delete").ok()? };
-        let az_gl_type_deep_copy = unsafe { lib.get::<extern fn(_:  &AzGlType) -> AzGlType>(b"az_gl_type_deep_copy").ok()? };
-        let az_debug_message_delete = unsafe { lib.get::<extern fn(_:  &mut AzDebugMessage)>(b"az_debug_message_delete").ok()? };
-        let az_debug_message_deep_copy = unsafe { lib.get::<extern fn(_:  &AzDebugMessage) -> AzDebugMessage>(b"az_debug_message_deep_copy").ok()? };
-        let az_u8_vec_ref_delete = unsafe { lib.get::<extern fn(_:  &mut AzU8VecRef)>(b"az_u8_vec_ref_delete").ok()? };
-        let az_u8_vec_ref_mut_delete = unsafe { lib.get::<extern fn(_:  &mut AzU8VecRefMut)>(b"az_u8_vec_ref_mut_delete").ok()? };
-        let az_f32_vec_ref_delete = unsafe { lib.get::<extern fn(_:  &mut AzF32VecRef)>(b"az_f32_vec_ref_delete").ok()? };
-        let az_i32_vec_ref_delete = unsafe { lib.get::<extern fn(_:  &mut AzI32VecRef)>(b"az_i32_vec_ref_delete").ok()? };
-        let az_g_luint_vec_ref_delete = unsafe { lib.get::<extern fn(_:  &mut AzGLuintVecRef)>(b"az_g_luint_vec_ref_delete").ok()? };
-        let az_g_lenum_vec_ref_delete = unsafe { lib.get::<extern fn(_:  &mut AzGLenumVecRef)>(b"az_g_lenum_vec_ref_delete").ok()? };
-        let az_g_lint_vec_ref_mut_delete = unsafe { lib.get::<extern fn(_:  &mut AzGLintVecRefMut)>(b"az_g_lint_vec_ref_mut_delete").ok()? };
-        let az_g_lint64_vec_ref_mut_delete = unsafe { lib.get::<extern fn(_:  &mut AzGLint64VecRefMut)>(b"az_g_lint64_vec_ref_mut_delete").ok()? };
-        let az_g_lboolean_vec_ref_mut_delete = unsafe { lib.get::<extern fn(_:  &mut AzGLbooleanVecRefMut)>(b"az_g_lboolean_vec_ref_mut_delete").ok()? };
-        let az_g_lfloat_vec_ref_mut_delete = unsafe { lib.get::<extern fn(_:  &mut AzGLfloatVecRefMut)>(b"az_g_lfloat_vec_ref_mut_delete").ok()? };
-        let az_refstr_vec_ref_delete = unsafe { lib.get::<extern fn(_:  &mut AzRefstrVecRef)>(b"az_refstr_vec_ref_delete").ok()? };
-        let az_refstr_delete = unsafe { lib.get::<extern fn(_:  &mut AzRefstr)>(b"az_refstr_delete").ok()? };
-        let az_get_program_binary_return_delete = unsafe { lib.get::<extern fn(_:  &mut AzGetProgramBinaryReturn)>(b"az_get_program_binary_return_delete").ok()? };
-        let az_get_program_binary_return_deep_copy = unsafe { lib.get::<extern fn(_:  &AzGetProgramBinaryReturn) -> AzGetProgramBinaryReturn>(b"az_get_program_binary_return_deep_copy").ok()? };
-        let az_get_active_attrib_return_delete = unsafe { lib.get::<extern fn(_:  &mut AzGetActiveAttribReturn)>(b"az_get_active_attrib_return_delete").ok()? };
-        let az_get_active_attrib_return_deep_copy = unsafe { lib.get::<extern fn(_:  &AzGetActiveAttribReturn) -> AzGetActiveAttribReturn>(b"az_get_active_attrib_return_deep_copy").ok()? };
-        let az_g_lsync_ptr_delete = unsafe { lib.get::<extern fn(_:  &mut AzGLsyncPtr)>(b"az_g_lsync_ptr_delete").ok()? };
-        let az_get_active_uniform_return_delete = unsafe { lib.get::<extern fn(_:  &mut AzGetActiveUniformReturn)>(b"az_get_active_uniform_return_delete").ok()? };
-        let az_get_active_uniform_return_deep_copy = unsafe { lib.get::<extern fn(_:  &AzGetActiveUniformReturn) -> AzGetActiveUniformReturn>(b"az_get_active_uniform_return_deep_copy").ok()? };
-        let az_gl_context_ptr_get_type = unsafe { lib.get::<extern fn(_:  &AzGlContextPtr) -> AzGlType>(b"az_gl_context_ptr_get_type").ok()? };
-        let az_gl_context_ptr_buffer_data_untyped = unsafe { lib.get::<extern fn(_:  &AzGlContextPtr, _:  u32, _:  isize, _:  *const c_void, _:  u32)>(b"az_gl_context_ptr_buffer_data_untyped").ok()? };
-        let az_gl_context_ptr_buffer_sub_data_untyped = unsafe { lib.get::<extern fn(_:  &AzGlContextPtr, _:  u32, _:  isize, _:  isize, _:  *const c_void)>(b"az_gl_context_ptr_buffer_sub_data_untyped").ok()? };
-        let az_gl_context_ptr_map_buffer = unsafe { lib.get::<extern fn(_:  &AzGlContextPtr, _:  u32, _:  u32) -> *mut c_void>(b"az_gl_context_ptr_map_buffer").ok()? };
-        let az_gl_context_ptr_map_buffer_range = unsafe { lib.get::<extern fn(_:  &AzGlContextPtr, _:  u32, _:  isize, _:  isize, _:  u32) -> *mut c_void>(b"az_gl_context_ptr_map_buffer_range").ok()? };
-        let az_gl_context_ptr_unmap_buffer = unsafe { lib.get::<extern fn(_:  &AzGlContextPtr, _:  u32) -> u8>(b"az_gl_context_ptr_unmap_buffer").ok()? };
-        let az_gl_context_ptr_tex_buffer = unsafe { lib.get::<extern fn(_:  &AzGlContextPtr, _:  u32, _:  u32, _:  u32)>(b"az_gl_context_ptr_tex_buffer").ok()? };
-        let az_gl_context_ptr_shader_source = unsafe { lib.get::<extern fn(_:  &AzGlContextPtr, _:  u32, _:  AzStringVec)>(b"az_gl_context_ptr_shader_source").ok()? };
-        let az_gl_context_ptr_read_buffer = unsafe { lib.get::<extern fn(_:  &AzGlContextPtr, _:  u32)>(b"az_gl_context_ptr_read_buffer").ok()? };
-        let az_gl_context_ptr_read_pixels_into_buffer = unsafe { lib.get::<extern fn(_:  &AzGlContextPtr, _:  i32, _:  i32, _:  i32, _:  i32, _:  u32, _:  u32, _:  AzU8VecRefMut)>(b"az_gl_context_ptr_read_pixels_into_buffer").ok()? };
-        let az_gl_context_ptr_read_pixels = unsafe { lib.get::<extern fn(_:  &AzGlContextPtr, _:  i32, _:  i32, _:  i32, _:  i32, _:  u32, _:  u32) -> AzU8Vec>(b"az_gl_context_ptr_read_pixels").ok()? };
-        let az_gl_context_ptr_read_pixels_into_pbo = unsafe { lib.get::<extern fn(_:  &AzGlContextPtr, _:  i32, _:  i32, _:  i32, _:  i32, _:  u32, _:  u32)>(b"az_gl_context_ptr_read_pixels_into_pbo").ok()? };
-        let az_gl_context_ptr_sample_coverage = unsafe { lib.get::<extern fn(_:  &AzGlContextPtr, _:  f32, _:  bool)>(b"az_gl_context_ptr_sample_coverage").ok()? };
-        let az_gl_context_ptr_polygon_offset = unsafe { lib.get::<extern fn(_:  &AzGlContextPtr, _:  f32, _:  f32)>(b"az_gl_context_ptr_polygon_offset").ok()? };
-        let az_gl_context_ptr_pixel_store_i = unsafe { lib.get::<extern fn(_:  &AzGlContextPtr, _:  u32, _:  i32)>(b"az_gl_context_ptr_pixel_store_i").ok()? };
-        let az_gl_context_ptr_gen_buffers = unsafe { lib.get::<extern fn(_:  &AzGlContextPtr, _:  i32) -> AzGLuintVec>(b"az_gl_context_ptr_gen_buffers").ok()? };
-        let az_gl_context_ptr_gen_renderbuffers = unsafe { lib.get::<extern fn(_:  &AzGlContextPtr, _:  i32) -> AzGLuintVec>(b"az_gl_context_ptr_gen_renderbuffers").ok()? };
-        let az_gl_context_ptr_gen_framebuffers = unsafe { lib.get::<extern fn(_:  &AzGlContextPtr, _:  i32) -> AzGLuintVec>(b"az_gl_context_ptr_gen_framebuffers").ok()? };
-        let az_gl_context_ptr_gen_textures = unsafe { lib.get::<extern fn(_:  &AzGlContextPtr, _:  i32) -> AzGLuintVec>(b"az_gl_context_ptr_gen_textures").ok()? };
-        let az_gl_context_ptr_gen_vertex_arrays = unsafe { lib.get::<extern fn(_:  &AzGlContextPtr, _:  i32) -> AzGLuintVec>(b"az_gl_context_ptr_gen_vertex_arrays").ok()? };
-        let az_gl_context_ptr_gen_queries = unsafe { lib.get::<extern fn(_:  &AzGlContextPtr, _:  i32) -> AzGLuintVec>(b"az_gl_context_ptr_gen_queries").ok()? };
-        let az_gl_context_ptr_begin_query = unsafe { lib.get::<extern fn(_:  &AzGlContextPtr, _:  u32, _:  u32)>(b"az_gl_context_ptr_begin_query").ok()? };
-        let az_gl_context_ptr_end_query = unsafe { lib.get::<extern fn(_:  &AzGlContextPtr, _:  u32)>(b"az_gl_context_ptr_end_query").ok()? };
-        let az_gl_context_ptr_query_counter = unsafe { lib.get::<extern fn(_:  &AzGlContextPtr, _:  u32, _:  u32)>(b"az_gl_context_ptr_query_counter").ok()? };
-        let az_gl_context_ptr_get_query_object_iv = unsafe { lib.get::<extern fn(_:  &AzGlContextPtr, _:  u32, _:  u32) -> i32>(b"az_gl_context_ptr_get_query_object_iv").ok()? };
-        let az_gl_context_ptr_get_query_object_uiv = unsafe { lib.get::<extern fn(_:  &AzGlContextPtr, _:  u32, _:  u32) -> u32>(b"az_gl_context_ptr_get_query_object_uiv").ok()? };
-        let az_gl_context_ptr_get_query_object_i64v = unsafe { lib.get::<extern fn(_:  &AzGlContextPtr, _:  u32, _:  u32) -> i64>(b"az_gl_context_ptr_get_query_object_i64v").ok()? };
-        let az_gl_context_ptr_get_query_object_ui64v = unsafe { lib.get::<extern fn(_:  &AzGlContextPtr, _:  u32, _:  u32) -> u64>(b"az_gl_context_ptr_get_query_object_ui64v").ok()? };
-        let az_gl_context_ptr_delete_queries = unsafe { lib.get::<extern fn(_:  &AzGlContextPtr, _:  AzGLuintVecRef)>(b"az_gl_context_ptr_delete_queries").ok()? };
-        let az_gl_context_ptr_delete_vertex_arrays = unsafe { lib.get::<extern fn(_:  &AzGlContextPtr, _:  AzGLuintVecRef)>(b"az_gl_context_ptr_delete_vertex_arrays").ok()? };
-        let az_gl_context_ptr_delete_buffers = unsafe { lib.get::<extern fn(_:  &AzGlContextPtr, _:  AzGLuintVecRef)>(b"az_gl_context_ptr_delete_buffers").ok()? };
-        let az_gl_context_ptr_delete_renderbuffers = unsafe { lib.get::<extern fn(_:  &AzGlContextPtr, _:  AzGLuintVecRef)>(b"az_gl_context_ptr_delete_renderbuffers").ok()? };
-        let az_gl_context_ptr_delete_framebuffers = unsafe { lib.get::<extern fn(_:  &AzGlContextPtr, _:  AzGLuintVecRef)>(b"az_gl_context_ptr_delete_framebuffers").ok()? };
-        let az_gl_context_ptr_delete_textures = unsafe { lib.get::<extern fn(_:  &AzGlContextPtr, _:  AzGLuintVecRef)>(b"az_gl_context_ptr_delete_textures").ok()? };
-        let az_gl_context_ptr_framebuffer_renderbuffer = unsafe { lib.get::<extern fn(_:  &AzGlContextPtr, _:  u32, _:  u32, _:  u32, _:  u32)>(b"az_gl_context_ptr_framebuffer_renderbuffer").ok()? };
-        let az_gl_context_ptr_renderbuffer_storage = unsafe { lib.get::<extern fn(_:  &AzGlContextPtr, _:  u32, _:  u32, _:  i32, _:  i32)>(b"az_gl_context_ptr_renderbuffer_storage").ok()? };
-        let az_gl_context_ptr_depth_func = unsafe { lib.get::<extern fn(_:  &AzGlContextPtr, _:  u32)>(b"az_gl_context_ptr_depth_func").ok()? };
-        let az_gl_context_ptr_active_texture = unsafe { lib.get::<extern fn(_:  &AzGlContextPtr, _:  u32)>(b"az_gl_context_ptr_active_texture").ok()? };
-        let az_gl_context_ptr_attach_shader = unsafe { lib.get::<extern fn(_:  &AzGlContextPtr, _:  u32, _:  u32)>(b"az_gl_context_ptr_attach_shader").ok()? };
-        let az_gl_context_ptr_bind_attrib_location = unsafe { lib.get::<extern fn(_:  &AzGlContextPtr, _:  u32, _:  u32, _:  AzRefstr)>(b"az_gl_context_ptr_bind_attrib_location").ok()? };
-        let az_gl_context_ptr_get_uniform_iv = unsafe { lib.get::<extern fn(_:  &AzGlContextPtr, _:  u32, _:  i32, _:  AzGLintVecRefMut)>(b"az_gl_context_ptr_get_uniform_iv").ok()? };
-        let az_gl_context_ptr_get_uniform_fv = unsafe { lib.get::<extern fn(_:  &AzGlContextPtr, _:  u32, _:  i32, _:  AzGLfloatVecRefMut)>(b"az_gl_context_ptr_get_uniform_fv").ok()? };
-        let az_gl_context_ptr_get_uniform_block_index = unsafe { lib.get::<extern fn(_:  &AzGlContextPtr, _:  u32, _:  AzRefstr) -> u32>(b"az_gl_context_ptr_get_uniform_block_index").ok()? };
-        let az_gl_context_ptr_get_uniform_indices = unsafe { lib.get::<extern fn(_:  &AzGlContextPtr, _:  u32, _:  AzRefstrVecRef) -> AzGLuintVec>(b"az_gl_context_ptr_get_uniform_indices").ok()? };
-        let az_gl_context_ptr_bind_buffer_base = unsafe { lib.get::<extern fn(_:  &AzGlContextPtr, _:  u32, _:  u32, _:  u32)>(b"az_gl_context_ptr_bind_buffer_base").ok()? };
-        let az_gl_context_ptr_bind_buffer_range = unsafe { lib.get::<extern fn(_:  &AzGlContextPtr, _:  u32, _:  u32, _:  u32, _:  isize, _:  isize)>(b"az_gl_context_ptr_bind_buffer_range").ok()? };
-        let az_gl_context_ptr_uniform_block_binding = unsafe { lib.get::<extern fn(_:  &AzGlContextPtr, _:  u32, _:  u32, _:  u32)>(b"az_gl_context_ptr_uniform_block_binding").ok()? };
-        let az_gl_context_ptr_bind_buffer = unsafe { lib.get::<extern fn(_:  &AzGlContextPtr, _:  u32, _:  u32)>(b"az_gl_context_ptr_bind_buffer").ok()? };
-        let az_gl_context_ptr_bind_vertex_array = unsafe { lib.get::<extern fn(_:  &AzGlContextPtr, _:  u32)>(b"az_gl_context_ptr_bind_vertex_array").ok()? };
-        let az_gl_context_ptr_bind_renderbuffer = unsafe { lib.get::<extern fn(_:  &AzGlContextPtr, _:  u32, _:  u32)>(b"az_gl_context_ptr_bind_renderbuffer").ok()? };
-        let az_gl_context_ptr_bind_framebuffer = unsafe { lib.get::<extern fn(_:  &AzGlContextPtr, _:  u32, _:  u32)>(b"az_gl_context_ptr_bind_framebuffer").ok()? };
-        let az_gl_context_ptr_bind_texture = unsafe { lib.get::<extern fn(_:  &AzGlContextPtr, _:  u32, _:  u32)>(b"az_gl_context_ptr_bind_texture").ok()? };
-        let az_gl_context_ptr_draw_buffers = unsafe { lib.get::<extern fn(_:  &AzGlContextPtr, _:  AzGLenumVecRef)>(b"az_gl_context_ptr_draw_buffers").ok()? };
-        let az_gl_context_ptr_tex_image_2d = unsafe { lib.get::<extern fn(_:  &AzGlContextPtr, _:  u32, _:  i32, _:  i32, _:  i32, _:  i32, _:  i32, _:  u32, _:  u32, _:  AzOptionU8VecRef)>(b"az_gl_context_ptr_tex_image_2d").ok()? };
-        let az_gl_context_ptr_compressed_tex_image_2d = unsafe { lib.get::<extern fn(_:  &AzGlContextPtr, _:  u32, _:  i32, _:  u32, _:  i32, _:  i32, _:  i32, _:  AzU8VecRef)>(b"az_gl_context_ptr_compressed_tex_image_2d").ok()? };
-        let az_gl_context_ptr_compressed_tex_sub_image_2d = unsafe { lib.get::<extern fn(_:  &AzGlContextPtr, _:  u32, _:  i32, _:  i32, _:  i32, _:  i32, _:  i32, _:  u32, _:  AzU8VecRef)>(b"az_gl_context_ptr_compressed_tex_sub_image_2d").ok()? };
-        let az_gl_context_ptr_tex_image_3d = unsafe { lib.get::<extern fn(_:  &AzGlContextPtr, _:  u32, _:  i32, _:  i32, _:  i32, _:  i32, _:  i32, _:  i32, _:  u32, _:  u32, _:  AzOptionU8VecRef)>(b"az_gl_context_ptr_tex_image_3d").ok()? };
-        let az_gl_context_ptr_copy_tex_image_2d = unsafe { lib.get::<extern fn(_:  &AzGlContextPtr, _:  u32, _:  i32, _:  u32, _:  i32, _:  i32, _:  i32, _:  i32, _:  i32)>(b"az_gl_context_ptr_copy_tex_image_2d").ok()? };
-        let az_gl_context_ptr_copy_tex_sub_image_2d = unsafe { lib.get::<extern fn(_:  &AzGlContextPtr, _:  u32, _:  i32, _:  i32, _:  i32, _:  i32, _:  i32, _:  i32, _:  i32)>(b"az_gl_context_ptr_copy_tex_sub_image_2d").ok()? };
-        let az_gl_context_ptr_copy_tex_sub_image_3d = unsafe { lib.get::<extern fn(_:  &AzGlContextPtr, _:  u32, _:  i32, _:  i32, _:  i32, _:  i32, _:  i32, _:  i32, _:  i32, _:  i32)>(b"az_gl_context_ptr_copy_tex_sub_image_3d").ok()? };
-        let az_gl_context_ptr_tex_sub_image_2d = unsafe { lib.get::<extern fn(_:  &AzGlContextPtr, _:  u32, _:  i32, _:  i32, _:  i32, _:  i32, _:  i32, _:  u32, _:  u32, _:  AzU8VecRef)>(b"az_gl_context_ptr_tex_sub_image_2d").ok()? };
-        let az_gl_context_ptr_tex_sub_image_2d_pbo = unsafe { lib.get::<extern fn(_:  &AzGlContextPtr, _:  u32, _:  i32, _:  i32, _:  i32, _:  i32, _:  i32, _:  u32, _:  u32, _:  usize)>(b"az_gl_context_ptr_tex_sub_image_2d_pbo").ok()? };
-        let az_gl_context_ptr_tex_sub_image_3d = unsafe { lib.get::<extern fn(_:  &AzGlContextPtr, _:  u32, _:  i32, _:  i32, _:  i32, _:  i32, _:  i32, _:  i32, _:  i32, _:  u32, _:  u32, _:  AzU8VecRef)>(b"az_gl_context_ptr_tex_sub_image_3d").ok()? };
-        let az_gl_context_ptr_tex_sub_image_3d_pbo = unsafe { lib.get::<extern fn(_:  &AzGlContextPtr, _:  u32, _:  i32, _:  i32, _:  i32, _:  i32, _:  i32, _:  i32, _:  i32, _:  u32, _:  u32, _:  usize)>(b"az_gl_context_ptr_tex_sub_image_3d_pbo").ok()? };
-        let az_gl_context_ptr_tex_storage_2d = unsafe { lib.get::<extern fn(_:  &AzGlContextPtr, _:  u32, _:  i32, _:  u32, _:  i32, _:  i32)>(b"az_gl_context_ptr_tex_storage_2d").ok()? };
-        let az_gl_context_ptr_tex_storage_3d = unsafe { lib.get::<extern fn(_:  &AzGlContextPtr, _:  u32, _:  i32, _:  u32, _:  i32, _:  i32, _:  i32)>(b"az_gl_context_ptr_tex_storage_3d").ok()? };
-        let az_gl_context_ptr_get_tex_image_into_buffer = unsafe { lib.get::<extern fn(_:  &AzGlContextPtr, _:  u32, _:  i32, _:  u32, _:  u32, _:  AzU8VecRefMut)>(b"az_gl_context_ptr_get_tex_image_into_buffer").ok()? };
-        let az_gl_context_ptr_copy_image_sub_data = unsafe { lib.get::<extern fn(_:  &AzGlContextPtr, _:  u32, _:  u32, _:  i32, _:  i32, _:  i32, _:  i32, _:  u32, _:  u32, _:  i32, _:  i32, _:  i32, _:  i32, _:  i32, _:  i32, _:  i32)>(b"az_gl_context_ptr_copy_image_sub_data").ok()? };
-        let az_gl_context_ptr_invalidate_framebuffer = unsafe { lib.get::<extern fn(_:  &AzGlContextPtr, _:  u32, _:  AzGLenumVecRef)>(b"az_gl_context_ptr_invalidate_framebuffer").ok()? };
-        let az_gl_context_ptr_invalidate_sub_framebuffer = unsafe { lib.get::<extern fn(_:  &AzGlContextPtr, _:  u32, _:  AzGLenumVecRef, _:  i32, _:  i32, _:  i32, _:  i32)>(b"az_gl_context_ptr_invalidate_sub_framebuffer").ok()? };
-        let az_gl_context_ptr_get_integer_v = unsafe { lib.get::<extern fn(_:  &AzGlContextPtr, _:  u32, _:  AzGLintVecRefMut)>(b"az_gl_context_ptr_get_integer_v").ok()? };
-        let az_gl_context_ptr_get_integer_64v = unsafe { lib.get::<extern fn(_:  &AzGlContextPtr, _:  u32, _:  AzGLint64VecRefMut)>(b"az_gl_context_ptr_get_integer_64v").ok()? };
-        let az_gl_context_ptr_get_integer_iv = unsafe { lib.get::<extern fn(_:  &AzGlContextPtr, _:  u32, _:  u32, _:  AzGLintVecRefMut)>(b"az_gl_context_ptr_get_integer_iv").ok()? };
-        let az_gl_context_ptr_get_integer_64iv = unsafe { lib.get::<extern fn(_:  &AzGlContextPtr, _:  u32, _:  u32, _:  AzGLint64VecRefMut)>(b"az_gl_context_ptr_get_integer_64iv").ok()? };
-        let az_gl_context_ptr_get_boolean_v = unsafe { lib.get::<extern fn(_:  &AzGlContextPtr, _:  u32, _:  AzGLbooleanVecRefMut)>(b"az_gl_context_ptr_get_boolean_v").ok()? };
-        let az_gl_context_ptr_get_float_v = unsafe { lib.get::<extern fn(_:  &AzGlContextPtr, _:  u32, _:  AzGLfloatVecRefMut)>(b"az_gl_context_ptr_get_float_v").ok()? };
-        let az_gl_context_ptr_get_framebuffer_attachment_parameter_iv = unsafe { lib.get::<extern fn(_:  &AzGlContextPtr, _:  u32, _:  u32, _:  u32) -> i32>(b"az_gl_context_ptr_get_framebuffer_attachment_parameter_iv").ok()? };
-        let az_gl_context_ptr_get_renderbuffer_parameter_iv = unsafe { lib.get::<extern fn(_:  &AzGlContextPtr, _:  u32, _:  u32) -> i32>(b"az_gl_context_ptr_get_renderbuffer_parameter_iv").ok()? };
-        let az_gl_context_ptr_get_tex_parameter_iv = unsafe { lib.get::<extern fn(_:  &AzGlContextPtr, _:  u32, _:  u32) -> i32>(b"az_gl_context_ptr_get_tex_parameter_iv").ok()? };
-        let az_gl_context_ptr_get_tex_parameter_fv = unsafe { lib.get::<extern fn(_:  &AzGlContextPtr, _:  u32, _:  u32) -> f32>(b"az_gl_context_ptr_get_tex_parameter_fv").ok()? };
-        let az_gl_context_ptr_tex_parameter_i = unsafe { lib.get::<extern fn(_:  &AzGlContextPtr, _:  u32, _:  u32, _:  i32)>(b"az_gl_context_ptr_tex_parameter_i").ok()? };
-        let az_gl_context_ptr_tex_parameter_f = unsafe { lib.get::<extern fn(_:  &AzGlContextPtr, _:  u32, _:  u32, _:  f32)>(b"az_gl_context_ptr_tex_parameter_f").ok()? };
-        let az_gl_context_ptr_framebuffer_texture_2d = unsafe { lib.get::<extern fn(_:  &AzGlContextPtr, _:  u32, _:  u32, _:  u32, _:  u32, _:  i32)>(b"az_gl_context_ptr_framebuffer_texture_2d").ok()? };
-        let az_gl_context_ptr_framebuffer_texture_layer = unsafe { lib.get::<extern fn(_:  &AzGlContextPtr, _:  u32, _:  u32, _:  u32, _:  i32, _:  i32)>(b"az_gl_context_ptr_framebuffer_texture_layer").ok()? };
-        let az_gl_context_ptr_blit_framebuffer = unsafe { lib.get::<extern fn(_:  &AzGlContextPtr, _:  i32, _:  i32, _:  i32, _:  i32, _:  i32, _:  i32, _:  i32, _:  i32, _:  u32, _:  u32)>(b"az_gl_context_ptr_blit_framebuffer").ok()? };
-        let az_gl_context_ptr_vertex_attrib_4f = unsafe { lib.get::<extern fn(_:  &AzGlContextPtr, _:  u32, _:  f32, _:  f32, _:  f32, _:  f32)>(b"az_gl_context_ptr_vertex_attrib_4f").ok()? };
-        let az_gl_context_ptr_vertex_attrib_pointer_f32 = unsafe { lib.get::<extern fn(_:  &AzGlContextPtr, _:  u32, _:  i32, _:  bool, _:  i32, _:  u32)>(b"az_gl_context_ptr_vertex_attrib_pointer_f32").ok()? };
-        let az_gl_context_ptr_vertex_attrib_pointer = unsafe { lib.get::<extern fn(_:  &AzGlContextPtr, _:  u32, _:  i32, _:  u32, _:  bool, _:  i32, _:  u32)>(b"az_gl_context_ptr_vertex_attrib_pointer").ok()? };
-        let az_gl_context_ptr_vertex_attrib_i_pointer = unsafe { lib.get::<extern fn(_:  &AzGlContextPtr, _:  u32, _:  i32, _:  u32, _:  i32, _:  u32)>(b"az_gl_context_ptr_vertex_attrib_i_pointer").ok()? };
-        let az_gl_context_ptr_vertex_attrib_divisor = unsafe { lib.get::<extern fn(_:  &AzGlContextPtr, _:  u32, _:  u32)>(b"az_gl_context_ptr_vertex_attrib_divisor").ok()? };
-        let az_gl_context_ptr_viewport = unsafe { lib.get::<extern fn(_:  &AzGlContextPtr, _:  i32, _:  i32, _:  i32, _:  i32)>(b"az_gl_context_ptr_viewport").ok()? };
-        let az_gl_context_ptr_scissor = unsafe { lib.get::<extern fn(_:  &AzGlContextPtr, _:  i32, _:  i32, _:  i32, _:  i32)>(b"az_gl_context_ptr_scissor").ok()? };
-        let az_gl_context_ptr_line_width = unsafe { lib.get::<extern fn(_:  &AzGlContextPtr, _:  f32)>(b"az_gl_context_ptr_line_width").ok()? };
-        let az_gl_context_ptr_use_program = unsafe { lib.get::<extern fn(_:  &AzGlContextPtr, _:  u32)>(b"az_gl_context_ptr_use_program").ok()? };
-        let az_gl_context_ptr_validate_program = unsafe { lib.get::<extern fn(_:  &AzGlContextPtr, _:  u32)>(b"az_gl_context_ptr_validate_program").ok()? };
-        let az_gl_context_ptr_draw_arrays = unsafe { lib.get::<extern fn(_:  &AzGlContextPtr, _:  u32, _:  i32, _:  i32)>(b"az_gl_context_ptr_draw_arrays").ok()? };
-        let az_gl_context_ptr_draw_arrays_instanced = unsafe { lib.get::<extern fn(_:  &AzGlContextPtr, _:  u32, _:  i32, _:  i32, _:  i32)>(b"az_gl_context_ptr_draw_arrays_instanced").ok()? };
-        let az_gl_context_ptr_draw_elements = unsafe { lib.get::<extern fn(_:  &AzGlContextPtr, _:  u32, _:  i32, _:  u32, _:  u32)>(b"az_gl_context_ptr_draw_elements").ok()? };
-        let az_gl_context_ptr_draw_elements_instanced = unsafe { lib.get::<extern fn(_:  &AzGlContextPtr, _:  u32, _:  i32, _:  u32, _:  u32, _:  i32)>(b"az_gl_context_ptr_draw_elements_instanced").ok()? };
-        let az_gl_context_ptr_blend_color = unsafe { lib.get::<extern fn(_:  &AzGlContextPtr, _:  f32, _:  f32, _:  f32, _:  f32)>(b"az_gl_context_ptr_blend_color").ok()? };
-        let az_gl_context_ptr_blend_func = unsafe { lib.get::<extern fn(_:  &AzGlContextPtr, _:  u32, _:  u32)>(b"az_gl_context_ptr_blend_func").ok()? };
-        let az_gl_context_ptr_blend_func_separate = unsafe { lib.get::<extern fn(_:  &AzGlContextPtr, _:  u32, _:  u32, _:  u32, _:  u32)>(b"az_gl_context_ptr_blend_func_separate").ok()? };
-        let az_gl_context_ptr_blend_equation = unsafe { lib.get::<extern fn(_:  &AzGlContextPtr, _:  u32)>(b"az_gl_context_ptr_blend_equation").ok()? };
-        let az_gl_context_ptr_blend_equation_separate = unsafe { lib.get::<extern fn(_:  &AzGlContextPtr, _:  u32, _:  u32)>(b"az_gl_context_ptr_blend_equation_separate").ok()? };
-        let az_gl_context_ptr_color_mask = unsafe { lib.get::<extern fn(_:  &AzGlContextPtr, _:  bool, _:  bool, _:  bool, _:  bool)>(b"az_gl_context_ptr_color_mask").ok()? };
-        let az_gl_context_ptr_cull_face = unsafe { lib.get::<extern fn(_:  &AzGlContextPtr, _:  u32)>(b"az_gl_context_ptr_cull_face").ok()? };
-        let az_gl_context_ptr_front_face = unsafe { lib.get::<extern fn(_:  &AzGlContextPtr, _:  u32)>(b"az_gl_context_ptr_front_face").ok()? };
-        let az_gl_context_ptr_enable = unsafe { lib.get::<extern fn(_:  &AzGlContextPtr, _:  u32)>(b"az_gl_context_ptr_enable").ok()? };
-        let az_gl_context_ptr_disable = unsafe { lib.get::<extern fn(_:  &AzGlContextPtr, _:  u32)>(b"az_gl_context_ptr_disable").ok()? };
-        let az_gl_context_ptr_hint = unsafe { lib.get::<extern fn(_:  &AzGlContextPtr, _:  u32, _:  u32)>(b"az_gl_context_ptr_hint").ok()? };
-        let az_gl_context_ptr_is_enabled = unsafe { lib.get::<extern fn(_:  &AzGlContextPtr, _:  u32) -> u8>(b"az_gl_context_ptr_is_enabled").ok()? };
-        let az_gl_context_ptr_is_shader = unsafe { lib.get::<extern fn(_:  &AzGlContextPtr, _:  u32) -> u8>(b"az_gl_context_ptr_is_shader").ok()? };
-        let az_gl_context_ptr_is_texture = unsafe { lib.get::<extern fn(_:  &AzGlContextPtr, _:  u32) -> u8>(b"az_gl_context_ptr_is_texture").ok()? };
-        let az_gl_context_ptr_is_framebuffer = unsafe { lib.get::<extern fn(_:  &AzGlContextPtr, _:  u32) -> u8>(b"az_gl_context_ptr_is_framebuffer").ok()? };
-        let az_gl_context_ptr_is_renderbuffer = unsafe { lib.get::<extern fn(_:  &AzGlContextPtr, _:  u32) -> u8>(b"az_gl_context_ptr_is_renderbuffer").ok()? };
-        let az_gl_context_ptr_check_frame_buffer_status = unsafe { lib.get::<extern fn(_:  &AzGlContextPtr, _:  u32) -> u32>(b"az_gl_context_ptr_check_frame_buffer_status").ok()? };
-        let az_gl_context_ptr_enable_vertex_attrib_array = unsafe { lib.get::<extern fn(_:  &AzGlContextPtr, _:  u32)>(b"az_gl_context_ptr_enable_vertex_attrib_array").ok()? };
-        let az_gl_context_ptr_disable_vertex_attrib_array = unsafe { lib.get::<extern fn(_:  &AzGlContextPtr, _:  u32)>(b"az_gl_context_ptr_disable_vertex_attrib_array").ok()? };
-        let az_gl_context_ptr_uniform_1f = unsafe { lib.get::<extern fn(_:  &AzGlContextPtr, _:  i32, _:  f32)>(b"az_gl_context_ptr_uniform_1f").ok()? };
-        let az_gl_context_ptr_uniform_1fv = unsafe { lib.get::<extern fn(_:  &AzGlContextPtr, _:  i32, _:  AzF32VecRef)>(b"az_gl_context_ptr_uniform_1fv").ok()? };
-        let az_gl_context_ptr_uniform_1i = unsafe { lib.get::<extern fn(_:  &AzGlContextPtr, _:  i32, _:  i32)>(b"az_gl_context_ptr_uniform_1i").ok()? };
-        let az_gl_context_ptr_uniform_1iv = unsafe { lib.get::<extern fn(_:  &AzGlContextPtr, _:  i32, _:  AzI32VecRef)>(b"az_gl_context_ptr_uniform_1iv").ok()? };
-        let az_gl_context_ptr_uniform_1ui = unsafe { lib.get::<extern fn(_:  &AzGlContextPtr, _:  i32, _:  u32)>(b"az_gl_context_ptr_uniform_1ui").ok()? };
-        let az_gl_context_ptr_uniform_2f = unsafe { lib.get::<extern fn(_:  &AzGlContextPtr, _:  i32, _:  f32, _:  f32)>(b"az_gl_context_ptr_uniform_2f").ok()? };
-        let az_gl_context_ptr_uniform_2fv = unsafe { lib.get::<extern fn(_:  &AzGlContextPtr, _:  i32, _:  AzF32VecRef)>(b"az_gl_context_ptr_uniform_2fv").ok()? };
-        let az_gl_context_ptr_uniform_2i = unsafe { lib.get::<extern fn(_:  &AzGlContextPtr, _:  i32, _:  i32, _:  i32)>(b"az_gl_context_ptr_uniform_2i").ok()? };
-        let az_gl_context_ptr_uniform_2iv = unsafe { lib.get::<extern fn(_:  &AzGlContextPtr, _:  i32, _:  AzI32VecRef)>(b"az_gl_context_ptr_uniform_2iv").ok()? };
-        let az_gl_context_ptr_uniform_2ui = unsafe { lib.get::<extern fn(_:  &AzGlContextPtr, _:  i32, _:  u32, _:  u32)>(b"az_gl_context_ptr_uniform_2ui").ok()? };
-        let az_gl_context_ptr_uniform_3f = unsafe { lib.get::<extern fn(_:  &AzGlContextPtr, _:  i32, _:  f32, _:  f32, _:  f32)>(b"az_gl_context_ptr_uniform_3f").ok()? };
-        let az_gl_context_ptr_uniform_3fv = unsafe { lib.get::<extern fn(_:  &AzGlContextPtr, _:  i32, _:  AzF32VecRef)>(b"az_gl_context_ptr_uniform_3fv").ok()? };
-        let az_gl_context_ptr_uniform_3i = unsafe { lib.get::<extern fn(_:  &AzGlContextPtr, _:  i32, _:  i32, _:  i32, _:  i32)>(b"az_gl_context_ptr_uniform_3i").ok()? };
-        let az_gl_context_ptr_uniform_3iv = unsafe { lib.get::<extern fn(_:  &AzGlContextPtr, _:  i32, _:  AzI32VecRef)>(b"az_gl_context_ptr_uniform_3iv").ok()? };
-        let az_gl_context_ptr_uniform_3ui = unsafe { lib.get::<extern fn(_:  &AzGlContextPtr, _:  i32, _:  u32, _:  u32, _:  u32)>(b"az_gl_context_ptr_uniform_3ui").ok()? };
-        let az_gl_context_ptr_uniform_4f = unsafe { lib.get::<extern fn(_:  &AzGlContextPtr, _:  i32, _:  f32, _:  f32, _:  f32, _:  f32)>(b"az_gl_context_ptr_uniform_4f").ok()? };
-        let az_gl_context_ptr_uniform_4i = unsafe { lib.get::<extern fn(_:  &AzGlContextPtr, _:  i32, _:  i32, _:  i32, _:  i32, _:  i32)>(b"az_gl_context_ptr_uniform_4i").ok()? };
-        let az_gl_context_ptr_uniform_4iv = unsafe { lib.get::<extern fn(_:  &AzGlContextPtr, _:  i32, _:  AzI32VecRef)>(b"az_gl_context_ptr_uniform_4iv").ok()? };
-        let az_gl_context_ptr_uniform_4ui = unsafe { lib.get::<extern fn(_:  &AzGlContextPtr, _:  i32, _:  u32, _:  u32, _:  u32, _:  u32)>(b"az_gl_context_ptr_uniform_4ui").ok()? };
-        let az_gl_context_ptr_uniform_4fv = unsafe { lib.get::<extern fn(_:  &AzGlContextPtr, _:  i32, _:  AzF32VecRef)>(b"az_gl_context_ptr_uniform_4fv").ok()? };
-        let az_gl_context_ptr_uniform_matrix_2fv = unsafe { lib.get::<extern fn(_:  &AzGlContextPtr, _:  i32, _:  bool, _:  AzF32VecRef)>(b"az_gl_context_ptr_uniform_matrix_2fv").ok()? };
-        let az_gl_context_ptr_uniform_matrix_3fv = unsafe { lib.get::<extern fn(_:  &AzGlContextPtr, _:  i32, _:  bool, _:  AzF32VecRef)>(b"az_gl_context_ptr_uniform_matrix_3fv").ok()? };
-        let az_gl_context_ptr_uniform_matrix_4fv = unsafe { lib.get::<extern fn(_:  &AzGlContextPtr, _:  i32, _:  bool, _:  AzF32VecRef)>(b"az_gl_context_ptr_uniform_matrix_4fv").ok()? };
-        let az_gl_context_ptr_depth_mask = unsafe { lib.get::<extern fn(_:  &AzGlContextPtr, _:  bool)>(b"az_gl_context_ptr_depth_mask").ok()? };
-        let az_gl_context_ptr_depth_range = unsafe { lib.get::<extern fn(_:  &AzGlContextPtr, _:  f64, _:  f64)>(b"az_gl_context_ptr_depth_range").ok()? };
-        let az_gl_context_ptr_get_active_attrib = unsafe { lib.get::<extern fn(_:  &AzGlContextPtr, _:  u32, _:  u32) -> AzGetActiveAttribReturn>(b"az_gl_context_ptr_get_active_attrib").ok()? };
-        let az_gl_context_ptr_get_active_uniform = unsafe { lib.get::<extern fn(_:  &AzGlContextPtr, _:  u32, _:  u32) -> AzGetActiveUniformReturn>(b"az_gl_context_ptr_get_active_uniform").ok()? };
-        let az_gl_context_ptr_get_active_uniforms_iv = unsafe { lib.get::<extern fn(_:  &AzGlContextPtr, _:  u32, _:  AzGLuintVec, _:  u32) -> AzGLintVec>(b"az_gl_context_ptr_get_active_uniforms_iv").ok()? };
-        let az_gl_context_ptr_get_active_uniform_block_i = unsafe { lib.get::<extern fn(_:  &AzGlContextPtr, _:  u32, _:  u32, _:  u32) -> i32>(b"az_gl_context_ptr_get_active_uniform_block_i").ok()? };
-        let az_gl_context_ptr_get_active_uniform_block_iv = unsafe { lib.get::<extern fn(_:  &AzGlContextPtr, _:  u32, _:  u32, _:  u32) -> AzGLintVec>(b"az_gl_context_ptr_get_active_uniform_block_iv").ok()? };
-        let az_gl_context_ptr_get_active_uniform_block_name = unsafe { lib.get::<extern fn(_:  &AzGlContextPtr, _:  u32, _:  u32) -> AzString>(b"az_gl_context_ptr_get_active_uniform_block_name").ok()? };
-        let az_gl_context_ptr_get_attrib_location = unsafe { lib.get::<extern fn(_:  &AzGlContextPtr, _:  u32, _:  AzRefstr) -> i32>(b"az_gl_context_ptr_get_attrib_location").ok()? };
-        let az_gl_context_ptr_get_frag_data_location = unsafe { lib.get::<extern fn(_:  &AzGlContextPtr, _:  u32, _:  AzRefstr) -> i32>(b"az_gl_context_ptr_get_frag_data_location").ok()? };
-        let az_gl_context_ptr_get_uniform_location = unsafe { lib.get::<extern fn(_:  &AzGlContextPtr, _:  u32, _:  AzRefstr) -> i32>(b"az_gl_context_ptr_get_uniform_location").ok()? };
-        let az_gl_context_ptr_get_program_info_log = unsafe { lib.get::<extern fn(_:  &AzGlContextPtr, _:  u32) -> AzString>(b"az_gl_context_ptr_get_program_info_log").ok()? };
-        let az_gl_context_ptr_get_program_iv = unsafe { lib.get::<extern fn(_:  &AzGlContextPtr, _:  u32, _:  u32, _:  AzGLintVecRefMut)>(b"az_gl_context_ptr_get_program_iv").ok()? };
-        let az_gl_context_ptr_get_program_binary = unsafe { lib.get::<extern fn(_:  &AzGlContextPtr, _:  u32) -> AzGetProgramBinaryReturn>(b"az_gl_context_ptr_get_program_binary").ok()? };
-        let az_gl_context_ptr_program_binary = unsafe { lib.get::<extern fn(_:  &AzGlContextPtr, _:  u32, _:  u32, _:  AzU8VecRef)>(b"az_gl_context_ptr_program_binary").ok()? };
-        let az_gl_context_ptr_program_parameter_i = unsafe { lib.get::<extern fn(_:  &AzGlContextPtr, _:  u32, _:  u32, _:  i32)>(b"az_gl_context_ptr_program_parameter_i").ok()? };
-        let az_gl_context_ptr_get_vertex_attrib_iv = unsafe { lib.get::<extern fn(_:  &AzGlContextPtr, _:  u32, _:  u32, _:  AzGLintVecRefMut)>(b"az_gl_context_ptr_get_vertex_attrib_iv").ok()? };
-        let az_gl_context_ptr_get_vertex_attrib_fv = unsafe { lib.get::<extern fn(_:  &AzGlContextPtr, _:  u32, _:  u32, _:  AzGLfloatVecRefMut)>(b"az_gl_context_ptr_get_vertex_attrib_fv").ok()? };
-        let az_gl_context_ptr_get_vertex_attrib_pointer_v = unsafe { lib.get::<extern fn(_:  &AzGlContextPtr, _:  u32, _:  u32) -> isize>(b"az_gl_context_ptr_get_vertex_attrib_pointer_v").ok()? };
-        let az_gl_context_ptr_get_buffer_parameter_iv = unsafe { lib.get::<extern fn(_:  &AzGlContextPtr, _:  u32, _:  u32) -> i32>(b"az_gl_context_ptr_get_buffer_parameter_iv").ok()? };
-        let az_gl_context_ptr_get_shader_info_log = unsafe { lib.get::<extern fn(_:  &AzGlContextPtr, _:  u32) -> AzString>(b"az_gl_context_ptr_get_shader_info_log").ok()? };
-        let az_gl_context_ptr_get_string = unsafe { lib.get::<extern fn(_:  &AzGlContextPtr, _:  u32) -> AzString>(b"az_gl_context_ptr_get_string").ok()? };
-        let az_gl_context_ptr_get_string_i = unsafe { lib.get::<extern fn(_:  &AzGlContextPtr, _:  u32, _:  u32) -> AzString>(b"az_gl_context_ptr_get_string_i").ok()? };
-        let az_gl_context_ptr_get_shader_iv = unsafe { lib.get::<extern fn(_:  &AzGlContextPtr, _:  u32, _:  u32, _:  AzGLintVecRefMut)>(b"az_gl_context_ptr_get_shader_iv").ok()? };
-        let az_gl_context_ptr_get_shader_precision_format = unsafe { lib.get::<extern fn(_:  &AzGlContextPtr, _:  u32, _:  u32) -> [i32;3]>(b"az_gl_context_ptr_get_shader_precision_format").ok()? };
-        let az_gl_context_ptr_compile_shader = unsafe { lib.get::<extern fn(_:  &AzGlContextPtr, _:  u32)>(b"az_gl_context_ptr_compile_shader").ok()? };
-        let az_gl_context_ptr_create_program = unsafe { lib.get::<extern fn(_:  &AzGlContextPtr) -> u32>(b"az_gl_context_ptr_create_program").ok()? };
-        let az_gl_context_ptr_delete_program = unsafe { lib.get::<extern fn(_:  &AzGlContextPtr, _:  u32)>(b"az_gl_context_ptr_delete_program").ok()? };
-        let az_gl_context_ptr_create_shader = unsafe { lib.get::<extern fn(_:  &AzGlContextPtr, _:  u32) -> u32>(b"az_gl_context_ptr_create_shader").ok()? };
-        let az_gl_context_ptr_delete_shader = unsafe { lib.get::<extern fn(_:  &AzGlContextPtr, _:  u32)>(b"az_gl_context_ptr_delete_shader").ok()? };
-        let az_gl_context_ptr_detach_shader = unsafe { lib.get::<extern fn(_:  &AzGlContextPtr, _:  u32, _:  u32)>(b"az_gl_context_ptr_detach_shader").ok()? };
-        let az_gl_context_ptr_link_program = unsafe { lib.get::<extern fn(_:  &AzGlContextPtr, _:  u32)>(b"az_gl_context_ptr_link_program").ok()? };
-        let az_gl_context_ptr_clear_color = unsafe { lib.get::<extern fn(_:  &AzGlContextPtr, _:  f32, _:  f32, _:  f32, _:  f32)>(b"az_gl_context_ptr_clear_color").ok()? };
-        let az_gl_context_ptr_clear = unsafe { lib.get::<extern fn(_:  &AzGlContextPtr, _:  u32)>(b"az_gl_context_ptr_clear").ok()? };
-        let az_gl_context_ptr_clear_depth = unsafe { lib.get::<extern fn(_:  &AzGlContextPtr, _:  f64)>(b"az_gl_context_ptr_clear_depth").ok()? };
-        let az_gl_context_ptr_clear_stencil = unsafe { lib.get::<extern fn(_:  &AzGlContextPtr, _:  i32)>(b"az_gl_context_ptr_clear_stencil").ok()? };
-        let az_gl_context_ptr_flush = unsafe { lib.get::<extern fn(_:  &AzGlContextPtr)>(b"az_gl_context_ptr_flush").ok()? };
-        let az_gl_context_ptr_finish = unsafe { lib.get::<extern fn(_:  &AzGlContextPtr)>(b"az_gl_context_ptr_finish").ok()? };
-        let az_gl_context_ptr_get_error = unsafe { lib.get::<extern fn(_:  &AzGlContextPtr) -> u32>(b"az_gl_context_ptr_get_error").ok()? };
-        let az_gl_context_ptr_stencil_mask = unsafe { lib.get::<extern fn(_:  &AzGlContextPtr, _:  u32)>(b"az_gl_context_ptr_stencil_mask").ok()? };
-        let az_gl_context_ptr_stencil_mask_separate = unsafe { lib.get::<extern fn(_:  &AzGlContextPtr, _:  u32, _:  u32)>(b"az_gl_context_ptr_stencil_mask_separate").ok()? };
-        let az_gl_context_ptr_stencil_func = unsafe { lib.get::<extern fn(_:  &AzGlContextPtr, _:  u32, _:  i32, _:  u32)>(b"az_gl_context_ptr_stencil_func").ok()? };
-        let az_gl_context_ptr_stencil_func_separate = unsafe { lib.get::<extern fn(_:  &AzGlContextPtr, _:  u32, _:  u32, _:  i32, _:  u32)>(b"az_gl_context_ptr_stencil_func_separate").ok()? };
-        let az_gl_context_ptr_stencil_op = unsafe { lib.get::<extern fn(_:  &AzGlContextPtr, _:  u32, _:  u32, _:  u32)>(b"az_gl_context_ptr_stencil_op").ok()? };
-        let az_gl_context_ptr_stencil_op_separate = unsafe { lib.get::<extern fn(_:  &AzGlContextPtr, _:  u32, _:  u32, _:  u32, _:  u32)>(b"az_gl_context_ptr_stencil_op_separate").ok()? };
-        let az_gl_context_ptr_egl_image_target_texture2d_oes = unsafe { lib.get::<extern fn(_:  &AzGlContextPtr, _:  u32, _:  *const c_void)>(b"az_gl_context_ptr_egl_image_target_texture2d_oes").ok()? };
-        let az_gl_context_ptr_generate_mipmap = unsafe { lib.get::<extern fn(_:  &AzGlContextPtr, _:  u32)>(b"az_gl_context_ptr_generate_mipmap").ok()? };
-        let az_gl_context_ptr_insert_event_marker_ext = unsafe { lib.get::<extern fn(_:  &AzGlContextPtr, _:  AzRefstr)>(b"az_gl_context_ptr_insert_event_marker_ext").ok()? };
-        let az_gl_context_ptr_push_group_marker_ext = unsafe { lib.get::<extern fn(_:  &AzGlContextPtr, _:  AzRefstr)>(b"az_gl_context_ptr_push_group_marker_ext").ok()? };
-        let az_gl_context_ptr_pop_group_marker_ext = unsafe { lib.get::<extern fn(_:  &AzGlContextPtr)>(b"az_gl_context_ptr_pop_group_marker_ext").ok()? };
-        let az_gl_context_ptr_debug_message_insert_khr = unsafe { lib.get::<extern fn(_:  &AzGlContextPtr, _:  u32, _:  u32, _:  u32, _:  u32, _:  AzRefstr)>(b"az_gl_context_ptr_debug_message_insert_khr").ok()? };
-        let az_gl_context_ptr_push_debug_group_khr = unsafe { lib.get::<extern fn(_:  &AzGlContextPtr, _:  u32, _:  u32, _:  AzRefstr)>(b"az_gl_context_ptr_push_debug_group_khr").ok()? };
-        let az_gl_context_ptr_pop_debug_group_khr = unsafe { lib.get::<extern fn(_:  &AzGlContextPtr)>(b"az_gl_context_ptr_pop_debug_group_khr").ok()? };
-        let az_gl_context_ptr_fence_sync = unsafe { lib.get::<extern fn(_:  &AzGlContextPtr, _:  u32, _:  u32) -> AzGLsyncPtr>(b"az_gl_context_ptr_fence_sync").ok()? };
-        let az_gl_context_ptr_client_wait_sync = unsafe { lib.get::<extern fn(_:  &AzGlContextPtr, _:  AzGLsyncPtr, _:  u32, _:  u64)>(b"az_gl_context_ptr_client_wait_sync").ok()? };
-        let az_gl_context_ptr_wait_sync = unsafe { lib.get::<extern fn(_:  &AzGlContextPtr, _:  AzGLsyncPtr, _:  u32, _:  u64)>(b"az_gl_context_ptr_wait_sync").ok()? };
-        let az_gl_context_ptr_delete_sync = unsafe { lib.get::<extern fn(_:  &AzGlContextPtr, _:  AzGLsyncPtr)>(b"az_gl_context_ptr_delete_sync").ok()? };
-        let az_gl_context_ptr_texture_range_apple = unsafe { lib.get::<extern fn(_:  &AzGlContextPtr, _:  u32, _:  AzU8VecRef)>(b"az_gl_context_ptr_texture_range_apple").ok()? };
-        let az_gl_context_ptr_gen_fences_apple = unsafe { lib.get::<extern fn(_:  &AzGlContextPtr, _:  i32) -> AzGLuintVec>(b"az_gl_context_ptr_gen_fences_apple").ok()? };
-        let az_gl_context_ptr_delete_fences_apple = unsafe { lib.get::<extern fn(_:  &AzGlContextPtr, _:  AzGLuintVecRef)>(b"az_gl_context_ptr_delete_fences_apple").ok()? };
-        let az_gl_context_ptr_set_fence_apple = unsafe { lib.get::<extern fn(_:  &AzGlContextPtr, _:  u32)>(b"az_gl_context_ptr_set_fence_apple").ok()? };
-        let az_gl_context_ptr_finish_fence_apple = unsafe { lib.get::<extern fn(_:  &AzGlContextPtr, _:  u32)>(b"az_gl_context_ptr_finish_fence_apple").ok()? };
-        let az_gl_context_ptr_test_fence_apple = unsafe { lib.get::<extern fn(_:  &AzGlContextPtr, _:  u32)>(b"az_gl_context_ptr_test_fence_apple").ok()? };
-        let az_gl_context_ptr_test_object_apple = unsafe { lib.get::<extern fn(_:  &AzGlContextPtr, _:  u32, _:  u32) -> u8>(b"az_gl_context_ptr_test_object_apple").ok()? };
-        let az_gl_context_ptr_finish_object_apple = unsafe { lib.get::<extern fn(_:  &AzGlContextPtr, _:  u32, _:  u32)>(b"az_gl_context_ptr_finish_object_apple").ok()? };
-        let az_gl_context_ptr_get_frag_data_index = unsafe { lib.get::<extern fn(_:  &AzGlContextPtr, _:  u32, _:  AzRefstr) -> i32>(b"az_gl_context_ptr_get_frag_data_index").ok()? };
-        let az_gl_context_ptr_blend_barrier_khr = unsafe { lib.get::<extern fn(_:  &AzGlContextPtr)>(b"az_gl_context_ptr_blend_barrier_khr").ok()? };
-        let az_gl_context_ptr_bind_frag_data_location_indexed = unsafe { lib.get::<extern fn(_:  &AzGlContextPtr, _:  u32, _:  u32, _:  u32, _:  AzRefstr)>(b"az_gl_context_ptr_bind_frag_data_location_indexed").ok()? };
-        let az_gl_context_ptr_get_debug_messages = unsafe { lib.get::<extern fn(_:  &AzGlContextPtr) -> AzDebugMessageVec>(b"az_gl_context_ptr_get_debug_messages").ok()? };
-        let az_gl_context_ptr_provoking_vertex_angle = unsafe { lib.get::<extern fn(_:  &AzGlContextPtr, _:  u32)>(b"az_gl_context_ptr_provoking_vertex_angle").ok()? };
-        let az_gl_context_ptr_gen_vertex_arrays_apple = unsafe { lib.get::<extern fn(_:  &AzGlContextPtr, _:  i32) -> AzGLuintVec>(b"az_gl_context_ptr_gen_vertex_arrays_apple").ok()? };
-        let az_gl_context_ptr_bind_vertex_array_apple = unsafe { lib.get::<extern fn(_:  &AzGlContextPtr, _:  u32)>(b"az_gl_context_ptr_bind_vertex_array_apple").ok()? };
-        let az_gl_context_ptr_delete_vertex_arrays_apple = unsafe { lib.get::<extern fn(_:  &AzGlContextPtr, _:  AzGLuintVecRef)>(b"az_gl_context_ptr_delete_vertex_arrays_apple").ok()? };
-        let az_gl_context_ptr_copy_texture_chromium = unsafe { lib.get::<extern fn(_:  &AzGlContextPtr, _:  u32, _:  i32, _:  u32, _:  u32, _:  i32, _:  i32, _:  u32, _:  u8, _:  u8, _:  u8)>(b"az_gl_context_ptr_copy_texture_chromium").ok()? };
-        let az_gl_context_ptr_copy_sub_texture_chromium = unsafe { lib.get::<extern fn(_:  &AzGlContextPtr, _:  u32, _:  i32, _:  u32, _:  u32, _:  i32, _:  i32, _:  i32, _:  i32, _:  i32, _:  i32, _:  i32, _:  u8, _:  u8, _:  u8)>(b"az_gl_context_ptr_copy_sub_texture_chromium").ok()? };
-        let az_gl_context_ptr_egl_image_target_renderbuffer_storage_oes = unsafe { lib.get::<extern fn(_:  &AzGlContextPtr, _:  u32, _:  *const c_void)>(b"az_gl_context_ptr_egl_image_target_renderbuffer_storage_oes").ok()? };
-        let az_gl_context_ptr_copy_texture_3d_angle = unsafe { lib.get::<extern fn(_:  &AzGlContextPtr, _:  u32, _:  i32, _:  u32, _:  u32, _:  i32, _:  i32, _:  u32, _:  u8, _:  u8, _:  u8)>(b"az_gl_context_ptr_copy_texture_3d_angle").ok()? };
-        let az_gl_context_ptr_copy_sub_texture_3d_angle = unsafe { lib.get::<extern fn(_:  &AzGlContextPtr, _:  u32, _:  i32, _:  u32, _:  u32, _:  i32, _:  i32, _:  i32, _:  i32, _:  i32, _:  i32, _:  i32, _:  i32, _:  i32, _:  i32, _:  u8, _:  u8, _:  u8)>(b"az_gl_context_ptr_copy_sub_texture_3d_angle").ok()? };
-        let az_gl_context_ptr_delete = unsafe { lib.get::<extern fn(_:  &mut AzGlContextPtr)>(b"az_gl_context_ptr_delete").ok()? };
-        let az_gl_context_ptr_deep_copy = unsafe { lib.get::<extern fn(_:  &AzGlContextPtr) -> AzGlContextPtr>(b"az_gl_context_ptr_deep_copy").ok()? };
-        let az_texture_delete = unsafe { lib.get::<extern fn(_:  &mut AzTexture)>(b"az_texture_delete").ok()? };
-        let az_texture_flags_delete = unsafe { lib.get::<extern fn(_:  &mut AzTextureFlags)>(b"az_texture_flags_delete").ok()? };
-        let az_texture_flags_deep_copy = unsafe { lib.get::<extern fn(_:  &AzTextureFlags) -> AzTextureFlags>(b"az_texture_flags_deep_copy").ok()? };
-        let az_text_id_new = unsafe { lib.get::<extern fn() -> AzTextId>(b"az_text_id_new").ok()? };
-        let az_text_id_delete = unsafe { lib.get::<extern fn(_:  &mut AzTextId)>(b"az_text_id_delete").ok()? };
-        let az_text_id_deep_copy = unsafe { lib.get::<extern fn(_:  &AzTextId) -> AzTextId>(b"az_text_id_deep_copy").ok()? };
-        let az_image_id_new = unsafe { lib.get::<extern fn() -> AzImageId>(b"az_image_id_new").ok()? };
-        let az_image_id_delete = unsafe { lib.get::<extern fn(_:  &mut AzImageId)>(b"az_image_id_delete").ok()? };
-        let az_image_id_deep_copy = unsafe { lib.get::<extern fn(_:  &AzImageId) -> AzImageId>(b"az_image_id_deep_copy").ok()? };
-        let az_font_id_new = unsafe { lib.get::<extern fn() -> AzFontId>(b"az_font_id_new").ok()? };
-        let az_font_id_delete = unsafe { lib.get::<extern fn(_:  &mut AzFontId)>(b"az_font_id_delete").ok()? };
-        let az_font_id_deep_copy = unsafe { lib.get::<extern fn(_:  &AzFontId) -> AzFontId>(b"az_font_id_deep_copy").ok()? };
-        let az_image_source_delete = unsafe { lib.get::<extern fn(_:  &mut AzImageSource)>(b"az_image_source_delete").ok()? };
-        let az_image_source_deep_copy = unsafe { lib.get::<extern fn(_:  &AzImageSource) -> AzImageSource>(b"az_image_source_deep_copy").ok()? };
-        let az_font_source_delete = unsafe { lib.get::<extern fn(_:  &mut AzFontSource)>(b"az_font_source_delete").ok()? };
-        let az_font_source_deep_copy = unsafe { lib.get::<extern fn(_:  &AzFontSource) -> AzFontSource>(b"az_font_source_deep_copy").ok()? };
-        let az_raw_image_new = unsafe { lib.get::<extern fn(_:  AzU8Vec, _:  usize, _:  usize, _:  AzRawImageFormat) -> AzRawImage>(b"az_raw_image_new").ok()? };
-        let az_raw_image_delete = unsafe { lib.get::<extern fn(_:  &mut AzRawImage)>(b"az_raw_image_delete").ok()? };
-        let az_raw_image_deep_copy = unsafe { lib.get::<extern fn(_:  &AzRawImage) -> AzRawImage>(b"az_raw_image_deep_copy").ok()? };
-        let az_raw_image_format_delete = unsafe { lib.get::<extern fn(_:  &mut AzRawImageFormat)>(b"az_raw_image_format_delete").ok()? };
-        let az_raw_image_format_deep_copy = unsafe { lib.get::<extern fn(_:  &AzRawImageFormat) -> AzRawImageFormat>(b"az_raw_image_format_deep_copy").ok()? };
-        let az_drop_check_ptr_delete = unsafe { lib.get::<extern fn(_:  &mut AzDropCheckPtrPtr)>(b"az_drop_check_ptr_delete").ok()? };
-        let az_drop_check_ptr_shallow_copy = unsafe { lib.get::<extern fn(_:  &AzDropCheckPtrPtr) -> AzDropCheckPtrPtr>(b"az_drop_check_ptr_shallow_copy").ok()? };
-        let az_arc_mutex_ref_any_delete = unsafe { lib.get::<extern fn(_:  &mut AzArcMutexRefAnyPtr)>(b"az_arc_mutex_ref_any_delete").ok()? };
-        let az_arc_mutex_ref_any_shallow_copy = unsafe { lib.get::<extern fn(_:  &AzArcMutexRefAnyPtr) -> AzArcMutexRefAnyPtr>(b"az_arc_mutex_ref_any_shallow_copy").ok()? };
-        let az_timer_callback_info_delete = unsafe { lib.get::<extern fn(_:  &mut AzTimerCallbackInfoPtr)>(b"az_timer_callback_info_delete").ok()? };
-        let az_timer_callback_info_shallow_copy = unsafe { lib.get::<extern fn(_:  &AzTimerCallbackInfoPtr) -> AzTimerCallbackInfoPtr>(b"az_timer_callback_info_shallow_copy").ok()? };
-        let az_timer_delete = unsafe { lib.get::<extern fn(_:  &mut AzTimer)>(b"az_timer_delete").ok()? };
-        let az_timer_deep_copy = unsafe { lib.get::<extern fn(_:  &AzTimer) -> AzTimer>(b"az_timer_deep_copy").ok()? };
-        let az_task_new = unsafe { lib.get::<extern fn(_:  AzArcMutexRefAnyPtr, _:  AzTaskCallbackType) -> AzTaskPtr>(b"az_task_new").ok()? };
-        let az_task_then = unsafe { lib.get::<extern fn(_:  AzTaskPtr, _:  AzTimer) -> AzTaskPtr>(b"az_task_then").ok()? };
-        let az_task_delete = unsafe { lib.get::<extern fn(_:  &mut AzTaskPtr)>(b"az_task_delete").ok()? };
-        let az_task_shallow_copy = unsafe { lib.get::<extern fn(_:  &AzTaskPtr) -> AzTaskPtr>(b"az_task_shallow_copy").ok()? };
-        let az_thread_new = unsafe { lib.get::<extern fn(_:  AzRefAny, _:  AzThreadCallbackType) -> AzThreadPtr>(b"az_thread_new").ok()? };
-        let az_thread_block = unsafe { lib.get::<extern fn(_:  AzThreadPtr) -> AzResultRefAnyBlockError>(b"az_thread_block").ok()? };
-        let az_thread_delete = unsafe { lib.get::<extern fn(_:  &mut AzThreadPtr)>(b"az_thread_delete").ok()? };
-        let az_thread_shallow_copy = unsafe { lib.get::<extern fn(_:  &AzThreadPtr) -> AzThreadPtr>(b"az_thread_shallow_copy").ok()? };
-        let az_drop_check_delete = unsafe { lib.get::<extern fn(_:  &mut AzDropCheckPtr)>(b"az_drop_check_delete").ok()? };
-        let az_drop_check_shallow_copy = unsafe { lib.get::<extern fn(_:  &AzDropCheckPtr) -> AzDropCheckPtr>(b"az_drop_check_shallow_copy").ok()? };
-        let az_timer_id_delete = unsafe { lib.get::<extern fn(_:  &mut AzTimerId)>(b"az_timer_id_delete").ok()? };
-        let az_timer_id_deep_copy = unsafe { lib.get::<extern fn(_:  &AzTimerId) -> AzTimerId>(b"az_timer_id_deep_copy").ok()? };
-        let az_terminate_timer_delete = unsafe { lib.get::<extern fn(_:  &mut AzTerminateTimer)>(b"az_terminate_timer_delete").ok()? };
-        let az_terminate_timer_deep_copy = unsafe { lib.get::<extern fn(_:  &AzTerminateTimer) -> AzTerminateTimer>(b"az_terminate_timer_deep_copy").ok()? };
-        let az_block_error_delete = unsafe { lib.get::<extern fn(_:  &mut AzBlockError)>(b"az_block_error_delete").ok()? };
-        let az_block_error_deep_copy = unsafe { lib.get::<extern fn(_:  &AzBlockError) -> AzBlockError>(b"az_block_error_deep_copy").ok()? };
-        let az_window_create_options_new = unsafe { lib.get::<extern fn(_:  AzCssPtr) -> AzWindowCreateOptionsPtr>(b"az_window_create_options_new").ok()? };
-        let az_window_create_options_delete = unsafe { lib.get::<extern fn(_:  &mut AzWindowCreateOptionsPtr)>(b"az_window_create_options_delete").ok()? };
-        let az_window_create_options_shallow_copy = unsafe { lib.get::<extern fn(_:  &AzWindowCreateOptionsPtr) -> AzWindowCreateOptionsPtr>(b"az_window_create_options_shallow_copy").ok()? };
-        let az_logical_size_delete = unsafe { lib.get::<extern fn(_:  &mut AzLogicalSize)>(b"az_logical_size_delete").ok()? };
-        let az_logical_size_deep_copy = unsafe { lib.get::<extern fn(_:  &AzLogicalSize) -> AzLogicalSize>(b"az_logical_size_deep_copy").ok()? };
-        let az_ref_any_new = unsafe { lib.get::<extern fn(_:  *const u8, _:  usize, _:  u64, _:  AzString, _:  fn(AzRefAny)) -> AzRefAny>(b"az_ref_any_new").ok()? };
-        let az_ref_any_get_ptr = unsafe { lib.get::<extern fn(_:  &AzRefAny, _:  usize, _:  u64) -> *const c_void>(b"az_ref_any_get_ptr").ok()? };
-        let az_ref_any_get_mut_ptr = unsafe { lib.get::<extern fn(_:  &AzRefAny, _:  usize, _:  u64) -> *mut c_void>(b"az_ref_any_get_mut_ptr").ok()? };
-        let az_ref_any_shallow_copy = unsafe { lib.get::<extern fn(_:  &AzRefAny) -> AzRefAny>(b"az_ref_any_shallow_copy").ok()? };
-        let az_ref_any_delete = unsafe { lib.get::<extern fn(_:  &mut AzRefAny)>(b"az_ref_any_delete").ok()? };
-        let az_ref_any_core_copy = unsafe { lib.get::<extern fn(_:  &AzRefAny) -> AzRefAny>(b"az_ref_any_core_copy").ok()? };
-        Some(AzulDll {
+    pub fn initialize_library(path: &std::path::Path) -> Result<AzulDll, &'static str> {
+        let lib = Library::new(path).map_err(|_| "library is not a DLL file (?!)")?;
+        let az_string_from_utf8_unchecked = unsafe { lib.get::<extern fn(_:  *const u8, _:  usize) -> AzString>(b"az_string_from_utf8_unchecked").map_err(|_| "az_string_from_utf8_unchecked")? };
+        let az_string_from_utf8_lossy = unsafe { lib.get::<extern fn(_:  *const u8, _:  usize) -> AzString>(b"az_string_from_utf8_lossy").map_err(|_| "az_string_from_utf8_lossy")? };
+        let az_string_into_bytes = unsafe { lib.get::<extern fn(_:  AzString) -> AzU8Vec>(b"az_string_into_bytes").map_err(|_| "az_string_into_bytes")? };
+        let az_string_delete = unsafe { lib.get::<extern fn(_:  &mut AzString)>(b"az_string_delete").map_err(|_| "az_string_delete")? };
+        let az_string_deep_copy = unsafe { lib.get::<extern fn(_:  &AzString) -> AzString>(b"az_string_deep_copy").map_err(|_| "az_string_deep_copy")? };
+        let az_u8_vec_copy_from = unsafe { lib.get::<extern fn(_:  *const u8, _:  usize) -> AzU8Vec>(b"az_u8_vec_copy_from").map_err(|_| "az_u8_vec_copy_from")? };
+        let az_u8_vec_delete = unsafe { lib.get::<extern fn(_:  &mut AzU8Vec)>(b"az_u8_vec_delete").map_err(|_| "az_u8_vec_delete")? };
+        let az_u8_vec_deep_copy = unsafe { lib.get::<extern fn(_:  &AzU8Vec) -> AzU8Vec>(b"az_u8_vec_deep_copy").map_err(|_| "az_u8_vec_deep_copy")? };
+        let az_callback_data_vec_copy_from = unsafe { lib.get::<extern fn(_:  *const AzCallbackData, _:  usize) -> AzCallbackDataVec>(b"az_callback_data_vec_copy_from").map_err(|_| "az_callback_data_vec_copy_from")? };
+        let az_callback_data_vec_delete = unsafe { lib.get::<extern fn(_:  &mut AzCallbackDataVec)>(b"az_callback_data_vec_delete").map_err(|_| "az_callback_data_vec_delete")? };
+        let az_callback_data_vec_deep_copy = unsafe { lib.get::<extern fn(_:  &AzCallbackDataVec) -> AzCallbackDataVec>(b"az_callback_data_vec_deep_copy").map_err(|_| "az_callback_data_vec_deep_copy")? };
+        let az_debug_message_vec_copy_from = unsafe { lib.get::<extern fn(_:  *const AzDebugMessage, _:  usize) -> AzDebugMessageVec>(b"az_debug_message_vec_copy_from").map_err(|_| "az_debug_message_vec_copy_from")? };
+        let az_debug_message_vec_delete = unsafe { lib.get::<extern fn(_:  &mut AzDebugMessageVec)>(b"az_debug_message_vec_delete").map_err(|_| "az_debug_message_vec_delete")? };
+        let az_debug_message_vec_deep_copy = unsafe { lib.get::<extern fn(_:  &AzDebugMessageVec) -> AzDebugMessageVec>(b"az_debug_message_vec_deep_copy").map_err(|_| "az_debug_message_vec_deep_copy")? };
+        let az_g_luint_vec_copy_from = unsafe { lib.get::<extern fn(_:  *const u32, _:  usize) -> AzGLuintVec>(b"az_g_luint_vec_copy_from").map_err(|_| "az_g_luint_vec_copy_from")? };
+        let az_g_luint_vec_delete = unsafe { lib.get::<extern fn(_:  &mut AzGLuintVec)>(b"az_g_luint_vec_delete").map_err(|_| "az_g_luint_vec_delete")? };
+        let az_g_luint_vec_deep_copy = unsafe { lib.get::<extern fn(_:  &AzGLuintVec) -> AzGLuintVec>(b"az_g_luint_vec_deep_copy").map_err(|_| "az_g_luint_vec_deep_copy")? };
+        let az_g_lint_vec_copy_from = unsafe { lib.get::<extern fn(_:  *const i32, _:  usize) -> AzGLintVec>(b"az_g_lint_vec_copy_from").map_err(|_| "az_g_lint_vec_copy_from")? };
+        let az_g_lint_vec_delete = unsafe { lib.get::<extern fn(_:  &mut AzGLintVec)>(b"az_g_lint_vec_delete").map_err(|_| "az_g_lint_vec_delete")? };
+        let az_g_lint_vec_deep_copy = unsafe { lib.get::<extern fn(_:  &AzGLintVec) -> AzGLintVec>(b"az_g_lint_vec_deep_copy").map_err(|_| "az_g_lint_vec_deep_copy")? };
+        let az_override_property_vec_copy_from = unsafe { lib.get::<extern fn(_:  *const AzOverrideProperty, _:  usize) -> AzOverridePropertyVec>(b"az_override_property_vec_copy_from").map_err(|_| "az_override_property_vec_copy_from")? };
+        let az_override_property_vec_delete = unsafe { lib.get::<extern fn(_:  &mut AzOverridePropertyVec)>(b"az_override_property_vec_delete").map_err(|_| "az_override_property_vec_delete")? };
+        let az_override_property_vec_deep_copy = unsafe { lib.get::<extern fn(_:  &AzOverridePropertyVec) -> AzOverridePropertyVec>(b"az_override_property_vec_deep_copy").map_err(|_| "az_override_property_vec_deep_copy")? };
+        let az_dom_vec_copy_from = unsafe { lib.get::<extern fn(_:  *const AzDom, _:  usize) -> AzDomVec>(b"az_dom_vec_copy_from").map_err(|_| "az_dom_vec_copy_from")? };
+        let az_dom_vec_delete = unsafe { lib.get::<extern fn(_:  &mut AzDomVec)>(b"az_dom_vec_delete").map_err(|_| "az_dom_vec_delete")? };
+        let az_dom_vec_deep_copy = unsafe { lib.get::<extern fn(_:  &AzDomVec) -> AzDomVec>(b"az_dom_vec_deep_copy").map_err(|_| "az_dom_vec_deep_copy")? };
+        let az_string_vec_copy_from = unsafe { lib.get::<extern fn(_:  *const AzString, _:  usize) -> AzStringVec>(b"az_string_vec_copy_from").map_err(|_| "az_string_vec_copy_from")? };
+        let az_string_vec_delete = unsafe { lib.get::<extern fn(_:  &mut AzStringVec)>(b"az_string_vec_delete").map_err(|_| "az_string_vec_delete")? };
+        let az_string_vec_deep_copy = unsafe { lib.get::<extern fn(_:  &AzStringVec) -> AzStringVec>(b"az_string_vec_deep_copy").map_err(|_| "az_string_vec_deep_copy")? };
+        let az_gradient_stop_pre_vec_copy_from = unsafe { lib.get::<extern fn(_:  *const AzGradientStopPre, _:  usize) -> AzGradientStopPreVec>(b"az_gradient_stop_pre_vec_copy_from").map_err(|_| "az_gradient_stop_pre_vec_copy_from")? };
+        let az_gradient_stop_pre_vec_delete = unsafe { lib.get::<extern fn(_:  &mut AzGradientStopPreVec)>(b"az_gradient_stop_pre_vec_delete").map_err(|_| "az_gradient_stop_pre_vec_delete")? };
+        let az_gradient_stop_pre_vec_deep_copy = unsafe { lib.get::<extern fn(_:  &AzGradientStopPreVec) -> AzGradientStopPreVec>(b"az_gradient_stop_pre_vec_deep_copy").map_err(|_| "az_gradient_stop_pre_vec_deep_copy")? };
+        let az_option_percentage_value_delete = unsafe { lib.get::<extern fn(_:  &mut AzOptionPercentageValue)>(b"az_option_percentage_value_delete").map_err(|_| "az_option_percentage_value_delete")? };
+        let az_option_percentage_value_deep_copy = unsafe { lib.get::<extern fn(_:  &AzOptionPercentageValue) -> AzOptionPercentageValue>(b"az_option_percentage_value_deep_copy").map_err(|_| "az_option_percentage_value_deep_copy")? };
+        let az_option_dom_delete = unsafe { lib.get::<extern fn(_:  &mut AzOptionDom)>(b"az_option_dom_delete").map_err(|_| "az_option_dom_delete")? };
+        let az_option_dom_deep_copy = unsafe { lib.get::<extern fn(_:  &AzOptionDom) -> AzOptionDom>(b"az_option_dom_deep_copy").map_err(|_| "az_option_dom_deep_copy")? };
+        let az_option_texture_delete = unsafe { lib.get::<extern fn(_:  &mut AzOptionTexture)>(b"az_option_texture_delete").map_err(|_| "az_option_texture_delete")? };
+        let az_option_tab_index_delete = unsafe { lib.get::<extern fn(_:  &mut AzOptionTabIndex)>(b"az_option_tab_index_delete").map_err(|_| "az_option_tab_index_delete")? };
+        let az_option_tab_index_deep_copy = unsafe { lib.get::<extern fn(_:  &AzOptionTabIndex) -> AzOptionTabIndex>(b"az_option_tab_index_deep_copy").map_err(|_| "az_option_tab_index_deep_copy")? };
+        let az_option_duration_delete = unsafe { lib.get::<extern fn(_:  &mut AzOptionDuration)>(b"az_option_duration_delete").map_err(|_| "az_option_duration_delete")? };
+        let az_option_duration_deep_copy = unsafe { lib.get::<extern fn(_:  &AzOptionDuration) -> AzOptionDuration>(b"az_option_duration_deep_copy").map_err(|_| "az_option_duration_deep_copy")? };
+        let az_option_instant_delete = unsafe { lib.get::<extern fn(_:  &mut AzOptionInstant)>(b"az_option_instant_delete").map_err(|_| "az_option_instant_delete")? };
+        let az_option_instant_deep_copy = unsafe { lib.get::<extern fn(_:  &AzOptionInstant) -> AzOptionInstant>(b"az_option_instant_deep_copy").map_err(|_| "az_option_instant_deep_copy")? };
+        let az_option_usize_delete = unsafe { lib.get::<extern fn(_:  &mut AzOptionUsize)>(b"az_option_usize_delete").map_err(|_| "az_option_usize_delete")? };
+        let az_option_usize_deep_copy = unsafe { lib.get::<extern fn(_:  &AzOptionUsize) -> AzOptionUsize>(b"az_option_usize_deep_copy").map_err(|_| "az_option_usize_deep_copy")? };
+        let az_option_u8_vec_ref_delete = unsafe { lib.get::<extern fn(_:  &mut AzOptionU8VecRef)>(b"az_option_u8_vec_ref_delete").map_err(|_| "az_option_u8_vec_ref_delete")? };
+        let az_result_ref_any_block_error_delete = unsafe { lib.get::<extern fn(_:  &mut AzResultRefAnyBlockError)>(b"az_result_ref_any_block_error_delete").map_err(|_| "az_result_ref_any_block_error_delete")? };
+        let az_result_ref_any_block_error_deep_copy = unsafe { lib.get::<extern fn(_:  &AzResultRefAnyBlockError) -> AzResultRefAnyBlockError>(b"az_result_ref_any_block_error_deep_copy").map_err(|_| "az_result_ref_any_block_error_deep_copy")? };
+        let az_instant_now = unsafe { lib.get::<extern fn() -> AzInstantPtr>(b"az_instant_now").map_err(|_| "az_instant_now")? };
+        let az_instant_delete = unsafe { lib.get::<extern fn(_:  &mut AzInstantPtr)>(b"az_instant_delete").map_err(|_| "az_instant_delete")? };
+        let az_duration_delete = unsafe { lib.get::<extern fn(_:  &mut AzDuration)>(b"az_duration_delete").map_err(|_| "az_duration_delete")? };
+        let az_duration_deep_copy = unsafe { lib.get::<extern fn(_:  &AzDuration) -> AzDuration>(b"az_duration_deep_copy").map_err(|_| "az_duration_deep_copy")? };
+        let az_app_config_default = unsafe { lib.get::<extern fn() -> AzAppConfigPtr>(b"az_app_config_default").map_err(|_| "az_app_config_default")? };
+        let az_app_config_delete = unsafe { lib.get::<extern fn(_:  &mut AzAppConfigPtr)>(b"az_app_config_delete").map_err(|_| "az_app_config_delete")? };
+        let az_app_new = unsafe { lib.get::<extern fn(_:  AzRefAny, _:  AzAppConfigPtr, _:  AzLayoutCallbackType) -> AzAppPtr>(b"az_app_new").map_err(|_| "az_app_new")? };
+        let az_app_run = unsafe { lib.get::<extern fn(_:  AzAppPtr, _:  AzWindowCreateOptionsPtr)>(b"az_app_run").map_err(|_| "az_app_run")? };
+        let az_app_delete = unsafe { lib.get::<extern fn(_:  &mut AzAppPtr)>(b"az_app_delete").map_err(|_| "az_app_delete")? };
+        let az_layout_callback_delete = unsafe { lib.get::<extern fn(_:  &mut AzLayoutCallback)>(b"az_layout_callback_delete").map_err(|_| "az_layout_callback_delete")? };
+        let az_layout_callback_deep_copy = unsafe { lib.get::<extern fn(_:  &AzLayoutCallback) -> AzLayoutCallback>(b"az_layout_callback_deep_copy").map_err(|_| "az_layout_callback_deep_copy")? };
+        let az_callback_delete = unsafe { lib.get::<extern fn(_:  &mut AzCallback)>(b"az_callback_delete").map_err(|_| "az_callback_delete")? };
+        let az_callback_deep_copy = unsafe { lib.get::<extern fn(_:  &AzCallback) -> AzCallback>(b"az_callback_deep_copy").map_err(|_| "az_callback_deep_copy")? };
+        let az_callback_info_delete = unsafe { lib.get::<extern fn(_:  &mut AzCallbackInfoPtr)>(b"az_callback_info_delete").map_err(|_| "az_callback_info_delete")? };
+        let az_update_screen_delete = unsafe { lib.get::<extern fn(_:  &mut AzUpdateScreen)>(b"az_update_screen_delete").map_err(|_| "az_update_screen_delete")? };
+        let az_update_screen_deep_copy = unsafe { lib.get::<extern fn(_:  &AzUpdateScreen) -> AzUpdateScreen>(b"az_update_screen_deep_copy").map_err(|_| "az_update_screen_deep_copy")? };
+        let az_i_frame_callback_delete = unsafe { lib.get::<extern fn(_:  &mut AzIFrameCallback)>(b"az_i_frame_callback_delete").map_err(|_| "az_i_frame_callback_delete")? };
+        let az_i_frame_callback_deep_copy = unsafe { lib.get::<extern fn(_:  &AzIFrameCallback) -> AzIFrameCallback>(b"az_i_frame_callback_deep_copy").map_err(|_| "az_i_frame_callback_deep_copy")? };
+        let az_i_frame_callback_info_delete = unsafe { lib.get::<extern fn(_:  &mut AzIFrameCallbackInfoPtr)>(b"az_i_frame_callback_info_delete").map_err(|_| "az_i_frame_callback_info_delete")? };
+        let az_i_frame_callback_return_delete = unsafe { lib.get::<extern fn(_:  &mut AzIFrameCallbackReturn)>(b"az_i_frame_callback_return_delete").map_err(|_| "az_i_frame_callback_return_delete")? };
+        let az_i_frame_callback_return_deep_copy = unsafe { lib.get::<extern fn(_:  &AzIFrameCallbackReturn) -> AzIFrameCallbackReturn>(b"az_i_frame_callback_return_deep_copy").map_err(|_| "az_i_frame_callback_return_deep_copy")? };
+        let az_gl_callback_delete = unsafe { lib.get::<extern fn(_:  &mut AzGlCallback)>(b"az_gl_callback_delete").map_err(|_| "az_gl_callback_delete")? };
+        let az_gl_callback_deep_copy = unsafe { lib.get::<extern fn(_:  &AzGlCallback) -> AzGlCallback>(b"az_gl_callback_deep_copy").map_err(|_| "az_gl_callback_deep_copy")? };
+        let az_gl_callback_info_delete = unsafe { lib.get::<extern fn(_:  &mut AzGlCallbackInfoPtr)>(b"az_gl_callback_info_delete").map_err(|_| "az_gl_callback_info_delete")? };
+        let az_gl_callback_return_delete = unsafe { lib.get::<extern fn(_:  &mut AzGlCallbackReturn)>(b"az_gl_callback_return_delete").map_err(|_| "az_gl_callback_return_delete")? };
+        let az_timer_callback_delete = unsafe { lib.get::<extern fn(_:  &mut AzTimerCallback)>(b"az_timer_callback_delete").map_err(|_| "az_timer_callback_delete")? };
+        let az_timer_callback_deep_copy = unsafe { lib.get::<extern fn(_:  &AzTimerCallback) -> AzTimerCallback>(b"az_timer_callback_deep_copy").map_err(|_| "az_timer_callback_deep_copy")? };
+        let az_timer_callback_type_delete = unsafe { lib.get::<extern fn(_:  &mut AzTimerCallbackTypePtr)>(b"az_timer_callback_type_delete").map_err(|_| "az_timer_callback_type_delete")? };
+        let az_timer_callback_return_delete = unsafe { lib.get::<extern fn(_:  &mut AzTimerCallbackReturn)>(b"az_timer_callback_return_delete").map_err(|_| "az_timer_callback_return_delete")? };
+        let az_timer_callback_return_deep_copy = unsafe { lib.get::<extern fn(_:  &AzTimerCallbackReturn) -> AzTimerCallbackReturn>(b"az_timer_callback_return_deep_copy").map_err(|_| "az_timer_callback_return_deep_copy")? };
+        let az_ref_any_sharing_info_can_be_shared = unsafe { lib.get::<extern fn(_:  &AzRefAnySharingInfo) -> bool>(b"az_ref_any_sharing_info_can_be_shared").map_err(|_| "az_ref_any_sharing_info_can_be_shared")? };
+        let az_ref_any_sharing_info_can_be_shared_mut = unsafe { lib.get::<extern fn(_:  &AzRefAnySharingInfo) -> bool>(b"az_ref_any_sharing_info_can_be_shared_mut").map_err(|_| "az_ref_any_sharing_info_can_be_shared_mut")? };
+        let az_ref_any_sharing_info_increase_ref = unsafe { lib.get::<extern fn(_:  &mut AzRefAnySharingInfo)>(b"az_ref_any_sharing_info_increase_ref").map_err(|_| "az_ref_any_sharing_info_increase_ref")? };
+        let az_ref_any_sharing_info_decrease_ref = unsafe { lib.get::<extern fn(_:  &mut AzRefAnySharingInfo)>(b"az_ref_any_sharing_info_decrease_ref").map_err(|_| "az_ref_any_sharing_info_decrease_ref")? };
+        let az_ref_any_sharing_info_increase_refmut = unsafe { lib.get::<extern fn(_:  &mut AzRefAnySharingInfo)>(b"az_ref_any_sharing_info_increase_refmut").map_err(|_| "az_ref_any_sharing_info_increase_refmut")? };
+        let az_ref_any_sharing_info_decrease_refmut = unsafe { lib.get::<extern fn(_:  &mut AzRefAnySharingInfo)>(b"az_ref_any_sharing_info_decrease_refmut").map_err(|_| "az_ref_any_sharing_info_decrease_refmut")? };
+        let az_ref_any_sharing_info_delete = unsafe { lib.get::<extern fn(_:  &mut AzRefAnySharingInfo)>(b"az_ref_any_sharing_info_delete").map_err(|_| "az_ref_any_sharing_info_delete")? };
+        let az_ref_any_new_c = unsafe { lib.get::<extern fn(_:  *const c_void, _:  usize, _:  u64, _:  AzString, _:  AzRefAnyDestructorType) -> AzRefAny>(b"az_ref_any_new_c").map_err(|_| "az_ref_any_new_c")? };
+        let az_ref_any_is_type = unsafe { lib.get::<extern fn(_:  &AzRefAny, _:  u64) -> bool>(b"az_ref_any_is_type").map_err(|_| "az_ref_any_is_type")? };
+        let az_ref_any_get_type_name = unsafe { lib.get::<extern fn(_:  &AzRefAny) -> AzString>(b"az_ref_any_get_type_name").map_err(|_| "az_ref_any_get_type_name")? };
+        let az_ref_any_can_be_shared = unsafe { lib.get::<extern fn(_:  &AzRefAny) -> bool>(b"az_ref_any_can_be_shared").map_err(|_| "az_ref_any_can_be_shared")? };
+        let az_ref_any_can_be_shared_mut = unsafe { lib.get::<extern fn(_:  &AzRefAny) -> bool>(b"az_ref_any_can_be_shared_mut").map_err(|_| "az_ref_any_can_be_shared_mut")? };
+        let az_ref_any_increase_ref = unsafe { lib.get::<extern fn(_:  &AzRefAny)>(b"az_ref_any_increase_ref").map_err(|_| "az_ref_any_increase_ref")? };
+        let az_ref_any_decrease_ref = unsafe { lib.get::<extern fn(_:  &AzRefAny)>(b"az_ref_any_decrease_ref").map_err(|_| "az_ref_any_decrease_ref")? };
+        let az_ref_any_increase_refmut = unsafe { lib.get::<extern fn(_:  &AzRefAny)>(b"az_ref_any_increase_refmut").map_err(|_| "az_ref_any_increase_refmut")? };
+        let az_ref_any_decrease_refmut = unsafe { lib.get::<extern fn(_:  &AzRefAny)>(b"az_ref_any_decrease_refmut").map_err(|_| "az_ref_any_decrease_refmut")? };
+        let az_ref_any_delete = unsafe { lib.get::<extern fn(_:  &mut AzRefAny)>(b"az_ref_any_delete").map_err(|_| "az_ref_any_delete")? };
+        let az_ref_any_deep_copy = unsafe { lib.get::<extern fn(_:  &AzRefAny) -> AzRefAny>(b"az_ref_any_deep_copy").map_err(|_| "az_ref_any_deep_copy")? };
+        let az_layout_info_delete = unsafe { lib.get::<extern fn(_:  &mut AzLayoutInfoPtr)>(b"az_layout_info_delete").map_err(|_| "az_layout_info_delete")? };
+        let az_css_native = unsafe { lib.get::<extern fn() -> AzCssPtr>(b"az_css_native").map_err(|_| "az_css_native")? };
+        let az_css_empty = unsafe { lib.get::<extern fn() -> AzCssPtr>(b"az_css_empty").map_err(|_| "az_css_empty")? };
+        let az_css_from_string = unsafe { lib.get::<extern fn(_:  AzString) -> AzCssPtr>(b"az_css_from_string").map_err(|_| "az_css_from_string")? };
+        let az_css_override_native = unsafe { lib.get::<extern fn(_:  AzString) -> AzCssPtr>(b"az_css_override_native").map_err(|_| "az_css_override_native")? };
+        let az_css_delete = unsafe { lib.get::<extern fn(_:  &mut AzCssPtr)>(b"az_css_delete").map_err(|_| "az_css_delete")? };
+        let az_css_hot_reloader_new = unsafe { lib.get::<extern fn(_:  AzString, _:  u64) -> AzCssHotReloaderPtr>(b"az_css_hot_reloader_new").map_err(|_| "az_css_hot_reloader_new")? };
+        let az_css_hot_reloader_override_native = unsafe { lib.get::<extern fn(_:  AzString, _:  u64) -> AzCssHotReloaderPtr>(b"az_css_hot_reloader_override_native").map_err(|_| "az_css_hot_reloader_override_native")? };
+        let az_css_hot_reloader_delete = unsafe { lib.get::<extern fn(_:  &mut AzCssHotReloaderPtr)>(b"az_css_hot_reloader_delete").map_err(|_| "az_css_hot_reloader_delete")? };
+        let az_color_u_delete = unsafe { lib.get::<extern fn(_:  &mut AzColorU)>(b"az_color_u_delete").map_err(|_| "az_color_u_delete")? };
+        let az_color_u_deep_copy = unsafe { lib.get::<extern fn(_:  &AzColorU) -> AzColorU>(b"az_color_u_deep_copy").map_err(|_| "az_color_u_deep_copy")? };
+        let az_size_metric_delete = unsafe { lib.get::<extern fn(_:  &mut AzSizeMetric)>(b"az_size_metric_delete").map_err(|_| "az_size_metric_delete")? };
+        let az_size_metric_deep_copy = unsafe { lib.get::<extern fn(_:  &AzSizeMetric) -> AzSizeMetric>(b"az_size_metric_deep_copy").map_err(|_| "az_size_metric_deep_copy")? };
+        let az_float_value_delete = unsafe { lib.get::<extern fn(_:  &mut AzFloatValue)>(b"az_float_value_delete").map_err(|_| "az_float_value_delete")? };
+        let az_float_value_deep_copy = unsafe { lib.get::<extern fn(_:  &AzFloatValue) -> AzFloatValue>(b"az_float_value_deep_copy").map_err(|_| "az_float_value_deep_copy")? };
+        let az_pixel_value_delete = unsafe { lib.get::<extern fn(_:  &mut AzPixelValue)>(b"az_pixel_value_delete").map_err(|_| "az_pixel_value_delete")? };
+        let az_pixel_value_deep_copy = unsafe { lib.get::<extern fn(_:  &AzPixelValue) -> AzPixelValue>(b"az_pixel_value_deep_copy").map_err(|_| "az_pixel_value_deep_copy")? };
+        let az_pixel_value_no_percent_delete = unsafe { lib.get::<extern fn(_:  &mut AzPixelValueNoPercent)>(b"az_pixel_value_no_percent_delete").map_err(|_| "az_pixel_value_no_percent_delete")? };
+        let az_pixel_value_no_percent_deep_copy = unsafe { lib.get::<extern fn(_:  &AzPixelValueNoPercent) -> AzPixelValueNoPercent>(b"az_pixel_value_no_percent_deep_copy").map_err(|_| "az_pixel_value_no_percent_deep_copy")? };
+        let az_box_shadow_clip_mode_delete = unsafe { lib.get::<extern fn(_:  &mut AzBoxShadowClipMode)>(b"az_box_shadow_clip_mode_delete").map_err(|_| "az_box_shadow_clip_mode_delete")? };
+        let az_box_shadow_clip_mode_deep_copy = unsafe { lib.get::<extern fn(_:  &AzBoxShadowClipMode) -> AzBoxShadowClipMode>(b"az_box_shadow_clip_mode_deep_copy").map_err(|_| "az_box_shadow_clip_mode_deep_copy")? };
+        let az_box_shadow_pre_display_item_delete = unsafe { lib.get::<extern fn(_:  &mut AzBoxShadowPreDisplayItem)>(b"az_box_shadow_pre_display_item_delete").map_err(|_| "az_box_shadow_pre_display_item_delete")? };
+        let az_box_shadow_pre_display_item_deep_copy = unsafe { lib.get::<extern fn(_:  &AzBoxShadowPreDisplayItem) -> AzBoxShadowPreDisplayItem>(b"az_box_shadow_pre_display_item_deep_copy").map_err(|_| "az_box_shadow_pre_display_item_deep_copy")? };
+        let az_layout_align_content_delete = unsafe { lib.get::<extern fn(_:  &mut AzLayoutAlignContent)>(b"az_layout_align_content_delete").map_err(|_| "az_layout_align_content_delete")? };
+        let az_layout_align_content_deep_copy = unsafe { lib.get::<extern fn(_:  &AzLayoutAlignContent) -> AzLayoutAlignContent>(b"az_layout_align_content_deep_copy").map_err(|_| "az_layout_align_content_deep_copy")? };
+        let az_layout_align_items_delete = unsafe { lib.get::<extern fn(_:  &mut AzLayoutAlignItems)>(b"az_layout_align_items_delete").map_err(|_| "az_layout_align_items_delete")? };
+        let az_layout_align_items_deep_copy = unsafe { lib.get::<extern fn(_:  &AzLayoutAlignItems) -> AzLayoutAlignItems>(b"az_layout_align_items_deep_copy").map_err(|_| "az_layout_align_items_deep_copy")? };
+        let az_layout_bottom_delete = unsafe { lib.get::<extern fn(_:  &mut AzLayoutBottom)>(b"az_layout_bottom_delete").map_err(|_| "az_layout_bottom_delete")? };
+        let az_layout_bottom_deep_copy = unsafe { lib.get::<extern fn(_:  &AzLayoutBottom) -> AzLayoutBottom>(b"az_layout_bottom_deep_copy").map_err(|_| "az_layout_bottom_deep_copy")? };
+        let az_layout_box_sizing_delete = unsafe { lib.get::<extern fn(_:  &mut AzLayoutBoxSizing)>(b"az_layout_box_sizing_delete").map_err(|_| "az_layout_box_sizing_delete")? };
+        let az_layout_box_sizing_deep_copy = unsafe { lib.get::<extern fn(_:  &AzLayoutBoxSizing) -> AzLayoutBoxSizing>(b"az_layout_box_sizing_deep_copy").map_err(|_| "az_layout_box_sizing_deep_copy")? };
+        let az_layout_direction_delete = unsafe { lib.get::<extern fn(_:  &mut AzLayoutDirection)>(b"az_layout_direction_delete").map_err(|_| "az_layout_direction_delete")? };
+        let az_layout_direction_deep_copy = unsafe { lib.get::<extern fn(_:  &AzLayoutDirection) -> AzLayoutDirection>(b"az_layout_direction_deep_copy").map_err(|_| "az_layout_direction_deep_copy")? };
+        let az_layout_display_delete = unsafe { lib.get::<extern fn(_:  &mut AzLayoutDisplay)>(b"az_layout_display_delete").map_err(|_| "az_layout_display_delete")? };
+        let az_layout_display_deep_copy = unsafe { lib.get::<extern fn(_:  &AzLayoutDisplay) -> AzLayoutDisplay>(b"az_layout_display_deep_copy").map_err(|_| "az_layout_display_deep_copy")? };
+        let az_layout_flex_grow_delete = unsafe { lib.get::<extern fn(_:  &mut AzLayoutFlexGrow)>(b"az_layout_flex_grow_delete").map_err(|_| "az_layout_flex_grow_delete")? };
+        let az_layout_flex_grow_deep_copy = unsafe { lib.get::<extern fn(_:  &AzLayoutFlexGrow) -> AzLayoutFlexGrow>(b"az_layout_flex_grow_deep_copy").map_err(|_| "az_layout_flex_grow_deep_copy")? };
+        let az_layout_flex_shrink_delete = unsafe { lib.get::<extern fn(_:  &mut AzLayoutFlexShrink)>(b"az_layout_flex_shrink_delete").map_err(|_| "az_layout_flex_shrink_delete")? };
+        let az_layout_flex_shrink_deep_copy = unsafe { lib.get::<extern fn(_:  &AzLayoutFlexShrink) -> AzLayoutFlexShrink>(b"az_layout_flex_shrink_deep_copy").map_err(|_| "az_layout_flex_shrink_deep_copy")? };
+        let az_layout_float_delete = unsafe { lib.get::<extern fn(_:  &mut AzLayoutFloat)>(b"az_layout_float_delete").map_err(|_| "az_layout_float_delete")? };
+        let az_layout_float_deep_copy = unsafe { lib.get::<extern fn(_:  &AzLayoutFloat) -> AzLayoutFloat>(b"az_layout_float_deep_copy").map_err(|_| "az_layout_float_deep_copy")? };
+        let az_layout_height_delete = unsafe { lib.get::<extern fn(_:  &mut AzLayoutHeight)>(b"az_layout_height_delete").map_err(|_| "az_layout_height_delete")? };
+        let az_layout_height_deep_copy = unsafe { lib.get::<extern fn(_:  &AzLayoutHeight) -> AzLayoutHeight>(b"az_layout_height_deep_copy").map_err(|_| "az_layout_height_deep_copy")? };
+        let az_layout_justify_content_delete = unsafe { lib.get::<extern fn(_:  &mut AzLayoutJustifyContent)>(b"az_layout_justify_content_delete").map_err(|_| "az_layout_justify_content_delete")? };
+        let az_layout_justify_content_deep_copy = unsafe { lib.get::<extern fn(_:  &AzLayoutJustifyContent) -> AzLayoutJustifyContent>(b"az_layout_justify_content_deep_copy").map_err(|_| "az_layout_justify_content_deep_copy")? };
+        let az_layout_left_delete = unsafe { lib.get::<extern fn(_:  &mut AzLayoutLeft)>(b"az_layout_left_delete").map_err(|_| "az_layout_left_delete")? };
+        let az_layout_left_deep_copy = unsafe { lib.get::<extern fn(_:  &AzLayoutLeft) -> AzLayoutLeft>(b"az_layout_left_deep_copy").map_err(|_| "az_layout_left_deep_copy")? };
+        let az_layout_margin_bottom_delete = unsafe { lib.get::<extern fn(_:  &mut AzLayoutMarginBottom)>(b"az_layout_margin_bottom_delete").map_err(|_| "az_layout_margin_bottom_delete")? };
+        let az_layout_margin_bottom_deep_copy = unsafe { lib.get::<extern fn(_:  &AzLayoutMarginBottom) -> AzLayoutMarginBottom>(b"az_layout_margin_bottom_deep_copy").map_err(|_| "az_layout_margin_bottom_deep_copy")? };
+        let az_layout_margin_left_delete = unsafe { lib.get::<extern fn(_:  &mut AzLayoutMarginLeft)>(b"az_layout_margin_left_delete").map_err(|_| "az_layout_margin_left_delete")? };
+        let az_layout_margin_left_deep_copy = unsafe { lib.get::<extern fn(_:  &AzLayoutMarginLeft) -> AzLayoutMarginLeft>(b"az_layout_margin_left_deep_copy").map_err(|_| "az_layout_margin_left_deep_copy")? };
+        let az_layout_margin_right_delete = unsafe { lib.get::<extern fn(_:  &mut AzLayoutMarginRight)>(b"az_layout_margin_right_delete").map_err(|_| "az_layout_margin_right_delete")? };
+        let az_layout_margin_right_deep_copy = unsafe { lib.get::<extern fn(_:  &AzLayoutMarginRight) -> AzLayoutMarginRight>(b"az_layout_margin_right_deep_copy").map_err(|_| "az_layout_margin_right_deep_copy")? };
+        let az_layout_margin_top_delete = unsafe { lib.get::<extern fn(_:  &mut AzLayoutMarginTop)>(b"az_layout_margin_top_delete").map_err(|_| "az_layout_margin_top_delete")? };
+        let az_layout_margin_top_deep_copy = unsafe { lib.get::<extern fn(_:  &AzLayoutMarginTop) -> AzLayoutMarginTop>(b"az_layout_margin_top_deep_copy").map_err(|_| "az_layout_margin_top_deep_copy")? };
+        let az_layout_max_height_delete = unsafe { lib.get::<extern fn(_:  &mut AzLayoutMaxHeight)>(b"az_layout_max_height_delete").map_err(|_| "az_layout_max_height_delete")? };
+        let az_layout_max_height_deep_copy = unsafe { lib.get::<extern fn(_:  &AzLayoutMaxHeight) -> AzLayoutMaxHeight>(b"az_layout_max_height_deep_copy").map_err(|_| "az_layout_max_height_deep_copy")? };
+        let az_layout_max_width_delete = unsafe { lib.get::<extern fn(_:  &mut AzLayoutMaxWidth)>(b"az_layout_max_width_delete").map_err(|_| "az_layout_max_width_delete")? };
+        let az_layout_max_width_deep_copy = unsafe { lib.get::<extern fn(_:  &AzLayoutMaxWidth) -> AzLayoutMaxWidth>(b"az_layout_max_width_deep_copy").map_err(|_| "az_layout_max_width_deep_copy")? };
+        let az_layout_min_height_delete = unsafe { lib.get::<extern fn(_:  &mut AzLayoutMinHeight)>(b"az_layout_min_height_delete").map_err(|_| "az_layout_min_height_delete")? };
+        let az_layout_min_height_deep_copy = unsafe { lib.get::<extern fn(_:  &AzLayoutMinHeight) -> AzLayoutMinHeight>(b"az_layout_min_height_deep_copy").map_err(|_| "az_layout_min_height_deep_copy")? };
+        let az_layout_min_width_delete = unsafe { lib.get::<extern fn(_:  &mut AzLayoutMinWidth)>(b"az_layout_min_width_delete").map_err(|_| "az_layout_min_width_delete")? };
+        let az_layout_min_width_deep_copy = unsafe { lib.get::<extern fn(_:  &AzLayoutMinWidth) -> AzLayoutMinWidth>(b"az_layout_min_width_deep_copy").map_err(|_| "az_layout_min_width_deep_copy")? };
+        let az_layout_padding_bottom_delete = unsafe { lib.get::<extern fn(_:  &mut AzLayoutPaddingBottom)>(b"az_layout_padding_bottom_delete").map_err(|_| "az_layout_padding_bottom_delete")? };
+        let az_layout_padding_bottom_deep_copy = unsafe { lib.get::<extern fn(_:  &AzLayoutPaddingBottom) -> AzLayoutPaddingBottom>(b"az_layout_padding_bottom_deep_copy").map_err(|_| "az_layout_padding_bottom_deep_copy")? };
+        let az_layout_padding_left_delete = unsafe { lib.get::<extern fn(_:  &mut AzLayoutPaddingLeft)>(b"az_layout_padding_left_delete").map_err(|_| "az_layout_padding_left_delete")? };
+        let az_layout_padding_left_deep_copy = unsafe { lib.get::<extern fn(_:  &AzLayoutPaddingLeft) -> AzLayoutPaddingLeft>(b"az_layout_padding_left_deep_copy").map_err(|_| "az_layout_padding_left_deep_copy")? };
+        let az_layout_padding_right_delete = unsafe { lib.get::<extern fn(_:  &mut AzLayoutPaddingRight)>(b"az_layout_padding_right_delete").map_err(|_| "az_layout_padding_right_delete")? };
+        let az_layout_padding_right_deep_copy = unsafe { lib.get::<extern fn(_:  &AzLayoutPaddingRight) -> AzLayoutPaddingRight>(b"az_layout_padding_right_deep_copy").map_err(|_| "az_layout_padding_right_deep_copy")? };
+        let az_layout_padding_top_delete = unsafe { lib.get::<extern fn(_:  &mut AzLayoutPaddingTop)>(b"az_layout_padding_top_delete").map_err(|_| "az_layout_padding_top_delete")? };
+        let az_layout_padding_top_deep_copy = unsafe { lib.get::<extern fn(_:  &AzLayoutPaddingTop) -> AzLayoutPaddingTop>(b"az_layout_padding_top_deep_copy").map_err(|_| "az_layout_padding_top_deep_copy")? };
+        let az_layout_position_delete = unsafe { lib.get::<extern fn(_:  &mut AzLayoutPosition)>(b"az_layout_position_delete").map_err(|_| "az_layout_position_delete")? };
+        let az_layout_position_deep_copy = unsafe { lib.get::<extern fn(_:  &AzLayoutPosition) -> AzLayoutPosition>(b"az_layout_position_deep_copy").map_err(|_| "az_layout_position_deep_copy")? };
+        let az_layout_right_delete = unsafe { lib.get::<extern fn(_:  &mut AzLayoutRight)>(b"az_layout_right_delete").map_err(|_| "az_layout_right_delete")? };
+        let az_layout_right_deep_copy = unsafe { lib.get::<extern fn(_:  &AzLayoutRight) -> AzLayoutRight>(b"az_layout_right_deep_copy").map_err(|_| "az_layout_right_deep_copy")? };
+        let az_layout_top_delete = unsafe { lib.get::<extern fn(_:  &mut AzLayoutTop)>(b"az_layout_top_delete").map_err(|_| "az_layout_top_delete")? };
+        let az_layout_top_deep_copy = unsafe { lib.get::<extern fn(_:  &AzLayoutTop) -> AzLayoutTop>(b"az_layout_top_deep_copy").map_err(|_| "az_layout_top_deep_copy")? };
+        let az_layout_width_delete = unsafe { lib.get::<extern fn(_:  &mut AzLayoutWidth)>(b"az_layout_width_delete").map_err(|_| "az_layout_width_delete")? };
+        let az_layout_width_deep_copy = unsafe { lib.get::<extern fn(_:  &AzLayoutWidth) -> AzLayoutWidth>(b"az_layout_width_deep_copy").map_err(|_| "az_layout_width_deep_copy")? };
+        let az_layout_wrap_delete = unsafe { lib.get::<extern fn(_:  &mut AzLayoutWrap)>(b"az_layout_wrap_delete").map_err(|_| "az_layout_wrap_delete")? };
+        let az_layout_wrap_deep_copy = unsafe { lib.get::<extern fn(_:  &AzLayoutWrap) -> AzLayoutWrap>(b"az_layout_wrap_deep_copy").map_err(|_| "az_layout_wrap_deep_copy")? };
+        let az_overflow_delete = unsafe { lib.get::<extern fn(_:  &mut AzOverflow)>(b"az_overflow_delete").map_err(|_| "az_overflow_delete")? };
+        let az_overflow_deep_copy = unsafe { lib.get::<extern fn(_:  &AzOverflow) -> AzOverflow>(b"az_overflow_deep_copy").map_err(|_| "az_overflow_deep_copy")? };
+        let az_percentage_value_delete = unsafe { lib.get::<extern fn(_:  &mut AzPercentageValue)>(b"az_percentage_value_delete").map_err(|_| "az_percentage_value_delete")? };
+        let az_percentage_value_deep_copy = unsafe { lib.get::<extern fn(_:  &AzPercentageValue) -> AzPercentageValue>(b"az_percentage_value_deep_copy").map_err(|_| "az_percentage_value_deep_copy")? };
+        let az_gradient_stop_pre_delete = unsafe { lib.get::<extern fn(_:  &mut AzGradientStopPre)>(b"az_gradient_stop_pre_delete").map_err(|_| "az_gradient_stop_pre_delete")? };
+        let az_gradient_stop_pre_deep_copy = unsafe { lib.get::<extern fn(_:  &AzGradientStopPre) -> AzGradientStopPre>(b"az_gradient_stop_pre_deep_copy").map_err(|_| "az_gradient_stop_pre_deep_copy")? };
+        let az_direction_corner_delete = unsafe { lib.get::<extern fn(_:  &mut AzDirectionCorner)>(b"az_direction_corner_delete").map_err(|_| "az_direction_corner_delete")? };
+        let az_direction_corner_deep_copy = unsafe { lib.get::<extern fn(_:  &AzDirectionCorner) -> AzDirectionCorner>(b"az_direction_corner_deep_copy").map_err(|_| "az_direction_corner_deep_copy")? };
+        let az_direction_corners_delete = unsafe { lib.get::<extern fn(_:  &mut AzDirectionCorners)>(b"az_direction_corners_delete").map_err(|_| "az_direction_corners_delete")? };
+        let az_direction_corners_deep_copy = unsafe { lib.get::<extern fn(_:  &AzDirectionCorners) -> AzDirectionCorners>(b"az_direction_corners_deep_copy").map_err(|_| "az_direction_corners_deep_copy")? };
+        let az_direction_delete = unsafe { lib.get::<extern fn(_:  &mut AzDirection)>(b"az_direction_delete").map_err(|_| "az_direction_delete")? };
+        let az_direction_deep_copy = unsafe { lib.get::<extern fn(_:  &AzDirection) -> AzDirection>(b"az_direction_deep_copy").map_err(|_| "az_direction_deep_copy")? };
+        let az_extend_mode_delete = unsafe { lib.get::<extern fn(_:  &mut AzExtendMode)>(b"az_extend_mode_delete").map_err(|_| "az_extend_mode_delete")? };
+        let az_extend_mode_deep_copy = unsafe { lib.get::<extern fn(_:  &AzExtendMode) -> AzExtendMode>(b"az_extend_mode_deep_copy").map_err(|_| "az_extend_mode_deep_copy")? };
+        let az_linear_gradient_delete = unsafe { lib.get::<extern fn(_:  &mut AzLinearGradient)>(b"az_linear_gradient_delete").map_err(|_| "az_linear_gradient_delete")? };
+        let az_linear_gradient_deep_copy = unsafe { lib.get::<extern fn(_:  &AzLinearGradient) -> AzLinearGradient>(b"az_linear_gradient_deep_copy").map_err(|_| "az_linear_gradient_deep_copy")? };
+        let az_shape_delete = unsafe { lib.get::<extern fn(_:  &mut AzShape)>(b"az_shape_delete").map_err(|_| "az_shape_delete")? };
+        let az_shape_deep_copy = unsafe { lib.get::<extern fn(_:  &AzShape) -> AzShape>(b"az_shape_deep_copy").map_err(|_| "az_shape_deep_copy")? };
+        let az_radial_gradient_delete = unsafe { lib.get::<extern fn(_:  &mut AzRadialGradient)>(b"az_radial_gradient_delete").map_err(|_| "az_radial_gradient_delete")? };
+        let az_radial_gradient_deep_copy = unsafe { lib.get::<extern fn(_:  &AzRadialGradient) -> AzRadialGradient>(b"az_radial_gradient_deep_copy").map_err(|_| "az_radial_gradient_deep_copy")? };
+        let az_css_image_id_delete = unsafe { lib.get::<extern fn(_:  &mut AzCssImageId)>(b"az_css_image_id_delete").map_err(|_| "az_css_image_id_delete")? };
+        let az_css_image_id_deep_copy = unsafe { lib.get::<extern fn(_:  &AzCssImageId) -> AzCssImageId>(b"az_css_image_id_deep_copy").map_err(|_| "az_css_image_id_deep_copy")? };
+        let az_style_background_content_delete = unsafe { lib.get::<extern fn(_:  &mut AzStyleBackgroundContent)>(b"az_style_background_content_delete").map_err(|_| "az_style_background_content_delete")? };
+        let az_style_background_content_deep_copy = unsafe { lib.get::<extern fn(_:  &AzStyleBackgroundContent) -> AzStyleBackgroundContent>(b"az_style_background_content_deep_copy").map_err(|_| "az_style_background_content_deep_copy")? };
+        let az_background_position_horizontal_delete = unsafe { lib.get::<extern fn(_:  &mut AzBackgroundPositionHorizontal)>(b"az_background_position_horizontal_delete").map_err(|_| "az_background_position_horizontal_delete")? };
+        let az_background_position_horizontal_deep_copy = unsafe { lib.get::<extern fn(_:  &AzBackgroundPositionHorizontal) -> AzBackgroundPositionHorizontal>(b"az_background_position_horizontal_deep_copy").map_err(|_| "az_background_position_horizontal_deep_copy")? };
+        let az_background_position_vertical_delete = unsafe { lib.get::<extern fn(_:  &mut AzBackgroundPositionVertical)>(b"az_background_position_vertical_delete").map_err(|_| "az_background_position_vertical_delete")? };
+        let az_background_position_vertical_deep_copy = unsafe { lib.get::<extern fn(_:  &AzBackgroundPositionVertical) -> AzBackgroundPositionVertical>(b"az_background_position_vertical_deep_copy").map_err(|_| "az_background_position_vertical_deep_copy")? };
+        let az_style_background_position_delete = unsafe { lib.get::<extern fn(_:  &mut AzStyleBackgroundPosition)>(b"az_style_background_position_delete").map_err(|_| "az_style_background_position_delete")? };
+        let az_style_background_position_deep_copy = unsafe { lib.get::<extern fn(_:  &AzStyleBackgroundPosition) -> AzStyleBackgroundPosition>(b"az_style_background_position_deep_copy").map_err(|_| "az_style_background_position_deep_copy")? };
+        let az_style_background_repeat_delete = unsafe { lib.get::<extern fn(_:  &mut AzStyleBackgroundRepeat)>(b"az_style_background_repeat_delete").map_err(|_| "az_style_background_repeat_delete")? };
+        let az_style_background_repeat_deep_copy = unsafe { lib.get::<extern fn(_:  &AzStyleBackgroundRepeat) -> AzStyleBackgroundRepeat>(b"az_style_background_repeat_deep_copy").map_err(|_| "az_style_background_repeat_deep_copy")? };
+        let az_style_background_size_delete = unsafe { lib.get::<extern fn(_:  &mut AzStyleBackgroundSize)>(b"az_style_background_size_delete").map_err(|_| "az_style_background_size_delete")? };
+        let az_style_background_size_deep_copy = unsafe { lib.get::<extern fn(_:  &AzStyleBackgroundSize) -> AzStyleBackgroundSize>(b"az_style_background_size_deep_copy").map_err(|_| "az_style_background_size_deep_copy")? };
+        let az_style_border_bottom_color_delete = unsafe { lib.get::<extern fn(_:  &mut AzStyleBorderBottomColor)>(b"az_style_border_bottom_color_delete").map_err(|_| "az_style_border_bottom_color_delete")? };
+        let az_style_border_bottom_color_deep_copy = unsafe { lib.get::<extern fn(_:  &AzStyleBorderBottomColor) -> AzStyleBorderBottomColor>(b"az_style_border_bottom_color_deep_copy").map_err(|_| "az_style_border_bottom_color_deep_copy")? };
+        let az_style_border_bottom_left_radius_delete = unsafe { lib.get::<extern fn(_:  &mut AzStyleBorderBottomLeftRadius)>(b"az_style_border_bottom_left_radius_delete").map_err(|_| "az_style_border_bottom_left_radius_delete")? };
+        let az_style_border_bottom_left_radius_deep_copy = unsafe { lib.get::<extern fn(_:  &AzStyleBorderBottomLeftRadius) -> AzStyleBorderBottomLeftRadius>(b"az_style_border_bottom_left_radius_deep_copy").map_err(|_| "az_style_border_bottom_left_radius_deep_copy")? };
+        let az_style_border_bottom_right_radius_delete = unsafe { lib.get::<extern fn(_:  &mut AzStyleBorderBottomRightRadius)>(b"az_style_border_bottom_right_radius_delete").map_err(|_| "az_style_border_bottom_right_radius_delete")? };
+        let az_style_border_bottom_right_radius_deep_copy = unsafe { lib.get::<extern fn(_:  &AzStyleBorderBottomRightRadius) -> AzStyleBorderBottomRightRadius>(b"az_style_border_bottom_right_radius_deep_copy").map_err(|_| "az_style_border_bottom_right_radius_deep_copy")? };
+        let az_border_style_delete = unsafe { lib.get::<extern fn(_:  &mut AzBorderStyle)>(b"az_border_style_delete").map_err(|_| "az_border_style_delete")? };
+        let az_border_style_deep_copy = unsafe { lib.get::<extern fn(_:  &AzBorderStyle) -> AzBorderStyle>(b"az_border_style_deep_copy").map_err(|_| "az_border_style_deep_copy")? };
+        let az_style_border_bottom_style_delete = unsafe { lib.get::<extern fn(_:  &mut AzStyleBorderBottomStyle)>(b"az_style_border_bottom_style_delete").map_err(|_| "az_style_border_bottom_style_delete")? };
+        let az_style_border_bottom_style_deep_copy = unsafe { lib.get::<extern fn(_:  &AzStyleBorderBottomStyle) -> AzStyleBorderBottomStyle>(b"az_style_border_bottom_style_deep_copy").map_err(|_| "az_style_border_bottom_style_deep_copy")? };
+        let az_style_border_bottom_width_delete = unsafe { lib.get::<extern fn(_:  &mut AzStyleBorderBottomWidth)>(b"az_style_border_bottom_width_delete").map_err(|_| "az_style_border_bottom_width_delete")? };
+        let az_style_border_bottom_width_deep_copy = unsafe { lib.get::<extern fn(_:  &AzStyleBorderBottomWidth) -> AzStyleBorderBottomWidth>(b"az_style_border_bottom_width_deep_copy").map_err(|_| "az_style_border_bottom_width_deep_copy")? };
+        let az_style_border_left_color_delete = unsafe { lib.get::<extern fn(_:  &mut AzStyleBorderLeftColor)>(b"az_style_border_left_color_delete").map_err(|_| "az_style_border_left_color_delete")? };
+        let az_style_border_left_color_deep_copy = unsafe { lib.get::<extern fn(_:  &AzStyleBorderLeftColor) -> AzStyleBorderLeftColor>(b"az_style_border_left_color_deep_copy").map_err(|_| "az_style_border_left_color_deep_copy")? };
+        let az_style_border_left_style_delete = unsafe { lib.get::<extern fn(_:  &mut AzStyleBorderLeftStyle)>(b"az_style_border_left_style_delete").map_err(|_| "az_style_border_left_style_delete")? };
+        let az_style_border_left_style_deep_copy = unsafe { lib.get::<extern fn(_:  &AzStyleBorderLeftStyle) -> AzStyleBorderLeftStyle>(b"az_style_border_left_style_deep_copy").map_err(|_| "az_style_border_left_style_deep_copy")? };
+        let az_style_border_left_width_delete = unsafe { lib.get::<extern fn(_:  &mut AzStyleBorderLeftWidth)>(b"az_style_border_left_width_delete").map_err(|_| "az_style_border_left_width_delete")? };
+        let az_style_border_left_width_deep_copy = unsafe { lib.get::<extern fn(_:  &AzStyleBorderLeftWidth) -> AzStyleBorderLeftWidth>(b"az_style_border_left_width_deep_copy").map_err(|_| "az_style_border_left_width_deep_copy")? };
+        let az_style_border_right_color_delete = unsafe { lib.get::<extern fn(_:  &mut AzStyleBorderRightColor)>(b"az_style_border_right_color_delete").map_err(|_| "az_style_border_right_color_delete")? };
+        let az_style_border_right_color_deep_copy = unsafe { lib.get::<extern fn(_:  &AzStyleBorderRightColor) -> AzStyleBorderRightColor>(b"az_style_border_right_color_deep_copy").map_err(|_| "az_style_border_right_color_deep_copy")? };
+        let az_style_border_right_style_delete = unsafe { lib.get::<extern fn(_:  &mut AzStyleBorderRightStyle)>(b"az_style_border_right_style_delete").map_err(|_| "az_style_border_right_style_delete")? };
+        let az_style_border_right_style_deep_copy = unsafe { lib.get::<extern fn(_:  &AzStyleBorderRightStyle) -> AzStyleBorderRightStyle>(b"az_style_border_right_style_deep_copy").map_err(|_| "az_style_border_right_style_deep_copy")? };
+        let az_style_border_right_width_delete = unsafe { lib.get::<extern fn(_:  &mut AzStyleBorderRightWidth)>(b"az_style_border_right_width_delete").map_err(|_| "az_style_border_right_width_delete")? };
+        let az_style_border_right_width_deep_copy = unsafe { lib.get::<extern fn(_:  &AzStyleBorderRightWidth) -> AzStyleBorderRightWidth>(b"az_style_border_right_width_deep_copy").map_err(|_| "az_style_border_right_width_deep_copy")? };
+        let az_style_border_top_color_delete = unsafe { lib.get::<extern fn(_:  &mut AzStyleBorderTopColor)>(b"az_style_border_top_color_delete").map_err(|_| "az_style_border_top_color_delete")? };
+        let az_style_border_top_color_deep_copy = unsafe { lib.get::<extern fn(_:  &AzStyleBorderTopColor) -> AzStyleBorderTopColor>(b"az_style_border_top_color_deep_copy").map_err(|_| "az_style_border_top_color_deep_copy")? };
+        let az_style_border_top_left_radius_delete = unsafe { lib.get::<extern fn(_:  &mut AzStyleBorderTopLeftRadius)>(b"az_style_border_top_left_radius_delete").map_err(|_| "az_style_border_top_left_radius_delete")? };
+        let az_style_border_top_left_radius_deep_copy = unsafe { lib.get::<extern fn(_:  &AzStyleBorderTopLeftRadius) -> AzStyleBorderTopLeftRadius>(b"az_style_border_top_left_radius_deep_copy").map_err(|_| "az_style_border_top_left_radius_deep_copy")? };
+        let az_style_border_top_right_radius_delete = unsafe { lib.get::<extern fn(_:  &mut AzStyleBorderTopRightRadius)>(b"az_style_border_top_right_radius_delete").map_err(|_| "az_style_border_top_right_radius_delete")? };
+        let az_style_border_top_right_radius_deep_copy = unsafe { lib.get::<extern fn(_:  &AzStyleBorderTopRightRadius) -> AzStyleBorderTopRightRadius>(b"az_style_border_top_right_radius_deep_copy").map_err(|_| "az_style_border_top_right_radius_deep_copy")? };
+        let az_style_border_top_style_delete = unsafe { lib.get::<extern fn(_:  &mut AzStyleBorderTopStyle)>(b"az_style_border_top_style_delete").map_err(|_| "az_style_border_top_style_delete")? };
+        let az_style_border_top_style_deep_copy = unsafe { lib.get::<extern fn(_:  &AzStyleBorderTopStyle) -> AzStyleBorderTopStyle>(b"az_style_border_top_style_deep_copy").map_err(|_| "az_style_border_top_style_deep_copy")? };
+        let az_style_border_top_width_delete = unsafe { lib.get::<extern fn(_:  &mut AzStyleBorderTopWidth)>(b"az_style_border_top_width_delete").map_err(|_| "az_style_border_top_width_delete")? };
+        let az_style_border_top_width_deep_copy = unsafe { lib.get::<extern fn(_:  &AzStyleBorderTopWidth) -> AzStyleBorderTopWidth>(b"az_style_border_top_width_deep_copy").map_err(|_| "az_style_border_top_width_deep_copy")? };
+        let az_style_cursor_delete = unsafe { lib.get::<extern fn(_:  &mut AzStyleCursor)>(b"az_style_cursor_delete").map_err(|_| "az_style_cursor_delete")? };
+        let az_style_cursor_deep_copy = unsafe { lib.get::<extern fn(_:  &AzStyleCursor) -> AzStyleCursor>(b"az_style_cursor_deep_copy").map_err(|_| "az_style_cursor_deep_copy")? };
+        let az_style_font_family_delete = unsafe { lib.get::<extern fn(_:  &mut AzStyleFontFamily)>(b"az_style_font_family_delete").map_err(|_| "az_style_font_family_delete")? };
+        let az_style_font_family_deep_copy = unsafe { lib.get::<extern fn(_:  &AzStyleFontFamily) -> AzStyleFontFamily>(b"az_style_font_family_deep_copy").map_err(|_| "az_style_font_family_deep_copy")? };
+        let az_style_font_size_delete = unsafe { lib.get::<extern fn(_:  &mut AzStyleFontSize)>(b"az_style_font_size_delete").map_err(|_| "az_style_font_size_delete")? };
+        let az_style_font_size_deep_copy = unsafe { lib.get::<extern fn(_:  &AzStyleFontSize) -> AzStyleFontSize>(b"az_style_font_size_deep_copy").map_err(|_| "az_style_font_size_deep_copy")? };
+        let az_style_letter_spacing_delete = unsafe { lib.get::<extern fn(_:  &mut AzStyleLetterSpacing)>(b"az_style_letter_spacing_delete").map_err(|_| "az_style_letter_spacing_delete")? };
+        let az_style_letter_spacing_deep_copy = unsafe { lib.get::<extern fn(_:  &AzStyleLetterSpacing) -> AzStyleLetterSpacing>(b"az_style_letter_spacing_deep_copy").map_err(|_| "az_style_letter_spacing_deep_copy")? };
+        let az_style_line_height_delete = unsafe { lib.get::<extern fn(_:  &mut AzStyleLineHeight)>(b"az_style_line_height_delete").map_err(|_| "az_style_line_height_delete")? };
+        let az_style_line_height_deep_copy = unsafe { lib.get::<extern fn(_:  &AzStyleLineHeight) -> AzStyleLineHeight>(b"az_style_line_height_deep_copy").map_err(|_| "az_style_line_height_deep_copy")? };
+        let az_style_tab_width_delete = unsafe { lib.get::<extern fn(_:  &mut AzStyleTabWidth)>(b"az_style_tab_width_delete").map_err(|_| "az_style_tab_width_delete")? };
+        let az_style_tab_width_deep_copy = unsafe { lib.get::<extern fn(_:  &AzStyleTabWidth) -> AzStyleTabWidth>(b"az_style_tab_width_deep_copy").map_err(|_| "az_style_tab_width_deep_copy")? };
+        let az_style_text_alignment_horz_delete = unsafe { lib.get::<extern fn(_:  &mut AzStyleTextAlignmentHorz)>(b"az_style_text_alignment_horz_delete").map_err(|_| "az_style_text_alignment_horz_delete")? };
+        let az_style_text_alignment_horz_deep_copy = unsafe { lib.get::<extern fn(_:  &AzStyleTextAlignmentHorz) -> AzStyleTextAlignmentHorz>(b"az_style_text_alignment_horz_deep_copy").map_err(|_| "az_style_text_alignment_horz_deep_copy")? };
+        let az_style_text_color_delete = unsafe { lib.get::<extern fn(_:  &mut AzStyleTextColor)>(b"az_style_text_color_delete").map_err(|_| "az_style_text_color_delete")? };
+        let az_style_text_color_deep_copy = unsafe { lib.get::<extern fn(_:  &AzStyleTextColor) -> AzStyleTextColor>(b"az_style_text_color_deep_copy").map_err(|_| "az_style_text_color_deep_copy")? };
+        let az_style_word_spacing_delete = unsafe { lib.get::<extern fn(_:  &mut AzStyleWordSpacing)>(b"az_style_word_spacing_delete").map_err(|_| "az_style_word_spacing_delete")? };
+        let az_style_word_spacing_deep_copy = unsafe { lib.get::<extern fn(_:  &AzStyleWordSpacing) -> AzStyleWordSpacing>(b"az_style_word_spacing_deep_copy").map_err(|_| "az_style_word_spacing_deep_copy")? };
+        let az_box_shadow_pre_display_item_value_delete = unsafe { lib.get::<extern fn(_:  &mut AzBoxShadowPreDisplayItemValue)>(b"az_box_shadow_pre_display_item_value_delete").map_err(|_| "az_box_shadow_pre_display_item_value_delete")? };
+        let az_box_shadow_pre_display_item_value_deep_copy = unsafe { lib.get::<extern fn(_:  &AzBoxShadowPreDisplayItemValue) -> AzBoxShadowPreDisplayItemValue>(b"az_box_shadow_pre_display_item_value_deep_copy").map_err(|_| "az_box_shadow_pre_display_item_value_deep_copy")? };
+        let az_layout_align_content_value_delete = unsafe { lib.get::<extern fn(_:  &mut AzLayoutAlignContentValue)>(b"az_layout_align_content_value_delete").map_err(|_| "az_layout_align_content_value_delete")? };
+        let az_layout_align_content_value_deep_copy = unsafe { lib.get::<extern fn(_:  &AzLayoutAlignContentValue) -> AzLayoutAlignContentValue>(b"az_layout_align_content_value_deep_copy").map_err(|_| "az_layout_align_content_value_deep_copy")? };
+        let az_layout_align_items_value_delete = unsafe { lib.get::<extern fn(_:  &mut AzLayoutAlignItemsValue)>(b"az_layout_align_items_value_delete").map_err(|_| "az_layout_align_items_value_delete")? };
+        let az_layout_align_items_value_deep_copy = unsafe { lib.get::<extern fn(_:  &AzLayoutAlignItemsValue) -> AzLayoutAlignItemsValue>(b"az_layout_align_items_value_deep_copy").map_err(|_| "az_layout_align_items_value_deep_copy")? };
+        let az_layout_bottom_value_delete = unsafe { lib.get::<extern fn(_:  &mut AzLayoutBottomValue)>(b"az_layout_bottom_value_delete").map_err(|_| "az_layout_bottom_value_delete")? };
+        let az_layout_bottom_value_deep_copy = unsafe { lib.get::<extern fn(_:  &AzLayoutBottomValue) -> AzLayoutBottomValue>(b"az_layout_bottom_value_deep_copy").map_err(|_| "az_layout_bottom_value_deep_copy")? };
+        let az_layout_box_sizing_value_delete = unsafe { lib.get::<extern fn(_:  &mut AzLayoutBoxSizingValue)>(b"az_layout_box_sizing_value_delete").map_err(|_| "az_layout_box_sizing_value_delete")? };
+        let az_layout_box_sizing_value_deep_copy = unsafe { lib.get::<extern fn(_:  &AzLayoutBoxSizingValue) -> AzLayoutBoxSizingValue>(b"az_layout_box_sizing_value_deep_copy").map_err(|_| "az_layout_box_sizing_value_deep_copy")? };
+        let az_layout_direction_value_delete = unsafe { lib.get::<extern fn(_:  &mut AzLayoutDirectionValue)>(b"az_layout_direction_value_delete").map_err(|_| "az_layout_direction_value_delete")? };
+        let az_layout_direction_value_deep_copy = unsafe { lib.get::<extern fn(_:  &AzLayoutDirectionValue) -> AzLayoutDirectionValue>(b"az_layout_direction_value_deep_copy").map_err(|_| "az_layout_direction_value_deep_copy")? };
+        let az_layout_display_value_delete = unsafe { lib.get::<extern fn(_:  &mut AzLayoutDisplayValue)>(b"az_layout_display_value_delete").map_err(|_| "az_layout_display_value_delete")? };
+        let az_layout_display_value_deep_copy = unsafe { lib.get::<extern fn(_:  &AzLayoutDisplayValue) -> AzLayoutDisplayValue>(b"az_layout_display_value_deep_copy").map_err(|_| "az_layout_display_value_deep_copy")? };
+        let az_layout_flex_grow_value_delete = unsafe { lib.get::<extern fn(_:  &mut AzLayoutFlexGrowValue)>(b"az_layout_flex_grow_value_delete").map_err(|_| "az_layout_flex_grow_value_delete")? };
+        let az_layout_flex_grow_value_deep_copy = unsafe { lib.get::<extern fn(_:  &AzLayoutFlexGrowValue) -> AzLayoutFlexGrowValue>(b"az_layout_flex_grow_value_deep_copy").map_err(|_| "az_layout_flex_grow_value_deep_copy")? };
+        let az_layout_flex_shrink_value_delete = unsafe { lib.get::<extern fn(_:  &mut AzLayoutFlexShrinkValue)>(b"az_layout_flex_shrink_value_delete").map_err(|_| "az_layout_flex_shrink_value_delete")? };
+        let az_layout_flex_shrink_value_deep_copy = unsafe { lib.get::<extern fn(_:  &AzLayoutFlexShrinkValue) -> AzLayoutFlexShrinkValue>(b"az_layout_flex_shrink_value_deep_copy").map_err(|_| "az_layout_flex_shrink_value_deep_copy")? };
+        let az_layout_float_value_delete = unsafe { lib.get::<extern fn(_:  &mut AzLayoutFloatValue)>(b"az_layout_float_value_delete").map_err(|_| "az_layout_float_value_delete")? };
+        let az_layout_float_value_deep_copy = unsafe { lib.get::<extern fn(_:  &AzLayoutFloatValue) -> AzLayoutFloatValue>(b"az_layout_float_value_deep_copy").map_err(|_| "az_layout_float_value_deep_copy")? };
+        let az_layout_height_value_delete = unsafe { lib.get::<extern fn(_:  &mut AzLayoutHeightValue)>(b"az_layout_height_value_delete").map_err(|_| "az_layout_height_value_delete")? };
+        let az_layout_height_value_deep_copy = unsafe { lib.get::<extern fn(_:  &AzLayoutHeightValue) -> AzLayoutHeightValue>(b"az_layout_height_value_deep_copy").map_err(|_| "az_layout_height_value_deep_copy")? };
+        let az_layout_justify_content_value_delete = unsafe { lib.get::<extern fn(_:  &mut AzLayoutJustifyContentValue)>(b"az_layout_justify_content_value_delete").map_err(|_| "az_layout_justify_content_value_delete")? };
+        let az_layout_justify_content_value_deep_copy = unsafe { lib.get::<extern fn(_:  &AzLayoutJustifyContentValue) -> AzLayoutJustifyContentValue>(b"az_layout_justify_content_value_deep_copy").map_err(|_| "az_layout_justify_content_value_deep_copy")? };
+        let az_layout_left_value_delete = unsafe { lib.get::<extern fn(_:  &mut AzLayoutLeftValue)>(b"az_layout_left_value_delete").map_err(|_| "az_layout_left_value_delete")? };
+        let az_layout_left_value_deep_copy = unsafe { lib.get::<extern fn(_:  &AzLayoutLeftValue) -> AzLayoutLeftValue>(b"az_layout_left_value_deep_copy").map_err(|_| "az_layout_left_value_deep_copy")? };
+        let az_layout_margin_bottom_value_delete = unsafe { lib.get::<extern fn(_:  &mut AzLayoutMarginBottomValue)>(b"az_layout_margin_bottom_value_delete").map_err(|_| "az_layout_margin_bottom_value_delete")? };
+        let az_layout_margin_bottom_value_deep_copy = unsafe { lib.get::<extern fn(_:  &AzLayoutMarginBottomValue) -> AzLayoutMarginBottomValue>(b"az_layout_margin_bottom_value_deep_copy").map_err(|_| "az_layout_margin_bottom_value_deep_copy")? };
+        let az_layout_margin_left_value_delete = unsafe { lib.get::<extern fn(_:  &mut AzLayoutMarginLeftValue)>(b"az_layout_margin_left_value_delete").map_err(|_| "az_layout_margin_left_value_delete")? };
+        let az_layout_margin_left_value_deep_copy = unsafe { lib.get::<extern fn(_:  &AzLayoutMarginLeftValue) -> AzLayoutMarginLeftValue>(b"az_layout_margin_left_value_deep_copy").map_err(|_| "az_layout_margin_left_value_deep_copy")? };
+        let az_layout_margin_right_value_delete = unsafe { lib.get::<extern fn(_:  &mut AzLayoutMarginRightValue)>(b"az_layout_margin_right_value_delete").map_err(|_| "az_layout_margin_right_value_delete")? };
+        let az_layout_margin_right_value_deep_copy = unsafe { lib.get::<extern fn(_:  &AzLayoutMarginRightValue) -> AzLayoutMarginRightValue>(b"az_layout_margin_right_value_deep_copy").map_err(|_| "az_layout_margin_right_value_deep_copy")? };
+        let az_layout_margin_top_value_delete = unsafe { lib.get::<extern fn(_:  &mut AzLayoutMarginTopValue)>(b"az_layout_margin_top_value_delete").map_err(|_| "az_layout_margin_top_value_delete")? };
+        let az_layout_margin_top_value_deep_copy = unsafe { lib.get::<extern fn(_:  &AzLayoutMarginTopValue) -> AzLayoutMarginTopValue>(b"az_layout_margin_top_value_deep_copy").map_err(|_| "az_layout_margin_top_value_deep_copy")? };
+        let az_layout_max_height_value_delete = unsafe { lib.get::<extern fn(_:  &mut AzLayoutMaxHeightValue)>(b"az_layout_max_height_value_delete").map_err(|_| "az_layout_max_height_value_delete")? };
+        let az_layout_max_height_value_deep_copy = unsafe { lib.get::<extern fn(_:  &AzLayoutMaxHeightValue) -> AzLayoutMaxHeightValue>(b"az_layout_max_height_value_deep_copy").map_err(|_| "az_layout_max_height_value_deep_copy")? };
+        let az_layout_max_width_value_delete = unsafe { lib.get::<extern fn(_:  &mut AzLayoutMaxWidthValue)>(b"az_layout_max_width_value_delete").map_err(|_| "az_layout_max_width_value_delete")? };
+        let az_layout_max_width_value_deep_copy = unsafe { lib.get::<extern fn(_:  &AzLayoutMaxWidthValue) -> AzLayoutMaxWidthValue>(b"az_layout_max_width_value_deep_copy").map_err(|_| "az_layout_max_width_value_deep_copy")? };
+        let az_layout_min_height_value_delete = unsafe { lib.get::<extern fn(_:  &mut AzLayoutMinHeightValue)>(b"az_layout_min_height_value_delete").map_err(|_| "az_layout_min_height_value_delete")? };
+        let az_layout_min_height_value_deep_copy = unsafe { lib.get::<extern fn(_:  &AzLayoutMinHeightValue) -> AzLayoutMinHeightValue>(b"az_layout_min_height_value_deep_copy").map_err(|_| "az_layout_min_height_value_deep_copy")? };
+        let az_layout_min_width_value_delete = unsafe { lib.get::<extern fn(_:  &mut AzLayoutMinWidthValue)>(b"az_layout_min_width_value_delete").map_err(|_| "az_layout_min_width_value_delete")? };
+        let az_layout_min_width_value_deep_copy = unsafe { lib.get::<extern fn(_:  &AzLayoutMinWidthValue) -> AzLayoutMinWidthValue>(b"az_layout_min_width_value_deep_copy").map_err(|_| "az_layout_min_width_value_deep_copy")? };
+        let az_layout_padding_bottom_value_delete = unsafe { lib.get::<extern fn(_:  &mut AzLayoutPaddingBottomValue)>(b"az_layout_padding_bottom_value_delete").map_err(|_| "az_layout_padding_bottom_value_delete")? };
+        let az_layout_padding_bottom_value_deep_copy = unsafe { lib.get::<extern fn(_:  &AzLayoutPaddingBottomValue) -> AzLayoutPaddingBottomValue>(b"az_layout_padding_bottom_value_deep_copy").map_err(|_| "az_layout_padding_bottom_value_deep_copy")? };
+        let az_layout_padding_left_value_delete = unsafe { lib.get::<extern fn(_:  &mut AzLayoutPaddingLeftValue)>(b"az_layout_padding_left_value_delete").map_err(|_| "az_layout_padding_left_value_delete")? };
+        let az_layout_padding_left_value_deep_copy = unsafe { lib.get::<extern fn(_:  &AzLayoutPaddingLeftValue) -> AzLayoutPaddingLeftValue>(b"az_layout_padding_left_value_deep_copy").map_err(|_| "az_layout_padding_left_value_deep_copy")? };
+        let az_layout_padding_right_value_delete = unsafe { lib.get::<extern fn(_:  &mut AzLayoutPaddingRightValue)>(b"az_layout_padding_right_value_delete").map_err(|_| "az_layout_padding_right_value_delete")? };
+        let az_layout_padding_right_value_deep_copy = unsafe { lib.get::<extern fn(_:  &AzLayoutPaddingRightValue) -> AzLayoutPaddingRightValue>(b"az_layout_padding_right_value_deep_copy").map_err(|_| "az_layout_padding_right_value_deep_copy")? };
+        let az_layout_padding_top_value_delete = unsafe { lib.get::<extern fn(_:  &mut AzLayoutPaddingTopValue)>(b"az_layout_padding_top_value_delete").map_err(|_| "az_layout_padding_top_value_delete")? };
+        let az_layout_padding_top_value_deep_copy = unsafe { lib.get::<extern fn(_:  &AzLayoutPaddingTopValue) -> AzLayoutPaddingTopValue>(b"az_layout_padding_top_value_deep_copy").map_err(|_| "az_layout_padding_top_value_deep_copy")? };
+        let az_layout_position_value_delete = unsafe { lib.get::<extern fn(_:  &mut AzLayoutPositionValue)>(b"az_layout_position_value_delete").map_err(|_| "az_layout_position_value_delete")? };
+        let az_layout_position_value_deep_copy = unsafe { lib.get::<extern fn(_:  &AzLayoutPositionValue) -> AzLayoutPositionValue>(b"az_layout_position_value_deep_copy").map_err(|_| "az_layout_position_value_deep_copy")? };
+        let az_layout_right_value_delete = unsafe { lib.get::<extern fn(_:  &mut AzLayoutRightValue)>(b"az_layout_right_value_delete").map_err(|_| "az_layout_right_value_delete")? };
+        let az_layout_right_value_deep_copy = unsafe { lib.get::<extern fn(_:  &AzLayoutRightValue) -> AzLayoutRightValue>(b"az_layout_right_value_deep_copy").map_err(|_| "az_layout_right_value_deep_copy")? };
+        let az_layout_top_value_delete = unsafe { lib.get::<extern fn(_:  &mut AzLayoutTopValue)>(b"az_layout_top_value_delete").map_err(|_| "az_layout_top_value_delete")? };
+        let az_layout_top_value_deep_copy = unsafe { lib.get::<extern fn(_:  &AzLayoutTopValue) -> AzLayoutTopValue>(b"az_layout_top_value_deep_copy").map_err(|_| "az_layout_top_value_deep_copy")? };
+        let az_layout_width_value_delete = unsafe { lib.get::<extern fn(_:  &mut AzLayoutWidthValue)>(b"az_layout_width_value_delete").map_err(|_| "az_layout_width_value_delete")? };
+        let az_layout_width_value_deep_copy = unsafe { lib.get::<extern fn(_:  &AzLayoutWidthValue) -> AzLayoutWidthValue>(b"az_layout_width_value_deep_copy").map_err(|_| "az_layout_width_value_deep_copy")? };
+        let az_layout_wrap_value_delete = unsafe { lib.get::<extern fn(_:  &mut AzLayoutWrapValue)>(b"az_layout_wrap_value_delete").map_err(|_| "az_layout_wrap_value_delete")? };
+        let az_layout_wrap_value_deep_copy = unsafe { lib.get::<extern fn(_:  &AzLayoutWrapValue) -> AzLayoutWrapValue>(b"az_layout_wrap_value_deep_copy").map_err(|_| "az_layout_wrap_value_deep_copy")? };
+        let az_overflow_value_delete = unsafe { lib.get::<extern fn(_:  &mut AzOverflowValue)>(b"az_overflow_value_delete").map_err(|_| "az_overflow_value_delete")? };
+        let az_overflow_value_deep_copy = unsafe { lib.get::<extern fn(_:  &AzOverflowValue) -> AzOverflowValue>(b"az_overflow_value_deep_copy").map_err(|_| "az_overflow_value_deep_copy")? };
+        let az_style_background_content_value_delete = unsafe { lib.get::<extern fn(_:  &mut AzStyleBackgroundContentValue)>(b"az_style_background_content_value_delete").map_err(|_| "az_style_background_content_value_delete")? };
+        let az_style_background_content_value_deep_copy = unsafe { lib.get::<extern fn(_:  &AzStyleBackgroundContentValue) -> AzStyleBackgroundContentValue>(b"az_style_background_content_value_deep_copy").map_err(|_| "az_style_background_content_value_deep_copy")? };
+        let az_style_background_position_value_delete = unsafe { lib.get::<extern fn(_:  &mut AzStyleBackgroundPositionValue)>(b"az_style_background_position_value_delete").map_err(|_| "az_style_background_position_value_delete")? };
+        let az_style_background_position_value_deep_copy = unsafe { lib.get::<extern fn(_:  &AzStyleBackgroundPositionValue) -> AzStyleBackgroundPositionValue>(b"az_style_background_position_value_deep_copy").map_err(|_| "az_style_background_position_value_deep_copy")? };
+        let az_style_background_repeat_value_delete = unsafe { lib.get::<extern fn(_:  &mut AzStyleBackgroundRepeatValue)>(b"az_style_background_repeat_value_delete").map_err(|_| "az_style_background_repeat_value_delete")? };
+        let az_style_background_repeat_value_deep_copy = unsafe { lib.get::<extern fn(_:  &AzStyleBackgroundRepeatValue) -> AzStyleBackgroundRepeatValue>(b"az_style_background_repeat_value_deep_copy").map_err(|_| "az_style_background_repeat_value_deep_copy")? };
+        let az_style_background_size_value_delete = unsafe { lib.get::<extern fn(_:  &mut AzStyleBackgroundSizeValue)>(b"az_style_background_size_value_delete").map_err(|_| "az_style_background_size_value_delete")? };
+        let az_style_background_size_value_deep_copy = unsafe { lib.get::<extern fn(_:  &AzStyleBackgroundSizeValue) -> AzStyleBackgroundSizeValue>(b"az_style_background_size_value_deep_copy").map_err(|_| "az_style_background_size_value_deep_copy")? };
+        let az_style_border_bottom_color_value_delete = unsafe { lib.get::<extern fn(_:  &mut AzStyleBorderBottomColorValue)>(b"az_style_border_bottom_color_value_delete").map_err(|_| "az_style_border_bottom_color_value_delete")? };
+        let az_style_border_bottom_color_value_deep_copy = unsafe { lib.get::<extern fn(_:  &AzStyleBorderBottomColorValue) -> AzStyleBorderBottomColorValue>(b"az_style_border_bottom_color_value_deep_copy").map_err(|_| "az_style_border_bottom_color_value_deep_copy")? };
+        let az_style_border_bottom_left_radius_value_delete = unsafe { lib.get::<extern fn(_:  &mut AzStyleBorderBottomLeftRadiusValue)>(b"az_style_border_bottom_left_radius_value_delete").map_err(|_| "az_style_border_bottom_left_radius_value_delete")? };
+        let az_style_border_bottom_left_radius_value_deep_copy = unsafe { lib.get::<extern fn(_:  &AzStyleBorderBottomLeftRadiusValue) -> AzStyleBorderBottomLeftRadiusValue>(b"az_style_border_bottom_left_radius_value_deep_copy").map_err(|_| "az_style_border_bottom_left_radius_value_deep_copy")? };
+        let az_style_border_bottom_right_radius_value_delete = unsafe { lib.get::<extern fn(_:  &mut AzStyleBorderBottomRightRadiusValue)>(b"az_style_border_bottom_right_radius_value_delete").map_err(|_| "az_style_border_bottom_right_radius_value_delete")? };
+        let az_style_border_bottom_right_radius_value_deep_copy = unsafe { lib.get::<extern fn(_:  &AzStyleBorderBottomRightRadiusValue) -> AzStyleBorderBottomRightRadiusValue>(b"az_style_border_bottom_right_radius_value_deep_copy").map_err(|_| "az_style_border_bottom_right_radius_value_deep_copy")? };
+        let az_style_border_bottom_style_value_delete = unsafe { lib.get::<extern fn(_:  &mut AzStyleBorderBottomStyleValue)>(b"az_style_border_bottom_style_value_delete").map_err(|_| "az_style_border_bottom_style_value_delete")? };
+        let az_style_border_bottom_style_value_deep_copy = unsafe { lib.get::<extern fn(_:  &AzStyleBorderBottomStyleValue) -> AzStyleBorderBottomStyleValue>(b"az_style_border_bottom_style_value_deep_copy").map_err(|_| "az_style_border_bottom_style_value_deep_copy")? };
+        let az_style_border_bottom_width_value_delete = unsafe { lib.get::<extern fn(_:  &mut AzStyleBorderBottomWidthValue)>(b"az_style_border_bottom_width_value_delete").map_err(|_| "az_style_border_bottom_width_value_delete")? };
+        let az_style_border_bottom_width_value_deep_copy = unsafe { lib.get::<extern fn(_:  &AzStyleBorderBottomWidthValue) -> AzStyleBorderBottomWidthValue>(b"az_style_border_bottom_width_value_deep_copy").map_err(|_| "az_style_border_bottom_width_value_deep_copy")? };
+        let az_style_border_left_color_value_delete = unsafe { lib.get::<extern fn(_:  &mut AzStyleBorderLeftColorValue)>(b"az_style_border_left_color_value_delete").map_err(|_| "az_style_border_left_color_value_delete")? };
+        let az_style_border_left_color_value_deep_copy = unsafe { lib.get::<extern fn(_:  &AzStyleBorderLeftColorValue) -> AzStyleBorderLeftColorValue>(b"az_style_border_left_color_value_deep_copy").map_err(|_| "az_style_border_left_color_value_deep_copy")? };
+        let az_style_border_left_style_value_delete = unsafe { lib.get::<extern fn(_:  &mut AzStyleBorderLeftStyleValue)>(b"az_style_border_left_style_value_delete").map_err(|_| "az_style_border_left_style_value_delete")? };
+        let az_style_border_left_style_value_deep_copy = unsafe { lib.get::<extern fn(_:  &AzStyleBorderLeftStyleValue) -> AzStyleBorderLeftStyleValue>(b"az_style_border_left_style_value_deep_copy").map_err(|_| "az_style_border_left_style_value_deep_copy")? };
+        let az_style_border_left_width_value_delete = unsafe { lib.get::<extern fn(_:  &mut AzStyleBorderLeftWidthValue)>(b"az_style_border_left_width_value_delete").map_err(|_| "az_style_border_left_width_value_delete")? };
+        let az_style_border_left_width_value_deep_copy = unsafe { lib.get::<extern fn(_:  &AzStyleBorderLeftWidthValue) -> AzStyleBorderLeftWidthValue>(b"az_style_border_left_width_value_deep_copy").map_err(|_| "az_style_border_left_width_value_deep_copy")? };
+        let az_style_border_right_color_value_delete = unsafe { lib.get::<extern fn(_:  &mut AzStyleBorderRightColorValue)>(b"az_style_border_right_color_value_delete").map_err(|_| "az_style_border_right_color_value_delete")? };
+        let az_style_border_right_color_value_deep_copy = unsafe { lib.get::<extern fn(_:  &AzStyleBorderRightColorValue) -> AzStyleBorderRightColorValue>(b"az_style_border_right_color_value_deep_copy").map_err(|_| "az_style_border_right_color_value_deep_copy")? };
+        let az_style_border_right_style_value_delete = unsafe { lib.get::<extern fn(_:  &mut AzStyleBorderRightStyleValue)>(b"az_style_border_right_style_value_delete").map_err(|_| "az_style_border_right_style_value_delete")? };
+        let az_style_border_right_style_value_deep_copy = unsafe { lib.get::<extern fn(_:  &AzStyleBorderRightStyleValue) -> AzStyleBorderRightStyleValue>(b"az_style_border_right_style_value_deep_copy").map_err(|_| "az_style_border_right_style_value_deep_copy")? };
+        let az_style_border_right_width_value_delete = unsafe { lib.get::<extern fn(_:  &mut AzStyleBorderRightWidthValue)>(b"az_style_border_right_width_value_delete").map_err(|_| "az_style_border_right_width_value_delete")? };
+        let az_style_border_right_width_value_deep_copy = unsafe { lib.get::<extern fn(_:  &AzStyleBorderRightWidthValue) -> AzStyleBorderRightWidthValue>(b"az_style_border_right_width_value_deep_copy").map_err(|_| "az_style_border_right_width_value_deep_copy")? };
+        let az_style_border_top_color_value_delete = unsafe { lib.get::<extern fn(_:  &mut AzStyleBorderTopColorValue)>(b"az_style_border_top_color_value_delete").map_err(|_| "az_style_border_top_color_value_delete")? };
+        let az_style_border_top_color_value_deep_copy = unsafe { lib.get::<extern fn(_:  &AzStyleBorderTopColorValue) -> AzStyleBorderTopColorValue>(b"az_style_border_top_color_value_deep_copy").map_err(|_| "az_style_border_top_color_value_deep_copy")? };
+        let az_style_border_top_left_radius_value_delete = unsafe { lib.get::<extern fn(_:  &mut AzStyleBorderTopLeftRadiusValue)>(b"az_style_border_top_left_radius_value_delete").map_err(|_| "az_style_border_top_left_radius_value_delete")? };
+        let az_style_border_top_left_radius_value_deep_copy = unsafe { lib.get::<extern fn(_:  &AzStyleBorderTopLeftRadiusValue) -> AzStyleBorderTopLeftRadiusValue>(b"az_style_border_top_left_radius_value_deep_copy").map_err(|_| "az_style_border_top_left_radius_value_deep_copy")? };
+        let az_style_border_top_right_radius_value_delete = unsafe { lib.get::<extern fn(_:  &mut AzStyleBorderTopRightRadiusValue)>(b"az_style_border_top_right_radius_value_delete").map_err(|_| "az_style_border_top_right_radius_value_delete")? };
+        let az_style_border_top_right_radius_value_deep_copy = unsafe { lib.get::<extern fn(_:  &AzStyleBorderTopRightRadiusValue) -> AzStyleBorderTopRightRadiusValue>(b"az_style_border_top_right_radius_value_deep_copy").map_err(|_| "az_style_border_top_right_radius_value_deep_copy")? };
+        let az_style_border_top_style_value_delete = unsafe { lib.get::<extern fn(_:  &mut AzStyleBorderTopStyleValue)>(b"az_style_border_top_style_value_delete").map_err(|_| "az_style_border_top_style_value_delete")? };
+        let az_style_border_top_style_value_deep_copy = unsafe { lib.get::<extern fn(_:  &AzStyleBorderTopStyleValue) -> AzStyleBorderTopStyleValue>(b"az_style_border_top_style_value_deep_copy").map_err(|_| "az_style_border_top_style_value_deep_copy")? };
+        let az_style_border_top_width_value_delete = unsafe { lib.get::<extern fn(_:  &mut AzStyleBorderTopWidthValue)>(b"az_style_border_top_width_value_delete").map_err(|_| "az_style_border_top_width_value_delete")? };
+        let az_style_border_top_width_value_deep_copy = unsafe { lib.get::<extern fn(_:  &AzStyleBorderTopWidthValue) -> AzStyleBorderTopWidthValue>(b"az_style_border_top_width_value_deep_copy").map_err(|_| "az_style_border_top_width_value_deep_copy")? };
+        let az_style_cursor_value_delete = unsafe { lib.get::<extern fn(_:  &mut AzStyleCursorValue)>(b"az_style_cursor_value_delete").map_err(|_| "az_style_cursor_value_delete")? };
+        let az_style_cursor_value_deep_copy = unsafe { lib.get::<extern fn(_:  &AzStyleCursorValue) -> AzStyleCursorValue>(b"az_style_cursor_value_deep_copy").map_err(|_| "az_style_cursor_value_deep_copy")? };
+        let az_style_font_family_value_delete = unsafe { lib.get::<extern fn(_:  &mut AzStyleFontFamilyValue)>(b"az_style_font_family_value_delete").map_err(|_| "az_style_font_family_value_delete")? };
+        let az_style_font_family_value_deep_copy = unsafe { lib.get::<extern fn(_:  &AzStyleFontFamilyValue) -> AzStyleFontFamilyValue>(b"az_style_font_family_value_deep_copy").map_err(|_| "az_style_font_family_value_deep_copy")? };
+        let az_style_font_size_value_delete = unsafe { lib.get::<extern fn(_:  &mut AzStyleFontSizeValue)>(b"az_style_font_size_value_delete").map_err(|_| "az_style_font_size_value_delete")? };
+        let az_style_font_size_value_deep_copy = unsafe { lib.get::<extern fn(_:  &AzStyleFontSizeValue) -> AzStyleFontSizeValue>(b"az_style_font_size_value_deep_copy").map_err(|_| "az_style_font_size_value_deep_copy")? };
+        let az_style_letter_spacing_value_delete = unsafe { lib.get::<extern fn(_:  &mut AzStyleLetterSpacingValue)>(b"az_style_letter_spacing_value_delete").map_err(|_| "az_style_letter_spacing_value_delete")? };
+        let az_style_letter_spacing_value_deep_copy = unsafe { lib.get::<extern fn(_:  &AzStyleLetterSpacingValue) -> AzStyleLetterSpacingValue>(b"az_style_letter_spacing_value_deep_copy").map_err(|_| "az_style_letter_spacing_value_deep_copy")? };
+        let az_style_line_height_value_delete = unsafe { lib.get::<extern fn(_:  &mut AzStyleLineHeightValue)>(b"az_style_line_height_value_delete").map_err(|_| "az_style_line_height_value_delete")? };
+        let az_style_line_height_value_deep_copy = unsafe { lib.get::<extern fn(_:  &AzStyleLineHeightValue) -> AzStyleLineHeightValue>(b"az_style_line_height_value_deep_copy").map_err(|_| "az_style_line_height_value_deep_copy")? };
+        let az_style_tab_width_value_delete = unsafe { lib.get::<extern fn(_:  &mut AzStyleTabWidthValue)>(b"az_style_tab_width_value_delete").map_err(|_| "az_style_tab_width_value_delete")? };
+        let az_style_tab_width_value_deep_copy = unsafe { lib.get::<extern fn(_:  &AzStyleTabWidthValue) -> AzStyleTabWidthValue>(b"az_style_tab_width_value_deep_copy").map_err(|_| "az_style_tab_width_value_deep_copy")? };
+        let az_style_text_alignment_horz_value_delete = unsafe { lib.get::<extern fn(_:  &mut AzStyleTextAlignmentHorzValue)>(b"az_style_text_alignment_horz_value_delete").map_err(|_| "az_style_text_alignment_horz_value_delete")? };
+        let az_style_text_alignment_horz_value_deep_copy = unsafe { lib.get::<extern fn(_:  &AzStyleTextAlignmentHorzValue) -> AzStyleTextAlignmentHorzValue>(b"az_style_text_alignment_horz_value_deep_copy").map_err(|_| "az_style_text_alignment_horz_value_deep_copy")? };
+        let az_style_text_color_value_delete = unsafe { lib.get::<extern fn(_:  &mut AzStyleTextColorValue)>(b"az_style_text_color_value_delete").map_err(|_| "az_style_text_color_value_delete")? };
+        let az_style_text_color_value_deep_copy = unsafe { lib.get::<extern fn(_:  &AzStyleTextColorValue) -> AzStyleTextColorValue>(b"az_style_text_color_value_deep_copy").map_err(|_| "az_style_text_color_value_deep_copy")? };
+        let az_style_word_spacing_value_delete = unsafe { lib.get::<extern fn(_:  &mut AzStyleWordSpacingValue)>(b"az_style_word_spacing_value_delete").map_err(|_| "az_style_word_spacing_value_delete")? };
+        let az_style_word_spacing_value_deep_copy = unsafe { lib.get::<extern fn(_:  &AzStyleWordSpacingValue) -> AzStyleWordSpacingValue>(b"az_style_word_spacing_value_deep_copy").map_err(|_| "az_style_word_spacing_value_deep_copy")? };
+        let az_css_property_delete = unsafe { lib.get::<extern fn(_:  &mut AzCssProperty)>(b"az_css_property_delete").map_err(|_| "az_css_property_delete")? };
+        let az_css_property_deep_copy = unsafe { lib.get::<extern fn(_:  &AzCssProperty) -> AzCssProperty>(b"az_css_property_deep_copy").map_err(|_| "az_css_property_deep_copy")? };
+        let az_dom_div = unsafe { lib.get::<extern fn() -> AzDom>(b"az_dom_div").map_err(|_| "az_dom_div")? };
+        let az_dom_body = unsafe { lib.get::<extern fn() -> AzDom>(b"az_dom_body").map_err(|_| "az_dom_body")? };
+        let az_dom_label = unsafe { lib.get::<extern fn(_:  AzString) -> AzDom>(b"az_dom_label").map_err(|_| "az_dom_label")? };
+        let az_dom_text = unsafe { lib.get::<extern fn(_:  AzTextId) -> AzDom>(b"az_dom_text").map_err(|_| "az_dom_text")? };
+        let az_dom_image = unsafe { lib.get::<extern fn(_:  AzImageId) -> AzDom>(b"az_dom_image").map_err(|_| "az_dom_image")? };
+        let az_dom_gl_texture = unsafe { lib.get::<extern fn(_:  AzRefAny, _:  AzGlCallbackType) -> AzDom>(b"az_dom_gl_texture").map_err(|_| "az_dom_gl_texture")? };
+        let az_dom_iframe = unsafe { lib.get::<extern fn(_:  AzRefAny, _:  AzIFrameCallbackType) -> AzDom>(b"az_dom_iframe").map_err(|_| "az_dom_iframe")? };
+        let az_dom_add_id = unsafe { lib.get::<extern fn(_:  &mut AzDom, _:  AzString)>(b"az_dom_add_id").map_err(|_| "az_dom_add_id")? };
+        let az_dom_with_id = unsafe { lib.get::<extern fn(_:  AzDom, _:  AzString) -> AzDom>(b"az_dom_with_id").map_err(|_| "az_dom_with_id")? };
+        let az_dom_set_ids = unsafe { lib.get::<extern fn(_:  &mut AzDom, _:  AzStringVec)>(b"az_dom_set_ids").map_err(|_| "az_dom_set_ids")? };
+        let az_dom_with_ids = unsafe { lib.get::<extern fn(_:  AzDom, _:  AzStringVec) -> AzDom>(b"az_dom_with_ids").map_err(|_| "az_dom_with_ids")? };
+        let az_dom_add_class = unsafe { lib.get::<extern fn(_:  &mut AzDom, _:  AzString)>(b"az_dom_add_class").map_err(|_| "az_dom_add_class")? };
+        let az_dom_with_class = unsafe { lib.get::<extern fn(_:  AzDom, _:  AzString) -> AzDom>(b"az_dom_with_class").map_err(|_| "az_dom_with_class")? };
+        let az_dom_set_classes = unsafe { lib.get::<extern fn(_:  &mut AzDom, _:  AzStringVec)>(b"az_dom_set_classes").map_err(|_| "az_dom_set_classes")? };
+        let az_dom_with_classes = unsafe { lib.get::<extern fn(_:  AzDom, _:  AzStringVec) -> AzDom>(b"az_dom_with_classes").map_err(|_| "az_dom_with_classes")? };
+        let az_dom_add_callback = unsafe { lib.get::<extern fn(_:  &mut AzDom, _:  AzEventFilter, _:  AzRefAny, _:  AzCallbackType)>(b"az_dom_add_callback").map_err(|_| "az_dom_add_callback")? };
+        let az_dom_with_callback = unsafe { lib.get::<extern fn(_:  AzDom, _:  AzEventFilter, _:  AzRefAny, _:  AzCallbackType) -> AzDom>(b"az_dom_with_callback").map_err(|_| "az_dom_with_callback")? };
+        let az_dom_add_css_override = unsafe { lib.get::<extern fn(_:  &mut AzDom, _:  AzString, _:  AzCssProperty)>(b"az_dom_add_css_override").map_err(|_| "az_dom_add_css_override")? };
+        let az_dom_with_css_override = unsafe { lib.get::<extern fn(_:  AzDom, _:  AzString, _:  AzCssProperty) -> AzDom>(b"az_dom_with_css_override").map_err(|_| "az_dom_with_css_override")? };
+        let az_dom_set_is_draggable = unsafe { lib.get::<extern fn(_:  &mut AzDom, _:  bool)>(b"az_dom_set_is_draggable").map_err(|_| "az_dom_set_is_draggable")? };
+        let az_dom_is_draggable = unsafe { lib.get::<extern fn(_:  AzDom, _:  bool) -> AzDom>(b"az_dom_is_draggable").map_err(|_| "az_dom_is_draggable")? };
+        let az_dom_set_tab_index = unsafe { lib.get::<extern fn(_:  &mut AzDom, _:  AzTabIndex)>(b"az_dom_set_tab_index").map_err(|_| "az_dom_set_tab_index")? };
+        let az_dom_with_tab_index = unsafe { lib.get::<extern fn(_:  AzDom, _:  AzTabIndex) -> AzDom>(b"az_dom_with_tab_index").map_err(|_| "az_dom_with_tab_index")? };
+        let az_dom_add_child = unsafe { lib.get::<extern fn(_:  &mut AzDom, _:  AzDom)>(b"az_dom_add_child").map_err(|_| "az_dom_add_child")? };
+        let az_dom_with_child = unsafe { lib.get::<extern fn(_:  AzDom, _:  AzDom) -> AzDom>(b"az_dom_with_child").map_err(|_| "az_dom_with_child")? };
+        let az_dom_has_id = unsafe { lib.get::<extern fn(_:  &mut AzDom, _:  AzString) -> bool>(b"az_dom_has_id").map_err(|_| "az_dom_has_id")? };
+        let az_dom_has_class = unsafe { lib.get::<extern fn(_:  &mut AzDom, _:  AzString) -> bool>(b"az_dom_has_class").map_err(|_| "az_dom_has_class")? };
+        let az_dom_get_html_string = unsafe { lib.get::<extern fn(_:  &AzDom) -> AzString>(b"az_dom_get_html_string").map_err(|_| "az_dom_get_html_string")? };
+        let az_dom_delete = unsafe { lib.get::<extern fn(_:  &mut AzDom)>(b"az_dom_delete").map_err(|_| "az_dom_delete")? };
+        let az_dom_deep_copy = unsafe { lib.get::<extern fn(_:  &AzDom) -> AzDom>(b"az_dom_deep_copy").map_err(|_| "az_dom_deep_copy")? };
+        let az_gl_texture_node_delete = unsafe { lib.get::<extern fn(_:  &mut AzGlTextureNode)>(b"az_gl_texture_node_delete").map_err(|_| "az_gl_texture_node_delete")? };
+        let az_gl_texture_node_deep_copy = unsafe { lib.get::<extern fn(_:  &AzGlTextureNode) -> AzGlTextureNode>(b"az_gl_texture_node_deep_copy").map_err(|_| "az_gl_texture_node_deep_copy")? };
+        let az_i_frame_node_delete = unsafe { lib.get::<extern fn(_:  &mut AzIFrameNode)>(b"az_i_frame_node_delete").map_err(|_| "az_i_frame_node_delete")? };
+        let az_i_frame_node_deep_copy = unsafe { lib.get::<extern fn(_:  &AzIFrameNode) -> AzIFrameNode>(b"az_i_frame_node_deep_copy").map_err(|_| "az_i_frame_node_deep_copy")? };
+        let az_callback_data_delete = unsafe { lib.get::<extern fn(_:  &mut AzCallbackData)>(b"az_callback_data_delete").map_err(|_| "az_callback_data_delete")? };
+        let az_callback_data_deep_copy = unsafe { lib.get::<extern fn(_:  &AzCallbackData) -> AzCallbackData>(b"az_callback_data_deep_copy").map_err(|_| "az_callback_data_deep_copy")? };
+        let az_override_property_delete = unsafe { lib.get::<extern fn(_:  &mut AzOverrideProperty)>(b"az_override_property_delete").map_err(|_| "az_override_property_delete")? };
+        let az_override_property_deep_copy = unsafe { lib.get::<extern fn(_:  &AzOverrideProperty) -> AzOverrideProperty>(b"az_override_property_deep_copy").map_err(|_| "az_override_property_deep_copy")? };
+        let az_node_data_new = unsafe { lib.get::<extern fn(_:  AzNodeType) -> AzNodeData>(b"az_node_data_new").map_err(|_| "az_node_data_new")? };
+        let az_node_data_default = unsafe { lib.get::<extern fn() -> AzNodeData>(b"az_node_data_default").map_err(|_| "az_node_data_default")? };
+        let az_node_data_delete = unsafe { lib.get::<extern fn(_:  &mut AzNodeData)>(b"az_node_data_delete").map_err(|_| "az_node_data_delete")? };
+        let az_node_data_deep_copy = unsafe { lib.get::<extern fn(_:  &AzNodeData) -> AzNodeData>(b"az_node_data_deep_copy").map_err(|_| "az_node_data_deep_copy")? };
+        let az_node_type_delete = unsafe { lib.get::<extern fn(_:  &mut AzNodeType)>(b"az_node_type_delete").map_err(|_| "az_node_type_delete")? };
+        let az_node_type_deep_copy = unsafe { lib.get::<extern fn(_:  &AzNodeType) -> AzNodeType>(b"az_node_type_deep_copy").map_err(|_| "az_node_type_deep_copy")? };
+        let az_on_into_event_filter = unsafe { lib.get::<extern fn(_:  AzOn) -> AzEventFilter>(b"az_on_into_event_filter").map_err(|_| "az_on_into_event_filter")? };
+        let az_on_delete = unsafe { lib.get::<extern fn(_:  &mut AzOn)>(b"az_on_delete").map_err(|_| "az_on_delete")? };
+        let az_on_deep_copy = unsafe { lib.get::<extern fn(_:  &AzOn) -> AzOn>(b"az_on_deep_copy").map_err(|_| "az_on_deep_copy")? };
+        let az_event_filter_delete = unsafe { lib.get::<extern fn(_:  &mut AzEventFilter)>(b"az_event_filter_delete").map_err(|_| "az_event_filter_delete")? };
+        let az_event_filter_deep_copy = unsafe { lib.get::<extern fn(_:  &AzEventFilter) -> AzEventFilter>(b"az_event_filter_deep_copy").map_err(|_| "az_event_filter_deep_copy")? };
+        let az_hover_event_filter_delete = unsafe { lib.get::<extern fn(_:  &mut AzHoverEventFilter)>(b"az_hover_event_filter_delete").map_err(|_| "az_hover_event_filter_delete")? };
+        let az_hover_event_filter_deep_copy = unsafe { lib.get::<extern fn(_:  &AzHoverEventFilter) -> AzHoverEventFilter>(b"az_hover_event_filter_deep_copy").map_err(|_| "az_hover_event_filter_deep_copy")? };
+        let az_focus_event_filter_delete = unsafe { lib.get::<extern fn(_:  &mut AzFocusEventFilter)>(b"az_focus_event_filter_delete").map_err(|_| "az_focus_event_filter_delete")? };
+        let az_focus_event_filter_deep_copy = unsafe { lib.get::<extern fn(_:  &AzFocusEventFilter) -> AzFocusEventFilter>(b"az_focus_event_filter_deep_copy").map_err(|_| "az_focus_event_filter_deep_copy")? };
+        let az_not_event_filter_delete = unsafe { lib.get::<extern fn(_:  &mut AzNotEventFilter)>(b"az_not_event_filter_delete").map_err(|_| "az_not_event_filter_delete")? };
+        let az_not_event_filter_deep_copy = unsafe { lib.get::<extern fn(_:  &AzNotEventFilter) -> AzNotEventFilter>(b"az_not_event_filter_deep_copy").map_err(|_| "az_not_event_filter_deep_copy")? };
+        let az_window_event_filter_delete = unsafe { lib.get::<extern fn(_:  &mut AzWindowEventFilter)>(b"az_window_event_filter_delete").map_err(|_| "az_window_event_filter_delete")? };
+        let az_window_event_filter_deep_copy = unsafe { lib.get::<extern fn(_:  &AzWindowEventFilter) -> AzWindowEventFilter>(b"az_window_event_filter_deep_copy").map_err(|_| "az_window_event_filter_deep_copy")? };
+        let az_tab_index_delete = unsafe { lib.get::<extern fn(_:  &mut AzTabIndex)>(b"az_tab_index_delete").map_err(|_| "az_tab_index_delete")? };
+        let az_tab_index_deep_copy = unsafe { lib.get::<extern fn(_:  &AzTabIndex) -> AzTabIndex>(b"az_tab_index_deep_copy").map_err(|_| "az_tab_index_deep_copy")? };
+        let az_gl_type_delete = unsafe { lib.get::<extern fn(_:  &mut AzGlType)>(b"az_gl_type_delete").map_err(|_| "az_gl_type_delete")? };
+        let az_gl_type_deep_copy = unsafe { lib.get::<extern fn(_:  &AzGlType) -> AzGlType>(b"az_gl_type_deep_copy").map_err(|_| "az_gl_type_deep_copy")? };
+        let az_debug_message_delete = unsafe { lib.get::<extern fn(_:  &mut AzDebugMessage)>(b"az_debug_message_delete").map_err(|_| "az_debug_message_delete")? };
+        let az_debug_message_deep_copy = unsafe { lib.get::<extern fn(_:  &AzDebugMessage) -> AzDebugMessage>(b"az_debug_message_deep_copy").map_err(|_| "az_debug_message_deep_copy")? };
+        let az_u8_vec_ref_delete = unsafe { lib.get::<extern fn(_:  &mut AzU8VecRef)>(b"az_u8_vec_ref_delete").map_err(|_| "az_u8_vec_ref_delete")? };
+        let az_u8_vec_ref_mut_delete = unsafe { lib.get::<extern fn(_:  &mut AzU8VecRefMut)>(b"az_u8_vec_ref_mut_delete").map_err(|_| "az_u8_vec_ref_mut_delete")? };
+        let az_f32_vec_ref_delete = unsafe { lib.get::<extern fn(_:  &mut AzF32VecRef)>(b"az_f32_vec_ref_delete").map_err(|_| "az_f32_vec_ref_delete")? };
+        let az_i32_vec_ref_delete = unsafe { lib.get::<extern fn(_:  &mut AzI32VecRef)>(b"az_i32_vec_ref_delete").map_err(|_| "az_i32_vec_ref_delete")? };
+        let az_g_luint_vec_ref_delete = unsafe { lib.get::<extern fn(_:  &mut AzGLuintVecRef)>(b"az_g_luint_vec_ref_delete").map_err(|_| "az_g_luint_vec_ref_delete")? };
+        let az_g_lenum_vec_ref_delete = unsafe { lib.get::<extern fn(_:  &mut AzGLenumVecRef)>(b"az_g_lenum_vec_ref_delete").map_err(|_| "az_g_lenum_vec_ref_delete")? };
+        let az_g_lint_vec_ref_mut_delete = unsafe { lib.get::<extern fn(_:  &mut AzGLintVecRefMut)>(b"az_g_lint_vec_ref_mut_delete").map_err(|_| "az_g_lint_vec_ref_mut_delete")? };
+        let az_g_lint64_vec_ref_mut_delete = unsafe { lib.get::<extern fn(_:  &mut AzGLint64VecRefMut)>(b"az_g_lint64_vec_ref_mut_delete").map_err(|_| "az_g_lint64_vec_ref_mut_delete")? };
+        let az_g_lboolean_vec_ref_mut_delete = unsafe { lib.get::<extern fn(_:  &mut AzGLbooleanVecRefMut)>(b"az_g_lboolean_vec_ref_mut_delete").map_err(|_| "az_g_lboolean_vec_ref_mut_delete")? };
+        let az_g_lfloat_vec_ref_mut_delete = unsafe { lib.get::<extern fn(_:  &mut AzGLfloatVecRefMut)>(b"az_g_lfloat_vec_ref_mut_delete").map_err(|_| "az_g_lfloat_vec_ref_mut_delete")? };
+        let az_refstr_vec_ref_delete = unsafe { lib.get::<extern fn(_:  &mut AzRefstrVecRef)>(b"az_refstr_vec_ref_delete").map_err(|_| "az_refstr_vec_ref_delete")? };
+        let az_refstr_delete = unsafe { lib.get::<extern fn(_:  &mut AzRefstr)>(b"az_refstr_delete").map_err(|_| "az_refstr_delete")? };
+        let az_get_program_binary_return_delete = unsafe { lib.get::<extern fn(_:  &mut AzGetProgramBinaryReturn)>(b"az_get_program_binary_return_delete").map_err(|_| "az_get_program_binary_return_delete")? };
+        let az_get_program_binary_return_deep_copy = unsafe { lib.get::<extern fn(_:  &AzGetProgramBinaryReturn) -> AzGetProgramBinaryReturn>(b"az_get_program_binary_return_deep_copy").map_err(|_| "az_get_program_binary_return_deep_copy")? };
+        let az_get_active_attrib_return_delete = unsafe { lib.get::<extern fn(_:  &mut AzGetActiveAttribReturn)>(b"az_get_active_attrib_return_delete").map_err(|_| "az_get_active_attrib_return_delete")? };
+        let az_get_active_attrib_return_deep_copy = unsafe { lib.get::<extern fn(_:  &AzGetActiveAttribReturn) -> AzGetActiveAttribReturn>(b"az_get_active_attrib_return_deep_copy").map_err(|_| "az_get_active_attrib_return_deep_copy")? };
+        let az_g_lsync_ptr_delete = unsafe { lib.get::<extern fn(_:  &mut AzGLsyncPtr)>(b"az_g_lsync_ptr_delete").map_err(|_| "az_g_lsync_ptr_delete")? };
+        let az_get_active_uniform_return_delete = unsafe { lib.get::<extern fn(_:  &mut AzGetActiveUniformReturn)>(b"az_get_active_uniform_return_delete").map_err(|_| "az_get_active_uniform_return_delete")? };
+        let az_get_active_uniform_return_deep_copy = unsafe { lib.get::<extern fn(_:  &AzGetActiveUniformReturn) -> AzGetActiveUniformReturn>(b"az_get_active_uniform_return_deep_copy").map_err(|_| "az_get_active_uniform_return_deep_copy")? };
+        let az_gl_context_ptr_get_type = unsafe { lib.get::<extern fn(_:  &AzGlContextPtr) -> AzGlType>(b"az_gl_context_ptr_get_type").map_err(|_| "az_gl_context_ptr_get_type")? };
+        let az_gl_context_ptr_buffer_data_untyped = unsafe { lib.get::<extern fn(_:  &AzGlContextPtr, _:  u32, _:  isize, _:  *const c_void, _:  u32)>(b"az_gl_context_ptr_buffer_data_untyped").map_err(|_| "az_gl_context_ptr_buffer_data_untyped")? };
+        let az_gl_context_ptr_buffer_sub_data_untyped = unsafe { lib.get::<extern fn(_:  &AzGlContextPtr, _:  u32, _:  isize, _:  isize, _:  *const c_void)>(b"az_gl_context_ptr_buffer_sub_data_untyped").map_err(|_| "az_gl_context_ptr_buffer_sub_data_untyped")? };
+        let az_gl_context_ptr_map_buffer = unsafe { lib.get::<extern fn(_:  &AzGlContextPtr, _:  u32, _:  u32) -> *mut c_void>(b"az_gl_context_ptr_map_buffer").map_err(|_| "az_gl_context_ptr_map_buffer")? };
+        let az_gl_context_ptr_map_buffer_range = unsafe { lib.get::<extern fn(_:  &AzGlContextPtr, _:  u32, _:  isize, _:  isize, _:  u32) -> *mut c_void>(b"az_gl_context_ptr_map_buffer_range").map_err(|_| "az_gl_context_ptr_map_buffer_range")? };
+        let az_gl_context_ptr_unmap_buffer = unsafe { lib.get::<extern fn(_:  &AzGlContextPtr, _:  u32) -> u8>(b"az_gl_context_ptr_unmap_buffer").map_err(|_| "az_gl_context_ptr_unmap_buffer")? };
+        let az_gl_context_ptr_tex_buffer = unsafe { lib.get::<extern fn(_:  &AzGlContextPtr, _:  u32, _:  u32, _:  u32)>(b"az_gl_context_ptr_tex_buffer").map_err(|_| "az_gl_context_ptr_tex_buffer")? };
+        let az_gl_context_ptr_shader_source = unsafe { lib.get::<extern fn(_:  &AzGlContextPtr, _:  u32, _:  AzStringVec)>(b"az_gl_context_ptr_shader_source").map_err(|_| "az_gl_context_ptr_shader_source")? };
+        let az_gl_context_ptr_read_buffer = unsafe { lib.get::<extern fn(_:  &AzGlContextPtr, _:  u32)>(b"az_gl_context_ptr_read_buffer").map_err(|_| "az_gl_context_ptr_read_buffer")? };
+        let az_gl_context_ptr_read_pixels_into_buffer = unsafe { lib.get::<extern fn(_:  &AzGlContextPtr, _:  i32, _:  i32, _:  i32, _:  i32, _:  u32, _:  u32, _:  AzU8VecRefMut)>(b"az_gl_context_ptr_read_pixels_into_buffer").map_err(|_| "az_gl_context_ptr_read_pixels_into_buffer")? };
+        let az_gl_context_ptr_read_pixels = unsafe { lib.get::<extern fn(_:  &AzGlContextPtr, _:  i32, _:  i32, _:  i32, _:  i32, _:  u32, _:  u32) -> AzU8Vec>(b"az_gl_context_ptr_read_pixels").map_err(|_| "az_gl_context_ptr_read_pixels")? };
+        let az_gl_context_ptr_read_pixels_into_pbo = unsafe { lib.get::<extern fn(_:  &AzGlContextPtr, _:  i32, _:  i32, _:  i32, _:  i32, _:  u32, _:  u32)>(b"az_gl_context_ptr_read_pixels_into_pbo").map_err(|_| "az_gl_context_ptr_read_pixels_into_pbo")? };
+        let az_gl_context_ptr_sample_coverage = unsafe { lib.get::<extern fn(_:  &AzGlContextPtr, _:  f32, _:  bool)>(b"az_gl_context_ptr_sample_coverage").map_err(|_| "az_gl_context_ptr_sample_coverage")? };
+        let az_gl_context_ptr_polygon_offset = unsafe { lib.get::<extern fn(_:  &AzGlContextPtr, _:  f32, _:  f32)>(b"az_gl_context_ptr_polygon_offset").map_err(|_| "az_gl_context_ptr_polygon_offset")? };
+        let az_gl_context_ptr_pixel_store_i = unsafe { lib.get::<extern fn(_:  &AzGlContextPtr, _:  u32, _:  i32)>(b"az_gl_context_ptr_pixel_store_i").map_err(|_| "az_gl_context_ptr_pixel_store_i")? };
+        let az_gl_context_ptr_gen_buffers = unsafe { lib.get::<extern fn(_:  &AzGlContextPtr, _:  i32) -> AzGLuintVec>(b"az_gl_context_ptr_gen_buffers").map_err(|_| "az_gl_context_ptr_gen_buffers")? };
+        let az_gl_context_ptr_gen_renderbuffers = unsafe { lib.get::<extern fn(_:  &AzGlContextPtr, _:  i32) -> AzGLuintVec>(b"az_gl_context_ptr_gen_renderbuffers").map_err(|_| "az_gl_context_ptr_gen_renderbuffers")? };
+        let az_gl_context_ptr_gen_framebuffers = unsafe { lib.get::<extern fn(_:  &AzGlContextPtr, _:  i32) -> AzGLuintVec>(b"az_gl_context_ptr_gen_framebuffers").map_err(|_| "az_gl_context_ptr_gen_framebuffers")? };
+        let az_gl_context_ptr_gen_textures = unsafe { lib.get::<extern fn(_:  &AzGlContextPtr, _:  i32) -> AzGLuintVec>(b"az_gl_context_ptr_gen_textures").map_err(|_| "az_gl_context_ptr_gen_textures")? };
+        let az_gl_context_ptr_gen_vertex_arrays = unsafe { lib.get::<extern fn(_:  &AzGlContextPtr, _:  i32) -> AzGLuintVec>(b"az_gl_context_ptr_gen_vertex_arrays").map_err(|_| "az_gl_context_ptr_gen_vertex_arrays")? };
+        let az_gl_context_ptr_gen_queries = unsafe { lib.get::<extern fn(_:  &AzGlContextPtr, _:  i32) -> AzGLuintVec>(b"az_gl_context_ptr_gen_queries").map_err(|_| "az_gl_context_ptr_gen_queries")? };
+        let az_gl_context_ptr_begin_query = unsafe { lib.get::<extern fn(_:  &AzGlContextPtr, _:  u32, _:  u32)>(b"az_gl_context_ptr_begin_query").map_err(|_| "az_gl_context_ptr_begin_query")? };
+        let az_gl_context_ptr_end_query = unsafe { lib.get::<extern fn(_:  &AzGlContextPtr, _:  u32)>(b"az_gl_context_ptr_end_query").map_err(|_| "az_gl_context_ptr_end_query")? };
+        let az_gl_context_ptr_query_counter = unsafe { lib.get::<extern fn(_:  &AzGlContextPtr, _:  u32, _:  u32)>(b"az_gl_context_ptr_query_counter").map_err(|_| "az_gl_context_ptr_query_counter")? };
+        let az_gl_context_ptr_get_query_object_iv = unsafe { lib.get::<extern fn(_:  &AzGlContextPtr, _:  u32, _:  u32) -> i32>(b"az_gl_context_ptr_get_query_object_iv").map_err(|_| "az_gl_context_ptr_get_query_object_iv")? };
+        let az_gl_context_ptr_get_query_object_uiv = unsafe { lib.get::<extern fn(_:  &AzGlContextPtr, _:  u32, _:  u32) -> u32>(b"az_gl_context_ptr_get_query_object_uiv").map_err(|_| "az_gl_context_ptr_get_query_object_uiv")? };
+        let az_gl_context_ptr_get_query_object_i64v = unsafe { lib.get::<extern fn(_:  &AzGlContextPtr, _:  u32, _:  u32) -> i64>(b"az_gl_context_ptr_get_query_object_i64v").map_err(|_| "az_gl_context_ptr_get_query_object_i64v")? };
+        let az_gl_context_ptr_get_query_object_ui64v = unsafe { lib.get::<extern fn(_:  &AzGlContextPtr, _:  u32, _:  u32) -> u64>(b"az_gl_context_ptr_get_query_object_ui64v").map_err(|_| "az_gl_context_ptr_get_query_object_ui64v")? };
+        let az_gl_context_ptr_delete_queries = unsafe { lib.get::<extern fn(_:  &AzGlContextPtr, _:  AzGLuintVecRef)>(b"az_gl_context_ptr_delete_queries").map_err(|_| "az_gl_context_ptr_delete_queries")? };
+        let az_gl_context_ptr_delete_vertex_arrays = unsafe { lib.get::<extern fn(_:  &AzGlContextPtr, _:  AzGLuintVecRef)>(b"az_gl_context_ptr_delete_vertex_arrays").map_err(|_| "az_gl_context_ptr_delete_vertex_arrays")? };
+        let az_gl_context_ptr_delete_buffers = unsafe { lib.get::<extern fn(_:  &AzGlContextPtr, _:  AzGLuintVecRef)>(b"az_gl_context_ptr_delete_buffers").map_err(|_| "az_gl_context_ptr_delete_buffers")? };
+        let az_gl_context_ptr_delete_renderbuffers = unsafe { lib.get::<extern fn(_:  &AzGlContextPtr, _:  AzGLuintVecRef)>(b"az_gl_context_ptr_delete_renderbuffers").map_err(|_| "az_gl_context_ptr_delete_renderbuffers")? };
+        let az_gl_context_ptr_delete_framebuffers = unsafe { lib.get::<extern fn(_:  &AzGlContextPtr, _:  AzGLuintVecRef)>(b"az_gl_context_ptr_delete_framebuffers").map_err(|_| "az_gl_context_ptr_delete_framebuffers")? };
+        let az_gl_context_ptr_delete_textures = unsafe { lib.get::<extern fn(_:  &AzGlContextPtr, _:  AzGLuintVecRef)>(b"az_gl_context_ptr_delete_textures").map_err(|_| "az_gl_context_ptr_delete_textures")? };
+        let az_gl_context_ptr_framebuffer_renderbuffer = unsafe { lib.get::<extern fn(_:  &AzGlContextPtr, _:  u32, _:  u32, _:  u32, _:  u32)>(b"az_gl_context_ptr_framebuffer_renderbuffer").map_err(|_| "az_gl_context_ptr_framebuffer_renderbuffer")? };
+        let az_gl_context_ptr_renderbuffer_storage = unsafe { lib.get::<extern fn(_:  &AzGlContextPtr, _:  u32, _:  u32, _:  i32, _:  i32)>(b"az_gl_context_ptr_renderbuffer_storage").map_err(|_| "az_gl_context_ptr_renderbuffer_storage")? };
+        let az_gl_context_ptr_depth_func = unsafe { lib.get::<extern fn(_:  &AzGlContextPtr, _:  u32)>(b"az_gl_context_ptr_depth_func").map_err(|_| "az_gl_context_ptr_depth_func")? };
+        let az_gl_context_ptr_active_texture = unsafe { lib.get::<extern fn(_:  &AzGlContextPtr, _:  u32)>(b"az_gl_context_ptr_active_texture").map_err(|_| "az_gl_context_ptr_active_texture")? };
+        let az_gl_context_ptr_attach_shader = unsafe { lib.get::<extern fn(_:  &AzGlContextPtr, _:  u32, _:  u32)>(b"az_gl_context_ptr_attach_shader").map_err(|_| "az_gl_context_ptr_attach_shader")? };
+        let az_gl_context_ptr_bind_attrib_location = unsafe { lib.get::<extern fn(_:  &AzGlContextPtr, _:  u32, _:  u32, _:  AzRefstr)>(b"az_gl_context_ptr_bind_attrib_location").map_err(|_| "az_gl_context_ptr_bind_attrib_location")? };
+        let az_gl_context_ptr_get_uniform_iv = unsafe { lib.get::<extern fn(_:  &AzGlContextPtr, _:  u32, _:  i32, _:  AzGLintVecRefMut)>(b"az_gl_context_ptr_get_uniform_iv").map_err(|_| "az_gl_context_ptr_get_uniform_iv")? };
+        let az_gl_context_ptr_get_uniform_fv = unsafe { lib.get::<extern fn(_:  &AzGlContextPtr, _:  u32, _:  i32, _:  AzGLfloatVecRefMut)>(b"az_gl_context_ptr_get_uniform_fv").map_err(|_| "az_gl_context_ptr_get_uniform_fv")? };
+        let az_gl_context_ptr_get_uniform_block_index = unsafe { lib.get::<extern fn(_:  &AzGlContextPtr, _:  u32, _:  AzRefstr) -> u32>(b"az_gl_context_ptr_get_uniform_block_index").map_err(|_| "az_gl_context_ptr_get_uniform_block_index")? };
+        let az_gl_context_ptr_get_uniform_indices = unsafe { lib.get::<extern fn(_:  &AzGlContextPtr, _:  u32, _:  AzRefstrVecRef) -> AzGLuintVec>(b"az_gl_context_ptr_get_uniform_indices").map_err(|_| "az_gl_context_ptr_get_uniform_indices")? };
+        let az_gl_context_ptr_bind_buffer_base = unsafe { lib.get::<extern fn(_:  &AzGlContextPtr, _:  u32, _:  u32, _:  u32)>(b"az_gl_context_ptr_bind_buffer_base").map_err(|_| "az_gl_context_ptr_bind_buffer_base")? };
+        let az_gl_context_ptr_bind_buffer_range = unsafe { lib.get::<extern fn(_:  &AzGlContextPtr, _:  u32, _:  u32, _:  u32, _:  isize, _:  isize)>(b"az_gl_context_ptr_bind_buffer_range").map_err(|_| "az_gl_context_ptr_bind_buffer_range")? };
+        let az_gl_context_ptr_uniform_block_binding = unsafe { lib.get::<extern fn(_:  &AzGlContextPtr, _:  u32, _:  u32, _:  u32)>(b"az_gl_context_ptr_uniform_block_binding").map_err(|_| "az_gl_context_ptr_uniform_block_binding")? };
+        let az_gl_context_ptr_bind_buffer = unsafe { lib.get::<extern fn(_:  &AzGlContextPtr, _:  u32, _:  u32)>(b"az_gl_context_ptr_bind_buffer").map_err(|_| "az_gl_context_ptr_bind_buffer")? };
+        let az_gl_context_ptr_bind_vertex_array = unsafe { lib.get::<extern fn(_:  &AzGlContextPtr, _:  u32)>(b"az_gl_context_ptr_bind_vertex_array").map_err(|_| "az_gl_context_ptr_bind_vertex_array")? };
+        let az_gl_context_ptr_bind_renderbuffer = unsafe { lib.get::<extern fn(_:  &AzGlContextPtr, _:  u32, _:  u32)>(b"az_gl_context_ptr_bind_renderbuffer").map_err(|_| "az_gl_context_ptr_bind_renderbuffer")? };
+        let az_gl_context_ptr_bind_framebuffer = unsafe { lib.get::<extern fn(_:  &AzGlContextPtr, _:  u32, _:  u32)>(b"az_gl_context_ptr_bind_framebuffer").map_err(|_| "az_gl_context_ptr_bind_framebuffer")? };
+        let az_gl_context_ptr_bind_texture = unsafe { lib.get::<extern fn(_:  &AzGlContextPtr, _:  u32, _:  u32)>(b"az_gl_context_ptr_bind_texture").map_err(|_| "az_gl_context_ptr_bind_texture")? };
+        let az_gl_context_ptr_draw_buffers = unsafe { lib.get::<extern fn(_:  &AzGlContextPtr, _:  AzGLenumVecRef)>(b"az_gl_context_ptr_draw_buffers").map_err(|_| "az_gl_context_ptr_draw_buffers")? };
+        let az_gl_context_ptr_tex_image_2d = unsafe { lib.get::<extern fn(_:  &AzGlContextPtr, _:  u32, _:  i32, _:  i32, _:  i32, _:  i32, _:  i32, _:  u32, _:  u32, _:  AzOptionU8VecRef)>(b"az_gl_context_ptr_tex_image_2d").map_err(|_| "az_gl_context_ptr_tex_image_2d")? };
+        let az_gl_context_ptr_compressed_tex_image_2d = unsafe { lib.get::<extern fn(_:  &AzGlContextPtr, _:  u32, _:  i32, _:  u32, _:  i32, _:  i32, _:  i32, _:  AzU8VecRef)>(b"az_gl_context_ptr_compressed_tex_image_2d").map_err(|_| "az_gl_context_ptr_compressed_tex_image_2d")? };
+        let az_gl_context_ptr_compressed_tex_sub_image_2d = unsafe { lib.get::<extern fn(_:  &AzGlContextPtr, _:  u32, _:  i32, _:  i32, _:  i32, _:  i32, _:  i32, _:  u32, _:  AzU8VecRef)>(b"az_gl_context_ptr_compressed_tex_sub_image_2d").map_err(|_| "az_gl_context_ptr_compressed_tex_sub_image_2d")? };
+        let az_gl_context_ptr_tex_image_3d = unsafe { lib.get::<extern fn(_:  &AzGlContextPtr, _:  u32, _:  i32, _:  i32, _:  i32, _:  i32, _:  i32, _:  i32, _:  u32, _:  u32, _:  AzOptionU8VecRef)>(b"az_gl_context_ptr_tex_image_3d").map_err(|_| "az_gl_context_ptr_tex_image_3d")? };
+        let az_gl_context_ptr_copy_tex_image_2d = unsafe { lib.get::<extern fn(_:  &AzGlContextPtr, _:  u32, _:  i32, _:  u32, _:  i32, _:  i32, _:  i32, _:  i32, _:  i32)>(b"az_gl_context_ptr_copy_tex_image_2d").map_err(|_| "az_gl_context_ptr_copy_tex_image_2d")? };
+        let az_gl_context_ptr_copy_tex_sub_image_2d = unsafe { lib.get::<extern fn(_:  &AzGlContextPtr, _:  u32, _:  i32, _:  i32, _:  i32, _:  i32, _:  i32, _:  i32, _:  i32)>(b"az_gl_context_ptr_copy_tex_sub_image_2d").map_err(|_| "az_gl_context_ptr_copy_tex_sub_image_2d")? };
+        let az_gl_context_ptr_copy_tex_sub_image_3d = unsafe { lib.get::<extern fn(_:  &AzGlContextPtr, _:  u32, _:  i32, _:  i32, _:  i32, _:  i32, _:  i32, _:  i32, _:  i32, _:  i32)>(b"az_gl_context_ptr_copy_tex_sub_image_3d").map_err(|_| "az_gl_context_ptr_copy_tex_sub_image_3d")? };
+        let az_gl_context_ptr_tex_sub_image_2d = unsafe { lib.get::<extern fn(_:  &AzGlContextPtr, _:  u32, _:  i32, _:  i32, _:  i32, _:  i32, _:  i32, _:  u32, _:  u32, _:  AzU8VecRef)>(b"az_gl_context_ptr_tex_sub_image_2d").map_err(|_| "az_gl_context_ptr_tex_sub_image_2d")? };
+        let az_gl_context_ptr_tex_sub_image_2d_pbo = unsafe { lib.get::<extern fn(_:  &AzGlContextPtr, _:  u32, _:  i32, _:  i32, _:  i32, _:  i32, _:  i32, _:  u32, _:  u32, _:  usize)>(b"az_gl_context_ptr_tex_sub_image_2d_pbo").map_err(|_| "az_gl_context_ptr_tex_sub_image_2d_pbo")? };
+        let az_gl_context_ptr_tex_sub_image_3d = unsafe { lib.get::<extern fn(_:  &AzGlContextPtr, _:  u32, _:  i32, _:  i32, _:  i32, _:  i32, _:  i32, _:  i32, _:  i32, _:  u32, _:  u32, _:  AzU8VecRef)>(b"az_gl_context_ptr_tex_sub_image_3d").map_err(|_| "az_gl_context_ptr_tex_sub_image_3d")? };
+        let az_gl_context_ptr_tex_sub_image_3d_pbo = unsafe { lib.get::<extern fn(_:  &AzGlContextPtr, _:  u32, _:  i32, _:  i32, _:  i32, _:  i32, _:  i32, _:  i32, _:  i32, _:  u32, _:  u32, _:  usize)>(b"az_gl_context_ptr_tex_sub_image_3d_pbo").map_err(|_| "az_gl_context_ptr_tex_sub_image_3d_pbo")? };
+        let az_gl_context_ptr_tex_storage_2d = unsafe { lib.get::<extern fn(_:  &AzGlContextPtr, _:  u32, _:  i32, _:  u32, _:  i32, _:  i32)>(b"az_gl_context_ptr_tex_storage_2d").map_err(|_| "az_gl_context_ptr_tex_storage_2d")? };
+        let az_gl_context_ptr_tex_storage_3d = unsafe { lib.get::<extern fn(_:  &AzGlContextPtr, _:  u32, _:  i32, _:  u32, _:  i32, _:  i32, _:  i32)>(b"az_gl_context_ptr_tex_storage_3d").map_err(|_| "az_gl_context_ptr_tex_storage_3d")? };
+        let az_gl_context_ptr_get_tex_image_into_buffer = unsafe { lib.get::<extern fn(_:  &AzGlContextPtr, _:  u32, _:  i32, _:  u32, _:  u32, _:  AzU8VecRefMut)>(b"az_gl_context_ptr_get_tex_image_into_buffer").map_err(|_| "az_gl_context_ptr_get_tex_image_into_buffer")? };
+        let az_gl_context_ptr_copy_image_sub_data = unsafe { lib.get::<extern fn(_:  &AzGlContextPtr, _:  u32, _:  u32, _:  i32, _:  i32, _:  i32, _:  i32, _:  u32, _:  u32, _:  i32, _:  i32, _:  i32, _:  i32, _:  i32, _:  i32, _:  i32)>(b"az_gl_context_ptr_copy_image_sub_data").map_err(|_| "az_gl_context_ptr_copy_image_sub_data")? };
+        let az_gl_context_ptr_invalidate_framebuffer = unsafe { lib.get::<extern fn(_:  &AzGlContextPtr, _:  u32, _:  AzGLenumVecRef)>(b"az_gl_context_ptr_invalidate_framebuffer").map_err(|_| "az_gl_context_ptr_invalidate_framebuffer")? };
+        let az_gl_context_ptr_invalidate_sub_framebuffer = unsafe { lib.get::<extern fn(_:  &AzGlContextPtr, _:  u32, _:  AzGLenumVecRef, _:  i32, _:  i32, _:  i32, _:  i32)>(b"az_gl_context_ptr_invalidate_sub_framebuffer").map_err(|_| "az_gl_context_ptr_invalidate_sub_framebuffer")? };
+        let az_gl_context_ptr_get_integer_v = unsafe { lib.get::<extern fn(_:  &AzGlContextPtr, _:  u32, _:  AzGLintVecRefMut)>(b"az_gl_context_ptr_get_integer_v").map_err(|_| "az_gl_context_ptr_get_integer_v")? };
+        let az_gl_context_ptr_get_integer_64v = unsafe { lib.get::<extern fn(_:  &AzGlContextPtr, _:  u32, _:  AzGLint64VecRefMut)>(b"az_gl_context_ptr_get_integer_64v").map_err(|_| "az_gl_context_ptr_get_integer_64v")? };
+        let az_gl_context_ptr_get_integer_iv = unsafe { lib.get::<extern fn(_:  &AzGlContextPtr, _:  u32, _:  u32, _:  AzGLintVecRefMut)>(b"az_gl_context_ptr_get_integer_iv").map_err(|_| "az_gl_context_ptr_get_integer_iv")? };
+        let az_gl_context_ptr_get_integer_64iv = unsafe { lib.get::<extern fn(_:  &AzGlContextPtr, _:  u32, _:  u32, _:  AzGLint64VecRefMut)>(b"az_gl_context_ptr_get_integer_64iv").map_err(|_| "az_gl_context_ptr_get_integer_64iv")? };
+        let az_gl_context_ptr_get_boolean_v = unsafe { lib.get::<extern fn(_:  &AzGlContextPtr, _:  u32, _:  AzGLbooleanVecRefMut)>(b"az_gl_context_ptr_get_boolean_v").map_err(|_| "az_gl_context_ptr_get_boolean_v")? };
+        let az_gl_context_ptr_get_float_v = unsafe { lib.get::<extern fn(_:  &AzGlContextPtr, _:  u32, _:  AzGLfloatVecRefMut)>(b"az_gl_context_ptr_get_float_v").map_err(|_| "az_gl_context_ptr_get_float_v")? };
+        let az_gl_context_ptr_get_framebuffer_attachment_parameter_iv = unsafe { lib.get::<extern fn(_:  &AzGlContextPtr, _:  u32, _:  u32, _:  u32) -> i32>(b"az_gl_context_ptr_get_framebuffer_attachment_parameter_iv").map_err(|_| "az_gl_context_ptr_get_framebuffer_attachment_parameter_iv")? };
+        let az_gl_context_ptr_get_renderbuffer_parameter_iv = unsafe { lib.get::<extern fn(_:  &AzGlContextPtr, _:  u32, _:  u32) -> i32>(b"az_gl_context_ptr_get_renderbuffer_parameter_iv").map_err(|_| "az_gl_context_ptr_get_renderbuffer_parameter_iv")? };
+        let az_gl_context_ptr_get_tex_parameter_iv = unsafe { lib.get::<extern fn(_:  &AzGlContextPtr, _:  u32, _:  u32) -> i32>(b"az_gl_context_ptr_get_tex_parameter_iv").map_err(|_| "az_gl_context_ptr_get_tex_parameter_iv")? };
+        let az_gl_context_ptr_get_tex_parameter_fv = unsafe { lib.get::<extern fn(_:  &AzGlContextPtr, _:  u32, _:  u32) -> f32>(b"az_gl_context_ptr_get_tex_parameter_fv").map_err(|_| "az_gl_context_ptr_get_tex_parameter_fv")? };
+        let az_gl_context_ptr_tex_parameter_i = unsafe { lib.get::<extern fn(_:  &AzGlContextPtr, _:  u32, _:  u32, _:  i32)>(b"az_gl_context_ptr_tex_parameter_i").map_err(|_| "az_gl_context_ptr_tex_parameter_i")? };
+        let az_gl_context_ptr_tex_parameter_f = unsafe { lib.get::<extern fn(_:  &AzGlContextPtr, _:  u32, _:  u32, _:  f32)>(b"az_gl_context_ptr_tex_parameter_f").map_err(|_| "az_gl_context_ptr_tex_parameter_f")? };
+        let az_gl_context_ptr_framebuffer_texture_2d = unsafe { lib.get::<extern fn(_:  &AzGlContextPtr, _:  u32, _:  u32, _:  u32, _:  u32, _:  i32)>(b"az_gl_context_ptr_framebuffer_texture_2d").map_err(|_| "az_gl_context_ptr_framebuffer_texture_2d")? };
+        let az_gl_context_ptr_framebuffer_texture_layer = unsafe { lib.get::<extern fn(_:  &AzGlContextPtr, _:  u32, _:  u32, _:  u32, _:  i32, _:  i32)>(b"az_gl_context_ptr_framebuffer_texture_layer").map_err(|_| "az_gl_context_ptr_framebuffer_texture_layer")? };
+        let az_gl_context_ptr_blit_framebuffer = unsafe { lib.get::<extern fn(_:  &AzGlContextPtr, _:  i32, _:  i32, _:  i32, _:  i32, _:  i32, _:  i32, _:  i32, _:  i32, _:  u32, _:  u32)>(b"az_gl_context_ptr_blit_framebuffer").map_err(|_| "az_gl_context_ptr_blit_framebuffer")? };
+        let az_gl_context_ptr_vertex_attrib_4f = unsafe { lib.get::<extern fn(_:  &AzGlContextPtr, _:  u32, _:  f32, _:  f32, _:  f32, _:  f32)>(b"az_gl_context_ptr_vertex_attrib_4f").map_err(|_| "az_gl_context_ptr_vertex_attrib_4f")? };
+        let az_gl_context_ptr_vertex_attrib_pointer_f32 = unsafe { lib.get::<extern fn(_:  &AzGlContextPtr, _:  u32, _:  i32, _:  bool, _:  i32, _:  u32)>(b"az_gl_context_ptr_vertex_attrib_pointer_f32").map_err(|_| "az_gl_context_ptr_vertex_attrib_pointer_f32")? };
+        let az_gl_context_ptr_vertex_attrib_pointer = unsafe { lib.get::<extern fn(_:  &AzGlContextPtr, _:  u32, _:  i32, _:  u32, _:  bool, _:  i32, _:  u32)>(b"az_gl_context_ptr_vertex_attrib_pointer").map_err(|_| "az_gl_context_ptr_vertex_attrib_pointer")? };
+        let az_gl_context_ptr_vertex_attrib_i_pointer = unsafe { lib.get::<extern fn(_:  &AzGlContextPtr, _:  u32, _:  i32, _:  u32, _:  i32, _:  u32)>(b"az_gl_context_ptr_vertex_attrib_i_pointer").map_err(|_| "az_gl_context_ptr_vertex_attrib_i_pointer")? };
+        let az_gl_context_ptr_vertex_attrib_divisor = unsafe { lib.get::<extern fn(_:  &AzGlContextPtr, _:  u32, _:  u32)>(b"az_gl_context_ptr_vertex_attrib_divisor").map_err(|_| "az_gl_context_ptr_vertex_attrib_divisor")? };
+        let az_gl_context_ptr_viewport = unsafe { lib.get::<extern fn(_:  &AzGlContextPtr, _:  i32, _:  i32, _:  i32, _:  i32)>(b"az_gl_context_ptr_viewport").map_err(|_| "az_gl_context_ptr_viewport")? };
+        let az_gl_context_ptr_scissor = unsafe { lib.get::<extern fn(_:  &AzGlContextPtr, _:  i32, _:  i32, _:  i32, _:  i32)>(b"az_gl_context_ptr_scissor").map_err(|_| "az_gl_context_ptr_scissor")? };
+        let az_gl_context_ptr_line_width = unsafe { lib.get::<extern fn(_:  &AzGlContextPtr, _:  f32)>(b"az_gl_context_ptr_line_width").map_err(|_| "az_gl_context_ptr_line_width")? };
+        let az_gl_context_ptr_use_program = unsafe { lib.get::<extern fn(_:  &AzGlContextPtr, _:  u32)>(b"az_gl_context_ptr_use_program").map_err(|_| "az_gl_context_ptr_use_program")? };
+        let az_gl_context_ptr_validate_program = unsafe { lib.get::<extern fn(_:  &AzGlContextPtr, _:  u32)>(b"az_gl_context_ptr_validate_program").map_err(|_| "az_gl_context_ptr_validate_program")? };
+        let az_gl_context_ptr_draw_arrays = unsafe { lib.get::<extern fn(_:  &AzGlContextPtr, _:  u32, _:  i32, _:  i32)>(b"az_gl_context_ptr_draw_arrays").map_err(|_| "az_gl_context_ptr_draw_arrays")? };
+        let az_gl_context_ptr_draw_arrays_instanced = unsafe { lib.get::<extern fn(_:  &AzGlContextPtr, _:  u32, _:  i32, _:  i32, _:  i32)>(b"az_gl_context_ptr_draw_arrays_instanced").map_err(|_| "az_gl_context_ptr_draw_arrays_instanced")? };
+        let az_gl_context_ptr_draw_elements = unsafe { lib.get::<extern fn(_:  &AzGlContextPtr, _:  u32, _:  i32, _:  u32, _:  u32)>(b"az_gl_context_ptr_draw_elements").map_err(|_| "az_gl_context_ptr_draw_elements")? };
+        let az_gl_context_ptr_draw_elements_instanced = unsafe { lib.get::<extern fn(_:  &AzGlContextPtr, _:  u32, _:  i32, _:  u32, _:  u32, _:  i32)>(b"az_gl_context_ptr_draw_elements_instanced").map_err(|_| "az_gl_context_ptr_draw_elements_instanced")? };
+        let az_gl_context_ptr_blend_color = unsafe { lib.get::<extern fn(_:  &AzGlContextPtr, _:  f32, _:  f32, _:  f32, _:  f32)>(b"az_gl_context_ptr_blend_color").map_err(|_| "az_gl_context_ptr_blend_color")? };
+        let az_gl_context_ptr_blend_func = unsafe { lib.get::<extern fn(_:  &AzGlContextPtr, _:  u32, _:  u32)>(b"az_gl_context_ptr_blend_func").map_err(|_| "az_gl_context_ptr_blend_func")? };
+        let az_gl_context_ptr_blend_func_separate = unsafe { lib.get::<extern fn(_:  &AzGlContextPtr, _:  u32, _:  u32, _:  u32, _:  u32)>(b"az_gl_context_ptr_blend_func_separate").map_err(|_| "az_gl_context_ptr_blend_func_separate")? };
+        let az_gl_context_ptr_blend_equation = unsafe { lib.get::<extern fn(_:  &AzGlContextPtr, _:  u32)>(b"az_gl_context_ptr_blend_equation").map_err(|_| "az_gl_context_ptr_blend_equation")? };
+        let az_gl_context_ptr_blend_equation_separate = unsafe { lib.get::<extern fn(_:  &AzGlContextPtr, _:  u32, _:  u32)>(b"az_gl_context_ptr_blend_equation_separate").map_err(|_| "az_gl_context_ptr_blend_equation_separate")? };
+        let az_gl_context_ptr_color_mask = unsafe { lib.get::<extern fn(_:  &AzGlContextPtr, _:  bool, _:  bool, _:  bool, _:  bool)>(b"az_gl_context_ptr_color_mask").map_err(|_| "az_gl_context_ptr_color_mask")? };
+        let az_gl_context_ptr_cull_face = unsafe { lib.get::<extern fn(_:  &AzGlContextPtr, _:  u32)>(b"az_gl_context_ptr_cull_face").map_err(|_| "az_gl_context_ptr_cull_face")? };
+        let az_gl_context_ptr_front_face = unsafe { lib.get::<extern fn(_:  &AzGlContextPtr, _:  u32)>(b"az_gl_context_ptr_front_face").map_err(|_| "az_gl_context_ptr_front_face")? };
+        let az_gl_context_ptr_enable = unsafe { lib.get::<extern fn(_:  &AzGlContextPtr, _:  u32)>(b"az_gl_context_ptr_enable").map_err(|_| "az_gl_context_ptr_enable")? };
+        let az_gl_context_ptr_disable = unsafe { lib.get::<extern fn(_:  &AzGlContextPtr, _:  u32)>(b"az_gl_context_ptr_disable").map_err(|_| "az_gl_context_ptr_disable")? };
+        let az_gl_context_ptr_hint = unsafe { lib.get::<extern fn(_:  &AzGlContextPtr, _:  u32, _:  u32)>(b"az_gl_context_ptr_hint").map_err(|_| "az_gl_context_ptr_hint")? };
+        let az_gl_context_ptr_is_enabled = unsafe { lib.get::<extern fn(_:  &AzGlContextPtr, _:  u32) -> u8>(b"az_gl_context_ptr_is_enabled").map_err(|_| "az_gl_context_ptr_is_enabled")? };
+        let az_gl_context_ptr_is_shader = unsafe { lib.get::<extern fn(_:  &AzGlContextPtr, _:  u32) -> u8>(b"az_gl_context_ptr_is_shader").map_err(|_| "az_gl_context_ptr_is_shader")? };
+        let az_gl_context_ptr_is_texture = unsafe { lib.get::<extern fn(_:  &AzGlContextPtr, _:  u32) -> u8>(b"az_gl_context_ptr_is_texture").map_err(|_| "az_gl_context_ptr_is_texture")? };
+        let az_gl_context_ptr_is_framebuffer = unsafe { lib.get::<extern fn(_:  &AzGlContextPtr, _:  u32) -> u8>(b"az_gl_context_ptr_is_framebuffer").map_err(|_| "az_gl_context_ptr_is_framebuffer")? };
+        let az_gl_context_ptr_is_renderbuffer = unsafe { lib.get::<extern fn(_:  &AzGlContextPtr, _:  u32) -> u8>(b"az_gl_context_ptr_is_renderbuffer").map_err(|_| "az_gl_context_ptr_is_renderbuffer")? };
+        let az_gl_context_ptr_check_frame_buffer_status = unsafe { lib.get::<extern fn(_:  &AzGlContextPtr, _:  u32) -> u32>(b"az_gl_context_ptr_check_frame_buffer_status").map_err(|_| "az_gl_context_ptr_check_frame_buffer_status")? };
+        let az_gl_context_ptr_enable_vertex_attrib_array = unsafe { lib.get::<extern fn(_:  &AzGlContextPtr, _:  u32)>(b"az_gl_context_ptr_enable_vertex_attrib_array").map_err(|_| "az_gl_context_ptr_enable_vertex_attrib_array")? };
+        let az_gl_context_ptr_disable_vertex_attrib_array = unsafe { lib.get::<extern fn(_:  &AzGlContextPtr, _:  u32)>(b"az_gl_context_ptr_disable_vertex_attrib_array").map_err(|_| "az_gl_context_ptr_disable_vertex_attrib_array")? };
+        let az_gl_context_ptr_uniform_1f = unsafe { lib.get::<extern fn(_:  &AzGlContextPtr, _:  i32, _:  f32)>(b"az_gl_context_ptr_uniform_1f").map_err(|_| "az_gl_context_ptr_uniform_1f")? };
+        let az_gl_context_ptr_uniform_1fv = unsafe { lib.get::<extern fn(_:  &AzGlContextPtr, _:  i32, _:  AzF32VecRef)>(b"az_gl_context_ptr_uniform_1fv").map_err(|_| "az_gl_context_ptr_uniform_1fv")? };
+        let az_gl_context_ptr_uniform_1i = unsafe { lib.get::<extern fn(_:  &AzGlContextPtr, _:  i32, _:  i32)>(b"az_gl_context_ptr_uniform_1i").map_err(|_| "az_gl_context_ptr_uniform_1i")? };
+        let az_gl_context_ptr_uniform_1iv = unsafe { lib.get::<extern fn(_:  &AzGlContextPtr, _:  i32, _:  AzI32VecRef)>(b"az_gl_context_ptr_uniform_1iv").map_err(|_| "az_gl_context_ptr_uniform_1iv")? };
+        let az_gl_context_ptr_uniform_1ui = unsafe { lib.get::<extern fn(_:  &AzGlContextPtr, _:  i32, _:  u32)>(b"az_gl_context_ptr_uniform_1ui").map_err(|_| "az_gl_context_ptr_uniform_1ui")? };
+        let az_gl_context_ptr_uniform_2f = unsafe { lib.get::<extern fn(_:  &AzGlContextPtr, _:  i32, _:  f32, _:  f32)>(b"az_gl_context_ptr_uniform_2f").map_err(|_| "az_gl_context_ptr_uniform_2f")? };
+        let az_gl_context_ptr_uniform_2fv = unsafe { lib.get::<extern fn(_:  &AzGlContextPtr, _:  i32, _:  AzF32VecRef)>(b"az_gl_context_ptr_uniform_2fv").map_err(|_| "az_gl_context_ptr_uniform_2fv")? };
+        let az_gl_context_ptr_uniform_2i = unsafe { lib.get::<extern fn(_:  &AzGlContextPtr, _:  i32, _:  i32, _:  i32)>(b"az_gl_context_ptr_uniform_2i").map_err(|_| "az_gl_context_ptr_uniform_2i")? };
+        let az_gl_context_ptr_uniform_2iv = unsafe { lib.get::<extern fn(_:  &AzGlContextPtr, _:  i32, _:  AzI32VecRef)>(b"az_gl_context_ptr_uniform_2iv").map_err(|_| "az_gl_context_ptr_uniform_2iv")? };
+        let az_gl_context_ptr_uniform_2ui = unsafe { lib.get::<extern fn(_:  &AzGlContextPtr, _:  i32, _:  u32, _:  u32)>(b"az_gl_context_ptr_uniform_2ui").map_err(|_| "az_gl_context_ptr_uniform_2ui")? };
+        let az_gl_context_ptr_uniform_3f = unsafe { lib.get::<extern fn(_:  &AzGlContextPtr, _:  i32, _:  f32, _:  f32, _:  f32)>(b"az_gl_context_ptr_uniform_3f").map_err(|_| "az_gl_context_ptr_uniform_3f")? };
+        let az_gl_context_ptr_uniform_3fv = unsafe { lib.get::<extern fn(_:  &AzGlContextPtr, _:  i32, _:  AzF32VecRef)>(b"az_gl_context_ptr_uniform_3fv").map_err(|_| "az_gl_context_ptr_uniform_3fv")? };
+        let az_gl_context_ptr_uniform_3i = unsafe { lib.get::<extern fn(_:  &AzGlContextPtr, _:  i32, _:  i32, _:  i32, _:  i32)>(b"az_gl_context_ptr_uniform_3i").map_err(|_| "az_gl_context_ptr_uniform_3i")? };
+        let az_gl_context_ptr_uniform_3iv = unsafe { lib.get::<extern fn(_:  &AzGlContextPtr, _:  i32, _:  AzI32VecRef)>(b"az_gl_context_ptr_uniform_3iv").map_err(|_| "az_gl_context_ptr_uniform_3iv")? };
+        let az_gl_context_ptr_uniform_3ui = unsafe { lib.get::<extern fn(_:  &AzGlContextPtr, _:  i32, _:  u32, _:  u32, _:  u32)>(b"az_gl_context_ptr_uniform_3ui").map_err(|_| "az_gl_context_ptr_uniform_3ui")? };
+        let az_gl_context_ptr_uniform_4f = unsafe { lib.get::<extern fn(_:  &AzGlContextPtr, _:  i32, _:  f32, _:  f32, _:  f32, _:  f32)>(b"az_gl_context_ptr_uniform_4f").map_err(|_| "az_gl_context_ptr_uniform_4f")? };
+        let az_gl_context_ptr_uniform_4i = unsafe { lib.get::<extern fn(_:  &AzGlContextPtr, _:  i32, _:  i32, _:  i32, _:  i32, _:  i32)>(b"az_gl_context_ptr_uniform_4i").map_err(|_| "az_gl_context_ptr_uniform_4i")? };
+        let az_gl_context_ptr_uniform_4iv = unsafe { lib.get::<extern fn(_:  &AzGlContextPtr, _:  i32, _:  AzI32VecRef)>(b"az_gl_context_ptr_uniform_4iv").map_err(|_| "az_gl_context_ptr_uniform_4iv")? };
+        let az_gl_context_ptr_uniform_4ui = unsafe { lib.get::<extern fn(_:  &AzGlContextPtr, _:  i32, _:  u32, _:  u32, _:  u32, _:  u32)>(b"az_gl_context_ptr_uniform_4ui").map_err(|_| "az_gl_context_ptr_uniform_4ui")? };
+        let az_gl_context_ptr_uniform_4fv = unsafe { lib.get::<extern fn(_:  &AzGlContextPtr, _:  i32, _:  AzF32VecRef)>(b"az_gl_context_ptr_uniform_4fv").map_err(|_| "az_gl_context_ptr_uniform_4fv")? };
+        let az_gl_context_ptr_uniform_matrix_2fv = unsafe { lib.get::<extern fn(_:  &AzGlContextPtr, _:  i32, _:  bool, _:  AzF32VecRef)>(b"az_gl_context_ptr_uniform_matrix_2fv").map_err(|_| "az_gl_context_ptr_uniform_matrix_2fv")? };
+        let az_gl_context_ptr_uniform_matrix_3fv = unsafe { lib.get::<extern fn(_:  &AzGlContextPtr, _:  i32, _:  bool, _:  AzF32VecRef)>(b"az_gl_context_ptr_uniform_matrix_3fv").map_err(|_| "az_gl_context_ptr_uniform_matrix_3fv")? };
+        let az_gl_context_ptr_uniform_matrix_4fv = unsafe { lib.get::<extern fn(_:  &AzGlContextPtr, _:  i32, _:  bool, _:  AzF32VecRef)>(b"az_gl_context_ptr_uniform_matrix_4fv").map_err(|_| "az_gl_context_ptr_uniform_matrix_4fv")? };
+        let az_gl_context_ptr_depth_mask = unsafe { lib.get::<extern fn(_:  &AzGlContextPtr, _:  bool)>(b"az_gl_context_ptr_depth_mask").map_err(|_| "az_gl_context_ptr_depth_mask")? };
+        let az_gl_context_ptr_depth_range = unsafe { lib.get::<extern fn(_:  &AzGlContextPtr, _:  f64, _:  f64)>(b"az_gl_context_ptr_depth_range").map_err(|_| "az_gl_context_ptr_depth_range")? };
+        let az_gl_context_ptr_get_active_attrib = unsafe { lib.get::<extern fn(_:  &AzGlContextPtr, _:  u32, _:  u32) -> AzGetActiveAttribReturn>(b"az_gl_context_ptr_get_active_attrib").map_err(|_| "az_gl_context_ptr_get_active_attrib")? };
+        let az_gl_context_ptr_get_active_uniform = unsafe { lib.get::<extern fn(_:  &AzGlContextPtr, _:  u32, _:  u32) -> AzGetActiveUniformReturn>(b"az_gl_context_ptr_get_active_uniform").map_err(|_| "az_gl_context_ptr_get_active_uniform")? };
+        let az_gl_context_ptr_get_active_uniforms_iv = unsafe { lib.get::<extern fn(_:  &AzGlContextPtr, _:  u32, _:  AzGLuintVec, _:  u32) -> AzGLintVec>(b"az_gl_context_ptr_get_active_uniforms_iv").map_err(|_| "az_gl_context_ptr_get_active_uniforms_iv")? };
+        let az_gl_context_ptr_get_active_uniform_block_i = unsafe { lib.get::<extern fn(_:  &AzGlContextPtr, _:  u32, _:  u32, _:  u32) -> i32>(b"az_gl_context_ptr_get_active_uniform_block_i").map_err(|_| "az_gl_context_ptr_get_active_uniform_block_i")? };
+        let az_gl_context_ptr_get_active_uniform_block_iv = unsafe { lib.get::<extern fn(_:  &AzGlContextPtr, _:  u32, _:  u32, _:  u32) -> AzGLintVec>(b"az_gl_context_ptr_get_active_uniform_block_iv").map_err(|_| "az_gl_context_ptr_get_active_uniform_block_iv")? };
+        let az_gl_context_ptr_get_active_uniform_block_name = unsafe { lib.get::<extern fn(_:  &AzGlContextPtr, _:  u32, _:  u32) -> AzString>(b"az_gl_context_ptr_get_active_uniform_block_name").map_err(|_| "az_gl_context_ptr_get_active_uniform_block_name")? };
+        let az_gl_context_ptr_get_attrib_location = unsafe { lib.get::<extern fn(_:  &AzGlContextPtr, _:  u32, _:  AzRefstr) -> i32>(b"az_gl_context_ptr_get_attrib_location").map_err(|_| "az_gl_context_ptr_get_attrib_location")? };
+        let az_gl_context_ptr_get_frag_data_location = unsafe { lib.get::<extern fn(_:  &AzGlContextPtr, _:  u32, _:  AzRefstr) -> i32>(b"az_gl_context_ptr_get_frag_data_location").map_err(|_| "az_gl_context_ptr_get_frag_data_location")? };
+        let az_gl_context_ptr_get_uniform_location = unsafe { lib.get::<extern fn(_:  &AzGlContextPtr, _:  u32, _:  AzRefstr) -> i32>(b"az_gl_context_ptr_get_uniform_location").map_err(|_| "az_gl_context_ptr_get_uniform_location")? };
+        let az_gl_context_ptr_get_program_info_log = unsafe { lib.get::<extern fn(_:  &AzGlContextPtr, _:  u32) -> AzString>(b"az_gl_context_ptr_get_program_info_log").map_err(|_| "az_gl_context_ptr_get_program_info_log")? };
+        let az_gl_context_ptr_get_program_iv = unsafe { lib.get::<extern fn(_:  &AzGlContextPtr, _:  u32, _:  u32, _:  AzGLintVecRefMut)>(b"az_gl_context_ptr_get_program_iv").map_err(|_| "az_gl_context_ptr_get_program_iv")? };
+        let az_gl_context_ptr_get_program_binary = unsafe { lib.get::<extern fn(_:  &AzGlContextPtr, _:  u32) -> AzGetProgramBinaryReturn>(b"az_gl_context_ptr_get_program_binary").map_err(|_| "az_gl_context_ptr_get_program_binary")? };
+        let az_gl_context_ptr_program_binary = unsafe { lib.get::<extern fn(_:  &AzGlContextPtr, _:  u32, _:  u32, _:  AzU8VecRef)>(b"az_gl_context_ptr_program_binary").map_err(|_| "az_gl_context_ptr_program_binary")? };
+        let az_gl_context_ptr_program_parameter_i = unsafe { lib.get::<extern fn(_:  &AzGlContextPtr, _:  u32, _:  u32, _:  i32)>(b"az_gl_context_ptr_program_parameter_i").map_err(|_| "az_gl_context_ptr_program_parameter_i")? };
+        let az_gl_context_ptr_get_vertex_attrib_iv = unsafe { lib.get::<extern fn(_:  &AzGlContextPtr, _:  u32, _:  u32, _:  AzGLintVecRefMut)>(b"az_gl_context_ptr_get_vertex_attrib_iv").map_err(|_| "az_gl_context_ptr_get_vertex_attrib_iv")? };
+        let az_gl_context_ptr_get_vertex_attrib_fv = unsafe { lib.get::<extern fn(_:  &AzGlContextPtr, _:  u32, _:  u32, _:  AzGLfloatVecRefMut)>(b"az_gl_context_ptr_get_vertex_attrib_fv").map_err(|_| "az_gl_context_ptr_get_vertex_attrib_fv")? };
+        let az_gl_context_ptr_get_vertex_attrib_pointer_v = unsafe { lib.get::<extern fn(_:  &AzGlContextPtr, _:  u32, _:  u32) -> isize>(b"az_gl_context_ptr_get_vertex_attrib_pointer_v").map_err(|_| "az_gl_context_ptr_get_vertex_attrib_pointer_v")? };
+        let az_gl_context_ptr_get_buffer_parameter_iv = unsafe { lib.get::<extern fn(_:  &AzGlContextPtr, _:  u32, _:  u32) -> i32>(b"az_gl_context_ptr_get_buffer_parameter_iv").map_err(|_| "az_gl_context_ptr_get_buffer_parameter_iv")? };
+        let az_gl_context_ptr_get_shader_info_log = unsafe { lib.get::<extern fn(_:  &AzGlContextPtr, _:  u32) -> AzString>(b"az_gl_context_ptr_get_shader_info_log").map_err(|_| "az_gl_context_ptr_get_shader_info_log")? };
+        let az_gl_context_ptr_get_string = unsafe { lib.get::<extern fn(_:  &AzGlContextPtr, _:  u32) -> AzString>(b"az_gl_context_ptr_get_string").map_err(|_| "az_gl_context_ptr_get_string")? };
+        let az_gl_context_ptr_get_string_i = unsafe { lib.get::<extern fn(_:  &AzGlContextPtr, _:  u32, _:  u32) -> AzString>(b"az_gl_context_ptr_get_string_i").map_err(|_| "az_gl_context_ptr_get_string_i")? };
+        let az_gl_context_ptr_get_shader_iv = unsafe { lib.get::<extern fn(_:  &AzGlContextPtr, _:  u32, _:  u32, _:  AzGLintVecRefMut)>(b"az_gl_context_ptr_get_shader_iv").map_err(|_| "az_gl_context_ptr_get_shader_iv")? };
+        let az_gl_context_ptr_get_shader_precision_format = unsafe { lib.get::<extern fn(_:  &AzGlContextPtr, _:  u32, _:  u32) -> [i32;3]>(b"az_gl_context_ptr_get_shader_precision_format").map_err(|_| "az_gl_context_ptr_get_shader_precision_format")? };
+        let az_gl_context_ptr_compile_shader = unsafe { lib.get::<extern fn(_:  &AzGlContextPtr, _:  u32)>(b"az_gl_context_ptr_compile_shader").map_err(|_| "az_gl_context_ptr_compile_shader")? };
+        let az_gl_context_ptr_create_program = unsafe { lib.get::<extern fn(_:  &AzGlContextPtr) -> u32>(b"az_gl_context_ptr_create_program").map_err(|_| "az_gl_context_ptr_create_program")? };
+        let az_gl_context_ptr_delete_program = unsafe { lib.get::<extern fn(_:  &AzGlContextPtr, _:  u32)>(b"az_gl_context_ptr_delete_program").map_err(|_| "az_gl_context_ptr_delete_program")? };
+        let az_gl_context_ptr_create_shader = unsafe { lib.get::<extern fn(_:  &AzGlContextPtr, _:  u32) -> u32>(b"az_gl_context_ptr_create_shader").map_err(|_| "az_gl_context_ptr_create_shader")? };
+        let az_gl_context_ptr_delete_shader = unsafe { lib.get::<extern fn(_:  &AzGlContextPtr, _:  u32)>(b"az_gl_context_ptr_delete_shader").map_err(|_| "az_gl_context_ptr_delete_shader")? };
+        let az_gl_context_ptr_detach_shader = unsafe { lib.get::<extern fn(_:  &AzGlContextPtr, _:  u32, _:  u32)>(b"az_gl_context_ptr_detach_shader").map_err(|_| "az_gl_context_ptr_detach_shader")? };
+        let az_gl_context_ptr_link_program = unsafe { lib.get::<extern fn(_:  &AzGlContextPtr, _:  u32)>(b"az_gl_context_ptr_link_program").map_err(|_| "az_gl_context_ptr_link_program")? };
+        let az_gl_context_ptr_clear_color = unsafe { lib.get::<extern fn(_:  &AzGlContextPtr, _:  f32, _:  f32, _:  f32, _:  f32)>(b"az_gl_context_ptr_clear_color").map_err(|_| "az_gl_context_ptr_clear_color")? };
+        let az_gl_context_ptr_clear = unsafe { lib.get::<extern fn(_:  &AzGlContextPtr, _:  u32)>(b"az_gl_context_ptr_clear").map_err(|_| "az_gl_context_ptr_clear")? };
+        let az_gl_context_ptr_clear_depth = unsafe { lib.get::<extern fn(_:  &AzGlContextPtr, _:  f64)>(b"az_gl_context_ptr_clear_depth").map_err(|_| "az_gl_context_ptr_clear_depth")? };
+        let az_gl_context_ptr_clear_stencil = unsafe { lib.get::<extern fn(_:  &AzGlContextPtr, _:  i32)>(b"az_gl_context_ptr_clear_stencil").map_err(|_| "az_gl_context_ptr_clear_stencil")? };
+        let az_gl_context_ptr_flush = unsafe { lib.get::<extern fn(_:  &AzGlContextPtr)>(b"az_gl_context_ptr_flush").map_err(|_| "az_gl_context_ptr_flush")? };
+        let az_gl_context_ptr_finish = unsafe { lib.get::<extern fn(_:  &AzGlContextPtr)>(b"az_gl_context_ptr_finish").map_err(|_| "az_gl_context_ptr_finish")? };
+        let az_gl_context_ptr_get_error = unsafe { lib.get::<extern fn(_:  &AzGlContextPtr) -> u32>(b"az_gl_context_ptr_get_error").map_err(|_| "az_gl_context_ptr_get_error")? };
+        let az_gl_context_ptr_stencil_mask = unsafe { lib.get::<extern fn(_:  &AzGlContextPtr, _:  u32)>(b"az_gl_context_ptr_stencil_mask").map_err(|_| "az_gl_context_ptr_stencil_mask")? };
+        let az_gl_context_ptr_stencil_mask_separate = unsafe { lib.get::<extern fn(_:  &AzGlContextPtr, _:  u32, _:  u32)>(b"az_gl_context_ptr_stencil_mask_separate").map_err(|_| "az_gl_context_ptr_stencil_mask_separate")? };
+        let az_gl_context_ptr_stencil_func = unsafe { lib.get::<extern fn(_:  &AzGlContextPtr, _:  u32, _:  i32, _:  u32)>(b"az_gl_context_ptr_stencil_func").map_err(|_| "az_gl_context_ptr_stencil_func")? };
+        let az_gl_context_ptr_stencil_func_separate = unsafe { lib.get::<extern fn(_:  &AzGlContextPtr, _:  u32, _:  u32, _:  i32, _:  u32)>(b"az_gl_context_ptr_stencil_func_separate").map_err(|_| "az_gl_context_ptr_stencil_func_separate")? };
+        let az_gl_context_ptr_stencil_op = unsafe { lib.get::<extern fn(_:  &AzGlContextPtr, _:  u32, _:  u32, _:  u32)>(b"az_gl_context_ptr_stencil_op").map_err(|_| "az_gl_context_ptr_stencil_op")? };
+        let az_gl_context_ptr_stencil_op_separate = unsafe { lib.get::<extern fn(_:  &AzGlContextPtr, _:  u32, _:  u32, _:  u32, _:  u32)>(b"az_gl_context_ptr_stencil_op_separate").map_err(|_| "az_gl_context_ptr_stencil_op_separate")? };
+        let az_gl_context_ptr_egl_image_target_texture2d_oes = unsafe { lib.get::<extern fn(_:  &AzGlContextPtr, _:  u32, _:  *const c_void)>(b"az_gl_context_ptr_egl_image_target_texture2d_oes").map_err(|_| "az_gl_context_ptr_egl_image_target_texture2d_oes")? };
+        let az_gl_context_ptr_generate_mipmap = unsafe { lib.get::<extern fn(_:  &AzGlContextPtr, _:  u32)>(b"az_gl_context_ptr_generate_mipmap").map_err(|_| "az_gl_context_ptr_generate_mipmap")? };
+        let az_gl_context_ptr_insert_event_marker_ext = unsafe { lib.get::<extern fn(_:  &AzGlContextPtr, _:  AzRefstr)>(b"az_gl_context_ptr_insert_event_marker_ext").map_err(|_| "az_gl_context_ptr_insert_event_marker_ext")? };
+        let az_gl_context_ptr_push_group_marker_ext = unsafe { lib.get::<extern fn(_:  &AzGlContextPtr, _:  AzRefstr)>(b"az_gl_context_ptr_push_group_marker_ext").map_err(|_| "az_gl_context_ptr_push_group_marker_ext")? };
+        let az_gl_context_ptr_pop_group_marker_ext = unsafe { lib.get::<extern fn(_:  &AzGlContextPtr)>(b"az_gl_context_ptr_pop_group_marker_ext").map_err(|_| "az_gl_context_ptr_pop_group_marker_ext")? };
+        let az_gl_context_ptr_debug_message_insert_khr = unsafe { lib.get::<extern fn(_:  &AzGlContextPtr, _:  u32, _:  u32, _:  u32, _:  u32, _:  AzRefstr)>(b"az_gl_context_ptr_debug_message_insert_khr").map_err(|_| "az_gl_context_ptr_debug_message_insert_khr")? };
+        let az_gl_context_ptr_push_debug_group_khr = unsafe { lib.get::<extern fn(_:  &AzGlContextPtr, _:  u32, _:  u32, _:  AzRefstr)>(b"az_gl_context_ptr_push_debug_group_khr").map_err(|_| "az_gl_context_ptr_push_debug_group_khr")? };
+        let az_gl_context_ptr_pop_debug_group_khr = unsafe { lib.get::<extern fn(_:  &AzGlContextPtr)>(b"az_gl_context_ptr_pop_debug_group_khr").map_err(|_| "az_gl_context_ptr_pop_debug_group_khr")? };
+        let az_gl_context_ptr_fence_sync = unsafe { lib.get::<extern fn(_:  &AzGlContextPtr, _:  u32, _:  u32) -> AzGLsyncPtr>(b"az_gl_context_ptr_fence_sync").map_err(|_| "az_gl_context_ptr_fence_sync")? };
+        let az_gl_context_ptr_client_wait_sync = unsafe { lib.get::<extern fn(_:  &AzGlContextPtr, _:  AzGLsyncPtr, _:  u32, _:  u64)>(b"az_gl_context_ptr_client_wait_sync").map_err(|_| "az_gl_context_ptr_client_wait_sync")? };
+        let az_gl_context_ptr_wait_sync = unsafe { lib.get::<extern fn(_:  &AzGlContextPtr, _:  AzGLsyncPtr, _:  u32, _:  u64)>(b"az_gl_context_ptr_wait_sync").map_err(|_| "az_gl_context_ptr_wait_sync")? };
+        let az_gl_context_ptr_delete_sync = unsafe { lib.get::<extern fn(_:  &AzGlContextPtr, _:  AzGLsyncPtr)>(b"az_gl_context_ptr_delete_sync").map_err(|_| "az_gl_context_ptr_delete_sync")? };
+        let az_gl_context_ptr_texture_range_apple = unsafe { lib.get::<extern fn(_:  &AzGlContextPtr, _:  u32, _:  AzU8VecRef)>(b"az_gl_context_ptr_texture_range_apple").map_err(|_| "az_gl_context_ptr_texture_range_apple")? };
+        let az_gl_context_ptr_gen_fences_apple = unsafe { lib.get::<extern fn(_:  &AzGlContextPtr, _:  i32) -> AzGLuintVec>(b"az_gl_context_ptr_gen_fences_apple").map_err(|_| "az_gl_context_ptr_gen_fences_apple")? };
+        let az_gl_context_ptr_delete_fences_apple = unsafe { lib.get::<extern fn(_:  &AzGlContextPtr, _:  AzGLuintVecRef)>(b"az_gl_context_ptr_delete_fences_apple").map_err(|_| "az_gl_context_ptr_delete_fences_apple")? };
+        let az_gl_context_ptr_set_fence_apple = unsafe { lib.get::<extern fn(_:  &AzGlContextPtr, _:  u32)>(b"az_gl_context_ptr_set_fence_apple").map_err(|_| "az_gl_context_ptr_set_fence_apple")? };
+        let az_gl_context_ptr_finish_fence_apple = unsafe { lib.get::<extern fn(_:  &AzGlContextPtr, _:  u32)>(b"az_gl_context_ptr_finish_fence_apple").map_err(|_| "az_gl_context_ptr_finish_fence_apple")? };
+        let az_gl_context_ptr_test_fence_apple = unsafe { lib.get::<extern fn(_:  &AzGlContextPtr, _:  u32)>(b"az_gl_context_ptr_test_fence_apple").map_err(|_| "az_gl_context_ptr_test_fence_apple")? };
+        let az_gl_context_ptr_test_object_apple = unsafe { lib.get::<extern fn(_:  &AzGlContextPtr, _:  u32, _:  u32) -> u8>(b"az_gl_context_ptr_test_object_apple").map_err(|_| "az_gl_context_ptr_test_object_apple")? };
+        let az_gl_context_ptr_finish_object_apple = unsafe { lib.get::<extern fn(_:  &AzGlContextPtr, _:  u32, _:  u32)>(b"az_gl_context_ptr_finish_object_apple").map_err(|_| "az_gl_context_ptr_finish_object_apple")? };
+        let az_gl_context_ptr_get_frag_data_index = unsafe { lib.get::<extern fn(_:  &AzGlContextPtr, _:  u32, _:  AzRefstr) -> i32>(b"az_gl_context_ptr_get_frag_data_index").map_err(|_| "az_gl_context_ptr_get_frag_data_index")? };
+        let az_gl_context_ptr_blend_barrier_khr = unsafe { lib.get::<extern fn(_:  &AzGlContextPtr)>(b"az_gl_context_ptr_blend_barrier_khr").map_err(|_| "az_gl_context_ptr_blend_barrier_khr")? };
+        let az_gl_context_ptr_bind_frag_data_location_indexed = unsafe { lib.get::<extern fn(_:  &AzGlContextPtr, _:  u32, _:  u32, _:  u32, _:  AzRefstr)>(b"az_gl_context_ptr_bind_frag_data_location_indexed").map_err(|_| "az_gl_context_ptr_bind_frag_data_location_indexed")? };
+        let az_gl_context_ptr_get_debug_messages = unsafe { lib.get::<extern fn(_:  &AzGlContextPtr) -> AzDebugMessageVec>(b"az_gl_context_ptr_get_debug_messages").map_err(|_| "az_gl_context_ptr_get_debug_messages")? };
+        let az_gl_context_ptr_provoking_vertex_angle = unsafe { lib.get::<extern fn(_:  &AzGlContextPtr, _:  u32)>(b"az_gl_context_ptr_provoking_vertex_angle").map_err(|_| "az_gl_context_ptr_provoking_vertex_angle")? };
+        let az_gl_context_ptr_gen_vertex_arrays_apple = unsafe { lib.get::<extern fn(_:  &AzGlContextPtr, _:  i32) -> AzGLuintVec>(b"az_gl_context_ptr_gen_vertex_arrays_apple").map_err(|_| "az_gl_context_ptr_gen_vertex_arrays_apple")? };
+        let az_gl_context_ptr_bind_vertex_array_apple = unsafe { lib.get::<extern fn(_:  &AzGlContextPtr, _:  u32)>(b"az_gl_context_ptr_bind_vertex_array_apple").map_err(|_| "az_gl_context_ptr_bind_vertex_array_apple")? };
+        let az_gl_context_ptr_delete_vertex_arrays_apple = unsafe { lib.get::<extern fn(_:  &AzGlContextPtr, _:  AzGLuintVecRef)>(b"az_gl_context_ptr_delete_vertex_arrays_apple").map_err(|_| "az_gl_context_ptr_delete_vertex_arrays_apple")? };
+        let az_gl_context_ptr_copy_texture_chromium = unsafe { lib.get::<extern fn(_:  &AzGlContextPtr, _:  u32, _:  i32, _:  u32, _:  u32, _:  i32, _:  i32, _:  u32, _:  u8, _:  u8, _:  u8)>(b"az_gl_context_ptr_copy_texture_chromium").map_err(|_| "az_gl_context_ptr_copy_texture_chromium")? };
+        let az_gl_context_ptr_copy_sub_texture_chromium = unsafe { lib.get::<extern fn(_:  &AzGlContextPtr, _:  u32, _:  i32, _:  u32, _:  u32, _:  i32, _:  i32, _:  i32, _:  i32, _:  i32, _:  i32, _:  i32, _:  u8, _:  u8, _:  u8)>(b"az_gl_context_ptr_copy_sub_texture_chromium").map_err(|_| "az_gl_context_ptr_copy_sub_texture_chromium")? };
+        let az_gl_context_ptr_egl_image_target_renderbuffer_storage_oes = unsafe { lib.get::<extern fn(_:  &AzGlContextPtr, _:  u32, _:  *const c_void)>(b"az_gl_context_ptr_egl_image_target_renderbuffer_storage_oes").map_err(|_| "az_gl_context_ptr_egl_image_target_renderbuffer_storage_oes")? };
+        let az_gl_context_ptr_copy_texture_3d_angle = unsafe { lib.get::<extern fn(_:  &AzGlContextPtr, _:  u32, _:  i32, _:  u32, _:  u32, _:  i32, _:  i32, _:  u32, _:  u8, _:  u8, _:  u8)>(b"az_gl_context_ptr_copy_texture_3d_angle").map_err(|_| "az_gl_context_ptr_copy_texture_3d_angle")? };
+        let az_gl_context_ptr_copy_sub_texture_3d_angle = unsafe { lib.get::<extern fn(_:  &AzGlContextPtr, _:  u32, _:  i32, _:  u32, _:  u32, _:  i32, _:  i32, _:  i32, _:  i32, _:  i32, _:  i32, _:  i32, _:  i32, _:  i32, _:  i32, _:  u8, _:  u8, _:  u8)>(b"az_gl_context_ptr_copy_sub_texture_3d_angle").map_err(|_| "az_gl_context_ptr_copy_sub_texture_3d_angle")? };
+        let az_gl_context_ptr_delete = unsafe { lib.get::<extern fn(_:  &mut AzGlContextPtr)>(b"az_gl_context_ptr_delete").map_err(|_| "az_gl_context_ptr_delete")? };
+        let az_gl_context_ptr_deep_copy = unsafe { lib.get::<extern fn(_:  &AzGlContextPtr) -> AzGlContextPtr>(b"az_gl_context_ptr_deep_copy").map_err(|_| "az_gl_context_ptr_deep_copy")? };
+        let az_texture_delete = unsafe { lib.get::<extern fn(_:  &mut AzTexture)>(b"az_texture_delete").map_err(|_| "az_texture_delete")? };
+        let az_texture_flags_delete = unsafe { lib.get::<extern fn(_:  &mut AzTextureFlags)>(b"az_texture_flags_delete").map_err(|_| "az_texture_flags_delete")? };
+        let az_texture_flags_deep_copy = unsafe { lib.get::<extern fn(_:  &AzTextureFlags) -> AzTextureFlags>(b"az_texture_flags_deep_copy").map_err(|_| "az_texture_flags_deep_copy")? };
+        let az_text_id_new = unsafe { lib.get::<extern fn() -> AzTextId>(b"az_text_id_new").map_err(|_| "az_text_id_new")? };
+        let az_text_id_delete = unsafe { lib.get::<extern fn(_:  &mut AzTextId)>(b"az_text_id_delete").map_err(|_| "az_text_id_delete")? };
+        let az_text_id_deep_copy = unsafe { lib.get::<extern fn(_:  &AzTextId) -> AzTextId>(b"az_text_id_deep_copy").map_err(|_| "az_text_id_deep_copy")? };
+        let az_image_id_new = unsafe { lib.get::<extern fn() -> AzImageId>(b"az_image_id_new").map_err(|_| "az_image_id_new")? };
+        let az_image_id_delete = unsafe { lib.get::<extern fn(_:  &mut AzImageId)>(b"az_image_id_delete").map_err(|_| "az_image_id_delete")? };
+        let az_image_id_deep_copy = unsafe { lib.get::<extern fn(_:  &AzImageId) -> AzImageId>(b"az_image_id_deep_copy").map_err(|_| "az_image_id_deep_copy")? };
+        let az_font_id_new = unsafe { lib.get::<extern fn() -> AzFontId>(b"az_font_id_new").map_err(|_| "az_font_id_new")? };
+        let az_font_id_delete = unsafe { lib.get::<extern fn(_:  &mut AzFontId)>(b"az_font_id_delete").map_err(|_| "az_font_id_delete")? };
+        let az_font_id_deep_copy = unsafe { lib.get::<extern fn(_:  &AzFontId) -> AzFontId>(b"az_font_id_deep_copy").map_err(|_| "az_font_id_deep_copy")? };
+        let az_image_source_delete = unsafe { lib.get::<extern fn(_:  &mut AzImageSource)>(b"az_image_source_delete").map_err(|_| "az_image_source_delete")? };
+        let az_image_source_deep_copy = unsafe { lib.get::<extern fn(_:  &AzImageSource) -> AzImageSource>(b"az_image_source_deep_copy").map_err(|_| "az_image_source_deep_copy")? };
+        let az_font_source_delete = unsafe { lib.get::<extern fn(_:  &mut AzFontSource)>(b"az_font_source_delete").map_err(|_| "az_font_source_delete")? };
+        let az_font_source_deep_copy = unsafe { lib.get::<extern fn(_:  &AzFontSource) -> AzFontSource>(b"az_font_source_deep_copy").map_err(|_| "az_font_source_deep_copy")? };
+        let az_raw_image_new = unsafe { lib.get::<extern fn(_:  AzU8Vec, _:  usize, _:  usize, _:  AzRawImageFormat) -> AzRawImage>(b"az_raw_image_new").map_err(|_| "az_raw_image_new")? };
+        let az_raw_image_delete = unsafe { lib.get::<extern fn(_:  &mut AzRawImage)>(b"az_raw_image_delete").map_err(|_| "az_raw_image_delete")? };
+        let az_raw_image_deep_copy = unsafe { lib.get::<extern fn(_:  &AzRawImage) -> AzRawImage>(b"az_raw_image_deep_copy").map_err(|_| "az_raw_image_deep_copy")? };
+        let az_raw_image_format_delete = unsafe { lib.get::<extern fn(_:  &mut AzRawImageFormat)>(b"az_raw_image_format_delete").map_err(|_| "az_raw_image_format_delete")? };
+        let az_raw_image_format_deep_copy = unsafe { lib.get::<extern fn(_:  &AzRawImageFormat) -> AzRawImageFormat>(b"az_raw_image_format_deep_copy").map_err(|_| "az_raw_image_format_deep_copy")? };
+        let az_drop_check_ptr_delete = unsafe { lib.get::<extern fn(_:  &mut AzDropCheckPtrPtr)>(b"az_drop_check_ptr_delete").map_err(|_| "az_drop_check_ptr_delete")? };
+        let az_arc_mutex_ref_any_delete = unsafe { lib.get::<extern fn(_:  &mut AzArcMutexRefAnyPtr)>(b"az_arc_mutex_ref_any_delete").map_err(|_| "az_arc_mutex_ref_any_delete")? };
+        let az_timer_callback_info_delete = unsafe { lib.get::<extern fn(_:  &mut AzTimerCallbackInfoPtr)>(b"az_timer_callback_info_delete").map_err(|_| "az_timer_callback_info_delete")? };
+        let az_timer_delete = unsafe { lib.get::<extern fn(_:  &mut AzTimer)>(b"az_timer_delete").map_err(|_| "az_timer_delete")? };
+        let az_timer_deep_copy = unsafe { lib.get::<extern fn(_:  &AzTimer) -> AzTimer>(b"az_timer_deep_copy").map_err(|_| "az_timer_deep_copy")? };
+        let az_task_new = unsafe { lib.get::<extern fn(_:  AzArcMutexRefAnyPtr, _:  AzTaskCallbackType) -> AzTaskPtr>(b"az_task_new").map_err(|_| "az_task_new")? };
+        let az_task_then = unsafe { lib.get::<extern fn(_:  AzTaskPtr, _:  AzTimer) -> AzTaskPtr>(b"az_task_then").map_err(|_| "az_task_then")? };
+        let az_task_delete = unsafe { lib.get::<extern fn(_:  &mut AzTaskPtr)>(b"az_task_delete").map_err(|_| "az_task_delete")? };
+        let az_thread_new = unsafe { lib.get::<extern fn(_:  AzRefAny, _:  AzThreadCallbackType) -> AzThreadPtr>(b"az_thread_new").map_err(|_| "az_thread_new")? };
+        let az_thread_block = unsafe { lib.get::<extern fn(_:  AzThreadPtr) -> AzResultRefAnyBlockError>(b"az_thread_block").map_err(|_| "az_thread_block")? };
+        let az_thread_delete = unsafe { lib.get::<extern fn(_:  &mut AzThreadPtr)>(b"az_thread_delete").map_err(|_| "az_thread_delete")? };
+        let az_drop_check_delete = unsafe { lib.get::<extern fn(_:  &mut AzDropCheckPtr)>(b"az_drop_check_delete").map_err(|_| "az_drop_check_delete")? };
+        let az_timer_id_delete = unsafe { lib.get::<extern fn(_:  &mut AzTimerId)>(b"az_timer_id_delete").map_err(|_| "az_timer_id_delete")? };
+        let az_timer_id_deep_copy = unsafe { lib.get::<extern fn(_:  &AzTimerId) -> AzTimerId>(b"az_timer_id_deep_copy").map_err(|_| "az_timer_id_deep_copy")? };
+        let az_terminate_timer_delete = unsafe { lib.get::<extern fn(_:  &mut AzTerminateTimer)>(b"az_terminate_timer_delete").map_err(|_| "az_terminate_timer_delete")? };
+        let az_terminate_timer_deep_copy = unsafe { lib.get::<extern fn(_:  &AzTerminateTimer) -> AzTerminateTimer>(b"az_terminate_timer_deep_copy").map_err(|_| "az_terminate_timer_deep_copy")? };
+        let az_block_error_delete = unsafe { lib.get::<extern fn(_:  &mut AzBlockError)>(b"az_block_error_delete").map_err(|_| "az_block_error_delete")? };
+        let az_block_error_deep_copy = unsafe { lib.get::<extern fn(_:  &AzBlockError) -> AzBlockError>(b"az_block_error_deep_copy").map_err(|_| "az_block_error_deep_copy")? };
+        let az_window_create_options_new = unsafe { lib.get::<extern fn(_:  AzCssPtr) -> AzWindowCreateOptionsPtr>(b"az_window_create_options_new").map_err(|_| "az_window_create_options_new")? };
+        let az_window_create_options_delete = unsafe { lib.get::<extern fn(_:  &mut AzWindowCreateOptionsPtr)>(b"az_window_create_options_delete").map_err(|_| "az_window_create_options_delete")? };
+        let az_logical_size_delete = unsafe { lib.get::<extern fn(_:  &mut AzLogicalSize)>(b"az_logical_size_delete").map_err(|_| "az_logical_size_delete")? };
+        let az_logical_size_deep_copy = unsafe { lib.get::<extern fn(_:  &AzLogicalSize) -> AzLogicalSize>(b"az_logical_size_deep_copy").map_err(|_| "az_logical_size_deep_copy")? };
+        Ok(AzulDll {
             lib: Box::new(lib),
             az_string_from_utf8_unchecked,
             az_string_from_utf8_lossy,
@@ -3129,53 +3118,61 @@ pub(crate) mod dll {
             az_result_ref_any_block_error_deep_copy,
             az_instant_now,
             az_instant_delete,
-            az_instant_shallow_copy,
             az_duration_delete,
             az_duration_deep_copy,
             az_app_config_default,
             az_app_config_delete,
-            az_app_config_shallow_copy,
             az_app_new,
             az_app_run,
             az_app_delete,
-            az_app_shallow_copy,
             az_layout_callback_delete,
             az_layout_callback_deep_copy,
             az_callback_delete,
             az_callback_deep_copy,
             az_callback_info_delete,
-            az_callback_info_shallow_copy,
             az_update_screen_delete,
             az_update_screen_deep_copy,
             az_i_frame_callback_delete,
             az_i_frame_callback_deep_copy,
             az_i_frame_callback_info_delete,
-            az_i_frame_callback_info_shallow_copy,
             az_i_frame_callback_return_delete,
             az_i_frame_callback_return_deep_copy,
             az_gl_callback_delete,
             az_gl_callback_deep_copy,
             az_gl_callback_info_delete,
-            az_gl_callback_info_shallow_copy,
             az_gl_callback_return_delete,
             az_timer_callback_delete,
             az_timer_callback_deep_copy,
             az_timer_callback_type_delete,
-            az_timer_callback_type_shallow_copy,
             az_timer_callback_return_delete,
             az_timer_callback_return_deep_copy,
+            az_ref_any_sharing_info_can_be_shared,
+            az_ref_any_sharing_info_can_be_shared_mut,
+            az_ref_any_sharing_info_increase_ref,
+            az_ref_any_sharing_info_decrease_ref,
+            az_ref_any_sharing_info_increase_refmut,
+            az_ref_any_sharing_info_decrease_refmut,
+            az_ref_any_sharing_info_delete,
+            az_ref_any_new_c,
+            az_ref_any_is_type,
+            az_ref_any_get_type_name,
+            az_ref_any_can_be_shared,
+            az_ref_any_can_be_shared_mut,
+            az_ref_any_increase_ref,
+            az_ref_any_decrease_ref,
+            az_ref_any_increase_refmut,
+            az_ref_any_decrease_refmut,
+            az_ref_any_delete,
+            az_ref_any_deep_copy,
             az_layout_info_delete,
-            az_layout_info_shallow_copy,
             az_css_native,
             az_css_empty,
             az_css_from_string,
             az_css_override_native,
             az_css_delete,
-            az_css_shallow_copy,
             az_css_hot_reloader_new,
             az_css_hot_reloader_override_native,
             az_css_hot_reloader_delete,
-            az_css_hot_reloader_shallow_copy,
             az_color_u_delete,
             az_color_u_deep_copy,
             az_size_metric_delete,
@@ -3781,23 +3778,17 @@ pub(crate) mod dll {
             az_raw_image_format_delete,
             az_raw_image_format_deep_copy,
             az_drop_check_ptr_delete,
-            az_drop_check_ptr_shallow_copy,
             az_arc_mutex_ref_any_delete,
-            az_arc_mutex_ref_any_shallow_copy,
             az_timer_callback_info_delete,
-            az_timer_callback_info_shallow_copy,
             az_timer_delete,
             az_timer_deep_copy,
             az_task_new,
             az_task_then,
             az_task_delete,
-            az_task_shallow_copy,
             az_thread_new,
             az_thread_block,
             az_thread_delete,
-            az_thread_shallow_copy,
             az_drop_check_delete,
-            az_drop_check_shallow_copy,
             az_timer_id_delete,
             az_timer_id_deep_copy,
             az_terminate_timer_delete,
@@ -3806,15 +3797,8 @@ pub(crate) mod dll {
             az_block_error_deep_copy,
             az_window_create_options_new,
             az_window_create_options_delete,
-            az_window_create_options_shallow_copy,
             az_logical_size_delete,
             az_logical_size_deep_copy,
-            az_ref_any_new,
-            az_ref_any_get_ptr,
-            az_ref_any_get_mut_ptr,
-            az_ref_any_shallow_copy,
-            az_ref_any_delete,
-            az_ref_any_core_copy,
         })
     }
 
@@ -3833,14 +3817,14 @@ pub(crate) mod dll {
     #[cfg(windows)]
     const DLL_FILE_NAME: &str = "./azul.dll";
 
-    fn load_library_inner() -> Option<AzulDll> {
+    fn load_library_inner() -> Result<AzulDll, &'static str> {
 
-        let current_exe_path = std::env::current_exe().ok()?;
-        let mut library_path = current_exe_path.parent()?.to_path_buf();
+        let current_exe_path = std::env::current_exe().map_err(|_| "current exe has no current dir (?!)")?;
+        let mut library_path = current_exe_path.parent().ok_or("current exe has no parent (?!)")?.to_path_buf();
         library_path.push(DLL_FILE_NAME);
 
         if !library_path.exists() {
-           std::fs::write(&library_path, LIB_BYTES).ok()?;
+           std::fs::write(&library_path, LIB_BYTES).map_err(|_| "could not unpack DLL")?;
         }
 
         initialize_library(&library_path)
@@ -3849,11 +3833,11 @@ pub(crate) mod dll {
     pub(crate) fn get_azul_dll() -> &'static AzulDll { 
         if !LIBRARY_IS_INITIALIZED.load(Ordering::SeqCst) {
            match load_library_inner() {
-               Some(s) => {
+               Ok(s) => {
                    unsafe { AZUL_DLL = MaybeUninit::new(s) };
                    LIBRARY_IS_INITIALIZED.store(true, Ordering::SeqCst);
                },
-               None => { println!("failed to initialize libazul dll"); std::process::exit(-1); }
+               Err(e) => { println!("failed to initialize libazul dll: missing function {}", e); std::process::exit(-1); }
            }
         }
 
@@ -3891,6 +3875,39 @@ pub mod str {
             let s_bytes = s.into_bytes();
             unsafe { std::string::String::from_utf8_unchecked(s_bytes.into()) } // - copies s into a new String
             // - s_bytes is deallocated here
+        }
+    }
+
+    impl AsRef<str> for crate::str::String {
+        fn as_ref(&self) -> &str {
+            self.as_str()
+        }
+    }
+
+    impl std::fmt::Display for crate::str::String {
+        fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
+            self.as_str().fmt(f)
+        }
+    }
+
+    impl std::fmt::Debug for crate::str::String {
+        fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
+            self.as_str().fmt(f)
+        }
+    }
+
+    impl crate::str::String {
+        #[inline]
+        pub fn as_str(&self) -> &str {
+            unsafe { std::str::from_utf8_unchecked(std::slice::from_raw_parts(self.vec.ptr, self.vec.len)) }
+        }
+        #[inline]
+        pub fn as_bytes(&self) -> &[u8] {
+            self.vec.as_ref()
+        }
+        #[inline]
+        pub fn into_string(self) -> String {
+            String::from(self)
         }
     }
 
@@ -4309,6 +4326,128 @@ pub mod callbacks {
     use crate::dll::*;
     use std::ffi::c_void;
 
+    #[derive(Debug, Hash, PartialEq, PartialOrd, Ord, Eq)]
+    #[repr(C)]
+    pub struct Ref<'a, T> {
+        ptr: &'a T,
+        _sharing_info_ptr: *const RefAnySharingInfo,
+    }
+
+    impl<'a, T> Drop for Ref<'a, T> {
+        fn drop(&mut self) {
+            (crate::dll::get_azul_dll().az_ref_any_sharing_info_decrease_ref)(unsafe { &mut *(self._sharing_info_ptr as *mut RefAnySharingInfo) });
+        }
+    }
+
+    impl<'a, T> std::ops::Deref for Ref<'a, T> {
+        type Target = T;
+
+        fn deref(&self) -> &Self::Target {
+            self.ptr
+        }
+    }
+
+    #[derive(Debug, Hash, PartialEq, PartialOrd, Ord, Eq)]
+    #[repr(C)]
+    pub struct RefMut<'a, T> {
+        ptr: &'a mut T,
+        _sharing_info_ptr: *const RefAnySharingInfo,
+    }
+
+    impl<'a, T> Drop for RefMut<'a, T> {
+        fn drop(&mut self) {
+            (crate::dll::get_azul_dll().az_ref_any_sharing_info_decrease_refmut)(unsafe { &mut *(self._sharing_info_ptr as *mut RefAnySharingInfo) });
+        }
+    }
+
+    impl<'a, T> std::ops::Deref for RefMut<'a, T> {
+        type Target = T;
+
+        fn deref(&self) -> &Self::Target {
+            &*self.ptr
+        }
+    }
+
+    impl<'a, T> std::ops::DerefMut for RefMut<'a, T> {
+        fn deref_mut(&mut self) -> &mut Self::Target {
+            self.ptr
+        }
+    }
+
+    impl RefAny {
+
+        /// Creates a new, type-erased pointer by casting the `T` value into a `Vec<u8>` and saving the length + type ID
+        pub fn new<T: 'static>(value: T) -> Self {
+            use crate::dll::*;
+
+            fn default_custom_destructor<U: 'static>(ptr: *const c_void) {
+                use std::{mem, ptr};
+
+                // note: in the default constructor, we do not need to check whether U == T
+
+                unsafe {
+                    // copy the struct from the heap to the stack and call mem::drop on U to run the destructor
+                    let mut stack_mem = mem::MaybeUninit::<U>::uninit().assume_init();
+                    ptr::copy_nonoverlapping(ptr as *const U, &mut stack_mem as *mut U, mem::size_of::<U>());
+                    mem::drop(stack_mem);
+                }
+            }
+
+            let type_name_str = ::std::any::type_name::<T>();
+            let s = (crate::dll::get_azul_dll().az_ref_any_new_c)(
+                (&value as *const T) as *const c_void,
+                ::std::mem::size_of::<T>(),
+                Self::get_type_id::<T>(),
+                crate::str::String::from_utf8_unchecked(type_name_str.as_ptr(), type_name_str.len()),
+                default_custom_destructor::<T>,
+            );
+            ::std::mem::forget(value); // do not run the destructor of T here!
+            s
+        }
+
+        /// Downcasts the type-erased pointer to a type `&U`, returns `None` if the types don't match
+        #[inline]
+        pub fn borrow<'a, U: 'static>(&'a self) -> Option<Ref<'a, U>> {
+            let is_same_type = (crate::dll::get_azul_dll().az_ref_any_is_type)(self, Self::get_type_id::<U>());
+            if !is_same_type { return None; }
+
+            let can_be_shared = (crate::dll::get_azul_dll().az_ref_any_can_be_shared)(self);
+            if !can_be_shared { return None; }
+
+            Some(Ref {
+                ptr: unsafe { &*(self._internal_ptr as *const U) },
+                _sharing_info_ptr: self._sharing_info_ptr,
+            })
+        }
+
+        /// Downcasts the type-erased pointer to a type `&mut U`, returns `None` if the types don't match
+        #[inline]
+        pub fn borrow_mut<'a, U: 'static>(&'a mut self) -> Option<RefMut<'a, U>> {
+            let is_same_type = (crate::dll::get_azul_dll().az_ref_any_is_type)(self, Self::get_type_id::<U>());
+            if !is_same_type { return None; }
+
+            let can_be_shared_mut = (crate::dll::get_azul_dll().az_ref_any_can_be_shared_mut)(self);
+            if !can_be_shared_mut { return None; }
+
+            Some(RefMut {
+                ptr: unsafe { &mut *(self._internal_ptr as *mut U) },
+                _sharing_info_ptr: self._sharing_info_ptr,
+            })
+        }
+
+        // Returns the typeid of `T` as a u64 (necessary because `std::any::TypeId` is not C-ABI compatible)
+        #[inline]
+        pub fn get_type_id<T: 'static>() -> u64 {
+            use std::any::TypeId;
+            use std::mem;
+
+            // fast method to serialize the type id into a u64
+            let t_id = TypeId::of::<T>();
+            let struct_as_bytes = unsafe { ::std::slice::from_raw_parts((&t_id as *const TypeId) as *const u8, mem::size_of::<TypeId>()) };
+            struct_as_bytes.into_iter().enumerate().map(|(s_pos, s)| ((*s as u64) << s_pos)).sum()
+        }
+    }    use crate::str::String;
+
 
     /// `LayoutCallback` struct
     pub use crate::dll::AzLayoutCallback as LayoutCallback;
@@ -4408,86 +4547,55 @@ pub mod callbacks {
 
     pub use crate::dll::AzTaskCallbackType as TaskCallbackType;
 
+    pub use crate::dll::AzRefAnyDestructorType as RefAnyDestructorType;
+
+    /// `RefAnySharingInfo` struct
+    pub use crate::dll::AzRefAnySharingInfo as RefAnySharingInfo;
+
+    impl RefAnySharingInfo {
+        /// Calls the `RefAnySharingInfo::can_be_shared` function.
+        pub fn can_be_shared(&self)  -> bool { (crate::dll::get_azul_dll().az_ref_any_sharing_info_can_be_shared)(self) }
+        /// Calls the `RefAnySharingInfo::can_be_shared_mut` function.
+        pub fn can_be_shared_mut(&self)  -> bool { (crate::dll::get_azul_dll().az_ref_any_sharing_info_can_be_shared_mut)(self) }
+        /// Calls the `RefAnySharingInfo::increase_ref` function.
+        pub fn increase_ref(&mut self)  { (crate::dll::get_azul_dll().az_ref_any_sharing_info_increase_ref)(self) }
+        /// Calls the `RefAnySharingInfo::decrease_ref` function.
+        pub fn decrease_ref(&mut self)  { (crate::dll::get_azul_dll().az_ref_any_sharing_info_decrease_ref)(self) }
+        /// Calls the `RefAnySharingInfo::increase_refmut` function.
+        pub fn increase_refmut(&mut self)  { (crate::dll::get_azul_dll().az_ref_any_sharing_info_increase_refmut)(self) }
+        /// Calls the `RefAnySharingInfo::decrease_refmut` function.
+        pub fn decrease_refmut(&mut self)  { (crate::dll::get_azul_dll().az_ref_any_sharing_info_decrease_refmut)(self) }
+    }
+
+    impl Drop for RefAnySharingInfo { fn drop(&mut self) { (crate::dll::get_azul_dll().az_ref_any_sharing_info_delete)(self); } }
+
+
+    /// RefAny is a reference-counted, type-erased pointer, which stores a reference to a struct. `RefAny` can be up- and downcasted (this usually done via generics and can't be expressed in the Rust API)
     pub use crate::dll::AzRefAny as RefAny;
 
-    impl Clone for RefAny {
-        fn clone(&self) -> Self {
-            (crate::dll::get_azul_dll().az_ref_any_shallow_copy)(&self)
-        }
-    }
-
     impl RefAny {
-
-        /// Creates a new, type-erased pointer by casting the `T` value into a `Vec<u8>` and saving the length + type ID
-        pub fn new<T: 'static>(value: T) -> Self {
-            use crate::dll::*;
-
-            fn default_custom_destructor<U: 'static>(ptr: RefAny) {
-                use std::{mem, ptr};
-
-                // note: in the default constructor, we do not need to check whether U == T
-
-                unsafe {
-                    // copy the struct from the heap to the stack and call mem::drop on U to run the destructor
-                    let mut stack_mem = mem::MaybeUninit::<U>::uninit().assume_init();
-                    ptr::copy_nonoverlapping(ptr._internal_ptr as *const u8, &mut stack_mem as *mut U as *mut u8, mem::size_of::<U>().min(ptr._internal_len));
-                    mem::drop(stack_mem);
-                }
-            }
-
-            let type_name_str = ::std::any::type_name::<T>();
-            let s = (crate::dll::get_azul_dll().az_ref_any_new)(
-                (&value as *const T) as *const u8,
-                ::std::mem::size_of::<T>(),
-                Self::get_type_id::<T>() as u64,
-                crate::str::String::from_utf8_unchecked(type_name_str.as_ptr(), type_name_str.len()),
-                default_custom_destructor::<T>,
-            );
-            ::std::mem::forget(value); // do not run the destructor of T here!
-            s
-        }
-
-        /// Returns the inner `RefAny`
-        pub fn leak(self) -> RefAny {
-            use std::mem;
-            let s = (crate::dll::get_azul_dll().az_ref_any_core_copy)(&self);
-            mem::forget(self); // do not run destructor
-            s
-        }
-
-        /// Downcasts the type-erased pointer to a type `&U`, returns `None` if the types don't match
-        #[inline]
-        pub fn downcast_ref<'a, U: 'static>(&'a self) -> Option<&'a U> {
-            use std::ptr;
-            let ptr = (crate::dll::get_azul_dll().az_ref_any_get_ptr)(&self, self._internal_len, Self::get_type_id::<U>());
-            if ptr == ptr::null() { None } else { Some(unsafe { &*(self._internal_ptr as *const U) as &'a U }) }
-        }
-
-        /// Downcasts the type-erased pointer to a type `&mut U`, returns `None` if the types don't match
-        #[inline]
-        pub fn downcast_mut<'a, U: 'static>(&'a mut self) -> Option<&'a mut U> {
-            use std::ptr;
-            let ptr = (crate::dll::get_azul_dll().az_ref_any_get_mut_ptr)(&self, self._internal_len, Self::get_type_id::<U>());
-            if ptr == ptr::null_mut() { None } else { Some(unsafe { &mut *(self._internal_ptr as *mut U) as &'a mut U }) }
-        }
-
-        #[inline]
-        fn get_type_id<T: 'static>() -> u64 {
-            use std::any::TypeId;
-            use std::mem;
-
-            // fast method to serialize the type id into a u64
-            let t_id = TypeId::of::<T>();
-            let struct_as_bytes = unsafe { ::std::slice::from_raw_parts((&t_id as *const TypeId) as *const u8, mem::size_of::<TypeId>()) };
-            struct_as_bytes.into_iter().enumerate().map(|(s_pos, s)| ((*s as u64) << s_pos)).sum()
-        }
+        /// Creates a new `RefAny` instance.
+        pub fn new_c(ptr: *const c_void, len: usize, type_id: u64, type_name: String, destructor: RefAnyDestructorType) -> Self { (crate::dll::get_azul_dll().az_ref_any_new_c)(ptr, len, type_id, type_name, destructor) }
+        /// Calls the `RefAny::is_type` function.
+        pub fn is_type(&self, type_id: u64)  -> bool { (crate::dll::get_azul_dll().az_ref_any_is_type)(self, type_id) }
+        /// Calls the `RefAny::get_type_name` function.
+        pub fn get_type_name(&self)  -> crate::str::String { { (crate::dll::get_azul_dll().az_ref_any_get_type_name)(self)} }
+        /// Calls the `RefAny::can_be_shared` function.
+        pub fn can_be_shared(&self)  -> bool { (crate::dll::get_azul_dll().az_ref_any_can_be_shared)(self) }
+        /// Calls the `RefAny::can_be_shared_mut` function.
+        pub fn can_be_shared_mut(&self)  -> bool { (crate::dll::get_azul_dll().az_ref_any_can_be_shared_mut)(self) }
+        /// Calls the `RefAny::increase_ref` function.
+        pub fn increase_ref(&self)  { (crate::dll::get_azul_dll().az_ref_any_increase_ref)(self) }
+        /// Calls the `RefAny::decrease_ref` function.
+        pub fn decrease_ref(&self)  { (crate::dll::get_azul_dll().az_ref_any_decrease_ref)(self) }
+        /// Calls the `RefAny::increase_refmut` function.
+        pub fn increase_refmut(&self)  { (crate::dll::get_azul_dll().az_ref_any_increase_refmut)(self) }
+        /// Calls the `RefAny::decrease_refmut` function.
+        pub fn decrease_refmut(&self)  { (crate::dll::get_azul_dll().az_ref_any_decrease_refmut)(self) }
     }
 
-    impl Drop for RefAny {
-        fn drop(&mut self) {
-            (crate::dll::get_azul_dll().az_ref_any_delete)(self);
-        }
-    }
+    impl Clone for RefAny { fn clone(&self) -> Self { (crate::dll::get_azul_dll().az_ref_any_deep_copy)(self) } }
+    impl Drop for RefAny { fn drop(&mut self) { (crate::dll::get_azul_dll().az_ref_any_delete)(self); } }
 
 
     /// `LayoutInfo` struct
@@ -5626,7 +5734,7 @@ impl std::iter::FromIterator<NodeType> for Dom {
         /// Returns if the DOM node has a certain CSS class
         pub fn has_class(&mut self, class: String)  -> bool { (crate::dll::get_azul_dll().az_dom_has_class)(self, class) }
         /// Returns the HTML String for this DOM
-        pub fn get_html_string(&mut self)  -> crate::str::String { { (crate::dll::get_azul_dll().az_dom_get_html_string)(self)} }
+        pub fn get_html_string(&self)  -> crate::str::String { { (crate::dll::get_azul_dll().az_dom_get_html_string)(self)} }
     }
 
     impl Clone for Dom { fn clone(&self) -> Self { (crate::dll::get_azul_dll().az_dom_deep_copy)(self) } }
@@ -5742,6 +5850,158 @@ pub mod gl {
 
     use crate::dll::*;
     use std::ffi::c_void;
+    impl Refstr {
+        fn as_str(&self) -> &str { unsafe { std::str::from_utf8_unchecked(std::slice::from_raw_parts(self.ptr, self.len)) } }
+    }
+
+    impl From<&str> for Refstr {
+        fn from(s: &str) -> Self {
+            Self { ptr: s.as_ptr(), len: s.len() }
+        }
+    }
+
+    impl RefstrVecRef {
+        fn as_slice(&self) -> &[Refstr] { unsafe { std::slice::from_raw_parts(self.ptr, self.len) } }
+    }
+
+    impl From<&[Refstr]> for RefstrVecRef {
+        fn from(s: &[Refstr]) -> Self {
+            Self { ptr: s.as_ptr(), len: s.len() }
+        }
+    }
+
+    impl From<&mut [GLint64]> for GLint64VecRefMut {
+        fn from(s: &mut [GLint64]) -> Self {
+            Self { ptr: s.as_mut_ptr(), len: s.len() }
+        }
+    }
+
+    impl GLint64VecRefMut {
+        fn as_mut_slice(&mut self) -> &mut [GLint64] { unsafe { std::slice::from_raw_parts_mut(self.ptr, self.len) } }
+    }
+
+    impl From<&mut [GLfloat]> for GLfloatVecRefMut {
+        fn from(s: &mut [GLfloat]) -> Self {
+            Self { ptr: s.as_mut_ptr(), len: s.len() }
+        }
+    }
+
+    impl GLfloatVecRefMut {
+        fn as_mut_slice(&mut self) -> &mut [GLfloat] { unsafe { std::slice::from_raw_parts_mut(self.ptr, self.len) } }
+    }
+
+    impl From<&mut [GLint]> for GLintVecRefMut {
+        fn from(s: &mut [GLint]) -> Self {
+            Self { ptr: s.as_mut_ptr(), len: s.len() }
+        }
+    }
+
+    impl GLintVecRefMut {
+        fn as_mut_slice(&mut self) -> &mut [GLint] { unsafe { std::slice::from_raw_parts_mut(self.ptr, self.len) } }
+    }
+
+    impl From<&[GLuint]> for GLuintVecRef {
+        fn from(s: &[GLuint]) -> Self {
+            Self { ptr: s.as_ptr(), len: s.len() }
+        }
+    }
+
+    impl GLuintVecRef {
+        fn as_slice(&self) -> &[GLuint] { unsafe { std::slice::from_raw_parts(self.ptr, self.len) } }
+    }
+
+    impl From<&[GLenum]> for GLenumVecRef {
+        fn from(s: &[GLenum]) -> Self {
+            Self { ptr: s.as_ptr(), len: s.len() }
+        }
+    }
+
+    impl GLenumVecRef {
+        fn as_slice(&self) -> &[GLenum] { unsafe { std::slice::from_raw_parts(self.ptr, self.len) } }
+    }
+
+    impl From<&[u8]> for U8VecRef {
+        fn from(s: &[u8]) -> Self {
+            Self { ptr: s.as_ptr(), len: s.len() }
+        }
+    }
+
+    impl U8VecRef {
+        fn as_slice(&self) -> &[u8] { unsafe { std::slice::from_raw_parts(self.ptr, self.len) } }
+    }
+
+    impl std::fmt::Debug for U8VecRef {
+        fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
+            self.as_slice().fmt(f)
+        }
+    }
+
+    impl PartialOrd for U8VecRef {
+        fn partial_cmp(&self, rhs: &Self) -> Option<std::cmp::Ordering> {
+            self.as_slice().partial_cmp(rhs.as_slice())
+        }
+    }
+
+    impl Ord for U8VecRef {
+        fn cmp(&self, rhs: &Self) -> std::cmp::Ordering {
+            self.as_slice().cmp(rhs.as_slice())
+        }
+    }
+
+    impl PartialEq for U8VecRef {
+        fn eq(&self, rhs: &Self) -> bool {
+            self.as_slice().eq(rhs.as_slice())
+        }
+    }
+
+    impl Eq for U8VecRef { }
+
+    impl std::hash::Hash for U8VecRef {
+        fn hash<H>(&self, state: &mut H) where H: std::hash::Hasher {
+            self.as_slice().hash(state)
+        }
+    }
+
+    impl From<&[f32]> for F32VecRef {
+        fn from(s: &[f32]) -> Self {
+            Self { ptr: s.as_ptr(), len: s.len() }
+        }
+    }
+
+    impl F32VecRef {
+        fn as_slice(&self) -> &[f32] { unsafe { std::slice::from_raw_parts(self.ptr, self.len) } }
+    }
+
+    impl From<&[i32]> for I32VecRef {
+        fn from(s: &[i32]) -> Self {
+            Self { ptr: s.as_ptr(), len: s.len() }
+        }
+    }
+
+    impl I32VecRef {
+        fn as_slice(&self) -> &[i32] { unsafe { std::slice::from_raw_parts(self.ptr, self.len) } }
+    }
+
+    impl From<&mut [GLboolean]> for GLbooleanVecRefMut {
+        fn from(s: &mut [GLboolean]) -> Self {
+            Self { ptr: s.as_mut_ptr(), len: s.len() }
+        }
+    }
+
+    impl GLbooleanVecRefMut {
+        fn as_mut_slice(&mut self) -> &mut [GLboolean] { unsafe { std::slice::from_raw_parts_mut(self.ptr, self.len) } }
+    }
+
+    impl From<&mut [u8]> for U8VecRefMut {
+        fn from(s: &mut [u8]) -> Self {
+            Self { ptr: s.as_mut_ptr(), len: s.len() }
+        }
+    }
+
+    impl U8VecRefMut {
+        fn as_mut_slice(&mut self) -> &mut [u8] { unsafe { std::slice::from_raw_parts_mut(self.ptr, self.len) } }
+    }
+
     pub type GLenum = std::os::raw::c_uint;
     pub type GLboolean = std::os::raw::c_uchar;
     pub type GLbitfield = std::os::raw::c_uint;

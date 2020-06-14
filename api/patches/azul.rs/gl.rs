@@ -1,3 +1,155 @@
+    impl Refstr {
+        fn as_str(&self) -> &str { unsafe { std::str::from_utf8_unchecked(std::slice::from_raw_parts(self.ptr, self.len)) } }
+    }
+
+    impl From<&str> for Refstr {
+        fn from(s: &str) -> Self {
+            Self { ptr: s.as_ptr(), len: s.len() }
+        }
+    }
+
+    impl RefstrVecRef {
+        fn as_slice(&self) -> &[Refstr] { unsafe { std::slice::from_raw_parts(self.ptr, self.len) } }
+    }
+
+    impl From<&[Refstr]> for RefstrVecRef {
+        fn from(s: &[Refstr]) -> Self {
+            Self { ptr: s.as_ptr(), len: s.len() }
+        }
+    }
+
+    impl From<&mut [GLint64]> for GLint64VecRefMut {
+        fn from(s: &mut [GLint64]) -> Self {
+            Self { ptr: s.as_mut_ptr(), len: s.len() }
+        }
+    }
+
+    impl GLint64VecRefMut {
+        fn as_mut_slice(&mut self) -> &mut [GLint64] { unsafe { std::slice::from_raw_parts_mut(self.ptr, self.len) } }
+    }
+
+    impl From<&mut [GLfloat]> for GLfloatVecRefMut {
+        fn from(s: &mut [GLfloat]) -> Self {
+            Self { ptr: s.as_mut_ptr(), len: s.len() }
+        }
+    }
+
+    impl GLfloatVecRefMut {
+        fn as_mut_slice(&mut self) -> &mut [GLfloat] { unsafe { std::slice::from_raw_parts_mut(self.ptr, self.len) } }
+    }
+
+    impl From<&mut [GLint]> for GLintVecRefMut {
+        fn from(s: &mut [GLint]) -> Self {
+            Self { ptr: s.as_mut_ptr(), len: s.len() }
+        }
+    }
+
+    impl GLintVecRefMut {
+        fn as_mut_slice(&mut self) -> &mut [GLint] { unsafe { std::slice::from_raw_parts_mut(self.ptr, self.len) } }
+    }
+
+    impl From<&[GLuint]> for GLuintVecRef {
+        fn from(s: &[GLuint]) -> Self {
+            Self { ptr: s.as_ptr(), len: s.len() }
+        }
+    }
+
+    impl GLuintVecRef {
+        fn as_slice(&self) -> &[GLuint] { unsafe { std::slice::from_raw_parts(self.ptr, self.len) } }
+    }
+
+    impl From<&[GLenum]> for GLenumVecRef {
+        fn from(s: &[GLenum]) -> Self {
+            Self { ptr: s.as_ptr(), len: s.len() }
+        }
+    }
+
+    impl GLenumVecRef {
+        fn as_slice(&self) -> &[GLenum] { unsafe { std::slice::from_raw_parts(self.ptr, self.len) } }
+    }
+
+    impl From<&[u8]> for U8VecRef {
+        fn from(s: &[u8]) -> Self {
+            Self { ptr: s.as_ptr(), len: s.len() }
+        }
+    }
+
+    impl U8VecRef {
+        fn as_slice(&self) -> &[u8] { unsafe { std::slice::from_raw_parts(self.ptr, self.len) } }
+    }
+
+    impl std::fmt::Debug for U8VecRef {
+        fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
+            self.as_slice().fmt(f)
+        }
+    }
+
+    impl PartialOrd for U8VecRef {
+        fn partial_cmp(&self, rhs: &Self) -> Option<std::cmp::Ordering> {
+            self.as_slice().partial_cmp(rhs.as_slice())
+        }
+    }
+
+    impl Ord for U8VecRef {
+        fn cmp(&self, rhs: &Self) -> std::cmp::Ordering {
+            self.as_slice().cmp(rhs.as_slice())
+        }
+    }
+
+    impl PartialEq for U8VecRef {
+        fn eq(&self, rhs: &Self) -> bool {
+            self.as_slice().eq(rhs.as_slice())
+        }
+    }
+
+    impl Eq for U8VecRef { }
+
+    impl std::hash::Hash for U8VecRef {
+        fn hash<H>(&self, state: &mut H) where H: std::hash::Hasher {
+            self.as_slice().hash(state)
+        }
+    }
+
+    impl From<&[f32]> for F32VecRef {
+        fn from(s: &[f32]) -> Self {
+            Self { ptr: s.as_ptr(), len: s.len() }
+        }
+    }
+
+    impl F32VecRef {
+        fn as_slice(&self) -> &[f32] { unsafe { std::slice::from_raw_parts(self.ptr, self.len) } }
+    }
+
+    impl From<&[i32]> for I32VecRef {
+        fn from(s: &[i32]) -> Self {
+            Self { ptr: s.as_ptr(), len: s.len() }
+        }
+    }
+
+    impl I32VecRef {
+        fn as_slice(&self) -> &[i32] { unsafe { std::slice::from_raw_parts(self.ptr, self.len) } }
+    }
+
+    impl From<&mut [GLboolean]> for GLbooleanVecRefMut {
+        fn from(s: &mut [GLboolean]) -> Self {
+            Self { ptr: s.as_mut_ptr(), len: s.len() }
+        }
+    }
+
+    impl GLbooleanVecRefMut {
+        fn as_mut_slice(&mut self) -> &mut [GLboolean] { unsafe { std::slice::from_raw_parts_mut(self.ptr, self.len) } }
+    }
+
+    impl From<&mut [u8]> for U8VecRefMut {
+        fn from(s: &mut [u8]) -> Self {
+            Self { ptr: s.as_mut_ptr(), len: s.len() }
+        }
+    }
+
+    impl U8VecRefMut {
+        fn as_mut_slice(&mut self) -> &mut [u8] { unsafe { std::slice::from_raw_parts_mut(self.ptr, self.len) } }
+    }
+
     pub type GLenum = std::os::raw::c_uint;
     pub type GLboolean = std::os::raw::c_uchar;
     pub type GLbitfield = std::os::raw::c_uint;

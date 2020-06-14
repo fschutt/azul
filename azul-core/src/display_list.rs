@@ -740,6 +740,7 @@ impl SolvedLayout {
                         ),
                     };
 
+                    println!("GlCallbackInfoPtr::new!");
                     let ptr = GlCallbackInfoPtr { ptr: Box::into_raw(Box::new(callback_info)) as *mut c_void };
                     let gl_callback_return = (cb.cb)(ptr);
                     let tex: Option<Texture> = gl_callback_return.texture.into();
@@ -794,6 +795,7 @@ impl SolvedLayout {
                         bounds: hidpi_bounds,
                     };
 
+                    println!("IFrameCallbackInfoPtr::new!", );
                     let ptr = IFrameCallbackInfoPtr { ptr: Box::into_raw(Box::new(callback_info)) as *mut c_void };
                     let iframe_callback_return = (cb.cb)(ptr);
                     let dom: Option<Dom> = iframe_callback_return.dom.into();

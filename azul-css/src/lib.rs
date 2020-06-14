@@ -66,14 +66,12 @@ macro_rules! impl_vec {($struct_type:ident, $struct_name:ident) => (
         pub fn get(&self, index: usize) -> Option<&$struct_type> {
             let v1: &[$struct_type] = unsafe { std::slice::from_raw_parts(self.ptr, self.len) };
             let res = v1.get(index);
-            std::mem::forget(v1);
             res
         }
 
         pub fn foreach<U, F: FnMut(&$struct_type) -> Result<(), U>>(&self, mut closure: F) -> Result<(), U> {
             let v1: &[$struct_type] = unsafe { std::slice::from_raw_parts(self.ptr, self.len) };
             for i in v1.iter() { closure(i)?; }
-            std::mem::forget(v1);
             Ok(())
         }
 
@@ -82,6 +80,7 @@ macro_rules! impl_vec {($struct_type:ident, $struct_name:ident) => (
             let ptr = v.as_mut_ptr();
             let len = v.len();
             let cap = v.capacity();
+            println!("Vec::<{}>::into_raw_parts!", stringify!($struct_name));
             std::mem::forget(v);
             (ptr, len, cap)
         }
@@ -104,7 +103,6 @@ macro_rules! impl_vec {($struct_type:ident, $struct_name:ident) => (
         fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
             let v1: &[$struct_type] = unsafe { std::slice::from_raw_parts(self.ptr, self.len) };
             let res = v1.fmt(f);
-            std::mem::forget(v1);
             res
         }
     }
@@ -128,10 +126,7 @@ macro_rules! impl_vec {($struct_type:ident, $struct_name:ident) => (
         fn partial_cmp(&self, rhs: &Self) -> Option<std::cmp::Ordering> {
             let v1: &[$struct_type] = unsafe { std::slice::from_raw_parts(self.ptr, self.len) };
             let v2: &[$struct_type] = unsafe { std::slice::from_raw_parts(rhs.ptr, rhs.len) };
-            let result = v1.partial_cmp(&v2);
-            std::mem::forget(v1);
-            std::mem::forget(v2);
-            result
+            v1.partial_cmp(&v2)
         }
     }
 
@@ -139,10 +134,7 @@ macro_rules! impl_vec {($struct_type:ident, $struct_name:ident) => (
         fn cmp(&self, rhs: &Self) -> std::cmp::Ordering {
             let v1: &[$struct_type] = unsafe { std::slice::from_raw_parts(self.ptr, self.len) };
             let v2: &[$struct_type] = unsafe { std::slice::from_raw_parts(rhs.ptr, rhs.len) };
-            let result = v1.cmp(&v2);
-            std::mem::forget(v1);
-            std::mem::forget(v2);
-            result
+            v1.cmp(&v2)
         }
     }
 
@@ -150,7 +142,6 @@ macro_rules! impl_vec {($struct_type:ident, $struct_name:ident) => (
         fn clone(&self) -> Self {
             let v: &[$struct_type] = unsafe { std::slice::from_raw_parts(self.ptr, self.len) };
             let v2 = v.to_vec();
-            std::mem::forget(v);
             let (ptr, len, cap) = $struct_name::into_raw_parts(v2);
             $struct_name { ptr, len, cap }
         }
@@ -160,10 +151,7 @@ macro_rules! impl_vec {($struct_type:ident, $struct_name:ident) => (
         fn eq(&self, other: &Self) -> bool {
             let v1: &[$struct_type] = unsafe { std::slice::from_raw_parts(self.ptr, self.len) };
             let v2: &[$struct_type] = unsafe { std::slice::from_raw_parts(other.ptr, other.len) };
-            let is_eq = v1.eq(v2);
-            std::mem::forget(v1);
-            std::mem::forget(v2);
-            is_eq
+            v1.eq(v2)
         }
     }
 
@@ -173,12 +161,12 @@ macro_rules! impl_vec {($struct_type:ident, $struct_name:ident) => (
         fn hash<H>(&self, state: &mut H) where H: std::hash::Hasher {
             let v1: &[$struct_type] = unsafe { std::slice::from_raw_parts(self.ptr, self.len) };
             v1.hash(state);
-            std::mem::forget(v1);
         }
     }
 
     impl Drop for $struct_name {
         fn drop(&mut self) {
+            println!("Vec::<{}>::drop!", stringify!($struct_name));
             let _v: Vec<$struct_type> = unsafe { Vec::from_raw_parts(self.ptr, self.len, self.cap) };
             // let v drop here
         }
@@ -380,12 +368,15 @@ impl AsRef<str> for AzString {
     }
 }
 
+impl fmt::Debug for AzString {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        self.as_str().fmt(f)
+    }
+}
+
 impl fmt::Display for AzString {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        let s = unsafe { std::str::from_utf8_unchecked(std::slice::from_raw_parts(self.vec.ptr, self.vec.len)) };
-        let res = s.fmt(f);
-        std::mem::forget(s);
-        res
+        self.as_str().fmt(f)
     }
 }
 
@@ -407,15 +398,6 @@ impl AzString {
         let self_vec = U8Vec { ptr: self.vec.ptr, len: self.vec.len, cap: self.vec.cap };
         std::mem::forget(self); // don't run destructor
         self_vec
-    }
-}
-
-impl fmt::Debug for AzString {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        let s = unsafe { std::str::from_utf8_unchecked(std::slice::from_raw_parts(self.vec.ptr, self.vec.len)) };
-        let res = s.fmt(f);
-        std::mem::forget(s);
-        res
     }
 }
 
@@ -441,10 +423,7 @@ impl PartialOrd for AzString {
     fn partial_cmp(&self, rhs: &Self) -> Option<std::cmp::Ordering> {
         let v1: &str = unsafe { std::str::from_utf8_unchecked(std::slice::from_raw_parts(self.vec.ptr, self.vec.len)) };
         let v2: &str = unsafe { std::str::from_utf8_unchecked(std::slice::from_raw_parts(rhs.vec.ptr, rhs.vec.len)) };
-        let result = v1.partial_cmp(&v2);
-        std::mem::forget(v1);
-        std::mem::forget(v2);
-        result
+        v1.partial_cmp(&v2)
     }
 }
 
@@ -452,10 +431,7 @@ impl Ord for AzString {
     fn cmp(&self, rhs: &Self) -> std::cmp::Ordering {
         let v1: &str = unsafe { std::str::from_utf8_unchecked(std::slice::from_raw_parts(self.vec.ptr, self.vec.len)) };
         let v2: &str = unsafe { std::str::from_utf8_unchecked(std::slice::from_raw_parts(rhs.vec.ptr, rhs.vec.len)) };
-        let result = v1.cmp(&v2);
-        std::mem::forget(v1);
-        std::mem::forget(v2);
-        result
+        v1.cmp(&v2)
     }
 }
 
@@ -463,11 +439,12 @@ impl Clone for AzString {
     fn clone(&self) -> Self {
         let v: &str = unsafe { std::str::from_utf8_unchecked(std::slice::from_raw_parts(self.vec.ptr, self.vec.len)) };
         let mut v2 = v.to_owned();
-        std::mem::forget(v);
+
         let ptr = v2.as_mut_ptr();
         let len = v2.len();
         let cap = v2.capacity();
         std::mem::forget(v2);
+
         AzString { vec: U8Vec { ptr, len, cap } }
     }
 }
@@ -476,10 +453,7 @@ impl PartialEq for AzString {
     fn eq(&self, other: &Self) -> bool {
         let v1: &str = unsafe { std::str::from_utf8_unchecked(std::slice::from_raw_parts(self.vec.ptr, self.vec.len)) };
         let v2: &str = unsafe { std::str::from_utf8_unchecked(std::slice::from_raw_parts(other.vec.ptr, other.vec.len)) };
-        let is_eq = v1.eq(v2);
-        std::mem::forget(v1);
-        std::mem::forget(v2);
-        is_eq
+        v1.eq(v2)
     }
 }
 
@@ -488,8 +462,7 @@ impl Eq for AzString { }
 impl std::hash::Hash for AzString {
     fn hash<H>(&self, state: &mut H) where H: std::hash::Hasher {
         let v1: &str = unsafe { std::str::from_utf8_unchecked(std::slice::from_raw_parts(self.vec.ptr, self.vec.len)) };
-        v1.hash(state);
-        std::mem::forget(v1);
+        v1.hash(state)
     }
 }
 

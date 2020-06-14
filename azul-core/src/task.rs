@@ -77,7 +77,7 @@ impl Ord for AzInstantPtr {
 impl AzInstantPtr {
     pub fn now() -> Self { StdInstant::now().into() }
     fn new(instant: StdInstant) -> Self { instant.into() }
-    fn get(&self) -> StdInstant { let p = unsafe { Box::<StdInstant>::from_raw(self.ptr as *mut StdInstant) }; let val = *p; std::mem::forget(p); val }
+    fn get(&self) -> StdInstant { let p = unsafe { &*(self.ptr as *const StdInstant) }; *p }
 }
 
 impl Clone for AzInstantPtr {
@@ -227,6 +227,7 @@ impl Timer {
             }
         }
 
+        println!("TimerCallbackInfoPtr::new!");
         let info_ptr = TimerCallbackInfoPtr { ptr: Box::into_raw(Box::new(info)) as *const c_void };
         let res = (self.callback.cb)(info_ptr);
 
@@ -276,7 +277,10 @@ pub struct Task {
 pub struct ArcMutexRefAnyPtr { /* *const Arc<Mutex<RefAny>> */ pub ptr: *const c_void }
 
 impl ArcMutexRefAnyPtr {
-    pub fn new(d: Arc<Mutex<RefAny>>) -> Self { Self { ptr: Box::into_raw(Box::new(d)) as *const c_void }}
+    pub fn new(d: Arc<Mutex<RefAny>>) -> Self {
+        println!("ArcMutexRefAnyPtr::new!");
+        Self { ptr: Box::into_raw(Box::new(d)) as *const c_void }
+    }
     pub fn get(&self) -> &Arc<Mutex<RefAny>> { unsafe { &*(self.ptr as *const Arc<Mutex<RefAny>>) } }
 }
 
@@ -291,6 +295,7 @@ unsafe impl Sync for ArcMutexRefAnyPtr { }
 
 impl Drop for ArcMutexRefAnyPtr {
     fn drop(&mut self) {
+        println!("ArcMutexRefAnyPtr::drop!");
         let _ = unsafe { Box::from_raw(self.ptr as *mut Arc<Mutex<RefAny>>) };
     }
 }

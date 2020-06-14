@@ -10,6 +10,7 @@ mkdir -p ~/.cargo/lib/azul-dll-0.0.1/target/release
 # build the DLL
 cd ./azul-dll
 # RUSTFLAGS='-C link-arg=-s' cargo build --all-features --release
+# cargo build --all-features --release
 # cargo install --path .
 cd ..
 
@@ -23,5 +24,6 @@ if [ -d "./target/debug/examples" ]; then
 fi
 
 # run the opengl example
-RUST_BACKTRACE=full cargo build --example opengl
-RUST_BACKTRACE=full cargo run --example opengl
+RUST_BACKTRACE=full cargo build --example public
+# valgrind --track-origins=yes --leak-check=full --log-file=out.txt ./target/debug/examples/public
+RUST_BACKTRACE=full cargo run --example public
