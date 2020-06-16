@@ -671,14 +671,14 @@ def generate_dll_loader(apiData, structs_map, functions_map, version):
                 field_type = list(field.values())[0]
                 if "type" in field_type:
                     field_type = field_type["type"]
-                    if is_primitive_arg(field_type):
+                    analyzed_arg_type = analyze_type(field_type)
+                    if is_primitive_arg(analyzed_arg_type[1]):
                         if field_name == "ptr":
                             code += "        pub(crate) "
                         else:
                             code += "        pub "
                         code += field_name + ": " + field_type + ",\r\n"
                     else:
-                        analyzed_arg_type = analyze_type(field_type)
                         field_type_class_path = search_for_class_by_rust_class_name(apiData, analyzed_arg_type[1])
                         if field_type_class_path is None:
                             print("no field_type_class_path found for " + str(analyzed_arg_type))
@@ -717,6 +717,8 @@ def generate_dll_loader(apiData, structs_map, functions_map, version):
                     else:
                         analyzed_arg_type = analyze_type(variant_type)
                         field_type_class_path = search_for_class_by_rust_class_name(apiData, analyzed_arg_type[1])
+                        if field_type_class_path is None:
+                            print("variant_type not found: " + variant_type + " in " + struct_name)
                         found_c = get_class(apiData, field_type_class_path[0], field_type_class_path[1])
                         treat_external_as_ptr = "external" in found_c.keys() and "is_boxed_object" in found_c.keys() and found_c["is_boxed_object"]
                         if treat_external_as_ptr:

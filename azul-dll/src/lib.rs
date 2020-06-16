@@ -56,6 +56,76 @@ pub type AzStringTT = azul_impl::css::AzString;
 /// Clones the object
 #[no_mangle] pub extern "C" fn az_string_deep_copy(object: &AzString) -> AzString { object.clone() }
 
+/// Wrapper over a Rust-allocated `XWindowType`
+pub type AzXWindowTypeVecTT = azul_impl::css::XWindowTypeVec;
+#[no_mangle] pub use AzXWindowTypeVecTT as AzXWindowTypeVec;
+/// Creates + allocates a Rust `Vec<XWindowType>` by **copying** it from a bytes source
+#[no_mangle] pub extern "C" fn az_x_window_type_vec_copy_from(ptr: *const AzXWindowType, len: usize) -> AzXWindowTypeVec { unsafe { std::slice::from_raw_parts(ptr, len).iter().cloned().collect::<Vec<_>>() }.into() }
+/// Destructor: Takes ownership of the `XWindowTypeVec` pointer and deletes it.
+#[no_mangle] #[allow(unused_variables)] pub extern "C" fn az_x_window_type_vec_delete(object: &mut AzXWindowTypeVec) { }
+/// Clones the object
+#[no_mangle] pub extern "C" fn az_x_window_type_vec_deep_copy(object: &AzXWindowTypeVec) -> AzXWindowTypeVec { object.clone() }
+
+/// Wrapper over a Rust-allocated `VirtualKeyCode`
+pub type AzVirtualKeyCodeVecTT = azul_impl::css::VirtualKeyCodeVec;
+#[no_mangle] pub use AzVirtualKeyCodeVecTT as AzVirtualKeyCodeVec;
+/// Creates + allocates a Rust `Vec<VirtualKeyCode>` by **copying** it from a bytes source
+#[no_mangle] pub extern "C" fn az_virtual_key_code_vec_copy_from(ptr: *const AzVirtualKeyCode, len: usize) -> AzVirtualKeyCodeVec { unsafe { std::slice::from_raw_parts(ptr, len).iter().cloned().collect::<Vec<_>>() }.into() }
+/// Destructor: Takes ownership of the `VirtualKeyCodeVec` pointer and deletes it.
+#[no_mangle] #[allow(unused_variables)] pub extern "C" fn az_virtual_key_code_vec_delete(object: &mut AzVirtualKeyCodeVec) { }
+/// Clones the object
+#[no_mangle] pub extern "C" fn az_virtual_key_code_vec_deep_copy(object: &AzVirtualKeyCodeVec) -> AzVirtualKeyCodeVec { object.clone() }
+
+/// Wrapper over a Rust-allocated `ScanCode`
+pub type AzScanCodeVecTT = azul_impl::css::ScanCodeVec;
+#[no_mangle] pub use AzScanCodeVecTT as AzScanCodeVec;
+/// Creates + allocates a Rust `Vec<ScanCode>` by **copying** it from a bytes source
+#[no_mangle] pub extern "C" fn az_scan_code_vec_copy_from(ptr: *const u32, len: usize) -> AzScanCodeVec { unsafe { std::slice::from_raw_parts(ptr, len).iter().cloned().collect::<Vec<_>>() }.into() }
+/// Destructor: Takes ownership of the `ScanCodeVec` pointer and deletes it.
+#[no_mangle] #[allow(unused_variables)] pub extern "C" fn az_scan_code_vec_delete(object: &mut AzScanCodeVec) { }
+/// Clones the object
+#[no_mangle] pub extern "C" fn az_scan_code_vec_deep_copy(object: &AzScanCodeVec) -> AzScanCodeVec { object.clone() }
+
+/// Wrapper over a Rust-allocated `CssDeclaration`
+pub type AzCssDeclarationVecTT = azul_impl::css::CssDeclarationVec;
+#[no_mangle] pub use AzCssDeclarationVecTT as AzCssDeclarationVec;
+/// Creates + allocates a Rust `Vec<CssDeclaration>` by **copying** it from a bytes source
+#[no_mangle] pub extern "C" fn az_css_declaration_vec_copy_from(ptr: *const AzCssDeclaration, len: usize) -> AzCssDeclarationVec { unsafe { std::slice::from_raw_parts(ptr, len).iter().cloned().collect::<Vec<_>>() }.into() }
+/// Destructor: Takes ownership of the `CssDeclarationVec` pointer and deletes it.
+#[no_mangle] #[allow(unused_variables)] pub extern "C" fn az_css_declaration_vec_delete(object: &mut AzCssDeclarationVec) { }
+/// Clones the object
+#[no_mangle] pub extern "C" fn az_css_declaration_vec_deep_copy(object: &AzCssDeclarationVec) -> AzCssDeclarationVec { object.clone() }
+
+/// Wrapper over a Rust-allocated `CssPathSelector`
+pub type AzCssPathSelectorVecTT = azul_impl::css::CssPathSelectorVec;
+#[no_mangle] pub use AzCssPathSelectorVecTT as AzCssPathSelectorVec;
+/// Creates + allocates a Rust `Vec<CssPathSelector>` by **copying** it from a bytes source
+#[no_mangle] pub extern "C" fn az_css_path_selector_vec_copy_from(ptr: *const AzCssPathSelector, len: usize) -> AzCssPathSelectorVec { unsafe { std::slice::from_raw_parts(ptr, len).iter().cloned().collect::<Vec<_>>() }.into() }
+/// Destructor: Takes ownership of the `CssPathSelectorVec` pointer and deletes it.
+#[no_mangle] #[allow(unused_variables)] pub extern "C" fn az_css_path_selector_vec_delete(object: &mut AzCssPathSelectorVec) { }
+/// Clones the object
+#[no_mangle] pub extern "C" fn az_css_path_selector_vec_deep_copy(object: &AzCssPathSelectorVec) -> AzCssPathSelectorVec { object.clone() }
+
+/// Wrapper over a Rust-allocated `Stylesheet`
+pub type AzStylesheetVecTT = azul_impl::css::StylesheetVec;
+#[no_mangle] pub use AzStylesheetVecTT as AzStylesheetVec;
+/// Creates + allocates a Rust `Vec<Stylesheet>` by **copying** it from a bytes source
+#[no_mangle] pub extern "C" fn az_stylesheet_vec_copy_from(ptr: *const AzStylesheet, len: usize) -> AzStylesheetVec { unsafe { std::slice::from_raw_parts(ptr, len).iter().cloned().collect::<Vec<_>>() }.into() }
+/// Destructor: Takes ownership of the `StylesheetVec` pointer and deletes it.
+#[no_mangle] #[allow(unused_variables)] pub extern "C" fn az_stylesheet_vec_delete(object: &mut AzStylesheetVec) { }
+/// Clones the object
+#[no_mangle] pub extern "C" fn az_stylesheet_vec_deep_copy(object: &AzStylesheetVec) -> AzStylesheetVec { object.clone() }
+
+/// Wrapper over a Rust-allocated `CssRuleBlock`
+pub type AzCssRuleBlockVecTT = azul_impl::css::CssRuleBlockVec;
+#[no_mangle] pub use AzCssRuleBlockVecTT as AzCssRuleBlockVec;
+/// Creates + allocates a Rust `Vec<CssRuleBlock>` by **copying** it from a bytes source
+#[no_mangle] pub extern "C" fn az_css_rule_block_vec_copy_from(ptr: *const AzCssRuleBlock, len: usize) -> AzCssRuleBlockVec { unsafe { std::slice::from_raw_parts(ptr, len).iter().cloned().collect::<Vec<_>>() }.into() }
+/// Destructor: Takes ownership of the `CssRuleBlockVec` pointer and deletes it.
+#[no_mangle] #[allow(unused_variables)] pub extern "C" fn az_css_rule_block_vec_delete(object: &mut AzCssRuleBlockVec) { }
+/// Clones the object
+#[no_mangle] pub extern "C" fn az_css_rule_block_vec_deep_copy(object: &AzCssRuleBlockVec) -> AzCssRuleBlockVec { object.clone() }
+
 /// Wrapper over a Rust-allocated `U8Vec`
 pub type AzU8VecTT = azul_impl::css::U8Vec;
 #[no_mangle] pub use AzU8VecTT as AzU8Vec;
@@ -136,6 +206,16 @@ pub type AzStringVecTT = azul_impl::css::StringVec;
 /// Clones the object
 #[no_mangle] pub extern "C" fn az_string_vec_deep_copy(object: &AzStringVec) -> AzStringVec { object.clone() }
 
+/// Wrapper over a Rust-allocated `StringPairVec`
+pub type AzStringPairVecTT = azul_impl::css::StringPairVec;
+#[no_mangle] pub use AzStringPairVecTT as AzStringPairVec;
+/// Creates + allocates a Rust `Vec<StringPair>` by **copying** it from a bytes source
+#[no_mangle] pub extern "C" fn az_string_pair_vec_copy_from(ptr: *const AzStringPair, len: usize) -> AzStringPairVec { unsafe { std::slice::from_raw_parts(ptr, len).into_iter().map(|s| s.clone()).collect::<Vec<_>>() }.into() }
+/// Destructor: Takes ownership of the `StringPairVec` pointer and deletes it.
+#[no_mangle] #[allow(unused_variables)] pub extern "C" fn az_string_pair_vec_delete(object: &mut AzStringPairVec) { }
+/// Clones the object
+#[no_mangle] pub extern "C" fn az_string_pair_vec_deep_copy(object: &AzStringPairVec) -> AzStringPairVec { object.clone() }
+
 /// Wrapper over a Rust-allocated `GradientStopPreVec`
 pub type AzGradientStopPreVecTT = azul_impl::css::GradientStopPreVec;
 #[no_mangle] pub use AzGradientStopPreVecTT as AzGradientStopPreVec;
@@ -145,6 +225,114 @@ pub type AzGradientStopPreVecTT = azul_impl::css::GradientStopPreVec;
 #[no_mangle] #[allow(unused_variables)] pub extern "C" fn az_gradient_stop_pre_vec_delete(object: &mut AzGradientStopPreVec) { }
 /// Clones the object
 #[no_mangle] pub extern "C" fn az_gradient_stop_pre_vec_deep_copy(object: &AzGradientStopPreVec) -> AzGradientStopPreVec { object.clone() }
+
+/// Re-export of rust-allocated (stack based) `OptionLogicalPosition` struct
+pub type AzOptionLogicalPositionTT = azul_impl::window::OptionLogicalPosition;
+#[no_mangle] pub use AzOptionLogicalPositionTT as AzOptionLogicalPosition;
+/// Destructor: Takes ownership of the `OptionLogicalPosition` pointer and deletes it.
+#[no_mangle] #[allow(unused_variables)] pub extern "C" fn az_option_logical_position_delete(object: &mut AzOptionLogicalPosition) { match object { azul_impl::window::OptionLogicalPosition::None => { }, azul_impl::window::OptionLogicalPosition::Some(_) => { }, }
+}
+/// Clones the object
+#[no_mangle] pub extern "C" fn az_option_logical_position_deep_copy(object: &AzOptionLogicalPosition) -> AzOptionLogicalPosition { object.clone() }
+
+/// Re-export of rust-allocated (stack based) `OptionHotReloadOptions` struct
+pub type AzOptionHotReloadOptionsTT = azul_impl::window::OptionHotReloadOptions;
+#[no_mangle] pub use AzOptionHotReloadOptionsTT as AzOptionHotReloadOptions;
+/// Destructor: Takes ownership of the `OptionHotReloadOptions` pointer and deletes it.
+#[no_mangle] #[allow(unused_variables)] pub extern "C" fn az_option_hot_reload_options_delete(object: &mut AzOptionHotReloadOptions) { match object { azul_impl::window::OptionHotReloadOptions::None => { }, azul_impl::window::OptionHotReloadOptions::Some(_) => { }, }
+}
+/// Clones the object
+#[no_mangle] pub extern "C" fn az_option_hot_reload_options_deep_copy(object: &AzOptionHotReloadOptions) -> AzOptionHotReloadOptions { object.clone() }
+
+/// Re-export of rust-allocated (stack based) `OptionPhysicalPositionI32` struct
+pub type AzOptionPhysicalPositionI32TT = azul_impl::window::OptionPhysicalPositionI32;
+#[no_mangle] pub use AzOptionPhysicalPositionI32TT as AzOptionPhysicalPositionI32;
+/// Destructor: Takes ownership of the `OptionPhysicalPositionI32` pointer and deletes it.
+#[no_mangle] #[allow(unused_variables)] pub extern "C" fn az_option_physical_position_i32_delete(object: &mut AzOptionPhysicalPositionI32) { match object { azul_impl::window::OptionPhysicalPositionI32::None => { }, azul_impl::window::OptionPhysicalPositionI32::Some(_) => { }, }
+}
+/// Clones the object
+#[no_mangle] pub extern "C" fn az_option_physical_position_i32_deep_copy(object: &AzOptionPhysicalPositionI32) -> AzOptionPhysicalPositionI32 { object.clone() }
+
+/// Re-export of rust-allocated (stack based) `OptionWindowIcon` struct
+pub type AzOptionWindowIconTT = azul_impl::window::OptionWindowIcon;
+#[no_mangle] pub use AzOptionWindowIconTT as AzOptionWindowIcon;
+/// Destructor: Takes ownership of the `OptionWindowIcon` pointer and deletes it.
+#[no_mangle] #[allow(unused_variables)] pub extern "C" fn az_option_window_icon_delete(object: &mut AzOptionWindowIcon) { match object { azul_impl::window::OptionWindowIcon::None => { }, azul_impl::window::OptionWindowIcon::Some(_) => { }, }
+}
+/// Clones the object
+#[no_mangle] pub extern "C" fn az_option_window_icon_deep_copy(object: &AzOptionWindowIcon) -> AzOptionWindowIcon { object.clone() }
+
+/// Re-export of rust-allocated (stack based) `OptionString` struct
+pub type AzOptionStringTT = azul_impl::window::OptionString;
+#[no_mangle] pub use AzOptionStringTT as AzOptionString;
+/// Destructor: Takes ownership of the `OptionString` pointer and deletes it.
+#[no_mangle] #[allow(unused_variables)] pub extern "C" fn az_option_string_delete(object: &mut AzOptionString) { match object { azul_impl::window::OptionString::None => { }, azul_impl::window::OptionString::Some(_) => { }, }
+}
+/// Clones the object
+#[no_mangle] pub extern "C" fn az_option_string_deep_copy(object: &AzOptionString) -> AzOptionString { object.clone() }
+
+/// Re-export of rust-allocated (stack based) `OptionX11Visual` struct
+pub type AzOptionX11VisualTT = azul_impl::window::OptionX11Visual;
+#[no_mangle] pub use AzOptionX11VisualTT as AzOptionX11Visual;
+/// Destructor: Takes ownership of the `OptionX11Visual` pointer and deletes it.
+#[no_mangle] #[allow(unused_variables)] pub extern "C" fn az_option_x11_visual_delete(object: &mut AzOptionX11Visual) { match object { azul_impl::window::OptionX11Visual::None => { }, azul_impl::window::OptionX11Visual::Some(_) => { }, }
+}
+/// Clones the object
+#[no_mangle] pub extern "C" fn az_option_x11_visual_deep_copy(object: &AzOptionX11Visual) -> AzOptionX11Visual { object.clone() }
+
+/// Re-export of rust-allocated (stack based) `OptionI32` struct
+pub type AzOptionI32TT = azul_impl::window::OptionI32;
+#[no_mangle] pub use AzOptionI32TT as AzOptionI32;
+/// Destructor: Takes ownership of the `OptionI32` pointer and deletes it.
+#[no_mangle] #[allow(unused_variables)] pub extern "C" fn az_option_i32_delete(object: &mut AzOptionI32) { match object { azul_impl::window::OptionI32::None => { }, azul_impl::window::OptionI32::Some(_) => { }, }
+}
+/// Clones the object
+#[no_mangle] pub extern "C" fn az_option_i32_deep_copy(object: &AzOptionI32) -> AzOptionI32 { object.clone() }
+
+/// Re-export of rust-allocated (stack based) `OptionF32` struct
+pub type AzOptionF32TT = azul_impl::window::OptionF32;
+#[no_mangle] pub use AzOptionF32TT as AzOptionF32;
+/// Destructor: Takes ownership of the `OptionF32` pointer and deletes it.
+#[no_mangle] #[allow(unused_variables)] pub extern "C" fn az_option_f32_delete(object: &mut AzOptionF32) { match object { azul_impl::window::OptionF32::None => { }, azul_impl::window::OptionF32::Some(_) => { }, }
+}
+/// Clones the object
+#[no_mangle] pub extern "C" fn az_option_f32_deep_copy(object: &AzOptionF32) -> AzOptionF32 { object.clone() }
+
+/// Re-export of rust-allocated (stack based) `OptionMouseCursorType` struct
+pub type AzOptionMouseCursorTypeTT = azul_impl::window::OptionMouseCursorType;
+#[no_mangle] pub use AzOptionMouseCursorTypeTT as AzOptionMouseCursorType;
+/// Destructor: Takes ownership of the `OptionMouseCursorType` pointer and deletes it.
+#[no_mangle] #[allow(unused_variables)] pub extern "C" fn az_option_mouse_cursor_type_delete(object: &mut AzOptionMouseCursorType) { match object { azul_impl::window::OptionMouseCursorType::None => { }, azul_impl::window::OptionMouseCursorType::Some(_) => { }, }
+}
+/// Clones the object
+#[no_mangle] pub extern "C" fn az_option_mouse_cursor_type_deep_copy(object: &AzOptionMouseCursorType) -> AzOptionMouseCursorType { object.clone() }
+
+/// Re-export of rust-allocated (stack based) `OptionLogicalSize` struct
+pub type AzOptionLogicalSizeTT = azul_impl::window::OptionLogicalSize;
+#[no_mangle] pub use AzOptionLogicalSizeTT as AzOptionLogicalSize;
+/// Destructor: Takes ownership of the `OptionLogicalSize` pointer and deletes it.
+#[no_mangle] #[allow(unused_variables)] pub extern "C" fn az_option_logical_size_delete(object: &mut AzOptionLogicalSize) { match object { azul_impl::window::OptionLogicalSize::None => { }, azul_impl::window::OptionLogicalSize::Some(_) => { }, }
+}
+/// Clones the object
+#[no_mangle] pub extern "C" fn az_option_logical_size_deep_copy(object: &AzOptionLogicalSize) -> AzOptionLogicalSize { object.clone() }
+
+/// Re-export of rust-allocated (stack based) `OptionChar` struct
+pub type AzOptionCharTT = azul_impl::window::OptionChar;
+#[no_mangle] pub use AzOptionCharTT as AzOptionChar;
+/// Destructor: Takes ownership of the `OptionChar` pointer and deletes it.
+#[no_mangle] #[allow(unused_variables)] pub extern "C" fn az_option_char_delete(object: &mut AzOptionChar) { match object { azul_impl::window::OptionChar::None => { }, azul_impl::window::OptionChar::Some(_) => { }, }
+}
+/// Clones the object
+#[no_mangle] pub extern "C" fn az_option_char_deep_copy(object: &AzOptionChar) -> AzOptionChar { object.clone() }
+
+/// Re-export of rust-allocated (stack based) `OptionVirtualKeyCode` struct
+pub type AzOptionVirtualKeyCodeTT = azul_impl::window::OptionVirtualKeyCode;
+#[no_mangle] pub use AzOptionVirtualKeyCodeTT as AzOptionVirtualKeyCode;
+/// Destructor: Takes ownership of the `OptionVirtualKeyCode` pointer and deletes it.
+#[no_mangle] #[allow(unused_variables)] pub extern "C" fn az_option_virtual_key_code_delete(object: &mut AzOptionVirtualKeyCode) { match object { azul_impl::window::OptionVirtualKeyCode::None => { }, azul_impl::window::OptionVirtualKeyCode::Some(_) => { }, }
+}
+/// Clones the object
+#[no_mangle] pub extern "C" fn az_option_virtual_key_code_deep_copy(object: &AzOptionVirtualKeyCode) -> AzOptionVirtualKeyCode { object.clone() }
 
 /// Re-export of rust-allocated (stack based) `OptionPercentageValue` struct
 pub type AzOptionPercentageValueTT = azul_impl::css::OptionPercentageValue;
@@ -463,24 +651,106 @@ pub type AzLayoutInfoPtrTT = azul_impl::callbacks::LayoutInfoPtr;
 /// (private): Downcasts the `AzLayoutInfoPtr` to a `&Box<LayoutInfo<'a>>` and runs the `func` closure on it
 #[inline(always)] fn az_layout_info_downcast_ref<'a, P, F: FnOnce(&LayoutInfo<'a>) -> P>(ptr: &mut AzLayoutInfoPtr, func: F) -> P {     func(unsafe { &*(ptr.ptr as *const LayoutInfo<'a>) })}
 
-/// Pointer to rust-allocated `Box<Css>` struct
-#[no_mangle] #[repr(C)] pub struct AzCssPtr { ptr: *mut c_void }
+/// Re-export of rust-allocated (stack based) `CssRuleBlock` struct
+pub type AzCssRuleBlockTT = azul_impl::css::CssRuleBlock;
+#[no_mangle] pub use AzCssRuleBlockTT as AzCssRuleBlock;
+/// Destructor: Takes ownership of the `CssRuleBlock` pointer and deletes it.
+#[no_mangle] #[allow(unused_variables)] pub extern "C" fn az_css_rule_block_delete(object: &mut AzCssRuleBlock) { }
+/// Clones the object
+#[no_mangle] pub extern "C" fn az_css_rule_block_deep_copy(object: &AzCssRuleBlock) -> AzCssRuleBlock { object.clone() }
+
+/// Re-export of rust-allocated (stack based) `CssDeclaration` struct
+pub type AzCssDeclarationTT = azul_impl::css::CssDeclaration;
+#[no_mangle] pub use AzCssDeclarationTT as AzCssDeclaration;
+/// Destructor: Takes ownership of the `CssDeclaration` pointer and deletes it.
+#[no_mangle] #[allow(unused_variables)] pub extern "C" fn az_css_declaration_delete(object: &mut AzCssDeclaration) { match object { azul_impl::css::CssDeclaration::Static(_) => { }, azul_impl::css::CssDeclaration::Dynamic(_) => { }, }
+}
+/// Clones the object
+#[no_mangle] pub extern "C" fn az_css_declaration_deep_copy(object: &AzCssDeclaration) -> AzCssDeclaration { object.clone() }
+
+/// Re-export of rust-allocated (stack based) `DynamicCssProperty` struct
+pub type AzDynamicCssPropertyTT = azul_impl::css::DynamicCssProperty;
+#[no_mangle] pub use AzDynamicCssPropertyTT as AzDynamicCssProperty;
+/// Destructor: Takes ownership of the `DynamicCssProperty` pointer and deletes it.
+#[no_mangle] #[allow(unused_variables)] pub extern "C" fn az_dynamic_css_property_delete(object: &mut AzDynamicCssProperty) { }
+/// Clones the object
+#[no_mangle] pub extern "C" fn az_dynamic_css_property_deep_copy(object: &AzDynamicCssProperty) -> AzDynamicCssProperty { object.clone() }
+
+/// Re-export of rust-allocated (stack based) `CssPath` struct
+pub type AzCssPathTT = azul_impl::css::CssPath;
+#[no_mangle] pub use AzCssPathTT as AzCssPath;
+/// Destructor: Takes ownership of the `CssPath` pointer and deletes it.
+#[no_mangle] #[allow(unused_variables)] pub extern "C" fn az_css_path_delete(object: &mut AzCssPath) { }
+/// Clones the object
+#[no_mangle] pub extern "C" fn az_css_path_deep_copy(object: &AzCssPath) -> AzCssPath { object.clone() }
+
+/// Re-export of rust-allocated (stack based) `CssPathSelector` struct
+pub type AzCssPathSelectorTT = azul_impl::css::CssPathSelector;
+#[no_mangle] pub use AzCssPathSelectorTT as AzCssPathSelector;
+/// Destructor: Takes ownership of the `CssPathSelector` pointer and deletes it.
+#[no_mangle] #[allow(unused_variables)] pub extern "C" fn az_css_path_selector_delete(object: &mut AzCssPathSelector) { match object { azul_impl::css::CssPathSelector::Global => { }, azul_impl::css::CssPathSelector::Type(_) => { }, azul_impl::css::CssPathSelector::Class(_) => { }, azul_impl::css::CssPathSelector::Id(_) => { }, azul_impl::css::CssPathSelector::PseudoSelector(_) => { }, azul_impl::css::CssPathSelector::DirectChildren => { }, azul_impl::css::CssPathSelector::Children => { }, }
+}
+/// Clones the object
+#[no_mangle] pub extern "C" fn az_css_path_selector_deep_copy(object: &AzCssPathSelector) -> AzCssPathSelector { object.clone() }
+
+/// Re-export of rust-allocated (stack based) `NodeTypePath` struct
+pub type AzNodeTypePathTT = azul_impl::css::NodeTypePath;
+#[no_mangle] pub use AzNodeTypePathTT as AzNodeTypePath;
+/// Destructor: Takes ownership of the `NodeTypePath` pointer and deletes it.
+#[no_mangle] #[allow(unused_variables)] pub extern "C" fn az_node_type_path_delete(object: &mut AzNodeTypePath) { match object { azul_impl::css::NodeTypePath::Body => { }, azul_impl::css::NodeTypePath::Div => { }, azul_impl::css::NodeTypePath::P => { }, azul_impl::css::NodeTypePath::Img => { }, azul_impl::css::NodeTypePath::Texture => { }, azul_impl::css::NodeTypePath::IFrame => { }, }
+}
+/// Clones the object
+#[no_mangle] pub extern "C" fn az_node_type_path_deep_copy(object: &AzNodeTypePath) -> AzNodeTypePath { object.clone() }
+
+/// Re-export of rust-allocated (stack based) `CssPathPseudoSelector` struct
+pub type AzCssPathPseudoSelectorTT = azul_impl::css::CssPathPseudoSelector;
+#[no_mangle] pub use AzCssPathPseudoSelectorTT as AzCssPathPseudoSelector;
+/// Destructor: Takes ownership of the `CssPathPseudoSelector` pointer and deletes it.
+#[no_mangle] #[allow(unused_variables)] pub extern "C" fn az_css_path_pseudo_selector_delete(object: &mut AzCssPathPseudoSelector) { match object { azul_impl::css::CssPathPseudoSelector::First => { }, azul_impl::css::CssPathPseudoSelector::Last => { }, azul_impl::css::CssPathPseudoSelector::NthChild(_) => { }, azul_impl::css::CssPathPseudoSelector::Hover => { }, azul_impl::css::CssPathPseudoSelector::Active => { }, azul_impl::css::CssPathPseudoSelector::Focus => { }, }
+}
+/// Clones the object
+#[no_mangle] pub extern "C" fn az_css_path_pseudo_selector_deep_copy(object: &AzCssPathPseudoSelector) -> AzCssPathPseudoSelector { object.clone() }
+
+/// Re-export of rust-allocated (stack based) `CssNthChildSelector` struct
+pub type AzCssNthChildSelectorTT = azul_impl::css::CssNthChildSelector;
+#[no_mangle] pub use AzCssNthChildSelectorTT as AzCssNthChildSelector;
+/// Destructor: Takes ownership of the `CssNthChildSelector` pointer and deletes it.
+#[no_mangle] #[allow(unused_variables)] pub extern "C" fn az_css_nth_child_selector_delete(object: &mut AzCssNthChildSelector) { match object { azul_impl::css::CssNthChildSelector::Number(_) => { }, azul_impl::css::CssNthChildSelector::Even => { }, azul_impl::css::CssNthChildSelector::Odd => { }, azul_impl::css::CssNthChildSelector::Pattern(_) => { }, }
+}
+/// Clones the object
+#[no_mangle] pub extern "C" fn az_css_nth_child_selector_deep_copy(object: &AzCssNthChildSelector) -> AzCssNthChildSelector { object.clone() }
+
+/// Re-export of rust-allocated (stack based) `CssNthChildPattern` struct
+pub type AzCssNthChildPatternTT = azul_impl::css::CssNthChildPattern;
+#[no_mangle] pub use AzCssNthChildPatternTT as AzCssNthChildPattern;
+/// Destructor: Takes ownership of the `CssNthChildPattern` pointer and deletes it.
+#[no_mangle] #[allow(unused_variables)] pub extern "C" fn az_css_nth_child_pattern_delete(object: &mut AzCssNthChildPattern) { }
+/// Clones the object
+#[no_mangle] pub extern "C" fn az_css_nth_child_pattern_deep_copy(object: &AzCssNthChildPattern) -> AzCssNthChildPattern { object.clone() }
+
+/// Re-export of rust-allocated (stack based) `Stylesheet` struct
+pub type AzStylesheetTT = azul_impl::css::Stylesheet;
+#[no_mangle] pub use AzStylesheetTT as AzStylesheet;
+/// Destructor: Takes ownership of the `Stylesheet` pointer and deletes it.
+#[no_mangle] #[allow(unused_variables)] pub extern "C" fn az_stylesheet_delete(object: &mut AzStylesheet) { }
+/// Clones the object
+#[no_mangle] pub extern "C" fn az_stylesheet_deep_copy(object: &AzStylesheet) -> AzStylesheet { object.clone() }
+
+/// Re-export of rust-allocated (stack based) `Css` struct
+pub type AzCssTT = azul_impl::css::Stylesheet;
+#[no_mangle] pub use AzCssTT as AzCss;
 /// Loads the native style for the given operating system
-#[no_mangle] pub extern "C" fn az_css_native() -> AzCssPtr { let object: Css = css::native(); AzCssPtr { ptr: Box::into_raw(Box::new(object)) as *mut c_void } }
+#[no_mangle] pub extern "C" fn az_css_native() -> AzCss { css::native() }
 /// Returns an empty CSS style
-#[no_mangle] pub extern "C" fn az_css_empty() -> AzCssPtr { let object: Css = css::empty(); AzCssPtr { ptr: Box::into_raw(Box::new(object)) as *mut c_void } }
+#[no_mangle] pub extern "C" fn az_css_empty() -> AzCss { css::empty() }
 /// Returns a CSS style parsed from a `String`
-#[no_mangle] pub extern "C" fn az_css_from_string(s: AzString) -> AzCssPtr { let object: Css = css::from_str(s.as_str()).unwrap(); AzCssPtr { ptr: Box::into_raw(Box::new(object)) as *mut c_void } }
+#[no_mangle] pub extern "C" fn az_css_from_string(s: AzString) -> AzCss { css::from_str(s.as_str()).unwrap() }
 /// Appends a parsed stylesheet to `Css::native()`
-#[no_mangle] pub extern "C" fn az_css_override_native(s: AzString) -> AzCssPtr { let object: Css = css::override_native(s.as_str()).unwrap(); AzCssPtr { ptr: Box::into_raw(Box::new(object)) as *mut c_void } }
+#[no_mangle] pub extern "C" fn az_css_override_native(s: AzString) -> AzCss { css::override_native(s.as_str()).unwrap() }
 /// Destructor: Takes ownership of the `Css` pointer and deletes it.
-#[no_mangle] pub extern "C" fn az_css_delete(ptr: &mut AzCssPtr) { let _ = unsafe { Box::<Css>::from_raw(ptr.ptr  as *mut Css) };}
-/// (private): Downcasts the `AzCssPtr` to a `Box<Css>`. Note that this takes ownership of the pointer.
-#[inline(always)] fn az_css_downcast(ptr: AzCssPtr) -> Box<Css> {     unsafe { Box::<Css>::from_raw(ptr.ptr  as *mut Css) }}
-/// (private): Downcasts the `AzCssPtr` to a `&mut Box<Css>` and runs the `func` closure on it
-#[inline(always)] fn az_css_downcast_refmut<P, F: FnOnce(&mut Css) -> P>(ptr: &mut AzCssPtr, func: F) -> P {     func(unsafe { &mut *(ptr.ptr as *mut Css) })}
-/// (private): Downcasts the `AzCssPtr` to a `&Box<Css>` and runs the `func` closure on it
-#[inline(always)] fn az_css_downcast_ref<P, F: FnOnce(&Css) -> P>(ptr: &mut AzCssPtr, func: F) -> P {     func(unsafe { &*(ptr.ptr as *const Css) })}
+#[no_mangle] #[allow(unused_variables)] pub extern "C" fn az_css_delete(object: &mut AzCss) { }
+/// Clones the object
+#[no_mangle] pub extern "C" fn az_css_deep_copy(object: &AzCss) -> AzCss { object.clone() }
 
 /// Pointer to rust-allocated `Box<CssHotReloader>` struct
 #[no_mangle] #[repr(C)] pub struct AzCssHotReloaderPtr { ptr: *mut c_void }
@@ -2642,6 +2912,72 @@ pub type AzBlockErrorTT = azul_impl::task::BlockError;
 /// Clones the object
 #[no_mangle] pub extern "C" fn az_block_error_deep_copy(object: &AzBlockError) -> AzBlockError { object.clone() }
 
+/// Re-export of rust-allocated (stack based) `XWindowType` struct
+pub type AzXWindowTypeTT = azul_impl::window::XWindowType;
+#[no_mangle] pub use AzXWindowTypeTT as AzXWindowType;
+/// Destructor: Takes ownership of the `XWindowType` pointer and deletes it.
+#[no_mangle] #[allow(unused_variables)] pub extern "C" fn az_x_window_type_delete(object: &mut AzXWindowType) { match object { azul_impl::window::XWindowType::Desktop => { }, azul_impl::window::XWindowType::Dock => { }, azul_impl::window::XWindowType::Toolbar => { }, azul_impl::window::XWindowType::Menu => { }, azul_impl::window::XWindowType::Utility => { }, azul_impl::window::XWindowType::Splash => { }, azul_impl::window::XWindowType::Dialog => { }, azul_impl::window::XWindowType::DropdownMenu => { }, azul_impl::window::XWindowType::PopupMenu => { }, azul_impl::window::XWindowType::Tooltip => { }, azul_impl::window::XWindowType::Notification => { }, azul_impl::window::XWindowType::Combo => { }, azul_impl::window::XWindowType::Dnd => { }, azul_impl::window::XWindowType::Normal => { }, }
+}
+/// Clones the object
+#[no_mangle] pub extern "C" fn az_x_window_type_deep_copy(object: &AzXWindowType) -> AzXWindowType { object.clone() }
+
+/// Re-export of rust-allocated (stack based) `PhysicalPositionI32` struct
+pub type AzPhysicalPositionI32TT = azul_impl::window::PhysicalPosition<i32>;
+#[no_mangle] pub use AzPhysicalPositionI32TT as AzPhysicalPositionI32;
+/// Destructor: Takes ownership of the `PhysicalPositionI32` pointer and deletes it.
+#[no_mangle] #[allow(unused_variables)] pub extern "C" fn az_physical_position_i32_delete(object: &mut AzPhysicalPositionI32) { }
+/// Clones the object
+#[no_mangle] pub extern "C" fn az_physical_position_i32_deep_copy(object: &AzPhysicalPositionI32) -> AzPhysicalPositionI32 { object.clone() }
+
+/// Re-export of rust-allocated (stack based) `LogicalPosition` struct
+pub type AzLogicalPositionTT = azul_impl::window::LogicalPosition;
+#[no_mangle] pub use AzLogicalPositionTT as AzLogicalPosition;
+/// Destructor: Takes ownership of the `LogicalPosition` pointer and deletes it.
+#[no_mangle] #[allow(unused_variables)] pub extern "C" fn az_logical_position_delete(object: &mut AzLogicalPosition) { }
+/// Clones the object
+#[no_mangle] pub extern "C" fn az_logical_position_deep_copy(object: &AzLogicalPosition) -> AzLogicalPosition { object.clone() }
+
+/// Re-export of rust-allocated (stack based) `IconKey` struct
+pub type AzIconKeyTT = azul_impl::window::IconKey;
+#[no_mangle] pub use AzIconKeyTT as AzIconKey;
+/// Destructor: Takes ownership of the `IconKey` pointer and deletes it.
+#[no_mangle] #[allow(unused_variables)] pub extern "C" fn az_icon_key_delete(object: &mut AzIconKey) { }
+/// Clones the object
+#[no_mangle] pub extern "C" fn az_icon_key_deep_copy(object: &AzIconKey) -> AzIconKey { object.clone() }
+
+/// Re-export of rust-allocated (stack based) `SmallWindowIconBytes` struct
+pub type AzSmallWindowIconBytesTT = azul_impl::window::SmallWindowIconBytes;
+#[no_mangle] pub use AzSmallWindowIconBytesTT as AzSmallWindowIconBytes;
+/// Destructor: Takes ownership of the `SmallWindowIconBytes` pointer and deletes it.
+#[no_mangle] #[allow(unused_variables)] pub extern "C" fn az_small_window_icon_bytes_delete(object: &mut AzSmallWindowIconBytes) { }
+/// Clones the object
+#[no_mangle] pub extern "C" fn az_small_window_icon_bytes_deep_copy(object: &AzSmallWindowIconBytes) -> AzSmallWindowIconBytes { object.clone() }
+
+/// Re-export of rust-allocated (stack based) `LargeWindowIconBytes` struct
+pub type AzLargeWindowIconBytesTT = azul_impl::window::LargeWindowIconBytes;
+#[no_mangle] pub use AzLargeWindowIconBytesTT as AzLargeWindowIconBytes;
+/// Destructor: Takes ownership of the `LargeWindowIconBytes` pointer and deletes it.
+#[no_mangle] #[allow(unused_variables)] pub extern "C" fn az_large_window_icon_bytes_delete(object: &mut AzLargeWindowIconBytes) { }
+/// Clones the object
+#[no_mangle] pub extern "C" fn az_large_window_icon_bytes_deep_copy(object: &AzLargeWindowIconBytes) -> AzLargeWindowIconBytes { object.clone() }
+
+/// Re-export of rust-allocated (stack based) `WindowIcon` struct
+pub type AzWindowIconTT = azul_impl::window::WindowIcon;
+#[no_mangle] pub use AzWindowIconTT as AzWindowIcon;
+/// Destructor: Takes ownership of the `WindowIcon` pointer and deletes it.
+#[no_mangle] #[allow(unused_variables)] pub extern "C" fn az_window_icon_delete(object: &mut AzWindowIcon) { match object { azul_impl::window::WindowIcon::Small(_) => { }, azul_impl::window::WindowIcon::Large(_) => { }, }
+}
+/// Clones the object
+#[no_mangle] pub extern "C" fn az_window_icon_deep_copy(object: &AzWindowIcon) -> AzWindowIcon { object.clone() }
+
+/// Re-export of rust-allocated (stack based) `TaskBarIcon` struct
+pub type AzTaskBarIconTT = azul_impl::window::TaskBarIcon;
+#[no_mangle] pub use AzTaskBarIconTT as AzTaskBarIcon;
+/// Destructor: Takes ownership of the `TaskBarIcon` pointer and deletes it.
+#[no_mangle] #[allow(unused_variables)] pub extern "C" fn az_task_bar_icon_delete(object: &mut AzTaskBarIcon) { }
+/// Clones the object
+#[no_mangle] pub extern "C" fn az_task_bar_icon_deep_copy(object: &AzTaskBarIcon) -> AzTaskBarIcon { object.clone() }
+
 /// Re-export of rust-allocated (stack based) `VirtualKeyCode` struct
 pub type AzVirtualKeyCodeTT = azul_impl::window::VirtualKeyCode;
 #[no_mangle] pub use AzVirtualKeyCodeTT as AzVirtualKeyCode;
@@ -2751,6 +3087,14 @@ pub type AzRendererTypeTT = azul_impl::window::RendererType;
 /// Clones the object
 #[no_mangle] pub extern "C" fn az_renderer_type_deep_copy(object: &AzRendererType) -> AzRendererType { object.clone() }
 
+/// Re-export of rust-allocated (stack based) `StringPair` struct
+pub type AzStringPairTT = azul_impl::window::AzStringPair;
+#[no_mangle] pub use AzStringPairTT as AzStringPair;
+/// Destructor: Takes ownership of the `StringPair` pointer and deletes it.
+#[no_mangle] #[allow(unused_variables)] pub extern "C" fn az_string_pair_delete(object: &mut AzStringPair) { }
+/// Clones the object
+#[no_mangle] pub extern "C" fn az_string_pair_deep_copy(object: &AzStringPair) -> AzStringPair { object.clone() }
+
 /// Re-export of rust-allocated (stack based) `LinuxWindowOptions` struct
 pub type AzLinuxWindowOptionsTT = azul_impl::window::LinuxWindowOptions;
 #[no_mangle] pub use AzLinuxWindowOptionsTT as AzLinuxWindowOptions;
@@ -2775,6 +3119,15 @@ pub type AzWasmWindowOptionsTT = azul_impl::window::WasmWindowOptions;
 /// Clones the object
 #[no_mangle] pub extern "C" fn az_wasm_window_options_deep_copy(object: &AzWasmWindowOptions) -> AzWasmWindowOptions { object.clone() }
 
+/// Re-export of rust-allocated (stack based) `FullScreenMode` struct
+pub type AzFullScreenModeTT = azul_impl::window::FullScreenMode;
+#[no_mangle] pub use AzFullScreenModeTT as AzFullScreenMode;
+/// Destructor: Takes ownership of the `FullScreenMode` pointer and deletes it.
+#[no_mangle] #[allow(unused_variables)] pub extern "C" fn az_full_screen_mode_delete(object: &mut AzFullScreenMode) { match object { azul_impl::window::FullScreenMode::SlowFullScreen => { }, azul_impl::window::FullScreenMode::FastFullScreen => { }, azul_impl::window::FullScreenMode::SlowWindowed => { }, azul_impl::window::FullScreenMode::FastWindowed => { }, }
+}
+/// Clones the object
+#[no_mangle] pub extern "C" fn az_full_screen_mode_deep_copy(object: &AzFullScreenMode) -> AzFullScreenMode { object.clone() }
+
 /// Re-export of rust-allocated (stack based) `WindowState` struct
 pub type AzWindowStateTT = azul_impl::window::WindowState;
 #[no_mangle] pub use AzWindowStateTT as AzWindowState;
@@ -2791,12 +3144,20 @@ pub type AzLogicalSizeTT = azul_impl::window::LogicalSize;
 /// Clones the object
 #[no_mangle] pub extern "C" fn az_logical_size_deep_copy(object: &AzLogicalSize) -> AzLogicalSize { object.clone() }
 
+/// Re-export of rust-allocated (stack based) `HotReloadOptions` struct
+pub type AzHotReloadOptionsTT = azul_impl::window::HotReloadOptions;
+#[no_mangle] pub use AzHotReloadOptionsTT as AzHotReloadOptions;
+/// Destructor: Takes ownership of the `HotReloadOptions` pointer and deletes it.
+#[no_mangle] #[allow(unused_variables)] pub extern "C" fn az_hot_reload_options_delete(object: &mut AzHotReloadOptions) { }
+/// Clones the object
+#[no_mangle] pub extern "C" fn az_hot_reload_options_deep_copy(object: &AzHotReloadOptions) -> AzHotReloadOptions { object.clone() }
+
 /// Re-export of rust-allocated (stack based) `WindowCreateOptions` struct
 pub type AzWindowCreateOptionsTT = azul_impl::window::WindowCreateOptions;
 #[no_mangle] pub use AzWindowCreateOptionsTT as AzWindowCreateOptions;
 // Creates a new `WindowCreateOptions` instance whose memory is owned by the rust allocator
 // Equivalent to the Rust `WindowCreateOptions::new()` constructor.
-#[no_mangle] pub extern "C" fn az_window_create_options_new(css: AzCssPtr) -> AzWindowCreateOptions { WindowCreateOptions::new(css) }
+#[no_mangle] pub extern "C" fn az_window_create_options_new(css: AzCss) -> AzWindowCreateOptions { WindowCreateOptions::new(css) }
 /// Destructor: Takes ownership of the `WindowCreateOptions` pointer and deletes it.
 #[no_mangle] #[allow(unused_variables)] pub extern "C" fn az_window_create_options_delete(object: &mut AzWindowCreateOptions) { }
 /// Clones the object

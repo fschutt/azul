@@ -6,39 +6,46 @@ use std::fmt;
 /// Css stylesheet - contains a parsed CSS stylesheet in "rule blocks",
 /// i.e. blocks of key-value pairs associated with a selector path.
 #[derive(Debug, Default, PartialEq, PartialOrd, Clone)]
+#[repr(C)]
 pub struct Css {
     /// One CSS stylesheet can hold more than one sub-stylesheet:
     /// For example, when overriding native styles, the `.sort_by_specificy()` function
     /// should not mix the two stylesheets during sorting.
-    pub stylesheets: Vec<Stylesheet>,
+    pub stylesheets: StylesheetVec,
 }
 
+impl_vec!(Stylesheet, StylesheetVec);
+
 impl Css {
-    pub const fn new(stylesheets: Vec<Stylesheet>) -> Self {
-        Self { stylesheets }
+    pub fn new(stylesheets: Vec<Stylesheet>) -> Self {
+        Self { stylesheets: stylesheets.into() }
     }
 }
 
 #[derive(Debug, Default, PartialEq, PartialOrd, Clone)]
+#[repr(C)]
 pub struct Stylesheet {
     /// The style rules making up the document - for example, de-duplicated CSS rules
-    pub rules: Vec<CssRuleBlock>,
+    pub rules: CssRuleBlockVec,
 }
 
+impl_vec!(CssRuleBlock, CssRuleBlockVec);
+
 impl Stylesheet {
-    pub const fn new(rules: Vec<CssRuleBlock>) -> Self {
-        Self { rules }
+    pub fn new(rules: Vec<CssRuleBlock>) -> Self {
+        Self { rules: rules.into() }
     }
 }
 
 impl From<Vec<CssRuleBlock>> for Stylesheet {
     fn from(rules: Vec<CssRuleBlock>) -> Self {
-        Self { rules }
+        Self { rules: rules.into() }
     }
 }
 
 /// Contains one parsed `key: value` pair, static or dynamic
 #[derive(Debug, Clone, PartialEq, Eq, Hash, PartialOrd, Ord)]
+#[repr(C)]
 pub enum CssDeclaration {
     /// Static key-value pair, such as `width: 500px`
     Static(CssProperty),
@@ -115,9 +122,10 @@ impl CssDeclaration {
 /// (i.e. `hover`, `focus`, etc.), thereby leading to cleaner code, since all of these
 /// special cases now use one single API.
 #[derive(Debug, Clone, PartialEq, Eq, Hash, PartialOrd, Ord)]
+#[repr(C)]
 pub struct DynamicCssProperty {
     /// The stringified ID of this property, i.e. the `"my_id"` in `width: var(--my_id, 500px)`.
-    pub dynamic_id: String,
+    pub dynamic_id: AzString,
     /// Default values for this properties - one single value can control multiple properties!
     pub default_value: CssProperty,
 }
@@ -259,19 +267,22 @@ impl DynamicCssProperty {
 /// One block of rules that applies a bunch of rules to a "path" in the style, i.e.
 /// `div#myid.myclass -> { ("justify-content", "center") }`
 #[derive(Debug, Clone, PartialOrd, PartialEq)]
+#[repr(C)]
 pub struct CssRuleBlock {
     /// The css path (full selector) of the style ruleset
     pub path: CssPath,
     /// `"justify-content: center"` =>
     /// `CssDeclaration::Static(CssProperty::JustifyContent(LayoutJustifyContent::Center))`
-    pub declarations: Vec<CssDeclaration>,
+    pub declarations: CssDeclarationVec,
 }
 
+impl_vec!(CssDeclaration, CssDeclarationVec);
+
 impl CssRuleBlock {
-    pub const fn new(path: CssPath, declarations: Vec<CssDeclaration>) -> Self {
+    pub fn new(path: CssPath, declarations: Vec<CssDeclaration>) -> Self {
         Self {
             path,
-            declarations,
+            declarations: declarations.into(),
         }
     }
 }
@@ -281,6 +292,7 @@ pub type CssContentGroup<'a> = Vec<&'a CssPathSelector>;
 /// Signifies the type (i.e. the discriminant value) of a DOM node
 /// without carrying any of its associated data
 #[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
+#[repr(C)]
 pub enum NodeTypePath {
     Body,
     Div,
@@ -346,13 +358,16 @@ impl fmt::Display for NodeTypePath {
 ///   CssPathSelector::PseudoSelector(CssPathPseudoSelector::Focus),
 /// ]
 #[derive(Clone, Hash, Default, PartialEq, Eq, PartialOrd, Ord)]
+#[repr(C)]
 pub struct CssPath {
-    pub selectors: Vec<CssPathSelector>,
+    pub selectors: CssPathSelectorVec,
 }
+
+impl_vec!(CssPathSelector, CssPathSelectorVec);
 
 impl CssPath {
     pub const fn new(selectors: Vec<CssPathSelector>) -> Self {
-        Self { selectors }
+        Self { selectors: selectors.into() }
     }
 }
 
@@ -412,7 +427,7 @@ impl fmt::Display for CssPathSelector {
 }
 
 #[derive(Debug, Copy, Clone, PartialEq, Eq, Hash, PartialOrd, Ord)]
-#[repr(C, u8)]
+#[repr(C)]
 pub enum CssPathPseudoSelector {
     /// `:first`
     First,
@@ -434,7 +449,14 @@ pub enum CssNthChildSelector {
     Number(usize),
     Even,
     Odd,
-    Pattern { repeat: usize, offset: usize },
+    Pattern(CssNthChildPattern),
+}
+
+#[derive(Debug, Copy, Clone, PartialEq, Eq, Hash, PartialOrd, Ord)]
+#[repr(C)]
+pub struct CssNthChildPattern {
+    pub repeat: usize,
+    pub offset: usize,
 }
 
 impl fmt::Display for CssNthChildSelector {
@@ -444,7 +466,7 @@ impl fmt::Display for CssNthChildSelector {
             Number(u) => write!(f, "{}", u),
             Even => write!(f, "even"),
             Odd => write!(f, "odd"),
-            Pattern { repeat, offset } => write!(f, "{}n + {}", repeat, offset),
+            Pattern(p) => write!(f, "{}n + {}", p.repeat, p.offset),
         }
     }
 }

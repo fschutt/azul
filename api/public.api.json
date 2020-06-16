@@ -42,6 +42,139 @@
 		"vec": {
 			"doc": "Definition of azuls internal `Vec<*>` wrappers",
 			"classes": {
+				"XWindowTypeVec": {
+					"doc": "Wrapper over a Rust-allocated `XWindowType`",
+					"external": "azul_impl::css::XWindowTypeVec",
+					"struct_fields": [
+						{ "ptr": { "type": "*const XWindowType" } },
+						{ "len": { "type": "usize" } },
+						{ "cap": { "type": "usize" } }
+					],
+					"constructors": {
+					    "copy_from": {
+					        "doc": "Creates + allocates a Rust `Vec<XWindowType>` by **copying** it from a bytes source",
+					        "fn_args": [
+					            {"ptr": "*const XWindowType"},
+					            {"len": "usize"}
+					        ],
+					        "fn_body": "unsafe { std::slice::from_raw_parts(ptr, len).iter().cloned().collect::<Vec<_>>() }.into()"
+					    }
+					}
+				},
+				"VirtualKeyCodeVec": {
+					"doc": "Wrapper over a Rust-allocated `VirtualKeyCode`",
+					"external": "azul_impl::css::VirtualKeyCodeVec",
+					"struct_fields": [
+						{ "ptr": { "type": "*const VirtualKeyCode" } },
+						{ "len": { "type": "usize" } },
+						{ "cap": { "type": "usize" } }
+					],
+					"constructors": {
+					    "copy_from": {
+					        "doc": "Creates + allocates a Rust `Vec<VirtualKeyCode>` by **copying** it from a bytes source",
+					        "fn_args": [
+					            {"ptr": "*const VirtualKeyCode"},
+					            {"len": "usize"}
+					        ],
+					        "fn_body": "unsafe { std::slice::from_raw_parts(ptr, len).iter().cloned().collect::<Vec<_>>() }.into()"
+					    }
+					}
+				},
+				"ScanCodeVec": {
+					"doc": "Wrapper over a Rust-allocated `ScanCode`",
+					"external": "azul_impl::css::ScanCodeVec",
+					"struct_fields": [
+						{ "ptr": { "type": "*const u32" } },
+						{ "len": { "type": "usize" } },
+						{ "cap": { "type": "usize" } }
+					],
+					"constructors": {
+					    "copy_from": {
+					        "doc": "Creates + allocates a Rust `Vec<ScanCode>` by **copying** it from a bytes source",
+					        "fn_args": [
+					            {"ptr": "*const u32"},
+					            {"len": "usize"}
+					        ],
+					        "fn_body": "unsafe { std::slice::from_raw_parts(ptr, len).iter().cloned().collect::<Vec<_>>() }.into()"
+					    }
+					}
+				},
+				"CssDeclarationVec": {
+					"doc": "Wrapper over a Rust-allocated `CssDeclaration`",
+					"external": "azul_impl::css::CssDeclarationVec",
+					"struct_fields": [
+						{ "ptr": { "type": "*const CssDeclaration" } },
+						{ "len": { "type": "usize" } },
+						{ "cap": { "type": "usize" } }
+					],
+					"constructors": {
+					    "copy_from": {
+					        "doc": "Creates + allocates a Rust `Vec<CssDeclaration>` by **copying** it from a bytes source",
+					        "fn_args": [
+					            {"ptr": "*const CssDeclaration"},
+					            {"len": "usize"}
+					        ],
+					        "fn_body": "unsafe { std::slice::from_raw_parts(ptr, len).iter().cloned().collect::<Vec<_>>() }.into()"
+					    }
+					}
+				},
+				"CssPathSelectorVec": {
+					"doc": "Wrapper over a Rust-allocated `CssPathSelector`",
+					"external": "azul_impl::css::CssPathSelectorVec",
+					"struct_fields": [
+						{ "ptr": { "type": "*const CssPathSelector" } },
+						{ "len": { "type": "usize" } },
+						{ "cap": { "type": "usize" } }
+					],
+					"constructors": {
+					    "copy_from": {
+					        "doc": "Creates + allocates a Rust `Vec<CssPathSelector>` by **copying** it from a bytes source",
+					        "fn_args": [
+					            {"ptr": "*const CssPathSelector"},
+					            {"len": "usize"}
+					        ],
+					        "fn_body": "unsafe { std::slice::from_raw_parts(ptr, len).iter().cloned().collect::<Vec<_>>() }.into()"
+					    }
+					}
+				},
+				"StylesheetVec": {
+					"doc": "Wrapper over a Rust-allocated `Stylesheet`",
+					"external": "azul_impl::css::StylesheetVec",
+					"struct_fields": [
+						{ "ptr": { "type": "*const Stylesheet" } },
+						{ "len": { "type": "usize" } },
+						{ "cap": { "type": "usize" } }
+					],
+					"constructors": {
+					    "copy_from": {
+					        "doc": "Creates + allocates a Rust `Vec<Stylesheet>` by **copying** it from a bytes source",
+					        "fn_args": [
+					            {"ptr": "*const Stylesheet"},
+					            {"len": "usize"}
+					        ],
+					        "fn_body": "unsafe { std::slice::from_raw_parts(ptr, len).iter().cloned().collect::<Vec<_>>() }.into()"
+					    }
+					}
+				},
+				"CssRuleBlockVec": {
+					"doc": "Wrapper over a Rust-allocated `CssRuleBlock`",
+					"external": "azul_impl::css::CssRuleBlockVec",
+					"struct_fields": [
+						{ "ptr": { "type": "*const CssRuleBlock" } },
+						{ "len": { "type": "usize" } },
+						{ "cap": { "type": "usize" } }
+					],
+					"constructors": {
+					    "copy_from": {
+					        "doc": "Creates + allocates a Rust `Vec<CssRuleBlock>` by **copying** it from a bytes source",
+					        "fn_args": [
+					            {"ptr": "*const CssRuleBlock"},
+					            {"len": "usize"}
+					        ],
+					        "fn_body": "unsafe { std::slice::from_raw_parts(ptr, len).iter().cloned().collect::<Vec<_>>() }.into()"
+					    }
+					}
+				},
 				"U8Vec": {
 					"doc": "Wrapper over a Rust-allocated `U8Vec`",
 					"external": "azul_impl::css::U8Vec",
@@ -194,6 +327,25 @@
 					    }
 					}
 				},
+				"StringPairVec": {
+					"doc": "Wrapper over a Rust-allocated `StringPairVec`",
+					"external": "azul_impl::css::StringPairVec",
+					"struct_fields": [
+						{ "ptr": { "type": "*const StringPair" } },
+						{ "len": { "type": "usize" } },
+						{ "cap": { "type": "usize" } }
+					],
+					"constructors": {
+					    "copy_from": {
+					        "doc": "Creates + allocates a Rust `Vec<StringPair>` by **copying** it from a bytes source",
+					        "fn_args": [
+					            {"ptr": "*const StringPair"},
+					            {"len": "usize"}
+					        ],
+					        "fn_body": "unsafe { std::slice::from_raw_parts(ptr, len).into_iter().map(|s| s.clone()).collect::<Vec<_>>() }.into()"
+					    }
+					}
+				},
 				"GradientStopPreVec": {
 					"doc": "Wrapper over a Rust-allocated `GradientStopPreVec`",
 					"external": "azul_impl::css::GradientStopPreVec",
@@ -218,6 +370,90 @@
 		"option": {
 			"doc": "Definition of azuls internal `Option<*>` wrappers",
 			"classes": {
+				"OptionLogicalPosition": {
+					"external": "azul_impl::window::OptionLogicalPosition",
+					"enum_fields": [
+						{"None": {}},
+						{"Some": { "type": "LogicalPosition" }}
+					]
+				},
+				"OptionHotReloadOptions": {
+					"external": "azul_impl::window::OptionHotReloadOptions",
+					"enum_fields": [
+						{"None": {}},
+						{"Some": { "type": "HotReloadOptions" }}
+					]
+				},
+				"OptionPhysicalPositionI32": {
+					"external": "azul_impl::window::OptionPhysicalPositionI32",
+					"enum_fields": [
+						{"None": {}},
+						{"Some": { "type": "PhysicalPositionI32" }}
+					]
+				},
+				"OptionWindowIcon": {
+					"external": "azul_impl::window::OptionWindowIcon",
+					"enum_fields": [
+						{"None": {}},
+						{"Some": { "type": "WindowIcon" }}
+					]
+				},
+				"OptionString": {
+					"external": "azul_impl::window::OptionString",
+					"enum_fields": [
+						{"None": {}},
+						{"Some": { "type": "String" }}
+					]
+				},
+				"OptionX11Visual": {
+					"external": "azul_impl::window::OptionX11Visual",
+					"enum_fields": [
+						{"None": {}},
+						{"Some": { "type": "*const c_void" }}
+					]
+				},
+				"OptionI32": {
+					"external": "azul_impl::window::OptionI32",
+					"enum_fields": [
+						{"None": {}},
+						{"Some": { "type": "i32" }}
+					]
+				},
+				"OptionF32": {
+					"external": "azul_impl::window::OptionF32",
+					"enum_fields": [
+						{"None": {}},
+						{"Some": { "type": "f32" }}
+					]
+				},
+				"OptionMouseCursorType": {
+					"external": "azul_impl::window::OptionMouseCursorType",
+					"enum_fields": [
+						{"None": {}},
+						{"Some": { "type": "MouseCursorType" }}
+					]
+				},
+				"OptionLogicalSize": {
+					"external": "azul_impl::window::OptionLogicalSize",
+					"enum_fields": [
+						{"None": {}},
+						{"Some": { "type": "LogicalSize" }}
+					]
+				},
+				"OptionChar": {
+					"external": "azul_impl::window::OptionChar",
+					"enum_fields": [
+						{"None": {}},
+						{"Some": { "type": "char" }}
+					]
+				},
+				"OptionVirtualKeyCode": {
+					"external": "azul_impl::window::OptionVirtualKeyCode",
+					"enum_fields": [
+						{"None": {}},
+						{"Some": { "type": "VirtualKeyCode" }}
+					]
+				},
 				"OptionPercentageValue": {
 					"external": "azul_impl::css::OptionPercentageValue",
 					"enum_fields": [
@@ -578,7 +814,94 @@
 		"css": {
 			"doc": "`Css` parsing module",
 			"classes": {
+				"CssRuleBlock": {
+					"external": "azul_impl::css::CssRuleBlock",
+					"struct_fields": [
+						{"path": {"type": "CssPath"}},
+						{"declarations": {"type": "CssDeclarationVec"}}
+					]
+				},
+				"CssDeclaration": {
+					"external": "azul_impl::css::CssDeclaration",
+					"enum_fields": [
+						{"Static": {"type": "CssProperty"}},
+						{"Dynamic": {"type": "DynamicCssProperty"}}
+					]
+				},
+				"DynamicCssProperty": {
+					"external": "azul_impl::css::DynamicCssProperty",
+					"struct_fields": [
+						{"dynamic_id": {"type": "String"}},
+						{"default_value": {"type": "CssProperty"}}
+					]
+				},
+				"CssPath": {
+					"external": "azul_impl::css::CssPath",
+					"struct_fields": [
+						{"selectors": {"type": "CssPathSelectorVec"}}
+					]
+				},
+				"CssPathSelector": {
+					"external": "azul_impl::css::CssPathSelector",
+					"enum_fields": [
+						{"Global": {}},
+						{"Type": {"type": "NodeTypePath"}},
+						{"Class": {"type": "String"}},
+						{"Id": {"type": "String"}},
+						{"PseudoSelector": {"type": "CssPathPseudoSelector"}},
+						{"DirectChildren": {}},
+						{"Children": {}}
+					]
+				},
+				"NodeTypePath": {
+					"external": "azul_impl::css::NodeTypePath",
+					"enum_fields": [
+						{"Body": {}},
+						{"Div": {}},
+						{"P": {}},
+						{"Img": {}},
+						{"Texture": {}},
+						{"IFrame": {}}
+					]
+				},
+				"CssPathPseudoSelector": {
+					"external": "azul_impl::css::CssPathPseudoSelector",
+					"enum_fields": [
+						{"First": {}},
+						{"Last": {}},
+						{"NthChild": {"type": "CssNthChildSelector"}},
+						{"Hover": {}},
+						{"Active": {}},
+						{"Focus": {}}
+					]
+				},
+				"CssNthChildSelector": {
+					"external": "azul_impl::css::CssNthChildSelector",
+					"enum_fields": [
+						{"Number": {"type": "usize"}},
+						{"Even": {}},
+						{"Odd": {}},
+						{"Pattern": {"type": "CssNthChildPattern"}}
+					]
+				},
+				"CssNthChildPattern": {
+					"external": "azul_impl::css::CssNthChildPattern",
+					"struct_fields": [
+						{"repeat": {"type": "usize"}},
+						{"offset": {"type": "usize"}}
+					]
+				},
+				"Stylesheet": {
+					"external": "azul_impl::css::Stylesheet",
+					"struct_fields": [
+						{"rules": {"type": "CssRuleBlockVec"}}
+					]
+				},
 				"Css": {
+					"external": "azul_impl::css::Stylesheet",
+					"struct_fields": [
+						{"stylesheets": {"type": "StylesheetVec"}}
+					],
 					"constructors": {
 						"native": {
 							"doc": "Loads the native style for the given operating system",
@@ -603,6 +926,20 @@
 							"fn_body":"css::override_native(s.as_str()).unwrap()"
 						}
 					}
+				},
+				"CssDeclaration": {
+					"external": "azul_impl::css::CssDeclaration",
+					"enum_fields": [
+						{"Static": {"type": "CssProperty"}},
+						{"Dynamic": {"type": "DynamicCssProperty"}}
+					]
+				},
+				"DynamicCssProperty": {
+					"external": "azul_impl::css::DynamicCssProperty",
+					"struct_fields": [
+						{"dynamic_id": {"type": "String"}},
+						{"default_value": {"type": "CssProperty"}}
+					]
 				},
 				"CssHotReloader": {
 					"rust_class_name": "Box<dyn HotReloadHandler>",
@@ -4510,6 +4847,73 @@
 		"window": {
 			"doc": "Window creation / startup configuration",
 			"classes": {
+				"XWindowType": {
+					"external": "azul_impl::window::XWindowType",
+					"enum_fields": [
+						{"Desktop": {"doc": "A desktop feature. This can include a single window containing desktop icons with the same dimensions as the screen, allowing the desktop environment to have full control of the desktop, without the need for proxying root window clicks"}},
+						{"Dock": {"doc": "A dock or panel feature. Typically a Window Manager would keep such windows on top of all other windows"}},
+						{"Toolbar": {"doc": "Toolbar windows. \"Torn off\" from the main application"}},
+						{"Menu": {"doc": "Pinnable menu windows. \"Torn off\" from the main application"}},
+						{"Utility": {"doc": "A small persistent utility window, such as a palette or toolbox"}},
+						{"Splash": {"doc": "The window is a splash screen displayed as an application is starting up"}},
+						{"Dialog": {"doc": "This is a dialog window"}},
+						{"DropdownMenu": {"doc": "A dropdown menu that usually appears when the user clicks on an item in a menu bar. This property is typically used on override-redirect windows."}},
+						{"PopupMenu": {"doc": "A popup menu that usually appears when the user right clicks on an object. This property is typically used on override-redirect windows."}},
+						{"Tooltip": {"doc": "A tooltip window. Usually used to show additional information when hovering over an object with the cursor. This property is typically used on override-redirect windows."}},
+						{"Notification": {"doc": "The window is a notification. This property is typically used on override-redirect windows."}},
+						{"Combo": {"doc": "This should be used on the windows that are popped up by combo boxes. This property is typically used on override-redirect windows."}},
+						{"Dnd": {"doc": "This indicates the the window is being dragged. This property is typically used on override-redirect windows."}},
+						{"Normal": {"doc": " This is a normal, top-level window"}}
+					]
+				},
+				"PhysicalPositionI32": {
+					"external": "azul_impl::window::PhysicalPosition<i32>",
+					"struct_fields": [
+						{"x": {"type": "i32"}},
+						{"y": {"type": "i32"}}
+					]
+				},
+				"LogicalPosition": {
+					"external": "azul_impl::window::LogicalPosition",
+					"struct_fields": [
+						{"x": {"type": "f32"}},
+						{"y": {"type": "f32"}}
+					]
+				},
+				"IconKey": {
+					"external": "azul_impl::window::IconKey",
+					"struct_fields": [
+						{"id": {"type": "usize"}}
+					]
+				},
+				"SmallWindowIconBytes": {
+					"external": "azul_impl::window::SmallWindowIconBytes",
+					"struct_fields": [
+						{"key": {"type": "IconKey"}},
+						{"rgba_bytes": {"type": "U8Vec"}}
+					]
+				},
+				"LargeWindowIconBytes": {
+					"external": "azul_impl::window::LargeWindowIconBytes",
+					"struct_fields": [
+						{"key": {"type": "IconKey"}},
+						{"rgba_bytes": {"type": "U8Vec"}}
+					]
+				},
+				"WindowIcon": {
+					"external": "azul_impl::window::WindowIcon",
+					"enum_fields": [
+						{"Small": {"type": "SmallWindowIconBytes"}},
+						{"Large": {"type": "LargeWindowIconBytes"}}
+					]
+				},
+				"TaskBarIcon": {
+					"external": "azul_impl::window::TaskBarIcon",
+					"struct_fields": [
+						{"key": {"type": "IconKey"}},
+						{"rgba_bytes": {"type": "U8Vec"}}
+					]
+				},
 				"VirtualKeyCode": {
 					"external": "azul_impl::window::VirtualKeyCode",
 					"enum_fields": [
@@ -4839,14 +5243,21 @@
 						{"Custom": {"type": "GlContextPtr", "doc": "Render using a custom OpenGL implementation"}}
 					]
 				},
+				"StringPair": {
+					"external": "azul_impl::window::AzStringPair",
+					"struct_fields": [
+						{"key": {"type": "String"}},
+						{"value": {"type": "String"}}
+					]
+				},
 				"LinuxWindowOptions": {
 					"external": "azul_impl::window::LinuxWindowOptions",
 					"struct_fields": [
-						{"x11_visual": {"type": "OptionX11Callback", "doc": "Which X11 visual to use for the window (unimplemented). Can only be set at window creation, can't be changed in callbacks"}},
+						{"x11_visual": {"type": "OptionX11Visual", "doc": "Which X11 visual to use for the window (unimplemented). Can only be set at window creation, can't be changed in callbacks"}},
 						{"x11_screen": {"type": "OptionI32", "doc": "Which screen to use when showing the window (unimplemented). Can only be set at window creation, can't be changed in callbacks"}},
-						{"x11_wm_classes": {"type": "VecStringString", "doc": "Build window with `WM_CLASS` hint; defaults to the name of the binary. Only relevant on X11. Can only be set at window creation, can't be changed in callbacks."}},
+						{"x11_wm_classes": {"type": "StringPairVec", "doc": "Build window with `WM_CLASS` hint; defaults to the name of the binary. Only relevant on X11. Can only be set at window creation, can't be changed in callbacks."}},
 						{"x11_override_redirect": {"type": "bool", "doc": "Build window with override-redirect flag; defaults to false. Only relevant on X11. Can only be set at window creation, can't be changed in callbacks."}},
-						{"x11_override_redirect": {"type": "bool", "doc": "Build window with override-redirect flag; defaults to false. Only relevant on X11. Can only be set at window creation, can't be changed in callbacks."}},
+						{"x11_window_types": {"type": "XWindowTypeVec", "doc": "Build window with `_NET_WM_WINDOW_TYPE` hint; defaults to `Normal`. Only relevant on X11. Can only be set at window creation, can't be changed in callbacks."}},
 						{"x11_gtk_theme_variant": {"type": "OptionString", "doc": "Build window with `_GTK_THEME_VARIANT` hint set to the specified value. Currently only relevant on X11. Can only be set at window creation, can't be changed in callbacks."}},
 						{"x11_resize_increments": {"type": "OptionLogicalSize", "doc": "Build window with resize increment hint. Only implemented on X11. Can only be set at window creation, can't be changed in callbacks."}},
 						{"x11_base_size": {"type": "OptionLogicalSize", "doc": "Build window with base size hint. Only implemented on X11. Can only be set at window creation, can't be changed in callbacks."}},
@@ -4865,6 +5276,15 @@
 				"WasmWindowOptions": {
 					"external": "azul_impl::window::WasmWindowOptions",
 					"struct_fields": [
+					]
+				},
+				"FullScreenMode": {
+					"external": "azul_impl::window::FullScreenMode",
+					"enum_fields": [
+						{"SlowFullScreen": {"doc": "- macOS: If the window is in windowed mode, transitions it slowly to fullscreen mode}\r\n- other: Does the same as `FastFullScreen`."}},
+						{"FastFullScreen": {"doc": "Window should immediately go into fullscreen mode (on macOS this is not the default behaviour)."}},
+						{"SlowWindowed": {"doc": "- macOS: If the window is in fullscreen mode, transitions slowly back to windowed state.\r\n- other: Does the same as `FastWindowed`."}},
+						{"FastWindowed": {"doc": "If the window is in fullscreen mode, will immediately go back to windowed mode (on macOS this is not the default behaviour)."}}
 					]
 				},
 				"WindowState": {
@@ -4887,6 +5307,14 @@
 					"struct_fields": [
 						{"width": {"type": "f32"}},
 						{"height": {"type": "f32"}}
+					]
+				},
+				"HotReloadOptions": {
+					"external": "azul_impl::window::HotReloadOptions",
+					"struct_fields": [
+						{"path": {"type": "String"}},
+						{"reload_interval": {"type": "Duration"}},
+						{"apply_native_css": {"type": "bool"}}
 					]
 				},
 				"WindowCreateOptions": {

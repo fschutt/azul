@@ -38,6 +38,7 @@ static LAST_WINDOW_ID: AtomicUsize = AtomicUsize::new(0);
 /// Each default callback is identified by its ID (not by it's function pointer),
 /// since multiple IDs could point to the same function.
 #[derive(Debug, Copy, Clone, PartialEq, Eq, Hash, Ord, PartialOrd)]
+#[repr(C)]
 pub struct WindowId { id: usize }
 
 impl WindowId {
@@ -52,6 +53,7 @@ static LAST_ICON_KEY: AtomicUsize = AtomicUsize::new(0);
 /// this way azul doesn't need to diff the actual bytes, just the icon key.
 /// Use `IconKey::new()` to generate a new, unique key
 #[derive(Debug, Copy, Clone, PartialEq, PartialOrd, Eq, Ord, Hash)]
+#[repr(C)]
 pub struct IconKey { id: usize }
 
 impl IconKey {
@@ -660,22 +662,26 @@ pub struct PlatformSpecificOptions {
 }
 
 #[derive(Debug, Default, Clone, PartialEq, PartialOrd, Eq, Ord, Hash)]
+#[repr(C)]
 pub struct WindowsWindowOptions {
     /// STARTUP ONLY: Sets `WS_EX_NOREDIRECTIONBITMAP`
     pub no_redirection_bitmap: bool,
     /// STARTUP ONLY: Window icon (decoded bytes), appears at the top right corner of the window
-    pub window_icon: Option<WindowIcon>,
+    pub window_icon: OptionWindowIcon,
     /// READWRITE: Taskbar icon (decoded bytes), usually 256x256x4 bytes large (`ICON_BIG`).
     ///
     /// Can be changed in callbacks / at runtime.
-    pub taskbar_icon: Option<TaskBarIcon>,
+    pub taskbar_icon: OptionTaskBarIcon,
     /// STARTUP ONLY: Pointer (casted to void pointer) to a HWND handle
-    pub parent_window: Option<*mut c_void>,
+    pub parent_window: OptionHwndHandle,
 }
+
+impl_option!(*mut c_void, OptionHwndHandle);
 
 /// X window type. Maps directly to
 /// [`_NET_WM_WINDOW_TYPE`](https://specifications.freedesktop.org/wm-spec/wm-spec-1.5.html).
 #[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
+#[repr(C)]
 pub enum XWindowType {
     /// A desktop feature. This can include a single window containing desktop icons with the same dimensions as the
     /// screen, allowing the desktop environment to have full control of the desktop, without the need for proxying
@@ -722,42 +728,57 @@ impl Default for XWindowType {
 }
 
 #[derive(Debug, Default, Clone, PartialEq, PartialOrd)]
+#[repr(C)]
 pub struct LinuxWindowOptions {
     /// (Unimplemented) - Can only be set at window creation, can't be changed in callbacks.
-    pub x11_visual: Option<*const ()>,
+    pub x11_visual: OptionX11Visual,
     /// (Unimplemented) - Can only be set at window creation, can't be changed in callbacks.
-    pub x11_screen: Option<i32>,
+    pub x11_screen: OptionI32,
     /// Build window with `WM_CLASS` hint; defaults to the name of the binary. Only relevant on X11.
     /// Can only be set at window creation, can't be changed in callbacks.
-    pub x11_wm_classes: Vec<(String, String)>,
+    pub x11_wm_classes: StringStringVec,
     /// Build window with override-redirect flag; defaults to false. Only relevant on X11.
     /// Can only be set at window creation, can't be changed in callbacks.
     pub x11_override_redirect: bool,
     /// Build window with `_NET_WM_WINDOW_TYPE` hint; defaults to `Normal`. Only relevant on X11.
     /// Can only be set at window creation, can't be changed in callbacks.
-    pub x11_window_types: Vec<XWindowType>,
+    pub x11_window_types: XWindowTypeVec,
     /// Build window with `_GTK_THEME_VARIANT` hint set to the specified value. Currently only relevant on X11.
     /// Can only be set at window creation, can't be changed in callbacks.
-    pub x11_gtk_theme_variant: Option<String>,
+    pub x11_gtk_theme_variant: OptionString,
     /// Build window with resize increment hint. Only implemented on X11.
     /// Can only be set at window creation, can't be changed in callbacks.
-    pub x11_resize_increments: Option<LogicalSize>,
+    pub x11_resize_increments: OptionLogicalSize,
     /// Build window with base size hint. Only implemented on X11.
     /// Can only be set at window creation, can't be changed in callbacks.
-    pub x11_base_size: Option<LogicalSize>,
+    pub x11_base_size: OptionLogicalSize,
     /// Build window with a given application ID. It should match the `.desktop` file distributed with
     /// your program. Only relevant on Wayland.
     /// Can only be set at window creation, can't be changed in callbacks.
     ///
     /// For details about application ID conventions, see the
     /// [Desktop Entry Spec](https://specifications.freedesktop.org/desktop-entry-spec/desktop-entry-spec-latest.html#desktop-file-id)
-    pub wayland_app_id: Option<String>,
-    pub wayland_theme: Option<WaylandTheme>,
+    pub wayland_app_id: OptionString,
+    pub wayland_theme: OptionWaylandTheme,
     pub request_user_attention: bool,
-    pub window_icon: Option<WindowIcon>,
+    pub window_icon: OptionWindowIcon,
 }
 
+impl_option!(*const c_void, OptionX11Visual);
+
 #[derive(Debug, Default, Copy, Clone, PartialEq, PartialOrd, Eq, Ord, Hash)]
+#[repr(C)]
+pub struct AzStringPair {
+    pub key: AzString,
+    pub value: AzString,
+}
+
+impl_vec!(AzStringPair, StringStringVec);
+impl_vec!(XWindowType, XWindowTypeVec);
+impl_option!(WaylandTheme, OptionWaylandTheme);
+
+#[derive(Debug, Default, Copy, Clone, PartialEq, PartialOrd, Eq, Ord, Hash)]
+#[repr(C)]
 pub struct MacWindowOptions {
     pub request_user_attention: bool,
 }
@@ -937,6 +958,7 @@ impl_option!(HotReloadOptions, OptionHotReloadOptions);
 pub struct HotReloadOptions {
     pub path: AzString,
     pub reload_interval: AzDuration,
+    pub apply_native_css: bool,
 }
 
 impl fmt::Debug for WindowCreateOptions {
@@ -957,9 +979,7 @@ impl Default for WindowCreateOptions {
         Self {
             state: WindowState::default(),
             renderer_type: RendererType::default(),
-            #[cfg(debug_assertions)]
-            #[cfg(not(test))]
-            hot_reload_handler: None,
+            hot_reload: None,
         }
     }
 }
@@ -984,41 +1004,6 @@ impl WindowCreateOptions {
         Self {
             hot_reload_handler: Some(hot_reload_handler),
             .. Default::default()
-        }
-    }
-}
-
-#[cfg(not(test))]
-#[cfg(debug_assertions)]
-pub struct HotReloader(pub Box<dyn HotReloadHandler>);
-
-#[cfg(not(test))]
-#[cfg(debug_assertions)]
-impl HotReloader {
-
-    pub fn new(hot_reload_handler: Box<dyn HotReloadHandler>) -> Self {
-        Self(hot_reload_handler)
-    }
-
-    pub fn get_reload_interval(&self) -> Duration {
-        self.0.get_reload_interval()
-    }
-
-    /// Reloads the CSS (if possible).
-    ///
-    /// Returns:
-    ///
-    /// - Ok(css) if the CSS has been successfully reloaded
-    /// - Err(why) if the CSS failed to hot-reload.
-    pub fn reload_style(&self) -> Result<Css, String> {
-        match self.0.reload_style() {
-            Ok(mut new_css) => {
-                new_css.sort_by_specificity();
-                Ok(new_css)
-            },
-            Err(why) => {
-                Err(format!("{}", why))
-            },
         }
     }
 }
@@ -1606,13 +1591,29 @@ pub enum VirtualKeyCode {
     Cut,
 }
 
+/// 16x16x4 bytes icon
+#[derive(Debug, Clone)]
+#[repr(C)]
+pub struct SmallWindowIconBytes {
+    pub key: IconKey,
+    pub rgba_bytes: U8Vec,
+}
+
+/// 16x16x4 bytes icon
+#[derive(Debug, Clone)]
+#[repr(C)]
+pub struct LargeWindowIconBytes {
+    pub key: IconKey,
+    pub rgba_bytes: U8Vec,
+}
+
 // Window icon that usually appears in the top-left corner of the window
 #[derive(Debug, Clone)]
+#[repr(C)]
 pub enum WindowIcon {
-    /// 16x16x4 bytes icon
-    Small { key: IconKey, rgba_bytes: Vec<u8> },
+    Small(SmallWindowIconBytes),
     /// 32x32x4 bytes icon
-    Large { key: IconKey, rgba_bytes: Vec<u8> },
+    Large(LargeWindowIconBytes),
 }
 
 impl WindowIcon {
@@ -1653,9 +1654,10 @@ impl Hash for WindowIcon {
 
 /// 256x256x4 bytes window icon
 #[derive(Debug, Clone)]
+#[repr(C)]
 pub struct TaskBarIcon {
     pub key: IconKey,
-    pub rgba_bytes: Vec<u8>,
+    pub rgba_bytes: U8Vec,
 }
 
 impl PartialEq for TaskBarIcon {

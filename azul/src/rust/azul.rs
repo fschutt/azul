@@ -54,6 +54,48 @@ pub(crate) mod dll {
     #[repr(C)] pub struct AzString {
         pub vec: AzU8Vec,
     }
+    /// Wrapper over a Rust-allocated `XWindowType`
+    #[repr(C)] pub struct AzXWindowTypeVec {
+        pub(crate) ptr: *const AzXWindowType,
+        pub len: usize,
+        pub cap: usize,
+    }
+    /// Wrapper over a Rust-allocated `VirtualKeyCode`
+    #[repr(C)] pub struct AzVirtualKeyCodeVec {
+        pub(crate) ptr: *const AzVirtualKeyCode,
+        pub len: usize,
+        pub cap: usize,
+    }
+    /// Wrapper over a Rust-allocated `ScanCode`
+    #[repr(C)] pub struct AzScanCodeVec {
+        pub(crate) ptr: *const u32,
+        pub len: usize,
+        pub cap: usize,
+    }
+    /// Wrapper over a Rust-allocated `CssDeclaration`
+    #[repr(C)] pub struct AzCssDeclarationVec {
+        pub(crate) ptr: *const AzCssDeclaration,
+        pub len: usize,
+        pub cap: usize,
+    }
+    /// Wrapper over a Rust-allocated `CssPathSelector`
+    #[repr(C)] pub struct AzCssPathSelectorVec {
+        pub(crate) ptr: *const AzCssPathSelector,
+        pub len: usize,
+        pub cap: usize,
+    }
+    /// Wrapper over a Rust-allocated `Stylesheet`
+    #[repr(C)] pub struct AzStylesheetVec {
+        pub(crate) ptr: *const AzStylesheet,
+        pub len: usize,
+        pub cap: usize,
+    }
+    /// Wrapper over a Rust-allocated `CssRuleBlock`
+    #[repr(C)] pub struct AzCssRuleBlockVec {
+        pub(crate) ptr: *const AzCssRuleBlock,
+        pub len: usize,
+        pub cap: usize,
+    }
     /// Wrapper over a Rust-allocated `U8Vec`
     #[repr(C)] pub struct AzU8Vec {
         pub(crate) ptr: *const u8,
@@ -102,11 +144,77 @@ pub(crate) mod dll {
         pub len: usize,
         pub cap: usize,
     }
+    /// Wrapper over a Rust-allocated `StringPairVec`
+    #[repr(C)] pub struct AzStringPairVec {
+        pub(crate) ptr: *const AzStringPair,
+        pub len: usize,
+        pub cap: usize,
+    }
     /// Wrapper over a Rust-allocated `GradientStopPreVec`
     #[repr(C)] pub struct AzGradientStopPreVec {
         pub(crate) ptr: *const AzGradientStopPre,
         pub len: usize,
         pub cap: usize,
+    }
+    /// Re-export of rust-allocated (stack based) `OptionLogicalPosition` struct
+    #[repr(C, u8)] pub enum AzOptionLogicalPosition {
+        None,
+        Some(AzLogicalPosition),
+    }
+    /// Re-export of rust-allocated (stack based) `OptionHotReloadOptions` struct
+    #[repr(C, u8)] pub enum AzOptionHotReloadOptions {
+        None,
+        Some(AzHotReloadOptions),
+    }
+    /// Re-export of rust-allocated (stack based) `OptionPhysicalPositionI32` struct
+    #[repr(C, u8)] pub enum AzOptionPhysicalPositionI32 {
+        None,
+        Some(AzPhysicalPositionI32),
+    }
+    /// Re-export of rust-allocated (stack based) `OptionWindowIcon` struct
+    #[repr(C, u8)] pub enum AzOptionWindowIcon {
+        None,
+        Some(AzWindowIcon),
+    }
+    /// Re-export of rust-allocated (stack based) `OptionString` struct
+    #[repr(C, u8)] pub enum AzOptionString {
+        None,
+        Some(AzString),
+    }
+    /// Re-export of rust-allocated (stack based) `OptionX11Visual` struct
+    #[repr(C, u8)] pub enum AzOptionX11Visual {
+        None,
+        Some(*const c_void),
+    }
+    /// Re-export of rust-allocated (stack based) `OptionI32` struct
+    #[repr(C, u8)] pub enum AzOptionI32 {
+        None,
+        Some(i32),
+    }
+    /// Re-export of rust-allocated (stack based) `OptionF32` struct
+    #[repr(C, u8)] pub enum AzOptionF32 {
+        None,
+        Some(f32),
+    }
+    /// Re-export of rust-allocated (stack based) `OptionMouseCursorType` struct
+    #[repr(C, u8)] pub enum AzOptionMouseCursorType {
+        None,
+        Some(AzMouseCursorType),
+    }
+    /// Re-export of rust-allocated (stack based) `OptionLogicalSize` struct
+    #[repr(C, u8)] pub enum AzOptionLogicalSize {
+        None,
+        Some(AzLogicalSize),
+    }
+    /// Re-export of rust-allocated (stack based) `OptionChar` struct
+    #[repr(C, u8)] pub enum AzOptionChar {
+        None,
+        Some(char),
+    }
+    /// Re-export of rust-allocated (stack based) `OptionVirtualKeyCode` struct
+    #[repr(C, u8)] pub enum AzOptionVirtualKeyCode {
+        None,
+        Some(AzVirtualKeyCode),
     }
     /// Re-export of rust-allocated (stack based) `OptionPercentageValue` struct
     #[repr(C, u8)] pub enum AzOptionPercentageValue {
@@ -245,9 +353,72 @@ pub(crate) mod dll {
     #[repr(C)] pub struct AzLayoutInfoPtr {
         pub(crate) ptr: *mut c_void,
     }
-    /// Pointer to rust-allocated `Box<Css>` struct
-    #[repr(C)] pub struct AzCssPtr {
-        pub(crate) ptr: *mut c_void,
+    /// Re-export of rust-allocated (stack based) `CssRuleBlock` struct
+    #[repr(C)] pub struct AzCssRuleBlock {
+        pub path: AzCssPath,
+        pub declarations: AzCssDeclarationVec,
+    }
+    /// Re-export of rust-allocated (stack based) `CssDeclaration` struct
+    #[repr(C, u8)] pub enum AzCssDeclaration {
+        Static(AzCssProperty),
+        Dynamic(AzDynamicCssProperty),
+    }
+    /// Re-export of rust-allocated (stack based) `DynamicCssProperty` struct
+    #[repr(C)] pub struct AzDynamicCssProperty {
+        pub dynamic_id: AzString,
+        pub default_value: AzCssProperty,
+    }
+    /// Re-export of rust-allocated (stack based) `CssPath` struct
+    #[repr(C)] pub struct AzCssPath {
+        pub selectors: AzCssPathSelectorVec,
+    }
+    /// Re-export of rust-allocated (stack based) `CssPathSelector` struct
+    #[repr(C, u8)] pub enum AzCssPathSelector {
+        Global,
+        Type(AzNodeTypePath),
+        Class(AzString),
+        Id(AzString),
+        PseudoSelector(AzCssPathPseudoSelector),
+        DirectChildren,
+        Children,
+    }
+    /// Re-export of rust-allocated (stack based) `NodeTypePath` struct
+    #[repr(C)] pub enum AzNodeTypePath {
+        Body,
+        Div,
+        P,
+        Img,
+        Texture,
+        IFrame,
+    }
+    /// Re-export of rust-allocated (stack based) `CssPathPseudoSelector` struct
+    #[repr(C, u8)] pub enum AzCssPathPseudoSelector {
+        First,
+        Last,
+        NthChild(AzCssNthChildSelector),
+        Hover,
+        Active,
+        Focus,
+    }
+    /// Re-export of rust-allocated (stack based) `CssNthChildSelector` struct
+    #[repr(C, u8)] pub enum AzCssNthChildSelector {
+        Number(usize),
+        Even,
+        Odd,
+        Pattern(AzCssNthChildPattern),
+    }
+    /// Re-export of rust-allocated (stack based) `CssNthChildPattern` struct
+    #[repr(C)] pub struct AzCssNthChildPattern {
+        pub repeat: usize,
+        pub offset: usize,
+    }
+    /// Re-export of rust-allocated (stack based) `Stylesheet` struct
+    #[repr(C)] pub struct AzStylesheet {
+        pub rules: AzCssRuleBlockVec,
+    }
+    /// Re-export of rust-allocated (stack based) `Css` struct
+    #[repr(C)] pub struct AzCss {
+        pub stylesheets: AzStylesheetVec,
     }
     /// Pointer to rust-allocated `Box<CssHotReloader>` struct
     #[repr(C)] pub struct AzCssHotReloaderPtr {
@@ -1582,14 +1753,423 @@ pub(crate) mod dll {
         ThreadJoinError,
         MutexIntoInnerError,
     }
-    /// Pointer to rust-allocated `Box<WindowCreateOptions>` struct
-    #[repr(C)] pub struct AzWindowCreateOptionsPtr {
-        pub(crate) ptr: *mut c_void,
+    /// Re-export of rust-allocated (stack based) `XWindowType` struct
+    #[repr(C)] pub enum AzXWindowType {
+        Desktop,
+        Dock,
+        Toolbar,
+        Menu,
+        Utility,
+        Splash,
+        Dialog,
+        DropdownMenu,
+        PopupMenu,
+        Tooltip,
+        Notification,
+        Combo,
+        Dnd,
+        Normal,
+    }
+    /// Re-export of rust-allocated (stack based) `PhysicalPositionI32` struct
+    #[repr(C)] pub struct AzPhysicalPositionI32 {
+        pub x: i32,
+        pub y: i32,
+    }
+    /// Re-export of rust-allocated (stack based) `LogicalPosition` struct
+    #[repr(C)] pub struct AzLogicalPosition {
+        pub x: f32,
+        pub y: f32,
+    }
+    /// Re-export of rust-allocated (stack based) `IconKey` struct
+    #[repr(C)] pub struct AzIconKey {
+        pub id: usize,
+    }
+    /// Re-export of rust-allocated (stack based) `SmallWindowIconBytes` struct
+    #[repr(C)] pub struct AzSmallWindowIconBytes {
+        pub key: AzIconKey,
+        pub rgba_bytes: AzU8Vec,
+    }
+    /// Re-export of rust-allocated (stack based) `LargeWindowIconBytes` struct
+    #[repr(C)] pub struct AzLargeWindowIconBytes {
+        pub key: AzIconKey,
+        pub rgba_bytes: AzU8Vec,
+    }
+    /// Re-export of rust-allocated (stack based) `WindowIcon` struct
+    #[repr(C, u8)] pub enum AzWindowIcon {
+        Small(AzSmallWindowIconBytes),
+        Large(AzLargeWindowIconBytes),
+    }
+    /// Re-export of rust-allocated (stack based) `TaskBarIcon` struct
+    #[repr(C)] pub struct AzTaskBarIcon {
+        pub key: AzIconKey,
+        pub rgba_bytes: AzU8Vec,
+    }
+    /// Re-export of rust-allocated (stack based) `VirtualKeyCode` struct
+    #[repr(C)] pub enum AzVirtualKeyCode {
+        Key1,
+        Key2,
+        Key3,
+        Key4,
+        Key5,
+        Key6,
+        Key7,
+        Key8,
+        Key9,
+        Key0,
+        A,
+        B,
+        C,
+        D,
+        E,
+        F,
+        G,
+        H,
+        I,
+        J,
+        K,
+        L,
+        M,
+        N,
+        O,
+        P,
+        Q,
+        R,
+        S,
+        T,
+        U,
+        V,
+        W,
+        X,
+        Y,
+        Z,
+        Escape,
+        F1,
+        F2,
+        F3,
+        F4,
+        F5,
+        F6,
+        F7,
+        F8,
+        F9,
+        F10,
+        F11,
+        F12,
+        F13,
+        F14,
+        F15,
+        F16,
+        F17,
+        F18,
+        F19,
+        F20,
+        F21,
+        F22,
+        F23,
+        F24,
+        Snapshot,
+        Scroll,
+        Pause,
+        Insert,
+        Home,
+        Delete,
+        End,
+        PageDown,
+        PageUp,
+        Left,
+        Up,
+        Right,
+        Down,
+        Back,
+        Return,
+        Space,
+        Compose,
+        Caret,
+        Numlock,
+        Numpad0,
+        Numpad1,
+        Numpad2,
+        Numpad3,
+        Numpad4,
+        Numpad5,
+        Numpad6,
+        Numpad7,
+        Numpad8,
+        Numpad9,
+        AbntC1,
+        AbntC2,
+        Add,
+        Apostrophe,
+        Apps,
+        At,
+        Ax,
+        Backslash,
+        Calculator,
+        Capital,
+        Colon,
+        Comma,
+        Convert,
+        Decimal,
+        Divide,
+        Equals,
+        Grave,
+        Kana,
+        Kanji,
+        LAlt,
+        LBracket,
+        LControl,
+        LShift,
+        LWin,
+        Mail,
+        MediaSelect,
+        MediaStop,
+        Minus,
+        Multiply,
+        Mute,
+        MyComputer,
+        NavigateForward,
+        NavigateBackward,
+        NextTrack,
+        NoConvert,
+        NumpadComma,
+        NumpadEnter,
+        NumpadEquals,
+        OEM102,
+        Period,
+        PlayPause,
+        Power,
+        PrevTrack,
+        RAlt,
+        RBracket,
+        RControl,
+        RShift,
+        RWin,
+        Semicolon,
+        Slash,
+        Sleep,
+        Stop,
+        Subtract,
+        Sysrq,
+        Tab,
+        Underline,
+        Unlabeled,
+        VolumeDown,
+        VolumeUp,
+        Wake,
+        WebBack,
+        WebFavorites,
+        WebForward,
+        WebHome,
+        WebRefresh,
+        WebSearch,
+        WebStop,
+        Yen,
+        Copy,
+        Paste,
+        Cut,
+    }
+    /// Re-export of rust-allocated (stack based) `AcceleratorKey` struct
+    #[repr(C, u8)] pub enum AzAcceleratorKey {
+        Ctrl,
+        Alt,
+        Shift,
+        Key(AzVirtualKeyCode),
+    }
+    /// Re-export of rust-allocated (stack based) `WindowSize` struct
+    #[repr(C)] pub struct AzWindowSize {
+        pub dimensions: AzLogicalSize,
+        pub hidpi_factor: f32,
+        pub winit_hidpi_factor: f32,
+        pub min_dimensions: AzOptionLogicalSize,
+        pub max_dimensions: AzOptionLogicalSize,
+    }
+    /// Re-export of rust-allocated (stack based) `WindowFlags` struct
+    #[repr(C)] pub struct AzWindowFlags {
+        pub is_maximized: bool,
+        pub is_fullscreen: bool,
+        pub has_decorations: bool,
+        pub is_visible: bool,
+        pub is_always_on_top: bool,
+        pub is_resizable: bool,
+    }
+    /// Re-export of rust-allocated (stack based) `DebugState` struct
+    #[repr(C)] pub struct AzDebugState {
+        pub profiler_dbg: bool,
+        pub render_target_dbg: bool,
+        pub texture_cache_dbg: bool,
+        pub gpu_time_queries: bool,
+        pub gpu_sample_queries: bool,
+        pub disable_batching: bool,
+        pub epochs: bool,
+        pub compact_profiler: bool,
+        pub echo_driver_messages: bool,
+        pub new_frame_indicator: bool,
+        pub new_scene_indicator: bool,
+        pub show_overdraw: bool,
+        pub gpu_cache_dbg: bool,
+    }
+    /// Re-export of rust-allocated (stack based) `KeyboardState` struct
+    #[repr(C)] pub struct AzKeyboardState {
+        pub shift_down: bool,
+        pub ctrl_down: bool,
+        pub alt_down: bool,
+        pub super_down: bool,
+        pub current_char: AzOptionChar,
+        pub current_virtual_keycode: AzOptionVirtualKeyCode,
+        pub pressed_virtual_keycodes: AzVirtualKeyCodeVec,
+        pub pressed_scancodes: AzScanCodeVec,
+    }
+    /// Re-export of rust-allocated (stack based) `MouseCursorType` struct
+    #[repr(C)] pub enum AzMouseCursorType {
+        Default,
+        Crosshair,
+        Hand,
+        Arrow,
+        Move,
+        Text,
+        Wait,
+        Help,
+        Progress,
+        NotAllowed,
+        ContextMenu,
+        Cell,
+        VerticalText,
+        Alias,
+        Copy,
+        NoDrop,
+        Grab,
+        Grabbing,
+        AllScroll,
+        ZoomIn,
+        ZoomOut,
+        EResize,
+        NResize,
+        NeResize,
+        NwResize,
+        SResize,
+        SeResize,
+        SwResize,
+        WResize,
+        EwResize,
+        NsResize,
+        NeswResize,
+        NwseResize,
+        ColResize,
+        RowResize,
+    }
+    /// Re-export of rust-allocated (stack based) `CursorPosition` struct
+    #[repr(C, u8)] pub enum AzCursorPosition {
+        OutOfWindow,
+        Uninitialized,
+        InWindow(AzLogicalPosition),
+    }
+    /// Re-export of rust-allocated (stack based) `MouseState` struct
+    #[repr(C)] pub struct AzMouseState {
+        pub mouse_cursor_type: AzOptionMouseCursorType,
+        pub cursor_position: AzCursorPosition,
+        pub is_cursor_locked: bool,
+        pub left_down: bool,
+        pub right_down: bool,
+        pub middle_down: bool,
+        pub scroll_x: AzOptionF32,
+        pub scroll_y: AzOptionF32,
+    }
+    /// Re-export of rust-allocated (stack based) `PlatformSpecificOptions` struct
+    #[repr(C)] pub struct AzPlatformSpecificOptions {
+        pub windows_options: AzWindowsWindowOptions,
+        pub linux_options: AzLinuxWindowOptions,
+        pub mac_options: AzMacWindowOptions,
+        pub wasm_options: AzWasmWindowOptions,
+    }
+    /// Re-export of rust-allocated (stack based) `WindowsWindowOptions` struct
+    #[repr(C)] pub struct AzWindowsWindowOptions {
+    }
+    /// Re-export of rust-allocated (stack based) `WaylandTheme` struct
+    #[repr(C)] pub struct AzWaylandTheme {
+        pub primary_color_active: [u8;4],
+        pub primary_color_inactive: [u8;4],
+        pub secondary_color_active: [u8;4],
+        pub secondary_color_inactive: [u8;4],
+        pub close_button_color_idle: [u8;4],
+        pub close_button_color_hovered: [u8;4],
+        pub close_button_color_disabled: [u8;4],
+        pub maximize_button_color_idle: [u8;4],
+        pub maximize_button_color_hovered: [u8;4],
+        pub maximize_button_color_disabled: [u8;4],
+        pub minimize_button_color_idle: [u8;4],
+        pub minimize_button_color_hovered: [u8;4],
+        pub minimize_button_color_disabled: [u8;4],
+    }
+    /// Re-export of rust-allocated (stack based) `RendererType` struct
+    #[repr(C, u8)] pub enum AzRendererType {
+        Default,
+        ForceHardware,
+        ForceSoftware,
+        Custom(AzGlContextPtr),
+    }
+    /// Re-export of rust-allocated (stack based) `StringPair` struct
+    #[repr(C)] pub struct AzStringPair {
+        pub key: AzString,
+        pub value: AzString,
+    }
+    /// Re-export of rust-allocated (stack based) `LinuxWindowOptions` struct
+    #[repr(C)] pub struct AzLinuxWindowOptions {
+        pub x11_visual: AzOptionX11Visual,
+        pub x11_screen: AzOptionI32,
+        pub x11_wm_classes: AzStringPairVec,
+        pub x11_override_redirect: bool,
+        pub x11_window_types: AzXWindowTypeVec,
+        pub x11_gtk_theme_variant: AzOptionString,
+        pub x11_resize_increments: AzOptionLogicalSize,
+        pub x11_base_size: AzOptionLogicalSize,
+        pub wayland_app_id: AzOptionString,
+        pub wayland_theme: bool,
+        pub request_user_attention: bool,
+        pub window_icon: AzOptionWindowIcon,
+    }
+    /// Re-export of rust-allocated (stack based) `MacWindowOptions` struct
+    #[repr(C)] pub struct AzMacWindowOptions {
+        pub request_user_attention: bool,
+    }
+    /// Re-export of rust-allocated (stack based) `WasmWindowOptions` struct
+    #[repr(C)] pub struct AzWasmWindowOptions {
+    }
+    /// Re-export of rust-allocated (stack based) `FullScreenMode` struct
+    #[repr(C)] pub enum AzFullScreenMode {
+        SlowFullScreen,
+        FastFullScreen,
+        SlowWindowed,
+        FastWindowed,
+    }
+    /// Re-export of rust-allocated (stack based) `WindowState` struct
+    #[repr(C)] pub struct AzWindowState {
+        pub title: AzString,
+        pub size: AzWindowSize,
+        pub position: AzOptionPhysicalPositionI32,
+        pub flags: AzWindowFlags,
+        pub debug_state: AzDebugState,
+        pub keyboard_state: AzKeyboardState,
+        pub mouse_state: AzMouseState,
+        pub ime_position: AzOptionLogicalPosition,
+        pub platform_specific_options: AzPlatformSpecificOptions,
+        pub css: AzCss,
     }
     /// Re-export of rust-allocated (stack based) `LogicalSize` struct
     #[repr(C)] pub struct AzLogicalSize {
         pub width: f32,
         pub height: f32,
+    }
+    /// Re-export of rust-allocated (stack based) `HotReloadOptions` struct
+    #[repr(C)] pub struct AzHotReloadOptions {
+        pub path: AzString,
+        pub reload_interval: AzDuration,
+        pub apply_native_css: bool,
+    }
+    /// Re-export of rust-allocated (stack based) `WindowCreateOptions` struct
+    #[repr(C)] pub struct AzWindowCreateOptions {
+        pub state: AzWindowState,
+        pub renderer_type: AzRendererType,
+        pub hot_reload: AzOptionHotReloadOptions,
     }
 
 
@@ -1605,6 +2185,27 @@ pub(crate) mod dll {
         pub az_string_into_bytes: Symbol<extern fn(_:  AzString) -> AzU8Vec>,
         pub az_string_delete: Symbol<extern fn(_:  &mut AzString)>,
         pub az_string_deep_copy: Symbol<extern fn(_:  &AzString) -> AzString>,
+        pub az_x_window_type_vec_copy_from: Symbol<extern fn(_:  *const AzXWindowType, _:  usize) -> AzXWindowTypeVec>,
+        pub az_x_window_type_vec_delete: Symbol<extern fn(_:  &mut AzXWindowTypeVec)>,
+        pub az_x_window_type_vec_deep_copy: Symbol<extern fn(_:  &AzXWindowTypeVec) -> AzXWindowTypeVec>,
+        pub az_virtual_key_code_vec_copy_from: Symbol<extern fn(_:  *const AzVirtualKeyCode, _:  usize) -> AzVirtualKeyCodeVec>,
+        pub az_virtual_key_code_vec_delete: Symbol<extern fn(_:  &mut AzVirtualKeyCodeVec)>,
+        pub az_virtual_key_code_vec_deep_copy: Symbol<extern fn(_:  &AzVirtualKeyCodeVec) -> AzVirtualKeyCodeVec>,
+        pub az_scan_code_vec_copy_from: Symbol<extern fn(_:  *const u32, _:  usize) -> AzScanCodeVec>,
+        pub az_scan_code_vec_delete: Symbol<extern fn(_:  &mut AzScanCodeVec)>,
+        pub az_scan_code_vec_deep_copy: Symbol<extern fn(_:  &AzScanCodeVec) -> AzScanCodeVec>,
+        pub az_css_declaration_vec_copy_from: Symbol<extern fn(_:  *const AzCssDeclaration, _:  usize) -> AzCssDeclarationVec>,
+        pub az_css_declaration_vec_delete: Symbol<extern fn(_:  &mut AzCssDeclarationVec)>,
+        pub az_css_declaration_vec_deep_copy: Symbol<extern fn(_:  &AzCssDeclarationVec) -> AzCssDeclarationVec>,
+        pub az_css_path_selector_vec_copy_from: Symbol<extern fn(_:  *const AzCssPathSelector, _:  usize) -> AzCssPathSelectorVec>,
+        pub az_css_path_selector_vec_delete: Symbol<extern fn(_:  &mut AzCssPathSelectorVec)>,
+        pub az_css_path_selector_vec_deep_copy: Symbol<extern fn(_:  &AzCssPathSelectorVec) -> AzCssPathSelectorVec>,
+        pub az_stylesheet_vec_copy_from: Symbol<extern fn(_:  *const AzStylesheet, _:  usize) -> AzStylesheetVec>,
+        pub az_stylesheet_vec_delete: Symbol<extern fn(_:  &mut AzStylesheetVec)>,
+        pub az_stylesheet_vec_deep_copy: Symbol<extern fn(_:  &AzStylesheetVec) -> AzStylesheetVec>,
+        pub az_css_rule_block_vec_copy_from: Symbol<extern fn(_:  *const AzCssRuleBlock, _:  usize) -> AzCssRuleBlockVec>,
+        pub az_css_rule_block_vec_delete: Symbol<extern fn(_:  &mut AzCssRuleBlockVec)>,
+        pub az_css_rule_block_vec_deep_copy: Symbol<extern fn(_:  &AzCssRuleBlockVec) -> AzCssRuleBlockVec>,
         pub az_u8_vec_copy_from: Symbol<extern fn(_:  *const u8, _:  usize) -> AzU8Vec>,
         pub az_u8_vec_delete: Symbol<extern fn(_:  &mut AzU8Vec)>,
         pub az_u8_vec_deep_copy: Symbol<extern fn(_:  &AzU8Vec) -> AzU8Vec>,
@@ -1629,9 +2230,36 @@ pub(crate) mod dll {
         pub az_string_vec_copy_from: Symbol<extern fn(_:  *const AzString, _:  usize) -> AzStringVec>,
         pub az_string_vec_delete: Symbol<extern fn(_:  &mut AzStringVec)>,
         pub az_string_vec_deep_copy: Symbol<extern fn(_:  &AzStringVec) -> AzStringVec>,
+        pub az_string_pair_vec_copy_from: Symbol<extern fn(_:  *const AzStringPair, _:  usize) -> AzStringPairVec>,
+        pub az_string_pair_vec_delete: Symbol<extern fn(_:  &mut AzStringPairVec)>,
+        pub az_string_pair_vec_deep_copy: Symbol<extern fn(_:  &AzStringPairVec) -> AzStringPairVec>,
         pub az_gradient_stop_pre_vec_copy_from: Symbol<extern fn(_:  *const AzGradientStopPre, _:  usize) -> AzGradientStopPreVec>,
         pub az_gradient_stop_pre_vec_delete: Symbol<extern fn(_:  &mut AzGradientStopPreVec)>,
         pub az_gradient_stop_pre_vec_deep_copy: Symbol<extern fn(_:  &AzGradientStopPreVec) -> AzGradientStopPreVec>,
+        pub az_option_logical_position_delete: Symbol<extern fn(_:  &mut AzOptionLogicalPosition)>,
+        pub az_option_logical_position_deep_copy: Symbol<extern fn(_:  &AzOptionLogicalPosition) -> AzOptionLogicalPosition>,
+        pub az_option_hot_reload_options_delete: Symbol<extern fn(_:  &mut AzOptionHotReloadOptions)>,
+        pub az_option_hot_reload_options_deep_copy: Symbol<extern fn(_:  &AzOptionHotReloadOptions) -> AzOptionHotReloadOptions>,
+        pub az_option_physical_position_i32_delete: Symbol<extern fn(_:  &mut AzOptionPhysicalPositionI32)>,
+        pub az_option_physical_position_i32_deep_copy: Symbol<extern fn(_:  &AzOptionPhysicalPositionI32) -> AzOptionPhysicalPositionI32>,
+        pub az_option_window_icon_delete: Symbol<extern fn(_:  &mut AzOptionWindowIcon)>,
+        pub az_option_window_icon_deep_copy: Symbol<extern fn(_:  &AzOptionWindowIcon) -> AzOptionWindowIcon>,
+        pub az_option_string_delete: Symbol<extern fn(_:  &mut AzOptionString)>,
+        pub az_option_string_deep_copy: Symbol<extern fn(_:  &AzOptionString) -> AzOptionString>,
+        pub az_option_x11_visual_delete: Symbol<extern fn(_:  &mut AzOptionX11Visual)>,
+        pub az_option_x11_visual_deep_copy: Symbol<extern fn(_:  &AzOptionX11Visual) -> AzOptionX11Visual>,
+        pub az_option_i32_delete: Symbol<extern fn(_:  &mut AzOptionI32)>,
+        pub az_option_i32_deep_copy: Symbol<extern fn(_:  &AzOptionI32) -> AzOptionI32>,
+        pub az_option_f32_delete: Symbol<extern fn(_:  &mut AzOptionF32)>,
+        pub az_option_f32_deep_copy: Symbol<extern fn(_:  &AzOptionF32) -> AzOptionF32>,
+        pub az_option_mouse_cursor_type_delete: Symbol<extern fn(_:  &mut AzOptionMouseCursorType)>,
+        pub az_option_mouse_cursor_type_deep_copy: Symbol<extern fn(_:  &AzOptionMouseCursorType) -> AzOptionMouseCursorType>,
+        pub az_option_logical_size_delete: Symbol<extern fn(_:  &mut AzOptionLogicalSize)>,
+        pub az_option_logical_size_deep_copy: Symbol<extern fn(_:  &AzOptionLogicalSize) -> AzOptionLogicalSize>,
+        pub az_option_char_delete: Symbol<extern fn(_:  &mut AzOptionChar)>,
+        pub az_option_char_deep_copy: Symbol<extern fn(_:  &AzOptionChar) -> AzOptionChar>,
+        pub az_option_virtual_key_code_delete: Symbol<extern fn(_:  &mut AzOptionVirtualKeyCode)>,
+        pub az_option_virtual_key_code_deep_copy: Symbol<extern fn(_:  &AzOptionVirtualKeyCode) -> AzOptionVirtualKeyCode>,
         pub az_option_percentage_value_delete: Symbol<extern fn(_:  &mut AzOptionPercentageValue)>,
         pub az_option_percentage_value_deep_copy: Symbol<extern fn(_:  &AzOptionPercentageValue) -> AzOptionPercentageValue>,
         pub az_option_dom_delete: Symbol<extern fn(_:  &mut AzOptionDom)>,
@@ -1655,7 +2283,7 @@ pub(crate) mod dll {
         pub az_app_config_default: Symbol<extern fn() -> AzAppConfigPtr>,
         pub az_app_config_delete: Symbol<extern fn(_:  &mut AzAppConfigPtr)>,
         pub az_app_new: Symbol<extern fn(_:  AzRefAny, _:  AzAppConfigPtr, _:  AzLayoutCallbackType) -> AzAppPtr>,
-        pub az_app_run: Symbol<extern fn(_:  AzAppPtr, _:  AzWindowCreateOptionsPtr)>,
+        pub az_app_run: Symbol<extern fn(_:  AzAppPtr, _:  AzWindowCreateOptions)>,
         pub az_app_delete: Symbol<extern fn(_:  &mut AzAppPtr)>,
         pub az_layout_callback_delete: Symbol<extern fn(_:  &mut AzLayoutCallback)>,
         pub az_layout_callback_deep_copy: Symbol<extern fn(_:  &AzLayoutCallback) -> AzLayoutCallback>,
@@ -1697,11 +2325,32 @@ pub(crate) mod dll {
         pub az_ref_any_delete: Symbol<extern fn(_:  &mut AzRefAny)>,
         pub az_ref_any_deep_copy: Symbol<extern fn(_:  &AzRefAny) -> AzRefAny>,
         pub az_layout_info_delete: Symbol<extern fn(_:  &mut AzLayoutInfoPtr)>,
-        pub az_css_native: Symbol<extern fn() -> AzCssPtr>,
-        pub az_css_empty: Symbol<extern fn() -> AzCssPtr>,
-        pub az_css_from_string: Symbol<extern fn(_:  AzString) -> AzCssPtr>,
-        pub az_css_override_native: Symbol<extern fn(_:  AzString) -> AzCssPtr>,
-        pub az_css_delete: Symbol<extern fn(_:  &mut AzCssPtr)>,
+        pub az_css_rule_block_delete: Symbol<extern fn(_:  &mut AzCssRuleBlock)>,
+        pub az_css_rule_block_deep_copy: Symbol<extern fn(_:  &AzCssRuleBlock) -> AzCssRuleBlock>,
+        pub az_css_declaration_delete: Symbol<extern fn(_:  &mut AzCssDeclaration)>,
+        pub az_css_declaration_deep_copy: Symbol<extern fn(_:  &AzCssDeclaration) -> AzCssDeclaration>,
+        pub az_dynamic_css_property_delete: Symbol<extern fn(_:  &mut AzDynamicCssProperty)>,
+        pub az_dynamic_css_property_deep_copy: Symbol<extern fn(_:  &AzDynamicCssProperty) -> AzDynamicCssProperty>,
+        pub az_css_path_delete: Symbol<extern fn(_:  &mut AzCssPath)>,
+        pub az_css_path_deep_copy: Symbol<extern fn(_:  &AzCssPath) -> AzCssPath>,
+        pub az_css_path_selector_delete: Symbol<extern fn(_:  &mut AzCssPathSelector)>,
+        pub az_css_path_selector_deep_copy: Symbol<extern fn(_:  &AzCssPathSelector) -> AzCssPathSelector>,
+        pub az_node_type_path_delete: Symbol<extern fn(_:  &mut AzNodeTypePath)>,
+        pub az_node_type_path_deep_copy: Symbol<extern fn(_:  &AzNodeTypePath) -> AzNodeTypePath>,
+        pub az_css_path_pseudo_selector_delete: Symbol<extern fn(_:  &mut AzCssPathPseudoSelector)>,
+        pub az_css_path_pseudo_selector_deep_copy: Symbol<extern fn(_:  &AzCssPathPseudoSelector) -> AzCssPathPseudoSelector>,
+        pub az_css_nth_child_selector_delete: Symbol<extern fn(_:  &mut AzCssNthChildSelector)>,
+        pub az_css_nth_child_selector_deep_copy: Symbol<extern fn(_:  &AzCssNthChildSelector) -> AzCssNthChildSelector>,
+        pub az_css_nth_child_pattern_delete: Symbol<extern fn(_:  &mut AzCssNthChildPattern)>,
+        pub az_css_nth_child_pattern_deep_copy: Symbol<extern fn(_:  &AzCssNthChildPattern) -> AzCssNthChildPattern>,
+        pub az_stylesheet_delete: Symbol<extern fn(_:  &mut AzStylesheet)>,
+        pub az_stylesheet_deep_copy: Symbol<extern fn(_:  &AzStylesheet) -> AzStylesheet>,
+        pub az_css_native: Symbol<extern fn() -> AzCss>,
+        pub az_css_empty: Symbol<extern fn() -> AzCss>,
+        pub az_css_from_string: Symbol<extern fn(_:  AzString) -> AzCss>,
+        pub az_css_override_native: Symbol<extern fn(_:  AzString) -> AzCss>,
+        pub az_css_delete: Symbol<extern fn(_:  &mut AzCss)>,
+        pub az_css_deep_copy: Symbol<extern fn(_:  &AzCss) -> AzCss>,
         pub az_css_hot_reloader_new: Symbol<extern fn(_:  AzString, _:  u64) -> AzCssHotReloaderPtr>,
         pub az_css_hot_reloader_override_native: Symbol<extern fn(_:  AzString, _:  u64) -> AzCssHotReloaderPtr>,
         pub az_css_hot_reloader_delete: Symbol<extern fn(_:  &mut AzCssHotReloaderPtr)>,
@@ -2327,10 +2976,67 @@ pub(crate) mod dll {
         pub az_terminate_timer_deep_copy: Symbol<extern fn(_:  &AzTerminateTimer) -> AzTerminateTimer>,
         pub az_block_error_delete: Symbol<extern fn(_:  &mut AzBlockError)>,
         pub az_block_error_deep_copy: Symbol<extern fn(_:  &AzBlockError) -> AzBlockError>,
-        pub az_window_create_options_new: Symbol<extern fn(_:  AzCssPtr) -> AzWindowCreateOptionsPtr>,
-        pub az_window_create_options_delete: Symbol<extern fn(_:  &mut AzWindowCreateOptionsPtr)>,
+        pub az_x_window_type_delete: Symbol<extern fn(_:  &mut AzXWindowType)>,
+        pub az_x_window_type_deep_copy: Symbol<extern fn(_:  &AzXWindowType) -> AzXWindowType>,
+        pub az_physical_position_i32_delete: Symbol<extern fn(_:  &mut AzPhysicalPositionI32)>,
+        pub az_physical_position_i32_deep_copy: Symbol<extern fn(_:  &AzPhysicalPositionI32) -> AzPhysicalPositionI32>,
+        pub az_logical_position_delete: Symbol<extern fn(_:  &mut AzLogicalPosition)>,
+        pub az_logical_position_deep_copy: Symbol<extern fn(_:  &AzLogicalPosition) -> AzLogicalPosition>,
+        pub az_icon_key_delete: Symbol<extern fn(_:  &mut AzIconKey)>,
+        pub az_icon_key_deep_copy: Symbol<extern fn(_:  &AzIconKey) -> AzIconKey>,
+        pub az_small_window_icon_bytes_delete: Symbol<extern fn(_:  &mut AzSmallWindowIconBytes)>,
+        pub az_small_window_icon_bytes_deep_copy: Symbol<extern fn(_:  &AzSmallWindowIconBytes) -> AzSmallWindowIconBytes>,
+        pub az_large_window_icon_bytes_delete: Symbol<extern fn(_:  &mut AzLargeWindowIconBytes)>,
+        pub az_large_window_icon_bytes_deep_copy: Symbol<extern fn(_:  &AzLargeWindowIconBytes) -> AzLargeWindowIconBytes>,
+        pub az_window_icon_delete: Symbol<extern fn(_:  &mut AzWindowIcon)>,
+        pub az_window_icon_deep_copy: Symbol<extern fn(_:  &AzWindowIcon) -> AzWindowIcon>,
+        pub az_task_bar_icon_delete: Symbol<extern fn(_:  &mut AzTaskBarIcon)>,
+        pub az_task_bar_icon_deep_copy: Symbol<extern fn(_:  &AzTaskBarIcon) -> AzTaskBarIcon>,
+        pub az_virtual_key_code_delete: Symbol<extern fn(_:  &mut AzVirtualKeyCode)>,
+        pub az_virtual_key_code_deep_copy: Symbol<extern fn(_:  &AzVirtualKeyCode) -> AzVirtualKeyCode>,
+        pub az_accelerator_key_delete: Symbol<extern fn(_:  &mut AzAcceleratorKey)>,
+        pub az_accelerator_key_deep_copy: Symbol<extern fn(_:  &AzAcceleratorKey) -> AzAcceleratorKey>,
+        pub az_window_size_delete: Symbol<extern fn(_:  &mut AzWindowSize)>,
+        pub az_window_size_deep_copy: Symbol<extern fn(_:  &AzWindowSize) -> AzWindowSize>,
+        pub az_window_flags_delete: Symbol<extern fn(_:  &mut AzWindowFlags)>,
+        pub az_window_flags_deep_copy: Symbol<extern fn(_:  &AzWindowFlags) -> AzWindowFlags>,
+        pub az_debug_state_delete: Symbol<extern fn(_:  &mut AzDebugState)>,
+        pub az_debug_state_deep_copy: Symbol<extern fn(_:  &AzDebugState) -> AzDebugState>,
+        pub az_keyboard_state_delete: Symbol<extern fn(_:  &mut AzKeyboardState)>,
+        pub az_keyboard_state_deep_copy: Symbol<extern fn(_:  &AzKeyboardState) -> AzKeyboardState>,
+        pub az_mouse_cursor_type_delete: Symbol<extern fn(_:  &mut AzMouseCursorType)>,
+        pub az_mouse_cursor_type_deep_copy: Symbol<extern fn(_:  &AzMouseCursorType) -> AzMouseCursorType>,
+        pub az_cursor_position_delete: Symbol<extern fn(_:  &mut AzCursorPosition)>,
+        pub az_cursor_position_deep_copy: Symbol<extern fn(_:  &AzCursorPosition) -> AzCursorPosition>,
+        pub az_mouse_state_delete: Symbol<extern fn(_:  &mut AzMouseState)>,
+        pub az_mouse_state_deep_copy: Symbol<extern fn(_:  &AzMouseState) -> AzMouseState>,
+        pub az_platform_specific_options_delete: Symbol<extern fn(_:  &mut AzPlatformSpecificOptions)>,
+        pub az_platform_specific_options_deep_copy: Symbol<extern fn(_:  &AzPlatformSpecificOptions) -> AzPlatformSpecificOptions>,
+        pub az_windows_window_options_delete: Symbol<extern fn(_:  &mut AzWindowsWindowOptions)>,
+        pub az_windows_window_options_deep_copy: Symbol<extern fn(_:  &AzWindowsWindowOptions) -> AzWindowsWindowOptions>,
+        pub az_wayland_theme_delete: Symbol<extern fn(_:  &mut AzWaylandTheme)>,
+        pub az_wayland_theme_deep_copy: Symbol<extern fn(_:  &AzWaylandTheme) -> AzWaylandTheme>,
+        pub az_renderer_type_delete: Symbol<extern fn(_:  &mut AzRendererType)>,
+        pub az_renderer_type_deep_copy: Symbol<extern fn(_:  &AzRendererType) -> AzRendererType>,
+        pub az_string_pair_delete: Symbol<extern fn(_:  &mut AzStringPair)>,
+        pub az_string_pair_deep_copy: Symbol<extern fn(_:  &AzStringPair) -> AzStringPair>,
+        pub az_linux_window_options_delete: Symbol<extern fn(_:  &mut AzLinuxWindowOptions)>,
+        pub az_linux_window_options_deep_copy: Symbol<extern fn(_:  &AzLinuxWindowOptions) -> AzLinuxWindowOptions>,
+        pub az_mac_window_options_delete: Symbol<extern fn(_:  &mut AzMacWindowOptions)>,
+        pub az_mac_window_options_deep_copy: Symbol<extern fn(_:  &AzMacWindowOptions) -> AzMacWindowOptions>,
+        pub az_wasm_window_options_delete: Symbol<extern fn(_:  &mut AzWasmWindowOptions)>,
+        pub az_wasm_window_options_deep_copy: Symbol<extern fn(_:  &AzWasmWindowOptions) -> AzWasmWindowOptions>,
+        pub az_full_screen_mode_delete: Symbol<extern fn(_:  &mut AzFullScreenMode)>,
+        pub az_full_screen_mode_deep_copy: Symbol<extern fn(_:  &AzFullScreenMode) -> AzFullScreenMode>,
+        pub az_window_state_delete: Symbol<extern fn(_:  &mut AzWindowState)>,
+        pub az_window_state_deep_copy: Symbol<extern fn(_:  &AzWindowState) -> AzWindowState>,
         pub az_logical_size_delete: Symbol<extern fn(_:  &mut AzLogicalSize)>,
         pub az_logical_size_deep_copy: Symbol<extern fn(_:  &AzLogicalSize) -> AzLogicalSize>,
+        pub az_hot_reload_options_delete: Symbol<extern fn(_:  &mut AzHotReloadOptions)>,
+        pub az_hot_reload_options_deep_copy: Symbol<extern fn(_:  &AzHotReloadOptions) -> AzHotReloadOptions>,
+        pub az_window_create_options_new: Symbol<extern fn(_:  AzCss) -> AzWindowCreateOptions>,
+        pub az_window_create_options_delete: Symbol<extern fn(_:  &mut AzWindowCreateOptions)>,
+        pub az_window_create_options_deep_copy: Symbol<extern fn(_:  &AzWindowCreateOptions) -> AzWindowCreateOptions>,
     }
 
     pub fn initialize_library(path: &std::path::Path) -> Result<AzulDll, &'static str> {
@@ -2340,6 +3046,27 @@ pub(crate) mod dll {
         let az_string_into_bytes = unsafe { lib.get::<extern fn(_:  AzString) -> AzU8Vec>(b"az_string_into_bytes").map_err(|_| "az_string_into_bytes")? };
         let az_string_delete = unsafe { lib.get::<extern fn(_:  &mut AzString)>(b"az_string_delete").map_err(|_| "az_string_delete")? };
         let az_string_deep_copy = unsafe { lib.get::<extern fn(_:  &AzString) -> AzString>(b"az_string_deep_copy").map_err(|_| "az_string_deep_copy")? };
+        let az_x_window_type_vec_copy_from = unsafe { lib.get::<extern fn(_:  *const AzXWindowType, _:  usize) -> AzXWindowTypeVec>(b"az_x_window_type_vec_copy_from").map_err(|_| "az_x_window_type_vec_copy_from")? };
+        let az_x_window_type_vec_delete = unsafe { lib.get::<extern fn(_:  &mut AzXWindowTypeVec)>(b"az_x_window_type_vec_delete").map_err(|_| "az_x_window_type_vec_delete")? };
+        let az_x_window_type_vec_deep_copy = unsafe { lib.get::<extern fn(_:  &AzXWindowTypeVec) -> AzXWindowTypeVec>(b"az_x_window_type_vec_deep_copy").map_err(|_| "az_x_window_type_vec_deep_copy")? };
+        let az_virtual_key_code_vec_copy_from = unsafe { lib.get::<extern fn(_:  *const AzVirtualKeyCode, _:  usize) -> AzVirtualKeyCodeVec>(b"az_virtual_key_code_vec_copy_from").map_err(|_| "az_virtual_key_code_vec_copy_from")? };
+        let az_virtual_key_code_vec_delete = unsafe { lib.get::<extern fn(_:  &mut AzVirtualKeyCodeVec)>(b"az_virtual_key_code_vec_delete").map_err(|_| "az_virtual_key_code_vec_delete")? };
+        let az_virtual_key_code_vec_deep_copy = unsafe { lib.get::<extern fn(_:  &AzVirtualKeyCodeVec) -> AzVirtualKeyCodeVec>(b"az_virtual_key_code_vec_deep_copy").map_err(|_| "az_virtual_key_code_vec_deep_copy")? };
+        let az_scan_code_vec_copy_from = unsafe { lib.get::<extern fn(_:  *const u32, _:  usize) -> AzScanCodeVec>(b"az_scan_code_vec_copy_from").map_err(|_| "az_scan_code_vec_copy_from")? };
+        let az_scan_code_vec_delete = unsafe { lib.get::<extern fn(_:  &mut AzScanCodeVec)>(b"az_scan_code_vec_delete").map_err(|_| "az_scan_code_vec_delete")? };
+        let az_scan_code_vec_deep_copy = unsafe { lib.get::<extern fn(_:  &AzScanCodeVec) -> AzScanCodeVec>(b"az_scan_code_vec_deep_copy").map_err(|_| "az_scan_code_vec_deep_copy")? };
+        let az_css_declaration_vec_copy_from = unsafe { lib.get::<extern fn(_:  *const AzCssDeclaration, _:  usize) -> AzCssDeclarationVec>(b"az_css_declaration_vec_copy_from").map_err(|_| "az_css_declaration_vec_copy_from")? };
+        let az_css_declaration_vec_delete = unsafe { lib.get::<extern fn(_:  &mut AzCssDeclarationVec)>(b"az_css_declaration_vec_delete").map_err(|_| "az_css_declaration_vec_delete")? };
+        let az_css_declaration_vec_deep_copy = unsafe { lib.get::<extern fn(_:  &AzCssDeclarationVec) -> AzCssDeclarationVec>(b"az_css_declaration_vec_deep_copy").map_err(|_| "az_css_declaration_vec_deep_copy")? };
+        let az_css_path_selector_vec_copy_from = unsafe { lib.get::<extern fn(_:  *const AzCssPathSelector, _:  usize) -> AzCssPathSelectorVec>(b"az_css_path_selector_vec_copy_from").map_err(|_| "az_css_path_selector_vec_copy_from")? };
+        let az_css_path_selector_vec_delete = unsafe { lib.get::<extern fn(_:  &mut AzCssPathSelectorVec)>(b"az_css_path_selector_vec_delete").map_err(|_| "az_css_path_selector_vec_delete")? };
+        let az_css_path_selector_vec_deep_copy = unsafe { lib.get::<extern fn(_:  &AzCssPathSelectorVec) -> AzCssPathSelectorVec>(b"az_css_path_selector_vec_deep_copy").map_err(|_| "az_css_path_selector_vec_deep_copy")? };
+        let az_stylesheet_vec_copy_from = unsafe { lib.get::<extern fn(_:  *const AzStylesheet, _:  usize) -> AzStylesheetVec>(b"az_stylesheet_vec_copy_from").map_err(|_| "az_stylesheet_vec_copy_from")? };
+        let az_stylesheet_vec_delete = unsafe { lib.get::<extern fn(_:  &mut AzStylesheetVec)>(b"az_stylesheet_vec_delete").map_err(|_| "az_stylesheet_vec_delete")? };
+        let az_stylesheet_vec_deep_copy = unsafe { lib.get::<extern fn(_:  &AzStylesheetVec) -> AzStylesheetVec>(b"az_stylesheet_vec_deep_copy").map_err(|_| "az_stylesheet_vec_deep_copy")? };
+        let az_css_rule_block_vec_copy_from = unsafe { lib.get::<extern fn(_:  *const AzCssRuleBlock, _:  usize) -> AzCssRuleBlockVec>(b"az_css_rule_block_vec_copy_from").map_err(|_| "az_css_rule_block_vec_copy_from")? };
+        let az_css_rule_block_vec_delete = unsafe { lib.get::<extern fn(_:  &mut AzCssRuleBlockVec)>(b"az_css_rule_block_vec_delete").map_err(|_| "az_css_rule_block_vec_delete")? };
+        let az_css_rule_block_vec_deep_copy = unsafe { lib.get::<extern fn(_:  &AzCssRuleBlockVec) -> AzCssRuleBlockVec>(b"az_css_rule_block_vec_deep_copy").map_err(|_| "az_css_rule_block_vec_deep_copy")? };
         let az_u8_vec_copy_from = unsafe { lib.get::<extern fn(_:  *const u8, _:  usize) -> AzU8Vec>(b"az_u8_vec_copy_from").map_err(|_| "az_u8_vec_copy_from")? };
         let az_u8_vec_delete = unsafe { lib.get::<extern fn(_:  &mut AzU8Vec)>(b"az_u8_vec_delete").map_err(|_| "az_u8_vec_delete")? };
         let az_u8_vec_deep_copy = unsafe { lib.get::<extern fn(_:  &AzU8Vec) -> AzU8Vec>(b"az_u8_vec_deep_copy").map_err(|_| "az_u8_vec_deep_copy")? };
@@ -2364,9 +3091,36 @@ pub(crate) mod dll {
         let az_string_vec_copy_from = unsafe { lib.get::<extern fn(_:  *const AzString, _:  usize) -> AzStringVec>(b"az_string_vec_copy_from").map_err(|_| "az_string_vec_copy_from")? };
         let az_string_vec_delete = unsafe { lib.get::<extern fn(_:  &mut AzStringVec)>(b"az_string_vec_delete").map_err(|_| "az_string_vec_delete")? };
         let az_string_vec_deep_copy = unsafe { lib.get::<extern fn(_:  &AzStringVec) -> AzStringVec>(b"az_string_vec_deep_copy").map_err(|_| "az_string_vec_deep_copy")? };
+        let az_string_pair_vec_copy_from = unsafe { lib.get::<extern fn(_:  *const AzStringPair, _:  usize) -> AzStringPairVec>(b"az_string_pair_vec_copy_from").map_err(|_| "az_string_pair_vec_copy_from")? };
+        let az_string_pair_vec_delete = unsafe { lib.get::<extern fn(_:  &mut AzStringPairVec)>(b"az_string_pair_vec_delete").map_err(|_| "az_string_pair_vec_delete")? };
+        let az_string_pair_vec_deep_copy = unsafe { lib.get::<extern fn(_:  &AzStringPairVec) -> AzStringPairVec>(b"az_string_pair_vec_deep_copy").map_err(|_| "az_string_pair_vec_deep_copy")? };
         let az_gradient_stop_pre_vec_copy_from = unsafe { lib.get::<extern fn(_:  *const AzGradientStopPre, _:  usize) -> AzGradientStopPreVec>(b"az_gradient_stop_pre_vec_copy_from").map_err(|_| "az_gradient_stop_pre_vec_copy_from")? };
         let az_gradient_stop_pre_vec_delete = unsafe { lib.get::<extern fn(_:  &mut AzGradientStopPreVec)>(b"az_gradient_stop_pre_vec_delete").map_err(|_| "az_gradient_stop_pre_vec_delete")? };
         let az_gradient_stop_pre_vec_deep_copy = unsafe { lib.get::<extern fn(_:  &AzGradientStopPreVec) -> AzGradientStopPreVec>(b"az_gradient_stop_pre_vec_deep_copy").map_err(|_| "az_gradient_stop_pre_vec_deep_copy")? };
+        let az_option_logical_position_delete = unsafe { lib.get::<extern fn(_:  &mut AzOptionLogicalPosition)>(b"az_option_logical_position_delete").map_err(|_| "az_option_logical_position_delete")? };
+        let az_option_logical_position_deep_copy = unsafe { lib.get::<extern fn(_:  &AzOptionLogicalPosition) -> AzOptionLogicalPosition>(b"az_option_logical_position_deep_copy").map_err(|_| "az_option_logical_position_deep_copy")? };
+        let az_option_hot_reload_options_delete = unsafe { lib.get::<extern fn(_:  &mut AzOptionHotReloadOptions)>(b"az_option_hot_reload_options_delete").map_err(|_| "az_option_hot_reload_options_delete")? };
+        let az_option_hot_reload_options_deep_copy = unsafe { lib.get::<extern fn(_:  &AzOptionHotReloadOptions) -> AzOptionHotReloadOptions>(b"az_option_hot_reload_options_deep_copy").map_err(|_| "az_option_hot_reload_options_deep_copy")? };
+        let az_option_physical_position_i32_delete = unsafe { lib.get::<extern fn(_:  &mut AzOptionPhysicalPositionI32)>(b"az_option_physical_position_i32_delete").map_err(|_| "az_option_physical_position_i32_delete")? };
+        let az_option_physical_position_i32_deep_copy = unsafe { lib.get::<extern fn(_:  &AzOptionPhysicalPositionI32) -> AzOptionPhysicalPositionI32>(b"az_option_physical_position_i32_deep_copy").map_err(|_| "az_option_physical_position_i32_deep_copy")? };
+        let az_option_window_icon_delete = unsafe { lib.get::<extern fn(_:  &mut AzOptionWindowIcon)>(b"az_option_window_icon_delete").map_err(|_| "az_option_window_icon_delete")? };
+        let az_option_window_icon_deep_copy = unsafe { lib.get::<extern fn(_:  &AzOptionWindowIcon) -> AzOptionWindowIcon>(b"az_option_window_icon_deep_copy").map_err(|_| "az_option_window_icon_deep_copy")? };
+        let az_option_string_delete = unsafe { lib.get::<extern fn(_:  &mut AzOptionString)>(b"az_option_string_delete").map_err(|_| "az_option_string_delete")? };
+        let az_option_string_deep_copy = unsafe { lib.get::<extern fn(_:  &AzOptionString) -> AzOptionString>(b"az_option_string_deep_copy").map_err(|_| "az_option_string_deep_copy")? };
+        let az_option_x11_visual_delete = unsafe { lib.get::<extern fn(_:  &mut AzOptionX11Visual)>(b"az_option_x11_visual_delete").map_err(|_| "az_option_x11_visual_delete")? };
+        let az_option_x11_visual_deep_copy = unsafe { lib.get::<extern fn(_:  &AzOptionX11Visual) -> AzOptionX11Visual>(b"az_option_x11_visual_deep_copy").map_err(|_| "az_option_x11_visual_deep_copy")? };
+        let az_option_i32_delete = unsafe { lib.get::<extern fn(_:  &mut AzOptionI32)>(b"az_option_i32_delete").map_err(|_| "az_option_i32_delete")? };
+        let az_option_i32_deep_copy = unsafe { lib.get::<extern fn(_:  &AzOptionI32) -> AzOptionI32>(b"az_option_i32_deep_copy").map_err(|_| "az_option_i32_deep_copy")? };
+        let az_option_f32_delete = unsafe { lib.get::<extern fn(_:  &mut AzOptionF32)>(b"az_option_f32_delete").map_err(|_| "az_option_f32_delete")? };
+        let az_option_f32_deep_copy = unsafe { lib.get::<extern fn(_:  &AzOptionF32) -> AzOptionF32>(b"az_option_f32_deep_copy").map_err(|_| "az_option_f32_deep_copy")? };
+        let az_option_mouse_cursor_type_delete = unsafe { lib.get::<extern fn(_:  &mut AzOptionMouseCursorType)>(b"az_option_mouse_cursor_type_delete").map_err(|_| "az_option_mouse_cursor_type_delete")? };
+        let az_option_mouse_cursor_type_deep_copy = unsafe { lib.get::<extern fn(_:  &AzOptionMouseCursorType) -> AzOptionMouseCursorType>(b"az_option_mouse_cursor_type_deep_copy").map_err(|_| "az_option_mouse_cursor_type_deep_copy")? };
+        let az_option_logical_size_delete = unsafe { lib.get::<extern fn(_:  &mut AzOptionLogicalSize)>(b"az_option_logical_size_delete").map_err(|_| "az_option_logical_size_delete")? };
+        let az_option_logical_size_deep_copy = unsafe { lib.get::<extern fn(_:  &AzOptionLogicalSize) -> AzOptionLogicalSize>(b"az_option_logical_size_deep_copy").map_err(|_| "az_option_logical_size_deep_copy")? };
+        let az_option_char_delete = unsafe { lib.get::<extern fn(_:  &mut AzOptionChar)>(b"az_option_char_delete").map_err(|_| "az_option_char_delete")? };
+        let az_option_char_deep_copy = unsafe { lib.get::<extern fn(_:  &AzOptionChar) -> AzOptionChar>(b"az_option_char_deep_copy").map_err(|_| "az_option_char_deep_copy")? };
+        let az_option_virtual_key_code_delete = unsafe { lib.get::<extern fn(_:  &mut AzOptionVirtualKeyCode)>(b"az_option_virtual_key_code_delete").map_err(|_| "az_option_virtual_key_code_delete")? };
+        let az_option_virtual_key_code_deep_copy = unsafe { lib.get::<extern fn(_:  &AzOptionVirtualKeyCode) -> AzOptionVirtualKeyCode>(b"az_option_virtual_key_code_deep_copy").map_err(|_| "az_option_virtual_key_code_deep_copy")? };
         let az_option_percentage_value_delete = unsafe { lib.get::<extern fn(_:  &mut AzOptionPercentageValue)>(b"az_option_percentage_value_delete").map_err(|_| "az_option_percentage_value_delete")? };
         let az_option_percentage_value_deep_copy = unsafe { lib.get::<extern fn(_:  &AzOptionPercentageValue) -> AzOptionPercentageValue>(b"az_option_percentage_value_deep_copy").map_err(|_| "az_option_percentage_value_deep_copy")? };
         let az_option_dom_delete = unsafe { lib.get::<extern fn(_:  &mut AzOptionDom)>(b"az_option_dom_delete").map_err(|_| "az_option_dom_delete")? };
@@ -2390,7 +3144,7 @@ pub(crate) mod dll {
         let az_app_config_default = unsafe { lib.get::<extern fn() -> AzAppConfigPtr>(b"az_app_config_default").map_err(|_| "az_app_config_default")? };
         let az_app_config_delete = unsafe { lib.get::<extern fn(_:  &mut AzAppConfigPtr)>(b"az_app_config_delete").map_err(|_| "az_app_config_delete")? };
         let az_app_new = unsafe { lib.get::<extern fn(_:  AzRefAny, _:  AzAppConfigPtr, _:  AzLayoutCallbackType) -> AzAppPtr>(b"az_app_new").map_err(|_| "az_app_new")? };
-        let az_app_run = unsafe { lib.get::<extern fn(_:  AzAppPtr, _:  AzWindowCreateOptionsPtr)>(b"az_app_run").map_err(|_| "az_app_run")? };
+        let az_app_run = unsafe { lib.get::<extern fn(_:  AzAppPtr, _:  AzWindowCreateOptions)>(b"az_app_run").map_err(|_| "az_app_run")? };
         let az_app_delete = unsafe { lib.get::<extern fn(_:  &mut AzAppPtr)>(b"az_app_delete").map_err(|_| "az_app_delete")? };
         let az_layout_callback_delete = unsafe { lib.get::<extern fn(_:  &mut AzLayoutCallback)>(b"az_layout_callback_delete").map_err(|_| "az_layout_callback_delete")? };
         let az_layout_callback_deep_copy = unsafe { lib.get::<extern fn(_:  &AzLayoutCallback) -> AzLayoutCallback>(b"az_layout_callback_deep_copy").map_err(|_| "az_layout_callback_deep_copy")? };
@@ -2432,11 +3186,32 @@ pub(crate) mod dll {
         let az_ref_any_delete = unsafe { lib.get::<extern fn(_:  &mut AzRefAny)>(b"az_ref_any_delete").map_err(|_| "az_ref_any_delete")? };
         let az_ref_any_deep_copy = unsafe { lib.get::<extern fn(_:  &AzRefAny) -> AzRefAny>(b"az_ref_any_deep_copy").map_err(|_| "az_ref_any_deep_copy")? };
         let az_layout_info_delete = unsafe { lib.get::<extern fn(_:  &mut AzLayoutInfoPtr)>(b"az_layout_info_delete").map_err(|_| "az_layout_info_delete")? };
-        let az_css_native = unsafe { lib.get::<extern fn() -> AzCssPtr>(b"az_css_native").map_err(|_| "az_css_native")? };
-        let az_css_empty = unsafe { lib.get::<extern fn() -> AzCssPtr>(b"az_css_empty").map_err(|_| "az_css_empty")? };
-        let az_css_from_string = unsafe { lib.get::<extern fn(_:  AzString) -> AzCssPtr>(b"az_css_from_string").map_err(|_| "az_css_from_string")? };
-        let az_css_override_native = unsafe { lib.get::<extern fn(_:  AzString) -> AzCssPtr>(b"az_css_override_native").map_err(|_| "az_css_override_native")? };
-        let az_css_delete = unsafe { lib.get::<extern fn(_:  &mut AzCssPtr)>(b"az_css_delete").map_err(|_| "az_css_delete")? };
+        let az_css_rule_block_delete = unsafe { lib.get::<extern fn(_:  &mut AzCssRuleBlock)>(b"az_css_rule_block_delete").map_err(|_| "az_css_rule_block_delete")? };
+        let az_css_rule_block_deep_copy = unsafe { lib.get::<extern fn(_:  &AzCssRuleBlock) -> AzCssRuleBlock>(b"az_css_rule_block_deep_copy").map_err(|_| "az_css_rule_block_deep_copy")? };
+        let az_css_declaration_delete = unsafe { lib.get::<extern fn(_:  &mut AzCssDeclaration)>(b"az_css_declaration_delete").map_err(|_| "az_css_declaration_delete")? };
+        let az_css_declaration_deep_copy = unsafe { lib.get::<extern fn(_:  &AzCssDeclaration) -> AzCssDeclaration>(b"az_css_declaration_deep_copy").map_err(|_| "az_css_declaration_deep_copy")? };
+        let az_dynamic_css_property_delete = unsafe { lib.get::<extern fn(_:  &mut AzDynamicCssProperty)>(b"az_dynamic_css_property_delete").map_err(|_| "az_dynamic_css_property_delete")? };
+        let az_dynamic_css_property_deep_copy = unsafe { lib.get::<extern fn(_:  &AzDynamicCssProperty) -> AzDynamicCssProperty>(b"az_dynamic_css_property_deep_copy").map_err(|_| "az_dynamic_css_property_deep_copy")? };
+        let az_css_path_delete = unsafe { lib.get::<extern fn(_:  &mut AzCssPath)>(b"az_css_path_delete").map_err(|_| "az_css_path_delete")? };
+        let az_css_path_deep_copy = unsafe { lib.get::<extern fn(_:  &AzCssPath) -> AzCssPath>(b"az_css_path_deep_copy").map_err(|_| "az_css_path_deep_copy")? };
+        let az_css_path_selector_delete = unsafe { lib.get::<extern fn(_:  &mut AzCssPathSelector)>(b"az_css_path_selector_delete").map_err(|_| "az_css_path_selector_delete")? };
+        let az_css_path_selector_deep_copy = unsafe { lib.get::<extern fn(_:  &AzCssPathSelector) -> AzCssPathSelector>(b"az_css_path_selector_deep_copy").map_err(|_| "az_css_path_selector_deep_copy")? };
+        let az_node_type_path_delete = unsafe { lib.get::<extern fn(_:  &mut AzNodeTypePath)>(b"az_node_type_path_delete").map_err(|_| "az_node_type_path_delete")? };
+        let az_node_type_path_deep_copy = unsafe { lib.get::<extern fn(_:  &AzNodeTypePath) -> AzNodeTypePath>(b"az_node_type_path_deep_copy").map_err(|_| "az_node_type_path_deep_copy")? };
+        let az_css_path_pseudo_selector_delete = unsafe { lib.get::<extern fn(_:  &mut AzCssPathPseudoSelector)>(b"az_css_path_pseudo_selector_delete").map_err(|_| "az_css_path_pseudo_selector_delete")? };
+        let az_css_path_pseudo_selector_deep_copy = unsafe { lib.get::<extern fn(_:  &AzCssPathPseudoSelector) -> AzCssPathPseudoSelector>(b"az_css_path_pseudo_selector_deep_copy").map_err(|_| "az_css_path_pseudo_selector_deep_copy")? };
+        let az_css_nth_child_selector_delete = unsafe { lib.get::<extern fn(_:  &mut AzCssNthChildSelector)>(b"az_css_nth_child_selector_delete").map_err(|_| "az_css_nth_child_selector_delete")? };
+        let az_css_nth_child_selector_deep_copy = unsafe { lib.get::<extern fn(_:  &AzCssNthChildSelector) -> AzCssNthChildSelector>(b"az_css_nth_child_selector_deep_copy").map_err(|_| "az_css_nth_child_selector_deep_copy")? };
+        let az_css_nth_child_pattern_delete = unsafe { lib.get::<extern fn(_:  &mut AzCssNthChildPattern)>(b"az_css_nth_child_pattern_delete").map_err(|_| "az_css_nth_child_pattern_delete")? };
+        let az_css_nth_child_pattern_deep_copy = unsafe { lib.get::<extern fn(_:  &AzCssNthChildPattern) -> AzCssNthChildPattern>(b"az_css_nth_child_pattern_deep_copy").map_err(|_| "az_css_nth_child_pattern_deep_copy")? };
+        let az_stylesheet_delete = unsafe { lib.get::<extern fn(_:  &mut AzStylesheet)>(b"az_stylesheet_delete").map_err(|_| "az_stylesheet_delete")? };
+        let az_stylesheet_deep_copy = unsafe { lib.get::<extern fn(_:  &AzStylesheet) -> AzStylesheet>(b"az_stylesheet_deep_copy").map_err(|_| "az_stylesheet_deep_copy")? };
+        let az_css_native = unsafe { lib.get::<extern fn() -> AzCss>(b"az_css_native").map_err(|_| "az_css_native")? };
+        let az_css_empty = unsafe { lib.get::<extern fn() -> AzCss>(b"az_css_empty").map_err(|_| "az_css_empty")? };
+        let az_css_from_string = unsafe { lib.get::<extern fn(_:  AzString) -> AzCss>(b"az_css_from_string").map_err(|_| "az_css_from_string")? };
+        let az_css_override_native = unsafe { lib.get::<extern fn(_:  AzString) -> AzCss>(b"az_css_override_native").map_err(|_| "az_css_override_native")? };
+        let az_css_delete = unsafe { lib.get::<extern fn(_:  &mut AzCss)>(b"az_css_delete").map_err(|_| "az_css_delete")? };
+        let az_css_deep_copy = unsafe { lib.get::<extern fn(_:  &AzCss) -> AzCss>(b"az_css_deep_copy").map_err(|_| "az_css_deep_copy")? };
         let az_css_hot_reloader_new = unsafe { lib.get::<extern fn(_:  AzString, _:  u64) -> AzCssHotReloaderPtr>(b"az_css_hot_reloader_new").map_err(|_| "az_css_hot_reloader_new")? };
         let az_css_hot_reloader_override_native = unsafe { lib.get::<extern fn(_:  AzString, _:  u64) -> AzCssHotReloaderPtr>(b"az_css_hot_reloader_override_native").map_err(|_| "az_css_hot_reloader_override_native")? };
         let az_css_hot_reloader_delete = unsafe { lib.get::<extern fn(_:  &mut AzCssHotReloaderPtr)>(b"az_css_hot_reloader_delete").map_err(|_| "az_css_hot_reloader_delete")? };
@@ -3062,10 +3837,67 @@ pub(crate) mod dll {
         let az_terminate_timer_deep_copy = unsafe { lib.get::<extern fn(_:  &AzTerminateTimer) -> AzTerminateTimer>(b"az_terminate_timer_deep_copy").map_err(|_| "az_terminate_timer_deep_copy")? };
         let az_block_error_delete = unsafe { lib.get::<extern fn(_:  &mut AzBlockError)>(b"az_block_error_delete").map_err(|_| "az_block_error_delete")? };
         let az_block_error_deep_copy = unsafe { lib.get::<extern fn(_:  &AzBlockError) -> AzBlockError>(b"az_block_error_deep_copy").map_err(|_| "az_block_error_deep_copy")? };
-        let az_window_create_options_new = unsafe { lib.get::<extern fn(_:  AzCssPtr) -> AzWindowCreateOptionsPtr>(b"az_window_create_options_new").map_err(|_| "az_window_create_options_new")? };
-        let az_window_create_options_delete = unsafe { lib.get::<extern fn(_:  &mut AzWindowCreateOptionsPtr)>(b"az_window_create_options_delete").map_err(|_| "az_window_create_options_delete")? };
+        let az_x_window_type_delete = unsafe { lib.get::<extern fn(_:  &mut AzXWindowType)>(b"az_x_window_type_delete").map_err(|_| "az_x_window_type_delete")? };
+        let az_x_window_type_deep_copy = unsafe { lib.get::<extern fn(_:  &AzXWindowType) -> AzXWindowType>(b"az_x_window_type_deep_copy").map_err(|_| "az_x_window_type_deep_copy")? };
+        let az_physical_position_i32_delete = unsafe { lib.get::<extern fn(_:  &mut AzPhysicalPositionI32)>(b"az_physical_position_i32_delete").map_err(|_| "az_physical_position_i32_delete")? };
+        let az_physical_position_i32_deep_copy = unsafe { lib.get::<extern fn(_:  &AzPhysicalPositionI32) -> AzPhysicalPositionI32>(b"az_physical_position_i32_deep_copy").map_err(|_| "az_physical_position_i32_deep_copy")? };
+        let az_logical_position_delete = unsafe { lib.get::<extern fn(_:  &mut AzLogicalPosition)>(b"az_logical_position_delete").map_err(|_| "az_logical_position_delete")? };
+        let az_logical_position_deep_copy = unsafe { lib.get::<extern fn(_:  &AzLogicalPosition) -> AzLogicalPosition>(b"az_logical_position_deep_copy").map_err(|_| "az_logical_position_deep_copy")? };
+        let az_icon_key_delete = unsafe { lib.get::<extern fn(_:  &mut AzIconKey)>(b"az_icon_key_delete").map_err(|_| "az_icon_key_delete")? };
+        let az_icon_key_deep_copy = unsafe { lib.get::<extern fn(_:  &AzIconKey) -> AzIconKey>(b"az_icon_key_deep_copy").map_err(|_| "az_icon_key_deep_copy")? };
+        let az_small_window_icon_bytes_delete = unsafe { lib.get::<extern fn(_:  &mut AzSmallWindowIconBytes)>(b"az_small_window_icon_bytes_delete").map_err(|_| "az_small_window_icon_bytes_delete")? };
+        let az_small_window_icon_bytes_deep_copy = unsafe { lib.get::<extern fn(_:  &AzSmallWindowIconBytes) -> AzSmallWindowIconBytes>(b"az_small_window_icon_bytes_deep_copy").map_err(|_| "az_small_window_icon_bytes_deep_copy")? };
+        let az_large_window_icon_bytes_delete = unsafe { lib.get::<extern fn(_:  &mut AzLargeWindowIconBytes)>(b"az_large_window_icon_bytes_delete").map_err(|_| "az_large_window_icon_bytes_delete")? };
+        let az_large_window_icon_bytes_deep_copy = unsafe { lib.get::<extern fn(_:  &AzLargeWindowIconBytes) -> AzLargeWindowIconBytes>(b"az_large_window_icon_bytes_deep_copy").map_err(|_| "az_large_window_icon_bytes_deep_copy")? };
+        let az_window_icon_delete = unsafe { lib.get::<extern fn(_:  &mut AzWindowIcon)>(b"az_window_icon_delete").map_err(|_| "az_window_icon_delete")? };
+        let az_window_icon_deep_copy = unsafe { lib.get::<extern fn(_:  &AzWindowIcon) -> AzWindowIcon>(b"az_window_icon_deep_copy").map_err(|_| "az_window_icon_deep_copy")? };
+        let az_task_bar_icon_delete = unsafe { lib.get::<extern fn(_:  &mut AzTaskBarIcon)>(b"az_task_bar_icon_delete").map_err(|_| "az_task_bar_icon_delete")? };
+        let az_task_bar_icon_deep_copy = unsafe { lib.get::<extern fn(_:  &AzTaskBarIcon) -> AzTaskBarIcon>(b"az_task_bar_icon_deep_copy").map_err(|_| "az_task_bar_icon_deep_copy")? };
+        let az_virtual_key_code_delete = unsafe { lib.get::<extern fn(_:  &mut AzVirtualKeyCode)>(b"az_virtual_key_code_delete").map_err(|_| "az_virtual_key_code_delete")? };
+        let az_virtual_key_code_deep_copy = unsafe { lib.get::<extern fn(_:  &AzVirtualKeyCode) -> AzVirtualKeyCode>(b"az_virtual_key_code_deep_copy").map_err(|_| "az_virtual_key_code_deep_copy")? };
+        let az_accelerator_key_delete = unsafe { lib.get::<extern fn(_:  &mut AzAcceleratorKey)>(b"az_accelerator_key_delete").map_err(|_| "az_accelerator_key_delete")? };
+        let az_accelerator_key_deep_copy = unsafe { lib.get::<extern fn(_:  &AzAcceleratorKey) -> AzAcceleratorKey>(b"az_accelerator_key_deep_copy").map_err(|_| "az_accelerator_key_deep_copy")? };
+        let az_window_size_delete = unsafe { lib.get::<extern fn(_:  &mut AzWindowSize)>(b"az_window_size_delete").map_err(|_| "az_window_size_delete")? };
+        let az_window_size_deep_copy = unsafe { lib.get::<extern fn(_:  &AzWindowSize) -> AzWindowSize>(b"az_window_size_deep_copy").map_err(|_| "az_window_size_deep_copy")? };
+        let az_window_flags_delete = unsafe { lib.get::<extern fn(_:  &mut AzWindowFlags)>(b"az_window_flags_delete").map_err(|_| "az_window_flags_delete")? };
+        let az_window_flags_deep_copy = unsafe { lib.get::<extern fn(_:  &AzWindowFlags) -> AzWindowFlags>(b"az_window_flags_deep_copy").map_err(|_| "az_window_flags_deep_copy")? };
+        let az_debug_state_delete = unsafe { lib.get::<extern fn(_:  &mut AzDebugState)>(b"az_debug_state_delete").map_err(|_| "az_debug_state_delete")? };
+        let az_debug_state_deep_copy = unsafe { lib.get::<extern fn(_:  &AzDebugState) -> AzDebugState>(b"az_debug_state_deep_copy").map_err(|_| "az_debug_state_deep_copy")? };
+        let az_keyboard_state_delete = unsafe { lib.get::<extern fn(_:  &mut AzKeyboardState)>(b"az_keyboard_state_delete").map_err(|_| "az_keyboard_state_delete")? };
+        let az_keyboard_state_deep_copy = unsafe { lib.get::<extern fn(_:  &AzKeyboardState) -> AzKeyboardState>(b"az_keyboard_state_deep_copy").map_err(|_| "az_keyboard_state_deep_copy")? };
+        let az_mouse_cursor_type_delete = unsafe { lib.get::<extern fn(_:  &mut AzMouseCursorType)>(b"az_mouse_cursor_type_delete").map_err(|_| "az_mouse_cursor_type_delete")? };
+        let az_mouse_cursor_type_deep_copy = unsafe { lib.get::<extern fn(_:  &AzMouseCursorType) -> AzMouseCursorType>(b"az_mouse_cursor_type_deep_copy").map_err(|_| "az_mouse_cursor_type_deep_copy")? };
+        let az_cursor_position_delete = unsafe { lib.get::<extern fn(_:  &mut AzCursorPosition)>(b"az_cursor_position_delete").map_err(|_| "az_cursor_position_delete")? };
+        let az_cursor_position_deep_copy = unsafe { lib.get::<extern fn(_:  &AzCursorPosition) -> AzCursorPosition>(b"az_cursor_position_deep_copy").map_err(|_| "az_cursor_position_deep_copy")? };
+        let az_mouse_state_delete = unsafe { lib.get::<extern fn(_:  &mut AzMouseState)>(b"az_mouse_state_delete").map_err(|_| "az_mouse_state_delete")? };
+        let az_mouse_state_deep_copy = unsafe { lib.get::<extern fn(_:  &AzMouseState) -> AzMouseState>(b"az_mouse_state_deep_copy").map_err(|_| "az_mouse_state_deep_copy")? };
+        let az_platform_specific_options_delete = unsafe { lib.get::<extern fn(_:  &mut AzPlatformSpecificOptions)>(b"az_platform_specific_options_delete").map_err(|_| "az_platform_specific_options_delete")? };
+        let az_platform_specific_options_deep_copy = unsafe { lib.get::<extern fn(_:  &AzPlatformSpecificOptions) -> AzPlatformSpecificOptions>(b"az_platform_specific_options_deep_copy").map_err(|_| "az_platform_specific_options_deep_copy")? };
+        let az_windows_window_options_delete = unsafe { lib.get::<extern fn(_:  &mut AzWindowsWindowOptions)>(b"az_windows_window_options_delete").map_err(|_| "az_windows_window_options_delete")? };
+        let az_windows_window_options_deep_copy = unsafe { lib.get::<extern fn(_:  &AzWindowsWindowOptions) -> AzWindowsWindowOptions>(b"az_windows_window_options_deep_copy").map_err(|_| "az_windows_window_options_deep_copy")? };
+        let az_wayland_theme_delete = unsafe { lib.get::<extern fn(_:  &mut AzWaylandTheme)>(b"az_wayland_theme_delete").map_err(|_| "az_wayland_theme_delete")? };
+        let az_wayland_theme_deep_copy = unsafe { lib.get::<extern fn(_:  &AzWaylandTheme) -> AzWaylandTheme>(b"az_wayland_theme_deep_copy").map_err(|_| "az_wayland_theme_deep_copy")? };
+        let az_renderer_type_delete = unsafe { lib.get::<extern fn(_:  &mut AzRendererType)>(b"az_renderer_type_delete").map_err(|_| "az_renderer_type_delete")? };
+        let az_renderer_type_deep_copy = unsafe { lib.get::<extern fn(_:  &AzRendererType) -> AzRendererType>(b"az_renderer_type_deep_copy").map_err(|_| "az_renderer_type_deep_copy")? };
+        let az_string_pair_delete = unsafe { lib.get::<extern fn(_:  &mut AzStringPair)>(b"az_string_pair_delete").map_err(|_| "az_string_pair_delete")? };
+        let az_string_pair_deep_copy = unsafe { lib.get::<extern fn(_:  &AzStringPair) -> AzStringPair>(b"az_string_pair_deep_copy").map_err(|_| "az_string_pair_deep_copy")? };
+        let az_linux_window_options_delete = unsafe { lib.get::<extern fn(_:  &mut AzLinuxWindowOptions)>(b"az_linux_window_options_delete").map_err(|_| "az_linux_window_options_delete")? };
+        let az_linux_window_options_deep_copy = unsafe { lib.get::<extern fn(_:  &AzLinuxWindowOptions) -> AzLinuxWindowOptions>(b"az_linux_window_options_deep_copy").map_err(|_| "az_linux_window_options_deep_copy")? };
+        let az_mac_window_options_delete = unsafe { lib.get::<extern fn(_:  &mut AzMacWindowOptions)>(b"az_mac_window_options_delete").map_err(|_| "az_mac_window_options_delete")? };
+        let az_mac_window_options_deep_copy = unsafe { lib.get::<extern fn(_:  &AzMacWindowOptions) -> AzMacWindowOptions>(b"az_mac_window_options_deep_copy").map_err(|_| "az_mac_window_options_deep_copy")? };
+        let az_wasm_window_options_delete = unsafe { lib.get::<extern fn(_:  &mut AzWasmWindowOptions)>(b"az_wasm_window_options_delete").map_err(|_| "az_wasm_window_options_delete")? };
+        let az_wasm_window_options_deep_copy = unsafe { lib.get::<extern fn(_:  &AzWasmWindowOptions) -> AzWasmWindowOptions>(b"az_wasm_window_options_deep_copy").map_err(|_| "az_wasm_window_options_deep_copy")? };
+        let az_full_screen_mode_delete = unsafe { lib.get::<extern fn(_:  &mut AzFullScreenMode)>(b"az_full_screen_mode_delete").map_err(|_| "az_full_screen_mode_delete")? };
+        let az_full_screen_mode_deep_copy = unsafe { lib.get::<extern fn(_:  &AzFullScreenMode) -> AzFullScreenMode>(b"az_full_screen_mode_deep_copy").map_err(|_| "az_full_screen_mode_deep_copy")? };
+        let az_window_state_delete = unsafe { lib.get::<extern fn(_:  &mut AzWindowState)>(b"az_window_state_delete").map_err(|_| "az_window_state_delete")? };
+        let az_window_state_deep_copy = unsafe { lib.get::<extern fn(_:  &AzWindowState) -> AzWindowState>(b"az_window_state_deep_copy").map_err(|_| "az_window_state_deep_copy")? };
         let az_logical_size_delete = unsafe { lib.get::<extern fn(_:  &mut AzLogicalSize)>(b"az_logical_size_delete").map_err(|_| "az_logical_size_delete")? };
         let az_logical_size_deep_copy = unsafe { lib.get::<extern fn(_:  &AzLogicalSize) -> AzLogicalSize>(b"az_logical_size_deep_copy").map_err(|_| "az_logical_size_deep_copy")? };
+        let az_hot_reload_options_delete = unsafe { lib.get::<extern fn(_:  &mut AzHotReloadOptions)>(b"az_hot_reload_options_delete").map_err(|_| "az_hot_reload_options_delete")? };
+        let az_hot_reload_options_deep_copy = unsafe { lib.get::<extern fn(_:  &AzHotReloadOptions) -> AzHotReloadOptions>(b"az_hot_reload_options_deep_copy").map_err(|_| "az_hot_reload_options_deep_copy")? };
+        let az_window_create_options_new = unsafe { lib.get::<extern fn(_:  AzCss) -> AzWindowCreateOptions>(b"az_window_create_options_new").map_err(|_| "az_window_create_options_new")? };
+        let az_window_create_options_delete = unsafe { lib.get::<extern fn(_:  &mut AzWindowCreateOptions)>(b"az_window_create_options_delete").map_err(|_| "az_window_create_options_delete")? };
+        let az_window_create_options_deep_copy = unsafe { lib.get::<extern fn(_:  &AzWindowCreateOptions) -> AzWindowCreateOptions>(b"az_window_create_options_deep_copy").map_err(|_| "az_window_create_options_deep_copy")? };
         Ok(AzulDll {
             lib: Box::new(lib),
             az_string_from_utf8_unchecked,
@@ -3073,6 +3905,27 @@ pub(crate) mod dll {
             az_string_into_bytes,
             az_string_delete,
             az_string_deep_copy,
+            az_x_window_type_vec_copy_from,
+            az_x_window_type_vec_delete,
+            az_x_window_type_vec_deep_copy,
+            az_virtual_key_code_vec_copy_from,
+            az_virtual_key_code_vec_delete,
+            az_virtual_key_code_vec_deep_copy,
+            az_scan_code_vec_copy_from,
+            az_scan_code_vec_delete,
+            az_scan_code_vec_deep_copy,
+            az_css_declaration_vec_copy_from,
+            az_css_declaration_vec_delete,
+            az_css_declaration_vec_deep_copy,
+            az_css_path_selector_vec_copy_from,
+            az_css_path_selector_vec_delete,
+            az_css_path_selector_vec_deep_copy,
+            az_stylesheet_vec_copy_from,
+            az_stylesheet_vec_delete,
+            az_stylesheet_vec_deep_copy,
+            az_css_rule_block_vec_copy_from,
+            az_css_rule_block_vec_delete,
+            az_css_rule_block_vec_deep_copy,
             az_u8_vec_copy_from,
             az_u8_vec_delete,
             az_u8_vec_deep_copy,
@@ -3097,9 +3950,36 @@ pub(crate) mod dll {
             az_string_vec_copy_from,
             az_string_vec_delete,
             az_string_vec_deep_copy,
+            az_string_pair_vec_copy_from,
+            az_string_pair_vec_delete,
+            az_string_pair_vec_deep_copy,
             az_gradient_stop_pre_vec_copy_from,
             az_gradient_stop_pre_vec_delete,
             az_gradient_stop_pre_vec_deep_copy,
+            az_option_logical_position_delete,
+            az_option_logical_position_deep_copy,
+            az_option_hot_reload_options_delete,
+            az_option_hot_reload_options_deep_copy,
+            az_option_physical_position_i32_delete,
+            az_option_physical_position_i32_deep_copy,
+            az_option_window_icon_delete,
+            az_option_window_icon_deep_copy,
+            az_option_string_delete,
+            az_option_string_deep_copy,
+            az_option_x11_visual_delete,
+            az_option_x11_visual_deep_copy,
+            az_option_i32_delete,
+            az_option_i32_deep_copy,
+            az_option_f32_delete,
+            az_option_f32_deep_copy,
+            az_option_mouse_cursor_type_delete,
+            az_option_mouse_cursor_type_deep_copy,
+            az_option_logical_size_delete,
+            az_option_logical_size_deep_copy,
+            az_option_char_delete,
+            az_option_char_deep_copy,
+            az_option_virtual_key_code_delete,
+            az_option_virtual_key_code_deep_copy,
             az_option_percentage_value_delete,
             az_option_percentage_value_deep_copy,
             az_option_dom_delete,
@@ -3165,11 +4045,32 @@ pub(crate) mod dll {
             az_ref_any_delete,
             az_ref_any_deep_copy,
             az_layout_info_delete,
+            az_css_rule_block_delete,
+            az_css_rule_block_deep_copy,
+            az_css_declaration_delete,
+            az_css_declaration_deep_copy,
+            az_dynamic_css_property_delete,
+            az_dynamic_css_property_deep_copy,
+            az_css_path_delete,
+            az_css_path_deep_copy,
+            az_css_path_selector_delete,
+            az_css_path_selector_deep_copy,
+            az_node_type_path_delete,
+            az_node_type_path_deep_copy,
+            az_css_path_pseudo_selector_delete,
+            az_css_path_pseudo_selector_deep_copy,
+            az_css_nth_child_selector_delete,
+            az_css_nth_child_selector_deep_copy,
+            az_css_nth_child_pattern_delete,
+            az_css_nth_child_pattern_deep_copy,
+            az_stylesheet_delete,
+            az_stylesheet_deep_copy,
             az_css_native,
             az_css_empty,
             az_css_from_string,
             az_css_override_native,
             az_css_delete,
+            az_css_deep_copy,
             az_css_hot_reloader_new,
             az_css_hot_reloader_override_native,
             az_css_hot_reloader_delete,
@@ -3795,10 +4696,67 @@ pub(crate) mod dll {
             az_terminate_timer_deep_copy,
             az_block_error_delete,
             az_block_error_deep_copy,
-            az_window_create_options_new,
-            az_window_create_options_delete,
+            az_x_window_type_delete,
+            az_x_window_type_deep_copy,
+            az_physical_position_i32_delete,
+            az_physical_position_i32_deep_copy,
+            az_logical_position_delete,
+            az_logical_position_deep_copy,
+            az_icon_key_delete,
+            az_icon_key_deep_copy,
+            az_small_window_icon_bytes_delete,
+            az_small_window_icon_bytes_deep_copy,
+            az_large_window_icon_bytes_delete,
+            az_large_window_icon_bytes_deep_copy,
+            az_window_icon_delete,
+            az_window_icon_deep_copy,
+            az_task_bar_icon_delete,
+            az_task_bar_icon_deep_copy,
+            az_virtual_key_code_delete,
+            az_virtual_key_code_deep_copy,
+            az_accelerator_key_delete,
+            az_accelerator_key_deep_copy,
+            az_window_size_delete,
+            az_window_size_deep_copy,
+            az_window_flags_delete,
+            az_window_flags_deep_copy,
+            az_debug_state_delete,
+            az_debug_state_deep_copy,
+            az_keyboard_state_delete,
+            az_keyboard_state_deep_copy,
+            az_mouse_cursor_type_delete,
+            az_mouse_cursor_type_deep_copy,
+            az_cursor_position_delete,
+            az_cursor_position_deep_copy,
+            az_mouse_state_delete,
+            az_mouse_state_deep_copy,
+            az_platform_specific_options_delete,
+            az_platform_specific_options_deep_copy,
+            az_windows_window_options_delete,
+            az_windows_window_options_deep_copy,
+            az_wayland_theme_delete,
+            az_wayland_theme_deep_copy,
+            az_renderer_type_delete,
+            az_renderer_type_deep_copy,
+            az_string_pair_delete,
+            az_string_pair_deep_copy,
+            az_linux_window_options_delete,
+            az_linux_window_options_deep_copy,
+            az_mac_window_options_delete,
+            az_mac_window_options_deep_copy,
+            az_wasm_window_options_delete,
+            az_wasm_window_options_deep_copy,
+            az_full_screen_mode_delete,
+            az_full_screen_mode_deep_copy,
+            az_window_state_delete,
+            az_window_state_deep_copy,
             az_logical_size_delete,
             az_logical_size_deep_copy,
+            az_hot_reload_options_delete,
+            az_hot_reload_options_deep_copy,
+            az_window_create_options_new,
+            az_window_create_options_delete,
+            az_window_create_options_deep_copy,
         })
     }
 
@@ -4068,10 +5026,95 @@ pub mod vec {
 
             // delete() not necessary because StringVec is stack-allocated
         }
-    }    use crate::dom::{CallbackData, Dom, OverrideProperty};
+    }    use crate::window::{StringPair, VirtualKeyCode, XWindowType};
+    use crate::css::{CssDeclaration, CssPathSelector, CssRuleBlock, GradientStopPre, Stylesheet};
+    use crate::dom::{CallbackData, Dom, OverrideProperty};
     use crate::gl::DebugMessage;
     use crate::str::String;
-    use crate::css::GradientStopPre;
+
+
+    /// Wrapper over a Rust-allocated `XWindowType`
+    pub use crate::dll::AzXWindowTypeVec as XWindowTypeVec;
+
+    impl XWindowTypeVec {
+        /// Creates + allocates a Rust `Vec<XWindowType>` by **copying** it from a bytes source
+        pub fn copy_from(ptr: *const AzXWindowType, len: usize) -> Self { (crate::dll::get_azul_dll().az_x_window_type_vec_copy_from)(ptr, len) }
+    }
+
+    impl Clone for XWindowTypeVec { fn clone(&self) -> Self { (crate::dll::get_azul_dll().az_x_window_type_vec_deep_copy)(self) } }
+    impl Drop for XWindowTypeVec { fn drop(&mut self) { (crate::dll::get_azul_dll().az_x_window_type_vec_delete)(self); } }
+
+
+    /// Wrapper over a Rust-allocated `VirtualKeyCode`
+    pub use crate::dll::AzVirtualKeyCodeVec as VirtualKeyCodeVec;
+
+    impl VirtualKeyCodeVec {
+        /// Creates + allocates a Rust `Vec<VirtualKeyCode>` by **copying** it from a bytes source
+        pub fn copy_from(ptr: *const AzVirtualKeyCode, len: usize) -> Self { (crate::dll::get_azul_dll().az_virtual_key_code_vec_copy_from)(ptr, len) }
+    }
+
+    impl Clone for VirtualKeyCodeVec { fn clone(&self) -> Self { (crate::dll::get_azul_dll().az_virtual_key_code_vec_deep_copy)(self) } }
+    impl Drop for VirtualKeyCodeVec { fn drop(&mut self) { (crate::dll::get_azul_dll().az_virtual_key_code_vec_delete)(self); } }
+
+
+    /// Wrapper over a Rust-allocated `ScanCode`
+    pub use crate::dll::AzScanCodeVec as ScanCodeVec;
+
+    impl ScanCodeVec {
+        /// Creates + allocates a Rust `Vec<ScanCode>` by **copying** it from a bytes source
+        pub fn copy_from(ptr: *const u32, len: usize) -> Self { (crate::dll::get_azul_dll().az_scan_code_vec_copy_from)(ptr, len) }
+    }
+
+    impl Clone for ScanCodeVec { fn clone(&self) -> Self { (crate::dll::get_azul_dll().az_scan_code_vec_deep_copy)(self) } }
+    impl Drop for ScanCodeVec { fn drop(&mut self) { (crate::dll::get_azul_dll().az_scan_code_vec_delete)(self); } }
+
+
+    /// Wrapper over a Rust-allocated `CssDeclaration`
+    pub use crate::dll::AzCssDeclarationVec as CssDeclarationVec;
+
+    impl CssDeclarationVec {
+        /// Creates + allocates a Rust `Vec<CssDeclaration>` by **copying** it from a bytes source
+        pub fn copy_from(ptr: *const AzCssDeclaration, len: usize) -> Self { (crate::dll::get_azul_dll().az_css_declaration_vec_copy_from)(ptr, len) }
+    }
+
+    impl Clone for CssDeclarationVec { fn clone(&self) -> Self { (crate::dll::get_azul_dll().az_css_declaration_vec_deep_copy)(self) } }
+    impl Drop for CssDeclarationVec { fn drop(&mut self) { (crate::dll::get_azul_dll().az_css_declaration_vec_delete)(self); } }
+
+
+    /// Wrapper over a Rust-allocated `CssPathSelector`
+    pub use crate::dll::AzCssPathSelectorVec as CssPathSelectorVec;
+
+    impl CssPathSelectorVec {
+        /// Creates + allocates a Rust `Vec<CssPathSelector>` by **copying** it from a bytes source
+        pub fn copy_from(ptr: *const AzCssPathSelector, len: usize) -> Self { (crate::dll::get_azul_dll().az_css_path_selector_vec_copy_from)(ptr, len) }
+    }
+
+    impl Clone for CssPathSelectorVec { fn clone(&self) -> Self { (crate::dll::get_azul_dll().az_css_path_selector_vec_deep_copy)(self) } }
+    impl Drop for CssPathSelectorVec { fn drop(&mut self) { (crate::dll::get_azul_dll().az_css_path_selector_vec_delete)(self); } }
+
+
+    /// Wrapper over a Rust-allocated `Stylesheet`
+    pub use crate::dll::AzStylesheetVec as StylesheetVec;
+
+    impl StylesheetVec {
+        /// Creates + allocates a Rust `Vec<Stylesheet>` by **copying** it from a bytes source
+        pub fn copy_from(ptr: *const AzStylesheet, len: usize) -> Self { (crate::dll::get_azul_dll().az_stylesheet_vec_copy_from)(ptr, len) }
+    }
+
+    impl Clone for StylesheetVec { fn clone(&self) -> Self { (crate::dll::get_azul_dll().az_stylesheet_vec_deep_copy)(self) } }
+    impl Drop for StylesheetVec { fn drop(&mut self) { (crate::dll::get_azul_dll().az_stylesheet_vec_delete)(self); } }
+
+
+    /// Wrapper over a Rust-allocated `CssRuleBlock`
+    pub use crate::dll::AzCssRuleBlockVec as CssRuleBlockVec;
+
+    impl CssRuleBlockVec {
+        /// Creates + allocates a Rust `Vec<CssRuleBlock>` by **copying** it from a bytes source
+        pub fn copy_from(ptr: *const AzCssRuleBlock, len: usize) -> Self { (crate::dll::get_azul_dll().az_css_rule_block_vec_copy_from)(ptr, len) }
+    }
+
+    impl Clone for CssRuleBlockVec { fn clone(&self) -> Self { (crate::dll::get_azul_dll().az_css_rule_block_vec_deep_copy)(self) } }
+    impl Drop for CssRuleBlockVec { fn drop(&mut self) { (crate::dll::get_azul_dll().az_css_rule_block_vec_delete)(self); } }
 
 
     /// Wrapper over a Rust-allocated `U8Vec`
@@ -4170,6 +5213,18 @@ pub mod vec {
     impl Drop for StringVec { fn drop(&mut self) { (crate::dll::get_azul_dll().az_string_vec_delete)(self); } }
 
 
+    /// Wrapper over a Rust-allocated `StringPairVec`
+    pub use crate::dll::AzStringPairVec as StringPairVec;
+
+    impl StringPairVec {
+        /// Creates + allocates a Rust `Vec<StringPair>` by **copying** it from a bytes source
+        pub fn copy_from(ptr: *const AzStringPair, len: usize) -> Self { (crate::dll::get_azul_dll().az_string_pair_vec_copy_from)(ptr, len) }
+    }
+
+    impl Clone for StringPairVec { fn clone(&self) -> Self { (crate::dll::get_azul_dll().az_string_pair_vec_deep_copy)(self) } }
+    impl Drop for StringPairVec { fn drop(&mut self) { (crate::dll::get_azul_dll().az_string_pair_vec_delete)(self); } }
+
+
     /// Wrapper over a Rust-allocated `GradientStopPreVec`
     pub use crate::dll::AzGradientStopPreVec as GradientStopPreVec;
 
@@ -4188,6 +5243,90 @@ pub mod option {
 
     use crate::dll::*;
     use std::ffi::c_void;
+
+
+    /// `OptionLogicalPosition` struct
+    pub use crate::dll::AzOptionLogicalPosition as OptionLogicalPosition;
+
+    impl Clone for OptionLogicalPosition { fn clone(&self) -> Self { (crate::dll::get_azul_dll().az_option_logical_position_deep_copy)(self) } }
+    impl Drop for OptionLogicalPosition { fn drop(&mut self) { (crate::dll::get_azul_dll().az_option_logical_position_delete)(self); } }
+
+
+    /// `OptionHotReloadOptions` struct
+    pub use crate::dll::AzOptionHotReloadOptions as OptionHotReloadOptions;
+
+    impl Clone for OptionHotReloadOptions { fn clone(&self) -> Self { (crate::dll::get_azul_dll().az_option_hot_reload_options_deep_copy)(self) } }
+    impl Drop for OptionHotReloadOptions { fn drop(&mut self) { (crate::dll::get_azul_dll().az_option_hot_reload_options_delete)(self); } }
+
+
+    /// `OptionPhysicalPositionI32` struct
+    pub use crate::dll::AzOptionPhysicalPositionI32 as OptionPhysicalPositionI32;
+
+    impl Clone for OptionPhysicalPositionI32 { fn clone(&self) -> Self { (crate::dll::get_azul_dll().az_option_physical_position_i32_deep_copy)(self) } }
+    impl Drop for OptionPhysicalPositionI32 { fn drop(&mut self) { (crate::dll::get_azul_dll().az_option_physical_position_i32_delete)(self); } }
+
+
+    /// `OptionWindowIcon` struct
+    pub use crate::dll::AzOptionWindowIcon as OptionWindowIcon;
+
+    impl Clone for OptionWindowIcon { fn clone(&self) -> Self { (crate::dll::get_azul_dll().az_option_window_icon_deep_copy)(self) } }
+    impl Drop for OptionWindowIcon { fn drop(&mut self) { (crate::dll::get_azul_dll().az_option_window_icon_delete)(self); } }
+
+
+    /// `OptionString` struct
+    pub use crate::dll::AzOptionString as OptionString;
+
+    impl Clone for OptionString { fn clone(&self) -> Self { (crate::dll::get_azul_dll().az_option_string_deep_copy)(self) } }
+    impl Drop for OptionString { fn drop(&mut self) { (crate::dll::get_azul_dll().az_option_string_delete)(self); } }
+
+
+    /// `OptionX11Visual` struct
+    pub use crate::dll::AzOptionX11Visual as OptionX11Visual;
+
+    impl Clone for OptionX11Visual { fn clone(&self) -> Self { (crate::dll::get_azul_dll().az_option_x11_visual_deep_copy)(self) } }
+    impl Drop for OptionX11Visual { fn drop(&mut self) { (crate::dll::get_azul_dll().az_option_x11_visual_delete)(self); } }
+
+
+    /// `OptionI32` struct
+    pub use crate::dll::AzOptionI32 as OptionI32;
+
+    impl Clone for OptionI32 { fn clone(&self) -> Self { (crate::dll::get_azul_dll().az_option_i32_deep_copy)(self) } }
+    impl Drop for OptionI32 { fn drop(&mut self) { (crate::dll::get_azul_dll().az_option_i32_delete)(self); } }
+
+
+    /// `OptionF32` struct
+    pub use crate::dll::AzOptionF32 as OptionF32;
+
+    impl Clone for OptionF32 { fn clone(&self) -> Self { (crate::dll::get_azul_dll().az_option_f32_deep_copy)(self) } }
+    impl Drop for OptionF32 { fn drop(&mut self) { (crate::dll::get_azul_dll().az_option_f32_delete)(self); } }
+
+
+    /// `OptionMouseCursorType` struct
+    pub use crate::dll::AzOptionMouseCursorType as OptionMouseCursorType;
+
+    impl Clone for OptionMouseCursorType { fn clone(&self) -> Self { (crate::dll::get_azul_dll().az_option_mouse_cursor_type_deep_copy)(self) } }
+    impl Drop for OptionMouseCursorType { fn drop(&mut self) { (crate::dll::get_azul_dll().az_option_mouse_cursor_type_delete)(self); } }
+
+
+    /// `OptionLogicalSize` struct
+    pub use crate::dll::AzOptionLogicalSize as OptionLogicalSize;
+
+    impl Clone for OptionLogicalSize { fn clone(&self) -> Self { (crate::dll::get_azul_dll().az_option_logical_size_deep_copy)(self) } }
+    impl Drop for OptionLogicalSize { fn drop(&mut self) { (crate::dll::get_azul_dll().az_option_logical_size_delete)(self); } }
+
+
+    /// `OptionChar` struct
+    pub use crate::dll::AzOptionChar as OptionChar;
+
+    impl Clone for OptionChar { fn clone(&self) -> Self { (crate::dll::get_azul_dll().az_option_char_deep_copy)(self) } }
+    impl Drop for OptionChar { fn drop(&mut self) { (crate::dll::get_azul_dll().az_option_char_delete)(self); } }
+
+
+    /// `OptionVirtualKeyCode` struct
+    pub use crate::dll::AzOptionVirtualKeyCode as OptionVirtualKeyCode;
+
+    impl Clone for OptionVirtualKeyCode { fn clone(&self) -> Self { (crate::dll::get_azul_dll().az_option_virtual_key_code_deep_copy)(self) } }
+    impl Drop for OptionVirtualKeyCode { fn drop(&mut self) { (crate::dll::get_azul_dll().az_option_virtual_key_code_delete)(self); } }
 
 
     /// `OptionPercentageValue` struct
@@ -4613,8 +5752,78 @@ pub mod css {
     use crate::str::String;
 
 
+    /// `CssRuleBlock` struct
+    pub use crate::dll::AzCssRuleBlock as CssRuleBlock;
+
+    impl Clone for CssRuleBlock { fn clone(&self) -> Self { (crate::dll::get_azul_dll().az_css_rule_block_deep_copy)(self) } }
+    impl Drop for CssRuleBlock { fn drop(&mut self) { (crate::dll::get_azul_dll().az_css_rule_block_delete)(self); } }
+
+
+    /// `CssDeclaration` struct
+    pub use crate::dll::AzCssDeclaration as CssDeclaration;
+
+    impl Clone for CssDeclaration { fn clone(&self) -> Self { (crate::dll::get_azul_dll().az_css_declaration_deep_copy)(self) } }
+    impl Drop for CssDeclaration { fn drop(&mut self) { (crate::dll::get_azul_dll().az_css_declaration_delete)(self); } }
+
+
+    /// `DynamicCssProperty` struct
+    pub use crate::dll::AzDynamicCssProperty as DynamicCssProperty;
+
+    impl Clone for DynamicCssProperty { fn clone(&self) -> Self { (crate::dll::get_azul_dll().az_dynamic_css_property_deep_copy)(self) } }
+    impl Drop for DynamicCssProperty { fn drop(&mut self) { (crate::dll::get_azul_dll().az_dynamic_css_property_delete)(self); } }
+
+
+    /// `CssPath` struct
+    pub use crate::dll::AzCssPath as CssPath;
+
+    impl Clone for CssPath { fn clone(&self) -> Self { (crate::dll::get_azul_dll().az_css_path_deep_copy)(self) } }
+    impl Drop for CssPath { fn drop(&mut self) { (crate::dll::get_azul_dll().az_css_path_delete)(self); } }
+
+
+    /// `CssPathSelector` struct
+    pub use crate::dll::AzCssPathSelector as CssPathSelector;
+
+    impl Clone for CssPathSelector { fn clone(&self) -> Self { (crate::dll::get_azul_dll().az_css_path_selector_deep_copy)(self) } }
+    impl Drop for CssPathSelector { fn drop(&mut self) { (crate::dll::get_azul_dll().az_css_path_selector_delete)(self); } }
+
+
+    /// `NodeTypePath` struct
+    pub use crate::dll::AzNodeTypePath as NodeTypePath;
+
+    impl Clone for NodeTypePath { fn clone(&self) -> Self { (crate::dll::get_azul_dll().az_node_type_path_deep_copy)(self) } }
+    impl Drop for NodeTypePath { fn drop(&mut self) { (crate::dll::get_azul_dll().az_node_type_path_delete)(self); } }
+
+
+    /// `CssPathPseudoSelector` struct
+    pub use crate::dll::AzCssPathPseudoSelector as CssPathPseudoSelector;
+
+    impl Clone for CssPathPseudoSelector { fn clone(&self) -> Self { (crate::dll::get_azul_dll().az_css_path_pseudo_selector_deep_copy)(self) } }
+    impl Drop for CssPathPseudoSelector { fn drop(&mut self) { (crate::dll::get_azul_dll().az_css_path_pseudo_selector_delete)(self); } }
+
+
+    /// `CssNthChildSelector` struct
+    pub use crate::dll::AzCssNthChildSelector as CssNthChildSelector;
+
+    impl Clone for CssNthChildSelector { fn clone(&self) -> Self { (crate::dll::get_azul_dll().az_css_nth_child_selector_deep_copy)(self) } }
+    impl Drop for CssNthChildSelector { fn drop(&mut self) { (crate::dll::get_azul_dll().az_css_nth_child_selector_delete)(self); } }
+
+
+    /// `CssNthChildPattern` struct
+    pub use crate::dll::AzCssNthChildPattern as CssNthChildPattern;
+
+    impl Clone for CssNthChildPattern { fn clone(&self) -> Self { (crate::dll::get_azul_dll().az_css_nth_child_pattern_deep_copy)(self) } }
+    impl Drop for CssNthChildPattern { fn drop(&mut self) { (crate::dll::get_azul_dll().az_css_nth_child_pattern_delete)(self); } }
+
+
+    /// `Stylesheet` struct
+    pub use crate::dll::AzStylesheet as Stylesheet;
+
+    impl Clone for Stylesheet { fn clone(&self) -> Self { (crate::dll::get_azul_dll().az_stylesheet_deep_copy)(self) } }
+    impl Drop for Stylesheet { fn drop(&mut self) { (crate::dll::get_azul_dll().az_stylesheet_delete)(self); } }
+
+
     /// `Css` struct
-    pub use crate::dll::AzCssPtr as Css;
+    pub use crate::dll::AzCss as Css;
 
     impl Css {
         /// Loads the native style for the given operating system
@@ -4627,6 +5836,7 @@ pub mod css {
         pub fn override_native(s: String) -> Self { (crate::dll::get_azul_dll().az_css_override_native)(s) }
     }
 
+    impl Clone for Css { fn clone(&self) -> Self { (crate::dll::get_azul_dll().az_css_deep_copy)(self) } }
     impl Drop for Css { fn drop(&mut self) { (crate::dll::get_azul_dll().az_css_delete)(self); } }
 
 
@@ -8245,15 +9455,193 @@ pub mod window {
     use crate::css::Css;
 
 
-    /// `WindowCreateOptions` struct
-    pub use crate::dll::AzWindowCreateOptionsPtr as WindowCreateOptions;
+    /// `XWindowType` struct
+    pub use crate::dll::AzXWindowType as XWindowType;
 
-    impl WindowCreateOptions {
-        /// Creates a new `WindowCreateOptions` instance.
-        pub fn new(css: Css) -> Self { (crate::dll::get_azul_dll().az_window_create_options_new)(css) }
-    }
+    impl Clone for XWindowType { fn clone(&self) -> Self { (crate::dll::get_azul_dll().az_x_window_type_deep_copy)(self) } }
+    impl Drop for XWindowType { fn drop(&mut self) { (crate::dll::get_azul_dll().az_x_window_type_delete)(self); } }
 
-    impl Drop for WindowCreateOptions { fn drop(&mut self) { (crate::dll::get_azul_dll().az_window_create_options_delete)(self); } }
+
+    /// `PhysicalPositionI32` struct
+    pub use crate::dll::AzPhysicalPositionI32 as PhysicalPositionI32;
+
+    impl Clone for PhysicalPositionI32 { fn clone(&self) -> Self { (crate::dll::get_azul_dll().az_physical_position_i32_deep_copy)(self) } }
+    impl Drop for PhysicalPositionI32 { fn drop(&mut self) { (crate::dll::get_azul_dll().az_physical_position_i32_delete)(self); } }
+
+
+    /// `LogicalPosition` struct
+    pub use crate::dll::AzLogicalPosition as LogicalPosition;
+
+    impl Clone for LogicalPosition { fn clone(&self) -> Self { (crate::dll::get_azul_dll().az_logical_position_deep_copy)(self) } }
+    impl Drop for LogicalPosition { fn drop(&mut self) { (crate::dll::get_azul_dll().az_logical_position_delete)(self); } }
+
+
+    /// `IconKey` struct
+    pub use crate::dll::AzIconKey as IconKey;
+
+    impl Clone for IconKey { fn clone(&self) -> Self { (crate::dll::get_azul_dll().az_icon_key_deep_copy)(self) } }
+    impl Drop for IconKey { fn drop(&mut self) { (crate::dll::get_azul_dll().az_icon_key_delete)(self); } }
+
+
+    /// `SmallWindowIconBytes` struct
+    pub use crate::dll::AzSmallWindowIconBytes as SmallWindowIconBytes;
+
+    impl Clone for SmallWindowIconBytes { fn clone(&self) -> Self { (crate::dll::get_azul_dll().az_small_window_icon_bytes_deep_copy)(self) } }
+    impl Drop for SmallWindowIconBytes { fn drop(&mut self) { (crate::dll::get_azul_dll().az_small_window_icon_bytes_delete)(self); } }
+
+
+    /// `LargeWindowIconBytes` struct
+    pub use crate::dll::AzLargeWindowIconBytes as LargeWindowIconBytes;
+
+    impl Clone for LargeWindowIconBytes { fn clone(&self) -> Self { (crate::dll::get_azul_dll().az_large_window_icon_bytes_deep_copy)(self) } }
+    impl Drop for LargeWindowIconBytes { fn drop(&mut self) { (crate::dll::get_azul_dll().az_large_window_icon_bytes_delete)(self); } }
+
+
+    /// `WindowIcon` struct
+    pub use crate::dll::AzWindowIcon as WindowIcon;
+
+    impl Clone for WindowIcon { fn clone(&self) -> Self { (crate::dll::get_azul_dll().az_window_icon_deep_copy)(self) } }
+    impl Drop for WindowIcon { fn drop(&mut self) { (crate::dll::get_azul_dll().az_window_icon_delete)(self); } }
+
+
+    /// `TaskBarIcon` struct
+    pub use crate::dll::AzTaskBarIcon as TaskBarIcon;
+
+    impl Clone for TaskBarIcon { fn clone(&self) -> Self { (crate::dll::get_azul_dll().az_task_bar_icon_deep_copy)(self) } }
+    impl Drop for TaskBarIcon { fn drop(&mut self) { (crate::dll::get_azul_dll().az_task_bar_icon_delete)(self); } }
+
+
+    /// `VirtualKeyCode` struct
+    pub use crate::dll::AzVirtualKeyCode as VirtualKeyCode;
+
+    impl Clone for VirtualKeyCode { fn clone(&self) -> Self { (crate::dll::get_azul_dll().az_virtual_key_code_deep_copy)(self) } }
+    impl Drop for VirtualKeyCode { fn drop(&mut self) { (crate::dll::get_azul_dll().az_virtual_key_code_delete)(self); } }
+
+
+    /// `AcceleratorKey` struct
+    pub use crate::dll::AzAcceleratorKey as AcceleratorKey;
+
+    impl Clone for AcceleratorKey { fn clone(&self) -> Self { (crate::dll::get_azul_dll().az_accelerator_key_deep_copy)(self) } }
+    impl Drop for AcceleratorKey { fn drop(&mut self) { (crate::dll::get_azul_dll().az_accelerator_key_delete)(self); } }
+
+
+    /// `WindowSize` struct
+    pub use crate::dll::AzWindowSize as WindowSize;
+
+    impl Clone for WindowSize { fn clone(&self) -> Self { (crate::dll::get_azul_dll().az_window_size_deep_copy)(self) } }
+    impl Drop for WindowSize { fn drop(&mut self) { (crate::dll::get_azul_dll().az_window_size_delete)(self); } }
+
+
+    /// `WindowFlags` struct
+    pub use crate::dll::AzWindowFlags as WindowFlags;
+
+    impl Clone for WindowFlags { fn clone(&self) -> Self { (crate::dll::get_azul_dll().az_window_flags_deep_copy)(self) } }
+    impl Drop for WindowFlags { fn drop(&mut self) { (crate::dll::get_azul_dll().az_window_flags_delete)(self); } }
+
+
+    /// `DebugState` struct
+    pub use crate::dll::AzDebugState as DebugState;
+
+    impl Clone for DebugState { fn clone(&self) -> Self { (crate::dll::get_azul_dll().az_debug_state_deep_copy)(self) } }
+    impl Drop for DebugState { fn drop(&mut self) { (crate::dll::get_azul_dll().az_debug_state_delete)(self); } }
+
+
+    /// `KeyboardState` struct
+    pub use crate::dll::AzKeyboardState as KeyboardState;
+
+    impl Clone for KeyboardState { fn clone(&self) -> Self { (crate::dll::get_azul_dll().az_keyboard_state_deep_copy)(self) } }
+    impl Drop for KeyboardState { fn drop(&mut self) { (crate::dll::get_azul_dll().az_keyboard_state_delete)(self); } }
+
+
+    /// `MouseCursorType` struct
+    pub use crate::dll::AzMouseCursorType as MouseCursorType;
+
+    impl Clone for MouseCursorType { fn clone(&self) -> Self { (crate::dll::get_azul_dll().az_mouse_cursor_type_deep_copy)(self) } }
+    impl Drop for MouseCursorType { fn drop(&mut self) { (crate::dll::get_azul_dll().az_mouse_cursor_type_delete)(self); } }
+
+
+    /// `CursorPosition` struct
+    pub use crate::dll::AzCursorPosition as CursorPosition;
+
+    impl Clone for CursorPosition { fn clone(&self) -> Self { (crate::dll::get_azul_dll().az_cursor_position_deep_copy)(self) } }
+    impl Drop for CursorPosition { fn drop(&mut self) { (crate::dll::get_azul_dll().az_cursor_position_delete)(self); } }
+
+
+    /// `MouseState` struct
+    pub use crate::dll::AzMouseState as MouseState;
+
+    impl Clone for MouseState { fn clone(&self) -> Self { (crate::dll::get_azul_dll().az_mouse_state_deep_copy)(self) } }
+    impl Drop for MouseState { fn drop(&mut self) { (crate::dll::get_azul_dll().az_mouse_state_delete)(self); } }
+
+
+    /// `PlatformSpecificOptions` struct
+    pub use crate::dll::AzPlatformSpecificOptions as PlatformSpecificOptions;
+
+    impl Clone for PlatformSpecificOptions { fn clone(&self) -> Self { (crate::dll::get_azul_dll().az_platform_specific_options_deep_copy)(self) } }
+    impl Drop for PlatformSpecificOptions { fn drop(&mut self) { (crate::dll::get_azul_dll().az_platform_specific_options_delete)(self); } }
+
+
+    /// `WindowsWindowOptions` struct
+    pub use crate::dll::AzWindowsWindowOptions as WindowsWindowOptions;
+
+    impl Clone for WindowsWindowOptions { fn clone(&self) -> Self { (crate::dll::get_azul_dll().az_windows_window_options_deep_copy)(self) } }
+    impl Drop for WindowsWindowOptions { fn drop(&mut self) { (crate::dll::get_azul_dll().az_windows_window_options_delete)(self); } }
+
+
+    /// `WaylandTheme` struct
+    pub use crate::dll::AzWaylandTheme as WaylandTheme;
+
+    impl Clone for WaylandTheme { fn clone(&self) -> Self { (crate::dll::get_azul_dll().az_wayland_theme_deep_copy)(self) } }
+    impl Drop for WaylandTheme { fn drop(&mut self) { (crate::dll::get_azul_dll().az_wayland_theme_delete)(self); } }
+
+
+    /// `RendererType` struct
+    pub use crate::dll::AzRendererType as RendererType;
+
+    impl Clone for RendererType { fn clone(&self) -> Self { (crate::dll::get_azul_dll().az_renderer_type_deep_copy)(self) } }
+    impl Drop for RendererType { fn drop(&mut self) { (crate::dll::get_azul_dll().az_renderer_type_delete)(self); } }
+
+
+    /// `StringPair` struct
+    pub use crate::dll::AzStringPair as StringPair;
+
+    impl Clone for StringPair { fn clone(&self) -> Self { (crate::dll::get_azul_dll().az_string_pair_deep_copy)(self) } }
+    impl Drop for StringPair { fn drop(&mut self) { (crate::dll::get_azul_dll().az_string_pair_delete)(self); } }
+
+
+    /// `LinuxWindowOptions` struct
+    pub use crate::dll::AzLinuxWindowOptions as LinuxWindowOptions;
+
+    impl Clone for LinuxWindowOptions { fn clone(&self) -> Self { (crate::dll::get_azul_dll().az_linux_window_options_deep_copy)(self) } }
+    impl Drop for LinuxWindowOptions { fn drop(&mut self) { (crate::dll::get_azul_dll().az_linux_window_options_delete)(self); } }
+
+
+    /// `MacWindowOptions` struct
+    pub use crate::dll::AzMacWindowOptions as MacWindowOptions;
+
+    impl Clone for MacWindowOptions { fn clone(&self) -> Self { (crate::dll::get_azul_dll().az_mac_window_options_deep_copy)(self) } }
+    impl Drop for MacWindowOptions { fn drop(&mut self) { (crate::dll::get_azul_dll().az_mac_window_options_delete)(self); } }
+
+
+    /// `WasmWindowOptions` struct
+    pub use crate::dll::AzWasmWindowOptions as WasmWindowOptions;
+
+    impl Clone for WasmWindowOptions { fn clone(&self) -> Self { (crate::dll::get_azul_dll().az_wasm_window_options_deep_copy)(self) } }
+    impl Drop for WasmWindowOptions { fn drop(&mut self) { (crate::dll::get_azul_dll().az_wasm_window_options_delete)(self); } }
+
+
+    /// `FullScreenMode` struct
+    pub use crate::dll::AzFullScreenMode as FullScreenMode;
+
+    impl Clone for FullScreenMode { fn clone(&self) -> Self { (crate::dll::get_azul_dll().az_full_screen_mode_deep_copy)(self) } }
+    impl Drop for FullScreenMode { fn drop(&mut self) { (crate::dll::get_azul_dll().az_full_screen_mode_delete)(self); } }
+
+
+    /// `WindowState` struct
+    pub use crate::dll::AzWindowState as WindowState;
+
+    impl Clone for WindowState { fn clone(&self) -> Self { (crate::dll::get_azul_dll().az_window_state_deep_copy)(self) } }
+    impl Drop for WindowState { fn drop(&mut self) { (crate::dll::get_azul_dll().az_window_state_delete)(self); } }
 
 
     /// `LogicalSize` struct
@@ -8261,5 +9649,24 @@ pub mod window {
 
     impl Clone for LogicalSize { fn clone(&self) -> Self { (crate::dll::get_azul_dll().az_logical_size_deep_copy)(self) } }
     impl Drop for LogicalSize { fn drop(&mut self) { (crate::dll::get_azul_dll().az_logical_size_delete)(self); } }
+
+
+    /// `HotReloadOptions` struct
+    pub use crate::dll::AzHotReloadOptions as HotReloadOptions;
+
+    impl Clone for HotReloadOptions { fn clone(&self) -> Self { (crate::dll::get_azul_dll().az_hot_reload_options_deep_copy)(self) } }
+    impl Drop for HotReloadOptions { fn drop(&mut self) { (crate::dll::get_azul_dll().az_hot_reload_options_delete)(self); } }
+
+
+    /// `WindowCreateOptions` struct
+    pub use crate::dll::AzWindowCreateOptions as WindowCreateOptions;
+
+    impl WindowCreateOptions {
+        /// Creates a new `WindowCreateOptions` instance.
+        pub fn new(css: Css) -> Self { (crate::dll::get_azul_dll().az_window_create_options_new)(css) }
+    }
+
+    impl Clone for WindowCreateOptions { fn clone(&self) -> Self { (crate::dll::get_azul_dll().az_window_create_options_deep_copy)(self) } }
+    impl Drop for WindowCreateOptions { fn drop(&mut self) { (crate::dll::get_azul_dll().az_window_create_options_delete)(self); } }
 }
 
