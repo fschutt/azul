@@ -19,8 +19,6 @@ mod macros;
 
 mod css_parser;
 mod css;
-mod hot_reloader;
 
 pub use crate::css::*;
 pub use crate::css_parser::*;
-pub use crate::hot_reloader::*;

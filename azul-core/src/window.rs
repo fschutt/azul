@@ -26,8 +26,6 @@ use crate::{
     ui_state::UiState,
     display_list::{SolvedLayoutCache, GlTextureCache, CachedDisplayList},
 };
-#[cfg(feature = "opengl")]
-use gleam::gl::Gl;
 
 pub const DEFAULT_TITLE: &str = "Azul App";
 pub const DEFAULT_WIDTH: f32 = 800.0;

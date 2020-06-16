@@ -18,6 +18,11 @@ macro_rules! impl_vec {($struct_type:ident, $struct_name:ident) => (
             Vec::<$struct_type>::new().into()
         }
 
+        pub fn sort_by<F: FnMut(&$struct_type, &$struct_type) -> std::cmp::Ordering>(&mut self, compare: F) {
+            let v1: &mut [$struct_type] = unsafe { std::slice::from_raw_parts_mut(self.ptr, self.len) };
+            v1.sort_by(compare);
+        }
+
         pub fn with_capacity(cap: usize) -> Self {
             Vec::<$struct_type>::with_capacity(cap).into()
         }
@@ -86,6 +91,12 @@ macro_rules! impl_vec {($struct_type:ident, $struct_name:ident) => (
         }
     }
 
+    impl Default for $struct_name {
+        fn default() -> Self {
+            Vec::<$struct_type>::default().into()
+        }
+    }
+
     impl std::iter::FromIterator<$struct_type> for $struct_name {
         fn from_iter<T>(iter: T) -> Self where T: IntoIterator<Item = $struct_type> {
             let v: Vec<$struct_type> = Vec::from_iter(iter);
@@ -97,14 +108,6 @@ macro_rules! impl_vec {($struct_type:ident, $struct_name:ident) => (
     impl AsRef<[$struct_type]> for $struct_name {
         fn as_ref(&self) -> &[$struct_type] {
             unsafe { std::slice::from_raw_parts(self.ptr, self.len) }
-        }
-    }
-
-    impl fmt::Debug for $struct_name {
-        fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-            let v1: &[$struct_type] = unsafe { std::slice::from_raw_parts(self.ptr, self.len) };
-            let res = v1.fmt(f);
-            res
         }
     }
 
@@ -125,6 +128,28 @@ macro_rules! impl_vec {($struct_type:ident, $struct_name:ident) => (
         }
     }
 
+    impl Drop for $struct_name {
+        fn drop(&mut self) {
+            println!("Vec::<{}>::drop!", stringify!($struct_name));
+            let _v: Vec<$struct_type> = unsafe { Vec::from_raw_parts(self.ptr, self.len, self.cap) };
+            // let v drop here
+        }
+    }
+)}
+
+#[macro_export]
+macro_rules! impl_vec_debug {($struct_type:ident, $struct_name:ident) => (
+    impl std::fmt::Debug for $struct_name {
+        fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
+            let v1: &[$struct_type] = unsafe { std::slice::from_raw_parts(self.ptr, self.len) };
+            let res = v1.fmt(f);
+            res
+        }
+    }
+)}
+
+#[macro_export]
+macro_rules! impl_vec_partialord {($struct_type:ident, $struct_name:ident) => (
     impl PartialOrd for $struct_name {
         fn partial_cmp(&self, rhs: &Self) -> Option<std::cmp::Ordering> {
             let v1: &[$struct_type] = unsafe { std::slice::from_raw_parts(self.ptr, self.len) };
@@ -132,7 +157,10 @@ macro_rules! impl_vec {($struct_type:ident, $struct_name:ident) => (
             v1.partial_cmp(&v2)
         }
     }
+)}
 
+#[macro_export]
+macro_rules! impl_vec_ord {($struct_type:ident, $struct_name:ident) => (
     impl Ord for $struct_name {
         fn cmp(&self, rhs: &Self) -> std::cmp::Ordering {
             let v1: &[$struct_type] = unsafe { std::slice::from_raw_parts(self.ptr, self.len) };
@@ -140,7 +168,10 @@ macro_rules! impl_vec {($struct_type:ident, $struct_name:ident) => (
             v1.cmp(&v2)
         }
     }
+)}
 
+#[macro_export]
+macro_rules! impl_vec_clone {($struct_type:ident, $struct_name:ident) => (
     impl Clone for $struct_name {
         fn clone(&self) -> Self {
             let v: &[$struct_type] = unsafe { std::slice::from_raw_parts(self.ptr, self.len) };
@@ -149,7 +180,10 @@ macro_rules! impl_vec {($struct_type:ident, $struct_name:ident) => (
             $struct_name { ptr, len, cap }
         }
     }
+)}
 
+#[macro_export]
+macro_rules! impl_vec_partialeq {($struct_type:ident, $struct_name:ident) => (
     impl PartialEq for $struct_name {
         fn eq(&self, other: &Self) -> bool {
             let v1: &[$struct_type] = unsafe { std::slice::from_raw_parts(self.ptr, self.len) };
@@ -157,21 +191,19 @@ macro_rules! impl_vec {($struct_type:ident, $struct_name:ident) => (
             v1.eq(v2)
         }
     }
+)}
 
+#[macro_export]
+macro_rules! impl_vec_eq {($struct_type:ident, $struct_name:ident) => (
     impl Eq for $struct_name { }
+)}
 
+#[macro_export]
+macro_rules! impl_vec_hash {($struct_type:ident, $struct_name:ident) => (
     impl std::hash::Hash for $struct_name {
         fn hash<H>(&self, state: &mut H) where H: std::hash::Hasher {
             let v1: &[$struct_type] = unsafe { std::slice::from_raw_parts(self.ptr, self.len) };
             v1.hash(state);
-        }
-    }
-
-    impl Drop for $struct_name {
-        fn drop(&mut self) {
-            println!("Vec::<{}>::drop!", stringify!($struct_name));
-            let _v: Vec<$struct_type> = unsafe { Vec::from_raw_parts(self.ptr, self.len, self.cap) };
-            // let v drop here
         }
     }
 )}
@@ -210,8 +242,8 @@ macro_rules! impl_option_inner {
 
 #[macro_export]
 macro_rules! impl_option {
-    ($struct_type:ident, $struct_name:ident, copy = false, clone = false) => (
-        #[derive(Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
+    ($struct_type:ident, $struct_name:ident, copy = false, clone = false, [$($derive:meta),* ]) => (
+        $(#[derive($derive)])*
         #[repr(C, u8)]
         pub enum $struct_name {
             None,
@@ -229,8 +261,8 @@ macro_rules! impl_option {
 
         impl_option_inner!($struct_type, $struct_name);
     );
-    ($struct_type:ident, $struct_name:ident, copy = false) => (
-        #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
+    ($struct_type:ident, $struct_name:ident, copy = false, [$($derive:meta),* ]) => (
+        $(#[derive($derive)])*
         #[repr(C, u8)]
         pub enum $struct_name {
             None,
@@ -248,8 +280,8 @@ macro_rules! impl_option {
 
         impl_option_inner!($struct_type, $struct_name);
     );
-    ($struct_type:ident, $struct_name:ident) => (
-        #[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
+    ($struct_type:ident, $struct_name:ident, [$($derive:meta),* ]) => (
+        $(#[derive($derive)])*
         #[repr(C, u8)]
         pub enum $struct_name {
             None,
@@ -477,8 +509,31 @@ impl Drop for AzString {
 }
 
 impl_vec!(u8, U8Vec);
+impl_vec_debug!(u8, U8Vec);
+impl_vec_partialord!(u8, U8Vec);
+impl_vec_ord!(u8, U8Vec);
+impl_vec_clone!(u8, U8Vec);
+impl_vec_partialeq!(u8, U8Vec);
+impl_vec_eq!(u8, U8Vec);
+impl_vec_hash!(u8, U8Vec);
+
 impl_vec!(AzString, StringVec);
+impl_vec_debug!(AzString, StringVec);
+impl_vec_partialord!(AzString, StringVec);
+impl_vec_ord!(AzString, StringVec);
+impl_vec_clone!(AzString, StringVec);
+impl_vec_partialeq!(AzString, StringVec);
+impl_vec_eq!(AzString, StringVec);
+impl_vec_hash!(AzString, StringVec);
+
 impl_vec!(GradientStopPre, GradientStopPreVec);
+impl_vec_debug!(GradientStopPre, GradientStopPreVec);
+impl_vec_partialord!(GradientStopPre, GradientStopPreVec);
+impl_vec_ord!(GradientStopPre, GradientStopPreVec);
+impl_vec_clone!(GradientStopPre, GradientStopPreVec);
+impl_vec_partialeq!(GradientStopPre, GradientStopPreVec);
+impl_vec_eq!(GradientStopPre, GradientStopPreVec);
+impl_vec_hash!(GradientStopPre, GradientStopPreVec);
 
 impl From<Vec<String>> for StringVec {
     fn from(v: Vec<String>) -> StringVec {
@@ -496,8 +551,6 @@ impl From<StringVec> for Vec<String> {
 
 mod css;
 mod css_properties;
-mod hot_reload;
 
 pub use crate::css::*;
 pub use crate::css_properties::*;
-pub use crate::hot_reload::*;

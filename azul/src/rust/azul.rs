@@ -4899,6 +4899,12 @@ pub mod vec {
                 Vec::<$struct_type>::new().into()
             }
 
+            pub fn sort_by<F: FnMut(&T, &T) -> std::cmp::Ordering>(&mut self, compare: F) {
+                let v1: Vec<$struct_type> = unsafe { Vec::from_raw_parts_mut(self.ptr as *mut $struct_type, self.len, self.cap) };
+                v1.sort_by(compare);
+                std::mem::forget(v1);
+            }
+
             pub fn with_capacity(cap: usize) -> Self {
                 Vec::<$struct_type>::with_capacity(cap).into()
             }
@@ -4965,6 +4971,12 @@ pub mod vec {
                 let cap = v.capacity();
                 std::mem::forget(v);
                 (ptr, len, cap)
+            }
+        }
+
+        impl Default for $struct_name {
+            fn default() -> Self {
+                Vec::<$struct_type>::default().into()
             }
         }
 

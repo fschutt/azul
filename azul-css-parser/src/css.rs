@@ -180,6 +180,8 @@ fn parse_nth_child_selector<'a>(value: &'a str) -> Result<CssNthChildSelector, C
 /// Parses the pattern between the braces of a "nth-child" (such as "2n+3").
 fn parse_nth_child_pattern<'a>(value: &'a str) -> Result<CssNthChildSelector, CssPseudoSelectorParseError<'a>> {
 
+    use azul_css::CssNthChildPattern;
+
     let value = value.trim();
 
     if value.is_empty() {
@@ -210,7 +212,7 @@ fn parse_nth_child_pattern<'a>(value: &'a str) -> Result<CssNthChildSelector, Cs
         None => 0,
     };
 
-    Ok(Pattern { repeat, offset })
+    Ok(Pattern(CssNthChildPattern { repeat, offset }))
 }
 
 #[test]
@@ -290,7 +292,7 @@ impl<'a> fmt::Display for CssParseError<'a> {
 pub fn new_from_str<'a>(css_string: &'a str) -> Result<Css, CssParseError<'a>> {
     let mut tokenizer = Tokenizer::new(css_string);
     let (stylesheet, _warnings) = new_from_str_inner(css_string, &mut tokenizer)?;
-    Ok(Css { stylesheets: vec![stylesheet] })
+    Ok(Css { stylesheets: vec![stylesheet].into() })
 }
 
 /// Returns the location of where the parser is currently in the document
@@ -392,7 +394,7 @@ pub fn parse_css_path<'a>(input: &'a str) -> Result<CssPath, CssPathParseError<'
     }
 
     if !selectors.is_empty() {
-        Ok(CssPath { selectors })
+        Ok(CssPath { selectors: selectors.into() })
     } else {
         Err(CssPathParseError::EmptyPath)
     }
@@ -494,7 +496,7 @@ fn new_from_str_inner<'a>(css_string: &'a str, tokenizer: &mut Tokenizer<'a>)
 
                 css_blocks.extend(current_paths.drain(..).map(|path| {
                     UnparsedCssRuleBlock {
-                        path: CssPath { selectors: path },
+                        path: CssPath { selectors: path.into() },
                         declarations: current_rules.clone(),
                     }
                 }));
@@ -600,8 +602,8 @@ fn unparsed_css_blocks_to_stylesheet<'a>(css_blocks: Vec<UnparsedCssRuleBlock<'a
         }
 
         Ok(CssRuleBlock {
-            path: unparsed_css_block.path,
-            declarations,
+            path: unparsed_css_block.path.into(),
+            declarations: declarations.into(),
         })
     }).collect::<Result<Vec<CssRuleBlock>, CssParseError>>()?;
 
@@ -641,7 +643,7 @@ fn parse_css_declaration<'a>(
                 .map_err(|e| DynamicCssParseError(e.into()))?;
 
             declarations.push(CssDeclaration::Dynamic(DynamicCssProperty {
-                dynamic_id: css_var_id.to_string(),
+                dynamic_id: css_var_id.to_string().into(),
                 default_value: parsed_default_value,
             }));
         } else {

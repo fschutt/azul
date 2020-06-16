@@ -2100,7 +2100,7 @@ impl fmt::Display for CssImageId {
     }
 }
 
-impl_option!(PercentageValue, OptionPercentageValue);
+impl_option!(PercentageValue, OptionPercentageValue, [Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash]);
 
 #[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
 #[repr(C)]

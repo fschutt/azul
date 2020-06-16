@@ -15,6 +15,10 @@ pub struct Css {
 }
 
 impl_vec!(Stylesheet, StylesheetVec);
+impl_vec_debug!(Stylesheet, StylesheetVec);
+impl_vec_partialord!(Stylesheet, StylesheetVec);
+impl_vec_clone!(Stylesheet, StylesheetVec);
+impl_vec_partialeq!(Stylesheet, StylesheetVec);
 
 impl Css {
     pub fn new(stylesheets: Vec<Stylesheet>) -> Self {
@@ -30,6 +34,10 @@ pub struct Stylesheet {
 }
 
 impl_vec!(CssRuleBlock, CssRuleBlockVec);
+impl_vec_debug!(CssRuleBlock, CssRuleBlockVec);
+impl_vec_partialord!(CssRuleBlock, CssRuleBlockVec);
+impl_vec_clone!(CssRuleBlock, CssRuleBlockVec);
+impl_vec_partialeq!(CssRuleBlock, CssRuleBlockVec);
 
 impl Stylesheet {
     pub fn new(rules: Vec<CssRuleBlock>) -> Self {
@@ -277,6 +285,13 @@ pub struct CssRuleBlock {
 }
 
 impl_vec!(CssDeclaration, CssDeclarationVec);
+impl_vec_debug!(CssDeclaration, CssDeclarationVec);
+impl_vec_partialord!(CssDeclaration, CssDeclarationVec);
+impl_vec_ord!(CssDeclaration, CssDeclarationVec);
+impl_vec_clone!(CssDeclaration, CssDeclarationVec);
+impl_vec_partialeq!(CssDeclaration, CssDeclarationVec);
+impl_vec_eq!(CssDeclaration, CssDeclarationVec);
+impl_vec_hash!(CssDeclaration, CssDeclarationVec);
 
 impl CssRuleBlock {
     pub fn new(path: CssPath, declarations: Vec<CssDeclaration>) -> Self {
@@ -364,16 +379,23 @@ pub struct CssPath {
 }
 
 impl_vec!(CssPathSelector, CssPathSelectorVec);
+impl_vec_debug!(CssPathSelector, CssPathSelectorVec);
+impl_vec_partialord!(CssPathSelector, CssPathSelectorVec);
+impl_vec_ord!(CssPathSelector, CssPathSelectorVec);
+impl_vec_clone!(CssPathSelector, CssPathSelectorVec);
+impl_vec_partialeq!(CssPathSelector, CssPathSelectorVec);
+impl_vec_eq!(CssPathSelector, CssPathSelectorVec);
+impl_vec_hash!(CssPathSelector, CssPathSelectorVec);
 
 impl CssPath {
-    pub const fn new(selectors: Vec<CssPathSelector>) -> Self {
+    pub fn new(selectors: Vec<CssPathSelector>) -> Self {
         Self { selectors: selectors.into() }
     }
 }
 
 impl fmt::Display for CssPath {
     fn fmt(&self, f: &mut std::fmt::Formatter) -> Result<(), std::fmt::Error> {
-        for selector in &self.selectors {
+        for selector in self.selectors.as_ref() {
             write!(f, "{}", selector)?;
         }
         Ok(())
@@ -493,7 +515,7 @@ impl Css {
     }
 
     pub fn append(&mut self, css: Self) {
-        for stylesheet in css.stylesheets {
+        for stylesheet in css.stylesheets.into_iter() {
             self.append_stylesheet(stylesheet);
         }
     }
@@ -503,7 +525,7 @@ impl Css {
     }
 
     pub fn sort_by_specificity(&mut self) {
-        for stylesheet in &mut self.stylesheets {
+        for stylesheet in self.stylesheets.iter_mut() {
             stylesheet.sort_by_specificity()
         }
     }
