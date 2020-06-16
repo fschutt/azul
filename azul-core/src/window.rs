@@ -61,6 +61,7 @@ impl IconKey {
 }
 
 #[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
+#[repr(C)]
 pub enum MouseCursorType {
     Default,
     Crosshair,
@@ -110,6 +111,7 @@ pub type ScanCode = u32;
 
 /// Determines which keys are pressed currently (modifiers, etc.)
 #[derive(Default, Debug, Clone, PartialEq)]
+#[repr(C)]
 pub struct KeyboardState {
     /// Tracks, if the `Shift` key is currently pressed - (READONLY)
     pub shift_down: bool,
@@ -120,13 +122,13 @@ pub struct KeyboardState {
     /// Tracks, if the `Super / Windows / Command` key is currently pressed - (READONLY)
     pub super_down: bool,
     /// Currently pressed key, already converted to a `char` - (READONLY)
-    pub current_char: Option<char>,
+    pub current_char: OptionChar,
     /// Same as `current_char`, but .
     ///
     /// **DO NOT USE THIS FOR TEXT INPUT, USE `current_char` and `On::TextInput` instead.**
     /// For example entering `à` will fire a `VirtualKeyCode::Grave`, then `VirtualKeyCode::A`,
     /// so to correctly combine characters, use the `current_char` field.
-    pub current_virtual_keycode: Option<VirtualKeyCode>,
+    pub current_virtual_keycode: OptionVirtualKeyCode,
     /// Currently pressed virtual keycodes (READONLY) - it can happen that more t
     ///
     /// This is essentially an "extension" of `current_scancodes` - `current_keys` stores the characters, but what if the
@@ -134,19 +136,25 @@ pub struct KeyboardState {
     ///
     /// Note that this can have an overlap, so pressing "a" on the keyboard will insert
     /// both a `VirtualKeyCode::A` into `current_virtual_keycodes` and an `"a"` as a char into `current_keys`.
-    pub pressed_virtual_keycodes: HashSet<VirtualKeyCode>,
+    pub pressed_virtual_keycodes: VirtualKeyCodeVec,
     /// Same as `current_virtual_keycodes`, but the scancode identifies the physical key pressed,
     /// independent of the keyboard layout. The scancode does not change if the user adjusts the host's keyboard map.
     /// Use when the physical location of the key is more important than the key's host GUI semantics,
     /// such as for movement controls in a first-person game (German keyboard: Z key, UK keyboard: Y key, etc.)
-    pub pressed_scancodes: HashSet<ScanCode>,
+    pub pressed_scancodes: ScanCodeVec,
 }
+
+impl_option!(char, OptionChar);
+impl_option!(VirtualKeyCode, OptionVirtualKeyCode);
+impl_vec!(VirtualKeyCode, VirtualKeyCodeVec);
+impl_vec!(ScanCode, ScanCodeVec);
 
 /// Mouse position, cursor type, user scroll input, etc.
 #[derive(Debug, Copy, Clone, PartialOrd, PartialEq)]
+#[repr(C)]
 pub struct MouseState {
     /// Current mouse cursor type, set to `None` if the cursor is hidden. (READWRITE)
-    pub mouse_cursor_type: Option<MouseCursorType>,
+    pub mouse_cursor_type: OptionMouseCursorType,
     /// Where is the mouse cursor currently? Set to `None` if the window is not focused. (READWRITE)
     pub cursor_position: CursorPosition,
     /// Is the mouse cursor locked to the current window (important for applications like games)? (READWRITE)
@@ -158,10 +166,12 @@ pub struct MouseState {
     /// Is the middle mouse button down? (READONLY)
     pub middle_down: bool,
     /// Scroll amount in pixels in the horizontal direction. Gets reset to 0 after every frame (READONLY)
-    pub scroll_x: Option<f32>,
+    pub scroll_x: OptionF32,
     /// Scroll amount in pixels in the vertical direction. Gets reset to 0 after every frame (READONLY)
-    pub scroll_y: Option<f32>,
+    pub scroll_y: OptionF32,
 }
+
+impl_option!(MouseCursorType, OptionMouseCursorType);
 
 impl Default for MouseState {
     fn default() -> Self {
@@ -199,6 +209,7 @@ impl MouseState {
 }
 
 #[derive(Debug, Copy, Clone, PartialEq, PartialOrd)]
+#[repr(C, u8)]
 pub enum CursorPosition {
     OutOfWindow,
     Uninitialized,
@@ -223,6 +234,7 @@ impl CursorPosition {
 /// Toggles webrender debug flags (will make stuff appear on
 /// the screen that you might not want to - used for debugging purposes)
 #[derive(Default, Debug, Copy, Clone, PartialEq, Eq, Hash, PartialOrd, Ord)]
+#[repr(C)]
 pub struct DebugState {
     /// Toggles `webrender::DebugFlags::PROFILER_DBG`
     pub profiler_dbg: bool,
@@ -415,13 +427,14 @@ impl WindowInternal {
 
 /// State, size, etc of the window, for comparing to the last frame
 #[derive(Debug, Clone, PartialEq)]
+#[repr(C)]
 pub struct WindowState {
     /// Current title of the window
-    pub title: String,
+    pub title: AzString,
     /// Size of the window + max width / max height: 800 x 600 by default
     pub size: WindowSize,
     /// The x and y position, or None to let the WM decide where to put the window (default)
-    pub position: Option<PhysicalPosition<i32>>,
+    pub position: OptionPhysicalPositionI32,
     /// Flags such as whether the window is minimized / maximized, fullscreen, etc.
     pub flags: WindowFlags,
     /// Mostly used for debugging, shows WebRender-builtin graphs on the screen.
@@ -434,7 +447,7 @@ pub struct WindowState {
     pub mouse_state: MouseState,
     /// Sets location of IME candidate box in client area coordinates
     /// relative to the top left of the window.
-    pub ime_position: Option<LogicalPosition>,
+    pub ime_position: OptionLogicalPosition,
     /// Window options that can only be set on a certain platform
     /// (`WindowsWindowOptions` / `LinuxWindowOptions` / `MacWindowOptions`).
     pub platform_specific_options: PlatformSpecificOptions,
@@ -608,6 +621,7 @@ impl CallCallbacksResult {
 }
 
 #[derive(Debug, Copy, Clone, PartialEq, Eq, Ord, PartialOrd, Hash)]
+#[repr(C)]
 pub struct WindowFlags {
     /// Is the window currently maximized
     pub is_maximized: bool,
@@ -636,22 +650,15 @@ impl Default for WindowFlags {
     }
 }
 
-#[cfg(target_arch = "wasm32")]
-pub type PlatformSpecificOptions = WasmWindowOptions;
-#[cfg(target_os = "windows")]
-pub type PlatformSpecificOptions = WindowsWindowOptions;
-#[cfg(target_os = "linux")]
-pub type PlatformSpecificOptions = LinuxWindowOptions;
-#[cfg(target_os = "macos")]
-pub type PlatformSpecificOptions = MacWindowOptions;
-
-#[cfg(target_arch = "wasm32")]
-#[derive(Debug, Default, Copy, Clone, PartialEq, PartialOrd, Eq, Ord, Hash)]
-pub struct WasmWindowOptions {
-    // empty for now
+#[derive(Debug, Default, Clone, PartialEq, PartialOrd, Eq, Ord, Hash)]
+#[repr(C)]
+pub struct PlatformSpecificOptions {
+    pub windows_options: WindowsWindowOptions,
+    pub linux_options: LinuxWindowOptions,
+    pub mac_options: MacWindowOptions,
+    pub wasm_options: WasmWindowOptions,
 }
 
-#[cfg(target_os = "windows")]
 #[derive(Debug, Default, Clone, PartialEq, PartialOrd, Eq, Ord, Hash)]
 pub struct WindowsWindowOptions {
     /// STARTUP ONLY: Sets `WS_EX_NOREDIRECTIONBITMAP`
@@ -714,7 +721,6 @@ impl Default for XWindowType {
     }
 }
 
-#[cfg(target_os = "linux")]
 #[derive(Debug, Default, Clone, PartialEq, PartialOrd)]
 pub struct LinuxWindowOptions {
     /// (Unimplemented) - Can only be set at window creation, can't be changed in callbacks.
@@ -746,15 +752,20 @@ pub struct LinuxWindowOptions {
     /// For details about application ID conventions, see the
     /// [Desktop Entry Spec](https://specifications.freedesktop.org/desktop-entry-spec/desktop-entry-spec-latest.html#desktop-file-id)
     pub wayland_app_id: Option<String>,
-    pub request_user_attention: bool,
     pub wayland_theme: Option<WaylandTheme>,
+    pub request_user_attention: bool,
     pub window_icon: Option<WindowIcon>,
 }
 
-#[cfg(target_os = "macos")]
 #[derive(Debug, Default, Copy, Clone, PartialEq, PartialOrd, Eq, Ord, Hash)]
 pub struct MacWindowOptions {
     pub request_user_attention: bool,
+}
+
+#[derive(Debug, Default, Copy, Clone, PartialEq, PartialOrd, Eq, Ord, Hash)]
+#[repr(C)]
+pub struct WasmWindowOptions {
+    // empty for now
 }
 
 impl WindowState {
@@ -789,6 +800,7 @@ impl WindowState {
 }
 
 #[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
+#[repr(C)]
 pub enum FullScreenMode {
     /// - macOS: If the window is in windowed mode, transitions it slowly to fullscreen mode
     /// - other: Does the same as `FastFullScreen`.
@@ -803,12 +815,14 @@ pub enum FullScreenMode {
 }
 
 #[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
+#[repr(C)]
 pub enum Theme {
     Dark,
     Light,
 }
 
 #[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
+#[repr(C)]
 pub struct WaylandTheme {
     /// Primary color when the window is focused
     pub primary_color_active: [u8;4],
@@ -839,6 +853,7 @@ pub struct WaylandTheme {
 }
 
 #[derive(Debug, Copy, Clone, PartialEq, PartialOrd)]
+#[repr(C)]
 pub struct WindowSize {
     /// Width and height of the window, in logical
     /// units (may not correspond to the physical on-screen size)
@@ -848,9 +863,9 @@ pub struct WindowSize {
     /// (Internal only, unused): winit HiDPI factor
     pub winit_hidpi_factor: f32,
     /// Minimum dimensions of the window
-    pub min_dimensions: Option<LogicalSize>,
+    pub min_dimensions: OptionLogicalSize,
     /// Maximum dimensions of the window
-    pub max_dimensions: Option<LogicalSize>,
+    pub max_dimensions: OptionLogicalSize,
 }
 
 impl WindowSize {
@@ -903,6 +918,7 @@ impl Default for WindowState {
 }
 
 /// Options on how to initially create the window
+#[repr(C)]
 pub struct WindowCreateOptions {
     /// State of the window, set the initial title / width / height here.
     pub state: WindowState,
@@ -910,11 +926,17 @@ pub struct WindowCreateOptions {
     // pub monitor: Monitor,
     /// Renderer type: Hardware-with-software-fallback, pure software or pure hardware renderer?
     pub renderer_type: RendererType,
-    #[cfg(debug_assertions)]
-    #[cfg(not(test))]
     /// An optional style hot-reloader for the current window, only available with debug_assertions
     /// enabled
-    pub hot_reload_handler: Option<Box<dyn HotReloadHandler>>,
+    pub hot_reload: OptionHotReloadOptions,
+}
+
+impl_option!(HotReloadOptions, OptionHotReloadOptions);
+
+#[repr(C)]
+pub struct HotReloadOptions {
+    pub path: AzString,
+    pub reload_interval: AzDuration,
 }
 
 impl fmt::Debug for WindowCreateOptions {
@@ -1013,7 +1035,7 @@ impl HotReloader {
 /// not available for whatever reason.
 ///
 /// If you don't know what any of this means, leave it at `Default`.
-#[cfg_attr(not(feature = "opengl"), derive(Copy))]
+#[repr(C, u8)]
 pub enum RendererType {
     /// Use the hardware renderer first, then fall back to OSMesa
     Default,
@@ -1023,7 +1045,7 @@ pub enum RendererType {
     ForceSoftware,
     /// Render using a custom OpenGL implementation
     #[cfg(feature = "opengl")]
-    Custom(Rc<dyn Gl>),
+    Custom(GlContextPtr),
 }
 
 impl RendererType {
@@ -1287,12 +1309,16 @@ pub struct LogicalPosition {
     pub y: f32,
 }
 
+impl_option!(LogicalPosition, OptionLogicalPosition);
+
 #[derive(Debug, Copy, Clone, PartialEq, PartialOrd)]
 #[repr(C)]
 pub struct LogicalSize {
     pub width: f32,
     pub height: f32,
 }
+
+impl_option!(LogicalSize, OptionLogicalSize);
 
 #[derive(Debug, Copy, Clone, PartialEq, PartialOrd)]
 #[repr(C)]
@@ -1301,12 +1327,17 @@ pub struct PhysicalPosition<T> {
     pub y: T,
 }
 
+impl_option!(PhysicalPosition<f32>, OptionPhysicalPositionF32);
+impl_option!(PhysicalPosition<i32>, OptionPhysicalPositionI32);
+
 #[derive(Debug, Copy, Clone, PartialEq, PartialOrd)]
 #[repr(C)]
 pub struct PhysicalSize<T> {
     pub width: T,
     pub height: T,
 }
+
+impl_option!(PhysicalSize<f32>, OptionPhysicalSizenF32);
 
 impl LogicalPosition {
     #[inline(always)]
@@ -1384,6 +1415,7 @@ impl PhysicalSize<u32> {
 
 /// Utility function for easier creation of a keymap - i.e. `[vec![Ctrl, S], my_function]`
 #[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
+#[repr(C, u8)]
 pub enum AcceleratorKey {
     Ctrl,
     Alt,
@@ -1409,6 +1441,7 @@ impl AcceleratorKey {
 
 /// Symbolic name for a keyboard key, does NOT take the keyboard locale into account
 #[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
+#[repr(C)]
 pub enum VirtualKeyCode {
     Key1,
     Key2,

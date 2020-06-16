@@ -43,6 +43,7 @@ macro_rules! impl_vec {($struct_type:ident, $struct_name:ident) => (
 
         pub fn into_iter(self) -> std::vec::IntoIter<$struct_type> {
             let v1: Vec<$struct_type> = unsafe { std::vec::Vec::from_raw_parts(self.ptr, self.len, self.cap) };
+            println!("Vec::<{}>::drop!", stringify!($struct_type));
             std::mem::forget(self); // do not run destructor of self
             v1.into_iter()
         }
@@ -80,7 +81,6 @@ macro_rules! impl_vec {($struct_type:ident, $struct_name:ident) => (
             let ptr = v.as_mut_ptr();
             let len = v.len();
             let cap = v.capacity();
-            println!("Vec::<{}>::into_raw_parts!", stringify!($struct_name));
             std::mem::forget(v);
             (ptr, len, cap)
         }
@@ -89,6 +89,7 @@ macro_rules! impl_vec {($struct_type:ident, $struct_name:ident) => (
     impl std::iter::FromIterator<$struct_type> for $struct_name {
         fn from_iter<T>(iter: T) -> Self where T: IntoIterator<Item = $struct_type> {
             let v: Vec<$struct_type> = Vec::from_iter(iter);
+            println!("Vec::<{}>::new!", stringify!($struct_type));
             v.into()
         }
     }
@@ -110,6 +111,7 @@ macro_rules! impl_vec {($struct_type:ident, $struct_name:ident) => (
     impl From<Vec<$struct_type>> for $struct_name {
         fn from(input: Vec<$struct_type>) -> $struct_name {
             let (ptr, len, cap) = $struct_name::into_raw_parts(input);
+            println!("Vec::<{}>::new!", stringify!($struct_type));
             $struct_name { ptr, len, cap }
         }
     }
@@ -117,6 +119,7 @@ macro_rules! impl_vec {($struct_type:ident, $struct_name:ident) => (
     impl From<$struct_name> for Vec<$struct_type> {
         fn from(input: $struct_name) -> Vec<$struct_type> {
             let v = unsafe { Vec::from_raw_parts(input.ptr, input.len, input.cap) };
+            println!("Vec::<{}>::drop!", stringify!($struct_type));
             std::mem::forget(input); // don't run the destructor of "input"
             v
         }

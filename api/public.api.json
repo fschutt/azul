@@ -4510,16 +4510,377 @@
 		"window": {
 			"doc": "Window creation / startup configuration",
 			"classes": {
-				"WindowCreateOptions": {
-					"rust_class_name": "WindowCreateOptions",
-					"constructors": {
-						"new": {
-						"fn_args":[
-							{"css": "Css"}
-						],
-						"fn_body":"WindowCreateOptions::new(*az_css_downcast(css))"
-						}
-					}
+				"VirtualKeyCode": {
+					"external": "azul_impl::window::VirtualKeyCode",
+					"enum_fields": [
+						{"Key1": {}},
+						{"Key2": {}},
+						{"Key3": {}},
+						{"Key4": {}},
+						{"Key5": {}},
+						{"Key6": {}},
+						{"Key7": {}},
+						{"Key8": {}},
+						{"Key9": {}},
+						{"Key0": {}},
+						{"A": {}},
+						{"B": {}},
+						{"C": {}},
+						{"D": {}},
+						{"E": {}},
+						{"F": {}},
+						{"G": {}},
+						{"H": {}},
+						{"I": {}},
+						{"J": {}},
+						{"K": {}},
+						{"L": {}},
+						{"M": {}},
+						{"N": {}},
+						{"O": {}},
+						{"P": {}},
+						{"Q": {}},
+						{"R": {}},
+						{"S": {}},
+						{"T": {}},
+						{"U": {}},
+						{"V": {}},
+						{"W": {}},
+						{"X": {}},
+						{"Y": {}},
+						{"Z": {}},
+						{"Escape": {}},
+						{"F1": {}},
+						{"F2": {}},
+						{"F3": {}},
+						{"F4": {}},
+						{"F5": {}},
+						{"F6": {}},
+						{"F7": {}},
+						{"F8": {}},
+						{"F9": {}},
+						{"F10": {}},
+						{"F11": {}},
+						{"F12": {}},
+						{"F13": {}},
+						{"F14": {}},
+						{"F15": {}},
+						{"F16": {}},
+						{"F17": {}},
+						{"F18": {}},
+						{"F19": {}},
+						{"F20": {}},
+						{"F21": {}},
+						{"F22": {}},
+						{"F23": {}},
+						{"F24": {}},
+						{"Snapshot": {}},
+						{"Scroll": {}},
+						{"Pause": {}},
+						{"Insert": {}},
+						{"Home": {}},
+						{"Delete": {}},
+						{"End": {}},
+						{"PageDown": {}},
+						{"PageUp": {}},
+						{"Left": {}},
+						{"Up": {}},
+						{"Right": {}},
+						{"Down": {}},
+						{"Back": {}},
+						{"Return": {}},
+						{"Space": {}},
+						{"Compose": {}},
+						{"Caret": {}},
+						{"Numlock": {}},
+						{"Numpad0": {}},
+						{"Numpad1": {}},
+						{"Numpad2": {}},
+						{"Numpad3": {}},
+						{"Numpad4": {}},
+						{"Numpad5": {}},
+						{"Numpad6": {}},
+						{"Numpad7": {}},
+						{"Numpad8": {}},
+						{"Numpad9": {}},
+						{"AbntC1": {}},
+						{"AbntC2": {}},
+						{"Add": {}},
+						{"Apostrophe": {}},
+						{"Apps": {}},
+						{"At": {}},
+						{"Ax": {}},
+						{"Backslash": {}},
+						{"Calculator": {}},
+						{"Capital": {}},
+						{"Colon": {}},
+						{"Comma": {}},
+						{"Convert": {}},
+						{"Decimal": {}},
+						{"Divide": {}},
+						{"Equals": {}},
+						{"Grave": {}},
+						{"Kana": {}},
+						{"Kanji": {}},
+						{"LAlt": {}},
+						{"LBracket": {}},
+						{"LControl": {}},
+						{"LShift": {}},
+						{"LWin": {}},
+						{"Mail": {}},
+						{"MediaSelect": {}},
+						{"MediaStop": {}},
+						{"Minus": {}},
+						{"Multiply": {}},
+						{"Mute": {}},
+						{"MyComputer": {}},
+						{"NavigateForward": {}},
+						{"NavigateBackward": {}},
+						{"NextTrack": {}},
+						{"NoConvert": {}},
+						{"NumpadComma": {}},
+						{"NumpadEnter": {}},
+						{"NumpadEquals": {}},
+						{"OEM102": {}},
+						{"Period": {}},
+						{"PlayPause": {}},
+						{"Power": {}},
+						{"PrevTrack": {}},
+						{"RAlt": {}},
+						{"RBracket": {}},
+						{"RControl": {}},
+						{"RShift": {}},
+						{"RWin": {}},
+						{"Semicolon": {}},
+						{"Slash": {}},
+						{"Sleep": {}},
+						{"Stop": {}},
+						{"Subtract": {}},
+						{"Sysrq": {}},
+						{"Tab": {}},
+						{"Underline": {}},
+						{"Unlabeled": {}},
+						{"VolumeDown": {}},
+						{"VolumeUp": {}},
+						{"Wake": {}},
+						{"WebBack": {}},
+						{"WebFavorites": {}},
+						{"WebForward": {}},
+						{"WebHome": {}},
+						{"WebRefresh": {}},
+						{"WebSearch": {}},
+						{"WebStop": {}},
+						{"Yen": {}},
+						{"Copy": {}},
+						{"Paste": {}},
+						{"Cut": {}}
+					]
+				},
+				"AcceleratorKey": {
+					"external": "azul_impl::window::AcceleratorKey",
+					"enum_fields": [
+						{"Ctrl": {}},
+						{"Alt": {}},
+						{"Shift": {}},
+						{"Key": {"type": "VirtualKeyCode"}}
+					]
+				},
+				"WindowSize": {
+					"external": "azul_impl::window::WindowSize",
+					"struct_fields": [
+						{"dimensions": {"type": "LogicalSize"}},
+						{"hidpi_factor": {"type": "f32"}},
+						{"winit_hidpi_factor": {"type": "f32"}},
+						{"min_dimensions": {"type": "OptionLogicalSize"}},
+						{"max_dimensions": {"type": "OptionLogicalSize"}}
+					]
+				},
+				"WindowFlags": {
+					"external": "azul_impl::window::WindowFlags",
+					"struct_fields": [
+						{"is_maximized": {"type": "bool", "doc": "Is the window currently maximized"}},
+						{"is_fullscreen": {"type": "bool", "doc": "Is the window currently fullscreened?"}},
+						{"has_decorations": {"type": "bool", "doc": "Does the window have decorations (close, minimize, maximize, title bar)?"}},
+						{"is_visible": {"type": "bool", "doc": "Is the window currently visible?"}},
+						{"is_always_on_top": {"type": "bool", "doc": "Is the window always on top?"}},
+						{"is_resizable": {"type": "bool", "doc": "Whether the window is resizable"}}
+					]
+				},
+				"DebugState": {
+					"external": "azul_impl::window::DebugState",
+					"struct_fields": [
+						{"profiler_dbg": {"type": "bool", "doc": "Toggles `webrender::DebugFlags::PROFILER_DBG`"}},
+						{"render_target_dbg": {"type": "bool", "doc": "Toggles `webrender::DebugFlags::RENDER_TARGET_DBG`"}},
+						{"texture_cache_dbg": {"type": "bool", "doc": "Toggles `webrender::DebugFlags::TEXTURE_CACHE_DBG`"}},
+						{"gpu_time_queries": {"type": "bool", "doc": "Toggles `webrender::DebugFlags::GPU_TIME_QUERIES`"}},
+						{"gpu_sample_queries": {"type": "bool", "doc": "Toggles `webrender::DebugFlags::GPU_SAMPLE_QUERIES`"}},
+						{"disable_batching": {"type": "bool", "doc": "Toggles `webrender::DebugFlags::DISABLE_BATCHING`"}},
+						{"epochs": {"type": "bool", "doc": "Toggles `webrender::DebugFlags::EPOCHS`"}},
+						{"compact_profiler": {"type": "bool", "doc": "Toggles `webrender::DebugFlags::COMPACT_PROFILER`"}},
+						{"echo_driver_messages": {"type": "bool", "doc": "Toggles `webrender::DebugFlags::ECHO_DRIVER_MESSAGES`"}},
+						{"new_frame_indicator": {"type": "bool", "doc": "Toggles `webrender::DebugFlags::NEW_FRAME_INDICATOR`"}},
+						{"new_scene_indicator": {"type": "bool", "doc": "Toggles `webrender::DebugFlags::NEW_SCENE_INDICATOR`"}},
+						{"show_overdraw": {"type": "bool", "doc": "Toggles `webrender::DebugFlags::SHOW_OVERDRAW`"}},
+						{"gpu_cache_dbg": {"type": "bool", "doc": "Toggles `webrender::DebugFlagsFGPU_CACHE_DBG`"}}
+					]
+				},
+				"KeyboardState": {
+					"external": "azul_impl::window::KeyboardState",
+					"struct_fields": [
+						{"shift_down": {"type": "bool", "doc": "Tracks, if the `Shift` key is currently pressed - (READONLY)"}},
+						{"ctrl_down": {"type": "bool", "doc": "Tracks, if the `Ctrl` key is currently pressed - (READONLY)"}},
+						{"alt_down": {"type": "bool", "doc": "Tracks, if the `Alt` key is currently pressed - (READONLY)"}},
+						{"super_down": {"type": "bool", "doc": "Tracks, if the `Super / Windows / Command` key is currently pressed - (READONLY)"}},
+						{"current_char": {"type": "OptionChar", "doc": "Currently pressed `char` - (READONLY)"}},
+						{"current_virtual_keycode": {"type": "OptionVirtualKeyCode", "doc": "Currently pressed `VirtualKeyCode` - (READONLY). **DO NOT USE THIS FOR TEXT INPUT, USE `current_char` and `On::TextInput` instead.**"}},
+						{"pressed_virtual_keycodes": {"type": "VirtualKeyCodeVec", "doc": "List of currently held-down `VirtualKeyCodes` - useful to implement combinated shortcuts (ex. `Ctrl + Shift + Right`)"}},
+						{"pressed_scancodes": {"type": "ScanCodeVec", "doc": "List of currently held-down `ScanCode`s (typedef for `u32`). Same as `current_virtual_keycodes`, but the scancode identifies the physical key pressed, independent of the keyboard layout. The scancode does not change if the user adjusts the host's keyboard map. Use when the physical location of the key is more important than the key's host GUI semantics, such as for movement controls in a first-person game (German keyboard: Z key, UK keyboard: Y key, etc.)"}}
+					]
+				},
+				"MouseCursorType": {
+					"external": "azul_impl::window::MouseCursorType",
+					"enum_fields": [
+					    {"Default": {}},
+					    {"Crosshair": {}},
+					    {"Hand": {}},
+					    {"Arrow": {}},
+					    {"Move": {}},
+					    {"Text": {}},
+					    {"Wait": {}},
+					    {"Help": {}},
+					    {"Progress": {}},
+					    {"NotAllowed": {}},
+					    {"ContextMenu": {}},
+					    {"Cell": {}},
+					    {"VerticalText": {}},
+					    {"Alias": {}},
+					    {"Copy": {}},
+					    {"NoDrop": {}},
+					    {"Grab": {}},
+					    {"Grabbing": {}},
+					    {"AllScroll": {}},
+					    {"ZoomIn": {}},
+					    {"ZoomOut": {}},
+					    {"EResize": {}},
+					    {"NResize": {}},
+					    {"NeResize": {}},
+					    {"NwResize": {}},
+					    {"SResize": {}},
+					    {"SeResize": {}},
+					    {"SwResize": {}},
+					    {"WResize": {}},
+					    {"EwResize": {}},
+					    {"NsResize": {}},
+					    {"NeswResize": {}},
+					    {"NwseResize": {}},
+					    {"ColResize": {}},
+					    {"RowResize": {}}
+					]
+				},
+				"CursorPosition": {
+					"external": "azul_impl::window::MouseState",
+					"enum_fields": [
+						{"OutOfWindow": {}},
+						{"Uninitialized": {}},
+						{"InWindow": {"type": "LogicalPosition"}}
+					]
+				},
+				"MouseState": {
+					"external": "azul_impl::window::MouseState",
+					"struct_fields": [
+						{"mouse_cursor_type": {"type": "OptionMouseCursorType", "doc": "Current mouse cursor type, set to `None` if the cursor is hidden. (READWRITE)"}},
+						{"cursor_position": {"type": "CursorPosition", "doc": "Current mouse cursor type, set to `None` if the cursor is hidden. (READWRITE)"}},
+						{"is_cursor_locked": {"type": "bool", "doc": "Is the mouse cursor locked to the current window (important for applications like games)? (READWRITE)"}},
+						{"left_down": {"type": "bool", "doc": "Is the left mouse button down? (READONLY)"}},
+						{"right_down": {"type": "bool", "doc": "Is the right mouse button down? (READONLY)"}},
+						{"middle_down": {"type": "bool", "doc": "Is the middle mouse button down? (READONLY)"}},
+						{"scroll_x": {"type": "OptionF32", "doc": "Scroll amount in pixels in the horizontal direction. Gets reset to 0 after every frame (READONLY)"}},
+						{"scroll_y": {"type": "OptionF32", "doc": "Scroll amount in pixels in the vertical direction. Gets reset to 0 after every frame (READONLY)"}}
+					]
+				},
+				"PlatformSpecificOptions": {
+					"external": "azul_impl::window::PlatformSpecificOptions",
+					"struct_fields": [
+						{"windows_options": {"type": "WindowsWindowOptions"}},
+						{"linux_options": {"type": "LinuxWindowOptions"}},
+						{"mac_options": {"type": "MacWindowOptions"}},
+						{"wasm_options": {"type": "WasmWindowOptions"}}
+					]
+				},
+				"WindowsWindowOptions": {
+					"external": "azul_impl::window::WindowsWindowOptions",
+					"struct_fields": [
+					]
+				},
+				"WaylandTheme": {
+					"external": "azul_impl::window::WaylandTheme",
+					"struct_fields": [
+						{"primary_color_active": {"type": "[u8;4]", "doc": "Primary color when the window is focused"}},
+						{"primary_color_inactive": {"type": "[u8;4]", "doc": "Primary color when the window is unfocused"}},
+						{"secondary_color_active": {"type": "[u8;4]", "doc": "Secondary color when the window is focused"}},
+						{"secondary_color_inactive": {"type": "[u8;4]", "doc": "Secondary color when the window is unfocused"}},
+						{"close_button_color_idle": {"type": "[u8;4]", "doc": "Close button color (idle state)"}},
+						{"close_button_color_hovered": {"type": "[u8;4]", "doc": "Close button color (hovered state)"}},
+						{"close_button_color_disabled": {"type": "[u8;4]", "doc": "Close button color (disabled state)"}},
+						{"maximize_button_color_idle": {"type": "[u8;4]", "doc": "Maximize button color (idle state)"}},
+						{"maximize_button_color_hovered": {"type": "[u8;4]", "doc": "Maximize button color (hovered state)"}},
+						{"maximize_button_color_disabled": {"type": "[u8;4]", "doc": "Maximize button color (disabled state)"}},
+						{"minimize_button_color_idle": {"type": "[u8;4]", "doc": "Minimize button color (idle state)"}},
+						{"minimize_button_color_hovered": {"type": "[u8;4]", "doc": "Minimize button color (hovered state)"}},
+						{"minimize_button_color_disabled": {"type": "[u8;4]", "doc": "Minimize button color (disabled state)"}}
+					]
+				},
+				"RendererType": {
+					"external": "azul_impl::window::RendererType",
+					"enum_fields": [
+						{"Default": {"doc": "Use the hardware renderer first, then fall back to OSMesa"}},
+						{"ForceHardware": {"doc": "Force hardware rendering (OpenGL 3.3 / OpenGL ES 3.0)"}},
+						{"ForceSoftware": {"doc": "Force software rendering (not yet implemented)"}},
+						{"Custom": {"type": "GlContextPtr", "doc": "Render using a custom OpenGL implementation"}}
+					]
+				},
+				"LinuxWindowOptions": {
+					"external": "azul_impl::window::LinuxWindowOptions",
+					"struct_fields": [
+						{"x11_visual": {"type": "OptionX11Callback", "doc": "Which X11 visual to use for the window (unimplemented). Can only be set at window creation, can't be changed in callbacks"}},
+						{"x11_screen": {"type": "OptionI32", "doc": "Which screen to use when showing the window (unimplemented). Can only be set at window creation, can't be changed in callbacks"}},
+						{"x11_wm_classes": {"type": "VecStringString", "doc": "Build window with `WM_CLASS` hint; defaults to the name of the binary. Only relevant on X11. Can only be set at window creation, can't be changed in callbacks."}},
+						{"x11_override_redirect": {"type": "bool", "doc": "Build window with override-redirect flag; defaults to false. Only relevant on X11. Can only be set at window creation, can't be changed in callbacks."}},
+						{"x11_override_redirect": {"type": "bool", "doc": "Build window with override-redirect flag; defaults to false. Only relevant on X11. Can only be set at window creation, can't be changed in callbacks."}},
+						{"x11_gtk_theme_variant": {"type": "OptionString", "doc": "Build window with `_GTK_THEME_VARIANT` hint set to the specified value. Currently only relevant on X11. Can only be set at window creation, can't be changed in callbacks."}},
+						{"x11_resize_increments": {"type": "OptionLogicalSize", "doc": "Build window with resize increment hint. Only implemented on X11. Can only be set at window creation, can't be changed in callbacks."}},
+						{"x11_base_size": {"type": "OptionLogicalSize", "doc": "Build window with base size hint. Only implemented on X11. Can only be set at window creation, can't be changed in callbacks."}},
+						{"wayland_app_id": {"type": "OptionString", "doc": "Build window with a given application ID. It should match the `.desktop` file distributed with the program. Only relevant on Wayland. Can only be set at window creation, can't be changed in callbacks."}},
+						{"wayland_theme": {"type": "bool", "OptionWaylandTheme": "Window decoration of the window minimize / maximize / close buttons"}},
+						{"request_user_attention": {"type": "bool", "doc": "Whether the window icon should blink to request the users attention."}},
+						{"window_icon": {"type": "OptionWindowIcon", "doc": "Sets the window icon of the program"}}
+					]
+				},
+				"MacWindowOptions": {
+					"external": "azul_impl::window::MacWindowOptions",
+					"struct_fields": [
+						{"request_user_attention": {"type": "bool", "doc": "Whether the window icon should blink to request the users attention."}}
+					]
+				},
+				"WasmWindowOptions": {
+					"external": "azul_impl::window::WasmWindowOptions",
+					"struct_fields": [
+					]
+				},
+				"WindowState": {
+					"external": "azul_impl::window::WindowState",
+					"struct_fields": [
+						{"title": {"type": "String", "doc": "Current title of the window"}},
+						{"size": {"type": "WindowSize", "doc": "Size of the window + max width / max height: 800 x 600 by default"}},
+						{"position": {"type": "OptionPhysicalPositionI32", "doc": "The x and y position, or None to let the WM decide where to put the window (default)"}},
+						{"flags": {"type": "WindowFlags", "doc": "Flags such as whether the window is minimized / maximized, fullscreen, etc."}},
+						{"debug_state": {"type": "DebugState", "doc": "Mostly used for debugging, shows WebRender-builtin graphs on the screen. Used for performance monitoring and displaying frame times (rendering-only)."}},
+						{"keyboard_state": {"type": "KeyboardState", "doc": "Current keyboard state - NOTE: mutating this field (currently) does nothing (doesn't get synchronized with OS-level window)!"}},
+						{"mouse_state": {"type": "MouseState", "doc": "Current mouse state"}},
+						{"ime_position": {"type": "OptionLogicalPosition", "doc": "Sets location of IME candidate box in client area coordinates (relative to the top left of the window)"}},
+						{"platform_specific_options": {"type": "PlatformSpecificOptions", "doc": "Window options that can only be set on a certain platform (`WindowsWindowOptions` / `LinuxWindowOptions` / `MacWindowOptions`)."}},
+						{"css": {"type": "Css"}}
+					]
 				},
 				"LogicalSize": {
 					"external": "azul_impl::window::LogicalSize",
@@ -4527,6 +4888,22 @@
 						{"width": {"type": "f32"}},
 						{"height": {"type": "f32"}}
 					]
+				},
+				"WindowCreateOptions": {
+					"external": "azul_impl::window::WindowCreateOptions",
+					"struct_fields": [
+						{"state": {"type": "WindowState"}},
+						{"renderer_type": {"type": "RendererType"}},
+						{"hot_reload": {"type": "OptionHotReloadOptions"}}
+					],
+					"constructors": {
+						"new": {
+							"fn_args":[
+								{"css": "Css"}
+							],
+							"fn_body":"WindowCreateOptions::new(css)"
+						}
+					}
 				}
 			}
 		}

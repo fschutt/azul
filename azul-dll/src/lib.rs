@@ -264,7 +264,7 @@ pub type AzDurationTT = azul_impl::task::AzDuration;
 /// Creates a new App instance from the given `AppConfig`
 #[no_mangle] pub extern "C" fn az_app_new(data: AzRefAny, config: AzAppConfigPtr, callback: AzLayoutCallbackType) -> AzAppPtr { let object: App = App::new(data, *az_app_config_downcast(config), callback).unwrap(); AzAppPtr { ptr: Box::into_raw(Box::new(object)) as *mut c_void } }
 /// Runs the application. Due to platform restrictions (specifically `WinMain` on Windows), this function never returns.
-#[no_mangle] pub extern "C" fn az_app_run(app: AzAppPtr, window: AzWindowCreateOptionsPtr) { az_app_downcast(app).run(*az_window_create_options_downcast(window)) }
+#[no_mangle] pub extern "C" fn az_app_run(app: AzAppPtr, window: AzWindowCreateOptions) { az_app_downcast(app).run(*az_window_create_options_downcast(window)) }
 /// Destructor: Takes ownership of the `App` pointer and deletes it.
 #[no_mangle] pub extern "C" fn az_app_delete(ptr: &mut AzAppPtr) { let _ = unsafe { Box::<App>::from_raw(ptr.ptr  as *mut App) };}
 /// (private): Downcasts the `AzAppPtr` to a `Box<App>`. Note that this takes ownership of the pointer.
@@ -2642,19 +2642,146 @@ pub type AzBlockErrorTT = azul_impl::task::BlockError;
 /// Clones the object
 #[no_mangle] pub extern "C" fn az_block_error_deep_copy(object: &AzBlockError) -> AzBlockError { object.clone() }
 
-/// Pointer to rust-allocated `Box<WindowCreateOptions>` struct
-#[no_mangle] #[repr(C)] pub struct AzWindowCreateOptionsPtr { ptr: *mut c_void }
-// Creates a new `WindowCreateOptions` instance whose memory is owned by the rust allocator
-// Equivalent to the Rust `WindowCreateOptions::new()` constructor.
-#[no_mangle] pub extern "C" fn az_window_create_options_new(css: AzCssPtr) -> AzWindowCreateOptionsPtr { let object: WindowCreateOptions = WindowCreateOptions::new(*az_css_downcast(css)); AzWindowCreateOptionsPtr { ptr: Box::into_raw(Box::new(object)) as *mut c_void } }
-/// Destructor: Takes ownership of the `WindowCreateOptions` pointer and deletes it.
-#[no_mangle] pub extern "C" fn az_window_create_options_delete(ptr: &mut AzWindowCreateOptionsPtr) { let _ = unsafe { Box::<WindowCreateOptions>::from_raw(ptr.ptr  as *mut WindowCreateOptions) };}
-/// (private): Downcasts the `AzWindowCreateOptionsPtr` to a `Box<WindowCreateOptions>`. Note that this takes ownership of the pointer.
-#[inline(always)] fn az_window_create_options_downcast(ptr: AzWindowCreateOptionsPtr) -> Box<WindowCreateOptions> {     unsafe { Box::<WindowCreateOptions>::from_raw(ptr.ptr  as *mut WindowCreateOptions) }}
-/// (private): Downcasts the `AzWindowCreateOptionsPtr` to a `&mut Box<WindowCreateOptions>` and runs the `func` closure on it
-#[inline(always)] fn az_window_create_options_downcast_refmut<P, F: FnOnce(&mut WindowCreateOptions) -> P>(ptr: &mut AzWindowCreateOptionsPtr, func: F) -> P {     func(unsafe { &mut *(ptr.ptr as *mut WindowCreateOptions) })}
-/// (private): Downcasts the `AzWindowCreateOptionsPtr` to a `&Box<WindowCreateOptions>` and runs the `func` closure on it
-#[inline(always)] fn az_window_create_options_downcast_ref<P, F: FnOnce(&WindowCreateOptions) -> P>(ptr: &mut AzWindowCreateOptionsPtr, func: F) -> P {     func(unsafe { &*(ptr.ptr as *const WindowCreateOptions) })}
+/// Re-export of rust-allocated (stack based) `VirtualKeyCode` struct
+pub type AzVirtualKeyCodeTT = azul_impl::window::VirtualKeyCode;
+#[no_mangle] pub use AzVirtualKeyCodeTT as AzVirtualKeyCode;
+/// Destructor: Takes ownership of the `VirtualKeyCode` pointer and deletes it.
+#[no_mangle] #[allow(unused_variables)] pub extern "C" fn az_virtual_key_code_delete(object: &mut AzVirtualKeyCode) { match object { azul_impl::window::VirtualKeyCode::Key1 => { }, azul_impl::window::VirtualKeyCode::Key2 => { }, azul_impl::window::VirtualKeyCode::Key3 => { }, azul_impl::window::VirtualKeyCode::Key4 => { }, azul_impl::window::VirtualKeyCode::Key5 => { }, azul_impl::window::VirtualKeyCode::Key6 => { }, azul_impl::window::VirtualKeyCode::Key7 => { }, azul_impl::window::VirtualKeyCode::Key8 => { }, azul_impl::window::VirtualKeyCode::Key9 => { }, azul_impl::window::VirtualKeyCode::Key0 => { }, azul_impl::window::VirtualKeyCode::A => { }, azul_impl::window::VirtualKeyCode::B => { }, azul_impl::window::VirtualKeyCode::C => { }, azul_impl::window::VirtualKeyCode::D => { }, azul_impl::window::VirtualKeyCode::E => { }, azul_impl::window::VirtualKeyCode::F => { }, azul_impl::window::VirtualKeyCode::G => { }, azul_impl::window::VirtualKeyCode::H => { }, azul_impl::window::VirtualKeyCode::I => { }, azul_impl::window::VirtualKeyCode::J => { }, azul_impl::window::VirtualKeyCode::K => { }, azul_impl::window::VirtualKeyCode::L => { }, azul_impl::window::VirtualKeyCode::M => { }, azul_impl::window::VirtualKeyCode::N => { }, azul_impl::window::VirtualKeyCode::O => { }, azul_impl::window::VirtualKeyCode::P => { }, azul_impl::window::VirtualKeyCode::Q => { }, azul_impl::window::VirtualKeyCode::R => { }, azul_impl::window::VirtualKeyCode::S => { }, azul_impl::window::VirtualKeyCode::T => { }, azul_impl::window::VirtualKeyCode::U => { }, azul_impl::window::VirtualKeyCode::V => { }, azul_impl::window::VirtualKeyCode::W => { }, azul_impl::window::VirtualKeyCode::X => { }, azul_impl::window::VirtualKeyCode::Y => { }, azul_impl::window::VirtualKeyCode::Z => { }, azul_impl::window::VirtualKeyCode::Escape => { }, azul_impl::window::VirtualKeyCode::F1 => { }, azul_impl::window::VirtualKeyCode::F2 => { }, azul_impl::window::VirtualKeyCode::F3 => { }, azul_impl::window::VirtualKeyCode::F4 => { }, azul_impl::window::VirtualKeyCode::F5 => { }, azul_impl::window::VirtualKeyCode::F6 => { }, azul_impl::window::VirtualKeyCode::F7 => { }, azul_impl::window::VirtualKeyCode::F8 => { }, azul_impl::window::VirtualKeyCode::F9 => { }, azul_impl::window::VirtualKeyCode::F10 => { }, azul_impl::window::VirtualKeyCode::F11 => { }, azul_impl::window::VirtualKeyCode::F12 => { }, azul_impl::window::VirtualKeyCode::F13 => { }, azul_impl::window::VirtualKeyCode::F14 => { }, azul_impl::window::VirtualKeyCode::F15 => { }, azul_impl::window::VirtualKeyCode::F16 => { }, azul_impl::window::VirtualKeyCode::F17 => { }, azul_impl::window::VirtualKeyCode::F18 => { }, azul_impl::window::VirtualKeyCode::F19 => { }, azul_impl::window::VirtualKeyCode::F20 => { }, azul_impl::window::VirtualKeyCode::F21 => { }, azul_impl::window::VirtualKeyCode::F22 => { }, azul_impl::window::VirtualKeyCode::F23 => { }, azul_impl::window::VirtualKeyCode::F24 => { }, azul_impl::window::VirtualKeyCode::Snapshot => { }, azul_impl::window::VirtualKeyCode::Scroll => { }, azul_impl::window::VirtualKeyCode::Pause => { }, azul_impl::window::VirtualKeyCode::Insert => { }, azul_impl::window::VirtualKeyCode::Home => { }, azul_impl::window::VirtualKeyCode::Delete => { }, azul_impl::window::VirtualKeyCode::End => { }, azul_impl::window::VirtualKeyCode::PageDown => { }, azul_impl::window::VirtualKeyCode::PageUp => { }, azul_impl::window::VirtualKeyCode::Left => { }, azul_impl::window::VirtualKeyCode::Up => { }, azul_impl::window::VirtualKeyCode::Right => { }, azul_impl::window::VirtualKeyCode::Down => { }, azul_impl::window::VirtualKeyCode::Back => { }, azul_impl::window::VirtualKeyCode::Return => { }, azul_impl::window::VirtualKeyCode::Space => { }, azul_impl::window::VirtualKeyCode::Compose => { }, azul_impl::window::VirtualKeyCode::Caret => { }, azul_impl::window::VirtualKeyCode::Numlock => { }, azul_impl::window::VirtualKeyCode::Numpad0 => { }, azul_impl::window::VirtualKeyCode::Numpad1 => { }, azul_impl::window::VirtualKeyCode::Numpad2 => { }, azul_impl::window::VirtualKeyCode::Numpad3 => { }, azul_impl::window::VirtualKeyCode::Numpad4 => { }, azul_impl::window::VirtualKeyCode::Numpad5 => { }, azul_impl::window::VirtualKeyCode::Numpad6 => { }, azul_impl::window::VirtualKeyCode::Numpad7 => { }, azul_impl::window::VirtualKeyCode::Numpad8 => { }, azul_impl::window::VirtualKeyCode::Numpad9 => { }, azul_impl::window::VirtualKeyCode::AbntC1 => { }, azul_impl::window::VirtualKeyCode::AbntC2 => { }, azul_impl::window::VirtualKeyCode::Add => { }, azul_impl::window::VirtualKeyCode::Apostrophe => { }, azul_impl::window::VirtualKeyCode::Apps => { }, azul_impl::window::VirtualKeyCode::At => { }, azul_impl::window::VirtualKeyCode::Ax => { }, azul_impl::window::VirtualKeyCode::Backslash => { }, azul_impl::window::VirtualKeyCode::Calculator => { }, azul_impl::window::VirtualKeyCode::Capital => { }, azul_impl::window::VirtualKeyCode::Colon => { }, azul_impl::window::VirtualKeyCode::Comma => { }, azul_impl::window::VirtualKeyCode::Convert => { }, azul_impl::window::VirtualKeyCode::Decimal => { }, azul_impl::window::VirtualKeyCode::Divide => { }, azul_impl::window::VirtualKeyCode::Equals => { }, azul_impl::window::VirtualKeyCode::Grave => { }, azul_impl::window::VirtualKeyCode::Kana => { }, azul_impl::window::VirtualKeyCode::Kanji => { }, azul_impl::window::VirtualKeyCode::LAlt => { }, azul_impl::window::VirtualKeyCode::LBracket => { }, azul_impl::window::VirtualKeyCode::LControl => { }, azul_impl::window::VirtualKeyCode::LShift => { }, azul_impl::window::VirtualKeyCode::LWin => { }, azul_impl::window::VirtualKeyCode::Mail => { }, azul_impl::window::VirtualKeyCode::MediaSelect => { }, azul_impl::window::VirtualKeyCode::MediaStop => { }, azul_impl::window::VirtualKeyCode::Minus => { }, azul_impl::window::VirtualKeyCode::Multiply => { }, azul_impl::window::VirtualKeyCode::Mute => { }, azul_impl::window::VirtualKeyCode::MyComputer => { }, azul_impl::window::VirtualKeyCode::NavigateForward => { }, azul_impl::window::VirtualKeyCode::NavigateBackward => { }, azul_impl::window::VirtualKeyCode::NextTrack => { }, azul_impl::window::VirtualKeyCode::NoConvert => { }, azul_impl::window::VirtualKeyCode::NumpadComma => { }, azul_impl::window::VirtualKeyCode::NumpadEnter => { }, azul_impl::window::VirtualKeyCode::NumpadEquals => { }, azul_impl::window::VirtualKeyCode::OEM102 => { }, azul_impl::window::VirtualKeyCode::Period => { }, azul_impl::window::VirtualKeyCode::PlayPause => { }, azul_impl::window::VirtualKeyCode::Power => { }, azul_impl::window::VirtualKeyCode::PrevTrack => { }, azul_impl::window::VirtualKeyCode::RAlt => { }, azul_impl::window::VirtualKeyCode::RBracket => { }, azul_impl::window::VirtualKeyCode::RControl => { }, azul_impl::window::VirtualKeyCode::RShift => { }, azul_impl::window::VirtualKeyCode::RWin => { }, azul_impl::window::VirtualKeyCode::Semicolon => { }, azul_impl::window::VirtualKeyCode::Slash => { }, azul_impl::window::VirtualKeyCode::Sleep => { }, azul_impl::window::VirtualKeyCode::Stop => { }, azul_impl::window::VirtualKeyCode::Subtract => { }, azul_impl::window::VirtualKeyCode::Sysrq => { }, azul_impl::window::VirtualKeyCode::Tab => { }, azul_impl::window::VirtualKeyCode::Underline => { }, azul_impl::window::VirtualKeyCode::Unlabeled => { }, azul_impl::window::VirtualKeyCode::VolumeDown => { }, azul_impl::window::VirtualKeyCode::VolumeUp => { }, azul_impl::window::VirtualKeyCode::Wake => { }, azul_impl::window::VirtualKeyCode::WebBack => { }, azul_impl::window::VirtualKeyCode::WebFavorites => { }, azul_impl::window::VirtualKeyCode::WebForward => { }, azul_impl::window::VirtualKeyCode::WebHome => { }, azul_impl::window::VirtualKeyCode::WebRefresh => { }, azul_impl::window::VirtualKeyCode::WebSearch => { }, azul_impl::window::VirtualKeyCode::WebStop => { }, azul_impl::window::VirtualKeyCode::Yen => { }, azul_impl::window::VirtualKeyCode::Copy => { }, azul_impl::window::VirtualKeyCode::Paste => { }, azul_impl::window::VirtualKeyCode::Cut => { }, }
+}
+/// Clones the object
+#[no_mangle] pub extern "C" fn az_virtual_key_code_deep_copy(object: &AzVirtualKeyCode) -> AzVirtualKeyCode { object.clone() }
+
+/// Re-export of rust-allocated (stack based) `AcceleratorKey` struct
+pub type AzAcceleratorKeyTT = azul_impl::window::AcceleratorKey;
+#[no_mangle] pub use AzAcceleratorKeyTT as AzAcceleratorKey;
+/// Destructor: Takes ownership of the `AcceleratorKey` pointer and deletes it.
+#[no_mangle] #[allow(unused_variables)] pub extern "C" fn az_accelerator_key_delete(object: &mut AzAcceleratorKey) { match object { azul_impl::window::AcceleratorKey::Ctrl => { }, azul_impl::window::AcceleratorKey::Alt => { }, azul_impl::window::AcceleratorKey::Shift => { }, azul_impl::window::AcceleratorKey::Key(_) => { }, }
+}
+/// Clones the object
+#[no_mangle] pub extern "C" fn az_accelerator_key_deep_copy(object: &AzAcceleratorKey) -> AzAcceleratorKey { object.clone() }
+
+/// Re-export of rust-allocated (stack based) `WindowSize` struct
+pub type AzWindowSizeTT = azul_impl::window::WindowSize;
+#[no_mangle] pub use AzWindowSizeTT as AzWindowSize;
+/// Destructor: Takes ownership of the `WindowSize` pointer and deletes it.
+#[no_mangle] #[allow(unused_variables)] pub extern "C" fn az_window_size_delete(object: &mut AzWindowSize) { }
+/// Clones the object
+#[no_mangle] pub extern "C" fn az_window_size_deep_copy(object: &AzWindowSize) -> AzWindowSize { object.clone() }
+
+/// Re-export of rust-allocated (stack based) `WindowFlags` struct
+pub type AzWindowFlagsTT = azul_impl::window::WindowFlags;
+#[no_mangle] pub use AzWindowFlagsTT as AzWindowFlags;
+/// Destructor: Takes ownership of the `WindowFlags` pointer and deletes it.
+#[no_mangle] #[allow(unused_variables)] pub extern "C" fn az_window_flags_delete(object: &mut AzWindowFlags) { }
+/// Clones the object
+#[no_mangle] pub extern "C" fn az_window_flags_deep_copy(object: &AzWindowFlags) -> AzWindowFlags { object.clone() }
+
+/// Re-export of rust-allocated (stack based) `DebugState` struct
+pub type AzDebugStateTT = azul_impl::window::DebugState;
+#[no_mangle] pub use AzDebugStateTT as AzDebugState;
+/// Destructor: Takes ownership of the `DebugState` pointer and deletes it.
+#[no_mangle] #[allow(unused_variables)] pub extern "C" fn az_debug_state_delete(object: &mut AzDebugState) { }
+/// Clones the object
+#[no_mangle] pub extern "C" fn az_debug_state_deep_copy(object: &AzDebugState) -> AzDebugState { object.clone() }
+
+/// Re-export of rust-allocated (stack based) `KeyboardState` struct
+pub type AzKeyboardStateTT = azul_impl::window::KeyboardState;
+#[no_mangle] pub use AzKeyboardStateTT as AzKeyboardState;
+/// Destructor: Takes ownership of the `KeyboardState` pointer and deletes it.
+#[no_mangle] #[allow(unused_variables)] pub extern "C" fn az_keyboard_state_delete(object: &mut AzKeyboardState) { }
+/// Clones the object
+#[no_mangle] pub extern "C" fn az_keyboard_state_deep_copy(object: &AzKeyboardState) -> AzKeyboardState { object.clone() }
+
+/// Re-export of rust-allocated (stack based) `MouseCursorType` struct
+pub type AzMouseCursorTypeTT = azul_impl::window::MouseCursorType;
+#[no_mangle] pub use AzMouseCursorTypeTT as AzMouseCursorType;
+/// Destructor: Takes ownership of the `MouseCursorType` pointer and deletes it.
+#[no_mangle] #[allow(unused_variables)] pub extern "C" fn az_mouse_cursor_type_delete(object: &mut AzMouseCursorType) { match object { azul_impl::window::MouseCursorType::Default => { }, azul_impl::window::MouseCursorType::Crosshair => { }, azul_impl::window::MouseCursorType::Hand => { }, azul_impl::window::MouseCursorType::Arrow => { }, azul_impl::window::MouseCursorType::Move => { }, azul_impl::window::MouseCursorType::Text => { }, azul_impl::window::MouseCursorType::Wait => { }, azul_impl::window::MouseCursorType::Help => { }, azul_impl::window::MouseCursorType::Progress => { }, azul_impl::window::MouseCursorType::NotAllowed => { }, azul_impl::window::MouseCursorType::ContextMenu => { }, azul_impl::window::MouseCursorType::Cell => { }, azul_impl::window::MouseCursorType::VerticalText => { }, azul_impl::window::MouseCursorType::Alias => { }, azul_impl::window::MouseCursorType::Copy => { }, azul_impl::window::MouseCursorType::NoDrop => { }, azul_impl::window::MouseCursorType::Grab => { }, azul_impl::window::MouseCursorType::Grabbing => { }, azul_impl::window::MouseCursorType::AllScroll => { }, azul_impl::window::MouseCursorType::ZoomIn => { }, azul_impl::window::MouseCursorType::ZoomOut => { }, azul_impl::window::MouseCursorType::EResize => { }, azul_impl::window::MouseCursorType::NResize => { }, azul_impl::window::MouseCursorType::NeResize => { }, azul_impl::window::MouseCursorType::NwResize => { }, azul_impl::window::MouseCursorType::SResize => { }, azul_impl::window::MouseCursorType::SeResize => { }, azul_impl::window::MouseCursorType::SwResize => { }, azul_impl::window::MouseCursorType::WResize => { }, azul_impl::window::MouseCursorType::EwResize => { }, azul_impl::window::MouseCursorType::NsResize => { }, azul_impl::window::MouseCursorType::NeswResize => { }, azul_impl::window::MouseCursorType::NwseResize => { }, azul_impl::window::MouseCursorType::ColResize => { }, azul_impl::window::MouseCursorType::RowResize => { }, }
+}
+/// Clones the object
+#[no_mangle] pub extern "C" fn az_mouse_cursor_type_deep_copy(object: &AzMouseCursorType) -> AzMouseCursorType { object.clone() }
+
+/// Re-export of rust-allocated (stack based) `CursorPosition` struct
+pub type AzCursorPositionTT = azul_impl::window::MouseState;
+#[no_mangle] pub use AzCursorPositionTT as AzCursorPosition;
+/// Destructor: Takes ownership of the `CursorPosition` pointer and deletes it.
+#[no_mangle] #[allow(unused_variables)] pub extern "C" fn az_cursor_position_delete(object: &mut AzCursorPosition) { match object { azul_impl::window::MouseState::OutOfWindow => { }, azul_impl::window::MouseState::Uninitialized => { }, azul_impl::window::MouseState::InWindow(_) => { }, }
+}
+/// Clones the object
+#[no_mangle] pub extern "C" fn az_cursor_position_deep_copy(object: &AzCursorPosition) -> AzCursorPosition { object.clone() }
+
+/// Re-export of rust-allocated (stack based) `MouseState` struct
+pub type AzMouseStateTT = azul_impl::window::MouseState;
+#[no_mangle] pub use AzMouseStateTT as AzMouseState;
+/// Destructor: Takes ownership of the `MouseState` pointer and deletes it.
+#[no_mangle] #[allow(unused_variables)] pub extern "C" fn az_mouse_state_delete(object: &mut AzMouseState) { }
+/// Clones the object
+#[no_mangle] pub extern "C" fn az_mouse_state_deep_copy(object: &AzMouseState) -> AzMouseState { object.clone() }
+
+/// Re-export of rust-allocated (stack based) `PlatformSpecificOptions` struct
+pub type AzPlatformSpecificOptionsTT = azul_impl::window::PlatformSpecificOptions;
+#[no_mangle] pub use AzPlatformSpecificOptionsTT as AzPlatformSpecificOptions;
+/// Destructor: Takes ownership of the `PlatformSpecificOptions` pointer and deletes it.
+#[no_mangle] #[allow(unused_variables)] pub extern "C" fn az_platform_specific_options_delete(object: &mut AzPlatformSpecificOptions) { }
+/// Clones the object
+#[no_mangle] pub extern "C" fn az_platform_specific_options_deep_copy(object: &AzPlatformSpecificOptions) -> AzPlatformSpecificOptions { object.clone() }
+
+/// Re-export of rust-allocated (stack based) `WindowsWindowOptions` struct
+pub type AzWindowsWindowOptionsTT = azul_impl::window::WindowsWindowOptions;
+#[no_mangle] pub use AzWindowsWindowOptionsTT as AzWindowsWindowOptions;
+/// Destructor: Takes ownership of the `WindowsWindowOptions` pointer and deletes it.
+#[no_mangle] #[allow(unused_variables)] pub extern "C" fn az_windows_window_options_delete(object: &mut AzWindowsWindowOptions) { }
+/// Clones the object
+#[no_mangle] pub extern "C" fn az_windows_window_options_deep_copy(object: &AzWindowsWindowOptions) -> AzWindowsWindowOptions { object.clone() }
+
+/// Re-export of rust-allocated (stack based) `WaylandTheme` struct
+pub type AzWaylandThemeTT = azul_impl::window::WaylandTheme;
+#[no_mangle] pub use AzWaylandThemeTT as AzWaylandTheme;
+/// Destructor: Takes ownership of the `WaylandTheme` pointer and deletes it.
+#[no_mangle] #[allow(unused_variables)] pub extern "C" fn az_wayland_theme_delete(object: &mut AzWaylandTheme) { }
+/// Clones the object
+#[no_mangle] pub extern "C" fn az_wayland_theme_deep_copy(object: &AzWaylandTheme) -> AzWaylandTheme { object.clone() }
+
+/// Re-export of rust-allocated (stack based) `RendererType` struct
+pub type AzRendererTypeTT = azul_impl::window::RendererType;
+#[no_mangle] pub use AzRendererTypeTT as AzRendererType;
+/// Destructor: Takes ownership of the `RendererType` pointer and deletes it.
+#[no_mangle] #[allow(unused_variables)] pub extern "C" fn az_renderer_type_delete(object: &mut AzRendererType) { match object { azul_impl::window::RendererType::Default => { }, azul_impl::window::RendererType::ForceHardware => { }, azul_impl::window::RendererType::ForceSoftware => { }, azul_impl::window::RendererType::Custom(_) => { }, }
+}
+/// Clones the object
+#[no_mangle] pub extern "C" fn az_renderer_type_deep_copy(object: &AzRendererType) -> AzRendererType { object.clone() }
+
+/// Re-export of rust-allocated (stack based) `LinuxWindowOptions` struct
+pub type AzLinuxWindowOptionsTT = azul_impl::window::LinuxWindowOptions;
+#[no_mangle] pub use AzLinuxWindowOptionsTT as AzLinuxWindowOptions;
+/// Destructor: Takes ownership of the `LinuxWindowOptions` pointer and deletes it.
+#[no_mangle] #[allow(unused_variables)] pub extern "C" fn az_linux_window_options_delete(object: &mut AzLinuxWindowOptions) { }
+/// Clones the object
+#[no_mangle] pub extern "C" fn az_linux_window_options_deep_copy(object: &AzLinuxWindowOptions) -> AzLinuxWindowOptions { object.clone() }
+
+/// Re-export of rust-allocated (stack based) `MacWindowOptions` struct
+pub type AzMacWindowOptionsTT = azul_impl::window::MacWindowOptions;
+#[no_mangle] pub use AzMacWindowOptionsTT as AzMacWindowOptions;
+/// Destructor: Takes ownership of the `MacWindowOptions` pointer and deletes it.
+#[no_mangle] #[allow(unused_variables)] pub extern "C" fn az_mac_window_options_delete(object: &mut AzMacWindowOptions) { }
+/// Clones the object
+#[no_mangle] pub extern "C" fn az_mac_window_options_deep_copy(object: &AzMacWindowOptions) -> AzMacWindowOptions { object.clone() }
+
+/// Re-export of rust-allocated (stack based) `WasmWindowOptions` struct
+pub type AzWasmWindowOptionsTT = azul_impl::window::WasmWindowOptions;
+#[no_mangle] pub use AzWasmWindowOptionsTT as AzWasmWindowOptions;
+/// Destructor: Takes ownership of the `WasmWindowOptions` pointer and deletes it.
+#[no_mangle] #[allow(unused_variables)] pub extern "C" fn az_wasm_window_options_delete(object: &mut AzWasmWindowOptions) { }
+/// Clones the object
+#[no_mangle] pub extern "C" fn az_wasm_window_options_deep_copy(object: &AzWasmWindowOptions) -> AzWasmWindowOptions { object.clone() }
+
+/// Re-export of rust-allocated (stack based) `WindowState` struct
+pub type AzWindowStateTT = azul_impl::window::WindowState;
+#[no_mangle] pub use AzWindowStateTT as AzWindowState;
+/// Destructor: Takes ownership of the `WindowState` pointer and deletes it.
+#[no_mangle] #[allow(unused_variables)] pub extern "C" fn az_window_state_delete(object: &mut AzWindowState) { }
+/// Clones the object
+#[no_mangle] pub extern "C" fn az_window_state_deep_copy(object: &AzWindowState) -> AzWindowState { object.clone() }
 
 /// Re-export of rust-allocated (stack based) `LogicalSize` struct
 pub type AzLogicalSizeTT = azul_impl::window::LogicalSize;
@@ -2663,3 +2790,14 @@ pub type AzLogicalSizeTT = azul_impl::window::LogicalSize;
 #[no_mangle] #[allow(unused_variables)] pub extern "C" fn az_logical_size_delete(object: &mut AzLogicalSize) { }
 /// Clones the object
 #[no_mangle] pub extern "C" fn az_logical_size_deep_copy(object: &AzLogicalSize) -> AzLogicalSize { object.clone() }
+
+/// Re-export of rust-allocated (stack based) `WindowCreateOptions` struct
+pub type AzWindowCreateOptionsTT = azul_impl::window::WindowCreateOptions;
+#[no_mangle] pub use AzWindowCreateOptionsTT as AzWindowCreateOptions;
+// Creates a new `WindowCreateOptions` instance whose memory is owned by the rust allocator
+// Equivalent to the Rust `WindowCreateOptions::new()` constructor.
+#[no_mangle] pub extern "C" fn az_window_create_options_new(css: AzCssPtr) -> AzWindowCreateOptions { WindowCreateOptions::new(css) }
+/// Destructor: Takes ownership of the `WindowCreateOptions` pointer and deletes it.
+#[no_mangle] #[allow(unused_variables)] pub extern "C" fn az_window_create_options_delete(object: &mut AzWindowCreateOptions) { }
+/// Clones the object
+#[no_mangle] pub extern "C" fn az_window_create_options_deep_copy(object: &AzWindowCreateOptions) -> AzWindowCreateOptions { object.clone() }
