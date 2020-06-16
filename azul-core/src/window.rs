@@ -2,17 +2,17 @@ use std::{
     fmt,
     hash::{Hash, Hasher},
     cmp::Ordering,
-    rc::Rc,
-    collections::{BTreeMap, HashSet},
+    collections::BTreeMap,
     sync::atomic::{AtomicUsize, Ordering as AtomicOrdering},
     path::PathBuf,
+    ffi::c_void,
 };
 #[cfg(target_os = "windows")]
 use std::ffi::c_void;
 #[cfg(not(test))]
 #[cfg(debug_assertions)]
 use std::time::Duration;
-use azul_css::{Css, LayoutPoint, LayoutRect, CssPath};
+use azul_css::{U8Vec, AzString, Css, LayoutPoint, LayoutRect, CssPath};
 #[cfg(debug_assertions)]
 #[cfg(not(test))]
 use azul_css::HotReloadHandler;
@@ -21,10 +21,12 @@ use crate::{
     app_resources::Epoch,
     dom::{DomId, EventFilter},
     id_tree::NodeId,
+    task::AzDuration,
     callbacks::{PipelineId, DocumentId, Callback, ScrollPosition, HitTestItem, UpdateScreen},
     ui_solver::{OverflowingScrollNode, ExternalScrollId, ScrolledNodes},
     ui_state::UiState,
     display_list::{SolvedLayoutCache, GlTextureCache, CachedDisplayList},
+    gl::GlContextPtr,
 };
 
 pub const DEFAULT_TITLE: &str = "Azul App";
@@ -144,10 +146,25 @@ pub struct KeyboardState {
     pub pressed_scancodes: ScanCodeVec,
 }
 
-impl_option!(char, OptionChar);
-impl_option!(VirtualKeyCode, OptionVirtualKeyCode);
+impl_option!(char, OptionChar, [Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash]);
+impl_option!(VirtualKeyCode, OptionVirtualKeyCode, [Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash]);
+
 impl_vec!(VirtualKeyCode, VirtualKeyCodeVec);
+impl_vec_debug!(VirtualKeyCode, VirtualKeyCodeVec);
+impl_vec_partialord!(VirtualKeyCode, VirtualKeyCodeVec);
+impl_vec_ord!(VirtualKeyCode, VirtualKeyCodeVec);
+impl_vec_clone!(VirtualKeyCode, VirtualKeyCodeVec);
+impl_vec_partialeq!(VirtualKeyCode, VirtualKeyCodeVec);
+impl_vec_eq!(VirtualKeyCode, VirtualKeyCodeVec);
+impl_vec_hash!(VirtualKeyCode, VirtualKeyCodeVec);
+
 impl_vec!(ScanCode, ScanCodeVec);
+impl_vec_partialord!(ScanCode, ScanCodeVec);
+impl_vec_ord!(ScanCode, ScanCodeVec);
+impl_vec_clone!(ScanCode, ScanCodeVec);
+impl_vec_partialeq!(ScanCode, ScanCodeVec);
+impl_vec_eq!(ScanCode, ScanCodeVec);
+impl_vec_hash!(ScanCode, ScanCodeVec);
 
 /// Mouse position, cursor type, user scroll input, etc.
 #[derive(Debug, Copy, Clone, PartialOrd, PartialEq)]
@@ -171,7 +188,10 @@ pub struct MouseState {
     pub scroll_y: OptionF32,
 }
 
-impl_option!(MouseCursorType, OptionMouseCursorType);
+impl_option!(i32, OptionI32, [Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash]);
+impl_option!(f32, OptionF32, [Debug, Copy, Clone, PartialEq, PartialOrd]);
+impl_option!(MouseCursorType, OptionMouseCursorType, [Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash]);
+impl_option!(AzString, OptionAzString, [Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash]);
 
 impl Default for MouseState {
     fn default() -> Self {
@@ -674,7 +694,9 @@ pub struct WindowsWindowOptions {
     pub parent_window: OptionHwndHandle,
 }
 
-impl_option!(*mut c_void, OptionHwndHandle);
+type HwndHandle = *mut c_void;
+
+impl_option!(HwndHandle, OptionHwndHandle, copy = false, clone = false, [Debug, PartialEq, Eq, PartialOrd, Ord, Hash]);
 
 /// X window type. Maps directly to
 /// [`_NET_WM_WINDOW_TYPE`](https://specifications.freedesktop.org/wm-spec/wm-spec-1.5.html).
@@ -725,7 +747,7 @@ impl Default for XWindowType {
     }
 }
 
-#[derive(Debug, Default, Clone, PartialEq, PartialOrd)]
+#[derive(Debug, Default, Clone, PartialEq, PartialOrd, Ord, Hash, Eq)]
 #[repr(C)]
 pub struct LinuxWindowOptions {
     /// (Unimplemented) - Can only be set at window creation, can't be changed in callbacks.
@@ -743,7 +765,7 @@ pub struct LinuxWindowOptions {
     pub x11_window_types: XWindowTypeVec,
     /// Build window with `_GTK_THEME_VARIANT` hint set to the specified value. Currently only relevant on X11.
     /// Can only be set at window creation, can't be changed in callbacks.
-    pub x11_gtk_theme_variant: OptionString,
+    pub x11_gtk_theme_variant: OptionAzString,
     /// Build window with resize increment hint. Only implemented on X11.
     /// Can only be set at window creation, can't be changed in callbacks.
     pub x11_resize_increments: OptionLogicalSize,
@@ -756,15 +778,16 @@ pub struct LinuxWindowOptions {
     ///
     /// For details about application ID conventions, see the
     /// [Desktop Entry Spec](https://specifications.freedesktop.org/desktop-entry-spec/desktop-entry-spec-latest.html#desktop-file-id)
-    pub wayland_app_id: OptionString,
+    pub wayland_app_id: OptionAzString,
     pub wayland_theme: OptionWaylandTheme,
     pub request_user_attention: bool,
     pub window_icon: OptionWindowIcon,
 }
 
-impl_option!(*const c_void, OptionX11Visual);
+type X11Visual = *const c_void;
+impl_option!(X11Visual, OptionX11Visual, [Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash]);
 
-#[derive(Debug, Default, Copy, Clone, PartialEq, PartialOrd, Eq, Ord, Hash)]
+#[derive(Debug, Default, Clone, PartialEq, PartialOrd, Eq, Ord, Hash)]
 #[repr(C)]
 pub struct AzStringPair {
     pub key: AzString,
@@ -772,8 +795,24 @@ pub struct AzStringPair {
 }
 
 impl_vec!(AzStringPair, StringStringVec);
+impl_vec_debug!(AzStringPair, StringStringVec);
+impl_vec_partialord!(AzStringPair, StringStringVec);
+impl_vec_ord!(AzStringPair, StringStringVec);
+impl_vec_clone!(AzStringPair, StringStringVec);
+impl_vec_partialeq!(AzStringPair, StringStringVec);
+impl_vec_eq!(AzStringPair, StringStringVec);
+impl_vec_hash!(AzStringPair, StringStringVec);
+
 impl_vec!(XWindowType, XWindowTypeVec);
-impl_option!(WaylandTheme, OptionWaylandTheme);
+impl_vec_debug!(XWindowType, XWindowTypeVec);
+impl_vec_partialord!(XWindowType, XWindowTypeVec);
+impl_vec_ord!(XWindowType, XWindowTypeVec);
+impl_vec_clone!(XWindowType, XWindowTypeVec);
+impl_vec_partialeq!(XWindowType, XWindowTypeVec);
+impl_vec_eq!(XWindowType, XWindowTypeVec);
+impl_vec_hash!(XWindowType, XWindowTypeVec);
+
+impl_option!(WaylandTheme, OptionWaylandTheme, [Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash]);
 
 #[derive(Debug, Default, Copy, Clone, PartialEq, PartialOrd, Eq, Ord, Hash)]
 #[repr(C)]
@@ -950,8 +989,9 @@ pub struct WindowCreateOptions {
     pub hot_reload: OptionHotReloadOptions,
 }
 
-impl_option!(HotReloadOptions, OptionHotReloadOptions);
+impl_option!(HotReloadOptions, OptionHotReloadOptions, [Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash]);
 
+#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
 #[repr(C)]
 pub struct HotReloadOptions {
     pub path: AzString,
@@ -1292,7 +1332,7 @@ pub struct LogicalPosition {
     pub y: f32,
 }
 
-impl_option!(LogicalPosition, OptionLogicalPosition);
+impl_option!(LogicalPosition, OptionLogicalPosition, [Debug, Copy, Clone, PartialEq, PartialOrd]);
 
 #[derive(Debug, Copy, Clone, PartialEq, PartialOrd)]
 #[repr(C)]
@@ -1301,7 +1341,7 @@ pub struct LogicalSize {
     pub height: f32,
 }
 
-impl_option!(LogicalSize, OptionLogicalSize);
+impl_option!(LogicalSize, OptionLogicalSize, [Debug, Copy, Clone, PartialEq, PartialOrd]);
 
 #[derive(Debug, Copy, Clone, PartialEq, PartialOrd)]
 #[repr(C)]
@@ -1310,8 +1350,8 @@ pub struct PhysicalPosition<T> {
     pub y: T,
 }
 
-impl_option!(PhysicalPosition<f32>, OptionPhysicalPositionF32);
-impl_option!(PhysicalPosition<i32>, OptionPhysicalPositionI32);
+type PhysicalPositionI32 = PhysicalPosition<i32>;
+impl_option!(PhysicalPositionI32, OptionPhysicalPositionI32, [Debug, Copy, Clone, PartialEq, PartialOrd]);
 
 #[derive(Debug, Copy, Clone, PartialEq, PartialOrd)]
 #[repr(C)]
@@ -1320,7 +1360,8 @@ pub struct PhysicalSize<T> {
     pub height: T,
 }
 
-impl_option!(PhysicalSize<f32>, OptionPhysicalSizenF32);
+type PhysicalSizeF32 = PhysicalSize<f32>;
+impl_option!(PhysicalSizeF32, OptionPhysicalSizenF32, [Debug, Copy, Clone, PartialEq, PartialOrd]);
 
 impl LogicalPosition {
     #[inline(always)]
@@ -1614,6 +1655,8 @@ pub enum WindowIcon {
     Large(LargeWindowIconBytes),
 }
 
+impl_option!(WindowIcon, OptionWindowIcon, [Debug, Clone]);
+
 impl WindowIcon {
     pub fn get_key(&self) -> IconKey {
         match &self {
@@ -1657,6 +1700,8 @@ pub struct TaskBarIcon {
     pub key: IconKey,
     pub rgba_bytes: U8Vec,
 }
+
+impl_option!(TaskBarIcon, OptionTaskBarIcon, [Debug, Clone]);
 
 impl PartialEq for TaskBarIcon {
     fn eq(&self, rhs: &Self) -> bool {

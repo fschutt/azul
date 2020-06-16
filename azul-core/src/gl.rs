@@ -269,7 +269,7 @@ impl U8VecRefMut {
     fn as_mut_slice(&mut self) -> &mut [u8] { unsafe { std::slice::from_raw_parts_mut(self.ptr, self.len) } }
 }
 
-impl_option!(U8VecRef, OptionU8VecRef, copy = false, clone = false);
+impl_option!(U8VecRef, OptionU8VecRef, copy = false, clone = false, [Debug, PartialEq, Eq, PartialOrd, Ord, Hash]);
 
 #[derive(Debug, Clone, PartialEq, Eq, Ord, PartialOrd, Hash)]
 #[repr(C)]
@@ -1601,7 +1601,7 @@ pub struct Texture {
     pub gl_context: GlContextPtr,
 }
 
-impl_option!(Texture, OptionTexture, copy = false, clone = false);
+impl_option!(Texture, OptionTexture, copy = false, clone = false, [Debug, PartialEq, Eq, PartialOrd, Ord, Hash]);
 
 #[derive(Debug, Copy, Clone, PartialEq, PartialOrd, Eq, Ord, Hash)]
 #[repr(C)]
@@ -1795,7 +1795,7 @@ pub struct VertexAttribute {
     pub item_count: usize,
 }
 
-impl_option!(usize, OptionUsize);
+impl_option!(usize, OptionUsize, [Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash]);
 
 impl VertexAttribute {
     pub fn get_stride(&self) -> usize {

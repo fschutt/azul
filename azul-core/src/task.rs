@@ -130,8 +130,8 @@ impl AzDuration {
     pub fn get(&self) -> StdDuration { (*self).into() }
 }
 
-impl_option!(AzInstantPtr, OptionInstantPtr, copy = false);
-impl_option!(AzDuration, OptionDuration);
+impl_option!(AzInstantPtr, OptionInstantPtr, copy = false, [Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash]);
+impl_option!(AzDuration, OptionDuration, [Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash]);
 
 /// A `Timer` is a function that is run on every frame.
 ///

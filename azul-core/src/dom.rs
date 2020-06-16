@@ -825,10 +825,34 @@ pub struct Dom {
 }
 
 impl_vec!(Dom, DomVec);
+impl_vec_debug!(Dom, DomVec);
+impl_vec_partialord!(Dom, DomVec);
+impl_vec_ord!(Dom, DomVec);
+impl_vec_clone!(Dom, DomVec);
+impl_vec_partialeq!(Dom, DomVec);
+impl_vec_eq!(Dom, DomVec);
+impl_vec_hash!(Dom, DomVec);
+
 impl_vec!(OverrideProperty, OverridePropertyVec);
+impl_vec_debug!(OverrideProperty, OverridePropertyVec);
+impl_vec_partialord!(OverrideProperty, OverridePropertyVec);
+impl_vec_ord!(OverrideProperty, OverridePropertyVec);
+impl_vec_clone!(OverrideProperty, OverridePropertyVec);
+impl_vec_partialeq!(OverrideProperty, OverridePropertyVec);
+impl_vec_eq!(OverrideProperty, OverridePropertyVec);
+impl_vec_hash!(OverrideProperty, OverridePropertyVec);
+
 impl_vec!(CallbackData, CallbackDataVec);
-impl_option!(TabIndex, OptionTabIndex);
-impl_option!(Dom, OptionDom, copy = false);
+impl_vec_debug!(CallbackData, CallbackDataVec);
+impl_vec_partialord!(CallbackData, CallbackDataVec);
+impl_vec_ord!(CallbackData, CallbackDataVec);
+impl_vec_clone!(CallbackData, CallbackDataVec);
+impl_vec_partialeq!(CallbackData, CallbackDataVec);
+impl_vec_eq!(CallbackData, CallbackDataVec);
+impl_vec_hash!(CallbackData, CallbackDataVec);
+
+impl_option!(TabIndex, OptionTabIndex, [Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash]);
+impl_option!(Dom, OptionDom, copy = false, [Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash]);
 
 fn print_dom(d: &Dom, f: &mut fmt::Formatter) -> fmt::Result {
     write!(f, "Dom {{\r\n")?;

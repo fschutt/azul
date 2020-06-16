@@ -230,6 +230,10 @@ macro_rules! impl_option_inner {
         }
     }
 
+    impl Default for $struct_name {
+        fn default() -> $struct_name { $struct_name::None }
+    }
+
     impl $struct_name {
         pub fn as_option(&self) -> Option<&$struct_type> {
             match self {
