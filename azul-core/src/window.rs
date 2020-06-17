@@ -158,13 +158,18 @@ impl_vec_partialeq!(VirtualKeyCode, VirtualKeyCodeVec);
 impl_vec_eq!(VirtualKeyCode, VirtualKeyCodeVec);
 impl_vec_hash!(VirtualKeyCode, VirtualKeyCodeVec);
 
+impl_vec_as_hashmap!(VirtualKeyCode, VirtualKeyCodeVec);
+
 impl_vec!(ScanCode, ScanCodeVec);
+impl_vec_debug!(ScanCode, ScanCodeVec);
 impl_vec_partialord!(ScanCode, ScanCodeVec);
 impl_vec_ord!(ScanCode, ScanCodeVec);
 impl_vec_clone!(ScanCode, ScanCodeVec);
 impl_vec_partialeq!(ScanCode, ScanCodeVec);
 impl_vec_eq!(ScanCode, ScanCodeVec);
 impl_vec_hash!(ScanCode, ScanCodeVec);
+
+impl_vec_as_hashmap!(ScanCode, ScanCodeVec);
 
 /// Mouse position, cursor type, user scroll input, etc.
 #[derive(Debug, Copy, Clone, PartialOrd, PartialEq)]
@@ -191,19 +196,19 @@ pub struct MouseState {
 impl_option!(i32, OptionI32, [Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash]);
 impl_option!(f32, OptionF32, [Debug, Copy, Clone, PartialEq, PartialOrd]);
 impl_option!(MouseCursorType, OptionMouseCursorType, [Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash]);
-impl_option!(AzString, OptionAzString, [Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash]);
+impl_option!(AzString, OptionAzString, copy = false, [Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash]);
 
 impl Default for MouseState {
     fn default() -> Self {
         Self {
-            mouse_cursor_type: Some(MouseCursorType::Default),
+            mouse_cursor_type: Some(MouseCursorType::Default).into(),
             cursor_position: CursorPosition::default(),
             is_cursor_locked: false,
             left_down: false,
             right_down: false,
             middle_down: false,
-            scroll_x: None,
-            scroll_y: None,
+            scroll_x: None.into(),
+            scroll_y: None.into(),
         }
     }
 }
@@ -216,11 +221,11 @@ impl MouseState {
     }
 
     pub fn get_scroll_x(&self) -> f32 {
-        self.scroll_x.unwrap_or(0.0)
+        self.scroll_x.as_option().copied().unwrap_or(0.0)
     }
 
     pub fn get_scroll_y(&self) -> f32 {
-        self.scroll_y.unwrap_or(0.0)
+        self.scroll_y.as_option().copied().unwrap_or(0.0)
     }
 
     pub fn get_scroll(&self) -> (f32, f32) {
@@ -377,21 +382,21 @@ pub fn update_full_window_state(
     full_window_state: &mut FullWindowState,
     window_state: &WindowState
 ) {
-    full_window_state.title = window_state.title.clone();
-    full_window_state.size = window_state.size;
-    full_window_state.position = window_state.position;
+    full_window_state.title = window_state.title.clone().into();
+    full_window_state.size = window_state.size.into();
+    full_window_state.position = window_state.position.into();
     full_window_state.flags = window_state.flags;
     full_window_state.debug_state = window_state.debug_state;
     full_window_state.keyboard_state = window_state.keyboard_state.clone();
     full_window_state.mouse_state = window_state.mouse_state;
-    full_window_state.ime_position = window_state.ime_position;
+    full_window_state.ime_position = window_state.ime_position.into();
     full_window_state.platform_specific_options = window_state.platform_specific_options.clone();
 }
 
 /// Resets the mouse states `scroll_x` and `scroll_y` to 0
 pub fn clear_scroll_state(window_state: &mut FullWindowState) {
-    window_state.mouse_state.scroll_x = None;
-    window_state.mouse_state.scroll_y = None;
+    window_state.mouse_state.scroll_x = OptionF32::None;
+    window_state.mouse_state.scroll_y = OptionF32::None;
 }
 
 pub struct WindowInternal {
@@ -576,14 +581,14 @@ impl From<WindowState> for FullWindowState {
     /// fields with their default values
     fn from(window_state: WindowState) -> FullWindowState {
         FullWindowState {
-            title: window_state.title,
+            title: window_state.title.into(),
             size: window_state.size,
-            position: window_state.position,
+            position: window_state.position.into(),
             flags: window_state.flags,
             debug_state: window_state.debug_state,
             keyboard_state: window_state.keyboard_state,
             mouse_state: window_state.mouse_state,
-            ime_position: window_state.ime_position,
+            ime_position: window_state.ime_position.into(),
             platform_specific_options: window_state.platform_specific_options,
             css: window_state.css,
             .. Default::default()
@@ -594,14 +599,14 @@ impl From<WindowState> for FullWindowState {
 impl From<FullWindowState> for WindowState {
     fn from(full_window_state: FullWindowState) -> WindowState {
         WindowState {
-            title: full_window_state.title,
+            title: full_window_state.title.into(),
             size: full_window_state.size,
-            position: full_window_state.position,
+            position: full_window_state.position.into(),
             flags: full_window_state.flags,
             debug_state: full_window_state.debug_state,
             keyboard_state: full_window_state.keyboard_state,
             mouse_state: full_window_state.mouse_state,
-            ime_position: full_window_state.ime_position,
+            ime_position: full_window_state.ime_position.into(),
             platform_specific_options: full_window_state.platform_specific_options,
             css: full_window_state.css,
         }
@@ -670,7 +675,7 @@ impl Default for WindowFlags {
     }
 }
 
-#[derive(Debug, Default, Clone, PartialEq, PartialOrd, Eq, Ord, Hash)]
+#[derive(Debug, Default, Clone, PartialEq, PartialOrd)]
 #[repr(C)]
 pub struct PlatformSpecificOptions {
     pub windows_options: WindowsWindowOptions,
@@ -679,7 +684,7 @@ pub struct PlatformSpecificOptions {
     pub wasm_options: WasmWindowOptions,
 }
 
-#[derive(Debug, Default, Clone, PartialEq, PartialOrd, Eq, Ord, Hash)]
+#[derive(Debug, Default, Clone, PartialEq, PartialOrd)]
 #[repr(C)]
 pub struct WindowsWindowOptions {
     /// STARTUP ONLY: Sets `WS_EX_NOREDIRECTIONBITMAP`
@@ -696,7 +701,7 @@ pub struct WindowsWindowOptions {
 
 type HwndHandle = *mut c_void;
 
-impl_option!(HwndHandle, OptionHwndHandle, copy = false, clone = false, [Debug, PartialEq, Eq, PartialOrd, Ord, Hash]);
+impl_option!(HwndHandle, OptionHwndHandle, copy = false, [Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash]);
 
 /// X window type. Maps directly to
 /// [`_NET_WM_WINDOW_TYPE`](https://specifications.freedesktop.org/wm-spec/wm-spec-1.5.html).
@@ -747,7 +752,7 @@ impl Default for XWindowType {
     }
 }
 
-#[derive(Debug, Default, Clone, PartialEq, PartialOrd, Ord, Hash, Eq)]
+#[derive(Debug, Default, Clone, PartialEq, PartialOrd)]
 #[repr(C)]
 pub struct LinuxWindowOptions {
     /// (Unimplemented) - Can only be set at window creation, can't be changed in callbacks.
@@ -952,8 +957,8 @@ impl Default for WindowSize {
             dimensions: LogicalSize::new(DEFAULT_WIDTH, DEFAULT_HEIGHT),
             hidpi_factor: 1.0,
             winit_hidpi_factor: 1.0,
-            min_dimensions: None,
-            max_dimensions: None,
+            min_dimensions: None.into(),
+            max_dimensions: None.into(),
         }
     }
 }
@@ -961,14 +966,14 @@ impl Default for WindowSize {
 impl Default for WindowState {
     fn default() -> Self {
         Self {
-            title: DEFAULT_TITLE.into(),
+            title: DEFAULT_TITLE.to_string().into(),
             size: WindowSize::default(),
-            position: None,
+            position: None.into(),
             flags: WindowFlags::default(),
             debug_state: DebugState::default(),
             keyboard_state: KeyboardState::default(),
             mouse_state: MouseState::default(),
-            ime_position: None,
+            ime_position: None.into(),
             platform_specific_options: PlatformSpecificOptions::default(),
             css: Css::default(),
         }
@@ -989,7 +994,7 @@ pub struct WindowCreateOptions {
     pub hot_reload: OptionHotReloadOptions,
 }
 
-impl_option!(HotReloadOptions, OptionHotReloadOptions, [Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash]);
+impl_option!(HotReloadOptions, OptionHotReloadOptions, copy = false, [Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash]);
 
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
 #[repr(C)]
@@ -1017,7 +1022,7 @@ impl Default for WindowCreateOptions {
         Self {
             state: WindowState::default(),
             renderer_type: RendererType::default(),
-            hot_reload: None,
+            hot_reload: None.into(),
         }
     }
 }
@@ -1458,7 +1463,7 @@ impl AcceleratorKey {
             Ctrl => keyboard_state.ctrl_down,
             Alt => keyboard_state.alt_down,
             Shift => keyboard_state.shift_down,
-            Key(k) => keyboard_state.pressed_virtual_keycodes.contains(k),
+            Key(k) => keyboard_state.pressed_virtual_keycodes.iter().any(|key| key == k),
         }
     }
 }
@@ -1655,13 +1660,13 @@ pub enum WindowIcon {
     Large(LargeWindowIconBytes),
 }
 
-impl_option!(WindowIcon, OptionWindowIcon, [Debug, Clone]);
+impl_option!(WindowIcon, OptionWindowIcon, copy = false, [Debug, Clone, PartialOrd, PartialEq, Eq, Hash, Ord]);
 
 impl WindowIcon {
     pub fn get_key(&self) -> IconKey {
         match &self {
-            WindowIcon::Small { key, .. } => *key,
-            WindowIcon::Large { key, .. } => *key,
+            WindowIcon::Small(SmallWindowIconBytes { key, .. }) => *key,
+            WindowIcon::Large(LargeWindowIconBytes { key, .. }) => *key,
         }
     }
 }
@@ -1701,7 +1706,7 @@ pub struct TaskBarIcon {
     pub rgba_bytes: U8Vec,
 }
 
-impl_option!(TaskBarIcon, OptionTaskBarIcon, [Debug, Clone]);
+impl_option!(TaskBarIcon, OptionTaskBarIcon, copy = false, [Debug, Clone, PartialOrd, PartialEq, Eq, Hash, Ord]);
 
 impl PartialEq for TaskBarIcon {
     fn eq(&self, rhs: &Self) -> bool {

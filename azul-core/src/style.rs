@@ -42,7 +42,7 @@ pub fn matches_html_element(
     let mut direct_parent_has_to_match = false;
     let mut last_selector_matched = true;
 
-    for (content_group, reason) in CssGroupIterator::new(&css_path.selectors) {
+    for (content_group, reason) in CssGroupIterator::new(css_path.selectors.as_ref()) {
         let cur_node_id = match current_node {
             Some(c) => c,
             None => {
@@ -156,7 +156,7 @@ pub fn match_dom_selectors(
 }
 
 pub struct CssGroupIterator<'a> {
-    pub css_path: &'a Vec<CssPathSelector>,
+    pub css_path: &'a [CssPathSelector],
     pub current_idx: usize,
     pub last_reason: CssGroupSplitReason,
 }
@@ -168,7 +168,7 @@ pub enum CssGroupSplitReason {
 }
 
 impl<'a> CssGroupIterator<'a> {
-    pub fn new(css_path: &'a Vec<CssPathSelector>) -> Self {
+    pub fn new(css_path: &'a [CssPathSelector]) -> Self {
         let initial_len = css_path.len();
         Self {
             css_path,
@@ -370,12 +370,17 @@ pub fn selector_group_matches(
                 if !html_node.is_last_child { return false; }
             },
             PseudoSelector(CssPathPseudoSelector::NthChild(x)) => {
+                use azul_css::CssNthChildPattern;
                 match *x {
                     Number(value) => if html_node.index_in_parent != value { return false; },
                     Even => if html_node.index_in_parent % 2 == 0 { return false; },
                     Odd => if html_node.index_in_parent % 2 == 1 { return false; },
-                    Pattern { repeat, offset } => if html_node.index_in_parent >= offset &&
-                        ((html_node.index_in_parent - offset) % repeat != 0) { return false; },
+                    Pattern(CssNthChildPattern { repeat, offset }) => {
+                        if html_node.index_in_parent >= offset &&
+                           ((html_node.index_in_parent - offset) % repeat != 0) {
+                            return false;
+                        }
+                    },
                 }
             },
             PseudoSelector(CssPathPseudoSelector::Hover) => {

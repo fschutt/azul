@@ -18,6 +18,12 @@ macro_rules! impl_vec {($struct_type:ident, $struct_name:ident) => (
             Vec::<$struct_type>::new().into()
         }
 
+        pub fn clear(&mut self) {
+            let mut v: Vec<$struct_type> = unsafe { Vec::from_raw_parts(self.ptr, self.len, self.cap) };
+            v.clear();
+            std::mem::forget(v);
+        }
+
         pub fn sort_by<F: FnMut(&$struct_type, &$struct_type) -> std::cmp::Ordering>(&mut self, compare: F) {
             let v1: &mut [$struct_type] = unsafe { std::slice::from_raw_parts_mut(self.ptr, self.len) };
             v1.sort_by(compare);
@@ -30,10 +36,7 @@ macro_rules! impl_vec {($struct_type:ident, $struct_name:ident) => (
         pub fn push(&mut self, val: $struct_type) {
             let mut v: Vec<$struct_type> = unsafe { Vec::from_raw_parts(self.ptr, self.len, self.cap) };
             v.push(val);
-            let (ptr, len, cap) = Self::into_raw_parts(v);
-            self.ptr = ptr;
-            self.len = len;
-            self.cap = cap;
+            std::mem::forget(v);
         }
 
         pub fn iter(&self) -> std::slice::Iter<$struct_type> {
@@ -133,6 +136,28 @@ macro_rules! impl_vec {($struct_type:ident, $struct_name:ident) => (
             println!("Vec::<{}>::drop!", stringify!($struct_name));
             let _v: Vec<$struct_type> = unsafe { Vec::from_raw_parts(self.ptr, self.len, self.cap) };
             // let v drop here
+        }
+    }
+)}
+
+#[macro_export]
+macro_rules! impl_vec_as_hashmap {($struct_type:ident, $struct_name:ident) => (
+    impl $struct_name {
+        pub fn insert_hm_item(&mut self, item: $struct_type) {
+            if !self.contains_hm_item(&item) {
+                self.push(item);
+            }
+        }
+
+        pub fn contains_hm_item(&self, searched: &$struct_type) -> bool {
+            let v1: &mut [$struct_type] = unsafe { std::slice::from_raw_parts_mut(self.ptr, self.len) };
+            v1.iter().any(|i| i == searched)
+        }
+
+        pub fn remove_hm_item(&mut self, remove_key: &$struct_type) {
+            let mut v: Vec<$struct_type> = unsafe { Vec::from_raw_parts(self.ptr, self.len, self.cap) };
+            v.retain(|v| v == remove_key);
+            std::mem::forget(v);
         }
     }
 )}
@@ -240,6 +265,15 @@ macro_rules! impl_option_inner {
                 $struct_name::None => None,
                 $struct_name::Some(t) => Some(t),
             }
+        }
+        pub fn is_some(&self) -> bool {
+            match self {
+                $struct_name::None => false,
+                $struct_name::Some(_) => true,
+            }
+        }
+        pub fn is_none(&self) -> bool {
+            !self.is_some()
         }
     }
 )}
@@ -404,6 +438,12 @@ pub struct AzString { vec: U8Vec }
 impl AsRef<str> for AzString {
     fn as_ref(&self) -> &str {
         self.as_str()
+    }
+}
+
+impl Default for AzString {
+    fn default() -> Self {
+        String::new().into()
     }
 }
 

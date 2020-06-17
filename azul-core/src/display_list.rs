@@ -1355,7 +1355,7 @@ pub fn populate_css_properties(
     let rect_layout = &mut rect.layout;
     let css_constraints = &styled_node.css_constraints;
 
-   css_constraints
+    css_constraints
     .values()
     .filter_map(|constraint| match constraint {
         Static(static_property) => {
@@ -1363,7 +1363,7 @@ pub fn populate_css_properties(
             None
         },
         Dynamic(dynamic_property) => {
-            let overridden_property = css_overrides.get(&node_id).and_then(|overrides| overrides.get(&dynamic_property.dynamic_id))?;
+            let overridden_property = css_overrides.get(&node_id).and_then(|overrides| overrides.get(dynamic_property.dynamic_id.as_str()))?;
 
             // Apply the property default if the discriminant of the two types matches
             if mem::discriminant(overridden_property) == mem::discriminant(&dynamic_property.default_value) {

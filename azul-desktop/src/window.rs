@@ -367,10 +367,30 @@ impl Clipboard {
     }
 }
 
+fn create_window_builder(
+    has_transparent_background: bool,
+    platform_options: &PlatformSpecificOptions,
+) -> GlutinWindowBuilder {
+    #[cfg(target_os = "linux")] { create_window_builder_linux(has_transparent_background, &platform_options.linux_options) }
+    #[cfg(target_os = "windows")] { create_window_builder_windows(has_transparent_background, &platform_options.windows_options) }
+    #[cfg(target_os = "macos")] { create_window_builder_windows(has_transparent_background, &platform_options.macos_options) }
+    #[cfg(target_arch = "wasm32")] { create_window_builder_wasm(has_transparent_background, &platform_options.wasm_options) }
+}
+
+#[cfg(target_arch = "wasm32")]
+fn create_window_builder_wasm(
+    has_transparent_background: bool,
+    _platform_options: &WasmWindowOptions,
+)  -> GlutinWindowBuilder {
+    let mut window_builder = GlutinWindowBuilder::new()
+        .with_transparent(has_transparent_background);
+    window_builder
+}
+
 /// Create a window builder, depending on the platform options -
 /// set all options that *can only be set when the window is created*
 #[cfg(target_os = "windows")]
-fn create_window_builder(
+fn create_window_builder_windows(
     has_transparent_background: bool,
     platform_options: &WindowsWindowOptions,
 ) -> GlutinWindowBuilder {
@@ -391,7 +411,7 @@ fn create_window_builder(
 }
 
 #[cfg(target_os = "linux")]
-fn create_window_builder(
+fn create_window_builder_linux(
     has_transparent_background: bool,
     platform_options: &LinuxWindowOptions,
 ) -> GlutinWindowBuilder {
@@ -403,8 +423,8 @@ fn create_window_builder(
         .with_transparent(has_transparent_background)
         .with_override_redirect(platform_options.x11_override_redirect);
 
-    for (k, v) in platform_options.x11_wm_classes.clone() {
-        window_builder = window_builder.with_class(k, v);
+    for AzStringPair { key, value } in platform_options.x11_wm_classes.iter() {
+        window_builder = window_builder.with_class(key.clone().into(), value.clone().into());
     }
 
     if !platform_options.x11_window_types.is_empty() {
@@ -412,27 +432,27 @@ fn create_window_builder(
         window_builder = window_builder.with_x11_window_type(window_types);
     }
 
-    if let Some(theme_variant) = platform_options.x11_gtk_theme_variant.clone() {
-        window_builder = window_builder.with_gtk_theme_variant(theme_variant);
+    if let OptionAzString::Some(theme_variant) = platform_options.x11_gtk_theme_variant.clone() {
+        window_builder = window_builder.with_gtk_theme_variant(theme_variant.into());
     }
 
-    if let Some(resize_increments) = platform_options.x11_resize_increments {
+    if let OptionLogicalSize::Some(resize_increments) = platform_options.x11_resize_increments {
         window_builder = window_builder.with_resize_increments(translate_logical_size(resize_increments));
     }
 
-    if let Some(base_size) = platform_options.x11_base_size {
+    if let OptionLogicalSize::Some(base_size) = platform_options.x11_base_size {
         window_builder = window_builder.with_base_size(translate_logical_size(base_size));
     }
 
-    if let Some(app_id) = platform_options.wayland_app_id.clone() {
-        window_builder = window_builder.with_app_id(app_id);
+    if let OptionAzString::Some(app_id) = platform_options.wayland_app_id.clone() {
+        window_builder = window_builder.with_app_id(app_id.into());
     }
 
     window_builder
 }
 
 #[cfg(target_os = "macos")]
-fn create_window_builder(
+fn create_window_builder_macos(
     has_transparent_background: bool,
     platform_options: &MacWindowOptions,
 ) -> GlutinWindowBuilder {
@@ -454,8 +474,8 @@ pub(crate) fn synchronize_window_state_with_os_window(
 
     let current_window_state = old_state.clone();
 
-    if old_state.title != new_state.title {
-        window.set_title(&new_state.title);
+    if old_state.title.as_str() != new_state.title.as_str() {
+        window.set_title(new_state.title.as_str());
     }
 
     if old_state.flags.is_maximized != new_state.flags.is_maximized {
@@ -484,22 +504,23 @@ pub(crate) fn synchronize_window_state_with_os_window(
     }
 
     if old_state.size.min_dimensions != new_state.size.min_dimensions {
-        window.set_min_inner_size(new_state.size.min_dimensions.map(translate_logical_size));
+        window.set_min_inner_size(new_state.size.min_dimensions.into_option().map(Into::into).map(translate_logical_size));
     }
 
     if old_state.size.max_dimensions != new_state.size.max_dimensions {
-        window.set_max_inner_size(new_state.size.max_dimensions.map(translate_logical_size));
+        window.set_max_inner_size(new_state.size.max_dimensions.into_option().map(Into::into).map(translate_logical_size));
     }
 
-    if old_state.position != new_state.position {
-        if let Some(new_position) = new_state.position {
+    if old_state.position != new_state.position.into() {
+        if let OptionPhysicalPositionI32::Some(new_position) = new_state.position {
+            let new_position: PhysicalPosition<i32> = new_position.into();
             window.set_outer_position(translate_logical_position(new_position.to_logical(new_state.size.hidpi_factor)));
         }
     }
 
-    if old_state.ime_position != new_state.ime_position {
-        if let Some(new_ime_position) = new_state.ime_position {
-            window.set_ime_position(translate_logical_position(new_ime_position));
+    if old_state.ime_position != new_state.ime_position.into() {
+        if let OptionLogicalPosition::Some(new_ime_position) = new_state.ime_position {
+            window.set_ime_position(translate_logical_position(new_ime_position.into()));
         }
     }
 
@@ -514,32 +535,28 @@ pub(crate) fn synchronize_window_state_with_os_window(
     // mouse position, cursor type, etc.
     synchronize_mouse_state(&mut old_state.mouse_state, &new_state.mouse_state, window);
 
-    // platform-specific extensions
-    #[cfg(target_os = "windows")] {
-        synchronize_os_window_windows_extensions(
-            &old_state.platform_specific_options,
-            &new_state.platform_specific_options,
-            &window
-        );
-    }
-    #[cfg(target_os = "linux")] {
-        synchronize_os_window_linux_extensions(
-            &old_state.platform_specific_options,
-            &new_state.platform_specific_options,
-            &window
-        );
-    }
-    #[cfg(target_os = "macos")] {
-        synchronize_os_window_mac_extensions(
-            &old_state.platform_specific_options,
-            &new_state.platform_specific_options,
-            &window
-        );
-    }
+    synchronize_os_window_platform_extensions(&old_state.platform_specific_options, &new_state.platform_specific_options, &window);
 
     // Overwrite all fields of the old state with the new window state
     update_full_window_state(old_state, new_state);
     old_state.previous_window_state = Some(Box::new(current_window_state));
+}
+
+fn synchronize_os_window_platform_extensions(
+    old_state: &PlatformSpecificOptions,
+    new_state: &PlatformSpecificOptions,
+    window: &GlutinWindow,
+) {
+    // platform-specific extensions
+    #[cfg(target_os = "windows")] {
+        synchronize_os_window_windows_extensions(&old_state.windows_options, &new_state.windows_options, window);
+    }
+    #[cfg(target_os = "linux")] {
+        synchronize_os_window_linux_extensions( &old_state.linux_options, &new_state.linux_options, window);
+    }
+    #[cfg(target_os = "macos")] {
+        synchronize_os_window_mac_extensions(&old_state.macos_options, &new_state.macos_options, window);
+    }
 }
 
 /// Do the inital synchronization of the window with the OS-level window
@@ -550,7 +567,7 @@ fn initialize_os_window(
     use crate::wr_translate::winit_translate::{translate_logical_size, translate_logical_position};
     use glutin::window::Fullscreen;
 
-    window.set_title(&new_state.title);
+    window.set_title(new_state.title.as_str());
     window.set_maximized(new_state.flags.is_maximized);
 
     if new_state.flags.is_fullscreen {
@@ -562,14 +579,15 @@ fn initialize_os_window(
     window.set_decorations(new_state.flags.has_decorations);
     window.set_visible(new_state.flags.is_visible);
     window.set_inner_size(translate_logical_size(new_state.size.dimensions));
-    window.set_min_inner_size(new_state.size.min_dimensions.map(translate_logical_size));
-    window.set_min_inner_size(new_state.size.max_dimensions.map(translate_logical_size));
+    window.set_min_inner_size(new_state.size.min_dimensions.into_option().map(translate_logical_size));
+    window.set_min_inner_size(new_state.size.max_dimensions.into_option().map(translate_logical_size));
 
-    if let Some(new_position) = new_state.position {
+    if let OptionPhysicalPositionI32::Some(new_position) = new_state.position {
+        let new_position: PhysicalPosition<i32> = new_position.into();
         window.set_outer_position(translate_logical_position(new_position.to_logical(new_state.size.hidpi_factor)));
     }
 
-    if let Some(new_ime_position) = new_state.ime_position {
+    if let OptionLogicalPosition::Some(new_ime_position) = new_state.ime_position {
         window.set_ime_position(translate_logical_position(new_ime_position));
     }
 
@@ -580,24 +598,17 @@ fn initialize_os_window(
     initialize_mouse_state(&new_state.mouse_state, window);
 
     // platform-specific extensions
-    #[cfg(target_os = "windows")] {
-        initialize_os_window_windows_extensions(
-            &new_state.platform_specific_options,
-            &window
-        );
-    }
-    #[cfg(target_os = "linux")] {
-        initialize_os_window_linux_extensions(
-            &new_state.platform_specific_options,
-            &window
-        );
-    }
-    #[cfg(target_os = "macos")] {
-        initialize_os_window_mac_extensions(
-            &new_state.platform_specific_options,
-            &window
-        );
-    }
+    initialize_os_window_platform_extensions(&new_state.platform_specific_options, &window);
+}
+
+fn initialize_os_window_platform_extensions(
+    platform_options: &PlatformSpecificOptions,
+    window: &GlutinWindow,
+) {
+    #[cfg(target_os = "windows")] { initialize_os_window_windows_extensions(&platform_options.windows_options, window); }
+    #[cfg(target_os = "linux")] { initialize_os_window_linux_extensions(&platform_options.linux_options, window); }
+    #[cfg(target_os = "macos")] { initialize_os_window_mac_extensions(&platform_options.macos_options, window); }
+    #[cfg(target_arch = "wasm32")] { initialize_os_window_wasm_extensions(&platform_options.wasm_options, window); }
 }
 
 fn synchronize_mouse_state(
@@ -608,19 +619,19 @@ fn synchronize_mouse_state(
     use crate::wr_translate::winit_translate::{translate_cursor_icon, translate_logical_position};
 
     match (old_mouse_state.mouse_cursor_type, new_mouse_state.mouse_cursor_type) {
-        (Some(_old_mouse_cursor), None) => {
+        (OptionMouseCursorType::Some(_old_mouse_cursor), OptionMouseCursorType::None) => {
             window.set_cursor_visible(false);
         },
-        (None, Some(new_mouse_cursor)) => {
+        (OptionMouseCursorType::None, OptionMouseCursorType::Some(new_mouse_cursor)) => {
             window.set_cursor_visible(true);
             window.set_cursor_icon(translate_cursor_icon(new_mouse_cursor));
         },
-        (Some(old_mouse_cursor), Some(new_mouse_cursor)) => {
+        (OptionMouseCursorType::Some(old_mouse_cursor), OptionMouseCursorType::Some(new_mouse_cursor)) => {
             if old_mouse_cursor != new_mouse_cursor {
                 window.set_cursor_icon(translate_cursor_icon(new_mouse_cursor));
             }
         },
-        (None, None) => { },
+        (OptionMouseCursorType::None, OptionMouseCursorType::None) => { },
     }
 
     if old_mouse_state.is_cursor_locked != new_mouse_state.is_cursor_locked {
@@ -645,8 +656,8 @@ fn initialize_mouse_state(
     use crate::wr_translate::winit_translate::{translate_cursor_icon, translate_logical_position};
 
     match new_mouse_state.mouse_cursor_type {
-        None => { window.set_cursor_visible(false); },
-        Some(new_mouse_cursor) => {
+        OptionMouseCursorType::None => { window.set_cursor_visible(false); },
+        OptionMouseCursorType::Some(new_mouse_cursor) => {
             window.set_cursor_visible(true);
             window.set_cursor_icon(translate_cursor_icon(new_mouse_cursor));
         },
@@ -697,13 +708,13 @@ fn synchronize_os_window_linux_extensions(
     }
 
     if old_state.wayland_theme != new_state.wayland_theme {
-        if let Some(new_wayland_theme) = new_state.wayland_theme {
+        if let OptionWaylandTheme::Some(new_wayland_theme) = new_state.wayland_theme {
             window.set_wayland_theme(translate_wayland_theme(new_wayland_theme));
         }
     }
 
     if old_state.window_icon != new_state.window_icon {
-        window.set_window_icon(new_state.window_icon.clone().and_then(|ic| translate_window_icon(ic).ok()));
+        window.set_window_icon(new_state.window_icon.clone().into_option().and_then(|ic| translate_window_icon(ic).ok()));
     }
 }
 
@@ -720,6 +731,14 @@ fn synchronize_os_window_mac_extensions(
     if old_state.request_user_attention != new_state.request_user_attention && new_state.request_user_attention {
         window.request_user_attention(RequestUserAttentionType::Informational);
     }
+}
+
+#[cfg(target_arch = "wasm32")]
+fn initialize_os_window_windows_extensions(
+    new_state: &WasmWindowOptions,
+    window: &GlutinWindow,
+) {
+    // intentionally empty
 }
 
 // Windows-specific window options
@@ -746,11 +765,11 @@ fn initialize_os_window_linux_extensions(
 
     window.set_urgent(new_state.request_user_attention);
 
-    if let Some(new_wayland_theme) = new_state.wayland_theme {
+    if let OptionWaylandTheme::Some(new_wayland_theme) = new_state.wayland_theme {
         window.set_wayland_theme(translate_wayland_theme(new_wayland_theme));
     }
 
-    window.set_window_icon(new_state.window_icon.clone().and_then(|ic| translate_window_icon(ic).ok()));
+    window.set_window_icon(new_state.window_icon.clone().into_option().and_then(|ic| translate_window_icon(ic).ok()));
 }
 
 // Mac-specific window options

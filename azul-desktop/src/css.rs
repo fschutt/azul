@@ -37,12 +37,7 @@
 //! | `box-shadow`, `-top`, `-left`, `-right`, `-bottom` |              |             |            |                  |
 
 #[cfg(feature = "css_parser")]
-use {
-    std::time::Duration,
-    std::time::Instant,
-    std::path::PathBuf,
-    azul_css_parser::{self, CssParseError}
-};
+use azul_css_parser::{self, CssParseError};
 pub use azul_css::*;
 #[cfg(feature = "css_parser")]
 pub mod css_parser {
@@ -79,25 +74,11 @@ pub fn override_native(input: &str) -> Result<Css, CssParseError> {
     Ok(css)
 }
 
-/// Allows dynamic reloading of a CSS file during an applications runtime, useful for
-/// changing the look & feel while the application is running.
-#[cfg(all(feature = "css_parser"))]
-pub fn hot_reload<P: Into<PathBuf>>(file_path: P, reload_interval: Duration) -> Box<dyn HotReloadHandler> {
-    Box::new(azul_css_parser::HotReloader::new(file_path).with_reload_interval(reload_interval))
-}
-
-/// Same as `Self::hot_reload`, but appends the given file to the
-/// `Self::native()` style before the hot-reloaded styles, similar to `override_native`.
-#[cfg(all(feature = "css_parser", feature = "native_style"))]
-pub fn hot_reload_override_native<P: Into<PathBuf>>(file_path: P, reload_interval: Duration) -> Box<dyn HotReloadHandler> {
-    Box::new(HotReloadOverrideHandler::new(native(), hot_reload(file_path, reload_interval)))
-}
-
 /// Reload the CSS if enough time has passed since the last reload
 #[cfg(debug_assertions)]
 pub fn hot_reload_css(
     css: &mut Css,
-    hot_reload_handler: Option<&Box<dyn HotReloadHandler>>,
+    hot_reload_handler: Option<&HotReloadOptions>,
     last_style_reload: &mut Instant,
     force_reload: bool,
 ) -> Result<bool, String> {
@@ -105,16 +86,29 @@ pub fn hot_reload_css(
     let mut has_reloaded = false;
     let now = Instant::now();
 
-    let hot_reload_handler = match hot_reload_handler {
+    let hot_reload_options = match hot_reload_options {
         Some(s) => s,
         None => return Ok(has_reloaded),
     };
 
-    let reload_interval = hot_reload_handler.get_reload_interval();
+    let reload_interval: Duration = hot_reload_options.reload_interval.into();
     let should_reload = force_reload || now - *last_style_reload > reload_interval;
 
     if should_reload {
-        let new_css = hot_reload_handler.reload_style()?;
+
+        let mut new_css = Css::empty();
+
+        if hot_reload_options.apply_native_css {
+            let mut native_css = Css::native();
+            native_css.sort_by_specificy();
+            parsed_css.append_css(native_css);
+        }
+
+        let loaded_css = std::fs::read_to_string(Path::from(hot_reload_options.path.as_str()))?;
+        let mut parsed_css = Css::from_str(loaded_css.into())?;
+        parsed_css.sort_by_specificy();
+        new_css.append_css(parsed_css);
+
         *css = new_css;
         has_reloaded = true;
         *last_style_reload = now;

@@ -9,18 +9,19 @@ pub fn css_to_rust_code(css: &Css) -> String {
     output.push_str("const CSS: Css = Css {\r\n");
     output.push_str("\tstylesheets: [\r\n");
 
-    for stylesheet in &css.stylesheets {
+    for stylesheet in css.stylesheets.iter() {
 
         output.push_str("\t\tStylesheet {\r\n");
         output.push_str("\t\t\trules: [\r\n");
 
-        for block in &stylesheet.rules {
+        for block in stylesheet.rules.iter() {
+
             output.push_str("\t\t\t\tCssRuleBlock: {\r\n");
             output.push_str(&format!("\t\t\t\t\tpath: {},\r\n", print_block_path(&block.path, 5)));
 
             output.push_str("\t\t\t\t\tdeclarations: [\r\n");
 
-            for declaration in &block.declarations {
+            for declaration in block.declarations.iter() {
                 output.push_str(&format!("\t\t\t\t\t\t{},\r\n", print_declaraction(declaration, 6)));
             }
 
@@ -45,7 +46,7 @@ fn print_block_path(path: &CssPath, tabs: usize) -> String {
     let t = String::from("    ").repeat(tabs);
     let t1 = String::from("    ").repeat(tabs + 1);
 
-    format!("CssPath {{\r\n{}selectors: {}\r\n{}}}", t1, format_selectors(&path.selectors, tabs + 1), t)
+    format!("CssPath {{\r\n{}selectors: {}\r\n{}}}", t1, format_selectors(path.selectors.as_ref(), tabs + 1), t)
 }
 
 fn format_selectors(selectors: &[CssPathSelector], tabs: usize) -> String {
@@ -99,8 +100,8 @@ fn format_nth_child_selector(n: &CssNthChildSelector) -> String {
         CssNthChildSelector::Number(num) => format!("CssNthChildSelector::Number({})", num),
         CssNthChildSelector::Even => format!("CssNthChildSelector::Even"),
         CssNthChildSelector::Odd => format!("CssNthChildSelector::Odd"),
-        CssNthChildSelector::Pattern { repeat, offset } =>
-            format!("CssNthChildSelector::Pattern {{ repeat: {}, offset: {} }}", repeat, offset),
+        CssNthChildSelector::Pattern(CssNthChildPattern { repeat, offset }) =>
+            format!("CssNthChildSelector::Pattern(CssNthChildPattern {{ repeat: {}, offset: {} }})", repeat, offset),
     }
 }
 

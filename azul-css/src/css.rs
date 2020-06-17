@@ -21,8 +21,15 @@ impl_vec_clone!(Stylesheet, StylesheetVec);
 impl_vec_partialeq!(Stylesheet, StylesheetVec);
 
 impl Css {
+
     pub fn new(stylesheets: Vec<Stylesheet>) -> Self {
         Self { stylesheets: stylesheets.into() }
+    }
+
+    pub fn append_css(&mut self, css: Css) {
+        for stylesheet in css.stylesheets.into_iter() {
+            self.stylesheets.push(stylesheet);
+        }
     }
 }
 

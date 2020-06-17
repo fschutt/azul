@@ -21,7 +21,7 @@ use webrender::{
 };
 #[cfg(feature = "logging")]
 use log::LevelFilter;
-use azul_css::{ColorU, HotReloadHandler};
+use azul_css::ColorU;
 use crate::{
     resources::WrApi,
     window::{Window, ScrollStates, HeadlessContextState}
@@ -436,19 +436,19 @@ impl App {
                                     match state {
                                         ElementState::Pressed => {
                                             if let Some(vk) = virtual_keycode.map(translate_virtual_keycode) {
-                                                full_window_state.keyboard_state.pressed_virtual_keycodes.insert(vk);
-                                                full_window_state.keyboard_state.current_virtual_keycode = Some(vk);
+                                                full_window_state.keyboard_state.pressed_virtual_keycodes.insert_hm_item(vk);
+                                                full_window_state.keyboard_state.current_virtual_keycode = Some(vk).into();
                                             }
-                                            full_window_state.keyboard_state.pressed_scancodes.insert(*scancode);
-                                            full_window_state.keyboard_state.current_char = None;
+                                            full_window_state.keyboard_state.pressed_scancodes.insert_hm_item(*scancode);
+                                            full_window_state.keyboard_state.current_char = None.into();
                                         },
                                         ElementState::Released => {
                                             if let Some(vk) = virtual_keycode.map(translate_virtual_keycode) {
-                                                full_window_state.keyboard_state.pressed_virtual_keycodes.remove(&vk);
-                                                full_window_state.keyboard_state.current_virtual_keycode = None;
+                                                full_window_state.keyboard_state.pressed_virtual_keycodes.remove_hm_item(&vk);
+                                                full_window_state.keyboard_state.current_virtual_keycode = None.into();
                                             }
-                                            full_window_state.keyboard_state.pressed_scancodes.remove(scancode);
-                                            full_window_state.keyboard_state.current_char = None;
+                                            full_window_state.keyboard_state.pressed_scancodes.remove_hm_item(scancode);
+                                            full_window_state.keyboard_state.current_char = None.into();
                                         },
                                     }
                                 }
@@ -460,7 +460,7 @@ impl App {
                             WindowEvent::ReceivedCharacter(c) => {
                                 {
                                     let mut full_window_state = eld.full_window_states.get_mut(&glutin_window_id).unwrap();
-                                    full_window_state.keyboard_state.current_char = Some(*c);
+                                    full_window_state.keyboard_state.current_char = Some(*c).into();
                                 }
 
                                 send_user_event(AzulUpdateEvent::DoHitTest { window_id }, &mut eld);
@@ -510,8 +510,8 @@ impl App {
                                     };
 
                                     // TODO: "natural scrolling"?
-                                    full_window_state.mouse_state.scroll_x = Some(-scroll_x_px);
-                                    full_window_state.mouse_state.scroll_y = Some(-scroll_y_px);
+                                    full_window_state.mouse_state.scroll_x = Some(-scroll_x_px).into();
+                                    full_window_state.mouse_state.scroll_y = Some(-scroll_y_px).into();
 
                                     let window = eld.active_windows.get_mut(&glutin_window_id).unwrap();
                                     let hit_test_results = do_hit_test(window, &full_window_state, &eld.render_api);
@@ -580,9 +580,9 @@ impl App {
                             },
                             WindowEvent::Focused(false) => {
                                 let mut full_window_state = eld.full_window_states.get_mut(&glutin_window_id).unwrap();
-                                full_window_state.keyboard_state.current_char = None;
+                                full_window_state.keyboard_state.current_char = None.into();
                                 full_window_state.keyboard_state.pressed_virtual_keycodes.clear();
-                                full_window_state.keyboard_state.current_virtual_keycode = None;
+                                full_window_state.keyboard_state.current_virtual_keycode = None.into();
                                 full_window_state.keyboard_state.pressed_scancodes.clear();
                             },
                             WindowEvent::CloseRequested => {

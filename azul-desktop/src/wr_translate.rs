@@ -294,15 +294,16 @@ pub(crate) mod winit_translate {
 
     #[inline]
     pub(crate) fn translate_window_icon(input: WindowIcon) -> Result<WinitIcon, WinitBadIcon> {
+        use azul_core::window::{SmallWindowIconBytes, LargeWindowIconBytes};
         match input {
-            WindowIcon::Small { rgba_bytes, .. } => WinitIcon::from_rgba(rgba_bytes, 16, 16),
-            WindowIcon::Large { rgba_bytes, .. } => WinitIcon::from_rgba(rgba_bytes, 32, 32),
+            WindowIcon::Small(SmallWindowIconBytes { rgba_bytes, .. }) => WinitIcon::from_rgba(rgba_bytes.into(), 16, 16),
+            WindowIcon::Large(LargeWindowIconBytes { rgba_bytes, .. }) => WinitIcon::from_rgba(rgba_bytes.into(), 32, 32),
         }
     }
 
     #[inline]
     pub(crate) fn translate_taskbar_icon(input: TaskBarIcon) -> Result<WinitIcon, WinitBadIcon> {
-        WinitIcon::from_rgba(input.rgba_bytes, 256, 256)
+        WinitIcon::from_rgba(input.rgba_bytes.into(), 256, 256)
     }
 
     #[cfg(target_os = "linux")]
