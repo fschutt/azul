@@ -67,6 +67,7 @@ checksum = "f8aac770f1885fd7e387acedd76065302551364496e46b3dd00860b2f8359b9d"
 name = "azul"
 version = "0.0.1"
 dependencies = [
+ "azul-widgets",
  "libloading 0.6.2",
 ]
 

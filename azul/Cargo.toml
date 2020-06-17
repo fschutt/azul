@@ -23,6 +23,9 @@ path = "src/rust/azul.rs"
 [dependencies]
 libloading = "0.6.2"
 
+[dev-dependencies]
+azul-widgets = { version = "0.0.2", path = "../azul-widgets" }
+
 [[example]]
 name = "public"
 path = "../examples/public/public.rs"

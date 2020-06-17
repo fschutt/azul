@@ -1,6 +1,6 @@
-use azul_core::{
-    dom::{Dom, DomString, TabIndex},
-    app_resources::ImageId,
+use azul::{
+    dom::{Dom, TabIndex},
+    resources::ImageId,
 };
 
 #[derive(Debug, Clone, Hash, PartialEq, Eq)]
@@ -12,11 +12,11 @@ pub struct Button {
 pub enum ButtonContent {
     Image(ImageId),
     // Buttons should only contain short amounts of text
-    Text(DomString),
+    Text(String),
 }
 
 impl Button {
-    pub fn with_label<S: Into<DomString>>(text: S) -> Self {
+    pub fn with_label<S: Into<String>>(text: S) -> Self {
         Self {
             content: ButtonContent::Text(text.into()),
         }
@@ -30,27 +30,27 @@ impl Button {
 
     pub fn dom(self) -> Dom {
         use self::ButtonContent::*;
-
-        let mut button_root = Dom::div()
-            .with_class("__azul-native-button")
-            .with_tab_index(TabIndex::Auto);
-
-        button_root.add_child(match self.content {
+        Dom::div()
+        .with_class("__azul-native-button")
+        .with_tab_index(TabIndex::Auto)
+        .with_child(match self.content {
             Text(s) => Dom::label(s),
             Image(i) => Dom::image(i),
-        });
+        })
+    }
+}
 
-        button_root
+impl Into<Dom> for Button {
+    fn into(self) -> Dom {
+        self.dom()
     }
 }
 
 #[test]
 fn test_button_ui_1() {
-    struct Mock;
-
     let expected_html = "<div class=\"__azul-native-button\" tabindex=\"0\">\r\n    <p>\r\n        Hello\r\n    </p>\r\n</div>";
 
-    let button: Dom<Mock> = Button::with_label("Hello").dom();
+    let button = Button::with_label("Hello").dom();
     let button_html = button.get_html_string();
 
     if expected_html != button_html {

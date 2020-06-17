@@ -1,21 +1,27 @@
-use azul_core::{
-    dom::{Dom, DomString},
+use azul::{
+    dom::Dom,
 };
 
 #[derive(Debug, Clone, Hash, PartialEq, Eq)]
 pub struct Label {
-    pub text: DomString,
+    string: String,
 }
 
 impl Label {
 
     #[inline]
-    pub fn new<S: Into<DomString>>(text: S) -> Self {
-        Self { text: text.into() }
+    pub fn new<S: Into<String>>(string: S) -> Self {
+        Self { string: string.into() }
     }
 
     #[inline]
     pub fn dom(self) -> Dom {
-        Dom::label(self.text).with_class("__azul-native-label")
+        Dom::label(self.string.into()).with_class("__azul-native-label")
+    }
+}
+
+impl Into<Dom> for Label {
+    fn into(self) -> Dom {
+        self.dom()
     }
 }
