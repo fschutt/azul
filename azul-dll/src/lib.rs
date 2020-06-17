@@ -57,7 +57,7 @@ pub type AzStringTT = azul_impl::css::AzString;
 #[no_mangle] pub extern "C" fn az_string_deep_copy(object: &AzString) -> AzString { object.clone() }
 
 /// Wrapper over a Rust-allocated `XWindowType`
-pub type AzXWindowTypeVecTT = azul_impl::css::XWindowTypeVec;
+pub type AzXWindowTypeVecTT = azul_impl::window::XWindowTypeVec;
 #[no_mangle] pub use AzXWindowTypeVecTT as AzXWindowTypeVec;
 /// Creates + allocates a Rust `Vec<XWindowType>` by **copying** it from a bytes source
 #[no_mangle] pub extern "C" fn az_x_window_type_vec_copy_from(ptr: *const AzXWindowType, len: usize) -> AzXWindowTypeVec { unsafe { std::slice::from_raw_parts(ptr, len).iter().cloned().collect::<Vec<_>>() }.into() }
@@ -67,7 +67,7 @@ pub type AzXWindowTypeVecTT = azul_impl::css::XWindowTypeVec;
 #[no_mangle] pub extern "C" fn az_x_window_type_vec_deep_copy(object: &AzXWindowTypeVec) -> AzXWindowTypeVec { object.clone() }
 
 /// Wrapper over a Rust-allocated `VirtualKeyCode`
-pub type AzVirtualKeyCodeVecTT = azul_impl::css::VirtualKeyCodeVec;
+pub type AzVirtualKeyCodeVecTT = azul_impl::window::VirtualKeyCodeVec;
 #[no_mangle] pub use AzVirtualKeyCodeVecTT as AzVirtualKeyCodeVec;
 /// Creates + allocates a Rust `Vec<VirtualKeyCode>` by **copying** it from a bytes source
 #[no_mangle] pub extern "C" fn az_virtual_key_code_vec_copy_from(ptr: *const AzVirtualKeyCode, len: usize) -> AzVirtualKeyCodeVec { unsafe { std::slice::from_raw_parts(ptr, len).iter().cloned().collect::<Vec<_>>() }.into() }
@@ -77,7 +77,7 @@ pub type AzVirtualKeyCodeVecTT = azul_impl::css::VirtualKeyCodeVec;
 #[no_mangle] pub extern "C" fn az_virtual_key_code_vec_deep_copy(object: &AzVirtualKeyCodeVec) -> AzVirtualKeyCodeVec { object.clone() }
 
 /// Wrapper over a Rust-allocated `ScanCode`
-pub type AzScanCodeVecTT = azul_impl::css::ScanCodeVec;
+pub type AzScanCodeVecTT = azul_impl::window::ScanCodeVec;
 #[no_mangle] pub use AzScanCodeVecTT as AzScanCodeVec;
 /// Creates + allocates a Rust `Vec<ScanCode>` by **copying** it from a bytes source
 #[no_mangle] pub extern "C" fn az_scan_code_vec_copy_from(ptr: *const u32, len: usize) -> AzScanCodeVec { unsafe { std::slice::from_raw_parts(ptr, len).iter().cloned().collect::<Vec<_>>() }.into() }
@@ -207,7 +207,7 @@ pub type AzStringVecTT = azul_impl::css::StringVec;
 #[no_mangle] pub extern "C" fn az_string_vec_deep_copy(object: &AzStringVec) -> AzStringVec { object.clone() }
 
 /// Wrapper over a Rust-allocated `StringPairVec`
-pub type AzStringPairVecTT = azul_impl::css::StringPairVec;
+pub type AzStringPairVecTT = azul_impl::window::StringPairVec;
 #[no_mangle] pub use AzStringPairVecTT as AzStringPairVec;
 /// Creates + allocates a Rust `Vec<StringPair>` by **copying** it from a bytes source
 #[no_mangle] pub extern "C" fn az_string_pair_vec_copy_from(ptr: *const AzStringPair, len: usize) -> AzStringPairVec { unsafe { std::slice::from_raw_parts(ptr, len).into_iter().map(|s| s.clone()).collect::<Vec<_>>() }.into() }
@@ -263,10 +263,10 @@ pub type AzOptionWindowIconTT = azul_impl::window::OptionWindowIcon;
 #[no_mangle] pub extern "C" fn az_option_window_icon_deep_copy(object: &AzOptionWindowIcon) -> AzOptionWindowIcon { object.clone() }
 
 /// Re-export of rust-allocated (stack based) `OptionString` struct
-pub type AzOptionStringTT = azul_impl::window::OptionString;
+pub type AzOptionStringTT = azul_impl::window::OptionAzString;
 #[no_mangle] pub use AzOptionStringTT as AzOptionString;
 /// Destructor: Takes ownership of the `OptionString` pointer and deletes it.
-#[no_mangle] #[allow(unused_variables)] pub extern "C" fn az_option_string_delete(object: &mut AzOptionString) { match object { azul_impl::window::OptionString::None => { }, azul_impl::window::OptionString::Some(_) => { }, }
+#[no_mangle] #[allow(unused_variables)] pub extern "C" fn az_option_string_delete(object: &mut AzOptionString) { match object { azul_impl::window::OptionAzString::None => { }, azul_impl::window::OptionAzString::Some(_) => { }, }
 }
 /// Clones the object
 #[no_mangle] pub extern "C" fn az_option_string_deep_copy(object: &AzOptionString) -> AzOptionString { object.clone() }
@@ -452,7 +452,7 @@ pub type AzDurationTT = azul_impl::task::AzDuration;
 /// Creates a new App instance from the given `AppConfig`
 #[no_mangle] pub extern "C" fn az_app_new(data: AzRefAny, config: AzAppConfigPtr, callback: AzLayoutCallbackType) -> AzAppPtr { let object: App = App::new(data, *az_app_config_downcast(config), callback).unwrap(); AzAppPtr { ptr: Box::into_raw(Box::new(object)) as *mut c_void } }
 /// Runs the application. Due to platform restrictions (specifically `WinMain` on Windows), this function never returns.
-#[no_mangle] pub extern "C" fn az_app_run(app: AzAppPtr, window: AzWindowCreateOptions) { az_app_downcast(app).run(*az_window_create_options_downcast(window)) }
+#[no_mangle] pub extern "C" fn az_app_run(app: AzAppPtr, window: AzWindowCreateOptions) { az_app_downcast(app).run(window) }
 /// Destructor: Takes ownership of the `App` pointer and deletes it.
 #[no_mangle] pub extern "C" fn az_app_delete(ptr: &mut AzAppPtr) { let _ = unsafe { Box::<App>::from_raw(ptr.ptr  as *mut App) };}
 /// (private): Downcasts the `AzAppPtr` to a `Box<App>`. Note that this takes ownership of the pointer.
@@ -737,7 +737,7 @@ pub type AzStylesheetTT = azul_impl::css::Stylesheet;
 #[no_mangle] pub extern "C" fn az_stylesheet_deep_copy(object: &AzStylesheet) -> AzStylesheet { object.clone() }
 
 /// Re-export of rust-allocated (stack based) `Css` struct
-pub type AzCssTT = azul_impl::css::Stylesheet;
+pub type AzCssTT = azul_impl::css::Css;
 #[no_mangle] pub use AzCssTT as AzCss;
 /// Loads the native style for the given operating system
 #[no_mangle] pub extern "C" fn az_css_native() -> AzCss { css::native() }
@@ -751,21 +751,6 @@ pub type AzCssTT = azul_impl::css::Stylesheet;
 #[no_mangle] #[allow(unused_variables)] pub extern "C" fn az_css_delete(object: &mut AzCss) { }
 /// Clones the object
 #[no_mangle] pub extern "C" fn az_css_deep_copy(object: &AzCss) -> AzCss { object.clone() }
-
-/// Pointer to rust-allocated `Box<CssHotReloader>` struct
-#[no_mangle] #[repr(C)] pub struct AzCssHotReloaderPtr { ptr: *mut c_void }
-/// Creates a `HotReloadHandler` that hot-reloads a CSS file every X milliseconds
-#[no_mangle] pub extern "C" fn az_css_hot_reloader_new(path: AzString, reload_ms: u64) -> AzCssHotReloaderPtr { let object: Box<dyn HotReloadHandler> = { let path: String = path.into(); css::hot_reload(std::path::PathBuf::from(path), Duration::from_millis(reload_ms)) }; AzCssHotReloaderPtr { ptr: Box::into_raw(Box::new(object)) as *mut c_void } }
-/// Creates a `HotReloadHandler` that overrides the `Css::native()` stylesheet with a CSS file, reloaded every X milliseconds
-#[no_mangle] pub extern "C" fn az_css_hot_reloader_override_native(path: AzString, reload_ms: u64) -> AzCssHotReloaderPtr { let object: Box<dyn HotReloadHandler> = { let path: String = path.into(); css::hot_reload_override_native(std::path::PathBuf::from(path), Duration::from_millis(reload_ms)) }; AzCssHotReloaderPtr { ptr: Box::into_raw(Box::new(object)) as *mut c_void } }
-/// Destructor: Takes ownership of the `CssHotReloader` pointer and deletes it.
-#[no_mangle] pub extern "C" fn az_css_hot_reloader_delete(ptr: &mut AzCssHotReloaderPtr) { let _ = unsafe { Box::<Box<dyn HotReloadHandler>>::from_raw(ptr.ptr  as *mut Box<dyn HotReloadHandler>) };}
-/// (private): Downcasts the `AzCssHotReloaderPtr` to a `Box<Box<dyn HotReloadHandler>>`. Note that this takes ownership of the pointer.
-#[inline(always)] fn az_css_hot_reloader_downcast(ptr: AzCssHotReloaderPtr) -> Box<Box<dyn HotReloadHandler>> {     unsafe { Box::<Box<dyn HotReloadHandler>>::from_raw(ptr.ptr  as *mut Box<dyn HotReloadHandler>) }}
-/// (private): Downcasts the `AzCssHotReloaderPtr` to a `&mut Box<Box<dyn HotReloadHandler>>` and runs the `func` closure on it
-#[inline(always)] fn az_css_hot_reloader_downcast_refmut<P, F: FnOnce(&mut Box<dyn HotReloadHandler>) -> P>(ptr: &mut AzCssHotReloaderPtr, func: F) -> P {     func(unsafe { &mut *(ptr.ptr as *mut Box<dyn HotReloadHandler>) })}
-/// (private): Downcasts the `AzCssHotReloaderPtr` to a `&Box<Box<dyn HotReloadHandler>>` and runs the `func` closure on it
-#[inline(always)] fn az_css_hot_reloader_downcast_ref<P, F: FnOnce(&Box<dyn HotReloadHandler>) -> P>(ptr: &mut AzCssHotReloaderPtr, func: F) -> P {     func(unsafe { &*(ptr.ptr as *const Box<dyn HotReloadHandler>) })}
 
 /// Re-export of rust-allocated (stack based) `ColorU` struct
 pub type AzColorUTT = azul_impl::css::ColorU;
@@ -3038,10 +3023,10 @@ pub type AzMouseCursorTypeTT = azul_impl::window::MouseCursorType;
 #[no_mangle] pub extern "C" fn az_mouse_cursor_type_deep_copy(object: &AzMouseCursorType) -> AzMouseCursorType { object.clone() }
 
 /// Re-export of rust-allocated (stack based) `CursorPosition` struct
-pub type AzCursorPositionTT = azul_impl::window::MouseState;
+pub type AzCursorPositionTT = azul_impl::window::CursorPosition;
 #[no_mangle] pub use AzCursorPositionTT as AzCursorPosition;
 /// Destructor: Takes ownership of the `CursorPosition` pointer and deletes it.
-#[no_mangle] #[allow(unused_variables)] pub extern "C" fn az_cursor_position_delete(object: &mut AzCursorPosition) { match object { azul_impl::window::MouseState::OutOfWindow => { }, azul_impl::window::MouseState::Uninitialized => { }, azul_impl::window::MouseState::InWindow(_) => { }, }
+#[no_mangle] #[allow(unused_variables)] pub extern "C" fn az_cursor_position_delete(object: &mut AzCursorPosition) { match object { azul_impl::window::CursorPosition::OutOfWindow => { }, azul_impl::window::CursorPosition::Uninitialized => { }, azul_impl::window::CursorPosition::InWindow(_) => { }, }
 }
 /// Clones the object
 #[no_mangle] pub extern "C" fn az_cursor_position_deep_copy(object: &AzCursorPosition) -> AzCursorPosition { object.clone() }

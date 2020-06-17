@@ -761,7 +761,7 @@ pub struct LinuxWindowOptions {
     pub x11_screen: OptionI32,
     /// Build window with `WM_CLASS` hint; defaults to the name of the binary. Only relevant on X11.
     /// Can only be set at window creation, can't be changed in callbacks.
-    pub x11_wm_classes: StringStringVec,
+    pub x11_wm_classes: StringPairVec,
     /// Build window with override-redirect flag; defaults to false. Only relevant on X11.
     /// Can only be set at window creation, can't be changed in callbacks.
     pub x11_override_redirect: bool,
@@ -799,14 +799,14 @@ pub struct AzStringPair {
     pub value: AzString,
 }
 
-impl_vec!(AzStringPair, StringStringVec);
-impl_vec_debug!(AzStringPair, StringStringVec);
-impl_vec_partialord!(AzStringPair, StringStringVec);
-impl_vec_ord!(AzStringPair, StringStringVec);
-impl_vec_clone!(AzStringPair, StringStringVec);
-impl_vec_partialeq!(AzStringPair, StringStringVec);
-impl_vec_eq!(AzStringPair, StringStringVec);
-impl_vec_hash!(AzStringPair, StringStringVec);
+impl_vec!(AzStringPair, StringPairVec);
+impl_vec_debug!(AzStringPair, StringPairVec);
+impl_vec_partialord!(AzStringPair, StringPairVec);
+impl_vec_ord!(AzStringPair, StringPairVec);
+impl_vec_clone!(AzStringPair, StringPairVec);
+impl_vec_partialeq!(AzStringPair, StringPairVec);
+impl_vec_eq!(AzStringPair, StringPairVec);
+impl_vec_hash!(AzStringPair, StringPairVec);
 
 impl_vec!(XWindowType, XWindowTypeVec);
 impl_vec_debug!(XWindowType, XWindowTypeVec);
@@ -981,6 +981,7 @@ impl Default for WindowState {
 }
 
 /// Options on how to initially create the window
+#[derive(Clone)]
 #[repr(C)]
 pub struct WindowCreateOptions {
     /// State of the window, set the initial title / width / height here.

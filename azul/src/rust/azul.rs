@@ -1,7 +1,10 @@
 #![doc(
     html_logo_url = "https://raw.githubusercontent.com/maps4print/azul/master/assets/images/azul_logo_full_min.svg.png",
     html_favicon_url = "https://raw.githubusercontent.com/maps4print/azul/master/assets/images/favicon.ico",
-)]//! Auto-generated public Rust API for the Azul GUI toolkit version 0.1.0
+)]
+
+
+//! Auto-generated public Rust API for the Azul GUI toolkit version 0.1.0
 //!
 
 // Copyright 2017 Maps4Print Einzelunternehmung
@@ -419,10 +422,6 @@ pub(crate) mod dll {
     /// Re-export of rust-allocated (stack based) `Css` struct
     #[repr(C)] pub struct AzCss {
         pub stylesheets: AzStylesheetVec,
-    }
-    /// Pointer to rust-allocated `Box<CssHotReloader>` struct
-    #[repr(C)] pub struct AzCssHotReloaderPtr {
-        pub(crate) ptr: *mut c_void,
     }
     /// Re-export of rust-allocated (stack based) `ColorU` struct
     #[repr(C)] pub struct AzColorU {
@@ -2351,9 +2350,6 @@ pub(crate) mod dll {
         pub az_css_override_native: Symbol<extern fn(_:  AzString) -> AzCss>,
         pub az_css_delete: Symbol<extern fn(_:  &mut AzCss)>,
         pub az_css_deep_copy: Symbol<extern fn(_:  &AzCss) -> AzCss>,
-        pub az_css_hot_reloader_new: Symbol<extern fn(_:  AzString, _:  u64) -> AzCssHotReloaderPtr>,
-        pub az_css_hot_reloader_override_native: Symbol<extern fn(_:  AzString, _:  u64) -> AzCssHotReloaderPtr>,
-        pub az_css_hot_reloader_delete: Symbol<extern fn(_:  &mut AzCssHotReloaderPtr)>,
         pub az_color_u_delete: Symbol<extern fn(_:  &mut AzColorU)>,
         pub az_color_u_deep_copy: Symbol<extern fn(_:  &AzColorU) -> AzColorU>,
         pub az_size_metric_delete: Symbol<extern fn(_:  &mut AzSizeMetric)>,
@@ -3212,9 +3208,6 @@ pub(crate) mod dll {
         let az_css_override_native = unsafe { lib.get::<extern fn(_:  AzString) -> AzCss>(b"az_css_override_native").map_err(|_| "az_css_override_native")? };
         let az_css_delete = unsafe { lib.get::<extern fn(_:  &mut AzCss)>(b"az_css_delete").map_err(|_| "az_css_delete")? };
         let az_css_deep_copy = unsafe { lib.get::<extern fn(_:  &AzCss) -> AzCss>(b"az_css_deep_copy").map_err(|_| "az_css_deep_copy")? };
-        let az_css_hot_reloader_new = unsafe { lib.get::<extern fn(_:  AzString, _:  u64) -> AzCssHotReloaderPtr>(b"az_css_hot_reloader_new").map_err(|_| "az_css_hot_reloader_new")? };
-        let az_css_hot_reloader_override_native = unsafe { lib.get::<extern fn(_:  AzString, _:  u64) -> AzCssHotReloaderPtr>(b"az_css_hot_reloader_override_native").map_err(|_| "az_css_hot_reloader_override_native")? };
-        let az_css_hot_reloader_delete = unsafe { lib.get::<extern fn(_:  &mut AzCssHotReloaderPtr)>(b"az_css_hot_reloader_delete").map_err(|_| "az_css_hot_reloader_delete")? };
         let az_color_u_delete = unsafe { lib.get::<extern fn(_:  &mut AzColorU)>(b"az_color_u_delete").map_err(|_| "az_color_u_delete")? };
         let az_color_u_deep_copy = unsafe { lib.get::<extern fn(_:  &AzColorU) -> AzColorU>(b"az_color_u_deep_copy").map_err(|_| "az_color_u_deep_copy")? };
         let az_size_metric_delete = unsafe { lib.get::<extern fn(_:  &mut AzSizeMetric)>(b"az_size_metric_delete").map_err(|_| "az_size_metric_delete")? };
@@ -4071,9 +4064,6 @@ pub(crate) mod dll {
             az_css_override_native,
             az_css_delete,
             az_css_deep_copy,
-            az_css_hot_reloader_new,
-            az_css_hot_reloader_override_native,
-            az_css_hot_reloader_delete,
             az_color_u_delete,
             az_color_u_deep_copy,
             az_size_metric_delete,
@@ -4899,10 +4889,9 @@ pub mod vec {
                 Vec::<$struct_type>::new().into()
             }
 
-            pub fn sort_by<F: FnMut(&T, &T) -> std::cmp::Ordering>(&mut self, compare: F) {
-                let v1: Vec<$struct_type> = unsafe { Vec::from_raw_parts_mut(self.ptr as *mut $struct_type, self.len, self.cap) };
+            pub fn sort_by<F: FnMut(&$struct_type, &$struct_type) -> std::cmp::Ordering>(&mut self, compare: F) {
+                let v1: &mut [$struct_type] = unsafe { std::slice::from_raw_parts_mut(self.ptr as *mut $struct_type, self.len) };
                 v1.sort_by(compare);
-                std::mem::forget(v1);
             }
 
             pub fn with_capacity(cap: usize) -> Self {
@@ -5850,19 +5839,6 @@ pub mod css {
 
     impl Clone for Css { fn clone(&self) -> Self { (crate::dll::get_azul_dll().az_css_deep_copy)(self) } }
     impl Drop for Css { fn drop(&mut self) { (crate::dll::get_azul_dll().az_css_delete)(self); } }
-
-
-    /// `CssHotReloader` struct
-    pub use crate::dll::AzCssHotReloaderPtr as CssHotReloader;
-
-    impl CssHotReloader {
-        /// Creates a `HotReloadHandler` that hot-reloads a CSS file every X milliseconds
-        pub fn new(path: String, reload_ms: u64) -> Self { (crate::dll::get_azul_dll().az_css_hot_reloader_new)(path, reload_ms) }
-        /// Creates a `HotReloadHandler` that overrides the `Css::native()` stylesheet with a CSS file, reloaded every X milliseconds
-        pub fn override_native(path: String, reload_ms: u64) -> Self { (crate::dll::get_azul_dll().az_css_hot_reloader_override_native)(path, reload_ms) }
-    }
-
-    impl Drop for CssHotReloader { fn drop(&mut self) { (crate::dll::get_azul_dll().az_css_hot_reloader_delete)(self); } }
 
 
     /// `ColorU` struct
