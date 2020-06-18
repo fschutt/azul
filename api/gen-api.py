@@ -613,6 +613,7 @@ def generate_rust_dll(apiData):
                         code += "#[no_mangle] pub extern \"C\" fn " + fn_prefix + to_snake_case(class_name) + "_deep_copy" + lifetime + "(object: &" + class_ptr_name + ") -> " + class_ptr_name + " { "
                         code += "object.clone()"
                         code += " }\r\n"
+
             else:
                 # az_item_delete()
                 code += "/// Destructor: Takes ownership of the `" + class_name + "` pointer and deletes it.\r\n"
@@ -644,6 +645,13 @@ def generate_rust_dll(apiData):
                 code += "#[inline(always)] fn " + fn_prefix + to_snake_case(class_name) + "_downcast_ref" + downcast_ref_generics + "(ptr: &" + class_ptr_name + ", func: F) -> P { "
                 code += "    func(unsafe { &*(ptr.ptr as *const " + rust_class_name + ") })"
                 code += "}\r\n"
+
+            # az_item_fmt_debug()
+            code += "/// Creates a string with the debug representation of the object\r\n"
+            functions_map[str(fn_prefix + to_snake_case(class_name) + "_fmt_debug")] = ["object: &" + class_ptr_name, "AzString"];
+            code += "#[no_mangle] pub extern \"C\" fn " + fn_prefix + to_snake_case(class_name) + "_fmt_debug" + lifetime + "(object: &" + class_ptr_name + ") -> AzString { "
+            code += "format!(\"{:#?}\", object).into()"
+            code += " }\r\n"
 
     return [code, structs_map, functions_map]
 
@@ -978,6 +986,8 @@ def generate_rust_api(apiData, structs_map, functions_map):
             lifetime = ""
             if "<'a>" in rust_class_name:
                 lifetime = "<'a>"
+
+            code += "    impl std::fmt::Debug for " + class_name + " { fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result { write!(f, \"{}\", (crate::dll::get_azul_dll()." + fn_prefix + to_snake_case(class_name) + "_fmt_debug)(self)) } }\r\n"
 
             if c_is_stack_allocated and class_can_be_cloned and lifetime == "" and not(class_is_const or class_is_typedef):
                 code += "    impl Clone for " + class_name + " { fn clone(&self) -> Self { (crate::dll::get_azul_dll()." + fn_prefix + to_snake_case(class_name) + "_deep_copy)(self) } }\r\n"

@@ -32,12 +32,6 @@
         }
     }
 
-    impl std::fmt::Debug for crate::str::String {
-        fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
-            self.as_str().fmt(f)
-        }
-    }
-
     impl crate::str::String {
         #[inline]
         pub fn as_str(&self) -> &str {

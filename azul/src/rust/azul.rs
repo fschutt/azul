@@ -2313,135 +2313,195 @@ pub(crate) mod dll {
         pub az_string_into_bytes: Symbol<extern fn(_:  AzString) -> AzU8Vec>,
         pub az_string_delete: Symbol<extern fn(_:  &mut AzString)>,
         pub az_string_deep_copy: Symbol<extern fn(_:  &AzString) -> AzString>,
+        pub az_string_fmt_debug: Symbol<extern fn(_:  &AzString) -> AzString>,
         pub az_x_window_type_vec_copy_from: Symbol<extern fn(_:  *const AzXWindowType, _:  usize) -> AzXWindowTypeVec>,
         pub az_x_window_type_vec_delete: Symbol<extern fn(_:  &mut AzXWindowTypeVec)>,
         pub az_x_window_type_vec_deep_copy: Symbol<extern fn(_:  &AzXWindowTypeVec) -> AzXWindowTypeVec>,
+        pub az_x_window_type_vec_fmt_debug: Symbol<extern fn(_:  &AzXWindowTypeVec) -> AzString>,
         pub az_virtual_key_code_vec_copy_from: Symbol<extern fn(_:  *const AzVirtualKeyCode, _:  usize) -> AzVirtualKeyCodeVec>,
         pub az_virtual_key_code_vec_delete: Symbol<extern fn(_:  &mut AzVirtualKeyCodeVec)>,
         pub az_virtual_key_code_vec_deep_copy: Symbol<extern fn(_:  &AzVirtualKeyCodeVec) -> AzVirtualKeyCodeVec>,
+        pub az_virtual_key_code_vec_fmt_debug: Symbol<extern fn(_:  &AzVirtualKeyCodeVec) -> AzString>,
         pub az_scan_code_vec_copy_from: Symbol<extern fn(_:  *const u32, _:  usize) -> AzScanCodeVec>,
         pub az_scan_code_vec_delete: Symbol<extern fn(_:  &mut AzScanCodeVec)>,
         pub az_scan_code_vec_deep_copy: Symbol<extern fn(_:  &AzScanCodeVec) -> AzScanCodeVec>,
+        pub az_scan_code_vec_fmt_debug: Symbol<extern fn(_:  &AzScanCodeVec) -> AzString>,
         pub az_css_declaration_vec_copy_from: Symbol<extern fn(_:  *const AzCssDeclaration, _:  usize) -> AzCssDeclarationVec>,
         pub az_css_declaration_vec_delete: Symbol<extern fn(_:  &mut AzCssDeclarationVec)>,
         pub az_css_declaration_vec_deep_copy: Symbol<extern fn(_:  &AzCssDeclarationVec) -> AzCssDeclarationVec>,
+        pub az_css_declaration_vec_fmt_debug: Symbol<extern fn(_:  &AzCssDeclarationVec) -> AzString>,
         pub az_css_path_selector_vec_copy_from: Symbol<extern fn(_:  *const AzCssPathSelector, _:  usize) -> AzCssPathSelectorVec>,
         pub az_css_path_selector_vec_delete: Symbol<extern fn(_:  &mut AzCssPathSelectorVec)>,
         pub az_css_path_selector_vec_deep_copy: Symbol<extern fn(_:  &AzCssPathSelectorVec) -> AzCssPathSelectorVec>,
+        pub az_css_path_selector_vec_fmt_debug: Symbol<extern fn(_:  &AzCssPathSelectorVec) -> AzString>,
         pub az_stylesheet_vec_copy_from: Symbol<extern fn(_:  *const AzStylesheet, _:  usize) -> AzStylesheetVec>,
         pub az_stylesheet_vec_delete: Symbol<extern fn(_:  &mut AzStylesheetVec)>,
         pub az_stylesheet_vec_deep_copy: Symbol<extern fn(_:  &AzStylesheetVec) -> AzStylesheetVec>,
+        pub az_stylesheet_vec_fmt_debug: Symbol<extern fn(_:  &AzStylesheetVec) -> AzString>,
         pub az_css_rule_block_vec_copy_from: Symbol<extern fn(_:  *const AzCssRuleBlock, _:  usize) -> AzCssRuleBlockVec>,
         pub az_css_rule_block_vec_delete: Symbol<extern fn(_:  &mut AzCssRuleBlockVec)>,
         pub az_css_rule_block_vec_deep_copy: Symbol<extern fn(_:  &AzCssRuleBlockVec) -> AzCssRuleBlockVec>,
+        pub az_css_rule_block_vec_fmt_debug: Symbol<extern fn(_:  &AzCssRuleBlockVec) -> AzString>,
         pub az_u8_vec_copy_from: Symbol<extern fn(_:  *const u8, _:  usize) -> AzU8Vec>,
         pub az_u8_vec_delete: Symbol<extern fn(_:  &mut AzU8Vec)>,
         pub az_u8_vec_deep_copy: Symbol<extern fn(_:  &AzU8Vec) -> AzU8Vec>,
+        pub az_u8_vec_fmt_debug: Symbol<extern fn(_:  &AzU8Vec) -> AzString>,
         pub az_callback_data_vec_copy_from: Symbol<extern fn(_:  *const AzCallbackData, _:  usize) -> AzCallbackDataVec>,
         pub az_callback_data_vec_delete: Symbol<extern fn(_:  &mut AzCallbackDataVec)>,
         pub az_callback_data_vec_deep_copy: Symbol<extern fn(_:  &AzCallbackDataVec) -> AzCallbackDataVec>,
+        pub az_callback_data_vec_fmt_debug: Symbol<extern fn(_:  &AzCallbackDataVec) -> AzString>,
         pub az_debug_message_vec_copy_from: Symbol<extern fn(_:  *const AzDebugMessage, _:  usize) -> AzDebugMessageVec>,
         pub az_debug_message_vec_delete: Symbol<extern fn(_:  &mut AzDebugMessageVec)>,
         pub az_debug_message_vec_deep_copy: Symbol<extern fn(_:  &AzDebugMessageVec) -> AzDebugMessageVec>,
+        pub az_debug_message_vec_fmt_debug: Symbol<extern fn(_:  &AzDebugMessageVec) -> AzString>,
         pub az_g_luint_vec_copy_from: Symbol<extern fn(_:  *const u32, _:  usize) -> AzGLuintVec>,
         pub az_g_luint_vec_delete: Symbol<extern fn(_:  &mut AzGLuintVec)>,
         pub az_g_luint_vec_deep_copy: Symbol<extern fn(_:  &AzGLuintVec) -> AzGLuintVec>,
+        pub az_g_luint_vec_fmt_debug: Symbol<extern fn(_:  &AzGLuintVec) -> AzString>,
         pub az_g_lint_vec_copy_from: Symbol<extern fn(_:  *const i32, _:  usize) -> AzGLintVec>,
         pub az_g_lint_vec_delete: Symbol<extern fn(_:  &mut AzGLintVec)>,
         pub az_g_lint_vec_deep_copy: Symbol<extern fn(_:  &AzGLintVec) -> AzGLintVec>,
+        pub az_g_lint_vec_fmt_debug: Symbol<extern fn(_:  &AzGLintVec) -> AzString>,
         pub az_override_property_vec_copy_from: Symbol<extern fn(_:  *const AzOverrideProperty, _:  usize) -> AzOverridePropertyVec>,
         pub az_override_property_vec_delete: Symbol<extern fn(_:  &mut AzOverridePropertyVec)>,
         pub az_override_property_vec_deep_copy: Symbol<extern fn(_:  &AzOverridePropertyVec) -> AzOverridePropertyVec>,
+        pub az_override_property_vec_fmt_debug: Symbol<extern fn(_:  &AzOverridePropertyVec) -> AzString>,
         pub az_dom_vec_copy_from: Symbol<extern fn(_:  *const AzDom, _:  usize) -> AzDomVec>,
         pub az_dom_vec_delete: Symbol<extern fn(_:  &mut AzDomVec)>,
         pub az_dom_vec_deep_copy: Symbol<extern fn(_:  &AzDomVec) -> AzDomVec>,
+        pub az_dom_vec_fmt_debug: Symbol<extern fn(_:  &AzDomVec) -> AzString>,
         pub az_string_vec_copy_from: Symbol<extern fn(_:  *const AzString, _:  usize) -> AzStringVec>,
         pub az_string_vec_delete: Symbol<extern fn(_:  &mut AzStringVec)>,
         pub az_string_vec_deep_copy: Symbol<extern fn(_:  &AzStringVec) -> AzStringVec>,
+        pub az_string_vec_fmt_debug: Symbol<extern fn(_:  &AzStringVec) -> AzString>,
         pub az_string_pair_vec_copy_from: Symbol<extern fn(_:  *const AzStringPair, _:  usize) -> AzStringPairVec>,
         pub az_string_pair_vec_delete: Symbol<extern fn(_:  &mut AzStringPairVec)>,
         pub az_string_pair_vec_deep_copy: Symbol<extern fn(_:  &AzStringPairVec) -> AzStringPairVec>,
+        pub az_string_pair_vec_fmt_debug: Symbol<extern fn(_:  &AzStringPairVec) -> AzString>,
         pub az_gradient_stop_pre_vec_copy_from: Symbol<extern fn(_:  *const AzGradientStopPre, _:  usize) -> AzGradientStopPreVec>,
         pub az_gradient_stop_pre_vec_delete: Symbol<extern fn(_:  &mut AzGradientStopPreVec)>,
         pub az_gradient_stop_pre_vec_deep_copy: Symbol<extern fn(_:  &AzGradientStopPreVec) -> AzGradientStopPreVec>,
+        pub az_gradient_stop_pre_vec_fmt_debug: Symbol<extern fn(_:  &AzGradientStopPreVec) -> AzString>,
         pub az_option_wayland_theme_delete: Symbol<extern fn(_:  &mut AzOptionWaylandTheme)>,
         pub az_option_wayland_theme_deep_copy: Symbol<extern fn(_:  &AzOptionWaylandTheme) -> AzOptionWaylandTheme>,
+        pub az_option_wayland_theme_fmt_debug: Symbol<extern fn(_:  &AzOptionWaylandTheme) -> AzString>,
         pub az_option_task_bar_icon_delete: Symbol<extern fn(_:  &mut AzOptionTaskBarIcon)>,
         pub az_option_task_bar_icon_deep_copy: Symbol<extern fn(_:  &AzOptionTaskBarIcon) -> AzOptionTaskBarIcon>,
+        pub az_option_task_bar_icon_fmt_debug: Symbol<extern fn(_:  &AzOptionTaskBarIcon) -> AzString>,
         pub az_option_hwnd_handle_delete: Symbol<extern fn(_:  &mut AzOptionHwndHandle)>,
         pub az_option_hwnd_handle_deep_copy: Symbol<extern fn(_:  &AzOptionHwndHandle) -> AzOptionHwndHandle>,
+        pub az_option_hwnd_handle_fmt_debug: Symbol<extern fn(_:  &AzOptionHwndHandle) -> AzString>,
         pub az_option_logical_position_delete: Symbol<extern fn(_:  &mut AzOptionLogicalPosition)>,
         pub az_option_logical_position_deep_copy: Symbol<extern fn(_:  &AzOptionLogicalPosition) -> AzOptionLogicalPosition>,
+        pub az_option_logical_position_fmt_debug: Symbol<extern fn(_:  &AzOptionLogicalPosition) -> AzString>,
         pub az_option_hot_reload_options_delete: Symbol<extern fn(_:  &mut AzOptionHotReloadOptions)>,
         pub az_option_hot_reload_options_deep_copy: Symbol<extern fn(_:  &AzOptionHotReloadOptions) -> AzOptionHotReloadOptions>,
+        pub az_option_hot_reload_options_fmt_debug: Symbol<extern fn(_:  &AzOptionHotReloadOptions) -> AzString>,
         pub az_option_physical_position_i32_delete: Symbol<extern fn(_:  &mut AzOptionPhysicalPositionI32)>,
         pub az_option_physical_position_i32_deep_copy: Symbol<extern fn(_:  &AzOptionPhysicalPositionI32) -> AzOptionPhysicalPositionI32>,
+        pub az_option_physical_position_i32_fmt_debug: Symbol<extern fn(_:  &AzOptionPhysicalPositionI32) -> AzString>,
         pub az_option_window_icon_delete: Symbol<extern fn(_:  &mut AzOptionWindowIcon)>,
         pub az_option_window_icon_deep_copy: Symbol<extern fn(_:  &AzOptionWindowIcon) -> AzOptionWindowIcon>,
+        pub az_option_window_icon_fmt_debug: Symbol<extern fn(_:  &AzOptionWindowIcon) -> AzString>,
         pub az_option_string_delete: Symbol<extern fn(_:  &mut AzOptionString)>,
         pub az_option_string_deep_copy: Symbol<extern fn(_:  &AzOptionString) -> AzOptionString>,
+        pub az_option_string_fmt_debug: Symbol<extern fn(_:  &AzOptionString) -> AzString>,
         pub az_option_x11_visual_delete: Symbol<extern fn(_:  &mut AzOptionX11Visual)>,
         pub az_option_x11_visual_deep_copy: Symbol<extern fn(_:  &AzOptionX11Visual) -> AzOptionX11Visual>,
+        pub az_option_x11_visual_fmt_debug: Symbol<extern fn(_:  &AzOptionX11Visual) -> AzString>,
         pub az_option_i32_delete: Symbol<extern fn(_:  &mut AzOptionI32)>,
         pub az_option_i32_deep_copy: Symbol<extern fn(_:  &AzOptionI32) -> AzOptionI32>,
+        pub az_option_i32_fmt_debug: Symbol<extern fn(_:  &AzOptionI32) -> AzString>,
         pub az_option_f32_delete: Symbol<extern fn(_:  &mut AzOptionF32)>,
         pub az_option_f32_deep_copy: Symbol<extern fn(_:  &AzOptionF32) -> AzOptionF32>,
+        pub az_option_f32_fmt_debug: Symbol<extern fn(_:  &AzOptionF32) -> AzString>,
         pub az_option_mouse_cursor_type_delete: Symbol<extern fn(_:  &mut AzOptionMouseCursorType)>,
         pub az_option_mouse_cursor_type_deep_copy: Symbol<extern fn(_:  &AzOptionMouseCursorType) -> AzOptionMouseCursorType>,
+        pub az_option_mouse_cursor_type_fmt_debug: Symbol<extern fn(_:  &AzOptionMouseCursorType) -> AzString>,
         pub az_option_logical_size_delete: Symbol<extern fn(_:  &mut AzOptionLogicalSize)>,
         pub az_option_logical_size_deep_copy: Symbol<extern fn(_:  &AzOptionLogicalSize) -> AzOptionLogicalSize>,
+        pub az_option_logical_size_fmt_debug: Symbol<extern fn(_:  &AzOptionLogicalSize) -> AzString>,
         pub az_option_char_delete: Symbol<extern fn(_:  &mut AzOptionChar)>,
         pub az_option_char_deep_copy: Symbol<extern fn(_:  &AzOptionChar) -> AzOptionChar>,
+        pub az_option_char_fmt_debug: Symbol<extern fn(_:  &AzOptionChar) -> AzString>,
         pub az_option_virtual_key_code_delete: Symbol<extern fn(_:  &mut AzOptionVirtualKeyCode)>,
         pub az_option_virtual_key_code_deep_copy: Symbol<extern fn(_:  &AzOptionVirtualKeyCode) -> AzOptionVirtualKeyCode>,
+        pub az_option_virtual_key_code_fmt_debug: Symbol<extern fn(_:  &AzOptionVirtualKeyCode) -> AzString>,
         pub az_option_percentage_value_delete: Symbol<extern fn(_:  &mut AzOptionPercentageValue)>,
         pub az_option_percentage_value_deep_copy: Symbol<extern fn(_:  &AzOptionPercentageValue) -> AzOptionPercentageValue>,
+        pub az_option_percentage_value_fmt_debug: Symbol<extern fn(_:  &AzOptionPercentageValue) -> AzString>,
         pub az_option_dom_delete: Symbol<extern fn(_:  &mut AzOptionDom)>,
         pub az_option_dom_deep_copy: Symbol<extern fn(_:  &AzOptionDom) -> AzOptionDom>,
+        pub az_option_dom_fmt_debug: Symbol<extern fn(_:  &AzOptionDom) -> AzString>,
         pub az_option_texture_delete: Symbol<extern fn(_:  &mut AzOptionTexture)>,
+        pub az_option_texture_fmt_debug: Symbol<extern fn(_:  &AzOptionTexture) -> AzString>,
         pub az_option_tab_index_delete: Symbol<extern fn(_:  &mut AzOptionTabIndex)>,
         pub az_option_tab_index_deep_copy: Symbol<extern fn(_:  &AzOptionTabIndex) -> AzOptionTabIndex>,
+        pub az_option_tab_index_fmt_debug: Symbol<extern fn(_:  &AzOptionTabIndex) -> AzString>,
         pub az_option_duration_delete: Symbol<extern fn(_:  &mut AzOptionDuration)>,
         pub az_option_duration_deep_copy: Symbol<extern fn(_:  &AzOptionDuration) -> AzOptionDuration>,
+        pub az_option_duration_fmt_debug: Symbol<extern fn(_:  &AzOptionDuration) -> AzString>,
         pub az_option_instant_ptr_delete: Symbol<extern fn(_:  &mut AzOptionInstantPtr)>,
         pub az_option_instant_ptr_deep_copy: Symbol<extern fn(_:  &AzOptionInstantPtr) -> AzOptionInstantPtr>,
+        pub az_option_instant_ptr_fmt_debug: Symbol<extern fn(_:  &AzOptionInstantPtr) -> AzString>,
         pub az_option_usize_delete: Symbol<extern fn(_:  &mut AzOptionUsize)>,
         pub az_option_usize_deep_copy: Symbol<extern fn(_:  &AzOptionUsize) -> AzOptionUsize>,
+        pub az_option_usize_fmt_debug: Symbol<extern fn(_:  &AzOptionUsize) -> AzString>,
         pub az_option_u8_vec_ref_delete: Symbol<extern fn(_:  &mut AzOptionU8VecRef)>,
+        pub az_option_u8_vec_ref_fmt_debug: Symbol<extern fn(_:  &AzOptionU8VecRef) -> AzString>,
         pub az_result_ref_any_block_error_delete: Symbol<extern fn(_:  &mut AzResultRefAnyBlockError)>,
         pub az_result_ref_any_block_error_deep_copy: Symbol<extern fn(_:  &AzResultRefAnyBlockError) -> AzResultRefAnyBlockError>,
+        pub az_result_ref_any_block_error_fmt_debug: Symbol<extern fn(_:  &AzResultRefAnyBlockError) -> AzString>,
         pub az_instant_now: Symbol<extern fn() -> AzInstantPtr>,
         pub az_instant_delete: Symbol<extern fn(_:  &mut AzInstantPtr)>,
+        pub az_instant_fmt_debug: Symbol<extern fn(_:  &AzInstantPtr) -> AzString>,
         pub az_duration_delete: Symbol<extern fn(_:  &mut AzDuration)>,
         pub az_duration_deep_copy: Symbol<extern fn(_:  &AzDuration) -> AzDuration>,
+        pub az_duration_fmt_debug: Symbol<extern fn(_:  &AzDuration) -> AzString>,
         pub az_app_config_default: Symbol<extern fn() -> AzAppConfigPtr>,
         pub az_app_config_delete: Symbol<extern fn(_:  &mut AzAppConfigPtr)>,
+        pub az_app_config_fmt_debug: Symbol<extern fn(_:  &AzAppConfigPtr) -> AzString>,
         pub az_app_new: Symbol<extern fn(_:  AzRefAny, _:  AzAppConfigPtr, _:  AzLayoutCallbackType) -> AzAppPtr>,
         pub az_app_run: Symbol<extern fn(_:  AzAppPtr, _:  AzWindowCreateOptions)>,
         pub az_app_delete: Symbol<extern fn(_:  &mut AzAppPtr)>,
+        pub az_app_fmt_debug: Symbol<extern fn(_:  &AzAppPtr) -> AzString>,
         pub az_layout_callback_delete: Symbol<extern fn(_:  &mut AzLayoutCallback)>,
         pub az_layout_callback_deep_copy: Symbol<extern fn(_:  &AzLayoutCallback) -> AzLayoutCallback>,
+        pub az_layout_callback_fmt_debug: Symbol<extern fn(_:  &AzLayoutCallback) -> AzString>,
         pub az_callback_delete: Symbol<extern fn(_:  &mut AzCallback)>,
         pub az_callback_deep_copy: Symbol<extern fn(_:  &AzCallback) -> AzCallback>,
+        pub az_callback_fmt_debug: Symbol<extern fn(_:  &AzCallback) -> AzString>,
         pub az_callback_info_delete: Symbol<extern fn(_:  &mut AzCallbackInfoPtr)>,
+        pub az_callback_info_fmt_debug: Symbol<extern fn(_:  &AzCallbackInfoPtr) -> AzString>,
         pub az_update_screen_delete: Symbol<extern fn(_:  &mut AzUpdateScreen)>,
         pub az_update_screen_deep_copy: Symbol<extern fn(_:  &AzUpdateScreen) -> AzUpdateScreen>,
+        pub az_update_screen_fmt_debug: Symbol<extern fn(_:  &AzUpdateScreen) -> AzString>,
         pub az_i_frame_callback_delete: Symbol<extern fn(_:  &mut AzIFrameCallback)>,
         pub az_i_frame_callback_deep_copy: Symbol<extern fn(_:  &AzIFrameCallback) -> AzIFrameCallback>,
+        pub az_i_frame_callback_fmt_debug: Symbol<extern fn(_:  &AzIFrameCallback) -> AzString>,
         pub az_i_frame_callback_info_get_state: Symbol<extern fn(_:  &AzIFrameCallbackInfoPtr) -> AzRefAny>,
         pub az_i_frame_callback_info_delete: Symbol<extern fn(_:  &mut AzIFrameCallbackInfoPtr)>,
+        pub az_i_frame_callback_info_fmt_debug: Symbol<extern fn(_:  &AzIFrameCallbackInfoPtr) -> AzString>,
         pub az_i_frame_callback_return_delete: Symbol<extern fn(_:  &mut AzIFrameCallbackReturn)>,
         pub az_i_frame_callback_return_deep_copy: Symbol<extern fn(_:  &AzIFrameCallbackReturn) -> AzIFrameCallbackReturn>,
+        pub az_i_frame_callback_return_fmt_debug: Symbol<extern fn(_:  &AzIFrameCallbackReturn) -> AzString>,
         pub az_gl_callback_delete: Symbol<extern fn(_:  &mut AzGlCallback)>,
         pub az_gl_callback_deep_copy: Symbol<extern fn(_:  &AzGlCallback) -> AzGlCallback>,
+        pub az_gl_callback_fmt_debug: Symbol<extern fn(_:  &AzGlCallback) -> AzString>,
         pub az_gl_callback_info_delete: Symbol<extern fn(_:  &mut AzGlCallbackInfoPtr)>,
+        pub az_gl_callback_info_fmt_debug: Symbol<extern fn(_:  &AzGlCallbackInfoPtr) -> AzString>,
         pub az_gl_callback_return_delete: Symbol<extern fn(_:  &mut AzGlCallbackReturn)>,
+        pub az_gl_callback_return_fmt_debug: Symbol<extern fn(_:  &AzGlCallbackReturn) -> AzString>,
         pub az_timer_callback_delete: Symbol<extern fn(_:  &mut AzTimerCallback)>,
         pub az_timer_callback_deep_copy: Symbol<extern fn(_:  &AzTimerCallback) -> AzTimerCallback>,
+        pub az_timer_callback_fmt_debug: Symbol<extern fn(_:  &AzTimerCallback) -> AzString>,
         pub az_timer_callback_type_delete: Symbol<extern fn(_:  &mut AzTimerCallbackTypePtr)>,
+        pub az_timer_callback_type_fmt_debug: Symbol<extern fn(_:  &AzTimerCallbackTypePtr) -> AzString>,
         pub az_timer_callback_info_delete: Symbol<extern fn(_:  &mut AzTimerCallbackInfoPtr)>,
+        pub az_timer_callback_info_fmt_debug: Symbol<extern fn(_:  &AzTimerCallbackInfoPtr) -> AzString>,
         pub az_timer_callback_return_delete: Symbol<extern fn(_:  &mut AzTimerCallbackReturn)>,
         pub az_timer_callback_return_deep_copy: Symbol<extern fn(_:  &AzTimerCallbackReturn) -> AzTimerCallbackReturn>,
+        pub az_timer_callback_return_fmt_debug: Symbol<extern fn(_:  &AzTimerCallbackReturn) -> AzString>,
         pub az_ref_any_sharing_info_can_be_shared: Symbol<extern fn(_:  &AzRefAnySharingInfo) -> bool>,
         pub az_ref_any_sharing_info_can_be_shared_mut: Symbol<extern fn(_:  &AzRefAnySharingInfo) -> bool>,
         pub az_ref_any_sharing_info_increase_ref: Symbol<extern fn(_:  &mut AzRefAnySharingInfo)>,
@@ -2449,6 +2509,7 @@ pub(crate) mod dll {
         pub az_ref_any_sharing_info_increase_refmut: Symbol<extern fn(_:  &mut AzRefAnySharingInfo)>,
         pub az_ref_any_sharing_info_decrease_refmut: Symbol<extern fn(_:  &mut AzRefAnySharingInfo)>,
         pub az_ref_any_sharing_info_delete: Symbol<extern fn(_:  &mut AzRefAnySharingInfo)>,
+        pub az_ref_any_sharing_info_fmt_debug: Symbol<extern fn(_:  &AzRefAnySharingInfo) -> AzString>,
         pub az_ref_any_new_c: Symbol<extern fn(_:  *const c_void, _:  usize, _:  u64, _:  AzString, _:  AzRefAnyDestructorType) -> AzRefAny>,
         pub az_ref_any_is_type: Symbol<extern fn(_:  &AzRefAny, _:  u64) -> bool>,
         pub az_ref_any_get_type_name: Symbol<extern fn(_:  &AzRefAny) -> AzString>,
@@ -2460,313 +2521,466 @@ pub(crate) mod dll {
         pub az_ref_any_decrease_refmut: Symbol<extern fn(_:  &AzRefAny)>,
         pub az_ref_any_delete: Symbol<extern fn(_:  &mut AzRefAny)>,
         pub az_ref_any_deep_copy: Symbol<extern fn(_:  &AzRefAny) -> AzRefAny>,
+        pub az_ref_any_fmt_debug: Symbol<extern fn(_:  &AzRefAny) -> AzString>,
         pub az_layout_info_delete: Symbol<extern fn(_:  &mut AzLayoutInfoPtr)>,
+        pub az_layout_info_fmt_debug: Symbol<extern fn(_:  &AzLayoutInfoPtr) -> AzString>,
         pub az_css_rule_block_delete: Symbol<extern fn(_:  &mut AzCssRuleBlock)>,
         pub az_css_rule_block_deep_copy: Symbol<extern fn(_:  &AzCssRuleBlock) -> AzCssRuleBlock>,
+        pub az_css_rule_block_fmt_debug: Symbol<extern fn(_:  &AzCssRuleBlock) -> AzString>,
         pub az_css_declaration_delete: Symbol<extern fn(_:  &mut AzCssDeclaration)>,
         pub az_css_declaration_deep_copy: Symbol<extern fn(_:  &AzCssDeclaration) -> AzCssDeclaration>,
+        pub az_css_declaration_fmt_debug: Symbol<extern fn(_:  &AzCssDeclaration) -> AzString>,
         pub az_dynamic_css_property_delete: Symbol<extern fn(_:  &mut AzDynamicCssProperty)>,
         pub az_dynamic_css_property_deep_copy: Symbol<extern fn(_:  &AzDynamicCssProperty) -> AzDynamicCssProperty>,
+        pub az_dynamic_css_property_fmt_debug: Symbol<extern fn(_:  &AzDynamicCssProperty) -> AzString>,
         pub az_css_path_delete: Symbol<extern fn(_:  &mut AzCssPath)>,
         pub az_css_path_deep_copy: Symbol<extern fn(_:  &AzCssPath) -> AzCssPath>,
+        pub az_css_path_fmt_debug: Symbol<extern fn(_:  &AzCssPath) -> AzString>,
         pub az_css_path_selector_delete: Symbol<extern fn(_:  &mut AzCssPathSelector)>,
         pub az_css_path_selector_deep_copy: Symbol<extern fn(_:  &AzCssPathSelector) -> AzCssPathSelector>,
+        pub az_css_path_selector_fmt_debug: Symbol<extern fn(_:  &AzCssPathSelector) -> AzString>,
         pub az_node_type_path_delete: Symbol<extern fn(_:  &mut AzNodeTypePath)>,
         pub az_node_type_path_deep_copy: Symbol<extern fn(_:  &AzNodeTypePath) -> AzNodeTypePath>,
+        pub az_node_type_path_fmt_debug: Symbol<extern fn(_:  &AzNodeTypePath) -> AzString>,
         pub az_css_path_pseudo_selector_delete: Symbol<extern fn(_:  &mut AzCssPathPseudoSelector)>,
         pub az_css_path_pseudo_selector_deep_copy: Symbol<extern fn(_:  &AzCssPathPseudoSelector) -> AzCssPathPseudoSelector>,
+        pub az_css_path_pseudo_selector_fmt_debug: Symbol<extern fn(_:  &AzCssPathPseudoSelector) -> AzString>,
         pub az_css_nth_child_selector_delete: Symbol<extern fn(_:  &mut AzCssNthChildSelector)>,
         pub az_css_nth_child_selector_deep_copy: Symbol<extern fn(_:  &AzCssNthChildSelector) -> AzCssNthChildSelector>,
+        pub az_css_nth_child_selector_fmt_debug: Symbol<extern fn(_:  &AzCssNthChildSelector) -> AzString>,
         pub az_css_nth_child_pattern_delete: Symbol<extern fn(_:  &mut AzCssNthChildPattern)>,
         pub az_css_nth_child_pattern_deep_copy: Symbol<extern fn(_:  &AzCssNthChildPattern) -> AzCssNthChildPattern>,
+        pub az_css_nth_child_pattern_fmt_debug: Symbol<extern fn(_:  &AzCssNthChildPattern) -> AzString>,
         pub az_stylesheet_delete: Symbol<extern fn(_:  &mut AzStylesheet)>,
         pub az_stylesheet_deep_copy: Symbol<extern fn(_:  &AzStylesheet) -> AzStylesheet>,
+        pub az_stylesheet_fmt_debug: Symbol<extern fn(_:  &AzStylesheet) -> AzString>,
         pub az_css_native: Symbol<extern fn() -> AzCss>,
         pub az_css_empty: Symbol<extern fn() -> AzCss>,
         pub az_css_from_string: Symbol<extern fn(_:  AzString) -> AzCss>,
         pub az_css_override_native: Symbol<extern fn(_:  AzString) -> AzCss>,
         pub az_css_delete: Symbol<extern fn(_:  &mut AzCss)>,
         pub az_css_deep_copy: Symbol<extern fn(_:  &AzCss) -> AzCss>,
+        pub az_css_fmt_debug: Symbol<extern fn(_:  &AzCss) -> AzString>,
         pub az_color_u_delete: Symbol<extern fn(_:  &mut AzColorU)>,
         pub az_color_u_deep_copy: Symbol<extern fn(_:  &AzColorU) -> AzColorU>,
+        pub az_color_u_fmt_debug: Symbol<extern fn(_:  &AzColorU) -> AzString>,
         pub az_size_metric_delete: Symbol<extern fn(_:  &mut AzSizeMetric)>,
         pub az_size_metric_deep_copy: Symbol<extern fn(_:  &AzSizeMetric) -> AzSizeMetric>,
+        pub az_size_metric_fmt_debug: Symbol<extern fn(_:  &AzSizeMetric) -> AzString>,
         pub az_float_value_delete: Symbol<extern fn(_:  &mut AzFloatValue)>,
         pub az_float_value_deep_copy: Symbol<extern fn(_:  &AzFloatValue) -> AzFloatValue>,
+        pub az_float_value_fmt_debug: Symbol<extern fn(_:  &AzFloatValue) -> AzString>,
         pub az_pixel_value_delete: Symbol<extern fn(_:  &mut AzPixelValue)>,
         pub az_pixel_value_deep_copy: Symbol<extern fn(_:  &AzPixelValue) -> AzPixelValue>,
+        pub az_pixel_value_fmt_debug: Symbol<extern fn(_:  &AzPixelValue) -> AzString>,
         pub az_pixel_value_no_percent_delete: Symbol<extern fn(_:  &mut AzPixelValueNoPercent)>,
         pub az_pixel_value_no_percent_deep_copy: Symbol<extern fn(_:  &AzPixelValueNoPercent) -> AzPixelValueNoPercent>,
+        pub az_pixel_value_no_percent_fmt_debug: Symbol<extern fn(_:  &AzPixelValueNoPercent) -> AzString>,
         pub az_box_shadow_clip_mode_delete: Symbol<extern fn(_:  &mut AzBoxShadowClipMode)>,
         pub az_box_shadow_clip_mode_deep_copy: Symbol<extern fn(_:  &AzBoxShadowClipMode) -> AzBoxShadowClipMode>,
+        pub az_box_shadow_clip_mode_fmt_debug: Symbol<extern fn(_:  &AzBoxShadowClipMode) -> AzString>,
         pub az_box_shadow_pre_display_item_delete: Symbol<extern fn(_:  &mut AzBoxShadowPreDisplayItem)>,
         pub az_box_shadow_pre_display_item_deep_copy: Symbol<extern fn(_:  &AzBoxShadowPreDisplayItem) -> AzBoxShadowPreDisplayItem>,
+        pub az_box_shadow_pre_display_item_fmt_debug: Symbol<extern fn(_:  &AzBoxShadowPreDisplayItem) -> AzString>,
         pub az_layout_align_content_delete: Symbol<extern fn(_:  &mut AzLayoutAlignContent)>,
         pub az_layout_align_content_deep_copy: Symbol<extern fn(_:  &AzLayoutAlignContent) -> AzLayoutAlignContent>,
+        pub az_layout_align_content_fmt_debug: Symbol<extern fn(_:  &AzLayoutAlignContent) -> AzString>,
         pub az_layout_align_items_delete: Symbol<extern fn(_:  &mut AzLayoutAlignItems)>,
         pub az_layout_align_items_deep_copy: Symbol<extern fn(_:  &AzLayoutAlignItems) -> AzLayoutAlignItems>,
+        pub az_layout_align_items_fmt_debug: Symbol<extern fn(_:  &AzLayoutAlignItems) -> AzString>,
         pub az_layout_bottom_delete: Symbol<extern fn(_:  &mut AzLayoutBottom)>,
         pub az_layout_bottom_deep_copy: Symbol<extern fn(_:  &AzLayoutBottom) -> AzLayoutBottom>,
+        pub az_layout_bottom_fmt_debug: Symbol<extern fn(_:  &AzLayoutBottom) -> AzString>,
         pub az_layout_box_sizing_delete: Symbol<extern fn(_:  &mut AzLayoutBoxSizing)>,
         pub az_layout_box_sizing_deep_copy: Symbol<extern fn(_:  &AzLayoutBoxSizing) -> AzLayoutBoxSizing>,
+        pub az_layout_box_sizing_fmt_debug: Symbol<extern fn(_:  &AzLayoutBoxSizing) -> AzString>,
         pub az_layout_direction_delete: Symbol<extern fn(_:  &mut AzLayoutDirection)>,
         pub az_layout_direction_deep_copy: Symbol<extern fn(_:  &AzLayoutDirection) -> AzLayoutDirection>,
+        pub az_layout_direction_fmt_debug: Symbol<extern fn(_:  &AzLayoutDirection) -> AzString>,
         pub az_layout_display_delete: Symbol<extern fn(_:  &mut AzLayoutDisplay)>,
         pub az_layout_display_deep_copy: Symbol<extern fn(_:  &AzLayoutDisplay) -> AzLayoutDisplay>,
+        pub az_layout_display_fmt_debug: Symbol<extern fn(_:  &AzLayoutDisplay) -> AzString>,
         pub az_layout_flex_grow_delete: Symbol<extern fn(_:  &mut AzLayoutFlexGrow)>,
         pub az_layout_flex_grow_deep_copy: Symbol<extern fn(_:  &AzLayoutFlexGrow) -> AzLayoutFlexGrow>,
+        pub az_layout_flex_grow_fmt_debug: Symbol<extern fn(_:  &AzLayoutFlexGrow) -> AzString>,
         pub az_layout_flex_shrink_delete: Symbol<extern fn(_:  &mut AzLayoutFlexShrink)>,
         pub az_layout_flex_shrink_deep_copy: Symbol<extern fn(_:  &AzLayoutFlexShrink) -> AzLayoutFlexShrink>,
+        pub az_layout_flex_shrink_fmt_debug: Symbol<extern fn(_:  &AzLayoutFlexShrink) -> AzString>,
         pub az_layout_float_delete: Symbol<extern fn(_:  &mut AzLayoutFloat)>,
         pub az_layout_float_deep_copy: Symbol<extern fn(_:  &AzLayoutFloat) -> AzLayoutFloat>,
+        pub az_layout_float_fmt_debug: Symbol<extern fn(_:  &AzLayoutFloat) -> AzString>,
         pub az_layout_height_delete: Symbol<extern fn(_:  &mut AzLayoutHeight)>,
         pub az_layout_height_deep_copy: Symbol<extern fn(_:  &AzLayoutHeight) -> AzLayoutHeight>,
+        pub az_layout_height_fmt_debug: Symbol<extern fn(_:  &AzLayoutHeight) -> AzString>,
         pub az_layout_justify_content_delete: Symbol<extern fn(_:  &mut AzLayoutJustifyContent)>,
         pub az_layout_justify_content_deep_copy: Symbol<extern fn(_:  &AzLayoutJustifyContent) -> AzLayoutJustifyContent>,
+        pub az_layout_justify_content_fmt_debug: Symbol<extern fn(_:  &AzLayoutJustifyContent) -> AzString>,
         pub az_layout_left_delete: Symbol<extern fn(_:  &mut AzLayoutLeft)>,
         pub az_layout_left_deep_copy: Symbol<extern fn(_:  &AzLayoutLeft) -> AzLayoutLeft>,
+        pub az_layout_left_fmt_debug: Symbol<extern fn(_:  &AzLayoutLeft) -> AzString>,
         pub az_layout_margin_bottom_delete: Symbol<extern fn(_:  &mut AzLayoutMarginBottom)>,
         pub az_layout_margin_bottom_deep_copy: Symbol<extern fn(_:  &AzLayoutMarginBottom) -> AzLayoutMarginBottom>,
+        pub az_layout_margin_bottom_fmt_debug: Symbol<extern fn(_:  &AzLayoutMarginBottom) -> AzString>,
         pub az_layout_margin_left_delete: Symbol<extern fn(_:  &mut AzLayoutMarginLeft)>,
         pub az_layout_margin_left_deep_copy: Symbol<extern fn(_:  &AzLayoutMarginLeft) -> AzLayoutMarginLeft>,
+        pub az_layout_margin_left_fmt_debug: Symbol<extern fn(_:  &AzLayoutMarginLeft) -> AzString>,
         pub az_layout_margin_right_delete: Symbol<extern fn(_:  &mut AzLayoutMarginRight)>,
         pub az_layout_margin_right_deep_copy: Symbol<extern fn(_:  &AzLayoutMarginRight) -> AzLayoutMarginRight>,
+        pub az_layout_margin_right_fmt_debug: Symbol<extern fn(_:  &AzLayoutMarginRight) -> AzString>,
         pub az_layout_margin_top_delete: Symbol<extern fn(_:  &mut AzLayoutMarginTop)>,
         pub az_layout_margin_top_deep_copy: Symbol<extern fn(_:  &AzLayoutMarginTop) -> AzLayoutMarginTop>,
+        pub az_layout_margin_top_fmt_debug: Symbol<extern fn(_:  &AzLayoutMarginTop) -> AzString>,
         pub az_layout_max_height_delete: Symbol<extern fn(_:  &mut AzLayoutMaxHeight)>,
         pub az_layout_max_height_deep_copy: Symbol<extern fn(_:  &AzLayoutMaxHeight) -> AzLayoutMaxHeight>,
+        pub az_layout_max_height_fmt_debug: Symbol<extern fn(_:  &AzLayoutMaxHeight) -> AzString>,
         pub az_layout_max_width_delete: Symbol<extern fn(_:  &mut AzLayoutMaxWidth)>,
         pub az_layout_max_width_deep_copy: Symbol<extern fn(_:  &AzLayoutMaxWidth) -> AzLayoutMaxWidth>,
+        pub az_layout_max_width_fmt_debug: Symbol<extern fn(_:  &AzLayoutMaxWidth) -> AzString>,
         pub az_layout_min_height_delete: Symbol<extern fn(_:  &mut AzLayoutMinHeight)>,
         pub az_layout_min_height_deep_copy: Symbol<extern fn(_:  &AzLayoutMinHeight) -> AzLayoutMinHeight>,
+        pub az_layout_min_height_fmt_debug: Symbol<extern fn(_:  &AzLayoutMinHeight) -> AzString>,
         pub az_layout_min_width_delete: Symbol<extern fn(_:  &mut AzLayoutMinWidth)>,
         pub az_layout_min_width_deep_copy: Symbol<extern fn(_:  &AzLayoutMinWidth) -> AzLayoutMinWidth>,
+        pub az_layout_min_width_fmt_debug: Symbol<extern fn(_:  &AzLayoutMinWidth) -> AzString>,
         pub az_layout_padding_bottom_delete: Symbol<extern fn(_:  &mut AzLayoutPaddingBottom)>,
         pub az_layout_padding_bottom_deep_copy: Symbol<extern fn(_:  &AzLayoutPaddingBottom) -> AzLayoutPaddingBottom>,
+        pub az_layout_padding_bottom_fmt_debug: Symbol<extern fn(_:  &AzLayoutPaddingBottom) -> AzString>,
         pub az_layout_padding_left_delete: Symbol<extern fn(_:  &mut AzLayoutPaddingLeft)>,
         pub az_layout_padding_left_deep_copy: Symbol<extern fn(_:  &AzLayoutPaddingLeft) -> AzLayoutPaddingLeft>,
+        pub az_layout_padding_left_fmt_debug: Symbol<extern fn(_:  &AzLayoutPaddingLeft) -> AzString>,
         pub az_layout_padding_right_delete: Symbol<extern fn(_:  &mut AzLayoutPaddingRight)>,
         pub az_layout_padding_right_deep_copy: Symbol<extern fn(_:  &AzLayoutPaddingRight) -> AzLayoutPaddingRight>,
+        pub az_layout_padding_right_fmt_debug: Symbol<extern fn(_:  &AzLayoutPaddingRight) -> AzString>,
         pub az_layout_padding_top_delete: Symbol<extern fn(_:  &mut AzLayoutPaddingTop)>,
         pub az_layout_padding_top_deep_copy: Symbol<extern fn(_:  &AzLayoutPaddingTop) -> AzLayoutPaddingTop>,
+        pub az_layout_padding_top_fmt_debug: Symbol<extern fn(_:  &AzLayoutPaddingTop) -> AzString>,
         pub az_layout_position_delete: Symbol<extern fn(_:  &mut AzLayoutPosition)>,
         pub az_layout_position_deep_copy: Symbol<extern fn(_:  &AzLayoutPosition) -> AzLayoutPosition>,
+        pub az_layout_position_fmt_debug: Symbol<extern fn(_:  &AzLayoutPosition) -> AzString>,
         pub az_layout_right_delete: Symbol<extern fn(_:  &mut AzLayoutRight)>,
         pub az_layout_right_deep_copy: Symbol<extern fn(_:  &AzLayoutRight) -> AzLayoutRight>,
+        pub az_layout_right_fmt_debug: Symbol<extern fn(_:  &AzLayoutRight) -> AzString>,
         pub az_layout_top_delete: Symbol<extern fn(_:  &mut AzLayoutTop)>,
         pub az_layout_top_deep_copy: Symbol<extern fn(_:  &AzLayoutTop) -> AzLayoutTop>,
+        pub az_layout_top_fmt_debug: Symbol<extern fn(_:  &AzLayoutTop) -> AzString>,
         pub az_layout_width_delete: Symbol<extern fn(_:  &mut AzLayoutWidth)>,
         pub az_layout_width_deep_copy: Symbol<extern fn(_:  &AzLayoutWidth) -> AzLayoutWidth>,
+        pub az_layout_width_fmt_debug: Symbol<extern fn(_:  &AzLayoutWidth) -> AzString>,
         pub az_layout_wrap_delete: Symbol<extern fn(_:  &mut AzLayoutWrap)>,
         pub az_layout_wrap_deep_copy: Symbol<extern fn(_:  &AzLayoutWrap) -> AzLayoutWrap>,
+        pub az_layout_wrap_fmt_debug: Symbol<extern fn(_:  &AzLayoutWrap) -> AzString>,
         pub az_overflow_delete: Symbol<extern fn(_:  &mut AzOverflow)>,
         pub az_overflow_deep_copy: Symbol<extern fn(_:  &AzOverflow) -> AzOverflow>,
+        pub az_overflow_fmt_debug: Symbol<extern fn(_:  &AzOverflow) -> AzString>,
         pub az_percentage_value_delete: Symbol<extern fn(_:  &mut AzPercentageValue)>,
         pub az_percentage_value_deep_copy: Symbol<extern fn(_:  &AzPercentageValue) -> AzPercentageValue>,
+        pub az_percentage_value_fmt_debug: Symbol<extern fn(_:  &AzPercentageValue) -> AzString>,
         pub az_gradient_stop_pre_delete: Symbol<extern fn(_:  &mut AzGradientStopPre)>,
         pub az_gradient_stop_pre_deep_copy: Symbol<extern fn(_:  &AzGradientStopPre) -> AzGradientStopPre>,
+        pub az_gradient_stop_pre_fmt_debug: Symbol<extern fn(_:  &AzGradientStopPre) -> AzString>,
         pub az_direction_corner_delete: Symbol<extern fn(_:  &mut AzDirectionCorner)>,
         pub az_direction_corner_deep_copy: Symbol<extern fn(_:  &AzDirectionCorner) -> AzDirectionCorner>,
+        pub az_direction_corner_fmt_debug: Symbol<extern fn(_:  &AzDirectionCorner) -> AzString>,
         pub az_direction_corners_delete: Symbol<extern fn(_:  &mut AzDirectionCorners)>,
         pub az_direction_corners_deep_copy: Symbol<extern fn(_:  &AzDirectionCorners) -> AzDirectionCorners>,
+        pub az_direction_corners_fmt_debug: Symbol<extern fn(_:  &AzDirectionCorners) -> AzString>,
         pub az_direction_delete: Symbol<extern fn(_:  &mut AzDirection)>,
         pub az_direction_deep_copy: Symbol<extern fn(_:  &AzDirection) -> AzDirection>,
+        pub az_direction_fmt_debug: Symbol<extern fn(_:  &AzDirection) -> AzString>,
         pub az_extend_mode_delete: Symbol<extern fn(_:  &mut AzExtendMode)>,
         pub az_extend_mode_deep_copy: Symbol<extern fn(_:  &AzExtendMode) -> AzExtendMode>,
+        pub az_extend_mode_fmt_debug: Symbol<extern fn(_:  &AzExtendMode) -> AzString>,
         pub az_linear_gradient_delete: Symbol<extern fn(_:  &mut AzLinearGradient)>,
         pub az_linear_gradient_deep_copy: Symbol<extern fn(_:  &AzLinearGradient) -> AzLinearGradient>,
+        pub az_linear_gradient_fmt_debug: Symbol<extern fn(_:  &AzLinearGradient) -> AzString>,
         pub az_shape_delete: Symbol<extern fn(_:  &mut AzShape)>,
         pub az_shape_deep_copy: Symbol<extern fn(_:  &AzShape) -> AzShape>,
+        pub az_shape_fmt_debug: Symbol<extern fn(_:  &AzShape) -> AzString>,
         pub az_radial_gradient_delete: Symbol<extern fn(_:  &mut AzRadialGradient)>,
         pub az_radial_gradient_deep_copy: Symbol<extern fn(_:  &AzRadialGradient) -> AzRadialGradient>,
+        pub az_radial_gradient_fmt_debug: Symbol<extern fn(_:  &AzRadialGradient) -> AzString>,
         pub az_css_image_id_delete: Symbol<extern fn(_:  &mut AzCssImageId)>,
         pub az_css_image_id_deep_copy: Symbol<extern fn(_:  &AzCssImageId) -> AzCssImageId>,
+        pub az_css_image_id_fmt_debug: Symbol<extern fn(_:  &AzCssImageId) -> AzString>,
         pub az_style_background_content_delete: Symbol<extern fn(_:  &mut AzStyleBackgroundContent)>,
         pub az_style_background_content_deep_copy: Symbol<extern fn(_:  &AzStyleBackgroundContent) -> AzStyleBackgroundContent>,
+        pub az_style_background_content_fmt_debug: Symbol<extern fn(_:  &AzStyleBackgroundContent) -> AzString>,
         pub az_background_position_horizontal_delete: Symbol<extern fn(_:  &mut AzBackgroundPositionHorizontal)>,
         pub az_background_position_horizontal_deep_copy: Symbol<extern fn(_:  &AzBackgroundPositionHorizontal) -> AzBackgroundPositionHorizontal>,
+        pub az_background_position_horizontal_fmt_debug: Symbol<extern fn(_:  &AzBackgroundPositionHorizontal) -> AzString>,
         pub az_background_position_vertical_delete: Symbol<extern fn(_:  &mut AzBackgroundPositionVertical)>,
         pub az_background_position_vertical_deep_copy: Symbol<extern fn(_:  &AzBackgroundPositionVertical) -> AzBackgroundPositionVertical>,
+        pub az_background_position_vertical_fmt_debug: Symbol<extern fn(_:  &AzBackgroundPositionVertical) -> AzString>,
         pub az_style_background_position_delete: Symbol<extern fn(_:  &mut AzStyleBackgroundPosition)>,
         pub az_style_background_position_deep_copy: Symbol<extern fn(_:  &AzStyleBackgroundPosition) -> AzStyleBackgroundPosition>,
+        pub az_style_background_position_fmt_debug: Symbol<extern fn(_:  &AzStyleBackgroundPosition) -> AzString>,
         pub az_style_background_repeat_delete: Symbol<extern fn(_:  &mut AzStyleBackgroundRepeat)>,
         pub az_style_background_repeat_deep_copy: Symbol<extern fn(_:  &AzStyleBackgroundRepeat) -> AzStyleBackgroundRepeat>,
+        pub az_style_background_repeat_fmt_debug: Symbol<extern fn(_:  &AzStyleBackgroundRepeat) -> AzString>,
         pub az_style_background_size_delete: Symbol<extern fn(_:  &mut AzStyleBackgroundSize)>,
         pub az_style_background_size_deep_copy: Symbol<extern fn(_:  &AzStyleBackgroundSize) -> AzStyleBackgroundSize>,
+        pub az_style_background_size_fmt_debug: Symbol<extern fn(_:  &AzStyleBackgroundSize) -> AzString>,
         pub az_style_border_bottom_color_delete: Symbol<extern fn(_:  &mut AzStyleBorderBottomColor)>,
         pub az_style_border_bottom_color_deep_copy: Symbol<extern fn(_:  &AzStyleBorderBottomColor) -> AzStyleBorderBottomColor>,
+        pub az_style_border_bottom_color_fmt_debug: Symbol<extern fn(_:  &AzStyleBorderBottomColor) -> AzString>,
         pub az_style_border_bottom_left_radius_delete: Symbol<extern fn(_:  &mut AzStyleBorderBottomLeftRadius)>,
         pub az_style_border_bottom_left_radius_deep_copy: Symbol<extern fn(_:  &AzStyleBorderBottomLeftRadius) -> AzStyleBorderBottomLeftRadius>,
+        pub az_style_border_bottom_left_radius_fmt_debug: Symbol<extern fn(_:  &AzStyleBorderBottomLeftRadius) -> AzString>,
         pub az_style_border_bottom_right_radius_delete: Symbol<extern fn(_:  &mut AzStyleBorderBottomRightRadius)>,
         pub az_style_border_bottom_right_radius_deep_copy: Symbol<extern fn(_:  &AzStyleBorderBottomRightRadius) -> AzStyleBorderBottomRightRadius>,
+        pub az_style_border_bottom_right_radius_fmt_debug: Symbol<extern fn(_:  &AzStyleBorderBottomRightRadius) -> AzString>,
         pub az_border_style_delete: Symbol<extern fn(_:  &mut AzBorderStyle)>,
         pub az_border_style_deep_copy: Symbol<extern fn(_:  &AzBorderStyle) -> AzBorderStyle>,
+        pub az_border_style_fmt_debug: Symbol<extern fn(_:  &AzBorderStyle) -> AzString>,
         pub az_style_border_bottom_style_delete: Symbol<extern fn(_:  &mut AzStyleBorderBottomStyle)>,
         pub az_style_border_bottom_style_deep_copy: Symbol<extern fn(_:  &AzStyleBorderBottomStyle) -> AzStyleBorderBottomStyle>,
+        pub az_style_border_bottom_style_fmt_debug: Symbol<extern fn(_:  &AzStyleBorderBottomStyle) -> AzString>,
         pub az_style_border_bottom_width_delete: Symbol<extern fn(_:  &mut AzStyleBorderBottomWidth)>,
         pub az_style_border_bottom_width_deep_copy: Symbol<extern fn(_:  &AzStyleBorderBottomWidth) -> AzStyleBorderBottomWidth>,
+        pub az_style_border_bottom_width_fmt_debug: Symbol<extern fn(_:  &AzStyleBorderBottomWidth) -> AzString>,
         pub az_style_border_left_color_delete: Symbol<extern fn(_:  &mut AzStyleBorderLeftColor)>,
         pub az_style_border_left_color_deep_copy: Symbol<extern fn(_:  &AzStyleBorderLeftColor) -> AzStyleBorderLeftColor>,
+        pub az_style_border_left_color_fmt_debug: Symbol<extern fn(_:  &AzStyleBorderLeftColor) -> AzString>,
         pub az_style_border_left_style_delete: Symbol<extern fn(_:  &mut AzStyleBorderLeftStyle)>,
         pub az_style_border_left_style_deep_copy: Symbol<extern fn(_:  &AzStyleBorderLeftStyle) -> AzStyleBorderLeftStyle>,
+        pub az_style_border_left_style_fmt_debug: Symbol<extern fn(_:  &AzStyleBorderLeftStyle) -> AzString>,
         pub az_style_border_left_width_delete: Symbol<extern fn(_:  &mut AzStyleBorderLeftWidth)>,
         pub az_style_border_left_width_deep_copy: Symbol<extern fn(_:  &AzStyleBorderLeftWidth) -> AzStyleBorderLeftWidth>,
+        pub az_style_border_left_width_fmt_debug: Symbol<extern fn(_:  &AzStyleBorderLeftWidth) -> AzString>,
         pub az_style_border_right_color_delete: Symbol<extern fn(_:  &mut AzStyleBorderRightColor)>,
         pub az_style_border_right_color_deep_copy: Symbol<extern fn(_:  &AzStyleBorderRightColor) -> AzStyleBorderRightColor>,
+        pub az_style_border_right_color_fmt_debug: Symbol<extern fn(_:  &AzStyleBorderRightColor) -> AzString>,
         pub az_style_border_right_style_delete: Symbol<extern fn(_:  &mut AzStyleBorderRightStyle)>,
         pub az_style_border_right_style_deep_copy: Symbol<extern fn(_:  &AzStyleBorderRightStyle) -> AzStyleBorderRightStyle>,
+        pub az_style_border_right_style_fmt_debug: Symbol<extern fn(_:  &AzStyleBorderRightStyle) -> AzString>,
         pub az_style_border_right_width_delete: Symbol<extern fn(_:  &mut AzStyleBorderRightWidth)>,
         pub az_style_border_right_width_deep_copy: Symbol<extern fn(_:  &AzStyleBorderRightWidth) -> AzStyleBorderRightWidth>,
+        pub az_style_border_right_width_fmt_debug: Symbol<extern fn(_:  &AzStyleBorderRightWidth) -> AzString>,
         pub az_style_border_top_color_delete: Symbol<extern fn(_:  &mut AzStyleBorderTopColor)>,
         pub az_style_border_top_color_deep_copy: Symbol<extern fn(_:  &AzStyleBorderTopColor) -> AzStyleBorderTopColor>,
+        pub az_style_border_top_color_fmt_debug: Symbol<extern fn(_:  &AzStyleBorderTopColor) -> AzString>,
         pub az_style_border_top_left_radius_delete: Symbol<extern fn(_:  &mut AzStyleBorderTopLeftRadius)>,
         pub az_style_border_top_left_radius_deep_copy: Symbol<extern fn(_:  &AzStyleBorderTopLeftRadius) -> AzStyleBorderTopLeftRadius>,
+        pub az_style_border_top_left_radius_fmt_debug: Symbol<extern fn(_:  &AzStyleBorderTopLeftRadius) -> AzString>,
         pub az_style_border_top_right_radius_delete: Symbol<extern fn(_:  &mut AzStyleBorderTopRightRadius)>,
         pub az_style_border_top_right_radius_deep_copy: Symbol<extern fn(_:  &AzStyleBorderTopRightRadius) -> AzStyleBorderTopRightRadius>,
+        pub az_style_border_top_right_radius_fmt_debug: Symbol<extern fn(_:  &AzStyleBorderTopRightRadius) -> AzString>,
         pub az_style_border_top_style_delete: Symbol<extern fn(_:  &mut AzStyleBorderTopStyle)>,
         pub az_style_border_top_style_deep_copy: Symbol<extern fn(_:  &AzStyleBorderTopStyle) -> AzStyleBorderTopStyle>,
+        pub az_style_border_top_style_fmt_debug: Symbol<extern fn(_:  &AzStyleBorderTopStyle) -> AzString>,
         pub az_style_border_top_width_delete: Symbol<extern fn(_:  &mut AzStyleBorderTopWidth)>,
         pub az_style_border_top_width_deep_copy: Symbol<extern fn(_:  &AzStyleBorderTopWidth) -> AzStyleBorderTopWidth>,
+        pub az_style_border_top_width_fmt_debug: Symbol<extern fn(_:  &AzStyleBorderTopWidth) -> AzString>,
         pub az_style_cursor_delete: Symbol<extern fn(_:  &mut AzStyleCursor)>,
         pub az_style_cursor_deep_copy: Symbol<extern fn(_:  &AzStyleCursor) -> AzStyleCursor>,
+        pub az_style_cursor_fmt_debug: Symbol<extern fn(_:  &AzStyleCursor) -> AzString>,
         pub az_style_font_family_delete: Symbol<extern fn(_:  &mut AzStyleFontFamily)>,
         pub az_style_font_family_deep_copy: Symbol<extern fn(_:  &AzStyleFontFamily) -> AzStyleFontFamily>,
+        pub az_style_font_family_fmt_debug: Symbol<extern fn(_:  &AzStyleFontFamily) -> AzString>,
         pub az_style_font_size_delete: Symbol<extern fn(_:  &mut AzStyleFontSize)>,
         pub az_style_font_size_deep_copy: Symbol<extern fn(_:  &AzStyleFontSize) -> AzStyleFontSize>,
+        pub az_style_font_size_fmt_debug: Symbol<extern fn(_:  &AzStyleFontSize) -> AzString>,
         pub az_style_letter_spacing_delete: Symbol<extern fn(_:  &mut AzStyleLetterSpacing)>,
         pub az_style_letter_spacing_deep_copy: Symbol<extern fn(_:  &AzStyleLetterSpacing) -> AzStyleLetterSpacing>,
+        pub az_style_letter_spacing_fmt_debug: Symbol<extern fn(_:  &AzStyleLetterSpacing) -> AzString>,
         pub az_style_line_height_delete: Symbol<extern fn(_:  &mut AzStyleLineHeight)>,
         pub az_style_line_height_deep_copy: Symbol<extern fn(_:  &AzStyleLineHeight) -> AzStyleLineHeight>,
+        pub az_style_line_height_fmt_debug: Symbol<extern fn(_:  &AzStyleLineHeight) -> AzString>,
         pub az_style_tab_width_delete: Symbol<extern fn(_:  &mut AzStyleTabWidth)>,
         pub az_style_tab_width_deep_copy: Symbol<extern fn(_:  &AzStyleTabWidth) -> AzStyleTabWidth>,
+        pub az_style_tab_width_fmt_debug: Symbol<extern fn(_:  &AzStyleTabWidth) -> AzString>,
         pub az_style_text_alignment_horz_delete: Symbol<extern fn(_:  &mut AzStyleTextAlignmentHorz)>,
         pub az_style_text_alignment_horz_deep_copy: Symbol<extern fn(_:  &AzStyleTextAlignmentHorz) -> AzStyleTextAlignmentHorz>,
+        pub az_style_text_alignment_horz_fmt_debug: Symbol<extern fn(_:  &AzStyleTextAlignmentHorz) -> AzString>,
         pub az_style_text_color_delete: Symbol<extern fn(_:  &mut AzStyleTextColor)>,
         pub az_style_text_color_deep_copy: Symbol<extern fn(_:  &AzStyleTextColor) -> AzStyleTextColor>,
+        pub az_style_text_color_fmt_debug: Symbol<extern fn(_:  &AzStyleTextColor) -> AzString>,
         pub az_style_word_spacing_delete: Symbol<extern fn(_:  &mut AzStyleWordSpacing)>,
         pub az_style_word_spacing_deep_copy: Symbol<extern fn(_:  &AzStyleWordSpacing) -> AzStyleWordSpacing>,
+        pub az_style_word_spacing_fmt_debug: Symbol<extern fn(_:  &AzStyleWordSpacing) -> AzString>,
         pub az_box_shadow_pre_display_item_value_delete: Symbol<extern fn(_:  &mut AzBoxShadowPreDisplayItemValue)>,
         pub az_box_shadow_pre_display_item_value_deep_copy: Symbol<extern fn(_:  &AzBoxShadowPreDisplayItemValue) -> AzBoxShadowPreDisplayItemValue>,
+        pub az_box_shadow_pre_display_item_value_fmt_debug: Symbol<extern fn(_:  &AzBoxShadowPreDisplayItemValue) -> AzString>,
         pub az_layout_align_content_value_delete: Symbol<extern fn(_:  &mut AzLayoutAlignContentValue)>,
         pub az_layout_align_content_value_deep_copy: Symbol<extern fn(_:  &AzLayoutAlignContentValue) -> AzLayoutAlignContentValue>,
+        pub az_layout_align_content_value_fmt_debug: Symbol<extern fn(_:  &AzLayoutAlignContentValue) -> AzString>,
         pub az_layout_align_items_value_delete: Symbol<extern fn(_:  &mut AzLayoutAlignItemsValue)>,
         pub az_layout_align_items_value_deep_copy: Symbol<extern fn(_:  &AzLayoutAlignItemsValue) -> AzLayoutAlignItemsValue>,
+        pub az_layout_align_items_value_fmt_debug: Symbol<extern fn(_:  &AzLayoutAlignItemsValue) -> AzString>,
         pub az_layout_bottom_value_delete: Symbol<extern fn(_:  &mut AzLayoutBottomValue)>,
         pub az_layout_bottom_value_deep_copy: Symbol<extern fn(_:  &AzLayoutBottomValue) -> AzLayoutBottomValue>,
+        pub az_layout_bottom_value_fmt_debug: Symbol<extern fn(_:  &AzLayoutBottomValue) -> AzString>,
         pub az_layout_box_sizing_value_delete: Symbol<extern fn(_:  &mut AzLayoutBoxSizingValue)>,
         pub az_layout_box_sizing_value_deep_copy: Symbol<extern fn(_:  &AzLayoutBoxSizingValue) -> AzLayoutBoxSizingValue>,
+        pub az_layout_box_sizing_value_fmt_debug: Symbol<extern fn(_:  &AzLayoutBoxSizingValue) -> AzString>,
         pub az_layout_direction_value_delete: Symbol<extern fn(_:  &mut AzLayoutDirectionValue)>,
         pub az_layout_direction_value_deep_copy: Symbol<extern fn(_:  &AzLayoutDirectionValue) -> AzLayoutDirectionValue>,
+        pub az_layout_direction_value_fmt_debug: Symbol<extern fn(_:  &AzLayoutDirectionValue) -> AzString>,
         pub az_layout_display_value_delete: Symbol<extern fn(_:  &mut AzLayoutDisplayValue)>,
         pub az_layout_display_value_deep_copy: Symbol<extern fn(_:  &AzLayoutDisplayValue) -> AzLayoutDisplayValue>,
+        pub az_layout_display_value_fmt_debug: Symbol<extern fn(_:  &AzLayoutDisplayValue) -> AzString>,
         pub az_layout_flex_grow_value_delete: Symbol<extern fn(_:  &mut AzLayoutFlexGrowValue)>,
         pub az_layout_flex_grow_value_deep_copy: Symbol<extern fn(_:  &AzLayoutFlexGrowValue) -> AzLayoutFlexGrowValue>,
+        pub az_layout_flex_grow_value_fmt_debug: Symbol<extern fn(_:  &AzLayoutFlexGrowValue) -> AzString>,
         pub az_layout_flex_shrink_value_delete: Symbol<extern fn(_:  &mut AzLayoutFlexShrinkValue)>,
         pub az_layout_flex_shrink_value_deep_copy: Symbol<extern fn(_:  &AzLayoutFlexShrinkValue) -> AzLayoutFlexShrinkValue>,
+        pub az_layout_flex_shrink_value_fmt_debug: Symbol<extern fn(_:  &AzLayoutFlexShrinkValue) -> AzString>,
         pub az_layout_float_value_delete: Symbol<extern fn(_:  &mut AzLayoutFloatValue)>,
         pub az_layout_float_value_deep_copy: Symbol<extern fn(_:  &AzLayoutFloatValue) -> AzLayoutFloatValue>,
+        pub az_layout_float_value_fmt_debug: Symbol<extern fn(_:  &AzLayoutFloatValue) -> AzString>,
         pub az_layout_height_value_delete: Symbol<extern fn(_:  &mut AzLayoutHeightValue)>,
         pub az_layout_height_value_deep_copy: Symbol<extern fn(_:  &AzLayoutHeightValue) -> AzLayoutHeightValue>,
+        pub az_layout_height_value_fmt_debug: Symbol<extern fn(_:  &AzLayoutHeightValue) -> AzString>,
         pub az_layout_justify_content_value_delete: Symbol<extern fn(_:  &mut AzLayoutJustifyContentValue)>,
         pub az_layout_justify_content_value_deep_copy: Symbol<extern fn(_:  &AzLayoutJustifyContentValue) -> AzLayoutJustifyContentValue>,
+        pub az_layout_justify_content_value_fmt_debug: Symbol<extern fn(_:  &AzLayoutJustifyContentValue) -> AzString>,
         pub az_layout_left_value_delete: Symbol<extern fn(_:  &mut AzLayoutLeftValue)>,
         pub az_layout_left_value_deep_copy: Symbol<extern fn(_:  &AzLayoutLeftValue) -> AzLayoutLeftValue>,
+        pub az_layout_left_value_fmt_debug: Symbol<extern fn(_:  &AzLayoutLeftValue) -> AzString>,
         pub az_layout_margin_bottom_value_delete: Symbol<extern fn(_:  &mut AzLayoutMarginBottomValue)>,
         pub az_layout_margin_bottom_value_deep_copy: Symbol<extern fn(_:  &AzLayoutMarginBottomValue) -> AzLayoutMarginBottomValue>,
+        pub az_layout_margin_bottom_value_fmt_debug: Symbol<extern fn(_:  &AzLayoutMarginBottomValue) -> AzString>,
         pub az_layout_margin_left_value_delete: Symbol<extern fn(_:  &mut AzLayoutMarginLeftValue)>,
         pub az_layout_margin_left_value_deep_copy: Symbol<extern fn(_:  &AzLayoutMarginLeftValue) -> AzLayoutMarginLeftValue>,
+        pub az_layout_margin_left_value_fmt_debug: Symbol<extern fn(_:  &AzLayoutMarginLeftValue) -> AzString>,
         pub az_layout_margin_right_value_delete: Symbol<extern fn(_:  &mut AzLayoutMarginRightValue)>,
         pub az_layout_margin_right_value_deep_copy: Symbol<extern fn(_:  &AzLayoutMarginRightValue) -> AzLayoutMarginRightValue>,
+        pub az_layout_margin_right_value_fmt_debug: Symbol<extern fn(_:  &AzLayoutMarginRightValue) -> AzString>,
         pub az_layout_margin_top_value_delete: Symbol<extern fn(_:  &mut AzLayoutMarginTopValue)>,
         pub az_layout_margin_top_value_deep_copy: Symbol<extern fn(_:  &AzLayoutMarginTopValue) -> AzLayoutMarginTopValue>,
+        pub az_layout_margin_top_value_fmt_debug: Symbol<extern fn(_:  &AzLayoutMarginTopValue) -> AzString>,
         pub az_layout_max_height_value_delete: Symbol<extern fn(_:  &mut AzLayoutMaxHeightValue)>,
         pub az_layout_max_height_value_deep_copy: Symbol<extern fn(_:  &AzLayoutMaxHeightValue) -> AzLayoutMaxHeightValue>,
+        pub az_layout_max_height_value_fmt_debug: Symbol<extern fn(_:  &AzLayoutMaxHeightValue) -> AzString>,
         pub az_layout_max_width_value_delete: Symbol<extern fn(_:  &mut AzLayoutMaxWidthValue)>,
         pub az_layout_max_width_value_deep_copy: Symbol<extern fn(_:  &AzLayoutMaxWidthValue) -> AzLayoutMaxWidthValue>,
+        pub az_layout_max_width_value_fmt_debug: Symbol<extern fn(_:  &AzLayoutMaxWidthValue) -> AzString>,
         pub az_layout_min_height_value_delete: Symbol<extern fn(_:  &mut AzLayoutMinHeightValue)>,
         pub az_layout_min_height_value_deep_copy: Symbol<extern fn(_:  &AzLayoutMinHeightValue) -> AzLayoutMinHeightValue>,
+        pub az_layout_min_height_value_fmt_debug: Symbol<extern fn(_:  &AzLayoutMinHeightValue) -> AzString>,
         pub az_layout_min_width_value_delete: Symbol<extern fn(_:  &mut AzLayoutMinWidthValue)>,
         pub az_layout_min_width_value_deep_copy: Symbol<extern fn(_:  &AzLayoutMinWidthValue) -> AzLayoutMinWidthValue>,
+        pub az_layout_min_width_value_fmt_debug: Symbol<extern fn(_:  &AzLayoutMinWidthValue) -> AzString>,
         pub az_layout_padding_bottom_value_delete: Symbol<extern fn(_:  &mut AzLayoutPaddingBottomValue)>,
         pub az_layout_padding_bottom_value_deep_copy: Symbol<extern fn(_:  &AzLayoutPaddingBottomValue) -> AzLayoutPaddingBottomValue>,
+        pub az_layout_padding_bottom_value_fmt_debug: Symbol<extern fn(_:  &AzLayoutPaddingBottomValue) -> AzString>,
         pub az_layout_padding_left_value_delete: Symbol<extern fn(_:  &mut AzLayoutPaddingLeftValue)>,
         pub az_layout_padding_left_value_deep_copy: Symbol<extern fn(_:  &AzLayoutPaddingLeftValue) -> AzLayoutPaddingLeftValue>,
+        pub az_layout_padding_left_value_fmt_debug: Symbol<extern fn(_:  &AzLayoutPaddingLeftValue) -> AzString>,
         pub az_layout_padding_right_value_delete: Symbol<extern fn(_:  &mut AzLayoutPaddingRightValue)>,
         pub az_layout_padding_right_value_deep_copy: Symbol<extern fn(_:  &AzLayoutPaddingRightValue) -> AzLayoutPaddingRightValue>,
+        pub az_layout_padding_right_value_fmt_debug: Symbol<extern fn(_:  &AzLayoutPaddingRightValue) -> AzString>,
         pub az_layout_padding_top_value_delete: Symbol<extern fn(_:  &mut AzLayoutPaddingTopValue)>,
         pub az_layout_padding_top_value_deep_copy: Symbol<extern fn(_:  &AzLayoutPaddingTopValue) -> AzLayoutPaddingTopValue>,
+        pub az_layout_padding_top_value_fmt_debug: Symbol<extern fn(_:  &AzLayoutPaddingTopValue) -> AzString>,
         pub az_layout_position_value_delete: Symbol<extern fn(_:  &mut AzLayoutPositionValue)>,
         pub az_layout_position_value_deep_copy: Symbol<extern fn(_:  &AzLayoutPositionValue) -> AzLayoutPositionValue>,
+        pub az_layout_position_value_fmt_debug: Symbol<extern fn(_:  &AzLayoutPositionValue) -> AzString>,
         pub az_layout_right_value_delete: Symbol<extern fn(_:  &mut AzLayoutRightValue)>,
         pub az_layout_right_value_deep_copy: Symbol<extern fn(_:  &AzLayoutRightValue) -> AzLayoutRightValue>,
+        pub az_layout_right_value_fmt_debug: Symbol<extern fn(_:  &AzLayoutRightValue) -> AzString>,
         pub az_layout_top_value_delete: Symbol<extern fn(_:  &mut AzLayoutTopValue)>,
         pub az_layout_top_value_deep_copy: Symbol<extern fn(_:  &AzLayoutTopValue) -> AzLayoutTopValue>,
+        pub az_layout_top_value_fmt_debug: Symbol<extern fn(_:  &AzLayoutTopValue) -> AzString>,
         pub az_layout_width_value_delete: Symbol<extern fn(_:  &mut AzLayoutWidthValue)>,
         pub az_layout_width_value_deep_copy: Symbol<extern fn(_:  &AzLayoutWidthValue) -> AzLayoutWidthValue>,
+        pub az_layout_width_value_fmt_debug: Symbol<extern fn(_:  &AzLayoutWidthValue) -> AzString>,
         pub az_layout_wrap_value_delete: Symbol<extern fn(_:  &mut AzLayoutWrapValue)>,
         pub az_layout_wrap_value_deep_copy: Symbol<extern fn(_:  &AzLayoutWrapValue) -> AzLayoutWrapValue>,
+        pub az_layout_wrap_value_fmt_debug: Symbol<extern fn(_:  &AzLayoutWrapValue) -> AzString>,
         pub az_overflow_value_delete: Symbol<extern fn(_:  &mut AzOverflowValue)>,
         pub az_overflow_value_deep_copy: Symbol<extern fn(_:  &AzOverflowValue) -> AzOverflowValue>,
+        pub az_overflow_value_fmt_debug: Symbol<extern fn(_:  &AzOverflowValue) -> AzString>,
         pub az_style_background_content_value_delete: Symbol<extern fn(_:  &mut AzStyleBackgroundContentValue)>,
         pub az_style_background_content_value_deep_copy: Symbol<extern fn(_:  &AzStyleBackgroundContentValue) -> AzStyleBackgroundContentValue>,
+        pub az_style_background_content_value_fmt_debug: Symbol<extern fn(_:  &AzStyleBackgroundContentValue) -> AzString>,
         pub az_style_background_position_value_delete: Symbol<extern fn(_:  &mut AzStyleBackgroundPositionValue)>,
         pub az_style_background_position_value_deep_copy: Symbol<extern fn(_:  &AzStyleBackgroundPositionValue) -> AzStyleBackgroundPositionValue>,
+        pub az_style_background_position_value_fmt_debug: Symbol<extern fn(_:  &AzStyleBackgroundPositionValue) -> AzString>,
         pub az_style_background_repeat_value_delete: Symbol<extern fn(_:  &mut AzStyleBackgroundRepeatValue)>,
         pub az_style_background_repeat_value_deep_copy: Symbol<extern fn(_:  &AzStyleBackgroundRepeatValue) -> AzStyleBackgroundRepeatValue>,
+        pub az_style_background_repeat_value_fmt_debug: Symbol<extern fn(_:  &AzStyleBackgroundRepeatValue) -> AzString>,
         pub az_style_background_size_value_delete: Symbol<extern fn(_:  &mut AzStyleBackgroundSizeValue)>,
         pub az_style_background_size_value_deep_copy: Symbol<extern fn(_:  &AzStyleBackgroundSizeValue) -> AzStyleBackgroundSizeValue>,
+        pub az_style_background_size_value_fmt_debug: Symbol<extern fn(_:  &AzStyleBackgroundSizeValue) -> AzString>,
         pub az_style_border_bottom_color_value_delete: Symbol<extern fn(_:  &mut AzStyleBorderBottomColorValue)>,
         pub az_style_border_bottom_color_value_deep_copy: Symbol<extern fn(_:  &AzStyleBorderBottomColorValue) -> AzStyleBorderBottomColorValue>,
+        pub az_style_border_bottom_color_value_fmt_debug: Symbol<extern fn(_:  &AzStyleBorderBottomColorValue) -> AzString>,
         pub az_style_border_bottom_left_radius_value_delete: Symbol<extern fn(_:  &mut AzStyleBorderBottomLeftRadiusValue)>,
         pub az_style_border_bottom_left_radius_value_deep_copy: Symbol<extern fn(_:  &AzStyleBorderBottomLeftRadiusValue) -> AzStyleBorderBottomLeftRadiusValue>,
+        pub az_style_border_bottom_left_radius_value_fmt_debug: Symbol<extern fn(_:  &AzStyleBorderBottomLeftRadiusValue) -> AzString>,
         pub az_style_border_bottom_right_radius_value_delete: Symbol<extern fn(_:  &mut AzStyleBorderBottomRightRadiusValue)>,
         pub az_style_border_bottom_right_radius_value_deep_copy: Symbol<extern fn(_:  &AzStyleBorderBottomRightRadiusValue) -> AzStyleBorderBottomRightRadiusValue>,
+        pub az_style_border_bottom_right_radius_value_fmt_debug: Symbol<extern fn(_:  &AzStyleBorderBottomRightRadiusValue) -> AzString>,
         pub az_style_border_bottom_style_value_delete: Symbol<extern fn(_:  &mut AzStyleBorderBottomStyleValue)>,
         pub az_style_border_bottom_style_value_deep_copy: Symbol<extern fn(_:  &AzStyleBorderBottomStyleValue) -> AzStyleBorderBottomStyleValue>,
+        pub az_style_border_bottom_style_value_fmt_debug: Symbol<extern fn(_:  &AzStyleBorderBottomStyleValue) -> AzString>,
         pub az_style_border_bottom_width_value_delete: Symbol<extern fn(_:  &mut AzStyleBorderBottomWidthValue)>,
         pub az_style_border_bottom_width_value_deep_copy: Symbol<extern fn(_:  &AzStyleBorderBottomWidthValue) -> AzStyleBorderBottomWidthValue>,
+        pub az_style_border_bottom_width_value_fmt_debug: Symbol<extern fn(_:  &AzStyleBorderBottomWidthValue) -> AzString>,
         pub az_style_border_left_color_value_delete: Symbol<extern fn(_:  &mut AzStyleBorderLeftColorValue)>,
         pub az_style_border_left_color_value_deep_copy: Symbol<extern fn(_:  &AzStyleBorderLeftColorValue) -> AzStyleBorderLeftColorValue>,
+        pub az_style_border_left_color_value_fmt_debug: Symbol<extern fn(_:  &AzStyleBorderLeftColorValue) -> AzString>,
         pub az_style_border_left_style_value_delete: Symbol<extern fn(_:  &mut AzStyleBorderLeftStyleValue)>,
         pub az_style_border_left_style_value_deep_copy: Symbol<extern fn(_:  &AzStyleBorderLeftStyleValue) -> AzStyleBorderLeftStyleValue>,
+        pub az_style_border_left_style_value_fmt_debug: Symbol<extern fn(_:  &AzStyleBorderLeftStyleValue) -> AzString>,
         pub az_style_border_left_width_value_delete: Symbol<extern fn(_:  &mut AzStyleBorderLeftWidthValue)>,
         pub az_style_border_left_width_value_deep_copy: Symbol<extern fn(_:  &AzStyleBorderLeftWidthValue) -> AzStyleBorderLeftWidthValue>,
+        pub az_style_border_left_width_value_fmt_debug: Symbol<extern fn(_:  &AzStyleBorderLeftWidthValue) -> AzString>,
         pub az_style_border_right_color_value_delete: Symbol<extern fn(_:  &mut AzStyleBorderRightColorValue)>,
         pub az_style_border_right_color_value_deep_copy: Symbol<extern fn(_:  &AzStyleBorderRightColorValue) -> AzStyleBorderRightColorValue>,
+        pub az_style_border_right_color_value_fmt_debug: Symbol<extern fn(_:  &AzStyleBorderRightColorValue) -> AzString>,
         pub az_style_border_right_style_value_delete: Symbol<extern fn(_:  &mut AzStyleBorderRightStyleValue)>,
         pub az_style_border_right_style_value_deep_copy: Symbol<extern fn(_:  &AzStyleBorderRightStyleValue) -> AzStyleBorderRightStyleValue>,
+        pub az_style_border_right_style_value_fmt_debug: Symbol<extern fn(_:  &AzStyleBorderRightStyleValue) -> AzString>,
         pub az_style_border_right_width_value_delete: Symbol<extern fn(_:  &mut AzStyleBorderRightWidthValue)>,
         pub az_style_border_right_width_value_deep_copy: Symbol<extern fn(_:  &AzStyleBorderRightWidthValue) -> AzStyleBorderRightWidthValue>,
+        pub az_style_border_right_width_value_fmt_debug: Symbol<extern fn(_:  &AzStyleBorderRightWidthValue) -> AzString>,
         pub az_style_border_top_color_value_delete: Symbol<extern fn(_:  &mut AzStyleBorderTopColorValue)>,
         pub az_style_border_top_color_value_deep_copy: Symbol<extern fn(_:  &AzStyleBorderTopColorValue) -> AzStyleBorderTopColorValue>,
+        pub az_style_border_top_color_value_fmt_debug: Symbol<extern fn(_:  &AzStyleBorderTopColorValue) -> AzString>,
         pub az_style_border_top_left_radius_value_delete: Symbol<extern fn(_:  &mut AzStyleBorderTopLeftRadiusValue)>,
         pub az_style_border_top_left_radius_value_deep_copy: Symbol<extern fn(_:  &AzStyleBorderTopLeftRadiusValue) -> AzStyleBorderTopLeftRadiusValue>,
+        pub az_style_border_top_left_radius_value_fmt_debug: Symbol<extern fn(_:  &AzStyleBorderTopLeftRadiusValue) -> AzString>,
         pub az_style_border_top_right_radius_value_delete: Symbol<extern fn(_:  &mut AzStyleBorderTopRightRadiusValue)>,
         pub az_style_border_top_right_radius_value_deep_copy: Symbol<extern fn(_:  &AzStyleBorderTopRightRadiusValue) -> AzStyleBorderTopRightRadiusValue>,
+        pub az_style_border_top_right_radius_value_fmt_debug: Symbol<extern fn(_:  &AzStyleBorderTopRightRadiusValue) -> AzString>,
         pub az_style_border_top_style_value_delete: Symbol<extern fn(_:  &mut AzStyleBorderTopStyleValue)>,
         pub az_style_border_top_style_value_deep_copy: Symbol<extern fn(_:  &AzStyleBorderTopStyleValue) -> AzStyleBorderTopStyleValue>,
+        pub az_style_border_top_style_value_fmt_debug: Symbol<extern fn(_:  &AzStyleBorderTopStyleValue) -> AzString>,
         pub az_style_border_top_width_value_delete: Symbol<extern fn(_:  &mut AzStyleBorderTopWidthValue)>,
         pub az_style_border_top_width_value_deep_copy: Symbol<extern fn(_:  &AzStyleBorderTopWidthValue) -> AzStyleBorderTopWidthValue>,
+        pub az_style_border_top_width_value_fmt_debug: Symbol<extern fn(_:  &AzStyleBorderTopWidthValue) -> AzString>,
         pub az_style_cursor_value_delete: Symbol<extern fn(_:  &mut AzStyleCursorValue)>,
         pub az_style_cursor_value_deep_copy: Symbol<extern fn(_:  &AzStyleCursorValue) -> AzStyleCursorValue>,
+        pub az_style_cursor_value_fmt_debug: Symbol<extern fn(_:  &AzStyleCursorValue) -> AzString>,
         pub az_style_font_family_value_delete: Symbol<extern fn(_:  &mut AzStyleFontFamilyValue)>,
         pub az_style_font_family_value_deep_copy: Symbol<extern fn(_:  &AzStyleFontFamilyValue) -> AzStyleFontFamilyValue>,
+        pub az_style_font_family_value_fmt_debug: Symbol<extern fn(_:  &AzStyleFontFamilyValue) -> AzString>,
         pub az_style_font_size_value_delete: Symbol<extern fn(_:  &mut AzStyleFontSizeValue)>,
         pub az_style_font_size_value_deep_copy: Symbol<extern fn(_:  &AzStyleFontSizeValue) -> AzStyleFontSizeValue>,
+        pub az_style_font_size_value_fmt_debug: Symbol<extern fn(_:  &AzStyleFontSizeValue) -> AzString>,
         pub az_style_letter_spacing_value_delete: Symbol<extern fn(_:  &mut AzStyleLetterSpacingValue)>,
         pub az_style_letter_spacing_value_deep_copy: Symbol<extern fn(_:  &AzStyleLetterSpacingValue) -> AzStyleLetterSpacingValue>,
+        pub az_style_letter_spacing_value_fmt_debug: Symbol<extern fn(_:  &AzStyleLetterSpacingValue) -> AzString>,
         pub az_style_line_height_value_delete: Symbol<extern fn(_:  &mut AzStyleLineHeightValue)>,
         pub az_style_line_height_value_deep_copy: Symbol<extern fn(_:  &AzStyleLineHeightValue) -> AzStyleLineHeightValue>,
+        pub az_style_line_height_value_fmt_debug: Symbol<extern fn(_:  &AzStyleLineHeightValue) -> AzString>,
         pub az_style_tab_width_value_delete: Symbol<extern fn(_:  &mut AzStyleTabWidthValue)>,
         pub az_style_tab_width_value_deep_copy: Symbol<extern fn(_:  &AzStyleTabWidthValue) -> AzStyleTabWidthValue>,
+        pub az_style_tab_width_value_fmt_debug: Symbol<extern fn(_:  &AzStyleTabWidthValue) -> AzString>,
         pub az_style_text_alignment_horz_value_delete: Symbol<extern fn(_:  &mut AzStyleTextAlignmentHorzValue)>,
         pub az_style_text_alignment_horz_value_deep_copy: Symbol<extern fn(_:  &AzStyleTextAlignmentHorzValue) -> AzStyleTextAlignmentHorzValue>,
+        pub az_style_text_alignment_horz_value_fmt_debug: Symbol<extern fn(_:  &AzStyleTextAlignmentHorzValue) -> AzString>,
         pub az_style_text_color_value_delete: Symbol<extern fn(_:  &mut AzStyleTextColorValue)>,
         pub az_style_text_color_value_deep_copy: Symbol<extern fn(_:  &AzStyleTextColorValue) -> AzStyleTextColorValue>,
+        pub az_style_text_color_value_fmt_debug: Symbol<extern fn(_:  &AzStyleTextColorValue) -> AzString>,
         pub az_style_word_spacing_value_delete: Symbol<extern fn(_:  &mut AzStyleWordSpacingValue)>,
         pub az_style_word_spacing_value_deep_copy: Symbol<extern fn(_:  &AzStyleWordSpacingValue) -> AzStyleWordSpacingValue>,
+        pub az_style_word_spacing_value_fmt_debug: Symbol<extern fn(_:  &AzStyleWordSpacingValue) -> AzString>,
         pub az_css_property_delete: Symbol<extern fn(_:  &mut AzCssProperty)>,
         pub az_css_property_deep_copy: Symbol<extern fn(_:  &AzCssProperty) -> AzCssProperty>,
+        pub az_css_property_fmt_debug: Symbol<extern fn(_:  &AzCssProperty) -> AzString>,
         pub az_dom_div: Symbol<extern fn() -> AzDom>,
         pub az_dom_body: Symbol<extern fn() -> AzDom>,
         pub az_dom_label: Symbol<extern fn(_:  AzString) -> AzDom>,
@@ -2797,58 +3011,90 @@ pub(crate) mod dll {
         pub az_dom_get_html_string: Symbol<extern fn(_:  &AzDom) -> AzString>,
         pub az_dom_delete: Symbol<extern fn(_:  &mut AzDom)>,
         pub az_dom_deep_copy: Symbol<extern fn(_:  &AzDom) -> AzDom>,
+        pub az_dom_fmt_debug: Symbol<extern fn(_:  &AzDom) -> AzString>,
         pub az_gl_texture_node_delete: Symbol<extern fn(_:  &mut AzGlTextureNode)>,
         pub az_gl_texture_node_deep_copy: Symbol<extern fn(_:  &AzGlTextureNode) -> AzGlTextureNode>,
+        pub az_gl_texture_node_fmt_debug: Symbol<extern fn(_:  &AzGlTextureNode) -> AzString>,
         pub az_i_frame_node_delete: Symbol<extern fn(_:  &mut AzIFrameNode)>,
         pub az_i_frame_node_deep_copy: Symbol<extern fn(_:  &AzIFrameNode) -> AzIFrameNode>,
+        pub az_i_frame_node_fmt_debug: Symbol<extern fn(_:  &AzIFrameNode) -> AzString>,
         pub az_callback_data_delete: Symbol<extern fn(_:  &mut AzCallbackData)>,
         pub az_callback_data_deep_copy: Symbol<extern fn(_:  &AzCallbackData) -> AzCallbackData>,
+        pub az_callback_data_fmt_debug: Symbol<extern fn(_:  &AzCallbackData) -> AzString>,
         pub az_override_property_delete: Symbol<extern fn(_:  &mut AzOverrideProperty)>,
         pub az_override_property_deep_copy: Symbol<extern fn(_:  &AzOverrideProperty) -> AzOverrideProperty>,
+        pub az_override_property_fmt_debug: Symbol<extern fn(_:  &AzOverrideProperty) -> AzString>,
         pub az_node_data_new: Symbol<extern fn(_:  AzNodeType) -> AzNodeData>,
         pub az_node_data_default: Symbol<extern fn() -> AzNodeData>,
         pub az_node_data_delete: Symbol<extern fn(_:  &mut AzNodeData)>,
         pub az_node_data_deep_copy: Symbol<extern fn(_:  &AzNodeData) -> AzNodeData>,
+        pub az_node_data_fmt_debug: Symbol<extern fn(_:  &AzNodeData) -> AzString>,
         pub az_node_type_delete: Symbol<extern fn(_:  &mut AzNodeType)>,
         pub az_node_type_deep_copy: Symbol<extern fn(_:  &AzNodeType) -> AzNodeType>,
+        pub az_node_type_fmt_debug: Symbol<extern fn(_:  &AzNodeType) -> AzString>,
         pub az_on_into_event_filter: Symbol<extern fn(_:  AzOn) -> AzEventFilter>,
         pub az_on_delete: Symbol<extern fn(_:  &mut AzOn)>,
         pub az_on_deep_copy: Symbol<extern fn(_:  &AzOn) -> AzOn>,
+        pub az_on_fmt_debug: Symbol<extern fn(_:  &AzOn) -> AzString>,
         pub az_event_filter_delete: Symbol<extern fn(_:  &mut AzEventFilter)>,
         pub az_event_filter_deep_copy: Symbol<extern fn(_:  &AzEventFilter) -> AzEventFilter>,
+        pub az_event_filter_fmt_debug: Symbol<extern fn(_:  &AzEventFilter) -> AzString>,
         pub az_hover_event_filter_delete: Symbol<extern fn(_:  &mut AzHoverEventFilter)>,
         pub az_hover_event_filter_deep_copy: Symbol<extern fn(_:  &AzHoverEventFilter) -> AzHoverEventFilter>,
+        pub az_hover_event_filter_fmt_debug: Symbol<extern fn(_:  &AzHoverEventFilter) -> AzString>,
         pub az_focus_event_filter_delete: Symbol<extern fn(_:  &mut AzFocusEventFilter)>,
         pub az_focus_event_filter_deep_copy: Symbol<extern fn(_:  &AzFocusEventFilter) -> AzFocusEventFilter>,
+        pub az_focus_event_filter_fmt_debug: Symbol<extern fn(_:  &AzFocusEventFilter) -> AzString>,
         pub az_not_event_filter_delete: Symbol<extern fn(_:  &mut AzNotEventFilter)>,
         pub az_not_event_filter_deep_copy: Symbol<extern fn(_:  &AzNotEventFilter) -> AzNotEventFilter>,
+        pub az_not_event_filter_fmt_debug: Symbol<extern fn(_:  &AzNotEventFilter) -> AzString>,
         pub az_window_event_filter_delete: Symbol<extern fn(_:  &mut AzWindowEventFilter)>,
         pub az_window_event_filter_deep_copy: Symbol<extern fn(_:  &AzWindowEventFilter) -> AzWindowEventFilter>,
+        pub az_window_event_filter_fmt_debug: Symbol<extern fn(_:  &AzWindowEventFilter) -> AzString>,
         pub az_tab_index_delete: Symbol<extern fn(_:  &mut AzTabIndex)>,
         pub az_tab_index_deep_copy: Symbol<extern fn(_:  &AzTabIndex) -> AzTabIndex>,
+        pub az_tab_index_fmt_debug: Symbol<extern fn(_:  &AzTabIndex) -> AzString>,
         pub az_gl_type_delete: Symbol<extern fn(_:  &mut AzGlType)>,
         pub az_gl_type_deep_copy: Symbol<extern fn(_:  &AzGlType) -> AzGlType>,
+        pub az_gl_type_fmt_debug: Symbol<extern fn(_:  &AzGlType) -> AzString>,
         pub az_debug_message_delete: Symbol<extern fn(_:  &mut AzDebugMessage)>,
         pub az_debug_message_deep_copy: Symbol<extern fn(_:  &AzDebugMessage) -> AzDebugMessage>,
+        pub az_debug_message_fmt_debug: Symbol<extern fn(_:  &AzDebugMessage) -> AzString>,
         pub az_u8_vec_ref_delete: Symbol<extern fn(_:  &mut AzU8VecRef)>,
+        pub az_u8_vec_ref_fmt_debug: Symbol<extern fn(_:  &AzU8VecRef) -> AzString>,
         pub az_u8_vec_ref_mut_delete: Symbol<extern fn(_:  &mut AzU8VecRefMut)>,
+        pub az_u8_vec_ref_mut_fmt_debug: Symbol<extern fn(_:  &AzU8VecRefMut) -> AzString>,
         pub az_f32_vec_ref_delete: Symbol<extern fn(_:  &mut AzF32VecRef)>,
+        pub az_f32_vec_ref_fmt_debug: Symbol<extern fn(_:  &AzF32VecRef) -> AzString>,
         pub az_i32_vec_ref_delete: Symbol<extern fn(_:  &mut AzI32VecRef)>,
+        pub az_i32_vec_ref_fmt_debug: Symbol<extern fn(_:  &AzI32VecRef) -> AzString>,
         pub az_g_luint_vec_ref_delete: Symbol<extern fn(_:  &mut AzGLuintVecRef)>,
+        pub az_g_luint_vec_ref_fmt_debug: Symbol<extern fn(_:  &AzGLuintVecRef) -> AzString>,
         pub az_g_lenum_vec_ref_delete: Symbol<extern fn(_:  &mut AzGLenumVecRef)>,
+        pub az_g_lenum_vec_ref_fmt_debug: Symbol<extern fn(_:  &AzGLenumVecRef) -> AzString>,
         pub az_g_lint_vec_ref_mut_delete: Symbol<extern fn(_:  &mut AzGLintVecRefMut)>,
+        pub az_g_lint_vec_ref_mut_fmt_debug: Symbol<extern fn(_:  &AzGLintVecRefMut) -> AzString>,
         pub az_g_lint64_vec_ref_mut_delete: Symbol<extern fn(_:  &mut AzGLint64VecRefMut)>,
+        pub az_g_lint64_vec_ref_mut_fmt_debug: Symbol<extern fn(_:  &AzGLint64VecRefMut) -> AzString>,
         pub az_g_lboolean_vec_ref_mut_delete: Symbol<extern fn(_:  &mut AzGLbooleanVecRefMut)>,
+        pub az_g_lboolean_vec_ref_mut_fmt_debug: Symbol<extern fn(_:  &AzGLbooleanVecRefMut) -> AzString>,
         pub az_g_lfloat_vec_ref_mut_delete: Symbol<extern fn(_:  &mut AzGLfloatVecRefMut)>,
+        pub az_g_lfloat_vec_ref_mut_fmt_debug: Symbol<extern fn(_:  &AzGLfloatVecRefMut) -> AzString>,
         pub az_refstr_vec_ref_delete: Symbol<extern fn(_:  &mut AzRefstrVecRef)>,
+        pub az_refstr_vec_ref_fmt_debug: Symbol<extern fn(_:  &AzRefstrVecRef) -> AzString>,
         pub az_refstr_delete: Symbol<extern fn(_:  &mut AzRefstr)>,
+        pub az_refstr_fmt_debug: Symbol<extern fn(_:  &AzRefstr) -> AzString>,
         pub az_get_program_binary_return_delete: Symbol<extern fn(_:  &mut AzGetProgramBinaryReturn)>,
         pub az_get_program_binary_return_deep_copy: Symbol<extern fn(_:  &AzGetProgramBinaryReturn) -> AzGetProgramBinaryReturn>,
+        pub az_get_program_binary_return_fmt_debug: Symbol<extern fn(_:  &AzGetProgramBinaryReturn) -> AzString>,
         pub az_get_active_attrib_return_delete: Symbol<extern fn(_:  &mut AzGetActiveAttribReturn)>,
         pub az_get_active_attrib_return_deep_copy: Symbol<extern fn(_:  &AzGetActiveAttribReturn) -> AzGetActiveAttribReturn>,
+        pub az_get_active_attrib_return_fmt_debug: Symbol<extern fn(_:  &AzGetActiveAttribReturn) -> AzString>,
         pub az_g_lsync_ptr_delete: Symbol<extern fn(_:  &mut AzGLsyncPtr)>,
+        pub az_g_lsync_ptr_fmt_debug: Symbol<extern fn(_:  &AzGLsyncPtr) -> AzString>,
         pub az_get_active_uniform_return_delete: Symbol<extern fn(_:  &mut AzGetActiveUniformReturn)>,
         pub az_get_active_uniform_return_deep_copy: Symbol<extern fn(_:  &AzGetActiveUniformReturn) -> AzGetActiveUniformReturn>,
+        pub az_get_active_uniform_return_fmt_debug: Symbol<extern fn(_:  &AzGetActiveUniformReturn) -> AzString>,
         pub az_gl_context_ptr_get_type: Symbol<extern fn(_:  &AzGlContextPtr) -> AzGlType>,
         pub az_gl_context_ptr_buffer_data_untyped: Symbol<extern fn(_:  &AzGlContextPtr, _:  u32, _:  isize, _:  *const c_void, _:  u32)>,
         pub az_gl_context_ptr_buffer_sub_data_untyped: Symbol<extern fn(_:  &AzGlContextPtr, _:  u32, _:  isize, _:  isize, _:  *const c_void)>,
@@ -3070,105 +3316,154 @@ pub(crate) mod dll {
         pub az_gl_context_ptr_copy_sub_texture_3d_angle: Symbol<extern fn(_:  &AzGlContextPtr, _:  u32, _:  i32, _:  u32, _:  u32, _:  i32, _:  i32, _:  i32, _:  i32, _:  i32, _:  i32, _:  i32, _:  i32, _:  i32, _:  i32, _:  u8, _:  u8, _:  u8)>,
         pub az_gl_context_ptr_delete: Symbol<extern fn(_:  &mut AzGlContextPtr)>,
         pub az_gl_context_ptr_deep_copy: Symbol<extern fn(_:  &AzGlContextPtr) -> AzGlContextPtr>,
+        pub az_gl_context_ptr_fmt_debug: Symbol<extern fn(_:  &AzGlContextPtr) -> AzString>,
         pub az_texture_delete: Symbol<extern fn(_:  &mut AzTexture)>,
+        pub az_texture_fmt_debug: Symbol<extern fn(_:  &AzTexture) -> AzString>,
         pub az_texture_flags_delete: Symbol<extern fn(_:  &mut AzTextureFlags)>,
         pub az_texture_flags_deep_copy: Symbol<extern fn(_:  &AzTextureFlags) -> AzTextureFlags>,
+        pub az_texture_flags_fmt_debug: Symbol<extern fn(_:  &AzTextureFlags) -> AzString>,
         pub az_text_id_new: Symbol<extern fn() -> AzTextId>,
         pub az_text_id_delete: Symbol<extern fn(_:  &mut AzTextId)>,
         pub az_text_id_deep_copy: Symbol<extern fn(_:  &AzTextId) -> AzTextId>,
+        pub az_text_id_fmt_debug: Symbol<extern fn(_:  &AzTextId) -> AzString>,
         pub az_image_id_new: Symbol<extern fn() -> AzImageId>,
         pub az_image_id_delete: Symbol<extern fn(_:  &mut AzImageId)>,
         pub az_image_id_deep_copy: Symbol<extern fn(_:  &AzImageId) -> AzImageId>,
+        pub az_image_id_fmt_debug: Symbol<extern fn(_:  &AzImageId) -> AzString>,
         pub az_font_id_new: Symbol<extern fn() -> AzFontId>,
         pub az_font_id_delete: Symbol<extern fn(_:  &mut AzFontId)>,
         pub az_font_id_deep_copy: Symbol<extern fn(_:  &AzFontId) -> AzFontId>,
+        pub az_font_id_fmt_debug: Symbol<extern fn(_:  &AzFontId) -> AzString>,
         pub az_image_source_delete: Symbol<extern fn(_:  &mut AzImageSource)>,
         pub az_image_source_deep_copy: Symbol<extern fn(_:  &AzImageSource) -> AzImageSource>,
+        pub az_image_source_fmt_debug: Symbol<extern fn(_:  &AzImageSource) -> AzString>,
         pub az_font_source_delete: Symbol<extern fn(_:  &mut AzFontSource)>,
         pub az_font_source_deep_copy: Symbol<extern fn(_:  &AzFontSource) -> AzFontSource>,
+        pub az_font_source_fmt_debug: Symbol<extern fn(_:  &AzFontSource) -> AzString>,
         pub az_raw_image_new: Symbol<extern fn(_:  AzU8Vec, _:  usize, _:  usize, _:  AzRawImageFormat) -> AzRawImage>,
         pub az_raw_image_delete: Symbol<extern fn(_:  &mut AzRawImage)>,
         pub az_raw_image_deep_copy: Symbol<extern fn(_:  &AzRawImage) -> AzRawImage>,
+        pub az_raw_image_fmt_debug: Symbol<extern fn(_:  &AzRawImage) -> AzString>,
         pub az_raw_image_format_delete: Symbol<extern fn(_:  &mut AzRawImageFormat)>,
         pub az_raw_image_format_deep_copy: Symbol<extern fn(_:  &AzRawImageFormat) -> AzRawImageFormat>,
+        pub az_raw_image_format_fmt_debug: Symbol<extern fn(_:  &AzRawImageFormat) -> AzString>,
         pub az_drop_check_ptr_delete: Symbol<extern fn(_:  &mut AzDropCheckPtrPtr)>,
+        pub az_drop_check_ptr_fmt_debug: Symbol<extern fn(_:  &AzDropCheckPtrPtr) -> AzString>,
         pub az_arc_mutex_ref_any_delete: Symbol<extern fn(_:  &mut AzArcMutexRefAnyPtr)>,
+        pub az_arc_mutex_ref_any_fmt_debug: Symbol<extern fn(_:  &AzArcMutexRefAnyPtr) -> AzString>,
         pub az_timer_delete: Symbol<extern fn(_:  &mut AzTimer)>,
         pub az_timer_deep_copy: Symbol<extern fn(_:  &AzTimer) -> AzTimer>,
+        pub az_timer_fmt_debug: Symbol<extern fn(_:  &AzTimer) -> AzString>,
         pub az_task_new: Symbol<extern fn(_:  AzArcMutexRefAnyPtr, _:  AzTaskCallbackType) -> AzTaskPtr>,
         pub az_task_then: Symbol<extern fn(_:  AzTaskPtr, _:  AzTimer) -> AzTaskPtr>,
         pub az_task_delete: Symbol<extern fn(_:  &mut AzTaskPtr)>,
+        pub az_task_fmt_debug: Symbol<extern fn(_:  &AzTaskPtr) -> AzString>,
         pub az_thread_new: Symbol<extern fn(_:  AzRefAny, _:  AzThreadCallbackType) -> AzThreadPtr>,
         pub az_thread_block: Symbol<extern fn(_:  AzThreadPtr) -> AzResultRefAnyBlockError>,
         pub az_thread_delete: Symbol<extern fn(_:  &mut AzThreadPtr)>,
+        pub az_thread_fmt_debug: Symbol<extern fn(_:  &AzThreadPtr) -> AzString>,
         pub az_drop_check_delete: Symbol<extern fn(_:  &mut AzDropCheckPtr)>,
+        pub az_drop_check_fmt_debug: Symbol<extern fn(_:  &AzDropCheckPtr) -> AzString>,
         pub az_timer_id_delete: Symbol<extern fn(_:  &mut AzTimerId)>,
         pub az_timer_id_deep_copy: Symbol<extern fn(_:  &AzTimerId) -> AzTimerId>,
+        pub az_timer_id_fmt_debug: Symbol<extern fn(_:  &AzTimerId) -> AzString>,
         pub az_terminate_timer_delete: Symbol<extern fn(_:  &mut AzTerminateTimer)>,
         pub az_terminate_timer_deep_copy: Symbol<extern fn(_:  &AzTerminateTimer) -> AzTerminateTimer>,
+        pub az_terminate_timer_fmt_debug: Symbol<extern fn(_:  &AzTerminateTimer) -> AzString>,
         pub az_block_error_delete: Symbol<extern fn(_:  &mut AzBlockError)>,
         pub az_block_error_deep_copy: Symbol<extern fn(_:  &AzBlockError) -> AzBlockError>,
+        pub az_block_error_fmt_debug: Symbol<extern fn(_:  &AzBlockError) -> AzString>,
         pub az_task_bar_icon_delete: Symbol<extern fn(_:  &mut AzTaskBarIcon)>,
         pub az_task_bar_icon_deep_copy: Symbol<extern fn(_:  &AzTaskBarIcon) -> AzTaskBarIcon>,
+        pub az_task_bar_icon_fmt_debug: Symbol<extern fn(_:  &AzTaskBarIcon) -> AzString>,
         pub az_x_window_type_delete: Symbol<extern fn(_:  &mut AzXWindowType)>,
         pub az_x_window_type_deep_copy: Symbol<extern fn(_:  &AzXWindowType) -> AzXWindowType>,
+        pub az_x_window_type_fmt_debug: Symbol<extern fn(_:  &AzXWindowType) -> AzString>,
         pub az_physical_position_i32_delete: Symbol<extern fn(_:  &mut AzPhysicalPositionI32)>,
         pub az_physical_position_i32_deep_copy: Symbol<extern fn(_:  &AzPhysicalPositionI32) -> AzPhysicalPositionI32>,
+        pub az_physical_position_i32_fmt_debug: Symbol<extern fn(_:  &AzPhysicalPositionI32) -> AzString>,
         pub az_logical_position_delete: Symbol<extern fn(_:  &mut AzLogicalPosition)>,
         pub az_logical_position_deep_copy: Symbol<extern fn(_:  &AzLogicalPosition) -> AzLogicalPosition>,
+        pub az_logical_position_fmt_debug: Symbol<extern fn(_:  &AzLogicalPosition) -> AzString>,
         pub az_icon_key_delete: Symbol<extern fn(_:  &mut AzIconKey)>,
         pub az_icon_key_deep_copy: Symbol<extern fn(_:  &AzIconKey) -> AzIconKey>,
+        pub az_icon_key_fmt_debug: Symbol<extern fn(_:  &AzIconKey) -> AzString>,
         pub az_small_window_icon_bytes_delete: Symbol<extern fn(_:  &mut AzSmallWindowIconBytes)>,
         pub az_small_window_icon_bytes_deep_copy: Symbol<extern fn(_:  &AzSmallWindowIconBytes) -> AzSmallWindowIconBytes>,
+        pub az_small_window_icon_bytes_fmt_debug: Symbol<extern fn(_:  &AzSmallWindowIconBytes) -> AzString>,
         pub az_large_window_icon_bytes_delete: Symbol<extern fn(_:  &mut AzLargeWindowIconBytes)>,
         pub az_large_window_icon_bytes_deep_copy: Symbol<extern fn(_:  &AzLargeWindowIconBytes) -> AzLargeWindowIconBytes>,
+        pub az_large_window_icon_bytes_fmt_debug: Symbol<extern fn(_:  &AzLargeWindowIconBytes) -> AzString>,
         pub az_window_icon_delete: Symbol<extern fn(_:  &mut AzWindowIcon)>,
         pub az_window_icon_deep_copy: Symbol<extern fn(_:  &AzWindowIcon) -> AzWindowIcon>,
+        pub az_window_icon_fmt_debug: Symbol<extern fn(_:  &AzWindowIcon) -> AzString>,
         pub az_virtual_key_code_delete: Symbol<extern fn(_:  &mut AzVirtualKeyCode)>,
         pub az_virtual_key_code_deep_copy: Symbol<extern fn(_:  &AzVirtualKeyCode) -> AzVirtualKeyCode>,
+        pub az_virtual_key_code_fmt_debug: Symbol<extern fn(_:  &AzVirtualKeyCode) -> AzString>,
         pub az_accelerator_key_delete: Symbol<extern fn(_:  &mut AzAcceleratorKey)>,
         pub az_accelerator_key_deep_copy: Symbol<extern fn(_:  &AzAcceleratorKey) -> AzAcceleratorKey>,
+        pub az_accelerator_key_fmt_debug: Symbol<extern fn(_:  &AzAcceleratorKey) -> AzString>,
         pub az_window_size_delete: Symbol<extern fn(_:  &mut AzWindowSize)>,
         pub az_window_size_deep_copy: Symbol<extern fn(_:  &AzWindowSize) -> AzWindowSize>,
+        pub az_window_size_fmt_debug: Symbol<extern fn(_:  &AzWindowSize) -> AzString>,
         pub az_window_flags_delete: Symbol<extern fn(_:  &mut AzWindowFlags)>,
         pub az_window_flags_deep_copy: Symbol<extern fn(_:  &AzWindowFlags) -> AzWindowFlags>,
+        pub az_window_flags_fmt_debug: Symbol<extern fn(_:  &AzWindowFlags) -> AzString>,
         pub az_debug_state_delete: Symbol<extern fn(_:  &mut AzDebugState)>,
         pub az_debug_state_deep_copy: Symbol<extern fn(_:  &AzDebugState) -> AzDebugState>,
+        pub az_debug_state_fmt_debug: Symbol<extern fn(_:  &AzDebugState) -> AzString>,
         pub az_keyboard_state_delete: Symbol<extern fn(_:  &mut AzKeyboardState)>,
         pub az_keyboard_state_deep_copy: Symbol<extern fn(_:  &AzKeyboardState) -> AzKeyboardState>,
+        pub az_keyboard_state_fmt_debug: Symbol<extern fn(_:  &AzKeyboardState) -> AzString>,
         pub az_mouse_cursor_type_delete: Symbol<extern fn(_:  &mut AzMouseCursorType)>,
         pub az_mouse_cursor_type_deep_copy: Symbol<extern fn(_:  &AzMouseCursorType) -> AzMouseCursorType>,
+        pub az_mouse_cursor_type_fmt_debug: Symbol<extern fn(_:  &AzMouseCursorType) -> AzString>,
         pub az_cursor_position_delete: Symbol<extern fn(_:  &mut AzCursorPosition)>,
         pub az_cursor_position_deep_copy: Symbol<extern fn(_:  &AzCursorPosition) -> AzCursorPosition>,
+        pub az_cursor_position_fmt_debug: Symbol<extern fn(_:  &AzCursorPosition) -> AzString>,
         pub az_mouse_state_delete: Symbol<extern fn(_:  &mut AzMouseState)>,
         pub az_mouse_state_deep_copy: Symbol<extern fn(_:  &AzMouseState) -> AzMouseState>,
+        pub az_mouse_state_fmt_debug: Symbol<extern fn(_:  &AzMouseState) -> AzString>,
         pub az_platform_specific_options_delete: Symbol<extern fn(_:  &mut AzPlatformSpecificOptions)>,
         pub az_platform_specific_options_deep_copy: Symbol<extern fn(_:  &AzPlatformSpecificOptions) -> AzPlatformSpecificOptions>,
+        pub az_platform_specific_options_fmt_debug: Symbol<extern fn(_:  &AzPlatformSpecificOptions) -> AzString>,
         pub az_windows_window_options_delete: Symbol<extern fn(_:  &mut AzWindowsWindowOptions)>,
         pub az_windows_window_options_deep_copy: Symbol<extern fn(_:  &AzWindowsWindowOptions) -> AzWindowsWindowOptions>,
+        pub az_windows_window_options_fmt_debug: Symbol<extern fn(_:  &AzWindowsWindowOptions) -> AzString>,
         pub az_wayland_theme_delete: Symbol<extern fn(_:  &mut AzWaylandTheme)>,
         pub az_wayland_theme_deep_copy: Symbol<extern fn(_:  &AzWaylandTheme) -> AzWaylandTheme>,
+        pub az_wayland_theme_fmt_debug: Symbol<extern fn(_:  &AzWaylandTheme) -> AzString>,
         pub az_renderer_type_delete: Symbol<extern fn(_:  &mut AzRendererType)>,
         pub az_renderer_type_deep_copy: Symbol<extern fn(_:  &AzRendererType) -> AzRendererType>,
+        pub az_renderer_type_fmt_debug: Symbol<extern fn(_:  &AzRendererType) -> AzString>,
         pub az_string_pair_delete: Symbol<extern fn(_:  &mut AzStringPair)>,
         pub az_string_pair_deep_copy: Symbol<extern fn(_:  &AzStringPair) -> AzStringPair>,
+        pub az_string_pair_fmt_debug: Symbol<extern fn(_:  &AzStringPair) -> AzString>,
         pub az_linux_window_options_delete: Symbol<extern fn(_:  &mut AzLinuxWindowOptions)>,
         pub az_linux_window_options_deep_copy: Symbol<extern fn(_:  &AzLinuxWindowOptions) -> AzLinuxWindowOptions>,
+        pub az_linux_window_options_fmt_debug: Symbol<extern fn(_:  &AzLinuxWindowOptions) -> AzString>,
         pub az_mac_window_options_delete: Symbol<extern fn(_:  &mut AzMacWindowOptions)>,
         pub az_mac_window_options_deep_copy: Symbol<extern fn(_:  &AzMacWindowOptions) -> AzMacWindowOptions>,
+        pub az_mac_window_options_fmt_debug: Symbol<extern fn(_:  &AzMacWindowOptions) -> AzString>,
         pub az_wasm_window_options_delete: Symbol<extern fn(_:  &mut AzWasmWindowOptions)>,
         pub az_wasm_window_options_deep_copy: Symbol<extern fn(_:  &AzWasmWindowOptions) -> AzWasmWindowOptions>,
+        pub az_wasm_window_options_fmt_debug: Symbol<extern fn(_:  &AzWasmWindowOptions) -> AzString>,
         pub az_full_screen_mode_delete: Symbol<extern fn(_:  &mut AzFullScreenMode)>,
         pub az_full_screen_mode_deep_copy: Symbol<extern fn(_:  &AzFullScreenMode) -> AzFullScreenMode>,
+        pub az_full_screen_mode_fmt_debug: Symbol<extern fn(_:  &AzFullScreenMode) -> AzString>,
         pub az_window_state_delete: Symbol<extern fn(_:  &mut AzWindowState)>,
         pub az_window_state_deep_copy: Symbol<extern fn(_:  &AzWindowState) -> AzWindowState>,
+        pub az_window_state_fmt_debug: Symbol<extern fn(_:  &AzWindowState) -> AzString>,
         pub az_logical_size_delete: Symbol<extern fn(_:  &mut AzLogicalSize)>,
         pub az_logical_size_deep_copy: Symbol<extern fn(_:  &AzLogicalSize) -> AzLogicalSize>,
+        pub az_logical_size_fmt_debug: Symbol<extern fn(_:  &AzLogicalSize) -> AzString>,
         pub az_hot_reload_options_delete: Symbol<extern fn(_:  &mut AzHotReloadOptions)>,
         pub az_hot_reload_options_deep_copy: Symbol<extern fn(_:  &AzHotReloadOptions) -> AzHotReloadOptions>,
+        pub az_hot_reload_options_fmt_debug: Symbol<extern fn(_:  &AzHotReloadOptions) -> AzString>,
         pub az_window_create_options_new: Symbol<extern fn(_:  AzCss) -> AzWindowCreateOptions>,
         pub az_window_create_options_delete: Symbol<extern fn(_:  &mut AzWindowCreateOptions)>,
         pub az_window_create_options_deep_copy: Symbol<extern fn(_:  &AzWindowCreateOptions) -> AzWindowCreateOptions>,
+        pub az_window_create_options_fmt_debug: Symbol<extern fn(_:  &AzWindowCreateOptions) -> AzString>,
     }
 
     pub fn initialize_library(path: &std::path::Path) -> Result<AzulDll, &'static str> {
@@ -3178,135 +3473,195 @@ pub(crate) mod dll {
         let az_string_into_bytes = unsafe { lib.get::<extern fn(_:  AzString) -> AzU8Vec>(b"az_string_into_bytes").map_err(|_| "az_string_into_bytes")? };
         let az_string_delete = unsafe { lib.get::<extern fn(_:  &mut AzString)>(b"az_string_delete").map_err(|_| "az_string_delete")? };
         let az_string_deep_copy = unsafe { lib.get::<extern fn(_:  &AzString) -> AzString>(b"az_string_deep_copy").map_err(|_| "az_string_deep_copy")? };
+        let az_string_fmt_debug = unsafe { lib.get::<extern fn(_:  &AzString) -> AzString>(b"az_string_fmt_debug").map_err(|_| "az_string_fmt_debug")? };
         let az_x_window_type_vec_copy_from = unsafe { lib.get::<extern fn(_:  *const AzXWindowType, _:  usize) -> AzXWindowTypeVec>(b"az_x_window_type_vec_copy_from").map_err(|_| "az_x_window_type_vec_copy_from")? };
         let az_x_window_type_vec_delete = unsafe { lib.get::<extern fn(_:  &mut AzXWindowTypeVec)>(b"az_x_window_type_vec_delete").map_err(|_| "az_x_window_type_vec_delete")? };
         let az_x_window_type_vec_deep_copy = unsafe { lib.get::<extern fn(_:  &AzXWindowTypeVec) -> AzXWindowTypeVec>(b"az_x_window_type_vec_deep_copy").map_err(|_| "az_x_window_type_vec_deep_copy")? };
+        let az_x_window_type_vec_fmt_debug = unsafe { lib.get::<extern fn(_:  &AzXWindowTypeVec) -> AzString>(b"az_x_window_type_vec_fmt_debug").map_err(|_| "az_x_window_type_vec_fmt_debug")? };
         let az_virtual_key_code_vec_copy_from = unsafe { lib.get::<extern fn(_:  *const AzVirtualKeyCode, _:  usize) -> AzVirtualKeyCodeVec>(b"az_virtual_key_code_vec_copy_from").map_err(|_| "az_virtual_key_code_vec_copy_from")? };
         let az_virtual_key_code_vec_delete = unsafe { lib.get::<extern fn(_:  &mut AzVirtualKeyCodeVec)>(b"az_virtual_key_code_vec_delete").map_err(|_| "az_virtual_key_code_vec_delete")? };
         let az_virtual_key_code_vec_deep_copy = unsafe { lib.get::<extern fn(_:  &AzVirtualKeyCodeVec) -> AzVirtualKeyCodeVec>(b"az_virtual_key_code_vec_deep_copy").map_err(|_| "az_virtual_key_code_vec_deep_copy")? };
+        let az_virtual_key_code_vec_fmt_debug = unsafe { lib.get::<extern fn(_:  &AzVirtualKeyCodeVec) -> AzString>(b"az_virtual_key_code_vec_fmt_debug").map_err(|_| "az_virtual_key_code_vec_fmt_debug")? };
         let az_scan_code_vec_copy_from = unsafe { lib.get::<extern fn(_:  *const u32, _:  usize) -> AzScanCodeVec>(b"az_scan_code_vec_copy_from").map_err(|_| "az_scan_code_vec_copy_from")? };
         let az_scan_code_vec_delete = unsafe { lib.get::<extern fn(_:  &mut AzScanCodeVec)>(b"az_scan_code_vec_delete").map_err(|_| "az_scan_code_vec_delete")? };
         let az_scan_code_vec_deep_copy = unsafe { lib.get::<extern fn(_:  &AzScanCodeVec) -> AzScanCodeVec>(b"az_scan_code_vec_deep_copy").map_err(|_| "az_scan_code_vec_deep_copy")? };
+        let az_scan_code_vec_fmt_debug = unsafe { lib.get::<extern fn(_:  &AzScanCodeVec) -> AzString>(b"az_scan_code_vec_fmt_debug").map_err(|_| "az_scan_code_vec_fmt_debug")? };
         let az_css_declaration_vec_copy_from = unsafe { lib.get::<extern fn(_:  *const AzCssDeclaration, _:  usize) -> AzCssDeclarationVec>(b"az_css_declaration_vec_copy_from").map_err(|_| "az_css_declaration_vec_copy_from")? };
         let az_css_declaration_vec_delete = unsafe { lib.get::<extern fn(_:  &mut AzCssDeclarationVec)>(b"az_css_declaration_vec_delete").map_err(|_| "az_css_declaration_vec_delete")? };
         let az_css_declaration_vec_deep_copy = unsafe { lib.get::<extern fn(_:  &AzCssDeclarationVec) -> AzCssDeclarationVec>(b"az_css_declaration_vec_deep_copy").map_err(|_| "az_css_declaration_vec_deep_copy")? };
+        let az_css_declaration_vec_fmt_debug = unsafe { lib.get::<extern fn(_:  &AzCssDeclarationVec) -> AzString>(b"az_css_declaration_vec_fmt_debug").map_err(|_| "az_css_declaration_vec_fmt_debug")? };
         let az_css_path_selector_vec_copy_from = unsafe { lib.get::<extern fn(_:  *const AzCssPathSelector, _:  usize) -> AzCssPathSelectorVec>(b"az_css_path_selector_vec_copy_from").map_err(|_| "az_css_path_selector_vec_copy_from")? };
         let az_css_path_selector_vec_delete = unsafe { lib.get::<extern fn(_:  &mut AzCssPathSelectorVec)>(b"az_css_path_selector_vec_delete").map_err(|_| "az_css_path_selector_vec_delete")? };
         let az_css_path_selector_vec_deep_copy = unsafe { lib.get::<extern fn(_:  &AzCssPathSelectorVec) -> AzCssPathSelectorVec>(b"az_css_path_selector_vec_deep_copy").map_err(|_| "az_css_path_selector_vec_deep_copy")? };
+        let az_css_path_selector_vec_fmt_debug = unsafe { lib.get::<extern fn(_:  &AzCssPathSelectorVec) -> AzString>(b"az_css_path_selector_vec_fmt_debug").map_err(|_| "az_css_path_selector_vec_fmt_debug")? };
         let az_stylesheet_vec_copy_from = unsafe { lib.get::<extern fn(_:  *const AzStylesheet, _:  usize) -> AzStylesheetVec>(b"az_stylesheet_vec_copy_from").map_err(|_| "az_stylesheet_vec_copy_from")? };
         let az_stylesheet_vec_delete = unsafe { lib.get::<extern fn(_:  &mut AzStylesheetVec)>(b"az_stylesheet_vec_delete").map_err(|_| "az_stylesheet_vec_delete")? };
         let az_stylesheet_vec_deep_copy = unsafe { lib.get::<extern fn(_:  &AzStylesheetVec) -> AzStylesheetVec>(b"az_stylesheet_vec_deep_copy").map_err(|_| "az_stylesheet_vec_deep_copy")? };
+        let az_stylesheet_vec_fmt_debug = unsafe { lib.get::<extern fn(_:  &AzStylesheetVec) -> AzString>(b"az_stylesheet_vec_fmt_debug").map_err(|_| "az_stylesheet_vec_fmt_debug")? };
         let az_css_rule_block_vec_copy_from = unsafe { lib.get::<extern fn(_:  *const AzCssRuleBlock, _:  usize) -> AzCssRuleBlockVec>(b"az_css_rule_block_vec_copy_from").map_err(|_| "az_css_rule_block_vec_copy_from")? };
         let az_css_rule_block_vec_delete = unsafe { lib.get::<extern fn(_:  &mut AzCssRuleBlockVec)>(b"az_css_rule_block_vec_delete").map_err(|_| "az_css_rule_block_vec_delete")? };
         let az_css_rule_block_vec_deep_copy = unsafe { lib.get::<extern fn(_:  &AzCssRuleBlockVec) -> AzCssRuleBlockVec>(b"az_css_rule_block_vec_deep_copy").map_err(|_| "az_css_rule_block_vec_deep_copy")? };
+        let az_css_rule_block_vec_fmt_debug = unsafe { lib.get::<extern fn(_:  &AzCssRuleBlockVec) -> AzString>(b"az_css_rule_block_vec_fmt_debug").map_err(|_| "az_css_rule_block_vec_fmt_debug")? };
         let az_u8_vec_copy_from = unsafe { lib.get::<extern fn(_:  *const u8, _:  usize) -> AzU8Vec>(b"az_u8_vec_copy_from").map_err(|_| "az_u8_vec_copy_from")? };
         let az_u8_vec_delete = unsafe { lib.get::<extern fn(_:  &mut AzU8Vec)>(b"az_u8_vec_delete").map_err(|_| "az_u8_vec_delete")? };
         let az_u8_vec_deep_copy = unsafe { lib.get::<extern fn(_:  &AzU8Vec) -> AzU8Vec>(b"az_u8_vec_deep_copy").map_err(|_| "az_u8_vec_deep_copy")? };
+        let az_u8_vec_fmt_debug = unsafe { lib.get::<extern fn(_:  &AzU8Vec) -> AzString>(b"az_u8_vec_fmt_debug").map_err(|_| "az_u8_vec_fmt_debug")? };
         let az_callback_data_vec_copy_from = unsafe { lib.get::<extern fn(_:  *const AzCallbackData, _:  usize) -> AzCallbackDataVec>(b"az_callback_data_vec_copy_from").map_err(|_| "az_callback_data_vec_copy_from")? };
         let az_callback_data_vec_delete = unsafe { lib.get::<extern fn(_:  &mut AzCallbackDataVec)>(b"az_callback_data_vec_delete").map_err(|_| "az_callback_data_vec_delete")? };
         let az_callback_data_vec_deep_copy = unsafe { lib.get::<extern fn(_:  &AzCallbackDataVec) -> AzCallbackDataVec>(b"az_callback_data_vec_deep_copy").map_err(|_| "az_callback_data_vec_deep_copy")? };
+        let az_callback_data_vec_fmt_debug = unsafe { lib.get::<extern fn(_:  &AzCallbackDataVec) -> AzString>(b"az_callback_data_vec_fmt_debug").map_err(|_| "az_callback_data_vec_fmt_debug")? };
         let az_debug_message_vec_copy_from = unsafe { lib.get::<extern fn(_:  *const AzDebugMessage, _:  usize) -> AzDebugMessageVec>(b"az_debug_message_vec_copy_from").map_err(|_| "az_debug_message_vec_copy_from")? };
         let az_debug_message_vec_delete = unsafe { lib.get::<extern fn(_:  &mut AzDebugMessageVec)>(b"az_debug_message_vec_delete").map_err(|_| "az_debug_message_vec_delete")? };
         let az_debug_message_vec_deep_copy = unsafe { lib.get::<extern fn(_:  &AzDebugMessageVec) -> AzDebugMessageVec>(b"az_debug_message_vec_deep_copy").map_err(|_| "az_debug_message_vec_deep_copy")? };
+        let az_debug_message_vec_fmt_debug = unsafe { lib.get::<extern fn(_:  &AzDebugMessageVec) -> AzString>(b"az_debug_message_vec_fmt_debug").map_err(|_| "az_debug_message_vec_fmt_debug")? };
         let az_g_luint_vec_copy_from = unsafe { lib.get::<extern fn(_:  *const u32, _:  usize) -> AzGLuintVec>(b"az_g_luint_vec_copy_from").map_err(|_| "az_g_luint_vec_copy_from")? };
         let az_g_luint_vec_delete = unsafe { lib.get::<extern fn(_:  &mut AzGLuintVec)>(b"az_g_luint_vec_delete").map_err(|_| "az_g_luint_vec_delete")? };
         let az_g_luint_vec_deep_copy = unsafe { lib.get::<extern fn(_:  &AzGLuintVec) -> AzGLuintVec>(b"az_g_luint_vec_deep_copy").map_err(|_| "az_g_luint_vec_deep_copy")? };
+        let az_g_luint_vec_fmt_debug = unsafe { lib.get::<extern fn(_:  &AzGLuintVec) -> AzString>(b"az_g_luint_vec_fmt_debug").map_err(|_| "az_g_luint_vec_fmt_debug")? };
         let az_g_lint_vec_copy_from = unsafe { lib.get::<extern fn(_:  *const i32, _:  usize) -> AzGLintVec>(b"az_g_lint_vec_copy_from").map_err(|_| "az_g_lint_vec_copy_from")? };
         let az_g_lint_vec_delete = unsafe { lib.get::<extern fn(_:  &mut AzGLintVec)>(b"az_g_lint_vec_delete").map_err(|_| "az_g_lint_vec_delete")? };
         let az_g_lint_vec_deep_copy = unsafe { lib.get::<extern fn(_:  &AzGLintVec) -> AzGLintVec>(b"az_g_lint_vec_deep_copy").map_err(|_| "az_g_lint_vec_deep_copy")? };
+        let az_g_lint_vec_fmt_debug = unsafe { lib.get::<extern fn(_:  &AzGLintVec) -> AzString>(b"az_g_lint_vec_fmt_debug").map_err(|_| "az_g_lint_vec_fmt_debug")? };
         let az_override_property_vec_copy_from = unsafe { lib.get::<extern fn(_:  *const AzOverrideProperty, _:  usize) -> AzOverridePropertyVec>(b"az_override_property_vec_copy_from").map_err(|_| "az_override_property_vec_copy_from")? };
         let az_override_property_vec_delete = unsafe { lib.get::<extern fn(_:  &mut AzOverridePropertyVec)>(b"az_override_property_vec_delete").map_err(|_| "az_override_property_vec_delete")? };
         let az_override_property_vec_deep_copy = unsafe { lib.get::<extern fn(_:  &AzOverridePropertyVec) -> AzOverridePropertyVec>(b"az_override_property_vec_deep_copy").map_err(|_| "az_override_property_vec_deep_copy")? };
+        let az_override_property_vec_fmt_debug = unsafe { lib.get::<extern fn(_:  &AzOverridePropertyVec) -> AzString>(b"az_override_property_vec_fmt_debug").map_err(|_| "az_override_property_vec_fmt_debug")? };
         let az_dom_vec_copy_from = unsafe { lib.get::<extern fn(_:  *const AzDom, _:  usize) -> AzDomVec>(b"az_dom_vec_copy_from").map_err(|_| "az_dom_vec_copy_from")? };
         let az_dom_vec_delete = unsafe { lib.get::<extern fn(_:  &mut AzDomVec)>(b"az_dom_vec_delete").map_err(|_| "az_dom_vec_delete")? };
         let az_dom_vec_deep_copy = unsafe { lib.get::<extern fn(_:  &AzDomVec) -> AzDomVec>(b"az_dom_vec_deep_copy").map_err(|_| "az_dom_vec_deep_copy")? };
+        let az_dom_vec_fmt_debug = unsafe { lib.get::<extern fn(_:  &AzDomVec) -> AzString>(b"az_dom_vec_fmt_debug").map_err(|_| "az_dom_vec_fmt_debug")? };
         let az_string_vec_copy_from = unsafe { lib.get::<extern fn(_:  *const AzString, _:  usize) -> AzStringVec>(b"az_string_vec_copy_from").map_err(|_| "az_string_vec_copy_from")? };
         let az_string_vec_delete = unsafe { lib.get::<extern fn(_:  &mut AzStringVec)>(b"az_string_vec_delete").map_err(|_| "az_string_vec_delete")? };
         let az_string_vec_deep_copy = unsafe { lib.get::<extern fn(_:  &AzStringVec) -> AzStringVec>(b"az_string_vec_deep_copy").map_err(|_| "az_string_vec_deep_copy")? };
+        let az_string_vec_fmt_debug = unsafe { lib.get::<extern fn(_:  &AzStringVec) -> AzString>(b"az_string_vec_fmt_debug").map_err(|_| "az_string_vec_fmt_debug")? };
         let az_string_pair_vec_copy_from = unsafe { lib.get::<extern fn(_:  *const AzStringPair, _:  usize) -> AzStringPairVec>(b"az_string_pair_vec_copy_from").map_err(|_| "az_string_pair_vec_copy_from")? };
         let az_string_pair_vec_delete = unsafe { lib.get::<extern fn(_:  &mut AzStringPairVec)>(b"az_string_pair_vec_delete").map_err(|_| "az_string_pair_vec_delete")? };
         let az_string_pair_vec_deep_copy = unsafe { lib.get::<extern fn(_:  &AzStringPairVec) -> AzStringPairVec>(b"az_string_pair_vec_deep_copy").map_err(|_| "az_string_pair_vec_deep_copy")? };
+        let az_string_pair_vec_fmt_debug = unsafe { lib.get::<extern fn(_:  &AzStringPairVec) -> AzString>(b"az_string_pair_vec_fmt_debug").map_err(|_| "az_string_pair_vec_fmt_debug")? };
         let az_gradient_stop_pre_vec_copy_from = unsafe { lib.get::<extern fn(_:  *const AzGradientStopPre, _:  usize) -> AzGradientStopPreVec>(b"az_gradient_stop_pre_vec_copy_from").map_err(|_| "az_gradient_stop_pre_vec_copy_from")? };
         let az_gradient_stop_pre_vec_delete = unsafe { lib.get::<extern fn(_:  &mut AzGradientStopPreVec)>(b"az_gradient_stop_pre_vec_delete").map_err(|_| "az_gradient_stop_pre_vec_delete")? };
         let az_gradient_stop_pre_vec_deep_copy = unsafe { lib.get::<extern fn(_:  &AzGradientStopPreVec) -> AzGradientStopPreVec>(b"az_gradient_stop_pre_vec_deep_copy").map_err(|_| "az_gradient_stop_pre_vec_deep_copy")? };
+        let az_gradient_stop_pre_vec_fmt_debug = unsafe { lib.get::<extern fn(_:  &AzGradientStopPreVec) -> AzString>(b"az_gradient_stop_pre_vec_fmt_debug").map_err(|_| "az_gradient_stop_pre_vec_fmt_debug")? };
         let az_option_wayland_theme_delete = unsafe { lib.get::<extern fn(_:  &mut AzOptionWaylandTheme)>(b"az_option_wayland_theme_delete").map_err(|_| "az_option_wayland_theme_delete")? };
         let az_option_wayland_theme_deep_copy = unsafe { lib.get::<extern fn(_:  &AzOptionWaylandTheme) -> AzOptionWaylandTheme>(b"az_option_wayland_theme_deep_copy").map_err(|_| "az_option_wayland_theme_deep_copy")? };
+        let az_option_wayland_theme_fmt_debug = unsafe { lib.get::<extern fn(_:  &AzOptionWaylandTheme) -> AzString>(b"az_option_wayland_theme_fmt_debug").map_err(|_| "az_option_wayland_theme_fmt_debug")? };
         let az_option_task_bar_icon_delete = unsafe { lib.get::<extern fn(_:  &mut AzOptionTaskBarIcon)>(b"az_option_task_bar_icon_delete").map_err(|_| "az_option_task_bar_icon_delete")? };
         let az_option_task_bar_icon_deep_copy = unsafe { lib.get::<extern fn(_:  &AzOptionTaskBarIcon) -> AzOptionTaskBarIcon>(b"az_option_task_bar_icon_deep_copy").map_err(|_| "az_option_task_bar_icon_deep_copy")? };
+        let az_option_task_bar_icon_fmt_debug = unsafe { lib.get::<extern fn(_:  &AzOptionTaskBarIcon) -> AzString>(b"az_option_task_bar_icon_fmt_debug").map_err(|_| "az_option_task_bar_icon_fmt_debug")? };
         let az_option_hwnd_handle_delete = unsafe { lib.get::<extern fn(_:  &mut AzOptionHwndHandle)>(b"az_option_hwnd_handle_delete").map_err(|_| "az_option_hwnd_handle_delete")? };
         let az_option_hwnd_handle_deep_copy = unsafe { lib.get::<extern fn(_:  &AzOptionHwndHandle) -> AzOptionHwndHandle>(b"az_option_hwnd_handle_deep_copy").map_err(|_| "az_option_hwnd_handle_deep_copy")? };
+        let az_option_hwnd_handle_fmt_debug = unsafe { lib.get::<extern fn(_:  &AzOptionHwndHandle) -> AzString>(b"az_option_hwnd_handle_fmt_debug").map_err(|_| "az_option_hwnd_handle_fmt_debug")? };
         let az_option_logical_position_delete = unsafe { lib.get::<extern fn(_:  &mut AzOptionLogicalPosition)>(b"az_option_logical_position_delete").map_err(|_| "az_option_logical_position_delete")? };
         let az_option_logical_position_deep_copy = unsafe { lib.get::<extern fn(_:  &AzOptionLogicalPosition) -> AzOptionLogicalPosition>(b"az_option_logical_position_deep_copy").map_err(|_| "az_option_logical_position_deep_copy")? };
+        let az_option_logical_position_fmt_debug = unsafe { lib.get::<extern fn(_:  &AzOptionLogicalPosition) -> AzString>(b"az_option_logical_position_fmt_debug").map_err(|_| "az_option_logical_position_fmt_debug")? };
         let az_option_hot_reload_options_delete = unsafe { lib.get::<extern fn(_:  &mut AzOptionHotReloadOptions)>(b"az_option_hot_reload_options_delete").map_err(|_| "az_option_hot_reload_options_delete")? };
         let az_option_hot_reload_options_deep_copy = unsafe { lib.get::<extern fn(_:  &AzOptionHotReloadOptions) -> AzOptionHotReloadOptions>(b"az_option_hot_reload_options_deep_copy").map_err(|_| "az_option_hot_reload_options_deep_copy")? };
+        let az_option_hot_reload_options_fmt_debug = unsafe { lib.get::<extern fn(_:  &AzOptionHotReloadOptions) -> AzString>(b"az_option_hot_reload_options_fmt_debug").map_err(|_| "az_option_hot_reload_options_fmt_debug")? };
         let az_option_physical_position_i32_delete = unsafe { lib.get::<extern fn(_:  &mut AzOptionPhysicalPositionI32)>(b"az_option_physical_position_i32_delete").map_err(|_| "az_option_physical_position_i32_delete")? };
         let az_option_physical_position_i32_deep_copy = unsafe { lib.get::<extern fn(_:  &AzOptionPhysicalPositionI32) -> AzOptionPhysicalPositionI32>(b"az_option_physical_position_i32_deep_copy").map_err(|_| "az_option_physical_position_i32_deep_copy")? };
+        let az_option_physical_position_i32_fmt_debug = unsafe { lib.get::<extern fn(_:  &AzOptionPhysicalPositionI32) -> AzString>(b"az_option_physical_position_i32_fmt_debug").map_err(|_| "az_option_physical_position_i32_fmt_debug")? };
         let az_option_window_icon_delete = unsafe { lib.get::<extern fn(_:  &mut AzOptionWindowIcon)>(b"az_option_window_icon_delete").map_err(|_| "az_option_window_icon_delete")? };
         let az_option_window_icon_deep_copy = unsafe { lib.get::<extern fn(_:  &AzOptionWindowIcon) -> AzOptionWindowIcon>(b"az_option_window_icon_deep_copy").map_err(|_| "az_option_window_icon_deep_copy")? };
+        let az_option_window_icon_fmt_debug = unsafe { lib.get::<extern fn(_:  &AzOptionWindowIcon) -> AzString>(b"az_option_window_icon_fmt_debug").map_err(|_| "az_option_window_icon_fmt_debug")? };
         let az_option_string_delete = unsafe { lib.get::<extern fn(_:  &mut AzOptionString)>(b"az_option_string_delete").map_err(|_| "az_option_string_delete")? };
         let az_option_string_deep_copy = unsafe { lib.get::<extern fn(_:  &AzOptionString) -> AzOptionString>(b"az_option_string_deep_copy").map_err(|_| "az_option_string_deep_copy")? };
+        let az_option_string_fmt_debug = unsafe { lib.get::<extern fn(_:  &AzOptionString) -> AzString>(b"az_option_string_fmt_debug").map_err(|_| "az_option_string_fmt_debug")? };
         let az_option_x11_visual_delete = unsafe { lib.get::<extern fn(_:  &mut AzOptionX11Visual)>(b"az_option_x11_visual_delete").map_err(|_| "az_option_x11_visual_delete")? };
         let az_option_x11_visual_deep_copy = unsafe { lib.get::<extern fn(_:  &AzOptionX11Visual) -> AzOptionX11Visual>(b"az_option_x11_visual_deep_copy").map_err(|_| "az_option_x11_visual_deep_copy")? };
+        let az_option_x11_visual_fmt_debug = unsafe { lib.get::<extern fn(_:  &AzOptionX11Visual) -> AzString>(b"az_option_x11_visual_fmt_debug").map_err(|_| "az_option_x11_visual_fmt_debug")? };
         let az_option_i32_delete = unsafe { lib.get::<extern fn(_:  &mut AzOptionI32)>(b"az_option_i32_delete").map_err(|_| "az_option_i32_delete")? };
         let az_option_i32_deep_copy = unsafe { lib.get::<extern fn(_:  &AzOptionI32) -> AzOptionI32>(b"az_option_i32_deep_copy").map_err(|_| "az_option_i32_deep_copy")? };
+        let az_option_i32_fmt_debug = unsafe { lib.get::<extern fn(_:  &AzOptionI32) -> AzString>(b"az_option_i32_fmt_debug").map_err(|_| "az_option_i32_fmt_debug")? };
         let az_option_f32_delete = unsafe { lib.get::<extern fn(_:  &mut AzOptionF32)>(b"az_option_f32_delete").map_err(|_| "az_option_f32_delete")? };
         let az_option_f32_deep_copy = unsafe { lib.get::<extern fn(_:  &AzOptionF32) -> AzOptionF32>(b"az_option_f32_deep_copy").map_err(|_| "az_option_f32_deep_copy")? };
+        let az_option_f32_fmt_debug = unsafe { lib.get::<extern fn(_:  &AzOptionF32) -> AzString>(b"az_option_f32_fmt_debug").map_err(|_| "az_option_f32_fmt_debug")? };
         let az_option_mouse_cursor_type_delete = unsafe { lib.get::<extern fn(_:  &mut AzOptionMouseCursorType)>(b"az_option_mouse_cursor_type_delete").map_err(|_| "az_option_mouse_cursor_type_delete")? };
         let az_option_mouse_cursor_type_deep_copy = unsafe { lib.get::<extern fn(_:  &AzOptionMouseCursorType) -> AzOptionMouseCursorType>(b"az_option_mouse_cursor_type_deep_copy").map_err(|_| "az_option_mouse_cursor_type_deep_copy")? };
+        let az_option_mouse_cursor_type_fmt_debug = unsafe { lib.get::<extern fn(_:  &AzOptionMouseCursorType) -> AzString>(b"az_option_mouse_cursor_type_fmt_debug").map_err(|_| "az_option_mouse_cursor_type_fmt_debug")? };
         let az_option_logical_size_delete = unsafe { lib.get::<extern fn(_:  &mut AzOptionLogicalSize)>(b"az_option_logical_size_delete").map_err(|_| "az_option_logical_size_delete")? };
         let az_option_logical_size_deep_copy = unsafe { lib.get::<extern fn(_:  &AzOptionLogicalSize) -> AzOptionLogicalSize>(b"az_option_logical_size_deep_copy").map_err(|_| "az_option_logical_size_deep_copy")? };
+        let az_option_logical_size_fmt_debug = unsafe { lib.get::<extern fn(_:  &AzOptionLogicalSize) -> AzString>(b"az_option_logical_size_fmt_debug").map_err(|_| "az_option_logical_size_fmt_debug")? };
         let az_option_char_delete = unsafe { lib.get::<extern fn(_:  &mut AzOptionChar)>(b"az_option_char_delete").map_err(|_| "az_option_char_delete")? };
         let az_option_char_deep_copy = unsafe { lib.get::<extern fn(_:  &AzOptionChar) -> AzOptionChar>(b"az_option_char_deep_copy").map_err(|_| "az_option_char_deep_copy")? };
+        let az_option_char_fmt_debug = unsafe { lib.get::<extern fn(_:  &AzOptionChar) -> AzString>(b"az_option_char_fmt_debug").map_err(|_| "az_option_char_fmt_debug")? };
         let az_option_virtual_key_code_delete = unsafe { lib.get::<extern fn(_:  &mut AzOptionVirtualKeyCode)>(b"az_option_virtual_key_code_delete").map_err(|_| "az_option_virtual_key_code_delete")? };
         let az_option_virtual_key_code_deep_copy = unsafe { lib.get::<extern fn(_:  &AzOptionVirtualKeyCode) -> AzOptionVirtualKeyCode>(b"az_option_virtual_key_code_deep_copy").map_err(|_| "az_option_virtual_key_code_deep_copy")? };
+        let az_option_virtual_key_code_fmt_debug = unsafe { lib.get::<extern fn(_:  &AzOptionVirtualKeyCode) -> AzString>(b"az_option_virtual_key_code_fmt_debug").map_err(|_| "az_option_virtual_key_code_fmt_debug")? };
         let az_option_percentage_value_delete = unsafe { lib.get::<extern fn(_:  &mut AzOptionPercentageValue)>(b"az_option_percentage_value_delete").map_err(|_| "az_option_percentage_value_delete")? };
         let az_option_percentage_value_deep_copy = unsafe { lib.get::<extern fn(_:  &AzOptionPercentageValue) -> AzOptionPercentageValue>(b"az_option_percentage_value_deep_copy").map_err(|_| "az_option_percentage_value_deep_copy")? };
+        let az_option_percentage_value_fmt_debug = unsafe { lib.get::<extern fn(_:  &AzOptionPercentageValue) -> AzString>(b"az_option_percentage_value_fmt_debug").map_err(|_| "az_option_percentage_value_fmt_debug")? };
         let az_option_dom_delete = unsafe { lib.get::<extern fn(_:  &mut AzOptionDom)>(b"az_option_dom_delete").map_err(|_| "az_option_dom_delete")? };
         let az_option_dom_deep_copy = unsafe { lib.get::<extern fn(_:  &AzOptionDom) -> AzOptionDom>(b"az_option_dom_deep_copy").map_err(|_| "az_option_dom_deep_copy")? };
+        let az_option_dom_fmt_debug = unsafe { lib.get::<extern fn(_:  &AzOptionDom) -> AzString>(b"az_option_dom_fmt_debug").map_err(|_| "az_option_dom_fmt_debug")? };
         let az_option_texture_delete = unsafe { lib.get::<extern fn(_:  &mut AzOptionTexture)>(b"az_option_texture_delete").map_err(|_| "az_option_texture_delete")? };
+        let az_option_texture_fmt_debug = unsafe { lib.get::<extern fn(_:  &AzOptionTexture) -> AzString>(b"az_option_texture_fmt_debug").map_err(|_| "az_option_texture_fmt_debug")? };
         let az_option_tab_index_delete = unsafe { lib.get::<extern fn(_:  &mut AzOptionTabIndex)>(b"az_option_tab_index_delete").map_err(|_| "az_option_tab_index_delete")? };
         let az_option_tab_index_deep_copy = unsafe { lib.get::<extern fn(_:  &AzOptionTabIndex) -> AzOptionTabIndex>(b"az_option_tab_index_deep_copy").map_err(|_| "az_option_tab_index_deep_copy")? };
+        let az_option_tab_index_fmt_debug = unsafe { lib.get::<extern fn(_:  &AzOptionTabIndex) -> AzString>(b"az_option_tab_index_fmt_debug").map_err(|_| "az_option_tab_index_fmt_debug")? };
         let az_option_duration_delete = unsafe { lib.get::<extern fn(_:  &mut AzOptionDuration)>(b"az_option_duration_delete").map_err(|_| "az_option_duration_delete")? };
         let az_option_duration_deep_copy = unsafe { lib.get::<extern fn(_:  &AzOptionDuration) -> AzOptionDuration>(b"az_option_duration_deep_copy").map_err(|_| "az_option_duration_deep_copy")? };
+        let az_option_duration_fmt_debug = unsafe { lib.get::<extern fn(_:  &AzOptionDuration) -> AzString>(b"az_option_duration_fmt_debug").map_err(|_| "az_option_duration_fmt_debug")? };
         let az_option_instant_ptr_delete = unsafe { lib.get::<extern fn(_:  &mut AzOptionInstantPtr)>(b"az_option_instant_ptr_delete").map_err(|_| "az_option_instant_ptr_delete")? };
         let az_option_instant_ptr_deep_copy = unsafe { lib.get::<extern fn(_:  &AzOptionInstantPtr) -> AzOptionInstantPtr>(b"az_option_instant_ptr_deep_copy").map_err(|_| "az_option_instant_ptr_deep_copy")? };
+        let az_option_instant_ptr_fmt_debug = unsafe { lib.get::<extern fn(_:  &AzOptionInstantPtr) -> AzString>(b"az_option_instant_ptr_fmt_debug").map_err(|_| "az_option_instant_ptr_fmt_debug")? };
         let az_option_usize_delete = unsafe { lib.get::<extern fn(_:  &mut AzOptionUsize)>(b"az_option_usize_delete").map_err(|_| "az_option_usize_delete")? };
         let az_option_usize_deep_copy = unsafe { lib.get::<extern fn(_:  &AzOptionUsize) -> AzOptionUsize>(b"az_option_usize_deep_copy").map_err(|_| "az_option_usize_deep_copy")? };
+        let az_option_usize_fmt_debug = unsafe { lib.get::<extern fn(_:  &AzOptionUsize) -> AzString>(b"az_option_usize_fmt_debug").map_err(|_| "az_option_usize_fmt_debug")? };
         let az_option_u8_vec_ref_delete = unsafe { lib.get::<extern fn(_:  &mut AzOptionU8VecRef)>(b"az_option_u8_vec_ref_delete").map_err(|_| "az_option_u8_vec_ref_delete")? };
+        let az_option_u8_vec_ref_fmt_debug = unsafe { lib.get::<extern fn(_:  &AzOptionU8VecRef) -> AzString>(b"az_option_u8_vec_ref_fmt_debug").map_err(|_| "az_option_u8_vec_ref_fmt_debug")? };
         let az_result_ref_any_block_error_delete = unsafe { lib.get::<extern fn(_:  &mut AzResultRefAnyBlockError)>(b"az_result_ref_any_block_error_delete").map_err(|_| "az_result_ref_any_block_error_delete")? };
         let az_result_ref_any_block_error_deep_copy = unsafe { lib.get::<extern fn(_:  &AzResultRefAnyBlockError) -> AzResultRefAnyBlockError>(b"az_result_ref_any_block_error_deep_copy").map_err(|_| "az_result_ref_any_block_error_deep_copy")? };
+        let az_result_ref_any_block_error_fmt_debug = unsafe { lib.get::<extern fn(_:  &AzResultRefAnyBlockError) -> AzString>(b"az_result_ref_any_block_error_fmt_debug").map_err(|_| "az_result_ref_any_block_error_fmt_debug")? };
         let az_instant_now = unsafe { lib.get::<extern fn() -> AzInstantPtr>(b"az_instant_now").map_err(|_| "az_instant_now")? };
         let az_instant_delete = unsafe { lib.get::<extern fn(_:  &mut AzInstantPtr)>(b"az_instant_delete").map_err(|_| "az_instant_delete")? };
+        let az_instant_fmt_debug = unsafe { lib.get::<extern fn(_:  &AzInstantPtr) -> AzString>(b"az_instant_fmt_debug").map_err(|_| "az_instant_fmt_debug")? };
         let az_duration_delete = unsafe { lib.get::<extern fn(_:  &mut AzDuration)>(b"az_duration_delete").map_err(|_| "az_duration_delete")? };
         let az_duration_deep_copy = unsafe { lib.get::<extern fn(_:  &AzDuration) -> AzDuration>(b"az_duration_deep_copy").map_err(|_| "az_duration_deep_copy")? };
+        let az_duration_fmt_debug = unsafe { lib.get::<extern fn(_:  &AzDuration) -> AzString>(b"az_duration_fmt_debug").map_err(|_| "az_duration_fmt_debug")? };
         let az_app_config_default = unsafe { lib.get::<extern fn() -> AzAppConfigPtr>(b"az_app_config_default").map_err(|_| "az_app_config_default")? };
         let az_app_config_delete = unsafe { lib.get::<extern fn(_:  &mut AzAppConfigPtr)>(b"az_app_config_delete").map_err(|_| "az_app_config_delete")? };
+        let az_app_config_fmt_debug = unsafe { lib.get::<extern fn(_:  &AzAppConfigPtr) -> AzString>(b"az_app_config_fmt_debug").map_err(|_| "az_app_config_fmt_debug")? };
         let az_app_new = unsafe { lib.get::<extern fn(_:  AzRefAny, _:  AzAppConfigPtr, _:  AzLayoutCallbackType) -> AzAppPtr>(b"az_app_new").map_err(|_| "az_app_new")? };
         let az_app_run = unsafe { lib.get::<extern fn(_:  AzAppPtr, _:  AzWindowCreateOptions)>(b"az_app_run").map_err(|_| "az_app_run")? };
         let az_app_delete = unsafe { lib.get::<extern fn(_:  &mut AzAppPtr)>(b"az_app_delete").map_err(|_| "az_app_delete")? };
+        let az_app_fmt_debug = unsafe { lib.get::<extern fn(_:  &AzAppPtr) -> AzString>(b"az_app_fmt_debug").map_err(|_| "az_app_fmt_debug")? };
         let az_layout_callback_delete = unsafe { lib.get::<extern fn(_:  &mut AzLayoutCallback)>(b"az_layout_callback_delete").map_err(|_| "az_layout_callback_delete")? };
         let az_layout_callback_deep_copy = unsafe { lib.get::<extern fn(_:  &AzLayoutCallback) -> AzLayoutCallback>(b"az_layout_callback_deep_copy").map_err(|_| "az_layout_callback_deep_copy")? };
+        let az_layout_callback_fmt_debug = unsafe { lib.get::<extern fn(_:  &AzLayoutCallback) -> AzString>(b"az_layout_callback_fmt_debug").map_err(|_| "az_layout_callback_fmt_debug")? };
         let az_callback_delete = unsafe { lib.get::<extern fn(_:  &mut AzCallback)>(b"az_callback_delete").map_err(|_| "az_callback_delete")? };
         let az_callback_deep_copy = unsafe { lib.get::<extern fn(_:  &AzCallback) -> AzCallback>(b"az_callback_deep_copy").map_err(|_| "az_callback_deep_copy")? };
+        let az_callback_fmt_debug = unsafe { lib.get::<extern fn(_:  &AzCallback) -> AzString>(b"az_callback_fmt_debug").map_err(|_| "az_callback_fmt_debug")? };
         let az_callback_info_delete = unsafe { lib.get::<extern fn(_:  &mut AzCallbackInfoPtr)>(b"az_callback_info_delete").map_err(|_| "az_callback_info_delete")? };
+        let az_callback_info_fmt_debug = unsafe { lib.get::<extern fn(_:  &AzCallbackInfoPtr) -> AzString>(b"az_callback_info_fmt_debug").map_err(|_| "az_callback_info_fmt_debug")? };
         let az_update_screen_delete = unsafe { lib.get::<extern fn(_:  &mut AzUpdateScreen)>(b"az_update_screen_delete").map_err(|_| "az_update_screen_delete")? };
         let az_update_screen_deep_copy = unsafe { lib.get::<extern fn(_:  &AzUpdateScreen) -> AzUpdateScreen>(b"az_update_screen_deep_copy").map_err(|_| "az_update_screen_deep_copy")? };
+        let az_update_screen_fmt_debug = unsafe { lib.get::<extern fn(_:  &AzUpdateScreen) -> AzString>(b"az_update_screen_fmt_debug").map_err(|_| "az_update_screen_fmt_debug")? };
         let az_i_frame_callback_delete = unsafe { lib.get::<extern fn(_:  &mut AzIFrameCallback)>(b"az_i_frame_callback_delete").map_err(|_| "az_i_frame_callback_delete")? };
         let az_i_frame_callback_deep_copy = unsafe { lib.get::<extern fn(_:  &AzIFrameCallback) -> AzIFrameCallback>(b"az_i_frame_callback_deep_copy").map_err(|_| "az_i_frame_callback_deep_copy")? };
+        let az_i_frame_callback_fmt_debug = unsafe { lib.get::<extern fn(_:  &AzIFrameCallback) -> AzString>(b"az_i_frame_callback_fmt_debug").map_err(|_| "az_i_frame_callback_fmt_debug")? };
         let az_i_frame_callback_info_get_state = unsafe { lib.get::<extern fn(_:  &AzIFrameCallbackInfoPtr) -> AzRefAny>(b"az_i_frame_callback_info_get_state").map_err(|_| "az_i_frame_callback_info_get_state")? };
         let az_i_frame_callback_info_delete = unsafe { lib.get::<extern fn(_:  &mut AzIFrameCallbackInfoPtr)>(b"az_i_frame_callback_info_delete").map_err(|_| "az_i_frame_callback_info_delete")? };
+        let az_i_frame_callback_info_fmt_debug = unsafe { lib.get::<extern fn(_:  &AzIFrameCallbackInfoPtr) -> AzString>(b"az_i_frame_callback_info_fmt_debug").map_err(|_| "az_i_frame_callback_info_fmt_debug")? };
         let az_i_frame_callback_return_delete = unsafe { lib.get::<extern fn(_:  &mut AzIFrameCallbackReturn)>(b"az_i_frame_callback_return_delete").map_err(|_| "az_i_frame_callback_return_delete")? };
         let az_i_frame_callback_return_deep_copy = unsafe { lib.get::<extern fn(_:  &AzIFrameCallbackReturn) -> AzIFrameCallbackReturn>(b"az_i_frame_callback_return_deep_copy").map_err(|_| "az_i_frame_callback_return_deep_copy")? };
+        let az_i_frame_callback_return_fmt_debug = unsafe { lib.get::<extern fn(_:  &AzIFrameCallbackReturn) -> AzString>(b"az_i_frame_callback_return_fmt_debug").map_err(|_| "az_i_frame_callback_return_fmt_debug")? };
         let az_gl_callback_delete = unsafe { lib.get::<extern fn(_:  &mut AzGlCallback)>(b"az_gl_callback_delete").map_err(|_| "az_gl_callback_delete")? };
         let az_gl_callback_deep_copy = unsafe { lib.get::<extern fn(_:  &AzGlCallback) -> AzGlCallback>(b"az_gl_callback_deep_copy").map_err(|_| "az_gl_callback_deep_copy")? };
+        let az_gl_callback_fmt_debug = unsafe { lib.get::<extern fn(_:  &AzGlCallback) -> AzString>(b"az_gl_callback_fmt_debug").map_err(|_| "az_gl_callback_fmt_debug")? };
         let az_gl_callback_info_delete = unsafe { lib.get::<extern fn(_:  &mut AzGlCallbackInfoPtr)>(b"az_gl_callback_info_delete").map_err(|_| "az_gl_callback_info_delete")? };
+        let az_gl_callback_info_fmt_debug = unsafe { lib.get::<extern fn(_:  &AzGlCallbackInfoPtr) -> AzString>(b"az_gl_callback_info_fmt_debug").map_err(|_| "az_gl_callback_info_fmt_debug")? };
         let az_gl_callback_return_delete = unsafe { lib.get::<extern fn(_:  &mut AzGlCallbackReturn)>(b"az_gl_callback_return_delete").map_err(|_| "az_gl_callback_return_delete")? };
+        let az_gl_callback_return_fmt_debug = unsafe { lib.get::<extern fn(_:  &AzGlCallbackReturn) -> AzString>(b"az_gl_callback_return_fmt_debug").map_err(|_| "az_gl_callback_return_fmt_debug")? };
         let az_timer_callback_delete = unsafe { lib.get::<extern fn(_:  &mut AzTimerCallback)>(b"az_timer_callback_delete").map_err(|_| "az_timer_callback_delete")? };
         let az_timer_callback_deep_copy = unsafe { lib.get::<extern fn(_:  &AzTimerCallback) -> AzTimerCallback>(b"az_timer_callback_deep_copy").map_err(|_| "az_timer_callback_deep_copy")? };
+        let az_timer_callback_fmt_debug = unsafe { lib.get::<extern fn(_:  &AzTimerCallback) -> AzString>(b"az_timer_callback_fmt_debug").map_err(|_| "az_timer_callback_fmt_debug")? };
         let az_timer_callback_type_delete = unsafe { lib.get::<extern fn(_:  &mut AzTimerCallbackTypePtr)>(b"az_timer_callback_type_delete").map_err(|_| "az_timer_callback_type_delete")? };
+        let az_timer_callback_type_fmt_debug = unsafe { lib.get::<extern fn(_:  &AzTimerCallbackTypePtr) -> AzString>(b"az_timer_callback_type_fmt_debug").map_err(|_| "az_timer_callback_type_fmt_debug")? };
         let az_timer_callback_info_delete = unsafe { lib.get::<extern fn(_:  &mut AzTimerCallbackInfoPtr)>(b"az_timer_callback_info_delete").map_err(|_| "az_timer_callback_info_delete")? };
+        let az_timer_callback_info_fmt_debug = unsafe { lib.get::<extern fn(_:  &AzTimerCallbackInfoPtr) -> AzString>(b"az_timer_callback_info_fmt_debug").map_err(|_| "az_timer_callback_info_fmt_debug")? };
         let az_timer_callback_return_delete = unsafe { lib.get::<extern fn(_:  &mut AzTimerCallbackReturn)>(b"az_timer_callback_return_delete").map_err(|_| "az_timer_callback_return_delete")? };
         let az_timer_callback_return_deep_copy = unsafe { lib.get::<extern fn(_:  &AzTimerCallbackReturn) -> AzTimerCallbackReturn>(b"az_timer_callback_return_deep_copy").map_err(|_| "az_timer_callback_return_deep_copy")? };
+        let az_timer_callback_return_fmt_debug = unsafe { lib.get::<extern fn(_:  &AzTimerCallbackReturn) -> AzString>(b"az_timer_callback_return_fmt_debug").map_err(|_| "az_timer_callback_return_fmt_debug")? };
         let az_ref_any_sharing_info_can_be_shared = unsafe { lib.get::<extern fn(_:  &AzRefAnySharingInfo) -> bool>(b"az_ref_any_sharing_info_can_be_shared").map_err(|_| "az_ref_any_sharing_info_can_be_shared")? };
         let az_ref_any_sharing_info_can_be_shared_mut = unsafe { lib.get::<extern fn(_:  &AzRefAnySharingInfo) -> bool>(b"az_ref_any_sharing_info_can_be_shared_mut").map_err(|_| "az_ref_any_sharing_info_can_be_shared_mut")? };
         let az_ref_any_sharing_info_increase_ref = unsafe { lib.get::<extern fn(_:  &mut AzRefAnySharingInfo)>(b"az_ref_any_sharing_info_increase_ref").map_err(|_| "az_ref_any_sharing_info_increase_ref")? };
@@ -3314,6 +3669,7 @@ pub(crate) mod dll {
         let az_ref_any_sharing_info_increase_refmut = unsafe { lib.get::<extern fn(_:  &mut AzRefAnySharingInfo)>(b"az_ref_any_sharing_info_increase_refmut").map_err(|_| "az_ref_any_sharing_info_increase_refmut")? };
         let az_ref_any_sharing_info_decrease_refmut = unsafe { lib.get::<extern fn(_:  &mut AzRefAnySharingInfo)>(b"az_ref_any_sharing_info_decrease_refmut").map_err(|_| "az_ref_any_sharing_info_decrease_refmut")? };
         let az_ref_any_sharing_info_delete = unsafe { lib.get::<extern fn(_:  &mut AzRefAnySharingInfo)>(b"az_ref_any_sharing_info_delete").map_err(|_| "az_ref_any_sharing_info_delete")? };
+        let az_ref_any_sharing_info_fmt_debug = unsafe { lib.get::<extern fn(_:  &AzRefAnySharingInfo) -> AzString>(b"az_ref_any_sharing_info_fmt_debug").map_err(|_| "az_ref_any_sharing_info_fmt_debug")? };
         let az_ref_any_new_c = unsafe { lib.get::<extern fn(_:  *const c_void, _:  usize, _:  u64, _:  AzString, _:  AzRefAnyDestructorType) -> AzRefAny>(b"az_ref_any_new_c").map_err(|_| "az_ref_any_new_c")? };
         let az_ref_any_is_type = unsafe { lib.get::<extern fn(_:  &AzRefAny, _:  u64) -> bool>(b"az_ref_any_is_type").map_err(|_| "az_ref_any_is_type")? };
         let az_ref_any_get_type_name = unsafe { lib.get::<extern fn(_:  &AzRefAny) -> AzString>(b"az_ref_any_get_type_name").map_err(|_| "az_ref_any_get_type_name")? };
@@ -3325,313 +3681,466 @@ pub(crate) mod dll {
         let az_ref_any_decrease_refmut = unsafe { lib.get::<extern fn(_:  &AzRefAny)>(b"az_ref_any_decrease_refmut").map_err(|_| "az_ref_any_decrease_refmut")? };
         let az_ref_any_delete = unsafe { lib.get::<extern fn(_:  &mut AzRefAny)>(b"az_ref_any_delete").map_err(|_| "az_ref_any_delete")? };
         let az_ref_any_deep_copy = unsafe { lib.get::<extern fn(_:  &AzRefAny) -> AzRefAny>(b"az_ref_any_deep_copy").map_err(|_| "az_ref_any_deep_copy")? };
+        let az_ref_any_fmt_debug = unsafe { lib.get::<extern fn(_:  &AzRefAny) -> AzString>(b"az_ref_any_fmt_debug").map_err(|_| "az_ref_any_fmt_debug")? };
         let az_layout_info_delete = unsafe { lib.get::<extern fn(_:  &mut AzLayoutInfoPtr)>(b"az_layout_info_delete").map_err(|_| "az_layout_info_delete")? };
+        let az_layout_info_fmt_debug = unsafe { lib.get::<extern fn(_:  &AzLayoutInfoPtr) -> AzString>(b"az_layout_info_fmt_debug").map_err(|_| "az_layout_info_fmt_debug")? };
         let az_css_rule_block_delete = unsafe { lib.get::<extern fn(_:  &mut AzCssRuleBlock)>(b"az_css_rule_block_delete").map_err(|_| "az_css_rule_block_delete")? };
         let az_css_rule_block_deep_copy = unsafe { lib.get::<extern fn(_:  &AzCssRuleBlock) -> AzCssRuleBlock>(b"az_css_rule_block_deep_copy").map_err(|_| "az_css_rule_block_deep_copy")? };
+        let az_css_rule_block_fmt_debug = unsafe { lib.get::<extern fn(_:  &AzCssRuleBlock) -> AzString>(b"az_css_rule_block_fmt_debug").map_err(|_| "az_css_rule_block_fmt_debug")? };
         let az_css_declaration_delete = unsafe { lib.get::<extern fn(_:  &mut AzCssDeclaration)>(b"az_css_declaration_delete").map_err(|_| "az_css_declaration_delete")? };
         let az_css_declaration_deep_copy = unsafe { lib.get::<extern fn(_:  &AzCssDeclaration) -> AzCssDeclaration>(b"az_css_declaration_deep_copy").map_err(|_| "az_css_declaration_deep_copy")? };
+        let az_css_declaration_fmt_debug = unsafe { lib.get::<extern fn(_:  &AzCssDeclaration) -> AzString>(b"az_css_declaration_fmt_debug").map_err(|_| "az_css_declaration_fmt_debug")? };
         let az_dynamic_css_property_delete = unsafe { lib.get::<extern fn(_:  &mut AzDynamicCssProperty)>(b"az_dynamic_css_property_delete").map_err(|_| "az_dynamic_css_property_delete")? };
         let az_dynamic_css_property_deep_copy = unsafe { lib.get::<extern fn(_:  &AzDynamicCssProperty) -> AzDynamicCssProperty>(b"az_dynamic_css_property_deep_copy").map_err(|_| "az_dynamic_css_property_deep_copy")? };
+        let az_dynamic_css_property_fmt_debug = unsafe { lib.get::<extern fn(_:  &AzDynamicCssProperty) -> AzString>(b"az_dynamic_css_property_fmt_debug").map_err(|_| "az_dynamic_css_property_fmt_debug")? };
         let az_css_path_delete = unsafe { lib.get::<extern fn(_:  &mut AzCssPath)>(b"az_css_path_delete").map_err(|_| "az_css_path_delete")? };
         let az_css_path_deep_copy = unsafe { lib.get::<extern fn(_:  &AzCssPath) -> AzCssPath>(b"az_css_path_deep_copy").map_err(|_| "az_css_path_deep_copy")? };
+        let az_css_path_fmt_debug = unsafe { lib.get::<extern fn(_:  &AzCssPath) -> AzString>(b"az_css_path_fmt_debug").map_err(|_| "az_css_path_fmt_debug")? };
         let az_css_path_selector_delete = unsafe { lib.get::<extern fn(_:  &mut AzCssPathSelector)>(b"az_css_path_selector_delete").map_err(|_| "az_css_path_selector_delete")? };
         let az_css_path_selector_deep_copy = unsafe { lib.get::<extern fn(_:  &AzCssPathSelector) -> AzCssPathSelector>(b"az_css_path_selector_deep_copy").map_err(|_| "az_css_path_selector_deep_copy")? };
+        let az_css_path_selector_fmt_debug = unsafe { lib.get::<extern fn(_:  &AzCssPathSelector) -> AzString>(b"az_css_path_selector_fmt_debug").map_err(|_| "az_css_path_selector_fmt_debug")? };
         let az_node_type_path_delete = unsafe { lib.get::<extern fn(_:  &mut AzNodeTypePath)>(b"az_node_type_path_delete").map_err(|_| "az_node_type_path_delete")? };
         let az_node_type_path_deep_copy = unsafe { lib.get::<extern fn(_:  &AzNodeTypePath) -> AzNodeTypePath>(b"az_node_type_path_deep_copy").map_err(|_| "az_node_type_path_deep_copy")? };
+        let az_node_type_path_fmt_debug = unsafe { lib.get::<extern fn(_:  &AzNodeTypePath) -> AzString>(b"az_node_type_path_fmt_debug").map_err(|_| "az_node_type_path_fmt_debug")? };
         let az_css_path_pseudo_selector_delete = unsafe { lib.get::<extern fn(_:  &mut AzCssPathPseudoSelector)>(b"az_css_path_pseudo_selector_delete").map_err(|_| "az_css_path_pseudo_selector_delete")? };
         let az_css_path_pseudo_selector_deep_copy = unsafe { lib.get::<extern fn(_:  &AzCssPathPseudoSelector) -> AzCssPathPseudoSelector>(b"az_css_path_pseudo_selector_deep_copy").map_err(|_| "az_css_path_pseudo_selector_deep_copy")? };
+        let az_css_path_pseudo_selector_fmt_debug = unsafe { lib.get::<extern fn(_:  &AzCssPathPseudoSelector) -> AzString>(b"az_css_path_pseudo_selector_fmt_debug").map_err(|_| "az_css_path_pseudo_selector_fmt_debug")? };
         let az_css_nth_child_selector_delete = unsafe { lib.get::<extern fn(_:  &mut AzCssNthChildSelector)>(b"az_css_nth_child_selector_delete").map_err(|_| "az_css_nth_child_selector_delete")? };
         let az_css_nth_child_selector_deep_copy = unsafe { lib.get::<extern fn(_:  &AzCssNthChildSelector) -> AzCssNthChildSelector>(b"az_css_nth_child_selector_deep_copy").map_err(|_| "az_css_nth_child_selector_deep_copy")? };
+        let az_css_nth_child_selector_fmt_debug = unsafe { lib.get::<extern fn(_:  &AzCssNthChildSelector) -> AzString>(b"az_css_nth_child_selector_fmt_debug").map_err(|_| "az_css_nth_child_selector_fmt_debug")? };
         let az_css_nth_child_pattern_delete = unsafe { lib.get::<extern fn(_:  &mut AzCssNthChildPattern)>(b"az_css_nth_child_pattern_delete").map_err(|_| "az_css_nth_child_pattern_delete")? };
         let az_css_nth_child_pattern_deep_copy = unsafe { lib.get::<extern fn(_:  &AzCssNthChildPattern) -> AzCssNthChildPattern>(b"az_css_nth_child_pattern_deep_copy").map_err(|_| "az_css_nth_child_pattern_deep_copy")? };
+        let az_css_nth_child_pattern_fmt_debug = unsafe { lib.get::<extern fn(_:  &AzCssNthChildPattern) -> AzString>(b"az_css_nth_child_pattern_fmt_debug").map_err(|_| "az_css_nth_child_pattern_fmt_debug")? };
         let az_stylesheet_delete = unsafe { lib.get::<extern fn(_:  &mut AzStylesheet)>(b"az_stylesheet_delete").map_err(|_| "az_stylesheet_delete")? };
         let az_stylesheet_deep_copy = unsafe { lib.get::<extern fn(_:  &AzStylesheet) -> AzStylesheet>(b"az_stylesheet_deep_copy").map_err(|_| "az_stylesheet_deep_copy")? };
+        let az_stylesheet_fmt_debug = unsafe { lib.get::<extern fn(_:  &AzStylesheet) -> AzString>(b"az_stylesheet_fmt_debug").map_err(|_| "az_stylesheet_fmt_debug")? };
         let az_css_native = unsafe { lib.get::<extern fn() -> AzCss>(b"az_css_native").map_err(|_| "az_css_native")? };
         let az_css_empty = unsafe { lib.get::<extern fn() -> AzCss>(b"az_css_empty").map_err(|_| "az_css_empty")? };
         let az_css_from_string = unsafe { lib.get::<extern fn(_:  AzString) -> AzCss>(b"az_css_from_string").map_err(|_| "az_css_from_string")? };
         let az_css_override_native = unsafe { lib.get::<extern fn(_:  AzString) -> AzCss>(b"az_css_override_native").map_err(|_| "az_css_override_native")? };
         let az_css_delete = unsafe { lib.get::<extern fn(_:  &mut AzCss)>(b"az_css_delete").map_err(|_| "az_css_delete")? };
         let az_css_deep_copy = unsafe { lib.get::<extern fn(_:  &AzCss) -> AzCss>(b"az_css_deep_copy").map_err(|_| "az_css_deep_copy")? };
+        let az_css_fmt_debug = unsafe { lib.get::<extern fn(_:  &AzCss) -> AzString>(b"az_css_fmt_debug").map_err(|_| "az_css_fmt_debug")? };
         let az_color_u_delete = unsafe { lib.get::<extern fn(_:  &mut AzColorU)>(b"az_color_u_delete").map_err(|_| "az_color_u_delete")? };
         let az_color_u_deep_copy = unsafe { lib.get::<extern fn(_:  &AzColorU) -> AzColorU>(b"az_color_u_deep_copy").map_err(|_| "az_color_u_deep_copy")? };
+        let az_color_u_fmt_debug = unsafe { lib.get::<extern fn(_:  &AzColorU) -> AzString>(b"az_color_u_fmt_debug").map_err(|_| "az_color_u_fmt_debug")? };
         let az_size_metric_delete = unsafe { lib.get::<extern fn(_:  &mut AzSizeMetric)>(b"az_size_metric_delete").map_err(|_| "az_size_metric_delete")? };
         let az_size_metric_deep_copy = unsafe { lib.get::<extern fn(_:  &AzSizeMetric) -> AzSizeMetric>(b"az_size_metric_deep_copy").map_err(|_| "az_size_metric_deep_copy")? };
+        let az_size_metric_fmt_debug = unsafe { lib.get::<extern fn(_:  &AzSizeMetric) -> AzString>(b"az_size_metric_fmt_debug").map_err(|_| "az_size_metric_fmt_debug")? };
         let az_float_value_delete = unsafe { lib.get::<extern fn(_:  &mut AzFloatValue)>(b"az_float_value_delete").map_err(|_| "az_float_value_delete")? };
         let az_float_value_deep_copy = unsafe { lib.get::<extern fn(_:  &AzFloatValue) -> AzFloatValue>(b"az_float_value_deep_copy").map_err(|_| "az_float_value_deep_copy")? };
+        let az_float_value_fmt_debug = unsafe { lib.get::<extern fn(_:  &AzFloatValue) -> AzString>(b"az_float_value_fmt_debug").map_err(|_| "az_float_value_fmt_debug")? };
         let az_pixel_value_delete = unsafe { lib.get::<extern fn(_:  &mut AzPixelValue)>(b"az_pixel_value_delete").map_err(|_| "az_pixel_value_delete")? };
         let az_pixel_value_deep_copy = unsafe { lib.get::<extern fn(_:  &AzPixelValue) -> AzPixelValue>(b"az_pixel_value_deep_copy").map_err(|_| "az_pixel_value_deep_copy")? };
+        let az_pixel_value_fmt_debug = unsafe { lib.get::<extern fn(_:  &AzPixelValue) -> AzString>(b"az_pixel_value_fmt_debug").map_err(|_| "az_pixel_value_fmt_debug")? };
         let az_pixel_value_no_percent_delete = unsafe { lib.get::<extern fn(_:  &mut AzPixelValueNoPercent)>(b"az_pixel_value_no_percent_delete").map_err(|_| "az_pixel_value_no_percent_delete")? };
         let az_pixel_value_no_percent_deep_copy = unsafe { lib.get::<extern fn(_:  &AzPixelValueNoPercent) -> AzPixelValueNoPercent>(b"az_pixel_value_no_percent_deep_copy").map_err(|_| "az_pixel_value_no_percent_deep_copy")? };
+        let az_pixel_value_no_percent_fmt_debug = unsafe { lib.get::<extern fn(_:  &AzPixelValueNoPercent) -> AzString>(b"az_pixel_value_no_percent_fmt_debug").map_err(|_| "az_pixel_value_no_percent_fmt_debug")? };
         let az_box_shadow_clip_mode_delete = unsafe { lib.get::<extern fn(_:  &mut AzBoxShadowClipMode)>(b"az_box_shadow_clip_mode_delete").map_err(|_| "az_box_shadow_clip_mode_delete")? };
         let az_box_shadow_clip_mode_deep_copy = unsafe { lib.get::<extern fn(_:  &AzBoxShadowClipMode) -> AzBoxShadowClipMode>(b"az_box_shadow_clip_mode_deep_copy").map_err(|_| "az_box_shadow_clip_mode_deep_copy")? };
+        let az_box_shadow_clip_mode_fmt_debug = unsafe { lib.get::<extern fn(_:  &AzBoxShadowClipMode) -> AzString>(b"az_box_shadow_clip_mode_fmt_debug").map_err(|_| "az_box_shadow_clip_mode_fmt_debug")? };
         let az_box_shadow_pre_display_item_delete = unsafe { lib.get::<extern fn(_:  &mut AzBoxShadowPreDisplayItem)>(b"az_box_shadow_pre_display_item_delete").map_err(|_| "az_box_shadow_pre_display_item_delete")? };
         let az_box_shadow_pre_display_item_deep_copy = unsafe { lib.get::<extern fn(_:  &AzBoxShadowPreDisplayItem) -> AzBoxShadowPreDisplayItem>(b"az_box_shadow_pre_display_item_deep_copy").map_err(|_| "az_box_shadow_pre_display_item_deep_copy")? };
+        let az_box_shadow_pre_display_item_fmt_debug = unsafe { lib.get::<extern fn(_:  &AzBoxShadowPreDisplayItem) -> AzString>(b"az_box_shadow_pre_display_item_fmt_debug").map_err(|_| "az_box_shadow_pre_display_item_fmt_debug")? };
         let az_layout_align_content_delete = unsafe { lib.get::<extern fn(_:  &mut AzLayoutAlignContent)>(b"az_layout_align_content_delete").map_err(|_| "az_layout_align_content_delete")? };
         let az_layout_align_content_deep_copy = unsafe { lib.get::<extern fn(_:  &AzLayoutAlignContent) -> AzLayoutAlignContent>(b"az_layout_align_content_deep_copy").map_err(|_| "az_layout_align_content_deep_copy")? };
+        let az_layout_align_content_fmt_debug = unsafe { lib.get::<extern fn(_:  &AzLayoutAlignContent) -> AzString>(b"az_layout_align_content_fmt_debug").map_err(|_| "az_layout_align_content_fmt_debug")? };
         let az_layout_align_items_delete = unsafe { lib.get::<extern fn(_:  &mut AzLayoutAlignItems)>(b"az_layout_align_items_delete").map_err(|_| "az_layout_align_items_delete")? };
         let az_layout_align_items_deep_copy = unsafe { lib.get::<extern fn(_:  &AzLayoutAlignItems) -> AzLayoutAlignItems>(b"az_layout_align_items_deep_copy").map_err(|_| "az_layout_align_items_deep_copy")? };
+        let az_layout_align_items_fmt_debug = unsafe { lib.get::<extern fn(_:  &AzLayoutAlignItems) -> AzString>(b"az_layout_align_items_fmt_debug").map_err(|_| "az_layout_align_items_fmt_debug")? };
         let az_layout_bottom_delete = unsafe { lib.get::<extern fn(_:  &mut AzLayoutBottom)>(b"az_layout_bottom_delete").map_err(|_| "az_layout_bottom_delete")? };
         let az_layout_bottom_deep_copy = unsafe { lib.get::<extern fn(_:  &AzLayoutBottom) -> AzLayoutBottom>(b"az_layout_bottom_deep_copy").map_err(|_| "az_layout_bottom_deep_copy")? };
+        let az_layout_bottom_fmt_debug = unsafe { lib.get::<extern fn(_:  &AzLayoutBottom) -> AzString>(b"az_layout_bottom_fmt_debug").map_err(|_| "az_layout_bottom_fmt_debug")? };
         let az_layout_box_sizing_delete = unsafe { lib.get::<extern fn(_:  &mut AzLayoutBoxSizing)>(b"az_layout_box_sizing_delete").map_err(|_| "az_layout_box_sizing_delete")? };
         let az_layout_box_sizing_deep_copy = unsafe { lib.get::<extern fn(_:  &AzLayoutBoxSizing) -> AzLayoutBoxSizing>(b"az_layout_box_sizing_deep_copy").map_err(|_| "az_layout_box_sizing_deep_copy")? };
+        let az_layout_box_sizing_fmt_debug = unsafe { lib.get::<extern fn(_:  &AzLayoutBoxSizing) -> AzString>(b"az_layout_box_sizing_fmt_debug").map_err(|_| "az_layout_box_sizing_fmt_debug")? };
         let az_layout_direction_delete = unsafe { lib.get::<extern fn(_:  &mut AzLayoutDirection)>(b"az_layout_direction_delete").map_err(|_| "az_layout_direction_delete")? };
         let az_layout_direction_deep_copy = unsafe { lib.get::<extern fn(_:  &AzLayoutDirection) -> AzLayoutDirection>(b"az_layout_direction_deep_copy").map_err(|_| "az_layout_direction_deep_copy")? };
+        let az_layout_direction_fmt_debug = unsafe { lib.get::<extern fn(_:  &AzLayoutDirection) -> AzString>(b"az_layout_direction_fmt_debug").map_err(|_| "az_layout_direction_fmt_debug")? };
         let az_layout_display_delete = unsafe { lib.get::<extern fn(_:  &mut AzLayoutDisplay)>(b"az_layout_display_delete").map_err(|_| "az_layout_display_delete")? };
         let az_layout_display_deep_copy = unsafe { lib.get::<extern fn(_:  &AzLayoutDisplay) -> AzLayoutDisplay>(b"az_layout_display_deep_copy").map_err(|_| "az_layout_display_deep_copy")? };
+        let az_layout_display_fmt_debug = unsafe { lib.get::<extern fn(_:  &AzLayoutDisplay) -> AzString>(b"az_layout_display_fmt_debug").map_err(|_| "az_layout_display_fmt_debug")? };
         let az_layout_flex_grow_delete = unsafe { lib.get::<extern fn(_:  &mut AzLayoutFlexGrow)>(b"az_layout_flex_grow_delete").map_err(|_| "az_layout_flex_grow_delete")? };
         let az_layout_flex_grow_deep_copy = unsafe { lib.get::<extern fn(_:  &AzLayoutFlexGrow) -> AzLayoutFlexGrow>(b"az_layout_flex_grow_deep_copy").map_err(|_| "az_layout_flex_grow_deep_copy")? };
+        let az_layout_flex_grow_fmt_debug = unsafe { lib.get::<extern fn(_:  &AzLayoutFlexGrow) -> AzString>(b"az_layout_flex_grow_fmt_debug").map_err(|_| "az_layout_flex_grow_fmt_debug")? };
         let az_layout_flex_shrink_delete = unsafe { lib.get::<extern fn(_:  &mut AzLayoutFlexShrink)>(b"az_layout_flex_shrink_delete").map_err(|_| "az_layout_flex_shrink_delete")? };
         let az_layout_flex_shrink_deep_copy = unsafe { lib.get::<extern fn(_:  &AzLayoutFlexShrink) -> AzLayoutFlexShrink>(b"az_layout_flex_shrink_deep_copy").map_err(|_| "az_layout_flex_shrink_deep_copy")? };
+        let az_layout_flex_shrink_fmt_debug = unsafe { lib.get::<extern fn(_:  &AzLayoutFlexShrink) -> AzString>(b"az_layout_flex_shrink_fmt_debug").map_err(|_| "az_layout_flex_shrink_fmt_debug")? };
         let az_layout_float_delete = unsafe { lib.get::<extern fn(_:  &mut AzLayoutFloat)>(b"az_layout_float_delete").map_err(|_| "az_layout_float_delete")? };
         let az_layout_float_deep_copy = unsafe { lib.get::<extern fn(_:  &AzLayoutFloat) -> AzLayoutFloat>(b"az_layout_float_deep_copy").map_err(|_| "az_layout_float_deep_copy")? };
+        let az_layout_float_fmt_debug = unsafe { lib.get::<extern fn(_:  &AzLayoutFloat) -> AzString>(b"az_layout_float_fmt_debug").map_err(|_| "az_layout_float_fmt_debug")? };
         let az_layout_height_delete = unsafe { lib.get::<extern fn(_:  &mut AzLayoutHeight)>(b"az_layout_height_delete").map_err(|_| "az_layout_height_delete")? };
         let az_layout_height_deep_copy = unsafe { lib.get::<extern fn(_:  &AzLayoutHeight) -> AzLayoutHeight>(b"az_layout_height_deep_copy").map_err(|_| "az_layout_height_deep_copy")? };
+        let az_layout_height_fmt_debug = unsafe { lib.get::<extern fn(_:  &AzLayoutHeight) -> AzString>(b"az_layout_height_fmt_debug").map_err(|_| "az_layout_height_fmt_debug")? };
         let az_layout_justify_content_delete = unsafe { lib.get::<extern fn(_:  &mut AzLayoutJustifyContent)>(b"az_layout_justify_content_delete").map_err(|_| "az_layout_justify_content_delete")? };
         let az_layout_justify_content_deep_copy = unsafe { lib.get::<extern fn(_:  &AzLayoutJustifyContent) -> AzLayoutJustifyContent>(b"az_layout_justify_content_deep_copy").map_err(|_| "az_layout_justify_content_deep_copy")? };
+        let az_layout_justify_content_fmt_debug = unsafe { lib.get::<extern fn(_:  &AzLayoutJustifyContent) -> AzString>(b"az_layout_justify_content_fmt_debug").map_err(|_| "az_layout_justify_content_fmt_debug")? };
         let az_layout_left_delete = unsafe { lib.get::<extern fn(_:  &mut AzLayoutLeft)>(b"az_layout_left_delete").map_err(|_| "az_layout_left_delete")? };
         let az_layout_left_deep_copy = unsafe { lib.get::<extern fn(_:  &AzLayoutLeft) -> AzLayoutLeft>(b"az_layout_left_deep_copy").map_err(|_| "az_layout_left_deep_copy")? };
+        let az_layout_left_fmt_debug = unsafe { lib.get::<extern fn(_:  &AzLayoutLeft) -> AzString>(b"az_layout_left_fmt_debug").map_err(|_| "az_layout_left_fmt_debug")? };
         let az_layout_margin_bottom_delete = unsafe { lib.get::<extern fn(_:  &mut AzLayoutMarginBottom)>(b"az_layout_margin_bottom_delete").map_err(|_| "az_layout_margin_bottom_delete")? };
         let az_layout_margin_bottom_deep_copy = unsafe { lib.get::<extern fn(_:  &AzLayoutMarginBottom) -> AzLayoutMarginBottom>(b"az_layout_margin_bottom_deep_copy").map_err(|_| "az_layout_margin_bottom_deep_copy")? };
+        let az_layout_margin_bottom_fmt_debug = unsafe { lib.get::<extern fn(_:  &AzLayoutMarginBottom) -> AzString>(b"az_layout_margin_bottom_fmt_debug").map_err(|_| "az_layout_margin_bottom_fmt_debug")? };
         let az_layout_margin_left_delete = unsafe { lib.get::<extern fn(_:  &mut AzLayoutMarginLeft)>(b"az_layout_margin_left_delete").map_err(|_| "az_layout_margin_left_delete")? };
         let az_layout_margin_left_deep_copy = unsafe { lib.get::<extern fn(_:  &AzLayoutMarginLeft) -> AzLayoutMarginLeft>(b"az_layout_margin_left_deep_copy").map_err(|_| "az_layout_margin_left_deep_copy")? };
+        let az_layout_margin_left_fmt_debug = unsafe { lib.get::<extern fn(_:  &AzLayoutMarginLeft) -> AzString>(b"az_layout_margin_left_fmt_debug").map_err(|_| "az_layout_margin_left_fmt_debug")? };
         let az_layout_margin_right_delete = unsafe { lib.get::<extern fn(_:  &mut AzLayoutMarginRight)>(b"az_layout_margin_right_delete").map_err(|_| "az_layout_margin_right_delete")? };
         let az_layout_margin_right_deep_copy = unsafe { lib.get::<extern fn(_:  &AzLayoutMarginRight) -> AzLayoutMarginRight>(b"az_layout_margin_right_deep_copy").map_err(|_| "az_layout_margin_right_deep_copy")? };
+        let az_layout_margin_right_fmt_debug = unsafe { lib.get::<extern fn(_:  &AzLayoutMarginRight) -> AzString>(b"az_layout_margin_right_fmt_debug").map_err(|_| "az_layout_margin_right_fmt_debug")? };
         let az_layout_margin_top_delete = unsafe { lib.get::<extern fn(_:  &mut AzLayoutMarginTop)>(b"az_layout_margin_top_delete").map_err(|_| "az_layout_margin_top_delete")? };
         let az_layout_margin_top_deep_copy = unsafe { lib.get::<extern fn(_:  &AzLayoutMarginTop) -> AzLayoutMarginTop>(b"az_layout_margin_top_deep_copy").map_err(|_| "az_layout_margin_top_deep_copy")? };
+        let az_layout_margin_top_fmt_debug = unsafe { lib.get::<extern fn(_:  &AzLayoutMarginTop) -> AzString>(b"az_layout_margin_top_fmt_debug").map_err(|_| "az_layout_margin_top_fmt_debug")? };
         let az_layout_max_height_delete = unsafe { lib.get::<extern fn(_:  &mut AzLayoutMaxHeight)>(b"az_layout_max_height_delete").map_err(|_| "az_layout_max_height_delete")? };
         let az_layout_max_height_deep_copy = unsafe { lib.get::<extern fn(_:  &AzLayoutMaxHeight) -> AzLayoutMaxHeight>(b"az_layout_max_height_deep_copy").map_err(|_| "az_layout_max_height_deep_copy")? };
+        let az_layout_max_height_fmt_debug = unsafe { lib.get::<extern fn(_:  &AzLayoutMaxHeight) -> AzString>(b"az_layout_max_height_fmt_debug").map_err(|_| "az_layout_max_height_fmt_debug")? };
         let az_layout_max_width_delete = unsafe { lib.get::<extern fn(_:  &mut AzLayoutMaxWidth)>(b"az_layout_max_width_delete").map_err(|_| "az_layout_max_width_delete")? };
         let az_layout_max_width_deep_copy = unsafe { lib.get::<extern fn(_:  &AzLayoutMaxWidth) -> AzLayoutMaxWidth>(b"az_layout_max_width_deep_copy").map_err(|_| "az_layout_max_width_deep_copy")? };
+        let az_layout_max_width_fmt_debug = unsafe { lib.get::<extern fn(_:  &AzLayoutMaxWidth) -> AzString>(b"az_layout_max_width_fmt_debug").map_err(|_| "az_layout_max_width_fmt_debug")? };
         let az_layout_min_height_delete = unsafe { lib.get::<extern fn(_:  &mut AzLayoutMinHeight)>(b"az_layout_min_height_delete").map_err(|_| "az_layout_min_height_delete")? };
         let az_layout_min_height_deep_copy = unsafe { lib.get::<extern fn(_:  &AzLayoutMinHeight) -> AzLayoutMinHeight>(b"az_layout_min_height_deep_copy").map_err(|_| "az_layout_min_height_deep_copy")? };
+        let az_layout_min_height_fmt_debug = unsafe { lib.get::<extern fn(_:  &AzLayoutMinHeight) -> AzString>(b"az_layout_min_height_fmt_debug").map_err(|_| "az_layout_min_height_fmt_debug")? };
         let az_layout_min_width_delete = unsafe { lib.get::<extern fn(_:  &mut AzLayoutMinWidth)>(b"az_layout_min_width_delete").map_err(|_| "az_layout_min_width_delete")? };
         let az_layout_min_width_deep_copy = unsafe { lib.get::<extern fn(_:  &AzLayoutMinWidth) -> AzLayoutMinWidth>(b"az_layout_min_width_deep_copy").map_err(|_| "az_layout_min_width_deep_copy")? };
+        let az_layout_min_width_fmt_debug = unsafe { lib.get::<extern fn(_:  &AzLayoutMinWidth) -> AzString>(b"az_layout_min_width_fmt_debug").map_err(|_| "az_layout_min_width_fmt_debug")? };
         let az_layout_padding_bottom_delete = unsafe { lib.get::<extern fn(_:  &mut AzLayoutPaddingBottom)>(b"az_layout_padding_bottom_delete").map_err(|_| "az_layout_padding_bottom_delete")? };
         let az_layout_padding_bottom_deep_copy = unsafe { lib.get::<extern fn(_:  &AzLayoutPaddingBottom) -> AzLayoutPaddingBottom>(b"az_layout_padding_bottom_deep_copy").map_err(|_| "az_layout_padding_bottom_deep_copy")? };
+        let az_layout_padding_bottom_fmt_debug = unsafe { lib.get::<extern fn(_:  &AzLayoutPaddingBottom) -> AzString>(b"az_layout_padding_bottom_fmt_debug").map_err(|_| "az_layout_padding_bottom_fmt_debug")? };
         let az_layout_padding_left_delete = unsafe { lib.get::<extern fn(_:  &mut AzLayoutPaddingLeft)>(b"az_layout_padding_left_delete").map_err(|_| "az_layout_padding_left_delete")? };
         let az_layout_padding_left_deep_copy = unsafe { lib.get::<extern fn(_:  &AzLayoutPaddingLeft) -> AzLayoutPaddingLeft>(b"az_layout_padding_left_deep_copy").map_err(|_| "az_layout_padding_left_deep_copy")? };
+        let az_layout_padding_left_fmt_debug = unsafe { lib.get::<extern fn(_:  &AzLayoutPaddingLeft) -> AzString>(b"az_layout_padding_left_fmt_debug").map_err(|_| "az_layout_padding_left_fmt_debug")? };
         let az_layout_padding_right_delete = unsafe { lib.get::<extern fn(_:  &mut AzLayoutPaddingRight)>(b"az_layout_padding_right_delete").map_err(|_| "az_layout_padding_right_delete")? };
         let az_layout_padding_right_deep_copy = unsafe { lib.get::<extern fn(_:  &AzLayoutPaddingRight) -> AzLayoutPaddingRight>(b"az_layout_padding_right_deep_copy").map_err(|_| "az_layout_padding_right_deep_copy")? };
+        let az_layout_padding_right_fmt_debug = unsafe { lib.get::<extern fn(_:  &AzLayoutPaddingRight) -> AzString>(b"az_layout_padding_right_fmt_debug").map_err(|_| "az_layout_padding_right_fmt_debug")? };
         let az_layout_padding_top_delete = unsafe { lib.get::<extern fn(_:  &mut AzLayoutPaddingTop)>(b"az_layout_padding_top_delete").map_err(|_| "az_layout_padding_top_delete")? };
         let az_layout_padding_top_deep_copy = unsafe { lib.get::<extern fn(_:  &AzLayoutPaddingTop) -> AzLayoutPaddingTop>(b"az_layout_padding_top_deep_copy").map_err(|_| "az_layout_padding_top_deep_copy")? };
+        let az_layout_padding_top_fmt_debug = unsafe { lib.get::<extern fn(_:  &AzLayoutPaddingTop) -> AzString>(b"az_layout_padding_top_fmt_debug").map_err(|_| "az_layout_padding_top_fmt_debug")? };
         let az_layout_position_delete = unsafe { lib.get::<extern fn(_:  &mut AzLayoutPosition)>(b"az_layout_position_delete").map_err(|_| "az_layout_position_delete")? };
         let az_layout_position_deep_copy = unsafe { lib.get::<extern fn(_:  &AzLayoutPosition) -> AzLayoutPosition>(b"az_layout_position_deep_copy").map_err(|_| "az_layout_position_deep_copy")? };
+        let az_layout_position_fmt_debug = unsafe { lib.get::<extern fn(_:  &AzLayoutPosition) -> AzString>(b"az_layout_position_fmt_debug").map_err(|_| "az_layout_position_fmt_debug")? };
         let az_layout_right_delete = unsafe { lib.get::<extern fn(_:  &mut AzLayoutRight)>(b"az_layout_right_delete").map_err(|_| "az_layout_right_delete")? };
         let az_layout_right_deep_copy = unsafe { lib.get::<extern fn(_:  &AzLayoutRight) -> AzLayoutRight>(b"az_layout_right_deep_copy").map_err(|_| "az_layout_right_deep_copy")? };
+        let az_layout_right_fmt_debug = unsafe { lib.get::<extern fn(_:  &AzLayoutRight) -> AzString>(b"az_layout_right_fmt_debug").map_err(|_| "az_layout_right_fmt_debug")? };
         let az_layout_top_delete = unsafe { lib.get::<extern fn(_:  &mut AzLayoutTop)>(b"az_layout_top_delete").map_err(|_| "az_layout_top_delete")? };
         let az_layout_top_deep_copy = unsafe { lib.get::<extern fn(_:  &AzLayoutTop) -> AzLayoutTop>(b"az_layout_top_deep_copy").map_err(|_| "az_layout_top_deep_copy")? };
+        let az_layout_top_fmt_debug = unsafe { lib.get::<extern fn(_:  &AzLayoutTop) -> AzString>(b"az_layout_top_fmt_debug").map_err(|_| "az_layout_top_fmt_debug")? };
         let az_layout_width_delete = unsafe { lib.get::<extern fn(_:  &mut AzLayoutWidth)>(b"az_layout_width_delete").map_err(|_| "az_layout_width_delete")? };
         let az_layout_width_deep_copy = unsafe { lib.get::<extern fn(_:  &AzLayoutWidth) -> AzLayoutWidth>(b"az_layout_width_deep_copy").map_err(|_| "az_layout_width_deep_copy")? };
+        let az_layout_width_fmt_debug = unsafe { lib.get::<extern fn(_:  &AzLayoutWidth) -> AzString>(b"az_layout_width_fmt_debug").map_err(|_| "az_layout_width_fmt_debug")? };
         let az_layout_wrap_delete = unsafe { lib.get::<extern fn(_:  &mut AzLayoutWrap)>(b"az_layout_wrap_delete").map_err(|_| "az_layout_wrap_delete")? };
         let az_layout_wrap_deep_copy = unsafe { lib.get::<extern fn(_:  &AzLayoutWrap) -> AzLayoutWrap>(b"az_layout_wrap_deep_copy").map_err(|_| "az_layout_wrap_deep_copy")? };
+        let az_layout_wrap_fmt_debug = unsafe { lib.get::<extern fn(_:  &AzLayoutWrap) -> AzString>(b"az_layout_wrap_fmt_debug").map_err(|_| "az_layout_wrap_fmt_debug")? };
         let az_overflow_delete = unsafe { lib.get::<extern fn(_:  &mut AzOverflow)>(b"az_overflow_delete").map_err(|_| "az_overflow_delete")? };
         let az_overflow_deep_copy = unsafe { lib.get::<extern fn(_:  &AzOverflow) -> AzOverflow>(b"az_overflow_deep_copy").map_err(|_| "az_overflow_deep_copy")? };
+        let az_overflow_fmt_debug = unsafe { lib.get::<extern fn(_:  &AzOverflow) -> AzString>(b"az_overflow_fmt_debug").map_err(|_| "az_overflow_fmt_debug")? };
         let az_percentage_value_delete = unsafe { lib.get::<extern fn(_:  &mut AzPercentageValue)>(b"az_percentage_value_delete").map_err(|_| "az_percentage_value_delete")? };
         let az_percentage_value_deep_copy = unsafe { lib.get::<extern fn(_:  &AzPercentageValue) -> AzPercentageValue>(b"az_percentage_value_deep_copy").map_err(|_| "az_percentage_value_deep_copy")? };
+        let az_percentage_value_fmt_debug = unsafe { lib.get::<extern fn(_:  &AzPercentageValue) -> AzString>(b"az_percentage_value_fmt_debug").map_err(|_| "az_percentage_value_fmt_debug")? };
         let az_gradient_stop_pre_delete = unsafe { lib.get::<extern fn(_:  &mut AzGradientStopPre)>(b"az_gradient_stop_pre_delete").map_err(|_| "az_gradient_stop_pre_delete")? };
         let az_gradient_stop_pre_deep_copy = unsafe { lib.get::<extern fn(_:  &AzGradientStopPre) -> AzGradientStopPre>(b"az_gradient_stop_pre_deep_copy").map_err(|_| "az_gradient_stop_pre_deep_copy")? };
+        let az_gradient_stop_pre_fmt_debug = unsafe { lib.get::<extern fn(_:  &AzGradientStopPre) -> AzString>(b"az_gradient_stop_pre_fmt_debug").map_err(|_| "az_gradient_stop_pre_fmt_debug")? };
         let az_direction_corner_delete = unsafe { lib.get::<extern fn(_:  &mut AzDirectionCorner)>(b"az_direction_corner_delete").map_err(|_| "az_direction_corner_delete")? };
         let az_direction_corner_deep_copy = unsafe { lib.get::<extern fn(_:  &AzDirectionCorner) -> AzDirectionCorner>(b"az_direction_corner_deep_copy").map_err(|_| "az_direction_corner_deep_copy")? };
+        let az_direction_corner_fmt_debug = unsafe { lib.get::<extern fn(_:  &AzDirectionCorner) -> AzString>(b"az_direction_corner_fmt_debug").map_err(|_| "az_direction_corner_fmt_debug")? };
         let az_direction_corners_delete = unsafe { lib.get::<extern fn(_:  &mut AzDirectionCorners)>(b"az_direction_corners_delete").map_err(|_| "az_direction_corners_delete")? };
         let az_direction_corners_deep_copy = unsafe { lib.get::<extern fn(_:  &AzDirectionCorners) -> AzDirectionCorners>(b"az_direction_corners_deep_copy").map_err(|_| "az_direction_corners_deep_copy")? };
+        let az_direction_corners_fmt_debug = unsafe { lib.get::<extern fn(_:  &AzDirectionCorners) -> AzString>(b"az_direction_corners_fmt_debug").map_err(|_| "az_direction_corners_fmt_debug")? };
         let az_direction_delete = unsafe { lib.get::<extern fn(_:  &mut AzDirection)>(b"az_direction_delete").map_err(|_| "az_direction_delete")? };
         let az_direction_deep_copy = unsafe { lib.get::<extern fn(_:  &AzDirection) -> AzDirection>(b"az_direction_deep_copy").map_err(|_| "az_direction_deep_copy")? };
+        let az_direction_fmt_debug = unsafe { lib.get::<extern fn(_:  &AzDirection) -> AzString>(b"az_direction_fmt_debug").map_err(|_| "az_direction_fmt_debug")? };
         let az_extend_mode_delete = unsafe { lib.get::<extern fn(_:  &mut AzExtendMode)>(b"az_extend_mode_delete").map_err(|_| "az_extend_mode_delete")? };
         let az_extend_mode_deep_copy = unsafe { lib.get::<extern fn(_:  &AzExtendMode) -> AzExtendMode>(b"az_extend_mode_deep_copy").map_err(|_| "az_extend_mode_deep_copy")? };
+        let az_extend_mode_fmt_debug = unsafe { lib.get::<extern fn(_:  &AzExtendMode) -> AzString>(b"az_extend_mode_fmt_debug").map_err(|_| "az_extend_mode_fmt_debug")? };
         let az_linear_gradient_delete = unsafe { lib.get::<extern fn(_:  &mut AzLinearGradient)>(b"az_linear_gradient_delete").map_err(|_| "az_linear_gradient_delete")? };
         let az_linear_gradient_deep_copy = unsafe { lib.get::<extern fn(_:  &AzLinearGradient) -> AzLinearGradient>(b"az_linear_gradient_deep_copy").map_err(|_| "az_linear_gradient_deep_copy")? };
+        let az_linear_gradient_fmt_debug = unsafe { lib.get::<extern fn(_:  &AzLinearGradient) -> AzString>(b"az_linear_gradient_fmt_debug").map_err(|_| "az_linear_gradient_fmt_debug")? };
         let az_shape_delete = unsafe { lib.get::<extern fn(_:  &mut AzShape)>(b"az_shape_delete").map_err(|_| "az_shape_delete")? };
         let az_shape_deep_copy = unsafe { lib.get::<extern fn(_:  &AzShape) -> AzShape>(b"az_shape_deep_copy").map_err(|_| "az_shape_deep_copy")? };
+        let az_shape_fmt_debug = unsafe { lib.get::<extern fn(_:  &AzShape) -> AzString>(b"az_shape_fmt_debug").map_err(|_| "az_shape_fmt_debug")? };
         let az_radial_gradient_delete = unsafe { lib.get::<extern fn(_:  &mut AzRadialGradient)>(b"az_radial_gradient_delete").map_err(|_| "az_radial_gradient_delete")? };
         let az_radial_gradient_deep_copy = unsafe { lib.get::<extern fn(_:  &AzRadialGradient) -> AzRadialGradient>(b"az_radial_gradient_deep_copy").map_err(|_| "az_radial_gradient_deep_copy")? };
+        let az_radial_gradient_fmt_debug = unsafe { lib.get::<extern fn(_:  &AzRadialGradient) -> AzString>(b"az_radial_gradient_fmt_debug").map_err(|_| "az_radial_gradient_fmt_debug")? };
         let az_css_image_id_delete = unsafe { lib.get::<extern fn(_:  &mut AzCssImageId)>(b"az_css_image_id_delete").map_err(|_| "az_css_image_id_delete")? };
         let az_css_image_id_deep_copy = unsafe { lib.get::<extern fn(_:  &AzCssImageId) -> AzCssImageId>(b"az_css_image_id_deep_copy").map_err(|_| "az_css_image_id_deep_copy")? };
+        let az_css_image_id_fmt_debug = unsafe { lib.get::<extern fn(_:  &AzCssImageId) -> AzString>(b"az_css_image_id_fmt_debug").map_err(|_| "az_css_image_id_fmt_debug")? };
         let az_style_background_content_delete = unsafe { lib.get::<extern fn(_:  &mut AzStyleBackgroundContent)>(b"az_style_background_content_delete").map_err(|_| "az_style_background_content_delete")? };
         let az_style_background_content_deep_copy = unsafe { lib.get::<extern fn(_:  &AzStyleBackgroundContent) -> AzStyleBackgroundContent>(b"az_style_background_content_deep_copy").map_err(|_| "az_style_background_content_deep_copy")? };
+        let az_style_background_content_fmt_debug = unsafe { lib.get::<extern fn(_:  &AzStyleBackgroundContent) -> AzString>(b"az_style_background_content_fmt_debug").map_err(|_| "az_style_background_content_fmt_debug")? };
         let az_background_position_horizontal_delete = unsafe { lib.get::<extern fn(_:  &mut AzBackgroundPositionHorizontal)>(b"az_background_position_horizontal_delete").map_err(|_| "az_background_position_horizontal_delete")? };
         let az_background_position_horizontal_deep_copy = unsafe { lib.get::<extern fn(_:  &AzBackgroundPositionHorizontal) -> AzBackgroundPositionHorizontal>(b"az_background_position_horizontal_deep_copy").map_err(|_| "az_background_position_horizontal_deep_copy")? };
+        let az_background_position_horizontal_fmt_debug = unsafe { lib.get::<extern fn(_:  &AzBackgroundPositionHorizontal) -> AzString>(b"az_background_position_horizontal_fmt_debug").map_err(|_| "az_background_position_horizontal_fmt_debug")? };
         let az_background_position_vertical_delete = unsafe { lib.get::<extern fn(_:  &mut AzBackgroundPositionVertical)>(b"az_background_position_vertical_delete").map_err(|_| "az_background_position_vertical_delete")? };
         let az_background_position_vertical_deep_copy = unsafe { lib.get::<extern fn(_:  &AzBackgroundPositionVertical) -> AzBackgroundPositionVertical>(b"az_background_position_vertical_deep_copy").map_err(|_| "az_background_position_vertical_deep_copy")? };
+        let az_background_position_vertical_fmt_debug = unsafe { lib.get::<extern fn(_:  &AzBackgroundPositionVertical) -> AzString>(b"az_background_position_vertical_fmt_debug").map_err(|_| "az_background_position_vertical_fmt_debug")? };
         let az_style_background_position_delete = unsafe { lib.get::<extern fn(_:  &mut AzStyleBackgroundPosition)>(b"az_style_background_position_delete").map_err(|_| "az_style_background_position_delete")? };
         let az_style_background_position_deep_copy = unsafe { lib.get::<extern fn(_:  &AzStyleBackgroundPosition) -> AzStyleBackgroundPosition>(b"az_style_background_position_deep_copy").map_err(|_| "az_style_background_position_deep_copy")? };
+        let az_style_background_position_fmt_debug = unsafe { lib.get::<extern fn(_:  &AzStyleBackgroundPosition) -> AzString>(b"az_style_background_position_fmt_debug").map_err(|_| "az_style_background_position_fmt_debug")? };
         let az_style_background_repeat_delete = unsafe { lib.get::<extern fn(_:  &mut AzStyleBackgroundRepeat)>(b"az_style_background_repeat_delete").map_err(|_| "az_style_background_repeat_delete")? };
         let az_style_background_repeat_deep_copy = unsafe { lib.get::<extern fn(_:  &AzStyleBackgroundRepeat) -> AzStyleBackgroundRepeat>(b"az_style_background_repeat_deep_copy").map_err(|_| "az_style_background_repeat_deep_copy")? };
+        let az_style_background_repeat_fmt_debug = unsafe { lib.get::<extern fn(_:  &AzStyleBackgroundRepeat) -> AzString>(b"az_style_background_repeat_fmt_debug").map_err(|_| "az_style_background_repeat_fmt_debug")? };
         let az_style_background_size_delete = unsafe { lib.get::<extern fn(_:  &mut AzStyleBackgroundSize)>(b"az_style_background_size_delete").map_err(|_| "az_style_background_size_delete")? };
         let az_style_background_size_deep_copy = unsafe { lib.get::<extern fn(_:  &AzStyleBackgroundSize) -> AzStyleBackgroundSize>(b"az_style_background_size_deep_copy").map_err(|_| "az_style_background_size_deep_copy")? };
+        let az_style_background_size_fmt_debug = unsafe { lib.get::<extern fn(_:  &AzStyleBackgroundSize) -> AzString>(b"az_style_background_size_fmt_debug").map_err(|_| "az_style_background_size_fmt_debug")? };
         let az_style_border_bottom_color_delete = unsafe { lib.get::<extern fn(_:  &mut AzStyleBorderBottomColor)>(b"az_style_border_bottom_color_delete").map_err(|_| "az_style_border_bottom_color_delete")? };
         let az_style_border_bottom_color_deep_copy = unsafe { lib.get::<extern fn(_:  &AzStyleBorderBottomColor) -> AzStyleBorderBottomColor>(b"az_style_border_bottom_color_deep_copy").map_err(|_| "az_style_border_bottom_color_deep_copy")? };
+        let az_style_border_bottom_color_fmt_debug = unsafe { lib.get::<extern fn(_:  &AzStyleBorderBottomColor) -> AzString>(b"az_style_border_bottom_color_fmt_debug").map_err(|_| "az_style_border_bottom_color_fmt_debug")? };
         let az_style_border_bottom_left_radius_delete = unsafe { lib.get::<extern fn(_:  &mut AzStyleBorderBottomLeftRadius)>(b"az_style_border_bottom_left_radius_delete").map_err(|_| "az_style_border_bottom_left_radius_delete")? };
         let az_style_border_bottom_left_radius_deep_copy = unsafe { lib.get::<extern fn(_:  &AzStyleBorderBottomLeftRadius) -> AzStyleBorderBottomLeftRadius>(b"az_style_border_bottom_left_radius_deep_copy").map_err(|_| "az_style_border_bottom_left_radius_deep_copy")? };
+        let az_style_border_bottom_left_radius_fmt_debug = unsafe { lib.get::<extern fn(_:  &AzStyleBorderBottomLeftRadius) -> AzString>(b"az_style_border_bottom_left_radius_fmt_debug").map_err(|_| "az_style_border_bottom_left_radius_fmt_debug")? };
         let az_style_border_bottom_right_radius_delete = unsafe { lib.get::<extern fn(_:  &mut AzStyleBorderBottomRightRadius)>(b"az_style_border_bottom_right_radius_delete").map_err(|_| "az_style_border_bottom_right_radius_delete")? };
         let az_style_border_bottom_right_radius_deep_copy = unsafe { lib.get::<extern fn(_:  &AzStyleBorderBottomRightRadius) -> AzStyleBorderBottomRightRadius>(b"az_style_border_bottom_right_radius_deep_copy").map_err(|_| "az_style_border_bottom_right_radius_deep_copy")? };
+        let az_style_border_bottom_right_radius_fmt_debug = unsafe { lib.get::<extern fn(_:  &AzStyleBorderBottomRightRadius) -> AzString>(b"az_style_border_bottom_right_radius_fmt_debug").map_err(|_| "az_style_border_bottom_right_radius_fmt_debug")? };
         let az_border_style_delete = unsafe { lib.get::<extern fn(_:  &mut AzBorderStyle)>(b"az_border_style_delete").map_err(|_| "az_border_style_delete")? };
         let az_border_style_deep_copy = unsafe { lib.get::<extern fn(_:  &AzBorderStyle) -> AzBorderStyle>(b"az_border_style_deep_copy").map_err(|_| "az_border_style_deep_copy")? };
+        let az_border_style_fmt_debug = unsafe { lib.get::<extern fn(_:  &AzBorderStyle) -> AzString>(b"az_border_style_fmt_debug").map_err(|_| "az_border_style_fmt_debug")? };
         let az_style_border_bottom_style_delete = unsafe { lib.get::<extern fn(_:  &mut AzStyleBorderBottomStyle)>(b"az_style_border_bottom_style_delete").map_err(|_| "az_style_border_bottom_style_delete")? };
         let az_style_border_bottom_style_deep_copy = unsafe { lib.get::<extern fn(_:  &AzStyleBorderBottomStyle) -> AzStyleBorderBottomStyle>(b"az_style_border_bottom_style_deep_copy").map_err(|_| "az_style_border_bottom_style_deep_copy")? };
+        let az_style_border_bottom_style_fmt_debug = unsafe { lib.get::<extern fn(_:  &AzStyleBorderBottomStyle) -> AzString>(b"az_style_border_bottom_style_fmt_debug").map_err(|_| "az_style_border_bottom_style_fmt_debug")? };
         let az_style_border_bottom_width_delete = unsafe { lib.get::<extern fn(_:  &mut AzStyleBorderBottomWidth)>(b"az_style_border_bottom_width_delete").map_err(|_| "az_style_border_bottom_width_delete")? };
         let az_style_border_bottom_width_deep_copy = unsafe { lib.get::<extern fn(_:  &AzStyleBorderBottomWidth) -> AzStyleBorderBottomWidth>(b"az_style_border_bottom_width_deep_copy").map_err(|_| "az_style_border_bottom_width_deep_copy")? };
+        let az_style_border_bottom_width_fmt_debug = unsafe { lib.get::<extern fn(_:  &AzStyleBorderBottomWidth) -> AzString>(b"az_style_border_bottom_width_fmt_debug").map_err(|_| "az_style_border_bottom_width_fmt_debug")? };
         let az_style_border_left_color_delete = unsafe { lib.get::<extern fn(_:  &mut AzStyleBorderLeftColor)>(b"az_style_border_left_color_delete").map_err(|_| "az_style_border_left_color_delete")? };
         let az_style_border_left_color_deep_copy = unsafe { lib.get::<extern fn(_:  &AzStyleBorderLeftColor) -> AzStyleBorderLeftColor>(b"az_style_border_left_color_deep_copy").map_err(|_| "az_style_border_left_color_deep_copy")? };
+        let az_style_border_left_color_fmt_debug = unsafe { lib.get::<extern fn(_:  &AzStyleBorderLeftColor) -> AzString>(b"az_style_border_left_color_fmt_debug").map_err(|_| "az_style_border_left_color_fmt_debug")? };
         let az_style_border_left_style_delete = unsafe { lib.get::<extern fn(_:  &mut AzStyleBorderLeftStyle)>(b"az_style_border_left_style_delete").map_err(|_| "az_style_border_left_style_delete")? };
         let az_style_border_left_style_deep_copy = unsafe { lib.get::<extern fn(_:  &AzStyleBorderLeftStyle) -> AzStyleBorderLeftStyle>(b"az_style_border_left_style_deep_copy").map_err(|_| "az_style_border_left_style_deep_copy")? };
+        let az_style_border_left_style_fmt_debug = unsafe { lib.get::<extern fn(_:  &AzStyleBorderLeftStyle) -> AzString>(b"az_style_border_left_style_fmt_debug").map_err(|_| "az_style_border_left_style_fmt_debug")? };
         let az_style_border_left_width_delete = unsafe { lib.get::<extern fn(_:  &mut AzStyleBorderLeftWidth)>(b"az_style_border_left_width_delete").map_err(|_| "az_style_border_left_width_delete")? };
         let az_style_border_left_width_deep_copy = unsafe { lib.get::<extern fn(_:  &AzStyleBorderLeftWidth) -> AzStyleBorderLeftWidth>(b"az_style_border_left_width_deep_copy").map_err(|_| "az_style_border_left_width_deep_copy")? };
+        let az_style_border_left_width_fmt_debug = unsafe { lib.get::<extern fn(_:  &AzStyleBorderLeftWidth) -> AzString>(b"az_style_border_left_width_fmt_debug").map_err(|_| "az_style_border_left_width_fmt_debug")? };
         let az_style_border_right_color_delete = unsafe { lib.get::<extern fn(_:  &mut AzStyleBorderRightColor)>(b"az_style_border_right_color_delete").map_err(|_| "az_style_border_right_color_delete")? };
         let az_style_border_right_color_deep_copy = unsafe { lib.get::<extern fn(_:  &AzStyleBorderRightColor) -> AzStyleBorderRightColor>(b"az_style_border_right_color_deep_copy").map_err(|_| "az_style_border_right_color_deep_copy")? };
+        let az_style_border_right_color_fmt_debug = unsafe { lib.get::<extern fn(_:  &AzStyleBorderRightColor) -> AzString>(b"az_style_border_right_color_fmt_debug").map_err(|_| "az_style_border_right_color_fmt_debug")? };
         let az_style_border_right_style_delete = unsafe { lib.get::<extern fn(_:  &mut AzStyleBorderRightStyle)>(b"az_style_border_right_style_delete").map_err(|_| "az_style_border_right_style_delete")? };
         let az_style_border_right_style_deep_copy = unsafe { lib.get::<extern fn(_:  &AzStyleBorderRightStyle) -> AzStyleBorderRightStyle>(b"az_style_border_right_style_deep_copy").map_err(|_| "az_style_border_right_style_deep_copy")? };
+        let az_style_border_right_style_fmt_debug = unsafe { lib.get::<extern fn(_:  &AzStyleBorderRightStyle) -> AzString>(b"az_style_border_right_style_fmt_debug").map_err(|_| "az_style_border_right_style_fmt_debug")? };
         let az_style_border_right_width_delete = unsafe { lib.get::<extern fn(_:  &mut AzStyleBorderRightWidth)>(b"az_style_border_right_width_delete").map_err(|_| "az_style_border_right_width_delete")? };
         let az_style_border_right_width_deep_copy = unsafe { lib.get::<extern fn(_:  &AzStyleBorderRightWidth) -> AzStyleBorderRightWidth>(b"az_style_border_right_width_deep_copy").map_err(|_| "az_style_border_right_width_deep_copy")? };
+        let az_style_border_right_width_fmt_debug = unsafe { lib.get::<extern fn(_:  &AzStyleBorderRightWidth) -> AzString>(b"az_style_border_right_width_fmt_debug").map_err(|_| "az_style_border_right_width_fmt_debug")? };
         let az_style_border_top_color_delete = unsafe { lib.get::<extern fn(_:  &mut AzStyleBorderTopColor)>(b"az_style_border_top_color_delete").map_err(|_| "az_style_border_top_color_delete")? };
         let az_style_border_top_color_deep_copy = unsafe { lib.get::<extern fn(_:  &AzStyleBorderTopColor) -> AzStyleBorderTopColor>(b"az_style_border_top_color_deep_copy").map_err(|_| "az_style_border_top_color_deep_copy")? };
+        let az_style_border_top_color_fmt_debug = unsafe { lib.get::<extern fn(_:  &AzStyleBorderTopColor) -> AzString>(b"az_style_border_top_color_fmt_debug").map_err(|_| "az_style_border_top_color_fmt_debug")? };
         let az_style_border_top_left_radius_delete = unsafe { lib.get::<extern fn(_:  &mut AzStyleBorderTopLeftRadius)>(b"az_style_border_top_left_radius_delete").map_err(|_| "az_style_border_top_left_radius_delete")? };
         let az_style_border_top_left_radius_deep_copy = unsafe { lib.get::<extern fn(_:  &AzStyleBorderTopLeftRadius) -> AzStyleBorderTopLeftRadius>(b"az_style_border_top_left_radius_deep_copy").map_err(|_| "az_style_border_top_left_radius_deep_copy")? };
+        let az_style_border_top_left_radius_fmt_debug = unsafe { lib.get::<extern fn(_:  &AzStyleBorderTopLeftRadius) -> AzString>(b"az_style_border_top_left_radius_fmt_debug").map_err(|_| "az_style_border_top_left_radius_fmt_debug")? };
         let az_style_border_top_right_radius_delete = unsafe { lib.get::<extern fn(_:  &mut AzStyleBorderTopRightRadius)>(b"az_style_border_top_right_radius_delete").map_err(|_| "az_style_border_top_right_radius_delete")? };
         let az_style_border_top_right_radius_deep_copy = unsafe { lib.get::<extern fn(_:  &AzStyleBorderTopRightRadius) -> AzStyleBorderTopRightRadius>(b"az_style_border_top_right_radius_deep_copy").map_err(|_| "az_style_border_top_right_radius_deep_copy")? };
+        let az_style_border_top_right_radius_fmt_debug = unsafe { lib.get::<extern fn(_:  &AzStyleBorderTopRightRadius) -> AzString>(b"az_style_border_top_right_radius_fmt_debug").map_err(|_| "az_style_border_top_right_radius_fmt_debug")? };
         let az_style_border_top_style_delete = unsafe { lib.get::<extern fn(_:  &mut AzStyleBorderTopStyle)>(b"az_style_border_top_style_delete").map_err(|_| "az_style_border_top_style_delete")? };
         let az_style_border_top_style_deep_copy = unsafe { lib.get::<extern fn(_:  &AzStyleBorderTopStyle) -> AzStyleBorderTopStyle>(b"az_style_border_top_style_deep_copy").map_err(|_| "az_style_border_top_style_deep_copy")? };
+        let az_style_border_top_style_fmt_debug = unsafe { lib.get::<extern fn(_:  &AzStyleBorderTopStyle) -> AzString>(b"az_style_border_top_style_fmt_debug").map_err(|_| "az_style_border_top_style_fmt_debug")? };
         let az_style_border_top_width_delete = unsafe { lib.get::<extern fn(_:  &mut AzStyleBorderTopWidth)>(b"az_style_border_top_width_delete").map_err(|_| "az_style_border_top_width_delete")? };
         let az_style_border_top_width_deep_copy = unsafe { lib.get::<extern fn(_:  &AzStyleBorderTopWidth) -> AzStyleBorderTopWidth>(b"az_style_border_top_width_deep_copy").map_err(|_| "az_style_border_top_width_deep_copy")? };
+        let az_style_border_top_width_fmt_debug = unsafe { lib.get::<extern fn(_:  &AzStyleBorderTopWidth) -> AzString>(b"az_style_border_top_width_fmt_debug").map_err(|_| "az_style_border_top_width_fmt_debug")? };
         let az_style_cursor_delete = unsafe { lib.get::<extern fn(_:  &mut AzStyleCursor)>(b"az_style_cursor_delete").map_err(|_| "az_style_cursor_delete")? };
         let az_style_cursor_deep_copy = unsafe { lib.get::<extern fn(_:  &AzStyleCursor) -> AzStyleCursor>(b"az_style_cursor_deep_copy").map_err(|_| "az_style_cursor_deep_copy")? };
+        let az_style_cursor_fmt_debug = unsafe { lib.get::<extern fn(_:  &AzStyleCursor) -> AzString>(b"az_style_cursor_fmt_debug").map_err(|_| "az_style_cursor_fmt_debug")? };
         let az_style_font_family_delete = unsafe { lib.get::<extern fn(_:  &mut AzStyleFontFamily)>(b"az_style_font_family_delete").map_err(|_| "az_style_font_family_delete")? };
         let az_style_font_family_deep_copy = unsafe { lib.get::<extern fn(_:  &AzStyleFontFamily) -> AzStyleFontFamily>(b"az_style_font_family_deep_copy").map_err(|_| "az_style_font_family_deep_copy")? };
+        let az_style_font_family_fmt_debug = unsafe { lib.get::<extern fn(_:  &AzStyleFontFamily) -> AzString>(b"az_style_font_family_fmt_debug").map_err(|_| "az_style_font_family_fmt_debug")? };
         let az_style_font_size_delete = unsafe { lib.get::<extern fn(_:  &mut AzStyleFontSize)>(b"az_style_font_size_delete").map_err(|_| "az_style_font_size_delete")? };
         let az_style_font_size_deep_copy = unsafe { lib.get::<extern fn(_:  &AzStyleFontSize) -> AzStyleFontSize>(b"az_style_font_size_deep_copy").map_err(|_| "az_style_font_size_deep_copy")? };
+        let az_style_font_size_fmt_debug = unsafe { lib.get::<extern fn(_:  &AzStyleFontSize) -> AzString>(b"az_style_font_size_fmt_debug").map_err(|_| "az_style_font_size_fmt_debug")? };
         let az_style_letter_spacing_delete = unsafe { lib.get::<extern fn(_:  &mut AzStyleLetterSpacing)>(b"az_style_letter_spacing_delete").map_err(|_| "az_style_letter_spacing_delete")? };
         let az_style_letter_spacing_deep_copy = unsafe { lib.get::<extern fn(_:  &AzStyleLetterSpacing) -> AzStyleLetterSpacing>(b"az_style_letter_spacing_deep_copy").map_err(|_| "az_style_letter_spacing_deep_copy")? };
+        let az_style_letter_spacing_fmt_debug = unsafe { lib.get::<extern fn(_:  &AzStyleLetterSpacing) -> AzString>(b"az_style_letter_spacing_fmt_debug").map_err(|_| "az_style_letter_spacing_fmt_debug")? };
         let az_style_line_height_delete = unsafe { lib.get::<extern fn(_:  &mut AzStyleLineHeight)>(b"az_style_line_height_delete").map_err(|_| "az_style_line_height_delete")? };
         let az_style_line_height_deep_copy = unsafe { lib.get::<extern fn(_:  &AzStyleLineHeight) -> AzStyleLineHeight>(b"az_style_line_height_deep_copy").map_err(|_| "az_style_line_height_deep_copy")? };
+        let az_style_line_height_fmt_debug = unsafe { lib.get::<extern fn(_:  &AzStyleLineHeight) -> AzString>(b"az_style_line_height_fmt_debug").map_err(|_| "az_style_line_height_fmt_debug")? };
         let az_style_tab_width_delete = unsafe { lib.get::<extern fn(_:  &mut AzStyleTabWidth)>(b"az_style_tab_width_delete").map_err(|_| "az_style_tab_width_delete")? };
         let az_style_tab_width_deep_copy = unsafe { lib.get::<extern fn(_:  &AzStyleTabWidth) -> AzStyleTabWidth>(b"az_style_tab_width_deep_copy").map_err(|_| "az_style_tab_width_deep_copy")? };
+        let az_style_tab_width_fmt_debug = unsafe { lib.get::<extern fn(_:  &AzStyleTabWidth) -> AzString>(b"az_style_tab_width_fmt_debug").map_err(|_| "az_style_tab_width_fmt_debug")? };
         let az_style_text_alignment_horz_delete = unsafe { lib.get::<extern fn(_:  &mut AzStyleTextAlignmentHorz)>(b"az_style_text_alignment_horz_delete").map_err(|_| "az_style_text_alignment_horz_delete")? };
         let az_style_text_alignment_horz_deep_copy = unsafe { lib.get::<extern fn(_:  &AzStyleTextAlignmentHorz) -> AzStyleTextAlignmentHorz>(b"az_style_text_alignment_horz_deep_copy").map_err(|_| "az_style_text_alignment_horz_deep_copy")? };
+        let az_style_text_alignment_horz_fmt_debug = unsafe { lib.get::<extern fn(_:  &AzStyleTextAlignmentHorz) -> AzString>(b"az_style_text_alignment_horz_fmt_debug").map_err(|_| "az_style_text_alignment_horz_fmt_debug")? };
         let az_style_text_color_delete = unsafe { lib.get::<extern fn(_:  &mut AzStyleTextColor)>(b"az_style_text_color_delete").map_err(|_| "az_style_text_color_delete")? };
         let az_style_text_color_deep_copy = unsafe { lib.get::<extern fn(_:  &AzStyleTextColor) -> AzStyleTextColor>(b"az_style_text_color_deep_copy").map_err(|_| "az_style_text_color_deep_copy")? };
+        let az_style_text_color_fmt_debug = unsafe { lib.get::<extern fn(_:  &AzStyleTextColor) -> AzString>(b"az_style_text_color_fmt_debug").map_err(|_| "az_style_text_color_fmt_debug")? };
         let az_style_word_spacing_delete = unsafe { lib.get::<extern fn(_:  &mut AzStyleWordSpacing)>(b"az_style_word_spacing_delete").map_err(|_| "az_style_word_spacing_delete")? };
         let az_style_word_spacing_deep_copy = unsafe { lib.get::<extern fn(_:  &AzStyleWordSpacing) -> AzStyleWordSpacing>(b"az_style_word_spacing_deep_copy").map_err(|_| "az_style_word_spacing_deep_copy")? };
+        let az_style_word_spacing_fmt_debug = unsafe { lib.get::<extern fn(_:  &AzStyleWordSpacing) -> AzString>(b"az_style_word_spacing_fmt_debug").map_err(|_| "az_style_word_spacing_fmt_debug")? };
         let az_box_shadow_pre_display_item_value_delete = unsafe { lib.get::<extern fn(_:  &mut AzBoxShadowPreDisplayItemValue)>(b"az_box_shadow_pre_display_item_value_delete").map_err(|_| "az_box_shadow_pre_display_item_value_delete")? };
         let az_box_shadow_pre_display_item_value_deep_copy = unsafe { lib.get::<extern fn(_:  &AzBoxShadowPreDisplayItemValue) -> AzBoxShadowPreDisplayItemValue>(b"az_box_shadow_pre_display_item_value_deep_copy").map_err(|_| "az_box_shadow_pre_display_item_value_deep_copy")? };
+        let az_box_shadow_pre_display_item_value_fmt_debug = unsafe { lib.get::<extern fn(_:  &AzBoxShadowPreDisplayItemValue) -> AzString>(b"az_box_shadow_pre_display_item_value_fmt_debug").map_err(|_| "az_box_shadow_pre_display_item_value_fmt_debug")? };
         let az_layout_align_content_value_delete = unsafe { lib.get::<extern fn(_:  &mut AzLayoutAlignContentValue)>(b"az_layout_align_content_value_delete").map_err(|_| "az_layout_align_content_value_delete")? };
         let az_layout_align_content_value_deep_copy = unsafe { lib.get::<extern fn(_:  &AzLayoutAlignContentValue) -> AzLayoutAlignContentValue>(b"az_layout_align_content_value_deep_copy").map_err(|_| "az_layout_align_content_value_deep_copy")? };
+        let az_layout_align_content_value_fmt_debug = unsafe { lib.get::<extern fn(_:  &AzLayoutAlignContentValue) -> AzString>(b"az_layout_align_content_value_fmt_debug").map_err(|_| "az_layout_align_content_value_fmt_debug")? };
         let az_layout_align_items_value_delete = unsafe { lib.get::<extern fn(_:  &mut AzLayoutAlignItemsValue)>(b"az_layout_align_items_value_delete").map_err(|_| "az_layout_align_items_value_delete")? };
         let az_layout_align_items_value_deep_copy = unsafe { lib.get::<extern fn(_:  &AzLayoutAlignItemsValue) -> AzLayoutAlignItemsValue>(b"az_layout_align_items_value_deep_copy").map_err(|_| "az_layout_align_items_value_deep_copy")? };
+        let az_layout_align_items_value_fmt_debug = unsafe { lib.get::<extern fn(_:  &AzLayoutAlignItemsValue) -> AzString>(b"az_layout_align_items_value_fmt_debug").map_err(|_| "az_layout_align_items_value_fmt_debug")? };
         let az_layout_bottom_value_delete = unsafe { lib.get::<extern fn(_:  &mut AzLayoutBottomValue)>(b"az_layout_bottom_value_delete").map_err(|_| "az_layout_bottom_value_delete")? };
         let az_layout_bottom_value_deep_copy = unsafe { lib.get::<extern fn(_:  &AzLayoutBottomValue) -> AzLayoutBottomValue>(b"az_layout_bottom_value_deep_copy").map_err(|_| "az_layout_bottom_value_deep_copy")? };
+        let az_layout_bottom_value_fmt_debug = unsafe { lib.get::<extern fn(_:  &AzLayoutBottomValue) -> AzString>(b"az_layout_bottom_value_fmt_debug").map_err(|_| "az_layout_bottom_value_fmt_debug")? };
         let az_layout_box_sizing_value_delete = unsafe { lib.get::<extern fn(_:  &mut AzLayoutBoxSizingValue)>(b"az_layout_box_sizing_value_delete").map_err(|_| "az_layout_box_sizing_value_delete")? };
         let az_layout_box_sizing_value_deep_copy = unsafe { lib.get::<extern fn(_:  &AzLayoutBoxSizingValue) -> AzLayoutBoxSizingValue>(b"az_layout_box_sizing_value_deep_copy").map_err(|_| "az_layout_box_sizing_value_deep_copy")? };
+        let az_layout_box_sizing_value_fmt_debug = unsafe { lib.get::<extern fn(_:  &AzLayoutBoxSizingValue) -> AzString>(b"az_layout_box_sizing_value_fmt_debug").map_err(|_| "az_layout_box_sizing_value_fmt_debug")? };
         let az_layout_direction_value_delete = unsafe { lib.get::<extern fn(_:  &mut AzLayoutDirectionValue)>(b"az_layout_direction_value_delete").map_err(|_| "az_layout_direction_value_delete")? };
         let az_layout_direction_value_deep_copy = unsafe { lib.get::<extern fn(_:  &AzLayoutDirectionValue) -> AzLayoutDirectionValue>(b"az_layout_direction_value_deep_copy").map_err(|_| "az_layout_direction_value_deep_copy")? };
+        let az_layout_direction_value_fmt_debug = unsafe { lib.get::<extern fn(_:  &AzLayoutDirectionValue) -> AzString>(b"az_layout_direction_value_fmt_debug").map_err(|_| "az_layout_direction_value_fmt_debug")? };
         let az_layout_display_value_delete = unsafe { lib.get::<extern fn(_:  &mut AzLayoutDisplayValue)>(b"az_layout_display_value_delete").map_err(|_| "az_layout_display_value_delete")? };
         let az_layout_display_value_deep_copy = unsafe { lib.get::<extern fn(_:  &AzLayoutDisplayValue) -> AzLayoutDisplayValue>(b"az_layout_display_value_deep_copy").map_err(|_| "az_layout_display_value_deep_copy")? };
+        let az_layout_display_value_fmt_debug = unsafe { lib.get::<extern fn(_:  &AzLayoutDisplayValue) -> AzString>(b"az_layout_display_value_fmt_debug").map_err(|_| "az_layout_display_value_fmt_debug")? };
         let az_layout_flex_grow_value_delete = unsafe { lib.get::<extern fn(_:  &mut AzLayoutFlexGrowValue)>(b"az_layout_flex_grow_value_delete").map_err(|_| "az_layout_flex_grow_value_delete")? };
         let az_layout_flex_grow_value_deep_copy = unsafe { lib.get::<extern fn(_:  &AzLayoutFlexGrowValue) -> AzLayoutFlexGrowValue>(b"az_layout_flex_grow_value_deep_copy").map_err(|_| "az_layout_flex_grow_value_deep_copy")? };
+        let az_layout_flex_grow_value_fmt_debug = unsafe { lib.get::<extern fn(_:  &AzLayoutFlexGrowValue) -> AzString>(b"az_layout_flex_grow_value_fmt_debug").map_err(|_| "az_layout_flex_grow_value_fmt_debug")? };
         let az_layout_flex_shrink_value_delete = unsafe { lib.get::<extern fn(_:  &mut AzLayoutFlexShrinkValue)>(b"az_layout_flex_shrink_value_delete").map_err(|_| "az_layout_flex_shrink_value_delete")? };
         let az_layout_flex_shrink_value_deep_copy = unsafe { lib.get::<extern fn(_:  &AzLayoutFlexShrinkValue) -> AzLayoutFlexShrinkValue>(b"az_layout_flex_shrink_value_deep_copy").map_err(|_| "az_layout_flex_shrink_value_deep_copy")? };
+        let az_layout_flex_shrink_value_fmt_debug = unsafe { lib.get::<extern fn(_:  &AzLayoutFlexShrinkValue) -> AzString>(b"az_layout_flex_shrink_value_fmt_debug").map_err(|_| "az_layout_flex_shrink_value_fmt_debug")? };
         let az_layout_float_value_delete = unsafe { lib.get::<extern fn(_:  &mut AzLayoutFloatValue)>(b"az_layout_float_value_delete").map_err(|_| "az_layout_float_value_delete")? };
         let az_layout_float_value_deep_copy = unsafe { lib.get::<extern fn(_:  &AzLayoutFloatValue) -> AzLayoutFloatValue>(b"az_layout_float_value_deep_copy").map_err(|_| "az_layout_float_value_deep_copy")? };
+        let az_layout_float_value_fmt_debug = unsafe { lib.get::<extern fn(_:  &AzLayoutFloatValue) -> AzString>(b"az_layout_float_value_fmt_debug").map_err(|_| "az_layout_float_value_fmt_debug")? };
         let az_layout_height_value_delete = unsafe { lib.get::<extern fn(_:  &mut AzLayoutHeightValue)>(b"az_layout_height_value_delete").map_err(|_| "az_layout_height_value_delete")? };
         let az_layout_height_value_deep_copy = unsafe { lib.get::<extern fn(_:  &AzLayoutHeightValue) -> AzLayoutHeightValue>(b"az_layout_height_value_deep_copy").map_err(|_| "az_layout_height_value_deep_copy")? };
+        let az_layout_height_value_fmt_debug = unsafe { lib.get::<extern fn(_:  &AzLayoutHeightValue) -> AzString>(b"az_layout_height_value_fmt_debug").map_err(|_| "az_layout_height_value_fmt_debug")? };
         let az_layout_justify_content_value_delete = unsafe { lib.get::<extern fn(_:  &mut AzLayoutJustifyContentValue)>(b"az_layout_justify_content_value_delete").map_err(|_| "az_layout_justify_content_value_delete")? };
         let az_layout_justify_content_value_deep_copy = unsafe { lib.get::<extern fn(_:  &AzLayoutJustifyContentValue) -> AzLayoutJustifyContentValue>(b"az_layout_justify_content_value_deep_copy").map_err(|_| "az_layout_justify_content_value_deep_copy")? };
+        let az_layout_justify_content_value_fmt_debug = unsafe { lib.get::<extern fn(_:  &AzLayoutJustifyContentValue) -> AzString>(b"az_layout_justify_content_value_fmt_debug").map_err(|_| "az_layout_justify_content_value_fmt_debug")? };
         let az_layout_left_value_delete = unsafe { lib.get::<extern fn(_:  &mut AzLayoutLeftValue)>(b"az_layout_left_value_delete").map_err(|_| "az_layout_left_value_delete")? };
         let az_layout_left_value_deep_copy = unsafe { lib.get::<extern fn(_:  &AzLayoutLeftValue) -> AzLayoutLeftValue>(b"az_layout_left_value_deep_copy").map_err(|_| "az_layout_left_value_deep_copy")? };
+        let az_layout_left_value_fmt_debug = unsafe { lib.get::<extern fn(_:  &AzLayoutLeftValue) -> AzString>(b"az_layout_left_value_fmt_debug").map_err(|_| "az_layout_left_value_fmt_debug")? };
         let az_layout_margin_bottom_value_delete = unsafe { lib.get::<extern fn(_:  &mut AzLayoutMarginBottomValue)>(b"az_layout_margin_bottom_value_delete").map_err(|_| "az_layout_margin_bottom_value_delete")? };
         let az_layout_margin_bottom_value_deep_copy = unsafe { lib.get::<extern fn(_:  &AzLayoutMarginBottomValue) -> AzLayoutMarginBottomValue>(b"az_layout_margin_bottom_value_deep_copy").map_err(|_| "az_layout_margin_bottom_value_deep_copy")? };
+        let az_layout_margin_bottom_value_fmt_debug = unsafe { lib.get::<extern fn(_:  &AzLayoutMarginBottomValue) -> AzString>(b"az_layout_margin_bottom_value_fmt_debug").map_err(|_| "az_layout_margin_bottom_value_fmt_debug")? };
         let az_layout_margin_left_value_delete = unsafe { lib.get::<extern fn(_:  &mut AzLayoutMarginLeftValue)>(b"az_layout_margin_left_value_delete").map_err(|_| "az_layout_margin_left_value_delete")? };
         let az_layout_margin_left_value_deep_copy = unsafe { lib.get::<extern fn(_:  &AzLayoutMarginLeftValue) -> AzLayoutMarginLeftValue>(b"az_layout_margin_left_value_deep_copy").map_err(|_| "az_layout_margin_left_value_deep_copy")? };
+        let az_layout_margin_left_value_fmt_debug = unsafe { lib.get::<extern fn(_:  &AzLayoutMarginLeftValue) -> AzString>(b"az_layout_margin_left_value_fmt_debug").map_err(|_| "az_layout_margin_left_value_fmt_debug")? };
         let az_layout_margin_right_value_delete = unsafe { lib.get::<extern fn(_:  &mut AzLayoutMarginRightValue)>(b"az_layout_margin_right_value_delete").map_err(|_| "az_layout_margin_right_value_delete")? };
         let az_layout_margin_right_value_deep_copy = unsafe { lib.get::<extern fn(_:  &AzLayoutMarginRightValue) -> AzLayoutMarginRightValue>(b"az_layout_margin_right_value_deep_copy").map_err(|_| "az_layout_margin_right_value_deep_copy")? };
+        let az_layout_margin_right_value_fmt_debug = unsafe { lib.get::<extern fn(_:  &AzLayoutMarginRightValue) -> AzString>(b"az_layout_margin_right_value_fmt_debug").map_err(|_| "az_layout_margin_right_value_fmt_debug")? };
         let az_layout_margin_top_value_delete = unsafe { lib.get::<extern fn(_:  &mut AzLayoutMarginTopValue)>(b"az_layout_margin_top_value_delete").map_err(|_| "az_layout_margin_top_value_delete")? };
         let az_layout_margin_top_value_deep_copy = unsafe { lib.get::<extern fn(_:  &AzLayoutMarginTopValue) -> AzLayoutMarginTopValue>(b"az_layout_margin_top_value_deep_copy").map_err(|_| "az_layout_margin_top_value_deep_copy")? };
+        let az_layout_margin_top_value_fmt_debug = unsafe { lib.get::<extern fn(_:  &AzLayoutMarginTopValue) -> AzString>(b"az_layout_margin_top_value_fmt_debug").map_err(|_| "az_layout_margin_top_value_fmt_debug")? };
         let az_layout_max_height_value_delete = unsafe { lib.get::<extern fn(_:  &mut AzLayoutMaxHeightValue)>(b"az_layout_max_height_value_delete").map_err(|_| "az_layout_max_height_value_delete")? };
         let az_layout_max_height_value_deep_copy = unsafe { lib.get::<extern fn(_:  &AzLayoutMaxHeightValue) -> AzLayoutMaxHeightValue>(b"az_layout_max_height_value_deep_copy").map_err(|_| "az_layout_max_height_value_deep_copy")? };
+        let az_layout_max_height_value_fmt_debug = unsafe { lib.get::<extern fn(_:  &AzLayoutMaxHeightValue) -> AzString>(b"az_layout_max_height_value_fmt_debug").map_err(|_| "az_layout_max_height_value_fmt_debug")? };
         let az_layout_max_width_value_delete = unsafe { lib.get::<extern fn(_:  &mut AzLayoutMaxWidthValue)>(b"az_layout_max_width_value_delete").map_err(|_| "az_layout_max_width_value_delete")? };
         let az_layout_max_width_value_deep_copy = unsafe { lib.get::<extern fn(_:  &AzLayoutMaxWidthValue) -> AzLayoutMaxWidthValue>(b"az_layout_max_width_value_deep_copy").map_err(|_| "az_layout_max_width_value_deep_copy")? };
+        let az_layout_max_width_value_fmt_debug = unsafe { lib.get::<extern fn(_:  &AzLayoutMaxWidthValue) -> AzString>(b"az_layout_max_width_value_fmt_debug").map_err(|_| "az_layout_max_width_value_fmt_debug")? };
         let az_layout_min_height_value_delete = unsafe { lib.get::<extern fn(_:  &mut AzLayoutMinHeightValue)>(b"az_layout_min_height_value_delete").map_err(|_| "az_layout_min_height_value_delete")? };
         let az_layout_min_height_value_deep_copy = unsafe { lib.get::<extern fn(_:  &AzLayoutMinHeightValue) -> AzLayoutMinHeightValue>(b"az_layout_min_height_value_deep_copy").map_err(|_| "az_layout_min_height_value_deep_copy")? };
+        let az_layout_min_height_value_fmt_debug = unsafe { lib.get::<extern fn(_:  &AzLayoutMinHeightValue) -> AzString>(b"az_layout_min_height_value_fmt_debug").map_err(|_| "az_layout_min_height_value_fmt_debug")? };
         let az_layout_min_width_value_delete = unsafe { lib.get::<extern fn(_:  &mut AzLayoutMinWidthValue)>(b"az_layout_min_width_value_delete").map_err(|_| "az_layout_min_width_value_delete")? };
         let az_layout_min_width_value_deep_copy = unsafe { lib.get::<extern fn(_:  &AzLayoutMinWidthValue) -> AzLayoutMinWidthValue>(b"az_layout_min_width_value_deep_copy").map_err(|_| "az_layout_min_width_value_deep_copy")? };
+        let az_layout_min_width_value_fmt_debug = unsafe { lib.get::<extern fn(_:  &AzLayoutMinWidthValue) -> AzString>(b"az_layout_min_width_value_fmt_debug").map_err(|_| "az_layout_min_width_value_fmt_debug")? };
         let az_layout_padding_bottom_value_delete = unsafe { lib.get::<extern fn(_:  &mut AzLayoutPaddingBottomValue)>(b"az_layout_padding_bottom_value_delete").map_err(|_| "az_layout_padding_bottom_value_delete")? };
         let az_layout_padding_bottom_value_deep_copy = unsafe { lib.get::<extern fn(_:  &AzLayoutPaddingBottomValue) -> AzLayoutPaddingBottomValue>(b"az_layout_padding_bottom_value_deep_copy").map_err(|_| "az_layout_padding_bottom_value_deep_copy")? };
+        let az_layout_padding_bottom_value_fmt_debug = unsafe { lib.get::<extern fn(_:  &AzLayoutPaddingBottomValue) -> AzString>(b"az_layout_padding_bottom_value_fmt_debug").map_err(|_| "az_layout_padding_bottom_value_fmt_debug")? };
         let az_layout_padding_left_value_delete = unsafe { lib.get::<extern fn(_:  &mut AzLayoutPaddingLeftValue)>(b"az_layout_padding_left_value_delete").map_err(|_| "az_layout_padding_left_value_delete")? };
         let az_layout_padding_left_value_deep_copy = unsafe { lib.get::<extern fn(_:  &AzLayoutPaddingLeftValue) -> AzLayoutPaddingLeftValue>(b"az_layout_padding_left_value_deep_copy").map_err(|_| "az_layout_padding_left_value_deep_copy")? };
+        let az_layout_padding_left_value_fmt_debug = unsafe { lib.get::<extern fn(_:  &AzLayoutPaddingLeftValue) -> AzString>(b"az_layout_padding_left_value_fmt_debug").map_err(|_| "az_layout_padding_left_value_fmt_debug")? };
         let az_layout_padding_right_value_delete = unsafe { lib.get::<extern fn(_:  &mut AzLayoutPaddingRightValue)>(b"az_layout_padding_right_value_delete").map_err(|_| "az_layout_padding_right_value_delete")? };
         let az_layout_padding_right_value_deep_copy = unsafe { lib.get::<extern fn(_:  &AzLayoutPaddingRightValue) -> AzLayoutPaddingRightValue>(b"az_layout_padding_right_value_deep_copy").map_err(|_| "az_layout_padding_right_value_deep_copy")? };
+        let az_layout_padding_right_value_fmt_debug = unsafe { lib.get::<extern fn(_:  &AzLayoutPaddingRightValue) -> AzString>(b"az_layout_padding_right_value_fmt_debug").map_err(|_| "az_layout_padding_right_value_fmt_debug")? };
         let az_layout_padding_top_value_delete = unsafe { lib.get::<extern fn(_:  &mut AzLayoutPaddingTopValue)>(b"az_layout_padding_top_value_delete").map_err(|_| "az_layout_padding_top_value_delete")? };
         let az_layout_padding_top_value_deep_copy = unsafe { lib.get::<extern fn(_:  &AzLayoutPaddingTopValue) -> AzLayoutPaddingTopValue>(b"az_layout_padding_top_value_deep_copy").map_err(|_| "az_layout_padding_top_value_deep_copy")? };
+        let az_layout_padding_top_value_fmt_debug = unsafe { lib.get::<extern fn(_:  &AzLayoutPaddingTopValue) -> AzString>(b"az_layout_padding_top_value_fmt_debug").map_err(|_| "az_layout_padding_top_value_fmt_debug")? };
         let az_layout_position_value_delete = unsafe { lib.get::<extern fn(_:  &mut AzLayoutPositionValue)>(b"az_layout_position_value_delete").map_err(|_| "az_layout_position_value_delete")? };
         let az_layout_position_value_deep_copy = unsafe { lib.get::<extern fn(_:  &AzLayoutPositionValue) -> AzLayoutPositionValue>(b"az_layout_position_value_deep_copy").map_err(|_| "az_layout_position_value_deep_copy")? };
+        let az_layout_position_value_fmt_debug = unsafe { lib.get::<extern fn(_:  &AzLayoutPositionValue) -> AzString>(b"az_layout_position_value_fmt_debug").map_err(|_| "az_layout_position_value_fmt_debug")? };
         let az_layout_right_value_delete = unsafe { lib.get::<extern fn(_:  &mut AzLayoutRightValue)>(b"az_layout_right_value_delete").map_err(|_| "az_layout_right_value_delete")? };
         let az_layout_right_value_deep_copy = unsafe { lib.get::<extern fn(_:  &AzLayoutRightValue) -> AzLayoutRightValue>(b"az_layout_right_value_deep_copy").map_err(|_| "az_layout_right_value_deep_copy")? };
+        let az_layout_right_value_fmt_debug = unsafe { lib.get::<extern fn(_:  &AzLayoutRightValue) -> AzString>(b"az_layout_right_value_fmt_debug").map_err(|_| "az_layout_right_value_fmt_debug")? };
         let az_layout_top_value_delete = unsafe { lib.get::<extern fn(_:  &mut AzLayoutTopValue)>(b"az_layout_top_value_delete").map_err(|_| "az_layout_top_value_delete")? };
         let az_layout_top_value_deep_copy = unsafe { lib.get::<extern fn(_:  &AzLayoutTopValue) -> AzLayoutTopValue>(b"az_layout_top_value_deep_copy").map_err(|_| "az_layout_top_value_deep_copy")? };
+        let az_layout_top_value_fmt_debug = unsafe { lib.get::<extern fn(_:  &AzLayoutTopValue) -> AzString>(b"az_layout_top_value_fmt_debug").map_err(|_| "az_layout_top_value_fmt_debug")? };
         let az_layout_width_value_delete = unsafe { lib.get::<extern fn(_:  &mut AzLayoutWidthValue)>(b"az_layout_width_value_delete").map_err(|_| "az_layout_width_value_delete")? };
         let az_layout_width_value_deep_copy = unsafe { lib.get::<extern fn(_:  &AzLayoutWidthValue) -> AzLayoutWidthValue>(b"az_layout_width_value_deep_copy").map_err(|_| "az_layout_width_value_deep_copy")? };
+        let az_layout_width_value_fmt_debug = unsafe { lib.get::<extern fn(_:  &AzLayoutWidthValue) -> AzString>(b"az_layout_width_value_fmt_debug").map_err(|_| "az_layout_width_value_fmt_debug")? };
         let az_layout_wrap_value_delete = unsafe { lib.get::<extern fn(_:  &mut AzLayoutWrapValue)>(b"az_layout_wrap_value_delete").map_err(|_| "az_layout_wrap_value_delete")? };
         let az_layout_wrap_value_deep_copy = unsafe { lib.get::<extern fn(_:  &AzLayoutWrapValue) -> AzLayoutWrapValue>(b"az_layout_wrap_value_deep_copy").map_err(|_| "az_layout_wrap_value_deep_copy")? };
+        let az_layout_wrap_value_fmt_debug = unsafe { lib.get::<extern fn(_:  &AzLayoutWrapValue) -> AzString>(b"az_layout_wrap_value_fmt_debug").map_err(|_| "az_layout_wrap_value_fmt_debug")? };
         let az_overflow_value_delete = unsafe { lib.get::<extern fn(_:  &mut AzOverflowValue)>(b"az_overflow_value_delete").map_err(|_| "az_overflow_value_delete")? };
         let az_overflow_value_deep_copy = unsafe { lib.get::<extern fn(_:  &AzOverflowValue) -> AzOverflowValue>(b"az_overflow_value_deep_copy").map_err(|_| "az_overflow_value_deep_copy")? };
+        let az_overflow_value_fmt_debug = unsafe { lib.get::<extern fn(_:  &AzOverflowValue) -> AzString>(b"az_overflow_value_fmt_debug").map_err(|_| "az_overflow_value_fmt_debug")? };
         let az_style_background_content_value_delete = unsafe { lib.get::<extern fn(_:  &mut AzStyleBackgroundContentValue)>(b"az_style_background_content_value_delete").map_err(|_| "az_style_background_content_value_delete")? };
         let az_style_background_content_value_deep_copy = unsafe { lib.get::<extern fn(_:  &AzStyleBackgroundContentValue) -> AzStyleBackgroundContentValue>(b"az_style_background_content_value_deep_copy").map_err(|_| "az_style_background_content_value_deep_copy")? };
+        let az_style_background_content_value_fmt_debug = unsafe { lib.get::<extern fn(_:  &AzStyleBackgroundContentValue) -> AzString>(b"az_style_background_content_value_fmt_debug").map_err(|_| "az_style_background_content_value_fmt_debug")? };
         let az_style_background_position_value_delete = unsafe { lib.get::<extern fn(_:  &mut AzStyleBackgroundPositionValue)>(b"az_style_background_position_value_delete").map_err(|_| "az_style_background_position_value_delete")? };
         let az_style_background_position_value_deep_copy = unsafe { lib.get::<extern fn(_:  &AzStyleBackgroundPositionValue) -> AzStyleBackgroundPositionValue>(b"az_style_background_position_value_deep_copy").map_err(|_| "az_style_background_position_value_deep_copy")? };
+        let az_style_background_position_value_fmt_debug = unsafe { lib.get::<extern fn(_:  &AzStyleBackgroundPositionValue) -> AzString>(b"az_style_background_position_value_fmt_debug").map_err(|_| "az_style_background_position_value_fmt_debug")? };
         let az_style_background_repeat_value_delete = unsafe { lib.get::<extern fn(_:  &mut AzStyleBackgroundRepeatValue)>(b"az_style_background_repeat_value_delete").map_err(|_| "az_style_background_repeat_value_delete")? };
         let az_style_background_repeat_value_deep_copy = unsafe { lib.get::<extern fn(_:  &AzStyleBackgroundRepeatValue) -> AzStyleBackgroundRepeatValue>(b"az_style_background_repeat_value_deep_copy").map_err(|_| "az_style_background_repeat_value_deep_copy")? };
+        let az_style_background_repeat_value_fmt_debug = unsafe { lib.get::<extern fn(_:  &AzStyleBackgroundRepeatValue) -> AzString>(b"az_style_background_repeat_value_fmt_debug").map_err(|_| "az_style_background_repeat_value_fmt_debug")? };
         let az_style_background_size_value_delete = unsafe { lib.get::<extern fn(_:  &mut AzStyleBackgroundSizeValue)>(b"az_style_background_size_value_delete").map_err(|_| "az_style_background_size_value_delete")? };
         let az_style_background_size_value_deep_copy = unsafe { lib.get::<extern fn(_:  &AzStyleBackgroundSizeValue) -> AzStyleBackgroundSizeValue>(b"az_style_background_size_value_deep_copy").map_err(|_| "az_style_background_size_value_deep_copy")? };
+        let az_style_background_size_value_fmt_debug = unsafe { lib.get::<extern fn(_:  &AzStyleBackgroundSizeValue) -> AzString>(b"az_style_background_size_value_fmt_debug").map_err(|_| "az_style_background_size_value_fmt_debug")? };
         let az_style_border_bottom_color_value_delete = unsafe { lib.get::<extern fn(_:  &mut AzStyleBorderBottomColorValue)>(b"az_style_border_bottom_color_value_delete").map_err(|_| "az_style_border_bottom_color_value_delete")? };
         let az_style_border_bottom_color_value_deep_copy = unsafe { lib.get::<extern fn(_:  &AzStyleBorderBottomColorValue) -> AzStyleBorderBottomColorValue>(b"az_style_border_bottom_color_value_deep_copy").map_err(|_| "az_style_border_bottom_color_value_deep_copy")? };
+        let az_style_border_bottom_color_value_fmt_debug = unsafe { lib.get::<extern fn(_:  &AzStyleBorderBottomColorValue) -> AzString>(b"az_style_border_bottom_color_value_fmt_debug").map_err(|_| "az_style_border_bottom_color_value_fmt_debug")? };
         let az_style_border_bottom_left_radius_value_delete = unsafe { lib.get::<extern fn(_:  &mut AzStyleBorderBottomLeftRadiusValue)>(b"az_style_border_bottom_left_radius_value_delete").map_err(|_| "az_style_border_bottom_left_radius_value_delete")? };
         let az_style_border_bottom_left_radius_value_deep_copy = unsafe { lib.get::<extern fn(_:  &AzStyleBorderBottomLeftRadiusValue) -> AzStyleBorderBottomLeftRadiusValue>(b"az_style_border_bottom_left_radius_value_deep_copy").map_err(|_| "az_style_border_bottom_left_radius_value_deep_copy")? };
+        let az_style_border_bottom_left_radius_value_fmt_debug = unsafe { lib.get::<extern fn(_:  &AzStyleBorderBottomLeftRadiusValue) -> AzString>(b"az_style_border_bottom_left_radius_value_fmt_debug").map_err(|_| "az_style_border_bottom_left_radius_value_fmt_debug")? };
         let az_style_border_bottom_right_radius_value_delete = unsafe { lib.get::<extern fn(_:  &mut AzStyleBorderBottomRightRadiusValue)>(b"az_style_border_bottom_right_radius_value_delete").map_err(|_| "az_style_border_bottom_right_radius_value_delete")? };
         let az_style_border_bottom_right_radius_value_deep_copy = unsafe { lib.get::<extern fn(_:  &AzStyleBorderBottomRightRadiusValue) -> AzStyleBorderBottomRightRadiusValue>(b"az_style_border_bottom_right_radius_value_deep_copy").map_err(|_| "az_style_border_bottom_right_radius_value_deep_copy")? };
+        let az_style_border_bottom_right_radius_value_fmt_debug = unsafe { lib.get::<extern fn(_:  &AzStyleBorderBottomRightRadiusValue) -> AzString>(b"az_style_border_bottom_right_radius_value_fmt_debug").map_err(|_| "az_style_border_bottom_right_radius_value_fmt_debug")? };
         let az_style_border_bottom_style_value_delete = unsafe { lib.get::<extern fn(_:  &mut AzStyleBorderBottomStyleValue)>(b"az_style_border_bottom_style_value_delete").map_err(|_| "az_style_border_bottom_style_value_delete")? };
         let az_style_border_bottom_style_value_deep_copy = unsafe { lib.get::<extern fn(_:  &AzStyleBorderBottomStyleValue) -> AzStyleBorderBottomStyleValue>(b"az_style_border_bottom_style_value_deep_copy").map_err(|_| "az_style_border_bottom_style_value_deep_copy")? };
+        let az_style_border_bottom_style_value_fmt_debug = unsafe { lib.get::<extern fn(_:  &AzStyleBorderBottomStyleValue) -> AzString>(b"az_style_border_bottom_style_value_fmt_debug").map_err(|_| "az_style_border_bottom_style_value_fmt_debug")? };
         let az_style_border_bottom_width_value_delete = unsafe { lib.get::<extern fn(_:  &mut AzStyleBorderBottomWidthValue)>(b"az_style_border_bottom_width_value_delete").map_err(|_| "az_style_border_bottom_width_value_delete")? };
         let az_style_border_bottom_width_value_deep_copy = unsafe { lib.get::<extern fn(_:  &AzStyleBorderBottomWidthValue) -> AzStyleBorderBottomWidthValue>(b"az_style_border_bottom_width_value_deep_copy").map_err(|_| "az_style_border_bottom_width_value_deep_copy")? };
+        let az_style_border_bottom_width_value_fmt_debug = unsafe { lib.get::<extern fn(_:  &AzStyleBorderBottomWidthValue) -> AzString>(b"az_style_border_bottom_width_value_fmt_debug").map_err(|_| "az_style_border_bottom_width_value_fmt_debug")? };
         let az_style_border_left_color_value_delete = unsafe { lib.get::<extern fn(_:  &mut AzStyleBorderLeftColorValue)>(b"az_style_border_left_color_value_delete").map_err(|_| "az_style_border_left_color_value_delete")? };
         let az_style_border_left_color_value_deep_copy = unsafe { lib.get::<extern fn(_:  &AzStyleBorderLeftColorValue) -> AzStyleBorderLeftColorValue>(b"az_style_border_left_color_value_deep_copy").map_err(|_| "az_style_border_left_color_value_deep_copy")? };
+        let az_style_border_left_color_value_fmt_debug = unsafe { lib.get::<extern fn(_:  &AzStyleBorderLeftColorValue) -> AzString>(b"az_style_border_left_color_value_fmt_debug").map_err(|_| "az_style_border_left_color_value_fmt_debug")? };
         let az_style_border_left_style_value_delete = unsafe { lib.get::<extern fn(_:  &mut AzStyleBorderLeftStyleValue)>(b"az_style_border_left_style_value_delete").map_err(|_| "az_style_border_left_style_value_delete")? };
         let az_style_border_left_style_value_deep_copy = unsafe { lib.get::<extern fn(_:  &AzStyleBorderLeftStyleValue) -> AzStyleBorderLeftStyleValue>(b"az_style_border_left_style_value_deep_copy").map_err(|_| "az_style_border_left_style_value_deep_copy")? };
+        let az_style_border_left_style_value_fmt_debug = unsafe { lib.get::<extern fn(_:  &AzStyleBorderLeftStyleValue) -> AzString>(b"az_style_border_left_style_value_fmt_debug").map_err(|_| "az_style_border_left_style_value_fmt_debug")? };
         let az_style_border_left_width_value_delete = unsafe { lib.get::<extern fn(_:  &mut AzStyleBorderLeftWidthValue)>(b"az_style_border_left_width_value_delete").map_err(|_| "az_style_border_left_width_value_delete")? };
         let az_style_border_left_width_value_deep_copy = unsafe { lib.get::<extern fn(_:  &AzStyleBorderLeftWidthValue) -> AzStyleBorderLeftWidthValue>(b"az_style_border_left_width_value_deep_copy").map_err(|_| "az_style_border_left_width_value_deep_copy")? };
+        let az_style_border_left_width_value_fmt_debug = unsafe { lib.get::<extern fn(_:  &AzStyleBorderLeftWidthValue) -> AzString>(b"az_style_border_left_width_value_fmt_debug").map_err(|_| "az_style_border_left_width_value_fmt_debug")? };
         let az_style_border_right_color_value_delete = unsafe { lib.get::<extern fn(_:  &mut AzStyleBorderRightColorValue)>(b"az_style_border_right_color_value_delete").map_err(|_| "az_style_border_right_color_value_delete")? };
         let az_style_border_right_color_value_deep_copy = unsafe { lib.get::<extern fn(_:  &AzStyleBorderRightColorValue) -> AzStyleBorderRightColorValue>(b"az_style_border_right_color_value_deep_copy").map_err(|_| "az_style_border_right_color_value_deep_copy")? };
+        let az_style_border_right_color_value_fmt_debug = unsafe { lib.get::<extern fn(_:  &AzStyleBorderRightColorValue) -> AzString>(b"az_style_border_right_color_value_fmt_debug").map_err(|_| "az_style_border_right_color_value_fmt_debug")? };
         let az_style_border_right_style_value_delete = unsafe { lib.get::<extern fn(_:  &mut AzStyleBorderRightStyleValue)>(b"az_style_border_right_style_value_delete").map_err(|_| "az_style_border_right_style_value_delete")? };
         let az_style_border_right_style_value_deep_copy = unsafe { lib.get::<extern fn(_:  &AzStyleBorderRightStyleValue) -> AzStyleBorderRightStyleValue>(b"az_style_border_right_style_value_deep_copy").map_err(|_| "az_style_border_right_style_value_deep_copy")? };
+        let az_style_border_right_style_value_fmt_debug = unsafe { lib.get::<extern fn(_:  &AzStyleBorderRightStyleValue) -> AzString>(b"az_style_border_right_style_value_fmt_debug").map_err(|_| "az_style_border_right_style_value_fmt_debug")? };
         let az_style_border_right_width_value_delete = unsafe { lib.get::<extern fn(_:  &mut AzStyleBorderRightWidthValue)>(b"az_style_border_right_width_value_delete").map_err(|_| "az_style_border_right_width_value_delete")? };
         let az_style_border_right_width_value_deep_copy = unsafe { lib.get::<extern fn(_:  &AzStyleBorderRightWidthValue) -> AzStyleBorderRightWidthValue>(b"az_style_border_right_width_value_deep_copy").map_err(|_| "az_style_border_right_width_value_deep_copy")? };
+        let az_style_border_right_width_value_fmt_debug = unsafe { lib.get::<extern fn(_:  &AzStyleBorderRightWidthValue) -> AzString>(b"az_style_border_right_width_value_fmt_debug").map_err(|_| "az_style_border_right_width_value_fmt_debug")? };
         let az_style_border_top_color_value_delete = unsafe { lib.get::<extern fn(_:  &mut AzStyleBorderTopColorValue)>(b"az_style_border_top_color_value_delete").map_err(|_| "az_style_border_top_color_value_delete")? };
         let az_style_border_top_color_value_deep_copy = unsafe { lib.get::<extern fn(_:  &AzStyleBorderTopColorValue) -> AzStyleBorderTopColorValue>(b"az_style_border_top_color_value_deep_copy").map_err(|_| "az_style_border_top_color_value_deep_copy")? };
+        let az_style_border_top_color_value_fmt_debug = unsafe { lib.get::<extern fn(_:  &AzStyleBorderTopColorValue) -> AzString>(b"az_style_border_top_color_value_fmt_debug").map_err(|_| "az_style_border_top_color_value_fmt_debug")? };
         let az_style_border_top_left_radius_value_delete = unsafe { lib.get::<extern fn(_:  &mut AzStyleBorderTopLeftRadiusValue)>(b"az_style_border_top_left_radius_value_delete").map_err(|_| "az_style_border_top_left_radius_value_delete")? };
         let az_style_border_top_left_radius_value_deep_copy = unsafe { lib.get::<extern fn(_:  &AzStyleBorderTopLeftRadiusValue) -> AzStyleBorderTopLeftRadiusValue>(b"az_style_border_top_left_radius_value_deep_copy").map_err(|_| "az_style_border_top_left_radius_value_deep_copy")? };
+        let az_style_border_top_left_radius_value_fmt_debug = unsafe { lib.get::<extern fn(_:  &AzStyleBorderTopLeftRadiusValue) -> AzString>(b"az_style_border_top_left_radius_value_fmt_debug").map_err(|_| "az_style_border_top_left_radius_value_fmt_debug")? };
         let az_style_border_top_right_radius_value_delete = unsafe { lib.get::<extern fn(_:  &mut AzStyleBorderTopRightRadiusValue)>(b"az_style_border_top_right_radius_value_delete").map_err(|_| "az_style_border_top_right_radius_value_delete")? };
         let az_style_border_top_right_radius_value_deep_copy = unsafe { lib.get::<extern fn(_:  &AzStyleBorderTopRightRadiusValue) -> AzStyleBorderTopRightRadiusValue>(b"az_style_border_top_right_radius_value_deep_copy").map_err(|_| "az_style_border_top_right_radius_value_deep_copy")? };
+        let az_style_border_top_right_radius_value_fmt_debug = unsafe { lib.get::<extern fn(_:  &AzStyleBorderTopRightRadiusValue) -> AzString>(b"az_style_border_top_right_radius_value_fmt_debug").map_err(|_| "az_style_border_top_right_radius_value_fmt_debug")? };
         let az_style_border_top_style_value_delete = unsafe { lib.get::<extern fn(_:  &mut AzStyleBorderTopStyleValue)>(b"az_style_border_top_style_value_delete").map_err(|_| "az_style_border_top_style_value_delete")? };
         let az_style_border_top_style_value_deep_copy = unsafe { lib.get::<extern fn(_:  &AzStyleBorderTopStyleValue) -> AzStyleBorderTopStyleValue>(b"az_style_border_top_style_value_deep_copy").map_err(|_| "az_style_border_top_style_value_deep_copy")? };
+        let az_style_border_top_style_value_fmt_debug = unsafe { lib.get::<extern fn(_:  &AzStyleBorderTopStyleValue) -> AzString>(b"az_style_border_top_style_value_fmt_debug").map_err(|_| "az_style_border_top_style_value_fmt_debug")? };
         let az_style_border_top_width_value_delete = unsafe { lib.get::<extern fn(_:  &mut AzStyleBorderTopWidthValue)>(b"az_style_border_top_width_value_delete").map_err(|_| "az_style_border_top_width_value_delete")? };
         let az_style_border_top_width_value_deep_copy = unsafe { lib.get::<extern fn(_:  &AzStyleBorderTopWidthValue) -> AzStyleBorderTopWidthValue>(b"az_style_border_top_width_value_deep_copy").map_err(|_| "az_style_border_top_width_value_deep_copy")? };
+        let az_style_border_top_width_value_fmt_debug = unsafe { lib.get::<extern fn(_:  &AzStyleBorderTopWidthValue) -> AzString>(b"az_style_border_top_width_value_fmt_debug").map_err(|_| "az_style_border_top_width_value_fmt_debug")? };
         let az_style_cursor_value_delete = unsafe { lib.get::<extern fn(_:  &mut AzStyleCursorValue)>(b"az_style_cursor_value_delete").map_err(|_| "az_style_cursor_value_delete")? };
         let az_style_cursor_value_deep_copy = unsafe { lib.get::<extern fn(_:  &AzStyleCursorValue) -> AzStyleCursorValue>(b"az_style_cursor_value_deep_copy").map_err(|_| "az_style_cursor_value_deep_copy")? };
+        let az_style_cursor_value_fmt_debug = unsafe { lib.get::<extern fn(_:  &AzStyleCursorValue) -> AzString>(b"az_style_cursor_value_fmt_debug").map_err(|_| "az_style_cursor_value_fmt_debug")? };
         let az_style_font_family_value_delete = unsafe { lib.get::<extern fn(_:  &mut AzStyleFontFamilyValue)>(b"az_style_font_family_value_delete").map_err(|_| "az_style_font_family_value_delete")? };
         let az_style_font_family_value_deep_copy = unsafe { lib.get::<extern fn(_:  &AzStyleFontFamilyValue) -> AzStyleFontFamilyValue>(b"az_style_font_family_value_deep_copy").map_err(|_| "az_style_font_family_value_deep_copy")? };
+        let az_style_font_family_value_fmt_debug = unsafe { lib.get::<extern fn(_:  &AzStyleFontFamilyValue) -> AzString>(b"az_style_font_family_value_fmt_debug").map_err(|_| "az_style_font_family_value_fmt_debug")? };
         let az_style_font_size_value_delete = unsafe { lib.get::<extern fn(_:  &mut AzStyleFontSizeValue)>(b"az_style_font_size_value_delete").map_err(|_| "az_style_font_size_value_delete")? };
         let az_style_font_size_value_deep_copy = unsafe { lib.get::<extern fn(_:  &AzStyleFontSizeValue) -> AzStyleFontSizeValue>(b"az_style_font_size_value_deep_copy").map_err(|_| "az_style_font_size_value_deep_copy")? };
+        let az_style_font_size_value_fmt_debug = unsafe { lib.get::<extern fn(_:  &AzStyleFontSizeValue) -> AzString>(b"az_style_font_size_value_fmt_debug").map_err(|_| "az_style_font_size_value_fmt_debug")? };
         let az_style_letter_spacing_value_delete = unsafe { lib.get::<extern fn(_:  &mut AzStyleLetterSpacingValue)>(b"az_style_letter_spacing_value_delete").map_err(|_| "az_style_letter_spacing_value_delete")? };
         let az_style_letter_spacing_value_deep_copy = unsafe { lib.get::<extern fn(_:  &AzStyleLetterSpacingValue) -> AzStyleLetterSpacingValue>(b"az_style_letter_spacing_value_deep_copy").map_err(|_| "az_style_letter_spacing_value_deep_copy")? };
+        let az_style_letter_spacing_value_fmt_debug = unsafe { lib.get::<extern fn(_:  &AzStyleLetterSpacingValue) -> AzString>(b"az_style_letter_spacing_value_fmt_debug").map_err(|_| "az_style_letter_spacing_value_fmt_debug")? };
         let az_style_line_height_value_delete = unsafe { lib.get::<extern fn(_:  &mut AzStyleLineHeightValue)>(b"az_style_line_height_value_delete").map_err(|_| "az_style_line_height_value_delete")? };
         let az_style_line_height_value_deep_copy = unsafe { lib.get::<extern fn(_:  &AzStyleLineHeightValue) -> AzStyleLineHeightValue>(b"az_style_line_height_value_deep_copy").map_err(|_| "az_style_line_height_value_deep_copy")? };
+        let az_style_line_height_value_fmt_debug = unsafe { lib.get::<extern fn(_:  &AzStyleLineHeightValue) -> AzString>(b"az_style_line_height_value_fmt_debug").map_err(|_| "az_style_line_height_value_fmt_debug")? };
         let az_style_tab_width_value_delete = unsafe { lib.get::<extern fn(_:  &mut AzStyleTabWidthValue)>(b"az_style_tab_width_value_delete").map_err(|_| "az_style_tab_width_value_delete")? };
         let az_style_tab_width_value_deep_copy = unsafe { lib.get::<extern fn(_:  &AzStyleTabWidthValue) -> AzStyleTabWidthValue>(b"az_style_tab_width_value_deep_copy").map_err(|_| "az_style_tab_width_value_deep_copy")? };
+        let az_style_tab_width_value_fmt_debug = unsafe { lib.get::<extern fn(_:  &AzStyleTabWidthValue) -> AzString>(b"az_style_tab_width_value_fmt_debug").map_err(|_| "az_style_tab_width_value_fmt_debug")? };
         let az_style_text_alignment_horz_value_delete = unsafe { lib.get::<extern fn(_:  &mut AzStyleTextAlignmentHorzValue)>(b"az_style_text_alignment_horz_value_delete").map_err(|_| "az_style_text_alignment_horz_value_delete")? };
         let az_style_text_alignment_horz_value_deep_copy = unsafe { lib.get::<extern fn(_:  &AzStyleTextAlignmentHorzValue) -> AzStyleTextAlignmentHorzValue>(b"az_style_text_alignment_horz_value_deep_copy").map_err(|_| "az_style_text_alignment_horz_value_deep_copy")? };
+        let az_style_text_alignment_horz_value_fmt_debug = unsafe { lib.get::<extern fn(_:  &AzStyleTextAlignmentHorzValue) -> AzString>(b"az_style_text_alignment_horz_value_fmt_debug").map_err(|_| "az_style_text_alignment_horz_value_fmt_debug")? };
         let az_style_text_color_value_delete = unsafe { lib.get::<extern fn(_:  &mut AzStyleTextColorValue)>(b"az_style_text_color_value_delete").map_err(|_| "az_style_text_color_value_delete")? };
         let az_style_text_color_value_deep_copy = unsafe { lib.get::<extern fn(_:  &AzStyleTextColorValue) -> AzStyleTextColorValue>(b"az_style_text_color_value_deep_copy").map_err(|_| "az_style_text_color_value_deep_copy")? };
+        let az_style_text_color_value_fmt_debug = unsafe { lib.get::<extern fn(_:  &AzStyleTextColorValue) -> AzString>(b"az_style_text_color_value_fmt_debug").map_err(|_| "az_style_text_color_value_fmt_debug")? };
         let az_style_word_spacing_value_delete = unsafe { lib.get::<extern fn(_:  &mut AzStyleWordSpacingValue)>(b"az_style_word_spacing_value_delete").map_err(|_| "az_style_word_spacing_value_delete")? };
         let az_style_word_spacing_value_deep_copy = unsafe { lib.get::<extern fn(_:  &AzStyleWordSpacingValue) -> AzStyleWordSpacingValue>(b"az_style_word_spacing_value_deep_copy").map_err(|_| "az_style_word_spacing_value_deep_copy")? };
+        let az_style_word_spacing_value_fmt_debug = unsafe { lib.get::<extern fn(_:  &AzStyleWordSpacingValue) -> AzString>(b"az_style_word_spacing_value_fmt_debug").map_err(|_| "az_style_word_spacing_value_fmt_debug")? };
         let az_css_property_delete = unsafe { lib.get::<extern fn(_:  &mut AzCssProperty)>(b"az_css_property_delete").map_err(|_| "az_css_property_delete")? };
         let az_css_property_deep_copy = unsafe { lib.get::<extern fn(_:  &AzCssProperty) -> AzCssProperty>(b"az_css_property_deep_copy").map_err(|_| "az_css_property_deep_copy")? };
+        let az_css_property_fmt_debug = unsafe { lib.get::<extern fn(_:  &AzCssProperty) -> AzString>(b"az_css_property_fmt_debug").map_err(|_| "az_css_property_fmt_debug")? };
         let az_dom_div = unsafe { lib.get::<extern fn() -> AzDom>(b"az_dom_div").map_err(|_| "az_dom_div")? };
         let az_dom_body = unsafe { lib.get::<extern fn() -> AzDom>(b"az_dom_body").map_err(|_| "az_dom_body")? };
         let az_dom_label = unsafe { lib.get::<extern fn(_:  AzString) -> AzDom>(b"az_dom_label").map_err(|_| "az_dom_label")? };
@@ -3662,58 +4171,90 @@ pub(crate) mod dll {
         let az_dom_get_html_string = unsafe { lib.get::<extern fn(_:  &AzDom) -> AzString>(b"az_dom_get_html_string").map_err(|_| "az_dom_get_html_string")? };
         let az_dom_delete = unsafe { lib.get::<extern fn(_:  &mut AzDom)>(b"az_dom_delete").map_err(|_| "az_dom_delete")? };
         let az_dom_deep_copy = unsafe { lib.get::<extern fn(_:  &AzDom) -> AzDom>(b"az_dom_deep_copy").map_err(|_| "az_dom_deep_copy")? };
+        let az_dom_fmt_debug = unsafe { lib.get::<extern fn(_:  &AzDom) -> AzString>(b"az_dom_fmt_debug").map_err(|_| "az_dom_fmt_debug")? };
         let az_gl_texture_node_delete = unsafe { lib.get::<extern fn(_:  &mut AzGlTextureNode)>(b"az_gl_texture_node_delete").map_err(|_| "az_gl_texture_node_delete")? };
         let az_gl_texture_node_deep_copy = unsafe { lib.get::<extern fn(_:  &AzGlTextureNode) -> AzGlTextureNode>(b"az_gl_texture_node_deep_copy").map_err(|_| "az_gl_texture_node_deep_copy")? };
+        let az_gl_texture_node_fmt_debug = unsafe { lib.get::<extern fn(_:  &AzGlTextureNode) -> AzString>(b"az_gl_texture_node_fmt_debug").map_err(|_| "az_gl_texture_node_fmt_debug")? };
         let az_i_frame_node_delete = unsafe { lib.get::<extern fn(_:  &mut AzIFrameNode)>(b"az_i_frame_node_delete").map_err(|_| "az_i_frame_node_delete")? };
         let az_i_frame_node_deep_copy = unsafe { lib.get::<extern fn(_:  &AzIFrameNode) -> AzIFrameNode>(b"az_i_frame_node_deep_copy").map_err(|_| "az_i_frame_node_deep_copy")? };
+        let az_i_frame_node_fmt_debug = unsafe { lib.get::<extern fn(_:  &AzIFrameNode) -> AzString>(b"az_i_frame_node_fmt_debug").map_err(|_| "az_i_frame_node_fmt_debug")? };
         let az_callback_data_delete = unsafe { lib.get::<extern fn(_:  &mut AzCallbackData)>(b"az_callback_data_delete").map_err(|_| "az_callback_data_delete")? };
         let az_callback_data_deep_copy = unsafe { lib.get::<extern fn(_:  &AzCallbackData) -> AzCallbackData>(b"az_callback_data_deep_copy").map_err(|_| "az_callback_data_deep_copy")? };
+        let az_callback_data_fmt_debug = unsafe { lib.get::<extern fn(_:  &AzCallbackData) -> AzString>(b"az_callback_data_fmt_debug").map_err(|_| "az_callback_data_fmt_debug")? };
         let az_override_property_delete = unsafe { lib.get::<extern fn(_:  &mut AzOverrideProperty)>(b"az_override_property_delete").map_err(|_| "az_override_property_delete")? };
         let az_override_property_deep_copy = unsafe { lib.get::<extern fn(_:  &AzOverrideProperty) -> AzOverrideProperty>(b"az_override_property_deep_copy").map_err(|_| "az_override_property_deep_copy")? };
+        let az_override_property_fmt_debug = unsafe { lib.get::<extern fn(_:  &AzOverrideProperty) -> AzString>(b"az_override_property_fmt_debug").map_err(|_| "az_override_property_fmt_debug")? };
         let az_node_data_new = unsafe { lib.get::<extern fn(_:  AzNodeType) -> AzNodeData>(b"az_node_data_new").map_err(|_| "az_node_data_new")? };
         let az_node_data_default = unsafe { lib.get::<extern fn() -> AzNodeData>(b"az_node_data_default").map_err(|_| "az_node_data_default")? };
         let az_node_data_delete = unsafe { lib.get::<extern fn(_:  &mut AzNodeData)>(b"az_node_data_delete").map_err(|_| "az_node_data_delete")? };
         let az_node_data_deep_copy = unsafe { lib.get::<extern fn(_:  &AzNodeData) -> AzNodeData>(b"az_node_data_deep_copy").map_err(|_| "az_node_data_deep_copy")? };
+        let az_node_data_fmt_debug = unsafe { lib.get::<extern fn(_:  &AzNodeData) -> AzString>(b"az_node_data_fmt_debug").map_err(|_| "az_node_data_fmt_debug")? };
         let az_node_type_delete = unsafe { lib.get::<extern fn(_:  &mut AzNodeType)>(b"az_node_type_delete").map_err(|_| "az_node_type_delete")? };
         let az_node_type_deep_copy = unsafe { lib.get::<extern fn(_:  &AzNodeType) -> AzNodeType>(b"az_node_type_deep_copy").map_err(|_| "az_node_type_deep_copy")? };
+        let az_node_type_fmt_debug = unsafe { lib.get::<extern fn(_:  &AzNodeType) -> AzString>(b"az_node_type_fmt_debug").map_err(|_| "az_node_type_fmt_debug")? };
         let az_on_into_event_filter = unsafe { lib.get::<extern fn(_:  AzOn) -> AzEventFilter>(b"az_on_into_event_filter").map_err(|_| "az_on_into_event_filter")? };
         let az_on_delete = unsafe { lib.get::<extern fn(_:  &mut AzOn)>(b"az_on_delete").map_err(|_| "az_on_delete")? };
         let az_on_deep_copy = unsafe { lib.get::<extern fn(_:  &AzOn) -> AzOn>(b"az_on_deep_copy").map_err(|_| "az_on_deep_copy")? };
+        let az_on_fmt_debug = unsafe { lib.get::<extern fn(_:  &AzOn) -> AzString>(b"az_on_fmt_debug").map_err(|_| "az_on_fmt_debug")? };
         let az_event_filter_delete = unsafe { lib.get::<extern fn(_:  &mut AzEventFilter)>(b"az_event_filter_delete").map_err(|_| "az_event_filter_delete")? };
         let az_event_filter_deep_copy = unsafe { lib.get::<extern fn(_:  &AzEventFilter) -> AzEventFilter>(b"az_event_filter_deep_copy").map_err(|_| "az_event_filter_deep_copy")? };
+        let az_event_filter_fmt_debug = unsafe { lib.get::<extern fn(_:  &AzEventFilter) -> AzString>(b"az_event_filter_fmt_debug").map_err(|_| "az_event_filter_fmt_debug")? };
         let az_hover_event_filter_delete = unsafe { lib.get::<extern fn(_:  &mut AzHoverEventFilter)>(b"az_hover_event_filter_delete").map_err(|_| "az_hover_event_filter_delete")? };
         let az_hover_event_filter_deep_copy = unsafe { lib.get::<extern fn(_:  &AzHoverEventFilter) -> AzHoverEventFilter>(b"az_hover_event_filter_deep_copy").map_err(|_| "az_hover_event_filter_deep_copy")? };
+        let az_hover_event_filter_fmt_debug = unsafe { lib.get::<extern fn(_:  &AzHoverEventFilter) -> AzString>(b"az_hover_event_filter_fmt_debug").map_err(|_| "az_hover_event_filter_fmt_debug")? };
         let az_focus_event_filter_delete = unsafe { lib.get::<extern fn(_:  &mut AzFocusEventFilter)>(b"az_focus_event_filter_delete").map_err(|_| "az_focus_event_filter_delete")? };
         let az_focus_event_filter_deep_copy = unsafe { lib.get::<extern fn(_:  &AzFocusEventFilter) -> AzFocusEventFilter>(b"az_focus_event_filter_deep_copy").map_err(|_| "az_focus_event_filter_deep_copy")? };
+        let az_focus_event_filter_fmt_debug = unsafe { lib.get::<extern fn(_:  &AzFocusEventFilter) -> AzString>(b"az_focus_event_filter_fmt_debug").map_err(|_| "az_focus_event_filter_fmt_debug")? };
         let az_not_event_filter_delete = unsafe { lib.get::<extern fn(_:  &mut AzNotEventFilter)>(b"az_not_event_filter_delete").map_err(|_| "az_not_event_filter_delete")? };
         let az_not_event_filter_deep_copy = unsafe { lib.get::<extern fn(_:  &AzNotEventFilter) -> AzNotEventFilter>(b"az_not_event_filter_deep_copy").map_err(|_| "az_not_event_filter_deep_copy")? };
+        let az_not_event_filter_fmt_debug = unsafe { lib.get::<extern fn(_:  &AzNotEventFilter) -> AzString>(b"az_not_event_filter_fmt_debug").map_err(|_| "az_not_event_filter_fmt_debug")? };
         let az_window_event_filter_delete = unsafe { lib.get::<extern fn(_:  &mut AzWindowEventFilter)>(b"az_window_event_filter_delete").map_err(|_| "az_window_event_filter_delete")? };
         let az_window_event_filter_deep_copy = unsafe { lib.get::<extern fn(_:  &AzWindowEventFilter) -> AzWindowEventFilter>(b"az_window_event_filter_deep_copy").map_err(|_| "az_window_event_filter_deep_copy")? };
+        let az_window_event_filter_fmt_debug = unsafe { lib.get::<extern fn(_:  &AzWindowEventFilter) -> AzString>(b"az_window_event_filter_fmt_debug").map_err(|_| "az_window_event_filter_fmt_debug")? };
         let az_tab_index_delete = unsafe { lib.get::<extern fn(_:  &mut AzTabIndex)>(b"az_tab_index_delete").map_err(|_| "az_tab_index_delete")? };
         let az_tab_index_deep_copy = unsafe { lib.get::<extern fn(_:  &AzTabIndex) -> AzTabIndex>(b"az_tab_index_deep_copy").map_err(|_| "az_tab_index_deep_copy")? };
+        let az_tab_index_fmt_debug = unsafe { lib.get::<extern fn(_:  &AzTabIndex) -> AzString>(b"az_tab_index_fmt_debug").map_err(|_| "az_tab_index_fmt_debug")? };
         let az_gl_type_delete = unsafe { lib.get::<extern fn(_:  &mut AzGlType)>(b"az_gl_type_delete").map_err(|_| "az_gl_type_delete")? };
         let az_gl_type_deep_copy = unsafe { lib.get::<extern fn(_:  &AzGlType) -> AzGlType>(b"az_gl_type_deep_copy").map_err(|_| "az_gl_type_deep_copy")? };
+        let az_gl_type_fmt_debug = unsafe { lib.get::<extern fn(_:  &AzGlType) -> AzString>(b"az_gl_type_fmt_debug").map_err(|_| "az_gl_type_fmt_debug")? };
         let az_debug_message_delete = unsafe { lib.get::<extern fn(_:  &mut AzDebugMessage)>(b"az_debug_message_delete").map_err(|_| "az_debug_message_delete")? };
         let az_debug_message_deep_copy = unsafe { lib.get::<extern fn(_:  &AzDebugMessage) -> AzDebugMessage>(b"az_debug_message_deep_copy").map_err(|_| "az_debug_message_deep_copy")? };
+        let az_debug_message_fmt_debug = unsafe { lib.get::<extern fn(_:  &AzDebugMessage) -> AzString>(b"az_debug_message_fmt_debug").map_err(|_| "az_debug_message_fmt_debug")? };
         let az_u8_vec_ref_delete = unsafe { lib.get::<extern fn(_:  &mut AzU8VecRef)>(b"az_u8_vec_ref_delete").map_err(|_| "az_u8_vec_ref_delete")? };
+        let az_u8_vec_ref_fmt_debug = unsafe { lib.get::<extern fn(_:  &AzU8VecRef) -> AzString>(b"az_u8_vec_ref_fmt_debug").map_err(|_| "az_u8_vec_ref_fmt_debug")? };
         let az_u8_vec_ref_mut_delete = unsafe { lib.get::<extern fn(_:  &mut AzU8VecRefMut)>(b"az_u8_vec_ref_mut_delete").map_err(|_| "az_u8_vec_ref_mut_delete")? };
+        let az_u8_vec_ref_mut_fmt_debug = unsafe { lib.get::<extern fn(_:  &AzU8VecRefMut) -> AzString>(b"az_u8_vec_ref_mut_fmt_debug").map_err(|_| "az_u8_vec_ref_mut_fmt_debug")? };
         let az_f32_vec_ref_delete = unsafe { lib.get::<extern fn(_:  &mut AzF32VecRef)>(b"az_f32_vec_ref_delete").map_err(|_| "az_f32_vec_ref_delete")? };
+        let az_f32_vec_ref_fmt_debug = unsafe { lib.get::<extern fn(_:  &AzF32VecRef) -> AzString>(b"az_f32_vec_ref_fmt_debug").map_err(|_| "az_f32_vec_ref_fmt_debug")? };
         let az_i32_vec_ref_delete = unsafe { lib.get::<extern fn(_:  &mut AzI32VecRef)>(b"az_i32_vec_ref_delete").map_err(|_| "az_i32_vec_ref_delete")? };
+        let az_i32_vec_ref_fmt_debug = unsafe { lib.get::<extern fn(_:  &AzI32VecRef) -> AzString>(b"az_i32_vec_ref_fmt_debug").map_err(|_| "az_i32_vec_ref_fmt_debug")? };
         let az_g_luint_vec_ref_delete = unsafe { lib.get::<extern fn(_:  &mut AzGLuintVecRef)>(b"az_g_luint_vec_ref_delete").map_err(|_| "az_g_luint_vec_ref_delete")? };
+        let az_g_luint_vec_ref_fmt_debug = unsafe { lib.get::<extern fn(_:  &AzGLuintVecRef) -> AzString>(b"az_g_luint_vec_ref_fmt_debug").map_err(|_| "az_g_luint_vec_ref_fmt_debug")? };
         let az_g_lenum_vec_ref_delete = unsafe { lib.get::<extern fn(_:  &mut AzGLenumVecRef)>(b"az_g_lenum_vec_ref_delete").map_err(|_| "az_g_lenum_vec_ref_delete")? };
+        let az_g_lenum_vec_ref_fmt_debug = unsafe { lib.get::<extern fn(_:  &AzGLenumVecRef) -> AzString>(b"az_g_lenum_vec_ref_fmt_debug").map_err(|_| "az_g_lenum_vec_ref_fmt_debug")? };
         let az_g_lint_vec_ref_mut_delete = unsafe { lib.get::<extern fn(_:  &mut AzGLintVecRefMut)>(b"az_g_lint_vec_ref_mut_delete").map_err(|_| "az_g_lint_vec_ref_mut_delete")? };
+        let az_g_lint_vec_ref_mut_fmt_debug = unsafe { lib.get::<extern fn(_:  &AzGLintVecRefMut) -> AzString>(b"az_g_lint_vec_ref_mut_fmt_debug").map_err(|_| "az_g_lint_vec_ref_mut_fmt_debug")? };
         let az_g_lint64_vec_ref_mut_delete = unsafe { lib.get::<extern fn(_:  &mut AzGLint64VecRefMut)>(b"az_g_lint64_vec_ref_mut_delete").map_err(|_| "az_g_lint64_vec_ref_mut_delete")? };
+        let az_g_lint64_vec_ref_mut_fmt_debug = unsafe { lib.get::<extern fn(_:  &AzGLint64VecRefMut) -> AzString>(b"az_g_lint64_vec_ref_mut_fmt_debug").map_err(|_| "az_g_lint64_vec_ref_mut_fmt_debug")? };
         let az_g_lboolean_vec_ref_mut_delete = unsafe { lib.get::<extern fn(_:  &mut AzGLbooleanVecRefMut)>(b"az_g_lboolean_vec_ref_mut_delete").map_err(|_| "az_g_lboolean_vec_ref_mut_delete")? };
+        let az_g_lboolean_vec_ref_mut_fmt_debug = unsafe { lib.get::<extern fn(_:  &AzGLbooleanVecRefMut) -> AzString>(b"az_g_lboolean_vec_ref_mut_fmt_debug").map_err(|_| "az_g_lboolean_vec_ref_mut_fmt_debug")? };
         let az_g_lfloat_vec_ref_mut_delete = unsafe { lib.get::<extern fn(_:  &mut AzGLfloatVecRefMut)>(b"az_g_lfloat_vec_ref_mut_delete").map_err(|_| "az_g_lfloat_vec_ref_mut_delete")? };
+        let az_g_lfloat_vec_ref_mut_fmt_debug = unsafe { lib.get::<extern fn(_:  &AzGLfloatVecRefMut) -> AzString>(b"az_g_lfloat_vec_ref_mut_fmt_debug").map_err(|_| "az_g_lfloat_vec_ref_mut_fmt_debug")? };
         let az_refstr_vec_ref_delete = unsafe { lib.get::<extern fn(_:  &mut AzRefstrVecRef)>(b"az_refstr_vec_ref_delete").map_err(|_| "az_refstr_vec_ref_delete")? };
+        let az_refstr_vec_ref_fmt_debug = unsafe { lib.get::<extern fn(_:  &AzRefstrVecRef) -> AzString>(b"az_refstr_vec_ref_fmt_debug").map_err(|_| "az_refstr_vec_ref_fmt_debug")? };
         let az_refstr_delete = unsafe { lib.get::<extern fn(_:  &mut AzRefstr)>(b"az_refstr_delete").map_err(|_| "az_refstr_delete")? };
+        let az_refstr_fmt_debug = unsafe { lib.get::<extern fn(_:  &AzRefstr) -> AzString>(b"az_refstr_fmt_debug").map_err(|_| "az_refstr_fmt_debug")? };
         let az_get_program_binary_return_delete = unsafe { lib.get::<extern fn(_:  &mut AzGetProgramBinaryReturn)>(b"az_get_program_binary_return_delete").map_err(|_| "az_get_program_binary_return_delete")? };
         let az_get_program_binary_return_deep_copy = unsafe { lib.get::<extern fn(_:  &AzGetProgramBinaryReturn) -> AzGetProgramBinaryReturn>(b"az_get_program_binary_return_deep_copy").map_err(|_| "az_get_program_binary_return_deep_copy")? };
+        let az_get_program_binary_return_fmt_debug = unsafe { lib.get::<extern fn(_:  &AzGetProgramBinaryReturn) -> AzString>(b"az_get_program_binary_return_fmt_debug").map_err(|_| "az_get_program_binary_return_fmt_debug")? };
         let az_get_active_attrib_return_delete = unsafe { lib.get::<extern fn(_:  &mut AzGetActiveAttribReturn)>(b"az_get_active_attrib_return_delete").map_err(|_| "az_get_active_attrib_return_delete")? };
         let az_get_active_attrib_return_deep_copy = unsafe { lib.get::<extern fn(_:  &AzGetActiveAttribReturn) -> AzGetActiveAttribReturn>(b"az_get_active_attrib_return_deep_copy").map_err(|_| "az_get_active_attrib_return_deep_copy")? };
+        let az_get_active_attrib_return_fmt_debug = unsafe { lib.get::<extern fn(_:  &AzGetActiveAttribReturn) -> AzString>(b"az_get_active_attrib_return_fmt_debug").map_err(|_| "az_get_active_attrib_return_fmt_debug")? };
         let az_g_lsync_ptr_delete = unsafe { lib.get::<extern fn(_:  &mut AzGLsyncPtr)>(b"az_g_lsync_ptr_delete").map_err(|_| "az_g_lsync_ptr_delete")? };
+        let az_g_lsync_ptr_fmt_debug = unsafe { lib.get::<extern fn(_:  &AzGLsyncPtr) -> AzString>(b"az_g_lsync_ptr_fmt_debug").map_err(|_| "az_g_lsync_ptr_fmt_debug")? };
         let az_get_active_uniform_return_delete = unsafe { lib.get::<extern fn(_:  &mut AzGetActiveUniformReturn)>(b"az_get_active_uniform_return_delete").map_err(|_| "az_get_active_uniform_return_delete")? };
         let az_get_active_uniform_return_deep_copy = unsafe { lib.get::<extern fn(_:  &AzGetActiveUniformReturn) -> AzGetActiveUniformReturn>(b"az_get_active_uniform_return_deep_copy").map_err(|_| "az_get_active_uniform_return_deep_copy")? };
+        let az_get_active_uniform_return_fmt_debug = unsafe { lib.get::<extern fn(_:  &AzGetActiveUniformReturn) -> AzString>(b"az_get_active_uniform_return_fmt_debug").map_err(|_| "az_get_active_uniform_return_fmt_debug")? };
         let az_gl_context_ptr_get_type = unsafe { lib.get::<extern fn(_:  &AzGlContextPtr) -> AzGlType>(b"az_gl_context_ptr_get_type").map_err(|_| "az_gl_context_ptr_get_type")? };
         let az_gl_context_ptr_buffer_data_untyped = unsafe { lib.get::<extern fn(_:  &AzGlContextPtr, _:  u32, _:  isize, _:  *const c_void, _:  u32)>(b"az_gl_context_ptr_buffer_data_untyped").map_err(|_| "az_gl_context_ptr_buffer_data_untyped")? };
         let az_gl_context_ptr_buffer_sub_data_untyped = unsafe { lib.get::<extern fn(_:  &AzGlContextPtr, _:  u32, _:  isize, _:  isize, _:  *const c_void)>(b"az_gl_context_ptr_buffer_sub_data_untyped").map_err(|_| "az_gl_context_ptr_buffer_sub_data_untyped")? };
@@ -3935,105 +4476,154 @@ pub(crate) mod dll {
         let az_gl_context_ptr_copy_sub_texture_3d_angle = unsafe { lib.get::<extern fn(_:  &AzGlContextPtr, _:  u32, _:  i32, _:  u32, _:  u32, _:  i32, _:  i32, _:  i32, _:  i32, _:  i32, _:  i32, _:  i32, _:  i32, _:  i32, _:  i32, _:  u8, _:  u8, _:  u8)>(b"az_gl_context_ptr_copy_sub_texture_3d_angle").map_err(|_| "az_gl_context_ptr_copy_sub_texture_3d_angle")? };
         let az_gl_context_ptr_delete = unsafe { lib.get::<extern fn(_:  &mut AzGlContextPtr)>(b"az_gl_context_ptr_delete").map_err(|_| "az_gl_context_ptr_delete")? };
         let az_gl_context_ptr_deep_copy = unsafe { lib.get::<extern fn(_:  &AzGlContextPtr) -> AzGlContextPtr>(b"az_gl_context_ptr_deep_copy").map_err(|_| "az_gl_context_ptr_deep_copy")? };
+        let az_gl_context_ptr_fmt_debug = unsafe { lib.get::<extern fn(_:  &AzGlContextPtr) -> AzString>(b"az_gl_context_ptr_fmt_debug").map_err(|_| "az_gl_context_ptr_fmt_debug")? };
         let az_texture_delete = unsafe { lib.get::<extern fn(_:  &mut AzTexture)>(b"az_texture_delete").map_err(|_| "az_texture_delete")? };
+        let az_texture_fmt_debug = unsafe { lib.get::<extern fn(_:  &AzTexture) -> AzString>(b"az_texture_fmt_debug").map_err(|_| "az_texture_fmt_debug")? };
         let az_texture_flags_delete = unsafe { lib.get::<extern fn(_:  &mut AzTextureFlags)>(b"az_texture_flags_delete").map_err(|_| "az_texture_flags_delete")? };
         let az_texture_flags_deep_copy = unsafe { lib.get::<extern fn(_:  &AzTextureFlags) -> AzTextureFlags>(b"az_texture_flags_deep_copy").map_err(|_| "az_texture_flags_deep_copy")? };
+        let az_texture_flags_fmt_debug = unsafe { lib.get::<extern fn(_:  &AzTextureFlags) -> AzString>(b"az_texture_flags_fmt_debug").map_err(|_| "az_texture_flags_fmt_debug")? };
         let az_text_id_new = unsafe { lib.get::<extern fn() -> AzTextId>(b"az_text_id_new").map_err(|_| "az_text_id_new")? };
         let az_text_id_delete = unsafe { lib.get::<extern fn(_:  &mut AzTextId)>(b"az_text_id_delete").map_err(|_| "az_text_id_delete")? };
         let az_text_id_deep_copy = unsafe { lib.get::<extern fn(_:  &AzTextId) -> AzTextId>(b"az_text_id_deep_copy").map_err(|_| "az_text_id_deep_copy")? };
+        let az_text_id_fmt_debug = unsafe { lib.get::<extern fn(_:  &AzTextId) -> AzString>(b"az_text_id_fmt_debug").map_err(|_| "az_text_id_fmt_debug")? };
         let az_image_id_new = unsafe { lib.get::<extern fn() -> AzImageId>(b"az_image_id_new").map_err(|_| "az_image_id_new")? };
         let az_image_id_delete = unsafe { lib.get::<extern fn(_:  &mut AzImageId)>(b"az_image_id_delete").map_err(|_| "az_image_id_delete")? };
         let az_image_id_deep_copy = unsafe { lib.get::<extern fn(_:  &AzImageId) -> AzImageId>(b"az_image_id_deep_copy").map_err(|_| "az_image_id_deep_copy")? };
+        let az_image_id_fmt_debug = unsafe { lib.get::<extern fn(_:  &AzImageId) -> AzString>(b"az_image_id_fmt_debug").map_err(|_| "az_image_id_fmt_debug")? };
         let az_font_id_new = unsafe { lib.get::<extern fn() -> AzFontId>(b"az_font_id_new").map_err(|_| "az_font_id_new")? };
         let az_font_id_delete = unsafe { lib.get::<extern fn(_:  &mut AzFontId)>(b"az_font_id_delete").map_err(|_| "az_font_id_delete")? };
         let az_font_id_deep_copy = unsafe { lib.get::<extern fn(_:  &AzFontId) -> AzFontId>(b"az_font_id_deep_copy").map_err(|_| "az_font_id_deep_copy")? };
+        let az_font_id_fmt_debug = unsafe { lib.get::<extern fn(_:  &AzFontId) -> AzString>(b"az_font_id_fmt_debug").map_err(|_| "az_font_id_fmt_debug")? };
         let az_image_source_delete = unsafe { lib.get::<extern fn(_:  &mut AzImageSource)>(b"az_image_source_delete").map_err(|_| "az_image_source_delete")? };
         let az_image_source_deep_copy = unsafe { lib.get::<extern fn(_:  &AzImageSource) -> AzImageSource>(b"az_image_source_deep_copy").map_err(|_| "az_image_source_deep_copy")? };
+        let az_image_source_fmt_debug = unsafe { lib.get::<extern fn(_:  &AzImageSource) -> AzString>(b"az_image_source_fmt_debug").map_err(|_| "az_image_source_fmt_debug")? };
         let az_font_source_delete = unsafe { lib.get::<extern fn(_:  &mut AzFontSource)>(b"az_font_source_delete").map_err(|_| "az_font_source_delete")? };
         let az_font_source_deep_copy = unsafe { lib.get::<extern fn(_:  &AzFontSource) -> AzFontSource>(b"az_font_source_deep_copy").map_err(|_| "az_font_source_deep_copy")? };
+        let az_font_source_fmt_debug = unsafe { lib.get::<extern fn(_:  &AzFontSource) -> AzString>(b"az_font_source_fmt_debug").map_err(|_| "az_font_source_fmt_debug")? };
         let az_raw_image_new = unsafe { lib.get::<extern fn(_:  AzU8Vec, _:  usize, _:  usize, _:  AzRawImageFormat) -> AzRawImage>(b"az_raw_image_new").map_err(|_| "az_raw_image_new")? };
         let az_raw_image_delete = unsafe { lib.get::<extern fn(_:  &mut AzRawImage)>(b"az_raw_image_delete").map_err(|_| "az_raw_image_delete")? };
         let az_raw_image_deep_copy = unsafe { lib.get::<extern fn(_:  &AzRawImage) -> AzRawImage>(b"az_raw_image_deep_copy").map_err(|_| "az_raw_image_deep_copy")? };
+        let az_raw_image_fmt_debug = unsafe { lib.get::<extern fn(_:  &AzRawImage) -> AzString>(b"az_raw_image_fmt_debug").map_err(|_| "az_raw_image_fmt_debug")? };
         let az_raw_image_format_delete = unsafe { lib.get::<extern fn(_:  &mut AzRawImageFormat)>(b"az_raw_image_format_delete").map_err(|_| "az_raw_image_format_delete")? };
         let az_raw_image_format_deep_copy = unsafe { lib.get::<extern fn(_:  &AzRawImageFormat) -> AzRawImageFormat>(b"az_raw_image_format_deep_copy").map_err(|_| "az_raw_image_format_deep_copy")? };
+        let az_raw_image_format_fmt_debug = unsafe { lib.get::<extern fn(_:  &AzRawImageFormat) -> AzString>(b"az_raw_image_format_fmt_debug").map_err(|_| "az_raw_image_format_fmt_debug")? };
         let az_drop_check_ptr_delete = unsafe { lib.get::<extern fn(_:  &mut AzDropCheckPtrPtr)>(b"az_drop_check_ptr_delete").map_err(|_| "az_drop_check_ptr_delete")? };
+        let az_drop_check_ptr_fmt_debug = unsafe { lib.get::<extern fn(_:  &AzDropCheckPtrPtr) -> AzString>(b"az_drop_check_ptr_fmt_debug").map_err(|_| "az_drop_check_ptr_fmt_debug")? };
         let az_arc_mutex_ref_any_delete = unsafe { lib.get::<extern fn(_:  &mut AzArcMutexRefAnyPtr)>(b"az_arc_mutex_ref_any_delete").map_err(|_| "az_arc_mutex_ref_any_delete")? };
+        let az_arc_mutex_ref_any_fmt_debug = unsafe { lib.get::<extern fn(_:  &AzArcMutexRefAnyPtr) -> AzString>(b"az_arc_mutex_ref_any_fmt_debug").map_err(|_| "az_arc_mutex_ref_any_fmt_debug")? };
         let az_timer_delete = unsafe { lib.get::<extern fn(_:  &mut AzTimer)>(b"az_timer_delete").map_err(|_| "az_timer_delete")? };
         let az_timer_deep_copy = unsafe { lib.get::<extern fn(_:  &AzTimer) -> AzTimer>(b"az_timer_deep_copy").map_err(|_| "az_timer_deep_copy")? };
+        let az_timer_fmt_debug = unsafe { lib.get::<extern fn(_:  &AzTimer) -> AzString>(b"az_timer_fmt_debug").map_err(|_| "az_timer_fmt_debug")? };
         let az_task_new = unsafe { lib.get::<extern fn(_:  AzArcMutexRefAnyPtr, _:  AzTaskCallbackType) -> AzTaskPtr>(b"az_task_new").map_err(|_| "az_task_new")? };
         let az_task_then = unsafe { lib.get::<extern fn(_:  AzTaskPtr, _:  AzTimer) -> AzTaskPtr>(b"az_task_then").map_err(|_| "az_task_then")? };
         let az_task_delete = unsafe { lib.get::<extern fn(_:  &mut AzTaskPtr)>(b"az_task_delete").map_err(|_| "az_task_delete")? };
+        let az_task_fmt_debug = unsafe { lib.get::<extern fn(_:  &AzTaskPtr) -> AzString>(b"az_task_fmt_debug").map_err(|_| "az_task_fmt_debug")? };
         let az_thread_new = unsafe { lib.get::<extern fn(_:  AzRefAny, _:  AzThreadCallbackType) -> AzThreadPtr>(b"az_thread_new").map_err(|_| "az_thread_new")? };
         let az_thread_block = unsafe { lib.get::<extern fn(_:  AzThreadPtr) -> AzResultRefAnyBlockError>(b"az_thread_block").map_err(|_| "az_thread_block")? };
         let az_thread_delete = unsafe { lib.get::<extern fn(_:  &mut AzThreadPtr)>(b"az_thread_delete").map_err(|_| "az_thread_delete")? };
+        let az_thread_fmt_debug = unsafe { lib.get::<extern fn(_:  &AzThreadPtr) -> AzString>(b"az_thread_fmt_debug").map_err(|_| "az_thread_fmt_debug")? };
         let az_drop_check_delete = unsafe { lib.get::<extern fn(_:  &mut AzDropCheckPtr)>(b"az_drop_check_delete").map_err(|_| "az_drop_check_delete")? };
+        let az_drop_check_fmt_debug = unsafe { lib.get::<extern fn(_:  &AzDropCheckPtr) -> AzString>(b"az_drop_check_fmt_debug").map_err(|_| "az_drop_check_fmt_debug")? };
         let az_timer_id_delete = unsafe { lib.get::<extern fn(_:  &mut AzTimerId)>(b"az_timer_id_delete").map_err(|_| "az_timer_id_delete")? };
         let az_timer_id_deep_copy = unsafe { lib.get::<extern fn(_:  &AzTimerId) -> AzTimerId>(b"az_timer_id_deep_copy").map_err(|_| "az_timer_id_deep_copy")? };
+        let az_timer_id_fmt_debug = unsafe { lib.get::<extern fn(_:  &AzTimerId) -> AzString>(b"az_timer_id_fmt_debug").map_err(|_| "az_timer_id_fmt_debug")? };
         let az_terminate_timer_delete = unsafe { lib.get::<extern fn(_:  &mut AzTerminateTimer)>(b"az_terminate_timer_delete").map_err(|_| "az_terminate_timer_delete")? };
         let az_terminate_timer_deep_copy = unsafe { lib.get::<extern fn(_:  &AzTerminateTimer) -> AzTerminateTimer>(b"az_terminate_timer_deep_copy").map_err(|_| "az_terminate_timer_deep_copy")? };
+        let az_terminate_timer_fmt_debug = unsafe { lib.get::<extern fn(_:  &AzTerminateTimer) -> AzString>(b"az_terminate_timer_fmt_debug").map_err(|_| "az_terminate_timer_fmt_debug")? };
         let az_block_error_delete = unsafe { lib.get::<extern fn(_:  &mut AzBlockError)>(b"az_block_error_delete").map_err(|_| "az_block_error_delete")? };
         let az_block_error_deep_copy = unsafe { lib.get::<extern fn(_:  &AzBlockError) -> AzBlockError>(b"az_block_error_deep_copy").map_err(|_| "az_block_error_deep_copy")? };
+        let az_block_error_fmt_debug = unsafe { lib.get::<extern fn(_:  &AzBlockError) -> AzString>(b"az_block_error_fmt_debug").map_err(|_| "az_block_error_fmt_debug")? };
         let az_task_bar_icon_delete = unsafe { lib.get::<extern fn(_:  &mut AzTaskBarIcon)>(b"az_task_bar_icon_delete").map_err(|_| "az_task_bar_icon_delete")? };
         let az_task_bar_icon_deep_copy = unsafe { lib.get::<extern fn(_:  &AzTaskBarIcon) -> AzTaskBarIcon>(b"az_task_bar_icon_deep_copy").map_err(|_| "az_task_bar_icon_deep_copy")? };
+        let az_task_bar_icon_fmt_debug = unsafe { lib.get::<extern fn(_:  &AzTaskBarIcon) -> AzString>(b"az_task_bar_icon_fmt_debug").map_err(|_| "az_task_bar_icon_fmt_debug")? };
         let az_x_window_type_delete = unsafe { lib.get::<extern fn(_:  &mut AzXWindowType)>(b"az_x_window_type_delete").map_err(|_| "az_x_window_type_delete")? };
         let az_x_window_type_deep_copy = unsafe { lib.get::<extern fn(_:  &AzXWindowType) -> AzXWindowType>(b"az_x_window_type_deep_copy").map_err(|_| "az_x_window_type_deep_copy")? };
+        let az_x_window_type_fmt_debug = unsafe { lib.get::<extern fn(_:  &AzXWindowType) -> AzString>(b"az_x_window_type_fmt_debug").map_err(|_| "az_x_window_type_fmt_debug")? };
         let az_physical_position_i32_delete = unsafe { lib.get::<extern fn(_:  &mut AzPhysicalPositionI32)>(b"az_physical_position_i32_delete").map_err(|_| "az_physical_position_i32_delete")? };
         let az_physical_position_i32_deep_copy = unsafe { lib.get::<extern fn(_:  &AzPhysicalPositionI32) -> AzPhysicalPositionI32>(b"az_physical_position_i32_deep_copy").map_err(|_| "az_physical_position_i32_deep_copy")? };
+        let az_physical_position_i32_fmt_debug = unsafe { lib.get::<extern fn(_:  &AzPhysicalPositionI32) -> AzString>(b"az_physical_position_i32_fmt_debug").map_err(|_| "az_physical_position_i32_fmt_debug")? };
         let az_logical_position_delete = unsafe { lib.get::<extern fn(_:  &mut AzLogicalPosition)>(b"az_logical_position_delete").map_err(|_| "az_logical_position_delete")? };
         let az_logical_position_deep_copy = unsafe { lib.get::<extern fn(_:  &AzLogicalPosition) -> AzLogicalPosition>(b"az_logical_position_deep_copy").map_err(|_| "az_logical_position_deep_copy")? };
+        let az_logical_position_fmt_debug = unsafe { lib.get::<extern fn(_:  &AzLogicalPosition) -> AzString>(b"az_logical_position_fmt_debug").map_err(|_| "az_logical_position_fmt_debug")? };
         let az_icon_key_delete = unsafe { lib.get::<extern fn(_:  &mut AzIconKey)>(b"az_icon_key_delete").map_err(|_| "az_icon_key_delete")? };
         let az_icon_key_deep_copy = unsafe { lib.get::<extern fn(_:  &AzIconKey) -> AzIconKey>(b"az_icon_key_deep_copy").map_err(|_| "az_icon_key_deep_copy")? };
+        let az_icon_key_fmt_debug = unsafe { lib.get::<extern fn(_:  &AzIconKey) -> AzString>(b"az_icon_key_fmt_debug").map_err(|_| "az_icon_key_fmt_debug")? };
         let az_small_window_icon_bytes_delete = unsafe { lib.get::<extern fn(_:  &mut AzSmallWindowIconBytes)>(b"az_small_window_icon_bytes_delete").map_err(|_| "az_small_window_icon_bytes_delete")? };
         let az_small_window_icon_bytes_deep_copy = unsafe { lib.get::<extern fn(_:  &AzSmallWindowIconBytes) -> AzSmallWindowIconBytes>(b"az_small_window_icon_bytes_deep_copy").map_err(|_| "az_small_window_icon_bytes_deep_copy")? };
+        let az_small_window_icon_bytes_fmt_debug = unsafe { lib.get::<extern fn(_:  &AzSmallWindowIconBytes) -> AzString>(b"az_small_window_icon_bytes_fmt_debug").map_err(|_| "az_small_window_icon_bytes_fmt_debug")? };
         let az_large_window_icon_bytes_delete = unsafe { lib.get::<extern fn(_:  &mut AzLargeWindowIconBytes)>(b"az_large_window_icon_bytes_delete").map_err(|_| "az_large_window_icon_bytes_delete")? };
         let az_large_window_icon_bytes_deep_copy = unsafe { lib.get::<extern fn(_:  &AzLargeWindowIconBytes) -> AzLargeWindowIconBytes>(b"az_large_window_icon_bytes_deep_copy").map_err(|_| "az_large_window_icon_bytes_deep_copy")? };
+        let az_large_window_icon_bytes_fmt_debug = unsafe { lib.get::<extern fn(_:  &AzLargeWindowIconBytes) -> AzString>(b"az_large_window_icon_bytes_fmt_debug").map_err(|_| "az_large_window_icon_bytes_fmt_debug")? };
         let az_window_icon_delete = unsafe { lib.get::<extern fn(_:  &mut AzWindowIcon)>(b"az_window_icon_delete").map_err(|_| "az_window_icon_delete")? };
         let az_window_icon_deep_copy = unsafe { lib.get::<extern fn(_:  &AzWindowIcon) -> AzWindowIcon>(b"az_window_icon_deep_copy").map_err(|_| "az_window_icon_deep_copy")? };
+        let az_window_icon_fmt_debug = unsafe { lib.get::<extern fn(_:  &AzWindowIcon) -> AzString>(b"az_window_icon_fmt_debug").map_err(|_| "az_window_icon_fmt_debug")? };
         let az_virtual_key_code_delete = unsafe { lib.get::<extern fn(_:  &mut AzVirtualKeyCode)>(b"az_virtual_key_code_delete").map_err(|_| "az_virtual_key_code_delete")? };
         let az_virtual_key_code_deep_copy = unsafe { lib.get::<extern fn(_:  &AzVirtualKeyCode) -> AzVirtualKeyCode>(b"az_virtual_key_code_deep_copy").map_err(|_| "az_virtual_key_code_deep_copy")? };
+        let az_virtual_key_code_fmt_debug = unsafe { lib.get::<extern fn(_:  &AzVirtualKeyCode) -> AzString>(b"az_virtual_key_code_fmt_debug").map_err(|_| "az_virtual_key_code_fmt_debug")? };
         let az_accelerator_key_delete = unsafe { lib.get::<extern fn(_:  &mut AzAcceleratorKey)>(b"az_accelerator_key_delete").map_err(|_| "az_accelerator_key_delete")? };
         let az_accelerator_key_deep_copy = unsafe { lib.get::<extern fn(_:  &AzAcceleratorKey) -> AzAcceleratorKey>(b"az_accelerator_key_deep_copy").map_err(|_| "az_accelerator_key_deep_copy")? };
+        let az_accelerator_key_fmt_debug = unsafe { lib.get::<extern fn(_:  &AzAcceleratorKey) -> AzString>(b"az_accelerator_key_fmt_debug").map_err(|_| "az_accelerator_key_fmt_debug")? };
         let az_window_size_delete = unsafe { lib.get::<extern fn(_:  &mut AzWindowSize)>(b"az_window_size_delete").map_err(|_| "az_window_size_delete")? };
         let az_window_size_deep_copy = unsafe { lib.get::<extern fn(_:  &AzWindowSize) -> AzWindowSize>(b"az_window_size_deep_copy").map_err(|_| "az_window_size_deep_copy")? };
+        let az_window_size_fmt_debug = unsafe { lib.get::<extern fn(_:  &AzWindowSize) -> AzString>(b"az_window_size_fmt_debug").map_err(|_| "az_window_size_fmt_debug")? };
         let az_window_flags_delete = unsafe { lib.get::<extern fn(_:  &mut AzWindowFlags)>(b"az_window_flags_delete").map_err(|_| "az_window_flags_delete")? };
         let az_window_flags_deep_copy = unsafe { lib.get::<extern fn(_:  &AzWindowFlags) -> AzWindowFlags>(b"az_window_flags_deep_copy").map_err(|_| "az_window_flags_deep_copy")? };
+        let az_window_flags_fmt_debug = unsafe { lib.get::<extern fn(_:  &AzWindowFlags) -> AzString>(b"az_window_flags_fmt_debug").map_err(|_| "az_window_flags_fmt_debug")? };
         let az_debug_state_delete = unsafe { lib.get::<extern fn(_:  &mut AzDebugState)>(b"az_debug_state_delete").map_err(|_| "az_debug_state_delete")? };
         let az_debug_state_deep_copy = unsafe { lib.get::<extern fn(_:  &AzDebugState) -> AzDebugState>(b"az_debug_state_deep_copy").map_err(|_| "az_debug_state_deep_copy")? };
+        let az_debug_state_fmt_debug = unsafe { lib.get::<extern fn(_:  &AzDebugState) -> AzString>(b"az_debug_state_fmt_debug").map_err(|_| "az_debug_state_fmt_debug")? };
         let az_keyboard_state_delete = unsafe { lib.get::<extern fn(_:  &mut AzKeyboardState)>(b"az_keyboard_state_delete").map_err(|_| "az_keyboard_state_delete")? };
         let az_keyboard_state_deep_copy = unsafe { lib.get::<extern fn(_:  &AzKeyboardState) -> AzKeyboardState>(b"az_keyboard_state_deep_copy").map_err(|_| "az_keyboard_state_deep_copy")? };
+        let az_keyboard_state_fmt_debug = unsafe { lib.get::<extern fn(_:  &AzKeyboardState) -> AzString>(b"az_keyboard_state_fmt_debug").map_err(|_| "az_keyboard_state_fmt_debug")? };
         let az_mouse_cursor_type_delete = unsafe { lib.get::<extern fn(_:  &mut AzMouseCursorType)>(b"az_mouse_cursor_type_delete").map_err(|_| "az_mouse_cursor_type_delete")? };
         let az_mouse_cursor_type_deep_copy = unsafe { lib.get::<extern fn(_:  &AzMouseCursorType) -> AzMouseCursorType>(b"az_mouse_cursor_type_deep_copy").map_err(|_| "az_mouse_cursor_type_deep_copy")? };
+        let az_mouse_cursor_type_fmt_debug = unsafe { lib.get::<extern fn(_:  &AzMouseCursorType) -> AzString>(b"az_mouse_cursor_type_fmt_debug").map_err(|_| "az_mouse_cursor_type_fmt_debug")? };
         let az_cursor_position_delete = unsafe { lib.get::<extern fn(_:  &mut AzCursorPosition)>(b"az_cursor_position_delete").map_err(|_| "az_cursor_position_delete")? };
         let az_cursor_position_deep_copy = unsafe { lib.get::<extern fn(_:  &AzCursorPosition) -> AzCursorPosition>(b"az_cursor_position_deep_copy").map_err(|_| "az_cursor_position_deep_copy")? };
+        let az_cursor_position_fmt_debug = unsafe { lib.get::<extern fn(_:  &AzCursorPosition) -> AzString>(b"az_cursor_position_fmt_debug").map_err(|_| "az_cursor_position_fmt_debug")? };
         let az_mouse_state_delete = unsafe { lib.get::<extern fn(_:  &mut AzMouseState)>(b"az_mouse_state_delete").map_err(|_| "az_mouse_state_delete")? };
         let az_mouse_state_deep_copy = unsafe { lib.get::<extern fn(_:  &AzMouseState) -> AzMouseState>(b"az_mouse_state_deep_copy").map_err(|_| "az_mouse_state_deep_copy")? };
+        let az_mouse_state_fmt_debug = unsafe { lib.get::<extern fn(_:  &AzMouseState) -> AzString>(b"az_mouse_state_fmt_debug").map_err(|_| "az_mouse_state_fmt_debug")? };
         let az_platform_specific_options_delete = unsafe { lib.get::<extern fn(_:  &mut AzPlatformSpecificOptions)>(b"az_platform_specific_options_delete").map_err(|_| "az_platform_specific_options_delete")? };
         let az_platform_specific_options_deep_copy = unsafe { lib.get::<extern fn(_:  &AzPlatformSpecificOptions) -> AzPlatformSpecificOptions>(b"az_platform_specific_options_deep_copy").map_err(|_| "az_platform_specific_options_deep_copy")? };
+        let az_platform_specific_options_fmt_debug = unsafe { lib.get::<extern fn(_:  &AzPlatformSpecificOptions) -> AzString>(b"az_platform_specific_options_fmt_debug").map_err(|_| "az_platform_specific_options_fmt_debug")? };
         let az_windows_window_options_delete = unsafe { lib.get::<extern fn(_:  &mut AzWindowsWindowOptions)>(b"az_windows_window_options_delete").map_err(|_| "az_windows_window_options_delete")? };
         let az_windows_window_options_deep_copy = unsafe { lib.get::<extern fn(_:  &AzWindowsWindowOptions) -> AzWindowsWindowOptions>(b"az_windows_window_options_deep_copy").map_err(|_| "az_windows_window_options_deep_copy")? };
+        let az_windows_window_options_fmt_debug = unsafe { lib.get::<extern fn(_:  &AzWindowsWindowOptions) -> AzString>(b"az_windows_window_options_fmt_debug").map_err(|_| "az_windows_window_options_fmt_debug")? };
         let az_wayland_theme_delete = unsafe { lib.get::<extern fn(_:  &mut AzWaylandTheme)>(b"az_wayland_theme_delete").map_err(|_| "az_wayland_theme_delete")? };
         let az_wayland_theme_deep_copy = unsafe { lib.get::<extern fn(_:  &AzWaylandTheme) -> AzWaylandTheme>(b"az_wayland_theme_deep_copy").map_err(|_| "az_wayland_theme_deep_copy")? };
+        let az_wayland_theme_fmt_debug = unsafe { lib.get::<extern fn(_:  &AzWaylandTheme) -> AzString>(b"az_wayland_theme_fmt_debug").map_err(|_| "az_wayland_theme_fmt_debug")? };
         let az_renderer_type_delete = unsafe { lib.get::<extern fn(_:  &mut AzRendererType)>(b"az_renderer_type_delete").map_err(|_| "az_renderer_type_delete")? };
         let az_renderer_type_deep_copy = unsafe { lib.get::<extern fn(_:  &AzRendererType) -> AzRendererType>(b"az_renderer_type_deep_copy").map_err(|_| "az_renderer_type_deep_copy")? };
+        let az_renderer_type_fmt_debug = unsafe { lib.get::<extern fn(_:  &AzRendererType) -> AzString>(b"az_renderer_type_fmt_debug").map_err(|_| "az_renderer_type_fmt_debug")? };
         let az_string_pair_delete = unsafe { lib.get::<extern fn(_:  &mut AzStringPair)>(b"az_string_pair_delete").map_err(|_| "az_string_pair_delete")? };
         let az_string_pair_deep_copy = unsafe { lib.get::<extern fn(_:  &AzStringPair) -> AzStringPair>(b"az_string_pair_deep_copy").map_err(|_| "az_string_pair_deep_copy")? };
+        let az_string_pair_fmt_debug = unsafe { lib.get::<extern fn(_:  &AzStringPair) -> AzString>(b"az_string_pair_fmt_debug").map_err(|_| "az_string_pair_fmt_debug")? };
         let az_linux_window_options_delete = unsafe { lib.get::<extern fn(_:  &mut AzLinuxWindowOptions)>(b"az_linux_window_options_delete").map_err(|_| "az_linux_window_options_delete")? };
         let az_linux_window_options_deep_copy = unsafe { lib.get::<extern fn(_:  &AzLinuxWindowOptions) -> AzLinuxWindowOptions>(b"az_linux_window_options_deep_copy").map_err(|_| "az_linux_window_options_deep_copy")? };
+        let az_linux_window_options_fmt_debug = unsafe { lib.get::<extern fn(_:  &AzLinuxWindowOptions) -> AzString>(b"az_linux_window_options_fmt_debug").map_err(|_| "az_linux_window_options_fmt_debug")? };
         let az_mac_window_options_delete = unsafe { lib.get::<extern fn(_:  &mut AzMacWindowOptions)>(b"az_mac_window_options_delete").map_err(|_| "az_mac_window_options_delete")? };
         let az_mac_window_options_deep_copy = unsafe { lib.get::<extern fn(_:  &AzMacWindowOptions) -> AzMacWindowOptions>(b"az_mac_window_options_deep_copy").map_err(|_| "az_mac_window_options_deep_copy")? };
+        let az_mac_window_options_fmt_debug = unsafe { lib.get::<extern fn(_:  &AzMacWindowOptions) -> AzString>(b"az_mac_window_options_fmt_debug").map_err(|_| "az_mac_window_options_fmt_debug")? };
         let az_wasm_window_options_delete = unsafe { lib.get::<extern fn(_:  &mut AzWasmWindowOptions)>(b"az_wasm_window_options_delete").map_err(|_| "az_wasm_window_options_delete")? };
         let az_wasm_window_options_deep_copy = unsafe { lib.get::<extern fn(_:  &AzWasmWindowOptions) -> AzWasmWindowOptions>(b"az_wasm_window_options_deep_copy").map_err(|_| "az_wasm_window_options_deep_copy")? };
+        let az_wasm_window_options_fmt_debug = unsafe { lib.get::<extern fn(_:  &AzWasmWindowOptions) -> AzString>(b"az_wasm_window_options_fmt_debug").map_err(|_| "az_wasm_window_options_fmt_debug")? };
         let az_full_screen_mode_delete = unsafe { lib.get::<extern fn(_:  &mut AzFullScreenMode)>(b"az_full_screen_mode_delete").map_err(|_| "az_full_screen_mode_delete")? };
         let az_full_screen_mode_deep_copy = unsafe { lib.get::<extern fn(_:  &AzFullScreenMode) -> AzFullScreenMode>(b"az_full_screen_mode_deep_copy").map_err(|_| "az_full_screen_mode_deep_copy")? };
+        let az_full_screen_mode_fmt_debug = unsafe { lib.get::<extern fn(_:  &AzFullScreenMode) -> AzString>(b"az_full_screen_mode_fmt_debug").map_err(|_| "az_full_screen_mode_fmt_debug")? };
         let az_window_state_delete = unsafe { lib.get::<extern fn(_:  &mut AzWindowState)>(b"az_window_state_delete").map_err(|_| "az_window_state_delete")? };
         let az_window_state_deep_copy = unsafe { lib.get::<extern fn(_:  &AzWindowState) -> AzWindowState>(b"az_window_state_deep_copy").map_err(|_| "az_window_state_deep_copy")? };
+        let az_window_state_fmt_debug = unsafe { lib.get::<extern fn(_:  &AzWindowState) -> AzString>(b"az_window_state_fmt_debug").map_err(|_| "az_window_state_fmt_debug")? };
         let az_logical_size_delete = unsafe { lib.get::<extern fn(_:  &mut AzLogicalSize)>(b"az_logical_size_delete").map_err(|_| "az_logical_size_delete")? };
         let az_logical_size_deep_copy = unsafe { lib.get::<extern fn(_:  &AzLogicalSize) -> AzLogicalSize>(b"az_logical_size_deep_copy").map_err(|_| "az_logical_size_deep_copy")? };
+        let az_logical_size_fmt_debug = unsafe { lib.get::<extern fn(_:  &AzLogicalSize) -> AzString>(b"az_logical_size_fmt_debug").map_err(|_| "az_logical_size_fmt_debug")? };
         let az_hot_reload_options_delete = unsafe { lib.get::<extern fn(_:  &mut AzHotReloadOptions)>(b"az_hot_reload_options_delete").map_err(|_| "az_hot_reload_options_delete")? };
         let az_hot_reload_options_deep_copy = unsafe { lib.get::<extern fn(_:  &AzHotReloadOptions) -> AzHotReloadOptions>(b"az_hot_reload_options_deep_copy").map_err(|_| "az_hot_reload_options_deep_copy")? };
+        let az_hot_reload_options_fmt_debug = unsafe { lib.get::<extern fn(_:  &AzHotReloadOptions) -> AzString>(b"az_hot_reload_options_fmt_debug").map_err(|_| "az_hot_reload_options_fmt_debug")? };
         let az_window_create_options_new = unsafe { lib.get::<extern fn(_:  AzCss) -> AzWindowCreateOptions>(b"az_window_create_options_new").map_err(|_| "az_window_create_options_new")? };
         let az_window_create_options_delete = unsafe { lib.get::<extern fn(_:  &mut AzWindowCreateOptions)>(b"az_window_create_options_delete").map_err(|_| "az_window_create_options_delete")? };
         let az_window_create_options_deep_copy = unsafe { lib.get::<extern fn(_:  &AzWindowCreateOptions) -> AzWindowCreateOptions>(b"az_window_create_options_deep_copy").map_err(|_| "az_window_create_options_deep_copy")? };
+        let az_window_create_options_fmt_debug = unsafe { lib.get::<extern fn(_:  &AzWindowCreateOptions) -> AzString>(b"az_window_create_options_fmt_debug").map_err(|_| "az_window_create_options_fmt_debug")? };
         Ok(AzulDll {
             lib: Box::new(lib),
             az_string_from_utf8_unchecked,
@@ -4041,135 +4631,195 @@ pub(crate) mod dll {
             az_string_into_bytes,
             az_string_delete,
             az_string_deep_copy,
+            az_string_fmt_debug,
             az_x_window_type_vec_copy_from,
             az_x_window_type_vec_delete,
             az_x_window_type_vec_deep_copy,
+            az_x_window_type_vec_fmt_debug,
             az_virtual_key_code_vec_copy_from,
             az_virtual_key_code_vec_delete,
             az_virtual_key_code_vec_deep_copy,
+            az_virtual_key_code_vec_fmt_debug,
             az_scan_code_vec_copy_from,
             az_scan_code_vec_delete,
             az_scan_code_vec_deep_copy,
+            az_scan_code_vec_fmt_debug,
             az_css_declaration_vec_copy_from,
             az_css_declaration_vec_delete,
             az_css_declaration_vec_deep_copy,
+            az_css_declaration_vec_fmt_debug,
             az_css_path_selector_vec_copy_from,
             az_css_path_selector_vec_delete,
             az_css_path_selector_vec_deep_copy,
+            az_css_path_selector_vec_fmt_debug,
             az_stylesheet_vec_copy_from,
             az_stylesheet_vec_delete,
             az_stylesheet_vec_deep_copy,
+            az_stylesheet_vec_fmt_debug,
             az_css_rule_block_vec_copy_from,
             az_css_rule_block_vec_delete,
             az_css_rule_block_vec_deep_copy,
+            az_css_rule_block_vec_fmt_debug,
             az_u8_vec_copy_from,
             az_u8_vec_delete,
             az_u8_vec_deep_copy,
+            az_u8_vec_fmt_debug,
             az_callback_data_vec_copy_from,
             az_callback_data_vec_delete,
             az_callback_data_vec_deep_copy,
+            az_callback_data_vec_fmt_debug,
             az_debug_message_vec_copy_from,
             az_debug_message_vec_delete,
             az_debug_message_vec_deep_copy,
+            az_debug_message_vec_fmt_debug,
             az_g_luint_vec_copy_from,
             az_g_luint_vec_delete,
             az_g_luint_vec_deep_copy,
+            az_g_luint_vec_fmt_debug,
             az_g_lint_vec_copy_from,
             az_g_lint_vec_delete,
             az_g_lint_vec_deep_copy,
+            az_g_lint_vec_fmt_debug,
             az_override_property_vec_copy_from,
             az_override_property_vec_delete,
             az_override_property_vec_deep_copy,
+            az_override_property_vec_fmt_debug,
             az_dom_vec_copy_from,
             az_dom_vec_delete,
             az_dom_vec_deep_copy,
+            az_dom_vec_fmt_debug,
             az_string_vec_copy_from,
             az_string_vec_delete,
             az_string_vec_deep_copy,
+            az_string_vec_fmt_debug,
             az_string_pair_vec_copy_from,
             az_string_pair_vec_delete,
             az_string_pair_vec_deep_copy,
+            az_string_pair_vec_fmt_debug,
             az_gradient_stop_pre_vec_copy_from,
             az_gradient_stop_pre_vec_delete,
             az_gradient_stop_pre_vec_deep_copy,
+            az_gradient_stop_pre_vec_fmt_debug,
             az_option_wayland_theme_delete,
             az_option_wayland_theme_deep_copy,
+            az_option_wayland_theme_fmt_debug,
             az_option_task_bar_icon_delete,
             az_option_task_bar_icon_deep_copy,
+            az_option_task_bar_icon_fmt_debug,
             az_option_hwnd_handle_delete,
             az_option_hwnd_handle_deep_copy,
+            az_option_hwnd_handle_fmt_debug,
             az_option_logical_position_delete,
             az_option_logical_position_deep_copy,
+            az_option_logical_position_fmt_debug,
             az_option_hot_reload_options_delete,
             az_option_hot_reload_options_deep_copy,
+            az_option_hot_reload_options_fmt_debug,
             az_option_physical_position_i32_delete,
             az_option_physical_position_i32_deep_copy,
+            az_option_physical_position_i32_fmt_debug,
             az_option_window_icon_delete,
             az_option_window_icon_deep_copy,
+            az_option_window_icon_fmt_debug,
             az_option_string_delete,
             az_option_string_deep_copy,
+            az_option_string_fmt_debug,
             az_option_x11_visual_delete,
             az_option_x11_visual_deep_copy,
+            az_option_x11_visual_fmt_debug,
             az_option_i32_delete,
             az_option_i32_deep_copy,
+            az_option_i32_fmt_debug,
             az_option_f32_delete,
             az_option_f32_deep_copy,
+            az_option_f32_fmt_debug,
             az_option_mouse_cursor_type_delete,
             az_option_mouse_cursor_type_deep_copy,
+            az_option_mouse_cursor_type_fmt_debug,
             az_option_logical_size_delete,
             az_option_logical_size_deep_copy,
+            az_option_logical_size_fmt_debug,
             az_option_char_delete,
             az_option_char_deep_copy,
+            az_option_char_fmt_debug,
             az_option_virtual_key_code_delete,
             az_option_virtual_key_code_deep_copy,
+            az_option_virtual_key_code_fmt_debug,
             az_option_percentage_value_delete,
             az_option_percentage_value_deep_copy,
+            az_option_percentage_value_fmt_debug,
             az_option_dom_delete,
             az_option_dom_deep_copy,
+            az_option_dom_fmt_debug,
             az_option_texture_delete,
+            az_option_texture_fmt_debug,
             az_option_tab_index_delete,
             az_option_tab_index_deep_copy,
+            az_option_tab_index_fmt_debug,
             az_option_duration_delete,
             az_option_duration_deep_copy,
+            az_option_duration_fmt_debug,
             az_option_instant_ptr_delete,
             az_option_instant_ptr_deep_copy,
+            az_option_instant_ptr_fmt_debug,
             az_option_usize_delete,
             az_option_usize_deep_copy,
+            az_option_usize_fmt_debug,
             az_option_u8_vec_ref_delete,
+            az_option_u8_vec_ref_fmt_debug,
             az_result_ref_any_block_error_delete,
             az_result_ref_any_block_error_deep_copy,
+            az_result_ref_any_block_error_fmt_debug,
             az_instant_now,
             az_instant_delete,
+            az_instant_fmt_debug,
             az_duration_delete,
             az_duration_deep_copy,
+            az_duration_fmt_debug,
             az_app_config_default,
             az_app_config_delete,
+            az_app_config_fmt_debug,
             az_app_new,
             az_app_run,
             az_app_delete,
+            az_app_fmt_debug,
             az_layout_callback_delete,
             az_layout_callback_deep_copy,
+            az_layout_callback_fmt_debug,
             az_callback_delete,
             az_callback_deep_copy,
+            az_callback_fmt_debug,
             az_callback_info_delete,
+            az_callback_info_fmt_debug,
             az_update_screen_delete,
             az_update_screen_deep_copy,
+            az_update_screen_fmt_debug,
             az_i_frame_callback_delete,
             az_i_frame_callback_deep_copy,
+            az_i_frame_callback_fmt_debug,
             az_i_frame_callback_info_get_state,
             az_i_frame_callback_info_delete,
+            az_i_frame_callback_info_fmt_debug,
             az_i_frame_callback_return_delete,
             az_i_frame_callback_return_deep_copy,
+            az_i_frame_callback_return_fmt_debug,
             az_gl_callback_delete,
             az_gl_callback_deep_copy,
+            az_gl_callback_fmt_debug,
             az_gl_callback_info_delete,
+            az_gl_callback_info_fmt_debug,
             az_gl_callback_return_delete,
+            az_gl_callback_return_fmt_debug,
             az_timer_callback_delete,
             az_timer_callback_deep_copy,
+            az_timer_callback_fmt_debug,
             az_timer_callback_type_delete,
+            az_timer_callback_type_fmt_debug,
             az_timer_callback_info_delete,
+            az_timer_callback_info_fmt_debug,
             az_timer_callback_return_delete,
             az_timer_callback_return_deep_copy,
+            az_timer_callback_return_fmt_debug,
             az_ref_any_sharing_info_can_be_shared,
             az_ref_any_sharing_info_can_be_shared_mut,
             az_ref_any_sharing_info_increase_ref,
@@ -4177,6 +4827,7 @@ pub(crate) mod dll {
             az_ref_any_sharing_info_increase_refmut,
             az_ref_any_sharing_info_decrease_refmut,
             az_ref_any_sharing_info_delete,
+            az_ref_any_sharing_info_fmt_debug,
             az_ref_any_new_c,
             az_ref_any_is_type,
             az_ref_any_get_type_name,
@@ -4188,313 +4839,466 @@ pub(crate) mod dll {
             az_ref_any_decrease_refmut,
             az_ref_any_delete,
             az_ref_any_deep_copy,
+            az_ref_any_fmt_debug,
             az_layout_info_delete,
+            az_layout_info_fmt_debug,
             az_css_rule_block_delete,
             az_css_rule_block_deep_copy,
+            az_css_rule_block_fmt_debug,
             az_css_declaration_delete,
             az_css_declaration_deep_copy,
+            az_css_declaration_fmt_debug,
             az_dynamic_css_property_delete,
             az_dynamic_css_property_deep_copy,
+            az_dynamic_css_property_fmt_debug,
             az_css_path_delete,
             az_css_path_deep_copy,
+            az_css_path_fmt_debug,
             az_css_path_selector_delete,
             az_css_path_selector_deep_copy,
+            az_css_path_selector_fmt_debug,
             az_node_type_path_delete,
             az_node_type_path_deep_copy,
+            az_node_type_path_fmt_debug,
             az_css_path_pseudo_selector_delete,
             az_css_path_pseudo_selector_deep_copy,
+            az_css_path_pseudo_selector_fmt_debug,
             az_css_nth_child_selector_delete,
             az_css_nth_child_selector_deep_copy,
+            az_css_nth_child_selector_fmt_debug,
             az_css_nth_child_pattern_delete,
             az_css_nth_child_pattern_deep_copy,
+            az_css_nth_child_pattern_fmt_debug,
             az_stylesheet_delete,
             az_stylesheet_deep_copy,
+            az_stylesheet_fmt_debug,
             az_css_native,
             az_css_empty,
             az_css_from_string,
             az_css_override_native,
             az_css_delete,
             az_css_deep_copy,
+            az_css_fmt_debug,
             az_color_u_delete,
             az_color_u_deep_copy,
+            az_color_u_fmt_debug,
             az_size_metric_delete,
             az_size_metric_deep_copy,
+            az_size_metric_fmt_debug,
             az_float_value_delete,
             az_float_value_deep_copy,
+            az_float_value_fmt_debug,
             az_pixel_value_delete,
             az_pixel_value_deep_copy,
+            az_pixel_value_fmt_debug,
             az_pixel_value_no_percent_delete,
             az_pixel_value_no_percent_deep_copy,
+            az_pixel_value_no_percent_fmt_debug,
             az_box_shadow_clip_mode_delete,
             az_box_shadow_clip_mode_deep_copy,
+            az_box_shadow_clip_mode_fmt_debug,
             az_box_shadow_pre_display_item_delete,
             az_box_shadow_pre_display_item_deep_copy,
+            az_box_shadow_pre_display_item_fmt_debug,
             az_layout_align_content_delete,
             az_layout_align_content_deep_copy,
+            az_layout_align_content_fmt_debug,
             az_layout_align_items_delete,
             az_layout_align_items_deep_copy,
+            az_layout_align_items_fmt_debug,
             az_layout_bottom_delete,
             az_layout_bottom_deep_copy,
+            az_layout_bottom_fmt_debug,
             az_layout_box_sizing_delete,
             az_layout_box_sizing_deep_copy,
+            az_layout_box_sizing_fmt_debug,
             az_layout_direction_delete,
             az_layout_direction_deep_copy,
+            az_layout_direction_fmt_debug,
             az_layout_display_delete,
             az_layout_display_deep_copy,
+            az_layout_display_fmt_debug,
             az_layout_flex_grow_delete,
             az_layout_flex_grow_deep_copy,
+            az_layout_flex_grow_fmt_debug,
             az_layout_flex_shrink_delete,
             az_layout_flex_shrink_deep_copy,
+            az_layout_flex_shrink_fmt_debug,
             az_layout_float_delete,
             az_layout_float_deep_copy,
+            az_layout_float_fmt_debug,
             az_layout_height_delete,
             az_layout_height_deep_copy,
+            az_layout_height_fmt_debug,
             az_layout_justify_content_delete,
             az_layout_justify_content_deep_copy,
+            az_layout_justify_content_fmt_debug,
             az_layout_left_delete,
             az_layout_left_deep_copy,
+            az_layout_left_fmt_debug,
             az_layout_margin_bottom_delete,
             az_layout_margin_bottom_deep_copy,
+            az_layout_margin_bottom_fmt_debug,
             az_layout_margin_left_delete,
             az_layout_margin_left_deep_copy,
+            az_layout_margin_left_fmt_debug,
             az_layout_margin_right_delete,
             az_layout_margin_right_deep_copy,
+            az_layout_margin_right_fmt_debug,
             az_layout_margin_top_delete,
             az_layout_margin_top_deep_copy,
+            az_layout_margin_top_fmt_debug,
             az_layout_max_height_delete,
             az_layout_max_height_deep_copy,
+            az_layout_max_height_fmt_debug,
             az_layout_max_width_delete,
             az_layout_max_width_deep_copy,
+            az_layout_max_width_fmt_debug,
             az_layout_min_height_delete,
             az_layout_min_height_deep_copy,
+            az_layout_min_height_fmt_debug,
             az_layout_min_width_delete,
             az_layout_min_width_deep_copy,
+            az_layout_min_width_fmt_debug,
             az_layout_padding_bottom_delete,
             az_layout_padding_bottom_deep_copy,
+            az_layout_padding_bottom_fmt_debug,
             az_layout_padding_left_delete,
             az_layout_padding_left_deep_copy,
+            az_layout_padding_left_fmt_debug,
             az_layout_padding_right_delete,
             az_layout_padding_right_deep_copy,
+            az_layout_padding_right_fmt_debug,
             az_layout_padding_top_delete,
             az_layout_padding_top_deep_copy,
+            az_layout_padding_top_fmt_debug,
             az_layout_position_delete,
             az_layout_position_deep_copy,
+            az_layout_position_fmt_debug,
             az_layout_right_delete,
             az_layout_right_deep_copy,
+            az_layout_right_fmt_debug,
             az_layout_top_delete,
             az_layout_top_deep_copy,
+            az_layout_top_fmt_debug,
             az_layout_width_delete,
             az_layout_width_deep_copy,
+            az_layout_width_fmt_debug,
             az_layout_wrap_delete,
             az_layout_wrap_deep_copy,
+            az_layout_wrap_fmt_debug,
             az_overflow_delete,
             az_overflow_deep_copy,
+            az_overflow_fmt_debug,
             az_percentage_value_delete,
             az_percentage_value_deep_copy,
+            az_percentage_value_fmt_debug,
             az_gradient_stop_pre_delete,
             az_gradient_stop_pre_deep_copy,
+            az_gradient_stop_pre_fmt_debug,
             az_direction_corner_delete,
             az_direction_corner_deep_copy,
+            az_direction_corner_fmt_debug,
             az_direction_corners_delete,
             az_direction_corners_deep_copy,
+            az_direction_corners_fmt_debug,
             az_direction_delete,
             az_direction_deep_copy,
+            az_direction_fmt_debug,
             az_extend_mode_delete,
             az_extend_mode_deep_copy,
+            az_extend_mode_fmt_debug,
             az_linear_gradient_delete,
             az_linear_gradient_deep_copy,
+            az_linear_gradient_fmt_debug,
             az_shape_delete,
             az_shape_deep_copy,
+            az_shape_fmt_debug,
             az_radial_gradient_delete,
             az_radial_gradient_deep_copy,
+            az_radial_gradient_fmt_debug,
             az_css_image_id_delete,
             az_css_image_id_deep_copy,
+            az_css_image_id_fmt_debug,
             az_style_background_content_delete,
             az_style_background_content_deep_copy,
+            az_style_background_content_fmt_debug,
             az_background_position_horizontal_delete,
             az_background_position_horizontal_deep_copy,
+            az_background_position_horizontal_fmt_debug,
             az_background_position_vertical_delete,
             az_background_position_vertical_deep_copy,
+            az_background_position_vertical_fmt_debug,
             az_style_background_position_delete,
             az_style_background_position_deep_copy,
+            az_style_background_position_fmt_debug,
             az_style_background_repeat_delete,
             az_style_background_repeat_deep_copy,
+            az_style_background_repeat_fmt_debug,
             az_style_background_size_delete,
             az_style_background_size_deep_copy,
+            az_style_background_size_fmt_debug,
             az_style_border_bottom_color_delete,
             az_style_border_bottom_color_deep_copy,
+            az_style_border_bottom_color_fmt_debug,
             az_style_border_bottom_left_radius_delete,
             az_style_border_bottom_left_radius_deep_copy,
+            az_style_border_bottom_left_radius_fmt_debug,
             az_style_border_bottom_right_radius_delete,
             az_style_border_bottom_right_radius_deep_copy,
+            az_style_border_bottom_right_radius_fmt_debug,
             az_border_style_delete,
             az_border_style_deep_copy,
+            az_border_style_fmt_debug,
             az_style_border_bottom_style_delete,
             az_style_border_bottom_style_deep_copy,
+            az_style_border_bottom_style_fmt_debug,
             az_style_border_bottom_width_delete,
             az_style_border_bottom_width_deep_copy,
+            az_style_border_bottom_width_fmt_debug,
             az_style_border_left_color_delete,
             az_style_border_left_color_deep_copy,
+            az_style_border_left_color_fmt_debug,
             az_style_border_left_style_delete,
             az_style_border_left_style_deep_copy,
+            az_style_border_left_style_fmt_debug,
             az_style_border_left_width_delete,
             az_style_border_left_width_deep_copy,
+            az_style_border_left_width_fmt_debug,
             az_style_border_right_color_delete,
             az_style_border_right_color_deep_copy,
+            az_style_border_right_color_fmt_debug,
             az_style_border_right_style_delete,
             az_style_border_right_style_deep_copy,
+            az_style_border_right_style_fmt_debug,
             az_style_border_right_width_delete,
             az_style_border_right_width_deep_copy,
+            az_style_border_right_width_fmt_debug,
             az_style_border_top_color_delete,
             az_style_border_top_color_deep_copy,
+            az_style_border_top_color_fmt_debug,
             az_style_border_top_left_radius_delete,
             az_style_border_top_left_radius_deep_copy,
+            az_style_border_top_left_radius_fmt_debug,
             az_style_border_top_right_radius_delete,
             az_style_border_top_right_radius_deep_copy,
+            az_style_border_top_right_radius_fmt_debug,
             az_style_border_top_style_delete,
             az_style_border_top_style_deep_copy,
+            az_style_border_top_style_fmt_debug,
             az_style_border_top_width_delete,
             az_style_border_top_width_deep_copy,
+            az_style_border_top_width_fmt_debug,
             az_style_cursor_delete,
             az_style_cursor_deep_copy,
+            az_style_cursor_fmt_debug,
             az_style_font_family_delete,
             az_style_font_family_deep_copy,
+            az_style_font_family_fmt_debug,
             az_style_font_size_delete,
             az_style_font_size_deep_copy,
+            az_style_font_size_fmt_debug,
             az_style_letter_spacing_delete,
             az_style_letter_spacing_deep_copy,
+            az_style_letter_spacing_fmt_debug,
             az_style_line_height_delete,
             az_style_line_height_deep_copy,
+            az_style_line_height_fmt_debug,
             az_style_tab_width_delete,
             az_style_tab_width_deep_copy,
+            az_style_tab_width_fmt_debug,
             az_style_text_alignment_horz_delete,
             az_style_text_alignment_horz_deep_copy,
+            az_style_text_alignment_horz_fmt_debug,
             az_style_text_color_delete,
             az_style_text_color_deep_copy,
+            az_style_text_color_fmt_debug,
             az_style_word_spacing_delete,
             az_style_word_spacing_deep_copy,
+            az_style_word_spacing_fmt_debug,
             az_box_shadow_pre_display_item_value_delete,
             az_box_shadow_pre_display_item_value_deep_copy,
+            az_box_shadow_pre_display_item_value_fmt_debug,
             az_layout_align_content_value_delete,
             az_layout_align_content_value_deep_copy,
+            az_layout_align_content_value_fmt_debug,
             az_layout_align_items_value_delete,
             az_layout_align_items_value_deep_copy,
+            az_layout_align_items_value_fmt_debug,
             az_layout_bottom_value_delete,
             az_layout_bottom_value_deep_copy,
+            az_layout_bottom_value_fmt_debug,
             az_layout_box_sizing_value_delete,
             az_layout_box_sizing_value_deep_copy,
+            az_layout_box_sizing_value_fmt_debug,
             az_layout_direction_value_delete,
             az_layout_direction_value_deep_copy,
+            az_layout_direction_value_fmt_debug,
             az_layout_display_value_delete,
             az_layout_display_value_deep_copy,
+            az_layout_display_value_fmt_debug,
             az_layout_flex_grow_value_delete,
             az_layout_flex_grow_value_deep_copy,
+            az_layout_flex_grow_value_fmt_debug,
             az_layout_flex_shrink_value_delete,
             az_layout_flex_shrink_value_deep_copy,
+            az_layout_flex_shrink_value_fmt_debug,
             az_layout_float_value_delete,
             az_layout_float_value_deep_copy,
+            az_layout_float_value_fmt_debug,
             az_layout_height_value_delete,
             az_layout_height_value_deep_copy,
+            az_layout_height_value_fmt_debug,
             az_layout_justify_content_value_delete,
             az_layout_justify_content_value_deep_copy,
+            az_layout_justify_content_value_fmt_debug,
             az_layout_left_value_delete,
             az_layout_left_value_deep_copy,
+            az_layout_left_value_fmt_debug,
             az_layout_margin_bottom_value_delete,
             az_layout_margin_bottom_value_deep_copy,
+            az_layout_margin_bottom_value_fmt_debug,
             az_layout_margin_left_value_delete,
             az_layout_margin_left_value_deep_copy,
+            az_layout_margin_left_value_fmt_debug,
             az_layout_margin_right_value_delete,
             az_layout_margin_right_value_deep_copy,
+            az_layout_margin_right_value_fmt_debug,
             az_layout_margin_top_value_delete,
             az_layout_margin_top_value_deep_copy,
+            az_layout_margin_top_value_fmt_debug,
             az_layout_max_height_value_delete,
             az_layout_max_height_value_deep_copy,
+            az_layout_max_height_value_fmt_debug,
             az_layout_max_width_value_delete,
             az_layout_max_width_value_deep_copy,
+            az_layout_max_width_value_fmt_debug,
             az_layout_min_height_value_delete,
             az_layout_min_height_value_deep_copy,
+            az_layout_min_height_value_fmt_debug,
             az_layout_min_width_value_delete,
             az_layout_min_width_value_deep_copy,
+            az_layout_min_width_value_fmt_debug,
             az_layout_padding_bottom_value_delete,
             az_layout_padding_bottom_value_deep_copy,
+            az_layout_padding_bottom_value_fmt_debug,
             az_layout_padding_left_value_delete,
             az_layout_padding_left_value_deep_copy,
+            az_layout_padding_left_value_fmt_debug,
             az_layout_padding_right_value_delete,
             az_layout_padding_right_value_deep_copy,
+            az_layout_padding_right_value_fmt_debug,
             az_layout_padding_top_value_delete,
             az_layout_padding_top_value_deep_copy,
+            az_layout_padding_top_value_fmt_debug,
             az_layout_position_value_delete,
             az_layout_position_value_deep_copy,
+            az_layout_position_value_fmt_debug,
             az_layout_right_value_delete,
             az_layout_right_value_deep_copy,
+            az_layout_right_value_fmt_debug,
             az_layout_top_value_delete,
             az_layout_top_value_deep_copy,
+            az_layout_top_value_fmt_debug,
             az_layout_width_value_delete,
             az_layout_width_value_deep_copy,
+            az_layout_width_value_fmt_debug,
             az_layout_wrap_value_delete,
             az_layout_wrap_value_deep_copy,
+            az_layout_wrap_value_fmt_debug,
             az_overflow_value_delete,
             az_overflow_value_deep_copy,
+            az_overflow_value_fmt_debug,
             az_style_background_content_value_delete,
             az_style_background_content_value_deep_copy,
+            az_style_background_content_value_fmt_debug,
             az_style_background_position_value_delete,
             az_style_background_position_value_deep_copy,
+            az_style_background_position_value_fmt_debug,
             az_style_background_repeat_value_delete,
             az_style_background_repeat_value_deep_copy,
+            az_style_background_repeat_value_fmt_debug,
             az_style_background_size_value_delete,
             az_style_background_size_value_deep_copy,
+            az_style_background_size_value_fmt_debug,
             az_style_border_bottom_color_value_delete,
             az_style_border_bottom_color_value_deep_copy,
+            az_style_border_bottom_color_value_fmt_debug,
             az_style_border_bottom_left_radius_value_delete,
             az_style_border_bottom_left_radius_value_deep_copy,
+            az_style_border_bottom_left_radius_value_fmt_debug,
             az_style_border_bottom_right_radius_value_delete,
             az_style_border_bottom_right_radius_value_deep_copy,
+            az_style_border_bottom_right_radius_value_fmt_debug,
             az_style_border_bottom_style_value_delete,
             az_style_border_bottom_style_value_deep_copy,
+            az_style_border_bottom_style_value_fmt_debug,
             az_style_border_bottom_width_value_delete,
             az_style_border_bottom_width_value_deep_copy,
+            az_style_border_bottom_width_value_fmt_debug,
             az_style_border_left_color_value_delete,
             az_style_border_left_color_value_deep_copy,
+            az_style_border_left_color_value_fmt_debug,
             az_style_border_left_style_value_delete,
             az_style_border_left_style_value_deep_copy,
+            az_style_border_left_style_value_fmt_debug,
             az_style_border_left_width_value_delete,
             az_style_border_left_width_value_deep_copy,
+            az_style_border_left_width_value_fmt_debug,
             az_style_border_right_color_value_delete,
             az_style_border_right_color_value_deep_copy,
+            az_style_border_right_color_value_fmt_debug,
             az_style_border_right_style_value_delete,
             az_style_border_right_style_value_deep_copy,
+            az_style_border_right_style_value_fmt_debug,
             az_style_border_right_width_value_delete,
             az_style_border_right_width_value_deep_copy,
+            az_style_border_right_width_value_fmt_debug,
             az_style_border_top_color_value_delete,
             az_style_border_top_color_value_deep_copy,
+            az_style_border_top_color_value_fmt_debug,
             az_style_border_top_left_radius_value_delete,
             az_style_border_top_left_radius_value_deep_copy,
+            az_style_border_top_left_radius_value_fmt_debug,
             az_style_border_top_right_radius_value_delete,
             az_style_border_top_right_radius_value_deep_copy,
+            az_style_border_top_right_radius_value_fmt_debug,
             az_style_border_top_style_value_delete,
             az_style_border_top_style_value_deep_copy,
+            az_style_border_top_style_value_fmt_debug,
             az_style_border_top_width_value_delete,
             az_style_border_top_width_value_deep_copy,
+            az_style_border_top_width_value_fmt_debug,
             az_style_cursor_value_delete,
             az_style_cursor_value_deep_copy,
+            az_style_cursor_value_fmt_debug,
             az_style_font_family_value_delete,
             az_style_font_family_value_deep_copy,
+            az_style_font_family_value_fmt_debug,
             az_style_font_size_value_delete,
             az_style_font_size_value_deep_copy,
+            az_style_font_size_value_fmt_debug,
             az_style_letter_spacing_value_delete,
             az_style_letter_spacing_value_deep_copy,
+            az_style_letter_spacing_value_fmt_debug,
             az_style_line_height_value_delete,
             az_style_line_height_value_deep_copy,
+            az_style_line_height_value_fmt_debug,
             az_style_tab_width_value_delete,
             az_style_tab_width_value_deep_copy,
+            az_style_tab_width_value_fmt_debug,
             az_style_text_alignment_horz_value_delete,
             az_style_text_alignment_horz_value_deep_copy,
+            az_style_text_alignment_horz_value_fmt_debug,
             az_style_text_color_value_delete,
             az_style_text_color_value_deep_copy,
+            az_style_text_color_value_fmt_debug,
             az_style_word_spacing_value_delete,
             az_style_word_spacing_value_deep_copy,
+            az_style_word_spacing_value_fmt_debug,
             az_css_property_delete,
             az_css_property_deep_copy,
+            az_css_property_fmt_debug,
             az_dom_div,
             az_dom_body,
             az_dom_label,
@@ -4525,58 +5329,90 @@ pub(crate) mod dll {
             az_dom_get_html_string,
             az_dom_delete,
             az_dom_deep_copy,
+            az_dom_fmt_debug,
             az_gl_texture_node_delete,
             az_gl_texture_node_deep_copy,
+            az_gl_texture_node_fmt_debug,
             az_i_frame_node_delete,
             az_i_frame_node_deep_copy,
+            az_i_frame_node_fmt_debug,
             az_callback_data_delete,
             az_callback_data_deep_copy,
+            az_callback_data_fmt_debug,
             az_override_property_delete,
             az_override_property_deep_copy,
+            az_override_property_fmt_debug,
             az_node_data_new,
             az_node_data_default,
             az_node_data_delete,
             az_node_data_deep_copy,
+            az_node_data_fmt_debug,
             az_node_type_delete,
             az_node_type_deep_copy,
+            az_node_type_fmt_debug,
             az_on_into_event_filter,
             az_on_delete,
             az_on_deep_copy,
+            az_on_fmt_debug,
             az_event_filter_delete,
             az_event_filter_deep_copy,
+            az_event_filter_fmt_debug,
             az_hover_event_filter_delete,
             az_hover_event_filter_deep_copy,
+            az_hover_event_filter_fmt_debug,
             az_focus_event_filter_delete,
             az_focus_event_filter_deep_copy,
+            az_focus_event_filter_fmt_debug,
             az_not_event_filter_delete,
             az_not_event_filter_deep_copy,
+            az_not_event_filter_fmt_debug,
             az_window_event_filter_delete,
             az_window_event_filter_deep_copy,
+            az_window_event_filter_fmt_debug,
             az_tab_index_delete,
             az_tab_index_deep_copy,
+            az_tab_index_fmt_debug,
             az_gl_type_delete,
             az_gl_type_deep_copy,
+            az_gl_type_fmt_debug,
             az_debug_message_delete,
             az_debug_message_deep_copy,
+            az_debug_message_fmt_debug,
             az_u8_vec_ref_delete,
+            az_u8_vec_ref_fmt_debug,
             az_u8_vec_ref_mut_delete,
+            az_u8_vec_ref_mut_fmt_debug,
             az_f32_vec_ref_delete,
+            az_f32_vec_ref_fmt_debug,
             az_i32_vec_ref_delete,
+            az_i32_vec_ref_fmt_debug,
             az_g_luint_vec_ref_delete,
+            az_g_luint_vec_ref_fmt_debug,
             az_g_lenum_vec_ref_delete,
+            az_g_lenum_vec_ref_fmt_debug,
             az_g_lint_vec_ref_mut_delete,
+            az_g_lint_vec_ref_mut_fmt_debug,
             az_g_lint64_vec_ref_mut_delete,
+            az_g_lint64_vec_ref_mut_fmt_debug,
             az_g_lboolean_vec_ref_mut_delete,
+            az_g_lboolean_vec_ref_mut_fmt_debug,
             az_g_lfloat_vec_ref_mut_delete,
+            az_g_lfloat_vec_ref_mut_fmt_debug,
             az_refstr_vec_ref_delete,
+            az_refstr_vec_ref_fmt_debug,
             az_refstr_delete,
+            az_refstr_fmt_debug,
             az_get_program_binary_return_delete,
             az_get_program_binary_return_deep_copy,
+            az_get_program_binary_return_fmt_debug,
             az_get_active_attrib_return_delete,
             az_get_active_attrib_return_deep_copy,
+            az_get_active_attrib_return_fmt_debug,
             az_g_lsync_ptr_delete,
+            az_g_lsync_ptr_fmt_debug,
             az_get_active_uniform_return_delete,
             az_get_active_uniform_return_deep_copy,
+            az_get_active_uniform_return_fmt_debug,
             az_gl_context_ptr_get_type,
             az_gl_context_ptr_buffer_data_untyped,
             az_gl_context_ptr_buffer_sub_data_untyped,
@@ -4798,105 +5634,154 @@ pub(crate) mod dll {
             az_gl_context_ptr_copy_sub_texture_3d_angle,
             az_gl_context_ptr_delete,
             az_gl_context_ptr_deep_copy,
+            az_gl_context_ptr_fmt_debug,
             az_texture_delete,
+            az_texture_fmt_debug,
             az_texture_flags_delete,
             az_texture_flags_deep_copy,
+            az_texture_flags_fmt_debug,
             az_text_id_new,
             az_text_id_delete,
             az_text_id_deep_copy,
+            az_text_id_fmt_debug,
             az_image_id_new,
             az_image_id_delete,
             az_image_id_deep_copy,
+            az_image_id_fmt_debug,
             az_font_id_new,
             az_font_id_delete,
             az_font_id_deep_copy,
+            az_font_id_fmt_debug,
             az_image_source_delete,
             az_image_source_deep_copy,
+            az_image_source_fmt_debug,
             az_font_source_delete,
             az_font_source_deep_copy,
+            az_font_source_fmt_debug,
             az_raw_image_new,
             az_raw_image_delete,
             az_raw_image_deep_copy,
+            az_raw_image_fmt_debug,
             az_raw_image_format_delete,
             az_raw_image_format_deep_copy,
+            az_raw_image_format_fmt_debug,
             az_drop_check_ptr_delete,
+            az_drop_check_ptr_fmt_debug,
             az_arc_mutex_ref_any_delete,
+            az_arc_mutex_ref_any_fmt_debug,
             az_timer_delete,
             az_timer_deep_copy,
+            az_timer_fmt_debug,
             az_task_new,
             az_task_then,
             az_task_delete,
+            az_task_fmt_debug,
             az_thread_new,
             az_thread_block,
             az_thread_delete,
+            az_thread_fmt_debug,
             az_drop_check_delete,
+            az_drop_check_fmt_debug,
             az_timer_id_delete,
             az_timer_id_deep_copy,
+            az_timer_id_fmt_debug,
             az_terminate_timer_delete,
             az_terminate_timer_deep_copy,
+            az_terminate_timer_fmt_debug,
             az_block_error_delete,
             az_block_error_deep_copy,
+            az_block_error_fmt_debug,
             az_task_bar_icon_delete,
             az_task_bar_icon_deep_copy,
+            az_task_bar_icon_fmt_debug,
             az_x_window_type_delete,
             az_x_window_type_deep_copy,
+            az_x_window_type_fmt_debug,
             az_physical_position_i32_delete,
             az_physical_position_i32_deep_copy,
+            az_physical_position_i32_fmt_debug,
             az_logical_position_delete,
             az_logical_position_deep_copy,
+            az_logical_position_fmt_debug,
             az_icon_key_delete,
             az_icon_key_deep_copy,
+            az_icon_key_fmt_debug,
             az_small_window_icon_bytes_delete,
             az_small_window_icon_bytes_deep_copy,
+            az_small_window_icon_bytes_fmt_debug,
             az_large_window_icon_bytes_delete,
             az_large_window_icon_bytes_deep_copy,
+            az_large_window_icon_bytes_fmt_debug,
             az_window_icon_delete,
             az_window_icon_deep_copy,
+            az_window_icon_fmt_debug,
             az_virtual_key_code_delete,
             az_virtual_key_code_deep_copy,
+            az_virtual_key_code_fmt_debug,
             az_accelerator_key_delete,
             az_accelerator_key_deep_copy,
+            az_accelerator_key_fmt_debug,
             az_window_size_delete,
             az_window_size_deep_copy,
+            az_window_size_fmt_debug,
             az_window_flags_delete,
             az_window_flags_deep_copy,
+            az_window_flags_fmt_debug,
             az_debug_state_delete,
             az_debug_state_deep_copy,
+            az_debug_state_fmt_debug,
             az_keyboard_state_delete,
             az_keyboard_state_deep_copy,
+            az_keyboard_state_fmt_debug,
             az_mouse_cursor_type_delete,
             az_mouse_cursor_type_deep_copy,
+            az_mouse_cursor_type_fmt_debug,
             az_cursor_position_delete,
             az_cursor_position_deep_copy,
+            az_cursor_position_fmt_debug,
             az_mouse_state_delete,
             az_mouse_state_deep_copy,
+            az_mouse_state_fmt_debug,
             az_platform_specific_options_delete,
             az_platform_specific_options_deep_copy,
+            az_platform_specific_options_fmt_debug,
             az_windows_window_options_delete,
             az_windows_window_options_deep_copy,
+            az_windows_window_options_fmt_debug,
             az_wayland_theme_delete,
             az_wayland_theme_deep_copy,
+            az_wayland_theme_fmt_debug,
             az_renderer_type_delete,
             az_renderer_type_deep_copy,
+            az_renderer_type_fmt_debug,
             az_string_pair_delete,
             az_string_pair_deep_copy,
+            az_string_pair_fmt_debug,
             az_linux_window_options_delete,
             az_linux_window_options_deep_copy,
+            az_linux_window_options_fmt_debug,
             az_mac_window_options_delete,
             az_mac_window_options_deep_copy,
+            az_mac_window_options_fmt_debug,
             az_wasm_window_options_delete,
             az_wasm_window_options_deep_copy,
+            az_wasm_window_options_fmt_debug,
             az_full_screen_mode_delete,
             az_full_screen_mode_deep_copy,
+            az_full_screen_mode_fmt_debug,
             az_window_state_delete,
             az_window_state_deep_copy,
+            az_window_state_fmt_debug,
             az_logical_size_delete,
             az_logical_size_deep_copy,
+            az_logical_size_fmt_debug,
             az_hot_reload_options_delete,
             az_hot_reload_options_deep_copy,
+            az_hot_reload_options_fmt_debug,
             az_window_create_options_new,
             az_window_create_options_delete,
             az_window_create_options_deep_copy,
+            az_window_create_options_fmt_debug,
         })
     }
 
@@ -4994,12 +5879,6 @@ pub mod str {
         }
     }
 
-    impl std::fmt::Debug for crate::str::String {
-        fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
-            self.as_str().fmt(f)
-        }
-    }
-
     impl crate::str::String {
         #[inline]
         pub fn as_str(&self) -> &str {
@@ -5027,6 +5906,7 @@ pub mod str {
         pub fn into_bytes(self)  -> crate::vec::U8Vec { { (crate::dll::get_azul_dll().az_string_into_bytes)(self)} }
     }
 
+    impl std::fmt::Debug for String { fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result { write!(f, "{}", (crate::dll::get_azul_dll().az_string_fmt_debug)(self)) } }
     impl Clone for String { fn clone(&self) -> Self { (crate::dll::get_azul_dll().az_string_deep_copy)(self) } }
     impl Drop for String { fn drop(&mut self) { (crate::dll::get_azul_dll().az_string_delete)(self); } }
 }
@@ -5198,6 +6078,7 @@ pub mod vec {
         pub fn copy_from(ptr: *const AzXWindowType, len: usize) -> Self { (crate::dll::get_azul_dll().az_x_window_type_vec_copy_from)(ptr, len) }
     }
 
+    impl std::fmt::Debug for XWindowTypeVec { fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result { write!(f, "{}", (crate::dll::get_azul_dll().az_x_window_type_vec_fmt_debug)(self)) } }
     impl Clone for XWindowTypeVec { fn clone(&self) -> Self { (crate::dll::get_azul_dll().az_x_window_type_vec_deep_copy)(self) } }
     impl Drop for XWindowTypeVec { fn drop(&mut self) { (crate::dll::get_azul_dll().az_x_window_type_vec_delete)(self); } }
 
@@ -5210,6 +6091,7 @@ pub mod vec {
         pub fn copy_from(ptr: *const AzVirtualKeyCode, len: usize) -> Self { (crate::dll::get_azul_dll().az_virtual_key_code_vec_copy_from)(ptr, len) }
     }
 
+    impl std::fmt::Debug for VirtualKeyCodeVec { fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result { write!(f, "{}", (crate::dll::get_azul_dll().az_virtual_key_code_vec_fmt_debug)(self)) } }
     impl Clone for VirtualKeyCodeVec { fn clone(&self) -> Self { (crate::dll::get_azul_dll().az_virtual_key_code_vec_deep_copy)(self) } }
     impl Drop for VirtualKeyCodeVec { fn drop(&mut self) { (crate::dll::get_azul_dll().az_virtual_key_code_vec_delete)(self); } }
 
@@ -5222,6 +6104,7 @@ pub mod vec {
         pub fn copy_from(ptr: *const u32, len: usize) -> Self { (crate::dll::get_azul_dll().az_scan_code_vec_copy_from)(ptr, len) }
     }
 
+    impl std::fmt::Debug for ScanCodeVec { fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result { write!(f, "{}", (crate::dll::get_azul_dll().az_scan_code_vec_fmt_debug)(self)) } }
     impl Clone for ScanCodeVec { fn clone(&self) -> Self { (crate::dll::get_azul_dll().az_scan_code_vec_deep_copy)(self) } }
     impl Drop for ScanCodeVec { fn drop(&mut self) { (crate::dll::get_azul_dll().az_scan_code_vec_delete)(self); } }
 
@@ -5234,6 +6117,7 @@ pub mod vec {
         pub fn copy_from(ptr: *const AzCssDeclaration, len: usize) -> Self { (crate::dll::get_azul_dll().az_css_declaration_vec_copy_from)(ptr, len) }
     }
 
+    impl std::fmt::Debug for CssDeclarationVec { fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result { write!(f, "{}", (crate::dll::get_azul_dll().az_css_declaration_vec_fmt_debug)(self)) } }
     impl Clone for CssDeclarationVec { fn clone(&self) -> Self { (crate::dll::get_azul_dll().az_css_declaration_vec_deep_copy)(self) } }
     impl Drop for CssDeclarationVec { fn drop(&mut self) { (crate::dll::get_azul_dll().az_css_declaration_vec_delete)(self); } }
 
@@ -5246,6 +6130,7 @@ pub mod vec {
         pub fn copy_from(ptr: *const AzCssPathSelector, len: usize) -> Self { (crate::dll::get_azul_dll().az_css_path_selector_vec_copy_from)(ptr, len) }
     }
 
+    impl std::fmt::Debug for CssPathSelectorVec { fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result { write!(f, "{}", (crate::dll::get_azul_dll().az_css_path_selector_vec_fmt_debug)(self)) } }
     impl Clone for CssPathSelectorVec { fn clone(&self) -> Self { (crate::dll::get_azul_dll().az_css_path_selector_vec_deep_copy)(self) } }
     impl Drop for CssPathSelectorVec { fn drop(&mut self) { (crate::dll::get_azul_dll().az_css_path_selector_vec_delete)(self); } }
 
@@ -5258,6 +6143,7 @@ pub mod vec {
         pub fn copy_from(ptr: *const AzStylesheet, len: usize) -> Self { (crate::dll::get_azul_dll().az_stylesheet_vec_copy_from)(ptr, len) }
     }
 
+    impl std::fmt::Debug for StylesheetVec { fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result { write!(f, "{}", (crate::dll::get_azul_dll().az_stylesheet_vec_fmt_debug)(self)) } }
     impl Clone for StylesheetVec { fn clone(&self) -> Self { (crate::dll::get_azul_dll().az_stylesheet_vec_deep_copy)(self) } }
     impl Drop for StylesheetVec { fn drop(&mut self) { (crate::dll::get_azul_dll().az_stylesheet_vec_delete)(self); } }
 
@@ -5270,6 +6156,7 @@ pub mod vec {
         pub fn copy_from(ptr: *const AzCssRuleBlock, len: usize) -> Self { (crate::dll::get_azul_dll().az_css_rule_block_vec_copy_from)(ptr, len) }
     }
 
+    impl std::fmt::Debug for CssRuleBlockVec { fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result { write!(f, "{}", (crate::dll::get_azul_dll().az_css_rule_block_vec_fmt_debug)(self)) } }
     impl Clone for CssRuleBlockVec { fn clone(&self) -> Self { (crate::dll::get_azul_dll().az_css_rule_block_vec_deep_copy)(self) } }
     impl Drop for CssRuleBlockVec { fn drop(&mut self) { (crate::dll::get_azul_dll().az_css_rule_block_vec_delete)(self); } }
 
@@ -5282,6 +6169,7 @@ pub mod vec {
         pub fn copy_from(ptr: *const u8, len: usize) -> Self { (crate::dll::get_azul_dll().az_u8_vec_copy_from)(ptr, len) }
     }
 
+    impl std::fmt::Debug for U8Vec { fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result { write!(f, "{}", (crate::dll::get_azul_dll().az_u8_vec_fmt_debug)(self)) } }
     impl Clone for U8Vec { fn clone(&self) -> Self { (crate::dll::get_azul_dll().az_u8_vec_deep_copy)(self) } }
     impl Drop for U8Vec { fn drop(&mut self) { (crate::dll::get_azul_dll().az_u8_vec_delete)(self); } }
 
@@ -5294,6 +6182,7 @@ pub mod vec {
         pub fn copy_from(ptr: *const AzCallbackData, len: usize) -> Self { (crate::dll::get_azul_dll().az_callback_data_vec_copy_from)(ptr, len) }
     }
 
+    impl std::fmt::Debug for CallbackDataVec { fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result { write!(f, "{}", (crate::dll::get_azul_dll().az_callback_data_vec_fmt_debug)(self)) } }
     impl Clone for CallbackDataVec { fn clone(&self) -> Self { (crate::dll::get_azul_dll().az_callback_data_vec_deep_copy)(self) } }
     impl Drop for CallbackDataVec { fn drop(&mut self) { (crate::dll::get_azul_dll().az_callback_data_vec_delete)(self); } }
 
@@ -5306,6 +6195,7 @@ pub mod vec {
         pub fn copy_from(ptr: *const AzDebugMessage, len: usize) -> Self { (crate::dll::get_azul_dll().az_debug_message_vec_copy_from)(ptr, len) }
     }
 
+    impl std::fmt::Debug for DebugMessageVec { fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result { write!(f, "{}", (crate::dll::get_azul_dll().az_debug_message_vec_fmt_debug)(self)) } }
     impl Clone for DebugMessageVec { fn clone(&self) -> Self { (crate::dll::get_azul_dll().az_debug_message_vec_deep_copy)(self) } }
     impl Drop for DebugMessageVec { fn drop(&mut self) { (crate::dll::get_azul_dll().az_debug_message_vec_delete)(self); } }
 
@@ -5318,6 +6208,7 @@ pub mod vec {
         pub fn copy_from(ptr: *const u32, len: usize) -> Self { (crate::dll::get_azul_dll().az_g_luint_vec_copy_from)(ptr, len) }
     }
 
+    impl std::fmt::Debug for GLuintVec { fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result { write!(f, "{}", (crate::dll::get_azul_dll().az_g_luint_vec_fmt_debug)(self)) } }
     impl Clone for GLuintVec { fn clone(&self) -> Self { (crate::dll::get_azul_dll().az_g_luint_vec_deep_copy)(self) } }
     impl Drop for GLuintVec { fn drop(&mut self) { (crate::dll::get_azul_dll().az_g_luint_vec_delete)(self); } }
 
@@ -5330,6 +6221,7 @@ pub mod vec {
         pub fn copy_from(ptr: *const i32, len: usize) -> Self { (crate::dll::get_azul_dll().az_g_lint_vec_copy_from)(ptr, len) }
     }
 
+    impl std::fmt::Debug for GLintVec { fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result { write!(f, "{}", (crate::dll::get_azul_dll().az_g_lint_vec_fmt_debug)(self)) } }
     impl Clone for GLintVec { fn clone(&self) -> Self { (crate::dll::get_azul_dll().az_g_lint_vec_deep_copy)(self) } }
     impl Drop for GLintVec { fn drop(&mut self) { (crate::dll::get_azul_dll().az_g_lint_vec_delete)(self); } }
 
@@ -5342,6 +6234,7 @@ pub mod vec {
         pub fn copy_from(ptr: *const AzOverrideProperty, len: usize) -> Self { (crate::dll::get_azul_dll().az_override_property_vec_copy_from)(ptr, len) }
     }
 
+    impl std::fmt::Debug for OverridePropertyVec { fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result { write!(f, "{}", (crate::dll::get_azul_dll().az_override_property_vec_fmt_debug)(self)) } }
     impl Clone for OverridePropertyVec { fn clone(&self) -> Self { (crate::dll::get_azul_dll().az_override_property_vec_deep_copy)(self) } }
     impl Drop for OverridePropertyVec { fn drop(&mut self) { (crate::dll::get_azul_dll().az_override_property_vec_delete)(self); } }
 
@@ -5354,6 +6247,7 @@ pub mod vec {
         pub fn copy_from(ptr: *const AzDom, len: usize) -> Self { (crate::dll::get_azul_dll().az_dom_vec_copy_from)(ptr, len) }
     }
 
+    impl std::fmt::Debug for DomVec { fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result { write!(f, "{}", (crate::dll::get_azul_dll().az_dom_vec_fmt_debug)(self)) } }
     impl Clone for DomVec { fn clone(&self) -> Self { (crate::dll::get_azul_dll().az_dom_vec_deep_copy)(self) } }
     impl Drop for DomVec { fn drop(&mut self) { (crate::dll::get_azul_dll().az_dom_vec_delete)(self); } }
 
@@ -5366,6 +6260,7 @@ pub mod vec {
         pub fn copy_from(ptr: *const AzString, len: usize) -> Self { (crate::dll::get_azul_dll().az_string_vec_copy_from)(ptr, len) }
     }
 
+    impl std::fmt::Debug for StringVec { fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result { write!(f, "{}", (crate::dll::get_azul_dll().az_string_vec_fmt_debug)(self)) } }
     impl Clone for StringVec { fn clone(&self) -> Self { (crate::dll::get_azul_dll().az_string_vec_deep_copy)(self) } }
     impl Drop for StringVec { fn drop(&mut self) { (crate::dll::get_azul_dll().az_string_vec_delete)(self); } }
 
@@ -5378,6 +6273,7 @@ pub mod vec {
         pub fn copy_from(ptr: *const AzStringPair, len: usize) -> Self { (crate::dll::get_azul_dll().az_string_pair_vec_copy_from)(ptr, len) }
     }
 
+    impl std::fmt::Debug for StringPairVec { fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result { write!(f, "{}", (crate::dll::get_azul_dll().az_string_pair_vec_fmt_debug)(self)) } }
     impl Clone for StringPairVec { fn clone(&self) -> Self { (crate::dll::get_azul_dll().az_string_pair_vec_deep_copy)(self) } }
     impl Drop for StringPairVec { fn drop(&mut self) { (crate::dll::get_azul_dll().az_string_pair_vec_delete)(self); } }
 
@@ -5390,6 +6286,7 @@ pub mod vec {
         pub fn copy_from(ptr: *const AzGradientStopPre, len: usize) -> Self { (crate::dll::get_azul_dll().az_gradient_stop_pre_vec_copy_from)(ptr, len) }
     }
 
+    impl std::fmt::Debug for GradientStopPreVec { fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result { write!(f, "{}", (crate::dll::get_azul_dll().az_gradient_stop_pre_vec_fmt_debug)(self)) } }
     impl Clone for GradientStopPreVec { fn clone(&self) -> Self { (crate::dll::get_azul_dll().az_gradient_stop_pre_vec_deep_copy)(self) } }
     impl Drop for GradientStopPreVec { fn drop(&mut self) { (crate::dll::get_azul_dll().az_gradient_stop_pre_vec_delete)(self); } }
 }
@@ -5405,6 +6302,7 @@ pub mod option {
     /// `OptionWaylandTheme` struct
     pub use crate::dll::AzOptionWaylandTheme as OptionWaylandTheme;
 
+    impl std::fmt::Debug for OptionWaylandTheme { fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result { write!(f, "{}", (crate::dll::get_azul_dll().az_option_wayland_theme_fmt_debug)(self)) } }
     impl Clone for OptionWaylandTheme { fn clone(&self) -> Self { (crate::dll::get_azul_dll().az_option_wayland_theme_deep_copy)(self) } }
     impl Drop for OptionWaylandTheme { fn drop(&mut self) { (crate::dll::get_azul_dll().az_option_wayland_theme_delete)(self); } }
 
@@ -5412,6 +6310,7 @@ pub mod option {
     /// `OptionTaskBarIcon` struct
     pub use crate::dll::AzOptionTaskBarIcon as OptionTaskBarIcon;
 
+    impl std::fmt::Debug for OptionTaskBarIcon { fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result { write!(f, "{}", (crate::dll::get_azul_dll().az_option_task_bar_icon_fmt_debug)(self)) } }
     impl Clone for OptionTaskBarIcon { fn clone(&self) -> Self { (crate::dll::get_azul_dll().az_option_task_bar_icon_deep_copy)(self) } }
     impl Drop for OptionTaskBarIcon { fn drop(&mut self) { (crate::dll::get_azul_dll().az_option_task_bar_icon_delete)(self); } }
 
@@ -5419,6 +6318,7 @@ pub mod option {
     /// `OptionHwndHandle` struct
     pub use crate::dll::AzOptionHwndHandle as OptionHwndHandle;
 
+    impl std::fmt::Debug for OptionHwndHandle { fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result { write!(f, "{}", (crate::dll::get_azul_dll().az_option_hwnd_handle_fmt_debug)(self)) } }
     impl Clone for OptionHwndHandle { fn clone(&self) -> Self { (crate::dll::get_azul_dll().az_option_hwnd_handle_deep_copy)(self) } }
     impl Drop for OptionHwndHandle { fn drop(&mut self) { (crate::dll::get_azul_dll().az_option_hwnd_handle_delete)(self); } }
 
@@ -5426,6 +6326,7 @@ pub mod option {
     /// `OptionLogicalPosition` struct
     pub use crate::dll::AzOptionLogicalPosition as OptionLogicalPosition;
 
+    impl std::fmt::Debug for OptionLogicalPosition { fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result { write!(f, "{}", (crate::dll::get_azul_dll().az_option_logical_position_fmt_debug)(self)) } }
     impl Clone for OptionLogicalPosition { fn clone(&self) -> Self { (crate::dll::get_azul_dll().az_option_logical_position_deep_copy)(self) } }
     impl Drop for OptionLogicalPosition { fn drop(&mut self) { (crate::dll::get_azul_dll().az_option_logical_position_delete)(self); } }
 
@@ -5433,6 +6334,7 @@ pub mod option {
     /// `OptionHotReloadOptions` struct
     pub use crate::dll::AzOptionHotReloadOptions as OptionHotReloadOptions;
 
+    impl std::fmt::Debug for OptionHotReloadOptions { fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result { write!(f, "{}", (crate::dll::get_azul_dll().az_option_hot_reload_options_fmt_debug)(self)) } }
     impl Clone for OptionHotReloadOptions { fn clone(&self) -> Self { (crate::dll::get_azul_dll().az_option_hot_reload_options_deep_copy)(self) } }
     impl Drop for OptionHotReloadOptions { fn drop(&mut self) { (crate::dll::get_azul_dll().az_option_hot_reload_options_delete)(self); } }
 
@@ -5440,6 +6342,7 @@ pub mod option {
     /// `OptionPhysicalPositionI32` struct
     pub use crate::dll::AzOptionPhysicalPositionI32 as OptionPhysicalPositionI32;
 
+    impl std::fmt::Debug for OptionPhysicalPositionI32 { fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result { write!(f, "{}", (crate::dll::get_azul_dll().az_option_physical_position_i32_fmt_debug)(self)) } }
     impl Clone for OptionPhysicalPositionI32 { fn clone(&self) -> Self { (crate::dll::get_azul_dll().az_option_physical_position_i32_deep_copy)(self) } }
     impl Drop for OptionPhysicalPositionI32 { fn drop(&mut self) { (crate::dll::get_azul_dll().az_option_physical_position_i32_delete)(self); } }
 
@@ -5447,6 +6350,7 @@ pub mod option {
     /// `OptionWindowIcon` struct
     pub use crate::dll::AzOptionWindowIcon as OptionWindowIcon;
 
+    impl std::fmt::Debug for OptionWindowIcon { fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result { write!(f, "{}", (crate::dll::get_azul_dll().az_option_window_icon_fmt_debug)(self)) } }
     impl Clone for OptionWindowIcon { fn clone(&self) -> Self { (crate::dll::get_azul_dll().az_option_window_icon_deep_copy)(self) } }
     impl Drop for OptionWindowIcon { fn drop(&mut self) { (crate::dll::get_azul_dll().az_option_window_icon_delete)(self); } }
 
@@ -5454,6 +6358,7 @@ pub mod option {
     /// `OptionString` struct
     pub use crate::dll::AzOptionString as OptionString;
 
+    impl std::fmt::Debug for OptionString { fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result { write!(f, "{}", (crate::dll::get_azul_dll().az_option_string_fmt_debug)(self)) } }
     impl Clone for OptionString { fn clone(&self) -> Self { (crate::dll::get_azul_dll().az_option_string_deep_copy)(self) } }
     impl Drop for OptionString { fn drop(&mut self) { (crate::dll::get_azul_dll().az_option_string_delete)(self); } }
 
@@ -5461,6 +6366,7 @@ pub mod option {
     /// `OptionX11Visual` struct
     pub use crate::dll::AzOptionX11Visual as OptionX11Visual;
 
+    impl std::fmt::Debug for OptionX11Visual { fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result { write!(f, "{}", (crate::dll::get_azul_dll().az_option_x11_visual_fmt_debug)(self)) } }
     impl Clone for OptionX11Visual { fn clone(&self) -> Self { (crate::dll::get_azul_dll().az_option_x11_visual_deep_copy)(self) } }
     impl Drop for OptionX11Visual { fn drop(&mut self) { (crate::dll::get_azul_dll().az_option_x11_visual_delete)(self); } }
 
@@ -5468,6 +6374,7 @@ pub mod option {
     /// `OptionI32` struct
     pub use crate::dll::AzOptionI32 as OptionI32;
 
+    impl std::fmt::Debug for OptionI32 { fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result { write!(f, "{}", (crate::dll::get_azul_dll().az_option_i32_fmt_debug)(self)) } }
     impl Clone for OptionI32 { fn clone(&self) -> Self { (crate::dll::get_azul_dll().az_option_i32_deep_copy)(self) } }
     impl Drop for OptionI32 { fn drop(&mut self) { (crate::dll::get_azul_dll().az_option_i32_delete)(self); } }
 
@@ -5475,6 +6382,7 @@ pub mod option {
     /// `OptionF32` struct
     pub use crate::dll::AzOptionF32 as OptionF32;
 
+    impl std::fmt::Debug for OptionF32 { fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result { write!(f, "{}", (crate::dll::get_azul_dll().az_option_f32_fmt_debug)(self)) } }
     impl Clone for OptionF32 { fn clone(&self) -> Self { (crate::dll::get_azul_dll().az_option_f32_deep_copy)(self) } }
     impl Drop for OptionF32 { fn drop(&mut self) { (crate::dll::get_azul_dll().az_option_f32_delete)(self); } }
 
@@ -5482,6 +6390,7 @@ pub mod option {
     /// `OptionMouseCursorType` struct
     pub use crate::dll::AzOptionMouseCursorType as OptionMouseCursorType;
 
+    impl std::fmt::Debug for OptionMouseCursorType { fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result { write!(f, "{}", (crate::dll::get_azul_dll().az_option_mouse_cursor_type_fmt_debug)(self)) } }
     impl Clone for OptionMouseCursorType { fn clone(&self) -> Self { (crate::dll::get_azul_dll().az_option_mouse_cursor_type_deep_copy)(self) } }
     impl Drop for OptionMouseCursorType { fn drop(&mut self) { (crate::dll::get_azul_dll().az_option_mouse_cursor_type_delete)(self); } }
 
@@ -5489,6 +6398,7 @@ pub mod option {
     /// `OptionLogicalSize` struct
     pub use crate::dll::AzOptionLogicalSize as OptionLogicalSize;
 
+    impl std::fmt::Debug for OptionLogicalSize { fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result { write!(f, "{}", (crate::dll::get_azul_dll().az_option_logical_size_fmt_debug)(self)) } }
     impl Clone for OptionLogicalSize { fn clone(&self) -> Self { (crate::dll::get_azul_dll().az_option_logical_size_deep_copy)(self) } }
     impl Drop for OptionLogicalSize { fn drop(&mut self) { (crate::dll::get_azul_dll().az_option_logical_size_delete)(self); } }
 
@@ -5496,6 +6406,7 @@ pub mod option {
     /// `OptionChar` struct
     pub use crate::dll::AzOptionChar as OptionChar;
 
+    impl std::fmt::Debug for OptionChar { fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result { write!(f, "{}", (crate::dll::get_azul_dll().az_option_char_fmt_debug)(self)) } }
     impl Clone for OptionChar { fn clone(&self) -> Self { (crate::dll::get_azul_dll().az_option_char_deep_copy)(self) } }
     impl Drop for OptionChar { fn drop(&mut self) { (crate::dll::get_azul_dll().az_option_char_delete)(self); } }
 
@@ -5503,6 +6414,7 @@ pub mod option {
     /// `OptionVirtualKeyCode` struct
     pub use crate::dll::AzOptionVirtualKeyCode as OptionVirtualKeyCode;
 
+    impl std::fmt::Debug for OptionVirtualKeyCode { fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result { write!(f, "{}", (crate::dll::get_azul_dll().az_option_virtual_key_code_fmt_debug)(self)) } }
     impl Clone for OptionVirtualKeyCode { fn clone(&self) -> Self { (crate::dll::get_azul_dll().az_option_virtual_key_code_deep_copy)(self) } }
     impl Drop for OptionVirtualKeyCode { fn drop(&mut self) { (crate::dll::get_azul_dll().az_option_virtual_key_code_delete)(self); } }
 
@@ -5510,6 +6422,7 @@ pub mod option {
     /// `OptionPercentageValue` struct
     pub use crate::dll::AzOptionPercentageValue as OptionPercentageValue;
 
+    impl std::fmt::Debug for OptionPercentageValue { fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result { write!(f, "{}", (crate::dll::get_azul_dll().az_option_percentage_value_fmt_debug)(self)) } }
     impl Clone for OptionPercentageValue { fn clone(&self) -> Self { (crate::dll::get_azul_dll().az_option_percentage_value_deep_copy)(self) } }
     impl Drop for OptionPercentageValue { fn drop(&mut self) { (crate::dll::get_azul_dll().az_option_percentage_value_delete)(self); } }
 
@@ -5517,6 +6430,7 @@ pub mod option {
     /// `OptionDom` struct
     pub use crate::dll::AzOptionDom as OptionDom;
 
+    impl std::fmt::Debug for OptionDom { fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result { write!(f, "{}", (crate::dll::get_azul_dll().az_option_dom_fmt_debug)(self)) } }
     impl Clone for OptionDom { fn clone(&self) -> Self { (crate::dll::get_azul_dll().az_option_dom_deep_copy)(self) } }
     impl Drop for OptionDom { fn drop(&mut self) { (crate::dll::get_azul_dll().az_option_dom_delete)(self); } }
 
@@ -5524,12 +6438,14 @@ pub mod option {
     /// `OptionTexture` struct
     pub use crate::dll::AzOptionTexture as OptionTexture;
 
+    impl std::fmt::Debug for OptionTexture { fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result { write!(f, "{}", (crate::dll::get_azul_dll().az_option_texture_fmt_debug)(self)) } }
     impl Drop for OptionTexture { fn drop(&mut self) { (crate::dll::get_azul_dll().az_option_texture_delete)(self); } }
 
 
     /// `OptionTabIndex` struct
     pub use crate::dll::AzOptionTabIndex as OptionTabIndex;
 
+    impl std::fmt::Debug for OptionTabIndex { fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result { write!(f, "{}", (crate::dll::get_azul_dll().az_option_tab_index_fmt_debug)(self)) } }
     impl Clone for OptionTabIndex { fn clone(&self) -> Self { (crate::dll::get_azul_dll().az_option_tab_index_deep_copy)(self) } }
     impl Drop for OptionTabIndex { fn drop(&mut self) { (crate::dll::get_azul_dll().az_option_tab_index_delete)(self); } }
 
@@ -5537,6 +6453,7 @@ pub mod option {
     /// `OptionDuration` struct
     pub use crate::dll::AzOptionDuration as OptionDuration;
 
+    impl std::fmt::Debug for OptionDuration { fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result { write!(f, "{}", (crate::dll::get_azul_dll().az_option_duration_fmt_debug)(self)) } }
     impl Clone for OptionDuration { fn clone(&self) -> Self { (crate::dll::get_azul_dll().az_option_duration_deep_copy)(self) } }
     impl Drop for OptionDuration { fn drop(&mut self) { (crate::dll::get_azul_dll().az_option_duration_delete)(self); } }
 
@@ -5544,6 +6461,7 @@ pub mod option {
     /// `OptionInstantPtr` struct
     pub use crate::dll::AzOptionInstantPtr as OptionInstantPtr;
 
+    impl std::fmt::Debug for OptionInstantPtr { fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result { write!(f, "{}", (crate::dll::get_azul_dll().az_option_instant_ptr_fmt_debug)(self)) } }
     impl Clone for OptionInstantPtr { fn clone(&self) -> Self { (crate::dll::get_azul_dll().az_option_instant_ptr_deep_copy)(self) } }
     impl Drop for OptionInstantPtr { fn drop(&mut self) { (crate::dll::get_azul_dll().az_option_instant_ptr_delete)(self); } }
 
@@ -5551,6 +6469,7 @@ pub mod option {
     /// `OptionUsize` struct
     pub use crate::dll::AzOptionUsize as OptionUsize;
 
+    impl std::fmt::Debug for OptionUsize { fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result { write!(f, "{}", (crate::dll::get_azul_dll().az_option_usize_fmt_debug)(self)) } }
     impl Clone for OptionUsize { fn clone(&self) -> Self { (crate::dll::get_azul_dll().az_option_usize_deep_copy)(self) } }
     impl Drop for OptionUsize { fn drop(&mut self) { (crate::dll::get_azul_dll().az_option_usize_delete)(self); } }
 
@@ -5558,6 +6477,7 @@ pub mod option {
     /// `OptionU8VecRef` struct
     pub use crate::dll::AzOptionU8VecRef as OptionU8VecRef;
 
+    impl std::fmt::Debug for OptionU8VecRef { fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result { write!(f, "{}", (crate::dll::get_azul_dll().az_option_u8_vec_ref_fmt_debug)(self)) } }
     impl Drop for OptionU8VecRef { fn drop(&mut self) { (crate::dll::get_azul_dll().az_option_u8_vec_ref_delete)(self); } }
 }
 
@@ -5572,6 +6492,7 @@ pub mod result {
     /// `ResultRefAnyBlockError` struct
     pub use crate::dll::AzResultRefAnyBlockError as ResultRefAnyBlockError;
 
+    impl std::fmt::Debug for ResultRefAnyBlockError { fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result { write!(f, "{}", (crate::dll::get_azul_dll().az_result_ref_any_block_error_fmt_debug)(self)) } }
     impl Clone for ResultRefAnyBlockError { fn clone(&self) -> Self { (crate::dll::get_azul_dll().az_result_ref_any_block_error_deep_copy)(self) } }
     impl Drop for ResultRefAnyBlockError { fn drop(&mut self) { (crate::dll::get_azul_dll().az_result_ref_any_block_error_delete)(self); } }
 }
@@ -5592,12 +6513,14 @@ pub mod time {
         pub fn now() -> Self { (crate::dll::get_azul_dll().az_instant_now)() }
     }
 
+    impl std::fmt::Debug for Instant { fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result { write!(f, "{}", (crate::dll::get_azul_dll().az_instant_fmt_debug)(self)) } }
     impl Drop for Instant { fn drop(&mut self) { (crate::dll::get_azul_dll().az_instant_delete)(self); } }
 
 
     /// `Duration` struct
     pub use crate::dll::AzDuration as Duration;
 
+    impl std::fmt::Debug for Duration { fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result { write!(f, "{}", (crate::dll::get_azul_dll().az_duration_fmt_debug)(self)) } }
     impl Clone for Duration { fn clone(&self) -> Self { (crate::dll::get_azul_dll().az_duration_deep_copy)(self) } }
     impl Drop for Duration { fn drop(&mut self) { (crate::dll::get_azul_dll().az_duration_delete)(self); } }
 }
@@ -5620,6 +6543,7 @@ pub mod app {
         pub fn default() -> Self { (crate::dll::get_azul_dll().az_app_config_default)() }
     }
 
+    impl std::fmt::Debug for AppConfig { fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result { write!(f, "{}", (crate::dll::get_azul_dll().az_app_config_fmt_debug)(self)) } }
     impl Drop for AppConfig { fn drop(&mut self) { (crate::dll::get_azul_dll().az_app_config_delete)(self); } }
 
 
@@ -5633,6 +6557,7 @@ pub mod app {
         pub fn run(self, window: WindowCreateOptions)  { (crate::dll::get_azul_dll().az_app_run)(self, window) }
     }
 
+    impl std::fmt::Debug for App { fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result { write!(f, "{}", (crate::dll::get_azul_dll().az_app_fmt_debug)(self)) } }
     impl Drop for App { fn drop(&mut self) { (crate::dll::get_azul_dll().az_app_delete)(self); } }
 }
 
@@ -5769,6 +6694,7 @@ pub mod callbacks {
     /// `LayoutCallback` struct
     pub use crate::dll::AzLayoutCallback as LayoutCallback;
 
+    impl std::fmt::Debug for LayoutCallback { fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result { write!(f, "{}", (crate::dll::get_azul_dll().az_layout_callback_fmt_debug)(self)) } }
     impl Clone for LayoutCallback { fn clone(&self) -> Self { (crate::dll::get_azul_dll().az_layout_callback_deep_copy)(self) } }
     impl Drop for LayoutCallback { fn drop(&mut self) { (crate::dll::get_azul_dll().az_layout_callback_delete)(self); } }
 
@@ -5778,6 +6704,7 @@ pub mod callbacks {
     /// `Callback` struct
     pub use crate::dll::AzCallback as Callback;
 
+    impl std::fmt::Debug for Callback { fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result { write!(f, "{}", (crate::dll::get_azul_dll().az_callback_fmt_debug)(self)) } }
     impl Clone for Callback { fn clone(&self) -> Self { (crate::dll::get_azul_dll().az_callback_deep_copy)(self) } }
     impl Drop for Callback { fn drop(&mut self) { (crate::dll::get_azul_dll().az_callback_delete)(self); } }
 
@@ -5788,12 +6715,14 @@ pub mod callbacks {
     /// `CallbackInfo` struct
     pub use crate::dll::AzCallbackInfoPtr as CallbackInfo;
 
+    impl std::fmt::Debug for CallbackInfo { fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result { write!(f, "{}", (crate::dll::get_azul_dll().az_callback_info_fmt_debug)(self)) } }
     impl Drop for CallbackInfo { fn drop(&mut self) { (crate::dll::get_azul_dll().az_callback_info_delete)(self); } }
 
 
     /// Specifies if the screen should be updated after the callback function has returned
     pub use crate::dll::AzUpdateScreen as UpdateScreen;
 
+    impl std::fmt::Debug for UpdateScreen { fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result { write!(f, "{}", (crate::dll::get_azul_dll().az_update_screen_fmt_debug)(self)) } }
     impl Clone for UpdateScreen { fn clone(&self) -> Self { (crate::dll::get_azul_dll().az_update_screen_deep_copy)(self) } }
     impl Drop for UpdateScreen { fn drop(&mut self) { (crate::dll::get_azul_dll().az_update_screen_delete)(self); } }
 
@@ -5801,6 +6730,7 @@ pub mod callbacks {
     /// `IFrameCallback` struct
     pub use crate::dll::AzIFrameCallback as IFrameCallback;
 
+    impl std::fmt::Debug for IFrameCallback { fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result { write!(f, "{}", (crate::dll::get_azul_dll().az_i_frame_callback_fmt_debug)(self)) } }
     impl Clone for IFrameCallback { fn clone(&self) -> Self { (crate::dll::get_azul_dll().az_i_frame_callback_deep_copy)(self) } }
     impl Drop for IFrameCallback { fn drop(&mut self) { (crate::dll::get_azul_dll().az_i_frame_callback_delete)(self); } }
 
@@ -5815,12 +6745,14 @@ pub mod callbacks {
         pub fn get_state(&self)  -> crate::callbacks::RefAny { { (crate::dll::get_azul_dll().az_i_frame_callback_info_get_state)(self)} }
     }
 
+    impl std::fmt::Debug for IFrameCallbackInfo { fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result { write!(f, "{}", (crate::dll::get_azul_dll().az_i_frame_callback_info_fmt_debug)(self)) } }
     impl Drop for IFrameCallbackInfo { fn drop(&mut self) { (crate::dll::get_azul_dll().az_i_frame_callback_info_delete)(self); } }
 
 
     /// `IFrameCallbackReturn` struct
     pub use crate::dll::AzIFrameCallbackReturn as IFrameCallbackReturn;
 
+    impl std::fmt::Debug for IFrameCallbackReturn { fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result { write!(f, "{}", (crate::dll::get_azul_dll().az_i_frame_callback_return_fmt_debug)(self)) } }
     impl Clone for IFrameCallbackReturn { fn clone(&self) -> Self { (crate::dll::get_azul_dll().az_i_frame_callback_return_deep_copy)(self) } }
     impl Drop for IFrameCallbackReturn { fn drop(&mut self) { (crate::dll::get_azul_dll().az_i_frame_callback_return_delete)(self); } }
 
@@ -5828,6 +6760,7 @@ pub mod callbacks {
     /// `GlCallback` struct
     pub use crate::dll::AzGlCallback as GlCallback;
 
+    impl std::fmt::Debug for GlCallback { fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result { write!(f, "{}", (crate::dll::get_azul_dll().az_gl_callback_fmt_debug)(self)) } }
     impl Clone for GlCallback { fn clone(&self) -> Self { (crate::dll::get_azul_dll().az_gl_callback_deep_copy)(self) } }
     impl Drop for GlCallback { fn drop(&mut self) { (crate::dll::get_azul_dll().az_gl_callback_delete)(self); } }
 
@@ -5837,18 +6770,21 @@ pub mod callbacks {
     /// `GlCallbackInfo` struct
     pub use crate::dll::AzGlCallbackInfoPtr as GlCallbackInfo;
 
+    impl std::fmt::Debug for GlCallbackInfo { fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result { write!(f, "{}", (crate::dll::get_azul_dll().az_gl_callback_info_fmt_debug)(self)) } }
     impl Drop for GlCallbackInfo { fn drop(&mut self) { (crate::dll::get_azul_dll().az_gl_callback_info_delete)(self); } }
 
 
     /// `GlCallbackReturn` struct
     pub use crate::dll::AzGlCallbackReturn as GlCallbackReturn;
 
+    impl std::fmt::Debug for GlCallbackReturn { fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result { write!(f, "{}", (crate::dll::get_azul_dll().az_gl_callback_return_fmt_debug)(self)) } }
     impl Drop for GlCallbackReturn { fn drop(&mut self) { (crate::dll::get_azul_dll().az_gl_callback_return_delete)(self); } }
 
 
     /// `TimerCallback` struct
     pub use crate::dll::AzTimerCallback as TimerCallback;
 
+    impl std::fmt::Debug for TimerCallback { fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result { write!(f, "{}", (crate::dll::get_azul_dll().az_timer_callback_fmt_debug)(self)) } }
     impl Clone for TimerCallback { fn clone(&self) -> Self { (crate::dll::get_azul_dll().az_timer_callback_deep_copy)(self) } }
     impl Drop for TimerCallback { fn drop(&mut self) { (crate::dll::get_azul_dll().az_timer_callback_delete)(self); } }
 
@@ -5856,17 +6792,20 @@ pub mod callbacks {
     /// `TimerCallbackType` struct
     pub use crate::dll::AzTimerCallbackTypePtr as TimerCallbackType;
 
+    impl std::fmt::Debug for TimerCallbackType { fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result { write!(f, "{}", (crate::dll::get_azul_dll().az_timer_callback_type_fmt_debug)(self)) } }
 
 
     /// `TimerCallbackInfo` struct
     pub use crate::dll::AzTimerCallbackInfoPtr as TimerCallbackInfo;
 
+    impl std::fmt::Debug for TimerCallbackInfo { fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result { write!(f, "{}", (crate::dll::get_azul_dll().az_timer_callback_info_fmt_debug)(self)) } }
     impl Drop for TimerCallbackInfo { fn drop(&mut self) { (crate::dll::get_azul_dll().az_timer_callback_info_delete)(self); } }
 
 
     /// `TimerCallbackReturn` struct
     pub use crate::dll::AzTimerCallbackReturn as TimerCallbackReturn;
 
+    impl std::fmt::Debug for TimerCallbackReturn { fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result { write!(f, "{}", (crate::dll::get_azul_dll().az_timer_callback_return_fmt_debug)(self)) } }
     impl Clone for TimerCallbackReturn { fn clone(&self) -> Self { (crate::dll::get_azul_dll().az_timer_callback_return_deep_copy)(self) } }
     impl Drop for TimerCallbackReturn { fn drop(&mut self) { (crate::dll::get_azul_dll().az_timer_callback_return_delete)(self); } }
 
@@ -5895,6 +6834,7 @@ pub mod callbacks {
         pub fn decrease_refmut(&mut self)  { (crate::dll::get_azul_dll().az_ref_any_sharing_info_decrease_refmut)(self) }
     }
 
+    impl std::fmt::Debug for RefAnySharingInfo { fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result { write!(f, "{}", (crate::dll::get_azul_dll().az_ref_any_sharing_info_fmt_debug)(self)) } }
     impl Drop for RefAnySharingInfo { fn drop(&mut self) { (crate::dll::get_azul_dll().az_ref_any_sharing_info_delete)(self); } }
 
 
@@ -5922,6 +6862,7 @@ pub mod callbacks {
         pub fn decrease_refmut(&self)  { (crate::dll::get_azul_dll().az_ref_any_decrease_refmut)(self) }
     }
 
+    impl std::fmt::Debug for RefAny { fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result { write!(f, "{}", (crate::dll::get_azul_dll().az_ref_any_fmt_debug)(self)) } }
     impl Clone for RefAny { fn clone(&self) -> Self { (crate::dll::get_azul_dll().az_ref_any_deep_copy)(self) } }
     impl Drop for RefAny { fn drop(&mut self) { (crate::dll::get_azul_dll().az_ref_any_delete)(self); } }
 
@@ -5929,6 +6870,7 @@ pub mod callbacks {
     /// `LayoutInfo` struct
     pub use crate::dll::AzLayoutInfoPtr as LayoutInfo;
 
+    impl std::fmt::Debug for LayoutInfo { fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result { write!(f, "{}", (crate::dll::get_azul_dll().az_layout_info_fmt_debug)(self)) } }
     impl Drop for LayoutInfo { fn drop(&mut self) { (crate::dll::get_azul_dll().az_layout_info_delete)(self); } }
 }
 
@@ -5944,6 +6886,7 @@ pub mod css {
     /// `CssRuleBlock` struct
     pub use crate::dll::AzCssRuleBlock as CssRuleBlock;
 
+    impl std::fmt::Debug for CssRuleBlock { fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result { write!(f, "{}", (crate::dll::get_azul_dll().az_css_rule_block_fmt_debug)(self)) } }
     impl Clone for CssRuleBlock { fn clone(&self) -> Self { (crate::dll::get_azul_dll().az_css_rule_block_deep_copy)(self) } }
     impl Drop for CssRuleBlock { fn drop(&mut self) { (crate::dll::get_azul_dll().az_css_rule_block_delete)(self); } }
 
@@ -5951,6 +6894,7 @@ pub mod css {
     /// `CssDeclaration` struct
     pub use crate::dll::AzCssDeclaration as CssDeclaration;
 
+    impl std::fmt::Debug for CssDeclaration { fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result { write!(f, "{}", (crate::dll::get_azul_dll().az_css_declaration_fmt_debug)(self)) } }
     impl Clone for CssDeclaration { fn clone(&self) -> Self { (crate::dll::get_azul_dll().az_css_declaration_deep_copy)(self) } }
     impl Drop for CssDeclaration { fn drop(&mut self) { (crate::dll::get_azul_dll().az_css_declaration_delete)(self); } }
 
@@ -5958,6 +6902,7 @@ pub mod css {
     /// `DynamicCssProperty` struct
     pub use crate::dll::AzDynamicCssProperty as DynamicCssProperty;
 
+    impl std::fmt::Debug for DynamicCssProperty { fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result { write!(f, "{}", (crate::dll::get_azul_dll().az_dynamic_css_property_fmt_debug)(self)) } }
     impl Clone for DynamicCssProperty { fn clone(&self) -> Self { (crate::dll::get_azul_dll().az_dynamic_css_property_deep_copy)(self) } }
     impl Drop for DynamicCssProperty { fn drop(&mut self) { (crate::dll::get_azul_dll().az_dynamic_css_property_delete)(self); } }
 
@@ -5965,6 +6910,7 @@ pub mod css {
     /// `CssPath` struct
     pub use crate::dll::AzCssPath as CssPath;
 
+    impl std::fmt::Debug for CssPath { fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result { write!(f, "{}", (crate::dll::get_azul_dll().az_css_path_fmt_debug)(self)) } }
     impl Clone for CssPath { fn clone(&self) -> Self { (crate::dll::get_azul_dll().az_css_path_deep_copy)(self) } }
     impl Drop for CssPath { fn drop(&mut self) { (crate::dll::get_azul_dll().az_css_path_delete)(self); } }
 
@@ -5972,6 +6918,7 @@ pub mod css {
     /// `CssPathSelector` struct
     pub use crate::dll::AzCssPathSelector as CssPathSelector;
 
+    impl std::fmt::Debug for CssPathSelector { fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result { write!(f, "{}", (crate::dll::get_azul_dll().az_css_path_selector_fmt_debug)(self)) } }
     impl Clone for CssPathSelector { fn clone(&self) -> Self { (crate::dll::get_azul_dll().az_css_path_selector_deep_copy)(self) } }
     impl Drop for CssPathSelector { fn drop(&mut self) { (crate::dll::get_azul_dll().az_css_path_selector_delete)(self); } }
 
@@ -5979,6 +6926,7 @@ pub mod css {
     /// `NodeTypePath` struct
     pub use crate::dll::AzNodeTypePath as NodeTypePath;
 
+    impl std::fmt::Debug for NodeTypePath { fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result { write!(f, "{}", (crate::dll::get_azul_dll().az_node_type_path_fmt_debug)(self)) } }
     impl Clone for NodeTypePath { fn clone(&self) -> Self { (crate::dll::get_azul_dll().az_node_type_path_deep_copy)(self) } }
     impl Drop for NodeTypePath { fn drop(&mut self) { (crate::dll::get_azul_dll().az_node_type_path_delete)(self); } }
 
@@ -5986,6 +6934,7 @@ pub mod css {
     /// `CssPathPseudoSelector` struct
     pub use crate::dll::AzCssPathPseudoSelector as CssPathPseudoSelector;
 
+    impl std::fmt::Debug for CssPathPseudoSelector { fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result { write!(f, "{}", (crate::dll::get_azul_dll().az_css_path_pseudo_selector_fmt_debug)(self)) } }
     impl Clone for CssPathPseudoSelector { fn clone(&self) -> Self { (crate::dll::get_azul_dll().az_css_path_pseudo_selector_deep_copy)(self) } }
     impl Drop for CssPathPseudoSelector { fn drop(&mut self) { (crate::dll::get_azul_dll().az_css_path_pseudo_selector_delete)(self); } }
 
@@ -5993,6 +6942,7 @@ pub mod css {
     /// `CssNthChildSelector` struct
     pub use crate::dll::AzCssNthChildSelector as CssNthChildSelector;
 
+    impl std::fmt::Debug for CssNthChildSelector { fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result { write!(f, "{}", (crate::dll::get_azul_dll().az_css_nth_child_selector_fmt_debug)(self)) } }
     impl Clone for CssNthChildSelector { fn clone(&self) -> Self { (crate::dll::get_azul_dll().az_css_nth_child_selector_deep_copy)(self) } }
     impl Drop for CssNthChildSelector { fn drop(&mut self) { (crate::dll::get_azul_dll().az_css_nth_child_selector_delete)(self); } }
 
@@ -6000,6 +6950,7 @@ pub mod css {
     /// `CssNthChildPattern` struct
     pub use crate::dll::AzCssNthChildPattern as CssNthChildPattern;
 
+    impl std::fmt::Debug for CssNthChildPattern { fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result { write!(f, "{}", (crate::dll::get_azul_dll().az_css_nth_child_pattern_fmt_debug)(self)) } }
     impl Clone for CssNthChildPattern { fn clone(&self) -> Self { (crate::dll::get_azul_dll().az_css_nth_child_pattern_deep_copy)(self) } }
     impl Drop for CssNthChildPattern { fn drop(&mut self) { (crate::dll::get_azul_dll().az_css_nth_child_pattern_delete)(self); } }
 
@@ -6007,6 +6958,7 @@ pub mod css {
     /// `Stylesheet` struct
     pub use crate::dll::AzStylesheet as Stylesheet;
 
+    impl std::fmt::Debug for Stylesheet { fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result { write!(f, "{}", (crate::dll::get_azul_dll().az_stylesheet_fmt_debug)(self)) } }
     impl Clone for Stylesheet { fn clone(&self) -> Self { (crate::dll::get_azul_dll().az_stylesheet_deep_copy)(self) } }
     impl Drop for Stylesheet { fn drop(&mut self) { (crate::dll::get_azul_dll().az_stylesheet_delete)(self); } }
 
@@ -6025,6 +6977,7 @@ pub mod css {
         pub fn override_native(s: String) -> Self { (crate::dll::get_azul_dll().az_css_override_native)(s) }
     }
 
+    impl std::fmt::Debug for Css { fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result { write!(f, "{}", (crate::dll::get_azul_dll().az_css_fmt_debug)(self)) } }
     impl Clone for Css { fn clone(&self) -> Self { (crate::dll::get_azul_dll().az_css_deep_copy)(self) } }
     impl Drop for Css { fn drop(&mut self) { (crate::dll::get_azul_dll().az_css_delete)(self); } }
 
@@ -6032,6 +6985,7 @@ pub mod css {
     /// `ColorU` struct
     pub use crate::dll::AzColorU as ColorU;
 
+    impl std::fmt::Debug for ColorU { fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result { write!(f, "{}", (crate::dll::get_azul_dll().az_color_u_fmt_debug)(self)) } }
     impl Clone for ColorU { fn clone(&self) -> Self { (crate::dll::get_azul_dll().az_color_u_deep_copy)(self) } }
     impl Drop for ColorU { fn drop(&mut self) { (crate::dll::get_azul_dll().az_color_u_delete)(self); } }
 
@@ -6039,6 +6993,7 @@ pub mod css {
     /// `SizeMetric` struct
     pub use crate::dll::AzSizeMetric as SizeMetric;
 
+    impl std::fmt::Debug for SizeMetric { fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result { write!(f, "{}", (crate::dll::get_azul_dll().az_size_metric_fmt_debug)(self)) } }
     impl Clone for SizeMetric { fn clone(&self) -> Self { (crate::dll::get_azul_dll().az_size_metric_deep_copy)(self) } }
     impl Drop for SizeMetric { fn drop(&mut self) { (crate::dll::get_azul_dll().az_size_metric_delete)(self); } }
 
@@ -6046,6 +7001,7 @@ pub mod css {
     /// `FloatValue` struct
     pub use crate::dll::AzFloatValue as FloatValue;
 
+    impl std::fmt::Debug for FloatValue { fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result { write!(f, "{}", (crate::dll::get_azul_dll().az_float_value_fmt_debug)(self)) } }
     impl Clone for FloatValue { fn clone(&self) -> Self { (crate::dll::get_azul_dll().az_float_value_deep_copy)(self) } }
     impl Drop for FloatValue { fn drop(&mut self) { (crate::dll::get_azul_dll().az_float_value_delete)(self); } }
 
@@ -6053,6 +7009,7 @@ pub mod css {
     /// `PixelValue` struct
     pub use crate::dll::AzPixelValue as PixelValue;
 
+    impl std::fmt::Debug for PixelValue { fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result { write!(f, "{}", (crate::dll::get_azul_dll().az_pixel_value_fmt_debug)(self)) } }
     impl Clone for PixelValue { fn clone(&self) -> Self { (crate::dll::get_azul_dll().az_pixel_value_deep_copy)(self) } }
     impl Drop for PixelValue { fn drop(&mut self) { (crate::dll::get_azul_dll().az_pixel_value_delete)(self); } }
 
@@ -6060,6 +7017,7 @@ pub mod css {
     /// `PixelValueNoPercent` struct
     pub use crate::dll::AzPixelValueNoPercent as PixelValueNoPercent;
 
+    impl std::fmt::Debug for PixelValueNoPercent { fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result { write!(f, "{}", (crate::dll::get_azul_dll().az_pixel_value_no_percent_fmt_debug)(self)) } }
     impl Clone for PixelValueNoPercent { fn clone(&self) -> Self { (crate::dll::get_azul_dll().az_pixel_value_no_percent_deep_copy)(self) } }
     impl Drop for PixelValueNoPercent { fn drop(&mut self) { (crate::dll::get_azul_dll().az_pixel_value_no_percent_delete)(self); } }
 
@@ -6067,6 +7025,7 @@ pub mod css {
     /// `BoxShadowClipMode` struct
     pub use crate::dll::AzBoxShadowClipMode as BoxShadowClipMode;
 
+    impl std::fmt::Debug for BoxShadowClipMode { fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result { write!(f, "{}", (crate::dll::get_azul_dll().az_box_shadow_clip_mode_fmt_debug)(self)) } }
     impl Clone for BoxShadowClipMode { fn clone(&self) -> Self { (crate::dll::get_azul_dll().az_box_shadow_clip_mode_deep_copy)(self) } }
     impl Drop for BoxShadowClipMode { fn drop(&mut self) { (crate::dll::get_azul_dll().az_box_shadow_clip_mode_delete)(self); } }
 
@@ -6074,6 +7033,7 @@ pub mod css {
     /// `BoxShadowPreDisplayItem` struct
     pub use crate::dll::AzBoxShadowPreDisplayItem as BoxShadowPreDisplayItem;
 
+    impl std::fmt::Debug for BoxShadowPreDisplayItem { fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result { write!(f, "{}", (crate::dll::get_azul_dll().az_box_shadow_pre_display_item_fmt_debug)(self)) } }
     impl Clone for BoxShadowPreDisplayItem { fn clone(&self) -> Self { (crate::dll::get_azul_dll().az_box_shadow_pre_display_item_deep_copy)(self) } }
     impl Drop for BoxShadowPreDisplayItem { fn drop(&mut self) { (crate::dll::get_azul_dll().az_box_shadow_pre_display_item_delete)(self); } }
 
@@ -6081,6 +7041,7 @@ pub mod css {
     /// `LayoutAlignContent` struct
     pub use crate::dll::AzLayoutAlignContent as LayoutAlignContent;
 
+    impl std::fmt::Debug for LayoutAlignContent { fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result { write!(f, "{}", (crate::dll::get_azul_dll().az_layout_align_content_fmt_debug)(self)) } }
     impl Clone for LayoutAlignContent { fn clone(&self) -> Self { (crate::dll::get_azul_dll().az_layout_align_content_deep_copy)(self) } }
     impl Drop for LayoutAlignContent { fn drop(&mut self) { (crate::dll::get_azul_dll().az_layout_align_content_delete)(self); } }
 
@@ -6088,6 +7049,7 @@ pub mod css {
     /// `LayoutAlignItems` struct
     pub use crate::dll::AzLayoutAlignItems as LayoutAlignItems;
 
+    impl std::fmt::Debug for LayoutAlignItems { fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result { write!(f, "{}", (crate::dll::get_azul_dll().az_layout_align_items_fmt_debug)(self)) } }
     impl Clone for LayoutAlignItems { fn clone(&self) -> Self { (crate::dll::get_azul_dll().az_layout_align_items_deep_copy)(self) } }
     impl Drop for LayoutAlignItems { fn drop(&mut self) { (crate::dll::get_azul_dll().az_layout_align_items_delete)(self); } }
 
@@ -6095,6 +7057,7 @@ pub mod css {
     /// `LayoutBottom` struct
     pub use crate::dll::AzLayoutBottom as LayoutBottom;
 
+    impl std::fmt::Debug for LayoutBottom { fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result { write!(f, "{}", (crate::dll::get_azul_dll().az_layout_bottom_fmt_debug)(self)) } }
     impl Clone for LayoutBottom { fn clone(&self) -> Self { (crate::dll::get_azul_dll().az_layout_bottom_deep_copy)(self) } }
     impl Drop for LayoutBottom { fn drop(&mut self) { (crate::dll::get_azul_dll().az_layout_bottom_delete)(self); } }
 
@@ -6102,6 +7065,7 @@ pub mod css {
     /// `LayoutBoxSizing` struct
     pub use crate::dll::AzLayoutBoxSizing as LayoutBoxSizing;
 
+    impl std::fmt::Debug for LayoutBoxSizing { fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result { write!(f, "{}", (crate::dll::get_azul_dll().az_layout_box_sizing_fmt_debug)(self)) } }
     impl Clone for LayoutBoxSizing { fn clone(&self) -> Self { (crate::dll::get_azul_dll().az_layout_box_sizing_deep_copy)(self) } }
     impl Drop for LayoutBoxSizing { fn drop(&mut self) { (crate::dll::get_azul_dll().az_layout_box_sizing_delete)(self); } }
 
@@ -6109,6 +7073,7 @@ pub mod css {
     /// `LayoutDirection` struct
     pub use crate::dll::AzLayoutDirection as LayoutDirection;
 
+    impl std::fmt::Debug for LayoutDirection { fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result { write!(f, "{}", (crate::dll::get_azul_dll().az_layout_direction_fmt_debug)(self)) } }
     impl Clone for LayoutDirection { fn clone(&self) -> Self { (crate::dll::get_azul_dll().az_layout_direction_deep_copy)(self) } }
     impl Drop for LayoutDirection { fn drop(&mut self) { (crate::dll::get_azul_dll().az_layout_direction_delete)(self); } }
 
@@ -6116,6 +7081,7 @@ pub mod css {
     /// `LayoutDisplay` struct
     pub use crate::dll::AzLayoutDisplay as LayoutDisplay;
 
+    impl std::fmt::Debug for LayoutDisplay { fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result { write!(f, "{}", (crate::dll::get_azul_dll().az_layout_display_fmt_debug)(self)) } }
     impl Clone for LayoutDisplay { fn clone(&self) -> Self { (crate::dll::get_azul_dll().az_layout_display_deep_copy)(self) } }
     impl Drop for LayoutDisplay { fn drop(&mut self) { (crate::dll::get_azul_dll().az_layout_display_delete)(self); } }
 
@@ -6123,6 +7089,7 @@ pub mod css {
     /// `LayoutFlexGrow` struct
     pub use crate::dll::AzLayoutFlexGrow as LayoutFlexGrow;
 
+    impl std::fmt::Debug for LayoutFlexGrow { fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result { write!(f, "{}", (crate::dll::get_azul_dll().az_layout_flex_grow_fmt_debug)(self)) } }
     impl Clone for LayoutFlexGrow { fn clone(&self) -> Self { (crate::dll::get_azul_dll().az_layout_flex_grow_deep_copy)(self) } }
     impl Drop for LayoutFlexGrow { fn drop(&mut self) { (crate::dll::get_azul_dll().az_layout_flex_grow_delete)(self); } }
 
@@ -6130,6 +7097,7 @@ pub mod css {
     /// `LayoutFlexShrink` struct
     pub use crate::dll::AzLayoutFlexShrink as LayoutFlexShrink;
 
+    impl std::fmt::Debug for LayoutFlexShrink { fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result { write!(f, "{}", (crate::dll::get_azul_dll().az_layout_flex_shrink_fmt_debug)(self)) } }
     impl Clone for LayoutFlexShrink { fn clone(&self) -> Self { (crate::dll::get_azul_dll().az_layout_flex_shrink_deep_copy)(self) } }
     impl Drop for LayoutFlexShrink { fn drop(&mut self) { (crate::dll::get_azul_dll().az_layout_flex_shrink_delete)(self); } }
 
@@ -6137,6 +7105,7 @@ pub mod css {
     /// `LayoutFloat` struct
     pub use crate::dll::AzLayoutFloat as LayoutFloat;
 
+    impl std::fmt::Debug for LayoutFloat { fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result { write!(f, "{}", (crate::dll::get_azul_dll().az_layout_float_fmt_debug)(self)) } }
     impl Clone for LayoutFloat { fn clone(&self) -> Self { (crate::dll::get_azul_dll().az_layout_float_deep_copy)(self) } }
     impl Drop for LayoutFloat { fn drop(&mut self) { (crate::dll::get_azul_dll().az_layout_float_delete)(self); } }
 
@@ -6144,6 +7113,7 @@ pub mod css {
     /// `LayoutHeight` struct
     pub use crate::dll::AzLayoutHeight as LayoutHeight;
 
+    impl std::fmt::Debug for LayoutHeight { fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result { write!(f, "{}", (crate::dll::get_azul_dll().az_layout_height_fmt_debug)(self)) } }
     impl Clone for LayoutHeight { fn clone(&self) -> Self { (crate::dll::get_azul_dll().az_layout_height_deep_copy)(self) } }
     impl Drop for LayoutHeight { fn drop(&mut self) { (crate::dll::get_azul_dll().az_layout_height_delete)(self); } }
 
@@ -6151,6 +7121,7 @@ pub mod css {
     /// `LayoutJustifyContent` struct
     pub use crate::dll::AzLayoutJustifyContent as LayoutJustifyContent;
 
+    impl std::fmt::Debug for LayoutJustifyContent { fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result { write!(f, "{}", (crate::dll::get_azul_dll().az_layout_justify_content_fmt_debug)(self)) } }
     impl Clone for LayoutJustifyContent { fn clone(&self) -> Self { (crate::dll::get_azul_dll().az_layout_justify_content_deep_copy)(self) } }
     impl Drop for LayoutJustifyContent { fn drop(&mut self) { (crate::dll::get_azul_dll().az_layout_justify_content_delete)(self); } }
 
@@ -6158,6 +7129,7 @@ pub mod css {
     /// `LayoutLeft` struct
     pub use crate::dll::AzLayoutLeft as LayoutLeft;
 
+    impl std::fmt::Debug for LayoutLeft { fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result { write!(f, "{}", (crate::dll::get_azul_dll().az_layout_left_fmt_debug)(self)) } }
     impl Clone for LayoutLeft { fn clone(&self) -> Self { (crate::dll::get_azul_dll().az_layout_left_deep_copy)(self) } }
     impl Drop for LayoutLeft { fn drop(&mut self) { (crate::dll::get_azul_dll().az_layout_left_delete)(self); } }
 
@@ -6165,6 +7137,7 @@ pub mod css {
     /// `LayoutMarginBottom` struct
     pub use crate::dll::AzLayoutMarginBottom as LayoutMarginBottom;
 
+    impl std::fmt::Debug for LayoutMarginBottom { fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result { write!(f, "{}", (crate::dll::get_azul_dll().az_layout_margin_bottom_fmt_debug)(self)) } }
     impl Clone for LayoutMarginBottom { fn clone(&self) -> Self { (crate::dll::get_azul_dll().az_layout_margin_bottom_deep_copy)(self) } }
     impl Drop for LayoutMarginBottom { fn drop(&mut self) { (crate::dll::get_azul_dll().az_layout_margin_bottom_delete)(self); } }
 
@@ -6172,6 +7145,7 @@ pub mod css {
     /// `LayoutMarginLeft` struct
     pub use crate::dll::AzLayoutMarginLeft as LayoutMarginLeft;
 
+    impl std::fmt::Debug for LayoutMarginLeft { fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result { write!(f, "{}", (crate::dll::get_azul_dll().az_layout_margin_left_fmt_debug)(self)) } }
     impl Clone for LayoutMarginLeft { fn clone(&self) -> Self { (crate::dll::get_azul_dll().az_layout_margin_left_deep_copy)(self) } }
     impl Drop for LayoutMarginLeft { fn drop(&mut self) { (crate::dll::get_azul_dll().az_layout_margin_left_delete)(self); } }
 
@@ -6179,6 +7153,7 @@ pub mod css {
     /// `LayoutMarginRight` struct
     pub use crate::dll::AzLayoutMarginRight as LayoutMarginRight;
 
+    impl std::fmt::Debug for LayoutMarginRight { fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result { write!(f, "{}", (crate::dll::get_azul_dll().az_layout_margin_right_fmt_debug)(self)) } }
     impl Clone for LayoutMarginRight { fn clone(&self) -> Self { (crate::dll::get_azul_dll().az_layout_margin_right_deep_copy)(self) } }
     impl Drop for LayoutMarginRight { fn drop(&mut self) { (crate::dll::get_azul_dll().az_layout_margin_right_delete)(self); } }
 
@@ -6186,6 +7161,7 @@ pub mod css {
     /// `LayoutMarginTop` struct
     pub use crate::dll::AzLayoutMarginTop as LayoutMarginTop;
 
+    impl std::fmt::Debug for LayoutMarginTop { fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result { write!(f, "{}", (crate::dll::get_azul_dll().az_layout_margin_top_fmt_debug)(self)) } }
     impl Clone for LayoutMarginTop { fn clone(&self) -> Self { (crate::dll::get_azul_dll().az_layout_margin_top_deep_copy)(self) } }
     impl Drop for LayoutMarginTop { fn drop(&mut self) { (crate::dll::get_azul_dll().az_layout_margin_top_delete)(self); } }
 
@@ -6193,6 +7169,7 @@ pub mod css {
     /// `LayoutMaxHeight` struct
     pub use crate::dll::AzLayoutMaxHeight as LayoutMaxHeight;
 
+    impl std::fmt::Debug for LayoutMaxHeight { fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result { write!(f, "{}", (crate::dll::get_azul_dll().az_layout_max_height_fmt_debug)(self)) } }
     impl Clone for LayoutMaxHeight { fn clone(&self) -> Self { (crate::dll::get_azul_dll().az_layout_max_height_deep_copy)(self) } }
     impl Drop for LayoutMaxHeight { fn drop(&mut self) { (crate::dll::get_azul_dll().az_layout_max_height_delete)(self); } }
 
@@ -6200,6 +7177,7 @@ pub mod css {
     /// `LayoutMaxWidth` struct
     pub use crate::dll::AzLayoutMaxWidth as LayoutMaxWidth;
 
+    impl std::fmt::Debug for LayoutMaxWidth { fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result { write!(f, "{}", (crate::dll::get_azul_dll().az_layout_max_width_fmt_debug)(self)) } }
     impl Clone for LayoutMaxWidth { fn clone(&self) -> Self { (crate::dll::get_azul_dll().az_layout_max_width_deep_copy)(self) } }
     impl Drop for LayoutMaxWidth { fn drop(&mut self) { (crate::dll::get_azul_dll().az_layout_max_width_delete)(self); } }
 
@@ -6207,6 +7185,7 @@ pub mod css {
     /// `LayoutMinHeight` struct
     pub use crate::dll::AzLayoutMinHeight as LayoutMinHeight;
 
+    impl std::fmt::Debug for LayoutMinHeight { fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result { write!(f, "{}", (crate::dll::get_azul_dll().az_layout_min_height_fmt_debug)(self)) } }
     impl Clone for LayoutMinHeight { fn clone(&self) -> Self { (crate::dll::get_azul_dll().az_layout_min_height_deep_copy)(self) } }
     impl Drop for LayoutMinHeight { fn drop(&mut self) { (crate::dll::get_azul_dll().az_layout_min_height_delete)(self); } }
 
@@ -6214,6 +7193,7 @@ pub mod css {
     /// `LayoutMinWidth` struct
     pub use crate::dll::AzLayoutMinWidth as LayoutMinWidth;
 
+    impl std::fmt::Debug for LayoutMinWidth { fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result { write!(f, "{}", (crate::dll::get_azul_dll().az_layout_min_width_fmt_debug)(self)) } }
     impl Clone for LayoutMinWidth { fn clone(&self) -> Self { (crate::dll::get_azul_dll().az_layout_min_width_deep_copy)(self) } }
     impl Drop for LayoutMinWidth { fn drop(&mut self) { (crate::dll::get_azul_dll().az_layout_min_width_delete)(self); } }
 
@@ -6221,6 +7201,7 @@ pub mod css {
     /// `LayoutPaddingBottom` struct
     pub use crate::dll::AzLayoutPaddingBottom as LayoutPaddingBottom;
 
+    impl std::fmt::Debug for LayoutPaddingBottom { fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result { write!(f, "{}", (crate::dll::get_azul_dll().az_layout_padding_bottom_fmt_debug)(self)) } }
     impl Clone for LayoutPaddingBottom { fn clone(&self) -> Self { (crate::dll::get_azul_dll().az_layout_padding_bottom_deep_copy)(self) } }
     impl Drop for LayoutPaddingBottom { fn drop(&mut self) { (crate::dll::get_azul_dll().az_layout_padding_bottom_delete)(self); } }
 
@@ -6228,6 +7209,7 @@ pub mod css {
     /// `LayoutPaddingLeft` struct
     pub use crate::dll::AzLayoutPaddingLeft as LayoutPaddingLeft;
 
+    impl std::fmt::Debug for LayoutPaddingLeft { fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result { write!(f, "{}", (crate::dll::get_azul_dll().az_layout_padding_left_fmt_debug)(self)) } }
     impl Clone for LayoutPaddingLeft { fn clone(&self) -> Self { (crate::dll::get_azul_dll().az_layout_padding_left_deep_copy)(self) } }
     impl Drop for LayoutPaddingLeft { fn drop(&mut self) { (crate::dll::get_azul_dll().az_layout_padding_left_delete)(self); } }
 
@@ -6235,6 +7217,7 @@ pub mod css {
     /// `LayoutPaddingRight` struct
     pub use crate::dll::AzLayoutPaddingRight as LayoutPaddingRight;
 
+    impl std::fmt::Debug for LayoutPaddingRight { fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result { write!(f, "{}", (crate::dll::get_azul_dll().az_layout_padding_right_fmt_debug)(self)) } }
     impl Clone for LayoutPaddingRight { fn clone(&self) -> Self { (crate::dll::get_azul_dll().az_layout_padding_right_deep_copy)(self) } }
     impl Drop for LayoutPaddingRight { fn drop(&mut self) { (crate::dll::get_azul_dll().az_layout_padding_right_delete)(self); } }
 
@@ -6242,6 +7225,7 @@ pub mod css {
     /// `LayoutPaddingTop` struct
     pub use crate::dll::AzLayoutPaddingTop as LayoutPaddingTop;
 
+    impl std::fmt::Debug for LayoutPaddingTop { fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result { write!(f, "{}", (crate::dll::get_azul_dll().az_layout_padding_top_fmt_debug)(self)) } }
     impl Clone for LayoutPaddingTop { fn clone(&self) -> Self { (crate::dll::get_azul_dll().az_layout_padding_top_deep_copy)(self) } }
     impl Drop for LayoutPaddingTop { fn drop(&mut self) { (crate::dll::get_azul_dll().az_layout_padding_top_delete)(self); } }
 
@@ -6249,6 +7233,7 @@ pub mod css {
     /// `LayoutPosition` struct
     pub use crate::dll::AzLayoutPosition as LayoutPosition;
 
+    impl std::fmt::Debug for LayoutPosition { fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result { write!(f, "{}", (crate::dll::get_azul_dll().az_layout_position_fmt_debug)(self)) } }
     impl Clone for LayoutPosition { fn clone(&self) -> Self { (crate::dll::get_azul_dll().az_layout_position_deep_copy)(self) } }
     impl Drop for LayoutPosition { fn drop(&mut self) { (crate::dll::get_azul_dll().az_layout_position_delete)(self); } }
 
@@ -6256,6 +7241,7 @@ pub mod css {
     /// `LayoutRight` struct
     pub use crate::dll::AzLayoutRight as LayoutRight;
 
+    impl std::fmt::Debug for LayoutRight { fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result { write!(f, "{}", (crate::dll::get_azul_dll().az_layout_right_fmt_debug)(self)) } }
     impl Clone for LayoutRight { fn clone(&self) -> Self { (crate::dll::get_azul_dll().az_layout_right_deep_copy)(self) } }
     impl Drop for LayoutRight { fn drop(&mut self) { (crate::dll::get_azul_dll().az_layout_right_delete)(self); } }
 
@@ -6263,6 +7249,7 @@ pub mod css {
     /// `LayoutTop` struct
     pub use crate::dll::AzLayoutTop as LayoutTop;
 
+    impl std::fmt::Debug for LayoutTop { fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result { write!(f, "{}", (crate::dll::get_azul_dll().az_layout_top_fmt_debug)(self)) } }
     impl Clone for LayoutTop { fn clone(&self) -> Self { (crate::dll::get_azul_dll().az_layout_top_deep_copy)(self) } }
     impl Drop for LayoutTop { fn drop(&mut self) { (crate::dll::get_azul_dll().az_layout_top_delete)(self); } }
 
@@ -6270,6 +7257,7 @@ pub mod css {
     /// `LayoutWidth` struct
     pub use crate::dll::AzLayoutWidth as LayoutWidth;
 
+    impl std::fmt::Debug for LayoutWidth { fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result { write!(f, "{}", (crate::dll::get_azul_dll().az_layout_width_fmt_debug)(self)) } }
     impl Clone for LayoutWidth { fn clone(&self) -> Self { (crate::dll::get_azul_dll().az_layout_width_deep_copy)(self) } }
     impl Drop for LayoutWidth { fn drop(&mut self) { (crate::dll::get_azul_dll().az_layout_width_delete)(self); } }
 
@@ -6277,6 +7265,7 @@ pub mod css {
     /// `LayoutWrap` struct
     pub use crate::dll::AzLayoutWrap as LayoutWrap;
 
+    impl std::fmt::Debug for LayoutWrap { fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result { write!(f, "{}", (crate::dll::get_azul_dll().az_layout_wrap_fmt_debug)(self)) } }
     impl Clone for LayoutWrap { fn clone(&self) -> Self { (crate::dll::get_azul_dll().az_layout_wrap_deep_copy)(self) } }
     impl Drop for LayoutWrap { fn drop(&mut self) { (crate::dll::get_azul_dll().az_layout_wrap_delete)(self); } }
 
@@ -6284,6 +7273,7 @@ pub mod css {
     /// `Overflow` struct
     pub use crate::dll::AzOverflow as Overflow;
 
+    impl std::fmt::Debug for Overflow { fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result { write!(f, "{}", (crate::dll::get_azul_dll().az_overflow_fmt_debug)(self)) } }
     impl Clone for Overflow { fn clone(&self) -> Self { (crate::dll::get_azul_dll().az_overflow_deep_copy)(self) } }
     impl Drop for Overflow { fn drop(&mut self) { (crate::dll::get_azul_dll().az_overflow_delete)(self); } }
 
@@ -6291,6 +7281,7 @@ pub mod css {
     /// `PercentageValue` struct
     pub use crate::dll::AzPercentageValue as PercentageValue;
 
+    impl std::fmt::Debug for PercentageValue { fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result { write!(f, "{}", (crate::dll::get_azul_dll().az_percentage_value_fmt_debug)(self)) } }
     impl Clone for PercentageValue { fn clone(&self) -> Self { (crate::dll::get_azul_dll().az_percentage_value_deep_copy)(self) } }
     impl Drop for PercentageValue { fn drop(&mut self) { (crate::dll::get_azul_dll().az_percentage_value_delete)(self); } }
 
@@ -6298,6 +7289,7 @@ pub mod css {
     /// `GradientStopPre` struct
     pub use crate::dll::AzGradientStopPre as GradientStopPre;
 
+    impl std::fmt::Debug for GradientStopPre { fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result { write!(f, "{}", (crate::dll::get_azul_dll().az_gradient_stop_pre_fmt_debug)(self)) } }
     impl Clone for GradientStopPre { fn clone(&self) -> Self { (crate::dll::get_azul_dll().az_gradient_stop_pre_deep_copy)(self) } }
     impl Drop for GradientStopPre { fn drop(&mut self) { (crate::dll::get_azul_dll().az_gradient_stop_pre_delete)(self); } }
 
@@ -6305,6 +7297,7 @@ pub mod css {
     /// `DirectionCorner` struct
     pub use crate::dll::AzDirectionCorner as DirectionCorner;
 
+    impl std::fmt::Debug for DirectionCorner { fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result { write!(f, "{}", (crate::dll::get_azul_dll().az_direction_corner_fmt_debug)(self)) } }
     impl Clone for DirectionCorner { fn clone(&self) -> Self { (crate::dll::get_azul_dll().az_direction_corner_deep_copy)(self) } }
     impl Drop for DirectionCorner { fn drop(&mut self) { (crate::dll::get_azul_dll().az_direction_corner_delete)(self); } }
 
@@ -6312,6 +7305,7 @@ pub mod css {
     /// `DirectionCorners` struct
     pub use crate::dll::AzDirectionCorners as DirectionCorners;
 
+    impl std::fmt::Debug for DirectionCorners { fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result { write!(f, "{}", (crate::dll::get_azul_dll().az_direction_corners_fmt_debug)(self)) } }
     impl Clone for DirectionCorners { fn clone(&self) -> Self { (crate::dll::get_azul_dll().az_direction_corners_deep_copy)(self) } }
     impl Drop for DirectionCorners { fn drop(&mut self) { (crate::dll::get_azul_dll().az_direction_corners_delete)(self); } }
 
@@ -6319,6 +7313,7 @@ pub mod css {
     /// `Direction` struct
     pub use crate::dll::AzDirection as Direction;
 
+    impl std::fmt::Debug for Direction { fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result { write!(f, "{}", (crate::dll::get_azul_dll().az_direction_fmt_debug)(self)) } }
     impl Clone for Direction { fn clone(&self) -> Self { (crate::dll::get_azul_dll().az_direction_deep_copy)(self) } }
     impl Drop for Direction { fn drop(&mut self) { (crate::dll::get_azul_dll().az_direction_delete)(self); } }
 
@@ -6326,6 +7321,7 @@ pub mod css {
     /// `ExtendMode` struct
     pub use crate::dll::AzExtendMode as ExtendMode;
 
+    impl std::fmt::Debug for ExtendMode { fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result { write!(f, "{}", (crate::dll::get_azul_dll().az_extend_mode_fmt_debug)(self)) } }
     impl Clone for ExtendMode { fn clone(&self) -> Self { (crate::dll::get_azul_dll().az_extend_mode_deep_copy)(self) } }
     impl Drop for ExtendMode { fn drop(&mut self) { (crate::dll::get_azul_dll().az_extend_mode_delete)(self); } }
 
@@ -6333,6 +7329,7 @@ pub mod css {
     /// `LinearGradient` struct
     pub use crate::dll::AzLinearGradient as LinearGradient;
 
+    impl std::fmt::Debug for LinearGradient { fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result { write!(f, "{}", (crate::dll::get_azul_dll().az_linear_gradient_fmt_debug)(self)) } }
     impl Clone for LinearGradient { fn clone(&self) -> Self { (crate::dll::get_azul_dll().az_linear_gradient_deep_copy)(self) } }
     impl Drop for LinearGradient { fn drop(&mut self) { (crate::dll::get_azul_dll().az_linear_gradient_delete)(self); } }
 
@@ -6340,6 +7337,7 @@ pub mod css {
     /// `Shape` struct
     pub use crate::dll::AzShape as Shape;
 
+    impl std::fmt::Debug for Shape { fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result { write!(f, "{}", (crate::dll::get_azul_dll().az_shape_fmt_debug)(self)) } }
     impl Clone for Shape { fn clone(&self) -> Self { (crate::dll::get_azul_dll().az_shape_deep_copy)(self) } }
     impl Drop for Shape { fn drop(&mut self) { (crate::dll::get_azul_dll().az_shape_delete)(self); } }
 
@@ -6347,6 +7345,7 @@ pub mod css {
     /// `RadialGradient` struct
     pub use crate::dll::AzRadialGradient as RadialGradient;
 
+    impl std::fmt::Debug for RadialGradient { fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result { write!(f, "{}", (crate::dll::get_azul_dll().az_radial_gradient_fmt_debug)(self)) } }
     impl Clone for RadialGradient { fn clone(&self) -> Self { (crate::dll::get_azul_dll().az_radial_gradient_deep_copy)(self) } }
     impl Drop for RadialGradient { fn drop(&mut self) { (crate::dll::get_azul_dll().az_radial_gradient_delete)(self); } }
 
@@ -6354,6 +7353,7 @@ pub mod css {
     /// `CssImageId` struct
     pub use crate::dll::AzCssImageId as CssImageId;
 
+    impl std::fmt::Debug for CssImageId { fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result { write!(f, "{}", (crate::dll::get_azul_dll().az_css_image_id_fmt_debug)(self)) } }
     impl Clone for CssImageId { fn clone(&self) -> Self { (crate::dll::get_azul_dll().az_css_image_id_deep_copy)(self) } }
     impl Drop for CssImageId { fn drop(&mut self) { (crate::dll::get_azul_dll().az_css_image_id_delete)(self); } }
 
@@ -6361,6 +7361,7 @@ pub mod css {
     /// `StyleBackgroundContent` struct
     pub use crate::dll::AzStyleBackgroundContent as StyleBackgroundContent;
 
+    impl std::fmt::Debug for StyleBackgroundContent { fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result { write!(f, "{}", (crate::dll::get_azul_dll().az_style_background_content_fmt_debug)(self)) } }
     impl Clone for StyleBackgroundContent { fn clone(&self) -> Self { (crate::dll::get_azul_dll().az_style_background_content_deep_copy)(self) } }
     impl Drop for StyleBackgroundContent { fn drop(&mut self) { (crate::dll::get_azul_dll().az_style_background_content_delete)(self); } }
 
@@ -6368,6 +7369,7 @@ pub mod css {
     /// `BackgroundPositionHorizontal` struct
     pub use crate::dll::AzBackgroundPositionHorizontal as BackgroundPositionHorizontal;
 
+    impl std::fmt::Debug for BackgroundPositionHorizontal { fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result { write!(f, "{}", (crate::dll::get_azul_dll().az_background_position_horizontal_fmt_debug)(self)) } }
     impl Clone for BackgroundPositionHorizontal { fn clone(&self) -> Self { (crate::dll::get_azul_dll().az_background_position_horizontal_deep_copy)(self) } }
     impl Drop for BackgroundPositionHorizontal { fn drop(&mut self) { (crate::dll::get_azul_dll().az_background_position_horizontal_delete)(self); } }
 
@@ -6375,6 +7377,7 @@ pub mod css {
     /// `BackgroundPositionVertical` struct
     pub use crate::dll::AzBackgroundPositionVertical as BackgroundPositionVertical;
 
+    impl std::fmt::Debug for BackgroundPositionVertical { fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result { write!(f, "{}", (crate::dll::get_azul_dll().az_background_position_vertical_fmt_debug)(self)) } }
     impl Clone for BackgroundPositionVertical { fn clone(&self) -> Self { (crate::dll::get_azul_dll().az_background_position_vertical_deep_copy)(self) } }
     impl Drop for BackgroundPositionVertical { fn drop(&mut self) { (crate::dll::get_azul_dll().az_background_position_vertical_delete)(self); } }
 
@@ -6382,6 +7385,7 @@ pub mod css {
     /// `StyleBackgroundPosition` struct
     pub use crate::dll::AzStyleBackgroundPosition as StyleBackgroundPosition;
 
+    impl std::fmt::Debug for StyleBackgroundPosition { fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result { write!(f, "{}", (crate::dll::get_azul_dll().az_style_background_position_fmt_debug)(self)) } }
     impl Clone for StyleBackgroundPosition { fn clone(&self) -> Self { (crate::dll::get_azul_dll().az_style_background_position_deep_copy)(self) } }
     impl Drop for StyleBackgroundPosition { fn drop(&mut self) { (crate::dll::get_azul_dll().az_style_background_position_delete)(self); } }
 
@@ -6389,6 +7393,7 @@ pub mod css {
     /// `StyleBackgroundRepeat` struct
     pub use crate::dll::AzStyleBackgroundRepeat as StyleBackgroundRepeat;
 
+    impl std::fmt::Debug for StyleBackgroundRepeat { fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result { write!(f, "{}", (crate::dll::get_azul_dll().az_style_background_repeat_fmt_debug)(self)) } }
     impl Clone for StyleBackgroundRepeat { fn clone(&self) -> Self { (crate::dll::get_azul_dll().az_style_background_repeat_deep_copy)(self) } }
     impl Drop for StyleBackgroundRepeat { fn drop(&mut self) { (crate::dll::get_azul_dll().az_style_background_repeat_delete)(self); } }
 
@@ -6396,6 +7401,7 @@ pub mod css {
     /// `StyleBackgroundSize` struct
     pub use crate::dll::AzStyleBackgroundSize as StyleBackgroundSize;
 
+    impl std::fmt::Debug for StyleBackgroundSize { fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result { write!(f, "{}", (crate::dll::get_azul_dll().az_style_background_size_fmt_debug)(self)) } }
     impl Clone for StyleBackgroundSize { fn clone(&self) -> Self { (crate::dll::get_azul_dll().az_style_background_size_deep_copy)(self) } }
     impl Drop for StyleBackgroundSize { fn drop(&mut self) { (crate::dll::get_azul_dll().az_style_background_size_delete)(self); } }
 
@@ -6403,6 +7409,7 @@ pub mod css {
     /// `StyleBorderBottomColor` struct
     pub use crate::dll::AzStyleBorderBottomColor as StyleBorderBottomColor;
 
+    impl std::fmt::Debug for StyleBorderBottomColor { fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result { write!(f, "{}", (crate::dll::get_azul_dll().az_style_border_bottom_color_fmt_debug)(self)) } }
     impl Clone for StyleBorderBottomColor { fn clone(&self) -> Self { (crate::dll::get_azul_dll().az_style_border_bottom_color_deep_copy)(self) } }
     impl Drop for StyleBorderBottomColor { fn drop(&mut self) { (crate::dll::get_azul_dll().az_style_border_bottom_color_delete)(self); } }
 
@@ -6410,6 +7417,7 @@ pub mod css {
     /// `StyleBorderBottomLeftRadius` struct
     pub use crate::dll::AzStyleBorderBottomLeftRadius as StyleBorderBottomLeftRadius;
 
+    impl std::fmt::Debug for StyleBorderBottomLeftRadius { fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result { write!(f, "{}", (crate::dll::get_azul_dll().az_style_border_bottom_left_radius_fmt_debug)(self)) } }
     impl Clone for StyleBorderBottomLeftRadius { fn clone(&self) -> Self { (crate::dll::get_azul_dll().az_style_border_bottom_left_radius_deep_copy)(self) } }
     impl Drop for StyleBorderBottomLeftRadius { fn drop(&mut self) { (crate::dll::get_azul_dll().az_style_border_bottom_left_radius_delete)(self); } }
 
@@ -6417,6 +7425,7 @@ pub mod css {
     /// `StyleBorderBottomRightRadius` struct
     pub use crate::dll::AzStyleBorderBottomRightRadius as StyleBorderBottomRightRadius;
 
+    impl std::fmt::Debug for StyleBorderBottomRightRadius { fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result { write!(f, "{}", (crate::dll::get_azul_dll().az_style_border_bottom_right_radius_fmt_debug)(self)) } }
     impl Clone for StyleBorderBottomRightRadius { fn clone(&self) -> Self { (crate::dll::get_azul_dll().az_style_border_bottom_right_radius_deep_copy)(self) } }
     impl Drop for StyleBorderBottomRightRadius { fn drop(&mut self) { (crate::dll::get_azul_dll().az_style_border_bottom_right_radius_delete)(self); } }
 
@@ -6424,6 +7433,7 @@ pub mod css {
     /// `BorderStyle` struct
     pub use crate::dll::AzBorderStyle as BorderStyle;
 
+    impl std::fmt::Debug for BorderStyle { fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result { write!(f, "{}", (crate::dll::get_azul_dll().az_border_style_fmt_debug)(self)) } }
     impl Clone for BorderStyle { fn clone(&self) -> Self { (crate::dll::get_azul_dll().az_border_style_deep_copy)(self) } }
     impl Drop for BorderStyle { fn drop(&mut self) { (crate::dll::get_azul_dll().az_border_style_delete)(self); } }
 
@@ -6431,6 +7441,7 @@ pub mod css {
     /// `StyleBorderBottomStyle` struct
     pub use crate::dll::AzStyleBorderBottomStyle as StyleBorderBottomStyle;
 
+    impl std::fmt::Debug for StyleBorderBottomStyle { fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result { write!(f, "{}", (crate::dll::get_azul_dll().az_style_border_bottom_style_fmt_debug)(self)) } }
     impl Clone for StyleBorderBottomStyle { fn clone(&self) -> Self { (crate::dll::get_azul_dll().az_style_border_bottom_style_deep_copy)(self) } }
     impl Drop for StyleBorderBottomStyle { fn drop(&mut self) { (crate::dll::get_azul_dll().az_style_border_bottom_style_delete)(self); } }
 
@@ -6438,6 +7449,7 @@ pub mod css {
     /// `StyleBorderBottomWidth` struct
     pub use crate::dll::AzStyleBorderBottomWidth as StyleBorderBottomWidth;
 
+    impl std::fmt::Debug for StyleBorderBottomWidth { fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result { write!(f, "{}", (crate::dll::get_azul_dll().az_style_border_bottom_width_fmt_debug)(self)) } }
     impl Clone for StyleBorderBottomWidth { fn clone(&self) -> Self { (crate::dll::get_azul_dll().az_style_border_bottom_width_deep_copy)(self) } }
     impl Drop for StyleBorderBottomWidth { fn drop(&mut self) { (crate::dll::get_azul_dll().az_style_border_bottom_width_delete)(self); } }
 
@@ -6445,6 +7457,7 @@ pub mod css {
     /// `StyleBorderLeftColor` struct
     pub use crate::dll::AzStyleBorderLeftColor as StyleBorderLeftColor;
 
+    impl std::fmt::Debug for StyleBorderLeftColor { fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result { write!(f, "{}", (crate::dll::get_azul_dll().az_style_border_left_color_fmt_debug)(self)) } }
     impl Clone for StyleBorderLeftColor { fn clone(&self) -> Self { (crate::dll::get_azul_dll().az_style_border_left_color_deep_copy)(self) } }
     impl Drop for StyleBorderLeftColor { fn drop(&mut self) { (crate::dll::get_azul_dll().az_style_border_left_color_delete)(self); } }
 
@@ -6452,6 +7465,7 @@ pub mod css {
     /// `StyleBorderLeftStyle` struct
     pub use crate::dll::AzStyleBorderLeftStyle as StyleBorderLeftStyle;
 
+    impl std::fmt::Debug for StyleBorderLeftStyle { fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result { write!(f, "{}", (crate::dll::get_azul_dll().az_style_border_left_style_fmt_debug)(self)) } }
     impl Clone for StyleBorderLeftStyle { fn clone(&self) -> Self { (crate::dll::get_azul_dll().az_style_border_left_style_deep_copy)(self) } }
     impl Drop for StyleBorderLeftStyle { fn drop(&mut self) { (crate::dll::get_azul_dll().az_style_border_left_style_delete)(self); } }
 
@@ -6459,6 +7473,7 @@ pub mod css {
     /// `StyleBorderLeftWidth` struct
     pub use crate::dll::AzStyleBorderLeftWidth as StyleBorderLeftWidth;
 
+    impl std::fmt::Debug for StyleBorderLeftWidth { fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result { write!(f, "{}", (crate::dll::get_azul_dll().az_style_border_left_width_fmt_debug)(self)) } }
     impl Clone for StyleBorderLeftWidth { fn clone(&self) -> Self { (crate::dll::get_azul_dll().az_style_border_left_width_deep_copy)(self) } }
     impl Drop for StyleBorderLeftWidth { fn drop(&mut self) { (crate::dll::get_azul_dll().az_style_border_left_width_delete)(self); } }
 
@@ -6466,6 +7481,7 @@ pub mod css {
     /// `StyleBorderRightColor` struct
     pub use crate::dll::AzStyleBorderRightColor as StyleBorderRightColor;
 
+    impl std::fmt::Debug for StyleBorderRightColor { fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result { write!(f, "{}", (crate::dll::get_azul_dll().az_style_border_right_color_fmt_debug)(self)) } }
     impl Clone for StyleBorderRightColor { fn clone(&self) -> Self { (crate::dll::get_azul_dll().az_style_border_right_color_deep_copy)(self) } }
     impl Drop for StyleBorderRightColor { fn drop(&mut self) { (crate::dll::get_azul_dll().az_style_border_right_color_delete)(self); } }
 
@@ -6473,6 +7489,7 @@ pub mod css {
     /// `StyleBorderRightStyle` struct
     pub use crate::dll::AzStyleBorderRightStyle as StyleBorderRightStyle;
 
+    impl std::fmt::Debug for StyleBorderRightStyle { fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result { write!(f, "{}", (crate::dll::get_azul_dll().az_style_border_right_style_fmt_debug)(self)) } }
     impl Clone for StyleBorderRightStyle { fn clone(&self) -> Self { (crate::dll::get_azul_dll().az_style_border_right_style_deep_copy)(self) } }
     impl Drop for StyleBorderRightStyle { fn drop(&mut self) { (crate::dll::get_azul_dll().az_style_border_right_style_delete)(self); } }
 
@@ -6480,6 +7497,7 @@ pub mod css {
     /// `StyleBorderRightWidth` struct
     pub use crate::dll::AzStyleBorderRightWidth as StyleBorderRightWidth;
 
+    impl std::fmt::Debug for StyleBorderRightWidth { fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result { write!(f, "{}", (crate::dll::get_azul_dll().az_style_border_right_width_fmt_debug)(self)) } }
     impl Clone for StyleBorderRightWidth { fn clone(&self) -> Self { (crate::dll::get_azul_dll().az_style_border_right_width_deep_copy)(self) } }
     impl Drop for StyleBorderRightWidth { fn drop(&mut self) { (crate::dll::get_azul_dll().az_style_border_right_width_delete)(self); } }
 
@@ -6487,6 +7505,7 @@ pub mod css {
     /// `StyleBorderTopColor` struct
     pub use crate::dll::AzStyleBorderTopColor as StyleBorderTopColor;
 
+    impl std::fmt::Debug for StyleBorderTopColor { fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result { write!(f, "{}", (crate::dll::get_azul_dll().az_style_border_top_color_fmt_debug)(self)) } }
     impl Clone for StyleBorderTopColor { fn clone(&self) -> Self { (crate::dll::get_azul_dll().az_style_border_top_color_deep_copy)(self) } }
     impl Drop for StyleBorderTopColor { fn drop(&mut self) { (crate::dll::get_azul_dll().az_style_border_top_color_delete)(self); } }
 
@@ -6494,6 +7513,7 @@ pub mod css {
     /// `StyleBorderTopLeftRadius` struct
     pub use crate::dll::AzStyleBorderTopLeftRadius as StyleBorderTopLeftRadius;
 
+    impl std::fmt::Debug for StyleBorderTopLeftRadius { fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result { write!(f, "{}", (crate::dll::get_azul_dll().az_style_border_top_left_radius_fmt_debug)(self)) } }
     impl Clone for StyleBorderTopLeftRadius { fn clone(&self) -> Self { (crate::dll::get_azul_dll().az_style_border_top_left_radius_deep_copy)(self) } }
     impl Drop for StyleBorderTopLeftRadius { fn drop(&mut self) { (crate::dll::get_azul_dll().az_style_border_top_left_radius_delete)(self); } }
 
@@ -6501,6 +7521,7 @@ pub mod css {
     /// `StyleBorderTopRightRadius` struct
     pub use crate::dll::AzStyleBorderTopRightRadius as StyleBorderTopRightRadius;
 
+    impl std::fmt::Debug for StyleBorderTopRightRadius { fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result { write!(f, "{}", (crate::dll::get_azul_dll().az_style_border_top_right_radius_fmt_debug)(self)) } }
     impl Clone for StyleBorderTopRightRadius { fn clone(&self) -> Self { (crate::dll::get_azul_dll().az_style_border_top_right_radius_deep_copy)(self) } }
     impl Drop for StyleBorderTopRightRadius { fn drop(&mut self) { (crate::dll::get_azul_dll().az_style_border_top_right_radius_delete)(self); } }
 
@@ -6508,6 +7529,7 @@ pub mod css {
     /// `StyleBorderTopStyle` struct
     pub use crate::dll::AzStyleBorderTopStyle as StyleBorderTopStyle;
 
+    impl std::fmt::Debug for StyleBorderTopStyle { fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result { write!(f, "{}", (crate::dll::get_azul_dll().az_style_border_top_style_fmt_debug)(self)) } }
     impl Clone for StyleBorderTopStyle { fn clone(&self) -> Self { (crate::dll::get_azul_dll().az_style_border_top_style_deep_copy)(self) } }
     impl Drop for StyleBorderTopStyle { fn drop(&mut self) { (crate::dll::get_azul_dll().az_style_border_top_style_delete)(self); } }
 
@@ -6515,6 +7537,7 @@ pub mod css {
     /// `StyleBorderTopWidth` struct
     pub use crate::dll::AzStyleBorderTopWidth as StyleBorderTopWidth;
 
+    impl std::fmt::Debug for StyleBorderTopWidth { fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result { write!(f, "{}", (crate::dll::get_azul_dll().az_style_border_top_width_fmt_debug)(self)) } }
     impl Clone for StyleBorderTopWidth { fn clone(&self) -> Self { (crate::dll::get_azul_dll().az_style_border_top_width_deep_copy)(self) } }
     impl Drop for StyleBorderTopWidth { fn drop(&mut self) { (crate::dll::get_azul_dll().az_style_border_top_width_delete)(self); } }
 
@@ -6522,6 +7545,7 @@ pub mod css {
     /// `StyleCursor` struct
     pub use crate::dll::AzStyleCursor as StyleCursor;
 
+    impl std::fmt::Debug for StyleCursor { fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result { write!(f, "{}", (crate::dll::get_azul_dll().az_style_cursor_fmt_debug)(self)) } }
     impl Clone for StyleCursor { fn clone(&self) -> Self { (crate::dll::get_azul_dll().az_style_cursor_deep_copy)(self) } }
     impl Drop for StyleCursor { fn drop(&mut self) { (crate::dll::get_azul_dll().az_style_cursor_delete)(self); } }
 
@@ -6529,6 +7553,7 @@ pub mod css {
     /// `StyleFontFamily` struct
     pub use crate::dll::AzStyleFontFamily as StyleFontFamily;
 
+    impl std::fmt::Debug for StyleFontFamily { fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result { write!(f, "{}", (crate::dll::get_azul_dll().az_style_font_family_fmt_debug)(self)) } }
     impl Clone for StyleFontFamily { fn clone(&self) -> Self { (crate::dll::get_azul_dll().az_style_font_family_deep_copy)(self) } }
     impl Drop for StyleFontFamily { fn drop(&mut self) { (crate::dll::get_azul_dll().az_style_font_family_delete)(self); } }
 
@@ -6536,6 +7561,7 @@ pub mod css {
     /// `StyleFontSize` struct
     pub use crate::dll::AzStyleFontSize as StyleFontSize;
 
+    impl std::fmt::Debug for StyleFontSize { fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result { write!(f, "{}", (crate::dll::get_azul_dll().az_style_font_size_fmt_debug)(self)) } }
     impl Clone for StyleFontSize { fn clone(&self) -> Self { (crate::dll::get_azul_dll().az_style_font_size_deep_copy)(self) } }
     impl Drop for StyleFontSize { fn drop(&mut self) { (crate::dll::get_azul_dll().az_style_font_size_delete)(self); } }
 
@@ -6543,6 +7569,7 @@ pub mod css {
     /// `StyleLetterSpacing` struct
     pub use crate::dll::AzStyleLetterSpacing as StyleLetterSpacing;
 
+    impl std::fmt::Debug for StyleLetterSpacing { fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result { write!(f, "{}", (crate::dll::get_azul_dll().az_style_letter_spacing_fmt_debug)(self)) } }
     impl Clone for StyleLetterSpacing { fn clone(&self) -> Self { (crate::dll::get_azul_dll().az_style_letter_spacing_deep_copy)(self) } }
     impl Drop for StyleLetterSpacing { fn drop(&mut self) { (crate::dll::get_azul_dll().az_style_letter_spacing_delete)(self); } }
 
@@ -6550,6 +7577,7 @@ pub mod css {
     /// `StyleLineHeight` struct
     pub use crate::dll::AzStyleLineHeight as StyleLineHeight;
 
+    impl std::fmt::Debug for StyleLineHeight { fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result { write!(f, "{}", (crate::dll::get_azul_dll().az_style_line_height_fmt_debug)(self)) } }
     impl Clone for StyleLineHeight { fn clone(&self) -> Self { (crate::dll::get_azul_dll().az_style_line_height_deep_copy)(self) } }
     impl Drop for StyleLineHeight { fn drop(&mut self) { (crate::dll::get_azul_dll().az_style_line_height_delete)(self); } }
 
@@ -6557,6 +7585,7 @@ pub mod css {
     /// `StyleTabWidth` struct
     pub use crate::dll::AzStyleTabWidth as StyleTabWidth;
 
+    impl std::fmt::Debug for StyleTabWidth { fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result { write!(f, "{}", (crate::dll::get_azul_dll().az_style_tab_width_fmt_debug)(self)) } }
     impl Clone for StyleTabWidth { fn clone(&self) -> Self { (crate::dll::get_azul_dll().az_style_tab_width_deep_copy)(self) } }
     impl Drop for StyleTabWidth { fn drop(&mut self) { (crate::dll::get_azul_dll().az_style_tab_width_delete)(self); } }
 
@@ -6564,6 +7593,7 @@ pub mod css {
     /// `StyleTextAlignmentHorz` struct
     pub use crate::dll::AzStyleTextAlignmentHorz as StyleTextAlignmentHorz;
 
+    impl std::fmt::Debug for StyleTextAlignmentHorz { fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result { write!(f, "{}", (crate::dll::get_azul_dll().az_style_text_alignment_horz_fmt_debug)(self)) } }
     impl Clone for StyleTextAlignmentHorz { fn clone(&self) -> Self { (crate::dll::get_azul_dll().az_style_text_alignment_horz_deep_copy)(self) } }
     impl Drop for StyleTextAlignmentHorz { fn drop(&mut self) { (crate::dll::get_azul_dll().az_style_text_alignment_horz_delete)(self); } }
 
@@ -6571,6 +7601,7 @@ pub mod css {
     /// `StyleTextColor` struct
     pub use crate::dll::AzStyleTextColor as StyleTextColor;
 
+    impl std::fmt::Debug for StyleTextColor { fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result { write!(f, "{}", (crate::dll::get_azul_dll().az_style_text_color_fmt_debug)(self)) } }
     impl Clone for StyleTextColor { fn clone(&self) -> Self { (crate::dll::get_azul_dll().az_style_text_color_deep_copy)(self) } }
     impl Drop for StyleTextColor { fn drop(&mut self) { (crate::dll::get_azul_dll().az_style_text_color_delete)(self); } }
 
@@ -6578,6 +7609,7 @@ pub mod css {
     /// `StyleWordSpacing` struct
     pub use crate::dll::AzStyleWordSpacing as StyleWordSpacing;
 
+    impl std::fmt::Debug for StyleWordSpacing { fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result { write!(f, "{}", (crate::dll::get_azul_dll().az_style_word_spacing_fmt_debug)(self)) } }
     impl Clone for StyleWordSpacing { fn clone(&self) -> Self { (crate::dll::get_azul_dll().az_style_word_spacing_deep_copy)(self) } }
     impl Drop for StyleWordSpacing { fn drop(&mut self) { (crate::dll::get_azul_dll().az_style_word_spacing_delete)(self); } }
 
@@ -6585,6 +7617,7 @@ pub mod css {
     /// `BoxShadowPreDisplayItemValue` struct
     pub use crate::dll::AzBoxShadowPreDisplayItemValue as BoxShadowPreDisplayItemValue;
 
+    impl std::fmt::Debug for BoxShadowPreDisplayItemValue { fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result { write!(f, "{}", (crate::dll::get_azul_dll().az_box_shadow_pre_display_item_value_fmt_debug)(self)) } }
     impl Clone for BoxShadowPreDisplayItemValue { fn clone(&self) -> Self { (crate::dll::get_azul_dll().az_box_shadow_pre_display_item_value_deep_copy)(self) } }
     impl Drop for BoxShadowPreDisplayItemValue { fn drop(&mut self) { (crate::dll::get_azul_dll().az_box_shadow_pre_display_item_value_delete)(self); } }
 
@@ -6592,6 +7625,7 @@ pub mod css {
     /// `LayoutAlignContentValue` struct
     pub use crate::dll::AzLayoutAlignContentValue as LayoutAlignContentValue;
 
+    impl std::fmt::Debug for LayoutAlignContentValue { fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result { write!(f, "{}", (crate::dll::get_azul_dll().az_layout_align_content_value_fmt_debug)(self)) } }
     impl Clone for LayoutAlignContentValue { fn clone(&self) -> Self { (crate::dll::get_azul_dll().az_layout_align_content_value_deep_copy)(self) } }
     impl Drop for LayoutAlignContentValue { fn drop(&mut self) { (crate::dll::get_azul_dll().az_layout_align_content_value_delete)(self); } }
 
@@ -6599,6 +7633,7 @@ pub mod css {
     /// `LayoutAlignItemsValue` struct
     pub use crate::dll::AzLayoutAlignItemsValue as LayoutAlignItemsValue;
 
+    impl std::fmt::Debug for LayoutAlignItemsValue { fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result { write!(f, "{}", (crate::dll::get_azul_dll().az_layout_align_items_value_fmt_debug)(self)) } }
     impl Clone for LayoutAlignItemsValue { fn clone(&self) -> Self { (crate::dll::get_azul_dll().az_layout_align_items_value_deep_copy)(self) } }
     impl Drop for LayoutAlignItemsValue { fn drop(&mut self) { (crate::dll::get_azul_dll().az_layout_align_items_value_delete)(self); } }
 
@@ -6606,6 +7641,7 @@ pub mod css {
     /// `LayoutBottomValue` struct
     pub use crate::dll::AzLayoutBottomValue as LayoutBottomValue;
 
+    impl std::fmt::Debug for LayoutBottomValue { fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result { write!(f, "{}", (crate::dll::get_azul_dll().az_layout_bottom_value_fmt_debug)(self)) } }
     impl Clone for LayoutBottomValue { fn clone(&self) -> Self { (crate::dll::get_azul_dll().az_layout_bottom_value_deep_copy)(self) } }
     impl Drop for LayoutBottomValue { fn drop(&mut self) { (crate::dll::get_azul_dll().az_layout_bottom_value_delete)(self); } }
 
@@ -6613,6 +7649,7 @@ pub mod css {
     /// `LayoutBoxSizingValue` struct
     pub use crate::dll::AzLayoutBoxSizingValue as LayoutBoxSizingValue;
 
+    impl std::fmt::Debug for LayoutBoxSizingValue { fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result { write!(f, "{}", (crate::dll::get_azul_dll().az_layout_box_sizing_value_fmt_debug)(self)) } }
     impl Clone for LayoutBoxSizingValue { fn clone(&self) -> Self { (crate::dll::get_azul_dll().az_layout_box_sizing_value_deep_copy)(self) } }
     impl Drop for LayoutBoxSizingValue { fn drop(&mut self) { (crate::dll::get_azul_dll().az_layout_box_sizing_value_delete)(self); } }
 
@@ -6620,6 +7657,7 @@ pub mod css {
     /// `LayoutDirectionValue` struct
     pub use crate::dll::AzLayoutDirectionValue as LayoutDirectionValue;
 
+    impl std::fmt::Debug for LayoutDirectionValue { fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result { write!(f, "{}", (crate::dll::get_azul_dll().az_layout_direction_value_fmt_debug)(self)) } }
     impl Clone for LayoutDirectionValue { fn clone(&self) -> Self { (crate::dll::get_azul_dll().az_layout_direction_value_deep_copy)(self) } }
     impl Drop for LayoutDirectionValue { fn drop(&mut self) { (crate::dll::get_azul_dll().az_layout_direction_value_delete)(self); } }
 
@@ -6627,6 +7665,7 @@ pub mod css {
     /// `LayoutDisplayValue` struct
     pub use crate::dll::AzLayoutDisplayValue as LayoutDisplayValue;
 
+    impl std::fmt::Debug for LayoutDisplayValue { fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result { write!(f, "{}", (crate::dll::get_azul_dll().az_layout_display_value_fmt_debug)(self)) } }
     impl Clone for LayoutDisplayValue { fn clone(&self) -> Self { (crate::dll::get_azul_dll().az_layout_display_value_deep_copy)(self) } }
     impl Drop for LayoutDisplayValue { fn drop(&mut self) { (crate::dll::get_azul_dll().az_layout_display_value_delete)(self); } }
 
@@ -6634,6 +7673,7 @@ pub mod css {
     /// `LayoutFlexGrowValue` struct
     pub use crate::dll::AzLayoutFlexGrowValue as LayoutFlexGrowValue;
 
+    impl std::fmt::Debug for LayoutFlexGrowValue { fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result { write!(f, "{}", (crate::dll::get_azul_dll().az_layout_flex_grow_value_fmt_debug)(self)) } }
     impl Clone for LayoutFlexGrowValue { fn clone(&self) -> Self { (crate::dll::get_azul_dll().az_layout_flex_grow_value_deep_copy)(self) } }
     impl Drop for LayoutFlexGrowValue { fn drop(&mut self) { (crate::dll::get_azul_dll().az_layout_flex_grow_value_delete)(self); } }
 
@@ -6641,6 +7681,7 @@ pub mod css {
     /// `LayoutFlexShrinkValue` struct
     pub use crate::dll::AzLayoutFlexShrinkValue as LayoutFlexShrinkValue;
 
+    impl std::fmt::Debug for LayoutFlexShrinkValue { fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result { write!(f, "{}", (crate::dll::get_azul_dll().az_layout_flex_shrink_value_fmt_debug)(self)) } }
     impl Clone for LayoutFlexShrinkValue { fn clone(&self) -> Self { (crate::dll::get_azul_dll().az_layout_flex_shrink_value_deep_copy)(self) } }
     impl Drop for LayoutFlexShrinkValue { fn drop(&mut self) { (crate::dll::get_azul_dll().az_layout_flex_shrink_value_delete)(self); } }
 
@@ -6648,6 +7689,7 @@ pub mod css {
     /// `LayoutFloatValue` struct
     pub use crate::dll::AzLayoutFloatValue as LayoutFloatValue;
 
+    impl std::fmt::Debug for LayoutFloatValue { fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result { write!(f, "{}", (crate::dll::get_azul_dll().az_layout_float_value_fmt_debug)(self)) } }
     impl Clone for LayoutFloatValue { fn clone(&self) -> Self { (crate::dll::get_azul_dll().az_layout_float_value_deep_copy)(self) } }
     impl Drop for LayoutFloatValue { fn drop(&mut self) { (crate::dll::get_azul_dll().az_layout_float_value_delete)(self); } }
 
@@ -6655,6 +7697,7 @@ pub mod css {
     /// `LayoutHeightValue` struct
     pub use crate::dll::AzLayoutHeightValue as LayoutHeightValue;
 
+    impl std::fmt::Debug for LayoutHeightValue { fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result { write!(f, "{}", (crate::dll::get_azul_dll().az_layout_height_value_fmt_debug)(self)) } }
     impl Clone for LayoutHeightValue { fn clone(&self) -> Self { (crate::dll::get_azul_dll().az_layout_height_value_deep_copy)(self) } }
     impl Drop for LayoutHeightValue { fn drop(&mut self) { (crate::dll::get_azul_dll().az_layout_height_value_delete)(self); } }
 
@@ -6662,6 +7705,7 @@ pub mod css {
     /// `LayoutJustifyContentValue` struct
     pub use crate::dll::AzLayoutJustifyContentValue as LayoutJustifyContentValue;
 
+    impl std::fmt::Debug for LayoutJustifyContentValue { fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result { write!(f, "{}", (crate::dll::get_azul_dll().az_layout_justify_content_value_fmt_debug)(self)) } }
     impl Clone for LayoutJustifyContentValue { fn clone(&self) -> Self { (crate::dll::get_azul_dll().az_layout_justify_content_value_deep_copy)(self) } }
     impl Drop for LayoutJustifyContentValue { fn drop(&mut self) { (crate::dll::get_azul_dll().az_layout_justify_content_value_delete)(self); } }
 
@@ -6669,6 +7713,7 @@ pub mod css {
     /// `LayoutLeftValue` struct
     pub use crate::dll::AzLayoutLeftValue as LayoutLeftValue;
 
+    impl std::fmt::Debug for LayoutLeftValue { fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result { write!(f, "{}", (crate::dll::get_azul_dll().az_layout_left_value_fmt_debug)(self)) } }
     impl Clone for LayoutLeftValue { fn clone(&self) -> Self { (crate::dll::get_azul_dll().az_layout_left_value_deep_copy)(self) } }
     impl Drop for LayoutLeftValue { fn drop(&mut self) { (crate::dll::get_azul_dll().az_layout_left_value_delete)(self); } }
 
@@ -6676,6 +7721,7 @@ pub mod css {
     /// `LayoutMarginBottomValue` struct
     pub use crate::dll::AzLayoutMarginBottomValue as LayoutMarginBottomValue;
 
+    impl std::fmt::Debug for LayoutMarginBottomValue { fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result { write!(f, "{}", (crate::dll::get_azul_dll().az_layout_margin_bottom_value_fmt_debug)(self)) } }
     impl Clone for LayoutMarginBottomValue { fn clone(&self) -> Self { (crate::dll::get_azul_dll().az_layout_margin_bottom_value_deep_copy)(self) } }
     impl Drop for LayoutMarginBottomValue { fn drop(&mut self) { (crate::dll::get_azul_dll().az_layout_margin_bottom_value_delete)(self); } }
 
@@ -6683,6 +7729,7 @@ pub mod css {
     /// `LayoutMarginLeftValue` struct
     pub use crate::dll::AzLayoutMarginLeftValue as LayoutMarginLeftValue;
 
+    impl std::fmt::Debug for LayoutMarginLeftValue { fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result { write!(f, "{}", (crate::dll::get_azul_dll().az_layout_margin_left_value_fmt_debug)(self)) } }
     impl Clone for LayoutMarginLeftValue { fn clone(&self) -> Self { (crate::dll::get_azul_dll().az_layout_margin_left_value_deep_copy)(self) } }
     impl Drop for LayoutMarginLeftValue { fn drop(&mut self) { (crate::dll::get_azul_dll().az_layout_margin_left_value_delete)(self); } }
 
@@ -6690,6 +7737,7 @@ pub mod css {
     /// `LayoutMarginRightValue` struct
     pub use crate::dll::AzLayoutMarginRightValue as LayoutMarginRightValue;
 
+    impl std::fmt::Debug for LayoutMarginRightValue { fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result { write!(f, "{}", (crate::dll::get_azul_dll().az_layout_margin_right_value_fmt_debug)(self)) } }
     impl Clone for LayoutMarginRightValue { fn clone(&self) -> Self { (crate::dll::get_azul_dll().az_layout_margin_right_value_deep_copy)(self) } }
     impl Drop for LayoutMarginRightValue { fn drop(&mut self) { (crate::dll::get_azul_dll().az_layout_margin_right_value_delete)(self); } }
 
@@ -6697,6 +7745,7 @@ pub mod css {
     /// `LayoutMarginTopValue` struct
     pub use crate::dll::AzLayoutMarginTopValue as LayoutMarginTopValue;
 
+    impl std::fmt::Debug for LayoutMarginTopValue { fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result { write!(f, "{}", (crate::dll::get_azul_dll().az_layout_margin_top_value_fmt_debug)(self)) } }
     impl Clone for LayoutMarginTopValue { fn clone(&self) -> Self { (crate::dll::get_azul_dll().az_layout_margin_top_value_deep_copy)(self) } }
     impl Drop for LayoutMarginTopValue { fn drop(&mut self) { (crate::dll::get_azul_dll().az_layout_margin_top_value_delete)(self); } }
 
@@ -6704,6 +7753,7 @@ pub mod css {
     /// `LayoutMaxHeightValue` struct
     pub use crate::dll::AzLayoutMaxHeightValue as LayoutMaxHeightValue;
 
+    impl std::fmt::Debug for LayoutMaxHeightValue { fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result { write!(f, "{}", (crate::dll::get_azul_dll().az_layout_max_height_value_fmt_debug)(self)) } }
     impl Clone for LayoutMaxHeightValue { fn clone(&self) -> Self { (crate::dll::get_azul_dll().az_layout_max_height_value_deep_copy)(self) } }
     impl Drop for LayoutMaxHeightValue { fn drop(&mut self) { (crate::dll::get_azul_dll().az_layout_max_height_value_delete)(self); } }
 
@@ -6711,6 +7761,7 @@ pub mod css {
     /// `LayoutMaxWidthValue` struct
     pub use crate::dll::AzLayoutMaxWidthValue as LayoutMaxWidthValue;
 
+    impl std::fmt::Debug for LayoutMaxWidthValue { fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result { write!(f, "{}", (crate::dll::get_azul_dll().az_layout_max_width_value_fmt_debug)(self)) } }
     impl Clone for LayoutMaxWidthValue { fn clone(&self) -> Self { (crate::dll::get_azul_dll().az_layout_max_width_value_deep_copy)(self) } }
     impl Drop for LayoutMaxWidthValue { fn drop(&mut self) { (crate::dll::get_azul_dll().az_layout_max_width_value_delete)(self); } }
 
@@ -6718,6 +7769,7 @@ pub mod css {
     /// `LayoutMinHeightValue` struct
     pub use crate::dll::AzLayoutMinHeightValue as LayoutMinHeightValue;
 
+    impl std::fmt::Debug for LayoutMinHeightValue { fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result { write!(f, "{}", (crate::dll::get_azul_dll().az_layout_min_height_value_fmt_debug)(self)) } }
     impl Clone for LayoutMinHeightValue { fn clone(&self) -> Self { (crate::dll::get_azul_dll().az_layout_min_height_value_deep_copy)(self) } }
     impl Drop for LayoutMinHeightValue { fn drop(&mut self) { (crate::dll::get_azul_dll().az_layout_min_height_value_delete)(self); } }
 
@@ -6725,6 +7777,7 @@ pub mod css {
     /// `LayoutMinWidthValue` struct
     pub use crate::dll::AzLayoutMinWidthValue as LayoutMinWidthValue;
 
+    impl std::fmt::Debug for LayoutMinWidthValue { fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result { write!(f, "{}", (crate::dll::get_azul_dll().az_layout_min_width_value_fmt_debug)(self)) } }
     impl Clone for LayoutMinWidthValue { fn clone(&self) -> Self { (crate::dll::get_azul_dll().az_layout_min_width_value_deep_copy)(self) } }
     impl Drop for LayoutMinWidthValue { fn drop(&mut self) { (crate::dll::get_azul_dll().az_layout_min_width_value_delete)(self); } }
 
@@ -6732,6 +7785,7 @@ pub mod css {
     /// `LayoutPaddingBottomValue` struct
     pub use crate::dll::AzLayoutPaddingBottomValue as LayoutPaddingBottomValue;
 
+    impl std::fmt::Debug for LayoutPaddingBottomValue { fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result { write!(f, "{}", (crate::dll::get_azul_dll().az_layout_padding_bottom_value_fmt_debug)(self)) } }
     impl Clone for LayoutPaddingBottomValue { fn clone(&self) -> Self { (crate::dll::get_azul_dll().az_layout_padding_bottom_value_deep_copy)(self) } }
     impl Drop for LayoutPaddingBottomValue { fn drop(&mut self) { (crate::dll::get_azul_dll().az_layout_padding_bottom_value_delete)(self); } }
 
@@ -6739,6 +7793,7 @@ pub mod css {
     /// `LayoutPaddingLeftValue` struct
     pub use crate::dll::AzLayoutPaddingLeftValue as LayoutPaddingLeftValue;
 
+    impl std::fmt::Debug for LayoutPaddingLeftValue { fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result { write!(f, "{}", (crate::dll::get_azul_dll().az_layout_padding_left_value_fmt_debug)(self)) } }
     impl Clone for LayoutPaddingLeftValue { fn clone(&self) -> Self { (crate::dll::get_azul_dll().az_layout_padding_left_value_deep_copy)(self) } }
     impl Drop for LayoutPaddingLeftValue { fn drop(&mut self) { (crate::dll::get_azul_dll().az_layout_padding_left_value_delete)(self); } }
 
@@ -6746,6 +7801,7 @@ pub mod css {
     /// `LayoutPaddingRightValue` struct
     pub use crate::dll::AzLayoutPaddingRightValue as LayoutPaddingRightValue;
 
+    impl std::fmt::Debug for LayoutPaddingRightValue { fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result { write!(f, "{}", (crate::dll::get_azul_dll().az_layout_padding_right_value_fmt_debug)(self)) } }
     impl Clone for LayoutPaddingRightValue { fn clone(&self) -> Self { (crate::dll::get_azul_dll().az_layout_padding_right_value_deep_copy)(self) } }
     impl Drop for LayoutPaddingRightValue { fn drop(&mut self) { (crate::dll::get_azul_dll().az_layout_padding_right_value_delete)(self); } }
 
@@ -6753,6 +7809,7 @@ pub mod css {
     /// `LayoutPaddingTopValue` struct
     pub use crate::dll::AzLayoutPaddingTopValue as LayoutPaddingTopValue;
 
+    impl std::fmt::Debug for LayoutPaddingTopValue { fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result { write!(f, "{}", (crate::dll::get_azul_dll().az_layout_padding_top_value_fmt_debug)(self)) } }
     impl Clone for LayoutPaddingTopValue { fn clone(&self) -> Self { (crate::dll::get_azul_dll().az_layout_padding_top_value_deep_copy)(self) } }
     impl Drop for LayoutPaddingTopValue { fn drop(&mut self) { (crate::dll::get_azul_dll().az_layout_padding_top_value_delete)(self); } }
 
@@ -6760,6 +7817,7 @@ pub mod css {
     /// `LayoutPositionValue` struct
     pub use crate::dll::AzLayoutPositionValue as LayoutPositionValue;
 
+    impl std::fmt::Debug for LayoutPositionValue { fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result { write!(f, "{}", (crate::dll::get_azul_dll().az_layout_position_value_fmt_debug)(self)) } }
     impl Clone for LayoutPositionValue { fn clone(&self) -> Self { (crate::dll::get_azul_dll().az_layout_position_value_deep_copy)(self) } }
     impl Drop for LayoutPositionValue { fn drop(&mut self) { (crate::dll::get_azul_dll().az_layout_position_value_delete)(self); } }
 
@@ -6767,6 +7825,7 @@ pub mod css {
     /// `LayoutRightValue` struct
     pub use crate::dll::AzLayoutRightValue as LayoutRightValue;
 
+    impl std::fmt::Debug for LayoutRightValue { fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result { write!(f, "{}", (crate::dll::get_azul_dll().az_layout_right_value_fmt_debug)(self)) } }
     impl Clone for LayoutRightValue { fn clone(&self) -> Self { (crate::dll::get_azul_dll().az_layout_right_value_deep_copy)(self) } }
     impl Drop for LayoutRightValue { fn drop(&mut self) { (crate::dll::get_azul_dll().az_layout_right_value_delete)(self); } }
 
@@ -6774,6 +7833,7 @@ pub mod css {
     /// `LayoutTopValue` struct
     pub use crate::dll::AzLayoutTopValue as LayoutTopValue;
 
+    impl std::fmt::Debug for LayoutTopValue { fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result { write!(f, "{}", (crate::dll::get_azul_dll().az_layout_top_value_fmt_debug)(self)) } }
     impl Clone for LayoutTopValue { fn clone(&self) -> Self { (crate::dll::get_azul_dll().az_layout_top_value_deep_copy)(self) } }
     impl Drop for LayoutTopValue { fn drop(&mut self) { (crate::dll::get_azul_dll().az_layout_top_value_delete)(self); } }
 
@@ -6781,6 +7841,7 @@ pub mod css {
     /// `LayoutWidthValue` struct
     pub use crate::dll::AzLayoutWidthValue as LayoutWidthValue;
 
+    impl std::fmt::Debug for LayoutWidthValue { fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result { write!(f, "{}", (crate::dll::get_azul_dll().az_layout_width_value_fmt_debug)(self)) } }
     impl Clone for LayoutWidthValue { fn clone(&self) -> Self { (crate::dll::get_azul_dll().az_layout_width_value_deep_copy)(self) } }
     impl Drop for LayoutWidthValue { fn drop(&mut self) { (crate::dll::get_azul_dll().az_layout_width_value_delete)(self); } }
 
@@ -6788,6 +7849,7 @@ pub mod css {
     /// `LayoutWrapValue` struct
     pub use crate::dll::AzLayoutWrapValue as LayoutWrapValue;
 
+    impl std::fmt::Debug for LayoutWrapValue { fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result { write!(f, "{}", (crate::dll::get_azul_dll().az_layout_wrap_value_fmt_debug)(self)) } }
     impl Clone for LayoutWrapValue { fn clone(&self) -> Self { (crate::dll::get_azul_dll().az_layout_wrap_value_deep_copy)(self) } }
     impl Drop for LayoutWrapValue { fn drop(&mut self) { (crate::dll::get_azul_dll().az_layout_wrap_value_delete)(self); } }
 
@@ -6795,6 +7857,7 @@ pub mod css {
     /// `OverflowValue` struct
     pub use crate::dll::AzOverflowValue as OverflowValue;
 
+    impl std::fmt::Debug for OverflowValue { fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result { write!(f, "{}", (crate::dll::get_azul_dll().az_overflow_value_fmt_debug)(self)) } }
     impl Clone for OverflowValue { fn clone(&self) -> Self { (crate::dll::get_azul_dll().az_overflow_value_deep_copy)(self) } }
     impl Drop for OverflowValue { fn drop(&mut self) { (crate::dll::get_azul_dll().az_overflow_value_delete)(self); } }
 
@@ -6802,6 +7865,7 @@ pub mod css {
     /// `StyleBackgroundContentValue` struct
     pub use crate::dll::AzStyleBackgroundContentValue as StyleBackgroundContentValue;
 
+    impl std::fmt::Debug for StyleBackgroundContentValue { fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result { write!(f, "{}", (crate::dll::get_azul_dll().az_style_background_content_value_fmt_debug)(self)) } }
     impl Clone for StyleBackgroundContentValue { fn clone(&self) -> Self { (crate::dll::get_azul_dll().az_style_background_content_value_deep_copy)(self) } }
     impl Drop for StyleBackgroundContentValue { fn drop(&mut self) { (crate::dll::get_azul_dll().az_style_background_content_value_delete)(self); } }
 
@@ -6809,6 +7873,7 @@ pub mod css {
     /// `StyleBackgroundPositionValue` struct
     pub use crate::dll::AzStyleBackgroundPositionValue as StyleBackgroundPositionValue;
 
+    impl std::fmt::Debug for StyleBackgroundPositionValue { fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result { write!(f, "{}", (crate::dll::get_azul_dll().az_style_background_position_value_fmt_debug)(self)) } }
     impl Clone for StyleBackgroundPositionValue { fn clone(&self) -> Self { (crate::dll::get_azul_dll().az_style_background_position_value_deep_copy)(self) } }
     impl Drop for StyleBackgroundPositionValue { fn drop(&mut self) { (crate::dll::get_azul_dll().az_style_background_position_value_delete)(self); } }
 
@@ -6816,6 +7881,7 @@ pub mod css {
     /// `StyleBackgroundRepeatValue` struct
     pub use crate::dll::AzStyleBackgroundRepeatValue as StyleBackgroundRepeatValue;
 
+    impl std::fmt::Debug for StyleBackgroundRepeatValue { fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result { write!(f, "{}", (crate::dll::get_azul_dll().az_style_background_repeat_value_fmt_debug)(self)) } }
     impl Clone for StyleBackgroundRepeatValue { fn clone(&self) -> Self { (crate::dll::get_azul_dll().az_style_background_repeat_value_deep_copy)(self) } }
     impl Drop for StyleBackgroundRepeatValue { fn drop(&mut self) { (crate::dll::get_azul_dll().az_style_background_repeat_value_delete)(self); } }
 
@@ -6823,6 +7889,7 @@ pub mod css {
     /// `StyleBackgroundSizeValue` struct
     pub use crate::dll::AzStyleBackgroundSizeValue as StyleBackgroundSizeValue;
 
+    impl std::fmt::Debug for StyleBackgroundSizeValue { fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result { write!(f, "{}", (crate::dll::get_azul_dll().az_style_background_size_value_fmt_debug)(self)) } }
     impl Clone for StyleBackgroundSizeValue { fn clone(&self) -> Self { (crate::dll::get_azul_dll().az_style_background_size_value_deep_copy)(self) } }
     impl Drop for StyleBackgroundSizeValue { fn drop(&mut self) { (crate::dll::get_azul_dll().az_style_background_size_value_delete)(self); } }
 
@@ -6830,6 +7897,7 @@ pub mod css {
     /// `StyleBorderBottomColorValue` struct
     pub use crate::dll::AzStyleBorderBottomColorValue as StyleBorderBottomColorValue;
 
+    impl std::fmt::Debug for StyleBorderBottomColorValue { fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result { write!(f, "{}", (crate::dll::get_azul_dll().az_style_border_bottom_color_value_fmt_debug)(self)) } }
     impl Clone for StyleBorderBottomColorValue { fn clone(&self) -> Self { (crate::dll::get_azul_dll().az_style_border_bottom_color_value_deep_copy)(self) } }
     impl Drop for StyleBorderBottomColorValue { fn drop(&mut self) { (crate::dll::get_azul_dll().az_style_border_bottom_color_value_delete)(self); } }
 
@@ -6837,6 +7905,7 @@ pub mod css {
     /// `StyleBorderBottomLeftRadiusValue` struct
     pub use crate::dll::AzStyleBorderBottomLeftRadiusValue as StyleBorderBottomLeftRadiusValue;
 
+    impl std::fmt::Debug for StyleBorderBottomLeftRadiusValue { fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result { write!(f, "{}", (crate::dll::get_azul_dll().az_style_border_bottom_left_radius_value_fmt_debug)(self)) } }
     impl Clone for StyleBorderBottomLeftRadiusValue { fn clone(&self) -> Self { (crate::dll::get_azul_dll().az_style_border_bottom_left_radius_value_deep_copy)(self) } }
     impl Drop for StyleBorderBottomLeftRadiusValue { fn drop(&mut self) { (crate::dll::get_azul_dll().az_style_border_bottom_left_radius_value_delete)(self); } }
 
@@ -6844,6 +7913,7 @@ pub mod css {
     /// `StyleBorderBottomRightRadiusValue` struct
     pub use crate::dll::AzStyleBorderBottomRightRadiusValue as StyleBorderBottomRightRadiusValue;
 
+    impl std::fmt::Debug for StyleBorderBottomRightRadiusValue { fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result { write!(f, "{}", (crate::dll::get_azul_dll().az_style_border_bottom_right_radius_value_fmt_debug)(self)) } }
     impl Clone for StyleBorderBottomRightRadiusValue { fn clone(&self) -> Self { (crate::dll::get_azul_dll().az_style_border_bottom_right_radius_value_deep_copy)(self) } }
     impl Drop for StyleBorderBottomRightRadiusValue { fn drop(&mut self) { (crate::dll::get_azul_dll().az_style_border_bottom_right_radius_value_delete)(self); } }
 
@@ -6851,6 +7921,7 @@ pub mod css {
     /// `StyleBorderBottomStyleValue` struct
     pub use crate::dll::AzStyleBorderBottomStyleValue as StyleBorderBottomStyleValue;
 
+    impl std::fmt::Debug for StyleBorderBottomStyleValue { fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result { write!(f, "{}", (crate::dll::get_azul_dll().az_style_border_bottom_style_value_fmt_debug)(self)) } }
     impl Clone for StyleBorderBottomStyleValue { fn clone(&self) -> Self { (crate::dll::get_azul_dll().az_style_border_bottom_style_value_deep_copy)(self) } }
     impl Drop for StyleBorderBottomStyleValue { fn drop(&mut self) { (crate::dll::get_azul_dll().az_style_border_bottom_style_value_delete)(self); } }
 
@@ -6858,6 +7929,7 @@ pub mod css {
     /// `StyleBorderBottomWidthValue` struct
     pub use crate::dll::AzStyleBorderBottomWidthValue as StyleBorderBottomWidthValue;
 
+    impl std::fmt::Debug for StyleBorderBottomWidthValue { fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result { write!(f, "{}", (crate::dll::get_azul_dll().az_style_border_bottom_width_value_fmt_debug)(self)) } }
     impl Clone for StyleBorderBottomWidthValue { fn clone(&self) -> Self { (crate::dll::get_azul_dll().az_style_border_bottom_width_value_deep_copy)(self) } }
     impl Drop for StyleBorderBottomWidthValue { fn drop(&mut self) { (crate::dll::get_azul_dll().az_style_border_bottom_width_value_delete)(self); } }
 
@@ -6865,6 +7937,7 @@ pub mod css {
     /// `StyleBorderLeftColorValue` struct
     pub use crate::dll::AzStyleBorderLeftColorValue as StyleBorderLeftColorValue;
 
+    impl std::fmt::Debug for StyleBorderLeftColorValue { fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result { write!(f, "{}", (crate::dll::get_azul_dll().az_style_border_left_color_value_fmt_debug)(self)) } }
     impl Clone for StyleBorderLeftColorValue { fn clone(&self) -> Self { (crate::dll::get_azul_dll().az_style_border_left_color_value_deep_copy)(self) } }
     impl Drop for StyleBorderLeftColorValue { fn drop(&mut self) { (crate::dll::get_azul_dll().az_style_border_left_color_value_delete)(self); } }
 
@@ -6872,6 +7945,7 @@ pub mod css {
     /// `StyleBorderLeftStyleValue` struct
     pub use crate::dll::AzStyleBorderLeftStyleValue as StyleBorderLeftStyleValue;
 
+    impl std::fmt::Debug for StyleBorderLeftStyleValue { fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result { write!(f, "{}", (crate::dll::get_azul_dll().az_style_border_left_style_value_fmt_debug)(self)) } }
     impl Clone for StyleBorderLeftStyleValue { fn clone(&self) -> Self { (crate::dll::get_azul_dll().az_style_border_left_style_value_deep_copy)(self) } }
     impl Drop for StyleBorderLeftStyleValue { fn drop(&mut self) { (crate::dll::get_azul_dll().az_style_border_left_style_value_delete)(self); } }
 
@@ -6879,6 +7953,7 @@ pub mod css {
     /// `StyleBorderLeftWidthValue` struct
     pub use crate::dll::AzStyleBorderLeftWidthValue as StyleBorderLeftWidthValue;
 
+    impl std::fmt::Debug for StyleBorderLeftWidthValue { fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result { write!(f, "{}", (crate::dll::get_azul_dll().az_style_border_left_width_value_fmt_debug)(self)) } }
     impl Clone for StyleBorderLeftWidthValue { fn clone(&self) -> Self { (crate::dll::get_azul_dll().az_style_border_left_width_value_deep_copy)(self) } }
     impl Drop for StyleBorderLeftWidthValue { fn drop(&mut self) { (crate::dll::get_azul_dll().az_style_border_left_width_value_delete)(self); } }
 
@@ -6886,6 +7961,7 @@ pub mod css {
     /// `StyleBorderRightColorValue` struct
     pub use crate::dll::AzStyleBorderRightColorValue as StyleBorderRightColorValue;
 
+    impl std::fmt::Debug for StyleBorderRightColorValue { fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result { write!(f, "{}", (crate::dll::get_azul_dll().az_style_border_right_color_value_fmt_debug)(self)) } }
     impl Clone for StyleBorderRightColorValue { fn clone(&self) -> Self { (crate::dll::get_azul_dll().az_style_border_right_color_value_deep_copy)(self) } }
     impl Drop for StyleBorderRightColorValue { fn drop(&mut self) { (crate::dll::get_azul_dll().az_style_border_right_color_value_delete)(self); } }
 
@@ -6893,6 +7969,7 @@ pub mod css {
     /// `StyleBorderRightStyleValue` struct
     pub use crate::dll::AzStyleBorderRightStyleValue as StyleBorderRightStyleValue;
 
+    impl std::fmt::Debug for StyleBorderRightStyleValue { fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result { write!(f, "{}", (crate::dll::get_azul_dll().az_style_border_right_style_value_fmt_debug)(self)) } }
     impl Clone for StyleBorderRightStyleValue { fn clone(&self) -> Self { (crate::dll::get_azul_dll().az_style_border_right_style_value_deep_copy)(self) } }
     impl Drop for StyleBorderRightStyleValue { fn drop(&mut self) { (crate::dll::get_azul_dll().az_style_border_right_style_value_delete)(self); } }
 
@@ -6900,6 +7977,7 @@ pub mod css {
     /// `StyleBorderRightWidthValue` struct
     pub use crate::dll::AzStyleBorderRightWidthValue as StyleBorderRightWidthValue;
 
+    impl std::fmt::Debug for StyleBorderRightWidthValue { fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result { write!(f, "{}", (crate::dll::get_azul_dll().az_style_border_right_width_value_fmt_debug)(self)) } }
     impl Clone for StyleBorderRightWidthValue { fn clone(&self) -> Self { (crate::dll::get_azul_dll().az_style_border_right_width_value_deep_copy)(self) } }
     impl Drop for StyleBorderRightWidthValue { fn drop(&mut self) { (crate::dll::get_azul_dll().az_style_border_right_width_value_delete)(self); } }
 
@@ -6907,6 +7985,7 @@ pub mod css {
     /// `StyleBorderTopColorValue` struct
     pub use crate::dll::AzStyleBorderTopColorValue as StyleBorderTopColorValue;
 
+    impl std::fmt::Debug for StyleBorderTopColorValue { fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result { write!(f, "{}", (crate::dll::get_azul_dll().az_style_border_top_color_value_fmt_debug)(self)) } }
     impl Clone for StyleBorderTopColorValue { fn clone(&self) -> Self { (crate::dll::get_azul_dll().az_style_border_top_color_value_deep_copy)(self) } }
     impl Drop for StyleBorderTopColorValue { fn drop(&mut self) { (crate::dll::get_azul_dll().az_style_border_top_color_value_delete)(self); } }
 
@@ -6914,6 +7993,7 @@ pub mod css {
     /// `StyleBorderTopLeftRadiusValue` struct
     pub use crate::dll::AzStyleBorderTopLeftRadiusValue as StyleBorderTopLeftRadiusValue;
 
+    impl std::fmt::Debug for StyleBorderTopLeftRadiusValue { fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result { write!(f, "{}", (crate::dll::get_azul_dll().az_style_border_top_left_radius_value_fmt_debug)(self)) } }
     impl Clone for StyleBorderTopLeftRadiusValue { fn clone(&self) -> Self { (crate::dll::get_azul_dll().az_style_border_top_left_radius_value_deep_copy)(self) } }
     impl Drop for StyleBorderTopLeftRadiusValue { fn drop(&mut self) { (crate::dll::get_azul_dll().az_style_border_top_left_radius_value_delete)(self); } }
 
@@ -6921,6 +8001,7 @@ pub mod css {
     /// `StyleBorderTopRightRadiusValue` struct
     pub use crate::dll::AzStyleBorderTopRightRadiusValue as StyleBorderTopRightRadiusValue;
 
+    impl std::fmt::Debug for StyleBorderTopRightRadiusValue { fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result { write!(f, "{}", (crate::dll::get_azul_dll().az_style_border_top_right_radius_value_fmt_debug)(self)) } }
     impl Clone for StyleBorderTopRightRadiusValue { fn clone(&self) -> Self { (crate::dll::get_azul_dll().az_style_border_top_right_radius_value_deep_copy)(self) } }
     impl Drop for StyleBorderTopRightRadiusValue { fn drop(&mut self) { (crate::dll::get_azul_dll().az_style_border_top_right_radius_value_delete)(self); } }
 
@@ -6928,6 +8009,7 @@ pub mod css {
     /// `StyleBorderTopStyleValue` struct
     pub use crate::dll::AzStyleBorderTopStyleValue as StyleBorderTopStyleValue;
 
+    impl std::fmt::Debug for StyleBorderTopStyleValue { fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result { write!(f, "{}", (crate::dll::get_azul_dll().az_style_border_top_style_value_fmt_debug)(self)) } }
     impl Clone for StyleBorderTopStyleValue { fn clone(&self) -> Self { (crate::dll::get_azul_dll().az_style_border_top_style_value_deep_copy)(self) } }
     impl Drop for StyleBorderTopStyleValue { fn drop(&mut self) { (crate::dll::get_azul_dll().az_style_border_top_style_value_delete)(self); } }
 
@@ -6935,6 +8017,7 @@ pub mod css {
     /// `StyleBorderTopWidthValue` struct
     pub use crate::dll::AzStyleBorderTopWidthValue as StyleBorderTopWidthValue;
 
+    impl std::fmt::Debug for StyleBorderTopWidthValue { fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result { write!(f, "{}", (crate::dll::get_azul_dll().az_style_border_top_width_value_fmt_debug)(self)) } }
     impl Clone for StyleBorderTopWidthValue { fn clone(&self) -> Self { (crate::dll::get_azul_dll().az_style_border_top_width_value_deep_copy)(self) } }
     impl Drop for StyleBorderTopWidthValue { fn drop(&mut self) { (crate::dll::get_azul_dll().az_style_border_top_width_value_delete)(self); } }
 
@@ -6942,6 +8025,7 @@ pub mod css {
     /// `StyleCursorValue` struct
     pub use crate::dll::AzStyleCursorValue as StyleCursorValue;
 
+    impl std::fmt::Debug for StyleCursorValue { fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result { write!(f, "{}", (crate::dll::get_azul_dll().az_style_cursor_value_fmt_debug)(self)) } }
     impl Clone for StyleCursorValue { fn clone(&self) -> Self { (crate::dll::get_azul_dll().az_style_cursor_value_deep_copy)(self) } }
     impl Drop for StyleCursorValue { fn drop(&mut self) { (crate::dll::get_azul_dll().az_style_cursor_value_delete)(self); } }
 
@@ -6949,6 +8033,7 @@ pub mod css {
     /// `StyleFontFamilyValue` struct
     pub use crate::dll::AzStyleFontFamilyValue as StyleFontFamilyValue;
 
+    impl std::fmt::Debug for StyleFontFamilyValue { fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result { write!(f, "{}", (crate::dll::get_azul_dll().az_style_font_family_value_fmt_debug)(self)) } }
     impl Clone for StyleFontFamilyValue { fn clone(&self) -> Self { (crate::dll::get_azul_dll().az_style_font_family_value_deep_copy)(self) } }
     impl Drop for StyleFontFamilyValue { fn drop(&mut self) { (crate::dll::get_azul_dll().az_style_font_family_value_delete)(self); } }
 
@@ -6956,6 +8041,7 @@ pub mod css {
     /// `StyleFontSizeValue` struct
     pub use crate::dll::AzStyleFontSizeValue as StyleFontSizeValue;
 
+    impl std::fmt::Debug for StyleFontSizeValue { fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result { write!(f, "{}", (crate::dll::get_azul_dll().az_style_font_size_value_fmt_debug)(self)) } }
     impl Clone for StyleFontSizeValue { fn clone(&self) -> Self { (crate::dll::get_azul_dll().az_style_font_size_value_deep_copy)(self) } }
     impl Drop for StyleFontSizeValue { fn drop(&mut self) { (crate::dll::get_azul_dll().az_style_font_size_value_delete)(self); } }
 
@@ -6963,6 +8049,7 @@ pub mod css {
     /// `StyleLetterSpacingValue` struct
     pub use crate::dll::AzStyleLetterSpacingValue as StyleLetterSpacingValue;
 
+    impl std::fmt::Debug for StyleLetterSpacingValue { fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result { write!(f, "{}", (crate::dll::get_azul_dll().az_style_letter_spacing_value_fmt_debug)(self)) } }
     impl Clone for StyleLetterSpacingValue { fn clone(&self) -> Self { (crate::dll::get_azul_dll().az_style_letter_spacing_value_deep_copy)(self) } }
     impl Drop for StyleLetterSpacingValue { fn drop(&mut self) { (crate::dll::get_azul_dll().az_style_letter_spacing_value_delete)(self); } }
 
@@ -6970,6 +8057,7 @@ pub mod css {
     /// `StyleLineHeightValue` struct
     pub use crate::dll::AzStyleLineHeightValue as StyleLineHeightValue;
 
+    impl std::fmt::Debug for StyleLineHeightValue { fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result { write!(f, "{}", (crate::dll::get_azul_dll().az_style_line_height_value_fmt_debug)(self)) } }
     impl Clone for StyleLineHeightValue { fn clone(&self) -> Self { (crate::dll::get_azul_dll().az_style_line_height_value_deep_copy)(self) } }
     impl Drop for StyleLineHeightValue { fn drop(&mut self) { (crate::dll::get_azul_dll().az_style_line_height_value_delete)(self); } }
 
@@ -6977,6 +8065,7 @@ pub mod css {
     /// `StyleTabWidthValue` struct
     pub use crate::dll::AzStyleTabWidthValue as StyleTabWidthValue;
 
+    impl std::fmt::Debug for StyleTabWidthValue { fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result { write!(f, "{}", (crate::dll::get_azul_dll().az_style_tab_width_value_fmt_debug)(self)) } }
     impl Clone for StyleTabWidthValue { fn clone(&self) -> Self { (crate::dll::get_azul_dll().az_style_tab_width_value_deep_copy)(self) } }
     impl Drop for StyleTabWidthValue { fn drop(&mut self) { (crate::dll::get_azul_dll().az_style_tab_width_value_delete)(self); } }
 
@@ -6984,6 +8073,7 @@ pub mod css {
     /// `StyleTextAlignmentHorzValue` struct
     pub use crate::dll::AzStyleTextAlignmentHorzValue as StyleTextAlignmentHorzValue;
 
+    impl std::fmt::Debug for StyleTextAlignmentHorzValue { fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result { write!(f, "{}", (crate::dll::get_azul_dll().az_style_text_alignment_horz_value_fmt_debug)(self)) } }
     impl Clone for StyleTextAlignmentHorzValue { fn clone(&self) -> Self { (crate::dll::get_azul_dll().az_style_text_alignment_horz_value_deep_copy)(self) } }
     impl Drop for StyleTextAlignmentHorzValue { fn drop(&mut self) { (crate::dll::get_azul_dll().az_style_text_alignment_horz_value_delete)(self); } }
 
@@ -6991,6 +8081,7 @@ pub mod css {
     /// `StyleTextColorValue` struct
     pub use crate::dll::AzStyleTextColorValue as StyleTextColorValue;
 
+    impl std::fmt::Debug for StyleTextColorValue { fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result { write!(f, "{}", (crate::dll::get_azul_dll().az_style_text_color_value_fmt_debug)(self)) } }
     impl Clone for StyleTextColorValue { fn clone(&self) -> Self { (crate::dll::get_azul_dll().az_style_text_color_value_deep_copy)(self) } }
     impl Drop for StyleTextColorValue { fn drop(&mut self) { (crate::dll::get_azul_dll().az_style_text_color_value_delete)(self); } }
 
@@ -6998,6 +8089,7 @@ pub mod css {
     /// `StyleWordSpacingValue` struct
     pub use crate::dll::AzStyleWordSpacingValue as StyleWordSpacingValue;
 
+    impl std::fmt::Debug for StyleWordSpacingValue { fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result { write!(f, "{}", (crate::dll::get_azul_dll().az_style_word_spacing_value_fmt_debug)(self)) } }
     impl Clone for StyleWordSpacingValue { fn clone(&self) -> Self { (crate::dll::get_azul_dll().az_style_word_spacing_value_deep_copy)(self) } }
     impl Drop for StyleWordSpacingValue { fn drop(&mut self) { (crate::dll::get_azul_dll().az_style_word_spacing_value_delete)(self); } }
 
@@ -7005,6 +8097,7 @@ pub mod css {
     /// Parsed CSS key-value pair
     pub use crate::dll::AzCssProperty as CssProperty;
 
+    impl std::fmt::Debug for CssProperty { fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result { write!(f, "{}", (crate::dll::get_azul_dll().az_css_property_fmt_debug)(self)) } }
     impl Clone for CssProperty { fn clone(&self) -> Self { (crate::dll::get_azul_dll().az_css_property_deep_copy)(self) } }
     impl Drop for CssProperty { fn drop(&mut self) { (crate::dll::get_azul_dll().az_css_property_delete)(self); } }
 }
@@ -7123,6 +8216,7 @@ pub mod dom {
         pub fn get_html_string(&self)  -> crate::str::String { { (crate::dll::get_azul_dll().az_dom_get_html_string)(self)} }
     }
 
+    impl std::fmt::Debug for Dom { fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result { write!(f, "{}", (crate::dll::get_azul_dll().az_dom_fmt_debug)(self)) } }
     impl Clone for Dom { fn clone(&self) -> Self { (crate::dll::get_azul_dll().az_dom_deep_copy)(self) } }
     impl Drop for Dom { fn drop(&mut self) { (crate::dll::get_azul_dll().az_dom_delete)(self); } }
 
@@ -7130,6 +8224,7 @@ pub mod dom {
     /// `GlTextureNode` struct
     pub use crate::dll::AzGlTextureNode as GlTextureNode;
 
+    impl std::fmt::Debug for GlTextureNode { fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result { write!(f, "{}", (crate::dll::get_azul_dll().az_gl_texture_node_fmt_debug)(self)) } }
     impl Clone for GlTextureNode { fn clone(&self) -> Self { (crate::dll::get_azul_dll().az_gl_texture_node_deep_copy)(self) } }
     impl Drop for GlTextureNode { fn drop(&mut self) { (crate::dll::get_azul_dll().az_gl_texture_node_delete)(self); } }
 
@@ -7137,6 +8232,7 @@ pub mod dom {
     /// `IFrameNode` struct
     pub use crate::dll::AzIFrameNode as IFrameNode;
 
+    impl std::fmt::Debug for IFrameNode { fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result { write!(f, "{}", (crate::dll::get_azul_dll().az_i_frame_node_fmt_debug)(self)) } }
     impl Clone for IFrameNode { fn clone(&self) -> Self { (crate::dll::get_azul_dll().az_i_frame_node_deep_copy)(self) } }
     impl Drop for IFrameNode { fn drop(&mut self) { (crate::dll::get_azul_dll().az_i_frame_node_delete)(self); } }
 
@@ -7144,6 +8240,7 @@ pub mod dom {
     /// `CallbackData` struct
     pub use crate::dll::AzCallbackData as CallbackData;
 
+    impl std::fmt::Debug for CallbackData { fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result { write!(f, "{}", (crate::dll::get_azul_dll().az_callback_data_fmt_debug)(self)) } }
     impl Clone for CallbackData { fn clone(&self) -> Self { (crate::dll::get_azul_dll().az_callback_data_deep_copy)(self) } }
     impl Drop for CallbackData { fn drop(&mut self) { (crate::dll::get_azul_dll().az_callback_data_delete)(self); } }
 
@@ -7151,6 +8248,7 @@ pub mod dom {
     /// `OverrideProperty` struct
     pub use crate::dll::AzOverrideProperty as OverrideProperty;
 
+    impl std::fmt::Debug for OverrideProperty { fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result { write!(f, "{}", (crate::dll::get_azul_dll().az_override_property_fmt_debug)(self)) } }
     impl Clone for OverrideProperty { fn clone(&self) -> Self { (crate::dll::get_azul_dll().az_override_property_deep_copy)(self) } }
     impl Drop for OverrideProperty { fn drop(&mut self) { (crate::dll::get_azul_dll().az_override_property_delete)(self); } }
 
@@ -7165,6 +8263,7 @@ pub mod dom {
         pub fn default() -> Self { (crate::dll::get_azul_dll().az_node_data_default)() }
     }
 
+    impl std::fmt::Debug for NodeData { fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result { write!(f, "{}", (crate::dll::get_azul_dll().az_node_data_fmt_debug)(self)) } }
     impl Clone for NodeData { fn clone(&self) -> Self { (crate::dll::get_azul_dll().az_node_data_deep_copy)(self) } }
     impl Drop for NodeData { fn drop(&mut self) { (crate::dll::get_azul_dll().az_node_data_delete)(self); } }
 
@@ -7172,6 +8271,7 @@ pub mod dom {
     /// List of core DOM node types built-into by `azul`
     pub use crate::dll::AzNodeType as NodeType;
 
+    impl std::fmt::Debug for NodeType { fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result { write!(f, "{}", (crate::dll::get_azul_dll().az_node_type_fmt_debug)(self)) } }
     impl Clone for NodeType { fn clone(&self) -> Self { (crate::dll::get_azul_dll().az_node_type_deep_copy)(self) } }
     impl Drop for NodeType { fn drop(&mut self) { (crate::dll::get_azul_dll().az_node_type_delete)(self); } }
 
@@ -7184,6 +8284,7 @@ pub mod dom {
         pub fn into_event_filter(self)  -> crate::dom::EventFilter { { (crate::dll::get_azul_dll().az_on_into_event_filter)(self)} }
     }
 
+    impl std::fmt::Debug for On { fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result { write!(f, "{}", (crate::dll::get_azul_dll().az_on_fmt_debug)(self)) } }
     impl Clone for On { fn clone(&self) -> Self { (crate::dll::get_azul_dll().az_on_deep_copy)(self) } }
     impl Drop for On { fn drop(&mut self) { (crate::dll::get_azul_dll().az_on_delete)(self); } }
 
@@ -7191,6 +8292,7 @@ pub mod dom {
     /// `EventFilter` struct
     pub use crate::dll::AzEventFilter as EventFilter;
 
+    impl std::fmt::Debug for EventFilter { fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result { write!(f, "{}", (crate::dll::get_azul_dll().az_event_filter_fmt_debug)(self)) } }
     impl Clone for EventFilter { fn clone(&self) -> Self { (crate::dll::get_azul_dll().az_event_filter_deep_copy)(self) } }
     impl Drop for EventFilter { fn drop(&mut self) { (crate::dll::get_azul_dll().az_event_filter_delete)(self); } }
 
@@ -7198,6 +8300,7 @@ pub mod dom {
     /// `HoverEventFilter` struct
     pub use crate::dll::AzHoverEventFilter as HoverEventFilter;
 
+    impl std::fmt::Debug for HoverEventFilter { fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result { write!(f, "{}", (crate::dll::get_azul_dll().az_hover_event_filter_fmt_debug)(self)) } }
     impl Clone for HoverEventFilter { fn clone(&self) -> Self { (crate::dll::get_azul_dll().az_hover_event_filter_deep_copy)(self) } }
     impl Drop for HoverEventFilter { fn drop(&mut self) { (crate::dll::get_azul_dll().az_hover_event_filter_delete)(self); } }
 
@@ -7205,6 +8308,7 @@ pub mod dom {
     /// `FocusEventFilter` struct
     pub use crate::dll::AzFocusEventFilter as FocusEventFilter;
 
+    impl std::fmt::Debug for FocusEventFilter { fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result { write!(f, "{}", (crate::dll::get_azul_dll().az_focus_event_filter_fmt_debug)(self)) } }
     impl Clone for FocusEventFilter { fn clone(&self) -> Self { (crate::dll::get_azul_dll().az_focus_event_filter_deep_copy)(self) } }
     impl Drop for FocusEventFilter { fn drop(&mut self) { (crate::dll::get_azul_dll().az_focus_event_filter_delete)(self); } }
 
@@ -7212,6 +8316,7 @@ pub mod dom {
     /// `NotEventFilter` struct
     pub use crate::dll::AzNotEventFilter as NotEventFilter;
 
+    impl std::fmt::Debug for NotEventFilter { fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result { write!(f, "{}", (crate::dll::get_azul_dll().az_not_event_filter_fmt_debug)(self)) } }
     impl Clone for NotEventFilter { fn clone(&self) -> Self { (crate::dll::get_azul_dll().az_not_event_filter_deep_copy)(self) } }
     impl Drop for NotEventFilter { fn drop(&mut self) { (crate::dll::get_azul_dll().az_not_event_filter_delete)(self); } }
 
@@ -7219,6 +8324,7 @@ pub mod dom {
     /// `WindowEventFilter` struct
     pub use crate::dll::AzWindowEventFilter as WindowEventFilter;
 
+    impl std::fmt::Debug for WindowEventFilter { fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result { write!(f, "{}", (crate::dll::get_azul_dll().az_window_event_filter_fmt_debug)(self)) } }
     impl Clone for WindowEventFilter { fn clone(&self) -> Self { (crate::dll::get_azul_dll().az_window_event_filter_deep_copy)(self) } }
     impl Drop for WindowEventFilter { fn drop(&mut self) { (crate::dll::get_azul_dll().az_window_event_filter_delete)(self); } }
 
@@ -7226,6 +8332,7 @@ pub mod dom {
     /// `TabIndex` struct
     pub use crate::dll::AzTabIndex as TabIndex;
 
+    impl std::fmt::Debug for TabIndex { fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result { write!(f, "{}", (crate::dll::get_azul_dll().az_tab_index_fmt_debug)(self)) } }
     impl Clone for TabIndex { fn clone(&self) -> Self { (crate::dll::get_azul_dll().az_tab_index_deep_copy)(self) } }
     impl Drop for TabIndex { fn drop(&mut self) { (crate::dll::get_azul_dll().az_tab_index_delete)(self); } }
 }
@@ -7314,12 +8421,6 @@ pub mod gl {
 
     impl U8VecRef {
         fn as_slice(&self) -> &[u8] { unsafe { std::slice::from_raw_parts(self.ptr, self.len) } }
-    }
-
-    impl std::fmt::Debug for U8VecRef {
-        fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
-            self.as_slice().fmt(f)
-        }
     }
 
     impl PartialOrd for U8VecRef {
@@ -8886,6 +9987,7 @@ pub mod gl {
     /// `GlType` struct
     pub use crate::dll::AzGlType as GlType;
 
+    impl std::fmt::Debug for GlType { fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result { write!(f, "{}", (crate::dll::get_azul_dll().az_gl_type_fmt_debug)(self)) } }
     impl Clone for GlType { fn clone(&self) -> Self { (crate::dll::get_azul_dll().az_gl_type_deep_copy)(self) } }
     impl Drop for GlType { fn drop(&mut self) { (crate::dll::get_azul_dll().az_gl_type_delete)(self); } }
 
@@ -8893,6 +9995,7 @@ pub mod gl {
     /// `DebugMessage` struct
     pub use crate::dll::AzDebugMessage as DebugMessage;
 
+    impl std::fmt::Debug for DebugMessage { fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result { write!(f, "{}", (crate::dll::get_azul_dll().az_debug_message_fmt_debug)(self)) } }
     impl Clone for DebugMessage { fn clone(&self) -> Self { (crate::dll::get_azul_dll().az_debug_message_deep_copy)(self) } }
     impl Drop for DebugMessage { fn drop(&mut self) { (crate::dll::get_azul_dll().az_debug_message_delete)(self); } }
 
@@ -8900,78 +10003,91 @@ pub mod gl {
     /// C-ABI stable reexport of `&[u8]`
     pub use crate::dll::AzU8VecRef as U8VecRef;
 
+    impl std::fmt::Debug for U8VecRef { fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result { write!(f, "{}", (crate::dll::get_azul_dll().az_u8_vec_ref_fmt_debug)(self)) } }
     impl Drop for U8VecRef { fn drop(&mut self) { (crate::dll::get_azul_dll().az_u8_vec_ref_delete)(self); } }
 
 
     /// C-ABI stable reexport of `&mut [u8]`
     pub use crate::dll::AzU8VecRefMut as U8VecRefMut;
 
+    impl std::fmt::Debug for U8VecRefMut { fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result { write!(f, "{}", (crate::dll::get_azul_dll().az_u8_vec_ref_mut_fmt_debug)(self)) } }
     impl Drop for U8VecRefMut { fn drop(&mut self) { (crate::dll::get_azul_dll().az_u8_vec_ref_mut_delete)(self); } }
 
 
     /// C-ABI stable reexport of `&[f32]`
     pub use crate::dll::AzF32VecRef as F32VecRef;
 
+    impl std::fmt::Debug for F32VecRef { fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result { write!(f, "{}", (crate::dll::get_azul_dll().az_f32_vec_ref_fmt_debug)(self)) } }
     impl Drop for F32VecRef { fn drop(&mut self) { (crate::dll::get_azul_dll().az_f32_vec_ref_delete)(self); } }
 
 
     /// C-ABI stable reexport of `&[i32]`
     pub use crate::dll::AzI32VecRef as I32VecRef;
 
+    impl std::fmt::Debug for I32VecRef { fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result { write!(f, "{}", (crate::dll::get_azul_dll().az_i32_vec_ref_fmt_debug)(self)) } }
     impl Drop for I32VecRef { fn drop(&mut self) { (crate::dll::get_azul_dll().az_i32_vec_ref_delete)(self); } }
 
 
     /// C-ABI stable reexport of `&[GLuint]` aka `&[u32]`
     pub use crate::dll::AzGLuintVecRef as GLuintVecRef;
 
+    impl std::fmt::Debug for GLuintVecRef { fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result { write!(f, "{}", (crate::dll::get_azul_dll().az_g_luint_vec_ref_fmt_debug)(self)) } }
     impl Drop for GLuintVecRef { fn drop(&mut self) { (crate::dll::get_azul_dll().az_g_luint_vec_ref_delete)(self); } }
 
 
     /// C-ABI stable reexport of `&[GLenum]` aka `&[u32]`
     pub use crate::dll::AzGLenumVecRef as GLenumVecRef;
 
+    impl std::fmt::Debug for GLenumVecRef { fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result { write!(f, "{}", (crate::dll::get_azul_dll().az_g_lenum_vec_ref_fmt_debug)(self)) } }
     impl Drop for GLenumVecRef { fn drop(&mut self) { (crate::dll::get_azul_dll().az_g_lenum_vec_ref_delete)(self); } }
 
 
     /// C-ABI stable reexport of `&mut [GLint]` aka `&mut [i32]`
     pub use crate::dll::AzGLintVecRefMut as GLintVecRefMut;
 
+    impl std::fmt::Debug for GLintVecRefMut { fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result { write!(f, "{}", (crate::dll::get_azul_dll().az_g_lint_vec_ref_mut_fmt_debug)(self)) } }
     impl Drop for GLintVecRefMut { fn drop(&mut self) { (crate::dll::get_azul_dll().az_g_lint_vec_ref_mut_delete)(self); } }
 
 
     /// C-ABI stable reexport of `&mut [GLint64]` aka `&mut [i64]`
     pub use crate::dll::AzGLint64VecRefMut as GLint64VecRefMut;
 
+    impl std::fmt::Debug for GLint64VecRefMut { fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result { write!(f, "{}", (crate::dll::get_azul_dll().az_g_lint64_vec_ref_mut_fmt_debug)(self)) } }
     impl Drop for GLint64VecRefMut { fn drop(&mut self) { (crate::dll::get_azul_dll().az_g_lint64_vec_ref_mut_delete)(self); } }
 
 
     /// C-ABI stable reexport of `&mut [GLboolean]` aka `&mut [u8]`
     pub use crate::dll::AzGLbooleanVecRefMut as GLbooleanVecRefMut;
 
+    impl std::fmt::Debug for GLbooleanVecRefMut { fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result { write!(f, "{}", (crate::dll::get_azul_dll().az_g_lboolean_vec_ref_mut_fmt_debug)(self)) } }
     impl Drop for GLbooleanVecRefMut { fn drop(&mut self) { (crate::dll::get_azul_dll().az_g_lboolean_vec_ref_mut_delete)(self); } }
 
 
     /// C-ABI stable reexport of `&mut [GLfloat]` aka `&mut [f32]`
     pub use crate::dll::AzGLfloatVecRefMut as GLfloatVecRefMut;
 
+    impl std::fmt::Debug for GLfloatVecRefMut { fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result { write!(f, "{}", (crate::dll::get_azul_dll().az_g_lfloat_vec_ref_mut_fmt_debug)(self)) } }
     impl Drop for GLfloatVecRefMut { fn drop(&mut self) { (crate::dll::get_azul_dll().az_g_lfloat_vec_ref_mut_delete)(self); } }
 
 
     /// C-ABI stable reexport of `&[Refstr]` aka `&mut [&str]`
     pub use crate::dll::AzRefstrVecRef as RefstrVecRef;
 
+    impl std::fmt::Debug for RefstrVecRef { fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result { write!(f, "{}", (crate::dll::get_azul_dll().az_refstr_vec_ref_fmt_debug)(self)) } }
     impl Drop for RefstrVecRef { fn drop(&mut self) { (crate::dll::get_azul_dll().az_refstr_vec_ref_delete)(self); } }
 
 
     /// C-ABI stable reexport of `&str`
     pub use crate::dll::AzRefstr as Refstr;
 
+    impl std::fmt::Debug for Refstr { fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result { write!(f, "{}", (crate::dll::get_azul_dll().az_refstr_fmt_debug)(self)) } }
     impl Drop for Refstr { fn drop(&mut self) { (crate::dll::get_azul_dll().az_refstr_delete)(self); } }
 
 
     /// C-ABI stable reexport of `(U8Vec, u32)`
     pub use crate::dll::AzGetProgramBinaryReturn as GetProgramBinaryReturn;
 
+    impl std::fmt::Debug for GetProgramBinaryReturn { fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result { write!(f, "{}", (crate::dll::get_azul_dll().az_get_program_binary_return_fmt_debug)(self)) } }
     impl Clone for GetProgramBinaryReturn { fn clone(&self) -> Self { (crate::dll::get_azul_dll().az_get_program_binary_return_deep_copy)(self) } }
     impl Drop for GetProgramBinaryReturn { fn drop(&mut self) { (crate::dll::get_azul_dll().az_get_program_binary_return_delete)(self); } }
 
@@ -8979,6 +10095,7 @@ pub mod gl {
     /// C-ABI stable reexport of `(i32, u32, AzString)`
     pub use crate::dll::AzGetActiveAttribReturn as GetActiveAttribReturn;
 
+    impl std::fmt::Debug for GetActiveAttribReturn { fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result { write!(f, "{}", (crate::dll::get_azul_dll().az_get_active_attrib_return_fmt_debug)(self)) } }
     impl Clone for GetActiveAttribReturn { fn clone(&self) -> Self { (crate::dll::get_azul_dll().az_get_active_attrib_return_deep_copy)(self) } }
     impl Drop for GetActiveAttribReturn { fn drop(&mut self) { (crate::dll::get_azul_dll().az_get_active_attrib_return_delete)(self); } }
 
@@ -8986,12 +10103,14 @@ pub mod gl {
     /// C-ABI stable reexport of `*const gleam::gl::GLsync`
     pub use crate::dll::AzGLsyncPtr as GLsyncPtr;
 
+    impl std::fmt::Debug for GLsyncPtr { fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result { write!(f, "{}", (crate::dll::get_azul_dll().az_g_lsync_ptr_fmt_debug)(self)) } }
     impl Drop for GLsyncPtr { fn drop(&mut self) { (crate::dll::get_azul_dll().az_g_lsync_ptr_delete)(self); } }
 
 
     /// C-ABI stable reexport of `(i32, u32, AzString)`
     pub use crate::dll::AzGetActiveUniformReturn as GetActiveUniformReturn;
 
+    impl std::fmt::Debug for GetActiveUniformReturn { fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result { write!(f, "{}", (crate::dll::get_azul_dll().az_get_active_uniform_return_fmt_debug)(self)) } }
     impl Clone for GetActiveUniformReturn { fn clone(&self) -> Self { (crate::dll::get_azul_dll().az_get_active_uniform_return_deep_copy)(self) } }
     impl Drop for GetActiveUniformReturn { fn drop(&mut self) { (crate::dll::get_azul_dll().az_get_active_uniform_return_delete)(self); } }
 
@@ -9440,6 +10559,7 @@ pub mod gl {
         pub fn copy_sub_texture_3d_angle(&self, source_id: u32, source_level: i32, dest_target: u32, dest_id: u32, dest_level: i32, x_offset: i32, y_offset: i32, z_offset: i32, x: i32, y: i32, z: i32, width: i32, height: i32, depth: i32, unpack_flip_y: u8, unpack_premultiply_alpha: u8, unpack_unmultiply_alpha: u8)  { (crate::dll::get_azul_dll().az_gl_context_ptr_copy_sub_texture_3d_angle)(self, source_id, source_level, dest_target, dest_id, dest_level, x_offset, y_offset, z_offset, x, y, z, width, height, depth, unpack_flip_y, unpack_premultiply_alpha, unpack_unmultiply_alpha) }
     }
 
+    impl std::fmt::Debug for GlContextPtr { fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result { write!(f, "{}", (crate::dll::get_azul_dll().az_gl_context_ptr_fmt_debug)(self)) } }
     impl Clone for GlContextPtr { fn clone(&self) -> Self { (crate::dll::get_azul_dll().az_gl_context_ptr_deep_copy)(self) } }
     impl Drop for GlContextPtr { fn drop(&mut self) { (crate::dll::get_azul_dll().az_gl_context_ptr_delete)(self); } }
 
@@ -9447,12 +10567,14 @@ pub mod gl {
     /// `Texture` struct
     pub use crate::dll::AzTexture as Texture;
 
+    impl std::fmt::Debug for Texture { fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result { write!(f, "{}", (crate::dll::get_azul_dll().az_texture_fmt_debug)(self)) } }
     impl Drop for Texture { fn drop(&mut self) { (crate::dll::get_azul_dll().az_texture_delete)(self); } }
 
 
     /// `TextureFlags` struct
     pub use crate::dll::AzTextureFlags as TextureFlags;
 
+    impl std::fmt::Debug for TextureFlags { fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result { write!(f, "{}", (crate::dll::get_azul_dll().az_texture_flags_fmt_debug)(self)) } }
     impl Clone for TextureFlags { fn clone(&self) -> Self { (crate::dll::get_azul_dll().az_texture_flags_deep_copy)(self) } }
     impl Drop for TextureFlags { fn drop(&mut self) { (crate::dll::get_azul_dll().az_texture_flags_delete)(self); } }
 }
@@ -9474,6 +10596,7 @@ pub mod resources {
         pub fn new() -> Self { (crate::dll::get_azul_dll().az_text_id_new)() }
     }
 
+    impl std::fmt::Debug for TextId { fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result { write!(f, "{}", (crate::dll::get_azul_dll().az_text_id_fmt_debug)(self)) } }
     impl Clone for TextId { fn clone(&self) -> Self { (crate::dll::get_azul_dll().az_text_id_deep_copy)(self) } }
     impl Drop for TextId { fn drop(&mut self) { (crate::dll::get_azul_dll().az_text_id_delete)(self); } }
 
@@ -9486,6 +10609,7 @@ pub mod resources {
         pub fn new() -> Self { (crate::dll::get_azul_dll().az_image_id_new)() }
     }
 
+    impl std::fmt::Debug for ImageId { fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result { write!(f, "{}", (crate::dll::get_azul_dll().az_image_id_fmt_debug)(self)) } }
     impl Clone for ImageId { fn clone(&self) -> Self { (crate::dll::get_azul_dll().az_image_id_deep_copy)(self) } }
     impl Drop for ImageId { fn drop(&mut self) { (crate::dll::get_azul_dll().az_image_id_delete)(self); } }
 
@@ -9498,6 +10622,7 @@ pub mod resources {
         pub fn new() -> Self { (crate::dll::get_azul_dll().az_font_id_new)() }
     }
 
+    impl std::fmt::Debug for FontId { fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result { write!(f, "{}", (crate::dll::get_azul_dll().az_font_id_fmt_debug)(self)) } }
     impl Clone for FontId { fn clone(&self) -> Self { (crate::dll::get_azul_dll().az_font_id_deep_copy)(self) } }
     impl Drop for FontId { fn drop(&mut self) { (crate::dll::get_azul_dll().az_font_id_delete)(self); } }
 
@@ -9505,6 +10630,7 @@ pub mod resources {
     /// `ImageSource` struct
     pub use crate::dll::AzImageSource as ImageSource;
 
+    impl std::fmt::Debug for ImageSource { fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result { write!(f, "{}", (crate::dll::get_azul_dll().az_image_source_fmt_debug)(self)) } }
     impl Clone for ImageSource { fn clone(&self) -> Self { (crate::dll::get_azul_dll().az_image_source_deep_copy)(self) } }
     impl Drop for ImageSource { fn drop(&mut self) { (crate::dll::get_azul_dll().az_image_source_delete)(self); } }
 
@@ -9512,6 +10638,7 @@ pub mod resources {
     /// `FontSource` struct
     pub use crate::dll::AzFontSource as FontSource;
 
+    impl std::fmt::Debug for FontSource { fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result { write!(f, "{}", (crate::dll::get_azul_dll().az_font_source_fmt_debug)(self)) } }
     impl Clone for FontSource { fn clone(&self) -> Self { (crate::dll::get_azul_dll().az_font_source_deep_copy)(self) } }
     impl Drop for FontSource { fn drop(&mut self) { (crate::dll::get_azul_dll().az_font_source_delete)(self); } }
 
@@ -9524,6 +10651,7 @@ pub mod resources {
         pub fn new(decoded_pixels: U8Vec, width: usize, height: usize, data_format: RawImageFormat) -> Self { (crate::dll::get_azul_dll().az_raw_image_new)(decoded_pixels, width, height, data_format) }
     }
 
+    impl std::fmt::Debug for RawImage { fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result { write!(f, "{}", (crate::dll::get_azul_dll().az_raw_image_fmt_debug)(self)) } }
     impl Clone for RawImage { fn clone(&self) -> Self { (crate::dll::get_azul_dll().az_raw_image_deep_copy)(self) } }
     impl Drop for RawImage { fn drop(&mut self) { (crate::dll::get_azul_dll().az_raw_image_delete)(self); } }
 
@@ -9531,6 +10659,7 @@ pub mod resources {
     /// `RawImageFormat` struct
     pub use crate::dll::AzRawImageFormat as RawImageFormat;
 
+    impl std::fmt::Debug for RawImageFormat { fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result { write!(f, "{}", (crate::dll::get_azul_dll().az_raw_image_format_fmt_debug)(self)) } }
     impl Clone for RawImageFormat { fn clone(&self) -> Self { (crate::dll::get_azul_dll().az_raw_image_format_deep_copy)(self) } }
     impl Drop for RawImageFormat { fn drop(&mut self) { (crate::dll::get_azul_dll().az_raw_image_format_delete)(self); } }
 }
@@ -9547,18 +10676,21 @@ pub mod task {
     /// `DropCheckPtr` struct
     pub use crate::dll::AzDropCheckPtrPtr as DropCheckPtr;
 
+    impl std::fmt::Debug for DropCheckPtr { fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result { write!(f, "{}", (crate::dll::get_azul_dll().az_drop_check_ptr_fmt_debug)(self)) } }
     impl Drop for DropCheckPtr { fn drop(&mut self) { (crate::dll::get_azul_dll().az_drop_check_ptr_delete)(self); } }
 
 
     /// `ArcMutexRefAny` struct
     pub use crate::dll::AzArcMutexRefAnyPtr as ArcMutexRefAny;
 
+    impl std::fmt::Debug for ArcMutexRefAny { fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result { write!(f, "{}", (crate::dll::get_azul_dll().az_arc_mutex_ref_any_fmt_debug)(self)) } }
     impl Drop for ArcMutexRefAny { fn drop(&mut self) { (crate::dll::get_azul_dll().az_arc_mutex_ref_any_delete)(self); } }
 
 
     /// `Timer` struct
     pub use crate::dll::AzTimer as Timer;
 
+    impl std::fmt::Debug for Timer { fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result { write!(f, "{}", (crate::dll::get_azul_dll().az_timer_fmt_debug)(self)) } }
     impl Clone for Timer { fn clone(&self) -> Self { (crate::dll::get_azul_dll().az_timer_deep_copy)(self) } }
     impl Drop for Timer { fn drop(&mut self) { (crate::dll::get_azul_dll().az_timer_delete)(self); } }
 
@@ -9573,6 +10705,7 @@ pub mod task {
         pub fn then(self, timer: Timer)  -> crate::task::Task { { (crate::dll::get_azul_dll().az_task_then)(self, timer)} }
     }
 
+    impl std::fmt::Debug for Task { fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result { write!(f, "{}", (crate::dll::get_azul_dll().az_task_fmt_debug)(self)) } }
     impl Drop for Task { fn drop(&mut self) { (crate::dll::get_azul_dll().az_task_delete)(self); } }
 
 
@@ -9586,18 +10719,21 @@ pub mod task {
         pub fn block(self)  -> crate::result::ResultRefAnyBlockError { { (crate::dll::get_azul_dll().az_thread_block)(self)} }
     }
 
+    impl std::fmt::Debug for Thread { fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result { write!(f, "{}", (crate::dll::get_azul_dll().az_thread_fmt_debug)(self)) } }
     impl Drop for Thread { fn drop(&mut self) { (crate::dll::get_azul_dll().az_thread_delete)(self); } }
 
 
     /// `DropCheck` struct
     pub use crate::dll::AzDropCheckPtr as DropCheck;
 
+    impl std::fmt::Debug for DropCheck { fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result { write!(f, "{}", (crate::dll::get_azul_dll().az_drop_check_fmt_debug)(self)) } }
     impl Drop for DropCheck { fn drop(&mut self) { (crate::dll::get_azul_dll().az_drop_check_delete)(self); } }
 
 
     /// `TimerId` struct
     pub use crate::dll::AzTimerId as TimerId;
 
+    impl std::fmt::Debug for TimerId { fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result { write!(f, "{}", (crate::dll::get_azul_dll().az_timer_id_fmt_debug)(self)) } }
     impl Clone for TimerId { fn clone(&self) -> Self { (crate::dll::get_azul_dll().az_timer_id_deep_copy)(self) } }
     impl Drop for TimerId { fn drop(&mut self) { (crate::dll::get_azul_dll().az_timer_id_delete)(self); } }
 
@@ -9605,6 +10741,7 @@ pub mod task {
     /// Should a timer terminate or not - used to remove active timers
     pub use crate::dll::AzTerminateTimer as TerminateTimer;
 
+    impl std::fmt::Debug for TerminateTimer { fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result { write!(f, "{}", (crate::dll::get_azul_dll().az_terminate_timer_fmt_debug)(self)) } }
     impl Clone for TerminateTimer { fn clone(&self) -> Self { (crate::dll::get_azul_dll().az_terminate_timer_deep_copy)(self) } }
     impl Drop for TerminateTimer { fn drop(&mut self) { (crate::dll::get_azul_dll().az_terminate_timer_delete)(self); } }
 
@@ -9612,6 +10749,7 @@ pub mod task {
     /// `BlockError` struct
     pub use crate::dll::AzBlockError as BlockError;
 
+    impl std::fmt::Debug for BlockError { fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result { write!(f, "{}", (crate::dll::get_azul_dll().az_block_error_fmt_debug)(self)) } }
     impl Clone for BlockError { fn clone(&self) -> Self { (crate::dll::get_azul_dll().az_block_error_deep_copy)(self) } }
     impl Drop for BlockError { fn drop(&mut self) { (crate::dll::get_azul_dll().az_block_error_delete)(self); } }
 }
@@ -9628,6 +10766,7 @@ pub mod window {
     /// `TaskBarIcon` struct
     pub use crate::dll::AzTaskBarIcon as TaskBarIcon;
 
+    impl std::fmt::Debug for TaskBarIcon { fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result { write!(f, "{}", (crate::dll::get_azul_dll().az_task_bar_icon_fmt_debug)(self)) } }
     impl Clone for TaskBarIcon { fn clone(&self) -> Self { (crate::dll::get_azul_dll().az_task_bar_icon_deep_copy)(self) } }
     impl Drop for TaskBarIcon { fn drop(&mut self) { (crate::dll::get_azul_dll().az_task_bar_icon_delete)(self); } }
 
@@ -9635,6 +10774,7 @@ pub mod window {
     /// `XWindowType` struct
     pub use crate::dll::AzXWindowType as XWindowType;
 
+    impl std::fmt::Debug for XWindowType { fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result { write!(f, "{}", (crate::dll::get_azul_dll().az_x_window_type_fmt_debug)(self)) } }
     impl Clone for XWindowType { fn clone(&self) -> Self { (crate::dll::get_azul_dll().az_x_window_type_deep_copy)(self) } }
     impl Drop for XWindowType { fn drop(&mut self) { (crate::dll::get_azul_dll().az_x_window_type_delete)(self); } }
 
@@ -9642,6 +10782,7 @@ pub mod window {
     /// `PhysicalPositionI32` struct
     pub use crate::dll::AzPhysicalPositionI32 as PhysicalPositionI32;
 
+    impl std::fmt::Debug for PhysicalPositionI32 { fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result { write!(f, "{}", (crate::dll::get_azul_dll().az_physical_position_i32_fmt_debug)(self)) } }
     impl Clone for PhysicalPositionI32 { fn clone(&self) -> Self { (crate::dll::get_azul_dll().az_physical_position_i32_deep_copy)(self) } }
     impl Drop for PhysicalPositionI32 { fn drop(&mut self) { (crate::dll::get_azul_dll().az_physical_position_i32_delete)(self); } }
 
@@ -9649,6 +10790,7 @@ pub mod window {
     /// `LogicalPosition` struct
     pub use crate::dll::AzLogicalPosition as LogicalPosition;
 
+    impl std::fmt::Debug for LogicalPosition { fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result { write!(f, "{}", (crate::dll::get_azul_dll().az_logical_position_fmt_debug)(self)) } }
     impl Clone for LogicalPosition { fn clone(&self) -> Self { (crate::dll::get_azul_dll().az_logical_position_deep_copy)(self) } }
     impl Drop for LogicalPosition { fn drop(&mut self) { (crate::dll::get_azul_dll().az_logical_position_delete)(self); } }
 
@@ -9656,6 +10798,7 @@ pub mod window {
     /// `IconKey` struct
     pub use crate::dll::AzIconKey as IconKey;
 
+    impl std::fmt::Debug for IconKey { fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result { write!(f, "{}", (crate::dll::get_azul_dll().az_icon_key_fmt_debug)(self)) } }
     impl Clone for IconKey { fn clone(&self) -> Self { (crate::dll::get_azul_dll().az_icon_key_deep_copy)(self) } }
     impl Drop for IconKey { fn drop(&mut self) { (crate::dll::get_azul_dll().az_icon_key_delete)(self); } }
 
@@ -9663,6 +10806,7 @@ pub mod window {
     /// `SmallWindowIconBytes` struct
     pub use crate::dll::AzSmallWindowIconBytes as SmallWindowIconBytes;
 
+    impl std::fmt::Debug for SmallWindowIconBytes { fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result { write!(f, "{}", (crate::dll::get_azul_dll().az_small_window_icon_bytes_fmt_debug)(self)) } }
     impl Clone for SmallWindowIconBytes { fn clone(&self) -> Self { (crate::dll::get_azul_dll().az_small_window_icon_bytes_deep_copy)(self) } }
     impl Drop for SmallWindowIconBytes { fn drop(&mut self) { (crate::dll::get_azul_dll().az_small_window_icon_bytes_delete)(self); } }
 
@@ -9670,6 +10814,7 @@ pub mod window {
     /// `LargeWindowIconBytes` struct
     pub use crate::dll::AzLargeWindowIconBytes as LargeWindowIconBytes;
 
+    impl std::fmt::Debug for LargeWindowIconBytes { fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result { write!(f, "{}", (crate::dll::get_azul_dll().az_large_window_icon_bytes_fmt_debug)(self)) } }
     impl Clone for LargeWindowIconBytes { fn clone(&self) -> Self { (crate::dll::get_azul_dll().az_large_window_icon_bytes_deep_copy)(self) } }
     impl Drop for LargeWindowIconBytes { fn drop(&mut self) { (crate::dll::get_azul_dll().az_large_window_icon_bytes_delete)(self); } }
 
@@ -9677,6 +10822,7 @@ pub mod window {
     /// `WindowIcon` struct
     pub use crate::dll::AzWindowIcon as WindowIcon;
 
+    impl std::fmt::Debug for WindowIcon { fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result { write!(f, "{}", (crate::dll::get_azul_dll().az_window_icon_fmt_debug)(self)) } }
     impl Clone for WindowIcon { fn clone(&self) -> Self { (crate::dll::get_azul_dll().az_window_icon_deep_copy)(self) } }
     impl Drop for WindowIcon { fn drop(&mut self) { (crate::dll::get_azul_dll().az_window_icon_delete)(self); } }
 
@@ -9684,6 +10830,7 @@ pub mod window {
     /// `VirtualKeyCode` struct
     pub use crate::dll::AzVirtualKeyCode as VirtualKeyCode;
 
+    impl std::fmt::Debug for VirtualKeyCode { fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result { write!(f, "{}", (crate::dll::get_azul_dll().az_virtual_key_code_fmt_debug)(self)) } }
     impl Clone for VirtualKeyCode { fn clone(&self) -> Self { (crate::dll::get_azul_dll().az_virtual_key_code_deep_copy)(self) } }
     impl Drop for VirtualKeyCode { fn drop(&mut self) { (crate::dll::get_azul_dll().az_virtual_key_code_delete)(self); } }
 
@@ -9691,6 +10838,7 @@ pub mod window {
     /// `AcceleratorKey` struct
     pub use crate::dll::AzAcceleratorKey as AcceleratorKey;
 
+    impl std::fmt::Debug for AcceleratorKey { fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result { write!(f, "{}", (crate::dll::get_azul_dll().az_accelerator_key_fmt_debug)(self)) } }
     impl Clone for AcceleratorKey { fn clone(&self) -> Self { (crate::dll::get_azul_dll().az_accelerator_key_deep_copy)(self) } }
     impl Drop for AcceleratorKey { fn drop(&mut self) { (crate::dll::get_azul_dll().az_accelerator_key_delete)(self); } }
 
@@ -9698,6 +10846,7 @@ pub mod window {
     /// `WindowSize` struct
     pub use crate::dll::AzWindowSize as WindowSize;
 
+    impl std::fmt::Debug for WindowSize { fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result { write!(f, "{}", (crate::dll::get_azul_dll().az_window_size_fmt_debug)(self)) } }
     impl Clone for WindowSize { fn clone(&self) -> Self { (crate::dll::get_azul_dll().az_window_size_deep_copy)(self) } }
     impl Drop for WindowSize { fn drop(&mut self) { (crate::dll::get_azul_dll().az_window_size_delete)(self); } }
 
@@ -9705,6 +10854,7 @@ pub mod window {
     /// `WindowFlags` struct
     pub use crate::dll::AzWindowFlags as WindowFlags;
 
+    impl std::fmt::Debug for WindowFlags { fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result { write!(f, "{}", (crate::dll::get_azul_dll().az_window_flags_fmt_debug)(self)) } }
     impl Clone for WindowFlags { fn clone(&self) -> Self { (crate::dll::get_azul_dll().az_window_flags_deep_copy)(self) } }
     impl Drop for WindowFlags { fn drop(&mut self) { (crate::dll::get_azul_dll().az_window_flags_delete)(self); } }
 
@@ -9712,6 +10862,7 @@ pub mod window {
     /// `DebugState` struct
     pub use crate::dll::AzDebugState as DebugState;
 
+    impl std::fmt::Debug for DebugState { fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result { write!(f, "{}", (crate::dll::get_azul_dll().az_debug_state_fmt_debug)(self)) } }
     impl Clone for DebugState { fn clone(&self) -> Self { (crate::dll::get_azul_dll().az_debug_state_deep_copy)(self) } }
     impl Drop for DebugState { fn drop(&mut self) { (crate::dll::get_azul_dll().az_debug_state_delete)(self); } }
 
@@ -9719,6 +10870,7 @@ pub mod window {
     /// `KeyboardState` struct
     pub use crate::dll::AzKeyboardState as KeyboardState;
 
+    impl std::fmt::Debug for KeyboardState { fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result { write!(f, "{}", (crate::dll::get_azul_dll().az_keyboard_state_fmt_debug)(self)) } }
     impl Clone for KeyboardState { fn clone(&self) -> Self { (crate::dll::get_azul_dll().az_keyboard_state_deep_copy)(self) } }
     impl Drop for KeyboardState { fn drop(&mut self) { (crate::dll::get_azul_dll().az_keyboard_state_delete)(self); } }
 
@@ -9726,6 +10878,7 @@ pub mod window {
     /// `MouseCursorType` struct
     pub use crate::dll::AzMouseCursorType as MouseCursorType;
 
+    impl std::fmt::Debug for MouseCursorType { fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result { write!(f, "{}", (crate::dll::get_azul_dll().az_mouse_cursor_type_fmt_debug)(self)) } }
     impl Clone for MouseCursorType { fn clone(&self) -> Self { (crate::dll::get_azul_dll().az_mouse_cursor_type_deep_copy)(self) } }
     impl Drop for MouseCursorType { fn drop(&mut self) { (crate::dll::get_azul_dll().az_mouse_cursor_type_delete)(self); } }
 
@@ -9733,6 +10886,7 @@ pub mod window {
     /// `CursorPosition` struct
     pub use crate::dll::AzCursorPosition as CursorPosition;
 
+    impl std::fmt::Debug for CursorPosition { fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result { write!(f, "{}", (crate::dll::get_azul_dll().az_cursor_position_fmt_debug)(self)) } }
     impl Clone for CursorPosition { fn clone(&self) -> Self { (crate::dll::get_azul_dll().az_cursor_position_deep_copy)(self) } }
     impl Drop for CursorPosition { fn drop(&mut self) { (crate::dll::get_azul_dll().az_cursor_position_delete)(self); } }
 
@@ -9740,6 +10894,7 @@ pub mod window {
     /// `MouseState` struct
     pub use crate::dll::AzMouseState as MouseState;
 
+    impl std::fmt::Debug for MouseState { fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result { write!(f, "{}", (crate::dll::get_azul_dll().az_mouse_state_fmt_debug)(self)) } }
     impl Clone for MouseState { fn clone(&self) -> Self { (crate::dll::get_azul_dll().az_mouse_state_deep_copy)(self) } }
     impl Drop for MouseState { fn drop(&mut self) { (crate::dll::get_azul_dll().az_mouse_state_delete)(self); } }
 
@@ -9747,6 +10902,7 @@ pub mod window {
     /// `PlatformSpecificOptions` struct
     pub use crate::dll::AzPlatformSpecificOptions as PlatformSpecificOptions;
 
+    impl std::fmt::Debug for PlatformSpecificOptions { fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result { write!(f, "{}", (crate::dll::get_azul_dll().az_platform_specific_options_fmt_debug)(self)) } }
     impl Clone for PlatformSpecificOptions { fn clone(&self) -> Self { (crate::dll::get_azul_dll().az_platform_specific_options_deep_copy)(self) } }
     impl Drop for PlatformSpecificOptions { fn drop(&mut self) { (crate::dll::get_azul_dll().az_platform_specific_options_delete)(self); } }
 
@@ -9754,6 +10910,7 @@ pub mod window {
     /// `WindowsWindowOptions` struct
     pub use crate::dll::AzWindowsWindowOptions as WindowsWindowOptions;
 
+    impl std::fmt::Debug for WindowsWindowOptions { fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result { write!(f, "{}", (crate::dll::get_azul_dll().az_windows_window_options_fmt_debug)(self)) } }
     impl Clone for WindowsWindowOptions { fn clone(&self) -> Self { (crate::dll::get_azul_dll().az_windows_window_options_deep_copy)(self) } }
     impl Drop for WindowsWindowOptions { fn drop(&mut self) { (crate::dll::get_azul_dll().az_windows_window_options_delete)(self); } }
 
@@ -9761,6 +10918,7 @@ pub mod window {
     /// `WaylandTheme` struct
     pub use crate::dll::AzWaylandTheme as WaylandTheme;
 
+    impl std::fmt::Debug for WaylandTheme { fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result { write!(f, "{}", (crate::dll::get_azul_dll().az_wayland_theme_fmt_debug)(self)) } }
     impl Clone for WaylandTheme { fn clone(&self) -> Self { (crate::dll::get_azul_dll().az_wayland_theme_deep_copy)(self) } }
     impl Drop for WaylandTheme { fn drop(&mut self) { (crate::dll::get_azul_dll().az_wayland_theme_delete)(self); } }
 
@@ -9768,6 +10926,7 @@ pub mod window {
     /// `RendererType` struct
     pub use crate::dll::AzRendererType as RendererType;
 
+    impl std::fmt::Debug for RendererType { fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result { write!(f, "{}", (crate::dll::get_azul_dll().az_renderer_type_fmt_debug)(self)) } }
     impl Clone for RendererType { fn clone(&self) -> Self { (crate::dll::get_azul_dll().az_renderer_type_deep_copy)(self) } }
     impl Drop for RendererType { fn drop(&mut self) { (crate::dll::get_azul_dll().az_renderer_type_delete)(self); } }
 
@@ -9775,6 +10934,7 @@ pub mod window {
     /// `StringPair` struct
     pub use crate::dll::AzStringPair as StringPair;
 
+    impl std::fmt::Debug for StringPair { fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result { write!(f, "{}", (crate::dll::get_azul_dll().az_string_pair_fmt_debug)(self)) } }
     impl Clone for StringPair { fn clone(&self) -> Self { (crate::dll::get_azul_dll().az_string_pair_deep_copy)(self) } }
     impl Drop for StringPair { fn drop(&mut self) { (crate::dll::get_azul_dll().az_string_pair_delete)(self); } }
 
@@ -9782,6 +10942,7 @@ pub mod window {
     /// `LinuxWindowOptions` struct
     pub use crate::dll::AzLinuxWindowOptions as LinuxWindowOptions;
 
+    impl std::fmt::Debug for LinuxWindowOptions { fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result { write!(f, "{}", (crate::dll::get_azul_dll().az_linux_window_options_fmt_debug)(self)) } }
     impl Clone for LinuxWindowOptions { fn clone(&self) -> Self { (crate::dll::get_azul_dll().az_linux_window_options_deep_copy)(self) } }
     impl Drop for LinuxWindowOptions { fn drop(&mut self) { (crate::dll::get_azul_dll().az_linux_window_options_delete)(self); } }
 
@@ -9789,6 +10950,7 @@ pub mod window {
     /// `MacWindowOptions` struct
     pub use crate::dll::AzMacWindowOptions as MacWindowOptions;
 
+    impl std::fmt::Debug for MacWindowOptions { fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result { write!(f, "{}", (crate::dll::get_azul_dll().az_mac_window_options_fmt_debug)(self)) } }
     impl Clone for MacWindowOptions { fn clone(&self) -> Self { (crate::dll::get_azul_dll().az_mac_window_options_deep_copy)(self) } }
     impl Drop for MacWindowOptions { fn drop(&mut self) { (crate::dll::get_azul_dll().az_mac_window_options_delete)(self); } }
 
@@ -9796,6 +10958,7 @@ pub mod window {
     /// `WasmWindowOptions` struct
     pub use crate::dll::AzWasmWindowOptions as WasmWindowOptions;
 
+    impl std::fmt::Debug for WasmWindowOptions { fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result { write!(f, "{}", (crate::dll::get_azul_dll().az_wasm_window_options_fmt_debug)(self)) } }
     impl Clone for WasmWindowOptions { fn clone(&self) -> Self { (crate::dll::get_azul_dll().az_wasm_window_options_deep_copy)(self) } }
     impl Drop for WasmWindowOptions { fn drop(&mut self) { (crate::dll::get_azul_dll().az_wasm_window_options_delete)(self); } }
 
@@ -9803,6 +10966,7 @@ pub mod window {
     /// `FullScreenMode` struct
     pub use crate::dll::AzFullScreenMode as FullScreenMode;
 
+    impl std::fmt::Debug for FullScreenMode { fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result { write!(f, "{}", (crate::dll::get_azul_dll().az_full_screen_mode_fmt_debug)(self)) } }
     impl Clone for FullScreenMode { fn clone(&self) -> Self { (crate::dll::get_azul_dll().az_full_screen_mode_deep_copy)(self) } }
     impl Drop for FullScreenMode { fn drop(&mut self) { (crate::dll::get_azul_dll().az_full_screen_mode_delete)(self); } }
 
@@ -9810,6 +10974,7 @@ pub mod window {
     /// `WindowState` struct
     pub use crate::dll::AzWindowState as WindowState;
 
+    impl std::fmt::Debug for WindowState { fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result { write!(f, "{}", (crate::dll::get_azul_dll().az_window_state_fmt_debug)(self)) } }
     impl Clone for WindowState { fn clone(&self) -> Self { (crate::dll::get_azul_dll().az_window_state_deep_copy)(self) } }
     impl Drop for WindowState { fn drop(&mut self) { (crate::dll::get_azul_dll().az_window_state_delete)(self); } }
 
@@ -9817,6 +10982,7 @@ pub mod window {
     /// `LogicalSize` struct
     pub use crate::dll::AzLogicalSize as LogicalSize;
 
+    impl std::fmt::Debug for LogicalSize { fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result { write!(f, "{}", (crate::dll::get_azul_dll().az_logical_size_fmt_debug)(self)) } }
     impl Clone for LogicalSize { fn clone(&self) -> Self { (crate::dll::get_azul_dll().az_logical_size_deep_copy)(self) } }
     impl Drop for LogicalSize { fn drop(&mut self) { (crate::dll::get_azul_dll().az_logical_size_delete)(self); } }
 
@@ -9824,6 +10990,7 @@ pub mod window {
     /// `HotReloadOptions` struct
     pub use crate::dll::AzHotReloadOptions as HotReloadOptions;
 
+    impl std::fmt::Debug for HotReloadOptions { fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result { write!(f, "{}", (crate::dll::get_azul_dll().az_hot_reload_options_fmt_debug)(self)) } }
     impl Clone for HotReloadOptions { fn clone(&self) -> Self { (crate::dll::get_azul_dll().az_hot_reload_options_deep_copy)(self) } }
     impl Drop for HotReloadOptions { fn drop(&mut self) { (crate::dll::get_azul_dll().az_hot_reload_options_delete)(self); } }
 
@@ -9836,6 +11003,7 @@ pub mod window {
         pub fn new(css: Css) -> Self { (crate::dll::get_azul_dll().az_window_create_options_new)(css) }
     }
 
+    impl std::fmt::Debug for WindowCreateOptions { fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result { write!(f, "{}", (crate::dll::get_azul_dll().az_window_create_options_fmt_debug)(self)) } }
     impl Clone for WindowCreateOptions { fn clone(&self) -> Self { (crate::dll::get_azul_dll().az_window_create_options_deep_copy)(self) } }
     impl Drop for WindowCreateOptions { fn drop(&mut self) { (crate::dll::get_azul_dll().az_window_create_options_delete)(self); } }
 }

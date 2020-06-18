@@ -548,6 +548,7 @@ impl Drop for GlCallbackInfoPtr {
 
 #[cfg(feature = "opengl")]
 #[repr(C)]
+#[derive(Debug)]
 pub struct GlCallbackReturn { pub texture: OptionTexture }
 
 #[cfg(feature = "opengl")]
@@ -577,7 +578,7 @@ impl Drop for IFrameCallbackInfoPtr {
     }
 }
 
-#[derive(Clone)]
+#[derive(Debug, Clone)]
 #[repr(C)]
 pub struct IFrameCallbackReturn { pub dom: OptionDom } // todo: return virtual scrolling frames!
 

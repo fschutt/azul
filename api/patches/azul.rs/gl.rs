@@ -78,12 +78,6 @@
         fn as_slice(&self) -> &[u8] { unsafe { std::slice::from_raw_parts(self.ptr, self.len) } }
     }
 
-    impl std::fmt::Debug for U8VecRef {
-        fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
-            self.as_slice().fmt(f)
-        }
-    }
-
     impl PartialOrd for U8VecRef {
         fn partial_cmp(&self, rhs: &Self) -> Option<std::cmp::Ordering> {
             self.as_slice().partial_cmp(rhs.as_slice())
