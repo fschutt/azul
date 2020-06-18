@@ -31,10 +31,10 @@ impl Button {
     pub fn dom(self) -> Dom {
         use self::ButtonContent::*;
         Dom::div()
-        .with_class("__azul-native-button")
+        .with_class("__azul-native-button".into())
         .with_tab_index(TabIndex::Auto)
         .with_child(match self.content {
-            Text(s) => Dom::label(s),
+            Text(s) => Dom::label(s.into()),
             Image(i) => Dom::image(i),
         })
     }

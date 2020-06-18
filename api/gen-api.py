@@ -46,6 +46,7 @@ rust_api_patches = {
     tuple(['dom']): read_file("./patches/azul.rs/dom.rs"),
     tuple(['dll']): read_file("./patches/azul.rs/dll.rs"),
     tuple(['gl']): read_file("./patches/azul.rs/gl.rs"),
+    tuple(['option']): read_file("./patches/azul.rs/option.rs"),
     tuple(['dom', 'EventFilter']): read_file("./patches/azul.rs/event_filter.rs"),
     tuple(['callbacks']): read_file("./patches/azul.rs/callbacks.rs"),
     tuple(['callbacks', 'UpdateScreen']): read_file("./patches/azul.rs/update_screen.rs"),
@@ -640,7 +641,7 @@ def generate_rust_dll(apiData):
                 if lifetime == "<'a>":
                     downcast_ref_generics = "<'a, P, F: FnOnce(&" + rust_class_name + ") -> P>"
                 code += "/// (private): Downcasts the `" + class_ptr_name + "` to a `&Box<" + rust_class_name + ">` and runs the `func` closure on it\r\n"
-                code += "#[inline(always)] fn " + fn_prefix + to_snake_case(class_name) + "_downcast_ref" + downcast_ref_generics + "(ptr: &mut " + class_ptr_name + ", func: F) -> P { "
+                code += "#[inline(always)] fn " + fn_prefix + to_snake_case(class_name) + "_downcast_ref" + downcast_ref_generics + "(ptr: &" + class_ptr_name + ", func: F) -> P { "
                 code += "    func(unsafe { &*(ptr.ptr as *const " + rust_class_name + ") })"
                 code += "}\r\n"
 

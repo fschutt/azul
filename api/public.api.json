@@ -370,6 +370,27 @@
 		"option": {
 			"doc": "Definition of azuls internal `Option<*>` wrappers",
 			"classes": {
+				"OptionWaylandTheme": {
+					"external": "azul_impl::window::OptionWaylandTheme",
+					"enum_fields": [
+						{"None": {}},
+						{"Some": { "type": "WaylandTheme" }}
+					]
+				},
+				"OptionTaskBarIcon": {
+					"external": "azul_impl::window::OptionTaskBarIcon",
+					"enum_fields": [
+						{"None": {}},
+						{"Some": { "type": "TaskBarIcon" }}
+					]
+				},
+				"OptionHwndHandle": {
+					"external": "azul_impl::window::OptionHwndHandle",
+					"enum_fields": [
+						{"None": {}},
+						{"Some": { "type": "*mut c_void" }}
+					]
+				},
 				"OptionLogicalPosition": {
 					"external": "azul_impl::window::OptionLogicalPosition",
 					"enum_fields": [
@@ -490,7 +511,7 @@
 						{"Some": { "type": "Duration" }}
 					]
 				},
-				"OptionInstant": {
+				"OptionInstantPtr": {
 					"external": "azul_impl::task::OptionInstantPtr",
 					"enum_fields": [
 						{"None": {}},
@@ -605,7 +626,15 @@
 				"CallbackInfo": {
 					"external": "azul_impl::callbacks::CallbackInfoPtr",
 					"rust_class_name": "CallbackInfo<'a>",
-					"is_boxed_object": true
+					"is_boxed_object": true,
+					"get_state": {
+						"doc": "Returns a copy of the internal `RefAny`",
+						"fn_args": [
+							{"self": "ref"}
+						],
+						"returns": "RefAny",
+						"fn_body": "az_callback_info_downcast_ref(callbackinfo, |ci| ci.state.clone())"
+					}
 				},
 				"UpdateScreen": {
 					"external": "azul_impl::callbacks::UpdateScreen",
@@ -628,7 +657,17 @@
 				"IFrameCallbackInfo": {
 					"external": "azul_impl::callbacks::IFrameCallbackInfoPtr",
 					"rust_class_name": "IFrameCallbackInfo<'a>",
-					"is_boxed_object": true
+					"is_boxed_object": true,
+					"functions": {
+						"get_state": {
+							"doc": "Returns a copy of the internal `RefAny`",
+							"fn_args": [
+								{"self": "ref"}
+							],
+							"returns": "RefAny",
+							"fn_body": "az_i_frame_callback_info_downcast_ref(iframecallbackinfo, |ci| ci.state.clone())"
+						}
+					}
 				},
 				"IFrameCallbackReturn": {
 					"external": "azul_impl::callbacks::IFrameCallbackReturn",
@@ -647,7 +686,15 @@
 				"GlCallbackInfo": {
 					"external": "azul_impl::callbacks::GlCallbackInfoPtr",
 					"rust_class_name": "GlCallbackInfo<'a>",
-					"is_boxed_object": true
+					"is_boxed_object": true,
+					"get_state": {
+						"doc": "Returns a copy of the internal `RefAny`",
+						"fn_args": [
+							{"self": "ref"}
+						],
+						"returns": "RefAny",
+						"fn_body": "az_gl_callback_info_downcast_ref(glcallbackinfo, |ci| ci.state.clone())"
+					}
 				},
 				"GlCallbackReturn": {
 					"external": "azul_impl::callbacks::GlCallbackReturn",
@@ -664,6 +711,19 @@
 					]
 				},
 				"TimerCallbackType": { "use_patches": ["dll", "rust"], "typedef": true },
+				"TimerCallbackInfo": {
+					"external": "azul_impl::callbacks::TimerCallbackInfoPtr",
+					"rust_class_name": "azul_impl::callbacks::TimerCallbackInfo<'a>",
+					"is_boxed_object": true,
+					"get_state": {
+						"doc": "Returns a copy of the internal `RefAny`",
+						"fn_args": [
+							{"self": "ref"}
+						],
+						"returns": "RefAny",
+						"fn_body": "az_timer_callback_info_downcast(timercallbackinfo, |ci| ci.state.clone())"
+					}
+				},
 				"TimerCallbackReturn": {
 					"external": "azul_impl::callbacks::TimerCallbackReturn",
 					"struct_fields": [
@@ -4645,6 +4705,7 @@
 				},
 				"ImageId": {
 					"external": "azul_impl::resources::ImageId",
+					"auto_derive": "Copy, Clone, PartialEq, Eq, Ord, Hash",
 					"struct_fields": [
 						{ "id": { "type": "usize" } }
 					],
@@ -4732,17 +4793,12 @@
 					"rust_class_name": "std::sync::Arc<std::sync::Mutex<RefAny>>",
 					"is_boxed_object": true
 				},
-				"TimerCallbackInfo": {
-					"external": "azul_impl::callbacks::TimerCallbackInfoPtr",
-					"rust_class_name": "azul_impl::callbacks::TimerCallbackInfo<'a>",
-					"is_boxed_object": true
-				},
 				"Timer": {
 					"external": "azul_impl::task::Timer",
 					"struct_fields": [
 						{"created": {"type": "Instant", "doc": "Stores when the timer was created (usually acquired by `Instant::now()`)"}},
-						{"last_run": {"type": "OptionInstant", "doc": "When the timer was last called (`None` only when the timer hasn't been called yet)"}},
-						{"delay": {"type": "OptionInstant", "doc": "If the timer shouldn't start instantly, but rather be delayed by a certain duration"}},
+						{"last_run": {"type": "OptionInstantPtr", "doc": "When the timer was last called (`None` only when the timer hasn't been called yet)"}},
+						{"delay": {"type": "OptionInstantPtr", "doc": "If the timer shouldn't start instantly, but rather be delayed by a certain duration"}},
 						{"interval": {"type": "OptionDuration", "doc": "How frequently the timer should run, i.e. set this to `Some(Duration::from_millis(16))` to run the timer every 16ms. If this value is set to `None`, (the default), the timer will execute the timer as-fast-as-possible (i.e. at a faster framerate than the framework itself) - which might be  performance intensive."}},
 						{"timeout": {"type": "OptionDuration", "doc": "When to stop the timer (for example, you can stop the execution after 5s using `Some(Duration::from_secs(5))`)."}},
 						{"callback": {"type": "TimerCallback", "doc": "Callback to be called for this timer"}}
@@ -4826,6 +4882,13 @@
 		"window": {
 			"doc": "Window creation / startup configuration",
 			"classes": {
+				"TaskBarIcon": {
+					"external": "azul_impl::window::TaskBarIcon",
+					"struct_fields": [
+						{"key": {"type": "IconKey"}},
+						{"rgba_bytes": {"type": "U8Vec"}}
+					]
+				},
 				"XWindowType": {
 					"external": "azul_impl::window::XWindowType",
 					"enum_fields": [
@@ -5193,6 +5256,10 @@
 				"WindowsWindowOptions": {
 					"external": "azul_impl::window::WindowsWindowOptions",
 					"struct_fields": [
+						{"no_redirection_bitmap": {"type": "bool", "doc": "STARTUP ONLY: Sets `WS_EX_NOREDIRECTIONBITMAP`"}},
+						{"window_icon": {"type": "OptionWindowIcon", "doc": "STARTUP ONLY: Window icon (decoded bytes), usually 32x32x4 bytes large (`ICON_SMALL`), appears at the top right corner of the window"}},
+						{"taskbar_icon": {"type": "OptionTaskBarIcon", "doc": "READWRITE: Taskbar icon (decoded bytes), usually 256x256x4 bytes large (`ICON_BIG`). Can be changed in callbacks / at runtime."}},
+						{"parent_window": {"type": "OptionHwndHandle", "doc": "READWRITE: Taskbar icon (decoded bytes), usually 256x256x4 bytes large (`ICON_BIG`). Can be changed in callbacks / at runtime."}}
 					]
 				},
 				"WaylandTheme": {
@@ -5241,7 +5308,7 @@
 						{"x11_resize_increments": {"type": "OptionLogicalSize", "doc": "Build window with resize increment hint. Only implemented on X11. Can only be set at window creation, can't be changed in callbacks."}},
 						{"x11_base_size": {"type": "OptionLogicalSize", "doc": "Build window with base size hint. Only implemented on X11. Can only be set at window creation, can't be changed in callbacks."}},
 						{"wayland_app_id": {"type": "OptionString", "doc": "Build window with a given application ID. It should match the `.desktop` file distributed with the program. Only relevant on Wayland. Can only be set at window creation, can't be changed in callbacks."}},
-						{"wayland_theme": {"type": "bool", "OptionWaylandTheme": "Window decoration of the window minimize / maximize / close buttons"}},
+						{"wayland_theme": {"type": "OptionWaylandTheme", "doc": "Window decoration of the window minimize / maximize / close buttons"}},
 						{"request_user_attention": {"type": "bool", "doc": "Whether the window icon should blink to request the users attention."}},
 						{"window_icon": {"type": "OptionWindowIcon", "doc": "Sets the window icon of the program"}}
 					]

@@ -1367,7 +1367,7 @@ pub struct PhysicalSize<T> {
 }
 
 type PhysicalSizeF32 = PhysicalSize<f32>;
-impl_option!(PhysicalSizeF32, OptionPhysicalSizenF32, [Debug, Copy, Clone, PartialEq, PartialOrd]);
+impl_option!(PhysicalSizeF32, OptionPhysicalSizeF32, [Debug, Copy, Clone, PartialEq, PartialOrd]);
 
 impl LogicalPosition {
     #[inline(always)]

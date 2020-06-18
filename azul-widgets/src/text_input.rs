@@ -4,7 +4,7 @@ use std::ops::Range;
 use azul::{
     dom::{Dom, EventFilter, FocusEventFilter, TabIndex},
     window::{KeyboardState, VirtualKeyCode},
-    callbacks::{RefAny, UpdateScreen, Callback, CallbackInfo, CallbackReturn},
+    callbacks::{RefAny, Callback, CallbackInfo, CallbackReturn},
 };
 
 #[derive(Debug, Clone, Hash, PartialEq, Eq)]
@@ -106,7 +106,7 @@ impl TextInputState {
 
     pub fn handle_on_virtual_key_down(&mut self, keyboard_state: &KeyboardState) -> CallbackReturn {
         fn handle_on_virtual_key_down_inner(tis: &mut TextInputState, keyboard_state: &KeyboardState) -> Option<()> {
-            let last_keycode = keyboard_state.current_virtual_keycode?;
+            let last_keycode = keyboard_state.current_virtual_keycode.into_option()?;
 
             match last_keycode {
                 VirtualKeyCode::Back => {
@@ -213,13 +213,13 @@ impl TextInput {
     pub fn dom(self) -> Dom {
 
         let label = Dom::label(self.state.borrow::<TextInputState>().text.clone().into())
-            .with_class("__azul-native-input-text-label");
+            .with_class("__azul-native-input-text-label".into());
 
         Dom::div()
-            .with_class("__azul-native-input-text")
+            .with_class("__azul-native-input-text".into())
             .with_tab_index(TabIndex::Auto)
-            .with_callback(EventFilter::Focus(FocusEventFilter::TextInput), self.on_text_input.0, self.state.clone())
-            .with_callback(EventFilter::Focus(FocusEventFilter::VirtualKeyDown), self.on_virtual_key_down.0, self.state)
+            .with_callback(EventFilter::Focus(FocusEventFilter::TextInput), self.state.clone(), self.on_text_input.cb)
+            .with_callback(EventFilter::Focus(FocusEventFilter::VirtualKeyDown), self.state, self.on_virtual_key_down.cb)
             .with_child(label)
     }
 

@@ -226,6 +226,33 @@ pub type AzGradientStopPreVecTT = azul_impl::css::GradientStopPreVec;
 /// Clones the object
 #[no_mangle] pub extern "C" fn az_gradient_stop_pre_vec_deep_copy(object: &AzGradientStopPreVec) -> AzGradientStopPreVec { object.clone() }
 
+/// Re-export of rust-allocated (stack based) `OptionWaylandTheme` struct
+pub type AzOptionWaylandThemeTT = azul_impl::window::OptionWaylandTheme;
+#[no_mangle] pub use AzOptionWaylandThemeTT as AzOptionWaylandTheme;
+/// Destructor: Takes ownership of the `OptionWaylandTheme` pointer and deletes it.
+#[no_mangle] #[allow(unused_variables)] pub extern "C" fn az_option_wayland_theme_delete(object: &mut AzOptionWaylandTheme) { match object { azul_impl::window::OptionWaylandTheme::None => { }, azul_impl::window::OptionWaylandTheme::Some(_) => { }, }
+}
+/// Clones the object
+#[no_mangle] pub extern "C" fn az_option_wayland_theme_deep_copy(object: &AzOptionWaylandTheme) -> AzOptionWaylandTheme { object.clone() }
+
+/// Re-export of rust-allocated (stack based) `OptionTaskBarIcon` struct
+pub type AzOptionTaskBarIconTT = azul_impl::window::OptionTaskBarIcon;
+#[no_mangle] pub use AzOptionTaskBarIconTT as AzOptionTaskBarIcon;
+/// Destructor: Takes ownership of the `OptionTaskBarIcon` pointer and deletes it.
+#[no_mangle] #[allow(unused_variables)] pub extern "C" fn az_option_task_bar_icon_delete(object: &mut AzOptionTaskBarIcon) { match object { azul_impl::window::OptionTaskBarIcon::None => { }, azul_impl::window::OptionTaskBarIcon::Some(_) => { }, }
+}
+/// Clones the object
+#[no_mangle] pub extern "C" fn az_option_task_bar_icon_deep_copy(object: &AzOptionTaskBarIcon) -> AzOptionTaskBarIcon { object.clone() }
+
+/// Re-export of rust-allocated (stack based) `OptionHwndHandle` struct
+pub type AzOptionHwndHandleTT = azul_impl::window::OptionHwndHandle;
+#[no_mangle] pub use AzOptionHwndHandleTT as AzOptionHwndHandle;
+/// Destructor: Takes ownership of the `OptionHwndHandle` pointer and deletes it.
+#[no_mangle] #[allow(unused_variables)] pub extern "C" fn az_option_hwnd_handle_delete(object: &mut AzOptionHwndHandle) { match object { azul_impl::window::OptionHwndHandle::None => { }, azul_impl::window::OptionHwndHandle::Some(_) => { }, }
+}
+/// Clones the object
+#[no_mangle] pub extern "C" fn az_option_hwnd_handle_deep_copy(object: &AzOptionHwndHandle) -> AzOptionHwndHandle { object.clone() }
+
 /// Re-export of rust-allocated (stack based) `OptionLogicalPosition` struct
 pub type AzOptionLogicalPositionTT = azul_impl::window::OptionLogicalPosition;
 #[no_mangle] pub use AzOptionLogicalPositionTT as AzOptionLogicalPosition;
@@ -377,14 +404,14 @@ pub type AzOptionDurationTT = azul_impl::task::OptionDuration;
 /// Clones the object
 #[no_mangle] pub extern "C" fn az_option_duration_deep_copy(object: &AzOptionDuration) -> AzOptionDuration { object.clone() }
 
-/// Re-export of rust-allocated (stack based) `OptionInstant` struct
-pub type AzOptionInstantTT = azul_impl::task::OptionInstantPtr;
-#[no_mangle] pub use AzOptionInstantTT as AzOptionInstant;
-/// Destructor: Takes ownership of the `OptionInstant` pointer and deletes it.
-#[no_mangle] #[allow(unused_variables)] pub extern "C" fn az_option_instant_delete(object: &mut AzOptionInstant) { match object { azul_impl::task::OptionInstantPtr::None => { }, azul_impl::task::OptionInstantPtr::Some(_) => { }, }
+/// Re-export of rust-allocated (stack based) `OptionInstantPtr` struct
+pub type AzOptionInstantPtrTT = azul_impl::task::OptionInstantPtr;
+#[no_mangle] pub use AzOptionInstantPtrTT as AzOptionInstantPtr;
+/// Destructor: Takes ownership of the `OptionInstantPtr` pointer and deletes it.
+#[no_mangle] #[allow(unused_variables)] pub extern "C" fn az_option_instant_ptr_delete(object: &mut AzOptionInstantPtr) { match object { azul_impl::task::OptionInstantPtr::None => { }, azul_impl::task::OptionInstantPtr::Some(_) => { }, }
 }
 /// Clones the object
-#[no_mangle] pub extern "C" fn az_option_instant_deep_copy(object: &AzOptionInstant) -> AzOptionInstant { object.clone() }
+#[no_mangle] pub extern "C" fn az_option_instant_ptr_deep_copy(object: &AzOptionInstantPtr) -> AzOptionInstantPtr { object.clone() }
 
 /// Re-export of rust-allocated (stack based) `OptionUsize` struct
 pub type AzOptionUsizeTT = azul_impl::gl::OptionUsize;
@@ -424,7 +451,7 @@ pub type AzInstantPtrTT = azul_impl::task::AzInstantPtr;
 /// (private): Downcasts the `AzInstantPtr` to a `&mut Box<std::time::Instant>` and runs the `func` closure on it
 #[inline(always)] fn az_instant_downcast_refmut<P, F: FnOnce(&mut std::time::Instant) -> P>(ptr: &mut AzInstantPtr, func: F) -> P {     func(unsafe { &mut *(ptr.ptr as *mut std::time::Instant) })}
 /// (private): Downcasts the `AzInstantPtr` to a `&Box<std::time::Instant>` and runs the `func` closure on it
-#[inline(always)] fn az_instant_downcast_ref<P, F: FnOnce(&std::time::Instant) -> P>(ptr: &mut AzInstantPtr, func: F) -> P {     func(unsafe { &*(ptr.ptr as *const std::time::Instant) })}
+#[inline(always)] fn az_instant_downcast_ref<P, F: FnOnce(&std::time::Instant) -> P>(ptr: &AzInstantPtr, func: F) -> P {     func(unsafe { &*(ptr.ptr as *const std::time::Instant) })}
 
 /// Re-export of rust-allocated (stack based) `Duration` struct
 pub type AzDurationTT = azul_impl::task::AzDuration;
@@ -445,7 +472,7 @@ pub type AzDurationTT = azul_impl::task::AzDuration;
 /// (private): Downcasts the `AzAppConfigPtr` to a `&mut Box<AppConfig>` and runs the `func` closure on it
 #[inline(always)] fn az_app_config_downcast_refmut<P, F: FnOnce(&mut AppConfig) -> P>(ptr: &mut AzAppConfigPtr, func: F) -> P {     func(unsafe { &mut *(ptr.ptr as *mut AppConfig) })}
 /// (private): Downcasts the `AzAppConfigPtr` to a `&Box<AppConfig>` and runs the `func` closure on it
-#[inline(always)] fn az_app_config_downcast_ref<P, F: FnOnce(&AppConfig) -> P>(ptr: &mut AzAppConfigPtr, func: F) -> P {     func(unsafe { &*(ptr.ptr as *const AppConfig) })}
+#[inline(always)] fn az_app_config_downcast_ref<P, F: FnOnce(&AppConfig) -> P>(ptr: &AzAppConfigPtr, func: F) -> P {     func(unsafe { &*(ptr.ptr as *const AppConfig) })}
 
 /// Pointer to rust-allocated `Box<App>` struct
 #[no_mangle] #[repr(C)] pub struct AzAppPtr { ptr: *mut c_void }
@@ -460,7 +487,7 @@ pub type AzDurationTT = azul_impl::task::AzDuration;
 /// (private): Downcasts the `AzAppPtr` to a `&mut Box<App>` and runs the `func` closure on it
 #[inline(always)] fn az_app_downcast_refmut<P, F: FnOnce(&mut App) -> P>(ptr: &mut AzAppPtr, func: F) -> P {     func(unsafe { &mut *(ptr.ptr as *mut App) })}
 /// (private): Downcasts the `AzAppPtr` to a `&Box<App>` and runs the `func` closure on it
-#[inline(always)] fn az_app_downcast_ref<P, F: FnOnce(&App) -> P>(ptr: &mut AzAppPtr, func: F) -> P {     func(unsafe { &*(ptr.ptr as *const App) })}
+#[inline(always)] fn az_app_downcast_ref<P, F: FnOnce(&App) -> P>(ptr: &AzAppPtr, func: F) -> P {     func(unsafe { &*(ptr.ptr as *const App) })}
 
 /// Re-export of rust-allocated (stack based) `LayoutCallback` struct
 pub type AzLayoutCallbackTT = azul_impl::callbacks::LayoutCallback;
@@ -493,7 +520,7 @@ pub type AzCallbackInfoPtrTT = azul_impl::callbacks::CallbackInfoPtr;
 /// (private): Downcasts the `AzCallbackInfoPtr` to a `&mut Box<CallbackInfo<'a>>` and runs the `func` closure on it
 #[inline(always)] fn az_callback_info_downcast_refmut<'a, P, F: FnOnce(&mut CallbackInfo<'a>) -> P>(ptr: &mut AzCallbackInfoPtr, func: F) -> P {     func(unsafe { &mut *(ptr.ptr as *mut CallbackInfo<'a>) })}
 /// (private): Downcasts the `AzCallbackInfoPtr` to a `&Box<CallbackInfo<'a>>` and runs the `func` closure on it
-#[inline(always)] fn az_callback_info_downcast_ref<'a, P, F: FnOnce(&CallbackInfo<'a>) -> P>(ptr: &mut AzCallbackInfoPtr, func: F) -> P {     func(unsafe { &*(ptr.ptr as *const CallbackInfo<'a>) })}
+#[inline(always)] fn az_callback_info_downcast_ref<'a, P, F: FnOnce(&CallbackInfo<'a>) -> P>(ptr: &AzCallbackInfoPtr, func: F) -> P {     func(unsafe { &*(ptr.ptr as *const CallbackInfo<'a>) })}
 
 /// Specifies if the screen should be updated after the callback function has returned
 pub type AzUpdateScreenTT = azul_impl::callbacks::UpdateScreen;
@@ -517,6 +544,8 @@ pub type AzIFrameCallbackType = fn(AzIFrameCallbackInfoPtr) -> AzIFrameCallbackR
 /// Pointer to rust-allocated `Box<IFrameCallbackInfo>` struct
 pub type AzIFrameCallbackInfoPtrTT = azul_impl::callbacks::IFrameCallbackInfoPtr;
 #[no_mangle] pub use AzIFrameCallbackInfoPtrTT as AzIFrameCallbackInfoPtr;
+/// Returns a copy of the internal `RefAny`
+#[no_mangle] pub extern "C" fn az_i_frame_callback_info_get_state(iframecallbackinfo: &AzIFrameCallbackInfoPtr) -> AzRefAny { az_i_frame_callback_info_downcast_ref(iframecallbackinfo, |ci| ci.state.clone()) }
 /// Destructor: Takes ownership of the `IFrameCallbackInfo` pointer and deletes it.
 #[no_mangle] pub extern "C" fn az_i_frame_callback_info_delete<'a>(ptr: &mut AzIFrameCallbackInfoPtr) { let _ = unsafe { Box::<IFrameCallbackInfo<'a>>::from_raw(ptr.ptr  as *mut IFrameCallbackInfo<'a>) };}
 /// (private): Downcasts the `AzIFrameCallbackInfoPtr` to a `Box<IFrameCallbackInfo<'a>>`. Note that this takes ownership of the pointer.
@@ -524,7 +553,7 @@ pub type AzIFrameCallbackInfoPtrTT = azul_impl::callbacks::IFrameCallbackInfoPtr
 /// (private): Downcasts the `AzIFrameCallbackInfoPtr` to a `&mut Box<IFrameCallbackInfo<'a>>` and runs the `func` closure on it
 #[inline(always)] fn az_i_frame_callback_info_downcast_refmut<'a, P, F: FnOnce(&mut IFrameCallbackInfo<'a>) -> P>(ptr: &mut AzIFrameCallbackInfoPtr, func: F) -> P {     func(unsafe { &mut *(ptr.ptr as *mut IFrameCallbackInfo<'a>) })}
 /// (private): Downcasts the `AzIFrameCallbackInfoPtr` to a `&Box<IFrameCallbackInfo<'a>>` and runs the `func` closure on it
-#[inline(always)] fn az_i_frame_callback_info_downcast_ref<'a, P, F: FnOnce(&IFrameCallbackInfo<'a>) -> P>(ptr: &mut AzIFrameCallbackInfoPtr, func: F) -> P {     func(unsafe { &*(ptr.ptr as *const IFrameCallbackInfo<'a>) })}
+#[inline(always)] fn az_i_frame_callback_info_downcast_ref<'a, P, F: FnOnce(&IFrameCallbackInfo<'a>) -> P>(ptr: &AzIFrameCallbackInfoPtr, func: F) -> P {     func(unsafe { &*(ptr.ptr as *const IFrameCallbackInfo<'a>) })}
 
 /// Re-export of rust-allocated (stack based) `IFrameCallbackReturn` struct
 pub type AzIFrameCallbackReturnTT = azul_impl::callbacks::IFrameCallbackReturn;
@@ -554,7 +583,7 @@ pub type AzGlCallbackInfoPtrTT = azul_impl::callbacks::GlCallbackInfoPtr;
 /// (private): Downcasts the `AzGlCallbackInfoPtr` to a `&mut Box<GlCallbackInfo<'a>>` and runs the `func` closure on it
 #[inline(always)] fn az_gl_callback_info_downcast_refmut<'a, P, F: FnOnce(&mut GlCallbackInfo<'a>) -> P>(ptr: &mut AzGlCallbackInfoPtr, func: F) -> P {     func(unsafe { &mut *(ptr.ptr as *mut GlCallbackInfo<'a>) })}
 /// (private): Downcasts the `AzGlCallbackInfoPtr` to a `&Box<GlCallbackInfo<'a>>` and runs the `func` closure on it
-#[inline(always)] fn az_gl_callback_info_downcast_ref<'a, P, F: FnOnce(&GlCallbackInfo<'a>) -> P>(ptr: &mut AzGlCallbackInfoPtr, func: F) -> P {     func(unsafe { &*(ptr.ptr as *const GlCallbackInfo<'a>) })}
+#[inline(always)] fn az_gl_callback_info_downcast_ref<'a, P, F: FnOnce(&GlCallbackInfo<'a>) -> P>(ptr: &AzGlCallbackInfoPtr, func: F) -> P {     func(unsafe { &*(ptr.ptr as *const GlCallbackInfo<'a>) })}
 
 /// Re-export of rust-allocated (stack based) `GlCallbackReturn` struct
 pub type AzGlCallbackReturnTT = azul_impl::callbacks::GlCallbackReturn;
@@ -579,7 +608,19 @@ pub type AzTimerCallbackTT = azul_impl::callbacks::TimerCallback;
 /// (private): Downcasts the `AzTimerCallbackTypePtr` to a `&mut Box<TimerCallbackType>` and runs the `func` closure on it
 #[inline(always)] fn az_timer_callback_type_downcast_refmut<P, F: FnOnce(&mut TimerCallbackType) -> P>(ptr: &mut AzTimerCallbackTypePtr, func: F) -> P {     func(unsafe { &mut *(ptr.ptr as *mut TimerCallbackType) })}
 /// (private): Downcasts the `AzTimerCallbackTypePtr` to a `&Box<TimerCallbackType>` and runs the `func` closure on it
-#[inline(always)] fn az_timer_callback_type_downcast_ref<P, F: FnOnce(&TimerCallbackType) -> P>(ptr: &mut AzTimerCallbackTypePtr, func: F) -> P {     func(unsafe { &*(ptr.ptr as *const TimerCallbackType) })}
+#[inline(always)] fn az_timer_callback_type_downcast_ref<P, F: FnOnce(&TimerCallbackType) -> P>(ptr: &AzTimerCallbackTypePtr, func: F) -> P {     func(unsafe { &*(ptr.ptr as *const TimerCallbackType) })}
+
+/// Pointer to rust-allocated `Box<TimerCallbackInfo>` struct
+pub type AzTimerCallbackInfoPtrTT = azul_impl::callbacks::TimerCallbackInfoPtr;
+#[no_mangle] pub use AzTimerCallbackInfoPtrTT as AzTimerCallbackInfoPtr;
+/// Destructor: Takes ownership of the `TimerCallbackInfo` pointer and deletes it.
+#[no_mangle] pub extern "C" fn az_timer_callback_info_delete<'a>(ptr: &mut AzTimerCallbackInfoPtr) { let _ = unsafe { Box::<azul_impl::callbacks::TimerCallbackInfo<'a>>::from_raw(ptr.ptr  as *mut azul_impl::callbacks::TimerCallbackInfo<'a>) };}
+/// (private): Downcasts the `AzTimerCallbackInfoPtr` to a `Box<azul_impl::callbacks::TimerCallbackInfo<'a>>`. Note that this takes ownership of the pointer.
+#[inline(always)] fn az_timer_callback_info_downcast<'a>(ptr: AzTimerCallbackInfoPtr) -> Box<azul_impl::callbacks::TimerCallbackInfo<'a>> {     unsafe { Box::<azul_impl::callbacks::TimerCallbackInfo<'a>>::from_raw(ptr.ptr  as *mut azul_impl::callbacks::TimerCallbackInfo<'a>) }}
+/// (private): Downcasts the `AzTimerCallbackInfoPtr` to a `&mut Box<azul_impl::callbacks::TimerCallbackInfo<'a>>` and runs the `func` closure on it
+#[inline(always)] fn az_timer_callback_info_downcast_refmut<'a, P, F: FnOnce(&mut azul_impl::callbacks::TimerCallbackInfo<'a>) -> P>(ptr: &mut AzTimerCallbackInfoPtr, func: F) -> P {     func(unsafe { &mut *(ptr.ptr as *mut azul_impl::callbacks::TimerCallbackInfo<'a>) })}
+/// (private): Downcasts the `AzTimerCallbackInfoPtr` to a `&Box<azul_impl::callbacks::TimerCallbackInfo<'a>>` and runs the `func` closure on it
+#[inline(always)] fn az_timer_callback_info_downcast_ref<'a, P, F: FnOnce(&azul_impl::callbacks::TimerCallbackInfo<'a>) -> P>(ptr: &AzTimerCallbackInfoPtr, func: F) -> P {     func(unsafe { &*(ptr.ptr as *const azul_impl::callbacks::TimerCallbackInfo<'a>) })}
 
 /// Re-export of rust-allocated (stack based) `TimerCallbackReturn` struct
 pub type AzTimerCallbackReturnTT = azul_impl::callbacks::TimerCallbackReturn;
@@ -649,7 +690,7 @@ pub type AzLayoutInfoPtrTT = azul_impl::callbacks::LayoutInfoPtr;
 /// (private): Downcasts the `AzLayoutInfoPtr` to a `&mut Box<LayoutInfo<'a>>` and runs the `func` closure on it
 #[inline(always)] fn az_layout_info_downcast_refmut<'a, P, F: FnOnce(&mut LayoutInfo<'a>) -> P>(ptr: &mut AzLayoutInfoPtr, func: F) -> P {     func(unsafe { &mut *(ptr.ptr as *mut LayoutInfo<'a>) })}
 /// (private): Downcasts the `AzLayoutInfoPtr` to a `&Box<LayoutInfo<'a>>` and runs the `func` closure on it
-#[inline(always)] fn az_layout_info_downcast_ref<'a, P, F: FnOnce(&LayoutInfo<'a>) -> P>(ptr: &mut AzLayoutInfoPtr, func: F) -> P {     func(unsafe { &*(ptr.ptr as *const LayoutInfo<'a>) })}
+#[inline(always)] fn az_layout_info_downcast_ref<'a, P, F: FnOnce(&LayoutInfo<'a>) -> P>(ptr: &AzLayoutInfoPtr, func: F) -> P {     func(unsafe { &*(ptr.ptr as *const LayoutInfo<'a>) })}
 
 /// Re-export of rust-allocated (stack based) `CssRuleBlock` struct
 pub type AzCssRuleBlockTT = azul_impl::css::CssRuleBlock;
@@ -2795,7 +2836,7 @@ pub type AzDropCheckPtrPtrTT = azul_impl::task::DropCheckPtr;
 /// (private): Downcasts the `AzDropCheckPtrPtr` to a `&mut Box<azul_impl::task::DropCheck>` and runs the `func` closure on it
 #[inline(always)] fn az_drop_check_ptr_downcast_refmut<P, F: FnOnce(&mut azul_impl::task::DropCheck) -> P>(ptr: &mut AzDropCheckPtrPtr, func: F) -> P {     func(unsafe { &mut *(ptr.ptr as *mut azul_impl::task::DropCheck) })}
 /// (private): Downcasts the `AzDropCheckPtrPtr` to a `&Box<azul_impl::task::DropCheck>` and runs the `func` closure on it
-#[inline(always)] fn az_drop_check_ptr_downcast_ref<P, F: FnOnce(&azul_impl::task::DropCheck) -> P>(ptr: &mut AzDropCheckPtrPtr, func: F) -> P {     func(unsafe { &*(ptr.ptr as *const azul_impl::task::DropCheck) })}
+#[inline(always)] fn az_drop_check_ptr_downcast_ref<P, F: FnOnce(&azul_impl::task::DropCheck) -> P>(ptr: &AzDropCheckPtrPtr, func: F) -> P {     func(unsafe { &*(ptr.ptr as *const azul_impl::task::DropCheck) })}
 
 /// Pointer to rust-allocated `Box<ArcMutexRefAny>` struct
 pub type AzArcMutexRefAnyPtrTT = azul_impl::task::ArcMutexRefAnyPtr;
@@ -2807,19 +2848,7 @@ pub type AzArcMutexRefAnyPtrTT = azul_impl::task::ArcMutexRefAnyPtr;
 /// (private): Downcasts the `AzArcMutexRefAnyPtr` to a `&mut Box<std::sync::Arc<std::sync::Mutex<RefAny>>>` and runs the `func` closure on it
 #[inline(always)] fn az_arc_mutex_ref_any_downcast_refmut<P, F: FnOnce(&mut std::sync::Arc<std::sync::Mutex<RefAny>>) -> P>(ptr: &mut AzArcMutexRefAnyPtr, func: F) -> P {     func(unsafe { &mut *(ptr.ptr as *mut std::sync::Arc<std::sync::Mutex<RefAny>>) })}
 /// (private): Downcasts the `AzArcMutexRefAnyPtr` to a `&Box<std::sync::Arc<std::sync::Mutex<RefAny>>>` and runs the `func` closure on it
-#[inline(always)] fn az_arc_mutex_ref_any_downcast_ref<P, F: FnOnce(&std::sync::Arc<std::sync::Mutex<RefAny>>) -> P>(ptr: &mut AzArcMutexRefAnyPtr, func: F) -> P {     func(unsafe { &*(ptr.ptr as *const std::sync::Arc<std::sync::Mutex<RefAny>>) })}
-
-/// Pointer to rust-allocated `Box<TimerCallbackInfo>` struct
-pub type AzTimerCallbackInfoPtrTT = azul_impl::callbacks::TimerCallbackInfoPtr;
-#[no_mangle] pub use AzTimerCallbackInfoPtrTT as AzTimerCallbackInfoPtr;
-/// Destructor: Takes ownership of the `TimerCallbackInfo` pointer and deletes it.
-#[no_mangle] pub extern "C" fn az_timer_callback_info_delete<'a>(ptr: &mut AzTimerCallbackInfoPtr) { let _ = unsafe { Box::<azul_impl::callbacks::TimerCallbackInfo<'a>>::from_raw(ptr.ptr  as *mut azul_impl::callbacks::TimerCallbackInfo<'a>) };}
-/// (private): Downcasts the `AzTimerCallbackInfoPtr` to a `Box<azul_impl::callbacks::TimerCallbackInfo<'a>>`. Note that this takes ownership of the pointer.
-#[inline(always)] fn az_timer_callback_info_downcast<'a>(ptr: AzTimerCallbackInfoPtr) -> Box<azul_impl::callbacks::TimerCallbackInfo<'a>> {     unsafe { Box::<azul_impl::callbacks::TimerCallbackInfo<'a>>::from_raw(ptr.ptr  as *mut azul_impl::callbacks::TimerCallbackInfo<'a>) }}
-/// (private): Downcasts the `AzTimerCallbackInfoPtr` to a `&mut Box<azul_impl::callbacks::TimerCallbackInfo<'a>>` and runs the `func` closure on it
-#[inline(always)] fn az_timer_callback_info_downcast_refmut<'a, P, F: FnOnce(&mut azul_impl::callbacks::TimerCallbackInfo<'a>) -> P>(ptr: &mut AzTimerCallbackInfoPtr, func: F) -> P {     func(unsafe { &mut *(ptr.ptr as *mut azul_impl::callbacks::TimerCallbackInfo<'a>) })}
-/// (private): Downcasts the `AzTimerCallbackInfoPtr` to a `&Box<azul_impl::callbacks::TimerCallbackInfo<'a>>` and runs the `func` closure on it
-#[inline(always)] fn az_timer_callback_info_downcast_ref<'a, P, F: FnOnce(&azul_impl::callbacks::TimerCallbackInfo<'a>) -> P>(ptr: &mut AzTimerCallbackInfoPtr, func: F) -> P {     func(unsafe { &*(ptr.ptr as *const azul_impl::callbacks::TimerCallbackInfo<'a>) })}
+#[inline(always)] fn az_arc_mutex_ref_any_downcast_ref<P, F: FnOnce(&std::sync::Arc<std::sync::Mutex<RefAny>>) -> P>(ptr: &AzArcMutexRefAnyPtr, func: F) -> P {     func(unsafe { &*(ptr.ptr as *const std::sync::Arc<std::sync::Mutex<RefAny>>) })}
 
 /// Re-export of rust-allocated (stack based) `Timer` struct
 pub type AzTimerTT = azul_impl::task::Timer;
@@ -2842,7 +2871,7 @@ pub type AzTimerTT = azul_impl::task::Timer;
 /// (private): Downcasts the `AzTaskPtr` to a `&mut Box<Task>` and runs the `func` closure on it
 #[inline(always)] fn az_task_downcast_refmut<P, F: FnOnce(&mut Task) -> P>(ptr: &mut AzTaskPtr, func: F) -> P {     func(unsafe { &mut *(ptr.ptr as *mut Task) })}
 /// (private): Downcasts the `AzTaskPtr` to a `&Box<Task>` and runs the `func` closure on it
-#[inline(always)] fn az_task_downcast_ref<P, F: FnOnce(&Task) -> P>(ptr: &mut AzTaskPtr, func: F) -> P {     func(unsafe { &*(ptr.ptr as *const Task) })}
+#[inline(always)] fn az_task_downcast_ref<P, F: FnOnce(&Task) -> P>(ptr: &AzTaskPtr, func: F) -> P {     func(unsafe { &*(ptr.ptr as *const Task) })}
 
 /// Pointer to rust-allocated `Box<Thread>` struct
 #[no_mangle] #[repr(C)] pub struct AzThreadPtr { pub ptr: *mut c_void }
@@ -2857,7 +2886,7 @@ pub type AzTimerTT = azul_impl::task::Timer;
 /// (private): Downcasts the `AzThreadPtr` to a `&mut Box<Thread>` and runs the `func` closure on it
 #[inline(always)] fn az_thread_downcast_refmut<P, F: FnOnce(&mut Thread) -> P>(ptr: &mut AzThreadPtr, func: F) -> P {     func(unsafe { &mut *(ptr.ptr as *mut Thread) })}
 /// (private): Downcasts the `AzThreadPtr` to a `&Box<Thread>` and runs the `func` closure on it
-#[inline(always)] fn az_thread_downcast_ref<P, F: FnOnce(&Thread) -> P>(ptr: &mut AzThreadPtr, func: F) -> P {     func(unsafe { &*(ptr.ptr as *const Thread) })}
+#[inline(always)] fn az_thread_downcast_ref<P, F: FnOnce(&Thread) -> P>(ptr: &AzThreadPtr, func: F) -> P {     func(unsafe { &*(ptr.ptr as *const Thread) })}
 
 /// Pointer to rust-allocated `Box<DropCheck>` struct
 pub type AzDropCheckPtrTT = azul_impl::task::DropCheckPtr;
@@ -2869,7 +2898,7 @@ pub type AzDropCheckPtrTT = azul_impl::task::DropCheckPtr;
 /// (private): Downcasts the `AzDropCheckPtr` to a `&mut Box<DropCheck>` and runs the `func` closure on it
 #[inline(always)] fn az_drop_check_downcast_refmut<P, F: FnOnce(&mut DropCheck) -> P>(ptr: &mut AzDropCheckPtr, func: F) -> P {     func(unsafe { &mut *(ptr.ptr as *mut DropCheck) })}
 /// (private): Downcasts the `AzDropCheckPtr` to a `&Box<DropCheck>` and runs the `func` closure on it
-#[inline(always)] fn az_drop_check_downcast_ref<P, F: FnOnce(&DropCheck) -> P>(ptr: &mut AzDropCheckPtr, func: F) -> P {     func(unsafe { &*(ptr.ptr as *const DropCheck) })}
+#[inline(always)] fn az_drop_check_downcast_ref<P, F: FnOnce(&DropCheck) -> P>(ptr: &AzDropCheckPtr, func: F) -> P {     func(unsafe { &*(ptr.ptr as *const DropCheck) })}
 
 /// Re-export of rust-allocated (stack based) `TimerId` struct
 pub type AzTimerIdTT = azul_impl::task::TimerId;
@@ -2896,6 +2925,14 @@ pub type AzBlockErrorTT = azul_impl::task::BlockError;
 }
 /// Clones the object
 #[no_mangle] pub extern "C" fn az_block_error_deep_copy(object: &AzBlockError) -> AzBlockError { object.clone() }
+
+/// Re-export of rust-allocated (stack based) `TaskBarIcon` struct
+pub type AzTaskBarIconTT = azul_impl::window::TaskBarIcon;
+#[no_mangle] pub use AzTaskBarIconTT as AzTaskBarIcon;
+/// Destructor: Takes ownership of the `TaskBarIcon` pointer and deletes it.
+#[no_mangle] #[allow(unused_variables)] pub extern "C" fn az_task_bar_icon_delete(object: &mut AzTaskBarIcon) { }
+/// Clones the object
+#[no_mangle] pub extern "C" fn az_task_bar_icon_deep_copy(object: &AzTaskBarIcon) -> AzTaskBarIcon { object.clone() }
 
 /// Re-export of rust-allocated (stack based) `XWindowType` struct
 pub type AzXWindowTypeTT = azul_impl::window::XWindowType;
@@ -2954,14 +2991,6 @@ pub type AzWindowIconTT = azul_impl::window::WindowIcon;
 }
 /// Clones the object
 #[no_mangle] pub extern "C" fn az_window_icon_deep_copy(object: &AzWindowIcon) -> AzWindowIcon { object.clone() }
-
-/// Re-export of rust-allocated (stack based) `TaskBarIcon` struct
-pub type AzTaskBarIconTT = azul_impl::window::TaskBarIcon;
-#[no_mangle] pub use AzTaskBarIconTT as AzTaskBarIcon;
-/// Destructor: Takes ownership of the `TaskBarIcon` pointer and deletes it.
-#[no_mangle] #[allow(unused_variables)] pub extern "C" fn az_task_bar_icon_delete(object: &mut AzTaskBarIcon) { }
-/// Clones the object
-#[no_mangle] pub extern "C" fn az_task_bar_icon_deep_copy(object: &AzTaskBarIcon) -> AzTaskBarIcon { object.clone() }
 
 /// Re-export of rust-allocated (stack based) `VirtualKeyCode` struct
 pub type AzVirtualKeyCodeTT = azul_impl::window::VirtualKeyCode;

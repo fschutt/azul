@@ -5,7 +5,7 @@ use azul::{
     dom::{Dom, On, NodeData, NodeType},
     callbacks::{
         RefAny, Callback, CallbackInfo, CallbackReturn,
-        IFrameCallbackInfo, IFrameCallbackReturn,
+        IFrameCallbackInfo, IFrameCallbackReturn, UpdateScreen,
     },
 };
 
@@ -61,14 +61,14 @@ impl TableViewState {
         //                 '-> div.__azul-native-table-cell
 
         Dom::div()
-        .with_class("__azul-native-table-container")
+        .with_class("__azul-native-table-container".into())
         .with_child(
             Dom::div()
-            .with_class("__azul-native-table-row-number-wrapper")
+            .with_class("__azul-native-table-row-number-wrapper".into())
             .with_child(
                 // Empty rectangle at the top left of the table
                 Dom::div()
-                .with_class("__azul-native-table-top-left-rect")
+                .with_class("__azul-native-table-top-left-rect".into())
             )
             .with_child(
                 // Row numbers (vertical) - "1", "2", "3"
@@ -78,7 +78,7 @@ impl TableViewState {
                     .with_classes(vec!["__azul-native-table-row".into()])
                 )
                 .collect::<Dom>()
-                .with_class("__azul-native-table-row-numbers")
+                .with_class("__azul-native-table-row-numbers".into())
             )
         )
         .with_child(
@@ -86,8 +86,8 @@ impl TableViewState {
             .map(|col_idx|
                 // Column name
                 Dom::new(NodeType::Div)
-                .with_class("__azul-native-table-column")
-                .with_child(Dom::label(column_name_from_number(col_idx)).with_class("__azul-native-table-column-name"))
+                .with_class("__azul-native-table-column".into())
+                .with_child(Dom::label(column_name_from_number(col_idx)).with_class("__azul-native-table-column-name".into()))
                 .with_child(
                     // row contents - if no content is given, they are simply empty
                     (rows.start..rows.end)
@@ -101,16 +101,16 @@ impl TableViewState {
                         ).with_classes(vec!["__azul-native-table-cell".into()])
                     )
                     .collect::<Dom>()
-                    .with_class("__azul-native-table-rows")
+                    .with_class("__azul-native-table-rows".into())
                 )
             )
             .collect::<Dom>()
-            .with_class("__azul-native-table-column-container")
+            .with_class("__azul-native-table-column-container".into())
             // current active selection (s)
             .with_child(
                 Dom::div()
-                    .with_class("__azul-native-table-selection")
-                    .with_child(Dom::div().with_class("__azul-native-table-selection-handle"))
+                    .with_class("__azul-native-table-selection".into())
+                    .with_child(Dom::div().with_class("__azul-native-table-selection-handle".into()))
             )
         )
     }
@@ -142,22 +142,25 @@ impl TableView {
 
     #[inline]
     pub fn dom(self) -> Dom {
-        Dom::iframe(Self::render_table_iframe_contents, self.state.clone())
-            .with_class("__azul-native-table-iframe")
-            .with_callback(On::MouseUp, self.on_mouse_up.0, self.state)
+        Dom::iframe(self.state.clone(), Self::render_table_iframe_contents)
+            .with_class("__azul-native-table-iframe".into())
+            .with_callback(On::MouseUp, self.state, self.on_mouse_up.cb)
     }
 
     pub fn default_on_mouse_up(_info: CallbackInfo) -> CallbackReturn {
         println!("table was clicked");
-        DontRedraw
+        UpdateScreen::DontRedraw
     }
 
     fn render_table_iframe_contents(info: IFrameCallbackInfo) -> IFrameCallbackReturn {
-        let table_view_state = info.state.borrow::<TableViewState>()?;
-        let logical_size = info.bounds.get_logical_size();
-        let necessary_rows = (logical_size.height as f32 / table_view_state.row_height).ceil() as usize;
-        let necessary_columns = (logical_size.width as f32 / table_view_state.column_width).ceil() as usize;
-        Some(table_view_state.render(0..necessary_rows, 0..necessary_columns))
+        fn render_table_iframe_contents_inner(info: IFrameCallbackInfo) -> Option<Dom> {
+            let table_view_state = info.state().borrow::<TableViewState>()?;
+            let logical_size = info.bounds.get_logical_size();
+            let necessary_rows = (logical_size.height as f32 / table_view_state.row_height).ceil() as usize;
+            let necessary_columns = (logical_size.width as f32 / table_view_state.column_width).ceil() as usize;
+            Some(table_view_state.render(0..necessary_rows, 0..necessary_columns)).into()
+        }
+        IFrameCallbackReturn { dom: render_table_iframe_contents_inner(info).into() }
     }
 }
 
