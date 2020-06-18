@@ -3330,6 +3330,10 @@ pub(crate) mod dll {
         pub az_image_id_delete: Symbol<extern fn(_:  &mut AzImageId)>,
         pub az_image_id_deep_copy: Symbol<extern fn(_:  &AzImageId) -> AzImageId>,
         pub az_image_id_fmt_debug: Symbol<extern fn(_:  &AzImageId) -> AzString>,
+        pub az_image_id_copy: Symbol<extern fn(_:  &AzImageId) -> AzImageId>,
+        pub az_image_id_partialeq: Symbol<extern fn(_:  &AzImageId, _:  &AzImageId) -> bool>,
+        pub az_image_id_cmp: Symbol<extern fn(_:  &AzImageId, _:  &AzImageId) -> u8>,
+        pub az_image_id_hash: Symbol<extern fn(_:  &AzImageId) -> u64>,
         pub az_font_id_new: Symbol<extern fn() -> AzFontId>,
         pub az_font_id_delete: Symbol<extern fn(_:  &mut AzFontId)>,
         pub az_font_id_deep_copy: Symbol<extern fn(_:  &AzFontId) -> AzFontId>,
@@ -4490,6 +4494,10 @@ pub(crate) mod dll {
         let az_image_id_delete = unsafe { lib.get::<extern fn(_:  &mut AzImageId)>(b"az_image_id_delete").map_err(|_| "az_image_id_delete")? };
         let az_image_id_deep_copy = unsafe { lib.get::<extern fn(_:  &AzImageId) -> AzImageId>(b"az_image_id_deep_copy").map_err(|_| "az_image_id_deep_copy")? };
         let az_image_id_fmt_debug = unsafe { lib.get::<extern fn(_:  &AzImageId) -> AzString>(b"az_image_id_fmt_debug").map_err(|_| "az_image_id_fmt_debug")? };
+        let az_image_id_copy = unsafe { lib.get::<extern fn(_:  &AzImageId) -> AzImageId>(b"az_image_id_copy").map_err(|_| "az_image_id_copy")? };
+        let az_image_id_partialeq = unsafe { lib.get::<extern fn(_:  &AzImageId, _:  &AzImageId) -> bool>(b"az_image_id_partialeq").map_err(|_| "az_image_id_partialeq")? };
+        let az_image_id_cmp = unsafe { lib.get::<extern fn(_:  &AzImageId, _:  &AzImageId) -> u8>(b"az_image_id_cmp").map_err(|_| "az_image_id_cmp")? };
+        let az_image_id_hash = unsafe { lib.get::<extern fn(_:  &AzImageId) -> u64>(b"az_image_id_hash").map_err(|_| "az_image_id_hash")? };
         let az_font_id_new = unsafe { lib.get::<extern fn() -> AzFontId>(b"az_font_id_new").map_err(|_| "az_font_id_new")? };
         let az_font_id_delete = unsafe { lib.get::<extern fn(_:  &mut AzFontId)>(b"az_font_id_delete").map_err(|_| "az_font_id_delete")? };
         let az_font_id_deep_copy = unsafe { lib.get::<extern fn(_:  &AzFontId) -> AzFontId>(b"az_font_id_deep_copy").map_err(|_| "az_font_id_deep_copy")? };
@@ -5648,6 +5656,10 @@ pub(crate) mod dll {
             az_image_id_delete,
             az_image_id_deep_copy,
             az_image_id_fmt_debug,
+            az_image_id_copy,
+            az_image_id_partialeq,
+            az_image_id_cmp,
+            az_image_id_hash,
             az_font_id_new,
             az_font_id_delete,
             az_font_id_deep_copy,

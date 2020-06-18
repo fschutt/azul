@@ -3280,6 +3280,14 @@ pub type AzImageIdTT = azul_impl::resources::ImageId;
 #[no_mangle] pub extern "C" fn az_image_id_deep_copy(object: &AzImageId) -> AzImageId { object.clone() }
 /// Creates a string with the debug representation of the object
 #[no_mangle] pub extern "C" fn az_image_id_fmt_debug(object: &AzImageId) -> AzString { format!("{:#?}", object).into() }
+/// Copies the object
+#[no_mangle] pub extern "C" fn az_image_id_copy(object: &AzImageId) -> AzImageId { *object }
+/// Compares two instances of `AzImageId` for equality
+#[no_mangle] pub extern "C" fn az_image_id_partialeq(a: &AzImageId, b: &AzImageId) -> bool { a.eq(b) }
+/// Compares two instances of `AzImageId` for full ordering. Returns 0 for Less, 1 for Equal, 2 for Greater. 
+#[no_mangle] pub extern "C" fn az_image_id_cmp(a: &AzImageId, b: &AzImageId) -> u8 { use std::cmp::Ordering::*; match a.cmp(b) { Less => 0, Equal => 1, Greater => 2 } }
+/// Returns the hash of a `AzImageId` instance 
+#[no_mangle] pub extern "C" fn az_image_id_hash(object: &AzImageId) -> u64 { use std::collections::hash_map::DefaultHasher; use std::hash::{Hash, Hasher}; let mut hasher = DefaultHasher::new(); object.hash(&mut hasher); hasher.finish() }
 
 /// Re-export of rust-allocated (stack based) `FontId` struct
 pub type AzFontIdTT = azul_impl::resources::FontId;

@@ -459,6 +459,14 @@ def generate_rust_dll(apiData):
             class_can_be_cloned = True
             if "clone" in c.keys():
                 class_can_be_cloned = c["clone"]
+
+            class_can_be_copied = "derive" in c.keys() and "Copy" in c["derive"]
+            class_has_partialeq = "derive" in c.keys() and "PartialEq" in c["derive"]
+            class_has_eq = "derive" in c.keys()and "Eq" in c["derive"]
+            class_has_partialord = "derive" in c.keys()and "PartialOrd" in c["derive"]
+            class_has_ord = "derive" in c.keys() and "Ord" in c["derive"]
+            class_can_be_hashed = "derive" in c.keys() and "Hash" in c["derive"]
+
             class_is_typedef = "typedef" in c.keys() and c["typedef"]
             treat_external_as_ptr = "external" in c.keys() and "is_boxed_object" in c.keys() and c["is_boxed_object"]
 
@@ -653,6 +661,49 @@ def generate_rust_dll(apiData):
             code += "format!(\"{:#?}\", object).into()"
             code += " }\r\n"
 
+            if class_can_be_copied and lifetime == "":
+                # az_item_copy()
+                code += "/// Copies the object\r\n"
+                functions_map[str(fn_prefix + to_snake_case(class_name) + "_copy")] = ["object: &" + class_ptr_name, class_ptr_name];
+                code += "#[no_mangle] pub extern \"C\" fn " + fn_prefix + to_snake_case(class_name) + "_copy" + lifetime + "(object: &" + class_ptr_name + ") -> " + class_ptr_name + " { "
+                code += "*object"
+                code += " }\r\n"
+
+            if class_has_partialeq:
+                # az_item_copy()
+                code += "/// Compares two instances of `" + class_ptr_name + "` for equality\r\n"
+                functions_map[str(fn_prefix + to_snake_case(class_name) + "_partialeq")] = ["a: &" + class_ptr_name + ", b: &" + class_ptr_name, "bool"];
+                code += "#[no_mangle] pub extern \"C\" fn " + fn_prefix + to_snake_case(class_name) + "_partialeq" + lifetime + "(a: &" + class_ptr_name + ", b: &" + class_ptr_name + ") -> bool { "
+                code += "a.eq(b) "
+                code += "}\r\n"
+
+            if class_has_partialord:
+                # az_item_partialcmp()
+                code += "/// Compares two instances of `" + class_ptr_name + "` for ordering. Returns 0 for None (equality), 1 on Some(Less), 2 on Some(Equal) and 3 on Some(Greater). \r\n"
+                functions_map[str(fn_prefix + to_snake_case(class_name) + "_partialcmp")] = ["a: &" + class_ptr_name + ", b: &" + class_ptr_name, "u8"];
+                code += "#[no_mangle] pub extern \"C\" fn " + fn_prefix + to_snake_case(class_name) + "_partialcmp" + lifetime + "(a: &" + class_ptr_name + ", b: &" + class_ptr_name + ") -> u8 { "
+                code += "use std::cmp::Ordering::*;"
+                code += "match a.partial_cmp(b) { None => 0, Some(Less) => 1, Some(Equal) => 2, Some(Greater) => 3 } "
+                code += "}\r\n"
+
+            if class_has_ord:
+                # az_item_cmp()
+                code += "/// Compares two instances of `" + class_ptr_name + "` for full ordering. Returns 0 for Less, 1 for Equal, 2 for Greater. \r\n"
+                functions_map[str(fn_prefix + to_snake_case(class_name) + "_cmp")] = ["a: &" + class_ptr_name + ", b: &" + class_ptr_name, "u8"];
+                code += "#[no_mangle] pub extern \"C\" fn " + fn_prefix + to_snake_case(class_name) + "_cmp" + lifetime + "(a: &" + class_ptr_name + ", b: &" + class_ptr_name + ") -> u8 { "
+                code += "use std::cmp::Ordering::*; "
+                code += "match a.cmp(b) { Less => 0, Equal => 1, Greater => 2 } "
+                code += "}\r\n"
+
+            if class_can_be_hashed:
+                # az_item_hash()
+                code += "/// Returns the hash of a `" + class_ptr_name + "` instance \r\n"
+                functions_map[str(fn_prefix + to_snake_case(class_name) + "_hash")] = ["object: &" + class_ptr_name, "u64"];
+                code += "#[no_mangle] pub extern \"C\" fn " + fn_prefix + to_snake_case(class_name) + "_hash" + lifetime + "(object: &" + class_ptr_name + ") -> u64 { "
+                code += "use std::collections::hash_map::DefaultHasher; use std::hash::{Hash, Hasher}; "
+                code += "let mut hasher = DefaultHasher::new(); object.hash(&mut hasher); hasher.finish() "
+                code += "}\r\n"
+
     return [code, structs_map, functions_map]
 
 def generate_dll_loader(apiData, structs_map, functions_map, version):
@@ -666,6 +717,13 @@ def generate_dll_loader(apiData, structs_map, functions_map, version):
 
     for struct_name in structs_map.keys():
         struct = structs_map[struct_name]
+
+        class_can_be_copied = "derive" in struct.keys() and "Copy" in struct["derive"]
+        class_has_partialeq = "derive" in struct.keys() and "PartialEq" in struct["derive"]
+        class_has_eq = "derive" in struct.keys() and "Eq" in struct["derive"]
+        class_has_partialord = "derive" in struct.keys() and "PartialOrd" in struct["derive"]
+        class_has_ord = "derive" in struct.keys() and "Ord" in struct["derive"]
+        class_can_be_hashed = "derive" in struct.keys() and "Hash" in struct["derive"]
 
         if "doc" in struct.keys():
             code += "    /// " + struct["doc"] + "\r\n"
@@ -737,6 +795,20 @@ def generate_dll_loader(apiData, structs_map, functions_map, version):
                 else:
                     code += "        " + variant_name + ",\r\n"
             code += "    }\r\n"
+
+        if class_can_be_copied:
+            code += "impl Copy for " + struct_name + " { fn copy(&self) -> " + struct_name + " { (crate::dll::get_azul_dll).az_" + to_snake_case(struct_name) + "_copy)(self) } }"
+        if class_has_partialeq:
+            code += "impl PartialEq for " + struct_name + " { fn eq(&self, rhs: &" + struct_name + ") -> bool { (crate::dll::get_azul_dll).az_" + to_snake_case(struct_name) + "_partialeq)(self, rhs) } }"
+        if class_has_eq:
+            code += "impl Eq for " + struct_name + " { }"
+        if class_has_partialord:
+            code += "impl PartialOrd for " + struct_name + " { fn partial_cmp(&self, rhs: &" + struct_name + ") -> std::cmp::Ordering { use std::cmp::Ordering::*; match (crate::dll::get_azul_dll).az_" + to_snake_case(struct_name) + "_partial_cmp)(self, rhs) { 1 => Some(Less), 2 => Some(Equal), 3 => Some(Greater), _ => None } } }"
+        if class_has_ord:
+            code += "impl Ord for " + struct_name + " { fn cmp(&self, rhs: &" + struct_name + ") -> std::cmp::Ordering { use std::cmp::Ordering::*; match (crate::dll::get_azul_dll).az_" + to_snake_case(struct_name) + "_cmp)(self, rhs) { 0 => Less, 1 => Equal, _ => Greater } }"
+        if class_can_be_hashed:
+            code += "impl std::hash::Hash for " + struct_name + " { fn hash<H: std::hash::Hasher>(&self, state: &mut H) { ((crate::dll::get_azul_dll).az_" + to_snake_case(struct_name) + "_hash)(self)).hash(state) } }"
+
 
     code += "\r\n"
     code += "\r\n"
