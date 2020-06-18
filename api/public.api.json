@@ -554,6 +554,7 @@
 					"external": "azul_impl::task::AzInstantPtr",
 					"rust_class_name": "std::time::Instant",
 					"is_boxed_object": true,
+					"derive": ["PartialEq", "Eq", "PartialOrd", "Ord"],
 					"constructors": {
 						"now": {
 							"fn_body": "std::time::Instant::now()"
@@ -618,6 +619,7 @@
 
 				"Callback": {
 					"external": "azul_impl::callbacks::Callback",
+					"derive": ["PartialEq", "Eq", "PartialOrd", "Ord", "Hash"],
 					"struct_fields": [
 						{"cb": {"type": "CallbackType"}}
 					]
@@ -786,6 +788,7 @@
 				"RefAny": {
 					"external": "azul_impl::callbacks::RefAny",
 					"doc": "RefAny is a reference-counted, type-erased pointer, which stores a reference to a struct. `RefAny` can be up- and downcasted (this usually done via generics and can't be expressed in the Rust API)",
+					"derive": ["PartialEq", "Eq", "PartialOrd", "Ord", "Hash"],
 					"struct_fields": [
 						{"_internal_ptr":  {"type": "*const c_void", "doc": "Pointer to the type-erased struct"}},
 						{"_internal_len":  {"type": "usize", "doc": "Length of Vec holding type-erased struct"}},
@@ -4705,14 +4708,14 @@
 				},
 				"ImageId": {
 					"external": "azul_impl::resources::ImageId",
-					"derive": ["Copy", "Clone", "PartialEq", "Eq", "Ord", "Hash"],
+					"derive": ["PartialEq", "Eq", "PartialOrd", "Ord", "Hash"],
 					"struct_fields": [
 						{ "id": { "type": "usize" } }
 					],
 					"constructors": {
 						"new": {
-						"doc": "Creates a new, unique `ImageId`",
-						"fn_body":"ImageId::new()"
+							"doc": "Creates a new, unique `ImageId`",
+							"fn_body":"ImageId::new()"
 						}
 					}
 				},
@@ -4910,6 +4913,7 @@
 				},
 				"PhysicalPositionI32": {
 					"external": "azul_impl::window::PhysicalPosition<i32>",
+					"derive": ["PartialEq", "Eq", "PartialOrd", "Ord", "Hash"],
 					"struct_fields": [
 						{"x": {"type": "i32"}},
 						{"y": {"type": "i32"}}

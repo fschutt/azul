@@ -527,17 +527,23 @@ pub type AzInstantPtrTT = azul_impl::task::AzInstantPtr;
 #[no_mangle] pub use AzInstantPtrTT as AzInstantPtr;
 // Creates a new `Instant` instance whose memory is owned by the rust allocator
 // Equivalent to the Rust `Instant::now()` constructor.
-#[no_mangle] pub extern "C" fn az_instant_now() -> AzInstantPtr { let object: std::time::Instant = std::time::Instant::now(); AzInstantPtr { ptr: Box::into_raw(Box::new(object)) as *mut c_void } }
+#[no_mangle] pub extern "C" fn az_instant_ptr_now() -> AzInstantPtr { let object: std::time::Instant = std::time::Instant::now(); AzInstantPtr { ptr: Box::into_raw(Box::new(object)) as *mut c_void } }
 /// Destructor: Takes ownership of the `Instant` pointer and deletes it.
-#[no_mangle] pub extern "C" fn az_instant_delete(ptr: &mut AzInstantPtr) { let _ = unsafe { Box::<std::time::Instant>::from_raw(ptr.ptr  as *mut std::time::Instant) };}
+#[no_mangle] pub extern "C" fn az_instant_ptr_delete(ptr: &mut AzInstantPtr) { let _ = unsafe { Box::<std::time::Instant>::from_raw(ptr.ptr  as *mut std::time::Instant) };}
 /// (private): Downcasts the `AzInstantPtr` to a `Box<std::time::Instant>`. Note that this takes ownership of the pointer.
-#[inline(always)] fn az_instant_downcast(ptr: AzInstantPtr) -> Box<std::time::Instant> {     unsafe { Box::<std::time::Instant>::from_raw(ptr.ptr  as *mut std::time::Instant) }}
+#[inline(always)] fn az_instant_ptr_downcast(ptr: AzInstantPtr) -> Box<std::time::Instant> {     unsafe { Box::<std::time::Instant>::from_raw(ptr.ptr  as *mut std::time::Instant) }}
 /// (private): Downcasts the `AzInstantPtr` to a `&mut Box<std::time::Instant>` and runs the `func` closure on it
-#[inline(always)] fn az_instant_downcast_refmut<P, F: FnOnce(&mut std::time::Instant) -> P>(ptr: &mut AzInstantPtr, func: F) -> P {     func(unsafe { &mut *(ptr.ptr as *mut std::time::Instant) })}
+#[inline(always)] fn az_instant_ptr_downcast_refmut<P, F: FnOnce(&mut std::time::Instant) -> P>(ptr: &mut AzInstantPtr, func: F) -> P {     func(unsafe { &mut *(ptr.ptr as *mut std::time::Instant) })}
 /// (private): Downcasts the `AzInstantPtr` to a `&Box<std::time::Instant>` and runs the `func` closure on it
-#[inline(always)] fn az_instant_downcast_ref<P, F: FnOnce(&std::time::Instant) -> P>(ptr: &AzInstantPtr, func: F) -> P {     func(unsafe { &*(ptr.ptr as *const std::time::Instant) })}
+#[inline(always)] fn az_instant_ptr_downcast_ref<P, F: FnOnce(&std::time::Instant) -> P>(ptr: &AzInstantPtr, func: F) -> P {     func(unsafe { &*(ptr.ptr as *const std::time::Instant) })}
 /// Creates a string with the debug representation of the object
-#[no_mangle] pub extern "C" fn az_instant_fmt_debug(object: &AzInstantPtr) -> AzString { format!("{:#?}", object).into() }
+#[no_mangle] pub extern "C" fn az_instant_ptr_fmt_debug(object: &AzInstantPtr) -> AzString { format!("{:#?}", object).into() }
+/// Compares two instances of `AzInstantPtr` for equality
+#[no_mangle] pub extern "C" fn az_instant_ptr_partial_eq(a: &AzInstantPtr, b: &AzInstantPtr) -> bool { a.eq(b) }
+/// Compares two instances of `AzInstantPtr` for ordering. Returns 0 for None (equality), 1 on Some(Less), 2 on Some(Equal) and 3 on Some(Greater). 
+#[no_mangle] pub extern "C" fn az_instant_ptr_partial_cmp(a: &AzInstantPtr, b: &AzInstantPtr) -> u8 { use std::cmp::Ordering::*;match a.partial_cmp(b) { None => 0, Some(Less) => 1, Some(Equal) => 2, Some(Greater) => 3 } }
+/// Compares two instances of `AzInstantPtr` for full ordering. Returns 0 for Less, 1 for Equal, 2 for Greater. 
+#[no_mangle] pub extern "C" fn az_instant_ptr_cmp(a: &AzInstantPtr, b: &AzInstantPtr) -> u8 { use std::cmp::Ordering::*; match a.cmp(b) { Less => 0, Equal => 1, Greater => 2 } }
 
 /// Re-export of rust-allocated (stack based) `Duration` struct
 pub type AzDurationTT = azul_impl::task::AzDuration;
@@ -552,34 +558,34 @@ pub type AzDurationTT = azul_impl::task::AzDuration;
 /// Pointer to rust-allocated `Box<AppConfig>` struct
 #[no_mangle] #[repr(C)] pub struct AzAppConfigPtr { ptr: *mut c_void }
 /// Creates a new AppConfig with default values
-#[no_mangle] pub extern "C" fn az_app_config_default() -> AzAppConfigPtr { let object: AppConfig = AppConfig::default(); AzAppConfigPtr { ptr: Box::into_raw(Box::new(object)) as *mut c_void } }
+#[no_mangle] pub extern "C" fn az_app_config_ptr_default() -> AzAppConfigPtr { let object: AppConfig = AppConfig::default(); AzAppConfigPtr { ptr: Box::into_raw(Box::new(object)) as *mut c_void } }
 /// Destructor: Takes ownership of the `AppConfig` pointer and deletes it.
-#[no_mangle] pub extern "C" fn az_app_config_delete(ptr: &mut AzAppConfigPtr) { let _ = unsafe { Box::<AppConfig>::from_raw(ptr.ptr  as *mut AppConfig) };}
+#[no_mangle] pub extern "C" fn az_app_config_ptr_delete(ptr: &mut AzAppConfigPtr) { let _ = unsafe { Box::<AppConfig>::from_raw(ptr.ptr  as *mut AppConfig) };}
 /// (private): Downcasts the `AzAppConfigPtr` to a `Box<AppConfig>`. Note that this takes ownership of the pointer.
-#[inline(always)] fn az_app_config_downcast(ptr: AzAppConfigPtr) -> Box<AppConfig> {     unsafe { Box::<AppConfig>::from_raw(ptr.ptr  as *mut AppConfig) }}
+#[inline(always)] fn az_app_config_ptr_downcast(ptr: AzAppConfigPtr) -> Box<AppConfig> {     unsafe { Box::<AppConfig>::from_raw(ptr.ptr  as *mut AppConfig) }}
 /// (private): Downcasts the `AzAppConfigPtr` to a `&mut Box<AppConfig>` and runs the `func` closure on it
-#[inline(always)] fn az_app_config_downcast_refmut<P, F: FnOnce(&mut AppConfig) -> P>(ptr: &mut AzAppConfigPtr, func: F) -> P {     func(unsafe { &mut *(ptr.ptr as *mut AppConfig) })}
+#[inline(always)] fn az_app_config_ptr_downcast_refmut<P, F: FnOnce(&mut AppConfig) -> P>(ptr: &mut AzAppConfigPtr, func: F) -> P {     func(unsafe { &mut *(ptr.ptr as *mut AppConfig) })}
 /// (private): Downcasts the `AzAppConfigPtr` to a `&Box<AppConfig>` and runs the `func` closure on it
-#[inline(always)] fn az_app_config_downcast_ref<P, F: FnOnce(&AppConfig) -> P>(ptr: &AzAppConfigPtr, func: F) -> P {     func(unsafe { &*(ptr.ptr as *const AppConfig) })}
+#[inline(always)] fn az_app_config_ptr_downcast_ref<P, F: FnOnce(&AppConfig) -> P>(ptr: &AzAppConfigPtr, func: F) -> P {     func(unsafe { &*(ptr.ptr as *const AppConfig) })}
 /// Creates a string with the debug representation of the object
-#[no_mangle] pub extern "C" fn az_app_config_fmt_debug(object: &AzAppConfigPtr) -> AzString { format!("{:#?}", object).into() }
+#[no_mangle] pub extern "C" fn az_app_config_ptr_fmt_debug(object: &AzAppConfigPtr) -> AzString { format!("{:#?}", object).into() }
 
 /// Pointer to rust-allocated `Box<App>` struct
 #[no_mangle] #[repr(C)] pub struct AzAppPtr { ptr: *mut c_void }
 /// Creates a new App instance from the given `AppConfig`
-#[no_mangle] pub extern "C" fn az_app_new(data: AzRefAny, config: AzAppConfigPtr, callback: AzLayoutCallbackType) -> AzAppPtr { let object: App = App::new(data, *az_app_config_downcast(config), callback).unwrap(); AzAppPtr { ptr: Box::into_raw(Box::new(object)) as *mut c_void } }
+#[no_mangle] pub extern "C" fn az_app_ptr_new(data: AzRefAny, config: AzAppConfigPtr, callback: AzLayoutCallbackType) -> AzAppPtr { let object: App = App::new(data, *az_app_config_downcast(config), callback).unwrap(); AzAppPtr { ptr: Box::into_raw(Box::new(object)) as *mut c_void } }
 /// Runs the application. Due to platform restrictions (specifically `WinMain` on Windows), this function never returns.
-#[no_mangle] pub extern "C" fn az_app_run(app: AzAppPtr, window: AzWindowCreateOptions) { az_app_downcast(app).run(window) }
+#[no_mangle] pub extern "C" fn az_app_ptr_run(app: AzAppPtr, window: AzWindowCreateOptions) { az_app_downcast(app).run(window) }
 /// Destructor: Takes ownership of the `App` pointer and deletes it.
-#[no_mangle] pub extern "C" fn az_app_delete(ptr: &mut AzAppPtr) { let _ = unsafe { Box::<App>::from_raw(ptr.ptr  as *mut App) };}
+#[no_mangle] pub extern "C" fn az_app_ptr_delete(ptr: &mut AzAppPtr) { let _ = unsafe { Box::<App>::from_raw(ptr.ptr  as *mut App) };}
 /// (private): Downcasts the `AzAppPtr` to a `Box<App>`. Note that this takes ownership of the pointer.
-#[inline(always)] fn az_app_downcast(ptr: AzAppPtr) -> Box<App> {     unsafe { Box::<App>::from_raw(ptr.ptr  as *mut App) }}
+#[inline(always)] fn az_app_ptr_downcast(ptr: AzAppPtr) -> Box<App> {     unsafe { Box::<App>::from_raw(ptr.ptr  as *mut App) }}
 /// (private): Downcasts the `AzAppPtr` to a `&mut Box<App>` and runs the `func` closure on it
-#[inline(always)] fn az_app_downcast_refmut<P, F: FnOnce(&mut App) -> P>(ptr: &mut AzAppPtr, func: F) -> P {     func(unsafe { &mut *(ptr.ptr as *mut App) })}
+#[inline(always)] fn az_app_ptr_downcast_refmut<P, F: FnOnce(&mut App) -> P>(ptr: &mut AzAppPtr, func: F) -> P {     func(unsafe { &mut *(ptr.ptr as *mut App) })}
 /// (private): Downcasts the `AzAppPtr` to a `&Box<App>` and runs the `func` closure on it
-#[inline(always)] fn az_app_downcast_ref<P, F: FnOnce(&App) -> P>(ptr: &AzAppPtr, func: F) -> P {     func(unsafe { &*(ptr.ptr as *const App) })}
+#[inline(always)] fn az_app_ptr_downcast_ref<P, F: FnOnce(&App) -> P>(ptr: &AzAppPtr, func: F) -> P {     func(unsafe { &*(ptr.ptr as *const App) })}
 /// Creates a string with the debug representation of the object
-#[no_mangle] pub extern "C" fn az_app_fmt_debug(object: &AzAppPtr) -> AzString { format!("{:#?}", object).into() }
+#[no_mangle] pub extern "C" fn az_app_ptr_fmt_debug(object: &AzAppPtr) -> AzString { format!("{:#?}", object).into() }
 
 /// Re-export of rust-allocated (stack based) `LayoutCallback` struct
 pub type AzLayoutCallbackTT = azul_impl::callbacks::LayoutCallback;
@@ -602,6 +608,14 @@ pub type AzCallbackTT = azul_impl::callbacks::Callback;
 #[no_mangle] pub extern "C" fn az_callback_deep_copy(object: &AzCallback) -> AzCallback { object.clone() }
 /// Creates a string with the debug representation of the object
 #[no_mangle] pub extern "C" fn az_callback_fmt_debug(object: &AzCallback) -> AzString { format!("{:#?}", object).into() }
+/// Compares two instances of `AzCallback` for equality
+#[no_mangle] pub extern "C" fn az_callback_partial_eq(a: &AzCallback, b: &AzCallback) -> bool { a.eq(b) }
+/// Compares two instances of `AzCallback` for ordering. Returns 0 for None (equality), 1 on Some(Less), 2 on Some(Equal) and 3 on Some(Greater). 
+#[no_mangle] pub extern "C" fn az_callback_partial_cmp(a: &AzCallback, b: &AzCallback) -> u8 { use std::cmp::Ordering::*;match a.partial_cmp(b) { None => 0, Some(Less) => 1, Some(Equal) => 2, Some(Greater) => 3 } }
+/// Compares two instances of `AzCallback` for full ordering. Returns 0 for Less, 1 for Equal, 2 for Greater. 
+#[no_mangle] pub extern "C" fn az_callback_cmp(a: &AzCallback, b: &AzCallback) -> u8 { use std::cmp::Ordering::*; match a.cmp(b) { Less => 0, Equal => 1, Greater => 2 } }
+/// Returns the hash of a `AzCallback` instance 
+#[no_mangle] pub extern "C" fn az_callback_hash(object: &AzCallback) -> u64 { use std::collections::hash_map::DefaultHasher; use std::hash::{Hash, Hasher}; let mut hasher = DefaultHasher::new(); object.hash(&mut hasher); hasher.finish() }
 
 pub type AzCallbackReturn = AzUpdateScreen;
 /// Callback for responding to window events
@@ -610,15 +624,15 @@ pub type AzCallbackType = fn(AzCallbackInfoPtr) -> AzCallbackReturn;
 pub type AzCallbackInfoPtrTT = azul_impl::callbacks::CallbackInfoPtr;
 #[no_mangle] pub use AzCallbackInfoPtrTT as AzCallbackInfoPtr;
 /// Destructor: Takes ownership of the `CallbackInfo` pointer and deletes it.
-#[no_mangle] pub extern "C" fn az_callback_info_delete<'a>(ptr: &mut AzCallbackInfoPtr) { let _ = unsafe { Box::<CallbackInfo<'a>>::from_raw(ptr.ptr  as *mut CallbackInfo<'a>) };}
+#[no_mangle] pub extern "C" fn az_callback_info_ptr_delete<'a>(ptr: &mut AzCallbackInfoPtr) { let _ = unsafe { Box::<CallbackInfo<'a>>::from_raw(ptr.ptr  as *mut CallbackInfo<'a>) };}
 /// (private): Downcasts the `AzCallbackInfoPtr` to a `Box<CallbackInfo<'a>>`. Note that this takes ownership of the pointer.
-#[inline(always)] fn az_callback_info_downcast<'a>(ptr: AzCallbackInfoPtr) -> Box<CallbackInfo<'a>> {     unsafe { Box::<CallbackInfo<'a>>::from_raw(ptr.ptr  as *mut CallbackInfo<'a>) }}
+#[inline(always)] fn az_callback_info_ptr_downcast<'a>(ptr: AzCallbackInfoPtr) -> Box<CallbackInfo<'a>> {     unsafe { Box::<CallbackInfo<'a>>::from_raw(ptr.ptr  as *mut CallbackInfo<'a>) }}
 /// (private): Downcasts the `AzCallbackInfoPtr` to a `&mut Box<CallbackInfo<'a>>` and runs the `func` closure on it
-#[inline(always)] fn az_callback_info_downcast_refmut<'a, P, F: FnOnce(&mut CallbackInfo<'a>) -> P>(ptr: &mut AzCallbackInfoPtr, func: F) -> P {     func(unsafe { &mut *(ptr.ptr as *mut CallbackInfo<'a>) })}
+#[inline(always)] fn az_callback_info_ptr_downcast_refmut<'a, P, F: FnOnce(&mut CallbackInfo<'a>) -> P>(ptr: &mut AzCallbackInfoPtr, func: F) -> P {     func(unsafe { &mut *(ptr.ptr as *mut CallbackInfo<'a>) })}
 /// (private): Downcasts the `AzCallbackInfoPtr` to a `&Box<CallbackInfo<'a>>` and runs the `func` closure on it
-#[inline(always)] fn az_callback_info_downcast_ref<'a, P, F: FnOnce(&CallbackInfo<'a>) -> P>(ptr: &AzCallbackInfoPtr, func: F) -> P {     func(unsafe { &*(ptr.ptr as *const CallbackInfo<'a>) })}
+#[inline(always)] fn az_callback_info_ptr_downcast_ref<'a, P, F: FnOnce(&CallbackInfo<'a>) -> P>(ptr: &AzCallbackInfoPtr, func: F) -> P {     func(unsafe { &*(ptr.ptr as *const CallbackInfo<'a>) })}
 /// Creates a string with the debug representation of the object
-#[no_mangle] pub extern "C" fn az_callback_info_fmt_debug<'a>(object: &AzCallbackInfoPtr) -> AzString { format!("{:#?}", object).into() }
+#[no_mangle] pub extern "C" fn az_callback_info_ptr_fmt_debug<'a>(object: &AzCallbackInfoPtr) -> AzString { format!("{:#?}", object).into() }
 
 /// Specifies if the screen should be updated after the callback function has returned
 pub type AzUpdateScreenTT = azul_impl::callbacks::UpdateScreen;
@@ -647,17 +661,17 @@ pub type AzIFrameCallbackType = fn(AzIFrameCallbackInfoPtr) -> AzIFrameCallbackR
 pub type AzIFrameCallbackInfoPtrTT = azul_impl::callbacks::IFrameCallbackInfoPtr;
 #[no_mangle] pub use AzIFrameCallbackInfoPtrTT as AzIFrameCallbackInfoPtr;
 /// Returns a copy of the internal `RefAny`
-#[no_mangle] pub extern "C" fn az_i_frame_callback_info_get_state(iframecallbackinfo: &AzIFrameCallbackInfoPtr) -> AzRefAny { az_i_frame_callback_info_downcast_ref(iframecallbackinfo, |ci| ci.state.clone()) }
+#[no_mangle] pub extern "C" fn az_i_frame_callback_info_ptr_get_state(iframecallbackinfo: &AzIFrameCallbackInfoPtr) -> AzRefAny { az_i_frame_callback_info_downcast_ref(iframecallbackinfo, |ci| ci.state.clone()) }
 /// Destructor: Takes ownership of the `IFrameCallbackInfo` pointer and deletes it.
-#[no_mangle] pub extern "C" fn az_i_frame_callback_info_delete<'a>(ptr: &mut AzIFrameCallbackInfoPtr) { let _ = unsafe { Box::<IFrameCallbackInfo<'a>>::from_raw(ptr.ptr  as *mut IFrameCallbackInfo<'a>) };}
+#[no_mangle] pub extern "C" fn az_i_frame_callback_info_ptr_delete<'a>(ptr: &mut AzIFrameCallbackInfoPtr) { let _ = unsafe { Box::<IFrameCallbackInfo<'a>>::from_raw(ptr.ptr  as *mut IFrameCallbackInfo<'a>) };}
 /// (private): Downcasts the `AzIFrameCallbackInfoPtr` to a `Box<IFrameCallbackInfo<'a>>`. Note that this takes ownership of the pointer.
-#[inline(always)] fn az_i_frame_callback_info_downcast<'a>(ptr: AzIFrameCallbackInfoPtr) -> Box<IFrameCallbackInfo<'a>> {     unsafe { Box::<IFrameCallbackInfo<'a>>::from_raw(ptr.ptr  as *mut IFrameCallbackInfo<'a>) }}
+#[inline(always)] fn az_i_frame_callback_info_ptr_downcast<'a>(ptr: AzIFrameCallbackInfoPtr) -> Box<IFrameCallbackInfo<'a>> {     unsafe { Box::<IFrameCallbackInfo<'a>>::from_raw(ptr.ptr  as *mut IFrameCallbackInfo<'a>) }}
 /// (private): Downcasts the `AzIFrameCallbackInfoPtr` to a `&mut Box<IFrameCallbackInfo<'a>>` and runs the `func` closure on it
-#[inline(always)] fn az_i_frame_callback_info_downcast_refmut<'a, P, F: FnOnce(&mut IFrameCallbackInfo<'a>) -> P>(ptr: &mut AzIFrameCallbackInfoPtr, func: F) -> P {     func(unsafe { &mut *(ptr.ptr as *mut IFrameCallbackInfo<'a>) })}
+#[inline(always)] fn az_i_frame_callback_info_ptr_downcast_refmut<'a, P, F: FnOnce(&mut IFrameCallbackInfo<'a>) -> P>(ptr: &mut AzIFrameCallbackInfoPtr, func: F) -> P {     func(unsafe { &mut *(ptr.ptr as *mut IFrameCallbackInfo<'a>) })}
 /// (private): Downcasts the `AzIFrameCallbackInfoPtr` to a `&Box<IFrameCallbackInfo<'a>>` and runs the `func` closure on it
-#[inline(always)] fn az_i_frame_callback_info_downcast_ref<'a, P, F: FnOnce(&IFrameCallbackInfo<'a>) -> P>(ptr: &AzIFrameCallbackInfoPtr, func: F) -> P {     func(unsafe { &*(ptr.ptr as *const IFrameCallbackInfo<'a>) })}
+#[inline(always)] fn az_i_frame_callback_info_ptr_downcast_ref<'a, P, F: FnOnce(&IFrameCallbackInfo<'a>) -> P>(ptr: &AzIFrameCallbackInfoPtr, func: F) -> P {     func(unsafe { &*(ptr.ptr as *const IFrameCallbackInfo<'a>) })}
 /// Creates a string with the debug representation of the object
-#[no_mangle] pub extern "C" fn az_i_frame_callback_info_fmt_debug<'a>(object: &AzIFrameCallbackInfoPtr) -> AzString { format!("{:#?}", object).into() }
+#[no_mangle] pub extern "C" fn az_i_frame_callback_info_ptr_fmt_debug<'a>(object: &AzIFrameCallbackInfoPtr) -> AzString { format!("{:#?}", object).into() }
 
 /// Re-export of rust-allocated (stack based) `IFrameCallbackReturn` struct
 pub type AzIFrameCallbackReturnTT = azul_impl::callbacks::IFrameCallbackReturn;
@@ -685,15 +699,15 @@ pub type AzGlCallbackType = fn(AzGlCallbackInfoPtr) -> AzGlCallbackReturn;
 pub type AzGlCallbackInfoPtrTT = azul_impl::callbacks::GlCallbackInfoPtr;
 #[no_mangle] pub use AzGlCallbackInfoPtrTT as AzGlCallbackInfoPtr;
 /// Destructor: Takes ownership of the `GlCallbackInfo` pointer and deletes it.
-#[no_mangle] pub extern "C" fn az_gl_callback_info_delete<'a>(ptr: &mut AzGlCallbackInfoPtr) { let _ = unsafe { Box::<GlCallbackInfo<'a>>::from_raw(ptr.ptr  as *mut GlCallbackInfo<'a>) };}
+#[no_mangle] pub extern "C" fn az_gl_callback_info_ptr_delete<'a>(ptr: &mut AzGlCallbackInfoPtr) { let _ = unsafe { Box::<GlCallbackInfo<'a>>::from_raw(ptr.ptr  as *mut GlCallbackInfo<'a>) };}
 /// (private): Downcasts the `AzGlCallbackInfoPtr` to a `Box<GlCallbackInfo<'a>>`. Note that this takes ownership of the pointer.
-#[inline(always)] fn az_gl_callback_info_downcast<'a>(ptr: AzGlCallbackInfoPtr) -> Box<GlCallbackInfo<'a>> {     unsafe { Box::<GlCallbackInfo<'a>>::from_raw(ptr.ptr  as *mut GlCallbackInfo<'a>) }}
+#[inline(always)] fn az_gl_callback_info_ptr_downcast<'a>(ptr: AzGlCallbackInfoPtr) -> Box<GlCallbackInfo<'a>> {     unsafe { Box::<GlCallbackInfo<'a>>::from_raw(ptr.ptr  as *mut GlCallbackInfo<'a>) }}
 /// (private): Downcasts the `AzGlCallbackInfoPtr` to a `&mut Box<GlCallbackInfo<'a>>` and runs the `func` closure on it
-#[inline(always)] fn az_gl_callback_info_downcast_refmut<'a, P, F: FnOnce(&mut GlCallbackInfo<'a>) -> P>(ptr: &mut AzGlCallbackInfoPtr, func: F) -> P {     func(unsafe { &mut *(ptr.ptr as *mut GlCallbackInfo<'a>) })}
+#[inline(always)] fn az_gl_callback_info_ptr_downcast_refmut<'a, P, F: FnOnce(&mut GlCallbackInfo<'a>) -> P>(ptr: &mut AzGlCallbackInfoPtr, func: F) -> P {     func(unsafe { &mut *(ptr.ptr as *mut GlCallbackInfo<'a>) })}
 /// (private): Downcasts the `AzGlCallbackInfoPtr` to a `&Box<GlCallbackInfo<'a>>` and runs the `func` closure on it
-#[inline(always)] fn az_gl_callback_info_downcast_ref<'a, P, F: FnOnce(&GlCallbackInfo<'a>) -> P>(ptr: &AzGlCallbackInfoPtr, func: F) -> P {     func(unsafe { &*(ptr.ptr as *const GlCallbackInfo<'a>) })}
+#[inline(always)] fn az_gl_callback_info_ptr_downcast_ref<'a, P, F: FnOnce(&GlCallbackInfo<'a>) -> P>(ptr: &AzGlCallbackInfoPtr, func: F) -> P {     func(unsafe { &*(ptr.ptr as *const GlCallbackInfo<'a>) })}
 /// Creates a string with the debug representation of the object
-#[no_mangle] pub extern "C" fn az_gl_callback_info_fmt_debug<'a>(object: &AzGlCallbackInfoPtr) -> AzString { format!("{:#?}", object).into() }
+#[no_mangle] pub extern "C" fn az_gl_callback_info_ptr_fmt_debug<'a>(object: &AzGlCallbackInfoPtr) -> AzString { format!("{:#?}", object).into() }
 
 /// Re-export of rust-allocated (stack based) `GlCallbackReturn` struct
 pub type AzGlCallbackReturnTT = azul_impl::callbacks::GlCallbackReturn;
@@ -716,29 +730,29 @@ pub type AzTimerCallbackTT = azul_impl::callbacks::TimerCallback;
 /// Pointer to rust-allocated `Box<TimerCallbackType>` struct
 #[no_mangle] #[repr(C)] pub struct AzTimerCallbackTypePtr { ptr: *mut c_void }
 /// Destructor: Takes ownership of the `TimerCallbackType` pointer and deletes it.
-#[no_mangle] pub extern "C" fn az_timer_callback_type_delete(ptr: &mut AzTimerCallbackTypePtr) { let _ = unsafe { Box::<TimerCallbackType>::from_raw(ptr.ptr  as *mut TimerCallbackType) };}
+#[no_mangle] pub extern "C" fn az_timer_callback_type_ptr_delete(ptr: &mut AzTimerCallbackTypePtr) { let _ = unsafe { Box::<TimerCallbackType>::from_raw(ptr.ptr  as *mut TimerCallbackType) };}
 /// (private): Downcasts the `AzTimerCallbackTypePtr` to a `Box<TimerCallbackType>`. Note that this takes ownership of the pointer.
-#[inline(always)] fn az_timer_callback_type_downcast(ptr: AzTimerCallbackTypePtr) -> Box<TimerCallbackType> {     unsafe { Box::<TimerCallbackType>::from_raw(ptr.ptr  as *mut TimerCallbackType) }}
+#[inline(always)] fn az_timer_callback_type_ptr_downcast(ptr: AzTimerCallbackTypePtr) -> Box<TimerCallbackType> {     unsafe { Box::<TimerCallbackType>::from_raw(ptr.ptr  as *mut TimerCallbackType) }}
 /// (private): Downcasts the `AzTimerCallbackTypePtr` to a `&mut Box<TimerCallbackType>` and runs the `func` closure on it
-#[inline(always)] fn az_timer_callback_type_downcast_refmut<P, F: FnOnce(&mut TimerCallbackType) -> P>(ptr: &mut AzTimerCallbackTypePtr, func: F) -> P {     func(unsafe { &mut *(ptr.ptr as *mut TimerCallbackType) })}
+#[inline(always)] fn az_timer_callback_type_ptr_downcast_refmut<P, F: FnOnce(&mut TimerCallbackType) -> P>(ptr: &mut AzTimerCallbackTypePtr, func: F) -> P {     func(unsafe { &mut *(ptr.ptr as *mut TimerCallbackType) })}
 /// (private): Downcasts the `AzTimerCallbackTypePtr` to a `&Box<TimerCallbackType>` and runs the `func` closure on it
-#[inline(always)] fn az_timer_callback_type_downcast_ref<P, F: FnOnce(&TimerCallbackType) -> P>(ptr: &AzTimerCallbackTypePtr, func: F) -> P {     func(unsafe { &*(ptr.ptr as *const TimerCallbackType) })}
+#[inline(always)] fn az_timer_callback_type_ptr_downcast_ref<P, F: FnOnce(&TimerCallbackType) -> P>(ptr: &AzTimerCallbackTypePtr, func: F) -> P {     func(unsafe { &*(ptr.ptr as *const TimerCallbackType) })}
 /// Creates a string with the debug representation of the object
-#[no_mangle] pub extern "C" fn az_timer_callback_type_fmt_debug(object: &AzTimerCallbackTypePtr) -> AzString { format!("{:#?}", object).into() }
+#[no_mangle] pub extern "C" fn az_timer_callback_type_ptr_fmt_debug(object: &AzTimerCallbackTypePtr) -> AzString { format!("{:#?}", object).into() }
 
 /// Pointer to rust-allocated `Box<TimerCallbackInfo>` struct
 pub type AzTimerCallbackInfoPtrTT = azul_impl::callbacks::TimerCallbackInfoPtr;
 #[no_mangle] pub use AzTimerCallbackInfoPtrTT as AzTimerCallbackInfoPtr;
 /// Destructor: Takes ownership of the `TimerCallbackInfo` pointer and deletes it.
-#[no_mangle] pub extern "C" fn az_timer_callback_info_delete<'a>(ptr: &mut AzTimerCallbackInfoPtr) { let _ = unsafe { Box::<azul_impl::callbacks::TimerCallbackInfo<'a>>::from_raw(ptr.ptr  as *mut azul_impl::callbacks::TimerCallbackInfo<'a>) };}
+#[no_mangle] pub extern "C" fn az_timer_callback_info_ptr_delete<'a>(ptr: &mut AzTimerCallbackInfoPtr) { let _ = unsafe { Box::<azul_impl::callbacks::TimerCallbackInfo<'a>>::from_raw(ptr.ptr  as *mut azul_impl::callbacks::TimerCallbackInfo<'a>) };}
 /// (private): Downcasts the `AzTimerCallbackInfoPtr` to a `Box<azul_impl::callbacks::TimerCallbackInfo<'a>>`. Note that this takes ownership of the pointer.
-#[inline(always)] fn az_timer_callback_info_downcast<'a>(ptr: AzTimerCallbackInfoPtr) -> Box<azul_impl::callbacks::TimerCallbackInfo<'a>> {     unsafe { Box::<azul_impl::callbacks::TimerCallbackInfo<'a>>::from_raw(ptr.ptr  as *mut azul_impl::callbacks::TimerCallbackInfo<'a>) }}
+#[inline(always)] fn az_timer_callback_info_ptr_downcast<'a>(ptr: AzTimerCallbackInfoPtr) -> Box<azul_impl::callbacks::TimerCallbackInfo<'a>> {     unsafe { Box::<azul_impl::callbacks::TimerCallbackInfo<'a>>::from_raw(ptr.ptr  as *mut azul_impl::callbacks::TimerCallbackInfo<'a>) }}
 /// (private): Downcasts the `AzTimerCallbackInfoPtr` to a `&mut Box<azul_impl::callbacks::TimerCallbackInfo<'a>>` and runs the `func` closure on it
-#[inline(always)] fn az_timer_callback_info_downcast_refmut<'a, P, F: FnOnce(&mut azul_impl::callbacks::TimerCallbackInfo<'a>) -> P>(ptr: &mut AzTimerCallbackInfoPtr, func: F) -> P {     func(unsafe { &mut *(ptr.ptr as *mut azul_impl::callbacks::TimerCallbackInfo<'a>) })}
+#[inline(always)] fn az_timer_callback_info_ptr_downcast_refmut<'a, P, F: FnOnce(&mut azul_impl::callbacks::TimerCallbackInfo<'a>) -> P>(ptr: &mut AzTimerCallbackInfoPtr, func: F) -> P {     func(unsafe { &mut *(ptr.ptr as *mut azul_impl::callbacks::TimerCallbackInfo<'a>) })}
 /// (private): Downcasts the `AzTimerCallbackInfoPtr` to a `&Box<azul_impl::callbacks::TimerCallbackInfo<'a>>` and runs the `func` closure on it
-#[inline(always)] fn az_timer_callback_info_downcast_ref<'a, P, F: FnOnce(&azul_impl::callbacks::TimerCallbackInfo<'a>) -> P>(ptr: &AzTimerCallbackInfoPtr, func: F) -> P {     func(unsafe { &*(ptr.ptr as *const azul_impl::callbacks::TimerCallbackInfo<'a>) })}
+#[inline(always)] fn az_timer_callback_info_ptr_downcast_ref<'a, P, F: FnOnce(&azul_impl::callbacks::TimerCallbackInfo<'a>) -> P>(ptr: &AzTimerCallbackInfoPtr, func: F) -> P {     func(unsafe { &*(ptr.ptr as *const azul_impl::callbacks::TimerCallbackInfo<'a>) })}
 /// Creates a string with the debug representation of the object
-#[no_mangle] pub extern "C" fn az_timer_callback_info_fmt_debug<'a>(object: &AzTimerCallbackInfoPtr) -> AzString { format!("{:#?}", object).into() }
+#[no_mangle] pub extern "C" fn az_timer_callback_info_ptr_fmt_debug<'a>(object: &AzTimerCallbackInfoPtr) -> AzString { format!("{:#?}", object).into() }
 
 /// Re-export of rust-allocated (stack based) `TimerCallbackReturn` struct
 pub type AzTimerCallbackReturnTT = azul_impl::callbacks::TimerCallbackReturn;
@@ -803,20 +817,28 @@ pub type AzRefAnyTT = azul_impl::callbacks::RefAny;
 #[no_mangle] pub extern "C" fn az_ref_any_deep_copy(object: &AzRefAny) -> AzRefAny { object.clone() }
 /// Creates a string with the debug representation of the object
 #[no_mangle] pub extern "C" fn az_ref_any_fmt_debug(object: &AzRefAny) -> AzString { format!("{:#?}", object).into() }
+/// Compares two instances of `AzRefAny` for equality
+#[no_mangle] pub extern "C" fn az_ref_any_partial_eq(a: &AzRefAny, b: &AzRefAny) -> bool { a.eq(b) }
+/// Compares two instances of `AzRefAny` for ordering. Returns 0 for None (equality), 1 on Some(Less), 2 on Some(Equal) and 3 on Some(Greater). 
+#[no_mangle] pub extern "C" fn az_ref_any_partial_cmp(a: &AzRefAny, b: &AzRefAny) -> u8 { use std::cmp::Ordering::*;match a.partial_cmp(b) { None => 0, Some(Less) => 1, Some(Equal) => 2, Some(Greater) => 3 } }
+/// Compares two instances of `AzRefAny` for full ordering. Returns 0 for Less, 1 for Equal, 2 for Greater. 
+#[no_mangle] pub extern "C" fn az_ref_any_cmp(a: &AzRefAny, b: &AzRefAny) -> u8 { use std::cmp::Ordering::*; match a.cmp(b) { Less => 0, Equal => 1, Greater => 2 } }
+/// Returns the hash of a `AzRefAny` instance 
+#[no_mangle] pub extern "C" fn az_ref_any_hash(object: &AzRefAny) -> u64 { use std::collections::hash_map::DefaultHasher; use std::hash::{Hash, Hasher}; let mut hasher = DefaultHasher::new(); object.hash(&mut hasher); hasher.finish() }
 
 /// Pointer to rust-allocated `Box<LayoutInfo>` struct
 pub type AzLayoutInfoPtrTT = azul_impl::callbacks::LayoutInfoPtr;
 #[no_mangle] pub use AzLayoutInfoPtrTT as AzLayoutInfoPtr;
 /// Destructor: Takes ownership of the `LayoutInfo` pointer and deletes it.
-#[no_mangle] pub extern "C" fn az_layout_info_delete<'a>(ptr: &mut AzLayoutInfoPtr) { let _ = unsafe { Box::<LayoutInfo<'a>>::from_raw(ptr.ptr  as *mut LayoutInfo<'a>) };}
+#[no_mangle] pub extern "C" fn az_layout_info_ptr_delete<'a>(ptr: &mut AzLayoutInfoPtr) { let _ = unsafe { Box::<LayoutInfo<'a>>::from_raw(ptr.ptr  as *mut LayoutInfo<'a>) };}
 /// (private): Downcasts the `AzLayoutInfoPtr` to a `Box<LayoutInfo<'a>>`. Note that this takes ownership of the pointer.
-#[inline(always)] fn az_layout_info_downcast<'a>(ptr: AzLayoutInfoPtr) -> Box<LayoutInfo<'a>> {     unsafe { Box::<LayoutInfo<'a>>::from_raw(ptr.ptr  as *mut LayoutInfo<'a>) }}
+#[inline(always)] fn az_layout_info_ptr_downcast<'a>(ptr: AzLayoutInfoPtr) -> Box<LayoutInfo<'a>> {     unsafe { Box::<LayoutInfo<'a>>::from_raw(ptr.ptr  as *mut LayoutInfo<'a>) }}
 /// (private): Downcasts the `AzLayoutInfoPtr` to a `&mut Box<LayoutInfo<'a>>` and runs the `func` closure on it
-#[inline(always)] fn az_layout_info_downcast_refmut<'a, P, F: FnOnce(&mut LayoutInfo<'a>) -> P>(ptr: &mut AzLayoutInfoPtr, func: F) -> P {     func(unsafe { &mut *(ptr.ptr as *mut LayoutInfo<'a>) })}
+#[inline(always)] fn az_layout_info_ptr_downcast_refmut<'a, P, F: FnOnce(&mut LayoutInfo<'a>) -> P>(ptr: &mut AzLayoutInfoPtr, func: F) -> P {     func(unsafe { &mut *(ptr.ptr as *mut LayoutInfo<'a>) })}
 /// (private): Downcasts the `AzLayoutInfoPtr` to a `&Box<LayoutInfo<'a>>` and runs the `func` closure on it
-#[inline(always)] fn az_layout_info_downcast_ref<'a, P, F: FnOnce(&LayoutInfo<'a>) -> P>(ptr: &AzLayoutInfoPtr, func: F) -> P {     func(unsafe { &*(ptr.ptr as *const LayoutInfo<'a>) })}
+#[inline(always)] fn az_layout_info_ptr_downcast_ref<'a, P, F: FnOnce(&LayoutInfo<'a>) -> P>(ptr: &AzLayoutInfoPtr, func: F) -> P {     func(unsafe { &*(ptr.ptr as *const LayoutInfo<'a>) })}
 /// Creates a string with the debug representation of the object
-#[no_mangle] pub extern "C" fn az_layout_info_fmt_debug<'a>(object: &AzLayoutInfoPtr) -> AzString { format!("{:#?}", object).into() }
+#[no_mangle] pub extern "C" fn az_layout_info_ptr_fmt_debug<'a>(object: &AzLayoutInfoPtr) -> AzString { format!("{:#?}", object).into() }
 
 /// Re-export of rust-allocated (stack based) `CssRuleBlock` struct
 pub type AzCssRuleBlockTT = azul_impl::css::CssRuleBlock;
@@ -3280,10 +3302,10 @@ pub type AzImageIdTT = azul_impl::resources::ImageId;
 #[no_mangle] pub extern "C" fn az_image_id_deep_copy(object: &AzImageId) -> AzImageId { object.clone() }
 /// Creates a string with the debug representation of the object
 #[no_mangle] pub extern "C" fn az_image_id_fmt_debug(object: &AzImageId) -> AzString { format!("{:#?}", object).into() }
-/// Copies the object
-#[no_mangle] pub extern "C" fn az_image_id_copy(object: &AzImageId) -> AzImageId { *object }
 /// Compares two instances of `AzImageId` for equality
-#[no_mangle] pub extern "C" fn az_image_id_partialeq(a: &AzImageId, b: &AzImageId) -> bool { a.eq(b) }
+#[no_mangle] pub extern "C" fn az_image_id_partial_eq(a: &AzImageId, b: &AzImageId) -> bool { a.eq(b) }
+/// Compares two instances of `AzImageId` for ordering. Returns 0 for None (equality), 1 on Some(Less), 2 on Some(Equal) and 3 on Some(Greater). 
+#[no_mangle] pub extern "C" fn az_image_id_partial_cmp(a: &AzImageId, b: &AzImageId) -> u8 { use std::cmp::Ordering::*;match a.partial_cmp(b) { None => 0, Some(Less) => 1, Some(Equal) => 2, Some(Greater) => 3 } }
 /// Compares two instances of `AzImageId` for full ordering. Returns 0 for Less, 1 for Equal, 2 for Greater. 
 #[no_mangle] pub extern "C" fn az_image_id_cmp(a: &AzImageId, b: &AzImageId) -> u8 { use std::cmp::Ordering::*; match a.cmp(b) { Less => 0, Equal => 1, Greater => 2 } }
 /// Returns the hash of a `AzImageId` instance 
@@ -3350,29 +3372,29 @@ pub type AzRawImageFormatTT = azul_impl::resources::RawImageFormat;
 pub type AzDropCheckPtrPtrTT = azul_impl::task::DropCheckPtr;
 #[no_mangle] pub use AzDropCheckPtrPtrTT as AzDropCheckPtrPtr;
 /// Destructor: Takes ownership of the `DropCheckPtr` pointer and deletes it.
-#[no_mangle] pub extern "C" fn az_drop_check_ptr_delete(ptr: &mut AzDropCheckPtrPtr) { let _ = unsafe { Box::<azul_impl::task::DropCheck>::from_raw(ptr.ptr  as *mut azul_impl::task::DropCheck) };}
+#[no_mangle] pub extern "C" fn az_drop_check_ptr_ptr_delete(ptr: &mut AzDropCheckPtrPtr) { let _ = unsafe { Box::<azul_impl::task::DropCheck>::from_raw(ptr.ptr  as *mut azul_impl::task::DropCheck) };}
 /// (private): Downcasts the `AzDropCheckPtrPtr` to a `Box<azul_impl::task::DropCheck>`. Note that this takes ownership of the pointer.
-#[inline(always)] fn az_drop_check_ptr_downcast(ptr: AzDropCheckPtrPtr) -> Box<azul_impl::task::DropCheck> {     unsafe { Box::<azul_impl::task::DropCheck>::from_raw(ptr.ptr  as *mut azul_impl::task::DropCheck) }}
+#[inline(always)] fn az_drop_check_ptr_ptr_downcast(ptr: AzDropCheckPtrPtr) -> Box<azul_impl::task::DropCheck> {     unsafe { Box::<azul_impl::task::DropCheck>::from_raw(ptr.ptr  as *mut azul_impl::task::DropCheck) }}
 /// (private): Downcasts the `AzDropCheckPtrPtr` to a `&mut Box<azul_impl::task::DropCheck>` and runs the `func` closure on it
-#[inline(always)] fn az_drop_check_ptr_downcast_refmut<P, F: FnOnce(&mut azul_impl::task::DropCheck) -> P>(ptr: &mut AzDropCheckPtrPtr, func: F) -> P {     func(unsafe { &mut *(ptr.ptr as *mut azul_impl::task::DropCheck) })}
+#[inline(always)] fn az_drop_check_ptr_ptr_downcast_refmut<P, F: FnOnce(&mut azul_impl::task::DropCheck) -> P>(ptr: &mut AzDropCheckPtrPtr, func: F) -> P {     func(unsafe { &mut *(ptr.ptr as *mut azul_impl::task::DropCheck) })}
 /// (private): Downcasts the `AzDropCheckPtrPtr` to a `&Box<azul_impl::task::DropCheck>` and runs the `func` closure on it
-#[inline(always)] fn az_drop_check_ptr_downcast_ref<P, F: FnOnce(&azul_impl::task::DropCheck) -> P>(ptr: &AzDropCheckPtrPtr, func: F) -> P {     func(unsafe { &*(ptr.ptr as *const azul_impl::task::DropCheck) })}
+#[inline(always)] fn az_drop_check_ptr_ptr_downcast_ref<P, F: FnOnce(&azul_impl::task::DropCheck) -> P>(ptr: &AzDropCheckPtrPtr, func: F) -> P {     func(unsafe { &*(ptr.ptr as *const azul_impl::task::DropCheck) })}
 /// Creates a string with the debug representation of the object
-#[no_mangle] pub extern "C" fn az_drop_check_ptr_fmt_debug(object: &AzDropCheckPtrPtr) -> AzString { format!("{:#?}", object).into() }
+#[no_mangle] pub extern "C" fn az_drop_check_ptr_ptr_fmt_debug(object: &AzDropCheckPtrPtr) -> AzString { format!("{:#?}", object).into() }
 
 /// Pointer to rust-allocated `Box<ArcMutexRefAny>` struct
 pub type AzArcMutexRefAnyPtrTT = azul_impl::task::ArcMutexRefAnyPtr;
 #[no_mangle] pub use AzArcMutexRefAnyPtrTT as AzArcMutexRefAnyPtr;
 /// Destructor: Takes ownership of the `ArcMutexRefAny` pointer and deletes it.
-#[no_mangle] pub extern "C" fn az_arc_mutex_ref_any_delete(ptr: &mut AzArcMutexRefAnyPtr) { let _ = unsafe { Box::<std::sync::Arc<std::sync::Mutex<RefAny>>>::from_raw(ptr.ptr  as *mut std::sync::Arc<std::sync::Mutex<RefAny>>) };}
+#[no_mangle] pub extern "C" fn az_arc_mutex_ref_any_ptr_delete(ptr: &mut AzArcMutexRefAnyPtr) { let _ = unsafe { Box::<std::sync::Arc<std::sync::Mutex<RefAny>>>::from_raw(ptr.ptr  as *mut std::sync::Arc<std::sync::Mutex<RefAny>>) };}
 /// (private): Downcasts the `AzArcMutexRefAnyPtr` to a `Box<std::sync::Arc<std::sync::Mutex<RefAny>>>`. Note that this takes ownership of the pointer.
-#[inline(always)] fn az_arc_mutex_ref_any_downcast(ptr: AzArcMutexRefAnyPtr) -> Box<std::sync::Arc<std::sync::Mutex<RefAny>>> {     unsafe { Box::<std::sync::Arc<std::sync::Mutex<RefAny>>>::from_raw(ptr.ptr  as *mut std::sync::Arc<std::sync::Mutex<RefAny>>) }}
+#[inline(always)] fn az_arc_mutex_ref_any_ptr_downcast(ptr: AzArcMutexRefAnyPtr) -> Box<std::sync::Arc<std::sync::Mutex<RefAny>>> {     unsafe { Box::<std::sync::Arc<std::sync::Mutex<RefAny>>>::from_raw(ptr.ptr  as *mut std::sync::Arc<std::sync::Mutex<RefAny>>) }}
 /// (private): Downcasts the `AzArcMutexRefAnyPtr` to a `&mut Box<std::sync::Arc<std::sync::Mutex<RefAny>>>` and runs the `func` closure on it
-#[inline(always)] fn az_arc_mutex_ref_any_downcast_refmut<P, F: FnOnce(&mut std::sync::Arc<std::sync::Mutex<RefAny>>) -> P>(ptr: &mut AzArcMutexRefAnyPtr, func: F) -> P {     func(unsafe { &mut *(ptr.ptr as *mut std::sync::Arc<std::sync::Mutex<RefAny>>) })}
+#[inline(always)] fn az_arc_mutex_ref_any_ptr_downcast_refmut<P, F: FnOnce(&mut std::sync::Arc<std::sync::Mutex<RefAny>>) -> P>(ptr: &mut AzArcMutexRefAnyPtr, func: F) -> P {     func(unsafe { &mut *(ptr.ptr as *mut std::sync::Arc<std::sync::Mutex<RefAny>>) })}
 /// (private): Downcasts the `AzArcMutexRefAnyPtr` to a `&Box<std::sync::Arc<std::sync::Mutex<RefAny>>>` and runs the `func` closure on it
-#[inline(always)] fn az_arc_mutex_ref_any_downcast_ref<P, F: FnOnce(&std::sync::Arc<std::sync::Mutex<RefAny>>) -> P>(ptr: &AzArcMutexRefAnyPtr, func: F) -> P {     func(unsafe { &*(ptr.ptr as *const std::sync::Arc<std::sync::Mutex<RefAny>>) })}
+#[inline(always)] fn az_arc_mutex_ref_any_ptr_downcast_ref<P, F: FnOnce(&std::sync::Arc<std::sync::Mutex<RefAny>>) -> P>(ptr: &AzArcMutexRefAnyPtr, func: F) -> P {     func(unsafe { &*(ptr.ptr as *const std::sync::Arc<std::sync::Mutex<RefAny>>) })}
 /// Creates a string with the debug representation of the object
-#[no_mangle] pub extern "C" fn az_arc_mutex_ref_any_fmt_debug(object: &AzArcMutexRefAnyPtr) -> AzString { format!("{:#?}", object).into() }
+#[no_mangle] pub extern "C" fn az_arc_mutex_ref_any_ptr_fmt_debug(object: &AzArcMutexRefAnyPtr) -> AzString { format!("{:#?}", object).into() }
 
 /// Re-export of rust-allocated (stack based) `Timer` struct
 pub type AzTimerTT = azul_impl::task::Timer;
@@ -3387,50 +3409,50 @@ pub type AzTimerTT = azul_impl::task::Timer;
 /// Pointer to rust-allocated `Box<Task>` struct
 #[no_mangle] #[repr(C)] pub struct AzTaskPtr { pub ptr: *mut c_void }
 /// Creates and starts a new `Task`
-#[no_mangle] pub extern "C" fn az_task_new(data: AzArcMutexRefAnyPtr, callback: AzTaskCallbackType) -> AzTaskPtr { let object: Task = azul_impl::task::Task::new(data, callback); AzTaskPtr { ptr: Box::into_raw(Box::new(object)) as *mut c_void } }
+#[no_mangle] pub extern "C" fn az_task_ptr_new(data: AzArcMutexRefAnyPtr, callback: AzTaskCallbackType) -> AzTaskPtr { let object: Task = azul_impl::task::Task::new(data, callback); AzTaskPtr { ptr: Box::into_raw(Box::new(object)) as *mut c_void } }
 /// Creates and starts a new `Task`
-#[no_mangle] pub extern "C" fn az_task_then(task: AzTaskPtr, timer: AzTimer) -> AzTaskPtr { AzTaskPtr { ptr: Box::into_raw(Box::new(az_task_downcast(task).then(timer))) as *mut c_void } }
+#[no_mangle] pub extern "C" fn az_task_ptr_then(task: AzTaskPtr, timer: AzTimer) -> AzTaskPtr { AzTaskPtr { ptr: Box::into_raw(Box::new(az_task_downcast(task).then(timer))) as *mut c_void } }
 /// Destructor: Takes ownership of the `Task` pointer and deletes it.
-#[no_mangle] pub extern "C" fn az_task_delete(ptr: &mut AzTaskPtr) { let _ = unsafe { Box::<Task>::from_raw(ptr.ptr  as *mut Task) };}
+#[no_mangle] pub extern "C" fn az_task_ptr_delete(ptr: &mut AzTaskPtr) { let _ = unsafe { Box::<Task>::from_raw(ptr.ptr  as *mut Task) };}
 /// (private): Downcasts the `AzTaskPtr` to a `Box<Task>`. Note that this takes ownership of the pointer.
-#[inline(always)] fn az_task_downcast(ptr: AzTaskPtr) -> Box<Task> {     unsafe { Box::<Task>::from_raw(ptr.ptr  as *mut Task) }}
+#[inline(always)] fn az_task_ptr_downcast(ptr: AzTaskPtr) -> Box<Task> {     unsafe { Box::<Task>::from_raw(ptr.ptr  as *mut Task) }}
 /// (private): Downcasts the `AzTaskPtr` to a `&mut Box<Task>` and runs the `func` closure on it
-#[inline(always)] fn az_task_downcast_refmut<P, F: FnOnce(&mut Task) -> P>(ptr: &mut AzTaskPtr, func: F) -> P {     func(unsafe { &mut *(ptr.ptr as *mut Task) })}
+#[inline(always)] fn az_task_ptr_downcast_refmut<P, F: FnOnce(&mut Task) -> P>(ptr: &mut AzTaskPtr, func: F) -> P {     func(unsafe { &mut *(ptr.ptr as *mut Task) })}
 /// (private): Downcasts the `AzTaskPtr` to a `&Box<Task>` and runs the `func` closure on it
-#[inline(always)] fn az_task_downcast_ref<P, F: FnOnce(&Task) -> P>(ptr: &AzTaskPtr, func: F) -> P {     func(unsafe { &*(ptr.ptr as *const Task) })}
+#[inline(always)] fn az_task_ptr_downcast_ref<P, F: FnOnce(&Task) -> P>(ptr: &AzTaskPtr, func: F) -> P {     func(unsafe { &*(ptr.ptr as *const Task) })}
 /// Creates a string with the debug representation of the object
-#[no_mangle] pub extern "C" fn az_task_fmt_debug(object: &AzTaskPtr) -> AzString { format!("{:#?}", object).into() }
+#[no_mangle] pub extern "C" fn az_task_ptr_fmt_debug(object: &AzTaskPtr) -> AzString { format!("{:#?}", object).into() }
 
 /// Pointer to rust-allocated `Box<Thread>` struct
 #[no_mangle] #[repr(C)] pub struct AzThreadPtr { pub ptr: *mut c_void }
 /// Creates and starts a new thread that calls the `callback` on the `data`.
-#[no_mangle] pub extern "C" fn az_thread_new(data: AzRefAny, callback: AzThreadCallbackType) -> AzThreadPtr { let object: Thread = Thread::new(data, callback); AzThreadPtr { ptr: Box::into_raw(Box::new(object)) as *mut c_void } }
+#[no_mangle] pub extern "C" fn az_thread_ptr_new(data: AzRefAny, callback: AzThreadCallbackType) -> AzThreadPtr { let object: Thread = Thread::new(data, callback); AzThreadPtr { ptr: Box::into_raw(Box::new(object)) as *mut c_void } }
 /// Blocks until the internal thread has finished and returns the result of the operation
-#[no_mangle] pub extern "C" fn az_thread_block(thread: AzThreadPtr) -> AzResultRefAnyBlockError { (*az_thread_downcast(thread)).block() }
+#[no_mangle] pub extern "C" fn az_thread_ptr_block(thread: AzThreadPtr) -> AzResultRefAnyBlockError { (*az_thread_downcast(thread)).block() }
 /// Destructor: Takes ownership of the `Thread` pointer and deletes it.
-#[no_mangle] pub extern "C" fn az_thread_delete(ptr: &mut AzThreadPtr) { let _ = unsafe { Box::<Thread>::from_raw(ptr.ptr  as *mut Thread) };}
+#[no_mangle] pub extern "C" fn az_thread_ptr_delete(ptr: &mut AzThreadPtr) { let _ = unsafe { Box::<Thread>::from_raw(ptr.ptr  as *mut Thread) };}
 /// (private): Downcasts the `AzThreadPtr` to a `Box<Thread>`. Note that this takes ownership of the pointer.
-#[inline(always)] fn az_thread_downcast(ptr: AzThreadPtr) -> Box<Thread> {     unsafe { Box::<Thread>::from_raw(ptr.ptr  as *mut Thread) }}
+#[inline(always)] fn az_thread_ptr_downcast(ptr: AzThreadPtr) -> Box<Thread> {     unsafe { Box::<Thread>::from_raw(ptr.ptr  as *mut Thread) }}
 /// (private): Downcasts the `AzThreadPtr` to a `&mut Box<Thread>` and runs the `func` closure on it
-#[inline(always)] fn az_thread_downcast_refmut<P, F: FnOnce(&mut Thread) -> P>(ptr: &mut AzThreadPtr, func: F) -> P {     func(unsafe { &mut *(ptr.ptr as *mut Thread) })}
+#[inline(always)] fn az_thread_ptr_downcast_refmut<P, F: FnOnce(&mut Thread) -> P>(ptr: &mut AzThreadPtr, func: F) -> P {     func(unsafe { &mut *(ptr.ptr as *mut Thread) })}
 /// (private): Downcasts the `AzThreadPtr` to a `&Box<Thread>` and runs the `func` closure on it
-#[inline(always)] fn az_thread_downcast_ref<P, F: FnOnce(&Thread) -> P>(ptr: &AzThreadPtr, func: F) -> P {     func(unsafe { &*(ptr.ptr as *const Thread) })}
+#[inline(always)] fn az_thread_ptr_downcast_ref<P, F: FnOnce(&Thread) -> P>(ptr: &AzThreadPtr, func: F) -> P {     func(unsafe { &*(ptr.ptr as *const Thread) })}
 /// Creates a string with the debug representation of the object
-#[no_mangle] pub extern "C" fn az_thread_fmt_debug(object: &AzThreadPtr) -> AzString { format!("{:#?}", object).into() }
+#[no_mangle] pub extern "C" fn az_thread_ptr_fmt_debug(object: &AzThreadPtr) -> AzString { format!("{:#?}", object).into() }
 
 /// Pointer to rust-allocated `Box<DropCheck>` struct
 pub type AzDropCheckPtrTT = azul_impl::task::DropCheckPtr;
 #[no_mangle] pub use AzDropCheckPtrTT as AzDropCheckPtr;
 /// Destructor: Takes ownership of the `DropCheck` pointer and deletes it.
-#[no_mangle] pub extern "C" fn az_drop_check_delete(ptr: &mut AzDropCheckPtr) { let _ = unsafe { Box::<DropCheck>::from_raw(ptr.ptr  as *mut DropCheck) };}
+#[no_mangle] pub extern "C" fn az_drop_check_ptr_delete(ptr: &mut AzDropCheckPtr) { let _ = unsafe { Box::<DropCheck>::from_raw(ptr.ptr  as *mut DropCheck) };}
 /// (private): Downcasts the `AzDropCheckPtr` to a `Box<DropCheck>`. Note that this takes ownership of the pointer.
-#[inline(always)] fn az_drop_check_downcast(ptr: AzDropCheckPtr) -> Box<DropCheck> {     unsafe { Box::<DropCheck>::from_raw(ptr.ptr  as *mut DropCheck) }}
+#[inline(always)] fn az_drop_check_ptr_downcast(ptr: AzDropCheckPtr) -> Box<DropCheck> {     unsafe { Box::<DropCheck>::from_raw(ptr.ptr  as *mut DropCheck) }}
 /// (private): Downcasts the `AzDropCheckPtr` to a `&mut Box<DropCheck>` and runs the `func` closure on it
-#[inline(always)] fn az_drop_check_downcast_refmut<P, F: FnOnce(&mut DropCheck) -> P>(ptr: &mut AzDropCheckPtr, func: F) -> P {     func(unsafe { &mut *(ptr.ptr as *mut DropCheck) })}
+#[inline(always)] fn az_drop_check_ptr_downcast_refmut<P, F: FnOnce(&mut DropCheck) -> P>(ptr: &mut AzDropCheckPtr, func: F) -> P {     func(unsafe { &mut *(ptr.ptr as *mut DropCheck) })}
 /// (private): Downcasts the `AzDropCheckPtr` to a `&Box<DropCheck>` and runs the `func` closure on it
-#[inline(always)] fn az_drop_check_downcast_ref<P, F: FnOnce(&DropCheck) -> P>(ptr: &AzDropCheckPtr, func: F) -> P {     func(unsafe { &*(ptr.ptr as *const DropCheck) })}
+#[inline(always)] fn az_drop_check_ptr_downcast_ref<P, F: FnOnce(&DropCheck) -> P>(ptr: &AzDropCheckPtr, func: F) -> P {     func(unsafe { &*(ptr.ptr as *const DropCheck) })}
 /// Creates a string with the debug representation of the object
-#[no_mangle] pub extern "C" fn az_drop_check_fmt_debug(object: &AzDropCheckPtr) -> AzString { format!("{:#?}", object).into() }
+#[no_mangle] pub extern "C" fn az_drop_check_ptr_fmt_debug(object: &AzDropCheckPtr) -> AzString { format!("{:#?}", object).into() }
 
 /// Re-export of rust-allocated (stack based) `TimerId` struct
 pub type AzTimerIdTT = azul_impl::task::TimerId;
@@ -3494,6 +3516,14 @@ pub type AzPhysicalPositionI32TT = azul_impl::window::PhysicalPosition<i32>;
 #[no_mangle] pub extern "C" fn az_physical_position_i32_deep_copy(object: &AzPhysicalPositionI32) -> AzPhysicalPositionI32 { object.clone() }
 /// Creates a string with the debug representation of the object
 #[no_mangle] pub extern "C" fn az_physical_position_i32_fmt_debug(object: &AzPhysicalPositionI32) -> AzString { format!("{:#?}", object).into() }
+/// Compares two instances of `AzPhysicalPositionI32` for equality
+#[no_mangle] pub extern "C" fn az_physical_position_i32_partial_eq(a: &AzPhysicalPositionI32, b: &AzPhysicalPositionI32) -> bool { a.eq(b) }
+/// Compares two instances of `AzPhysicalPositionI32` for ordering. Returns 0 for None (equality), 1 on Some(Less), 2 on Some(Equal) and 3 on Some(Greater). 
+#[no_mangle] pub extern "C" fn az_physical_position_i32_partial_cmp(a: &AzPhysicalPositionI32, b: &AzPhysicalPositionI32) -> u8 { use std::cmp::Ordering::*;match a.partial_cmp(b) { None => 0, Some(Less) => 1, Some(Equal) => 2, Some(Greater) => 3 } }
+/// Compares two instances of `AzPhysicalPositionI32` for full ordering. Returns 0 for Less, 1 for Equal, 2 for Greater. 
+#[no_mangle] pub extern "C" fn az_physical_position_i32_cmp(a: &AzPhysicalPositionI32, b: &AzPhysicalPositionI32) -> u8 { use std::cmp::Ordering::*; match a.cmp(b) { Less => 0, Equal => 1, Greater => 2 } }
+/// Returns the hash of a `AzPhysicalPositionI32` instance 
+#[no_mangle] pub extern "C" fn az_physical_position_i32_hash(object: &AzPhysicalPositionI32) -> u64 { use std::collections::hash_map::DefaultHasher; use std::hash::{Hash, Hasher}; let mut hasher = DefaultHasher::new(); object.hash(&mut hasher); hasher.finish() }
 
 /// Re-export of rust-allocated (stack based) `LogicalPosition` struct
 pub type AzLogicalPositionTT = azul_impl::window::LogicalPosition;

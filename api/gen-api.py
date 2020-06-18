@@ -460,6 +460,10 @@ def generate_rust_dll(apiData):
             if "clone" in c.keys():
                 class_can_be_cloned = c["clone"]
 
+            struct_derive = []
+            if "derive" in c.keys():
+                struct_derive = c["derive"]
+
             class_can_be_copied = "derive" in c.keys() and "Copy" in c["derive"]
             class_has_partialeq = "derive" in c.keys() and "PartialEq" in c["derive"]
             class_has_eq = "derive" in c.keys()and "Eq" in c["derive"]
@@ -497,7 +501,7 @@ def generate_rust_dll(apiData):
                 elif class_is_typedef:
                     code += "#[no_mangle] pub type " + class_ptr_name + " = " + external_path + ";\r\n"
                 elif class_is_boxed_object:
-                    structs_map[class_ptr_name] = {"doc": struct_doc, "struct": [{"ptr": {"type": "*mut c_void" }}]}
+                    structs_map[class_ptr_name] = {"derive": struct_derive, "doc": struct_doc, "struct": [{"ptr": {"type": "*mut c_void" }}]}
                     if treat_external_as_ptr:
                         code += "pub type " + class_ptr_name + "TT = " + external_path + ";\r\n"
                         code += "#[no_mangle] pub use " + class_ptr_name + "TT as " + class_ptr_name + ";\r\n"
@@ -505,15 +509,15 @@ def generate_rust_dll(apiData):
                         code += "#[no_mangle] #[repr(C)] pub struct " + class_ptr_name + " { pub ptr: *mut c_void }\r\n"
                 else:
                     if "struct_fields" in c.keys():
-                        structs_map[class_ptr_name] = {"doc": struct_doc, "struct": c["struct_fields"]}
+                        structs_map[class_ptr_name] = {"derive": struct_derive, "doc": struct_doc, "struct": c["struct_fields"]}
                     elif "enum_fields" in c.keys():
-                        structs_map[class_ptr_name] = {"doc": struct_doc, "enum": c["enum_fields"]}
+                        structs_map[class_ptr_name] = {"derive": struct_derive, "doc": struct_doc, "enum": c["enum_fields"]}
 
                     code += "pub type " + class_ptr_name + "TT = " + external_path + ";\r\n"
                     code += "#[no_mangle] pub use " + class_ptr_name + "TT as " + class_ptr_name + ";\r\n"
 
             else:
-                structs_map[class_ptr_name] = {"doc": struct_doc, "struct": [{"ptr": {"type": "*mut c_void"}}]}
+                structs_map[class_ptr_name] = {"derive": struct_derive, "doc": struct_doc, "struct": [{"ptr": {"type": "*mut c_void"}}]}
                 code += "#[no_mangle] #[repr(C)] pub struct " + class_ptr_name + " { ptr: *mut c_void }\r\n"
 
             if "constructors" in c.keys():
@@ -542,8 +546,8 @@ def generate_rust_dll(apiData):
 
                     fn_args = fn_args_c_api(const, class_name, class_ptr_name, False, apiData)
 
-                    functions_map[str(fn_prefix + to_snake_case(class_name) + "_" + fn_name)] = [fn_args, class_ptr_name];
-                    code += "#[no_mangle] pub extern \"C\" fn " + fn_prefix + to_snake_case(class_name) + "_" + fn_name + "(" + fn_args + ") -> " + class_ptr_name + " { "
+                    functions_map[str(to_snake_case(class_ptr_name) + "_" + fn_name)] = [fn_args, class_ptr_name];
+                    code += "#[no_mangle] pub extern \"C\" fn " + to_snake_case(class_ptr_name) + "_" + fn_name + "(" + fn_args + ") -> " + class_ptr_name + " { "
                     code += fn_body
                     code += " }\r\n"
 
@@ -582,9 +586,9 @@ def generate_rust_dll(apiData):
                             else:
                                 returns = analyzed_return_type[0] + prefix + return_type_class[1] + postfix + analyzed_return_type[2]
 
-                    functions_map[str(fn_prefix + to_snake_case(class_name) + "_" + fn_name)] = [fn_args, returns];
+                    functions_map[str(to_snake_case(class_ptr_name) + "_" + fn_name)] = [fn_args, returns];
                     return_arrow = "" if returns == "" else " -> "
-                    code += "#[no_mangle] pub extern \"C\" fn " + fn_prefix + to_snake_case(class_name) + "_" + fn_name + "(" + fn_args + ")" + return_arrow + returns + " { "
+                    code += "#[no_mangle] pub extern \"C\" fn " + to_snake_case(class_ptr_name) + "_" + fn_name + "(" + fn_args + ")" + return_arrow + returns + " { "
                     code += fn_body
                     code += " }\r\n"
 
@@ -611,28 +615,28 @@ def generate_rust_dll(apiData):
 
                     # az_item_delete()
                     code += "/// Destructor: Takes ownership of the `" + class_name + "` pointer and deletes it.\r\n"
-                    functions_map[str(fn_prefix + to_snake_case(class_name) + "_delete")] = ["object: &mut " + class_ptr_name, ""];
-                    code += "#[no_mangle] #[allow(unused_variables)] pub extern \"C\" fn " + fn_prefix + to_snake_case(class_name) + "_delete" + lifetime + "(object: &mut " + class_ptr_name + ") { " + stack_delete_body + "}\r\n"
+                    functions_map[str(to_snake_case(class_ptr_name) + "_delete")] = ["object: &mut " + class_ptr_name, ""];
+                    code += "#[no_mangle] #[allow(unused_variables)] pub extern \"C\" fn " + to_snake_case(class_ptr_name) + "_delete" + lifetime + "(object: &mut " + class_ptr_name + ") { " + stack_delete_body + "}\r\n"
 
                     if class_can_be_cloned and lifetime == "":
                         # az_item_deep_copy()
                         code += "/// Clones the object\r\n"
-                        functions_map[str(fn_prefix + to_snake_case(class_name) + "_deep_copy")] = ["object: &" + class_ptr_name, class_ptr_name];
-                        code += "#[no_mangle] pub extern \"C\" fn " + fn_prefix + to_snake_case(class_name) + "_deep_copy" + lifetime + "(object: &" + class_ptr_name + ") -> " + class_ptr_name + " { "
+                        functions_map[str(to_snake_case(class_ptr_name) + "_deep_copy")] = ["object: &" + class_ptr_name, class_ptr_name];
+                        code += "#[no_mangle] pub extern \"C\" fn " + to_snake_case(class_ptr_name) + "_deep_copy" + lifetime + "(object: &" + class_ptr_name + ") -> " + class_ptr_name + " { "
                         code += "object.clone()"
                         code += " }\r\n"
 
             else:
                 # az_item_delete()
                 code += "/// Destructor: Takes ownership of the `" + class_name + "` pointer and deletes it.\r\n"
-                functions_map[str(fn_prefix + to_snake_case(class_name) + "_delete")] = ["ptr: &mut " + class_ptr_name, ""];
-                code += "#[no_mangle] pub extern \"C\" fn " + fn_prefix + to_snake_case(class_name) + "_delete" + lifetime + "(ptr: &mut " + class_ptr_name + ") { "
+                functions_map[str(to_snake_case(class_ptr_name) + "_delete")] = ["ptr: &mut " + class_ptr_name, ""];
+                code += "#[no_mangle] pub extern \"C\" fn " + to_snake_case(class_ptr_name) + "_delete" + lifetime + "(ptr: &mut " + class_ptr_name + ") { "
                 code += "let _ = unsafe { Box::<" + rust_class_name + ">::from_raw(ptr.ptr  as *mut " + rust_class_name + ") };"
                 code += "}\r\n"
 
                 # az_item_downcast()
                 code += "/// (private): Downcasts the `" + class_ptr_name + "` to a `Box<" + rust_class_name + ">`. Note that this takes ownership of the pointer.\r\n"
-                code += "#[inline(always)] fn " + fn_prefix + to_snake_case(class_name) + "_downcast" + lifetime + "(ptr: " + class_ptr_name + ") -> Box<" + rust_class_name + "> { "
+                code += "#[inline(always)] fn " + to_snake_case(class_ptr_name) + "_downcast" + lifetime + "(ptr: " + class_ptr_name + ") -> Box<" + rust_class_name + "> { "
                 code += "    unsafe { Box::<" + rust_class_name + ">::from_raw(ptr.ptr  as *mut " + rust_class_name + ") }"
                 code += "}\r\n"
 
@@ -641,7 +645,7 @@ def generate_rust_dll(apiData):
                 if lifetime == "<'a>":
                     downcast_refmut_generics = "<'a, P, F: FnOnce(&mut " + rust_class_name + ") -> P>"
                 code += "/// (private): Downcasts the `" + class_ptr_name + "` to a `&mut Box<" + rust_class_name + ">` and runs the `func` closure on it\r\n"
-                code += "#[inline(always)] fn " + fn_prefix + to_snake_case(class_name) + "_downcast_refmut" + downcast_refmut_generics + "(ptr: &mut " + class_ptr_name + ", func: F) -> P { "
+                code += "#[inline(always)] fn " + to_snake_case(class_ptr_name) + "_downcast_refmut" + downcast_refmut_generics + "(ptr: &mut " + class_ptr_name + ", func: F) -> P { "
                 code += "    func(unsafe { &mut *(ptr.ptr as *mut " + rust_class_name + ") })"
                 code += "}\r\n"
 
@@ -650,38 +654,30 @@ def generate_rust_dll(apiData):
                 if lifetime == "<'a>":
                     downcast_ref_generics = "<'a, P, F: FnOnce(&" + rust_class_name + ") -> P>"
                 code += "/// (private): Downcasts the `" + class_ptr_name + "` to a `&Box<" + rust_class_name + ">` and runs the `func` closure on it\r\n"
-                code += "#[inline(always)] fn " + fn_prefix + to_snake_case(class_name) + "_downcast_ref" + downcast_ref_generics + "(ptr: &" + class_ptr_name + ", func: F) -> P { "
+                code += "#[inline(always)] fn " + to_snake_case(class_ptr_name) + "_downcast_ref" + downcast_ref_generics + "(ptr: &" + class_ptr_name + ", func: F) -> P { "
                 code += "    func(unsafe { &*(ptr.ptr as *const " + rust_class_name + ") })"
                 code += "}\r\n"
 
             # az_item_fmt_debug()
             code += "/// Creates a string with the debug representation of the object\r\n"
-            functions_map[str(fn_prefix + to_snake_case(class_name) + "_fmt_debug")] = ["object: &" + class_ptr_name, "AzString"];
-            code += "#[no_mangle] pub extern \"C\" fn " + fn_prefix + to_snake_case(class_name) + "_fmt_debug" + lifetime + "(object: &" + class_ptr_name + ") -> AzString { "
+            functions_map[str(to_snake_case(class_ptr_name) + "_fmt_debug")] = ["object: &" + class_ptr_name, "AzString"];
+            code += "#[no_mangle] pub extern \"C\" fn " + to_snake_case(class_ptr_name) + "_fmt_debug" + lifetime + "(object: &" + class_ptr_name + ") -> AzString { "
             code += "format!(\"{:#?}\", object).into()"
             code += " }\r\n"
-
-            if class_can_be_copied and lifetime == "":
-                # az_item_copy()
-                code += "/// Copies the object\r\n"
-                functions_map[str(fn_prefix + to_snake_case(class_name) + "_copy")] = ["object: &" + class_ptr_name, class_ptr_name];
-                code += "#[no_mangle] pub extern \"C\" fn " + fn_prefix + to_snake_case(class_name) + "_copy" + lifetime + "(object: &" + class_ptr_name + ") -> " + class_ptr_name + " { "
-                code += "*object"
-                code += " }\r\n"
 
             if class_has_partialeq:
                 # az_item_copy()
                 code += "/// Compares two instances of `" + class_ptr_name + "` for equality\r\n"
-                functions_map[str(fn_prefix + to_snake_case(class_name) + "_partialeq")] = ["a: &" + class_ptr_name + ", b: &" + class_ptr_name, "bool"];
-                code += "#[no_mangle] pub extern \"C\" fn " + fn_prefix + to_snake_case(class_name) + "_partialeq" + lifetime + "(a: &" + class_ptr_name + ", b: &" + class_ptr_name + ") -> bool { "
+                functions_map[str(to_snake_case(class_ptr_name) + "_partial_eq")] = ["a: &" + class_ptr_name + ", b: &" + class_ptr_name, "bool"];
+                code += "#[no_mangle] pub extern \"C\" fn " + to_snake_case(class_ptr_name) + "_partial_eq" + lifetime + "(a: &" + class_ptr_name + ", b: &" + class_ptr_name + ") -> bool { "
                 code += "a.eq(b) "
                 code += "}\r\n"
 
             if class_has_partialord:
                 # az_item_partialcmp()
                 code += "/// Compares two instances of `" + class_ptr_name + "` for ordering. Returns 0 for None (equality), 1 on Some(Less), 2 on Some(Equal) and 3 on Some(Greater). \r\n"
-                functions_map[str(fn_prefix + to_snake_case(class_name) + "_partialcmp")] = ["a: &" + class_ptr_name + ", b: &" + class_ptr_name, "u8"];
-                code += "#[no_mangle] pub extern \"C\" fn " + fn_prefix + to_snake_case(class_name) + "_partialcmp" + lifetime + "(a: &" + class_ptr_name + ", b: &" + class_ptr_name + ") -> u8 { "
+                functions_map[str(to_snake_case(class_ptr_name) + "_partial_cmp")] = ["a: &" + class_ptr_name + ", b: &" + class_ptr_name, "u8"];
+                code += "#[no_mangle] pub extern \"C\" fn " + to_snake_case(class_ptr_name) + "_partial_cmp" + lifetime + "(a: &" + class_ptr_name + ", b: &" + class_ptr_name + ") -> u8 { "
                 code += "use std::cmp::Ordering::*;"
                 code += "match a.partial_cmp(b) { None => 0, Some(Less) => 1, Some(Equal) => 2, Some(Greater) => 3 } "
                 code += "}\r\n"
@@ -689,8 +685,8 @@ def generate_rust_dll(apiData):
             if class_has_ord:
                 # az_item_cmp()
                 code += "/// Compares two instances of `" + class_ptr_name + "` for full ordering. Returns 0 for Less, 1 for Equal, 2 for Greater. \r\n"
-                functions_map[str(fn_prefix + to_snake_case(class_name) + "_cmp")] = ["a: &" + class_ptr_name + ", b: &" + class_ptr_name, "u8"];
-                code += "#[no_mangle] pub extern \"C\" fn " + fn_prefix + to_snake_case(class_name) + "_cmp" + lifetime + "(a: &" + class_ptr_name + ", b: &" + class_ptr_name + ") -> u8 { "
+                functions_map[str(to_snake_case(class_ptr_name) + "_cmp")] = ["a: &" + class_ptr_name + ", b: &" + class_ptr_name, "u8"];
+                code += "#[no_mangle] pub extern \"C\" fn " + to_snake_case(class_ptr_name) + "_cmp" + lifetime + "(a: &" + class_ptr_name + ", b: &" + class_ptr_name + ") -> u8 { "
                 code += "use std::cmp::Ordering::*; "
                 code += "match a.cmp(b) { Less => 0, Equal => 1, Greater => 2 } "
                 code += "}\r\n"
@@ -698,8 +694,8 @@ def generate_rust_dll(apiData):
             if class_can_be_hashed:
                 # az_item_hash()
                 code += "/// Returns the hash of a `" + class_ptr_name + "` instance \r\n"
-                functions_map[str(fn_prefix + to_snake_case(class_name) + "_hash")] = ["object: &" + class_ptr_name, "u64"];
-                code += "#[no_mangle] pub extern \"C\" fn " + fn_prefix + to_snake_case(class_name) + "_hash" + lifetime + "(object: &" + class_ptr_name + ") -> u64 { "
+                functions_map[str(to_snake_case(class_ptr_name) + "_hash")] = ["object: &" + class_ptr_name, "u64"];
+                code += "#[no_mangle] pub extern \"C\" fn " + to_snake_case(class_ptr_name) + "_hash" + lifetime + "(object: &" + class_ptr_name + ") -> u64 { "
                 code += "use std::collections::hash_map::DefaultHasher; use std::hash::{Hash, Hasher}; "
                 code += "let mut hasher = DefaultHasher::new(); object.hash(&mut hasher); hasher.finish() "
                 code += "}\r\n"
@@ -797,17 +793,17 @@ def generate_dll_loader(apiData, structs_map, functions_map, version):
             code += "    }\r\n"
 
         if class_can_be_copied:
-            code += "impl Copy for " + struct_name + " { fn copy(&self) -> " + struct_name + " { (crate::dll::get_azul_dll).az_" + to_snake_case(struct_name) + "_copy)(self) } }"
+            code += "\r\n    impl Copy for " + struct_name + " { }\r\n"
         if class_has_partialeq:
-            code += "impl PartialEq for " + struct_name + " { fn eq(&self, rhs: &" + struct_name + ") -> bool { (crate::dll::get_azul_dll).az_" + to_snake_case(struct_name) + "_partialeq)(self, rhs) } }"
+            code += "\r\n    impl PartialEq for " + struct_name + " { fn eq(&self, rhs: &" + struct_name + ") -> bool { (crate::dll::get_azul_dll()." + to_snake_case(struct_name) + "_partial_eq)(self, rhs) } }\r\n"
         if class_has_eq:
-            code += "impl Eq for " + struct_name + " { }"
+            code += "\r\n    impl Eq for " + struct_name + " { }\r\n"
         if class_has_partialord:
-            code += "impl PartialOrd for " + struct_name + " { fn partial_cmp(&self, rhs: &" + struct_name + ") -> std::cmp::Ordering { use std::cmp::Ordering::*; match (crate::dll::get_azul_dll).az_" + to_snake_case(struct_name) + "_partial_cmp)(self, rhs) { 1 => Some(Less), 2 => Some(Equal), 3 => Some(Greater), _ => None } } }"
+            code += "\r\n    impl PartialOrd for " + struct_name + " { fn partial_cmp(&self, rhs: &" + struct_name + ") -> Option<std::cmp::Ordering> { use std::cmp::Ordering::*; match (crate::dll::get_azul_dll()." + to_snake_case(struct_name) + "_partial_cmp)(self, rhs) { 1 => Some(Less), 2 => Some(Equal), 3 => Some(Greater), _ => None } } }\r\n"
         if class_has_ord:
-            code += "impl Ord for " + struct_name + " { fn cmp(&self, rhs: &" + struct_name + ") -> std::cmp::Ordering { use std::cmp::Ordering::*; match (crate::dll::get_azul_dll).az_" + to_snake_case(struct_name) + "_cmp)(self, rhs) { 0 => Less, 1 => Equal, _ => Greater } }"
+            code += "\r\n    impl Ord for " + struct_name + " { fn cmp(&self, rhs: &" + struct_name + ") -> std::cmp::Ordering { use std::cmp::Ordering::*; match (crate::dll::get_azul_dll()." + to_snake_case(struct_name) + "_cmp)(self, rhs) { 0 => Less, 1 => Equal, _ => Greater } } }\r\n"
         if class_can_be_hashed:
-            code += "impl std::hash::Hash for " + struct_name + " { fn hash<H: std::hash::Hasher>(&self, state: &mut H) { ((crate::dll::get_azul_dll).az_" + to_snake_case(struct_name) + "_hash)(self)).hash(state) } }"
+            code += "\r\n    impl std::hash::Hash for " + struct_name + " { fn hash<H: std::hash::Hasher>(&self, state: &mut H) { ((crate::dll::get_azul_dll()." + to_snake_case(struct_name) + "_hash)(self)).hash(state) } }\r\n"
 
 
     code += "\r\n"
@@ -986,7 +982,7 @@ def generate_rust_api(apiData, structs_map, functions_map):
                     for fn_name in c["constructors"]:
                         const = c["constructors"][fn_name]
 
-                        c_fn_name = fn_prefix + to_snake_case(class_name) + "_" + fn_name
+                        c_fn_name = to_snake_case(class_ptr_name) + "_" + fn_name
                         fn_args = rust_bindings_fn_args(const, class_name, class_ptr_name, False, apiData)
                         fn_args_call = rust_bindings_call_fn_args(const, class_name, class_ptr_name, False, apiData, class_is_boxed_object)
 
@@ -1012,7 +1008,7 @@ def generate_rust_api(apiData, structs_map, functions_map):
 
                         fn_args = rust_bindings_fn_args(f, class_name, class_ptr_name, True, apiData)
                         fn_args_call = rust_bindings_call_fn_args(f, class_name, class_ptr_name, True, apiData, class_is_boxed_object)
-                        c_fn_name = fn_prefix + to_snake_case(class_name) + "_" + fn_name
+                        c_fn_name = to_snake_case(class_ptr_name) + "_" + fn_name
 
                         fn_body = ""
 
@@ -1059,13 +1055,13 @@ def generate_rust_api(apiData, structs_map, functions_map):
             if "<'a>" in rust_class_name:
                 lifetime = "<'a>"
 
-            code += "    impl std::fmt::Debug for " + class_name + " { fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result { write!(f, \"{}\", (crate::dll::get_azul_dll()." + fn_prefix + to_snake_case(class_name) + "_fmt_debug)(self)) } }\r\n"
+            code += "    impl std::fmt::Debug for " + class_name + " { fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result { write!(f, \"{}\", (crate::dll::get_azul_dll()." + to_snake_case(class_ptr_name) + "_fmt_debug)(self)) } }\r\n"
 
             if c_is_stack_allocated and class_can_be_cloned and lifetime == "" and not(class_is_const or class_is_typedef):
-                code += "    impl Clone for " + class_name + " { fn clone(&self) -> Self { (crate::dll::get_azul_dll()." + fn_prefix + to_snake_case(class_name) + "_deep_copy)(self) } }\r\n"
+                code += "    impl Clone for " + class_name + " { fn clone(&self) -> Self { (crate::dll::get_azul_dll()." + to_snake_case(class_ptr_name) + "_deep_copy)(self) } }\r\n"
 
             if not(class_is_const or class_is_typedef):
-                code += "    impl Drop for " + class_name + " { fn drop(&mut self) { (crate::dll::get_azul_dll()." + fn_prefix + to_snake_case(class_name) + "_delete)(self); } }\r\n"
+                code += "    impl Drop for " + class_name + " { fn drop(&mut self) { (crate::dll::get_azul_dll()." + to_snake_case(class_ptr_name) + "_delete)(self); } }\r\n"
 
         code += "}\r\n\r\n" # end of module
 
