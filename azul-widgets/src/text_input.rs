@@ -218,9 +218,9 @@ impl TextInput {
 
     pub fn default_on_text_input(info: CallbackInfo) -> CallbackReturn {
         fn default_on_text_input_inner(info: CallbackInfo) -> Option<()> {
-            let state = info.get_state();
+            let mut state = info.get_state();
             let keyboard_state = info.get_keyboard_state();
-            let text_input_state = state.borrow_mut::<TextInputState>()?;
+            let mut text_input_state = state.borrow_mut::<TextInputState>()?;
             text_input_state.handle_on_text_input(&keyboard_state)
         }
         default_on_text_input_inner(info).into()
@@ -228,9 +228,9 @@ impl TextInput {
 
     pub fn default_on_virtual_key_down(info: CallbackInfo) -> CallbackReturn {
         fn default_on_virtual_key_down_inner(info: CallbackInfo) -> Option<()> {
-            let state = info.get_state();
+            let mut state = info.get_state();
             let keyboard_state = info.get_keyboard_state();
-            let text_input_state = state.borrow_mut::<TextInputState>()?;
+            let mut text_input_state = state.borrow_mut::<TextInputState>()?;
             text_input_state.handle_on_virtual_key_down(&keyboard_state)
         }
         default_on_virtual_key_down_inner(info).into()

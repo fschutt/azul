@@ -389,6 +389,11 @@
     #[repr(C)] pub struct AzAppPtr {
         pub(crate) ptr: *mut c_void,
     }
+    /// Re-export of rust-allocated (stack based) `HidpiAdjustedBounds` struct
+    #[repr(C)] pub struct AzHidpiAdjustedBounds {
+        pub logical_size: AzLogicalSize,
+        pub hidpi_factor: f32,
+    }
     /// Re-export of rust-allocated (stack based) `LayoutCallback` struct
     #[repr(C)] pub struct AzLayoutCallback {
         pub cb: AzLayoutCallbackType,
@@ -1927,6 +1932,21 @@
     impl Ord for AzPhysicalPositionI32 { fn cmp(&self, rhs: &AzPhysicalPositionI32) -> std::cmp::Ordering { use std::cmp::Ordering::*; match (crate::dll::get_azul_dll().az_physical_position_i32_cmp)(self, rhs) { 0 => Less, 1 => Equal, _ => Greater } } }
 
     impl std::hash::Hash for AzPhysicalPositionI32 { fn hash<H: std::hash::Hasher>(&self, state: &mut H) { ((crate::dll::get_azul_dll().az_physical_position_i32_hash)(self)).hash(state) } }
+    /// Re-export of rust-allocated (stack based) `PhysicalSizeU32` struct
+    #[repr(C)] pub struct AzPhysicalSizeU32 {
+        pub width: u32,
+        pub height: u32,
+    }
+
+    impl PartialEq for AzPhysicalSizeU32 { fn eq(&self, rhs: &AzPhysicalSizeU32) -> bool { (crate::dll::get_azul_dll().az_physical_size_u32_partial_eq)(self, rhs) } }
+
+    impl Eq for AzPhysicalSizeU32 { }
+
+    impl PartialOrd for AzPhysicalSizeU32 { fn partial_cmp(&self, rhs: &AzPhysicalSizeU32) -> Option<std::cmp::Ordering> { use std::cmp::Ordering::*; match (crate::dll::get_azul_dll().az_physical_size_u32_partial_cmp)(self, rhs) { 1 => Some(Less), 2 => Some(Equal), 3 => Some(Greater), _ => None } } }
+
+    impl Ord for AzPhysicalSizeU32 { fn cmp(&self, rhs: &AzPhysicalSizeU32) -> std::cmp::Ordering { use std::cmp::Ordering::*; match (crate::dll::get_azul_dll().az_physical_size_u32_cmp)(self, rhs) { 0 => Less, 1 => Equal, _ => Greater } } }
+
+    impl std::hash::Hash for AzPhysicalSizeU32 { fn hash<H: std::hash::Hasher>(&self, state: &mut H) { ((crate::dll::get_azul_dll().az_physical_size_u32_hash)(self)).hash(state) } }
     /// Re-export of rust-allocated (stack based) `LogicalPosition` struct
     #[repr(C)] pub struct AzLogicalPosition {
         pub x: f32,
@@ -2487,6 +2507,12 @@
         pub az_app_ptr_run: fn(_:  AzAppPtr, _:  AzWindowCreateOptions),
         pub az_app_ptr_delete: fn(_:  &mut AzAppPtr),
         pub az_app_ptr_fmt_debug: fn(_:  &AzAppPtr) -> AzString,
+        pub az_hidpi_adjusted_bounds_get_logical_size: fn(_:  &AzHidpiAdjustedBounds) -> AzLogicalSize,
+        pub az_hidpi_adjusted_bounds_get_physical_size: fn(_:  &AzHidpiAdjustedBounds) -> AzPhysicalSizeU32,
+        pub az_hidpi_adjusted_bounds_get_hidpi_factor: fn(_:  &AzHidpiAdjustedBounds) -> f32,
+        pub az_hidpi_adjusted_bounds_delete: fn(_:  &mut AzHidpiAdjustedBounds),
+        pub az_hidpi_adjusted_bounds_deep_copy: fn(_:  &AzHidpiAdjustedBounds) -> AzHidpiAdjustedBounds,
+        pub az_hidpi_adjusted_bounds_fmt_debug: fn(_:  &AzHidpiAdjustedBounds) -> AzString,
         pub az_layout_callback_delete: fn(_:  &mut AzLayoutCallback),
         pub az_layout_callback_deep_copy: fn(_:  &AzLayoutCallback) -> AzLayoutCallback,
         pub az_layout_callback_fmt_debug: fn(_:  &AzLayoutCallback) -> AzString,
@@ -2510,6 +2536,7 @@
         pub az_i_frame_callback_deep_copy: fn(_:  &AzIFrameCallback) -> AzIFrameCallback,
         pub az_i_frame_callback_fmt_debug: fn(_:  &AzIFrameCallback) -> AzString,
         pub az_i_frame_callback_info_ptr_get_state: fn(_:  &AzIFrameCallbackInfoPtr) -> AzRefAny,
+        pub az_i_frame_callback_info_ptr_get_bounds: fn(_:  &AzIFrameCallbackInfoPtr) -> AzHidpiAdjustedBounds,
         pub az_i_frame_callback_info_ptr_delete: fn(_:  &mut AzIFrameCallbackInfoPtr),
         pub az_i_frame_callback_info_ptr_fmt_debug: fn(_:  &AzIFrameCallbackInfoPtr) -> AzString,
         pub az_i_frame_callback_return_delete: fn(_:  &mut AzIFrameCallbackReturn),
@@ -2519,6 +2546,7 @@
         pub az_gl_callback_deep_copy: fn(_:  &AzGlCallback) -> AzGlCallback,
         pub az_gl_callback_fmt_debug: fn(_:  &AzGlCallback) -> AzString,
         pub az_gl_callback_info_ptr_get_state: fn(_:  &AzGlCallbackInfoPtr) -> AzRefAny,
+        pub az_gl_callback_info_ptr_get_bounds: fn(_:  &AzGlCallbackInfoPtr) -> AzHidpiAdjustedBounds,
         pub az_gl_callback_info_ptr_delete: fn(_:  &mut AzGlCallbackInfoPtr),
         pub az_gl_callback_info_ptr_fmt_debug: fn(_:  &AzGlCallbackInfoPtr) -> AzString,
         pub az_gl_callback_return_delete: fn(_:  &mut AzGlCallbackReturn),
@@ -3452,6 +3480,13 @@
         pub az_physical_position_i32_partial_cmp: fn(_:  &AzPhysicalPositionI32, _:  &AzPhysicalPositionI32) -> u8,
         pub az_physical_position_i32_cmp: fn(_:  &AzPhysicalPositionI32, _:  &AzPhysicalPositionI32) -> u8,
         pub az_physical_position_i32_hash: fn(_:  &AzPhysicalPositionI32) -> u64,
+        pub az_physical_size_u32_delete: fn(_:  &mut AzPhysicalSizeU32),
+        pub az_physical_size_u32_deep_copy: fn(_:  &AzPhysicalSizeU32) -> AzPhysicalSizeU32,
+        pub az_physical_size_u32_fmt_debug: fn(_:  &AzPhysicalSizeU32) -> AzString,
+        pub az_physical_size_u32_partial_eq: fn(_:  &AzPhysicalSizeU32, _:  &AzPhysicalSizeU32) -> bool,
+        pub az_physical_size_u32_partial_cmp: fn(_:  &AzPhysicalSizeU32, _:  &AzPhysicalSizeU32) -> u8,
+        pub az_physical_size_u32_cmp: fn(_:  &AzPhysicalSizeU32, _:  &AzPhysicalSizeU32) -> u8,
+        pub az_physical_size_u32_hash: fn(_:  &AzPhysicalSizeU32) -> u64,
         pub az_logical_position_delete: fn(_:  &mut AzLogicalPosition),
         pub az_logical_position_deep_copy: fn(_:  &AzLogicalPosition) -> AzLogicalPosition,
         pub az_logical_position_fmt_debug: fn(_:  &AzLogicalPosition) -> AzString,
@@ -3700,6 +3735,12 @@
             let az_app_ptr_run: fn(_:  AzAppPtr, _:  AzWindowCreateOptions) = transmute(lib.get(b"az_app_ptr_run")?);
             let az_app_ptr_delete: fn(_:  &mut AzAppPtr) = transmute(lib.get(b"az_app_ptr_delete")?);
             let az_app_ptr_fmt_debug: fn(_:  &AzAppPtr) -> AzString = transmute(lib.get(b"az_app_ptr_fmt_debug")?);
+            let az_hidpi_adjusted_bounds_get_logical_size: fn(_:  &AzHidpiAdjustedBounds) -> AzLogicalSize = transmute(lib.get(b"az_hidpi_adjusted_bounds_get_logical_size")?);
+            let az_hidpi_adjusted_bounds_get_physical_size: fn(_:  &AzHidpiAdjustedBounds) -> AzPhysicalSizeU32 = transmute(lib.get(b"az_hidpi_adjusted_bounds_get_physical_size")?);
+            let az_hidpi_adjusted_bounds_get_hidpi_factor: fn(_:  &AzHidpiAdjustedBounds) -> f32 = transmute(lib.get(b"az_hidpi_adjusted_bounds_get_hidpi_factor")?);
+            let az_hidpi_adjusted_bounds_delete: fn(_:  &mut AzHidpiAdjustedBounds) = transmute(lib.get(b"az_hidpi_adjusted_bounds_delete")?);
+            let az_hidpi_adjusted_bounds_deep_copy: fn(_:  &AzHidpiAdjustedBounds) -> AzHidpiAdjustedBounds = transmute(lib.get(b"az_hidpi_adjusted_bounds_deep_copy")?);
+            let az_hidpi_adjusted_bounds_fmt_debug: fn(_:  &AzHidpiAdjustedBounds) -> AzString = transmute(lib.get(b"az_hidpi_adjusted_bounds_fmt_debug")?);
             let az_layout_callback_delete: fn(_:  &mut AzLayoutCallback) = transmute(lib.get(b"az_layout_callback_delete")?);
             let az_layout_callback_deep_copy: fn(_:  &AzLayoutCallback) -> AzLayoutCallback = transmute(lib.get(b"az_layout_callback_deep_copy")?);
             let az_layout_callback_fmt_debug: fn(_:  &AzLayoutCallback) -> AzString = transmute(lib.get(b"az_layout_callback_fmt_debug")?);
@@ -3723,6 +3764,7 @@
             let az_i_frame_callback_deep_copy: fn(_:  &AzIFrameCallback) -> AzIFrameCallback = transmute(lib.get(b"az_i_frame_callback_deep_copy")?);
             let az_i_frame_callback_fmt_debug: fn(_:  &AzIFrameCallback) -> AzString = transmute(lib.get(b"az_i_frame_callback_fmt_debug")?);
             let az_i_frame_callback_info_ptr_get_state: fn(_:  &AzIFrameCallbackInfoPtr) -> AzRefAny = transmute(lib.get(b"az_i_frame_callback_info_ptr_get_state")?);
+            let az_i_frame_callback_info_ptr_get_bounds: fn(_:  &AzIFrameCallbackInfoPtr) -> AzHidpiAdjustedBounds = transmute(lib.get(b"az_i_frame_callback_info_ptr_get_bounds")?);
             let az_i_frame_callback_info_ptr_delete: fn(_:  &mut AzIFrameCallbackInfoPtr) = transmute(lib.get(b"az_i_frame_callback_info_ptr_delete")?);
             let az_i_frame_callback_info_ptr_fmt_debug: fn(_:  &AzIFrameCallbackInfoPtr) -> AzString = transmute(lib.get(b"az_i_frame_callback_info_ptr_fmt_debug")?);
             let az_i_frame_callback_return_delete: fn(_:  &mut AzIFrameCallbackReturn) = transmute(lib.get(b"az_i_frame_callback_return_delete")?);
@@ -3732,6 +3774,7 @@
             let az_gl_callback_deep_copy: fn(_:  &AzGlCallback) -> AzGlCallback = transmute(lib.get(b"az_gl_callback_deep_copy")?);
             let az_gl_callback_fmt_debug: fn(_:  &AzGlCallback) -> AzString = transmute(lib.get(b"az_gl_callback_fmt_debug")?);
             let az_gl_callback_info_ptr_get_state: fn(_:  &AzGlCallbackInfoPtr) -> AzRefAny = transmute(lib.get(b"az_gl_callback_info_ptr_get_state")?);
+            let az_gl_callback_info_ptr_get_bounds: fn(_:  &AzGlCallbackInfoPtr) -> AzHidpiAdjustedBounds = transmute(lib.get(b"az_gl_callback_info_ptr_get_bounds")?);
             let az_gl_callback_info_ptr_delete: fn(_:  &mut AzGlCallbackInfoPtr) = transmute(lib.get(b"az_gl_callback_info_ptr_delete")?);
             let az_gl_callback_info_ptr_fmt_debug: fn(_:  &AzGlCallbackInfoPtr) -> AzString = transmute(lib.get(b"az_gl_callback_info_ptr_fmt_debug")?);
             let az_gl_callback_return_delete: fn(_:  &mut AzGlCallbackReturn) = transmute(lib.get(b"az_gl_callback_return_delete")?);
@@ -4665,6 +4708,13 @@
             let az_physical_position_i32_partial_cmp: fn(_:  &AzPhysicalPositionI32, _:  &AzPhysicalPositionI32) -> u8 = transmute(lib.get(b"az_physical_position_i32_partial_cmp")?);
             let az_physical_position_i32_cmp: fn(_:  &AzPhysicalPositionI32, _:  &AzPhysicalPositionI32) -> u8 = transmute(lib.get(b"az_physical_position_i32_cmp")?);
             let az_physical_position_i32_hash: fn(_:  &AzPhysicalPositionI32) -> u64 = transmute(lib.get(b"az_physical_position_i32_hash")?);
+            let az_physical_size_u32_delete: fn(_:  &mut AzPhysicalSizeU32) = transmute(lib.get(b"az_physical_size_u32_delete")?);
+            let az_physical_size_u32_deep_copy: fn(_:  &AzPhysicalSizeU32) -> AzPhysicalSizeU32 = transmute(lib.get(b"az_physical_size_u32_deep_copy")?);
+            let az_physical_size_u32_fmt_debug: fn(_:  &AzPhysicalSizeU32) -> AzString = transmute(lib.get(b"az_physical_size_u32_fmt_debug")?);
+            let az_physical_size_u32_partial_eq: fn(_:  &AzPhysicalSizeU32, _:  &AzPhysicalSizeU32) -> bool = transmute(lib.get(b"az_physical_size_u32_partial_eq")?);
+            let az_physical_size_u32_partial_cmp: fn(_:  &AzPhysicalSizeU32, _:  &AzPhysicalSizeU32) -> u8 = transmute(lib.get(b"az_physical_size_u32_partial_cmp")?);
+            let az_physical_size_u32_cmp: fn(_:  &AzPhysicalSizeU32, _:  &AzPhysicalSizeU32) -> u8 = transmute(lib.get(b"az_physical_size_u32_cmp")?);
+            let az_physical_size_u32_hash: fn(_:  &AzPhysicalSizeU32) -> u64 = transmute(lib.get(b"az_physical_size_u32_hash")?);
             let az_logical_position_delete: fn(_:  &mut AzLogicalPosition) = transmute(lib.get(b"az_logical_position_delete")?);
             let az_logical_position_deep_copy: fn(_:  &AzLogicalPosition) -> AzLogicalPosition = transmute(lib.get(b"az_logical_position_deep_copy")?);
             let az_logical_position_fmt_debug: fn(_:  &AzLogicalPosition) -> AzString = transmute(lib.get(b"az_logical_position_fmt_debug")?);
@@ -4909,6 +4959,12 @@
                 az_app_ptr_run,
                 az_app_ptr_delete,
                 az_app_ptr_fmt_debug,
+                az_hidpi_adjusted_bounds_get_logical_size,
+                az_hidpi_adjusted_bounds_get_physical_size,
+                az_hidpi_adjusted_bounds_get_hidpi_factor,
+                az_hidpi_adjusted_bounds_delete,
+                az_hidpi_adjusted_bounds_deep_copy,
+                az_hidpi_adjusted_bounds_fmt_debug,
                 az_layout_callback_delete,
                 az_layout_callback_deep_copy,
                 az_layout_callback_fmt_debug,
@@ -4932,6 +4988,7 @@
                 az_i_frame_callback_deep_copy,
                 az_i_frame_callback_fmt_debug,
                 az_i_frame_callback_info_ptr_get_state,
+                az_i_frame_callback_info_ptr_get_bounds,
                 az_i_frame_callback_info_ptr_delete,
                 az_i_frame_callback_info_ptr_fmt_debug,
                 az_i_frame_callback_return_delete,
@@ -4941,6 +4998,7 @@
                 az_gl_callback_deep_copy,
                 az_gl_callback_fmt_debug,
                 az_gl_callback_info_ptr_get_state,
+                az_gl_callback_info_ptr_get_bounds,
                 az_gl_callback_info_ptr_delete,
                 az_gl_callback_info_ptr_fmt_debug,
                 az_gl_callback_return_delete,
@@ -5874,6 +5932,13 @@
                 az_physical_position_i32_partial_cmp,
                 az_physical_position_i32_cmp,
                 az_physical_position_i32_hash,
+                az_physical_size_u32_delete,
+                az_physical_size_u32_deep_copy,
+                az_physical_size_u32_fmt_debug,
+                az_physical_size_u32_partial_eq,
+                az_physical_size_u32_partial_cmp,
+                az_physical_size_u32_cmp,
+                az_physical_size_u32_hash,
                 az_logical_position_delete,
                 az_logical_position_deep_copy,
                 az_logical_position_fmt_debug,

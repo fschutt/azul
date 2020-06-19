@@ -48,6 +48,7 @@ impl TableViewState {
     /// Renders a cutout of the table from, horizontally from (col_start..col_end)
     /// and vertically from (row_start..row_end)
     pub fn render(&self, rows: Range<usize>, columns: Range<usize>) -> Dom {
+        use azul::str::String as AzString;
 
         // div.__azul-native-table-container
         //     |-> div.__azul-native-table-column (Column 0)
@@ -74,7 +75,6 @@ impl TableViewState {
                 // Row numbers (vertical) - "1", "2", "3"
                 (rows.start..rows.end.saturating_sub(1))
                 .map(|row_idx| {
-                    use azul::str::String as AzString;
                     let classes: Vec<AzString> = vec!["__azul-native-table-row".into()];
                     NodeData::label(format!("{}", row_idx + 1).into())
                     .with_classes(classes.into())
@@ -103,7 +103,10 @@ impl TableViewState {
                             } else {
                                 NodeType::Div
                             }
-                        ).with_classes(vec!["__azul-native-table-cell".into()].into())
+                        ).with_classes({
+                            let v: Vec<AzString> = vec!["__azul-native-table-cell".into()];
+                            v.into()
+                        })
                     )
                     .collect::<Dom>()
                     .with_class("__azul-native-table-rows".into())
@@ -159,8 +162,9 @@ impl TableView {
 
     fn render_table_iframe_contents(info: IFrameCallbackInfo) -> IFrameCallbackReturn {
         fn render_table_iframe_contents_inner(info: IFrameCallbackInfo) -> Option<Dom> {
-            let table_view_state = info.get_state().borrow::<TableViewState>()?;
-            let logical_size = info.bounds.get_logical_size();
+            let state = info.get_state();
+            let table_view_state = state.borrow::<TableViewState>()?;
+            let logical_size = info.get_bounds().get_logical_size();
             let necessary_rows = (logical_size.height as f32 / table_view_state.row_height).ceil() as usize;
             let necessary_columns = (logical_size.width as f32 / table_view_state.column_width).ceil() as usize;
             Some(table_view_state.render(0..necessary_rows, 0..necessary_columns)).into()

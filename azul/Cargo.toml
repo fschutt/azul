@@ -65,7 +65,6 @@ required-features = []
 name = "opengl"
 path = "../examples/opengl/opengl.rs"
 required-features = []
-dependencies = { "azul-widgets" = { "version" = "0.0.1", path = "../azul-widgets" }}
 
 [[example]]
 name = "slider"

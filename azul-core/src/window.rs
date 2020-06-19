@@ -1338,13 +1338,15 @@ pub struct PhysicalPosition<T> {
 type PhysicalPositionI32 = PhysicalPosition<i32>;
 impl_option!(PhysicalPositionI32, OptionPhysicalPositionI32, [Debug, Copy, Clone, PartialEq, PartialOrd]);
 
-#[derive(Debug, Copy, Clone, PartialEq, PartialOrd)]
+#[derive(Debug, Ord, Hash, Eq, Copy, Clone, PartialEq, PartialOrd)]
 #[repr(C)]
 pub struct PhysicalSize<T> {
     pub width: T,
     pub height: T,
 }
 
+type PhysicalSizeU32 = PhysicalSize<u32>;
+impl_option!(PhysicalSizeU32, OptionPhysicalSizeU32, [Debug, Copy, Clone, PartialEq, PartialOrd, Eq, Ord, Hash]);
 type PhysicalSizeF32 = PhysicalSize<f32>;
 impl_option!(PhysicalSizeF32, OptionPhysicalSizeF32, [Debug, Copy, Clone, PartialEq, PartialOrd]);
 

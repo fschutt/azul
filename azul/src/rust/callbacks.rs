@@ -127,6 +127,23 @@
     use crate::str::String;
 
 
+    /// `HidpiAdjustedBounds` struct
+    pub use crate::dll::AzHidpiAdjustedBounds as HidpiAdjustedBounds;
+
+    impl HidpiAdjustedBounds {
+        /// Returns the size of the bounds in logical units
+        pub fn get_logical_size(&self)  -> crate::window::LogicalSize { (crate::dll::get_azul_dll().az_hidpi_adjusted_bounds_get_logical_size)(self) }
+        /// Returns the size of the bounds in physical units
+        pub fn get_physical_size(&self)  -> crate::window::PhysicalSizeU32 { (crate::dll::get_azul_dll().az_hidpi_adjusted_bounds_get_physical_size)(self) }
+        /// Returns the hidpi factor of the bounds
+        pub fn get_hidpi_factor(&self)  -> f32 { (crate::dll::get_azul_dll().az_hidpi_adjusted_bounds_get_hidpi_factor)(self) }
+    }
+
+    impl std::fmt::Debug for HidpiAdjustedBounds { fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result { write!(f, "{}", (crate::dll::get_azul_dll().az_hidpi_adjusted_bounds_fmt_debug)(self)) } }
+    impl Clone for HidpiAdjustedBounds { fn clone(&self) -> Self { (crate::dll::get_azul_dll().az_hidpi_adjusted_bounds_deep_copy)(self) } }
+    impl Drop for HidpiAdjustedBounds { fn drop(&mut self) { (crate::dll::get_azul_dll().az_hidpi_adjusted_bounds_delete)(self); } }
+
+
     /// `LayoutCallback` struct
     pub use crate::dll::AzLayoutCallback as LayoutCallback;
 
@@ -194,6 +211,8 @@
     impl IFrameCallbackInfo {
         /// Returns a copy of the internal `RefAny`
         pub fn get_state(&self)  -> crate::callbacks::RefAny { (crate::dll::get_azul_dll().az_i_frame_callback_info_ptr_get_state)(self) }
+        /// Returns a copy of the internal `HidpiAdjustedBounds`
+        pub fn get_bounds(&self)  -> crate::callbacks::HidpiAdjustedBounds { (crate::dll::get_azul_dll().az_i_frame_callback_info_ptr_get_bounds)(self) }
     }
 
     impl std::fmt::Debug for IFrameCallbackInfo { fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result { write!(f, "{}", (crate::dll::get_azul_dll().az_i_frame_callback_info_ptr_fmt_debug)(self)) } }
@@ -224,6 +243,8 @@
     impl GlCallbackInfo {
         /// Returns a copy of the internal `RefAny`
         pub fn get_state(&self)  -> crate::callbacks::RefAny { (crate::dll::get_azul_dll().az_gl_callback_info_ptr_get_state)(self) }
+        /// Returns a copy of the internal `HidpiAdjustedBounds`
+        pub fn get_bounds(&self)  -> crate::callbacks::HidpiAdjustedBounds { (crate::dll::get_azul_dll().az_gl_callback_info_ptr_get_bounds)(self) }
     }
 
     impl std::fmt::Debug for GlCallbackInfo { fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result { write!(f, "{}", (crate::dll::get_azul_dll().az_gl_callback_info_ptr_fmt_debug)(self)) } }

@@ -609,6 +609,39 @@
 		"callbacks": {
 			"doc": "Callback type definitions + struct definitions of `CallbackInfo`s",
 			"classes": {
+				"HidpiAdjustedBounds": {
+					"external": "azul_impl::callbacks::HidpiAdjustedBounds",
+					"struct_fields": [
+						{"logical_size": {"type": "LogicalSize"}},
+						{"hidpi_factor": {"type": "f32"}}
+					],
+					"functions": {
+						"get_logical_size": {
+							"doc": "Returns the size of the bounds in logical units",
+							"fn_args": [
+								{"self": "ref"}
+							],
+							"returns": "LogicalSize",
+							"fn_body": "hidpiadjustedbounds.get_logical_size()"
+						},
+						"get_physical_size": {
+							"doc": "Returns the size of the bounds in physical units",
+							"fn_args": [
+								{"self": "ref"}
+							],
+							"returns": "PhysicalSizeU32",
+							"fn_body": "hidpiadjustedbounds.get_physical_size()"
+						},
+						"get_hidpi_factor": {
+							"doc": "Returns the hidpi factor of the bounds",
+							"fn_args": [
+								{"self": "ref"}
+							],
+							"returns": "f32",
+							"fn_body": "hidpiadjustedbounds.get_hidpi_factor()"
+						}
+					}
+				},
 				"LayoutCallback": {
 					"external": "azul_impl::callbacks::LayoutCallback",
 					"struct_fields": [
@@ -695,6 +728,14 @@
 							],
 							"returns": "RefAny",
 							"fn_body": "az_i_frame_callback_info_ptr_downcast_ref(iframecallbackinfo, |ci| ci.state.clone())"
+						},
+						"get_bounds": {
+							"doc": "Returns a copy of the internal `HidpiAdjustedBounds`",
+							"fn_args": [
+								{"self": "ref"}
+							],
+							"returns": "HidpiAdjustedBounds",
+							"fn_body": "az_i_frame_callback_info_ptr_downcast_ref(iframecallbackinfo, |ci| ci.bounds.clone())"
 						}
 					}
 				},
@@ -724,6 +765,14 @@
 							],
 							"returns": "RefAny",
 							"fn_body": "az_gl_callback_info_ptr_downcast_ref(glcallbackinfo, |ci| ci.state.clone())"
+						},
+						"get_bounds": {
+							"doc": "Returns a copy of the internal `HidpiAdjustedBounds`",
+							"fn_args": [
+								{"self": "ref"}
+							],
+							"returns": "HidpiAdjustedBounds",
+							"fn_body": "az_gl_callback_info_ptr_downcast_ref(glcallbackinfo, |ci| ci.bounds.clone())"
 						}
 					}
 				},
@@ -5162,6 +5211,14 @@
 					"struct_fields": [
 						{"x": {"type": "i32"}},
 						{"y": {"type": "i32"}}
+					]
+				},
+				"PhysicalSizeU32": {
+					"external": "azul_impl::window::PhysicalSize<u32>",
+					"derive": ["PartialEq", "Eq", "PartialOrd", "Ord", "Hash"],
+					"struct_fields": [
+						{"width": {"type": "u32"}},
+						{"height": {"type": "u32"}}
 					]
 				},
 				"LogicalPosition": {

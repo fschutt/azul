@@ -750,6 +750,7 @@ impl<'a> LayoutInfo<'a> {
 /// Necessary when invoking `IFrameCallbacks` and `GlCallbacks`, so
 /// that they can change what their content is based on their size.
 #[derive(Debug, Copy, Clone)]
+#[repr(C)]
 pub struct HidpiAdjustedBounds {
     pub logical_size: LogicalSize,
     pub hidpi_factor: f32,

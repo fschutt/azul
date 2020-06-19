@@ -587,6 +587,22 @@ pub type AzDurationTT = azul_impl::task::AzDuration;
 /// Creates a string with the debug representation of the object
 #[no_mangle] pub extern "C" fn az_app_ptr_fmt_debug(object: &AzAppPtr) -> AzString { az_app_ptr_downcast_ref(object, |o| format!("{:#?}", o)).into() }
 
+/// Re-export of rust-allocated (stack based) `HidpiAdjustedBounds` struct
+pub type AzHidpiAdjustedBoundsTT = azul_impl::callbacks::HidpiAdjustedBounds;
+#[no_mangle] pub use AzHidpiAdjustedBoundsTT as AzHidpiAdjustedBounds;
+/// Returns the size of the bounds in logical units
+#[no_mangle] pub extern "C" fn az_hidpi_adjusted_bounds_get_logical_size(hidpiadjustedbounds: &AzHidpiAdjustedBounds) -> AzLogicalSize { hidpiadjustedbounds.get_logical_size() }
+/// Returns the size of the bounds in physical units
+#[no_mangle] pub extern "C" fn az_hidpi_adjusted_bounds_get_physical_size(hidpiadjustedbounds: &AzHidpiAdjustedBounds) -> AzPhysicalSizeU32 { hidpiadjustedbounds.get_physical_size() }
+/// Returns the hidpi factor of the bounds
+#[no_mangle] pub extern "C" fn az_hidpi_adjusted_bounds_get_hidpi_factor(hidpiadjustedbounds: &AzHidpiAdjustedBounds) -> f32 { hidpiadjustedbounds.get_hidpi_factor() }
+/// Destructor: Takes ownership of the `HidpiAdjustedBounds` pointer and deletes it.
+#[no_mangle] #[allow(unused_variables)] pub extern "C" fn az_hidpi_adjusted_bounds_delete(object: &mut AzHidpiAdjustedBounds) { }
+/// Clones the object
+#[no_mangle] pub extern "C" fn az_hidpi_adjusted_bounds_deep_copy(object: &AzHidpiAdjustedBounds) -> AzHidpiAdjustedBounds { object.clone() }
+/// Creates a string with the debug representation of the object
+#[no_mangle] pub extern "C" fn az_hidpi_adjusted_bounds_fmt_debug(object: &AzHidpiAdjustedBounds) -> AzString { format!("{:#?}", object).into() }
+
 /// Re-export of rust-allocated (stack based) `LayoutCallback` struct
 pub type AzLayoutCallbackTT = azul_impl::callbacks::LayoutCallback;
 #[no_mangle] pub use AzLayoutCallbackTT as AzLayoutCallback;
@@ -670,6 +686,8 @@ pub type AzIFrameCallbackInfoPtrTT = azul_impl::callbacks::IFrameCallbackInfoPtr
 #[no_mangle] pub use AzIFrameCallbackInfoPtrTT as AzIFrameCallbackInfoPtr;
 /// Returns a copy of the internal `RefAny`
 #[no_mangle] pub extern "C" fn az_i_frame_callback_info_ptr_get_state(iframecallbackinfo: &AzIFrameCallbackInfoPtr) -> AzRefAny { az_i_frame_callback_info_ptr_downcast_ref(iframecallbackinfo, |ci| ci.state.clone()) }
+/// Returns a copy of the internal `HidpiAdjustedBounds`
+#[no_mangle] pub extern "C" fn az_i_frame_callback_info_ptr_get_bounds(iframecallbackinfo: &AzIFrameCallbackInfoPtr) -> AzHidpiAdjustedBounds { az_i_frame_callback_info_ptr_downcast_ref(iframecallbackinfo, |ci| ci.bounds.clone()) }
 /// Destructor: Takes ownership of the `IFrameCallbackInfo` pointer and deletes it.
 #[no_mangle] pub extern "C" fn az_i_frame_callback_info_ptr_delete<'a>(ptr: &mut AzIFrameCallbackInfoPtr) { let _ = unsafe { Box::<IFrameCallbackInfo<'a>>::from_raw(ptr.ptr  as *mut IFrameCallbackInfo<'a>) };}
 /// (private): Downcasts the `AzIFrameCallbackInfoPtr` to a `Box<IFrameCallbackInfo<'a>>`. Note that this takes ownership of the pointer.
@@ -708,6 +726,8 @@ pub type AzGlCallbackInfoPtrTT = azul_impl::callbacks::GlCallbackInfoPtr;
 #[no_mangle] pub use AzGlCallbackInfoPtrTT as AzGlCallbackInfoPtr;
 /// Returns a copy of the internal `RefAny`
 #[no_mangle] pub extern "C" fn az_gl_callback_info_ptr_get_state(glcallbackinfo: &AzGlCallbackInfoPtr) -> AzRefAny { az_gl_callback_info_ptr_downcast_ref(glcallbackinfo, |ci| ci.state.clone()) }
+/// Returns a copy of the internal `HidpiAdjustedBounds`
+#[no_mangle] pub extern "C" fn az_gl_callback_info_ptr_get_bounds(glcallbackinfo: &AzGlCallbackInfoPtr) -> AzHidpiAdjustedBounds { az_gl_callback_info_ptr_downcast_ref(glcallbackinfo, |ci| ci.bounds.clone()) }
 /// Destructor: Takes ownership of the `GlCallbackInfo` pointer and deletes it.
 #[no_mangle] pub extern "C" fn az_gl_callback_info_ptr_delete<'a>(ptr: &mut AzGlCallbackInfoPtr) { let _ = unsafe { Box::<GlCallbackInfo<'a>>::from_raw(ptr.ptr  as *mut GlCallbackInfo<'a>) };}
 /// (private): Downcasts the `AzGlCallbackInfoPtr` to a `Box<GlCallbackInfo<'a>>`. Note that this takes ownership of the pointer.
@@ -3588,6 +3608,24 @@ pub type AzPhysicalPositionI32TT = azul_impl::window::PhysicalPosition<i32>;
 #[no_mangle] pub extern "C" fn az_physical_position_i32_cmp(a: &AzPhysicalPositionI32, b: &AzPhysicalPositionI32) -> u8 { use std::cmp::Ordering::*; match a.cmp(b) { Less => 0, Equal => 1, Greater => 2 } }
 /// Returns the hash of a `AzPhysicalPositionI32` instance 
 #[no_mangle] pub extern "C" fn az_physical_position_i32_hash(object: &AzPhysicalPositionI32) -> u64 { use std::collections::hash_map::DefaultHasher; use std::hash::{Hash, Hasher}; let mut hasher = DefaultHasher::new(); object.hash(&mut hasher); hasher.finish() }
+
+/// Re-export of rust-allocated (stack based) `PhysicalSizeU32` struct
+pub type AzPhysicalSizeU32TT = azul_impl::window::PhysicalSize<u32>;
+#[no_mangle] pub use AzPhysicalSizeU32TT as AzPhysicalSizeU32;
+/// Destructor: Takes ownership of the `PhysicalSizeU32` pointer and deletes it.
+#[no_mangle] #[allow(unused_variables)] pub extern "C" fn az_physical_size_u32_delete(object: &mut AzPhysicalSizeU32) { }
+/// Clones the object
+#[no_mangle] pub extern "C" fn az_physical_size_u32_deep_copy(object: &AzPhysicalSizeU32) -> AzPhysicalSizeU32 { object.clone() }
+/// Creates a string with the debug representation of the object
+#[no_mangle] pub extern "C" fn az_physical_size_u32_fmt_debug(object: &AzPhysicalSizeU32) -> AzString { format!("{:#?}", object).into() }
+/// Compares two instances of `AzPhysicalSizeU32` for equality
+#[no_mangle] pub extern "C" fn az_physical_size_u32_partial_eq(a: &AzPhysicalSizeU32, b: &AzPhysicalSizeU32) -> bool { a.eq(b) }
+/// Compares two instances of `AzPhysicalSizeU32` for ordering. Returns 0 for None (equality), 1 on Some(Less), 2 on Some(Equal) and 3 on Some(Greater). 
+#[no_mangle] pub extern "C" fn az_physical_size_u32_partial_cmp(a: &AzPhysicalSizeU32, b: &AzPhysicalSizeU32) -> u8 { use std::cmp::Ordering::*;match a.partial_cmp(b) { None => 0, Some(Less) => 1, Some(Equal) => 2, Some(Greater) => 3 } }
+/// Compares two instances of `AzPhysicalSizeU32` for full ordering. Returns 0 for Less, 1 for Equal, 2 for Greater. 
+#[no_mangle] pub extern "C" fn az_physical_size_u32_cmp(a: &AzPhysicalSizeU32, b: &AzPhysicalSizeU32) -> u8 { use std::cmp::Ordering::*; match a.cmp(b) { Less => 0, Equal => 1, Greater => 2 } }
+/// Returns the hash of a `AzPhysicalSizeU32` instance 
+#[no_mangle] pub extern "C" fn az_physical_size_u32_hash(object: &AzPhysicalSizeU32) -> u64 { use std::collections::hash_map::DefaultHasher; use std::hash::{Hash, Hasher}; let mut hasher = DefaultHasher::new(); object.hash(&mut hasher); hasher.finish() }
 
 /// Re-export of rust-allocated (stack based) `LogicalPosition` struct
 pub type AzLogicalPositionTT = azul_impl::window::LogicalPosition;

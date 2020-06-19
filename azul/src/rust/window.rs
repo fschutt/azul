@@ -29,6 +29,14 @@
     impl Drop for PhysicalPositionI32 { fn drop(&mut self) { (crate::dll::get_azul_dll().az_physical_position_i32_delete)(self); } }
 
 
+    /// `PhysicalSizeU32` struct
+    pub use crate::dll::AzPhysicalSizeU32 as PhysicalSizeU32;
+
+    impl std::fmt::Debug for PhysicalSizeU32 { fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result { write!(f, "{}", (crate::dll::get_azul_dll().az_physical_size_u32_fmt_debug)(self)) } }
+    impl Clone for PhysicalSizeU32 { fn clone(&self) -> Self { (crate::dll::get_azul_dll().az_physical_size_u32_deep_copy)(self) } }
+    impl Drop for PhysicalSizeU32 { fn drop(&mut self) { (crate::dll::get_azul_dll().az_physical_size_u32_delete)(self); } }
+
+
     /// `LogicalPosition` struct
     pub use crate::dll::AzLogicalPosition as LogicalPosition;
 
