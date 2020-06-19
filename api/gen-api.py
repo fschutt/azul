@@ -24,7 +24,7 @@ rust_dll_path = "../azul-dll/src/lib.rs"
 
 c_api_path = "../azul/src/c/azul.h"
 cpp_api_path = "../azul/src/cpp/azul.h"
-rust_api_path = "../azul/src/rust/azul.rs"
+rust_api_path = "../azul/src/rust"
 python_api_path = "../azul/src/python/azul.py"
 js_api_path = "../azul/src/js/azul.js"
 
@@ -706,7 +706,6 @@ def generate_rust_dll(apiData):
 def generate_dll_loader(apiData, structs_map, functions_map, version):
 
     code = ""
-    code += "pub(crate) mod dll {\r\n\r\n"
     code += "    use std::ffi::c_void;\r\n\r\n"
 
     if tuple(['dll']) in rust_api_patches.keys():
@@ -810,36 +809,37 @@ def generate_dll_loader(apiData, structs_map, functions_map, version):
     code += "\r\n"
     code += "\r\n"
 
-    code += "    #[cfg(unix)]\r\n"
-    code += "    use libloading::os::unix::{Library, Symbol};\r\n"
-    code += "    #[cfg(windows)]\r\n"
-    code += "    use libloading::os::windows::{Library, Symbol};\r\n\r\n"
+    code += "    use libloading_mini::Library;\r\n"
 
     code += "    pub struct AzulDll {\r\n"
-    code += "        pub lib: Box<Library>,\r\n"
+    code += "        pub lib: Library,\r\n"
     for fn_name in functions_map.keys():
         fn_type = functions_map[fn_name]
         fn_args = fn_type[0]
         fn_return = fn_type[1]
         return_arrow = "" if fn_return == "" else " -> "
-        code += "        pub " + fn_name + ": Symbol<extern fn(" + strip_fn_arg_types(fn_args) + ")" + return_arrow + fn_return + ">,\r\n"
+        code += "        pub " + fn_name + ": fn(" + strip_fn_arg_types(fn_args) + ")" + return_arrow + fn_return + ",\r\n"
     code += "    }\r\n\r\n"
 
-    code += "    pub fn initialize_library(path: &std::path::Path) -> Result<AzulDll, &'static str> {\r\n"
-    code += "        let lib = Library::new(path).map_err(|_| \"library is not a DLL file (?!)\")?;\r\n"
+    code += "    pub fn initialize_library(path: &std::path::Path) -> Option<AzulDll> {\r\n"
+    code += "        use std::mem::transmute;\r\n"
+    code += "        let lib = Library::new(path)?;\r\n"
+    code += "        unsafe {\r\n"
     for fn_name in functions_map.keys():
         fn_type = functions_map[fn_name]
         fn_args = fn_type[0]
         fn_return = fn_type[1]
         return_arrow = "" if fn_return == "" else " -> "
-        code += "        let " + fn_name + " = unsafe { lib.get::<extern fn(" + strip_fn_arg_types(fn_args) + ")" + return_arrow + fn_return + ">(b\"" + fn_name + "\").map_err(|_| \"" + fn_name + "\")? };\r\n"
+        code += "            let " + fn_name + ": fn(" + strip_fn_arg_types(fn_args) + ")" + return_arrow + fn_return + " = transmute(lib.get(b\"" + fn_name + "\")?);\r\n"
 
-    code += "        Ok(AzulDll {\r\n"
-    code += "            lib: Box::new(lib),\r\n"
+    code += "            Some(AzulDll {\r\n"
+    code += "                lib: lib,\r\n"
     for fn_name in functions_map.keys():
-        code += "            " + fn_name + ",\r\n"
+        code += "                " + fn_name + ",\r\n"
 
-    code += "        })\r\n"
+    code += "            })\r\n"
+    code += "        }\r\n"
+    code += "\r\n"
     code += "    }\r\n\r\n"
 
     # Generate loading function
@@ -871,7 +871,7 @@ def generate_dll_loader(apiData, structs_map, functions_map, version):
     code += "           std::fs::write(&library_path, LIB_BYTES).map_err(|_| \"could not unpack DLL\")?;\r\n"
     code += "        }\r\n"
     code += "\r\n"
-    code += "        initialize_library(&library_path)\r\n"
+    code += "        initialize_library(&library_path).ok_or(\"could not initialize library\")\r\n"
     code += "    }\r\n"
     code += "\r\n"
     code += "    pub(crate) fn get_azul_dll() -> &'static AzulDll { \r\n"
@@ -887,12 +887,13 @@ def generate_dll_loader(apiData, structs_map, functions_map, version):
     code += "\r\n"
     code += "        unsafe { &*AZUL_DLL.as_ptr() }\r\n"
     code += "    }\r\n"
-    code += "}\r\n\r\n"
 
     return code
 
 # Generates the azul/rust/azul.rs file
 def generate_rust_api(apiData, structs_map, functions_map):
+
+    module_file_map = {}
 
     version = list(apiData.keys())[-1]
     code = ""
@@ -912,32 +913,38 @@ def generate_rust_api(apiData, structs_map, functions_map):
     #     code += "//! " + line + "\r\n"
     # code += "\r\n"
 
+    apiData = apiData[version]
+
     license = read_file(license_path)
 
     for line in license.splitlines():
         code += "// " + line + "\r\n"
+
     code += "\r\n\r\n"
-    code += "extern crate libloading;\r\n"
+    code += "extern crate libloading_mini;\r\n"
+    code += "pub mod dll;\r\n"
 
-    apiData = apiData[version]
-
-    code += generate_dll_loader(apiData, structs_map, functions_map, version)
+    for module_name in apiData.keys():
+        code += "pub mod " + module_name + ";\r\n"
 
     if tuple(['*']) in rust_api_patches:
         code += rust_api_patches[tuple(['*'])]
 
+    module_file_map['lib.rs'] = code
+
+    module_file_map['dll.rs'] = generate_dll_loader(apiData, structs_map, functions_map, version)
+
     for module_name in apiData.keys():
+        code = ""
         module_doc = None
         if "doc" in apiData[module_name]:
             module_doc = apiData[module_name]["doc"]
 
         module = apiData[module_name]["classes"]
 
+        code += "    #![allow(dead_code, unused_imports)]\r\n"
         if module_doc != None:
-            code += "/// " + module_doc + "\r\n"
-
-        code += "#[allow(dead_code, unused_imports)]\r\n"
-        code += "pub mod " + module_name + " {\r\n\r\n"
+            code += "    //! " + module_doc + "\r\n"
         code += "    use crate::dll::*;\r\n"
         code += "    use std::ffi::c_void;\r\n"
 
@@ -1042,7 +1049,7 @@ def generate_rust_api(apiData, structs_map, functions_map):
                                 if return_type_class is None:
                                     print("no return type found for return type: " + return_type)
                                 returns = " ->" + analyzed_return_type[0] + " crate::" + return_type_class[0] + "::" + return_type_class[1] + analyzed_return_type[2]
-                                fn_body = "{ " + fn_body + "}"
+                                fn_body = fn_body
 
                         code += "        pub fn " + fn_name + "(" + fn_args + ") " +  returns + " { " + fn_body + " }\r\n"
 
@@ -1064,9 +1071,10 @@ def generate_rust_api(apiData, structs_map, functions_map):
             if not(class_is_const or class_is_typedef):
                 code += "    impl Drop for " + class_name + " { fn drop(&mut self) { (crate::dll::get_azul_dll()." + to_snake_case(class_ptr_name) + "_delete)(self); } }\r\n"
 
-        code += "}\r\n\r\n" # end of module
+        module_file_name = module_name + ".rs"
+        module_file_map[module_file_name] = code
 
-    return code
+    return module_file_map
 
 """
 # TODO
@@ -1089,7 +1097,11 @@ def main():
     apiData = read_api_file(api_file_path)
     rust_dll_result = generate_rust_dll(apiData)
     write_file(rust_dll_result[0], rust_dll_path)
-    write_file(generate_rust_api(apiData, rust_dll_result[1], rust_dll_result[2]), rust_api_path)
+    api_files = generate_rust_api(apiData, rust_dll_result[1], rust_dll_result[2]);
+    for file_name in api_files:
+        file_path = rust_api_path + "/" + file_name
+        file_contents = api_files[file_name]
+        write_file(file_contents, file_path)
     # write_file(generate_c_api(apiData), c_api_path)
     # write_file(generate_cpp_api(apiData), cpp_api_path)
     # write_file(generate_python_api(apiData), python_api_path)

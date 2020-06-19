@@ -18,10 +18,10 @@ autoexamples = false
 edition = "2018"
 
 [lib]
-path = "src/rust/azul.rs"
+path = "src/rust/lib.rs"
 
 [dependencies]
-libloading = "0.6.2"
+libloading-mini = "0.1.0"
 
 [dev-dependencies]
 azul-widgets = { version = "0.0.2", path = "../azul-widgets" }
