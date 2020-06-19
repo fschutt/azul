@@ -590,7 +590,7 @@
 							{"config": "AppConfig"},
 							{"callback": "LayoutCallbackType"}
 						],
-						"fn_body": "App::new(data, *az_app_config_downcast(config), callback).unwrap()"
+						"fn_body": "App::new(data, *az_app_config_ptr_downcast(config), callback).unwrap()"
 						}
 					},
 					"functions": {
@@ -600,7 +600,7 @@
 							{"self": "value"},
 							{"window": "WindowCreateOptions"}
 						],
-						"fn_body":"az_app_downcast(app).run(window)"
+						"fn_body":"az_app_ptr_downcast(app).run(window)"
 						}
 					}
 				}
@@ -629,13 +629,39 @@
 					"external": "azul_impl::callbacks::CallbackInfoPtr",
 					"rust_class_name": "CallbackInfo<'a>",
 					"is_boxed_object": true,
-					"get_state": {
-						"doc": "Returns a copy of the internal `RefAny`",
-						"fn_args": [
-							{"self": "ref"}
-						],
-						"returns": "RefAny",
-						"fn_body": "az_callback_info_downcast_ref(callbackinfo, |ci| ci.state.clone())"
+					"functions": {
+						"get_state": {
+							"doc": "Returns a copy of the internal `RefAny`",
+							"fn_args": [
+								{"self": "ref"}
+							],
+							"returns": "RefAny",
+							"fn_body": "az_callback_info_ptr_downcast_ref(callbackinfo, |ci| ci.state.clone())"
+						},
+						"get_keyboard_state": {
+							"doc": "Returns a copy of the internal `KeyboardState`. Same as `self.get_window_state().keyboard_state`",
+							"fn_args": [
+								{"self": "ref"}
+							],
+							"returns": "KeyboardState",
+							"fn_body": "az_callback_info_ptr_downcast_ref(callbackinfo, |ci| ci.current_window_state.keyboard_state.clone())"
+						},
+						"get_mouse_state": {
+							"doc": "Returns a copy of the internal `MouseState`. Same as `self.get_window_state().mouse_state`",
+							"fn_args": [
+								{"self": "ref"}
+							],
+							"returns": "MouseState",
+							"fn_body": "az_callback_info_ptr_downcast_ref(callbackinfo, |ci| ci.current_window_state.mouse_state.clone())"
+						},
+						"set_window_state": {
+							"doc": "Sets the new `WindowState` for the next frame. The window is updated after all callbacks are run.",
+							"fn_args": [
+								{"self": "refmut"},
+								{"new_state": "WindowState"}
+							],
+							"fn_body": "az_callback_info_ptr_downcast_refmut(callbackinfo, |ci| { *ci.modifiable_window_state = new_state; })"
+						}
 					}
 				},
 				"UpdateScreen": {
@@ -646,7 +672,8 @@
 						{"DontRedraw": {"doc": "The screen does not need to redraw after the callback has been called"}},
 						{"UpdateScrollStates": {"doc": "The callback only changed the scroll positions of nodes (no re-layout is done)"}},
 						{"UpdateTransforms": {"doc": "Update **scroll states + GPU transforms** and redraw (no re-layout is done)"}}
-					]
+					],
+					"use_patches": ["rust"]
 				},
 
 				"IFrameCallback": {
@@ -667,7 +694,7 @@
 								{"self": "ref"}
 							],
 							"returns": "RefAny",
-							"fn_body": "az_i_frame_callback_info_downcast_ref(iframecallbackinfo, |ci| ci.state.clone())"
+							"fn_body": "az_i_frame_callback_info_ptr_downcast_ref(iframecallbackinfo, |ci| ci.state.clone())"
 						}
 					}
 				},
@@ -689,13 +716,15 @@
 					"external": "azul_impl::callbacks::GlCallbackInfoPtr",
 					"rust_class_name": "GlCallbackInfo<'a>",
 					"is_boxed_object": true,
-					"get_state": {
-						"doc": "Returns a copy of the internal `RefAny`",
-						"fn_args": [
-							{"self": "ref"}
-						],
-						"returns": "RefAny",
-						"fn_body": "az_gl_callback_info_downcast_ref(glcallbackinfo, |ci| ci.state.clone())"
+					"functions": {
+						"get_state": {
+							"doc": "Returns a copy of the internal `RefAny`",
+							"fn_args": [
+								{"self": "ref"}
+							],
+							"returns": "RefAny",
+							"fn_body": "az_gl_callback_info_ptr_downcast_ref(glcallbackinfo, |ci| ci.state.clone())"
+						}
 					}
 				},
 				"GlCallbackReturn": {
@@ -717,13 +746,15 @@
 					"external": "azul_impl::callbacks::TimerCallbackInfoPtr",
 					"rust_class_name": "azul_impl::callbacks::TimerCallbackInfo<'a>",
 					"is_boxed_object": true,
-					"get_state": {
-						"doc": "Returns a copy of the internal `RefAny`",
-						"fn_args": [
-							{"self": "ref"}
-						],
-						"returns": "RefAny",
-						"fn_body": "az_timer_callback_info_downcast(timercallbackinfo, |ci| ci.state.clone())"
+					"functions": {
+						"get_state": {
+							"doc": "Returns a copy of the internal `RefAny`",
+							"fn_args": [
+								{"self": "ref"}
+							],
+							"returns": "RefAny",
+							"fn_body": "az_timer_callback_info_ptr_downcast_ref(timercallbackinfo, |ci| ci.state.clone())"
+						}
 					}
 				},
 				"TimerCallbackReturn": {
@@ -2337,6 +2368,13 @@
 						{"estimated_total_children": {"type": "usize"}}
 					],
 					"constructors": {
+						"new": {
+							"doc": "Creates a new node with the given `NodeType`",
+							"fn_args": [
+								{"node_type": "NodeType"}
+							],
+							"fn_body":"Dom::new(node_type)"
+						},
 						"div": {
 							"doc": "Creates a new `div` node",
 							"fn_body":"Dom::div()"
@@ -2350,7 +2388,7 @@
 							"fn_args": [
 								{"text": "String"}
 							],
-							"fn_body": "Dom::label(text.into_string())"
+							"fn_body": "Dom::label(text)"
 						},
 						"text": {
 							"doc": "Creates a new `p` node from a (cached) text referenced by a `TextId`",
@@ -2498,7 +2536,7 @@
 								{"self": "refmut"},
 								{"is_draggable": "bool"}
 							],
-							"fn_body": "dom.set_draggable(is_draggable);"
+							"fn_body": "dom.set_is_draggable(is_draggable);"
 						},
 						"is_draggable": {
 							"doc": "Same as [`Dom::set_is_draggable`](#method.set_is_draggable), but as a builder method",
@@ -2513,7 +2551,7 @@
 							"doc": "Sets the `tabindex` attribute of this DOM node (makes an element focusable - default: None)",
 							"fn_args": [
 								{"self": "refmut"},
-								{"tab_index": "TabIndex"}
+								{"tab_index": "OptionTabIndex"}
 							],
 							"fn_body": "dom.set_tab_index(tab_index);"
 						},
@@ -2521,27 +2559,10 @@
 							"doc": "Same as [`Dom::set_tab_index`](#method.set_tab_index), but as a builder method",
 							"fn_args": [
 								{"self": "mut value"},
-								{"tab_index": "TabIndex"}
+								{"tab_index": "OptionTabIndex"}
 							],
 							"returns": "Dom",
 							"fn_body": "az_dom_set_tab_index(&mut dom, tab_index); dom"
-						},
-						"add_child": {
-							"doc": "Reparents another `Dom` to be the child node of this `Dom`",
-							"fn_args": [
-								{"self": "refmut"},
-								{"child": "Dom"}
-							],
-							"fn_body": "dom.add_child(child);"
-						},
-						"with_child": {
-							"doc": "Same as [`Dom::add_child`](#method.add_child), but as a builder method",
-							"fn_args": [
-								{"self": "mut value"},
-								{"child": "Dom"}
-							],
-							"returns": "Dom",
-							"fn_body": "az_dom_add_child(&mut dom, child); dom"
 						},
 						"has_id": {
 							"doc": "Returns if the DOM node has a certain CSS ID",
@@ -2560,6 +2581,23 @@
 							],
 							"returns": "bool",
 							"fn_body": "dom.has_class(class.as_ref())"
+						},
+						"add_child": {
+							"doc": "Reparents another `Dom` to be the child node of this `Dom`",
+							"fn_args": [
+								{"self": "refmut"},
+								{"child": "Dom"}
+							],
+							"fn_body": "dom.add_child(child);"
+						},
+						"with_child": {
+							"doc": "Same as [`Dom::add_child`](#method.add_child), but as a builder method",
+							"fn_args": [
+								{"self": "mut value"},
+								{"child": "Dom"}
+							],
+							"returns": "Dom",
+							"fn_body": "az_dom_add_child(&mut dom, child); dom"
 						},
 						"get_html_string": {
 							"doc": "Returns the HTML String for this DOM",
@@ -2618,11 +2656,218 @@
 							"fn_args": [
 								{"node_type": "NodeType"}
 							],
-							"fn_body": "azul_impl::dom::NodeData::new(node_type)"
+							"fn_body": "NodeData::new(node_type)"
+						},
+						"div": {
+							"doc": "Creates a new `div` node",
+							"fn_body":"NodeData::div()"
+						},
+						"body": {
+							"doc": "Creates a new `body` node",
+							"fn_body":"NodeData::body()"
+						},
+						"label": {
+							"doc": "Creates a new `p` node with a given `String` as the text contents",
+							"fn_args": [
+								{"text": "String"}
+							],
+							"fn_body": "NodeData::label(text)"
+						},
+						"text": {
+							"doc": "Creates a new `p` node from a (cached) text referenced by a `TextId`",
+							"fn_args": [
+								{"text_id": "TextId"}
+							],
+							"fn_body": "NodeData::text(text_id)"
+						},
+						"image": {
+							"doc": "Creates a new `img` node from a (cached) text referenced by a `ImageId`",
+							"fn_args": [
+								{"image_id": "ImageId"}
+							],
+							"fn_body": "NodeData::image(image_id)"
+						},
+						"gl_texture": {
+							"doc": "Creates a new node which will render an OpenGL texture after the layout step is finished. See the documentation for [GlCallback]() for more info about OpenGL rendering callbacks.",
+							"fn_args": [
+								{"data": "RefAny"},
+								{"callback": "GlCallbackType"}
+							],
+							"fn_body": "NodeData::gl_texture(callback, data)"
+						},
+						"iframe": {
+							"doc": "Creates a `NodeData` with a callback that will return a `Dom` after being layouted. See the documentation for [IFrameCallback]() for more info about iframe callbacks.",
+							"fn_args": [
+								{"data": "RefAny"},
+								{"callback": "IFrameCallbackType"}
+							],
+							"fn_body": "NodeData::iframe(callback, data)"
 						},
 						"default": {
 							"doc": "Creates a default (div) node without any classes",
-							"fn_body": "azul_impl::dom::NodeData::default()"
+							"fn_body": "NodeData::default()"
+						}
+					},
+					"functions": {
+						"add_id": {
+							"doc": "Adds a CSS ID (`#something`) to the `NodeData`",
+							"fn_args": [
+								{"self": "refmut"},
+								{"id": "String"}
+							],
+							"fn_body": "nodedata.add_id(id);"
+						},
+						"with_id": {
+							"doc": "Same as [`NodeData::add_id`](#method.add_id), but as a builder method",
+							"fn_args": [
+								{"self": "mut value"},
+								{"id": "String"}
+							],
+							"returns": "NodeData",
+							"fn_body": "az_node_data_add_id(&mut nodedata, id); nodedata"
+						},
+						"set_ids": {
+							"doc": "Same as calling [`NodeData::add_id`](#method.add_id) for each CSS ID, but this function **replaces** all current CSS IDs",
+							"fn_args": [
+								{"self": "refmut"},
+								{"ids": "StringVec"}
+							],
+							"fn_body": "nodedata.set_ids(ids);"
+						},
+						"with_ids": {
+							"doc": "Same as [`NodeData::set_ids`](#method.set_ids), but as a builder method",
+							"fn_args": [
+								{"self": "mut value"},
+								{"ids": "StringVec"}
+							],
+							"returns": "NodeData",
+							"fn_body": "az_node_data_set_ids(&mut nodedata, ids); nodedata"
+						},
+						"add_class": {
+							"doc": "Adds a CSS class (`.something`) to the `NodeData`",
+							"fn_args": [
+								{"self": "refmut"},
+								{"class": "String"}
+							],
+							"fn_body": "nodedata.add_class(class);"
+						},
+						"with_class": {
+							"doc": "Same as [`NodeData::add_class`](#method.add_class), but as a builder method",
+							"fn_args": [
+								{"self": "mut value"},
+								{"class": "String"}
+							],
+							"returns": "NodeData",
+							"fn_body": "az_node_data_add_class(&mut nodedata, class); nodedata"
+						},
+						"set_classes": {
+							"doc": "Same as calling [`NodeData::add_class`](#method.add_class) for each class, but this function **replaces** all current classes",
+							"fn_args": [
+								{"self": "refmut"},
+								{"classes": "StringVec"}
+							],
+							"fn_body": "nodedata.set_classes(classes);"
+						},
+						"with_classes": {
+							"doc": "Same as [`NodeData::set_classes`](#method.set_classes), but as a builder method",
+							"fn_args": [
+								{"self": "mut value"},
+								{"classes": "StringVec"}
+							],
+							"returns": "NodeData",
+							"fn_body": "az_node_data_set_classes(&mut nodedata, classes); nodedata"
+						},
+						"add_callback": {
+							"doc": "Adds a [`Callback`](callbacks/type.Callback) that acts on the `data` the `event` happens",
+							"fn_args": [
+								{"self": "refmut"},
+								{"event": "EventFilter"},
+								{"data": "RefAny"},
+								{"callback": "CallbackType"}
+							],
+							"fn_body": "nodedata.add_callback(event, callback, data);"
+						},
+						"with_callback": {
+							"doc": "Same as [`NodeData::add_callback`](#method.add_callback), but as a builder method",
+							"fn_args": [
+								{"self": "mut value"},
+								{"event": "EventFilter"},
+								{"data": "RefAny"},
+								{"callback": "CallbackType"}
+							],
+							"returns": "NodeData",
+							"fn_body": "az_node_data_add_callback(&mut nodedata, event, data, callback); nodedata"
+						},
+						"add_css_override": {
+							"doc": "Overrides the CSS property of this `NodeData` node with a value (for example `\"width = 200px\"`)",
+							"fn_args": [
+								{"self": "refmut"},
+								{"id": "String"},
+								{"prop": "CssProperty"}
+							],
+							"fn_body": "nodedata.add_css_override(id, prop);"
+						},
+						"with_css_override": {
+							"doc": "Same as [`NodeData::add_css_override`](#method.add_css_override), but as a builder method",
+							"fn_args": [
+								{"self": "mut value"},
+								{"id": "String"},
+								{"prop": "CssProperty"}
+							],
+							"returns": "NodeData",
+							"fn_body": "az_node_data_add_css_override(&mut nodedata, id, prop); nodedata"
+						},
+						"set_is_draggable": {
+							"doc": "Sets the `is_draggable` attribute of this `NodeData` (default: false)",
+							"fn_args": [
+								{"self": "refmut"},
+								{"is_draggable": "bool"}
+							],
+							"fn_body": "nodedata.set_is_draggable(is_draggable);"
+						},
+						"is_draggable": {
+							"doc": "Same as [`NodeData::set_is_draggable`](#method.set_is_draggable), but as a builder method",
+							"fn_args": [
+								{"self": "mut value"},
+								{"is_draggable": "bool"}
+							],
+							"returns": "NodeData",
+							"fn_body": "az_node_data_set_is_draggable(&mut nodedata, is_draggable); nodedata"
+						},
+						"set_tab_index": {
+							"doc": "Sets the `tabindex` attribute of this `NodeData` (makes an element focusable - default: None)",
+							"fn_args": [
+								{"self": "refmut"},
+								{"tab_index": "OptionTabIndex"}
+							],
+							"fn_body": "nodedata.set_tab_index(tab_index);"
+						},
+						"with_tab_index": {
+							"doc": "Same as [`NodeData::set_tab_index`](#method.set_tab_index), but as a builder method",
+							"fn_args": [
+								{"self": "mut value"},
+								{"tab_index": "OptionTabIndex"}
+							],
+							"returns": "NodeData",
+							"fn_body": "az_node_data_set_tab_index(&mut nodedata, tab_index); nodedata"
+						},
+						"has_id": {
+							"doc": "Returns if the `NodeData` has a certain CSS ID",
+							"fn_args": [
+								{"self": "refmut"},
+								{"id": "String"}
+							],
+							"returns": "bool",
+							"fn_body": "nodedata.has_id(id.as_ref())"
+						},
+						"has_class": {
+							"doc": "Returns if the `NodeData` has a certain CSS class",
+							"fn_args": [
+								{"self": "refmut"},
+								{"class": "String"}
+							],
+							"returns": "bool",
+							"fn_body": "nodedata.has_class(class.as_ref())"
 						}
 					}
 				},
@@ -4827,7 +5072,7 @@
 								{"timer": "Timer"}
 							],
 							"returns": "Task",
-							"fn_body": "AzTaskPtr { ptr: Box::into_raw(Box::new(az_task_downcast(task).then(timer))) as *mut c_void }"
+							"fn_body": "AzTaskPtr { ptr: Box::into_raw(Box::new(az_task_ptr_downcast(task).then(timer))) as *mut c_void }"
 						}
 					}
 				},
@@ -4850,7 +5095,7 @@
 								{"self": "value"}
 							],
 							"returns": "ResultRefAnyBlockError",
-							"fn_body": "(*az_thread_downcast(thread)).block()"
+							"fn_body": "(*az_thread_ptr_downcast(thread)).block()"
 						}
 					}
 				},

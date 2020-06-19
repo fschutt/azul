@@ -2535,6 +2535,10 @@ pub(crate) mod dll {
         pub az_callback_partial_cmp: Symbol<extern fn(_:  &AzCallback, _:  &AzCallback) -> u8>,
         pub az_callback_cmp: Symbol<extern fn(_:  &AzCallback, _:  &AzCallback) -> u8>,
         pub az_callback_hash: Symbol<extern fn(_:  &AzCallback) -> u64>,
+        pub az_callback_info_ptr_get_state: Symbol<extern fn(_:  &AzCallbackInfoPtr) -> AzRefAny>,
+        pub az_callback_info_ptr_get_keyboard_state: Symbol<extern fn(_:  &AzCallbackInfoPtr) -> AzKeyboardState>,
+        pub az_callback_info_ptr_get_mouse_state: Symbol<extern fn(_:  &AzCallbackInfoPtr) -> AzMouseState>,
+        pub az_callback_info_ptr_set_window_state: Symbol<extern fn(_:  &mut AzCallbackInfoPtr, _:  AzWindowState)>,
         pub az_callback_info_ptr_delete: Symbol<extern fn(_:  &mut AzCallbackInfoPtr)>,
         pub az_callback_info_ptr_fmt_debug: Symbol<extern fn(_:  &AzCallbackInfoPtr) -> AzString>,
         pub az_update_screen_delete: Symbol<extern fn(_:  &mut AzUpdateScreen)>,
@@ -2552,6 +2556,7 @@ pub(crate) mod dll {
         pub az_gl_callback_delete: Symbol<extern fn(_:  &mut AzGlCallback)>,
         pub az_gl_callback_deep_copy: Symbol<extern fn(_:  &AzGlCallback) -> AzGlCallback>,
         pub az_gl_callback_fmt_debug: Symbol<extern fn(_:  &AzGlCallback) -> AzString>,
+        pub az_gl_callback_info_ptr_get_state: Symbol<extern fn(_:  &AzGlCallbackInfoPtr) -> AzRefAny>,
         pub az_gl_callback_info_ptr_delete: Symbol<extern fn(_:  &mut AzGlCallbackInfoPtr)>,
         pub az_gl_callback_info_ptr_fmt_debug: Symbol<extern fn(_:  &AzGlCallbackInfoPtr) -> AzString>,
         pub az_gl_callback_return_delete: Symbol<extern fn(_:  &mut AzGlCallbackReturn)>,
@@ -2561,6 +2566,7 @@ pub(crate) mod dll {
         pub az_timer_callback_fmt_debug: Symbol<extern fn(_:  &AzTimerCallback) -> AzString>,
         pub az_timer_callback_type_ptr_delete: Symbol<extern fn(_:  &mut AzTimerCallbackTypePtr)>,
         pub az_timer_callback_type_ptr_fmt_debug: Symbol<extern fn(_:  &AzTimerCallbackTypePtr) -> AzString>,
+        pub az_timer_callback_info_ptr_get_state: Symbol<extern fn(_:  &AzTimerCallbackInfoPtr) -> AzRefAny>,
         pub az_timer_callback_info_ptr_delete: Symbol<extern fn(_:  &mut AzTimerCallbackInfoPtr)>,
         pub az_timer_callback_info_ptr_fmt_debug: Symbol<extern fn(_:  &AzTimerCallbackInfoPtr) -> AzString>,
         pub az_timer_callback_return_delete: Symbol<extern fn(_:  &mut AzTimerCallbackReturn)>,
@@ -3049,6 +3055,7 @@ pub(crate) mod dll {
         pub az_css_property_delete: Symbol<extern fn(_:  &mut AzCssProperty)>,
         pub az_css_property_deep_copy: Symbol<extern fn(_:  &AzCssProperty) -> AzCssProperty>,
         pub az_css_property_fmt_debug: Symbol<extern fn(_:  &AzCssProperty) -> AzString>,
+        pub az_dom_new: Symbol<extern fn(_:  AzNodeType) -> AzDom>,
         pub az_dom_div: Symbol<extern fn() -> AzDom>,
         pub az_dom_body: Symbol<extern fn() -> AzDom>,
         pub az_dom_label: Symbol<extern fn(_:  AzString) -> AzDom>,
@@ -3070,12 +3077,12 @@ pub(crate) mod dll {
         pub az_dom_with_css_override: Symbol<extern fn(_:  AzDom, _:  AzString, _:  AzCssProperty) -> AzDom>,
         pub az_dom_set_is_draggable: Symbol<extern fn(_:  &mut AzDom, _:  bool)>,
         pub az_dom_is_draggable: Symbol<extern fn(_:  AzDom, _:  bool) -> AzDom>,
-        pub az_dom_set_tab_index: Symbol<extern fn(_:  &mut AzDom, _:  AzTabIndex)>,
-        pub az_dom_with_tab_index: Symbol<extern fn(_:  AzDom, _:  AzTabIndex) -> AzDom>,
-        pub az_dom_add_child: Symbol<extern fn(_:  &mut AzDom, _:  AzDom)>,
-        pub az_dom_with_child: Symbol<extern fn(_:  AzDom, _:  AzDom) -> AzDom>,
+        pub az_dom_set_tab_index: Symbol<extern fn(_:  &mut AzDom, _:  AzOptionTabIndex)>,
+        pub az_dom_with_tab_index: Symbol<extern fn(_:  AzDom, _:  AzOptionTabIndex) -> AzDom>,
         pub az_dom_has_id: Symbol<extern fn(_:  &mut AzDom, _:  AzString) -> bool>,
         pub az_dom_has_class: Symbol<extern fn(_:  &mut AzDom, _:  AzString) -> bool>,
+        pub az_dom_add_child: Symbol<extern fn(_:  &mut AzDom, _:  AzDom)>,
+        pub az_dom_with_child: Symbol<extern fn(_:  AzDom, _:  AzDom) -> AzDom>,
         pub az_dom_get_html_string: Symbol<extern fn(_:  &AzDom) -> AzString>,
         pub az_dom_delete: Symbol<extern fn(_:  &mut AzDom)>,
         pub az_dom_deep_copy: Symbol<extern fn(_:  &AzDom) -> AzDom>,
@@ -3093,7 +3100,32 @@ pub(crate) mod dll {
         pub az_override_property_deep_copy: Symbol<extern fn(_:  &AzOverrideProperty) -> AzOverrideProperty>,
         pub az_override_property_fmt_debug: Symbol<extern fn(_:  &AzOverrideProperty) -> AzString>,
         pub az_node_data_new: Symbol<extern fn(_:  AzNodeType) -> AzNodeData>,
+        pub az_node_data_div: Symbol<extern fn() -> AzNodeData>,
+        pub az_node_data_body: Symbol<extern fn() -> AzNodeData>,
+        pub az_node_data_label: Symbol<extern fn(_:  AzString) -> AzNodeData>,
+        pub az_node_data_text: Symbol<extern fn(_:  AzTextId) -> AzNodeData>,
+        pub az_node_data_image: Symbol<extern fn(_:  AzImageId) -> AzNodeData>,
+        pub az_node_data_gl_texture: Symbol<extern fn(_:  AzRefAny, _:  AzGlCallbackType) -> AzNodeData>,
+        pub az_node_data_iframe: Symbol<extern fn(_:  AzRefAny, _:  AzIFrameCallbackType) -> AzNodeData>,
         pub az_node_data_default: Symbol<extern fn() -> AzNodeData>,
+        pub az_node_data_add_id: Symbol<extern fn(_:  &mut AzNodeData, _:  AzString)>,
+        pub az_node_data_with_id: Symbol<extern fn(_:  AzNodeData, _:  AzString) -> AzNodeData>,
+        pub az_node_data_set_ids: Symbol<extern fn(_:  &mut AzNodeData, _:  AzStringVec)>,
+        pub az_node_data_with_ids: Symbol<extern fn(_:  AzNodeData, _:  AzStringVec) -> AzNodeData>,
+        pub az_node_data_add_class: Symbol<extern fn(_:  &mut AzNodeData, _:  AzString)>,
+        pub az_node_data_with_class: Symbol<extern fn(_:  AzNodeData, _:  AzString) -> AzNodeData>,
+        pub az_node_data_set_classes: Symbol<extern fn(_:  &mut AzNodeData, _:  AzStringVec)>,
+        pub az_node_data_with_classes: Symbol<extern fn(_:  AzNodeData, _:  AzStringVec) -> AzNodeData>,
+        pub az_node_data_add_callback: Symbol<extern fn(_:  &mut AzNodeData, _:  AzEventFilter, _:  AzRefAny, _:  AzCallbackType)>,
+        pub az_node_data_with_callback: Symbol<extern fn(_:  AzNodeData, _:  AzEventFilter, _:  AzRefAny, _:  AzCallbackType) -> AzNodeData>,
+        pub az_node_data_add_css_override: Symbol<extern fn(_:  &mut AzNodeData, _:  AzString, _:  AzCssProperty)>,
+        pub az_node_data_with_css_override: Symbol<extern fn(_:  AzNodeData, _:  AzString, _:  AzCssProperty) -> AzNodeData>,
+        pub az_node_data_set_is_draggable: Symbol<extern fn(_:  &mut AzNodeData, _:  bool)>,
+        pub az_node_data_is_draggable: Symbol<extern fn(_:  AzNodeData, _:  bool) -> AzNodeData>,
+        pub az_node_data_set_tab_index: Symbol<extern fn(_:  &mut AzNodeData, _:  AzOptionTabIndex)>,
+        pub az_node_data_with_tab_index: Symbol<extern fn(_:  AzNodeData, _:  AzOptionTabIndex) -> AzNodeData>,
+        pub az_node_data_has_id: Symbol<extern fn(_:  &mut AzNodeData, _:  AzString) -> bool>,
+        pub az_node_data_has_class: Symbol<extern fn(_:  &mut AzNodeData, _:  AzString) -> bool>,
         pub az_node_data_delete: Symbol<extern fn(_:  &mut AzNodeData)>,
         pub az_node_data_deep_copy: Symbol<extern fn(_:  &AzNodeData) -> AzNodeData>,
         pub az_node_data_fmt_debug: Symbol<extern fn(_:  &AzNodeData) -> AzString>,
@@ -3714,6 +3746,10 @@ pub(crate) mod dll {
         let az_callback_partial_cmp = unsafe { lib.get::<extern fn(_:  &AzCallback, _:  &AzCallback) -> u8>(b"az_callback_partial_cmp").map_err(|_| "az_callback_partial_cmp")? };
         let az_callback_cmp = unsafe { lib.get::<extern fn(_:  &AzCallback, _:  &AzCallback) -> u8>(b"az_callback_cmp").map_err(|_| "az_callback_cmp")? };
         let az_callback_hash = unsafe { lib.get::<extern fn(_:  &AzCallback) -> u64>(b"az_callback_hash").map_err(|_| "az_callback_hash")? };
+        let az_callback_info_ptr_get_state = unsafe { lib.get::<extern fn(_:  &AzCallbackInfoPtr) -> AzRefAny>(b"az_callback_info_ptr_get_state").map_err(|_| "az_callback_info_ptr_get_state")? };
+        let az_callback_info_ptr_get_keyboard_state = unsafe { lib.get::<extern fn(_:  &AzCallbackInfoPtr) -> AzKeyboardState>(b"az_callback_info_ptr_get_keyboard_state").map_err(|_| "az_callback_info_ptr_get_keyboard_state")? };
+        let az_callback_info_ptr_get_mouse_state = unsafe { lib.get::<extern fn(_:  &AzCallbackInfoPtr) -> AzMouseState>(b"az_callback_info_ptr_get_mouse_state").map_err(|_| "az_callback_info_ptr_get_mouse_state")? };
+        let az_callback_info_ptr_set_window_state = unsafe { lib.get::<extern fn(_:  &mut AzCallbackInfoPtr, _:  AzWindowState)>(b"az_callback_info_ptr_set_window_state").map_err(|_| "az_callback_info_ptr_set_window_state")? };
         let az_callback_info_ptr_delete = unsafe { lib.get::<extern fn(_:  &mut AzCallbackInfoPtr)>(b"az_callback_info_ptr_delete").map_err(|_| "az_callback_info_ptr_delete")? };
         let az_callback_info_ptr_fmt_debug = unsafe { lib.get::<extern fn(_:  &AzCallbackInfoPtr) -> AzString>(b"az_callback_info_ptr_fmt_debug").map_err(|_| "az_callback_info_ptr_fmt_debug")? };
         let az_update_screen_delete = unsafe { lib.get::<extern fn(_:  &mut AzUpdateScreen)>(b"az_update_screen_delete").map_err(|_| "az_update_screen_delete")? };
@@ -3731,6 +3767,7 @@ pub(crate) mod dll {
         let az_gl_callback_delete = unsafe { lib.get::<extern fn(_:  &mut AzGlCallback)>(b"az_gl_callback_delete").map_err(|_| "az_gl_callback_delete")? };
         let az_gl_callback_deep_copy = unsafe { lib.get::<extern fn(_:  &AzGlCallback) -> AzGlCallback>(b"az_gl_callback_deep_copy").map_err(|_| "az_gl_callback_deep_copy")? };
         let az_gl_callback_fmt_debug = unsafe { lib.get::<extern fn(_:  &AzGlCallback) -> AzString>(b"az_gl_callback_fmt_debug").map_err(|_| "az_gl_callback_fmt_debug")? };
+        let az_gl_callback_info_ptr_get_state = unsafe { lib.get::<extern fn(_:  &AzGlCallbackInfoPtr) -> AzRefAny>(b"az_gl_callback_info_ptr_get_state").map_err(|_| "az_gl_callback_info_ptr_get_state")? };
         let az_gl_callback_info_ptr_delete = unsafe { lib.get::<extern fn(_:  &mut AzGlCallbackInfoPtr)>(b"az_gl_callback_info_ptr_delete").map_err(|_| "az_gl_callback_info_ptr_delete")? };
         let az_gl_callback_info_ptr_fmt_debug = unsafe { lib.get::<extern fn(_:  &AzGlCallbackInfoPtr) -> AzString>(b"az_gl_callback_info_ptr_fmt_debug").map_err(|_| "az_gl_callback_info_ptr_fmt_debug")? };
         let az_gl_callback_return_delete = unsafe { lib.get::<extern fn(_:  &mut AzGlCallbackReturn)>(b"az_gl_callback_return_delete").map_err(|_| "az_gl_callback_return_delete")? };
@@ -3740,6 +3777,7 @@ pub(crate) mod dll {
         let az_timer_callback_fmt_debug = unsafe { lib.get::<extern fn(_:  &AzTimerCallback) -> AzString>(b"az_timer_callback_fmt_debug").map_err(|_| "az_timer_callback_fmt_debug")? };
         let az_timer_callback_type_ptr_delete = unsafe { lib.get::<extern fn(_:  &mut AzTimerCallbackTypePtr)>(b"az_timer_callback_type_ptr_delete").map_err(|_| "az_timer_callback_type_ptr_delete")? };
         let az_timer_callback_type_ptr_fmt_debug = unsafe { lib.get::<extern fn(_:  &AzTimerCallbackTypePtr) -> AzString>(b"az_timer_callback_type_ptr_fmt_debug").map_err(|_| "az_timer_callback_type_ptr_fmt_debug")? };
+        let az_timer_callback_info_ptr_get_state = unsafe { lib.get::<extern fn(_:  &AzTimerCallbackInfoPtr) -> AzRefAny>(b"az_timer_callback_info_ptr_get_state").map_err(|_| "az_timer_callback_info_ptr_get_state")? };
         let az_timer_callback_info_ptr_delete = unsafe { lib.get::<extern fn(_:  &mut AzTimerCallbackInfoPtr)>(b"az_timer_callback_info_ptr_delete").map_err(|_| "az_timer_callback_info_ptr_delete")? };
         let az_timer_callback_info_ptr_fmt_debug = unsafe { lib.get::<extern fn(_:  &AzTimerCallbackInfoPtr) -> AzString>(b"az_timer_callback_info_ptr_fmt_debug").map_err(|_| "az_timer_callback_info_ptr_fmt_debug")? };
         let az_timer_callback_return_delete = unsafe { lib.get::<extern fn(_:  &mut AzTimerCallbackReturn)>(b"az_timer_callback_return_delete").map_err(|_| "az_timer_callback_return_delete")? };
@@ -4228,6 +4266,7 @@ pub(crate) mod dll {
         let az_css_property_delete = unsafe { lib.get::<extern fn(_:  &mut AzCssProperty)>(b"az_css_property_delete").map_err(|_| "az_css_property_delete")? };
         let az_css_property_deep_copy = unsafe { lib.get::<extern fn(_:  &AzCssProperty) -> AzCssProperty>(b"az_css_property_deep_copy").map_err(|_| "az_css_property_deep_copy")? };
         let az_css_property_fmt_debug = unsafe { lib.get::<extern fn(_:  &AzCssProperty) -> AzString>(b"az_css_property_fmt_debug").map_err(|_| "az_css_property_fmt_debug")? };
+        let az_dom_new = unsafe { lib.get::<extern fn(_:  AzNodeType) -> AzDom>(b"az_dom_new").map_err(|_| "az_dom_new")? };
         let az_dom_div = unsafe { lib.get::<extern fn() -> AzDom>(b"az_dom_div").map_err(|_| "az_dom_div")? };
         let az_dom_body = unsafe { lib.get::<extern fn() -> AzDom>(b"az_dom_body").map_err(|_| "az_dom_body")? };
         let az_dom_label = unsafe { lib.get::<extern fn(_:  AzString) -> AzDom>(b"az_dom_label").map_err(|_| "az_dom_label")? };
@@ -4249,12 +4288,12 @@ pub(crate) mod dll {
         let az_dom_with_css_override = unsafe { lib.get::<extern fn(_:  AzDom, _:  AzString, _:  AzCssProperty) -> AzDom>(b"az_dom_with_css_override").map_err(|_| "az_dom_with_css_override")? };
         let az_dom_set_is_draggable = unsafe { lib.get::<extern fn(_:  &mut AzDom, _:  bool)>(b"az_dom_set_is_draggable").map_err(|_| "az_dom_set_is_draggable")? };
         let az_dom_is_draggable = unsafe { lib.get::<extern fn(_:  AzDom, _:  bool) -> AzDom>(b"az_dom_is_draggable").map_err(|_| "az_dom_is_draggable")? };
-        let az_dom_set_tab_index = unsafe { lib.get::<extern fn(_:  &mut AzDom, _:  AzTabIndex)>(b"az_dom_set_tab_index").map_err(|_| "az_dom_set_tab_index")? };
-        let az_dom_with_tab_index = unsafe { lib.get::<extern fn(_:  AzDom, _:  AzTabIndex) -> AzDom>(b"az_dom_with_tab_index").map_err(|_| "az_dom_with_tab_index")? };
-        let az_dom_add_child = unsafe { lib.get::<extern fn(_:  &mut AzDom, _:  AzDom)>(b"az_dom_add_child").map_err(|_| "az_dom_add_child")? };
-        let az_dom_with_child = unsafe { lib.get::<extern fn(_:  AzDom, _:  AzDom) -> AzDom>(b"az_dom_with_child").map_err(|_| "az_dom_with_child")? };
+        let az_dom_set_tab_index = unsafe { lib.get::<extern fn(_:  &mut AzDom, _:  AzOptionTabIndex)>(b"az_dom_set_tab_index").map_err(|_| "az_dom_set_tab_index")? };
+        let az_dom_with_tab_index = unsafe { lib.get::<extern fn(_:  AzDom, _:  AzOptionTabIndex) -> AzDom>(b"az_dom_with_tab_index").map_err(|_| "az_dom_with_tab_index")? };
         let az_dom_has_id = unsafe { lib.get::<extern fn(_:  &mut AzDom, _:  AzString) -> bool>(b"az_dom_has_id").map_err(|_| "az_dom_has_id")? };
         let az_dom_has_class = unsafe { lib.get::<extern fn(_:  &mut AzDom, _:  AzString) -> bool>(b"az_dom_has_class").map_err(|_| "az_dom_has_class")? };
+        let az_dom_add_child = unsafe { lib.get::<extern fn(_:  &mut AzDom, _:  AzDom)>(b"az_dom_add_child").map_err(|_| "az_dom_add_child")? };
+        let az_dom_with_child = unsafe { lib.get::<extern fn(_:  AzDom, _:  AzDom) -> AzDom>(b"az_dom_with_child").map_err(|_| "az_dom_with_child")? };
         let az_dom_get_html_string = unsafe { lib.get::<extern fn(_:  &AzDom) -> AzString>(b"az_dom_get_html_string").map_err(|_| "az_dom_get_html_string")? };
         let az_dom_delete = unsafe { lib.get::<extern fn(_:  &mut AzDom)>(b"az_dom_delete").map_err(|_| "az_dom_delete")? };
         let az_dom_deep_copy = unsafe { lib.get::<extern fn(_:  &AzDom) -> AzDom>(b"az_dom_deep_copy").map_err(|_| "az_dom_deep_copy")? };
@@ -4272,7 +4311,32 @@ pub(crate) mod dll {
         let az_override_property_deep_copy = unsafe { lib.get::<extern fn(_:  &AzOverrideProperty) -> AzOverrideProperty>(b"az_override_property_deep_copy").map_err(|_| "az_override_property_deep_copy")? };
         let az_override_property_fmt_debug = unsafe { lib.get::<extern fn(_:  &AzOverrideProperty) -> AzString>(b"az_override_property_fmt_debug").map_err(|_| "az_override_property_fmt_debug")? };
         let az_node_data_new = unsafe { lib.get::<extern fn(_:  AzNodeType) -> AzNodeData>(b"az_node_data_new").map_err(|_| "az_node_data_new")? };
+        let az_node_data_div = unsafe { lib.get::<extern fn() -> AzNodeData>(b"az_node_data_div").map_err(|_| "az_node_data_div")? };
+        let az_node_data_body = unsafe { lib.get::<extern fn() -> AzNodeData>(b"az_node_data_body").map_err(|_| "az_node_data_body")? };
+        let az_node_data_label = unsafe { lib.get::<extern fn(_:  AzString) -> AzNodeData>(b"az_node_data_label").map_err(|_| "az_node_data_label")? };
+        let az_node_data_text = unsafe { lib.get::<extern fn(_:  AzTextId) -> AzNodeData>(b"az_node_data_text").map_err(|_| "az_node_data_text")? };
+        let az_node_data_image = unsafe { lib.get::<extern fn(_:  AzImageId) -> AzNodeData>(b"az_node_data_image").map_err(|_| "az_node_data_image")? };
+        let az_node_data_gl_texture = unsafe { lib.get::<extern fn(_:  AzRefAny, _:  AzGlCallbackType) -> AzNodeData>(b"az_node_data_gl_texture").map_err(|_| "az_node_data_gl_texture")? };
+        let az_node_data_iframe = unsafe { lib.get::<extern fn(_:  AzRefAny, _:  AzIFrameCallbackType) -> AzNodeData>(b"az_node_data_iframe").map_err(|_| "az_node_data_iframe")? };
         let az_node_data_default = unsafe { lib.get::<extern fn() -> AzNodeData>(b"az_node_data_default").map_err(|_| "az_node_data_default")? };
+        let az_node_data_add_id = unsafe { lib.get::<extern fn(_:  &mut AzNodeData, _:  AzString)>(b"az_node_data_add_id").map_err(|_| "az_node_data_add_id")? };
+        let az_node_data_with_id = unsafe { lib.get::<extern fn(_:  AzNodeData, _:  AzString) -> AzNodeData>(b"az_node_data_with_id").map_err(|_| "az_node_data_with_id")? };
+        let az_node_data_set_ids = unsafe { lib.get::<extern fn(_:  &mut AzNodeData, _:  AzStringVec)>(b"az_node_data_set_ids").map_err(|_| "az_node_data_set_ids")? };
+        let az_node_data_with_ids = unsafe { lib.get::<extern fn(_:  AzNodeData, _:  AzStringVec) -> AzNodeData>(b"az_node_data_with_ids").map_err(|_| "az_node_data_with_ids")? };
+        let az_node_data_add_class = unsafe { lib.get::<extern fn(_:  &mut AzNodeData, _:  AzString)>(b"az_node_data_add_class").map_err(|_| "az_node_data_add_class")? };
+        let az_node_data_with_class = unsafe { lib.get::<extern fn(_:  AzNodeData, _:  AzString) -> AzNodeData>(b"az_node_data_with_class").map_err(|_| "az_node_data_with_class")? };
+        let az_node_data_set_classes = unsafe { lib.get::<extern fn(_:  &mut AzNodeData, _:  AzStringVec)>(b"az_node_data_set_classes").map_err(|_| "az_node_data_set_classes")? };
+        let az_node_data_with_classes = unsafe { lib.get::<extern fn(_:  AzNodeData, _:  AzStringVec) -> AzNodeData>(b"az_node_data_with_classes").map_err(|_| "az_node_data_with_classes")? };
+        let az_node_data_add_callback = unsafe { lib.get::<extern fn(_:  &mut AzNodeData, _:  AzEventFilter, _:  AzRefAny, _:  AzCallbackType)>(b"az_node_data_add_callback").map_err(|_| "az_node_data_add_callback")? };
+        let az_node_data_with_callback = unsafe { lib.get::<extern fn(_:  AzNodeData, _:  AzEventFilter, _:  AzRefAny, _:  AzCallbackType) -> AzNodeData>(b"az_node_data_with_callback").map_err(|_| "az_node_data_with_callback")? };
+        let az_node_data_add_css_override = unsafe { lib.get::<extern fn(_:  &mut AzNodeData, _:  AzString, _:  AzCssProperty)>(b"az_node_data_add_css_override").map_err(|_| "az_node_data_add_css_override")? };
+        let az_node_data_with_css_override = unsafe { lib.get::<extern fn(_:  AzNodeData, _:  AzString, _:  AzCssProperty) -> AzNodeData>(b"az_node_data_with_css_override").map_err(|_| "az_node_data_with_css_override")? };
+        let az_node_data_set_is_draggable = unsafe { lib.get::<extern fn(_:  &mut AzNodeData, _:  bool)>(b"az_node_data_set_is_draggable").map_err(|_| "az_node_data_set_is_draggable")? };
+        let az_node_data_is_draggable = unsafe { lib.get::<extern fn(_:  AzNodeData, _:  bool) -> AzNodeData>(b"az_node_data_is_draggable").map_err(|_| "az_node_data_is_draggable")? };
+        let az_node_data_set_tab_index = unsafe { lib.get::<extern fn(_:  &mut AzNodeData, _:  AzOptionTabIndex)>(b"az_node_data_set_tab_index").map_err(|_| "az_node_data_set_tab_index")? };
+        let az_node_data_with_tab_index = unsafe { lib.get::<extern fn(_:  AzNodeData, _:  AzOptionTabIndex) -> AzNodeData>(b"az_node_data_with_tab_index").map_err(|_| "az_node_data_with_tab_index")? };
+        let az_node_data_has_id = unsafe { lib.get::<extern fn(_:  &mut AzNodeData, _:  AzString) -> bool>(b"az_node_data_has_id").map_err(|_| "az_node_data_has_id")? };
+        let az_node_data_has_class = unsafe { lib.get::<extern fn(_:  &mut AzNodeData, _:  AzString) -> bool>(b"az_node_data_has_class").map_err(|_| "az_node_data_has_class")? };
         let az_node_data_delete = unsafe { lib.get::<extern fn(_:  &mut AzNodeData)>(b"az_node_data_delete").map_err(|_| "az_node_data_delete")? };
         let az_node_data_deep_copy = unsafe { lib.get::<extern fn(_:  &AzNodeData) -> AzNodeData>(b"az_node_data_deep_copy").map_err(|_| "az_node_data_deep_copy")? };
         let az_node_data_fmt_debug = unsafe { lib.get::<extern fn(_:  &AzNodeData) -> AzString>(b"az_node_data_fmt_debug").map_err(|_| "az_node_data_fmt_debug")? };
@@ -4891,6 +4955,10 @@ pub(crate) mod dll {
             az_callback_partial_cmp,
             az_callback_cmp,
             az_callback_hash,
+            az_callback_info_ptr_get_state,
+            az_callback_info_ptr_get_keyboard_state,
+            az_callback_info_ptr_get_mouse_state,
+            az_callback_info_ptr_set_window_state,
             az_callback_info_ptr_delete,
             az_callback_info_ptr_fmt_debug,
             az_update_screen_delete,
@@ -4908,6 +4976,7 @@ pub(crate) mod dll {
             az_gl_callback_delete,
             az_gl_callback_deep_copy,
             az_gl_callback_fmt_debug,
+            az_gl_callback_info_ptr_get_state,
             az_gl_callback_info_ptr_delete,
             az_gl_callback_info_ptr_fmt_debug,
             az_gl_callback_return_delete,
@@ -4917,6 +4986,7 @@ pub(crate) mod dll {
             az_timer_callback_fmt_debug,
             az_timer_callback_type_ptr_delete,
             az_timer_callback_type_ptr_fmt_debug,
+            az_timer_callback_info_ptr_get_state,
             az_timer_callback_info_ptr_delete,
             az_timer_callback_info_ptr_fmt_debug,
             az_timer_callback_return_delete,
@@ -5405,6 +5475,7 @@ pub(crate) mod dll {
             az_css_property_delete,
             az_css_property_deep_copy,
             az_css_property_fmt_debug,
+            az_dom_new,
             az_dom_div,
             az_dom_body,
             az_dom_label,
@@ -5428,10 +5499,10 @@ pub(crate) mod dll {
             az_dom_is_draggable,
             az_dom_set_tab_index,
             az_dom_with_tab_index,
-            az_dom_add_child,
-            az_dom_with_child,
             az_dom_has_id,
             az_dom_has_class,
+            az_dom_add_child,
+            az_dom_with_child,
             az_dom_get_html_string,
             az_dom_delete,
             az_dom_deep_copy,
@@ -5449,7 +5520,32 @@ pub(crate) mod dll {
             az_override_property_deep_copy,
             az_override_property_fmt_debug,
             az_node_data_new,
+            az_node_data_div,
+            az_node_data_body,
+            az_node_data_label,
+            az_node_data_text,
+            az_node_data_image,
+            az_node_data_gl_texture,
+            az_node_data_iframe,
             az_node_data_default,
+            az_node_data_add_id,
+            az_node_data_with_id,
+            az_node_data_set_ids,
+            az_node_data_with_ids,
+            az_node_data_add_class,
+            az_node_data_with_class,
+            az_node_data_set_classes,
+            az_node_data_with_classes,
+            az_node_data_add_callback,
+            az_node_data_with_callback,
+            az_node_data_add_css_override,
+            az_node_data_with_css_override,
+            az_node_data_set_is_draggable,
+            az_node_data_is_draggable,
+            az_node_data_set_tab_index,
+            az_node_data_with_tab_index,
+            az_node_data_has_id,
+            az_node_data_has_class,
             az_node_data_delete,
             az_node_data_deep_copy,
             az_node_data_fmt_debug,
@@ -6802,7 +6898,8 @@ pub mod callbacks {
             let struct_as_bytes = unsafe { ::std::slice::from_raw_parts((&t_id as *const TypeId) as *const u8, mem::size_of::<TypeId>()) };
             struct_as_bytes.into_iter().enumerate().map(|(s_pos, s)| ((*s as u64) << s_pos)).sum()
         }
-    }    use crate::str::String;
+    }    use crate::window::WindowState;
+    use crate::str::String;
 
 
     /// `LayoutCallback` struct
@@ -6829,16 +6926,31 @@ pub mod callbacks {
     /// `CallbackInfo` struct
     pub use crate::dll::AzCallbackInfoPtr as CallbackInfo;
 
+    impl CallbackInfo {
+        /// Returns a copy of the internal `RefAny`
+        pub fn get_state(&self)  -> crate::callbacks::RefAny { { (crate::dll::get_azul_dll().az_callback_info_ptr_get_state)(self)} }
+        /// Returns a copy of the internal `KeyboardState`. Same as `self.get_window_state().keyboard_state`
+        pub fn get_keyboard_state(&self)  -> crate::window::KeyboardState { { (crate::dll::get_azul_dll().az_callback_info_ptr_get_keyboard_state)(self)} }
+        /// Returns a copy of the internal `MouseState`. Same as `self.get_window_state().mouse_state`
+        pub fn get_mouse_state(&self)  -> crate::window::MouseState { { (crate::dll::get_azul_dll().az_callback_info_ptr_get_mouse_state)(self)} }
+        /// Sets the new `WindowState` for the next frame. The window is updated after all callbacks are run.
+        pub fn set_window_state(&mut self, new_state: WindowState)  { (crate::dll::get_azul_dll().az_callback_info_ptr_set_window_state)(self, new_state) }
+    }
+
     impl std::fmt::Debug for CallbackInfo { fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result { write!(f, "{}", (crate::dll::get_azul_dll().az_callback_info_ptr_fmt_debug)(self)) } }
     impl Drop for CallbackInfo { fn drop(&mut self) { (crate::dll::get_azul_dll().az_callback_info_ptr_delete)(self); } }
 
 
-    /// Specifies if the screen should be updated after the callback function has returned
+    /// `UpdateScreen` struct
     pub use crate::dll::AzUpdateScreen as UpdateScreen;
 
     impl std::fmt::Debug for UpdateScreen { fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result { write!(f, "{}", (crate::dll::get_azul_dll().az_update_screen_fmt_debug)(self)) } }
     impl Clone for UpdateScreen { fn clone(&self) -> Self { (crate::dll::get_azul_dll().az_update_screen_deep_copy)(self) } }
     impl Drop for UpdateScreen { fn drop(&mut self) { (crate::dll::get_azul_dll().az_update_screen_delete)(self); } }
+
+    impl From<Option<()>> for UpdateScreen { fn from(o: Option<()>) -> Self { match o { None => UpdateScreen::DontRedraw, Some(_) => UpdateScreen::Redraw } } }
+
+    impl From<UpdateScreen> for Option<()> { fn from(o: UpdateScreen) -> Self { match o { UpdateScreen::Redraw => Some(()), _ => None } } }
 
 
     /// `IFrameCallback` struct
@@ -6884,6 +6996,11 @@ pub mod callbacks {
     /// `GlCallbackInfo` struct
     pub use crate::dll::AzGlCallbackInfoPtr as GlCallbackInfo;
 
+    impl GlCallbackInfo {
+        /// Returns a copy of the internal `RefAny`
+        pub fn get_state(&self)  -> crate::callbacks::RefAny { { (crate::dll::get_azul_dll().az_gl_callback_info_ptr_get_state)(self)} }
+    }
+
     impl std::fmt::Debug for GlCallbackInfo { fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result { write!(f, "{}", (crate::dll::get_azul_dll().az_gl_callback_info_ptr_fmt_debug)(self)) } }
     impl Drop for GlCallbackInfo { fn drop(&mut self) { (crate::dll::get_azul_dll().az_gl_callback_info_ptr_delete)(self); } }
 
@@ -6911,6 +7028,11 @@ pub mod callbacks {
 
     /// `TimerCallbackInfo` struct
     pub use crate::dll::AzTimerCallbackInfoPtr as TimerCallbackInfo;
+
+    impl TimerCallbackInfo {
+        /// Returns a copy of the internal `RefAny`
+        pub fn get_state(&self)  -> crate::callbacks::RefAny { { (crate::dll::get_azul_dll().az_timer_callback_info_ptr_get_state)(self)} }
+    }
 
     impl std::fmt::Debug for TimerCallbackInfo { fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result { write!(f, "{}", (crate::dll::get_azul_dll().az_timer_callback_info_ptr_fmt_debug)(self)) } }
     impl Drop for TimerCallbackInfo { fn drop(&mut self) { (crate::dll::get_azul_dll().az_timer_callback_info_ptr_delete)(self); } }
@@ -8266,12 +8388,15 @@ pub mod dom {
     use crate::callbacks::{CallbackType, GlCallbackType, IFrameCallbackType, RefAny};
     use crate::vec::StringVec;
     use crate::css::CssProperty;
+    use crate::option::OptionTabIndex;
 
 
     /// `Dom` struct
     pub use crate::dll::AzDom as Dom;
 
     impl Dom {
+        /// Creates a new node with the given `NodeType`
+        pub fn new(node_type: NodeType) -> Self { (crate::dll::get_azul_dll().az_dom_new)(node_type) }
         /// Creates a new `div` node
         pub fn div() -> Self { (crate::dll::get_azul_dll().az_dom_div)() }
         /// Creates a new `body` node
@@ -8315,17 +8440,17 @@ pub mod dom {
         /// Same as [`Dom::set_is_draggable`](#method.set_is_draggable), but as a builder method
         pub fn is_draggable(self, is_draggable: bool)  -> crate::dom::Dom { { (crate::dll::get_azul_dll().az_dom_is_draggable)(self, is_draggable)} }
         /// Sets the `tabindex` attribute of this DOM node (makes an element focusable - default: None)
-        pub fn set_tab_index(&mut self, tab_index: TabIndex)  { (crate::dll::get_azul_dll().az_dom_set_tab_index)(self, tab_index) }
+        pub fn set_tab_index(&mut self, tab_index: OptionTabIndex)  { (crate::dll::get_azul_dll().az_dom_set_tab_index)(self, tab_index) }
         /// Same as [`Dom::set_tab_index`](#method.set_tab_index), but as a builder method
-        pub fn with_tab_index(self, tab_index: TabIndex)  -> crate::dom::Dom { { (crate::dll::get_azul_dll().az_dom_with_tab_index)(self, tab_index)} }
-        /// Reparents another `Dom` to be the child node of this `Dom`
-        pub fn add_child(&mut self, child: Dom)  { (crate::dll::get_azul_dll().az_dom_add_child)(self, child) }
-        /// Same as [`Dom::add_child`](#method.add_child), but as a builder method
-        pub fn with_child(self, child: Dom)  -> crate::dom::Dom { { (crate::dll::get_azul_dll().az_dom_with_child)(self, child)} }
+        pub fn with_tab_index(self, tab_index: OptionTabIndex)  -> crate::dom::Dom { { (crate::dll::get_azul_dll().az_dom_with_tab_index)(self, tab_index)} }
         /// Returns if the DOM node has a certain CSS ID
         pub fn has_id(&mut self, id: String)  -> bool { (crate::dll::get_azul_dll().az_dom_has_id)(self, id) }
         /// Returns if the DOM node has a certain CSS class
         pub fn has_class(&mut self, class: String)  -> bool { (crate::dll::get_azul_dll().az_dom_has_class)(self, class) }
+        /// Reparents another `Dom` to be the child node of this `Dom`
+        pub fn add_child(&mut self, child: Dom)  { (crate::dll::get_azul_dll().az_dom_add_child)(self, child) }
+        /// Same as [`Dom::add_child`](#method.add_child), but as a builder method
+        pub fn with_child(self, child: Dom)  -> crate::dom::Dom { { (crate::dll::get_azul_dll().az_dom_with_child)(self, child)} }
         /// Returns the HTML String for this DOM
         pub fn get_html_string(&self)  -> crate::str::String { { (crate::dll::get_azul_dll().az_dom_get_html_string)(self)} }
     }
@@ -8373,8 +8498,58 @@ pub mod dom {
     impl NodeData {
         /// Creates a new node without any classes or ids from a NodeType
         pub fn new(node_type: NodeType) -> Self { (crate::dll::get_azul_dll().az_node_data_new)(node_type) }
+        /// Creates a new `div` node
+        pub fn div() -> Self { (crate::dll::get_azul_dll().az_node_data_div)() }
+        /// Creates a new `body` node
+        pub fn body() -> Self { (crate::dll::get_azul_dll().az_node_data_body)() }
+        /// Creates a new `p` node with a given `String` as the text contents
+        pub fn label(text: String) -> Self { (crate::dll::get_azul_dll().az_node_data_label)(text) }
+        /// Creates a new `p` node from a (cached) text referenced by a `TextId`
+        pub fn text(text_id: TextId) -> Self { (crate::dll::get_azul_dll().az_node_data_text)(text_id) }
+        /// Creates a new `img` node from a (cached) text referenced by a `ImageId`
+        pub fn image(image_id: ImageId) -> Self { (crate::dll::get_azul_dll().az_node_data_image)(image_id) }
+        /// Creates a new node which will render an OpenGL texture after the layout step is finished. See the documentation for [GlCallback]() for more info about OpenGL rendering callbacks.
+        pub fn gl_texture(data: RefAny, callback: GlCallbackType) -> Self { (crate::dll::get_azul_dll().az_node_data_gl_texture)(data, callback) }
+        /// Creates a `NodeData` with a callback that will return a `Dom` after being layouted. See the documentation for [IFrameCallback]() for more info about iframe callbacks.
+        pub fn iframe(data: RefAny, callback: IFrameCallbackType) -> Self { (crate::dll::get_azul_dll().az_node_data_iframe)(data, callback) }
         /// Creates a default (div) node without any classes
         pub fn default() -> Self { (crate::dll::get_azul_dll().az_node_data_default)() }
+        /// Adds a CSS ID (`#something`) to the `NodeData`
+        pub fn add_id(&mut self, id: String)  { (crate::dll::get_azul_dll().az_node_data_add_id)(self, id) }
+        /// Same as [`NodeData::add_id`](#method.add_id), but as a builder method
+        pub fn with_id(self, id: String)  -> crate::dom::NodeData { { (crate::dll::get_azul_dll().az_node_data_with_id)(self, id)} }
+        /// Same as calling [`NodeData::add_id`](#method.add_id) for each CSS ID, but this function **replaces** all current CSS IDs
+        pub fn set_ids(&mut self, ids: StringVec)  { (crate::dll::get_azul_dll().az_node_data_set_ids)(self, ids) }
+        /// Same as [`NodeData::set_ids`](#method.set_ids), but as a builder method
+        pub fn with_ids(self, ids: StringVec)  -> crate::dom::NodeData { { (crate::dll::get_azul_dll().az_node_data_with_ids)(self, ids)} }
+        /// Adds a CSS class (`.something`) to the `NodeData`
+        pub fn add_class(&mut self, class: String)  { (crate::dll::get_azul_dll().az_node_data_add_class)(self, class) }
+        /// Same as [`NodeData::add_class`](#method.add_class), but as a builder method
+        pub fn with_class(self, class: String)  -> crate::dom::NodeData { { (crate::dll::get_azul_dll().az_node_data_with_class)(self, class)} }
+        /// Same as calling [`NodeData::add_class`](#method.add_class) for each class, but this function **replaces** all current classes
+        pub fn set_classes(&mut self, classes: StringVec)  { (crate::dll::get_azul_dll().az_node_data_set_classes)(self, classes) }
+        /// Same as [`NodeData::set_classes`](#method.set_classes), but as a builder method
+        pub fn with_classes(self, classes: StringVec)  -> crate::dom::NodeData { { (crate::dll::get_azul_dll().az_node_data_with_classes)(self, classes)} }
+        /// Adds a [`Callback`](callbacks/type.Callback) that acts on the `data` the `event` happens
+        pub fn add_callback(&mut self, event: EventFilter, data: RefAny, callback: CallbackType)  { (crate::dll::get_azul_dll().az_node_data_add_callback)(self, event, data, callback) }
+        /// Same as [`NodeData::add_callback`](#method.add_callback), but as a builder method
+        pub fn with_callback(self, event: EventFilter, data: RefAny, callback: CallbackType)  -> crate::dom::NodeData { { (crate::dll::get_azul_dll().az_node_data_with_callback)(self, event, data, callback)} }
+        /// Overrides the CSS property of this `NodeData` node with a value (for example `"width = 200px"`)
+        pub fn add_css_override(&mut self, id: String, prop: CssProperty)  { (crate::dll::get_azul_dll().az_node_data_add_css_override)(self, id, prop) }
+        /// Same as [`NodeData::add_css_override`](#method.add_css_override), but as a builder method
+        pub fn with_css_override(self, id: String, prop: CssProperty)  -> crate::dom::NodeData { { (crate::dll::get_azul_dll().az_node_data_with_css_override)(self, id, prop)} }
+        /// Sets the `is_draggable` attribute of this `NodeData` (default: false)
+        pub fn set_is_draggable(&mut self, is_draggable: bool)  { (crate::dll::get_azul_dll().az_node_data_set_is_draggable)(self, is_draggable) }
+        /// Same as [`NodeData::set_is_draggable`](#method.set_is_draggable), but as a builder method
+        pub fn is_draggable(self, is_draggable: bool)  -> crate::dom::NodeData { { (crate::dll::get_azul_dll().az_node_data_is_draggable)(self, is_draggable)} }
+        /// Sets the `tabindex` attribute of this `NodeData` (makes an element focusable - default: None)
+        pub fn set_tab_index(&mut self, tab_index: OptionTabIndex)  { (crate::dll::get_azul_dll().az_node_data_set_tab_index)(self, tab_index) }
+        /// Same as [`NodeData::set_tab_index`](#method.set_tab_index), but as a builder method
+        pub fn with_tab_index(self, tab_index: OptionTabIndex)  -> crate::dom::NodeData { { (crate::dll::get_azul_dll().az_node_data_with_tab_index)(self, tab_index)} }
+        /// Returns if the `NodeData` has a certain CSS ID
+        pub fn has_id(&mut self, id: String)  -> bool { (crate::dll::get_azul_dll().az_node_data_has_id)(self, id) }
+        /// Returns if the `NodeData` has a certain CSS class
+        pub fn has_class(&mut self, class: String)  -> bool { (crate::dll::get_azul_dll().az_node_data_has_class)(self, class) }
     }
 
     impl std::fmt::Debug for NodeData { fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result { write!(f, "{}", (crate::dll::get_azul_dll().az_node_data_fmt_debug)(self)) } }

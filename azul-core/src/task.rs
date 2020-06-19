@@ -240,6 +240,7 @@ impl Timer {
 /// Simple struct that is used by Azul internally to determine when the thread has finished executing.
 /// When this struct goes out of scope, Azul will call `.join()` on the thread (so in order to not
 /// block the main thread, simply let it go out of scope naturally.
+#[derive(Debug)]
 pub struct DropCheck(Arc<()>);
 
 #[repr(C)]
@@ -248,6 +249,13 @@ pub struct DropCheckPtr { /* *const DropCheck */ pub ptr: *const c_void }
 impl DropCheckPtr {
     pub fn new(d: DropCheck) -> Self { Self { ptr: Box::into_raw(Box::new(d)) as *const c_void }}
     pub fn get(&self) -> &DropCheck { unsafe { &*(self.ptr as *const DropCheck) } }
+}
+
+impl std::fmt::Debug for DropCheckPtr {
+    fn fmt<'a>(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
+        let self_ptr = self.ptr as *const DropCheck;
+        self_ptr.fmt(f)
+    }
 }
 
 impl Drop for DropCheckPtr {
@@ -345,6 +353,7 @@ impl Drop for Task {
 /// # Warning
 ///
 /// `Thread` panics if it goes out of scope before `.block()` was called.
+#[derive(Debug)]
 pub struct Thread {
     join_handle: Option<JoinHandle<RefAny>>,
 }

@@ -74,8 +74,8 @@ impl TableViewState {
                 // Row numbers (vertical) - "1", "2", "3"
                 (rows.start..rows.end.saturating_sub(1))
                 .map(|row_idx|
-                    NodeData::label(format!("{}", row_idx + 1))
-                    .with_classes(vec!["__azul-native-table-row".into()])
+                    NodeData::label(format!("{}", row_idx + 1).into())
+                    .with_classes(vec!["__azul-native-table-row".into()].into())
                 )
                 .collect::<Dom>()
                 .with_class("__azul-native-table-row-numbers".into())
@@ -87,18 +87,21 @@ impl TableViewState {
                 // Column name
                 Dom::new(NodeType::Div)
                 .with_class("__azul-native-table-column".into())
-                .with_child(Dom::label(column_name_from_number(col_idx)).with_class("__azul-native-table-column-name".into()))
+                .with_child(
+                    Dom::label(column_name_from_number(col_idx).into())
+                    .with_class("__azul-native-table-column-name".into())
+                )
                 .with_child(
                     // row contents - if no content is given, they are simply empty
                     (rows.start..rows.end)
                     .map(|row_idx|
                         NodeData::new(
                             if let Some(data) = self.work_sheet.get(&col_idx).and_then(|col| col.get(&row_idx)) {
-                                NodeType::Label(data.into())
+                                NodeType::Label(data.clone().into())
                             } else {
                                 NodeType::Div
                             }
-                        ).with_classes(vec!["__azul-native-table-cell".into()])
+                        ).with_classes(vec!["__azul-native-table-cell".into()].into())
                     )
                     .collect::<Dom>()
                     .with_class("__azul-native-table-rows".into())
@@ -144,7 +147,7 @@ impl TableView {
     pub fn dom(self) -> Dom {
         Dom::iframe(self.state.clone(), Self::render_table_iframe_contents)
             .with_class("__azul-native-table-iframe".into())
-            .with_callback(On::MouseUp, self.state, self.on_mouse_up.cb)
+            .with_callback(On::MouseUp.into(), self.state, self.on_mouse_up.cb)
     }
 
     pub fn default_on_mouse_up(_info: CallbackInfo) -> CallbackReturn {
@@ -154,7 +157,7 @@ impl TableView {
 
     fn render_table_iframe_contents(info: IFrameCallbackInfo) -> IFrameCallbackReturn {
         fn render_table_iframe_contents_inner(info: IFrameCallbackInfo) -> Option<Dom> {
-            let table_view_state = info.state().borrow::<TableViewState>()?;
+            let table_view_state = info.get_state().borrow::<TableViewState>()?;
             let logical_size = info.bounds.get_logical_size();
             let necessary_rows = (logical_size.height as f32 / table_view_state.row_height).ceil() as usize;
             let necessary_columns = (logical_size.width as f32 / table_view_state.column_width).ceil() as usize;

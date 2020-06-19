@@ -472,6 +472,13 @@ impl Drop for CallbackInfoPtr {
     }
 }
 
+impl std::fmt::Debug for CallbackInfoPtr {
+    fn fmt<'a>(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
+        let self_ptr = self.ptr as *const CallbackInfo<'a>;
+        self_ptr.fmt(f)
+    }
+}
+
 pub type CallbackReturn = UpdateScreen;
 pub type CallbackType = fn(CallbackInfoPtr) -> CallbackReturn;
 
@@ -530,6 +537,7 @@ pub struct GlCallback { pub cb: GlCallbackType }
 #[cfg(feature = "opengl")]
 impl_callback!(GlCallback);
 
+#[derive(Debug)]
 pub struct GlCallbackInfo<'a> {
     pub state: &'a RefAny,
     pub layout_info: LayoutInfo<'a>,
@@ -543,6 +551,13 @@ impl Drop for GlCallbackInfoPtr {
     fn drop<'a>(&mut self) {
         println!("GlCallbackInfoPtr::drop!", );
         let _ = unsafe { Box::<GlCallbackInfo<'a>>::from_raw(self.ptr as *mut GlCallbackInfo<'a>) };
+    }
+}
+
+impl std::fmt::Debug for GlCallbackInfoPtr {
+    fn fmt<'a>(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
+        let self_ptr = self.ptr as *const GlCallbackInfo<'a>;
+        self_ptr.fmt(f)
     }
 }
 
@@ -562,6 +577,7 @@ pub type GlCallbackType = fn(GlCallbackInfoPtr) -> GlCallbackReturn;
 pub struct IFrameCallback { pub cb: IFrameCallbackType }
 impl_callback!(IFrameCallback);
 
+#[derive(Debug)]
 pub struct IFrameCallbackInfo<'a> {
     pub state: &'a RefAny,
     pub layout_info: LayoutInfo<'a>,
@@ -575,6 +591,13 @@ impl Drop for IFrameCallbackInfoPtr {
     fn drop<'a>(&mut self) {
         println!("IFrameCallbackInfoPtr::drop!");
         let _ = unsafe { Box::<IFrameCallbackInfo<'a>>::from_raw(self.ptr as *mut IFrameCallbackInfo<'a>) };
+    }
+}
+
+impl std::fmt::Debug for IFrameCallbackInfoPtr {
+    fn fmt<'a>(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
+        let self_ptr = self.ptr as *const IFrameCallbackInfo<'a>;
+        self_ptr.fmt(f)
     }
 }
 
@@ -597,6 +620,7 @@ pub type TaskCallbackType = fn(ArcMutexRefAnyPtr, DropCheckPtr) -> UpdateScreen;
 pub struct TimerCallback { pub cb: TimerCallbackType }
 impl_callback!(TimerCallback);
 
+#[derive(Debug)]
 pub struct TimerCallbackInfo<'a> {
     pub state: &'a mut RefAny,
     pub app_resources: &'a mut AppResources,
@@ -609,6 +633,13 @@ impl Drop for TimerCallbackInfoPtr {
     fn drop<'a>(&mut self) {
         println!("TimerCallbackInfoPtr::drop!");
         let _ = unsafe { Box::<TimerCallbackInfo<'a>>::from_raw(self.ptr as *mut TimerCallbackInfo<'a>) };
+    }
+}
+
+impl std::fmt::Debug for TimerCallbackInfoPtr {
+    fn fmt<'a>(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
+        let self_ptr = self.ptr as *const TimerCallbackInfo<'a>;
+        self_ptr.fmt(f)
     }
 }
 
@@ -631,8 +662,16 @@ impl Drop for LayoutInfoPtr {
     }
 }
 
+impl std::fmt::Debug for LayoutInfoPtr {
+    fn fmt<'a>(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
+        let self_ptr = self.ptr as *const LayoutInfo<'a>;
+        self_ptr.fmt(f)
+    }
+}
+
 /// Gives the `layout()` function access to the `AppResources` and the `Window`
 /// (for querying images and fonts, as well as width / height)
+#[derive(Debug)]
 pub struct LayoutInfo<'a> {
     /// Window size (so that apps can return a different UI depending on
     /// the window size - mobile / desktop view). Should be later removed

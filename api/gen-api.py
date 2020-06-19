@@ -662,7 +662,10 @@ def generate_rust_dll(apiData):
             code += "/// Creates a string with the debug representation of the object\r\n"
             functions_map[str(to_snake_case(class_ptr_name) + "_fmt_debug")] = ["object: &" + class_ptr_name, "AzString"];
             code += "#[no_mangle] pub extern \"C\" fn " + to_snake_case(class_ptr_name) + "_fmt_debug" + lifetime + "(object: &" + class_ptr_name + ") -> AzString { "
-            code += "format!(\"{:#?}\", object).into()"
+            if c_is_stack_allocated:
+                code += "format!(\"{:#?}\", object).into()"
+            else:
+                code += "" + to_snake_case(class_ptr_name) + "_downcast_ref(object, |o| format!(\"{:#?}\", o)).into()"
             code += " }\r\n"
 
             if class_has_partialeq:

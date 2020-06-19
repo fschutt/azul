@@ -697,6 +697,26 @@ impl NodeData {
         }
     }
 
+    #[inline]
+    pub fn add_callback<O: Into<EventFilter>>(&mut self, on: O, callback: CallbackType, data: RefAny) {
+        self.callbacks.push(CallbackData { event: on.into(), callback: Callback { cb: callback }, data });
+    }
+
+    #[inline]
+    pub fn add_css_override<S: Into<AzString>, P: Into<CssProperty>>(&mut self, override_id: S, property: P) {
+        self.dynamic_css_overrides.push(OverrideProperty { property_id: override_id.into(), override_value: property.into() });
+    }
+
+    #[inline]
+    pub fn add_id<S: Into<AzString>>(&mut self, id: S) {
+        self.ids.push(id.into());
+    }
+
+    #[inline]
+    pub fn add_class<S: Into<AzString>>(&mut self, class: S) {
+        self.classes.push(class.into());
+    }
+
     /// Checks whether this node is of the given node type (div, image, text)
     #[inline]
     pub fn is_node_type(&self, searched_type: NodeType) -> bool {
@@ -1202,20 +1222,20 @@ impl Dom {
     }
 
     #[inline]
-    pub fn with_tab_index(mut self, tab_index: TabIndex) -> Self {
+    pub fn with_tab_index(mut self, tab_index: OptionTabIndex) -> Self {
         self.set_tab_index(tab_index);
         self
     }
 
     #[inline]
     pub fn is_draggable(mut self, draggable: bool) -> Self {
-        self.set_draggable(draggable);
+        self.set_is_draggable(draggable);
         self
     }
 
     #[inline]
     pub fn add_id<S: Into<AzString>>(&mut self, id: S) {
-        self.root.ids.push(id.into());
+        self.root.add_id(id);
     }
 
     #[inline(always)]
@@ -1223,7 +1243,7 @@ impl Dom {
 
     #[inline]
     pub fn add_class<S: Into<AzString>>(&mut self, class: S) {
-        self.root.classes.push(class.into());
+        self.root.add_class(class);
     }
 
     #[inline(always)]
@@ -1231,22 +1251,22 @@ impl Dom {
 
     #[inline]
     pub fn add_callback<O: Into<EventFilter>>(&mut self, on: O, callback: CallbackType, data: RefAny) {
-        self.root.callbacks.push(CallbackData { event: on.into(), callback: Callback { cb: callback }, data });
+        self.root.add_callback(on, callback, data);
     }
 
     #[inline]
     pub fn add_css_override<S: Into<AzString>, P: Into<CssProperty>>(&mut self, override_id: S, property: P) {
-        self.root.dynamic_css_overrides.push(OverrideProperty { property_id: override_id.into(), override_value: property.into() });
+        self.root.add_css_override(override_id, property);
     }
 
     #[inline]
-    pub fn set_tab_index(&mut self, tab_index: TabIndex) {
-        self.root.tab_index = OptionTabIndex::Some(tab_index);
+    pub fn set_tab_index(&mut self, tab_index: OptionTabIndex) {
+        self.root.set_tab_index(tab_index);
     }
 
     #[inline]
-    pub fn set_draggable(&mut self, draggable: bool) {
-        self.root.is_draggable = draggable;
+    pub fn set_is_draggable(&mut self, draggable: bool) {
+        self.root.set_is_draggable(draggable);
     }
 
     /// Returns a HTML-formatted version of the DOM for easier debugging, i.e.

@@ -997,7 +997,7 @@ pub fn set_attributes(dom: &mut Dom, xml_attributes: &XmlAttributeMap, filtered_
         .map(|d| format_args_dynamic(d, &filtered_xml_attributes.args))
         .and_then(|d| parse_bool(&d))
     {
-        dom.set_draggable(drag);
+        dom.set_is_draggable(drag);
     }
 
     if let Some(focusable) = xml_attributes.get("focusable")
@@ -1005,8 +1005,8 @@ pub fn set_attributes(dom: &mut Dom, xml_attributes: &XmlAttributeMap, filtered_
         .and_then(|f| parse_bool(&f))
     {
         match focusable {
-            true => dom.set_tab_index(TabIndex::Auto),
-            false => dom.set_tab_index(TabIndex::NoKeyboardFocus),
+            true => dom.set_tab_index(Some(TabIndex::Auto).into()),
+            false => dom.set_tab_index(Some(TabIndex::NoKeyboardFocus.into()).into()),
         }
     }
 
@@ -1015,9 +1015,9 @@ pub fn set_attributes(dom: &mut Dom, xml_attributes: &XmlAttributeMap, filtered_
         .and_then(|val| val.parse::<isize>().ok())
     {
         match tab_index {
-            0 => dom.set_tab_index(TabIndex::Auto),
-            i if i > 0 => dom.set_tab_index(TabIndex::OverrideInParent(i as usize)),
-            _ => dom.set_tab_index(TabIndex::NoKeyboardFocus),
+            0 => dom.set_tab_index(Some(TabIndex::Auto).into()),
+            i if i > 0 => dom.set_tab_index(Some(TabIndex::OverrideInParent(i as usize)).into()),
+            _ => dom.set_tab_index(Some(TabIndex::NoKeyboardFocus).into()),
         }
     }
 }
@@ -1063,8 +1063,8 @@ pub fn set_stringified_attributes(
         .and_then(|f| parse_bool(&f))
     {
         match focusable {
-            true => dom_string.push_str(&format!("\r\n{}.with_tab_index(TabIndex::Auto)", t)),
-            false => dom_string.push_str(&format!("\r\n{}.with_tab_index(TabIndex::NoKeyboardFocus)", t)),
+            true => dom_string.push_str(&format!("\r\n{}.with_tab_index(Some(TabIndex::Auto).into())", t)),
+            false => dom_string.push_str(&format!("\r\n{}.with_tab_index(Some(TabIndex::NoKeyboardFocus).into())", t)),
         }
     }
 
@@ -1073,9 +1073,9 @@ pub fn set_stringified_attributes(
         .and_then(|val| val.parse::<isize>().ok())
     {
         match tab_index {
-            0 => dom_string.push_str(&format!("\r\n{}.with_tab_index(TabIndex::Auto)", t)),
-            i if i > 0 => dom_string.push_str(&format!("\r\n{}.with_tab_index(TabIndex::OverrideInParent({}))", t, i as usize)),
-            _ => dom_string.push_str(&format!("\r\n{}.with_tab_index(TabIndex::NoKeyboardFocus)", t)),
+            0 => dom_string.push_str(&format!("\r\n{}.with_tab_index(Some(TabIndex::Auto).into())", t)),
+            i if i > 0 => dom_string.push_str(&format!("\r\n{}.with_tab_index(Some(TabIndex::OverrideInParent({})).into())", t, i as usize)),
+            _ => dom_string.push_str(&format!("\r\n{}.with_tab_index(Some(TabIndex::NoKeyboardFocus).into())", t)),
         }
     }
 }

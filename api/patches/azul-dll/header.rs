@@ -23,7 +23,7 @@ use core::ffi::c_void;
 use std::{path::PathBuf, vec::Vec, string::String, time::Duration};
 use azul_impl::{
     css::{self, *},
-    dom::Dom,
+    dom::{Dom, NodeData},
     callbacks::{
         RefAny, LayoutInfo,
         Callback, CallbackInfo, CallbackType,

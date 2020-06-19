@@ -32,7 +32,7 @@ impl Button {
         use self::ButtonContent::*;
         Dom::div()
         .with_class("__azul-native-button".into())
-        .with_tab_index(TabIndex::Auto)
+        .with_tab_index(Some(TabIndex::Auto).into())
         .with_child(match self.content {
             Text(s) => Dom::label(s.into()),
             Image(i) => Dom::image(i),

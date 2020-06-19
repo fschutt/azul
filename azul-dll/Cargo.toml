@@ -27,7 +27,7 @@ opt-level = 3
 lto = true
 panic = "abort"
 codegen-units = 1
-debug = true
+debug = false
 strip = "symbols"
 overflow_checks = false
 
@@ -36,7 +36,7 @@ opt-level = 3
 lto = true
 panic = "abort"
 codegen-units = 1
-debug = true
+debug = false
 strip = "symbols"
 overflow_checks = false
 

@@ -74,99 +74,92 @@ impl TextInputState {
         Self { selection, .. self }
     }
 
-    pub fn handle_on_text_input(&mut self, keyboard_state: &KeyboardState) -> CallbackReturn {
-        fn handle_on_text_input_inner(tis: &mut TextInputState, keyboard_state: &KeyboardState) -> Option<()> {
-            let c = keyboard_state.current_char?;
+    pub fn handle_on_text_input(&mut self, keyboard_state: &KeyboardState) -> Option<()> {
+        let c = keyboard_state.current_char.into_option()?;
 
-            match tis.selection.clone() {
-                None => {
-                    if tis.cursor_pos == tis.text.len() {
-                        tis.text.push(c);
-                    } else {
-                        // TODO: insert character at the cursor location!
-                        tis.text.push(c);
-                    }
-                    tis.cursor_pos = tis.cursor_pos.saturating_add(1);
-                },
-                Some(Selection::All) => {
-                    tis.text = format!("{}", c);
-                    tis.cursor_pos = 1;
-                    tis.selection = None;
-                },
-                Some(Selection::FromTo(range)) => {
-                    tis.delete_selection(range, Some(c));
-                },
-            }
-
-            Some(())
+        match self.selection.clone() {
+            None => {
+                if self.cursor_pos == self.text.len() {
+                    self.text.push(c);
+                } else {
+                    // TODO: insert character at the cursor location!
+                    self.text.push(c);
+                }
+                self.cursor_pos = self.cursor_pos.saturating_add(1);
+            },
+            Some(Selection::All) => {
+                self.text = format!("{}", c);
+                self.cursor_pos = 1;
+                self.selection = None;
+            },
+            Some(Selection::FromTo(range)) => {
+                self.delete_selection(range, Some(c));
+            },
         }
 
-        handle_on_text_input_inner(self, keyboard_state).into()
+        Some(())
     }
 
-    pub fn handle_on_virtual_key_down(&mut self, keyboard_state: &KeyboardState) -> CallbackReturn {
-        fn handle_on_virtual_key_down_inner(tis: &mut TextInputState, keyboard_state: &KeyboardState) -> Option<()> {
-            let last_keycode = keyboard_state.current_virtual_keycode.into_option()?;
+    pub fn handle_on_virtual_key_down(&mut self, keyboard_state: &KeyboardState) -> Option<()> {
+        let last_keycode = keyboard_state.current_virtual_keycode.into_option()?;
 
-            match last_keycode {
-                VirtualKeyCode::Back => {
-                    // TODO: shift + back = delete last word
-                    let selection = tis.selection.clone();
-                    match selection {
-                        None => {
-                            if tis.cursor_pos == tis.text.len() {
-                                tis.text.pop();
-                            } else {
-                                let mut a = tis.text.chars().take(tis.cursor_pos).collect::<String>();
-                                let new = tis.text.len().min(tis.cursor_pos.saturating_add(1));
-                                a.extend(tis.text.chars().skip(new));
-                                tis.text = a;
-                            }
-                            tis.cursor_pos = tis.cursor_pos.saturating_sub(1);
-                        },
-                        Some(Selection::All) => {
-                            tis.text.clear();
-                            tis.cursor_pos = 0;
-                            tis.selection = None;
-                        },
-                        Some(Selection::FromTo(range)) => {
-                            tis.delete_selection(range, None);
-                        },
-                    }
-                },
-                VirtualKeyCode::Return => {
-                    // TODO: selection!
-                    tis.text.push('\n');
-                    tis.cursor_pos = tis.cursor_pos.saturating_add(1);
-                },
-                VirtualKeyCode::Home => {
-                    tis.cursor_pos = 0;
-                    tis.selection = None;
-                },
-                VirtualKeyCode::End => {
-                    tis.cursor_pos = tis.text.len();
-                    tis.selection = None;
-                },
-                VirtualKeyCode::Escape => {
-                    tis.selection = None;
-                },
-                VirtualKeyCode::Right => {
-                    tis.cursor_pos = tis.text.len().min(tis.cursor_pos.saturating_add(1));
-                },
-                VirtualKeyCode::Left => {
-                    tis.cursor_pos = (0.max(tis.cursor_pos.saturating_sub(1))).min(tis.cursor_pos.saturating_add(1));
-                },
-                VirtualKeyCode::A if keyboard_state.ctrl_down => {
-                    tis.selection = Some(Selection::All);
-                },
-                VirtualKeyCode::C if keyboard_state.ctrl_down => {},
-                VirtualKeyCode::V if keyboard_state.ctrl_down => {},
-                _ => { },
-            }
-
-            Some(())
+        match last_keycode {
+            VirtualKeyCode::Back => {
+                // TODO: shift + back = delete last word
+                let selection = self.selection.clone();
+                match selection {
+                    None => {
+                        if self.cursor_pos == self.text.len() {
+                            self.text.pop();
+                        } else {
+                            let mut a = self.text.chars().take(self.cursor_pos).collect::<String>();
+                            let new = self.text.len().min(self.cursor_pos.saturating_add(1));
+                            a.extend(self.text.chars().skip(new));
+                            self.text = a;
+                        }
+                        self.cursor_pos = self.cursor_pos.saturating_sub(1);
+                    },
+                    Some(Selection::All) => {
+                        self.text.clear();
+                        self.cursor_pos = 0;
+                        self.selection = None;
+                    },
+                    Some(Selection::FromTo(range)) => {
+                        self.delete_selection(range, None);
+                    },
+                }
+            },
+            VirtualKeyCode::Return => {
+                // TODO: selection!
+                self.text.push('\n');
+                self.cursor_pos = self.cursor_pos.saturating_add(1);
+            },
+            VirtualKeyCode::Home => {
+                self.cursor_pos = 0;
+                self.selection = None;
+            },
+            VirtualKeyCode::End => {
+                self.cursor_pos = self.text.len();
+                self.selection = None;
+            },
+            VirtualKeyCode::Escape => {
+                self.selection = None;
+            },
+            VirtualKeyCode::Right => {
+                self.cursor_pos = self.text.len().min(self.cursor_pos.saturating_add(1));
+            },
+            VirtualKeyCode::Left => {
+                self.cursor_pos = (0.max(self.cursor_pos.saturating_sub(1))).min(self.cursor_pos.saturating_add(1));
+            },
+            VirtualKeyCode::A if keyboard_state.ctrl_down => {
+                self.selection = Some(Selection::All);
+            },
+            VirtualKeyCode::C if keyboard_state.ctrl_down => {},
+            VirtualKeyCode::V if keyboard_state.ctrl_down => {},
+            _ => { },
         }
-        handle_on_virtual_key_down_inner(self, keyboard_state).into()
+
+        Some(())
     }
 
     pub fn delete_selection(&mut self, selection: Range<usize>, new_text: Option<char>) {
@@ -212,12 +205,12 @@ impl TextInput {
 
     pub fn dom(self) -> Dom {
 
-        let label = Dom::label(self.state.borrow::<TextInputState>().text.clone().into())
+        let label = Dom::label(self.state.borrow::<TextInputState>().as_ref().unwrap().text.clone().into())
             .with_class("__azul-native-input-text-label".into());
 
         Dom::div()
             .with_class("__azul-native-input-text".into())
-            .with_tab_index(TabIndex::Auto)
+            .with_tab_index(Some(TabIndex::Auto).into())
             .with_callback(EventFilter::Focus(FocusEventFilter::TextInput), self.state.clone(), self.on_text_input.cb)
             .with_callback(EventFilter::Focus(FocusEventFilter::VirtualKeyDown), self.state, self.on_virtual_key_down.cb)
             .with_child(label)
@@ -225,18 +218,20 @@ impl TextInput {
 
     pub fn default_on_text_input(info: CallbackInfo) -> CallbackReturn {
         fn default_on_text_input_inner(info: CallbackInfo) -> Option<()> {
-            let text_input_state = info.state.borrow_mut::<TextInputState>()?;
-            let keyboard_state = info.current_window_state.get_keyboard_state();
-            text_input_state.handle_on_text_input(keyboard_state)
+            let state = info.get_state();
+            let keyboard_state = info.get_keyboard_state();
+            let text_input_state = state.borrow_mut::<TextInputState>()?;
+            text_input_state.handle_on_text_input(&keyboard_state)
         }
         default_on_text_input_inner(info).into()
     }
 
     pub fn default_on_virtual_key_down(info: CallbackInfo) -> CallbackReturn {
         fn default_on_virtual_key_down_inner(info: CallbackInfo) -> Option<()> {
-            let text_input_state = info.state.borrow_mut::<TextInputState>()?;
-            let keyboard_state = info.current_window_state.get_keyboard_state();
-            text_input_state.handle_on_virtual_key_down(keyboard_state)
+            let state = info.get_state();
+            let keyboard_state = info.get_keyboard_state();
+            let text_input_state = state.borrow_mut::<TextInputState>()?;
+            text_input_state.handle_on_virtual_key_down(&keyboard_state)
         }
         default_on_virtual_key_down_inner(info).into()
     }

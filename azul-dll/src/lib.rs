@@ -28,7 +28,7 @@ use core::ffi::c_void;
 use std::{path::PathBuf, vec::Vec, string::String, time::Duration};
 use azul_impl::{
     css::{self, *},
-    dom::Dom,
+    dom::{Dom, NodeData},
     callbacks::{
         RefAny, LayoutInfo,
         Callback, CallbackInfo, CallbackType,
@@ -537,7 +537,7 @@ pub type AzInstantPtrTT = azul_impl::task::AzInstantPtr;
 /// (private): Downcasts the `AzInstantPtr` to a `&Box<std::time::Instant>` and runs the `func` closure on it
 #[inline(always)] fn az_instant_ptr_downcast_ref<P, F: FnOnce(&std::time::Instant) -> P>(ptr: &AzInstantPtr, func: F) -> P {     func(unsafe { &*(ptr.ptr as *const std::time::Instant) })}
 /// Creates a string with the debug representation of the object
-#[no_mangle] pub extern "C" fn az_instant_ptr_fmt_debug(object: &AzInstantPtr) -> AzString { format!("{:#?}", object).into() }
+#[no_mangle] pub extern "C" fn az_instant_ptr_fmt_debug(object: &AzInstantPtr) -> AzString { az_instant_ptr_downcast_ref(object, |o| format!("{:#?}", o)).into() }
 /// Compares two instances of `AzInstantPtr` for equality
 #[no_mangle] pub extern "C" fn az_instant_ptr_partial_eq(a: &AzInstantPtr, b: &AzInstantPtr) -> bool { a.eq(b) }
 /// Compares two instances of `AzInstantPtr` for ordering. Returns 0 for None (equality), 1 on Some(Less), 2 on Some(Equal) and 3 on Some(Greater). 
@@ -568,14 +568,14 @@ pub type AzDurationTT = azul_impl::task::AzDuration;
 /// (private): Downcasts the `AzAppConfigPtr` to a `&Box<AppConfig>` and runs the `func` closure on it
 #[inline(always)] fn az_app_config_ptr_downcast_ref<P, F: FnOnce(&AppConfig) -> P>(ptr: &AzAppConfigPtr, func: F) -> P {     func(unsafe { &*(ptr.ptr as *const AppConfig) })}
 /// Creates a string with the debug representation of the object
-#[no_mangle] pub extern "C" fn az_app_config_ptr_fmt_debug(object: &AzAppConfigPtr) -> AzString { format!("{:#?}", object).into() }
+#[no_mangle] pub extern "C" fn az_app_config_ptr_fmt_debug(object: &AzAppConfigPtr) -> AzString { az_app_config_ptr_downcast_ref(object, |o| format!("{:#?}", o)).into() }
 
 /// Pointer to rust-allocated `Box<App>` struct
 #[no_mangle] #[repr(C)] pub struct AzAppPtr { ptr: *mut c_void }
 /// Creates a new App instance from the given `AppConfig`
-#[no_mangle] pub extern "C" fn az_app_ptr_new(data: AzRefAny, config: AzAppConfigPtr, callback: AzLayoutCallbackType) -> AzAppPtr { let object: App = App::new(data, *az_app_config_downcast(config), callback).unwrap(); AzAppPtr { ptr: Box::into_raw(Box::new(object)) as *mut c_void } }
+#[no_mangle] pub extern "C" fn az_app_ptr_new(data: AzRefAny, config: AzAppConfigPtr, callback: AzLayoutCallbackType) -> AzAppPtr { let object: App = App::new(data, *az_app_config_ptr_downcast(config), callback).unwrap(); AzAppPtr { ptr: Box::into_raw(Box::new(object)) as *mut c_void } }
 /// Runs the application. Due to platform restrictions (specifically `WinMain` on Windows), this function never returns.
-#[no_mangle] pub extern "C" fn az_app_ptr_run(app: AzAppPtr, window: AzWindowCreateOptions) { az_app_downcast(app).run(window) }
+#[no_mangle] pub extern "C" fn az_app_ptr_run(app: AzAppPtr, window: AzWindowCreateOptions) { az_app_ptr_downcast(app).run(window) }
 /// Destructor: Takes ownership of the `App` pointer and deletes it.
 #[no_mangle] pub extern "C" fn az_app_ptr_delete(ptr: &mut AzAppPtr) { let _ = unsafe { Box::<App>::from_raw(ptr.ptr  as *mut App) };}
 /// (private): Downcasts the `AzAppPtr` to a `Box<App>`. Note that this takes ownership of the pointer.
@@ -585,7 +585,7 @@ pub type AzDurationTT = azul_impl::task::AzDuration;
 /// (private): Downcasts the `AzAppPtr` to a `&Box<App>` and runs the `func` closure on it
 #[inline(always)] fn az_app_ptr_downcast_ref<P, F: FnOnce(&App) -> P>(ptr: &AzAppPtr, func: F) -> P {     func(unsafe { &*(ptr.ptr as *const App) })}
 /// Creates a string with the debug representation of the object
-#[no_mangle] pub extern "C" fn az_app_ptr_fmt_debug(object: &AzAppPtr) -> AzString { format!("{:#?}", object).into() }
+#[no_mangle] pub extern "C" fn az_app_ptr_fmt_debug(object: &AzAppPtr) -> AzString { az_app_ptr_downcast_ref(object, |o| format!("{:#?}", o)).into() }
 
 /// Re-export of rust-allocated (stack based) `LayoutCallback` struct
 pub type AzLayoutCallbackTT = azul_impl::callbacks::LayoutCallback;
@@ -623,6 +623,14 @@ pub type AzCallbackType = fn(AzCallbackInfoPtr) -> AzCallbackReturn;
 /// Pointer to rust-allocated `Box<CallbackInfo>` struct
 pub type AzCallbackInfoPtrTT = azul_impl::callbacks::CallbackInfoPtr;
 #[no_mangle] pub use AzCallbackInfoPtrTT as AzCallbackInfoPtr;
+/// Returns a copy of the internal `RefAny`
+#[no_mangle] pub extern "C" fn az_callback_info_ptr_get_state(callbackinfo: &AzCallbackInfoPtr) -> AzRefAny { az_callback_info_ptr_downcast_ref(callbackinfo, |ci| ci.state.clone()) }
+/// Returns a copy of the internal `KeyboardState`. Same as `self.get_window_state().keyboard_state`
+#[no_mangle] pub extern "C" fn az_callback_info_ptr_get_keyboard_state(callbackinfo: &AzCallbackInfoPtr) -> AzKeyboardState { az_callback_info_ptr_downcast_ref(callbackinfo, |ci| ci.current_window_state.keyboard_state.clone()) }
+/// Returns a copy of the internal `MouseState`. Same as `self.get_window_state().mouse_state`
+#[no_mangle] pub extern "C" fn az_callback_info_ptr_get_mouse_state(callbackinfo: &AzCallbackInfoPtr) -> AzMouseState { az_callback_info_ptr_downcast_ref(callbackinfo, |ci| ci.current_window_state.mouse_state.clone()) }
+/// Sets the new `WindowState` for the next frame. The window is updated after all callbacks are run.
+#[no_mangle] pub extern "C" fn az_callback_info_ptr_set_window_state(callbackinfo: &mut AzCallbackInfoPtr, new_state: AzWindowState) { az_callback_info_ptr_downcast_refmut(callbackinfo, |ci| { *ci.modifiable_window_state = new_state; }) }
 /// Destructor: Takes ownership of the `CallbackInfo` pointer and deletes it.
 #[no_mangle] pub extern "C" fn az_callback_info_ptr_delete<'a>(ptr: &mut AzCallbackInfoPtr) { let _ = unsafe { Box::<CallbackInfo<'a>>::from_raw(ptr.ptr  as *mut CallbackInfo<'a>) };}
 /// (private): Downcasts the `AzCallbackInfoPtr` to a `Box<CallbackInfo<'a>>`. Note that this takes ownership of the pointer.
@@ -632,7 +640,7 @@ pub type AzCallbackInfoPtrTT = azul_impl::callbacks::CallbackInfoPtr;
 /// (private): Downcasts the `AzCallbackInfoPtr` to a `&Box<CallbackInfo<'a>>` and runs the `func` closure on it
 #[inline(always)] fn az_callback_info_ptr_downcast_ref<'a, P, F: FnOnce(&CallbackInfo<'a>) -> P>(ptr: &AzCallbackInfoPtr, func: F) -> P {     func(unsafe { &*(ptr.ptr as *const CallbackInfo<'a>) })}
 /// Creates a string with the debug representation of the object
-#[no_mangle] pub extern "C" fn az_callback_info_ptr_fmt_debug<'a>(object: &AzCallbackInfoPtr) -> AzString { format!("{:#?}", object).into() }
+#[no_mangle] pub extern "C" fn az_callback_info_ptr_fmt_debug<'a>(object: &AzCallbackInfoPtr) -> AzString { az_callback_info_ptr_downcast_ref(object, |o| format!("{:#?}", o)).into() }
 
 /// Specifies if the screen should be updated after the callback function has returned
 pub type AzUpdateScreenTT = azul_impl::callbacks::UpdateScreen;
@@ -661,7 +669,7 @@ pub type AzIFrameCallbackType = fn(AzIFrameCallbackInfoPtr) -> AzIFrameCallbackR
 pub type AzIFrameCallbackInfoPtrTT = azul_impl::callbacks::IFrameCallbackInfoPtr;
 #[no_mangle] pub use AzIFrameCallbackInfoPtrTT as AzIFrameCallbackInfoPtr;
 /// Returns a copy of the internal `RefAny`
-#[no_mangle] pub extern "C" fn az_i_frame_callback_info_ptr_get_state(iframecallbackinfo: &AzIFrameCallbackInfoPtr) -> AzRefAny { az_i_frame_callback_info_downcast_ref(iframecallbackinfo, |ci| ci.state.clone()) }
+#[no_mangle] pub extern "C" fn az_i_frame_callback_info_ptr_get_state(iframecallbackinfo: &AzIFrameCallbackInfoPtr) -> AzRefAny { az_i_frame_callback_info_ptr_downcast_ref(iframecallbackinfo, |ci| ci.state.clone()) }
 /// Destructor: Takes ownership of the `IFrameCallbackInfo` pointer and deletes it.
 #[no_mangle] pub extern "C" fn az_i_frame_callback_info_ptr_delete<'a>(ptr: &mut AzIFrameCallbackInfoPtr) { let _ = unsafe { Box::<IFrameCallbackInfo<'a>>::from_raw(ptr.ptr  as *mut IFrameCallbackInfo<'a>) };}
 /// (private): Downcasts the `AzIFrameCallbackInfoPtr` to a `Box<IFrameCallbackInfo<'a>>`. Note that this takes ownership of the pointer.
@@ -671,7 +679,7 @@ pub type AzIFrameCallbackInfoPtrTT = azul_impl::callbacks::IFrameCallbackInfoPtr
 /// (private): Downcasts the `AzIFrameCallbackInfoPtr` to a `&Box<IFrameCallbackInfo<'a>>` and runs the `func` closure on it
 #[inline(always)] fn az_i_frame_callback_info_ptr_downcast_ref<'a, P, F: FnOnce(&IFrameCallbackInfo<'a>) -> P>(ptr: &AzIFrameCallbackInfoPtr, func: F) -> P {     func(unsafe { &*(ptr.ptr as *const IFrameCallbackInfo<'a>) })}
 /// Creates a string with the debug representation of the object
-#[no_mangle] pub extern "C" fn az_i_frame_callback_info_ptr_fmt_debug<'a>(object: &AzIFrameCallbackInfoPtr) -> AzString { format!("{:#?}", object).into() }
+#[no_mangle] pub extern "C" fn az_i_frame_callback_info_ptr_fmt_debug<'a>(object: &AzIFrameCallbackInfoPtr) -> AzString { az_i_frame_callback_info_ptr_downcast_ref(object, |o| format!("{:#?}", o)).into() }
 
 /// Re-export of rust-allocated (stack based) `IFrameCallbackReturn` struct
 pub type AzIFrameCallbackReturnTT = azul_impl::callbacks::IFrameCallbackReturn;
@@ -698,6 +706,8 @@ pub type AzGlCallbackType = fn(AzGlCallbackInfoPtr) -> AzGlCallbackReturn;
 /// Pointer to rust-allocated `Box<GlCallbackInfo>` struct
 pub type AzGlCallbackInfoPtrTT = azul_impl::callbacks::GlCallbackInfoPtr;
 #[no_mangle] pub use AzGlCallbackInfoPtrTT as AzGlCallbackInfoPtr;
+/// Returns a copy of the internal `RefAny`
+#[no_mangle] pub extern "C" fn az_gl_callback_info_ptr_get_state(glcallbackinfo: &AzGlCallbackInfoPtr) -> AzRefAny { az_gl_callback_info_ptr_downcast_ref(glcallbackinfo, |ci| ci.state.clone()) }
 /// Destructor: Takes ownership of the `GlCallbackInfo` pointer and deletes it.
 #[no_mangle] pub extern "C" fn az_gl_callback_info_ptr_delete<'a>(ptr: &mut AzGlCallbackInfoPtr) { let _ = unsafe { Box::<GlCallbackInfo<'a>>::from_raw(ptr.ptr  as *mut GlCallbackInfo<'a>) };}
 /// (private): Downcasts the `AzGlCallbackInfoPtr` to a `Box<GlCallbackInfo<'a>>`. Note that this takes ownership of the pointer.
@@ -707,7 +717,7 @@ pub type AzGlCallbackInfoPtrTT = azul_impl::callbacks::GlCallbackInfoPtr;
 /// (private): Downcasts the `AzGlCallbackInfoPtr` to a `&Box<GlCallbackInfo<'a>>` and runs the `func` closure on it
 #[inline(always)] fn az_gl_callback_info_ptr_downcast_ref<'a, P, F: FnOnce(&GlCallbackInfo<'a>) -> P>(ptr: &AzGlCallbackInfoPtr, func: F) -> P {     func(unsafe { &*(ptr.ptr as *const GlCallbackInfo<'a>) })}
 /// Creates a string with the debug representation of the object
-#[no_mangle] pub extern "C" fn az_gl_callback_info_ptr_fmt_debug<'a>(object: &AzGlCallbackInfoPtr) -> AzString { format!("{:#?}", object).into() }
+#[no_mangle] pub extern "C" fn az_gl_callback_info_ptr_fmt_debug<'a>(object: &AzGlCallbackInfoPtr) -> AzString { az_gl_callback_info_ptr_downcast_ref(object, |o| format!("{:#?}", o)).into() }
 
 /// Re-export of rust-allocated (stack based) `GlCallbackReturn` struct
 pub type AzGlCallbackReturnTT = azul_impl::callbacks::GlCallbackReturn;
@@ -738,11 +748,13 @@ pub type AzTimerCallbackTT = azul_impl::callbacks::TimerCallback;
 /// (private): Downcasts the `AzTimerCallbackTypePtr` to a `&Box<TimerCallbackType>` and runs the `func` closure on it
 #[inline(always)] fn az_timer_callback_type_ptr_downcast_ref<P, F: FnOnce(&TimerCallbackType) -> P>(ptr: &AzTimerCallbackTypePtr, func: F) -> P {     func(unsafe { &*(ptr.ptr as *const TimerCallbackType) })}
 /// Creates a string with the debug representation of the object
-#[no_mangle] pub extern "C" fn az_timer_callback_type_ptr_fmt_debug(object: &AzTimerCallbackTypePtr) -> AzString { format!("{:#?}", object).into() }
+#[no_mangle] pub extern "C" fn az_timer_callback_type_ptr_fmt_debug(object: &AzTimerCallbackTypePtr) -> AzString { az_timer_callback_type_ptr_downcast_ref(object, |o| format!("{:#?}", o)).into() }
 
 /// Pointer to rust-allocated `Box<TimerCallbackInfo>` struct
 pub type AzTimerCallbackInfoPtrTT = azul_impl::callbacks::TimerCallbackInfoPtr;
 #[no_mangle] pub use AzTimerCallbackInfoPtrTT as AzTimerCallbackInfoPtr;
+/// Returns a copy of the internal `RefAny`
+#[no_mangle] pub extern "C" fn az_timer_callback_info_ptr_get_state(timercallbackinfo: &AzTimerCallbackInfoPtr) -> AzRefAny { az_timer_callback_info_ptr_downcast_ref(timercallbackinfo, |ci| ci.state.clone()) }
 /// Destructor: Takes ownership of the `TimerCallbackInfo` pointer and deletes it.
 #[no_mangle] pub extern "C" fn az_timer_callback_info_ptr_delete<'a>(ptr: &mut AzTimerCallbackInfoPtr) { let _ = unsafe { Box::<azul_impl::callbacks::TimerCallbackInfo<'a>>::from_raw(ptr.ptr  as *mut azul_impl::callbacks::TimerCallbackInfo<'a>) };}
 /// (private): Downcasts the `AzTimerCallbackInfoPtr` to a `Box<azul_impl::callbacks::TimerCallbackInfo<'a>>`. Note that this takes ownership of the pointer.
@@ -752,7 +764,7 @@ pub type AzTimerCallbackInfoPtrTT = azul_impl::callbacks::TimerCallbackInfoPtr;
 /// (private): Downcasts the `AzTimerCallbackInfoPtr` to a `&Box<azul_impl::callbacks::TimerCallbackInfo<'a>>` and runs the `func` closure on it
 #[inline(always)] fn az_timer_callback_info_ptr_downcast_ref<'a, P, F: FnOnce(&azul_impl::callbacks::TimerCallbackInfo<'a>) -> P>(ptr: &AzTimerCallbackInfoPtr, func: F) -> P {     func(unsafe { &*(ptr.ptr as *const azul_impl::callbacks::TimerCallbackInfo<'a>) })}
 /// Creates a string with the debug representation of the object
-#[no_mangle] pub extern "C" fn az_timer_callback_info_ptr_fmt_debug<'a>(object: &AzTimerCallbackInfoPtr) -> AzString { format!("{:#?}", object).into() }
+#[no_mangle] pub extern "C" fn az_timer_callback_info_ptr_fmt_debug<'a>(object: &AzTimerCallbackInfoPtr) -> AzString { az_timer_callback_info_ptr_downcast_ref(object, |o| format!("{:#?}", o)).into() }
 
 /// Re-export of rust-allocated (stack based) `TimerCallbackReturn` struct
 pub type AzTimerCallbackReturnTT = azul_impl::callbacks::TimerCallbackReturn;
@@ -838,7 +850,7 @@ pub type AzLayoutInfoPtrTT = azul_impl::callbacks::LayoutInfoPtr;
 /// (private): Downcasts the `AzLayoutInfoPtr` to a `&Box<LayoutInfo<'a>>` and runs the `func` closure on it
 #[inline(always)] fn az_layout_info_ptr_downcast_ref<'a, P, F: FnOnce(&LayoutInfo<'a>) -> P>(ptr: &AzLayoutInfoPtr, func: F) -> P {     func(unsafe { &*(ptr.ptr as *const LayoutInfo<'a>) })}
 /// Creates a string with the debug representation of the object
-#[no_mangle] pub extern "C" fn az_layout_info_ptr_fmt_debug<'a>(object: &AzLayoutInfoPtr) -> AzString { format!("{:#?}", object).into() }
+#[no_mangle] pub extern "C" fn az_layout_info_ptr_fmt_debug<'a>(object: &AzLayoutInfoPtr) -> AzString { az_layout_info_ptr_downcast_ref(object, |o| format!("{:#?}", o)).into() }
 
 /// Re-export of rust-allocated (stack based) `CssRuleBlock` struct
 pub type AzCssRuleBlockTT = azul_impl::css::CssRuleBlock;
@@ -2451,12 +2463,14 @@ pub type AzCssPropertyTT = azul_impl::css::CssProperty;
 /// Re-export of rust-allocated (stack based) `Dom` struct
 pub type AzDomTT = azul_impl::dom::Dom;
 #[no_mangle] pub use AzDomTT as AzDom;
+/// Creates a new node with the given `NodeType`
+#[no_mangle] pub extern "C" fn az_dom_new(node_type: AzNodeType) -> AzDom { Dom::new(node_type) }
 /// Creates a new `div` node
 #[no_mangle] pub extern "C" fn az_dom_div() -> AzDom { Dom::div() }
 /// Creates a new `body` node
 #[no_mangle] pub extern "C" fn az_dom_body() -> AzDom { Dom::body() }
 /// Creates a new `p` node with a given `String` as the text contents
-#[no_mangle] pub extern "C" fn az_dom_label(text: AzString) -> AzDom { Dom::label(text.into_string()) }
+#[no_mangle] pub extern "C" fn az_dom_label(text: AzString) -> AzDom { Dom::label(text) }
 /// Creates a new `p` node from a (cached) text referenced by a `TextId`
 #[no_mangle] pub extern "C" fn az_dom_text(text_id: AzTextId) -> AzDom { Dom::text(text_id) }
 /// Creates a new `img` node from a (cached) text referenced by a `ImageId`
@@ -2490,21 +2504,21 @@ pub type AzDomTT = azul_impl::dom::Dom;
 /// Same as [`Dom::add_css_override`](#method.add_css_override), but as a builder method
 #[no_mangle] pub extern "C" fn az_dom_with_css_override(mut dom: AzDom, id: AzString, prop: AzCssProperty) -> AzDom { az_dom_add_css_override(&mut dom, id, prop); dom }
 /// Sets the `is_draggable` attribute of this DOM node (default: false)
-#[no_mangle] pub extern "C" fn az_dom_set_is_draggable(dom: &mut AzDom, is_draggable: bool) { dom.set_draggable(is_draggable); }
+#[no_mangle] pub extern "C" fn az_dom_set_is_draggable(dom: &mut AzDom, is_draggable: bool) { dom.set_is_draggable(is_draggable); }
 /// Same as [`Dom::set_is_draggable`](#method.set_is_draggable), but as a builder method
 #[no_mangle] pub extern "C" fn az_dom_is_draggable(mut dom: AzDom, is_draggable: bool) -> AzDom { az_dom_set_is_draggable(&mut dom, is_draggable); dom }
 /// Sets the `tabindex` attribute of this DOM node (makes an element focusable - default: None)
-#[no_mangle] pub extern "C" fn az_dom_set_tab_index(dom: &mut AzDom, tab_index: AzTabIndex) { dom.set_tab_index(tab_index); }
+#[no_mangle] pub extern "C" fn az_dom_set_tab_index(dom: &mut AzDom, tab_index: AzOptionTabIndex) { dom.set_tab_index(tab_index); }
 /// Same as [`Dom::set_tab_index`](#method.set_tab_index), but as a builder method
-#[no_mangle] pub extern "C" fn az_dom_with_tab_index(mut dom: AzDom, tab_index: AzTabIndex) -> AzDom { az_dom_set_tab_index(&mut dom, tab_index); dom }
-/// Reparents another `Dom` to be the child node of this `Dom`
-#[no_mangle] pub extern "C" fn az_dom_add_child(dom: &mut AzDom, child: AzDom) { dom.add_child(child); }
-/// Same as [`Dom::add_child`](#method.add_child), but as a builder method
-#[no_mangle] pub extern "C" fn az_dom_with_child(mut dom: AzDom, child: AzDom) -> AzDom { az_dom_add_child(&mut dom, child); dom }
+#[no_mangle] pub extern "C" fn az_dom_with_tab_index(mut dom: AzDom, tab_index: AzOptionTabIndex) -> AzDom { az_dom_set_tab_index(&mut dom, tab_index); dom }
 /// Returns if the DOM node has a certain CSS ID
 #[no_mangle] pub extern "C" fn az_dom_has_id(dom: &mut AzDom, id: AzString) -> bool { dom.has_id(id.as_ref()) }
 /// Returns if the DOM node has a certain CSS class
 #[no_mangle] pub extern "C" fn az_dom_has_class(dom: &mut AzDom, class: AzString) -> bool { dom.has_class(class.as_ref()) }
+/// Reparents another `Dom` to be the child node of this `Dom`
+#[no_mangle] pub extern "C" fn az_dom_add_child(dom: &mut AzDom, child: AzDom) { dom.add_child(child); }
+/// Same as [`Dom::add_child`](#method.add_child), but as a builder method
+#[no_mangle] pub extern "C" fn az_dom_with_child(mut dom: AzDom, child: AzDom) -> AzDom { az_dom_add_child(&mut dom, child); dom }
 /// Returns the HTML String for this DOM
 #[no_mangle] pub extern "C" fn az_dom_get_html_string(dom: &AzDom) -> AzString { dom.get_html_string().into() }
 /// Destructor: Takes ownership of the `Dom` pointer and deletes it.
@@ -2558,9 +2572,59 @@ pub type AzOverridePropertyTT = azul_impl::dom::OverrideProperty;
 pub type AzNodeDataTT = azul_impl::dom::NodeData;
 #[no_mangle] pub use AzNodeDataTT as AzNodeData;
 /// Creates a new node without any classes or ids from a NodeType
-#[no_mangle] pub extern "C" fn az_node_data_new(node_type: AzNodeType) -> AzNodeData { azul_impl::dom::NodeData::new(node_type) }
+#[no_mangle] pub extern "C" fn az_node_data_new(node_type: AzNodeType) -> AzNodeData { NodeData::new(node_type) }
+/// Creates a new `div` node
+#[no_mangle] pub extern "C" fn az_node_data_div() -> AzNodeData { NodeData::div() }
+/// Creates a new `body` node
+#[no_mangle] pub extern "C" fn az_node_data_body() -> AzNodeData { NodeData::body() }
+/// Creates a new `p` node with a given `String` as the text contents
+#[no_mangle] pub extern "C" fn az_node_data_label(text: AzString) -> AzNodeData { NodeData::label(text) }
+/// Creates a new `p` node from a (cached) text referenced by a `TextId`
+#[no_mangle] pub extern "C" fn az_node_data_text(text_id: AzTextId) -> AzNodeData { NodeData::text(text_id) }
+/// Creates a new `img` node from a (cached) text referenced by a `ImageId`
+#[no_mangle] pub extern "C" fn az_node_data_image(image_id: AzImageId) -> AzNodeData { NodeData::image(image_id) }
+/// Creates a new node which will render an OpenGL texture after the layout step is finished. See the documentation for [GlCallback]() for more info about OpenGL rendering callbacks.
+#[no_mangle] pub extern "C" fn az_node_data_gl_texture(data: AzRefAny, callback: AzGlCallbackType) -> AzNodeData { NodeData::gl_texture(callback, data) }
+/// Creates a `NodeData` with a callback that will return a `Dom` after being layouted. See the documentation for [IFrameCallback]() for more info about iframe callbacks.
+#[no_mangle] pub extern "C" fn az_node_data_iframe(data: AzRefAny, callback: AzIFrameCallbackType) -> AzNodeData { NodeData::iframe(callback, data) }
 /// Creates a default (div) node without any classes
-#[no_mangle] pub extern "C" fn az_node_data_default() -> AzNodeData { azul_impl::dom::NodeData::default() }
+#[no_mangle] pub extern "C" fn az_node_data_default() -> AzNodeData { NodeData::default() }
+/// Adds a CSS ID (`#something`) to the `NodeData`
+#[no_mangle] pub extern "C" fn az_node_data_add_id(nodedata: &mut AzNodeData, id: AzString) { nodedata.add_id(id); }
+/// Same as [`NodeData::add_id`](#method.add_id), but as a builder method
+#[no_mangle] pub extern "C" fn az_node_data_with_id(mut nodedata: AzNodeData, id: AzString) -> AzNodeData { az_node_data_add_id(&mut nodedata, id); nodedata }
+/// Same as calling [`NodeData::add_id`](#method.add_id) for each CSS ID, but this function **replaces** all current CSS IDs
+#[no_mangle] pub extern "C" fn az_node_data_set_ids(nodedata: &mut AzNodeData, ids: AzStringVec) { nodedata.set_ids(ids); }
+/// Same as [`NodeData::set_ids`](#method.set_ids), but as a builder method
+#[no_mangle] pub extern "C" fn az_node_data_with_ids(mut nodedata: AzNodeData, ids: AzStringVec) -> AzNodeData { az_node_data_set_ids(&mut nodedata, ids); nodedata }
+/// Adds a CSS class (`.something`) to the `NodeData`
+#[no_mangle] pub extern "C" fn az_node_data_add_class(nodedata: &mut AzNodeData, class: AzString) { nodedata.add_class(class); }
+/// Same as [`NodeData::add_class`](#method.add_class), but as a builder method
+#[no_mangle] pub extern "C" fn az_node_data_with_class(mut nodedata: AzNodeData, class: AzString) -> AzNodeData { az_node_data_add_class(&mut nodedata, class); nodedata }
+/// Same as calling [`NodeData::add_class`](#method.add_class) for each class, but this function **replaces** all current classes
+#[no_mangle] pub extern "C" fn az_node_data_set_classes(nodedata: &mut AzNodeData, classes: AzStringVec) { nodedata.set_classes(classes); }
+/// Same as [`NodeData::set_classes`](#method.set_classes), but as a builder method
+#[no_mangle] pub extern "C" fn az_node_data_with_classes(mut nodedata: AzNodeData, classes: AzStringVec) -> AzNodeData { az_node_data_set_classes(&mut nodedata, classes); nodedata }
+/// Adds a [`Callback`](callbacks/type.Callback) that acts on the `data` the `event` happens
+#[no_mangle] pub extern "C" fn az_node_data_add_callback(nodedata: &mut AzNodeData, event: AzEventFilter, data: AzRefAny, callback: AzCallbackType) { nodedata.add_callback(event, callback, data); }
+/// Same as [`NodeData::add_callback`](#method.add_callback), but as a builder method
+#[no_mangle] pub extern "C" fn az_node_data_with_callback(mut nodedata: AzNodeData, event: AzEventFilter, data: AzRefAny, callback: AzCallbackType) -> AzNodeData { az_node_data_add_callback(&mut nodedata, event, data, callback); nodedata }
+/// Overrides the CSS property of this `NodeData` node with a value (for example `"width = 200px"`)
+#[no_mangle] pub extern "C" fn az_node_data_add_css_override(nodedata: &mut AzNodeData, id: AzString, prop: AzCssProperty) { nodedata.add_css_override(id, prop); }
+/// Same as [`NodeData::add_css_override`](#method.add_css_override), but as a builder method
+#[no_mangle] pub extern "C" fn az_node_data_with_css_override(mut nodedata: AzNodeData, id: AzString, prop: AzCssProperty) -> AzNodeData { az_node_data_add_css_override(&mut nodedata, id, prop); nodedata }
+/// Sets the `is_draggable` attribute of this `NodeData` (default: false)
+#[no_mangle] pub extern "C" fn az_node_data_set_is_draggable(nodedata: &mut AzNodeData, is_draggable: bool) { nodedata.set_is_draggable(is_draggable); }
+/// Same as [`NodeData::set_is_draggable`](#method.set_is_draggable), but as a builder method
+#[no_mangle] pub extern "C" fn az_node_data_is_draggable(mut nodedata: AzNodeData, is_draggable: bool) -> AzNodeData { az_node_data_set_is_draggable(&mut nodedata, is_draggable); nodedata }
+/// Sets the `tabindex` attribute of this `NodeData` (makes an element focusable - default: None)
+#[no_mangle] pub extern "C" fn az_node_data_set_tab_index(nodedata: &mut AzNodeData, tab_index: AzOptionTabIndex) { nodedata.set_tab_index(tab_index); }
+/// Same as [`NodeData::set_tab_index`](#method.set_tab_index), but as a builder method
+#[no_mangle] pub extern "C" fn az_node_data_with_tab_index(mut nodedata: AzNodeData, tab_index: AzOptionTabIndex) -> AzNodeData { az_node_data_set_tab_index(&mut nodedata, tab_index); nodedata }
+/// Returns if the `NodeData` has a certain CSS ID
+#[no_mangle] pub extern "C" fn az_node_data_has_id(nodedata: &mut AzNodeData, id: AzString) -> bool { nodedata.has_id(id.as_ref()) }
+/// Returns if the `NodeData` has a certain CSS class
+#[no_mangle] pub extern "C" fn az_node_data_has_class(nodedata: &mut AzNodeData, class: AzString) -> bool { nodedata.has_class(class.as_ref()) }
 /// Destructor: Takes ownership of the `NodeData` pointer and deletes it.
 #[no_mangle] #[allow(unused_variables)] pub extern "C" fn az_node_data_delete(object: &mut AzNodeData) { }
 /// Clones the object
@@ -3380,7 +3444,7 @@ pub type AzDropCheckPtrPtrTT = azul_impl::task::DropCheckPtr;
 /// (private): Downcasts the `AzDropCheckPtrPtr` to a `&Box<azul_impl::task::DropCheck>` and runs the `func` closure on it
 #[inline(always)] fn az_drop_check_ptr_ptr_downcast_ref<P, F: FnOnce(&azul_impl::task::DropCheck) -> P>(ptr: &AzDropCheckPtrPtr, func: F) -> P {     func(unsafe { &*(ptr.ptr as *const azul_impl::task::DropCheck) })}
 /// Creates a string with the debug representation of the object
-#[no_mangle] pub extern "C" fn az_drop_check_ptr_ptr_fmt_debug(object: &AzDropCheckPtrPtr) -> AzString { format!("{:#?}", object).into() }
+#[no_mangle] pub extern "C" fn az_drop_check_ptr_ptr_fmt_debug(object: &AzDropCheckPtrPtr) -> AzString { az_drop_check_ptr_ptr_downcast_ref(object, |o| format!("{:#?}", o)).into() }
 
 /// Pointer to rust-allocated `Box<ArcMutexRefAny>` struct
 pub type AzArcMutexRefAnyPtrTT = azul_impl::task::ArcMutexRefAnyPtr;
@@ -3394,7 +3458,7 @@ pub type AzArcMutexRefAnyPtrTT = azul_impl::task::ArcMutexRefAnyPtr;
 /// (private): Downcasts the `AzArcMutexRefAnyPtr` to a `&Box<std::sync::Arc<std::sync::Mutex<RefAny>>>` and runs the `func` closure on it
 #[inline(always)] fn az_arc_mutex_ref_any_ptr_downcast_ref<P, F: FnOnce(&std::sync::Arc<std::sync::Mutex<RefAny>>) -> P>(ptr: &AzArcMutexRefAnyPtr, func: F) -> P {     func(unsafe { &*(ptr.ptr as *const std::sync::Arc<std::sync::Mutex<RefAny>>) })}
 /// Creates a string with the debug representation of the object
-#[no_mangle] pub extern "C" fn az_arc_mutex_ref_any_ptr_fmt_debug(object: &AzArcMutexRefAnyPtr) -> AzString { format!("{:#?}", object).into() }
+#[no_mangle] pub extern "C" fn az_arc_mutex_ref_any_ptr_fmt_debug(object: &AzArcMutexRefAnyPtr) -> AzString { az_arc_mutex_ref_any_ptr_downcast_ref(object, |o| format!("{:#?}", o)).into() }
 
 /// Re-export of rust-allocated (stack based) `Timer` struct
 pub type AzTimerTT = azul_impl::task::Timer;
@@ -3411,7 +3475,7 @@ pub type AzTimerTT = azul_impl::task::Timer;
 /// Creates and starts a new `Task`
 #[no_mangle] pub extern "C" fn az_task_ptr_new(data: AzArcMutexRefAnyPtr, callback: AzTaskCallbackType) -> AzTaskPtr { let object: Task = azul_impl::task::Task::new(data, callback); AzTaskPtr { ptr: Box::into_raw(Box::new(object)) as *mut c_void } }
 /// Creates and starts a new `Task`
-#[no_mangle] pub extern "C" fn az_task_ptr_then(task: AzTaskPtr, timer: AzTimer) -> AzTaskPtr { AzTaskPtr { ptr: Box::into_raw(Box::new(az_task_downcast(task).then(timer))) as *mut c_void } }
+#[no_mangle] pub extern "C" fn az_task_ptr_then(task: AzTaskPtr, timer: AzTimer) -> AzTaskPtr { AzTaskPtr { ptr: Box::into_raw(Box::new(az_task_ptr_downcast(task).then(timer))) as *mut c_void } }
 /// Destructor: Takes ownership of the `Task` pointer and deletes it.
 #[no_mangle] pub extern "C" fn az_task_ptr_delete(ptr: &mut AzTaskPtr) { let _ = unsafe { Box::<Task>::from_raw(ptr.ptr  as *mut Task) };}
 /// (private): Downcasts the `AzTaskPtr` to a `Box<Task>`. Note that this takes ownership of the pointer.
@@ -3421,14 +3485,14 @@ pub type AzTimerTT = azul_impl::task::Timer;
 /// (private): Downcasts the `AzTaskPtr` to a `&Box<Task>` and runs the `func` closure on it
 #[inline(always)] fn az_task_ptr_downcast_ref<P, F: FnOnce(&Task) -> P>(ptr: &AzTaskPtr, func: F) -> P {     func(unsafe { &*(ptr.ptr as *const Task) })}
 /// Creates a string with the debug representation of the object
-#[no_mangle] pub extern "C" fn az_task_ptr_fmt_debug(object: &AzTaskPtr) -> AzString { format!("{:#?}", object).into() }
+#[no_mangle] pub extern "C" fn az_task_ptr_fmt_debug(object: &AzTaskPtr) -> AzString { az_task_ptr_downcast_ref(object, |o| format!("{:#?}", o)).into() }
 
 /// Pointer to rust-allocated `Box<Thread>` struct
 #[no_mangle] #[repr(C)] pub struct AzThreadPtr { pub ptr: *mut c_void }
 /// Creates and starts a new thread that calls the `callback` on the `data`.
 #[no_mangle] pub extern "C" fn az_thread_ptr_new(data: AzRefAny, callback: AzThreadCallbackType) -> AzThreadPtr { let object: Thread = Thread::new(data, callback); AzThreadPtr { ptr: Box::into_raw(Box::new(object)) as *mut c_void } }
 /// Blocks until the internal thread has finished and returns the result of the operation
-#[no_mangle] pub extern "C" fn az_thread_ptr_block(thread: AzThreadPtr) -> AzResultRefAnyBlockError { (*az_thread_downcast(thread)).block() }
+#[no_mangle] pub extern "C" fn az_thread_ptr_block(thread: AzThreadPtr) -> AzResultRefAnyBlockError { (*az_thread_ptr_downcast(thread)).block() }
 /// Destructor: Takes ownership of the `Thread` pointer and deletes it.
 #[no_mangle] pub extern "C" fn az_thread_ptr_delete(ptr: &mut AzThreadPtr) { let _ = unsafe { Box::<Thread>::from_raw(ptr.ptr  as *mut Thread) };}
 /// (private): Downcasts the `AzThreadPtr` to a `Box<Thread>`. Note that this takes ownership of the pointer.
@@ -3438,7 +3502,7 @@ pub type AzTimerTT = azul_impl::task::Timer;
 /// (private): Downcasts the `AzThreadPtr` to a `&Box<Thread>` and runs the `func` closure on it
 #[inline(always)] fn az_thread_ptr_downcast_ref<P, F: FnOnce(&Thread) -> P>(ptr: &AzThreadPtr, func: F) -> P {     func(unsafe { &*(ptr.ptr as *const Thread) })}
 /// Creates a string with the debug representation of the object
-#[no_mangle] pub extern "C" fn az_thread_ptr_fmt_debug(object: &AzThreadPtr) -> AzString { format!("{:#?}", object).into() }
+#[no_mangle] pub extern "C" fn az_thread_ptr_fmt_debug(object: &AzThreadPtr) -> AzString { az_thread_ptr_downcast_ref(object, |o| format!("{:#?}", o)).into() }
 
 /// Pointer to rust-allocated `Box<DropCheck>` struct
 pub type AzDropCheckPtrTT = azul_impl::task::DropCheckPtr;
@@ -3452,7 +3516,7 @@ pub type AzDropCheckPtrTT = azul_impl::task::DropCheckPtr;
 /// (private): Downcasts the `AzDropCheckPtr` to a `&Box<DropCheck>` and runs the `func` closure on it
 #[inline(always)] fn az_drop_check_ptr_downcast_ref<P, F: FnOnce(&DropCheck) -> P>(ptr: &AzDropCheckPtr, func: F) -> P {     func(unsafe { &*(ptr.ptr as *const DropCheck) })}
 /// Creates a string with the debug representation of the object
-#[no_mangle] pub extern "C" fn az_drop_check_ptr_fmt_debug(object: &AzDropCheckPtr) -> AzString { format!("{:#?}", object).into() }
+#[no_mangle] pub extern "C" fn az_drop_check_ptr_fmt_debug(object: &AzDropCheckPtr) -> AzString { az_drop_check_ptr_downcast_ref(object, |o| format!("{:#?}", o)).into() }
 
 /// Re-export of rust-allocated (stack based) `TimerId` struct
 pub type AzTimerIdTT = azul_impl::task::TimerId;
