@@ -38,6 +38,8 @@
 
 #[cfg(feature = "css_parser")]
 use azul_css_parser::{self, CssParseError};
+use azul_core::window::HotReloadOptions;
+use std::time::Instant;
 pub use azul_css::*;
 #[cfg(feature = "css_parser")]
 pub mod css_parser {
@@ -75,13 +77,16 @@ pub fn override_native(input: &str) -> Result<Css, CssParseError> {
 }
 
 /// Reload the CSS if enough time has passed since the last reload
-#[cfg(debug_assertions)]
+#[cfg(all(feature = "css_parser", feature = "native_style"))]
 pub fn hot_reload_css(
     css: &mut Css,
-    hot_reload_handler: Option<&HotReloadOptions>,
+    hot_reload_options: Option<&HotReloadOptions>,
     last_style_reload: &mut Instant,
     force_reload: bool,
 ) -> Result<bool, String> {
+
+    use std::time::Duration;
+    use crate::css;
 
     let mut has_reloaded = false;
     let now = Instant::now();
@@ -99,14 +104,16 @@ pub fn hot_reload_css(
         let mut new_css = Css::empty();
 
         if hot_reload_options.apply_native_css {
-            let mut native_css = Css::native();
-            native_css.sort_by_specificy();
-            parsed_css.append_css(native_css);
+            let mut native_css = css::native();
+            native_css.sort_by_specificity();
+            new_css.append_css(native_css);
         }
 
-        let loaded_css = std::fs::read_to_string(Path::from(hot_reload_options.path.as_str()))?;
-        let mut parsed_css = Css::from_str(loaded_css.into())?;
-        parsed_css.sort_by_specificy();
+        let loaded_css = std::fs::read_to_string(hot_reload_options.path.as_str())
+            .map_err(|e| format!("error reading \"{}\": {}", hot_reload_options.path.as_str(), e))?;
+        let mut parsed_css = css::from_str(&loaded_css)
+            .map_err(|e| format!("error in CSS file \"{}\": {}", hot_reload_options.path.as_str(), e))?;
+        parsed_css.sort_by_specificity();
         new_css.append_css(parsed_css);
 
         *css = new_css;

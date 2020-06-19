@@ -9,12 +9,12 @@ mkdir -p ~/.cargo/lib/azul-dll-0.0.1/target/release
 
 # build the DLL
 cd ./azul-dll
-RUSTFLAGS='-C link-arg=-s' cargo build --all-features --release
+# RUSTFLAGS='-C link-arg=-s' cargo build --all-features # --release
 # cargo build --all-features --release
 # cargo install --path .
 cd ..
 
-cp ./target/release/libazul.so ~/.cargo/lib/azul-dll-0.0.1/target/release
+cp ./target/debug/libazul.so ~/.cargo/lib/azul-dll-0.0.1/target/release
 
 if [ -d "./target/debug/examples" ]; then
     # remove the stale azul.so object

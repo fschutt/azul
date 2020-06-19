@@ -32,7 +32,6 @@ use crate::{
 use azul_core::{
     callbacks::PipelineId,
     display_list::{CachedDisplayList, SolvedLayoutCache, GlTextureCache},
-    window::WindowId,
     app_resources::{Epoch, AppResources},
     gl::GlContextPtr,
 };
@@ -146,11 +145,9 @@ pub struct Window {
     pub(crate) id: WindowId,
     /// Renderer type: Hardware-with-software-fallback, pure software or pure hardware renderer?
     pub(crate) renderer_type: RendererType,
-    #[cfg(debug_assertions)]
-    #[cfg(not(test))]
     /// An optional style hot-reloader for the current window, only
     /// available with debug_assertions enabled
-    pub(crate) hot_reload_handler: Option<HotReloader>,
+    pub(crate) hot_reload: Option<HotReloadOptions>,
     /// Stores things like scroll states, display list + epoch for the window
     pub(crate) internal: WindowInternal,
     /// The display, i.e. the actual window (+ the attached OpenGL context)
@@ -322,9 +319,7 @@ impl Window {
         let window = Window {
             id: WindowId::new(),
             renderer_type: options.renderer_type,
-            #[cfg(not(test))]
-            #[cfg(debug_assertions)]
-            hot_reload_handler: options.hot_reload_handler.map(|w| HotReloader::new(w)),
+            hot_reload: options.hot_reload.clone().into(),
             display: ContextState::NotCurrent(gl_window),
             internal: WindowInternal {
                 epoch: Epoch(0),

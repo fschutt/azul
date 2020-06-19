@@ -23,13 +23,10 @@ crate-type = ["cdylib"]
 doc = false
 
 [profile.dev]
-opt-level = 3
-lto = true
+opt-level = 1
+lto = false
 panic = "abort"
-codegen-units = 1
 debug = false
-strip = "symbols"
-overflow_checks = false
 
 [profile.release]
 opt-level = 3
@@ -37,8 +34,6 @@ lto = true
 panic = "abort"
 codegen-units = 1
 debug = false
-strip = "symbols"
-overflow_checks = false
 
 [dependencies]
 azul-core = { path = "../azul-core", version = "0.0.2", default-features = false, features = ["opengl"] }

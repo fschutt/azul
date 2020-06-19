@@ -46,8 +46,6 @@ rust_api_patches = {
     tuple(['dom']): read_file("./patches/azul.rs/dom.rs"),
     tuple(['dll']): read_file("./patches/azul.rs/dll.rs"),
     tuple(['gl']): read_file("./patches/azul.rs/gl.rs"),
-    tuple(['option']): read_file("./patches/azul.rs/option.rs"),
-    tuple(['dom', 'EventFilter']): read_file("./patches/azul.rs/event_filter.rs"),
     tuple(['callbacks']): read_file("./patches/azul.rs/callbacks.rs"),
     tuple(['callbacks', 'UpdateScreen']): read_file("./patches/azul.rs/update_screen.rs"),
     tuple(['callbacks', 'LayoutCallbackType']): read_file("./patches/azul.rs/layout_callback_type.rs"),

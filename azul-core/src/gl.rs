@@ -2298,10 +2298,10 @@ impl GlShader {
         gl_context.compile_shader(vertex_shader_object);
 
         #[cfg(debug_assertions)] {
-            if let Some(error_id) = get_gl_shader_error(&*gl_context, vertex_shader_object) {
+            if let Some(error_id) = get_gl_shader_error(&gl_context, vertex_shader_object) {
                 let info_log = gl_context.get_shader_info_log(vertex_shader_object);
                 gl_context.delete_shader(vertex_shader_object);
-                return Err(GlShaderCreateError::Compile(GlShaderCompileError::Vertex(VertexShaderCompileError { error_id, info_log })));
+                return Err(GlShaderCreateError::Compile(GlShaderCompileError::Vertex(VertexShaderCompileError { error_id, info_log: info_log.into() })));
             }
         }
 
@@ -2312,11 +2312,11 @@ impl GlShader {
         gl_context.compile_shader(fragment_shader_object);
 
         #[cfg(debug_assertions)] {
-            if let Some(error_id) = get_gl_shader_error(&*gl_context, fragment_shader_object) {
+            if let Some(error_id) = get_gl_shader_error(&gl_context, fragment_shader_object) {
                 let info_log = gl_context.get_shader_info_log(fragment_shader_object);
                 gl_context.delete_shader(vertex_shader_object);
                 gl_context.delete_shader(fragment_shader_object);
-                return Err(GlShaderCreateError::Compile(GlShaderCompileError::Fragment(FragmentShaderCompileError { error_id, info_log })));
+                return Err(GlShaderCreateError::Compile(GlShaderCompileError::Fragment(FragmentShaderCompileError { error_id, info_log: info_log.into() })));
             }
         }
 
@@ -2328,12 +2328,12 @@ impl GlShader {
         gl_context.link_program(program_id);
 
         #[cfg(debug_assertions)] {
-            if let Some(error_id) = get_gl_program_error(&*gl_context, program_id) {
+            if let Some(error_id) = get_gl_program_error(&gl_context, program_id) {
                 let info_log = gl_context.get_program_info_log(program_id);
                 gl_context.delete_shader(vertex_shader_object);
                 gl_context.delete_shader(fragment_shader_object);
                 gl_context.delete_program(program_id);
-                return Err(GlShaderCreateError::Link(GlShaderLinkError { error_id, info_log }));
+                return Err(GlShaderCreateError::Link(GlShaderLinkError { error_id, info_log: info_log.into() }));
             }
         }
 
@@ -2480,18 +2480,16 @@ impl GlShader {
     }
 }
 
-#[cfg(debug_assertions)]
-fn get_gl_shader_error(context: &dyn Gl, shader_object: GLuint) -> Option<i32> {
+fn get_gl_shader_error(context: &GlContextPtr, shader_object: GLuint) -> Option<i32> {
     let mut err = [0];
-    unsafe { context.get_shader_iv(shader_object, gl::COMPILE_STATUS, &mut err) };
+    context.get_shader_iv(shader_object, gl::COMPILE_STATUS, (&mut err[..]).into());
     let err_code = err[0];
     if err_code == gl::TRUE as i32 { None } else { Some(err_code) }
 }
 
-#[cfg(debug_assertions)]
-fn get_gl_program_error(context: &dyn Gl, shader_object: GLuint) -> Option<i32> {
+fn get_gl_program_error(context: &GlContextPtr, shader_object: GLuint) -> Option<i32> {
     let mut err = [0];
-    unsafe { context.get_program_iv(shader_object, gl::LINK_STATUS, &mut err) };
+    context.get_program_iv(shader_object, gl::LINK_STATUS, (&mut err[..]).into());
     let err_code = err[0];
     if err_code == gl::TRUE as i32 { None } else { Some(err_code) }
 }

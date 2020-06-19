@@ -28,7 +28,7 @@ use crate::{
 };
 use azul_core::{
     FastHashMap,
-    window::{RendererType, WindowCreateOptions, WindowSize, DebugState, WindowState, FullWindowState},
+    window::{HotReloadOptions, RendererType, WindowCreateOptions, WindowSize, DebugState, WindowState, FullWindowState},
     dom::{DomId, NodeId, ScrollTagId},
     gl::{GlShader, GlContextPtr},
     ui_state::UiState,
@@ -628,7 +628,7 @@ impl App {
 
                     for (glutin_window_id, window) in active_windows.iter() {
                         let full_window_state = full_window_states.get_mut(&glutin_window_id).unwrap();
-                        let hot_reload_handler = window.hot_reload_handler.as_ref().map(|hr| &hr.0);
+                        let hot_reload_handler = window.hot_reload.as_ref();
                         if hot_reload_css(full_window_state, hot_reload_handler, &mut last_style_reload, DONT_FORCE_CSS_RELOAD).0 {
                             should_update = true;
                         }
@@ -774,8 +774,8 @@ fn send_user_event<'a>(
             #[cfg(all(debug_assertions, any(feature = "css_parser", feature = "native_style")))] {
                 const FORCE_CSS_RELOAD: bool = true;
                 let full_window_state = eld.full_window_states.get_mut(&glutin_window_id).unwrap();
-                let hot_reload_handler = window.hot_reload_handler.as_ref().map(|hr| &hr.0);
-                let _ = hot_reload_css(full_window_state, hot_reload_handler, &mut Instant::now(), FORCE_CSS_RELOAD);
+                let hot_reload_options = window.hot_reload.as_ref();
+                let _ = hot_reload_css(full_window_state, hot_reload_options, &mut Instant::now(), FORCE_CSS_RELOAD);
             }
 
             let dom_id_map = call_layout_fn(
@@ -1225,8 +1225,8 @@ fn initialize_ui_state_cache(
         #[cfg(all(debug_assertions, any(feature = "css_parser", feature = "native_style")))] {
             const FORCE_CSS_RELOAD: bool = true;
             let full_window_state = full_window_states.get_mut(glutin_window_id).unwrap();
-            let hot_reload_handler = window.hot_reload_handler.as_ref().map(|hr| &hr.0);
-            let _ = hot_reload_css(full_window_state, hot_reload_handler, &mut Instant::now(), FORCE_CSS_RELOAD);
+            let hot_reload_options = window.hot_reload.as_ref();
+            let _ = hot_reload_css(full_window_state, hot_reload_options, &mut Instant::now(), FORCE_CSS_RELOAD);
         }
 
         let full_window_state = full_window_states.get(glutin_window_id).unwrap();
@@ -1249,7 +1249,7 @@ fn initialize_ui_state_cache(
 #[cfg(all(debug_assertions, any(feature = "css_parser", feature = "native_style")))]
 fn hot_reload_css(
     full_window_state: &mut FullWindowState,
-    hot_reload_handler: Option<&Box<dyn HotReloadHandler>>,
+    hot_reload_handler: Option<&HotReloadOptions>,
     last_style_reload: &mut Instant,
     force_css_reload: bool,
 ) -> (bool, bool) {
@@ -1264,6 +1264,9 @@ fn hot_reload_css(
     match hot_reload_result {
         Ok(has_reloaded) => (has_reloaded, false),
         Err(css_error) => {
+            #[cfg(feature = "logging")] {
+                error!("{}", css_error)
+            }
             (true, true)
         },
     }

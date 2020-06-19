@@ -9,13 +9,7 @@ use std::{
 };
 #[cfg(target_os = "windows")]
 use std::ffi::c_void;
-#[cfg(not(test))]
-#[cfg(debug_assertions)]
-use std::time::Duration;
 use azul_css::{U8Vec, AzString, Css, LayoutPoint, LayoutRect, CssPath};
-#[cfg(debug_assertions)]
-#[cfg(not(test))]
-use azul_css::HotReloadHandler;
 use crate::{
     FastHashMap,
     app_resources::Epoch,
@@ -981,7 +975,7 @@ impl Default for WindowState {
 }
 
 /// Options on how to initially create the window
-#[derive(Clone)]
+#[derive(Debug, Clone)]
 #[repr(C)]
 pub struct WindowCreateOptions {
     /// State of the window, set the initial title / width / height here.
@@ -1003,19 +997,6 @@ pub struct HotReloadOptions {
     pub path: AzString,
     pub reload_interval: AzDuration,
     pub apply_native_css: bool,
-}
-
-impl fmt::Debug for WindowCreateOptions {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        #[cfg(debug_assertions)]
-        #[cfg(not(test))] {
-            write!(f, "WindowCreateOptions {{ state: {:?}, renderer_type: {:?}, hot_reload_handler: {:?} }}",
-                   self.state, self.renderer_type, self.hot_reload_handler.is_some())
-        }
-        #[cfg(any(not(debug_assertions), test))] {
-            write!(f, "WindowCreateOptions {{ state: {:?}, renderer_type: {:?} }}", self.state, self.renderer_type)
-        }
-    }
 }
 
 impl Default for WindowCreateOptions {
@@ -1042,11 +1023,9 @@ impl WindowCreateOptions {
         self
     }
 
-    #[cfg(not(test))]
-    #[cfg(debug_assertions)]
-    pub fn new_hot_reload(hot_reload_handler: Box<dyn HotReloadHandler>) -> Self {
+    pub fn new_hot_reload(hot_reload_options: HotReloadOptions) -> Self {
         Self {
-            hot_reload_handler: Some(hot_reload_handler),
+            hot_reload: Some(hot_reload_options).into(),
             .. Default::default()
         }
     }

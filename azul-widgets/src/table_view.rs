@@ -73,10 +73,12 @@ impl TableViewState {
             .with_child(
                 // Row numbers (vertical) - "1", "2", "3"
                 (rows.start..rows.end.saturating_sub(1))
-                .map(|row_idx|
+                .map(|row_idx| {
+                    use azul::str::String as AzString;
+                    let classes: Vec<AzString> = vec!["__azul-native-table-row".into()];
                     NodeData::label(format!("{}", row_idx + 1).into())
-                    .with_classes(vec!["__azul-native-table-row".into()].into())
-                )
+                    .with_classes(classes.into())
+                })
                 .collect::<Dom>()
                 .with_class("__azul-native-table-row-numbers".into())
             )
