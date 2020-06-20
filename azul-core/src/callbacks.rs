@@ -84,7 +84,6 @@ pub struct RefAnySharingInfo {
 
 impl Drop for RefAnySharingInfo {
     fn drop(&mut self) {
-        println!("RefAnySharingInfo::drop!", );
         let _ = unsafe { Box::from_raw(self.ptr as *mut RefAnySharingInfoInner) };
     }
 }
@@ -92,7 +91,6 @@ impl Drop for RefAnySharingInfo {
 impl RefAnySharingInfo {
 
     fn new(r: RefAnySharingInfoInner) -> Self {
-        println!("RefAnySharingInfo::new!", );
         RefAnySharingInfo { ptr: Box::into_raw(Box::new(r)) as *const c_void }
     }
     fn downcast(&self) -> &RefAnySharingInfoInner { unsafe { &*(self.ptr as *const RefAnySharingInfoInner) } }
@@ -136,7 +134,7 @@ pub struct RefAny {
     pub type_id: u64,
     pub type_name: AzString,
     pub _sharing_info_ptr: *const RefAnySharingInfo,
-    pub custom_destructor: fn(*const c_void),
+    pub custom_destructor: extern "C" fn(*const c_void),
 }
 
 // the refcount of RefAny is atomic, therefore `RefAny` is not `Send`
@@ -161,13 +159,8 @@ impl Clone for RefAny {
 
 impl RefAny {
 
-    pub fn new_c(ptr: *const c_void, len: usize, type_id: u64, type_name: AzString, custom_destructor: fn(*const c_void)) -> Self {
+    pub fn new_c(ptr: *const c_void, len: usize, type_id: u64, type_name: AzString, custom_destructor: extern "C" fn(*const c_void)) -> Self {
         use std::{alloc, ptr};
-
-        println!("RefAny::new_c!");
-        println!("type_name: {:?}!", type_name);
-        println!("type_name: {:?}!", type_name);
-        println!("type_name: {}!", type_name.as_str());
 
         // cast the struct as bytes
         let struct_as_bytes = unsafe { ::std::slice::from_raw_parts(ptr as *const u8, len) };
@@ -177,9 +170,6 @@ impl RefAny {
         let heap_struct_as_bytes = unsafe { alloc::alloc(layout) };
         unsafe { ptr::copy_nonoverlapping(struct_as_bytes.as_ptr(), heap_struct_as_bytes, struct_as_bytes.len()) };
 
-        println!("heap_struct_as_bytes: 0x{:0x}!", heap_struct_as_bytes as usize);
-
-        println!("RefAny::new!");
         let sharing_info_ptr = Box::into_raw(Box::new(RefAnySharingInfo::new(RefAnySharingInfoInner::initial())));
 
         let s = Self {
@@ -193,7 +183,6 @@ impl RefAny {
             custom_destructor,
         };
 
-        println!("resulting refany: {:#?}", s);
         s
     }
 
@@ -248,7 +237,6 @@ impl Drop for RefAny {
         let info = unsafe { &*self._sharing_info_ptr };
         if info.downcast().num_copies.load(Ordering::SeqCst) <= 1 {
             (self.custom_destructor)(self._internal_ptr);
-            println!("RefAny::drop!");
             unsafe { alloc::dealloc(self._internal_ptr as *mut u8, Layout::from_size_align_unchecked(self._internal_layout_size, self._internal_layout_align)); }
             unsafe { let _ = Box::from_raw(self._sharing_info_ptr as *mut RefAnySharingInfo); }
         }
@@ -275,7 +263,7 @@ pub type PipelineSourceId = u32;
 ///
 /// See azul-core/ui_state.rs:298 for how the memory is managed
 /// across the callback boundary.
-pub type LayoutCallback = fn(RefAny, LayoutInfoPtr) -> Dom;
+pub type LayoutCallback = extern "C" fn(RefAny, LayoutInfoPtr) -> Dom;
 
 /// Information about a scroll frame, given to the user by the framework
 #[derive(Debug, Copy, Clone, PartialEq, PartialOrd)]
@@ -477,7 +465,6 @@ pub struct CallbackInfo<'a> {
 
 impl Drop for CallbackInfoPtr {
     fn drop<'a>(&mut self) {
-        println!("CallbackInfoPtr::drop!", );
         let _ = unsafe { Box::<CallbackInfo<'a>>::from_raw(self.ptr as *mut CallbackInfo<'a>) };
     }
 }
@@ -490,7 +477,7 @@ impl std::fmt::Debug for CallbackInfoPtr {
 }
 
 pub type CallbackReturn = UpdateScreen;
-pub type CallbackType = fn(CallbackInfoPtr) -> CallbackReturn;
+pub type CallbackType = extern "C" fn(CallbackInfoPtr) -> CallbackReturn;
 
 impl<'a> fmt::Debug for CallbackInfo<'a> {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
@@ -559,7 +546,6 @@ pub struct GlCallbackInfo<'a> {
 
 impl Drop for GlCallbackInfoPtr {
     fn drop<'a>(&mut self) {
-        println!("GlCallbackInfoPtr::drop!", );
         let _ = unsafe { Box::<GlCallbackInfo<'a>>::from_raw(self.ptr as *mut GlCallbackInfo<'a>) };
     }
 }
@@ -577,7 +563,7 @@ impl std::fmt::Debug for GlCallbackInfoPtr {
 pub struct GlCallbackReturn { pub texture: OptionTexture }
 
 #[cfg(feature = "opengl")]
-pub type GlCallbackType = fn(GlCallbackInfoPtr) -> GlCallbackReturn;
+pub type GlCallbackType = extern "C" fn(GlCallbackInfoPtr) -> GlCallbackReturn;
 
 // -- iframe callback
 
@@ -599,7 +585,6 @@ pub struct IFrameCallbackInfo<'a> {
 
 impl Drop for IFrameCallbackInfoPtr {
     fn drop<'a>(&mut self) {
-        println!("IFrameCallbackInfoPtr::drop!");
         let _ = unsafe { Box::<IFrameCallbackInfo<'a>>::from_raw(self.ptr as *mut IFrameCallbackInfo<'a>) };
     }
 }
@@ -615,13 +600,13 @@ impl std::fmt::Debug for IFrameCallbackInfoPtr {
 #[repr(C)]
 pub struct IFrameCallbackReturn { pub dom: OptionDom } // todo: return virtual scrolling frames!
 
-pub type IFrameCallbackType = fn(IFrameCallbackInfoPtr) -> IFrameCallbackReturn;
+pub type IFrameCallbackType = extern "C" fn(IFrameCallbackInfoPtr) -> IFrameCallbackReturn;
 
 // -- thread callback
-pub type ThreadCallbackType = fn(RefAny) -> RefAny;
+pub type ThreadCallbackType = extern "C" fn(RefAny) -> RefAny;
 
 // --  task callback
-pub type TaskCallbackType = fn(ArcMutexRefAnyPtr, DropCheckPtr) -> UpdateScreen;
+pub type TaskCallbackType = extern "C" fn(ArcMutexRefAnyPtr, DropCheckPtr) -> UpdateScreen;
 
 // -- timer callback
 
@@ -641,7 +626,6 @@ pub struct TimerCallbackInfo<'a> {
 
 impl Drop for TimerCallbackInfoPtr {
     fn drop<'a>(&mut self) {
-        println!("TimerCallbackInfoPtr::drop!");
         let _ = unsafe { Box::<TimerCallbackInfo<'a>>::from_raw(self.ptr as *mut TimerCallbackInfo<'a>) };
     }
 }
@@ -660,14 +644,13 @@ pub struct TimerCallbackReturn {
     pub should_terminate: TerminateTimer,
 }
 
-pub type TimerCallbackType = fn(TimerCallbackInfoPtr) -> TimerCallbackReturn;
+pub type TimerCallbackType = extern "C" fn(TimerCallbackInfoPtr) -> TimerCallbackReturn;
 
 /// Pointer to rust-allocated `Box<LayoutInfo<'a>>` struct
 #[repr(C)] pub struct LayoutInfoPtr { pub ptr: *mut c_void }
 
 impl Drop for LayoutInfoPtr {
     fn drop<'a>(&mut self) {
-        println!("LayoutInfoPtr::drop!");
         let _ = unsafe { Box::<LayoutInfo<'a>>::from_raw(self.ptr as *mut LayoutInfo<'a>) };
     }
 }
@@ -970,7 +953,6 @@ pub fn call_callbacks(
                     cursor_in_viewport: hit_item.as_ref().map(|hi| (hi.point_in_viewport.x, hi.point_in_viewport.y)),
                 };
 
-                println!("CallbackInfoPtr::new!");
                 let ptr = CallbackInfoPtr { ptr: Box::into_raw(Box::new(callback_info)) as *mut c_void };
 
                 // Invoke callback

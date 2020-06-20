@@ -1,1 +1,1 @@
-pub type AzThreadCallbackType = fn(AzRefAny) -> AzRefAny;
+pub type AzThreadCallbackType = extern "C" fn(AzRefAny) -> AzRefAny;

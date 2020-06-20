@@ -432,7 +432,7 @@ macro_rules! impl_result {
 pub struct AzString { pub vec: U8Vec }
 
 impl AsRef<str> for AzString {
-    fn as_ref(&self) -> &str {
+    fn as_ref<'a>(&'a self) -> &'a str {
         self.as_str()
     }
 }

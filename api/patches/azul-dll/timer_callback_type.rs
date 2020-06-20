@@ -1,1 +1,1 @@
-pub type AzTimerCallbackType = fn(AzArcMutexRefAnyPtr, AzDropCheckPtr) -> AzUpdateScreen;
+pub type AzTimerCallbackType = extern "C" fn(AzArcMutexRefAnyPtr, AzDropCheckPtr) -> AzUpdateScreen;

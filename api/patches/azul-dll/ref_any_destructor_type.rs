@@ -1,1 +1,1 @@
-pub type AzRefAnyDestructorType = fn(*const c_void);
+pub type AzRefAnyDestructorType = extern "C" fn(*const c_void);

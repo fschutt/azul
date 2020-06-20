@@ -72,10 +72,7 @@
 
             let type_name_str = ::std::any::type_name::<T>();
             let type_name_str_bytes = type_name_str.as_bytes();
-            println!("type_name_str_bytes: {:?}", type_name_str_bytes);
-            println!("RefAny -> crate::str::String::from_utf8_unchecked()!", );
             let st = crate::str::String::from_utf8_unchecked(type_name_str.as_ptr(), type_name_str.len());
-            println!("ok: type name str: {:?}!", st.as_str());
             let s = (crate::dll::get_azul_dll().az_ref_any_new_c)(
                 (&value as *const T) as *const c_void,
                 ::std::mem::size_of::<T>(),
@@ -83,7 +80,6 @@
                 st,
                 default_custom_destructor::<T>,
             );
-            println!("hello! s: {:#?}", s);
             ::std::mem::forget(value); // do not run the destructor of T here!
             s
         }
