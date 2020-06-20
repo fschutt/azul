@@ -534,7 +534,8 @@ def generate_rust_dll(apiData):
                             fn_body += const["fn_body"]
                         else:
                             fn_body += "let object: " + rust_class_name + " = " + const["fn_body"] + "; " # note: security check, that the returned object is of the correct type
-                            fn_body += class_ptr_name + " { ptr: Box::into_raw(Box::new(object)) as *mut c_void }"
+                            fn_body += "let ptr = Box::into_raw(Box::new(object)) as *mut c_void; "
+                            fn_body += class_ptr_name + " { ptr }"
 
                     if "doc" in const.keys():
                         code += "/// " + const["doc"] + "\r\n"
@@ -614,7 +615,9 @@ def generate_rust_dll(apiData):
                     # az_item_delete()
                     code += "/// Destructor: Takes ownership of the `" + class_name + "` pointer and deletes it.\r\n"
                     functions_map[str(to_snake_case(class_ptr_name) + "_delete")] = ["object: &mut " + class_ptr_name, ""];
-                    code += "#[no_mangle] #[allow(unused_variables)] pub extern \"C\" fn " + to_snake_case(class_ptr_name) + "_delete" + lifetime + "(object: &mut " + class_ptr_name + ") { " + stack_delete_body + "}\r\n"
+                    code += "#[no_mangle] #[allow(unused_variables)] pub extern \"C\" fn " + to_snake_case(class_ptr_name) + "_delete" + lifetime + "(object: &mut " + class_ptr_name + ") { "
+                    code += stack_delete_body
+                    code += "}\r\n"
 
                     if class_can_be_cloned and lifetime == "":
                         # az_item_deep_copy()
@@ -818,7 +821,7 @@ def generate_dll_loader(apiData, structs_map, functions_map, version):
         fn_args = fn_type[0]
         fn_return = fn_type[1]
         return_arrow = "" if fn_return == "" else " -> "
-        code += "        pub " + fn_name + ": fn(" + strip_fn_arg_types(fn_args) + ")" + return_arrow + fn_return + ",\r\n"
+        code += "        pub " + fn_name + ": extern \"C\" fn(" + strip_fn_arg_types(fn_args) + ")" + return_arrow + fn_return + ",\r\n"
     code += "    }\r\n\r\n"
 
     code += "    pub fn initialize_library(path: &std::path::Path) -> Option<AzulDll> {\r\n"
@@ -830,7 +833,7 @@ def generate_dll_loader(apiData, structs_map, functions_map, version):
         fn_args = fn_type[0]
         fn_return = fn_type[1]
         return_arrow = "" if fn_return == "" else " -> "
-        code += "            let " + fn_name + ": fn(" + strip_fn_arg_types(fn_args) + ")" + return_arrow + fn_return + " = transmute(lib.get(b\"" + fn_name + "\")?);\r\n"
+        code += "            let " + fn_name + ": extern \"C\" fn(" + strip_fn_arg_types(fn_args) + ")" + return_arrow + fn_return + " = transmute(lib.get(b\"" + fn_name + "\")?);\r\n"
 
     code += "            Some(AzulDll {\r\n"
     code += "                lib: lib,\r\n"
@@ -857,9 +860,9 @@ def generate_dll_loader(apiData, structs_map, functions_map, version):
     code += "    static mut AZUL_DLL: MaybeUninit<AzulDll> = MaybeUninit::<AzulDll>::uninit();\r\n"
     code += "\r\n"
     code += "    #[cfg(unix)]\r\n"
-    code += "    const DLL_FILE_NAME: &str = \"./azul.so\";\r\n"
+    code += "    const DLL_FILE_NAME: &str = \"azul.so\";\r\n"
     code += "    #[cfg(windows)]\r\n"
-    code += "    const DLL_FILE_NAME: &str = \"./azul.dll\";\r\n"
+    code += "    const DLL_FILE_NAME: &str = \"azul.dll\";\r\n"
     code += "\r\n"
     code += "    fn load_library_inner() -> Result<AzulDll, &'static str> {\r\n"
     code += "\r\n"

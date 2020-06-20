@@ -34,7 +34,7 @@
 
     impl crate::str::String {
         #[inline]
-        pub fn as_str(&self) -> &str {
+        pub fn as_str<'a>(&'a self) -> &'a str {
             unsafe { std::str::from_utf8_unchecked(std::slice::from_raw_parts(self.vec.ptr, self.vec.len)) }
         }
         #[inline]
@@ -43,6 +43,6 @@
         }
         #[inline]
         pub fn into_string(self) -> String {
-            String::from(self)
+            self.into()
         }
     }

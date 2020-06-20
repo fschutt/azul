@@ -17,11 +17,17 @@ exclude = ["../assets/*", "../doc/*", "../examples/*"]
 autoexamples = false
 edition = "2018"
 
+[profile.dev]
+incremental = false
+
+[profile.release]
+incremental = false
+
 [lib]
 path = "src/rust/lib.rs"
 
 [dependencies]
-libloading-mini = "0.1.0"
+libloading-mini = "0.1.1"
 
 [dev-dependencies]
 azul-widgets = { version = "0.0.2", path = "../azul-widgets" }

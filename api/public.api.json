@@ -15,7 +15,7 @@
 								{"ptr": "*const u8"},
 								{"len": "usize"}
 							],
-							"fn_body": "unsafe { std::str::from_utf8_unchecked(std::slice::from_raw_parts(ptr, len)).to_string() }.into()"
+							"fn_body": "unsafe { let slice = std::slice::from_raw_parts(ptr, len); println!(\"{:?}\", slice); let vec = slice.to_vec(); let u8vec: AzU8Vec = vec.into(); let s = AzString { vec: u8vec }; println!(\"copied string from exe to dll memory: {:?}\", s); s }"
 						},
 						"from_utf8_lossy": {
 							"doc": "Creates + allocates a Rust `String` by **copying** it from another utf8-encoded string",
@@ -46,7 +46,7 @@
 					"doc": "Wrapper over a Rust-allocated `XWindowType`",
 					"external": "azul_impl::window::XWindowTypeVec",
 					"struct_fields": [
-						{ "ptr": { "type": "*const XWindowType" } },
+						{ "ptr": { "type": "*mut XWindowType" } },
 						{ "len": { "type": "usize" } },
 						{ "cap": { "type": "usize" } }
 					],
@@ -54,7 +54,7 @@
 					    "copy_from": {
 					        "doc": "Creates + allocates a Rust `Vec<XWindowType>` by **copying** it from a bytes source",
 					        "fn_args": [
-					            {"ptr": "*const XWindowType"},
+					            {"ptr": "*mut XWindowType"},
 					            {"len": "usize"}
 					        ],
 					        "fn_body": "unsafe { std::slice::from_raw_parts(ptr, len).iter().cloned().collect::<Vec<_>>() }.into()"
@@ -65,7 +65,7 @@
 					"doc": "Wrapper over a Rust-allocated `VirtualKeyCode`",
 					"external": "azul_impl::window::VirtualKeyCodeVec",
 					"struct_fields": [
-						{ "ptr": { "type": "*const VirtualKeyCode" } },
+						{ "ptr": { "type": "*mut VirtualKeyCode" } },
 						{ "len": { "type": "usize" } },
 						{ "cap": { "type": "usize" } }
 					],
@@ -73,7 +73,7 @@
 					    "copy_from": {
 					        "doc": "Creates + allocates a Rust `Vec<VirtualKeyCode>` by **copying** it from a bytes source",
 					        "fn_args": [
-					            {"ptr": "*const VirtualKeyCode"},
+					            {"ptr": "*mut VirtualKeyCode"},
 					            {"len": "usize"}
 					        ],
 					        "fn_body": "unsafe { std::slice::from_raw_parts(ptr, len).iter().cloned().collect::<Vec<_>>() }.into()"
@@ -84,7 +84,7 @@
 					"doc": "Wrapper over a Rust-allocated `ScanCode`",
 					"external": "azul_impl::window::ScanCodeVec",
 					"struct_fields": [
-						{ "ptr": { "type": "*const u32" } },
+						{ "ptr": { "type": "*mut u32" } },
 						{ "len": { "type": "usize" } },
 						{ "cap": { "type": "usize" } }
 					],
@@ -92,7 +92,7 @@
 					    "copy_from": {
 					        "doc": "Creates + allocates a Rust `Vec<ScanCode>` by **copying** it from a bytes source",
 					        "fn_args": [
-					            {"ptr": "*const u32"},
+					            {"ptr": "*mut u32"},
 					            {"len": "usize"}
 					        ],
 					        "fn_body": "unsafe { std::slice::from_raw_parts(ptr, len).iter().cloned().collect::<Vec<_>>() }.into()"
@@ -103,7 +103,7 @@
 					"doc": "Wrapper over a Rust-allocated `CssDeclaration`",
 					"external": "azul_impl::css::CssDeclarationVec",
 					"struct_fields": [
-						{ "ptr": { "type": "*const CssDeclaration" } },
+						{ "ptr": { "type": "*mut CssDeclaration" } },
 						{ "len": { "type": "usize" } },
 						{ "cap": { "type": "usize" } }
 					],
@@ -111,7 +111,7 @@
 					    "copy_from": {
 					        "doc": "Creates + allocates a Rust `Vec<CssDeclaration>` by **copying** it from a bytes source",
 					        "fn_args": [
-					            {"ptr": "*const CssDeclaration"},
+					            {"ptr": "*mut CssDeclaration"},
 					            {"len": "usize"}
 					        ],
 					        "fn_body": "unsafe { std::slice::from_raw_parts(ptr, len).iter().cloned().collect::<Vec<_>>() }.into()"
@@ -122,7 +122,7 @@
 					"doc": "Wrapper over a Rust-allocated `CssPathSelector`",
 					"external": "azul_impl::css::CssPathSelectorVec",
 					"struct_fields": [
-						{ "ptr": { "type": "*const CssPathSelector" } },
+						{ "ptr": { "type": "*mut CssPathSelector" } },
 						{ "len": { "type": "usize" } },
 						{ "cap": { "type": "usize" } }
 					],
@@ -130,7 +130,7 @@
 					    "copy_from": {
 					        "doc": "Creates + allocates a Rust `Vec<CssPathSelector>` by **copying** it from a bytes source",
 					        "fn_args": [
-					            {"ptr": "*const CssPathSelector"},
+					            {"ptr": "*mut CssPathSelector"},
 					            {"len": "usize"}
 					        ],
 					        "fn_body": "unsafe { std::slice::from_raw_parts(ptr, len).iter().cloned().collect::<Vec<_>>() }.into()"
@@ -141,7 +141,7 @@
 					"doc": "Wrapper over a Rust-allocated `Stylesheet`",
 					"external": "azul_impl::css::StylesheetVec",
 					"struct_fields": [
-						{ "ptr": { "type": "*const Stylesheet" } },
+						{ "ptr": { "type": "*mut Stylesheet" } },
 						{ "len": { "type": "usize" } },
 						{ "cap": { "type": "usize" } }
 					],
@@ -149,7 +149,7 @@
 					    "copy_from": {
 					        "doc": "Creates + allocates a Rust `Vec<Stylesheet>` by **copying** it from a bytes source",
 					        "fn_args": [
-					            {"ptr": "*const Stylesheet"},
+					            {"ptr": "*mut Stylesheet"},
 					            {"len": "usize"}
 					        ],
 					        "fn_body": "unsafe { std::slice::from_raw_parts(ptr, len).iter().cloned().collect::<Vec<_>>() }.into()"
@@ -160,7 +160,7 @@
 					"doc": "Wrapper over a Rust-allocated `CssRuleBlock`",
 					"external": "azul_impl::css::CssRuleBlockVec",
 					"struct_fields": [
-						{ "ptr": { "type": "*const CssRuleBlock" } },
+						{ "ptr": { "type": "*mut CssRuleBlock" } },
 						{ "len": { "type": "usize" } },
 						{ "cap": { "type": "usize" } }
 					],
@@ -168,7 +168,7 @@
 					    "copy_from": {
 					        "doc": "Creates + allocates a Rust `Vec<CssRuleBlock>` by **copying** it from a bytes source",
 					        "fn_args": [
-					            {"ptr": "*const CssRuleBlock"},
+					            {"ptr": "*mut CssRuleBlock"},
 					            {"len": "usize"}
 					        ],
 					        "fn_body": "unsafe { std::slice::from_raw_parts(ptr, len).iter().cloned().collect::<Vec<_>>() }.into()"
@@ -179,7 +179,7 @@
 					"doc": "Wrapper over a Rust-allocated `U8Vec`",
 					"external": "azul_impl::css::U8Vec",
 					"struct_fields": [
-						{ "ptr": { "type": "*const u8" } },
+						{ "ptr": { "type": "*mut u8" } },
 						{ "len": { "type": "usize" } },
 						{ "cap": { "type": "usize" } }
 					],
@@ -187,7 +187,7 @@
 					    "copy_from": {
 					        "doc": "Creates + allocates a Rust `Vec<u8>` by **copying** it from a bytes source",
 					        "fn_args": [
-					            {"ptr": "*const u8"},
+					            {"ptr": "*mut u8"},
 					            {"len": "usize"}
 					        ],
 					        "fn_body": "unsafe { std::slice::from_raw_parts(ptr, len).to_vec() }.into()"
@@ -198,7 +198,7 @@
 					"doc": "Wrapper over a Rust-allocated `CallbackData`",
 					"external": "azul_impl::dom::CallbackDataVec",
 					"struct_fields": [
-						{ "ptr": { "type": "*const CallbackData" } },
+						{ "ptr": { "type": "*mut CallbackData" } },
 						{ "len": { "type": "usize" } },
 						{ "cap": { "type": "usize" } }
 					],
@@ -206,7 +206,7 @@
 					    "copy_from": {
 					        "doc": "Creates + allocates a Rust `Vec<CallbackData>` by **copying** it from a bytes source",
 					        "fn_args": [
-					            {"ptr": "*const CallbackData"},
+					            {"ptr": "*mut CallbackData"},
 					            {"len": "usize"}
 					        ],
 					        "fn_body": "unsafe { std::slice::from_raw_parts(ptr, len).iter().cloned().collect::<Vec<_>>() }.into()"
@@ -217,7 +217,7 @@
 					"doc": "Wrapper over a Rust-allocated `Vec<DebugMessage>`",
 					"external": "azul_impl::gl::AzDebugMessageVec",
 					"struct_fields": [
-						{ "ptr": { "type": "*const DebugMessage" } },
+						{ "ptr": { "type": "*mut DebugMessage" } },
 						{ "len": { "type": "usize" } },
 						{ "cap": { "type": "usize" } }
 					],
@@ -225,7 +225,7 @@
 					    "copy_from": {
 					        "doc": "Creates + allocates a Rust `Vec<DebugMessage>` by **copying** it from a bytes source",
 					        "fn_args": [
-					            {"ptr": "*const DebugMessage"},
+					            {"ptr": "*mut DebugMessage"},
 					            {"len": "usize"}
 					        ],
 					        "fn_body": "unsafe { std::slice::from_raw_parts(ptr, len).iter().cloned().collect::<Vec<_>>() }.into()"
@@ -236,7 +236,7 @@
 					"doc": "Wrapper over a Rust-allocated `U32Vec`",
 					"external": "azul_impl::gl::GLuintVec",
 					"struct_fields": [
-						{ "ptr": { "type": "*const u32" } },
+						{ "ptr": { "type": "*mut u32" } },
 						{ "len": { "type": "usize" } },
 						{ "cap": { "type": "usize" } }
 					],
@@ -244,7 +244,7 @@
 					    "copy_from": {
 					        "doc": "Creates + allocates a Rust `Vec<u32>` by **copying** it from a bytes source",
 					        "fn_args": [
-					            {"ptr": "*const u32"},
+					            {"ptr": "*mut u32"},
 					            {"len": "usize"}
 					        ],
 					        "fn_body": "unsafe { std::slice::from_raw_parts(ptr, len).to_vec() }.into()"
@@ -255,7 +255,7 @@
 					"doc": "Wrapper over a Rust-allocated `GLintVec`",
 					"external": "azul_impl::gl::GLintVec",
 					"struct_fields": [
-						{ "ptr": { "type": "*const i32" } },
+						{ "ptr": { "type": "*mut i32" } },
 						{ "len": { "type": "usize" } },
 						{ "cap": { "type": "usize" } }
 					],
@@ -263,7 +263,7 @@
 					    "copy_from": {
 					        "doc": "Creates + allocates a Rust `Vec<u32>` by **copying** it from a bytes source",
 					        "fn_args": [
-					            {"ptr": "*const i32"},
+					            {"ptr": "*mut i32"},
 					            {"len": "usize"}
 					        ],
 					        "fn_body": "unsafe { std::slice::from_raw_parts(ptr, len).to_vec() }.into()"
@@ -274,7 +274,7 @@
 					"doc": "Wrapper over a Rust-allocated `OverridePropertyVec`",
 					"external": "azul_impl::dom::OverridePropertyVec",
 					"struct_fields": [
-						{ "ptr": { "type": "*const OverrideProperty" } },
+						{ "ptr": { "type": "*mut OverrideProperty" } },
 						{ "len": { "type": "usize" } },
 						{ "cap": { "type": "usize" } }
 					],
@@ -282,7 +282,7 @@
 					    "copy_from": {
 					        "doc": "Creates + allocates a Rust `Vec<OverrideProperty>` by **copying** it from a bytes source",
 					        "fn_args": [
-					            {"ptr": "*const OverrideProperty"},
+					            {"ptr": "*mut OverrideProperty"},
 					            {"len": "usize"}
 					        ],
 					        "fn_body": "unsafe { std::slice::from_raw_parts(ptr, len).iter().cloned().collect::<Vec<_>>() }.into()"
@@ -293,7 +293,7 @@
 					"doc": "Wrapper over a Rust-allocated `DomVec`",
 					"external": "azul_impl::dom::DomVec",
 					"struct_fields": [
-						{ "ptr": { "type": "*const Dom" } },
+						{ "ptr": { "type": "*mut Dom" } },
 						{ "len": { "type": "usize" } },
 						{ "cap": { "type": "usize" } }
 					],
@@ -301,7 +301,7 @@
 					    "copy_from": {
 					        "doc": "Creates + allocates a Rust `Vec<Dom>` by **copying** it from a bytes source",
 					        "fn_args": [
-					            {"ptr": "*const Dom"},
+					            {"ptr": "*mut Dom"},
 					            {"len": "usize"}
 					        ],
 					        "fn_body": "unsafe { std::slice::from_raw_parts(ptr, len).iter().cloned().collect::<Vec<_>>() }.into()"
@@ -312,7 +312,7 @@
 					"doc": "Wrapper over a Rust-allocated `StringVec`",
 					"external": "azul_impl::css::StringVec",
 					"struct_fields": [
-						{ "ptr": { "type": "*const String" } },
+						{ "ptr": { "type": "*mut String" } },
 						{ "len": { "type": "usize" } },
 						{ "cap": { "type": "usize" } }
 					],
@@ -320,7 +320,7 @@
 					    "copy_from": {
 					        "doc": "Creates + allocates a Rust `Vec<String>` by **copying** it from a bytes source",
 					        "fn_args": [
-					            {"ptr": "*const String"},
+					            {"ptr": "*mut String"},
 					            {"len": "usize"}
 					        ],
 					        "fn_body": "unsafe { std::slice::from_raw_parts(ptr, len).into_iter().map(|s| s.clone()).collect::<Vec<_>>() }.into()"
@@ -331,7 +331,7 @@
 					"doc": "Wrapper over a Rust-allocated `StringPairVec`",
 					"external": "azul_impl::window::StringPairVec",
 					"struct_fields": [
-						{ "ptr": { "type": "*const StringPair" } },
+						{ "ptr": { "type": "*mut StringPair" } },
 						{ "len": { "type": "usize" } },
 						{ "cap": { "type": "usize" } }
 					],
@@ -339,7 +339,7 @@
 					    "copy_from": {
 					        "doc": "Creates + allocates a Rust `Vec<StringPair>` by **copying** it from a bytes source",
 					        "fn_args": [
-					            {"ptr": "*const StringPair"},
+					            {"ptr": "*mut StringPair"},
 					            {"len": "usize"}
 					        ],
 					        "fn_body": "unsafe { std::slice::from_raw_parts(ptr, len).into_iter().map(|s| s.clone()).collect::<Vec<_>>() }.into()"
@@ -350,7 +350,7 @@
 					"doc": "Wrapper over a Rust-allocated `GradientStopPreVec`",
 					"external": "azul_impl::css::GradientStopPreVec",
 					"struct_fields": [
-						{ "ptr": { "type": "*const GradientStopPre" } },
+						{ "ptr": { "type": "*mut GradientStopPre" } },
 						{ "len": { "type": "usize" } },
 						{ "cap": { "type": "usize" } }
 					],
@@ -358,7 +358,7 @@
 					    "copy_from": {
 					        "doc": "Creates + allocates a Rust `Vec<GradientStopPre>` by **copying** it from a bytes source",
 					        "fn_args": [
-					            {"ptr": "*const GradientStopPre"},
+					            {"ptr": "*mut GradientStopPre"},
 					            {"len": "usize"}
 					        ],
 					        "fn_body": "unsafe { std::slice::from_raw_parts(ptr, len).into_iter().map(|s| s.clone()).collect::<Vec<_>>() }.into()"

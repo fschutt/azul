@@ -164,6 +164,11 @@ impl RefAny {
     pub fn new_c(ptr: *const c_void, len: usize, type_id: u64, type_name: AzString, custom_destructor: fn(*const c_void)) -> Self {
         use std::{alloc, ptr};
 
+        println!("RefAny::new_c!");
+        println!("type_name: {:?}!", type_name);
+        println!("type_name: {:?}!", type_name);
+        println!("type_name: {}!", type_name.as_str());
+
         // cast the struct as bytes
         let struct_as_bytes = unsafe { ::std::slice::from_raw_parts(ptr as *const u8, len) };
 
@@ -172,10 +177,12 @@ impl RefAny {
         let heap_struct_as_bytes = unsafe { alloc::alloc(layout) };
         unsafe { ptr::copy_nonoverlapping(struct_as_bytes.as_ptr(), heap_struct_as_bytes, struct_as_bytes.len()) };
 
+        println!("heap_struct_as_bytes: 0x{:0x}!", heap_struct_as_bytes as usize);
+
         println!("RefAny::new!");
         let sharing_info_ptr = Box::into_raw(Box::new(RefAnySharingInfo::new(RefAnySharingInfoInner::initial())));
 
-        Self {
+        let s = Self {
             _internal_ptr: heap_struct_as_bytes as *const c_void,
             _internal_len: len,
             _internal_layout_size: layout.size(),
@@ -184,7 +191,10 @@ impl RefAny {
             type_name,
             _sharing_info_ptr: sharing_info_ptr,
             custom_destructor,
-        }
+        };
+
+        println!("resulting refany: {:#?}", s);
+        s
     }
 
     pub fn is_type(&self, type_id: u64) -> bool {

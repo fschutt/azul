@@ -67,11 +67,13 @@
             }
 
             let type_name_str = ::std::any::type_name::<T>();
+            let type_name_str_bytes = type_name_str.as_bytes();
+            let st = crate::str::String::from_utf8_unchecked(type_name_str.as_ptr(), type_name_str.len());
             let s = (crate::dll::get_azul_dll().az_ref_any_new_c)(
                 (&value as *const T) as *const c_void,
                 ::std::mem::size_of::<T>(),
                 Self::get_type_id::<T>(),
-                crate::str::String::from_utf8_unchecked(type_name_str.as_ptr(), type_name_str.len()),
+                st,
                 default_custom_destructor::<T>,
             );
             ::std::mem::forget(value); // do not run the destructor of T here!

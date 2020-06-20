@@ -104,8 +104,8 @@
         }
 
         impl From<Vec<$struct_type>> for $struct_name {
-            fn from(v: Vec<$struct_type>) -> $struct_name {
-                $struct_name::copy_from(v.as_ptr(), v.len())
+            fn from(mut v: Vec<$struct_type>) -> $struct_name {
+                $struct_name::copy_from(v.as_mut_ptr(), v.len())
             }
         }
 
@@ -126,12 +126,12 @@
 
     impl From<std::vec::Vec<std::string::String>> for crate::vec::StringVec {
         fn from(v: std::vec::Vec<std::string::String>) -> crate::vec::StringVec {
-            let vec: Vec<AzString> = v.into_iter().map(|i| {
+            let mut vec: Vec<AzString> = v.into_iter().map(|i| {
                 let i: std::vec::Vec<u8> = i.into_bytes();
                 (crate::dll::get_azul_dll().az_string_from_utf8_unchecked)(i.as_ptr(), i.len())
             }).collect();
 
-            (crate::dll::get_azul_dll().az_string_vec_copy_from)(vec.as_ptr(), vec.len())
+            (crate::dll::get_azul_dll().az_string_vec_copy_from)(vec.as_mut_ptr(), vec.len())
         }
     }
 
@@ -160,7 +160,7 @@
 
     impl XWindowTypeVec {
         /// Creates + allocates a Rust `Vec<XWindowType>` by **copying** it from a bytes source
-        pub fn copy_from(ptr: *const AzXWindowType, len: usize) -> Self { (crate::dll::get_azul_dll().az_x_window_type_vec_copy_from)(ptr, len) }
+        pub fn copy_from(ptr: *mut AzXWindowType, len: usize) -> Self { (crate::dll::get_azul_dll().az_x_window_type_vec_copy_from)(ptr, len) }
     }
 
     impl std::fmt::Debug for XWindowTypeVec { fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result { write!(f, "{}", (crate::dll::get_azul_dll().az_x_window_type_vec_fmt_debug)(self)) } }
@@ -173,7 +173,7 @@
 
     impl VirtualKeyCodeVec {
         /// Creates + allocates a Rust `Vec<VirtualKeyCode>` by **copying** it from a bytes source
-        pub fn copy_from(ptr: *const AzVirtualKeyCode, len: usize) -> Self { (crate::dll::get_azul_dll().az_virtual_key_code_vec_copy_from)(ptr, len) }
+        pub fn copy_from(ptr: *mut AzVirtualKeyCode, len: usize) -> Self { (crate::dll::get_azul_dll().az_virtual_key_code_vec_copy_from)(ptr, len) }
     }
 
     impl std::fmt::Debug for VirtualKeyCodeVec { fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result { write!(f, "{}", (crate::dll::get_azul_dll().az_virtual_key_code_vec_fmt_debug)(self)) } }
@@ -186,7 +186,7 @@
 
     impl ScanCodeVec {
         /// Creates + allocates a Rust `Vec<ScanCode>` by **copying** it from a bytes source
-        pub fn copy_from(ptr: *const u32, len: usize) -> Self { (crate::dll::get_azul_dll().az_scan_code_vec_copy_from)(ptr, len) }
+        pub fn copy_from(ptr: *mut u32, len: usize) -> Self { (crate::dll::get_azul_dll().az_scan_code_vec_copy_from)(ptr, len) }
     }
 
     impl std::fmt::Debug for ScanCodeVec { fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result { write!(f, "{}", (crate::dll::get_azul_dll().az_scan_code_vec_fmt_debug)(self)) } }
@@ -199,7 +199,7 @@
 
     impl CssDeclarationVec {
         /// Creates + allocates a Rust `Vec<CssDeclaration>` by **copying** it from a bytes source
-        pub fn copy_from(ptr: *const AzCssDeclaration, len: usize) -> Self { (crate::dll::get_azul_dll().az_css_declaration_vec_copy_from)(ptr, len) }
+        pub fn copy_from(ptr: *mut AzCssDeclaration, len: usize) -> Self { (crate::dll::get_azul_dll().az_css_declaration_vec_copy_from)(ptr, len) }
     }
 
     impl std::fmt::Debug for CssDeclarationVec { fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result { write!(f, "{}", (crate::dll::get_azul_dll().az_css_declaration_vec_fmt_debug)(self)) } }
@@ -212,7 +212,7 @@
 
     impl CssPathSelectorVec {
         /// Creates + allocates a Rust `Vec<CssPathSelector>` by **copying** it from a bytes source
-        pub fn copy_from(ptr: *const AzCssPathSelector, len: usize) -> Self { (crate::dll::get_azul_dll().az_css_path_selector_vec_copy_from)(ptr, len) }
+        pub fn copy_from(ptr: *mut AzCssPathSelector, len: usize) -> Self { (crate::dll::get_azul_dll().az_css_path_selector_vec_copy_from)(ptr, len) }
     }
 
     impl std::fmt::Debug for CssPathSelectorVec { fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result { write!(f, "{}", (crate::dll::get_azul_dll().az_css_path_selector_vec_fmt_debug)(self)) } }
@@ -225,7 +225,7 @@
 
     impl StylesheetVec {
         /// Creates + allocates a Rust `Vec<Stylesheet>` by **copying** it from a bytes source
-        pub fn copy_from(ptr: *const AzStylesheet, len: usize) -> Self { (crate::dll::get_azul_dll().az_stylesheet_vec_copy_from)(ptr, len) }
+        pub fn copy_from(ptr: *mut AzStylesheet, len: usize) -> Self { (crate::dll::get_azul_dll().az_stylesheet_vec_copy_from)(ptr, len) }
     }
 
     impl std::fmt::Debug for StylesheetVec { fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result { write!(f, "{}", (crate::dll::get_azul_dll().az_stylesheet_vec_fmt_debug)(self)) } }
@@ -238,7 +238,7 @@
 
     impl CssRuleBlockVec {
         /// Creates + allocates a Rust `Vec<CssRuleBlock>` by **copying** it from a bytes source
-        pub fn copy_from(ptr: *const AzCssRuleBlock, len: usize) -> Self { (crate::dll::get_azul_dll().az_css_rule_block_vec_copy_from)(ptr, len) }
+        pub fn copy_from(ptr: *mut AzCssRuleBlock, len: usize) -> Self { (crate::dll::get_azul_dll().az_css_rule_block_vec_copy_from)(ptr, len) }
     }
 
     impl std::fmt::Debug for CssRuleBlockVec { fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result { write!(f, "{}", (crate::dll::get_azul_dll().az_css_rule_block_vec_fmt_debug)(self)) } }
@@ -251,7 +251,7 @@
 
     impl U8Vec {
         /// Creates + allocates a Rust `Vec<u8>` by **copying** it from a bytes source
-        pub fn copy_from(ptr: *const u8, len: usize) -> Self { (crate::dll::get_azul_dll().az_u8_vec_copy_from)(ptr, len) }
+        pub fn copy_from(ptr: *mut u8, len: usize) -> Self { (crate::dll::get_azul_dll().az_u8_vec_copy_from)(ptr, len) }
     }
 
     impl std::fmt::Debug for U8Vec { fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result { write!(f, "{}", (crate::dll::get_azul_dll().az_u8_vec_fmt_debug)(self)) } }
@@ -264,7 +264,7 @@
 
     impl CallbackDataVec {
         /// Creates + allocates a Rust `Vec<CallbackData>` by **copying** it from a bytes source
-        pub fn copy_from(ptr: *const AzCallbackData, len: usize) -> Self { (crate::dll::get_azul_dll().az_callback_data_vec_copy_from)(ptr, len) }
+        pub fn copy_from(ptr: *mut AzCallbackData, len: usize) -> Self { (crate::dll::get_azul_dll().az_callback_data_vec_copy_from)(ptr, len) }
     }
 
     impl std::fmt::Debug for CallbackDataVec { fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result { write!(f, "{}", (crate::dll::get_azul_dll().az_callback_data_vec_fmt_debug)(self)) } }
@@ -277,7 +277,7 @@
 
     impl DebugMessageVec {
         /// Creates + allocates a Rust `Vec<DebugMessage>` by **copying** it from a bytes source
-        pub fn copy_from(ptr: *const AzDebugMessage, len: usize) -> Self { (crate::dll::get_azul_dll().az_debug_message_vec_copy_from)(ptr, len) }
+        pub fn copy_from(ptr: *mut AzDebugMessage, len: usize) -> Self { (crate::dll::get_azul_dll().az_debug_message_vec_copy_from)(ptr, len) }
     }
 
     impl std::fmt::Debug for DebugMessageVec { fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result { write!(f, "{}", (crate::dll::get_azul_dll().az_debug_message_vec_fmt_debug)(self)) } }
@@ -290,7 +290,7 @@
 
     impl GLuintVec {
         /// Creates + allocates a Rust `Vec<u32>` by **copying** it from a bytes source
-        pub fn copy_from(ptr: *const u32, len: usize) -> Self { (crate::dll::get_azul_dll().az_g_luint_vec_copy_from)(ptr, len) }
+        pub fn copy_from(ptr: *mut u32, len: usize) -> Self { (crate::dll::get_azul_dll().az_g_luint_vec_copy_from)(ptr, len) }
     }
 
     impl std::fmt::Debug for GLuintVec { fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result { write!(f, "{}", (crate::dll::get_azul_dll().az_g_luint_vec_fmt_debug)(self)) } }
@@ -303,7 +303,7 @@
 
     impl GLintVec {
         /// Creates + allocates a Rust `Vec<u32>` by **copying** it from a bytes source
-        pub fn copy_from(ptr: *const i32, len: usize) -> Self { (crate::dll::get_azul_dll().az_g_lint_vec_copy_from)(ptr, len) }
+        pub fn copy_from(ptr: *mut i32, len: usize) -> Self { (crate::dll::get_azul_dll().az_g_lint_vec_copy_from)(ptr, len) }
     }
 
     impl std::fmt::Debug for GLintVec { fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result { write!(f, "{}", (crate::dll::get_azul_dll().az_g_lint_vec_fmt_debug)(self)) } }
@@ -316,7 +316,7 @@
 
     impl OverridePropertyVec {
         /// Creates + allocates a Rust `Vec<OverrideProperty>` by **copying** it from a bytes source
-        pub fn copy_from(ptr: *const AzOverrideProperty, len: usize) -> Self { (crate::dll::get_azul_dll().az_override_property_vec_copy_from)(ptr, len) }
+        pub fn copy_from(ptr: *mut AzOverrideProperty, len: usize) -> Self { (crate::dll::get_azul_dll().az_override_property_vec_copy_from)(ptr, len) }
     }
 
     impl std::fmt::Debug for OverridePropertyVec { fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result { write!(f, "{}", (crate::dll::get_azul_dll().az_override_property_vec_fmt_debug)(self)) } }
@@ -329,7 +329,7 @@
 
     impl DomVec {
         /// Creates + allocates a Rust `Vec<Dom>` by **copying** it from a bytes source
-        pub fn copy_from(ptr: *const AzDom, len: usize) -> Self { (crate::dll::get_azul_dll().az_dom_vec_copy_from)(ptr, len) }
+        pub fn copy_from(ptr: *mut AzDom, len: usize) -> Self { (crate::dll::get_azul_dll().az_dom_vec_copy_from)(ptr, len) }
     }
 
     impl std::fmt::Debug for DomVec { fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result { write!(f, "{}", (crate::dll::get_azul_dll().az_dom_vec_fmt_debug)(self)) } }
@@ -342,7 +342,7 @@
 
     impl StringVec {
         /// Creates + allocates a Rust `Vec<String>` by **copying** it from a bytes source
-        pub fn copy_from(ptr: *const AzString, len: usize) -> Self { (crate::dll::get_azul_dll().az_string_vec_copy_from)(ptr, len) }
+        pub fn copy_from(ptr: *mut AzString, len: usize) -> Self { (crate::dll::get_azul_dll().az_string_vec_copy_from)(ptr, len) }
     }
 
     impl std::fmt::Debug for StringVec { fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result { write!(f, "{}", (crate::dll::get_azul_dll().az_string_vec_fmt_debug)(self)) } }
@@ -355,7 +355,7 @@
 
     impl StringPairVec {
         /// Creates + allocates a Rust `Vec<StringPair>` by **copying** it from a bytes source
-        pub fn copy_from(ptr: *const AzStringPair, len: usize) -> Self { (crate::dll::get_azul_dll().az_string_pair_vec_copy_from)(ptr, len) }
+        pub fn copy_from(ptr: *mut AzStringPair, len: usize) -> Self { (crate::dll::get_azul_dll().az_string_pair_vec_copy_from)(ptr, len) }
     }
 
     impl std::fmt::Debug for StringPairVec { fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result { write!(f, "{}", (crate::dll::get_azul_dll().az_string_pair_vec_fmt_debug)(self)) } }
@@ -368,7 +368,7 @@
 
     impl GradientStopPreVec {
         /// Creates + allocates a Rust `Vec<GradientStopPre>` by **copying** it from a bytes source
-        pub fn copy_from(ptr: *const AzGradientStopPre, len: usize) -> Self { (crate::dll::get_azul_dll().az_gradient_stop_pre_vec_copy_from)(ptr, len) }
+        pub fn copy_from(ptr: *mut AzGradientStopPre, len: usize) -> Self { (crate::dll::get_azul_dll().az_gradient_stop_pre_vec_copy_from)(ptr, len) }
     }
 
     impl std::fmt::Debug for GradientStopPreVec { fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result { write!(f, "{}", (crate::dll::get_azul_dll().az_gradient_stop_pre_vec_fmt_debug)(self)) } }

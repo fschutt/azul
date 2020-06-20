@@ -51,7 +51,6 @@ macro_rules! impl_vec {($struct_type:ident, $struct_name:ident) => (
 
         pub fn into_iter(self) -> std::vec::IntoIter<$struct_type> {
             let v1: Vec<$struct_type> = unsafe { std::vec::Vec::from_raw_parts(self.ptr, self.len, self.cap) };
-            println!("Vec::<{}>::drop!", stringify!($struct_type));
             std::mem::forget(self); // do not run destructor of self
             v1.into_iter()
         }
@@ -103,7 +102,6 @@ macro_rules! impl_vec {($struct_type:ident, $struct_name:ident) => (
     impl std::iter::FromIterator<$struct_type> for $struct_name {
         fn from_iter<T>(iter: T) -> Self where T: IntoIterator<Item = $struct_type> {
             let v: Vec<$struct_type> = Vec::from_iter(iter);
-            println!("Vec::<{}>::new!", stringify!($struct_type));
             v.into()
         }
     }
@@ -117,7 +115,6 @@ macro_rules! impl_vec {($struct_type:ident, $struct_name:ident) => (
     impl From<Vec<$struct_type>> for $struct_name {
         fn from(input: Vec<$struct_type>) -> $struct_name {
             let (ptr, len, cap) = $struct_name::into_raw_parts(input);
-            println!("Vec::<{}>::new!", stringify!($struct_type));
             $struct_name { ptr, len, cap }
         }
     }
@@ -125,7 +122,6 @@ macro_rules! impl_vec {($struct_type:ident, $struct_name:ident) => (
     impl From<$struct_name> for Vec<$struct_type> {
         fn from(input: $struct_name) -> Vec<$struct_type> {
             let v = unsafe { Vec::from_raw_parts(input.ptr, input.len, input.cap) };
-            println!("Vec::<{}>::drop!", stringify!($struct_type));
             std::mem::forget(input); // don't run the destructor of "input"
             v
         }
@@ -133,7 +129,6 @@ macro_rules! impl_vec {($struct_type:ident, $struct_name:ident) => (
 
     impl Drop for $struct_name {
         fn drop(&mut self) {
-            println!("Vec::<{}>::drop!", stringify!($struct_name));
             let _v: Vec<$struct_type> = unsafe { Vec::from_raw_parts(self.ptr, self.len, self.cap) };
             // let v drop here
         }
@@ -432,8 +427,9 @@ macro_rules! impl_result {
     );
 }
 
+#[derive(Debug)]
 #[repr(C)]
-pub struct AzString { vec: U8Vec }
+pub struct AzString { pub vec: U8Vec }
 
 impl AsRef<str> for AzString {
     fn as_ref(&self) -> &str {
@@ -444,12 +440,6 @@ impl AsRef<str> for AzString {
 impl Default for AzString {
     fn default() -> Self {
         String::new().into()
-    }
-}
-
-impl fmt::Debug for AzString {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        self.as_str().fmt(f)
     }
 }
 

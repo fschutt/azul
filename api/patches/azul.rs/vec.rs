@@ -100,8 +100,8 @@
         }
 
         impl From<Vec<$struct_type>> for $struct_name {
-            fn from(v: Vec<$struct_type>) -> $struct_name {
-                $struct_name::copy_from(v.as_ptr(), v.len())
+            fn from(mut v: Vec<$struct_type>) -> $struct_name {
+                $struct_name::copy_from(v.as_mut_ptr(), v.len())
             }
         }
 
@@ -122,12 +122,12 @@
 
     impl From<std::vec::Vec<std::string::String>> for crate::vec::StringVec {
         fn from(v: std::vec::Vec<std::string::String>) -> crate::vec::StringVec {
-            let vec: Vec<AzString> = v.into_iter().map(|i| {
+            let mut vec: Vec<AzString> = v.into_iter().map(|i| {
                 let i: std::vec::Vec<u8> = i.into_bytes();
                 (crate::dll::get_azul_dll().az_string_from_utf8_unchecked)(i.as_ptr(), i.len())
             }).collect();
 
-            (crate::dll::get_azul_dll().az_string_vec_copy_from)(vec.as_ptr(), vec.len())
+            (crate::dll::get_azul_dll().az_string_vec_copy_from)(vec.as_mut_ptr(), vec.len())
         }
     }
 
