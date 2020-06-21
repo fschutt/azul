@@ -40,7 +40,7 @@ use azul_impl::{
     resources::{RawImage, RawImageFormat, FontId, TextId, ImageId},
     app::{App, AppConfig},
     task::{OptionDuration, Timer, DropCheck, Task, Thread},
-    gl::{OptionTexture, Texture, GlContextPtr},
+    gl::{OptionTexture, TextureFlags, Texture, GlContextPtr},
 };
 /// Re-export of rust-allocated (stack based) `String` struct
 pub type AzStringTT = azul_impl::css::AzString;
@@ -737,6 +737,8 @@ pub type AzGlCallbackInfoPtrTT = azul_impl::callbacks::GlCallbackInfoPtr;
 #[no_mangle] pub use AzGlCallbackInfoPtrTT as AzGlCallbackInfoPtr;
 /// Returns a copy of the internal `RefAny`
 #[no_mangle] pub extern "C" fn az_gl_callback_info_ptr_get_state(glcallbackinfo: &AzGlCallbackInfoPtr) -> AzRefAny { az_gl_callback_info_ptr_downcast_ref(glcallbackinfo, |ci| ci.state.clone()) }
+/// Returns a copy of the internal `GlContextPtr`
+#[no_mangle] pub extern "C" fn az_gl_callback_info_ptr_get_gl_context(glcallbackinfo: &AzGlCallbackInfoPtr) -> AzGlContextPtr { az_gl_callback_info_ptr_downcast_ref(glcallbackinfo, |ci| ci.gl_context.clone()) }
 /// Returns a copy of the internal `HidpiAdjustedBounds`
 #[no_mangle] pub extern "C" fn az_gl_callback_info_ptr_get_bounds(glcallbackinfo: &AzGlCallbackInfoPtr) -> AzHidpiAdjustedBounds { az_gl_callback_info_ptr_downcast_ref(glcallbackinfo, |ci| ci.bounds.clone()) }
 /// Destructor: Takes ownership of the `GlCallbackInfo` pointer and deletes it.
@@ -872,6 +874,8 @@ pub type AzRefAnyTT = azul_impl::callbacks::RefAny;
 /// Pointer to rust-allocated `Box<LayoutInfo>` struct
 pub type AzLayoutInfoPtrTT = azul_impl::callbacks::LayoutInfoPtr;
 #[no_mangle] pub use AzLayoutInfoPtrTT as AzLayoutInfoPtr;
+/// Returns a copy of the internal `GlContextPtr`
+#[no_mangle] pub extern "C" fn az_layout_info_ptr_get_gl_context(layoutinfo: &AzLayoutInfoPtr) -> AzGlContextPtr { az_layout_info_ptr_downcast_ref(layoutinfo, |ci| ci.gl_context.clone()) }
 /// Destructor: Takes ownership of the `LayoutInfo` pointer and deletes it.
 #[no_mangle] pub extern "C" fn az_layout_info_ptr_delete<'a>(ptr: &mut AzLayoutInfoPtr) { let _ = unsafe { Box::<LayoutInfo<'a>>::from_raw(ptr.ptr  as *mut LayoutInfo<'a>) };}
 /// (private): Downcasts the `AzLayoutInfoPtr` to a `Box<LayoutInfo<'a>>`. Note that this takes ownership of the pointer.
@@ -3375,6 +3379,8 @@ pub type AzTextureTT = azul_impl::gl::Texture;
 /// Re-export of rust-allocated (stack based) `TextureFlags` struct
 pub type AzTextureFlagsTT = azul_impl::gl::TextureFlags;
 #[no_mangle] pub use AzTextureFlagsTT as AzTextureFlags;
+/// Default texture flags (not opaque, not a video texture)
+#[no_mangle] pub extern "C" fn az_texture_flags_default() -> AzTextureFlags { TextureFlags::default() }
 /// Destructor: Takes ownership of the `TextureFlags` pointer and deletes it.
 #[no_mangle] #[allow(unused_variables)] pub extern "C" fn az_texture_flags_delete(object: &mut AzTextureFlags) { }
 /// Clones the object

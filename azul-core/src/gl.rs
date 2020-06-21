@@ -1710,7 +1710,7 @@ pub struct Texture {
 
 impl_option!(Texture, OptionTexture, copy = false, clone = false, [Debug, PartialEq, Eq, PartialOrd, Ord, Hash]);
 
-#[derive(Debug, Copy, Clone, PartialEq, PartialOrd, Eq, Ord, Hash)]
+#[derive(Debug, Default, Copy, Clone, PartialEq, PartialOrd, Eq, Ord, Hash)]
 #[repr(C)]
 pub struct TextureFlags {
     /// Whether this texture contains an alpha component

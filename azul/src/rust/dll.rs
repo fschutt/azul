@@ -2555,6 +2555,7 @@
         pub az_gl_callback_deep_copy: extern "C" fn(_:  &AzGlCallback) -> AzGlCallback,
         pub az_gl_callback_fmt_debug: extern "C" fn(_:  &AzGlCallback) -> AzString,
         pub az_gl_callback_info_ptr_get_state: extern "C" fn(_:  &AzGlCallbackInfoPtr) -> AzRefAny,
+        pub az_gl_callback_info_ptr_get_gl_context: extern "C" fn(_:  &AzGlCallbackInfoPtr) -> AzGlContextPtr,
         pub az_gl_callback_info_ptr_get_bounds: extern "C" fn(_:  &AzGlCallbackInfoPtr) -> AzHidpiAdjustedBounds,
         pub az_gl_callback_info_ptr_delete: extern "C" fn(_:  &mut AzGlCallbackInfoPtr),
         pub az_gl_callback_info_ptr_fmt_debug: extern "C" fn(_:  &AzGlCallbackInfoPtr) -> AzString,
@@ -2595,6 +2596,7 @@
         pub az_ref_any_partial_cmp: extern "C" fn(_:  &AzRefAny, _:  &AzRefAny) -> u8,
         pub az_ref_any_cmp: extern "C" fn(_:  &AzRefAny, _:  &AzRefAny) -> u8,
         pub az_ref_any_hash: extern "C" fn(_:  &AzRefAny) -> u64,
+        pub az_layout_info_ptr_get_gl_context: extern "C" fn(_:  &AzLayoutInfoPtr) -> AzGlContextPtr,
         pub az_layout_info_ptr_delete: extern "C" fn(_:  &mut AzLayoutInfoPtr),
         pub az_layout_info_ptr_fmt_debug: extern "C" fn(_:  &AzLayoutInfoPtr) -> AzString,
         pub az_css_rule_block_delete: extern "C" fn(_:  &mut AzCssRuleBlock),
@@ -3422,6 +3424,7 @@
         pub az_gl_context_ptr_fmt_debug: extern "C" fn(_:  &AzGlContextPtr) -> AzString,
         pub az_texture_delete: extern "C" fn(_:  &mut AzTexture),
         pub az_texture_fmt_debug: extern "C" fn(_:  &AzTexture) -> AzString,
+        pub az_texture_flags_default: extern "C" fn() -> AzTextureFlags,
         pub az_texture_flags_delete: extern "C" fn(_:  &mut AzTextureFlags),
         pub az_texture_flags_deep_copy: extern "C" fn(_:  &AzTextureFlags) -> AzTextureFlags,
         pub az_texture_flags_fmt_debug: extern "C" fn(_:  &AzTextureFlags) -> AzString,
@@ -3790,6 +3793,7 @@
             let az_gl_callback_deep_copy: extern "C" fn(_:  &AzGlCallback) -> AzGlCallback = transmute(lib.get(b"az_gl_callback_deep_copy")?);
             let az_gl_callback_fmt_debug: extern "C" fn(_:  &AzGlCallback) -> AzString = transmute(lib.get(b"az_gl_callback_fmt_debug")?);
             let az_gl_callback_info_ptr_get_state: extern "C" fn(_:  &AzGlCallbackInfoPtr) -> AzRefAny = transmute(lib.get(b"az_gl_callback_info_ptr_get_state")?);
+            let az_gl_callback_info_ptr_get_gl_context: extern "C" fn(_:  &AzGlCallbackInfoPtr) -> AzGlContextPtr = transmute(lib.get(b"az_gl_callback_info_ptr_get_gl_context")?);
             let az_gl_callback_info_ptr_get_bounds: extern "C" fn(_:  &AzGlCallbackInfoPtr) -> AzHidpiAdjustedBounds = transmute(lib.get(b"az_gl_callback_info_ptr_get_bounds")?);
             let az_gl_callback_info_ptr_delete: extern "C" fn(_:  &mut AzGlCallbackInfoPtr) = transmute(lib.get(b"az_gl_callback_info_ptr_delete")?);
             let az_gl_callback_info_ptr_fmt_debug: extern "C" fn(_:  &AzGlCallbackInfoPtr) -> AzString = transmute(lib.get(b"az_gl_callback_info_ptr_fmt_debug")?);
@@ -3830,6 +3834,7 @@
             let az_ref_any_partial_cmp: extern "C" fn(_:  &AzRefAny, _:  &AzRefAny) -> u8 = transmute(lib.get(b"az_ref_any_partial_cmp")?);
             let az_ref_any_cmp: extern "C" fn(_:  &AzRefAny, _:  &AzRefAny) -> u8 = transmute(lib.get(b"az_ref_any_cmp")?);
             let az_ref_any_hash: extern "C" fn(_:  &AzRefAny) -> u64 = transmute(lib.get(b"az_ref_any_hash")?);
+            let az_layout_info_ptr_get_gl_context: extern "C" fn(_:  &AzLayoutInfoPtr) -> AzGlContextPtr = transmute(lib.get(b"az_layout_info_ptr_get_gl_context")?);
             let az_layout_info_ptr_delete: extern "C" fn(_:  &mut AzLayoutInfoPtr) = transmute(lib.get(b"az_layout_info_ptr_delete")?);
             let az_layout_info_ptr_fmt_debug: extern "C" fn(_:  &AzLayoutInfoPtr) -> AzString = transmute(lib.get(b"az_layout_info_ptr_fmt_debug")?);
             let az_css_rule_block_delete: extern "C" fn(_:  &mut AzCssRuleBlock) = transmute(lib.get(b"az_css_rule_block_delete")?);
@@ -4657,6 +4662,7 @@
             let az_gl_context_ptr_fmt_debug: extern "C" fn(_:  &AzGlContextPtr) -> AzString = transmute(lib.get(b"az_gl_context_ptr_fmt_debug")?);
             let az_texture_delete: extern "C" fn(_:  &mut AzTexture) = transmute(lib.get(b"az_texture_delete")?);
             let az_texture_fmt_debug: extern "C" fn(_:  &AzTexture) -> AzString = transmute(lib.get(b"az_texture_fmt_debug")?);
+            let az_texture_flags_default: extern "C" fn() -> AzTextureFlags = transmute(lib.get(b"az_texture_flags_default")?);
             let az_texture_flags_delete: extern "C" fn(_:  &mut AzTextureFlags) = transmute(lib.get(b"az_texture_flags_delete")?);
             let az_texture_flags_deep_copy: extern "C" fn(_:  &AzTextureFlags) -> AzTextureFlags = transmute(lib.get(b"az_texture_flags_deep_copy")?);
             let az_texture_flags_fmt_debug: extern "C" fn(_:  &AzTextureFlags) -> AzString = transmute(lib.get(b"az_texture_flags_fmt_debug")?);
@@ -5021,6 +5027,7 @@
                 az_gl_callback_deep_copy,
                 az_gl_callback_fmt_debug,
                 az_gl_callback_info_ptr_get_state,
+                az_gl_callback_info_ptr_get_gl_context,
                 az_gl_callback_info_ptr_get_bounds,
                 az_gl_callback_info_ptr_delete,
                 az_gl_callback_info_ptr_fmt_debug,
@@ -5061,6 +5068,7 @@
                 az_ref_any_partial_cmp,
                 az_ref_any_cmp,
                 az_ref_any_hash,
+                az_layout_info_ptr_get_gl_context,
                 az_layout_info_ptr_delete,
                 az_layout_info_ptr_fmt_debug,
                 az_css_rule_block_delete,
@@ -5888,6 +5896,7 @@
                 az_gl_context_ptr_fmt_debug,
                 az_texture_delete,
                 az_texture_fmt_debug,
+                az_texture_flags_default,
                 az_texture_flags_delete,
                 az_texture_flags_deep_copy,
                 az_texture_flags_fmt_debug,

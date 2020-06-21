@@ -35,5 +35,5 @@ use azul_impl::{
     resources::{RawImage, RawImageFormat, FontId, TextId, ImageId},
     app::{App, AppConfig},
     task::{OptionDuration, Timer, DropCheck, Task, Thread},
-    gl::{OptionTexture, Texture, GlContextPtr},
+    gl::{OptionTexture, TextureFlags, Texture, GlContextPtr},
 };

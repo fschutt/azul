@@ -6,26 +6,28 @@ extern crate azul_widgets;
 use azul_widgets::button::Button;
 use azul::{
     prelude::*,
-    gl,
-    callbacks::{GlCallbackInfo, GlCallbackReturn}
+    gl::{self, Texture, TextureFlags, GlContextPtr},
+    callbacks::{GlCallbackInfo, GlCallbackReturn},
+    window::LogicalSize,
 };
 
 struct OpenGlAppState { }
 
-fn layout(data: RefAny, _: LayoutInfo) -> Dom {
-    Dom::gl_texture(render_my_texture, data.clone())                     // <- the Rc<OpenGlAppState> is cloned here
-    .with_child(Button::with_label("Hello").dom().with_id("the_button")) //        |
-}                                                                        //        |
-                                                                         //        |
-fn render_my_texture(info: GlCallbackInfo) -> GlCallbackReturn {         //        |
-                                                                         //        |
-    // to get access to the OpenGlAppState:                              //        |
-    // let state = info.get_data::<OpenGlAppState>()?;                   // <------| - and the cloned RefAny can be
-    // or mutable access:                                                //        |   downcasted here in the callback
-    // let state = info.get_data_mut::<OpenGlAppState>()?;               // <------|
+extern "C" fn layout(data: RefAny, _: LayoutInfo) -> Dom {
+    Dom::gl_texture(data.clone(), render_my_texture).with_child(            // <- the Rc<OpenGlAppState> is cloned here
+        Button::with_label("Hello").dom().with_id("the_button".into())      //        |
+    )                                                                       //        |
+}                                                                           //        |
+                                                                            //        |
+extern "C" fn render_my_texture(info: GlCallbackInfo) -> GlCallbackReturn { //        |
+                                                                            //        |
+    // to get access to the OpenGlAppState:                                 //        |
+    // let state = info.get_data::<OpenGlAppState>()?;                      // <------| - and the cloned RefAny can be
+    // or mutable access:                                                   //        |   downcasted here in the callback
+    // let state = info.get_data_mut::<OpenGlAppState>()?;                  // <------|
 
     let gl_context = info.get_gl_context();
-    let texture_size = info.get_bounds_logical();
+    let texture_size = info.get_bounds().get_logical_size();
 
     println!("rendering frame ...");
 
@@ -35,7 +37,7 @@ fn render_my_texture(info: GlCallbackInfo) -> GlCallbackReturn {         //     
     }
 }
 
-fn render_my_texture_inner(gl_context: &GlContextPtr, texture_size: LogicalSize) -> Option<Texture> {
+fn render_my_texture_inner(gl_context: GlContextPtr, texture_size: LogicalSize) -> Option<Texture> {
 
     let framebuffers = gl_context.gen_framebuffers(1);
     gl_context.bind_framebuffer(gl::FRAMEBUFFER, framebuffers.get(0).copied()?);
@@ -83,10 +85,17 @@ fn render_my_texture_inner(gl_context: &GlContextPtr, texture_size: LogicalSize)
     gl_context.bind_texture(gl::TEXTURE_2D, 0);
     gl_context.bind_framebuffer(gl::FRAMEBUFFER, 0);
     gl_context.bind_renderbuffer(gl::RENDERBUFFER, 0);
+
+    Some(Texture {
+        texture_id: textures.get(0).copied()?,
+        flags: TextureFlags::default(),
+        size: texture_size,
+        gl_context,
+    })
 }
 
 fn main() {
-    let app = App::new(RefAny::new(OpenGlAppState { }), AppConfig::default()).unwrap();
+    let app = App::new(RefAny::new(OpenGlAppState { }), AppConfig::default(), layout);
     let css = Css::override_native(String::from("
         texture {
             width: 100%;
@@ -101,6 +110,6 @@ fn main() {
             top: 50px;
             left: 50px;
         }
-    ").into()).unwrap();
+    ").into()); // .unwrap()
     app.run(WindowCreateOptions::new(css));
 }

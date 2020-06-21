@@ -587,7 +587,7 @@ pub fn layout_dom(dom: Dom, css: &Css, root_size: LogicalSize) -> CachedDisplayL
         epoch,
         pipeline_id,
         &fake_window_state,
-        gl_context,
+        &gl_context,
         &mut render_api,
         &mut app_resources,
         &mut ui_states,

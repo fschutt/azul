@@ -244,6 +244,8 @@
     impl GlCallbackInfo {
         /// Returns a copy of the internal `RefAny`
         pub fn get_state(&self)  -> crate::callbacks::RefAny { (crate::dll::get_azul_dll().az_gl_callback_info_ptr_get_state)(self) }
+        /// Returns a copy of the internal `GlContextPtr`
+        pub fn get_gl_context(&self)  -> crate::gl::GlContextPtr { (crate::dll::get_azul_dll().az_gl_callback_info_ptr_get_gl_context)(self) }
         /// Returns a copy of the internal `HidpiAdjustedBounds`
         pub fn get_bounds(&self)  -> crate::callbacks::HidpiAdjustedBounds { (crate::dll::get_azul_dll().az_gl_callback_info_ptr_get_bounds)(self) }
     }
@@ -352,6 +354,11 @@
 
     /// `LayoutInfo` struct
     pub use crate::dll::AzLayoutInfoPtr as LayoutInfo;
+
+    impl LayoutInfo {
+        /// Returns a copy of the internal `GlContextPtr`
+        pub fn get_gl_context(&self)  -> crate::gl::GlContextPtr { (crate::dll::get_azul_dll().az_layout_info_ptr_get_gl_context)(self) }
+    }
 
     impl std::fmt::Debug for LayoutInfo { fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result { write!(f, "{}", (crate::dll::get_azul_dll().az_layout_info_ptr_fmt_debug)(self)) } }
     impl Drop for LayoutInfo { fn drop(&mut self) { (crate::dll::get_azul_dll().az_layout_info_ptr_delete)(self); } }

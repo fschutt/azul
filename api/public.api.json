@@ -773,6 +773,14 @@
 							"returns": "RefAny",
 							"fn_body": "az_gl_callback_info_ptr_downcast_ref(glcallbackinfo, |ci| ci.state.clone())"
 						},
+						"get_gl_context": {
+							"doc": "Returns a copy of the internal `GlContextPtr`",
+							"fn_args": [
+								{"self": "ref"}
+							],
+							"returns": "GlContextPtr",
+							"fn_body": "az_gl_callback_info_ptr_downcast_ref(glcallbackinfo, |ci| ci.gl_context.clone())"
+						},
 						"get_bounds": {
 							"doc": "Returns a copy of the internal `HidpiAdjustedBounds`",
 							"fn_args": [
@@ -957,7 +965,17 @@
 				"LayoutInfo": {
 					"rust_class_name": "LayoutInfo<'a>",
 					"external": "azul_impl::callbacks::LayoutInfoPtr",
-					"is_boxed_object": true
+					"is_boxed_object": true,
+					"functions": {
+						"get_gl_context": {
+							"doc": "Returns a copy of the internal `GlContextPtr`",
+							"fn_args": [
+								{"self": "ref"}
+							],
+							"returns": "GlContextPtr",
+							"fn_body": "az_layout_info_ptr_downcast_ref(layoutinfo, |ci| ci.gl_context.clone())"
+						}
+					}
 				}
 			}
 		},
@@ -5023,7 +5041,13 @@
 					"struct_fields": [
 						{"is_opaque": {"type": "bool", "doc": "Whether this texture contains an alpha component"}},
 						{"is_video_texture": {"type": "bool", "doc": "Optimization: use the compositor instead of OpenGL for energy efficiency"}}
-					]
+					],
+					"constructors": {
+						"default": {
+							"doc": "Default texture flags (not opaque, not a video texture)",
+							"fn_body": "TextureFlags::default()"
+						}
+					}
 				}
 			}
 		},

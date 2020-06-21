@@ -277,7 +277,7 @@ impl App {
 
         let (mut active_windows, mut window_id_mapping, mut reverse_window_id_mapping) = initialized_windows;
         let mut full_window_states = initialize_full_window_states(&reverse_window_id_mapping, &window_states);
-        let mut ui_state_cache = initialize_ui_state_cache(&data, fake_display.gl_context.clone(), &resources, &active_windows, &mut full_window_states, layout_callback);
+        let mut ui_state_cache = initialize_ui_state_cache(&data, &fake_display.gl_context, &resources, &active_windows, &mut full_window_states, layout_callback);
         let mut ui_description_cache = initialize_ui_description_cache(&mut ui_state_cache, &mut full_window_states);
 
         let FakeDisplay { mut render_api, mut renderer, mut hidden_context, hidden_event_loop, gl_context } = fake_display;
@@ -780,7 +780,7 @@ fn send_user_event<'a>(
 
             let dom_id_map = call_layout_fn(
                 eld.data,
-                eld.gl_context.clone(),
+                &eld.gl_context,
                 eld.resources,
                 &eld.full_window_states[&glutin_window_id],
                 eld.layout_callback,
@@ -941,7 +941,7 @@ fn send_user_event<'a>(
                 let full_window_state = &eld.full_window_states[&glutin_window_id];
                 let new_ui_state = call_layout_fn(
                     &*eld.data,
-                    eld.gl_context.clone(),
+                    &eld.gl_context,
                     &*eld.resources,
                     full_window_state,
                     eld.layout_callback,
@@ -1000,7 +1000,7 @@ fn send_user_event<'a>(
                     window.internal.epoch,
                     window.internal.pipeline_id,
                     full_window_state,
-                    eld.gl_context.clone(),
+                    &eld.gl_context,
                     eld.render_api,
                     eld.resources,
                     eld.ui_state_cache.get_mut(&glutin_window_id).unwrap(),
@@ -1209,7 +1209,7 @@ fn initialize_full_window_states(
 #[cfg(not(test))]
 fn initialize_ui_state_cache(
     data: &RefAny,
-    gl_context: GlContextPtr,
+    gl_context: &GlContextPtr,
     app_resources: &AppResources,
     windows: &BTreeMap<GlutinWindowId, Window>,
     full_window_states: &mut BTreeMap<GlutinWindowId, FullWindowState>,
@@ -1232,7 +1232,7 @@ fn initialize_ui_state_cache(
         let full_window_state = full_window_states.get(glutin_window_id).unwrap();
         let dom_id_map = call_layout_fn(
             data,
-            gl_context.clone(),
+            gl_context,
             app_resources,
             &full_window_state,
             layout_callback,
@@ -1274,7 +1274,7 @@ fn hot_reload_css(
 
 fn call_layout_fn(
     data: &RefAny,
-    gl_context: GlContextPtr,
+    gl_context: &GlContextPtr,
     app_resources: &AppResources,
     full_window_state: &FullWindowState,
     layout_callback: LayoutCallback,
@@ -1295,7 +1295,7 @@ fn call_layout_fn(
             window_size: &full_window_state.size,
             window_size_width_stops: &mut stop_sizes_width,
             window_size_height_stops: &mut stop_sizes_height,
-            gl_context: gl_context.clone(),
+            gl_context: gl_context,
             resources: app_resources,
         };
 

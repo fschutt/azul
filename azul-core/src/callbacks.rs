@@ -538,6 +538,7 @@ impl_callback!(GlCallback);
 pub struct GlCallbackInfo<'a> {
     pub state: &'a RefAny,
     pub layout_info: LayoutInfo<'a>,
+    pub gl_context: &'a GlContextPtr,
     pub bounds: HidpiAdjustedBounds,
 }
 
@@ -683,7 +684,7 @@ pub struct LayoutInfo<'a> {
     /// An Rc to the original OpenGL context - this is only so that
     /// the user can create textures and other OpenGL content in the window
     #[cfg(feature = "opengl")]
-    pub gl_context: GlContextPtr,
+    pub gl_context: &'a GlContextPtr,
     /// Allows the layout() function to reference app resources such as FontIDs or ImageIDs
     pub resources: &'a AppResources,
 }

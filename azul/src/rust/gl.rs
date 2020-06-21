@@ -2233,6 +2233,11 @@
     /// `TextureFlags` struct
     pub use crate::dll::AzTextureFlags as TextureFlags;
 
+    impl TextureFlags {
+        /// Default texture flags (not opaque, not a video texture)
+        pub fn default() -> Self { (crate::dll::get_azul_dll().az_texture_flags_default)() }
+    }
+
     impl std::fmt::Debug for TextureFlags { fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result { write!(f, "{}", (crate::dll::get_azul_dll().az_texture_flags_fmt_debug)(self)) } }
     impl Clone for TextureFlags { fn clone(&self) -> Self { (crate::dll::get_azul_dll().az_texture_flags_deep_copy)(self) } }
     impl Drop for TextureFlags { fn drop(&mut self) { (crate::dll::get_azul_dll().az_texture_flags_delete)(self); } }
