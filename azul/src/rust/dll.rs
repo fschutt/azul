@@ -334,6 +334,11 @@
         None,
         Some(AzTexture),
     }
+    /// Re-export of rust-allocated (stack based) `OptionImageId` struct
+    #[repr(C, u8)] pub enum AzOptionImageId {
+        None,
+        Some(AzImageId),
+    }
     /// Re-export of rust-allocated (stack based) `OptionTabIndex` struct
     #[repr(C, u8)] pub enum AzOptionTabIndex {
         None,
@@ -1567,6 +1572,7 @@
         pub classes: AzStringVec,
         pub callbacks: AzCallbackDataVec,
         pub dynamic_css_overrides: AzOverridePropertyVec,
+        pub clip_mask: AzOptionImageId,
         pub is_draggable: bool,
         pub tab_index: AzOptionTabIndex,
     }
@@ -2474,6 +2480,9 @@
         pub az_option_dom_fmt_debug: extern "C" fn(_:  &AzOptionDom) -> AzString,
         pub az_option_texture_delete: extern "C" fn(_:  &mut AzOptionTexture),
         pub az_option_texture_fmt_debug: extern "C" fn(_:  &AzOptionTexture) -> AzString,
+        pub az_option_image_id_delete: extern "C" fn(_:  &mut AzOptionImageId),
+        pub az_option_image_id_deep_copy: extern "C" fn(_:  &AzOptionImageId) -> AzOptionImageId,
+        pub az_option_image_id_fmt_debug: extern "C" fn(_:  &AzOptionImageId) -> AzString,
         pub az_option_tab_index_delete: extern "C" fn(_:  &mut AzOptionTabIndex),
         pub az_option_tab_index_deep_copy: extern "C" fn(_:  &AzOptionTabIndex) -> AzOptionTabIndex,
         pub az_option_tab_index_fmt_debug: extern "C" fn(_:  &AzOptionTabIndex) -> AzString,
@@ -3066,6 +3075,8 @@
         pub az_dom_add_css_override: extern "C" fn(_:  &mut AzDom, _:  AzString, _:  AzCssProperty),
         pub az_dom_with_css_override: extern "C" fn(_:  AzDom, _:  AzString, _:  AzCssProperty) -> AzDom,
         pub az_dom_set_is_draggable: extern "C" fn(_:  &mut AzDom, _:  bool),
+        pub az_dom_with_clip_mask: extern "C" fn(_:  AzDom, _:  AzOptionImageId) -> AzDom,
+        pub az_dom_set_clip_mask: extern "C" fn(_:  &mut AzDom, _:  AzOptionImageId),
         pub az_dom_is_draggable: extern "C" fn(_:  AzDom, _:  bool) -> AzDom,
         pub az_dom_set_tab_index: extern "C" fn(_:  &mut AzDom, _:  AzOptionTabIndex),
         pub az_dom_with_tab_index: extern "C" fn(_:  AzDom, _:  AzOptionTabIndex) -> AzDom,
@@ -3110,6 +3121,8 @@
         pub az_node_data_with_callback: extern "C" fn(_:  AzNodeData, _:  AzEventFilter, _:  AzRefAny, _:  AzCallbackType) -> AzNodeData,
         pub az_node_data_add_css_override: extern "C" fn(_:  &mut AzNodeData, _:  AzString, _:  AzCssProperty),
         pub az_node_data_with_css_override: extern "C" fn(_:  AzNodeData, _:  AzString, _:  AzCssProperty) -> AzNodeData,
+        pub az_node_data_with_clip_mask: extern "C" fn(_:  AzNodeData, _:  AzOptionImageId) -> AzNodeData,
+        pub az_node_data_set_clip_mask: extern "C" fn(_:  &mut AzNodeData, _:  AzOptionImageId),
         pub az_node_data_set_is_draggable: extern "C" fn(_:  &mut AzNodeData, _:  bool),
         pub az_node_data_is_draggable: extern "C" fn(_:  AzNodeData, _:  bool) -> AzNodeData,
         pub az_node_data_set_tab_index: extern "C" fn(_:  &mut AzNodeData, _:  AzOptionTabIndex),
@@ -3702,6 +3715,9 @@
             let az_option_dom_fmt_debug: extern "C" fn(_:  &AzOptionDom) -> AzString = transmute(lib.get(b"az_option_dom_fmt_debug")?);
             let az_option_texture_delete: extern "C" fn(_:  &mut AzOptionTexture) = transmute(lib.get(b"az_option_texture_delete")?);
             let az_option_texture_fmt_debug: extern "C" fn(_:  &AzOptionTexture) -> AzString = transmute(lib.get(b"az_option_texture_fmt_debug")?);
+            let az_option_image_id_delete: extern "C" fn(_:  &mut AzOptionImageId) = transmute(lib.get(b"az_option_image_id_delete")?);
+            let az_option_image_id_deep_copy: extern "C" fn(_:  &AzOptionImageId) -> AzOptionImageId = transmute(lib.get(b"az_option_image_id_deep_copy")?);
+            let az_option_image_id_fmt_debug: extern "C" fn(_:  &AzOptionImageId) -> AzString = transmute(lib.get(b"az_option_image_id_fmt_debug")?);
             let az_option_tab_index_delete: extern "C" fn(_:  &mut AzOptionTabIndex) = transmute(lib.get(b"az_option_tab_index_delete")?);
             let az_option_tab_index_deep_copy: extern "C" fn(_:  &AzOptionTabIndex) -> AzOptionTabIndex = transmute(lib.get(b"az_option_tab_index_deep_copy")?);
             let az_option_tab_index_fmt_debug: extern "C" fn(_:  &AzOptionTabIndex) -> AzString = transmute(lib.get(b"az_option_tab_index_fmt_debug")?);
@@ -4294,6 +4310,8 @@
             let az_dom_add_css_override: extern "C" fn(_:  &mut AzDom, _:  AzString, _:  AzCssProperty) = transmute(lib.get(b"az_dom_add_css_override")?);
             let az_dom_with_css_override: extern "C" fn(_:  AzDom, _:  AzString, _:  AzCssProperty) -> AzDom = transmute(lib.get(b"az_dom_with_css_override")?);
             let az_dom_set_is_draggable: extern "C" fn(_:  &mut AzDom, _:  bool) = transmute(lib.get(b"az_dom_set_is_draggable")?);
+            let az_dom_with_clip_mask: extern "C" fn(_:  AzDom, _:  AzOptionImageId) -> AzDom = transmute(lib.get(b"az_dom_with_clip_mask")?);
+            let az_dom_set_clip_mask: extern "C" fn(_:  &mut AzDom, _:  AzOptionImageId) = transmute(lib.get(b"az_dom_set_clip_mask")?);
             let az_dom_is_draggable: extern "C" fn(_:  AzDom, _:  bool) -> AzDom = transmute(lib.get(b"az_dom_is_draggable")?);
             let az_dom_set_tab_index: extern "C" fn(_:  &mut AzDom, _:  AzOptionTabIndex) = transmute(lib.get(b"az_dom_set_tab_index")?);
             let az_dom_with_tab_index: extern "C" fn(_:  AzDom, _:  AzOptionTabIndex) -> AzDom = transmute(lib.get(b"az_dom_with_tab_index")?);
@@ -4338,6 +4356,8 @@
             let az_node_data_with_callback: extern "C" fn(_:  AzNodeData, _:  AzEventFilter, _:  AzRefAny, _:  AzCallbackType) -> AzNodeData = transmute(lib.get(b"az_node_data_with_callback")?);
             let az_node_data_add_css_override: extern "C" fn(_:  &mut AzNodeData, _:  AzString, _:  AzCssProperty) = transmute(lib.get(b"az_node_data_add_css_override")?);
             let az_node_data_with_css_override: extern "C" fn(_:  AzNodeData, _:  AzString, _:  AzCssProperty) -> AzNodeData = transmute(lib.get(b"az_node_data_with_css_override")?);
+            let az_node_data_with_clip_mask: extern "C" fn(_:  AzNodeData, _:  AzOptionImageId) -> AzNodeData = transmute(lib.get(b"az_node_data_with_clip_mask")?);
+            let az_node_data_set_clip_mask: extern "C" fn(_:  &mut AzNodeData, _:  AzOptionImageId) = transmute(lib.get(b"az_node_data_set_clip_mask")?);
             let az_node_data_set_is_draggable: extern "C" fn(_:  &mut AzNodeData, _:  bool) = transmute(lib.get(b"az_node_data_set_is_draggable")?);
             let az_node_data_is_draggable: extern "C" fn(_:  AzNodeData, _:  bool) -> AzNodeData = transmute(lib.get(b"az_node_data_is_draggable")?);
             let az_node_data_set_tab_index: extern "C" fn(_:  &mut AzNodeData, _:  AzOptionTabIndex) = transmute(lib.get(b"az_node_data_set_tab_index")?);
@@ -4926,6 +4946,9 @@
                 az_option_dom_fmt_debug,
                 az_option_texture_delete,
                 az_option_texture_fmt_debug,
+                az_option_image_id_delete,
+                az_option_image_id_deep_copy,
+                az_option_image_id_fmt_debug,
                 az_option_tab_index_delete,
                 az_option_tab_index_deep_copy,
                 az_option_tab_index_fmt_debug,
@@ -5518,6 +5541,8 @@
                 az_dom_add_css_override,
                 az_dom_with_css_override,
                 az_dom_set_is_draggable,
+                az_dom_with_clip_mask,
+                az_dom_set_clip_mask,
                 az_dom_is_draggable,
                 az_dom_set_tab_index,
                 az_dom_with_tab_index,
@@ -5562,6 +5587,8 @@
                 az_node_data_with_callback,
                 az_node_data_add_css_override,
                 az_node_data_with_css_override,
+                az_node_data_with_clip_mask,
+                az_node_data_set_clip_mask,
                 az_node_data_set_is_draggable,
                 az_node_data_is_draggable,
                 az_node_data_set_tab_index,

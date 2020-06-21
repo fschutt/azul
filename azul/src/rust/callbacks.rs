@@ -57,7 +57,7 @@
         pub fn new<T: 'static>(value: T) -> Self {
             use crate::dll::*;
 
-            fn default_custom_destructor<U: 'static>(ptr: *const c_void) {
+            extern "C" fn default_custom_destructor<U: 'static>(ptr: *const c_void) {
                 use std::{mem, ptr};
 
                 // note: in the default constructor, we do not need to check whether U == T
@@ -71,7 +71,6 @@
             }
 
             let type_name_str = ::std::any::type_name::<T>();
-            let type_name_str_bytes = type_name_str.as_bytes();
             let st = crate::str::String::from_utf8_unchecked(type_name_str.as_ptr(), type_name_str.len());
             let s = (crate::dll::get_azul_dll().az_ref_any_new_c)(
                 (&value as *const T) as *const c_void,

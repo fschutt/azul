@@ -155,12 +155,12 @@ impl TableView {
             .with_callback(On::MouseUp.into(), self.state, self.on_mouse_up.cb)
     }
 
-    pub fn default_on_mouse_up(_info: CallbackInfo) -> CallbackReturn {
+    pub extern "C" fn default_on_mouse_up(_info: CallbackInfo) -> CallbackReturn {
         println!("table was clicked");
         UpdateScreen::DontRedraw
     }
 
-    fn render_table_iframe_contents(info: IFrameCallbackInfo) -> IFrameCallbackReturn {
+    extern "C" fn render_table_iframe_contents(info: IFrameCallbackInfo) -> IFrameCallbackReturn {
         fn render_table_iframe_contents_inner(info: IFrameCallbackInfo) -> Option<Dom> {
             let state = info.get_state();
             let table_view_state = state.borrow::<TableViewState>()?;

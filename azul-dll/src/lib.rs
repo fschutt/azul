@@ -458,6 +458,17 @@ pub type AzOptionTextureTT = azul_impl::gl::OptionTexture;
 /// Creates a string with the debug representation of the object
 #[no_mangle] pub extern "C" fn az_option_texture_fmt_debug(object: &AzOptionTexture) -> AzString { format!("{:#?}", object).into() }
 
+/// Re-export of rust-allocated (stack based) `OptionImageId` struct
+pub type AzOptionImageIdTT = azul_impl::resources::OptionImageId;
+#[no_mangle] pub use AzOptionImageIdTT as AzOptionImageId;
+/// Destructor: Takes ownership of the `OptionImageId` pointer and deletes it.
+#[no_mangle] #[allow(unused_variables)] pub extern "C" fn az_option_image_id_delete(object: &mut AzOptionImageId) { match object { azul_impl::resources::OptionImageId::None => { }, azul_impl::resources::OptionImageId::Some(_) => { }, }
+}
+/// Clones the object
+#[no_mangle] pub extern "C" fn az_option_image_id_deep_copy(object: &AzOptionImageId) -> AzOptionImageId { object.clone() }
+/// Creates a string with the debug representation of the object
+#[no_mangle] pub extern "C" fn az_option_image_id_fmt_debug(object: &AzOptionImageId) -> AzString { format!("{:#?}", object).into() }
+
 /// Re-export of rust-allocated (stack based) `OptionTabIndex` struct
 pub type AzOptionTabIndexTT = azul_impl::dom::OptionTabIndex;
 #[no_mangle] pub use AzOptionTabIndexTT as AzOptionTabIndex;
@@ -2525,6 +2536,10 @@ pub type AzDomTT = azul_impl::dom::Dom;
 #[no_mangle] pub extern "C" fn az_dom_with_css_override(mut dom: AzDom, id: AzString, prop: AzCssProperty) -> AzDom { az_dom_add_css_override(&mut dom, id, prop); dom }
 /// Sets the `is_draggable` attribute of this DOM node (default: false)
 #[no_mangle] pub extern "C" fn az_dom_set_is_draggable(dom: &mut AzDom, is_draggable: bool) { dom.set_is_draggable(is_draggable); }
+/// Same as [`Dom::set_clip_mask`](#method.set_clip_mask), but as a builder method
+#[no_mangle] pub extern "C" fn az_dom_with_clip_mask(mut dom: AzDom, clip_mask: AzOptionImageId) -> AzDom { az_dom_set_clip_mask(&mut dom, clip_mask); dom }
+/// Sets the `clip_mask` attribute of this DOM node (default: None)
+#[no_mangle] pub extern "C" fn az_dom_set_clip_mask(dom: &mut AzDom, clip_mask: AzOptionImageId) { dom.set_clip_mask(clip_mask); }
 /// Same as [`Dom::set_is_draggable`](#method.set_is_draggable), but as a builder method
 #[no_mangle] pub extern "C" fn az_dom_is_draggable(mut dom: AzDom, is_draggable: bool) -> AzDom { az_dom_set_is_draggable(&mut dom, is_draggable); dom }
 /// Sets the `tabindex` attribute of this DOM node (makes an element focusable - default: None)
@@ -2633,6 +2648,10 @@ pub type AzNodeDataTT = azul_impl::dom::NodeData;
 #[no_mangle] pub extern "C" fn az_node_data_add_css_override(nodedata: &mut AzNodeData, id: AzString, prop: AzCssProperty) { nodedata.add_css_override(id, prop); }
 /// Same as [`NodeData::add_css_override`](#method.add_css_override), but as a builder method
 #[no_mangle] pub extern "C" fn az_node_data_with_css_override(mut nodedata: AzNodeData, id: AzString, prop: AzCssProperty) -> AzNodeData { az_node_data_add_css_override(&mut nodedata, id, prop); nodedata }
+/// Same as [`NodeData::set_clip_mask`](#method.set_clip_mask), but as a builder method
+#[no_mangle] pub extern "C" fn az_node_data_with_clip_mask(mut nodedata: AzNodeData, clip_mask: AzOptionImageId) -> AzNodeData { az_node_data_set_clip_mask(&mut nodedata, clip_mask); nodedata }
+/// Sets the `clip_mask` attribute of this `NodeData` (default: None)
+#[no_mangle] pub extern "C" fn az_node_data_set_clip_mask(nodedata: &mut AzNodeData, clip_mask: AzOptionImageId) { nodedata.set_clip_mask(clip_mask); }
 /// Sets the `is_draggable` attribute of this `NodeData` (default: false)
 #[no_mangle] pub extern "C" fn az_node_data_set_is_draggable(nodedata: &mut AzNodeData, is_draggable: bool) { nodedata.set_is_draggable(is_draggable); }
 /// Same as [`NodeData::set_is_draggable`](#method.set_is_draggable), but as a builder method

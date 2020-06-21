@@ -10,7 +10,7 @@ use crate::{
         IFrameCallback, IFrameCallbackType,
         RefAny,
     },
-    app_resources::{ImageId, TextId},
+    app_resources::{ImageId, OptionImageId, TextId},
     id_tree::{Arena, NodeDataContainer},
 };
 #[cfg(feature = "opengl")]
@@ -533,6 +533,8 @@ pub struct NodeData {
     /// }
     /// ```
     dynamic_css_overrides: OverridePropertyVec,
+    /// Optional clip mask for this DOM node
+    clip_mask: OptionImageId,
     /// Whether this div can be dragged or not, similar to `draggable = "true"` in HTML, .
     ///
     /// **TODO**: Currently doesn't do anything, since the drag & drop implementation is missing, API stub.
@@ -692,6 +694,7 @@ impl NodeData {
             classes: StringVec::new(),
             callbacks: CallbackDataVec::new(),
             dynamic_css_overrides: OverridePropertyVec::new(),
+            clip_mask: OptionImageId::None,
             is_draggable: false,
             tab_index: OptionTabIndex::None,
         }
@@ -798,6 +801,8 @@ impl NodeData {
     #[inline(always)]
     pub const fn get_dynamic_css_overrides(&self) -> &OverridePropertyVec { &self.dynamic_css_overrides }
     #[inline(always)]
+    pub const fn get_clip_mask(&self) -> &OptionImageId { &self.clip_mask }
+    #[inline(always)]
     pub const fn get_is_draggable(&self) -> bool { self.is_draggable }
     #[inline(always)]
     pub const fn get_tab_index(&self) -> OptionTabIndex { self.tab_index }
@@ -813,6 +818,8 @@ impl NodeData {
     #[inline(always)]
     pub fn set_dynamic_css_overrides(&mut self, dynamic_css_overrides: OverridePropertyVec) { self.dynamic_css_overrides = dynamic_css_overrides; }
     #[inline(always)]
+    pub fn set_clip_mask(&mut self, clip_mask: OptionImageId) { self.clip_mask = clip_mask; }
+    #[inline(always)]
     pub fn set_is_draggable(&mut self, is_draggable: bool) { self.is_draggable = is_draggable; }
     #[inline(always)]
     pub fn set_tab_index(&mut self, tab_index: OptionTabIndex) { self.tab_index = tab_index; }
@@ -827,6 +834,8 @@ impl NodeData {
     pub fn with_callbacks(self, callbacks: CallbackDataVec) -> Self { Self { callbacks, .. self } }
     #[inline(always)]
     pub fn with_dynamic_css_overrides(self, dynamic_css_overrides: OverridePropertyVec) -> Self { Self { dynamic_css_overrides, .. self } }
+    #[inline(always)]
+    pub fn with_clip_mask(self, clip_mask: OptionImageId) -> Self { Self { clip_mask, .. self } }
     #[inline(always)]
     pub fn is_draggable(self, is_draggable: bool) -> Self { Self { is_draggable, .. self } }
     #[inline(always)]
@@ -1222,6 +1231,12 @@ impl Dom {
     }
 
     #[inline]
+    pub fn with_clip_mask(mut self, clip_mask: OptionImageId) -> Self {
+        self.set_clip_mask(clip_mask);
+        self
+    }
+
+    #[inline]
     pub fn with_tab_index(mut self, tab_index: OptionTabIndex) -> Self {
         self.set_tab_index(tab_index);
         self
@@ -1258,6 +1273,9 @@ impl Dom {
     pub fn add_css_override<S: Into<AzString>, P: Into<CssProperty>>(&mut self, override_id: S, property: P) {
         self.root.add_css_override(override_id, property);
     }
+
+    #[inline(always)]
+    pub fn set_clip_mask(&mut self, clip_mask: OptionImageId) { self.root.set_clip_mask(clip_mask); }
 
     #[inline]
     pub fn set_tab_index(&mut self, tab_index: OptionTabIndex) {

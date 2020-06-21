@@ -497,6 +497,13 @@
 						{"Some": { "type": "Texture" }}
 					]
 				},
+				"OptionImageId": {
+					"external": "azul_impl::resources::OptionImageId",
+					"enum_fields": [
+						{"None": {}},
+						{"Some": { "type": "ImageId" }}
+					]
+				},
 				"OptionTabIndex": {
 					"external": "azul_impl::dom::OptionTabIndex",
 					"enum_fields": [
@@ -2587,6 +2594,23 @@
 							],
 							"fn_body": "dom.set_is_draggable(is_draggable);"
 						},
+						"with_clip_mask": {
+							"doc": "Same as [`Dom::set_clip_mask`](#method.set_clip_mask), but as a builder method",
+							"fn_args": [
+								{"self": "mut value"},
+								{"clip_mask": "OptionImageId"}
+							],
+							"returns": "Dom",
+							"fn_body": "az_dom_set_clip_mask(&mut dom, clip_mask); dom"
+						},
+						"set_clip_mask": {
+							"doc": "Sets the `clip_mask` attribute of this DOM node (default: None)",
+							"fn_args": [
+								{"self": "refmut"},
+								{"clip_mask": "OptionImageId"}
+							],
+							"fn_body": "dom.set_clip_mask(clip_mask);"
+						},
 						"is_draggable": {
 							"doc": "Same as [`Dom::set_is_draggable`](#method.set_is_draggable), but as a builder method",
 							"fn_args": [
@@ -2696,6 +2720,7 @@
 						{"classes": {"type": "StringVec", "doc": "Stores the classes of the node, i.e. `[.myclass, .otherclass]`"}},
 						{"callbacks": {"type": "CallbackDataVec", "doc": "Stores the callbacks of the node, i.e. `On::MouseUp` -> `Callback(my_button_click_handler)`"}},
 						{"dynamic_css_overrides": {"type": "OverridePropertyVec", "doc": "Override certain dynamic styling properties for this DOM node"}},
+						{"clip_mask": {"type": "OptionImageId", "doc": "Optional clip mask for this DOM node"}},
 						{"is_draggable": {"type": "bool", "doc": "Whether this div can be dragged or not, similar to `draggable = \"true\"` in HTML"}},
 						{"tab_index": {"type": "OptionTabIndex", "doc": "Whether this div can be focused, and if yes, in what default to `None` (not focusable). Note that without this, there can be no `On::FocusReceived` / `On::FocusLost` (equivalent to onfocus). For this reason, this is automatically set to `TabIndex::Auto` if a callback with `On::Focus*` is inserted"}}
 					],
@@ -2865,6 +2890,23 @@
 							],
 							"returns": "NodeData",
 							"fn_body": "az_node_data_add_css_override(&mut nodedata, id, prop); nodedata"
+						},
+						"with_clip_mask": {
+							"doc": "Same as [`NodeData::set_clip_mask`](#method.set_clip_mask), but as a builder method",
+							"fn_args": [
+								{"self": "mut value"},
+								{"clip_mask": "OptionImageId"}
+							],
+							"returns": "NodeData",
+							"fn_body": "az_node_data_set_clip_mask(&mut nodedata, clip_mask); nodedata"
+						},
+						"set_clip_mask": {
+							"doc": "Sets the `clip_mask` attribute of this `NodeData` (default: None)",
+							"fn_args": [
+								{"self": "refmut"},
+								{"clip_mask": "OptionImageId"}
+							],
+							"fn_body": "nodedata.set_clip_mask(clip_mask);"
 						},
 						"set_is_draggable": {
 							"doc": "Sets the `is_draggable` attribute of this `NodeData` (default: false)",

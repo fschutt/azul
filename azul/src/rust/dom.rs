@@ -52,7 +52,7 @@
     use crate::callbacks::{CallbackType, GlCallbackType, IFrameCallbackType, RefAny};
     use crate::vec::StringVec;
     use crate::css::CssProperty;
-    use crate::option::OptionTabIndex;
+    use crate::option::{OptionImageId, OptionTabIndex};
 
 
     /// `Dom` struct
@@ -101,6 +101,10 @@
         pub fn with_css_override(self, id: String, prop: CssProperty)  -> crate::dom::Dom { (crate::dll::get_azul_dll().az_dom_with_css_override)(self, id, prop) }
         /// Sets the `is_draggable` attribute of this DOM node (default: false)
         pub fn set_is_draggable(&mut self, is_draggable: bool)  { (crate::dll::get_azul_dll().az_dom_set_is_draggable)(self, is_draggable) }
+        /// Same as [`Dom::set_clip_mask`](#method.set_clip_mask), but as a builder method
+        pub fn with_clip_mask(self, clip_mask: OptionImageId)  -> crate::dom::Dom { (crate::dll::get_azul_dll().az_dom_with_clip_mask)(self, clip_mask) }
+        /// Sets the `clip_mask` attribute of this DOM node (default: None)
+        pub fn set_clip_mask(&mut self, clip_mask: OptionImageId)  { (crate::dll::get_azul_dll().az_dom_set_clip_mask)(self, clip_mask) }
         /// Same as [`Dom::set_is_draggable`](#method.set_is_draggable), but as a builder method
         pub fn is_draggable(self, is_draggable: bool)  -> crate::dom::Dom { (crate::dll::get_azul_dll().az_dom_is_draggable)(self, is_draggable) }
         /// Sets the `tabindex` attribute of this DOM node (makes an element focusable - default: None)
@@ -202,6 +206,10 @@
         pub fn add_css_override(&mut self, id: String, prop: CssProperty)  { (crate::dll::get_azul_dll().az_node_data_add_css_override)(self, id, prop) }
         /// Same as [`NodeData::add_css_override`](#method.add_css_override), but as a builder method
         pub fn with_css_override(self, id: String, prop: CssProperty)  -> crate::dom::NodeData { (crate::dll::get_azul_dll().az_node_data_with_css_override)(self, id, prop) }
+        /// Same as [`NodeData::set_clip_mask`](#method.set_clip_mask), but as a builder method
+        pub fn with_clip_mask(self, clip_mask: OptionImageId)  -> crate::dom::NodeData { (crate::dll::get_azul_dll().az_node_data_with_clip_mask)(self, clip_mask) }
+        /// Sets the `clip_mask` attribute of this `NodeData` (default: None)
+        pub fn set_clip_mask(&mut self, clip_mask: OptionImageId)  { (crate::dll::get_azul_dll().az_node_data_set_clip_mask)(self, clip_mask) }
         /// Sets the `is_draggable` attribute of this `NodeData` (default: false)
         pub fn set_is_draggable(&mut self, is_draggable: bool)  { (crate::dll::get_azul_dll().az_node_data_set_is_draggable)(self, is_draggable) }
         /// Same as [`NodeData::set_is_draggable`](#method.set_is_draggable), but as a builder method

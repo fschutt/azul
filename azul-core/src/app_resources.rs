@@ -330,6 +330,8 @@ unique_id!(TextId, TEXT_ID_COUNTER);
 unique_id!(ImageId, IMAGE_ID_COUNTER);
 unique_id!(FontId, FONT_ID_COUNTER);
 
+impl_option!(ImageId, OptionImageId, [Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash]);
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 #[repr(C)]
 pub enum ImageSource {

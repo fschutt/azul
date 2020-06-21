@@ -216,7 +216,7 @@ impl TextInput {
             .with_child(label)
     }
 
-    pub fn default_on_text_input(info: CallbackInfo) -> CallbackReturn {
+    pub extern "C" fn default_on_text_input(info: CallbackInfo) -> CallbackReturn {
         fn default_on_text_input_inner(info: CallbackInfo) -> Option<()> {
             let mut state = info.get_state();
             let keyboard_state = info.get_keyboard_state();
@@ -226,7 +226,7 @@ impl TextInput {
         default_on_text_input_inner(info).into()
     }
 
-    pub fn default_on_virtual_key_down(info: CallbackInfo) -> CallbackReturn {
+    pub extern "C" fn default_on_virtual_key_down(info: CallbackInfo) -> CallbackReturn {
         fn default_on_virtual_key_down_inner(info: CallbackInfo) -> Option<()> {
             let mut state = info.get_state();
             let keyboard_state = info.get_keyboard_state();

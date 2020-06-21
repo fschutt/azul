@@ -6,7 +6,7 @@ struct Data {
     counter: usize,
 }
 
-fn layout(data: RefAny, _info: LayoutInfo) -> Dom {
+extern "C" fn layout(data: RefAny, _info: LayoutInfo) -> Dom {
     let data = data.borrow::<Data>().expect("wrong downcast");
     let dom = Dom::body()
         .with_child(Dom::label(format!("hello: {}", data.counter).into()));
