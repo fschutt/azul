@@ -13,12 +13,21 @@
                     $struct_name::Some(t) => Some(t),
                 }
             }
+
+            pub fn as_mut_option(&mut self) -> Option<&mut $struct_type> {
+                match self {
+                    $struct_name::None => None,
+                    $struct_name::Some(t) => Some(t),
+                }
+            }
+
             pub fn is_some(&self) -> bool {
                 match self {
                     $struct_name::None => false,
                     $struct_name::Some(_) => true,
                 }
             }
+
             pub fn is_none(&self) -> bool {
                 !self.is_some()
             }
@@ -28,6 +37,16 @@
     macro_rules! impl_option {
         ($struct_type:ident, $struct_name:ident, copy = false, clone = false, [$($derive:meta),* ]) => (
             impl_option_inner!($struct_type, $struct_name);
+
+            impl From<Option<$struct_type>> for $struct_name {
+                fn from(mut o: Option<$struct_type>) -> $struct_name {
+                    if o.is_none() {
+                        $struct_name::None
+                    } else {
+                        $struct_name::Some(o.take().unwrap())
+                    }
+                }
+            }
         );
         ($struct_type:ident, $struct_name:ident, copy = false, [$($derive:meta),* ]) => (
             impl $struct_name {

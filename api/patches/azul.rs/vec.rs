@@ -4,15 +4,6 @@
         GLuint as AzGLuint,
     };
 
-    macro_rules! define_vec {($struct_type:ident, $struct_name:ident) => (
-        #[repr(C)]
-        pub struct $struct_name {
-            ptr: *mut $struct_type,
-            len: usize,
-            cap: usize,
-        }
-    )}
-
     macro_rules! impl_vec {($struct_type:ident, $struct_name:ident) => (
 
         impl $struct_name {
@@ -131,6 +122,7 @@
         }
     )}
 
+    /*
     macro_rules! impl_vec_as_hashmap {($struct_type:ident, $struct_name:ident) => (
         impl $struct_name {
             pub fn insert_hm_item(&mut self, item: $struct_type) {
@@ -151,16 +143,7 @@
             }
         }
     )}
-
-    macro_rules! impl_vec_debug {($struct_type:ident, $struct_name:ident) => (
-        impl std::fmt::Debug for $struct_name {
-            fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
-                let v1: &[$struct_type] = unsafe { std::slice::from_raw_parts(self.ptr, self.len) };
-                let res = v1.fmt(f);
-                res
-            }
-        }
-    )}
+    */
 
     macro_rules! impl_vec_partialord {($struct_type:ident, $struct_name:ident) => (
         impl PartialOrd for $struct_name {
@@ -178,17 +161,6 @@
                 let v1: &[$struct_type] = unsafe { std::slice::from_raw_parts(self.ptr, self.len) };
                 let v2: &[$struct_type] = unsafe { std::slice::from_raw_parts(rhs.ptr, rhs.len) };
                 v1.cmp(&v2)
-            }
-        }
-    )}
-
-    macro_rules! impl_vec_clone {($struct_type:ident, $struct_name:ident) => (
-        impl Clone for $struct_name {
-            fn clone(&self) -> Self {
-                let v: &[$struct_type] = unsafe { std::slice::from_raw_parts(self.ptr, self.len) };
-                let v2 = v.to_vec();
-                let (ptr, len, cap) = $struct_name::into_raw_parts(v2);
-                $struct_name { ptr, len, cap }
             }
         }
     )}
