@@ -18,130 +18,20 @@
     pub type AzThreadCallbackType = extern "C" fn(AzRefAny) -> AzRefAny;
     /// Callback for the `Task` class
     pub type AzTaskCallbackType= extern "C" fn(AzArcMutexRefAnyPtr, AzDropCheckPtr) -> AzUpdateScreen;
-
-    macro_rules! impl_option_inner {
-        ($struct_type:ident, $struct_name:ident) => (
-
-        impl Default for $struct_name {
-            fn default() -> $struct_name { $struct_name::None }
-        }
-
-        impl $struct_name {
-            pub fn as_option(&self) -> Option<&$struct_type> {
-                match self {
-                    $struct_name::None => None,
-                    $struct_name::Some(t) => Some(t),
-                }
-            }
-            pub fn is_some(&self) -> bool {
-                match self {
-                    $struct_name::None => false,
-                    $struct_name::Some(_) => true,
-                }
-            }
-            pub fn is_none(&self) -> bool {
-                !self.is_some()
-            }
-        }
-    )}
-
-    macro_rules! impl_option {
-        ($struct_type:ident, $struct_name:ident, copy = false, clone = false, [$($derive:meta),* ]) => (
-            impl_option_inner!($struct_type, $struct_name);
-        );
-        ($struct_type:ident, $struct_name:ident, copy = false, [$($derive:meta),* ]) => (
-            impl $struct_name {
-                pub fn into_option(&self) -> Option<$struct_type> {
-                    match &self {
-                        $struct_name::None => None,
-                        $struct_name::Some(t) => Some(t.clone()),
-                    }
-                }
-            }
-
-            impl From<$struct_name> for Option<$struct_type> {
-                fn from(o: $struct_name) -> Option<$struct_type> {
-                    match &o {
-                        $struct_name::None => None,
-                        $struct_name::Some(t) => Some(t.clone()),
-                    }
-                }
-            }
-
-            impl From<Option<$struct_type>> for $struct_name {
-                fn from(o: Option<$struct_type>) -> $struct_name {
-                    match &o {
-                        None => $struct_name::None,
-                        Some(t) => $struct_name::Some(t.clone()),
-                    }
-                }
-            }
-
-            impl_option_inner!($struct_type, $struct_name);
-        );
-        ($struct_type:ident, $struct_name:ident, [$($derive:meta),* ]) => (
-            impl $struct_name {
-                pub fn into_option(&self) -> Option<$struct_type> {
-                    match self {
-                        $struct_name::None => None,
-                        $struct_name::Some(t) => Some(*t),
-                    }
-                }
-            }
-
-            impl From<$struct_name> for Option<$struct_type> {
-                fn from(o: $struct_name) -> Option<$struct_type> {
-                    match &o {
-                        $struct_name::None => None,
-                        $struct_name::Some(t) => Some(*t),
-                    }
-                }
-            }
-
-            impl From<Option<$struct_type>> for $struct_name {
-                fn from(o: Option<$struct_type>) -> $struct_name {
-                    match &o {
-                        None => $struct_name::None,
-                        Some(t) => $struct_name::Some(*t),
-                    }
-                }
-            }
-
-            impl_option_inner!($struct_type, $struct_name);
-        );
-    }
-
-    impl_option!(AzTabIndex, AzOptionTabIndex, copy = false, [Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash]);
-    impl_option!(AzDom, AzOptionDom, copy = false, [Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash]);
-
-    impl_option!(AzU8VecRef, AzOptionU8VecRef, copy = false, clone = false, [Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash]);
-    impl_option!(AzTexture, AzOptionTexture, copy = false, clone = false, [Debug, PartialEq, Eq, PartialOrd, Ord, Hash]);
-    impl_option!(usize, AzOptionUsize, [Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash]);
-
-    impl_option!(AzInstantPtr, AzOptionInstantPtr, copy = false, clone = false, [Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash]);
-    impl_option!(AzDuration, AzOptionDuration, copy = false, [Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash]);
-
-    impl_option!(char, AzOptionChar, [Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash]);
-    impl_option!(AzVirtualKeyCode, AzOptionVirtualKeyCode, copy = false, [Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash]);
-    impl_option!(i32, AzOptionI32, [Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash]);
-    impl_option!(f32, AzOptionF32, [Debug, Copy, Clone, PartialEq, PartialOrd]);
-    impl_option!(AzMouseCursorType, AzOptionMouseCursorType, copy = false, [Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash]);
-    impl_option!(AzString, AzOptionString, copy = false, [Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash]);
-    pub type AzHwndHandle = *mut c_void;
-    impl_option!(AzHwndHandle, AzOptionHwndHandle, copy = false, [Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash]);
-    pub type AzX11Visual = *const c_void;
-    impl_option!(AzX11Visual, AzOptionX11Visual, copy = false, [Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash]);
-    impl_option!(AzWaylandTheme, AzOptionWaylandTheme, copy = false, [Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash]);
-    impl_option!(AzHotReloadOptions, AzOptionHotReloadOptions, copy = false, [Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash]);
-    impl_option!(AzLogicalPosition, AzOptionLogicalPosition, copy = false, [Debug, Copy, Clone, PartialEq, PartialOrd]);
-    impl_option!(AzLogicalSize, AzOptionLogicalSize, copy = false, [Debug, Copy, Clone, PartialEq, PartialOrd]);
-    impl_option!(AzPhysicalPositionI32, AzOptionPhysicalPositionI32, copy = false, [Debug, Copy, Clone, PartialEq, PartialOrd]);
-    impl_option!(AzWindowIcon, AzOptionWindowIcon, copy = false, [Debug, Clone, PartialOrd, PartialEq, Eq, Hash, Ord]);
-    impl_option!(AzTaskBarIcon, AzOptionTaskBarIcon, copy = false, [Debug, Clone, PartialOrd, PartialEq, Eq, Hash, Ord]);
     /// Re-export of rust-allocated (stack based) `String` struct
     #[repr(C)] pub struct AzString {
         pub vec: AzU8Vec,
     }
+
+    impl PartialEq for AzString { fn eq(&self, rhs: &AzString) -> bool { (crate::dll::get_azul_dll().az_string_partial_eq)(self, rhs) } }
+
+    impl Eq for AzString { }
+
+    impl PartialOrd for AzString { fn partial_cmp(&self, rhs: &AzString) -> Option<std::cmp::Ordering> { use std::cmp::Ordering::*; match (crate::dll::get_azul_dll().az_string_partial_cmp)(self, rhs) { 1 => Some(Less), 2 => Some(Equal), 3 => Some(Greater), _ => None } } }
+
+    impl Ord for AzString { fn cmp(&self, rhs: &AzString) -> std::cmp::Ordering { use std::cmp::Ordering::*; match (crate::dll::get_azul_dll().az_string_cmp)(self, rhs) { 0 => Less, 1 => Equal, _ => Greater } } }
+
+    impl std::hash::Hash for AzString { fn hash<H: std::hash::Hasher>(&self, state: &mut H) { ((crate::dll::get_azul_dll().az_string_hash)(self)).hash(state) } }
     /// Wrapper over a Rust-allocated `XWindowType`
     #[repr(C)] pub struct AzXWindowTypeVec {
         pub(crate) ptr: *mut AzXWindowType,
@@ -761,6 +651,16 @@
         pub offset: AzOptionPercentageValue,
         pub color: AzColorU,
     }
+
+    impl PartialEq for AzGradientStopPre { fn eq(&self, rhs: &AzGradientStopPre) -> bool { (crate::dll::get_azul_dll().az_gradient_stop_pre_partial_eq)(self, rhs) } }
+
+    impl Eq for AzGradientStopPre { }
+
+    impl PartialOrd for AzGradientStopPre { fn partial_cmp(&self, rhs: &AzGradientStopPre) -> Option<std::cmp::Ordering> { use std::cmp::Ordering::*; match (crate::dll::get_azul_dll().az_gradient_stop_pre_partial_cmp)(self, rhs) { 1 => Some(Less), 2 => Some(Equal), 3 => Some(Greater), _ => None } } }
+
+    impl Ord for AzGradientStopPre { fn cmp(&self, rhs: &AzGradientStopPre) -> std::cmp::Ordering { use std::cmp::Ordering::*; match (crate::dll::get_azul_dll().az_gradient_stop_pre_cmp)(self, rhs) { 0 => Less, 1 => Equal, _ => Greater } } }
+
+    impl std::hash::Hash for AzGradientStopPre { fn hash<H: std::hash::Hasher>(&self, state: &mut H) { ((crate::dll::get_azul_dll().az_gradient_stop_pre_hash)(self)).hash(state) } }
     /// Re-export of rust-allocated (stack based) `DirectionCorner` struct
     #[repr(C)] pub enum AzDirectionCorner {
         Right,
@@ -1544,6 +1444,16 @@
         pub children: AzDomVec,
         pub estimated_total_children: usize,
     }
+
+    impl PartialEq for AzDom { fn eq(&self, rhs: &AzDom) -> bool { (crate::dll::get_azul_dll().az_dom_partial_eq)(self, rhs) } }
+
+    impl Eq for AzDom { }
+
+    impl PartialOrd for AzDom { fn partial_cmp(&self, rhs: &AzDom) -> Option<std::cmp::Ordering> { use std::cmp::Ordering::*; match (crate::dll::get_azul_dll().az_dom_partial_cmp)(self, rhs) { 1 => Some(Less), 2 => Some(Equal), 3 => Some(Greater), _ => None } } }
+
+    impl Ord for AzDom { fn cmp(&self, rhs: &AzDom) -> std::cmp::Ordering { use std::cmp::Ordering::*; match (crate::dll::get_azul_dll().az_dom_cmp)(self, rhs) { 0 => Less, 1 => Equal, _ => Greater } } }
+
+    impl std::hash::Hash for AzDom { fn hash<H: std::hash::Hasher>(&self, state: &mut H) { ((crate::dll::get_azul_dll().az_dom_hash)(self)).hash(state) } }
     /// Re-export of rust-allocated (stack based) `GlTextureNode` struct
     #[repr(C)] pub struct AzGlTextureNode {
         pub callback: AzGlCallback,
@@ -1560,11 +1470,31 @@
         pub callback: AzCallback,
         pub data: AzRefAny,
     }
+
+    impl PartialEq for AzCallbackData { fn eq(&self, rhs: &AzCallbackData) -> bool { (crate::dll::get_azul_dll().az_callback_data_partial_eq)(self, rhs) } }
+
+    impl Eq for AzCallbackData { }
+
+    impl PartialOrd for AzCallbackData { fn partial_cmp(&self, rhs: &AzCallbackData) -> Option<std::cmp::Ordering> { use std::cmp::Ordering::*; match (crate::dll::get_azul_dll().az_callback_data_partial_cmp)(self, rhs) { 1 => Some(Less), 2 => Some(Equal), 3 => Some(Greater), _ => None } } }
+
+    impl Ord for AzCallbackData { fn cmp(&self, rhs: &AzCallbackData) -> std::cmp::Ordering { use std::cmp::Ordering::*; match (crate::dll::get_azul_dll().az_callback_data_cmp)(self, rhs) { 0 => Less, 1 => Equal, _ => Greater } } }
+
+    impl std::hash::Hash for AzCallbackData { fn hash<H: std::hash::Hasher>(&self, state: &mut H) { ((crate::dll::get_azul_dll().az_callback_data_hash)(self)).hash(state) } }
     /// Re-export of rust-allocated (stack based) `OverrideProperty` struct
     #[repr(C)] pub struct AzOverrideProperty {
         pub property_id: AzString,
         pub override_value: AzCssProperty,
     }
+
+    impl PartialEq for AzOverrideProperty { fn eq(&self, rhs: &AzOverrideProperty) -> bool { (crate::dll::get_azul_dll().az_override_property_partial_eq)(self, rhs) } }
+
+    impl Eq for AzOverrideProperty { }
+
+    impl PartialOrd for AzOverrideProperty { fn partial_cmp(&self, rhs: &AzOverrideProperty) -> Option<std::cmp::Ordering> { use std::cmp::Ordering::*; match (crate::dll::get_azul_dll().az_override_property_partial_cmp)(self, rhs) { 1 => Some(Less), 2 => Some(Equal), 3 => Some(Greater), _ => None } } }
+
+    impl Ord for AzOverrideProperty { fn cmp(&self, rhs: &AzOverrideProperty) -> std::cmp::Ordering { use std::cmp::Ordering::*; match (crate::dll::get_azul_dll().az_override_property_cmp)(self, rhs) { 0 => Less, 1 => Equal, _ => Greater } } }
+
+    impl std::hash::Hash for AzOverrideProperty { fn hash<H: std::hash::Hasher>(&self, state: &mut H) { ((crate::dll::get_azul_dll().az_override_property_hash)(self)).hash(state) } }
     /// Represents one single DOM node (node type, classes, ids and callbacks are stored here)
     #[repr(C)] pub struct AzNodeData {
         pub node_type: AzNodeType,
@@ -1708,6 +1638,16 @@
         pub id: u32,
         pub severity: u32,
     }
+
+    impl PartialEq for AzDebugMessage { fn eq(&self, rhs: &AzDebugMessage) -> bool { (crate::dll::get_azul_dll().az_debug_message_partial_eq)(self, rhs) } }
+
+    impl Eq for AzDebugMessage { }
+
+    impl PartialOrd for AzDebugMessage { fn partial_cmp(&self, rhs: &AzDebugMessage) -> Option<std::cmp::Ordering> { use std::cmp::Ordering::*; match (crate::dll::get_azul_dll().az_debug_message_partial_cmp)(self, rhs) { 1 => Some(Less), 2 => Some(Equal), 3 => Some(Greater), _ => None } } }
+
+    impl Ord for AzDebugMessage { fn cmp(&self, rhs: &AzDebugMessage) -> std::cmp::Ordering { use std::cmp::Ordering::*; match (crate::dll::get_azul_dll().az_debug_message_cmp)(self, rhs) { 0 => Less, 1 => Equal, _ => Greater } } }
+
+    impl std::hash::Hash for AzDebugMessage { fn hash<H: std::hash::Hasher>(&self, state: &mut H) { ((crate::dll::get_azul_dll().az_debug_message_hash)(self)).hash(state) } }
     /// C-ABI stable reexport of `&[u8]`
     #[repr(C)] pub struct AzU8VecRef {
         pub(crate) ptr: *const u8,
@@ -2359,6 +2299,10 @@
         pub az_string_delete: extern "C" fn(_:  &mut AzString),
         pub az_string_deep_copy: extern "C" fn(_:  &AzString) -> AzString,
         pub az_string_fmt_debug: extern "C" fn(_:  &AzString) -> AzString,
+        pub az_string_partial_eq: extern "C" fn(_:  &AzString, _:  &AzString) -> bool,
+        pub az_string_partial_cmp: extern "C" fn(_:  &AzString, _:  &AzString) -> u8,
+        pub az_string_cmp: extern "C" fn(_:  &AzString, _:  &AzString) -> u8,
+        pub az_string_hash: extern "C" fn(_:  &AzString) -> u64,
         pub az_x_window_type_vec_copy_from: extern "C" fn(_:  *mut AzXWindowType, _:  usize) -> AzXWindowTypeVec,
         pub az_x_window_type_vec_delete: extern "C" fn(_:  &mut AzXWindowTypeVec),
         pub az_x_window_type_vec_deep_copy: extern "C" fn(_:  &AzXWindowTypeVec) -> AzXWindowTypeVec,
@@ -2753,6 +2697,10 @@
         pub az_gradient_stop_pre_delete: extern "C" fn(_:  &mut AzGradientStopPre),
         pub az_gradient_stop_pre_deep_copy: extern "C" fn(_:  &AzGradientStopPre) -> AzGradientStopPre,
         pub az_gradient_stop_pre_fmt_debug: extern "C" fn(_:  &AzGradientStopPre) -> AzString,
+        pub az_gradient_stop_pre_partial_eq: extern "C" fn(_:  &AzGradientStopPre, _:  &AzGradientStopPre) -> bool,
+        pub az_gradient_stop_pre_partial_cmp: extern "C" fn(_:  &AzGradientStopPre, _:  &AzGradientStopPre) -> u8,
+        pub az_gradient_stop_pre_cmp: extern "C" fn(_:  &AzGradientStopPre, _:  &AzGradientStopPre) -> u8,
+        pub az_gradient_stop_pre_hash: extern "C" fn(_:  &AzGradientStopPre) -> u64,
         pub az_direction_corner_delete: extern "C" fn(_:  &mut AzDirectionCorner),
         pub az_direction_corner_deep_copy: extern "C" fn(_:  &AzDirectionCorner) -> AzDirectionCorner,
         pub az_direction_corner_fmt_debug: extern "C" fn(_:  &AzDirectionCorner) -> AzString,
@@ -3090,6 +3038,10 @@
         pub az_dom_delete: extern "C" fn(_:  &mut AzDom),
         pub az_dom_deep_copy: extern "C" fn(_:  &AzDom) -> AzDom,
         pub az_dom_fmt_debug: extern "C" fn(_:  &AzDom) -> AzString,
+        pub az_dom_partial_eq: extern "C" fn(_:  &AzDom, _:  &AzDom) -> bool,
+        pub az_dom_partial_cmp: extern "C" fn(_:  &AzDom, _:  &AzDom) -> u8,
+        pub az_dom_cmp: extern "C" fn(_:  &AzDom, _:  &AzDom) -> u8,
+        pub az_dom_hash: extern "C" fn(_:  &AzDom) -> u64,
         pub az_gl_texture_node_delete: extern "C" fn(_:  &mut AzGlTextureNode),
         pub az_gl_texture_node_deep_copy: extern "C" fn(_:  &AzGlTextureNode) -> AzGlTextureNode,
         pub az_gl_texture_node_fmt_debug: extern "C" fn(_:  &AzGlTextureNode) -> AzString,
@@ -3099,9 +3051,17 @@
         pub az_callback_data_delete: extern "C" fn(_:  &mut AzCallbackData),
         pub az_callback_data_deep_copy: extern "C" fn(_:  &AzCallbackData) -> AzCallbackData,
         pub az_callback_data_fmt_debug: extern "C" fn(_:  &AzCallbackData) -> AzString,
+        pub az_callback_data_partial_eq: extern "C" fn(_:  &AzCallbackData, _:  &AzCallbackData) -> bool,
+        pub az_callback_data_partial_cmp: extern "C" fn(_:  &AzCallbackData, _:  &AzCallbackData) -> u8,
+        pub az_callback_data_cmp: extern "C" fn(_:  &AzCallbackData, _:  &AzCallbackData) -> u8,
+        pub az_callback_data_hash: extern "C" fn(_:  &AzCallbackData) -> u64,
         pub az_override_property_delete: extern "C" fn(_:  &mut AzOverrideProperty),
         pub az_override_property_deep_copy: extern "C" fn(_:  &AzOverrideProperty) -> AzOverrideProperty,
         pub az_override_property_fmt_debug: extern "C" fn(_:  &AzOverrideProperty) -> AzString,
+        pub az_override_property_partial_eq: extern "C" fn(_:  &AzOverrideProperty, _:  &AzOverrideProperty) -> bool,
+        pub az_override_property_partial_cmp: extern "C" fn(_:  &AzOverrideProperty, _:  &AzOverrideProperty) -> u8,
+        pub az_override_property_cmp: extern "C" fn(_:  &AzOverrideProperty, _:  &AzOverrideProperty) -> u8,
+        pub az_override_property_hash: extern "C" fn(_:  &AzOverrideProperty) -> u64,
         pub az_node_data_new: extern "C" fn(_:  AzNodeType) -> AzNodeData,
         pub az_node_data_div: extern "C" fn() -> AzNodeData,
         pub az_node_data_body: extern "C" fn() -> AzNodeData,
@@ -3165,6 +3125,10 @@
         pub az_debug_message_delete: extern "C" fn(_:  &mut AzDebugMessage),
         pub az_debug_message_deep_copy: extern "C" fn(_:  &AzDebugMessage) -> AzDebugMessage,
         pub az_debug_message_fmt_debug: extern "C" fn(_:  &AzDebugMessage) -> AzString,
+        pub az_debug_message_partial_eq: extern "C" fn(_:  &AzDebugMessage, _:  &AzDebugMessage) -> bool,
+        pub az_debug_message_partial_cmp: extern "C" fn(_:  &AzDebugMessage, _:  &AzDebugMessage) -> u8,
+        pub az_debug_message_cmp: extern "C" fn(_:  &AzDebugMessage, _:  &AzDebugMessage) -> u8,
+        pub az_debug_message_hash: extern "C" fn(_:  &AzDebugMessage) -> u64,
         pub az_u8_vec_ref_delete: extern "C" fn(_:  &mut AzU8VecRef),
         pub az_u8_vec_ref_fmt_debug: extern "C" fn(_:  &AzU8VecRef) -> AzString,
         pub az_u8_vec_ref_mut_delete: extern "C" fn(_:  &mut AzU8VecRefMut),
@@ -3597,6 +3561,10 @@
             let az_string_delete: extern "C" fn(_:  &mut AzString) = transmute(lib.get(b"az_string_delete")?);
             let az_string_deep_copy: extern "C" fn(_:  &AzString) -> AzString = transmute(lib.get(b"az_string_deep_copy")?);
             let az_string_fmt_debug: extern "C" fn(_:  &AzString) -> AzString = transmute(lib.get(b"az_string_fmt_debug")?);
+            let az_string_partial_eq: extern "C" fn(_:  &AzString, _:  &AzString) -> bool = transmute(lib.get(b"az_string_partial_eq")?);
+            let az_string_partial_cmp: extern "C" fn(_:  &AzString, _:  &AzString) -> u8 = transmute(lib.get(b"az_string_partial_cmp")?);
+            let az_string_cmp: extern "C" fn(_:  &AzString, _:  &AzString) -> u8 = transmute(lib.get(b"az_string_cmp")?);
+            let az_string_hash: extern "C" fn(_:  &AzString) -> u64 = transmute(lib.get(b"az_string_hash")?);
             let az_x_window_type_vec_copy_from: extern "C" fn(_:  *mut AzXWindowType, _:  usize) -> AzXWindowTypeVec = transmute(lib.get(b"az_x_window_type_vec_copy_from")?);
             let az_x_window_type_vec_delete: extern "C" fn(_:  &mut AzXWindowTypeVec) = transmute(lib.get(b"az_x_window_type_vec_delete")?);
             let az_x_window_type_vec_deep_copy: extern "C" fn(_:  &AzXWindowTypeVec) -> AzXWindowTypeVec = transmute(lib.get(b"az_x_window_type_vec_deep_copy")?);
@@ -3991,6 +3959,10 @@
             let az_gradient_stop_pre_delete: extern "C" fn(_:  &mut AzGradientStopPre) = transmute(lib.get(b"az_gradient_stop_pre_delete")?);
             let az_gradient_stop_pre_deep_copy: extern "C" fn(_:  &AzGradientStopPre) -> AzGradientStopPre = transmute(lib.get(b"az_gradient_stop_pre_deep_copy")?);
             let az_gradient_stop_pre_fmt_debug: extern "C" fn(_:  &AzGradientStopPre) -> AzString = transmute(lib.get(b"az_gradient_stop_pre_fmt_debug")?);
+            let az_gradient_stop_pre_partial_eq: extern "C" fn(_:  &AzGradientStopPre, _:  &AzGradientStopPre) -> bool = transmute(lib.get(b"az_gradient_stop_pre_partial_eq")?);
+            let az_gradient_stop_pre_partial_cmp: extern "C" fn(_:  &AzGradientStopPre, _:  &AzGradientStopPre) -> u8 = transmute(lib.get(b"az_gradient_stop_pre_partial_cmp")?);
+            let az_gradient_stop_pre_cmp: extern "C" fn(_:  &AzGradientStopPre, _:  &AzGradientStopPre) -> u8 = transmute(lib.get(b"az_gradient_stop_pre_cmp")?);
+            let az_gradient_stop_pre_hash: extern "C" fn(_:  &AzGradientStopPre) -> u64 = transmute(lib.get(b"az_gradient_stop_pre_hash")?);
             let az_direction_corner_delete: extern "C" fn(_:  &mut AzDirectionCorner) = transmute(lib.get(b"az_direction_corner_delete")?);
             let az_direction_corner_deep_copy: extern "C" fn(_:  &AzDirectionCorner) -> AzDirectionCorner = transmute(lib.get(b"az_direction_corner_deep_copy")?);
             let az_direction_corner_fmt_debug: extern "C" fn(_:  &AzDirectionCorner) -> AzString = transmute(lib.get(b"az_direction_corner_fmt_debug")?);
@@ -4328,6 +4300,10 @@
             let az_dom_delete: extern "C" fn(_:  &mut AzDom) = transmute(lib.get(b"az_dom_delete")?);
             let az_dom_deep_copy: extern "C" fn(_:  &AzDom) -> AzDom = transmute(lib.get(b"az_dom_deep_copy")?);
             let az_dom_fmt_debug: extern "C" fn(_:  &AzDom) -> AzString = transmute(lib.get(b"az_dom_fmt_debug")?);
+            let az_dom_partial_eq: extern "C" fn(_:  &AzDom, _:  &AzDom) -> bool = transmute(lib.get(b"az_dom_partial_eq")?);
+            let az_dom_partial_cmp: extern "C" fn(_:  &AzDom, _:  &AzDom) -> u8 = transmute(lib.get(b"az_dom_partial_cmp")?);
+            let az_dom_cmp: extern "C" fn(_:  &AzDom, _:  &AzDom) -> u8 = transmute(lib.get(b"az_dom_cmp")?);
+            let az_dom_hash: extern "C" fn(_:  &AzDom) -> u64 = transmute(lib.get(b"az_dom_hash")?);
             let az_gl_texture_node_delete: extern "C" fn(_:  &mut AzGlTextureNode) = transmute(lib.get(b"az_gl_texture_node_delete")?);
             let az_gl_texture_node_deep_copy: extern "C" fn(_:  &AzGlTextureNode) -> AzGlTextureNode = transmute(lib.get(b"az_gl_texture_node_deep_copy")?);
             let az_gl_texture_node_fmt_debug: extern "C" fn(_:  &AzGlTextureNode) -> AzString = transmute(lib.get(b"az_gl_texture_node_fmt_debug")?);
@@ -4337,9 +4313,17 @@
             let az_callback_data_delete: extern "C" fn(_:  &mut AzCallbackData) = transmute(lib.get(b"az_callback_data_delete")?);
             let az_callback_data_deep_copy: extern "C" fn(_:  &AzCallbackData) -> AzCallbackData = transmute(lib.get(b"az_callback_data_deep_copy")?);
             let az_callback_data_fmt_debug: extern "C" fn(_:  &AzCallbackData) -> AzString = transmute(lib.get(b"az_callback_data_fmt_debug")?);
+            let az_callback_data_partial_eq: extern "C" fn(_:  &AzCallbackData, _:  &AzCallbackData) -> bool = transmute(lib.get(b"az_callback_data_partial_eq")?);
+            let az_callback_data_partial_cmp: extern "C" fn(_:  &AzCallbackData, _:  &AzCallbackData) -> u8 = transmute(lib.get(b"az_callback_data_partial_cmp")?);
+            let az_callback_data_cmp: extern "C" fn(_:  &AzCallbackData, _:  &AzCallbackData) -> u8 = transmute(lib.get(b"az_callback_data_cmp")?);
+            let az_callback_data_hash: extern "C" fn(_:  &AzCallbackData) -> u64 = transmute(lib.get(b"az_callback_data_hash")?);
             let az_override_property_delete: extern "C" fn(_:  &mut AzOverrideProperty) = transmute(lib.get(b"az_override_property_delete")?);
             let az_override_property_deep_copy: extern "C" fn(_:  &AzOverrideProperty) -> AzOverrideProperty = transmute(lib.get(b"az_override_property_deep_copy")?);
             let az_override_property_fmt_debug: extern "C" fn(_:  &AzOverrideProperty) -> AzString = transmute(lib.get(b"az_override_property_fmt_debug")?);
+            let az_override_property_partial_eq: extern "C" fn(_:  &AzOverrideProperty, _:  &AzOverrideProperty) -> bool = transmute(lib.get(b"az_override_property_partial_eq")?);
+            let az_override_property_partial_cmp: extern "C" fn(_:  &AzOverrideProperty, _:  &AzOverrideProperty) -> u8 = transmute(lib.get(b"az_override_property_partial_cmp")?);
+            let az_override_property_cmp: extern "C" fn(_:  &AzOverrideProperty, _:  &AzOverrideProperty) -> u8 = transmute(lib.get(b"az_override_property_cmp")?);
+            let az_override_property_hash: extern "C" fn(_:  &AzOverrideProperty) -> u64 = transmute(lib.get(b"az_override_property_hash")?);
             let az_node_data_new: extern "C" fn(_:  AzNodeType) -> AzNodeData = transmute(lib.get(b"az_node_data_new")?);
             let az_node_data_div: extern "C" fn() -> AzNodeData = transmute(lib.get(b"az_node_data_div")?);
             let az_node_data_body: extern "C" fn() -> AzNodeData = transmute(lib.get(b"az_node_data_body")?);
@@ -4403,6 +4387,10 @@
             let az_debug_message_delete: extern "C" fn(_:  &mut AzDebugMessage) = transmute(lib.get(b"az_debug_message_delete")?);
             let az_debug_message_deep_copy: extern "C" fn(_:  &AzDebugMessage) -> AzDebugMessage = transmute(lib.get(b"az_debug_message_deep_copy")?);
             let az_debug_message_fmt_debug: extern "C" fn(_:  &AzDebugMessage) -> AzString = transmute(lib.get(b"az_debug_message_fmt_debug")?);
+            let az_debug_message_partial_eq: extern "C" fn(_:  &AzDebugMessage, _:  &AzDebugMessage) -> bool = transmute(lib.get(b"az_debug_message_partial_eq")?);
+            let az_debug_message_partial_cmp: extern "C" fn(_:  &AzDebugMessage, _:  &AzDebugMessage) -> u8 = transmute(lib.get(b"az_debug_message_partial_cmp")?);
+            let az_debug_message_cmp: extern "C" fn(_:  &AzDebugMessage, _:  &AzDebugMessage) -> u8 = transmute(lib.get(b"az_debug_message_cmp")?);
+            let az_debug_message_hash: extern "C" fn(_:  &AzDebugMessage) -> u64 = transmute(lib.get(b"az_debug_message_hash")?);
             let az_u8_vec_ref_delete: extern "C" fn(_:  &mut AzU8VecRef) = transmute(lib.get(b"az_u8_vec_ref_delete")?);
             let az_u8_vec_ref_fmt_debug: extern "C" fn(_:  &AzU8VecRef) -> AzString = transmute(lib.get(b"az_u8_vec_ref_fmt_debug")?);
             let az_u8_vec_ref_mut_delete: extern "C" fn(_:  &mut AzU8VecRefMut) = transmute(lib.get(b"az_u8_vec_ref_mut_delete")?);
@@ -4831,6 +4819,10 @@
                 az_string_delete,
                 az_string_deep_copy,
                 az_string_fmt_debug,
+                az_string_partial_eq,
+                az_string_partial_cmp,
+                az_string_cmp,
+                az_string_hash,
                 az_x_window_type_vec_copy_from,
                 az_x_window_type_vec_delete,
                 az_x_window_type_vec_deep_copy,
@@ -5225,6 +5217,10 @@
                 az_gradient_stop_pre_delete,
                 az_gradient_stop_pre_deep_copy,
                 az_gradient_stop_pre_fmt_debug,
+                az_gradient_stop_pre_partial_eq,
+                az_gradient_stop_pre_partial_cmp,
+                az_gradient_stop_pre_cmp,
+                az_gradient_stop_pre_hash,
                 az_direction_corner_delete,
                 az_direction_corner_deep_copy,
                 az_direction_corner_fmt_debug,
@@ -5562,6 +5558,10 @@
                 az_dom_delete,
                 az_dom_deep_copy,
                 az_dom_fmt_debug,
+                az_dom_partial_eq,
+                az_dom_partial_cmp,
+                az_dom_cmp,
+                az_dom_hash,
                 az_gl_texture_node_delete,
                 az_gl_texture_node_deep_copy,
                 az_gl_texture_node_fmt_debug,
@@ -5571,9 +5571,17 @@
                 az_callback_data_delete,
                 az_callback_data_deep_copy,
                 az_callback_data_fmt_debug,
+                az_callback_data_partial_eq,
+                az_callback_data_partial_cmp,
+                az_callback_data_cmp,
+                az_callback_data_hash,
                 az_override_property_delete,
                 az_override_property_deep_copy,
                 az_override_property_fmt_debug,
+                az_override_property_partial_eq,
+                az_override_property_partial_cmp,
+                az_override_property_cmp,
+                az_override_property_hash,
                 az_node_data_new,
                 az_node_data_div,
                 az_node_data_body,
@@ -5637,6 +5645,10 @@
                 az_debug_message_delete,
                 az_debug_message_deep_copy,
                 az_debug_message_fmt_debug,
+                az_debug_message_partial_eq,
+                az_debug_message_partial_cmp,
+                az_debug_message_cmp,
+                az_debug_message_hash,
                 az_u8_vec_ref_delete,
                 az_u8_vec_ref_fmt_debug,
                 az_u8_vec_ref_mut_delete,

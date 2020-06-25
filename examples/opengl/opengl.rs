@@ -48,7 +48,7 @@ fn render_my_texture_inner(gl_context: GlContextPtr, texture_size: LogicalSize) 
     let textures = gl_context.gen_textures(1);
 
     gl_context.bind_texture(gl::TEXTURE_2D, textures.get(0).copied()?);
-    gl_context.tex_image_2d(gl::TEXTURE_2D, 0, gl::RGB as i32, texture_size.width as i32, texture_size.height as i32, 0, gl::RGB, gl::UNSIGNED_BYTE, None);
+    gl_context.tex_image_2d(gl::TEXTURE_2D, 0, gl::RGB as i32, texture_size.width as i32, texture_size.height as i32, 0, gl::RGB, gl::UNSIGNED_BYTE, None.into());
 
     gl_context.tex_parameter_i(gl::TEXTURE_2D, gl::TEXTURE_MAG_FILTER, gl::NEAREST as i32);
     gl_context.tex_parameter_i(gl::TEXTURE_2D, gl::TEXTURE_MIN_FILTER, gl::NEAREST as i32);
@@ -79,8 +79,8 @@ fn render_my_texture_inner(gl_context: GlContextPtr, texture_size: LogicalSize) 
     gl_context.clear(gl::DEPTH_BUFFER_BIT);
 
     // cleanup: note: no delete_textures(), OpenGL texture ID is returned to azul
-    gl_context.delete_framebuffers(framebuffers[..].into());
-    gl_context.delete_renderbuffers(depthbuffers[..].into());
+    gl_context.delete_framebuffers(framebuffers.as_ref().into());
+    gl_context.delete_renderbuffers(depthbuffers.as_ref().into());
     gl_context.active_texture(0);
     gl_context.bind_texture(gl::TEXTURE_2D, 0);
     gl_context.bind_framebuffer(gl::FRAMEBUFFER, 0);

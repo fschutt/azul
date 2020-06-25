@@ -57,6 +57,14 @@ pub type AzStringTT = azul_impl::css::AzString;
 #[no_mangle] pub extern "C" fn az_string_deep_copy(object: &AzString) -> AzString { object.clone() }
 /// Creates a string with the debug representation of the object
 #[no_mangle] pub extern "C" fn az_string_fmt_debug(object: &AzString) -> AzString { format!("{:#?}", object).into() }
+/// Compares two instances of `AzString` for equality
+#[no_mangle] pub extern "C" fn az_string_partial_eq(a: &AzString, b: &AzString) -> bool { a.eq(b) }
+/// Compares two instances of `AzString` for ordering. Returns 0 for None (equality), 1 on Some(Less), 2 on Some(Equal) and 3 on Some(Greater). 
+#[no_mangle] pub extern "C" fn az_string_partial_cmp(a: &AzString, b: &AzString) -> u8 { use std::cmp::Ordering::*;match a.partial_cmp(b) { None => 0, Some(Less) => 1, Some(Equal) => 2, Some(Greater) => 3 } }
+/// Compares two instances of `AzString` for full ordering. Returns 0 for Less, 1 for Equal, 2 for Greater. 
+#[no_mangle] pub extern "C" fn az_string_cmp(a: &AzString, b: &AzString) -> u8 { use std::cmp::Ordering::*; match a.cmp(b) { Less => 0, Equal => 1, Greater => 2 } }
+/// Returns the hash of a `AzString` instance 
+#[no_mangle] pub extern "C" fn az_string_hash(object: &AzString) -> u64 { use std::collections::hash_map::DefaultHasher; use std::hash::{Hash, Hasher}; let mut hasher = DefaultHasher::new(); object.hash(&mut hasher); hasher.finish() }
 
 /// Wrapper over a Rust-allocated `XWindowType`
 pub type AzXWindowTypeVecTT = azul_impl::window::XWindowTypeVec;
@@ -1411,6 +1419,14 @@ pub type AzGradientStopPreTT = azul_impl::css::GradientStopPre;
 #[no_mangle] pub extern "C" fn az_gradient_stop_pre_deep_copy(object: &AzGradientStopPre) -> AzGradientStopPre { object.clone() }
 /// Creates a string with the debug representation of the object
 #[no_mangle] pub extern "C" fn az_gradient_stop_pre_fmt_debug(object: &AzGradientStopPre) -> AzString { format!("{:#?}", object).into() }
+/// Compares two instances of `AzGradientStopPre` for equality
+#[no_mangle] pub extern "C" fn az_gradient_stop_pre_partial_eq(a: &AzGradientStopPre, b: &AzGradientStopPre) -> bool { a.eq(b) }
+/// Compares two instances of `AzGradientStopPre` for ordering. Returns 0 for None (equality), 1 on Some(Less), 2 on Some(Equal) and 3 on Some(Greater). 
+#[no_mangle] pub extern "C" fn az_gradient_stop_pre_partial_cmp(a: &AzGradientStopPre, b: &AzGradientStopPre) -> u8 { use std::cmp::Ordering::*;match a.partial_cmp(b) { None => 0, Some(Less) => 1, Some(Equal) => 2, Some(Greater) => 3 } }
+/// Compares two instances of `AzGradientStopPre` for full ordering. Returns 0 for Less, 1 for Equal, 2 for Greater. 
+#[no_mangle] pub extern "C" fn az_gradient_stop_pre_cmp(a: &AzGradientStopPre, b: &AzGradientStopPre) -> u8 { use std::cmp::Ordering::*; match a.cmp(b) { Less => 0, Equal => 1, Greater => 2 } }
+/// Returns the hash of a `AzGradientStopPre` instance 
+#[no_mangle] pub extern "C" fn az_gradient_stop_pre_hash(object: &AzGradientStopPre) -> u64 { use std::collections::hash_map::DefaultHasher; use std::hash::{Hash, Hasher}; let mut hasher = DefaultHasher::new(); object.hash(&mut hasher); hasher.finish() }
 
 /// Re-export of rust-allocated (stack based) `DirectionCorner` struct
 pub type AzDirectionCornerTT = azul_impl::css::DirectionCorner;
@@ -2566,6 +2582,14 @@ pub type AzDomTT = azul_impl::dom::Dom;
 #[no_mangle] pub extern "C" fn az_dom_deep_copy(object: &AzDom) -> AzDom { object.clone() }
 /// Creates a string with the debug representation of the object
 #[no_mangle] pub extern "C" fn az_dom_fmt_debug(object: &AzDom) -> AzString { format!("{:#?}", object).into() }
+/// Compares two instances of `AzDom` for equality
+#[no_mangle] pub extern "C" fn az_dom_partial_eq(a: &AzDom, b: &AzDom) -> bool { a.eq(b) }
+/// Compares two instances of `AzDom` for ordering. Returns 0 for None (equality), 1 on Some(Less), 2 on Some(Equal) and 3 on Some(Greater). 
+#[no_mangle] pub extern "C" fn az_dom_partial_cmp(a: &AzDom, b: &AzDom) -> u8 { use std::cmp::Ordering::*;match a.partial_cmp(b) { None => 0, Some(Less) => 1, Some(Equal) => 2, Some(Greater) => 3 } }
+/// Compares two instances of `AzDom` for full ordering. Returns 0 for Less, 1 for Equal, 2 for Greater. 
+#[no_mangle] pub extern "C" fn az_dom_cmp(a: &AzDom, b: &AzDom) -> u8 { use std::cmp::Ordering::*; match a.cmp(b) { Less => 0, Equal => 1, Greater => 2 } }
+/// Returns the hash of a `AzDom` instance 
+#[no_mangle] pub extern "C" fn az_dom_hash(object: &AzDom) -> u64 { use std::collections::hash_map::DefaultHasher; use std::hash::{Hash, Hasher}; let mut hasher = DefaultHasher::new(); object.hash(&mut hasher); hasher.finish() }
 
 /// Re-export of rust-allocated (stack based) `GlTextureNode` struct
 pub type AzGlTextureNodeTT = azul_impl::dom::GlTextureNode;
@@ -2596,6 +2620,14 @@ pub type AzCallbackDataTT = azul_impl::dom::CallbackData;
 #[no_mangle] pub extern "C" fn az_callback_data_deep_copy(object: &AzCallbackData) -> AzCallbackData { object.clone() }
 /// Creates a string with the debug representation of the object
 #[no_mangle] pub extern "C" fn az_callback_data_fmt_debug(object: &AzCallbackData) -> AzString { format!("{:#?}", object).into() }
+/// Compares two instances of `AzCallbackData` for equality
+#[no_mangle] pub extern "C" fn az_callback_data_partial_eq(a: &AzCallbackData, b: &AzCallbackData) -> bool { a.eq(b) }
+/// Compares two instances of `AzCallbackData` for ordering. Returns 0 for None (equality), 1 on Some(Less), 2 on Some(Equal) and 3 on Some(Greater). 
+#[no_mangle] pub extern "C" fn az_callback_data_partial_cmp(a: &AzCallbackData, b: &AzCallbackData) -> u8 { use std::cmp::Ordering::*;match a.partial_cmp(b) { None => 0, Some(Less) => 1, Some(Equal) => 2, Some(Greater) => 3 } }
+/// Compares two instances of `AzCallbackData` for full ordering. Returns 0 for Less, 1 for Equal, 2 for Greater. 
+#[no_mangle] pub extern "C" fn az_callback_data_cmp(a: &AzCallbackData, b: &AzCallbackData) -> u8 { use std::cmp::Ordering::*; match a.cmp(b) { Less => 0, Equal => 1, Greater => 2 } }
+/// Returns the hash of a `AzCallbackData` instance 
+#[no_mangle] pub extern "C" fn az_callback_data_hash(object: &AzCallbackData) -> u64 { use std::collections::hash_map::DefaultHasher; use std::hash::{Hash, Hasher}; let mut hasher = DefaultHasher::new(); object.hash(&mut hasher); hasher.finish() }
 
 /// Re-export of rust-allocated (stack based) `OverrideProperty` struct
 pub type AzOverridePropertyTT = azul_impl::dom::OverrideProperty;
@@ -2606,6 +2638,14 @@ pub type AzOverridePropertyTT = azul_impl::dom::OverrideProperty;
 #[no_mangle] pub extern "C" fn az_override_property_deep_copy(object: &AzOverrideProperty) -> AzOverrideProperty { object.clone() }
 /// Creates a string with the debug representation of the object
 #[no_mangle] pub extern "C" fn az_override_property_fmt_debug(object: &AzOverrideProperty) -> AzString { format!("{:#?}", object).into() }
+/// Compares two instances of `AzOverrideProperty` for equality
+#[no_mangle] pub extern "C" fn az_override_property_partial_eq(a: &AzOverrideProperty, b: &AzOverrideProperty) -> bool { a.eq(b) }
+/// Compares two instances of `AzOverrideProperty` for ordering. Returns 0 for None (equality), 1 on Some(Less), 2 on Some(Equal) and 3 on Some(Greater). 
+#[no_mangle] pub extern "C" fn az_override_property_partial_cmp(a: &AzOverrideProperty, b: &AzOverrideProperty) -> u8 { use std::cmp::Ordering::*;match a.partial_cmp(b) { None => 0, Some(Less) => 1, Some(Equal) => 2, Some(Greater) => 3 } }
+/// Compares two instances of `AzOverrideProperty` for full ordering. Returns 0 for Less, 1 for Equal, 2 for Greater. 
+#[no_mangle] pub extern "C" fn az_override_property_cmp(a: &AzOverrideProperty, b: &AzOverrideProperty) -> u8 { use std::cmp::Ordering::*; match a.cmp(b) { Less => 0, Equal => 1, Greater => 2 } }
+/// Returns the hash of a `AzOverrideProperty` instance 
+#[no_mangle] pub extern "C" fn az_override_property_hash(object: &AzOverrideProperty) -> u64 { use std::collections::hash_map::DefaultHasher; use std::hash::{Hash, Hasher}; let mut hasher = DefaultHasher::new(); object.hash(&mut hasher); hasher.finish() }
 
 /// Represents one single DOM node (node type, classes, ids and callbacks are stored here)
 pub type AzNodeDataTT = azul_impl::dom::NodeData;
@@ -2785,6 +2825,14 @@ pub type AzDebugMessageTT = azul_impl::gl::AzDebugMessage;
 #[no_mangle] pub extern "C" fn az_debug_message_deep_copy(object: &AzDebugMessage) -> AzDebugMessage { object.clone() }
 /// Creates a string with the debug representation of the object
 #[no_mangle] pub extern "C" fn az_debug_message_fmt_debug(object: &AzDebugMessage) -> AzString { format!("{:#?}", object).into() }
+/// Compares two instances of `AzDebugMessage` for equality
+#[no_mangle] pub extern "C" fn az_debug_message_partial_eq(a: &AzDebugMessage, b: &AzDebugMessage) -> bool { a.eq(b) }
+/// Compares two instances of `AzDebugMessage` for ordering. Returns 0 for None (equality), 1 on Some(Less), 2 on Some(Equal) and 3 on Some(Greater). 
+#[no_mangle] pub extern "C" fn az_debug_message_partial_cmp(a: &AzDebugMessage, b: &AzDebugMessage) -> u8 { use std::cmp::Ordering::*;match a.partial_cmp(b) { None => 0, Some(Less) => 1, Some(Equal) => 2, Some(Greater) => 3 } }
+/// Compares two instances of `AzDebugMessage` for full ordering. Returns 0 for Less, 1 for Equal, 2 for Greater. 
+#[no_mangle] pub extern "C" fn az_debug_message_cmp(a: &AzDebugMessage, b: &AzDebugMessage) -> u8 { use std::cmp::Ordering::*; match a.cmp(b) { Less => 0, Equal => 1, Greater => 2 } }
+/// Returns the hash of a `AzDebugMessage` instance 
+#[no_mangle] pub extern "C" fn az_debug_message_hash(object: &AzDebugMessage) -> u64 { use std::collections::hash_map::DefaultHasher; use std::hash::{Hash, Hasher}; let mut hasher = DefaultHasher::new(); object.hash(&mut hasher); hasher.finish() }
 
 /// C-ABI stable reexport of `&[u8]`
 pub type AzU8VecRefTT = azul_impl::gl::U8VecRef;

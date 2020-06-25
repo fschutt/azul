@@ -2,6 +2,21 @@
     //! Definition of azuls internal `Vec<*>` wrappers
     use crate::dll::*;
     use std::ffi::c_void;
+    use std::fmt;
+    use crate::gl::{
+        GLint as AzGLint,
+        GLuint as AzGLuint,
+    };
+
+    macro_rules! define_vec {($struct_type:ident, $struct_name:ident) => (
+        #[repr(C)]
+        pub struct $struct_name {
+            ptr: *mut $struct_type,
+            len: usize,
+            cap: usize,
+        }
+    )}
+
     macro_rules! impl_vec {($struct_type:ident, $struct_name:ident) => (
 
         impl $struct_name {
@@ -10,8 +25,14 @@
                 Vec::<$struct_type>::new().into()
             }
 
+            pub fn clear(&mut self) {
+                let mut v: Vec<$struct_type> = unsafe { Vec::from_raw_parts(self.ptr, self.len, self.cap) };
+                v.clear();
+                std::mem::forget(v);
+            }
+
             pub fn sort_by<F: FnMut(&$struct_type, &$struct_type) -> std::cmp::Ordering>(&mut self, compare: F) {
-                let v1: &mut [$struct_type] = unsafe { std::slice::from_raw_parts_mut(self.ptr as *mut $struct_type, self.len) };
+                let v1: &mut [$struct_type] = unsafe { std::slice::from_raw_parts_mut(self.ptr, self.len) };
                 v1.sort_by(compare);
             }
 
@@ -20,12 +41,9 @@
             }
 
             pub fn push(&mut self, val: $struct_type) {
-                let mut v: Vec<$struct_type> = unsafe { Vec::from_raw_parts(self.ptr as *mut $struct_type, self.len, self.cap) };
+                let mut v: Vec<$struct_type> = unsafe { Vec::from_raw_parts(self.ptr, self.len, self.cap) };
                 v.push(val);
-                let (ptr, len, cap) = Self::into_raw_parts(v);
-                self.ptr = ptr;
-                self.len = len;
-                self.cap = cap;
+                std::mem::forget(v);
             }
 
             pub fn iter(&self) -> std::slice::Iter<$struct_type> {
@@ -34,12 +52,12 @@
             }
 
             pub fn iter_mut(&mut self) -> std::slice::IterMut<$struct_type> {
-                let v1: &mut [$struct_type] = unsafe { std::slice::from_raw_parts_mut(self.ptr as *mut $struct_type, self.len) };
+                let v1: &mut [$struct_type] = unsafe { std::slice::from_raw_parts_mut(self.ptr, self.len) };
                 v1.iter_mut()
             }
 
             pub fn into_iter(self) -> std::vec::IntoIter<$struct_type> {
-                let v1: Vec<$struct_type> = unsafe { std::vec::Vec::from_raw_parts(self.ptr as *mut $struct_type, self.len, self.cap) };
+                let v1: Vec<$struct_type> = unsafe { std::vec::Vec::from_raw_parts(self.ptr, self.len, self.cap) };
                 std::mem::forget(self); // do not run destructor of self
                 v1.into_iter()
             }
@@ -63,14 +81,12 @@
             pub fn get(&self, index: usize) -> Option<&$struct_type> {
                 let v1: &[$struct_type] = unsafe { std::slice::from_raw_parts(self.ptr, self.len) };
                 let res = v1.get(index);
-                std::mem::forget(v1);
                 res
             }
 
             pub fn foreach<U, F: FnMut(&$struct_type) -> Result<(), U>>(&self, mut closure: F) -> Result<(), U> {
                 let v1: &[$struct_type] = unsafe { std::slice::from_raw_parts(self.ptr, self.len) };
                 for i in v1.iter() { closure(i)?; }
-                std::mem::forget(v1);
                 Ok(())
             }
 
@@ -104,25 +120,168 @@
         }
 
         impl From<Vec<$struct_type>> for $struct_name {
-            fn from(mut v: Vec<$struct_type>) -> $struct_name {
-                $struct_name::copy_from(v.as_mut_ptr(), v.len())
+            fn from(input: Vec<$struct_type>) -> $struct_name {
+                let (ptr, len, cap) = $struct_name::into_raw_parts(input);
+                $struct_name { ptr, len, cap }
             }
         }
 
         impl From<$struct_name> for Vec<$struct_type> {
-            fn from(v: $struct_name) -> Vec<$struct_type> {
-                unsafe { std::slice::from_raw_parts(v.as_ptr(), v.len()) }.to_vec()
+            fn from(input: $struct_name) -> Vec<$struct_type> {
+                let v = unsafe { Vec::from_raw_parts(input.ptr, input.len, input.cap) };
+                std::mem::forget(input); // don't run the destructor of "input"
+                v
             }
         }
     )}
 
-    impl_vec!(u8, U8Vec);
-    impl_vec!(CallbackData, CallbackDataVec);
-    impl_vec!(OverrideProperty, OverridePropertyVec);
-    impl_vec!(Dom, DomVec);
-    impl_vec!(AzString, StringVec);
-    impl_vec!(GradientStopPre, GradientStopPreVec);
-    impl_vec!(DebugMessage, DebugMessageVec);
+    macro_rules! impl_vec_as_hashmap {($struct_type:ident, $struct_name:ident) => (
+        impl $struct_name {
+            pub fn insert_hm_item(&mut self, item: $struct_type) {
+                if !self.contains_hm_item(&item) {
+                    self.push(item);
+                }
+            }
+
+            pub fn contains_hm_item(&self, searched: &$struct_type) -> bool {
+                let v1: &mut [$struct_type] = unsafe { std::slice::from_raw_parts_mut(self.ptr, self.len) };
+                v1.iter().any(|i| i == searched)
+            }
+
+            pub fn remove_hm_item(&mut self, remove_key: &$struct_type) {
+                let mut v: Vec<$struct_type> = unsafe { Vec::from_raw_parts(self.ptr, self.len, self.cap) };
+                v.retain(|v| v == remove_key);
+                std::mem::forget(v);
+            }
+        }
+    )}
+
+    macro_rules! impl_vec_debug {($struct_type:ident, $struct_name:ident) => (
+        impl std::fmt::Debug for $struct_name {
+            fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
+                let v1: &[$struct_type] = unsafe { std::slice::from_raw_parts(self.ptr, self.len) };
+                let res = v1.fmt(f);
+                res
+            }
+        }
+    )}
+
+    macro_rules! impl_vec_partialord {($struct_type:ident, $struct_name:ident) => (
+        impl PartialOrd for $struct_name {
+            fn partial_cmp(&self, rhs: &Self) -> Option<std::cmp::Ordering> {
+                let v1: &[$struct_type] = unsafe { std::slice::from_raw_parts(self.ptr, self.len) };
+                let v2: &[$struct_type] = unsafe { std::slice::from_raw_parts(rhs.ptr, rhs.len) };
+                v1.partial_cmp(&v2)
+            }
+        }
+    )}
+
+    macro_rules! impl_vec_ord {($struct_type:ident, $struct_name:ident) => (
+        impl Ord for $struct_name {
+            fn cmp(&self, rhs: &Self) -> std::cmp::Ordering {
+                let v1: &[$struct_type] = unsafe { std::slice::from_raw_parts(self.ptr, self.len) };
+                let v2: &[$struct_type] = unsafe { std::slice::from_raw_parts(rhs.ptr, rhs.len) };
+                v1.cmp(&v2)
+            }
+        }
+    )}
+
+    macro_rules! impl_vec_clone {($struct_type:ident, $struct_name:ident) => (
+        impl Clone for $struct_name {
+            fn clone(&self) -> Self {
+                let v: &[$struct_type] = unsafe { std::slice::from_raw_parts(self.ptr, self.len) };
+                let v2 = v.to_vec();
+                let (ptr, len, cap) = $struct_name::into_raw_parts(v2);
+                $struct_name { ptr, len, cap }
+            }
+        }
+    )}
+
+    macro_rules! impl_vec_partialeq {($struct_type:ident, $struct_name:ident) => (
+        impl PartialEq for $struct_name {
+            fn eq(&self, other: &Self) -> bool {
+                let v1: &[$struct_type] = unsafe { std::slice::from_raw_parts(self.ptr, self.len) };
+                let v2: &[$struct_type] = unsafe { std::slice::from_raw_parts(other.ptr, other.len) };
+                v1.eq(v2)
+            }
+        }
+    )}
+
+    macro_rules! impl_vec_eq {($struct_type:ident, $struct_name:ident) => (
+        impl Eq for $struct_name { }
+    )}
+
+    macro_rules! impl_vec_hash {($struct_type:ident, $struct_name:ident) => (
+        impl std::hash::Hash for $struct_name {
+            fn hash<H>(&self, state: &mut H) where H: std::hash::Hasher {
+                let v1: &[$struct_type] = unsafe { std::slice::from_raw_parts(self.ptr, self.len) };
+                v1.hash(state);
+            }
+        }
+    )}
+
+    impl_vec!(u8, AzU8Vec);
+    impl_vec_partialord!(u8, AzU8Vec);
+    impl_vec_ord!(u8, AzU8Vec);
+    impl_vec_partialeq!(u8, AzU8Vec);
+    impl_vec_eq!(u8, AzU8Vec);
+    impl_vec_hash!(u8, AzU8Vec);
+
+    impl_vec!(AzCallbackData, AzCallbackDataVec);
+    impl_vec_partialord!(AzCallbackData, AzCallbackDataVec);
+    impl_vec_ord!(AzCallbackData, AzCallbackDataVec);
+    impl_vec_partialeq!(AzCallbackData, AzCallbackDataVec);
+    impl_vec_eq!(AzCallbackData, AzCallbackDataVec);
+    impl_vec_hash!(AzCallbackData, AzCallbackDataVec);
+
+    impl_vec!(AzOverrideProperty, AzOverridePropertyVec);
+    impl_vec_partialord!(AzOverrideProperty, AzOverridePropertyVec);
+    impl_vec_ord!(AzOverrideProperty, AzOverridePropertyVec);
+    impl_vec_partialeq!(AzOverrideProperty, AzOverridePropertyVec);
+    impl_vec_eq!(AzOverrideProperty, AzOverridePropertyVec);
+    impl_vec_hash!(AzOverrideProperty, AzOverridePropertyVec);
+
+    impl_vec!(AzDom, AzDomVec);
+    impl_vec_partialord!(AzDom, AzDomVec);
+    impl_vec_ord!(AzDom, AzDomVec);
+    impl_vec_partialeq!(AzDom, AzDomVec);
+    impl_vec_eq!(AzDom, AzDomVec);
+    impl_vec_hash!(AzDom, AzDomVec);
+
+    impl_vec!(AzString, AzStringVec);
+    impl_vec_partialord!(AzString, AzStringVec);
+    impl_vec_ord!(AzString, AzStringVec);
+    impl_vec_partialeq!(AzString, AzStringVec);
+    impl_vec_eq!(AzString, AzStringVec);
+    impl_vec_hash!(AzString, AzStringVec);
+
+    impl_vec!(AzGradientStopPre, AzGradientStopPreVec);
+    impl_vec_partialord!(AzGradientStopPre, AzGradientStopPreVec);
+    impl_vec_ord!(AzGradientStopPre, AzGradientStopPreVec);
+    impl_vec_partialeq!(AzGradientStopPre, AzGradientStopPreVec);
+    impl_vec_eq!(AzGradientStopPre, AzGradientStopPreVec);
+    impl_vec_hash!(AzGradientStopPre, AzGradientStopPreVec);
+
+    impl_vec!(AzDebugMessage, AzDebugMessageVec);
+    impl_vec_partialord!(AzDebugMessage, AzDebugMessageVec);
+    impl_vec_ord!(AzDebugMessage, AzDebugMessageVec);
+    impl_vec_partialeq!(AzDebugMessage, AzDebugMessageVec);
+    impl_vec_eq!(AzDebugMessage, AzDebugMessageVec);
+    impl_vec_hash!(AzDebugMessage, AzDebugMessageVec);
+
+    impl_vec!(AzGLint, AzGLintVec);
+    impl_vec_partialord!(AzGLint, AzGLintVec);
+    impl_vec_ord!(AzGLint, AzGLintVec);
+    impl_vec_partialeq!(AzGLint, AzGLintVec);
+    impl_vec_eq!(AzGLint, AzGLintVec);
+    impl_vec_hash!(AzGLint, AzGLintVec);
+
+    impl_vec!(AzGLuint, AzGLuintVec);
+    impl_vec_partialord!(AzGLuint, AzGLuintVec);
+    impl_vec_ord!(AzGLuint, AzGLuintVec);
+    impl_vec_partialeq!(AzGLuint, AzGLuintVec);
+    impl_vec_eq!(AzGLuint, AzGLuintVec);
+    impl_vec_hash!(AzGLuint, AzGLuintVec);
 
     impl From<std::vec::Vec<std::string::String>> for crate::vec::StringVec {
         fn from(v: std::vec::Vec<std::string::String>) -> crate::vec::StringVec {

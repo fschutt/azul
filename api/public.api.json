@@ -5,6 +5,7 @@
 			"classes": {
 				"String": {
 					"external": "azul_impl::css::AzString",
+					"derive": ["PartialEq", "Eq", "PartialOrd", "Ord", "Hash"],
 					"struct_fields": [
 						{ "vec": { "type": "U8Vec" } }
 					],
@@ -1384,6 +1385,7 @@
 				},
 				"GradientStopPre": {
 					"external": "azul_impl::css::GradientStopPre",
+					"derive": ["PartialEq", "Eq", "PartialOrd", "Ord", "Hash"],
 					"struct_fields": [
 						{"offset": {"type": "OptionPercentageValue"}},
 						{"color": {"type": "ColorU"}}
@@ -2436,6 +2438,7 @@
 			"classes": {
 				"Dom": {
 					"external": "azul_impl::dom::Dom",
+					"derive": ["PartialEq", "Eq", "PartialOrd", "Ord", "Hash"],
 					"struct_fields": [
 						{"root": {"type": "NodeData"}},
 						{"children": {"type": "DomVec"}},
@@ -2716,6 +2719,7 @@
 				},
 				"CallbackData": {
 					"external": "azul_impl::dom::CallbackData",
+					"derive": ["PartialEq", "Eq", "PartialOrd", "Ord", "Hash"],
 					"struct_fields": [
 						{"event": {"type": "EventFilter"}},
 						{"callback": {"type": "Callback"}},
@@ -2724,6 +2728,7 @@
 				},
 				"OverrideProperty": {
 					"external": "azul_impl::dom::OverrideProperty",
+					"derive": ["PartialEq", "Eq", "PartialOrd", "Ord", "Hash"],
 					"struct_fields": [
 						{"property_id": {"type": "String"}},
 						{"override_value": {"type": "CssProperty"}}
@@ -3141,6 +3146,7 @@
 				},
 				"DebugMessage": {
 					"external": "azul_impl::gl::AzDebugMessage",
+					"derive": ["PartialEq", "Eq", "PartialOrd", "Ord", "Hash"],
 					"struct_fields": [
 						{"message": {"type": "String"}},
 						{"source": {"type": "u32"}},

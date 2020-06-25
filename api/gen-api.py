@@ -43,6 +43,7 @@ rust_api_patches = {
     tuple(['*']): read_file("./patches/azul.rs/header.rs"),
     tuple(['str']): read_file("./patches/azul.rs/string.rs"),
     tuple(['vec']): read_file("./patches/azul.rs/vec.rs"),
+    tuple(['option']): read_file("./patches/azul.rs/option.rs"),
     tuple(['dom']): read_file("./patches/azul.rs/dom.rs"),
     tuple(['dll']): read_file("./patches/azul.rs/dll.rs"),
     tuple(['gl']): read_file("./patches/azul.rs/gl.rs"),
