@@ -46,9 +46,9 @@ use azul_impl::{
 pub type AzStringTT = azul_impl::css::AzString;
 #[no_mangle] pub use AzStringTT as AzString;
 /// Creates + allocates a Rust `String` by **copying** it from another utf8-encoded string
-#[no_mangle] pub extern "C" fn az_string_from_utf8_unchecked(ptr: *const u8, len: usize) -> AzString { unsafe { let slice = std::slice::from_raw_parts(ptr, len); println!("{:?}", slice); let vec = slice.to_vec(); let u8vec: AzU8Vec = vec.into(); let s = AzString { vec: u8vec }; println!("copied string from exe to dll memory: {:?}", s); s } }
+#[no_mangle] pub extern "C" fn az_string_from_utf8_unchecked(ptr: *const u8, len: usize) -> AzString { unsafe { let slice = std::slice::from_raw_parts(ptr, len); let vec = slice.to_vec(); let s = AzString::from_utf8_unchecked(vec.into()); println!("copied string from exe to dll memory: {:?}", s); s } }
 /// Creates + allocates a Rust `String` by **copying** it from another utf8-encoded string
-#[no_mangle] pub extern "C" fn az_string_from_utf8_lossy(ptr: *const u8, len: usize) -> AzString { unsafe { std::string::String::from_utf8_lossy(std::slice::from_raw_parts(ptr, len)).to_string() }.into() }
+#[no_mangle] pub extern "C" fn az_string_from_utf8_lossy(ptr: *const u8, len: usize) -> AzString { unsafe { let slice = std::slice::from_raw_parts(ptr, len); let s = AzString::from_utf8_lossy(slice); println!("copied string from exe to dll memory: {:?}", s); s } }
 /// Creates + allocates a Rust `String` by **copying** it from another utf8-encoded string
 #[no_mangle] pub extern "C" fn az_string_into_bytes(string: AzString) -> AzU8Vec { string.into_bytes() }
 /// Destructor: Takes ownership of the `String` pointer and deletes it.

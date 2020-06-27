@@ -96,11 +96,12 @@ fn render_my_texture_inner(gl_context: GlContextPtr, texture_size: LogicalSize) 
 
 fn main() {
     let app = App::new(RefAny::new(OpenGlAppState { }), AppConfig::default(), layout);
-    let css = Css::override_native(String::from("
+    let az_css: azul::str::String = String::from("
         texture {
             width: 100%;
             height: 100%;
             border: 4px solid green;
+            border-radius: 50px;
             box-sizing: border-box;
         }
         #the_button {
@@ -110,6 +111,13 @@ fn main() {
             top: 50px;
             left: 50px;
         }
-    ").into()); // .unwrap()
-    app.run(WindowCreateOptions::new(css));
+    ").into();
+    println!("css string: {}", az_css);
+    let css = Css::override_native(az_css); // .unwrap()
+    println!("sizeof Css: {}", std::mem::size_of::<Css>());
+    let w = WindowCreateOptions::new(css);
+    println!("sizeof WindowCreateOptions: {}", std::mem::size_of::<WindowCreateOptions>());
+    println!("printing: {:?}", w);
+    println!("printing ok");
+    app.run(w);
 }

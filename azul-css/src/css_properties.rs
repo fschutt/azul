@@ -1790,7 +1790,9 @@ impl fmt::Display for LinearGradient {
         };
 
         write!(f, "{}({}", prefix, self.direction)?;
-        self.stops.foreach(|s| write!(f, ", {}", s))?;
+        for s in self.stops.as_ref().iter() {
+            write!(f, ", {}", s)?;
+        }
         write!(f, ")")
     }
 }
@@ -1811,7 +1813,9 @@ impl fmt::Display for RadialGradient {
         };
 
         write!(f, "{}({}", prefix, self.shape)?;
-        self.stops.foreach(|s| write!(f, ", {}", s))?;
+        for s in self.stops.as_ref().iter() {
+            write!(f, ", {}", s)?;
+        }
         write!(f, ")")
     }
 }

@@ -358,7 +358,7 @@ impl fmt::Display for FontSource {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         use self::FontSource::*;
         match self {
-            Embedded(e) => write!(f, "Embedded(0x{:x})", e.as_ptr() as *const _ as usize),
+            Embedded(e) => write!(f, "Embedded(0x{:x})", e.ptr_as_usize()),
             File(p) => write!(f, "\"{}\"", p),
             System(id) => write!(f, "\"{}\"", id),
         }
