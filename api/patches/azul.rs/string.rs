@@ -34,13 +34,15 @@
 
     impl crate::str::String {
         #[inline]
-        pub fn as_str<'a>(&'a self) -> &'a str {
-            unsafe { std::str::from_utf8_unchecked(std::slice::from_raw_parts(self.vec.ptr, self.vec.len)) }
+        pub fn as_str(&self) -> &str {
+            unsafe { std::str::from_utf8_unchecked(self.as_bytes()) }
         }
+
         #[inline]
         pub fn as_bytes(&self) -> &[u8] {
             self.vec.as_ref()
         }
+
         #[inline]
         pub fn into_string(self) -> String {
             self.into()

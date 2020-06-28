@@ -180,19 +180,6 @@ macro_rules! impl_vec {($struct_type:ident, $struct_name:ident) => (
             }
         }
 
-        fn self_into_raw_parts(v: $struct_name) -> (*mut $struct_type, usize, usize) {
-            use std::mem::ManuallyDrop;
-            let mut me = ManuallyDrop::new(v);
-            (me.as_mut_ptr(), me.len(), me.capacity())
-        }
-
-        /// Same as Vec::into_raw_parts(self), prevents destructor from running
-        fn into_raw_parts(v: Vec<$struct_type>) -> (*mut $struct_type, usize, usize) {
-            use std::mem::ManuallyDrop;
-            let mut me = ManuallyDrop::new(v);
-            (me.as_mut_ptr(), me.len(), me.capacity())
-        }
-
         fn truncate(&mut self, len: usize) {
             // This is safe because:
             //
@@ -259,15 +246,17 @@ macro_rules! impl_vec {($struct_type:ident, $struct_name:ident) => (
 
     impl From<Vec<$struct_type>> for $struct_name {
         fn from(input: Vec<$struct_type>) -> $struct_name {
-            let (ptr, len, cap) = $struct_name::into_raw_parts(input);
-            $struct_name { ptr, len, cap }
+            use std::mem::ManuallyDrop;
+            let mut me = ManuallyDrop::new(input);
+            $struct_name { ptr: me.as_mut_ptr(), len: me.len(), cap: me.capacity() }
         }
     }
 
     impl From<$struct_name> for Vec<$struct_type> {
         fn from(input: $struct_name) -> Vec<$struct_type> {
-            let (ptr, len, cap) = $struct_name::self_into_raw_parts(input);
-            unsafe { Vec::from_raw_parts(ptr, len, cap) }
+            use std::mem::ManuallyDrop;
+            let mut me = ManuallyDrop::new(input);
+            unsafe { Vec::from_raw_parts(me.as_mut_ptr(), me.len(), me.capacity()) }
         }
     }
 
@@ -580,13 +569,20 @@ impl std::fmt::Display for AzString {
 impl AzString {
 
     #[inline]
-    pub fn from_utf8_unchecked(vec: U8Vec) -> Self {
+    pub fn new(vec: U8Vec) -> Self {
         Self { vec }
     }
 
     #[inline]
-    pub fn from_utf8_lossy(vec: &[u8]) -> Self {
-        Self::from_utf8_unchecked(String::from_utf8_lossy(vec).into_owned().into_bytes().into())
+    pub fn from_utf8_unchecked(ptr: *const u8, len: usize) -> Self {
+        let slice = unsafe { std::slice::from_raw_parts(ptr, len) };
+        Self { vec: slice.to_vec().into() }
+    }
+
+    #[inline]
+    pub fn from_utf8_lossy(ptr: *const u8, len: usize) -> Self {
+        let slice = unsafe { std::slice::from_raw_parts(ptr, len) };
+        Self { vec: String::from_utf8_lossy(slice).into_owned().into_bytes().into() }
     }
 
     #[inline]
@@ -609,23 +605,17 @@ impl AzString {
         let mut m = std::mem::ManuallyDrop::new(self);
         U8Vec { ptr: m.vec.as_mut_ptr(), len: m.vec.len(), cap: m.vec.capacity() }
     }
-
-    pub fn into_raw_parts(self) -> (*mut u8, usize, usize) {
-        U8Vec::self_into_raw_parts(self.into_bytes())
-    }
 }
 
 impl From<AzString> for String {
     fn from(input: AzString) -> String {
-        let (ptr, len, cap) = input.into_raw_parts();
-        let s = unsafe { String::from_raw_parts(ptr, len, cap) };
-        s
+        unsafe { String::from_utf8_unchecked(input.into_bytes().into()) }
     }
 }
 
 impl From<String> for AzString {
     fn from(input: String) -> AzString {
-        AzString::from_utf8_unchecked(input.into_bytes().into())
+        AzString::new(input.into_bytes().into())
     }
 }
 

@@ -2303,71 +2303,105 @@
         pub az_string_partial_cmp: extern "C" fn(_:  &AzString, _:  &AzString) -> u8,
         pub az_string_cmp: extern "C" fn(_:  &AzString, _:  &AzString) -> u8,
         pub az_string_hash: extern "C" fn(_:  &AzString) -> u64,
-        pub az_x_window_type_vec_copy_from: extern "C" fn(_:  *mut AzXWindowType, _:  usize) -> AzXWindowTypeVec,
+        pub az_x_window_type_vec_new: extern "C" fn() -> AzXWindowTypeVec,
+        pub az_x_window_type_vec_with_capacity: extern "C" fn(_:  usize) -> AzXWindowTypeVec,
+        pub az_x_window_type_vec_copy_from: extern "C" fn(_:  *const AzXWindowType, _:  usize) -> AzXWindowTypeVec,
         pub az_x_window_type_vec_delete: extern "C" fn(_:  &mut AzXWindowTypeVec),
         pub az_x_window_type_vec_deep_copy: extern "C" fn(_:  &AzXWindowTypeVec) -> AzXWindowTypeVec,
         pub az_x_window_type_vec_fmt_debug: extern "C" fn(_:  &AzXWindowTypeVec) -> AzString,
-        pub az_virtual_key_code_vec_copy_from: extern "C" fn(_:  *mut AzVirtualKeyCode, _:  usize) -> AzVirtualKeyCodeVec,
+        pub az_virtual_key_code_vec_new: extern "C" fn() -> AzVirtualKeyCodeVec,
+        pub az_virtual_key_code_vec_with_capacity: extern "C" fn(_:  usize) -> AzVirtualKeyCodeVec,
+        pub az_virtual_key_code_vec_copy_from: extern "C" fn(_:  *const AzVirtualKeyCode, _:  usize) -> AzVirtualKeyCodeVec,
         pub az_virtual_key_code_vec_delete: extern "C" fn(_:  &mut AzVirtualKeyCodeVec),
         pub az_virtual_key_code_vec_deep_copy: extern "C" fn(_:  &AzVirtualKeyCodeVec) -> AzVirtualKeyCodeVec,
         pub az_virtual_key_code_vec_fmt_debug: extern "C" fn(_:  &AzVirtualKeyCodeVec) -> AzString,
-        pub az_scan_code_vec_copy_from: extern "C" fn(_:  *mut u32, _:  usize) -> AzScanCodeVec,
+        pub az_scan_code_vec_new: extern "C" fn() -> AzScanCodeVec,
+        pub az_scan_code_vec_with_capacity: extern "C" fn(_:  usize) -> AzScanCodeVec,
+        pub az_scan_code_vec_copy_from: extern "C" fn(_:  *const u32, _:  usize) -> AzScanCodeVec,
         pub az_scan_code_vec_delete: extern "C" fn(_:  &mut AzScanCodeVec),
         pub az_scan_code_vec_deep_copy: extern "C" fn(_:  &AzScanCodeVec) -> AzScanCodeVec,
         pub az_scan_code_vec_fmt_debug: extern "C" fn(_:  &AzScanCodeVec) -> AzString,
-        pub az_css_declaration_vec_copy_from: extern "C" fn(_:  *mut AzCssDeclaration, _:  usize) -> AzCssDeclarationVec,
+        pub az_css_declaration_vec_new: extern "C" fn() -> AzCssDeclarationVec,
+        pub az_css_declaration_vec_with_capacity: extern "C" fn(_:  usize) -> AzCssDeclarationVec,
+        pub az_css_declaration_vec_copy_from: extern "C" fn(_:  *const AzCssDeclaration, _:  usize) -> AzCssDeclarationVec,
         pub az_css_declaration_vec_delete: extern "C" fn(_:  &mut AzCssDeclarationVec),
         pub az_css_declaration_vec_deep_copy: extern "C" fn(_:  &AzCssDeclarationVec) -> AzCssDeclarationVec,
         pub az_css_declaration_vec_fmt_debug: extern "C" fn(_:  &AzCssDeclarationVec) -> AzString,
-        pub az_css_path_selector_vec_copy_from: extern "C" fn(_:  *mut AzCssPathSelector, _:  usize) -> AzCssPathSelectorVec,
+        pub az_css_path_selector_vec_new: extern "C" fn() -> AzCssPathSelectorVec,
+        pub az_css_path_selector_vec_with_capacity: extern "C" fn(_:  usize) -> AzCssPathSelectorVec,
+        pub az_css_path_selector_vec_copy_from: extern "C" fn(_:  *const AzCssPathSelector, _:  usize) -> AzCssPathSelectorVec,
         pub az_css_path_selector_vec_delete: extern "C" fn(_:  &mut AzCssPathSelectorVec),
         pub az_css_path_selector_vec_deep_copy: extern "C" fn(_:  &AzCssPathSelectorVec) -> AzCssPathSelectorVec,
         pub az_css_path_selector_vec_fmt_debug: extern "C" fn(_:  &AzCssPathSelectorVec) -> AzString,
-        pub az_stylesheet_vec_copy_from: extern "C" fn(_:  *mut AzStylesheet, _:  usize) -> AzStylesheetVec,
+        pub az_stylesheet_vec_new: extern "C" fn() -> AzStylesheetVec,
+        pub az_stylesheet_vec_with_capacity: extern "C" fn(_:  usize) -> AzStylesheetVec,
+        pub az_stylesheet_vec_copy_from: extern "C" fn(_:  *const AzStylesheet, _:  usize) -> AzStylesheetVec,
         pub az_stylesheet_vec_delete: extern "C" fn(_:  &mut AzStylesheetVec),
         pub az_stylesheet_vec_deep_copy: extern "C" fn(_:  &AzStylesheetVec) -> AzStylesheetVec,
         pub az_stylesheet_vec_fmt_debug: extern "C" fn(_:  &AzStylesheetVec) -> AzString,
-        pub az_css_rule_block_vec_copy_from: extern "C" fn(_:  *mut AzCssRuleBlock, _:  usize) -> AzCssRuleBlockVec,
+        pub az_css_rule_block_vec_new: extern "C" fn() -> AzCssRuleBlockVec,
+        pub az_css_rule_block_vec_with_capacity: extern "C" fn(_:  usize) -> AzCssRuleBlockVec,
+        pub az_css_rule_block_vec_copy_from: extern "C" fn(_:  *const AzCssRuleBlock, _:  usize) -> AzCssRuleBlockVec,
         pub az_css_rule_block_vec_delete: extern "C" fn(_:  &mut AzCssRuleBlockVec),
         pub az_css_rule_block_vec_deep_copy: extern "C" fn(_:  &AzCssRuleBlockVec) -> AzCssRuleBlockVec,
         pub az_css_rule_block_vec_fmt_debug: extern "C" fn(_:  &AzCssRuleBlockVec) -> AzString,
-        pub az_u8_vec_copy_from: extern "C" fn(_:  *mut u8, _:  usize) -> AzU8Vec,
+        pub az_u8_vec_new: extern "C" fn() -> AzU8Vec,
+        pub az_u8_vec_with_capacity: extern "C" fn(_:  usize) -> AzU8Vec,
+        pub az_u8_vec_copy_from: extern "C" fn(_:  *const u8, _:  usize) -> AzU8Vec,
         pub az_u8_vec_delete: extern "C" fn(_:  &mut AzU8Vec),
         pub az_u8_vec_deep_copy: extern "C" fn(_:  &AzU8Vec) -> AzU8Vec,
         pub az_u8_vec_fmt_debug: extern "C" fn(_:  &AzU8Vec) -> AzString,
-        pub az_callback_data_vec_copy_from: extern "C" fn(_:  *mut AzCallbackData, _:  usize) -> AzCallbackDataVec,
+        pub az_callback_data_vec_new: extern "C" fn() -> AzCallbackDataVec,
+        pub az_callback_data_vec_with_capacity: extern "C" fn(_:  usize) -> AzCallbackDataVec,
+        pub az_callback_data_vec_copy_from: extern "C" fn(_:  *const AzCallbackData, _:  usize) -> AzCallbackDataVec,
         pub az_callback_data_vec_delete: extern "C" fn(_:  &mut AzCallbackDataVec),
         pub az_callback_data_vec_deep_copy: extern "C" fn(_:  &AzCallbackDataVec) -> AzCallbackDataVec,
         pub az_callback_data_vec_fmt_debug: extern "C" fn(_:  &AzCallbackDataVec) -> AzString,
-        pub az_debug_message_vec_copy_from: extern "C" fn(_:  *mut AzDebugMessage, _:  usize) -> AzDebugMessageVec,
+        pub az_debug_message_vec_new: extern "C" fn() -> AzDebugMessageVec,
+        pub az_debug_message_vec_with_capacity: extern "C" fn(_:  usize) -> AzDebugMessageVec,
+        pub az_debug_message_vec_copy_from: extern "C" fn(_:  *const AzDebugMessage, _:  usize) -> AzDebugMessageVec,
         pub az_debug_message_vec_delete: extern "C" fn(_:  &mut AzDebugMessageVec),
         pub az_debug_message_vec_deep_copy: extern "C" fn(_:  &AzDebugMessageVec) -> AzDebugMessageVec,
         pub az_debug_message_vec_fmt_debug: extern "C" fn(_:  &AzDebugMessageVec) -> AzString,
-        pub az_g_luint_vec_copy_from: extern "C" fn(_:  *mut u32, _:  usize) -> AzGLuintVec,
+        pub az_g_luint_vec_new: extern "C" fn() -> AzGLuintVec,
+        pub az_g_luint_vec_with_capacity: extern "C" fn(_:  usize) -> AzGLuintVec,
+        pub az_g_luint_vec_copy_from: extern "C" fn(_:  *const u32, _:  usize) -> AzGLuintVec,
         pub az_g_luint_vec_delete: extern "C" fn(_:  &mut AzGLuintVec),
         pub az_g_luint_vec_deep_copy: extern "C" fn(_:  &AzGLuintVec) -> AzGLuintVec,
         pub az_g_luint_vec_fmt_debug: extern "C" fn(_:  &AzGLuintVec) -> AzString,
-        pub az_g_lint_vec_copy_from: extern "C" fn(_:  *mut i32, _:  usize) -> AzGLintVec,
+        pub az_g_lint_vec_new: extern "C" fn() -> AzGLintVec,
+        pub az_g_lint_vec_with_capacity: extern "C" fn(_:  usize) -> AzGLintVec,
+        pub az_g_lint_vec_copy_from: extern "C" fn(_:  *const i32, _:  usize) -> AzGLintVec,
         pub az_g_lint_vec_delete: extern "C" fn(_:  &mut AzGLintVec),
         pub az_g_lint_vec_deep_copy: extern "C" fn(_:  &AzGLintVec) -> AzGLintVec,
         pub az_g_lint_vec_fmt_debug: extern "C" fn(_:  &AzGLintVec) -> AzString,
-        pub az_override_property_vec_copy_from: extern "C" fn(_:  *mut AzOverrideProperty, _:  usize) -> AzOverridePropertyVec,
+        pub az_override_property_vec_new: extern "C" fn() -> AzOverridePropertyVec,
+        pub az_override_property_vec_with_capacity: extern "C" fn(_:  usize) -> AzOverridePropertyVec,
+        pub az_override_property_vec_copy_from: extern "C" fn(_:  *const AzOverrideProperty, _:  usize) -> AzOverridePropertyVec,
         pub az_override_property_vec_delete: extern "C" fn(_:  &mut AzOverridePropertyVec),
         pub az_override_property_vec_deep_copy: extern "C" fn(_:  &AzOverridePropertyVec) -> AzOverridePropertyVec,
         pub az_override_property_vec_fmt_debug: extern "C" fn(_:  &AzOverridePropertyVec) -> AzString,
-        pub az_dom_vec_copy_from: extern "C" fn(_:  *mut AzDom, _:  usize) -> AzDomVec,
+        pub az_dom_vec_new: extern "C" fn() -> AzDomVec,
+        pub az_dom_vec_with_capacity: extern "C" fn(_:  usize) -> AzDomVec,
+        pub az_dom_vec_copy_from: extern "C" fn(_:  *const AzDom, _:  usize) -> AzDomVec,
         pub az_dom_vec_delete: extern "C" fn(_:  &mut AzDomVec),
         pub az_dom_vec_deep_copy: extern "C" fn(_:  &AzDomVec) -> AzDomVec,
         pub az_dom_vec_fmt_debug: extern "C" fn(_:  &AzDomVec) -> AzString,
-        pub az_string_vec_copy_from: extern "C" fn(_:  *mut AzString, _:  usize) -> AzStringVec,
+        pub az_string_vec_new: extern "C" fn() -> AzStringVec,
+        pub az_string_vec_with_capacity: extern "C" fn(_:  usize) -> AzStringVec,
+        pub az_string_vec_copy_from: extern "C" fn(_:  *const AzString, _:  usize) -> AzStringVec,
         pub az_string_vec_delete: extern "C" fn(_:  &mut AzStringVec),
         pub az_string_vec_deep_copy: extern "C" fn(_:  &AzStringVec) -> AzStringVec,
         pub az_string_vec_fmt_debug: extern "C" fn(_:  &AzStringVec) -> AzString,
-        pub az_string_pair_vec_copy_from: extern "C" fn(_:  *mut AzStringPair, _:  usize) -> AzStringPairVec,
+        pub az_string_pair_vec_new: extern "C" fn() -> AzStringPairVec,
+        pub az_string_pair_vec_with_capacity: extern "C" fn(_:  usize) -> AzStringPairVec,
+        pub az_string_pair_vec_copy_from: extern "C" fn(_:  *const AzStringPair, _:  usize) -> AzStringPairVec,
         pub az_string_pair_vec_delete: extern "C" fn(_:  &mut AzStringPairVec),
         pub az_string_pair_vec_deep_copy: extern "C" fn(_:  &AzStringPairVec) -> AzStringPairVec,
         pub az_string_pair_vec_fmt_debug: extern "C" fn(_:  &AzStringPairVec) -> AzString,
-        pub az_gradient_stop_pre_vec_copy_from: extern "C" fn(_:  *mut AzGradientStopPre, _:  usize) -> AzGradientStopPreVec,
+        pub az_gradient_stop_pre_vec_new: extern "C" fn() -> AzGradientStopPreVec,
+        pub az_gradient_stop_pre_vec_with_capacity: extern "C" fn(_:  usize) -> AzGradientStopPreVec,
+        pub az_gradient_stop_pre_vec_copy_from: extern "C" fn(_:  *const AzGradientStopPre, _:  usize) -> AzGradientStopPreVec,
         pub az_gradient_stop_pre_vec_delete: extern "C" fn(_:  &mut AzGradientStopPreVec),
         pub az_gradient_stop_pre_vec_deep_copy: extern "C" fn(_:  &AzGradientStopPreVec) -> AzGradientStopPreVec,
         pub az_gradient_stop_pre_vec_fmt_debug: extern "C" fn(_:  &AzGradientStopPreVec) -> AzString,
@@ -3565,71 +3599,105 @@
             let az_string_partial_cmp: extern "C" fn(_:  &AzString, _:  &AzString) -> u8 = transmute(lib.get(b"az_string_partial_cmp")?);
             let az_string_cmp: extern "C" fn(_:  &AzString, _:  &AzString) -> u8 = transmute(lib.get(b"az_string_cmp")?);
             let az_string_hash: extern "C" fn(_:  &AzString) -> u64 = transmute(lib.get(b"az_string_hash")?);
-            let az_x_window_type_vec_copy_from: extern "C" fn(_:  *mut AzXWindowType, _:  usize) -> AzXWindowTypeVec = transmute(lib.get(b"az_x_window_type_vec_copy_from")?);
+            let az_x_window_type_vec_new: extern "C" fn() -> AzXWindowTypeVec = transmute(lib.get(b"az_x_window_type_vec_new")?);
+            let az_x_window_type_vec_with_capacity: extern "C" fn(_:  usize) -> AzXWindowTypeVec = transmute(lib.get(b"az_x_window_type_vec_with_capacity")?);
+            let az_x_window_type_vec_copy_from: extern "C" fn(_:  *const AzXWindowType, _:  usize) -> AzXWindowTypeVec = transmute(lib.get(b"az_x_window_type_vec_copy_from")?);
             let az_x_window_type_vec_delete: extern "C" fn(_:  &mut AzXWindowTypeVec) = transmute(lib.get(b"az_x_window_type_vec_delete")?);
             let az_x_window_type_vec_deep_copy: extern "C" fn(_:  &AzXWindowTypeVec) -> AzXWindowTypeVec = transmute(lib.get(b"az_x_window_type_vec_deep_copy")?);
             let az_x_window_type_vec_fmt_debug: extern "C" fn(_:  &AzXWindowTypeVec) -> AzString = transmute(lib.get(b"az_x_window_type_vec_fmt_debug")?);
-            let az_virtual_key_code_vec_copy_from: extern "C" fn(_:  *mut AzVirtualKeyCode, _:  usize) -> AzVirtualKeyCodeVec = transmute(lib.get(b"az_virtual_key_code_vec_copy_from")?);
+            let az_virtual_key_code_vec_new: extern "C" fn() -> AzVirtualKeyCodeVec = transmute(lib.get(b"az_virtual_key_code_vec_new")?);
+            let az_virtual_key_code_vec_with_capacity: extern "C" fn(_:  usize) -> AzVirtualKeyCodeVec = transmute(lib.get(b"az_virtual_key_code_vec_with_capacity")?);
+            let az_virtual_key_code_vec_copy_from: extern "C" fn(_:  *const AzVirtualKeyCode, _:  usize) -> AzVirtualKeyCodeVec = transmute(lib.get(b"az_virtual_key_code_vec_copy_from")?);
             let az_virtual_key_code_vec_delete: extern "C" fn(_:  &mut AzVirtualKeyCodeVec) = transmute(lib.get(b"az_virtual_key_code_vec_delete")?);
             let az_virtual_key_code_vec_deep_copy: extern "C" fn(_:  &AzVirtualKeyCodeVec) -> AzVirtualKeyCodeVec = transmute(lib.get(b"az_virtual_key_code_vec_deep_copy")?);
             let az_virtual_key_code_vec_fmt_debug: extern "C" fn(_:  &AzVirtualKeyCodeVec) -> AzString = transmute(lib.get(b"az_virtual_key_code_vec_fmt_debug")?);
-            let az_scan_code_vec_copy_from: extern "C" fn(_:  *mut u32, _:  usize) -> AzScanCodeVec = transmute(lib.get(b"az_scan_code_vec_copy_from")?);
+            let az_scan_code_vec_new: extern "C" fn() -> AzScanCodeVec = transmute(lib.get(b"az_scan_code_vec_new")?);
+            let az_scan_code_vec_with_capacity: extern "C" fn(_:  usize) -> AzScanCodeVec = transmute(lib.get(b"az_scan_code_vec_with_capacity")?);
+            let az_scan_code_vec_copy_from: extern "C" fn(_:  *const u32, _:  usize) -> AzScanCodeVec = transmute(lib.get(b"az_scan_code_vec_copy_from")?);
             let az_scan_code_vec_delete: extern "C" fn(_:  &mut AzScanCodeVec) = transmute(lib.get(b"az_scan_code_vec_delete")?);
             let az_scan_code_vec_deep_copy: extern "C" fn(_:  &AzScanCodeVec) -> AzScanCodeVec = transmute(lib.get(b"az_scan_code_vec_deep_copy")?);
             let az_scan_code_vec_fmt_debug: extern "C" fn(_:  &AzScanCodeVec) -> AzString = transmute(lib.get(b"az_scan_code_vec_fmt_debug")?);
-            let az_css_declaration_vec_copy_from: extern "C" fn(_:  *mut AzCssDeclaration, _:  usize) -> AzCssDeclarationVec = transmute(lib.get(b"az_css_declaration_vec_copy_from")?);
+            let az_css_declaration_vec_new: extern "C" fn() -> AzCssDeclarationVec = transmute(lib.get(b"az_css_declaration_vec_new")?);
+            let az_css_declaration_vec_with_capacity: extern "C" fn(_:  usize) -> AzCssDeclarationVec = transmute(lib.get(b"az_css_declaration_vec_with_capacity")?);
+            let az_css_declaration_vec_copy_from: extern "C" fn(_:  *const AzCssDeclaration, _:  usize) -> AzCssDeclarationVec = transmute(lib.get(b"az_css_declaration_vec_copy_from")?);
             let az_css_declaration_vec_delete: extern "C" fn(_:  &mut AzCssDeclarationVec) = transmute(lib.get(b"az_css_declaration_vec_delete")?);
             let az_css_declaration_vec_deep_copy: extern "C" fn(_:  &AzCssDeclarationVec) -> AzCssDeclarationVec = transmute(lib.get(b"az_css_declaration_vec_deep_copy")?);
             let az_css_declaration_vec_fmt_debug: extern "C" fn(_:  &AzCssDeclarationVec) -> AzString = transmute(lib.get(b"az_css_declaration_vec_fmt_debug")?);
-            let az_css_path_selector_vec_copy_from: extern "C" fn(_:  *mut AzCssPathSelector, _:  usize) -> AzCssPathSelectorVec = transmute(lib.get(b"az_css_path_selector_vec_copy_from")?);
+            let az_css_path_selector_vec_new: extern "C" fn() -> AzCssPathSelectorVec = transmute(lib.get(b"az_css_path_selector_vec_new")?);
+            let az_css_path_selector_vec_with_capacity: extern "C" fn(_:  usize) -> AzCssPathSelectorVec = transmute(lib.get(b"az_css_path_selector_vec_with_capacity")?);
+            let az_css_path_selector_vec_copy_from: extern "C" fn(_:  *const AzCssPathSelector, _:  usize) -> AzCssPathSelectorVec = transmute(lib.get(b"az_css_path_selector_vec_copy_from")?);
             let az_css_path_selector_vec_delete: extern "C" fn(_:  &mut AzCssPathSelectorVec) = transmute(lib.get(b"az_css_path_selector_vec_delete")?);
             let az_css_path_selector_vec_deep_copy: extern "C" fn(_:  &AzCssPathSelectorVec) -> AzCssPathSelectorVec = transmute(lib.get(b"az_css_path_selector_vec_deep_copy")?);
             let az_css_path_selector_vec_fmt_debug: extern "C" fn(_:  &AzCssPathSelectorVec) -> AzString = transmute(lib.get(b"az_css_path_selector_vec_fmt_debug")?);
-            let az_stylesheet_vec_copy_from: extern "C" fn(_:  *mut AzStylesheet, _:  usize) -> AzStylesheetVec = transmute(lib.get(b"az_stylesheet_vec_copy_from")?);
+            let az_stylesheet_vec_new: extern "C" fn() -> AzStylesheetVec = transmute(lib.get(b"az_stylesheet_vec_new")?);
+            let az_stylesheet_vec_with_capacity: extern "C" fn(_:  usize) -> AzStylesheetVec = transmute(lib.get(b"az_stylesheet_vec_with_capacity")?);
+            let az_stylesheet_vec_copy_from: extern "C" fn(_:  *const AzStylesheet, _:  usize) -> AzStylesheetVec = transmute(lib.get(b"az_stylesheet_vec_copy_from")?);
             let az_stylesheet_vec_delete: extern "C" fn(_:  &mut AzStylesheetVec) = transmute(lib.get(b"az_stylesheet_vec_delete")?);
             let az_stylesheet_vec_deep_copy: extern "C" fn(_:  &AzStylesheetVec) -> AzStylesheetVec = transmute(lib.get(b"az_stylesheet_vec_deep_copy")?);
             let az_stylesheet_vec_fmt_debug: extern "C" fn(_:  &AzStylesheetVec) -> AzString = transmute(lib.get(b"az_stylesheet_vec_fmt_debug")?);
-            let az_css_rule_block_vec_copy_from: extern "C" fn(_:  *mut AzCssRuleBlock, _:  usize) -> AzCssRuleBlockVec = transmute(lib.get(b"az_css_rule_block_vec_copy_from")?);
+            let az_css_rule_block_vec_new: extern "C" fn() -> AzCssRuleBlockVec = transmute(lib.get(b"az_css_rule_block_vec_new")?);
+            let az_css_rule_block_vec_with_capacity: extern "C" fn(_:  usize) -> AzCssRuleBlockVec = transmute(lib.get(b"az_css_rule_block_vec_with_capacity")?);
+            let az_css_rule_block_vec_copy_from: extern "C" fn(_:  *const AzCssRuleBlock, _:  usize) -> AzCssRuleBlockVec = transmute(lib.get(b"az_css_rule_block_vec_copy_from")?);
             let az_css_rule_block_vec_delete: extern "C" fn(_:  &mut AzCssRuleBlockVec) = transmute(lib.get(b"az_css_rule_block_vec_delete")?);
             let az_css_rule_block_vec_deep_copy: extern "C" fn(_:  &AzCssRuleBlockVec) -> AzCssRuleBlockVec = transmute(lib.get(b"az_css_rule_block_vec_deep_copy")?);
             let az_css_rule_block_vec_fmt_debug: extern "C" fn(_:  &AzCssRuleBlockVec) -> AzString = transmute(lib.get(b"az_css_rule_block_vec_fmt_debug")?);
-            let az_u8_vec_copy_from: extern "C" fn(_:  *mut u8, _:  usize) -> AzU8Vec = transmute(lib.get(b"az_u8_vec_copy_from")?);
+            let az_u8_vec_new: extern "C" fn() -> AzU8Vec = transmute(lib.get(b"az_u8_vec_new")?);
+            let az_u8_vec_with_capacity: extern "C" fn(_:  usize) -> AzU8Vec = transmute(lib.get(b"az_u8_vec_with_capacity")?);
+            let az_u8_vec_copy_from: extern "C" fn(_:  *const u8, _:  usize) -> AzU8Vec = transmute(lib.get(b"az_u8_vec_copy_from")?);
             let az_u8_vec_delete: extern "C" fn(_:  &mut AzU8Vec) = transmute(lib.get(b"az_u8_vec_delete")?);
             let az_u8_vec_deep_copy: extern "C" fn(_:  &AzU8Vec) -> AzU8Vec = transmute(lib.get(b"az_u8_vec_deep_copy")?);
             let az_u8_vec_fmt_debug: extern "C" fn(_:  &AzU8Vec) -> AzString = transmute(lib.get(b"az_u8_vec_fmt_debug")?);
-            let az_callback_data_vec_copy_from: extern "C" fn(_:  *mut AzCallbackData, _:  usize) -> AzCallbackDataVec = transmute(lib.get(b"az_callback_data_vec_copy_from")?);
+            let az_callback_data_vec_new: extern "C" fn() -> AzCallbackDataVec = transmute(lib.get(b"az_callback_data_vec_new")?);
+            let az_callback_data_vec_with_capacity: extern "C" fn(_:  usize) -> AzCallbackDataVec = transmute(lib.get(b"az_callback_data_vec_with_capacity")?);
+            let az_callback_data_vec_copy_from: extern "C" fn(_:  *const AzCallbackData, _:  usize) -> AzCallbackDataVec = transmute(lib.get(b"az_callback_data_vec_copy_from")?);
             let az_callback_data_vec_delete: extern "C" fn(_:  &mut AzCallbackDataVec) = transmute(lib.get(b"az_callback_data_vec_delete")?);
             let az_callback_data_vec_deep_copy: extern "C" fn(_:  &AzCallbackDataVec) -> AzCallbackDataVec = transmute(lib.get(b"az_callback_data_vec_deep_copy")?);
             let az_callback_data_vec_fmt_debug: extern "C" fn(_:  &AzCallbackDataVec) -> AzString = transmute(lib.get(b"az_callback_data_vec_fmt_debug")?);
-            let az_debug_message_vec_copy_from: extern "C" fn(_:  *mut AzDebugMessage, _:  usize) -> AzDebugMessageVec = transmute(lib.get(b"az_debug_message_vec_copy_from")?);
+            let az_debug_message_vec_new: extern "C" fn() -> AzDebugMessageVec = transmute(lib.get(b"az_debug_message_vec_new")?);
+            let az_debug_message_vec_with_capacity: extern "C" fn(_:  usize) -> AzDebugMessageVec = transmute(lib.get(b"az_debug_message_vec_with_capacity")?);
+            let az_debug_message_vec_copy_from: extern "C" fn(_:  *const AzDebugMessage, _:  usize) -> AzDebugMessageVec = transmute(lib.get(b"az_debug_message_vec_copy_from")?);
             let az_debug_message_vec_delete: extern "C" fn(_:  &mut AzDebugMessageVec) = transmute(lib.get(b"az_debug_message_vec_delete")?);
             let az_debug_message_vec_deep_copy: extern "C" fn(_:  &AzDebugMessageVec) -> AzDebugMessageVec = transmute(lib.get(b"az_debug_message_vec_deep_copy")?);
             let az_debug_message_vec_fmt_debug: extern "C" fn(_:  &AzDebugMessageVec) -> AzString = transmute(lib.get(b"az_debug_message_vec_fmt_debug")?);
-            let az_g_luint_vec_copy_from: extern "C" fn(_:  *mut u32, _:  usize) -> AzGLuintVec = transmute(lib.get(b"az_g_luint_vec_copy_from")?);
+            let az_g_luint_vec_new: extern "C" fn() -> AzGLuintVec = transmute(lib.get(b"az_g_luint_vec_new")?);
+            let az_g_luint_vec_with_capacity: extern "C" fn(_:  usize) -> AzGLuintVec = transmute(lib.get(b"az_g_luint_vec_with_capacity")?);
+            let az_g_luint_vec_copy_from: extern "C" fn(_:  *const u32, _:  usize) -> AzGLuintVec = transmute(lib.get(b"az_g_luint_vec_copy_from")?);
             let az_g_luint_vec_delete: extern "C" fn(_:  &mut AzGLuintVec) = transmute(lib.get(b"az_g_luint_vec_delete")?);
             let az_g_luint_vec_deep_copy: extern "C" fn(_:  &AzGLuintVec) -> AzGLuintVec = transmute(lib.get(b"az_g_luint_vec_deep_copy")?);
             let az_g_luint_vec_fmt_debug: extern "C" fn(_:  &AzGLuintVec) -> AzString = transmute(lib.get(b"az_g_luint_vec_fmt_debug")?);
-            let az_g_lint_vec_copy_from: extern "C" fn(_:  *mut i32, _:  usize) -> AzGLintVec = transmute(lib.get(b"az_g_lint_vec_copy_from")?);
+            let az_g_lint_vec_new: extern "C" fn() -> AzGLintVec = transmute(lib.get(b"az_g_lint_vec_new")?);
+            let az_g_lint_vec_with_capacity: extern "C" fn(_:  usize) -> AzGLintVec = transmute(lib.get(b"az_g_lint_vec_with_capacity")?);
+            let az_g_lint_vec_copy_from: extern "C" fn(_:  *const i32, _:  usize) -> AzGLintVec = transmute(lib.get(b"az_g_lint_vec_copy_from")?);
             let az_g_lint_vec_delete: extern "C" fn(_:  &mut AzGLintVec) = transmute(lib.get(b"az_g_lint_vec_delete")?);
             let az_g_lint_vec_deep_copy: extern "C" fn(_:  &AzGLintVec) -> AzGLintVec = transmute(lib.get(b"az_g_lint_vec_deep_copy")?);
             let az_g_lint_vec_fmt_debug: extern "C" fn(_:  &AzGLintVec) -> AzString = transmute(lib.get(b"az_g_lint_vec_fmt_debug")?);
-            let az_override_property_vec_copy_from: extern "C" fn(_:  *mut AzOverrideProperty, _:  usize) -> AzOverridePropertyVec = transmute(lib.get(b"az_override_property_vec_copy_from")?);
+            let az_override_property_vec_new: extern "C" fn() -> AzOverridePropertyVec = transmute(lib.get(b"az_override_property_vec_new")?);
+            let az_override_property_vec_with_capacity: extern "C" fn(_:  usize) -> AzOverridePropertyVec = transmute(lib.get(b"az_override_property_vec_with_capacity")?);
+            let az_override_property_vec_copy_from: extern "C" fn(_:  *const AzOverrideProperty, _:  usize) -> AzOverridePropertyVec = transmute(lib.get(b"az_override_property_vec_copy_from")?);
             let az_override_property_vec_delete: extern "C" fn(_:  &mut AzOverridePropertyVec) = transmute(lib.get(b"az_override_property_vec_delete")?);
             let az_override_property_vec_deep_copy: extern "C" fn(_:  &AzOverridePropertyVec) -> AzOverridePropertyVec = transmute(lib.get(b"az_override_property_vec_deep_copy")?);
             let az_override_property_vec_fmt_debug: extern "C" fn(_:  &AzOverridePropertyVec) -> AzString = transmute(lib.get(b"az_override_property_vec_fmt_debug")?);
-            let az_dom_vec_copy_from: extern "C" fn(_:  *mut AzDom, _:  usize) -> AzDomVec = transmute(lib.get(b"az_dom_vec_copy_from")?);
+            let az_dom_vec_new: extern "C" fn() -> AzDomVec = transmute(lib.get(b"az_dom_vec_new")?);
+            let az_dom_vec_with_capacity: extern "C" fn(_:  usize) -> AzDomVec = transmute(lib.get(b"az_dom_vec_with_capacity")?);
+            let az_dom_vec_copy_from: extern "C" fn(_:  *const AzDom, _:  usize) -> AzDomVec = transmute(lib.get(b"az_dom_vec_copy_from")?);
             let az_dom_vec_delete: extern "C" fn(_:  &mut AzDomVec) = transmute(lib.get(b"az_dom_vec_delete")?);
             let az_dom_vec_deep_copy: extern "C" fn(_:  &AzDomVec) -> AzDomVec = transmute(lib.get(b"az_dom_vec_deep_copy")?);
             let az_dom_vec_fmt_debug: extern "C" fn(_:  &AzDomVec) -> AzString = transmute(lib.get(b"az_dom_vec_fmt_debug")?);
-            let az_string_vec_copy_from: extern "C" fn(_:  *mut AzString, _:  usize) -> AzStringVec = transmute(lib.get(b"az_string_vec_copy_from")?);
+            let az_string_vec_new: extern "C" fn() -> AzStringVec = transmute(lib.get(b"az_string_vec_new")?);
+            let az_string_vec_with_capacity: extern "C" fn(_:  usize) -> AzStringVec = transmute(lib.get(b"az_string_vec_with_capacity")?);
+            let az_string_vec_copy_from: extern "C" fn(_:  *const AzString, _:  usize) -> AzStringVec = transmute(lib.get(b"az_string_vec_copy_from")?);
             let az_string_vec_delete: extern "C" fn(_:  &mut AzStringVec) = transmute(lib.get(b"az_string_vec_delete")?);
             let az_string_vec_deep_copy: extern "C" fn(_:  &AzStringVec) -> AzStringVec = transmute(lib.get(b"az_string_vec_deep_copy")?);
             let az_string_vec_fmt_debug: extern "C" fn(_:  &AzStringVec) -> AzString = transmute(lib.get(b"az_string_vec_fmt_debug")?);
-            let az_string_pair_vec_copy_from: extern "C" fn(_:  *mut AzStringPair, _:  usize) -> AzStringPairVec = transmute(lib.get(b"az_string_pair_vec_copy_from")?);
+            let az_string_pair_vec_new: extern "C" fn() -> AzStringPairVec = transmute(lib.get(b"az_string_pair_vec_new")?);
+            let az_string_pair_vec_with_capacity: extern "C" fn(_:  usize) -> AzStringPairVec = transmute(lib.get(b"az_string_pair_vec_with_capacity")?);
+            let az_string_pair_vec_copy_from: extern "C" fn(_:  *const AzStringPair, _:  usize) -> AzStringPairVec = transmute(lib.get(b"az_string_pair_vec_copy_from")?);
             let az_string_pair_vec_delete: extern "C" fn(_:  &mut AzStringPairVec) = transmute(lib.get(b"az_string_pair_vec_delete")?);
             let az_string_pair_vec_deep_copy: extern "C" fn(_:  &AzStringPairVec) -> AzStringPairVec = transmute(lib.get(b"az_string_pair_vec_deep_copy")?);
             let az_string_pair_vec_fmt_debug: extern "C" fn(_:  &AzStringPairVec) -> AzString = transmute(lib.get(b"az_string_pair_vec_fmt_debug")?);
-            let az_gradient_stop_pre_vec_copy_from: extern "C" fn(_:  *mut AzGradientStopPre, _:  usize) -> AzGradientStopPreVec = transmute(lib.get(b"az_gradient_stop_pre_vec_copy_from")?);
+            let az_gradient_stop_pre_vec_new: extern "C" fn() -> AzGradientStopPreVec = transmute(lib.get(b"az_gradient_stop_pre_vec_new")?);
+            let az_gradient_stop_pre_vec_with_capacity: extern "C" fn(_:  usize) -> AzGradientStopPreVec = transmute(lib.get(b"az_gradient_stop_pre_vec_with_capacity")?);
+            let az_gradient_stop_pre_vec_copy_from: extern "C" fn(_:  *const AzGradientStopPre, _:  usize) -> AzGradientStopPreVec = transmute(lib.get(b"az_gradient_stop_pre_vec_copy_from")?);
             let az_gradient_stop_pre_vec_delete: extern "C" fn(_:  &mut AzGradientStopPreVec) = transmute(lib.get(b"az_gradient_stop_pre_vec_delete")?);
             let az_gradient_stop_pre_vec_deep_copy: extern "C" fn(_:  &AzGradientStopPreVec) -> AzGradientStopPreVec = transmute(lib.get(b"az_gradient_stop_pre_vec_deep_copy")?);
             let az_gradient_stop_pre_vec_fmt_debug: extern "C" fn(_:  &AzGradientStopPreVec) -> AzString = transmute(lib.get(b"az_gradient_stop_pre_vec_fmt_debug")?);
@@ -4823,70 +4891,104 @@
                 az_string_partial_cmp,
                 az_string_cmp,
                 az_string_hash,
+                az_x_window_type_vec_new,
+                az_x_window_type_vec_with_capacity,
                 az_x_window_type_vec_copy_from,
                 az_x_window_type_vec_delete,
                 az_x_window_type_vec_deep_copy,
                 az_x_window_type_vec_fmt_debug,
+                az_virtual_key_code_vec_new,
+                az_virtual_key_code_vec_with_capacity,
                 az_virtual_key_code_vec_copy_from,
                 az_virtual_key_code_vec_delete,
                 az_virtual_key_code_vec_deep_copy,
                 az_virtual_key_code_vec_fmt_debug,
+                az_scan_code_vec_new,
+                az_scan_code_vec_with_capacity,
                 az_scan_code_vec_copy_from,
                 az_scan_code_vec_delete,
                 az_scan_code_vec_deep_copy,
                 az_scan_code_vec_fmt_debug,
+                az_css_declaration_vec_new,
+                az_css_declaration_vec_with_capacity,
                 az_css_declaration_vec_copy_from,
                 az_css_declaration_vec_delete,
                 az_css_declaration_vec_deep_copy,
                 az_css_declaration_vec_fmt_debug,
+                az_css_path_selector_vec_new,
+                az_css_path_selector_vec_with_capacity,
                 az_css_path_selector_vec_copy_from,
                 az_css_path_selector_vec_delete,
                 az_css_path_selector_vec_deep_copy,
                 az_css_path_selector_vec_fmt_debug,
+                az_stylesheet_vec_new,
+                az_stylesheet_vec_with_capacity,
                 az_stylesheet_vec_copy_from,
                 az_stylesheet_vec_delete,
                 az_stylesheet_vec_deep_copy,
                 az_stylesheet_vec_fmt_debug,
+                az_css_rule_block_vec_new,
+                az_css_rule_block_vec_with_capacity,
                 az_css_rule_block_vec_copy_from,
                 az_css_rule_block_vec_delete,
                 az_css_rule_block_vec_deep_copy,
                 az_css_rule_block_vec_fmt_debug,
+                az_u8_vec_new,
+                az_u8_vec_with_capacity,
                 az_u8_vec_copy_from,
                 az_u8_vec_delete,
                 az_u8_vec_deep_copy,
                 az_u8_vec_fmt_debug,
+                az_callback_data_vec_new,
+                az_callback_data_vec_with_capacity,
                 az_callback_data_vec_copy_from,
                 az_callback_data_vec_delete,
                 az_callback_data_vec_deep_copy,
                 az_callback_data_vec_fmt_debug,
+                az_debug_message_vec_new,
+                az_debug_message_vec_with_capacity,
                 az_debug_message_vec_copy_from,
                 az_debug_message_vec_delete,
                 az_debug_message_vec_deep_copy,
                 az_debug_message_vec_fmt_debug,
+                az_g_luint_vec_new,
+                az_g_luint_vec_with_capacity,
                 az_g_luint_vec_copy_from,
                 az_g_luint_vec_delete,
                 az_g_luint_vec_deep_copy,
                 az_g_luint_vec_fmt_debug,
+                az_g_lint_vec_new,
+                az_g_lint_vec_with_capacity,
                 az_g_lint_vec_copy_from,
                 az_g_lint_vec_delete,
                 az_g_lint_vec_deep_copy,
                 az_g_lint_vec_fmt_debug,
+                az_override_property_vec_new,
+                az_override_property_vec_with_capacity,
                 az_override_property_vec_copy_from,
                 az_override_property_vec_delete,
                 az_override_property_vec_deep_copy,
                 az_override_property_vec_fmt_debug,
+                az_dom_vec_new,
+                az_dom_vec_with_capacity,
                 az_dom_vec_copy_from,
                 az_dom_vec_delete,
                 az_dom_vec_deep_copy,
                 az_dom_vec_fmt_debug,
+                az_string_vec_new,
+                az_string_vec_with_capacity,
                 az_string_vec_copy_from,
                 az_string_vec_delete,
                 az_string_vec_deep_copy,
                 az_string_vec_fmt_debug,
+                az_string_pair_vec_new,
+                az_string_pair_vec_with_capacity,
                 az_string_pair_vec_copy_from,
                 az_string_pair_vec_delete,
                 az_string_pair_vec_deep_copy,
                 az_string_pair_vec_fmt_debug,
+                az_gradient_stop_pre_vec_new,
+                az_gradient_stop_pre_vec_with_capacity,
                 az_gradient_stop_pre_vec_copy_from,
                 az_gradient_stop_pre_vec_delete,
                 az_gradient_stop_pre_vec_deep_copy,

@@ -38,13 +38,15 @@
 
     impl crate::str::String {
         #[inline]
-        pub fn as_str<'a>(&'a self) -> &'a str {
-            unsafe { std::str::from_utf8_unchecked(std::slice::from_raw_parts(self.vec.ptr, self.vec.len)) }
+        pub fn as_str(&self) -> &str {
+            unsafe { std::str::from_utf8_unchecked(self.as_bytes()) }
         }
+
         #[inline]
         pub fn as_bytes(&self) -> &[u8] {
             self.vec.as_ref()
         }
+
         #[inline]
         pub fn into_string(self) -> String {
             self.into()
@@ -59,7 +61,7 @@
         pub fn from_utf8_unchecked(ptr: *const u8, len: usize) -> Self { (crate::dll::get_azul_dll().az_string_from_utf8_unchecked)(ptr, len) }
         /// Creates + allocates a Rust `String` by **copying** it from another utf8-encoded string
         pub fn from_utf8_lossy(ptr: *const u8, len: usize) -> Self { (crate::dll::get_azul_dll().az_string_from_utf8_lossy)(ptr, len) }
-        /// Creates + allocates a Rust `String` by **copying** it from another utf8-encoded string
+        /// Returns the internal bytes of the String as a `U8Vec`
         pub fn into_bytes(self)  -> crate::vec::U8Vec { (crate::dll::get_azul_dll().az_string_into_bytes)(self) }
     }
 

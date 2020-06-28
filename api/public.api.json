@@ -16,7 +16,7 @@
 								{"ptr": "*const u8"},
 								{"len": "usize"}
 							],
-							"fn_body": "unsafe { let slice = std::slice::from_raw_parts(ptr, len); let vec = slice.to_vec(); let s = AzString::from_utf8_unchecked(vec.into()); println!(\"copied string from exe to dll memory: {:?}\", s); s }"
+							"fn_body": "AzString::from_utf8_unchecked(ptr, len)"
 						},
 						"from_utf8_lossy": {
 							"doc": "Creates + allocates a Rust `String` by **copying** it from another utf8-encoded string",
@@ -24,12 +24,12 @@
 								{"ptr": "*const u8"},
 								{"len": "usize"}
 							],
-							"fn_body": "unsafe { let slice = std::slice::from_raw_parts(ptr, len); let s = AzString::from_utf8_lossy(slice); println!(\"copied string from exe to dll memory: {:?}\", s); s }"
+							"fn_body": "AzString::from_utf8_lossy(ptr, len)"
 						}
 					},
 					"functions": {
 						"into_bytes": {
-							"doc": "Creates + allocates a Rust `String` by **copying** it from another utf8-encoded string",
+							"doc": "Returns the internal bytes of the String as a `U8Vec`",
 							"fn_args": [
 								{"self": "value"}
 							],
@@ -52,10 +52,21 @@
 						{ "cap": { "type": "usize" } }
 					],
 					"constructors": {
+						"new": {
+							"doc": "Creates a new, empty Rust `Vec<XWindowType>`",
+							"fn_body": "Vec::<AzXWindowType>::new().into()"
+						},
+						"with_capacity": {
+							"doc": "Creates a new, empty Rust `Vec<XWindowType>` with a given, pre-allocated capacity",
+							"fn_args": [
+							    {"cap": "usize"}
+							],
+							"fn_body": "Vec::<AzXWindowType>::with_capacity(cap).into()"
+						},
 					    "copy_from": {
 					        "doc": "Creates + allocates a Rust `Vec<XWindowType>` by **copying** it from a bytes source",
 					        "fn_args": [
-					            {"ptr": "*mut XWindowType"},
+					            {"ptr": "*const XWindowType"},
 					            {"len": "usize"}
 					        ],
 					        "fn_body": "unsafe { std::slice::from_raw_parts(ptr, len).iter().cloned().collect::<Vec<_>>() }.into()"
@@ -71,10 +82,21 @@
 						{ "cap": { "type": "usize" } }
 					],
 					"constructors": {
+						"new": {
+							"doc": "Creates a new, empty Rust `Vec<VirtualKeyCode>`",
+							"fn_body": "Vec::<AzVirtualKeyCode>::new().into()"
+						},
+						"with_capacity": {
+							"doc": "Creates a new, empty Rust `Vec<VirtualKeyCode>` with a given, pre-allocated capacity",
+							"fn_args": [
+							    {"cap": "usize"}
+							],
+							"fn_body": "Vec::<AzVirtualKeyCode>::with_capacity(cap).into()"
+						},
 					    "copy_from": {
 					        "doc": "Creates + allocates a Rust `Vec<VirtualKeyCode>` by **copying** it from a bytes source",
 					        "fn_args": [
-					            {"ptr": "*mut VirtualKeyCode"},
+					            {"ptr": "*const VirtualKeyCode"},
 					            {"len": "usize"}
 					        ],
 					        "fn_body": "unsafe { std::slice::from_raw_parts(ptr, len).iter().cloned().collect::<Vec<_>>() }.into()"
@@ -90,10 +112,21 @@
 						{ "cap": { "type": "usize" } }
 					],
 					"constructors": {
+						"new": {
+							"doc": "Creates a new, empty Rust `Vec<ScanCode>`",
+							"fn_body": "Vec::<u32>::new().into()"
+						},
+						"with_capacity": {
+							"doc": "Creates a new, empty Rust `Vec<ScanCode>` with a given, pre-allocated capacity",
+							"fn_args": [
+							    {"cap": "usize"}
+							],
+							"fn_body": "Vec::<u32>::with_capacity(cap).into()"
+						},
 					    "copy_from": {
 					        "doc": "Creates + allocates a Rust `Vec<ScanCode>` by **copying** it from a bytes source",
 					        "fn_args": [
-					            {"ptr": "*mut u32"},
+					            {"ptr": "*const u32"},
 					            {"len": "usize"}
 					        ],
 					        "fn_body": "unsafe { std::slice::from_raw_parts(ptr, len).iter().cloned().collect::<Vec<_>>() }.into()"
@@ -109,10 +142,21 @@
 						{ "cap": { "type": "usize" } }
 					],
 					"constructors": {
+						"new": {
+							"doc": "Creates a new, empty Rust `Vec<CssDeclaration>`",
+							"fn_body": "Vec::<AzCssDeclaration>::new().into()"
+						},
+						"with_capacity": {
+							"doc": "Creates a new, empty Rust `Vec<CssDeclaration>` with a given, pre-allocated capacity",
+							"fn_args": [
+							    {"cap": "usize"}
+							],
+							"fn_body": "Vec::<AzCssDeclaration>::with_capacity(cap).into()"
+						},
 					    "copy_from": {
 					        "doc": "Creates + allocates a Rust `Vec<CssDeclaration>` by **copying** it from a bytes source",
 					        "fn_args": [
-					            {"ptr": "*mut CssDeclaration"},
+					            {"ptr": "*const CssDeclaration"},
 					            {"len": "usize"}
 					        ],
 					        "fn_body": "unsafe { std::slice::from_raw_parts(ptr, len).iter().cloned().collect::<Vec<_>>() }.into()"
@@ -128,10 +172,21 @@
 						{ "cap": { "type": "usize" } }
 					],
 					"constructors": {
+						"new": {
+							"doc": "Creates a new, empty Rust `Vec<CssPathSelector>`",
+							"fn_body": "Vec::<AzCssPathSelector>::new().into()"
+						},
+						"with_capacity": {
+							"doc": "Creates a new, empty Rust `Vec<CssPathSelector>` with a given, pre-allocated capacity",
+							"fn_args": [
+							    {"cap": "usize"}
+							],
+							"fn_body": "Vec::<AzCssPathSelector>::with_capacity(cap).into()"
+						},
 					    "copy_from": {
 					        "doc": "Creates + allocates a Rust `Vec<CssPathSelector>` by **copying** it from a bytes source",
 					        "fn_args": [
-					            {"ptr": "*mut CssPathSelector"},
+					            {"ptr": "*const CssPathSelector"},
 					            {"len": "usize"}
 					        ],
 					        "fn_body": "unsafe { std::slice::from_raw_parts(ptr, len).iter().cloned().collect::<Vec<_>>() }.into()"
@@ -147,10 +202,21 @@
 						{ "cap": { "type": "usize" } }
 					],
 					"constructors": {
+						"new": {
+							"doc": "Creates a new, empty Rust `Vec<Stylesheet>`",
+							"fn_body": "Vec::<AzStylesheet>::new().into()"
+						},
+						"with_capacity": {
+							"doc": "Creates a new, empty Rust `Vec<Stylesheet>` with a given, pre-allocated capacity",
+							"fn_args": [
+							    {"cap": "usize"}
+							],
+							"fn_body": "Vec::<AzStylesheet>::with_capacity(cap).into()"
+						},
 					    "copy_from": {
 					        "doc": "Creates + allocates a Rust `Vec<Stylesheet>` by **copying** it from a bytes source",
 					        "fn_args": [
-					            {"ptr": "*mut Stylesheet"},
+					            {"ptr": "*const Stylesheet"},
 					            {"len": "usize"}
 					        ],
 					        "fn_body": "unsafe { std::slice::from_raw_parts(ptr, len).iter().cloned().collect::<Vec<_>>() }.into()"
@@ -166,10 +232,21 @@
 						{ "cap": { "type": "usize" } }
 					],
 					"constructors": {
+						"new": {
+							"doc": "Creates a new, empty Rust `Vec<CssRuleBlock>`",
+							"fn_body": "Vec::<AzCssRuleBlock>::new().into()"
+						},
+						"with_capacity": {
+							"doc": "Creates a new, empty Rust `Vec<CssRuleBlock>` with a given, pre-allocated capacity",
+							"fn_args": [
+							    {"cap": "usize"}
+							],
+							"fn_body": "Vec::<AzCssRuleBlock>::with_capacity(cap).into()"
+						},
 					    "copy_from": {
 					        "doc": "Creates + allocates a Rust `Vec<CssRuleBlock>` by **copying** it from a bytes source",
 					        "fn_args": [
-					            {"ptr": "*mut CssRuleBlock"},
+					            {"ptr": "*const CssRuleBlock"},
 					            {"len": "usize"}
 					        ],
 					        "fn_body": "unsafe { std::slice::from_raw_parts(ptr, len).iter().cloned().collect::<Vec<_>>() }.into()"
@@ -185,10 +262,21 @@
 						{ "cap": { "type": "usize" } }
 					],
 					"constructors": {
+						"new": {
+							"doc": "Creates a new, empty Rust `Vec<u8>`",
+							"fn_body": "Vec::<u8>::new().into()"
+						},
+						"with_capacity": {
+							"doc": "Creates a new, empty Rust `Vec<u8>` with a given, pre-allocated capacity",
+							"fn_args": [
+							    {"cap": "usize"}
+							],
+							"fn_body": "Vec::<u8>::with_capacity(cap).into()"
+						},
 					    "copy_from": {
 					        "doc": "Creates + allocates a Rust `Vec<u8>` by **copying** it from a bytes source",
 					        "fn_args": [
-					            {"ptr": "*mut u8"},
+					            {"ptr": "*const u8"},
 					            {"len": "usize"}
 					        ],
 					        "fn_body": "unsafe { std::slice::from_raw_parts(ptr, len).to_vec() }.into()"
@@ -204,10 +292,21 @@
 						{ "cap": { "type": "usize" } }
 					],
 					"constructors": {
+						"new": {
+							"doc": "Creates a new, empty Rust `Vec<CallbackData>`",
+							"fn_body": "Vec::<AzCallbackData>::new().into()"
+						},
+						"with_capacity": {
+							"doc": "Creates a new, empty Rust `Vec<CallbackData>` with a given, pre-allocated capacity",
+							"fn_args": [
+							    {"cap": "usize"}
+							],
+							"fn_body": "Vec::<AzCallbackData>::with_capacity(cap).into()"
+						},
 					    "copy_from": {
 					        "doc": "Creates + allocates a Rust `Vec<CallbackData>` by **copying** it from a bytes source",
 					        "fn_args": [
-					            {"ptr": "*mut CallbackData"},
+					            {"ptr": "*const CallbackData"},
 					            {"len": "usize"}
 					        ],
 					        "fn_body": "unsafe { std::slice::from_raw_parts(ptr, len).iter().cloned().collect::<Vec<_>>() }.into()"
@@ -223,10 +322,21 @@
 						{ "cap": { "type": "usize" } }
 					],
 					"constructors": {
+						"new": {
+							"doc": "Creates a new, empty Rust `Vec<DebugMessage>`",
+							"fn_body": "Vec::<AzDebugMessage>::new().into()"
+						},
+						"with_capacity": {
+							"doc": "Creates a new, empty Rust `Vec<DebugMessage>` with a given, pre-allocated capacity",
+							"fn_args": [
+							    {"cap": "usize"}
+							],
+							"fn_body": "Vec::<AzDebugMessage>::with_capacity(cap).into()"
+						},
 					    "copy_from": {
 					        "doc": "Creates + allocates a Rust `Vec<DebugMessage>` by **copying** it from a bytes source",
 					        "fn_args": [
-					            {"ptr": "*mut DebugMessage"},
+					            {"ptr": "*const DebugMessage"},
 					            {"len": "usize"}
 					        ],
 					        "fn_body": "unsafe { std::slice::from_raw_parts(ptr, len).iter().cloned().collect::<Vec<_>>() }.into()"
@@ -242,10 +352,21 @@
 						{ "cap": { "type": "usize" } }
 					],
 					"constructors": {
+						"new": {
+							"doc": "Creates a new, empty Rust `Vec<u32>`",
+							"fn_body": "Vec::<u32>::new().into()"
+						},
+						"with_capacity": {
+							"doc": "Creates a new, empty Rust `Vec<u32>` with a given, pre-allocated capacity",
+							"fn_args": [
+							    {"cap": "usize"}
+							],
+							"fn_body": "Vec::<u32>::with_capacity(cap).into()"
+						},
 					    "copy_from": {
 					        "doc": "Creates + allocates a Rust `Vec<u32>` by **copying** it from a bytes source",
 					        "fn_args": [
-					            {"ptr": "*mut u32"},
+					            {"ptr": "*const u32"},
 					            {"len": "usize"}
 					        ],
 					        "fn_body": "unsafe { std::slice::from_raw_parts(ptr, len).to_vec() }.into()"
@@ -261,10 +382,21 @@
 						{ "cap": { "type": "usize" } }
 					],
 					"constructors": {
+						"new": {
+							"doc": "Creates a new, empty Rust `Vec<GLint>`",
+							"fn_body": "Vec::<i32>::new().into()"
+						},
+						"with_capacity": {
+							"doc": "Creates a new, empty Rust `Vec<GLint>` with a given, pre-allocated capacity",
+							"fn_args": [
+							    {"cap": "usize"}
+							],
+							"fn_body": "Vec::<i32>::with_capacity(cap).into()"
+						},
 					    "copy_from": {
-					        "doc": "Creates + allocates a Rust `Vec<u32>` by **copying** it from a bytes source",
+					        "doc": "Creates + allocates a Rust `Vec<GLint>` by **copying** it from a bytes source",
 					        "fn_args": [
-					            {"ptr": "*mut i32"},
+					            {"ptr": "*const i32"},
 					            {"len": "usize"}
 					        ],
 					        "fn_body": "unsafe { std::slice::from_raw_parts(ptr, len).to_vec() }.into()"
@@ -280,10 +412,21 @@
 						{ "cap": { "type": "usize" } }
 					],
 					"constructors": {
+						"new": {
+							"doc": "Creates a new, empty Rust `Vec<OverrideProperty>`",
+							"fn_body": "Vec::<AzOverrideProperty>::new().into()"
+						},
+						"with_capacity": {
+							"doc": "Creates a new, empty Rust `Vec<OverrideProperty>` with a given, pre-allocated capacity",
+							"fn_args": [
+							    {"cap": "usize"}
+							],
+							"fn_body": "Vec::<AzOverrideProperty>::with_capacity(cap).into()"
+						},
 					    "copy_from": {
 					        "doc": "Creates + allocates a Rust `Vec<OverrideProperty>` by **copying** it from a bytes source",
 					        "fn_args": [
-					            {"ptr": "*mut OverrideProperty"},
+					            {"ptr": "*const OverrideProperty"},
 					            {"len": "usize"}
 					        ],
 					        "fn_body": "unsafe { std::slice::from_raw_parts(ptr, len).iter().cloned().collect::<Vec<_>>() }.into()"
@@ -299,10 +442,21 @@
 						{ "cap": { "type": "usize" } }
 					],
 					"constructors": {
+						"new": {
+							"doc": "Creates a new, empty Rust `Vec<Dom>`",
+							"fn_body": "Vec::<AzDom>::new().into()"
+						},
+						"with_capacity": {
+							"doc": "Creates a new, empty Rust `Vec<Dom>` with a given, pre-allocated capacity",
+							"fn_args": [
+							    {"cap": "usize"}
+							],
+							"fn_body": "Vec::<AzDom>::with_capacity(cap).into()"
+						},
 					    "copy_from": {
 					        "doc": "Creates + allocates a Rust `Vec<Dom>` by **copying** it from a bytes source",
 					        "fn_args": [
-					            {"ptr": "*mut Dom"},
+					            {"ptr": "*const Dom"},
 					            {"len": "usize"}
 					        ],
 					        "fn_body": "unsafe { std::slice::from_raw_parts(ptr, len).iter().cloned().collect::<Vec<_>>() }.into()"
@@ -318,13 +472,24 @@
 						{ "cap": { "type": "usize" } }
 					],
 					"constructors": {
+						"new": {
+							"doc": "Creates a new, empty Rust `Vec<String>`",
+							"fn_body": "Vec::<AzString>::new().into()"
+						},
+						"with_capacity": {
+							"doc": "Creates a new, empty Rust `Vec<String>` with a given, pre-allocated capacity",
+							"fn_args": [
+							    {"cap": "usize"}
+							],
+							"fn_body": "Vec::<AzString>::with_capacity(cap).into()"
+						},
 					    "copy_from": {
 					        "doc": "Creates + allocates a Rust `Vec<String>` by **copying** it from a bytes source",
 					        "fn_args": [
-					            {"ptr": "*mut String"},
+					            {"ptr": "*const String"},
 					            {"len": "usize"}
 					        ],
-					        "fn_body": "unsafe { std::slice::from_raw_parts(ptr, len).into_iter().map(|s| s.clone()).collect::<Vec<_>>() }.into()"
+					        "fn_body": "unsafe { std::slice::from_raw_parts(ptr, len).iter().cloned().collect::<Vec<_>>() }.into()"
 					    }
 					}
 				},
@@ -337,13 +502,24 @@
 						{ "cap": { "type": "usize" } }
 					],
 					"constructors": {
+						"new": {
+							"doc": "Creates a new, empty Rust `Vec<StringPair>`",
+							"fn_body": "Vec::<AzStringPair>::new().into()"
+						},
+						"with_capacity": {
+							"doc": "Creates a new, empty Rust `Vec<StringPair>` with a given, pre-allocated capacity",
+							"fn_args": [
+							    {"cap": "usize"}
+							],
+							"fn_body": "Vec::<AzStringPair>::with_capacity(cap).into()"
+						},
 					    "copy_from": {
 					        "doc": "Creates + allocates a Rust `Vec<StringPair>` by **copying** it from a bytes source",
 					        "fn_args": [
-					            {"ptr": "*mut StringPair"},
+					            {"ptr": "*const StringPair"},
 					            {"len": "usize"}
 					        ],
-					        "fn_body": "unsafe { std::slice::from_raw_parts(ptr, len).into_iter().map(|s| s.clone()).collect::<Vec<_>>() }.into()"
+					        "fn_body": "unsafe { std::slice::from_raw_parts(ptr, len).iter().cloned().collect::<Vec<_>>() }.into()"
 					    }
 					}
 				},
@@ -356,13 +532,24 @@
 						{ "cap": { "type": "usize" } }
 					],
 					"constructors": {
+						"new": {
+							"doc": "Creates a new, empty Rust `Vec<GradientStopPre>`",
+							"fn_body": "Vec::<AzGradientStopPre>::new().into()"
+						},
+						"with_capacity": {
+							"doc": "Creates a new, empty Rust `Vec<GradientStopPre>` with a given, pre-allocated capacity",
+							"fn_args": [
+							    {"cap": "usize"}
+							],
+							"fn_body": "Vec::<AzGradientStopPre>::with_capacity(cap).into()"
+						},
 					    "copy_from": {
 					        "doc": "Creates + allocates a Rust `Vec<GradientStopPre>` by **copying** it from a bytes source",
 					        "fn_args": [
-					            {"ptr": "*mut GradientStopPre"},
+					            {"ptr": "*const GradientStopPre"},
 					            {"len": "usize"}
 					        ],
-					        "fn_body": "unsafe { std::slice::from_raw_parts(ptr, len).into_iter().map(|s| s.clone()).collect::<Vec<_>>() }.into()"
+					        "fn_body": "unsafe { std::slice::from_raw_parts(ptr, len).iter().cloned().collect::<Vec<_>>() }.into()"
 					    }
 					}
 				}

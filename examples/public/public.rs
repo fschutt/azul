@@ -2,6 +2,7 @@
 
 use azul::prelude::*;
 
+/*
 struct Data {
     counter: usize,
 }
@@ -16,11 +17,20 @@ extern "C" fn layout(data: RefAny, _info: LayoutInfo) -> Dom {
 
     dom
 }
+*/
 
 fn main() {
+
+    /*
     let data = Data {
         counter: 5,
     };
     let app = App::new(RefAny::new(data), AppConfig::default(), layout);
     app.run(WindowCreateOptions::new(Css::native()));
+    */
+
+    loop {
+        let s: azul::str::String = format!("hello: 5").into();
+        println!("string: {}", s);
+    }
 }

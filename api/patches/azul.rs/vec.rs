@@ -8,88 +8,72 @@
 
         impl $struct_name {
 
-            pub fn new() -> Self {
-                Vec::<$struct_type>::new().into()
-            }
-
-            pub fn clear(&mut self) {
-                let mut v: Vec<$struct_type> = unsafe { Vec::from_raw_parts(self.ptr, self.len, self.cap) };
-                v.clear();
-                std::mem::forget(v);
-            }
-
-            pub fn sort_by<F: FnMut(&$struct_type, &$struct_type) -> std::cmp::Ordering>(&mut self, compare: F) {
-                let v1: &mut [$struct_type] = unsafe { std::slice::from_raw_parts_mut(self.ptr, self.len) };
-                v1.sort_by(compare);
-            }
-
-            pub fn with_capacity(cap: usize) -> Self {
-                Vec::<$struct_type>::with_capacity(cap).into()
-            }
-
-            pub fn push(&mut self, val: $struct_type) {
-                let mut v: Vec<$struct_type> = unsafe { Vec::from_raw_parts(self.ptr, self.len, self.cap) };
-                v.push(val);
-                std::mem::forget(v);
-            }
-
+            #[inline]
             pub fn iter(&self) -> std::slice::Iter<$struct_type> {
-                let v1: &[$struct_type] = unsafe { std::slice::from_raw_parts(self.ptr, self.len) };
-                v1.iter()
+                self.as_ref().iter()
             }
 
-            pub fn iter_mut(&mut self) -> std::slice::IterMut<$struct_type> {
-                let v1: &mut [$struct_type] = unsafe { std::slice::from_raw_parts_mut(self.ptr, self.len) };
-                v1.iter_mut()
-            }
-
+            #[inline]
             pub fn into_iter(self) -> std::vec::IntoIter<$struct_type> {
-                let v1: Vec<$struct_type> = unsafe { std::vec::Vec::from_raw_parts(self.ptr, self.len, self.cap) };
-                std::mem::forget(self); // do not run destructor of self
+                let v1: Vec<$struct_type> = self.into();
                 v1.into_iter()
             }
 
-            pub fn as_ptr(&self) -> *const $struct_type {
-                self.ptr as *const $struct_type
+            #[inline]
+            pub fn iter_mut(&mut self) -> std::slice::IterMut<$struct_type> {
+                self.as_mut().iter_mut()
             }
 
+            #[inline]
+            pub fn ptr_as_usize(&self) -> usize {
+                self.ptr as usize
+            }
+
+            #[inline]
+            pub fn as_mut_ptr(&mut self) -> *mut $struct_type {
+                self.ptr
+            }
+
+            #[inline]
             pub fn len(&self) -> usize {
                 self.len
             }
 
+            #[inline]
+            pub fn capacity(&self) -> usize {
+                self.cap
+            }
+
+            #[inline]
             pub fn is_empty(&self) -> bool {
                 self.len == 0
             }
 
-            pub fn cap(&self) -> usize {
-                self.cap
-            }
-
             pub fn get(&self, index: usize) -> Option<&$struct_type> {
-                let v1: &[$struct_type] = unsafe { std::slice::from_raw_parts(self.ptr, self.len) };
-                let res = v1.get(index);
-                res
+                self.as_ref().get(index)
             }
 
-            pub fn foreach<U, F: FnMut(&$struct_type) -> Result<(), U>>(&self, mut closure: F) -> Result<(), U> {
-                let v1: &[$struct_type] = unsafe { std::slice::from_raw_parts(self.ptr, self.len) };
-                for i in v1.iter() { closure(i)?; }
-                Ok(())
-            }
-
-            /// Same as Vec::into_raw_parts(self), prevents destructor from running
-            fn into_raw_parts(mut v: Vec<$struct_type>) -> (*mut $struct_type, usize, usize) {
-                let ptr = v.as_mut_ptr();
-                let len = v.len();
-                let cap = v.capacity();
-                std::mem::forget(v);
-                (ptr, len, cap)
+            #[inline]
+            pub unsafe fn get_unchecked(&self, index: usize) -> &$struct_type {
+                self.as_ref().get_unchecked(index)
             }
         }
 
         impl Default for $struct_name {
             fn default() -> Self {
-                Vec::<$struct_type>::default().into()
+                Self::new()
+            }
+        }
+
+        impl AsRef<[$struct_type]> for $struct_name {
+            fn as_ref(&self) -> &[$struct_type] {
+                unsafe { std::slice::from_raw_parts(self.ptr, self.len) }
+            }
+        }
+
+        impl AsMut<[$struct_type]> for $struct_name {
+            fn as_mut(&mut self) -> &mut [$struct_type] {
+                unsafe { std::slice::from_raw_parts_mut (self.ptr, self.len) }
             }
         }
 
@@ -100,57 +84,32 @@
             }
         }
 
-        impl AsRef<[$struct_type]> for $struct_name {
-            fn as_ref(&self) -> &[$struct_type] {
-                unsafe { std::slice::from_raw_parts(self.ptr, self.len) }
+        impl From<Vec<$struct_type>> for $struct_name {
+            fn from(input: Vec<$struct_type>) -> $struct_name {
+                let s: &[$struct_type] = input.as_ref();
+                s.into()
             }
         }
 
-        impl From<Vec<$struct_type>> for $struct_name {
-            fn from(input: Vec<$struct_type>) -> $struct_name {
-                let (ptr, len, cap) = $struct_name::into_raw_parts(input);
-                $struct_name { ptr, len, cap }
+        impl From<&[$struct_type]> for $struct_name {
+            fn from(input: &[$struct_type]) -> $struct_name {
+                Self::copy_from(input.as_ptr(), input.len())
             }
         }
 
         impl From<$struct_name> for Vec<$struct_type> {
-            fn from(input: $struct_name) -> Vec<$struct_type> {
-                let v = unsafe { Vec::from_raw_parts(input.ptr, input.len, input.cap) };
-                std::mem::forget(input); // don't run the destructor of "input"
-                v
+            fn from(mut input: $struct_name) -> Vec<$struct_type> {
+                unsafe { std::slice::from_raw_parts(input.as_mut_ptr(), input.len()) }.to_vec()
             }
         }
+
+        // Drop, Debug + Clone already implemented by default
     )}
-
-    /*
-    macro_rules! impl_vec_as_hashmap {($struct_type:ident, $struct_name:ident) => (
-        impl $struct_name {
-            pub fn insert_hm_item(&mut self, item: $struct_type) {
-                if !self.contains_hm_item(&item) {
-                    self.push(item);
-                }
-            }
-
-            pub fn contains_hm_item(&self, searched: &$struct_type) -> bool {
-                let v1: &mut [$struct_type] = unsafe { std::slice::from_raw_parts_mut(self.ptr, self.len) };
-                v1.iter().any(|i| i == searched)
-            }
-
-            pub fn remove_hm_item(&mut self, remove_key: &$struct_type) {
-                let mut v: Vec<$struct_type> = unsafe { Vec::from_raw_parts(self.ptr, self.len, self.cap) };
-                v.retain(|v| v == remove_key);
-                std::mem::forget(v);
-            }
-        }
-    )}
-    */
 
     macro_rules! impl_vec_partialord {($struct_type:ident, $struct_name:ident) => (
         impl PartialOrd for $struct_name {
             fn partial_cmp(&self, rhs: &Self) -> Option<std::cmp::Ordering> {
-                let v1: &[$struct_type] = unsafe { std::slice::from_raw_parts(self.ptr, self.len) };
-                let v2: &[$struct_type] = unsafe { std::slice::from_raw_parts(rhs.ptr, rhs.len) };
-                v1.partial_cmp(&v2)
+                self.as_ref().partial_cmp(rhs.as_ref())
             }
         }
     )}
@@ -158,19 +117,15 @@
     macro_rules! impl_vec_ord {($struct_type:ident, $struct_name:ident) => (
         impl Ord for $struct_name {
             fn cmp(&self, rhs: &Self) -> std::cmp::Ordering {
-                let v1: &[$struct_type] = unsafe { std::slice::from_raw_parts(self.ptr, self.len) };
-                let v2: &[$struct_type] = unsafe { std::slice::from_raw_parts(rhs.ptr, rhs.len) };
-                v1.cmp(&v2)
+                self.as_ref().cmp(rhs.as_ref())
             }
         }
     )}
 
     macro_rules! impl_vec_partialeq {($struct_type:ident, $struct_name:ident) => (
         impl PartialEq for $struct_name {
-            fn eq(&self, other: &Self) -> bool {
-                let v1: &[$struct_type] = unsafe { std::slice::from_raw_parts(self.ptr, self.len) };
-                let v2: &[$struct_type] = unsafe { std::slice::from_raw_parts(other.ptr, other.len) };
-                v1.eq(v2)
+            fn eq(&self, rhs: &Self) -> bool {
+                self.as_ref().eq(rhs.as_ref())
             }
         }
     )}
@@ -182,8 +137,7 @@
     macro_rules! impl_vec_hash {($struct_type:ident, $struct_name:ident) => (
         impl std::hash::Hash for $struct_name {
             fn hash<H>(&self, state: &mut H) where H: std::hash::Hasher {
-                let v1: &[$struct_type] = unsafe { std::slice::from_raw_parts(self.ptr, self.len) };
-                v1.hash(state);
+                self.as_ref().hash(state);
             }
         }
     )}
@@ -253,24 +207,18 @@
 
     impl From<std::vec::Vec<std::string::String>> for crate::vec::StringVec {
         fn from(v: std::vec::Vec<std::string::String>) -> crate::vec::StringVec {
-            let mut vec: Vec<AzString> = v.into_iter().map(|i| {
-                let i: std::vec::Vec<u8> = i.into_bytes();
-                (crate::dll::get_azul_dll().az_string_from_utf8_unchecked)(i.as_ptr(), i.len())
-            }).collect();
-
+            let mut vec: Vec<AzString> = v.into_iter().map(Into::into).collect();
             (crate::dll::get_azul_dll().az_string_vec_copy_from)(vec.as_mut_ptr(), vec.len())
         }
     }
 
     impl From<crate::vec::StringVec> for std::vec::Vec<std::string::String> {
         fn from(v: crate::vec::StringVec) -> std::vec::Vec<std::string::String> {
-            unsafe { std::slice::from_raw_parts(v.ptr, v.len) }
+            v
+            .as_ref()
             .iter()
-            .map(|s| unsafe {
-                let s: AzString = (crate::dll::get_azul_dll().az_string_deep_copy)(s);
-                let s_vec: std::vec::Vec<u8> = s.into_bytes().into();
-                std::string::String::from_utf8_unchecked(s_vec)
-            })
+            .cloned()
+            .map(Into::into)
             .collect()
 
             // delete() not necessary because StringVec is stack-allocated
