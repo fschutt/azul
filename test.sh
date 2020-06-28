@@ -10,7 +10,7 @@ mkdir -p ~/.cargo/lib/azul-dll-0.0.1/target/release
 # build the DLL
 cd ./azul-dll
 RUSTFLAGS='-C link-arg=-s' cargo build --all-features --release
-# cargo build --all-features --release
+# cargo build --all-features
 # cargo install --path .
 cd ..
 

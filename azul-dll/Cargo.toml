@@ -23,14 +23,14 @@ crate-type = ["cdylib"]
 doc = false
 
 [profile.dev]
-opt-level = 1
-lto = false
+opt-level = 3
+lto = "fat"
 panic = "abort"
-debug = false
+debug = true
 
 [profile.release]
 opt-level = 3
-lto = true
+lto = "fat"
 panic = "abort"
 codegen-units = 1
 debug = false

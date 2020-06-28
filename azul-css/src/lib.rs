@@ -167,6 +167,8 @@ macro_rules! impl_vec {($struct_type:ident, $struct_name:ident) => (
             self.ptr = res as *mut $struct_type;
             self.cap = new_cap;
 
+            println!("allocating {} bytes for ptr {}", new_layout.size(), self.ptr as usize);
+
             Ok(())
         }
 
@@ -271,12 +273,7 @@ macro_rules! impl_vec {($struct_type:ident, $struct_name:ident) => (
 
     impl Drop for $struct_name {
         fn drop(&mut self) {
-            let elem_size = std::mem::size_of::<$struct_type>();
-            if elem_size != 0 {
-                if let Some(layout) = self.current_layout() {
-                    unsafe { std::alloc::dealloc(self.ptr as *mut u8, layout) };
-                }
-            }
+            let _ = unsafe { Vec::from_raw_parts(self.ptr, self.len, self.cap) };
         }
     }
 )}
