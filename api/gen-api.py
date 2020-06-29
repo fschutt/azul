@@ -602,16 +602,19 @@ def generate_rust_dll(apiData):
 
                     # Generate the destructor for an enum
                     stack_delete_body = ""
-                    if class_is_small_enum(c):
-                        stack_delete_body += "match object { "
-                        for enum_variant in c["enum_fields"]:
-                            enum_variant_name = list(enum_variant.keys())[0]
-                            enum_variant = list(enum_variant.values())[0]
-                            if "type" in enum_variant.keys():
-                                stack_delete_body += c["external"] + "::" + enum_variant_name + "(_) => { }, "
-                            else:
-                                stack_delete_body += c["external"] + "::" + enum_variant_name + " => { }, "
-                        stack_delete_body += "}\r\n"
+                    if "destructor" in c.keys():
+                        stack_delete_body = c["destructor"]
+                    else:
+                        if class_is_small_enum(c):
+                            stack_delete_body += "match object { "
+                            for enum_variant in c["enum_fields"]:
+                                enum_variant_name = list(enum_variant.keys())[0]
+                                enum_variant = list(enum_variant.values())[0]
+                                if "type" in enum_variant.keys():
+                                    stack_delete_body += c["external"] + "::" + enum_variant_name + "(_) => { }, "
+                                else:
+                                    stack_delete_body += c["external"] + "::" + enum_variant_name + " => { }, "
+                            stack_delete_body += "}\r\n"
 
                     # az_item_delete()
                     code += "/// Destructor: Takes ownership of the `" + class_name + "` pointer and deletes it.\r\n"

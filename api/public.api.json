@@ -36,7 +36,8 @@
 							"returns": "U8Vec",
 							"fn_body": "string.into_bytes()"
 						}
-					}
+					},
+					"destructor": "az_u8_vec_delete(&mut object.vec);"
 				}
 			}
 		},
@@ -71,7 +72,8 @@
 					        ],
 					        "fn_body": "unsafe { std::slice::from_raw_parts(ptr, len).iter().cloned().collect::<Vec<_>>() }.into()"
 					    }
-					}
+					},
+					"destructor": "let _ = unsafe { std::vec::Vec::from_raw_parts(object.as_mut_ptr(), object.len(), object.capacity()) };"
 				},
 				"VirtualKeyCodeVec": {
 					"doc": "Wrapper over a Rust-allocated `VirtualKeyCode`",
@@ -101,7 +103,8 @@
 					        ],
 					        "fn_body": "unsafe { std::slice::from_raw_parts(ptr, len).iter().cloned().collect::<Vec<_>>() }.into()"
 					    }
-					}
+					},
+					"destructor": "let _ = unsafe { std::vec::Vec::from_raw_parts(object.as_mut_ptr(), object.len(), object.capacity()) };"
 				},
 				"ScanCodeVec": {
 					"doc": "Wrapper over a Rust-allocated `ScanCode`",
@@ -131,7 +134,8 @@
 					        ],
 					        "fn_body": "unsafe { std::slice::from_raw_parts(ptr, len).iter().cloned().collect::<Vec<_>>() }.into()"
 					    }
-					}
+					},
+					"destructor": "let _ = unsafe { std::vec::Vec::from_raw_parts(object.as_mut_ptr(), object.len(), object.capacity()) };"
 				},
 				"CssDeclarationVec": {
 					"doc": "Wrapper over a Rust-allocated `CssDeclaration`",
@@ -161,7 +165,8 @@
 					        ],
 					        "fn_body": "unsafe { std::slice::from_raw_parts(ptr, len).iter().cloned().collect::<Vec<_>>() }.into()"
 					    }
-					}
+					},
+					"destructor": "let _ = unsafe { std::vec::Vec::from_raw_parts(object.as_mut_ptr(), object.len(), object.capacity()) };"
 				},
 				"CssPathSelectorVec": {
 					"doc": "Wrapper over a Rust-allocated `CssPathSelector`",
@@ -191,7 +196,8 @@
 					        ],
 					        "fn_body": "unsafe { std::slice::from_raw_parts(ptr, len).iter().cloned().collect::<Vec<_>>() }.into()"
 					    }
-					}
+					},
+					"destructor": "let _ = unsafe { std::vec::Vec::from_raw_parts(object.as_mut_ptr(), object.len(), object.capacity()) };"
 				},
 				"StylesheetVec": {
 					"doc": "Wrapper over a Rust-allocated `Stylesheet`",
@@ -221,7 +227,8 @@
 					        ],
 					        "fn_body": "unsafe { std::slice::from_raw_parts(ptr, len).iter().cloned().collect::<Vec<_>>() }.into()"
 					    }
-					}
+					},
+					"destructor": "let _ = unsafe { std::vec::Vec::from_raw_parts(object.as_mut_ptr(), object.len(), object.capacity()) };"
 				},
 				"CssRuleBlockVec": {
 					"doc": "Wrapper over a Rust-allocated `CssRuleBlock`",
@@ -251,7 +258,8 @@
 					        ],
 					        "fn_body": "unsafe { std::slice::from_raw_parts(ptr, len).iter().cloned().collect::<Vec<_>>() }.into()"
 					    }
-					}
+					},
+					"destructor": "let _ = unsafe { std::vec::Vec::from_raw_parts(object.as_mut_ptr(), object.len(), object.capacity()) };"
 				},
 				"U8Vec": {
 					"doc": "Wrapper over a Rust-allocated `U8Vec`",
@@ -281,7 +289,8 @@
 					        ],
 					        "fn_body": "unsafe { std::slice::from_raw_parts(ptr, len).to_vec() }.into()"
 					    }
-					}
+					},
+					"destructor": "let _ = unsafe { std::vec::Vec::from_raw_parts(object.as_mut_ptr(), object.len(), object.capacity()) };"
 				},
 				"CallbackDataVec": {
 					"doc": "Wrapper over a Rust-allocated `CallbackData`",
@@ -311,7 +320,8 @@
 					        ],
 					        "fn_body": "unsafe { std::slice::from_raw_parts(ptr, len).iter().cloned().collect::<Vec<_>>() }.into()"
 					    }
-					}
+					},
+					"destructor": "let _ = unsafe { std::vec::Vec::from_raw_parts(object.as_mut_ptr(), object.len(), object.capacity()) };"
 				},
 				"DebugMessageVec": {
 					"doc": "Wrapper over a Rust-allocated `Vec<DebugMessage>`",
@@ -341,7 +351,8 @@
 					        ],
 					        "fn_body": "unsafe { std::slice::from_raw_parts(ptr, len).iter().cloned().collect::<Vec<_>>() }.into()"
 					    }
-					}
+					},
+					"destructor": "let _ = unsafe { std::vec::Vec::from_raw_parts(object.as_mut_ptr(), object.len(), object.capacity()) };"
 				},
 				"GLuintVec": {
 					"doc": "Wrapper over a Rust-allocated `U32Vec`",
@@ -371,7 +382,8 @@
 					        ],
 					        "fn_body": "unsafe { std::slice::from_raw_parts(ptr, len).to_vec() }.into()"
 					    }
-					}
+					},
+					"destructor": "let _ = unsafe { std::vec::Vec::from_raw_parts(object.as_mut_ptr(), object.len(), object.capacity()) };"
 				},
 				"GLintVec": {
 					"doc": "Wrapper over a Rust-allocated `GLintVec`",
@@ -401,7 +413,8 @@
 					        ],
 					        "fn_body": "unsafe { std::slice::from_raw_parts(ptr, len).to_vec() }.into()"
 					    }
-					}
+					},
+					"destructor": "let _ = unsafe { std::vec::Vec::from_raw_parts(object.as_mut_ptr(), object.len(), object.capacity()) };"
 				},
 				"OverridePropertyVec": {
 					"doc": "Wrapper over a Rust-allocated `OverridePropertyVec`",
@@ -431,7 +444,8 @@
 					        ],
 					        "fn_body": "unsafe { std::slice::from_raw_parts(ptr, len).iter().cloned().collect::<Vec<_>>() }.into()"
 					    }
-					}
+					},
+					"destructor": "let _ = unsafe { std::vec::Vec::from_raw_parts(object.as_mut_ptr(), object.len(), object.capacity()) };"
 				},
 				"DomVec": {
 					"doc": "Wrapper over a Rust-allocated `DomVec`",
@@ -461,7 +475,8 @@
 					        ],
 					        "fn_body": "unsafe { std::slice::from_raw_parts(ptr, len).iter().cloned().collect::<Vec<_>>() }.into()"
 					    }
-					}
+					},
+					"destructor": "let _ = unsafe { std::vec::Vec::from_raw_parts(object.as_mut_ptr(), object.len(), object.capacity()) };"
 				},
 				"StringVec": {
 					"doc": "Wrapper over a Rust-allocated `StringVec`",
@@ -491,7 +506,8 @@
 					        ],
 					        "fn_body": "unsafe { std::slice::from_raw_parts(ptr, len).iter().cloned().collect::<Vec<_>>() }.into()"
 					    }
-					}
+					},
+					"destructor": "let _ = unsafe { std::vec::Vec::from_raw_parts(object.as_mut_ptr(), object.len(), object.capacity()) };"
 				},
 				"StringPairVec": {
 					"doc": "Wrapper over a Rust-allocated `StringPairVec`",
@@ -521,7 +537,8 @@
 					        ],
 					        "fn_body": "unsafe { std::slice::from_raw_parts(ptr, len).iter().cloned().collect::<Vec<_>>() }.into()"
 					    }
-					}
+					},
+					"destructor": "let _ = unsafe { std::vec::Vec::from_raw_parts(object.as_mut_ptr(), object.len(), object.capacity()) };"
 				},
 				"GradientStopPreVec": {
 					"doc": "Wrapper over a Rust-allocated `GradientStopPreVec`",
@@ -551,7 +568,8 @@
 					        ],
 					        "fn_body": "unsafe { std::slice::from_raw_parts(ptr, len).iter().cloned().collect::<Vec<_>>() }.into()"
 					    }
-					}
+					},
+					"destructor": "let _ = unsafe { std::vec::Vec::from_raw_parts(object.as_mut_ptr(), object.len(), object.capacity()) };"
 				}
 			}
 		},
