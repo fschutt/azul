@@ -396,9 +396,9 @@ fn create_window_builder_windows(
     let mut window_builder = GlutinWindowBuilder::new()
         .with_transparent(has_transparent_background)
         .with_no_redirection_bitmap(platform_options.no_redirection_bitmap)
-        .with_taskbar_icon(platform_options.taskbar_icon.clone().and_then(|ic| translate_taskbar_icon(ic).ok()));
+        .with_taskbar_icon(platform_options.taskbar_icon.clone().into_option().and_then(|ic| translate_taskbar_icon(ic).ok()));
 
-    if let Some(parent_window) = platform_options.parent_window {
+    if let Some(parent_window) = platform_options.parent_window.into_option() {
         window_builder = window_builder.with_parent_window(parent_window as *mut _);
     }
 
@@ -680,11 +680,11 @@ fn synchronize_os_window_windows_extensions(
     use crate::wr_translate::winit_translate::{translate_window_icon, translate_taskbar_icon};
 
     if old_state.window_icon != new_state.window_icon {
-        window.set_window_icon(new_state.window_icon.clone().and_then(|ic| translate_window_icon(ic).ok()));
+        window.set_window_icon(new_state.window_icon.clone().into_option().and_then(|ic| translate_window_icon(ic).ok()));
     }
 
     if old_state.taskbar_icon != new_state.taskbar_icon {
-        window.set_taskbar_icon(new_state.taskbar_icon.clone().and_then(|ic| translate_taskbar_icon(ic).ok()));
+        window.set_taskbar_icon(new_state.taskbar_icon.clone().into_option().and_then(|ic| translate_taskbar_icon(ic).ok()));
     }
 }
 
@@ -745,8 +745,8 @@ fn initialize_os_window_windows_extensions(
     use glutin::platform::windows::WindowExtWindows;
     use crate::wr_translate::winit_translate::{translate_taskbar_icon, translate_window_icon};
 
-    window.set_window_icon(new_state.window_icon.clone().and_then(|ic| translate_window_icon(ic).ok()));
-    window.set_taskbar_icon(new_state.taskbar_icon.clone().and_then(|ic| translate_taskbar_icon(ic).ok()));
+    window.set_window_icon(new_state.window_icon.clone().into_option().and_then(|ic| translate_window_icon(ic).ok()));
+    window.set_taskbar_icon(new_state.taskbar_icon.clone().into_option().and_then(|ic| translate_taskbar_icon(ic).ok()));
 }
 
 // Linux-specific window options

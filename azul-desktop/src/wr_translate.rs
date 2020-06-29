@@ -731,6 +731,7 @@ const fn wr_translate_font_instance_platform_options(fio: FontInstancePlatformOp
     WrFontInstancePlatformOptions {
         gamma: fio.gamma,
         contrast: fio.contrast,
+        cleartype_level: fio.cleartype_level,
     }
 }
 
