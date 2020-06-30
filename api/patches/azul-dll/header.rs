@@ -37,3 +37,17 @@ use azul_impl::{
     task::{OptionDuration, Timer, DropCheck, Task, Thread},
     gl::{OptionTexture, TextureFlags, Texture, GlContextPtr},
 };
+
+fn deallocate_vec<T>(ptr: *mut T, cap: usize) {
+
+    if cap == 0 {
+        return;
+    }
+
+    let layout = match std::alloc::Layout::array::<T>(cap) {
+        Ok(o) => o,
+        Err(_) => { std::process::exit(-1); },
+    };
+
+    unsafe { std::alloc::dealloc(ptr as *mut u8, layout); }
+}

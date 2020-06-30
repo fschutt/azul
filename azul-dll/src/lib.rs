@@ -42,6 +42,20 @@ use azul_impl::{
     task::{OptionDuration, Timer, DropCheck, Task, Thread},
     gl::{OptionTexture, TextureFlags, Texture, GlContextPtr},
 };
+
+fn deallocate_vec<T>(ptr: *mut T, cap: usize) {
+
+    if cap == 0 {
+        return;
+    }
+
+    let layout = match std::alloc::Layout::array::<T>(cap) {
+        Ok(o) => o,
+        Err(_) => { std::process::exit(-1); },
+    };
+
+    unsafe { std::alloc::dealloc(ptr as *mut u8, layout); }
+}
 /// Re-export of rust-allocated (stack based) `String` struct
 pub type AzStringTT = azul_impl::css::AzString;
 #[no_mangle] pub use AzStringTT as AzString;
@@ -52,7 +66,7 @@ pub type AzStringTT = azul_impl::css::AzString;
 /// Returns the internal bytes of the String as a `U8Vec`
 #[no_mangle] pub extern "C" fn az_string_into_bytes(string: AzString) -> AzU8Vec { string.into_bytes() }
 /// Destructor: Takes ownership of the `String` pointer and deletes it.
-#[no_mangle] #[allow(unused_variables)] pub extern "C" fn az_string_delete(object: &mut AzString) { az_u8_vec_delete(&mut object.vec);}
+#[no_mangle] #[allow(unused_variables)] pub extern "C" fn az_string_delete(object: &mut AzString) { }
 /// Clones the object
 #[no_mangle] pub extern "C" fn az_string_deep_copy(object: &AzString) -> AzString { object.clone() }
 /// Creates a string with the debug representation of the object
@@ -76,7 +90,7 @@ pub type AzXWindowTypeVecTT = azul_impl::window::XWindowTypeVec;
 /// Creates + allocates a Rust `Vec<XWindowType>` by **copying** it from a bytes source
 #[no_mangle] pub extern "C" fn az_x_window_type_vec_copy_from(ptr: *const AzXWindowType, len: usize) -> AzXWindowTypeVec { unsafe { std::slice::from_raw_parts(ptr, len).iter().cloned().collect::<Vec<_>>() }.into() }
 /// Destructor: Takes ownership of the `XWindowTypeVec` pointer and deletes it.
-#[no_mangle] #[allow(unused_variables)] pub extern "C" fn az_x_window_type_vec_delete(object: &mut AzXWindowTypeVec) { let _ = unsafe { std::vec::Vec::from_raw_parts(object.as_mut_ptr(), object.len(), object.capacity()) };}
+#[no_mangle] #[allow(unused_variables)] pub extern "C" fn az_x_window_type_vec_delete(object: &mut AzXWindowTypeVec) { unsafe { std::ptr::drop_in_place(object.as_mut()); } deallocate_vec(object.as_mut_ptr(), object.capacity());}
 /// Clones the object
 #[no_mangle] pub extern "C" fn az_x_window_type_vec_deep_copy(object: &AzXWindowTypeVec) -> AzXWindowTypeVec { object.clone() }
 /// Creates a string with the debug representation of the object
@@ -92,7 +106,7 @@ pub type AzVirtualKeyCodeVecTT = azul_impl::window::VirtualKeyCodeVec;
 /// Creates + allocates a Rust `Vec<VirtualKeyCode>` by **copying** it from a bytes source
 #[no_mangle] pub extern "C" fn az_virtual_key_code_vec_copy_from(ptr: *const AzVirtualKeyCode, len: usize) -> AzVirtualKeyCodeVec { unsafe { std::slice::from_raw_parts(ptr, len).iter().cloned().collect::<Vec<_>>() }.into() }
 /// Destructor: Takes ownership of the `VirtualKeyCodeVec` pointer and deletes it.
-#[no_mangle] #[allow(unused_variables)] pub extern "C" fn az_virtual_key_code_vec_delete(object: &mut AzVirtualKeyCodeVec) { let _ = unsafe { std::vec::Vec::from_raw_parts(object.as_mut_ptr(), object.len(), object.capacity()) };}
+#[no_mangle] #[allow(unused_variables)] pub extern "C" fn az_virtual_key_code_vec_delete(object: &mut AzVirtualKeyCodeVec) { unsafe { std::ptr::drop_in_place(object.as_mut()); } deallocate_vec(object.as_mut_ptr(), object.capacity());}
 /// Clones the object
 #[no_mangle] pub extern "C" fn az_virtual_key_code_vec_deep_copy(object: &AzVirtualKeyCodeVec) -> AzVirtualKeyCodeVec { object.clone() }
 /// Creates a string with the debug representation of the object
@@ -108,7 +122,7 @@ pub type AzScanCodeVecTT = azul_impl::window::ScanCodeVec;
 /// Creates + allocates a Rust `Vec<ScanCode>` by **copying** it from a bytes source
 #[no_mangle] pub extern "C" fn az_scan_code_vec_copy_from(ptr: *const u32, len: usize) -> AzScanCodeVec { unsafe { std::slice::from_raw_parts(ptr, len).iter().cloned().collect::<Vec<_>>() }.into() }
 /// Destructor: Takes ownership of the `ScanCodeVec` pointer and deletes it.
-#[no_mangle] #[allow(unused_variables)] pub extern "C" fn az_scan_code_vec_delete(object: &mut AzScanCodeVec) { let _ = unsafe { std::vec::Vec::from_raw_parts(object.as_mut_ptr(), object.len(), object.capacity()) };}
+#[no_mangle] #[allow(unused_variables)] pub extern "C" fn az_scan_code_vec_delete(object: &mut AzScanCodeVec) { unsafe { std::ptr::drop_in_place(object.as_mut()); } deallocate_vec(object.as_mut_ptr(), object.capacity());}
 /// Clones the object
 #[no_mangle] pub extern "C" fn az_scan_code_vec_deep_copy(object: &AzScanCodeVec) -> AzScanCodeVec { object.clone() }
 /// Creates a string with the debug representation of the object
@@ -124,7 +138,7 @@ pub type AzCssDeclarationVecTT = azul_impl::css::CssDeclarationVec;
 /// Creates + allocates a Rust `Vec<CssDeclaration>` by **copying** it from a bytes source
 #[no_mangle] pub extern "C" fn az_css_declaration_vec_copy_from(ptr: *const AzCssDeclaration, len: usize) -> AzCssDeclarationVec { unsafe { std::slice::from_raw_parts(ptr, len).iter().cloned().collect::<Vec<_>>() }.into() }
 /// Destructor: Takes ownership of the `CssDeclarationVec` pointer and deletes it.
-#[no_mangle] #[allow(unused_variables)] pub extern "C" fn az_css_declaration_vec_delete(object: &mut AzCssDeclarationVec) { let _ = unsafe { std::vec::Vec::from_raw_parts(object.as_mut_ptr(), object.len(), object.capacity()) };}
+#[no_mangle] #[allow(unused_variables)] pub extern "C" fn az_css_declaration_vec_delete(object: &mut AzCssDeclarationVec) { unsafe { std::ptr::drop_in_place(object.as_mut()); } deallocate_vec(object.as_mut_ptr(), object.capacity());}
 /// Clones the object
 #[no_mangle] pub extern "C" fn az_css_declaration_vec_deep_copy(object: &AzCssDeclarationVec) -> AzCssDeclarationVec { object.clone() }
 /// Creates a string with the debug representation of the object
@@ -140,7 +154,7 @@ pub type AzCssPathSelectorVecTT = azul_impl::css::CssPathSelectorVec;
 /// Creates + allocates a Rust `Vec<CssPathSelector>` by **copying** it from a bytes source
 #[no_mangle] pub extern "C" fn az_css_path_selector_vec_copy_from(ptr: *const AzCssPathSelector, len: usize) -> AzCssPathSelectorVec { unsafe { std::slice::from_raw_parts(ptr, len).iter().cloned().collect::<Vec<_>>() }.into() }
 /// Destructor: Takes ownership of the `CssPathSelectorVec` pointer and deletes it.
-#[no_mangle] #[allow(unused_variables)] pub extern "C" fn az_css_path_selector_vec_delete(object: &mut AzCssPathSelectorVec) { let _ = unsafe { std::vec::Vec::from_raw_parts(object.as_mut_ptr(), object.len(), object.capacity()) };}
+#[no_mangle] #[allow(unused_variables)] pub extern "C" fn az_css_path_selector_vec_delete(object: &mut AzCssPathSelectorVec) { unsafe { std::ptr::drop_in_place(object.as_mut()); } deallocate_vec(object.as_mut_ptr(), object.capacity());}
 /// Clones the object
 #[no_mangle] pub extern "C" fn az_css_path_selector_vec_deep_copy(object: &AzCssPathSelectorVec) -> AzCssPathSelectorVec { object.clone() }
 /// Creates a string with the debug representation of the object
@@ -156,7 +170,7 @@ pub type AzStylesheetVecTT = azul_impl::css::StylesheetVec;
 /// Creates + allocates a Rust `Vec<Stylesheet>` by **copying** it from a bytes source
 #[no_mangle] pub extern "C" fn az_stylesheet_vec_copy_from(ptr: *const AzStylesheet, len: usize) -> AzStylesheetVec { unsafe { std::slice::from_raw_parts(ptr, len).iter().cloned().collect::<Vec<_>>() }.into() }
 /// Destructor: Takes ownership of the `StylesheetVec` pointer and deletes it.
-#[no_mangle] #[allow(unused_variables)] pub extern "C" fn az_stylesheet_vec_delete(object: &mut AzStylesheetVec) { let _ = unsafe { std::vec::Vec::from_raw_parts(object.as_mut_ptr(), object.len(), object.capacity()) };}
+#[no_mangle] #[allow(unused_variables)] pub extern "C" fn az_stylesheet_vec_delete(object: &mut AzStylesheetVec) { unsafe { std::ptr::drop_in_place(object.as_mut()); } deallocate_vec(object.as_mut_ptr(), object.capacity());}
 /// Clones the object
 #[no_mangle] pub extern "C" fn az_stylesheet_vec_deep_copy(object: &AzStylesheetVec) -> AzStylesheetVec { object.clone() }
 /// Creates a string with the debug representation of the object
@@ -172,7 +186,7 @@ pub type AzCssRuleBlockVecTT = azul_impl::css::CssRuleBlockVec;
 /// Creates + allocates a Rust `Vec<CssRuleBlock>` by **copying** it from a bytes source
 #[no_mangle] pub extern "C" fn az_css_rule_block_vec_copy_from(ptr: *const AzCssRuleBlock, len: usize) -> AzCssRuleBlockVec { unsafe { std::slice::from_raw_parts(ptr, len).iter().cloned().collect::<Vec<_>>() }.into() }
 /// Destructor: Takes ownership of the `CssRuleBlockVec` pointer and deletes it.
-#[no_mangle] #[allow(unused_variables)] pub extern "C" fn az_css_rule_block_vec_delete(object: &mut AzCssRuleBlockVec) { let _ = unsafe { std::vec::Vec::from_raw_parts(object.as_mut_ptr(), object.len(), object.capacity()) };}
+#[no_mangle] #[allow(unused_variables)] pub extern "C" fn az_css_rule_block_vec_delete(object: &mut AzCssRuleBlockVec) { unsafe { std::ptr::drop_in_place(object.as_mut()); } deallocate_vec(object.as_mut_ptr(), object.capacity());}
 /// Clones the object
 #[no_mangle] pub extern "C" fn az_css_rule_block_vec_deep_copy(object: &AzCssRuleBlockVec) -> AzCssRuleBlockVec { object.clone() }
 /// Creates a string with the debug representation of the object
@@ -188,7 +202,7 @@ pub type AzU8VecTT = azul_impl::css::U8Vec;
 /// Creates + allocates a Rust `Vec<u8>` by **copying** it from a bytes source
 #[no_mangle] pub extern "C" fn az_u8_vec_copy_from(ptr: *const u8, len: usize) -> AzU8Vec { unsafe { std::slice::from_raw_parts(ptr, len).to_vec() }.into() }
 /// Destructor: Takes ownership of the `U8Vec` pointer and deletes it.
-#[no_mangle] #[allow(unused_variables)] pub extern "C" fn az_u8_vec_delete(object: &mut AzU8Vec) { let _ = unsafe { std::vec::Vec::from_raw_parts(object.as_mut_ptr(), object.len(), object.capacity()) };}
+#[no_mangle] #[allow(unused_variables)] pub extern "C" fn az_u8_vec_delete(object: &mut AzU8Vec) { unsafe { std::ptr::drop_in_place(object.as_mut()); } deallocate_vec(object.as_mut_ptr(), object.capacity());}
 /// Clones the object
 #[no_mangle] pub extern "C" fn az_u8_vec_deep_copy(object: &AzU8Vec) -> AzU8Vec { object.clone() }
 /// Creates a string with the debug representation of the object
@@ -204,7 +218,7 @@ pub type AzCallbackDataVecTT = azul_impl::dom::CallbackDataVec;
 /// Creates + allocates a Rust `Vec<CallbackData>` by **copying** it from a bytes source
 #[no_mangle] pub extern "C" fn az_callback_data_vec_copy_from(ptr: *const AzCallbackData, len: usize) -> AzCallbackDataVec { unsafe { std::slice::from_raw_parts(ptr, len).iter().cloned().collect::<Vec<_>>() }.into() }
 /// Destructor: Takes ownership of the `CallbackDataVec` pointer and deletes it.
-#[no_mangle] #[allow(unused_variables)] pub extern "C" fn az_callback_data_vec_delete(object: &mut AzCallbackDataVec) { let _ = unsafe { std::vec::Vec::from_raw_parts(object.as_mut_ptr(), object.len(), object.capacity()) };}
+#[no_mangle] #[allow(unused_variables)] pub extern "C" fn az_callback_data_vec_delete(object: &mut AzCallbackDataVec) { unsafe { std::ptr::drop_in_place(object.as_mut()); } deallocate_vec(object.as_mut_ptr(), object.capacity());}
 /// Clones the object
 #[no_mangle] pub extern "C" fn az_callback_data_vec_deep_copy(object: &AzCallbackDataVec) -> AzCallbackDataVec { object.clone() }
 /// Creates a string with the debug representation of the object
@@ -220,7 +234,7 @@ pub type AzDebugMessageVecTT = azul_impl::gl::AzDebugMessageVec;
 /// Creates + allocates a Rust `Vec<DebugMessage>` by **copying** it from a bytes source
 #[no_mangle] pub extern "C" fn az_debug_message_vec_copy_from(ptr: *const AzDebugMessage, len: usize) -> AzDebugMessageVec { unsafe { std::slice::from_raw_parts(ptr, len).iter().cloned().collect::<Vec<_>>() }.into() }
 /// Destructor: Takes ownership of the `DebugMessageVec` pointer and deletes it.
-#[no_mangle] #[allow(unused_variables)] pub extern "C" fn az_debug_message_vec_delete(object: &mut AzDebugMessageVec) { let _ = unsafe { std::vec::Vec::from_raw_parts(object.as_mut_ptr(), object.len(), object.capacity()) };}
+#[no_mangle] #[allow(unused_variables)] pub extern "C" fn az_debug_message_vec_delete(object: &mut AzDebugMessageVec) { unsafe { std::ptr::drop_in_place(object.as_mut()); } deallocate_vec(object.as_mut_ptr(), object.capacity());}
 /// Clones the object
 #[no_mangle] pub extern "C" fn az_debug_message_vec_deep_copy(object: &AzDebugMessageVec) -> AzDebugMessageVec { object.clone() }
 /// Creates a string with the debug representation of the object
@@ -236,7 +250,7 @@ pub type AzGLuintVecTT = azul_impl::gl::GLuintVec;
 /// Creates + allocates a Rust `Vec<u32>` by **copying** it from a bytes source
 #[no_mangle] pub extern "C" fn az_g_luint_vec_copy_from(ptr: *const u32, len: usize) -> AzGLuintVec { unsafe { std::slice::from_raw_parts(ptr, len).to_vec() }.into() }
 /// Destructor: Takes ownership of the `GLuintVec` pointer and deletes it.
-#[no_mangle] #[allow(unused_variables)] pub extern "C" fn az_g_luint_vec_delete(object: &mut AzGLuintVec) { let _ = unsafe { std::vec::Vec::from_raw_parts(object.as_mut_ptr(), object.len(), object.capacity()) };}
+#[no_mangle] #[allow(unused_variables)] pub extern "C" fn az_g_luint_vec_delete(object: &mut AzGLuintVec) { unsafe { std::ptr::drop_in_place(object.as_mut()); } deallocate_vec(object.as_mut_ptr(), object.capacity());}
 /// Clones the object
 #[no_mangle] pub extern "C" fn az_g_luint_vec_deep_copy(object: &AzGLuintVec) -> AzGLuintVec { object.clone() }
 /// Creates a string with the debug representation of the object
@@ -252,7 +266,7 @@ pub type AzGLintVecTT = azul_impl::gl::GLintVec;
 /// Creates + allocates a Rust `Vec<GLint>` by **copying** it from a bytes source
 #[no_mangle] pub extern "C" fn az_g_lint_vec_copy_from(ptr: *const i32, len: usize) -> AzGLintVec { unsafe { std::slice::from_raw_parts(ptr, len).to_vec() }.into() }
 /// Destructor: Takes ownership of the `GLintVec` pointer and deletes it.
-#[no_mangle] #[allow(unused_variables)] pub extern "C" fn az_g_lint_vec_delete(object: &mut AzGLintVec) { let _ = unsafe { std::vec::Vec::from_raw_parts(object.as_mut_ptr(), object.len(), object.capacity()) };}
+#[no_mangle] #[allow(unused_variables)] pub extern "C" fn az_g_lint_vec_delete(object: &mut AzGLintVec) { unsafe { std::ptr::drop_in_place(object.as_mut()); } deallocate_vec(object.as_mut_ptr(), object.capacity());}
 /// Clones the object
 #[no_mangle] pub extern "C" fn az_g_lint_vec_deep_copy(object: &AzGLintVec) -> AzGLintVec { object.clone() }
 /// Creates a string with the debug representation of the object
@@ -268,7 +282,7 @@ pub type AzOverridePropertyVecTT = azul_impl::dom::OverridePropertyVec;
 /// Creates + allocates a Rust `Vec<OverrideProperty>` by **copying** it from a bytes source
 #[no_mangle] pub extern "C" fn az_override_property_vec_copy_from(ptr: *const AzOverrideProperty, len: usize) -> AzOverridePropertyVec { unsafe { std::slice::from_raw_parts(ptr, len).iter().cloned().collect::<Vec<_>>() }.into() }
 /// Destructor: Takes ownership of the `OverridePropertyVec` pointer and deletes it.
-#[no_mangle] #[allow(unused_variables)] pub extern "C" fn az_override_property_vec_delete(object: &mut AzOverridePropertyVec) { let _ = unsafe { std::vec::Vec::from_raw_parts(object.as_mut_ptr(), object.len(), object.capacity()) };}
+#[no_mangle] #[allow(unused_variables)] pub extern "C" fn az_override_property_vec_delete(object: &mut AzOverridePropertyVec) { unsafe { std::ptr::drop_in_place(object.as_mut()); } deallocate_vec(object.as_mut_ptr(), object.capacity());}
 /// Clones the object
 #[no_mangle] pub extern "C" fn az_override_property_vec_deep_copy(object: &AzOverridePropertyVec) -> AzOverridePropertyVec { object.clone() }
 /// Creates a string with the debug representation of the object
@@ -284,7 +298,7 @@ pub type AzDomVecTT = azul_impl::dom::DomVec;
 /// Creates + allocates a Rust `Vec<Dom>` by **copying** it from a bytes source
 #[no_mangle] pub extern "C" fn az_dom_vec_copy_from(ptr: *const AzDom, len: usize) -> AzDomVec { unsafe { std::slice::from_raw_parts(ptr, len).iter().cloned().collect::<Vec<_>>() }.into() }
 /// Destructor: Takes ownership of the `DomVec` pointer and deletes it.
-#[no_mangle] #[allow(unused_variables)] pub extern "C" fn az_dom_vec_delete(object: &mut AzDomVec) { let _ = unsafe { std::vec::Vec::from_raw_parts(object.as_mut_ptr(), object.len(), object.capacity()) };}
+#[no_mangle] #[allow(unused_variables)] pub extern "C" fn az_dom_vec_delete(object: &mut AzDomVec) { unsafe { std::ptr::drop_in_place(object.as_mut()); } deallocate_vec(object.as_mut_ptr(), object.capacity());}
 /// Clones the object
 #[no_mangle] pub extern "C" fn az_dom_vec_deep_copy(object: &AzDomVec) -> AzDomVec { object.clone() }
 /// Creates a string with the debug representation of the object
@@ -300,7 +314,7 @@ pub type AzStringVecTT = azul_impl::css::StringVec;
 /// Creates + allocates a Rust `Vec<String>` by **copying** it from a bytes source
 #[no_mangle] pub extern "C" fn az_string_vec_copy_from(ptr: *const AzString, len: usize) -> AzStringVec { unsafe { std::slice::from_raw_parts(ptr, len).iter().cloned().collect::<Vec<_>>() }.into() }
 /// Destructor: Takes ownership of the `StringVec` pointer and deletes it.
-#[no_mangle] #[allow(unused_variables)] pub extern "C" fn az_string_vec_delete(object: &mut AzStringVec) { let _ = unsafe { std::vec::Vec::from_raw_parts(object.as_mut_ptr(), object.len(), object.capacity()) };}
+#[no_mangle] #[allow(unused_variables)] pub extern "C" fn az_string_vec_delete(object: &mut AzStringVec) { unsafe { std::ptr::drop_in_place(object.as_mut()); } deallocate_vec(object.as_mut_ptr(), object.capacity());}
 /// Clones the object
 #[no_mangle] pub extern "C" fn az_string_vec_deep_copy(object: &AzStringVec) -> AzStringVec { object.clone() }
 /// Creates a string with the debug representation of the object
@@ -316,7 +330,7 @@ pub type AzStringPairVecTT = azul_impl::window::StringPairVec;
 /// Creates + allocates a Rust `Vec<StringPair>` by **copying** it from a bytes source
 #[no_mangle] pub extern "C" fn az_string_pair_vec_copy_from(ptr: *const AzStringPair, len: usize) -> AzStringPairVec { unsafe { std::slice::from_raw_parts(ptr, len).iter().cloned().collect::<Vec<_>>() }.into() }
 /// Destructor: Takes ownership of the `StringPairVec` pointer and deletes it.
-#[no_mangle] #[allow(unused_variables)] pub extern "C" fn az_string_pair_vec_delete(object: &mut AzStringPairVec) { let _ = unsafe { std::vec::Vec::from_raw_parts(object.as_mut_ptr(), object.len(), object.capacity()) };}
+#[no_mangle] #[allow(unused_variables)] pub extern "C" fn az_string_pair_vec_delete(object: &mut AzStringPairVec) { unsafe { std::ptr::drop_in_place(object.as_mut()); } deallocate_vec(object.as_mut_ptr(), object.capacity());}
 /// Clones the object
 #[no_mangle] pub extern "C" fn az_string_pair_vec_deep_copy(object: &AzStringPairVec) -> AzStringPairVec { object.clone() }
 /// Creates a string with the debug representation of the object
@@ -332,7 +346,7 @@ pub type AzGradientStopPreVecTT = azul_impl::css::GradientStopPreVec;
 /// Creates + allocates a Rust `Vec<GradientStopPre>` by **copying** it from a bytes source
 #[no_mangle] pub extern "C" fn az_gradient_stop_pre_vec_copy_from(ptr: *const AzGradientStopPre, len: usize) -> AzGradientStopPreVec { unsafe { std::slice::from_raw_parts(ptr, len).iter().cloned().collect::<Vec<_>>() }.into() }
 /// Destructor: Takes ownership of the `GradientStopPreVec` pointer and deletes it.
-#[no_mangle] #[allow(unused_variables)] pub extern "C" fn az_gradient_stop_pre_vec_delete(object: &mut AzGradientStopPreVec) { let _ = unsafe { std::vec::Vec::from_raw_parts(object.as_mut_ptr(), object.len(), object.capacity()) };}
+#[no_mangle] #[allow(unused_variables)] pub extern "C" fn az_gradient_stop_pre_vec_delete(object: &mut AzGradientStopPreVec) { unsafe { std::ptr::drop_in_place(object.as_mut()); } deallocate_vec(object.as_mut_ptr(), object.capacity());}
 /// Clones the object
 #[no_mangle] pub extern "C" fn az_gradient_stop_pre_vec_deep_copy(object: &AzGradientStopPreVec) -> AzGradientStopPreVec { object.clone() }
 /// Creates a string with the debug representation of the object
