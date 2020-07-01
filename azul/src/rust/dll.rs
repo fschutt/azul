@@ -32,6 +32,24 @@
     impl Ord for AzString { fn cmp(&self, rhs: &AzString) -> std::cmp::Ordering { use std::cmp::Ordering::*; match (crate::dll::get_azul_dll().az_string_cmp)(self, rhs) { 0 => Less, 1 => Equal, _ => Greater } } }
 
     impl std::hash::Hash for AzString { fn hash<H: std::hash::Hasher>(&self, state: &mut H) { ((crate::dll::get_azul_dll().az_string_hash)(self)).hash(state) } }
+    /// Wrapper over a Rust-allocated `SvgPathElement`
+    #[repr(C)] pub struct AzSvgPathElementVec {
+        pub(crate) ptr: *mut AzSvgPathElement,
+        pub len: usize,
+        pub cap: usize,
+    }
+    /// Wrapper over a Rust-allocated `SvgVertex`
+    #[repr(C)] pub struct AzSvgVertexVec {
+        pub(crate) ptr: *mut AzSvgVertex,
+        pub len: usize,
+        pub cap: usize,
+    }
+    /// Wrapper over a Rust-allocated `Vec<u32>`
+    #[repr(C)] pub struct AzU32Vec {
+        pub(crate) ptr: *mut u32,
+        pub len: usize,
+        pub cap: usize,
+    }
     /// Wrapper over a Rust-allocated `XWindowType`
     #[repr(C)] pub struct AzXWindowTypeVec {
         pub(crate) ptr: *mut AzXWindowType,
@@ -133,6 +151,11 @@
         pub(crate) ptr: *mut AzGradientStopPre,
         pub len: usize,
         pub cap: usize,
+    }
+    /// Re-export of rust-allocated (stack based) `OptionSvgDashPattern` struct
+    #[repr(C, u8)] pub enum AzOptionSvgDashPattern {
+        None,
+        Some(AzSvgDashPattern),
     }
     /// Re-export of rust-allocated (stack based) `OptionWaylandTheme` struct
     #[repr(C, u8)] pub enum AzOptionWaylandTheme {
@@ -1797,6 +1820,130 @@
         RGBAI32,
         RGBA8,
     }
+    /// Re-export of rust-allocated (stack based) `SvgNode` struct
+    #[repr(C, u8)] pub enum AzSvgNode {
+        Polygon(AzSvgPath),
+        Circle(AzSvgCircle),
+        Rect(AzSvgRect),
+    }
+    /// Re-export of rust-allocated (stack based) `SvgStyledNode` struct
+    #[repr(C)] pub struct AzSvgStyledNode {
+        pub geometry: AzSvgNode,
+        pub style: AzSvgStyle,
+    }
+    /// Re-export of rust-allocated (stack based) `SvgCircle` struct
+    #[repr(C)] pub struct AzSvgCircle {
+        pub center_x: f32,
+        pub center_y: f32,
+        pub radius: f32,
+    }
+    /// Re-export of rust-allocated (stack based) `SvgPath` struct
+    #[repr(C)] pub struct AzSvgPath {
+        pub items: AzSvgPathElementVec,
+    }
+    /// Re-export of rust-allocated (stack based) `SvgPathElement` struct
+    #[repr(C, u8)] pub enum AzSvgPathElement {
+        Line(AzSvgLine),
+        QuadraticCurve(AzSvgQuadraticCurve),
+        CubicCurve(AzSvgCubicCurve),
+    }
+    /// Re-export of rust-allocated (stack based) `SvgLine` struct
+    #[repr(C)] pub struct AzSvgLine {
+        pub start: AzSvgPoint,
+        pub end: AzSvgPoint,
+    }
+    /// Re-export of rust-allocated (stack based) `SvgPoint` struct
+    #[repr(C)] pub struct AzSvgPoint {
+        pub x: f32,
+        pub y: f32,
+    }
+    /// Re-export of rust-allocated (stack based) `SvgVertex` struct
+    #[repr(C)] pub struct AzSvgVertex {
+        pub x: f32,
+        pub y: f32,
+    }
+    /// Re-export of rust-allocated (stack based) `SvgQuadraticCurve` struct
+    #[repr(C)] pub struct AzSvgQuadraticCurve {
+        pub start: AzSvgPoint,
+        pub ctrl: AzSvgPoint,
+        pub end: AzSvgPoint,
+    }
+    /// Re-export of rust-allocated (stack based) `SvgCubicCurve` struct
+    #[repr(C)] pub struct AzSvgCubicCurve {
+        pub start: AzSvgPoint,
+        pub ctrl_1: AzSvgPoint,
+        pub ctrl_2: AzSvgPoint,
+        pub end: AzSvgPoint,
+    }
+    /// Re-export of rust-allocated (stack based) `SvgRect` struct
+    #[repr(C)] pub struct AzSvgRect {
+        pub width: f32,
+        pub height: f32,
+        pub x: f32,
+        pub y: f32,
+        pub rx: f32,
+        pub ry: f32,
+    }
+    /// Re-export of rust-allocated (stack based) `TesselatedCPUSvgNode` struct
+    #[repr(C)] pub struct AzTesselatedCPUSvgNode {
+        pub vertices: AzSvgVertexVec,
+        pub indices: AzU32Vec,
+    }
+    /// Re-export of rust-allocated (stack based) `TesselatedGPUSvgNode` struct
+    #[repr(C)] pub struct AzTesselatedGPUSvgNode {
+        pub vertex_buffer_id: u32,
+        pub index_buffer_id: u32,
+        pub gl_context: AzGlContextPtr,
+    }
+    /// Re-export of rust-allocated (stack based) `SvgLineCap` struct
+    #[repr(C)] pub enum AzSvgLineCap {
+        Butt,
+        Square,
+        Round,
+    }
+    /// Re-export of rust-allocated (stack based) `SvgLineJoin` struct
+    #[repr(C)] pub enum AzSvgLineJoin {
+        Miter,
+        MiterClip,
+        Round,
+        Bevel,
+    }
+    /// Re-export of rust-allocated (stack based) `SvgDashPattern` struct
+    #[repr(C)] pub struct AzSvgDashPattern {
+        pub offset: f32,
+        pub length_1: f32,
+        pub gap_1: f32,
+        pub length_2: f32,
+        pub gap_2: f32,
+        pub length_3: f32,
+        pub gap_3: f32,
+    }
+    /// Re-export of rust-allocated (stack based) `SvgStyle` struct
+    #[repr(C, u8)] pub enum AzSvgStyle {
+        Fill(AzSvgFillStyle),
+        Stroke(AzSvgStrokeStyle),
+    }
+    /// Re-export of rust-allocated (stack based) `SvgFillStyle` struct
+    #[repr(C)] pub struct AzSvgFillStyle {
+        pub line_join: AzSvgLineJoin,
+        pub miter_limit: usize,
+        pub tolerance: usize,
+    }
+    /// Re-export of rust-allocated (stack based) `SvgStrokeStyle` struct
+    #[repr(C)] pub struct AzSvgStrokeStyle {
+        pub start_cap: AzSvgLineCap,
+        pub end_cap: AzSvgLineCap,
+        pub line_join: AzSvgLineJoin,
+        pub dash_pattern: AzOptionSvgDashPattern,
+        pub line_width: usize,
+        pub miter_limit: usize,
+        pub tolerance: usize,
+        pub apply_line_width: bool,
+    }
+    /// Re-export of rust-allocated (stack based) `SvgNodeId` struct
+    #[repr(C)] pub struct AzSvgNodeId {
+        pub id: usize,
+    }
     /// Pointer to rust-allocated `Box<DropCheckPtr>` struct
     #[repr(C)] pub struct AzDropCheckPtrPtr {
         pub(crate) ptr: *mut c_void,
@@ -2303,6 +2450,24 @@
         pub az_string_partial_cmp: extern "C" fn(_:  &AzString, _:  &AzString) -> u8,
         pub az_string_cmp: extern "C" fn(_:  &AzString, _:  &AzString) -> u8,
         pub az_string_hash: extern "C" fn(_:  &AzString) -> u64,
+        pub az_svg_path_element_vec_new: extern "C" fn() -> AzSvgPathElementVec,
+        pub az_svg_path_element_vec_with_capacity: extern "C" fn(_:  usize) -> AzSvgPathElementVec,
+        pub az_svg_path_element_vec_copy_from: extern "C" fn(_:  *const AzSvgPathElement, _:  usize) -> AzSvgPathElementVec,
+        pub az_svg_path_element_vec_delete: extern "C" fn(_:  &mut AzSvgPathElementVec),
+        pub az_svg_path_element_vec_deep_copy: extern "C" fn(_:  &AzSvgPathElementVec) -> AzSvgPathElementVec,
+        pub az_svg_path_element_vec_fmt_debug: extern "C" fn(_:  &AzSvgPathElementVec) -> AzString,
+        pub az_svg_vertex_vec_new: extern "C" fn() -> AzSvgVertexVec,
+        pub az_svg_vertex_vec_with_capacity: extern "C" fn(_:  usize) -> AzSvgVertexVec,
+        pub az_svg_vertex_vec_copy_from: extern "C" fn(_:  *const AzSvgVertex, _:  usize) -> AzSvgVertexVec,
+        pub az_svg_vertex_vec_delete: extern "C" fn(_:  &mut AzSvgVertexVec),
+        pub az_svg_vertex_vec_deep_copy: extern "C" fn(_:  &AzSvgVertexVec) -> AzSvgVertexVec,
+        pub az_svg_vertex_vec_fmt_debug: extern "C" fn(_:  &AzSvgVertexVec) -> AzString,
+        pub az_u32_vec_new: extern "C" fn() -> AzU32Vec,
+        pub az_u32_vec_with_capacity: extern "C" fn(_:  usize) -> AzU32Vec,
+        pub az_u32_vec_copy_from: extern "C" fn(_:  *const u32, _:  usize) -> AzU32Vec,
+        pub az_u32_vec_delete: extern "C" fn(_:  &mut AzU32Vec),
+        pub az_u32_vec_deep_copy: extern "C" fn(_:  &AzU32Vec) -> AzU32Vec,
+        pub az_u32_vec_fmt_debug: extern "C" fn(_:  &AzU32Vec) -> AzString,
         pub az_x_window_type_vec_new: extern "C" fn() -> AzXWindowTypeVec,
         pub az_x_window_type_vec_with_capacity: extern "C" fn(_:  usize) -> AzXWindowTypeVec,
         pub az_x_window_type_vec_copy_from: extern "C" fn(_:  *const AzXWindowType, _:  usize) -> AzXWindowTypeVec,
@@ -2405,6 +2570,9 @@
         pub az_gradient_stop_pre_vec_delete: extern "C" fn(_:  &mut AzGradientStopPreVec),
         pub az_gradient_stop_pre_vec_deep_copy: extern "C" fn(_:  &AzGradientStopPreVec) -> AzGradientStopPreVec,
         pub az_gradient_stop_pre_vec_fmt_debug: extern "C" fn(_:  &AzGradientStopPreVec) -> AzString,
+        pub az_option_svg_dash_pattern_delete: extern "C" fn(_:  &mut AzOptionSvgDashPattern),
+        pub az_option_svg_dash_pattern_deep_copy: extern "C" fn(_:  &AzOptionSvgDashPattern) -> AzOptionSvgDashPattern,
+        pub az_option_svg_dash_pattern_fmt_debug: extern "C" fn(_:  &AzOptionSvgDashPattern) -> AzString,
         pub az_option_wayland_theme_delete: extern "C" fn(_:  &mut AzOptionWaylandTheme),
         pub az_option_wayland_theme_deep_copy: extern "C" fn(_:  &AzOptionWaylandTheme) -> AzOptionWaylandTheme,
         pub az_option_wayland_theme_fmt_debug: extern "C" fn(_:  &AzOptionWaylandTheme) -> AzString,
@@ -3455,6 +3623,66 @@
         pub az_raw_image_format_delete: extern "C" fn(_:  &mut AzRawImageFormat),
         pub az_raw_image_format_deep_copy: extern "C" fn(_:  &AzRawImageFormat) -> AzRawImageFormat,
         pub az_raw_image_format_fmt_debug: extern "C" fn(_:  &AzRawImageFormat) -> AzString,
+        pub az_svg_node_delete: extern "C" fn(_:  &mut AzSvgNode),
+        pub az_svg_node_deep_copy: extern "C" fn(_:  &AzSvgNode) -> AzSvgNode,
+        pub az_svg_node_fmt_debug: extern "C" fn(_:  &AzSvgNode) -> AzString,
+        pub az_svg_styled_node_delete: extern "C" fn(_:  &mut AzSvgStyledNode),
+        pub az_svg_styled_node_deep_copy: extern "C" fn(_:  &AzSvgStyledNode) -> AzSvgStyledNode,
+        pub az_svg_styled_node_fmt_debug: extern "C" fn(_:  &AzSvgStyledNode) -> AzString,
+        pub az_svg_circle_delete: extern "C" fn(_:  &mut AzSvgCircle),
+        pub az_svg_circle_deep_copy: extern "C" fn(_:  &AzSvgCircle) -> AzSvgCircle,
+        pub az_svg_circle_fmt_debug: extern "C" fn(_:  &AzSvgCircle) -> AzString,
+        pub az_svg_path_delete: extern "C" fn(_:  &mut AzSvgPath),
+        pub az_svg_path_deep_copy: extern "C" fn(_:  &AzSvgPath) -> AzSvgPath,
+        pub az_svg_path_fmt_debug: extern "C" fn(_:  &AzSvgPath) -> AzString,
+        pub az_svg_path_element_delete: extern "C" fn(_:  &mut AzSvgPathElement),
+        pub az_svg_path_element_deep_copy: extern "C" fn(_:  &AzSvgPathElement) -> AzSvgPathElement,
+        pub az_svg_path_element_fmt_debug: extern "C" fn(_:  &AzSvgPathElement) -> AzString,
+        pub az_svg_line_delete: extern "C" fn(_:  &mut AzSvgLine),
+        pub az_svg_line_deep_copy: extern "C" fn(_:  &AzSvgLine) -> AzSvgLine,
+        pub az_svg_line_fmt_debug: extern "C" fn(_:  &AzSvgLine) -> AzString,
+        pub az_svg_point_delete: extern "C" fn(_:  &mut AzSvgPoint),
+        pub az_svg_point_deep_copy: extern "C" fn(_:  &AzSvgPoint) -> AzSvgPoint,
+        pub az_svg_point_fmt_debug: extern "C" fn(_:  &AzSvgPoint) -> AzString,
+        pub az_svg_vertex_delete: extern "C" fn(_:  &mut AzSvgVertex),
+        pub az_svg_vertex_deep_copy: extern "C" fn(_:  &AzSvgVertex) -> AzSvgVertex,
+        pub az_svg_vertex_fmt_debug: extern "C" fn(_:  &AzSvgVertex) -> AzString,
+        pub az_svg_quadratic_curve_delete: extern "C" fn(_:  &mut AzSvgQuadraticCurve),
+        pub az_svg_quadratic_curve_deep_copy: extern "C" fn(_:  &AzSvgQuadraticCurve) -> AzSvgQuadraticCurve,
+        pub az_svg_quadratic_curve_fmt_debug: extern "C" fn(_:  &AzSvgQuadraticCurve) -> AzString,
+        pub az_svg_cubic_curve_delete: extern "C" fn(_:  &mut AzSvgCubicCurve),
+        pub az_svg_cubic_curve_deep_copy: extern "C" fn(_:  &AzSvgCubicCurve) -> AzSvgCubicCurve,
+        pub az_svg_cubic_curve_fmt_debug: extern "C" fn(_:  &AzSvgCubicCurve) -> AzString,
+        pub az_svg_rect_delete: extern "C" fn(_:  &mut AzSvgRect),
+        pub az_svg_rect_deep_copy: extern "C" fn(_:  &AzSvgRect) -> AzSvgRect,
+        pub az_svg_rect_fmt_debug: extern "C" fn(_:  &AzSvgRect) -> AzString,
+        pub az_tesselated_cpu_svg_node_delete: extern "C" fn(_:  &mut AzTesselatedCPUSvgNode),
+        pub az_tesselated_cpu_svg_node_deep_copy: extern "C" fn(_:  &AzTesselatedCPUSvgNode) -> AzTesselatedCPUSvgNode,
+        pub az_tesselated_cpu_svg_node_fmt_debug: extern "C" fn(_:  &AzTesselatedCPUSvgNode) -> AzString,
+        pub az_tesselated_gpu_svg_node_delete: extern "C" fn(_:  &mut AzTesselatedGPUSvgNode),
+        pub az_tesselated_gpu_svg_node_deep_copy: extern "C" fn(_:  &AzTesselatedGPUSvgNode) -> AzTesselatedGPUSvgNode,
+        pub az_tesselated_gpu_svg_node_fmt_debug: extern "C" fn(_:  &AzTesselatedGPUSvgNode) -> AzString,
+        pub az_svg_line_cap_delete: extern "C" fn(_:  &mut AzSvgLineCap),
+        pub az_svg_line_cap_deep_copy: extern "C" fn(_:  &AzSvgLineCap) -> AzSvgLineCap,
+        pub az_svg_line_cap_fmt_debug: extern "C" fn(_:  &AzSvgLineCap) -> AzString,
+        pub az_svg_line_join_delete: extern "C" fn(_:  &mut AzSvgLineJoin),
+        pub az_svg_line_join_deep_copy: extern "C" fn(_:  &AzSvgLineJoin) -> AzSvgLineJoin,
+        pub az_svg_line_join_fmt_debug: extern "C" fn(_:  &AzSvgLineJoin) -> AzString,
+        pub az_svg_dash_pattern_delete: extern "C" fn(_:  &mut AzSvgDashPattern),
+        pub az_svg_dash_pattern_deep_copy: extern "C" fn(_:  &AzSvgDashPattern) -> AzSvgDashPattern,
+        pub az_svg_dash_pattern_fmt_debug: extern "C" fn(_:  &AzSvgDashPattern) -> AzString,
+        pub az_svg_style_delete: extern "C" fn(_:  &mut AzSvgStyle),
+        pub az_svg_style_deep_copy: extern "C" fn(_:  &AzSvgStyle) -> AzSvgStyle,
+        pub az_svg_style_fmt_debug: extern "C" fn(_:  &AzSvgStyle) -> AzString,
+        pub az_svg_fill_style_delete: extern "C" fn(_:  &mut AzSvgFillStyle),
+        pub az_svg_fill_style_deep_copy: extern "C" fn(_:  &AzSvgFillStyle) -> AzSvgFillStyle,
+        pub az_svg_fill_style_fmt_debug: extern "C" fn(_:  &AzSvgFillStyle) -> AzString,
+        pub az_svg_stroke_style_delete: extern "C" fn(_:  &mut AzSvgStrokeStyle),
+        pub az_svg_stroke_style_deep_copy: extern "C" fn(_:  &AzSvgStrokeStyle) -> AzSvgStrokeStyle,
+        pub az_svg_stroke_style_fmt_debug: extern "C" fn(_:  &AzSvgStrokeStyle) -> AzString,
+        pub az_svg_node_id_delete: extern "C" fn(_:  &mut AzSvgNodeId),
+        pub az_svg_node_id_deep_copy: extern "C" fn(_:  &AzSvgNodeId) -> AzSvgNodeId,
+        pub az_svg_node_id_fmt_debug: extern "C" fn(_:  &AzSvgNodeId) -> AzString,
         pub az_drop_check_ptr_ptr_delete: extern "C" fn(_:  &mut AzDropCheckPtrPtr),
         pub az_drop_check_ptr_ptr_fmt_debug: extern "C" fn(_:  &AzDropCheckPtrPtr) -> AzString,
         pub az_arc_mutex_ref_any_ptr_delete: extern "C" fn(_:  &mut AzArcMutexRefAnyPtr),
@@ -3599,6 +3827,24 @@
             let az_string_partial_cmp: extern "C" fn(_:  &AzString, _:  &AzString) -> u8 = transmute(lib.get(b"az_string_partial_cmp")?);
             let az_string_cmp: extern "C" fn(_:  &AzString, _:  &AzString) -> u8 = transmute(lib.get(b"az_string_cmp")?);
             let az_string_hash: extern "C" fn(_:  &AzString) -> u64 = transmute(lib.get(b"az_string_hash")?);
+            let az_svg_path_element_vec_new: extern "C" fn() -> AzSvgPathElementVec = transmute(lib.get(b"az_svg_path_element_vec_new")?);
+            let az_svg_path_element_vec_with_capacity: extern "C" fn(_:  usize) -> AzSvgPathElementVec = transmute(lib.get(b"az_svg_path_element_vec_with_capacity")?);
+            let az_svg_path_element_vec_copy_from: extern "C" fn(_:  *const AzSvgPathElement, _:  usize) -> AzSvgPathElementVec = transmute(lib.get(b"az_svg_path_element_vec_copy_from")?);
+            let az_svg_path_element_vec_delete: extern "C" fn(_:  &mut AzSvgPathElementVec) = transmute(lib.get(b"az_svg_path_element_vec_delete")?);
+            let az_svg_path_element_vec_deep_copy: extern "C" fn(_:  &AzSvgPathElementVec) -> AzSvgPathElementVec = transmute(lib.get(b"az_svg_path_element_vec_deep_copy")?);
+            let az_svg_path_element_vec_fmt_debug: extern "C" fn(_:  &AzSvgPathElementVec) -> AzString = transmute(lib.get(b"az_svg_path_element_vec_fmt_debug")?);
+            let az_svg_vertex_vec_new: extern "C" fn() -> AzSvgVertexVec = transmute(lib.get(b"az_svg_vertex_vec_new")?);
+            let az_svg_vertex_vec_with_capacity: extern "C" fn(_:  usize) -> AzSvgVertexVec = transmute(lib.get(b"az_svg_vertex_vec_with_capacity")?);
+            let az_svg_vertex_vec_copy_from: extern "C" fn(_:  *const AzSvgVertex, _:  usize) -> AzSvgVertexVec = transmute(lib.get(b"az_svg_vertex_vec_copy_from")?);
+            let az_svg_vertex_vec_delete: extern "C" fn(_:  &mut AzSvgVertexVec) = transmute(lib.get(b"az_svg_vertex_vec_delete")?);
+            let az_svg_vertex_vec_deep_copy: extern "C" fn(_:  &AzSvgVertexVec) -> AzSvgVertexVec = transmute(lib.get(b"az_svg_vertex_vec_deep_copy")?);
+            let az_svg_vertex_vec_fmt_debug: extern "C" fn(_:  &AzSvgVertexVec) -> AzString = transmute(lib.get(b"az_svg_vertex_vec_fmt_debug")?);
+            let az_u32_vec_new: extern "C" fn() -> AzU32Vec = transmute(lib.get(b"az_u32_vec_new")?);
+            let az_u32_vec_with_capacity: extern "C" fn(_:  usize) -> AzU32Vec = transmute(lib.get(b"az_u32_vec_with_capacity")?);
+            let az_u32_vec_copy_from: extern "C" fn(_:  *const u32, _:  usize) -> AzU32Vec = transmute(lib.get(b"az_u32_vec_copy_from")?);
+            let az_u32_vec_delete: extern "C" fn(_:  &mut AzU32Vec) = transmute(lib.get(b"az_u32_vec_delete")?);
+            let az_u32_vec_deep_copy: extern "C" fn(_:  &AzU32Vec) -> AzU32Vec = transmute(lib.get(b"az_u32_vec_deep_copy")?);
+            let az_u32_vec_fmt_debug: extern "C" fn(_:  &AzU32Vec) -> AzString = transmute(lib.get(b"az_u32_vec_fmt_debug")?);
             let az_x_window_type_vec_new: extern "C" fn() -> AzXWindowTypeVec = transmute(lib.get(b"az_x_window_type_vec_new")?);
             let az_x_window_type_vec_with_capacity: extern "C" fn(_:  usize) -> AzXWindowTypeVec = transmute(lib.get(b"az_x_window_type_vec_with_capacity")?);
             let az_x_window_type_vec_copy_from: extern "C" fn(_:  *const AzXWindowType, _:  usize) -> AzXWindowTypeVec = transmute(lib.get(b"az_x_window_type_vec_copy_from")?);
@@ -3701,6 +3947,9 @@
             let az_gradient_stop_pre_vec_delete: extern "C" fn(_:  &mut AzGradientStopPreVec) = transmute(lib.get(b"az_gradient_stop_pre_vec_delete")?);
             let az_gradient_stop_pre_vec_deep_copy: extern "C" fn(_:  &AzGradientStopPreVec) -> AzGradientStopPreVec = transmute(lib.get(b"az_gradient_stop_pre_vec_deep_copy")?);
             let az_gradient_stop_pre_vec_fmt_debug: extern "C" fn(_:  &AzGradientStopPreVec) -> AzString = transmute(lib.get(b"az_gradient_stop_pre_vec_fmt_debug")?);
+            let az_option_svg_dash_pattern_delete: extern "C" fn(_:  &mut AzOptionSvgDashPattern) = transmute(lib.get(b"az_option_svg_dash_pattern_delete")?);
+            let az_option_svg_dash_pattern_deep_copy: extern "C" fn(_:  &AzOptionSvgDashPattern) -> AzOptionSvgDashPattern = transmute(lib.get(b"az_option_svg_dash_pattern_deep_copy")?);
+            let az_option_svg_dash_pattern_fmt_debug: extern "C" fn(_:  &AzOptionSvgDashPattern) -> AzString = transmute(lib.get(b"az_option_svg_dash_pattern_fmt_debug")?);
             let az_option_wayland_theme_delete: extern "C" fn(_:  &mut AzOptionWaylandTheme) = transmute(lib.get(b"az_option_wayland_theme_delete")?);
             let az_option_wayland_theme_deep_copy: extern "C" fn(_:  &AzOptionWaylandTheme) -> AzOptionWaylandTheme = transmute(lib.get(b"az_option_wayland_theme_deep_copy")?);
             let az_option_wayland_theme_fmt_debug: extern "C" fn(_:  &AzOptionWaylandTheme) -> AzString = transmute(lib.get(b"az_option_wayland_theme_fmt_debug")?);
@@ -4751,6 +5000,66 @@
             let az_raw_image_format_delete: extern "C" fn(_:  &mut AzRawImageFormat) = transmute(lib.get(b"az_raw_image_format_delete")?);
             let az_raw_image_format_deep_copy: extern "C" fn(_:  &AzRawImageFormat) -> AzRawImageFormat = transmute(lib.get(b"az_raw_image_format_deep_copy")?);
             let az_raw_image_format_fmt_debug: extern "C" fn(_:  &AzRawImageFormat) -> AzString = transmute(lib.get(b"az_raw_image_format_fmt_debug")?);
+            let az_svg_node_delete: extern "C" fn(_:  &mut AzSvgNode) = transmute(lib.get(b"az_svg_node_delete")?);
+            let az_svg_node_deep_copy: extern "C" fn(_:  &AzSvgNode) -> AzSvgNode = transmute(lib.get(b"az_svg_node_deep_copy")?);
+            let az_svg_node_fmt_debug: extern "C" fn(_:  &AzSvgNode) -> AzString = transmute(lib.get(b"az_svg_node_fmt_debug")?);
+            let az_svg_styled_node_delete: extern "C" fn(_:  &mut AzSvgStyledNode) = transmute(lib.get(b"az_svg_styled_node_delete")?);
+            let az_svg_styled_node_deep_copy: extern "C" fn(_:  &AzSvgStyledNode) -> AzSvgStyledNode = transmute(lib.get(b"az_svg_styled_node_deep_copy")?);
+            let az_svg_styled_node_fmt_debug: extern "C" fn(_:  &AzSvgStyledNode) -> AzString = transmute(lib.get(b"az_svg_styled_node_fmt_debug")?);
+            let az_svg_circle_delete: extern "C" fn(_:  &mut AzSvgCircle) = transmute(lib.get(b"az_svg_circle_delete")?);
+            let az_svg_circle_deep_copy: extern "C" fn(_:  &AzSvgCircle) -> AzSvgCircle = transmute(lib.get(b"az_svg_circle_deep_copy")?);
+            let az_svg_circle_fmt_debug: extern "C" fn(_:  &AzSvgCircle) -> AzString = transmute(lib.get(b"az_svg_circle_fmt_debug")?);
+            let az_svg_path_delete: extern "C" fn(_:  &mut AzSvgPath) = transmute(lib.get(b"az_svg_path_delete")?);
+            let az_svg_path_deep_copy: extern "C" fn(_:  &AzSvgPath) -> AzSvgPath = transmute(lib.get(b"az_svg_path_deep_copy")?);
+            let az_svg_path_fmt_debug: extern "C" fn(_:  &AzSvgPath) -> AzString = transmute(lib.get(b"az_svg_path_fmt_debug")?);
+            let az_svg_path_element_delete: extern "C" fn(_:  &mut AzSvgPathElement) = transmute(lib.get(b"az_svg_path_element_delete")?);
+            let az_svg_path_element_deep_copy: extern "C" fn(_:  &AzSvgPathElement) -> AzSvgPathElement = transmute(lib.get(b"az_svg_path_element_deep_copy")?);
+            let az_svg_path_element_fmt_debug: extern "C" fn(_:  &AzSvgPathElement) -> AzString = transmute(lib.get(b"az_svg_path_element_fmt_debug")?);
+            let az_svg_line_delete: extern "C" fn(_:  &mut AzSvgLine) = transmute(lib.get(b"az_svg_line_delete")?);
+            let az_svg_line_deep_copy: extern "C" fn(_:  &AzSvgLine) -> AzSvgLine = transmute(lib.get(b"az_svg_line_deep_copy")?);
+            let az_svg_line_fmt_debug: extern "C" fn(_:  &AzSvgLine) -> AzString = transmute(lib.get(b"az_svg_line_fmt_debug")?);
+            let az_svg_point_delete: extern "C" fn(_:  &mut AzSvgPoint) = transmute(lib.get(b"az_svg_point_delete")?);
+            let az_svg_point_deep_copy: extern "C" fn(_:  &AzSvgPoint) -> AzSvgPoint = transmute(lib.get(b"az_svg_point_deep_copy")?);
+            let az_svg_point_fmt_debug: extern "C" fn(_:  &AzSvgPoint) -> AzString = transmute(lib.get(b"az_svg_point_fmt_debug")?);
+            let az_svg_vertex_delete: extern "C" fn(_:  &mut AzSvgVertex) = transmute(lib.get(b"az_svg_vertex_delete")?);
+            let az_svg_vertex_deep_copy: extern "C" fn(_:  &AzSvgVertex) -> AzSvgVertex = transmute(lib.get(b"az_svg_vertex_deep_copy")?);
+            let az_svg_vertex_fmt_debug: extern "C" fn(_:  &AzSvgVertex) -> AzString = transmute(lib.get(b"az_svg_vertex_fmt_debug")?);
+            let az_svg_quadratic_curve_delete: extern "C" fn(_:  &mut AzSvgQuadraticCurve) = transmute(lib.get(b"az_svg_quadratic_curve_delete")?);
+            let az_svg_quadratic_curve_deep_copy: extern "C" fn(_:  &AzSvgQuadraticCurve) -> AzSvgQuadraticCurve = transmute(lib.get(b"az_svg_quadratic_curve_deep_copy")?);
+            let az_svg_quadratic_curve_fmt_debug: extern "C" fn(_:  &AzSvgQuadraticCurve) -> AzString = transmute(lib.get(b"az_svg_quadratic_curve_fmt_debug")?);
+            let az_svg_cubic_curve_delete: extern "C" fn(_:  &mut AzSvgCubicCurve) = transmute(lib.get(b"az_svg_cubic_curve_delete")?);
+            let az_svg_cubic_curve_deep_copy: extern "C" fn(_:  &AzSvgCubicCurve) -> AzSvgCubicCurve = transmute(lib.get(b"az_svg_cubic_curve_deep_copy")?);
+            let az_svg_cubic_curve_fmt_debug: extern "C" fn(_:  &AzSvgCubicCurve) -> AzString = transmute(lib.get(b"az_svg_cubic_curve_fmt_debug")?);
+            let az_svg_rect_delete: extern "C" fn(_:  &mut AzSvgRect) = transmute(lib.get(b"az_svg_rect_delete")?);
+            let az_svg_rect_deep_copy: extern "C" fn(_:  &AzSvgRect) -> AzSvgRect = transmute(lib.get(b"az_svg_rect_deep_copy")?);
+            let az_svg_rect_fmt_debug: extern "C" fn(_:  &AzSvgRect) -> AzString = transmute(lib.get(b"az_svg_rect_fmt_debug")?);
+            let az_tesselated_cpu_svg_node_delete: extern "C" fn(_:  &mut AzTesselatedCPUSvgNode) = transmute(lib.get(b"az_tesselated_cpu_svg_node_delete")?);
+            let az_tesselated_cpu_svg_node_deep_copy: extern "C" fn(_:  &AzTesselatedCPUSvgNode) -> AzTesselatedCPUSvgNode = transmute(lib.get(b"az_tesselated_cpu_svg_node_deep_copy")?);
+            let az_tesselated_cpu_svg_node_fmt_debug: extern "C" fn(_:  &AzTesselatedCPUSvgNode) -> AzString = transmute(lib.get(b"az_tesselated_cpu_svg_node_fmt_debug")?);
+            let az_tesselated_gpu_svg_node_delete: extern "C" fn(_:  &mut AzTesselatedGPUSvgNode) = transmute(lib.get(b"az_tesselated_gpu_svg_node_delete")?);
+            let az_tesselated_gpu_svg_node_deep_copy: extern "C" fn(_:  &AzTesselatedGPUSvgNode) -> AzTesselatedGPUSvgNode = transmute(lib.get(b"az_tesselated_gpu_svg_node_deep_copy")?);
+            let az_tesselated_gpu_svg_node_fmt_debug: extern "C" fn(_:  &AzTesselatedGPUSvgNode) -> AzString = transmute(lib.get(b"az_tesselated_gpu_svg_node_fmt_debug")?);
+            let az_svg_line_cap_delete: extern "C" fn(_:  &mut AzSvgLineCap) = transmute(lib.get(b"az_svg_line_cap_delete")?);
+            let az_svg_line_cap_deep_copy: extern "C" fn(_:  &AzSvgLineCap) -> AzSvgLineCap = transmute(lib.get(b"az_svg_line_cap_deep_copy")?);
+            let az_svg_line_cap_fmt_debug: extern "C" fn(_:  &AzSvgLineCap) -> AzString = transmute(lib.get(b"az_svg_line_cap_fmt_debug")?);
+            let az_svg_line_join_delete: extern "C" fn(_:  &mut AzSvgLineJoin) = transmute(lib.get(b"az_svg_line_join_delete")?);
+            let az_svg_line_join_deep_copy: extern "C" fn(_:  &AzSvgLineJoin) -> AzSvgLineJoin = transmute(lib.get(b"az_svg_line_join_deep_copy")?);
+            let az_svg_line_join_fmt_debug: extern "C" fn(_:  &AzSvgLineJoin) -> AzString = transmute(lib.get(b"az_svg_line_join_fmt_debug")?);
+            let az_svg_dash_pattern_delete: extern "C" fn(_:  &mut AzSvgDashPattern) = transmute(lib.get(b"az_svg_dash_pattern_delete")?);
+            let az_svg_dash_pattern_deep_copy: extern "C" fn(_:  &AzSvgDashPattern) -> AzSvgDashPattern = transmute(lib.get(b"az_svg_dash_pattern_deep_copy")?);
+            let az_svg_dash_pattern_fmt_debug: extern "C" fn(_:  &AzSvgDashPattern) -> AzString = transmute(lib.get(b"az_svg_dash_pattern_fmt_debug")?);
+            let az_svg_style_delete: extern "C" fn(_:  &mut AzSvgStyle) = transmute(lib.get(b"az_svg_style_delete")?);
+            let az_svg_style_deep_copy: extern "C" fn(_:  &AzSvgStyle) -> AzSvgStyle = transmute(lib.get(b"az_svg_style_deep_copy")?);
+            let az_svg_style_fmt_debug: extern "C" fn(_:  &AzSvgStyle) -> AzString = transmute(lib.get(b"az_svg_style_fmt_debug")?);
+            let az_svg_fill_style_delete: extern "C" fn(_:  &mut AzSvgFillStyle) = transmute(lib.get(b"az_svg_fill_style_delete")?);
+            let az_svg_fill_style_deep_copy: extern "C" fn(_:  &AzSvgFillStyle) -> AzSvgFillStyle = transmute(lib.get(b"az_svg_fill_style_deep_copy")?);
+            let az_svg_fill_style_fmt_debug: extern "C" fn(_:  &AzSvgFillStyle) -> AzString = transmute(lib.get(b"az_svg_fill_style_fmt_debug")?);
+            let az_svg_stroke_style_delete: extern "C" fn(_:  &mut AzSvgStrokeStyle) = transmute(lib.get(b"az_svg_stroke_style_delete")?);
+            let az_svg_stroke_style_deep_copy: extern "C" fn(_:  &AzSvgStrokeStyle) -> AzSvgStrokeStyle = transmute(lib.get(b"az_svg_stroke_style_deep_copy")?);
+            let az_svg_stroke_style_fmt_debug: extern "C" fn(_:  &AzSvgStrokeStyle) -> AzString = transmute(lib.get(b"az_svg_stroke_style_fmt_debug")?);
+            let az_svg_node_id_delete: extern "C" fn(_:  &mut AzSvgNodeId) = transmute(lib.get(b"az_svg_node_id_delete")?);
+            let az_svg_node_id_deep_copy: extern "C" fn(_:  &AzSvgNodeId) -> AzSvgNodeId = transmute(lib.get(b"az_svg_node_id_deep_copy")?);
+            let az_svg_node_id_fmt_debug: extern "C" fn(_:  &AzSvgNodeId) -> AzString = transmute(lib.get(b"az_svg_node_id_fmt_debug")?);
             let az_drop_check_ptr_ptr_delete: extern "C" fn(_:  &mut AzDropCheckPtrPtr) = transmute(lib.get(b"az_drop_check_ptr_ptr_delete")?);
             let az_drop_check_ptr_ptr_fmt_debug: extern "C" fn(_:  &AzDropCheckPtrPtr) -> AzString = transmute(lib.get(b"az_drop_check_ptr_ptr_fmt_debug")?);
             let az_arc_mutex_ref_any_ptr_delete: extern "C" fn(_:  &mut AzArcMutexRefAnyPtr) = transmute(lib.get(b"az_arc_mutex_ref_any_ptr_delete")?);
@@ -4891,6 +5200,24 @@
                 az_string_partial_cmp,
                 az_string_cmp,
                 az_string_hash,
+                az_svg_path_element_vec_new,
+                az_svg_path_element_vec_with_capacity,
+                az_svg_path_element_vec_copy_from,
+                az_svg_path_element_vec_delete,
+                az_svg_path_element_vec_deep_copy,
+                az_svg_path_element_vec_fmt_debug,
+                az_svg_vertex_vec_new,
+                az_svg_vertex_vec_with_capacity,
+                az_svg_vertex_vec_copy_from,
+                az_svg_vertex_vec_delete,
+                az_svg_vertex_vec_deep_copy,
+                az_svg_vertex_vec_fmt_debug,
+                az_u32_vec_new,
+                az_u32_vec_with_capacity,
+                az_u32_vec_copy_from,
+                az_u32_vec_delete,
+                az_u32_vec_deep_copy,
+                az_u32_vec_fmt_debug,
                 az_x_window_type_vec_new,
                 az_x_window_type_vec_with_capacity,
                 az_x_window_type_vec_copy_from,
@@ -4993,6 +5320,9 @@
                 az_gradient_stop_pre_vec_delete,
                 az_gradient_stop_pre_vec_deep_copy,
                 az_gradient_stop_pre_vec_fmt_debug,
+                az_option_svg_dash_pattern_delete,
+                az_option_svg_dash_pattern_deep_copy,
+                az_option_svg_dash_pattern_fmt_debug,
                 az_option_wayland_theme_delete,
                 az_option_wayland_theme_deep_copy,
                 az_option_wayland_theme_fmt_debug,
@@ -6043,6 +6373,66 @@
                 az_raw_image_format_delete,
                 az_raw_image_format_deep_copy,
                 az_raw_image_format_fmt_debug,
+                az_svg_node_delete,
+                az_svg_node_deep_copy,
+                az_svg_node_fmt_debug,
+                az_svg_styled_node_delete,
+                az_svg_styled_node_deep_copy,
+                az_svg_styled_node_fmt_debug,
+                az_svg_circle_delete,
+                az_svg_circle_deep_copy,
+                az_svg_circle_fmt_debug,
+                az_svg_path_delete,
+                az_svg_path_deep_copy,
+                az_svg_path_fmt_debug,
+                az_svg_path_element_delete,
+                az_svg_path_element_deep_copy,
+                az_svg_path_element_fmt_debug,
+                az_svg_line_delete,
+                az_svg_line_deep_copy,
+                az_svg_line_fmt_debug,
+                az_svg_point_delete,
+                az_svg_point_deep_copy,
+                az_svg_point_fmt_debug,
+                az_svg_vertex_delete,
+                az_svg_vertex_deep_copy,
+                az_svg_vertex_fmt_debug,
+                az_svg_quadratic_curve_delete,
+                az_svg_quadratic_curve_deep_copy,
+                az_svg_quadratic_curve_fmt_debug,
+                az_svg_cubic_curve_delete,
+                az_svg_cubic_curve_deep_copy,
+                az_svg_cubic_curve_fmt_debug,
+                az_svg_rect_delete,
+                az_svg_rect_deep_copy,
+                az_svg_rect_fmt_debug,
+                az_tesselated_cpu_svg_node_delete,
+                az_tesselated_cpu_svg_node_deep_copy,
+                az_tesselated_cpu_svg_node_fmt_debug,
+                az_tesselated_gpu_svg_node_delete,
+                az_tesselated_gpu_svg_node_deep_copy,
+                az_tesselated_gpu_svg_node_fmt_debug,
+                az_svg_line_cap_delete,
+                az_svg_line_cap_deep_copy,
+                az_svg_line_cap_fmt_debug,
+                az_svg_line_join_delete,
+                az_svg_line_join_deep_copy,
+                az_svg_line_join_fmt_debug,
+                az_svg_dash_pattern_delete,
+                az_svg_dash_pattern_deep_copy,
+                az_svg_dash_pattern_fmt_debug,
+                az_svg_style_delete,
+                az_svg_style_deep_copy,
+                az_svg_style_fmt_debug,
+                az_svg_fill_style_delete,
+                az_svg_fill_style_deep_copy,
+                az_svg_fill_style_fmt_debug,
+                az_svg_stroke_style_delete,
+                az_svg_stroke_style_deep_copy,
+                az_svg_stroke_style_fmt_debug,
+                az_svg_node_id_delete,
+                az_svg_node_id_deep_copy,
+                az_svg_node_id_fmt_debug,
                 az_drop_check_ptr_ptr_delete,
                 az_drop_check_ptr_ptr_fmt_debug,
                 az_arc_mutex_ref_any_ptr_delete,

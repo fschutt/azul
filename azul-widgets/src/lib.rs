@@ -7,27 +7,13 @@
 
 extern crate azul;
 
-#[cfg(feature = "fonts")]
-extern crate stb_truetype;
-#[cfg(feature = "svg")]
-extern crate lyon;
-#[cfg(feature = "svg_parsing")]
-extern crate usvg;
-
-#[cfg(feature = "serde_serialization")]
-extern crate serde;
-#[cfg(feature = "serde_serialization")]
-#[cfg_attr(feature = "serde_serialization", macro_use(Serialize, Deserialize))]
-extern crate serde_derive;
-
-#[cfg(feature = "svg")]
+/// Widget to render SVGs to a DOM or to an image
 pub mod svg;
+/// Button widget
 pub mod button;
+/// Label widget
 pub mod label;
+/// Text input (two-way binding) widget
 pub mod text_input;
+/// Table view (iframe) widget
 pub mod table_view;
-
-pub mod errors {
-    #[cfg(all(feature = "svg", feature = "svg_parsing"))]
-    pub use super::svg::SvgParseError;
-}

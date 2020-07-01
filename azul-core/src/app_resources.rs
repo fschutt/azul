@@ -271,6 +271,14 @@ pub struct AppResources {
     pub last_frame_font_keys: FastHashMap<PipelineId, FastHashMap<ImmediateFontId, FastHashSet<Au>>>,
     /// Stores long texts across frames
     pub text_cache: TextCache,
+    /// Cache from SVG node ID -> Geometry for that node
+    pub svg_cpu_path_cache: FastHashMap<SvgNodeId, SvgStyledNode>,
+    /// Cache from SVG node -> CPU tesselated triangles
+    pub svg_cpu_tess_cache: FastHashMap<SvgNodeId, TesselatedCpuSvgNode>,
+    /// Cache from SVG node -> GPU vertex buffer ID + GPU index buffer ID
+    pub svg_gpu_tess_cache: FastHashMap<SvgNodeId, TesselatedGPUSvgNode>,
+    /// Cache from SVG node -> Texture
+    pub svg_gpu_texture_cache: FastHashMap<SvgNodeId, Texture>,
 }
 
 impl AppResources {
@@ -326,6 +334,7 @@ macro_rules! unique_id {($struct_name:ident, $counter_name:ident) => {
     }
 }}
 
+unique_id!(SvgNodeId, SVG_NODE_ID_COUNTER);
 unique_id!(TextId, TEXT_ID_COUNTER);
 unique_id!(ImageId, IMAGE_ID_COUNTER);
 unique_id!(FontId, FONT_ID_COUNTER);

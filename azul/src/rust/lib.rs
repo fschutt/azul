@@ -42,6 +42,7 @@ pub mod css;
 pub mod dom;
 pub mod gl;
 pub mod resources;
+pub mod svg;
 pub mod task;
 pub mod window;
 /// Module to re-export common structs (`App`, `AppConfig`, `Css`, `Dom`, `WindowCreateOptions`, `RefAny`, `LayoutInfo`)

@@ -6,6 +6,12 @@ extern crate azul_css;
 extern crate gleam;
 #[cfg(feature = "css_parser")]
 extern crate azul_css_parser;
+#[cfg(feature = "svg")]
+extern crate lyon;
+#[cfg(feature = "svg")]
+extern crate usvg;
+#[cfg(feature = "svg")]
+extern crate rusttype;
 
 /// Useful macros for implementing Azul APIs without duplicating code
 #[macro_use]
@@ -28,6 +34,9 @@ pub mod gl;
 pub mod id_tree;
 /// CSS cascading module
 pub mod style;
+/// SVG module
+#[cfg(feature = "svg")]
+pub mod svg;
 /// Main `Layout` and `GetTextLayout` trait definition
 pub mod traits;
 /// Async (task, thread, timer) helper functions

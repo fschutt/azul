@@ -227,11 +227,63 @@
 
             // delete() not necessary because StringVec is stack-allocated
         }
-    }    use crate::window::{StringPair, VirtualKeyCode, XWindowType};
+    }    use crate::svg::{SvgPathElement, SvgVertex};
+    use crate::window::{StringPair, VirtualKeyCode, XWindowType};
     use crate::css::{CssDeclaration, CssPathSelector, CssRuleBlock, GradientStopPre, Stylesheet};
     use crate::dom::{CallbackData, Dom, OverrideProperty};
     use crate::gl::DebugMessage;
     use crate::str::String;
+
+
+    /// Wrapper over a Rust-allocated `SvgPathElement`
+    pub use crate::dll::AzSvgPathElementVec as SvgPathElementVec;
+
+    impl SvgPathElementVec {
+        /// Creates a new, empty Rust `Vec<SvgPathElement>`
+        pub fn new() -> Self { (crate::dll::get_azul_dll().az_svg_path_element_vec_new)() }
+        /// Creates a new, empty Rust `Vec<SvgPathElement>` with a given, pre-allocated capacity
+        pub fn with_capacity(cap: usize) -> Self { (crate::dll::get_azul_dll().az_svg_path_element_vec_with_capacity)(cap) }
+        /// Creates + allocates a Rust `Vec<SvgPathElement>` by **copying** it from a bytes source
+        pub fn copy_from(ptr: *const AzSvgPathElement, len: usize) -> Self { (crate::dll::get_azul_dll().az_svg_path_element_vec_copy_from)(ptr, len) }
+    }
+
+    impl std::fmt::Debug for SvgPathElementVec { fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result { write!(f, "{}", (crate::dll::get_azul_dll().az_svg_path_element_vec_fmt_debug)(self)) } }
+    impl Clone for SvgPathElementVec { fn clone(&self) -> Self { (crate::dll::get_azul_dll().az_svg_path_element_vec_deep_copy)(self) } }
+    impl Drop for SvgPathElementVec { fn drop(&mut self) { (crate::dll::get_azul_dll().az_svg_path_element_vec_delete)(self); } }
+
+
+    /// Wrapper over a Rust-allocated `SvgVertex`
+    pub use crate::dll::AzSvgVertexVec as SvgVertexVec;
+
+    impl SvgVertexVec {
+        /// Creates a new, empty Rust `Vec<SvgVertex>`
+        pub fn new() -> Self { (crate::dll::get_azul_dll().az_svg_vertex_vec_new)() }
+        /// Creates a new, empty Rust `Vec<SvgVertex>` with a given, pre-allocated capacity
+        pub fn with_capacity(cap: usize) -> Self { (crate::dll::get_azul_dll().az_svg_vertex_vec_with_capacity)(cap) }
+        /// Creates + allocates a Rust `Vec<SvgVertex>` by **copying** it from a bytes source
+        pub fn copy_from(ptr: *const AzSvgVertex, len: usize) -> Self { (crate::dll::get_azul_dll().az_svg_vertex_vec_copy_from)(ptr, len) }
+    }
+
+    impl std::fmt::Debug for SvgVertexVec { fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result { write!(f, "{}", (crate::dll::get_azul_dll().az_svg_vertex_vec_fmt_debug)(self)) } }
+    impl Clone for SvgVertexVec { fn clone(&self) -> Self { (crate::dll::get_azul_dll().az_svg_vertex_vec_deep_copy)(self) } }
+    impl Drop for SvgVertexVec { fn drop(&mut self) { (crate::dll::get_azul_dll().az_svg_vertex_vec_delete)(self); } }
+
+
+    /// Wrapper over a Rust-allocated `Vec<u32>`
+    pub use crate::dll::AzU32Vec as U32Vec;
+
+    impl U32Vec {
+        /// Creates a new, empty Rust `Vec<u32>`
+        pub fn new() -> Self { (crate::dll::get_azul_dll().az_u32_vec_new)() }
+        /// Creates a new, empty Rust `Vec<u32>` with a given, pre-allocated capacity
+        pub fn with_capacity(cap: usize) -> Self { (crate::dll::get_azul_dll().az_u32_vec_with_capacity)(cap) }
+        /// Creates + allocates a Rust `Vec<u32>` by **copying** it from a bytes source
+        pub fn copy_from(ptr: *const u32, len: usize) -> Self { (crate::dll::get_azul_dll().az_u32_vec_copy_from)(ptr, len) }
+    }
+
+    impl std::fmt::Debug for U32Vec { fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result { write!(f, "{}", (crate::dll::get_azul_dll().az_u32_vec_fmt_debug)(self)) } }
+    impl Clone for U32Vec { fn clone(&self) -> Self { (crate::dll::get_azul_dll().az_u32_vec_deep_copy)(self) } }
+    impl Drop for U32Vec { fn drop(&mut self) { (crate::dll::get_azul_dll().az_u32_vec_delete)(self); } }
 
 
     /// Wrapper over a Rust-allocated `XWindowType`

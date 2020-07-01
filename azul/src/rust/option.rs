@@ -143,6 +143,14 @@
     impl_option!(AzTaskBarIcon, AzOptionTaskBarIcon, copy = false, [Debug, Clone, PartialOrd, PartialEq, Eq, Hash, Ord]);
 
 
+    /// `OptionSvgDashPattern` struct
+    pub use crate::dll::AzOptionSvgDashPattern as OptionSvgDashPattern;
+
+    impl std::fmt::Debug for OptionSvgDashPattern { fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result { write!(f, "{}", (crate::dll::get_azul_dll().az_option_svg_dash_pattern_fmt_debug)(self)) } }
+    impl Clone for OptionSvgDashPattern { fn clone(&self) -> Self { (crate::dll::get_azul_dll().az_option_svg_dash_pattern_deep_copy)(self) } }
+    impl Drop for OptionSvgDashPattern { fn drop(&mut self) { (crate::dll::get_azul_dll().az_option_svg_dash_pattern_delete)(self); } }
+
+
     /// `OptionWaylandTheme` struct
     pub use crate::dll::AzOptionWaylandTheme as OptionWaylandTheme;
 

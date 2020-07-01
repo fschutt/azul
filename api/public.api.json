@@ -43,6 +43,99 @@
 		"vec": {
 			"doc": "Definition of azuls internal `Vec<*>` wrappers",
 			"classes": {
+				"SvgPathElementVec": {
+					"doc": "Wrapper over a Rust-allocated `SvgPathElement`",
+					"external": "azul_impl::svg::SvgPathElementVec",
+					"struct_fields": [
+						{ "ptr": { "type": "*mut SvgPathElement" } },
+						{ "len": { "type": "usize" } },
+						{ "cap": { "type": "usize" } }
+					],
+					"constructors": {
+						"new": {
+							"doc": "Creates a new, empty Rust `Vec<SvgPathElement>`",
+							"fn_body": "Vec::<AzSvgPathElement>::new().into()"
+						},
+						"with_capacity": {
+							"doc": "Creates a new, empty Rust `Vec<SvgPathElement>` with a given, pre-allocated capacity",
+							"fn_args": [
+							    {"cap": "usize"}
+							],
+							"fn_body": "Vec::<AzSvgPathElement>::with_capacity(cap).into()"
+						},
+					    "copy_from": {
+					        "doc": "Creates + allocates a Rust `Vec<SvgPathElement>` by **copying** it from a bytes source",
+					        "fn_args": [
+					            {"ptr": "*const SvgPathElement"},
+					            {"len": "usize"}
+					        ],
+					        "fn_body": "unsafe { std::slice::from_raw_parts(ptr, len).to_vec() }.into()"
+					    }
+					},
+					"destructor": "unsafe { std::ptr::drop_in_place(object.as_mut()); } deallocate_vec(object.as_mut_ptr(), object.capacity());"
+				},
+				"SvgVertexVec": {
+					"doc": "Wrapper over a Rust-allocated `SvgVertex`",
+					"external": "azul_impl::svg::SvgVertexVec",
+					"struct_fields": [
+						{ "ptr": { "type": "*mut SvgVertex" } },
+						{ "len": { "type": "usize" } },
+						{ "cap": { "type": "usize" } }
+					],
+					"constructors": {
+						"new": {
+							"doc": "Creates a new, empty Rust `Vec<SvgVertex>`",
+							"fn_body": "Vec::<AzSvgVertex>::new().into()"
+						},
+						"with_capacity": {
+							"doc": "Creates a new, empty Rust `Vec<SvgVertex>` with a given, pre-allocated capacity",
+							"fn_args": [
+							    {"cap": "usize"}
+							],
+							"fn_body": "Vec::<AzSvgVertex>::with_capacity(cap).into()"
+						},
+					    "copy_from": {
+					        "doc": "Creates + allocates a Rust `Vec<SvgVertex>` by **copying** it from a bytes source",
+					        "fn_args": [
+					            {"ptr": "*const SvgVertex"},
+					            {"len": "usize"}
+					        ],
+					        "fn_body": "unsafe { std::slice::from_raw_parts(ptr, len).to_vec() }.into()"
+					    }
+					},
+					"destructor": "unsafe { std::ptr::drop_in_place(object.as_mut()); } deallocate_vec(object.as_mut_ptr(), object.capacity());"
+				},
+				"U32Vec": {
+					"doc": "Wrapper over a Rust-allocated `Vec<u32>`",
+					"external": "azul_impl::svg::U32Vec",
+					"struct_fields": [
+						{ "ptr": { "type": "*mut u32" } },
+						{ "len": { "type": "usize" } },
+						{ "cap": { "type": "usize" } }
+					],
+					"constructors": {
+						"new": {
+							"doc": "Creates a new, empty Rust `Vec<u32>`",
+							"fn_body": "Vec::<u32>::new().into()"
+						},
+						"with_capacity": {
+							"doc": "Creates a new, empty Rust `Vec<u32>` with a given, pre-allocated capacity",
+							"fn_args": [
+							    {"cap": "usize"}
+							],
+							"fn_body": "Vec::<u32>::with_capacity(cap).into()"
+						},
+					    "copy_from": {
+					        "doc": "Creates + allocates a Rust `Vec<u32>` by **copying** it from a bytes source",
+					        "fn_args": [
+					            {"ptr": "*const u32"},
+					            {"len": "usize"}
+					        ],
+					        "fn_body": "unsafe { std::slice::from_raw_parts(ptr, len).to_vec() }.into()"
+					    }
+					},
+					"destructor": "unsafe { std::ptr::drop_in_place(object.as_mut()); } deallocate_vec(object.as_mut_ptr(), object.capacity());"
+				},
 				"XWindowTypeVec": {
 					"doc": "Wrapper over a Rust-allocated `XWindowType`",
 					"external": "azul_impl::window::XWindowTypeVec",
@@ -575,6 +668,13 @@
 		"option": {
 			"doc": "Definition of azuls internal `Option<*>` wrappers",
 			"classes": {
+				"OptionSvgDashPattern": {
+					"external": "azul_impl::svg::OptionSvgDashPattern",
+					"enum_fields": [
+						{"None": {}},
+						{"Some": { "type": "SvgDashPattern" }}
+					]
+				},
 				"OptionWaylandTheme": {
 					"external": "azul_impl::window::OptionWaylandTheme",
 					"enum_fields": [
@@ -5349,6 +5449,175 @@
 						{ "RG8": {"doc": "Bytes are in the RG-unsigned-8bit format" } },
 						{ "RGBAI32": {"doc": "Bytes are in the RGBA-signed-32bit format" } },
 						{ "RGBA8": {"doc": "Bytes are in the RGBA-unsigned-8bit format" } }
+					]
+				}
+			}
+		},
+		"svg": {
+			"doc": "SVG parsing and rendering functions",
+			"classes": {
+				"SvgNode": {
+					"external": "azul_impl::svg::SvgNode",
+					"enum_fields": [
+						{"Polygon": {"type": "SvgPath"}},
+						{"Circle": {"type": "SvgCircle"}},
+						{"Rect": {"type": "SvgRect"}}
+					]
+				},
+				"SvgStyledNode": {
+					"external": "azul_impl::svg::SvgStyledNode",
+					"struct_fields": [
+						{"geometry": {"type": "SvgNode"}},
+						{"style": {"type": "SvgStyle"}}
+					]
+				},
+				"SvgCircle": {
+					"external": "azul_impl::svg::SvgCircle",
+					"struct_fields": [
+						{"center_x": {"type": "f32"}},
+						{"center_y": {"type": "f32"}},
+						{"radius": {"type": "f32"}}
+					]
+				},
+				"SvgPath": {
+					"external": "azul_impl::svg::SvgPath",
+					"struct_fields": [
+						{"items": {"type": "SvgPathElementVec"}}
+					]
+				},
+				"SvgPathElement": {
+					"external": "azul_impl::svg::SvgPathElement",
+					"enum_fields": [
+						{"Line": {"type": "SvgLine"}},
+						{"QuadraticCurve": {"type": "SvgQuadraticCurve"}},
+						{"CubicCurve": {"type": "SvgCubicCurve"}}
+					]
+				},
+				"SvgLine": {
+					"external": "azul_impl::svg::SvgLine",
+					"struct_fields": [
+						{"start": {"type": "SvgPoint"}},
+						{"end": {"type": "SvgPoint"}}
+					]
+				},
+				"SvgPoint": {
+					"external": "azul_impl::svg::SvgPoint",
+					"struct_fields": [
+						{"x": {"type": "f32"}},
+						{"y": {"type": "f32"}}
+					]
+				},
+				"SvgVertex": {
+					"external": "azul_impl::svg::SvgVertex",
+					"struct_fields": [
+						{"x": {"type": "f32"}},
+						{"y": {"type": "f32"}}
+					]
+				},
+				"SvgQuadraticCurve": {
+					"external": "azul_impl::svg::SvgQuadraticCurve",
+					"struct_fields": [
+						{"start": {"type": "SvgPoint"}},
+						{"ctrl": {"type": "SvgPoint"}},
+						{"end": {"type": "SvgPoint"}}
+					]
+				},
+				"SvgCubicCurve": {
+					"external": "azul_impl::svg::SvgCubicCurve",
+					"struct_fields": [
+						{"start": {"type": "SvgPoint"}},
+						{"ctrl_1": {"type": "SvgPoint"}},
+						{"ctrl_2": {"type": "SvgPoint"}},
+						{"end": {"type": "SvgPoint"}}
+					]
+				},
+				"SvgRect": {
+					"external": "azul_impl::svg::SvgRect",
+					"struct_fields": [
+						{"width": {"type": "f32"}},
+						{"height": {"type": "f32"}},
+						{"x": {"type": "f32"}},
+						{"y": {"type": "f32"}},
+						{"rx": {"type": "f32"}},
+						{"ry": {"type": "f32"}}
+					]
+				},
+				"TesselatedCPUSvgNode": {
+					"external": "azul_impl::svg::TesselatedCPUSvgNode",
+					"struct_fields": [
+						{"vertices": {"type": "SvgVertexVec"}},
+						{"indices": {"type": "U32Vec"}}
+					]
+				},
+				"TesselatedGPUSvgNode": {
+					"external": "azul_impl::svg::TesselatedGPUSvgNode",
+					"struct_fields": [
+						{"vertex_buffer_id": {"type": "u32"}},
+						{"index_buffer_id": {"type": "u32"}},
+						{"gl_context": {"type": "GlContextPtr"}}
+					]
+				},
+				"SvgLineCap": {
+					"external": "azul_impl::svg::SvgLineCap",
+					"enum_fields": [
+						{"Butt": {}},
+						{"Square": {}},
+						{"Round": {}}
+					]
+				},
+				"SvgLineJoin": {
+					"external": "azul_impl::svg::SvgLineJoin",
+					"enum_fields": [
+						{"Miter": {}},
+						{"MiterClip": {}},
+						{"Round": {}},
+						{"Bevel": {}}
+					]
+				},
+				"SvgDashPattern": {
+					"external": "azul_impl::svg::SvgDashPattern",
+					"struct_fields": [
+						{"offset": {"type": "f32"}},
+						{"length_1": {"type": "f32"}},
+						{"gap_1": {"type": "f32"}},
+						{"length_2": {"type": "f32"}},
+						{"gap_2": {"type": "f32"}},
+						{"length_3": {"type": "f32"}},
+						{"gap_3": {"type": "f32"}}
+					]
+				},
+				"SvgStyle": {
+					"external": "azul_impl::svg::SvgStyle",
+					"enum_fields": [
+						{"Fill": {"type": "SvgFillStyle"}},
+						{"Stroke": {"type": "SvgStrokeStyle"}}
+					]
+				},
+				"SvgFillStyle": {
+					"external": "azul_impl::svg::SvgFillStyle",
+					"struct_fields": [
+						{"line_join": {"type": "SvgLineJoin", "doc": "How to tesselate edges in a path, default value = `Miter`"}},
+						{"miter_limit": {"type": "usize", "doc": "Limit for caps on path edges if line_join is set to `Miter`, (multiplied * 1000 as usize). Must be greater than or equal to 1px (`1000`). Default value = 1px (`1000`)"}},
+						{"tolerance": {"type": "usize", "doc": "Maximum allowed distance between path points when tesselating curves. Default value = 0.1px (`100`)"}}
+					]
+				},
+				"SvgStrokeStyle": {
+					"external": "azul_impl::svg::SvgStrokeStyle",
+					"struct_fields": [
+						{"start_cap": {"type": "SvgLineCap", "doc": "What cap to use at the start of each sub-path, default value = `Butt`"}},
+						{"end_cap": {"type": "SvgLineCap", "doc": "What cap to use at the end of each sub-path, default value = `Butt`"}},
+						{"line_join": {"type": "SvgLineJoin", "doc": "How to tesselate edges in a path, default value = `Miter`"}},
+						{"dash_pattern": {"type": "OptionSvgDashPattern", "doc": "Optional dash pattern for the stroke, default value = `None`"}},
+						{"line_width": {"type": "usize", "doc": "Width of the line in px, (multiplied * 1000 as usize). Default value = 1px (`1000`)"}},
+						{"miter_limit": {"type": "usize", "doc": "Limit for caps on path edges if line_join is set to `Miter`, (multiplied * 1000 as usize). Must be greater than or equal to 1px (`1000`). Default value = 1px (`1000`)"}},
+						{"tolerance": {"type": "usize", "doc": "Maximum allowed distance between path points when tesselating curves. Default value = 0.1px (`100`)"}},
+						{"apply_line_width": {"type": "bool", "doc": "When set to false, the generated vertices will all be positioned in the center. The width can be applied later on (eg in a vertex shader) by adding the vertex normal multiplied by the line with to each vertex position. Default value = `false`"}}
+					]
+				},
+				"SvgNodeId": {
+					"external": "azul_impl::app_resources::SvgNodeId",
+					"struct_fields": [
+						{"id": {"type": "usize"}}
 					]
 				}
 			}
