@@ -9,3 +9,6 @@ extern crate azul_core;
 extern crate azul_css;
 
 pub mod app;
+pub mod svg {
+    pub use azul_core::svg::*;
+}

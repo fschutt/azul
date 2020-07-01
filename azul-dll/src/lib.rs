@@ -3862,7 +3862,7 @@ pub type AzSvgStrokeStyleTT = azul_impl::svg::SvgStrokeStyle;
 #[no_mangle] pub extern "C" fn az_svg_stroke_style_fmt_debug(object: &AzSvgStrokeStyle) -> AzString { format!("{:#?}", object).into() }
 
 /// Re-export of rust-allocated (stack based) `SvgNodeId` struct
-pub type AzSvgNodeIdTT = azul_impl::app_resources::SvgNodeId;
+pub type AzSvgNodeIdTT = azul_impl::resources::SvgNodeId;
 #[no_mangle] pub use AzSvgNodeIdTT as AzSvgNodeId;
 /// Destructor: Takes ownership of the `SvgNodeId` pointer and deletes it.
 #[no_mangle] #[allow(unused_variables)] pub extern "C" fn az_svg_node_id_delete(object: &mut AzSvgNodeId) { }

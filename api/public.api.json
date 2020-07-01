@@ -5615,7 +5615,7 @@
 					]
 				},
 				"SvgNodeId": {
-					"external": "azul_impl::app_resources::SvgNodeId",
+					"external": "azul_impl::resources::SvgNodeId",
 					"struct_fields": [
 						{"id": {"type": "usize"}}
 					]

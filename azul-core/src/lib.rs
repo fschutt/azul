@@ -35,7 +35,6 @@ pub mod id_tree;
 /// CSS cascading module
 pub mod style;
 /// SVG module
-#[cfg(feature = "svg")]
 pub mod svg;
 /// Main `Layout` and `GetTextLayout` trait definition
 pub mod traits;

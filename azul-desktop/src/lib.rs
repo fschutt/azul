@@ -73,6 +73,11 @@ pub mod text_layout {
     pub use azulc::layout::text_layout::InlineText;
 }
 
+/// SVG parsing + rendering
+pub mod svg {
+    pub use azul_core::svg::*;
+}
+
 /// Quick exports of common types
 pub mod prelude {
     pub use azul_css::*;

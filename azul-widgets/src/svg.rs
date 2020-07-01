@@ -1,4 +1,4 @@
-use azul::svg::*;
+use std::sync::atomic::{Ordering, AtomicUsize};
 
 static SVG_TRANSFORM_ID: AtomicUsize = AtomicUsize::new(0);
 static SVG_VIEW_BOX_ID: AtomicUsize = AtomicUsize::new(0);

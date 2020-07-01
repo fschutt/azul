@@ -13,6 +13,8 @@ use crate::{
     callbacks::PipelineId,
     id_tree::NodeDataContainer,
     dom::NodeData,
+    gl::Texture,
+    svg::{SvgStyledNode, TesselatedGPUSvgNode, TesselatedCPUSvgNode},
 };
 
 pub type CssImageId = String;
@@ -274,7 +276,7 @@ pub struct AppResources {
     /// Cache from SVG node ID -> Geometry for that node
     pub svg_cpu_path_cache: FastHashMap<SvgNodeId, SvgStyledNode>,
     /// Cache from SVG node -> CPU tesselated triangles
-    pub svg_cpu_tess_cache: FastHashMap<SvgNodeId, TesselatedCpuSvgNode>,
+    pub svg_cpu_tess_cache: FastHashMap<SvgNodeId, TesselatedCPUSvgNode>,
     /// Cache from SVG node -> GPU vertex buffer ID + GPU index buffer ID
     pub svg_gpu_tess_cache: FastHashMap<SvgNodeId, TesselatedGPUSvgNode>,
     /// Cache from SVG node -> Texture

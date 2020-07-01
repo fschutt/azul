@@ -1451,6 +1451,7 @@ impl std::fmt::Debug for GlContextPtr {
 impl GlContextPtr {
     pub fn new(context: Rc<dyn Gl>) -> Self { Self { ptr: Box::into_raw(Box::new(context)) as *const c_void } }
     pub fn get<'a>(&'a self) -> &'a Rc<dyn Gl> { unsafe { &*(self.ptr as *const Rc<dyn Gl>) } }
+    fn as_usize(&self) -> usize { self.ptr as usize }
 }
 
 #[cfg(feature = "opengl")]
@@ -1685,6 +1686,30 @@ impl GlContextPtr {
 impl Clone for GlContextPtr {
     fn clone(&self) -> Self {
         Self::new(self.get().clone())
+    }
+}
+
+#[cfg(feature = "opengl")]
+impl PartialEq for GlContextPtr {
+    fn eq(&self, rhs: &Self) -> bool {
+        self.as_usize().eq(&rhs.as_usize())
+    }
+}
+
+#[cfg(feature = "opengl")]
+impl Eq for GlContextPtr { }
+
+#[cfg(feature = "opengl")]
+impl PartialOrd for GlContextPtr {
+    fn partial_cmp(&self, rhs: &Self) -> Option<std::cmp::Ordering> {
+        self.as_usize().partial_cmp(&rhs.as_usize())
+    }
+}
+
+#[cfg(feature = "opengl")]
+impl Ord for GlContextPtr {
+    fn cmp(&self, rhs: &Self) -> std::cmp::Ordering {
+        self.as_usize().cmp(&rhs.as_usize())
     }
 }
 
@@ -2076,11 +2101,11 @@ pub enum GlApiVersion {
 
 impl GlApiVersion {
     /// Returns the OpenGL version of the context
-    pub fn get(gl_context: &dyn Gl) -> Self {
+    pub fn get(gl_context: &GlContextPtr) -> Self {
         let mut major = [0];
-        unsafe { gl_context.get_integer_v(gl::MAJOR_VERSION, &mut major) };
+        unsafe { gl_context.get_integer_v(gl::MAJOR_VERSION, (&mut major[..]).into()) };
         let mut minor = [0];
-        unsafe { gl_context.get_integer_v(gl::MINOR_VERSION, &mut minor) };
+        unsafe { gl_context.get_integer_v(gl::MINOR_VERSION, (&mut minor[..]).into()) };
 
         GlApiVersion::Gl { major: major[0] as usize, minor: minor[0] as usize }
     }
