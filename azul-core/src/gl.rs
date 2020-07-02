@@ -1863,9 +1863,12 @@ impl Drop for Texture {
 
 /// Describes the vertex layout and offsets
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
+#[repr(C)]
 pub struct VertexLayout {
-    pub fields: Vec<VertexAttribute>,
+    pub fields: VertexAttributeVec,
 }
+
+impl_vec!(VertexAttribute, VertexAttributeVec);
 
 impl VertexLayout {
 
@@ -1993,14 +1996,12 @@ impl Drop for VertexArrayObject {
     }
 }
 
-pub struct VertexBuffer<T: VertexLayoutDescription> {
+#[repr(C)]
+pub struct VertexBuffer {
     pub vertex_buffer_id: GLuint,
     pub vertex_buffer_len: usize,
-    pub gl_context: GlContextPtr,
     pub vao: VertexArrayObject,
-    pub vertex_buffer_type: PhantomData<T>,
-
-    // Since vertex buffer + index buffer have to be created together (because of the VAO), s
+    pub vertex_layout: VertexLayout,
     pub index_buffer_id: GLuint,
     pub index_buffer_len: usize,
     pub index_buffer_format: IndexBufferFormat,
@@ -2371,9 +2372,9 @@ impl GlShader {
     /// Draws vertex buffers, index buffers + uniforms to the currently bound framebuffer
     ///
     /// **NOTE: `FrameBuffer::bind()` and `VertexBuffer::bind()` have to be called first!**
-    pub fn draw<T: VertexLayoutDescription>(
+    pub fn draw(
         &mut self,
-        buffers: &[(Rc<VertexBuffer<T>>, Vec<Uniform>)],
+        buffers: &[(TesselatedGPUSvgNode, Vec<Uniform>)],
         clear_color: Option<ColorU>,
         texture_size: LogicalSize,
     ) -> Texture {
@@ -2460,13 +2461,13 @@ impl GlShader {
         gl_context.clear(gl::COLOR_BUFFER_BIT | gl::DEPTH_BUFFER_BIT);
 
         // Draw the actual layers
-        for (vi, uniforms) in buffers {
+        for (gpu_svg_node, uniforms) in buffers {
 
             let vertex_buffer = vi.deref();
 
-            gl_context.bind_vertex_array(vertex_buffer.vao.vao_id);
+            gl_context.bind_vertex_array(gpu_svg_node.vertex_buffer_id);
             // NOTE: Technically not required, but some drivers...
-            gl_context.bind_buffer(gl::ELEMENT_ARRAY_BUFFER, vertex_buffer.index_buffer_id);
+            gl_context.bind_buffer(gl::ELEMENT_ARRAY_BUFFER, gpu_svg_node.index_buffer_id);
 
             // Only set the uniform if the value has changed
             for (uniform_index, uniform) in uniforms.iter().enumerate() {
@@ -2477,7 +2478,7 @@ impl GlShader {
                 }
             }
 
-            gl_context.draw_elements(vertex_buffer.index_buffer_format.get_gl_id(), vertex_buffer.index_buffer_len as i32, INDEX_TYPE, 0);
+            gl_context.draw_elements(gpu_svg_node.index_buffer_gl_type, gpu_svg_node.index_buffer_len, INDEX_TYPE, 0);
         }
 
         // Reset the OpenGL state to what it was before

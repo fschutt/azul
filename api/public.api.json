@@ -5554,6 +5554,8 @@
 					"struct_fields": [
 						{"vertex_buffer_id": {"type": "u32"}},
 						{"index_buffer_id": {"type": "u32"}},
+						{"index_buffer_type": {"type": "u32"}},
+						{"index_buffer_len": {"type": "i32"}},
 						{"gl_context": {"type": "GlContextPtr"}}
 					]
 				},
