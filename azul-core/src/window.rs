@@ -1343,9 +1343,9 @@ pub struct PhysicalSize<T> {
     pub height: T,
 }
 
-type PhysicalSizeU32 = PhysicalSize<u32>;
+pub type PhysicalSizeU32 = PhysicalSize<u32>;
 impl_option!(PhysicalSizeU32, OptionPhysicalSizeU32, [Debug, Copy, Clone, PartialEq, PartialOrd, Eq, Ord, Hash]);
-type PhysicalSizeF32 = PhysicalSize<f32>;
+pub type PhysicalSizeF32 = PhysicalSize<f32>;
 impl_option!(PhysicalSizeF32, OptionPhysicalSizeF32, [Debug, Copy, Clone, PartialEq, PartialOrd]);
 
 impl LogicalPosition {

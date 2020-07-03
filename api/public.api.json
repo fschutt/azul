@@ -5342,7 +5342,7 @@
 					"struct_fields": [
 						{"texture_id": {"type": "u32", "doc": "Raw OpenGL texture ID"}},
 						{"flags": {"type": "TextureFlags", "doc": "Hints and flags for optimization purposes"}},
-						{"size": {"type": "LogicalSize", "doc": "Size of this texture (in pixels)"}},
+						{"size": {"type": "PhysicalSizeU32", "doc": "Size of this texture (in pixels)"}},
 						{"gl_context": {"type": "GlContextPtr", "doc": "A reference-counted pointer to the OpenGL context (so that the texture can be deleted in the destructor)"}}
 					]
 				},

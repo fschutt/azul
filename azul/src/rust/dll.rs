@@ -1760,7 +1760,7 @@
     #[repr(C)] pub struct AzTexture {
         pub texture_id: u32,
         pub flags: AzTextureFlags,
-        pub size: AzLogicalSize,
+        pub size: AzPhysicalSizeU32,
         pub gl_context: AzGlContextPtr,
     }
     /// Re-export of rust-allocated (stack based) `TextureFlags` struct
@@ -1893,6 +1893,8 @@
     #[repr(C)] pub struct AzTesselatedGPUSvgNode {
         pub vertex_buffer_id: u32,
         pub index_buffer_id: u32,
+        pub index_buffer_type: u32,
+        pub index_buffer_len: i32,
         pub gl_context: AzGlContextPtr,
     }
     /// Re-export of rust-allocated (stack based) `SvgLineCap` struct

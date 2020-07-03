@@ -4,15 +4,15 @@ use std::{
     rc::Rc,
     hash::{Hasher, Hash},
     ffi::c_void,
-    marker::PhantomData,
     os::raw::c_int,
 };
 use gleam::gl::{self, Gl, GlType, DebugMessage};
 use crate::{
     FastHashMap,
-    window::LogicalSize,
+    window::PhysicalSizeU32,
     app_resources::{Epoch, ExternalImageId},
     callbacks::PipelineId,
+    svg::TesselatedGPUSvgNode,
 };
 use azul_css::{AzString, StringVec, U8Vec, ColorU, ColorF};
 
@@ -1728,7 +1728,7 @@ pub struct Texture {
     /// Hints and flags for optimization purposes
     pub flags: TextureFlags,
     /// Size of this texture (in pixels)
-    pub size: LogicalSize,
+    pub size: PhysicalSizeU32,
     /// A reference-counted pointer to the OpenGL context (so that the texture can be deleted in the destructor)
     pub gl_context: GlContextPtr,
 }
@@ -1869,6 +1869,13 @@ pub struct VertexLayout {
 }
 
 impl_vec!(VertexAttribute, VertexAttributeVec);
+impl_vec_debug!(VertexAttribute, VertexAttributeVec);
+impl_vec_partialord!(VertexAttribute, VertexAttributeVec);
+impl_vec_ord!(VertexAttribute, VertexAttributeVec);
+impl_vec_clone!(VertexAttribute, VertexAttributeVec);
+impl_vec_partialeq!(VertexAttribute, VertexAttributeVec);
+impl_vec_eq!(VertexAttribute, VertexAttributeVec);
+impl_vec_hash!(VertexAttribute, VertexAttributeVec);
 
 impl VertexLayout {
 
@@ -1984,6 +1991,7 @@ pub trait VertexLayoutDescription {
     fn get_description() -> VertexLayout;
 }
 
+#[repr(C)]
 pub struct VertexArrayObject {
     pub vertex_layout: VertexLayout,
     pub vao_id: GLuint,
@@ -2001,14 +2009,13 @@ pub struct VertexBuffer {
     pub vertex_buffer_id: GLuint,
     pub vertex_buffer_len: usize,
     pub vao: VertexArrayObject,
-    pub vertex_layout: VertexLayout,
     pub index_buffer_id: GLuint,
     pub index_buffer_len: usize,
     pub index_buffer_format: IndexBufferFormat,
 }
 
-impl<T: VertexLayoutDescription> ::std::fmt::Display for VertexBuffer<T> {
-    fn fmt(&self, f: &mut ::std::fmt::Formatter) -> ::std::fmt::Result {
+impl std::fmt::Display for VertexBuffer {
+    fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
         write!(f,
             "VertexBuffer {{ buffer: {} (length: {}) }})",
             self.vertex_buffer_id, self.vertex_buffer_len
@@ -2016,16 +2023,16 @@ impl<T: VertexLayoutDescription> ::std::fmt::Display for VertexBuffer<T> {
     }
 }
 
-impl_traits_for_gl_object!(VertexBuffer<T: VertexLayoutDescription>, vertex_buffer_id);
+impl_traits_for_gl_object!(VertexBuffer, vertex_buffer_id);
 
-impl<T: VertexLayoutDescription> Drop for VertexBuffer<T> {
+impl Drop for VertexBuffer {
     fn drop(&mut self) {
-        self.gl_context.delete_buffers((&[self.vertex_buffer_id, self.index_buffer_id])[..].into());
+        self.vao.gl_context.delete_buffers((&[self.vertex_buffer_id, self.index_buffer_id])[..].into());
     }
 }
 
-impl<T: VertexLayoutDescription> VertexBuffer<T> {
-    pub fn new(shader: &GlShader, vertices: &[T], indices: &[u32], index_buffer_format: IndexBufferFormat) -> Self {
+impl VertexBuffer {
+    pub fn new<T: VertexLayoutDescription>(shader: &GlShader, vertices: &[T], indices: &[u32], index_buffer_format: IndexBufferFormat) -> Self {
 
         use std::mem;
 
@@ -2080,13 +2087,11 @@ impl<T: VertexLayoutDescription> VertexBuffer<T> {
         Self {
             vertex_buffer_id: *vertex_buffer_id,
             vertex_buffer_len: vertices.len(),
-            gl_context: gl_context.clone(),
             vao: VertexArrayObject {
                 vertex_layout: vertex_description,
                 vao_id: *vertex_array_object,
                 gl_context,
             },
-            vertex_buffer_type: PhantomData,
             index_buffer_id: *index_buffer_id,
             index_buffer_len: indices.len(),
             index_buffer_format,
@@ -2104,9 +2109,9 @@ impl GlApiVersion {
     /// Returns the OpenGL version of the context
     pub fn get(gl_context: &GlContextPtr) -> Self {
         let mut major = [0];
-        unsafe { gl_context.get_integer_v(gl::MAJOR_VERSION, (&mut major[..]).into()) };
+        gl_context.get_integer_v(gl::MAJOR_VERSION, (&mut major[..]).into());
         let mut minor = [0];
-        unsafe { gl_context.get_integer_v(gl::MINOR_VERSION, (&mut minor[..]).into()) };
+        gl_context.get_integer_v(gl::MINOR_VERSION, (&mut minor[..]).into());
 
         GlApiVersion::Gl { major: major[0] as usize, minor: minor[0] as usize }
     }
@@ -2307,7 +2312,7 @@ impl GlShader {
     /// Compiles and creates a new OpenGL shader, created from a vertex and a fragment shader string.
     ///
     /// If the shader fails to compile, the shader object gets automatically deleted, no cleanup necessary.
-    pub fn new(gl_context: GlContextPtr, vertex_shader: &str, fragment_shader: &str) -> Result<Self, GlShaderCreateError> {
+    pub fn new(gl_context: &GlContextPtr, vertex_shader: &str, fragment_shader: &str) -> Result<Self, GlShaderCreateError> {
 
         // Check whether the OpenGL implementation supports a shader compiler...
         let mut shader_compiler_supported = [gl::FALSE];
@@ -2366,20 +2371,19 @@ impl GlShader {
         gl_context.delete_shader(vertex_shader_object);
         gl_context.delete_shader(fragment_shader_object);
 
-        Ok(GlShader { program_id, gl_context })
+        Ok(GlShader { program_id, gl_context: gl_context.clone() })
     }
 
     /// Draws vertex buffers, index buffers + uniforms to the currently bound framebuffer
     ///
     /// **NOTE: `FrameBuffer::bind()` and `VertexBuffer::bind()` have to be called first!**
     pub fn draw(
-        &mut self,
-        buffers: &[(TesselatedGPUSvgNode, Vec<Uniform>)],
+        &self,
+        buffers: &[(&TesselatedGPUSvgNode, &[Uniform])],
         clear_color: Option<ColorU>,
-        texture_size: LogicalSize,
+        texture_size: PhysicalSizeU32,
     ) -> Texture {
 
-        use std::ops::Deref;
         use std::collections::HashMap;
 
         const INDEX_TYPE: GLuint = gl::UNSIGNED_INT;
@@ -2463,11 +2467,9 @@ impl GlShader {
         // Draw the actual layers
         for (gpu_svg_node, uniforms) in buffers {
 
-            let vertex_buffer = vi.deref();
-
-            gl_context.bind_vertex_array(gpu_svg_node.vertex_buffer_id);
+            gl_context.bind_vertex_array(gpu_svg_node.vertex_index_buffer.vertex_buffer_id);
             // NOTE: Technically not required, but some drivers...
-            gl_context.bind_buffer(gl::ELEMENT_ARRAY_BUFFER, gpu_svg_node.index_buffer_id);
+            gl_context.bind_buffer(gl::ELEMENT_ARRAY_BUFFER, gpu_svg_node.vertex_index_buffer.index_buffer_id);
 
             // Only set the uniform if the value has changed
             for (uniform_index, uniform) in uniforms.iter().enumerate() {
@@ -2478,7 +2480,11 @@ impl GlShader {
                 }
             }
 
-            gl_context.draw_elements(gpu_svg_node.index_buffer_gl_type, gpu_svg_node.index_buffer_len, INDEX_TYPE, 0);
+            gl_context.draw_elements(
+                gpu_svg_node.vertex_index_buffer.index_buffer_format.get_gl_id(),
+                gpu_svg_node.vertex_index_buffer.index_buffer_len as i32,
+                INDEX_TYPE,
+            0);
         }
 
         // Reset the OpenGL state to what it was before
