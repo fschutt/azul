@@ -1991,6 +1991,7 @@ pub trait VertexLayoutDescription {
     fn get_description() -> VertexLayout;
 }
 
+#[derive(Debug, PartialEq, PartialOrd)]
 #[repr(C)]
 pub struct VertexArrayObject {
     pub vertex_layout: VertexLayout,
@@ -2118,6 +2119,7 @@ impl GlApiVersion {
 }
 
 #[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
+#[repr(C)]
 pub enum IndexBufferFormat {
     Points,
     Lines,

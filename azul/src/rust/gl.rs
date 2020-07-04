@@ -1643,6 +1643,52 @@
     use crate::option::OptionU8VecRef;
 
 
+    /// `VertexAttributeType` struct
+    pub use crate::dll::AzVertexAttributeType as VertexAttributeType;
+
+    impl std::fmt::Debug for VertexAttributeType { fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result { write!(f, "{}", (crate::dll::get_azul_dll().az_vertex_attribute_type_fmt_debug)(self)) } }
+    impl Clone for VertexAttributeType { fn clone(&self) -> Self { (crate::dll::get_azul_dll().az_vertex_attribute_type_deep_copy)(self) } }
+    impl Drop for VertexAttributeType { fn drop(&mut self) { (crate::dll::get_azul_dll().az_vertex_attribute_type_delete)(self); } }
+
+
+    /// `VertexAttribute` struct
+    pub use crate::dll::AzVertexAttribute as VertexAttribute;
+
+    impl std::fmt::Debug for VertexAttribute { fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result { write!(f, "{}", (crate::dll::get_azul_dll().az_vertex_attribute_fmt_debug)(self)) } }
+    impl Clone for VertexAttribute { fn clone(&self) -> Self { (crate::dll::get_azul_dll().az_vertex_attribute_deep_copy)(self) } }
+    impl Drop for VertexAttribute { fn drop(&mut self) { (crate::dll::get_azul_dll().az_vertex_attribute_delete)(self); } }
+
+
+    /// `VertexLayout` struct
+    pub use crate::dll::AzVertexLayout as VertexLayout;
+
+    impl std::fmt::Debug for VertexLayout { fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result { write!(f, "{}", (crate::dll::get_azul_dll().az_vertex_layout_fmt_debug)(self)) } }
+    impl Clone for VertexLayout { fn clone(&self) -> Self { (crate::dll::get_azul_dll().az_vertex_layout_deep_copy)(self) } }
+    impl Drop for VertexLayout { fn drop(&mut self) { (crate::dll::get_azul_dll().az_vertex_layout_delete)(self); } }
+
+
+    /// `VertexArrayObject` struct
+    pub use crate::dll::AzVertexArrayObject as VertexArrayObject;
+
+    impl std::fmt::Debug for VertexArrayObject { fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result { write!(f, "{}", (crate::dll::get_azul_dll().az_vertex_array_object_fmt_debug)(self)) } }
+    impl Drop for VertexArrayObject { fn drop(&mut self) { (crate::dll::get_azul_dll().az_vertex_array_object_delete)(self); } }
+
+
+    /// `IndexBufferFormat` struct
+    pub use crate::dll::AzIndexBufferFormat as IndexBufferFormat;
+
+    impl std::fmt::Debug for IndexBufferFormat { fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result { write!(f, "{}", (crate::dll::get_azul_dll().az_index_buffer_format_fmt_debug)(self)) } }
+    impl Clone for IndexBufferFormat { fn clone(&self) -> Self { (crate::dll::get_azul_dll().az_index_buffer_format_deep_copy)(self) } }
+    impl Drop for IndexBufferFormat { fn drop(&mut self) { (crate::dll::get_azul_dll().az_index_buffer_format_delete)(self); } }
+
+
+    /// `VertexBuffer` struct
+    pub use crate::dll::AzVertexBuffer as VertexBuffer;
+
+    impl std::fmt::Debug for VertexBuffer { fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result { write!(f, "{}", (crate::dll::get_azul_dll().az_vertex_buffer_fmt_debug)(self)) } }
+    impl Drop for VertexBuffer { fn drop(&mut self) { (crate::dll::get_azul_dll().az_vertex_buffer_delete)(self); } }
+
+
     /// `GlType` struct
     pub use crate::dll::AzGlType as GlType;
 

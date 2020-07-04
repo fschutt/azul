@@ -227,15 +227,66 @@
 
             // delete() not necessary because StringVec is stack-allocated
         }
-    }    use crate::svg::{SvgPathElement, SvgVertex};
+    }    use crate::svg::{SvgMultiPolygon, SvgPath, SvgPathElement, SvgVertex};
+    use crate::gl::{DebugMessage, VertexAttribute};
     use crate::window::{StringPair, VirtualKeyCode, XWindowType};
     use crate::css::{CssDeclaration, CssPathSelector, CssRuleBlock, GradientStopPre, Stylesheet};
     use crate::dom::{CallbackData, Dom, OverrideProperty};
-    use crate::gl::DebugMessage;
     use crate::str::String;
 
 
-    /// Wrapper over a Rust-allocated `SvgPathElement`
+    /// Wrapper over a Rust-allocated `Vec<SvgMultiPolygon>`
+    pub use crate::dll::AzSvgMultiPolygonVec as SvgMultiPolygonVec;
+
+    impl SvgMultiPolygonVec {
+        /// Creates a new, empty Rust `Vec<SvgMultiPolygon>`
+        pub fn new() -> Self { (crate::dll::get_azul_dll().az_svg_multi_polygon_vec_new)() }
+        /// Creates a new, empty Rust `Vec<SvgMultiPolygon>` with a given, pre-allocated capacity
+        pub fn with_capacity(cap: usize) -> Self { (crate::dll::get_azul_dll().az_svg_multi_polygon_vec_with_capacity)(cap) }
+        /// Creates + allocates a Rust `Vec<SvgMultiPolygon>` by **copying** it from a bytes source
+        pub fn copy_from(ptr: *const AzSvgMultiPolygon, len: usize) -> Self { (crate::dll::get_azul_dll().az_svg_multi_polygon_vec_copy_from)(ptr, len) }
+    }
+
+    impl std::fmt::Debug for SvgMultiPolygonVec { fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result { write!(f, "{}", (crate::dll::get_azul_dll().az_svg_multi_polygon_vec_fmt_debug)(self)) } }
+    impl Clone for SvgMultiPolygonVec { fn clone(&self) -> Self { (crate::dll::get_azul_dll().az_svg_multi_polygon_vec_deep_copy)(self) } }
+    impl Drop for SvgMultiPolygonVec { fn drop(&mut self) { (crate::dll::get_azul_dll().az_svg_multi_polygon_vec_delete)(self); } }
+
+
+    /// Wrapper over a Rust-allocated `Vec<SvgPath>`
+    pub use crate::dll::AzSvgPathVec as SvgPathVec;
+
+    impl SvgPathVec {
+        /// Creates a new, empty Rust `Vec<SvgPath>`
+        pub fn new() -> Self { (crate::dll::get_azul_dll().az_svg_path_vec_new)() }
+        /// Creates a new, empty Rust `Vec<SvgPath>` with a given, pre-allocated capacity
+        pub fn with_capacity(cap: usize) -> Self { (crate::dll::get_azul_dll().az_svg_path_vec_with_capacity)(cap) }
+        /// Creates + allocates a Rust `Vec<SvgPath>` by **copying** it from a bytes source
+        pub fn copy_from(ptr: *const AzSvgPath, len: usize) -> Self { (crate::dll::get_azul_dll().az_svg_path_vec_copy_from)(ptr, len) }
+    }
+
+    impl std::fmt::Debug for SvgPathVec { fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result { write!(f, "{}", (crate::dll::get_azul_dll().az_svg_path_vec_fmt_debug)(self)) } }
+    impl Clone for SvgPathVec { fn clone(&self) -> Self { (crate::dll::get_azul_dll().az_svg_path_vec_deep_copy)(self) } }
+    impl Drop for SvgPathVec { fn drop(&mut self) { (crate::dll::get_azul_dll().az_svg_path_vec_delete)(self); } }
+
+
+    /// Wrapper over a Rust-allocated `Vec<VertexAttribute>`
+    pub use crate::dll::AzVertexAttributeVec as VertexAttributeVec;
+
+    impl VertexAttributeVec {
+        /// Creates a new, empty Rust `Vec<VertexAttribute>`
+        pub fn new() -> Self { (crate::dll::get_azul_dll().az_vertex_attribute_vec_new)() }
+        /// Creates a new, empty Rust `Vec<VertexAttribute>` with a given, pre-allocated capacity
+        pub fn with_capacity(cap: usize) -> Self { (crate::dll::get_azul_dll().az_vertex_attribute_vec_with_capacity)(cap) }
+        /// Creates + allocates a Rust `Vec<VertexAttribute>` by **copying** it from a bytes source
+        pub fn copy_from(ptr: *const AzVertexAttribute, len: usize) -> Self { (crate::dll::get_azul_dll().az_vertex_attribute_vec_copy_from)(ptr, len) }
+    }
+
+    impl std::fmt::Debug for VertexAttributeVec { fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result { write!(f, "{}", (crate::dll::get_azul_dll().az_vertex_attribute_vec_fmt_debug)(self)) } }
+    impl Clone for VertexAttributeVec { fn clone(&self) -> Self { (crate::dll::get_azul_dll().az_vertex_attribute_vec_deep_copy)(self) } }
+    impl Drop for VertexAttributeVec { fn drop(&mut self) { (crate::dll::get_azul_dll().az_vertex_attribute_vec_delete)(self); } }
+
+
+    /// Wrapper over a Rust-allocated `VertexAttribute`
     pub use crate::dll::AzSvgPathElementVec as SvgPathElementVec;
 
     impl SvgPathElementVec {

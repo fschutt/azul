@@ -1681,7 +1681,7 @@ const DISPLAY_FRAGMENT_SHADER: &str = "
 static mut DISPLAY_SHADER: Option<GlShader> = None;
 
 /// Compiles the display vertex / fragment shader, returns the compiled shaders.
-fn compile_screen_shader(context: GlContextPtr) -> GLuint {
+fn compile_screen_shader(context: &GlContextPtr) -> GLuint {
     unsafe { DISPLAY_SHADER.get_or_insert_with(|| {
         GlShader::new(context, DISPLAY_VERTEX_SHADER, DISPLAY_FRAGMENT_SHADER).unwrap()
     }) }.program_id
@@ -1693,7 +1693,7 @@ fn draw_texture_to_screen(context: GlContextPtr, texture: GLuint, framebuffer_si
     context.bind_framebuffer(gl::FRAMEBUFFER, 0);
 
     // Compile or get the cached shader
-    let shader = compile_screen_shader(context.clone());
+    let shader = compile_screen_shader(&context);
     let texture_location = context.get_uniform_location(shader, "fScreenTex".into());
 
     // The uniform value for a sampler refers to the texture unit, not the texture id, i.e.:

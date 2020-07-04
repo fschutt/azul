@@ -80,7 +80,55 @@ pub type AzStringTT = azul_impl::css::AzString;
 /// Returns the hash of a `AzString` instance 
 #[no_mangle] pub extern "C" fn az_string_hash(object: &AzString) -> u64 { use std::collections::hash_map::DefaultHasher; use std::hash::{Hash, Hasher}; let mut hasher = DefaultHasher::new(); object.hash(&mut hasher); hasher.finish() }
 
-/// Wrapper over a Rust-allocated `SvgPathElement`
+/// Wrapper over a Rust-allocated `Vec<SvgMultiPolygon>`
+pub type AzSvgMultiPolygonVecTT = azul_impl::svg::SvgMultiPolygonVec;
+#[no_mangle] pub use AzSvgMultiPolygonVecTT as AzSvgMultiPolygonVec;
+/// Creates a new, empty Rust `Vec<SvgMultiPolygon>`
+#[no_mangle] pub extern "C" fn az_svg_multi_polygon_vec_new() -> AzSvgMultiPolygonVec { Vec::<AzSvgMultiPolygon>::new().into() }
+/// Creates a new, empty Rust `Vec<SvgMultiPolygon>` with a given, pre-allocated capacity
+#[no_mangle] pub extern "C" fn az_svg_multi_polygon_vec_with_capacity(cap: usize) -> AzSvgMultiPolygonVec { Vec::<AzSvgMultiPolygon>::with_capacity(cap).into() }
+/// Creates + allocates a Rust `Vec<SvgMultiPolygon>` by **copying** it from a bytes source
+#[no_mangle] pub extern "C" fn az_svg_multi_polygon_vec_copy_from(ptr: *const AzSvgMultiPolygon, len: usize) -> AzSvgMultiPolygonVec { unsafe { std::slice::from_raw_parts(ptr, len).to_vec() }.into() }
+/// Destructor: Takes ownership of the `SvgMultiPolygonVec` pointer and deletes it.
+#[no_mangle] #[allow(unused_variables)] pub extern "C" fn az_svg_multi_polygon_vec_delete(object: &mut AzSvgMultiPolygonVec) { unsafe { std::ptr::drop_in_place(object.as_mut()); } deallocate_vec(object.as_mut_ptr(), object.capacity());}
+/// Clones the object
+#[no_mangle] pub extern "C" fn az_svg_multi_polygon_vec_deep_copy(object: &AzSvgMultiPolygonVec) -> AzSvgMultiPolygonVec { object.clone() }
+/// Creates a string with the debug representation of the object
+#[no_mangle] pub extern "C" fn az_svg_multi_polygon_vec_fmt_debug(object: &AzSvgMultiPolygonVec) -> AzString { format!("{:#?}", object).into() }
+
+/// Wrapper over a Rust-allocated `Vec<SvgPath>`
+pub type AzSvgPathVecTT = azul_impl::svg::SvgPathVec;
+#[no_mangle] pub use AzSvgPathVecTT as AzSvgPathVec;
+/// Creates a new, empty Rust `Vec<SvgPath>`
+#[no_mangle] pub extern "C" fn az_svg_path_vec_new() -> AzSvgPathVec { Vec::<AzSvgPath>::new().into() }
+/// Creates a new, empty Rust `Vec<SvgPath>` with a given, pre-allocated capacity
+#[no_mangle] pub extern "C" fn az_svg_path_vec_with_capacity(cap: usize) -> AzSvgPathVec { Vec::<AzSvgPath>::with_capacity(cap).into() }
+/// Creates + allocates a Rust `Vec<SvgPath>` by **copying** it from a bytes source
+#[no_mangle] pub extern "C" fn az_svg_path_vec_copy_from(ptr: *const AzSvgPath, len: usize) -> AzSvgPathVec { unsafe { std::slice::from_raw_parts(ptr, len).to_vec() }.into() }
+/// Destructor: Takes ownership of the `SvgPathVec` pointer and deletes it.
+#[no_mangle] #[allow(unused_variables)] pub extern "C" fn az_svg_path_vec_delete(object: &mut AzSvgPathVec) { unsafe { std::ptr::drop_in_place(object.as_mut()); } deallocate_vec(object.as_mut_ptr(), object.capacity());}
+/// Clones the object
+#[no_mangle] pub extern "C" fn az_svg_path_vec_deep_copy(object: &AzSvgPathVec) -> AzSvgPathVec { object.clone() }
+/// Creates a string with the debug representation of the object
+#[no_mangle] pub extern "C" fn az_svg_path_vec_fmt_debug(object: &AzSvgPathVec) -> AzString { format!("{:#?}", object).into() }
+
+/// Wrapper over a Rust-allocated `Vec<VertexAttribute>`
+pub type AzVertexAttributeVecTT = azul_impl::gl::VertexAttributeVec;
+#[no_mangle] pub use AzVertexAttributeVecTT as AzVertexAttributeVec;
+/// Creates a new, empty Rust `Vec<VertexAttribute>`
+#[no_mangle] pub extern "C" fn az_vertex_attribute_vec_new() -> AzVertexAttributeVec { Vec::<AzVertexAttribute>::new().into() }
+/// Creates a new, empty Rust `Vec<VertexAttribute>` with a given, pre-allocated capacity
+#[no_mangle] pub extern "C" fn az_vertex_attribute_vec_with_capacity(cap: usize) -> AzVertexAttributeVec { Vec::<AzVertexAttribute>::with_capacity(cap).into() }
+/// Creates + allocates a Rust `Vec<VertexAttribute>` by **copying** it from a bytes source
+#[no_mangle] pub extern "C" fn az_vertex_attribute_vec_copy_from(ptr: *const AzVertexAttribute, len: usize) -> AzVertexAttributeVec { unsafe { std::slice::from_raw_parts(ptr, len).to_vec() }.into() }
+/// Destructor: Takes ownership of the `VertexAttributeVec` pointer and deletes it.
+#[no_mangle] #[allow(unused_variables)] pub extern "C" fn az_vertex_attribute_vec_delete(object: &mut AzVertexAttributeVec) { unsafe { std::ptr::drop_in_place(object.as_mut()); } deallocate_vec(object.as_mut_ptr(), object.capacity());}
+/// Clones the object
+#[no_mangle] pub extern "C" fn az_vertex_attribute_vec_deep_copy(object: &AzVertexAttributeVec) -> AzVertexAttributeVec { object.clone() }
+/// Creates a string with the debug representation of the object
+#[no_mangle] pub extern "C" fn az_vertex_attribute_vec_fmt_debug(object: &AzVertexAttributeVec) -> AzString { format!("{:#?}", object).into() }
+
+/// Wrapper over a Rust-allocated `VertexAttribute`
 pub type AzSvgPathElementVecTT = azul_impl::svg::SvgPathElementVec;
 #[no_mangle] pub use AzSvgPathElementVecTT as AzSvgPathElementVec;
 /// Creates a new, empty Rust `Vec<SvgPathElement>`
@@ -2946,6 +2994,64 @@ pub type AzTabIndexTT = azul_impl::dom::TabIndex;
 /// Creates a string with the debug representation of the object
 #[no_mangle] pub extern "C" fn az_tab_index_fmt_debug(object: &AzTabIndex) -> AzString { format!("{:#?}", object).into() }
 
+/// Re-export of rust-allocated (stack based) `VertexAttributeType` struct
+pub type AzVertexAttributeTypeTT = azul_impl::gl::VertexAttributeType;
+#[no_mangle] pub use AzVertexAttributeTypeTT as AzVertexAttributeType;
+/// Destructor: Takes ownership of the `VertexAttributeType` pointer and deletes it.
+#[no_mangle] #[allow(unused_variables)] pub extern "C" fn az_vertex_attribute_type_delete(object: &mut AzVertexAttributeType) { match object { azul_impl::gl::VertexAttributeType::Float => { }, azul_impl::gl::VertexAttributeType::Double => { }, azul_impl::gl::VertexAttributeType::UnsignedByte => { }, azul_impl::gl::VertexAttributeType::UnsignedShort => { }, azul_impl::gl::VertexAttributeType::UnsignedInt => { }, }
+}
+/// Clones the object
+#[no_mangle] pub extern "C" fn az_vertex_attribute_type_deep_copy(object: &AzVertexAttributeType) -> AzVertexAttributeType { object.clone() }
+/// Creates a string with the debug representation of the object
+#[no_mangle] pub extern "C" fn az_vertex_attribute_type_fmt_debug(object: &AzVertexAttributeType) -> AzString { format!("{:#?}", object).into() }
+
+/// Re-export of rust-allocated (stack based) `VertexAttribute` struct
+pub type AzVertexAttributeTT = azul_impl::gl::VertexAttribute;
+#[no_mangle] pub use AzVertexAttributeTT as AzVertexAttribute;
+/// Destructor: Takes ownership of the `VertexAttribute` pointer and deletes it.
+#[no_mangle] #[allow(unused_variables)] pub extern "C" fn az_vertex_attribute_delete(object: &mut AzVertexAttribute) { }
+/// Clones the object
+#[no_mangle] pub extern "C" fn az_vertex_attribute_deep_copy(object: &AzVertexAttribute) -> AzVertexAttribute { object.clone() }
+/// Creates a string with the debug representation of the object
+#[no_mangle] pub extern "C" fn az_vertex_attribute_fmt_debug(object: &AzVertexAttribute) -> AzString { format!("{:#?}", object).into() }
+
+/// Re-export of rust-allocated (stack based) `VertexLayout` struct
+pub type AzVertexLayoutTT = azul_impl::gl::VertexLayout;
+#[no_mangle] pub use AzVertexLayoutTT as AzVertexLayout;
+/// Destructor: Takes ownership of the `VertexLayout` pointer and deletes it.
+#[no_mangle] #[allow(unused_variables)] pub extern "C" fn az_vertex_layout_delete(object: &mut AzVertexLayout) { }
+/// Clones the object
+#[no_mangle] pub extern "C" fn az_vertex_layout_deep_copy(object: &AzVertexLayout) -> AzVertexLayout { object.clone() }
+/// Creates a string with the debug representation of the object
+#[no_mangle] pub extern "C" fn az_vertex_layout_fmt_debug(object: &AzVertexLayout) -> AzString { format!("{:#?}", object).into() }
+
+/// Re-export of rust-allocated (stack based) `VertexArrayObject` struct
+pub type AzVertexArrayObjectTT = azul_impl::gl::VertexArrayObject;
+#[no_mangle] pub use AzVertexArrayObjectTT as AzVertexArrayObject;
+/// Destructor: Takes ownership of the `VertexArrayObject` pointer and deletes it.
+#[no_mangle] #[allow(unused_variables)] pub extern "C" fn az_vertex_array_object_delete(object: &mut AzVertexArrayObject) { }
+/// Creates a string with the debug representation of the object
+#[no_mangle] pub extern "C" fn az_vertex_array_object_fmt_debug(object: &AzVertexArrayObject) -> AzString { format!("{:#?}", object).into() }
+
+/// Re-export of rust-allocated (stack based) `IndexBufferFormat` struct
+pub type AzIndexBufferFormatTT = azul_impl::gl::IndexBufferFormat;
+#[no_mangle] pub use AzIndexBufferFormatTT as AzIndexBufferFormat;
+/// Destructor: Takes ownership of the `IndexBufferFormat` pointer and deletes it.
+#[no_mangle] #[allow(unused_variables)] pub extern "C" fn az_index_buffer_format_delete(object: &mut AzIndexBufferFormat) { match object { azul_impl::gl::IndexBufferFormat::Points => { }, azul_impl::gl::IndexBufferFormat::Lines => { }, azul_impl::gl::IndexBufferFormat::LineStrip => { }, azul_impl::gl::IndexBufferFormat::Triangles => { }, azul_impl::gl::IndexBufferFormat::TriangleStrip => { }, azul_impl::gl::IndexBufferFormat::TriangleFan => { }, }
+}
+/// Clones the object
+#[no_mangle] pub extern "C" fn az_index_buffer_format_deep_copy(object: &AzIndexBufferFormat) -> AzIndexBufferFormat { object.clone() }
+/// Creates a string with the debug representation of the object
+#[no_mangle] pub extern "C" fn az_index_buffer_format_fmt_debug(object: &AzIndexBufferFormat) -> AzString { format!("{:#?}", object).into() }
+
+/// Re-export of rust-allocated (stack based) `VertexBuffer` struct
+pub type AzVertexBufferTT = azul_impl::gl::VertexBuffer;
+#[no_mangle] pub use AzVertexBufferTT as AzVertexBuffer;
+/// Destructor: Takes ownership of the `VertexBuffer` pointer and deletes it.
+#[no_mangle] #[allow(unused_variables)] pub extern "C" fn az_vertex_buffer_delete(object: &mut AzVertexBuffer) { }
+/// Creates a string with the debug representation of the object
+#[no_mangle] pub extern "C" fn az_vertex_buffer_fmt_debug(object: &AzVertexBuffer) -> AzString { format!("{:#?}", object).into() }
+
 /// Re-export of rust-allocated (stack based) `GlType` struct
 pub type AzGlTypeTT = azul_impl::gl::AzGlType;
 #[no_mangle] pub use AzGlTypeTT as AzGlType;
@@ -3666,11 +3772,21 @@ pub type AzRawImageFormatTT = azul_impl::resources::RawImageFormat;
 /// Creates a string with the debug representation of the object
 #[no_mangle] pub extern "C" fn az_raw_image_format_fmt_debug(object: &AzRawImageFormat) -> AzString { format!("{:#?}", object).into() }
 
+/// Re-export of rust-allocated (stack based) `SvgMultiPolygon` struct
+pub type AzSvgMultiPolygonTT = azul_impl::svg::SvgMultiPolygon;
+#[no_mangle] pub use AzSvgMultiPolygonTT as AzSvgMultiPolygon;
+/// Destructor: Takes ownership of the `SvgMultiPolygon` pointer and deletes it.
+#[no_mangle] #[allow(unused_variables)] pub extern "C" fn az_svg_multi_polygon_delete(object: &mut AzSvgMultiPolygon) { }
+/// Clones the object
+#[no_mangle] pub extern "C" fn az_svg_multi_polygon_deep_copy(object: &AzSvgMultiPolygon) -> AzSvgMultiPolygon { object.clone() }
+/// Creates a string with the debug representation of the object
+#[no_mangle] pub extern "C" fn az_svg_multi_polygon_fmt_debug(object: &AzSvgMultiPolygon) -> AzString { format!("{:#?}", object).into() }
+
 /// Re-export of rust-allocated (stack based) `SvgNode` struct
 pub type AzSvgNodeTT = azul_impl::svg::SvgNode;
 #[no_mangle] pub use AzSvgNodeTT as AzSvgNode;
 /// Destructor: Takes ownership of the `SvgNode` pointer and deletes it.
-#[no_mangle] #[allow(unused_variables)] pub extern "C" fn az_svg_node_delete(object: &mut AzSvgNode) { match object { azul_impl::svg::SvgNode::Polygon(_) => { }, azul_impl::svg::SvgNode::Circle(_) => { }, azul_impl::svg::SvgNode::Rect(_) => { }, }
+#[no_mangle] #[allow(unused_variables)] pub extern "C" fn az_svg_node_delete(object: &mut AzSvgNode) { match object { azul_impl::svg::SvgNode::MultiPolygonCollection(_) => { }, azul_impl::svg::SvgNode::MultiPolygon(_) => { }, azul_impl::svg::SvgNode::Path(_) => { }, azul_impl::svg::SvgNode::Circle(_) => { }, azul_impl::svg::SvgNode::Rect(_) => { }, }
 }
 /// Clones the object
 #[no_mangle] pub extern "C" fn az_svg_node_deep_copy(object: &AzSvgNode) -> AzSvgNode { object.clone() }
@@ -3793,8 +3909,6 @@ pub type AzTesselatedGPUSvgNodeTT = azul_impl::svg::TesselatedGPUSvgNode;
 #[no_mangle] pub use AzTesselatedGPUSvgNodeTT as AzTesselatedGPUSvgNode;
 /// Destructor: Takes ownership of the `TesselatedGPUSvgNode` pointer and deletes it.
 #[no_mangle] #[allow(unused_variables)] pub extern "C" fn az_tesselated_gpu_svg_node_delete(object: &mut AzTesselatedGPUSvgNode) { }
-/// Clones the object
-#[no_mangle] pub extern "C" fn az_tesselated_gpu_svg_node_deep_copy(object: &AzTesselatedGPUSvgNode) -> AzTesselatedGPUSvgNode { object.clone() }
 /// Creates a string with the debug representation of the object
 #[no_mangle] pub extern "C" fn az_tesselated_gpu_svg_node_fmt_debug(object: &AzTesselatedGPUSvgNode) -> AzString { format!("{:#?}", object).into() }
 

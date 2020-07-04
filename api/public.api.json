@@ -43,8 +43,101 @@
 		"vec": {
 			"doc": "Definition of azuls internal `Vec<*>` wrappers",
 			"classes": {
+				"SvgMultiPolygonVec": {
+					"doc": "Wrapper over a Rust-allocated `Vec<SvgMultiPolygon>`",
+					"external": "azul_impl::svg::SvgMultiPolygonVec",
+					"struct_fields": [
+						{ "ptr": { "type": "*mut SvgMultiPolygon" } },
+						{ "len": { "type": "usize" } },
+						{ "cap": { "type": "usize" } }
+					],
+					"constructors": {
+						"new": {
+							"doc": "Creates a new, empty Rust `Vec<SvgMultiPolygon>`",
+							"fn_body": "Vec::<AzSvgMultiPolygon>::new().into()"
+						},
+						"with_capacity": {
+							"doc": "Creates a new, empty Rust `Vec<SvgMultiPolygon>` with a given, pre-allocated capacity",
+							"fn_args": [
+							    {"cap": "usize"}
+							],
+							"fn_body": "Vec::<AzSvgMultiPolygon>::with_capacity(cap).into()"
+						},
+					    "copy_from": {
+					        "doc": "Creates + allocates a Rust `Vec<SvgMultiPolygon>` by **copying** it from a bytes source",
+					        "fn_args": [
+					            {"ptr": "*const SvgMultiPolygon"},
+					            {"len": "usize"}
+					        ],
+					        "fn_body": "unsafe { std::slice::from_raw_parts(ptr, len).to_vec() }.into()"
+					    }
+					},
+					"destructor": "unsafe { std::ptr::drop_in_place(object.as_mut()); } deallocate_vec(object.as_mut_ptr(), object.capacity());"
+				},
+				"SvgPathVec": {
+					"doc": "Wrapper over a Rust-allocated `Vec<SvgPath>`",
+					"external": "azul_impl::svg::SvgPathVec",
+					"struct_fields": [
+						{ "ptr": { "type": "*mut SvgPath" } },
+						{ "len": { "type": "usize" } },
+						{ "cap": { "type": "usize" } }
+					],
+					"constructors": {
+						"new": {
+							"doc": "Creates a new, empty Rust `Vec<SvgPath>`",
+							"fn_body": "Vec::<AzSvgPath>::new().into()"
+						},
+						"with_capacity": {
+							"doc": "Creates a new, empty Rust `Vec<SvgPath>` with a given, pre-allocated capacity",
+							"fn_args": [
+							    {"cap": "usize"}
+							],
+							"fn_body": "Vec::<AzSvgPath>::with_capacity(cap).into()"
+						},
+					    "copy_from": {
+					        "doc": "Creates + allocates a Rust `Vec<SvgPath>` by **copying** it from a bytes source",
+					        "fn_args": [
+					            {"ptr": "*const SvgPath"},
+					            {"len": "usize"}
+					        ],
+					        "fn_body": "unsafe { std::slice::from_raw_parts(ptr, len).to_vec() }.into()"
+					    }
+					},
+					"destructor": "unsafe { std::ptr::drop_in_place(object.as_mut()); } deallocate_vec(object.as_mut_ptr(), object.capacity());"
+				},
+				"VertexAttributeVec": {
+					"doc": "Wrapper over a Rust-allocated `Vec<VertexAttribute>`",
+					"external": "azul_impl::gl::VertexAttributeVec",
+					"struct_fields": [
+						{ "ptr": { "type": "*mut VertexAttribute" } },
+						{ "len": { "type": "usize" } },
+						{ "cap": { "type": "usize" } }
+					],
+					"constructors": {
+						"new": {
+							"doc": "Creates a new, empty Rust `Vec<VertexAttribute>`",
+							"fn_body": "Vec::<AzVertexAttribute>::new().into()"
+						},
+						"with_capacity": {
+							"doc": "Creates a new, empty Rust `Vec<VertexAttribute>` with a given, pre-allocated capacity",
+							"fn_args": [
+							    {"cap": "usize"}
+							],
+							"fn_body": "Vec::<AzVertexAttribute>::with_capacity(cap).into()"
+						},
+					    "copy_from": {
+					        "doc": "Creates + allocates a Rust `Vec<VertexAttribute>` by **copying** it from a bytes source",
+					        "fn_args": [
+					            {"ptr": "*const VertexAttribute"},
+					            {"len": "usize"}
+					        ],
+					        "fn_body": "unsafe { std::slice::from_raw_parts(ptr, len).to_vec() }.into()"
+					    }
+					},
+					"destructor": "unsafe { std::ptr::drop_in_place(object.as_mut()); } deallocate_vec(object.as_mut_ptr(), object.capacity());"
+				},
 				"SvgPathElementVec": {
-					"doc": "Wrapper over a Rust-allocated `SvgPathElement`",
+					"doc": "Wrapper over a Rust-allocated `VertexAttribute`",
 					"external": "azul_impl::svg::SvgPathElementVec",
 					"struct_fields": [
 						{ "ptr": { "type": "*mut SvgPathElement" } },
@@ -3441,6 +3534,63 @@
 		"gl": {
 			"doc": "OpenGl helper types (`Texture`, `GlContext`, etc.)",
 			"classes": {
+				"VertexAttributeType": {
+					"external": "azul_impl::gl::VertexAttributeType",
+					"enum_fields": [
+						{"Float": {"doc": "Vertex attribute has type `f32`"}},
+						{"Double": {"doc": "Vertex attribute has type `f64`"}},
+						{"UnsignedByte": {"doc": "Vertex attribute has type `u8`"}},
+						{"UnsignedShort": {"doc": "Vertex attribute has type `u16`"}},
+						{"UnsignedInt": {"doc": "Vertex attribute has type `u32`"}}
+					]
+				},
+				"VertexAttribute": {
+					"external": "azul_impl::gl::VertexAttribute",
+					"struct_fields": [
+						{"name": {"type": "String"}},
+						{"layout_location": {"type": "OptionUsize"}},
+						{"attribute_type": {"type": "VertexAttributeType"}},
+						{"item_count": {"type": "usize"}}
+					]
+				},
+				"VertexLayout": {
+					"external": "azul_impl::gl::VertexLayout",
+					"struct_fields": [
+						{"fields": {"type": "VertexAttributeVec"}}
+					]
+				},
+				"VertexArrayObject": {
+					"external": "azul_impl::gl::VertexArrayObject",
+					"clone": false,
+					"struct_fields": [
+						{"vertex_layout": {"type": "VertexLayout"}},
+						{"vao_id": {"type": "u32"}},
+						{"gl_context": {"type": "GlContextPtr"}}
+					]
+				},
+				"IndexBufferFormat": {
+					"external": "azul_impl::gl::IndexBufferFormat",
+					"enum_fields": [
+					    {"Points": {}},
+					    {"Lines": {}},
+					    {"LineStrip": {}},
+					    {"Triangles": {}},
+					    {"TriangleStrip": {}},
+					    {"TriangleFan": {}}
+					]
+				},
+				"VertexBuffer": {
+					"external": "azul_impl::gl::VertexBuffer",
+					"clone": false,
+					"struct_fields": [
+						{"vertex_buffer_id": {"type": "u32"}},
+						{"vertex_buffer_len": {"type": "usize"}},
+						{"vao": {"type": "VertexArrayObject"}},
+						{"index_buffer_id": {"type": "u32"}},
+						{"index_buffer_len": {"type": "usize"}},
+						{"index_buffer_format": {"type": "IndexBufferFormat"}}
+					]
+				},
 				"GlType": {
 					"external": "azul_impl::gl::AzGlType",
 					"enum_fields": [
@@ -5456,10 +5606,19 @@
 		"svg": {
 			"doc": "SVG parsing and rendering functions",
 			"classes": {
+				"SvgMultiPolygon": {
+					"external": "azul_impl::svg::SvgMultiPolygon",
+					"struct_fields": [
+						{"outer_ring": {"type": "SvgPath"}},
+						{"inner_rings": {"type": "SvgPathVec"}}
+					]
+				},
 				"SvgNode": {
 					"external": "azul_impl::svg::SvgNode",
 					"enum_fields": [
-						{"Polygon": {"type": "SvgPath"}},
+						{"MultiPolygonCollection": {"type": "SvgMultiPolygonVec"}},
+						{"MultiPolygon": {"type": "SvgMultiPolygon"}},
+						{"Path": {"type": "SvgPath"}},
 						{"Circle": {"type": "SvgCircle"}},
 						{"Rect": {"type": "SvgRect"}}
 					]
@@ -5551,12 +5710,9 @@
 				},
 				"TesselatedGPUSvgNode": {
 					"external": "azul_impl::svg::TesselatedGPUSvgNode",
+					"clone": false,
 					"struct_fields": [
-						{"vertex_buffer_id": {"type": "u32"}},
-						{"index_buffer_id": {"type": "u32"}},
-						{"index_buffer_type": {"type": "u32"}},
-						{"index_buffer_len": {"type": "i32"}},
-						{"gl_context": {"type": "GlContextPtr"}}
+						{"vertex_index_buffer": {"type": "VertexBuffer"}}
 					]
 				},
 				"SvgLineCap": {

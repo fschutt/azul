@@ -32,7 +32,25 @@
     impl Ord for AzString { fn cmp(&self, rhs: &AzString) -> std::cmp::Ordering { use std::cmp::Ordering::*; match (crate::dll::get_azul_dll().az_string_cmp)(self, rhs) { 0 => Less, 1 => Equal, _ => Greater } } }
 
     impl std::hash::Hash for AzString { fn hash<H: std::hash::Hasher>(&self, state: &mut H) { ((crate::dll::get_azul_dll().az_string_hash)(self)).hash(state) } }
-    /// Wrapper over a Rust-allocated `SvgPathElement`
+    /// Wrapper over a Rust-allocated `Vec<SvgMultiPolygon>`
+    #[repr(C)] pub struct AzSvgMultiPolygonVec {
+        pub(crate) ptr: *mut AzSvgMultiPolygon,
+        pub len: usize,
+        pub cap: usize,
+    }
+    /// Wrapper over a Rust-allocated `Vec<SvgPath>`
+    #[repr(C)] pub struct AzSvgPathVec {
+        pub(crate) ptr: *mut AzSvgPath,
+        pub len: usize,
+        pub cap: usize,
+    }
+    /// Wrapper over a Rust-allocated `Vec<VertexAttribute>`
+    #[repr(C)] pub struct AzVertexAttributeVec {
+        pub(crate) ptr: *mut AzVertexAttribute,
+        pub len: usize,
+        pub cap: usize,
+    }
+    /// Wrapper over a Rust-allocated `VertexAttribute`
     #[repr(C)] pub struct AzSvgPathElementVec {
         pub(crate) ptr: *mut AzSvgPathElement,
         pub len: usize,
@@ -1648,6 +1666,49 @@
         OverrideInParent(usize),
         NoKeyboardFocus,
     }
+    /// Re-export of rust-allocated (stack based) `VertexAttributeType` struct
+    #[repr(C)] pub enum AzVertexAttributeType {
+        Float,
+        Double,
+        UnsignedByte,
+        UnsignedShort,
+        UnsignedInt,
+    }
+    /// Re-export of rust-allocated (stack based) `VertexAttribute` struct
+    #[repr(C)] pub struct AzVertexAttribute {
+        pub name: AzString,
+        pub layout_location: AzOptionUsize,
+        pub attribute_type: AzVertexAttributeType,
+        pub item_count: usize,
+    }
+    /// Re-export of rust-allocated (stack based) `VertexLayout` struct
+    #[repr(C)] pub struct AzVertexLayout {
+        pub fields: AzVertexAttributeVec,
+    }
+    /// Re-export of rust-allocated (stack based) `VertexArrayObject` struct
+    #[repr(C)] pub struct AzVertexArrayObject {
+        pub vertex_layout: AzVertexLayout,
+        pub vao_id: u32,
+        pub gl_context: AzGlContextPtr,
+    }
+    /// Re-export of rust-allocated (stack based) `IndexBufferFormat` struct
+    #[repr(C)] pub enum AzIndexBufferFormat {
+        Points,
+        Lines,
+        LineStrip,
+        Triangles,
+        TriangleStrip,
+        TriangleFan,
+    }
+    /// Re-export of rust-allocated (stack based) `VertexBuffer` struct
+    #[repr(C)] pub struct AzVertexBuffer {
+        pub vertex_buffer_id: u32,
+        pub vertex_buffer_len: usize,
+        pub vao: AzVertexArrayObject,
+        pub index_buffer_id: u32,
+        pub index_buffer_len: usize,
+        pub index_buffer_format: AzIndexBufferFormat,
+    }
     /// Re-export of rust-allocated (stack based) `GlType` struct
     #[repr(C)] pub enum AzGlType {
         Gl,
@@ -1820,9 +1881,16 @@
         RGBAI32,
         RGBA8,
     }
+    /// Re-export of rust-allocated (stack based) `SvgMultiPolygon` struct
+    #[repr(C)] pub struct AzSvgMultiPolygon {
+        pub outer_ring: AzSvgPath,
+        pub inner_rings: AzSvgPathVec,
+    }
     /// Re-export of rust-allocated (stack based) `SvgNode` struct
     #[repr(C, u8)] pub enum AzSvgNode {
-        Polygon(AzSvgPath),
+        MultiPolygonCollection(AzSvgMultiPolygonVec),
+        MultiPolygon(AzSvgMultiPolygon),
+        Path(AzSvgPath),
         Circle(AzSvgCircle),
         Rect(AzSvgRect),
     }
@@ -1891,11 +1959,7 @@
     }
     /// Re-export of rust-allocated (stack based) `TesselatedGPUSvgNode` struct
     #[repr(C)] pub struct AzTesselatedGPUSvgNode {
-        pub vertex_buffer_id: u32,
-        pub index_buffer_id: u32,
-        pub index_buffer_type: u32,
-        pub index_buffer_len: i32,
-        pub gl_context: AzGlContextPtr,
+        pub vertex_index_buffer: AzVertexBuffer,
     }
     /// Re-export of rust-allocated (stack based) `SvgLineCap` struct
     #[repr(C)] pub enum AzSvgLineCap {
@@ -2452,6 +2516,24 @@
         pub az_string_partial_cmp: extern "C" fn(_:  &AzString, _:  &AzString) -> u8,
         pub az_string_cmp: extern "C" fn(_:  &AzString, _:  &AzString) -> u8,
         pub az_string_hash: extern "C" fn(_:  &AzString) -> u64,
+        pub az_svg_multi_polygon_vec_new: extern "C" fn() -> AzSvgMultiPolygonVec,
+        pub az_svg_multi_polygon_vec_with_capacity: extern "C" fn(_:  usize) -> AzSvgMultiPolygonVec,
+        pub az_svg_multi_polygon_vec_copy_from: extern "C" fn(_:  *const AzSvgMultiPolygon, _:  usize) -> AzSvgMultiPolygonVec,
+        pub az_svg_multi_polygon_vec_delete: extern "C" fn(_:  &mut AzSvgMultiPolygonVec),
+        pub az_svg_multi_polygon_vec_deep_copy: extern "C" fn(_:  &AzSvgMultiPolygonVec) -> AzSvgMultiPolygonVec,
+        pub az_svg_multi_polygon_vec_fmt_debug: extern "C" fn(_:  &AzSvgMultiPolygonVec) -> AzString,
+        pub az_svg_path_vec_new: extern "C" fn() -> AzSvgPathVec,
+        pub az_svg_path_vec_with_capacity: extern "C" fn(_:  usize) -> AzSvgPathVec,
+        pub az_svg_path_vec_copy_from: extern "C" fn(_:  *const AzSvgPath, _:  usize) -> AzSvgPathVec,
+        pub az_svg_path_vec_delete: extern "C" fn(_:  &mut AzSvgPathVec),
+        pub az_svg_path_vec_deep_copy: extern "C" fn(_:  &AzSvgPathVec) -> AzSvgPathVec,
+        pub az_svg_path_vec_fmt_debug: extern "C" fn(_:  &AzSvgPathVec) -> AzString,
+        pub az_vertex_attribute_vec_new: extern "C" fn() -> AzVertexAttributeVec,
+        pub az_vertex_attribute_vec_with_capacity: extern "C" fn(_:  usize) -> AzVertexAttributeVec,
+        pub az_vertex_attribute_vec_copy_from: extern "C" fn(_:  *const AzVertexAttribute, _:  usize) -> AzVertexAttributeVec,
+        pub az_vertex_attribute_vec_delete: extern "C" fn(_:  &mut AzVertexAttributeVec),
+        pub az_vertex_attribute_vec_deep_copy: extern "C" fn(_:  &AzVertexAttributeVec) -> AzVertexAttributeVec,
+        pub az_vertex_attribute_vec_fmt_debug: extern "C" fn(_:  &AzVertexAttributeVec) -> AzString,
         pub az_svg_path_element_vec_new: extern "C" fn() -> AzSvgPathElementVec,
         pub az_svg_path_element_vec_with_capacity: extern "C" fn(_:  usize) -> AzSvgPathElementVec,
         pub az_svg_path_element_vec_copy_from: extern "C" fn(_:  *const AzSvgPathElement, _:  usize) -> AzSvgPathElementVec,
@@ -3323,6 +3405,22 @@
         pub az_tab_index_delete: extern "C" fn(_:  &mut AzTabIndex),
         pub az_tab_index_deep_copy: extern "C" fn(_:  &AzTabIndex) -> AzTabIndex,
         pub az_tab_index_fmt_debug: extern "C" fn(_:  &AzTabIndex) -> AzString,
+        pub az_vertex_attribute_type_delete: extern "C" fn(_:  &mut AzVertexAttributeType),
+        pub az_vertex_attribute_type_deep_copy: extern "C" fn(_:  &AzVertexAttributeType) -> AzVertexAttributeType,
+        pub az_vertex_attribute_type_fmt_debug: extern "C" fn(_:  &AzVertexAttributeType) -> AzString,
+        pub az_vertex_attribute_delete: extern "C" fn(_:  &mut AzVertexAttribute),
+        pub az_vertex_attribute_deep_copy: extern "C" fn(_:  &AzVertexAttribute) -> AzVertexAttribute,
+        pub az_vertex_attribute_fmt_debug: extern "C" fn(_:  &AzVertexAttribute) -> AzString,
+        pub az_vertex_layout_delete: extern "C" fn(_:  &mut AzVertexLayout),
+        pub az_vertex_layout_deep_copy: extern "C" fn(_:  &AzVertexLayout) -> AzVertexLayout,
+        pub az_vertex_layout_fmt_debug: extern "C" fn(_:  &AzVertexLayout) -> AzString,
+        pub az_vertex_array_object_delete: extern "C" fn(_:  &mut AzVertexArrayObject),
+        pub az_vertex_array_object_fmt_debug: extern "C" fn(_:  &AzVertexArrayObject) -> AzString,
+        pub az_index_buffer_format_delete: extern "C" fn(_:  &mut AzIndexBufferFormat),
+        pub az_index_buffer_format_deep_copy: extern "C" fn(_:  &AzIndexBufferFormat) -> AzIndexBufferFormat,
+        pub az_index_buffer_format_fmt_debug: extern "C" fn(_:  &AzIndexBufferFormat) -> AzString,
+        pub az_vertex_buffer_delete: extern "C" fn(_:  &mut AzVertexBuffer),
+        pub az_vertex_buffer_fmt_debug: extern "C" fn(_:  &AzVertexBuffer) -> AzString,
         pub az_gl_type_delete: extern "C" fn(_:  &mut AzGlType),
         pub az_gl_type_deep_copy: extern "C" fn(_:  &AzGlType) -> AzGlType,
         pub az_gl_type_fmt_debug: extern "C" fn(_:  &AzGlType) -> AzString,
@@ -3625,6 +3723,9 @@
         pub az_raw_image_format_delete: extern "C" fn(_:  &mut AzRawImageFormat),
         pub az_raw_image_format_deep_copy: extern "C" fn(_:  &AzRawImageFormat) -> AzRawImageFormat,
         pub az_raw_image_format_fmt_debug: extern "C" fn(_:  &AzRawImageFormat) -> AzString,
+        pub az_svg_multi_polygon_delete: extern "C" fn(_:  &mut AzSvgMultiPolygon),
+        pub az_svg_multi_polygon_deep_copy: extern "C" fn(_:  &AzSvgMultiPolygon) -> AzSvgMultiPolygon,
+        pub az_svg_multi_polygon_fmt_debug: extern "C" fn(_:  &AzSvgMultiPolygon) -> AzString,
         pub az_svg_node_delete: extern "C" fn(_:  &mut AzSvgNode),
         pub az_svg_node_deep_copy: extern "C" fn(_:  &AzSvgNode) -> AzSvgNode,
         pub az_svg_node_fmt_debug: extern "C" fn(_:  &AzSvgNode) -> AzString,
@@ -3662,7 +3763,6 @@
         pub az_tesselated_cpu_svg_node_deep_copy: extern "C" fn(_:  &AzTesselatedCPUSvgNode) -> AzTesselatedCPUSvgNode,
         pub az_tesselated_cpu_svg_node_fmt_debug: extern "C" fn(_:  &AzTesselatedCPUSvgNode) -> AzString,
         pub az_tesselated_gpu_svg_node_delete: extern "C" fn(_:  &mut AzTesselatedGPUSvgNode),
-        pub az_tesselated_gpu_svg_node_deep_copy: extern "C" fn(_:  &AzTesselatedGPUSvgNode) -> AzTesselatedGPUSvgNode,
         pub az_tesselated_gpu_svg_node_fmt_debug: extern "C" fn(_:  &AzTesselatedGPUSvgNode) -> AzString,
         pub az_svg_line_cap_delete: extern "C" fn(_:  &mut AzSvgLineCap),
         pub az_svg_line_cap_deep_copy: extern "C" fn(_:  &AzSvgLineCap) -> AzSvgLineCap,
@@ -3829,6 +3929,24 @@
             let az_string_partial_cmp: extern "C" fn(_:  &AzString, _:  &AzString) -> u8 = transmute(lib.get(b"az_string_partial_cmp")?);
             let az_string_cmp: extern "C" fn(_:  &AzString, _:  &AzString) -> u8 = transmute(lib.get(b"az_string_cmp")?);
             let az_string_hash: extern "C" fn(_:  &AzString) -> u64 = transmute(lib.get(b"az_string_hash")?);
+            let az_svg_multi_polygon_vec_new: extern "C" fn() -> AzSvgMultiPolygonVec = transmute(lib.get(b"az_svg_multi_polygon_vec_new")?);
+            let az_svg_multi_polygon_vec_with_capacity: extern "C" fn(_:  usize) -> AzSvgMultiPolygonVec = transmute(lib.get(b"az_svg_multi_polygon_vec_with_capacity")?);
+            let az_svg_multi_polygon_vec_copy_from: extern "C" fn(_:  *const AzSvgMultiPolygon, _:  usize) -> AzSvgMultiPolygonVec = transmute(lib.get(b"az_svg_multi_polygon_vec_copy_from")?);
+            let az_svg_multi_polygon_vec_delete: extern "C" fn(_:  &mut AzSvgMultiPolygonVec) = transmute(lib.get(b"az_svg_multi_polygon_vec_delete")?);
+            let az_svg_multi_polygon_vec_deep_copy: extern "C" fn(_:  &AzSvgMultiPolygonVec) -> AzSvgMultiPolygonVec = transmute(lib.get(b"az_svg_multi_polygon_vec_deep_copy")?);
+            let az_svg_multi_polygon_vec_fmt_debug: extern "C" fn(_:  &AzSvgMultiPolygonVec) -> AzString = transmute(lib.get(b"az_svg_multi_polygon_vec_fmt_debug")?);
+            let az_svg_path_vec_new: extern "C" fn() -> AzSvgPathVec = transmute(lib.get(b"az_svg_path_vec_new")?);
+            let az_svg_path_vec_with_capacity: extern "C" fn(_:  usize) -> AzSvgPathVec = transmute(lib.get(b"az_svg_path_vec_with_capacity")?);
+            let az_svg_path_vec_copy_from: extern "C" fn(_:  *const AzSvgPath, _:  usize) -> AzSvgPathVec = transmute(lib.get(b"az_svg_path_vec_copy_from")?);
+            let az_svg_path_vec_delete: extern "C" fn(_:  &mut AzSvgPathVec) = transmute(lib.get(b"az_svg_path_vec_delete")?);
+            let az_svg_path_vec_deep_copy: extern "C" fn(_:  &AzSvgPathVec) -> AzSvgPathVec = transmute(lib.get(b"az_svg_path_vec_deep_copy")?);
+            let az_svg_path_vec_fmt_debug: extern "C" fn(_:  &AzSvgPathVec) -> AzString = transmute(lib.get(b"az_svg_path_vec_fmt_debug")?);
+            let az_vertex_attribute_vec_new: extern "C" fn() -> AzVertexAttributeVec = transmute(lib.get(b"az_vertex_attribute_vec_new")?);
+            let az_vertex_attribute_vec_with_capacity: extern "C" fn(_:  usize) -> AzVertexAttributeVec = transmute(lib.get(b"az_vertex_attribute_vec_with_capacity")?);
+            let az_vertex_attribute_vec_copy_from: extern "C" fn(_:  *const AzVertexAttribute, _:  usize) -> AzVertexAttributeVec = transmute(lib.get(b"az_vertex_attribute_vec_copy_from")?);
+            let az_vertex_attribute_vec_delete: extern "C" fn(_:  &mut AzVertexAttributeVec) = transmute(lib.get(b"az_vertex_attribute_vec_delete")?);
+            let az_vertex_attribute_vec_deep_copy: extern "C" fn(_:  &AzVertexAttributeVec) -> AzVertexAttributeVec = transmute(lib.get(b"az_vertex_attribute_vec_deep_copy")?);
+            let az_vertex_attribute_vec_fmt_debug: extern "C" fn(_:  &AzVertexAttributeVec) -> AzString = transmute(lib.get(b"az_vertex_attribute_vec_fmt_debug")?);
             let az_svg_path_element_vec_new: extern "C" fn() -> AzSvgPathElementVec = transmute(lib.get(b"az_svg_path_element_vec_new")?);
             let az_svg_path_element_vec_with_capacity: extern "C" fn(_:  usize) -> AzSvgPathElementVec = transmute(lib.get(b"az_svg_path_element_vec_with_capacity")?);
             let az_svg_path_element_vec_copy_from: extern "C" fn(_:  *const AzSvgPathElement, _:  usize) -> AzSvgPathElementVec = transmute(lib.get(b"az_svg_path_element_vec_copy_from")?);
@@ -4700,6 +4818,22 @@
             let az_tab_index_delete: extern "C" fn(_:  &mut AzTabIndex) = transmute(lib.get(b"az_tab_index_delete")?);
             let az_tab_index_deep_copy: extern "C" fn(_:  &AzTabIndex) -> AzTabIndex = transmute(lib.get(b"az_tab_index_deep_copy")?);
             let az_tab_index_fmt_debug: extern "C" fn(_:  &AzTabIndex) -> AzString = transmute(lib.get(b"az_tab_index_fmt_debug")?);
+            let az_vertex_attribute_type_delete: extern "C" fn(_:  &mut AzVertexAttributeType) = transmute(lib.get(b"az_vertex_attribute_type_delete")?);
+            let az_vertex_attribute_type_deep_copy: extern "C" fn(_:  &AzVertexAttributeType) -> AzVertexAttributeType = transmute(lib.get(b"az_vertex_attribute_type_deep_copy")?);
+            let az_vertex_attribute_type_fmt_debug: extern "C" fn(_:  &AzVertexAttributeType) -> AzString = transmute(lib.get(b"az_vertex_attribute_type_fmt_debug")?);
+            let az_vertex_attribute_delete: extern "C" fn(_:  &mut AzVertexAttribute) = transmute(lib.get(b"az_vertex_attribute_delete")?);
+            let az_vertex_attribute_deep_copy: extern "C" fn(_:  &AzVertexAttribute) -> AzVertexAttribute = transmute(lib.get(b"az_vertex_attribute_deep_copy")?);
+            let az_vertex_attribute_fmt_debug: extern "C" fn(_:  &AzVertexAttribute) -> AzString = transmute(lib.get(b"az_vertex_attribute_fmt_debug")?);
+            let az_vertex_layout_delete: extern "C" fn(_:  &mut AzVertexLayout) = transmute(lib.get(b"az_vertex_layout_delete")?);
+            let az_vertex_layout_deep_copy: extern "C" fn(_:  &AzVertexLayout) -> AzVertexLayout = transmute(lib.get(b"az_vertex_layout_deep_copy")?);
+            let az_vertex_layout_fmt_debug: extern "C" fn(_:  &AzVertexLayout) -> AzString = transmute(lib.get(b"az_vertex_layout_fmt_debug")?);
+            let az_vertex_array_object_delete: extern "C" fn(_:  &mut AzVertexArrayObject) = transmute(lib.get(b"az_vertex_array_object_delete")?);
+            let az_vertex_array_object_fmt_debug: extern "C" fn(_:  &AzVertexArrayObject) -> AzString = transmute(lib.get(b"az_vertex_array_object_fmt_debug")?);
+            let az_index_buffer_format_delete: extern "C" fn(_:  &mut AzIndexBufferFormat) = transmute(lib.get(b"az_index_buffer_format_delete")?);
+            let az_index_buffer_format_deep_copy: extern "C" fn(_:  &AzIndexBufferFormat) -> AzIndexBufferFormat = transmute(lib.get(b"az_index_buffer_format_deep_copy")?);
+            let az_index_buffer_format_fmt_debug: extern "C" fn(_:  &AzIndexBufferFormat) -> AzString = transmute(lib.get(b"az_index_buffer_format_fmt_debug")?);
+            let az_vertex_buffer_delete: extern "C" fn(_:  &mut AzVertexBuffer) = transmute(lib.get(b"az_vertex_buffer_delete")?);
+            let az_vertex_buffer_fmt_debug: extern "C" fn(_:  &AzVertexBuffer) -> AzString = transmute(lib.get(b"az_vertex_buffer_fmt_debug")?);
             let az_gl_type_delete: extern "C" fn(_:  &mut AzGlType) = transmute(lib.get(b"az_gl_type_delete")?);
             let az_gl_type_deep_copy: extern "C" fn(_:  &AzGlType) -> AzGlType = transmute(lib.get(b"az_gl_type_deep_copy")?);
             let az_gl_type_fmt_debug: extern "C" fn(_:  &AzGlType) -> AzString = transmute(lib.get(b"az_gl_type_fmt_debug")?);
@@ -5002,6 +5136,9 @@
             let az_raw_image_format_delete: extern "C" fn(_:  &mut AzRawImageFormat) = transmute(lib.get(b"az_raw_image_format_delete")?);
             let az_raw_image_format_deep_copy: extern "C" fn(_:  &AzRawImageFormat) -> AzRawImageFormat = transmute(lib.get(b"az_raw_image_format_deep_copy")?);
             let az_raw_image_format_fmt_debug: extern "C" fn(_:  &AzRawImageFormat) -> AzString = transmute(lib.get(b"az_raw_image_format_fmt_debug")?);
+            let az_svg_multi_polygon_delete: extern "C" fn(_:  &mut AzSvgMultiPolygon) = transmute(lib.get(b"az_svg_multi_polygon_delete")?);
+            let az_svg_multi_polygon_deep_copy: extern "C" fn(_:  &AzSvgMultiPolygon) -> AzSvgMultiPolygon = transmute(lib.get(b"az_svg_multi_polygon_deep_copy")?);
+            let az_svg_multi_polygon_fmt_debug: extern "C" fn(_:  &AzSvgMultiPolygon) -> AzString = transmute(lib.get(b"az_svg_multi_polygon_fmt_debug")?);
             let az_svg_node_delete: extern "C" fn(_:  &mut AzSvgNode) = transmute(lib.get(b"az_svg_node_delete")?);
             let az_svg_node_deep_copy: extern "C" fn(_:  &AzSvgNode) -> AzSvgNode = transmute(lib.get(b"az_svg_node_deep_copy")?);
             let az_svg_node_fmt_debug: extern "C" fn(_:  &AzSvgNode) -> AzString = transmute(lib.get(b"az_svg_node_fmt_debug")?);
@@ -5039,7 +5176,6 @@
             let az_tesselated_cpu_svg_node_deep_copy: extern "C" fn(_:  &AzTesselatedCPUSvgNode) -> AzTesselatedCPUSvgNode = transmute(lib.get(b"az_tesselated_cpu_svg_node_deep_copy")?);
             let az_tesselated_cpu_svg_node_fmt_debug: extern "C" fn(_:  &AzTesselatedCPUSvgNode) -> AzString = transmute(lib.get(b"az_tesselated_cpu_svg_node_fmt_debug")?);
             let az_tesselated_gpu_svg_node_delete: extern "C" fn(_:  &mut AzTesselatedGPUSvgNode) = transmute(lib.get(b"az_tesselated_gpu_svg_node_delete")?);
-            let az_tesselated_gpu_svg_node_deep_copy: extern "C" fn(_:  &AzTesselatedGPUSvgNode) -> AzTesselatedGPUSvgNode = transmute(lib.get(b"az_tesselated_gpu_svg_node_deep_copy")?);
             let az_tesselated_gpu_svg_node_fmt_debug: extern "C" fn(_:  &AzTesselatedGPUSvgNode) -> AzString = transmute(lib.get(b"az_tesselated_gpu_svg_node_fmt_debug")?);
             let az_svg_line_cap_delete: extern "C" fn(_:  &mut AzSvgLineCap) = transmute(lib.get(b"az_svg_line_cap_delete")?);
             let az_svg_line_cap_deep_copy: extern "C" fn(_:  &AzSvgLineCap) -> AzSvgLineCap = transmute(lib.get(b"az_svg_line_cap_deep_copy")?);
@@ -5202,6 +5338,24 @@
                 az_string_partial_cmp,
                 az_string_cmp,
                 az_string_hash,
+                az_svg_multi_polygon_vec_new,
+                az_svg_multi_polygon_vec_with_capacity,
+                az_svg_multi_polygon_vec_copy_from,
+                az_svg_multi_polygon_vec_delete,
+                az_svg_multi_polygon_vec_deep_copy,
+                az_svg_multi_polygon_vec_fmt_debug,
+                az_svg_path_vec_new,
+                az_svg_path_vec_with_capacity,
+                az_svg_path_vec_copy_from,
+                az_svg_path_vec_delete,
+                az_svg_path_vec_deep_copy,
+                az_svg_path_vec_fmt_debug,
+                az_vertex_attribute_vec_new,
+                az_vertex_attribute_vec_with_capacity,
+                az_vertex_attribute_vec_copy_from,
+                az_vertex_attribute_vec_delete,
+                az_vertex_attribute_vec_deep_copy,
+                az_vertex_attribute_vec_fmt_debug,
                 az_svg_path_element_vec_new,
                 az_svg_path_element_vec_with_capacity,
                 az_svg_path_element_vec_copy_from,
@@ -6073,6 +6227,22 @@
                 az_tab_index_delete,
                 az_tab_index_deep_copy,
                 az_tab_index_fmt_debug,
+                az_vertex_attribute_type_delete,
+                az_vertex_attribute_type_deep_copy,
+                az_vertex_attribute_type_fmt_debug,
+                az_vertex_attribute_delete,
+                az_vertex_attribute_deep_copy,
+                az_vertex_attribute_fmt_debug,
+                az_vertex_layout_delete,
+                az_vertex_layout_deep_copy,
+                az_vertex_layout_fmt_debug,
+                az_vertex_array_object_delete,
+                az_vertex_array_object_fmt_debug,
+                az_index_buffer_format_delete,
+                az_index_buffer_format_deep_copy,
+                az_index_buffer_format_fmt_debug,
+                az_vertex_buffer_delete,
+                az_vertex_buffer_fmt_debug,
                 az_gl_type_delete,
                 az_gl_type_deep_copy,
                 az_gl_type_fmt_debug,
@@ -6375,6 +6545,9 @@
                 az_raw_image_format_delete,
                 az_raw_image_format_deep_copy,
                 az_raw_image_format_fmt_debug,
+                az_svg_multi_polygon_delete,
+                az_svg_multi_polygon_deep_copy,
+                az_svg_multi_polygon_fmt_debug,
                 az_svg_node_delete,
                 az_svg_node_deep_copy,
                 az_svg_node_fmt_debug,
@@ -6412,7 +6585,6 @@
                 az_tesselated_cpu_svg_node_deep_copy,
                 az_tesselated_cpu_svg_node_fmt_debug,
                 az_tesselated_gpu_svg_node_delete,
-                az_tesselated_gpu_svg_node_deep_copy,
                 az_tesselated_gpu_svg_node_fmt_debug,
                 az_svg_line_cap_delete,
                 az_svg_line_cap_deep_copy,

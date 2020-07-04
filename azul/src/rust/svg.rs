@@ -4,6 +4,14 @@
     use std::ffi::c_void;
 
 
+    /// `SvgMultiPolygon` struct
+    pub use crate::dll::AzSvgMultiPolygon as SvgMultiPolygon;
+
+    impl std::fmt::Debug for SvgMultiPolygon { fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result { write!(f, "{}", (crate::dll::get_azul_dll().az_svg_multi_polygon_fmt_debug)(self)) } }
+    impl Clone for SvgMultiPolygon { fn clone(&self) -> Self { (crate::dll::get_azul_dll().az_svg_multi_polygon_deep_copy)(self) } }
+    impl Drop for SvgMultiPolygon { fn drop(&mut self) { (crate::dll::get_azul_dll().az_svg_multi_polygon_delete)(self); } }
+
+
     /// `SvgNode` struct
     pub use crate::dll::AzSvgNode as SvgNode;
 
@@ -104,7 +112,6 @@
     pub use crate::dll::AzTesselatedGPUSvgNode as TesselatedGPUSvgNode;
 
     impl std::fmt::Debug for TesselatedGPUSvgNode { fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result { write!(f, "{}", (crate::dll::get_azul_dll().az_tesselated_gpu_svg_node_fmt_debug)(self)) } }
-    impl Clone for TesselatedGPUSvgNode { fn clone(&self) -> Self { (crate::dll::get_azul_dll().az_tesselated_gpu_svg_node_deep_copy)(self) } }
     impl Drop for TesselatedGPUSvgNode { fn drop(&mut self) { (crate::dll::get_azul_dll().az_tesselated_gpu_svg_node_delete)(self); } }
 
 
