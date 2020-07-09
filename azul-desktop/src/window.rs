@@ -368,7 +368,7 @@ fn create_window_builder(
 ) -> GlutinWindowBuilder {
     #[cfg(target_os = "linux")] { create_window_builder_linux(has_transparent_background, &platform_options.linux_options) }
     #[cfg(target_os = "windows")] { create_window_builder_windows(has_transparent_background, &platform_options.windows_options) }
-    #[cfg(target_os = "macos")] { create_window_builder_windows(has_transparent_background, &platform_options.macos_options) }
+    #[cfg(target_os = "macos")] { create_window_builder_macos(has_transparent_background, &platform_options.mac_options) }
     #[cfg(target_arch = "wasm32")] { create_window_builder_wasm(has_transparent_background, &platform_options.wasm_options) }
 }
 
@@ -550,7 +550,7 @@ fn synchronize_os_window_platform_extensions(
         synchronize_os_window_linux_extensions( &old_state.linux_options, &new_state.linux_options, window);
     }
     #[cfg(target_os = "macos")] {
-        synchronize_os_window_mac_extensions(&old_state.macos_options, &new_state.macos_options, window);
+        synchronize_os_window_mac_extensions(&old_state.mac_options, &new_state.mac_options, window);
     }
 }
 
@@ -602,7 +602,7 @@ fn initialize_os_window_platform_extensions(
 ) {
     #[cfg(target_os = "windows")] { initialize_os_window_windows_extensions(&platform_options.windows_options, window); }
     #[cfg(target_os = "linux")] { initialize_os_window_linux_extensions(&platform_options.linux_options, window); }
-    #[cfg(target_os = "macos")] { initialize_os_window_mac_extensions(&platform_options.macos_options, window); }
+    #[cfg(target_os = "macos")] { initialize_os_window_mac_extensions(&platform_options.mac_options, window); }
     #[cfg(target_arch = "wasm32")] { initialize_os_window_wasm_extensions(&platform_options.wasm_options, window); }
 }
 
