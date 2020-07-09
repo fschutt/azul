@@ -853,12 +853,12 @@ def generate_dll_loader(apiData, structs_map, functions_map, version):
     # TODO: use proper path here!
 
     warning = "/* !!! IF THIS LINE SHOWS AN ERROR, IT MEANS YOU FORGOT TO RUN \"cargo install --version " + str(version) + " azul-dll\" */"
-    code += "    #[cfg(unix)]\r\n"
+    code += "    #[cfg(target_os=\"linux\")]\r\n"
     code += "    const LIB_BYTES: &[u8] = include_bytes!(concat!(env!(\"CARGO_HOME\"), \"/lib/\", \"azul-dll-\", env!(\"CARGO_PKG_VERSION\"), \"/target/release/libazul.so\")); " + warning + "\r\n"
-    code += "    #[cfg(windows)]\r\n"
+    code += "    #[cfg(target_os=\"windows\")]\r\n"
     code += "    const LIB_BYTES: &[u8] = include_bytes!(concat!(env!(\"CARGO_HOME\"), \"/lib/\", \"azul-dll-\", env!(\"CARGO_PKG_VERSION\"), \"/target/release/azul.dll\")); " + warning + "\r\n"
-    code += "    #[cfg(macos)]\r\n"
-    code += "    const LIB_BYTES: &[u8] = include_bytes!(concat!(env!(\"CARGO_HOME\"), \"/lib/\", \"azul-dll-\", env!(\"CARGO_PKG_VERSION\"), \"/target/release/azul.dylib\")); " + warning + "\r\n"
+    code += "    #[cfg(target_os=\"macos\")]\r\n"
+    code += "    const LIB_BYTES: &[u8] = include_bytes!(concat!(env!(\"CARGO_HOME\"), \"/lib/\", \"azul-dll-\", env!(\"CARGO_PKG_VERSION\"), \"/target/release/libazul.dylib\")); " + warning + "\r\n"
     code += "\r\n"
     code += "    use std::{mem::MaybeUninit, sync::atomic::{AtomicBool, Ordering}};\r\n"
     code += "\r\n"
