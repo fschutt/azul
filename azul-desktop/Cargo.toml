@@ -27,8 +27,8 @@ log                     = { version = "0.4.8",  default-features = false, option
 fern                    = { version = "0.5.7",  default-features = false, optional = true }
 backtrace               = { version = "0.3.43", default-features = false, optional = true, features = ["std", "libunwind", "libbacktrace", "coresymbolication", "dladdr", "dbghelp"] }
 
-[target.'cfg(macos)'.dependencies]
-core-foundation              = { version = "0.7.0",     default-features = false, features = ["mac_os_10_7_support"] }
+[target.'cfg(target_os = "macos")'.dependencies]
+core-foundation              = { version = "0.9.0",     default-features = false, features = ["mac_os_10_7_support"] }
 
 [features]
 default = ["logging", "native_style", "css_parser", "image_loading", "font_loading", "text_layout", "svg"]
