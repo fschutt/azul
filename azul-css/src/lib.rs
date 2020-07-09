@@ -658,6 +658,8 @@ impl Drop for AzString {
     }
 }
 
+impl_option!(ColorU, OptionColorU, [Debug, Copy, Clone, PartialEq, Ord, PartialOrd, Eq, Hash]);
+
 impl_vec!(u8, U8Vec);
 impl_vec_debug!(u8, U8Vec);
 impl_vec_partialord!(u8, U8Vec);

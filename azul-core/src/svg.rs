@@ -10,7 +10,6 @@ use crate::gl::{
 
 static mut SVG_SHADER: Option<SvgShader> = None;
 
-const GL_RESTART_INDEX: u32 = ::std::u32::MAX;
 const SHADER_VERSION_GL: &str = "#version 150";
 const SHADER_VERSION_GLES: &str = "#version 300 es";
 
@@ -53,11 +52,18 @@ fn prefix_gl_version(shader: &str, gl: GlApiVersion) -> String {
     }
 }
 
-#[derive(Debug, Copy, Clone, PartialEq, PartialOrd)]
+#[derive(Debug, Default, Copy, Clone, PartialEq, PartialOrd)]
 #[repr(C)]
 pub struct SvgPoint {
     pub x: f32,
     pub y: f32,
+}
+
+#[derive(Debug, Copy, Clone, PartialEq, PartialOrd)]
+#[repr(C)]
+pub struct SvgSize {
+    pub width: f32,
+    pub height: f32,
 }
 
 #[derive(Debug, Copy, Clone, PartialEq, PartialOrd)]
@@ -124,8 +130,8 @@ pub struct SvgPath {
 #[derive(Debug, Clone, PartialEq, PartialOrd)]
 #[repr(C)]
 pub struct SvgMultiPolygon {
-    pub outer_ring: SvgPath,
-    pub inner_rings: SvgPathVec,
+    /// NOTE: If a ring represends a hole, simply reverse the order of points
+    pub rings: SvgPathVec,
 }
 
 unsafe impl Send for SvgMultiPolygon { }
@@ -396,24 +402,6 @@ impl SvgStrokeStyle {
     pub fn get_tolerance(&self) -> f32 { self.tolerance as f32 / SVG_LINE_PRECISION }
 }
 
-#[cfg(feature = "svg")]
-impl Into<lyon::tessellation::StrokeOptions> for SvgStrokeStyle {
-    fn into(self) -> lyon::tessellation::StrokeOptions {
-        let target = lyon::tessellation::StrokeOptions::tolerance(self.get_tolerance())
-            .with_start_cap(self.start_cap.into())
-            .with_end_cap(self.end_cap.into())
-            .with_line_join(self.line_join.into())
-            .with_line_width(self.get_line_width())
-            .with_miter_limit(self.get_miter_limit());
-
-        if !self.apply_line_width {
-            target.dont_apply_line_width()
-        } else {
-            target
-        }
-    }
-}
-
 impl Default for SvgStrokeStyle {
     fn default() -> Self {
         const DEFAULT_MITER_LIMIT: f32 = 4.0;
@@ -485,19 +473,6 @@ impl Default for SvgLineCap {
     }
 }
 
-#[cfg(feature = "svg")]
-impl From<SvgLineCap> for lyon::tessellation::LineCap {
-    #[inline]
-    fn from(s: SvgLineCap) -> lyon::tessellation::LineCap {
-        use self::SvgLineCap::*;
-        match s {
-            Butt => lyon::tessellation::LineCap::Butt,
-            Square => lyon::tessellation::LineCap::Square,
-            Round => lyon::tessellation::LineCap::Round,
-        }
-    }
-}
-
 #[derive(Debug, Copy, Clone, PartialEq, Hash, Eq, PartialOrd, Ord)]
 #[repr(C)]
 pub enum SvgLineJoin {
@@ -512,448 +487,6 @@ impl Default for SvgLineJoin {
         SvgLineJoin::Miter
     }
 }
-
-#[cfg(feature = "svg")]
-impl From<SvgLineJoin> for lyon::tessellation::LineJoin {
-    #[inline]
-    fn from(s: SvgLineJoin) -> lyon::tessellation::LineJoin {
-        use self::SvgLineJoin::*;
-        match s {
-            Miter => lyon::tessellation::LineJoin::Miter,
-            MiterClip => lyon::tessellation::LineJoin::MiterClip,
-            Round => lyon::tessellation::LineJoin::Round,
-            Bevel => lyon::tessellation::LineJoin::Bevel,
-        }
-    }
-}
-
-
-#[cfg(feature = "svg")] mod internal_1 {
-
-    use super::*;
-    use lyon::{
-        tessellation::{
-            FillOptions, FillAttributes, StrokeAttributes, BuffersBuilder,
-            FillTessellator, VertexBuffers, StrokeTessellator, StrokeOptions,
-            basic_shapes::{
-                fill_circle, stroke_circle, fill_rounded_rectangle,
-                stroke_rounded_rectangle, BorderRadii
-            },
-        },
-        math::Point,
-        path::Path,
-        geom::euclid::{Point2D, Rect, Size2D, UnknownUnit},
-    };
-
-    pub type GlyphId = u32;
-
-    fn svg_multipolygon_to_lyon_path(polygon: &SvgMultiPolygon) -> Path {
-
-        let mut builder = Path::builder();
-
-        if !polygon.outer_ring.items.as_ref().is_empty() {
-            let start_item = polygon.outer_ring.items.as_ref()[0];
-            let first_point = Point2D::new(start_item.get_start().x, -(start_item.get_start().y));
-
-            builder.move_to(first_point);
-
-            for p in polygon.outer_ring.items.as_ref().iter() {
-                match p {
-                    SvgPathElement::Line(l) => {
-                        builder.line_to(Point2D::new(l.end.x, -(l.end.y)));
-                    },
-                    SvgPathElement::QuadraticCurve(qc) => {
-                        builder.quadratic_bezier_to(
-                            Point2D::new(qc.ctrl.x, -(qc.ctrl.y)),
-                            Point2D::new(qc.end.x, -(qc.end.y))
-                        );
-                    },
-                    SvgPathElement::CubicCurve(cc) => {
-                        builder.cubic_bezier_to(
-                            Point2D::new(cc.ctrl_1.x, -(cc.ctrl_1.y)),
-                            Point2D::new(cc.ctrl_2.x, -(cc.ctrl_2.y)),
-                            Point2D::new(cc.end.x, -(cc.end.y))
-                        );
-                    },
-                }
-            }
-
-            if polygon.outer_ring.is_closed() {
-                builder.close();
-            }
-        }
-
-        for p in polygon.inner_rings.as_ref().iter() {
-            if p.items.as_ref().is_empty() {
-                continue;
-            }
-
-            let start_item = p.items.as_ref()[0];
-            let first_point = Point2D::new(start_item.get_start().x, -(start_item.get_start().y));
-
-            builder.move_to(first_point);
-
-            for q in p.items.as_ref().iter().rev() /* NOTE: REVERSE ITERATOR */ {
-                match q {
-                    SvgPathElement::Line(l) => {
-                        builder.line_to(Point2D::new(l.end.x, -(l.end.y)));
-                    },
-                    SvgPathElement::QuadraticCurve(qc) => {
-                        builder.quadratic_bezier_to(
-                            Point2D::new(qc.ctrl.x, -(qc.ctrl.y)),
-                            Point2D::new(qc.end.x, -(qc.end.y))
-                        );
-                    },
-                    SvgPathElement::CubicCurve(cc) => {
-                        builder.cubic_bezier_to(
-                            Point2D::new(cc.ctrl_1.x, -(cc.ctrl_1.y)),
-                            Point2D::new(cc.ctrl_2.x, -(cc.ctrl_2.y)),
-                            Point2D::new(cc.end.x, -(cc.end.y))
-                        );
-                    },
-                }
-            }
-
-            if p.is_closed() {
-                builder.close();
-            }
-        }
-
-        builder.build()
-    }
-
-    fn svg_path_to_lyon_path_events(path: &SvgPath) -> Path {
-
-        let mut builder = Path::builder();
-
-        if !path.items.as_ref().is_empty() {
-
-            let start_item = path.items.as_ref()[0];
-            let first_point = Point2D::new(start_item.get_start().x, -(start_item.get_start().y));
-
-            builder.move_to(first_point);
-
-            for p in path.items.as_ref().iter() {
-                match p {
-                    SvgPathElement::Line(l) => {
-                        builder.line_to(Point2D::new(l.end.x, -(l.end.y)));
-                    },
-                    SvgPathElement::QuadraticCurve(qc) => {
-                        builder.quadratic_bezier_to(
-                            Point2D::new(qc.ctrl.x, -(qc.ctrl.y)),
-                            Point2D::new(qc.end.x, -(qc.end.y))
-                        );
-                    },
-                    SvgPathElement::CubicCurve(cc) => {
-                        builder.cubic_bezier_to(
-                            Point2D::new(cc.ctrl_1.x, -(cc.ctrl_1.y)),
-                            Point2D::new(cc.ctrl_2.x, -(cc.ctrl_2.y)),
-                            Point2D::new(cc.end.x, -(cc.end.y))
-                        );
-                    },
-                }
-            }
-
-            if path.is_closed() {
-                builder.close();
-            }
-        }
-
-        builder.build()
-    }
-
-    #[inline]
-    fn vertex_buffers_to_tesselated_cpu_node(v: VertexBuffers<SvgVertex, u32>) -> TesselatedCPUSvgNode {
-        TesselatedCPUSvgNode {
-            vertices: v.vertices.into(),
-            indices: v.indices.into(),
-        }
-    }
-
-
-    pub fn tesselate_multi_polygon_fill(polygon: &SvgMultiPolygon, fill_style: SvgFillStyle) -> TesselatedCPUSvgNode {
-
-        let polygon = svg_multipolygon_to_lyon_path(polygon);
-
-        let mut geometry = VertexBuffers::new();
-        let mut tessellator = FillTessellator::new();
-
-        let tess_result = tessellator.tessellate_path(
-            &polygon,
-            &FillOptions::tolerance(fill_style.get_tolerance()),
-            &mut BuffersBuilder::new(&mut geometry, |pos: Point, _: FillAttributes| {
-                let xy_arr = pos.to_array();
-                SvgVertex { x: xy_arr[0], y: xy_arr[1] }
-            })
-        );
-
-        if let Err(_) = tess_result {
-            TesselatedCPUSvgNode::empty()
-        } else {
-            vertex_buffers_to_tesselated_cpu_node(geometry)
-        }
-    }
-
-    pub fn tesselate_multi_polygon_stroke(polygon: &SvgMultiPolygon, stroke_style: SvgStrokeStyle) -> TesselatedCPUSvgNode {
-
-        let stroke_options: StrokeOptions = stroke_style.into();
-        let polygon = svg_multipolygon_to_lyon_path(polygon);
-
-        let mut stroke_geometry = VertexBuffers::new();
-        let mut stroke_tess = StrokeTessellator::new();
-
-        let tess_result = stroke_tess.tessellate_path(
-            &polygon,
-            &stroke_options,
-            &mut BuffersBuilder::new(&mut stroke_geometry, |pos: Point, _: StrokeAttributes| {
-                let xy_arr = pos.to_array();
-                SvgVertex { x: xy_arr[0], y: xy_arr[1] }
-            }),
-        );
-
-        if let Err(_) = tess_result {
-            TesselatedCPUSvgNode::empty()
-        } else {
-            vertex_buffers_to_tesselated_cpu_node(stroke_geometry)
-        }
-    }
-
-    pub fn tesselate_path_fill(path: &SvgPath, fill_style: SvgFillStyle) -> TesselatedCPUSvgNode {
-
-        let polygon = svg_path_to_lyon_path_events(path);
-
-        let mut geometry = VertexBuffers::new();
-        let mut tessellator = FillTessellator::new();
-
-        let tess_result = tessellator.tessellate_path(
-            &polygon,
-            &FillOptions::tolerance(fill_style.get_tolerance()),
-            &mut BuffersBuilder::new(&mut geometry, |pos: Point, _: FillAttributes| {
-                let xy_arr = pos.to_array();
-                SvgVertex { x: xy_arr[0], y: xy_arr[1] }
-            })
-        );
-
-        if let Err(_) = tess_result {
-            TesselatedCPUSvgNode::empty()
-        } else {
-            vertex_buffers_to_tesselated_cpu_node(geometry)
-        }
-    }
-
-    pub fn tesselate_path_stroke(path: &SvgPath, stroke_style: SvgStrokeStyle) -> TesselatedCPUSvgNode {
-
-        let stroke_options: StrokeOptions = stroke_style.into();
-        let polygon = svg_path_to_lyon_path_events(path);
-
-        let mut stroke_geometry = VertexBuffers::new();
-        let mut stroke_tess = StrokeTessellator::new();
-
-        let tess_result = stroke_tess.tessellate_path(
-            &polygon,
-            &stroke_options,
-            &mut BuffersBuilder::new(&mut stroke_geometry, |pos: Point, _: StrokeAttributes| {
-                let xy_arr = pos.to_array();
-                SvgVertex { x: xy_arr[0], y: xy_arr[1] }
-            }),
-        );
-
-        if let Err(_) = tess_result {
-            TesselatedCPUSvgNode::empty()
-        } else {
-            vertex_buffers_to_tesselated_cpu_node(stroke_geometry)
-        }
-    }
-
-    pub fn tesselate_circle_fill(c: &SvgCircle, fill_style: SvgFillStyle) -> TesselatedCPUSvgNode {
-        let center = Point2D::new(c.center_x, c.center_y);
-
-        let mut geometry = VertexBuffers::new();
-
-        let tess_result = fill_circle(
-            center,
-            c.radius,
-            &FillOptions::tolerance(fill_style.get_tolerance()),
-            &mut BuffersBuilder::new(&mut geometry, |pos: Point| {
-                let xy_arr = pos.to_array();
-                SvgVertex { x: xy_arr[0], y: xy_arr[1] }
-            }
-        ));
-
-        if let Err(_) = tess_result {
-            TesselatedCPUSvgNode::empty()
-        } else {
-            vertex_buffers_to_tesselated_cpu_node(geometry)
-        }
-    }
-
-    pub fn tesselate_circle_stroke(c: &SvgCircle, stroke_style: SvgStrokeStyle) -> TesselatedCPUSvgNode {
-
-        let stroke_options: StrokeOptions = stroke_style.into();
-        let center = Point2D::new(c.center_x, c.center_y);
-
-        let mut stroke_geometry = VertexBuffers::new();
-
-        let tess_result = stroke_circle(
-            center,
-            c.radius,
-            &stroke_options,
-            &mut BuffersBuilder::new(&mut stroke_geometry, |pos: Point, _: StrokeAttributes| {
-                let xy_arr = pos.to_array();
-                SvgVertex { x: xy_arr[0], y: xy_arr[1] }
-            }
-        ));
-
-
-        if let Err(_) = tess_result {
-            TesselatedCPUSvgNode::empty()
-        } else {
-            vertex_buffers_to_tesselated_cpu_node(stroke_geometry)
-        }
-    }
-
-    fn get_radii(r: &SvgRect) -> (Rect<f32, UnknownUnit>, BorderRadii) {
-        let rect = Rect::new(Point2D::new(r.x, r.y), Size2D::new(r.width, r.height));
-        let radii = BorderRadii { top_left: r.rx, top_right: r.rx, bottom_left: r.rx, bottom_right: r.rx };
-        (rect, radii)
-    }
-
-    pub fn tesselate_rect_fill(r: &SvgRect, fill_style: SvgFillStyle) -> TesselatedCPUSvgNode {
-        let (rect, radii) = get_radii(&r);
-        let mut geometry = VertexBuffers::new();
-
-        let tess_result = fill_rounded_rectangle(
-            &rect,
-            &radii,
-            &FillOptions::tolerance(fill_style.get_tolerance()),
-            &mut BuffersBuilder::new(&mut geometry, |pos: Point| {
-                let xy_arr = pos.to_array();
-                SvgVertex { x: xy_arr[0], y: xy_arr[1] }
-            }
-        ));
-
-        if let Err(_) = tess_result {
-            TesselatedCPUSvgNode::empty()
-        } else {
-            vertex_buffers_to_tesselated_cpu_node(geometry)
-        }
-    }
-
-    pub fn tesselate_rect_stroke(r: &SvgRect, stroke_style: SvgStrokeStyle) -> TesselatedCPUSvgNode {
-
-        let stroke_options: StrokeOptions = stroke_style.into();
-        let (rect, radii) = get_radii(&r);
-
-        let mut stroke_geometry = VertexBuffers::new();
-
-        let tess_result = stroke_rounded_rectangle(
-            &rect,
-            &radii,
-            &stroke_options,
-            &mut BuffersBuilder::new(&mut stroke_geometry, |pos: Point, _: StrokeAttributes| {
-                let xy_arr = pos.to_array();
-                SvgVertex { x: xy_arr[0], y: xy_arr[1] }
-            }
-        ));
-
-        if let Err(_) = tess_result {
-            TesselatedCPUSvgNode::empty()
-        } else {
-            vertex_buffers_to_tesselated_cpu_node(stroke_geometry)
-        }
-    }
-
-    /// Tesselate the path using lyon
-    pub fn tesselate_path(node: &SvgStyledNode) -> TesselatedCPUSvgNode {
-        use rayon::prelude::*;
-        match node.style {
-            SvgStyle::Fill(fs) => {
-                match &node.geometry {
-                    SvgNode::MultiPolygonCollection(mpc) => {
-                        let tesselated_multipolygons = mpc.as_ref().par_iter().map(|mp| tesselate_multi_polygon_fill(mp, fs)).collect::<Vec<_>>();
-                        let mut all_vertices = Vec::new();
-                        let mut all_indices = Vec::new();
-                        for TesselatedCPUSvgNode { vertices, indices } in tesselated_multipolygons {
-                            let mut vertices: Vec<SvgVertex> = vertices.into();
-                            let mut indices: Vec<u32> = indices.into();
-                            all_vertices.append(&mut vertices);
-                            all_indices.append(&mut indices);
-                            all_indices.push(GL_RESTART_INDEX);
-                        }
-                        TesselatedCPUSvgNode { vertices: all_vertices.into(), indices: all_indices.into() }
-                    },
-                    SvgNode::MultiPolygon(mp) => tesselate_multi_polygon_fill(mp, fs),
-                    SvgNode::Path(p) => tesselate_path_fill(p, fs),
-                    SvgNode::Circle(c) => tesselate_circle_fill(c, fs),
-                    SvgNode::Rect(r) => tesselate_rect_fill(r, fs),
-                }
-            },
-            SvgStyle::Stroke(ss) => {
-                match &node.geometry {
-                    SvgNode::MultiPolygonCollection(mpc) => {
-                        let tesselated_multipolygons = mpc.as_ref().par_iter().map(|mp| tesselate_multi_polygon_stroke(mp, ss)).collect::<Vec<_>>();
-                        let mut all_vertices = Vec::new();
-                        let mut all_indices = Vec::new();
-                        for TesselatedCPUSvgNode { vertices, indices } in tesselated_multipolygons {
-                            let mut vertices: Vec<SvgVertex> = vertices.into();
-                            let mut indices: Vec<u32> = indices.into();
-                            all_vertices.append(&mut vertices);
-                            all_indices.append(&mut indices);
-                            all_indices.push(GL_RESTART_INDEX);
-                        }
-                        TesselatedCPUSvgNode { vertices: all_vertices.into(), indices: all_indices.into() }
-                    },
-                    SvgNode::MultiPolygon(mp) => tesselate_multi_polygon_stroke(mp, ss),
-                    SvgNode::Path(p) => tesselate_path_stroke(p, ss),
-                    SvgNode::Circle(c) => tesselate_circle_stroke(c, ss),
-                    SvgNode::Rect(r) => tesselate_rect_stroke(r, ss),
-                }
-            }
-        }
-    }
-
-    /*
-    /// Parse an XML string using xmlparser
-    pub fn parse_xml_string(string: &str) -> Xml {
-
-    }
-
-    /// Build a SVG model from the parsed XML using usvg
-    pub fn get_simplified_svg(xml: &Xml) -> Svg {
-
-    }
-
-    /// Parse all paths from a font using rusttype
-    pub fn parse_font(font_bytes: &[u8], font_index: u32) -> Vec<(GlyphId, SvgPath)> {
-
-    }
-
-    /// Converts a `Vec<stb_truetype::Vertex>` to a `SvgLayerType::Polygon`
-    fn glyph_to_svg_layer_type(vertices: Vec<Vertex>) -> SvgLayerType {
-        SvgLayerType::Polygon(vertices.into_iter().map(rusttype_glyph_to_path_events).collect())
-    }
-
-    // Convert a Rusttype glyph to a Vec of PathEvents,
-    // in order to turn a glyph into a polygon
-    fn rusttype_glyph_to_path_events(vertex: Vertex) -> PathEvent {
-
-        use stb_truetype::VertexType;
-
-        // Rusttypes vertex type needs to be inverted in the Y axis
-        // in order to work with lyon correctly
-        match vertex.vertex_type() {
-            VertexType::CurveTo =>  PathEvent::QuadraticTo(
-                                        Point::new(vertex.cx as f32, -(vertex.cy as f32)),
-                                        Point::new(vertex.x as f32,  -(vertex.y as f32))
-                                    ),
-            VertexType::MoveTo =>   PathEvent::MoveTo(Point::new(vertex.x as f32, -(vertex.y as f32))),
-            VertexType::LineTo =>   PathEvent::LineTo(Point::new(vertex.x as f32, -(vertex.y as f32))),
-        }
-    }
-    */
-}
-
-#[cfg(feature = "svg")] pub use self::internal_1::*;
 
 #[cfg(feature = "opengl")] mod internal_2 {
 

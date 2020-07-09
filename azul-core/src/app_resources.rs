@@ -383,7 +383,7 @@ pub enum ImmediateFontId {
 }
 
 /// Raw image made up of raw pixels (either BRGA8 or A8)
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
 #[repr(C)]
 pub struct RawImage {
     pub pixels: U8Vec,
@@ -391,6 +391,19 @@ pub struct RawImage {
     pub height: usize,
     pub data_format: RawImageFormat,
 }
+
+impl RawImage {
+    pub fn null_image() -> Self {
+        Self {
+            pixels: Vec::new().into(),
+            width: 0,
+            height: 0,
+            data_format: RawImageFormat::RGBA8
+        }
+    }
+}
+
+impl_option!(RawImage, OptionRawImage, copy = false, [Debug, Clone, PartialEq, Eq]);
 
 #[derive(Clone)]
 pub struct LoadedFont {

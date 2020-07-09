@@ -12,6 +12,8 @@ extern crate lyon;
 extern crate usvg;
 #[cfg(feature = "svg")]
 extern crate rusttype;
+#[cfg(feature = "xml")]
+extern crate roxmltree;
 
 /// Useful macros for implementing Azul APIs without duplicating code
 #[macro_use]
@@ -36,6 +38,8 @@ pub mod id_tree;
 pub mod style;
 /// SVG module
 pub mod svg;
+#[cfg(feature = "xml")]
+pub mod xml;
 /// Main `Layout` and `GetTextLayout` trait definition
 pub mod traits;
 /// Async (task, thread, timer) helper functions

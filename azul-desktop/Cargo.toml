@@ -62,4 +62,4 @@ font_loading = ["azulc/font-loader"]
 # Text loading module, disable if you have a custom text layouting function
 text_layout = ["azulc/text_layout"]
 # Whether to include SVG processing (adds dependencies for lyon, usvg and xmlparser)
-svg = ["azul-core/svg"]
+svg = ["azulc/svg", "azulc/xml"]

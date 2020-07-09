@@ -22,7 +22,7 @@ pub fn prepare_image(image_decoded: DynamicImage) -> Result<LoadedImageSource, I
 
     // see: https://github.com/servo/webrender/blob/80c614ab660bf6cca52594d0e33a0be262a7ac12/wrench/src/yaml_frame_reader.rs#L401-L427
     let (format, bytes) = match image_decoded {
-        image_crate::ImageLuma8(bytes) => {
+        image_crate::DynamicImage::ImageLuma8(bytes) => {
             let mut pixels = Vec::with_capacity(image_dims.0 as usize * image_dims.1 as usize * 4);
             for grey in bytes.into_iter() {
                 pixels.extend_from_slice(&[
@@ -34,9 +34,9 @@ pub fn prepare_image(image_decoded: DynamicImage) -> Result<LoadedImageSource, I
             }
             (RawImageFormat::BGRA8, pixels)
         },
-        image_crate::ImageLumaA8(bytes) => {
+        image_crate::DynamicImage::ImageLumaA8(bytes) => {
             let mut pixels = Vec::with_capacity(image_dims.0 as usize * image_dims.1 as usize * 4);
-            for greyscale_alpha in bytes.chunks(2) {
+            for greyscale_alpha in bytes.chunks_exact(2) {
                 let grey = greyscale_alpha[0];
                 let alpha = greyscale_alpha[1];
                 pixels.extend_from_slice(&[
@@ -48,10 +48,22 @@ pub fn prepare_image(image_decoded: DynamicImage) -> Result<LoadedImageSource, I
             }
             (RawImageFormat::BGRA8, pixels)
         },
-        image_crate::ImageRgba8(bytes) => {
+        image_crate::DynamicImage::ImageRgb8(bytes) => {
+            let mut pixels = Vec::with_capacity(image_dims.0 as usize * image_dims.1 as usize * 4);
+            for rgb in bytes.chunks_exact(3) {
+                pixels.extend_from_slice(&[
+                    rgb[2], // b
+                    rgb[1], // g
+                    rgb[0], // r
+                    0xff    // a
+                ]);
+            }
+            (RawImageFormat::BGRA8, pixels)
+        },
+        image_crate::DynamicImage::ImageRgba8(bytes) => {
             let mut pixels = bytes.into_raw();
             // no extra allocation necessary, but swizzling
-            for rgba in pixels.chunks_mut(4) {
+            for rgba in pixels.chunks_exact_mut(4) {
                 let r = rgba[0];
                 let g = rgba[1];
                 let b = rgba[2];
@@ -64,21 +76,9 @@ pub fn prepare_image(image_decoded: DynamicImage) -> Result<LoadedImageSource, I
             premultiply(pixels.as_mut_slice());
             (RawImageFormat::BGRA8, pixels)
         },
-        image_crate::ImageRgb8(bytes) => {
+        image_crate::DynamicImage::ImageBgr8(bytes) => {
             let mut pixels = Vec::with_capacity(image_dims.0 as usize * image_dims.1 as usize * 4);
-            for rgb in bytes.chunks(3) {
-                pixels.extend_from_slice(&[
-                    rgb[2], // b
-                    rgb[1], // g
-                    rgb[0], // r
-                    0xff    // a
-                ]);
-            }
-            (RawImageFormat::BGRA8, pixels)
-        },
-        image_crate::ImageBgr8(bytes) => {
-            let mut pixels = Vec::with_capacity(image_dims.0 as usize * image_dims.1 as usize * 4);
-            for bgr in bytes.chunks(3) {
+            for bgr in bytes.chunks_exact(3) {
                 pixels.extend_from_slice(&[
                     bgr[0], // b
                     bgr[1], // g
@@ -88,9 +88,64 @@ pub fn prepare_image(image_decoded: DynamicImage) -> Result<LoadedImageSource, I
             }
             (RawImageFormat::BGRA8, pixels)
         },
-        image_crate::ImageBgra8(bytes) => {
+        image_crate::DynamicImage::ImageBgra8(bytes) => {
             // Already in the correct format
             let mut pixels = bytes.into_raw();
+            premultiply(pixels.as_mut_slice());
+            (RawImageFormat::BGRA8, pixels)
+        },
+        image_crate::DynamicImage::ImageLuma16(bytes) => {
+            let mut pixels = Vec::with_capacity(image_dims.0 as usize * image_dims.1 as usize * 4);
+            for grey in bytes.into_iter() {
+                pixels.extend_from_slice(&[
+                    normalize_u16(*grey),
+                    normalize_u16(*grey),
+                    normalize_u16(*grey),
+                    0xff,
+                ]);
+            }
+            (RawImageFormat::BGRA8, pixels)
+        },
+        image_crate::DynamicImage::ImageLumaA16(bytes) => {
+            let mut pixels = Vec::with_capacity(image_dims.0 as usize * image_dims.1 as usize * 4);
+            for greyscale_alpha in bytes.chunks_exact(2) {
+                let grey = greyscale_alpha[0];
+                let alpha = greyscale_alpha[1];
+                pixels.extend_from_slice(&[
+                    normalize_u16(grey),
+                    normalize_u16(grey),
+                    normalize_u16(grey),
+                    normalize_u16(alpha),
+                ]);
+            }
+            (RawImageFormat::BGRA8, pixels)
+        },
+        image_crate::DynamicImage::ImageRgb16(bytes) => {
+            let mut pixels = Vec::with_capacity(image_dims.0 as usize * image_dims.1 as usize * 4);
+            for rgb in bytes.chunks_exact(3) {
+                pixels.extend_from_slice(&[
+                    normalize_u16(rgb[2]), // b
+                    normalize_u16(rgb[1]), // g
+                    normalize_u16(rgb[0]), // r
+                    0xff    // a
+                ]);
+            }
+            (RawImageFormat::BGRA8, pixels)
+        },
+        image_crate::DynamicImage::ImageRgba16(bytes) => {
+            let mut pixels = Vec::with_capacity(image_dims.0 as usize * image_dims.1 as usize * 4);
+            for rgba in bytes.chunks_exact(4) {
+                let r = rgba[0];
+                let g = rgba[1];
+                let b = rgba[2];
+                let a = rgba[3];
+                pixels.extend_from_slice(&[
+                    normalize_u16(b),
+                    normalize_u16(g),
+                    normalize_u16(r),
+                    normalize_u16(a),
+                ]);
+            }
             premultiply(pixels.as_mut_slice());
             (RawImageFormat::BGRA8, pixels)
         },
@@ -111,4 +166,9 @@ pub fn prepare_image(image_decoded: DynamicImage) -> Result<LoadedImageSource, I
     let data = ImageData::new_raw(bytes);
 
     Ok(LoadedImageSource { image_bytes_decoded: data, image_descriptor: descriptor })
+}
+
+#[inline]
+pub fn normalize_u16(i: u16) -> u8 {
+    ((65535.0 / i as f32) * 255.0) as u8
 }

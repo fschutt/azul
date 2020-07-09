@@ -9,6 +9,7 @@ extern crate gleam;
 extern crate xmlparser;
 #[macro_use(impl_from, impl_display)]
 extern crate azul_core;
+#[macro_use]
 extern crate azul_css;
 extern crate azul_layout;
 #[cfg(feature = "font_loading")]
@@ -17,7 +18,12 @@ extern crate font_loader;
 extern crate image as image_crate;
 
 /// XML-based DOM serialization and XML-to-Rust compiler implementation
+#[cfg(feature = "xml")]
 pub mod xml;
+#[cfg(feature = "svg")]
+pub mod svg;
+/// XML-based DOM serialization and XML-to-Rust compiler implementation
+pub mod xml_parser;
 /// Module for compiling CSS to Rust code
 pub mod css;
 #[cfg(feature = "font_loading")]
