@@ -81,12 +81,8 @@ name = "text_input"
 path = "../examples/text_input/text_input.rs"
 
 [[example]]
-name = "text_shaping"
-path = "../examples/text_shaping/text_shaping.rs"
-
-[[example]]
-name = "transparent_window"
-path = "../examples/transparent_window/transparent_window.rs"
+name = "components"
+path = "../examples/components/components.rs"
 
 [[example]]
 name = "xml"
