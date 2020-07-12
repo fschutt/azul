@@ -458,7 +458,6 @@ pub fn keymap<T>(
         .and_then(|(_, callback)| {
             use std::ffi::c_void;
             use crate::callbacks::CallbackInfoPtr;
-            println!("CallbackInfoPtr::new!");
             let ptr = CallbackInfoPtr { ptr: Box::into_raw(Box::new(info)) as *mut c_void };
             ((callback)(ptr)).into_option()
         })

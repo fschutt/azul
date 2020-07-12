@@ -311,9 +311,6 @@ impl UiState {
             LayoutInfoPtr { ptr: layout_info_box_ptr }
         );
 
-        println!("size of dom: {:#?}", std::mem::size_of::<Dom>());
-        println!("dom: {:#?}", dom);
-
         Self::new(dom, parent_dom)
     }
 
