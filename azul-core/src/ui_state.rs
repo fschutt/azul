@@ -4,7 +4,7 @@ use std::{
 };
 use azul_css::CssProperty;
 use crate::{
-    FastHashMap,
+    FastHashSet,
     id_tree::NodeId,
     dom::{
         Dom, CompactDom, DomId, TagId, TabIndex,
@@ -23,8 +23,8 @@ pub struct UiState {
     pub dom_id: DomId,
     /// The actual DOM, rendered from the .layout() function
     pub(crate) dom: CompactDom,
-    /// The style properties that should be overridden for this frame, cloned from the `Css`
-    pub dynamic_css_overrides: BTreeMap<NodeId, FastHashMap<String, CssProperty>>,
+    /// The style properties that should be overridden for this frame, cloned from the `Dom.dynamic_css_overrides`
+    pub dynamic_css_overrides: BTreeMap<NodeId, FastHashSet<CssProperty>>,
     /// Stores all tags for nodes that need to activate on a `:hover` or `:active` event.
     pub tag_ids_to_hover_active_states: BTreeMap<TagId, (NodeId, HoverGroup)>,
 
@@ -264,13 +264,14 @@ impl UiState {
                 }
 
                 // Collect all the styling overrides into one hash map
-                if !node.get_dynamic_css_overrides().is_empty() {
-                    dynamic_css_overrides.insert(node_id,
-                        node
-                        .get_dynamic_css_overrides()
+                if !node.get_inline_css_props().is_empty() {
+                    let inline_css_props = node
+                        .get_inline_css_props()
                         .iter()
-                        .map(|override_property| (override_property.property_id.clone().into_string(), override_property.override_value.clone()))
-                        .collect());
+                        .cloned()
+                        .collect();
+
+                    dynamic_css_overrides.insert(node_id, inline_css_props);
                 }
             }
         }

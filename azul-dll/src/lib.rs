@@ -80,6 +80,22 @@ pub type AzStringTT = azul_impl::css::AzString;
 /// Returns the hash of a `AzString` instance 
 #[no_mangle] pub extern "C" fn az_string_hash(object: &AzString) -> u64 { use std::collections::hash_map::DefaultHasher; use std::hash::{Hash, Hasher}; let mut hasher = DefaultHasher::new(); object.hash(&mut hasher); hasher.finish() }
 
+/// Wrapper over a Rust-allocated `Vec<CssProperty>`
+pub type AzCssPropertyVecTT = azul_impl::css::CssPropertyVec;
+#[no_mangle] pub use AzCssPropertyVecTT as AzCssPropertyVec;
+/// Creates a new, empty Rust `Vec<CssProperty>`
+#[no_mangle] pub extern "C" fn az_css_property_vec_new() -> AzCssPropertyVec { Vec::<AzCssProperty>::new().into() }
+/// Creates a new, empty Rust `Vec<CssProperty>` with a given, pre-allocated capacity
+#[no_mangle] pub extern "C" fn az_css_property_vec_with_capacity(cap: usize) -> AzCssPropertyVec { Vec::<AzCssProperty>::with_capacity(cap).into() }
+/// Creates + allocates a Rust `Vec<CssProperty>` by **copying** it from a bytes source
+#[no_mangle] pub extern "C" fn az_css_property_vec_copy_from(ptr: *const AzCssProperty, len: usize) -> AzCssPropertyVec { unsafe { std::slice::from_raw_parts(ptr, len).to_vec() }.into() }
+/// Destructor: Takes ownership of the `CssPropertyVec` pointer and deletes it.
+#[no_mangle] #[allow(unused_variables)] pub extern "C" fn az_css_property_vec_delete(object: &mut AzCssPropertyVec) { unsafe { std::ptr::drop_in_place(object.as_mut()); } deallocate_vec(object.as_mut_ptr(), object.capacity());}
+/// Clones the object
+#[no_mangle] pub extern "C" fn az_css_property_vec_deep_copy(object: &AzCssPropertyVec) -> AzCssPropertyVec { object.clone() }
+/// Creates a string with the debug representation of the object
+#[no_mangle] pub extern "C" fn az_css_property_vec_fmt_debug(object: &AzCssPropertyVec) -> AzString { format!("{:#?}", object).into() }
+
 /// Wrapper over a Rust-allocated `Vec<SvgMultiPolygon>`
 pub type AzSvgMultiPolygonVecTT = azul_impl::svg::SvgMultiPolygonVec;
 #[no_mangle] pub use AzSvgMultiPolygonVecTT as AzSvgMultiPolygonVec;
@@ -367,22 +383,6 @@ pub type AzGLintVecTT = azul_impl::gl::GLintVec;
 #[no_mangle] pub extern "C" fn az_g_lint_vec_deep_copy(object: &AzGLintVec) -> AzGLintVec { object.clone() }
 /// Creates a string with the debug representation of the object
 #[no_mangle] pub extern "C" fn az_g_lint_vec_fmt_debug(object: &AzGLintVec) -> AzString { format!("{:#?}", object).into() }
-
-/// Wrapper over a Rust-allocated `OverridePropertyVec`
-pub type AzOverridePropertyVecTT = azul_impl::dom::OverridePropertyVec;
-#[no_mangle] pub use AzOverridePropertyVecTT as AzOverridePropertyVec;
-/// Creates a new, empty Rust `Vec<OverrideProperty>`
-#[no_mangle] pub extern "C" fn az_override_property_vec_new() -> AzOverridePropertyVec { Vec::<AzOverrideProperty>::new().into() }
-/// Creates a new, empty Rust `Vec<OverrideProperty>` with a given, pre-allocated capacity
-#[no_mangle] pub extern "C" fn az_override_property_vec_with_capacity(cap: usize) -> AzOverridePropertyVec { Vec::<AzOverrideProperty>::with_capacity(cap).into() }
-/// Creates + allocates a Rust `Vec<OverrideProperty>` by **copying** it from a bytes source
-#[no_mangle] pub extern "C" fn az_override_property_vec_copy_from(ptr: *const AzOverrideProperty, len: usize) -> AzOverridePropertyVec { unsafe { std::slice::from_raw_parts(ptr, len).iter().cloned().collect::<Vec<_>>() }.into() }
-/// Destructor: Takes ownership of the `OverridePropertyVec` pointer and deletes it.
-#[no_mangle] #[allow(unused_variables)] pub extern "C" fn az_override_property_vec_delete(object: &mut AzOverridePropertyVec) { unsafe { std::ptr::drop_in_place(object.as_mut()); } deallocate_vec(object.as_mut_ptr(), object.capacity());}
-/// Clones the object
-#[no_mangle] pub extern "C" fn az_override_property_vec_deep_copy(object: &AzOverridePropertyVec) -> AzOverridePropertyVec { object.clone() }
-/// Creates a string with the debug representation of the object
-#[no_mangle] pub extern "C" fn az_override_property_vec_fmt_debug(object: &AzOverridePropertyVec) -> AzString { format!("{:#?}", object).into() }
 
 /// Wrapper over a Rust-allocated `DomVec`
 pub type AzDomVecTT = azul_impl::dom::DomVec;
@@ -2906,6 +2906,14 @@ pub type AzCssPropertyTT = azul_impl::css::CssProperty;
 #[no_mangle] pub extern "C" fn az_css_property_deep_copy(object: &AzCssProperty) -> AzCssProperty { object.clone() }
 /// Creates a string with the debug representation of the object
 #[no_mangle] pub extern "C" fn az_css_property_fmt_debug(object: &AzCssProperty) -> AzString { format!("{:#?}", object).into() }
+/// Compares two instances of `AzCssProperty` for equality
+#[no_mangle] pub extern "C" fn az_css_property_partial_eq(a: &AzCssProperty, b: &AzCssProperty) -> bool { a.eq(b) }
+/// Compares two instances of `AzCssProperty` for ordering. Returns 0 for None (equality), 1 on Some(Less), 2 on Some(Equal) and 3 on Some(Greater). 
+#[no_mangle] pub extern "C" fn az_css_property_partial_cmp(a: &AzCssProperty, b: &AzCssProperty) -> u8 { use std::cmp::Ordering::*;match a.partial_cmp(b) { None => 0, Some(Less) => 1, Some(Equal) => 2, Some(Greater) => 3 } }
+/// Compares two instances of `AzCssProperty` for full ordering. Returns 0 for Less, 1 for Equal, 2 for Greater. 
+#[no_mangle] pub extern "C" fn az_css_property_cmp(a: &AzCssProperty, b: &AzCssProperty) -> u8 { use std::cmp::Ordering::*; match a.cmp(b) { Less => 0, Equal => 1, Greater => 2 } }
+/// Returns the hash of a `AzCssProperty` instance 
+#[no_mangle] pub extern "C" fn az_css_property_hash(object: &AzCssProperty) -> u64 { use std::collections::hash_map::DefaultHasher; use std::hash::{Hash, Hasher}; let mut hasher = DefaultHasher::new(); object.hash(&mut hasher); hasher.finish() }
 
 /// Re-export of rust-allocated (stack based) `Dom` struct
 pub type AzDomTT = azul_impl::dom::Dom;
@@ -2947,9 +2955,9 @@ pub type AzDomTT = azul_impl::dom::Dom;
 /// Same as [`Dom::add_callback`](#method.add_callback), but as a builder method
 #[no_mangle] pub extern "C" fn az_dom_with_callback(mut dom: AzDom, event: AzEventFilter, data: AzRefAny, callback: AzCallbackType) -> AzDom { az_dom_add_callback(&mut dom, event, data, callback); dom }
 /// Overrides the CSS property of this DOM node with a value (for example `"width = 200px"`)
-#[no_mangle] pub extern "C" fn az_dom_add_css_override(dom: &mut AzDom, id: AzString, prop: AzCssProperty) { dom.add_css_override(id, prop); }
-/// Same as [`Dom::add_css_override`](#method.add_css_override), but as a builder method
-#[no_mangle] pub extern "C" fn az_dom_with_css_override(mut dom: AzDom, id: AzString, prop: AzCssProperty) -> AzDom { az_dom_add_css_override(&mut dom, id, prop); dom }
+#[no_mangle] pub extern "C" fn az_dom_add_inline_css(dom: &mut AzDom, prop: AzCssProperty) { dom.add_inline_css(prop); }
+/// Same as [`Dom::add_inline_css`](#method.add_inline_css), but as a builder method
+#[no_mangle] pub extern "C" fn az_dom_with_inline_css(mut dom: AzDom, prop: AzCssProperty) -> AzDom { az_dom_add_inline_css(&mut dom, prop); dom }
 /// Sets the `is_draggable` attribute of this DOM node (default: false)
 #[no_mangle] pub extern "C" fn az_dom_set_is_draggable(dom: &mut AzDom, is_draggable: bool) { dom.set_is_draggable(is_draggable); }
 /// Same as [`Dom::set_clip_mask`](#method.set_clip_mask), but as a builder method
@@ -3025,26 +3033,8 @@ pub type AzCallbackDataTT = azul_impl::dom::CallbackData;
 /// Returns the hash of a `AzCallbackData` instance 
 #[no_mangle] pub extern "C" fn az_callback_data_hash(object: &AzCallbackData) -> u64 { use std::collections::hash_map::DefaultHasher; use std::hash::{Hash, Hasher}; let mut hasher = DefaultHasher::new(); object.hash(&mut hasher); hasher.finish() }
 
-/// Re-export of rust-allocated (stack based) `OverrideProperty` struct
-pub type AzOverridePropertyTT = azul_impl::dom::OverrideProperty;
-#[no_mangle] pub use AzOverridePropertyTT as AzOverrideProperty;
-/// Destructor: Takes ownership of the `OverrideProperty` pointer and deletes it.
-#[no_mangle] #[allow(unused_variables)] pub extern "C" fn az_override_property_delete(object: &mut AzOverrideProperty) { }
-/// Clones the object
-#[no_mangle] pub extern "C" fn az_override_property_deep_copy(object: &AzOverrideProperty) -> AzOverrideProperty { object.clone() }
-/// Creates a string with the debug representation of the object
-#[no_mangle] pub extern "C" fn az_override_property_fmt_debug(object: &AzOverrideProperty) -> AzString { format!("{:#?}", object).into() }
-/// Compares two instances of `AzOverrideProperty` for equality
-#[no_mangle] pub extern "C" fn az_override_property_partial_eq(a: &AzOverrideProperty, b: &AzOverrideProperty) -> bool { a.eq(b) }
-/// Compares two instances of `AzOverrideProperty` for ordering. Returns 0 for None (equality), 1 on Some(Less), 2 on Some(Equal) and 3 on Some(Greater). 
-#[no_mangle] pub extern "C" fn az_override_property_partial_cmp(a: &AzOverrideProperty, b: &AzOverrideProperty) -> u8 { use std::cmp::Ordering::*;match a.partial_cmp(b) { None => 0, Some(Less) => 1, Some(Equal) => 2, Some(Greater) => 3 } }
-/// Compares two instances of `AzOverrideProperty` for full ordering. Returns 0 for Less, 1 for Equal, 2 for Greater. 
-#[no_mangle] pub extern "C" fn az_override_property_cmp(a: &AzOverrideProperty, b: &AzOverrideProperty) -> u8 { use std::cmp::Ordering::*; match a.cmp(b) { Less => 0, Equal => 1, Greater => 2 } }
-/// Returns the hash of a `AzOverrideProperty` instance 
-#[no_mangle] pub extern "C" fn az_override_property_hash(object: &AzOverrideProperty) -> u64 { use std::collections::hash_map::DefaultHasher; use std::hash::{Hash, Hasher}; let mut hasher = DefaultHasher::new(); object.hash(&mut hasher); hasher.finish() }
-
 /// Re-export of rust-allocated (stack based) `ImageMask` struct
-pub type AzImageMaskTT = azul_impl::dom::OverrideProperty;
+pub type AzImageMaskTT = azul_impl::dom::ImageMask;
 #[no_mangle] pub use AzImageMaskTT as AzImageMask;
 /// Destructor: Takes ownership of the `ImageMask` pointer and deletes it.
 #[no_mangle] #[allow(unused_variables)] pub extern "C" fn az_image_mask_delete(object: &mut AzImageMask) { }
@@ -3103,9 +3093,9 @@ pub type AzNodeDataTT = azul_impl::dom::NodeData;
 /// Same as [`NodeData::add_callback`](#method.add_callback), but as a builder method
 #[no_mangle] pub extern "C" fn az_node_data_with_callback(mut nodedata: AzNodeData, event: AzEventFilter, data: AzRefAny, callback: AzCallbackType) -> AzNodeData { az_node_data_add_callback(&mut nodedata, event, data, callback); nodedata }
 /// Overrides the CSS property of this `NodeData` node with a value (for example `"width = 200px"`)
-#[no_mangle] pub extern "C" fn az_node_data_add_css_override(nodedata: &mut AzNodeData, id: AzString, prop: AzCssProperty) { nodedata.add_css_override(id, prop); }
-/// Same as [`NodeData::add_css_override`](#method.add_css_override), but as a builder method
-#[no_mangle] pub extern "C" fn az_node_data_with_css_override(mut nodedata: AzNodeData, id: AzString, prop: AzCssProperty) -> AzNodeData { az_node_data_add_css_override(&mut nodedata, id, prop); nodedata }
+#[no_mangle] pub extern "C" fn az_node_data_add_inline_css(nodedata: &mut AzNodeData, prop: AzCssProperty) { nodedata.add_inline_css(prop); }
+/// Same as [`NodeData::add_inline_css`](#method.add_inline_css), but as a builder method
+#[no_mangle] pub extern "C" fn az_node_data_with_inline_css(mut nodedata: AzNodeData, prop: AzCssProperty) -> AzNodeData { az_node_data_add_inline_css(&mut nodedata, prop); nodedata }
 /// Same as [`NodeData::set_clip_mask`](#method.set_clip_mask), but as a builder method
 #[no_mangle] pub extern "C" fn az_node_data_with_clip_mask(mut nodedata: AzNodeData, clip_mask: AzOptionImageMask) -> AzNodeData { az_node_data_set_clip_mask(&mut nodedata, clip_mask); nodedata }
 /// Sets the `clip_mask` attribute of this `NodeData` (default: None)

@@ -796,6 +796,7 @@ impl fmt::Display for CssPropertyType {
 
 /// Represents one parsed CSS key-value pair, such as `"width: 20px"` => `CssProperty::Width(LayoutWidth::px(20.0))`
 #[derive(Debug, Clone, PartialEq, Eq, Hash, PartialOrd, Ord)]
+#[repr(C, u8)]
 pub enum CssProperty {
 
     TextColor(CssPropertyValue<StyleTextColor>),
@@ -877,6 +878,15 @@ pub enum CssProperty {
     BoxShadowTop(CssPropertyValue<BoxShadowPreDisplayItem>),
     BoxShadowBottom(CssPropertyValue<BoxShadowPreDisplayItem>),
 }
+
+impl_vec!(CssProperty, CssPropertyVec);
+impl_vec_debug!(CssProperty, CssPropertyVec);
+impl_vec_partialord!(CssProperty, CssPropertyVec);
+impl_vec_ord!(CssProperty, CssPropertyVec);
+impl_vec_clone!(CssProperty, CssPropertyVec);
+impl_vec_partialeq!(CssProperty, CssPropertyVec);
+impl_vec_eq!(CssProperty, CssPropertyVec);
+impl_vec_hash!(CssProperty, CssPropertyVec);
 
 macro_rules! css_property_from_type {($prop_type:expr, $content_type:ident) => ({
     match $prop_type {

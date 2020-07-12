@@ -1,6 +1,6 @@
 //! DOM tree to CSS style tree cascading
 
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 use azul_css::{
     Css, CssContentGroup, CssPath,
     CssPathSelector, CssPathPseudoSelector, CssNthChildSelector::*,
@@ -10,7 +10,7 @@ use crate::{
     id_tree::{NodeId, NodeHierarchy, NodeDataContainer},
     callbacks::HitTestItem,
     ui_state::{UiState, HoverGroup, ActiveHover},
-    ui_description::{UiDescription, StyledNode},
+    ui_description::{UiDescription, StyledNode, CascadedCssPropertyWithSource, CssPropertySource},
 };
 
 /// Has all the necessary information about the style CSS path
@@ -104,7 +104,16 @@ pub fn match_dom_selectors(
         css_constraints: css
             .rules()
             .filter(|rule| matches_html_element(&rule.path, node_id, &ui_state.dom.arena.node_hierarchy, &ui_state.dom.arena.node_data, &html_tree))
-            .flat_map(|matched_rule| matched_rule.declarations.iter().map(|declaration| (declaration.get_type(), declaration.clone())))
+            .flat_map(|matched_rule| {
+                let matched_path = matched_rule.path.clone();
+                matched_rule.declarations.clone().into_iter().map(move |declaration| CascadedCssPropertyWithSource {
+                    prop: match declaration {
+                        CssDeclaration::Static(s) => s,
+                        CssDeclaration::Dynamic(d) => d.default_value, // TODO: No variable support yet!
+                    },
+                    source: CssPropertySource::Css(matched_path.clone())
+                })
+            })
             .collect(),
     });
 
@@ -112,7 +121,13 @@ pub fn match_dom_selectors(
     // inheritable and isn't yet set. NOTE: This step can't be parallelized!
     for (_depth, parent_id) in non_leaf_nodes {
 
-        let inherited_rules: Vec<CssDeclaration> = styled_nodes[parent_id].css_constraints.values().filter(|prop| prop.is_inheritable()).cloned().collect();
+        let inherited_rules =
+            styled_nodes[parent_id].css_constraints
+            .iter()
+            .filter(|prop| prop.prop.get_type().is_inheritable())
+            .cloned()
+            .collect::<BTreeSet<CascadedCssPropertyWithSource>>();
+
         if inherited_rules.is_empty() {
             continue;
         }
@@ -120,11 +135,23 @@ pub fn match_dom_selectors(
         for child_id in parent_id.children(&ui_state.dom.arena.node_hierarchy) {
             for inherited_rule in &inherited_rules {
                 // Only override the rule if the child already has an inherited rule, don't override it
-                let inherited_rule_type = inherited_rule.get_type();
-                styled_nodes[child_id].css_constraints.entry(inherited_rule_type).or_insert_with(|| inherited_rule.clone());
+                let inherited_rule_type = inherited_rule.prop.get_type();
+                let child_css_constraints = &mut styled_nodes[child_id].css_constraints;
+
+                if !child_css_constraints.iter().any(|i| i.prop.get_type() == inherited_rule_type) {
+                    child_css_constraints.push(inherited_rule.clone());
+                }
             }
         }
     }
+
+    // Last but not least, apply all inline styles
+    ui_state.dynamic_css_overrides.iter().for_each(|(node_id, inline_styles)| {
+        styled_nodes[*node_id].css_constraints.extend(inline_styles.iter().map(|is| CascadedCssPropertyWithSource {
+            prop: is.clone(),
+            source: CssPropertySource::Inline,
+        }))
+    });
 
     // In order to hit-test :hover and :active nodes, need to select them
     // first (to insert their TagId later)

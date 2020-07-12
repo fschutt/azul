@@ -43,6 +43,37 @@
 		"vec": {
 			"doc": "Definition of azuls internal `Vec<*>` wrappers",
 			"classes": {
+				"CssPropertyVec": {
+					"doc": "Wrapper over a Rust-allocated `Vec<CssProperty>`",
+					"external": "azul_impl::css::CssPropertyVec",
+					"struct_fields": [
+						{ "ptr": { "type": "*mut CssProperty" } },
+						{ "len": { "type": "usize" } },
+						{ "cap": { "type": "usize" } }
+					],
+					"constructors": {
+						"new": {
+							"doc": "Creates a new, empty Rust `Vec<CssProperty>`",
+							"fn_body": "Vec::<AzCssProperty>::new().into()"
+						},
+						"with_capacity": {
+							"doc": "Creates a new, empty Rust `Vec<CssProperty>` with a given, pre-allocated capacity",
+							"fn_args": [
+							    {"cap": "usize"}
+							],
+							"fn_body": "Vec::<AzCssProperty>::with_capacity(cap).into()"
+						},
+					    "copy_from": {
+					        "doc": "Creates + allocates a Rust `Vec<CssProperty>` by **copying** it from a bytes source",
+					        "fn_args": [
+					            {"ptr": "*const CssProperty"},
+					            {"len": "usize"}
+					        ],
+					        "fn_body": "unsafe { std::slice::from_raw_parts(ptr, len).to_vec() }.into()"
+					    }
+					},
+					"destructor": "unsafe { std::ptr::drop_in_place(object.as_mut()); } deallocate_vec(object.as_mut_ptr(), object.capacity());"
+				},
 				"SvgMultiPolygonVec": {
 					"doc": "Wrapper over a Rust-allocated `Vec<SvgMultiPolygon>`",
 					"external": "azul_impl::svg::SvgMultiPolygonVec",
@@ -597,37 +628,6 @@
 					            {"len": "usize"}
 					        ],
 					        "fn_body": "unsafe { std::slice::from_raw_parts(ptr, len).to_vec() }.into()"
-					    }
-					},
-					"destructor": "unsafe { std::ptr::drop_in_place(object.as_mut()); } deallocate_vec(object.as_mut_ptr(), object.capacity());"
-				},
-				"OverridePropertyVec": {
-					"doc": "Wrapper over a Rust-allocated `OverridePropertyVec`",
-					"external": "azul_impl::dom::OverridePropertyVec",
-					"struct_fields": [
-						{ "ptr": { "type": "*mut OverrideProperty" } },
-						{ "len": { "type": "usize" } },
-						{ "cap": { "type": "usize" } }
-					],
-					"constructors": {
-						"new": {
-							"doc": "Creates a new, empty Rust `Vec<OverrideProperty>`",
-							"fn_body": "Vec::<AzOverrideProperty>::new().into()"
-						},
-						"with_capacity": {
-							"doc": "Creates a new, empty Rust `Vec<OverrideProperty>` with a given, pre-allocated capacity",
-							"fn_args": [
-							    {"cap": "usize"}
-							],
-							"fn_body": "Vec::<AzOverrideProperty>::with_capacity(cap).into()"
-						},
-					    "copy_from": {
-					        "doc": "Creates + allocates a Rust `Vec<OverrideProperty>` by **copying** it from a bytes source",
-					        "fn_args": [
-					            {"ptr": "*const OverrideProperty"},
-					            {"len": "usize"}
-					        ],
-					        "fn_body": "unsafe { std::slice::from_raw_parts(ptr, len).iter().cloned().collect::<Vec<_>>() }.into()"
 					    }
 					},
 					"destructor": "unsafe { std::ptr::drop_in_place(object.as_mut()); } deallocate_vec(object.as_mut_ptr(), object.capacity());"
@@ -2951,6 +2951,7 @@
 				"CssProperty": {
 					"doc": "Parsed CSS key-value pair",
 					"external": "azul_impl::css::CssProperty",
+					"derive": ["PartialEq", "Eq", "PartialOrd", "Ord", "Hash"],
 					"enum_fields": [
 						{ "TextColor": { "type": "CssPropertyValue<StyleTextColor>" }} ,
 						{ "FontSize": { "type": "CssPropertyValue<StyleFontSize>" }} ,
@@ -3175,24 +3176,22 @@
 							"returns": "Dom",
 							"fn_body": "az_dom_add_callback(&mut dom, event, data, callback); dom"
 						},
-						"add_css_override": {
+						"add_inline_css": {
 							"doc": "Overrides the CSS property of this DOM node with a value (for example `\"width = 200px\"`)",
 							"fn_args": [
 								{"self": "refmut"},
-								{"id": "String"},
 								{"prop": "CssProperty"}
 							],
-							"fn_body": "dom.add_css_override(id, prop);"
+							"fn_body": "dom.add_inline_css(prop);"
 						},
-						"with_css_override": {
-							"doc": "Same as [`Dom::add_css_override`](#method.add_css_override), but as a builder method",
+						"with_inline_css": {
+							"doc": "Same as [`Dom::add_inline_css`](#method.add_inline_css), but as a builder method",
 							"fn_args": [
 								{"self": "mut value"},
-								{"id": "String"},
 								{"prop": "CssProperty"}
 							],
 							"returns": "Dom",
-							"fn_body": "az_dom_add_css_override(&mut dom, id, prop); dom"
+							"fn_body": "az_dom_add_inline_css(&mut dom, prop); dom"
 						},
 						"set_is_draggable": {
 							"doc": "Sets the `is_draggable` attribute of this DOM node (default: false)",
@@ -3313,16 +3312,8 @@
 						{"data": {"type": "RefAny"}}
 					]
 				},
-				"OverrideProperty": {
-					"external": "azul_impl::dom::OverrideProperty",
-					"derive": ["PartialEq", "Eq", "PartialOrd", "Ord", "Hash"],
-					"struct_fields": [
-						{"property_id": {"type": "String"}},
-						{"override_value": {"type": "CssProperty"}}
-					]
-				},
 				"ImageMask": {
-					"external": "azul_impl::dom::OverrideProperty",
+					"external": "azul_impl::dom::ImageMask",
 					"derive": ["PartialEq", "Eq", "PartialOrd", "Ord", "Hash"],
 					"struct_fields": [
 						{"image": {"type": "ImageId"}},
@@ -3338,7 +3329,7 @@
 						{"ids": {"type": "StringVec", "doc": "Stores the ids of the node, i.e. `[#main, #something]`"}},
 						{"classes": {"type": "StringVec", "doc": "Stores the classes of the node, i.e. `[.myclass, .otherclass]`"}},
 						{"callbacks": {"type": "CallbackDataVec", "doc": "Stores the callbacks of the node, i.e. `On::MouseUp` -> `Callback(my_button_click_handler)`"}},
-						{"dynamic_css_overrides": {"type": "OverridePropertyVec", "doc": "Override certain dynamic styling properties for this DOM node"}},
+						{"inline_css_props": {"type": "CssPropertyVec", "doc": "Override certain dynamic styling properties for this DOM node"}},
 						{"clip_mask": {"type": "OptionImageMask", "doc": "Optional clip mask for this DOM node"}},
 						{"is_draggable": {"type": "bool", "doc": "Whether this div can be dragged or not, similar to `draggable = \"true\"` in HTML"}},
 						{"tab_index": {"type": "OptionTabIndex", "doc": "Whether this div can be focused, and if yes, in what default to `None` (not focusable). Note that without this, there can be no `On::FocusReceived` / `On::FocusLost` (equivalent to onfocus). For this reason, this is automatically set to `TabIndex::Auto` if a callback with `On::Focus*` is inserted"}}
@@ -3491,24 +3482,22 @@
 							"returns": "NodeData",
 							"fn_body": "az_node_data_add_callback(&mut nodedata, event, data, callback); nodedata"
 						},
-						"add_css_override": {
+						"add_inline_css": {
 							"doc": "Overrides the CSS property of this `NodeData` node with a value (for example `\"width = 200px\"`)",
 							"fn_args": [
 								{"self": "refmut"},
-								{"id": "String"},
 								{"prop": "CssProperty"}
 							],
-							"fn_body": "nodedata.add_css_override(id, prop);"
+							"fn_body": "nodedata.add_inline_css(prop);"
 						},
-						"with_css_override": {
-							"doc": "Same as [`NodeData::add_css_override`](#method.add_css_override), but as a builder method",
+						"with_inline_css": {
+							"doc": "Same as [`NodeData::add_inline_css`](#method.add_inline_css), but as a builder method",
 							"fn_args": [
 								{"self": "mut value"},
-								{"id": "String"},
 								{"prop": "CssProperty"}
 							],
 							"returns": "NodeData",
-							"fn_body": "az_node_data_add_css_override(&mut nodedata, id, prop); nodedata"
+							"fn_body": "az_node_data_add_inline_css(&mut nodedata, prop); nodedata"
 						},
 						"with_clip_mask": {
 							"doc": "Same as [`NodeData::set_clip_mask`](#method.set_clip_mask), but as a builder method",

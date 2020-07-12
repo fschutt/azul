@@ -14,7 +14,6 @@ use azul_css::{
     StyleBorderTopLeftRadius, StyleBorderTopRightRadius, StyleBorderBottomLeftRadius, StyleBorderBottomRightRadius,
 };
 use crate::{
-    FastHashMap,
     callbacks::PipelineId,
     ui_solver::{
         PositionedRectangle, ResolvedOffsets, ExternalScrollId,
@@ -28,7 +27,7 @@ use crate::{
         Epoch, ExternalImageId, GlyphOptions, LoadFontFn, LoadImageFn,
     },
     ui_state::UiState,
-    ui_description::{UiDescription, StyledNode},
+    ui_description::UiDescription,
     id_tree::{NodeDataContainer, NodeId, NodeHierarchy},
     dom::{
         DomId, NodeData, TagId, ScrollTagId,
@@ -516,24 +515,14 @@ impl DisplayList {
 
         let arena = &ui_state.dom.arena;
 
-        let mut override_warnings = Vec::new();
-
         let display_rect_arena = arena.node_data.transform(|_, node_id| {
             let tag = ui_state.node_ids_to_tag_ids.get(&node_id).map(|tag| *tag);
-            let style = &ui_description.styled_nodes[node_id];
             let mut rect = DisplayRectangle::new(tag);
-            override_warnings.append(&mut populate_css_properties(&mut rect, node_id, &ui_description.dynamic_css_overrides, &style));
+            ui_description.styled_nodes[node_id].css_constraints.iter().for_each(|prop| {
+                apply_style_property(&mut rect.style, &mut rect.layout, &prop.prop);
+            });
             rect
         });
-
-        #[cfg(feature = "logging")] {
-            for warning in override_warnings {
-                error!(
-                    "Cannot override {} with {:?}",
-                    warning.default.get_type(), warning.overridden_property,
-                )
-            }
-        }
 
         DisplayList {
             rectangles: display_rect_arena,
@@ -1358,46 +1347,6 @@ pub fn subtract_padding(size: &LayoutSize, padding: &ResolvedOffsets) -> LayoutS
 pub struct OverrideWarning {
     pub default: CssProperty,
     pub overridden_property: CssProperty,
-}
-
-/// Populate the style properties of the `DisplayRectangle`, apply static / dynamic properties
-pub fn populate_css_properties(
-    rect: &mut DisplayRectangle,
-    node_id: NodeId,
-    css_overrides: &BTreeMap<NodeId, FastHashMap<String, CssProperty>>,
-    styled_node: &StyledNode,
-) -> Vec<OverrideWarning> {
-
-    use azul_css::CssDeclaration::*;
-    use std::mem;
-
-    let rect_style = &mut rect.style;
-    let rect_layout = &mut rect.layout;
-    let css_constraints = &styled_node.css_constraints;
-
-    css_constraints
-    .values()
-    .filter_map(|constraint| match constraint {
-        Static(static_property) => {
-            apply_style_property(rect_style, rect_layout, &static_property);
-            None
-        },
-        Dynamic(dynamic_property) => {
-            let overridden_property = css_overrides.get(&node_id).and_then(|overrides| overrides.get(dynamic_property.dynamic_id.as_str()))?;
-
-            // Apply the property default if the discriminant of the two types matches
-            if mem::discriminant(overridden_property) == mem::discriminant(&dynamic_property.default_value) {
-                apply_style_property(rect_style, rect_layout, overridden_property);
-                None
-            } else {
-                Some(OverrideWarning {
-                    default: dynamic_property.default_value.clone(),
-                    overridden_property: overridden_property.clone(),
-                })
-            }
-        },
-    })
-    .collect()
 }
 
 pub fn apply_style_property(style: &mut RectStyle, layout: &mut RectLayout, property: &CssProperty) {

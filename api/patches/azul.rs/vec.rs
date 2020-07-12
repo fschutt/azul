@@ -156,12 +156,12 @@
     impl_vec_eq!(AzCallbackData, AzCallbackDataVec);
     impl_vec_hash!(AzCallbackData, AzCallbackDataVec);
 
-    impl_vec!(AzOverrideProperty, AzOverridePropertyVec);
-    impl_vec_partialord!(AzOverrideProperty, AzOverridePropertyVec);
-    impl_vec_ord!(AzOverrideProperty, AzOverridePropertyVec);
-    impl_vec_partialeq!(AzOverrideProperty, AzOverridePropertyVec);
-    impl_vec_eq!(AzOverrideProperty, AzOverridePropertyVec);
-    impl_vec_hash!(AzOverrideProperty, AzOverridePropertyVec);
+    impl_vec!(AzCssProperty, AzCssPropertyVec);
+    impl_vec_partialord!(AzCssProperty, AzCssPropertyVec);
+    impl_vec_ord!(AzCssProperty, AzCssPropertyVec);
+    impl_vec_partialeq!(AzCssProperty, AzCssPropertyVec);
+    impl_vec_eq!(AzCssProperty, AzCssPropertyVec);
+    impl_vec_hash!(AzCssProperty, AzCssPropertyVec);
 
     impl_vec!(AzDom, AzDomVec);
     impl_vec_partialord!(AzDom, AzDomVec);

@@ -16,7 +16,7 @@ use crate::{
 };
 #[cfg(feature = "opengl")]
 use crate::callbacks::{GlCallback, GlCallbackType};
-use azul_css::{AzString, StringVec, NodeTypePath, CssProperty};
+use azul_css::{AzString, StringVec, NodeTypePath, CssProperty, CssPropertyVec};
 pub use crate::id_tree::{NodeHierarchy, Node, NodeId};
 
 static TAG_ID: AtomicUsize = AtomicUsize::new(1);
@@ -509,13 +509,6 @@ pub struct CallbackData {
     pub data: RefAny,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
-#[repr(C)]
-pub struct OverrideProperty {
-    pub property_id: AzString,
-    pub override_value: CssProperty,
-}
-
 /// Represents one single DOM node (node type, classes, ids and callbacks are stored here)
 #[repr(C)]
 #[derive(Clone, PartialEq, Eq, Hash, PartialOrd, Ord)]
@@ -528,22 +521,15 @@ pub struct NodeData {
     classes: StringVec,
     /// `On::MouseUp` -> `Callback(my_button_click_handler)`
     callbacks: CallbackDataVec,
-    /// Override certain dynamic styling properties in this frame. For this,
-    /// these properties have to have a name (the ID).
-    ///
-    /// For example, in the CSS stylesheet:
-    ///
-    /// ```css,ignore
-    /// #my_item { width: [[ my_custom_width | 200px ]] }
-    /// ```
+    /// Stores the inline CSS properties, same as in HTML
     ///
     /// ```rust,ignore
     /// let node = NodeData {
     ///     id: Some("my_item".into()),
-    ///     dynamic_css_overrides: vec![("my_custom_width".into(), CssProperty::Width(LayoutWidth::px(500.0)))]
+    ///     inline_css_props: vec![CssProperty::Width(LayoutWidth::px(500.0))]
     /// }
     /// ```
-    dynamic_css_overrides: OverridePropertyVec,
+    inline_css_props: CssPropertyVec,
     /// Optional clip mask for this DOM node
     clip_mask: OptionImageMask,
     /// Whether this div can be dragged or not, similar to `draggable = "true"` in HTML, .
@@ -669,13 +655,13 @@ fn node_data_to_string(node_data: &NodeData) -> String {
         format!(" callbacks=\"{}\"", node_data.callbacks.iter().map(|callbackdata| format!("({:?}={:?})", callbackdata.event, callbackdata.callback)).collect::<Vec<String>>().join(" "))
     };
 
-    let css_overrides = if node_data.dynamic_css_overrides.is_empty() {
+    let inline_css = if node_data.inline_css_props.is_empty() {
         String::new()
     } else {
-        format!(" css-overrides=\"{}\"", node_data.dynamic_css_overrides.iter().map(|overrideprop| format!("{}={:?};", overrideprop.property_id, overrideprop.override_value)).collect::<Vec<String>>().join(" "))
+        format!(" style=\"{}\"", node_data.inline_css_props.iter().map(|overrideprop| format!("{}={:?};", overrideprop.get_type(), overrideprop)).collect::<Vec<String>>().join(" "))
     };
 
-    format!("{}{}{}{}{}{}", id_string, class_string, tabindex, draggable, callbacks, css_overrides)
+    format!("{}{}{}{}{}{}", id_string, class_string, tabindex, draggable, callbacks, inline_css)
 }
 
 impl fmt::Debug for NodeData {
@@ -686,7 +672,7 @@ impl fmt::Debug for NodeData {
         if !self.ids.is_empty() { write!(f, "\tids: {:?}", self.ids)?; }
         if !self.classes.is_empty() { write!(f, "\tclasses: {:?}", self.classes)?; }
         if !self.callbacks.is_empty() { write!(f, "\tcallbacks: {:?}", self.callbacks)?; }
-        if !self.dynamic_css_overrides.is_empty() { write!(f, "\tdynamic_css_overrides: {:?}", self.dynamic_css_overrides)?; }
+        if !self.inline_css_props.is_empty() { write!(f, "\tinline_css_props: {:?}", self.inline_css_props)?; }
         if self.is_draggable { write!(f, "\tis_draggable: {:?}", self.is_draggable)?; }
         if let OptionTabIndex::Some(t) = self.tab_index { write!(f, "\ttab_index: {:?}", t)?; }
         write!(f, "}}")?;
@@ -704,7 +690,7 @@ impl NodeData {
             ids: StringVec::new(),
             classes: StringVec::new(),
             callbacks: CallbackDataVec::new(),
-            dynamic_css_overrides: OverridePropertyVec::new(),
+            inline_css_props: CssPropertyVec::new(),
             clip_mask: OptionImageMask::None,
             is_draggable: false,
             tab_index: OptionTabIndex::None,
@@ -717,8 +703,8 @@ impl NodeData {
     }
 
     #[inline]
-    pub fn add_css_override<S: Into<AzString>, P: Into<CssProperty>>(&mut self, override_id: S, property: P) {
-        self.dynamic_css_overrides.push(OverrideProperty { property_id: override_id.into(), override_value: property.into() });
+    pub fn add_inline_css<P: Into<CssProperty>>(&mut self, property: P) {
+        self.inline_css_props.push(property.into());
     }
 
     #[inline]
@@ -810,7 +796,7 @@ impl NodeData {
     #[inline(always)]
     pub const fn get_callbacks(&self) -> &CallbackDataVec { &self.callbacks }
     #[inline(always)]
-    pub const fn get_dynamic_css_overrides(&self) -> &OverridePropertyVec { &self.dynamic_css_overrides }
+    pub const fn get_inline_css_props(&self) -> &CssPropertyVec { &self.inline_css_props }
     #[inline(always)]
     pub const fn get_clip_mask(&self) -> &OptionImageMask { &self.clip_mask }
     #[inline(always)]
@@ -827,7 +813,7 @@ impl NodeData {
     #[inline(always)]
     pub fn set_callbacks(&mut self, callbacks: CallbackDataVec) { self.callbacks = callbacks; }
     #[inline(always)]
-    pub fn set_dynamic_css_overrides(&mut self, dynamic_css_overrides: OverridePropertyVec) { self.dynamic_css_overrides = dynamic_css_overrides; }
+    pub fn set_inline_css_props(&mut self, inline_css_props: CssPropertyVec) { self.inline_css_props = inline_css_props; }
     #[inline(always)]
     pub fn set_clip_mask(&mut self, clip_mask: OptionImageMask) { self.clip_mask = clip_mask; }
     #[inline(always)]
@@ -844,7 +830,7 @@ impl NodeData {
     #[inline(always)]
     pub fn with_callbacks(self, callbacks: CallbackDataVec) -> Self { Self { callbacks, .. self } }
     #[inline(always)]
-    pub fn with_dynamic_css_overrides(self, dynamic_css_overrides: OverridePropertyVec) -> Self { Self { dynamic_css_overrides, .. self } }
+    pub fn with_inline_css_props(self, inline_css_props: CssPropertyVec) -> Self { Self { inline_css_props, .. self } }
     #[inline(always)]
     pub fn with_clip_mask(self, clip_mask: OptionImageMask) -> Self { Self { clip_mask, .. self } }
     #[inline(always)]
@@ -872,15 +858,6 @@ impl_vec_clone!(Dom, DomVec);
 impl_vec_partialeq!(Dom, DomVec);
 impl_vec_eq!(Dom, DomVec);
 impl_vec_hash!(Dom, DomVec);
-
-impl_vec!(OverrideProperty, OverridePropertyVec);
-impl_vec_debug!(OverrideProperty, OverridePropertyVec);
-impl_vec_partialord!(OverrideProperty, OverridePropertyVec);
-impl_vec_ord!(OverrideProperty, OverridePropertyVec);
-impl_vec_clone!(OverrideProperty, OverridePropertyVec);
-impl_vec_partialeq!(OverrideProperty, OverridePropertyVec);
-impl_vec_eq!(OverrideProperty, OverridePropertyVec);
-impl_vec_hash!(OverrideProperty, OverridePropertyVec);
 
 impl_vec!(CallbackData, CallbackDataVec);
 impl_vec_debug!(CallbackData, CallbackDataVec);
@@ -1236,8 +1213,8 @@ impl Dom {
     }
 
     #[inline]
-    pub fn with_css_override<S: Into<AzString>>(mut self, id: S, property: CssProperty) -> Self {
-        self.add_css_override(id, property);
+    pub fn with_inline_css<P: Into<CssProperty>>(mut self, property: P) -> Self {
+        self.add_inline_css(property);
         self
     }
 
@@ -1281,8 +1258,8 @@ impl Dom {
     }
 
     #[inline]
-    pub fn add_css_override<S: Into<AzString>, P: Into<CssProperty>>(&mut self, override_id: S, property: P) {
-        self.root.add_css_override(override_id, property);
+    pub fn add_inline_css<P: Into<CssProperty>>(&mut self, property: P) {
+        self.root.add_inline_css(property);
     }
 
     #[inline(always)]

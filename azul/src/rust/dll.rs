@@ -32,6 +32,12 @@
     impl Ord for AzString { fn cmp(&self, rhs: &AzString) -> std::cmp::Ordering { use std::cmp::Ordering::*; match (crate::dll::get_azul_dll().az_string_cmp)(self, rhs) { 0 => Less, 1 => Equal, _ => Greater } } }
 
     impl std::hash::Hash for AzString { fn hash<H: std::hash::Hasher>(&self, state: &mut H) { ((crate::dll::get_azul_dll().az_string_hash)(self)).hash(state) } }
+    /// Wrapper over a Rust-allocated `Vec<CssProperty>`
+    #[repr(C)] pub struct AzCssPropertyVec {
+        pub(crate) ptr: *mut AzCssProperty,
+        pub len: usize,
+        pub cap: usize,
+    }
     /// Wrapper over a Rust-allocated `Vec<SvgMultiPolygon>`
     #[repr(C)] pub struct AzSvgMultiPolygonVec {
         pub(crate) ptr: *mut AzSvgMultiPolygon,
@@ -137,12 +143,6 @@
     /// Wrapper over a Rust-allocated `GLintVec`
     #[repr(C)] pub struct AzGLintVec {
         pub(crate) ptr: *mut i32,
-        pub len: usize,
-        pub cap: usize,
-    }
-    /// Wrapper over a Rust-allocated `OverridePropertyVec`
-    #[repr(C)] pub struct AzOverridePropertyVec {
-        pub(crate) ptr: *mut AzOverrideProperty,
         pub len: usize,
         pub cap: usize,
     }
@@ -1619,6 +1619,16 @@
         BoxShadowTop(AzBoxShadowPreDisplayItemValue),
         BoxShadowBottom(AzBoxShadowPreDisplayItemValue),
     }
+
+    impl PartialEq for AzCssProperty { fn eq(&self, rhs: &AzCssProperty) -> bool { (crate::dll::get_azul_dll().az_css_property_partial_eq)(self, rhs) } }
+
+    impl Eq for AzCssProperty { }
+
+    impl PartialOrd for AzCssProperty { fn partial_cmp(&self, rhs: &AzCssProperty) -> Option<std::cmp::Ordering> { use std::cmp::Ordering::*; match (crate::dll::get_azul_dll().az_css_property_partial_cmp)(self, rhs) { 1 => Some(Less), 2 => Some(Equal), 3 => Some(Greater), _ => None } } }
+
+    impl Ord for AzCssProperty { fn cmp(&self, rhs: &AzCssProperty) -> std::cmp::Ordering { use std::cmp::Ordering::*; match (crate::dll::get_azul_dll().az_css_property_cmp)(self, rhs) { 0 => Less, 1 => Equal, _ => Greater } } }
+
+    impl std::hash::Hash for AzCssProperty { fn hash<H: std::hash::Hasher>(&self, state: &mut H) { ((crate::dll::get_azul_dll().az_css_property_hash)(self)).hash(state) } }
     /// Re-export of rust-allocated (stack based) `Dom` struct
     #[repr(C)] pub struct AzDom {
         pub root: AzNodeData,
@@ -1661,21 +1671,6 @@
     impl Ord for AzCallbackData { fn cmp(&self, rhs: &AzCallbackData) -> std::cmp::Ordering { use std::cmp::Ordering::*; match (crate::dll::get_azul_dll().az_callback_data_cmp)(self, rhs) { 0 => Less, 1 => Equal, _ => Greater } } }
 
     impl std::hash::Hash for AzCallbackData { fn hash<H: std::hash::Hasher>(&self, state: &mut H) { ((crate::dll::get_azul_dll().az_callback_data_hash)(self)).hash(state) } }
-    /// Re-export of rust-allocated (stack based) `OverrideProperty` struct
-    #[repr(C)] pub struct AzOverrideProperty {
-        pub property_id: AzString,
-        pub override_value: AzCssProperty,
-    }
-
-    impl PartialEq for AzOverrideProperty { fn eq(&self, rhs: &AzOverrideProperty) -> bool { (crate::dll::get_azul_dll().az_override_property_partial_eq)(self, rhs) } }
-
-    impl Eq for AzOverrideProperty { }
-
-    impl PartialOrd for AzOverrideProperty { fn partial_cmp(&self, rhs: &AzOverrideProperty) -> Option<std::cmp::Ordering> { use std::cmp::Ordering::*; match (crate::dll::get_azul_dll().az_override_property_partial_cmp)(self, rhs) { 1 => Some(Less), 2 => Some(Equal), 3 => Some(Greater), _ => None } } }
-
-    impl Ord for AzOverrideProperty { fn cmp(&self, rhs: &AzOverrideProperty) -> std::cmp::Ordering { use std::cmp::Ordering::*; match (crate::dll::get_azul_dll().az_override_property_cmp)(self, rhs) { 0 => Less, 1 => Equal, _ => Greater } } }
-
-    impl std::hash::Hash for AzOverrideProperty { fn hash<H: std::hash::Hasher>(&self, state: &mut H) { ((crate::dll::get_azul_dll().az_override_property_hash)(self)).hash(state) } }
     /// Re-export of rust-allocated (stack based) `ImageMask` struct
     #[repr(C)] pub struct AzImageMask {
         pub image: AzImageId,
@@ -1698,7 +1693,7 @@
         pub ids: AzStringVec,
         pub classes: AzStringVec,
         pub callbacks: AzCallbackDataVec,
-        pub dynamic_css_overrides: AzOverridePropertyVec,
+        pub inline_css_props: AzCssPropertyVec,
         pub clip_mask: AzOptionImageMask,
         pub is_draggable: bool,
         pub tab_index: AzOptionTabIndex,
@@ -2733,6 +2728,12 @@
         pub az_string_partial_cmp: extern "C" fn(_:  &AzString, _:  &AzString) -> u8,
         pub az_string_cmp: extern "C" fn(_:  &AzString, _:  &AzString) -> u8,
         pub az_string_hash: extern "C" fn(_:  &AzString) -> u64,
+        pub az_css_property_vec_new: extern "C" fn() -> AzCssPropertyVec,
+        pub az_css_property_vec_with_capacity: extern "C" fn(_:  usize) -> AzCssPropertyVec,
+        pub az_css_property_vec_copy_from: extern "C" fn(_:  *const AzCssProperty, _:  usize) -> AzCssPropertyVec,
+        pub az_css_property_vec_delete: extern "C" fn(_:  &mut AzCssPropertyVec),
+        pub az_css_property_vec_deep_copy: extern "C" fn(_:  &AzCssPropertyVec) -> AzCssPropertyVec,
+        pub az_css_property_vec_fmt_debug: extern "C" fn(_:  &AzCssPropertyVec) -> AzString,
         pub az_svg_multi_polygon_vec_new: extern "C" fn() -> AzSvgMultiPolygonVec,
         pub az_svg_multi_polygon_vec_with_capacity: extern "C" fn(_:  usize) -> AzSvgMultiPolygonVec,
         pub az_svg_multi_polygon_vec_copy_from: extern "C" fn(_:  *const AzSvgMultiPolygon, _:  usize) -> AzSvgMultiPolygonVec,
@@ -2841,12 +2842,6 @@
         pub az_g_lint_vec_delete: extern "C" fn(_:  &mut AzGLintVec),
         pub az_g_lint_vec_deep_copy: extern "C" fn(_:  &AzGLintVec) -> AzGLintVec,
         pub az_g_lint_vec_fmt_debug: extern "C" fn(_:  &AzGLintVec) -> AzString,
-        pub az_override_property_vec_new: extern "C" fn() -> AzOverridePropertyVec,
-        pub az_override_property_vec_with_capacity: extern "C" fn(_:  usize) -> AzOverridePropertyVec,
-        pub az_override_property_vec_copy_from: extern "C" fn(_:  *const AzOverrideProperty, _:  usize) -> AzOverridePropertyVec,
-        pub az_override_property_vec_delete: extern "C" fn(_:  &mut AzOverridePropertyVec),
-        pub az_override_property_vec_deep_copy: extern "C" fn(_:  &AzOverridePropertyVec) -> AzOverridePropertyVec,
-        pub az_override_property_vec_fmt_debug: extern "C" fn(_:  &AzOverridePropertyVec) -> AzString,
         pub az_dom_vec_new: extern "C" fn() -> AzDomVec,
         pub az_dom_vec_with_capacity: extern "C" fn(_:  usize) -> AzDomVec,
         pub az_dom_vec_copy_from: extern "C" fn(_:  *const AzDom, _:  usize) -> AzDomVec,
@@ -3567,6 +3562,10 @@
         pub az_css_property_delete: extern "C" fn(_:  &mut AzCssProperty),
         pub az_css_property_deep_copy: extern "C" fn(_:  &AzCssProperty) -> AzCssProperty,
         pub az_css_property_fmt_debug: extern "C" fn(_:  &AzCssProperty) -> AzString,
+        pub az_css_property_partial_eq: extern "C" fn(_:  &AzCssProperty, _:  &AzCssProperty) -> bool,
+        pub az_css_property_partial_cmp: extern "C" fn(_:  &AzCssProperty, _:  &AzCssProperty) -> u8,
+        pub az_css_property_cmp: extern "C" fn(_:  &AzCssProperty, _:  &AzCssProperty) -> u8,
+        pub az_css_property_hash: extern "C" fn(_:  &AzCssProperty) -> u64,
         pub az_dom_new: extern "C" fn(_:  AzNodeType) -> AzDom,
         pub az_dom_div: extern "C" fn() -> AzDom,
         pub az_dom_body: extern "C" fn() -> AzDom,
@@ -3585,8 +3584,8 @@
         pub az_dom_with_classes: extern "C" fn(_:  AzDom, _:  AzStringVec) -> AzDom,
         pub az_dom_add_callback: extern "C" fn(_:  &mut AzDom, _:  AzEventFilter, _:  AzRefAny, _:  AzCallbackType),
         pub az_dom_with_callback: extern "C" fn(_:  AzDom, _:  AzEventFilter, _:  AzRefAny, _:  AzCallbackType) -> AzDom,
-        pub az_dom_add_css_override: extern "C" fn(_:  &mut AzDom, _:  AzString, _:  AzCssProperty),
-        pub az_dom_with_css_override: extern "C" fn(_:  AzDom, _:  AzString, _:  AzCssProperty) -> AzDom,
+        pub az_dom_add_inline_css: extern "C" fn(_:  &mut AzDom, _:  AzCssProperty),
+        pub az_dom_with_inline_css: extern "C" fn(_:  AzDom, _:  AzCssProperty) -> AzDom,
         pub az_dom_set_is_draggable: extern "C" fn(_:  &mut AzDom, _:  bool),
         pub az_dom_with_clip_mask: extern "C" fn(_:  AzDom, _:  AzOptionImageMask) -> AzDom,
         pub az_dom_set_clip_mask: extern "C" fn(_:  &mut AzDom, _:  AzOptionImageMask),
@@ -3618,13 +3617,6 @@
         pub az_callback_data_partial_cmp: extern "C" fn(_:  &AzCallbackData, _:  &AzCallbackData) -> u8,
         pub az_callback_data_cmp: extern "C" fn(_:  &AzCallbackData, _:  &AzCallbackData) -> u8,
         pub az_callback_data_hash: extern "C" fn(_:  &AzCallbackData) -> u64,
-        pub az_override_property_delete: extern "C" fn(_:  &mut AzOverrideProperty),
-        pub az_override_property_deep_copy: extern "C" fn(_:  &AzOverrideProperty) -> AzOverrideProperty,
-        pub az_override_property_fmt_debug: extern "C" fn(_:  &AzOverrideProperty) -> AzString,
-        pub az_override_property_partial_eq: extern "C" fn(_:  &AzOverrideProperty, _:  &AzOverrideProperty) -> bool,
-        pub az_override_property_partial_cmp: extern "C" fn(_:  &AzOverrideProperty, _:  &AzOverrideProperty) -> u8,
-        pub az_override_property_cmp: extern "C" fn(_:  &AzOverrideProperty, _:  &AzOverrideProperty) -> u8,
-        pub az_override_property_hash: extern "C" fn(_:  &AzOverrideProperty) -> u64,
         pub az_image_mask_delete: extern "C" fn(_:  &mut AzImageMask),
         pub az_image_mask_deep_copy: extern "C" fn(_:  &AzImageMask) -> AzImageMask,
         pub az_image_mask_fmt_debug: extern "C" fn(_:  &AzImageMask) -> AzString,
@@ -3651,8 +3643,8 @@
         pub az_node_data_with_classes: extern "C" fn(_:  AzNodeData, _:  AzStringVec) -> AzNodeData,
         pub az_node_data_add_callback: extern "C" fn(_:  &mut AzNodeData, _:  AzEventFilter, _:  AzRefAny, _:  AzCallbackType),
         pub az_node_data_with_callback: extern "C" fn(_:  AzNodeData, _:  AzEventFilter, _:  AzRefAny, _:  AzCallbackType) -> AzNodeData,
-        pub az_node_data_add_css_override: extern "C" fn(_:  &mut AzNodeData, _:  AzString, _:  AzCssProperty),
-        pub az_node_data_with_css_override: extern "C" fn(_:  AzNodeData, _:  AzString, _:  AzCssProperty) -> AzNodeData,
+        pub az_node_data_add_inline_css: extern "C" fn(_:  &mut AzNodeData, _:  AzCssProperty),
+        pub az_node_data_with_inline_css: extern "C" fn(_:  AzNodeData, _:  AzCssProperty) -> AzNodeData,
         pub az_node_data_with_clip_mask: extern "C" fn(_:  AzNodeData, _:  AzOptionImageMask) -> AzNodeData,
         pub az_node_data_set_clip_mask: extern "C" fn(_:  &mut AzNodeData, _:  AzOptionImageMask),
         pub az_node_data_set_is_draggable: extern "C" fn(_:  &mut AzNodeData, _:  bool),
@@ -4247,6 +4239,12 @@
             let az_string_partial_cmp: extern "C" fn(_:  &AzString, _:  &AzString) -> u8 = transmute(lib.get(b"az_string_partial_cmp")?);
             let az_string_cmp: extern "C" fn(_:  &AzString, _:  &AzString) -> u8 = transmute(lib.get(b"az_string_cmp")?);
             let az_string_hash: extern "C" fn(_:  &AzString) -> u64 = transmute(lib.get(b"az_string_hash")?);
+            let az_css_property_vec_new: extern "C" fn() -> AzCssPropertyVec = transmute(lib.get(b"az_css_property_vec_new")?);
+            let az_css_property_vec_with_capacity: extern "C" fn(_:  usize) -> AzCssPropertyVec = transmute(lib.get(b"az_css_property_vec_with_capacity")?);
+            let az_css_property_vec_copy_from: extern "C" fn(_:  *const AzCssProperty, _:  usize) -> AzCssPropertyVec = transmute(lib.get(b"az_css_property_vec_copy_from")?);
+            let az_css_property_vec_delete: extern "C" fn(_:  &mut AzCssPropertyVec) = transmute(lib.get(b"az_css_property_vec_delete")?);
+            let az_css_property_vec_deep_copy: extern "C" fn(_:  &AzCssPropertyVec) -> AzCssPropertyVec = transmute(lib.get(b"az_css_property_vec_deep_copy")?);
+            let az_css_property_vec_fmt_debug: extern "C" fn(_:  &AzCssPropertyVec) -> AzString = transmute(lib.get(b"az_css_property_vec_fmt_debug")?);
             let az_svg_multi_polygon_vec_new: extern "C" fn() -> AzSvgMultiPolygonVec = transmute(lib.get(b"az_svg_multi_polygon_vec_new")?);
             let az_svg_multi_polygon_vec_with_capacity: extern "C" fn(_:  usize) -> AzSvgMultiPolygonVec = transmute(lib.get(b"az_svg_multi_polygon_vec_with_capacity")?);
             let az_svg_multi_polygon_vec_copy_from: extern "C" fn(_:  *const AzSvgMultiPolygon, _:  usize) -> AzSvgMultiPolygonVec = transmute(lib.get(b"az_svg_multi_polygon_vec_copy_from")?);
@@ -4355,12 +4353,6 @@
             let az_g_lint_vec_delete: extern "C" fn(_:  &mut AzGLintVec) = transmute(lib.get(b"az_g_lint_vec_delete")?);
             let az_g_lint_vec_deep_copy: extern "C" fn(_:  &AzGLintVec) -> AzGLintVec = transmute(lib.get(b"az_g_lint_vec_deep_copy")?);
             let az_g_lint_vec_fmt_debug: extern "C" fn(_:  &AzGLintVec) -> AzString = transmute(lib.get(b"az_g_lint_vec_fmt_debug")?);
-            let az_override_property_vec_new: extern "C" fn() -> AzOverridePropertyVec = transmute(lib.get(b"az_override_property_vec_new")?);
-            let az_override_property_vec_with_capacity: extern "C" fn(_:  usize) -> AzOverridePropertyVec = transmute(lib.get(b"az_override_property_vec_with_capacity")?);
-            let az_override_property_vec_copy_from: extern "C" fn(_:  *const AzOverrideProperty, _:  usize) -> AzOverridePropertyVec = transmute(lib.get(b"az_override_property_vec_copy_from")?);
-            let az_override_property_vec_delete: extern "C" fn(_:  &mut AzOverridePropertyVec) = transmute(lib.get(b"az_override_property_vec_delete")?);
-            let az_override_property_vec_deep_copy: extern "C" fn(_:  &AzOverridePropertyVec) -> AzOverridePropertyVec = transmute(lib.get(b"az_override_property_vec_deep_copy")?);
-            let az_override_property_vec_fmt_debug: extern "C" fn(_:  &AzOverridePropertyVec) -> AzString = transmute(lib.get(b"az_override_property_vec_fmt_debug")?);
             let az_dom_vec_new: extern "C" fn() -> AzDomVec = transmute(lib.get(b"az_dom_vec_new")?);
             let az_dom_vec_with_capacity: extern "C" fn(_:  usize) -> AzDomVec = transmute(lib.get(b"az_dom_vec_with_capacity")?);
             let az_dom_vec_copy_from: extern "C" fn(_:  *const AzDom, _:  usize) -> AzDomVec = transmute(lib.get(b"az_dom_vec_copy_from")?);
@@ -5081,6 +5073,10 @@
             let az_css_property_delete: extern "C" fn(_:  &mut AzCssProperty) = transmute(lib.get(b"az_css_property_delete")?);
             let az_css_property_deep_copy: extern "C" fn(_:  &AzCssProperty) -> AzCssProperty = transmute(lib.get(b"az_css_property_deep_copy")?);
             let az_css_property_fmt_debug: extern "C" fn(_:  &AzCssProperty) -> AzString = transmute(lib.get(b"az_css_property_fmt_debug")?);
+            let az_css_property_partial_eq: extern "C" fn(_:  &AzCssProperty, _:  &AzCssProperty) -> bool = transmute(lib.get(b"az_css_property_partial_eq")?);
+            let az_css_property_partial_cmp: extern "C" fn(_:  &AzCssProperty, _:  &AzCssProperty) -> u8 = transmute(lib.get(b"az_css_property_partial_cmp")?);
+            let az_css_property_cmp: extern "C" fn(_:  &AzCssProperty, _:  &AzCssProperty) -> u8 = transmute(lib.get(b"az_css_property_cmp")?);
+            let az_css_property_hash: extern "C" fn(_:  &AzCssProperty) -> u64 = transmute(lib.get(b"az_css_property_hash")?);
             let az_dom_new: extern "C" fn(_:  AzNodeType) -> AzDom = transmute(lib.get(b"az_dom_new")?);
             let az_dom_div: extern "C" fn() -> AzDom = transmute(lib.get(b"az_dom_div")?);
             let az_dom_body: extern "C" fn() -> AzDom = transmute(lib.get(b"az_dom_body")?);
@@ -5099,8 +5095,8 @@
             let az_dom_with_classes: extern "C" fn(_:  AzDom, _:  AzStringVec) -> AzDom = transmute(lib.get(b"az_dom_with_classes")?);
             let az_dom_add_callback: extern "C" fn(_:  &mut AzDom, _:  AzEventFilter, _:  AzRefAny, _:  AzCallbackType) = transmute(lib.get(b"az_dom_add_callback")?);
             let az_dom_with_callback: extern "C" fn(_:  AzDom, _:  AzEventFilter, _:  AzRefAny, _:  AzCallbackType) -> AzDom = transmute(lib.get(b"az_dom_with_callback")?);
-            let az_dom_add_css_override: extern "C" fn(_:  &mut AzDom, _:  AzString, _:  AzCssProperty) = transmute(lib.get(b"az_dom_add_css_override")?);
-            let az_dom_with_css_override: extern "C" fn(_:  AzDom, _:  AzString, _:  AzCssProperty) -> AzDom = transmute(lib.get(b"az_dom_with_css_override")?);
+            let az_dom_add_inline_css: extern "C" fn(_:  &mut AzDom, _:  AzCssProperty) = transmute(lib.get(b"az_dom_add_inline_css")?);
+            let az_dom_with_inline_css: extern "C" fn(_:  AzDom, _:  AzCssProperty) -> AzDom = transmute(lib.get(b"az_dom_with_inline_css")?);
             let az_dom_set_is_draggable: extern "C" fn(_:  &mut AzDom, _:  bool) = transmute(lib.get(b"az_dom_set_is_draggable")?);
             let az_dom_with_clip_mask: extern "C" fn(_:  AzDom, _:  AzOptionImageMask) -> AzDom = transmute(lib.get(b"az_dom_with_clip_mask")?);
             let az_dom_set_clip_mask: extern "C" fn(_:  &mut AzDom, _:  AzOptionImageMask) = transmute(lib.get(b"az_dom_set_clip_mask")?);
@@ -5132,13 +5128,6 @@
             let az_callback_data_partial_cmp: extern "C" fn(_:  &AzCallbackData, _:  &AzCallbackData) -> u8 = transmute(lib.get(b"az_callback_data_partial_cmp")?);
             let az_callback_data_cmp: extern "C" fn(_:  &AzCallbackData, _:  &AzCallbackData) -> u8 = transmute(lib.get(b"az_callback_data_cmp")?);
             let az_callback_data_hash: extern "C" fn(_:  &AzCallbackData) -> u64 = transmute(lib.get(b"az_callback_data_hash")?);
-            let az_override_property_delete: extern "C" fn(_:  &mut AzOverrideProperty) = transmute(lib.get(b"az_override_property_delete")?);
-            let az_override_property_deep_copy: extern "C" fn(_:  &AzOverrideProperty) -> AzOverrideProperty = transmute(lib.get(b"az_override_property_deep_copy")?);
-            let az_override_property_fmt_debug: extern "C" fn(_:  &AzOverrideProperty) -> AzString = transmute(lib.get(b"az_override_property_fmt_debug")?);
-            let az_override_property_partial_eq: extern "C" fn(_:  &AzOverrideProperty, _:  &AzOverrideProperty) -> bool = transmute(lib.get(b"az_override_property_partial_eq")?);
-            let az_override_property_partial_cmp: extern "C" fn(_:  &AzOverrideProperty, _:  &AzOverrideProperty) -> u8 = transmute(lib.get(b"az_override_property_partial_cmp")?);
-            let az_override_property_cmp: extern "C" fn(_:  &AzOverrideProperty, _:  &AzOverrideProperty) -> u8 = transmute(lib.get(b"az_override_property_cmp")?);
-            let az_override_property_hash: extern "C" fn(_:  &AzOverrideProperty) -> u64 = transmute(lib.get(b"az_override_property_hash")?);
             let az_image_mask_delete: extern "C" fn(_:  &mut AzImageMask) = transmute(lib.get(b"az_image_mask_delete")?);
             let az_image_mask_deep_copy: extern "C" fn(_:  &AzImageMask) -> AzImageMask = transmute(lib.get(b"az_image_mask_deep_copy")?);
             let az_image_mask_fmt_debug: extern "C" fn(_:  &AzImageMask) -> AzString = transmute(lib.get(b"az_image_mask_fmt_debug")?);
@@ -5165,8 +5154,8 @@
             let az_node_data_with_classes: extern "C" fn(_:  AzNodeData, _:  AzStringVec) -> AzNodeData = transmute(lib.get(b"az_node_data_with_classes")?);
             let az_node_data_add_callback: extern "C" fn(_:  &mut AzNodeData, _:  AzEventFilter, _:  AzRefAny, _:  AzCallbackType) = transmute(lib.get(b"az_node_data_add_callback")?);
             let az_node_data_with_callback: extern "C" fn(_:  AzNodeData, _:  AzEventFilter, _:  AzRefAny, _:  AzCallbackType) -> AzNodeData = transmute(lib.get(b"az_node_data_with_callback")?);
-            let az_node_data_add_css_override: extern "C" fn(_:  &mut AzNodeData, _:  AzString, _:  AzCssProperty) = transmute(lib.get(b"az_node_data_add_css_override")?);
-            let az_node_data_with_css_override: extern "C" fn(_:  AzNodeData, _:  AzString, _:  AzCssProperty) -> AzNodeData = transmute(lib.get(b"az_node_data_with_css_override")?);
+            let az_node_data_add_inline_css: extern "C" fn(_:  &mut AzNodeData, _:  AzCssProperty) = transmute(lib.get(b"az_node_data_add_inline_css")?);
+            let az_node_data_with_inline_css: extern "C" fn(_:  AzNodeData, _:  AzCssProperty) -> AzNodeData = transmute(lib.get(b"az_node_data_with_inline_css")?);
             let az_node_data_with_clip_mask: extern "C" fn(_:  AzNodeData, _:  AzOptionImageMask) -> AzNodeData = transmute(lib.get(b"az_node_data_with_clip_mask")?);
             let az_node_data_set_clip_mask: extern "C" fn(_:  &mut AzNodeData, _:  AzOptionImageMask) = transmute(lib.get(b"az_node_data_set_clip_mask")?);
             let az_node_data_set_is_draggable: extern "C" fn(_:  &mut AzNodeData, _:  bool) = transmute(lib.get(b"az_node_data_set_is_draggable")?);
@@ -5757,6 +5746,12 @@
                 az_string_partial_cmp,
                 az_string_cmp,
                 az_string_hash,
+                az_css_property_vec_new,
+                az_css_property_vec_with_capacity,
+                az_css_property_vec_copy_from,
+                az_css_property_vec_delete,
+                az_css_property_vec_deep_copy,
+                az_css_property_vec_fmt_debug,
                 az_svg_multi_polygon_vec_new,
                 az_svg_multi_polygon_vec_with_capacity,
                 az_svg_multi_polygon_vec_copy_from,
@@ -5865,12 +5860,6 @@
                 az_g_lint_vec_delete,
                 az_g_lint_vec_deep_copy,
                 az_g_lint_vec_fmt_debug,
-                az_override_property_vec_new,
-                az_override_property_vec_with_capacity,
-                az_override_property_vec_copy_from,
-                az_override_property_vec_delete,
-                az_override_property_vec_deep_copy,
-                az_override_property_vec_fmt_debug,
                 az_dom_vec_new,
                 az_dom_vec_with_capacity,
                 az_dom_vec_copy_from,
@@ -6591,6 +6580,10 @@
                 az_css_property_delete,
                 az_css_property_deep_copy,
                 az_css_property_fmt_debug,
+                az_css_property_partial_eq,
+                az_css_property_partial_cmp,
+                az_css_property_cmp,
+                az_css_property_hash,
                 az_dom_new,
                 az_dom_div,
                 az_dom_body,
@@ -6609,8 +6602,8 @@
                 az_dom_with_classes,
                 az_dom_add_callback,
                 az_dom_with_callback,
-                az_dom_add_css_override,
-                az_dom_with_css_override,
+                az_dom_add_inline_css,
+                az_dom_with_inline_css,
                 az_dom_set_is_draggable,
                 az_dom_with_clip_mask,
                 az_dom_set_clip_mask,
@@ -6642,13 +6635,6 @@
                 az_callback_data_partial_cmp,
                 az_callback_data_cmp,
                 az_callback_data_hash,
-                az_override_property_delete,
-                az_override_property_deep_copy,
-                az_override_property_fmt_debug,
-                az_override_property_partial_eq,
-                az_override_property_partial_cmp,
-                az_override_property_cmp,
-                az_override_property_hash,
                 az_image_mask_delete,
                 az_image_mask_deep_copy,
                 az_image_mask_fmt_debug,
@@ -6675,8 +6661,8 @@
                 az_node_data_with_classes,
                 az_node_data_add_callback,
                 az_node_data_with_callback,
-                az_node_data_add_css_override,
-                az_node_data_with_css_override,
+                az_node_data_add_inline_css,
+                az_node_data_with_inline_css,
                 az_node_data_with_clip_mask,
                 az_node_data_set_clip_mask,
                 az_node_data_set_is_draggable,

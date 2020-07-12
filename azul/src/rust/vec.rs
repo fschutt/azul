@@ -160,12 +160,12 @@
     impl_vec_eq!(AzCallbackData, AzCallbackDataVec);
     impl_vec_hash!(AzCallbackData, AzCallbackDataVec);
 
-    impl_vec!(AzOverrideProperty, AzOverridePropertyVec);
-    impl_vec_partialord!(AzOverrideProperty, AzOverridePropertyVec);
-    impl_vec_ord!(AzOverrideProperty, AzOverridePropertyVec);
-    impl_vec_partialeq!(AzOverrideProperty, AzOverridePropertyVec);
-    impl_vec_eq!(AzOverrideProperty, AzOverridePropertyVec);
-    impl_vec_hash!(AzOverrideProperty, AzOverridePropertyVec);
+    impl_vec!(AzCssProperty, AzCssPropertyVec);
+    impl_vec_partialord!(AzCssProperty, AzCssPropertyVec);
+    impl_vec_ord!(AzCssProperty, AzCssPropertyVec);
+    impl_vec_partialeq!(AzCssProperty, AzCssPropertyVec);
+    impl_vec_eq!(AzCssProperty, AzCssPropertyVec);
+    impl_vec_hash!(AzCssProperty, AzCssPropertyVec);
 
     impl_vec!(AzDom, AzDomVec);
     impl_vec_partialord!(AzDom, AzDomVec);
@@ -227,12 +227,29 @@
 
             // delete() not necessary because StringVec is stack-allocated
         }
-    }    use crate::svg::{SvgMultiPolygon, SvgPath, SvgPathElement, SvgVertex};
+    }    use crate::css::{CssDeclaration, CssPathSelector, CssProperty, CssRuleBlock, GradientStopPre, Stylesheet};
+    use crate::svg::{SvgMultiPolygon, SvgPath, SvgPathElement, SvgVertex};
     use crate::gl::{DebugMessage, VertexAttribute};
     use crate::window::{StringPair, VirtualKeyCode, XWindowType};
-    use crate::css::{CssDeclaration, CssPathSelector, CssRuleBlock, GradientStopPre, Stylesheet};
-    use crate::dom::{CallbackData, Dom, OverrideProperty};
+    use crate::dom::{CallbackData, Dom};
     use crate::str::String;
+
+
+    /// Wrapper over a Rust-allocated `Vec<CssProperty>`
+    pub use crate::dll::AzCssPropertyVec as CssPropertyVec;
+
+    impl CssPropertyVec {
+        /// Creates a new, empty Rust `Vec<CssProperty>`
+        pub fn new() -> Self { (crate::dll::get_azul_dll().az_css_property_vec_new)() }
+        /// Creates a new, empty Rust `Vec<CssProperty>` with a given, pre-allocated capacity
+        pub fn with_capacity(cap: usize) -> Self { (crate::dll::get_azul_dll().az_css_property_vec_with_capacity)(cap) }
+        /// Creates + allocates a Rust `Vec<CssProperty>` by **copying** it from a bytes source
+        pub fn copy_from(ptr: *const AzCssProperty, len: usize) -> Self { (crate::dll::get_azul_dll().az_css_property_vec_copy_from)(ptr, len) }
+    }
+
+    impl std::fmt::Debug for CssPropertyVec { fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result { write!(f, "{}", (crate::dll::get_azul_dll().az_css_property_vec_fmt_debug)(self)) } }
+    impl Clone for CssPropertyVec { fn clone(&self) -> Self { (crate::dll::get_azul_dll().az_css_property_vec_deep_copy)(self) } }
+    impl Drop for CssPropertyVec { fn drop(&mut self) { (crate::dll::get_azul_dll().az_css_property_vec_delete)(self); } }
 
 
     /// Wrapper over a Rust-allocated `Vec<SvgMultiPolygon>`
@@ -539,23 +556,6 @@
     impl std::fmt::Debug for GLintVec { fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result { write!(f, "{}", (crate::dll::get_azul_dll().az_g_lint_vec_fmt_debug)(self)) } }
     impl Clone for GLintVec { fn clone(&self) -> Self { (crate::dll::get_azul_dll().az_g_lint_vec_deep_copy)(self) } }
     impl Drop for GLintVec { fn drop(&mut self) { (crate::dll::get_azul_dll().az_g_lint_vec_delete)(self); } }
-
-
-    /// Wrapper over a Rust-allocated `OverridePropertyVec`
-    pub use crate::dll::AzOverridePropertyVec as OverridePropertyVec;
-
-    impl OverridePropertyVec {
-        /// Creates a new, empty Rust `Vec<OverrideProperty>`
-        pub fn new() -> Self { (crate::dll::get_azul_dll().az_override_property_vec_new)() }
-        /// Creates a new, empty Rust `Vec<OverrideProperty>` with a given, pre-allocated capacity
-        pub fn with_capacity(cap: usize) -> Self { (crate::dll::get_azul_dll().az_override_property_vec_with_capacity)(cap) }
-        /// Creates + allocates a Rust `Vec<OverrideProperty>` by **copying** it from a bytes source
-        pub fn copy_from(ptr: *const AzOverrideProperty, len: usize) -> Self { (crate::dll::get_azul_dll().az_override_property_vec_copy_from)(ptr, len) }
-    }
-
-    impl std::fmt::Debug for OverridePropertyVec { fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result { write!(f, "{}", (crate::dll::get_azul_dll().az_override_property_vec_fmt_debug)(self)) } }
-    impl Clone for OverridePropertyVec { fn clone(&self) -> Self { (crate::dll::get_azul_dll().az_override_property_vec_deep_copy)(self) } }
-    impl Drop for OverridePropertyVec { fn drop(&mut self) { (crate::dll::get_azul_dll().az_override_property_vec_delete)(self); } }
 
 
     /// Wrapper over a Rust-allocated `DomVec`
