@@ -59,6 +59,7 @@ use webrender::api::{
     FontInstanceOptions as WrFontInstanceOptions,
     FontInstancePlatformOptions as WrFontInstancePlatformOptions,
     SyntheticItalics as WrSyntheticItalics,
+    ImageMask as WrImageMask,
 };
 #[cfg(not(any(target_os = "macos", target_os = "windows")))]
 use webrender::api::{
@@ -83,8 +84,9 @@ use azul_core::{
         AlphaType, ImageRendering, StyleBorderRadius,
     },
     dom::TagId,
+    display_list::DisplayListImageMask,
     ui_solver::{ExternalScrollId, PositionInfo},
-    window::{LogicalSize, DebugState},
+    window::{LogicalSize, LogicalPosition, LogicalRect, DebugState},
 };
 #[cfg(not(any(target_os = "macos", target_os = "windows")))]
 use azul_core::app_resources::{FontLCDFilter, FontHinting};
@@ -536,6 +538,15 @@ pub(crate) mod winit_translate {
 }
 
 #[inline]
+fn wr_translate_image_mask(input: DisplayListImageMask) -> WrImageMask {
+    WrImageMask {
+        image: wr_translate_image_key(input.image),
+        rect: wr_translate_logical_rect(input.rect),
+        repeat: input.repeat,
+    }
+}
+
+#[inline]
 fn wr_translate_layouted_glyphs(input: Vec<GlyphInstance>) -> Vec<WrGlyphInstance> {
     input.into_iter().map(|glyph| WrGlyphInstance {
         index: glyph.index,
@@ -905,6 +916,16 @@ pub(crate) fn wr_translate_layout_point(input: CssLayoutPoint) -> WrLayoutPoint 
 }
 
 #[inline]
+fn wr_translate_logical_position(input: LogicalPosition) -> WrLayoutPoint {
+    WrLayoutPoint::new(input.x, input.y)
+}
+
+#[inline]
+fn wr_translate_logical_rect(input: LogicalRect) -> WrLayoutRect {
+    WrLayoutRect::new(wr_translate_logical_position(input.origin), wr_translate_logical_size(input.size))
+}
+
+#[inline]
 fn wr_translate_layout_rect(input: CssLayoutRect) -> WrLayoutRect {
     WrLayoutRect::new(wr_translate_layout_point(input.origin), wr_translate_layout_size(input.size))
 }
@@ -1209,13 +1230,14 @@ fn push_frame(
             frame.flags,
             parent_clip_id,
             parent_spatial_id,
+            frame.clip_mask.map(wr_translate_image_mask)
         );
     }
 
     let wr_border_radius = wr_translate_border_radius(frame.border_radius, frame.size);
 
     // If the rect has an overflow:* property set
-    let current_rect_clip_id = define_border_radius_clip(builder, clip_rect, wr_border_radius, parent_spatial_id, parent_clip_id);
+    let current_rect_clip_id = define_border_radius_clip(builder, clip_rect, wr_border_radius, parent_spatial_id, parent_clip_id, frame.clip_mask.map(wr_translate_image_mask));
 
     for child in frame.children {
         push_display_list_msg(builder, child, parent_spatial_id, current_rect_clip_id, positioned_items);
@@ -1262,13 +1284,14 @@ fn push_scroll_frame(
             scroll_frame.frame.flags,
             parent_clip_id,
             parent_spatial_id,
+            scroll_frame.frame.clip_mask.map(wr_translate_image_mask)
         );
     }
 
     // Push hit-testing + scrolling children
 
     let wr_border_radius = wr_translate_border_radius(scroll_frame.frame.border_radius, scroll_frame.frame.size);
-    let hit_testing_clip_id = define_border_radius_clip(builder, clip_rect, wr_border_radius, parent_spatial_id, parent_clip_id);
+    let hit_testing_clip_id = define_border_radius_clip(builder, clip_rect, wr_border_radius, parent_spatial_id, parent_clip_id, scroll_frame.frame.clip_mask.map(wr_translate_image_mask));
     let hit_test_info = WrCommonItemProperties {
         clip_rect: wr_translate_layout_rect(clip_rect),
         flags: wr_translate_primitive_flags(scroll_frame.frame.flags),
@@ -1307,6 +1330,7 @@ fn define_border_radius_clip(
     wr_border_radius: WrBorderRadius,
     parent_spatial_id: WrSpatialId,
     parent_clip_id: WrClipId,
+    clip_mask: Option<WrImageMask>,
 ) -> WrClipId {
 
     use webrender::api::{
@@ -1319,7 +1343,7 @@ fn define_border_radius_clip(
         &WrSpaceAndClipInfo { spatial_id: parent_spatial_id, clip_id: parent_clip_id },
         wr_layout_rect,
         vec![WrComplexClipRegion::new(wr_layout_rect, wr_border_radius, WrClipMode::Clip)],
-        /* image_mask: */ None,
+        /* image_mask: */ clip_mask,
     )
 }
 
@@ -1333,6 +1357,7 @@ fn push_display_list_content(
     flags: PrimitiveFlags,
     parent_clip_id: WrClipId,
     parent_spatial_id: WrSpatialId,
+    clip_mask: Option<WrImageMask>,
 ) {
     use azul_core::display_list::LayoutRectContent::*;
 
@@ -1353,24 +1378,24 @@ fn push_display_list_content(
             let (border_radius_spatial_id, border_radius_clip_id) = if overflow.0 || overflow.1 {
                 (WrSpatialId::root_scroll_node(builder.pipeline_id), WrClipId::root(builder.pipeline_id))
             } else {
-                (parent_spatial_id, define_border_radius_clip(builder, clip_rect, wr_border_radius, parent_spatial_id, parent_clip_id))
+                (parent_spatial_id, define_border_radius_clip(builder, clip_rect, wr_border_radius, parent_spatial_id, parent_clip_id, clip_mask))
             };
             normal_info.spatial_id = border_radius_spatial_id;
             normal_info.clip_id = border_radius_clip_id;
             text::push_text(builder, &normal_info, glyphs, font_instance_key, color, glyph_options);
         },
         Background { content, size, offset, repeat  } => {
-            let border_radius_clip_id = define_border_radius_clip(builder, clip_rect, wr_border_radius, parent_spatial_id, parent_clip_id);
+            let border_radius_clip_id = define_border_radius_clip(builder, clip_rect, wr_border_radius, parent_spatial_id, parent_clip_id, clip_mask);
             normal_info.clip_id = border_radius_clip_id;
             background::push_background(builder, &normal_info, content, size, offset, repeat);
         },
         Image { size, offset, image_rendering, alpha_type, image_key, background_color } => {
-            let border_radius_clip_id = define_border_radius_clip(builder, clip_rect, wr_border_radius, parent_spatial_id, parent_clip_id);
+            let border_radius_clip_id = define_border_radius_clip(builder, clip_rect, wr_border_radius, parent_spatial_id, parent_clip_id, clip_mask);
             normal_info.clip_id = border_radius_clip_id;
             image::push_image(builder, &normal_info, size, offset, image_key, alpha_type, image_rendering, background_color);
         },
         BoxShadow { shadow, clip_mode: CssBoxShadowClipMode::Inset } => {
-            let border_radius_clip_id = define_border_radius_clip(builder, clip_rect, wr_border_radius, parent_spatial_id, parent_clip_id);
+            let border_radius_clip_id = define_border_radius_clip(builder, clip_rect, wr_border_radius, parent_spatial_id, parent_clip_id, clip_mask);
             normal_info.clip_id = border_radius_clip_id;
             box_shadow::push_box_shadow(builder, clip_rect, CssBoxShadowClipMode::Inset, shadow, border_radius, normal_info.spatial_id, normal_info.clip_id);
         },
