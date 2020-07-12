@@ -275,10 +275,10 @@
         None,
         Some(AzTexture),
     }
-    /// Re-export of rust-allocated (stack based) `OptionImageId` struct
-    #[repr(C, u8)] pub enum AzOptionImageId {
+    /// Re-export of rust-allocated (stack based) `OptionImageMask` struct
+    #[repr(C, u8)] pub enum AzOptionImageMask {
         None,
-        Some(AzImageId),
+        Some(AzImageMask),
     }
     /// Re-export of rust-allocated (stack based) `OptionTabIndex` struct
     #[repr(C, u8)] pub enum AzOptionTabIndex {
@@ -1676,6 +1676,22 @@
     impl Ord for AzOverrideProperty { fn cmp(&self, rhs: &AzOverrideProperty) -> std::cmp::Ordering { use std::cmp::Ordering::*; match (crate::dll::get_azul_dll().az_override_property_cmp)(self, rhs) { 0 => Less, 1 => Equal, _ => Greater } } }
 
     impl std::hash::Hash for AzOverrideProperty { fn hash<H: std::hash::Hasher>(&self, state: &mut H) { ((crate::dll::get_azul_dll().az_override_property_hash)(self)).hash(state) } }
+    /// Re-export of rust-allocated (stack based) `ImageMask` struct
+    #[repr(C)] pub struct AzImageMask {
+        pub image: AzImageId,
+        pub rect: AzLogicalRect,
+        pub repeat: bool,
+    }
+
+    impl PartialEq for AzImageMask { fn eq(&self, rhs: &AzImageMask) -> bool { (crate::dll::get_azul_dll().az_image_mask_partial_eq)(self, rhs) } }
+
+    impl Eq for AzImageMask { }
+
+    impl PartialOrd for AzImageMask { fn partial_cmp(&self, rhs: &AzImageMask) -> Option<std::cmp::Ordering> { use std::cmp::Ordering::*; match (crate::dll::get_azul_dll().az_image_mask_partial_cmp)(self, rhs) { 1 => Some(Less), 2 => Some(Equal), 3 => Some(Greater), _ => None } } }
+
+    impl Ord for AzImageMask { fn cmp(&self, rhs: &AzImageMask) -> std::cmp::Ordering { use std::cmp::Ordering::*; match (crate::dll::get_azul_dll().az_image_mask_cmp)(self, rhs) { 0 => Less, 1 => Equal, _ => Greater } } }
+
+    impl std::hash::Hash for AzImageMask { fn hash<H: std::hash::Hasher>(&self, state: &mut H) { ((crate::dll::get_azul_dll().az_image_mask_hash)(self)).hash(state) } }
     /// Represents one single DOM node (node type, classes, ids and callbacks are stored here)
     #[repr(C)] pub struct AzNodeData {
         pub node_type: AzNodeType,
@@ -1683,7 +1699,7 @@
         pub classes: AzStringVec,
         pub callbacks: AzCallbackDataVec,
         pub dynamic_css_overrides: AzOverridePropertyVec,
-        pub clip_mask: AzOptionImageId,
+        pub clip_mask: AzOptionImageMask,
         pub is_draggable: bool,
         pub tab_index: AzOptionTabIndex,
     }
@@ -2307,6 +2323,11 @@
         pub x: f32,
         pub y: f32,
     }
+    /// Re-export of rust-allocated (stack based) `LogicalRect` struct
+    #[repr(C)] pub struct AzLogicalRect {
+        pub origin: AzLogicalPosition,
+        pub size: AzLogicalSize,
+    }
     /// Re-export of rust-allocated (stack based) `IconKey` struct
     #[repr(C)] pub struct AzIconKey {
         pub id: usize,
@@ -2912,9 +2933,9 @@
         pub az_option_dom_fmt_debug: extern "C" fn(_:  &AzOptionDom) -> AzString,
         pub az_option_texture_delete: extern "C" fn(_:  &mut AzOptionTexture),
         pub az_option_texture_fmt_debug: extern "C" fn(_:  &AzOptionTexture) -> AzString,
-        pub az_option_image_id_delete: extern "C" fn(_:  &mut AzOptionImageId),
-        pub az_option_image_id_deep_copy: extern "C" fn(_:  &AzOptionImageId) -> AzOptionImageId,
-        pub az_option_image_id_fmt_debug: extern "C" fn(_:  &AzOptionImageId) -> AzString,
+        pub az_option_image_mask_delete: extern "C" fn(_:  &mut AzOptionImageMask),
+        pub az_option_image_mask_deep_copy: extern "C" fn(_:  &AzOptionImageMask) -> AzOptionImageMask,
+        pub az_option_image_mask_fmt_debug: extern "C" fn(_:  &AzOptionImageMask) -> AzString,
         pub az_option_tab_index_delete: extern "C" fn(_:  &mut AzOptionTabIndex),
         pub az_option_tab_index_deep_copy: extern "C" fn(_:  &AzOptionTabIndex) -> AzOptionTabIndex,
         pub az_option_tab_index_fmt_debug: extern "C" fn(_:  &AzOptionTabIndex) -> AzString,
@@ -3567,8 +3588,8 @@
         pub az_dom_add_css_override: extern "C" fn(_:  &mut AzDom, _:  AzString, _:  AzCssProperty),
         pub az_dom_with_css_override: extern "C" fn(_:  AzDom, _:  AzString, _:  AzCssProperty) -> AzDom,
         pub az_dom_set_is_draggable: extern "C" fn(_:  &mut AzDom, _:  bool),
-        pub az_dom_with_clip_mask: extern "C" fn(_:  AzDom, _:  AzOptionImageId) -> AzDom,
-        pub az_dom_set_clip_mask: extern "C" fn(_:  &mut AzDom, _:  AzOptionImageId),
+        pub az_dom_with_clip_mask: extern "C" fn(_:  AzDom, _:  AzOptionImageMask) -> AzDom,
+        pub az_dom_set_clip_mask: extern "C" fn(_:  &mut AzDom, _:  AzOptionImageMask),
         pub az_dom_is_draggable: extern "C" fn(_:  AzDom, _:  bool) -> AzDom,
         pub az_dom_set_tab_index: extern "C" fn(_:  &mut AzDom, _:  AzOptionTabIndex),
         pub az_dom_with_tab_index: extern "C" fn(_:  AzDom, _:  AzOptionTabIndex) -> AzDom,
@@ -3604,6 +3625,13 @@
         pub az_override_property_partial_cmp: extern "C" fn(_:  &AzOverrideProperty, _:  &AzOverrideProperty) -> u8,
         pub az_override_property_cmp: extern "C" fn(_:  &AzOverrideProperty, _:  &AzOverrideProperty) -> u8,
         pub az_override_property_hash: extern "C" fn(_:  &AzOverrideProperty) -> u64,
+        pub az_image_mask_delete: extern "C" fn(_:  &mut AzImageMask),
+        pub az_image_mask_deep_copy: extern "C" fn(_:  &AzImageMask) -> AzImageMask,
+        pub az_image_mask_fmt_debug: extern "C" fn(_:  &AzImageMask) -> AzString,
+        pub az_image_mask_partial_eq: extern "C" fn(_:  &AzImageMask, _:  &AzImageMask) -> bool,
+        pub az_image_mask_partial_cmp: extern "C" fn(_:  &AzImageMask, _:  &AzImageMask) -> u8,
+        pub az_image_mask_cmp: extern "C" fn(_:  &AzImageMask, _:  &AzImageMask) -> u8,
+        pub az_image_mask_hash: extern "C" fn(_:  &AzImageMask) -> u64,
         pub az_node_data_new: extern "C" fn(_:  AzNodeType) -> AzNodeData,
         pub az_node_data_div: extern "C" fn() -> AzNodeData,
         pub az_node_data_body: extern "C" fn() -> AzNodeData,
@@ -3625,8 +3653,8 @@
         pub az_node_data_with_callback: extern "C" fn(_:  AzNodeData, _:  AzEventFilter, _:  AzRefAny, _:  AzCallbackType) -> AzNodeData,
         pub az_node_data_add_css_override: extern "C" fn(_:  &mut AzNodeData, _:  AzString, _:  AzCssProperty),
         pub az_node_data_with_css_override: extern "C" fn(_:  AzNodeData, _:  AzString, _:  AzCssProperty) -> AzNodeData,
-        pub az_node_data_with_clip_mask: extern "C" fn(_:  AzNodeData, _:  AzOptionImageId) -> AzNodeData,
-        pub az_node_data_set_clip_mask: extern "C" fn(_:  &mut AzNodeData, _:  AzOptionImageId),
+        pub az_node_data_with_clip_mask: extern "C" fn(_:  AzNodeData, _:  AzOptionImageMask) -> AzNodeData,
+        pub az_node_data_set_clip_mask: extern "C" fn(_:  &mut AzNodeData, _:  AzOptionImageMask),
         pub az_node_data_set_is_draggable: extern "C" fn(_:  &mut AzNodeData, _:  bool),
         pub az_node_data_is_draggable: extern "C" fn(_:  AzNodeData, _:  bool) -> AzNodeData,
         pub az_node_data_set_tab_index: extern "C" fn(_:  &mut AzNodeData, _:  AzOptionTabIndex),
@@ -4121,6 +4149,9 @@
         pub az_logical_position_delete: extern "C" fn(_:  &mut AzLogicalPosition),
         pub az_logical_position_deep_copy: extern "C" fn(_:  &AzLogicalPosition) -> AzLogicalPosition,
         pub az_logical_position_fmt_debug: extern "C" fn(_:  &AzLogicalPosition) -> AzString,
+        pub az_logical_rect_delete: extern "C" fn(_:  &mut AzLogicalRect),
+        pub az_logical_rect_deep_copy: extern "C" fn(_:  &AzLogicalRect) -> AzLogicalRect,
+        pub az_logical_rect_fmt_debug: extern "C" fn(_:  &AzLogicalRect) -> AzString,
         pub az_icon_key_delete: extern "C" fn(_:  &mut AzIconKey),
         pub az_icon_key_deep_copy: extern "C" fn(_:  &AzIconKey) -> AzIconKey,
         pub az_icon_key_fmt_debug: extern "C" fn(_:  &AzIconKey) -> AzString,
@@ -4416,9 +4447,9 @@
             let az_option_dom_fmt_debug: extern "C" fn(_:  &AzOptionDom) -> AzString = transmute(lib.get(b"az_option_dom_fmt_debug")?);
             let az_option_texture_delete: extern "C" fn(_:  &mut AzOptionTexture) = transmute(lib.get(b"az_option_texture_delete")?);
             let az_option_texture_fmt_debug: extern "C" fn(_:  &AzOptionTexture) -> AzString = transmute(lib.get(b"az_option_texture_fmt_debug")?);
-            let az_option_image_id_delete: extern "C" fn(_:  &mut AzOptionImageId) = transmute(lib.get(b"az_option_image_id_delete")?);
-            let az_option_image_id_deep_copy: extern "C" fn(_:  &AzOptionImageId) -> AzOptionImageId = transmute(lib.get(b"az_option_image_id_deep_copy")?);
-            let az_option_image_id_fmt_debug: extern "C" fn(_:  &AzOptionImageId) -> AzString = transmute(lib.get(b"az_option_image_id_fmt_debug")?);
+            let az_option_image_mask_delete: extern "C" fn(_:  &mut AzOptionImageMask) = transmute(lib.get(b"az_option_image_mask_delete")?);
+            let az_option_image_mask_deep_copy: extern "C" fn(_:  &AzOptionImageMask) -> AzOptionImageMask = transmute(lib.get(b"az_option_image_mask_deep_copy")?);
+            let az_option_image_mask_fmt_debug: extern "C" fn(_:  &AzOptionImageMask) -> AzString = transmute(lib.get(b"az_option_image_mask_fmt_debug")?);
             let az_option_tab_index_delete: extern "C" fn(_:  &mut AzOptionTabIndex) = transmute(lib.get(b"az_option_tab_index_delete")?);
             let az_option_tab_index_deep_copy: extern "C" fn(_:  &AzOptionTabIndex) -> AzOptionTabIndex = transmute(lib.get(b"az_option_tab_index_deep_copy")?);
             let az_option_tab_index_fmt_debug: extern "C" fn(_:  &AzOptionTabIndex) -> AzString = transmute(lib.get(b"az_option_tab_index_fmt_debug")?);
@@ -5071,8 +5102,8 @@
             let az_dom_add_css_override: extern "C" fn(_:  &mut AzDom, _:  AzString, _:  AzCssProperty) = transmute(lib.get(b"az_dom_add_css_override")?);
             let az_dom_with_css_override: extern "C" fn(_:  AzDom, _:  AzString, _:  AzCssProperty) -> AzDom = transmute(lib.get(b"az_dom_with_css_override")?);
             let az_dom_set_is_draggable: extern "C" fn(_:  &mut AzDom, _:  bool) = transmute(lib.get(b"az_dom_set_is_draggable")?);
-            let az_dom_with_clip_mask: extern "C" fn(_:  AzDom, _:  AzOptionImageId) -> AzDom = transmute(lib.get(b"az_dom_with_clip_mask")?);
-            let az_dom_set_clip_mask: extern "C" fn(_:  &mut AzDom, _:  AzOptionImageId) = transmute(lib.get(b"az_dom_set_clip_mask")?);
+            let az_dom_with_clip_mask: extern "C" fn(_:  AzDom, _:  AzOptionImageMask) -> AzDom = transmute(lib.get(b"az_dom_with_clip_mask")?);
+            let az_dom_set_clip_mask: extern "C" fn(_:  &mut AzDom, _:  AzOptionImageMask) = transmute(lib.get(b"az_dom_set_clip_mask")?);
             let az_dom_is_draggable: extern "C" fn(_:  AzDom, _:  bool) -> AzDom = transmute(lib.get(b"az_dom_is_draggable")?);
             let az_dom_set_tab_index: extern "C" fn(_:  &mut AzDom, _:  AzOptionTabIndex) = transmute(lib.get(b"az_dom_set_tab_index")?);
             let az_dom_with_tab_index: extern "C" fn(_:  AzDom, _:  AzOptionTabIndex) -> AzDom = transmute(lib.get(b"az_dom_with_tab_index")?);
@@ -5108,6 +5139,13 @@
             let az_override_property_partial_cmp: extern "C" fn(_:  &AzOverrideProperty, _:  &AzOverrideProperty) -> u8 = transmute(lib.get(b"az_override_property_partial_cmp")?);
             let az_override_property_cmp: extern "C" fn(_:  &AzOverrideProperty, _:  &AzOverrideProperty) -> u8 = transmute(lib.get(b"az_override_property_cmp")?);
             let az_override_property_hash: extern "C" fn(_:  &AzOverrideProperty) -> u64 = transmute(lib.get(b"az_override_property_hash")?);
+            let az_image_mask_delete: extern "C" fn(_:  &mut AzImageMask) = transmute(lib.get(b"az_image_mask_delete")?);
+            let az_image_mask_deep_copy: extern "C" fn(_:  &AzImageMask) -> AzImageMask = transmute(lib.get(b"az_image_mask_deep_copy")?);
+            let az_image_mask_fmt_debug: extern "C" fn(_:  &AzImageMask) -> AzString = transmute(lib.get(b"az_image_mask_fmt_debug")?);
+            let az_image_mask_partial_eq: extern "C" fn(_:  &AzImageMask, _:  &AzImageMask) -> bool = transmute(lib.get(b"az_image_mask_partial_eq")?);
+            let az_image_mask_partial_cmp: extern "C" fn(_:  &AzImageMask, _:  &AzImageMask) -> u8 = transmute(lib.get(b"az_image_mask_partial_cmp")?);
+            let az_image_mask_cmp: extern "C" fn(_:  &AzImageMask, _:  &AzImageMask) -> u8 = transmute(lib.get(b"az_image_mask_cmp")?);
+            let az_image_mask_hash: extern "C" fn(_:  &AzImageMask) -> u64 = transmute(lib.get(b"az_image_mask_hash")?);
             let az_node_data_new: extern "C" fn(_:  AzNodeType) -> AzNodeData = transmute(lib.get(b"az_node_data_new")?);
             let az_node_data_div: extern "C" fn() -> AzNodeData = transmute(lib.get(b"az_node_data_div")?);
             let az_node_data_body: extern "C" fn() -> AzNodeData = transmute(lib.get(b"az_node_data_body")?);
@@ -5129,8 +5167,8 @@
             let az_node_data_with_callback: extern "C" fn(_:  AzNodeData, _:  AzEventFilter, _:  AzRefAny, _:  AzCallbackType) -> AzNodeData = transmute(lib.get(b"az_node_data_with_callback")?);
             let az_node_data_add_css_override: extern "C" fn(_:  &mut AzNodeData, _:  AzString, _:  AzCssProperty) = transmute(lib.get(b"az_node_data_add_css_override")?);
             let az_node_data_with_css_override: extern "C" fn(_:  AzNodeData, _:  AzString, _:  AzCssProperty) -> AzNodeData = transmute(lib.get(b"az_node_data_with_css_override")?);
-            let az_node_data_with_clip_mask: extern "C" fn(_:  AzNodeData, _:  AzOptionImageId) -> AzNodeData = transmute(lib.get(b"az_node_data_with_clip_mask")?);
-            let az_node_data_set_clip_mask: extern "C" fn(_:  &mut AzNodeData, _:  AzOptionImageId) = transmute(lib.get(b"az_node_data_set_clip_mask")?);
+            let az_node_data_with_clip_mask: extern "C" fn(_:  AzNodeData, _:  AzOptionImageMask) -> AzNodeData = transmute(lib.get(b"az_node_data_with_clip_mask")?);
+            let az_node_data_set_clip_mask: extern "C" fn(_:  &mut AzNodeData, _:  AzOptionImageMask) = transmute(lib.get(b"az_node_data_set_clip_mask")?);
             let az_node_data_set_is_draggable: extern "C" fn(_:  &mut AzNodeData, _:  bool) = transmute(lib.get(b"az_node_data_set_is_draggable")?);
             let az_node_data_is_draggable: extern "C" fn(_:  AzNodeData, _:  bool) -> AzNodeData = transmute(lib.get(b"az_node_data_is_draggable")?);
             let az_node_data_set_tab_index: extern "C" fn(_:  &mut AzNodeData, _:  AzOptionTabIndex) = transmute(lib.get(b"az_node_data_set_tab_index")?);
@@ -5625,6 +5663,9 @@
             let az_logical_position_delete: extern "C" fn(_:  &mut AzLogicalPosition) = transmute(lib.get(b"az_logical_position_delete")?);
             let az_logical_position_deep_copy: extern "C" fn(_:  &AzLogicalPosition) -> AzLogicalPosition = transmute(lib.get(b"az_logical_position_deep_copy")?);
             let az_logical_position_fmt_debug: extern "C" fn(_:  &AzLogicalPosition) -> AzString = transmute(lib.get(b"az_logical_position_fmt_debug")?);
+            let az_logical_rect_delete: extern "C" fn(_:  &mut AzLogicalRect) = transmute(lib.get(b"az_logical_rect_delete")?);
+            let az_logical_rect_deep_copy: extern "C" fn(_:  &AzLogicalRect) -> AzLogicalRect = transmute(lib.get(b"az_logical_rect_deep_copy")?);
+            let az_logical_rect_fmt_debug: extern "C" fn(_:  &AzLogicalRect) -> AzString = transmute(lib.get(b"az_logical_rect_fmt_debug")?);
             let az_icon_key_delete: extern "C" fn(_:  &mut AzIconKey) = transmute(lib.get(b"az_icon_key_delete")?);
             let az_icon_key_deep_copy: extern "C" fn(_:  &AzIconKey) -> AzIconKey = transmute(lib.get(b"az_icon_key_deep_copy")?);
             let az_icon_key_fmt_debug: extern "C" fn(_:  &AzIconKey) -> AzString = transmute(lib.get(b"az_icon_key_fmt_debug")?);
@@ -5916,9 +5957,9 @@
                 az_option_dom_fmt_debug,
                 az_option_texture_delete,
                 az_option_texture_fmt_debug,
-                az_option_image_id_delete,
-                az_option_image_id_deep_copy,
-                az_option_image_id_fmt_debug,
+                az_option_image_mask_delete,
+                az_option_image_mask_deep_copy,
+                az_option_image_mask_fmt_debug,
                 az_option_tab_index_delete,
                 az_option_tab_index_deep_copy,
                 az_option_tab_index_fmt_debug,
@@ -6608,6 +6649,13 @@
                 az_override_property_partial_cmp,
                 az_override_property_cmp,
                 az_override_property_hash,
+                az_image_mask_delete,
+                az_image_mask_deep_copy,
+                az_image_mask_fmt_debug,
+                az_image_mask_partial_eq,
+                az_image_mask_partial_cmp,
+                az_image_mask_cmp,
+                az_image_mask_hash,
                 az_node_data_new,
                 az_node_data_div,
                 az_node_data_body,
@@ -7125,6 +7173,9 @@
                 az_logical_position_delete,
                 az_logical_position_deep_copy,
                 az_logical_position_fmt_debug,
+                az_logical_rect_delete,
+                az_logical_rect_deep_copy,
+                az_logical_rect_fmt_debug,
                 az_icon_key_delete,
                 az_icon_key_deep_copy,
                 az_icon_key_fmt_debug,

@@ -909,11 +909,11 @@
 						{"Some": { "type": "Texture" }}
 					]
 				},
-				"OptionImageId": {
-					"external": "azul_impl::resources::OptionImageId",
+				"OptionImageMask": {
+					"external": "azul_impl::dom::OptionImageMask",
 					"enum_fields": [
 						{"None": {}},
-						{"Some": { "type": "ImageId" }}
+						{"Some": { "type": "ImageMask" }}
 					]
 				},
 				"OptionTabIndex": {
@@ -3206,7 +3206,7 @@
 							"doc": "Same as [`Dom::set_clip_mask`](#method.set_clip_mask), but as a builder method",
 							"fn_args": [
 								{"self": "mut value"},
-								{"clip_mask": "OptionImageId"}
+								{"clip_mask": "OptionImageMask"}
 							],
 							"returns": "Dom",
 							"fn_body": "az_dom_set_clip_mask(&mut dom, clip_mask); dom"
@@ -3215,7 +3215,7 @@
 							"doc": "Sets the `clip_mask` attribute of this DOM node (default: None)",
 							"fn_args": [
 								{"self": "refmut"},
-								{"clip_mask": "OptionImageId"}
+								{"clip_mask": "OptionImageMask"}
 							],
 							"fn_body": "dom.set_clip_mask(clip_mask);"
 						},
@@ -3321,6 +3321,15 @@
 						{"override_value": {"type": "CssProperty"}}
 					]
 				},
+				"ImageMask": {
+					"external": "azul_impl::dom::OverrideProperty",
+					"derive": ["PartialEq", "Eq", "PartialOrd", "Ord", "Hash"],
+					"struct_fields": [
+						{"image": {"type": "ImageId"}},
+						{"rect": {"type": "LogicalRect"}},
+						{"repeat": {"type": "bool"}}
+					]
+				},
 				"NodeData": {
 					"doc": "Represents one single DOM node (node type, classes, ids and callbacks are stored here)",
 					"external": "azul_impl::dom::NodeData",
@@ -3330,7 +3339,7 @@
 						{"classes": {"type": "StringVec", "doc": "Stores the classes of the node, i.e. `[.myclass, .otherclass]`"}},
 						{"callbacks": {"type": "CallbackDataVec", "doc": "Stores the callbacks of the node, i.e. `On::MouseUp` -> `Callback(my_button_click_handler)`"}},
 						{"dynamic_css_overrides": {"type": "OverridePropertyVec", "doc": "Override certain dynamic styling properties for this DOM node"}},
-						{"clip_mask": {"type": "OptionImageId", "doc": "Optional clip mask for this DOM node"}},
+						{"clip_mask": {"type": "OptionImageMask", "doc": "Optional clip mask for this DOM node"}},
 						{"is_draggable": {"type": "bool", "doc": "Whether this div can be dragged or not, similar to `draggable = \"true\"` in HTML"}},
 						{"tab_index": {"type": "OptionTabIndex", "doc": "Whether this div can be focused, and if yes, in what default to `None` (not focusable). Note that without this, there can be no `On::FocusReceived` / `On::FocusLost` (equivalent to onfocus). For this reason, this is automatically set to `TabIndex::Auto` if a callback with `On::Focus*` is inserted"}}
 					],
@@ -3505,7 +3514,7 @@
 							"doc": "Same as [`NodeData::set_clip_mask`](#method.set_clip_mask), but as a builder method",
 							"fn_args": [
 								{"self": "mut value"},
-								{"clip_mask": "OptionImageId"}
+								{"clip_mask": "OptionImageMask"}
 							],
 							"returns": "NodeData",
 							"fn_body": "az_node_data_set_clip_mask(&mut nodedata, clip_mask); nodedata"
@@ -3514,7 +3523,7 @@
 							"doc": "Sets the `clip_mask` attribute of this `NodeData` (default: None)",
 							"fn_args": [
 								{"self": "refmut"},
-								{"clip_mask": "OptionImageId"}
+								{"clip_mask": "OptionImageMask"}
 							],
 							"fn_body": "nodedata.set_clip_mask(clip_mask);"
 						},
@@ -6225,6 +6234,13 @@
 					"struct_fields": [
 						{"x": {"type": "f32"}},
 						{"y": {"type": "f32"}}
+					]
+				},
+				"LogicalRect": {
+					"external": "azul_impl::window::LogicalRect",
+					"struct_fields": [
+						{"origin": {"type": "LogicalPosition"}},
+						{"size": {"type": "LogicalSize"}}
 					]
 				},
 				"IconKey": {

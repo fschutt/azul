@@ -52,7 +52,7 @@
     use crate::callbacks::{CallbackType, GlCallbackType, IFrameCallbackType, RefAny};
     use crate::vec::StringVec;
     use crate::css::CssProperty;
-    use crate::option::{OptionImageId, OptionTabIndex};
+    use crate::option::{OptionImageMask, OptionTabIndex};
 
 
     /// `Dom` struct
@@ -102,9 +102,9 @@
         /// Sets the `is_draggable` attribute of this DOM node (default: false)
         pub fn set_is_draggable(&mut self, is_draggable: bool)  { (crate::dll::get_azul_dll().az_dom_set_is_draggable)(self, is_draggable) }
         /// Same as [`Dom::set_clip_mask`](#method.set_clip_mask), but as a builder method
-        pub fn with_clip_mask(self, clip_mask: OptionImageId)  -> crate::dom::Dom { (crate::dll::get_azul_dll().az_dom_with_clip_mask)(self, clip_mask) }
+        pub fn with_clip_mask(self, clip_mask: OptionImageMask)  -> crate::dom::Dom { (crate::dll::get_azul_dll().az_dom_with_clip_mask)(self, clip_mask) }
         /// Sets the `clip_mask` attribute of this DOM node (default: None)
-        pub fn set_clip_mask(&mut self, clip_mask: OptionImageId)  { (crate::dll::get_azul_dll().az_dom_set_clip_mask)(self, clip_mask) }
+        pub fn set_clip_mask(&mut self, clip_mask: OptionImageMask)  { (crate::dll::get_azul_dll().az_dom_set_clip_mask)(self, clip_mask) }
         /// Same as [`Dom::set_is_draggable`](#method.set_is_draggable), but as a builder method
         pub fn is_draggable(self, is_draggable: bool)  -> crate::dom::Dom { (crate::dll::get_azul_dll().az_dom_is_draggable)(self, is_draggable) }
         /// Sets the `tabindex` attribute of this DOM node (makes an element focusable - default: None)
@@ -160,6 +160,14 @@
     impl Drop for OverrideProperty { fn drop(&mut self) { (crate::dll::get_azul_dll().az_override_property_delete)(self); } }
 
 
+    /// `ImageMask` struct
+    pub use crate::dll::AzImageMask as ImageMask;
+
+    impl std::fmt::Debug for ImageMask { fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result { write!(f, "{}", (crate::dll::get_azul_dll().az_image_mask_fmt_debug)(self)) } }
+    impl Clone for ImageMask { fn clone(&self) -> Self { (crate::dll::get_azul_dll().az_image_mask_deep_copy)(self) } }
+    impl Drop for ImageMask { fn drop(&mut self) { (crate::dll::get_azul_dll().az_image_mask_delete)(self); } }
+
+
     /// Represents one single DOM node (node type, classes, ids and callbacks are stored here)
     pub use crate::dll::AzNodeData as NodeData;
 
@@ -207,9 +215,9 @@
         /// Same as [`NodeData::add_css_override`](#method.add_css_override), but as a builder method
         pub fn with_css_override(self, id: String, prop: CssProperty)  -> crate::dom::NodeData { (crate::dll::get_azul_dll().az_node_data_with_css_override)(self, id, prop) }
         /// Same as [`NodeData::set_clip_mask`](#method.set_clip_mask), but as a builder method
-        pub fn with_clip_mask(self, clip_mask: OptionImageId)  -> crate::dom::NodeData { (crate::dll::get_azul_dll().az_node_data_with_clip_mask)(self, clip_mask) }
+        pub fn with_clip_mask(self, clip_mask: OptionImageMask)  -> crate::dom::NodeData { (crate::dll::get_azul_dll().az_node_data_with_clip_mask)(self, clip_mask) }
         /// Sets the `clip_mask` attribute of this `NodeData` (default: None)
-        pub fn set_clip_mask(&mut self, clip_mask: OptionImageId)  { (crate::dll::get_azul_dll().az_node_data_set_clip_mask)(self, clip_mask) }
+        pub fn set_clip_mask(&mut self, clip_mask: OptionImageMask)  { (crate::dll::get_azul_dll().az_node_data_set_clip_mask)(self, clip_mask) }
         /// Sets the `is_draggable` attribute of this `NodeData` (default: false)
         pub fn set_is_draggable(&mut self, is_draggable: bool)  { (crate::dll::get_azul_dll().az_node_data_set_is_draggable)(self, is_draggable) }
         /// Same as [`NodeData::set_is_draggable`](#method.set_is_draggable), but as a builder method

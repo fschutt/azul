@@ -45,6 +45,14 @@
     impl Drop for LogicalPosition { fn drop(&mut self) { (crate::dll::get_azul_dll().az_logical_position_delete)(self); } }
 
 
+    /// `LogicalRect` struct
+    pub use crate::dll::AzLogicalRect as LogicalRect;
+
+    impl std::fmt::Debug for LogicalRect { fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result { write!(f, "{}", (crate::dll::get_azul_dll().az_logical_rect_fmt_debug)(self)) } }
+    impl Clone for LogicalRect { fn clone(&self) -> Self { (crate::dll::get_azul_dll().az_logical_rect_deep_copy)(self) } }
+    impl Drop for LogicalRect { fn drop(&mut self) { (crate::dll::get_azul_dll().az_logical_rect_delete)(self); } }
+
+
     /// `IconKey` struct
     pub use crate::dll::AzIconKey as IconKey;
 

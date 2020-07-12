@@ -21,7 +21,7 @@ use crate::{
         LayoutResult, ScrolledNodes, OverflowingScrollNode,
         PositionInfo,
     },
-    window::FullWindowState,
+    window::{FullWindowState, LogicalRect},
     app_resources::{
         AppResources, AddImageMsg, FontImageApi, ImageDescriptor, ImageDescriptorFlags,
         ImageKey, FontInstanceKey, ImageInfo, ImageId, LayoutedGlyphs, PrimitiveFlags,
@@ -57,6 +57,13 @@ pub struct GlyphInstance {
     pub index: GlyphIndex,
     pub point: LayoutPoint,
     pub size: LayoutSize,
+}
+
+#[derive(Debug, Copy, Clone, PartialEq, PartialOrd)]
+pub struct DisplayListImageMask {
+    pub image: ImageKey,
+    pub rect: LogicalRect,
+    pub repeat: bool,
 }
 
 #[derive(Debug, Clone, PartialEq, PartialOrd)]
@@ -170,12 +177,13 @@ impl fmt::Debug for DisplayListScrollFrame {
 pub struct DisplayListFrame {
     pub size: LayoutSize,
     pub position: PositionInfo,
+    pub flags: PrimitiveFlags,
+    pub clip_mask: Option<DisplayListImageMask>,
     /// Border radius, set to none only if overflow: visible is set!
     pub border_radius: StyleBorderRadius,
     pub tag: Option<TagId>,
     pub content: Vec<LayoutRectContent>,
     pub children: Vec<DisplayListMsg>,
-    pub flags: PrimitiveFlags,
 }
 
 impl fmt::Debug for DisplayListFrame {
@@ -219,6 +227,7 @@ impl DisplayListFrame {
             border_radius: StyleBorderRadius::default(),
             content: vec![],
             children: vec![],
+            clip_mask: None,
         }
     }
 }
@@ -1129,7 +1138,7 @@ pub fn displaylist_handle_rect<'a>(
 
     let rect = &layout_result.display_lists[dom_id].rectangles[rect_idx];
     let bounds = &layout_result.solved_layouts[dom_id].rects[rect_idx];
-    let html_node = &ui_state_cache[&dom_id].dom.arena.node_data[rect_idx].get_node_type();
+    let html_node = &ui_state_cache[&dom_id].dom.arena.node_data[rect_idx];
 
     let tag_id = rect.tag.or({
         layout_result.scrollable_nodes[dom_id].overflowing_nodes
@@ -1138,6 +1147,15 @@ pub fn displaylist_handle_rect<'a>(
     });
 
     let (size, position) = bounds.get_background_bounds();
+
+    let clip_mask = html_node.get_clip_mask().as_option().and_then(|m| {
+        let image_info = app_resources.currently_registered_images.get(pipeline_id)?.get(&m.image)?;
+        Some(DisplayListImageMask {
+            image: image_info.key,
+            rect: m.rect,
+            repeat: m.repeat,
+        })
+    });
 
     let mut frame = DisplayListFrame {
         tag: tag_id,
@@ -1156,6 +1174,7 @@ pub fn displaylist_handle_rect<'a>(
         },
         content: Vec::new(),
         children: Vec::new(),
+        clip_mask,
     };
 
     if rect.style.has_box_shadow() {
@@ -1199,7 +1218,7 @@ pub fn displaylist_handle_rect<'a>(
         }
     }
 
-    match html_node {
+    match html_node.get_node_type() {
         Div | Body => { },
         Text(_) | Label(_) => {
             if let Some(layouted_glyphs) = layout_result.solved_layouts.get(dom_id).and_then(|lr| lr.layouted_glyph_cache.get(&rect_idx)).cloned() {

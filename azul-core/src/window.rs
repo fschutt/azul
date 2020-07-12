@@ -1308,6 +1308,13 @@ impl CallbacksOfHitTest {
     }
 }
 
+#[derive(Debug, Copy, Clone, PartialEq, PartialOrd, Eq, Ord, Hash)]
+#[repr(C)]
+pub struct LogicalRect {
+    pub origin: LogicalPosition,
+    pub size: LogicalSize,
+}
+
 #[derive(Debug, Copy, Clone, PartialEq, PartialOrd)]
 #[repr(C)]
 pub struct LogicalPosition {
@@ -1315,7 +1322,30 @@ pub struct LogicalPosition {
     pub y: f32,
 }
 
+const DECIMAL_MULTIPLIER: f32 = 1000.0;
+
 impl_option!(LogicalPosition, OptionLogicalPosition, [Debug, Copy, Clone, PartialEq, PartialOrd]);
+
+impl Ord for LogicalPosition {
+    fn cmp(&self, other: &LogicalPosition) -> Ordering {
+        let self_x = (self.x * DECIMAL_MULTIPLIER) as usize;
+        let self_y = (self.y * DECIMAL_MULTIPLIER) as usize;
+        let other_x = (other.x * DECIMAL_MULTIPLIER) as usize;
+        let other_y = (other.y * DECIMAL_MULTIPLIER) as usize;
+        self_x.cmp(&other_x).then(self_y.cmp(&other_y))
+    }
+}
+
+impl Eq for LogicalPosition { }
+
+impl Hash for LogicalPosition {
+    fn hash<H>(&self, state: &mut H) where H: Hasher {
+        let self_x = (self.x * DECIMAL_MULTIPLIER) as usize;
+        let self_y = (self.y * DECIMAL_MULTIPLIER) as usize;
+        self_x.hash(state);
+        self_y.hash(state);
+    }
+}
 
 #[derive(Debug, Copy, Clone, PartialEq, PartialOrd)]
 #[repr(C)]
@@ -1325,6 +1355,27 @@ pub struct LogicalSize {
 }
 
 impl_option!(LogicalSize, OptionLogicalSize, [Debug, Copy, Clone, PartialEq, PartialOrd]);
+
+impl Ord for LogicalSize {
+    fn cmp(&self, other: &LogicalSize) -> Ordering {
+        let self_width = (self.width * DECIMAL_MULTIPLIER) as usize;
+        let self_height = (self.height * DECIMAL_MULTIPLIER) as usize;
+        let other_width = (other.width * DECIMAL_MULTIPLIER) as usize;
+        let other_height = (other.height * DECIMAL_MULTIPLIER) as usize;
+        self_width.cmp(&other_width).then(self_height.cmp(&other_height))
+    }
+}
+
+impl Eq for LogicalSize { }
+
+impl Hash for LogicalSize {
+    fn hash<H>(&self, state: &mut H) where H: Hasher {
+        let self_width = (self.width * DECIMAL_MULTIPLIER) as usize;
+        let self_height = (self.height * DECIMAL_MULTIPLIER) as usize;
+        self_width.hash(state);
+        self_height.hash(state);
+    }
+}
 
 #[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
 #[repr(C)]

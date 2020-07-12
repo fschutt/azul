@@ -310,12 +310,12 @@
     impl Drop for OptionTexture { fn drop(&mut self) { (crate::dll::get_azul_dll().az_option_texture_delete)(self); } }
 
 
-    /// `OptionImageId` struct
-    pub use crate::dll::AzOptionImageId as OptionImageId;
+    /// `OptionImageMask` struct
+    pub use crate::dll::AzOptionImageMask as OptionImageMask;
 
-    impl std::fmt::Debug for OptionImageId { fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result { write!(f, "{}", (crate::dll::get_azul_dll().az_option_image_id_fmt_debug)(self)) } }
-    impl Clone for OptionImageId { fn clone(&self) -> Self { (crate::dll::get_azul_dll().az_option_image_id_deep_copy)(self) } }
-    impl Drop for OptionImageId { fn drop(&mut self) { (crate::dll::get_azul_dll().az_option_image_id_delete)(self); } }
+    impl std::fmt::Debug for OptionImageMask { fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result { write!(f, "{}", (crate::dll::get_azul_dll().az_option_image_mask_fmt_debug)(self)) } }
+    impl Clone for OptionImageMask { fn clone(&self) -> Self { (crate::dll::get_azul_dll().az_option_image_mask_deep_copy)(self) } }
+    impl Drop for OptionImageMask { fn drop(&mut self) { (crate::dll::get_azul_dll().az_option_image_mask_delete)(self); } }
 
 
     /// `OptionTabIndex` struct

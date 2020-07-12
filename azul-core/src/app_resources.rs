@@ -12,7 +12,7 @@ use crate::{
     display_list::{DisplayList, GlyphInstance},
     callbacks::PipelineId,
     id_tree::NodeDataContainer,
-    dom::NodeData,
+    dom::{NodeData, OptionImageMask},
     gl::Texture,
     svg::{SvgStyledNode, TesselatedGPUSvgNode, TesselatedCPUSvgNode},
 };
@@ -340,8 +340,6 @@ unique_id!(SvgNodeId, SVG_NODE_ID_COUNTER);
 unique_id!(TextId, TEXT_ID_COUNTER);
 unique_id!(ImageId, IMAGE_ID_COUNTER);
 unique_id!(FontId, FONT_ID_COUNTER);
-
-impl_option!(ImageId, OptionImageId, [Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash]);
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 #[repr(C)]
@@ -1246,8 +1244,8 @@ pub fn scan_ui_description_for_image_keys(
         }
 
         // If the node has a clip mask, it needs to be uploaded
-        if let OptionImageId::Some(clip_mask_id) = node_data.get_clip_mask() {
-            images_in_dl.push(*clip_mask_id);
+        if let OptionImageMask::Some(clip_mask) = node_data.get_clip_mask() {
+            images_in_dl.push(clip_mask.image);
         }
     }
 

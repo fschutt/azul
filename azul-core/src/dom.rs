@@ -10,8 +10,9 @@ use crate::{
         IFrameCallback, IFrameCallbackType,
         RefAny,
     },
-    app_resources::{ImageId, OptionImageId, TextId},
+    app_resources::{ImageId, TextId},
     id_tree::{Arena, NodeDataContainer},
+    window::LogicalRect,
 };
 #[cfg(feature = "opengl")]
 use crate::callbacks::{GlCallback, GlCallbackType};
@@ -112,6 +113,16 @@ impl DomId {
 /// Calculated hash of a DOM node, used for querying attributes of the DOM node
 #[derive(Debug, Copy, Clone, Hash, PartialEq, Eq, Ord, PartialOrd)]
 pub struct DomHash(pub u64);
+
+#[repr(C)]
+#[derive(Debug, Copy, Clone, PartialEq, PartialOrd, Eq, Ord, Hash)]
+pub struct ImageMask {
+    pub image: ImageId,
+    pub rect: LogicalRect,
+    pub repeat: bool,
+}
+
+impl_option!(ImageMask, OptionImageMask, [Debug, Copy, Clone, PartialEq, PartialOrd, Eq, Ord, Hash]);
 
 /// List of core DOM node types built-into by `azul`.
 #[derive(Debug, Clone, PartialEq, Hash, Eq, PartialOrd, Ord)]
@@ -534,7 +545,7 @@ pub struct NodeData {
     /// ```
     dynamic_css_overrides: OverridePropertyVec,
     /// Optional clip mask for this DOM node
-    clip_mask: OptionImageId,
+    clip_mask: OptionImageMask,
     /// Whether this div can be dragged or not, similar to `draggable = "true"` in HTML, .
     ///
     /// **TODO**: Currently doesn't do anything, since the drag & drop implementation is missing, API stub.
@@ -694,7 +705,7 @@ impl NodeData {
             classes: StringVec::new(),
             callbacks: CallbackDataVec::new(),
             dynamic_css_overrides: OverridePropertyVec::new(),
-            clip_mask: OptionImageId::None,
+            clip_mask: OptionImageMask::None,
             is_draggable: false,
             tab_index: OptionTabIndex::None,
         }
@@ -801,7 +812,7 @@ impl NodeData {
     #[inline(always)]
     pub const fn get_dynamic_css_overrides(&self) -> &OverridePropertyVec { &self.dynamic_css_overrides }
     #[inline(always)]
-    pub const fn get_clip_mask(&self) -> &OptionImageId { &self.clip_mask }
+    pub const fn get_clip_mask(&self) -> &OptionImageMask { &self.clip_mask }
     #[inline(always)]
     pub const fn get_is_draggable(&self) -> bool { self.is_draggable }
     #[inline(always)]
@@ -818,7 +829,7 @@ impl NodeData {
     #[inline(always)]
     pub fn set_dynamic_css_overrides(&mut self, dynamic_css_overrides: OverridePropertyVec) { self.dynamic_css_overrides = dynamic_css_overrides; }
     #[inline(always)]
-    pub fn set_clip_mask(&mut self, clip_mask: OptionImageId) { self.clip_mask = clip_mask; }
+    pub fn set_clip_mask(&mut self, clip_mask: OptionImageMask) { self.clip_mask = clip_mask; }
     #[inline(always)]
     pub fn set_is_draggable(&mut self, is_draggable: bool) { self.is_draggable = is_draggable; }
     #[inline(always)]
@@ -835,7 +846,7 @@ impl NodeData {
     #[inline(always)]
     pub fn with_dynamic_css_overrides(self, dynamic_css_overrides: OverridePropertyVec) -> Self { Self { dynamic_css_overrides, .. self } }
     #[inline(always)]
-    pub fn with_clip_mask(self, clip_mask: OptionImageId) -> Self { Self { clip_mask, .. self } }
+    pub fn with_clip_mask(self, clip_mask: OptionImageMask) -> Self { Self { clip_mask, .. self } }
     #[inline(always)]
     pub fn is_draggable(self, is_draggable: bool) -> Self { Self { is_draggable, .. self } }
     #[inline(always)]
@@ -1231,7 +1242,7 @@ impl Dom {
     }
 
     #[inline]
-    pub fn with_clip_mask(mut self, clip_mask: OptionImageId) -> Self {
+    pub fn with_clip_mask(mut self, clip_mask: OptionImageMask) -> Self {
         self.set_clip_mask(clip_mask);
         self
     }
@@ -1275,7 +1286,7 @@ impl Dom {
     }
 
     #[inline(always)]
-    pub fn set_clip_mask(&mut self, clip_mask: OptionImageId) { self.root.set_clip_mask(clip_mask); }
+    pub fn set_clip_mask(&mut self, clip_mask: OptionImageMask) { self.root.set_clip_mask(clip_mask); }
 
     #[inline]
     pub fn set_tab_index(&mut self, tab_index: OptionTabIndex) {

@@ -677,16 +677,16 @@ pub type AzOptionTextureTT = azul_impl::gl::OptionTexture;
 /// Creates a string with the debug representation of the object
 #[no_mangle] pub extern "C" fn az_option_texture_fmt_debug(object: &AzOptionTexture) -> AzString { format!("{:#?}", object).into() }
 
-/// Re-export of rust-allocated (stack based) `OptionImageId` struct
-pub type AzOptionImageIdTT = azul_impl::resources::OptionImageId;
-#[no_mangle] pub use AzOptionImageIdTT as AzOptionImageId;
-/// Destructor: Takes ownership of the `OptionImageId` pointer and deletes it.
-#[no_mangle] #[allow(unused_variables)] pub extern "C" fn az_option_image_id_delete(object: &mut AzOptionImageId) { match object { azul_impl::resources::OptionImageId::None => { }, azul_impl::resources::OptionImageId::Some(_) => { }, }
+/// Re-export of rust-allocated (stack based) `OptionImageMask` struct
+pub type AzOptionImageMaskTT = azul_impl::dom::OptionImageMask;
+#[no_mangle] pub use AzOptionImageMaskTT as AzOptionImageMask;
+/// Destructor: Takes ownership of the `OptionImageMask` pointer and deletes it.
+#[no_mangle] #[allow(unused_variables)] pub extern "C" fn az_option_image_mask_delete(object: &mut AzOptionImageMask) { match object { azul_impl::dom::OptionImageMask::None => { }, azul_impl::dom::OptionImageMask::Some(_) => { }, }
 }
 /// Clones the object
-#[no_mangle] pub extern "C" fn az_option_image_id_deep_copy(object: &AzOptionImageId) -> AzOptionImageId { object.clone() }
+#[no_mangle] pub extern "C" fn az_option_image_mask_deep_copy(object: &AzOptionImageMask) -> AzOptionImageMask { object.clone() }
 /// Creates a string with the debug representation of the object
-#[no_mangle] pub extern "C" fn az_option_image_id_fmt_debug(object: &AzOptionImageId) -> AzString { format!("{:#?}", object).into() }
+#[no_mangle] pub extern "C" fn az_option_image_mask_fmt_debug(object: &AzOptionImageMask) -> AzString { format!("{:#?}", object).into() }
 
 /// Re-export of rust-allocated (stack based) `OptionTabIndex` struct
 pub type AzOptionTabIndexTT = azul_impl::dom::OptionTabIndex;
@@ -2953,9 +2953,9 @@ pub type AzDomTT = azul_impl::dom::Dom;
 /// Sets the `is_draggable` attribute of this DOM node (default: false)
 #[no_mangle] pub extern "C" fn az_dom_set_is_draggable(dom: &mut AzDom, is_draggable: bool) { dom.set_is_draggable(is_draggable); }
 /// Same as [`Dom::set_clip_mask`](#method.set_clip_mask), but as a builder method
-#[no_mangle] pub extern "C" fn az_dom_with_clip_mask(mut dom: AzDom, clip_mask: AzOptionImageId) -> AzDom { az_dom_set_clip_mask(&mut dom, clip_mask); dom }
+#[no_mangle] pub extern "C" fn az_dom_with_clip_mask(mut dom: AzDom, clip_mask: AzOptionImageMask) -> AzDom { az_dom_set_clip_mask(&mut dom, clip_mask); dom }
 /// Sets the `clip_mask` attribute of this DOM node (default: None)
-#[no_mangle] pub extern "C" fn az_dom_set_clip_mask(dom: &mut AzDom, clip_mask: AzOptionImageId) { dom.set_clip_mask(clip_mask); }
+#[no_mangle] pub extern "C" fn az_dom_set_clip_mask(dom: &mut AzDom, clip_mask: AzOptionImageMask) { dom.set_clip_mask(clip_mask); }
 /// Same as [`Dom::set_is_draggable`](#method.set_is_draggable), but as a builder method
 #[no_mangle] pub extern "C" fn az_dom_is_draggable(mut dom: AzDom, is_draggable: bool) -> AzDom { az_dom_set_is_draggable(&mut dom, is_draggable); dom }
 /// Sets the `tabindex` attribute of this DOM node (makes an element focusable - default: None)
@@ -3043,6 +3043,24 @@ pub type AzOverridePropertyTT = azul_impl::dom::OverrideProperty;
 /// Returns the hash of a `AzOverrideProperty` instance 
 #[no_mangle] pub extern "C" fn az_override_property_hash(object: &AzOverrideProperty) -> u64 { use std::collections::hash_map::DefaultHasher; use std::hash::{Hash, Hasher}; let mut hasher = DefaultHasher::new(); object.hash(&mut hasher); hasher.finish() }
 
+/// Re-export of rust-allocated (stack based) `ImageMask` struct
+pub type AzImageMaskTT = azul_impl::dom::OverrideProperty;
+#[no_mangle] pub use AzImageMaskTT as AzImageMask;
+/// Destructor: Takes ownership of the `ImageMask` pointer and deletes it.
+#[no_mangle] #[allow(unused_variables)] pub extern "C" fn az_image_mask_delete(object: &mut AzImageMask) { }
+/// Clones the object
+#[no_mangle] pub extern "C" fn az_image_mask_deep_copy(object: &AzImageMask) -> AzImageMask { object.clone() }
+/// Creates a string with the debug representation of the object
+#[no_mangle] pub extern "C" fn az_image_mask_fmt_debug(object: &AzImageMask) -> AzString { format!("{:#?}", object).into() }
+/// Compares two instances of `AzImageMask` for equality
+#[no_mangle] pub extern "C" fn az_image_mask_partial_eq(a: &AzImageMask, b: &AzImageMask) -> bool { a.eq(b) }
+/// Compares two instances of `AzImageMask` for ordering. Returns 0 for None (equality), 1 on Some(Less), 2 on Some(Equal) and 3 on Some(Greater). 
+#[no_mangle] pub extern "C" fn az_image_mask_partial_cmp(a: &AzImageMask, b: &AzImageMask) -> u8 { use std::cmp::Ordering::*;match a.partial_cmp(b) { None => 0, Some(Less) => 1, Some(Equal) => 2, Some(Greater) => 3 } }
+/// Compares two instances of `AzImageMask` for full ordering. Returns 0 for Less, 1 for Equal, 2 for Greater. 
+#[no_mangle] pub extern "C" fn az_image_mask_cmp(a: &AzImageMask, b: &AzImageMask) -> u8 { use std::cmp::Ordering::*; match a.cmp(b) { Less => 0, Equal => 1, Greater => 2 } }
+/// Returns the hash of a `AzImageMask` instance 
+#[no_mangle] pub extern "C" fn az_image_mask_hash(object: &AzImageMask) -> u64 { use std::collections::hash_map::DefaultHasher; use std::hash::{Hash, Hasher}; let mut hasher = DefaultHasher::new(); object.hash(&mut hasher); hasher.finish() }
+
 /// Represents one single DOM node (node type, classes, ids and callbacks are stored here)
 pub type AzNodeDataTT = azul_impl::dom::NodeData;
 #[no_mangle] pub use AzNodeDataTT as AzNodeData;
@@ -3089,9 +3107,9 @@ pub type AzNodeDataTT = azul_impl::dom::NodeData;
 /// Same as [`NodeData::add_css_override`](#method.add_css_override), but as a builder method
 #[no_mangle] pub extern "C" fn az_node_data_with_css_override(mut nodedata: AzNodeData, id: AzString, prop: AzCssProperty) -> AzNodeData { az_node_data_add_css_override(&mut nodedata, id, prop); nodedata }
 /// Same as [`NodeData::set_clip_mask`](#method.set_clip_mask), but as a builder method
-#[no_mangle] pub extern "C" fn az_node_data_with_clip_mask(mut nodedata: AzNodeData, clip_mask: AzOptionImageId) -> AzNodeData { az_node_data_set_clip_mask(&mut nodedata, clip_mask); nodedata }
+#[no_mangle] pub extern "C" fn az_node_data_with_clip_mask(mut nodedata: AzNodeData, clip_mask: AzOptionImageMask) -> AzNodeData { az_node_data_set_clip_mask(&mut nodedata, clip_mask); nodedata }
 /// Sets the `clip_mask` attribute of this `NodeData` (default: None)
-#[no_mangle] pub extern "C" fn az_node_data_set_clip_mask(nodedata: &mut AzNodeData, clip_mask: AzOptionImageId) { nodedata.set_clip_mask(clip_mask); }
+#[no_mangle] pub extern "C" fn az_node_data_set_clip_mask(nodedata: &mut AzNodeData, clip_mask: AzOptionImageMask) { nodedata.set_clip_mask(clip_mask); }
 /// Sets the `is_draggable` attribute of this `NodeData` (default: false)
 #[no_mangle] pub extern "C" fn az_node_data_set_is_draggable(nodedata: &mut AzNodeData, is_draggable: bool) { nodedata.set_is_draggable(is_draggable); }
 /// Same as [`NodeData::set_is_draggable`](#method.set_is_draggable), but as a builder method
@@ -4482,6 +4500,16 @@ pub type AzLogicalPositionTT = azul_impl::window::LogicalPosition;
 #[no_mangle] pub extern "C" fn az_logical_position_deep_copy(object: &AzLogicalPosition) -> AzLogicalPosition { object.clone() }
 /// Creates a string with the debug representation of the object
 #[no_mangle] pub extern "C" fn az_logical_position_fmt_debug(object: &AzLogicalPosition) -> AzString { format!("{:#?}", object).into() }
+
+/// Re-export of rust-allocated (stack based) `LogicalRect` struct
+pub type AzLogicalRectTT = azul_impl::window::LogicalRect;
+#[no_mangle] pub use AzLogicalRectTT as AzLogicalRect;
+/// Destructor: Takes ownership of the `LogicalRect` pointer and deletes it.
+#[no_mangle] #[allow(unused_variables)] pub extern "C" fn az_logical_rect_delete(object: &mut AzLogicalRect) { }
+/// Clones the object
+#[no_mangle] pub extern "C" fn az_logical_rect_deep_copy(object: &AzLogicalRect) -> AzLogicalRect { object.clone() }
+/// Creates a string with the debug representation of the object
+#[no_mangle] pub extern "C" fn az_logical_rect_fmt_debug(object: &AzLogicalRect) -> AzString { format!("{:#?}", object).into() }
 
 /// Re-export of rust-allocated (stack based) `IconKey` struct
 pub type AzIconKeyTT = azul_impl::window::IconKey;
