@@ -541,13 +541,28 @@ def generate_rust_dll(apiData):
                     if "doc" in const.keys():
                         code += "/// " + const["doc"] + "\r\n"
                     else:
-                        code += "// Creates a new `" + class_name + "` instance whose memory is owned by the rust allocator\r\n"
-                        code += "// Equivalent to the Rust `" + class_name  + "::" + fn_name + "()` constructor.\r\n"
+                        code += "/// Creates a new `" + class_name + "` instance whose memory is owned by the rust allocator\r\n"
+                        code += "/// Equivalent to the Rust `" + class_name  + "::" + fn_name + "()` constructor.\r\n"
+
+                    returns = class_ptr_name
+                    if "returns" in const.keys():
+                        return_type = const["returns"]
+                        analyzed_return_type = analyze_type(return_type)
+                        if is_primitive_arg(analyzed_return_type[1]):
+                            returns = return_type
+                        else:
+                            return_type_class = search_for_class_by_rust_class_name(apiData, analyzed_return_type[1])
+                            if return_type_class is None:
+                                print("rust-dll: (line 549): no return_type_class found for " + return_type)
+                            if class_is_stack_allocated(get_class(apiData, return_type_class[0], return_type_class[1])):
+                                returns = analyzed_return_type[0] + prefix + return_type_class[1] + analyzed_return_type[2] # no postfix
+                            else:
+                                returns = analyzed_return_type[0] + prefix + return_type_class[1] + postfix + analyzed_return_type[2]
 
                     fn_args = fn_args_c_api(const, class_name, class_ptr_name, False, apiData)
 
-                    functions_map[str(to_snake_case(class_ptr_name) + "_" + fn_name)] = [fn_args, class_ptr_name];
-                    code += "#[no_mangle] pub extern \"C\" fn " + to_snake_case(class_ptr_name) + "_" + fn_name + "(" + fn_args + ") -> " + class_ptr_name + " { "
+                    functions_map[str(to_snake_case(class_ptr_name) + "_" + fn_name)] = [fn_args, returns];
+                    code += "#[no_mangle] pub extern \"C\" fn " + to_snake_case(class_ptr_name) + "_" + fn_name + "(" + fn_args + ") -> " + returns + " { "
                     code += fn_body
                     code += " }\r\n"
 
@@ -567,7 +582,7 @@ def generate_rust_dll(apiData):
                     if "doc" in f.keys():
                         code += "/// " + f["doc"] + "\r\n"
                     else:
-                        code += "// Equivalent to the Rust `" + class_name  + "::" + fn_name + "()` function.\r\n"
+                        code += "/// Equivalent to the Rust `" + class_name  + "::" + fn_name + "()` function.\r\n"
 
                     fn_args = fn_args_c_api(f, class_name, class_ptr_name, True, apiData)
 
@@ -1019,7 +1034,21 @@ def generate_rust_api(apiData, structs_map, functions_map):
                         else:
                             code += "        /// Creates a new `" + class_name + "` instance.\r\n"
 
-                        code += "        pub fn " + fn_name + "(" + fn_args + ") -> Self { " + fn_body + " }\r\n"
+                        returns = "Self"
+                        if "returns" in const.keys():
+                            return_type = const["returns"]
+                            returns = return_type
+                            analyzed_return_type = analyze_type(return_type)
+                            if is_primitive_arg(analyzed_return_type[1]):
+                                fn_body = fn_body
+                            else:
+                                return_type_class = search_for_class_by_rust_class_name(apiData, analyzed_return_type[1])
+                                if return_type_class is None:
+                                    print("no return type found for return type: " + return_type)
+                                returns = analyzed_return_type[0] + " crate::" + return_type_class[0] + "::" + return_type_class[1] + analyzed_return_type[2]
+                                fn_body = fn_body
+
+                        code += "        pub fn " + fn_name + "(" + fn_args + ") -> " + returns + " { " + fn_body + " }\r\n"
 
                 if "functions" in c.keys():
                     for fn_name in c["functions"]:

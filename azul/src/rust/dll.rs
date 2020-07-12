@@ -4046,7 +4046,7 @@
         pub az_svg_fit_to_delete: extern "C" fn(_:  &mut AzSvgFitTo),
         pub az_svg_fit_to_deep_copy: extern "C" fn(_:  &AzSvgFitTo) -> AzSvgFitTo,
         pub az_svg_fit_to_fmt_debug: extern "C" fn(_:  &AzSvgFitTo) -> AzString,
-        pub az_svg_parse: extern "C" fn(_:  AzU8VecRef, _:  AzSvgParseOptions) -> AzSvg,
+        pub az_svg_parse: extern "C" fn(_:  AzU8VecRef, _:  AzSvgParseOptions) -> AzResultSvgSvgParseError,
         pub az_svg_render_to_image: extern "C" fn(_:  &AzSvg, _:  AzSvgRenderOptions) -> AzOptionRawImage,
         pub az_svg_delete: extern "C" fn(_:  &mut AzSvg),
         pub az_svg_deep_copy: extern "C" fn(_:  &AzSvg) -> AzSvg,
@@ -5550,7 +5550,7 @@
             let az_svg_fit_to_delete: extern "C" fn(_:  &mut AzSvgFitTo) = transmute(lib.get(b"az_svg_fit_to_delete")?);
             let az_svg_fit_to_deep_copy: extern "C" fn(_:  &AzSvgFitTo) -> AzSvgFitTo = transmute(lib.get(b"az_svg_fit_to_deep_copy")?);
             let az_svg_fit_to_fmt_debug: extern "C" fn(_:  &AzSvgFitTo) -> AzString = transmute(lib.get(b"az_svg_fit_to_fmt_debug")?);
-            let az_svg_parse: extern "C" fn(_:  AzU8VecRef, _:  AzSvgParseOptions) -> AzSvg = transmute(lib.get(b"az_svg_parse")?);
+            let az_svg_parse: extern "C" fn(_:  AzU8VecRef, _:  AzSvgParseOptions) -> AzResultSvgSvgParseError = transmute(lib.get(b"az_svg_parse")?);
             let az_svg_render_to_image: extern "C" fn(_:  &AzSvg, _:  AzSvgRenderOptions) -> AzOptionRawImage = transmute(lib.get(b"az_svg_render_to_image")?);
             let az_svg_delete: extern "C" fn(_:  &mut AzSvg) = transmute(lib.get(b"az_svg_delete")?);
             let az_svg_deep_copy: extern "C" fn(_:  &AzSvg) -> AzSvg = transmute(lib.get(b"az_svg_deep_copy")?);

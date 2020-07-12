@@ -195,7 +195,7 @@
 
     impl Svg {
         /// Creates a new `Svg` instance.
-        pub fn parse(svg_bytes: U8VecRef, parse_options: SvgParseOptions) -> Self { (crate::dll::get_azul_dll().az_svg_parse)(svg_bytes, parse_options) }
+        pub fn parse(svg_bytes: U8VecRef, parse_options: SvgParseOptions) ->  crate::result::ResultSvgSvgParseError { (crate::dll::get_azul_dll().az_svg_parse)(svg_bytes, parse_options) }
         /// Calls the `Svg::render_to_image` function.
         pub fn render_to_image(&self, render_options: SvgRenderOptions)  -> crate::option::OptionRawImage { (crate::dll::get_azul_dll().az_svg_render_to_image)(self, render_options) }
     }
