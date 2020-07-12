@@ -1225,20 +1225,33 @@ pub fn scan_ui_description_for_image_keys(
 
     use crate::dom::NodeType::*;
 
-    display_list.rectangles
-    .iter()
-    .zip(node_data.iter())
-    .filter_map(|(display_rect, node_data)| {
-        match node_data.get_node_type() {
-            Image(id) => Some(*id),
-            _ => {
-                let background = display_rect.style.background.as_ref().and_then(|bg| bg.get_property())?;
-                let css_image_id = background.get_css_image_id()?;
-                let image_id = app_resources.get_css_image_id(css_image_id.inner.as_str())?;
-                Some(*image_id)
-            }
+    let mut images_in_dl = Vec::new();
+
+    for (display_rect, node_data) in display_list.rectangles.iter().zip(node_data.iter()) {
+        // If the node has an image content, it needs to be uploaded
+        if let Image(id) = node_data.get_node_type(){
+            images_in_dl.push(*id);
         }
-    }).collect()
+
+        // If the node has a CSS background image, it needs to be uploaded
+        let node_has_css_background = || -> Option<ImageId> {
+            let background = display_rect.style.background.as_ref().and_then(|bg| bg.get_property())?;
+            let css_image_id = background.get_css_image_id()?;
+            let image_id = app_resources.get_css_image_id(css_image_id.inner.as_str())?;
+            Some(*image_id)
+        };
+
+        if let Some(background_id) = node_has_css_background() {
+            images_in_dl.push(background_id);
+        }
+
+        // If the node has a clip mask, it needs to be uploaded
+        if let OptionImageId::Some(clip_mask_id) = node_data.get_clip_mask() {
+            images_in_dl.push(*clip_mask_id);
+        }
+    }
+
+    images_in_dl.into_iter().collect()
 }
 
 // Debug, PartialEq, Eq, PartialOrd, Ord
