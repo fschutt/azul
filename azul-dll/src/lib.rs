@@ -448,6 +448,28 @@ pub type AzGradientStopPreVecTT = azul_impl::css::GradientStopPreVec;
 /// Creates a string with the debug representation of the object
 #[no_mangle] pub extern "C" fn az_gradient_stop_pre_vec_fmt_debug(object: &AzGradientStopPreVec) -> AzString { format!("{:#?}", object).into() }
 
+/// Re-export of rust-allocated (stack based) `OptionColorU` struct
+pub type AzOptionColorUTT = azul_impl::css::OptionColorU;
+#[no_mangle] pub use AzOptionColorUTT as AzOptionColorU;
+/// Destructor: Takes ownership of the `OptionColorU` pointer and deletes it.
+#[no_mangle] #[allow(unused_variables)] pub extern "C" fn az_option_color_u_delete(object: &mut AzOptionColorU) { match object { azul_impl::css::OptionColorU::None => { }, azul_impl::css::OptionColorU::Some(_) => { }, }
+}
+/// Clones the object
+#[no_mangle] pub extern "C" fn az_option_color_u_deep_copy(object: &AzOptionColorU) -> AzOptionColorU { object.clone() }
+/// Creates a string with the debug representation of the object
+#[no_mangle] pub extern "C" fn az_option_color_u_fmt_debug(object: &AzOptionColorU) -> AzString { format!("{:#?}", object).into() }
+
+/// Re-export of rust-allocated (stack based) `OptionRawImage` struct
+pub type AzOptionRawImageTT = azul_impl::resources::OptionRawImage;
+#[no_mangle] pub use AzOptionRawImageTT as AzOptionRawImage;
+/// Destructor: Takes ownership of the `OptionRawImage` pointer and deletes it.
+#[no_mangle] #[allow(unused_variables)] pub extern "C" fn az_option_raw_image_delete(object: &mut AzOptionRawImage) { match object { azul_impl::resources::OptionRawImage::None => { }, azul_impl::resources::OptionRawImage::Some(_) => { }, }
+}
+/// Clones the object
+#[no_mangle] pub extern "C" fn az_option_raw_image_deep_copy(object: &AzOptionRawImage) -> AzOptionRawImage { object.clone() }
+/// Creates a string with the debug representation of the object
+#[no_mangle] pub extern "C" fn az_option_raw_image_fmt_debug(object: &AzOptionRawImage) -> AzString { format!("{:#?}", object).into() }
+
 /// Re-export of rust-allocated (stack based) `OptionSvgDashPattern` struct
 pub type AzOptionSvgDashPatternTT = azul_impl::svg::OptionSvgDashPattern;
 #[no_mangle] pub use AzOptionSvgDashPatternTT as AzOptionSvgDashPattern;
@@ -719,6 +741,17 @@ pub type AzOptionU8VecRefTT = azul_impl::gl::OptionU8VecRef;
 /// Creates a string with the debug representation of the object
 #[no_mangle] pub extern "C" fn az_option_u8_vec_ref_fmt_debug(object: &AzOptionU8VecRef) -> AzString { format!("{:#?}", object).into() }
 
+/// Re-export of rust-allocated (stack based) `ResultSvgSvgParseError` struct
+pub type AzResultSvgSvgParseErrorTT = azul_impl::svg::ResultSvgSvgParseError;
+#[no_mangle] pub use AzResultSvgSvgParseErrorTT as AzResultSvgSvgParseError;
+/// Destructor: Takes ownership of the `ResultSvgSvgParseError` pointer and deletes it.
+#[no_mangle] #[allow(unused_variables)] pub extern "C" fn az_result_svg_svg_parse_error_delete(object: &mut AzResultSvgSvgParseError) { match object { azul_impl::svg::ResultSvgSvgParseError::Ok(_) => { }, azul_impl::svg::ResultSvgSvgParseError::Err(_) => { }, }
+}
+/// Clones the object
+#[no_mangle] pub extern "C" fn az_result_svg_svg_parse_error_deep_copy(object: &AzResultSvgSvgParseError) -> AzResultSvgSvgParseError { object.clone() }
+/// Creates a string with the debug representation of the object
+#[no_mangle] pub extern "C" fn az_result_svg_svg_parse_error_fmt_debug(object: &AzResultSvgSvgParseError) -> AzString { format!("{:#?}", object).into() }
+
 /// Re-export of rust-allocated (stack based) `ResultRefAnyBlockError` struct
 pub type AzResultRefAnyBlockErrorTT = azul_impl::task::ResultRefAnyBlockError;
 #[no_mangle] pub use AzResultRefAnyBlockErrorTT as AzResultRefAnyBlockError;
@@ -729,6 +762,180 @@ pub type AzResultRefAnyBlockErrorTT = azul_impl::task::ResultRefAnyBlockError;
 #[no_mangle] pub extern "C" fn az_result_ref_any_block_error_deep_copy(object: &AzResultRefAnyBlockError) -> AzResultRefAnyBlockError { object.clone() }
 /// Creates a string with the debug representation of the object
 #[no_mangle] pub extern "C" fn az_result_ref_any_block_error_fmt_debug(object: &AzResultRefAnyBlockError) -> AzString { format!("{:#?}", object).into() }
+
+/// Re-export of rust-allocated (stack based) `SvgParseError` struct
+pub type AzSvgParseErrorTT = azul_impl::svg::SvgParseError;
+#[no_mangle] pub use AzSvgParseErrorTT as AzSvgParseError;
+/// Destructor: Takes ownership of the `SvgParseError` pointer and deletes it.
+#[no_mangle] #[allow(unused_variables)] pub extern "C" fn az_svg_parse_error_delete(object: &mut AzSvgParseError) { match object { azul_impl::svg::SvgParseError::InvalidFileSuffix => { }, azul_impl::svg::SvgParseError::FileOpenFailed => { }, azul_impl::svg::SvgParseError::NotAnUtf8Str => { }, azul_impl::svg::SvgParseError::MalformedGZip => { }, azul_impl::svg::SvgParseError::InvalidSize => { }, azul_impl::svg::SvgParseError::ParsingFailed(_) => { }, }
+}
+/// Clones the object
+#[no_mangle] pub extern "C" fn az_svg_parse_error_deep_copy(object: &AzSvgParseError) -> AzSvgParseError { object.clone() }
+/// Creates a string with the debug representation of the object
+#[no_mangle] pub extern "C" fn az_svg_parse_error_fmt_debug(object: &AzSvgParseError) -> AzString { format!("{:#?}", object).into() }
+
+/// Re-export of rust-allocated (stack based) `XmlError` struct
+pub type AzXmlErrorTT = azul_impl::xml::XmlError;
+#[no_mangle] pub use AzXmlErrorTT as AzXmlError;
+/// Destructor: Takes ownership of the `XmlError` pointer and deletes it.
+#[no_mangle] #[allow(unused_variables)] pub extern "C" fn az_xml_error_delete(object: &mut AzXmlError) { match object { azul_impl::xml::XmlError::InvalidXmlPrefixUri(_) => { }, azul_impl::xml::XmlError::UnexpectedXmlUri(_) => { }, azul_impl::xml::XmlError::UnexpectedXmlnsUri(_) => { }, azul_impl::xml::XmlError::InvalidElementNamePrefix(_) => { }, azul_impl::xml::XmlError::DuplicatedNamespace(_) => { }, azul_impl::xml::XmlError::UnknownNamespace(_) => { }, azul_impl::xml::XmlError::UnexpectedCloseTag(_) => { }, azul_impl::xml::XmlError::UnexpectedEntityCloseTag(_) => { }, azul_impl::xml::XmlError::UnknownEntityReference(_) => { }, azul_impl::xml::XmlError::MalformedEntityReference(_) => { }, azul_impl::xml::XmlError::EntityReferenceLoop(_) => { }, azul_impl::xml::XmlError::InvalidAttributeValue(_) => { }, azul_impl::xml::XmlError::DuplicatedAttribute(_) => { }, azul_impl::xml::XmlError::NoRootNode => { }, azul_impl::xml::XmlError::SizeLimit => { }, azul_impl::xml::XmlError::ParserError(_) => { }, }
+}
+/// Clones the object
+#[no_mangle] pub extern "C" fn az_xml_error_deep_copy(object: &AzXmlError) -> AzXmlError { object.clone() }
+/// Creates a string with the debug representation of the object
+#[no_mangle] pub extern "C" fn az_xml_error_fmt_debug(object: &AzXmlError) -> AzString { format!("{:#?}", object).into() }
+
+/// Re-export of rust-allocated (stack based) `DuplicatedNamespaceError` struct
+pub type AzDuplicatedNamespaceErrorTT = azul_impl::xml::DuplicatedNamespaceError;
+#[no_mangle] pub use AzDuplicatedNamespaceErrorTT as AzDuplicatedNamespaceError;
+/// Destructor: Takes ownership of the `DuplicatedNamespaceError` pointer and deletes it.
+#[no_mangle] #[allow(unused_variables)] pub extern "C" fn az_duplicated_namespace_error_delete(object: &mut AzDuplicatedNamespaceError) { }
+/// Clones the object
+#[no_mangle] pub extern "C" fn az_duplicated_namespace_error_deep_copy(object: &AzDuplicatedNamespaceError) -> AzDuplicatedNamespaceError { object.clone() }
+/// Creates a string with the debug representation of the object
+#[no_mangle] pub extern "C" fn az_duplicated_namespace_error_fmt_debug(object: &AzDuplicatedNamespaceError) -> AzString { format!("{:#?}", object).into() }
+
+/// Re-export of rust-allocated (stack based) `UnknownNamespaceError` struct
+pub type AzUnknownNamespaceErrorTT = azul_impl::xml::UnknownNamespaceError;
+#[no_mangle] pub use AzUnknownNamespaceErrorTT as AzUnknownNamespaceError;
+/// Destructor: Takes ownership of the `UnknownNamespaceError` pointer and deletes it.
+#[no_mangle] #[allow(unused_variables)] pub extern "C" fn az_unknown_namespace_error_delete(object: &mut AzUnknownNamespaceError) { }
+/// Clones the object
+#[no_mangle] pub extern "C" fn az_unknown_namespace_error_deep_copy(object: &AzUnknownNamespaceError) -> AzUnknownNamespaceError { object.clone() }
+/// Creates a string with the debug representation of the object
+#[no_mangle] pub extern "C" fn az_unknown_namespace_error_fmt_debug(object: &AzUnknownNamespaceError) -> AzString { format!("{:#?}", object).into() }
+
+/// Re-export of rust-allocated (stack based) `UnexpectedCloseTagError` struct
+pub type AzUnexpectedCloseTagErrorTT = azul_impl::xml::UnexpectedCloseTagError;
+#[no_mangle] pub use AzUnexpectedCloseTagErrorTT as AzUnexpectedCloseTagError;
+/// Destructor: Takes ownership of the `UnexpectedCloseTagError` pointer and deletes it.
+#[no_mangle] #[allow(unused_variables)] pub extern "C" fn az_unexpected_close_tag_error_delete(object: &mut AzUnexpectedCloseTagError) { }
+/// Clones the object
+#[no_mangle] pub extern "C" fn az_unexpected_close_tag_error_deep_copy(object: &AzUnexpectedCloseTagError) -> AzUnexpectedCloseTagError { object.clone() }
+/// Creates a string with the debug representation of the object
+#[no_mangle] pub extern "C" fn az_unexpected_close_tag_error_fmt_debug(object: &AzUnexpectedCloseTagError) -> AzString { format!("{:#?}", object).into() }
+
+/// Re-export of rust-allocated (stack based) `UnknownEntityReferenceError` struct
+pub type AzUnknownEntityReferenceErrorTT = azul_impl::xml::UnknownEntityReferenceError;
+#[no_mangle] pub use AzUnknownEntityReferenceErrorTT as AzUnknownEntityReferenceError;
+/// Destructor: Takes ownership of the `UnknownEntityReferenceError` pointer and deletes it.
+#[no_mangle] #[allow(unused_variables)] pub extern "C" fn az_unknown_entity_reference_error_delete(object: &mut AzUnknownEntityReferenceError) { }
+/// Clones the object
+#[no_mangle] pub extern "C" fn az_unknown_entity_reference_error_deep_copy(object: &AzUnknownEntityReferenceError) -> AzUnknownEntityReferenceError { object.clone() }
+/// Creates a string with the debug representation of the object
+#[no_mangle] pub extern "C" fn az_unknown_entity_reference_error_fmt_debug(object: &AzUnknownEntityReferenceError) -> AzString { format!("{:#?}", object).into() }
+
+/// Re-export of rust-allocated (stack based) `DuplicatedAttributeError` struct
+pub type AzDuplicatedAttributeErrorTT = azul_impl::xml::DuplicatedAttributeError;
+#[no_mangle] pub use AzDuplicatedAttributeErrorTT as AzDuplicatedAttributeError;
+/// Destructor: Takes ownership of the `DuplicatedAttributeError` pointer and deletes it.
+#[no_mangle] #[allow(unused_variables)] pub extern "C" fn az_duplicated_attribute_error_delete(object: &mut AzDuplicatedAttributeError) { }
+/// Clones the object
+#[no_mangle] pub extern "C" fn az_duplicated_attribute_error_deep_copy(object: &AzDuplicatedAttributeError) -> AzDuplicatedAttributeError { object.clone() }
+/// Creates a string with the debug representation of the object
+#[no_mangle] pub extern "C" fn az_duplicated_attribute_error_fmt_debug(object: &AzDuplicatedAttributeError) -> AzString { format!("{:#?}", object).into() }
+
+/// Re-export of rust-allocated (stack based) `XmlParseError` struct
+pub type AzXmlParseErrorTT = azul_impl::xml::XmlParseError;
+#[no_mangle] pub use AzXmlParseErrorTT as AzXmlParseError;
+/// Destructor: Takes ownership of the `XmlParseError` pointer and deletes it.
+#[no_mangle] #[allow(unused_variables)] pub extern "C" fn az_xml_parse_error_delete(object: &mut AzXmlParseError) { match object { azul_impl::xml::XmlParseError::InvalidDeclaration(_) => { }, azul_impl::xml::XmlParseError::InvalidComment(_) => { }, azul_impl::xml::XmlParseError::InvalidPI(_) => { }, azul_impl::xml::XmlParseError::InvalidDoctype(_) => { }, azul_impl::xml::XmlParseError::InvalidEntity(_) => { }, azul_impl::xml::XmlParseError::InvalidElement(_) => { }, azul_impl::xml::XmlParseError::InvalidAttribute(_) => { }, azul_impl::xml::XmlParseError::InvalidCdata(_) => { }, azul_impl::xml::XmlParseError::InvalidCharData(_) => { }, azul_impl::xml::XmlParseError::UnknownToken(_) => { }, }
+}
+/// Clones the object
+#[no_mangle] pub extern "C" fn az_xml_parse_error_deep_copy(object: &AzXmlParseError) -> AzXmlParseError { object.clone() }
+/// Creates a string with the debug representation of the object
+#[no_mangle] pub extern "C" fn az_xml_parse_error_fmt_debug(object: &AzXmlParseError) -> AzString { format!("{:#?}", object).into() }
+
+/// Re-export of rust-allocated (stack based) `XmlTextError` struct
+pub type AzXmlTextErrorTT = azul_impl::xml::XmlTextError;
+#[no_mangle] pub use AzXmlTextErrorTT as AzXmlTextError;
+/// Destructor: Takes ownership of the `XmlTextError` pointer and deletes it.
+#[no_mangle] #[allow(unused_variables)] pub extern "C" fn az_xml_text_error_delete(object: &mut AzXmlTextError) { }
+/// Clones the object
+#[no_mangle] pub extern "C" fn az_xml_text_error_deep_copy(object: &AzXmlTextError) -> AzXmlTextError { object.clone() }
+/// Creates a string with the debug representation of the object
+#[no_mangle] pub extern "C" fn az_xml_text_error_fmt_debug(object: &AzXmlTextError) -> AzString { format!("{:#?}", object).into() }
+
+/// Re-export of rust-allocated (stack based) `XmlStreamError` struct
+pub type AzXmlStreamErrorTT = azul_impl::xml::XmlStreamError;
+#[no_mangle] pub use AzXmlStreamErrorTT as AzXmlStreamError;
+/// Destructor: Takes ownership of the `XmlStreamError` pointer and deletes it.
+#[no_mangle] #[allow(unused_variables)] pub extern "C" fn az_xml_stream_error_delete(object: &mut AzXmlStreamError) { match object { azul_impl::xml::XmlStreamError::UnexpectedEndOfStream => { }, azul_impl::xml::XmlStreamError::InvalidName => { }, azul_impl::xml::XmlStreamError::NonXmlChar(_) => { }, azul_impl::xml::XmlStreamError::InvalidChar(_) => { }, azul_impl::xml::XmlStreamError::InvalidCharMultiple(_) => { }, azul_impl::xml::XmlStreamError::InvalidQuote(_) => { }, azul_impl::xml::XmlStreamError::InvalidSpace(_) => { }, azul_impl::xml::XmlStreamError::InvalidString(_) => { }, azul_impl::xml::XmlStreamError::InvalidReference => { }, azul_impl::xml::XmlStreamError::InvalidExternalID => { }, azul_impl::xml::XmlStreamError::InvalidCommentData => { }, azul_impl::xml::XmlStreamError::InvalidCommentEnd => { }, azul_impl::xml::XmlStreamError::InvalidCharacterData => { }, }
+}
+/// Clones the object
+#[no_mangle] pub extern "C" fn az_xml_stream_error_deep_copy(object: &AzXmlStreamError) -> AzXmlStreamError { object.clone() }
+/// Creates a string with the debug representation of the object
+#[no_mangle] pub extern "C" fn az_xml_stream_error_fmt_debug(object: &AzXmlStreamError) -> AzString { format!("{:#?}", object).into() }
+
+/// Re-export of rust-allocated (stack based) `NonXmlCharError` struct
+pub type AzNonXmlCharErrorTT = azul_impl::xml::NonXmlCharError;
+#[no_mangle] pub use AzNonXmlCharErrorTT as AzNonXmlCharError;
+/// Destructor: Takes ownership of the `NonXmlCharError` pointer and deletes it.
+#[no_mangle] #[allow(unused_variables)] pub extern "C" fn az_non_xml_char_error_delete(object: &mut AzNonXmlCharError) { }
+/// Clones the object
+#[no_mangle] pub extern "C" fn az_non_xml_char_error_deep_copy(object: &AzNonXmlCharError) -> AzNonXmlCharError { object.clone() }
+/// Creates a string with the debug representation of the object
+#[no_mangle] pub extern "C" fn az_non_xml_char_error_fmt_debug(object: &AzNonXmlCharError) -> AzString { format!("{:#?}", object).into() }
+
+/// Re-export of rust-allocated (stack based) `InvalidCharError` struct
+pub type AzInvalidCharErrorTT = azul_impl::xml::InvalidCharError;
+#[no_mangle] pub use AzInvalidCharErrorTT as AzInvalidCharError;
+/// Destructor: Takes ownership of the `InvalidCharError` pointer and deletes it.
+#[no_mangle] #[allow(unused_variables)] pub extern "C" fn az_invalid_char_error_delete(object: &mut AzInvalidCharError) { }
+/// Clones the object
+#[no_mangle] pub extern "C" fn az_invalid_char_error_deep_copy(object: &AzInvalidCharError) -> AzInvalidCharError { object.clone() }
+/// Creates a string with the debug representation of the object
+#[no_mangle] pub extern "C" fn az_invalid_char_error_fmt_debug(object: &AzInvalidCharError) -> AzString { format!("{:#?}", object).into() }
+
+/// Re-export of rust-allocated (stack based) `InvalidCharMultipleError` struct
+pub type AzInvalidCharMultipleErrorTT = azul_impl::xml::InvalidCharMultipleError;
+#[no_mangle] pub use AzInvalidCharMultipleErrorTT as AzInvalidCharMultipleError;
+/// Destructor: Takes ownership of the `InvalidCharMultipleError` pointer and deletes it.
+#[no_mangle] #[allow(unused_variables)] pub extern "C" fn az_invalid_char_multiple_error_delete(object: &mut AzInvalidCharMultipleError) { }
+/// Clones the object
+#[no_mangle] pub extern "C" fn az_invalid_char_multiple_error_deep_copy(object: &AzInvalidCharMultipleError) -> AzInvalidCharMultipleError { object.clone() }
+/// Creates a string with the debug representation of the object
+#[no_mangle] pub extern "C" fn az_invalid_char_multiple_error_fmt_debug(object: &AzInvalidCharMultipleError) -> AzString { format!("{:#?}", object).into() }
+
+/// Re-export of rust-allocated (stack based) `InvalidQuoteError` struct
+pub type AzInvalidQuoteErrorTT = azul_impl::xml::InvalidQuoteError;
+#[no_mangle] pub use AzInvalidQuoteErrorTT as AzInvalidQuoteError;
+/// Destructor: Takes ownership of the `InvalidQuoteError` pointer and deletes it.
+#[no_mangle] #[allow(unused_variables)] pub extern "C" fn az_invalid_quote_error_delete(object: &mut AzInvalidQuoteError) { }
+/// Clones the object
+#[no_mangle] pub extern "C" fn az_invalid_quote_error_deep_copy(object: &AzInvalidQuoteError) -> AzInvalidQuoteError { object.clone() }
+/// Creates a string with the debug representation of the object
+#[no_mangle] pub extern "C" fn az_invalid_quote_error_fmt_debug(object: &AzInvalidQuoteError) -> AzString { format!("{:#?}", object).into() }
+
+/// Re-export of rust-allocated (stack based) `InvalidSpaceError` struct
+pub type AzInvalidSpaceErrorTT = azul_impl::xml::InvalidSpaceError;
+#[no_mangle] pub use AzInvalidSpaceErrorTT as AzInvalidSpaceError;
+/// Destructor: Takes ownership of the `InvalidSpaceError` pointer and deletes it.
+#[no_mangle] #[allow(unused_variables)] pub extern "C" fn az_invalid_space_error_delete(object: &mut AzInvalidSpaceError) { }
+/// Clones the object
+#[no_mangle] pub extern "C" fn az_invalid_space_error_deep_copy(object: &AzInvalidSpaceError) -> AzInvalidSpaceError { object.clone() }
+/// Creates a string with the debug representation of the object
+#[no_mangle] pub extern "C" fn az_invalid_space_error_fmt_debug(object: &AzInvalidSpaceError) -> AzString { format!("{:#?}", object).into() }
+
+/// Re-export of rust-allocated (stack based) `InvalidStringError` struct
+pub type AzInvalidStringErrorTT = azul_impl::xml::InvalidStringError;
+#[no_mangle] pub use AzInvalidStringErrorTT as AzInvalidStringError;
+/// Destructor: Takes ownership of the `InvalidStringError` pointer and deletes it.
+#[no_mangle] #[allow(unused_variables)] pub extern "C" fn az_invalid_string_error_delete(object: &mut AzInvalidStringError) { }
+/// Clones the object
+#[no_mangle] pub extern "C" fn az_invalid_string_error_deep_copy(object: &AzInvalidStringError) -> AzInvalidStringError { object.clone() }
+/// Creates a string with the debug representation of the object
+#[no_mangle] pub extern "C" fn az_invalid_string_error_fmt_debug(object: &AzInvalidStringError) -> AzString { format!("{:#?}", object).into() }
+
+/// Re-export of rust-allocated (stack based) `XmlTextPos` struct
+pub type AzXmlTextPosTT = azul_impl::xml::XmlTextPos;
+#[no_mangle] pub use AzXmlTextPosTT as AzXmlTextPos;
+/// Destructor: Takes ownership of the `XmlTextPos` pointer and deletes it.
+#[no_mangle] #[allow(unused_variables)] pub extern "C" fn az_xml_text_pos_delete(object: &mut AzXmlTextPos) { }
+/// Clones the object
+#[no_mangle] pub extern "C" fn az_xml_text_pos_deep_copy(object: &AzXmlTextPos) -> AzXmlTextPos { object.clone() }
+/// Creates a string with the debug representation of the object
+#[no_mangle] pub extern "C" fn az_xml_text_pos_fmt_debug(object: &AzXmlTextPos) -> AzString { format!("{:#?}", object).into() }
 
 /// Pointer to rust-allocated `Box<Instant>` struct
 pub type AzInstantPtrTT = azul_impl::task::AzInstantPtr;
@@ -3922,6 +4129,112 @@ pub type AzSvgLineCapTT = azul_impl::svg::SvgLineCap;
 #[no_mangle] pub extern "C" fn az_svg_line_cap_deep_copy(object: &AzSvgLineCap) -> AzSvgLineCap { object.clone() }
 /// Creates a string with the debug representation of the object
 #[no_mangle] pub extern "C" fn az_svg_line_cap_fmt_debug(object: &AzSvgLineCap) -> AzString { format!("{:#?}", object).into() }
+
+/// Re-export of rust-allocated (stack based) `SvgParseOptions` struct
+pub type AzSvgParseOptionsTT = azul_impl::svg::SvgParseOptions;
+#[no_mangle] pub use AzSvgParseOptionsTT as AzSvgParseOptions;
+// Creates a new `SvgParseOptions` instance whose memory is owned by the rust allocator
+// Equivalent to the Rust `SvgParseOptions::default()` constructor.
+#[no_mangle] pub extern "C" fn az_svg_parse_options_default() -> AzSvgParseOptions { AzSvgParseOptions::default() }
+/// Destructor: Takes ownership of the `SvgParseOptions` pointer and deletes it.
+#[no_mangle] #[allow(unused_variables)] pub extern "C" fn az_svg_parse_options_delete(object: &mut AzSvgParseOptions) { }
+/// Clones the object
+#[no_mangle] pub extern "C" fn az_svg_parse_options_deep_copy(object: &AzSvgParseOptions) -> AzSvgParseOptions { object.clone() }
+/// Creates a string with the debug representation of the object
+#[no_mangle] pub extern "C" fn az_svg_parse_options_fmt_debug(object: &AzSvgParseOptions) -> AzString { format!("{:#?}", object).into() }
+
+/// Re-export of rust-allocated (stack based) `ShapeRendering` struct
+pub type AzShapeRenderingTT = azul_impl::svg::ShapeRendering;
+#[no_mangle] pub use AzShapeRenderingTT as AzShapeRendering;
+/// Destructor: Takes ownership of the `ShapeRendering` pointer and deletes it.
+#[no_mangle] #[allow(unused_variables)] pub extern "C" fn az_shape_rendering_delete(object: &mut AzShapeRendering) { match object { azul_impl::svg::ShapeRendering::OptimizeSpeed => { }, azul_impl::svg::ShapeRendering::CrispEdges => { }, azul_impl::svg::ShapeRendering::GeometricPrecision => { }, }
+}
+/// Clones the object
+#[no_mangle] pub extern "C" fn az_shape_rendering_deep_copy(object: &AzShapeRendering) -> AzShapeRendering { object.clone() }
+/// Creates a string with the debug representation of the object
+#[no_mangle] pub extern "C" fn az_shape_rendering_fmt_debug(object: &AzShapeRendering) -> AzString { format!("{:#?}", object).into() }
+
+/// Re-export of rust-allocated (stack based) `TextRendering` struct
+pub type AzTextRenderingTT = azul_impl::svg::TextRendering;
+#[no_mangle] pub use AzTextRenderingTT as AzTextRendering;
+/// Destructor: Takes ownership of the `TextRendering` pointer and deletes it.
+#[no_mangle] #[allow(unused_variables)] pub extern "C" fn az_text_rendering_delete(object: &mut AzTextRendering) { match object { azul_impl::svg::TextRendering::OptimizeSpeed => { }, azul_impl::svg::TextRendering::OptimizeLegibility => { }, azul_impl::svg::TextRendering::GeometricPrecision => { }, }
+}
+/// Clones the object
+#[no_mangle] pub extern "C" fn az_text_rendering_deep_copy(object: &AzTextRendering) -> AzTextRendering { object.clone() }
+/// Creates a string with the debug representation of the object
+#[no_mangle] pub extern "C" fn az_text_rendering_fmt_debug(object: &AzTextRendering) -> AzString { format!("{:#?}", object).into() }
+
+/// Re-export of rust-allocated (stack based) `ImageRendering` struct
+pub type AzImageRenderingTT = azul_impl::svg::ImageRendering;
+#[no_mangle] pub use AzImageRenderingTT as AzImageRendering;
+/// Destructor: Takes ownership of the `ImageRendering` pointer and deletes it.
+#[no_mangle] #[allow(unused_variables)] pub extern "C" fn az_image_rendering_delete(object: &mut AzImageRendering) { match object { azul_impl::svg::ImageRendering::OptimizeQuality => { }, azul_impl::svg::ImageRendering::OptimizeSpeed => { }, }
+}
+/// Clones the object
+#[no_mangle] pub extern "C" fn az_image_rendering_deep_copy(object: &AzImageRendering) -> AzImageRendering { object.clone() }
+/// Creates a string with the debug representation of the object
+#[no_mangle] pub extern "C" fn az_image_rendering_fmt_debug(object: &AzImageRendering) -> AzString { format!("{:#?}", object).into() }
+
+/// Re-export of rust-allocated (stack based) `FontDatabase` struct
+pub type AzFontDatabaseTT = azul_impl::svg::FontDatabase;
+#[no_mangle] pub use AzFontDatabaseTT as AzFontDatabase;
+/// Destructor: Takes ownership of the `FontDatabase` pointer and deletes it.
+#[no_mangle] #[allow(unused_variables)] pub extern "C" fn az_font_database_delete(object: &mut AzFontDatabase) { match object { azul_impl::svg::FontDatabase::Empty => { }, azul_impl::svg::FontDatabase::System => { }, }
+}
+/// Clones the object
+#[no_mangle] pub extern "C" fn az_font_database_deep_copy(object: &AzFontDatabase) -> AzFontDatabase { object.clone() }
+/// Creates a string with the debug representation of the object
+#[no_mangle] pub extern "C" fn az_font_database_fmt_debug(object: &AzFontDatabase) -> AzString { format!("{:#?}", object).into() }
+
+/// Re-export of rust-allocated (stack based) `SvgRenderOptions` struct
+pub type AzSvgRenderOptionsTT = azul_impl::svg::SvgRenderOptions;
+#[no_mangle] pub use AzSvgRenderOptionsTT as AzSvgRenderOptions;
+// Creates a new `SvgRenderOptions` instance whose memory is owned by the rust allocator
+// Equivalent to the Rust `SvgRenderOptions::default()` constructor.
+#[no_mangle] pub extern "C" fn az_svg_render_options_default() -> AzSvgRenderOptions { AzSvgRenderOptions::default() }
+/// Destructor: Takes ownership of the `SvgRenderOptions` pointer and deletes it.
+#[no_mangle] #[allow(unused_variables)] pub extern "C" fn az_svg_render_options_delete(object: &mut AzSvgRenderOptions) { }
+/// Clones the object
+#[no_mangle] pub extern "C" fn az_svg_render_options_deep_copy(object: &AzSvgRenderOptions) -> AzSvgRenderOptions { object.clone() }
+/// Creates a string with the debug representation of the object
+#[no_mangle] pub extern "C" fn az_svg_render_options_fmt_debug(object: &AzSvgRenderOptions) -> AzString { format!("{:#?}", object).into() }
+
+/// Re-export of rust-allocated (stack based) `SvgFitTo` struct
+pub type AzSvgFitToTT = azul_impl::svg::SvgFitTo;
+#[no_mangle] pub use AzSvgFitToTT as AzSvgFitTo;
+/// Destructor: Takes ownership of the `SvgFitTo` pointer and deletes it.
+#[no_mangle] #[allow(unused_variables)] pub extern "C" fn az_svg_fit_to_delete(object: &mut AzSvgFitTo) { match object { azul_impl::svg::SvgFitTo::Original => { }, azul_impl::svg::SvgFitTo::Width(_) => { }, azul_impl::svg::SvgFitTo::Height(_) => { }, azul_impl::svg::SvgFitTo::Zoom(_) => { }, }
+}
+/// Clones the object
+#[no_mangle] pub extern "C" fn az_svg_fit_to_deep_copy(object: &AzSvgFitTo) -> AzSvgFitTo { object.clone() }
+/// Creates a string with the debug representation of the object
+#[no_mangle] pub extern "C" fn az_svg_fit_to_fmt_debug(object: &AzSvgFitTo) -> AzString { format!("{:#?}", object).into() }
+
+/// Re-export of rust-allocated (stack based) `Svg` struct
+pub type AzSvgTT = azul_impl::svg::Svg;
+#[no_mangle] pub use AzSvgTT as AzSvg;
+// Creates a new `Svg` instance whose memory is owned by the rust allocator
+// Equivalent to the Rust `Svg::parse()` constructor.
+#[no_mangle] pub extern "C" fn az_svg_parse(svg_bytes: AzU8VecRef, parse_options: AzSvgParseOptions) -> AzSvg { azul_impl::svg::Svg::parse(svg_bytes.as_slice(), parse_options).into() }
+// Equivalent to the Rust `Svg::render_to_image()` function.
+#[no_mangle] pub extern "C" fn az_svg_render_to_image(svg: &AzSvg, render_options: AzSvgRenderOptions) -> AzOptionRawImage { svg.render_to_image(render_options).into() }
+/// Destructor: Takes ownership of the `Svg` pointer and deletes it.
+#[no_mangle] #[allow(unused_variables)] pub extern "C" fn az_svg_delete(object: &mut AzSvg) { }
+/// Clones the object
+#[no_mangle] pub extern "C" fn az_svg_deep_copy(object: &AzSvg) -> AzSvg { object.clone() }
+/// Creates a string with the debug representation of the object
+#[no_mangle] pub extern "C" fn az_svg_fmt_debug(object: &AzSvg) -> AzString { format!("{:#?}", object).into() }
+
+/// Re-export of rust-allocated (stack based) `SvgXmlNode` struct
+pub type AzSvgXmlNodeTT = azul_impl::svg::SvgXmlNode;
+#[no_mangle] pub use AzSvgXmlNodeTT as AzSvgXmlNode;
+/// Destructor: Takes ownership of the `SvgXmlNode` pointer and deletes it.
+#[no_mangle] #[allow(unused_variables)] pub extern "C" fn az_svg_xml_node_delete(object: &mut AzSvgXmlNode) { }
+/// Clones the object
+#[no_mangle] pub extern "C" fn az_svg_xml_node_deep_copy(object: &AzSvgXmlNode) -> AzSvgXmlNode { object.clone() }
+/// Creates a string with the debug representation of the object
+#[no_mangle] pub extern "C" fn az_svg_xml_node_fmt_debug(object: &AzSvgXmlNode) -> AzString { format!("{:#?}", object).into() }
 
 /// Re-export of rust-allocated (stack based) `SvgLineJoin` struct
 pub type AzSvgLineJoinTT = azul_impl::svg::SvgLineJoin;

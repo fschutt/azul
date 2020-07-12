@@ -69,7 +69,7 @@ impl std::fmt::Debug for RefstrVecRef {
 }
 
 impl RefstrVecRef {
-    fn as_slice(&self) -> &[Refstr] { unsafe { std::slice::from_raw_parts(self.ptr, self.len) } }
+    pub fn as_slice(&self) -> &[Refstr] { unsafe { std::slice::from_raw_parts(self.ptr, self.len) } }
 }
 
 impl From<&[Refstr]> for RefstrVecRef {
@@ -98,7 +98,7 @@ impl From<&mut [GLint64]> for GLint64VecRefMut {
 }
 
 impl GLint64VecRefMut {
-    fn as_slice(&self) -> &[GLint64] { unsafe { std::slice::from_raw_parts(self.ptr, self.len) } }
+    pub fn as_slice(&self) -> &[GLint64] { unsafe { std::slice::from_raw_parts(self.ptr, self.len) } }
     fn as_mut_slice(&mut self) -> &mut [GLint64] { unsafe { std::slice::from_raw_parts_mut(self.ptr, self.len) } }
 }
 
@@ -122,7 +122,7 @@ impl From<&mut [GLfloat]> for GLfloatVecRefMut {
 }
 
 impl GLfloatVecRefMut {
-    fn as_slice(&self) -> &[GLfloat] { unsafe { std::slice::from_raw_parts(self.ptr, self.len) } }
+    pub fn as_slice(&self) -> &[GLfloat] { unsafe { std::slice::from_raw_parts(self.ptr, self.len) } }
     fn as_mut_slice(&mut self) -> &mut [GLfloat] { unsafe { std::slice::from_raw_parts_mut(self.ptr, self.len) } }
 }
 
@@ -146,7 +146,7 @@ impl From<&mut [GLint]> for GLintVecRefMut {
 }
 
 impl GLintVecRefMut {
-    fn as_slice(&self) -> &[GLint] { unsafe { std::slice::from_raw_parts(self.ptr, self.len) } }
+    pub fn as_slice(&self) -> &[GLint] { unsafe { std::slice::from_raw_parts(self.ptr, self.len) } }
     fn as_mut_slice(&mut self) -> &mut [GLint] { unsafe { std::slice::from_raw_parts_mut(self.ptr, self.len) } }
 }
 
@@ -170,7 +170,7 @@ impl From<&[GLuint]> for GLuintVecRef {
 }
 
 impl GLuintVecRef {
-    fn as_slice(&self) -> &[GLuint] { unsafe { std::slice::from_raw_parts(self.ptr, self.len) } }
+    pub fn as_slice(&self) -> &[GLuint] { unsafe { std::slice::from_raw_parts(self.ptr, self.len) } }
 }
 
 // &[GLenum]
@@ -193,7 +193,7 @@ impl From<&[GLenum]> for GLenumVecRef {
 }
 
 impl GLenumVecRef {
-    fn as_slice(&self) -> &[GLenum] { unsafe { std::slice::from_raw_parts(self.ptr, self.len) } }
+    pub fn as_slice(&self) -> &[GLenum] { unsafe { std::slice::from_raw_parts(self.ptr, self.len) } }
 }
 
 
@@ -211,7 +211,7 @@ impl From<&[u8]> for U8VecRef {
 }
 
 impl U8VecRef {
-    fn as_slice(&self) -> &[u8] { unsafe { std::slice::from_raw_parts(self.ptr, self.len) } }
+    pub fn as_slice(&self) -> &[u8] { unsafe { std::slice::from_raw_parts(self.ptr, self.len) } }
 }
 
 impl fmt::Debug for U8VecRef {
@@ -266,7 +266,7 @@ impl From<&[f32]> for F32VecRef {
 }
 
 impl F32VecRef {
-    fn as_slice(&self) -> &[f32] { unsafe { std::slice::from_raw_parts(self.ptr, self.len) } }
+    pub fn as_slice(&self) -> &[f32] { unsafe { std::slice::from_raw_parts(self.ptr, self.len) } }
 }
 
 // &[i32]
@@ -289,7 +289,7 @@ impl From<&[i32]> for I32VecRef {
 }
 
 impl I32VecRef {
-    fn as_slice(&self) -> &[i32] { unsafe { std::slice::from_raw_parts(self.ptr, self.len) } }
+    pub fn as_slice(&self) -> &[i32] { unsafe { std::slice::from_raw_parts(self.ptr, self.len) } }
 }
 
 // &mut [u8]
@@ -312,7 +312,7 @@ impl From<&mut [GLboolean]> for GLbooleanVecRefMut {
 }
 
 impl GLbooleanVecRefMut {
-    fn as_slice(&self) -> &[GLboolean] { unsafe { std::slice::from_raw_parts(self.ptr, self.len) } }
+    pub fn as_slice(&self) -> &[GLboolean] { unsafe { std::slice::from_raw_parts(self.ptr, self.len) } }
     fn as_mut_slice(&mut self) -> &mut [GLboolean] { unsafe { std::slice::from_raw_parts_mut(self.ptr, self.len) } }
 }
 
@@ -336,7 +336,7 @@ impl From<&mut [u8]> for U8VecRefMut {
 }
 
 impl U8VecRefMut {
-    fn as_slice(&self) -> &[u8] { unsafe { std::slice::from_raw_parts(self.ptr, self.len) } }
+    pub fn as_slice(&self) -> &[u8] { unsafe { std::slice::from_raw_parts(self.ptr, self.len) } }
     fn as_mut_slice(&mut self) -> &mut [u8] { unsafe { std::slice::from_raw_parts_mut(self.ptr, self.len) } }
 }
 

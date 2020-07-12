@@ -480,17 +480,26 @@ macro_rules! impl_result_inner {
                 $struct_name::Err(e) => Err(e),
             }
         }
+        pub fn is_ok(&self) -> bool {
+            match self {
+                $struct_name::Ok(_) => true,
+                $struct_name::Err(_) => false,
+            }
+        }
+        pub fn is_err(&self) -> bool {
+            !self.is_ok()
+        }
     }
 )}
 
 #[macro_export]
 macro_rules! impl_result {
-    ($ok_struct_type:ident, $err_struct_type:ident, $struct_name:ident, copy = false, clone = false) => (
-        #[derive(Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
+    ($ok_struct_type:ident, $err_struct_type:ident, $struct_name:ident, copy = false, clone = false, [$($derive:meta),* ]) => (
+        $(#[derive($derive)])*
         #[repr(C, u8)]
         pub enum $struct_name {
             Ok($ok_struct_type),
-            Err($err_struct_type),
+            Err($err_struct_type)
         }
 
         impl $struct_name {
@@ -504,14 +513,13 @@ macro_rules! impl_result {
 
         impl_result_inner!($ok_struct_type, $err_struct_type, $struct_name);
     );
-    ($ok_struct_type:ident, $err_struct_type:ident, $struct_name:ident, copy = false) => (
-        #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
+    ($ok_struct_type:ident, $err_struct_type:ident, $struct_name:ident, copy = false, [$($derive:meta),* ]) => (
+        $(#[derive($derive)])*
         #[repr(C, u8)]
         pub enum $struct_name {
             Ok($ok_struct_type),
-            Err($err_struct_type),
+            Err($err_struct_type)
         }
-
         impl $struct_name {
             pub fn into_result(&self) -> Result<$ok_struct_type, $err_struct_type> {
                 match self {
@@ -523,12 +531,12 @@ macro_rules! impl_result {
 
         impl_result_inner!($ok_struct_type, $err_struct_type, $struct_name);
     );
-    ($ok_struct_type:ident, $err_struct_type:ident, $struct_name:ident) => (
-        #[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
+    ($ok_struct_type:ident, $err_struct_type:ident,  $struct_name:ident, [$($derive:meta),* ]) => (
+        $(#[derive($derive)])*
         #[repr(C, u8)]
         pub enum $struct_name {
             Ok($ok_struct_type),
-            Err($err_struct_type),
+            Err($err_struct_type)
         }
 
         impl $struct_name {

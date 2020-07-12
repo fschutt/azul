@@ -414,7 +414,7 @@ impl Thread {
     }
 }
 
-impl_result!(RefAny, BlockError, ResultRefAnyBlockError, copy = false);
+impl_result!(RefAny, BlockError, ResultRefAnyBlockError, copy = false, [Debug, Clone, PartialEq, PartialOrd]);
 
 impl Drop for Thread {
     fn drop(&mut self) {

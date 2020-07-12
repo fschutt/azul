@@ -28,7 +28,7 @@ use crate::{
 };
 use azul_core::{
     FastHashMap,
-    window::{HotReloadOptions, RendererType, WindowCreateOptions, WindowSize, DebugState, WindowState, FullWindowState},
+    window::{RendererType, WindowCreateOptions, WindowSize, DebugState, WindowState, FullWindowState},
     dom::{DomId, NodeId, ScrollTagId},
     gl::{GlShader, GlContextPtr},
     ui_state::UiState,
@@ -1219,7 +1219,7 @@ fn initialize_ui_state_cache(
 
     let mut ui_state_map = BTreeMap::new();
 
-    for (glutin_window_id, window) in windows {
+    for (glutin_window_id, _) in windows {
         DomId::reset();
 
         #[cfg(all(debug_assertions, any(feature = "css_parser", feature = "native_style")))] {

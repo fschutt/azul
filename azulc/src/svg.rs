@@ -296,7 +296,12 @@ pub fn tesselate_circle_stroke(c: &SvgCircle, stroke_style: SvgStrokeStyle) -> T
 
 fn get_radii(r: &SvgRect) -> (Rect<f32, UnknownUnit>, BorderRadii) {
     let rect = Rect::new(Point2D::new(r.x, r.y), Size2D::new(r.width, r.height));
-    let radii = BorderRadii { top_left: r.rx, top_right: r.rx, bottom_left: r.rx, bottom_right: r.rx };
+    let radii = BorderRadii {
+        top_left: r.radius_top_left,
+        top_right: r.radius_top_right,
+        bottom_left: r.radius_bottom_left,
+        bottom_right: r.radius_bottom_right
+    };
     (rect, radii)
 }
 
@@ -516,7 +521,7 @@ impl Svg {
         SvgXmlNode::new(self.get_tree().root())
     }
 
-    pub fn to_image(&self, options: SvgRenderOptions) -> Option<RawImage> {
+    pub fn render_to_image(&self, options: SvgRenderOptions) -> Option<RawImage> {
         resvg::render(self.get_tree(), translate_fit_to(options.fit), options.background_color.into_option().map(translate_color)).map(translate_image)
     }
 
@@ -531,6 +536,7 @@ impl Drop for Svg {
     }
 }
 
+#[derive(Debug, Copy, Clone, PartialEq, PartialOrd, Eq, Ord, Hash)]
 #[repr(C)]
 pub enum ShapeRendering {
     OptimizeSpeed,
@@ -548,6 +554,7 @@ impl From<ShapeRendering> for usvg::ShapeRendering {
     }
 }
 
+#[derive(Debug, Copy, Clone, PartialEq, PartialOrd, Eq, Ord, Hash)]
 #[repr(C)]
 pub enum ImageRendering {
     OptimizeQuality,
@@ -563,6 +570,7 @@ impl From<ImageRendering> for usvg::ImageRendering {
     }
 }
 
+#[derive(Debug, Copy, Clone, PartialEq, PartialOrd, Eq, Ord, Hash)]
 #[repr(C)]
 pub enum TextRendering {
     OptimizeSpeed,
@@ -580,39 +588,47 @@ impl From<TextRendering> for usvg::TextRendering {
     }
 }
 
+#[derive(Debug, Copy, Clone, PartialEq, PartialOrd, Eq, Ord, Hash)]
 #[repr(C)]
 pub enum FontDatabase {
     Empty,
     System,
 }
 
+#[derive(Debug, Default, Copy, Clone, PartialEq, PartialOrd)]
 #[repr(C)]
 pub struct SvgRenderOptions {
     pub background_color: OptionColorU,
-    pub fit: FitTo,
+    pub fit: SvgFitTo,
 }
 
 const fn translate_color(i: ColorU) -> usvg::Color {
     usvg::Color { red: i.r, green: i.g, blue: i.b }
 }
 
-#[repr(C)]
-pub enum FitTo {
+#[derive(Debug, Copy, Clone, PartialEq, PartialOrd)]
+#[repr(C, u8)]
+pub enum SvgFitTo {
     Original,
     Width(u32),
     Height(u32),
     Zoom(f32),
 }
 
-fn translate_fit_to(i: FitTo) -> usvg::FitTo {
+impl Default for SvgFitTo {
+    fn default() -> Self { SvgFitTo::Original }
+}
+
+fn translate_fit_to(i: SvgFitTo) -> usvg::FitTo {
     match i {
-        FitTo::Original => usvg::FitTo::Original,
-        FitTo::Width(w) => usvg::FitTo::Width(w),
-        FitTo::Height(h) => usvg::FitTo::Height(h),
-        FitTo::Zoom(z) => usvg::FitTo::Zoom(z),
+        SvgFitTo::Original => usvg::FitTo::Original,
+        SvgFitTo::Width(w) => usvg::FitTo::Width(w),
+        SvgFitTo::Height(h) => usvg::FitTo::Height(h),
+        SvgFitTo::Zoom(z) => usvg::FitTo::Zoom(z),
     }
 }
 
+#[derive(Debug, Clone, PartialEq, PartialOrd)]
 #[repr(C)]
 pub struct SvgParseOptions {
     /// SVG image path. Used to resolve relative image paths.
@@ -708,6 +724,7 @@ impl From<SvgXmlOptions> for usvg::XmlOptions {
     }
 }
 
+#[derive(Debug, PartialEq, PartialOrd, Clone)]
 #[repr(C, u8)]
 pub enum SvgParseError {
     InvalidFileSuffix,
@@ -717,6 +734,8 @@ pub enum SvgParseError {
     InvalidSize,
     ParsingFailed(XmlError),
 }
+
+impl_result!(Svg, SvgParseError, ResultSvgSvgParseError, copy = false, [Debug, PartialEq, PartialOrd, Clone]);
 
 impl From<usvg::Error> for SvgParseError {
     fn from(e: usvg::Error) -> SvgParseError {

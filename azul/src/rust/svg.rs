@@ -2,6 +2,7 @@
     //! SVG parsing and rendering functions
     use crate::dll::*;
     use std::ffi::c_void;
+    use crate::gl::U8VecRef;
 
 
     /// `SvgMultiPolygon` struct
@@ -121,6 +122,95 @@
     impl std::fmt::Debug for SvgLineCap { fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result { write!(f, "{}", (crate::dll::get_azul_dll().az_svg_line_cap_fmt_debug)(self)) } }
     impl Clone for SvgLineCap { fn clone(&self) -> Self { (crate::dll::get_azul_dll().az_svg_line_cap_deep_copy)(self) } }
     impl Drop for SvgLineCap { fn drop(&mut self) { (crate::dll::get_azul_dll().az_svg_line_cap_delete)(self); } }
+
+
+    /// `SvgParseOptions` struct
+    pub use crate::dll::AzSvgParseOptions as SvgParseOptions;
+
+    impl SvgParseOptions {
+        /// Creates a new `SvgParseOptions` instance.
+        pub fn default() -> Self { (crate::dll::get_azul_dll().az_svg_parse_options_default)() }
+    }
+
+    impl std::fmt::Debug for SvgParseOptions { fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result { write!(f, "{}", (crate::dll::get_azul_dll().az_svg_parse_options_fmt_debug)(self)) } }
+    impl Clone for SvgParseOptions { fn clone(&self) -> Self { (crate::dll::get_azul_dll().az_svg_parse_options_deep_copy)(self) } }
+    impl Drop for SvgParseOptions { fn drop(&mut self) { (crate::dll::get_azul_dll().az_svg_parse_options_delete)(self); } }
+
+
+    /// `ShapeRendering` struct
+    pub use crate::dll::AzShapeRendering as ShapeRendering;
+
+    impl std::fmt::Debug for ShapeRendering { fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result { write!(f, "{}", (crate::dll::get_azul_dll().az_shape_rendering_fmt_debug)(self)) } }
+    impl Clone for ShapeRendering { fn clone(&self) -> Self { (crate::dll::get_azul_dll().az_shape_rendering_deep_copy)(self) } }
+    impl Drop for ShapeRendering { fn drop(&mut self) { (crate::dll::get_azul_dll().az_shape_rendering_delete)(self); } }
+
+
+    /// `TextRendering` struct
+    pub use crate::dll::AzTextRendering as TextRendering;
+
+    impl std::fmt::Debug for TextRendering { fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result { write!(f, "{}", (crate::dll::get_azul_dll().az_text_rendering_fmt_debug)(self)) } }
+    impl Clone for TextRendering { fn clone(&self) -> Self { (crate::dll::get_azul_dll().az_text_rendering_deep_copy)(self) } }
+    impl Drop for TextRendering { fn drop(&mut self) { (crate::dll::get_azul_dll().az_text_rendering_delete)(self); } }
+
+
+    /// `ImageRendering` struct
+    pub use crate::dll::AzImageRendering as ImageRendering;
+
+    impl std::fmt::Debug for ImageRendering { fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result { write!(f, "{}", (crate::dll::get_azul_dll().az_image_rendering_fmt_debug)(self)) } }
+    impl Clone for ImageRendering { fn clone(&self) -> Self { (crate::dll::get_azul_dll().az_image_rendering_deep_copy)(self) } }
+    impl Drop for ImageRendering { fn drop(&mut self) { (crate::dll::get_azul_dll().az_image_rendering_delete)(self); } }
+
+
+    /// `FontDatabase` struct
+    pub use crate::dll::AzFontDatabase as FontDatabase;
+
+    impl std::fmt::Debug for FontDatabase { fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result { write!(f, "{}", (crate::dll::get_azul_dll().az_font_database_fmt_debug)(self)) } }
+    impl Clone for FontDatabase { fn clone(&self) -> Self { (crate::dll::get_azul_dll().az_font_database_deep_copy)(self) } }
+    impl Drop for FontDatabase { fn drop(&mut self) { (crate::dll::get_azul_dll().az_font_database_delete)(self); } }
+
+
+    /// `SvgRenderOptions` struct
+    pub use crate::dll::AzSvgRenderOptions as SvgRenderOptions;
+
+    impl SvgRenderOptions {
+        /// Creates a new `SvgRenderOptions` instance.
+        pub fn default() -> Self { (crate::dll::get_azul_dll().az_svg_render_options_default)() }
+    }
+
+    impl std::fmt::Debug for SvgRenderOptions { fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result { write!(f, "{}", (crate::dll::get_azul_dll().az_svg_render_options_fmt_debug)(self)) } }
+    impl Clone for SvgRenderOptions { fn clone(&self) -> Self { (crate::dll::get_azul_dll().az_svg_render_options_deep_copy)(self) } }
+    impl Drop for SvgRenderOptions { fn drop(&mut self) { (crate::dll::get_azul_dll().az_svg_render_options_delete)(self); } }
+
+
+    /// `SvgFitTo` struct
+    pub use crate::dll::AzSvgFitTo as SvgFitTo;
+
+    impl std::fmt::Debug for SvgFitTo { fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result { write!(f, "{}", (crate::dll::get_azul_dll().az_svg_fit_to_fmt_debug)(self)) } }
+    impl Clone for SvgFitTo { fn clone(&self) -> Self { (crate::dll::get_azul_dll().az_svg_fit_to_deep_copy)(self) } }
+    impl Drop for SvgFitTo { fn drop(&mut self) { (crate::dll::get_azul_dll().az_svg_fit_to_delete)(self); } }
+
+
+    /// `Svg` struct
+    pub use crate::dll::AzSvg as Svg;
+
+    impl Svg {
+        /// Creates a new `Svg` instance.
+        pub fn parse(svg_bytes: U8VecRef, parse_options: SvgParseOptions) -> Self { (crate::dll::get_azul_dll().az_svg_parse)(svg_bytes, parse_options) }
+        /// Calls the `Svg::render_to_image` function.
+        pub fn render_to_image(&self, render_options: SvgRenderOptions)  -> crate::option::OptionRawImage { (crate::dll::get_azul_dll().az_svg_render_to_image)(self, render_options) }
+    }
+
+    impl std::fmt::Debug for Svg { fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result { write!(f, "{}", (crate::dll::get_azul_dll().az_svg_fmt_debug)(self)) } }
+    impl Clone for Svg { fn clone(&self) -> Self { (crate::dll::get_azul_dll().az_svg_deep_copy)(self) } }
+    impl Drop for Svg { fn drop(&mut self) { (crate::dll::get_azul_dll().az_svg_delete)(self); } }
+
+
+    /// `SvgXmlNode` struct
+    pub use crate::dll::AzSvgXmlNode as SvgXmlNode;
+
+    impl std::fmt::Debug for SvgXmlNode { fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result { write!(f, "{}", (crate::dll::get_azul_dll().az_svg_xml_node_fmt_debug)(self)) } }
+    impl Clone for SvgXmlNode { fn clone(&self) -> Self { (crate::dll::get_azul_dll().az_svg_xml_node_deep_copy)(self) } }
+    impl Drop for SvgXmlNode { fn drop(&mut self) { (crate::dll::get_azul_dll().az_svg_xml_node_delete)(self); } }
 
 
     /// `SvgLineJoin` struct

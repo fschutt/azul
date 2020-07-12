@@ -135,7 +135,7 @@ pub struct XmlTextPos { pub row: u32, pub col: u32 }
 #[derive(Debug, PartialEq, PartialOrd, Clone)]
 #[repr(C)]
 pub struct XmlTextError {
-    stream_error: XmlStreamError,
+    pub stream_error: XmlStreamError,
     pub pos: XmlTextPos
 }
 
@@ -186,7 +186,7 @@ pub struct UnknownEntityReferenceError {
 #[derive(Debug, PartialEq, PartialOrd, Clone)]
 #[repr(C)]
 pub struct DuplicatedAttributeError {
-    pub entity: AzString,
+    pub attribute: AzString,
     pub pos: XmlTextPos,
 }
 
@@ -269,7 +269,7 @@ impl From<roxmltree::Error> for XmlError {
             roxmltree::Error::MalformedEntityReference(s) => XmlError::MalformedEntityReference(s.into()),
             roxmltree::Error::EntityReferenceLoop(s) => XmlError::EntityReferenceLoop(s.into()),
             roxmltree::Error::InvalidAttributeValue(s) => XmlError::InvalidAttributeValue(s.into()),
-            roxmltree::Error::DuplicatedAttribute(s, tp) => XmlError::DuplicatedAttribute(DuplicatedAttributeError { entity: s.into(), pos: tp.into() }),
+            roxmltree::Error::DuplicatedAttribute(s, tp) => XmlError::DuplicatedAttribute(DuplicatedAttributeError { attribute: s.into(), pos: tp.into() }),
             roxmltree::Error::NoRootNode => XmlError::NoRootNode,
             roxmltree::Error::SizeLimit => XmlError::SizeLimit,
             roxmltree::Error::ParserError(s) => XmlError::ParserError(s.into()),

@@ -143,6 +143,22 @@
     impl_option!(AzTaskBarIcon, AzOptionTaskBarIcon, copy = false, [Debug, Clone, PartialOrd, PartialEq, Eq, Hash, Ord]);
 
 
+    /// `OptionColorU` struct
+    pub use crate::dll::AzOptionColorU as OptionColorU;
+
+    impl std::fmt::Debug for OptionColorU { fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result { write!(f, "{}", (crate::dll::get_azul_dll().az_option_color_u_fmt_debug)(self)) } }
+    impl Clone for OptionColorU { fn clone(&self) -> Self { (crate::dll::get_azul_dll().az_option_color_u_deep_copy)(self) } }
+    impl Drop for OptionColorU { fn drop(&mut self) { (crate::dll::get_azul_dll().az_option_color_u_delete)(self); } }
+
+
+    /// `OptionRawImage` struct
+    pub use crate::dll::AzOptionRawImage as OptionRawImage;
+
+    impl std::fmt::Debug for OptionRawImage { fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result { write!(f, "{}", (crate::dll::get_azul_dll().az_option_raw_image_fmt_debug)(self)) } }
+    impl Clone for OptionRawImage { fn clone(&self) -> Self { (crate::dll::get_azul_dll().az_option_raw_image_deep_copy)(self) } }
+    impl Drop for OptionRawImage { fn drop(&mut self) { (crate::dll::get_azul_dll().az_option_raw_image_delete)(self); } }
+
+
     /// `OptionSvgDashPattern` struct
     pub use crate::dll::AzOptionSvgDashPattern as OptionSvgDashPattern;
 

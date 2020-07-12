@@ -35,7 +35,6 @@ extern crate backtrace;
 #[cfg(target_os = "macos")]
 extern crate core_foundation;
 
-pub use azulc::xml;
 /// Manages application state (`App` / `AppState` / `AppResources`), wrapping resources and app state
 pub mod app;
 pub use azul_core::task;
@@ -76,6 +75,12 @@ pub mod text_layout {
 /// SVG parsing + rendering
 pub mod svg {
     pub use azul_core::svg::*;
+    pub use azulc::svg::*;
+}
+
+/// XML parsing
+pub mod xml {
+    pub use azulc::xml::*;
 }
 
 /// Quick exports of common types

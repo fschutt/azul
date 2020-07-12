@@ -170,6 +170,16 @@
         pub len: usize,
         pub cap: usize,
     }
+    /// Re-export of rust-allocated (stack based) `OptionColorU` struct
+    #[repr(C, u8)] pub enum AzOptionColorU {
+        None,
+        Some(AzColorU),
+    }
+    /// Re-export of rust-allocated (stack based) `OptionRawImage` struct
+    #[repr(C, u8)] pub enum AzOptionRawImage {
+        None,
+        Some(AzRawImage),
+    }
     /// Re-export of rust-allocated (stack based) `OptionSvgDashPattern` struct
     #[repr(C, u8)] pub enum AzOptionSvgDashPattern {
         None,
@@ -295,10 +305,140 @@
         None,
         Some(AzU8VecRef),
     }
+    /// Re-export of rust-allocated (stack based) `ResultSvgSvgParseError` struct
+    #[repr(C, u8)] pub enum AzResultSvgSvgParseError {
+        Ok(AzSvg),
+        Err(AzSvgParseError),
+    }
     /// Re-export of rust-allocated (stack based) `ResultRefAnyBlockError` struct
     #[repr(C, u8)] pub enum AzResultRefAnyBlockError {
         Ok(AzRefAny),
         Err(AzBlockError),
+    }
+    /// Re-export of rust-allocated (stack based) `SvgParseError` struct
+    #[repr(C, u8)] pub enum AzSvgParseError {
+        InvalidFileSuffix,
+        FileOpenFailed,
+        NotAnUtf8Str,
+        MalformedGZip,
+        InvalidSize,
+        ParsingFailed(AzXmlError),
+    }
+    /// Re-export of rust-allocated (stack based) `XmlError` struct
+    #[repr(C, u8)] pub enum AzXmlError {
+        InvalidXmlPrefixUri(AzXmlTextPos),
+        UnexpectedXmlUri(AzXmlTextPos),
+        UnexpectedXmlnsUri(AzXmlTextPos),
+        InvalidElementNamePrefix(AzXmlTextPos),
+        DuplicatedNamespace(AzDuplicatedNamespaceError),
+        UnknownNamespace(AzUnknownNamespaceError),
+        UnexpectedCloseTag(AzUnexpectedCloseTagError),
+        UnexpectedEntityCloseTag(AzXmlTextPos),
+        UnknownEntityReference(AzUnknownEntityReferenceError),
+        MalformedEntityReference(AzXmlTextPos),
+        EntityReferenceLoop(AzXmlTextPos),
+        InvalidAttributeValue(AzXmlTextPos),
+        DuplicatedAttribute(AzDuplicatedAttributeError),
+        NoRootNode,
+        SizeLimit,
+        ParserError(AzXmlParseError),
+    }
+    /// Re-export of rust-allocated (stack based) `DuplicatedNamespaceError` struct
+    #[repr(C)] pub struct AzDuplicatedNamespaceError {
+        pub ns: AzString,
+        pub pos: AzXmlTextPos,
+    }
+    /// Re-export of rust-allocated (stack based) `UnknownNamespaceError` struct
+    #[repr(C)] pub struct AzUnknownNamespaceError {
+        pub ns: AzString,
+        pub pos: AzXmlTextPos,
+    }
+    /// Re-export of rust-allocated (stack based) `UnexpectedCloseTagError` struct
+    #[repr(C)] pub struct AzUnexpectedCloseTagError {
+        pub expected: AzString,
+        pub actual: AzString,
+        pub pos: AzXmlTextPos,
+    }
+    /// Re-export of rust-allocated (stack based) `UnknownEntityReferenceError` struct
+    #[repr(C)] pub struct AzUnknownEntityReferenceError {
+        pub entity: AzString,
+        pub pos: AzXmlTextPos,
+    }
+    /// Re-export of rust-allocated (stack based) `DuplicatedAttributeError` struct
+    #[repr(C)] pub struct AzDuplicatedAttributeError {
+        pub attribute: AzString,
+        pub pos: AzXmlTextPos,
+    }
+    /// Re-export of rust-allocated (stack based) `XmlParseError` struct
+    #[repr(C, u8)] pub enum AzXmlParseError {
+        InvalidDeclaration(AzXmlTextError),
+        InvalidComment(AzXmlTextError),
+        InvalidPI(AzXmlTextError),
+        InvalidDoctype(AzXmlTextError),
+        InvalidEntity(AzXmlTextError),
+        InvalidElement(AzXmlTextError),
+        InvalidAttribute(AzXmlTextError),
+        InvalidCdata(AzXmlTextError),
+        InvalidCharData(AzXmlTextError),
+        UnknownToken(AzXmlTextPos),
+    }
+    /// Re-export of rust-allocated (stack based) `XmlTextError` struct
+    #[repr(C)] pub struct AzXmlTextError {
+        pub stream_error: AzXmlStreamError,
+        pub pos: AzXmlTextPos,
+    }
+    /// Re-export of rust-allocated (stack based) `XmlStreamError` struct
+    #[repr(C, u8)] pub enum AzXmlStreamError {
+        UnexpectedEndOfStream,
+        InvalidName,
+        NonXmlChar(AzNonXmlCharError),
+        InvalidChar(AzInvalidCharError),
+        InvalidCharMultiple(AzInvalidCharMultipleError),
+        InvalidQuote(AzInvalidQuoteError),
+        InvalidSpace(AzInvalidSpaceError),
+        InvalidString(AzInvalidStringError),
+        InvalidReference,
+        InvalidExternalID,
+        InvalidCommentData,
+        InvalidCommentEnd,
+        InvalidCharacterData,
+    }
+    /// Re-export of rust-allocated (stack based) `NonXmlCharError` struct
+    #[repr(C)] pub struct AzNonXmlCharError {
+        pub ch: char,
+        pub pos: AzXmlTextPos,
+    }
+    /// Re-export of rust-allocated (stack based) `InvalidCharError` struct
+    #[repr(C)] pub struct AzInvalidCharError {
+        pub expected: u8,
+        pub got: u8,
+        pub pos: AzXmlTextPos,
+    }
+    /// Re-export of rust-allocated (stack based) `InvalidCharMultipleError` struct
+    #[repr(C)] pub struct AzInvalidCharMultipleError {
+        pub expected: u8,
+        pub got: AzU8Vec,
+        pub pos: AzXmlTextPos,
+    }
+    /// Re-export of rust-allocated (stack based) `InvalidQuoteError` struct
+    #[repr(C)] pub struct AzInvalidQuoteError {
+        pub got: u8,
+        pub pos: AzXmlTextPos,
+    }
+    /// Re-export of rust-allocated (stack based) `InvalidSpaceError` struct
+    #[repr(C)] pub struct AzInvalidSpaceError {
+        pub got: u8,
+        pub pos: AzXmlTextPos,
+    }
+    /// Re-export of rust-allocated (stack based) `InvalidStringError` struct
+    #[repr(C)] pub struct AzInvalidStringError {
+        pub got: AzString,
+        pub pos: AzXmlTextPos,
+    }
+    /// Re-export of rust-allocated (stack based) `XmlTextPos` struct
+    #[repr(C)] pub struct AzXmlTextPos {
+        pub row: u32,
+        pub col: u32,
     }
     /// Pointer to rust-allocated `Box<Instant>` struct
     #[repr(C)] pub struct AzInstantPtr {
@@ -1883,8 +2023,7 @@
     }
     /// Re-export of rust-allocated (stack based) `SvgMultiPolygon` struct
     #[repr(C)] pub struct AzSvgMultiPolygon {
-        pub outer_ring: AzSvgPath,
-        pub inner_rings: AzSvgPathVec,
+        pub rings: AzSvgPathVec,
     }
     /// Re-export of rust-allocated (stack based) `SvgNode` struct
     #[repr(C, u8)] pub enum AzSvgNode {
@@ -1949,8 +2088,10 @@
         pub height: f32,
         pub x: f32,
         pub y: f32,
-        pub rx: f32,
-        pub ry: f32,
+        pub radius_top_left: f32,
+        pub radius_top_right: f32,
+        pub radius_bottom_left: f32,
+        pub radius_bottom_right: f32,
     }
     /// Re-export of rust-allocated (stack based) `TesselatedCPUSvgNode` struct
     #[repr(C)] pub struct AzTesselatedCPUSvgNode {
@@ -1966,6 +2107,61 @@
         Butt,
         Square,
         Round,
+    }
+    /// Re-export of rust-allocated (stack based) `SvgParseOptions` struct
+    #[repr(C)] pub struct AzSvgParseOptions {
+        pub relative_image_path: AzOptionString,
+        pub dpi: f32,
+        pub default_font_family: AzString,
+        pub font_size: f32,
+        pub languages: AzStringVec,
+        pub shape_rendering: AzShapeRendering,
+        pub text_rendering: AzTextRendering,
+        pub image_rendering: AzImageRendering,
+        pub keep_named_groups: bool,
+        pub fontdb: AzFontDatabase,
+    }
+    /// Re-export of rust-allocated (stack based) `ShapeRendering` struct
+    #[repr(C)] pub enum AzShapeRendering {
+        OptimizeSpeed,
+        CrispEdges,
+        GeometricPrecision,
+    }
+    /// Re-export of rust-allocated (stack based) `TextRendering` struct
+    #[repr(C)] pub enum AzTextRendering {
+        OptimizeSpeed,
+        OptimizeLegibility,
+        GeometricPrecision,
+    }
+    /// Re-export of rust-allocated (stack based) `ImageRendering` struct
+    #[repr(C)] pub enum AzImageRendering {
+        OptimizeQuality,
+        OptimizeSpeed,
+    }
+    /// Re-export of rust-allocated (stack based) `FontDatabase` struct
+    #[repr(C)] pub enum AzFontDatabase {
+        Empty,
+        System,
+    }
+    /// Re-export of rust-allocated (stack based) `SvgRenderOptions` struct
+    #[repr(C)] pub struct AzSvgRenderOptions {
+        pub background_color: AzOptionColorU,
+        pub fit: AzSvgFitTo,
+    }
+    /// Re-export of rust-allocated (stack based) `SvgFitTo` struct
+    #[repr(C, u8)] pub enum AzSvgFitTo {
+        Original,
+        Width(u32),
+        Height(u32),
+        Zoom(f32),
+    }
+    /// Re-export of rust-allocated (stack based) `Svg` struct
+    #[repr(C)] pub struct AzSvg {
+        pub(crate) ptr: *mut c_void,
+    }
+    /// Re-export of rust-allocated (stack based) `SvgXmlNode` struct
+    #[repr(C)] pub struct AzSvgXmlNode {
+        pub(crate) ptr: *mut c_void,
     }
     /// Re-export of rust-allocated (stack based) `SvgLineJoin` struct
     #[repr(C)] pub enum AzSvgLineJoin {
@@ -2654,6 +2850,12 @@
         pub az_gradient_stop_pre_vec_delete: extern "C" fn(_:  &mut AzGradientStopPreVec),
         pub az_gradient_stop_pre_vec_deep_copy: extern "C" fn(_:  &AzGradientStopPreVec) -> AzGradientStopPreVec,
         pub az_gradient_stop_pre_vec_fmt_debug: extern "C" fn(_:  &AzGradientStopPreVec) -> AzString,
+        pub az_option_color_u_delete: extern "C" fn(_:  &mut AzOptionColorU),
+        pub az_option_color_u_deep_copy: extern "C" fn(_:  &AzOptionColorU) -> AzOptionColorU,
+        pub az_option_color_u_fmt_debug: extern "C" fn(_:  &AzOptionColorU) -> AzString,
+        pub az_option_raw_image_delete: extern "C" fn(_:  &mut AzOptionRawImage),
+        pub az_option_raw_image_deep_copy: extern "C" fn(_:  &AzOptionRawImage) -> AzOptionRawImage,
+        pub az_option_raw_image_fmt_debug: extern "C" fn(_:  &AzOptionRawImage) -> AzString,
         pub az_option_svg_dash_pattern_delete: extern "C" fn(_:  &mut AzOptionSvgDashPattern),
         pub az_option_svg_dash_pattern_deep_copy: extern "C" fn(_:  &AzOptionSvgDashPattern) -> AzOptionSvgDashPattern,
         pub az_option_svg_dash_pattern_fmt_debug: extern "C" fn(_:  &AzOptionSvgDashPattern) -> AzString,
@@ -2727,9 +2929,63 @@
         pub az_option_usize_fmt_debug: extern "C" fn(_:  &AzOptionUsize) -> AzString,
         pub az_option_u8_vec_ref_delete: extern "C" fn(_:  &mut AzOptionU8VecRef),
         pub az_option_u8_vec_ref_fmt_debug: extern "C" fn(_:  &AzOptionU8VecRef) -> AzString,
+        pub az_result_svg_svg_parse_error_delete: extern "C" fn(_:  &mut AzResultSvgSvgParseError),
+        pub az_result_svg_svg_parse_error_deep_copy: extern "C" fn(_:  &AzResultSvgSvgParseError) -> AzResultSvgSvgParseError,
+        pub az_result_svg_svg_parse_error_fmt_debug: extern "C" fn(_:  &AzResultSvgSvgParseError) -> AzString,
         pub az_result_ref_any_block_error_delete: extern "C" fn(_:  &mut AzResultRefAnyBlockError),
         pub az_result_ref_any_block_error_deep_copy: extern "C" fn(_:  &AzResultRefAnyBlockError) -> AzResultRefAnyBlockError,
         pub az_result_ref_any_block_error_fmt_debug: extern "C" fn(_:  &AzResultRefAnyBlockError) -> AzString,
+        pub az_svg_parse_error_delete: extern "C" fn(_:  &mut AzSvgParseError),
+        pub az_svg_parse_error_deep_copy: extern "C" fn(_:  &AzSvgParseError) -> AzSvgParseError,
+        pub az_svg_parse_error_fmt_debug: extern "C" fn(_:  &AzSvgParseError) -> AzString,
+        pub az_xml_error_delete: extern "C" fn(_:  &mut AzXmlError),
+        pub az_xml_error_deep_copy: extern "C" fn(_:  &AzXmlError) -> AzXmlError,
+        pub az_xml_error_fmt_debug: extern "C" fn(_:  &AzXmlError) -> AzString,
+        pub az_duplicated_namespace_error_delete: extern "C" fn(_:  &mut AzDuplicatedNamespaceError),
+        pub az_duplicated_namespace_error_deep_copy: extern "C" fn(_:  &AzDuplicatedNamespaceError) -> AzDuplicatedNamespaceError,
+        pub az_duplicated_namespace_error_fmt_debug: extern "C" fn(_:  &AzDuplicatedNamespaceError) -> AzString,
+        pub az_unknown_namespace_error_delete: extern "C" fn(_:  &mut AzUnknownNamespaceError),
+        pub az_unknown_namespace_error_deep_copy: extern "C" fn(_:  &AzUnknownNamespaceError) -> AzUnknownNamespaceError,
+        pub az_unknown_namespace_error_fmt_debug: extern "C" fn(_:  &AzUnknownNamespaceError) -> AzString,
+        pub az_unexpected_close_tag_error_delete: extern "C" fn(_:  &mut AzUnexpectedCloseTagError),
+        pub az_unexpected_close_tag_error_deep_copy: extern "C" fn(_:  &AzUnexpectedCloseTagError) -> AzUnexpectedCloseTagError,
+        pub az_unexpected_close_tag_error_fmt_debug: extern "C" fn(_:  &AzUnexpectedCloseTagError) -> AzString,
+        pub az_unknown_entity_reference_error_delete: extern "C" fn(_:  &mut AzUnknownEntityReferenceError),
+        pub az_unknown_entity_reference_error_deep_copy: extern "C" fn(_:  &AzUnknownEntityReferenceError) -> AzUnknownEntityReferenceError,
+        pub az_unknown_entity_reference_error_fmt_debug: extern "C" fn(_:  &AzUnknownEntityReferenceError) -> AzString,
+        pub az_duplicated_attribute_error_delete: extern "C" fn(_:  &mut AzDuplicatedAttributeError),
+        pub az_duplicated_attribute_error_deep_copy: extern "C" fn(_:  &AzDuplicatedAttributeError) -> AzDuplicatedAttributeError,
+        pub az_duplicated_attribute_error_fmt_debug: extern "C" fn(_:  &AzDuplicatedAttributeError) -> AzString,
+        pub az_xml_parse_error_delete: extern "C" fn(_:  &mut AzXmlParseError),
+        pub az_xml_parse_error_deep_copy: extern "C" fn(_:  &AzXmlParseError) -> AzXmlParseError,
+        pub az_xml_parse_error_fmt_debug: extern "C" fn(_:  &AzXmlParseError) -> AzString,
+        pub az_xml_text_error_delete: extern "C" fn(_:  &mut AzXmlTextError),
+        pub az_xml_text_error_deep_copy: extern "C" fn(_:  &AzXmlTextError) -> AzXmlTextError,
+        pub az_xml_text_error_fmt_debug: extern "C" fn(_:  &AzXmlTextError) -> AzString,
+        pub az_xml_stream_error_delete: extern "C" fn(_:  &mut AzXmlStreamError),
+        pub az_xml_stream_error_deep_copy: extern "C" fn(_:  &AzXmlStreamError) -> AzXmlStreamError,
+        pub az_xml_stream_error_fmt_debug: extern "C" fn(_:  &AzXmlStreamError) -> AzString,
+        pub az_non_xml_char_error_delete: extern "C" fn(_:  &mut AzNonXmlCharError),
+        pub az_non_xml_char_error_deep_copy: extern "C" fn(_:  &AzNonXmlCharError) -> AzNonXmlCharError,
+        pub az_non_xml_char_error_fmt_debug: extern "C" fn(_:  &AzNonXmlCharError) -> AzString,
+        pub az_invalid_char_error_delete: extern "C" fn(_:  &mut AzInvalidCharError),
+        pub az_invalid_char_error_deep_copy: extern "C" fn(_:  &AzInvalidCharError) -> AzInvalidCharError,
+        pub az_invalid_char_error_fmt_debug: extern "C" fn(_:  &AzInvalidCharError) -> AzString,
+        pub az_invalid_char_multiple_error_delete: extern "C" fn(_:  &mut AzInvalidCharMultipleError),
+        pub az_invalid_char_multiple_error_deep_copy: extern "C" fn(_:  &AzInvalidCharMultipleError) -> AzInvalidCharMultipleError,
+        pub az_invalid_char_multiple_error_fmt_debug: extern "C" fn(_:  &AzInvalidCharMultipleError) -> AzString,
+        pub az_invalid_quote_error_delete: extern "C" fn(_:  &mut AzInvalidQuoteError),
+        pub az_invalid_quote_error_deep_copy: extern "C" fn(_:  &AzInvalidQuoteError) -> AzInvalidQuoteError,
+        pub az_invalid_quote_error_fmt_debug: extern "C" fn(_:  &AzInvalidQuoteError) -> AzString,
+        pub az_invalid_space_error_delete: extern "C" fn(_:  &mut AzInvalidSpaceError),
+        pub az_invalid_space_error_deep_copy: extern "C" fn(_:  &AzInvalidSpaceError) -> AzInvalidSpaceError,
+        pub az_invalid_space_error_fmt_debug: extern "C" fn(_:  &AzInvalidSpaceError) -> AzString,
+        pub az_invalid_string_error_delete: extern "C" fn(_:  &mut AzInvalidStringError),
+        pub az_invalid_string_error_deep_copy: extern "C" fn(_:  &AzInvalidStringError) -> AzInvalidStringError,
+        pub az_invalid_string_error_fmt_debug: extern "C" fn(_:  &AzInvalidStringError) -> AzString,
+        pub az_xml_text_pos_delete: extern "C" fn(_:  &mut AzXmlTextPos),
+        pub az_xml_text_pos_deep_copy: extern "C" fn(_:  &AzXmlTextPos) -> AzXmlTextPos,
+        pub az_xml_text_pos_fmt_debug: extern "C" fn(_:  &AzXmlTextPos) -> AzString,
         pub az_instant_ptr_now: extern "C" fn() -> AzInstantPtr,
         pub az_instant_ptr_delete: extern "C" fn(_:  &mut AzInstantPtr),
         pub az_instant_ptr_fmt_debug: extern "C" fn(_:  &AzInstantPtr) -> AzString,
@@ -3767,6 +4023,37 @@
         pub az_svg_line_cap_delete: extern "C" fn(_:  &mut AzSvgLineCap),
         pub az_svg_line_cap_deep_copy: extern "C" fn(_:  &AzSvgLineCap) -> AzSvgLineCap,
         pub az_svg_line_cap_fmt_debug: extern "C" fn(_:  &AzSvgLineCap) -> AzString,
+        pub az_svg_parse_options_default: extern "C" fn() -> AzSvgParseOptions,
+        pub az_svg_parse_options_delete: extern "C" fn(_:  &mut AzSvgParseOptions),
+        pub az_svg_parse_options_deep_copy: extern "C" fn(_:  &AzSvgParseOptions) -> AzSvgParseOptions,
+        pub az_svg_parse_options_fmt_debug: extern "C" fn(_:  &AzSvgParseOptions) -> AzString,
+        pub az_shape_rendering_delete: extern "C" fn(_:  &mut AzShapeRendering),
+        pub az_shape_rendering_deep_copy: extern "C" fn(_:  &AzShapeRendering) -> AzShapeRendering,
+        pub az_shape_rendering_fmt_debug: extern "C" fn(_:  &AzShapeRendering) -> AzString,
+        pub az_text_rendering_delete: extern "C" fn(_:  &mut AzTextRendering),
+        pub az_text_rendering_deep_copy: extern "C" fn(_:  &AzTextRendering) -> AzTextRendering,
+        pub az_text_rendering_fmt_debug: extern "C" fn(_:  &AzTextRendering) -> AzString,
+        pub az_image_rendering_delete: extern "C" fn(_:  &mut AzImageRendering),
+        pub az_image_rendering_deep_copy: extern "C" fn(_:  &AzImageRendering) -> AzImageRendering,
+        pub az_image_rendering_fmt_debug: extern "C" fn(_:  &AzImageRendering) -> AzString,
+        pub az_font_database_delete: extern "C" fn(_:  &mut AzFontDatabase),
+        pub az_font_database_deep_copy: extern "C" fn(_:  &AzFontDatabase) -> AzFontDatabase,
+        pub az_font_database_fmt_debug: extern "C" fn(_:  &AzFontDatabase) -> AzString,
+        pub az_svg_render_options_default: extern "C" fn() -> AzSvgRenderOptions,
+        pub az_svg_render_options_delete: extern "C" fn(_:  &mut AzSvgRenderOptions),
+        pub az_svg_render_options_deep_copy: extern "C" fn(_:  &AzSvgRenderOptions) -> AzSvgRenderOptions,
+        pub az_svg_render_options_fmt_debug: extern "C" fn(_:  &AzSvgRenderOptions) -> AzString,
+        pub az_svg_fit_to_delete: extern "C" fn(_:  &mut AzSvgFitTo),
+        pub az_svg_fit_to_deep_copy: extern "C" fn(_:  &AzSvgFitTo) -> AzSvgFitTo,
+        pub az_svg_fit_to_fmt_debug: extern "C" fn(_:  &AzSvgFitTo) -> AzString,
+        pub az_svg_parse: extern "C" fn(_:  AzU8VecRef, _:  AzSvgParseOptions) -> AzSvg,
+        pub az_svg_render_to_image: extern "C" fn(_:  &AzSvg, _:  AzSvgRenderOptions) -> AzOptionRawImage,
+        pub az_svg_delete: extern "C" fn(_:  &mut AzSvg),
+        pub az_svg_deep_copy: extern "C" fn(_:  &AzSvg) -> AzSvg,
+        pub az_svg_fmt_debug: extern "C" fn(_:  &AzSvg) -> AzString,
+        pub az_svg_xml_node_delete: extern "C" fn(_:  &mut AzSvgXmlNode),
+        pub az_svg_xml_node_deep_copy: extern "C" fn(_:  &AzSvgXmlNode) -> AzSvgXmlNode,
+        pub az_svg_xml_node_fmt_debug: extern "C" fn(_:  &AzSvgXmlNode) -> AzString,
         pub az_svg_line_join_delete: extern "C" fn(_:  &mut AzSvgLineJoin),
         pub az_svg_line_join_deep_copy: extern "C" fn(_:  &AzSvgLineJoin) -> AzSvgLineJoin,
         pub az_svg_line_join_fmt_debug: extern "C" fn(_:  &AzSvgLineJoin) -> AzString,
@@ -4067,6 +4354,12 @@
             let az_gradient_stop_pre_vec_delete: extern "C" fn(_:  &mut AzGradientStopPreVec) = transmute(lib.get(b"az_gradient_stop_pre_vec_delete")?);
             let az_gradient_stop_pre_vec_deep_copy: extern "C" fn(_:  &AzGradientStopPreVec) -> AzGradientStopPreVec = transmute(lib.get(b"az_gradient_stop_pre_vec_deep_copy")?);
             let az_gradient_stop_pre_vec_fmt_debug: extern "C" fn(_:  &AzGradientStopPreVec) -> AzString = transmute(lib.get(b"az_gradient_stop_pre_vec_fmt_debug")?);
+            let az_option_color_u_delete: extern "C" fn(_:  &mut AzOptionColorU) = transmute(lib.get(b"az_option_color_u_delete")?);
+            let az_option_color_u_deep_copy: extern "C" fn(_:  &AzOptionColorU) -> AzOptionColorU = transmute(lib.get(b"az_option_color_u_deep_copy")?);
+            let az_option_color_u_fmt_debug: extern "C" fn(_:  &AzOptionColorU) -> AzString = transmute(lib.get(b"az_option_color_u_fmt_debug")?);
+            let az_option_raw_image_delete: extern "C" fn(_:  &mut AzOptionRawImage) = transmute(lib.get(b"az_option_raw_image_delete")?);
+            let az_option_raw_image_deep_copy: extern "C" fn(_:  &AzOptionRawImage) -> AzOptionRawImage = transmute(lib.get(b"az_option_raw_image_deep_copy")?);
+            let az_option_raw_image_fmt_debug: extern "C" fn(_:  &AzOptionRawImage) -> AzString = transmute(lib.get(b"az_option_raw_image_fmt_debug")?);
             let az_option_svg_dash_pattern_delete: extern "C" fn(_:  &mut AzOptionSvgDashPattern) = transmute(lib.get(b"az_option_svg_dash_pattern_delete")?);
             let az_option_svg_dash_pattern_deep_copy: extern "C" fn(_:  &AzOptionSvgDashPattern) -> AzOptionSvgDashPattern = transmute(lib.get(b"az_option_svg_dash_pattern_deep_copy")?);
             let az_option_svg_dash_pattern_fmt_debug: extern "C" fn(_:  &AzOptionSvgDashPattern) -> AzString = transmute(lib.get(b"az_option_svg_dash_pattern_fmt_debug")?);
@@ -4140,9 +4433,63 @@
             let az_option_usize_fmt_debug: extern "C" fn(_:  &AzOptionUsize) -> AzString = transmute(lib.get(b"az_option_usize_fmt_debug")?);
             let az_option_u8_vec_ref_delete: extern "C" fn(_:  &mut AzOptionU8VecRef) = transmute(lib.get(b"az_option_u8_vec_ref_delete")?);
             let az_option_u8_vec_ref_fmt_debug: extern "C" fn(_:  &AzOptionU8VecRef) -> AzString = transmute(lib.get(b"az_option_u8_vec_ref_fmt_debug")?);
+            let az_result_svg_svg_parse_error_delete: extern "C" fn(_:  &mut AzResultSvgSvgParseError) = transmute(lib.get(b"az_result_svg_svg_parse_error_delete")?);
+            let az_result_svg_svg_parse_error_deep_copy: extern "C" fn(_:  &AzResultSvgSvgParseError) -> AzResultSvgSvgParseError = transmute(lib.get(b"az_result_svg_svg_parse_error_deep_copy")?);
+            let az_result_svg_svg_parse_error_fmt_debug: extern "C" fn(_:  &AzResultSvgSvgParseError) -> AzString = transmute(lib.get(b"az_result_svg_svg_parse_error_fmt_debug")?);
             let az_result_ref_any_block_error_delete: extern "C" fn(_:  &mut AzResultRefAnyBlockError) = transmute(lib.get(b"az_result_ref_any_block_error_delete")?);
             let az_result_ref_any_block_error_deep_copy: extern "C" fn(_:  &AzResultRefAnyBlockError) -> AzResultRefAnyBlockError = transmute(lib.get(b"az_result_ref_any_block_error_deep_copy")?);
             let az_result_ref_any_block_error_fmt_debug: extern "C" fn(_:  &AzResultRefAnyBlockError) -> AzString = transmute(lib.get(b"az_result_ref_any_block_error_fmt_debug")?);
+            let az_svg_parse_error_delete: extern "C" fn(_:  &mut AzSvgParseError) = transmute(lib.get(b"az_svg_parse_error_delete")?);
+            let az_svg_parse_error_deep_copy: extern "C" fn(_:  &AzSvgParseError) -> AzSvgParseError = transmute(lib.get(b"az_svg_parse_error_deep_copy")?);
+            let az_svg_parse_error_fmt_debug: extern "C" fn(_:  &AzSvgParseError) -> AzString = transmute(lib.get(b"az_svg_parse_error_fmt_debug")?);
+            let az_xml_error_delete: extern "C" fn(_:  &mut AzXmlError) = transmute(lib.get(b"az_xml_error_delete")?);
+            let az_xml_error_deep_copy: extern "C" fn(_:  &AzXmlError) -> AzXmlError = transmute(lib.get(b"az_xml_error_deep_copy")?);
+            let az_xml_error_fmt_debug: extern "C" fn(_:  &AzXmlError) -> AzString = transmute(lib.get(b"az_xml_error_fmt_debug")?);
+            let az_duplicated_namespace_error_delete: extern "C" fn(_:  &mut AzDuplicatedNamespaceError) = transmute(lib.get(b"az_duplicated_namespace_error_delete")?);
+            let az_duplicated_namespace_error_deep_copy: extern "C" fn(_:  &AzDuplicatedNamespaceError) -> AzDuplicatedNamespaceError = transmute(lib.get(b"az_duplicated_namespace_error_deep_copy")?);
+            let az_duplicated_namespace_error_fmt_debug: extern "C" fn(_:  &AzDuplicatedNamespaceError) -> AzString = transmute(lib.get(b"az_duplicated_namespace_error_fmt_debug")?);
+            let az_unknown_namespace_error_delete: extern "C" fn(_:  &mut AzUnknownNamespaceError) = transmute(lib.get(b"az_unknown_namespace_error_delete")?);
+            let az_unknown_namespace_error_deep_copy: extern "C" fn(_:  &AzUnknownNamespaceError) -> AzUnknownNamespaceError = transmute(lib.get(b"az_unknown_namespace_error_deep_copy")?);
+            let az_unknown_namespace_error_fmt_debug: extern "C" fn(_:  &AzUnknownNamespaceError) -> AzString = transmute(lib.get(b"az_unknown_namespace_error_fmt_debug")?);
+            let az_unexpected_close_tag_error_delete: extern "C" fn(_:  &mut AzUnexpectedCloseTagError) = transmute(lib.get(b"az_unexpected_close_tag_error_delete")?);
+            let az_unexpected_close_tag_error_deep_copy: extern "C" fn(_:  &AzUnexpectedCloseTagError) -> AzUnexpectedCloseTagError = transmute(lib.get(b"az_unexpected_close_tag_error_deep_copy")?);
+            let az_unexpected_close_tag_error_fmt_debug: extern "C" fn(_:  &AzUnexpectedCloseTagError) -> AzString = transmute(lib.get(b"az_unexpected_close_tag_error_fmt_debug")?);
+            let az_unknown_entity_reference_error_delete: extern "C" fn(_:  &mut AzUnknownEntityReferenceError) = transmute(lib.get(b"az_unknown_entity_reference_error_delete")?);
+            let az_unknown_entity_reference_error_deep_copy: extern "C" fn(_:  &AzUnknownEntityReferenceError) -> AzUnknownEntityReferenceError = transmute(lib.get(b"az_unknown_entity_reference_error_deep_copy")?);
+            let az_unknown_entity_reference_error_fmt_debug: extern "C" fn(_:  &AzUnknownEntityReferenceError) -> AzString = transmute(lib.get(b"az_unknown_entity_reference_error_fmt_debug")?);
+            let az_duplicated_attribute_error_delete: extern "C" fn(_:  &mut AzDuplicatedAttributeError) = transmute(lib.get(b"az_duplicated_attribute_error_delete")?);
+            let az_duplicated_attribute_error_deep_copy: extern "C" fn(_:  &AzDuplicatedAttributeError) -> AzDuplicatedAttributeError = transmute(lib.get(b"az_duplicated_attribute_error_deep_copy")?);
+            let az_duplicated_attribute_error_fmt_debug: extern "C" fn(_:  &AzDuplicatedAttributeError) -> AzString = transmute(lib.get(b"az_duplicated_attribute_error_fmt_debug")?);
+            let az_xml_parse_error_delete: extern "C" fn(_:  &mut AzXmlParseError) = transmute(lib.get(b"az_xml_parse_error_delete")?);
+            let az_xml_parse_error_deep_copy: extern "C" fn(_:  &AzXmlParseError) -> AzXmlParseError = transmute(lib.get(b"az_xml_parse_error_deep_copy")?);
+            let az_xml_parse_error_fmt_debug: extern "C" fn(_:  &AzXmlParseError) -> AzString = transmute(lib.get(b"az_xml_parse_error_fmt_debug")?);
+            let az_xml_text_error_delete: extern "C" fn(_:  &mut AzXmlTextError) = transmute(lib.get(b"az_xml_text_error_delete")?);
+            let az_xml_text_error_deep_copy: extern "C" fn(_:  &AzXmlTextError) -> AzXmlTextError = transmute(lib.get(b"az_xml_text_error_deep_copy")?);
+            let az_xml_text_error_fmt_debug: extern "C" fn(_:  &AzXmlTextError) -> AzString = transmute(lib.get(b"az_xml_text_error_fmt_debug")?);
+            let az_xml_stream_error_delete: extern "C" fn(_:  &mut AzXmlStreamError) = transmute(lib.get(b"az_xml_stream_error_delete")?);
+            let az_xml_stream_error_deep_copy: extern "C" fn(_:  &AzXmlStreamError) -> AzXmlStreamError = transmute(lib.get(b"az_xml_stream_error_deep_copy")?);
+            let az_xml_stream_error_fmt_debug: extern "C" fn(_:  &AzXmlStreamError) -> AzString = transmute(lib.get(b"az_xml_stream_error_fmt_debug")?);
+            let az_non_xml_char_error_delete: extern "C" fn(_:  &mut AzNonXmlCharError) = transmute(lib.get(b"az_non_xml_char_error_delete")?);
+            let az_non_xml_char_error_deep_copy: extern "C" fn(_:  &AzNonXmlCharError) -> AzNonXmlCharError = transmute(lib.get(b"az_non_xml_char_error_deep_copy")?);
+            let az_non_xml_char_error_fmt_debug: extern "C" fn(_:  &AzNonXmlCharError) -> AzString = transmute(lib.get(b"az_non_xml_char_error_fmt_debug")?);
+            let az_invalid_char_error_delete: extern "C" fn(_:  &mut AzInvalidCharError) = transmute(lib.get(b"az_invalid_char_error_delete")?);
+            let az_invalid_char_error_deep_copy: extern "C" fn(_:  &AzInvalidCharError) -> AzInvalidCharError = transmute(lib.get(b"az_invalid_char_error_deep_copy")?);
+            let az_invalid_char_error_fmt_debug: extern "C" fn(_:  &AzInvalidCharError) -> AzString = transmute(lib.get(b"az_invalid_char_error_fmt_debug")?);
+            let az_invalid_char_multiple_error_delete: extern "C" fn(_:  &mut AzInvalidCharMultipleError) = transmute(lib.get(b"az_invalid_char_multiple_error_delete")?);
+            let az_invalid_char_multiple_error_deep_copy: extern "C" fn(_:  &AzInvalidCharMultipleError) -> AzInvalidCharMultipleError = transmute(lib.get(b"az_invalid_char_multiple_error_deep_copy")?);
+            let az_invalid_char_multiple_error_fmt_debug: extern "C" fn(_:  &AzInvalidCharMultipleError) -> AzString = transmute(lib.get(b"az_invalid_char_multiple_error_fmt_debug")?);
+            let az_invalid_quote_error_delete: extern "C" fn(_:  &mut AzInvalidQuoteError) = transmute(lib.get(b"az_invalid_quote_error_delete")?);
+            let az_invalid_quote_error_deep_copy: extern "C" fn(_:  &AzInvalidQuoteError) -> AzInvalidQuoteError = transmute(lib.get(b"az_invalid_quote_error_deep_copy")?);
+            let az_invalid_quote_error_fmt_debug: extern "C" fn(_:  &AzInvalidQuoteError) -> AzString = transmute(lib.get(b"az_invalid_quote_error_fmt_debug")?);
+            let az_invalid_space_error_delete: extern "C" fn(_:  &mut AzInvalidSpaceError) = transmute(lib.get(b"az_invalid_space_error_delete")?);
+            let az_invalid_space_error_deep_copy: extern "C" fn(_:  &AzInvalidSpaceError) -> AzInvalidSpaceError = transmute(lib.get(b"az_invalid_space_error_deep_copy")?);
+            let az_invalid_space_error_fmt_debug: extern "C" fn(_:  &AzInvalidSpaceError) -> AzString = transmute(lib.get(b"az_invalid_space_error_fmt_debug")?);
+            let az_invalid_string_error_delete: extern "C" fn(_:  &mut AzInvalidStringError) = transmute(lib.get(b"az_invalid_string_error_delete")?);
+            let az_invalid_string_error_deep_copy: extern "C" fn(_:  &AzInvalidStringError) -> AzInvalidStringError = transmute(lib.get(b"az_invalid_string_error_deep_copy")?);
+            let az_invalid_string_error_fmt_debug: extern "C" fn(_:  &AzInvalidStringError) -> AzString = transmute(lib.get(b"az_invalid_string_error_fmt_debug")?);
+            let az_xml_text_pos_delete: extern "C" fn(_:  &mut AzXmlTextPos) = transmute(lib.get(b"az_xml_text_pos_delete")?);
+            let az_xml_text_pos_deep_copy: extern "C" fn(_:  &AzXmlTextPos) -> AzXmlTextPos = transmute(lib.get(b"az_xml_text_pos_deep_copy")?);
+            let az_xml_text_pos_fmt_debug: extern "C" fn(_:  &AzXmlTextPos) -> AzString = transmute(lib.get(b"az_xml_text_pos_fmt_debug")?);
             let az_instant_ptr_now: extern "C" fn() -> AzInstantPtr = transmute(lib.get(b"az_instant_ptr_now")?);
             let az_instant_ptr_delete: extern "C" fn(_:  &mut AzInstantPtr) = transmute(lib.get(b"az_instant_ptr_delete")?);
             let az_instant_ptr_fmt_debug: extern "C" fn(_:  &AzInstantPtr) -> AzString = transmute(lib.get(b"az_instant_ptr_fmt_debug")?);
@@ -5180,6 +5527,37 @@
             let az_svg_line_cap_delete: extern "C" fn(_:  &mut AzSvgLineCap) = transmute(lib.get(b"az_svg_line_cap_delete")?);
             let az_svg_line_cap_deep_copy: extern "C" fn(_:  &AzSvgLineCap) -> AzSvgLineCap = transmute(lib.get(b"az_svg_line_cap_deep_copy")?);
             let az_svg_line_cap_fmt_debug: extern "C" fn(_:  &AzSvgLineCap) -> AzString = transmute(lib.get(b"az_svg_line_cap_fmt_debug")?);
+            let az_svg_parse_options_default: extern "C" fn() -> AzSvgParseOptions = transmute(lib.get(b"az_svg_parse_options_default")?);
+            let az_svg_parse_options_delete: extern "C" fn(_:  &mut AzSvgParseOptions) = transmute(lib.get(b"az_svg_parse_options_delete")?);
+            let az_svg_parse_options_deep_copy: extern "C" fn(_:  &AzSvgParseOptions) -> AzSvgParseOptions = transmute(lib.get(b"az_svg_parse_options_deep_copy")?);
+            let az_svg_parse_options_fmt_debug: extern "C" fn(_:  &AzSvgParseOptions) -> AzString = transmute(lib.get(b"az_svg_parse_options_fmt_debug")?);
+            let az_shape_rendering_delete: extern "C" fn(_:  &mut AzShapeRendering) = transmute(lib.get(b"az_shape_rendering_delete")?);
+            let az_shape_rendering_deep_copy: extern "C" fn(_:  &AzShapeRendering) -> AzShapeRendering = transmute(lib.get(b"az_shape_rendering_deep_copy")?);
+            let az_shape_rendering_fmt_debug: extern "C" fn(_:  &AzShapeRendering) -> AzString = transmute(lib.get(b"az_shape_rendering_fmt_debug")?);
+            let az_text_rendering_delete: extern "C" fn(_:  &mut AzTextRendering) = transmute(lib.get(b"az_text_rendering_delete")?);
+            let az_text_rendering_deep_copy: extern "C" fn(_:  &AzTextRendering) -> AzTextRendering = transmute(lib.get(b"az_text_rendering_deep_copy")?);
+            let az_text_rendering_fmt_debug: extern "C" fn(_:  &AzTextRendering) -> AzString = transmute(lib.get(b"az_text_rendering_fmt_debug")?);
+            let az_image_rendering_delete: extern "C" fn(_:  &mut AzImageRendering) = transmute(lib.get(b"az_image_rendering_delete")?);
+            let az_image_rendering_deep_copy: extern "C" fn(_:  &AzImageRendering) -> AzImageRendering = transmute(lib.get(b"az_image_rendering_deep_copy")?);
+            let az_image_rendering_fmt_debug: extern "C" fn(_:  &AzImageRendering) -> AzString = transmute(lib.get(b"az_image_rendering_fmt_debug")?);
+            let az_font_database_delete: extern "C" fn(_:  &mut AzFontDatabase) = transmute(lib.get(b"az_font_database_delete")?);
+            let az_font_database_deep_copy: extern "C" fn(_:  &AzFontDatabase) -> AzFontDatabase = transmute(lib.get(b"az_font_database_deep_copy")?);
+            let az_font_database_fmt_debug: extern "C" fn(_:  &AzFontDatabase) -> AzString = transmute(lib.get(b"az_font_database_fmt_debug")?);
+            let az_svg_render_options_default: extern "C" fn() -> AzSvgRenderOptions = transmute(lib.get(b"az_svg_render_options_default")?);
+            let az_svg_render_options_delete: extern "C" fn(_:  &mut AzSvgRenderOptions) = transmute(lib.get(b"az_svg_render_options_delete")?);
+            let az_svg_render_options_deep_copy: extern "C" fn(_:  &AzSvgRenderOptions) -> AzSvgRenderOptions = transmute(lib.get(b"az_svg_render_options_deep_copy")?);
+            let az_svg_render_options_fmt_debug: extern "C" fn(_:  &AzSvgRenderOptions) -> AzString = transmute(lib.get(b"az_svg_render_options_fmt_debug")?);
+            let az_svg_fit_to_delete: extern "C" fn(_:  &mut AzSvgFitTo) = transmute(lib.get(b"az_svg_fit_to_delete")?);
+            let az_svg_fit_to_deep_copy: extern "C" fn(_:  &AzSvgFitTo) -> AzSvgFitTo = transmute(lib.get(b"az_svg_fit_to_deep_copy")?);
+            let az_svg_fit_to_fmt_debug: extern "C" fn(_:  &AzSvgFitTo) -> AzString = transmute(lib.get(b"az_svg_fit_to_fmt_debug")?);
+            let az_svg_parse: extern "C" fn(_:  AzU8VecRef, _:  AzSvgParseOptions) -> AzSvg = transmute(lib.get(b"az_svg_parse")?);
+            let az_svg_render_to_image: extern "C" fn(_:  &AzSvg, _:  AzSvgRenderOptions) -> AzOptionRawImage = transmute(lib.get(b"az_svg_render_to_image")?);
+            let az_svg_delete: extern "C" fn(_:  &mut AzSvg) = transmute(lib.get(b"az_svg_delete")?);
+            let az_svg_deep_copy: extern "C" fn(_:  &AzSvg) -> AzSvg = transmute(lib.get(b"az_svg_deep_copy")?);
+            let az_svg_fmt_debug: extern "C" fn(_:  &AzSvg) -> AzString = transmute(lib.get(b"az_svg_fmt_debug")?);
+            let az_svg_xml_node_delete: extern "C" fn(_:  &mut AzSvgXmlNode) = transmute(lib.get(b"az_svg_xml_node_delete")?);
+            let az_svg_xml_node_deep_copy: extern "C" fn(_:  &AzSvgXmlNode) -> AzSvgXmlNode = transmute(lib.get(b"az_svg_xml_node_deep_copy")?);
+            let az_svg_xml_node_fmt_debug: extern "C" fn(_:  &AzSvgXmlNode) -> AzString = transmute(lib.get(b"az_svg_xml_node_fmt_debug")?);
             let az_svg_line_join_delete: extern "C" fn(_:  &mut AzSvgLineJoin) = transmute(lib.get(b"az_svg_line_join_delete")?);
             let az_svg_line_join_deep_copy: extern "C" fn(_:  &AzSvgLineJoin) -> AzSvgLineJoin = transmute(lib.get(b"az_svg_line_join_deep_copy")?);
             let az_svg_line_join_fmt_debug: extern "C" fn(_:  &AzSvgLineJoin) -> AzString = transmute(lib.get(b"az_svg_line_join_fmt_debug")?);
@@ -5476,6 +5854,12 @@
                 az_gradient_stop_pre_vec_delete,
                 az_gradient_stop_pre_vec_deep_copy,
                 az_gradient_stop_pre_vec_fmt_debug,
+                az_option_color_u_delete,
+                az_option_color_u_deep_copy,
+                az_option_color_u_fmt_debug,
+                az_option_raw_image_delete,
+                az_option_raw_image_deep_copy,
+                az_option_raw_image_fmt_debug,
                 az_option_svg_dash_pattern_delete,
                 az_option_svg_dash_pattern_deep_copy,
                 az_option_svg_dash_pattern_fmt_debug,
@@ -5549,9 +5933,63 @@
                 az_option_usize_fmt_debug,
                 az_option_u8_vec_ref_delete,
                 az_option_u8_vec_ref_fmt_debug,
+                az_result_svg_svg_parse_error_delete,
+                az_result_svg_svg_parse_error_deep_copy,
+                az_result_svg_svg_parse_error_fmt_debug,
                 az_result_ref_any_block_error_delete,
                 az_result_ref_any_block_error_deep_copy,
                 az_result_ref_any_block_error_fmt_debug,
+                az_svg_parse_error_delete,
+                az_svg_parse_error_deep_copy,
+                az_svg_parse_error_fmt_debug,
+                az_xml_error_delete,
+                az_xml_error_deep_copy,
+                az_xml_error_fmt_debug,
+                az_duplicated_namespace_error_delete,
+                az_duplicated_namespace_error_deep_copy,
+                az_duplicated_namespace_error_fmt_debug,
+                az_unknown_namespace_error_delete,
+                az_unknown_namespace_error_deep_copy,
+                az_unknown_namespace_error_fmt_debug,
+                az_unexpected_close_tag_error_delete,
+                az_unexpected_close_tag_error_deep_copy,
+                az_unexpected_close_tag_error_fmt_debug,
+                az_unknown_entity_reference_error_delete,
+                az_unknown_entity_reference_error_deep_copy,
+                az_unknown_entity_reference_error_fmt_debug,
+                az_duplicated_attribute_error_delete,
+                az_duplicated_attribute_error_deep_copy,
+                az_duplicated_attribute_error_fmt_debug,
+                az_xml_parse_error_delete,
+                az_xml_parse_error_deep_copy,
+                az_xml_parse_error_fmt_debug,
+                az_xml_text_error_delete,
+                az_xml_text_error_deep_copy,
+                az_xml_text_error_fmt_debug,
+                az_xml_stream_error_delete,
+                az_xml_stream_error_deep_copy,
+                az_xml_stream_error_fmt_debug,
+                az_non_xml_char_error_delete,
+                az_non_xml_char_error_deep_copy,
+                az_non_xml_char_error_fmt_debug,
+                az_invalid_char_error_delete,
+                az_invalid_char_error_deep_copy,
+                az_invalid_char_error_fmt_debug,
+                az_invalid_char_multiple_error_delete,
+                az_invalid_char_multiple_error_deep_copy,
+                az_invalid_char_multiple_error_fmt_debug,
+                az_invalid_quote_error_delete,
+                az_invalid_quote_error_deep_copy,
+                az_invalid_quote_error_fmt_debug,
+                az_invalid_space_error_delete,
+                az_invalid_space_error_deep_copy,
+                az_invalid_space_error_fmt_debug,
+                az_invalid_string_error_delete,
+                az_invalid_string_error_deep_copy,
+                az_invalid_string_error_fmt_debug,
+                az_xml_text_pos_delete,
+                az_xml_text_pos_deep_copy,
+                az_xml_text_pos_fmt_debug,
                 az_instant_ptr_now,
                 az_instant_ptr_delete,
                 az_instant_ptr_fmt_debug,
@@ -6589,6 +7027,37 @@
                 az_svg_line_cap_delete,
                 az_svg_line_cap_deep_copy,
                 az_svg_line_cap_fmt_debug,
+                az_svg_parse_options_default,
+                az_svg_parse_options_delete,
+                az_svg_parse_options_deep_copy,
+                az_svg_parse_options_fmt_debug,
+                az_shape_rendering_delete,
+                az_shape_rendering_deep_copy,
+                az_shape_rendering_fmt_debug,
+                az_text_rendering_delete,
+                az_text_rendering_deep_copy,
+                az_text_rendering_fmt_debug,
+                az_image_rendering_delete,
+                az_image_rendering_deep_copy,
+                az_image_rendering_fmt_debug,
+                az_font_database_delete,
+                az_font_database_deep_copy,
+                az_font_database_fmt_debug,
+                az_svg_render_options_default,
+                az_svg_render_options_delete,
+                az_svg_render_options_deep_copy,
+                az_svg_render_options_fmt_debug,
+                az_svg_fit_to_delete,
+                az_svg_fit_to_deep_copy,
+                az_svg_fit_to_fmt_debug,
+                az_svg_parse,
+                az_svg_render_to_image,
+                az_svg_delete,
+                az_svg_deep_copy,
+                az_svg_fmt_debug,
+                az_svg_xml_node_delete,
+                az_svg_xml_node_deep_copy,
+                az_svg_xml_node_fmt_debug,
                 az_svg_line_join_delete,
                 az_svg_line_join_deep_copy,
                 az_svg_line_join_fmt_debug,
@@ -6740,22 +7209,24 @@
 
     }
 
-    #[cfg(unix)]
+    #[cfg(target_os="linux")]
     const LIB_BYTES: &[u8] = include_bytes!(concat!(env!("CARGO_HOME"), "/lib/", "azul-dll-", env!("CARGO_PKG_VERSION"), "/target/release/libazul.so")); /* !!! IF THIS LINE SHOWS AN ERROR, IT MEANS YOU FORGOT TO RUN "cargo install --version 0.1.0 azul-dll" */
-    #[cfg(windows)]
+    #[cfg(target_os="windows")]
     const LIB_BYTES: &[u8] = include_bytes!(concat!(env!("CARGO_HOME"), "/lib/", "azul-dll-", env!("CARGO_PKG_VERSION"), "/target/release/azul.dll")); /* !!! IF THIS LINE SHOWS AN ERROR, IT MEANS YOU FORGOT TO RUN "cargo install --version 0.1.0 azul-dll" */
-    #[cfg(macos)]
-    const LIB_BYTES: &[u8] = include_bytes!(concat!(env!("CARGO_HOME"), "/lib/", "azul-dll-", env!("CARGO_PKG_VERSION"), "/target/release/azul.dylib")); /* !!! IF THIS LINE SHOWS AN ERROR, IT MEANS YOU FORGOT TO RUN "cargo install --version 0.1.0 azul-dll" */
+    #[cfg(target_os="macos")]
+    const LIB_BYTES: &[u8] = include_bytes!(concat!(env!("CARGO_HOME"), "/lib/", "azul-dll-", env!("CARGO_PKG_VERSION"), "/target/release/libazul.dylib")); /* !!! IF THIS LINE SHOWS AN ERROR, IT MEANS YOU FORGOT TO RUN "cargo install --version 0.1.0 azul-dll" */
 
     use std::{mem::MaybeUninit, sync::atomic::{AtomicBool, Ordering}};
 
     static LIBRARY_IS_INITIALIZED: AtomicBool = AtomicBool::new(false);
     static mut AZUL_DLL: MaybeUninit<AzulDll> = MaybeUninit::<AzulDll>::uninit();
 
-    #[cfg(unix)]
+    #[cfg(target_os="linux")]
     const DLL_FILE_NAME: &str = "azul.so";
-    #[cfg(windows)]
+    #[cfg(target_os="windows")]
     const DLL_FILE_NAME: &str = "azul.dll";
+    #[cfg(target_os="macos")]
+    const DLL_FILE_NAME: &str = "libazul.dynlib";
 
     fn load_library_inner() -> Result<AzulDll, &'static str> {
 

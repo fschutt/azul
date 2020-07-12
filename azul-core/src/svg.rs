@@ -209,8 +209,10 @@ pub struct SvgRect {
     pub height: f32,
     pub x: f32,
     pub y: f32,
-    pub rx: f32,
-    pub ry: f32,
+    pub radius_top_left: f32,
+    pub radius_top_right: f32,
+    pub radius_bottom_left: f32,
+    pub radius_bottom_right: f32,
 }
 
 impl SvgRect {
@@ -315,13 +317,13 @@ pub struct SvgFillStyle {
     ///
     /// Must be greater than or equal to 1.0.
     /// Default value: `StrokeOptions::DEFAULT_MITER_LIMIT`.
-    miter_limit: usize,
+    pub miter_limit: usize,
 
     /// Maximum allowed distance to the path when building an approximation.
     ///
     /// See [Flattening and tolerance](index.html#flattening-and-tolerance).
     /// Default value: `StrokeOptions::DEFAULT_TOLERANCE`.
-    tolerance: usize,
+    pub tolerance: usize,
 }
 
 impl SvgFillStyle {
