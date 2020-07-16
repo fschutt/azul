@@ -12,6 +12,10 @@ categories = ["gui"]
 repository = "https://github.com/maps4print/azul"
 edition = "2018"
 
+[lib]
+path = "src/old/lib.rs"
+# path = "src/new/lib.rs"
+
 [dependencies]
 azul-css            = { path = "../azul-css", version = "0.0.1" }
 azul-core           = { path = "../azul-core", version = "0.0.2", default-features = false, features = ["opengl"] }
