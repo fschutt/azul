@@ -624,7 +624,7 @@ pub type AzOptionLogicalSizeTT = azul_impl::window::OptionLogicalSize;
 /// Creates a string with the debug representation of the object
 #[no_mangle] pub extern "C" fn az_option_logical_size_fmt_debug(object: &AzOptionLogicalSize) -> AzString { format!("{:#?}", object).into() }
 
-/// Re-export of rust-allocated (stack based) `OptionChar` struct
+/// Option<char> but the char is a u32, for C FFI stability reasons
 pub type AzOptionCharTT = azul_impl::window::OptionChar;
 #[no_mangle] pub use AzOptionCharTT as AzOptionChar;
 /// Destructor: Takes ownership of the `OptionChar` pointer and deletes it.
@@ -3209,6 +3209,16 @@ pub type AzTabIndexTT = azul_impl::dom::TabIndex;
 /// Creates a string with the debug representation of the object
 #[no_mangle] pub extern "C" fn az_tab_index_fmt_debug(object: &AzTabIndex) -> AzString { format!("{:#?}", object).into() }
 
+/// Re-export of rust-allocated (stack based) `GlShaderPrecisionFormatReturn` struct
+pub type AzGlShaderPrecisionFormatReturnTT = azul_impl::gl::GlShaderPrecisionFormatReturn;
+#[no_mangle] pub use AzGlShaderPrecisionFormatReturnTT as AzGlShaderPrecisionFormatReturn;
+/// Destructor: Takes ownership of the `GlShaderPrecisionFormatReturn` pointer and deletes it.
+#[no_mangle] #[allow(unused_variables)] pub extern "C" fn az_gl_shader_precision_format_return_delete(object: &mut AzGlShaderPrecisionFormatReturn) { }
+/// Clones the object
+#[no_mangle] pub extern "C" fn az_gl_shader_precision_format_return_deep_copy(object: &AzGlShaderPrecisionFormatReturn) -> AzGlShaderPrecisionFormatReturn { object.clone() }
+/// Creates a string with the debug representation of the object
+#[no_mangle] pub extern "C" fn az_gl_shader_precision_format_return_fmt_debug(object: &AzGlShaderPrecisionFormatReturn) -> AzString { format!("{:#?}", object).into() }
+
 /// Re-export of rust-allocated (stack based) `VertexAttributeType` struct
 pub type AzVertexAttributeTypeTT = azul_impl::gl::VertexAttributeType;
 #[no_mangle] pub use AzVertexAttributeTypeTT as AzVertexAttributeType;
@@ -3764,7 +3774,7 @@ pub type AzGlContextPtrTT = azul_impl::gl::GlContextPtr;
 /// Equivalent to the Rust `GlContextPtr::get_shader_iv()` function.
 #[no_mangle] pub extern "C" fn az_gl_context_ptr_get_shader_iv(glcontextptr: &AzGlContextPtr, shader: u32, pname: u32, result: AzGLintVecRefMut) { glcontextptr.get_shader_iv(shader, pname, result) }
 /// Equivalent to the Rust `GlContextPtr::get_shader_precision_format()` function.
-#[no_mangle] pub extern "C" fn az_gl_context_ptr_get_shader_precision_format(glcontextptr: &AzGlContextPtr, shader_type: u32, precision_type: u32) -> [i32;3] { glcontextptr.get_shader_precision_format(shader_type, precision_type) }
+#[no_mangle] pub extern "C" fn az_gl_context_ptr_get_shader_precision_format(glcontextptr: &AzGlContextPtr, shader_type: u32, precision_type: u32) -> AzGlShaderPrecisionFormatReturn { glcontextptr.get_shader_precision_format(shader_type, precision_type) }
 /// Equivalent to the Rust `GlContextPtr::compile_shader()` function.
 #[no_mangle] pub extern "C" fn az_gl_context_ptr_compile_shader(glcontextptr: &AzGlContextPtr, shader: u32) { glcontextptr.compile_shader(shader) }
 /// Equivalent to the Rust `GlContextPtr::create_program()` function.

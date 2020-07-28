@@ -752,6 +752,8 @@ def generate_dll_loader(apiData, structs_map, functions_map, version):
             struct = struct["struct"]
             code += "    #[repr(C)] pub struct " + struct_name + " {\r\n"
             for field in struct:
+                if type(field) is str:
+                    print("Struct " + struct_name + " should have a dictionary as fields")
                 field_name = list(field.keys())[0]
                 field_type = list(field.values())[0]
                 if "type" in field_type:

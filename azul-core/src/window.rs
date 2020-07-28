@@ -138,7 +138,8 @@ pub struct KeyboardState {
     pub pressed_scancodes: ScanCodeVec,
 }
 
-impl_option!(char, OptionChar, [Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash]);
+// char is not ABI-stable, use u32 instead
+impl_option!(u32, OptionChar, [Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash]);
 impl_option!(VirtualKeyCode, OptionVirtualKeyCode, [Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash]);
 
 impl_vec!(VirtualKeyCode, VirtualKeyCodeVec);
@@ -820,7 +821,8 @@ pub struct MacWindowOptions {
 #[derive(Debug, Default, Copy, Clone, PartialEq, PartialOrd, Eq, Ord, Hash)]
 #[repr(C)]
 pub struct WasmWindowOptions {
-    // empty for now
+    // empty for now, single field must be present for ABI compat - always set to 0
+    pub _reserved: u8,
 }
 
 impl WindowState {

@@ -875,9 +875,10 @@
 				},
 				"OptionChar": {
 					"external": "azul_impl::window::OptionChar",
+					"doc": "Option<char> but the char is a u32, for C FFI stability reasons",
 					"enum_fields": [
 						{"None": {}},
-						{"Some": { "type": "char" }}
+						{"Some": { "type": "u32" }}
 					]
 				},
 				"OptionVirtualKeyCode": {
@@ -3722,6 +3723,14 @@
 		"gl": {
 			"doc": "OpenGl helper types (`Texture`, `GlContext`, etc.)",
 			"classes": {
+				"GlShaderPrecisionFormatReturn": {
+					"external": "azul_impl::gl::GlShaderPrecisionFormatReturn",
+					"struct_fields": [
+						{"_0": {"type": "i32"}},
+						{"_1": {"type": "i32"}},
+						{"_2": {"type": "i32"}}
+					]
+				},
 				"VertexAttributeType": {
 					"external": "azul_impl::gl::VertexAttributeType",
 					"enum_fields": [
@@ -5298,7 +5307,7 @@
 					            {"shader_type": "u32"}, {"precision_type": "u32"}
 					        ],
 					        "fn_body": "glcontextptr.get_shader_precision_format(shader_type, precision_type)",
-					        "returns": "[i32;3]"
+					        "returns": "GlShaderPrecisionFormatReturn"
 					    },
 					    "compile_shader": {
 					        "fn_args": [

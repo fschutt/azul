@@ -69,7 +69,7 @@ impl Drop for XmlNode { fn drop(&mut self) { let _ = unsafe { Box::from_raw(self
 #[derive(Debug, PartialEq, PartialOrd, Clone)]
 #[repr(C)]
 pub struct NonXmlCharError {
-    pub ch: char,
+    pub ch: u32, /* u32 = char, but ABI stable */
     pub pos: XmlTextPos,
 }
 

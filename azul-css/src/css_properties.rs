@@ -2020,6 +2020,7 @@ impl Default for StyleCursor {
 }
 
 #[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
+#[repr(C)]
 pub enum DirectionCorner {
     Right,
     Left,

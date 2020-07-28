@@ -250,10 +250,10 @@
         None,
         Some(AzLogicalSize),
     }
-    /// Re-export of rust-allocated (stack based) `OptionChar` struct
+    /// Option<char> but the char is a u32, for C FFI stability reasons
     #[repr(C, u8)] pub enum AzOptionChar {
         None,
-        Some(char),
+        Some(u32),
     }
     /// Re-export of rust-allocated (stack based) `OptionVirtualKeyCode` struct
     #[repr(C, u8)] pub enum AzOptionVirtualKeyCode {
@@ -1816,6 +1816,12 @@
         Auto,
         OverrideInParent(usize),
         NoKeyboardFocus,
+    }
+    /// Re-export of rust-allocated (stack based) `GlShaderPrecisionFormatReturn` struct
+    #[repr(C)] pub struct AzGlShaderPrecisionFormatReturn {
+        pub _0: i32,
+        pub _1: i32,
+        pub _2: i32,
     }
     /// Re-export of rust-allocated (stack based) `VertexAttributeType` struct
     #[repr(C)] pub enum AzVertexAttributeType {
@@ -3681,6 +3687,9 @@
         pub az_tab_index_delete: extern "C" fn(_:  &mut AzTabIndex),
         pub az_tab_index_deep_copy: extern "C" fn(_:  &AzTabIndex) -> AzTabIndex,
         pub az_tab_index_fmt_debug: extern "C" fn(_:  &AzTabIndex) -> AzString,
+        pub az_gl_shader_precision_format_return_delete: extern "C" fn(_:  &mut AzGlShaderPrecisionFormatReturn),
+        pub az_gl_shader_precision_format_return_deep_copy: extern "C" fn(_:  &AzGlShaderPrecisionFormatReturn) -> AzGlShaderPrecisionFormatReturn,
+        pub az_gl_shader_precision_format_return_fmt_debug: extern "C" fn(_:  &AzGlShaderPrecisionFormatReturn) -> AzString,
         pub az_vertex_attribute_type_delete: extern "C" fn(_:  &mut AzVertexAttributeType),
         pub az_vertex_attribute_type_deep_copy: extern "C" fn(_:  &AzVertexAttributeType) -> AzVertexAttributeType,
         pub az_vertex_attribute_type_fmt_debug: extern "C" fn(_:  &AzVertexAttributeType) -> AzString,
@@ -3907,7 +3916,7 @@
         pub az_gl_context_ptr_get_string: extern "C" fn(_:  &AzGlContextPtr, _:  u32) -> AzString,
         pub az_gl_context_ptr_get_string_i: extern "C" fn(_:  &AzGlContextPtr, _:  u32, _:  u32) -> AzString,
         pub az_gl_context_ptr_get_shader_iv: extern "C" fn(_:  &AzGlContextPtr, _:  u32, _:  u32, _:  AzGLintVecRefMut),
-        pub az_gl_context_ptr_get_shader_precision_format: extern "C" fn(_:  &AzGlContextPtr, _:  u32, _:  u32) -> [i32;3],
+        pub az_gl_context_ptr_get_shader_precision_format: extern "C" fn(_:  &AzGlContextPtr, _:  u32, _:  u32) -> AzGlShaderPrecisionFormatReturn,
         pub az_gl_context_ptr_compile_shader: extern "C" fn(_:  &AzGlContextPtr, _:  u32),
         pub az_gl_context_ptr_create_program: extern "C" fn(_:  &AzGlContextPtr) -> u32,
         pub az_gl_context_ptr_delete_program: extern "C" fn(_:  &AzGlContextPtr, _:  u32),
@@ -5192,6 +5201,9 @@
             let az_tab_index_delete: extern "C" fn(_:  &mut AzTabIndex) = transmute(lib.get(b"az_tab_index_delete")?);
             let az_tab_index_deep_copy: extern "C" fn(_:  &AzTabIndex) -> AzTabIndex = transmute(lib.get(b"az_tab_index_deep_copy")?);
             let az_tab_index_fmt_debug: extern "C" fn(_:  &AzTabIndex) -> AzString = transmute(lib.get(b"az_tab_index_fmt_debug")?);
+            let az_gl_shader_precision_format_return_delete: extern "C" fn(_:  &mut AzGlShaderPrecisionFormatReturn) = transmute(lib.get(b"az_gl_shader_precision_format_return_delete")?);
+            let az_gl_shader_precision_format_return_deep_copy: extern "C" fn(_:  &AzGlShaderPrecisionFormatReturn) -> AzGlShaderPrecisionFormatReturn = transmute(lib.get(b"az_gl_shader_precision_format_return_deep_copy")?);
+            let az_gl_shader_precision_format_return_fmt_debug: extern "C" fn(_:  &AzGlShaderPrecisionFormatReturn) -> AzString = transmute(lib.get(b"az_gl_shader_precision_format_return_fmt_debug")?);
             let az_vertex_attribute_type_delete: extern "C" fn(_:  &mut AzVertexAttributeType) = transmute(lib.get(b"az_vertex_attribute_type_delete")?);
             let az_vertex_attribute_type_deep_copy: extern "C" fn(_:  &AzVertexAttributeType) -> AzVertexAttributeType = transmute(lib.get(b"az_vertex_attribute_type_deep_copy")?);
             let az_vertex_attribute_type_fmt_debug: extern "C" fn(_:  &AzVertexAttributeType) -> AzString = transmute(lib.get(b"az_vertex_attribute_type_fmt_debug")?);
@@ -5418,7 +5430,7 @@
             let az_gl_context_ptr_get_string: extern "C" fn(_:  &AzGlContextPtr, _:  u32) -> AzString = transmute(lib.get(b"az_gl_context_ptr_get_string")?);
             let az_gl_context_ptr_get_string_i: extern "C" fn(_:  &AzGlContextPtr, _:  u32, _:  u32) -> AzString = transmute(lib.get(b"az_gl_context_ptr_get_string_i")?);
             let az_gl_context_ptr_get_shader_iv: extern "C" fn(_:  &AzGlContextPtr, _:  u32, _:  u32, _:  AzGLintVecRefMut) = transmute(lib.get(b"az_gl_context_ptr_get_shader_iv")?);
-            let az_gl_context_ptr_get_shader_precision_format: extern "C" fn(_:  &AzGlContextPtr, _:  u32, _:  u32) -> [i32;3] = transmute(lib.get(b"az_gl_context_ptr_get_shader_precision_format")?);
+            let az_gl_context_ptr_get_shader_precision_format: extern "C" fn(_:  &AzGlContextPtr, _:  u32, _:  u32) -> AzGlShaderPrecisionFormatReturn = transmute(lib.get(b"az_gl_context_ptr_get_shader_precision_format")?);
             let az_gl_context_ptr_compile_shader: extern "C" fn(_:  &AzGlContextPtr, _:  u32) = transmute(lib.get(b"az_gl_context_ptr_compile_shader")?);
             let az_gl_context_ptr_create_program: extern "C" fn(_:  &AzGlContextPtr) -> u32 = transmute(lib.get(b"az_gl_context_ptr_create_program")?);
             let az_gl_context_ptr_delete_program: extern "C" fn(_:  &AzGlContextPtr, _:  u32) = transmute(lib.get(b"az_gl_context_ptr_delete_program")?);
@@ -6699,6 +6711,9 @@
                 az_tab_index_delete,
                 az_tab_index_deep_copy,
                 az_tab_index_fmt_debug,
+                az_gl_shader_precision_format_return_delete,
+                az_gl_shader_precision_format_return_deep_copy,
+                az_gl_shader_precision_format_return_fmt_debug,
                 az_vertex_attribute_type_delete,
                 az_vertex_attribute_type_deep_copy,
                 az_vertex_attribute_type_fmt_debug,

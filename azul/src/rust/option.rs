@@ -271,7 +271,7 @@
     impl Drop for OptionLogicalSize { fn drop(&mut self) { (crate::dll::get_azul_dll().az_option_logical_size_delete)(self); } }
 
 
-    /// `OptionChar` struct
+    /// Option<char> but the char is a u32, for C FFI stability reasons
     pub use crate::dll::AzOptionChar as OptionChar;
 
     impl std::fmt::Debug for OptionChar { fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result { write!(f, "{}", (crate::dll::get_azul_dll().az_option_char_fmt_debug)(self)) } }

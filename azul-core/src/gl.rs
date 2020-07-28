@@ -1432,6 +1432,14 @@ impl Gl for VirtualGlDriver {
     }
 }
 
+/// For .get_gl_precision_format(), but ABI-safe - returning an array or a tuple is not ABI-safe
+#[repr(C)]
+pub struct GlShaderPrecisionFormatReturn {
+    pub _0: GLint,
+    pub _1: GLint,
+    pub _2: GLint,
+}
+
 fn unimplemented() -> ! {
     panic!("You cannot call OpenGL functions on the VirtualGlDriver");
 }
@@ -1626,7 +1634,7 @@ impl GlContextPtr {
     pub fn get_string(&self, which: GLenum) -> AzString { self.get().get_string(which).into() }
     pub fn get_string_i(&self, which: GLenum, index: GLuint) -> AzString { self.get().get_string_i(which, index).into() }
     pub fn get_shader_iv(&self, shader: GLuint, pname: GLenum, mut result: GLintVecRefMut) { unsafe {  self.get().get_shader_iv(shader, pname, result.as_mut_slice())} }
-    pub fn get_shader_precision_format(&self, shader_type: GLuint, precision_type: GLuint) -> [GLint;3] { let r = self.get().get_shader_precision_format(shader_type, precision_type); [r.0, r.1, r.2] }
+    pub fn get_shader_precision_format(&self, shader_type: GLuint, precision_type: GLuint) -> GlShaderPrecisionFormatReturn { let r = self.get().get_shader_precision_format(shader_type, precision_type); GlShaderPrecisionFormatReturn { _0: r.0, _1: r.1, _2: r.2 } }
     pub fn compile_shader(&self, shader: GLuint) { self.get().compile_shader(shader) }
     pub fn create_program(&self) -> GLuint { self.get().create_program() }
     pub fn delete_program(&self, program: GLuint) { self.get().delete_program(program) }

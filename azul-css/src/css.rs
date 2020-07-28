@@ -60,7 +60,7 @@ impl From<Vec<CssRuleBlock>> for Stylesheet {
 
 /// Contains one parsed `key: value` pair, static or dynamic
 #[derive(Debug, Clone, PartialEq, Eq, Hash, PartialOrd, Ord)]
-#[repr(C)]
+#[repr(C, u8)]
 pub enum CssDeclaration {
     /// Static key-value pair, such as `width: 500px`
     Static(CssProperty),

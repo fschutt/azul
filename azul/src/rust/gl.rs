@@ -1643,6 +1643,14 @@
     use crate::option::OptionU8VecRef;
 
 
+    /// `GlShaderPrecisionFormatReturn` struct
+    pub use crate::dll::AzGlShaderPrecisionFormatReturn as GlShaderPrecisionFormatReturn;
+
+    impl std::fmt::Debug for GlShaderPrecisionFormatReturn { fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result { write!(f, "{}", (crate::dll::get_azul_dll().az_gl_shader_precision_format_return_fmt_debug)(self)) } }
+    impl Clone for GlShaderPrecisionFormatReturn { fn clone(&self) -> Self { (crate::dll::get_azul_dll().az_gl_shader_precision_format_return_deep_copy)(self) } }
+    impl Drop for GlShaderPrecisionFormatReturn { fn drop(&mut self) { (crate::dll::get_azul_dll().az_gl_shader_precision_format_return_delete)(self); } }
+
+
     /// `VertexAttributeType` struct
     pub use crate::dll::AzVertexAttributeType as VertexAttributeType;
 
@@ -2155,7 +2163,7 @@
         /// Calls the `GlContextPtr::get_shader_iv` function.
         pub fn get_shader_iv(&self, shader: u32, pname: u32, result: GLintVecRefMut)  { (crate::dll::get_azul_dll().az_gl_context_ptr_get_shader_iv)(self, shader, pname, result) }
         /// Calls the `GlContextPtr::get_shader_precision_format` function.
-        pub fn get_shader_precision_format(&self, shader_type: u32, precision_type: u32)  -> [i32;3] { (crate::dll::get_azul_dll().az_gl_context_ptr_get_shader_precision_format)(self, shader_type, precision_type) }
+        pub fn get_shader_precision_format(&self, shader_type: u32, precision_type: u32)  -> crate::gl::GlShaderPrecisionFormatReturn { (crate::dll::get_azul_dll().az_gl_context_ptr_get_shader_precision_format)(self, shader_type, precision_type) }
         /// Calls the `GlContextPtr::compile_shader` function.
         pub fn compile_shader(&self, shader: u32)  { (crate::dll::get_azul_dll().az_gl_context_ptr_compile_shader)(self, shader) }
         /// Calls the `GlContextPtr::create_program` function.
