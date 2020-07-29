@@ -93,7 +93,7 @@ def read_api_file(path):
     return apiData
 
 def write_file(string, path):
-    text_file = open(path, "w+")
+    text_file = open(path, "w+", newline='')
     text_file.write(string)
     text_file.close()
 
