@@ -24,4 +24,4 @@ azul-css                = { path = "../azul-css",       default-features = false
 azul-core               = { path = "../azul-core",      default-features = false }
 unicode-normalization   = { version = "0.1.8",          default-features = false }
 harfbuzz-sys            = { version = "0.3.2",          default-features = false,                  features = ["build-native-harfbuzz", "build-native-freetype"] }
-freetype                = { version = "0.4.1",          default-features = false }
+freetype                = { version = "0.7",            default-features = false }
