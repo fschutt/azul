@@ -298,7 +298,7 @@ macro_rules! impl_callback_no_generics {($callback_value:ident) => (
 
 macro_rules! impl_get_gl_context {() => {
     /// Returns a reference-counted pointer to the OpenGL context
-    pub fn get_gl_context(&self) -> Rc<Gl> {
+    pub fn get_gl_context(&self) -> Rc<dyn Gl> {
         self.gl_context.clone()
     }
 };}
@@ -323,7 +323,7 @@ pub struct DefaultCallbackInfo<'a, T> {
     /// the user can create textures and other OpenGL content in the window
     /// but not change any window properties from underneath - this would
     /// lead to mismatch between the
-    pub gl_context: Rc<Gl>,
+    pub gl_context: Rc<dyn Gl>,
     /// See [`AppState.resources`](./struct.AppState.html#structfield.resources)
     pub resources : &'a mut AppResources,
     /// Currently running timers (polling functions, run on the main thread)
@@ -384,7 +384,7 @@ pub struct CallbackInfo<'a, T: 'a> {
     /// the user can create textures and other OpenGL content in the window
     /// but not change any window properties from underneath - this would
     /// lead to mismatch between the
-    pub gl_context: Rc<Gl>,
+    pub gl_context: Rc<dyn Gl>,
     /// See [`AppState.resources`](./struct.AppState.html#structfield.resources)
     pub resources : &'a mut AppResources,
     /// Currently running timers (polling functions, run on the main thread)
@@ -511,7 +511,7 @@ pub struct LayoutInfo<'a> {
     pub window_size_height_stops: &'a mut Vec<f32>,
     /// An Rc to the original WindowContext - this is only so that
     /// the user can create textures and other OpenGL content in the window
-    pub gl_context: Rc<Gl>,
+    pub gl_context: Rc<dyn Gl>,
     /// Allows the layout() function to reference app resources such as FontIDs or ImageIDs
     pub resources: &'a AppResources,
 }

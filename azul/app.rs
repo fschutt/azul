@@ -704,7 +704,7 @@ struct EventLoopData<'a, T> {
     render_api: &'a mut WrApi,
     renderer: &'a mut Option<WrRenderer>,
     hidden_context: &'a mut HeadlessContextState,
-    gl_context: Rc<Gl>,
+    gl_context: Rc<dyn Gl>,
 }
 
 /// Similar to `events_loop_proxy.send_user_event(ev)`, however, when dispatching events using glutin,
@@ -1171,7 +1171,7 @@ fn initialize_full_window_states(
 #[cfg(not(test))]
 fn initialize_ui_state_cache<T>(
     data: &T,
-    gl_context: Rc<Gl>,
+    gl_context: Rc<dyn Gl>,
     app_resources: &AppResources,
     windows: &BTreeMap<GlutinWindowId, Window<T>>,
     full_window_states: &mut BTreeMap<GlutinWindowId, FullWindowState>,
@@ -1211,7 +1211,7 @@ fn initialize_ui_state_cache<T>(
 #[cfg(debug_assertions)]
 fn hot_reload_css(
     full_window_state: &mut FullWindowState,
-    hot_reload_handler: Option<&Box<HotReloadHandler>>,
+    hot_reload_handler: Option<&Box<dyn HotReloadHandler>>,
     last_style_reload: &mut Instant,
     force_css_reload: bool,
 ) -> (bool, bool) {
@@ -1234,7 +1234,7 @@ fn hot_reload_css(
 
 fn call_layout_fn<T>(
     data: &T,
-    gl_context: Rc<Gl>,
+    gl_context: Rc<dyn Gl>,
     app_resources: &AppResources,
     full_window_state: &FullWindowState,
     layout_callback: LayoutCallback<T>,
@@ -1352,7 +1352,7 @@ fn call_callbacks<T>(
     layout_result: &BTreeMap<DomId, LayoutResult>,
     scrolled_nodes: &BTreeMap<DomId, ScrolledNodes>,
     cached_display_list: &CachedDisplayList,
-    gl_context: Rc<Gl>,
+    gl_context: Rc<dyn Gl>,
     resources: &mut AppResources,
     glutin_window: &GlutinWindow,
 ) -> CallCallbacksResult {
@@ -1637,7 +1637,7 @@ fn render_inner<T>(
     headless_shared_context: &mut HeadlessContextState,
     render_api: &mut WrApi,
     renderer: &mut WrRenderer,
-    gl_context: Rc<Gl>,
+    gl_context: Rc<dyn Gl>,
     mut txn: WrTransaction,
     background_color: ColorU,
 ) {
