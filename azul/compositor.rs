@@ -1,12 +1,14 @@
 use webrender::{
-    ExternalImageHandler as WrExternalImageHandler,
-    ExternalImage as WrExternalImage,
-    ExternalImageSource as WrExternalImageSource,
     api::{
-        TexelRect as WrTexelRect,
-        DevicePoint as WrDevicePoint,
+        ExternalImage as WrExternalImage,
+        ExternalImageSource as WrExternalImageSource,
+        ExternalImageHandler as WrExternalImageHandler,
         ImageRendering as WrImageRendering,
         ExternalImageId as WrExternalImageId,
+        units::{
+            TexelRect as WrTexelRect,
+            DevicePoint as WrDevicePoint,
+        }
     },
 };
 use azul_core::gl::get_opengl_texture;

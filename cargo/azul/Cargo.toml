@@ -24,7 +24,7 @@ path = "../../azul/lib.rs"
 [dependencies]
 webrender               = { version = "0.61.0",         default-features = false                                                                                 }
 gleam                   = { version = "0.6",            default-features = false                                                                                 }
-glutin                  = { version = "0.22.0-alpha3",  default-features = false                                                                                 }
+glutin                  = { version = "0.25",           default-features = false                                                                                 }
 app_units               = { version = "0.7.1",          default-features = false                                                                                 }
 tinyfiledialogs         = { version = "3.3.5",          default-features = false                                                                                 }
 clipboard2              = { version = "0.1.1",          default-features = false                                                                                 }

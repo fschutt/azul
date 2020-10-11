@@ -49,11 +49,11 @@ pub(crate) fn set_up_logging(log_file_path: Option<&str>, log_level: LevelFilter
         Err(e) => match e {
             InitError::Io(e) => {
                 println!("[WARN] Logging IO init error: \r\nkind: {:?}\r\n\r\ndescription:\r\n{}\r\n\r\ncause:\r\n{:?}\r\n",
-                           e.kind(), e.description(), e.source());
+                           e.kind(), e.to_string(), e.source());
             },
             InitError::SetLoggerError(e) => {
                 println!("[WARN] Logging initalization error: \r\ndescription:\r\n{}\r\n\r\ncause:\r\n{:?}\r\n",
-                    e.description(), e.source());
+                    e.to_string(), e.source());
             }
         }
     }

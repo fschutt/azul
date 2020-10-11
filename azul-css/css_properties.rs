@@ -173,7 +173,7 @@ impl LayoutRect {
     #[inline]
     pub fn get_scroll_rect<I: Iterator<Item=Self>>(&self, children: I) -> Option<Self> {
         let children_union = Self::union(children)?;
-        Self::union([*self, children_union].into_iter().map(|r| *r))
+        Self::union([*self, children_union].iter().map(|r| *r))
     }
 
     // Returns if b overlaps a

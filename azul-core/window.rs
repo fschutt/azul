@@ -1163,6 +1163,8 @@ impl AcceleratorKey {
 /// Symbolic name for a keyboard key, does NOT take the keyboard locale into account
 #[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub enum VirtualKeyCode {
+    Asterisk,
+    Plus,
     Key1,
     Key2,
     Key3,

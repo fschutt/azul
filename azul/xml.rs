@@ -884,7 +884,7 @@ fn compile_components_to_rust_code<T>(components: &XmlComponentMap<T>)
     let mut map = BTreeMap::new();
 
     for (name, (component, should_inherit_variables)) in components.components.iter() {
-        let mut rust_source_code = String::from("Dom::div()"); // TODO
+        let rust_source_code = String::from("Dom::div()"); // TODO
         // let mut rust_source_code = component.compile_to_rust_code()?;
         let args = component.get_available_arguments();
 

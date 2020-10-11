@@ -8,7 +8,7 @@ use webrender::{
         DocumentId as WrDocumentId,
         RenderApi as WrRenderApi,
         RenderNotifier as WrRenderNotifier,
-        DeviceIntSize as WrDeviceIntSize,
+        units::DeviceIntSize as WrDeviceIntSize,
     },
     Renderer as WrRenderer,
     RendererOptions as WrRendererOptions,
@@ -482,8 +482,10 @@ impl<T> Window<T> {
     }
 
     /// Returns what monitor the window is currently residing on (to query monitor size, etc.).
+    /// crashes and burns when there is no monitor available
     pub fn get_current_monitor(&self) -> MonitorHandle {
-        self.display.window().current_monitor()
+
+        self.display.window().current_monitor().unwrap()
     }
 }
 
@@ -1004,11 +1006,11 @@ fn get_gl_context(gl_window: &Context<PossiblyCurrent>) -> Result<Rc<dyn Gl>, Gl
 #[allow(unused_variables)]
 fn get_hidpi_factor(window: &GlutinWindow, event_loop: &EventLoopWindowTarget<()>) -> (f32, f32) {
 
-    use crate::glutin::platform::unix::EventLoopWindowTargetExtUnix;
-
-    let winit_hidpi_factor = window.hidpi_factor() as f32;
-
+    
+    let winit_hidpi_factor = window.scale_factor() as f32;
+    
     #[cfg(target_os = "linux")] {
+        use crate::glutin::platform::unix::EventLoopWindowTargetExtUnix;
         let is_x11 = event_loop.is_x11();
         (linux_get_hidpi_factor(is_x11).unwrap_or(winit_hidpi_factor), winit_hidpi_factor)
     }
@@ -1033,10 +1035,10 @@ fn create_headless_context(
     event_loop: &EventLoop<()>,
 ) -> Result<Context<NotCurrent>, GlutinCreationError> {
     use glutin::dpi::PhysicalSize as GlutinPhysicalSize;
-    create_window_context_builder(true, true, None).build_headless(event_loop, GlutinPhysicalSize::new(1.0, 1.0))
-        .or_else(|_| create_window_context_builder(true, false, None).build_headless(event_loop, GlutinPhysicalSize::new(1.0, 1.0)))
-        .or_else(|_| create_window_context_builder(false, true, None).build_headless(event_loop, GlutinPhysicalSize::new(1.0, 1.0)))
-        .or_else(|_| create_window_context_builder(false, false,None).build_headless(event_loop, GlutinPhysicalSize::new(1.0, 1.0)))
+    create_window_context_builder(true, true, None).build_headless(event_loop, GlutinPhysicalSize::new(1, 1))
+        .or_else(|_| create_window_context_builder(true, false, None).build_headless(event_loop, GlutinPhysicalSize::new(1, 1)))
+        .or_else(|_| create_window_context_builder(false, true, None).build_headless(event_loop, GlutinPhysicalSize::new(1, 1)))
+        .or_else(|_| create_window_context_builder(false, false,None).build_headless(event_loop, GlutinPhysicalSize::new(1, 1)))
 }
 
 
@@ -1120,21 +1122,24 @@ fn create_renderer(
     let opts_native = get_renderer_opts(true, device_pixel_ratio);
     let opts_osmesa = get_renderer_opts(false, device_pixel_ratio);
 
+    let init_size = webrender::api::units::DeviceIntSize::new(0,0);
+
     let (renderer, sender) = match renderer_type {
         Hardware => {
             // force hardware renderer
-            WrRenderer::new(gl, notifier, opts_native, WR_SHADER_CACHE).unwrap()
+            
+            WrRenderer::new(gl, notifier, opts_native, WR_SHADER_CACHE, init_size).unwrap()
         },
         Software => {
             // force software renderer
-            WrRenderer::new(gl, notifier, opts_osmesa, WR_SHADER_CACHE).unwrap()
+            WrRenderer::new(gl, notifier, opts_osmesa, WR_SHADER_CACHE, init_size).unwrap()
         },
         Default => {
             // try hardware first, fall back to software
-            match WrRenderer::new(gl.clone(), notifier.clone(), opts_native, WR_SHADER_CACHE) {
+            match WrRenderer::new(gl.clone(), notifier.clone(), opts_native, WR_SHADER_CACHE, init_size) {
                 Ok(r) => r,
                 Err(_) => {
-                    WrRenderer::new(gl, notifier, opts_osmesa, WR_SHADER_CACHE).unwrap()
+                    WrRenderer::new(gl, notifier, opts_osmesa, WR_SHADER_CACHE, init_size).unwrap()
                 }
             }
         }

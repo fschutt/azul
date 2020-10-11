@@ -343,6 +343,35 @@ pub mod errors {
         Clipboard(e) => format!("Clipboard error: {}", e),
         WindowCreate(e) => format!("Window creation error: {}", e),
     });
+
+    use webrender::api::units::LayoutRect as WrLayoutRect;
+    
+    // use crate::dom::TagId;// studidly copied from webrender to get existing base to work: See until next TODO:
+    /// Primitive metadata we pass around in a bunch of places
+    // #[derive(Copy, Clone, Debug)]
+    // pub struct WrLayoutPrimitiveInfo {
+    //     /// NOTE: this is *ideally* redundant with the clip_rect
+    //     /// but that's an ongoing project, so for now it exists and is used :(
+    //     pub is_backface_visible: bool,
+    //     pub rect: WrLayoutRect,
+    //     pub clip_rect: WrLayoutRect,
+    //     pub tag: Option<TagId, (u64, u16)>,
+    // }
+    //TODO: replace this with proper type
+
+    // studidly copied from webrender to get existing base to work: See until next TODO:
+    /// Primitive metadata we pass around in a bunch of places
+    #[derive(Copy, Clone, Debug)]
+    pub struct WrLayoutPrimitiveInfo {
+        
+        /// NOTE: this is *ideally* redundant with the clip_rect
+        /// but that's an ongoing project, so for now it exists and is used :(
+            pub is_backface_visible: bool,
+            pub rect: WrLayoutRect,
+            pub clip_rect: WrLayoutRect,
+            pub tag: (u64, u16),
+        }
+        //TODO: replace this with proper type
 }
 
 /// Default built-in widgets (button, label, text input, etc.), available with `feature = "widgets"`
@@ -388,4 +417,5 @@ pub mod widgets {
             }
         }
     }
+
 }

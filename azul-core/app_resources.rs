@@ -188,6 +188,7 @@ pub enum RawImageFormat {
     RG8,
     RGBAI32,
     RGBA8,
+    RG16,
 }
 
 #[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
@@ -869,7 +870,8 @@ pub struct FontInstancePlatformOptions {
 #[derive(Debug, Copy, Clone, PartialEq, Eq, Ord, PartialOrd, Hash)]
 pub struct FontInstancePlatformOptions {
     pub gamma: u16,
-    pub contrast: u16,
+    pub contrast: u8,
+    pub cleartype_level: u8
 }
 
 #[cfg(target_os = "macos")]
@@ -1280,6 +1282,7 @@ pub fn build_add_font_resource_updates<T: FontImageApi>(
                 let platform_options = FontInstancePlatformOptions {
                     gamma: 300,
                     contrast: 100,
+                    cleartype_level: 100
                 };
 
                 #[cfg(target_os = "linux")]
