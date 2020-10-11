@@ -643,6 +643,7 @@ fn wr_translate_font_lcd_filter(lcd: FontLCDFilter) -> WrFontLCDFilter {
     }
 }
 
+#[cfg(not(target_os = "windows"))]
 fn wr_translate_font_instance_platform_options(fio: FontInstancePlatformOptions) -> WrFontInstancePlatformOptions {
     WrFontInstancePlatformOptions {
         lcd_filter: wr_translate_font_lcd_filter(fio.lcd_filter),
