@@ -8,7 +8,7 @@ set CARGO_HOME=%USERPROFILE%/.cargo
 if not exist "%CARGO_HOME%\lib\azul-dll-0.0.1\target\release" mkdir "%CARGO_HOME%\lib\azul-dll-0.0.1\target\release"
 
 cd "%~dp0\azul-dll"
-taskkill "cargo.exe"
+taskkill /im "cargo.exe"
 cargo build --all-features --release
 rem RUSTFLAGS='-C link-arg=-s'
 rem cargo build --all-features

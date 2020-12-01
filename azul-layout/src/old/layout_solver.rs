@@ -1,26 +1,21 @@
 use std::{f32, collections::BTreeMap};
 use azul_css::{
-    LayoutPosition, LayoutMargin, LayoutPadding,
-    RectLayout, StyleFontSize, RectStyle,
-    StyleTextAlignmentHorz, StyleTextAlignmentVert,
-    FP_PRECISION_MULTIPLIER, FloatValue, PixelValue, SizeMetric,
+    LayoutPosition, LayoutPoint, LayoutSize, LayoutRect,
+    LayoutMarginTop, LayoutMarginRight, LayoutMarginBottom, LayoutMarginLeft,
+    LayoutPaddingTop, LayoutPaddingRight, LayoutPaddingBottom, LayoutPaddingLeft,
+    RectLayout, StyleFontSize, StyleTextAlignmentHorz, StyleTextAlignmentVert,
+    FloatValue, PixelValue,
 };
-use app_units::Au;
 use azul_core::{
     id_tree::{NodeId, NodeDataContainer, NodeHierarchy},
     display_list::DisplayRectangle,
     dom::{NodeData, NodeType},
-    app_resources::AppResources,
-    text_layout::{Words, ScaledWords, TextSizePx, TextLayoutOptions, WordPositions},
-    traits::Layout,
+    app_resources::{AppResources, get_font_id, get_font_size, font_size_to_au},
 };
-use webrender::api::{LayoutRect, LayoutPoint, LayoutSize};
+use azul_text_layout::text_layout::{Words, ScaledWords, TextLayoutOptions, WordPositions};
 
 const DEFAULT_FLEX_GROW_FACTOR: f32 = 1.0;
-const DEFAULT_FONT_SIZE: StyleFontSize = StyleFontSize(PixelValue {
-    metric: SizeMetric::Px,
-    number: FloatValue { number: (10.0 * FP_PRECISION_MULTIPLIER) as isize },
-});
+const DEFAULT_FONT_SIZE: StyleFontSize = StyleFontSize(PixelValue::const_px(10));
 const DEFAULT_FONT_ID: &str = "sans-serif";
 
 #[derive(Debug, Copy, Clone, PartialEq)]
@@ -152,23 +147,29 @@ macro_rules! determine_preferred {
     })
 }
 
-/// Returns the preferred width, given [width, min_width, max_width] inside a RectLayout
-/// or `None` if the height can't be determined from the node alone.
-///
+// Returns the preferred width, given [width, min_width, max_width] inside a RectLayout
+// or `None` if the height can't be determined from the node alone.
+//
 // fn determine_preferred_width(layout: &RectLayout) -> Option<f32>
 determine_preferred!(determine_preferred_width, width, min_width, max_width);
 
-/// Returns the preferred height, given [height, min_height, max_height] inside a RectLayout
+// Returns the preferred height, given [height, min_height, max_height] inside a RectLayout
 // or `None` if the height can't be determined from the node alone.
-///
+//
 // fn determine_preferred_height(layout: &RectLayout) -> Option<f32>
 determine_preferred!(determine_preferred_height, height, min_height, max_height);
 
 #[derive(Debug, Copy, Clone, PartialEq)]
 struct WidthCalculatedRect {
     pub preferred_width: WhConstraint,
-    pub margin: LayoutMargin,
-    pub padding: LayoutPadding,
+    pub margin_top: LayoutMarginTop,
+    pub margin_right: LayoutMarginRight,
+    pub margin_left: LayoutMarginLeft,
+    pub margin_bottom: LayoutMarginBottom,
+    pub padding_top: LayoutPaddingTop,
+    pub padding_left: LayoutPaddingLeft,
+    pub padding_right: LayoutPaddingRight,
+    pub padding_bottom: LayoutPaddingBottom,
     pub flex_grow_px: f32,
     pub min_inner_size_px: f32,
 }
@@ -177,16 +178,16 @@ impl WidthCalculatedRect {
     /// Get the flex basis in the horizontal direction - vertical axis has to be calculated differently
     pub fn get_flex_basis_horizontal(&self) -> f32 {
         self.preferred_width.min_needed_space().unwrap_or(0.0) +
-        self.margin.left.and_then(|px| Some(px.to_pixels())).unwrap_or(0.0) +
-        self.margin.right.and_then(|px| Some(px.to_pixels())).unwrap_or(0.0) +
-        self.padding.left.and_then(|px| Some(px.to_pixels())).unwrap_or(0.0) +
-        self.padding.right.and_then(|px| Some(px.to_pixels())).unwrap_or(0.0)
+        self.margin_left.and_then(|px| Some(px.to_pixels())).unwrap_or(0.0) +
+        self.margin_right.and_then(|px| Some(px.to_pixels())).unwrap_or(0.0) +
+        self.padding_left.and_then(|px| Some(px.to_pixels())).unwrap_or(0.0) +
+        self.padding_right.and_then(|px| Some(px.to_pixels())).unwrap_or(0.0)
     }
 
     /// Get the sum of the horizontal padding amount (`padding.left + padding.right`)
     pub fn get_horizontal_padding(&self) -> f32 {
-        self.padding.left.and_then(|px| Some(px.to_pixels())).unwrap_or(0.0) +
-        self.padding.right.and_then(|px| Some(px.to_pixels())).unwrap_or(0.0)
+        self.padding_left.and_then(|px| Some(px.to_pixels())).unwrap_or(0.0) +
+        self.padding_right.and_then(|px| Some(px.to_pixels())).unwrap_or(0.0)
     }
 
     /// Called after solver has run: Solved width of rectangle
@@ -201,8 +202,14 @@ impl WidthCalculatedRect {
 #[derive(Debug, Copy, Clone, PartialEq)]
 struct HeightCalculatedRect {
     pub preferred_height: WhConstraint,
-    pub margin: LayoutMargin,
-    pub padding: LayoutPadding,
+    pub margin_top: LayoutMarginTop,
+    pub margin_right: LayoutMarginRight,
+    pub margin_left: LayoutMarginLeft,
+    pub margin_bottom: LayoutMarginBottom,
+    pub padding_top: LayoutPaddingTop,
+    pub padding_left: LayoutPaddingLeft,
+    pub padding_right: LayoutPaddingRight,
+    pub padding_bottom: LayoutPaddingBottom,
     pub flex_grow_px: f32,
     pub min_inner_size_px: f32,
 }
@@ -211,16 +218,16 @@ impl HeightCalculatedRect {
     /// Get the flex basis in the horizontal direction - vertical axis has to be calculated differently
     pub fn get_flex_basis_vertical(&self) -> f32 {
         self.preferred_height.min_needed_space().unwrap_or(0.0) +
-        self.margin.top.and_then(|px| Some(px.to_pixels())).unwrap_or(0.0) +
-        self.margin.bottom.and_then(|px| Some(px.to_pixels())).unwrap_or(0.0) +
-        self.padding.top.and_then(|px| Some(px.to_pixels())).unwrap_or(0.0) +
-        self.padding.bottom.and_then(|px| Some(px.to_pixels())).unwrap_or(0.0)
+        self.margin_top.map(|px| px.to_pixels()).unwrap_or(0.0) +
+        self.margin_bottom.map(|px| px.to_pixels()).unwrap_or(0.0) +
+        self.padding_top.map(|px| px.to_pixels()).unwrap_or(0.0) +
+        self.padding_bottom.map(|px| px.to_pixels()).unwrap_or(0.0)
     }
 
-    /// Get the sum of the horizontal padding amount (`padding.top + padding.bottom`)
+    /// Get the sum of the horizontal padding amount (`padding_top + padding_bottom`)
     pub fn get_vertical_padding(&self) -> f32 {
-        self.padding.top.and_then(|px| Some(px.to_pixels())).unwrap_or(0.0) +
-        self.padding.bottom.and_then(|px| Some(px.to_pixels())).unwrap_or(0.0)
+        self.padding_top.map(|px| px.to_pixels()).unwrap_or(0.0) +
+        self.padding_bottom.map(|px| px.to_pixels()).unwrap_or(0.0)
     }
 
     /// Called after solver has run: Solved width of rectangle
@@ -232,18 +239,33 @@ impl HeightCalculatedRect {
     }
 }
 
-// `typed_arena!(WidthCalculatedRect, preferred_width, determine_preferred_width, get_horizontal_padding, get_flex_basis_horizontal)`
+/// ```rust
+/// typed_arena!(
+///     WidthCalculatedRect,
+///     preferred_width,
+///     determine_preferred_width,
+///     get_horizontal_padding,
+///     get_flex_basis_horizontal,
+///     width_calculated_rect_arena_from_rect_layout_arena,
+///     bubble_preferred_widths_to_parents,
+///     width_calculated_rect_arena_apply_flex_grow,
+///     width_calculated_rect_arena_sum_children_flex_basis,
+///     Horizontal,
+/// )
+/// ```
 macro_rules! typed_arena {(
     $struct_name:ident,
     $preferred_field:ident,
     $determine_preferred_fn:ident,
     $get_padding_fn:ident,
     $get_flex_basis:ident,
+    $from_rect_layout_arena_fn_name:ident,
     $bubble_fn_name:ident,
+    $apply_flex_grow_fn_name:ident,
+    $sum_children_flex_basis_fn_name:ident,
     $main_axis:ident
 ) => (
 
-impl NodeDataContainer<$struct_name> {
 
     /// Fill out the preferred width of all nodes.
     ///
@@ -253,14 +275,23 @@ impl NodeDataContainer<$struct_name> {
     ///
     /// NOTE: Later on, this could maybe be a NodeDataContainer<&'a RectLayout>.
     #[must_use]
-    fn from_rect_layout_arena(node_data: &NodeDataContainer<RectLayout>, widths: &NodeDataContainer<Option<f32>>) -> Self {
+    fn $from_rect_layout_arena_fn_name(node_data: &NodeDataContainer<RectLayout>, widths: &NodeDataContainer<Option<f32>>) -> NodeDataContainer<$struct_name> {
         let new_nodes = node_data.internal.iter().enumerate().map(|(node_id, node_data)|{
             let id = NodeId::new(node_id);
             $struct_name {
                 // TODO: get the initial width of the rect content
                 $preferred_field: $determine_preferred_fn(&node_data, widths[id]),
-                margin: node_data.margin.unwrap_or_default(),
-                padding: node_data.padding.unwrap_or_default(),
+
+                margin_top: node_data.margin_top.unwrap_or_default(),
+                margin_left: node_data.margin_left.unwrap_or_default(),
+                margin_right: node_data.margin_right.unwrap_or_default(),
+                margin_bottom: node_data.margin_bottom.unwrap_or_default(),
+
+                padding_top: node_data.padding_top.unwrap_or_default(),
+                padding_left: node_data.padding_left.unwrap_or_default(),
+                padding_right: node_data.padding_right.unwrap_or_default(),
+                padding_bottom: node_data.padding_bottom.unwrap_or_default(),
+
                 flex_grow_px: 0.0,
                 min_inner_size_px: 0.0,
             }
@@ -272,7 +303,7 @@ impl NodeDataContainer<$struct_name> {
     /// the width so that the `preferred_width` can contain the child nodes (if
     /// that doesn't violate the constraints of the parent)
     fn $bubble_fn_name(
-        &mut self,
+        node_data: &mut NodeDataContainer<$struct_name>,
         node_hierarchy: &NodeHierarchy,
         arena_data: &NodeDataContainer<RectLayout>,
         non_leaf_nodes: &[(usize, NodeId)])
@@ -285,13 +316,13 @@ impl NodeDataContainer<$struct_name> {
             use self::WhConstraint::*;
 
             // Sum of the direct children's flex-basis = the parents preferred width
-            let children_flex_basis = self.sum_children_flex_basis(*non_leaf_id, node_hierarchy, arena_data);
+            let children_flex_basis = node_data.sum_children_flex_basis(*non_leaf_id, node_hierarchy, arena_data);
 
             // Calculate the new flex-basis width
-            let parent_width_metrics = self[*non_leaf_id];
+            let parent_width_metrics = node_data[*non_leaf_id];
 
             // For calculating the inner width, subtract the parents padding
-            let parent_padding = self[*non_leaf_id].$get_padding_fn();
+            let parent_padding = node_data[*non_leaf_id].$get_padding_fn();
 
             // If the children are larger than the parents preferred max-width or smaller
             // than the parents min-width, adjust
@@ -309,7 +340,7 @@ impl NodeDataContainer<$struct_name> {
                 Unconstrained => children_flex_basis,
             };
 
-            self[*non_leaf_id].min_inner_size_px = child_width;
+            node_data[*non_leaf_id].min_inner_size_px = child_width;
         }
 
         // Now, the width of all elements should be filled,
@@ -318,8 +349,8 @@ impl NodeDataContainer<$struct_name> {
 
     /// Go from the root down and flex_grow the children if needed - respects the `width`, `min_width` and `max_width` properties
     /// The layout step doesn't account for the min_width and max_width constraints, so we have to adjust them manually
-    fn apply_flex_grow(
-        &mut self,
+    fn $apply_flex_grow_fn_name(
+        node_data: &mut NodeDataContainer<$struct_name>,
         node_hierarchy: &NodeHierarchy,
         arena_data: &NodeDataContainer<RectLayout>,
         parent_ids_sorted_by_depth: &[(usize, NodeId)],
@@ -379,7 +410,7 @@ impl NodeDataContainer<$struct_name> {
             // 2. Set all items to their minimum width. Record how much space is gained by doing so.
             let mut horizontal_space_taken_up_by_variable_items = 0.0;
 
-            use FastHashSet;
+            use azul_core::FastHashSet;
 
             let mut variable_width_childs = node_id
                 .children(node_hierarchy)
@@ -581,23 +612,23 @@ impl NodeDataContainer<$struct_name> {
             }
         }
 
-        debug_assert!(self[NodeId::new(0)].flex_grow_px == 0.0);
+        debug_assert!(node_data[NodeId::new(0)].flex_grow_px == 0.0);
 
         // Set the window width on the root node (since there is only one root node, we can
         // calculate the `flex_grow_px` directly)
         //
         // Usually `top_level_flex_basis` is NOT 0.0, rather it's the sum of all widths in the DOM,
         // i.e. the sum of the whole DOM tree
-        let top_level_flex_basis = self[NodeId::new(0)].min_inner_size_px;
+        let top_level_flex_basis = node_data[NodeId::new(0)].min_inner_size_px;
 
         // The root node can still have some sort of max-width attached, so we need to check for that
-        let root_preferred_width = if let Some(max_width) = self[NodeId::new(0)].$preferred_field.max_available_space() {
+        let root_preferred_width = if let Some(max_width) = node_data[NodeId::new(0)].$preferred_field.max_available_space() {
             if root_width > max_width { max_width } else { root_width }
         } else {
             root_width
         };
 
-        self[NodeId::new(0)].flex_grow_px = root_preferred_width - top_level_flex_basis;
+        node_data[NodeId::new(0)].flex_grow_px = root_preferred_width - top_level_flex_basis;
 
         // Keep track of the nearest relative or absolute positioned element
         let mut positioned_node_stack = vec![NodeId::new(0)];
@@ -612,9 +643,9 @@ impl NodeDataContainer<$struct_name> {
             }
 
             if arena_data[*parent_id].direction.unwrap_or_default().get_axis() == LayoutAxis::$main_axis {
-                distribute_space_along_main_axis(parent_id, node_hierarchy, arena_data, self, &positioned_node_stack);
+                distribute_space_along_main_axis(parent_id, node_hierarchy, arena_data, node_data, &positioned_node_stack);
             } else {
-                distribute_space_along_cross_axis(parent_id, node_hierarchy, arena_data, self, &positioned_node_stack);
+                distribute_space_along_cross_axis(parent_id, node_hierarchy, arena_data, node_data, &positioned_node_stack);
             }
 
             if parent_is_positioned {
@@ -624,8 +655,9 @@ impl NodeDataContainer<$struct_name> {
     }
 
     /// Returns the sum of the flex-basis of the current nodes' children
-    fn sum_children_flex_basis(
-        &self,
+    #[must_use]
+    fn $sum_children_flex_basis_fn_name(
+        node_data: &NodeDataContainer<$struct_name>,
         node_id: NodeId,
         node_hierarchy: &NodeHierarchy,
         display_arena: &NodeDataContainer<RectLayout>)
@@ -634,10 +666,9 @@ impl NodeDataContainer<$struct_name> {
         node_id
             .children(node_hierarchy)
             .filter(|child_node_id| display_arena[*child_node_id].position != Some(LayoutPosition::Absolute))
-            .map(|child_node_id| self[child_node_id].$get_flex_basis())
+            .map(|child_node_id| node_data[child_node_id].$get_flex_basis())
             .sum()
     }
-}
 
 )}
 
@@ -647,7 +678,10 @@ typed_arena!(
     determine_preferred_width,
     get_horizontal_padding,
     get_flex_basis_horizontal,
+    width_calculated_rect_arena_from_rect_layout_arena,
     bubble_preferred_widths_to_parents,
+    width_calculated_rect_arena_apply_flex_grow,
+    width_calculated_rect_arena_sum_children_flex_basis,
     Horizontal
 );
 
@@ -657,7 +691,10 @@ typed_arena!(
     determine_preferred_height,
     get_vertical_padding,
     get_flex_basis_vertical,
+    height_calculated_rect_arena_from_rect_layout_arena,
     bubble_preferred_heights_to_parents,
+    height_calculated_rect_arena_apply_flex_grow,
+    height_calculated_rect_arena_sum_children_flex_basis,
     Vertical
 );
 
@@ -698,9 +735,9 @@ pub(crate) struct SolvedHeightLayout {
 }
 
 /// Returns the solved widths of the items in a BTree form
-pub(crate) fn solve_flex_layout_width<'a>(
+pub(crate) fn solve_flex_layout_width(
     node_hierarchy: &NodeHierarchy,
-    display_rectangles: &NodeDataContainer<DisplayRectangle<'a>>,
+    display_rectangles: &NodeDataContainer<DisplayRectangle>,
     preferred_widths: &NodeDataContainer<Option<f32>>,
     window_width: f32
 ) -> SolvedWidthLayout {
@@ -742,6 +779,10 @@ macro_rules! get_position {
  $min_width:ident,
  $left:ident,
  $right:ident,
+ $margin_left:ident,
+ $margin_right:ident,
+ $padding_left:ident,
+ $padding_right:ident,
  $axis:ident
 ) => (
 
@@ -766,17 +807,15 @@ fn $fn_name(
         };
 
         let child_node = &arena_data[child_id];
-        let child_margin = child_node.margin.unwrap_or_default();
-        let child_margin_left = child_margin.$left.and_then(|x| Some(x.to_pixels())).unwrap_or(0.0);
-        let child_margin_right = child_margin.$right.and_then(|x| Some(x.to_pixels())).unwrap_or(0.0);
+        let child_margin_left = child_node.$margin_left.and_then(|x| Some(x.to_pixels())).unwrap_or(0.0);
+        let child_margin_right = child_node.$margin_right.and_then(|x| Some(x.to_pixels())).unwrap_or(0.0);
 
         let zero_node = NodeId::new(0);
         let last_relative_node_id = positioned_node_stack.get(positioned_node_stack.len() - 1).unwrap_or(&zero_node);
 
         let last_relative_node = arena_data[*last_relative_node_id];
-        let last_relative_padding = last_relative_node.padding.unwrap_or_default();
-        let last_relative_padding_left = last_relative_padding.$left.and_then(|x| Some(x.to_pixels())).unwrap_or(0.0);
-        let last_relative_padding_right = last_relative_padding.$right.and_then(|x| Some(x.to_pixels())).unwrap_or(0.0);
+        let last_relative_padding_left = last_relative_node.$padding_left.and_then(|x| Some(x.to_pixels())).unwrap_or(0.0);
+        let last_relative_padding_right = last_relative_node.$padding_right.and_then(|x| Some(x.to_pixels())).unwrap_or(0.0);
 
         let last_relative_node_x = arena_solved_data[*last_relative_node_id].0 + last_relative_padding_left;
         let last_relative_node_inner_width = {
@@ -824,9 +863,9 @@ fn $fn_name(
 
         // width: increase X according to the main axis, Y according to the cross_axis
         let child_node = &arena_data[child_id];
-        let child_margin = child_node.margin.unwrap_or_default();
-        let child_margin_left = child_margin.$left.and_then(|x| Some(x.to_pixels())).unwrap_or(0.0);
-        let child_margin_right = child_margin.$right.and_then(|x| Some(x.to_pixels())).unwrap_or(0.0);
+
+        let child_margin_left = child_node.$margin_left.and_then(|x| Some(x.to_pixels())).unwrap_or(0.0);
+        let child_margin_right = child_node.$margin_right.and_then(|x| Some(x.to_pixels())).unwrap_or(0.0);
 
         if child_node.position.unwrap_or_default() == LayoutPosition::Absolute {
             determine_child_x_absolute(
@@ -870,7 +909,7 @@ fn $fn_name(
         parent_x_position: f32)
     {
         let child_node = &arena_data[child_id];
-        let child_margin_left = child_node.margin.unwrap_or_default().$left.and_then(|x| Some(x.to_pixels())).unwrap_or(0.0);
+        let child_margin_left = child_node.$margin_left.and_then(|x| Some(x.to_pixels())).unwrap_or(0.0);
 
         if child_node.position.unwrap_or_default() == LayoutPosition::Absolute {
             determine_child_x_absolute(
@@ -895,9 +934,9 @@ fn $fn_name(
     for (_node_depth, parent_id) in non_leaf_nodes {
 
         let parent_node = node_data[*parent_id];
-        let parent_padding = parent_node.padding.unwrap_or_default();
-        let parent_padding_left = parent_padding.$left.and_then(|x| Some(x.to_pixels())).unwrap_or(0.0);
-        let parent_padding_right = parent_padding.$right.and_then(|x| Some(x.to_pixels())).unwrap_or(0.0);
+
+        let parent_padding_left = parent_node.$padding_left.and_then(|x| Some(x.to_pixels())).unwrap_or(0.0);
+        let parent_padding_right = parent_node.$padding_right.and_then(|x| Some(x.to_pixels())).unwrap_or(0.0);
         let parent_x_position = arena_solved_data[*parent_id].0 + parent_padding_left;
         let parent_direction = parent_node.direction.unwrap_or_default();
 
@@ -1007,7 +1046,20 @@ fn get_x_positions(
     origin: LayoutPoint,
 ) -> NodeDataContainer<HorizontalSolvedPosition>
 {
-    get_position!(get_pos_x, SolvedWidthLayout, HorizontalSolvedPosition, solved_widths, min_width, left, right, Horizontal);
+    get_position!(
+        get_pos_x,
+        SolvedWidthLayout,
+        HorizontalSolvedPosition,
+        solved_widths,
+        min_width,
+        left,
+        right,
+        margin_left,
+        margin_right,
+        padding_left,
+        padding_right,
+        Horizontal
+    );
     let mut arena = get_pos_x(node_hierarchy, &solved_widths.layout_only_arena, &solved_widths.non_leaf_nodes_sorted_by_depth, solved_widths);
 
     // Add the origin on top of the position
@@ -1027,7 +1079,20 @@ fn get_y_positions(
     origin: LayoutPoint
 ) -> NodeDataContainer<VerticalSolvedPosition>
 {
-    get_position!(get_pos_y, SolvedHeightLayout, VerticalSolvedPosition, solved_heights, min_height, top, bottom, Vertical);
+    get_position!(
+        get_pos_y,
+        SolvedHeightLayout,
+        VerticalSolvedPosition,
+        solved_heights,
+        min_height,
+        top,
+        bottom,
+        margin_top,
+        margin_bottom,
+        padding_top,
+        padding_bottom,
+        Vertical
+    );
     let mut arena = get_pos_y(node_hierarchy, &solved_widths.layout_only_arena, &solved_widths.non_leaf_nodes_sorted_by_depth, solved_heights);
 
     // Add the origin on top of the position
@@ -1042,13 +1107,13 @@ fn get_y_positions(
 
 /// Returns the preferred width, for example for an image, that would be the
 /// original width (an image always wants to take up the original space)
-fn get_content_width<T: Layout>(
+fn get_content_width(
         node_id: &NodeId,
-        node_type: &NodeType<T>,
+        node_type: &NodeType,
         app_resources: &AppResources,
         positioned_words: &BTreeMap<NodeId, WordPositions>,
 ) -> Option<f32> {
-    use dom::NodeType::*;
+    use azul_core::dom::NodeType::*;
     match node_type {
         Image(image_id) => app_resources.get_image_info(image_id).map(|info| info.descriptor.size.width as f32),
         Label(_) | Text(_) => positioned_words.get(node_id).map(|pos| pos.content_size.width),
@@ -1056,14 +1121,14 @@ fn get_content_width<T: Layout>(
     }
 }
 
-fn get_content_height<T: Layout>(
+fn get_content_height(
     node_id: &NodeId,
-    node_type: &NodeType<T>,
+    node_type: &NodeType,
     app_resources: &AppResources,
     positioned_words: &BTreeMap<NodeId, WordPositions>,
     div_width: f32,
 ) -> Option<f32> {
-    use dom::NodeType::*;
+    use azul_core::dom::NodeType::*;
     match &node_type {
         Image(i) => {
             let image_size = &app_resources.get_image_info(i)?.descriptor.size;
@@ -1094,27 +1159,6 @@ impl PreferredHeight {
     }
 }
 
-pub(crate) fn font_size_to_au(font_size: StyleFontSize) -> Au {
-    use app_units::{AU_PER_PX, MIN_AU, MAX_AU, Au};
-    let target_app_units = Au((font_size.0.to_pixels() as i32) * AU_PER_PX as i32);
-    if target_app_units < MIN_AU {
-        MIN_AU
-    } else if target_app_units > MAX_AU {
-        MAX_AU
-    } else {
-        target_app_units
-    }
-}
-
-pub(crate) fn get_font_id(rect_style: &RectStyle) -> &str {
-    let font_id = rect_style.font_family.as_ref().and_then(|family| family.fonts.get(0));
-    font_id.map(|f| f.get_str()).unwrap_or(DEFAULT_FONT_ID)
-}
-
-pub(crate) fn get_font_size(rect_style: &RectStyle) -> StyleFontSize {
-    rect_style.font_size.unwrap_or(DEFAULT_FONT_SIZE)
-}
-
 #[derive(Debug, Copy, Clone, PartialEq)]
 pub struct PositionedRectangle {
     pub bounds: LayoutRect,
@@ -1135,23 +1179,23 @@ pub struct LayoutResult {
 
 #[derive(Debug, Copy, Clone, PartialEq)]
 struct InlineText {
-    horizontal_padding: TextSizePx,
-    horizontal_margin: TextSizePx,
+    horizontal_padding: StyleFontSize,
+    horizontal_margin: StyleFontSize,
 }
 
 /// At this point in time, all font keys, image keys, etc. have
 /// to be already submitted in the RenderApi!
-pub(crate) fn do_the_layout<'a,'b, T: Layout>(
+pub(crate) fn do_the_layout(
     node_hierarchy: &NodeHierarchy,
-    node_data: &NodeDataContainer<NodeData<T>>,
-    display_rects: &NodeDataContainer<DisplayRectangle<'a>>,
-    app_resources: &'b AppResources,
+    node_data: &NodeDataContainer<NodeData>,
+    display_rects: &NodeDataContainer<DisplayRectangle>,
+    app_resources: &AppResources,
     rect_size: LayoutSize,
     rect_offset: LayoutPoint,
 ) -> LayoutResult {
 
     // TODO: Determine the absolute preferred width based on the overflow and min-width / max-width constraints
-    let mut max_widths = BTreeMap::<NodeId, TextSizePx>::new();
+    let mut max_widths = BTreeMap::<NodeId, FloatValue>::new();
 
     // TODO: Filter all inline text blocks: inline blocks + their padding + margin
     // The NodeId has to be the **next** NodeId (the next sibling after the inline element)
@@ -1227,12 +1271,12 @@ pub(crate) fn do_the_layout<'a,'b, T: Layout>(
     }
 }
 
-fn create_word_cache<T: Layout>(
+fn create_word_cache(
     app_resources: &AppResources,
-    node_data: &NodeDataContainer<NodeData<T>>,
+    node_data: &NodeDataContainer<NodeData>,
 ) -> BTreeMap<NodeId, Words>
 {
-    use text_layout::split_text_into_words;
+    use azul_text_layout::text_layout::split_text_into_words;
     node_data
     .linear_iter()
     .filter_map(|node_id| {
@@ -1246,13 +1290,13 @@ fn create_word_cache<T: Layout>(
     }).collect()
 }
 
-fn create_scaled_words<'a>(
+fn create_scaled_words(
     app_resources: &AppResources,
     words: &BTreeMap<NodeId, Words>,
-    display_rects: &NodeDataContainer<DisplayRectangle<'a>>,
+    display_rects: &NodeDataContainer<DisplayRectangle>,
 ) -> BTreeMap<NodeId, ScaledWords>
 {
-    use text_layout::words_to_scaled_words;
+    use azul_text_layout::text_layout::words_to_scaled_words;
     words.iter().filter_map(|(node_id, words)| {
         let style = &display_rects[*node_id].style;
         let font_size = font_size_to_au(get_font_size(&style));
@@ -1269,15 +1313,15 @@ fn create_scaled_words<'a>(
     }).collect()
 }
 
-fn create_word_positions<'a>(
+fn create_word_positions(
     words: &BTreeMap<NodeId, Words>,
     scaled_words: &BTreeMap<NodeId, ScaledWords>,
-    display_rects: &NodeDataContainer<DisplayRectangle<'a>>,
-    max_widths: &BTreeMap<NodeId, TextSizePx>,
+    display_rects: &NodeDataContainer<DisplayRectangle>,
+    max_widths: &BTreeMap<NodeId, PixelValue>,
     inline_texts: &BTreeMap<NodeId, InlineText>,
 ) -> BTreeMap<NodeId, WordPositions> {
 
-    use text_layout::{ScrollbarStyle, position_words};
+    use azul_text_layout::text_layout::position_words;
 
     let mut word_positions = BTreeMap::new();
 
@@ -1295,15 +1339,8 @@ fn create_word_positions<'a>(
         // TODO: Make this configurable
         let text_holes = Vec::new();
         let text_layout_options = get_text_layout_options(&rect, max_horizontal_width, leading, text_holes);
-        let scrollbar_style = ScrollbarStyle {
-            horizontal: Some(rect.style.get_horizontal_scrollbar_style()),
-            vertical: Some(rect.style.get_vertical_scrollbar_style()),
-        };
 
-        word_positions.insert(*node_id, position_words(
-            words, scaled_words, &text_layout_options,
-            TextSizePx(font_size.to_pixels()), overflow, &scrollbar_style,
-        ));
+        word_positions.insert(*node_id, position_words(words, scaled_words, &text_layout_options));
     }
 
     word_positions
@@ -1311,17 +1348,17 @@ fn create_word_positions<'a>(
 
 fn get_text_layout_options(
     rect: &DisplayRectangle,
-    max_horizontal_width: Option<TextSizePx>,
-    leading: Option<TextSizePx>,
+    max_horizontal_width: Option<PixelValue>,
+    leading: Option<PixelValue>,
     holes: Vec<LayoutRect>,
 ) -> TextLayoutOptions {
 
     let (horz_alignment, vert_alignment) = determine_text_alignment(rect);
     TextLayoutOptions {
         line_height: rect.style.line_height,
-        letter_spacing: rect.style.letter_spacing.map(|ls| TextSizePx(ls.0.to_pixels())),
-        word_spacing: rect.style.word_spacing.map(|ws| TextSizePx(ws.0.to_pixels())),
-        tab_width: rect.style.tab_width.map(|tw| tw.0.get()),
+        letter_spacing: rect.style.letter_spacing.map(|ls| ls.0),
+        word_spacing: rect.style.word_spacing.map(|ws| ws.0),
+        tab_width: rect.style.tab_width.map(|tw| tw.0),
         max_horizontal_width,
         leading,
         holes,
