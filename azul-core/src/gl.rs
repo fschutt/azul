@@ -1433,6 +1433,7 @@ impl Gl for VirtualGlDriver {
 }
 
 /// For .get_gl_precision_format(), but ABI-safe - returning an array or a tuple is not ABI-safe
+#[derive(Debug, Copy, Clone, PartialEq, PartialOrd)]
 #[repr(C)]
 pub struct GlShaderPrecisionFormatReturn {
     pub _0: GLint,

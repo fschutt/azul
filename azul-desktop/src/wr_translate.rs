@@ -1163,7 +1163,7 @@ fn push_display_list_msg(
     use azul_core::ui_solver::PositionInfo::*;
 
     let (spatial_id, clip_id) = match msg.get_position() {
-        Static { x_offset, y_offset } | Relative { x_offset, y_offset } => {
+        Static { x_offset, y_offset, .. } | Relative { x_offset, y_offset, .. } => {
             builder.push_simple_stacking_context(
                 WrLayoutPoint::new(x_offset, y_offset),
                 parent_spatial_id,
@@ -1171,7 +1171,7 @@ fn push_display_list_msg(
             );
             (parent_spatial_id, parent_clip_id)
         },
-        Absolute { x_offset, y_offset } => {
+        Absolute { x_offset, y_offset, .. } => {
             let (last_positioned_spatial_id, last_positioned_clip_id) = positioned_items
             .last().copied().unwrap_or((WrSpatialId::root_scroll_node(builder.pipeline_id), WrClipId::root(builder.pipeline_id)));
 
@@ -1182,7 +1182,7 @@ fn push_display_list_msg(
             );
             (last_positioned_spatial_id, last_positioned_clip_id)
         },
-        Fixed { x_offset, y_offset } => {
+        Fixed { x_offset, y_offset, .. } => {
             builder.push_simple_stacking_context(
                 WrLayoutPoint::new(x_offset, y_offset),
                 WrSpatialId::root_scroll_node(builder.pipeline_id),
@@ -1244,13 +1244,12 @@ fn push_frame(
     }
 }
 
-// The clip rect is the rect of the
 fn get_frame_clip_rect(position_info: PositionInfo, rect_size: CssLayoutSize) -> CssLayoutRect {
     match position_info {
-        PositionInfo::Static { x_offset, y_offset } |
-        PositionInfo::Relative { x_offset, y_offset } |
-        PositionInfo::Absolute { x_offset, y_offset } |
-        PositionInfo::Fixed { x_offset, y_offset } => {
+        PositionInfo::Static { x_offset, y_offset, .. } |
+        PositionInfo::Relative { x_offset, y_offset, .. } |
+        PositionInfo::Absolute { x_offset, y_offset, .. } |
+        PositionInfo::Fixed { x_offset, y_offset, .. } => {
             CssLayoutRect::new(CssLayoutPoint::new(x_offset, y_offset), rect_size)
         }
     }

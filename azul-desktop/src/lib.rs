@@ -59,10 +59,9 @@ mod wr_translate;
 
 pub use azul_core::{FastHashMap, FastHashSet};
 
-/// Traits `Layout`, `GetTextLayout` and `GetStyle` definitions
+/// `GetTextLayout` trait definition
 pub mod traits {
-    pub use azul_core::traits::*;
-    pub use azulc::layout::GetStyle;
+    pub use azul_core::traits::GetTextLayout;
 }
 
 /// Handles text layout (modularized, can be used as a standalone module)

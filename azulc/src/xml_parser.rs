@@ -593,7 +593,7 @@ pub fn layout_dom(dom: Dom, css: &Css, root_size: LogicalSize) -> CachedDisplayL
         &mut ui_states,
         &mut ui_descriptions,
         azul_core::gl::insert_into_active_gl_textures,
-        azul_layout::ui_solver::do_the_layout,
+        azul_layout::do_the_layout,
         LoadFontFn { cb: crate::font_loading::font_source_get_bytes },
         LoadImageFn { cb: crate::image_loading::image_source_get_bytes },
     );

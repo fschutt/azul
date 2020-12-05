@@ -460,7 +460,7 @@ impl App {
                             WindowEvent::ReceivedCharacter(c) => {
                                 {
                                     let mut full_window_state = eld.full_window_states.get_mut(&glutin_window_id).unwrap();
-                                    full_window_state.keyboard_state.current_char = Some(*c).into();
+                                    full_window_state.keyboard_state.current_char = Some((*c) as u32).into();
                                 }
 
                                 send_user_event(AzulUpdateEvent::DoHitTest { window_id }, &mut eld);
@@ -1006,7 +1006,7 @@ fn send_user_event<'a>(
                     eld.ui_state_cache.get_mut(&glutin_window_id).unwrap(),
                     eld.ui_description_cache.get_mut(&glutin_window_id).unwrap(),
                     azul_core::gl::insert_into_active_gl_textures,
-                    azulc::layout::ui_solver::do_the_layout,
+                    azulc::layout::do_the_layout,
                     eld.config.font_loading_fn,
                     eld.config.image_loading_fn,
                 );

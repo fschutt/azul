@@ -73,7 +73,7 @@ pub mod font_loading {
 
     #[cfg(feature = "text_layout")]
     pub fn font_source_get_bytes(font_source: &FontSource) -> Option<LoadedFontSource> {
-        use crate::layout::text_layout::text_shaping::get_font_metrics_freetype;
+        use azul_layout::text_layout::text_shaping::get_font_metrics_freetype;
         // TODO: logging!
         let (font_bytes, font_index) = font_source_get_bytes_inner(font_source).ok()?;
         let font_metrics = get_font_metrics_freetype(&font_bytes, DEFAULT_FONT_INDEX);

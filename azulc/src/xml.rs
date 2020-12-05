@@ -227,7 +227,7 @@ impl From<xmlparser::StreamError> for XmlStreamError {
             xmlparser::StreamError::InvalidCommentData => XmlStreamError::InvalidCommentData,
             xmlparser::StreamError::InvalidCommentEnd => XmlStreamError::InvalidCommentEnd,
             xmlparser::StreamError::InvalidCharacterData => XmlStreamError::InvalidCharacterData,
-            xmlparser::StreamError::NonXmlChar(c, tp) => XmlStreamError::NonXmlChar(NonXmlCharError { ch: c, pos: tp.into() }),
+            xmlparser::StreamError::NonXmlChar(c, tp) => XmlStreamError::NonXmlChar(NonXmlCharError { ch: c.into(), pos: tp.into() }),
             xmlparser::StreamError::InvalidChar(a, b, tp) => XmlStreamError::InvalidChar(InvalidCharError { expected: a, got: b, pos: tp.into() }),
             xmlparser::StreamError::InvalidCharMultiple(a, b, tp) => XmlStreamError::InvalidCharMultiple(InvalidCharMultipleError { expected: a, got: b.to_vec().into(), pos: tp.into() }),
             xmlparser::StreamError::InvalidQuote(a, tp) => XmlStreamError::InvalidQuote(InvalidQuoteError { got: a.into(), pos: tp.into() }),
