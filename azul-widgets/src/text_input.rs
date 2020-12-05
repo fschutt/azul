@@ -76,6 +76,7 @@ impl TextInputState {
 
     pub fn handle_on_text_input(&mut self, keyboard_state: &KeyboardState) -> Option<()> {
         let c = keyboard_state.current_char.into_option()?;
+        let c = std::char::from_u32(c)?;
 
         match self.selection.clone() {
             None => {

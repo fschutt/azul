@@ -8,13 +8,8 @@ struct Data {
 
 extern "C" fn layout(data: RefAny, _info: LayoutInfo) -> Dom {
     let data = data.borrow::<Data>().expect("wrong downcast");
-    let dom = Dom::body()
-        .with_child(Dom::label(format!("hello: {}", data.counter).into()));
-
-    println!("dom (client side): {}", dom.get_html_string());
-    println!("size of dom (client side): {}", std::mem::size_of::<Dom>());
-
-    dom
+    Dom::body()
+        .with_child(Dom::label(format!("hello: {}", data.counter).into()))
 }
 
 

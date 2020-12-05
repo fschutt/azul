@@ -167,8 +167,6 @@ macro_rules! impl_vec {($struct_type:ident, $struct_name:ident) => (
             self.ptr = res as *mut $struct_type;
             self.cap = new_cap;
 
-            println!("allocating {} bytes for ptr {}", new_layout.size(), self.ptr as usize);
-
             Ok(())
         }
 
