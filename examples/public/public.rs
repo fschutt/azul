@@ -12,7 +12,6 @@ extern "C" fn layout(data: RefAny, _info: LayoutInfo) -> Dom {
         .with_child(Dom::label(format!("hello: {}", data.counter).into()))
 }
 
-
 fn main() {
     let data = Data {
         counter: 5,

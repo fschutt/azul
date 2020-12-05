@@ -1,25 +1,22 @@
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
-extern crate azul;
-
-use azul::{prelude::*, widgets::table_view::*};
+use azul::prelude::*;
+use azul_widgets::table_view::*;
 
 struct TableDemo {
-    table_view_state: Ref<TableViewState>,
+    table_view_state: RefAny,
 }
 
-impl Layout for TableDemo {
-    fn layout(&self, _: LayoutInfo) -> Dom<Self> {
-        TableView::new(self.table_view_state.clone()).dom()
-    }
+extern "C" fn layout(data: RefAny, _info: LayoutInfo) -> Dom {
+    let data = data.borrow::<TableDemo>().expect("wrong downcast");
+    let table_view_state = data.table_view_state.borrow::<TableViewState>().expect("wrong downcast table_view");
+    TableView::new(table_view_state.clone()).dom()
 }
 
 fn main() {
-
     let mut table_view_state = TableViewState::default();
     table_view_state.set_cell(3, 4, "Hello World");
-
-    let app_data = TableDemo { table_view_state: Ref::new(table_view_state) };
-    let app = App::new(app_data, AppConfig::default()).unwrap();
-    app.run(WindowCreateOptions::new(css::native()));
+    let data = TableDemo { table_view_state: RefAny::new(table_view_state) };
+    let app = App::new(RefAny::new(data), AppConfig::default(), layout);
+    app.run(WindowCreateOptions::new(Css::native()));
 }
