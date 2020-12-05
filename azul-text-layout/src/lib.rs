@@ -82,6 +82,8 @@ use azul_core::{
     traits::GetTextLayout,
     ui_solver::{ResolvedTextLayoutOptions, InlineTextLayout},
     app_resources::{Words, ScaledWords},
+    callbacks::PipelineId,
+    id_tree::NodeId,
 };
 
 #[derive(Debug, Clone)]
@@ -91,7 +93,7 @@ pub struct InlineText<'a> {
 }
 
 impl<'a> GetTextLayout for InlineText<'a> {
-    fn get_text_layout(&mut self, text_layout_options: &ResolvedTextLayoutOptions) -> InlineTextLayout {
+    fn get_text_layout(&mut self, _: PipelineId, _: NodeId, text_layout_options: &ResolvedTextLayoutOptions) -> InlineTextLayout {
         let layouted_text_block = text_layout::position_words(
             self.words,
             self.scaled_words,

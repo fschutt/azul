@@ -1,7 +1,7 @@
 use std::{fmt, collections::BTreeMap};
 use azul_css::{
     LayoutRect, LayoutPoint, LayoutSize, PixelValue, StyleFontSize,
-    StyleTextColor, ColorU as StyleColorU, Overflow,
+    StyleTextColor, ColorU as StyleColorU,
     StyleTextAlignmentHorz, StyleTextAlignmentVert,
 };
 use crate::{
@@ -253,15 +253,87 @@ pub struct PositionedRectangle {
     /// and store them here.
     pub resolved_text_layout_options: Option<(ResolvedTextLayoutOptions, InlineTextLayout, LayoutRect)>,
     /// Determines if the rect should be clipped or not (TODO: x / y as separate fields!)
-    pub overflow: Overflow,
+    pub overflow: OverflowInfo,
 }
 
+impl Default for PositionedRectangle {
+    fn default() -> Self {
+        PositionedRectangle {
+            size: LayoutSize::zero(),
+            position: PositionInfo::Static { x_offset: 0.0, y_offset: 0.0, static_x_offset: 0.0, static_y_offset: 0.0 },
+            padding: ResolvedOffsets::zero(),
+            margin: ResolvedOffsets::zero(),
+            border_widths: ResolvedOffsets::zero(),
+            resolved_text_layout_options: None,
+            overflow: OverflowInfo::default(),
+        }
+    }
+}
+
+#[derive(Debug, Default, Copy, Clone, PartialEq, PartialOrd)]
+pub struct OverflowInfo {
+    pub overflow_x: DirectionalOverflowInfo,
+    pub overflow_y: DirectionalOverflowInfo,
+}
+
+// stores how much the children overflow the parent in the given direction
+// if amount is negative, the children do not overflow the parent
+// if the amount is set to None, that means there are no children for this node, so no overflow can be calculated
+#[derive(Debug, Copy, Clone, PartialEq, PartialOrd)]
+pub enum DirectionalOverflowInfo {
+    Scroll { amount: Option<f32> },
+    Auto { amount: Option<f32> },
+    Hidden { amount: Option<f32> },
+    Visible { amount: Option<f32> },
+}
+
+impl Default for DirectionalOverflowInfo {
+    fn default() -> DirectionalOverflowInfo {
+        DirectionalOverflowInfo::Auto { amount: None }
+    }
+}
+
+impl DirectionalOverflowInfo {
+
+    #[inline]
+    pub fn get_amount(&self) -> Option<f32> {
+        match self {
+            DirectionalOverflowInfo::Scroll { amount: Some(s) } |
+            DirectionalOverflowInfo::Auto { amount: Some(s) } |
+            DirectionalOverflowInfo::Hidden { amount: Some(s) } |
+            DirectionalOverflowInfo::Visible { amount: Some(s) } => Some(*s),
+            _ => None
+        }
+    }
+
+    #[inline]
+    pub fn is_negative(&self) -> bool {
+        match self {
+            DirectionalOverflowInfo::Scroll { amount: Some(s) } |
+            DirectionalOverflowInfo::Auto { amount: Some(s) } |
+            DirectionalOverflowInfo::Hidden { amount: Some(s) } |
+            DirectionalOverflowInfo::Visible { amount: Some(s) } => { !s.is_sign_positive() },
+            _ => true // no overflow = no scrollbar
+        }
+    }
+
+    #[inline]
+    pub fn is_none(&self) -> bool {
+        match self {
+            DirectionalOverflowInfo::Scroll { amount: None } |
+            DirectionalOverflowInfo::Auto { amount: None } |
+            DirectionalOverflowInfo::Hidden { amount: None } |
+            DirectionalOverflowInfo::Visible { amount: None } => true,
+            _ => false
+        }
+    }
+}
 #[derive(Debug, Copy, Clone, PartialEq, PartialOrd)]
 pub enum PositionInfo {
-    Static { x_offset: f32, y_offset: f32 },
-    Fixed { x_offset: f32, y_offset: f32 },
-    Absolute { x_offset: f32, y_offset: f32 },
-    Relative { x_offset: f32, y_offset: f32 },
+    Static { x_offset: f32, y_offset: f32, static_x_offset: f32, static_y_offset: f32 },
+    Fixed { x_offset: f32, y_offset: f32, static_x_offset: f32, static_y_offset: f32 },
+    Absolute { x_offset: f32, y_offset: f32, static_x_offset: f32, static_y_offset: f32 },
+    Relative { x_offset: f32, y_offset: f32, static_x_offset: f32, static_y_offset: f32 },
 }
 
 impl PositionInfo {
@@ -278,14 +350,14 @@ impl PositionedRectangle {
 
     pub fn get_static_bounds(&self) -> Option<LayoutRect> {
         match self.position {
-            PositionInfo::Static { x_offset, y_offset }     => Some(LayoutRect::new(
-                LayoutPoint::new(x_offset, y_offset), self.size
+            PositionInfo::Static { static_x_offset, static_y_offset, .. }     => Some(LayoutRect::new(
+                LayoutPoint::new(static_x_offset, static_y_offset), self.size
             )),
             PositionInfo::Fixed { .. }      => None,
             PositionInfo::Absolute { .. }   => None, // TODO?
-            PositionInfo::Relative { x_offset, y_offset }   => Some(LayoutRect::new(
-                LayoutPoint::new(x_offset, y_offset), self.size
-            )), // TODO?
+            PositionInfo::Relative { static_x_offset, static_y_offset, .. }   => Some(LayoutRect::new(
+                LayoutPoint::new(static_x_offset, static_y_offset), self.size
+            )),
         }
     }
 
@@ -319,10 +391,10 @@ impl PositionedRectangle {
         let y_offset_add = 0.0 - self.padding.top - self.border_widths.top;
 
         let b_position = match self.position {
-            Static { x_offset, y_offset } => Static { x_offset: x_offset + x_offset_add, y_offset: y_offset + y_offset_add },
-            Fixed { x_offset, y_offset } => Fixed { x_offset: x_offset + x_offset_add, y_offset: y_offset + y_offset_add },
-            Relative { x_offset, y_offset } => Relative { x_offset: x_offset + x_offset_add, y_offset: y_offset + y_offset_add },
-            Absolute { x_offset, y_offset } => Absolute { x_offset: x_offset + x_offset_add, y_offset: y_offset + y_offset_add },
+            Static { x_offset, y_offset, static_x_offset, static_y_offset } => Static { x_offset: x_offset + x_offset_add, y_offset: y_offset + y_offset_add, static_x_offset, static_y_offset },
+            Fixed { x_offset, y_offset, static_x_offset, static_y_offset } => Fixed { x_offset: x_offset + x_offset_add, y_offset: y_offset + y_offset_add, static_x_offset, static_y_offset },
+            Relative { x_offset, y_offset, static_x_offset, static_y_offset } => Relative { x_offset: x_offset + x_offset_add, y_offset: y_offset + y_offset_add, static_x_offset, static_y_offset },
+            Absolute { x_offset, y_offset, static_x_offset, static_y_offset } => Absolute { x_offset: x_offset + x_offset_add, y_offset: y_offset + y_offset_add, static_x_offset, static_y_offset },
         };
 
         (b_size, b_position)
@@ -370,5 +442,5 @@ pub struct LayoutedRectangle {
     /// Border widths of the rectangle
     pub border_widths: ResolvedOffsets,
     /// Determines if the rect should be clipped or not (TODO: x / y as separate fields!)
-    pub overflow: Overflow,
+    pub overflow: OverflowInfo,
 }

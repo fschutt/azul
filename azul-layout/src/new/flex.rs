@@ -294,7 +294,7 @@ fn compute_internal<T: GetTextLayout>(
                     tab_width: rect_style.tab_width,
                 };
 
-                let layouted_inline_text = t.get_text_layout(&text_layout_options);
+                let layouted_inline_text = t.get_text_layout(pipeline_id, child_node_id, &text_layout_options);
 
                 let inline_text_bounds = layouted_inline_text.get_bounds();
                 let inline_text_bounds_size = RectSize {

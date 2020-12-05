@@ -217,7 +217,7 @@ impl DisplayListFrame {
         DisplayListFrame {
             tag: None,
             size: dimensions,
-            position: PositionInfo::Static { x_offset: root_origin.x, y_offset: root_origin.y },
+            position: PositionInfo::Static { x_offset: root_origin.x, y_offset: root_origin.y, static_x_offset: root_origin.x, static_y_offset: root_origin.y },
             flags: PrimitiveFlags {
                 is_backface_visible: true,
                 is_scrollbar_container: false,
@@ -698,7 +698,6 @@ impl SolvedLayout {
             );
 
             let scrollable_nodes = get_nodes_that_need_scroll_clip(
-                &ui_state.dom.arena.node_hierarchy,
                 &display_list.rectangles,
                 &ui_state.dom.arena.node_data,
                 &layout_result.rects,
@@ -997,7 +996,6 @@ pub fn sort_children_by_position(
 /// - Overflow for X and Y needs to be tracked seperately (for overflow-x / overflow-y separation),
 /// so there we'd need to track in which direction the inner_rect is overflowing.
 pub fn get_nodes_that_need_scroll_clip(
-    node_hierarchy: &NodeHierarchy,
     display_list_rects: &NodeDataContainer<DisplayRectangle>,
     dom_rects: &NodeDataContainer<NodeData>,
     layouted_rects: &NodeDataContainer<PositionedRectangle>,
@@ -1005,7 +1003,7 @@ pub fn get_nodes_that_need_scroll_clip(
     pipeline_id: PipelineId,
 ) -> ScrolledNodes {
 
-    use azul_css::Overflow;
+    use crate::ui_solver::DirectionalOverflowInfo;
 
     let mut nodes = BTreeMap::new();
     let mut tags_to_node_ids = BTreeMap::new();
@@ -1013,28 +1011,52 @@ pub fn get_nodes_that_need_scroll_clip(
     for (_, parent) in parents {
 
         let parent_rect = &layouted_rects[*parent];
+        let overflow_x = &parent_rect.overflow.overflow_x;
+        let overflow_y = &parent_rect.overflow.overflow_y;
 
-        let children_rects = parent
-        .children(&node_hierarchy)
-        .filter_map(|child_id| layouted_rects[child_id].get_static_bounds())
-        .collect::<Vec<_>>();
-
-        let children_scroll_rect = match parent_rect
-        .get_static_bounds()
-        .and_then(|pr| pr.get_scroll_rect(children_rects.into_iter())) {
-            None => continue,
-            Some(sum) => sum,
+        let scroll_rect = if overflow_x.is_none() || overflow_x.is_negative() {
+            // no overflow in horizontal direction
+            if overflow_y.is_none() || overflow_y.is_negative() {
+                // no overflow in both directions
+                None
+            } else {
+                // overflow in y, but not in x direction
+                match overflow_y {
+                    DirectionalOverflowInfo::Scroll { amount: Some(s) } | DirectionalOverflowInfo::Auto { amount: Some(s) } => {
+                        Some(LayoutRect::new(LayoutPoint::zero(), LayoutSize::new(parent_rect.size.width, parent_rect.size.height + *s)))
+                    },
+                    _ => None
+                }
+            }
+        } else {
+            if overflow_y.is_none() || overflow_y.is_negative() {
+                // overflow in x, but not in y direction
+                match overflow_x {
+                    DirectionalOverflowInfo::Scroll { amount: Some(s) } | DirectionalOverflowInfo::Auto { amount: Some(s) } => {
+                        Some(LayoutRect::new(LayoutPoint::zero(), LayoutSize::new(parent_rect.size.width + *s, parent_rect.size.height)))
+                    },
+                    _ => None
+                }
+            } else {
+                // overflow in x and y direction
+                match overflow_x {
+                    DirectionalOverflowInfo::Scroll { amount: Some(q) } | DirectionalOverflowInfo::Auto { amount: Some(q) } => {
+                        match overflow_y {
+                            DirectionalOverflowInfo::Scroll { amount: Some(s) } | DirectionalOverflowInfo::Auto { amount: Some(s) } => {
+                                Some(LayoutRect::new(LayoutPoint::zero(), LayoutSize::new(parent_rect.size.width + *q, parent_rect.size.height + *s)))
+                            },
+                            _ => None
+                        }
+                    },
+                    _ => None
+                }
+            }
         };
 
-        // Check if the scroll rect overflows the parent bounds
-        if contains_rect_rounded(&LayoutRect::new(LayoutPoint::zero(), parent_rect.size), children_scroll_rect) {
-            continue;
-        }
-
-        // If the overflow isn't "scroll", then there doesn't need to be a scroll frame
-        if parent_rect.overflow == Overflow::Visible || parent_rect.overflow == Overflow::Hidden {
-            continue;
-        }
+        let scroll_rect = match scroll_rect {
+            Some(s) => s,
+            None => continue,
+        };
 
         let parent_dom_hash = dom_rects[*parent].calculate_node_data_hash();
 
@@ -1050,7 +1072,7 @@ pub fn get_nodes_that_need_scroll_clip(
 
         tags_to_node_ids.insert(scroll_tag_id, *parent);
         nodes.insert(*parent, OverflowingScrollNode {
-            child_rect: children_scroll_rect,
+            child_rect: scroll_rect,
             parent_external_scroll_id,
             parent_dom_hash,
             scroll_tag_id,

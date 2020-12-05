@@ -312,7 +312,8 @@ impl Default for BoxSizing {
 }
 
 #[derive(Copy, Clone, Debug)]
-pub struct Style {pub display: Display,
+pub struct Style {
+    pub display: Display,
     pub box_sizing: BoxSizing,
     pub position_type: PositionType,
     pub direction: Direction,

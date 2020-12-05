@@ -6,6 +6,6 @@
 extern crate azul_core;
 extern crate azul_css;
 #[cfg(feature = "text_layout")]
-pub extern crate azul_text_layout as text_layout;
+extern crate azul_text_layout as text_layout;
 
 mod layout_solver;

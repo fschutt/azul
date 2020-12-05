@@ -2338,12 +2338,10 @@ impl GlShader {
         gl_context.shader_source(vertex_shader_object, vec![AzString::from(vertex_shader.to_string())].into());
         gl_context.compile_shader(vertex_shader_object);
 
-        #[cfg(debug_assertions)] {
-            if let Some(error_id) = get_gl_shader_error(&gl_context, vertex_shader_object) {
-                let info_log = gl_context.get_shader_info_log(vertex_shader_object);
-                gl_context.delete_shader(vertex_shader_object);
-                return Err(GlShaderCreateError::Compile(GlShaderCompileError::Vertex(VertexShaderCompileError { error_id, info_log: info_log.into() })));
-            }
+        if let Some(error_id) = get_gl_shader_error(&gl_context, vertex_shader_object) {
+            let info_log = gl_context.get_shader_info_log(vertex_shader_object);
+            gl_context.delete_shader(vertex_shader_object);
+            return Err(GlShaderCreateError::Compile(GlShaderCompileError::Vertex(VertexShaderCompileError { error_id, info_log: info_log.into() })));
         }
 
         // Compile fragment shader
@@ -2352,13 +2350,11 @@ impl GlShader {
         gl_context.shader_source(fragment_shader_object, vec![AzString::from(fragment_shader.to_string())].into());
         gl_context.compile_shader(fragment_shader_object);
 
-        #[cfg(debug_assertions)] {
-            if let Some(error_id) = get_gl_shader_error(&gl_context, fragment_shader_object) {
-                let info_log = gl_context.get_shader_info_log(fragment_shader_object);
-                gl_context.delete_shader(vertex_shader_object);
-                gl_context.delete_shader(fragment_shader_object);
-                return Err(GlShaderCreateError::Compile(GlShaderCompileError::Fragment(FragmentShaderCompileError { error_id, info_log: info_log.into() })));
-            }
+        if let Some(error_id) = get_gl_shader_error(&gl_context, fragment_shader_object) {
+            let info_log = gl_context.get_shader_info_log(fragment_shader_object);
+            gl_context.delete_shader(vertex_shader_object);
+            gl_context.delete_shader(fragment_shader_object);
+            return Err(GlShaderCreateError::Compile(GlShaderCompileError::Fragment(FragmentShaderCompileError { error_id, info_log: info_log.into() })));
         }
 
         // Link program
@@ -2368,14 +2364,12 @@ impl GlShader {
         gl_context.attach_shader(program_id, fragment_shader_object);
         gl_context.link_program(program_id);
 
-        #[cfg(debug_assertions)] {
-            if let Some(error_id) = get_gl_program_error(&gl_context, program_id) {
-                let info_log = gl_context.get_program_info_log(program_id);
-                gl_context.delete_shader(vertex_shader_object);
-                gl_context.delete_shader(fragment_shader_object);
-                gl_context.delete_program(program_id);
-                return Err(GlShaderCreateError::Link(GlShaderLinkError { error_id, info_log: info_log.into() }));
-            }
+        if let Some(error_id) = get_gl_program_error(&gl_context, program_id) {
+            let info_log = gl_context.get_program_info_log(program_id);
+            gl_context.delete_shader(vertex_shader_object);
+            gl_context.delete_shader(fragment_shader_object);
+            gl_context.delete_program(program_id);
+            return Err(GlShaderCreateError::Link(GlShaderLinkError { error_id, info_log: info_log.into() }));
         }
 
         gl_context.delete_shader(vertex_shader_object);
