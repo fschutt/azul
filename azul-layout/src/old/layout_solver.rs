@@ -1175,65 +1175,9 @@ fn get_y_positions(
     arena
 }
 
-/// Returns the preferred width, for example for an image, that would be the
-/// original width (an image always wants to take up the original space)
-fn get_content_width(
-    pipeline_id: &PipelineId,
-    node_id: &NodeId,
-    node_type: &NodeType,
-    app_resources: &AppResources,
-    positioned_words: &BTreeMap<NodeId, (WordPositions, FontInstanceKey)>,
-) -> Option<f32> {
-    use azul_core::dom::NodeType::*;
-    match node_type {
-        Image(image_id) => app_resources.get_image_info(pipeline_id, image_id).map(|info| info.descriptor.dimensions.0 as f32),
-        Label(_) | Text(_) => positioned_words.get(node_id).map(|(pos, _)| pos.content_size.width),
-        _ => None,
-    }
-}
-
-fn get_content_height(
-    pipeline_id: &PipelineId,
-    node_id: &NodeId,
-    node_type: &NodeType,
-    app_resources: &AppResources,
-    positioned_words: &BTreeMap<NodeId, (WordPositions, FontInstanceKey)>,
-    div_width: f32,
-) -> Option<f32> {
-    use azul_core::dom::NodeType::*;
-    match &node_type {
-        Image(i) => {
-            let image_size = &app_resources.get_image_info(pipeline_id, i)?.descriptor.dimensions;
-            Some(div_width * (image_size.0 as f32 / image_size.1 as f32))
-        },
-        Label(_) | Text(_) => {
-            positioned_words.get(node_id).map(|(pos, _)| pos.content_size.height)
-        }
-        _ => None,
-    }
-}
-/*
-#[derive(Debug, Clone, PartialEq)]
-pub(crate) enum PreferredHeight {
-    Image { original_dimensions: (f32, f32), current_height: f32 },
-    Text(WordPositions)
-}
-
-impl PreferredHeight {
-    /// Returns the preferred size of the div content.
-    /// Note that this can be larger than the actual div content!
-    pub fn get_content_size(&self) -> f32 {
-        use self::PreferredHeight::*;
-        match self {
-            Image { current_height, .. } => *current_height,
-            Text(word_positions) => word_positions.content_size.height,
-        }
-    }
-}
-*/
 #[inline]
 fn get_layout_positions(display_rects: &NodeDataContainer<RectLayout>) -> NodeDataContainer<LayoutPosition> {
-    display_rects.transform(|node, node_id| node.position.unwrap_or_default().get_property_or_default().unwrap_or_default())
+    display_rects.transform(|node, _| node.position.unwrap_or_default().get_property_or_default().unwrap_or_default())
 }
 
 fn get_overflow(layout: &RectLayout, parent_rect: &LayoutRect, children_sum_rect: &Option<LayoutRect>) -> OverflowInfo {
@@ -1324,11 +1268,11 @@ pub fn do_the_layout(
     // The NodeId has to be the **next** NodeId (the next sibling after the inline element)
     // let mut inline_text_blocks = BTreeMap::<NodeId, InlineText>::new();
 
-    let content_width_pre = node_data.transform(|node, node_id| None);
+    let content_widths_pre = NodeDataContainer { internal: vec![None;node_data.len()] };
     let solved_widths = solve_flex_layout_width(
         node_hierarchy,
         &display_rects,
-        &content_width_pre,
+        &content_widths_pre,
         rect_size.width as f32,
     );
 
@@ -1337,7 +1281,7 @@ pub fn do_the_layout(
     // Scale the words to the correct size - TODO: Cache this in the app_resources!
     let scaled_words = create_scaled_words(pipeline_id, app_resources, &word_cache, display_rects);
     // Layout all words as if there was no max-width constraint (to get the texts "content width").
-    let word_positions_no_max_width = create_word_positions(pipeline_id, &word_cache, &scaled_words, display_rects, &solved_widths);
+    let word_positions_no_max_width = create_word_positions(&word_cache, &scaled_words, display_rects, &solved_widths);
 
     // Determine the preferred **content** width
     // let content_widths = node_data.transform(|node, node_id| {
@@ -1357,7 +1301,7 @@ pub fn do_the_layout(
     //     get_content_height(pipeline_id, &node_id, &node.get_node_type(), app_resources, &word_positions_no_max_width, div_width)
     // });
 
-    let content_heights_pre = node_data.transform(|node, node_id| None);
+    let content_heights_pre = NodeDataContainer { internal: vec![None;node_data.len()] };
 
     // TODO: The content height is not the final height!
     let solved_heights = solve_flex_layout_height(
@@ -1620,7 +1564,6 @@ pub fn create_scaled_words(
 }
 
 fn create_word_positions(
-    pipeline_id: &PipelineId,
     words: &BTreeMap<NodeId, Words>,
     scaled_words: &BTreeMap<NodeId, (ScaledWords, FontInstanceKey)>,
     display_rects: &NodeDataContainer<DisplayRectangle>,

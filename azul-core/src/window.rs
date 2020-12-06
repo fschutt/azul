@@ -19,6 +19,7 @@ use crate::{
     ui_state::UiState,
     display_list::{SolvedLayoutCache, GlTextureCache, CachedDisplayList},
     gl::GlContextPtr,
+    callbacks::{LayoutCallback, LayoutCallbackType},
 };
 
 pub const DEFAULT_TITLE: &str = "Azul App";
@@ -471,6 +472,16 @@ pub struct WindowState {
     pub platform_specific_options: PlatformSpecificOptions,
     /// The style of this window
     pub css: Css,
+    /// The `layout()` function for this window, stored as a callback function pointer,
+    /// There are multiple reasons for doing this (instead of requiring `T: Layout` everywhere):
+    ///
+    /// - It seperates the `Dom` from the `Layout` trait, making it possible to split the
+    ///   UI solving and styling into reusable crates
+    /// - It's less typing work (prevents having to type `<T: Layout>` everywhere)
+    /// - It's potentially more efficient to compile (less type-checking required)
+    /// - It's a preparation for the C ABI, in which traits don't exist (for language bindings).
+    ///   In the C ABI "traits" are simply structs with function pointers (and void* instead of T)
+    pub layout_callback: LayoutCallback,
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -499,6 +510,16 @@ pub struct FullWindowState {
     pub platform_specific_options: PlatformSpecificOptions,
     /// The style of this window
     pub css: Css,
+    /// The `layout()` function for this window, stored as a callback function pointer,
+    /// There are multiple reasons for doing this (instead of requiring `T: Layout` everywhere):
+    ///
+    /// - It seperates the `Dom` from the `Layout` trait, making it possible to split the
+    ///   UI solving and styling into reusable crates
+    /// - It's less typing work (prevents having to type `<T: Layout>` everywhere)
+    /// - It's potentially more efficient to compile (less type-checking required)
+    /// - It's a preparation for the C ABI, in which traits don't exist (for language bindings).
+    ///   In the C ABI "traits" are simply structs with function pointers (and void* instead of T)
+    pub layout_callback: LayoutCallback,
 
     // --
 
@@ -530,6 +551,7 @@ impl Default for FullWindowState {
             ime_position: None,
             platform_specific_options: PlatformSpecificOptions::default(),
             css: Css::default(),
+            layout_callback: LayoutCallback::default(),
 
             // --
 
@@ -584,6 +606,7 @@ impl From<WindowState> for FullWindowState {
             ime_position: window_state.ime_position.into(),
             platform_specific_options: window_state.platform_specific_options,
             css: window_state.css,
+            layout_callback: window_state.layout_callback,
             .. Default::default()
         }
     }
@@ -602,6 +625,7 @@ impl From<FullWindowState> for WindowState {
             ime_position: full_window_state.ime_position.into(),
             platform_specific_options: full_window_state.platform_specific_options,
             css: full_window_state.css,
+            layout_callback: full_window_state.layout_callback,
         }
     }
 }
@@ -828,7 +852,7 @@ pub struct WasmWindowOptions {
 impl WindowState {
 
     /// Creates a new, default `WindowState` with the given CSS style
-    pub fn new(css: Css) -> Self { Self { css, .. Default::default() } }
+    pub fn new(callback: LayoutCallbackType, css: Css) -> Self { Self { layout_callback: LayoutCallback { cb: callback }, css, .. Default::default() } }
 
     /// Same as `WindowState::new` but to be used as a builder method
     pub fn with_css(self, css: Css) -> Self { Self { css, .. self } }
@@ -970,6 +994,7 @@ impl Default for WindowState {
             ime_position: None.into(),
             platform_specific_options: PlatformSpecificOptions::default(),
             css: Css::default(),
+            layout_callback: LayoutCallback::default(),
         }
     }
 }
@@ -1011,23 +1036,27 @@ impl Default for WindowCreateOptions {
 
 impl WindowCreateOptions {
 
-    pub fn new(css: Css) -> Self {
+    pub fn new(callback: LayoutCallbackType, css: Css) -> Self {
         Self {
-            state: WindowState::new(css),
-            .. Default::default()
+            state: WindowState::new(callback, css),
+            .. WindowCreateOptions::default()
+        }
+    }
+
+    pub fn new_hot_reload(callback: LayoutCallbackType, hot_reload_options: HotReloadOptions) -> Self {
+        Self {
+            state: WindowState {
+                layout_callback: LayoutCallback { cb: callback },
+                .. WindowState::default()
+            },
+            hot_reload: Some(hot_reload_options).into(),
+            .. WindowCreateOptions::default()
         }
     }
 
     pub fn with_css(mut self, css: Css) -> Self {
         self.state.css = css;
         self
-    }
-
-    pub fn new_hot_reload(hot_reload_options: HotReloadOptions) -> Self {
-        Self {
-            hot_reload: Some(hot_reload_options).into(),
-            .. Default::default()
-        }
     }
 }
 
@@ -1595,11 +1624,19 @@ pub enum VirtualKeyCode {
     Numpad7,
     Numpad8,
     Numpad9,
+    NumpadAdd,
+    NumpadDivide,
+    NumpadDecimal,
+    NumpadComma,
+    NumpadEnter,
+    NumpadEquals,
+    NumpadMultiply,
+    NumpadSubtract,
     AbntC1,
     AbntC2,
-    Add,
     Apostrophe,
     Apps,
+    Asterisk,
     At,
     Ax,
     Backslash,
@@ -1608,8 +1645,6 @@ pub enum VirtualKeyCode {
     Colon,
     Comma,
     Convert,
-    Decimal,
-    Divide,
     Equals,
     Grave,
     Kana,
@@ -1623,19 +1658,16 @@ pub enum VirtualKeyCode {
     MediaSelect,
     MediaStop,
     Minus,
-    Multiply,
     Mute,
     MyComputer,
     NavigateForward,
     NavigateBackward,
     NextTrack,
     NoConvert,
-    NumpadComma,
-    NumpadEnter,
-    NumpadEquals,
     OEM102,
     Period,
     PlayPause,
+    Plus,
     Power,
     PrevTrack,
     RAlt,
@@ -1647,7 +1679,6 @@ pub enum VirtualKeyCode {
     Slash,
     Sleep,
     Stop,
-    Subtract,
     Sysrq,
     Tab,
     Underline,

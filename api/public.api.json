@@ -1183,10 +1183,9 @@
 						"doc":"Creates a new App instance from the given `AppConfig`",
 						"fn_args": [
 							{"data": "RefAny"},
-							{"config": "AppConfig"},
-							{"callback": "LayoutCallbackType"}
+							{"config": "AppConfig"}
 						],
-						"fn_body": "App::new(data, *az_app_config_ptr_downcast(config), callback).unwrap()"
+						"fn_body": "App::new(data, *az_app_config_ptr_downcast(config)).unwrap()"
 						}
 					},
 					"functions": {
@@ -6368,11 +6367,19 @@
 						{"Numpad7": {}},
 						{"Numpad8": {}},
 						{"Numpad9": {}},
+						{"NumpadAdd": {}},
+						{"NumpadDivide": {}},
+						{"NumpadDecimal": {}},
+						{"NumpadComma": {}},
+						{"NumpadEnter": {}},
+						{"NumpadEquals": {}},
+						{"NumpadMultiply": {}},
+						{"NumpadSubtract": {}},
 						{"AbntC1": {}},
 						{"AbntC2": {}},
-						{"Add": {}},
 						{"Apostrophe": {}},
 						{"Apps": {}},
+						{"Asterisk": {}},
 						{"At": {}},
 						{"Ax": {}},
 						{"Backslash": {}},
@@ -6381,8 +6388,6 @@
 						{"Colon": {}},
 						{"Comma": {}},
 						{"Convert": {}},
-						{"Decimal": {}},
-						{"Divide": {}},
 						{"Equals": {}},
 						{"Grave": {}},
 						{"Kana": {}},
@@ -6396,19 +6401,16 @@
 						{"MediaSelect": {}},
 						{"MediaStop": {}},
 						{"Minus": {}},
-						{"Multiply": {}},
 						{"Mute": {}},
 						{"MyComputer": {}},
 						{"NavigateForward": {}},
 						{"NavigateBackward": {}},
 						{"NextTrack": {}},
 						{"NoConvert": {}},
-						{"NumpadComma": {}},
-						{"NumpadEnter": {}},
-						{"NumpadEquals": {}},
 						{"OEM102": {}},
 						{"Period": {}},
 						{"PlayPause": {}},
+						{"Plus": {}},
 						{"Power": {}},
 						{"PrevTrack": {}},
 						{"RAlt": {}},
@@ -6420,7 +6422,6 @@
 						{"Slash": {}},
 						{"Sleep": {}},
 						{"Stop": {}},
-						{"Subtract": {}},
 						{"Sysrq": {}},
 						{"Tab": {}},
 						{"Underline": {}},
@@ -6664,8 +6665,18 @@
 						{"mouse_state": {"type": "MouseState", "doc": "Current mouse state"}},
 						{"ime_position": {"type": "OptionLogicalPosition", "doc": "Sets location of IME candidate box in client area coordinates (relative to the top left of the window)"}},
 						{"platform_specific_options": {"type": "PlatformSpecificOptions", "doc": "Window options that can only be set on a certain platform (`WindowsWindowOptions` / `LinuxWindowOptions` / `MacWindowOptions`)."}},
-						{"css": {"type": "Css"}}
-					]
+						{"css": {"type": "Css"}},
+						{"layout_callback": {"type": "LayoutCallback"}}
+					],
+					"constructors": {
+						"new": {
+							"fn_args":[
+								{"layout_callback": "LayoutCallbackType"},
+								{"css": "Css"}
+							],
+							"fn_body": "WindowState::new(layout_callback, css)"
+						}
+					}
 				},
 				"LogicalSize": {
 					"external": "azul_impl::window::LogicalSize",
@@ -6692,9 +6703,17 @@
 					"constructors": {
 						"new": {
 							"fn_args":[
+								{"layout_callback": "LayoutCallbackType"},
 								{"css": "Css"}
 							],
-							"fn_body":"WindowCreateOptions::new(css)"
+							"fn_body":"WindowCreateOptions::new(layout_callback, css)"
+						},
+						"new_hot_reload": {
+							"fn_args":[
+								{"layout_callback": "LayoutCallbackType"},
+								{"hot_reload_options": "HotReloadOptions"}
+							],
+							"fn_body":"WindowCreateOptions::new_hot_reload(layout_callback, hot_reload_options)"
 						}
 					}
 				}

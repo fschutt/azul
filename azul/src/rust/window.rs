@@ -2,6 +2,7 @@
     //! Window creation / startup configuration
     use crate::dll::*;
     use std::ffi::c_void;
+    use crate::callbacks::LayoutCallbackType;
     use crate::css::Css;
 
 
@@ -232,6 +233,11 @@
     /// `WindowState` struct
     pub use crate::dll::AzWindowState as WindowState;
 
+    impl WindowState {
+        /// Creates a new `WindowState` instance.
+        pub fn new(layout_callback: LayoutCallbackType, css: Css) -> Self { (crate::dll::get_azul_dll().az_window_state_new)(layout_callback, css) }
+    }
+
     impl std::fmt::Debug for WindowState { fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result { write!(f, "{}", (crate::dll::get_azul_dll().az_window_state_fmt_debug)(self)) } }
     impl Clone for WindowState { fn clone(&self) -> Self { (crate::dll::get_azul_dll().az_window_state_deep_copy)(self) } }
     impl Drop for WindowState { fn drop(&mut self) { (crate::dll::get_azul_dll().az_window_state_delete)(self); } }
@@ -258,7 +264,9 @@
 
     impl WindowCreateOptions {
         /// Creates a new `WindowCreateOptions` instance.
-        pub fn new(css: Css) -> Self { (crate::dll::get_azul_dll().az_window_create_options_new)(css) }
+        pub fn new(layout_callback: LayoutCallbackType, css: Css) -> Self { (crate::dll::get_azul_dll().az_window_create_options_new)(layout_callback, css) }
+        /// Creates a new `WindowCreateOptions` instance.
+        pub fn new_hot_reload(layout_callback: LayoutCallbackType, hot_reload_options: HotReloadOptions) -> Self { (crate::dll::get_azul_dll().az_window_create_options_new_hot_reload)(layout_callback, hot_reload_options) }
     }
 
     impl std::fmt::Debug for WindowCreateOptions { fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result { write!(f, "{}", (crate::dll::get_azul_dll().az_window_create_options_fmt_debug)(self)) } }

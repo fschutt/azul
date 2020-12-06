@@ -496,16 +496,16 @@ def generate_rust_dll(apiData):
             if "external" in c.keys():
                 external_path = c["external"]
                 if class_is_const:
-                    code += "#[no_mangle] pub static " + class_ptr_name + ": " + prefix + c["const"] + " = " + external_path + ";\r\n"
+                    code += "pub static " + class_ptr_name + ": " + prefix + c["const"] + " = " + external_path + ";\r\n"
                 elif class_is_typedef:
-                    code += "#[no_mangle] pub type " + class_ptr_name + " = " + external_path + ";\r\n"
+                    code += "pub type " + class_ptr_name + " = " + external_path + ";\r\n"
                 elif class_is_boxed_object:
                     structs_map[class_ptr_name] = {"derive": struct_derive, "doc": struct_doc, "struct": [{"ptr": {"type": "*mut c_void" }}]}
                     if treat_external_as_ptr:
                         code += "pub type " + class_ptr_name + "TT = " + external_path + ";\r\n"
-                        code += "#[no_mangle] pub use " + class_ptr_name + "TT as " + class_ptr_name + ";\r\n"
+                        code += "pub use " + class_ptr_name + "TT as " + class_ptr_name + ";\r\n"
                     else:
-                        code += "#[no_mangle] #[repr(C)] pub struct " + class_ptr_name + " { pub ptr: *mut c_void }\r\n"
+                        code += "#[repr(C)] pub struct " + class_ptr_name + " { pub ptr: *mut c_void }\r\n"
                 else:
                     if "struct_fields" in c.keys():
                         structs_map[class_ptr_name] = {"derive": struct_derive, "doc": struct_doc, "struct": c["struct_fields"]}
@@ -513,11 +513,11 @@ def generate_rust_dll(apiData):
                         structs_map[class_ptr_name] = {"derive": struct_derive, "doc": struct_doc, "enum": c["enum_fields"]}
 
                     code += "pub type " + class_ptr_name + "TT = " + external_path + ";\r\n"
-                    code += "#[no_mangle] pub use " + class_ptr_name + "TT as " + class_ptr_name + ";\r\n"
+                    code += "pub use " + class_ptr_name + "TT as " + class_ptr_name + ";\r\n"
 
             else:
                 structs_map[class_ptr_name] = {"derive": struct_derive, "doc": struct_doc, "struct": [{"ptr": {"type": "*mut c_void"}}]}
-                code += "#[no_mangle] #[repr(C)] pub struct " + class_ptr_name + " { ptr: *mut c_void }\r\n"
+                code += "#[repr(C)] pub struct " + class_ptr_name + " { ptr: *mut c_void }\r\n"
 
             if "constructors" in c.keys():
                 for fn_name in c["constructors"]:

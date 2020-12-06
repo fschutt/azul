@@ -33,7 +33,7 @@ use azul_core::{
     gl::{GlShader, GlContextPtr},
     ui_state::UiState,
     ui_solver::ScrolledNodes,
-    callbacks::{RefAny, LayoutCallback, HitTestItem, UpdateScreen},
+    callbacks::{RefAny, HitTestItem, UpdateScreen},
     task::{Task, Timer, TimerId},
     window::{AzulUpdateEvent, CallbacksOfHitTest, KeyboardState, WindowId},
     callbacks::PipelineId,
@@ -76,16 +76,6 @@ pub struct App {
     /// The window create options (only set at startup), get moved into the `.run_inner()` method
     /// No window is actually shown until the `.run_inner()` method is called.
     windows: BTreeMap<WindowId, WindowCreateOptions>,
-    /// The `Layout::layout()` callback, stored as a function pointer,
-    /// There are multiple reasons for doing this (instead of requiring `T: Layout` everywhere):
-    ///
-    /// - It seperates the `Dom` from the `Layout` trait, making it possible to split the
-    ///   UI solving and styling into reusable crates
-    /// - It's less typing work (prevents having to type `<T: Layout>` everywhere)
-    /// - It's potentially more efficient to compile (less type-checking required)
-    /// - It's a preparation for the C ABI, in which traits don't exist (for language bindings).
-    ///   In the C ABI "traits" are simply structs with function pointers (and void* instead of T)
-    layout_callback: LayoutCallback,
     /// The actual renderer of this application
     #[cfg(not(test))]
     fake_display: FakeDisplay,
@@ -167,7 +157,7 @@ impl App {
     #[cfg(not(test))]
     #[allow(unused_variables)]
     /// Creates a new, empty application using a specified callback. This does not open any windows.
-    pub fn new(initial_data: RefAny, app_config: AppConfig, callback: LayoutCallback) -> Result<Self, RendererCreationError> {
+    pub fn new(initial_data: RefAny, app_config: AppConfig) -> Result<Self, RendererCreationError> {
 
         #[cfg(feature = "logging")] {
             if let Some(log_level) = app_config.enable_logging {
@@ -197,7 +187,6 @@ impl App {
                 timers: FastHashMap::default(),
                 tasks: Vec::new(),
                 config: app_config,
-                layout_callback: callback,
                 fake_display,
             })
         }
@@ -210,7 +199,6 @@ impl App {
                timers: FastHashMap::default(),
                tasks: Vec::new(),
                config: app_config,
-               layout_callback: callback,
                render_api: FakeRenderApi::new(),
            })
         }
@@ -270,14 +258,14 @@ impl App {
             winit_translate_physical_size, winit_translate_physical_position,
         };
 
-        let App { mut data, mut resources, mut timers, mut tasks, config, windows, layout_callback, mut fake_display } = self;
+        let App { mut data, mut resources, mut timers, mut tasks, config, windows, mut fake_display } = self;
 
         let window_states = initialize_window_states(&windows);
         let initialized_windows = initialize_windows(windows, &mut fake_display, &mut resources, &config);
 
         let (mut active_windows, mut window_id_mapping, mut reverse_window_id_mapping) = initialized_windows;
         let mut full_window_states = initialize_full_window_states(&reverse_window_id_mapping, &window_states);
-        let mut ui_state_cache = initialize_ui_state_cache(&data, &fake_display.gl_context, &resources, &active_windows, &mut full_window_states, layout_callback);
+        let mut ui_state_cache = initialize_ui_state_cache(&data, &fake_display.gl_context, &resources, &active_windows, &mut full_window_states);
         let mut ui_description_cache = initialize_ui_description_cache(&mut ui_state_cache, &mut full_window_states);
 
         let FakeDisplay { mut render_api, mut renderer, mut hidden_context, hidden_event_loop, gl_context } = fake_display;
@@ -294,7 +282,6 @@ impl App {
                 timers: &mut timers,
                 tasks: &mut tasks,
                 config: &config,
-                layout_callback: layout_callback,
                 active_windows: &mut active_windows,
                 window_id_mapping: &mut window_id_mapping,
                 reverse_window_id_mapping: &mut reverse_window_id_mapping,
@@ -328,7 +315,6 @@ impl App {
                     timers: &mut timers,
                     tasks: &mut tasks,
                     config: &config,
-                    layout_callback: layout_callback,
                     active_windows: &mut active_windows,
                     window_id_mapping: &mut window_id_mapping,
                     reverse_window_id_mapping: &mut reverse_window_id_mapping,
@@ -642,7 +628,6 @@ impl App {
                             timers: &mut timers,
                             tasks: &mut tasks,
                             config: &config,
-                            layout_callback: layout_callback,
                             active_windows: &mut active_windows,
                             window_id_mapping: &mut window_id_mapping,
                             reverse_window_id_mapping: &mut reverse_window_id_mapping,
@@ -704,7 +689,6 @@ struct EventLoopData<'a> {
     timers: &'a mut FastHashMap<TimerId, Timer>,
     tasks: &'a mut Vec<Task>,
     config: &'a AppConfig,
-    layout_callback: LayoutCallback,
     active_windows: &'a mut BTreeMap<GlutinWindowId, Window>,
     window_id_mapping: &'a mut BTreeMap<GlutinWindowId, WindowId>,
     reverse_window_id_mapping: &'a mut BTreeMap<WindowId, GlutinWindowId>,
@@ -783,7 +767,6 @@ fn send_user_event<'a>(
                 &eld.gl_context,
                 eld.resources,
                 &eld.full_window_states[&glutin_window_id],
-                eld.layout_callback,
             );
 
             eld.active_windows.insert(glutin_window_id, window);
@@ -944,7 +927,6 @@ fn send_user_event<'a>(
                     &eld.gl_context,
                     &*eld.resources,
                     full_window_state,
-                    eld.layout_callback,
                 );
 
                 *eld.ui_state_cache.get_mut(&glutin_window_id).unwrap() = new_ui_state;
@@ -1213,7 +1195,6 @@ fn initialize_ui_state_cache(
     app_resources: &AppResources,
     windows: &BTreeMap<GlutinWindowId, Window>,
     full_window_states: &mut BTreeMap<GlutinWindowId, FullWindowState>,
-    layout_callback: LayoutCallback,
 ) -> BTreeMap<GlutinWindowId, BTreeMap<DomId, UiState>> {
 
 
@@ -1235,7 +1216,6 @@ fn initialize_ui_state_cache(
             gl_context,
             app_resources,
             &full_window_state,
-            layout_callback,
         );
         ui_state_map.insert(*glutin_window_id, dom_id_map);
     }
@@ -1277,7 +1257,6 @@ fn call_layout_fn(
     gl_context: &GlContextPtr,
     app_resources: &AppResources,
     full_window_state: &FullWindowState,
-    layout_callback: LayoutCallback,
 ) -> BTreeMap<DomId, UiState> {
 
     use azul_core::callbacks::LayoutInfo;
@@ -1291,6 +1270,7 @@ fn call_layout_fn(
 
     let mut ui_state = {
         let full_window_state = &full_window_state;
+        let layout_callback = full_window_state.layout_callback.clone();
         let layout_info = LayoutInfo {
             window_size: &full_window_state.size,
             window_size_width_stops: &mut stop_sizes_width,
@@ -1299,7 +1279,7 @@ fn call_layout_fn(
             resources: app_resources,
         };
 
-        UiState::new_from_app_state(data, layout_info, PARENT_DOM, layout_callback)
+        UiState::new_from_app_state(data, layout_info, PARENT_DOM, layout_callback.cb)
     };
 
     ui_state.dom_id = DomId::ROOT_ID;

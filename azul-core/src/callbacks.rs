@@ -249,22 +249,6 @@ impl Drop for RefAny {
 /// Having this extra Id field enables them to generate `PipelineId` without collision.
 pub type PipelineSourceId = u32;
 
-/// Callback function pointer (has to be a function pointer in
-/// order to be compatible with C APIs later on).
-///
-/// IMPORTANT: The callback needs to deallocate the `RefAnyPtr` and `LayoutInfoPtr`,
-/// otherwise that memory is leaked. If you use the official auto-generated
-/// bindings, this is already done for you.
-///
-/// NOTE: The original callback was `fn(&self, LayoutInfo) -> Dom`
-/// which then evolved to `fn(&RefAny, LayoutInfo) -> Dom`.
-/// The indirection is necessary because of the memory management
-/// around the C API
-///
-/// See azul-core/ui_state.rs:298 for how the memory is managed
-/// across the callback boundary.
-pub type LayoutCallback = extern "C" fn(RefAny, LayoutInfoPtr) -> Dom;
-
 /// Information about a scroll frame, given to the user by the framework
 #[derive(Debug, Copy, Clone, PartialEq, PartialOrd)]
 pub struct ScrollPosition {
@@ -404,6 +388,35 @@ macro_rules! impl_get_gl_context {() => {
     }
 };}
 
+// -- layout callback
+
+/// Callback function pointer (has to be a function pointer in
+/// order to be compatible with C APIs later on).
+///
+/// IMPORTANT: The callback needs to deallocate the `RefAnyPtr` and `LayoutInfoPtr`,
+/// otherwise that memory is leaked. If you use the official auto-generated
+/// bindings, this is already done for you.
+///
+/// NOTE: The original callback was `fn(&self, LayoutInfo) -> Dom`
+/// which then evolved to `fn(&RefAny, LayoutInfo) -> Dom`.
+/// The indirection is necessary because of the memory management
+/// around the C API
+///
+/// See azul-core/ui_state.rs:298 for how the memory is managed
+/// across the callback boundary.
+pub type LayoutCallbackType = extern "C" fn(RefAny, LayoutInfoPtr) -> Dom;
+
+#[repr(C)]
+pub struct LayoutCallback { pub cb: LayoutCallbackType }
+impl_callback!(LayoutCallback);
+
+extern "C" fn default_layout_callback(_: RefAny, _: LayoutInfoPtr) -> Dom { Dom::div() }
+
+impl Default for LayoutCallback {
+    fn default() -> Self {
+        Self { cb: default_layout_callback }
+    }
+}
 // -- normal callback
 
 /// Stores a function pointer that is executed when the given UI element is hit

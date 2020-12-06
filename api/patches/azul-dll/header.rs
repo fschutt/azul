@@ -31,7 +31,7 @@ use azul_impl::{
         GlCallback, GlCallbackInfo, GlCallbackReturn, ThreadCallbackType,
         IFrameCallback, IFrameCallbackInfo, IFrameCallbackReturn
     },
-    window::WindowCreateOptions,
+    window::{WindowCreateOptions, WindowState},
     resources::{RawImage, RawImageFormat, FontId, TextId, ImageId},
     app::{App, AppConfig},
     task::{OptionDuration, Timer, DropCheck, Task, Thread},

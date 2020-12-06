@@ -12,7 +12,7 @@ use crate::{
         WindowEventFilter, IFrameNode,
     },
     callbacks::{
-        LayoutInfo, Callback, LayoutCallback, RefAny,
+        LayoutInfo, Callback, LayoutCallbackType, RefAny,
     },
 };
 #[cfg(feature = "opengl")]
@@ -298,7 +298,7 @@ impl UiState {
         data: &RefAny,
         layout_info: LayoutInfo<'a>,
         parent_dom: Option<(DomId, NodeId)>,
-        layout_callback: LayoutCallback,
+        layout_callback: LayoutCallbackType,
     ) -> UiState {
 
         use std::ffi::c_void;

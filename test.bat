@@ -9,16 +9,16 @@ if not exist "%CARGO_HOME%\lib\azul-dll-0.0.1\target\release" mkdir "%CARGO_HOME
 
 cd "%~dp0\azul-dll"
 taskkill /im "cargo.exe"
-rem cargo build --all-features --release
-RUSTFLAGS='-C link-arg=-s'
-cargo build --all-features
-cargo install --path .
+cargo build --all-features --release
+rem RUSTFLAGS='-C link-arg=-s'
+rem cargo build --all-features
+rem cargo install --path .
 cd ..
 
-rem copy "%~dp0\target\release\azul.dll" "%CARGO_HOME%\lib\azul-dll-0.0.1\target\release"
+copy "%~dp0\target\release\azul.dll" "%CARGO_HOME%\lib\azul-dll-0.0.1\target\release"
 
 if exist "%~dp0\target\debug\examples" del "%~dp0\target\debug\examples\azul.dll"
 
-cargo run --release --example public
+rem cargo run --release --example table
 
-pause >nul
+rem pause >nul

@@ -2440,11 +2440,19 @@
         Numpad7,
         Numpad8,
         Numpad9,
+        NumpadAdd,
+        NumpadDivide,
+        NumpadDecimal,
+        NumpadComma,
+        NumpadEnter,
+        NumpadEquals,
+        NumpadMultiply,
+        NumpadSubtract,
         AbntC1,
         AbntC2,
-        Add,
         Apostrophe,
         Apps,
+        Asterisk,
         At,
         Ax,
         Backslash,
@@ -2453,8 +2461,6 @@
         Colon,
         Comma,
         Convert,
-        Decimal,
-        Divide,
         Equals,
         Grave,
         Kana,
@@ -2468,19 +2474,16 @@
         MediaSelect,
         MediaStop,
         Minus,
-        Multiply,
         Mute,
         MyComputer,
         NavigateForward,
         NavigateBackward,
         NextTrack,
         NoConvert,
-        NumpadComma,
-        NumpadEnter,
-        NumpadEquals,
         OEM102,
         Period,
         PlayPause,
+        Plus,
         Power,
         PrevTrack,
         RAlt,
@@ -2492,7 +2495,6 @@
         Slash,
         Sleep,
         Stop,
-        Subtract,
         Sysrq,
         Tab,
         Underline,
@@ -2701,6 +2703,7 @@
         pub ime_position: AzOptionLogicalPosition,
         pub platform_specific_options: AzPlatformSpecificOptions,
         pub css: AzCss,
+        pub layout_callback: AzLayoutCallback,
     }
     /// Re-export of rust-allocated (stack based) `LogicalSize` struct
     #[repr(C)] pub struct AzLogicalSize {
@@ -3020,7 +3023,7 @@
         pub az_app_config_ptr_default: extern "C" fn() -> AzAppConfigPtr,
         pub az_app_config_ptr_delete: extern "C" fn(_:  &mut AzAppConfigPtr),
         pub az_app_config_ptr_fmt_debug: extern "C" fn(_:  &AzAppConfigPtr) -> AzString,
-        pub az_app_ptr_new: extern "C" fn(_:  AzRefAny, _:  AzAppConfigPtr, _:  AzLayoutCallbackType) -> AzAppPtr,
+        pub az_app_ptr_new: extern "C" fn(_:  AzRefAny, _:  AzAppConfigPtr) -> AzAppPtr,
         pub az_app_ptr_run: extern "C" fn(_:  AzAppPtr, _:  AzWindowCreateOptions),
         pub az_app_ptr_delete: extern "C" fn(_:  &mut AzAppPtr),
         pub az_app_ptr_fmt_debug: extern "C" fn(_:  &AzAppPtr) -> AzString,
@@ -4219,6 +4222,7 @@
         pub az_full_screen_mode_delete: extern "C" fn(_:  &mut AzFullScreenMode),
         pub az_full_screen_mode_deep_copy: extern "C" fn(_:  &AzFullScreenMode) -> AzFullScreenMode,
         pub az_full_screen_mode_fmt_debug: extern "C" fn(_:  &AzFullScreenMode) -> AzString,
+        pub az_window_state_new: extern "C" fn(_:  AzLayoutCallbackType, _:  AzCss) -> AzWindowState,
         pub az_window_state_delete: extern "C" fn(_:  &mut AzWindowState),
         pub az_window_state_deep_copy: extern "C" fn(_:  &AzWindowState) -> AzWindowState,
         pub az_window_state_fmt_debug: extern "C" fn(_:  &AzWindowState) -> AzString,
@@ -4228,7 +4232,8 @@
         pub az_hot_reload_options_delete: extern "C" fn(_:  &mut AzHotReloadOptions),
         pub az_hot_reload_options_deep_copy: extern "C" fn(_:  &AzHotReloadOptions) -> AzHotReloadOptions,
         pub az_hot_reload_options_fmt_debug: extern "C" fn(_:  &AzHotReloadOptions) -> AzString,
-        pub az_window_create_options_new: extern "C" fn(_:  AzCss) -> AzWindowCreateOptions,
+        pub az_window_create_options_new: extern "C" fn(_:  AzLayoutCallbackType, _:  AzCss) -> AzWindowCreateOptions,
+        pub az_window_create_options_new_hot_reload: extern "C" fn(_:  AzLayoutCallbackType, _:  AzHotReloadOptions) -> AzWindowCreateOptions,
         pub az_window_create_options_delete: extern "C" fn(_:  &mut AzWindowCreateOptions),
         pub az_window_create_options_deep_copy: extern "C" fn(_:  &AzWindowCreateOptions) -> AzWindowCreateOptions,
         pub az_window_create_options_fmt_debug: extern "C" fn(_:  &AzWindowCreateOptions) -> AzString,
@@ -4534,7 +4539,7 @@
             let az_app_config_ptr_default: extern "C" fn() -> AzAppConfigPtr = transmute(lib.get(b"az_app_config_ptr_default")?);
             let az_app_config_ptr_delete: extern "C" fn(_:  &mut AzAppConfigPtr) = transmute(lib.get(b"az_app_config_ptr_delete")?);
             let az_app_config_ptr_fmt_debug: extern "C" fn(_:  &AzAppConfigPtr) -> AzString = transmute(lib.get(b"az_app_config_ptr_fmt_debug")?);
-            let az_app_ptr_new: extern "C" fn(_:  AzRefAny, _:  AzAppConfigPtr, _:  AzLayoutCallbackType) -> AzAppPtr = transmute(lib.get(b"az_app_ptr_new")?);
+            let az_app_ptr_new: extern "C" fn(_:  AzRefAny, _:  AzAppConfigPtr) -> AzAppPtr = transmute(lib.get(b"az_app_ptr_new")?);
             let az_app_ptr_run: extern "C" fn(_:  AzAppPtr, _:  AzWindowCreateOptions) = transmute(lib.get(b"az_app_ptr_run")?);
             let az_app_ptr_delete: extern "C" fn(_:  &mut AzAppPtr) = transmute(lib.get(b"az_app_ptr_delete")?);
             let az_app_ptr_fmt_debug: extern "C" fn(_:  &AzAppPtr) -> AzString = transmute(lib.get(b"az_app_ptr_fmt_debug")?);
@@ -5733,6 +5738,7 @@
             let az_full_screen_mode_delete: extern "C" fn(_:  &mut AzFullScreenMode) = transmute(lib.get(b"az_full_screen_mode_delete")?);
             let az_full_screen_mode_deep_copy: extern "C" fn(_:  &AzFullScreenMode) -> AzFullScreenMode = transmute(lib.get(b"az_full_screen_mode_deep_copy")?);
             let az_full_screen_mode_fmt_debug: extern "C" fn(_:  &AzFullScreenMode) -> AzString = transmute(lib.get(b"az_full_screen_mode_fmt_debug")?);
+            let az_window_state_new: extern "C" fn(_:  AzLayoutCallbackType, _:  AzCss) -> AzWindowState = transmute(lib.get(b"az_window_state_new")?);
             let az_window_state_delete: extern "C" fn(_:  &mut AzWindowState) = transmute(lib.get(b"az_window_state_delete")?);
             let az_window_state_deep_copy: extern "C" fn(_:  &AzWindowState) -> AzWindowState = transmute(lib.get(b"az_window_state_deep_copy")?);
             let az_window_state_fmt_debug: extern "C" fn(_:  &AzWindowState) -> AzString = transmute(lib.get(b"az_window_state_fmt_debug")?);
@@ -5742,7 +5748,8 @@
             let az_hot_reload_options_delete: extern "C" fn(_:  &mut AzHotReloadOptions) = transmute(lib.get(b"az_hot_reload_options_delete")?);
             let az_hot_reload_options_deep_copy: extern "C" fn(_:  &AzHotReloadOptions) -> AzHotReloadOptions = transmute(lib.get(b"az_hot_reload_options_deep_copy")?);
             let az_hot_reload_options_fmt_debug: extern "C" fn(_:  &AzHotReloadOptions) -> AzString = transmute(lib.get(b"az_hot_reload_options_fmt_debug")?);
-            let az_window_create_options_new: extern "C" fn(_:  AzCss) -> AzWindowCreateOptions = transmute(lib.get(b"az_window_create_options_new")?);
+            let az_window_create_options_new: extern "C" fn(_:  AzLayoutCallbackType, _:  AzCss) -> AzWindowCreateOptions = transmute(lib.get(b"az_window_create_options_new")?);
+            let az_window_create_options_new_hot_reload: extern "C" fn(_:  AzLayoutCallbackType, _:  AzHotReloadOptions) -> AzWindowCreateOptions = transmute(lib.get(b"az_window_create_options_new_hot_reload")?);
             let az_window_create_options_delete: extern "C" fn(_:  &mut AzWindowCreateOptions) = transmute(lib.get(b"az_window_create_options_delete")?);
             let az_window_create_options_deep_copy: extern "C" fn(_:  &AzWindowCreateOptions) -> AzWindowCreateOptions = transmute(lib.get(b"az_window_create_options_deep_copy")?);
             let az_window_create_options_fmt_debug: extern "C" fn(_:  &AzWindowCreateOptions) -> AzString = transmute(lib.get(b"az_window_create_options_fmt_debug")?);
@@ -7243,6 +7250,7 @@
                 az_full_screen_mode_delete,
                 az_full_screen_mode_deep_copy,
                 az_full_screen_mode_fmt_debug,
+                az_window_state_new,
                 az_window_state_delete,
                 az_window_state_deep_copy,
                 az_window_state_fmt_debug,
@@ -7253,6 +7261,7 @@
                 az_hot_reload_options_deep_copy,
                 az_hot_reload_options_fmt_debug,
                 az_window_create_options_new,
+                az_window_create_options_new_hot_reload,
                 az_window_create_options_delete,
                 az_window_create_options_deep_copy,
                 az_window_create_options_fmt_debug,

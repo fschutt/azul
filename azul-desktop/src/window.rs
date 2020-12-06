@@ -337,7 +337,7 @@ impl Window {
     }
 
     /// Returns what monitor the window is currently residing on (to query monitor size, etc.).
-    pub fn get_current_monitor(&self) -> MonitorHandle {
+    pub fn get_current_monitor(&self) -> Option<MonitorHandle> {
         self.display.window().current_monitor()
     }
 }
