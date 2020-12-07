@@ -72,10 +72,11 @@
 extern crate azul_css;
 extern crate azul_core;
 extern crate unicode_normalization;
-extern crate harfbuzz_sys;
-extern crate freetype; // necessary to get baseline of font
+extern crate allsorts;
 
 pub mod text_layout;
+// pub mod text_shaping;
+#[path = "./text_shaping_new.rs"]
 pub mod text_shaping;
 
 use azul_core::{

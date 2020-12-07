@@ -551,6 +551,7 @@ impl_callback!(GlCallback);
 pub struct GlCallbackInfo<'a> {
     pub state: &'a RefAny,
     pub layout_info: LayoutInfo<'a>,
+    #[cfg(feature = "opengl")]
     pub gl_context: &'a GlContextPtr,
     pub bounds: HidpiAdjustedBounds,
 }

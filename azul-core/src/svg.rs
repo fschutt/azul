@@ -8,6 +8,7 @@ use crate::gl::{
     GlShaderCreateError,
 };
 
+#[cfg(feature = "opengl")]
 static mut SVG_SHADER: Option<SvgShader> = None;
 
 const SHADER_VERSION_GL: &str = "#version 150";

@@ -1,6 +1,7 @@
 use std::{
     fmt,
     sync::{Arc, atomic::{AtomicUsize, Ordering}},
+    num::NonZeroU16,
 };
 use azul_css::{
     LayoutPoint, LayoutRect, LayoutSize,
@@ -13,22 +14,20 @@ use crate::{
     callbacks::PipelineId,
     id_tree::NodeDataContainer,
     dom::{NodeData, OptionImageMask},
-    gl::Texture,
-    svg::{SvgStyledNode, TesselatedGPUSvgNode, TesselatedCPUSvgNode},
+    svg::{SvgStyledNode, TesselatedCPUSvgNode},
 };
+
+#[cfg(feature = "opengl")]
+use crate::{gl::Texture, svg::TesselatedGPUSvgNode};
 
 pub type CssImageId = String;
 pub type CssFontId = String;
 
-// since it's repr(C), can be casted directly from a `hb_glyph_info_t`
-#[repr(C)]
 #[derive(Copy, Clone)]
 pub struct GlyphInfo {
     pub codepoint: u32,
     pub mask: u32,
     pub cluster: u32,
-    pub var1: HbVarIntT,
-    pub var2: HbVarIntT,
 }
 
 impl fmt::Debug for GlyphInfo {
@@ -37,14 +36,12 @@ impl fmt::Debug for GlyphInfo {
     }
 }
 
-#[repr(C)]
 #[derive(Copy, Clone)]
 pub struct GlyphPosition {
     pub x_advance: i32,
     pub y_advance: i32,
     pub x_offset: i32,
     pub y_offset: i32,
-    pub var: HbVarIntT,
 }
 
 impl fmt::Debug for GlyphPosition {
@@ -58,87 +55,219 @@ impl fmt::Debug for GlyphPosition {
 
 #[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub struct FontMetrics {
-    /// Font size that these metrics were created for, usually 1000px
-    /// (so every metric has to be divided by 1000 before it can be used for measurements)
-    pub font_size: usize,
-    pub x_ppem: u16,
-    pub y_ppem: u16,
-    pub x_scale: i64,
-    pub y_scale: i64,
-    pub ascender: i64,
-    pub descender: i64,
-    pub height: i64,
-    pub max_advance: i64,
+
+    // head table
+
+    pub units_per_em: NonZeroU16,
+    pub font_flags: u16,
+    pub x_min: i16,
+    pub y_min: i16,
+    pub x_max: i16,
+    pub y_max: i16,
+
+    // hhea table
+
+    pub ascender: i16,
+    pub descender: i16,
+    pub line_gap: i16,
+    pub advance_width_max: u16,
+    pub min_left_side_bearing: i16,
+    pub min_right_side_bearing: i16,
+    pub x_max_extent: i16,
+    pub caret_slope_rise: i16,
+    pub caret_slope_run: i16,
+    pub caret_offset: i16,
+    pub num_h_metrics: u16,
+
+    // os/2 table
+
+    pub x_avg_char_width: i16,
+    pub us_weight_class: u16,
+    pub us_width_class: u16,
+    pub fs_type: u16,
+    pub y_subscript_x_size: i16,
+    pub y_subscript_y_size: i16,
+    pub y_subscript_x_offset: i16,
+    pub y_subscript_y_offset: i16,
+    pub y_superscript_x_size: i16,
+    pub y_superscript_y_size: i16,
+    pub y_superscript_x_offset: i16,
+    pub y_superscript_y_offset: i16,
+    pub y_strikeout_size: i16,
+    pub y_strikeout_position: i16,
+    pub s_family_class: i16,
+    pub panose: [u8; 10],
+    pub ul_unicode_range1: u32,
+    pub ul_unicode_range2: u32,
+    pub ul_unicode_range3: u32,
+    pub ul_unicode_range4: u32,
+    pub ach_vend_id: u32,
+    pub fs_selection: u16,
+    pub us_first_char_index: u16,
+    pub us_last_char_index: u16,
+
+    // os/2 version 0 table
+
+    pub s_typo_ascender: Option<i16>,
+    pub s_typo_descender: Option<i16>,
+    pub s_typo_line_gap: Option<i16>,
+    pub us_win_ascent: Option<u16>,
+    pub us_win_descent: Option<u16>,
+
+    // os/2 version 1 table
+
+    pub ul_code_page_range1: Option<u32>,
+    pub ul_code_page_range2: Option<u32>,
+
+    // os/2 version 2 table
+
+    pub sx_height: Option<i16>,
+    pub s_cap_height: Option<i16>,
+    pub us_default_char: Option<u16>,
+    pub us_break_char: Option<u16>,
+    pub us_max_context: Option<u16>,
+
+    // os/2 version 3 table
+
+    pub us_lower_optical_point_size: Option<u16>,
+    pub us_upper_optical_point_size: Option<u16>,
+}
+
+impl Default for FontMetrics {
+    fn default() -> Self {
+        FontMetrics::zero()
+    }
 }
 
 impl FontMetrics {
 
-    // Only for testing, zero-sized font, will always return 0 for every metric
-    pub fn zero() -> Self {
-        Self {
-            font_size: 1000,
-            x_ppem: 0,
-            y_ppem: 0,
-            x_scale: 0,
-            y_scale: 0,
+    /// Only for testing, zero-sized font, will always return 0 for every metric (`units_per_em = 1000`)
+    pub const fn zero() -> Self {
+        FontMetrics {
+            units_per_em: unsafe { NonZeroU16::new_unchecked(1000) },
+            font_flags: 0,
+            x_min: 0,
+            y_min: 0,
+            x_max: 0,
+            y_max: 0,
             ascender: 0,
             descender: 0,
-            height: 0,
-            max_advance: 0,
+            line_gap: 0,
+            advance_width_max: 0,
+            min_left_side_bearing: 0,
+            min_right_side_bearing: 0,
+            x_max_extent: 0,
+            caret_slope_rise: 0,
+            caret_slope_run: 0,
+            caret_offset: 0,
+            num_h_metrics: 0,
+            x_avg_char_width: 0,
+            us_weight_class: 0,
+            us_width_class: 0,
+            fs_type: 0,
+            y_subscript_x_size: 0,
+            y_subscript_y_size: 0,
+            y_subscript_x_offset: 0,
+            y_subscript_y_offset: 0,
+            y_superscript_x_size: 0,
+            y_superscript_y_size: 0,
+            y_superscript_x_offset: 0,
+            y_superscript_y_offset: 0,
+            y_strikeout_size: 0,
+            y_strikeout_position: 0,
+            s_family_class: 0,
+            panose: [0;10],
+            ul_unicode_range1: 0,
+            ul_unicode_range2: 0,
+            ul_unicode_range3: 0,
+            ul_unicode_range4: 0,
+            ach_vend_id: 0,
+            fs_selection: 0,
+            us_first_char_index: 0,
+            us_last_char_index: 0,
+            s_typo_ascender: None,
+            s_typo_descender: None,
+            s_typo_line_gap: None,
+            us_win_ascent: None,
+            us_win_descent: None,
+            ul_code_page_range1: None,
+            ul_code_page_range2: None,
+            sx_height: None,
+            s_cap_height: None,
+            us_default_char: None,
+            us_break_char: None,
+            us_max_context: None,
+            us_lower_optical_point_size: None,
+            us_upper_optical_point_size: None,
         }
     }
 
-    pub fn get_x_ppem(&self, target_font_size: f32) -> f32 {
-        let s = self.x_ppem as f32;
-        s / (self.font_size as f32) * target_font_size
-    }
-
-    pub fn get_y_ppem(&self, target_font_size: f32) -> f32 {
-        let s = self.y_ppem as f32;
-        s / (self.font_size as f32) * target_font_size
-    }
-
-    pub fn get_x_scale(&self, target_font_size: f32) -> f32 {
-        let s = self.x_scale as f32;
-        s / (self.font_size as f32) * target_font_size
-    }
-
-    pub fn get_y_scale(&self, target_font_size: f32) -> f32 {
-        let s = self.y_scale as f32;
-        s / (self.font_size as f32) * target_font_size
+    /// If set, use `OS/2.sTypoAscender - OS/2.sTypoDescender + OS/2.sTypoLineGap` to calculate the height
+    ///
+    /// See [`USE_TYPO_METRICS`](https://docs.microsoft.com/en-us/typography/opentype/spec/os2#fss)
+    pub fn use_typo_metrics(&self) -> bool {
+        self.fs_selection & (1 << 7) != 0
     }
 
     pub fn get_ascender(&self, target_font_size: f32) -> f32 {
-        let s = self.ascender as f32;
-        s / (self.font_size as f32) * target_font_size
+        let use_typo = if !self.use_typo_metrics() { None } else { self.s_typo_ascender };
+        if let Some(s) = use_typo {
+            s as f32 / self.units_per_em.get() as f32 * target_font_size
+        } else {
+            self.ascender as f32 / self.units_per_em.get() as f32 * target_font_size
+        }
     }
 
+    /// NOTE: descender is NEGATIVE
     pub fn get_descender(&self, target_font_size: f32) -> f32 {
-        let s = self.descender as f32;
-        s / (self.font_size as f32) * target_font_size
+        let use_typo = if !self.use_typo_metrics() { None } else { self.s_typo_descender };
+        if let Some(s) = use_typo {
+            s as f32 / self.units_per_em.get() as f32 * target_font_size
+        } else {
+            self.descender as f32 / self.units_per_em.get() as f32 * target_font_size
+        }
     }
 
+    pub fn get_line_gap(&self, target_font_size: f32) -> f32 {
+        let use_typo = if !self.use_typo_metrics() { None } else { self.s_typo_line_gap };
+        if let Some(s) = use_typo {
+            s as f32 / self.units_per_em.get() as f32 * target_font_size
+        } else {
+            self.line_gap as f32 / self.units_per_em.get() as f32 * target_font_size
+        }
+    }
+
+    /// `height = sTypoAscender - sTypoDescender + sTypoLineGap`
     pub fn get_height(&self, target_font_size: f32) -> f32 {
-        let s = self.height as f32;
-        s / (self.font_size as f32) * target_font_size
+        self.get_ascender(target_font_size) - self.get_descender(target_font_size) + self.get_line_gap(target_font_size)
     }
 
-    pub fn get_max_advance(&self, target_font_size: f32) -> f32 {
-        let s = self.max_advance as f32;
-        s / (self.font_size as f32) * target_font_size
-    }
-}
-
-#[repr(C)]
-#[derive(Copy, Clone)]
-pub union HbVarIntT {
-    pub u32: u32,
-    pub i32: i32,
-    pub u16: [u16; 2usize],
-    pub i16: [i16; 2usize],
-    pub u8: [u8; 4usize],
-    pub i8: [i8; 4usize],
-    _bindgen_union_align: u32,
+    pub fn get_x_min(&self, target_font_size: f32) -> f32 { self.x_min as f32 / self.units_per_em.get() as f32 * target_font_size }
+    pub fn get_y_min(&self, target_font_size: f32) -> f32 { self.y_min as f32 / self.units_per_em.get() as f32 * target_font_size }
+    pub fn get_x_max(&self, target_font_size: f32) -> f32 { self.x_max as f32 / self.units_per_em.get() as f32 * target_font_size }
+    pub fn get_y_max(&self, target_font_size: f32) -> f32 { self.y_max as f32 / self.units_per_em.get() as f32 * target_font_size }
+    pub fn get_advance_width_max(&self, target_font_size: f32) -> f32 { self.advance_width_max as f32 / self.units_per_em.get() as f32 * target_font_size }
+    pub fn get_min_left_side_bearing(&self, target_font_size: f32) -> f32 { self.min_left_side_bearing as f32 / self.units_per_em.get() as f32 * target_font_size }
+    pub fn get_min_right_side_bearing(&self, target_font_size: f32) -> f32 { self.min_right_side_bearing as f32 / self.units_per_em.get() as f32 * target_font_size }
+    pub fn get_x_max_extent(&self, target_font_size: f32) -> f32 { self.x_max_extent as f32 / self.units_per_em.get() as f32 * target_font_size }
+    pub fn get_x_avg_char_width(&self, target_font_size: f32) -> f32 { self.x_avg_char_width as f32 / self.units_per_em.get() as f32 * target_font_size }
+    pub fn get_y_subscript_x_size(&self, target_font_size: f32) -> f32 { self.y_subscript_x_size as f32 / self.units_per_em.get() as f32 * target_font_size }
+    pub fn get_y_subscript_y_size(&self, target_font_size: f32) -> f32 { self.y_subscript_y_size as f32 / self.units_per_em.get() as f32 * target_font_size }
+    pub fn get_y_subscript_x_offset(&self, target_font_size: f32) -> f32 { self.y_subscript_x_offset as f32 / self.units_per_em.get() as f32 * target_font_size }
+    pub fn get_y_subscript_y_offset(&self, target_font_size: f32) -> f32 { self.y_subscript_y_offset as f32 / self.units_per_em.get() as f32 * target_font_size }
+    pub fn get_y_superscript_x_size(&self, target_font_size: f32) -> f32 { self.y_superscript_x_size as f32 / self.units_per_em.get() as f32 * target_font_size }
+    pub fn get_y_superscript_y_size(&self, target_font_size: f32) -> f32 { self.y_superscript_y_size as f32 / self.units_per_em.get() as f32 * target_font_size }
+    pub fn get_y_superscript_x_offset(&self, target_font_size: f32) -> f32 { self.y_superscript_x_offset as f32 / self.units_per_em.get() as f32 * target_font_size }
+    pub fn get_y_superscript_y_offset(&self, target_font_size: f32) -> f32 { self.y_superscript_y_offset as f32 / self.units_per_em.get() as f32 * target_font_size }
+    pub fn get_y_strikeout_size(&self, target_font_size: f32) -> f32 { self.y_strikeout_size as f32 / self.units_per_em.get() as f32 * target_font_size }
+    pub fn get_y_strikeout_position(&self, target_font_size: f32) -> f32 { self.y_strikeout_position as f32 / self.units_per_em.get() as f32 * target_font_size }
+    pub fn get_s_typo_ascender(&self, target_font_size: f32) -> Option<f32> { self.s_typo_ascender.map(|s| s as f32 / self.units_per_em.get() as f32 * target_font_size) }
+    pub fn get_s_typo_descender(&self, target_font_size: f32) -> Option<f32> { self.s_typo_descender.map(|s| s as f32 / self.units_per_em.get() as f32 * target_font_size) }
+    pub fn get_s_typo_line_gap(&self, target_font_size: f32) -> Option<f32> { self.s_typo_line_gap.map(|s| s as f32 / self.units_per_em.get() as f32 * target_font_size) }
+    pub fn get_us_win_ascent(&self, target_font_size: f32) -> Option<f32> { self.us_win_ascent.map(|s| s as f32 / self.units_per_em.get() as f32 * target_font_size) }
+    pub fn get_us_win_descent(&self, target_font_size: f32) -> Option<f32> { self.us_win_descent.map(|s| s as f32 / self.units_per_em.get() as f32 * target_font_size) }
+    pub fn get_sx_height(&self, target_font_size: f32) -> Option<f32> { self.sx_height.map(|s| s as f32 / self.units_per_em.get() as f32 * target_font_size) }
+    pub fn get_s_cap_height(&self, target_font_size: f32) -> Option<f32> { self.s_cap_height.map(|s| s as f32 / self.units_per_em.get() as f32 * target_font_size) }
 }
 
 pub type WordIndex = usize;
@@ -278,8 +407,10 @@ pub struct AppResources {
     /// Cache from SVG node -> CPU tesselated triangles
     pub svg_cpu_tess_cache: FastHashMap<SvgNodeId, TesselatedCPUSvgNode>,
     /// Cache from SVG node -> GPU vertex buffer ID + GPU index buffer ID
+    #[cfg(feature = "opengl")]
     pub svg_gpu_tess_cache: FastHashMap<SvgNodeId, TesselatedGPUSvgNode>,
     /// Cache from SVG node -> Texture
+    #[cfg(feature = "opengl")]
     pub svg_gpu_texture_cache: FastHashMap<SvgNodeId, Texture>,
 }
 

@@ -17,5 +17,4 @@ readme = "./README.md"
 azul-css                = { path = "../azul-css", version = "0.0.1",   default-features = false }
 azul-core               = { path = "../azul-core", version = "0.0.2",   default-features = false }
 unicode-normalization   = { version = "0.1.12",  default-features = false }
-harfbuzz-sys            = { version = "0.3.4",   default-features = false,   features = ["build-native-harfbuzz", "build-native-freetype"] }
-freetype                = { version = "0.4.1",   default-features = false }
+allsorts                = { version = "0.4.0", default-features = false }

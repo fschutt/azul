@@ -267,7 +267,7 @@ pub(crate) fn get_glyph_instances_hb(
 
 /// Get the baseline for a font, you'll have to scale the
 /// font size then later on for your given font size
-pub fn get_font_metrics_freetype(font_bytes: &[u8], font_index: i32) -> FontMetrics {
+pub fn get_font_metrics(font_bytes: &[u8], font_index: i32) -> FontMetrics {
 
     use std::convert::TryInto;
     use freetype::freetype::{
@@ -278,6 +278,20 @@ pub fn get_font_metrics_freetype(font_bytes: &[u8], font_index: i32) -> FontMetr
 
     const FT_ERR_OK: i32 = 0;
     const FAKE_FONT_SIZE: FT_F26Dot6 = 1000;
+
+    /*
+        /// Font size that these metrics were created for, usually 1000px
+        /// (so every metric has to be divided by 1000 before it can be used for measurements)
+        pub font_size: usize,
+        pub x_ppem: u16,
+        pub y_ppem: u16,
+        pub x_scale: i64,
+        pub y_scale: i64,
+        pub ascender: i64,
+        pub descender: i64,
+        pub height: i64,
+        pub max_advance: i64,
+    */
 
     let mut baseline = FontMetrics {
         font_size: FAKE_FONT_SIZE as usize,

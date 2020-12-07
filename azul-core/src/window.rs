@@ -18,9 +18,11 @@ use crate::{
     ui_solver::{OverflowingScrollNode, ExternalScrollId, ScrolledNodes},
     ui_state::UiState,
     display_list::{SolvedLayoutCache, GlTextureCache, CachedDisplayList},
-    gl::GlContextPtr,
     callbacks::{LayoutCallback, LayoutCallbackType},
 };
+
+#[cfg(feature = "opengl")]
+use crate::gl::GlContextPtr;
 
 pub const DEFAULT_TITLE: &str = "Azul App";
 pub const DEFAULT_WIDTH: f32 = 800.0;
@@ -1072,7 +1074,8 @@ impl WindowCreateOptions {
 /// not available for whatever reason.
 ///
 /// If you don't know what any of this means, leave it at `Default`.
-#[repr(C, u8)]
+#[cfg_attr(not(feature = "opengl"), repr(C))]
+#[cfg_attr(feature = "opengl", repr(C, u8))]
 pub enum RendererType {
     /// Use the hardware renderer first, then fall back to OSMesa
     Default,
