@@ -23,36 +23,6 @@ use crate::{gl::Texture, svg::TesselatedGPUSvgNode};
 pub type CssImageId = String;
 pub type CssFontId = String;
 
-#[derive(Copy, Clone)]
-pub struct GlyphInfo {
-    pub codepoint: u32,
-    pub mask: u32,
-    pub cluster: u32,
-}
-
-impl fmt::Debug for GlyphInfo {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        write!(f, "GlyphInfo {{ codepoint: {}, mask: {}, cluster: {} }}", self.codepoint, self.mask, self.cluster)
-    }
-}
-
-#[derive(Copy, Clone)]
-pub struct GlyphPosition {
-    pub x_advance: i32,
-    pub y_advance: i32,
-    pub x_offset: i32,
-    pub y_offset: i32,
-}
-
-impl fmt::Debug for GlyphPosition {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        write!(f,
-            "GlyphPosition {{ x_advance: {}, y_advance: {}, x_offset: {}, y_offset: {},  }}",
-            self.x_advance, self.y_advance, self.x_offset, self.y_offset
-        )
-    }
-}
-
 #[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub struct FontMetrics {
 
@@ -652,34 +622,125 @@ pub enum WordType {
 /// A paragraph of words that are shaped and scaled (* but not yet layouted / positioned*!)
 /// according to their final size in pixels.
 #[derive(Debug, Clone)]
-pub struct ScaledWords {
-    /// Font size (in pixels) that was used to scale these words
-    pub font_size_px: f32,
-    /// Baseline of the font (usually lower than the font size)
-    pub baseline_px: f32,
+pub struct ShapedWords {
     /// Words scaled to their appropriate font size, but not yet positioned on the screen
-    pub items: Vec<ScaledWord>,
+    pub items: Vec<ShapedWord>,
     /// Longest word in the `self.scaled_words`, necessary for
     /// calculating overflow rectangles.
-    pub longest_word_width: f32,
+    pub longest_word_width: isize,
     /// Horizontal advance of the space glyph
-    pub space_advance_px: f32,
-    /// Glyph index of the space character
-    pub space_codepoint: u32,
+    pub space_advance: isize,
     /// Metrics necessary for baseline calculation
     pub font_metrics: FontMetrics,
 }
 
+impl ShapedWords {
+    pub fn get_longest_word_width_px(&self, target_font_size: f32) -> f32 {
+        self.longest_word_width as f32 / self.font_metrics.units_per_em.get() as f32 * target_font_size
+    }
+    pub fn get_space_advance_px(&self, target_font_size: f32) -> f32 {
+        self.space_advance as f32 / self.font_metrics.units_per_em.get() as f32 * target_font_size
+    }
+    /// Get the distance from the top of the text to the baseline of the text (= ascender)
+    pub fn get_baseline_px(&self, target_font_size: f32) -> f32 {
+        target_font_size + self.font_metrics.get_descender(target_font_size)
+    }
+}
+
+/// A Unicode variation selector.
+///
+/// VS04-VS14 are omitted as they aren't currently used.
+#[derive(Debug, Copy, PartialEq, PartialOrd, Clone, Hash)]
+pub enum VariationSelector {
+    /// VARIATION SELECTOR-1
+    VS01 = 1,
+    /// VARIATION SELECTOR-2
+    VS02 = 2,
+    /// VARIATION SELECTOR-3
+    VS03 = 3,
+    /// Text presentation
+    VS15 = 15,
+    /// Emoji presentation
+    VS16 = 16,
+}
+
+#[derive(Debug, Copy, PartialEq, PartialOrd, Clone, Hash)]
+pub enum GlyphOrigin {
+    Char(char),
+    Direct,
+}
+
+#[derive(Debug, Copy, PartialEq, PartialOrd, Clone, Hash)]
+pub enum Placement {
+    None,
+    Distance(i32, i32),
+    Anchor(Anchor, Anchor),
+}
+
+#[derive(Debug, Copy, PartialEq, PartialOrd, Clone, Hash)]
+pub enum MarkPlacement {
+    None,
+    MarkAnchor(usize, Anchor, Anchor),
+}
+
+#[derive(Debug, Copy, PartialEq, PartialOrd, Clone, Hash)]
+pub struct Anchor {
+    pub x: i16,
+    pub y: i16,
+}
+
+#[derive(Debug, Copy, PartialEq, PartialOrd, Clone, Hash)]
+pub struct RawGlyph {
+    unicodes: [char; 1],
+    glyph_index: Option<u16>,
+    liga_component_pos: u16,
+    glyph_origin: GlyphOrigin,
+    small_caps: bool,
+    multi_subst_dup: bool,
+    is_vert_alt: bool,
+    fake_bold: bool,
+    fake_italic: bool,
+    variation: Option<VariationSelector>,
+    extra_data: (),
+}
+
+#[derive(Debug, Copy, PartialEq, PartialOrd, Clone, Hash)]
+pub struct Info {
+    glyph: RawGlyph,
+    kerning: i16,
+    placement: Placement,
+    mark_placement: MarkPlacement,
+    is_mark: bool,
+}
+
+#[derive(Debug, Default, Copy, PartialEq, PartialOrd, Clone, Hash)]
+pub struct HorizontalAdvance {
+    pub advance: u16,
+    pub kerning: i16,
+}
+
+impl HorizontalAdvance {
+    pub fn total_unscaled(&self) -> i32 { self.advance as i32 + self.kerning as i32 }
+    pub fn total_scaled(&self, font_metrics: &FontMetrics, target_font_size: f32) -> f32 {
+        self.total_unscaled() as f32 / font_metrics.units_per_em.get() as f32 * target_font_size
+    }
+}
+
 /// Word that is scaled (to a font / font instance), but not yet positioned
-#[derive(Debug, Clone)]
-pub struct ScaledWord {
-    /// Glyphs, positions are relative to the first character of the word
-    pub glyph_infos: Vec<GlyphInfo>,
-    /// Horizontal advances of each glyph, necessary for
-    /// hit-testing characters later on (for text selection).
-    pub glyph_positions: Vec<GlyphPosition>,
+#[derive(Debug, PartialEq, PartialOrd, Clone)]
+pub struct ShapedWord {
+    /// Glyph codepoint, glyph ID + kerning data
+    pub glyph_infos: Vec<Info>,
+    /// Glyph horizontal advance + kerning (unscaled)
+    pub horizontal_advances: Vec<HorizontalAdvance>,
     /// The sum of the width of all the characters in this word
-    pub word_width: f32,
+    pub word_width: isize,
+}
+
+impl ShapedWord {
+    pub fn get_word_width(&self, font_metrics: &FontMetrics, target_font_size: f32) -> f32 {
+        self.word_width as f32 / font_metrics.units_per_em.get() as f32 * target_font_size
+    }
 }
 
 /// Stores the positions of the vertically laid out texts
@@ -714,81 +775,6 @@ pub struct WordPositions {
 #[derive(Debug, Clone, PartialEq)]
 pub struct LayoutedGlyphs {
     pub glyphs: Vec<GlyphInstance>,
-}
-
-/// Iterator over glyphs that returns information about the cluster that this glyph belongs to.
-/// Returned by the `ScaledWord::cluster_iter()` function.
-///
-/// For each glyph, returns information about what cluster this glyph belongs to. Useful for
-/// doing operations per-cluster instead of per-glyph.
-/// *Note*: The iterator returns once-per-glyph, not once-per-cluster, however
-/// you can merge the clusters into groups by using the `ClusterInfo.cluster_idx`.
-#[derive(Debug, Clone)]
-pub struct ClusterIterator<'a> {
-    /// What codepoint does the current glyph have - set to `None` if the first character isn't yet processed.
-    cur_codepoint: Option<u32>,
-    /// What cluster *index* are we currently at - default: 0
-    cluster_count: usize,
-    word: &'a ScaledWord,
-    /// Store what glyph we are currently processing in this word
-    cur_glyph_idx: usize,
-}
-
-/// Info about what cluster a certain glyph belongs to.
-#[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
-pub struct ClusterInfo {
-    /// Cluster index in this word
-    pub cluster_idx: usize,
-    /// Codepoint of this cluster
-    pub codepoint: u32,
-    /// What the glyph index of this cluster is
-    pub glyph_idx: usize,
-}
-
-impl<'a> Iterator for ClusterIterator<'a> {
-
-    type Item = ClusterInfo;
-
-    /// Returns an iterator over the clusters in this word.
-    ///
-    /// Note: This will return one `ClusterInfo` per glyph, so you can't just
-    /// use `.cluster_iter().count()` to count the glyphs: Instead, use `.cluster_iter().last().cluster_idx`.
-    fn next(&mut self) -> Option<ClusterInfo> {
-
-        let next_glyph = self.word.glyph_infos.get(self.cur_glyph_idx)?;
-
-        let glyph_idx = self.cur_glyph_idx;
-
-        if self.cur_codepoint != Some(next_glyph.cluster) {
-            self.cur_codepoint = Some(next_glyph.cluster);
-            self.cluster_count += 1;
-        }
-
-        self.cur_glyph_idx += 1;
-
-        Some(ClusterInfo {
-            cluster_idx: self.cluster_count,
-            codepoint: self.cur_codepoint.unwrap_or(0),
-            glyph_idx,
-        })
-    }
-}
-
-impl ScaledWord {
-
-    /// Creates an iterator over clusters instead of glyphs
-    pub fn cluster_iter<'a>(&'a self) -> ClusterIterator<'a> {
-        ClusterIterator {
-            cur_codepoint: None,
-            cluster_count: 0,
-            word: &self,
-            cur_glyph_idx: 0,
-        }
-    }
-
-    pub fn number_of_clusters(&self) -> usize {
-        self.cluster_iter().last().map(|l| l.cluster_idx).unwrap_or(0)
-    }
 }
 
 #[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]

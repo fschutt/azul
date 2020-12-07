@@ -2,12 +2,12 @@
 //! the positions of words / lines and do glyph positioning
 
 use azul_css::{LayoutSize, LayoutRect, LayoutPoint};
+pub use crate::text_shaping::Font;
 pub use azul_core::{
     app_resources::{
-        Words, Word, WordType, GlyphInfo, GlyphPosition,
-        ScaledWords, ScaledWord, WordIndex, GlyphIndex, LineLength, IndexOfLineBreak,
-        RemainingSpaceToRight, LineBreaks, WordPositions, LayoutedGlyphs,
-        ClusterIterator, ClusterInfo, FontMetrics,
+        Words, Word, WordType,
+        ShapedWords, ShapedWord, WordIndex, GlyphIndex, LineLength, IndexOfLineBreak,
+        RemainingSpaceToRight, LineBreaks, WordPositions, LayoutedGlyphs, FontMetrics,
     },
     display_list::GlyphInstance,
     ui_solver::{
@@ -15,16 +15,6 @@ pub use azul_core::{
         DEFAULT_LINE_HEIGHT, DEFAULT_WORD_SPACING, DEFAULT_LETTER_SPACING, DEFAULT_TAB_WIDTH,
     },
 };
-
-/// Whether the text overflows the parent rectangle, and if yes, by how many pixels,
-/// necessary for determining if / how to show a scrollbar + aligning / centering text.
-#[derive(Debug, Copy, Clone, PartialEq, PartialOrd)]
-pub enum TextOverflow {
-    /// Text is overflowing, by how much (in pixels)?
-    IsOverflowing(f32),
-    /// Text is in bounds, how much space is available until the edge of the rectangle (in pixels)?
-    InBounds(f32),
-}
 
 /// Splits the text by whitespace into logical units (word, tab, return, whitespace).
 pub fn split_text_into_words(text: &str) -> Words {
@@ -131,109 +121,68 @@ pub fn split_text_into_words(text: &str) -> Words {
     }
 }
 
-/// Takes a text broken into semantic items and a font instance and
-/// scales the font accordingly.
-pub fn words_to_scaled_words(
-    words: &Words,
-    font_bytes: &[u8],
-    font_index: u32,
-    font_metrics: FontMetrics,
-    font_size_px: f32,
-) -> ScaledWords {
+/// Creates a font from a font file (TTF, OTF, WOFF, etc.)
+///
+/// NOTE: EXPENSIVE function, needs to parse tables, etc.
+pub fn create_font<'a>(font_bytes: &'a [u8], font_index: usize) -> Option<Font<'a>> {
+    Font::from_bytes(font_bytes, font_index)
+}
 
-    use std::mem;
-    use std::char;
-    use crate::text_shaping::{self, HB_SCALE_FACTOR, HbBuffer, HbFont, HbScaledFont};
+/// Takes a text broken into semantic items and shape all the words
+/// (does NOT scale the words, only shapes them)
+pub fn shape_words(words: &Words, font: &Font) -> ShapedWords {
 
-    let hb_font = HbFont::from_bytes(font_bytes, font_index);
-    let hb_scaled_font = HbScaledFont::from_font(&hb_font, font_size_px);
+    use crate::text_shaping;
+
+    let (script, lang) = text_shaping::estimate_script_and_language(&words.internal_str);
 
     // Get the dimensions of the space glyph
-    let hb_space_buffer = HbBuffer::from_str(" ");
-    let hb_shaped_space = text_shaping::shape_word_hb(&hb_space_buffer, &hb_scaled_font);
-    let space_advance_px = hb_shaped_space.glyph_positions[0].x_advance as f32 / HB_SCALE_FACTOR;
-    let space_codepoint = hb_shaped_space.glyph_infos[0].codepoint;
+    let space_unscaled = font.shape(&[' '], script, lang);
+    let space_advance = space_unscaled.get_word_visual_width_unscaled();
 
-    let internal_str = words.internal_str.replace(char::is_whitespace, " ");
+    let mut longest_word_width = 0_isize;
 
-    let hb_buffer_entire_paragraph = HbBuffer::from_str(&internal_str);
-    let hb_shaped_entire_paragraph = text_shaping::shape_word_hb(&hb_buffer_entire_paragraph, &hb_scaled_font);
+    let shaped_words = words.items
+    .iter()
+    .filter(|w| w.word_type == WordType::Word)
+    .map(|word| {
+        use crate::text_shaping::ShapedTextBufferUnsized;
 
-    let mut shaped_word_positions = Vec::<Vec<GlyphPosition>>::new();
-    let mut shaped_word_infos = Vec::<Vec<GlyphInfo>>::new();
-    let mut current_word_positions = Vec::new();
-    let mut current_word_infos = Vec::new();
+        let chars = &words.internal_chars[word.start..word.end];
+        let shaped_word = font.shape(chars, script, lang);
+        let word_width = shaped_word.get_word_visual_width_unscaled();
 
-    for i in 0..hb_shaped_entire_paragraph.glyph_positions.len() {
-        let glyph_info = hb_shaped_entire_paragraph.glyph_infos[i];
-        let glyph_position = hb_shaped_entire_paragraph.glyph_positions[i];
+        longest_word_width = longest_word_width.max(word_width.abs());
 
-        let is_space = glyph_info.codepoint == space_codepoint;
-        if is_space {
-            shaped_word_positions.push(current_word_positions.clone());
-            shaped_word_infos.push(current_word_infos.clone());
-            current_word_positions.clear();
-            current_word_infos.clear();
-        } else {
-            // azul-core::GlyphInfo and hb_position_t have the same size / layout
-            // (both are repr(C)), so it's safe to just transmute them here
-            current_word_positions.push(unsafe { mem::transmute(glyph_position) });
-            current_word_infos.push(unsafe { mem::transmute(glyph_info) });
+        let ShapedTextBufferUnsized { infos, horizontal_advances } = shaped_word;
+
+        ShapedWord {
+            glyph_infos: infos,
+            horizontal_advances,
+            word_width,
         }
-    }
+    }).collect();
 
-    if !current_word_positions.is_empty() {
-        shaped_word_positions.push(current_word_positions);
-        shaped_word_infos.push(current_word_infos);
-    }
-
-    let mut longest_word_width = 0.0_f32;
-
-    let scaled_words = words.items.iter()
-        .filter(|w| w.word_type == WordType::Word)
-        .enumerate()
-        .filter_map(|(word_idx, _)| {
-
-            let hb_glyph_positions = shaped_word_positions.get(word_idx)?.clone();
-            let hb_glyph_infos = shaped_word_infos.get(word_idx)?.clone();
-            let hb_word_width = text_shaping::get_word_visual_width_hb(&hb_glyph_positions);
-
-            longest_word_width = longest_word_width.max(hb_word_width.abs());
-
-            Some(ScaledWord {
-                glyph_infos: hb_glyph_infos,
-                glyph_positions: hb_glyph_positions,
-                word_width: hb_word_width,
-            })
-        }).collect();
-
-    ScaledWords {
-        font_size_px,
-        font_metrics,
-        baseline_px: font_size_px, // TODO!
-        items: scaled_words,
+    ShapedWords {
+        font_metrics: font.font_metrics,
+        items: shaped_words,
         longest_word_width: longest_word_width,
-        space_advance_px,
-        space_codepoint,
+        space_advance,
     }
 }
 
 /// Positions the words on the screen (does not layout any glyph positions!), necessary for estimating
 /// the intrinsic width + height of the text content.
-pub fn position_words(
-    words: &Words,
-    scaled_words: &ScaledWords,
-    text_layout_options: &ResolvedTextLayoutOptions,
-) -> WordPositions {
+pub fn position_words(words: &Words, shaped_words: &ShapedWords, text_layout_options: &ResolvedTextLayoutOptions) -> WordPositions {
 
     use self::WordType::*;
     use std::f32;
 
     let font_size_px = text_layout_options.font_size_px;
-    let space_advance = scaled_words.space_advance_px;
-    let word_spacing_px = space_advance * text_layout_options.word_spacing.unwrap_or(DEFAULT_WORD_SPACING);
-    let line_height_px = space_advance * text_layout_options.line_height.unwrap_or(DEFAULT_LINE_HEIGHT);
-    let tab_width_px = space_advance * text_layout_options.tab_width.unwrap_or(DEFAULT_TAB_WIDTH);
+    let space_advance_px = shaped_words.get_space_advance_px(text_layout_options.font_size_px);
+    let word_spacing_px = space_advance_px * text_layout_options.word_spacing.unwrap_or(DEFAULT_WORD_SPACING);
+    let line_height_px = space_advance_px * text_layout_options.line_height.unwrap_or(DEFAULT_LINE_HEIGHT);
+    let tab_width_px = space_advance_px * text_layout_options.tab_width.unwrap_or(DEFAULT_TAB_WIDTH);
 
     let mut line_breaks = Vec::new();
     let mut word_positions = Vec::new();
@@ -276,18 +225,18 @@ pub fn position_words(
 
     macro_rules! handle_word {() => ({
 
-        let scaled_word = match scaled_words.items.get(word_idx) {
+        let shaped_word = match shaped_words.items.get(word_idx) {
             Some(s) => s,
             None => continue,
         };
 
         let reserved_letter_spacing_px = match text_layout_options.letter_spacing {
             None => 0.0,
-            Some(spacing_multiplier) => spacing_multiplier * scaled_word.number_of_clusters().saturating_sub(1) as f32,
+            Some(spacing_multiplier) => spacing_multiplier * shaped_word.number_of_clusters().saturating_sub(1) as f32,
         };
 
         // Calculate where the caret would be for the next word
-        let word_advance_x = scaled_word.word_width + reserved_letter_spacing_px;
+        let word_advance_x = shaped_word.get_word_width(&shaped_words.font_metrics, text_layout_options.font_size_px) + reserved_letter_spacing_px;
 
         let mut new_caret_x = line_caret_x + word_advance_x;
 
@@ -392,17 +341,14 @@ pub fn position_words(
 }
 
 /// Returns the (left-aligned!) bounding boxes of the indidividual text lines
-pub fn word_positions_to_inline_text_layout(
-    word_positions: &WordPositions,
-    scaled_words: &ScaledWords
-) -> InlineTextLayout {
+pub fn word_positions_to_inline_text_layout(word_positions: &WordPositions, scaled_words: &ShapedWords) -> InlineTextLayout {
 
     use azul_core::ui_solver::InlineTextLine;
 
     let font_size_px = word_positions.text_layout_options.font_size_px;
     let regular_line_height = scaled_words.font_metrics.get_height(font_size_px);
-    let space_advance = scaled_words.space_advance_px;
-    let line_height_px = space_advance * word_positions.text_layout_options.line_height.unwrap_or(DEFAULT_LINE_HEIGHT);
+    let space_advance_px = scaled_words.get_space_advance_px(font_size_px);
+    let line_height_px = space_advance_px * word_positions.text_layout_options.line_height.unwrap_or(DEFAULT_LINE_HEIGHT);
 
     let mut last_word_index = 0;
 
@@ -426,17 +372,14 @@ pub fn word_positions_to_inline_text_layout(
     }
 }
 
-pub fn get_layouted_glyphs(
-    word_positions: &WordPositions,
-    scaled_words: &ScaledWords,
-    inline_text_layout: &InlineTextLayout,
-) -> LayoutedGlyphs {
+/// Returns the final, positioned glyphs
+pub fn get_layouted_glyphs(word_positions: &WordPositions, scaled_words: &ShapedWords, inline_text_layout: &InlineTextLayout) -> LayoutedGlyphs {
 
     use crate::text_shaping;
 
     let letter_spacing_px = word_positions.text_layout_options.letter_spacing.unwrap_or(0.0);
     let mut all_glyphs = Vec::with_capacity(scaled_words.items.len());
-    let baseline_px = scaled_words.font_metrics.get_ascender(scaled_words.font_size_px);
+    let baseline_px = scaled_words.get_baseline_px(word_positions.text_layout_options.font_size_px);
 
     for line in inline_text_layout.lines.iter() {
 
@@ -458,10 +401,6 @@ pub fn get_layouted_glyphs(
     }
 
     LayoutedGlyphs { glyphs: all_glyphs }
-}
-
-pub fn word_item_is_return(item: &Word) -> bool {
-    item.word_type == WordType::Return
 }
 
 /// For a given line number (**NOTE: 0-indexed!**), calculates the Y

@@ -18,3 +18,5 @@ azul-css                = { path = "../azul-css", version = "0.0.1",   default-f
 azul-core               = { path = "../azul-core", version = "0.0.2",   default-features = false }
 unicode-normalization   = { version = "0.1.12",  default-features = false }
 allsorts                = { version = "0.4.0", default-features = false }
+whatlang                = { version = "0.11.1", default-features = false }
+tinyvec                 = { version = "0.3.3", default-features = false }

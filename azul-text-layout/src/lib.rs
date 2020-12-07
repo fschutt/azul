@@ -82,7 +82,7 @@ pub mod text_shaping;
 use azul_core::{
     traits::GetTextLayout,
     ui_solver::{ResolvedTextLayoutOptions, InlineTextLayout},
-    app_resources::{Words, ScaledWords},
+    app_resources::{Words, ShapedWords},
     callbacks::PipelineId,
     id_tree::NodeId,
 };
@@ -90,7 +90,7 @@ use azul_core::{
 #[derive(Debug, Clone)]
 pub struct InlineText<'a> {
     pub words: &'a Words,
-    pub scaled_words: &'a ScaledWords,
+    pub scaled_words: &'a ShapedWords,
 }
 
 impl<'a> GetTextLayout for InlineText<'a> {

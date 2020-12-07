@@ -5,7 +5,7 @@ use azul_css::{
     StyleTextAlignmentHorz, StyleTextAlignmentVert,
 };
 use crate::{
-    app_resources::{Words, ScaledWords, FontInstanceKey, WordPositions, LayoutedGlyphs},
+    app_resources::{Words, ShapedWords, FontInstanceKey, WordPositions, LayoutedGlyphs},
     id_tree::{NodeId, NodeDataContainer},
     dom::{DomHash, ScrollTagId},
     callbacks::PipelineId,
@@ -164,7 +164,7 @@ pub struct OverflowingScrollNode {
 pub struct LayoutResult {
     pub rects: NodeDataContainer<PositionedRectangle>,
     pub word_cache: BTreeMap<NodeId, Words>,
-    pub scaled_words: BTreeMap<NodeId, (ScaledWords, FontInstanceKey)>,
+    pub shaped_words: BTreeMap<NodeId, (ShapedWords, FontInstanceKey)>,
     pub positioned_word_cache: BTreeMap<NodeId, (WordPositions, FontInstanceKey)>,
     pub layouted_glyph_cache: BTreeMap<NodeId, LayoutedGlyphs>,
     pub node_depths: Vec<(usize, NodeId)>,

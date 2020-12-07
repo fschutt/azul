@@ -11,7 +11,7 @@ use azul_css::{LayoutPoint, AzString, LayoutRect, LayoutSize, CssPath};
 use azul_css_parser::CssPathParseError;
 use crate::{
     FastHashMap,
-    app_resources::{AppResources, IdNamespace, Words, WordPositions, ScaledWords, LayoutedGlyphs},
+    app_resources::{AppResources, IdNamespace, Words, WordPositions, ShapedWords, LayoutedGlyphs},
     dom::{Dom, OptionDom, DomId, TagId, NodeType, NodeData},
     display_list::CachedDisplayList,
     ui_state::UiState,

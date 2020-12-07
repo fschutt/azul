@@ -1,10 +1,17 @@
-use azul_core::app_resources::FontMetrics;
+use azul_core::app_resources::{
+    FontMetrics, VariationSelector, Anchor,
+    GlyphOrigin, RawGlyph, Placement, MarkPlacement,
+    Info, HorizontalAdvance,
+};
+use tinyvec::tiny_vec;
+use allsorts::binary::read::ReadScope;
+use allsorts::fontfile::FontFile;
+use allsorts::font_data_impl::FontDataImpl;
+use allsorts::fontfile::FileTableProvider;
+use std::rc::Rc;
+use allsorts::layout::{LayoutCache, GDEFTable, GPOS, GSUB};
 
 pub fn get_font_metrics(font_bytes: &[u8], font_index: usize) -> FontMetrics {
-
-    use allsorts::binary::read::ReadScope;
-    use allsorts::fontfile::FontFile;
-    use allsorts::font_data_impl::FontDataImpl;
 
     use std::num::NonZeroU16;
 
@@ -187,72 +194,272 @@ pub fn get_font_metrics(font_bytes: &[u8], font_index: usize) -> FontMetrics {
     }
 }
 
-/*
-fn shape<'a, P: FontTableProvider>(mut font: FontDataImpl<P>, script: u32, lang: u32, text: &str) -> Result<(), ShapingError> {
+pub struct Font<'a> {
+    pub scope: ReadScope<'a>,
+    pub font_file: FontFile<'a>,
+    pub font_data_impl: FontDataImpl<FileTableProvider<'a>>,
+    pub font_metrics: FontMetrics,
+    pub gsub_cache: LayoutCache<GSUB>,
+    pub gpos_cache: LayoutCache<GPOS>,
+    pub gdef_table: Rc<GDEFTable>,
+}
 
-    let opt_gsub_cache = font.gsub_cache()?;
-    let opt_gpos_cache = font.gpos_cache()?;
-    let opt_gdef_table = font.gdef_table()?;
-    let opt_gdef_table = opt_gdef_table.as_ref().map(Rc::as_ref);
+impl<'a> Font<'a> {
+    pub fn from_bytes(font_bytes: &'a [u8], font_index: usize) -> Option<Self> {
+
+        let scope = ReadScope::new(font_bytes);
+        let font_file = scope.read::<FontFile<'_>>().ok()?;
+        let provider = font_file.table_provider(font_index).ok()?;
+        let font_data_impl = FontDataImpl::new(Box::new(provider)).ok()??;
+        let font_metrics = get_font_metrics(font_bytes, font_index);
+
+        // required for font layout: gsub_cache, gpos_cache and gdef_table
+        let gsub_cache = font_data_impl.gsub_cache().ok()??;
+        let gpos_cache = font_data_impl.gpos_cache().ok()??;
+        let gdef_table = font_data_impl.gdef_table().ok()??;
+
+        Some(Font {
+            scope,
+            font_file,
+            font_data_impl,
+            font_metrics,
+            gsub_cache,
+            gpos_cache,
+            gdef_table,
+        })
+    }
+
+    pub fn shape(&mut self, text: &[char], script: u32, lang: u32) -> ShapedTextBufferUnsized {
+        shape(self, text, script, lang).unwrap_or_default()
+    }
+}
+
+#[derive(Debug, PartialEq, Default)]
+pub struct ShapedTextBufferUnsized {
+    pub infos: Vec<Info>,
+    pub horizontal_advances: Vec<HorizontalAdvance>,
+}
+
+impl ShapedTextBufferUnsized {
+    pub fn get_word_visual_width_unscaled(&self) -> isize {
+        self.horizontal_advances.iter().map(|s| s.total_unscaled() as isize).sum()
+    }
+}
+
+pub fn estimate_script_and_language(text: &str) -> (u32, u32) {
+
+    use allsorts::tag;
+    use whatlang::{Script, Lang};
+
+    // auto-detect script + language from text (todo: performance!)
+    let (lang, script) = whatlang::detect(text)
+        .map(|info| (info.lang(), info.script()))
+        .unwrap_or((Lang::Eng, Script::Latin));
+
+    let lang = tag::from_string(&lang.code().to_string().to_uppercase()).unwrap();
+
+    let script = match script {
+        Script::Arabic          => tag::ARAB,
+        Script::Bengali         => tag::BENG,
+        Script::Cyrillic        => tag::CYRL,
+        Script::Devanagari      => tag::DEVA,
+        Script::Ethiopic        => tag::LATN, // ??
+        Script::Georgian        => tag::LATN, // ??
+        Script::Greek           => tag::GREK,
+        Script::Gujarati        => tag::GUJR,
+        Script::Gurmukhi        => tag::GURU, // can also be GUR2
+        Script::Hangul          => tag::LATN, // ??
+        Script::Hebrew          => tag::LATN, // ??
+        Script::Hiragana        => tag::LATN, // ??
+        Script::Kannada         => tag::KNDA,
+        Script::Katakana        => tag::LATN, // ??
+        Script::Khmer           => tag::LATN, // TODO?? - unsupported?
+        Script::Latin           => tag::LATN,
+        Script::Malayalam       => tag::MLYM,
+        Script::Mandarin        => tag::LATN, // ??
+        Script::Myanmar         => tag::LATN, // ??
+        Script::Oriya           => tag::ORYA,
+        Script::Sinhala         => tag::SINH,
+        Script::Tamil           => tag::TAML,
+        Script::Telugu          => tag::TELU,
+        Script::Thai            => tag::LATN, // ?? - Khmer, not supported?
+    };
+
+    (script, lang)
+}
+
+// shape_word(text: &str, &font) -> TextBuffer
+// get_word_visual_width(word: &TextBuffer) ->
+// get_glyph_instances(infos: &GlyphInfos, positions: &GlyphPositions) -> PositionedGlyphBuffer
+
+fn shape<'a>(font: &mut Font, text: &[char], script: u32, lang: u32) -> Option<ShapedTextBufferUnsized> {
+
+    use std::convert::TryFrom;
+    use allsorts::gpos::gpos_apply;
+    use allsorts::gsub::gsub_apply_default;
 
     // Map glyphs
     //
     // We look ahead in the char stream for variation selectors. If one is found it is used for
     // mapping the current glyph. When a variation selector is reached in the stream it is skipped
     // as it was handled as part of the preceding character.
-    let mut chars_iter = text.chars().peekable();
+    let mut chars_iter = text.iter().peekable();
     let mut glyphs = Vec::new();
+
     while let Some(ch) = chars_iter.next() {
-        match VariationSelector::try_from(ch) {
+        match allsorts::unicode::VariationSelector::try_from(*ch) {
             Ok(_) => {} // filter out variation selectors
             Err(()) => {
                 let vs = chars_iter
                     .peek()
-                    .and_then(|&next| VariationSelector::try_from(next).ok());
+                    .and_then(|&next| allsorts::unicode::VariationSelector::try_from(*next).ok());
+
                 // TODO: Remove cast when lookup_glyph_index returns u16
-                let glyph_index = font.lookup_glyph_index(ch as u32) as u16;
-                let glyph = glyph::make(ch, glyph_index, vs);
+                let glyph_index = font.font_data_impl.lookup_glyph_index(*ch as u32) as u16;
+                let glyph = make_raw_glyph(*ch, glyph_index, vs);
                 glyphs.push(glyph);
             }
         }
     }
 
-    // Apply gsub if table is present
-    println!("glyphs before: {:#?}", glyphs);
-    if let Some(gsub_cache) = opt_gsub_cache {
-        gsub_apply_default(
-            &|| make_dotted_circle(&font),
-            &gsub_cache,
-            opt_gdef_table,
-            script,
-            lang,
-            GsubFeatureMask::default(),
-            font.num_glyphs(),
-            &mut glyphs,
-        )?;
+    // Apply glyph substitution if table is present
+    gsub_apply_default(
+        &|| make_dotted_circle(&font.font_data_impl),
+        &font.gsub_cache,
+        Some(Rc::as_ref(&font.gdef_table)),
+        script,
+        lang,
+        allsorts::gsub::GsubFeatureMask::default(),
+        font.font_data_impl.num_glyphs(),
+        &mut glyphs,
+    ).ok()?;
 
-        // Apply gpos if table is present
-        if let Some(gpos_cache) = opt_gpos_cache {
-            let kerning = true;
-            let mut infos = Info::init_from_glyphs(opt_gdef_table, glyphs)?;
-            gpos_apply(
-                &gpos_cache,
-                opt_gdef_table,
-                kerning,
-                script,
-                lang,
-                &mut infos,
-            )?;
+    // Apply glyph positioning if table is present
+
+    let kerning = true;
+    let mut infos = allsorts::gpos::Info::init_from_glyphs(Some(&font.gdef_table), glyphs).ok()?;
+    gpos_apply(
+        &font.gpos_cache,
+        Some(Rc::as_ref(&font.gdef_table)),
+        kerning,
+        script,
+        lang,
+        &mut infos,
+    ).ok()?;
+
+    // calculate the horizontal advance for each char
+    let horizontal_advances = infos.iter().map(|info| {
+        match info.glyph.glyph_index {
+            Some(s) => {
+                HorizontalAdvance {
+                    advance: font.font_data_impl.horizontal_advance(s),
+                    kerning: info.kerning,
+                }
+            },
+            None => {
+                HorizontalAdvance {
+                    advance: 0,
+                    kerning: 0,
+                }
+            }
         }
-    }
+    }).collect();
 
-    Ok(glyphs)
+    let infos = infos.into_iter().map(|i| translate_info(&i)).collect();
+
+    Some(ShapedTextBufferUnsized { infos, horizontal_advances })
+}
+
+fn make_raw_glyph(ch: char, glyph_index: u16, variation: Option<allsorts::unicode::VariationSelector>) -> allsorts::gsub::RawGlyph<()> {
+    allsorts::gsub::RawGlyph {
+        unicodes: tiny_vec![[char; 1], ch],
+        glyph_index: Some(glyph_index),
+        liga_component_pos: 0,
+        glyph_origin: allsorts::gsub::GlyphOrigin::Char(ch),
+        small_caps: false,
+        multi_subst_dup: false,
+        is_vert_alt: false,
+        fake_bold: false,
+        fake_italic: false,
+        extra_data: (),
+        variation,
+    }
 }
 
 #[inline]
-fn make_dotted_circle<P: FontTableProvider>(font_data_impl: &FontDataImpl<P>) -> Vec<RawGlyph<()>> {
+fn make_dotted_circle<'a>(font_data_impl: &FontDataImpl<FileTableProvider<'a>>) -> Vec<allsorts::gsub::RawGlyph<()>> {
+    const DOTTED_CIRCLE: char = '\u{25cc}';
     // TODO: Remove cast when lookup_glyph_index returns u16
     let glyph_index = font_data_impl.lookup_glyph_index(DOTTED_CIRCLE as u32) as u16;
-    vec![glyph::make(DOTTED_CIRCLE, glyph_index, None)]
+    vec![make_raw_glyph(DOTTED_CIRCLE, glyph_index, None)]
 }
-*/
+
+#[inline]
+fn translate_info(i: &allsorts::gpos::Info) -> Info {
+    Info {
+        glyph: translate_raw_glyph(&i.glyph),
+        kerning: i.kerning,
+        placement: translate_placement(&i.placement),
+        mark_placement: translate_mark_placement(&i.mark_placement),
+        is_mark: i.is_mark,
+    }
+}
+
+#[inline]
+fn translate_raw_glyph(rg: &allsorts::gsub::RawGlyph<()>) -> RawGlyph {
+    RawGlyph {
+        unicodes: [rg.unicodes[0]],
+        glyph_index: rg.glyph_index,
+        liga_component_pos: rg.liga_component_pos,
+        glyph_origin: translate_glyph_origin(&rg.glyph_origin),
+        small_caps: rg.small_caps,
+        multi_subst_dup: rg.multi_subst_dup,
+        is_vert_alt: rg.is_vert_alt,
+        fake_bold: rg.fake_bold,
+        fake_italic: rg.fake_italic,
+        variation: rg.variation.as_ref().map(translate_variation_selector),
+        extra_data: (),
+    }
+}
+
+#[inline]
+fn translate_glyph_origin(g: &allsorts::gsub::GlyphOrigin) -> GlyphOrigin {
+    use allsorts::gsub::GlyphOrigin::*;
+    match g {
+        Char(c) => GlyphOrigin::Char(*c),
+        Direct => GlyphOrigin::Direct,
+    }
+}
+
+#[inline]
+fn translate_placement(p: &allsorts::gpos::Placement) -> Placement {
+    use allsorts::gpos::Placement::*;
+    match p {
+        None => Placement::None,
+        Distance(x, y) => Placement::Distance(*x, *y),
+        Anchor(a, b) => Placement::Anchor(translate_anchor(a), translate_anchor(b)),
+    }
+}
+
+#[inline]
+fn translate_mark_placement(mp: &allsorts::gpos::MarkPlacement) -> MarkPlacement {
+    use allsorts::gpos::MarkPlacement::*;
+    match mp {
+        None => MarkPlacement::None,
+        MarkAnchor(a, b, c) => MarkPlacement::MarkAnchor(*a, translate_anchor(b), translate_anchor(c)),
+    }
+}
+
+fn translate_variation_selector(v: &allsorts::unicode::VariationSelector) -> VariationSelector {
+    use allsorts::unicode::VariationSelector::*;
+    match v {
+        VS01 => VariationSelector::VS01,
+        VS02 => VariationSelector::VS02,
+        VS03 => VariationSelector::VS03,
+        VS15 => VariationSelector::VS15,
+        VS16 => VariationSelector::VS16,
+    }
+}
+
+#[inline]
+fn translate_anchor(anchor: &allsorts::layout::Anchor) -> Anchor { Anchor { x: anchor.x, y: anchor.y } }
