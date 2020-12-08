@@ -1,19 +1,32 @@
 use azul_core::app_resources::{
     FontMetrics, VariationSelector, Anchor,
     GlyphOrigin, RawGlyph, Placement, MarkPlacement,
-    Info, HorizontalAdvance,
+    Info, Advance,
 };
 use tinyvec::tiny_vec;
-use allsorts::binary::read::ReadScope;
-use allsorts::fontfile::FontFile;
-use allsorts::font_data_impl::FontDataImpl;
-use allsorts::fontfile::FileTableProvider;
 use std::rc::Rc;
+
+use allsorts::binary::read::ReadScope;
+use allsorts::font_data::FontData;
+use crate::allsorts::tables::FontTableProvider;
 use allsorts::layout::{LayoutCache, GDEFTable, GPOS, GSUB};
+use allsorts::tables::HheaTable;
+use allsorts::tables::HeadTable;
+use allsorts::tables::MaxpTable;
+use allsorts::tables::cmap::CmapSubtable;
+use allsorts::tables::cmap::owned::CmapSubtable as OwnedCmapSubtable;
+use allsorts::tables::MaxpVersion1SubTable;
+
+pub struct SequentialMapGroup {
+    pub start_char_code: u32,
+    pub end_char_code: u32,
+    pub start_glyph_id: u32,
+}
 
 pub fn get_font_metrics(font_bytes: &[u8], font_index: usize) -> FontMetrics {
 
     use std::num::NonZeroU16;
+    use allsorts::tag;
 
     #[derive(Default)]
     struct Os2Info {
@@ -58,7 +71,7 @@ pub fn get_font_metrics(font_bytes: &[u8], font_index: usize) -> FontMetrics {
     }
 
     let scope = ReadScope::new(font_bytes);
-    let font_file = match scope.read::<FontFile<'_>>() {
+    let font_file = match scope.read::<FontData<'_>>() {
         Ok(o) => o,
         Err(_) => return FontMetrics::default(),
     };
@@ -66,20 +79,20 @@ pub fn get_font_metrics(font_bytes: &[u8], font_index: usize) -> FontMetrics {
         Ok(o) => o,
         Err(_) => return FontMetrics::default(),
     };
-    let font_data_impl = match FontDataImpl::new(Box::new(provider)) {
-        Ok(Some(font_data_impl)) => font_data_impl,
+    let font = match allsorts::font::Font::new(provider).ok() {
+        Some(Some(s)) => s,
         _ => return FontMetrics::default(),
     };
 
     // read the HHEA table to get the metrics for horizontal layout
-    let hhea_table = &font_data_impl.hhea_table;
-    let head_table = match font_data_impl.head_table() {
-        Ok(Some(s)) => s,
+    let hhea_table = &font.hhea_table;
+    let head_table = match font.head_table().ok() {
+        Some(Some(s)) => s,
         _ => return FontMetrics::default(),
     };
 
-    let os2_table = match font_data_impl.os2_table() {
-        Ok(Some(s)) => {
+    let os2_table = match font.os2_table().ok() {
+        Some(Some(s)) => {
             Os2Info {
                 x_avg_char_width: s.x_avg_char_width,
                 us_weight_class: s.us_weight_class,
@@ -106,23 +119,23 @@ pub fn get_font_metrics(font_bytes: &[u8], font_index: usize) -> FontMetrics {
                 us_first_char_index: s.us_first_char_index,
                 us_last_char_index: s.us_last_char_index,
 
-                s_typo_ascender: s.version0.map(|q| q.s_typo_ascender),
-                s_typo_descender: s.version0.map(|q| q.s_typo_descender),
-                s_typo_line_gap: s.version0.map(|q| q.s_typo_line_gap),
-                us_win_ascent: s.version0.map(|q| q.us_win_ascent),
-                us_win_descent: s.version0.map(|q| q.us_win_descent),
+                s_typo_ascender: s.version0.as_ref().map(|q| q.s_typo_ascender),
+                s_typo_descender: s.version0.as_ref().map(|q| q.s_typo_descender),
+                s_typo_line_gap: s.version0.as_ref().map(|q| q.s_typo_line_gap),
+                us_win_ascent: s.version0.as_ref().map(|q| q.us_win_ascent),
+                us_win_descent: s.version0.as_ref().map(|q| q.us_win_descent),
 
-                ul_code_page_range1: s.version1.map(|q| q.ul_code_page_range1),
-                ul_code_page_range2: s.version1.map(|q| q.ul_code_page_range2),
+                ul_code_page_range1: s.version1.as_ref().map(|q| q.ul_code_page_range1),
+                ul_code_page_range2: s.version1.as_ref().map(|q| q.ul_code_page_range2),
 
-                sx_height: s.version2to4.map(|q| q.sx_height),
-                s_cap_height: s.version2to4.map(|q| q.s_cap_height),
-                us_default_char: s.version2to4.map(|q| q.us_default_char),
-                us_break_char: s.version2to4.map(|q| q.us_break_char),
-                us_max_context: s.version2to4.map(|q| q.us_max_context),
+                sx_height: s.version2to4.as_ref().map(|q| q.sx_height),
+                s_cap_height: s.version2to4.as_ref().map(|q| q.s_cap_height),
+                us_default_char: s.version2to4.as_ref().map(|q| q.us_default_char),
+                us_break_char: s.version2to4.as_ref().map(|q| q.us_break_char),
+                us_max_context: s.version2to4.as_ref().map(|q| q.us_max_context),
 
-                us_lower_optical_point_size: s.version5.map(|q| q.us_lower_optical_point_size),
-                us_upper_optical_point_size: s.version5.map(|q| q.us_upper_optical_point_size),
+                us_lower_optical_point_size: s.version5.as_ref().map(|q| q.us_lower_optical_point_size),
+                us_upper_optical_point_size: s.version5.as_ref().map(|q| q.us_upper_optical_point_size),
             }
         },
         _ => Os2Info::default(),
@@ -194,62 +207,297 @@ pub fn get_font_metrics(font_bytes: &[u8], font_index: usize) -> FontMetrics {
     }
 }
 
-pub struct Font<'a> {
-    pub scope: ReadScope<'a>,
-    pub font_file: FontFile<'a>,
-    pub font_data_impl: FontDataImpl<FileTableProvider<'a>>,
+pub struct ParsedFont {
     pub font_metrics: FontMetrics,
+    pub num_glyphs: u16,
+    pub hhea_table: HheaTable,
+    pub hmtx_data: Box<[u8]>,
+    pub vhea_table: HheaTable,
+    pub vmtx_data: Box<[u8]>,
+    pub maxp_table: MaxpTable,
     pub gsub_cache: LayoutCache<GSUB>,
     pub gpos_cache: LayoutCache<GPOS>,
     pub gdef_table: Rc<GDEFTable>,
+    pub cmap_subtable: OwnedCmapSubtable,
 }
 
-impl<'a> Font<'a> {
-    pub fn from_bytes(font_bytes: &'a [u8], font_index: usize) -> Option<Self> {
+impl ParsedFont {
+
+    pub fn from_bytes(font_bytes: &[u8], font_index: usize) -> Option<Self> {
+
+        use allsorts::tag;
 
         let scope = ReadScope::new(font_bytes);
-        let font_file = scope.read::<FontFile<'_>>().ok()?;
+        let font_file = scope.read::<FontData<'_>>().ok()?;
         let provider = font_file.table_provider(font_index).ok()?;
-        let font_data_impl = FontDataImpl::new(Box::new(provider)).ok()??;
+
+        let hmtx_data = provider.table_data(tag::HMTX).ok()??.into_owned().into_boxed_slice();
+        let vmtx_data = provider.table_data(tag::VMTX).ok()??.into_owned().into_boxed_slice();
+
+        let vhea_data = provider.table_data(tag::VHEA).ok()??.into_owned();
+        let vhea_table = ReadScope::new(&vhea_data).read::<HheaTable>().ok()?;
+
+        let hhea_data = provider.table_data(tag::HHEA).ok()??.into_owned();
+        let hhea_table = ReadScope::new(&hhea_data).read::<HheaTable>().ok()?;
+
+        let maxp_data = provider.table_data(tag::MAXP).ok()??.into_owned();
+        let maxp_table = ReadScope::new(&maxp_data).read::<MaxpTable>().ok()?;
+
         let font_metrics = get_font_metrics(font_bytes, font_index);
+
+        let mut font_data_impl = allsorts::font::Font::new(provider).ok()??;
 
         // required for font layout: gsub_cache, gpos_cache and gdef_table
         let gsub_cache = font_data_impl.gsub_cache().ok()??;
         let gpos_cache = font_data_impl.gpos_cache().ok()??;
         let gdef_table = font_data_impl.gdef_table().ok()??;
+        let num_glyphs = font_data_impl.num_glyphs();
 
-        Some(Font {
-            scope,
-            font_file,
-            font_data_impl,
+        let cmap_subtable = ReadScope::new(font_data_impl.cmap_subtable_data()).read::<CmapSubtable<'_>>().ok()?.to_owned()?;
+
+        Some(ParsedFont {
             font_metrics,
+            num_glyphs,
+            hhea_table,
+            hmtx_data,
+            vhea_table,
+            vmtx_data,
+            maxp_table,
             gsub_cache,
             gpos_cache,
             gdef_table,
+            cmap_subtable,
         })
+    }
+
+    // get horizontal and vertical advance
+    pub fn get_advance(&mut self, glyph_index: u16) -> (u16, u16) {
+        let horizontal_advance = allsorts::glyph_info::advance(&self.maxp_table, &self.hhea_table, &self.hmtx_data, glyph_index).unwrap();
+        let vertical_advance = allsorts::glyph_info::advance(&self.maxp_table, &self.vhea_table, &self.vmtx_data, glyph_index).unwrap();
+        (horizontal_advance, vertical_advance)
     }
 
     pub fn shape(&mut self, text: &[char], script: u32, lang: u32) -> ShapedTextBufferUnsized {
         shape(self, text, script, lang).unwrap_or_default()
+    }
+
+    pub fn lookup_glyph_index(&self, c: u32) -> u16 {
+        match self.cmap_subtable.map_glyph(c) {
+            Ok(Some(c)) => c,
+            _ => 0,
+        }
     }
 }
 
 #[derive(Debug, PartialEq, Default)]
 pub struct ShapedTextBufferUnsized {
     pub infos: Vec<Info>,
-    pub horizontal_advances: Vec<HorizontalAdvance>,
 }
 
 impl ShapedTextBufferUnsized {
-    pub fn get_word_visual_width_unscaled(&self) -> isize {
-        self.horizontal_advances.iter().map(|s| s.total_unscaled() as isize).sum()
+    /// Get the word width in unscaled units (respects kerning)
+    pub fn get_word_visual_width_unscaled(&self) -> usize {
+        self.infos.iter().map(|s| s.size.get_x_total_unscaled() as usize).sum()
     }
 }
 
+/// Generate a 4-byte font table tag from byte string
+///
+/// Example:
+///
+/// ```
+/// assert_eq!(tag!(b"glyf"), 0x676C7966);
+/// ```
+macro_rules! tag {
+    ($w:expr) => {
+        tag(*$w)
+    };
+}
+
+const fn tag(chars: [u8; 4]) -> u32 {
+    ((chars[3] as u32) << 0)
+        | ((chars[2] as u32) << 8)
+        | ((chars[1] as u32) << 16)
+        | ((chars[0] as u32) << 24)
+}
+
+/// Estimate the language and the script from the text (uses trigrams)
 pub fn estimate_script_and_language(text: &str) -> (u32, u32) {
 
     use allsorts::tag;
     use whatlang::{Script, Lang};
+
+    // https://docs.microsoft.com/en-us/typography/opentype/spec/scripttags
+
+    const TAG_ADLM: u32 = tag!(b"adlm"); // Adlam
+    const TAG_AHOM: u32 = tag!(b"ahom"); // Ahom
+    const TAG_HLUW: u32 = tag!(b"hluw"); // Anatolian Hieroglyphs
+    const TAG_ARAB: u32 = tag!(b"arab"); // Arabic
+    const TAG_ARMN: u32 = tag!(b"armn"); // Armenian
+    const TAG_AVST: u32 = tag!(b"avst"); // Avestan
+    const TAG_BALI: u32 = tag!(b"bali"); // Balinese
+    const TAG_BAMU: u32 = tag!(b"bamu"); // Bamum
+    const TAG_BASS: u32 = tag!(b"bass"); // Bassa Vah
+    const TAG_BATK: u32 = tag!(b"batk"); // Batak
+    const TAG_BENG: u32 = tag!(b"beng"); // Bengali
+    const TAG_BNG2: u32 = tag!(b"bng2"); // Bengali v.2
+    const TAG_BHKS: u32 = tag!(b"bhks"); // Bhaiksuki
+    const TAG_BOPO: u32 = tag!(b"bopo"); // Bopomofo
+    const TAG_BRAH: u32 = tag!(b"brah"); // Brahmi
+    const TAG_BRAI: u32 = tag!(b"brai"); // Braille
+    const TAG_BUGI: u32 = tag!(b"bugi"); // Buginese
+    const TAG_BUHD: u32 = tag!(b"buhd"); // Buhid
+    const TAG_BYZM: u32 = tag!(b"byzm"); // Byzantine Music
+    const TAG_CANS: u32 = tag!(b"cans"); // Canadian Syllabics
+    const TAG_CARI: u32 = tag!(b"cari"); // Carian
+    const TAG_AGHB: u32 = tag!(b"aghb"); // Caucasian Albanian
+    const TAG_CAKM: u32 = tag!(b"cakm"); // Chakma
+    const TAG_CHAM: u32 = tag!(b"cham"); // Cham
+    const TAG_CHER: u32 = tag!(b"cher"); // Cherokee
+    const TAG_CHRS: u32 = tag!(b"chrs"); // Chorasmian
+    const TAG_HANI: u32 = tag!(b"hani"); // CJK Ideographic
+    const TAG_COPT: u32 = tag!(b"copt"); // Coptic
+    const TAG_CPRT: u32 = tag!(b"cprt"); // Cypriot Syllabary
+    const TAG_CYRL: u32 = tag!(b"cyrl"); // Cyrillic
+    const TAG_DFLT: u32 = tag!(b"DFLT"); // Default
+    const TAG_DSRT: u32 = tag!(b"dsrt"); // Deseret
+    const TAG_DEVA: u32 = tag!(b"deva"); // Devanagari
+    const TAG_DEV2: u32 = tag!(b"dev2"); // Devanagari v.2
+    const TAG_DIAK: u32 = tag!(b"diak"); // Dives Akuru
+    const TAG_DOGR: u32 = tag!(b"dogr"); // Dogra
+    const TAG_DUPL: u32 = tag!(b"dupl"); // Duployan
+    const TAG_EGYP: u32 = tag!(b"egyp"); // Egyptian Hieroglyphs
+    const TAG_ELBA: u32 = tag!(b"elba"); // Elbasan
+    const TAG_ELYM: u32 = tag!(b"elym"); // Elymaic
+    const TAG_ETHI: u32 = tag!(b"ethi"); // Ethiopic
+    const TAG_GEOR: u32 = tag!(b"geor"); // Georgian
+    const TAG_GLAG: u32 = tag!(b"glag"); // Glagolitic
+    const TAG_GOTH: u32 = tag!(b"goth"); // Gothic
+    const TAG_GRAN: u32 = tag!(b"gran"); // Grantha
+    const TAG_GREK: u32 = tag!(b"grek"); // Greek
+    const TAG_GUJR: u32 = tag!(b"gujr"); // Gujarati
+    const TAG_GJR2: u32 = tag!(b"gjr2"); // Gujarati v.2
+    const TAG_GONG: u32 = tag!(b"gong"); // Gunjala Gondi
+    const TAG_GURU: u32 = tag!(b"guru"); // Gurmukhi
+    const TAG_GUR2: u32 = tag!(b"gur2"); // Gurmukhi v.2
+    const TAG_HANG: u32 = tag!(b"hang"); // Hangul
+    const TAG_JAMO: u32 = tag!(b"jamo"); // Hangul Jamo
+    const TAG_ROHG: u32 = tag!(b"rohg"); // Hanifi Rohingya
+    const TAG_HANO: u32 = tag!(b"hano"); // Hanunoo
+    const TAG_HATR: u32 = tag!(b"hatr"); // Hatran
+    const TAG_HEBR: u32 = tag!(b"hebr"); // Hebrew
+    const TAG_HIRG: u32 = tag!(b"kana"); // Hiragana
+    const TAG_ARMI: u32 = tag!(b"armi"); // Imperial Aramaic
+    const TAG_PHLI: u32 = tag!(b"phli"); // Inscriptional Pahlavi
+    const TAG_PRTI: u32 = tag!(b"prti"); // Inscriptional Parthian
+    const TAG_JAVA: u32 = tag!(b"java"); // Javanese
+    const TAG_KTHI: u32 = tag!(b"kthi"); // Kaithi
+    const TAG_KNDA: u32 = tag!(b"knda"); // Kannada
+    const TAG_KND2: u32 = tag!(b"knd2"); // Kannada v.2
+    const TAG_KANA: u32 = tag!(b"kana"); // Katakana
+    const TAG_KALI: u32 = tag!(b"kali"); // Kayah Li
+    const TAG_KHAR: u32 = tag!(b"khar"); // Kharosthi
+    const TAG_KITS: u32 = tag!(b"kits"); // Khitan Small Script
+    const TAG_KHMR: u32 = tag!(b"khmr"); // Khmer
+    const TAG_KHOJ: u32 = tag!(b"khoj"); // Khojki
+    const TAG_SIND: u32 = tag!(b"sind"); // Khudawadi
+    const TAG_LAO: u32 = tag!(b"lao "); // Lao
+    const TAG_LATN: u32 = tag!(b"latn"); // Latin
+    const TAG_LEPC: u32 = tag!(b"lepc"); // Lepcha
+    const TAG_LIMB: u32 = tag!(b"limb"); // Limbu
+    const TAG_LINA: u32 = tag!(b"lina"); // Linear A
+    const TAG_LINB: u32 = tag!(b"linb"); // Linear B
+    const TAG_LISU: u32 = tag!(b"lisu"); // Lisu (Fraser)
+    const TAG_LYCI: u32 = tag!(b"lyci"); // Lycian
+    const TAG_LYDI: u32 = tag!(b"lydi"); // Lydian
+    const TAG_MAHJ: u32 = tag!(b"mahj"); // Mahajani
+    const TAG_MAKA: u32 = tag!(b"maka"); // Makasar
+    const TAG_MLYM: u32 = tag!(b"mlym"); // Malayalam
+    const TAG_MLM2: u32 = tag!(b"mlm2"); // Malayalam v.2
+    const TAG_MAND: u32 = tag!(b"mand"); // Mandaic, Mandaean
+    const TAG_MANI: u32 = tag!(b"mani"); // Manichaean
+    const TAG_MARC: u32 = tag!(b"marc"); // Marchen
+    const TAG_GONM: u32 = tag!(b"gonm"); // Masaram Gondi
+    const TAG_MATH: u32 = tag!(b"math"); // Mathematical Alphanumeric Symbols
+    const TAG_MEDF: u32 = tag!(b"medf"); // Medefaidrin (Oberi Okaime, Oberi kaim)
+    const TAG_MTEI: u32 = tag!(b"mtei"); // Meitei Mayek (Meithei, Meetei)
+    const TAG_MEND: u32 = tag!(b"mend"); // Mende Kikakui
+    const TAG_MERC: u32 = tag!(b"merc"); // Meroitic Cursive
+    const TAG_MERO: u32 = tag!(b"mero"); // Meroitic Hieroglyphs
+    const TAG_PLRD: u32 = tag!(b"plrd"); // Miao
+    const TAG_MODI: u32 = tag!(b"modi"); // Modi
+    const TAG_MONG: u32 = tag!(b"mong"); // Mongolian
+    const TAG_MROO: u32 = tag!(b"mroo"); // Mro
+    const TAG_MULT: u32 = tag!(b"mult"); // Multani
+    const TAG_MUSC: u32 = tag!(b"musc"); // Musical Symbols
+    const TAG_MYMR: u32 = tag!(b"mymr"); // Myanmar
+    const TAG_MYM2: u32 = tag!(b"mym2"); // Myanmar v.2
+    const TAG_NBAT: u32 = tag!(b"nbat"); // Nabataean
+    const TAG_NAND: u32 = tag!(b"nand"); // Nandinagari
+    const TAG_NEWA: u32 = tag!(b"newa"); // Newa
+    const TAG_TALU: u32 = tag!(b"talu"); // New Tai Lue
+    const TAG_NKO: u32 = tag!(b"nko "); // N'Ko
+    const TAG_NSHU: u32 = tag!(b"nshu"); // Nüshu
+    const TAG_HMNP: u32 = tag!(b"hmnp"); // Nyiakeng Puachue Hmong
+    const TAG_ORYA: u32 = tag!(b"orya"); // Odia (formerly Oriya)
+    const TAG_ORY2: u32 = tag!(b"ory2"); // Odia v.2 (formerly Oriya v.2)
+    const TAG_OGAM: u32 = tag!(b"ogam"); // Ogham
+    const TAG_OLCK: u32 = tag!(b"olck"); // Ol Chiki
+    const TAG_ITAL: u32 = tag!(b"ital"); // Old Italic
+    const TAG_HUNG: u32 = tag!(b"hung"); // Old Hungarian
+    const TAG_NARB: u32 = tag!(b"narb"); // Old North Arabian
+    const TAG_PERM: u32 = tag!(b"perm"); // Old Permic
+    const TAG_XPEO: u32 = tag!(b"xpeo"); // Old Persian Cuneiform
+    const TAG_SOGO: u32 = tag!(b"sogo"); // Old Sogdian
+    const TAG_SARB: u32 = tag!(b"sarb"); // Old South Arabian
+    const TAG_ORKH: u32 = tag!(b"orkh"); // Old Turkic, Orkhon Runic
+    const TAG_OSGE: u32 = tag!(b"osge"); // Osage
+    const TAG_OSMA: u32 = tag!(b"osma"); // Osmanya
+    const TAG_HMNG: u32 = tag!(b"hmng"); // Pahawh Hmong
+    const TAG_PALM: u32 = tag!(b"palm"); // Palmyrene
+    const TAG_PAUC: u32 = tag!(b"pauc"); // Pau Cin Hau
+    const TAG_PHAG: u32 = tag!(b"phag"); // Phags-pa
+    const TAG_PHNX: u32 = tag!(b"phnx"); // Phoenician
+    const TAG_PHLP: u32 = tag!(b"phlp"); // Psalter Pahlavi
+    const TAG_RJNG: u32 = tag!(b"rjng"); // Rejang
+    const TAG_RUNR: u32 = tag!(b"runr"); // Runic
+    const TAG_SAMR: u32 = tag!(b"samr"); // Samaritan
+    const TAG_SAUR: u32 = tag!(b"saur"); // Saurashtra
+    const TAG_SHRD: u32 = tag!(b"shrd"); // Sharada
+    const TAG_SHAW: u32 = tag!(b"shaw"); // Shavian
+    const TAG_SIDD: u32 = tag!(b"sidd"); // Siddham
+    const TAG_SGNW: u32 = tag!(b"sgnw"); // Sign Writing
+    const TAG_SINH: u32 = tag!(b"sinh"); // Sinhala
+    const TAG_SOGD: u32 = tag!(b"sogd"); // Sogdian
+    const TAG_SORA: u32 = tag!(b"sora"); // Sora Sompeng
+    const TAG_SOYO: u32 = tag!(b"soyo"); // Soyombo
+    const TAG_XSUX: u32 = tag!(b"xsux"); // Sumero-Akkadian Cuneiform
+    const TAG_SUND: u32 = tag!(b"sund"); // Sundanese
+    const TAG_SYLO: u32 = tag!(b"sylo"); // Syloti Nagri
+    const TAG_SYRC: u32 = tag!(b"syrc"); // Syriac
+    const TAG_TGLG: u32 = tag!(b"tglg"); // Tagalog
+    const TAG_TAGB: u32 = tag!(b"tagb"); // Tagbanwa
+    const TAG_TALE: u32 = tag!(b"tale"); // Tai Le
+    const TAG_LANA: u32 = tag!(b"lana"); // Tai Tham (Lanna)
+    const TAG_TAVT: u32 = tag!(b"tavt"); // Tai Viet
+    const TAG_TAKR: u32 = tag!(b"takr"); // Takri
+    const TAG_TAML: u32 = tag!(b"taml"); // Tamil
+    const TAG_TML2: u32 = tag!(b"tml2"); // Tamil v.2
+    const TAG_TANG: u32 = tag!(b"tang"); // Tangut
+    const TAG_TELU: u32 = tag!(b"telu"); // Telugu
+    const TAG_TEL2: u32 = tag!(b"tel2"); // Telugu v.2
+    const TAG_THAA: u32 = tag!(b"thaa"); // Thaana
+    const TAG_THAI: u32 = tag!(b"thai"); // Thai
+    const TAG_TIBT: u32 = tag!(b"tibt"); // Tibetan
+    const TAG_TFNG: u32 = tag!(b"tfng"); // Tifinagh
+    const TAG_TIRH: u32 = tag!(b"tirh"); // Tirhuta
+    const TAG_UGAR: u32 = tag!(b"ugar"); // Ugaritic Cuneiform
+    const TAG_VAI: u32 = tag!(b"vai "); // Vai
+    const TAG_WCHO: u32 = tag!(b"wcho"); // Wancho
+    const TAG_WARA: u32 = tag!(b"wara"); // Warang Citi
+    const TAG_YEZI: u32 = tag!(b"yezi"); // Yezidi
+    const TAG_ZANB: u32 = tag!(b"zanb"); // Zanabazar Square
+    // missing: Yi
 
     // auto-detect script + language from text (todo: performance!)
     let (lang, script) = whatlang::detect(text)
@@ -259,30 +507,30 @@ pub fn estimate_script_and_language(text: &str) -> (u32, u32) {
     let lang = tag::from_string(&lang.code().to_string().to_uppercase()).unwrap();
 
     let script = match script {
-        Script::Arabic          => tag::ARAB,
-        Script::Bengali         => tag::BENG,
-        Script::Cyrillic        => tag::CYRL,
-        Script::Devanagari      => tag::DEVA,
-        Script::Ethiopic        => tag::LATN, // ??
-        Script::Georgian        => tag::LATN, // ??
-        Script::Greek           => tag::GREK,
-        Script::Gujarati        => tag::GUJR,
-        Script::Gurmukhi        => tag::GURU, // can also be GUR2
-        Script::Hangul          => tag::LATN, // ??
-        Script::Hebrew          => tag::LATN, // ??
-        Script::Hiragana        => tag::LATN, // ??
-        Script::Kannada         => tag::KNDA,
-        Script::Katakana        => tag::LATN, // ??
-        Script::Khmer           => tag::LATN, // TODO?? - unsupported?
-        Script::Latin           => tag::LATN,
-        Script::Malayalam       => tag::MLYM,
-        Script::Mandarin        => tag::LATN, // ??
-        Script::Myanmar         => tag::LATN, // ??
-        Script::Oriya           => tag::ORYA,
-        Script::Sinhala         => tag::SINH,
-        Script::Tamil           => tag::TAML,
-        Script::Telugu          => tag::TELU,
-        Script::Thai            => tag::LATN, // ?? - Khmer, not supported?
+        Script::Arabic          => TAG_ARAB,
+        Script::Bengali         => TAG_BENG,
+        Script::Cyrillic        => TAG_CYRL,
+        Script::Devanagari      => TAG_DEVA,
+        Script::Ethiopic        => TAG_ETHI,
+        Script::Georgian        => TAG_GEOR,
+        Script::Greek           => TAG_GREK,
+        Script::Gujarati        => TAG_GUJR,
+        Script::Gurmukhi        => TAG_GUR2,
+        Script::Hangul          => TAG_HANG,
+        Script::Hebrew          => TAG_HEBR,
+        Script::Hiragana        => TAG_HIRG, // NOTE: tag = 'kana', probably error
+        Script::Kannada         => TAG_KND2,
+        Script::Katakana        => TAG_KANA,
+        Script::Khmer           => TAG_KHMR,
+        Script::Latin           => TAG_LATN,
+        Script::Malayalam       => TAG_MLYM,
+        Script::Mandarin        => TAG_MAND,
+        Script::Myanmar         => TAG_MYM2,
+        Script::Oriya           => TAG_ORYA,
+        Script::Sinhala         => TAG_SINH,
+        Script::Tamil           => TAG_TAML,
+        Script::Telugu          => TAG_TELU,
+        Script::Thai            => TAG_THAI,
     };
 
     (script, lang)
@@ -292,11 +540,11 @@ pub fn estimate_script_and_language(text: &str) -> (u32, u32) {
 // get_word_visual_width(word: &TextBuffer) ->
 // get_glyph_instances(infos: &GlyphInfos, positions: &GlyphPositions) -> PositionedGlyphBuffer
 
-fn shape<'a>(font: &mut Font, text: &[char], script: u32, lang: u32) -> Option<ShapedTextBufferUnsized> {
+fn shape<'a>(font: &mut ParsedFont, text: &[char], script: u32, lang: u32) -> Option<ShapedTextBufferUnsized> {
 
     use std::convert::TryFrom;
-    use allsorts::gpos::gpos_apply;
-    use allsorts::gsub::gsub_apply_default;
+    use allsorts::gpos::apply as gpos_apply;
+    use allsorts::gsub::apply as gsub_apply;
 
     // Map glyphs
     //
@@ -314,66 +562,58 @@ fn shape<'a>(font: &mut Font, text: &[char], script: u32, lang: u32) -> Option<S
                     .peek()
                     .and_then(|&next| allsorts::unicode::VariationSelector::try_from(*next).ok());
 
-                // TODO: Remove cast when lookup_glyph_index returns u16
-                let glyph_index = font.font_data_impl.lookup_glyph_index(*ch as u32) as u16;
+                let glyph_index = font.lookup_glyph_index(*ch as u32);
                 let glyph = make_raw_glyph(*ch, glyph_index, vs);
                 glyphs.push(glyph);
             }
         }
     }
 
+    const DOTTED_CIRCLE: char = '\u{25cc}';
+    // TODO: Remove cast when lookup_glyph_index returns u16
+    let dotted_circle_index = font.lookup_glyph_index(DOTTED_CIRCLE as u32);
+
     // Apply glyph substitution if table is present
-    gsub_apply_default(
-        &|| make_dotted_circle(&font.font_data_impl),
+    gsub_apply(
+        dotted_circle_index,
         &font.gsub_cache,
         Some(Rc::as_ref(&font.gdef_table)),
         script,
-        lang,
-        allsorts::gsub::GsubFeatureMask::default(),
-        font.font_data_impl.num_glyphs(),
+        Some(lang),
+        &allsorts::gsub::Features::Mask(allsorts::gsub::GsubFeatureMask::default()),
+        font.num_glyphs,
         &mut glyphs,
     ).ok()?;
 
     // Apply glyph positioning if table is present
 
     let kerning = true;
-    let mut infos = allsorts::gpos::Info::init_from_glyphs(Some(&font.gdef_table), glyphs).ok()?;
+    let mut infos = allsorts::gpos::Info::init_from_glyphs(Some(&font.gdef_table), glyphs);
     gpos_apply(
         &font.gpos_cache,
         Some(Rc::as_ref(&font.gdef_table)),
         kerning,
         script,
-        lang,
+        Some(lang),
         &mut infos,
     ).ok()?;
 
     // calculate the horizontal advance for each char
-    let horizontal_advances = infos.iter().map(|info| {
-        match info.glyph.glyph_index {
-            Some(s) => {
-                HorizontalAdvance {
-                    advance: font.font_data_impl.horizontal_advance(s),
-                    kerning: info.kerning,
-                }
-            },
-            None => {
-                HorizontalAdvance {
-                    advance: 0,
-                    kerning: 0,
-                }
-            }
-        }
+    let infos = infos.iter().filter_map(|info| {
+        let glyph_index = info.glyph.glyph_index;
+        let (adv_x, adv_y) = font.get_advance(glyph_index);
+        let advance = Advance { x: adv_x, y: adv_y, kerning: info.kerning };
+        let info = translate_info(&info, advance);
+        Some(info)
     }).collect();
 
-    let infos = infos.into_iter().map(|i| translate_info(&i)).collect();
-
-    Some(ShapedTextBufferUnsized { infos, horizontal_advances })
+    Some(ShapedTextBufferUnsized { infos })
 }
 
 fn make_raw_glyph(ch: char, glyph_index: u16, variation: Option<allsorts::unicode::VariationSelector>) -> allsorts::gsub::RawGlyph<()> {
     allsorts::gsub::RawGlyph {
-        unicodes: tiny_vec![[char; 1], ch],
-        glyph_index: Some(glyph_index),
+        unicodes: tiny_vec![[char; 1] => ch],
+        glyph_index: glyph_index,
         liga_component_pos: 0,
         glyph_origin: allsorts::gsub::GlyphOrigin::Char(ch),
         small_caps: false,
@@ -387,18 +627,10 @@ fn make_raw_glyph(ch: char, glyph_index: u16, variation: Option<allsorts::unicod
 }
 
 #[inline]
-fn make_dotted_circle<'a>(font_data_impl: &FontDataImpl<FileTableProvider<'a>>) -> Vec<allsorts::gsub::RawGlyph<()>> {
-    const DOTTED_CIRCLE: char = '\u{25cc}';
-    // TODO: Remove cast when lookup_glyph_index returns u16
-    let glyph_index = font_data_impl.lookup_glyph_index(DOTTED_CIRCLE as u32) as u16;
-    vec![make_raw_glyph(DOTTED_CIRCLE, glyph_index, None)]
-}
-
-#[inline]
-fn translate_info(i: &allsorts::gpos::Info) -> Info {
+fn translate_info(i: &allsorts::gpos::Info, size: Advance) -> Info {
     Info {
         glyph: translate_raw_glyph(&i.glyph),
-        kerning: i.kerning,
+        size,
         placement: translate_placement(&i.placement),
         mark_placement: translate_mark_placement(&i.mark_placement),
         is_mark: i.is_mark,
@@ -447,6 +679,7 @@ fn translate_mark_placement(mp: &allsorts::gpos::MarkPlacement) -> MarkPlacement
     match mp {
         None => MarkPlacement::None,
         MarkAnchor(a, b, c) => MarkPlacement::MarkAnchor(*a, translate_anchor(b), translate_anchor(c)),
+        MarkOverprint(a) => MarkPlacement::MarkOverprint(*a),
     }
 }
 

@@ -2,7 +2,7 @@
 //! the positions of words / lines and do glyph positioning
 
 use azul_css::{LayoutSize, LayoutRect, LayoutPoint};
-pub use crate::text_shaping::Font;
+pub use crate::text_shaping::ParsedFont;
 pub use azul_core::{
     app_resources::{
         Words, Word, WordType,
@@ -15,6 +15,13 @@ pub use azul_core::{
         DEFAULT_LINE_HEIGHT, DEFAULT_WORD_SPACING, DEFAULT_LETTER_SPACING, DEFAULT_TAB_WIDTH,
     },
 };
+
+/// Creates a font from a font file (TTF, OTF, WOFF, etc.)
+///
+/// NOTE: EXPENSIVE function, needs to parse tables, etc.
+pub fn parse_font_data(font_bytes: &[u8], font_index: usize) -> Option<ParsedFont> {
+    ParsedFont::from_bytes(font_bytes, font_index)
+}
 
 /// Splits the text by whitespace into logical units (word, tab, return, whitespace).
 pub fn split_text_into_words(text: &str) -> Words {
@@ -121,16 +128,9 @@ pub fn split_text_into_words(text: &str) -> Words {
     }
 }
 
-/// Creates a font from a font file (TTF, OTF, WOFF, etc.)
-///
-/// NOTE: EXPENSIVE function, needs to parse tables, etc.
-pub fn create_font<'a>(font_bytes: &'a [u8], font_index: usize) -> Option<Font<'a>> {
-    Font::from_bytes(font_bytes, font_index)
-}
-
 /// Takes a text broken into semantic items and shape all the words
 /// (does NOT scale the words, only shapes them)
-pub fn shape_words(words: &Words, font: &Font) -> ShapedWords {
+pub fn shape_words(words: &Words, font: &mut ParsedFont) -> ShapedWords {
 
     use crate::text_shaping;
 
@@ -140,7 +140,7 @@ pub fn shape_words(words: &Words, font: &Font) -> ShapedWords {
     let space_unscaled = font.shape(&[' '], script, lang);
     let space_advance = space_unscaled.get_word_visual_width_unscaled();
 
-    let mut longest_word_width = 0_isize;
+    let mut longest_word_width = 0_usize;
 
     let shaped_words = words.items
     .iter()
@@ -152,13 +152,12 @@ pub fn shape_words(words: &Words, font: &Font) -> ShapedWords {
         let shaped_word = font.shape(chars, script, lang);
         let word_width = shaped_word.get_word_visual_width_unscaled();
 
-        longest_word_width = longest_word_width.max(word_width.abs());
+        longest_word_width = longest_word_width.max(word_width);
 
-        let ShapedTextBufferUnsized { infos, horizontal_advances } = shaped_word;
+        let ShapedTextBufferUnsized { infos } = shaped_word;
 
         ShapedWord {
             glyph_infos: infos,
-            horizontal_advances,
             word_width,
         }
     }).collect();
@@ -232,7 +231,7 @@ pub fn position_words(words: &Words, shaped_words: &ShapedWords, text_layout_opt
 
         let reserved_letter_spacing_px = match text_layout_options.letter_spacing {
             None => 0.0,
-            Some(spacing_multiplier) => spacing_multiplier * shaped_word.number_of_clusters().saturating_sub(1) as f32,
+            Some(spacing_multiplier) => spacing_multiplier * shaped_word.number_of_glyphs().saturating_sub(1) as f32,
         };
 
         // Calculate where the caret would be for the next word
@@ -377,26 +376,55 @@ pub fn get_layouted_glyphs(word_positions: &WordPositions, scaled_words: &Shaped
 
     use crate::text_shaping;
 
-    let letter_spacing_px = word_positions.text_layout_options.letter_spacing.unwrap_or(0.0);
     let mut all_glyphs = Vec::with_capacity(scaled_words.items.len());
-    let baseline_px = scaled_words.get_baseline_px(word_positions.text_layout_options.font_size_px);
+
+    let font_metrics = &scaled_words.font_metrics;
+    let font_size_px = word_positions.text_layout_options.font_size_px;
+
+    let letter_spacing_px = word_positions.text_layout_options.letter_spacing.unwrap_or(0.0);
+    let ascender_px = font_metrics.get_ascender(font_size_px);
 
     for line in inline_text_layout.lines.iter() {
-
-        let line_x = line.bounds.origin.x;
-        let line_y = line.bounds.origin.y - (line.bounds.size.height - baseline_px); // bottom left corner of the glyph (baseline)
 
         let scaled_words_in_this_line = &scaled_words.items[line.word_start..line.word_end];
         let word_positions_in_this_line = &word_positions.word_positions[line.word_start..line.word_end];
 
-        for (scaled_word, word_position) in scaled_words_in_this_line.iter().zip(word_positions_in_this_line.iter()) {
-            let mut glyphs = text_shaping::get_glyph_instances_hb(&scaled_word.glyph_infos, &scaled_word.glyph_positions);
-            for (glyph, cluster_info) in glyphs.iter_mut().zip(scaled_word.cluster_iter()) {
-                glyph.point.x += line_x + word_position.x + (letter_spacing_px * cluster_info.cluster_idx as f32);
-                glyph.point.y += line_y;
-            }
+        let line_x = line.bounds.origin.x;
+        let baseline_y = line.bounds.origin.y - ascender_px; // bottom left corner of the text baseline
 
-            all_glyphs.append(&mut glyphs);
+        for (scaled_word, word_position) in scaled_words_in_this_line.iter().zip(word_positions_in_this_line.iter()) {
+
+            let mut x_pos_in_word_px = 0.0;
+
+            // all words only store the unscaled horizontal advance + horizontal kerning
+            for glyph_info in scaled_word.glyph_infos.iter() {
+
+                // local x and y displacement of the glyph - does NOT advance the horizontal cursor!
+                let (x_displacement, y_displacement) = if glyph_info.is_mark {
+                    glyph_info.mark_placement.get_placement_relative(font_metrics, font_size_px)
+                } else {
+                    glyph_info.placement.get_placement_relative(font_metrics, font_size_px)
+                };
+
+                let letter_spacing_for_glyph = if glyph_info.is_mark { 0.0 } else { letter_spacing_px };
+
+                let glyph_scale_x = glyph_info.size.get_x_scaled(font_metrics, font_size_px);
+                let glyph_scale_y = glyph_info.size.get_y_scaled(font_metrics, font_size_px);
+                let kerning_x = glyph_info.size.get_kerning_scaled(font_metrics, font_size_px);
+
+                let origin = LayoutPoint::new(line_x + word_position.x + x_pos_in_word_px + x_displacement, baseline_y + y_displacement);
+                let size = LayoutSize::new(glyph_scale_x, glyph_scale_y);
+
+                let instance = GlyphInstance {
+                    index: glyph_info.glyph.glyph_index as u32,
+                    point: origin,
+                    size,
+                };
+
+                all_glyphs.push(instance);
+
+                x_pos_in_word_px += glyph_scale_x + kerning_x + letter_spacing_for_glyph;
+            }
         }
     }
 

@@ -36,10 +36,10 @@ dependencies = [
 [[package]]
 name = "allsorts"
 version = "0.4.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "14b02c01aedfae249f34bacaf3cfb1e714da8f7f143b02bf5a25035dbba7dfad"
+source = "git+https://github.com/fschutt/allsorts?rev=418bc336044a8afa1cb80200861b0498ae81ad83#418bc336044a8afa1cb80200861b0498ae81ad83"
 dependencies = [
  "bitflags",
+ "bitreader",
  "brotli-decompressor",
  "byteorder",
  "encoding_rs",
@@ -53,6 +53,8 @@ dependencies = [
  "rental",
  "rustc-hash",
  "tinyvec",
+ "ucd-trie",
+ "unicode-general-category",
  "unicode-joining-type",
 ]
 
@@ -336,6 +338,15 @@ name = "bitflags"
 version = "1.2.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "cf1de2fe8c75bc145a2f577add951f8134889b4795d47466a54a5c846d691693"
+
+[[package]]
+name = "bitreader"
+version = "0.3.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "5fa7f0adf37cd5472c978a1ff4be89c1880a923d10df4cfef6a10855a666e09b"
+dependencies = [
+ "cfg-if 0.1.10",
+]
 
 [[package]]
 name = "block"
@@ -2128,9 +2139,18 @@ dependencies = [
 
 [[package]]
 name = "tinyvec"
-version = "0.3.4"
+version = "1.1.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "238ce071d267c5710f9d31451efec16c5ee22de34df17cc05e56cbc92e967117"
+checksum = "ccf8dbc19eb42fba10e8feaaec282fb50e2c14b2726d6301dbfeed0f73306a6f"
+dependencies = [
+ "tinyvec_macros",
+]
+
+[[package]]
+name = "tinyvec_macros"
+version = "0.1.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "cda74da7e1a664f795bb1f8a87ec406fb89a02522cf6e50620d016add6dbbf5c"
 
 [[package]]
 name = "toml"
@@ -2154,6 +2174,12 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "3e5d7cd7ab3e47dda6e56542f4bbf3824c15234958c6e1bd6aaa347e93499fdc"
 
 [[package]]
+name = "ucd-trie"
+version = "0.1.3"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "56dee185309b50d1f11bfedef0fe6d036842e3fb77413abef29f8f8d1c5d4c1c"
+
+[[package]]
 name = "unicode-bidi"
 version = "0.3.4"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -2163,10 +2189,16 @@ dependencies = [
 ]
 
 [[package]]
-name = "unicode-joining-type"
-version = "0.3.1"
+name = "unicode-general-category"
+version = "0.3.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "aa33c011d7f075f1e724a8401666be7c7aaa922af7c3b0151e5618c9ed5b599e"
+checksum = "eab1e2c61f9441613aca1a1c88803bb36df292990aada6abb5133b9b532e07ec"
+
+[[package]]
+name = "unicode-joining-type"
+version = "0.4.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "8896d2fce4865edb68e5a39b48f4281d041f743de5b9f0380ba4dd0ef51497e4"
 
 [[package]]
 name = "unicode-normalization"

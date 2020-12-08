@@ -627,9 +627,9 @@ pub struct ShapedWords {
     pub items: Vec<ShapedWord>,
     /// Longest word in the `self.scaled_words`, necessary for
     /// calculating overflow rectangles.
-    pub longest_word_width: isize,
+    pub longest_word_width: usize,
     /// Horizontal advance of the space glyph
-    pub space_advance: isize,
+    pub space_advance: usize,
     /// Metrics necessary for baseline calculation
     pub font_metrics: FontMetrics,
 }
@@ -677,10 +677,36 @@ pub enum Placement {
     Anchor(Anchor, Anchor),
 }
 
+impl Placement {
+    #[inline]
+    pub fn get_placement_relative(&self, font_metrics: &FontMetrics, target_font_size: f32) -> (f32, f32) {
+        let font_metrics_divisor = font_metrics.units_per_em.get() as f32 / target_font_size;
+        match self {
+            Placement::None | Placement::Anchor(_, _) => (0.0, 0.0),
+            Placement::Distance(x, y) => (*x as f32 / font_metrics_divisor, *y as f32 / font_metrics_divisor),
+        }
+    }
+}
+
 #[derive(Debug, Copy, PartialEq, PartialOrd, Clone, Hash)]
 pub enum MarkPlacement {
     None,
     MarkAnchor(usize, Anchor, Anchor),
+    MarkOverprint(usize),
+}
+
+impl MarkPlacement {
+    #[inline]
+    pub fn get_placement_relative(&self, font_metrics: &FontMetrics, target_font_size: f32) -> (f32, f32) {
+        match self {
+            MarkPlacement::None => (0.0, 0.0),
+            MarkPlacement::MarkAnchor(_, a, _) => {
+                let font_metrics_divisor = font_metrics.units_per_em.get() as f32 / target_font_size;
+                (a.x as f32 / font_metrics_divisor, a.y as f32 / font_metrics_divisor)
+            },
+            MarkPlacement::MarkOverprint(_) => (0.0, 0.0),
+        }
+    }
 }
 
 #[derive(Debug, Copy, PartialEq, PartialOrd, Clone, Hash)]
@@ -691,38 +717,61 @@ pub struct Anchor {
 
 #[derive(Debug, Copy, PartialEq, PartialOrd, Clone, Hash)]
 pub struct RawGlyph {
-    unicodes: [char; 1],
-    glyph_index: Option<u16>,
-    liga_component_pos: u16,
-    glyph_origin: GlyphOrigin,
-    small_caps: bool,
-    multi_subst_dup: bool,
-    is_vert_alt: bool,
-    fake_bold: bool,
-    fake_italic: bool,
-    variation: Option<VariationSelector>,
-    extra_data: (),
+    pub unicodes: [char; 1],
+    pub glyph_index: u16,
+    pub liga_component_pos: u16,
+    pub glyph_origin: GlyphOrigin,
+    pub small_caps: bool,
+    pub multi_subst_dup: bool,
+    pub is_vert_alt: bool,
+    pub fake_bold: bool,
+    pub fake_italic: bool,
+    pub variation: Option<VariationSelector>,
+    pub extra_data: (),
 }
 
 #[derive(Debug, Copy, PartialEq, PartialOrd, Clone, Hash)]
 pub struct Info {
-    glyph: RawGlyph,
-    kerning: i16,
-    placement: Placement,
-    mark_placement: MarkPlacement,
-    is_mark: bool,
+    pub glyph: RawGlyph,
+    pub size: Advance,
+    pub placement: Placement,
+    pub mark_placement: MarkPlacement,
+    pub is_mark: bool,
 }
 
 #[derive(Debug, Default, Copy, PartialEq, PartialOrd, Clone, Hash)]
-pub struct HorizontalAdvance {
-    pub advance: u16,
+pub struct Advance {
+    pub x: u16,
+    pub y: u16,
     pub kerning: i16,
 }
 
-impl HorizontalAdvance {
-    pub fn total_unscaled(&self) -> i32 { self.advance as i32 + self.kerning as i32 }
-    pub fn total_scaled(&self, font_metrics: &FontMetrics, target_font_size: f32) -> f32 {
-        self.total_unscaled() as f32 / font_metrics.units_per_em.get() as f32 * target_font_size
+impl Advance {
+
+    #[inline]
+    pub fn get_x_total_unscaled(&self) -> i32 { self.x as i32 + self.kerning as i32 }
+    #[inline]
+    pub fn get_x_unscaled(&self) -> i32 { self.x as i32 }
+    #[inline]
+    pub fn get_y_unscaled(&self) -> i32 { self.y as i32 }
+    #[inline]
+    pub fn get_kerning_unscaled(&self) -> i32 { self.kerning as i32 }
+
+    #[inline]
+    pub fn get_x_total_scaled(&self, font_metrics: &FontMetrics, target_font_size: f32) -> f32 {
+        self.get_x_total_unscaled() as f32 / font_metrics.units_per_em.get() as f32 * target_font_size
+    }
+    #[inline]
+    pub fn get_x_scaled(&self, font_metrics: &FontMetrics, target_font_size: f32) -> f32 {
+        self.get_x_unscaled() as f32 / font_metrics.units_per_em.get() as f32 * target_font_size
+    }
+    #[inline]
+    pub fn get_y_scaled(&self, font_metrics: &FontMetrics, target_font_size: f32) -> f32 {
+        self.get_y_unscaled() as f32 / font_metrics.units_per_em.get() as f32 * target_font_size
+    }
+    #[inline]
+    pub fn get_kerning_scaled(&self, font_metrics: &FontMetrics, target_font_size: f32) -> f32 {
+        self.get_kerning_unscaled() as f32 / font_metrics.units_per_em.get() as f32 * target_font_size
     }
 }
 
@@ -731,15 +780,17 @@ impl HorizontalAdvance {
 pub struct ShapedWord {
     /// Glyph codepoint, glyph ID + kerning data
     pub glyph_infos: Vec<Info>,
-    /// Glyph horizontal advance + kerning (unscaled)
-    pub horizontal_advances: Vec<HorizontalAdvance>,
     /// The sum of the width of all the characters in this word
-    pub word_width: isize,
+    pub word_width: usize,
 }
 
 impl ShapedWord {
     pub fn get_word_width(&self, font_metrics: &FontMetrics, target_font_size: f32) -> f32 {
         self.word_width as f32 / font_metrics.units_per_em.get() as f32 * target_font_size
+    }
+    /// Returns the number of glyphs THAT ARE NOT DIACRITIC MARKS
+    pub fn number_of_glyphs(&self) -> usize {
+        self.glyph_infos.iter().filter(|i| !i.is_mark).count()
     }
 }
 
