@@ -17,6 +17,6 @@ readme = "./README.md"
 azul-css                = { path = "../azul-css", version = "0.0.1",   default-features = false }
 azul-core               = { path = "../azul-core", version = "0.0.2",   default-features = false }
 unicode-normalization   = { version = "0.1.12",  default-features = false }
-allsorts                = { git = "https://github.com/fschutt/allsorts", rev = "418bc336044a8afa1cb80200861b0498ae81ad83", default-features = false }
+allsorts                = { git = "https://github.com/fschutt/allsorts", rev = "3c0c6d0f444514cdc12f40ba443dec071dc5d0a3", default-features = false }
 whatlang                = { version = "0.11.1", default-features = false }
 tinyvec                 = { version = "1.1.0", default-features = false }

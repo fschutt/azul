@@ -991,6 +991,7 @@ fn send_user_event<'a>(
                     azulc::layout::do_the_layout,
                     eld.config.font_loading_fn,
                     eld.config.image_loading_fn,
+                    azul_layout::text_layout::parse_font_fn,
                 );
 
                 window.display.make_not_current();

@@ -71,13 +71,10 @@ pub mod font_loading {
         FontLoadingNotActive(id) => format!("Could not load system font: \"{}\": crate was not compiled with --features=\"font_loading\"", id)
     });
 
-    #[cfg(feature = "text_layout")]
     pub fn font_source_get_bytes(font_source: &FontSource) -> Option<LoadedFontSource> {
-        use azul_layout::text_layout::text_shaping::get_font_metrics_freetype;
         // TODO: logging!
         let (font_bytes, font_index) = font_source_get_bytes_inner(font_source).ok()?;
-        let font_metrics = get_font_metrics_freetype(&font_bytes, DEFAULT_FONT_INDEX);
-        Some(LoadedFontSource{ font_bytes, font_index, font_metrics })
+        Some(LoadedFontSource{ font_bytes, font_index: font_index as u32 })
     }
 
     /// Returns the bytes of the font (loads the font from the system in case it is a `FontSource::System` font).

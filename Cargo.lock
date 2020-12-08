@@ -36,7 +36,7 @@ dependencies = [
 [[package]]
 name = "allsorts"
 version = "0.4.0"
-source = "git+https://github.com/fschutt/allsorts?rev=418bc336044a8afa1cb80200861b0498ae81ad83#418bc336044a8afa1cb80200861b0498ae81ad83"
+source = "git+https://github.com/fschutt/allsorts?rev=3c0c6d0f444514cdc12f40ba443dec071dc5d0a3#3c0c6d0f444514cdc12f40ba443dec071dc5d0a3"
 dependencies = [
  "bitflags",
  "bitreader",
@@ -282,7 +282,6 @@ dependencies = [
  "lyon",
  "owned_ttf_parser",
  "rayon",
- "resvg",
  "roxmltree",
  "rusttype",
  "usvg",
@@ -1822,28 +1821,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "resvg"
-version = "0.11.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "26f1e34f64e2c0ea1dec1df1c69a40689be6613a1aae86f5f9742d27e046fd0c"
-dependencies = [
- "jpeg-decoder",
- "log",
- "pico-args",
- "png",
- "rgb",
- "svgfilters",
- "tiny-skia",
- "usvg",
-]
-
-[[package]]
-name = "rgb"
-version = "0.8.18"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "6714061b32e0b0527005d5874c28a57d905559fecfacd361462ad0b01e701996"
-
-[[package]]
 name = "roxmltree"
 version = "0.13.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -2021,16 +1998,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "8fb1df15f412ee2e9dfc1c504260fa695c1c3f10fe9f4a6ee2d2184d7d6450e2"
 
 [[package]]
-name = "svgfilters"
-version = "0.2.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "3016b3217b82ea3bb7cd3b773030222c6acca46c52ef4e64b4e716bd4b25090e"
-dependencies = [
- "float-cmp",
- "rgb",
-]
-
-[[package]]
 name = "svgtypes"
 version = "0.5.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -2115,16 +2082,6 @@ dependencies = [
  "libc",
  "redox_syscall",
  "winapi 0.3.8",
-]
-
-[[package]]
-name = "tiny-skia"
-version = "0.1.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "ce39913e09d0d680dfa64df7ca0df10191a2b9fece10add734936fbf7284ebef"
-dependencies = [
- "cc",
- "png",
 ]
 
 [[package]]

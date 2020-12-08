@@ -596,6 +596,7 @@ pub fn layout_dom(dom: Dom, css: &Css, root_size: LogicalSize) -> CachedDisplayL
         azul_layout::do_the_layout,
         LoadFontFn { cb: crate::font_loading::font_source_get_bytes },
         LoadImageFn { cb: crate::image_loading::image_source_get_bytes },
+        azul_layout::text_layout::parse_font_fn,
     );
 
     CachedDisplayList::new(

@@ -433,11 +433,11 @@ impl SvgXmlNode {
         // https://github.com/RazrFalcon/resvg/issues/308
         Ok(Svg::new(xml.into_tree()))
     }
-    */
 
     pub fn render_to_image(&self, options: SvgRenderOptions) -> Option<RawImage> {
         resvg::render_node(self.get_node(), translate_fit_to(options.fit), options.background_color.into_option().map(translate_color)).map(translate_image)
     }
+    */
 }
 
 impl Drop for SvgXmlNode {
@@ -487,6 +487,7 @@ impl std::hash::Hash for Svg {
     }
 }
 
+/*
 #[inline]
 fn translate_image(img: resvg::Image) -> RawImage {
     let width = img.width();
@@ -498,6 +499,7 @@ fn translate_image(img: resvg::Image) -> RawImage {
         data_format: RawImageFormat::RGBA8,
     }
 }
+*/
 
 impl Svg {
 
@@ -521,9 +523,11 @@ impl Svg {
         SvgXmlNode::new(self.get_tree().root())
     }
 
+    /*
     pub fn render_to_image(&self, options: SvgRenderOptions) -> Option<RawImage> {
         resvg::render(self.get_tree(), translate_fit_to(options.fit), options.background_color.into_option().map(translate_color)).map(translate_image)
     }
+    */
 
     pub fn to_string(&self, options: SvgXmlOptions) -> String {
         self.get_tree().to_string(options.into())

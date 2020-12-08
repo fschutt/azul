@@ -371,7 +371,7 @@ macro_rules! impl_callback_info_api {() => (
 
     /// If the node is a text node, return the shaped glyphs (on a per-word basis, unpositioned)
     pub fn get_shaped_words(&self, (dom_id, node_id): &(DomId, NodeId)) -> Option<&ShapedWords> {
-        self.layout_result.get(&dom_id).as_ref().and_then(|lr| lr.shaped_words.get(&node_id).as_ref().map(|sw| &sw.0))
+        self.layout_result.get(&dom_id).as_ref().and_then(|lr| lr.shaped_words.get(&node_id))
     }
 
     /// If the node is a text node, return the shaped glyphs (on a per-word basis, unpositioned)

@@ -6006,16 +6006,6 @@
 							"returns": "ResultSvgSvgParseError",
 							"fn_body": "azul_impl::svg::Svg::parse(svg_bytes.as_slice(), parse_options).into()"
 						}
-					},
-					"functions": {
-						"render_to_image": {
-							"fn_args": [
-								{"self": "ref"},
-								{"render_options": "SvgRenderOptions"}
-							],
-							"returns": "OptionRawImage",
-							"fn_body": "svg.render_to_image(render_options).into()"
-						}
 					}
 				},
 				"SvgXmlNode": {

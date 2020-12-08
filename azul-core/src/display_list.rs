@@ -24,7 +24,7 @@ use crate::{
     app_resources::{
         AppResources, AddImageMsg, FontImageApi, ImageDescriptor, ImageDescriptorFlags,
         ImageKey, FontInstanceKey, ImageInfo, ImageId, LayoutedGlyphs, PrimitiveFlags,
-        Epoch, ExternalImageId, GlyphOptions, LoadFontFn, LoadImageFn,
+        Epoch, ExternalImageId, GlyphOptions, LoadFontFn, LoadImageFn, ParseFontFn,
     },
     ui_state::UiState,
     ui_description::UiDescription,
@@ -604,7 +604,7 @@ pub struct GlTextureCache {
 }
 
 // todo: very unclean
-pub type LayoutFn = fn(&NodeHierarchy, &NodeDataContainer<NodeData>, &NodeDataContainer<DisplayRectangle>, &AppResources, &PipelineId, LayoutRect) -> LayoutResult;
+pub type LayoutFn = fn(&NodeHierarchy, &NodeDataContainer<NodeData>, &NodeDataContainer<DisplayRectangle>, &mut AppResources, &PipelineId, LayoutRect) -> LayoutResult;
 #[cfg(feature = "opengl")]
 pub type GlStoreImageFn = fn(PipelineId, Epoch, Texture) -> ExternalImageId;
 
@@ -631,6 +631,7 @@ impl SolvedLayout {
         layout_func: LayoutFn,
         load_font_fn: LoadFontFn,
         load_image_fn: LoadImageFn,
+        parse_font_fn: ParseFontFn,
     ) -> Self {
 
         use crate::{
@@ -657,6 +658,7 @@ impl SolvedLayout {
             layout_func: LayoutFn,
             load_font_fn: LoadFontFn,
             load_image_fn: LoadImageFn,
+            parse_font_fn: ParseFontFn,
         ) {
             use gleam::gl;
             use crate::{
@@ -686,13 +688,14 @@ impl SolvedLayout {
                 &ui_state.dom.arena.node_data,
                 load_font_fn,
                 load_image_fn,
+                parse_font_fn,
             );
 
             let layout_result = (layout_func)(
                 &ui_state.dom.arena.node_hierarchy,
                 &ui_state.dom.arena.node_data,
                 &display_list.rectangles,
-                &app_resources,
+                app_resources,
                 pipeline_id,
                 bounds,
             );
@@ -827,6 +830,7 @@ impl SolvedLayout {
                         layout_func,
                         load_font_fn,
                         load_image_fn,
+                        parse_font_fn,
                     );
                     iframe_ui_states.insert(iframe_dom_id.clone(), iframe_ui_state);
                     iframe_ui_descriptions.insert(iframe_dom_id.clone(), iframe_ui_description);
@@ -867,6 +871,7 @@ impl SolvedLayout {
                 layout_func,
                 load_font_fn,
                 load_image_fn,
+                parse_font_fn,
             );
         }
 

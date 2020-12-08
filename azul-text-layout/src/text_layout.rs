@@ -19,7 +19,7 @@ pub use azul_core::{
 /// Creates a font from a font file (TTF, OTF, WOFF, etc.)
 ///
 /// NOTE: EXPENSIVE function, needs to parse tables, etc.
-pub fn parse_font_data(font_bytes: &[u8], font_index: usize) -> Option<ParsedFont> {
+pub fn parse_font(font_bytes: &[u8], font_index: usize) -> Option<ParsedFont> {
     ParsedFont::from_bytes(font_bytes, font_index)
 }
 
@@ -373,8 +373,6 @@ pub fn word_positions_to_inline_text_layout(word_positions: &WordPositions, scal
 
 /// Returns the final, positioned glyphs
 pub fn get_layouted_glyphs(word_positions: &WordPositions, scaled_words: &ShapedWords, inline_text_layout: &InlineTextLayout) -> LayoutedGlyphs {
-
-    use crate::text_shaping;
 
     let mut all_glyphs = Vec::with_capacity(scaled_words.items.len());
 

@@ -2,6 +2,7 @@ use std::{
     fmt,
     sync::{Arc, atomic::{AtomicUsize, Ordering}},
     num::NonZeroU16,
+    any::Any,
 };
 use azul_css::{
     LayoutPoint, LayoutRect, LayoutSize,
@@ -504,22 +505,24 @@ impl RawImage {
 
 impl_option!(RawImage, OptionRawImage, copy = false, [Debug, Clone, PartialEq, Eq]);
 
-#[derive(Clone)]
 pub struct LoadedFont {
     pub font_key: FontKey,
-    pub font_bytes: Vec<u8>,
-    /// Index of the font in case the bytes indicate a font collection
-    pub font_index: i32,
+    // NOTE(fschutt): This is ugly and a hack, but currently I'm too lazy
+    // to do it properly: azul-core should not depend on any crate,
+    // but the LoadedFont should store the parsed font tables (so that parsing
+    // the font is cached and has to be done once).
+    //
+    // The proper way would be to copy + paste all data structures from allsorts
+    // and azul-text-layout, but the improper way is to store it as a Box<Any>
+    // and just upcast / downcast it
+    pub font: Box<dyn Any>, // = Box<azul_text_layout::Font>
     pub font_instances: FastHashMap<Au, FontInstanceKey>,
     pub font_metrics: FontMetrics,
 }
 
 impl fmt::Debug for LoadedFont {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        write!(f,
-            "LoadedFont {{ font_key: {:?}, font_bytes: [u8;{}], font_index: {}, font_instances: {:#?} }}",
-            self.font_key, self.font_bytes.len(), self.font_index, self.font_instances,
-        )
+        write!(f, "LoadedFont {{ font_key: {:?}, font_instances: {:#?} }}", self.font_key, self.font_instances)
     }
 }
 
@@ -953,6 +956,10 @@ impl AppResources {
         self.currently_registered_fonts.get(pipeline_id).and_then(|map| map.get(font_id))
     }
 
+    pub fn get_loaded_font_mut(&mut self, pipeline_id: &PipelineId, font_id: &ImmediateFontId) -> Option<&mut LoadedFont> {
+        self.currently_registered_fonts.get_mut(pipeline_id).and_then(|map| map.get_mut(font_id))
+    }
+
     // -- TextId cache
 
     /// Adds a string to the internal text cache, but only store it as a string,
@@ -1014,6 +1021,7 @@ pub fn add_fonts_and_images<U: FontImageApi>(
     node_data: &NodeDataContainer<NodeData>,
     load_font_fn: LoadFontFn,
     load_image_fn: LoadImageFn,
+    parse_font_fn: ParseFontFn,
 ) {
     let font_keys = scan_ui_description_for_font_keys(&app_resources, display_list, node_data);
     let image_keys = scan_ui_description_for_image_keys(&app_resources, display_list, node_data);
@@ -1021,7 +1029,7 @@ pub fn add_fonts_and_images<U: FontImageApi>(
     app_resources.last_frame_font_keys.get_mut(pipeline_id).unwrap().extend(font_keys.clone().into_iter());
     app_resources.last_frame_image_keys.get_mut(pipeline_id).unwrap().extend(image_keys.clone().into_iter());
 
-    let add_font_resource_updates = build_add_font_resource_updates(app_resources, render_api, pipeline_id, &font_keys, load_font_fn);
+    let add_font_resource_updates = build_add_font_resource_updates(app_resources, render_api, pipeline_id, &font_keys, load_font_fn, parse_font_fn);
     let add_image_resource_updates = build_add_image_resource_updates(app_resources, render_api, pipeline_id, &image_keys, load_image_fn);
 
     add_resources(app_resources, render_api, pipeline_id, add_font_resource_updates, add_image_resource_updates);
@@ -1421,9 +1429,9 @@ pub fn scan_ui_description_for_image_keys(
 }
 
 // Debug, PartialEq, Eq, PartialOrd, Ord
-#[derive(Debug, Clone)]
 pub enum AddFontMsg {
-    Font(LoadedFont),
+    // add font: font key, font bytes + font index
+    Font(FontKey, Vec<u8>, u32, LoadedFont),
     Instance(AddFontInstance, Au),
 }
 
@@ -1431,10 +1439,10 @@ impl AddFontMsg {
     pub fn into_resource_update(&self) -> ResourceUpdate {
         use self::AddFontMsg::*;
         match self {
-            Font(f) => ResourceUpdate::AddFont(AddFont {
-                key: f.font_key,
-                font_bytes: f.font_bytes.clone(),
-                font_index: f.font_index as u32
+            Font(fk, bytes, index, _) => ResourceUpdate::AddFont(AddFont {
+                key: *fk,
+                font_bytes: bytes.clone(),
+                font_index: *index,
             }),
             Instance(fi, _) => ResourceUpdate::AddFontInstance(fi.clone()),
         }
@@ -1487,9 +1495,7 @@ pub struct LoadedFontSource {
     pub font_bytes: Vec<u8>,
     /// Index of the font in the file (if not known, set to 0) -
     /// only relevant if the file is a font collection
-    pub font_index: i32,
-    /// Important baseline / character metrics of the font
-    pub font_metrics: FontMetrics,
+    pub font_index: u32,
 }
 
 #[repr(C)]
@@ -1498,6 +1504,9 @@ impl_callback!(LoadFontFn);
 #[repr(C)]
 pub struct LoadImageFn { pub cb: fn(&ImageSource) -> Option<LoadedImageSource> }
 impl_callback!(LoadImageFn);
+
+// function to parse the font given the loaded font source
+pub type ParseFontFn = fn(&LoadedFontSource) -> Option<(Box<dyn Any>, FontMetrics)>; // = Option<Box<azul_text_layout::Font>>
 
 /// Given the fonts of the current frame, returns `AddFont` and `AddFontInstance`s of
 /// which fonts / instances are currently not in the `current_registered_fonts` and
@@ -1513,6 +1522,7 @@ pub fn build_add_font_resource_updates<T: FontImageApi>(
     pipeline_id: &PipelineId,
     fonts_in_dom: &FastHashMap<ImmediateFontId, FastHashSet<Au>>,
     font_source_load_fn: LoadFontFn,
+    parse_font_fn: ParseFontFn,
 ) -> Vec<(ImmediateFontId, AddFontMsg)> {
 
     let mut resource_updates = Vec::new();
@@ -1592,19 +1602,23 @@ pub fn build_add_font_resource_updates<T: FontImageApi>(
                     None => continue,
                 };
 
-                let LoadedFontSource { font_bytes, font_index, font_metrics } = loaded_font_source;
+                let (parsed_font, font_metrics) = match (parse_font_fn)(&loaded_font_source) {
+                    Some(s) => s,
+                    None => continue,
+                };
+
+                let LoadedFontSource { font_bytes, font_index } = loaded_font_source;
 
                 if !font_sizes.is_empty() {
+                    // loaded_font
                     let font_key = render_api.new_font_key();
                     let loaded_font = LoadedFont {
                         font_key,
-                        font_bytes,
-                        font_index,
+                        font: parsed_font,
                         font_metrics,
                         font_instances: FastHashMap::new(),
                     };
-
-                    resource_updates.push((im_font_id.clone(), AddFontMsg::Font(loaded_font)));
+                    resource_updates.push((im_font_id.clone(), AddFontMsg::Font(font_key, font_bytes, font_index, loaded_font)));
 
                     for font_size in font_sizes {
                         insert_font_instances!(im_font_id.clone(), font_key, font_index, *font_size);
@@ -1676,10 +1690,10 @@ pub fn add_resources<T: FontImageApi>(
     for (font_id, add_font_msg) in add_font_resources {
         use self::AddFontMsg::*;
         match add_font_msg {
-            Font(f) => {
+            Font(_fk, _bytes, _index, parsed_font) => {
                 app_resources.currently_registered_fonts
                 .get_mut(pipeline_id).unwrap()
-                .insert(font_id, f);
+                .insert(font_id, parsed_font);
             },
             Instance(fi, size) => {
                 app_resources.currently_registered_fonts

@@ -4235,8 +4235,6 @@ pub use AzSvgTT as AzSvg;
 /// Creates a new `Svg` instance whose memory is owned by the rust allocator
 /// Equivalent to the Rust `Svg::parse()` constructor.
 #[no_mangle] pub extern "C" fn az_svg_parse(svg_bytes: AzU8VecRef, parse_options: AzSvgParseOptions) -> AzResultSvgSvgParseError { azul_impl::svg::Svg::parse(svg_bytes.as_slice(), parse_options).into() }
-/// Equivalent to the Rust `Svg::render_to_image()` function.
-#[no_mangle] pub extern "C" fn az_svg_render_to_image(svg: &AzSvg, render_options: AzSvgRenderOptions) -> AzOptionRawImage { svg.render_to_image(render_options).into() }
 /// Destructor: Takes ownership of the `Svg` pointer and deletes it.
 #[no_mangle] #[allow(unused_variables)] pub extern "C" fn az_svg_delete(object: &mut AzSvg) { }
 /// Clones the object

@@ -11,22 +11,13 @@ use allsorts::font_data::FontData;
 use crate::allsorts::tables::FontTableProvider;
 use allsorts::layout::{LayoutCache, GDEFTable, GPOS, GSUB};
 use allsorts::tables::HheaTable;
-use allsorts::tables::HeadTable;
 use allsorts::tables::MaxpTable;
 use allsorts::tables::cmap::CmapSubtable;
 use allsorts::tables::cmap::owned::CmapSubtable as OwnedCmapSubtable;
-use allsorts::tables::MaxpVersion1SubTable;
-
-pub struct SequentialMapGroup {
-    pub start_char_code: u32,
-    pub end_char_code: u32,
-    pub start_glyph_id: u32,
-}
 
 pub fn get_font_metrics(font_bytes: &[u8], font_index: usize) -> FontMetrics {
 
     use std::num::NonZeroU16;
-    use allsorts::tag;
 
     #[derive(Default)]
     struct Os2Info {
@@ -207,6 +198,7 @@ pub fn get_font_metrics(font_bytes: &[u8], font_index: usize) -> FontMetrics {
     }
 }
 
+#[derive(Clone)]
 pub struct ParsedFont {
     pub font_metrics: FontMetrics,
     pub num_glyphs: u16,
@@ -322,6 +314,7 @@ const fn tag(chars: [u8; 4]) -> u32 {
 }
 
 /// Estimate the language and the script from the text (uses trigrams)
+#[allow(dead_code)]
 pub fn estimate_script_and_language(text: &str) -> (u32, u32) {
 
     use allsorts::tag;

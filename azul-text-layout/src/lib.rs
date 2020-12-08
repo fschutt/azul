@@ -74,6 +74,8 @@ extern crate azul_core;
 extern crate unicode_normalization;
 extern crate allsorts;
 
+use std::any::Any;
+
 pub mod text_layout;
 // pub mod text_shaping;
 #[path = "./text_shaping_new.rs"]
@@ -82,7 +84,7 @@ pub mod text_shaping;
 use azul_core::{
     traits::GetTextLayout,
     ui_solver::{ResolvedTextLayoutOptions, InlineTextLayout},
-    app_resources::{Words, ShapedWords},
+    app_resources::{Words, ShapedWords, LoadedFontSource, FontMetrics},
     callbacks::PipelineId,
     id_tree::NodeId,
 };
@@ -90,17 +92,25 @@ use azul_core::{
 #[derive(Debug, Clone)]
 pub struct InlineText<'a> {
     pub words: &'a Words,
-    pub scaled_words: &'a ShapedWords,
+    pub shaped_words: &'a ShapedWords,
 }
 
 impl<'a> GetTextLayout for InlineText<'a> {
     fn get_text_layout(&mut self, _: PipelineId, _: NodeId, text_layout_options: &ResolvedTextLayoutOptions) -> InlineTextLayout {
         let layouted_text_block = text_layout::position_words(
             self.words,
-            self.scaled_words,
+            self.shaped_words,
             text_layout_options,
         );
         // TODO: Cache the layouted text block on the &mut self
-        text_layout::word_positions_to_inline_text_layout(&layouted_text_block, &self.scaled_words)
+        text_layout::word_positions_to_inline_text_layout(&layouted_text_block, &self.shaped_words)
     }
+}
+
+pub fn parse_font_fn(source: &LoadedFontSource) -> Option<(Box<dyn Any>, FontMetrics)> {
+    crate::text_layout::parse_font(&source.font_bytes, source.font_index as usize).map(|b| {
+        let font_metrics = b.font_metrics.clone();
+        let q: Box<dyn Any> = Box::new(b);
+        (q, font_metrics)
+    })
 }

@@ -14,7 +14,7 @@ use azul_core::{
     app_resources::{AppResources, FontInstanceKey},
     callbacks::PipelineId,
 };
-use azul_text_layout::{InlineText, text_layout::{Words, ScaledWords, WordPositions}};
+use azul_text_layout::{InlineText, text_layout::{Words, ShapedWords, WordPositions}};
 
 const DEFAULT_FLEX_GROW_FACTOR: f32 = 1.0;
 
@@ -1253,7 +1253,7 @@ pub fn do_the_layout(
     node_hierarchy: &NodeHierarchy,
     node_data: &NodeDataContainer<NodeData>,
     display_rects: &NodeDataContainer<DisplayRectangle>,
-    app_resources: &AppResources,
+    app_resources: &mut AppResources,
     pipeline_id: &PipelineId,
     bounds: LayoutRect,
 ) -> LayoutResult {
@@ -1279,9 +1279,9 @@ pub fn do_the_layout(
     // Break all strings into words and / or resolve the TextIds
     let word_cache = create_word_cache(app_resources, node_data);
     // Scale the words to the correct size - TODO: Cache this in the app_resources!
-    let scaled_words = create_scaled_words(pipeline_id, app_resources, &word_cache, display_rects);
+    let shaped_words = create_shaped_words(pipeline_id, app_resources, &word_cache, display_rects);
     // Layout all words as if there was no max-width constraint (to get the texts "content width").
-    let word_positions_no_max_width = create_word_positions(&word_cache, &scaled_words, display_rects, &solved_widths);
+    let word_positions_no_max_width = create_word_positions(pipeline_id, app_resources, &word_cache, &shaped_words, display_rects, &solved_widths);
 
     // Determine the preferred **content** width
     // let content_widths = node_data.transform(|node, node_id| {
@@ -1293,7 +1293,7 @@ pub fn do_the_layout(
     //     (node_id, TextSizePx(solved_widths.solved_widths[node_id].total()))
     // }).collect();
 
-    // let word_positions_with_max_width = create_word_positions(&word_cache, &scaled_words, display_rects, &proper_max_widths, &inline_text_blocks);
+    // let word_positions_with_max_width = create_word_positions(&word_cache, &shaped_words, display_rects, &proper_max_widths, &inline_text_blocks);
 
     // Get the content height of the content
     // let content_heights = node_data.transform(|node, node_id| {
@@ -1384,13 +1384,13 @@ pub fn do_the_layout(
         }
 
         // set text, if any
-        let parent_text = if let (Some(words), Some((scaled_words, _)), Some((word_positions, _))) = (word_cache.get(parent_node_id), scaled_words.get(parent_node_id), word_positions_no_max_width.get(parent_node_id)) {
-            let mut inline_text_layout = InlineText { words, scaled_words }.get_text_layout(*pipeline_id, *parent_node_id, &word_positions.text_layout_options);
+        let parent_text = if let (Some(words), Some(shaped_words), Some((word_positions, _))) = (word_cache.get(parent_node_id), shaped_words.get(parent_node_id), word_positions_no_max_width.get(parent_node_id)) {
+            let mut inline_text_layout = InlineText { words, shaped_words }.get_text_layout(*pipeline_id, *parent_node_id, &word_positions.text_layout_options);
             let (horz_alignment, vert_alignment) = determine_text_alignment(&display_rects[*parent_node_id]);
             inline_text_layout.align_children_horizontal(horz_alignment);
             inline_text_layout.align_children_vertical_in_parent_bounds(&parent_parent_size, vert_alignment);
             let bounds = inline_text_layout.get_bounds();
-            let glyphs = get_layouted_glyphs(word_positions, scaled_words, &inline_text_layout);
+            let glyphs = get_layouted_glyphs(word_positions, shaped_words, &inline_text_layout);
             glyph_map.insert(*parent_node_id, glyphs);
             Some((word_positions.text_layout_options.clone(), inline_text_layout, bounds))
         } else {
@@ -1454,13 +1454,13 @@ pub fn do_the_layout(
             let child_border_widths = get_border_widths(&child_rect_layout, parent_width.total(), parent_height.total());
 
             // set text, if any
-            let child_text = if let (Some(words), Some((scaled_words, _)), Some((word_positions, _))) = (word_cache.get(&child_node_id), scaled_words.get(&child_node_id), word_positions_no_max_width.get(&child_node_id)) {
-                let mut inline_text_layout = InlineText { words, scaled_words }.get_text_layout(*pipeline_id, child_node_id, &word_positions.text_layout_options);
+            let child_text = if let (Some(words), Some(shaped_words), Some((word_positions, _))) = (word_cache.get(&child_node_id), shaped_words.get(&child_node_id), word_positions_no_max_width.get(&child_node_id)) {
+                let mut inline_text_layout = InlineText { words, shaped_words }.get_text_layout(*pipeline_id, child_node_id, &word_positions.text_layout_options);
                 let (horz_alignment, vert_alignment) = determine_text_alignment(&display_rects[child_node_id]);
                 inline_text_layout.align_children_horizontal(horz_alignment);
                 inline_text_layout.align_children_vertical_in_parent_bounds(&parent_size, vert_alignment);
                 let bounds = inline_text_layout.get_bounds();
-                let glyphs = get_layouted_glyphs(word_positions, scaled_words, &inline_text_layout);
+                let glyphs = get_layouted_glyphs(word_positions, shaped_words, &inline_text_layout);
                 glyph_map.insert(child_node_id, glyphs);
                 Some((word_positions.text_layout_options.clone(), inline_text_layout, bounds))
             } else {
@@ -1501,7 +1501,7 @@ pub fn do_the_layout(
     LayoutResult {
         rects: positioned_rects,
         word_cache,
-        scaled_words,
+        shaped_words,
         positioned_word_cache: word_positions_no_max_width,
         layouted_glyph_cache: glyph_map,
         node_depths: solved_widths.non_leaf_nodes_sorted_by_depth,
@@ -1527,45 +1527,41 @@ fn create_word_cache(
     }).collect()
 }
 
-pub fn create_scaled_words(
+pub fn create_shaped_words(
     pipeline_id: &PipelineId,
-    app_resources: &AppResources,
+    app_resources: &mut AppResources,
     words: &BTreeMap<NodeId, Words>,
     display_rects: &NodeDataContainer<DisplayRectangle>,
-) -> BTreeMap<NodeId, (ScaledWords, FontInstanceKey)> {
+) -> BTreeMap<NodeId, ShapedWords> {
 
-    use azul_core::app_resources::{ImmediateFontId, font_size_to_au, get_font_id, get_font_size};
-    use azul_text_layout::text_layout::words_to_scaled_words;
+    use azul_core::app_resources::{ImmediateFontId, get_font_id};
+    use azul_text_layout::text_layout::shape_words;
 
     words.iter().filter_map(|(node_id, words)| {
 
         let style = &display_rects[*node_id].style;
-        let font_size = get_font_size(&style);
-        let font_size_au = font_size_to_au(font_size);
         let css_font_id = get_font_id(&style);
         let font_id = match app_resources.get_css_font_id(css_font_id) {
             Some(s) => ImmediateFontId::Resolved(*s),
             None => ImmediateFontId::Unresolved(css_font_id.to_string()),
         };
 
-        let loaded_font = app_resources.get_loaded_font(pipeline_id, &font_id)?;
-        let font_instance_key = loaded_font.font_instances.get(&font_size_au)?;
+        let loaded_font = app_resources.get_loaded_font_mut(pipeline_id, &font_id)?;
 
-        let scaled_words = words_to_scaled_words(
-            words,
-            &loaded_font.font_bytes,
-            loaded_font.font_index as u32,
-            loaded_font.font_metrics,
-            font_size.inner.to_pixels(DEFAULT_FONT_SIZE_PX as f32),
-        );
+        // downcast the loaded_font.font from Box<dyn Any> to Box<azul_text_layout::text_shaping::ParsedFont>
+        let parsed_font_downcasted = loaded_font.font.downcast_mut::<azul_text_layout::text_shaping::ParsedFont>()?;
 
-        Some((*node_id, (scaled_words, *font_instance_key)))
+        let shaped_words = shape_words(words, parsed_font_downcasted);
+
+        Some((*node_id, shaped_words))
     }).collect()
 }
 
 fn create_word_positions(
+    pipeline_id: &PipelineId,
+    app_resources: &AppResources,
     words: &BTreeMap<NodeId, Words>,
-    scaled_words: &BTreeMap<NodeId, (ScaledWords, FontInstanceKey)>,
+    shaped_words: &BTreeMap<NodeId, ShapedWords>,
     display_rects: &NodeDataContainer<DisplayRectangle>,
     solved_widths: &SolvedWidthLayout,
 ) -> BTreeMap<NodeId, (WordPositions, FontInstanceKey)> {
@@ -1573,17 +1569,24 @@ fn create_word_positions(
     use azul_text_layout::text_layout::position_words;
     use azul_core::ui_solver::{ResolvedTextLayoutOptions, DEFAULT_LETTER_SPACING, DEFAULT_WORD_SPACING};
     use azul_css::Overflow;
-    use azul_core::app_resources::get_font_size;
+    use azul_core::app_resources::{ImmediateFontId, font_size_to_au, get_font_id, get_font_size};
 
-    let mut word_positions = BTreeMap::new();
-
-    for (node_id, words) in words.iter() {
+    words.iter().filter_map(|(node_id, words)| {
         let rect = &display_rects[*node_id];
-        let (scaled_words, font_instance_key) = match scaled_words.get(&node_id) {
-            Some(s) => s,
-            None => continue,
+
+        let font_size = get_font_size(&rect.style);
+        let font_size_au = font_size_to_au(font_size);
+        let font_size_px = font_size.inner.to_pixels(DEFAULT_FONT_SIZE_PX as f32);
+        let css_font_id = get_font_id(&rect.style);
+
+        let font_id = match app_resources.get_css_font_id(css_font_id) {
+            Some(s) => ImmediateFontId::Resolved(*s),
+            None => ImmediateFontId::Unresolved(css_font_id.to_string()),
         };
-        let font_size_px = get_font_size(&rect.style).inner.to_pixels(DEFAULT_FONT_SIZE_PX as f32);
+        let loaded_font = app_resources.get_loaded_font(pipeline_id, &font_id)?;
+        let font_instance_key = loaded_font.font_instances.get(&font_size_au)?;
+
+        let shaped_words = shaped_words.get(&node_id)?;
         let text_can_overflow = rect.layout.overflow_x.unwrap_or_default().get_property_or_default().unwrap_or_default() != Overflow::Auto;
         let letter_spacing = rect.style.letter_spacing.and_then(|ls| Some(ls.get_property()?.inner.to_pixels(DEFAULT_LETTER_SPACING)));
         let word_spacing = rect.style.word_spacing.and_then(|ws| Some(ws.get_property()?.inner.to_pixels(DEFAULT_WORD_SPACING)));
@@ -1601,32 +1604,9 @@ fn create_word_positions(
             tab_width,
         };
 
-        word_positions.insert(*node_id, (position_words(words, scaled_words, &text_layout_options), *font_instance_key));
-    }
-
-    word_positions
-}
-
-/*
-fn get_glyphs(
-    node_hierarchy: &NodeHierarchy,
-    scaled_words: &BTreeMap<NodeId, (ScaledWords, FontInstanceKey)>,
-    positioned_word_cache: &mut BTreeMap<NodeId, (WordPositions, FontInstanceKey)>,
-    display_rects: &NodeDataContainer<DisplayRectangle>,
-    solved_widths: &SolvedWidthLayout,
-    solved_heights: &SolvedHeightLayout,
-) -> BTreeMap<NodeId, LayoutedGlyphs> {
-
-    use azul_text_layout::text_layout::get_layouted_glyphs;
-
-    scaled_words
-    .iter()
-    .filter_map(|(node_id, (scaled_words, _))| {
-
-
+        Some((*node_id, (position_words(words, shaped_words, &text_layout_options), *font_instance_key)))
     }).collect()
 }
-*/
 
 /// For a given rectangle, determines what text alignment should be used
 fn determine_text_alignment(rect: &DisplayRectangle)

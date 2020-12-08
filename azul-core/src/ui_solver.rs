@@ -164,7 +164,7 @@ pub struct OverflowingScrollNode {
 pub struct LayoutResult {
     pub rects: NodeDataContainer<PositionedRectangle>,
     pub word_cache: BTreeMap<NodeId, Words>,
-    pub shaped_words: BTreeMap<NodeId, (ShapedWords, FontInstanceKey)>,
+    pub shaped_words: BTreeMap<NodeId, ShapedWords>,
     pub positioned_word_cache: BTreeMap<NodeId, (WordPositions, FontInstanceKey)>,
     pub layouted_glyph_cache: BTreeMap<NodeId, LayoutedGlyphs>,
     pub node_depths: Vec<(usize, NodeId)>,
