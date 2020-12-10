@@ -18,7 +18,8 @@ cd ..
 copy "%~dp0\target\release\azul.dll" "%CARGO_HOME%\lib\azul-dll-0.0.1\target\release"
 
 if exist "%~dp0\target\debug\examples" del "%~dp0\target\debug\examples\azul.dll"
+if exist "%~dp0\target\release\examples" del "%~dp0\target\release\examples\azul.dll"
 
-rem cargo run --release --example table
+cargo run --release --example public
 
 rem pause >nul

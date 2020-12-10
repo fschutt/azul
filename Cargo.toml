@@ -17,4 +17,4 @@ members = [
 [profile.release]
 lto = true
 panic = "abort"
-
+overflow-checks = false

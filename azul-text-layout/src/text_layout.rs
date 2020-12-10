@@ -406,8 +406,9 @@ pub fn get_layouted_glyphs(word_positions: &WordPositions, scaled_words: &Shaped
 
                 let letter_spacing_for_glyph = if glyph_info.is_mark { 0.0 } else { letter_spacing_px };
 
-                let glyph_scale_x = glyph_info.size.get_x_scaled(font_metrics, font_size_px);
-                let glyph_scale_y = glyph_info.size.get_y_scaled(font_metrics, font_size_px);
+                let glyph_scale_x = glyph_info.size.get_x_size_scaled(font_metrics, font_size_px);
+                let glyph_advance_x = glyph_info.size.get_x_advance_scaled(font_metrics, font_size_px);
+                let glyph_scale_y = glyph_info.size.get_y_size_scaled(font_metrics, font_size_px);
                 let kerning_x = glyph_info.size.get_kerning_scaled(font_metrics, font_size_px);
 
                 let origin = LayoutPoint::new(line_x + word_position.x + x_pos_in_word_px + x_displacement, baseline_y + y_displacement);
@@ -421,7 +422,7 @@ pub fn get_layouted_glyphs(word_positions: &WordPositions, scaled_words: &Shaped
 
                 all_glyphs.push(instance);
 
-                x_pos_in_word_px += glyph_scale_x + kerning_x + letter_spacing_for_glyph;
+                x_pos_in_word_px += glyph_advance_x + kerning_x + letter_spacing_for_glyph;
             }
         }
     }

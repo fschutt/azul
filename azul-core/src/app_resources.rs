@@ -744,33 +744,40 @@ pub struct Info {
 
 #[derive(Debug, Default, Copy, PartialEq, PartialOrd, Clone, Hash)]
 pub struct Advance {
-    pub x: u16,
-    pub y: u16,
+    pub advance_x: u16,
+    pub size_x: i32,
+    pub size_y: i32,
     pub kerning: i16,
 }
 
 impl Advance {
 
     #[inline]
-    pub fn get_x_total_unscaled(&self) -> i32 { self.x as i32 + self.kerning as i32 }
+    pub fn get_x_advance_total_unscaled(&self) -> i32 { self.advance_x as i32 + self.kerning as i32 }
     #[inline]
-    pub fn get_x_unscaled(&self) -> i32 { self.x as i32 }
+    pub fn get_x_advance_unscaled(&self) -> i32 { self.advance_x as i32 }
     #[inline]
-    pub fn get_y_unscaled(&self) -> i32 { self.y as i32 }
+    pub fn get_x_size_unscaled(&self) -> i32 { self.size_x as i32 }
+    #[inline]
+    pub fn get_y_size_unscaled(&self) -> i32 { self.size_y as i32 }
     #[inline]
     pub fn get_kerning_unscaled(&self) -> i32 { self.kerning as i32 }
 
     #[inline]
-    pub fn get_x_total_scaled(&self, font_metrics: &FontMetrics, target_font_size: f32) -> f32 {
-        self.get_x_total_unscaled() as f32 / font_metrics.units_per_em.get() as f32 * target_font_size
+    pub fn get_x_advance_total_scaled(&self, font_metrics: &FontMetrics, target_font_size: f32) -> f32 {
+        self.get_x_advance_total_unscaled() as f32 / font_metrics.units_per_em.get() as f32 * target_font_size
     }
     #[inline]
-    pub fn get_x_scaled(&self, font_metrics: &FontMetrics, target_font_size: f32) -> f32 {
-        self.get_x_unscaled() as f32 / font_metrics.units_per_em.get() as f32 * target_font_size
+    pub fn get_x_advance_scaled(&self, font_metrics: &FontMetrics, target_font_size: f32) -> f32 {
+        self.get_x_advance_unscaled() as f32 / font_metrics.units_per_em.get() as f32 * target_font_size
     }
     #[inline]
-    pub fn get_y_scaled(&self, font_metrics: &FontMetrics, target_font_size: f32) -> f32 {
-        self.get_y_unscaled() as f32 / font_metrics.units_per_em.get() as f32 * target_font_size
+    pub fn get_x_size_scaled(&self, font_metrics: &FontMetrics, target_font_size: f32) -> f32 {
+        self.get_x_size_unscaled() as f32 / font_metrics.units_per_em.get() as f32 * target_font_size
+    }
+    #[inline]
+    pub fn get_y_size_scaled(&self, font_metrics: &FontMetrics, target_font_size: f32) -> f32 {
+        self.get_y_size_unscaled() as f32 / font_metrics.units_per_em.get() as f32 * target_font_size
     }
     #[inline]
     pub fn get_kerning_scaled(&self, font_metrics: &FontMetrics, target_font_size: f32) -> f32 {
@@ -1597,16 +1604,19 @@ pub fn build_add_font_resource_updates<T: FontImageApi>(
                     Unresolved(css_font_id) => FontSource::System(css_font_id.clone().into()),
                 };
 
+                println!("loading font source {:?}", font_source);
                 let loaded_font_source = match (font_source_load_fn.cb)(&font_source) {
                     Some(s) => s,
                     None => continue,
                 };
 
+                println!("parsing font source {:?}", font_source);
                 let (parsed_font, font_metrics) = match (parse_font_fn)(&loaded_font_source) {
                     Some(s) => s,
                     None => continue,
                 };
 
+                println!("font source {:?} loaded and parsed!", font_source);
                 let LoadedFontSource { font_bytes, font_index } = loaded_font_source;
 
                 if !font_sizes.is_empty() {

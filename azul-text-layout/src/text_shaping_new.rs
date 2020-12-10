@@ -6,14 +6,18 @@ use azul_core::app_resources::{
 use tinyvec::tiny_vec;
 use std::rc::Rc;
 
-use allsorts::binary::read::ReadScope;
-use allsorts::font_data::FontData;
-use crate::allsorts::tables::FontTableProvider;
-use allsorts::layout::{LayoutCache, GDEFTable, GPOS, GSUB};
-use allsorts::tables::HheaTable;
-use allsorts::tables::MaxpTable;
-use allsorts::tables::cmap::CmapSubtable;
-use allsorts::tables::cmap::owned::CmapSubtable as OwnedCmapSubtable;
+use allsorts::{
+    binary::read::ReadScope,
+    font_data::FontData,
+    layout::{LayoutCache, GDEFTable, GPOS, GSUB},
+    tables::{
+        FontTableProvider, HheaTable, MaxpTable, HeadTable,
+        loca::{LocaTable, LocaOffsets},
+        cmap::CmapSubtable,
+        glyf::{SimpleGlyph, CompositeGlyph, GlyphData, GlyfTable, Glyph, GlyfRecord, BoundingBox},
+    },
+    tables::cmap::owned::CmapSubtable as OwnedCmapSubtable,
+};
 
 pub fn get_font_metrics(font_bytes: &[u8], font_index: usize) -> FontMetrics {
 
@@ -204,13 +208,110 @@ pub struct ParsedFont {
     pub num_glyphs: u16,
     pub hhea_table: HheaTable,
     pub hmtx_data: Box<[u8]>,
-    pub vhea_table: HheaTable,
-    pub vmtx_data: Box<[u8]>,
     pub maxp_table: MaxpTable,
     pub gsub_cache: LayoutCache<GSUB>,
     pub gpos_cache: LayoutCache<GPOS>,
     pub gdef_table: Rc<GDEFTable>,
+    pub glyph_records: Vec<OwnedGlyphRecord>,
+    pub loca_table: OwnedLocaTable,
     pub cmap_subtable: OwnedCmapSubtable,
+}
+
+#[derive(Clone)]
+pub enum OwnedGlyphData {
+    Simple(SimpleGlyph),
+    Composite {
+        glyphs: Vec<CompositeGlyph>,
+        instructions: Vec<u8>,
+    },
+}
+
+impl OwnedGlyphData {
+    pub fn from<'a>(glyph_data: GlyphData<'a>) -> Self {
+        match glyph_data {
+            GlyphData::Simple(s) => OwnedGlyphData::Simple(s),
+            GlyphData::Composite { glyphs, instructions } => OwnedGlyphData::Composite { glyphs, instructions: instructions.to_vec() },
+        }
+    }
+}
+
+#[derive(Debug, Clone)]
+pub struct OwnedLocaTable {
+    offsets: OwnedLocaOffsets,
+}
+
+#[derive(Debug, Clone)]
+pub enum OwnedLocaOffsets {
+    Short(Vec<u16>),
+    Long(Vec<u32>),
+}
+
+impl OwnedLocaOffsets {
+    fn from_loca_offsets<'a>(l: LocaOffsets<'a>) -> Self {
+        match l {
+            LocaOffsets::Short(v) => OwnedLocaOffsets::Short(v.to_vec()),
+            LocaOffsets::Long(v) => OwnedLocaOffsets::Long(v.to_vec()),
+        }
+    }
+    fn get(&self, index: usize) -> Option<u32> {
+        match self {
+            OwnedLocaOffsets::Short(v) => v.get(index).map(|i| *i as u32),
+            OwnedLocaOffsets::Long(v) => v.get(index).map(|i| *i),
+        }
+    }
+}
+
+impl OwnedLocaTable {
+    fn from_loca_table<'a>(t: LocaTable<'a>) -> Self {
+        Self {
+            offsets: OwnedLocaOffsets::from_loca_offsets(t.offsets),
+        }
+    }
+}
+
+#[derive(Clone)]
+pub struct OwnedGlyph {
+    pub number_of_contours: i16,
+    pub bounding_box: BoundingBox,
+    pub data: OwnedGlyphData,
+}
+
+impl OwnedGlyph {
+    fn from_glyph_data<'a>(glyph: Glyph<'a>) -> Self {
+        Self {
+            number_of_contours: glyph.number_of_contours,
+            bounding_box: glyph.bounding_box,
+            data: OwnedGlyphData::from(glyph.data),
+        }
+    }
+}
+
+#[derive(Clone)]
+pub enum OwnedGlyphRecord {
+    Empty,
+    Present(Vec<u8>),
+    Parsed(OwnedGlyph),
+}
+
+impl OwnedGlyphRecord {
+    fn from_glyph_record<'a>(g: GlyfRecord<'a>) -> Self {
+        match g {
+            GlyfRecord::Empty => OwnedGlyphRecord::Empty,
+            GlyfRecord::Present(s) => OwnedGlyphRecord::Present(s.data().to_vec()),
+            GlyfRecord::Parsed(g) => OwnedGlyphRecord::Parsed(OwnedGlyph::from_glyph_data(g)),
+        }
+    }
+
+    // parse the data as a glyph, set state to Parsed
+    fn parse(&mut self) {
+        let new = if let OwnedGlyphRecord::Present(data) = self {
+            ReadScope::new(data).read::<Glyph<'_>>().ok()
+            .map(|g| OwnedGlyphRecord::Parsed(OwnedGlyph::from_glyph_data(g)))
+        } else { None };
+        if let Some(new_record) = new {
+            *self = new_record;
+        }
+    }
 }
 
 impl ParsedFont {
@@ -223,17 +324,25 @@ impl ParsedFont {
         let font_file = scope.read::<FontData<'_>>().ok()?;
         let provider = font_file.table_provider(font_index).ok()?;
 
-        let hmtx_data = provider.table_data(tag::HMTX).ok()??.into_owned().into_boxed_slice();
-        let vmtx_data = provider.table_data(tag::VMTX).ok()??.into_owned().into_boxed_slice();
-
-        let vhea_data = provider.table_data(tag::VHEA).ok()??.into_owned();
-        let vhea_table = ReadScope::new(&vhea_data).read::<HheaTable>().ok()?;
-
-        let hhea_data = provider.table_data(tag::HHEA).ok()??.into_owned();
-        let hhea_table = ReadScope::new(&hhea_data).read::<HheaTable>().ok()?;
+        let head_data = provider.table_data(tag::HEAD).ok()??.into_owned();
+        let head_table = ReadScope::new(&head_data).read::<HeadTable>().ok()?;
 
         let maxp_data = provider.table_data(tag::MAXP).ok()??.into_owned();
         let maxp_table = ReadScope::new(&maxp_data).read::<MaxpTable>().ok()?;
+
+        let loca_data = provider.table_data(tag::LOCA).ok()??.into_owned();
+        let loca_table = ReadScope::new(&loca_data).read_dep::<LocaTable<'_>>((maxp_table.num_glyphs as usize, head_table.index_to_loc_format)).ok()?;
+
+        let glyf_data = provider.table_data(tag::GLYF).ok()??.into_owned();
+        let glyf_table = ReadScope::new(&glyf_data).read_dep::<GlyfTable<'_>>(&loca_table).ok()?;
+
+        let glyph_records = glyf_table.records.into_iter().map(|g| OwnedGlyphRecord::from_glyph_record(g)).collect::<Vec<_>>();
+        let loca_table = OwnedLocaTable::from_loca_table(loca_table.clone());
+
+        let hmtx_data = provider.table_data(tag::HMTX).ok()??.into_owned().into_boxed_slice();
+
+        let hhea_data = provider.table_data(tag::HHEA).ok()??.into_owned();
+        let hhea_table = ReadScope::new(&hhea_data).read::<HheaTable>().ok()?;
 
         let font_metrics = get_font_metrics(font_bytes, font_index);
 
@@ -247,26 +356,39 @@ impl ParsedFont {
 
         let cmap_subtable = ReadScope::new(font_data_impl.cmap_subtable_data()).read::<CmapSubtable<'_>>().ok()?.to_owned()?;
 
+
         Some(ParsedFont {
             font_metrics,
             num_glyphs,
             hhea_table,
             hmtx_data,
-            vhea_table,
-            vmtx_data,
             maxp_table,
             gsub_cache,
             gpos_cache,
             gdef_table,
+            glyph_records,
+            loca_table,
             cmap_subtable,
         })
     }
 
-    // get horizontal and vertical advance
-    pub fn get_advance(&mut self, glyph_index: u16) -> (u16, u16) {
-        let horizontal_advance = allsorts::glyph_info::advance(&self.maxp_table, &self.hhea_table, &self.hmtx_data, glyph_index).unwrap();
-        let vertical_advance = allsorts::glyph_info::advance(&self.maxp_table, &self.vhea_table, &self.vmtx_data, glyph_index).unwrap();
-        (horizontal_advance, vertical_advance)
+    pub fn get_horizontal_advance(&mut self, glyph_index: u16) -> u16 {
+        allsorts::glyph_info::advance(&self.maxp_table, &self.hhea_table, &self.hmtx_data, glyph_index).unwrap()
+    }
+
+    // get the x and y size of a glyph in unscaled units
+    pub fn get_glyph_size(&mut self, glyph_index: u16) -> Option<(i32, i32)> {
+        let offset = self.loca_table.offsets.get(glyph_index as usize)? as usize;
+        let glyph_record = self.glyph_records.get_mut(offset)?;
+        glyph_record.parse();
+        match glyph_record {
+            OwnedGlyphRecord::Empty | OwnedGlyphRecord::Present(_) => None,
+            OwnedGlyphRecord::Parsed(g) => {
+                let glyph_width = g.bounding_box.x_max as i32 - g.bounding_box.x_min as i32; // width
+                let glyph_height = g.bounding_box.y_max as i32 - g.bounding_box.y_min as i32; // height
+                Some((glyph_width, glyph_height))
+            }
+        }
     }
 
     pub fn shape(&mut self, text: &[char], script: u32, lang: u32) -> ShapedTextBufferUnsized {
@@ -289,7 +411,7 @@ pub struct ShapedTextBufferUnsized {
 impl ShapedTextBufferUnsized {
     /// Get the word width in unscaled units (respects kerning)
     pub fn get_word_visual_width_unscaled(&self) -> usize {
-        self.infos.iter().map(|s| s.size.get_x_total_unscaled() as usize).sum()
+        self.infos.iter().map(|s| s.size.get_x_advance_total_unscaled() as usize).sum()
     }
 }
 
@@ -594,8 +716,9 @@ fn shape<'a>(font: &mut ParsedFont, text: &[char], script: u32, lang: u32) -> Op
     // calculate the horizontal advance for each char
     let infos = infos.iter().filter_map(|info| {
         let glyph_index = info.glyph.glyph_index;
-        let (adv_x, adv_y) = font.get_advance(glyph_index);
-        let advance = Advance { x: adv_x, y: adv_y, kerning: info.kerning };
+        let adv_x = font.get_horizontal_advance(glyph_index);
+        let (size_x, size_y) = font.get_glyph_size(glyph_index)?;
+        let advance = Advance { advance_x: adv_x, size_x, size_y, kerning: info.kerning };
         let info = translate_info(&info, advance);
         Some(info)
     }).collect();
