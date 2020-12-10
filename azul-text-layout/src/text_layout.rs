@@ -373,10 +373,8 @@ pub fn word_positions_to_inline_text_layout(word_positions: &WordPositions, scal
 /// Returns the final, positioned glyphs
 pub fn get_layouted_glyphs(word_positions: &WordPositions, scaled_words: &ShapedWords, inline_text_layout: &InlineTextLayout) -> LayoutedGlyphs {
 
-    use tinyvec::tiny_vec;
-
     // most text blocks are very short, use stack space
-    let mut all_glyphs = tiny_vec!([GlyphInstance; 32]);
+    let mut all_glyphs: Vec<GlyphInstance> = Vec::with_capacity(scaled_words.items.len() * 4);
 
     let font_metrics = &scaled_words.font_metrics;
     let font_size_px = word_positions.text_layout_options.font_size_px;
@@ -397,7 +395,7 @@ pub fn get_layouted_glyphs(word_positions: &WordPositions, scaled_words: &Shaped
             let mut x_pos_in_word_px = 0.0;
 
             // most words are less than 16 chars, avg length of an english word is 4.7 chars
-            let mut all_glyphs_in_this_word = tiny_vec!([GlyphInstance; 16]);
+            let mut all_glyphs_in_this_word = Vec::<GlyphInstance>::with_capacity(16);
 
             // all words only store the unscaled horizontal advance + horizontal kerning
             for glyph_info in scaled_word.glyph_infos.iter() {

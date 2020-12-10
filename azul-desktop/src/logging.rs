@@ -16,18 +16,6 @@ pub(crate) fn set_up_logging(log_file_path: Option<&str>, log_level: LevelFilter
         use std::io::{Error as IoError, ErrorKind as IoErrorKind};
         use fern::{Dispatch, log_file};
 
-        let log_location = {
-            use std::env;
-
-            let mut exe_location = env::current_exe()
-            .map_err(|_| InitError::Io(IoError::new(IoErrorKind::Other,
-                "Executable has no executable path (?), can't open log file")))?;
-
-            exe_location.pop();
-            exe_location.push(log_file_path.unwrap_or("error.log"));
-            exe_location
-        };
-
         Dispatch::new()
             .format(|out, message, record| {
                 out.finish(format_args!(
@@ -39,7 +27,6 @@ pub(crate) fn set_up_logging(log_file_path: Option<&str>, log_level: LevelFilter
             })
             .level(log_level)
             .chain(::std::io::stdout())
-            .chain(log_file(log_location)?)
             .apply()?;
         Ok(())
     }
