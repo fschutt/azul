@@ -1604,19 +1604,16 @@ pub fn build_add_font_resource_updates<T: FontImageApi>(
                     Unresolved(css_font_id) => FontSource::System(css_font_id.clone().into()),
                 };
 
-                println!("loading font source {:?}", font_source);
                 let loaded_font_source = match (font_source_load_fn.cb)(&font_source) {
                     Some(s) => s,
                     None => continue,
                 };
 
-                println!("parsing font source {:?}", font_source);
                 let (parsed_font, font_metrics) = match (parse_font_fn)(&loaded_font_source) {
                     Some(s) => s,
                     None => continue,
                 };
 
-                println!("font source {:?} loaded and parsed!", font_source);
                 let LoadedFontSource { font_bytes, font_index } = loaded_font_source;
 
                 if !font_sizes.is_empty() {

@@ -12,7 +12,7 @@ use allsorts::{
     layout::{LayoutCache, GDEFTable, GPOS, GSUB},
     tables::{
         FontTableProvider, HheaTable, MaxpTable, HeadTable,
-        loca::{LocaTable, LocaOffsets},
+        loca::LocaTable,
         cmap::CmapSubtable,
         glyf::{SimpleGlyph, CompositeGlyph, GlyphData, GlyfTable, Glyph, GlyfRecord, BoundingBox},
     },
@@ -213,11 +213,10 @@ pub struct ParsedFont {
     pub gpos_cache: LayoutCache<GPOS>,
     pub gdef_table: Rc<GDEFTable>,
     pub glyph_records: Vec<OwnedGlyphRecord>,
-    pub loca_table: OwnedLocaTable,
     pub cmap_subtable: OwnedCmapSubtable,
 }
 
-#[derive(Clone)]
+#[derive(Debug, Clone)]
 pub enum OwnedGlyphData {
     Simple(SimpleGlyph),
     Composite {
@@ -236,40 +235,6 @@ impl OwnedGlyphData {
 }
 
 #[derive(Debug, Clone)]
-pub struct OwnedLocaTable {
-    offsets: OwnedLocaOffsets,
-}
-
-#[derive(Debug, Clone)]
-pub enum OwnedLocaOffsets {
-    Short(Vec<u16>),
-    Long(Vec<u32>),
-}
-
-impl OwnedLocaOffsets {
-    fn from_loca_offsets<'a>(l: LocaOffsets<'a>) -> Self {
-        match l {
-            LocaOffsets::Short(v) => OwnedLocaOffsets::Short(v.to_vec()),
-            LocaOffsets::Long(v) => OwnedLocaOffsets::Long(v.to_vec()),
-        }
-    }
-    fn get(&self, index: usize) -> Option<u32> {
-        match self {
-            OwnedLocaOffsets::Short(v) => v.get(index).map(|i| *i as u32),
-            OwnedLocaOffsets::Long(v) => v.get(index).map(|i| *i),
-        }
-    }
-}
-
-impl OwnedLocaTable {
-    fn from_loca_table<'a>(t: LocaTable<'a>) -> Self {
-        Self {
-            offsets: OwnedLocaOffsets::from_loca_offsets(t.offsets),
-        }
-    }
-}
-
-#[derive(Clone)]
 pub struct OwnedGlyph {
     pub number_of_contours: i16,
     pub bounding_box: BoundingBox,
@@ -286,7 +251,7 @@ impl OwnedGlyph {
     }
 }
 
-#[derive(Clone)]
+#[derive(Debug, Clone)]
 pub enum OwnedGlyphRecord {
     Empty,
     Present(Vec<u8>),
@@ -337,7 +302,6 @@ impl ParsedFont {
         let glyf_table = ReadScope::new(&glyf_data).read_dep::<GlyfTable<'_>>(&loca_table).ok()?;
 
         let glyph_records = glyf_table.records.into_iter().map(|g| OwnedGlyphRecord::from_glyph_record(g)).collect::<Vec<_>>();
-        let loca_table = OwnedLocaTable::from_loca_table(loca_table.clone());
 
         let hmtx_data = provider.table_data(tag::HMTX).ok()??.into_owned().into_boxed_slice();
 
@@ -356,7 +320,6 @@ impl ParsedFont {
 
         let cmap_subtable = ReadScope::new(font_data_impl.cmap_subtable_data()).read::<CmapSubtable<'_>>().ok()?.to_owned()?;
 
-
         Some(ParsedFont {
             font_metrics,
             num_glyphs,
@@ -367,9 +330,14 @@ impl ParsedFont {
             gpos_cache,
             gdef_table,
             glyph_records,
-            loca_table,
             cmap_subtable,
         })
+    }
+
+    /// Returns the width of the space " " character
+    pub fn get_space_width(&mut self) -> Option<usize> {
+        let glyph_index = self.lookup_glyph_index(' ' as u32)?;
+        allsorts::glyph_info::advance(&self.maxp_table, &self.hhea_table, &self.hmtx_data, glyph_index).ok().map(|s| s as usize)
     }
 
     pub fn get_horizontal_advance(&mut self, glyph_index: u16) -> u16 {
@@ -378,8 +346,7 @@ impl ParsedFont {
 
     // get the x and y size of a glyph in unscaled units
     pub fn get_glyph_size(&mut self, glyph_index: u16) -> Option<(i32, i32)> {
-        let offset = self.loca_table.offsets.get(glyph_index as usize)? as usize;
-        let glyph_record = self.glyph_records.get_mut(offset)?;
+        let glyph_record = self.glyph_records.get_mut(glyph_index as usize)?;
         glyph_record.parse();
         match glyph_record {
             OwnedGlyphRecord::Empty | OwnedGlyphRecord::Present(_) => None,
@@ -395,10 +362,10 @@ impl ParsedFont {
         shape(self, text, script, lang).unwrap_or_default()
     }
 
-    pub fn lookup_glyph_index(&self, c: u32) -> u16 {
+    pub fn lookup_glyph_index(&self, c: u32) -> Option<u16> {
         match self.cmap_subtable.map_glyph(c) {
-            Ok(Some(c)) => c,
-            _ => 0,
+            Ok(Some(c)) => Some(c),
+            _ => None,
         }
     }
 }
@@ -677,7 +644,7 @@ fn shape<'a>(font: &mut ParsedFont, text: &[char], script: u32, lang: u32) -> Op
                     .peek()
                     .and_then(|&next| allsorts::unicode::VariationSelector::try_from(*next).ok());
 
-                let glyph_index = font.lookup_glyph_index(*ch as u32);
+                let glyph_index = font.lookup_glyph_index(*ch as u32).unwrap_or(0);
                 let glyph = make_raw_glyph(*ch, glyph_index, vs);
                 glyphs.push(glyph);
             }
@@ -685,8 +652,7 @@ fn shape<'a>(font: &mut ParsedFont, text: &[char], script: u32, lang: u32) -> Op
     }
 
     const DOTTED_CIRCLE: char = '\u{25cc}';
-    // TODO: Remove cast when lookup_glyph_index returns u16
-    let dotted_circle_index = font.lookup_glyph_index(DOTTED_CIRCLE as u32);
+    let dotted_circle_index = font.lookup_glyph_index(DOTTED_CIRCLE as u32).unwrap_or(0);
 
     // Apply glyph substitution if table is present
     gsub_apply(

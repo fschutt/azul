@@ -137,8 +137,7 @@ pub fn shape_words(words: &Words, font: &mut ParsedFont) -> ShapedWords {
     let (script, lang) = text_shaping::estimate_script_and_language(&words.internal_str);
 
     // Get the dimensions of the space glyph
-    let space_unscaled = font.shape(&[' '], script, lang);
-    let space_advance = space_unscaled.get_word_visual_width_unscaled();
+    let space_advance = font.get_space_width().unwrap_or(font.font_metrics.units_per_em.get() as usize);
 
     let mut longest_word_width = 0_usize;
 
@@ -388,7 +387,7 @@ pub fn get_layouted_glyphs(word_positions: &WordPositions, scaled_words: &Shaped
         let word_positions_in_this_line = &word_positions.word_positions[line.word_start..line.word_end];
 
         let line_x = line.bounds.origin.x;
-        let baseline_y = line.bounds.origin.y - ascender_px; // bottom left corner of the text baseline
+        let baseline_y = line.bounds.origin.y - (line.bounds.size.height - ascender_px); // bottom left corner of the text baseline
 
         for (scaled_word, word_position) in scaled_words_in_this_line.iter().zip(word_positions_in_this_line.iter()) {
 
