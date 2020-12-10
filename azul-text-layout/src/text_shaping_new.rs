@@ -715,7 +715,6 @@ fn translate_info(i: &allsorts::gpos::Info, size: Advance) -> Info {
         size,
         placement: translate_placement(&i.placement),
         mark_placement: translate_mark_placement(&i.mark_placement),
-        is_mark: i.is_mark,
     }
 }
 

@@ -739,7 +739,6 @@ pub struct Info {
     pub size: Advance,
     pub placement: Placement,
     pub mark_placement: MarkPlacement,
-    pub is_mark: bool,
 }
 
 #[derive(Debug, Default, Copy, PartialEq, PartialOrd, Clone, Hash)]
@@ -800,7 +799,7 @@ impl ShapedWord {
     }
     /// Returns the number of glyphs THAT ARE NOT DIACRITIC MARKS
     pub fn number_of_glyphs(&self) -> usize {
-        self.glyph_infos.iter().filter(|i| !i.is_mark).count()
+        self.glyph_infos.iter().filter(|i| i.mark_placement == MarkPlacement::None).count()
     }
 }
 

@@ -205,7 +205,7 @@ impl LayoutRect {
 }
 
 /// Only used for calculations: Size (width, height) in layout space.
-#[derive(Copy, Clone, PartialEq, PartialOrd)]
+#[derive(Copy, Default, Clone, PartialEq, PartialOrd)]
 pub struct LayoutSize { pub width: f32, pub height: f32 }
 
 impl fmt::Debug for LayoutSize {
@@ -228,7 +228,7 @@ impl LayoutSize {
 }
 
 /// Only used for calculations: Point coordinate (x, y) in layout space.
-#[derive(Copy, Clone, PartialEq, PartialOrd)]
+#[derive(Copy, Default, Clone, PartialEq, PartialOrd)]
 pub struct LayoutPoint { pub x: f32, pub y: f32 }
 
 impl fmt::Debug for LayoutPoint {

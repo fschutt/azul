@@ -51,7 +51,7 @@ pub fn parse_display_list_size(output_size: &str) -> Option<(f32, f32)> {
     Some((w, h))
 }
 
-#[derive(Debug, Copy, Clone, PartialEq, PartialOrd)]
+#[derive(Debug, Default, Copy, Clone, PartialEq, PartialOrd)]
 pub struct GlyphInstance {
     pub index: GlyphIndex,
     pub point: LayoutPoint,

@@ -373,7 +373,10 @@ pub fn word_positions_to_inline_text_layout(word_positions: &WordPositions, scal
 /// Returns the final, positioned glyphs
 pub fn get_layouted_glyphs(word_positions: &WordPositions, scaled_words: &ShapedWords, inline_text_layout: &InlineTextLayout) -> LayoutedGlyphs {
 
-    let mut all_glyphs = Vec::with_capacity(scaled_words.items.len());
+    use tinyvec::tiny_vec;
+
+    // most text blocks are very short, use stack space
+    let mut all_glyphs = tiny_vec!([GlyphInstance; 32]);
 
     let font_metrics = &scaled_words.font_metrics;
     let font_size_px = word_positions.text_layout_options.font_size_px;
@@ -393,24 +396,37 @@ pub fn get_layouted_glyphs(word_positions: &WordPositions, scaled_words: &Shaped
 
             let mut x_pos_in_word_px = 0.0;
 
+            // most words are less than 16 chars, avg length of an english word is 4.7 chars
+            let mut all_glyphs_in_this_word = tiny_vec!([GlyphInstance; 16]);
+
             // all words only store the unscaled horizontal advance + horizontal kerning
             for glyph_info in scaled_word.glyph_infos.iter() {
 
-                // local x and y displacement of the glyph - does NOT advance the horizontal cursor!
-                let (x_displacement, y_displacement) = if glyph_info.is_mark {
-                    glyph_info.mark_placement.get_placement_relative(font_metrics, font_size_px)
-                } else {
-                    glyph_info.placement.get_placement_relative(font_metrics, font_size_px)
-                };
+                use azul_core::app_resources::MarkPlacement;
 
-                let letter_spacing_for_glyph = if glyph_info.is_mark { 0.0 } else { letter_spacing_px };
+                // local x and y displacement of the glyph - does NOT advance the horizontal cursor!
+                let (x_displacement, y_displacement) = glyph_info.placement.get_placement_relative(font_metrics, font_size_px);
+
+                // if the character is a mark, the mark displacement has to be added ON TOP OF the existing displacement
+                let (letter_spacing_for_glyph, origin) = match glyph_info.mark_placement {
+                    MarkPlacement::None => {
+                        (letter_spacing_px, LayoutPoint::new(line_x + word_position.x + x_pos_in_word_px + x_displacement, baseline_y + y_displacement))
+                    },
+                    MarkPlacement::MarkAnchor(index, _, _) => {
+                        let anchor = &all_glyphs_in_this_word[index];
+                        (0.0, LayoutPoint::new(anchor.point.x + x_displacement, anchor.point.y + y_displacement)) // TODO: wrong
+                    },
+                    MarkPlacement::MarkOverprint(index) => {
+                        let anchor = &all_glyphs_in_this_word[index];
+                        (0.0, LayoutPoint::new(anchor.point.x + x_displacement, anchor.point.y + y_displacement))
+                    },
+                };
 
                 let glyph_scale_x = glyph_info.size.get_x_size_scaled(font_metrics, font_size_px);
                 let glyph_advance_x = glyph_info.size.get_x_advance_scaled(font_metrics, font_size_px);
                 let glyph_scale_y = glyph_info.size.get_y_size_scaled(font_metrics, font_size_px);
                 let kerning_x = glyph_info.size.get_kerning_scaled(font_metrics, font_size_px);
 
-                let origin = LayoutPoint::new(line_x + word_position.x + x_pos_in_word_px + x_displacement, baseline_y + y_displacement);
                 let size = LayoutSize::new(glyph_scale_x, glyph_scale_y);
 
                 let instance = GlyphInstance {
@@ -419,14 +435,16 @@ pub fn get_layouted_glyphs(word_positions: &WordPositions, scaled_words: &Shaped
                     size,
                 };
 
-                all_glyphs.push(instance);
+                all_glyphs_in_this_word.push(instance);
 
                 x_pos_in_word_px += glyph_advance_x + kerning_x + letter_spacing_for_glyph;
             }
+
+            all_glyphs.extend_from_slice(all_glyphs_in_this_word.as_slice());
         }
     }
 
-    LayoutedGlyphs { glyphs: all_glyphs }
+    LayoutedGlyphs { glyphs: all_glyphs.into_iter().collect() }
 }
 
 /// For a given line number (**NOTE: 0-indexed!**), calculates the Y
