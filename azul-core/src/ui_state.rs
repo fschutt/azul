@@ -2,9 +2,7 @@ use std::{
     fmt,
     collections::BTreeMap,
 };
-use azul_css::CssProperty;
 use crate::{
-    FastHashSet,
     id_tree::NodeId,
     dom::{
         Dom, CompactDom, DomId, TagId, TabIndex,
@@ -23,8 +21,6 @@ pub struct UiState {
     pub dom_id: DomId,
     /// The actual DOM, rendered from the .layout() function
     pub(crate) dom: CompactDom,
-    /// The style properties that should be overridden for this frame, cloned from the `Dom.dynamic_css_overrides`
-    pub dynamic_css_overrides: BTreeMap<NodeId, FastHashSet<CssProperty>>,
     /// Stores all tags for nodes that need to activate on a `:hover` or `:active` event.
     pub tag_ids_to_hover_active_states: BTreeMap<TagId, (NodeId, HoverGroup)>,
 
@@ -60,7 +56,6 @@ impl fmt::Debug for UiState {
             "UiState {{ \
 
                 dom: {:?}, \
-                dynamic_css_overrides: {:?}, \
                 tag_ids_to_hover_active_states: {:?}, \
                 tab_index_tags: {:?}, \
                 draggable_tags: {:?}, \
@@ -73,7 +68,6 @@ impl fmt::Debug for UiState {
             }}",
 
             self.dom,
-            self.dynamic_css_overrides,
             self.tag_ids_to_hover_active_states,
             self.tab_index_tags,
             self.draggable_tags,
@@ -136,8 +130,6 @@ impl UiState {
         let mut tag_ids_to_node_ids = BTreeMap::new();
         // Mapping from nodes to tags, reverse mapping (not used right now, may be useful in the future)
         let mut node_ids_to_tag_ids = BTreeMap::new();
-        // Which nodes have extra dynamic CSS overrides?
-        let mut dynamic_css_overrides = BTreeMap::new();
 
         let mut hover_callbacks = BTreeMap::new();
         let mut focus_callbacks = BTreeMap::new();
@@ -262,24 +254,12 @@ impl UiState {
                     tag_ids_to_node_ids.insert(tag_id, node_id);
                     node_ids_to_tag_ids.insert(node_id, tag_id);
                 }
-
-                // Collect all the styling overrides into one hash map
-                if !node.get_inline_css_props().is_empty() {
-                    let inline_css_props = node
-                        .get_inline_css_props()
-                        .iter()
-                        .cloned()
-                        .collect();
-
-                    dynamic_css_overrides.insert(node_id, inline_css_props);
-                }
             }
         }
 
         UiState {
             dom_id: DomId::new(parent_dom),
             dom,
-            dynamic_css_overrides,
             tag_ids_to_hover_active_states: BTreeMap::new(),
 
             tab_index_tags,

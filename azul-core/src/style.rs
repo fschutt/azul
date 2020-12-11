@@ -182,7 +182,6 @@ pub fn match_dom_selectors(
         // performance-sensitive operation!
         dom_id: ui_state.dom_id.clone(),
         html_tree,
-        dynamic_css_overrides: ui_state.dynamic_css_overrides.clone(),
         ui_descr_root: ui_state.dom.root,
         styled_nodes,
         selected_hover_nodes,
