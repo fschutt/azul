@@ -2,10 +2,8 @@
 
 extern crate azul;
 
-use azul::{
-    prelude::*,
-    widgets::{button::Button, label::Label},
-};
+use azul::prelude::*;
+use azul_widgets::{button::Button, label::Label};
 use std::{
     thread,
     time::{Duration, Instant},

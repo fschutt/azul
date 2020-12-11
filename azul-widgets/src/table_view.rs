@@ -61,7 +61,7 @@ impl TableViewState {
         //             '-> div.__azul-native-table-row
         //                 '-> div.__azul-native-table-cell
 
-        Dom::div()
+        let dom = Dom::div()
         .with_class("__azul-native-table-container".into())
         .with_child(
             Dom::div()
@@ -120,7 +120,11 @@ impl TableViewState {
                     .with_class("__azul-native-table-selection".into())
                     .with_child(Dom::div().with_class("__azul-native-table-selection-handle".into()))
             )
-        )
+        );
+
+        println!("dom:\r\n{}", dom.get_html_string());
+
+        dom
     }
 
     pub fn set_cell<I: Into<String>>(&mut self, x: usize, y: usize, value: I) {
@@ -161,6 +165,7 @@ impl TableView {
     }
 
     extern "C" fn render_table_iframe_contents(info: IFrameCallbackInfo) -> IFrameCallbackReturn {
+        println!("rendering table iframe: {:?}", info.get_bounds().get_logical_size());
         fn render_table_iframe_contents_inner(info: IFrameCallbackInfo) -> Option<Dom> {
             let state = info.get_state();
             let table_view_state = state.borrow::<TableViewState>()?;

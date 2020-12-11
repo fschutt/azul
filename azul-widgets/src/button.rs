@@ -53,7 +53,7 @@ fn test_button_ui_1() {
     let button = Button::with_label("Hello").dom();
     let button_html = button.get_html_string();
 
-    if expected_html != button_html {
+    if expected_html != button_html.as_str() {
         panic!("expected:\r\n{}\r\ngot:\r\n{}", expected_html, button_html);
     }
 }

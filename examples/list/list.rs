@@ -3,6 +3,7 @@
 extern crate azul;
 
 use azul::prelude::*;
+use azul::dom::On;
 
 struct List {
     items: Vec<&'static str>,

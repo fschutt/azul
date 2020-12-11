@@ -3,7 +3,7 @@
 extern crate azul;
 
 use azul::prelude::*;
-use azul::widgets::text_input::*;
+use azul_widgets::text_input::*;
 
 const CSS: &str = "
 #text_input_1 {

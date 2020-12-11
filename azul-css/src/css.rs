@@ -597,10 +597,10 @@ fn get_specificity(path: &CssPath) -> (usize, usize, usize, usize) {
 #[test]
 fn test_specificity() {
     use self::CssPathSelector::*;
-    assert_eq!(get_specificity(&CssPath { selectors: vec![Id("hello".into())] }), (1, 0, 0, 1));
-    assert_eq!(get_specificity(&CssPath { selectors: vec![Class("hello".into())] }), (0, 1, 0, 1));
-    assert_eq!(get_specificity(&CssPath { selectors: vec![Type(NodeTypePath::Div)] }), (0, 0, 1, 1));
-    assert_eq!(get_specificity(&CssPath { selectors: vec![Id("hello".into()), Type(NodeTypePath::Div)] }), (1, 0, 1, 2));
+    assert_eq!(get_specificity(&CssPath { selectors: vec![Id("hello".to_string().into())].into() }), (1, 0, 0, 1));
+    assert_eq!(get_specificity(&CssPath { selectors: vec![Class("hello".to_string().into())].into() }), (0, 1, 0, 1));
+    assert_eq!(get_specificity(&CssPath { selectors: vec![Type(NodeTypePath::Div)].into() }), (0, 0, 1, 1));
+    assert_eq!(get_specificity(&CssPath { selectors: vec![Id("hello".to_string().into()), Type(NodeTypePath::Div)].into() }), (1, 0, 1, 2));
 }
 
 // Assert that order of the style items is correct (in order of CSS path specificity, lowest-to-highest)
@@ -612,12 +612,12 @@ fn test_specificity_sort() {
     let mut input_style = Stylesheet {
         rules: vec![
             // Rules are sorted from lowest-specificity to highest specificity
-            CssRuleBlock { path: CssPath { selectors: vec![Global] }, declarations: Vec::new() },
-            CssRuleBlock { path: CssPath { selectors: vec![Global, Type(Div), Class("my_class".into()), Id("my_id".into())] }, declarations: Vec::new() },
-            CssRuleBlock { path: CssPath { selectors: vec![Global, Type(Div), Id("my_id".into())] }, declarations: Vec::new() },
-            CssRuleBlock { path: CssPath { selectors: vec![Global, Id("my_id".into())] }, declarations: Vec::new() },
-            CssRuleBlock { path: CssPath { selectors: vec![Type(Div), Class("my_class".into()), Class("specific".into()), Id("my_id".into())] }, declarations: Vec::new() },
-        ],
+            CssRuleBlock { path: CssPath { selectors: vec![Global].into() }, declarations: Vec::new().into() },
+            CssRuleBlock { path: CssPath { selectors: vec![Global, Type(Div), Class("my_class".to_string().into()), Id("my_id".to_string().into())].into() }, declarations: Vec::new().into() },
+            CssRuleBlock { path: CssPath { selectors: vec![Global, Type(Div), Id("my_id".to_string().into())].into() }, declarations: Vec::new().into() },
+            CssRuleBlock { path: CssPath { selectors: vec![Global, Id("my_id".to_string().into())].into() }, declarations: Vec::new().into() },
+            CssRuleBlock { path: CssPath { selectors: vec![Type(Div), Class("my_class".to_string().into()), Class("specific".to_string().into()), Id("my_id".to_string().into())].into() }, declarations: Vec::new().into() },
+        ].into(),
     };
 
     input_style.sort_by_specificity();
@@ -625,12 +625,12 @@ fn test_specificity_sort() {
     let expected_style = Stylesheet {
         rules: vec![
             // Rules are sorted from lowest-specificity to highest specificity
-            CssRuleBlock { path: CssPath { selectors: vec![Global] }, declarations: Vec::new() },
-            CssRuleBlock { path: CssPath { selectors: vec![Global, Id("my_id".into())] }, declarations: Vec::new() },
-            CssRuleBlock { path: CssPath { selectors: vec![Global, Type(Div), Id("my_id".into())] }, declarations: Vec::new() },
-            CssRuleBlock { path: CssPath { selectors: vec![Global, Type(Div), Class("my_class".into()), Id("my_id".into())] }, declarations: Vec::new() },
-            CssRuleBlock { path: CssPath { selectors: vec![Type(Div), Class("my_class".into()), Class("specific".into()), Id("my_id".into())] }, declarations: Vec::new() },
-        ],
+            CssRuleBlock { path: CssPath { selectors: vec![Global].into() }, declarations: Vec::new().into() },
+            CssRuleBlock { path: CssPath { selectors: vec![Global, Id("my_id".to_string().into())].into() }, declarations: Vec::new().into() },
+            CssRuleBlock { path: CssPath { selectors: vec![Global, Type(Div), Id("my_id".to_string().into())].into() }, declarations: Vec::new().into() },
+            CssRuleBlock { path: CssPath { selectors: vec![Global, Type(Div), Class("my_class".to_string().into()), Id("my_id".to_string().into())].into() }, declarations: Vec::new().into() },
+            CssRuleBlock { path: CssPath { selectors: vec![Type(Div), Class("my_class".to_string().into()), Class("specific".to_string().into()), Id("my_id".to_string().into())].into() }, declarations: Vec::new().into() },
+        ].into(),
     };
 
     assert_eq!(input_style, expected_style);

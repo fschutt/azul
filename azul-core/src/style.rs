@@ -435,9 +435,7 @@ fn test_case_issue_93() {
     use azul_css::*;
     use crate::dom::*;
 
-    struct DataModel;
-
-    fn render_tab() -> Dom<DataModel> {
+    fn render_tab() -> Dom {
         Dom::div().with_class("tabwidget-tab")
             .with_child(Dom::label("").with_class("tabwidget-tab-label"))
             .with_child(Dom::label("").with_class("tabwidget-tab-close"))
@@ -455,11 +453,11 @@ fn test_case_issue_93() {
     let dom = convert_dom_into_compact_dom(dom);
 
     let tab_active_close = CssPath { selectors: vec![
-        Class("tabwidget-tab".into()),
-        Class("active".into()),
+        Class("tabwidget-tab".to_string().into()),
+        Class("active".to_string().into()),
         Children,
-        Class("tabwidget-tab-close".into())
-    ] };
+        Class("tabwidget-tab-close".to_string().into())
+    ].into() };
 
     let node_hierarchy = &dom.arena.node_hierarchy;
     let node_data = &dom.arena.node_data;
@@ -514,25 +512,25 @@ fn test_css_group_iterator() {
     // ".hello > #id_text.new_class div.content"
     // -> ["div.content", "#id_text.new_class", ".hello"]
     let selectors = vec![
-        Class("hello".into()),
+        Class("hello".to_string().into()),
         DirectChildren,
-        Id("id_test".into()),
-        Class("new_class".into()),
+        Id("id_test".to_string().into()),
+        Class("new_class".to_string().into()),
         Children,
         Type(NodeTypePath::Div),
-        Class("content".into()),
+        Class("content".to_string().into()),
     ];
 
     let mut it = CssGroupIterator::new(&selectors);
 
     assert_eq!(it.next(), Some((vec![
        &Type(NodeTypePath::Div),
-       &Class("content".into()),
+       &Class("content".to_string().into()),
     ], CssGroupSplitReason::Children)));
 
     assert_eq!(it.next(), Some((vec![
-       &Id("id_test".into()),
-       &Class("new_class".into()),
+       &Id("id_test".to_string().into()),
+       &Class("new_class".to_string().into()),
     ], CssGroupSplitReason::DirectChildren)));
 
     assert_eq!(it.next(), Some((vec![
@@ -543,13 +541,13 @@ fn test_css_group_iterator() {
 
     // Test single class
     let selectors_2 = vec![
-        Class("content".into()),
+        Class("content".to_string().into()),
     ];
 
     let mut it = CssGroupIterator::new(&selectors_2);
 
     assert_eq!(it.next(), Some((vec![
-       &Class("content".into()),
+       &Class("content".to_string().into()),
     ], CssGroupSplitReason::Children)));
 
     assert_eq!(it.next(), None);

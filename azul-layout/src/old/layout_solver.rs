@@ -19,7 +19,7 @@ use azul_text_layout::{InlineText, text_layout::{Words, ShapedWords, WordPositio
 const DEFAULT_FLEX_GROW_FACTOR: f32 = 1.0;
 
 #[derive(Debug, Copy, Clone, PartialEq)]
-enum WhConstraint {
+pub(crate) enum WhConstraint {
     /// between min, max
     Between(f32, f32),
     /// Value needs to be exactly X
@@ -74,7 +74,7 @@ macro_rules! determine_preferred {
     ///
     /// For example, if you have an image, the `preferred_inner_width` is the images width,
     /// if the node type is an text, the `preferred_inner_width` is the text height.
-    fn $fn_name(layout: &RectLayout, preferred_inner_width: Option<f32>, parent_width: f32) -> WhConstraint {
+    pub(crate) fn $fn_name(layout: &RectLayout, preferred_inner_width: Option<f32>, parent_width: f32) -> WhConstraint {
 
         let mut width = layout.$width.and_then(|w| w.get_property().map(|x| x.inner.to_pixels(parent_width)));
         let min_width = layout.$min_width.and_then(|w| w.get_property().map(|x| x.inner.to_pixels(parent_width)));
@@ -164,7 +164,7 @@ determine_preferred!(determine_preferred_width, width, min_width, max_width);
 determine_preferred!(determine_preferred_height, height, min_height, max_height);
 
 #[derive(Debug, Default, Copy, Clone, PartialEq)]
-struct WidthCalculatedRect {
+pub(crate) struct WidthCalculatedRect {
     pub preferred_width: WhConstraint,
     pub margin_top: CssPropertyValue<LayoutMarginTop>,
     pub margin_right: CssPropertyValue<LayoutMarginRight>,
@@ -204,7 +204,7 @@ impl WidthCalculatedRect {
 }
 
 #[derive(Debug, Default, Copy, Clone, PartialEq)]
-struct HeightCalculatedRect {
+pub(crate) struct HeightCalculatedRect {
     pub preferred_height: WhConstraint,
     pub margin_top: CssPropertyValue<LayoutMarginTop>,
     pub margin_right: CssPropertyValue<LayoutMarginRight>,
@@ -279,7 +279,7 @@ macro_rules! typed_arena {(
     ///
     /// NOTE: Later on, this could maybe be a NodeDataContainer<&'a RectLayout>.
     #[must_use]
-    fn $from_rect_layout_arena_fn_name(
+    pub(crate) fn $from_rect_layout_arena_fn_name(
         node_data: &NodeDataContainer<RectLayout>,
         widths: &NodeDataContainer<Option<f32>>,
         node_hierarchy: &NodeHierarchy

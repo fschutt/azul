@@ -13,8 +13,3 @@ members = [
     "azul-css-parser",
     "azul-native-style",
 ]
-
-[profile.release]
-lto = true
-panic = "abort"
-overflow-checks = false

@@ -2746,16 +2746,21 @@ mod css_tests {
     fn test_parse_linear_gradient_1() {
         assert_eq!(parse_style_background_content("linear-gradient(red, yellow)"),
             Ok(StyleBackgroundContent::LinearGradient(LinearGradient {
-                direction: Direction::FromTo(DirectionCorner::Top, DirectionCorner::Bottom),
+                direction: Direction::FromTo(DirectionCorners {
+                    from: DirectionCorner::Top,
+                    to: DirectionCorner::Bottom,
+                }),
                 extend_mode: ExtendMode::Clamp,
-                stops: vec![GradientStopPre {
-                    offset: Some(PercentageValue::new(0.0)),
-                    color: ColorU { r: 255, g: 0, b: 0, a: 255 },
-                },
-                GradientStopPre {
-                    offset: Some(PercentageValue::new(100.0)),
-                    color: ColorU { r: 255, g: 255, b: 0, a: 255 },
-                }],
+                stops: vec![
+                    GradientStopPre {
+                        offset: Some(PercentageValue::new(0.0)).into(),
+                        color: ColorU { r: 255, g: 0, b: 0, a: 255 },
+                    },
+                    GradientStopPre {
+                        offset: Some(PercentageValue::new(100.0)).into(),
+                        color: ColorU { r: 255, g: 255, b: 0, a: 255 },
+                    }
+                ].into(),
             })));
     }
 
@@ -2763,24 +2768,29 @@ mod css_tests {
     fn test_parse_linear_gradient_2() {
         assert_eq!(parse_style_background_content("linear-gradient(red, lime, blue, yellow)"),
             Ok(StyleBackgroundContent::LinearGradient(LinearGradient {
-                direction: Direction::FromTo(DirectionCorner::Top, DirectionCorner::Bottom),
+                direction: Direction::FromTo(DirectionCorners {
+                    from: DirectionCorner::Top,
+                    to: DirectionCorner::Bottom,
+                }),
                 extend_mode: ExtendMode::Clamp,
-                stops: vec![GradientStopPre {
-                    offset: Some(PercentageValue::new(0.0)),
-                    color: ColorU { r: 255, g: 0, b: 0, a: 255 },
-                },
-                GradientStopPre {
-                    offset: Some(PercentageValue::new(33.333332)),
-                    color: ColorU { r: 0, g: 255, b: 0, a: 255 },
-                },
-                GradientStopPre {
-                    offset: Some(PercentageValue::new(66.666664)),
-                    color: ColorU { r: 0, g: 0, b: 255, a: 255 },
-                },
-                GradientStopPre {
-                    offset: Some(PercentageValue::new(99.9999)), // note: not 100%, but close enough
-                    color: ColorU { r: 255, g: 255, b: 0, a: 255 },
-                }],
+                stops: vec![
+                    GradientStopPre {
+                        offset: Some(PercentageValue::new(0.0)).into(),
+                        color: ColorU { r: 255, g: 0, b: 0, a: 255 },
+                    },
+                    GradientStopPre {
+                        offset: Some(PercentageValue::new(33.333332)).into(),
+                        color: ColorU { r: 0, g: 255, b: 0, a: 255 },
+                    },
+                    GradientStopPre {
+                        offset: Some(PercentageValue::new(66.666664)).into(),
+                        color: ColorU { r: 0, g: 0, b: 255, a: 255 },
+                    },
+                    GradientStopPre {
+                        offset: Some(PercentageValue::new(99.9999)).into(), // note: not 100%, but close enough
+                        color: ColorU { r: 255, g: 255, b: 0, a: 255 },
+                    }
+                ].into(),
         })));
     }
 
@@ -2791,18 +2801,19 @@ mod css_tests {
                 direction: Direction::Angle(50.0.into()),
                 extend_mode: ExtendMode::Repeat,
                 stops: vec![
-                GradientStopPre {
-                    offset: Some(PercentageValue::new(0.0)),
-                    color: ColorU { r: 0, g: 0, b: 255, a: 255 },
-                },
-                GradientStopPre {
-                    offset: Some(PercentageValue::new(50.0)),
-                    color: ColorU { r: 255, g: 255, b: 0, a: 255 },
-                },
-                GradientStopPre {
-                    offset: Some(PercentageValue::new(100.0)),
-                    color: ColorU { r: 0, g: 255, b: 0, a: 255 },
-                }],
+                    GradientStopPre {
+                        offset: Some(PercentageValue::new(0.0)).into(),
+                        color: ColorU { r: 0, g: 0, b: 255, a: 255 },
+                    },
+                    GradientStopPre {
+                        offset: Some(PercentageValue::new(50.0)).into(),
+                        color: ColorU { r: 255, g: 255, b: 0, a: 255 },
+                    },
+                    GradientStopPre {
+                        offset: Some(PercentageValue::new(100.0)).into(),
+                        color: ColorU { r: 0, g: 255, b: 0, a: 255 },
+                    }
+                ].into(),
         })));
     }
 
@@ -2810,16 +2821,21 @@ mod css_tests {
     fn test_parse_linear_gradient_4() {
         assert_eq!(parse_style_background_content("linear-gradient(to bottom right, red, yellow)"),
             Ok(StyleBackgroundContent::LinearGradient(LinearGradient {
-                direction: Direction::FromTo(DirectionCorner::TopLeft, DirectionCorner::BottomRight),
+                direction: Direction::FromTo(DirectionCorners {
+                    from: DirectionCorner::TopLeft,
+                    to: DirectionCorner::BottomRight,
+                }),
                 extend_mode: ExtendMode::Clamp,
-                stops: vec![GradientStopPre {
-                    offset: Some(PercentageValue::new(0.0)),
-                    color: ColorU { r: 255, g: 0, b: 0, a: 255 },
-                },
-                GradientStopPre {
-                    offset: Some(PercentageValue::new(100.0)),
-                    color: ColorU { r: 255, g: 255, b: 0, a: 255 },
-                }],
+                stops: vec![
+                    GradientStopPre {
+                        offset: Some(PercentageValue::new(0.0)).into(),
+                        color: ColorU { r: 255, g: 0, b: 0, a: 255 },
+                    },
+                    GradientStopPre {
+                        offset: Some(PercentageValue::new(100.0)).into(),
+                        color: ColorU { r: 255, g: 255, b: 0, a: 255 },
+                    }
+                ].into(),
             })
         ));
     }
@@ -2830,14 +2846,16 @@ mod css_tests {
             Ok(StyleBackgroundContent::LinearGradient(LinearGradient {
                 direction: Direction::Angle(FloatValue::new(24.0642)),
                 extend_mode: ExtendMode::Clamp,
-                stops: vec![GradientStopPre {
-                    offset: Some(PercentageValue::new(0.0)),
-                    color: ColorU { r: 255, g: 0, b: 0, a: 255 },
-                },
-                GradientStopPre {
-                    offset: Some(PercentageValue::new(100.0)),
-                    color: ColorU { r: 255, g: 255, b: 0, a: 255 },
-                }],
+                stops: vec![
+                    GradientStopPre {
+                        offset: Some(PercentageValue::new(0.0)).into(),
+                        color: ColorU { r: 255, g: 0, b: 0, a: 255 },
+                    },
+                    GradientStopPre {
+                        offset: Some(PercentageValue::new(100.0)).into(),
+                        color: ColorU { r: 255, g: 255, b: 0, a: 255 },
+                    }
+                ].into(),
         })));
     }
 
@@ -2847,14 +2865,16 @@ mod css_tests {
             Ok(StyleBackgroundContent::LinearGradient(LinearGradient {
                 direction: Direction::Angle(FloatValue::new(11.637)),
                 extend_mode: ExtendMode::Clamp,
-                stops: vec![GradientStopPre {
-                    offset: Some(PercentageValue::new(0.0)),
-                    color: ColorU { r: 255, g: 0, b: 0, a: 255 },
-                },
-                GradientStopPre {
-                    offset: Some(PercentageValue::new(100.0)),
-                    color: ColorU { r: 255, g: 255, b: 0, a: 255 },
-                }],
+                stops: vec![
+                    GradientStopPre {
+                        offset: Some(PercentageValue::new(0.0)).into(),
+                        color: ColorU { r: 255, g: 0, b: 0, a: 255 },
+                    },
+                    GradientStopPre {
+                        offset: Some(PercentageValue::new(100.0)).into(),
+                        color: ColorU { r: 255, g: 255, b: 0, a: 255 },
+                    }
+                ].into(),
         })));
     }
 
@@ -2862,16 +2882,21 @@ mod css_tests {
     fn test_parse_linear_gradient_7() {
         assert_eq!(parse_style_background_content("linear-gradient(to right, rgba(255,0, 0,1) 0%,rgba(0,0,0, 0) 100%)"),
             Ok(StyleBackgroundContent::LinearGradient(LinearGradient {
-                direction: Direction::FromTo(DirectionCorner::Left, DirectionCorner::Right),
+                direction: Direction::FromTo(DirectionCorners {
+                    from: DirectionCorner::Left,
+                    to: DirectionCorner::Right,
+                }),
                 extend_mode: ExtendMode::Clamp,
-                stops: vec![GradientStopPre {
-                    offset: Some(PercentageValue::new(0.0)),
-                    color: ColorU { r: 255, g: 0, b: 0, a: 255 },
-                },
-                GradientStopPre {
-                    offset: Some(PercentageValue::new(100.0)),
-                    color: ColorU { r: 0, g: 0, b: 0, a: 0 },
-                }],
+                stops: vec![
+                    GradientStopPre {
+                        offset: Some(PercentageValue::new(0.0)).into(),
+                        color: ColorU { r: 255, g: 0, b: 0, a: 255 },
+                    },
+                    GradientStopPre {
+                        offset: Some(PercentageValue::new(100.0)).into(),
+                        color: ColorU { r: 0, g: 0, b: 0, a: 0 },
+                    }
+                ].into(),
             })
         ));
     }
@@ -2880,16 +2905,21 @@ mod css_tests {
     fn test_parse_linear_gradient_8() {
         assert_eq!(parse_style_background_content("linear-gradient(to bottom, rgb(255,0, 0),rgb(0,0,0))"),
             Ok(StyleBackgroundContent::LinearGradient(LinearGradient {
-                direction: Direction::FromTo(DirectionCorner::Top, DirectionCorner::Bottom),
+                direction: Direction::FromTo(DirectionCorners {
+                    from: DirectionCorner::Top,
+                    to: DirectionCorner::Bottom,
+                }),
                 extend_mode: ExtendMode::Clamp,
-                stops: vec![GradientStopPre {
-                    offset: Some(PercentageValue::new(0.0)),
-                    color: ColorU { r: 255, g: 0, b: 0, a: 255 },
-                },
-                GradientStopPre {
-                    offset: Some(PercentageValue::new(100.0)),
-                    color: ColorU { r: 0, g: 0, b: 0, a: 255 },
-                }],
+                stops: vec![
+                    GradientStopPre {
+                        offset: Some(PercentageValue::new(0.0)).into(),
+                        color: ColorU { r: 255, g: 0, b: 0, a: 255 },
+                    },
+                    GradientStopPre {
+                        offset: Some(PercentageValue::new(100.0)).into(),
+                        color: ColorU { r: 0, g: 0, b: 0, a: 255 },
+                    }
+                ].into(),
             })
         ));
     }
@@ -2900,14 +2930,16 @@ mod css_tests {
             Ok(StyleBackgroundContent::LinearGradient(LinearGradient {
                 direction: Direction::Angle(FloatValue::new(10.0)),
                 extend_mode: ExtendMode::Clamp,
-                stops: vec![GradientStopPre {
-                    offset: Some(PercentageValue::new(0.0)),
-                    color: ColorU { r: 10, g: 30, b: 20, a: 255 },
-                },
-                GradientStopPre {
-                    offset: Some(PercentageValue::new(100.0)),
-                    color: ColorU { r: 255, g: 255, b: 0, a: 255 },
-                }],
+                stops: vec![
+                    GradientStopPre {
+                        offset: Some(PercentageValue::new(0.0)).into(),
+                        color: ColorU { r: 10, g: 30, b: 20, a: 255 },
+                    },
+                    GradientStopPre {
+                        offset: Some(PercentageValue::new(100.0)).into(),
+                        color: ColorU { r: 255, g: 255, b: 0, a: 255 },
+                    }
+                ].into(),
         })));
     }
 
@@ -2917,14 +2949,16 @@ mod css_tests {
             Ok(StyleBackgroundContent::LinearGradient(LinearGradient {
                 direction: Direction::Angle(FloatValue::new(50.0)),
                 extend_mode: ExtendMode::Clamp,
-                stops: vec![GradientStopPre {
-                    offset: Some(PercentageValue::new(0.0)),
-                    color: ColorU { r: 10, g: 30, b: 20, a: 238 },
-                },
-                GradientStopPre {
-                    offset: Some(PercentageValue::new(100.0)),
-                    color: ColorU { r: 138, g: 97, b: 15, a: 25 },
-                }],
+                stops: vec![
+                    GradientStopPre {
+                        offset: Some(PercentageValue::new(0.0)).into(),
+                        color: ColorU { r: 10, g: 30, b: 20, a: 238 },
+                    },
+                    GradientStopPre {
+                        offset: Some(PercentageValue::new(100.0)).into(),
+                        color: ColorU { r: 138, g: 97, b: 15, a: 25 },
+                    }
+                ].into(),
         })));
     }
 
@@ -2933,20 +2967,25 @@ mod css_tests {
         // wacky whitespace on purpose
         assert_eq!(parse_style_background_content("linear-gradient(to bottom,rgb(255,0, 0)0%, rgb( 0 , 255 , 0 ) 10% ,blue   100%  )"),
             Ok(StyleBackgroundContent::LinearGradient(LinearGradient {
-                direction: Direction::FromTo(DirectionCorner::Top, DirectionCorner::Bottom),
+                direction: Direction::FromTo(DirectionCorners {
+                    from: DirectionCorner::Top,
+                    to: DirectionCorner::Bottom,
+                }),
                 extend_mode: ExtendMode::Clamp,
-                stops: vec![GradientStopPre {
-                    offset: Some(PercentageValue::new(0.0)),
-                    color: ColorU { r: 255, g: 0, b: 0, a: 255 },
-                },
-                GradientStopPre {
-                    offset: Some(PercentageValue::new(10.0)),
-                    color: ColorU { r: 0, g: 255, b: 0, a: 255 },
-                },
-                GradientStopPre {
-                    offset: Some(PercentageValue::new(100.0)),
-                    color: ColorU { r: 0, g: 0, b: 255, a: 255 },
-                }],
+                stops: vec![
+                    GradientStopPre {
+                        offset: Some(PercentageValue::new(0.0)).into(),
+                        color: ColorU { r: 255, g: 0, b: 0, a: 255 },
+                    },
+                    GradientStopPre {
+                        offset: Some(PercentageValue::new(10.0)).into(),
+                        color: ColorU { r: 0, g: 255, b: 0, a: 255 },
+                    },
+                    GradientStopPre {
+                        offset: Some(PercentageValue::new(100.0)).into(),
+                        color: ColorU { r: 0, g: 0, b: 255, a: 255 },
+                    }
+                ].into(),
             })
         ));
     }
@@ -2958,18 +2997,19 @@ mod css_tests {
                 shape: Shape::Circle,
                 extend_mode: ExtendMode::Clamp,
                 stops: vec![
-                GradientStopPre {
-                    offset: Some(PercentageValue::new(0.0)),
-                    color: ColorU { r: 0, g: 255, b: 0, a: 255 },
-                },
-                GradientStopPre {
-                    offset: Some(PercentageValue::new(50.0)),
-                    color: ColorU { r: 0, g: 0, b: 255, a: 255 },
-                },
-                GradientStopPre {
-                    offset: Some(PercentageValue::new(100.0)),
-                    color: ColorU { r: 255, g: 255, b: 0, a: 255 },
-                }],
+                    GradientStopPre {
+                        offset: Some(PercentageValue::new(0.0)).into(),
+                        color: ColorU { r: 0, g: 255, b: 0, a: 255 },
+                    },
+                    GradientStopPre {
+                        offset: Some(PercentageValue::new(50.0)).into(),
+                        color: ColorU { r: 0, g: 0, b: 255, a: 255 },
+                    },
+                    GradientStopPre {
+                        offset: Some(PercentageValue::new(100.0)).into(),
+                        color: ColorU { r: 255, g: 255, b: 0, a: 255 },
+                    }
+                ].into(),
         })));
     }
 
@@ -3269,27 +3309,33 @@ mod css_tests {
 
     #[test]
     fn test_parse_style_font_family_1() {
+        use azul_css::{AzString, StringVec};
+        let fonts0: Vec<AzString> = vec![
+            "Webly Sleeky UI".to_string().into(),
+            "monospace".to_string().into(),
+        ];
+        let fonts0: StringVec = fonts0.into();
         assert_eq!(parse_style_font_family("\"Webly Sleeky UI\", monospace"), Ok(StyleFontFamily {
-            fonts: vec![
-                FontId("Webly Sleeky UI".into()),
-                FontId("monospace".into()),
-            ]
+            fonts: fonts0,
         }));
     }
 
     #[test]
     fn test_parse_style_font_family_2() {
+        use azul_css::{AzString, StringVec};
+        let fonts0: Vec<AzString> = vec![
+            "Webly Sleeky UI".to_string().into(),
+        ];
+        let fonts0: StringVec = fonts0.into();
         assert_eq!(parse_style_font_family("'Webly Sleeky UI'"), Ok(StyleFontFamily {
-            fonts: vec![
-                FontId("Webly Sleeky UI".into()),
-            ]
+            fonts: fonts0,
         }));
     }
 
     #[test]
     fn test_parse_background_image() {
         assert_eq!(parse_style_background_content("image(\"Cat 01\")"), Ok(StyleBackgroundContent::Image(
-            CssImageId(String::from("Cat 01"))
+            CssImageId { inner: "Cat 01".to_string().into() }
         )));
     }
 

@@ -554,6 +554,12 @@ macro_rules! impl_result {
 #[repr(C)]
 pub struct AzString { pub vec: U8Vec }
 
+impl<'a> From<&'a str> for AzString {
+    fn from(s: &'a str) -> Self {
+        s.to_string().into()
+    }
+}
+
 impl AsRef<str> for AzString {
     fn as_ref<'a>(&'a self) -> &'a str {
         self.as_str()

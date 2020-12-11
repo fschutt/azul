@@ -1000,18 +1000,23 @@ fn convert_dom_into_compact_dom_internal(
 #[test]
 fn test_compact_dom_conversion() {
 
-    use crate::dom::String::Static;
-
-    struct Dummy;
-
-    let dom: Dom<Dummy> = Dom::body()
+    let dom: Dom = Dom::body()
         .with_child(Dom::div().with_class("class1"))
         .with_child(Dom::div().with_class("class1")
             .with_child(Dom::div().with_id("child_2"))
         )
         .with_child(Dom::div().with_class("class1"));
 
-    let expected_dom: CompactDom<Dummy> = CompactDom {
+    let c0: Vec<AzString> = vec!["class1".to_string().into()];
+    let c0: StringVec = c0.into();
+    let c1: Vec<AzString> = vec!["class1".to_string().into()];
+    let c1: StringVec = c1.into();
+    let c2: Vec<AzString> = vec!["child_2".to_string().into()];
+    let c2: StringVec = c2.into();
+    let c3: Vec<AzString> = vec!["class1".to_string().into()];
+    let c3: StringVec = c3.into();
+
+    let expected_dom: CompactDom = CompactDom {
         root: NodeId::ZERO,
         arena: Arena {
             node_hierarchy: NodeHierarchy { internal: vec![
@@ -1053,10 +1058,10 @@ fn test_compact_dom_conversion() {
             ]},
             node_data: NodeDataContainer { internal: vec![
                 /* 0 */    NodeData::body(),
-                /* 1 */    NodeData::div().with_classes(vec![Static("class1")]),
-                /* 2 */    NodeData::div().with_classes(vec![Static("class1")]),
-                /* 3 */    NodeData::div().with_ids(vec![Static("child_2")]),
-                /* 4 */    NodeData::div().with_classes(vec![Static("class1")]),
+                /* 1 */    NodeData::div().with_classes(c0),
+                /* 2 */    NodeData::div().with_classes(c1),
+                /* 3 */    NodeData::div().with_ids(c2),
+                /* 4 */    NodeData::div().with_classes(c3),
             ]},
         },
     };
@@ -1337,9 +1342,7 @@ fn get_html_string_inner(dom: &Dom, output: &mut String, indent: usize) {
 #[test]
 fn test_dom_sibling_1() {
 
-    struct TestLayout;
-
-    let dom: Dom<TestLayout> =
+    let dom: Dom =
         Dom::div()
             .with_child(
                 Dom::div()
@@ -1357,13 +1360,17 @@ fn test_dom_sibling_1() {
 
     assert_eq!(NodeId::new(0), dom.root);
 
-    assert_eq!(vec![String::Static("sibling-1")],
+    let v: Vec<AzString> = vec!["sibling-1".to_string().into()];
+    let v: StringVec = v.into();
+    assert_eq!(v,
         arena.node_data[
             arena.node_hierarchy[dom.root]
             .first_child.expect("root has no first child")
         ].ids);
 
-    assert_eq!(vec![String::Static("sibling-2")],
+    let v: Vec<AzString> = vec!["sibling-2".to_string().into()];
+    let v: StringVec = v.into();
+    assert_eq!(v,
         arena.node_data[
             arena.node_hierarchy[
                 arena.node_hierarchy[dom.root]
@@ -1371,7 +1378,9 @@ fn test_dom_sibling_1() {
             ].next_sibling.expect("root has no second sibling")
         ].ids);
 
-    assert_eq!(vec![String::Static("sibling-1-child-1")],
+    let v: Vec<AzString> = vec!["sibling-1-child-1".to_string().into()];
+    let v: StringVec = v.into();
+    assert_eq!(v,
         arena.node_data[
             arena.node_hierarchy[
                 arena.node_hierarchy[dom.root]
@@ -1379,7 +1388,9 @@ fn test_dom_sibling_1() {
             ].first_child.expect("first child has no first child")
         ].ids);
 
-    assert_eq!(vec![String::Static("sibling-2-child-1")],
+    let v: Vec<AzString> = vec!["sibling-2-child-1".to_string().into()];
+    let v: StringVec = v.into();
+    assert_eq!(v,
         arena.node_data[
             arena.node_hierarchy[
                 arena.node_hierarchy[
@@ -1395,9 +1406,7 @@ fn test_dom_from_iter_1() {
 
     use crate::id_tree::Node;
 
-    struct TestLayout;
-
-    let dom: Dom<TestLayout> = (0..5).map(|e| NodeData::new(NodeType::Label(format!("{}", e + 1).into()))).collect();
+    let dom: Dom = (0..5).map(|e| NodeData::new(NodeType::Label(format!("{}", e + 1).into()))).collect();
     let dom = convert_dom_into_compact_dom(dom);
 
     let arena = &dom.arena;
@@ -1432,7 +1441,7 @@ fn test_dom_from_iter_1() {
     }));
 
     assert_eq!(arena.node_data.get(NodeId::new(arena.node_data.len() - 1)), Some(&NodeData {
-        node_type: NodeType::Label(String::Heap(String::from("5"))),
+        node_type: NodeType::Label("5".to_string().into()),
         .. Default::default()
     }));
 }
@@ -1441,9 +1450,7 @@ fn test_dom_from_iter_1() {
 #[test]
 fn test_zero_size_dom() {
 
-    struct TestLayout;
-
-    let null_dom: Dom<TestLayout> = (0..0).map(|_| NodeData::default()).collect();
+    let null_dom: Dom = (0..0).map(|_| NodeData::default()).collect();
     let null_dom = convert_dom_into_compact_dom(null_dom);
 
     assert!(null_dom.arena.len() == 1);

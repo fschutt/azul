@@ -8,6 +8,8 @@ extern crate azul_css;
 #[cfg(feature = "text_layout")]
 pub extern crate azul_text_layout as text_layout;
 
+#[cfg(test)]
+mod layout_test;
 mod layout_solver;
 
 pub use azul_core::{

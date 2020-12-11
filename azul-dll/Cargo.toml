@@ -34,6 +34,7 @@ lto = "fat"
 panic = "abort"
 codegen-units = 1
 debug = false
+overflow-checks = false
 
 [dependencies]
 azul-core = { path = "../azul-core", version = "0.0.2", default-features = false, features = ["opengl"] }

@@ -29,7 +29,7 @@ azulc                       = { path = "../azulc", version = "0.0.3"  }
 default = []
 text_layout = ["azul-text-layout"]
 
-[[example]]
-name = "layout_tests"
-path = "../../examples/layout_tests/layout_tests.rs"
-required-features = []
+# [[example]]
+# name = "layout_tests"
+# path = "../../examples/layout_tests/layout_tests.rs"
+# required-features = []

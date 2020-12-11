@@ -220,7 +220,8 @@ fn test_css_pseudo_selector_parse() {
 
     use self::CssPathPseudoSelector::*;
     use self::CssPseudoSelectorParseError::*;
-
+    use azul_css::CssNthChildSelector::*;
+    use azul_css::CssNthChildPattern;
     let ok_res = [
         (("first", None), First),
         (("last", None), Last),
@@ -230,8 +231,8 @@ fn test_css_pseudo_selector_parse() {
         (("nth-child", Some("4")), NthChild(Number(4))),
         (("nth-child", Some("even")), NthChild(Even)),
         (("nth-child", Some("odd")), NthChild(Odd)),
-        (("nth-child", Some("5n")), NthChild(Pattern { repeat: 5, offset: 0 })),
-        (("nth-child", Some("2n+3")), NthChild(Pattern { repeat: 2, offset: 3 })),
+        (("nth-child", Some("5n")), NthChild(Pattern(CssNthChildPattern { repeat: 5, offset: 0 }))),
+        (("nth-child", Some("2n+3")), NthChild(Pattern(CssNthChildPattern { repeat: 2, offset: 3 }))),
     ];
 
     let err = [
@@ -715,13 +716,13 @@ fn test_css_parse_1() {
         path: CssPath {
             selectors: vec![
                 CssPathSelector::Type(NodeTypePath::Div),
-                CssPathSelector::Id(String::from("my_id")),
+                CssPathSelector::Id("my_id".to_string().into()),
                 CssPathSelector::Children,
                 // NOTE: This is technically wrong, the space between "#my_id"
                 // and ".my_class" is important, but gets ignored for now
-                CssPathSelector::Class(String::from("my_class")),
+                CssPathSelector::Class("my_class".to_string().into()),
                 CssPathSelector::PseudoSelector(CssPathPseudoSelector::First),
-            ],
+            ].into(),
         },
         declarations: vec![CssDeclaration::Static(CssProperty::BackgroundContent(
             CssPropertyValue::Exact(StyleBackgroundContent::Color(ColorU {
@@ -730,13 +731,13 @@ fn test_css_parse_1() {
                 b: 0,
                 a: 255,
             })),
-        ))],
-    }];
+        ))].into(),
+    }].into();
 
     assert_eq!(
         parsed_css,
         Css {
-            stylesheets: vec![expected_css_rules.into()]
+            stylesheets: vec![expected_css_rules].into(),
         }
     );
 }
@@ -748,20 +749,20 @@ fn test_css_simple_selector_parse() {
     let css = "div#id.my_class > p .new { }";
     let parsed = vec![
         Type(NodeTypePath::Div),
-        Id("id".into()),
-        Class("my_class".into()),
+        Id("id".to_string().into()),
+        Class("my_class".to_string().into()),
         DirectChildren,
         Type(NodeTypePath::P),
         Children,
-        Class("new".into())
+        Class("new".to_string().into())
     ];
     assert_eq!(new_from_str(css).unwrap(), Css {
         stylesheets: vec![Stylesheet {
             rules: vec![CssRuleBlock {
-                path: CssPath { selectors: parsed },
-                declarations: Vec::new(),
-            }],
-        }],
+                path: CssPath { selectors: parsed.into() },
+                declarations: Vec::new().into(),
+            }].into(),
+        }].into(),
     });
 }
 
@@ -773,7 +774,7 @@ mod stylesheet_parse {
 
     fn test_css(css: &str, expected: Vec<CssRuleBlock>) {
         let css = new_from_str(css).unwrap();
-        assert_eq!(css, Css { stylesheets: vec![expected.into()] });
+        assert_eq!(css, Css { stylesheets: vec![expected.into()].into() });
     }
 
     // Tests that an element with a single class always gets the CSS element applied properly
@@ -809,12 +810,12 @@ mod stylesheet_parse {
             let css_1 = ".my_class { background-color: red; }";
             let expected_rules = vec![
                 CssRuleBlock {
-                    path: CssPath { selectors: vec![CssPathSelector::Class("my_class".into())] },
-                    declarations: vec![
-                        CssDeclaration::Static(red.clone())
-                    ],
+                    path: CssPath {
+                        selectors: vec![CssPathSelector::Class("my_class".to_string().into())].into(),
+                    },
+                    declarations: vec![CssDeclaration::Static(red.clone())].into(),
                 },
-            ];
+            ].into();
             test_css(css_1, expected_rules);
         }
 
@@ -823,12 +824,12 @@ mod stylesheet_parse {
             let css_2 = "#my_id { background-color: red; } .my_class { background-color: blue; }";
             let expected_rules = vec![
                 CssRuleBlock {
-                    path: CssPath { selectors: vec![CssPathSelector::Id("my_id".into())] },
-                    declarations: vec![CssDeclaration::Static(red.clone())]
+                    path: CssPath { selectors: vec![CssPathSelector::Id("my_id".to_string().into())].into(), },
+                    declarations: vec![CssDeclaration::Static(red.clone())].into(),
                 },
                 CssRuleBlock {
-                    path: CssPath { selectors: vec![CssPathSelector::Class("my_class".into())] },
-                    declarations: vec![CssDeclaration::Static(blue.clone())]
+                    path: CssPath { selectors: vec![CssPathSelector::Class("my_class".to_string().into())].into(), },
+                    declarations: vec![CssDeclaration::Static(blue.clone())].into(),
                 },
             ];
             test_css(css_2, expected_rules);
@@ -839,18 +840,18 @@ mod stylesheet_parse {
             let css_3 = "* { background-color: black; } .my_class#my_id { background-color: red; } .my_class { background-color: blue; }";
             let expected_rules = vec![
                 CssRuleBlock {
-                    path: CssPath { selectors: vec![CssPathSelector::Global] },
-                    declarations: vec![CssDeclaration::Static(black.clone())]
+                    path: CssPath { selectors: vec![CssPathSelector::Global].into() },
+                    declarations: vec![CssDeclaration::Static(black.clone())].into(),
                 },
                 CssRuleBlock {
-                    path: CssPath { selectors: vec![CssPathSelector::Class("my_class".into()), CssPathSelector::Id("my_id".into())] },
-                    declarations: vec![CssDeclaration::Static(red.clone())]
+                    path: CssPath { selectors: vec![CssPathSelector::Class("my_class".to_string().into()), CssPathSelector::Id("my_id".to_string().into())].into(), },
+                    declarations: vec![CssDeclaration::Static(red.clone())].into(),
                 },
                 CssRuleBlock {
-                    path: CssPath { selectors: vec![CssPathSelector::Class("my_class".into())] },
-                    declarations: vec![CssDeclaration::Static(blue.clone())]
+                    path: CssPath { selectors: vec![CssPathSelector::Class("my_class".to_string().into())].into() },
+                    declarations: vec![CssDeclaration::Static(blue.clone())].into(),
                 },
-            ];
+            ].into();
             test_css(css_3, expected_rules);
         }
     }
@@ -872,14 +873,14 @@ fn test_multiple_rules() {
 
     let expected_rules = vec![
         // Rules are sorted by order of appearance in source string
-        CssRuleBlock { path: CssPath { selectors: vec![Global] }, declarations: Vec::new() },
-        CssRuleBlock { path: CssPath { selectors: vec![Global, Type(NodeTypePath::Div), Class("my_class".into()), Id("my_id".into())] }, declarations: Vec::new() },
-        CssRuleBlock { path: CssPath { selectors: vec![Global, Type(NodeTypePath::Div), Id("my_id".into())] }, declarations: Vec::new() },
-        CssRuleBlock { path: CssPath { selectors: vec![Global, Id("my_id".into())] }, declarations: Vec::new() },
-        CssRuleBlock { path: CssPath { selectors: vec![Type(NodeTypePath::Div), Class("my_class".into()), Class("specific".into()), Id("my_id".into())] }, declarations: Vec::new() },
+        CssRuleBlock { path: CssPath { selectors: vec![Global].into() }, declarations: Vec::new().into() },
+        CssRuleBlock { path: CssPath { selectors: vec![Global, Type(NodeTypePath::Div), Class("my_class".to_string().into()), Id("my_id".to_string().into())].into() }, declarations: Vec::new().into() },
+        CssRuleBlock { path: CssPath { selectors: vec![Global, Type(NodeTypePath::Div), Id("my_id".to_string().into())].into() }, declarations: Vec::new().into() },
+        CssRuleBlock { path: CssPath { selectors: vec![Global, Id("my_id".to_string().into())].into() }, declarations: Vec::new().into() },
+        CssRuleBlock { path: CssPath { selectors: vec![Type(NodeTypePath::Div), Class("my_class".to_string().into()), Class("specific".to_string().into()), Id("my_id".to_string().into())].into() }, declarations: Vec::new().into() },
     ];
 
-    assert_eq!(parsed_css, Css { stylesheets: vec![expected_rules.into()] });
+    assert_eq!(parsed_css, Css { stylesheets: vec![expected_rules.into()].into() });
 }
 
 #[test]
@@ -905,19 +906,19 @@ fn test_case_issue_93() {
     fn declaration(classes: &[CssPathSelector], color: ColorU) -> CssRuleBlock {
         CssRuleBlock {
             path: CssPath {
-                selectors: classes.to_vec(),
+                selectors: classes.to_vec().into(),
             },
             declarations: vec![CssDeclaration::Static(CssProperty::TextColor(
-                CssPropertyValue::Exact(StyleTextColor(color)),
-            ))],
+                CssPropertyValue::Exact(StyleTextColor { inner: color }),
+            ))].into(),
         }
     }
 
     let expected_rules = vec![
-        declaration(&[Class("tabwidget-tab-label".into())], ColorU { r: 255, g: 255, b: 255, a: 255 }),
-        declaration(&[Class("tabwidget-tab".into()), Class("active".into()), Children, Class("tabwidget-tab-label".into())], ColorU { r: 0, g: 0, b: 0, a: 255 }),
-        declaration(&[Class("tabwidget-tab".into()), Class("active".into()), Children, Class("tabwidget-tab-close".into())], ColorU { r: 255, g: 0, b: 0, a: 255 }),
+        declaration(&[Class("tabwidget-tab-label".to_string().into())], ColorU { r: 255, g: 255, b: 255, a: 255 }),
+        declaration(&[Class("tabwidget-tab".to_string().into()), Class("active".to_string().into()), Children, Class("tabwidget-tab-label".to_string().into())], ColorU { r: 0, g: 0, b: 0, a: 255 }),
+        declaration(&[Class("tabwidget-tab".to_string().into()), Class("active".to_string().into()), Children, Class("tabwidget-tab-close".to_string().into())], ColorU { r: 255, g: 0, b: 0, a: 255 }),
     ];
 
-    assert_eq!(parsed_css, Css { stylesheets: vec![expected_rules.into()] });
+    assert_eq!(parsed_css, Css { stylesheets: vec![expected_rules.into()].into() });
 }
