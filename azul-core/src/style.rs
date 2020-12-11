@@ -145,13 +145,20 @@ pub fn match_dom_selectors(
         }
     }
 
-    // Last but not least, apply all inline styles
-    ui_state.dynamic_css_overrides.iter().for_each(|(node_id, inline_styles)| {
-        styled_nodes[*node_id].css_constraints.extend(inline_styles.iter().map(|is| CascadedCssPropertyWithSource {
-            prop: is.clone(),
-            source: CssPropertySource::Inline,
-        }))
-    });
+    // Last but not least, apply the inline styles
+    for node_id in styled_nodes.linear_iter() {
+        styled_nodes[node_id].css_constraints.extend(
+            ui_state.dom.arena.node_data[node_id]
+            .get_inline_css_props()
+            .iter()
+            .map(|is|
+                CascadedCssPropertyWithSource {
+                    prop: is.clone(),
+                    source: CssPropertySource::Inline,
+                }
+            )
+        );
+    }
 
     // In order to hit-test :hover and :active nodes, need to select them
     // first (to insert their TagId later)
