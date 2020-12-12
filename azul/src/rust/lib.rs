@@ -41,6 +41,7 @@ pub mod time;
 pub mod app;
 pub mod callbacks;
 pub mod css;
+pub mod style;
 pub mod dom;
 pub mod gl;
 pub mod resources;

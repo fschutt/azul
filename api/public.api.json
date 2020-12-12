@@ -755,12 +755,243 @@
 					    }
 					},
 					"destructor": "unsafe { std::ptr::drop_in_place(object.as_mut()); } deallocate_vec(object.as_mut_ptr(), object.capacity());"
+				},
+				"CascadedCssPropertyWithSourceVec": {
+					"doc": "Wrapper over a Rust-allocated `CascadedCssPropertyWithSourceVec`",
+					"external": "azul_impl::styled_dom::CascadedCssPropertyWithSourceVec",
+					"struct_fields": [
+						{ "ptr": { "type": "*mut CascadedCssPropertyWithSource" } },
+						{ "len": { "type": "usize" } },
+						{ "cap": { "type": "usize" } }
+					],
+					"constructors": {
+						"new": {
+							"doc": "Creates a new, empty Rust `Vec<CascadedCssPropertyWithSource>`",
+							"fn_body": "Vec::<AzCascadedCssPropertyWithSource>::new().into()"
+						},
+						"with_capacity": {
+							"doc": "Creates a new, empty Rust `Vec<CascadedCssPropertyWithSource>` with a given, pre-allocated capacity",
+							"fn_args": [
+							    {"cap": "usize"}
+							],
+							"fn_body": "Vec::<AzCascadedCssPropertyWithSource>::with_capacity(cap).into()"
+						},
+					    "copy_from": {
+					        "doc": "Creates + allocates a Rust `Vec<CascadedCssPropertyWithSource>` by **copying** it from a bytes source",
+					        "fn_args": [
+					            {"ptr": "*const CascadedCssPropertyWithSource"},
+					            {"len": "usize"}
+					        ],
+					        "fn_body": "unsafe { std::slice::from_raw_parts(ptr, len).iter().cloned().collect::<Vec<_>>() }.into()"
+					    }
+					},
+					"destructor": "unsafe { std::ptr::drop_in_place(object.as_mut()); } deallocate_vec(object.as_mut_ptr(), object.capacity());"
+				},
+				"NodeIdVec": {
+					"doc": "Wrapper over a Rust-allocated `NodeIdVec`",
+					"external": "azul_impl::styled_dom::NodeIdVec",
+					"struct_fields": [
+						{ "ptr": { "type": "*mut NodeId" } },
+						{ "len": { "type": "usize" } },
+						{ "cap": { "type": "usize" } }
+					],
+					"constructors": {
+						"new": {
+							"doc": "Creates a new, empty Rust `Vec<NodeId>`",
+							"fn_body": "Vec::<NodeId>::new().into()"
+						},
+						"with_capacity": {
+							"doc": "Creates a new, empty Rust `Vec<NodeId>` with a given, pre-allocated capacity",
+							"fn_args": [
+							    {"cap": "usize"}
+							],
+							"fn_body": "Vec::<AzNodeId>::with_capacity(cap).into()"
+						},
+					    "copy_from": {
+					        "doc": "Creates + allocates a Rust `Vec<NodeId>` by **copying** it from a bytes source",
+					        "fn_args": [
+					            {"ptr": "*const NodeId"},
+					            {"len": "usize"}
+					        ],
+					        "fn_body": "unsafe { std::slice::from_raw_parts(ptr, len).iter().cloned().collect::<Vec<_>>() }.into()"
+					    }
+					},
+					"destructor": "unsafe { std::ptr::drop_in_place(object.as_mut()); } deallocate_vec(object.as_mut_ptr(), object.capacity());"
+				},
+				"NodeVec": {
+					"doc": "Wrapper over a Rust-allocated `NodeVec`",
+					"external": "azul_impl::styled_dom::NodeVec",
+					"struct_fields": [
+						{ "ptr": { "type": "*mut Node" } },
+						{ "len": { "type": "usize" } },
+						{ "cap": { "type": "usize" } }
+					],
+					"constructors": {
+						"new": {
+							"doc": "Creates a new, empty Rust `Vec<Node>`",
+							"fn_body": "Vec::<Node>::new().into()"
+						},
+						"with_capacity": {
+							"doc": "Creates a new, empty Rust `Vec<Node>` with a given, pre-allocated capacity",
+							"fn_args": [
+							    {"cap": "usize"}
+							],
+							"fn_body": "Vec::<AzNode>::with_capacity(cap).into()"
+						},
+					    "copy_from": {
+					        "doc": "Creates + allocates a Rust `Vec<Node>` by **copying** it from a bytes source",
+					        "fn_args": [
+					            {"ptr": "*const Node"},
+					            {"len": "usize"}
+					        ],
+					        "fn_body": "unsafe { std::slice::from_raw_parts(ptr, len).iter().cloned().collect::<Vec<_>>() }.into()"
+					    }
+					},
+					"destructor": "unsafe { std::ptr::drop_in_place(object.as_mut()); } deallocate_vec(object.as_mut_ptr(), object.capacity());"
+				},
+				"StyledNodeVec": {
+					"doc": "Wrapper over a Rust-allocated `StyledNodeVec`",
+					"external": "azul_impl::styled_dom::StyledNodeVec",
+					"struct_fields": [
+						{ "ptr": { "type": "*mut StyledNode" } },
+						{ "len": { "type": "usize" } },
+						{ "cap": { "type": "usize" } }
+					],
+					"constructors": {
+						"new": {
+							"doc": "Creates a new, empty Rust `Vec<StyledNode>`",
+							"fn_body": "Vec::<StyledNode>::new().into()"
+						},
+						"with_capacity": {
+							"doc": "Creates a new, empty Rust `Vec<StyledNode>` with a given, pre-allocated capacity",
+							"fn_args": [
+							    {"cap": "usize"}
+							],
+							"fn_body": "Vec::<AzStyledNode>::with_capacity(cap).into()"
+						},
+					    "copy_from": {
+					        "doc": "Creates + allocates a Rust `Vec<StyledNode>` by **copying** it from a bytes source",
+					        "fn_args": [
+					            {"ptr": "*const StyledNode"},
+					            {"len": "usize"}
+					        ],
+					        "fn_body": "unsafe { std::slice::from_raw_parts(ptr, len).iter().cloned().collect::<Vec<_>>() }.into()"
+					    }
+					},
+					"destructor": "unsafe { std::ptr::drop_in_place(object.as_mut()); } deallocate_vec(object.as_mut_ptr(), object.capacity());"
+				},
+				"TagIdsToNodeIdsMappingVec": {
+					"doc": "Wrapper over a Rust-allocated `TagIdsToNodeIdsMappingVec`",
+					"external": "azul_impl::styled_dom::TagIdsToNodeIdsMappingVec",
+					"struct_fields": [
+						{ "ptr": { "type": "*mut TagIdToNodeIdMapping" } },
+						{ "len": { "type": "usize" } },
+						{ "cap": { "type": "usize" } }
+					],
+					"constructors": {
+						"new": {
+							"doc": "Creates a new, empty Rust `Vec<TagIdToNodeIdMapping>`",
+							"fn_body": "Vec::<TagIdToNodeIdMapping>::new().into()"
+						},
+						"with_capacity": {
+							"doc": "Creates a new, empty Rust `Vec<TagIdToNodeIdMapping>` with a given, pre-allocated capacity",
+							"fn_args": [
+							    {"cap": "usize"}
+							],
+							"fn_body": "Vec::<AzTagIdToNodeIdMapping>::with_capacity(cap).into()"
+						},
+					    "copy_from": {
+					        "doc": "Creates + allocates a Rust `Vec<TagIdToNodeIdMapping>` by **copying** it from a bytes source",
+					        "fn_args": [
+					            {"ptr": "*const TagIdToNodeIdMapping"},
+					            {"len": "usize"}
+					        ],
+					        "fn_body": "unsafe { std::slice::from_raw_parts(ptr, len).iter().cloned().collect::<Vec<_>>() }.into()"
+					    }
+					},
+					"destructor": "unsafe { std::ptr::drop_in_place(object.as_mut()); } deallocate_vec(object.as_mut_ptr(), object.capacity());"
+				},
+				"ParentWithNodeDepthVec": {
+					"doc": "Wrapper over a Rust-allocated `ParentWithNodeDepthVec`",
+					"external": "azul_impl::styled_dom::ParentWithNodeDepthVec",
+					"struct_fields": [
+						{ "ptr": { "type": "*mut ParentWithNodeDepth" } },
+						{ "len": { "type": "usize" } },
+						{ "cap": { "type": "usize" } }
+					],
+					"constructors": {
+						"new": {
+							"doc": "Creates a new, empty Rust `Vec<ParentWithNodeDepth>`",
+							"fn_body": "Vec::<ParentWithNodeDepth>::new().into()"
+						},
+						"with_capacity": {
+							"doc": "Creates a new, empty Rust `Vec<ParentWithNodeDepth>` with a given, pre-allocated capacity",
+							"fn_args": [
+							    {"cap": "usize"}
+							],
+							"fn_body": "Vec::<AzParentWithNodeDepth>::with_capacity(cap).into()"
+						},
+					    "copy_from": {
+					        "doc": "Creates + allocates a Rust `Vec<ParentWithNodeDepth>` by **copying** it from a bytes source",
+					        "fn_args": [
+					            {"ptr": "*const ParentWithNodeDepth"},
+					            {"len": "usize"}
+					        ],
+					        "fn_body": "unsafe { std::slice::from_raw_parts(ptr, len).iter().cloned().collect::<Vec<_>>() }.into()"
+					    }
+					},
+					"destructor": "unsafe { std::ptr::drop_in_place(object.as_mut()); } deallocate_vec(object.as_mut_ptr(), object.capacity());"
+				},
+				"NodeDataVec": {
+					"doc": "Wrapper over a Rust-allocated `NodeDataVec`",
+					"external": "azul_impl::styled_dom::NodeDataVec",
+					"struct_fields": [
+						{ "ptr": { "type": "*mut NodeData" } },
+						{ "len": { "type": "usize" } },
+						{ "cap": { "type": "usize" } }
+					],
+					"constructors": {
+						"new": {
+							"doc": "Creates a new, empty Rust `Vec<NodeData>`",
+							"fn_body": "Vec::<NodeData>::new().into()"
+						},
+						"with_capacity": {
+							"doc": "Creates a new, empty Rust `Vec<NodeData>` with a given, pre-allocated capacity",
+							"fn_args": [
+							    {"cap": "usize"}
+							],
+							"fn_body": "Vec::<NodeData>::with_capacity(cap).into()"
+						},
+					    "copy_from": {
+					        "doc": "Creates + allocates a Rust `Vec<NodeData>` by **copying** it from a bytes source",
+					        "fn_args": [
+					            {"ptr": "*const NodeData"},
+					            {"len": "usize"}
+					        ],
+					        "fn_body": "unsafe { std::slice::from_raw_parts(ptr, len).iter().cloned().collect::<Vec<_>>() }.into()"
+					    }
+					},
+					"destructor": "unsafe { std::ptr::drop_in_place(object.as_mut()); } deallocate_vec(object.as_mut_ptr(), object.capacity());"
 				}
 			}
 		},
 		"option": {
 			"doc": "Definition of azuls internal `Option<*>` wrappers",
 			"classes": {
+				"OptionNodeId": {
+					"external": "azul_impl::styled_dom::OptionNodeId",
+					"enum_fields": [
+						{"None": {}},
+						{"Some": { "type": "NodeId" }}
+					]
+				},
+				"OptionDomNodeId": {
+					"external": "azul_impl::callbacks::OptionDomNodeId",
+					"enum_fields": [
+						{"None": {}},
+						{"Some": { "type": "DomNodeId" }}
+					]
+				},
 				"OptionColorU": {
 					"external": "azul_impl::css::OptionColorU",
 					"enum_fields": [
@@ -923,6 +1154,468 @@
 						{"None": {}},
 						{"Some": { "type": "TabIndex" }}
 					]
+				},
+				"OptionStyleBackgroundContentValue": {
+				    "external": "azul_impl::css::OptionStyleBackgroundContentValue",
+				    "enum_fields": [
+				        {"None": {}},
+				        {"Some": {"type": "StyleBackgroundContent"}}
+				    ]
+				},
+				"OptionStyleBackgroundPositionValue": {
+				    "external": "azul_impl::css::OptionStyleBackgroundPositionValue",
+				    "enum_fields": [
+				        {"None": {}},
+				        {"Some": {"type": "StyleBackgroundPosition"}}
+				    ]
+				},
+				"OptionStyleBackgroundSizeValue": {
+				    "external": "azul_impl::css::OptionStyleBackgroundSizeValue",
+				    "enum_fields": [
+				        {"None": {}},
+				        {"Some": {"type": "StyleBackgroundSize"}}
+				    ]
+				},
+				"OptionStyleBackgroundRepeatValue": {
+				    "external": "azul_impl::css::OptionStyleBackgroundRepeatValue",
+				    "enum_fields": [
+				        {"None": {}},
+				        {"Some": {"type": "StyleBackgroundRepeat"}}
+				    ]
+				},
+				"OptionStyleFontSizeValue": {
+				    "external": "azul_impl::css::OptionStyleFontSizeValue",
+				    "enum_fields": [
+				        {"None": {}},
+				        {"Some": {"type": "StyleFontSize"}}
+				    ]
+				},
+				"OptionStyleFontFamilyValue": {
+				    "external": "azul_impl::css::OptionStyleFontFamilyValue",
+				    "enum_fields": [
+				        {"None": {}},
+				        {"Some": {"type": "StyleFontFamily"}}
+				    ]
+				},
+				"OptionStyleTextColorValue": {
+				    "external": "azul_impl::css::OptionStyleTextColorValue",
+				    "enum_fields": [
+				        {"None": {}},
+				        {"Some": {"type": "StyleTextColor"}}
+				    ]
+				},
+				"OptionStyleTextAlignmentHorzValue": {
+				    "external": "azul_impl::css::OptionStyleTextAlignmentHorzValue",
+				    "enum_fields": [
+				        {"None": {}},
+				        {"Some": {"type": "StyleTextAlignmentHorz"}}
+				    ]
+				},
+				"OptionStyleLineHeightValue": {
+				    "external": "azul_impl::css::OptionStyleLineHeightValue",
+				    "enum_fields": [
+				        {"None": {}},
+				        {"Some": {"type": "StyleLineHeight"}}
+				    ]
+				},
+				"OptionStyleLetterSpacingValue": {
+				    "external": "azul_impl::css::OptionStyleLetterSpacingValue",
+				    "enum_fields": [
+				        {"None": {}},
+				        {"Some": {"type": "StyleLetterSpacing"}}
+				    ]
+				},
+				"OptionStyleWordSpacingValue": {
+				    "external": "azul_impl::css::OptionStyleWordSpacingValue",
+				    "enum_fields": [
+				        {"None": {}},
+				        {"Some": {"type": "StyleWordSpacing"}}
+				    ]
+				},
+				"OptionStyleTabWidthValue": {
+				    "external": "azul_impl::css::OptionStyleTabWidthValue",
+				    "enum_fields": [
+				        {"None": {}},
+				        {"Some": {"type": "StyleTabWidth"}}
+				    ]
+				},
+				"OptionStyleCursorValue": {
+				    "external": "azul_impl::css::OptionStyleCursorValue",
+				    "enum_fields": [
+				        {"None": {}},
+				        {"Some": {"type": "StyleCursor"}}
+				    ]
+				},
+				"OptionBoxShadowPreDisplayItemValue": {
+				    "external": "azul_impl::css::OptionBoxShadowPreDisplayItemValue",
+				    "enum_fields": [
+				        {"None": {}},
+				        {"Some": {"type": "BoxShadowPreDisplayItem"}}
+				    ]
+				},
+				"OptionBoxShadowPreDisplayItemValue": {
+				    "external": "azul_impl::css::OptionBoxShadowPreDisplayItemValue",
+				    "enum_fields": [
+				        {"None": {}},
+				        {"Some": {"type": "BoxShadowPreDisplayItem"}}
+				    ]
+				},
+				"OptionBoxShadowPreDisplayItemValue": {
+				    "external": "azul_impl::css::OptionBoxShadowPreDisplayItemValue",
+				    "enum_fields": [
+				        {"None": {}},
+				        {"Some": {"type": "BoxShadowPreDisplayItem"}}
+				    ]
+				},
+				"OptionBoxShadowPreDisplayItemValue": {
+				    "external": "azul_impl::css::OptionBoxShadowPreDisplayItemValue",
+				    "enum_fields": [
+				        {"None": {}},
+				        {"Some": {"type": "BoxShadowPreDisplayItem"}}
+				    ]
+				},
+				"OptionStyleBorderTopColorValue": {
+				    "external": "azul_impl::css::OptionStyleBorderTopColorValue",
+				    "enum_fields": [
+				        {"None": {}},
+				        {"Some": {"type": "StyleBorderTopColor"}}
+				    ]
+				},
+				"OptionStyleBorderLeftColorValue": {
+				    "external": "azul_impl::css::OptionStyleBorderLeftColorValue",
+				    "enum_fields": [
+				        {"None": {}},
+				        {"Some": {"type": "StyleBorderLeftColor"}}
+				    ]
+				},
+				"OptionStyleBorderRightColorValue": {
+				    "external": "azul_impl::css::OptionStyleBorderRightColorValue",
+				    "enum_fields": [
+				        {"None": {}},
+				        {"Some": {"type": "StyleBorderRightColor"}}
+				    ]
+				},
+				"OptionStyleBorderBottomColorValue": {
+				    "external": "azul_impl::css::OptionStyleBorderBottomColorValue",
+				    "enum_fields": [
+				        {"None": {}},
+				        {"Some": {"type": "StyleBorderBottomColor"}}
+				    ]
+				},
+				"OptionStyleBorderTopStyleValue": {
+				    "external": "azul_impl::css::OptionStyleBorderTopStyleValue",
+				    "enum_fields": [
+				        {"None": {}},
+				        {"Some": {"type": "StyleBorderTopStyle"}}
+				    ]
+				},
+				"OptionStyleBorderLeftStyleValue": {
+				    "external": "azul_impl::css::OptionStyleBorderLeftStyleValue",
+				    "enum_fields": [
+				        {"None": {}},
+				        {"Some": {"type": "StyleBorderLeftStyle"}}
+				    ]
+				},
+				"OptionStyleBorderRightStyleValue": {
+				    "external": "azul_impl::css::OptionStyleBorderRightStyleValue",
+				    "enum_fields": [
+				        {"None": {}},
+				        {"Some": {"type": "StyleBorderRightStyle"}}
+				    ]
+				},
+				"OptionStyleBorderBottomStyleValue": {
+				    "external": "azul_impl::css::OptionStyleBorderBottomStyleValue",
+				    "enum_fields": [
+				        {"None": {}},
+				        {"Some": {"type": "StyleBorderBottomStyle"}}
+				    ]
+				},
+				"OptionStyleBorderTopLeftRadiusValue": {
+				    "external": "azul_impl::css::OptionStyleBorderTopLeftRadiusValue",
+				    "enum_fields": [
+				        {"None": {}},
+				        {"Some": {"type": "StyleBorderTopLeftRadius"}}
+				    ]
+				},
+				"OptionStyleBorderTopRightRadiusValue": {
+				    "external": "azul_impl::css::OptionStyleBorderTopRightRadiusValue",
+				    "enum_fields": [
+				        {"None": {}},
+				        {"Some": {"type": "StyleBorderTopRightRadius"}}
+				    ]
+				},
+				"OptionStyleBorderBottomLeftRadiusValue": {
+				    "external": "azul_impl::css::OptionStyleBorderBottomLeftRadiusValue",
+				    "enum_fields": [
+				        {"None": {}},
+				        {"Some": {"type": "StyleBorderBottomLeftRadius"}}
+				    ]
+				},
+				"OptionStyleBorderBottomRightRadiusValue": {
+				    "external": "azul_impl::css::OptionStyleBorderBottomRightRadiusValue",
+				    "enum_fields": [
+				        {"None": {}},
+				        {"Some": {"type": "StyleBorderBottomRightRadius"}}
+				    ]
+				},
+				"OptionLayoutDisplayValue": {
+				    "external": "azul_impl::css::OptionLayoutDisplayValue",
+				    "enum_fields": [
+				        {"None": {}},
+				        {"Some": {"type": "LayoutDisplay"}}
+				    ]
+				},
+				"OptionLayoutFloatValue": {
+				    "external": "azul_impl::css::OptionLayoutFloatValue",
+				    "enum_fields": [
+				        {"None": {}},
+				        {"Some": {"type": "LayoutFloat"}}
+				    ]
+				},
+				"OptionLayoutBoxSizingValue": {
+				    "external": "azul_impl::css::OptionLayoutBoxSizingValue",
+				    "enum_fields": [
+				        {"None": {}},
+				        {"Some": {"type": "LayoutBoxSizing"}}
+				    ]
+				},
+				"OptionLayoutWidthValue": {
+				    "external": "azul_impl::css::OptionLayoutWidthValue",
+				    "enum_fields": [
+				        {"None": {}},
+				        {"Some": {"type": "LayoutWidth"}}
+				    ]
+				},
+				"OptionLayoutHeightValue": {
+				    "external": "azul_impl::css::OptionLayoutHeightValue",
+				    "enum_fields": [
+				        {"None": {}},
+				        {"Some": {"type": "LayoutHeight"}}
+				    ]
+				},
+				"OptionLayoutMinWidthValue": {
+				    "external": "azul_impl::css::OptionLayoutMinWidthValue",
+				    "enum_fields": [
+				        {"None": {}},
+				        {"Some": {"type": "LayoutMinWidth"}}
+				    ]
+				},
+				"OptionLayoutMinHeightValue": {
+				    "external": "azul_impl::css::OptionLayoutMinHeightValue",
+				    "enum_fields": [
+				        {"None": {}},
+				        {"Some": {"type": "LayoutMinHeight"}}
+				    ]
+				},
+				"OptionLayoutMaxWidthValue": {
+				    "external": "azul_impl::css::OptionLayoutMaxWidthValue",
+				    "enum_fields": [
+				        {"None": {}},
+				        {"Some": {"type": "LayoutMaxWidth"}}
+				    ]
+				},
+				"OptionLayoutMaxHeightValue": {
+				    "external": "azul_impl::css::OptionLayoutMaxHeightValue",
+				    "enum_fields": [
+				        {"None": {}},
+				        {"Some": {"type": "LayoutMaxHeight"}}
+				    ]
+				},
+				"OptionLayoutPositionValue": {
+				    "external": "azul_impl::css::OptionLayoutPositionValue",
+				    "enum_fields": [
+				        {"None": {}},
+				        {"Some": {"type": "LayoutPosition"}}
+				    ]
+				},
+				"OptionLayoutTopValue": {
+				    "external": "azul_impl::css::OptionLayoutTopValue",
+				    "enum_fields": [
+				        {"None": {}},
+				        {"Some": {"type": "LayoutTop"}}
+				    ]
+				},
+				"OptionLayoutBottomValue": {
+				    "external": "azul_impl::css::OptionLayoutBottomValue",
+				    "enum_fields": [
+				        {"None": {}},
+				        {"Some": {"type": "LayoutBottom"}}
+				    ]
+				},
+				"OptionLayoutRightValue": {
+				    "external": "azul_impl::css::OptionLayoutRightValue",
+				    "enum_fields": [
+				        {"None": {}},
+				        {"Some": {"type": "LayoutRight"}}
+				    ]
+				},
+				"OptionLayoutLeftValue": {
+				    "external": "azul_impl::css::OptionLayoutLeftValue",
+				    "enum_fields": [
+				        {"None": {}},
+				        {"Some": {"type": "LayoutLeft"}}
+				    ]
+				},
+				"OptionLayoutPaddingTopValue": {
+				    "external": "azul_impl::css::OptionLayoutPaddingTopValue",
+				    "enum_fields": [
+				        {"None": {}},
+				        {"Some": {"type": "LayoutPaddingTop"}}
+				    ]
+				},
+				"OptionLayoutPaddingBottomValue": {
+				    "external": "azul_impl::css::OptionLayoutPaddingBottomValue",
+				    "enum_fields": [
+				        {"None": {}},
+				        {"Some": {"type": "LayoutPaddingBottom"}}
+				    ]
+				},
+				"OptionLayoutPaddingLeftValue": {
+				    "external": "azul_impl::css::OptionLayoutPaddingLeftValue",
+				    "enum_fields": [
+				        {"None": {}},
+				        {"Some": {"type": "LayoutPaddingLeft"}}
+				    ]
+				},
+				"OptionLayoutPaddingRightValue": {
+				    "external": "azul_impl::css::OptionLayoutPaddingRightValue",
+				    "enum_fields": [
+				        {"None": {}},
+				        {"Some": {"type": "LayoutPaddingRight"}}
+				    ]
+				},
+				"OptionLayoutMarginTopValue": {
+				    "external": "azul_impl::css::OptionLayoutMarginTopValue",
+				    "enum_fields": [
+				        {"None": {}},
+				        {"Some": {"type": "LayoutMarginTop"}}
+				    ]
+				},
+				"OptionLayoutMarginBottomValue": {
+				    "external": "azul_impl::css::OptionLayoutMarginBottomValue",
+				    "enum_fields": [
+				        {"None": {}},
+				        {"Some": {"type": "LayoutMarginBottom"}}
+				    ]
+				},
+				"OptionLayoutMarginLeftValue": {
+				    "external": "azul_impl::css::OptionLayoutMarginLeftValue",
+				    "enum_fields": [
+				        {"None": {}},
+				        {"Some": {"type": "LayoutMarginLeft"}}
+				    ]
+				},
+				"OptionLayoutMarginRightValue": {
+				    "external": "azul_impl::css::OptionLayoutMarginRightValue",
+				    "enum_fields": [
+				        {"None": {}},
+				        {"Some": {"type": "LayoutMarginRight"}}
+				    ]
+				},
+				"OptionStyleBorderTopWidthValue": {
+				    "external": "azul_impl::css::OptionStyleBorderTopWidthValue",
+				    "enum_fields": [
+				        {"None": {}},
+				        {"Some": {"type": "StyleBorderTopWidth"}}
+				    ]
+				},
+				"OptionStyleBorderLeftWidthValue": {
+				    "external": "azul_impl::css::OptionStyleBorderLeftWidthValue",
+				    "enum_fields": [
+				        {"None": {}},
+				        {"Some": {"type": "StyleBorderLeftWidth"}}
+				    ]
+				},
+				"OptionStyleBorderRightWidthValue": {
+				    "external": "azul_impl::css::OptionStyleBorderRightWidthValue",
+				    "enum_fields": [
+				        {"None": {}},
+				        {"Some": {"type": "StyleBorderRightWidth"}}
+				    ]
+				},
+				"OptionStyleBorderBottomWidthValue": {
+				    "external": "azul_impl::css::OptionStyleBorderBottomWidthValue",
+				    "enum_fields": [
+				        {"None": {}},
+				        {"Some": {"type": "StyleBorderBottomWidth"}}
+				    ]
+				},
+				"OptionOverflowValue": {
+				    "external": "azul_impl::css::OptionOverflowValue",
+				    "enum_fields": [
+				        {"None": {}},
+				        {"Some": {"type": "Overflow"}}
+				    ]
+				},
+				"OptionOverflowValue": {
+				    "external": "azul_impl::css::OptionOverflowValue",
+				    "enum_fields": [
+				        {"None": {}},
+				        {"Some": {"type": "Overflow"}}
+				    ]
+				},
+				"OptionLayoutDirectionValue": {
+				    "external": "azul_impl::css::OptionLayoutDirectionValue",
+				    "enum_fields": [
+				        {"None": {}},
+				        {"Some": {"type": "LayoutDirection"}}
+				    ]
+				},
+				"OptionLayoutWrapValue": {
+				    "external": "azul_impl::css::OptionLayoutWrapValue",
+				    "enum_fields": [
+				        {"None": {}},
+				        {"Some": {"type": "LayoutWrap"}}
+				    ]
+				},
+				"OptionLayoutFlexGrowValue": {
+				    "external": "azul_impl::css::OptionLayoutFlexGrowValue",
+				    "enum_fields": [
+				        {"None": {}},
+				        {"Some": {"type": "LayoutFlexGrow"}}
+				    ]
+				},
+				"OptionLayoutFlexShrinkValue": {
+				    "external": "azul_impl::css::OptionLayoutFlexShrinkValue",
+				    "enum_fields": [
+				        {"None": {}},
+				        {"Some": {"type": "LayoutFlexShrink"}}
+				    ]
+				},
+				"OptionLayoutJustifyContentValue": {
+				    "external": "azul_impl::css::OptionLayoutJustifyContentValue",
+				    "enum_fields": [
+				        {"None": {}},
+				        {"Some": {"type": "LayoutJustifyContent"}}
+				    ]
+				},
+				"OptionLayoutAlignItemsValue": {
+				    "external": "azul_impl::css::OptionLayoutAlignItemsValue",
+				    "enum_fields": [
+				        {"None": {}},
+				        {"Some": {"type": "LayoutAlignItems"}}
+				    ]
+				},
+				"OptionLayoutAlignContentValue": {
+				    "external": "azul_impl::css::OptionLayoutAlignContentValue",
+				    "enum_fields": [
+				        {"None": {}},
+				        {"Some": {"type": "LayoutAlignContent"}}
+				    ]
+				},
+				"OptionHoverGroup": {
+				    "external": "azul_impl::styled_dom::OptionHoverGroup",
+				    "enum_fields": [
+				        {"None": {}},
+				        {"Some": {"type": "HoverGroup"}}
+				    ]
+				},
+				"OptionTagId": {
+				    "external": "azul_impl::styled_dom::OptionTagId",
+				    "enum_fields": [
+				        {"None": {}},
+				        {"Some": {"type": "TagId"}}
+				    ]
 				},
 				"OptionDuration": {
 					"external": "azul_impl::task::OptionDuration",
@@ -1204,6 +1897,25 @@
 		"callbacks": {
 			"doc": "Callback type definitions + struct definitions of `CallbackInfo`s",
 			"classes": {
+				"NodeId": {
+					"external": "azul_impl::callbacks::NodeId",
+					"struct_fields": [
+						{"inner": {"type": "u32"}}
+					]
+				},
+				"DomId": {
+					"external": "azul_impl::callbacks::DomId",
+					"struct_fields": [
+						{"inner": {"type": "u32"}}
+					]
+				},
+				"DomNodeId": {
+					"external": "azul_impl::callbacks::DomNodeId",
+					"struct_fields": [
+						{"dom": {"type": "DomId"}},
+						{"node": {"type": "NodeId"}}
+					]
+				},
 				"HidpiAdjustedBounds": {
 					"external": "azul_impl::callbacks::HidpiAdjustedBounds",
 					"struct_fields": [
@@ -1634,7 +2346,7 @@
 				"CssNthChildSelector": {
 					"external": "azul_impl::css::CssNthChildSelector",
 					"enum_fields": [
-						{"Number": {"type": "usize"}},
+						{"Number": {"type": "u32"}},
 						{"Even": {}},
 						{"Odd": {}},
 						{"Pattern": {"type": "CssNthChildPattern"}}
@@ -1643,8 +2355,8 @@
 				"CssNthChildPattern": {
 					"external": "azul_impl::css::CssNthChildPattern",
 					"struct_fields": [
-						{"repeat": {"type": "usize"}},
-						{"offset": {"type": "usize"}}
+						{"repeat": {"type": "u32"}},
+						{"offset": {"type": "u32"}}
 					]
 				},
 				"Stylesheet": {
@@ -3018,6 +3730,220 @@
 						{ "BoxShadowTop": { "type": "CssPropertyValue<BoxShadowPreDisplayItem>" }} ,
 						{ "BoxShadowBottom": { "type": "CssPropertyValue<BoxShadowPreDisplayItem>" }}
 					]
+				}
+			}
+		},
+		"style": {
+			"doc": "DOM to CSS cascading and styling module",
+			"classes": {
+				"Node": {
+					"external": "azul_impl::styled_dom::AzNode",
+					"derive": ["Copy", "PartialEq", "Eq", "PartialOrd", "Ord", "Hash"],
+					"struct_fields": [
+						{"parent": {"type": "u32"}},
+						{"previous_sibling": {"type": "u32"}},
+						{"next_sibling": {"type": "u32"}},
+						{"first_child": {"type": "u32"}},
+						{"last_child": {"type": "u32"}}
+					]
+				},
+				"CascadeInfo": {
+					"external": "azul_impl::styled_dom::CascadeInfo",
+					"derive": ["Copy", "PartialEq", "Eq", "PartialOrd", "Ord", "Hash"],
+					"struct_fields": [
+						{"index_in_parent": {"type": "u32"}},
+						{"is_last_child": {"type": "bool"}},
+						{"is_hovered_over": {"type": "bool"}},
+						{"is_focused": {"type": "bool"}},
+						{"is_active": {"type": "bool"}}
+			  		]
+				},
+				"RectStyle": {
+					"external": "azul_impl::styled_dom::RectStyle",
+					"derive": ["PartialEq", "Eq", "PartialOrd", "Ord", "Hash"],
+					"struct_fields": [
+						{"background": {"type": "OptionStyleBackgroundContentValue"}},
+						{"background_position": {"type": "OptionStyleBackgroundPositionValue"}},
+						{"background_size": {"type": "OptionStyleBackgroundSizeValue"}},
+						{"background_repeat": {"type": "OptionStyleBackgroundRepeatValue"}},
+						{"font_size": {"type": "OptionStyleFontSizeValue"}},
+						{"font_family": {"type": "OptionStyleFontFamilyValue"}},
+						{"text_color": {"type": "OptionStyleTextColorValue"}},
+						{"text_align": {"type": "OptionStyleTextAlignmentHorzValue"}},
+						{"line_height": {"type": "OptionStyleLineHeightValue"}},
+						{"letter_spacing": {"type": "OptionStyleLetterSpacingValue"}},
+						{"word_spacing": {"type": "OptionStyleWordSpacingValue"}},
+						{"tab_width": {"type": "OptionStyleTabWidthValue"}},
+						{"cursor": {"type": "OptionStyleCursorValue"}},
+						{"box_shadow_left": {"type": "OptionBoxShadowPreDisplayItemValue"}},
+						{"box_shadow_right": {"type": "OptionBoxShadowPreDisplayItemValue"}},
+						{"box_shadow_top": {"type": "OptionBoxShadowPreDisplayItemValue"}},
+						{"box_shadow_bottom": {"type": "OptionBoxShadowPreDisplayItemValue"}},
+						{"border_top_color": {"type": "OptionStyleBorderTopColorValue"}},
+						{"border_left_color": {"type": "OptionStyleBorderLeftColorValue"}},
+						{"border_right_color": {"type": "OptionStyleBorderRightColorValue"}},
+						{"border_bottom_color": {"type": "OptionStyleBorderBottomColorValue"}},
+						{"border_top_style": {"type": "OptionStyleBorderTopStyleValue"}},
+						{"border_left_style": {"type": "OptionStyleBorderLeftStyleValue"}},
+						{"border_right_style": {"type": "OptionStyleBorderRightStyleValue"}},
+						{"border_bottom_style": {"type": "OptionStyleBorderBottomStyleValue"}},
+						{"border_top_left_radius": {"type": "OptionStyleBorderTopLeftRadiusValue"}},
+						{"border_top_right_radius": {"type": "OptionStyleBorderTopRightRadiusValue"}},
+						{"border_bottom_left_radius": {"type": "OptionStyleBorderBottomLeftRadiusValue"}},
+						{"border_bottom_right_radius": {"type": "OptionStyleBorderBottomRightRadiusValue"}}
+					]
+				},
+				"RectLayout": {
+					"external": "azul_impl::styled_dom::RectLayout",
+					"derive": ["PartialEq", "Eq", "PartialOrd", "Ord", "Hash"],
+					"struct_fields": [
+						{"display": {"type": "OptionLayoutDisplayValue"}},
+						{"float": {"type": "OptionLayoutFloatValue"}},
+						{"box_sizing": {"type": "OptionLayoutBoxSizingValue"}},
+						{"width": {"type": "OptionLayoutWidthValue"}},
+						{"height": {"type": "OptionLayoutHeightValue"}},
+						{"min_width": {"type": "OptionLayoutMinWidthValue"}},
+						{"min_height": {"type": "OptionLayoutMinHeightValue"}},
+						{"max_width": {"type": "OptionLayoutMaxWidthValue"}},
+						{"max_height": {"type": "OptionLayoutMaxHeightValue"}},
+						{"position": {"type": "OptionLayoutPositionValue"}},
+						{"top": {"type": "OptionLayoutTopValue"}},
+						{"bottom": {"type": "OptionLayoutBottomValue"}},
+						{"right": {"type": "OptionLayoutRightValue"}},
+						{"left": {"type": "OptionLayoutLeftValue"}},
+						{"padding_top": {"type": "OptionLayoutPaddingTopValue"}},
+						{"padding_bottom": {"type": "OptionLayoutPaddingBottomValue"}},
+						{"padding_left": {"type": "OptionLayoutPaddingLeftValue"}},
+						{"padding_right": {"type": "OptionLayoutPaddingRightValue"}},
+						{"margin_top": {"type": "OptionLayoutMarginTopValue"}},
+						{"margin_bottom": {"type": "OptionLayoutMarginBottomValue"}},
+						{"margin_left": {"type": "OptionLayoutMarginLeftValue"}},
+						{"margin_right": {"type": "OptionLayoutMarginRightValue"}},
+						{"border_top_width": {"type": "OptionStyleBorderTopWidthValue"}},
+						{"border_left_width": {"type": "OptionStyleBorderLeftWidthValue"}},
+						{"border_right_width": {"type": "OptionStyleBorderRightWidthValue"}},
+						{"border_bottom_width": {"type": "OptionStyleBorderBottomWidthValue"}},
+						{"overflow_x": {"type": "OptionOverflowValue"}},
+						{"overflow_y": {"type": "OptionOverflowValue"}},
+						{"direction": {"type": "OptionLayoutDirectionValue"}},
+						{"wrap": {"type": "OptionLayoutWrapValue"}},
+						{"flex_grow": {"type": "OptionLayoutFlexGrowValue"}},
+						{"flex_shrink": {"type": "OptionLayoutFlexShrinkValue"}},
+						{"justify_content": {"type": "OptionLayoutJustifyContentValue"}},
+						{"align_items": {"type": "OptionLayoutAlignItemsValue"}},
+						{"align_content": {"type": "OptionLayoutAlignContentValue"}}
+					]
+				},
+				"CascadedCssPropertyWithSource": {
+					"external": "azul_impl::styled_dom::CascadedCssPropertyWithSource",
+					"derive": ["PartialEq", "Eq", "PartialOrd", "Ord", "Hash"],
+					"struct_fields": [
+						{"prop": {"type": "CssProperty"}},
+						{"source": {"type": "CssPropertySource"}}
+					]
+				},
+				"CssPropertySource": {
+					"external": "azul_impl::styled_dom::CssPropertySource",
+					"derive": ["PartialEq", "Eq", "PartialOrd", "Ord", "Hash"],
+					"enum_fields": [
+						{"Css": {"type": "CssPath"}},
+						{"Inline": {}}
+					]
+				},
+				"StyledNode": {
+					"external": "azul_impl::styled_dom::StyledNode",
+					"derive": ["PartialEq", "Eq", "PartialOrd", "Ord", "Hash"],
+					"struct_fields": [
+						{"css_constraints": {"type": "CascadedCssPropertyWithSourceVec", "doc": "Full list of all applied CSS rules (with source mapping) after cascading"}},
+						{"cascade_info": {"type": "CascadeInfo", "doc": "Stores information about the DOM node - used to match the node to a CSS path"}},
+						{"hover_group": {"type": "OptionHoverGroup", "doc": "In order to hit-test `:hover` and `:active` selectors, azul needs to insert `TagId`s for all nodes that have a `:hover` selector, for example if we have `#thing:hover`, then all nodes selected by `#thing` need to get a TagId, otherwise, they can't be hit-tested"}},
+						{"tag_id": {"type": "OptionTagId", "doc": "Optional hit-testing tag ID (NOTE: The tag ID has to be adjusted after the layout is done (to account for scroll tags))"}},
+						{"style": {"type": "RectStyle", "doc": "Final computed rect style, after all CSS rules are applied in order"}},
+						{"layout": {"type": "RectLayout", "doc": "Final computed rect layout, after all CSS rules are applied in order"}}
+					]
+				},
+				"TagId": {
+					"external": "azul_impl::styled_dom::AzTagId",
+					"derive": ["Copy", "PartialEq", "Eq", "PartialOrd", "Ord", "Hash"],
+					"struct_fields": [
+						{"inner": {"type": "u32"}}
+					]
+				},
+				"TagIdToNodeIdMapping": {
+					"external": "azul_impl::styled_dom::TagIdToNodeIdMapping",
+					"derive": ["Copy", "PartialEq", "Eq", "PartialOrd", "Ord", "Hash"],
+					"struct_fields": [
+						{"tag_id": {"type": "TagId"}},
+						{"node_id": {"type": "NodeId"}},
+						{"tab_index": {"type": "OptionTabIndex"}},
+						{"hover_group": {"type": "OptionHoverGroup"}}
+					]
+				},
+				"HoverGroup": {
+					"external": "azul_impl::styled_dom::HoverGroup",
+					"derive": ["Copy", "PartialEq", "Eq", "PartialOrd", "Ord", "Hash"],
+					"struct_fields": [
+						{"affects_layout": {"type": "bool", "doc": "Whether any CSS property in the `:hover` or `:active` group will trigger a re-layout"}},
+						{"active_or_hover": {"type": "ActiveHover", "doc": "Whether this path ends with `:active` or with `:hover`"}}
+					]
+				},
+				"ActiveHover": {
+					"external": "azul_impl::styled_dom::ActiveHover",
+					"derive": ["Copy", "PartialEq", "Eq", "PartialOrd", "Ord", "Hash"],
+					"enum_fields": [
+						{"Active": {}},
+    					{"Hover": {}}
+					]
+				},
+				"ParentWithNodeDepth": {
+					"external": "azul_impl::styled_dom::ParentWithNodeDepth",
+					"derive": ["Copy", "PartialEq", "Eq", "PartialOrd", "Ord", "Hash"],
+					"struct_fields": [
+						{"depth": {"type": "u32"}},
+						{"node_id": {"type": "NodeId"}}
+					]
+				},
+				"StyleOptions": {
+					"external": "azul_impl::styled_dom::StyledDom",
+					"derive": ["PartialEq", "Eq", "PartialOrd", "Ord", "Hash"],
+					"struct_fields": [
+						{"focused_node": {"type": "OptionNodeId"}},
+						{"hovered_nodes": {"type": "NodeIdVec"}},
+						{"is_mouse_down": {"type": "bool"}}
+					]
+				},
+				"StyledDom": {
+					"external": "azul_impl::styled_dom::StyledDom",
+					"derive": ["PartialEq", "Eq", "PartialOrd", "Ord", "Hash"],
+					"struct_fields": [
+						{"root": {"type": "NodeId" }},
+						{"node_hierarchy": {"type": "NodeVec" }},
+						{"node_data": {"type": "NodeDataVec" }},
+						{"styled_nodes": {"type": "StyledNodeVec" }},
+						{"tag_ids_to_node_ids": {"type": "TagIdsToNodeIdsMappingVec" }},
+						{"non_leaf_nodes": {"type": "ParentWithNodeDepthVec" }}
+					],
+					"constructors": {
+						"new": {
+							"doc": "Styles a `Dom` with the given `Css`, returning the `StyledDom` - complexity `O(count(dom_nodes) * count(css_blocks))`: make sure that the `Dom` and the `Css` are as small as possible, use inline CSS if the performance isn't good enough",
+							"fn_args": [
+								{"dom": "Dom"},
+								{"css": "Css"},
+								{"style_options": "StyleOptions"}
+							],
+							"fn_body":"StyledDom::new(dom, &css, style_options)"
+						}
+					},
+					"functions": {
+						"append": {
+							"doc": "Appends an already styled list of DOM nodes to the current `dom.root` - complexity `O(count(dom.dom_nodes))`",
+							"fn_args": [
+								{"self": "refmut"},
+								{"dom": "StyledDom"}
+							],
+							"fn_body": "styled_dom.append(dom);"
+						}
+					}
 				}
 			}
 		},

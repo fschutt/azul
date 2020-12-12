@@ -231,8 +231,10 @@
     use crate::svg::{SvgMultiPolygon, SvgPath, SvgPathElement, SvgVertex};
     use crate::gl::{DebugMessage, VertexAttribute};
     use crate::window::{StringPair, VirtualKeyCode, XWindowType};
-    use crate::dom::{CallbackData, Dom};
+    use crate::dom::{CallbackData, Dom, NodeData};
     use crate::str::String;
+    use crate::style::{CascadedCssPropertyWithSource, Node, ParentWithNodeDepth, StyledNode, TagIdToNodeIdMapping};
+    use crate::callbacks::NodeId;
 
 
     /// Wrapper over a Rust-allocated `Vec<CssProperty>`
@@ -624,3 +626,122 @@
     impl std::fmt::Debug for GradientStopPreVec { fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result { write!(f, "{}", (crate::dll::get_azul_dll().az_gradient_stop_pre_vec_fmt_debug)(self)) } }
     impl Clone for GradientStopPreVec { fn clone(&self) -> Self { (crate::dll::get_azul_dll().az_gradient_stop_pre_vec_deep_copy)(self) } }
     impl Drop for GradientStopPreVec { fn drop(&mut self) { (crate::dll::get_azul_dll().az_gradient_stop_pre_vec_delete)(self); } }
+
+
+    /// Wrapper over a Rust-allocated `CascadedCssPropertyWithSourceVec`
+    pub use crate::dll::AzCascadedCssPropertyWithSourceVec as CascadedCssPropertyWithSourceVec;
+
+    impl CascadedCssPropertyWithSourceVec {
+        /// Creates a new, empty Rust `Vec<CascadedCssPropertyWithSource>`
+        pub fn new() -> Self { (crate::dll::get_azul_dll().az_cascaded_css_property_with_source_vec_new)() }
+        /// Creates a new, empty Rust `Vec<CascadedCssPropertyWithSource>` with a given, pre-allocated capacity
+        pub fn with_capacity(cap: usize) -> Self { (crate::dll::get_azul_dll().az_cascaded_css_property_with_source_vec_with_capacity)(cap) }
+        /// Creates + allocates a Rust `Vec<CascadedCssPropertyWithSource>` by **copying** it from a bytes source
+        pub fn copy_from(ptr: *const AzCascadedCssPropertyWithSource, len: usize) -> Self { (crate::dll::get_azul_dll().az_cascaded_css_property_with_source_vec_copy_from)(ptr, len) }
+    }
+
+    impl std::fmt::Debug for CascadedCssPropertyWithSourceVec { fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result { write!(f, "{}", (crate::dll::get_azul_dll().az_cascaded_css_property_with_source_vec_fmt_debug)(self)) } }
+    impl Clone for CascadedCssPropertyWithSourceVec { fn clone(&self) -> Self { (crate::dll::get_azul_dll().az_cascaded_css_property_with_source_vec_deep_copy)(self) } }
+    impl Drop for CascadedCssPropertyWithSourceVec { fn drop(&mut self) { (crate::dll::get_azul_dll().az_cascaded_css_property_with_source_vec_delete)(self); } }
+
+
+    /// Wrapper over a Rust-allocated `NodeIdVec`
+    pub use crate::dll::AzNodeIdVec as NodeIdVec;
+
+    impl NodeIdVec {
+        /// Creates a new, empty Rust `Vec<NodeId>`
+        pub fn new() -> Self { (crate::dll::get_azul_dll().az_node_id_vec_new)() }
+        /// Creates a new, empty Rust `Vec<NodeId>` with a given, pre-allocated capacity
+        pub fn with_capacity(cap: usize) -> Self { (crate::dll::get_azul_dll().az_node_id_vec_with_capacity)(cap) }
+        /// Creates + allocates a Rust `Vec<NodeId>` by **copying** it from a bytes source
+        pub fn copy_from(ptr: *const AzNodeId, len: usize) -> Self { (crate::dll::get_azul_dll().az_node_id_vec_copy_from)(ptr, len) }
+    }
+
+    impl std::fmt::Debug for NodeIdVec { fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result { write!(f, "{}", (crate::dll::get_azul_dll().az_node_id_vec_fmt_debug)(self)) } }
+    impl Clone for NodeIdVec { fn clone(&self) -> Self { (crate::dll::get_azul_dll().az_node_id_vec_deep_copy)(self) } }
+    impl Drop for NodeIdVec { fn drop(&mut self) { (crate::dll::get_azul_dll().az_node_id_vec_delete)(self); } }
+
+
+    /// Wrapper over a Rust-allocated `NodeVec`
+    pub use crate::dll::AzNodeVec as NodeVec;
+
+    impl NodeVec {
+        /// Creates a new, empty Rust `Vec<Node>`
+        pub fn new() -> Self { (crate::dll::get_azul_dll().az_node_vec_new)() }
+        /// Creates a new, empty Rust `Vec<Node>` with a given, pre-allocated capacity
+        pub fn with_capacity(cap: usize) -> Self { (crate::dll::get_azul_dll().az_node_vec_with_capacity)(cap) }
+        /// Creates + allocates a Rust `Vec<Node>` by **copying** it from a bytes source
+        pub fn copy_from(ptr: *const AzNode, len: usize) -> Self { (crate::dll::get_azul_dll().az_node_vec_copy_from)(ptr, len) }
+    }
+
+    impl std::fmt::Debug for NodeVec { fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result { write!(f, "{}", (crate::dll::get_azul_dll().az_node_vec_fmt_debug)(self)) } }
+    impl Clone for NodeVec { fn clone(&self) -> Self { (crate::dll::get_azul_dll().az_node_vec_deep_copy)(self) } }
+    impl Drop for NodeVec { fn drop(&mut self) { (crate::dll::get_azul_dll().az_node_vec_delete)(self); } }
+
+
+    /// Wrapper over a Rust-allocated `StyledNodeVec`
+    pub use crate::dll::AzStyledNodeVec as StyledNodeVec;
+
+    impl StyledNodeVec {
+        /// Creates a new, empty Rust `Vec<StyledNode>`
+        pub fn new() -> Self { (crate::dll::get_azul_dll().az_styled_node_vec_new)() }
+        /// Creates a new, empty Rust `Vec<StyledNode>` with a given, pre-allocated capacity
+        pub fn with_capacity(cap: usize) -> Self { (crate::dll::get_azul_dll().az_styled_node_vec_with_capacity)(cap) }
+        /// Creates + allocates a Rust `Vec<StyledNode>` by **copying** it from a bytes source
+        pub fn copy_from(ptr: *const AzStyledNode, len: usize) -> Self { (crate::dll::get_azul_dll().az_styled_node_vec_copy_from)(ptr, len) }
+    }
+
+    impl std::fmt::Debug for StyledNodeVec { fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result { write!(f, "{}", (crate::dll::get_azul_dll().az_styled_node_vec_fmt_debug)(self)) } }
+    impl Clone for StyledNodeVec { fn clone(&self) -> Self { (crate::dll::get_azul_dll().az_styled_node_vec_deep_copy)(self) } }
+    impl Drop for StyledNodeVec { fn drop(&mut self) { (crate::dll::get_azul_dll().az_styled_node_vec_delete)(self); } }
+
+
+    /// Wrapper over a Rust-allocated `TagIdsToNodeIdsMappingVec`
+    pub use crate::dll::AzTagIdsToNodeIdsMappingVec as TagIdsToNodeIdsMappingVec;
+
+    impl TagIdsToNodeIdsMappingVec {
+        /// Creates a new, empty Rust `Vec<TagIdToNodeIdMapping>`
+        pub fn new() -> Self { (crate::dll::get_azul_dll().az_tag_ids_to_node_ids_mapping_vec_new)() }
+        /// Creates a new, empty Rust `Vec<TagIdToNodeIdMapping>` with a given, pre-allocated capacity
+        pub fn with_capacity(cap: usize) -> Self { (crate::dll::get_azul_dll().az_tag_ids_to_node_ids_mapping_vec_with_capacity)(cap) }
+        /// Creates + allocates a Rust `Vec<TagIdToNodeIdMapping>` by **copying** it from a bytes source
+        pub fn copy_from(ptr: *const AzTagIdToNodeIdMapping, len: usize) -> Self { (crate::dll::get_azul_dll().az_tag_ids_to_node_ids_mapping_vec_copy_from)(ptr, len) }
+    }
+
+    impl std::fmt::Debug for TagIdsToNodeIdsMappingVec { fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result { write!(f, "{}", (crate::dll::get_azul_dll().az_tag_ids_to_node_ids_mapping_vec_fmt_debug)(self)) } }
+    impl Clone for TagIdsToNodeIdsMappingVec { fn clone(&self) -> Self { (crate::dll::get_azul_dll().az_tag_ids_to_node_ids_mapping_vec_deep_copy)(self) } }
+    impl Drop for TagIdsToNodeIdsMappingVec { fn drop(&mut self) { (crate::dll::get_azul_dll().az_tag_ids_to_node_ids_mapping_vec_delete)(self); } }
+
+
+    /// Wrapper over a Rust-allocated `ParentWithNodeDepthVec`
+    pub use crate::dll::AzParentWithNodeDepthVec as ParentWithNodeDepthVec;
+
+    impl ParentWithNodeDepthVec {
+        /// Creates a new, empty Rust `Vec<ParentWithNodeDepth>`
+        pub fn new() -> Self { (crate::dll::get_azul_dll().az_parent_with_node_depth_vec_new)() }
+        /// Creates a new, empty Rust `Vec<ParentWithNodeDepth>` with a given, pre-allocated capacity
+        pub fn with_capacity(cap: usize) -> Self { (crate::dll::get_azul_dll().az_parent_with_node_depth_vec_with_capacity)(cap) }
+        /// Creates + allocates a Rust `Vec<ParentWithNodeDepth>` by **copying** it from a bytes source
+        pub fn copy_from(ptr: *const AzParentWithNodeDepth, len: usize) -> Self { (crate::dll::get_azul_dll().az_parent_with_node_depth_vec_copy_from)(ptr, len) }
+    }
+
+    impl std::fmt::Debug for ParentWithNodeDepthVec { fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result { write!(f, "{}", (crate::dll::get_azul_dll().az_parent_with_node_depth_vec_fmt_debug)(self)) } }
+    impl Clone for ParentWithNodeDepthVec { fn clone(&self) -> Self { (crate::dll::get_azul_dll().az_parent_with_node_depth_vec_deep_copy)(self) } }
+    impl Drop for ParentWithNodeDepthVec { fn drop(&mut self) { (crate::dll::get_azul_dll().az_parent_with_node_depth_vec_delete)(self); } }
+
+
+    /// Wrapper over a Rust-allocated `NodeDataVec`
+    pub use crate::dll::AzNodeDataVec as NodeDataVec;
+
+    impl NodeDataVec {
+        /// Creates a new, empty Rust `Vec<NodeData>`
+        pub fn new() -> Self { (crate::dll::get_azul_dll().az_node_data_vec_new)() }
+        /// Creates a new, empty Rust `Vec<NodeData>` with a given, pre-allocated capacity
+        pub fn with_capacity(cap: usize) -> Self { (crate::dll::get_azul_dll().az_node_data_vec_with_capacity)(cap) }
+        /// Creates + allocates a Rust `Vec<NodeData>` by **copying** it from a bytes source
+        pub fn copy_from(ptr: *const AzNodeData, len: usize) -> Self { (crate::dll::get_azul_dll().az_node_data_vec_copy_from)(ptr, len) }
+    }
+
+    impl std::fmt::Debug for NodeDataVec { fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result { write!(f, "{}", (crate::dll::get_azul_dll().az_node_data_vec_fmt_debug)(self)) } }
+    impl Clone for NodeDataVec { fn clone(&self) -> Self { (crate::dll::get_azul_dll().az_node_data_vec_deep_copy)(self) } }
+    impl Drop for NodeDataVec { fn drop(&mut self) { (crate::dll::get_azul_dll().az_node_data_vec_delete)(self); } }

@@ -128,6 +128,30 @@
     use crate::str::String;
 
 
+    /// `NodeId` struct
+    pub use crate::dll::AzNodeId as NodeId;
+
+    impl std::fmt::Debug for NodeId { fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result { write!(f, "{}", (crate::dll::get_azul_dll().az_node_id_fmt_debug)(self)) } }
+    impl Clone for NodeId { fn clone(&self) -> Self { (crate::dll::get_azul_dll().az_node_id_deep_copy)(self) } }
+    impl Drop for NodeId { fn drop(&mut self) { (crate::dll::get_azul_dll().az_node_id_delete)(self); } }
+
+
+    /// `DomId` struct
+    pub use crate::dll::AzDomId as DomId;
+
+    impl std::fmt::Debug for DomId { fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result { write!(f, "{}", (crate::dll::get_azul_dll().az_dom_id_fmt_debug)(self)) } }
+    impl Clone for DomId { fn clone(&self) -> Self { (crate::dll::get_azul_dll().az_dom_id_deep_copy)(self) } }
+    impl Drop for DomId { fn drop(&mut self) { (crate::dll::get_azul_dll().az_dom_id_delete)(self); } }
+
+
+    /// `DomNodeId` struct
+    pub use crate::dll::AzDomNodeId as DomNodeId;
+
+    impl std::fmt::Debug for DomNodeId { fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result { write!(f, "{}", (crate::dll::get_azul_dll().az_dom_node_id_fmt_debug)(self)) } }
+    impl Clone for DomNodeId { fn clone(&self) -> Self { (crate::dll::get_azul_dll().az_dom_node_id_deep_copy)(self) } }
+    impl Drop for DomNodeId { fn drop(&mut self) { (crate::dll::get_azul_dll().az_dom_node_id_delete)(self); } }
+
+
     /// `HidpiAdjustedBounds` struct
     pub use crate::dll::AzHidpiAdjustedBounds as HidpiAdjustedBounds;
 

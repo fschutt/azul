@@ -448,6 +448,140 @@ pub use AzGradientStopPreVecTT as AzGradientStopPreVec;
 /// Creates a string with the debug representation of the object
 #[no_mangle] pub extern "C" fn az_gradient_stop_pre_vec_fmt_debug(object: &AzGradientStopPreVec) -> AzString { format!("{:#?}", object).into() }
 
+/// Wrapper over a Rust-allocated `CascadedCssPropertyWithSourceVec`
+pub type AzCascadedCssPropertyWithSourceVecTT = azul_impl::styled_dom::CascadedCssPropertyWithSourceVec;
+pub use AzCascadedCssPropertyWithSourceVecTT as AzCascadedCssPropertyWithSourceVec;
+/// Creates a new, empty Rust `Vec<CascadedCssPropertyWithSource>`
+#[no_mangle] pub extern "C" fn az_cascaded_css_property_with_source_vec_new() -> AzCascadedCssPropertyWithSourceVec { Vec::<AzCascadedCssPropertyWithSource>::new().into() }
+/// Creates a new, empty Rust `Vec<CascadedCssPropertyWithSource>` with a given, pre-allocated capacity
+#[no_mangle] pub extern "C" fn az_cascaded_css_property_with_source_vec_with_capacity(cap: usize) -> AzCascadedCssPropertyWithSourceVec { Vec::<AzCascadedCssPropertyWithSource>::with_capacity(cap).into() }
+/// Creates + allocates a Rust `Vec<CascadedCssPropertyWithSource>` by **copying** it from a bytes source
+#[no_mangle] pub extern "C" fn az_cascaded_css_property_with_source_vec_copy_from(ptr: *const AzCascadedCssPropertyWithSource, len: usize) -> AzCascadedCssPropertyWithSourceVec { unsafe { std::slice::from_raw_parts(ptr, len).iter().cloned().collect::<Vec<_>>() }.into() }
+/// Destructor: Takes ownership of the `CascadedCssPropertyWithSourceVec` pointer and deletes it.
+#[no_mangle] #[allow(unused_variables)] pub extern "C" fn az_cascaded_css_property_with_source_vec_delete(object: &mut AzCascadedCssPropertyWithSourceVec) { unsafe { std::ptr::drop_in_place(object.as_mut()); } deallocate_vec(object.as_mut_ptr(), object.capacity());}
+/// Clones the object
+#[no_mangle] pub extern "C" fn az_cascaded_css_property_with_source_vec_deep_copy(object: &AzCascadedCssPropertyWithSourceVec) -> AzCascadedCssPropertyWithSourceVec { object.clone() }
+/// Creates a string with the debug representation of the object
+#[no_mangle] pub extern "C" fn az_cascaded_css_property_with_source_vec_fmt_debug(object: &AzCascadedCssPropertyWithSourceVec) -> AzString { format!("{:#?}", object).into() }
+
+/// Wrapper over a Rust-allocated `NodeIdVec`
+pub type AzNodeIdVecTT = azul_impl::styled_dom::NodeIdVec;
+pub use AzNodeIdVecTT as AzNodeIdVec;
+/// Creates a new, empty Rust `Vec<NodeId>`
+#[no_mangle] pub extern "C" fn az_node_id_vec_new() -> AzNodeIdVec { Vec::<NodeId>::new().into() }
+/// Creates a new, empty Rust `Vec<NodeId>` with a given, pre-allocated capacity
+#[no_mangle] pub extern "C" fn az_node_id_vec_with_capacity(cap: usize) -> AzNodeIdVec { Vec::<AzNodeId>::with_capacity(cap).into() }
+/// Creates + allocates a Rust `Vec<NodeId>` by **copying** it from a bytes source
+#[no_mangle] pub extern "C" fn az_node_id_vec_copy_from(ptr: *const AzNodeId, len: usize) -> AzNodeIdVec { unsafe { std::slice::from_raw_parts(ptr, len).iter().cloned().collect::<Vec<_>>() }.into() }
+/// Destructor: Takes ownership of the `NodeIdVec` pointer and deletes it.
+#[no_mangle] #[allow(unused_variables)] pub extern "C" fn az_node_id_vec_delete(object: &mut AzNodeIdVec) { unsafe { std::ptr::drop_in_place(object.as_mut()); } deallocate_vec(object.as_mut_ptr(), object.capacity());}
+/// Clones the object
+#[no_mangle] pub extern "C" fn az_node_id_vec_deep_copy(object: &AzNodeIdVec) -> AzNodeIdVec { object.clone() }
+/// Creates a string with the debug representation of the object
+#[no_mangle] pub extern "C" fn az_node_id_vec_fmt_debug(object: &AzNodeIdVec) -> AzString { format!("{:#?}", object).into() }
+
+/// Wrapper over a Rust-allocated `NodeVec`
+pub type AzNodeVecTT = azul_impl::styled_dom::NodeVec;
+pub use AzNodeVecTT as AzNodeVec;
+/// Creates a new, empty Rust `Vec<Node>`
+#[no_mangle] pub extern "C" fn az_node_vec_new() -> AzNodeVec { Vec::<Node>::new().into() }
+/// Creates a new, empty Rust `Vec<Node>` with a given, pre-allocated capacity
+#[no_mangle] pub extern "C" fn az_node_vec_with_capacity(cap: usize) -> AzNodeVec { Vec::<AzNode>::with_capacity(cap).into() }
+/// Creates + allocates a Rust `Vec<Node>` by **copying** it from a bytes source
+#[no_mangle] pub extern "C" fn az_node_vec_copy_from(ptr: *const AzNode, len: usize) -> AzNodeVec { unsafe { std::slice::from_raw_parts(ptr, len).iter().cloned().collect::<Vec<_>>() }.into() }
+/// Destructor: Takes ownership of the `NodeVec` pointer and deletes it.
+#[no_mangle] #[allow(unused_variables)] pub extern "C" fn az_node_vec_delete(object: &mut AzNodeVec) { unsafe { std::ptr::drop_in_place(object.as_mut()); } deallocate_vec(object.as_mut_ptr(), object.capacity());}
+/// Clones the object
+#[no_mangle] pub extern "C" fn az_node_vec_deep_copy(object: &AzNodeVec) -> AzNodeVec { object.clone() }
+/// Creates a string with the debug representation of the object
+#[no_mangle] pub extern "C" fn az_node_vec_fmt_debug(object: &AzNodeVec) -> AzString { format!("{:#?}", object).into() }
+
+/// Wrapper over a Rust-allocated `StyledNodeVec`
+pub type AzStyledNodeVecTT = azul_impl::styled_dom::StyledNodeVec;
+pub use AzStyledNodeVecTT as AzStyledNodeVec;
+/// Creates a new, empty Rust `Vec<StyledNode>`
+#[no_mangle] pub extern "C" fn az_styled_node_vec_new() -> AzStyledNodeVec { Vec::<StyledNode>::new().into() }
+/// Creates a new, empty Rust `Vec<StyledNode>` with a given, pre-allocated capacity
+#[no_mangle] pub extern "C" fn az_styled_node_vec_with_capacity(cap: usize) -> AzStyledNodeVec { Vec::<AzStyledNode>::with_capacity(cap).into() }
+/// Creates + allocates a Rust `Vec<StyledNode>` by **copying** it from a bytes source
+#[no_mangle] pub extern "C" fn az_styled_node_vec_copy_from(ptr: *const AzStyledNode, len: usize) -> AzStyledNodeVec { unsafe { std::slice::from_raw_parts(ptr, len).iter().cloned().collect::<Vec<_>>() }.into() }
+/// Destructor: Takes ownership of the `StyledNodeVec` pointer and deletes it.
+#[no_mangle] #[allow(unused_variables)] pub extern "C" fn az_styled_node_vec_delete(object: &mut AzStyledNodeVec) { unsafe { std::ptr::drop_in_place(object.as_mut()); } deallocate_vec(object.as_mut_ptr(), object.capacity());}
+/// Clones the object
+#[no_mangle] pub extern "C" fn az_styled_node_vec_deep_copy(object: &AzStyledNodeVec) -> AzStyledNodeVec { object.clone() }
+/// Creates a string with the debug representation of the object
+#[no_mangle] pub extern "C" fn az_styled_node_vec_fmt_debug(object: &AzStyledNodeVec) -> AzString { format!("{:#?}", object).into() }
+
+/// Wrapper over a Rust-allocated `TagIdsToNodeIdsMappingVec`
+pub type AzTagIdsToNodeIdsMappingVecTT = azul_impl::styled_dom::TagIdsToNodeIdsMappingVec;
+pub use AzTagIdsToNodeIdsMappingVecTT as AzTagIdsToNodeIdsMappingVec;
+/// Creates a new, empty Rust `Vec<TagIdToNodeIdMapping>`
+#[no_mangle] pub extern "C" fn az_tag_ids_to_node_ids_mapping_vec_new() -> AzTagIdsToNodeIdsMappingVec { Vec::<TagIdToNodeIdMapping>::new().into() }
+/// Creates a new, empty Rust `Vec<TagIdToNodeIdMapping>` with a given, pre-allocated capacity
+#[no_mangle] pub extern "C" fn az_tag_ids_to_node_ids_mapping_vec_with_capacity(cap: usize) -> AzTagIdsToNodeIdsMappingVec { Vec::<AzTagIdToNodeIdMapping>::with_capacity(cap).into() }
+/// Creates + allocates a Rust `Vec<TagIdToNodeIdMapping>` by **copying** it from a bytes source
+#[no_mangle] pub extern "C" fn az_tag_ids_to_node_ids_mapping_vec_copy_from(ptr: *const AzTagIdToNodeIdMapping, len: usize) -> AzTagIdsToNodeIdsMappingVec { unsafe { std::slice::from_raw_parts(ptr, len).iter().cloned().collect::<Vec<_>>() }.into() }
+/// Destructor: Takes ownership of the `TagIdsToNodeIdsMappingVec` pointer and deletes it.
+#[no_mangle] #[allow(unused_variables)] pub extern "C" fn az_tag_ids_to_node_ids_mapping_vec_delete(object: &mut AzTagIdsToNodeIdsMappingVec) { unsafe { std::ptr::drop_in_place(object.as_mut()); } deallocate_vec(object.as_mut_ptr(), object.capacity());}
+/// Clones the object
+#[no_mangle] pub extern "C" fn az_tag_ids_to_node_ids_mapping_vec_deep_copy(object: &AzTagIdsToNodeIdsMappingVec) -> AzTagIdsToNodeIdsMappingVec { object.clone() }
+/// Creates a string with the debug representation of the object
+#[no_mangle] pub extern "C" fn az_tag_ids_to_node_ids_mapping_vec_fmt_debug(object: &AzTagIdsToNodeIdsMappingVec) -> AzString { format!("{:#?}", object).into() }
+
+/// Wrapper over a Rust-allocated `ParentWithNodeDepthVec`
+pub type AzParentWithNodeDepthVecTT = azul_impl::styled_dom::ParentWithNodeDepthVec;
+pub use AzParentWithNodeDepthVecTT as AzParentWithNodeDepthVec;
+/// Creates a new, empty Rust `Vec<ParentWithNodeDepth>`
+#[no_mangle] pub extern "C" fn az_parent_with_node_depth_vec_new() -> AzParentWithNodeDepthVec { Vec::<ParentWithNodeDepth>::new().into() }
+/// Creates a new, empty Rust `Vec<ParentWithNodeDepth>` with a given, pre-allocated capacity
+#[no_mangle] pub extern "C" fn az_parent_with_node_depth_vec_with_capacity(cap: usize) -> AzParentWithNodeDepthVec { Vec::<AzParentWithNodeDepth>::with_capacity(cap).into() }
+/// Creates + allocates a Rust `Vec<ParentWithNodeDepth>` by **copying** it from a bytes source
+#[no_mangle] pub extern "C" fn az_parent_with_node_depth_vec_copy_from(ptr: *const AzParentWithNodeDepth, len: usize) -> AzParentWithNodeDepthVec { unsafe { std::slice::from_raw_parts(ptr, len).iter().cloned().collect::<Vec<_>>() }.into() }
+/// Destructor: Takes ownership of the `ParentWithNodeDepthVec` pointer and deletes it.
+#[no_mangle] #[allow(unused_variables)] pub extern "C" fn az_parent_with_node_depth_vec_delete(object: &mut AzParentWithNodeDepthVec) { unsafe { std::ptr::drop_in_place(object.as_mut()); } deallocate_vec(object.as_mut_ptr(), object.capacity());}
+/// Clones the object
+#[no_mangle] pub extern "C" fn az_parent_with_node_depth_vec_deep_copy(object: &AzParentWithNodeDepthVec) -> AzParentWithNodeDepthVec { object.clone() }
+/// Creates a string with the debug representation of the object
+#[no_mangle] pub extern "C" fn az_parent_with_node_depth_vec_fmt_debug(object: &AzParentWithNodeDepthVec) -> AzString { format!("{:#?}", object).into() }
+
+/// Wrapper over a Rust-allocated `NodeDataVec`
+pub type AzNodeDataVecTT = azul_impl::styled_dom::NodeDataVec;
+pub use AzNodeDataVecTT as AzNodeDataVec;
+/// Creates a new, empty Rust `Vec<NodeData>`
+#[no_mangle] pub extern "C" fn az_node_data_vec_new() -> AzNodeDataVec { Vec::<NodeData>::new().into() }
+/// Creates a new, empty Rust `Vec<NodeData>` with a given, pre-allocated capacity
+#[no_mangle] pub extern "C" fn az_node_data_vec_with_capacity(cap: usize) -> AzNodeDataVec { Vec::<NodeData>::with_capacity(cap).into() }
+/// Creates + allocates a Rust `Vec<NodeData>` by **copying** it from a bytes source
+#[no_mangle] pub extern "C" fn az_node_data_vec_copy_from(ptr: *const AzNodeData, len: usize) -> AzNodeDataVec { unsafe { std::slice::from_raw_parts(ptr, len).iter().cloned().collect::<Vec<_>>() }.into() }
+/// Destructor: Takes ownership of the `NodeDataVec` pointer and deletes it.
+#[no_mangle] #[allow(unused_variables)] pub extern "C" fn az_node_data_vec_delete(object: &mut AzNodeDataVec) { unsafe { std::ptr::drop_in_place(object.as_mut()); } deallocate_vec(object.as_mut_ptr(), object.capacity());}
+/// Clones the object
+#[no_mangle] pub extern "C" fn az_node_data_vec_deep_copy(object: &AzNodeDataVec) -> AzNodeDataVec { object.clone() }
+/// Creates a string with the debug representation of the object
+#[no_mangle] pub extern "C" fn az_node_data_vec_fmt_debug(object: &AzNodeDataVec) -> AzString { format!("{:#?}", object).into() }
+
+/// Re-export of rust-allocated (stack based) `OptionNodeId` struct
+pub type AzOptionNodeIdTT = azul_impl::styled_dom::OptionNodeId;
+pub use AzOptionNodeIdTT as AzOptionNodeId;
+/// Destructor: Takes ownership of the `OptionNodeId` pointer and deletes it.
+#[no_mangle] #[allow(unused_variables)] pub extern "C" fn az_option_node_id_delete(object: &mut AzOptionNodeId) { match object { azul_impl::styled_dom::OptionNodeId::None => { }, azul_impl::styled_dom::OptionNodeId::Some(_) => { }, }
+}
+/// Clones the object
+#[no_mangle] pub extern "C" fn az_option_node_id_deep_copy(object: &AzOptionNodeId) -> AzOptionNodeId { object.clone() }
+/// Creates a string with the debug representation of the object
+#[no_mangle] pub extern "C" fn az_option_node_id_fmt_debug(object: &AzOptionNodeId) -> AzString { format!("{:#?}", object).into() }
+
+/// Re-export of rust-allocated (stack based) `OptionDomNodeId` struct
+pub type AzOptionDomNodeIdTT = azul_impl::callbacks::OptionDomNodeId;
+pub use AzOptionDomNodeIdTT as AzOptionDomNodeId;
+/// Destructor: Takes ownership of the `OptionDomNodeId` pointer and deletes it.
+#[no_mangle] #[allow(unused_variables)] pub extern "C" fn az_option_dom_node_id_delete(object: &mut AzOptionDomNodeId) { match object { azul_impl::callbacks::OptionDomNodeId::None => { }, azul_impl::callbacks::OptionDomNodeId::Some(_) => { }, }
+}
+/// Clones the object
+#[no_mangle] pub extern "C" fn az_option_dom_node_id_deep_copy(object: &AzOptionDomNodeId) -> AzOptionDomNodeId { object.clone() }
+/// Creates a string with the debug representation of the object
+#[no_mangle] pub extern "C" fn az_option_dom_node_id_fmt_debug(object: &AzOptionDomNodeId) -> AzString { format!("{:#?}", object).into() }
+
 /// Re-export of rust-allocated (stack based) `OptionColorU` struct
 pub type AzOptionColorUTT = azul_impl::css::OptionColorU;
 pub use AzOptionColorUTT as AzOptionColorU;
@@ -698,6 +832,688 @@ pub use AzOptionTabIndexTT as AzOptionTabIndex;
 #[no_mangle] pub extern "C" fn az_option_tab_index_deep_copy(object: &AzOptionTabIndex) -> AzOptionTabIndex { object.clone() }
 /// Creates a string with the debug representation of the object
 #[no_mangle] pub extern "C" fn az_option_tab_index_fmt_debug(object: &AzOptionTabIndex) -> AzString { format!("{:#?}", object).into() }
+
+/// Re-export of rust-allocated (stack based) `OptionStyleBackgroundContentValue` struct
+pub type AzOptionStyleBackgroundContentValueTT = azul_impl::css::OptionStyleBackgroundContentValue;
+pub use AzOptionStyleBackgroundContentValueTT as AzOptionStyleBackgroundContentValue;
+/// Destructor: Takes ownership of the `OptionStyleBackgroundContentValue` pointer and deletes it.
+#[no_mangle] #[allow(unused_variables)] pub extern "C" fn az_option_style_background_content_value_delete(object: &mut AzOptionStyleBackgroundContentValue) { match object { azul_impl::css::OptionStyleBackgroundContentValue::None => { }, azul_impl::css::OptionStyleBackgroundContentValue::Some(_) => { }, }
+}
+/// Clones the object
+#[no_mangle] pub extern "C" fn az_option_style_background_content_value_deep_copy(object: &AzOptionStyleBackgroundContentValue) -> AzOptionStyleBackgroundContentValue { object.clone() }
+/// Creates a string with the debug representation of the object
+#[no_mangle] pub extern "C" fn az_option_style_background_content_value_fmt_debug(object: &AzOptionStyleBackgroundContentValue) -> AzString { format!("{:#?}", object).into() }
+
+/// Re-export of rust-allocated (stack based) `OptionStyleBackgroundPositionValue` struct
+pub type AzOptionStyleBackgroundPositionValueTT = azul_impl::css::OptionStyleBackgroundPositionValue;
+pub use AzOptionStyleBackgroundPositionValueTT as AzOptionStyleBackgroundPositionValue;
+/// Destructor: Takes ownership of the `OptionStyleBackgroundPositionValue` pointer and deletes it.
+#[no_mangle] #[allow(unused_variables)] pub extern "C" fn az_option_style_background_position_value_delete(object: &mut AzOptionStyleBackgroundPositionValue) { match object { azul_impl::css::OptionStyleBackgroundPositionValue::None => { }, azul_impl::css::OptionStyleBackgroundPositionValue::Some(_) => { }, }
+}
+/// Clones the object
+#[no_mangle] pub extern "C" fn az_option_style_background_position_value_deep_copy(object: &AzOptionStyleBackgroundPositionValue) -> AzOptionStyleBackgroundPositionValue { object.clone() }
+/// Creates a string with the debug representation of the object
+#[no_mangle] pub extern "C" fn az_option_style_background_position_value_fmt_debug(object: &AzOptionStyleBackgroundPositionValue) -> AzString { format!("{:#?}", object).into() }
+
+/// Re-export of rust-allocated (stack based) `OptionStyleBackgroundSizeValue` struct
+pub type AzOptionStyleBackgroundSizeValueTT = azul_impl::css::OptionStyleBackgroundSizeValue;
+pub use AzOptionStyleBackgroundSizeValueTT as AzOptionStyleBackgroundSizeValue;
+/// Destructor: Takes ownership of the `OptionStyleBackgroundSizeValue` pointer and deletes it.
+#[no_mangle] #[allow(unused_variables)] pub extern "C" fn az_option_style_background_size_value_delete(object: &mut AzOptionStyleBackgroundSizeValue) { match object { azul_impl::css::OptionStyleBackgroundSizeValue::None => { }, azul_impl::css::OptionStyleBackgroundSizeValue::Some(_) => { }, }
+}
+/// Clones the object
+#[no_mangle] pub extern "C" fn az_option_style_background_size_value_deep_copy(object: &AzOptionStyleBackgroundSizeValue) -> AzOptionStyleBackgroundSizeValue { object.clone() }
+/// Creates a string with the debug representation of the object
+#[no_mangle] pub extern "C" fn az_option_style_background_size_value_fmt_debug(object: &AzOptionStyleBackgroundSizeValue) -> AzString { format!("{:#?}", object).into() }
+
+/// Re-export of rust-allocated (stack based) `OptionStyleBackgroundRepeatValue` struct
+pub type AzOptionStyleBackgroundRepeatValueTT = azul_impl::css::OptionStyleBackgroundRepeatValue;
+pub use AzOptionStyleBackgroundRepeatValueTT as AzOptionStyleBackgroundRepeatValue;
+/// Destructor: Takes ownership of the `OptionStyleBackgroundRepeatValue` pointer and deletes it.
+#[no_mangle] #[allow(unused_variables)] pub extern "C" fn az_option_style_background_repeat_value_delete(object: &mut AzOptionStyleBackgroundRepeatValue) { match object { azul_impl::css::OptionStyleBackgroundRepeatValue::None => { }, azul_impl::css::OptionStyleBackgroundRepeatValue::Some(_) => { }, }
+}
+/// Clones the object
+#[no_mangle] pub extern "C" fn az_option_style_background_repeat_value_deep_copy(object: &AzOptionStyleBackgroundRepeatValue) -> AzOptionStyleBackgroundRepeatValue { object.clone() }
+/// Creates a string with the debug representation of the object
+#[no_mangle] pub extern "C" fn az_option_style_background_repeat_value_fmt_debug(object: &AzOptionStyleBackgroundRepeatValue) -> AzString { format!("{:#?}", object).into() }
+
+/// Re-export of rust-allocated (stack based) `OptionStyleFontSizeValue` struct
+pub type AzOptionStyleFontSizeValueTT = azul_impl::css::OptionStyleFontSizeValue;
+pub use AzOptionStyleFontSizeValueTT as AzOptionStyleFontSizeValue;
+/// Destructor: Takes ownership of the `OptionStyleFontSizeValue` pointer and deletes it.
+#[no_mangle] #[allow(unused_variables)] pub extern "C" fn az_option_style_font_size_value_delete(object: &mut AzOptionStyleFontSizeValue) { match object { azul_impl::css::OptionStyleFontSizeValue::None => { }, azul_impl::css::OptionStyleFontSizeValue::Some(_) => { }, }
+}
+/// Clones the object
+#[no_mangle] pub extern "C" fn az_option_style_font_size_value_deep_copy(object: &AzOptionStyleFontSizeValue) -> AzOptionStyleFontSizeValue { object.clone() }
+/// Creates a string with the debug representation of the object
+#[no_mangle] pub extern "C" fn az_option_style_font_size_value_fmt_debug(object: &AzOptionStyleFontSizeValue) -> AzString { format!("{:#?}", object).into() }
+
+/// Re-export of rust-allocated (stack based) `OptionStyleFontFamilyValue` struct
+pub type AzOptionStyleFontFamilyValueTT = azul_impl::css::OptionStyleFontFamilyValue;
+pub use AzOptionStyleFontFamilyValueTT as AzOptionStyleFontFamilyValue;
+/// Destructor: Takes ownership of the `OptionStyleFontFamilyValue` pointer and deletes it.
+#[no_mangle] #[allow(unused_variables)] pub extern "C" fn az_option_style_font_family_value_delete(object: &mut AzOptionStyleFontFamilyValue) { match object { azul_impl::css::OptionStyleFontFamilyValue::None => { }, azul_impl::css::OptionStyleFontFamilyValue::Some(_) => { }, }
+}
+/// Clones the object
+#[no_mangle] pub extern "C" fn az_option_style_font_family_value_deep_copy(object: &AzOptionStyleFontFamilyValue) -> AzOptionStyleFontFamilyValue { object.clone() }
+/// Creates a string with the debug representation of the object
+#[no_mangle] pub extern "C" fn az_option_style_font_family_value_fmt_debug(object: &AzOptionStyleFontFamilyValue) -> AzString { format!("{:#?}", object).into() }
+
+/// Re-export of rust-allocated (stack based) `OptionStyleTextColorValue` struct
+pub type AzOptionStyleTextColorValueTT = azul_impl::css::OptionStyleTextColorValue;
+pub use AzOptionStyleTextColorValueTT as AzOptionStyleTextColorValue;
+/// Destructor: Takes ownership of the `OptionStyleTextColorValue` pointer and deletes it.
+#[no_mangle] #[allow(unused_variables)] pub extern "C" fn az_option_style_text_color_value_delete(object: &mut AzOptionStyleTextColorValue) { match object { azul_impl::css::OptionStyleTextColorValue::None => { }, azul_impl::css::OptionStyleTextColorValue::Some(_) => { }, }
+}
+/// Clones the object
+#[no_mangle] pub extern "C" fn az_option_style_text_color_value_deep_copy(object: &AzOptionStyleTextColorValue) -> AzOptionStyleTextColorValue { object.clone() }
+/// Creates a string with the debug representation of the object
+#[no_mangle] pub extern "C" fn az_option_style_text_color_value_fmt_debug(object: &AzOptionStyleTextColorValue) -> AzString { format!("{:#?}", object).into() }
+
+/// Re-export of rust-allocated (stack based) `OptionStyleTextAlignmentHorzValue` struct
+pub type AzOptionStyleTextAlignmentHorzValueTT = azul_impl::css::OptionStyleTextAlignmentHorzValue;
+pub use AzOptionStyleTextAlignmentHorzValueTT as AzOptionStyleTextAlignmentHorzValue;
+/// Destructor: Takes ownership of the `OptionStyleTextAlignmentHorzValue` pointer and deletes it.
+#[no_mangle] #[allow(unused_variables)] pub extern "C" fn az_option_style_text_alignment_horz_value_delete(object: &mut AzOptionStyleTextAlignmentHorzValue) { match object { azul_impl::css::OptionStyleTextAlignmentHorzValue::None => { }, azul_impl::css::OptionStyleTextAlignmentHorzValue::Some(_) => { }, }
+}
+/// Clones the object
+#[no_mangle] pub extern "C" fn az_option_style_text_alignment_horz_value_deep_copy(object: &AzOptionStyleTextAlignmentHorzValue) -> AzOptionStyleTextAlignmentHorzValue { object.clone() }
+/// Creates a string with the debug representation of the object
+#[no_mangle] pub extern "C" fn az_option_style_text_alignment_horz_value_fmt_debug(object: &AzOptionStyleTextAlignmentHorzValue) -> AzString { format!("{:#?}", object).into() }
+
+/// Re-export of rust-allocated (stack based) `OptionStyleLineHeightValue` struct
+pub type AzOptionStyleLineHeightValueTT = azul_impl::css::OptionStyleLineHeightValue;
+pub use AzOptionStyleLineHeightValueTT as AzOptionStyleLineHeightValue;
+/// Destructor: Takes ownership of the `OptionStyleLineHeightValue` pointer and deletes it.
+#[no_mangle] #[allow(unused_variables)] pub extern "C" fn az_option_style_line_height_value_delete(object: &mut AzOptionStyleLineHeightValue) { match object { azul_impl::css::OptionStyleLineHeightValue::None => { }, azul_impl::css::OptionStyleLineHeightValue::Some(_) => { }, }
+}
+/// Clones the object
+#[no_mangle] pub extern "C" fn az_option_style_line_height_value_deep_copy(object: &AzOptionStyleLineHeightValue) -> AzOptionStyleLineHeightValue { object.clone() }
+/// Creates a string with the debug representation of the object
+#[no_mangle] pub extern "C" fn az_option_style_line_height_value_fmt_debug(object: &AzOptionStyleLineHeightValue) -> AzString { format!("{:#?}", object).into() }
+
+/// Re-export of rust-allocated (stack based) `OptionStyleLetterSpacingValue` struct
+pub type AzOptionStyleLetterSpacingValueTT = azul_impl::css::OptionStyleLetterSpacingValue;
+pub use AzOptionStyleLetterSpacingValueTT as AzOptionStyleLetterSpacingValue;
+/// Destructor: Takes ownership of the `OptionStyleLetterSpacingValue` pointer and deletes it.
+#[no_mangle] #[allow(unused_variables)] pub extern "C" fn az_option_style_letter_spacing_value_delete(object: &mut AzOptionStyleLetterSpacingValue) { match object { azul_impl::css::OptionStyleLetterSpacingValue::None => { }, azul_impl::css::OptionStyleLetterSpacingValue::Some(_) => { }, }
+}
+/// Clones the object
+#[no_mangle] pub extern "C" fn az_option_style_letter_spacing_value_deep_copy(object: &AzOptionStyleLetterSpacingValue) -> AzOptionStyleLetterSpacingValue { object.clone() }
+/// Creates a string with the debug representation of the object
+#[no_mangle] pub extern "C" fn az_option_style_letter_spacing_value_fmt_debug(object: &AzOptionStyleLetterSpacingValue) -> AzString { format!("{:#?}", object).into() }
+
+/// Re-export of rust-allocated (stack based) `OptionStyleWordSpacingValue` struct
+pub type AzOptionStyleWordSpacingValueTT = azul_impl::css::OptionStyleWordSpacingValue;
+pub use AzOptionStyleWordSpacingValueTT as AzOptionStyleWordSpacingValue;
+/// Destructor: Takes ownership of the `OptionStyleWordSpacingValue` pointer and deletes it.
+#[no_mangle] #[allow(unused_variables)] pub extern "C" fn az_option_style_word_spacing_value_delete(object: &mut AzOptionStyleWordSpacingValue) { match object { azul_impl::css::OptionStyleWordSpacingValue::None => { }, azul_impl::css::OptionStyleWordSpacingValue::Some(_) => { }, }
+}
+/// Clones the object
+#[no_mangle] pub extern "C" fn az_option_style_word_spacing_value_deep_copy(object: &AzOptionStyleWordSpacingValue) -> AzOptionStyleWordSpacingValue { object.clone() }
+/// Creates a string with the debug representation of the object
+#[no_mangle] pub extern "C" fn az_option_style_word_spacing_value_fmt_debug(object: &AzOptionStyleWordSpacingValue) -> AzString { format!("{:#?}", object).into() }
+
+/// Re-export of rust-allocated (stack based) `OptionStyleTabWidthValue` struct
+pub type AzOptionStyleTabWidthValueTT = azul_impl::css::OptionStyleTabWidthValue;
+pub use AzOptionStyleTabWidthValueTT as AzOptionStyleTabWidthValue;
+/// Destructor: Takes ownership of the `OptionStyleTabWidthValue` pointer and deletes it.
+#[no_mangle] #[allow(unused_variables)] pub extern "C" fn az_option_style_tab_width_value_delete(object: &mut AzOptionStyleTabWidthValue) { match object { azul_impl::css::OptionStyleTabWidthValue::None => { }, azul_impl::css::OptionStyleTabWidthValue::Some(_) => { }, }
+}
+/// Clones the object
+#[no_mangle] pub extern "C" fn az_option_style_tab_width_value_deep_copy(object: &AzOptionStyleTabWidthValue) -> AzOptionStyleTabWidthValue { object.clone() }
+/// Creates a string with the debug representation of the object
+#[no_mangle] pub extern "C" fn az_option_style_tab_width_value_fmt_debug(object: &AzOptionStyleTabWidthValue) -> AzString { format!("{:#?}", object).into() }
+
+/// Re-export of rust-allocated (stack based) `OptionStyleCursorValue` struct
+pub type AzOptionStyleCursorValueTT = azul_impl::css::OptionStyleCursorValue;
+pub use AzOptionStyleCursorValueTT as AzOptionStyleCursorValue;
+/// Destructor: Takes ownership of the `OptionStyleCursorValue` pointer and deletes it.
+#[no_mangle] #[allow(unused_variables)] pub extern "C" fn az_option_style_cursor_value_delete(object: &mut AzOptionStyleCursorValue) { match object { azul_impl::css::OptionStyleCursorValue::None => { }, azul_impl::css::OptionStyleCursorValue::Some(_) => { }, }
+}
+/// Clones the object
+#[no_mangle] pub extern "C" fn az_option_style_cursor_value_deep_copy(object: &AzOptionStyleCursorValue) -> AzOptionStyleCursorValue { object.clone() }
+/// Creates a string with the debug representation of the object
+#[no_mangle] pub extern "C" fn az_option_style_cursor_value_fmt_debug(object: &AzOptionStyleCursorValue) -> AzString { format!("{:#?}", object).into() }
+
+/// Re-export of rust-allocated (stack based) `OptionBoxShadowPreDisplayItemValue` struct
+pub type AzOptionBoxShadowPreDisplayItemValueTT = azul_impl::css::OptionBoxShadowPreDisplayItemValue;
+pub use AzOptionBoxShadowPreDisplayItemValueTT as AzOptionBoxShadowPreDisplayItemValue;
+/// Destructor: Takes ownership of the `OptionBoxShadowPreDisplayItemValue` pointer and deletes it.
+#[no_mangle] #[allow(unused_variables)] pub extern "C" fn az_option_box_shadow_pre_display_item_value_delete(object: &mut AzOptionBoxShadowPreDisplayItemValue) { match object { azul_impl::css::OptionBoxShadowPreDisplayItemValue::None => { }, azul_impl::css::OptionBoxShadowPreDisplayItemValue::Some(_) => { }, }
+}
+/// Clones the object
+#[no_mangle] pub extern "C" fn az_option_box_shadow_pre_display_item_value_deep_copy(object: &AzOptionBoxShadowPreDisplayItemValue) -> AzOptionBoxShadowPreDisplayItemValue { object.clone() }
+/// Creates a string with the debug representation of the object
+#[no_mangle] pub extern "C" fn az_option_box_shadow_pre_display_item_value_fmt_debug(object: &AzOptionBoxShadowPreDisplayItemValue) -> AzString { format!("{:#?}", object).into() }
+
+/// Re-export of rust-allocated (stack based) `OptionStyleBorderTopColorValue` struct
+pub type AzOptionStyleBorderTopColorValueTT = azul_impl::css::OptionStyleBorderTopColorValue;
+pub use AzOptionStyleBorderTopColorValueTT as AzOptionStyleBorderTopColorValue;
+/// Destructor: Takes ownership of the `OptionStyleBorderTopColorValue` pointer and deletes it.
+#[no_mangle] #[allow(unused_variables)] pub extern "C" fn az_option_style_border_top_color_value_delete(object: &mut AzOptionStyleBorderTopColorValue) { match object { azul_impl::css::OptionStyleBorderTopColorValue::None => { }, azul_impl::css::OptionStyleBorderTopColorValue::Some(_) => { }, }
+}
+/// Clones the object
+#[no_mangle] pub extern "C" fn az_option_style_border_top_color_value_deep_copy(object: &AzOptionStyleBorderTopColorValue) -> AzOptionStyleBorderTopColorValue { object.clone() }
+/// Creates a string with the debug representation of the object
+#[no_mangle] pub extern "C" fn az_option_style_border_top_color_value_fmt_debug(object: &AzOptionStyleBorderTopColorValue) -> AzString { format!("{:#?}", object).into() }
+
+/// Re-export of rust-allocated (stack based) `OptionStyleBorderLeftColorValue` struct
+pub type AzOptionStyleBorderLeftColorValueTT = azul_impl::css::OptionStyleBorderLeftColorValue;
+pub use AzOptionStyleBorderLeftColorValueTT as AzOptionStyleBorderLeftColorValue;
+/// Destructor: Takes ownership of the `OptionStyleBorderLeftColorValue` pointer and deletes it.
+#[no_mangle] #[allow(unused_variables)] pub extern "C" fn az_option_style_border_left_color_value_delete(object: &mut AzOptionStyleBorderLeftColorValue) { match object { azul_impl::css::OptionStyleBorderLeftColorValue::None => { }, azul_impl::css::OptionStyleBorderLeftColorValue::Some(_) => { }, }
+}
+/// Clones the object
+#[no_mangle] pub extern "C" fn az_option_style_border_left_color_value_deep_copy(object: &AzOptionStyleBorderLeftColorValue) -> AzOptionStyleBorderLeftColorValue { object.clone() }
+/// Creates a string with the debug representation of the object
+#[no_mangle] pub extern "C" fn az_option_style_border_left_color_value_fmt_debug(object: &AzOptionStyleBorderLeftColorValue) -> AzString { format!("{:#?}", object).into() }
+
+/// Re-export of rust-allocated (stack based) `OptionStyleBorderRightColorValue` struct
+pub type AzOptionStyleBorderRightColorValueTT = azul_impl::css::OptionStyleBorderRightColorValue;
+pub use AzOptionStyleBorderRightColorValueTT as AzOptionStyleBorderRightColorValue;
+/// Destructor: Takes ownership of the `OptionStyleBorderRightColorValue` pointer and deletes it.
+#[no_mangle] #[allow(unused_variables)] pub extern "C" fn az_option_style_border_right_color_value_delete(object: &mut AzOptionStyleBorderRightColorValue) { match object { azul_impl::css::OptionStyleBorderRightColorValue::None => { }, azul_impl::css::OptionStyleBorderRightColorValue::Some(_) => { }, }
+}
+/// Clones the object
+#[no_mangle] pub extern "C" fn az_option_style_border_right_color_value_deep_copy(object: &AzOptionStyleBorderRightColorValue) -> AzOptionStyleBorderRightColorValue { object.clone() }
+/// Creates a string with the debug representation of the object
+#[no_mangle] pub extern "C" fn az_option_style_border_right_color_value_fmt_debug(object: &AzOptionStyleBorderRightColorValue) -> AzString { format!("{:#?}", object).into() }
+
+/// Re-export of rust-allocated (stack based) `OptionStyleBorderBottomColorValue` struct
+pub type AzOptionStyleBorderBottomColorValueTT = azul_impl::css::OptionStyleBorderBottomColorValue;
+pub use AzOptionStyleBorderBottomColorValueTT as AzOptionStyleBorderBottomColorValue;
+/// Destructor: Takes ownership of the `OptionStyleBorderBottomColorValue` pointer and deletes it.
+#[no_mangle] #[allow(unused_variables)] pub extern "C" fn az_option_style_border_bottom_color_value_delete(object: &mut AzOptionStyleBorderBottomColorValue) { match object { azul_impl::css::OptionStyleBorderBottomColorValue::None => { }, azul_impl::css::OptionStyleBorderBottomColorValue::Some(_) => { }, }
+}
+/// Clones the object
+#[no_mangle] pub extern "C" fn az_option_style_border_bottom_color_value_deep_copy(object: &AzOptionStyleBorderBottomColorValue) -> AzOptionStyleBorderBottomColorValue { object.clone() }
+/// Creates a string with the debug representation of the object
+#[no_mangle] pub extern "C" fn az_option_style_border_bottom_color_value_fmt_debug(object: &AzOptionStyleBorderBottomColorValue) -> AzString { format!("{:#?}", object).into() }
+
+/// Re-export of rust-allocated (stack based) `OptionStyleBorderTopStyleValue` struct
+pub type AzOptionStyleBorderTopStyleValueTT = azul_impl::css::OptionStyleBorderTopStyleValue;
+pub use AzOptionStyleBorderTopStyleValueTT as AzOptionStyleBorderTopStyleValue;
+/// Destructor: Takes ownership of the `OptionStyleBorderTopStyleValue` pointer and deletes it.
+#[no_mangle] #[allow(unused_variables)] pub extern "C" fn az_option_style_border_top_style_value_delete(object: &mut AzOptionStyleBorderTopStyleValue) { match object { azul_impl::css::OptionStyleBorderTopStyleValue::None => { }, azul_impl::css::OptionStyleBorderTopStyleValue::Some(_) => { }, }
+}
+/// Clones the object
+#[no_mangle] pub extern "C" fn az_option_style_border_top_style_value_deep_copy(object: &AzOptionStyleBorderTopStyleValue) -> AzOptionStyleBorderTopStyleValue { object.clone() }
+/// Creates a string with the debug representation of the object
+#[no_mangle] pub extern "C" fn az_option_style_border_top_style_value_fmt_debug(object: &AzOptionStyleBorderTopStyleValue) -> AzString { format!("{:#?}", object).into() }
+
+/// Re-export of rust-allocated (stack based) `OptionStyleBorderLeftStyleValue` struct
+pub type AzOptionStyleBorderLeftStyleValueTT = azul_impl::css::OptionStyleBorderLeftStyleValue;
+pub use AzOptionStyleBorderLeftStyleValueTT as AzOptionStyleBorderLeftStyleValue;
+/// Destructor: Takes ownership of the `OptionStyleBorderLeftStyleValue` pointer and deletes it.
+#[no_mangle] #[allow(unused_variables)] pub extern "C" fn az_option_style_border_left_style_value_delete(object: &mut AzOptionStyleBorderLeftStyleValue) { match object { azul_impl::css::OptionStyleBorderLeftStyleValue::None => { }, azul_impl::css::OptionStyleBorderLeftStyleValue::Some(_) => { }, }
+}
+/// Clones the object
+#[no_mangle] pub extern "C" fn az_option_style_border_left_style_value_deep_copy(object: &AzOptionStyleBorderLeftStyleValue) -> AzOptionStyleBorderLeftStyleValue { object.clone() }
+/// Creates a string with the debug representation of the object
+#[no_mangle] pub extern "C" fn az_option_style_border_left_style_value_fmt_debug(object: &AzOptionStyleBorderLeftStyleValue) -> AzString { format!("{:#?}", object).into() }
+
+/// Re-export of rust-allocated (stack based) `OptionStyleBorderRightStyleValue` struct
+pub type AzOptionStyleBorderRightStyleValueTT = azul_impl::css::OptionStyleBorderRightStyleValue;
+pub use AzOptionStyleBorderRightStyleValueTT as AzOptionStyleBorderRightStyleValue;
+/// Destructor: Takes ownership of the `OptionStyleBorderRightStyleValue` pointer and deletes it.
+#[no_mangle] #[allow(unused_variables)] pub extern "C" fn az_option_style_border_right_style_value_delete(object: &mut AzOptionStyleBorderRightStyleValue) { match object { azul_impl::css::OptionStyleBorderRightStyleValue::None => { }, azul_impl::css::OptionStyleBorderRightStyleValue::Some(_) => { }, }
+}
+/// Clones the object
+#[no_mangle] pub extern "C" fn az_option_style_border_right_style_value_deep_copy(object: &AzOptionStyleBorderRightStyleValue) -> AzOptionStyleBorderRightStyleValue { object.clone() }
+/// Creates a string with the debug representation of the object
+#[no_mangle] pub extern "C" fn az_option_style_border_right_style_value_fmt_debug(object: &AzOptionStyleBorderRightStyleValue) -> AzString { format!("{:#?}", object).into() }
+
+/// Re-export of rust-allocated (stack based) `OptionStyleBorderBottomStyleValue` struct
+pub type AzOptionStyleBorderBottomStyleValueTT = azul_impl::css::OptionStyleBorderBottomStyleValue;
+pub use AzOptionStyleBorderBottomStyleValueTT as AzOptionStyleBorderBottomStyleValue;
+/// Destructor: Takes ownership of the `OptionStyleBorderBottomStyleValue` pointer and deletes it.
+#[no_mangle] #[allow(unused_variables)] pub extern "C" fn az_option_style_border_bottom_style_value_delete(object: &mut AzOptionStyleBorderBottomStyleValue) { match object { azul_impl::css::OptionStyleBorderBottomStyleValue::None => { }, azul_impl::css::OptionStyleBorderBottomStyleValue::Some(_) => { }, }
+}
+/// Clones the object
+#[no_mangle] pub extern "C" fn az_option_style_border_bottom_style_value_deep_copy(object: &AzOptionStyleBorderBottomStyleValue) -> AzOptionStyleBorderBottomStyleValue { object.clone() }
+/// Creates a string with the debug representation of the object
+#[no_mangle] pub extern "C" fn az_option_style_border_bottom_style_value_fmt_debug(object: &AzOptionStyleBorderBottomStyleValue) -> AzString { format!("{:#?}", object).into() }
+
+/// Re-export of rust-allocated (stack based) `OptionStyleBorderTopLeftRadiusValue` struct
+pub type AzOptionStyleBorderTopLeftRadiusValueTT = azul_impl::css::OptionStyleBorderTopLeftRadiusValue;
+pub use AzOptionStyleBorderTopLeftRadiusValueTT as AzOptionStyleBorderTopLeftRadiusValue;
+/// Destructor: Takes ownership of the `OptionStyleBorderTopLeftRadiusValue` pointer and deletes it.
+#[no_mangle] #[allow(unused_variables)] pub extern "C" fn az_option_style_border_top_left_radius_value_delete(object: &mut AzOptionStyleBorderTopLeftRadiusValue) { match object { azul_impl::css::OptionStyleBorderTopLeftRadiusValue::None => { }, azul_impl::css::OptionStyleBorderTopLeftRadiusValue::Some(_) => { }, }
+}
+/// Clones the object
+#[no_mangle] pub extern "C" fn az_option_style_border_top_left_radius_value_deep_copy(object: &AzOptionStyleBorderTopLeftRadiusValue) -> AzOptionStyleBorderTopLeftRadiusValue { object.clone() }
+/// Creates a string with the debug representation of the object
+#[no_mangle] pub extern "C" fn az_option_style_border_top_left_radius_value_fmt_debug(object: &AzOptionStyleBorderTopLeftRadiusValue) -> AzString { format!("{:#?}", object).into() }
+
+/// Re-export of rust-allocated (stack based) `OptionStyleBorderTopRightRadiusValue` struct
+pub type AzOptionStyleBorderTopRightRadiusValueTT = azul_impl::css::OptionStyleBorderTopRightRadiusValue;
+pub use AzOptionStyleBorderTopRightRadiusValueTT as AzOptionStyleBorderTopRightRadiusValue;
+/// Destructor: Takes ownership of the `OptionStyleBorderTopRightRadiusValue` pointer and deletes it.
+#[no_mangle] #[allow(unused_variables)] pub extern "C" fn az_option_style_border_top_right_radius_value_delete(object: &mut AzOptionStyleBorderTopRightRadiusValue) { match object { azul_impl::css::OptionStyleBorderTopRightRadiusValue::None => { }, azul_impl::css::OptionStyleBorderTopRightRadiusValue::Some(_) => { }, }
+}
+/// Clones the object
+#[no_mangle] pub extern "C" fn az_option_style_border_top_right_radius_value_deep_copy(object: &AzOptionStyleBorderTopRightRadiusValue) -> AzOptionStyleBorderTopRightRadiusValue { object.clone() }
+/// Creates a string with the debug representation of the object
+#[no_mangle] pub extern "C" fn az_option_style_border_top_right_radius_value_fmt_debug(object: &AzOptionStyleBorderTopRightRadiusValue) -> AzString { format!("{:#?}", object).into() }
+
+/// Re-export of rust-allocated (stack based) `OptionStyleBorderBottomLeftRadiusValue` struct
+pub type AzOptionStyleBorderBottomLeftRadiusValueTT = azul_impl::css::OptionStyleBorderBottomLeftRadiusValue;
+pub use AzOptionStyleBorderBottomLeftRadiusValueTT as AzOptionStyleBorderBottomLeftRadiusValue;
+/// Destructor: Takes ownership of the `OptionStyleBorderBottomLeftRadiusValue` pointer and deletes it.
+#[no_mangle] #[allow(unused_variables)] pub extern "C" fn az_option_style_border_bottom_left_radius_value_delete(object: &mut AzOptionStyleBorderBottomLeftRadiusValue) { match object { azul_impl::css::OptionStyleBorderBottomLeftRadiusValue::None => { }, azul_impl::css::OptionStyleBorderBottomLeftRadiusValue::Some(_) => { }, }
+}
+/// Clones the object
+#[no_mangle] pub extern "C" fn az_option_style_border_bottom_left_radius_value_deep_copy(object: &AzOptionStyleBorderBottomLeftRadiusValue) -> AzOptionStyleBorderBottomLeftRadiusValue { object.clone() }
+/// Creates a string with the debug representation of the object
+#[no_mangle] pub extern "C" fn az_option_style_border_bottom_left_radius_value_fmt_debug(object: &AzOptionStyleBorderBottomLeftRadiusValue) -> AzString { format!("{:#?}", object).into() }
+
+/// Re-export of rust-allocated (stack based) `OptionStyleBorderBottomRightRadiusValue` struct
+pub type AzOptionStyleBorderBottomRightRadiusValueTT = azul_impl::css::OptionStyleBorderBottomRightRadiusValue;
+pub use AzOptionStyleBorderBottomRightRadiusValueTT as AzOptionStyleBorderBottomRightRadiusValue;
+/// Destructor: Takes ownership of the `OptionStyleBorderBottomRightRadiusValue` pointer and deletes it.
+#[no_mangle] #[allow(unused_variables)] pub extern "C" fn az_option_style_border_bottom_right_radius_value_delete(object: &mut AzOptionStyleBorderBottomRightRadiusValue) { match object { azul_impl::css::OptionStyleBorderBottomRightRadiusValue::None => { }, azul_impl::css::OptionStyleBorderBottomRightRadiusValue::Some(_) => { }, }
+}
+/// Clones the object
+#[no_mangle] pub extern "C" fn az_option_style_border_bottom_right_radius_value_deep_copy(object: &AzOptionStyleBorderBottomRightRadiusValue) -> AzOptionStyleBorderBottomRightRadiusValue { object.clone() }
+/// Creates a string with the debug representation of the object
+#[no_mangle] pub extern "C" fn az_option_style_border_bottom_right_radius_value_fmt_debug(object: &AzOptionStyleBorderBottomRightRadiusValue) -> AzString { format!("{:#?}", object).into() }
+
+/// Re-export of rust-allocated (stack based) `OptionLayoutDisplayValue` struct
+pub type AzOptionLayoutDisplayValueTT = azul_impl::css::OptionLayoutDisplayValue;
+pub use AzOptionLayoutDisplayValueTT as AzOptionLayoutDisplayValue;
+/// Destructor: Takes ownership of the `OptionLayoutDisplayValue` pointer and deletes it.
+#[no_mangle] #[allow(unused_variables)] pub extern "C" fn az_option_layout_display_value_delete(object: &mut AzOptionLayoutDisplayValue) { match object { azul_impl::css::OptionLayoutDisplayValue::None => { }, azul_impl::css::OptionLayoutDisplayValue::Some(_) => { }, }
+}
+/// Clones the object
+#[no_mangle] pub extern "C" fn az_option_layout_display_value_deep_copy(object: &AzOptionLayoutDisplayValue) -> AzOptionLayoutDisplayValue { object.clone() }
+/// Creates a string with the debug representation of the object
+#[no_mangle] pub extern "C" fn az_option_layout_display_value_fmt_debug(object: &AzOptionLayoutDisplayValue) -> AzString { format!("{:#?}", object).into() }
+
+/// Re-export of rust-allocated (stack based) `OptionLayoutFloatValue` struct
+pub type AzOptionLayoutFloatValueTT = azul_impl::css::OptionLayoutFloatValue;
+pub use AzOptionLayoutFloatValueTT as AzOptionLayoutFloatValue;
+/// Destructor: Takes ownership of the `OptionLayoutFloatValue` pointer and deletes it.
+#[no_mangle] #[allow(unused_variables)] pub extern "C" fn az_option_layout_float_value_delete(object: &mut AzOptionLayoutFloatValue) { match object { azul_impl::css::OptionLayoutFloatValue::None => { }, azul_impl::css::OptionLayoutFloatValue::Some(_) => { }, }
+}
+/// Clones the object
+#[no_mangle] pub extern "C" fn az_option_layout_float_value_deep_copy(object: &AzOptionLayoutFloatValue) -> AzOptionLayoutFloatValue { object.clone() }
+/// Creates a string with the debug representation of the object
+#[no_mangle] pub extern "C" fn az_option_layout_float_value_fmt_debug(object: &AzOptionLayoutFloatValue) -> AzString { format!("{:#?}", object).into() }
+
+/// Re-export of rust-allocated (stack based) `OptionLayoutBoxSizingValue` struct
+pub type AzOptionLayoutBoxSizingValueTT = azul_impl::css::OptionLayoutBoxSizingValue;
+pub use AzOptionLayoutBoxSizingValueTT as AzOptionLayoutBoxSizingValue;
+/// Destructor: Takes ownership of the `OptionLayoutBoxSizingValue` pointer and deletes it.
+#[no_mangle] #[allow(unused_variables)] pub extern "C" fn az_option_layout_box_sizing_value_delete(object: &mut AzOptionLayoutBoxSizingValue) { match object { azul_impl::css::OptionLayoutBoxSizingValue::None => { }, azul_impl::css::OptionLayoutBoxSizingValue::Some(_) => { }, }
+}
+/// Clones the object
+#[no_mangle] pub extern "C" fn az_option_layout_box_sizing_value_deep_copy(object: &AzOptionLayoutBoxSizingValue) -> AzOptionLayoutBoxSizingValue { object.clone() }
+/// Creates a string with the debug representation of the object
+#[no_mangle] pub extern "C" fn az_option_layout_box_sizing_value_fmt_debug(object: &AzOptionLayoutBoxSizingValue) -> AzString { format!("{:#?}", object).into() }
+
+/// Re-export of rust-allocated (stack based) `OptionLayoutWidthValue` struct
+pub type AzOptionLayoutWidthValueTT = azul_impl::css::OptionLayoutWidthValue;
+pub use AzOptionLayoutWidthValueTT as AzOptionLayoutWidthValue;
+/// Destructor: Takes ownership of the `OptionLayoutWidthValue` pointer and deletes it.
+#[no_mangle] #[allow(unused_variables)] pub extern "C" fn az_option_layout_width_value_delete(object: &mut AzOptionLayoutWidthValue) { match object { azul_impl::css::OptionLayoutWidthValue::None => { }, azul_impl::css::OptionLayoutWidthValue::Some(_) => { }, }
+}
+/// Clones the object
+#[no_mangle] pub extern "C" fn az_option_layout_width_value_deep_copy(object: &AzOptionLayoutWidthValue) -> AzOptionLayoutWidthValue { object.clone() }
+/// Creates a string with the debug representation of the object
+#[no_mangle] pub extern "C" fn az_option_layout_width_value_fmt_debug(object: &AzOptionLayoutWidthValue) -> AzString { format!("{:#?}", object).into() }
+
+/// Re-export of rust-allocated (stack based) `OptionLayoutHeightValue` struct
+pub type AzOptionLayoutHeightValueTT = azul_impl::css::OptionLayoutHeightValue;
+pub use AzOptionLayoutHeightValueTT as AzOptionLayoutHeightValue;
+/// Destructor: Takes ownership of the `OptionLayoutHeightValue` pointer and deletes it.
+#[no_mangle] #[allow(unused_variables)] pub extern "C" fn az_option_layout_height_value_delete(object: &mut AzOptionLayoutHeightValue) { match object { azul_impl::css::OptionLayoutHeightValue::None => { }, azul_impl::css::OptionLayoutHeightValue::Some(_) => { }, }
+}
+/// Clones the object
+#[no_mangle] pub extern "C" fn az_option_layout_height_value_deep_copy(object: &AzOptionLayoutHeightValue) -> AzOptionLayoutHeightValue { object.clone() }
+/// Creates a string with the debug representation of the object
+#[no_mangle] pub extern "C" fn az_option_layout_height_value_fmt_debug(object: &AzOptionLayoutHeightValue) -> AzString { format!("{:#?}", object).into() }
+
+/// Re-export of rust-allocated (stack based) `OptionLayoutMinWidthValue` struct
+pub type AzOptionLayoutMinWidthValueTT = azul_impl::css::OptionLayoutMinWidthValue;
+pub use AzOptionLayoutMinWidthValueTT as AzOptionLayoutMinWidthValue;
+/// Destructor: Takes ownership of the `OptionLayoutMinWidthValue` pointer and deletes it.
+#[no_mangle] #[allow(unused_variables)] pub extern "C" fn az_option_layout_min_width_value_delete(object: &mut AzOptionLayoutMinWidthValue) { match object { azul_impl::css::OptionLayoutMinWidthValue::None => { }, azul_impl::css::OptionLayoutMinWidthValue::Some(_) => { }, }
+}
+/// Clones the object
+#[no_mangle] pub extern "C" fn az_option_layout_min_width_value_deep_copy(object: &AzOptionLayoutMinWidthValue) -> AzOptionLayoutMinWidthValue { object.clone() }
+/// Creates a string with the debug representation of the object
+#[no_mangle] pub extern "C" fn az_option_layout_min_width_value_fmt_debug(object: &AzOptionLayoutMinWidthValue) -> AzString { format!("{:#?}", object).into() }
+
+/// Re-export of rust-allocated (stack based) `OptionLayoutMinHeightValue` struct
+pub type AzOptionLayoutMinHeightValueTT = azul_impl::css::OptionLayoutMinHeightValue;
+pub use AzOptionLayoutMinHeightValueTT as AzOptionLayoutMinHeightValue;
+/// Destructor: Takes ownership of the `OptionLayoutMinHeightValue` pointer and deletes it.
+#[no_mangle] #[allow(unused_variables)] pub extern "C" fn az_option_layout_min_height_value_delete(object: &mut AzOptionLayoutMinHeightValue) { match object { azul_impl::css::OptionLayoutMinHeightValue::None => { }, azul_impl::css::OptionLayoutMinHeightValue::Some(_) => { }, }
+}
+/// Clones the object
+#[no_mangle] pub extern "C" fn az_option_layout_min_height_value_deep_copy(object: &AzOptionLayoutMinHeightValue) -> AzOptionLayoutMinHeightValue { object.clone() }
+/// Creates a string with the debug representation of the object
+#[no_mangle] pub extern "C" fn az_option_layout_min_height_value_fmt_debug(object: &AzOptionLayoutMinHeightValue) -> AzString { format!("{:#?}", object).into() }
+
+/// Re-export of rust-allocated (stack based) `OptionLayoutMaxWidthValue` struct
+pub type AzOptionLayoutMaxWidthValueTT = azul_impl::css::OptionLayoutMaxWidthValue;
+pub use AzOptionLayoutMaxWidthValueTT as AzOptionLayoutMaxWidthValue;
+/// Destructor: Takes ownership of the `OptionLayoutMaxWidthValue` pointer and deletes it.
+#[no_mangle] #[allow(unused_variables)] pub extern "C" fn az_option_layout_max_width_value_delete(object: &mut AzOptionLayoutMaxWidthValue) { match object { azul_impl::css::OptionLayoutMaxWidthValue::None => { }, azul_impl::css::OptionLayoutMaxWidthValue::Some(_) => { }, }
+}
+/// Clones the object
+#[no_mangle] pub extern "C" fn az_option_layout_max_width_value_deep_copy(object: &AzOptionLayoutMaxWidthValue) -> AzOptionLayoutMaxWidthValue { object.clone() }
+/// Creates a string with the debug representation of the object
+#[no_mangle] pub extern "C" fn az_option_layout_max_width_value_fmt_debug(object: &AzOptionLayoutMaxWidthValue) -> AzString { format!("{:#?}", object).into() }
+
+/// Re-export of rust-allocated (stack based) `OptionLayoutMaxHeightValue` struct
+pub type AzOptionLayoutMaxHeightValueTT = azul_impl::css::OptionLayoutMaxHeightValue;
+pub use AzOptionLayoutMaxHeightValueTT as AzOptionLayoutMaxHeightValue;
+/// Destructor: Takes ownership of the `OptionLayoutMaxHeightValue` pointer and deletes it.
+#[no_mangle] #[allow(unused_variables)] pub extern "C" fn az_option_layout_max_height_value_delete(object: &mut AzOptionLayoutMaxHeightValue) { match object { azul_impl::css::OptionLayoutMaxHeightValue::None => { }, azul_impl::css::OptionLayoutMaxHeightValue::Some(_) => { }, }
+}
+/// Clones the object
+#[no_mangle] pub extern "C" fn az_option_layout_max_height_value_deep_copy(object: &AzOptionLayoutMaxHeightValue) -> AzOptionLayoutMaxHeightValue { object.clone() }
+/// Creates a string with the debug representation of the object
+#[no_mangle] pub extern "C" fn az_option_layout_max_height_value_fmt_debug(object: &AzOptionLayoutMaxHeightValue) -> AzString { format!("{:#?}", object).into() }
+
+/// Re-export of rust-allocated (stack based) `OptionLayoutPositionValue` struct
+pub type AzOptionLayoutPositionValueTT = azul_impl::css::OptionLayoutPositionValue;
+pub use AzOptionLayoutPositionValueTT as AzOptionLayoutPositionValue;
+/// Destructor: Takes ownership of the `OptionLayoutPositionValue` pointer and deletes it.
+#[no_mangle] #[allow(unused_variables)] pub extern "C" fn az_option_layout_position_value_delete(object: &mut AzOptionLayoutPositionValue) { match object { azul_impl::css::OptionLayoutPositionValue::None => { }, azul_impl::css::OptionLayoutPositionValue::Some(_) => { }, }
+}
+/// Clones the object
+#[no_mangle] pub extern "C" fn az_option_layout_position_value_deep_copy(object: &AzOptionLayoutPositionValue) -> AzOptionLayoutPositionValue { object.clone() }
+/// Creates a string with the debug representation of the object
+#[no_mangle] pub extern "C" fn az_option_layout_position_value_fmt_debug(object: &AzOptionLayoutPositionValue) -> AzString { format!("{:#?}", object).into() }
+
+/// Re-export of rust-allocated (stack based) `OptionLayoutTopValue` struct
+pub type AzOptionLayoutTopValueTT = azul_impl::css::OptionLayoutTopValue;
+pub use AzOptionLayoutTopValueTT as AzOptionLayoutTopValue;
+/// Destructor: Takes ownership of the `OptionLayoutTopValue` pointer and deletes it.
+#[no_mangle] #[allow(unused_variables)] pub extern "C" fn az_option_layout_top_value_delete(object: &mut AzOptionLayoutTopValue) { match object { azul_impl::css::OptionLayoutTopValue::None => { }, azul_impl::css::OptionLayoutTopValue::Some(_) => { }, }
+}
+/// Clones the object
+#[no_mangle] pub extern "C" fn az_option_layout_top_value_deep_copy(object: &AzOptionLayoutTopValue) -> AzOptionLayoutTopValue { object.clone() }
+/// Creates a string with the debug representation of the object
+#[no_mangle] pub extern "C" fn az_option_layout_top_value_fmt_debug(object: &AzOptionLayoutTopValue) -> AzString { format!("{:#?}", object).into() }
+
+/// Re-export of rust-allocated (stack based) `OptionLayoutBottomValue` struct
+pub type AzOptionLayoutBottomValueTT = azul_impl::css::OptionLayoutBottomValue;
+pub use AzOptionLayoutBottomValueTT as AzOptionLayoutBottomValue;
+/// Destructor: Takes ownership of the `OptionLayoutBottomValue` pointer and deletes it.
+#[no_mangle] #[allow(unused_variables)] pub extern "C" fn az_option_layout_bottom_value_delete(object: &mut AzOptionLayoutBottomValue) { match object { azul_impl::css::OptionLayoutBottomValue::None => { }, azul_impl::css::OptionLayoutBottomValue::Some(_) => { }, }
+}
+/// Clones the object
+#[no_mangle] pub extern "C" fn az_option_layout_bottom_value_deep_copy(object: &AzOptionLayoutBottomValue) -> AzOptionLayoutBottomValue { object.clone() }
+/// Creates a string with the debug representation of the object
+#[no_mangle] pub extern "C" fn az_option_layout_bottom_value_fmt_debug(object: &AzOptionLayoutBottomValue) -> AzString { format!("{:#?}", object).into() }
+
+/// Re-export of rust-allocated (stack based) `OptionLayoutRightValue` struct
+pub type AzOptionLayoutRightValueTT = azul_impl::css::OptionLayoutRightValue;
+pub use AzOptionLayoutRightValueTT as AzOptionLayoutRightValue;
+/// Destructor: Takes ownership of the `OptionLayoutRightValue` pointer and deletes it.
+#[no_mangle] #[allow(unused_variables)] pub extern "C" fn az_option_layout_right_value_delete(object: &mut AzOptionLayoutRightValue) { match object { azul_impl::css::OptionLayoutRightValue::None => { }, azul_impl::css::OptionLayoutRightValue::Some(_) => { }, }
+}
+/// Clones the object
+#[no_mangle] pub extern "C" fn az_option_layout_right_value_deep_copy(object: &AzOptionLayoutRightValue) -> AzOptionLayoutRightValue { object.clone() }
+/// Creates a string with the debug representation of the object
+#[no_mangle] pub extern "C" fn az_option_layout_right_value_fmt_debug(object: &AzOptionLayoutRightValue) -> AzString { format!("{:#?}", object).into() }
+
+/// Re-export of rust-allocated (stack based) `OptionLayoutLeftValue` struct
+pub type AzOptionLayoutLeftValueTT = azul_impl::css::OptionLayoutLeftValue;
+pub use AzOptionLayoutLeftValueTT as AzOptionLayoutLeftValue;
+/// Destructor: Takes ownership of the `OptionLayoutLeftValue` pointer and deletes it.
+#[no_mangle] #[allow(unused_variables)] pub extern "C" fn az_option_layout_left_value_delete(object: &mut AzOptionLayoutLeftValue) { match object { azul_impl::css::OptionLayoutLeftValue::None => { }, azul_impl::css::OptionLayoutLeftValue::Some(_) => { }, }
+}
+/// Clones the object
+#[no_mangle] pub extern "C" fn az_option_layout_left_value_deep_copy(object: &AzOptionLayoutLeftValue) -> AzOptionLayoutLeftValue { object.clone() }
+/// Creates a string with the debug representation of the object
+#[no_mangle] pub extern "C" fn az_option_layout_left_value_fmt_debug(object: &AzOptionLayoutLeftValue) -> AzString { format!("{:#?}", object).into() }
+
+/// Re-export of rust-allocated (stack based) `OptionLayoutPaddingTopValue` struct
+pub type AzOptionLayoutPaddingTopValueTT = azul_impl::css::OptionLayoutPaddingTopValue;
+pub use AzOptionLayoutPaddingTopValueTT as AzOptionLayoutPaddingTopValue;
+/// Destructor: Takes ownership of the `OptionLayoutPaddingTopValue` pointer and deletes it.
+#[no_mangle] #[allow(unused_variables)] pub extern "C" fn az_option_layout_padding_top_value_delete(object: &mut AzOptionLayoutPaddingTopValue) { match object { azul_impl::css::OptionLayoutPaddingTopValue::None => { }, azul_impl::css::OptionLayoutPaddingTopValue::Some(_) => { }, }
+}
+/// Clones the object
+#[no_mangle] pub extern "C" fn az_option_layout_padding_top_value_deep_copy(object: &AzOptionLayoutPaddingTopValue) -> AzOptionLayoutPaddingTopValue { object.clone() }
+/// Creates a string with the debug representation of the object
+#[no_mangle] pub extern "C" fn az_option_layout_padding_top_value_fmt_debug(object: &AzOptionLayoutPaddingTopValue) -> AzString { format!("{:#?}", object).into() }
+
+/// Re-export of rust-allocated (stack based) `OptionLayoutPaddingBottomValue` struct
+pub type AzOptionLayoutPaddingBottomValueTT = azul_impl::css::OptionLayoutPaddingBottomValue;
+pub use AzOptionLayoutPaddingBottomValueTT as AzOptionLayoutPaddingBottomValue;
+/// Destructor: Takes ownership of the `OptionLayoutPaddingBottomValue` pointer and deletes it.
+#[no_mangle] #[allow(unused_variables)] pub extern "C" fn az_option_layout_padding_bottom_value_delete(object: &mut AzOptionLayoutPaddingBottomValue) { match object { azul_impl::css::OptionLayoutPaddingBottomValue::None => { }, azul_impl::css::OptionLayoutPaddingBottomValue::Some(_) => { }, }
+}
+/// Clones the object
+#[no_mangle] pub extern "C" fn az_option_layout_padding_bottom_value_deep_copy(object: &AzOptionLayoutPaddingBottomValue) -> AzOptionLayoutPaddingBottomValue { object.clone() }
+/// Creates a string with the debug representation of the object
+#[no_mangle] pub extern "C" fn az_option_layout_padding_bottom_value_fmt_debug(object: &AzOptionLayoutPaddingBottomValue) -> AzString { format!("{:#?}", object).into() }
+
+/// Re-export of rust-allocated (stack based) `OptionLayoutPaddingLeftValue` struct
+pub type AzOptionLayoutPaddingLeftValueTT = azul_impl::css::OptionLayoutPaddingLeftValue;
+pub use AzOptionLayoutPaddingLeftValueTT as AzOptionLayoutPaddingLeftValue;
+/// Destructor: Takes ownership of the `OptionLayoutPaddingLeftValue` pointer and deletes it.
+#[no_mangle] #[allow(unused_variables)] pub extern "C" fn az_option_layout_padding_left_value_delete(object: &mut AzOptionLayoutPaddingLeftValue) { match object { azul_impl::css::OptionLayoutPaddingLeftValue::None => { }, azul_impl::css::OptionLayoutPaddingLeftValue::Some(_) => { }, }
+}
+/// Clones the object
+#[no_mangle] pub extern "C" fn az_option_layout_padding_left_value_deep_copy(object: &AzOptionLayoutPaddingLeftValue) -> AzOptionLayoutPaddingLeftValue { object.clone() }
+/// Creates a string with the debug representation of the object
+#[no_mangle] pub extern "C" fn az_option_layout_padding_left_value_fmt_debug(object: &AzOptionLayoutPaddingLeftValue) -> AzString { format!("{:#?}", object).into() }
+
+/// Re-export of rust-allocated (stack based) `OptionLayoutPaddingRightValue` struct
+pub type AzOptionLayoutPaddingRightValueTT = azul_impl::css::OptionLayoutPaddingRightValue;
+pub use AzOptionLayoutPaddingRightValueTT as AzOptionLayoutPaddingRightValue;
+/// Destructor: Takes ownership of the `OptionLayoutPaddingRightValue` pointer and deletes it.
+#[no_mangle] #[allow(unused_variables)] pub extern "C" fn az_option_layout_padding_right_value_delete(object: &mut AzOptionLayoutPaddingRightValue) { match object { azul_impl::css::OptionLayoutPaddingRightValue::None => { }, azul_impl::css::OptionLayoutPaddingRightValue::Some(_) => { }, }
+}
+/// Clones the object
+#[no_mangle] pub extern "C" fn az_option_layout_padding_right_value_deep_copy(object: &AzOptionLayoutPaddingRightValue) -> AzOptionLayoutPaddingRightValue { object.clone() }
+/// Creates a string with the debug representation of the object
+#[no_mangle] pub extern "C" fn az_option_layout_padding_right_value_fmt_debug(object: &AzOptionLayoutPaddingRightValue) -> AzString { format!("{:#?}", object).into() }
+
+/// Re-export of rust-allocated (stack based) `OptionLayoutMarginTopValue` struct
+pub type AzOptionLayoutMarginTopValueTT = azul_impl::css::OptionLayoutMarginTopValue;
+pub use AzOptionLayoutMarginTopValueTT as AzOptionLayoutMarginTopValue;
+/// Destructor: Takes ownership of the `OptionLayoutMarginTopValue` pointer and deletes it.
+#[no_mangle] #[allow(unused_variables)] pub extern "C" fn az_option_layout_margin_top_value_delete(object: &mut AzOptionLayoutMarginTopValue) { match object { azul_impl::css::OptionLayoutMarginTopValue::None => { }, azul_impl::css::OptionLayoutMarginTopValue::Some(_) => { }, }
+}
+/// Clones the object
+#[no_mangle] pub extern "C" fn az_option_layout_margin_top_value_deep_copy(object: &AzOptionLayoutMarginTopValue) -> AzOptionLayoutMarginTopValue { object.clone() }
+/// Creates a string with the debug representation of the object
+#[no_mangle] pub extern "C" fn az_option_layout_margin_top_value_fmt_debug(object: &AzOptionLayoutMarginTopValue) -> AzString { format!("{:#?}", object).into() }
+
+/// Re-export of rust-allocated (stack based) `OptionLayoutMarginBottomValue` struct
+pub type AzOptionLayoutMarginBottomValueTT = azul_impl::css::OptionLayoutMarginBottomValue;
+pub use AzOptionLayoutMarginBottomValueTT as AzOptionLayoutMarginBottomValue;
+/// Destructor: Takes ownership of the `OptionLayoutMarginBottomValue` pointer and deletes it.
+#[no_mangle] #[allow(unused_variables)] pub extern "C" fn az_option_layout_margin_bottom_value_delete(object: &mut AzOptionLayoutMarginBottomValue) { match object { azul_impl::css::OptionLayoutMarginBottomValue::None => { }, azul_impl::css::OptionLayoutMarginBottomValue::Some(_) => { }, }
+}
+/// Clones the object
+#[no_mangle] pub extern "C" fn az_option_layout_margin_bottom_value_deep_copy(object: &AzOptionLayoutMarginBottomValue) -> AzOptionLayoutMarginBottomValue { object.clone() }
+/// Creates a string with the debug representation of the object
+#[no_mangle] pub extern "C" fn az_option_layout_margin_bottom_value_fmt_debug(object: &AzOptionLayoutMarginBottomValue) -> AzString { format!("{:#?}", object).into() }
+
+/// Re-export of rust-allocated (stack based) `OptionLayoutMarginLeftValue` struct
+pub type AzOptionLayoutMarginLeftValueTT = azul_impl::css::OptionLayoutMarginLeftValue;
+pub use AzOptionLayoutMarginLeftValueTT as AzOptionLayoutMarginLeftValue;
+/// Destructor: Takes ownership of the `OptionLayoutMarginLeftValue` pointer and deletes it.
+#[no_mangle] #[allow(unused_variables)] pub extern "C" fn az_option_layout_margin_left_value_delete(object: &mut AzOptionLayoutMarginLeftValue) { match object { azul_impl::css::OptionLayoutMarginLeftValue::None => { }, azul_impl::css::OptionLayoutMarginLeftValue::Some(_) => { }, }
+}
+/// Clones the object
+#[no_mangle] pub extern "C" fn az_option_layout_margin_left_value_deep_copy(object: &AzOptionLayoutMarginLeftValue) -> AzOptionLayoutMarginLeftValue { object.clone() }
+/// Creates a string with the debug representation of the object
+#[no_mangle] pub extern "C" fn az_option_layout_margin_left_value_fmt_debug(object: &AzOptionLayoutMarginLeftValue) -> AzString { format!("{:#?}", object).into() }
+
+/// Re-export of rust-allocated (stack based) `OptionLayoutMarginRightValue` struct
+pub type AzOptionLayoutMarginRightValueTT = azul_impl::css::OptionLayoutMarginRightValue;
+pub use AzOptionLayoutMarginRightValueTT as AzOptionLayoutMarginRightValue;
+/// Destructor: Takes ownership of the `OptionLayoutMarginRightValue` pointer and deletes it.
+#[no_mangle] #[allow(unused_variables)] pub extern "C" fn az_option_layout_margin_right_value_delete(object: &mut AzOptionLayoutMarginRightValue) { match object { azul_impl::css::OptionLayoutMarginRightValue::None => { }, azul_impl::css::OptionLayoutMarginRightValue::Some(_) => { }, }
+}
+/// Clones the object
+#[no_mangle] pub extern "C" fn az_option_layout_margin_right_value_deep_copy(object: &AzOptionLayoutMarginRightValue) -> AzOptionLayoutMarginRightValue { object.clone() }
+/// Creates a string with the debug representation of the object
+#[no_mangle] pub extern "C" fn az_option_layout_margin_right_value_fmt_debug(object: &AzOptionLayoutMarginRightValue) -> AzString { format!("{:#?}", object).into() }
+
+/// Re-export of rust-allocated (stack based) `OptionStyleBorderTopWidthValue` struct
+pub type AzOptionStyleBorderTopWidthValueTT = azul_impl::css::OptionStyleBorderTopWidthValue;
+pub use AzOptionStyleBorderTopWidthValueTT as AzOptionStyleBorderTopWidthValue;
+/// Destructor: Takes ownership of the `OptionStyleBorderTopWidthValue` pointer and deletes it.
+#[no_mangle] #[allow(unused_variables)] pub extern "C" fn az_option_style_border_top_width_value_delete(object: &mut AzOptionStyleBorderTopWidthValue) { match object { azul_impl::css::OptionStyleBorderTopWidthValue::None => { }, azul_impl::css::OptionStyleBorderTopWidthValue::Some(_) => { }, }
+}
+/// Clones the object
+#[no_mangle] pub extern "C" fn az_option_style_border_top_width_value_deep_copy(object: &AzOptionStyleBorderTopWidthValue) -> AzOptionStyleBorderTopWidthValue { object.clone() }
+/// Creates a string with the debug representation of the object
+#[no_mangle] pub extern "C" fn az_option_style_border_top_width_value_fmt_debug(object: &AzOptionStyleBorderTopWidthValue) -> AzString { format!("{:#?}", object).into() }
+
+/// Re-export of rust-allocated (stack based) `OptionStyleBorderLeftWidthValue` struct
+pub type AzOptionStyleBorderLeftWidthValueTT = azul_impl::css::OptionStyleBorderLeftWidthValue;
+pub use AzOptionStyleBorderLeftWidthValueTT as AzOptionStyleBorderLeftWidthValue;
+/// Destructor: Takes ownership of the `OptionStyleBorderLeftWidthValue` pointer and deletes it.
+#[no_mangle] #[allow(unused_variables)] pub extern "C" fn az_option_style_border_left_width_value_delete(object: &mut AzOptionStyleBorderLeftWidthValue) { match object { azul_impl::css::OptionStyleBorderLeftWidthValue::None => { }, azul_impl::css::OptionStyleBorderLeftWidthValue::Some(_) => { }, }
+}
+/// Clones the object
+#[no_mangle] pub extern "C" fn az_option_style_border_left_width_value_deep_copy(object: &AzOptionStyleBorderLeftWidthValue) -> AzOptionStyleBorderLeftWidthValue { object.clone() }
+/// Creates a string with the debug representation of the object
+#[no_mangle] pub extern "C" fn az_option_style_border_left_width_value_fmt_debug(object: &AzOptionStyleBorderLeftWidthValue) -> AzString { format!("{:#?}", object).into() }
+
+/// Re-export of rust-allocated (stack based) `OptionStyleBorderRightWidthValue` struct
+pub type AzOptionStyleBorderRightWidthValueTT = azul_impl::css::OptionStyleBorderRightWidthValue;
+pub use AzOptionStyleBorderRightWidthValueTT as AzOptionStyleBorderRightWidthValue;
+/// Destructor: Takes ownership of the `OptionStyleBorderRightWidthValue` pointer and deletes it.
+#[no_mangle] #[allow(unused_variables)] pub extern "C" fn az_option_style_border_right_width_value_delete(object: &mut AzOptionStyleBorderRightWidthValue) { match object { azul_impl::css::OptionStyleBorderRightWidthValue::None => { }, azul_impl::css::OptionStyleBorderRightWidthValue::Some(_) => { }, }
+}
+/// Clones the object
+#[no_mangle] pub extern "C" fn az_option_style_border_right_width_value_deep_copy(object: &AzOptionStyleBorderRightWidthValue) -> AzOptionStyleBorderRightWidthValue { object.clone() }
+/// Creates a string with the debug representation of the object
+#[no_mangle] pub extern "C" fn az_option_style_border_right_width_value_fmt_debug(object: &AzOptionStyleBorderRightWidthValue) -> AzString { format!("{:#?}", object).into() }
+
+/// Re-export of rust-allocated (stack based) `OptionStyleBorderBottomWidthValue` struct
+pub type AzOptionStyleBorderBottomWidthValueTT = azul_impl::css::OptionStyleBorderBottomWidthValue;
+pub use AzOptionStyleBorderBottomWidthValueTT as AzOptionStyleBorderBottomWidthValue;
+/// Destructor: Takes ownership of the `OptionStyleBorderBottomWidthValue` pointer and deletes it.
+#[no_mangle] #[allow(unused_variables)] pub extern "C" fn az_option_style_border_bottom_width_value_delete(object: &mut AzOptionStyleBorderBottomWidthValue) { match object { azul_impl::css::OptionStyleBorderBottomWidthValue::None => { }, azul_impl::css::OptionStyleBorderBottomWidthValue::Some(_) => { }, }
+}
+/// Clones the object
+#[no_mangle] pub extern "C" fn az_option_style_border_bottom_width_value_deep_copy(object: &AzOptionStyleBorderBottomWidthValue) -> AzOptionStyleBorderBottomWidthValue { object.clone() }
+/// Creates a string with the debug representation of the object
+#[no_mangle] pub extern "C" fn az_option_style_border_bottom_width_value_fmt_debug(object: &AzOptionStyleBorderBottomWidthValue) -> AzString { format!("{:#?}", object).into() }
+
+/// Re-export of rust-allocated (stack based) `OptionOverflowValue` struct
+pub type AzOptionOverflowValueTT = azul_impl::css::OptionOverflowValue;
+pub use AzOptionOverflowValueTT as AzOptionOverflowValue;
+/// Destructor: Takes ownership of the `OptionOverflowValue` pointer and deletes it.
+#[no_mangle] #[allow(unused_variables)] pub extern "C" fn az_option_overflow_value_delete(object: &mut AzOptionOverflowValue) { match object { azul_impl::css::OptionOverflowValue::None => { }, azul_impl::css::OptionOverflowValue::Some(_) => { }, }
+}
+/// Clones the object
+#[no_mangle] pub extern "C" fn az_option_overflow_value_deep_copy(object: &AzOptionOverflowValue) -> AzOptionOverflowValue { object.clone() }
+/// Creates a string with the debug representation of the object
+#[no_mangle] pub extern "C" fn az_option_overflow_value_fmt_debug(object: &AzOptionOverflowValue) -> AzString { format!("{:#?}", object).into() }
+
+/// Re-export of rust-allocated (stack based) `OptionLayoutDirectionValue` struct
+pub type AzOptionLayoutDirectionValueTT = azul_impl::css::OptionLayoutDirectionValue;
+pub use AzOptionLayoutDirectionValueTT as AzOptionLayoutDirectionValue;
+/// Destructor: Takes ownership of the `OptionLayoutDirectionValue` pointer and deletes it.
+#[no_mangle] #[allow(unused_variables)] pub extern "C" fn az_option_layout_direction_value_delete(object: &mut AzOptionLayoutDirectionValue) { match object { azul_impl::css::OptionLayoutDirectionValue::None => { }, azul_impl::css::OptionLayoutDirectionValue::Some(_) => { }, }
+}
+/// Clones the object
+#[no_mangle] pub extern "C" fn az_option_layout_direction_value_deep_copy(object: &AzOptionLayoutDirectionValue) -> AzOptionLayoutDirectionValue { object.clone() }
+/// Creates a string with the debug representation of the object
+#[no_mangle] pub extern "C" fn az_option_layout_direction_value_fmt_debug(object: &AzOptionLayoutDirectionValue) -> AzString { format!("{:#?}", object).into() }
+
+/// Re-export of rust-allocated (stack based) `OptionLayoutWrapValue` struct
+pub type AzOptionLayoutWrapValueTT = azul_impl::css::OptionLayoutWrapValue;
+pub use AzOptionLayoutWrapValueTT as AzOptionLayoutWrapValue;
+/// Destructor: Takes ownership of the `OptionLayoutWrapValue` pointer and deletes it.
+#[no_mangle] #[allow(unused_variables)] pub extern "C" fn az_option_layout_wrap_value_delete(object: &mut AzOptionLayoutWrapValue) { match object { azul_impl::css::OptionLayoutWrapValue::None => { }, azul_impl::css::OptionLayoutWrapValue::Some(_) => { }, }
+}
+/// Clones the object
+#[no_mangle] pub extern "C" fn az_option_layout_wrap_value_deep_copy(object: &AzOptionLayoutWrapValue) -> AzOptionLayoutWrapValue { object.clone() }
+/// Creates a string with the debug representation of the object
+#[no_mangle] pub extern "C" fn az_option_layout_wrap_value_fmt_debug(object: &AzOptionLayoutWrapValue) -> AzString { format!("{:#?}", object).into() }
+
+/// Re-export of rust-allocated (stack based) `OptionLayoutFlexGrowValue` struct
+pub type AzOptionLayoutFlexGrowValueTT = azul_impl::css::OptionLayoutFlexGrowValue;
+pub use AzOptionLayoutFlexGrowValueTT as AzOptionLayoutFlexGrowValue;
+/// Destructor: Takes ownership of the `OptionLayoutFlexGrowValue` pointer and deletes it.
+#[no_mangle] #[allow(unused_variables)] pub extern "C" fn az_option_layout_flex_grow_value_delete(object: &mut AzOptionLayoutFlexGrowValue) { match object { azul_impl::css::OptionLayoutFlexGrowValue::None => { }, azul_impl::css::OptionLayoutFlexGrowValue::Some(_) => { }, }
+}
+/// Clones the object
+#[no_mangle] pub extern "C" fn az_option_layout_flex_grow_value_deep_copy(object: &AzOptionLayoutFlexGrowValue) -> AzOptionLayoutFlexGrowValue { object.clone() }
+/// Creates a string with the debug representation of the object
+#[no_mangle] pub extern "C" fn az_option_layout_flex_grow_value_fmt_debug(object: &AzOptionLayoutFlexGrowValue) -> AzString { format!("{:#?}", object).into() }
+
+/// Re-export of rust-allocated (stack based) `OptionLayoutFlexShrinkValue` struct
+pub type AzOptionLayoutFlexShrinkValueTT = azul_impl::css::OptionLayoutFlexShrinkValue;
+pub use AzOptionLayoutFlexShrinkValueTT as AzOptionLayoutFlexShrinkValue;
+/// Destructor: Takes ownership of the `OptionLayoutFlexShrinkValue` pointer and deletes it.
+#[no_mangle] #[allow(unused_variables)] pub extern "C" fn az_option_layout_flex_shrink_value_delete(object: &mut AzOptionLayoutFlexShrinkValue) { match object { azul_impl::css::OptionLayoutFlexShrinkValue::None => { }, azul_impl::css::OptionLayoutFlexShrinkValue::Some(_) => { }, }
+}
+/// Clones the object
+#[no_mangle] pub extern "C" fn az_option_layout_flex_shrink_value_deep_copy(object: &AzOptionLayoutFlexShrinkValue) -> AzOptionLayoutFlexShrinkValue { object.clone() }
+/// Creates a string with the debug representation of the object
+#[no_mangle] pub extern "C" fn az_option_layout_flex_shrink_value_fmt_debug(object: &AzOptionLayoutFlexShrinkValue) -> AzString { format!("{:#?}", object).into() }
+
+/// Re-export of rust-allocated (stack based) `OptionLayoutJustifyContentValue` struct
+pub type AzOptionLayoutJustifyContentValueTT = azul_impl::css::OptionLayoutJustifyContentValue;
+pub use AzOptionLayoutJustifyContentValueTT as AzOptionLayoutJustifyContentValue;
+/// Destructor: Takes ownership of the `OptionLayoutJustifyContentValue` pointer and deletes it.
+#[no_mangle] #[allow(unused_variables)] pub extern "C" fn az_option_layout_justify_content_value_delete(object: &mut AzOptionLayoutJustifyContentValue) { match object { azul_impl::css::OptionLayoutJustifyContentValue::None => { }, azul_impl::css::OptionLayoutJustifyContentValue::Some(_) => { }, }
+}
+/// Clones the object
+#[no_mangle] pub extern "C" fn az_option_layout_justify_content_value_deep_copy(object: &AzOptionLayoutJustifyContentValue) -> AzOptionLayoutJustifyContentValue { object.clone() }
+/// Creates a string with the debug representation of the object
+#[no_mangle] pub extern "C" fn az_option_layout_justify_content_value_fmt_debug(object: &AzOptionLayoutJustifyContentValue) -> AzString { format!("{:#?}", object).into() }
+
+/// Re-export of rust-allocated (stack based) `OptionLayoutAlignItemsValue` struct
+pub type AzOptionLayoutAlignItemsValueTT = azul_impl::css::OptionLayoutAlignItemsValue;
+pub use AzOptionLayoutAlignItemsValueTT as AzOptionLayoutAlignItemsValue;
+/// Destructor: Takes ownership of the `OptionLayoutAlignItemsValue` pointer and deletes it.
+#[no_mangle] #[allow(unused_variables)] pub extern "C" fn az_option_layout_align_items_value_delete(object: &mut AzOptionLayoutAlignItemsValue) { match object { azul_impl::css::OptionLayoutAlignItemsValue::None => { }, azul_impl::css::OptionLayoutAlignItemsValue::Some(_) => { }, }
+}
+/// Clones the object
+#[no_mangle] pub extern "C" fn az_option_layout_align_items_value_deep_copy(object: &AzOptionLayoutAlignItemsValue) -> AzOptionLayoutAlignItemsValue { object.clone() }
+/// Creates a string with the debug representation of the object
+#[no_mangle] pub extern "C" fn az_option_layout_align_items_value_fmt_debug(object: &AzOptionLayoutAlignItemsValue) -> AzString { format!("{:#?}", object).into() }
+
+/// Re-export of rust-allocated (stack based) `OptionLayoutAlignContentValue` struct
+pub type AzOptionLayoutAlignContentValueTT = azul_impl::css::OptionLayoutAlignContentValue;
+pub use AzOptionLayoutAlignContentValueTT as AzOptionLayoutAlignContentValue;
+/// Destructor: Takes ownership of the `OptionLayoutAlignContentValue` pointer and deletes it.
+#[no_mangle] #[allow(unused_variables)] pub extern "C" fn az_option_layout_align_content_value_delete(object: &mut AzOptionLayoutAlignContentValue) { match object { azul_impl::css::OptionLayoutAlignContentValue::None => { }, azul_impl::css::OptionLayoutAlignContentValue::Some(_) => { }, }
+}
+/// Clones the object
+#[no_mangle] pub extern "C" fn az_option_layout_align_content_value_deep_copy(object: &AzOptionLayoutAlignContentValue) -> AzOptionLayoutAlignContentValue { object.clone() }
+/// Creates a string with the debug representation of the object
+#[no_mangle] pub extern "C" fn az_option_layout_align_content_value_fmt_debug(object: &AzOptionLayoutAlignContentValue) -> AzString { format!("{:#?}", object).into() }
+
+/// Re-export of rust-allocated (stack based) `OptionHoverGroup` struct
+pub type AzOptionHoverGroupTT = azul_impl::styled_dom::OptionHoverGroup;
+pub use AzOptionHoverGroupTT as AzOptionHoverGroup;
+/// Destructor: Takes ownership of the `OptionHoverGroup` pointer and deletes it.
+#[no_mangle] #[allow(unused_variables)] pub extern "C" fn az_option_hover_group_delete(object: &mut AzOptionHoverGroup) { match object { azul_impl::styled_dom::OptionHoverGroup::None => { }, azul_impl::styled_dom::OptionHoverGroup::Some(_) => { }, }
+}
+/// Clones the object
+#[no_mangle] pub extern "C" fn az_option_hover_group_deep_copy(object: &AzOptionHoverGroup) -> AzOptionHoverGroup { object.clone() }
+/// Creates a string with the debug representation of the object
+#[no_mangle] pub extern "C" fn az_option_hover_group_fmt_debug(object: &AzOptionHoverGroup) -> AzString { format!("{:#?}", object).into() }
+
+/// Re-export of rust-allocated (stack based) `OptionTagId` struct
+pub type AzOptionTagIdTT = azul_impl::styled_dom::OptionTagId;
+pub use AzOptionTagIdTT as AzOptionTagId;
+/// Destructor: Takes ownership of the `OptionTagId` pointer and deletes it.
+#[no_mangle] #[allow(unused_variables)] pub extern "C" fn az_option_tag_id_delete(object: &mut AzOptionTagId) { match object { azul_impl::styled_dom::OptionTagId::None => { }, azul_impl::styled_dom::OptionTagId::Some(_) => { }, }
+}
+/// Clones the object
+#[no_mangle] pub extern "C" fn az_option_tag_id_deep_copy(object: &AzOptionTagId) -> AzOptionTagId { object.clone() }
+/// Creates a string with the debug representation of the object
+#[no_mangle] pub extern "C" fn az_option_tag_id_fmt_debug(object: &AzOptionTagId) -> AzString { format!("{:#?}", object).into() }
 
 /// Re-export of rust-allocated (stack based) `OptionDuration` struct
 pub type AzOptionDurationTT = azul_impl::task::OptionDuration;
@@ -1001,6 +1817,36 @@ pub use AzDurationTT as AzDuration;
 #[inline(always)] fn az_app_ptr_downcast_ref<P, F: FnOnce(&App) -> P>(ptr: &AzAppPtr, func: F) -> P {     func(unsafe { &*(ptr.ptr as *const App) })}
 /// Creates a string with the debug representation of the object
 #[no_mangle] pub extern "C" fn az_app_ptr_fmt_debug(object: &AzAppPtr) -> AzString { az_app_ptr_downcast_ref(object, |o| format!("{:#?}", o)).into() }
+
+/// Re-export of rust-allocated (stack based) `NodeId` struct
+pub type AzNodeIdTT = azul_impl::callbacks::NodeId;
+pub use AzNodeIdTT as AzNodeId;
+/// Destructor: Takes ownership of the `NodeId` pointer and deletes it.
+#[no_mangle] #[allow(unused_variables)] pub extern "C" fn az_node_id_delete(object: &mut AzNodeId) { }
+/// Clones the object
+#[no_mangle] pub extern "C" fn az_node_id_deep_copy(object: &AzNodeId) -> AzNodeId { object.clone() }
+/// Creates a string with the debug representation of the object
+#[no_mangle] pub extern "C" fn az_node_id_fmt_debug(object: &AzNodeId) -> AzString { format!("{:#?}", object).into() }
+
+/// Re-export of rust-allocated (stack based) `DomId` struct
+pub type AzDomIdTT = azul_impl::callbacks::DomId;
+pub use AzDomIdTT as AzDomId;
+/// Destructor: Takes ownership of the `DomId` pointer and deletes it.
+#[no_mangle] #[allow(unused_variables)] pub extern "C" fn az_dom_id_delete(object: &mut AzDomId) { }
+/// Clones the object
+#[no_mangle] pub extern "C" fn az_dom_id_deep_copy(object: &AzDomId) -> AzDomId { object.clone() }
+/// Creates a string with the debug representation of the object
+#[no_mangle] pub extern "C" fn az_dom_id_fmt_debug(object: &AzDomId) -> AzString { format!("{:#?}", object).into() }
+
+/// Re-export of rust-allocated (stack based) `DomNodeId` struct
+pub type AzDomNodeIdTT = azul_impl::callbacks::DomNodeId;
+pub use AzDomNodeIdTT as AzDomNodeId;
+/// Destructor: Takes ownership of the `DomNodeId` pointer and deletes it.
+#[no_mangle] #[allow(unused_variables)] pub extern "C" fn az_dom_node_id_delete(object: &mut AzDomNodeId) { }
+/// Clones the object
+#[no_mangle] pub extern "C" fn az_dom_node_id_deep_copy(object: &AzDomNodeId) -> AzDomNodeId { object.clone() }
+/// Creates a string with the debug representation of the object
+#[no_mangle] pub extern "C" fn az_dom_node_id_fmt_debug(object: &AzDomNodeId) -> AzString { format!("{:#?}", object).into() }
 
 /// Re-export of rust-allocated (stack based) `HidpiAdjustedBounds` struct
 pub type AzHidpiAdjustedBoundsTT = azul_impl::callbacks::HidpiAdjustedBounds;
@@ -2914,6 +3760,264 @@ pub use AzCssPropertyTT as AzCssProperty;
 #[no_mangle] pub extern "C" fn az_css_property_cmp(a: &AzCssProperty, b: &AzCssProperty) -> u8 { use std::cmp::Ordering::*; match a.cmp(b) { Less => 0, Equal => 1, Greater => 2 } }
 /// Returns the hash of a `AzCssProperty` instance 
 #[no_mangle] pub extern "C" fn az_css_property_hash(object: &AzCssProperty) -> u64 { use std::collections::hash_map::DefaultHasher; use std::hash::{Hash, Hasher}; let mut hasher = DefaultHasher::new(); object.hash(&mut hasher); hasher.finish() }
+
+/// Re-export of rust-allocated (stack based) `Node` struct
+pub type AzNodeTT = azul_impl::styled_dom::AzNode;
+pub use AzNodeTT as AzNode;
+/// Destructor: Takes ownership of the `Node` pointer and deletes it.
+#[no_mangle] #[allow(unused_variables)] pub extern "C" fn az_node_delete(object: &mut AzNode) { }
+/// Clones the object
+#[no_mangle] pub extern "C" fn az_node_deep_copy(object: &AzNode) -> AzNode { object.clone() }
+/// Creates a string with the debug representation of the object
+#[no_mangle] pub extern "C" fn az_node_fmt_debug(object: &AzNode) -> AzString { format!("{:#?}", object).into() }
+/// Compares two instances of `AzNode` for equality
+#[no_mangle] pub extern "C" fn az_node_partial_eq(a: &AzNode, b: &AzNode) -> bool { a.eq(b) }
+/// Compares two instances of `AzNode` for ordering. Returns 0 for None (equality), 1 on Some(Less), 2 on Some(Equal) and 3 on Some(Greater). 
+#[no_mangle] pub extern "C" fn az_node_partial_cmp(a: &AzNode, b: &AzNode) -> u8 { use std::cmp::Ordering::*;match a.partial_cmp(b) { None => 0, Some(Less) => 1, Some(Equal) => 2, Some(Greater) => 3 } }
+/// Compares two instances of `AzNode` for full ordering. Returns 0 for Less, 1 for Equal, 2 for Greater. 
+#[no_mangle] pub extern "C" fn az_node_cmp(a: &AzNode, b: &AzNode) -> u8 { use std::cmp::Ordering::*; match a.cmp(b) { Less => 0, Equal => 1, Greater => 2 } }
+/// Returns the hash of a `AzNode` instance 
+#[no_mangle] pub extern "C" fn az_node_hash(object: &AzNode) -> u64 { use std::collections::hash_map::DefaultHasher; use std::hash::{Hash, Hasher}; let mut hasher = DefaultHasher::new(); object.hash(&mut hasher); hasher.finish() }
+
+/// Re-export of rust-allocated (stack based) `CascadeInfo` struct
+pub type AzCascadeInfoTT = azul_impl::styled_dom::CascadeInfo;
+pub use AzCascadeInfoTT as AzCascadeInfo;
+/// Destructor: Takes ownership of the `CascadeInfo` pointer and deletes it.
+#[no_mangle] #[allow(unused_variables)] pub extern "C" fn az_cascade_info_delete(object: &mut AzCascadeInfo) { }
+/// Clones the object
+#[no_mangle] pub extern "C" fn az_cascade_info_deep_copy(object: &AzCascadeInfo) -> AzCascadeInfo { object.clone() }
+/// Creates a string with the debug representation of the object
+#[no_mangle] pub extern "C" fn az_cascade_info_fmt_debug(object: &AzCascadeInfo) -> AzString { format!("{:#?}", object).into() }
+/// Compares two instances of `AzCascadeInfo` for equality
+#[no_mangle] pub extern "C" fn az_cascade_info_partial_eq(a: &AzCascadeInfo, b: &AzCascadeInfo) -> bool { a.eq(b) }
+/// Compares two instances of `AzCascadeInfo` for ordering. Returns 0 for None (equality), 1 on Some(Less), 2 on Some(Equal) and 3 on Some(Greater). 
+#[no_mangle] pub extern "C" fn az_cascade_info_partial_cmp(a: &AzCascadeInfo, b: &AzCascadeInfo) -> u8 { use std::cmp::Ordering::*;match a.partial_cmp(b) { None => 0, Some(Less) => 1, Some(Equal) => 2, Some(Greater) => 3 } }
+/// Compares two instances of `AzCascadeInfo` for full ordering. Returns 0 for Less, 1 for Equal, 2 for Greater. 
+#[no_mangle] pub extern "C" fn az_cascade_info_cmp(a: &AzCascadeInfo, b: &AzCascadeInfo) -> u8 { use std::cmp::Ordering::*; match a.cmp(b) { Less => 0, Equal => 1, Greater => 2 } }
+/// Returns the hash of a `AzCascadeInfo` instance 
+#[no_mangle] pub extern "C" fn az_cascade_info_hash(object: &AzCascadeInfo) -> u64 { use std::collections::hash_map::DefaultHasher; use std::hash::{Hash, Hasher}; let mut hasher = DefaultHasher::new(); object.hash(&mut hasher); hasher.finish() }
+
+/// Re-export of rust-allocated (stack based) `RectStyle` struct
+pub type AzRectStyleTT = azul_impl::styled_dom::RectStyle;
+pub use AzRectStyleTT as AzRectStyle;
+/// Destructor: Takes ownership of the `RectStyle` pointer and deletes it.
+#[no_mangle] #[allow(unused_variables)] pub extern "C" fn az_rect_style_delete(object: &mut AzRectStyle) { }
+/// Clones the object
+#[no_mangle] pub extern "C" fn az_rect_style_deep_copy(object: &AzRectStyle) -> AzRectStyle { object.clone() }
+/// Creates a string with the debug representation of the object
+#[no_mangle] pub extern "C" fn az_rect_style_fmt_debug(object: &AzRectStyle) -> AzString { format!("{:#?}", object).into() }
+/// Compares two instances of `AzRectStyle` for equality
+#[no_mangle] pub extern "C" fn az_rect_style_partial_eq(a: &AzRectStyle, b: &AzRectStyle) -> bool { a.eq(b) }
+/// Compares two instances of `AzRectStyle` for ordering. Returns 0 for None (equality), 1 on Some(Less), 2 on Some(Equal) and 3 on Some(Greater). 
+#[no_mangle] pub extern "C" fn az_rect_style_partial_cmp(a: &AzRectStyle, b: &AzRectStyle) -> u8 { use std::cmp::Ordering::*;match a.partial_cmp(b) { None => 0, Some(Less) => 1, Some(Equal) => 2, Some(Greater) => 3 } }
+/// Compares two instances of `AzRectStyle` for full ordering. Returns 0 for Less, 1 for Equal, 2 for Greater. 
+#[no_mangle] pub extern "C" fn az_rect_style_cmp(a: &AzRectStyle, b: &AzRectStyle) -> u8 { use std::cmp::Ordering::*; match a.cmp(b) { Less => 0, Equal => 1, Greater => 2 } }
+/// Returns the hash of a `AzRectStyle` instance 
+#[no_mangle] pub extern "C" fn az_rect_style_hash(object: &AzRectStyle) -> u64 { use std::collections::hash_map::DefaultHasher; use std::hash::{Hash, Hasher}; let mut hasher = DefaultHasher::new(); object.hash(&mut hasher); hasher.finish() }
+
+/// Re-export of rust-allocated (stack based) `RectLayout` struct
+pub type AzRectLayoutTT = azul_impl::styled_dom::RectLayout;
+pub use AzRectLayoutTT as AzRectLayout;
+/// Destructor: Takes ownership of the `RectLayout` pointer and deletes it.
+#[no_mangle] #[allow(unused_variables)] pub extern "C" fn az_rect_layout_delete(object: &mut AzRectLayout) { }
+/// Clones the object
+#[no_mangle] pub extern "C" fn az_rect_layout_deep_copy(object: &AzRectLayout) -> AzRectLayout { object.clone() }
+/// Creates a string with the debug representation of the object
+#[no_mangle] pub extern "C" fn az_rect_layout_fmt_debug(object: &AzRectLayout) -> AzString { format!("{:#?}", object).into() }
+/// Compares two instances of `AzRectLayout` for equality
+#[no_mangle] pub extern "C" fn az_rect_layout_partial_eq(a: &AzRectLayout, b: &AzRectLayout) -> bool { a.eq(b) }
+/// Compares two instances of `AzRectLayout` for ordering. Returns 0 for None (equality), 1 on Some(Less), 2 on Some(Equal) and 3 on Some(Greater). 
+#[no_mangle] pub extern "C" fn az_rect_layout_partial_cmp(a: &AzRectLayout, b: &AzRectLayout) -> u8 { use std::cmp::Ordering::*;match a.partial_cmp(b) { None => 0, Some(Less) => 1, Some(Equal) => 2, Some(Greater) => 3 } }
+/// Compares two instances of `AzRectLayout` for full ordering. Returns 0 for Less, 1 for Equal, 2 for Greater. 
+#[no_mangle] pub extern "C" fn az_rect_layout_cmp(a: &AzRectLayout, b: &AzRectLayout) -> u8 { use std::cmp::Ordering::*; match a.cmp(b) { Less => 0, Equal => 1, Greater => 2 } }
+/// Returns the hash of a `AzRectLayout` instance 
+#[no_mangle] pub extern "C" fn az_rect_layout_hash(object: &AzRectLayout) -> u64 { use std::collections::hash_map::DefaultHasher; use std::hash::{Hash, Hasher}; let mut hasher = DefaultHasher::new(); object.hash(&mut hasher); hasher.finish() }
+
+/// Re-export of rust-allocated (stack based) `CascadedCssPropertyWithSource` struct
+pub type AzCascadedCssPropertyWithSourceTT = azul_impl::styled_dom::CascadedCssPropertyWithSource;
+pub use AzCascadedCssPropertyWithSourceTT as AzCascadedCssPropertyWithSource;
+/// Destructor: Takes ownership of the `CascadedCssPropertyWithSource` pointer and deletes it.
+#[no_mangle] #[allow(unused_variables)] pub extern "C" fn az_cascaded_css_property_with_source_delete(object: &mut AzCascadedCssPropertyWithSource) { }
+/// Clones the object
+#[no_mangle] pub extern "C" fn az_cascaded_css_property_with_source_deep_copy(object: &AzCascadedCssPropertyWithSource) -> AzCascadedCssPropertyWithSource { object.clone() }
+/// Creates a string with the debug representation of the object
+#[no_mangle] pub extern "C" fn az_cascaded_css_property_with_source_fmt_debug(object: &AzCascadedCssPropertyWithSource) -> AzString { format!("{:#?}", object).into() }
+/// Compares two instances of `AzCascadedCssPropertyWithSource` for equality
+#[no_mangle] pub extern "C" fn az_cascaded_css_property_with_source_partial_eq(a: &AzCascadedCssPropertyWithSource, b: &AzCascadedCssPropertyWithSource) -> bool { a.eq(b) }
+/// Compares two instances of `AzCascadedCssPropertyWithSource` for ordering. Returns 0 for None (equality), 1 on Some(Less), 2 on Some(Equal) and 3 on Some(Greater). 
+#[no_mangle] pub extern "C" fn az_cascaded_css_property_with_source_partial_cmp(a: &AzCascadedCssPropertyWithSource, b: &AzCascadedCssPropertyWithSource) -> u8 { use std::cmp::Ordering::*;match a.partial_cmp(b) { None => 0, Some(Less) => 1, Some(Equal) => 2, Some(Greater) => 3 } }
+/// Compares two instances of `AzCascadedCssPropertyWithSource` for full ordering. Returns 0 for Less, 1 for Equal, 2 for Greater. 
+#[no_mangle] pub extern "C" fn az_cascaded_css_property_with_source_cmp(a: &AzCascadedCssPropertyWithSource, b: &AzCascadedCssPropertyWithSource) -> u8 { use std::cmp::Ordering::*; match a.cmp(b) { Less => 0, Equal => 1, Greater => 2 } }
+/// Returns the hash of a `AzCascadedCssPropertyWithSource` instance 
+#[no_mangle] pub extern "C" fn az_cascaded_css_property_with_source_hash(object: &AzCascadedCssPropertyWithSource) -> u64 { use std::collections::hash_map::DefaultHasher; use std::hash::{Hash, Hasher}; let mut hasher = DefaultHasher::new(); object.hash(&mut hasher); hasher.finish() }
+
+/// Re-export of rust-allocated (stack based) `CssPropertySource` struct
+pub type AzCssPropertySourceTT = azul_impl::styled_dom::CssPropertySource;
+pub use AzCssPropertySourceTT as AzCssPropertySource;
+/// Destructor: Takes ownership of the `CssPropertySource` pointer and deletes it.
+#[no_mangle] #[allow(unused_variables)] pub extern "C" fn az_css_property_source_delete(object: &mut AzCssPropertySource) { match object { azul_impl::styled_dom::CssPropertySource::Css(_) => { }, azul_impl::styled_dom::CssPropertySource::Inline => { }, }
+}
+/// Clones the object
+#[no_mangle] pub extern "C" fn az_css_property_source_deep_copy(object: &AzCssPropertySource) -> AzCssPropertySource { object.clone() }
+/// Creates a string with the debug representation of the object
+#[no_mangle] pub extern "C" fn az_css_property_source_fmt_debug(object: &AzCssPropertySource) -> AzString { format!("{:#?}", object).into() }
+/// Compares two instances of `AzCssPropertySource` for equality
+#[no_mangle] pub extern "C" fn az_css_property_source_partial_eq(a: &AzCssPropertySource, b: &AzCssPropertySource) -> bool { a.eq(b) }
+/// Compares two instances of `AzCssPropertySource` for ordering. Returns 0 for None (equality), 1 on Some(Less), 2 on Some(Equal) and 3 on Some(Greater). 
+#[no_mangle] pub extern "C" fn az_css_property_source_partial_cmp(a: &AzCssPropertySource, b: &AzCssPropertySource) -> u8 { use std::cmp::Ordering::*;match a.partial_cmp(b) { None => 0, Some(Less) => 1, Some(Equal) => 2, Some(Greater) => 3 } }
+/// Compares two instances of `AzCssPropertySource` for full ordering. Returns 0 for Less, 1 for Equal, 2 for Greater. 
+#[no_mangle] pub extern "C" fn az_css_property_source_cmp(a: &AzCssPropertySource, b: &AzCssPropertySource) -> u8 { use std::cmp::Ordering::*; match a.cmp(b) { Less => 0, Equal => 1, Greater => 2 } }
+/// Returns the hash of a `AzCssPropertySource` instance 
+#[no_mangle] pub extern "C" fn az_css_property_source_hash(object: &AzCssPropertySource) -> u64 { use std::collections::hash_map::DefaultHasher; use std::hash::{Hash, Hasher}; let mut hasher = DefaultHasher::new(); object.hash(&mut hasher); hasher.finish() }
+
+/// Re-export of rust-allocated (stack based) `StyledNode` struct
+pub type AzStyledNodeTT = azul_impl::styled_dom::StyledNode;
+pub use AzStyledNodeTT as AzStyledNode;
+/// Destructor: Takes ownership of the `StyledNode` pointer and deletes it.
+#[no_mangle] #[allow(unused_variables)] pub extern "C" fn az_styled_node_delete(object: &mut AzStyledNode) { }
+/// Clones the object
+#[no_mangle] pub extern "C" fn az_styled_node_deep_copy(object: &AzStyledNode) -> AzStyledNode { object.clone() }
+/// Creates a string with the debug representation of the object
+#[no_mangle] pub extern "C" fn az_styled_node_fmt_debug(object: &AzStyledNode) -> AzString { format!("{:#?}", object).into() }
+/// Compares two instances of `AzStyledNode` for equality
+#[no_mangle] pub extern "C" fn az_styled_node_partial_eq(a: &AzStyledNode, b: &AzStyledNode) -> bool { a.eq(b) }
+/// Compares two instances of `AzStyledNode` for ordering. Returns 0 for None (equality), 1 on Some(Less), 2 on Some(Equal) and 3 on Some(Greater). 
+#[no_mangle] pub extern "C" fn az_styled_node_partial_cmp(a: &AzStyledNode, b: &AzStyledNode) -> u8 { use std::cmp::Ordering::*;match a.partial_cmp(b) { None => 0, Some(Less) => 1, Some(Equal) => 2, Some(Greater) => 3 } }
+/// Compares two instances of `AzStyledNode` for full ordering. Returns 0 for Less, 1 for Equal, 2 for Greater. 
+#[no_mangle] pub extern "C" fn az_styled_node_cmp(a: &AzStyledNode, b: &AzStyledNode) -> u8 { use std::cmp::Ordering::*; match a.cmp(b) { Less => 0, Equal => 1, Greater => 2 } }
+/// Returns the hash of a `AzStyledNode` instance 
+#[no_mangle] pub extern "C" fn az_styled_node_hash(object: &AzStyledNode) -> u64 { use std::collections::hash_map::DefaultHasher; use std::hash::{Hash, Hasher}; let mut hasher = DefaultHasher::new(); object.hash(&mut hasher); hasher.finish() }
+
+/// Re-export of rust-allocated (stack based) `TagId` struct
+pub type AzTagIdTT = azul_impl::styled_dom::AzTagId;
+pub use AzTagIdTT as AzTagId;
+/// Destructor: Takes ownership of the `TagId` pointer and deletes it.
+#[no_mangle] #[allow(unused_variables)] pub extern "C" fn az_tag_id_delete(object: &mut AzTagId) { }
+/// Clones the object
+#[no_mangle] pub extern "C" fn az_tag_id_deep_copy(object: &AzTagId) -> AzTagId { object.clone() }
+/// Creates a string with the debug representation of the object
+#[no_mangle] pub extern "C" fn az_tag_id_fmt_debug(object: &AzTagId) -> AzString { format!("{:#?}", object).into() }
+/// Compares two instances of `AzTagId` for equality
+#[no_mangle] pub extern "C" fn az_tag_id_partial_eq(a: &AzTagId, b: &AzTagId) -> bool { a.eq(b) }
+/// Compares two instances of `AzTagId` for ordering. Returns 0 for None (equality), 1 on Some(Less), 2 on Some(Equal) and 3 on Some(Greater). 
+#[no_mangle] pub extern "C" fn az_tag_id_partial_cmp(a: &AzTagId, b: &AzTagId) -> u8 { use std::cmp::Ordering::*;match a.partial_cmp(b) { None => 0, Some(Less) => 1, Some(Equal) => 2, Some(Greater) => 3 } }
+/// Compares two instances of `AzTagId` for full ordering. Returns 0 for Less, 1 for Equal, 2 for Greater. 
+#[no_mangle] pub extern "C" fn az_tag_id_cmp(a: &AzTagId, b: &AzTagId) -> u8 { use std::cmp::Ordering::*; match a.cmp(b) { Less => 0, Equal => 1, Greater => 2 } }
+/// Returns the hash of a `AzTagId` instance 
+#[no_mangle] pub extern "C" fn az_tag_id_hash(object: &AzTagId) -> u64 { use std::collections::hash_map::DefaultHasher; use std::hash::{Hash, Hasher}; let mut hasher = DefaultHasher::new(); object.hash(&mut hasher); hasher.finish() }
+
+/// Re-export of rust-allocated (stack based) `TagIdToNodeIdMapping` struct
+pub type AzTagIdToNodeIdMappingTT = azul_impl::styled_dom::TagIdToNodeIdMapping;
+pub use AzTagIdToNodeIdMappingTT as AzTagIdToNodeIdMapping;
+/// Destructor: Takes ownership of the `TagIdToNodeIdMapping` pointer and deletes it.
+#[no_mangle] #[allow(unused_variables)] pub extern "C" fn az_tag_id_to_node_id_mapping_delete(object: &mut AzTagIdToNodeIdMapping) { }
+/// Clones the object
+#[no_mangle] pub extern "C" fn az_tag_id_to_node_id_mapping_deep_copy(object: &AzTagIdToNodeIdMapping) -> AzTagIdToNodeIdMapping { object.clone() }
+/// Creates a string with the debug representation of the object
+#[no_mangle] pub extern "C" fn az_tag_id_to_node_id_mapping_fmt_debug(object: &AzTagIdToNodeIdMapping) -> AzString { format!("{:#?}", object).into() }
+/// Compares two instances of `AzTagIdToNodeIdMapping` for equality
+#[no_mangle] pub extern "C" fn az_tag_id_to_node_id_mapping_partial_eq(a: &AzTagIdToNodeIdMapping, b: &AzTagIdToNodeIdMapping) -> bool { a.eq(b) }
+/// Compares two instances of `AzTagIdToNodeIdMapping` for ordering. Returns 0 for None (equality), 1 on Some(Less), 2 on Some(Equal) and 3 on Some(Greater). 
+#[no_mangle] pub extern "C" fn az_tag_id_to_node_id_mapping_partial_cmp(a: &AzTagIdToNodeIdMapping, b: &AzTagIdToNodeIdMapping) -> u8 { use std::cmp::Ordering::*;match a.partial_cmp(b) { None => 0, Some(Less) => 1, Some(Equal) => 2, Some(Greater) => 3 } }
+/// Compares two instances of `AzTagIdToNodeIdMapping` for full ordering. Returns 0 for Less, 1 for Equal, 2 for Greater. 
+#[no_mangle] pub extern "C" fn az_tag_id_to_node_id_mapping_cmp(a: &AzTagIdToNodeIdMapping, b: &AzTagIdToNodeIdMapping) -> u8 { use std::cmp::Ordering::*; match a.cmp(b) { Less => 0, Equal => 1, Greater => 2 } }
+/// Returns the hash of a `AzTagIdToNodeIdMapping` instance 
+#[no_mangle] pub extern "C" fn az_tag_id_to_node_id_mapping_hash(object: &AzTagIdToNodeIdMapping) -> u64 { use std::collections::hash_map::DefaultHasher; use std::hash::{Hash, Hasher}; let mut hasher = DefaultHasher::new(); object.hash(&mut hasher); hasher.finish() }
+
+/// Re-export of rust-allocated (stack based) `HoverGroup` struct
+pub type AzHoverGroupTT = azul_impl::styled_dom::HoverGroup;
+pub use AzHoverGroupTT as AzHoverGroup;
+/// Destructor: Takes ownership of the `HoverGroup` pointer and deletes it.
+#[no_mangle] #[allow(unused_variables)] pub extern "C" fn az_hover_group_delete(object: &mut AzHoverGroup) { }
+/// Clones the object
+#[no_mangle] pub extern "C" fn az_hover_group_deep_copy(object: &AzHoverGroup) -> AzHoverGroup { object.clone() }
+/// Creates a string with the debug representation of the object
+#[no_mangle] pub extern "C" fn az_hover_group_fmt_debug(object: &AzHoverGroup) -> AzString { format!("{:#?}", object).into() }
+/// Compares two instances of `AzHoverGroup` for equality
+#[no_mangle] pub extern "C" fn az_hover_group_partial_eq(a: &AzHoverGroup, b: &AzHoverGroup) -> bool { a.eq(b) }
+/// Compares two instances of `AzHoverGroup` for ordering. Returns 0 for None (equality), 1 on Some(Less), 2 on Some(Equal) and 3 on Some(Greater). 
+#[no_mangle] pub extern "C" fn az_hover_group_partial_cmp(a: &AzHoverGroup, b: &AzHoverGroup) -> u8 { use std::cmp::Ordering::*;match a.partial_cmp(b) { None => 0, Some(Less) => 1, Some(Equal) => 2, Some(Greater) => 3 } }
+/// Compares two instances of `AzHoverGroup` for full ordering. Returns 0 for Less, 1 for Equal, 2 for Greater. 
+#[no_mangle] pub extern "C" fn az_hover_group_cmp(a: &AzHoverGroup, b: &AzHoverGroup) -> u8 { use std::cmp::Ordering::*; match a.cmp(b) { Less => 0, Equal => 1, Greater => 2 } }
+/// Returns the hash of a `AzHoverGroup` instance 
+#[no_mangle] pub extern "C" fn az_hover_group_hash(object: &AzHoverGroup) -> u64 { use std::collections::hash_map::DefaultHasher; use std::hash::{Hash, Hasher}; let mut hasher = DefaultHasher::new(); object.hash(&mut hasher); hasher.finish() }
+
+/// Re-export of rust-allocated (stack based) `ActiveHover` struct
+pub type AzActiveHoverTT = azul_impl::styled_dom::ActiveHover;
+pub use AzActiveHoverTT as AzActiveHover;
+/// Destructor: Takes ownership of the `ActiveHover` pointer and deletes it.
+#[no_mangle] #[allow(unused_variables)] pub extern "C" fn az_active_hover_delete(object: &mut AzActiveHover) { match object { azul_impl::styled_dom::ActiveHover::Active => { }, azul_impl::styled_dom::ActiveHover::Hover => { }, }
+}
+/// Clones the object
+#[no_mangle] pub extern "C" fn az_active_hover_deep_copy(object: &AzActiveHover) -> AzActiveHover { object.clone() }
+/// Creates a string with the debug representation of the object
+#[no_mangle] pub extern "C" fn az_active_hover_fmt_debug(object: &AzActiveHover) -> AzString { format!("{:#?}", object).into() }
+/// Compares two instances of `AzActiveHover` for equality
+#[no_mangle] pub extern "C" fn az_active_hover_partial_eq(a: &AzActiveHover, b: &AzActiveHover) -> bool { a.eq(b) }
+/// Compares two instances of `AzActiveHover` for ordering. Returns 0 for None (equality), 1 on Some(Less), 2 on Some(Equal) and 3 on Some(Greater). 
+#[no_mangle] pub extern "C" fn az_active_hover_partial_cmp(a: &AzActiveHover, b: &AzActiveHover) -> u8 { use std::cmp::Ordering::*;match a.partial_cmp(b) { None => 0, Some(Less) => 1, Some(Equal) => 2, Some(Greater) => 3 } }
+/// Compares two instances of `AzActiveHover` for full ordering. Returns 0 for Less, 1 for Equal, 2 for Greater. 
+#[no_mangle] pub extern "C" fn az_active_hover_cmp(a: &AzActiveHover, b: &AzActiveHover) -> u8 { use std::cmp::Ordering::*; match a.cmp(b) { Less => 0, Equal => 1, Greater => 2 } }
+/// Returns the hash of a `AzActiveHover` instance 
+#[no_mangle] pub extern "C" fn az_active_hover_hash(object: &AzActiveHover) -> u64 { use std::collections::hash_map::DefaultHasher; use std::hash::{Hash, Hasher}; let mut hasher = DefaultHasher::new(); object.hash(&mut hasher); hasher.finish() }
+
+/// Re-export of rust-allocated (stack based) `ParentWithNodeDepth` struct
+pub type AzParentWithNodeDepthTT = azul_impl::styled_dom::ParentWithNodeDepth;
+pub use AzParentWithNodeDepthTT as AzParentWithNodeDepth;
+/// Destructor: Takes ownership of the `ParentWithNodeDepth` pointer and deletes it.
+#[no_mangle] #[allow(unused_variables)] pub extern "C" fn az_parent_with_node_depth_delete(object: &mut AzParentWithNodeDepth) { }
+/// Clones the object
+#[no_mangle] pub extern "C" fn az_parent_with_node_depth_deep_copy(object: &AzParentWithNodeDepth) -> AzParentWithNodeDepth { object.clone() }
+/// Creates a string with the debug representation of the object
+#[no_mangle] pub extern "C" fn az_parent_with_node_depth_fmt_debug(object: &AzParentWithNodeDepth) -> AzString { format!("{:#?}", object).into() }
+/// Compares two instances of `AzParentWithNodeDepth` for equality
+#[no_mangle] pub extern "C" fn az_parent_with_node_depth_partial_eq(a: &AzParentWithNodeDepth, b: &AzParentWithNodeDepth) -> bool { a.eq(b) }
+/// Compares two instances of `AzParentWithNodeDepth` for ordering. Returns 0 for None (equality), 1 on Some(Less), 2 on Some(Equal) and 3 on Some(Greater). 
+#[no_mangle] pub extern "C" fn az_parent_with_node_depth_partial_cmp(a: &AzParentWithNodeDepth, b: &AzParentWithNodeDepth) -> u8 { use std::cmp::Ordering::*;match a.partial_cmp(b) { None => 0, Some(Less) => 1, Some(Equal) => 2, Some(Greater) => 3 } }
+/// Compares two instances of `AzParentWithNodeDepth` for full ordering. Returns 0 for Less, 1 for Equal, 2 for Greater. 
+#[no_mangle] pub extern "C" fn az_parent_with_node_depth_cmp(a: &AzParentWithNodeDepth, b: &AzParentWithNodeDepth) -> u8 { use std::cmp::Ordering::*; match a.cmp(b) { Less => 0, Equal => 1, Greater => 2 } }
+/// Returns the hash of a `AzParentWithNodeDepth` instance 
+#[no_mangle] pub extern "C" fn az_parent_with_node_depth_hash(object: &AzParentWithNodeDepth) -> u64 { use std::collections::hash_map::DefaultHasher; use std::hash::{Hash, Hasher}; let mut hasher = DefaultHasher::new(); object.hash(&mut hasher); hasher.finish() }
+
+/// Re-export of rust-allocated (stack based) `StyleOptions` struct
+pub type AzStyleOptionsTT = azul_impl::styled_dom::StyledDom;
+pub use AzStyleOptionsTT as AzStyleOptions;
+/// Destructor: Takes ownership of the `StyleOptions` pointer and deletes it.
+#[no_mangle] #[allow(unused_variables)] pub extern "C" fn az_style_options_delete(object: &mut AzStyleOptions) { }
+/// Clones the object
+#[no_mangle] pub extern "C" fn az_style_options_deep_copy(object: &AzStyleOptions) -> AzStyleOptions { object.clone() }
+/// Creates a string with the debug representation of the object
+#[no_mangle] pub extern "C" fn az_style_options_fmt_debug(object: &AzStyleOptions) -> AzString { format!("{:#?}", object).into() }
+/// Compares two instances of `AzStyleOptions` for equality
+#[no_mangle] pub extern "C" fn az_style_options_partial_eq(a: &AzStyleOptions, b: &AzStyleOptions) -> bool { a.eq(b) }
+/// Compares two instances of `AzStyleOptions` for ordering. Returns 0 for None (equality), 1 on Some(Less), 2 on Some(Equal) and 3 on Some(Greater). 
+#[no_mangle] pub extern "C" fn az_style_options_partial_cmp(a: &AzStyleOptions, b: &AzStyleOptions) -> u8 { use std::cmp::Ordering::*;match a.partial_cmp(b) { None => 0, Some(Less) => 1, Some(Equal) => 2, Some(Greater) => 3 } }
+/// Compares two instances of `AzStyleOptions` for full ordering. Returns 0 for Less, 1 for Equal, 2 for Greater. 
+#[no_mangle] pub extern "C" fn az_style_options_cmp(a: &AzStyleOptions, b: &AzStyleOptions) -> u8 { use std::cmp::Ordering::*; match a.cmp(b) { Less => 0, Equal => 1, Greater => 2 } }
+/// Returns the hash of a `AzStyleOptions` instance 
+#[no_mangle] pub extern "C" fn az_style_options_hash(object: &AzStyleOptions) -> u64 { use std::collections::hash_map::DefaultHasher; use std::hash::{Hash, Hasher}; let mut hasher = DefaultHasher::new(); object.hash(&mut hasher); hasher.finish() }
+
+/// Re-export of rust-allocated (stack based) `StyledDom` struct
+pub type AzStyledDomTT = azul_impl::styled_dom::StyledDom;
+pub use AzStyledDomTT as AzStyledDom;
+/// Styles a `Dom` with the given `Css`, returning the `StyledDom` - complexity `O(count(dom_nodes) * count(css_blocks))`: make sure that the `Dom` and the `Css` are as small as possible, use inline CSS if the performance isn't good enough
+#[no_mangle] pub extern "C" fn az_styled_dom_new(dom: AzDom, css: AzCss, style_options: AzStyleOptions) -> AzStyledDom { StyledDom::new(dom, &css, style_options) }
+/// Appends an already styled list of DOM nodes to the current `dom.root` - complexity `O(count(dom.dom_nodes))`
+#[no_mangle] pub extern "C" fn az_styled_dom_append(styleddom: &mut AzStyledDom, dom: AzStyledDom) { styled_dom.append(dom); }
+/// Destructor: Takes ownership of the `StyledDom` pointer and deletes it.
+#[no_mangle] #[allow(unused_variables)] pub extern "C" fn az_styled_dom_delete(object: &mut AzStyledDom) { }
+/// Clones the object
+#[no_mangle] pub extern "C" fn az_styled_dom_deep_copy(object: &AzStyledDom) -> AzStyledDom { object.clone() }
+/// Creates a string with the debug representation of the object
+#[no_mangle] pub extern "C" fn az_styled_dom_fmt_debug(object: &AzStyledDom) -> AzString { format!("{:#?}", object).into() }
+/// Compares two instances of `AzStyledDom` for equality
+#[no_mangle] pub extern "C" fn az_styled_dom_partial_eq(a: &AzStyledDom, b: &AzStyledDom) -> bool { a.eq(b) }
+/// Compares two instances of `AzStyledDom` for ordering. Returns 0 for None (equality), 1 on Some(Less), 2 on Some(Equal) and 3 on Some(Greater). 
+#[no_mangle] pub extern "C" fn az_styled_dom_partial_cmp(a: &AzStyledDom, b: &AzStyledDom) -> u8 { use std::cmp::Ordering::*;match a.partial_cmp(b) { None => 0, Some(Less) => 1, Some(Equal) => 2, Some(Greater) => 3 } }
+/// Compares two instances of `AzStyledDom` for full ordering. Returns 0 for Less, 1 for Equal, 2 for Greater. 
+#[no_mangle] pub extern "C" fn az_styled_dom_cmp(a: &AzStyledDom, b: &AzStyledDom) -> u8 { use std::cmp::Ordering::*; match a.cmp(b) { Less => 0, Equal => 1, Greater => 2 } }
+/// Returns the hash of a `AzStyledDom` instance 
+#[no_mangle] pub extern "C" fn az_styled_dom_hash(object: &AzStyledDom) -> u64 { use std::collections::hash_map::DefaultHasher; use std::hash::{Hash, Hasher}; let mut hasher = DefaultHasher::new(); object.hash(&mut hasher); hasher.finish() }
 
 /// Re-export of rust-allocated (stack based) `Dom` struct
 pub type AzDomTT = azul_impl::dom::Dom;
