@@ -3,7 +3,7 @@
     /// Callback for responding to window events
     pub type AzCallbackType = extern "C" fn(AzCallbackInfoPtr) -> AzCallbackReturn;
     /// Callback fn that returns the DOM of the app
-    pub type AzLayoutCallbackType = extern "C" fn(AzRefAny, AzLayoutInfoPtr) -> AzDom;
+    pub type AzLayoutCallbackType = extern "C" fn(AzRefAny, AzLayoutInfoPtr) -> AzStyledDom;
     /// Callback for rendering to an OpenGL texture
     pub type AzGlCallbackType = extern "C" fn(AzGlCallbackInfoPtr) -> AzGlCallbackReturn;
     /// Callback for rendering iframes (infinite data structures that have to know how large they are rendered)

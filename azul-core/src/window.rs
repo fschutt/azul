@@ -16,7 +16,6 @@ use crate::{
     task::AzDuration,
     callbacks::{PipelineId, DocumentId, Callback, ScrollPosition, HitTestItem, UpdateScreen},
     ui_solver::{OverflowingScrollNode, ExternalScrollId, ScrolledNodes},
-    ui_state::UiState,
     display_list::{SolvedLayoutCache, GlTextureCache, CachedDisplayList},
     callbacks::{LayoutCallback, LayoutCallbackType},
 };
@@ -407,10 +406,8 @@ pub struct WindowInternal {
     /// The "epoch" is a frame counter, to remove outdated images, fonts and OpenGL textures
     /// when they're not in use anymore.
     pub epoch: Epoch,
-    /// Current display list active in this window (useful for debugging)
-    pub cached_display_list: CachedDisplayList,
-    /// Currently active, layouted rectangles
-    pub layout_result: SolvedLayoutCache,
+    /// Currently active, layouted rectangles and styled DOMs
+    pub layout_result: Vec<LayoutResult>,
     /// Currently GL textures inside the active CachedDisplayList
     pub gl_texture_cache: GlTextureCache,
     /// Current scroll states of nodes (x and y position of where they are scrolled)
@@ -421,10 +418,10 @@ pub struct WindowInternal {
 
 impl WindowInternal {
 
+/*
     /// Returns a copy of the current scroll states + scroll positions
-    pub fn get_current_scroll_states(&self, ui_states: &BTreeMap<DomId, UiState>)
-    -> BTreeMap<DomId, BTreeMap<NodeId, ScrollPosition>>
-    {
+    pub fn get_current_scroll_states(&self) -> BTreeMap<DomId, BTreeMap<NodeId, ScrollPosition>> {
+
         self.scrolled_nodes.iter().filter_map(|(dom_id, scrolled_nodes)| {
 
             let layout_result = self.layout_result.solved_layouts.get(dom_id)?;
@@ -444,6 +441,7 @@ impl WindowInternal {
             Some((dom_id.clone(), scroll_positions))
         }).collect()
     }
+*/
 }
 
 /// State, size, etc of the window, for comparing to the last frame
@@ -472,8 +470,6 @@ pub struct WindowState {
     /// Window options that can only be set on a certain platform
     /// (`WindowsWindowOptions` / `LinuxWindowOptions` / `MacWindowOptions`).
     pub platform_specific_options: PlatformSpecificOptions,
-    /// The style of this window
-    pub css: Css,
     /// The `layout()` function for this window, stored as a callback function pointer,
     /// There are multiple reasons for doing this (instead of requiring `T: Layout` everywhere):
     ///
@@ -510,8 +506,6 @@ pub struct FullWindowState {
     /// Window options that can only be set on a certain platform
     /// (`WindowsWindowOptions` / `LinuxWindowOptions` / `MacWindowOptions`).
     pub platform_specific_options: PlatformSpecificOptions,
-    /// The style of this window
-    pub css: Css,
     /// The `layout()` function for this window, stored as a callback function pointer,
     /// There are multiple reasons for doing this (instead of requiring `T: Layout` everywhere):
     ///
@@ -552,7 +546,6 @@ impl Default for FullWindowState {
             mouse_state: MouseState::default(),
             ime_position: None,
             platform_specific_options: PlatformSpecificOptions::default(),
-            css: Css::default(),
             layout_callback: LayoutCallback::default(),
 
             // --
@@ -607,7 +600,6 @@ impl From<WindowState> for FullWindowState {
             mouse_state: window_state.mouse_state,
             ime_position: window_state.ime_position.into(),
             platform_specific_options: window_state.platform_specific_options,
-            css: window_state.css,
             layout_callback: window_state.layout_callback,
             .. Default::default()
         }

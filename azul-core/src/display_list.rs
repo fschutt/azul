@@ -26,12 +26,9 @@ use crate::{
         ImageKey, FontInstanceKey, ImageInfo, ImageId, LayoutedGlyphs, PrimitiveFlags,
         Epoch, ExternalImageId, GlyphOptions, LoadFontFn, LoadImageFn, ParseFontFn,
     },
-    ui_state::UiState,
-    ui_description::UiDescription,
-    id_tree::{NodeDataContainer, NodeId, NodeHierarchy},
-    dom::{
-        DomId, NodeData, TagId, ScrollTagId,
-    },
+    styled_dom::StyledDom,
+    id_tree::{NodeDataContainer, NodeId},
+    dom::{DomId, NodeData, TagId, ScrollTagId},
 };
 #[cfg(feature = "opengl")]
 use crate::gl::{Texture, GlContextPtr};
@@ -76,13 +73,13 @@ impl CachedDisplayList {
     }
 
     pub fn new(
-            epoch: Epoch,
-            pipeline_id: PipelineId,
-            full_window_state: &FullWindowState,
-            ui_state_cache: &BTreeMap<DomId, UiState>,
-            layout_result_cache: &SolvedLayoutCache,
-            gl_texture_cache: &GlTextureCache,
-            app_resources: &AppResources,
+        epoch: Epoch,
+        pipeline_id: PipelineId,
+        full_window_state: &FullWindowState,
+        styled_doms: &[StyledDom],
+        layout_results: &[SolvedLayout],
+        gl_texture_cache: &GlTextureCache,
+        app_resources: &AppResources,
     ) -> Self {
         const DOM_ID: DomId = DomId::ROOT_ID;
         CachedDisplayList {
@@ -504,32 +501,6 @@ impl RectBackground {
 
 // ------------------- NEW DISPLAY LIST CODE
 
-pub struct DisplayList {
-    pub rectangles: NodeDataContainer<DisplayRectangle>
-}
-
-impl DisplayList {
-
-    /// NOTE: This function assumes that the UiDescription has an initialized arena
-    pub fn new(ui_description: &UiDescription, ui_state: &UiState) -> Self {
-
-        let arena = &ui_state.dom.arena;
-
-        let display_rect_arena = arena.node_data.transform(|_, node_id| {
-            let tag = ui_state.node_ids_to_tag_ids.get(&node_id).map(|tag| *tag);
-            let mut rect = DisplayRectangle::new(tag);
-            ui_description.styled_nodes[node_id].css_constraints.iter().for_each(|prop| {
-                apply_style_property(&mut rect.style, &mut rect.layout, &prop.prop);
-            });
-            rect
-        });
-
-        DisplayList {
-            rectangles: display_rect_arena,
-        }
-    }
-}
-
 /// Since the display list can take a lot of parameters, we don't want to
 /// continually pass them as parameters of the function and rather use a
 /// struct to pass them around. This is purely for ergonomic reasons.
@@ -547,55 +518,11 @@ pub struct DisplayListParametersRef<'a> {
     /// The current pipeline of the display list
     pub pipeline_id: PipelineId,
     /// Cached layouts (+ solved layouts for iframes)
-    pub layout_result: &'a SolvedLayoutCache,
+    pub layout_result: &'a [LayoutResult],
     /// Cached rendered OpenGL textures
     pub gl_texture_cache: &'a GlTextureCache,
-    /// Reference to the UIState, for access to `node_hierarchy` and `node_data`
-    pub ui_state_cache: &'a BTreeMap<DomId, UiState>,
     /// Reference to the AppResources, necessary to query info about image and font keys
     pub app_resources: &'a AppResources,
-}
-
-/// DisplayRectangle is the main type which the layout parsing step gets operated on.
-#[derive(Default, Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
-pub struct DisplayRectangle {
-    /// `Some(id)` if this rectangle has a callback attached to it
-    /// Note: this is not the same as the `NodeId`!
-    /// These two are completely separate numbers!
-    pub tag: Option<TagId>,
-    /// The style properties of the node, parsed
-    pub style: RectStyle,
-    /// The layout properties of the node, parsed
-    pub layout: RectLayout,
-}
-
-impl DisplayRectangle {
-    #[inline]
-    pub fn new(tag: Option<TagId>) -> Self {
-        Self {
-            tag,
-            style: RectStyle::default(),
-            layout: RectLayout::default(),
-        }
-    }
-}
-
-#[derive(Debug, Clone, PartialEq)]
-pub struct ContentGroup {
-    /// The parent of the current node group, i.e. either the root node (0)
-    /// or the last positioned node ()
-    pub root: NodeId,
-    /// Node ids in order of drawing
-    pub children: Vec<ContentGroup>,
-}
-
-#[derive(Default)]
-pub struct SolvedLayoutCache {
-    pub solved_layouts: BTreeMap<DomId, LayoutResult>,
-    pub display_lists: BTreeMap<DomId, DisplayList>,
-    pub iframe_mappings: BTreeMap<(DomId, NodeId), DomId>,
-    pub scrollable_nodes: BTreeMap<DomId, ScrolledNodes>,
-    pub rects_in_rendering_order: BTreeMap<DomId, ContentGroup>,
 }
 
 #[derive(Default)]
@@ -604,14 +531,22 @@ pub struct GlTextureCache {
 }
 
 // todo: very unclean
-pub type LayoutFn = fn(&NodeHierarchy, &NodeDataContainer<NodeData>, &NodeDataContainer<DisplayRectangle>, &mut AppResources, &PipelineId, LayoutRect) -> LayoutResult;
+pub type LayoutFn<U: FontImageApi> = fn(StyledDom, &mut AppResources, &mut U, PipelineId, RenderCallbacks<U>, &FullWindowState) -> Vec<LayoutResult>;
 #[cfg(feature = "opengl")]
 pub type GlStoreImageFn = fn(PipelineId, Epoch, Texture) -> ExternalImageId;
 
 #[derive(Default)]
 pub struct SolvedLayout {
-    pub solved_layout_cache: SolvedLayoutCache,
+    pub solved_layout_cache: Vec<LayoutResult>,
     pub gl_texture_cache: GlTextureCache,
+}
+
+pub struct RenderCallbacks<U: FontImageApi> {
+    pub insert_into_active_gl_textures: GlStoreImageFn,
+    pub layout_func: LayoutFn<U>,
+    pub load_font_fn: LoadFontFn,
+    pub load_image_fn: LoadImageFn,
+    pub parse_font_fn: ParseFontFn,
 }
 
 impl SolvedLayout {
@@ -619,19 +554,14 @@ impl SolvedLayout {
     /// Does the layout, updates the image + font resources for the RenderAPI
     #[cfg(feature = "opengl")]
     pub fn new<U: FontImageApi>(
+        styled_dom: StyledDom,
         epoch: Epoch,
         pipeline_id: PipelineId,
         full_window_state: &FullWindowState,
         gl_context: &GlContextPtr,
         render_api: &mut U,
         app_resources: &mut AppResources,
-        ui_states: &mut BTreeMap<DomId, UiState>,
-        ui_descriptions: &mut BTreeMap<DomId, UiDescription>,
-        insert_into_active_gl_textures: GlStoreImageFn,
-        layout_func: LayoutFn,
-        load_font_fn: LoadFontFn,
-        load_image_fn: LoadImageFn,
-        parse_font_fn: ParseFontFn,
+        callbacks: RenderCallbacks<U>,
     ) -> Self {
 
         use crate::{
@@ -641,75 +571,20 @@ impl SolvedLayout {
             },
         };
 
-        #[cfg(feature = "opengl")]
-        fn recurse<U: FontImageApi>(
-            layout_cache: &mut SolvedLayoutCache,
-            solved_textures: &mut BTreeMap<DomId, BTreeMap<NodeId, Texture>>,
-            iframe_ui_states: &mut BTreeMap<DomId, UiState>,
-            iframe_ui_descriptions: &mut BTreeMap<DomId, UiDescription>,
-            app_resources: &mut AppResources,
-            render_api: &mut U,
-            full_window_state: &FullWindowState,
-            ui_state: &UiState,
-            ui_description: &UiDescription,
-            pipeline_id: &PipelineId,
-            bounds: LayoutRect,
-            gl_context: &GlContextPtr,
-            layout_func: LayoutFn,
-            load_font_fn: LoadFontFn,
-            load_image_fn: LoadImageFn,
-            parse_font_fn: ParseFontFn,
-        ) {
-            use gleam::gl;
-            use crate::{
-                callbacks::{
-                    HidpiAdjustedBounds, LayoutInfo,
-                    IFrameCallbackInfo, GlCallbackInfo
-                },
-                app_resources::add_fonts_and_images,
-            };
+        let layouted_doms = (callbacks.layout_fn)(
+            styled_dom,
+            app_resources,
+            render_api,
+            pipeline_id,
+            callbacks,
+            &full_window_state,
+        );
 
-            // Right now the IFrameCallbacks and GlTextureCallbacks need to know how large their
-            // containers are in order to be solved properly
-            let display_list = DisplayList::new(ui_description, ui_state);
-            let dom_id = ui_state.dom_id.clone();
+        let mut solved_textures = BTreeMap::new();
 
-            let rects_in_rendering_order = determine_rendering_order(
-                &ui_state.dom.arena.node_hierarchy,
-                &display_list.rectangles
-            );
-
-            // In order to calculate the layout, font + image metrics have to be calculated first
-            add_fonts_and_images(
-                app_resources,
-                render_api,
-                &pipeline_id,
-                &display_list,
-                &ui_state.dom.arena.node_data,
-                load_font_fn,
-                load_image_fn,
-                parse_font_fn,
-            );
-
-            let layout_result = (layout_func)(
-                &ui_state.dom.arena.node_hierarchy,
-                &ui_state.dom.arena.node_data,
-                &display_list.rectangles,
-                app_resources,
-                pipeline_id,
-                bounds,
-            );
-
-            let scrollable_nodes = get_nodes_that_need_scroll_clip(
-                &display_list.rectangles,
-                &ui_state.dom.arena.node_data,
-                &layout_result.rects,
-                &layout_result.node_depths,
-                *pipeline_id,
-            );
-
-            // Now the size of rects are known, render all the OpenGL textures
-            for (node_id, gl_texture_node) in ui_state.scan_for_gltexture_callbacks() {
+        // Now that the layout is done, render the OpenGL textures and add them to the RenderAPI
+        for layouted_dom in layouted_doms.iter() {
+            for (node_id, gl_texture_node) in layouted_dom.styled_dom.scan_for_gltexture_callbacks() {
 
                 let cb = gl_texture_node.callback;
                 let ptr = &gl_texture_node.data;
@@ -717,24 +592,14 @@ impl SolvedLayout {
                 // Invoke OpenGL callback, render texture
                 let rect_size = layout_result.rects[node_id].size;
 
-                // TODO: Unused!
-                let mut window_size_width_stops = Vec::new();
-                let mut window_size_height_stops = Vec::new();
-
                 let texture = {
                     use crate::callbacks::GlCallbackInfoPtr;
                     use std::ffi::c_void;
 
                     let callback_info = GlCallbackInfo {
                         state: ptr,
-                        layout_info: LayoutInfo {
-                            window_size: &full_window_state.size,
-                            window_size_width_stops: &mut window_size_width_stops,
-                            window_size_height_stops: &mut window_size_height_stops,
-                            gl_context: gl_context,
-                            resources: &app_resources,
-                        },
                         gl_context: &gl_context,
+                        app_resources,
                         bounds: HidpiAdjustedBounds::from_bounds(
                             rect_size,
                             full_window_state.size.hidpi_factor,
@@ -755,174 +620,56 @@ impl SolvedLayout {
 
                 if let Some(t) = texture {
                     solved_textures
-                        .entry(dom_id.clone())
+                        .entry(layouted_dom.dom_id.clone())
                         .or_insert_with(|| BTreeMap::default())
                         .insert(node_id, t);
                 }
             }
-
-            // Call IFrames and recurse
-            for (node_id, iframe_node) in ui_state.scan_for_iframe_callbacks() {
-
-                let cb = iframe_node.callback;
-                let ptr = &iframe_node.data;
-
-                let size = layout_result.rects[node_id].size;
-                let hidpi_bounds = HidpiAdjustedBounds::from_bounds(
-                    size,
-                    full_window_state.size.hidpi_factor,
-                );
-
-                // TODO: Unused!
-                let mut window_size_width_stops = Vec::new();
-                let mut window_size_height_stops = Vec::new();
-
-                let iframe_dom = {
-
-                    use crate::callbacks::IFrameCallbackInfoPtr;
-                    use crate::dom::Dom;
-                    use std::ffi::c_void;
-
-                    let callback_info = IFrameCallbackInfo {
-                        state: ptr,
-                        layout_info: LayoutInfo {
-                            window_size: &full_window_state.size,
-                            window_size_width_stops: &mut window_size_width_stops,
-                            window_size_height_stops: &mut window_size_height_stops,
-                            gl_context: gl_context,
-                            resources: &app_resources,
-                        },
-                        bounds: hidpi_bounds,
-                    };
-
-                    let ptr = IFrameCallbackInfoPtr { ptr: Box::into_raw(Box::new(callback_info)) as *mut c_void };
-                    let iframe_callback_return = (cb.cb)(ptr);
-                    let dom: Option<Dom> = iframe_callback_return.dom.into();
-                    dom
-                };
-
-                if let Some(iframe_dom) = iframe_dom {
-                    let is_mouse_down = full_window_state.mouse_state.mouse_down();
-                    let mut iframe_ui_state = UiState::new(iframe_dom, Some((dom_id.clone(), node_id)));
-                    let iframe_dom_id = iframe_ui_state.dom_id.clone();
-                    let hovered_nodes = full_window_state.hovered_nodes.get(&iframe_dom_id).cloned().unwrap_or_default();
-                    let iframe_ui_description = UiDescription::new(
-                        &mut iframe_ui_state,
-                        &full_window_state.css,
-                        &full_window_state.focused_node,
-                        &hovered_nodes,
-                        is_mouse_down,
-                    );
-                    layout_cache.iframe_mappings.insert((dom_id.clone(), node_id), iframe_dom_id.clone());
-                    recurse(
-                        layout_cache,
-                        solved_textures,
-                        iframe_ui_states,
-                        iframe_ui_descriptions,
-                        app_resources,
-                        render_api,
-                        full_window_state,
-                        &iframe_ui_state,
-                        &iframe_ui_description,
-                        pipeline_id,
-                        bounds,
-                        gl_context,
-                        layout_func,
-                        load_font_fn,
-                        load_image_fn,
-                        parse_font_fn,
-                    );
-                    iframe_ui_states.insert(iframe_dom_id.clone(), iframe_ui_state);
-                    iframe_ui_descriptions.insert(iframe_dom_id.clone(), iframe_ui_description);
-                }
-            }
-
-            layout_cache.solved_layouts.insert(dom_id.clone(), layout_result);
-            layout_cache.display_lists.insert(dom_id.clone(), display_list);
-            layout_cache.rects_in_rendering_order.insert(dom_id.clone(), rects_in_rendering_order);
-            layout_cache.scrollable_nodes.insert(dom_id.clone(), scrollable_nodes);
         }
 
-        let mut solved_layout_cache = SolvedLayoutCache::default();
-        let mut solved_textures = BTreeMap::new();
-        let mut iframe_ui_states = BTreeMap::new();
-        let mut iframe_ui_descriptions = BTreeMap::new();
-
-        for (dom_id, ui_state) in ui_states.iter_mut() {
-
-            let ui_description = &ui_descriptions[dom_id];
-
-            recurse(
-                &mut solved_layout_cache,
-                &mut solved_textures,
-                &mut iframe_ui_states,
-                &mut iframe_ui_descriptions,
-                app_resources,
-                render_api,
-                full_window_state,
-                ui_state,
-                ui_description,
-                &pipeline_id,
-                LayoutRect {
-                    origin: LayoutPoint::new(0.0, 0.0),
-                    size: LayoutSize::new(full_window_state.size.dimensions.width, full_window_state.size.dimensions.height),
-                },
-                gl_context,
-                layout_func,
-                load_font_fn,
-                load_image_fn,
-                parse_font_fn,
-            );
-        }
-
-        ui_states.extend(iframe_ui_states.into_iter());
-        ui_descriptions.extend(iframe_ui_descriptions.into_iter());
-
+        let mut image_resource_updates = Vec::new();
         let mut gl_texture_cache = GlTextureCache {
             solved_textures: BTreeMap::new(),
         };
 
-        let mut image_resource_updates = Vec::new();
-
         for (dom_id, textures) in solved_textures {
             for (node_id, texture) in textures {
 
-            // Note: The ImageDescriptor has no effect on how large the image appears on-screen
-            let descriptor = ImageDescriptor {
-                format: RawImageFormat::RGBA8,
-                dimensions: (texture.size.width as usize, texture.size.height as usize),
-                stride: None,
-                offset: 0,
-                flags: ImageDescriptorFlags {
-                    is_opaque: texture.flags.is_opaque,
-                    // The texture gets mapped 1:1 onto the display, so there is no need for mipmaps
-                    allow_mipmaps: false,
-                },
-            };
+                // Note: The ImageDescriptor has no effect on how large the image appears on-screen
+                let descriptor = ImageDescriptor {
+                    format: RawImageFormat::RGBA8,
+                    dimensions: (texture.size.width as usize, texture.size.height as usize),
+                    stride: None,
+                    offset: 0,
+                    flags: ImageDescriptorFlags {
+                        is_opaque: texture.flags.is_opaque,
+                        // The texture gets mapped 1:1 onto the display, so there is no need for mipmaps
+                        allow_mipmaps: false,
+                    },
+                };
 
-            let key = render_api.new_image_key();
-            let external_image_id = (insert_into_active_gl_textures)(pipeline_id, epoch, texture);
+                let key = render_api.new_image_key();
+                let external_image_id = (insert_into_active_gl_textures)(pipeline_id, epoch, texture);
 
-            let add_img_msg = AddImageMsg(
-                AddImage {
-                    key,
-                    descriptor,
-                    data: ImageData::External(ExternalImageData {
-                        id: external_image_id,
-                        channel_index: 0,
-                        image_type: ExternalImageType::TextureHandle(TextureTarget::Default),
-                    }),
-                    tiling: None,
-                },
-                ImageInfo { key, descriptor }
-            );
+                let add_img_msg = AddImageMsg(
+                    AddImage {
+                        key,
+                        descriptor,
+                        data: ImageData::External(ExternalImageData {
+                            id: external_image_id,
+                            channel_index: 0,
+                            image_type: ExternalImageType::TextureHandle(TextureTarget::Default),
+                        }),
+                        tiling: None,
+                    },
+                    ImageInfo { key, descriptor }
+                );
 
-            image_resource_updates.push((ImageId::new(), add_img_msg));
-
-            gl_texture_cache.solved_textures
-                .entry(dom_id.clone())
-                .or_insert_with(|| BTreeMap::new())
-                .insert(node_id, (key, descriptor));
+                image_resource_updates.push((ImageId::new(), add_img_msg));
+                gl_texture_cache.solved_textures
+                    .entry(dom_id.clone())
+                    .or_insert_with(|| BTreeMap::new())
+                    .insert(node_id, (key, descriptor));
             }
         }
 
@@ -931,183 +678,11 @@ impl SolvedLayout {
         // Add the new GL textures to the RenderApi
         add_resources(app_resources, render_api, &pipeline_id, Vec::new(), image_resource_updates);
 
-        Self {
-            solved_layout_cache,
+        SolvedLayout {
+            solved_layout_cache: layouted_doms,
             gl_texture_cache,
         }
     }
-}
-
-pub fn determine_rendering_order<'a>(
-    node_hierarchy: &NodeHierarchy,
-    rectangles: &NodeDataContainer<DisplayRectangle>,
-) -> ContentGroup {
-
-    let children_sorted: BTreeMap<NodeId, Vec<NodeId>> = node_hierarchy
-        .get_parents_sorted_by_depth()
-        .into_iter()
-        .map(|(_, parent_id)| (parent_id, sort_children_by_position(parent_id, node_hierarchy, rectangles)))
-        .collect();
-
-    let mut root_content_group = ContentGroup { root: NodeId::ZERO, children: Vec::new() };
-    fill_content_group_children(&mut root_content_group, &children_sorted);
-    root_content_group
-}
-
-pub fn fill_content_group_children(group: &mut ContentGroup, children_sorted: &BTreeMap<NodeId, Vec<NodeId>>) {
-    if let Some(c) = children_sorted.get(&group.root) { // returns None for leaf nodes
-        group.children = c
-            .iter()
-            .map(|child| ContentGroup { root: *child, children: Vec::new() })
-            .collect();
-
-        for c in &mut group.children {
-            fill_content_group_children(c, children_sorted);
-        }
-    }
-}
-
-pub fn sort_children_by_position(
-    parent: NodeId,
-    node_hierarchy: &NodeHierarchy,
-    rectangles: &NodeDataContainer<DisplayRectangle>
-) -> Vec<NodeId> {
-    use azul_css::LayoutPosition::*;
-
-    let mut not_absolute_children = parent
-        .children(node_hierarchy)
-        .filter(|id| rectangles[*id].layout.position.and_then(|p| p.get_property_or_default()).unwrap_or_default() != Absolute)
-        .collect::<Vec<NodeId>>();
-
-    let mut absolute_children = parent
-        .children(node_hierarchy)
-        .filter(|id| rectangles[*id].layout.position.and_then(|p| p.get_property_or_default()).unwrap_or_default() == Absolute)
-        .collect::<Vec<NodeId>>();
-
-    // Append the position:absolute children after the regular children
-    not_absolute_children.append(&mut absolute_children);
-    not_absolute_children
-}
-
-/// Returns all node IDs where the children overflow the parent, together with the
-/// `(parent_rect, child_rect)` - the child rect is the sum of the children.
-///
-/// TODO: The performance of this function can be theoretically improved:
-///
-/// - Unioning the rectangles is heavier than just looping through the children and
-/// summing up their width / height / padding + margin.
-/// - Scroll nodes only need to be inserted if the parent doesn't have `overflow: hidden`
-/// activated
-/// - Overflow for X and Y needs to be tracked seperately (for overflow-x / overflow-y separation),
-/// so there we'd need to track in which direction the inner_rect is overflowing.
-pub fn get_nodes_that_need_scroll_clip(
-    display_list_rects: &NodeDataContainer<DisplayRectangle>,
-    dom_rects: &NodeDataContainer<NodeData>,
-    layouted_rects: &NodeDataContainer<PositionedRectangle>,
-    parents: &[(usize, NodeId)],
-    pipeline_id: PipelineId,
-) -> ScrolledNodes {
-
-    use crate::ui_solver::DirectionalOverflowInfo;
-
-    let mut nodes = BTreeMap::new();
-    let mut tags_to_node_ids = BTreeMap::new();
-
-    for (_, parent) in parents {
-
-        let parent_rect = &layouted_rects[*parent];
-        let overflow_x = &parent_rect.overflow.overflow_x;
-        let overflow_y = &parent_rect.overflow.overflow_y;
-
-        let scroll_rect = if overflow_x.is_none() || overflow_x.is_negative() {
-            // no overflow in horizontal direction
-            if overflow_y.is_none() || overflow_y.is_negative() {
-                // no overflow in both directions
-                None
-            } else {
-                // overflow in y, but not in x direction
-                match overflow_y {
-                    DirectionalOverflowInfo::Scroll { amount: Some(s) } | DirectionalOverflowInfo::Auto { amount: Some(s) } => {
-                        Some(LayoutRect::new(LayoutPoint::zero(), LayoutSize::new(parent_rect.size.width, parent_rect.size.height + *s)))
-                    },
-                    _ => None
-                }
-            }
-        } else {
-            if overflow_y.is_none() || overflow_y.is_negative() {
-                // overflow in x, but not in y direction
-                match overflow_x {
-                    DirectionalOverflowInfo::Scroll { amount: Some(s) } | DirectionalOverflowInfo::Auto { amount: Some(s) } => {
-                        Some(LayoutRect::new(LayoutPoint::zero(), LayoutSize::new(parent_rect.size.width + *s, parent_rect.size.height)))
-                    },
-                    _ => None
-                }
-            } else {
-                // overflow in x and y direction
-                match overflow_x {
-                    DirectionalOverflowInfo::Scroll { amount: Some(q) } | DirectionalOverflowInfo::Auto { amount: Some(q) } => {
-                        match overflow_y {
-                            DirectionalOverflowInfo::Scroll { amount: Some(s) } | DirectionalOverflowInfo::Auto { amount: Some(s) } => {
-                                Some(LayoutRect::new(LayoutPoint::zero(), LayoutSize::new(parent_rect.size.width + *q, parent_rect.size.height + *s)))
-                            },
-                            _ => None
-                        }
-                    },
-                    _ => None
-                }
-            }
-        };
-
-        let scroll_rect = match scroll_rect {
-            Some(s) => s,
-            None => continue,
-        };
-
-        let parent_dom_hash = dom_rects[*parent].calculate_node_data_hash();
-
-        // Create an external scroll id. This id is required to preserve its
-        // scroll state accross multiple frames.
-        let parent_external_scroll_id  = ExternalScrollId(parent_dom_hash.0, pipeline_id);
-
-        // Create a unique scroll tag for hit-testing
-        let scroll_tag_id = match display_list_rects.get(*parent).and_then(|node| node.tag) {
-            Some(existing_tag) => ScrollTagId(existing_tag),
-            None => ScrollTagId::new(),
-        };
-
-        tags_to_node_ids.insert(scroll_tag_id, *parent);
-        nodes.insert(*parent, OverflowingScrollNode {
-            child_rect: scroll_rect,
-            parent_external_scroll_id,
-            parent_dom_hash,
-            scroll_tag_id,
-        });
-    }
-
-    ScrolledNodes { overflowing_nodes: nodes, tags_to_node_ids }
-}
-
-// Since there can be a small floating point error, round the item to the nearest pixel,
-// then compare the rects
-pub fn contains_rect_rounded(a: &LayoutRect, b: LayoutRect) -> bool {
-    let a_x = a.origin.x.round() as isize;
-    let a_y = a.origin.x.round() as isize;
-    let a_width = a.size.width.round() as isize;
-    let a_height = a.size.height.round() as isize;
-
-    let b_x = b.origin.x.round() as isize;
-    let b_y = b.origin.x.round() as isize;
-    let b_width = b.size.width.round() as isize;
-    let b_height = b.size.height.round() as isize;
-
-    b_x >= a_x &&
-    b_y >= a_y &&
-    b_x + b_width <= a_x + a_width &&
-    b_y + b_height <= a_y + a_height
-}
-
-pub fn node_needs_to_clip_children(layout: &RectLayout) -> bool {
-    !(layout.is_horizontal_overflow_visible() || layout.is_vertical_overflow_visible())
 }
 
 pub fn push_rectangles_into_displaylist<'a>(
@@ -1365,99 +940,6 @@ pub fn subtract_padding(size: &LayoutSize, padding: &ResolvedOffsets) -> LayoutS
     LayoutSize {
         width: size.width - padding.right + padding.left,
         height: size.height - padding.top + padding.bottom,
-    }
-}
-
-#[derive(Debug, Clone, PartialEq, Eq, Hash, PartialOrd, Ord)]
-pub struct OverrideWarning {
-    pub default: CssProperty,
-    pub overridden_property: CssProperty,
-}
-
-pub fn apply_style_property(style: &mut RectStyle, layout: &mut RectLayout, property: &CssProperty) {
-
-    use azul_css::CssProperty::*;
-
-    match property {
-
-        Display(d)                      => layout.display = Some(*d),
-        Float(f)                        => layout.float = Some(*f),
-        BoxSizing(bs)                   => layout.box_sizing = Some(*bs),
-
-        TextColor(c)                    => style.text_color = Some(*c),
-        FontSize(fs)                    => style.font_size = Some(*fs),
-        FontFamily(ff)                  => style.font_family = Some(ff.clone()),
-        TextAlign(ta)                   => style.text_align = Some(*ta),
-
-        LetterSpacing(ls)               => style.letter_spacing = Some(*ls),
-        LineHeight(lh)                  => style.line_height = Some(*lh),
-        WordSpacing(ws)                 => style.word_spacing = Some(*ws),
-        TabWidth(tw)                    => style.tab_width = Some(*tw),
-        Cursor(c)                       => style.cursor = Some(*c),
-
-        Width(w)                        => layout.width = Some(*w),
-        Height(h)                       => layout.height = Some(*h),
-        MinWidth(mw)                    => layout.min_width = Some(*mw),
-        MinHeight(mh)                   => layout.min_height = Some(*mh),
-        MaxWidth(mw)                    => layout.max_width = Some(*mw),
-        MaxHeight(mh)                   => layout.max_height = Some(*mh),
-
-        Position(p)                     => layout.position = Some(*p),
-        Top(t)                          => layout.top = Some(*t),
-        Bottom(b)                       => layout.bottom = Some(*b),
-        Right(r)                        => layout.right = Some(*r),
-        Left(l)                         => layout.left = Some(*l),
-
-        FlexWrap(fw)                    => layout.wrap = Some(*fw),
-        FlexDirection(fd)               => layout.direction = Some(*fd),
-        FlexGrow(fg)                    => layout.flex_grow = Some(*fg),
-        FlexShrink(fs)                  => layout.flex_shrink = Some(*fs),
-        JustifyContent(jc)              => layout.justify_content = Some(*jc),
-        AlignItems(ai)                  => layout.align_items = Some(*ai),
-        AlignContent(ac)                => layout.align_content = Some(*ac),
-
-        BackgroundContent(bc)           => style.background = Some(bc.clone()),
-        BackgroundPosition(bp)          => style.background_position = Some(*bp),
-        BackgroundSize(bs)              => style.background_size = Some(*bs),
-        BackgroundRepeat(br)            => style.background_repeat = Some(*br),
-
-        OverflowX(ox)                   => layout.overflow_x = Some(*ox),
-        OverflowY(oy)                   => layout.overflow_y = Some(*oy),
-
-        PaddingTop(pt)                  => layout.padding_top = Some(*pt),
-        PaddingLeft(pl)                 => layout.padding_left = Some(*pl),
-        PaddingRight(pr)                => layout.padding_right = Some(*pr),
-        PaddingBottom(pb)               => layout.padding_bottom = Some(*pb),
-
-        MarginTop(mt)                   => layout.margin_top = Some(*mt),
-        MarginLeft(ml)                  => layout.margin_left = Some(*ml),
-        MarginRight(mr)                 => layout.margin_right = Some(*mr),
-        MarginBottom(mb)                => layout.margin_bottom = Some(*mb),
-
-        BorderTopLeftRadius(btl)        => style.border_top_left_radius = Some(*btl),
-        BorderTopRightRadius(btr)       => style.border_top_right_radius = Some(*btr),
-        BorderBottomLeftRadius(bbl)     => style.border_bottom_left_radius = Some(*bbl),
-        BorderBottomRightRadius(bbr)    => style.border_bottom_right_radius = Some(*bbr),
-
-        BorderTopColor(btc)             => style.border_top_color = Some(*btc),
-        BorderRightColor(brc)           => style.border_right_color = Some(*brc),
-        BorderLeftColor(blc)            => style.border_left_color = Some(*blc),
-        BorderBottomColor(bbc)          => style.border_bottom_color = Some(*bbc),
-
-        BorderTopStyle(bts)             => style.border_top_style = Some(*bts),
-        BorderRightStyle(brs)           => style.border_right_style = Some(*brs),
-        BorderLeftStyle(bls)            => style.border_left_style = Some(*bls),
-        BorderBottomStyle(bbs)          => style.border_bottom_style = Some(*bbs),
-
-        BorderTopWidth(btw)             => layout.border_top_width = Some(*btw),
-        BorderRightWidth(brw)           => layout.border_right_width = Some(*brw),
-        BorderLeftWidth(blw)            => layout.border_left_width = Some(*blw),
-        BorderBottomWidth(bbw)          => layout.border_bottom_width = Some(*bbw),
-
-        BoxShadowLeft(bsl)              => style.box_shadow_left = Some(*bsl),
-        BoxShadowRight(bsr)             => style.box_shadow_right = Some(*bsr),
-        BoxShadowTop(bst)               => style.box_shadow_top = Some(*bst),
-        BoxShadowBottom(bsb)            => style.box_shadow_bottom = Some(*bsb),
     }
 }
 

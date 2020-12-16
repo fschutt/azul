@@ -80,6 +80,22 @@ pub use AzStringTT as AzString;
 /// Returns the hash of a `AzString` instance 
 #[no_mangle] pub extern "C" fn az_string_hash(object: &AzString) -> u64 { use std::collections::hash_map::DefaultHasher; use std::hash::{Hash, Hasher}; let mut hasher = DefaultHasher::new(); object.hash(&mut hasher); hasher.finish() }
 
+/// Wrapper over a Rust-allocated `Vec<ContentGroup>`
+pub type AzContentGroupVecTT = azul_impl::styled_dom::ContentGroupVec;
+pub use AzContentGroupVecTT as AzContentGroupVec;
+/// Creates a new, empty Rust `Vec<ContentGroup>`
+#[no_mangle] pub extern "C" fn az_content_group_vec_new() -> AzContentGroupVec { Vec::<AzContentGroup>::new().into() }
+/// Creates a new, empty Rust `Vec<ContentGroup>` with a given, pre-allocated capacity
+#[no_mangle] pub extern "C" fn az_content_group_vec_with_capacity(cap: usize) -> AzContentGroupVec { Vec::<AzContentGroup>::with_capacity(cap).into() }
+/// Creates + allocates a Rust `Vec<ContentGroup>` by **copying** it from a bytes source
+#[no_mangle] pub extern "C" fn az_content_group_vec_copy_from(ptr: *const AzContentGroup, len: usize) -> AzContentGroupVec { unsafe { std::slice::from_raw_parts(ptr, len).to_vec() }.into() }
+/// Destructor: Takes ownership of the `ContentGroupVec` pointer and deletes it.
+#[no_mangle] #[allow(unused_variables)] pub extern "C" fn az_content_group_vec_delete(object: &mut AzContentGroupVec) { unsafe { std::ptr::drop_in_place(object.as_mut()); } deallocate_vec(object.as_mut_ptr(), object.capacity());}
+/// Clones the object
+#[no_mangle] pub extern "C" fn az_content_group_vec_deep_copy(object: &AzContentGroupVec) -> AzContentGroupVec { object.clone() }
+/// Creates a string with the debug representation of the object
+#[no_mangle] pub extern "C" fn az_content_group_vec_fmt_debug(object: &AzContentGroupVec) -> AzString { format!("{:#?}", object).into() }
+
 /// Wrapper over a Rust-allocated `Vec<CssProperty>`
 pub type AzCssPropertyVecTT = azul_impl::css::CssPropertyVec;
 pub use AzCssPropertyVecTT as AzCssPropertyVec;
@@ -1875,7 +1891,7 @@ pub use AzLayoutCallbackTT as AzLayoutCallback;
 #[no_mangle] pub extern "C" fn az_layout_callback_fmt_debug(object: &AzLayoutCallback) -> AzString { format!("{:#?}", object).into() }
 
 /// The layout() callback fn
-pub type AzLayoutCallbackType = extern "C" fn(AzRefAny, AzLayoutInfoPtr) -> AzDom;
+pub type AzLayoutCallbackType = extern "C" fn(AzRefAny, AzLayoutInfoPtr) -> AzStyledDom;
 /// Re-export of rust-allocated (stack based) `Callback` struct
 pub type AzCallbackTT = azul_impl::callbacks::Callback;
 pub use AzCallbackTT as AzCallback;
@@ -1945,10 +1961,6 @@ pub type AzIFrameCallbackType = extern "C" fn(AzIFrameCallbackInfoPtr) -> AzIFra
 /// Pointer to rust-allocated `Box<IFrameCallbackInfo>` struct
 pub type AzIFrameCallbackInfoPtrTT = azul_impl::callbacks::IFrameCallbackInfoPtr;
 pub use AzIFrameCallbackInfoPtrTT as AzIFrameCallbackInfoPtr;
-/// Returns a copy of the internal `RefAny`
-#[no_mangle] pub extern "C" fn az_i_frame_callback_info_ptr_get_state(iframecallbackinfo: &AzIFrameCallbackInfoPtr) -> AzRefAny { az_i_frame_callback_info_ptr_downcast_ref(iframecallbackinfo, |ci| ci.state.clone()) }
-/// Returns a copy of the internal `HidpiAdjustedBounds`
-#[no_mangle] pub extern "C" fn az_i_frame_callback_info_ptr_get_bounds(iframecallbackinfo: &AzIFrameCallbackInfoPtr) -> AzHidpiAdjustedBounds { az_i_frame_callback_info_ptr_downcast_ref(iframecallbackinfo, |ci| ci.bounds.clone()) }
 /// Destructor: Takes ownership of the `IFrameCallbackInfo` pointer and deletes it.
 #[no_mangle] pub extern "C" fn az_i_frame_callback_info_ptr_delete<'a>(ptr: &mut AzIFrameCallbackInfoPtr) { let _ = unsafe { Box::<IFrameCallbackInfo<'a>>::from_raw(ptr.ptr  as *mut IFrameCallbackInfo<'a>) };}
 /// (private): Downcasts the `AzIFrameCallbackInfoPtr` to a `Box<IFrameCallbackInfo<'a>>`. Note that this takes ownership of the pointer.
@@ -1985,12 +1997,8 @@ pub type AzGlCallbackType = extern "C" fn(AzGlCallbackInfoPtr) -> AzGlCallbackRe
 /// Pointer to rust-allocated `Box<GlCallbackInfo>` struct
 pub type AzGlCallbackInfoPtrTT = azul_impl::callbacks::GlCallbackInfoPtr;
 pub use AzGlCallbackInfoPtrTT as AzGlCallbackInfoPtr;
-/// Returns a copy of the internal `RefAny`
-#[no_mangle] pub extern "C" fn az_gl_callback_info_ptr_get_state(glcallbackinfo: &AzGlCallbackInfoPtr) -> AzRefAny { az_gl_callback_info_ptr_downcast_ref(glcallbackinfo, |ci| ci.state.clone()) }
 /// Returns a copy of the internal `GlContextPtr`
-#[no_mangle] pub extern "C" fn az_gl_callback_info_ptr_get_gl_context(glcallbackinfo: &AzGlCallbackInfoPtr) -> AzGlContextPtr { az_gl_callback_info_ptr_downcast_ref(glcallbackinfo, |ci| ci.gl_context.clone()) }
-/// Returns a copy of the internal `HidpiAdjustedBounds`
-#[no_mangle] pub extern "C" fn az_gl_callback_info_ptr_get_bounds(glcallbackinfo: &AzGlCallbackInfoPtr) -> AzHidpiAdjustedBounds { az_gl_callback_info_ptr_downcast_ref(glcallbackinfo, |ci| ci.bounds.clone()) }
+#[no_mangle] pub extern "C" fn az_gl_callback_info_ptr_get_gl_context(glcallbackinfo: &AzGlCallbackInfoPtr) -> AzGlContextPtr { az_layout_info_ptr_downcast_ref(layoutinfo, |ci| ci.gl_context.clone()) }
 /// Destructor: Takes ownership of the `GlCallbackInfo` pointer and deletes it.
 #[no_mangle] pub extern "C" fn az_gl_callback_info_ptr_delete<'a>(ptr: &mut AzGlCallbackInfoPtr) { let _ = unsafe { Box::<GlCallbackInfo<'a>>::from_raw(ptr.ptr  as *mut GlCallbackInfo<'a>) };}
 /// (private): Downcasts the `AzGlCallbackInfoPtr` to a `Box<GlCallbackInfo<'a>>`. Note that this takes ownership of the pointer.
@@ -2124,8 +2132,6 @@ pub use AzRefAnyTT as AzRefAny;
 /// Pointer to rust-allocated `Box<LayoutInfo>` struct
 pub type AzLayoutInfoPtrTT = azul_impl::callbacks::LayoutInfoPtr;
 pub use AzLayoutInfoPtrTT as AzLayoutInfoPtr;
-/// Returns a copy of the internal `GlContextPtr`
-#[no_mangle] pub extern "C" fn az_layout_info_ptr_get_gl_context(layoutinfo: &AzLayoutInfoPtr) -> AzGlContextPtr { az_layout_info_ptr_downcast_ref(layoutinfo, |ci| ci.gl_context.clone()) }
 /// Destructor: Takes ownership of the `LayoutInfo` pointer and deletes it.
 #[no_mangle] pub extern "C" fn az_layout_info_ptr_delete<'a>(ptr: &mut AzLayoutInfoPtr) { let _ = unsafe { Box::<LayoutInfo<'a>>::from_raw(ptr.ptr  as *mut LayoutInfo<'a>) };}
 /// (private): Downcasts the `AzLayoutInfoPtr` to a `Box<LayoutInfo<'a>>`. Note that this takes ownership of the pointer.
@@ -3997,6 +4003,24 @@ pub use AzStyleOptionsTT as AzStyleOptions;
 /// Returns the hash of a `AzStyleOptions` instance 
 #[no_mangle] pub extern "C" fn az_style_options_hash(object: &AzStyleOptions) -> u64 { use std::collections::hash_map::DefaultHasher; use std::hash::{Hash, Hasher}; let mut hasher = DefaultHasher::new(); object.hash(&mut hasher); hasher.finish() }
 
+/// Re-export of rust-allocated (stack based) `ContentGroup` struct
+pub type AzContentGroupTT = azul_impl::styled_dom::StyledDom;
+pub use AzContentGroupTT as AzContentGroup;
+/// Destructor: Takes ownership of the `ContentGroup` pointer and deletes it.
+#[no_mangle] #[allow(unused_variables)] pub extern "C" fn az_content_group_delete(object: &mut AzContentGroup) { }
+/// Clones the object
+#[no_mangle] pub extern "C" fn az_content_group_deep_copy(object: &AzContentGroup) -> AzContentGroup { object.clone() }
+/// Creates a string with the debug representation of the object
+#[no_mangle] pub extern "C" fn az_content_group_fmt_debug(object: &AzContentGroup) -> AzString { format!("{:#?}", object).into() }
+/// Compares two instances of `AzContentGroup` for equality
+#[no_mangle] pub extern "C" fn az_content_group_partial_eq(a: &AzContentGroup, b: &AzContentGroup) -> bool { a.eq(b) }
+/// Compares two instances of `AzContentGroup` for ordering. Returns 0 for None (equality), 1 on Some(Less), 2 on Some(Equal) and 3 on Some(Greater). 
+#[no_mangle] pub extern "C" fn az_content_group_partial_cmp(a: &AzContentGroup, b: &AzContentGroup) -> u8 { use std::cmp::Ordering::*;match a.partial_cmp(b) { None => 0, Some(Less) => 1, Some(Equal) => 2, Some(Greater) => 3 } }
+/// Compares two instances of `AzContentGroup` for full ordering. Returns 0 for Less, 1 for Equal, 2 for Greater. 
+#[no_mangle] pub extern "C" fn az_content_group_cmp(a: &AzContentGroup, b: &AzContentGroup) -> u8 { use std::cmp::Ordering::*; match a.cmp(b) { Less => 0, Equal => 1, Greater => 2 } }
+/// Returns the hash of a `AzContentGroup` instance 
+#[no_mangle] pub extern "C" fn az_content_group_hash(object: &AzContentGroup) -> u64 { use std::collections::hash_map::DefaultHasher; use std::hash::{Hash, Hasher}; let mut hasher = DefaultHasher::new(); object.hash(&mut hasher); hasher.finish() }
+
 /// Re-export of rust-allocated (stack based) `StyledDom` struct
 pub type AzStyledDomTT = azul_impl::styled_dom::StyledDom;
 pub use AzStyledDomTT as AzStyledDom;
@@ -5845,7 +5869,7 @@ pub type AzWindowStateTT = azul_impl::window::WindowState;
 pub use AzWindowStateTT as AzWindowState;
 /// Creates a new `WindowState` instance whose memory is owned by the rust allocator
 /// Equivalent to the Rust `WindowState::new()` constructor.
-#[no_mangle] pub extern "C" fn az_window_state_new(layout_callback: AzLayoutCallbackType, css: AzCss) -> AzWindowState { WindowState::new(layout_callback, css) }
+#[no_mangle] pub extern "C" fn az_window_state_new(layout_callback: AzLayoutCallbackType) -> AzWindowState { WindowState::new(layout_callback) }
 /// Destructor: Takes ownership of the `WindowState` pointer and deletes it.
 #[no_mangle] #[allow(unused_variables)] pub extern "C" fn az_window_state_delete(object: &mut AzWindowState) { }
 /// Clones the object

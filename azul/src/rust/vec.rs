@@ -227,14 +227,31 @@
 
             // delete() not necessary because StringVec is stack-allocated
         }
-    }    use crate::css::{CssDeclaration, CssPathSelector, CssProperty, CssRuleBlock, GradientStopPre, Stylesheet};
+    }    use crate::style::{CascadedCssPropertyWithSource, ContentGroup, Node, ParentWithNodeDepth, StyledNode, TagIdToNodeIdMapping};
+    use crate::css::{CssDeclaration, CssPathSelector, CssProperty, CssRuleBlock, GradientStopPre, Stylesheet};
     use crate::svg::{SvgMultiPolygon, SvgPath, SvgPathElement, SvgVertex};
     use crate::gl::{DebugMessage, VertexAttribute};
     use crate::window::{StringPair, VirtualKeyCode, XWindowType};
     use crate::dom::{CallbackData, Dom, NodeData};
     use crate::str::String;
-    use crate::style::{CascadedCssPropertyWithSource, Node, ParentWithNodeDepth, StyledNode, TagIdToNodeIdMapping};
     use crate::callbacks::NodeId;
+
+
+    /// Wrapper over a Rust-allocated `Vec<ContentGroup>`
+    pub use crate::dll::AzContentGroupVec as ContentGroupVec;
+
+    impl ContentGroupVec {
+        /// Creates a new, empty Rust `Vec<ContentGroup>`
+        pub fn new() -> Self { (crate::dll::get_azul_dll().az_content_group_vec_new)() }
+        /// Creates a new, empty Rust `Vec<ContentGroup>` with a given, pre-allocated capacity
+        pub fn with_capacity(cap: usize) -> Self { (crate::dll::get_azul_dll().az_content_group_vec_with_capacity)(cap) }
+        /// Creates + allocates a Rust `Vec<ContentGroup>` by **copying** it from a bytes source
+        pub fn copy_from(ptr: *const AzContentGroup, len: usize) -> Self { (crate::dll::get_azul_dll().az_content_group_vec_copy_from)(ptr, len) }
+    }
+
+    impl std::fmt::Debug for ContentGroupVec { fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result { write!(f, "{}", (crate::dll::get_azul_dll().az_content_group_vec_fmt_debug)(self)) } }
+    impl Clone for ContentGroupVec { fn clone(&self) -> Self { (crate::dll::get_azul_dll().az_content_group_vec_deep_copy)(self) } }
+    impl Drop for ContentGroupVec { fn drop(&mut self) { (crate::dll::get_azul_dll().az_content_group_vec_delete)(self); } }
 
 
     /// Wrapper over a Rust-allocated `Vec<CssProperty>`

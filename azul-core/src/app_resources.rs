@@ -10,10 +10,10 @@ use azul_css::{
 };
 use crate::{
     FastHashMap, FastHashSet,
-    ui_solver::{ResolvedTextLayoutOptions},
-    display_list::{DisplayList, GlyphInstance},
+    ui_solver::ResolvedTextLayoutOptions,
+    display_list::GlyphInstance,
+    styled_dom::StyledNode,
     callbacks::PipelineId,
-    id_tree::NodeDataContainer,
     dom::{NodeData, OptionImageMask},
     svg::{SvgStyledNode, TesselatedCPUSvgNode},
 };
@@ -1023,14 +1023,14 @@ pub fn add_fonts_and_images<U: FontImageApi>(
     app_resources: &mut AppResources,
     render_api: &mut U,
     pipeline_id: &PipelineId,
-    display_list: &DisplayList,
-    node_data: &NodeDataContainer<NodeData>,
+    styled_nodes: &[StyledNode],
+    node_data: &[NodeData],
     load_font_fn: LoadFontFn,
     load_image_fn: LoadImageFn,
     parse_font_fn: ParseFontFn,
 ) {
-    let font_keys = scan_ui_description_for_font_keys(&app_resources, display_list, node_data);
-    let image_keys = scan_ui_description_for_image_keys(&app_resources, display_list, node_data);
+    let font_keys = scan_styled_nodes_for_font_keys(&app_resources, styled_nodes, node_data);
+    let image_keys = scan_styled_nodes_for_image_keys(&app_resources, styled_nodes, node_data);
 
     app_resources.last_frame_font_keys.get_mut(pipeline_id).unwrap().extend(font_keys.clone().into_iter());
     app_resources.last_frame_image_keys.get_mut(pipeline_id).unwrap().extend(image_keys.clone().into_iter());
@@ -1361,29 +1361,28 @@ pub fn get_font_size(rect_style: &RectStyle) -> StyleFontSize {
 
 
 /// Scans the display list for all font IDs + their font size
-pub fn scan_ui_description_for_font_keys(
+pub fn scan_styled_nodes_for_font_keys(
     app_resources: &AppResources,
-    display_list: &DisplayList,
-    node_data: &NodeDataContainer<NodeData>,
+    styled_nodes: &[StyledNode],
+    node_data: &[NodeData],
 ) -> FastHashMap<ImmediateFontId, FastHashSet<Au>> {
 
     use crate::dom::NodeType::*;
 
+    assert!(styled_nodes.len() == node_data.len());
+
     let mut font_keys = FastHashMap::default();
 
-    for node_id in display_list.rectangles.linear_iter() {
-
-        let display_rect = &display_list.rectangles[node_id];
-        let node_data = &node_data[node_id];
+    for (styled_node, node_data) in styled_nodes.iter().zip(node_data.iter()) {
 
         match node_data.get_node_type() {
             Text(_) | Label(_) => {
-                let css_font_id = get_font_id(&display_rect.style);
+                let css_font_id = get_font_id(&styled_node.style);
                 let font_id = match app_resources.css_ids_to_font_ids.get(css_font_id) {
                     Some(s) => ImmediateFontId::Resolved(*s),
                     None => ImmediateFontId::Unresolved(css_font_id.to_string()),
                 };
-                let font_size = get_font_size(&display_rect.style);
+                let font_size = get_font_size(&styled_node.style);
                 font_keys
                     .entry(font_id)
                     .or_insert_with(|| FastHashSet::default())
@@ -1397,17 +1396,19 @@ pub fn scan_ui_description_for_font_keys(
 }
 
 /// Scans the display list for all image keys
-pub fn scan_ui_description_for_image_keys(
+pub fn scan_styled_nodes_for_image_keys(
     app_resources: &AppResources,
-    display_list: &DisplayList,
-    node_data: &NodeDataContainer<NodeData>,
+    styled_nodes: &[StyledNode],
+    node_data: &[NodeData],
 ) -> FastHashSet<ImageId> {
 
     use crate::dom::NodeType::*;
 
+    assert!(styled_nodes.len() == node_data.len());
+
     let mut images_in_dl = Vec::new();
 
-    for (display_rect, node_data) in display_list.rectangles.iter().zip(node_data.iter()) {
+    for (styled_node, node_data) in styled_nodes.iter().zip(node_data.iter()) {
         // If the node has an image content, it needs to be uploaded
         if let Image(id) = node_data.get_node_type(){
             images_in_dl.push(*id);

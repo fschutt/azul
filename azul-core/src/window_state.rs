@@ -3,7 +3,6 @@ use crate::{
     dom::{EventFilter, NotEventFilter, HoverEventFilter, FocusEventFilter, WindowEventFilter},
     callbacks:: {CallbackInfo, CallbackType, HitTestItem, UpdateScreen},
     id_tree::NodeId,
-    ui_state::UiState,
     window::{
         AcceleratorKey, FullWindowState, CallbacksOfHitTest, DetermineCallbackResult,
     },
@@ -14,9 +13,10 @@ use crate::{
 /// This function also updates / mutates the current window states `focused_node`
 /// as well as the `window_state.previous_state`
 pub fn determine_callbacks(
+    dom_id: DomId,
     window_state: &mut FullWindowState,
     hit_test_items: &[HitTestItem],
-    ui_state: &UiState,
+    styled_dom: &StyledDom,
 ) -> CallbacksOfHitTest {
 
     use std::collections::BTreeSet;
@@ -33,6 +33,10 @@ pub fn determine_callbacks(
     let event_was_mouse_release = current_window_events.contains(&WindowEventFilter::MouseUp);
     let event_was_mouse_enter   = current_window_events.contains(&WindowEventFilter::MouseEnter);
     let event_was_mouse_leave   = current_window_events.contains(&WindowEventFilter::MouseLeave);
+
+    let tag_ids_to_node_ids = styled_dom.tag_ids_to_node_ids.iter()
+    .map(|t| Some((t.tag_id.to_crate_internal(), t.node_id.to_crate_internal()?)))
+    .collect();
 
     // Store the current window state so we can set it in this.previous_window_state later on
     let mut previous_state = Box::new(window_state.clone());

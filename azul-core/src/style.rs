@@ -2,21 +2,20 @@
 
 use std::collections::{BTreeMap, BTreeSet};
 use azul_css::{
-    Css, CssContentGroup, CssPath,
+    Css, CssContentGroup, CssPath, RectStyle, RectLayout, CssProperty,
     CssPathSelector, CssPathPseudoSelector, CssNthChildSelector::*,
 };
 use crate::{
     dom::{DomId, NodeData},
     id_tree::{NodeId, NodeHierarchy, NodeDataContainer},
     callbacks::HitTestItem,
-    ui_state::{UiState, HoverGroup, ActiveHover},
-    ui_description::{UiDescription, StyledNode, CascadedCssPropertyWithSource, CssPropertySource},
 };
 
 /// Has all the necessary information about the style CSS path
-#[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
+#[derive(Debug, Default, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
+#[repr(C)]
 pub struct HtmlCascadeInfo {
-    pub index_in_parent: usize,
+    pub index_in_parent: u32,
     pub is_last_child: bool,
     pub is_hovered_over: bool,
     pub is_focused: bool,
@@ -74,118 +73,6 @@ pub fn matches_html_element(
     }
 
     last_selector_matched
-}
-
-pub fn match_dom_selectors(
-    ui_state: &UiState,
-    css: &Css,
-    focused_node: &Option<(DomId, NodeId)>,
-    hovered_nodes: &BTreeMap<NodeId, HitTestItem>,
-    is_mouse_down: bool,
-) -> UiDescription {
-
-    use azul_css::CssDeclaration;
-
-    let non_leaf_nodes = ui_state.dom.arena.node_hierarchy.get_parents_sorted_by_depth();
-
-    let html_tree = construct_html_cascade_tree(
-        &ui_state.dom.arena.node_hierarchy,
-        &non_leaf_nodes,
-        focused_node.as_ref().and_then(|(dom_id, node_id)| {
-            if *dom_id == ui_state.dom_id { Some(*node_id) } else { None }
-        }),
-        hovered_nodes,
-        is_mouse_down,
-    );
-
-    // First, apply all rules normally (no inheritance) of CSS values
-    // This is an O(n^2) operation, but it can be parallelized in the future
-    let mut styled_nodes = ui_state.dom.arena.node_data.transform(|_, node_id| StyledNode {
-        css_constraints: css
-            .rules()
-            .filter(|rule| matches_html_element(&rule.path, node_id, &ui_state.dom.arena.node_hierarchy, &ui_state.dom.arena.node_data, &html_tree))
-            .flat_map(|matched_rule| {
-                let matched_path = matched_rule.path.clone();
-                matched_rule.declarations.clone().into_iter().map(move |declaration| CascadedCssPropertyWithSource {
-                    prop: match declaration {
-                        CssDeclaration::Static(s) => s,
-                        CssDeclaration::Dynamic(d) => d.default_value, // TODO: No variable support yet!
-                    },
-                    source: CssPropertySource::Css(matched_path.clone())
-                })
-            })
-            .collect(),
-    });
-
-    // Then, inherit all values of the parent to the children, but only if the property is
-    // inheritable and isn't yet set. NOTE: This step can't be parallelized!
-    for (_depth, parent_id) in non_leaf_nodes {
-
-        let inherited_rules =
-            styled_nodes[parent_id].css_constraints
-            .iter()
-            .filter(|prop| prop.prop.get_type().is_inheritable())
-            .cloned()
-            .collect::<BTreeSet<CascadedCssPropertyWithSource>>();
-
-        if inherited_rules.is_empty() {
-            continue;
-        }
-
-        for child_id in parent_id.children(&ui_state.dom.arena.node_hierarchy) {
-            for inherited_rule in &inherited_rules {
-                // Only override the rule if the child already has an inherited rule, don't override it
-                let inherited_rule_type = inherited_rule.prop.get_type();
-                let child_css_constraints = &mut styled_nodes[child_id].css_constraints;
-
-                if !child_css_constraints.iter().any(|i| i.prop.get_type() == inherited_rule_type) {
-                    child_css_constraints.push(inherited_rule.clone());
-                }
-            }
-        }
-    }
-
-    // Last but not least, apply the inline styles
-    for node_id in styled_nodes.linear_iter() {
-        styled_nodes[node_id].css_constraints.extend(
-            ui_state.dom.arena.node_data[node_id]
-            .get_inline_css_props()
-            .iter()
-            .map(|is|
-                CascadedCssPropertyWithSource {
-                    prop: is.clone(),
-                    source: CssPropertySource::Inline,
-                }
-            )
-        );
-    }
-
-    // In order to hit-test :hover and :active nodes, need to select them
-    // first (to insert their TagId later)
-    let selected_hover_nodes = match_hover_selectors(
-        collect_hover_groups(css),
-        &ui_state.dom.arena.node_hierarchy,
-        &ui_state.dom.arena.node_data,
-        &html_tree,
-    );
-
-    UiDescription {
-
-        // NOTE: this clone is necessary, otherwise we wouldn't be able to
-        // update the UiState
-        //
-        // WARNING: The UIState can modify the `arena` with its copy of the Rc !
-        // Be careful about appending things to the arena, since that could modify
-        // the UiDescription without you knowing!
-        //
-        // NOTE: This deep-clones the entire arena, which may be a
-        // performance-sensitive operation!
-        dom_id: ui_state.dom_id.clone(),
-        html_tree,
-        ui_descr_root: ui_state.dom.root,
-        styled_nodes,
-        selected_hover_nodes,
-    }
 }
 
 pub struct CssGroupIterator<'a> {
@@ -284,7 +171,7 @@ pub fn construct_html_cascade_tree(
 
         let is_parent_hovered_over = hovered_items.contains_key(parent_id);
         let parent_html_matcher = HtmlCascadeInfo {
-            index_in_parent: index_in_parent, // necessary for nth-child
+            index_in_parent: index_in_parent as u32, // necessary for nth-child
             is_last_child: node_hierarchy[*parent_id].next_sibling.is_none(), // Necessary for :last selectors
             is_hovered_over: is_parent_hovered_over,
             is_active: is_parent_hovered_over && is_mouse_down,
@@ -296,7 +183,7 @@ pub fn construct_html_cascade_tree(
         for (child_idx, child_id) in parent_id.children(node_hierarchy).enumerate() {
             let is_child_hovered_over = hovered_items.contains_key(&child_id);
             let child_html_matcher = HtmlCascadeInfo {
-                index_in_parent: child_idx + 1, // necessary for nth-child
+                index_in_parent: child_idx as u32 + 1, // necessary for nth-child
                 is_last_child: node_hierarchy[child_id].next_sibling.is_none(),
                 is_hovered_over: is_child_hovered_over,
                 is_active: is_child_hovered_over && is_mouse_down,
@@ -432,6 +319,93 @@ pub fn selector_group_matches(
     }
 
     true
+}
+
+pub fn apply_style_property(style: &mut RectStyle, layout: &mut RectLayout, property: &CssProperty) {
+
+    use azul_css::CssProperty::*;
+
+    match property {
+
+        Display(d)                      => layout.display = Some(*d),
+        Float(f)                        => layout.float = Some(*f),
+        BoxSizing(bs)                   => layout.box_sizing = Some(*bs),
+
+        TextColor(c)                    => style.text_color = Some(*c),
+        FontSize(fs)                    => style.font_size = Some(*fs),
+        FontFamily(ff)                  => style.font_family = Some(ff.clone()),
+        TextAlign(ta)                   => style.text_align = Some(*ta),
+
+        LetterSpacing(ls)               => style.letter_spacing = Some(*ls),
+        LineHeight(lh)                  => style.line_height = Some(*lh),
+        WordSpacing(ws)                 => style.word_spacing = Some(*ws),
+        TabWidth(tw)                    => style.tab_width = Some(*tw),
+        Cursor(c)                       => style.cursor = Some(*c),
+
+        Width(w)                        => layout.width = Some(*w),
+        Height(h)                       => layout.height = Some(*h),
+        MinWidth(mw)                    => layout.min_width = Some(*mw),
+        MinHeight(mh)                   => layout.min_height = Some(*mh),
+        MaxWidth(mw)                    => layout.max_width = Some(*mw),
+        MaxHeight(mh)                   => layout.max_height = Some(*mh),
+
+        Position(p)                     => layout.position = Some(*p),
+        Top(t)                          => layout.top = Some(*t),
+        Bottom(b)                       => layout.bottom = Some(*b),
+        Right(r)                        => layout.right = Some(*r),
+        Left(l)                         => layout.left = Some(*l),
+
+        FlexWrap(fw)                    => layout.wrap = Some(*fw),
+        FlexDirection(fd)               => layout.direction = Some(*fd),
+        FlexGrow(fg)                    => layout.flex_grow = Some(*fg),
+        FlexShrink(fs)                  => layout.flex_shrink = Some(*fs),
+        JustifyContent(jc)              => layout.justify_content = Some(*jc),
+        AlignItems(ai)                  => layout.align_items = Some(*ai),
+        AlignContent(ac)                => layout.align_content = Some(*ac),
+
+        BackgroundContent(bc)           => style.background = Some(bc.clone()),
+        BackgroundPosition(bp)          => style.background_position = Some(*bp),
+        BackgroundSize(bs)              => style.background_size = Some(*bs),
+        BackgroundRepeat(br)            => style.background_repeat = Some(*br),
+
+        OverflowX(ox)                   => layout.overflow_x = Some(*ox),
+        OverflowY(oy)                   => layout.overflow_y = Some(*oy),
+
+        PaddingTop(pt)                  => layout.padding_top = Some(*pt),
+        PaddingLeft(pl)                 => layout.padding_left = Some(*pl),
+        PaddingRight(pr)                => layout.padding_right = Some(*pr),
+        PaddingBottom(pb)               => layout.padding_bottom = Some(*pb),
+
+        MarginTop(mt)                   => layout.margin_top = Some(*mt),
+        MarginLeft(ml)                  => layout.margin_left = Some(*ml),
+        MarginRight(mr)                 => layout.margin_right = Some(*mr),
+        MarginBottom(mb)                => layout.margin_bottom = Some(*mb),
+
+        BorderTopLeftRadius(btl)        => style.border_top_left_radius = Some(*btl),
+        BorderTopRightRadius(btr)       => style.border_top_right_radius = Some(*btr),
+        BorderBottomLeftRadius(bbl)     => style.border_bottom_left_radius = Some(*bbl),
+        BorderBottomRightRadius(bbr)    => style.border_bottom_right_radius = Some(*bbr),
+
+        BorderTopColor(btc)             => style.border_top_color = Some(*btc),
+        BorderRightColor(brc)           => style.border_right_color = Some(*brc),
+        BorderLeftColor(blc)            => style.border_left_color = Some(*blc),
+        BorderBottomColor(bbc)          => style.border_bottom_color = Some(*bbc),
+
+        BorderTopStyle(bts)             => style.border_top_style = Some(*bts),
+        BorderRightStyle(brs)           => style.border_right_style = Some(*brs),
+        BorderLeftStyle(bls)            => style.border_left_style = Some(*bls),
+        BorderBottomStyle(bbs)          => style.border_bottom_style = Some(*bbs),
+
+        BorderTopWidth(btw)             => layout.border_top_width = Some(*btw),
+        BorderRightWidth(brw)           => layout.border_right_width = Some(*brw),
+        BorderLeftWidth(blw)            => layout.border_left_width = Some(*blw),
+        BorderBottomWidth(bbw)          => layout.border_bottom_width = Some(*bbw),
+
+        BoxShadowLeft(bsl)              => style.box_shadow_left = Some(*bsl),
+        BoxShadowRight(bsr)             => style.box_shadow_right = Some(*bsr),
+        BoxShadowTop(bst)               => style.box_shadow_top = Some(*bst),
+        BoxShadowBottom(bsb)            => style.box_shadow_bottom = Some(*bsb),
+    }
 }
 
 #[test]

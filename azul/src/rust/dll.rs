@@ -5,7 +5,7 @@
     /// Callback for responding to window events
     pub type AzCallbackType = extern "C" fn(AzCallbackInfoPtr) -> AzCallbackReturn;
     /// Callback fn that returns the DOM of the app
-    pub type AzLayoutCallbackType = extern "C" fn(AzRefAny, AzLayoutInfoPtr) -> AzDom;
+    pub type AzLayoutCallbackType = extern "C" fn(AzRefAny, AzLayoutInfoPtr) -> AzStyledDom;
     /// Callback for rendering to an OpenGL texture
     pub type AzGlCallbackType = extern "C" fn(AzGlCallbackInfoPtr) -> AzGlCallbackReturn;
     /// Callback for rendering iframes (infinite data structures that have to know how large they are rendered)
@@ -32,6 +32,12 @@
     impl Ord for AzString { fn cmp(&self, rhs: &AzString) -> std::cmp::Ordering { use std::cmp::Ordering::*; match (crate::dll::get_azul_dll().az_string_cmp)(self, rhs) { 0 => Less, 1 => Equal, _ => Greater } } }
 
     impl std::hash::Hash for AzString { fn hash<H: std::hash::Hasher>(&self, state: &mut H) { ((crate::dll::get_azul_dll().az_string_hash)(self)).hash(state) } }
+    /// Wrapper over a Rust-allocated `Vec<ContentGroup>`
+    #[repr(C)] pub struct AzContentGroupVec {
+        pub(crate) ptr: *mut AzContentGroup,
+        pub len: usize,
+        pub cap: usize,
+    }
     /// Wrapper over a Rust-allocated `Vec<CssProperty>`
     #[repr(C)] pub struct AzCssPropertyVec {
         pub(crate) ptr: *mut AzCssProperty,
@@ -884,7 +890,7 @@
     }
     /// Re-export of rust-allocated (stack based) `IFrameCallbackReturn` struct
     #[repr(C)] pub struct AzIFrameCallbackReturn {
-        pub dom: AzOptionDom,
+        pub dom: AzStyledDom,
     }
     /// Re-export of rust-allocated (stack based) `GlCallback` struct
     #[repr(C)] pub struct AzGlCallback {
@@ -2013,8 +2019,6 @@
         pub last_child: u32,
     }
 
-    impl Copy for AzNode { }
-
     impl PartialEq for AzNode { fn eq(&self, rhs: &AzNode) -> bool { (crate::dll::get_azul_dll().az_node_partial_eq)(self, rhs) } }
 
     impl Eq for AzNode { }
@@ -2032,8 +2036,6 @@
         pub is_focused: bool,
         pub is_active: bool,
     }
-
-    impl Copy for AzCascadeInfo { }
 
     impl PartialEq for AzCascadeInfo { fn eq(&self, rhs: &AzCascadeInfo) -> bool { (crate::dll::get_azul_dll().az_cascade_info_partial_eq)(self, rhs) } }
 
@@ -2188,8 +2190,6 @@
         pub inner: u32,
     }
 
-    impl Copy for AzTagId { }
-
     impl PartialEq for AzTagId { fn eq(&self, rhs: &AzTagId) -> bool { (crate::dll::get_azul_dll().az_tag_id_partial_eq)(self, rhs) } }
 
     impl Eq for AzTagId { }
@@ -2207,8 +2207,6 @@
         pub hover_group: AzOptionHoverGroup,
     }
 
-    impl Copy for AzTagIdToNodeIdMapping { }
-
     impl PartialEq for AzTagIdToNodeIdMapping { fn eq(&self, rhs: &AzTagIdToNodeIdMapping) -> bool { (crate::dll::get_azul_dll().az_tag_id_to_node_id_mapping_partial_eq)(self, rhs) } }
 
     impl Eq for AzTagIdToNodeIdMapping { }
@@ -2223,8 +2221,6 @@
         pub affects_layout: bool,
         pub active_or_hover: AzActiveHover,
     }
-
-    impl Copy for AzHoverGroup { }
 
     impl PartialEq for AzHoverGroup { fn eq(&self, rhs: &AzHoverGroup) -> bool { (crate::dll::get_azul_dll().az_hover_group_partial_eq)(self, rhs) } }
 
@@ -2241,8 +2237,6 @@
         Hover,
     }
 
-    impl Copy for AzActiveHover { }
-
     impl PartialEq for AzActiveHover { fn eq(&self, rhs: &AzActiveHover) -> bool { (crate::dll::get_azul_dll().az_active_hover_partial_eq)(self, rhs) } }
 
     impl Eq for AzActiveHover { }
@@ -2257,8 +2251,6 @@
         pub depth: u32,
         pub node_id: AzNodeId,
     }
-
-    impl Copy for AzParentWithNodeDepth { }
 
     impl PartialEq for AzParentWithNodeDepth { fn eq(&self, rhs: &AzParentWithNodeDepth) -> bool { (crate::dll::get_azul_dll().az_parent_with_node_depth_partial_eq)(self, rhs) } }
 
@@ -2285,6 +2277,21 @@
     impl Ord for AzStyleOptions { fn cmp(&self, rhs: &AzStyleOptions) -> std::cmp::Ordering { use std::cmp::Ordering::*; match (crate::dll::get_azul_dll().az_style_options_cmp)(self, rhs) { 0 => Less, 1 => Equal, _ => Greater } } }
 
     impl std::hash::Hash for AzStyleOptions { fn hash<H: std::hash::Hasher>(&self, state: &mut H) { ((crate::dll::get_azul_dll().az_style_options_hash)(self)).hash(state) } }
+    /// Re-export of rust-allocated (stack based) `ContentGroup` struct
+    #[repr(C)] pub struct AzContentGroup {
+        pub root: AzNodeId,
+        pub children: AzContentGroupVec,
+    }
+
+    impl PartialEq for AzContentGroup { fn eq(&self, rhs: &AzContentGroup) -> bool { (crate::dll::get_azul_dll().az_content_group_partial_eq)(self, rhs) } }
+
+    impl Eq for AzContentGroup { }
+
+    impl PartialOrd for AzContentGroup { fn partial_cmp(&self, rhs: &AzContentGroup) -> Option<std::cmp::Ordering> { use std::cmp::Ordering::*; match (crate::dll::get_azul_dll().az_content_group_partial_cmp)(self, rhs) { 1 => Some(Less), 2 => Some(Equal), 3 => Some(Greater), _ => None } } }
+
+    impl Ord for AzContentGroup { fn cmp(&self, rhs: &AzContentGroup) -> std::cmp::Ordering { use std::cmp::Ordering::*; match (crate::dll::get_azul_dll().az_content_group_cmp)(self, rhs) { 0 => Less, 1 => Equal, _ => Greater } } }
+
+    impl std::hash::Hash for AzContentGroup { fn hash<H: std::hash::Hasher>(&self, state: &mut H) { ((crate::dll::get_azul_dll().az_content_group_hash)(self)).hash(state) } }
     /// Re-export of rust-allocated (stack based) `StyledDom` struct
     #[repr(C)] pub struct AzStyledDom {
         pub root: AzNodeId,
@@ -2293,6 +2300,7 @@
         pub styled_nodes: AzStyledNodeVec,
         pub tag_ids_to_node_ids: AzTagIdsToNodeIdsMappingVec,
         pub non_leaf_nodes: AzParentWithNodeDepthVec,
+        pub rects_in_rendering_order: AzContentGroup,
     }
 
     impl PartialEq for AzStyledDom { fn eq(&self, rhs: &AzStyledDom) -> bool { (crate::dll::get_azul_dll().az_styled_dom_partial_eq)(self, rhs) } }
@@ -3377,7 +3385,6 @@
         pub mouse_state: AzMouseState,
         pub ime_position: AzOptionLogicalPosition,
         pub platform_specific_options: AzPlatformSpecificOptions,
-        pub css: AzCss,
         pub layout_callback: AzLayoutCallback,
     }
     /// Re-export of rust-allocated (stack based) `LogicalSize` struct
@@ -3412,6 +3419,12 @@
         pub az_string_partial_cmp: extern "C" fn(_:  &AzString, _:  &AzString) -> u8,
         pub az_string_cmp: extern "C" fn(_:  &AzString, _:  &AzString) -> u8,
         pub az_string_hash: extern "C" fn(_:  &AzString) -> u64,
+        pub az_content_group_vec_new: extern "C" fn() -> AzContentGroupVec,
+        pub az_content_group_vec_with_capacity: extern "C" fn(_:  usize) -> AzContentGroupVec,
+        pub az_content_group_vec_copy_from: extern "C" fn(_:  *const AzContentGroup, _:  usize) -> AzContentGroupVec,
+        pub az_content_group_vec_delete: extern "C" fn(_:  &mut AzContentGroupVec),
+        pub az_content_group_vec_deep_copy: extern "C" fn(_:  &AzContentGroupVec) -> AzContentGroupVec,
+        pub az_content_group_vec_fmt_debug: extern "C" fn(_:  &AzContentGroupVec) -> AzString,
         pub az_css_property_vec_new: extern "C" fn() -> AzCssPropertyVec,
         pub az_css_property_vec_with_capacity: extern "C" fn(_:  usize) -> AzCssPropertyVec,
         pub az_css_property_vec_copy_from: extern "C" fn(_:  *const AzCssProperty, _:  usize) -> AzCssPropertyVec,
@@ -3973,8 +3986,6 @@
         pub az_i_frame_callback_delete: extern "C" fn(_:  &mut AzIFrameCallback),
         pub az_i_frame_callback_deep_copy: extern "C" fn(_:  &AzIFrameCallback) -> AzIFrameCallback,
         pub az_i_frame_callback_fmt_debug: extern "C" fn(_:  &AzIFrameCallback) -> AzString,
-        pub az_i_frame_callback_info_ptr_get_state: extern "C" fn(_:  &AzIFrameCallbackInfoPtr) -> AzRefAny,
-        pub az_i_frame_callback_info_ptr_get_bounds: extern "C" fn(_:  &AzIFrameCallbackInfoPtr) -> AzHidpiAdjustedBounds,
         pub az_i_frame_callback_info_ptr_delete: extern "C" fn(_:  &mut AzIFrameCallbackInfoPtr),
         pub az_i_frame_callback_info_ptr_fmt_debug: extern "C" fn(_:  &AzIFrameCallbackInfoPtr) -> AzString,
         pub az_i_frame_callback_return_delete: extern "C" fn(_:  &mut AzIFrameCallbackReturn),
@@ -3983,9 +3994,7 @@
         pub az_gl_callback_delete: extern "C" fn(_:  &mut AzGlCallback),
         pub az_gl_callback_deep_copy: extern "C" fn(_:  &AzGlCallback) -> AzGlCallback,
         pub az_gl_callback_fmt_debug: extern "C" fn(_:  &AzGlCallback) -> AzString,
-        pub az_gl_callback_info_ptr_get_state: extern "C" fn(_:  &AzGlCallbackInfoPtr) -> AzRefAny,
         pub az_gl_callback_info_ptr_get_gl_context: extern "C" fn(_:  &AzGlCallbackInfoPtr) -> AzGlContextPtr,
-        pub az_gl_callback_info_ptr_get_bounds: extern "C" fn(_:  &AzGlCallbackInfoPtr) -> AzHidpiAdjustedBounds,
         pub az_gl_callback_info_ptr_delete: extern "C" fn(_:  &mut AzGlCallbackInfoPtr),
         pub az_gl_callback_info_ptr_fmt_debug: extern "C" fn(_:  &AzGlCallbackInfoPtr) -> AzString,
         pub az_gl_callback_return_delete: extern "C" fn(_:  &mut AzGlCallbackReturn),
@@ -4025,7 +4034,6 @@
         pub az_ref_any_partial_cmp: extern "C" fn(_:  &AzRefAny, _:  &AzRefAny) -> u8,
         pub az_ref_any_cmp: extern "C" fn(_:  &AzRefAny, _:  &AzRefAny) -> u8,
         pub az_ref_any_hash: extern "C" fn(_:  &AzRefAny) -> u64,
-        pub az_layout_info_ptr_get_gl_context: extern "C" fn(_:  &AzLayoutInfoPtr) -> AzGlContextPtr,
         pub az_layout_info_ptr_delete: extern "C" fn(_:  &mut AzLayoutInfoPtr),
         pub az_layout_info_ptr_fmt_debug: extern "C" fn(_:  &AzLayoutInfoPtr) -> AzString,
         pub az_css_rule_block_delete: extern "C" fn(_:  &mut AzCssRuleBlock),
@@ -4584,6 +4592,13 @@
         pub az_style_options_partial_cmp: extern "C" fn(_:  &AzStyleOptions, _:  &AzStyleOptions) -> u8,
         pub az_style_options_cmp: extern "C" fn(_:  &AzStyleOptions, _:  &AzStyleOptions) -> u8,
         pub az_style_options_hash: extern "C" fn(_:  &AzStyleOptions) -> u64,
+        pub az_content_group_delete: extern "C" fn(_:  &mut AzContentGroup),
+        pub az_content_group_deep_copy: extern "C" fn(_:  &AzContentGroup) -> AzContentGroup,
+        pub az_content_group_fmt_debug: extern "C" fn(_:  &AzContentGroup) -> AzString,
+        pub az_content_group_partial_eq: extern "C" fn(_:  &AzContentGroup, _:  &AzContentGroup) -> bool,
+        pub az_content_group_partial_cmp: extern "C" fn(_:  &AzContentGroup, _:  &AzContentGroup) -> u8,
+        pub az_content_group_cmp: extern "C" fn(_:  &AzContentGroup, _:  &AzContentGroup) -> u8,
+        pub az_content_group_hash: extern "C" fn(_:  &AzContentGroup) -> u64,
         pub az_styled_dom_new: extern "C" fn(_:  AzDom, _:  AzCss, _:  AzStyleOptions) -> AzStyledDom,
         pub az_styled_dom_append: extern "C" fn(_:  &mut AzStyledDom, _:  AzStyledDom),
         pub az_styled_dom_delete: extern "C" fn(_:  &mut AzStyledDom),
@@ -5239,7 +5254,7 @@
         pub az_full_screen_mode_delete: extern "C" fn(_:  &mut AzFullScreenMode),
         pub az_full_screen_mode_deep_copy: extern "C" fn(_:  &AzFullScreenMode) -> AzFullScreenMode,
         pub az_full_screen_mode_fmt_debug: extern "C" fn(_:  &AzFullScreenMode) -> AzString,
-        pub az_window_state_new: extern "C" fn(_:  AzLayoutCallbackType, _:  AzCss) -> AzWindowState,
+        pub az_window_state_new: extern "C" fn(_:  AzLayoutCallbackType) -> AzWindowState,
         pub az_window_state_delete: extern "C" fn(_:  &mut AzWindowState),
         pub az_window_state_deep_copy: extern "C" fn(_:  &AzWindowState) -> AzWindowState,
         pub az_window_state_fmt_debug: extern "C" fn(_:  &AzWindowState) -> AzString,
@@ -5270,6 +5285,12 @@
             let az_string_partial_cmp: extern "C" fn(_:  &AzString, _:  &AzString) -> u8 = transmute(lib.get(b"az_string_partial_cmp")?);
             let az_string_cmp: extern "C" fn(_:  &AzString, _:  &AzString) -> u8 = transmute(lib.get(b"az_string_cmp")?);
             let az_string_hash: extern "C" fn(_:  &AzString) -> u64 = transmute(lib.get(b"az_string_hash")?);
+            let az_content_group_vec_new: extern "C" fn() -> AzContentGroupVec = transmute(lib.get(b"az_content_group_vec_new")?);
+            let az_content_group_vec_with_capacity: extern "C" fn(_:  usize) -> AzContentGroupVec = transmute(lib.get(b"az_content_group_vec_with_capacity")?);
+            let az_content_group_vec_copy_from: extern "C" fn(_:  *const AzContentGroup, _:  usize) -> AzContentGroupVec = transmute(lib.get(b"az_content_group_vec_copy_from")?);
+            let az_content_group_vec_delete: extern "C" fn(_:  &mut AzContentGroupVec) = transmute(lib.get(b"az_content_group_vec_delete")?);
+            let az_content_group_vec_deep_copy: extern "C" fn(_:  &AzContentGroupVec) -> AzContentGroupVec = transmute(lib.get(b"az_content_group_vec_deep_copy")?);
+            let az_content_group_vec_fmt_debug: extern "C" fn(_:  &AzContentGroupVec) -> AzString = transmute(lib.get(b"az_content_group_vec_fmt_debug")?);
             let az_css_property_vec_new: extern "C" fn() -> AzCssPropertyVec = transmute(lib.get(b"az_css_property_vec_new")?);
             let az_css_property_vec_with_capacity: extern "C" fn(_:  usize) -> AzCssPropertyVec = transmute(lib.get(b"az_css_property_vec_with_capacity")?);
             let az_css_property_vec_copy_from: extern "C" fn(_:  *const AzCssProperty, _:  usize) -> AzCssPropertyVec = transmute(lib.get(b"az_css_property_vec_copy_from")?);
@@ -5831,8 +5852,6 @@
             let az_i_frame_callback_delete: extern "C" fn(_:  &mut AzIFrameCallback) = transmute(lib.get(b"az_i_frame_callback_delete")?);
             let az_i_frame_callback_deep_copy: extern "C" fn(_:  &AzIFrameCallback) -> AzIFrameCallback = transmute(lib.get(b"az_i_frame_callback_deep_copy")?);
             let az_i_frame_callback_fmt_debug: extern "C" fn(_:  &AzIFrameCallback) -> AzString = transmute(lib.get(b"az_i_frame_callback_fmt_debug")?);
-            let az_i_frame_callback_info_ptr_get_state: extern "C" fn(_:  &AzIFrameCallbackInfoPtr) -> AzRefAny = transmute(lib.get(b"az_i_frame_callback_info_ptr_get_state")?);
-            let az_i_frame_callback_info_ptr_get_bounds: extern "C" fn(_:  &AzIFrameCallbackInfoPtr) -> AzHidpiAdjustedBounds = transmute(lib.get(b"az_i_frame_callback_info_ptr_get_bounds")?);
             let az_i_frame_callback_info_ptr_delete: extern "C" fn(_:  &mut AzIFrameCallbackInfoPtr) = transmute(lib.get(b"az_i_frame_callback_info_ptr_delete")?);
             let az_i_frame_callback_info_ptr_fmt_debug: extern "C" fn(_:  &AzIFrameCallbackInfoPtr) -> AzString = transmute(lib.get(b"az_i_frame_callback_info_ptr_fmt_debug")?);
             let az_i_frame_callback_return_delete: extern "C" fn(_:  &mut AzIFrameCallbackReturn) = transmute(lib.get(b"az_i_frame_callback_return_delete")?);
@@ -5841,9 +5860,7 @@
             let az_gl_callback_delete: extern "C" fn(_:  &mut AzGlCallback) = transmute(lib.get(b"az_gl_callback_delete")?);
             let az_gl_callback_deep_copy: extern "C" fn(_:  &AzGlCallback) -> AzGlCallback = transmute(lib.get(b"az_gl_callback_deep_copy")?);
             let az_gl_callback_fmt_debug: extern "C" fn(_:  &AzGlCallback) -> AzString = transmute(lib.get(b"az_gl_callback_fmt_debug")?);
-            let az_gl_callback_info_ptr_get_state: extern "C" fn(_:  &AzGlCallbackInfoPtr) -> AzRefAny = transmute(lib.get(b"az_gl_callback_info_ptr_get_state")?);
             let az_gl_callback_info_ptr_get_gl_context: extern "C" fn(_:  &AzGlCallbackInfoPtr) -> AzGlContextPtr = transmute(lib.get(b"az_gl_callback_info_ptr_get_gl_context")?);
-            let az_gl_callback_info_ptr_get_bounds: extern "C" fn(_:  &AzGlCallbackInfoPtr) -> AzHidpiAdjustedBounds = transmute(lib.get(b"az_gl_callback_info_ptr_get_bounds")?);
             let az_gl_callback_info_ptr_delete: extern "C" fn(_:  &mut AzGlCallbackInfoPtr) = transmute(lib.get(b"az_gl_callback_info_ptr_delete")?);
             let az_gl_callback_info_ptr_fmt_debug: extern "C" fn(_:  &AzGlCallbackInfoPtr) -> AzString = transmute(lib.get(b"az_gl_callback_info_ptr_fmt_debug")?);
             let az_gl_callback_return_delete: extern "C" fn(_:  &mut AzGlCallbackReturn) = transmute(lib.get(b"az_gl_callback_return_delete")?);
@@ -5883,7 +5900,6 @@
             let az_ref_any_partial_cmp: extern "C" fn(_:  &AzRefAny, _:  &AzRefAny) -> u8 = transmute(lib.get(b"az_ref_any_partial_cmp")?);
             let az_ref_any_cmp: extern "C" fn(_:  &AzRefAny, _:  &AzRefAny) -> u8 = transmute(lib.get(b"az_ref_any_cmp")?);
             let az_ref_any_hash: extern "C" fn(_:  &AzRefAny) -> u64 = transmute(lib.get(b"az_ref_any_hash")?);
-            let az_layout_info_ptr_get_gl_context: extern "C" fn(_:  &AzLayoutInfoPtr) -> AzGlContextPtr = transmute(lib.get(b"az_layout_info_ptr_get_gl_context")?);
             let az_layout_info_ptr_delete: extern "C" fn(_:  &mut AzLayoutInfoPtr) = transmute(lib.get(b"az_layout_info_ptr_delete")?);
             let az_layout_info_ptr_fmt_debug: extern "C" fn(_:  &AzLayoutInfoPtr) -> AzString = transmute(lib.get(b"az_layout_info_ptr_fmt_debug")?);
             let az_css_rule_block_delete: extern "C" fn(_:  &mut AzCssRuleBlock) = transmute(lib.get(b"az_css_rule_block_delete")?);
@@ -6442,6 +6458,13 @@
             let az_style_options_partial_cmp: extern "C" fn(_:  &AzStyleOptions, _:  &AzStyleOptions) -> u8 = transmute(lib.get(b"az_style_options_partial_cmp")?);
             let az_style_options_cmp: extern "C" fn(_:  &AzStyleOptions, _:  &AzStyleOptions) -> u8 = transmute(lib.get(b"az_style_options_cmp")?);
             let az_style_options_hash: extern "C" fn(_:  &AzStyleOptions) -> u64 = transmute(lib.get(b"az_style_options_hash")?);
+            let az_content_group_delete: extern "C" fn(_:  &mut AzContentGroup) = transmute(lib.get(b"az_content_group_delete")?);
+            let az_content_group_deep_copy: extern "C" fn(_:  &AzContentGroup) -> AzContentGroup = transmute(lib.get(b"az_content_group_deep_copy")?);
+            let az_content_group_fmt_debug: extern "C" fn(_:  &AzContentGroup) -> AzString = transmute(lib.get(b"az_content_group_fmt_debug")?);
+            let az_content_group_partial_eq: extern "C" fn(_:  &AzContentGroup, _:  &AzContentGroup) -> bool = transmute(lib.get(b"az_content_group_partial_eq")?);
+            let az_content_group_partial_cmp: extern "C" fn(_:  &AzContentGroup, _:  &AzContentGroup) -> u8 = transmute(lib.get(b"az_content_group_partial_cmp")?);
+            let az_content_group_cmp: extern "C" fn(_:  &AzContentGroup, _:  &AzContentGroup) -> u8 = transmute(lib.get(b"az_content_group_cmp")?);
+            let az_content_group_hash: extern "C" fn(_:  &AzContentGroup) -> u64 = transmute(lib.get(b"az_content_group_hash")?);
             let az_styled_dom_new: extern "C" fn(_:  AzDom, _:  AzCss, _:  AzStyleOptions) -> AzStyledDom = transmute(lib.get(b"az_styled_dom_new")?);
             let az_styled_dom_append: extern "C" fn(_:  &mut AzStyledDom, _:  AzStyledDom) = transmute(lib.get(b"az_styled_dom_append")?);
             let az_styled_dom_delete: extern "C" fn(_:  &mut AzStyledDom) = transmute(lib.get(b"az_styled_dom_delete")?);
@@ -7097,7 +7120,7 @@
             let az_full_screen_mode_delete: extern "C" fn(_:  &mut AzFullScreenMode) = transmute(lib.get(b"az_full_screen_mode_delete")?);
             let az_full_screen_mode_deep_copy: extern "C" fn(_:  &AzFullScreenMode) -> AzFullScreenMode = transmute(lib.get(b"az_full_screen_mode_deep_copy")?);
             let az_full_screen_mode_fmt_debug: extern "C" fn(_:  &AzFullScreenMode) -> AzString = transmute(lib.get(b"az_full_screen_mode_fmt_debug")?);
-            let az_window_state_new: extern "C" fn(_:  AzLayoutCallbackType, _:  AzCss) -> AzWindowState = transmute(lib.get(b"az_window_state_new")?);
+            let az_window_state_new: extern "C" fn(_:  AzLayoutCallbackType) -> AzWindowState = transmute(lib.get(b"az_window_state_new")?);
             let az_window_state_delete: extern "C" fn(_:  &mut AzWindowState) = transmute(lib.get(b"az_window_state_delete")?);
             let az_window_state_deep_copy: extern "C" fn(_:  &AzWindowState) -> AzWindowState = transmute(lib.get(b"az_window_state_deep_copy")?);
             let az_window_state_fmt_debug: extern "C" fn(_:  &AzWindowState) -> AzString = transmute(lib.get(b"az_window_state_fmt_debug")?);
@@ -7124,6 +7147,12 @@
                 az_string_partial_cmp,
                 az_string_cmp,
                 az_string_hash,
+                az_content_group_vec_new,
+                az_content_group_vec_with_capacity,
+                az_content_group_vec_copy_from,
+                az_content_group_vec_delete,
+                az_content_group_vec_deep_copy,
+                az_content_group_vec_fmt_debug,
                 az_css_property_vec_new,
                 az_css_property_vec_with_capacity,
                 az_css_property_vec_copy_from,
@@ -7685,8 +7714,6 @@
                 az_i_frame_callback_delete,
                 az_i_frame_callback_deep_copy,
                 az_i_frame_callback_fmt_debug,
-                az_i_frame_callback_info_ptr_get_state,
-                az_i_frame_callback_info_ptr_get_bounds,
                 az_i_frame_callback_info_ptr_delete,
                 az_i_frame_callback_info_ptr_fmt_debug,
                 az_i_frame_callback_return_delete,
@@ -7695,9 +7722,7 @@
                 az_gl_callback_delete,
                 az_gl_callback_deep_copy,
                 az_gl_callback_fmt_debug,
-                az_gl_callback_info_ptr_get_state,
                 az_gl_callback_info_ptr_get_gl_context,
-                az_gl_callback_info_ptr_get_bounds,
                 az_gl_callback_info_ptr_delete,
                 az_gl_callback_info_ptr_fmt_debug,
                 az_gl_callback_return_delete,
@@ -7737,7 +7762,6 @@
                 az_ref_any_partial_cmp,
                 az_ref_any_cmp,
                 az_ref_any_hash,
-                az_layout_info_ptr_get_gl_context,
                 az_layout_info_ptr_delete,
                 az_layout_info_ptr_fmt_debug,
                 az_css_rule_block_delete,
@@ -8296,6 +8320,13 @@
                 az_style_options_partial_cmp,
                 az_style_options_cmp,
                 az_style_options_hash,
+                az_content_group_delete,
+                az_content_group_deep_copy,
+                az_content_group_fmt_debug,
+                az_content_group_partial_eq,
+                az_content_group_partial_cmp,
+                az_content_group_cmp,
+                az_content_group_hash,
                 az_styled_dom_new,
                 az_styled_dom_append,
                 az_styled_dom_delete,

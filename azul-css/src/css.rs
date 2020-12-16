@@ -475,7 +475,7 @@ pub enum CssPathPseudoSelector {
 #[derive(Debug, Copy, Clone, PartialEq, Eq, Hash, PartialOrd, Ord)]
 #[repr(C, u8)]
 pub enum CssNthChildSelector {
-    Number(usize),
+    Number(u32),
     Even,
     Odd,
     Pattern(CssNthChildPattern),
@@ -484,8 +484,8 @@ pub enum CssNthChildSelector {
 #[derive(Debug, Copy, Clone, PartialEq, Eq, Hash, PartialOrd, Ord)]
 #[repr(C)]
 pub struct CssNthChildPattern {
-    pub repeat: usize,
-    pub offset: usize,
+    pub repeat: u32,
+    pub offset: u32,
 }
 
 impl fmt::Display for CssNthChildSelector {

@@ -19,7 +19,7 @@ use azul_text_layout::InlineText;
 pub fn do_the_layout(
     node_hierarchy: &NodeHierarchy,
     node_data: &NodeDataContainer<NodeData>,
-    display_rects: &NodeDataContainer<DisplayRectangle>,
+    display_rects: &NodeDataContainer<StyledNode>,
     app_resources: &AppResources,
     pipeline_id: &PipelineId,
     bounding_rect: LayoutRect,

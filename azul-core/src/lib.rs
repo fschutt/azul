@@ -44,10 +44,8 @@ pub mod xml;
 pub mod traits;
 /// Async (task, thread, timer) helper functions
 pub mod task;
-/// `UiDescription` = CSSOM, cascading
-pub mod ui_description;
-/// Contains functions to build the `Dom`
-pub mod ui_state;
+/// `StyledDom` = CSSOM
+pub mod styled_dom;
 /// Handles the UI layout and UI layout solver
 pub mod ui_solver;
 /// Window creation / interaction with the OS' windowing API

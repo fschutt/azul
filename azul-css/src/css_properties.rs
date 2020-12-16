@@ -2544,6 +2544,7 @@ impl Default for StyleTextAlignmentVert {
 
 /// Stylistic options of the rectangle that don't influence the layout
 #[derive(Default, Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
+#[repr(C)]
 pub struct RectStyle {
 
     pub background: Option<CssPropertyValue<StyleBackgroundContent>>,
@@ -2583,6 +2584,7 @@ pub struct RectStyle {
 
 // Layout constraints for a given rectangle, such as "width", "min-width", "height", etc.
 #[derive(Default, Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
+#[repr(C)]
 pub struct RectLayout {
     pub display: Option<CssPropertyValue<LayoutDisplay>>,
     pub float: Option<CssPropertyValue<LayoutFloat>>,

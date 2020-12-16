@@ -12,12 +12,12 @@ use azul_css_parser::CssPathParseError;
 use crate::{
     FastHashMap,
     app_resources::{AppResources, IdNamespace, Words, WordPositions, ShapedWords, LayoutedGlyphs},
-    dom::{Dom, OptionDom, DomId, TagId, NodeType, NodeData},
+    dom::{Dom, OptionDom, TagId, NodeType, NodeData},
     display_list::CachedDisplayList,
-    ui_state::UiState,
-    ui_description::UiDescription,
+    styled_dom::StyledDom,
     ui_solver::{PositionedRectangle, LayoutedRectangle, ScrolledNodes, LayoutResult},
-    id_tree::{NodeId, Node, NodeHierarchy},
+    id_tree::Node,
+    styled_dom::{AzDomId, AzNodeId},
     window::{
         WindowSize, WindowState, FullWindowState, CallbacksOfHitTest,
         KeyboardState, MouseState, LogicalSize, PhysicalSize,
@@ -437,10 +437,6 @@ pub struct CallbackInfo<'a> {
     pub current_window_state: &'a FullWindowState,
     /// User-modifiable state of the window that the callback was called on
     pub modifiable_window_state: &'a mut WindowState,
-    /// Currently active, layouted rectangles
-    pub layout_result: &'a BTreeMap<DomId, LayoutResult>,
-    /// Nodes that overflow their parents and are able to scroll
-    pub scrolled_nodes: &'a BTreeMap<DomId, ScrolledNodes>,
     /// Current display list active in this window (useful for debugging)
     pub cached_display_list: &'a CachedDisplayList,
     /// An Rc to the OpenGL context, in order to be able to render to OpenGL textures
@@ -452,8 +448,10 @@ pub struct CallbackInfo<'a> {
     pub timers: &'a mut FastHashMap<TimerId, Timer>,
     /// Currently running tasks (asynchronous functions running each on a different thread)
     pub tasks: &'a mut Vec<Task>,
-    /// UiState containing the necessary data for testing what
-    pub ui_state: &'a BTreeMap<DomId, UiState>,
+    /// Currently active, layouted rectangles
+    pub layout_result: &'a BTreeMap<DomId, LayoutResult>,
+    /// Styled DOMs containing styling information
+    pub styled_doms: &'a BTreeMap<DomId, StyledDom>,
     /// Sets whether the event should be propagated to the parent hit node or not
     pub stop_propagation: &'a mut bool,
     /// The callback can change the focus_target - note that the focus_target is set before the
@@ -475,6 +473,133 @@ pub struct CallbackInfo<'a> {
 
 /// Pointer to rust-allocated `Box<CallbackInfo<'a>>` struct
 #[repr(C)] pub struct CallbackInfoPtr { pub ptr: *mut c_void }
+
+#[repr(C)]
+pub struct DomNodeId {
+    pub dom: AzDomId,
+    pub node: AzNodeId,
+}
+
+impl CallbackInfoPtr {
+
+    pub fn get_hit_node(&self) -> NodeId {
+        let self_ptr = self.ptr as *const CallbackInfo<'a>;
+        NodeId { dom: self_ptr.hit_dom_node.0.id, node: self_ptr.hit_dom_node.1 }
+    }
+
+    pub fn get_parent(&self, node_id: DomNodeId) -> OptionNodeId {
+        let self_ptr = self.ptr as *const CallbackInfo<'a>;
+        self_ptr.styled_doms
+        .get(node_id.dom)
+        .and_then(|styled_dom| styled_dom.node_hierarchy.get(node_id.node)?.parent)
+        .map(|parent_node_id| NodeId { dom: node_id.dom, node: parent_node_id })
+        .into()
+    }
+
+    pub fn get_previous_sibling(&self, node_id: DomNodeId) -> OptionNodeId {
+        let self_ptr = self.ptr as *const CallbackInfo<'a>;
+        self_ptr.styled_doms
+        .get(node_id.dom)
+        .and_then(|styled_dom| styled_dom.node_hierarchy.get(node_id.node)?.previous_sibling)
+        .map(|parent_node_id| NodeId { dom: node_id.dom, node: parent_node_id })
+        .into()
+    }
+
+    pub fn get_next_sibling(&self, node_id: DomNodeId) -> OptionNodeId {
+        let self_ptr = self.ptr as *const CallbackInfo<'a>;
+        self_ptr.styled_doms
+        .get(node_id.dom)
+        .and_then(|styled_dom| styled_dom.node_hierarchy.get(node_id.node)?.next_sibling)
+        .map(|parent_node_id| NodeId { dom: node_id.dom, node: parent_node_id })
+        .into()
+    }
+
+    pub fn get_first_child(&self, node_id: DomNodeId) -> OptionNodeId {
+        let self_ptr = self.ptr as *const CallbackInfo<'a>;
+        self_ptr.styled_doms
+        .get(node_id.dom)
+        .and_then(|styled_dom| styled_dom.node_hierarchy.get(node_id.node)?.first_child)
+        .map(|parent_node_id| NodeId { dom: node_id.dom, node: parent_node_id })
+        .into()
+    }
+
+    pub fn node_is_type(&self, node: DomNodeId, node_type: NodeType) -> bool {
+        let self_ptr = self.ptr as *const CallbackInfo<'a>;
+        self_ptr.styled_doms
+        .get(node_id.dom)
+        .and_then(|styled_dom| Some(styled_dom.dom.get(node_id.node)?.is_node_type(node_type)))
+        .unwrap_or(false)
+    }
+
+    pub fn node_has_id(&self, node: DomNodeId, id: AzString) -> bool {
+        let self_ptr = self.ptr as *const CallbackInfo<'a>;
+        self_ptr.styled_doms
+        .get(node_id.dom)
+        .and_then(|styled_dom| Some(styled_dom.dom.get(node_id.node)?.has_id(id.as_str())))
+        .unwrap_or(false)
+    }
+
+    pub fn node_has_class(&self, node: DomNodeId, class: AzString) -> bool {
+        let self_ptr = self.ptr as *const CallbackInfo<'a>;
+        self_ptr.styled_doms
+        .get(node_id.dom)
+        .and_then(|styled_dom| Some(styled_dom.dom.get(node_id.node)?.has_class(class.as_str())))
+        .unwrap_or(false)
+    }
+
+    pub fn get_current_window_state(&self) -> FullWindowState {
+        let self_ptr = self.ptr as *const CallbackInfo<'a>;
+        self_ptr.current_window_state.clone()
+    }
+
+    pub fn get_cursor_in_viewport(&self) -> OptionLayoutPoint {
+        let self_ptr = self.ptr as *const CallbackInfo<'a>;
+        self_ptr.cursor_in_viewport.map(|l| LayoutPoint::new(l.0, l.1)).into()
+    }
+
+    pub fn get_cursor_relative_to_item(&self) -> OptionLayoutPoint {
+        let self_ptr = self.ptr as *const CallbackInfo<'a>;
+        self_ptr.cursor_relative_to_item.map(|l| LayoutPoint::new(l.0, l.1)).into()
+    }
+
+    // pub fn add_font_source()
+    // pub fn remove_font_source()
+    // pub fn add_image_source()
+    // pub fn remove_image_source()
+    // pub fn render_gl_image_mask(curve: [BezierCurve], mask_width: usize, mask_height: usize) -> ImageMask
+
+    // put fn set_gpu_transform(&mut self, node: NodeId, transform: GpuTransform) { }
+    // put fn set_gpu_opacity(&mut self, node: NodeId, opacity: f32) { }
+    // put fn set_gpu_rotation(&mut self, node: NodeId, rotation: f32) { }
+    // put fn set_gpu_scale(&mut self, node: NodeId, scale: f32) { }
+    // pub fn exchange_image_source(old_image_source, new_image_source)
+    // pub fn exchange_image_mask(old_image_mask, new_image_mask)
+
+    pub fn add_task(&mut self, task: Task) {
+        let self_ptr = self.ptr as *mut CallbackInfo<'a>;
+        self_ptr.tasks.push(task);
+    }
+
+    pub fn add_timer(&mut self, timer_id: TimerId, timer: Timer) {
+        let self_ptr = self.ptr as *mut CallbackInfo<'a>;
+        self_ptr.timers.inters(timer_id, timer);
+    }
+
+    pub fn set_window_state(&mut self, new_window_state: WindowState) {
+        let self_ptr = self.ptr as *mut CallbackInfo<'a>;
+        *self_ptr.modifiable_window_state = new_window_state;
+    }
+
+    pub fn stop_propagation(&mut self) {
+        let self_ptr = self.ptr as *mut CallbackInfo<'a>;
+        *self_ptr.stop_propagation = true;
+    }
+
+    pub fn get_gl_context(&self) -> GlContextPtr {
+        let self_ptr = self.ptr as *const CallbackInfo<'a>;
+        self_ptr.gl_context.clone()
+    }
+}
 
 impl Drop for CallbackInfoPtr {
     fn drop<'a>(&mut self) {
@@ -550,10 +675,14 @@ impl_callback!(GlCallback);
 #[derive(Debug)]
 pub struct GlCallbackInfo<'a> {
     pub state: &'a RefAny,
-    pub layout_info: LayoutInfo<'a>,
     #[cfg(feature = "opengl")]
     pub gl_context: &'a GlContextPtr,
+    pub resources: &'a AppResources,
     pub bounds: HidpiAdjustedBounds,
+}
+
+impl<'a> GlCallbackInfo<'a> {
+    impl_get_gl_context!();
 }
 
 /// Pointer to rust-allocated `Box<GlCallbackInfo<'a>>` struct
@@ -591,8 +720,9 @@ impl_callback!(IFrameCallback);
 #[derive(Debug)]
 pub struct IFrameCallbackInfo<'a> {
     pub state: &'a RefAny,
-    pub layout_info: LayoutInfo<'a>,
+    pub resources: &'a AppResources,
     pub bounds: HidpiAdjustedBounds,
+    pub style_options: StyleOptions,
 }
 
 /// Pointer to rust-allocated `Box<IFrameCallbackInfo<'a>>` struct
@@ -613,7 +743,9 @@ impl std::fmt::Debug for IFrameCallbackInfoPtr {
 
 #[derive(Debug, Clone)]
 #[repr(C)]
-pub struct IFrameCallbackReturn { pub dom: OptionDom } // todo: return virtual scrolling frames!
+pub struct IFrameCallbackReturn {
+    pub styled_dom: StyledDom
+}
 
 pub type IFrameCallbackType = extern "C" fn(IFrameCallbackInfoPtr) -> IFrameCallbackReturn;
 
@@ -695,16 +827,8 @@ pub struct LayoutInfo<'a> {
     pub window_size_width_stops: &'a mut Vec<f32>,
     /// Same as `window_size_width_stops` but for the height of the window.
     pub window_size_height_stops: &'a mut Vec<f32>,
-    /// An Rc to the original OpenGL context - this is only so that
-    /// the user can create textures and other OpenGL content in the window
-    #[cfg(feature = "opengl")]
-    pub gl_context: &'a GlContextPtr,
     /// Allows the layout() function to reference app resources such as FontIDs or ImageIDs
     pub resources: &'a AppResources,
-}
-
-impl<'a> LayoutInfo<'a> {
-    impl_get_gl_context!();
 }
 
 impl<'a> LayoutInfo<'a> {
@@ -801,28 +925,23 @@ pub enum FocusTarget {
 }
 
 impl FocusTarget {
-    pub fn resolve(
-        &self,
-        ui_descriptions: &BTreeMap<DomId, UiDescription>,
-        ui_states: &BTreeMap<DomId, UiState>,
-    ) -> Result<Option<(DomId, NodeId)>, UpdateFocusWarning> {
+    pub fn resolve(&self, styled_doms: &BTreeMap<DomId, StyledDom>) -> Result<Option<(DomId, NodeId)>, UpdateFocusWarning> {
 
         use crate::callbacks::FocusTarget::*;
         use crate::style::matches_html_element;
 
         match self {
             Id((dom_id, node_id)) => {
-                let ui_state = ui_states.get(&dom_id).ok_or(UpdateFocusWarning::FocusInvalidDomId(dom_id.clone()))?;
-                let _ = ui_state.dom.arena.node_data.get(*node_id).ok_or(UpdateFocusWarning::FocusInvalidNodeId(*node_id))?;
+                let styled_dom = styled_doms.get(&dom_id).ok_or(UpdateFocusWarning::FocusInvalidDomId(dom_id.clone()))?;
+                let _ = styled_dom.node_data.get(*node_id).ok_or(UpdateFocusWarning::FocusInvalidNodeId(*node_id))?;
                 Ok(Some((dom_id.clone(), *node_id)))
             },
             NoFocus => Ok(None),
             Path((dom_id, css_path)) => {
-                let ui_state = ui_states.get(&dom_id).ok_or(UpdateFocusWarning::FocusInvalidDomId(dom_id.clone()))?;
-                let ui_description = ui_descriptions.get(&dom_id).ok_or(UpdateFocusWarning::FocusInvalidDomId(dom_id.clone()))?;
-                let html_node_tree = &ui_description.html_tree;
-                let node_hierarchy = &ui_state.dom.arena.node_hierarchy;
-                let node_data = &ui_state.dom.arena.node_data;
+                let styled_dom = styled_doms.get(&dom_id).ok_or(UpdateFocusWarning::FocusInvalidDomId(dom_id.clone()))?;
+                let html_node_tree = &styled_dom.html_tree;
+                let node_hierarchy = &styled_dom.node_hierarchy;
+                let node_data = &styled_dom.node_data;
                 let resolved_node_id = html_node_tree
                     .linear_iter()
                     .find(|node_id| matches_html_element(css_path, *node_id, &node_hierarchy, &node_data, &html_node_tree))

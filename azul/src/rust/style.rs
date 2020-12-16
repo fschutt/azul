@@ -110,6 +110,14 @@
     impl Drop for StyleOptions { fn drop(&mut self) { (crate::dll::get_azul_dll().az_style_options_delete)(self); } }
 
 
+    /// `ContentGroup` struct
+    pub use crate::dll::AzContentGroup as ContentGroup;
+
+    impl std::fmt::Debug for ContentGroup { fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result { write!(f, "{}", (crate::dll::get_azul_dll().az_content_group_fmt_debug)(self)) } }
+    impl Clone for ContentGroup { fn clone(&self) -> Self { (crate::dll::get_azul_dll().az_content_group_deep_copy)(self) } }
+    impl Drop for ContentGroup { fn drop(&mut self) { (crate::dll::get_azul_dll().az_content_group_delete)(self); } }
+
+
     /// `StyledDom` struct
     pub use crate::dll::AzStyledDom as StyledDom;
 

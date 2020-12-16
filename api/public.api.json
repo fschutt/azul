@@ -43,6 +43,37 @@
 		"vec": {
 			"doc": "Definition of azuls internal `Vec<*>` wrappers",
 			"classes": {
+				"ContentGroupVec": {
+					"doc": "Wrapper over a Rust-allocated `Vec<ContentGroup>`",
+					"external": "azul_impl::styled_dom::ContentGroupVec",
+					"struct_fields": [
+						{ "ptr": { "type": "*mut ContentGroup" } },
+						{ "len": { "type": "usize" } },
+						{ "cap": { "type": "usize" } }
+					],
+					"constructors": {
+						"new": {
+							"doc": "Creates a new, empty Rust `Vec<ContentGroup>`",
+							"fn_body": "Vec::<AzContentGroup>::new().into()"
+						},
+						"with_capacity": {
+							"doc": "Creates a new, empty Rust `Vec<ContentGroup>` with a given, pre-allocated capacity",
+							"fn_args": [
+							    {"cap": "usize"}
+							],
+							"fn_body": "Vec::<AzContentGroup>::with_capacity(cap).into()"
+						},
+					    "copy_from": {
+					        "doc": "Creates + allocates a Rust `Vec<ContentGroup>` by **copying** it from a bytes source",
+					        "fn_args": [
+					            {"ptr": "*const ContentGroup"},
+					            {"len": "usize"}
+					        ],
+					        "fn_body": "unsafe { std::slice::from_raw_parts(ptr, len).to_vec() }.into()"
+					    }
+					},
+					"destructor": "unsafe { std::ptr::drop_in_place(object.as_mut()); } deallocate_vec(object.as_mut_ptr(), object.capacity());"
+				},
 				"CssPropertyVec": {
 					"doc": "Wrapper over a Rust-allocated `Vec<CssProperty>`",
 					"external": "azul_impl::css::CssPropertyVec",
@@ -2049,7 +2080,7 @@
 				"IFrameCallbackReturn": {
 					"external": "azul_impl::callbacks::IFrameCallbackReturn",
 					"struct_fields": [
-						{"dom": { "type": "OptionDom" }}
+						{"dom": { "type": "StyledDom" }}
 					]
 				},
 
@@ -2265,6 +2296,16 @@
 				"LayoutInfo": {
 					"rust_class_name": "LayoutInfo<'a>",
 					"external": "azul_impl::callbacks::LayoutInfoPtr",
+					"is_boxed_object": true
+				},
+				"IFrameCallbackInfo": {
+					"rust_class_name": "IFrameCallbackInfo<'a>",
+					"external": "azul_impl::callbacks::IFrameCallbackInfoPtr",
+					"is_boxed_object": true
+				},
+				"GlCallbackInfo": {
+					"rust_class_name": "GlCallbackInfo<'a>",
+					"external": "azul_impl::callbacks::GlCallbackInfoPtr",
 					"is_boxed_object": true,
 					"functions": {
 						"get_gl_context": {
@@ -3738,7 +3779,7 @@
 			"classes": {
 				"Node": {
 					"external": "azul_impl::styled_dom::AzNode",
-					"derive": ["Copy", "PartialEq", "Eq", "PartialOrd", "Ord", "Hash"],
+					"derive": ["PartialEq", "Eq", "PartialOrd", "Ord", "Hash"],
 					"struct_fields": [
 						{"parent": {"type": "u32"}},
 						{"previous_sibling": {"type": "u32"}},
@@ -3749,7 +3790,7 @@
 				},
 				"CascadeInfo": {
 					"external": "azul_impl::styled_dom::CascadeInfo",
-					"derive": ["Copy", "PartialEq", "Eq", "PartialOrd", "Ord", "Hash"],
+					"derive": ["PartialEq", "Eq", "PartialOrd", "Ord", "Hash"],
 					"struct_fields": [
 						{"index_in_parent": {"type": "u32"}},
 						{"is_last_child": {"type": "bool"}},
@@ -3864,14 +3905,14 @@
 				},
 				"TagId": {
 					"external": "azul_impl::styled_dom::AzTagId",
-					"derive": ["Copy", "PartialEq", "Eq", "PartialOrd", "Ord", "Hash"],
+					"derive": ["PartialEq", "Eq", "PartialOrd", "Ord", "Hash"],
 					"struct_fields": [
 						{"inner": {"type": "u32"}}
 					]
 				},
 				"TagIdToNodeIdMapping": {
 					"external": "azul_impl::styled_dom::TagIdToNodeIdMapping",
-					"derive": ["Copy", "PartialEq", "Eq", "PartialOrd", "Ord", "Hash"],
+					"derive": ["PartialEq", "Eq", "PartialOrd", "Ord", "Hash"],
 					"struct_fields": [
 						{"tag_id": {"type": "TagId"}},
 						{"node_id": {"type": "NodeId"}},
@@ -3881,7 +3922,7 @@
 				},
 				"HoverGroup": {
 					"external": "azul_impl::styled_dom::HoverGroup",
-					"derive": ["Copy", "PartialEq", "Eq", "PartialOrd", "Ord", "Hash"],
+					"derive": ["PartialEq", "Eq", "PartialOrd", "Ord", "Hash"],
 					"struct_fields": [
 						{"affects_layout": {"type": "bool", "doc": "Whether any CSS property in the `:hover` or `:active` group will trigger a re-layout"}},
 						{"active_or_hover": {"type": "ActiveHover", "doc": "Whether this path ends with `:active` or with `:hover`"}}
@@ -3889,7 +3930,7 @@
 				},
 				"ActiveHover": {
 					"external": "azul_impl::styled_dom::ActiveHover",
-					"derive": ["Copy", "PartialEq", "Eq", "PartialOrd", "Ord", "Hash"],
+					"derive": ["PartialEq", "Eq", "PartialOrd", "Ord", "Hash"],
 					"enum_fields": [
 						{"Active": {}},
     					{"Hover": {}}
@@ -3897,7 +3938,7 @@
 				},
 				"ParentWithNodeDepth": {
 					"external": "azul_impl::styled_dom::ParentWithNodeDepth",
-					"derive": ["Copy", "PartialEq", "Eq", "PartialOrd", "Ord", "Hash"],
+					"derive": ["PartialEq", "Eq", "PartialOrd", "Ord", "Hash"],
 					"struct_fields": [
 						{"depth": {"type": "u32"}},
 						{"node_id": {"type": "NodeId"}}
@@ -3912,6 +3953,14 @@
 						{"is_mouse_down": {"type": "bool"}}
 					]
 				},
+				"ContentGroup": {
+					"external": "azul_impl::styled_dom::StyledDom",
+					"derive": ["PartialEq", "Eq", "PartialOrd", "Ord", "Hash"],
+					"struct_fields": [
+						{"root": {"type": "NodeId" }},
+						{"children": {"type": "ContentGroupVec"}}
+					]
+				},
 				"StyledDom": {
 					"external": "azul_impl::styled_dom::StyledDom",
 					"derive": ["PartialEq", "Eq", "PartialOrd", "Ord", "Hash"],
@@ -3921,7 +3970,8 @@
 						{"node_data": {"type": "NodeDataVec" }},
 						{"styled_nodes": {"type": "StyledNodeVec" }},
 						{"tag_ids_to_node_ids": {"type": "TagIdsToNodeIdsMappingVec" }},
-						{"non_leaf_nodes": {"type": "ParentWithNodeDepthVec" }}
+						{"non_leaf_nodes": {"type": "ParentWithNodeDepthVec" }},
+						{"rects_in_rendering_order": {"type": "ContentGroup" }}
 					],
 					"constructors": {
 						"new": {
@@ -7581,16 +7631,14 @@
 						{"mouse_state": {"type": "MouseState", "doc": "Current mouse state"}},
 						{"ime_position": {"type": "OptionLogicalPosition", "doc": "Sets location of IME candidate box in client area coordinates (relative to the top left of the window)"}},
 						{"platform_specific_options": {"type": "PlatformSpecificOptions", "doc": "Window options that can only be set on a certain platform (`WindowsWindowOptions` / `LinuxWindowOptions` / `MacWindowOptions`)."}},
-						{"css": {"type": "Css"}},
 						{"layout_callback": {"type": "LayoutCallback"}}
 					],
 					"constructors": {
 						"new": {
 							"fn_args":[
-								{"layout_callback": "LayoutCallbackType"},
-								{"css": "Css"}
+								{"layout_callback": "LayoutCallbackType"}
 							],
-							"fn_body": "WindowState::new(layout_callback, css)"
+							"fn_body": "WindowState::new(layout_callback)"
 						}
 					}
 				},

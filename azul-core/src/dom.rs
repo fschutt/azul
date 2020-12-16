@@ -11,7 +11,7 @@ use crate::{
         RefAny,
     },
     app_resources::{ImageId, TextId},
-    id_tree::{Arena, NodeDataContainer},
+    id_tree::NodeDataContainer,
     window::LogicalRect,
 };
 #[cfg(feature = "opengl")]
@@ -932,13 +932,11 @@ pub(crate) fn convert_dom_into_compact_dom(dom: Dom) -> CompactDom {
     // Pre-allocate all nodes (+ 1 root node)
     let default_node_data = NodeData::div();
 
-    let mut arena = Arena {
-        node_hierarchy: NodeHierarchy { internal: vec![Node::ROOT; dom.estimated_total_children + 1] },
-        node_data: NodeDataContainer { internal: vec![default_node_data; dom.estimated_total_children + 1] },
-    };
+    let mut node_hierarchy = NodeHierarchy { internal: vec![Node::ROOT; dom.estimated_total_children + 1] };
+    let mut node_data = NodeDataContainer { internal: vec![default_node_data; dom.estimated_total_children + 1] };
+    let mut cur_node_id = 0;
 
     let root_node_id = NodeId::ZERO;
-    let mut cur_node_id = 0;
     let root_node = Node {
         parent: None,
         previous_sibling: None,
@@ -947,10 +945,11 @@ pub(crate) fn convert_dom_into_compact_dom(dom: Dom) -> CompactDom {
         last_child: if dom.children.is_empty() { None } else { Some(root_node_id + dom.estimated_total_children) },
     };
 
-    convert_dom_into_compact_dom_internal(dom, &mut arena, root_node_id, root_node, &mut cur_node_id);
+    convert_dom_into_compact_dom_internal(dom, &mut node_hierarchy, &mut node_data, root_node_id, root_node, &mut cur_node_id);
 
     CompactDom {
-        arena,
+        node_hierarchy,
+        node_data,
         root: root_node_id,
     }
 }
@@ -958,7 +957,8 @@ pub(crate) fn convert_dom_into_compact_dom(dom: Dom) -> CompactDom {
 // note: somehow convert this into a non-recursive form later on!
 fn convert_dom_into_compact_dom_internal(
     dom: Dom,
-    arena: &mut Arena<NodeData>,
+    node_hierarchy: &mut NodeHierarchy,
+    node_data: &mut NodeDataContainer<NodeData>,
     parent_node_id: NodeId,
     node: Node,
     cur_node_id: &mut usize
@@ -974,8 +974,8 @@ fn convert_dom_into_compact_dom_internal(
     //        - child of child 4 [7]
 
     // Write node into the arena here!
-    arena.node_hierarchy[parent_node_id] = node;
-    arena.node_data[parent_node_id] = dom.root;
+    node_hierarchy[parent_node_id] = node;
+    node_data[parent_node_id] = dom.root;
     *cur_node_id += 1;
 
     let mut previous_sibling_id = None;
@@ -993,7 +993,7 @@ fn convert_dom_into_compact_dom_internal(
         };
         previous_sibling_id = Some(child_node_id);
         // recurse BEFORE adding the next child
-        convert_dom_into_compact_dom_internal(child_dom, arena, child_node_id, child_node, cur_node_id);
+        convert_dom_into_compact_dom_internal(child_dom, node_hierarchy, node_data, child_node_id, child_node, cur_node_id);
     }
 }
 
@@ -1018,52 +1018,50 @@ fn test_compact_dom_conversion() {
 
     let expected_dom: CompactDom = CompactDom {
         root: NodeId::ZERO,
-        arena: Arena {
-            node_hierarchy: NodeHierarchy { internal: vec![
-                Node /* 0 */ {
-                    parent: None,
-                    previous_sibling: None,
-                    next_sibling: None,
-                    first_child: Some(NodeId::new(1)),
-                    last_child: Some(NodeId::new(4)),
-                },
-                Node /* 1 */ {
-                    parent: Some(NodeId::new(0)),
-                    previous_sibling: None,
-                    next_sibling: Some(NodeId::new(2)),
-                    first_child: None,
-                    last_child: None,
-                },
-                Node /* 2 */ {
-                    parent: Some(NodeId::new(0)),
-                    previous_sibling: Some(NodeId::new(1)),
-                    next_sibling: Some(NodeId::new(4)),
-                    first_child: Some(NodeId::new(3)),
-                    last_child: Some(NodeId::new(3)),
-                },
-                Node /* 3 */ {
-                    parent: Some(NodeId::new(2)),
-                    previous_sibling: None,
-                    next_sibling: None,
-                    first_child: None,
-                    last_child: None,
-                },
-                Node /* 4 */ {
-                    parent: Some(NodeId::new(0)),
-                    previous_sibling: Some(NodeId::new(2)),
-                    next_sibling: None,
-                    first_child: None,
-                    last_child: None,
-                },
-            ]},
-            node_data: NodeDataContainer { internal: vec![
-                /* 0 */    NodeData::body(),
-                /* 1 */    NodeData::div().with_classes(c0),
-                /* 2 */    NodeData::div().with_classes(c1),
-                /* 3 */    NodeData::div().with_ids(c2),
-                /* 4 */    NodeData::div().with_classes(c3),
-            ]},
-        },
+        node_hierarchy: NodeHierarchy { internal: vec![
+            Node /* 0 */ {
+                parent: None,
+                previous_sibling: None,
+                next_sibling: None,
+                first_child: Some(NodeId::new(1)),
+                last_child: Some(NodeId::new(4)),
+            },
+            Node /* 1 */ {
+                parent: Some(NodeId::new(0)),
+                previous_sibling: None,
+                next_sibling: Some(NodeId::new(2)),
+                first_child: None,
+                last_child: None,
+            },
+            Node /* 2 */ {
+                parent: Some(NodeId::new(0)),
+                previous_sibling: Some(NodeId::new(1)),
+                next_sibling: Some(NodeId::new(4)),
+                first_child: Some(NodeId::new(3)),
+                last_child: Some(NodeId::new(3)),
+            },
+            Node /* 3 */ {
+                parent: Some(NodeId::new(2)),
+                previous_sibling: None,
+                next_sibling: None,
+                first_child: None,
+                last_child: None,
+            },
+            Node /* 4 */ {
+                parent: Some(NodeId::new(0)),
+                previous_sibling: Some(NodeId::new(2)),
+                next_sibling: None,
+                first_child: None,
+                last_child: None,
+            },
+        ]},
+        node_data: NodeDataContainer { internal: vec![
+            /* 0 */    NodeData::body(),
+            /* 1 */    NodeData::div().with_classes(c0),
+            /* 2 */    NodeData::div().with_classes(c1),
+            /* 3 */    NodeData::div().with_ids(c2),
+            /* 4 */    NodeData::div().with_classes(c3),
+        ]},
     };
 
     let got_dom = convert_dom_into_compact_dom(dom);
@@ -1074,7 +1072,8 @@ fn test_compact_dom_conversion() {
 
 /// Same as `Dom`, but arena-based for more efficient memory layout
 pub struct CompactDom {
-    pub arena: Arena<NodeData>,
+    pub node_hierarchy: NodeHierarchy,
+    pub node_data: NodeDataContainer<NodeData>,
     pub root: NodeId,
 }
 

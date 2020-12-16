@@ -165,7 +165,7 @@ fn parse_nth_child_selector<'a>(value: &'a str) -> Result<CssNthChildSelector, C
         return Err(CssPseudoSelectorParseError::EmptyNthChild);
     }
 
-    if let Ok(number) = value.parse::<usize>() {
+    if let Ok(number) = value.parse::<u32>() {
         return Ok(Number(number));
     }
 
@@ -192,7 +192,7 @@ fn parse_nth_child_pattern<'a>(value: &'a str) -> Result<CssNthChildSelector, Cs
     let repeat = value.split("n").next()
         .ok_or(CssPseudoSelectorParseError::InvalidNthChildPattern(value))?
         .trim()
-        .parse::<usize>()?;
+        .parse::<u32>()?;
 
     // In a "2n+3" form, the first .next() yields the "2n", the second .next() yields the "3"
     let mut offset_iterator = value.split("+");
@@ -206,7 +206,7 @@ fn parse_nth_child_pattern<'a>(value: &'a str) -> Result<CssNthChildSelector, Cs
             if offset_string.is_empty() {
                 return Err(CssPseudoSelectorParseError::InvalidNthChildPattern(value));
             } else {
-                offset_string.parse::<usize>()?
+                offset_string.parse::<u32>()?
             }
         },
         None => 0,

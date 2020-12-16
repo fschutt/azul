@@ -235,7 +235,7 @@
 
     impl WindowState {
         /// Creates a new `WindowState` instance.
-        pub fn new(layout_callback: LayoutCallbackType, css: Css) -> Self { (crate::dll::get_azul_dll().az_window_state_new)(layout_callback, css) }
+        pub fn new(layout_callback: LayoutCallbackType) -> Self { (crate::dll::get_azul_dll().az_window_state_new)(layout_callback) }
     }
 
     impl std::fmt::Debug for WindowState { fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result { write!(f, "{}", (crate::dll::get_azul_dll().az_window_state_fmt_debug)(self)) } }

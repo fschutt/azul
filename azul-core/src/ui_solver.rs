@@ -162,12 +162,16 @@ pub struct OverflowingScrollNode {
 
 #[derive(Debug, Default, Clone)]
 pub struct LayoutResult {
+    pub dom_id: DomId,
+    pub parent_dom_id: Option<DomId>,
+    pub styled_dom: StyledDom,
     pub rects: NodeDataContainer<PositionedRectangle>,
     pub word_cache: BTreeMap<NodeId, Words>,
     pub shaped_words: BTreeMap<NodeId, ShapedWords>,
     pub positioned_word_cache: BTreeMap<NodeId, (WordPositions, FontInstanceKey)>,
     pub layouted_glyph_cache: BTreeMap<NodeId, LayoutedGlyphs>,
-    pub node_depths: Vec<(usize, NodeId)>,
+    pub scrollable_nodes: ScrolledNodes,
+    pub iframe_mapping: Vec<NodeId, DomId>,
 }
 
 /// Layout options that can impact the flow of word positions
