@@ -69,47 +69,6 @@ impl ScrollTagId {
     }
 }
 
-static DOM_ID: AtomicUsize = AtomicUsize::new(1);
-
-/// DomID - used for identifying different DOMs (for example IFrameCallbacks)
-/// have a different DomId than the root DOM
-#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
-pub struct DomId {
-    /// Unique ID for this DOM
-    id: usize,
-    /// If this DOM was generated from an IFrameCallback, stores the parents
-    /// DomId + the NodeId (from the parent DOM) which the IFrameCallback
-    /// was attached to.
-    parent: Option<(Box<DomId>, NodeId)>,
-}
-
-impl DomId {
-
-    /// ID for the top-level DOM (of a window)
-    pub const ROOT_ID: DomId = Self { id: 0, parent: None };
-
-    /// Creates a new, unique DOM ID.
-    #[inline(always)]
-    pub fn new(parent: Option<(DomId, NodeId)>) -> DomId {
-        DomId {
-            id: DOM_ID.fetch_add(1, Ordering::SeqCst),
-            parent: parent.map(|(p, node_id)| (Box::new(p), node_id)),
-        }
-    }
-
-    /// Reset the DOM ID to 0, usually done once-per-frame for the root DOM
-    #[inline(always)]
-    pub fn reset() {
-        DOM_ID.swap(0, Ordering::SeqCst);
-    }
-
-    /// Returns if this is the root node
-    #[inline(always)]
-    pub fn is_root(&self) -> bool {
-        *self == Self::ROOT_ID
-    }
-}
-
 /// Calculated hash of a DOM node, used for querying attributes of the DOM node
 #[derive(Debug, Copy, Clone, Hash, PartialEq, Eq, Ord, PartialOrd)]
 pub struct DomHash(pub u64);
@@ -161,9 +120,7 @@ impl NodeType {
             IFrame(i) => Some(format!("iframe({:?})", i)),
         }
     }
-}
 
-impl NodeType {
     #[inline]
     pub fn get_path(&self) -> NodeTypePath {
         use self::NodeType::*;
@@ -850,271 +807,6 @@ pub struct Dom {
     estimated_total_children: usize,
 }
 
-impl_vec!(Dom, DomVec);
-impl_vec_debug!(Dom, DomVec);
-impl_vec_partialord!(Dom, DomVec);
-impl_vec_ord!(Dom, DomVec);
-impl_vec_clone!(Dom, DomVec);
-impl_vec_partialeq!(Dom, DomVec);
-impl_vec_eq!(Dom, DomVec);
-impl_vec_hash!(Dom, DomVec);
-
-impl_vec!(CallbackData, CallbackDataVec);
-impl_vec_debug!(CallbackData, CallbackDataVec);
-impl_vec_partialord!(CallbackData, CallbackDataVec);
-impl_vec_ord!(CallbackData, CallbackDataVec);
-impl_vec_clone!(CallbackData, CallbackDataVec);
-impl_vec_partialeq!(CallbackData, CallbackDataVec);
-impl_vec_eq!(CallbackData, CallbackDataVec);
-impl_vec_hash!(CallbackData, CallbackDataVec);
-
-impl_option!(TabIndex, OptionTabIndex, [Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash]);
-impl_option!(Dom, OptionDom, copy = false, [Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash]);
-
-fn print_dom(d: &Dom, f: &mut fmt::Formatter) -> fmt::Result {
-    write!(f, "Dom {{\r\n")?;
-    write!(f, "\troot: {:#?}", d.root)?;
-    write!(f, "\testimated_total_children: {:#?}", d.estimated_total_children)?;
-    write!(f, "\tchildren: [")?;
-    for c in d.children.iter() {
-        print_dom(c, f)?;
-    }
-    write!(f, "\t]")?;
-    write!(f, "}}")?;
-    Ok(())
-}
-
-impl fmt::Debug for Dom {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        print_dom(self, f)
-    }
-}
-
-impl FromIterator<Dom> for Dom {
-    fn from_iter<I: IntoIterator<Item=Dom>>(iter: I) -> Self {
-
-        let mut estimated_total_children = 0;
-        let children = iter.into_iter().map(|c| {
-            estimated_total_children += c.estimated_total_children + 1;
-            c
-        }).collect();
-
-        Dom {
-            root: NodeData::div(),
-            children,
-            estimated_total_children,
-        }
-    }
-}
-
-impl FromIterator<NodeData> for Dom {
-    fn from_iter<I: IntoIterator<Item=NodeData>>(iter: I) -> Self {
-
-        let children = iter.into_iter().map(|c| Dom { root: c, children: DomVec::new(), estimated_total_children: 0 }).collect::<DomVec>();
-        let estimated_total_children = children.len();
-
-        Dom {
-            root: NodeData::div(),
-            children: children,
-            estimated_total_children,
-        }
-    }
-}
-
-impl FromIterator<NodeType> for Dom {
-    fn from_iter<I: IntoIterator<Item=NodeType>>(iter: I) -> Self {
-        iter.into_iter().map(|i| NodeData { node_type: i, .. Default::default() }).collect()
-    }
-}
-
-pub(crate) fn convert_dom_into_compact_dom(dom: Dom) -> CompactDom {
-
-    // Pre-allocate all nodes (+ 1 root node)
-    let default_node_data = NodeData::div();
-
-    let mut node_hierarchy = NodeHierarchy { internal: vec![Node::ROOT; dom.estimated_total_children + 1] };
-    let mut node_data = NodeDataContainer { internal: vec![default_node_data; dom.estimated_total_children + 1] };
-    let mut cur_node_id = 0;
-
-    let root_node_id = NodeId::ZERO;
-    let root_node = Node {
-        parent: None,
-        previous_sibling: None,
-        next_sibling: None,
-        first_child: if dom.children.is_empty() { None } else { Some(root_node_id + 1) },
-        last_child: if dom.children.is_empty() { None } else { Some(root_node_id + dom.estimated_total_children) },
-    };
-
-    convert_dom_into_compact_dom_internal(dom, &mut node_hierarchy, &mut node_data, root_node_id, root_node, &mut cur_node_id);
-
-    CompactDom {
-        node_hierarchy,
-        node_data,
-        root: root_node_id,
-    }
-}
-
-// note: somehow convert this into a non-recursive form later on!
-fn convert_dom_into_compact_dom_internal(
-    dom: Dom,
-    node_hierarchy: &mut NodeHierarchy,
-    node_data: &mut NodeDataContainer<NodeData>,
-    parent_node_id: NodeId,
-    node: Node,
-    cur_node_id: &mut usize
-) {
-
-    // - parent [0]
-    //    - child [1]
-    //    - child [2]
-    //        - child of child 2 [2]
-    //        - child of child 2 [4]
-    //    - child [5]
-    //    - child [6]
-    //        - child of child 4 [7]
-
-    // Write node into the arena here!
-    node_hierarchy[parent_node_id] = node;
-    node_data[parent_node_id] = dom.root;
-    *cur_node_id += 1;
-
-    let mut previous_sibling_id = None;
-    let children_len = dom.children.len();
-    for (child_index, child_dom) in dom.children.into_iter().enumerate() {
-        let child_node_id = NodeId::new(*cur_node_id);
-        let is_last_child = (child_index + 1) == children_len;
-        let child_dom_is_empty = child_dom.children.is_empty();
-        let child_node = Node {
-            parent: Some(parent_node_id),
-            previous_sibling: previous_sibling_id,
-            next_sibling: if is_last_child { None } else { Some(child_node_id + child_dom.estimated_total_children + 1) },
-            first_child: if child_dom_is_empty { None } else { Some(child_node_id + 1) },
-            last_child: if child_dom_is_empty { None } else { Some(child_node_id + child_dom.estimated_total_children) },
-        };
-        previous_sibling_id = Some(child_node_id);
-        // recurse BEFORE adding the next child
-        convert_dom_into_compact_dom_internal(child_dom, node_hierarchy, node_data, child_node_id, child_node, cur_node_id);
-    }
-}
-
-#[test]
-fn test_compact_dom_conversion() {
-
-    let dom: Dom = Dom::body()
-        .with_child(Dom::div().with_class("class1"))
-        .with_child(Dom::div().with_class("class1")
-            .with_child(Dom::div().with_id("child_2"))
-        )
-        .with_child(Dom::div().with_class("class1"));
-
-    let c0: Vec<AzString> = vec!["class1".to_string().into()];
-    let c0: StringVec = c0.into();
-    let c1: Vec<AzString> = vec!["class1".to_string().into()];
-    let c1: StringVec = c1.into();
-    let c2: Vec<AzString> = vec!["child_2".to_string().into()];
-    let c2: StringVec = c2.into();
-    let c3: Vec<AzString> = vec!["class1".to_string().into()];
-    let c3: StringVec = c3.into();
-
-    let expected_dom: CompactDom = CompactDom {
-        root: NodeId::ZERO,
-        node_hierarchy: NodeHierarchy { internal: vec![
-            Node /* 0 */ {
-                parent: None,
-                previous_sibling: None,
-                next_sibling: None,
-                first_child: Some(NodeId::new(1)),
-                last_child: Some(NodeId::new(4)),
-            },
-            Node /* 1 */ {
-                parent: Some(NodeId::new(0)),
-                previous_sibling: None,
-                next_sibling: Some(NodeId::new(2)),
-                first_child: None,
-                last_child: None,
-            },
-            Node /* 2 */ {
-                parent: Some(NodeId::new(0)),
-                previous_sibling: Some(NodeId::new(1)),
-                next_sibling: Some(NodeId::new(4)),
-                first_child: Some(NodeId::new(3)),
-                last_child: Some(NodeId::new(3)),
-            },
-            Node /* 3 */ {
-                parent: Some(NodeId::new(2)),
-                previous_sibling: None,
-                next_sibling: None,
-                first_child: None,
-                last_child: None,
-            },
-            Node /* 4 */ {
-                parent: Some(NodeId::new(0)),
-                previous_sibling: Some(NodeId::new(2)),
-                next_sibling: None,
-                first_child: None,
-                last_child: None,
-            },
-        ]},
-        node_data: NodeDataContainer { internal: vec![
-            /* 0 */    NodeData::body(),
-            /* 1 */    NodeData::div().with_classes(c0),
-            /* 2 */    NodeData::div().with_classes(c1),
-            /* 3 */    NodeData::div().with_ids(c2),
-            /* 4 */    NodeData::div().with_classes(c3),
-        ]},
-    };
-
-    let got_dom = convert_dom_into_compact_dom(dom);
-    if got_dom != expected_dom {
-        panic!("{}", format!("expected compact dom: ----\r\n{:#?}\r\n\r\ngot compact dom: ----\r\n{:#?}\r\n", expected_dom, got_dom));
-    }
-}
-
-/// Same as `Dom`, but arena-based for more efficient memory layout
-pub struct CompactDom {
-    pub node_hierarchy: NodeHierarchy,
-    pub node_data: NodeDataContainer<NodeData>,
-    pub root: NodeId,
-}
-
-impl From<Dom> for CompactDom {
-    fn from(dom: Dom) -> Self {
-        convert_dom_into_compact_dom(dom)
-    }
-}
-
-impl CompactDom {
-    /// Returns the number of nodes in this DOM
-    #[inline(always)]
-    pub fn len(&self) -> usize {
-        self.arena.len()
-    }
-}
-
-impl Clone for CompactDom {
-    fn clone(&self) -> Self {
-        CompactDom {
-            arena: self.arena.clone(),
-            root: self.root,
-        }
-    }
-}
-
-impl PartialEq for CompactDom {
-    fn eq(&self, rhs: &Self) -> bool {
-        self.arena == rhs.arena &&
-        self.root == rhs.root
-    }
-}
-
-impl Eq for CompactDom { }
-
-impl fmt::Debug for CompactDom {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        write!(f, "CompactDom {{ arena: {:?}, root: {:?} }}", self.arena, self.root)
-    }
-}
-
 impl Dom {
 
     /// Creates an empty DOM with a give `NodeType`. Note: This is a `const fn` and
@@ -1294,6 +986,37 @@ impl Dom {
     /// </div>
     /// ```
     pub fn get_html_string(&self) -> String {
+
+
+        fn get_html_string_inner(dom: &Dom, output: &mut String, indent: usize) {
+            let tabs = String::from("    ").repeat(indent);
+
+            let content = dom.root.node_type.get_text_content();
+            let print_self_closing_tag = dom.children.is_empty() && content.is_none();
+
+            output.push_str("\r\n");
+            output.push_str(&tabs);
+            output.push_str(&dom.root.debug_print_start(print_self_closing_tag));
+
+            if let Some(content) = &content {
+                output.push_str("\r\n");
+                output.push_str(&tabs);
+                output.push_str(&"    ");
+                output.push_str(content);
+            }
+
+            if !print_self_closing_tag {
+
+                for c in dom.children.iter() {
+                    get_html_string_inner(c, output, indent + 1);
+                }
+
+                output.push_str("\r\n");
+                output.push_str(&tabs);
+                output.push_str(&dom.root.debug_print_end());
+            }
+        }
+
         let mut output = String::new();
         get_html_string_inner(self, &mut output, 0);
         output.trim().to_string()
@@ -1306,35 +1029,270 @@ impl Dom {
     pub fn has_id(&self, id: &str) -> bool { self.root.has_id(id) }
     /// Checks whether this node has the searched class attached
     pub fn has_class(&self, class: &str) -> bool { self.root.has_class(class) }
-
 }
 
-fn get_html_string_inner(dom: &Dom, output: &mut String, indent: usize) {
-    let tabs = String::from("    ").repeat(indent);
+impl_vec!(Dom, DomVec);
+impl_vec_debug!(Dom, DomVec);
+impl_vec_partialord!(Dom, DomVec);
+impl_vec_ord!(Dom, DomVec);
+impl_vec_clone!(Dom, DomVec);
+impl_vec_partialeq!(Dom, DomVec);
+impl_vec_eq!(Dom, DomVec);
+impl_vec_hash!(Dom, DomVec);
 
-    let content = dom.root.node_type.get_text_content();
-    let print_self_closing_tag = dom.children.is_empty() && content.is_none();
+impl_vec!(CallbackData, CallbackDataVec);
+impl_vec_debug!(CallbackData, CallbackDataVec);
+impl_vec_partialord!(CallbackData, CallbackDataVec);
+impl_vec_ord!(CallbackData, CallbackDataVec);
+impl_vec_clone!(CallbackData, CallbackDataVec);
+impl_vec_partialeq!(CallbackData, CallbackDataVec);
+impl_vec_eq!(CallbackData, CallbackDataVec);
+impl_vec_hash!(CallbackData, CallbackDataVec);
 
-    output.push_str("\r\n");
-    output.push_str(&tabs);
-    output.push_str(&dom.root.debug_print_start(print_self_closing_tag));
+impl_option!(TabIndex, OptionTabIndex, [Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash]);
+impl_option!(Dom, OptionDom, copy = false, [Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash]);
 
-    if let Some(content) = &content {
-        output.push_str("\r\n");
-        output.push_str(&tabs);
-        output.push_str(&"    ");
-        output.push_str(content);
+fn print_dom(d: &Dom, f: &mut fmt::Formatter) -> fmt::Result {
+    write!(f, "Dom {{\r\n")?;
+    write!(f, "\troot: {:#?}", d.root)?;
+    write!(f, "\testimated_total_children: {:#?}", d.estimated_total_children)?;
+    write!(f, "\tchildren: [")?;
+    for c in d.children.iter() {
+        print_dom(c, f)?;
     }
+    write!(f, "\t]")?;
+    write!(f, "}}")?;
+    Ok(())
+}
 
-    if !print_self_closing_tag {
+impl fmt::Debug for Dom {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        print_dom(self, f)
+    }
+}
 
-        for c in dom.children.iter() {
-            get_html_string_inner(c, output, indent + 1);
+impl FromIterator<Dom> for Dom {
+    fn from_iter<I: IntoIterator<Item=Dom>>(iter: I) -> Self {
+
+        let mut estimated_total_children = 0;
+        let children = iter.into_iter().map(|c| {
+            estimated_total_children += c.estimated_total_children + 1;
+            c
+        }).collect();
+
+        Dom {
+            root: NodeData::div(),
+            children,
+            estimated_total_children,
         }
+    }
+}
 
-        output.push_str("\r\n");
-        output.push_str(&tabs);
-        output.push_str(&dom.root.debug_print_end());
+impl FromIterator<NodeData> for Dom {
+    fn from_iter<I: IntoIterator<Item=NodeData>>(iter: I) -> Self {
+
+        let children = iter.into_iter().map(|c| Dom { root: c, children: DomVec::new(), estimated_total_children: 0 }).collect::<DomVec>();
+        let estimated_total_children = children.len();
+
+        Dom {
+            root: NodeData::div(),
+            children: children,
+            estimated_total_children,
+        }
+    }
+}
+
+impl FromIterator<NodeType> for Dom {
+    fn from_iter<I: IntoIterator<Item=NodeType>>(iter: I) -> Self {
+        iter.into_iter().map(|i| NodeData { node_type: i, .. Default::default() }).collect()
+    }
+}
+
+/// Same as `Dom`, but arena-based for more efficient memory layout
+pub struct CompactDom {
+    pub node_hierarchy: NodeHierarchy,
+    pub node_data: NodeDataContainer<NodeData>,
+    pub root: NodeId,
+}
+
+impl From<Dom> for CompactDom {
+    fn from(dom: Dom) -> Self {
+        convert_dom_into_compact_dom(dom)
+    }
+}
+
+impl CompactDom {
+    /// Returns the number of nodes in this DOM
+    #[inline(always)]
+    pub fn len(&self) -> usize {
+        self.arena.len()
+    }
+}
+
+impl Clone for CompactDom {
+    fn clone(&self) -> Self {
+        CompactDom {
+            arena: self.arena.clone(),
+            root: self.root,
+        }
+    }
+}
+
+impl PartialEq for CompactDom {
+    fn eq(&self, rhs: &Self) -> bool {
+        self.arena == rhs.arena &&
+        self.root == rhs.root
+    }
+}
+
+impl Eq for CompactDom { }
+
+impl fmt::Debug for CompactDom {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        write!(f, "CompactDom {{ arena: {:?}, root: {:?} }}", self.arena, self.root)
+    }
+}
+
+pub(crate) fn convert_dom_into_compact_dom(dom: Dom) -> CompactDom {
+
+    // Pre-allocate all nodes (+ 1 root node)
+    let default_node_data = NodeData::div();
+
+    let mut node_hierarchy = NodeHierarchy { internal: vec![Node::ROOT; dom.estimated_total_children + 1] };
+    let mut node_data = NodeDataContainer { internal: vec![default_node_data; dom.estimated_total_children + 1] };
+    let mut cur_node_id = 0;
+
+    let root_node_id = NodeId::ZERO;
+    let root_node = Node {
+        parent: None,
+        previous_sibling: None,
+        next_sibling: None,
+        first_child: if dom.children.is_empty() { None } else { Some(root_node_id + 1) },
+        last_child: if dom.children.is_empty() { None } else { Some(root_node_id + dom.estimated_total_children) },
+    };
+
+    convert_dom_into_compact_dom_internal(dom, &mut node_hierarchy, &mut node_data, root_node_id, root_node, &mut cur_node_id);
+
+    CompactDom {
+        node_hierarchy,
+        node_data,
+        root: root_node_id,
+    }
+}
+
+// note: somehow convert this into a non-recursive form later on!
+fn convert_dom_into_compact_dom_internal(
+    dom: Dom,
+    node_hierarchy: &mut NodeHierarchy,
+    node_data: &mut NodeDataContainer<NodeData>,
+    parent_node_id: NodeId,
+    node: Node,
+    cur_node_id: &mut usize
+) {
+
+    // - parent [0]
+    //    - child [1]
+    //    - child [2]
+    //        - child of child 2 [2]
+    //        - child of child 2 [4]
+    //    - child [5]
+    //    - child [6]
+    //        - child of child 4 [7]
+
+    // Write node into the arena here!
+    node_hierarchy[parent_node_id] = node;
+    node_data[parent_node_id] = dom.root;
+    *cur_node_id += 1;
+
+    let mut previous_sibling_id = None;
+    let children_len = dom.children.len();
+    for (child_index, child_dom) in dom.children.into_iter().enumerate() {
+        let child_node_id = NodeId::new(*cur_node_id);
+        let is_last_child = (child_index + 1) == children_len;
+        let child_dom_is_empty = child_dom.children.is_empty();
+        let child_node = Node {
+            parent: Some(parent_node_id),
+            previous_sibling: previous_sibling_id,
+            next_sibling: if is_last_child { None } else { Some(child_node_id + child_dom.estimated_total_children + 1) },
+            first_child: if child_dom_is_empty { None } else { Some(child_node_id + 1) },
+            last_child: if child_dom_is_empty { None } else { Some(child_node_id + child_dom.estimated_total_children) },
+        };
+        previous_sibling_id = Some(child_node_id);
+        // recurse BEFORE adding the next child
+        convert_dom_into_compact_dom_internal(child_dom, node_hierarchy, node_data, child_node_id, child_node, cur_node_id);
+    }
+}
+
+#[test]
+fn test_compact_dom_conversion() {
+
+    let dom: Dom = Dom::body()
+        .with_child(Dom::div().with_class("class1"))
+        .with_child(Dom::div().with_class("class1")
+            .with_child(Dom::div().with_id("child_2"))
+        )
+        .with_child(Dom::div().with_class("class1"));
+
+    let c0: Vec<AzString> = vec!["class1".to_string().into()];
+    let c0: StringVec = c0.into();
+    let c1: Vec<AzString> = vec!["class1".to_string().into()];
+    let c1: StringVec = c1.into();
+    let c2: Vec<AzString> = vec!["child_2".to_string().into()];
+    let c2: StringVec = c2.into();
+    let c3: Vec<AzString> = vec!["class1".to_string().into()];
+    let c3: StringVec = c3.into();
+
+    let expected_dom: CompactDom = CompactDom {
+        root: NodeId::ZERO,
+        node_hierarchy: NodeHierarchy { internal: vec![
+            Node /* 0 */ {
+                parent: None,
+                previous_sibling: None,
+                next_sibling: None,
+                first_child: Some(NodeId::new(1)),
+                last_child: Some(NodeId::new(4)),
+            },
+            Node /* 1 */ {
+                parent: Some(NodeId::new(0)),
+                previous_sibling: None,
+                next_sibling: Some(NodeId::new(2)),
+                first_child: None,
+                last_child: None,
+            },
+            Node /* 2 */ {
+                parent: Some(NodeId::new(0)),
+                previous_sibling: Some(NodeId::new(1)),
+                next_sibling: Some(NodeId::new(4)),
+                first_child: Some(NodeId::new(3)),
+                last_child: Some(NodeId::new(3)),
+            },
+            Node /* 3 */ {
+                parent: Some(NodeId::new(2)),
+                previous_sibling: None,
+                next_sibling: None,
+                first_child: None,
+                last_child: None,
+            },
+            Node /* 4 */ {
+                parent: Some(NodeId::new(0)),
+                previous_sibling: Some(NodeId::new(2)),
+                next_sibling: None,
+                first_child: None,
+                last_child: None,
+            },
+        ]},
+        node_data: NodeDataContainer { internal: vec![
+            /* 0 */    NodeData::body(),
+            /* 1 */    NodeData::div().with_classes(c0),
+            /* 2 */    NodeData::div().with_classes(c1),
+            /* 3 */    NodeData::div().with_ids(c2),
+            /* 4 */    NodeData::div().with_classes(c3),
+        ]},
+    };
+
+    let got_dom = convert_dom_into_compact_dom(dom);
+    if got_dom != expected_dom {
+        panic!("{}", format!("expected compact dom: ----\r\n{:#?}\r\n\r\ngot compact dom: ----\r\n{:#?}\r\n", expected_dom, got_dom));
     }
 }
 
