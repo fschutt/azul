@@ -1369,9 +1369,9 @@ pub fn do_the_layout<U: FontImageApi>(
     resolved_doms
 }
 
-/// At this point in time, all font keys, image keys, etc. have
-/// to be already submitted in the RenderApi!
-fn do_the_layout_internal(
+/// At this point in time, all font keys, image keys, etc. have to be already
+/// been submitted to the RenderApi and the AppResources!
+pub fn do_the_layout_internal(
     dom_id: DomId,
     parent_dom_id: Option<DomId>,
     styled_dom: StyledDom,

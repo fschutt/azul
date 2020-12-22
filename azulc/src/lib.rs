@@ -22,8 +22,8 @@ extern crate image as image_crate;
 pub mod xml;
 #[cfg(feature = "svg")]
 pub mod svg;
-/// XML-based DOM serialization and XML-to-Rust compiler implementation
-pub mod xml_parser;
+// /// XML-based DOM serialization and XML-to-Rust compiler implementation
+// pub mod xml_parser;
 /// Module for compiling CSS to Rust code
 pub mod css;
 #[cfg(feature = "font_loading")]

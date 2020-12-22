@@ -1,5 +1,7 @@
 use azul_css::RectLayout;
 use azul_core::id_tree::{Node, NodeId, NodeHierarchy, NodeDataContainer};
+use azul_core::styled_dom::{AzNode, AzNodeId, StyledNode, ParentWithNodeDepth};
+use azul_core::id_tree::NodeDepths;
 use crate::layout_solver::{
     WhConstraint, determine_preferred_width,
     WidthCalculatedRect, WidthSolvedResult,
@@ -77,13 +79,19 @@ fn get_testing_hierarchy() -> NodeHierarchy {
 
 /// Returns the same arena, but pre-fills nodes at [(NodeId, RectLayout)]
 /// with the layout rect
-fn get_display_rectangle_arena(constraints: &[(usize, RectLayout)]) -> (NodeHierarchy, NodeDataContainer<RectLayout>) {
-    let arena = get_testing_hierarchy();
-    let mut arena_data = vec![RectLayout::default(); arena.len()];
+fn get_display_rectangle_arena(constraints: &[(usize, RectLayout)]) -> (NodeDataContainer<AzNode>, Vec<ParentWithNodeDepth>, NodeDataContainer<StyledNode>) {
+    let node_hierarchy = get_testing_hierarchy();
+    let node_depths = node_hierarchy.as_ref().get_parents_sorted_by_depth();
+    let mut node_data = vec![StyledNode::default(); node_hierarchy.as_ref().len()];
     for (id, rect) in constraints {
-        arena_data[*id] = *rect;
+        node_data[*id].layout = *rect;
     }
-    (arena, NodeDataContainer { internal: arena_data })
+
+    (
+     NodeDataContainer { internal: node_hierarchy.internal.into_iter().map(|i| AzNode::from(i)).collect() },
+     node_depths.into_iter().map(|(depth, node_id)| ParentWithNodeDepth { depth, node_id: AzNodeId::from_crate_internal(Some(node_id)) }).collect(),
+     NodeDataContainer { internal: node_data }
+    )
 }
 
 #[test]
@@ -91,18 +99,28 @@ fn test_full_dom() {
 
     use azul_core::{
         dom::Dom,
+        callbacks::PipelineId,
         app_resources::AppResources,
-        styled_dom::{StyleOptions, StyledDom}
+        styled_dom::{DomId, StyledDom}
     };
-    use azul_css::Css;
+    use azul_css::{Css, LayoutPoint, LayoutSize, LayoutRect};
 
     let mut app_resources = AppResources::default();
-    let dom = Dom::div();
+    let dom = Dom::body();
     let css = Css::empty();
 
-    let styled_dom = StyledDom::new(dom, &css, StyleOptions::default());
-    let window_state = WindowState::default();
-    let layout_result = do_the_layout(&styled_dom, &mut app_resources, PipelineId::new(0), window_state.size);
+    let styled_dom = StyledDom::new(dom, &css);
+
+    let layout_result = crate::layout_solver::do_the_layout_internal(
+        DomId::ROOT_ID,
+        None,
+        styled_dom,
+        &mut app_resources,
+        PipelineId::DUMMY,
+        LayoutRect::new(LayoutPoint::zero(), LayoutSize::new(800.0, 600.0))
+    );
+
+    println!("layout result: {:#?}", layout_result);
 
     // loop {
     //
@@ -125,75 +143,103 @@ fn test_full_dom() {
 #[test]
 fn test_determine_preferred_width() {
     use azul_css::{LayoutMinWidth, LayoutMaxWidth, PixelValue, LayoutWidth};
+    use azul_core::styled_dom::StyledNode;
 
-    let layout = RectLayout {
-        width: None,
-        min_width: None,
-        max_width: None,
+    let layout = StyledNode {
+        layout: RectLayout {
+            width: None,
+            min_width: None,
+            max_width: None,
+            .. Default::default()
+        },
         .. Default::default()
     };
     assert_eq!(determine_preferred_width(&layout, None, 800.0), WhConstraint::Unconstrained);
 
-    let layout = RectLayout {
-        width: Some(LayoutWidth { inner: PixelValue::px(500.0) }.into()),
-        min_width: None,
-        max_width: None,
+    let layout = StyledNode {
+        layout: RectLayout {
+            width: Some(LayoutWidth { inner: PixelValue::px(500.0) }.into()),
+            min_width: None,
+            max_width: None,
+            .. Default::default()
+        },
         .. Default::default()
     };
     assert_eq!(determine_preferred_width(&layout, None, 800.0), WhConstraint::EqualTo(500.0));
 
-    let layout = RectLayout {
-        width: Some(LayoutWidth { inner: PixelValue::px(500.0) }.into()),
-        min_width: Some(LayoutMinWidth { inner: PixelValue::px(600.0) }.into()),
-        max_width: None,
+    let layout = StyledNode {
+        layout: RectLayout {
+            width: Some(LayoutWidth { inner: PixelValue::px(500.0) }.into()),
+            min_width: Some(LayoutMinWidth { inner: PixelValue::px(600.0) }.into()),
+            max_width: None,
+            .. Default::default()
+        },
         .. Default::default()
     };
     assert_eq!(determine_preferred_width(&layout, None, 800.0), WhConstraint::EqualTo(600.0));
 
-    let layout = RectLayout {
-        width: Some(LayoutWidth { inner: PixelValue::px(10000.0) }.into()),
-        min_width: Some(LayoutMinWidth { inner: PixelValue::px(600.0) }.into()),
-        max_width: Some(LayoutMaxWidth { inner: PixelValue::px(800.0) }.into()),
+    let layout = StyledNode {
+        layout: RectLayout {
+            width: Some(LayoutWidth { inner: PixelValue::px(10000.0) }.into()),
+            min_width: Some(LayoutMinWidth { inner: PixelValue::px(600.0) }.into()),
+            max_width: Some(LayoutMaxWidth { inner: PixelValue::px(800.0) }.into()),
+            .. Default::default()
+        },
         .. Default::default()
     };
     assert_eq!(determine_preferred_width(&layout, None, 800.0), WhConstraint::EqualTo(800.0));
 
-    let layout = RectLayout {
-        width: None,
-        min_width: Some(LayoutMinWidth { inner: PixelValue::px(600.0) }.into()),
-        max_width: Some(LayoutMaxWidth { inner: PixelValue::px(800.0) }.into()),
+    let layout = StyledNode {
+        layout: RectLayout {
+            width: None,
+            min_width: Some(LayoutMinWidth { inner: PixelValue::px(600.0) }.into()),
+            max_width: Some(LayoutMaxWidth { inner: PixelValue::px(800.0) }.into()),
+            .. Default::default()
+        },
         .. Default::default()
     };
     assert_eq!(determine_preferred_width(&layout, None, 800.0), WhConstraint::Between(600.0, 800.0));
 
-    let layout = RectLayout {
-        width: None,
-        min_width: None,
-        max_width: Some(LayoutMaxWidth { inner: PixelValue::px(800.0) }.into()),
+    let layout = StyledNode {
+        layout: RectLayout {
+            width: None,
+            min_width: None,
+            max_width: Some(LayoutMaxWidth { inner: PixelValue::px(800.0) }.into()),
+            .. Default::default()
+        },
         .. Default::default()
     };
     assert_eq!(determine_preferred_width(&layout, None, 800.0), WhConstraint::Between(0.0, 800.0));
 
-    let layout = RectLayout {
-        width: Some(LayoutWidth { inner: PixelValue::px(1000.0) }.into()),
-        min_width: None,
-        max_width: Some(LayoutMaxWidth { inner: PixelValue::px(800.0) }.into()),
+    let layout = StyledNode {
+        layout: RectLayout {
+            width: Some(LayoutWidth { inner: PixelValue::px(1000.0) }.into()),
+            min_width: None,
+            max_width: Some(LayoutMaxWidth { inner: PixelValue::px(800.0) }.into()),
+            .. Default::default()
+        },
         .. Default::default()
     };
     assert_eq!(determine_preferred_width(&layout, None, 800.0), WhConstraint::EqualTo(800.0));
 
-    let layout = RectLayout {
-        width: Some(LayoutWidth { inner: PixelValue::px(1200.0) }.into()),
-        min_width: Some(LayoutMinWidth { inner: PixelValue::px(1000.0) }.into()),
-        max_width: Some(LayoutMaxWidth { inner: PixelValue::px(800.0) }.into()),
+    let layout = StyledNode {
+        layout: RectLayout {
+            width: Some(LayoutWidth { inner: PixelValue::px(1200.0) }.into()),
+            min_width: Some(LayoutMinWidth { inner: PixelValue::px(1000.0) }.into()),
+            max_width: Some(LayoutMaxWidth { inner: PixelValue::px(800.0) }.into()),
+            .. Default::default()
+        },
         .. Default::default()
     };
     assert_eq!(determine_preferred_width(&layout, None, 800.0), WhConstraint::EqualTo(800.0));
 
-    let layout = RectLayout {
-        width: Some(LayoutWidth { inner: PixelValue::px(1200.0)}.into()),
-        min_width: Some(LayoutMinWidth { inner: PixelValue::px(1000.0)}.into()),
-        max_width: Some(LayoutMaxWidth { inner: PixelValue::px(400.0)}.into()),
+    let layout = StyledNode {
+        layout: RectLayout {
+            width: Some(LayoutWidth { inner: PixelValue::px(1200.0)}.into()),
+            min_width: Some(LayoutMinWidth { inner: PixelValue::px(1000.0)}.into()),
+            max_width: Some(LayoutMaxWidth { inner: PixelValue::px(400.0)}.into()),
+            .. Default::default()
+        },
         .. Default::default()
     };
     assert_eq!(determine_preferred_width(&layout, None, 800.0), WhConstraint::EqualTo(400.0));
@@ -205,7 +251,7 @@ fn test_fill_out_preferred_width() {
 
     use azul_css::*;
 
-    let (node_hierarchy, node_data) = get_display_rectangle_arena(&[
+    let (node_hierarchy, node_depths, node_data) = get_display_rectangle_arena(&[
         (0, RectLayout {
             direction: Some(LayoutDirection::Row.into()),
             .. Default::default()
@@ -223,48 +269,52 @@ fn test_fill_out_preferred_width() {
         })
     ]);
 
-    let preferred_widths = node_data.transform(|_, _| None);
-    let mut width_filled_out_data = width_calculated_rect_arena_from_rect_layout_arena(&node_data, &preferred_widths, &node_hierarchy);
+    let preferred_widths = node_data.as_ref().transform(|_, _| None);
+    let mut width_filled_out_data = width_calculated_rect_arena_from_rect_layout_arena(
+            &node_data.as_ref(),
+            &preferred_widths.as_ref(),
+            &node_hierarchy.as_ref(),
+            &node_depths,
+    );
 
     // Test some basic stuff - test that `get_flex_basis` works
 
     // Nodes 0, 2, 3, 4 and 5 have no basis
-    assert_eq!(width_filled_out_data[NodeId::new(0)].get_flex_basis_horizontal(800.0), 0.0);
+    assert_eq!(width_filled_out_data.as_ref()[NodeId::new(0)].get_flex_basis_horizontal(800.0), 0.0);
 
     // Node 1 has a padding on left and right of 20, so a flex-basis of 40.0
-    assert_eq!(width_filled_out_data[NodeId::new(1)].get_flex_basis_horizontal(800.0), 40.0);
-    assert_eq!(width_filled_out_data[NodeId::new(1)].get_horizontal_padding(800.0), 40.0);
+    assert_eq!(width_filled_out_data.as_ref()[NodeId::new(1)].get_flex_basis_horizontal(800.0), 40.0);
+    assert_eq!(width_filled_out_data.as_ref()[NodeId::new(1)].get_horizontal_padding(800.0), 40.0);
 
-    assert_eq!(width_filled_out_data[NodeId::new(2)].get_flex_basis_horizontal(800.0), 0.0);
-    assert_eq!(width_filled_out_data[NodeId::new(3)].get_flex_basis_horizontal(800.0), 0.0);
-    assert_eq!(width_filled_out_data[NodeId::new(4)].get_flex_basis_horizontal(800.0), 0.0);
-    assert_eq!(width_filled_out_data[NodeId::new(5)].get_flex_basis_horizontal(800.0), 0.0);
+    assert_eq!(width_filled_out_data.as_ref()[NodeId::new(2)].get_flex_basis_horizontal(800.0), 0.0);
+    assert_eq!(width_filled_out_data.as_ref()[NodeId::new(3)].get_flex_basis_horizontal(800.0), 0.0);
+    assert_eq!(width_filled_out_data.as_ref()[NodeId::new(4)].get_flex_basis_horizontal(800.0), 0.0);
+    assert_eq!(width_filled_out_data.as_ref()[NodeId::new(5)].get_flex_basis_horizontal(800.0), 0.0);
 
-    assert_eq!(width_filled_out_data[NodeId::new(0)].preferred_width, WhConstraint::Unconstrained);
-    assert_eq!(width_filled_out_data[NodeId::new(1)].preferred_width, WhConstraint::Between(0.0, 200.0));
-    assert_eq!(width_filled_out_data[NodeId::new(2)].preferred_width, WhConstraint::Unconstrained);
-    assert_eq!(width_filled_out_data[NodeId::new(3)].preferred_width, WhConstraint::Unconstrained);
-    assert_eq!(width_filled_out_data[NodeId::new(4)].preferred_width, WhConstraint::Unconstrained);
-    assert_eq!(width_filled_out_data[NodeId::new(5)].preferred_width, WhConstraint::Unconstrained);
+    assert_eq!(width_filled_out_data.as_ref()[NodeId::new(0)].preferred_width, WhConstraint::Unconstrained);
+    assert_eq!(width_filled_out_data.as_ref()[NodeId::new(1)].preferred_width, WhConstraint::Between(0.0, 200.0));
+    assert_eq!(width_filled_out_data.as_ref()[NodeId::new(2)].preferred_width, WhConstraint::Unconstrained);
+    assert_eq!(width_filled_out_data.as_ref()[NodeId::new(3)].preferred_width, WhConstraint::Unconstrained);
+    assert_eq!(width_filled_out_data.as_ref()[NodeId::new(4)].preferred_width, WhConstraint::Unconstrained);
+    assert_eq!(width_filled_out_data.as_ref()[NodeId::new(5)].preferred_width, WhConstraint::Unconstrained);
 
     // Test the flex-basis sum
-    assert_eq!(width_calculated_rect_arena_sum_children_flex_basis(&width_filled_out_data, NodeId::new(2), &node_hierarchy, &node_data), 0.0);
-    assert_eq!(width_calculated_rect_arena_sum_children_flex_basis(&width_filled_out_data, NodeId::new(1), &node_hierarchy, &node_data), 0.0);
-    assert_eq!(width_calculated_rect_arena_sum_children_flex_basis(&width_filled_out_data, NodeId::new(0), &node_hierarchy, &node_data), 40.0);
+    assert_eq!(width_calculated_rect_arena_sum_children_flex_basis(&width_filled_out_data.as_ref(), NodeId::new(2), &node_hierarchy.as_ref(), &node_data.as_ref()), 0.0);
+    assert_eq!(width_calculated_rect_arena_sum_children_flex_basis(&width_filled_out_data.as_ref(), NodeId::new(1), &node_hierarchy.as_ref(), &node_data.as_ref()), 0.0);
+    assert_eq!(width_calculated_rect_arena_sum_children_flex_basis(&width_filled_out_data.as_ref(), NodeId::new(0), &node_hierarchy.as_ref(), &node_data.as_ref()), 40.0);
 
     // -- Section 2: Test that size-bubbling works:
     //
     // Size-bubbling should take the 40px padding and "bubble" it towards the
-    let non_leaf_nodes_sorted_by_depth = node_hierarchy.get_parents_sorted_by_depth();
 
     // ID 5 has no child, so it's not returned, same as 3 and 4
-    assert_eq!(non_leaf_nodes_sorted_by_depth, vec![
-        (0, NodeId::new(0)),
-        (1, NodeId::new(1)),
-        (2, NodeId::new(2)),
+    assert_eq!(node_depths, vec![
+        ParentWithNodeDepth { depth: 0, node_id: AzNodeId::from_crate_internal(Some(NodeId::new(0))) },
+        ParentWithNodeDepth { depth: 1, node_id: AzNodeId::from_crate_internal(Some(NodeId::new(1))) },
+        ParentWithNodeDepth { depth: 2, node_id: AzNodeId::from_crate_internal(Some(NodeId::new(2))) },
     ]);
 
-    bubble_preferred_widths_to_parents(&mut width_filled_out_data, &node_hierarchy, &node_data, &non_leaf_nodes_sorted_by_depth);
+    bubble_preferred_widths_to_parents(&mut width_filled_out_data, &node_hierarchy.as_ref(), &node_data.as_ref(), &node_depths);
 
     // This step shouldn't have touched the flex_grow_px
     for node in &width_filled_out_data.internal {
@@ -272,25 +322,25 @@ fn test_fill_out_preferred_width() {
     }
 
     // This step should not modify the `preferred_width`
-    assert_eq!(width_filled_out_data[NodeId::new(0)].preferred_width, WhConstraint::Unconstrained);
-    assert_eq!(width_filled_out_data[NodeId::new(1)].preferred_width, WhConstraint::Between(0.0, 200.0));
-    assert_eq!(width_filled_out_data[NodeId::new(2)].preferred_width, WhConstraint::Unconstrained);
-    assert_eq!(width_filled_out_data[NodeId::new(3)].preferred_width, WhConstraint::Unconstrained);
-    assert_eq!(width_filled_out_data[NodeId::new(4)].preferred_width, WhConstraint::Unconstrained);
-    assert_eq!(width_filled_out_data[NodeId::new(5)].preferred_width, WhConstraint::Unconstrained);
+    assert_eq!(width_filled_out_data.as_ref()[NodeId::new(0)].preferred_width, WhConstraint::Unconstrained);
+    assert_eq!(width_filled_out_data.as_ref()[NodeId::new(1)].preferred_width, WhConstraint::Between(0.0, 200.0));
+    assert_eq!(width_filled_out_data.as_ref()[NodeId::new(2)].preferred_width, WhConstraint::Unconstrained);
+    assert_eq!(width_filled_out_data.as_ref()[NodeId::new(3)].preferred_width, WhConstraint::Unconstrained);
+    assert_eq!(width_filled_out_data.as_ref()[NodeId::new(4)].preferred_width, WhConstraint::Unconstrained);
+    assert_eq!(width_filled_out_data.as_ref()[NodeId::new(5)].preferred_width, WhConstraint::Unconstrained);
 
     // The padding of the Node 1 should have bubbled up to be the minimum width of Node 0
-    assert_eq!(width_filled_out_data[NodeId::new(0)].min_inner_size_px, 40.0);
-    assert_eq!(width_filled_out_data[NodeId::new(1)].get_flex_basis_horizontal(800.0), 40.0);
-    assert_eq!(width_filled_out_data[NodeId::new(1)].min_inner_size_px, 0.0);
-    assert_eq!(width_filled_out_data[NodeId::new(2)].get_flex_basis_horizontal(800.0), 0.0);
-    assert_eq!(width_filled_out_data[NodeId::new(2)].min_inner_size_px, 0.0);
-    assert_eq!(width_filled_out_data[NodeId::new(3)].get_flex_basis_horizontal(800.0), 0.0);
-    assert_eq!(width_filled_out_data[NodeId::new(3)].min_inner_size_px, 0.0);
-    assert_eq!(width_filled_out_data[NodeId::new(4)].get_flex_basis_horizontal(800.0), 0.0);
-    assert_eq!(width_filled_out_data[NodeId::new(4)].min_inner_size_px, 0.0);
-    assert_eq!(width_filled_out_data[NodeId::new(5)].get_flex_basis_horizontal(800.0), 0.0);
-    assert_eq!(width_filled_out_data[NodeId::new(5)].min_inner_size_px, 0.0);
+    assert_eq!(width_filled_out_data.as_ref()[NodeId::new(0)].min_inner_size_px, 40.0);
+    assert_eq!(width_filled_out_data.as_ref()[NodeId::new(1)].get_flex_basis_horizontal(800.0), 40.0);
+    assert_eq!(width_filled_out_data.as_ref()[NodeId::new(1)].min_inner_size_px, 0.0);
+    assert_eq!(width_filled_out_data.as_ref()[NodeId::new(2)].get_flex_basis_horizontal(800.0), 0.0);
+    assert_eq!(width_filled_out_data.as_ref()[NodeId::new(2)].min_inner_size_px, 0.0);
+    assert_eq!(width_filled_out_data.as_ref()[NodeId::new(3)].get_flex_basis_horizontal(800.0), 0.0);
+    assert_eq!(width_filled_out_data.as_ref()[NodeId::new(3)].min_inner_size_px, 0.0);
+    assert_eq!(width_filled_out_data.as_ref()[NodeId::new(4)].get_flex_basis_horizontal(800.0), 0.0);
+    assert_eq!(width_filled_out_data.as_ref()[NodeId::new(4)].min_inner_size_px, 0.0);
+    assert_eq!(width_filled_out_data.as_ref()[NodeId::new(5)].get_flex_basis_horizontal(800.0), 0.0);
+    assert_eq!(width_filled_out_data.as_ref()[NodeId::new(5)].min_inner_size_px, 0.0);
 
     // -- Section 3: Test if growing the sizes works
 
@@ -304,29 +354,29 @@ fn test_fill_out_preferred_width() {
     //    '   '-- 4     -- [] - expecting width to stretch to 80px (half of 160)
     //    '-- 5         -- [] - expecting width to stretch to 554px (754 - 200px max-width of earlier sibling)
 
-    width_calculated_rect_arena_apply_flex_grow(&mut width_filled_out_data, &node_hierarchy, &node_data, &non_leaf_nodes_sorted_by_depth, window_width);
+    width_calculated_rect_arena_apply_flex_grow(&mut width_filled_out_data, &node_hierarchy.as_ref(), &node_data.as_ref(), &node_depths, window_width);
 
-    assert_eq!(width_filled_out_data[NodeId::new(0)].solved_result(), WidthSolvedResult {
+    assert_eq!(width_filled_out_data.as_ref()[NodeId::new(0)].solved_result(), WidthSolvedResult {
         min_width: 40.0,
         space_added: window_width - 40.0,
     });
-    assert_eq!(width_filled_out_data[NodeId::new(1)].solved_result(), WidthSolvedResult {
+    assert_eq!(width_filled_out_data.as_ref()[NodeId::new(1)].solved_result(), WidthSolvedResult {
         min_width: 0.0,
         space_added: 200.0,
     });
-    assert_eq!(width_filled_out_data[NodeId::new(2)].solved_result(), WidthSolvedResult {
+    assert_eq!(width_filled_out_data.as_ref()[NodeId::new(2)].solved_result(), WidthSolvedResult {
         min_width: 0.0,
         space_added: 160.0,
     });
-    assert_eq!(width_filled_out_data[NodeId::new(3)].solved_result(), WidthSolvedResult {
+    assert_eq!(width_filled_out_data.as_ref()[NodeId::new(3)].solved_result(), WidthSolvedResult {
         min_width: 0.0,
         space_added: 80.0,
     });
-    assert_eq!(width_filled_out_data[NodeId::new(4)].solved_result(), WidthSolvedResult {
+    assert_eq!(width_filled_out_data.as_ref()[NodeId::new(4)].solved_result(), WidthSolvedResult {
         min_width: 0.0,
         space_added: 80.0,
     });
-    assert_eq!(width_filled_out_data[NodeId::new(5)].solved_result(), WidthSolvedResult {
+    assert_eq!(width_filled_out_data.as_ref()[NodeId::new(5)].solved_result(), WidthSolvedResult {
         min_width: 0.0,
         space_added: window_width - 200.0,
     });
