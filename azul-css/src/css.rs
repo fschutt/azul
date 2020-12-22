@@ -22,6 +22,10 @@ impl_vec_partialeq!(Stylesheet, StylesheetVec);
 
 impl Css {
 
+    pub fn is_empty(&self) -> bool {
+        self.stylesheets.iter().all(|s| s.rules.as_ref().is_empty())
+    }
+
     pub fn new(stylesheets: Vec<Stylesheet>) -> Self {
         Self { stylesheets: stylesheets.into() }
     }

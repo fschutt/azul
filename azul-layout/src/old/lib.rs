@@ -18,7 +18,7 @@ pub use azul_core::{
     app_resources::AppResources,
     ui_solver::LayoutResult,
     dom::NodeData,
-    display_list::DisplayRectangle,
+    styled_dom::StyledDom,
 };
 pub use azul_css::{LayoutSize, LayoutPoint, LayoutRect};
 

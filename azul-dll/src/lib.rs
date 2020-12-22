@@ -240,6 +240,22 @@ pub use AzVirtualKeyCodeVecTT as AzVirtualKeyCodeVec;
 /// Creates a string with the debug representation of the object
 #[no_mangle] pub extern "C" fn az_virtual_key_code_vec_fmt_debug(object: &AzVirtualKeyCodeVec) -> AzString { format!("{:#?}", object).into() }
 
+/// Wrapper over a Rust-allocated `CascadeInfo`
+pub type AzCascadeInfoVecTT = azul_impl::style::CascadeInfoVec;
+pub use AzCascadeInfoVecTT as AzCascadeInfoVec;
+/// Creates a new, empty Rust `Vec<CascadeInfo>`
+#[no_mangle] pub extern "C" fn az_cascade_info_vec_new() -> AzCascadeInfoVec { Vec::<CascadeInfo>::new().into() }
+/// Creates a new, empty Rust `Vec<CascadeInfo>` with a given, pre-allocated capacity
+#[no_mangle] pub extern "C" fn az_cascade_info_vec_with_capacity(cap: usize) -> AzCascadeInfoVec { Vec::<CascadeInfo>::with_capacity(cap).into() }
+/// Creates + allocates a Rust `Vec<CascadeInfo>` by **copying** it from a bytes source
+#[no_mangle] pub extern "C" fn az_cascade_info_vec_copy_from(ptr: *const AzCascadeInfo, len: usize) -> AzCascadeInfoVec { unsafe { std::slice::from_raw_parts(ptr, len).iter().cloned().collect::<Vec<_>>() }.into() }
+/// Destructor: Takes ownership of the `CascadeInfoVec` pointer and deletes it.
+#[no_mangle] #[allow(unused_variables)] pub extern "C" fn az_cascade_info_vec_delete(object: &mut AzCascadeInfoVec) { unsafe { std::ptr::drop_in_place(object.as_mut()); } deallocate_vec(object.as_mut_ptr(), object.capacity());}
+/// Clones the object
+#[no_mangle] pub extern "C" fn az_cascade_info_vec_deep_copy(object: &AzCascadeInfoVec) -> AzCascadeInfoVec { object.clone() }
+/// Creates a string with the debug representation of the object
+#[no_mangle] pub extern "C" fn az_cascade_info_vec_fmt_debug(object: &AzCascadeInfoVec) -> AzString { format!("{:#?}", object).into() }
+
 /// Wrapper over a Rust-allocated `ScanCode`
 pub type AzScanCodeVecTT = azul_impl::window::ScanCodeVec;
 pub use AzScanCodeVecTT as AzScanCodeVec;
@@ -674,17 +690,6 @@ pub use AzOptionLogicalPositionTT as AzOptionLogicalPosition;
 #[no_mangle] pub extern "C" fn az_option_logical_position_deep_copy(object: &AzOptionLogicalPosition) -> AzOptionLogicalPosition { object.clone() }
 /// Creates a string with the debug representation of the object
 #[no_mangle] pub extern "C" fn az_option_logical_position_fmt_debug(object: &AzOptionLogicalPosition) -> AzString { format!("{:#?}", object).into() }
-
-/// Re-export of rust-allocated (stack based) `OptionHotReloadOptions` struct
-pub type AzOptionHotReloadOptionsTT = azul_impl::window::OptionHotReloadOptions;
-pub use AzOptionHotReloadOptionsTT as AzOptionHotReloadOptions;
-/// Destructor: Takes ownership of the `OptionHotReloadOptions` pointer and deletes it.
-#[no_mangle] #[allow(unused_variables)] pub extern "C" fn az_option_hot_reload_options_delete(object: &mut AzOptionHotReloadOptions) { match object { azul_impl::window::OptionHotReloadOptions::None => { }, azul_impl::window::OptionHotReloadOptions::Some(_) => { }, }
-}
-/// Clones the object
-#[no_mangle] pub extern "C" fn az_option_hot_reload_options_deep_copy(object: &AzOptionHotReloadOptions) -> AzOptionHotReloadOptions { object.clone() }
-/// Creates a string with the debug representation of the object
-#[no_mangle] pub extern "C" fn az_option_hot_reload_options_fmt_debug(object: &AzOptionHotReloadOptions) -> AzString { format!("{:#?}", object).into() }
 
 /// Re-export of rust-allocated (stack based) `OptionPhysicalPositionI32` struct
 pub type AzOptionPhysicalPositionI32TT = azul_impl::window::OptionPhysicalPositionI32;
@@ -5887,25 +5892,12 @@ pub use AzLogicalSizeTT as AzLogicalSize;
 /// Creates a string with the debug representation of the object
 #[no_mangle] pub extern "C" fn az_logical_size_fmt_debug(object: &AzLogicalSize) -> AzString { format!("{:#?}", object).into() }
 
-/// Re-export of rust-allocated (stack based) `HotReloadOptions` struct
-pub type AzHotReloadOptionsTT = azul_impl::window::HotReloadOptions;
-pub use AzHotReloadOptionsTT as AzHotReloadOptions;
-/// Destructor: Takes ownership of the `HotReloadOptions` pointer and deletes it.
-#[no_mangle] #[allow(unused_variables)] pub extern "C" fn az_hot_reload_options_delete(object: &mut AzHotReloadOptions) { }
-/// Clones the object
-#[no_mangle] pub extern "C" fn az_hot_reload_options_deep_copy(object: &AzHotReloadOptions) -> AzHotReloadOptions { object.clone() }
-/// Creates a string with the debug representation of the object
-#[no_mangle] pub extern "C" fn az_hot_reload_options_fmt_debug(object: &AzHotReloadOptions) -> AzString { format!("{:#?}", object).into() }
-
 /// Re-export of rust-allocated (stack based) `WindowCreateOptions` struct
 pub type AzWindowCreateOptionsTT = azul_impl::window::WindowCreateOptions;
 pub use AzWindowCreateOptionsTT as AzWindowCreateOptions;
 /// Creates a new `WindowCreateOptions` instance whose memory is owned by the rust allocator
 /// Equivalent to the Rust `WindowCreateOptions::new()` constructor.
-#[no_mangle] pub extern "C" fn az_window_create_options_new(layout_callback: AzLayoutCallbackType, css: AzCss) -> AzWindowCreateOptions { WindowCreateOptions::new(layout_callback, css) }
-/// Creates a new `WindowCreateOptions` instance whose memory is owned by the rust allocator
-/// Equivalent to the Rust `WindowCreateOptions::new_hot_reload()` constructor.
-#[no_mangle] pub extern "C" fn az_window_create_options_new_hot_reload(layout_callback: AzLayoutCallbackType, hot_reload_options: AzHotReloadOptions) -> AzWindowCreateOptions { WindowCreateOptions::new_hot_reload(layout_callback, hot_reload_options) }
+#[no_mangle] pub extern "C" fn az_window_create_options_new(layout_callback: AzLayoutCallbackType) -> AzWindowCreateOptions { WindowCreateOptions::new(layout_callback) }
 /// Destructor: Takes ownership of the `WindowCreateOptions` pointer and deletes it.
 #[no_mangle] #[allow(unused_variables)] pub extern "C" fn az_window_create_options_delete(object: &mut AzWindowCreateOptions) { }
 /// Clones the object

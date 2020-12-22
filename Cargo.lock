@@ -177,7 +177,7 @@ checksum = "c303bfdf857413adbd19d9b15dddd9b4adb8e2be7e493c8a38d9fc6179a074ac"
 
 [[package]]
 name = "azul-text-layout"
-version = "0.0.4"
+version = "0.0.5"
 dependencies = [
  "allsorts",
  "azul-core",

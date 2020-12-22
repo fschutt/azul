@@ -11,12 +11,13 @@ use azul_css::{U8Vec, AzString, Css, LayoutPoint, LayoutRect, CssPath};
 use crate::{
     FastHashMap,
     app_resources::Epoch,
-    dom::{DomId, EventFilter},
+    dom::{EventFilter, CallbackData},
+    styled_dom::{DomId, AzNodeId, ChangedCssProperty, ChangedCssPropertyVec},
     id_tree::NodeId,
     task::AzDuration,
-    callbacks::{PipelineId, DocumentId, Callback, ScrollPosition, HitTestItem, UpdateScreen},
-    ui_solver::{OverflowingScrollNode, ExternalScrollId, ScrolledNodes},
-    display_list::{SolvedLayoutCache, GlTextureCache, CachedDisplayList},
+    callbacks::{PipelineId, DocumentId, Callback, DomNodeId, ScrollPosition, HitTestItem, UpdateScreen},
+    ui_solver::{OverflowingScrollNode, LayoutResult, ExternalScrollId, ScrolledNodes},
+    display_list::{GlTextureCache, CachedDisplayList},
     callbacks::{LayoutCallback, LayoutCallbackType},
 };
 
@@ -407,7 +408,7 @@ pub struct WindowInternal {
     /// when they're not in use anymore.
     pub epoch: Epoch,
     /// Currently active, layouted rectangles and styled DOMs
-    pub layout_result: Vec<LayoutResult>,
+    pub layout_results: Vec<LayoutResult>,
     /// Currently GL textures inside the active CachedDisplayList
     pub gl_texture_cache: GlTextureCache,
     /// Current scroll states of nodes (x and y position of where they are scrolled)
@@ -417,22 +418,19 @@ pub struct WindowInternal {
 }
 
 impl WindowInternal {
-
-/*
     /// Returns a copy of the current scroll states + scroll positions
-    pub fn get_current_scroll_states(&self) -> BTreeMap<DomId, BTreeMap<NodeId, ScrollPosition>> {
+    pub fn get_current_scroll_states(&self) -> BTreeMap<DomId, BTreeMap<AzNodeId, ScrollPosition>> {
 
         self.scrolled_nodes.iter().filter_map(|(dom_id, scrolled_nodes)| {
 
-            let layout_result = self.layout_result.solved_layouts.get(dom_id)?;
-            let ui_state = &ui_states.get(dom_id)?;
+            let layout_result = self.layout_results.get(dom_id.inner as usize)?;
 
             let scroll_positions = scrolled_nodes.overflowing_nodes.iter().filter_map(|(node_id, overflowing_node)| {
                 let scroll_location = self.scroll_states.get_scroll_position(&overflowing_node.parent_external_scroll_id)?;
-                let parent_node = ui_state.get_dom().arena.node_hierarchy[*node_id].parent.unwrap_or(NodeId::ZERO);
+                let parent_node = layout_result.styled_dom.node_hierarchy.as_container()[node_id.into_crate_internal()?].parent_id().unwrap_or(NodeId::ZERO);
                 let scroll_position = ScrollPosition {
                     scroll_frame_rect: overflowing_node.child_rect,
-                    parent_rect: layout_result.rects[parent_node].to_layouted_rectangle(),
+                    parent_rect: layout_result.rects.as_ref()[parent_node].to_layouted_rectangle(),
                     scroll_location,
                 };
                 Some((*node_id, scroll_position))
@@ -441,7 +439,6 @@ impl WindowInternal {
             Some((dom_id.clone(), scroll_positions))
         }).collect()
     }
-*/
 }
 
 /// State, size, etc of the window, for comparing to the last frame
@@ -528,7 +525,7 @@ pub struct FullWindowState {
     /// What node is currently hovered over, default to None. Only necessary internal
     /// to the crate, for emitting `On::FocusReceived` and `On::FocusLost` events,
     /// as well as styling `:focus` elements
-    pub focused_node: Option<(DomId, NodeId)>,
+    pub focused_node: Option<DomNodeId>,
     /// Currently hovered nodes, default to an empty Vec. Important for
     /// styling `:hover` elements.
     pub hovered_nodes: BTreeMap<DomId, BTreeMap<NodeId, HitTestItem>>,
@@ -618,7 +615,6 @@ impl From<FullWindowState> for WindowState {
             mouse_state: full_window_state.mouse_state,
             ime_position: full_window_state.ime_position.into(),
             platform_specific_options: full_window_state.platform_specific_options,
-            css: full_window_state.css,
             layout_callback: full_window_state.layout_callback,
         }
     }
@@ -626,34 +622,15 @@ impl From<FullWindowState> for WindowState {
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct CallCallbacksResult {
-    pub needs_restyle_hover_active: bool,
-    pub needs_relayout_hover_active: bool,
-    pub needs_restyle_focus_changed: bool,
     /// Whether the UI should be rendered anyways due to a (programmatic or user input) scroll event
     pub should_scroll_render: bool,
     /// Whether the callbacks say to rebuild the UI or not
     pub callbacks_update_screen: UpdateScreen,
     /// WindowState that was (potentially) modified in the callbacks
     pub modified_window_state: WindowState,
-}
-
-impl CallCallbacksResult {
-
-    pub fn should_relayout(&self) -> bool {
-        self.needs_relayout_hover_active ||
-        self.callbacks_update_screen == UpdateScreen::Redraw
-    }
-
-    pub fn should_restyle(&self) -> bool {
-        self.should_relayout() ||
-        self.needs_restyle_focus_changed ||
-        self.needs_restyle_hover_active
-    }
-
-    pub fn should_rerender(&self) -> bool {
-        self.should_restyle() ||
-        self.should_scroll_render
-    }
+    /// If the focus target changes in the callbacks, the function will automatically
+    /// restyle the DOM and set the new focus target
+    pub focus_properties_changed: ChangedCssPropertyVec,
 }
 
 #[derive(Debug, Copy, Clone, PartialEq, Eq, Ord, PartialOrd, Hash)]
@@ -846,10 +823,7 @@ pub struct WasmWindowOptions {
 impl WindowState {
 
     /// Creates a new, default `WindowState` with the given CSS style
-    pub fn new(callback: LayoutCallbackType, css: Css) -> Self { Self { layout_callback: LayoutCallback { cb: callback }, css, .. Default::default() } }
-
-    /// Same as `WindowState::new` but to be used as a builder method
-    pub fn with_css(self, css: Css) -> Self { Self { css, .. self } }
+    pub fn new(callback: LayoutCallbackType) -> Self { Self { layout_callback: LayoutCallback { cb: callback }, .. Default::default() } }
 
     /// Returns the current keyboard keyboard state. We don't want the library
     /// user to be able to modify this state, only to read it.
@@ -987,7 +961,6 @@ impl Default for WindowState {
             mouse_state: MouseState::default(),
             ime_position: None.into(),
             platform_specific_options: PlatformSpecificOptions::default(),
-            css: Css::default(),
             layout_callback: LayoutCallback::default(),
         }
     }
@@ -1003,19 +976,6 @@ pub struct WindowCreateOptions {
     // pub monitor: Monitor,
     /// Renderer type: Hardware-with-software-fallback, pure software or pure hardware renderer?
     pub renderer_type: RendererType,
-    /// An optional style hot-reloader for the current window, only available with debug_assertions
-    /// enabled
-    pub hot_reload: OptionHotReloadOptions,
-}
-
-impl_option!(HotReloadOptions, OptionHotReloadOptions, copy = false, [Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash]);
-
-#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
-#[repr(C)]
-pub struct HotReloadOptions {
-    pub path: AzString,
-    pub reload_interval: AzDuration,
-    pub apply_native_css: bool,
 }
 
 impl Default for WindowCreateOptions {
@@ -1023,34 +983,16 @@ impl Default for WindowCreateOptions {
         Self {
             state: WindowState::default(),
             renderer_type: RendererType::default(),
-            hot_reload: None.into(),
         }
     }
 }
 
 impl WindowCreateOptions {
-
-    pub fn new(callback: LayoutCallbackType, css: Css) -> Self {
+    pub fn new(callback: LayoutCallbackType) -> Self {
         Self {
-            state: WindowState::new(callback, css),
+            state: WindowState::new(callback),
             .. WindowCreateOptions::default()
         }
-    }
-
-    pub fn new_hot_reload(callback: LayoutCallbackType, hot_reload_options: HotReloadOptions) -> Self {
-        Self {
-            state: WindowState {
-                layout_callback: LayoutCallback { cb: callback },
-                .. WindowState::default()
-            },
-            hot_reload: Some(hot_reload_options).into(),
-            .. WindowCreateOptions::default()
-        }
-    }
-
-    pub fn with_css(mut self, css: Css) -> Self {
-        self.state.css = css;
-        self
     }
 }
 
@@ -1224,7 +1166,7 @@ impl fmt::Debug for AzulUpdateEvent {
 #[derive(Debug, Clone, PartialEq, PartialOrd, Ord, Eq, Hash)]
 pub enum UpdateFocusWarning {
     FocusInvalidDomId(DomId),
-    FocusInvalidNodeId(NodeId),
+    FocusInvalidNodeId(AzNodeId),
     CouldNotFindFocusNode(CssPath),
 }
 
@@ -1239,98 +1181,32 @@ impl ::std::fmt::Display for UpdateFocusWarning {
     }
 }
 
-pub struct DetermineCallbackResult {
+#[derive(Debug, Clone)]
+pub struct CallbackToCall<'a> {
+    pub node_id: NodeId,
     pub hit_test_item: Option<HitTestItem>,
-    pub normal_callbacks: BTreeMap<EventFilter, Callback>,
+    pub callback: &'a CallbackData,
 }
 
-impl DetermineCallbackResult {
-
-    pub fn has_normal_callbacks(&self) -> bool {
-        !self.normal_callbacks.is_empty()
-    }
-
-    pub fn has_any_callbacks(&self) -> bool {
-        self.has_normal_callbacks()
-    }
-}
-
-impl Default for DetermineCallbackResult {
-    fn default() -> Self {
-        DetermineCallbackResult {
-            hit_test_item: None,
-            normal_callbacks: BTreeMap::new(),
-        }
-    }
-}
-
-impl Clone for DetermineCallbackResult {
-    fn clone(&self) -> Self {
-        DetermineCallbackResult {
-            hit_test_item: self.hit_test_item.clone(),
-            normal_callbacks: self.normal_callbacks.clone(),
-        }
-    }
-}
-
-impl fmt::Debug for DetermineCallbackResult {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        write!(f,
-        "DetermineCallbackResult {{ \
-            hit_test_item: {:?},\
-            normal_callbacks: {:#?},\
-        }}",
-            self.hit_test_item,
-            self.normal_callbacks.keys().collect::<Vec<_>>(),
-        )
-    }
-}
-
-pub struct CallbacksOfHitTest {
+#[derive(Debug, Clone)]
+pub struct CallbacksOfHitTest<'a> {
     /// A BTreeMap where each item is already filtered by the proper hit-testing type,
     /// meaning in order to get the proper callbacks, you simply have to iterate through
     /// all node IDs
-    pub nodes_with_callbacks: BTreeMap<NodeId, DetermineCallbackResult>,
-    /// Same as `needs_redraw_anyways`, but for reusing the layout from the previous frame.
-    /// Each `:hover` and `:active` group stores whether it modifies the layout, as
-    /// a performance optimization.
-    pub needs_relayout_anyways: bool,
-    /// Whether the screen should be redrawn even if no Callback returns an `UpdateScreen::Redraw`.
-    /// This is necessary for `:hover` and `:active` mouseovers - otherwise the screen would
-    /// only update on the next resize.
-    pub needs_redraw_anyways: bool,
+    pub nodes_with_callbacks: Vec<CallbackToCall<'a>>,
+    /// Changes that were made to style properties of nodes
+    pub style_changes: BTreeMap<NodeId, Vec<ChangedCssProperty>>,
+    /// Changes that were made to layout properties of nodes
+    pub layout_changes: BTreeMap<NodeId, Vec<ChangedCssProperty>>,
 }
 
-impl Default for CallbacksOfHitTest {
-    fn default() -> Self {
-        Self {
-            nodes_with_callbacks: BTreeMap::new(),
-            needs_redraw_anyways: false,
-            needs_relayout_anyways: false,
-        }
+impl<'a> CallbacksOfHitTest<'a> {
+    pub fn needs_to_rebuild_display_list(&self) -> bool {
+        self.needs_to_rebuild_layout() || !self.style_changes.is_empty()
     }
-}
-
-impl fmt::Debug for CallbacksOfHitTest {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        write!(f,
-        "CallbacksOfHitTest {{ \
-            nodes_with_callbacks: {:#?},
-            needs_relayout_anyways: {:?},
-            needs_redraw_anyways: {:?},
-        }}",
-            self.nodes_with_callbacks,
-            self.needs_relayout_anyways,
-            self.needs_redraw_anyways,
-        )
-    }
-}
-
-impl CallbacksOfHitTest {
-    /// Returns whether there is any
-    pub fn should_call_callbacks(&self) -> bool {
-        !self.nodes_with_callbacks.is_empty() &&
-        self.nodes_with_callbacks.values().any(|n| n.has_any_callbacks())
+    pub fn needs_to_rebuild_layout(&self) -> bool {
+        // TODO: more fine-grained control
+        !self.layout_changes.is_empty()
     }
 }
 

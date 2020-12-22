@@ -215,14 +215,6 @@
     impl Drop for OptionLogicalPosition { fn drop(&mut self) { (crate::dll::get_azul_dll().az_option_logical_position_delete)(self); } }
 
 
-    /// `OptionHotReloadOptions` struct
-    pub use crate::dll::AzOptionHotReloadOptions as OptionHotReloadOptions;
-
-    impl std::fmt::Debug for OptionHotReloadOptions { fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result { write!(f, "{}", (crate::dll::get_azul_dll().az_option_hot_reload_options_fmt_debug)(self)) } }
-    impl Clone for OptionHotReloadOptions { fn clone(&self) -> Self { (crate::dll::get_azul_dll().az_option_hot_reload_options_deep_copy)(self) } }
-    impl Drop for OptionHotReloadOptions { fn drop(&mut self) { (crate::dll::get_azul_dll().az_option_hot_reload_options_delete)(self); } }
-
-
     /// `OptionPhysicalPositionI32` struct
     pub use crate::dll::AzOptionPhysicalPositionI32 as OptionPhysicalPositionI32;
 

@@ -5,6 +5,7 @@ use azul_css::{
     StyleTextAlignmentHorz, StyleTextAlignmentVert,
 };
 use crate::{
+    styled_dom::{StyledDom, AzNodeId, DomId},
     app_resources::{Words, ShapedWords, FontInstanceKey, WordPositions, LayoutedGlyphs},
     id_tree::{NodeId, NodeDataContainer},
     dom::{DomHash, ScrollTagId},
@@ -148,8 +149,8 @@ impl ::std::fmt::Debug for ExternalScrollId {
 
 #[derive(Default, Debug, Clone)]
 pub struct ScrolledNodes {
-    pub overflowing_nodes: BTreeMap<NodeId, OverflowingScrollNode>,
-    pub tags_to_node_ids: BTreeMap<ScrollTagId, NodeId>,
+    pub overflowing_nodes: BTreeMap<AzNodeId, OverflowingScrollNode>,
+    pub tags_to_node_ids: BTreeMap<ScrollTagId, AzNodeId>,
 }
 
 #[derive(Debug, Clone)]
@@ -171,7 +172,7 @@ pub struct LayoutResult {
     pub positioned_word_cache: BTreeMap<NodeId, (WordPositions, FontInstanceKey)>,
     pub layouted_glyph_cache: BTreeMap<NodeId, LayoutedGlyphs>,
     pub scrollable_nodes: ScrolledNodes,
-    pub iframe_mapping: Vec<NodeId, DomId>,
+    pub iframe_mapping: Vec<(NodeId, DomId)>,
 }
 
 /// Layout options that can impact the flow of word positions

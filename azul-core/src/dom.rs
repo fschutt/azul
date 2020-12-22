@@ -11,7 +11,7 @@ use crate::{
         RefAny,
     },
     app_resources::{ImageId, TextId},
-    id_tree::NodeDataContainer,
+    id_tree::{NodeDataContainer, NodeHierarchyRefMut, NodeDataContainerRefMut},
     window::LogicalRect,
 };
 #[cfg(feature = "opengl")]
@@ -229,6 +229,21 @@ pub enum EventFilter {
     /// (i.e. global gestures that aren't attached to any component, but rather
     /// the "window" itself).
     Window(WindowEventFilter),
+}
+
+impl EventFilter {
+    pub const fn is_focus_callback(&self) -> bool {
+        match self {
+            EventFilter::Focus(_) => true,
+            _ => false,
+        }
+    }
+    pub const fn is_window_callback(&self) -> bool {
+        match self {
+            EventFilter::Window(_) => true,
+            _ => false,
+        }
+    }
 }
 
 /// Creates a function inside an impl <enum type> block that returns a single
@@ -487,6 +502,12 @@ pub struct NodeData {
     /// }
     /// ```
     inline_css_props: CssPropertyVec,
+    /// Inline CSS properties that are activated on `:hover`
+    inline_hover_css_props: CssPropertyVec,
+    /// Inline CSS properties that are activated on `:active`
+    inline_active_css_props: CssPropertyVec,
+    /// Inline CSS properties that are activated on `:focus`
+    inline_focus_css_props: CssPropertyVec,
     /// Optional clip mask for this DOM node
     clip_mask: OptionImageMask,
     /// Whether this div can be dragged or not, similar to `draggable = "true"` in HTML, .
@@ -524,7 +545,7 @@ pub enum TabIndex {
     /// When pressing tab repeatedly, the focusing order will be
     /// "element3, element2, element4, div", since OverrideInParent elements
     /// take precedence among global order.
-    OverrideInParent(usize),
+    OverrideInParent(u32),
     /// Elements can be focused in callbacks, but are not accessible via
     /// keyboard / tab navigation (-1)
     NoKeyboardFocus,
@@ -648,6 +669,9 @@ impl NodeData {
             classes: StringVec::new(),
             callbacks: CallbackDataVec::new(),
             inline_css_props: CssPropertyVec::new(),
+            inline_hover_css_props: CssPropertyVec::new(),
+            inline_active_css_props: CssPropertyVec::new(),
+            inline_focus_css_props: CssPropertyVec::new(),
             clip_mask: OptionImageMask::None,
             is_draggable: false,
             tab_index: OptionTabIndex::None,
@@ -662,6 +686,21 @@ impl NodeData {
     #[inline]
     pub fn add_inline_css<P: Into<CssProperty>>(&mut self, property: P) {
         self.inline_css_props.push(property.into());
+    }
+
+    #[inline]
+    pub fn add_inline_hover_css<P: Into<CssProperty>>(&mut self, property: P) {
+        self.inline_hover_css_props.push(property.into());
+    }
+
+    #[inline]
+    pub fn add_inline_active_css<P: Into<CssProperty>>(&mut self, property: P) {
+        self.inline_active_css_props.push(property.into());
+    }
+
+    #[inline]
+    pub fn add_inline_focus_css<P: Into<CssProperty>>(&mut self, property: P) {
+        self.inline_focus_css_props.push(property.into());
     }
 
     #[inline]
@@ -755,6 +794,12 @@ impl NodeData {
     #[inline(always)]
     pub const fn get_inline_css_props(&self) -> &CssPropertyVec { &self.inline_css_props }
     #[inline(always)]
+    pub const fn get_inline_hover_css_props(&self) -> &CssPropertyVec { &self.inline_hover_css_props }
+    #[inline(always)]
+    pub const fn get_inline_active_css_props(&self) -> &CssPropertyVec { &self.inline_active_css_props }
+    #[inline(always)]
+    pub const fn get_inline_focus_css_props(&self) -> &CssPropertyVec { &self.inline_focus_css_props }
+    #[inline(always)]
     pub const fn get_clip_mask(&self) -> &OptionImageMask { &self.clip_mask }
     #[inline(always)]
     pub const fn get_is_draggable(&self) -> bool { self.is_draggable }
@@ -772,6 +817,12 @@ impl NodeData {
     #[inline(always)]
     pub fn set_inline_css_props(&mut self, inline_css_props: CssPropertyVec) { self.inline_css_props = inline_css_props; }
     #[inline(always)]
+    pub fn set_inline_hover_css_props(&mut self, inline_hover_css_props: CssPropertyVec) { self.inline_hover_css_props = inline_hover_css_props; }
+    #[inline(always)]
+    pub fn set_inline_active_css_props(&mut self, inline_active_css_props: CssPropertyVec) { self.inline_active_css_props = inline_active_css_props; }
+    #[inline(always)]
+    pub fn set_inline_focus_css_props(&mut self, inline_focus_css_props: CssPropertyVec) { self.inline_focus_css_props = inline_focus_css_props; }
+    #[inline(always)]
     pub fn set_clip_mask(&mut self, clip_mask: OptionImageMask) { self.clip_mask = clip_mask; }
     #[inline(always)]
     pub fn set_is_draggable(&mut self, is_draggable: bool) { self.is_draggable = is_draggable; }
@@ -788,6 +839,12 @@ impl NodeData {
     pub fn with_callbacks(self, callbacks: CallbackDataVec) -> Self { Self { callbacks, .. self } }
     #[inline(always)]
     pub fn with_inline_css_props(self, inline_css_props: CssPropertyVec) -> Self { Self { inline_css_props, .. self } }
+    #[inline(always)]
+    pub fn with_inline_hover_css_props(self, inline_hover_css_props: CssPropertyVec) -> Self { Self { inline_hover_css_props, .. self } }
+    #[inline(always)]
+    pub fn with_inline_active_css_props(self, inline_active_css_props: CssPropertyVec) -> Self { Self { inline_active_css_props, .. self } }
+    #[inline(always)]
+    pub fn with_inline_focus_css_props(self, inline_focus_css_props: CssPropertyVec) -> Self { Self { inline_focus_css_props, .. self } }
     #[inline(always)]
     pub fn with_clip_mask(self, clip_mask: OptionImageMask) -> Self { Self { clip_mask, .. self } }
     #[inline(always)]
@@ -915,6 +972,24 @@ impl Dom {
     }
 
     #[inline]
+    pub fn with_inline_hover_css<P: Into<CssProperty>>(mut self, property: P) -> Self {
+        self.add_inline_hover_css(property);
+        self
+    }
+
+    #[inline]
+    pub fn with_inline_active_css<P: Into<CssProperty>>(mut self, property: P) -> Self {
+        self.add_inline_active_css(property);
+        self
+    }
+
+    #[inline]
+    pub fn with_inline_focus_css<P: Into<CssProperty>>(mut self, property: P) -> Self {
+        self.add_inline_focus_css(property);
+        self
+    }
+
+    #[inline]
     pub fn with_clip_mask(mut self, clip_mask: OptionImageMask) -> Self {
         self.set_clip_mask(clip_mask);
         self
@@ -956,6 +1031,21 @@ impl Dom {
     #[inline]
     pub fn add_inline_css<P: Into<CssProperty>>(&mut self, property: P) {
         self.root.add_inline_css(property);
+    }
+
+    #[inline]
+    pub fn add_inline_hover_css<P: Into<CssProperty>>(&mut self, property: P) {
+        self.root.add_inline_hover_css(property);
+    }
+
+    #[inline]
+    pub fn add_inline_active_css<P: Into<CssProperty>>(&mut self, property: P) {
+        self.root.add_inline_active_css(property);
+    }
+
+    #[inline]
+    pub fn add_inline_focus_css<P: Into<CssProperty>>(&mut self, property: P) {
+        self.root.add_inline_focus_css(property);
     }
 
     #[inline(always)]
@@ -1109,6 +1199,7 @@ impl FromIterator<NodeType> for Dom {
 }
 
 /// Same as `Dom`, but arena-based for more efficient memory layout
+#[derive(Debug, PartialEq, PartialOrd, Clone, Eq)]
 pub struct CompactDom {
     pub node_hierarchy: NodeHierarchy,
     pub node_data: NodeDataContainer<NodeData>,
@@ -1125,31 +1216,7 @@ impl CompactDom {
     /// Returns the number of nodes in this DOM
     #[inline(always)]
     pub fn len(&self) -> usize {
-        self.arena.len()
-    }
-}
-
-impl Clone for CompactDom {
-    fn clone(&self) -> Self {
-        CompactDom {
-            arena: self.arena.clone(),
-            root: self.root,
-        }
-    }
-}
-
-impl PartialEq for CompactDom {
-    fn eq(&self, rhs: &Self) -> bool {
-        self.arena == rhs.arena &&
-        self.root == rhs.root
-    }
-}
-
-impl Eq for CompactDom { }
-
-impl fmt::Debug for CompactDom {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        write!(f, "CompactDom {{ arena: {:?}, root: {:?} }}", self.arena, self.root)
+        self.node_hierarchy.as_ref().len()
     }
 }
 
@@ -1171,7 +1238,7 @@ pub(crate) fn convert_dom_into_compact_dom(dom: Dom) -> CompactDom {
         last_child: if dom.children.is_empty() { None } else { Some(root_node_id + dom.estimated_total_children) },
     };
 
-    convert_dom_into_compact_dom_internal(dom, &mut node_hierarchy, &mut node_data, root_node_id, root_node, &mut cur_node_id);
+    convert_dom_into_compact_dom_internal(dom, &mut node_hierarchy.as_ref_mut(), &mut node_data.as_ref_mut(), root_node_id, root_node, &mut cur_node_id);
 
     CompactDom {
         node_hierarchy,
@@ -1183,8 +1250,8 @@ pub(crate) fn convert_dom_into_compact_dom(dom: Dom) -> CompactDom {
 // note: somehow convert this into a non-recursive form later on!
 fn convert_dom_into_compact_dom_internal(
     dom: Dom,
-    node_hierarchy: &mut NodeHierarchy,
-    node_data: &mut NodeDataContainer<NodeData>,
+    node_hierarchy: &mut NodeHierarchyRefMut,
+    node_data: &mut NodeDataContainerRefMut<NodeData>,
     parent_node_id: NodeId,
     node: Node,
     cur_node_id: &mut usize

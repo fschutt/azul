@@ -3,7 +3,6 @@
     use crate::dll::*;
     use std::ffi::c_void;
     use crate::callbacks::LayoutCallbackType;
-    use crate::css::Css;
 
 
     /// `TaskBarIcon` struct
@@ -251,22 +250,12 @@
     impl Drop for LogicalSize { fn drop(&mut self) { (crate::dll::get_azul_dll().az_logical_size_delete)(self); } }
 
 
-    /// `HotReloadOptions` struct
-    pub use crate::dll::AzHotReloadOptions as HotReloadOptions;
-
-    impl std::fmt::Debug for HotReloadOptions { fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result { write!(f, "{}", (crate::dll::get_azul_dll().az_hot_reload_options_fmt_debug)(self)) } }
-    impl Clone for HotReloadOptions { fn clone(&self) -> Self { (crate::dll::get_azul_dll().az_hot_reload_options_deep_copy)(self) } }
-    impl Drop for HotReloadOptions { fn drop(&mut self) { (crate::dll::get_azul_dll().az_hot_reload_options_delete)(self); } }
-
-
     /// `WindowCreateOptions` struct
     pub use crate::dll::AzWindowCreateOptions as WindowCreateOptions;
 
     impl WindowCreateOptions {
         /// Creates a new `WindowCreateOptions` instance.
-        pub fn new(layout_callback: LayoutCallbackType, css: Css) -> Self { (crate::dll::get_azul_dll().az_window_create_options_new)(layout_callback, css) }
-        /// Creates a new `WindowCreateOptions` instance.
-        pub fn new_hot_reload(layout_callback: LayoutCallbackType, hot_reload_options: HotReloadOptions) -> Self { (crate::dll::get_azul_dll().az_window_create_options_new_hot_reload)(layout_callback, hot_reload_options) }
+        pub fn new(layout_callback: LayoutCallbackType) -> Self { (crate::dll::get_azul_dll().az_window_create_options_new)(layout_callback) }
     }
 
     impl std::fmt::Debug for WindowCreateOptions { fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result { write!(f, "{}", (crate::dll::get_azul_dll().az_window_create_options_fmt_debug)(self)) } }

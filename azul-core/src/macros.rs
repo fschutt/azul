@@ -163,8 +163,8 @@ macro_rules! impl_image_api {($struct_field:ident) => (
     /// See [`AppResources::has_image`]
     ///
     /// [`AppResources::has_image`]: ../app_resources/struct.AppResources.html#method.has_image
-    pub fn has_image_source(&self, image_id: &ImageId) -> bool {
-        self.$struct_field.has_image_source(image_id)
+    pub fn has_image_source(&self, image_id: ImageId) -> bool {
+        self.$struct_field.has_image_source(&image_id)
     }
 
     /// Given an `ImageId`, returns the bytes for that image or `None`, if the `ImageId` is invalid.
@@ -172,35 +172,35 @@ macro_rules! impl_image_api {($struct_field:ident) => (
     /// See [`AppResources::get_image_bytes`]
     ///
     /// [`AppResources::get_image_bytes`]: ../app_resources/struct.AppResources.html#method.get_image_bytes
-    pub fn get_image_info(&self, pipeline_id: &PipelineId, image_id: &ImageId) -> Option<&ImageInfo> {
-        self.$struct_field.get_image_info(pipeline_id, image_id)
+    pub fn get_image_info(&self, pipeline_id: PipelineId, image_id: ImageId) -> Option<ImageInfo> {
+        self.$struct_field.get_image_info(&pipeline_id, &image_id).cloned()
     }
 
     /// See [`AppResources::delete_image`]
     ///
     /// [`AppResources::delete_image`]: ../app_resources/struct.AppResources.html#method.delete_image
-    pub fn delete_image_source(&mut self, image_id: &ImageId) {
-        self.$struct_field.delete_image_source(image_id)
+    pub fn delete_image_source(&mut self, image_id: ImageId) {
+        self.$struct_field.delete_image_source(&image_id)
     }
 
     /// See [`AppResources::add_css_image_id`]
     ///
     /// [`AppResources::add_css_image_id`]: ../app_resources/struct.AppResources.html#method.add_css_image_id
-    pub fn add_css_image_id<S: Into<String>>(&mut self, css_id: S) -> ImageId {
+    pub fn add_css_image_id(&mut self, css_id: AzString) -> ImageId {
         self.$struct_field.add_css_image_id(css_id)
     }
 
     /// See [`AppResources::has_css_image_id`]
     ///
     /// [`AppResources::has_css_image_id`]: ../app_resources/struct.AppResources.html#method.has_css_image_id
-    pub fn has_css_image_id(&self, css_id: &str) -> bool {
+    pub fn has_css_image_id(&self, css_id: AzString) -> bool {
         self.$struct_field.has_css_image_id(css_id)
     }
 
     /// See [`AppResources::get_css_image_id`]
     ///
     /// [`AppResources::get_css_image_id`]: ../app_resources/struct.AppResources.html#method.get_css_image_id
-    pub fn get_css_image_id(&self, css_id: &str) -> Option<&ImageId> {
+    pub fn get_css_image_id(&self, css_id: AzString) -> Option<&ImageId> {
         self.$struct_field.get_css_image_id(css_id)
     }
 
@@ -360,8 +360,8 @@ macro_rules! impl_callback_info_api {() => (
 
     /// Returns the bounds (width / height / position / margins / border) for any given NodeId,
     /// useful for calculating scroll positions / offsets
-    pub fn get_bounds(&self, (dom_id, node_id): &(DomId, NodeId)) -> Option<&PositionedRectangle> {
-        self.layout_result.get(&dom_id)?.rects.get(*node_id)
+    pub fn get_bounds(&self, node_id: DomNodeId) -> Option<&PositionedRectangle> {
+        self.layout_result.get(&node_id.dom)?.rects.get(&node_id.node).cloned()
     }
 
     /// If the node is a text node, return the text of the node
@@ -394,7 +394,7 @@ macro_rules! impl_callback_info_api {() => (
     /// Returns `None` on the root ID (because the root has no parent, therefore it's the 1st item)
     ///
     /// Note: Index is 0-based (first item has the index of 0)
-    pub fn get_index_in_parent(&self, node_id: &(DomId, NodeId)) -> Option<(usize, (DomId, NodeId))> {
+    pub fn get_index_in_parent(&self, node_id: DomNodeId) -> Option<(usize, (DomId, NodeId))> {
         let node_layout = &self.ui_state[&node_id.0].dom.arena.node_hierarchy;
 
         if node_id.1.index() > node_layout.len() {

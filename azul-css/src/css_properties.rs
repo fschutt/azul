@@ -116,6 +116,7 @@ const CSS_PROPERTY_KEY_MAP: [(CssPropertyType, &'static str);66] = [
 
 /// Only used for calculations: Rectangle (x, y, width, height) in layout space.
 #[derive(Copy, Clone, PartialEq, PartialOrd)]
+#[repr(C)]
 pub struct LayoutRect { pub origin: LayoutPoint, pub size: LayoutSize }
 
 impl fmt::Debug for LayoutRect {
@@ -206,6 +207,7 @@ impl LayoutRect {
 
 /// Only used for calculations: Size (width, height) in layout space.
 #[derive(Copy, Default, Clone, PartialEq, PartialOrd)]
+#[repr(C)]
 pub struct LayoutSize { pub width: f32, pub height: f32 }
 
 impl fmt::Debug for LayoutSize {
@@ -229,6 +231,7 @@ impl LayoutSize {
 
 /// Only used for calculations: Point coordinate (x, y) in layout space.
 #[derive(Copy, Default, Clone, PartialEq, PartialOrd)]
+#[repr(C)]
 pub struct LayoutPoint { pub x: f32, pub y: f32 }
 
 impl fmt::Debug for LayoutPoint {
@@ -249,6 +252,8 @@ impl LayoutPoint {
     #[inline(always)]
     pub const fn zero() -> Self { Self::new(0.0, 0.0) }
 }
+
+impl_option!(LayoutPoint, OptionLayoutPoint, [Debug, Copy, Clone, PartialEq, PartialOrd]);
 
 /// Represents a parsed pair of `5px, 10px` values - useful for border radius calculation
 #[derive(Default, Debug, Copy, Clone, PartialEq, Ord, PartialOrd, Eq, Hash)]
@@ -1755,6 +1760,10 @@ pub enum StyleBackgroundContent {
     RadialGradient(RadialGradient),
     Image(CssImageId),
     Color(ColorU),
+}
+
+impl Default for StyleBackgroundContent {
+    fn default() -> StyleBackgroundContent { StyleBackgroundContent::Color(ColorU::TRANSPARENT) }
 }
 
 impl fmt::Debug for StyleBackgroundContent {

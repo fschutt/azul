@@ -1,29 +1,28 @@
 use std::collections::{HashSet, BTreeMap};
 use crate::{
-    dom::{EventFilter, NotEventFilter, HoverEventFilter, FocusEventFilter, WindowEventFilter},
+    dom::{EventFilter, CallbackData, NotEventFilter, HoverEventFilter, FocusEventFilter, WindowEventFilter},
     callbacks:: {CallbackInfo, CallbackType, HitTestItem, UpdateScreen},
     id_tree::NodeId,
-    window::{
-        AcceleratorKey, FullWindowState, CallbacksOfHitTest, DetermineCallbackResult,
-    },
+    styled_dom::DomId,
+    ui_solver::LayoutResult,
+    window::{AcceleratorKey, FullWindowState, CallbacksOfHitTest, CallbackToCall},
 };
 
 /// Determine which event / which callback(s) should be called and in which order
 ///
 /// This function also updates / mutates the current window states `focused_node`
 /// as well as the `window_state.previous_state`
-pub fn determine_callbacks(
-    dom_id: DomId,
+pub fn determine_callbacks<'a>(
     window_state: &mut FullWindowState,
     hit_test_items: &[HitTestItem],
-    styled_dom: &StyledDom,
-) -> CallbacksOfHitTest {
+    layout_result: &'a mut LayoutResult,
+) -> CallbacksOfHitTest<'a> {
 
     use std::collections::BTreeSet;
+    use crate::callbacks::DomNodeId;
+    use crate::styled_dom::{AzNodeId, ChangedCssProperty};
 
-    let mut needs_hover_redraw = false;
-    let mut needs_hover_relayout = false;
-    let mut nodes_with_callbacks: BTreeMap<NodeId, DetermineCallbackResult> = BTreeMap::new();
+    let mut nodes_with_callbacks: Vec<CallbackToCall> = Vec::new();
 
     let current_window_events = get_window_events(window_state);
     let current_hover_events = get_hover_events(&current_window_events);
@@ -34,270 +33,290 @@ pub fn determine_callbacks(
     let event_was_mouse_enter   = current_window_events.contains(&WindowEventFilter::MouseEnter);
     let event_was_mouse_leave   = current_window_events.contains(&WindowEventFilter::MouseLeave);
 
-    let tag_ids_to_node_ids = styled_dom.tag_ids_to_node_ids.iter()
-    .map(|t| Some((t.tag_id.to_crate_internal(), t.node_id.to_crate_internal()?)))
-    .collect();
+    let event_is_click_or_release = event_was_mouse_down || event_was_mouse_release;
 
     // Store the current window state so we can set it in this.previous_window_state later on
-    let mut previous_state = Box::new(window_state.clone());
-    previous_state.previous_window_state = None;
+    window_state.previous_window_state = None;
+    let previous_state = Box::new(window_state.clone());
 
-    // TODO: If the current mouse is down, but the event
-    // wasn't a click, that means it was a drag
+    // TODO: If the current mouse is down, but the event wasn't a click, that means it was a drag
 
     // Figure out what the hovered NodeIds are
-    let mut new_hit_node_ids: BTreeMap<NodeId, HitTestItem> = hit_test_items.iter().filter_map(|hit_test_item| {
-        ui_state.tag_ids_to_node_ids
-        .get(&hit_test_item.tag)
-        .map(|node_id| (*node_id, hit_test_item.clone()))
-    }).collect();
+    let new_hit_node_ids: BTreeMap<NodeId, HitTestItem> = {
 
-    if event_was_mouse_leave {
-        new_hit_node_ids = BTreeMap::new();
-    }
+        let tag_ids_to_node_ids = layout_result.styled_dom.tag_ids_to_node_ids.iter()
+        .filter_map(|t| Some((t.tag_id.into_crate_internal(), t.node_id.into_crate_internal()?)))
+        .collect::<BTreeMap<_, _>>();
+
+        let mut new_hits: BTreeMap<NodeId, HitTestItem> = hit_test_items.iter().filter_map(|hit_test_item| {
+            tag_ids_to_node_ids
+            .get(&hit_test_item.tag)
+            .map(|node_id| (*node_id, hit_test_item.clone()))
+        }).collect();
+
+        if event_was_mouse_leave {
+            new_hits = BTreeMap::new();
+        }
+
+        new_hits
+    };
+    let old_hit_node_ids: BTreeMap<NodeId, HitTestItem> = previous_state.hovered_nodes.get(&layout_result.dom_id).cloned().unwrap_or_default();
 
     // Figure out what the current focused NodeId is
-    if event_was_mouse_down || event_was_mouse_release {
+    let old_focus_node = previous_state.focused_node.clone();
+    let new_focus_node = if event_was_mouse_down || event_was_mouse_release {
 
         // Find the first (closest to cursor in hierarchy) item that has a tabindex
         let closest_focus_node = hit_test_items.iter().rev()
-        .find_map(|item| ui_state.tab_index_tags.get(&item.tag))
-        .cloned();
+        .find_map(|item| {
+            layout_result.styled_dom.tag_ids_to_node_ids.iter().find_map(|t| {
+                let tab_idx = t.tab_index.into_option()?;
+                if t.tag_id.into_crate_internal() == item.tag {
+                    Some((t.node_id.into_crate_internal()?, tab_idx))
+                } else {
+                    None
+                }
+            })
+        });
 
         // Even if the focused node is None, we still have to update window_state.focused_node!
-        window_state.focused_node = closest_focus_node.map(|(node_id, _tab_idx)| (ui_state.dom_id.clone(), node_id));
-    }
-
-    macro_rules! insert_only_non_empty_callbacks {
-        ($node_id:expr, $hit_test_item:expr, $normal_hover_callbacks:expr) => ({
-            if !$normal_hover_callbacks.is_empty() {
-                let mut callback_result = nodes_with_callbacks.entry(*$node_id)
-                .or_insert_with(|| DetermineCallbackResult::default());
-
-                let item: Option<HitTestItem> = $hit_test_item;
-                if let Some(hit_test_item) = item {
-                    callback_result.hit_test_item = Some(hit_test_item);
-                }
-                callback_result.normal_callbacks.extend($normal_hover_callbacks.into_iter());
-            }
-        })
-    }
-
-    // Inserts the events from a given NodeId and an Option<HitTestItem> into the nodes_with_callbacks
-    macro_rules! insert_callbacks {(
-        $node_id:expr,
-        $hit_test_item:expr,
-        $hover_callbacks:ident,
-        $current_hover_events:ident,
-        $event_filter:ident
-    ) => ({
-            // BTreeMap<EventFilter, Callback>
-            let mut normal_hover_callbacks = BTreeMap::new();
-
-            // Insert all normal Hover events
-            if let Some(ui_state_hover_event_filters) = ui_state.$hover_callbacks.get($node_id) {
-                for current_hover_event in &$current_hover_events {
-                    if let Some(callback) = ui_state_hover_event_filters.get(current_hover_event) {
-                        normal_hover_callbacks.insert(EventFilter::$event_filter(*current_hover_event), callback.0);
-                    }
-                }
-            }
-
-            insert_only_non_empty_callbacks!($node_id, $hit_test_item, normal_hover_callbacks);
-        })
-    }
-
-    // Insert all normal window events
-    for (window_node_id, window_callbacks) in &ui_state.window_callbacks {
-        let normal_window_callbacks = window_callbacks.iter()
-            .filter(|(current_window_event, _)| current_window_events.contains(current_window_event))
-            .map(|(current_window_event, callback)| (EventFilter::Window(*current_window_event), callback.0))
-            .collect::<BTreeMap<_, _>>();
-        insert_only_non_empty_callbacks!(window_node_id, None, normal_window_callbacks);
-    }
-
-    // Insert (normal + default) hover events
-    for (hover_node_id, hit_test_item) in &new_hit_node_ids {
-        insert_callbacks!(hover_node_id, Some(hit_test_item.clone()), hover_callbacks, current_hover_events, Hover);
-    }
-
-    // Insert (normal + default) focus events
-    if let Some(current_focused_node) = &window_state.focused_node {
-        insert_callbacks!(&current_focused_node.1, None, focus_callbacks, current_focus_events, Focus);
-    }
-
-    // If the last focused node and the current focused node aren't the same,
-    // submit a FocusLost for the last node and a FocusReceived for the current one.
-    let mut focus_received_lost_events: BTreeMap<NodeId, FocusEventFilter> = BTreeMap::new();
-    match (window_state.focused_node.as_ref(), previous_state.focused_node.as_ref()) {
-        (Some((cur_dom_id, cur_node_id)), None) => {
-            if *cur_dom_id == ui_state.dom_id {
-                focus_received_lost_events.insert(*cur_node_id, FocusEventFilter::FocusReceived);
-            }
-        },
-        (None, Some((prev_dom_id, prev_node_id))) => {
-            if *prev_dom_id == ui_state.dom_id {
-                focus_received_lost_events.insert(*prev_node_id, FocusEventFilter::FocusLost);
-            }
-        },
-        (Some(cur), Some(prev)) => {
-            if *cur != *prev {
-                let (cur_dom_id, cur_node_id) = cur;
-                let (prev_dom_id, prev_node_id) = prev;
-                if *cur_dom_id == ui_state.dom_id {
-                    focus_received_lost_events.insert(*cur_node_id, FocusEventFilter::FocusReceived);
-                }
-                if *prev_dom_id == ui_state.dom_id {
-                    focus_received_lost_events.insert(*prev_node_id, FocusEventFilter::FocusLost);
-                }
-            }
-        }
-        (None, None) => { },
-    }
-
-    // Insert FocusReceived / FocusLost
-    for (node_id, focus_event) in &focus_received_lost_events {
-        let current_focus_leave_events = [focus_event.clone()];
-        insert_callbacks!(node_id, None, focus_callbacks, current_focus_leave_events, Focus);
-    }
-
-    let current_dom_id = ui_state.dom_id.clone();
-
-    macro_rules! mouse_enter {
-        ($node_id:expr, $hit_test_item:expr, $event_filter:ident) => ({
-
-            let node_is_focused = window_state.focused_node == Some((current_dom_id.clone(), $node_id));
-
-            // BTreeMap<EventFilter, Callback>
-            let mut normal_callbacks = BTreeMap::new();
-
-            // Insert all normal Hover(MouseEnter) events
-            if let Some(ui_state_hover_event_filters) = ui_state.hover_callbacks.get(&$node_id) {
-                if let Some(callback) = ui_state_hover_event_filters.get(&HoverEventFilter::$event_filter) {
-                    normal_callbacks.insert(EventFilter::Hover(HoverEventFilter::$event_filter), callback.0);
-                }
-            }
-
-            // Insert all normal Focus(MouseEnter) events
-            if node_is_focused {
-                if let Some(ui_state_focus_event_filters) = ui_state.focus_callbacks.get(&$node_id) {
-                    if let Some(callback) = ui_state_focus_event_filters.get(&FocusEventFilter::$event_filter) {
-                        normal_callbacks.insert(EventFilter::Focus(FocusEventFilter::$event_filter), callback.0);
-                    }
-                }
-            }
-
-            if !normal_callbacks.is_empty() {
-
-                let mut callback_result = nodes_with_callbacks.entry($node_id)
-                .or_insert_with(|| DetermineCallbackResult::default());
-
-                callback_result.hit_test_item = Some($hit_test_item);
-                callback_result.normal_callbacks.extend(normal_callbacks.into_iter());
-            }
-
-            if let Some((_, hover_group)) = ui_state.node_ids_to_tag_ids.get(&$node_id).and_then(|tag_for_this_node| {
-                ui_state.tag_ids_to_hover_active_states.get(&tag_for_this_node)
-            }) {
-                // We definitely need to redraw (on any :hover) change
-                needs_hover_redraw = true;
-                // Only set this to true if the :hover group actually affects the layout
-                if hover_group.affects_layout {
-                    needs_hover_relayout = true;
-                }
-            }
-        })
-    }
+        closest_focus_node.map(|(node_id, _tab_idx)| DomNodeId { dom: layout_result.dom_id, node: AzNodeId::from_crate_internal(Some(node_id)) })
+    } else {
+        old_focus_node.clone()
+    };
 
     // Collect all On::MouseEnter nodes (for both hover and focus events)
     let onmouseenter_nodes: BTreeMap<NodeId, HitTestItem> = new_hit_node_ids.iter()
-        .filter(|(current_node_id, _)| previous_state.hovered_nodes.get(&current_dom_id).and_then(|hn| hn.get(current_node_id)).is_none())
+        .filter(|(current_node_id, _)| old_hit_node_ids.get(current_node_id).is_none())
         .map(|(x, y)| (*x, y.clone()))
         .collect();
 
     let onmouseenter_empty = onmouseenter_nodes.is_empty();
 
-    // Insert Focus(MouseEnter) and Hover(MouseEnter)
-    for (node_id, hit_test_item) in onmouseenter_nodes {
-        mouse_enter!(node_id, hit_test_item, MouseEnter);
-    }
-
     // Collect all On::MouseLeave nodes (for both hover and focus events)
-    let onmouseleave_nodes: BTreeMap<NodeId, HitTestItem> = match previous_state.hovered_nodes.get(&current_dom_id) {
-        Some(hn) => {
-            hn.iter()
-            .filter(|(prev_node_id, _)| new_hit_node_ids.get(prev_node_id).is_none())
-            .map(|(x, y)| (*x, y.clone()))
-            .collect()
-        },
-        None => BTreeMap::new(),
-    };
+    let onmouseleave_nodes = old_hit_node_ids
+        .iter()
+        .filter(|(prev_node_id, _)| new_hit_node_ids.get(prev_node_id).is_none())
+        .map(|(x, y)| (*x, y.clone()))
+        .collect::<BTreeMap<NodeId, HitTestItem>>();
 
     let onmouseleave_empty = onmouseleave_nodes.is_empty();
 
-    // Insert Focus(MouseEnter) and Hover(MouseEnter)
-    for (node_id, hit_test_item) in onmouseleave_nodes {
-        mouse_enter!(node_id, hit_test_item, MouseLeave);
-    }
-
-    // If the mouse is down, but was up previously or vice versa, that means
-    // that a :hover or :active state may be invalidated. In that case we need
-    // to redraw the screen anyways. Setting relayout to true here in order to
-    let event_is_click_or_release = event_was_mouse_down || event_was_mouse_release;
-    if event_is_click_or_release || event_was_mouse_enter || event_was_mouse_leave || !onmouseenter_empty || !onmouseleave_empty {
-        needs_hover_redraw = true;
-        needs_hover_relayout = true;
-    }
-
-    // Insert all Not-callbacks, we need to filter out all Hover and Focus callbacks
-    // and then look at what callbacks were currently
-
-    // In order to create the Not Events we have to record which events were fired and on what nodes
-    // Then we need to go through the events and fire them if the event was present, but the NodeID was not
-    let mut reverse_event_hover_normal_list = BTreeMap::<HoverEventFilter, BTreeSet<NodeId>>::new();
-    let mut reverse_event_focus_normal_list = BTreeMap::<FocusEventFilter, BTreeSet<NodeId>>::new();
-
-    for (node_id, DetermineCallbackResult { normal_callbacks, .. }) in &nodes_with_callbacks {
-        for event_filter in normal_callbacks.keys() {
-            match event_filter {
-                EventFilter::Hover(h) => {
-                    reverse_event_hover_normal_list.entry(*h).or_insert_with(|| BTreeSet::new()).insert(*node_id);
+    // iterate through all callbacks of all nodes
+    for (node_id, node_data) in layout_result.styled_dom.node_data.as_ref().iter().enumerate() {
+        let node_id = NodeId::new(node_id);
+        for callback in node_data.get_callbacks().iter() {
+            // see if the callback matches
+            match callback.event {
+                EventFilter::Window(wev) => {
+                    if current_window_events.contains(&wev) {
+                        nodes_with_callbacks.push(CallbackToCall {
+                            callback,
+                            hit_test_item: new_hit_node_ids.get(&node_id).cloned(),
+                            node_id,
+                        })
+                    }
                 },
-                EventFilter::Focus(f) => {
-                    reverse_event_focus_normal_list.entry(*f).or_insert_with(|| BTreeSet::new()).insert(*node_id);
+                EventFilter::Hover(HoverEventFilter::MouseEnter) => {
+                    if let Some(hit_test_item) = onmouseenter_nodes.get(&node_id) {
+                        nodes_with_callbacks.push(CallbackToCall {
+                            callback,
+                            hit_test_item: Some(*hit_test_item),
+                            node_id,
+                        });
+                    }
                 },
-                _ => { },
+                EventFilter::Hover(HoverEventFilter::MouseLeave) => {
+                    if let Some(hit_test_item) = onmouseleave_nodes.get(&node_id) {
+                        nodes_with_callbacks.push(CallbackToCall {
+                            callback,
+                            hit_test_item: Some(*hit_test_item),
+                            node_id,
+                        });
+                    }
+                },
+                EventFilter::Hover(hev) => {
+                    if let Some(hit_test_item) = new_hit_node_ids.get(&node_id) {
+                        if current_hover_events.contains(&hev) {
+                            nodes_with_callbacks.push(CallbackToCall {
+                                callback,
+                                hit_test_item: Some(*hit_test_item),
+                                node_id,
+                            });
+                        }
+                    }
+                },
+                EventFilter::Focus(FocusEventFilter::FocusReceived) => {
+                    if new_focus_node == Some(DomNodeId { dom: layout_result.dom_id, node: AzNodeId::from_crate_internal(Some(node_id)) }) && old_focus_node != new_focus_node {
+                        nodes_with_callbacks.push(CallbackToCall {
+                            callback,
+                            hit_test_item: None,
+                            node_id,
+                        });
+                    }
+                },
+                EventFilter::Focus(FocusEventFilter::FocusLost) => {
+                    if old_focus_node == Some(DomNodeId { dom: layout_result.dom_id, node: AzNodeId::from_crate_internal(Some(node_id)) }) && old_focus_node != new_focus_node {
+                        nodes_with_callbacks.push(CallbackToCall {
+                            callback,
+                            hit_test_item: None,
+                            node_id,
+                        });
+                    }
+                },
+                EventFilter::Focus(fev) => {
+                    if new_focus_node == Some(DomNodeId { dom: layout_result.dom_id, node: AzNodeId::from_crate_internal(Some(node_id)) }) && current_focus_events.contains(&fev) {
+                        nodes_with_callbacks.push(CallbackToCall {
+                            callback,
+                            hit_test_item: None,
+                            node_id,
+                        });
+                    }
+                },
+                EventFilter::Not(NotEventFilter::Focus(fev)) => {
+                    if Some(DomNodeId { dom: layout_result.dom_id, node: AzNodeId::from_crate_internal(Some(node_id)) }) != new_focus_node && current_focus_events.contains(&fev) {
+                        nodes_with_callbacks.push(CallbackToCall {
+                            callback,
+                            hit_test_item: None,
+                            node_id,
+                        });
+                    }
+                },
+                EventFilter::Not(NotEventFilter::Hover(hev)) => {
+                    if new_hit_node_ids.get(&node_id).is_none() && current_hover_events.contains(&hev) {
+                        nodes_with_callbacks.push(CallbackToCall {
+                            callback,
+                            hit_test_item: None,
+                            node_id,
+                        });
+                    }
+                },
             }
         }
     }
 
-    // Insert NotEventFilter callbacks
-    for (node_id, not_event_filter_callback_list) in &ui_state.not_callbacks {
-        for (event_filter, event_callback) in not_event_filter_callback_list {
-            // If we have the event filter, but we don't have the NodeID, then insert the callback
-            match event_filter {
-                NotEventFilter::Hover(h) => {
-                    if let Some(on_node_ids) = reverse_event_hover_normal_list.get(&h) {
-                        if !on_node_ids.contains(node_id) {
-                            nodes_with_callbacks.entry(*node_id)
-                            .or_insert_with(|| DetermineCallbackResult::default())
-                            .normal_callbacks.insert(EventFilter::Not(*event_filter), event_callback.0);
-                        }
-                    }
-                },
-                NotEventFilter::Focus(_f) => {
-                    // TODO: Same thing for focus
+    // immediately restyle the DOM to reflect the new :hover, :active and :focus nodes
+    // and determine if the DOM needs a redraw or a relayout
+    let mut style_changes = BTreeMap::new();
+    let mut layout_changes = BTreeMap::new();
+    let is_mouse_down = window_state.mouse_state.mouse_down();
+
+    for onmouseenter_node_id in onmouseenter_nodes.keys() {
+        // style :hover nodes
+
+        let hover_node = &mut layout_result.styled_dom.styled_nodes.as_container_mut()[*onmouseenter_node_id];
+        if hover_node.needs_hover_restyle() {
+            let style_props_changed = hover_node.restyle_hover();
+            let mut style_style_props = style_props_changed.iter().filter(|prop| !prop.previous_prop.get_type().can_trigger_relayout()).cloned().collect::<Vec<ChangedCssProperty>>();
+            let mut style_layout_props = style_props_changed.iter().filter(|prop| prop.previous_prop.get_type().can_trigger_relayout()).cloned().collect::<Vec<ChangedCssProperty>>();
+
+            if !style_style_props.is_empty() {
+                style_changes.entry(*onmouseenter_node_id).or_insert_with(|| Vec::new()).append(&mut style_style_props);
+            }
+            if !style_layout_props.is_empty() {
+                layout_changes.entry(*onmouseenter_node_id).or_insert_with(|| Vec::new()).append(&mut style_layout_props);
+            }
+        }
+
+        if is_mouse_down {
+            // style :active nodes
+            if hover_node.needs_active_restyle() {
+                let style_props_changed = hover_node.restyle_active();
+                let mut style_style_props = style_props_changed.iter().filter(|prop| !prop.previous_prop.get_type().can_trigger_relayout()).cloned().collect::<Vec<ChangedCssProperty>>();
+                let mut style_layout_props = style_props_changed.iter().filter(|prop| prop.previous_prop.get_type().can_trigger_relayout()).cloned().collect::<Vec<ChangedCssProperty>>();
+
+                if !style_style_props.is_empty() {
+                    style_changes.entry(*onmouseenter_node_id).or_insert_with(|| Vec::new()).append(&mut style_style_props);
+                }
+                if !style_layout_props.is_empty() {
+                    layout_changes.entry(*onmouseenter_node_id).or_insert_with(|| Vec::new()).append(&mut style_layout_props);
                 }
             }
         }
     }
 
-    window_state.hovered_nodes.insert(current_dom_id, new_hit_node_ids);
+    for onmouseleave_node_id in onmouseleave_nodes.keys() {
+        // style :hover nodes
+
+        let hover_node = &mut layout_result.styled_dom.styled_nodes.as_container_mut()[*onmouseleave_node_id];
+        if hover_node.needs_hover_restyle() {
+            let style_props_changed = hover_node.restyle_hover();
+            let mut style_style_props = style_props_changed.iter().filter(|prop| !prop.previous_prop.get_type().can_trigger_relayout()).cloned().collect::<Vec<ChangedCssProperty>>();
+            let mut style_layout_props = style_props_changed.iter().filter(|prop| prop.previous_prop.get_type().can_trigger_relayout()).cloned().collect::<Vec<ChangedCssProperty>>();
+
+            if !style_style_props.is_empty() {
+                style_changes.entry(*onmouseleave_node_id).or_insert_with(|| Vec::new()).append(&mut style_style_props);
+            }
+            if !style_layout_props.is_empty() {
+                layout_changes.entry(*onmouseleave_node_id).or_insert_with(|| Vec::new()).append(&mut style_layout_props);
+            }
+        }
+
+        if is_mouse_down {
+            // style :active nodes
+            if hover_node.needs_active_restyle() {
+                let style_props_changed = hover_node.restyle_active();
+                let mut style_style_props = style_props_changed.iter().filter(|prop| !prop.previous_prop.get_type().can_trigger_relayout()).cloned().collect::<Vec<ChangedCssProperty>>();
+                let mut style_layout_props = style_props_changed.iter().filter(|prop| prop.previous_prop.get_type().can_trigger_relayout()).cloned().collect::<Vec<ChangedCssProperty>>();
+
+                if !style_style_props.is_empty() {
+                    style_changes.entry(*onmouseleave_node_id).or_insert_with(|| Vec::new()).append(&mut style_style_props);
+                }
+                if !style_layout_props.is_empty() {
+                    layout_changes.entry(*onmouseleave_node_id).or_insert_with(|| Vec::new()).append(&mut style_layout_props);
+                }
+            }
+        }
+    }
+
+    if old_focus_node != new_focus_node {
+
+        if let Some(DomNodeId { dom, node }) = old_focus_node {
+            if dom == layout_result.dom_id {
+                let node = node.into_crate_internal().unwrap();
+                let old_focus_node = &mut layout_result.styled_dom.styled_nodes.as_container_mut()[node];
+                if old_focus_node.needs_focus_restyle() {
+                    let style_props_changed = old_focus_node.restyle_focus();
+                    let mut style_style_props = style_props_changed.iter().filter(|prop| !prop.previous_prop.get_type().can_trigger_relayout()).cloned().collect::<Vec<ChangedCssProperty>>();
+                    let mut style_layout_props = style_props_changed.iter().filter(|prop| prop.previous_prop.get_type().can_trigger_relayout()).cloned().collect::<Vec<ChangedCssProperty>>();
+
+                    if !style_style_props.is_empty() {
+                        style_changes.entry(node).or_insert_with(|| Vec::new()).append(&mut style_style_props);
+                    }
+                    if !style_layout_props.is_empty() {
+                        layout_changes.entry(node).or_insert_with(|| Vec::new()).append(&mut style_layout_props);
+                    }
+                }
+            }
+        }
+
+        if let Some(DomNodeId { dom, node }) = new_focus_node {
+            if dom == layout_result.dom_id {
+                let node = node.into_crate_internal().unwrap();
+                let new_focus_node = &mut layout_result.styled_dom.styled_nodes.as_container_mut()[node];
+                if new_focus_node.needs_focus_restyle() {
+                    let style_props_changed = new_focus_node.restyle_focus();
+                    let mut style_style_props = style_props_changed.iter().filter(|prop| !prop.previous_prop.get_type().can_trigger_relayout()).cloned().collect::<Vec<ChangedCssProperty>>();
+                    let mut style_layout_props = style_props_changed.iter().filter(|prop| prop.previous_prop.get_type().can_trigger_relayout()).cloned().collect::<Vec<ChangedCssProperty>>();
+
+                    if !style_style_props.is_empty() {
+                        style_changes.entry(node).or_insert_with(|| Vec::new()).append(&mut style_style_props);
+                    }
+                    if !style_layout_props.is_empty() {
+                        layout_changes.entry(node).or_insert_with(|| Vec::new()).append(&mut style_layout_props);
+                    }
+                }
+            }
+        }
+    }
+
+    window_state.focused_node = new_focus_node;
+    window_state.hovered_nodes.insert(layout_result.dom_id, new_hit_node_ids);
     window_state.previous_window_state = Some(previous_state);
 
     CallbacksOfHitTest {
-        needs_redraw_anyways: needs_hover_redraw,
-        needs_relayout_anyways: needs_hover_relayout,
+        style_changes,
+        layout_changes,
         nodes_with_callbacks,
     }
 }
@@ -425,45 +444,4 @@ pub fn get_hover_events(input: &HashSet<WindowEventFilter>) -> HashSet<HoverEven
 
 pub fn get_focus_events(input: &HashSet<HoverEventFilter>) -> HashSet<FocusEventFilter> {
     input.iter().filter_map(|hover_event| hover_event.to_focus_event_filter()).collect()
-}
-
-/// Utility function that, given the current keyboard state and a list of
-/// keyboard accelerators + callbacks, checks what callback can be invoked
-/// and the first matching callback. This leads to very readable
-/// (but still type checked) code like this:
-///
-/// ```no_run,ignore
-/// use azul::prelude::{AcceleratorKey::*, VirtualKeyCode::*};
-///
-/// fn my_Callback(info: CallbackInfo) -> UpdateScreen {
-///     keymap(info, &[
-///         [vec![Ctrl, S], save_document],
-///         [vec![Ctrl, N], create_new_document],
-///         [vec![Ctrl, O], open_new_file],
-///         [vec![Ctrl, Shift, N], create_new_window],
-///     ])
-/// }
-/// ```
-pub fn keymap<T>(
-    info: CallbackInfo,
-    events: &[(Vec<AcceleratorKey>, CallbackType)]
-) -> UpdateScreen {
-
-    let keyboard_state = info.get_keyboard_state().clone();
-
-    events
-        .iter()
-        .filter(|(keymap_character, _)| {
-            keymap_character
-                .iter()
-                .all(|keymap_char| keymap_char.matches(&keyboard_state))
-        })
-        .next()
-        .and_then(|(_, callback)| {
-            use std::ffi::c_void;
-            use crate::callbacks::CallbackInfoPtr;
-            let ptr = CallbackInfoPtr { ptr: Box::into_raw(Box::new(info)) as *mut c_void };
-            ((callback)(ptr)).into_option()
-        })
-        .into()
 }

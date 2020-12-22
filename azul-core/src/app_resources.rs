@@ -1416,7 +1416,7 @@ pub fn scan_styled_nodes_for_image_keys(
 
         // If the node has a CSS background image, it needs to be uploaded
         let node_has_css_background = || -> Option<ImageId> {
-            let background = display_rect.style.background.as_ref().and_then(|bg| bg.get_property())?;
+            let background = styled_node.style.background.as_ref().and_then(|bg| bg.get_property())?;
             let css_image_id = background.get_css_image_id()?;
             let image_id = app_resources.get_css_image_id(css_image_id.inner.as_str())?;
             Some(*image_id)

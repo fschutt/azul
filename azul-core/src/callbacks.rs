@@ -6,7 +6,7 @@ use std::{
     ffi::c_void,
     alloc::Layout,
 };
-use azul_css::{LayoutPoint, AzString, LayoutRect, LayoutSize, CssPath};
+use azul_css::{LayoutPoint, OptionLayoutPoint, AzString, LayoutRect, LayoutSize, CssPath};
 #[cfg(feature = "css_parser")]
 use azul_css_parser::CssPathParseError;
 use crate::{
@@ -16,12 +16,13 @@ use crate::{
     display_list::CachedDisplayList,
     styled_dom::StyledDom,
     ui_solver::{PositionedRectangle, LayoutedRectangle, ScrolledNodes, LayoutResult},
-    id_tree::Node,
-    styled_dom::{AzDomId, AzNodeId},
+    id_tree::{Node, NodeId},
+    styled_dom::{DomId, StyleOptions, AzNodeId},
     window::{
         WindowSize, WindowState, FullWindowState, CallbacksOfHitTest,
         KeyboardState, MouseState, LogicalSize, PhysicalSize,
         UpdateFocusWarning, CallCallbacksResult, ScrollStates,
+        CallbackToCall,
     },
     task::{Timer, DropCheckPtr, TerminateTimer, ArcMutexRefAnyPtr, Task, TimerId},
 };
@@ -404,13 +405,13 @@ macro_rules! impl_get_gl_context {() => {
 ///
 /// See azul-core/ui_state.rs:298 for how the memory is managed
 /// across the callback boundary.
-pub type LayoutCallbackType = extern "C" fn(RefAny, LayoutInfoPtr) -> Dom;
+pub type LayoutCallbackType = extern "C" fn(RefAny, LayoutInfoPtr) -> StyledDom;
 
 #[repr(C)]
 pub struct LayoutCallback { pub cb: LayoutCallbackType }
 impl_callback!(LayoutCallback);
 
-extern "C" fn default_layout_callback(_: RefAny, _: LayoutInfoPtr) -> Dom { Dom::div() }
+extern "C" fn default_layout_callback(_: RefAny, _: LayoutInfoPtr) -> StyledDom { StyledDom::default() }
 
 impl Default for LayoutCallback {
     fn default() -> Self {
@@ -437,11 +438,9 @@ pub struct CallbackInfo<'a> {
     pub current_window_state: &'a FullWindowState,
     /// User-modifiable state of the window that the callback was called on
     pub modifiable_window_state: &'a mut WindowState,
-    /// Current display list active in this window (useful for debugging)
-    pub cached_display_list: &'a CachedDisplayList,
     /// An Rc to the OpenGL context, in order to be able to render to OpenGL textures
     #[cfg(feature = "opengl")]
-    pub gl_context: GlContextPtr,
+    pub gl_context: &'a GlContextPtr,
     /// See [`AppState.resources`](./struct.AppState.html#structfield.resources)
     pub resources : &'a mut AppResources,
     /// Currently running timers (polling functions, run on the main thread)
@@ -449,117 +448,118 @@ pub struct CallbackInfo<'a> {
     /// Currently running tasks (asynchronous functions running each on a different thread)
     pub tasks: &'a mut Vec<Task>,
     /// Currently active, layouted rectangles
-    pub layout_result: &'a BTreeMap<DomId, LayoutResult>,
-    /// Styled DOMs containing styling information
-    pub styled_doms: &'a BTreeMap<DomId, StyledDom>,
+    pub layout_results: &'a Vec<LayoutResult>,
     /// Sets whether the event should be propagated to the parent hit node or not
     pub stop_propagation: &'a mut bool,
     /// The callback can change the focus_target - note that the focus_target is set before the
     /// next frames' layout() function is invoked, but the current frames callbacks are not affected.
     pub focus_target: &'a mut Option<FocusTarget>,
     /// Immutable (!) reference to where the nodes are currently scrolled (current position)
-    pub current_scroll_states: &'a BTreeMap<DomId, BTreeMap<NodeId, ScrollPosition>>,
+    pub current_scroll_states: &'a BTreeMap<DomId, BTreeMap<AzNodeId, ScrollPosition>>,
     /// Mutable map where a user can set where he wants the nodes to be scrolled to (for the next frame)
-    pub nodes_scrolled_in_callback: &'a mut BTreeMap<DomId, BTreeMap<NodeId, LayoutPoint>>,
+    pub nodes_scrolled_in_callback: &'a mut BTreeMap<DomId, BTreeMap<AzNodeId, LayoutPoint>>,
     /// The ID of the DOM + the node that was hit. You can use this to query
     /// information about the node, but please don't hard-code any if / else
     /// statements based on the `NodeId`
-    pub hit_dom_node: (DomId, NodeId),
+    pub hit_dom_node: DomNodeId,
     /// The (x, y) position of the mouse cursor, **relative to top left of the element that was hit**.
-    pub cursor_relative_to_item: Option<(f32, f32)>,
+    pub cursor_relative_to_item: Option<LayoutPoint>,
     /// The (x, y) position of the mouse cursor, **relative to top left of the window**.
-    pub cursor_in_viewport: Option<(f32, f32)>,
+    pub cursor_in_viewport: Option<LayoutPoint>,
 }
 
 /// Pointer to rust-allocated `Box<CallbackInfo<'a>>` struct
 #[repr(C)] pub struct CallbackInfoPtr { pub ptr: *mut c_void }
 
+#[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
 #[repr(C)]
 pub struct DomNodeId {
-    pub dom: AzDomId,
+    pub dom: DomId,
     pub node: AzNodeId,
 }
 
+impl_option!(DomNodeId, OptionDomNodeId, [Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash]);
+
 impl CallbackInfoPtr {
 
-    pub fn get_hit_node(&self) -> NodeId {
+    pub fn get_hit_node<'a>(&'a self) -> DomNodeId {
         let self_ptr = self.ptr as *const CallbackInfo<'a>;
-        NodeId { dom: self_ptr.hit_dom_node.0.id, node: self_ptr.hit_dom_node.1 }
+        unsafe { (*self_ptr).hit_dom_node }
     }
 
-    pub fn get_parent(&self, node_id: DomNodeId) -> OptionNodeId {
+    pub fn get_parent<'a>(&'a self, node_id: DomNodeId) -> OptionDomNodeId {
         let self_ptr = self.ptr as *const CallbackInfo<'a>;
-        self_ptr.styled_doms
-        .get(node_id.dom)
-        .and_then(|styled_dom| styled_dom.node_hierarchy.get(node_id.node)?.parent)
-        .map(|parent_node_id| NodeId { dom: node_id.dom, node: parent_node_id })
+        unsafe { (*self_ptr).layout_results }
+        .get(node_id.dom.inner as usize)
+        .and_then(|layout_result| layout_result.styled_dom.node_hierarchy.as_container().get(node_id.node.into_crate_internal()?)?.parent_id())
+        .map(|nid| DomNodeId { dom: node_id.dom, node: AzNodeId::from_crate_internal(Some(nid)) })
         .into()
     }
 
-    pub fn get_previous_sibling(&self, node_id: DomNodeId) -> OptionNodeId {
+    pub fn get_previous_sibling<'a>(&'a self, node_id: DomNodeId) -> OptionDomNodeId {
         let self_ptr = self.ptr as *const CallbackInfo<'a>;
-        self_ptr.styled_doms
-        .get(node_id.dom)
-        .and_then(|styled_dom| styled_dom.node_hierarchy.get(node_id.node)?.previous_sibling)
-        .map(|parent_node_id| NodeId { dom: node_id.dom, node: parent_node_id })
+        unsafe { (*self_ptr).layout_results }
+        .get(node_id.dom.inner as usize)
+        .and_then(|layout_result| layout_result.styled_dom.node_hierarchy.as_container().get(node_id.node.into_crate_internal()?)?.previous_sibling_id())
+        .map(|nid| DomNodeId { dom: node_id.dom, node: AzNodeId::from_crate_internal(Some(nid)) })
         .into()
     }
 
-    pub fn get_next_sibling(&self, node_id: DomNodeId) -> OptionNodeId {
+    pub fn get_next_sibling<'a>(&'a self, node_id: DomNodeId) -> OptionDomNodeId {
         let self_ptr = self.ptr as *const CallbackInfo<'a>;
-        self_ptr.styled_doms
-        .get(node_id.dom)
-        .and_then(|styled_dom| styled_dom.node_hierarchy.get(node_id.node)?.next_sibling)
-        .map(|parent_node_id| NodeId { dom: node_id.dom, node: parent_node_id })
+        unsafe { (*self_ptr).layout_results }
+        .get(node_id.dom.inner as usize)
+        .and_then(|layout_result| layout_result.styled_dom.node_hierarchy.as_container().get(node_id.node.into_crate_internal()?)?.next_sibling_id())
+        .map(|nid| DomNodeId { dom: node_id.dom, node: AzNodeId::from_crate_internal(Some(nid)) })
         .into()
     }
 
-    pub fn get_first_child(&self, node_id: DomNodeId) -> OptionNodeId {
+    pub fn get_first_child<'a>(&'a self, node_id: DomNodeId) -> OptionDomNodeId {
         let self_ptr = self.ptr as *const CallbackInfo<'a>;
-        self_ptr.styled_doms
-        .get(node_id.dom)
-        .and_then(|styled_dom| styled_dom.node_hierarchy.get(node_id.node)?.first_child)
-        .map(|parent_node_id| NodeId { dom: node_id.dom, node: parent_node_id })
+        unsafe { (*self_ptr).layout_results }
+        .get(node_id.dom.inner as usize)
+        .and_then(|layout_result| layout_result.styled_dom.node_hierarchy.as_container().get(node_id.node.into_crate_internal()?)?.first_child_id())
+        .map(|nid| DomNodeId { dom: node_id.dom, node: AzNodeId::from_crate_internal(Some(nid)) })
         .into()
     }
 
-    pub fn node_is_type(&self, node: DomNodeId, node_type: NodeType) -> bool {
+    pub fn node_is_type<'a>(&'a self, node_id: DomNodeId, node_type: NodeType) -> bool {
         let self_ptr = self.ptr as *const CallbackInfo<'a>;
-        self_ptr.styled_doms
-        .get(node_id.dom)
-        .and_then(|styled_dom| Some(styled_dom.dom.get(node_id.node)?.is_node_type(node_type)))
+        unsafe { (*self_ptr).layout_results }
+        .get(node_id.dom.inner as usize)
+        .and_then(|layout_result| Some(layout_result.styled_dom.node_data.as_container().get(node_id.node.into_crate_internal()?)?.is_node_type(node_type)))
         .unwrap_or(false)
     }
 
-    pub fn node_has_id(&self, node: DomNodeId, id: AzString) -> bool {
+    pub fn node_has_id<'a>(&'a self, node_id: DomNodeId, id: AzString) -> bool {
         let self_ptr = self.ptr as *const CallbackInfo<'a>;
-        self_ptr.styled_doms
-        .get(node_id.dom)
-        .and_then(|styled_dom| Some(styled_dom.dom.get(node_id.node)?.has_id(id.as_str())))
+        unsafe { (*self_ptr).layout_results }
+        .get(node_id.dom.inner as usize)
+        .and_then(|layout_result| Some(layout_result.styled_dom.node_data.as_container().get(node_id.node.into_crate_internal()?)?.has_id(id.as_str())))
         .unwrap_or(false)
     }
 
-    pub fn node_has_class(&self, node: DomNodeId, class: AzString) -> bool {
+    pub fn node_has_class<'a>(&'a self, node_id: DomNodeId, class: AzString) -> bool {
         let self_ptr = self.ptr as *const CallbackInfo<'a>;
-        self_ptr.styled_doms
-        .get(node_id.dom)
-        .and_then(|styled_dom| Some(styled_dom.dom.get(node_id.node)?.has_class(class.as_str())))
+        unsafe { (*self_ptr).layout_results }
+        .get(node_id.dom.inner as usize)
+        .and_then(|layout_result| Some(layout_result.styled_dom.node_data.as_container().get(node_id.node.into_crate_internal()?)?.has_class(class.as_str())))
         .unwrap_or(false)
     }
 
-    pub fn get_current_window_state(&self) -> FullWindowState {
+    pub fn get_current_window_state<'a>(&'a self) -> FullWindowState {
         let self_ptr = self.ptr as *const CallbackInfo<'a>;
-        self_ptr.current_window_state.clone()
+        unsafe { (*self_ptr).current_window_state.clone() }
     }
 
-    pub fn get_cursor_in_viewport(&self) -> OptionLayoutPoint {
+    pub fn get_cursor_in_viewport<'a>(&'a self) -> OptionLayoutPoint {
         let self_ptr = self.ptr as *const CallbackInfo<'a>;
-        self_ptr.cursor_in_viewport.map(|l| LayoutPoint::new(l.0, l.1)).into()
+        unsafe { (*self_ptr).cursor_in_viewport.into() }
     }
 
-    pub fn get_cursor_relative_to_item(&self) -> OptionLayoutPoint {
+    pub fn get_cursor_relative_to_item<'a>(&'a self) -> OptionLayoutPoint {
         let self_ptr = self.ptr as *const CallbackInfo<'a>;
-        self_ptr.cursor_relative_to_item.map(|l| LayoutPoint::new(l.0, l.1)).into()
+        unsafe { (*self_ptr).cursor_relative_to_item.into() }
     }
 
     // pub fn add_font_source()
@@ -575,29 +575,29 @@ impl CallbackInfoPtr {
     // pub fn exchange_image_source(old_image_source, new_image_source)
     // pub fn exchange_image_mask(old_image_mask, new_image_mask)
 
-    pub fn add_task(&mut self, task: Task) {
+    pub fn add_task<'a>(&'a mut self, task: Task) {
         let self_ptr = self.ptr as *mut CallbackInfo<'a>;
-        self_ptr.tasks.push(task);
+        unsafe { (*self_ptr).tasks.push(task); }
     }
 
-    pub fn add_timer(&mut self, timer_id: TimerId, timer: Timer) {
+    pub fn add_timer<'a>(&'a mut self, timer_id: TimerId, timer: Timer) {
         let self_ptr = self.ptr as *mut CallbackInfo<'a>;
-        self_ptr.timers.inters(timer_id, timer);
+        unsafe { (*self_ptr).timers.insert(timer_id, timer); }
     }
 
-    pub fn set_window_state(&mut self, new_window_state: WindowState) {
+    pub fn set_window_state<'a>(&'a mut self, new_window_state: WindowState) {
         let self_ptr = self.ptr as *mut CallbackInfo<'a>;
-        *self_ptr.modifiable_window_state = new_window_state;
+        unsafe { *(*self_ptr).modifiable_window_state = new_window_state; }
     }
 
-    pub fn stop_propagation(&mut self) {
+    pub fn stop_propagation<'a>(&'a mut self) {
         let self_ptr = self.ptr as *mut CallbackInfo<'a>;
-        *self_ptr.stop_propagation = true;
+        unsafe { *(*self_ptr).stop_propagation = true; }
     }
 
-    pub fn get_gl_context(&self) -> GlContextPtr {
+    pub fn get_gl_context<'a>(&'a self) -> GlContextPtr {
         let self_ptr = self.ptr as *const CallbackInfo<'a>;
-        self_ptr.gl_context.clone()
+        unsafe { (*self_ptr).gl_context.clone() }
     }
 }
 
@@ -623,14 +623,11 @@ impl<'a> fmt::Debug for CallbackInfo<'a> {
             data: {{ .. }}, \
             current_window_state: {:?}, \
             modifiable_window_state: {:?}, \
-            layout_result: {:?}, \
-            scrolled_nodes: {:?}, \
-            cached_display_list: {:?}, \
+            layout_results: {:?}, \
             gl_context: {{ .. }}, \
             resources: {{ .. }}, \
             timers: {{ .. }}, \
             tasks: {{ .. }}, \
-            ui_state: {:?}, \
             focus_target: {:?}, \
             current_scroll_states: {:?}, \
             nodes_scrolled_in_callback: {:?}, \
@@ -640,10 +637,7 @@ impl<'a> fmt::Debug for CallbackInfo<'a> {
         }}",
             self.current_window_state,
             self.modifiable_window_state,
-            self.layout_result,
-            self.scrolled_nodes,
-            self.cached_display_list,
-            self.ui_state,
+            self.layout_results,
             self.focus_target,
             self.current_scroll_states,
             self.nodes_scrolled_in_callback,
@@ -679,10 +673,6 @@ pub struct GlCallbackInfo<'a> {
     pub gl_context: &'a GlContextPtr,
     pub resources: &'a AppResources,
     pub bounds: HidpiAdjustedBounds,
-}
-
-impl<'a> GlCallbackInfo<'a> {
-    impl_get_gl_context!();
 }
 
 /// Pointer to rust-allocated `Box<GlCallbackInfo<'a>>` struct
@@ -722,7 +712,6 @@ pub struct IFrameCallbackInfo<'a> {
     pub state: &'a RefAny,
     pub resources: &'a AppResources,
     pub bounds: HidpiAdjustedBounds,
-    pub style_options: StyleOptions,
 }
 
 /// Pointer to rust-allocated `Box<IFrameCallbackInfo<'a>>` struct
@@ -919,178 +908,171 @@ impl HidpiAdjustedBounds {
 /// Defines the focus_targeted node ID for the next frame
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub enum FocusTarget {
-    Id((DomId, NodeId)),
+    Id(DomNodeId),
     Path((DomId, CssPath)),
     NoFocus,
 }
 
 impl FocusTarget {
-    pub fn resolve(&self, styled_doms: &BTreeMap<DomId, StyledDom>) -> Result<Option<(DomId, NodeId)>, UpdateFocusWarning> {
+    pub fn resolve(&self, layout_results: &[LayoutResult]) -> Result<Option<DomNodeId>, UpdateFocusWarning> {
 
         use crate::callbacks::FocusTarget::*;
         use crate::style::matches_html_element;
 
         match self {
-            Id((dom_id, node_id)) => {
-                let styled_dom = styled_doms.get(&dom_id).ok_or(UpdateFocusWarning::FocusInvalidDomId(dom_id.clone()))?;
-                let _ = styled_dom.node_data.get(*node_id).ok_or(UpdateFocusWarning::FocusInvalidNodeId(*node_id))?;
-                Ok(Some((dom_id.clone(), *node_id)))
+            Id(dom_node_id) => {
+                let layout_result = layout_results.get(dom_node_id.dom.inner).ok_or(UpdateFocusWarning::FocusInvalidDomId(dom_node_id.dom.clone()))?;
+                let node_is_valid = dom_node_id.node
+                    .into_crate_internal()
+                    .map(|o| layout_result.styled_dom.node_data.as_container().get(o).is_some())
+                    .unwrap_or(false);
+
+                if !node_is_valid {
+                    Err(UpdateFocusWarning::FocusInvalidNodeId(dom_node_id.node.clone()))
+                } else {
+                    Ok(Some(dom_node_id.clone()))
+                }
             },
             NoFocus => Ok(None),
             Path((dom_id, css_path)) => {
-                let styled_dom = styled_doms.get(&dom_id).ok_or(UpdateFocusWarning::FocusInvalidDomId(dom_id.clone()))?;
-                let html_node_tree = &styled_dom.html_tree;
-                let node_hierarchy = &styled_dom.node_hierarchy;
-                let node_data = &styled_dom.node_data;
+                let layout_result = layout_results.get(dom_id.inner).ok_or(UpdateFocusWarning::FocusInvalidDomId(dom_id.clone()))?;
+                let html_node_tree = &layout_result.styled_dom.cascade_info;
+                let node_hierarchy = &layout_result.styled_dom.node_hierarchy;
+                let node_data = &layout_result.styled_dom.node_data;
                 let resolved_node_id = html_node_tree
+                    .as_container()
                     .linear_iter()
-                    .find(|node_id| matches_html_element(css_path, *node_id, &node_hierarchy, &node_data, &html_node_tree))
+                    .find(|node_id| matches_html_element(css_path, *node_id, &node_hierarchy.as_container(), &node_data.as_container(), &html_node_tree.as_container()))
                     .ok_or(UpdateFocusWarning::CouldNotFindFocusNode(css_path.clone()))?;
-                Ok(Some((dom_id.clone(), resolved_node_id)))
+                Ok(Some(DomNodeId { dom: dom_id.clone(), node: AzNodeId::from_crate_internal(Some(resolved_node_id)) }))
             },
         }
-    }
-}
-
-impl<'a> CallbackInfo<'a> {
-    impl_callback_info_api!();
-    impl_task_api!();
-    impl_get_gl_context!();
-}
-
-/// Iterator that, starting from a certain starting point, returns the
-/// parent node until it gets to the root node.
-pub struct ParentNodesIterator<'a> {
-    ui_state: &'a BTreeMap<DomId, UiState>,
-    current_item: (DomId, NodeId),
-}
-
-impl<'a> ParentNodesIterator<'a> {
-
-    /// Returns what node ID the iterator is currently processing
-    pub fn current_node(&self) -> (DomId, NodeId) {
-        self.current_item.clone()
-    }
-
-    /// Returns the offset into the parent of the current node or None if the item has no parent
-    pub fn current_index_in_parent(&self) -> Option<usize> {
-        let node_layout = &self.ui_state[&self.current_item.0].dom.arena.node_hierarchy;
-        if node_layout[self.current_item.1].parent.is_some() {
-            Some(node_layout.get_index_in_parent(self.current_item.1))
-        } else {
-            None
-        }
-    }
-}
-
-impl<'a> Iterator for ParentNodesIterator<'a> {
-    type Item = (DomId, NodeId);
-
-    /// For each item in the current item path, returns the index of the item in the parent
-    fn next(&mut self) -> Option<(DomId, NodeId)> {
-        let parent_node_id = self.ui_state[&self.current_item.0].dom.arena.node_hierarchy[self.current_item.1].parent?;
-        self.current_item.1 = parent_node_id;
-        Some((self.current_item.0.clone(), parent_node_id))
     }
 }
 
 /// The actual function that calls the callback in their proper hierarchy and order
 #[cfg(feature = "opengl")]
-pub fn call_callbacks(
-    callbacks_filter_list: &BTreeMap<DomId, CallbacksOfHitTest>,
-    ui_state_map: &BTreeMap<DomId, UiState>,
-    ui_description_map: &BTreeMap<DomId, UiDescription>,
+pub fn call_callbacks<'a>(
+    dom_id: DomId,
+    callbacks_filter_list: &[CallbackToCall<'a>],
+    layout_results: &mut Vec<LayoutResult>,
     timers: &mut FastHashMap<TimerId, Timer>,
     tasks: &mut Vec<Task>,
-    scroll_states: &BTreeMap<DomId, BTreeMap<NodeId, ScrollPosition>>,
+    scroll_states: &BTreeMap<DomId, BTreeMap<AzNodeId, ScrollPosition>>,
     modifiable_scroll_states: &mut ScrollStates,
     full_window_state: &mut FullWindowState,
-    layout_result: &BTreeMap<DomId, LayoutResult>,
+    gl_context: &GlContextPtr,
     scrolled_nodes: &BTreeMap<DomId, ScrolledNodes>,
-    cached_display_list: &CachedDisplayList,
-    gl_context: GlContextPtr,
     resources: &mut AppResources,
 ) -> CallCallbacksResult {
 
+    use std::collections::BTreeSet;
+    use crate::styled_dom::{ParentWithNodeDepth, ChangedCssPropertyVec};
+    use crate::dom::{EventFilter, FocusEventFilter};
+
     let mut ret = CallCallbacksResult {
-        needs_restyle_hover_active: callbacks_filter_list.values().any(|v| v.needs_redraw_anyways),
-        needs_relayout_hover_active: callbacks_filter_list.values().any(|v| v.needs_relayout_anyways),
-        needs_restyle_focus_changed: false,
         should_scroll_render: false,
         callbacks_update_screen: UpdateScreen::DontRedraw,
         modified_window_state: full_window_state.clone().into(),
+        focus_properties_changed: ChangedCssPropertyVec::new(),
     };
     let mut new_focus_target = None;
     let mut nodes_scrolled_in_callbacks = BTreeMap::new();
 
-    // Run all callbacks (front to back)
-
-    for (dom_id, callbacks_of_hit_test) in callbacks_filter_list.iter() {
-
-        let ui_state = match ui_state_map.get(dom_id) {
+    {
+        let layout_result = match layout_results.get(dom_id.inner) {
             Some(s) => s,
-            None => continue,
+            None => { return ret; },
         };
 
-        // In order to implement bubbling properly, the events have to be re-sorted a bit
-        // TODO: Put this in the CallbacksOfHitTest construction
-        let mut callbacks_grouped_by_event_type = BTreeMap::new();
+        let callbacks = callbacks_filter_list.iter().map(|cbtc| (cbtc.node_id, (cbtc.hit_test_item, cbtc.callback))).collect::<BTreeMap<_, _>>();
 
-        for (node_id, determine_callback_result) in callbacks_of_hit_test.nodes_with_callbacks.iter() {
-            for (event_filter, callback) in determine_callback_result.normal_callbacks.iter() {
-                callbacks_grouped_by_event_type
-                    .entry(event_filter)
-                    .or_insert_with(|| Vec::new())
-                    .push((node_id, callback));
-            }
+        let mut blacklisted_event_types = BTreeSet::new();
+
+        // Run all callbacks (front to back)
+        for ParentWithNodeDepth { depth, node_id } in layout_result.styled_dom.non_leaf_nodes.as_ref().iter().rev() {
+           let parent_node_id = node_id;
+           for child_id in parent_node_id.into_crate_internal().unwrap().az_children(&layout_result.styled_dom.node_hierarchy.as_container()) {
+                if let Some((hit_test_item, callback_data)) = callbacks.get(&child_id) {
+
+                    if blacklisted_event_types.contains(&callback_data.event) {
+                        continue;
+                    }
+
+                    let mut new_focus = None;
+                    let mut stop_propagation = false;
+
+                    let callback_info = CallbackInfo {
+                        state: &callback_data.data,
+                        current_window_state: &full_window_state,
+                        modifiable_window_state: &mut ret.modified_window_state,
+                        layout_results,
+                        gl_context,
+                        resources,
+                        timers,
+                        tasks,
+                        stop_propagation: &mut stop_propagation,
+                        focus_target: &mut new_focus,
+                        current_scroll_states: scroll_states,
+                        nodes_scrolled_in_callback: &mut nodes_scrolled_in_callbacks,
+                        hit_dom_node: DomNodeId { dom: dom_id, node: AzNodeId::from_crate_internal(Some(child_id)) },
+                        cursor_relative_to_item: hit_test_item.as_ref().map(|hi| LayoutPoint::new(hi.point_relative_to_item.x, hi.point_relative_to_item.y)),
+                        cursor_in_viewport: hit_test_item.as_ref().map(|hi| LayoutPoint::new(hi.point_in_viewport.x, hi.point_in_viewport.y)),
+                    };
+
+                    let callback_info_ptr = CallbackInfoPtr { ptr: Box::into_raw(Box::new(callback_info)) as *mut c_void };
+
+                    // Invoke callback
+                    let callback_return = (callback_data.callback.cb)(callback_info_ptr);
+
+                    if callback_return == UpdateScreen::Redraw {
+                        ret.callbacks_update_screen = UpdateScreen::Redraw;
+                    }
+
+                    if let Some(new_focus) = new_focus.clone() {
+                        new_focus_target = Some(new_focus);
+                    }
+
+                    if stop_propagation {
+                       blacklisted_event_types.insert(callback_data.event);
+                    }
+                }
+           }
         }
 
-        'outer: for (event_filter, callback_nodes) in callbacks_grouped_by_event_type {
+        // run the callbacks for node ID 0
+        loop {
+            if let Some((hit_test_item, callback_data)) = layout_result.styled_dom.root.into_crate_internal().and_then(|ci| callbacks.get(&ci)) {
 
-            // The (node_id, callback)s are sorted by depth from top to bottom.
-            // If one event wants to prevent bubbling, the entire event is canceled.
-            // It is assumed that there aren't any two nodes that have the same event filter.
-            for (node_id, _) in callback_nodes {
+                if blacklisted_event_types.contains(&callback_data.event) {
+                    break; // break out of loop
+                }
 
                 let mut new_focus = None;
                 let mut stop_propagation = false;
-                let hit_item = &callbacks_of_hit_test.nodes_with_callbacks[&node_id].hit_test_item;
-
-                let callback = ui_state.get_dom().arena.node_data
-                    .get(*node_id)
-                    .map(|nd| nd.get_callbacks())
-                    .and_then(|dc| dc.iter().find_map(|cb_data| if cb_data.event == *event_filter { Some((cb_data.callback, &cb_data.data)) } else { None }));
-
-                let (callback, callback_ptr) = match callback {
-                    Some(s) => s,
-                    None => continue,
-                };
 
                 let callback_info = CallbackInfo {
-                    state: callback_ptr,
+                    state: &callback_data.data,
                     current_window_state: &full_window_state,
                     modifiable_window_state: &mut ret.modified_window_state,
-                    layout_result,
-                    scrolled_nodes,
-                    cached_display_list,
-                    gl_context: gl_context.clone(),
+                    layout_results,
+                    gl_context,
                     resources,
                     timers,
                     tasks,
-                    ui_state: ui_state_map,
                     stop_propagation: &mut stop_propagation,
                     focus_target: &mut new_focus,
                     current_scroll_states: scroll_states,
                     nodes_scrolled_in_callback: &mut nodes_scrolled_in_callbacks,
-                    hit_dom_node: (dom_id.clone(), *node_id),
-                    cursor_relative_to_item: hit_item.as_ref().map(|hi| (hi.point_relative_to_item.x, hi.point_relative_to_item.y)),
-                    cursor_in_viewport: hit_item.as_ref().map(|hi| (hi.point_in_viewport.x, hi.point_in_viewport.y)),
+                    hit_dom_node: DomNodeId { dom: dom_id, node: layout_result.styled_dom.root },
+                    cursor_relative_to_item: hit_test_item.as_ref().map(|hi| LayoutPoint::new(hi.point_relative_to_item.x, hi.point_relative_to_item.y)),
+                    cursor_in_viewport: hit_test_item.as_ref().map(|hi| LayoutPoint::new(hi.point_in_viewport.x, hi.point_in_viewport.y)),
                 };
 
-                let ptr = CallbackInfoPtr { ptr: Box::into_raw(Box::new(callback_info)) as *mut c_void };
+                let callback_info_ptr = CallbackInfoPtr { ptr: Box::into_raw(Box::new(callback_info)) as *mut c_void };
 
                 // Invoke callback
-                let callback_return = (callback.cb)(ptr);
+                let callback_return = (callback_data.callback.cb)(callback_info_ptr);
 
                 if callback_return == UpdateScreen::Redraw {
                     ret.callbacks_update_screen = UpdateScreen::Redraw;
@@ -1101,20 +1083,21 @@ pub fn call_callbacks(
                 }
 
                 if stop_propagation {
-                    continue 'outer;
+                   blacklisted_event_types.insert(callback_data.event);
                 }
             }
+            break;
         }
     }
 
     // Scroll nodes from programmatic callbacks
-    for (dom_id, callback_scrolled_nodes) in nodes_scrolled_in_callbacks {
+    for (dom_id, callback_scrolled_nodes) in nodes_scrolled_in_callbacks.iter() {
         let scrolled_nodes = match scrolled_nodes.get(&dom_id) {
             Some(s) => s,
             None => continue,
         };
 
-        for (scroll_node_id, scroll_position) in &callback_scrolled_nodes {
+        for (scroll_node_id, scroll_position) in callback_scrolled_nodes.iter() {
             let overflowing_node = match scrolled_nodes.overflowing_nodes.get(&scroll_node_id) {
                 Some(s) => s,
                 None => continue,
@@ -1125,10 +1108,88 @@ pub fn call_callbacks(
         }
     }
 
-    let new_focus_node = new_focus_target.and_then(|ft| ft.resolve(&ui_description_map, &ui_state_map).ok()?);
-    let focus_has_not_changed = full_window_state.focused_node == new_focus_node;
-    if !focus_has_not_changed {
-        // TODO: Emit proper On::FocusReceived / On::FocusLost events!
+    let new_focus_node = new_focus_target.and_then(|ft| ft.resolve(&layout_results).ok()?);
+    let focus_has_changed = full_window_state.focused_node != new_focus_node;
+
+    if focus_has_changed {
+
+        // Restyle the old and new focus node(s) and
+        // emit On::FocusReceived / On::FocusLost events
+
+        if let Some(old_focus) = full_window_state.focused_node {
+            ret.focus_properties_changed.append(&mut layout_results[old_focus.dom.inner].styled_dom.styled_nodes.as_container_mut()[old_focus.node.into_crate_internal().unwrap()].restyle_focus());
+            if let Some(callback_data) = layout_results[old_focus.dom.inner].styled_dom.node_data.as_container()[old_focus.node.into_crate_internal().unwrap()].get_callbacks().iter().find(|c| c.event == EventFilter::Focus(FocusEventFilter::FocusLost)) {
+                let mut new_focus_id = None;
+                let mut stop_propagation = false;
+
+                let callback_info = CallbackInfo {
+                    state: &callback_data.data,
+                    current_window_state: &full_window_state,
+                    modifiable_window_state: &mut ret.modified_window_state,
+                    layout_results,
+                    gl_context,
+                    resources,
+                    timers,
+                    tasks,
+                    stop_propagation: &mut stop_propagation,
+                    focus_target: &mut new_focus_id,
+                    current_scroll_states: scroll_states,
+                    nodes_scrolled_in_callback: &mut nodes_scrolled_in_callbacks,
+                    hit_dom_node: old_focus,
+                    cursor_relative_to_item: None,
+                    cursor_in_viewport: None,
+                };
+
+                let callback_info_ptr = CallbackInfoPtr { ptr: Box::into_raw(Box::new(callback_info)) as *mut c_void };
+
+                // Invoke callback
+                let callback_return = (callback_data.callback.cb)(callback_info_ptr);
+
+                if callback_return == UpdateScreen::Redraw {
+                    ret.callbacks_update_screen = UpdateScreen::Redraw;
+                }
+
+                // ignore new_focus and stop_propagation
+            }
+        }
+
+        if let Some(new_focus) = new_focus_node {
+            ret.focus_properties_changed.append(&mut layout_results[new_focus.dom.inner].styled_dom.styled_nodes.as_container_mut()[new_focus.node.into_crate_internal().unwrap()].restyle_focus());
+            if let Some(callback_data) = layout_results[new_focus.dom.inner].styled_dom.node_data.as_container()[new_focus.node.into_crate_internal().unwrap()].get_callbacks().iter().find(|c| c.event == EventFilter::Focus(FocusEventFilter::FocusLost)) {
+
+                let mut new_focus_id = None;
+                let mut stop_propagation = false;
+
+                let callback_info = CallbackInfo {
+                    state: &callback_data.data,
+                    current_window_state: &full_window_state,
+                    modifiable_window_state: &mut ret.modified_window_state,
+                    layout_results,
+                    gl_context,
+                    resources,
+                    timers,
+                    tasks,
+                    stop_propagation: &mut stop_propagation,
+                    focus_target: &mut new_focus_id,
+                    current_scroll_states: scroll_states,
+                    nodes_scrolled_in_callback: &mut nodes_scrolled_in_callbacks,
+                    hit_dom_node: new_focus,
+                    cursor_relative_to_item: None,
+                    cursor_in_viewport: None,
+                };
+
+                let callback_info_ptr = CallbackInfoPtr { ptr: Box::into_raw(Box::new(callback_info)) as *mut c_void };
+
+                // Invoke callback
+                let callback_return = (callback_data.callback.cb)(callback_info_ptr);
+
+                if callback_return == UpdateScreen::Redraw {
+                    ret.callbacks_update_screen = UpdateScreen::Redraw;
+                }
+
+                // ignore new_focus and stop_propagation
+            }
+        }
     }
 
     // Update the FullWindowState that we got from the frame event (updates window dimensions and DPI)

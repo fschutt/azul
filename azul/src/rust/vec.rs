@@ -227,7 +227,7 @@
 
             // delete() not necessary because StringVec is stack-allocated
         }
-    }    use crate::style::{CascadedCssPropertyWithSource, ContentGroup, Node, ParentWithNodeDepth, StyledNode, TagIdToNodeIdMapping};
+    }    use crate::style::{CascadeInfo, CascadedCssPropertyWithSource, ContentGroup, Node, ParentWithNodeDepth, StyledNode, TagIdToNodeIdMapping};
     use crate::css::{CssDeclaration, CssPathSelector, CssProperty, CssRuleBlock, GradientStopPre, Stylesheet};
     use crate::svg::{SvgMultiPolygon, SvgPath, SvgPathElement, SvgVertex};
     use crate::gl::{DebugMessage, VertexAttribute};
@@ -405,6 +405,23 @@
     impl std::fmt::Debug for VirtualKeyCodeVec { fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result { write!(f, "{}", (crate::dll::get_azul_dll().az_virtual_key_code_vec_fmt_debug)(self)) } }
     impl Clone for VirtualKeyCodeVec { fn clone(&self) -> Self { (crate::dll::get_azul_dll().az_virtual_key_code_vec_deep_copy)(self) } }
     impl Drop for VirtualKeyCodeVec { fn drop(&mut self) { (crate::dll::get_azul_dll().az_virtual_key_code_vec_delete)(self); } }
+
+
+    /// Wrapper over a Rust-allocated `CascadeInfo`
+    pub use crate::dll::AzCascadeInfoVec as CascadeInfoVec;
+
+    impl CascadeInfoVec {
+        /// Creates a new, empty Rust `Vec<CascadeInfo>`
+        pub fn new() -> Self { (crate::dll::get_azul_dll().az_cascade_info_vec_new)() }
+        /// Creates a new, empty Rust `Vec<CascadeInfo>` with a given, pre-allocated capacity
+        pub fn with_capacity(cap: usize) -> Self { (crate::dll::get_azul_dll().az_cascade_info_vec_with_capacity)(cap) }
+        /// Creates + allocates a Rust `Vec<CascadeInfo>` by **copying** it from a bytes source
+        pub fn copy_from(ptr: *const AzCascadeInfo, len: usize) -> Self { (crate::dll::get_azul_dll().az_cascade_info_vec_copy_from)(ptr, len) }
+    }
+
+    impl std::fmt::Debug for CascadeInfoVec { fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result { write!(f, "{}", (crate::dll::get_azul_dll().az_cascade_info_vec_fmt_debug)(self)) } }
+    impl Clone for CascadeInfoVec { fn clone(&self) -> Self { (crate::dll::get_azul_dll().az_cascade_info_vec_deep_copy)(self) } }
+    impl Drop for CascadeInfoVec { fn drop(&mut self) { (crate::dll::get_azul_dll().az_cascade_info_vec_delete)(self); } }
 
 
     /// Wrapper over a Rust-allocated `ScanCode`

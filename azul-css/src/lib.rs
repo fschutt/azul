@@ -37,7 +37,7 @@ macro_rules! impl_vec {($struct_type:ident, $struct_name:ident) => (
             // code is copied from the rust stdlib, since it's not possible to
             // create a temporary Vec here. Doing that would create two
             if self.len == self.capacity() {
-                self.reserve(self.len, 1);
+                self.buf_reserve(self.len, 1);
             }
             unsafe {
                 let end = self.as_mut_ptr().add(self.len);
@@ -170,12 +170,42 @@ macro_rules! impl_vec {($struct_type:ident, $struct_name:ident) => (
             Ok(())
         }
 
-        fn reserve(&mut self, used_cap: usize, needed_extra_cap: usize) {
+        fn buf_reserve(&mut self, used_cap: usize, needed_extra_cap: usize) {
             match self.try_reserve(used_cap, needed_extra_cap) {
                 Err(true /* Overflow */) => { std::process::exit(-1) },
                 Err(false /* AllocError(_) */) => { std::process::exit(-2); },
                 Ok(()) => { /* yay */ }
             }
+        }
+
+        pub fn append(&mut self, other: &mut Self) {
+            unsafe {
+                self.append_elements(other.as_slice() as _);
+                other.set_len(0);
+            }
+        }
+
+        pub fn as_slice(&self) -> &[$struct_type] {
+            unsafe { std::slice::from_raw_parts(self.ptr, self.len()) }
+        }
+
+        unsafe fn set_len(&mut self, new_len: usize) {
+             debug_assert!(new_len <= self.capacity());
+             self.len = new_len;
+        }
+
+        pub fn reserve(&mut self, additional: usize) {
+            self.buf_reserve(self.len, additional);
+        }
+
+        /// Appends elements to `Self` from other buffer.
+        #[inline]
+        unsafe fn append_elements(&mut self, other: *const [$struct_type]) {
+            let count = (*other).len();
+            self.reserve(count);
+            let len = self.len();
+            std::ptr::copy_nonoverlapping(other as *const $struct_type, self.as_mut_ptr().add(len), count);
+            self.len += count;
         }
 
         fn truncate(&mut self, len: usize) {
@@ -247,6 +277,14 @@ macro_rules! impl_vec {($struct_type:ident, $struct_name:ident) => (
             use std::mem::ManuallyDrop;
             let mut me = ManuallyDrop::new(input);
             $struct_name { ptr: me.as_mut_ptr(), len: me.len(), cap: me.capacity() }
+        }
+    }
+
+    impl std::iter::Extend<$struct_type> for $struct_name {
+        fn extend<T: std::iter::IntoIterator<Item=$struct_type>>(&mut self, iter: T) {
+            for elem in iter {
+                self.push(elem);
+            }
         }
     }
 

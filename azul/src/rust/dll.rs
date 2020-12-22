@@ -92,6 +92,12 @@
         pub len: usize,
         pub cap: usize,
     }
+    /// Wrapper over a Rust-allocated `CascadeInfo`
+    #[repr(C)] pub struct AzCascadeInfoVec {
+        pub(crate) ptr: *mut AzCascadeInfo,
+        pub len: usize,
+        pub cap: usize,
+    }
     /// Wrapper over a Rust-allocated `ScanCode`
     #[repr(C)] pub struct AzScanCodeVec {
         pub(crate) ptr: *mut u32,
@@ -262,11 +268,6 @@
     #[repr(C, u8)] pub enum AzOptionLogicalPosition {
         None,
         Some(AzLogicalPosition),
-    }
-    /// Re-export of rust-allocated (stack based) `OptionHotReloadOptions` struct
-    #[repr(C, u8)] pub enum AzOptionHotReloadOptions {
-        None,
-        Some(AzHotReloadOptions),
     }
     /// Re-export of rust-allocated (stack based) `OptionPhysicalPositionI32` struct
     #[repr(C, u8)] pub enum AzOptionPhysicalPositionI32 {
@@ -835,11 +836,11 @@
     }
     /// Re-export of rust-allocated (stack based) `NodeId` struct
     #[repr(C)] pub struct AzNodeId {
-        pub inner: u32,
+        pub inner: usize,
     }
     /// Re-export of rust-allocated (stack based) `DomId` struct
     #[repr(C)] pub struct AzDomId {
-        pub inner: u32,
+        pub inner: usize,
     }
     /// Re-export of rust-allocated (stack based) `DomNodeId` struct
     #[repr(C)] pub struct AzDomNodeId {
@@ -2012,11 +2013,11 @@
     impl std::hash::Hash for AzCssProperty { fn hash<H: std::hash::Hasher>(&self, state: &mut H) { ((crate::dll::get_azul_dll().az_css_property_hash)(self)).hash(state) } }
     /// Re-export of rust-allocated (stack based) `Node` struct
     #[repr(C)] pub struct AzNode {
-        pub parent: u32,
-        pub previous_sibling: u32,
-        pub next_sibling: u32,
-        pub first_child: u32,
-        pub last_child: u32,
+        pub parent: usize,
+        pub previous_sibling: usize,
+        pub next_sibling: usize,
+        pub first_child: usize,
+        pub last_child: usize,
     }
 
     impl PartialEq for AzNode { fn eq(&self, rhs: &AzNode) -> bool { (crate::dll::get_azul_dll().az_node_partial_eq)(self, rhs) } }
@@ -2169,7 +2170,6 @@
     /// Re-export of rust-allocated (stack based) `StyledNode` struct
     #[repr(C)] pub struct AzStyledNode {
         pub css_constraints: AzCascadedCssPropertyWithSourceVec,
-        pub cascade_info: AzCascadeInfo,
         pub hover_group: AzOptionHoverGroup,
         pub tag_id: AzOptionTagId,
         pub style: AzRectStyle,
@@ -2187,7 +2187,7 @@
     impl std::hash::Hash for AzStyledNode { fn hash<H: std::hash::Hasher>(&self, state: &mut H) { ((crate::dll::get_azul_dll().az_styled_node_hash)(self)).hash(state) } }
     /// Re-export of rust-allocated (stack based) `TagId` struct
     #[repr(C)] pub struct AzTagId {
-        pub inner: u32,
+        pub inner: u64,
     }
 
     impl PartialEq for AzTagId { fn eq(&self, rhs: &AzTagId) -> bool { (crate::dll::get_azul_dll().az_tag_id_partial_eq)(self, rhs) } }
@@ -2298,6 +2298,7 @@
         pub node_hierarchy: AzNodeVec,
         pub node_data: AzNodeDataVec,
         pub styled_nodes: AzStyledNodeVec,
+        pub cascade_info: AzCascadeInfoVec,
         pub tag_ids_to_node_ids: AzTagIdsToNodeIdsMappingVec,
         pub non_leaf_nodes: AzParentWithNodeDepthVec,
         pub rects_in_rendering_order: AzContentGroup,
@@ -3392,17 +3393,10 @@
         pub width: f32,
         pub height: f32,
     }
-    /// Re-export of rust-allocated (stack based) `HotReloadOptions` struct
-    #[repr(C)] pub struct AzHotReloadOptions {
-        pub path: AzString,
-        pub reload_interval: AzDuration,
-        pub apply_native_css: bool,
-    }
     /// Re-export of rust-allocated (stack based) `WindowCreateOptions` struct
     #[repr(C)] pub struct AzWindowCreateOptions {
         pub state: AzWindowState,
         pub renderer_type: AzRendererType,
-        pub hot_reload: AzOptionHotReloadOptions,
     }
 
 
@@ -3479,6 +3473,12 @@
         pub az_virtual_key_code_vec_delete: extern "C" fn(_:  &mut AzVirtualKeyCodeVec),
         pub az_virtual_key_code_vec_deep_copy: extern "C" fn(_:  &AzVirtualKeyCodeVec) -> AzVirtualKeyCodeVec,
         pub az_virtual_key_code_vec_fmt_debug: extern "C" fn(_:  &AzVirtualKeyCodeVec) -> AzString,
+        pub az_cascade_info_vec_new: extern "C" fn() -> AzCascadeInfoVec,
+        pub az_cascade_info_vec_with_capacity: extern "C" fn(_:  usize) -> AzCascadeInfoVec,
+        pub az_cascade_info_vec_copy_from: extern "C" fn(_:  *const AzCascadeInfo, _:  usize) -> AzCascadeInfoVec,
+        pub az_cascade_info_vec_delete: extern "C" fn(_:  &mut AzCascadeInfoVec),
+        pub az_cascade_info_vec_deep_copy: extern "C" fn(_:  &AzCascadeInfoVec) -> AzCascadeInfoVec,
+        pub az_cascade_info_vec_fmt_debug: extern "C" fn(_:  &AzCascadeInfoVec) -> AzString,
         pub az_scan_code_vec_new: extern "C" fn() -> AzScanCodeVec,
         pub az_scan_code_vec_with_capacity: extern "C" fn(_:  usize) -> AzScanCodeVec,
         pub az_scan_code_vec_copy_from: extern "C" fn(_:  *const u32, _:  usize) -> AzScanCodeVec,
@@ -3632,9 +3632,6 @@
         pub az_option_logical_position_delete: extern "C" fn(_:  &mut AzOptionLogicalPosition),
         pub az_option_logical_position_deep_copy: extern "C" fn(_:  &AzOptionLogicalPosition) -> AzOptionLogicalPosition,
         pub az_option_logical_position_fmt_debug: extern "C" fn(_:  &AzOptionLogicalPosition) -> AzString,
-        pub az_option_hot_reload_options_delete: extern "C" fn(_:  &mut AzOptionHotReloadOptions),
-        pub az_option_hot_reload_options_deep_copy: extern "C" fn(_:  &AzOptionHotReloadOptions) -> AzOptionHotReloadOptions,
-        pub az_option_hot_reload_options_fmt_debug: extern "C" fn(_:  &AzOptionHotReloadOptions) -> AzString,
         pub az_option_physical_position_i32_delete: extern "C" fn(_:  &mut AzOptionPhysicalPositionI32),
         pub az_option_physical_position_i32_deep_copy: extern "C" fn(_:  &AzOptionPhysicalPositionI32) -> AzOptionPhysicalPositionI32,
         pub az_option_physical_position_i32_fmt_debug: extern "C" fn(_:  &AzOptionPhysicalPositionI32) -> AzString,
@@ -5261,11 +5258,7 @@
         pub az_logical_size_delete: extern "C" fn(_:  &mut AzLogicalSize),
         pub az_logical_size_deep_copy: extern "C" fn(_:  &AzLogicalSize) -> AzLogicalSize,
         pub az_logical_size_fmt_debug: extern "C" fn(_:  &AzLogicalSize) -> AzString,
-        pub az_hot_reload_options_delete: extern "C" fn(_:  &mut AzHotReloadOptions),
-        pub az_hot_reload_options_deep_copy: extern "C" fn(_:  &AzHotReloadOptions) -> AzHotReloadOptions,
-        pub az_hot_reload_options_fmt_debug: extern "C" fn(_:  &AzHotReloadOptions) -> AzString,
-        pub az_window_create_options_new: extern "C" fn(_:  AzLayoutCallbackType, _:  AzCss) -> AzWindowCreateOptions,
-        pub az_window_create_options_new_hot_reload: extern "C" fn(_:  AzLayoutCallbackType, _:  AzHotReloadOptions) -> AzWindowCreateOptions,
+        pub az_window_create_options_new: extern "C" fn(_:  AzLayoutCallbackType) -> AzWindowCreateOptions,
         pub az_window_create_options_delete: extern "C" fn(_:  &mut AzWindowCreateOptions),
         pub az_window_create_options_deep_copy: extern "C" fn(_:  &AzWindowCreateOptions) -> AzWindowCreateOptions,
         pub az_window_create_options_fmt_debug: extern "C" fn(_:  &AzWindowCreateOptions) -> AzString,
@@ -5345,6 +5338,12 @@
             let az_virtual_key_code_vec_delete: extern "C" fn(_:  &mut AzVirtualKeyCodeVec) = transmute(lib.get(b"az_virtual_key_code_vec_delete")?);
             let az_virtual_key_code_vec_deep_copy: extern "C" fn(_:  &AzVirtualKeyCodeVec) -> AzVirtualKeyCodeVec = transmute(lib.get(b"az_virtual_key_code_vec_deep_copy")?);
             let az_virtual_key_code_vec_fmt_debug: extern "C" fn(_:  &AzVirtualKeyCodeVec) -> AzString = transmute(lib.get(b"az_virtual_key_code_vec_fmt_debug")?);
+            let az_cascade_info_vec_new: extern "C" fn() -> AzCascadeInfoVec = transmute(lib.get(b"az_cascade_info_vec_new")?);
+            let az_cascade_info_vec_with_capacity: extern "C" fn(_:  usize) -> AzCascadeInfoVec = transmute(lib.get(b"az_cascade_info_vec_with_capacity")?);
+            let az_cascade_info_vec_copy_from: extern "C" fn(_:  *const AzCascadeInfo, _:  usize) -> AzCascadeInfoVec = transmute(lib.get(b"az_cascade_info_vec_copy_from")?);
+            let az_cascade_info_vec_delete: extern "C" fn(_:  &mut AzCascadeInfoVec) = transmute(lib.get(b"az_cascade_info_vec_delete")?);
+            let az_cascade_info_vec_deep_copy: extern "C" fn(_:  &AzCascadeInfoVec) -> AzCascadeInfoVec = transmute(lib.get(b"az_cascade_info_vec_deep_copy")?);
+            let az_cascade_info_vec_fmt_debug: extern "C" fn(_:  &AzCascadeInfoVec) -> AzString = transmute(lib.get(b"az_cascade_info_vec_fmt_debug")?);
             let az_scan_code_vec_new: extern "C" fn() -> AzScanCodeVec = transmute(lib.get(b"az_scan_code_vec_new")?);
             let az_scan_code_vec_with_capacity: extern "C" fn(_:  usize) -> AzScanCodeVec = transmute(lib.get(b"az_scan_code_vec_with_capacity")?);
             let az_scan_code_vec_copy_from: extern "C" fn(_:  *const u32, _:  usize) -> AzScanCodeVec = transmute(lib.get(b"az_scan_code_vec_copy_from")?);
@@ -5498,9 +5497,6 @@
             let az_option_logical_position_delete: extern "C" fn(_:  &mut AzOptionLogicalPosition) = transmute(lib.get(b"az_option_logical_position_delete")?);
             let az_option_logical_position_deep_copy: extern "C" fn(_:  &AzOptionLogicalPosition) -> AzOptionLogicalPosition = transmute(lib.get(b"az_option_logical_position_deep_copy")?);
             let az_option_logical_position_fmt_debug: extern "C" fn(_:  &AzOptionLogicalPosition) -> AzString = transmute(lib.get(b"az_option_logical_position_fmt_debug")?);
-            let az_option_hot_reload_options_delete: extern "C" fn(_:  &mut AzOptionHotReloadOptions) = transmute(lib.get(b"az_option_hot_reload_options_delete")?);
-            let az_option_hot_reload_options_deep_copy: extern "C" fn(_:  &AzOptionHotReloadOptions) -> AzOptionHotReloadOptions = transmute(lib.get(b"az_option_hot_reload_options_deep_copy")?);
-            let az_option_hot_reload_options_fmt_debug: extern "C" fn(_:  &AzOptionHotReloadOptions) -> AzString = transmute(lib.get(b"az_option_hot_reload_options_fmt_debug")?);
             let az_option_physical_position_i32_delete: extern "C" fn(_:  &mut AzOptionPhysicalPositionI32) = transmute(lib.get(b"az_option_physical_position_i32_delete")?);
             let az_option_physical_position_i32_deep_copy: extern "C" fn(_:  &AzOptionPhysicalPositionI32) -> AzOptionPhysicalPositionI32 = transmute(lib.get(b"az_option_physical_position_i32_deep_copy")?);
             let az_option_physical_position_i32_fmt_debug: extern "C" fn(_:  &AzOptionPhysicalPositionI32) -> AzString = transmute(lib.get(b"az_option_physical_position_i32_fmt_debug")?);
@@ -7127,11 +7123,7 @@
             let az_logical_size_delete: extern "C" fn(_:  &mut AzLogicalSize) = transmute(lib.get(b"az_logical_size_delete")?);
             let az_logical_size_deep_copy: extern "C" fn(_:  &AzLogicalSize) -> AzLogicalSize = transmute(lib.get(b"az_logical_size_deep_copy")?);
             let az_logical_size_fmt_debug: extern "C" fn(_:  &AzLogicalSize) -> AzString = transmute(lib.get(b"az_logical_size_fmt_debug")?);
-            let az_hot_reload_options_delete: extern "C" fn(_:  &mut AzHotReloadOptions) = transmute(lib.get(b"az_hot_reload_options_delete")?);
-            let az_hot_reload_options_deep_copy: extern "C" fn(_:  &AzHotReloadOptions) -> AzHotReloadOptions = transmute(lib.get(b"az_hot_reload_options_deep_copy")?);
-            let az_hot_reload_options_fmt_debug: extern "C" fn(_:  &AzHotReloadOptions) -> AzString = transmute(lib.get(b"az_hot_reload_options_fmt_debug")?);
-            let az_window_create_options_new: extern "C" fn(_:  AzLayoutCallbackType, _:  AzCss) -> AzWindowCreateOptions = transmute(lib.get(b"az_window_create_options_new")?);
-            let az_window_create_options_new_hot_reload: extern "C" fn(_:  AzLayoutCallbackType, _:  AzHotReloadOptions) -> AzWindowCreateOptions = transmute(lib.get(b"az_window_create_options_new_hot_reload")?);
+            let az_window_create_options_new: extern "C" fn(_:  AzLayoutCallbackType) -> AzWindowCreateOptions = transmute(lib.get(b"az_window_create_options_new")?);
             let az_window_create_options_delete: extern "C" fn(_:  &mut AzWindowCreateOptions) = transmute(lib.get(b"az_window_create_options_delete")?);
             let az_window_create_options_deep_copy: extern "C" fn(_:  &AzWindowCreateOptions) -> AzWindowCreateOptions = transmute(lib.get(b"az_window_create_options_deep_copy")?);
             let az_window_create_options_fmt_debug: extern "C" fn(_:  &AzWindowCreateOptions) -> AzString = transmute(lib.get(b"az_window_create_options_fmt_debug")?);
@@ -7207,6 +7199,12 @@
                 az_virtual_key_code_vec_delete,
                 az_virtual_key_code_vec_deep_copy,
                 az_virtual_key_code_vec_fmt_debug,
+                az_cascade_info_vec_new,
+                az_cascade_info_vec_with_capacity,
+                az_cascade_info_vec_copy_from,
+                az_cascade_info_vec_delete,
+                az_cascade_info_vec_deep_copy,
+                az_cascade_info_vec_fmt_debug,
                 az_scan_code_vec_new,
                 az_scan_code_vec_with_capacity,
                 az_scan_code_vec_copy_from,
@@ -7360,9 +7358,6 @@
                 az_option_logical_position_delete,
                 az_option_logical_position_deep_copy,
                 az_option_logical_position_fmt_debug,
-                az_option_hot_reload_options_delete,
-                az_option_hot_reload_options_deep_copy,
-                az_option_hot_reload_options_fmt_debug,
                 az_option_physical_position_i32_delete,
                 az_option_physical_position_i32_deep_copy,
                 az_option_physical_position_i32_fmt_debug,
@@ -8989,11 +8984,7 @@
                 az_logical_size_delete,
                 az_logical_size_deep_copy,
                 az_logical_size_fmt_debug,
-                az_hot_reload_options_delete,
-                az_hot_reload_options_deep_copy,
-                az_hot_reload_options_fmt_debug,
                 az_window_create_options_new,
-                az_window_create_options_new_hot_reload,
                 az_window_create_options_delete,
                 az_window_create_options_deep_copy,
                 az_window_create_options_fmt_debug,

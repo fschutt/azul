@@ -83,11 +83,13 @@ pub struct App {
     render_api: FakeRenderApi,
 }
 
+/*
 impl App {
     impl_task_api!();
     impl_image_api!(resources);
     impl_font_api!(resources);
 }
+*/
 
 /// Configuration for optional features, such as whether to enable logging or panic hooks
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
@@ -1255,70 +1257,52 @@ fn hot_reload_css(
     }
 }
 
+// call the root layout() fn and relayout automatically
 fn call_layout_fn(
     data: &RefAny,
     gl_context: &GlContextPtr,
     app_resources: &AppResources,
     full_window_state: &FullWindowState,
-) -> BTreeMap<DomId, UiState> {
+) -> Vec<LayoutResult> {
 
     use azul_core::callbacks::LayoutInfo;
-
-    // Any top-level DOM has no "parent", parents are only relevant for IFrames
-    const PARENT_DOM: Option<(DomId, NodeId)> = None;
 
     // TODO: Use these "stop sizes" to optimize not calling layout() on redrawing!
     let mut stop_sizes_width = Vec::new();
     let mut stop_sizes_height = Vec::new();
 
-    let mut ui_state = {
+    let styled_dom = {
         let full_window_state = &full_window_state;
         let layout_callback = full_window_state.layout_callback.clone();
         let layout_info = LayoutInfo {
             window_size: &full_window_state.size,
             window_size_width_stops: &mut stop_sizes_width,
             window_size_height_stops: &mut stop_sizes_height,
-            gl_context: gl_context,
             resources: app_resources,
         };
+        let layout_info_ptr = LayoutInfoPtr { ptr: Box::into_raw(Box::new(layout_info)) as *mut c_void };
 
-        UiState::new_from_app_state(data, layout_info, PARENT_DOM, layout_callback.cb)
+        let styled_dom = (layout_callback.cb)(data.clone(), layout_info_ptr);
+
+        let hovered_nodes = full_window_state.hovered_nodes.get(&iframe_dom_id).cloned().unwrap_or_default();
+        let active_nodes = if !full_window_state.mouse_state.mouse_down() { Vec::new() } else { hovered_nodes.clone() };
+        let mut focused_nodes = Vec::new();
+        if let Some(DomNodeId { dom_id, node_id }) = full_window_state.get_previous_window_state().focused_node {
+            if dom_id == iframe_dom_id { focused_nodes.push(node_id); }
+        }
+        if let Some(DomNodeId { dom_id, node_id }) = full_window_state.focused_node {
+            if dom_id == iframe_dom_id { focused_nodes.push(node_id); }
+        }
+
+        if !hovered_nodes.is_empty() { iframe_dom.restyle_nodes_hover(&hovered_nodes[..]); }
+        if !active_nodes.is_empty() { iframe_dom.restyle_nodes_hover(&active_nodes[..]); }
+        if !focused_nodes.is_empty() { iframe_dom.restyle_nodes_hover(&focused_nodes[..]); }
+
+        styled_dom
     };
 
-    ui_state.dom_id = DomId::ROOT_ID;
-
-    let ui_state_dom_id = ui_state.dom_id.clone();
-
-    let mut dom_id_map = BTreeMap::new();
-    dom_id_map.insert(ui_state_dom_id.clone(), ui_state);
-
-    dom_id_map
-}
-
-fn initialize_ui_description_cache(
-    ui_states: &mut BTreeMap<GlutinWindowId, BTreeMap<DomId, UiState>>,
-    full_window_states: &mut BTreeMap<GlutinWindowId, FullWindowState>,
-) -> BTreeMap<GlutinWindowId, BTreeMap<DomId, UiDescription>> {
-    ui_states.iter_mut().map(|(glutin_window_id, ui_states)| {
-        let full_window_state = full_window_states.get_mut(glutin_window_id).unwrap();
-        (*glutin_window_id, cascade_style(ui_states, full_window_state))
-    }).collect()
-}
-
-// HTML (UiState) + CSS (FullWindowState) => CSSOM (UiDescription)
-fn cascade_style(
-     ui_states: &mut BTreeMap<DomId, UiState>,
-     full_window_state: &mut FullWindowState,
-) -> BTreeMap<DomId, UiDescription>{
-    ui_states.iter_mut().map(|(dom_id, mut ui_state)| {
-        (dom_id.clone(), UiDescription::new(
-            &mut ui_state,
-            &full_window_state.css,
-            &full_window_state.focused_node,
-            &full_window_state.hovered_nodes.entry(dom_id.clone()).or_insert_with(|| BTreeMap::default()),
-            full_window_state.mouse_state.mouse_down(),
-        ))
-    }).collect()
+    // do_the_layout(&styled_dom);
+    // resolve_gl_textures(&styled_dom);
 }
 
 /// Returns the currently hit-tested results, in back-to-front order
@@ -1394,10 +1378,8 @@ fn send_display_list_to_webrender(
         wr_translate_epoch,
     };
 
-
     // NOTE: Display list has to be rebuilt every frame, otherwise, the epochs get out of sync
     let display_list = wr_translate_display_list(window.internal.cached_display_list.clone(), window.internal.pipeline_id);
-
 
     let (logical_size, _) = convert_window_size(&full_window_state.size);
 

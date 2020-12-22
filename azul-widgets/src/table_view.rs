@@ -47,84 +47,120 @@ impl TableViewState {
 
     /// Renders a cutout of the table from, horizontally from (col_start..col_end)
     /// and vertically from (row_start..row_end)
-    pub fn render(&self, rows: Range<usize>, columns: Range<usize>) -> Dom {
+    pub fn render(&self, rows: Range<usize>, columns: Range<usize>, style_options: StyleOptions) -> StyledDom {
+
         use azul::str::String as AzString;
 
-        // div.__azul-native-table-container
-        //     |-> div.__azul-native-table-column (Column 0)
-        //         |-> div.__azul-native-table-top-left-rect .__azul-native-table-column-name
-        //         '-> div.__azul-native-table-row-numbers .__azul-native-table-row
-        //
-        //     |-> div.__azul-native-table-column-container
-        //         |-> div.__azul-native-table-column (Column 1 ...)
-        //             |-> div.__azul-native-table-column-name
-        //             '-> div.__azul-native-table-row
-        //                 '-> div.__azul-native-table-cell
+        let sans_serif_font_family = StyleFontFamily { fonts: vec!["sans-serif".into()].into() };
 
-        let dom = Dom::div()
-        .with_class("__azul-native-table-container".into())
-        .with_child(
-            Dom::div()
-            .with_class("__azul-native-table-row-number-wrapper".into())
-            .with_child(
-                // Empty rectangle at the top left of the table
-                Dom::div()
-                .with_class("__azul-native-table-top-left-rect".into())
-            )
-            .with_child(
-                // Row numbers (vertical) - "1", "2", "3"
-                (rows.start..rows.end.saturating_sub(1))
+        // Empty rectangle at the top left of the table
+        let top_left_empty_rect = Dom::div()
+        .with_inline_css(CssProperty::height(LayoutHeight::px(20.0)))
+        .with_inline_css(CssProperty::background_content(StyleBackgroundContent::Color(StyleColor::parse("#e6e6e6"))))
+        .with_inline_css(CssProperty::border_bottom(StyleBorderBottom::Color(StyleColor::parse("#b5b5b5"))))
+        .with_inline_css(CssProperty::border_right(StyleBorderRight::Color(StyleColor::parse("#b5b5b5"))));
+
+        // Row numbers (first column - laid out vertical) - "1", "2", "3"
+        let row_numbers = (rows.start..rows.end.saturating_sub(1)).map(|row_idx| {
+            NodeData::label(format!("{}", row_idx + 1).into())
+            .with_inline_css(CssProperty::font_size(StyleFontSize::px(14.0)))
+            .with_inline_css(CssProperty::flex_direction(LayoutFlexDirection::Row))
+            .with_inline_css(CssProperty::justify_content(LayoutJustifyContent::Center))
+            .with_inline_css(CssProperty::align_items(LayoutAlignItems::Center))
+            .with_inline_css(CssProperty::min_height(LayoutMinHeight::px(20.0)))
+            .with_inline_css(CssProperty::border_bottom(StyleBorderBottom::new(PixelValue::px(0.6), StyleBorderStyle::Solid, StyleColor::parse("#b5b5b5"))))
+        })
+        .collect::<Dom>()
+        .with_inline_css(CssProperty::font_family(sans_serif_font_family.clone()))
+        .with_inline_css(CssProperty::color(StyleColor::parse("#2d2d2d")))
+        .with_inline_css(CssProperty::background_content(StyleBackgroundContent::Color(StyleColor::parse("#e6e6e6"))))
+        .with_inline_css(CssProperty::flex_direction(LayoutFlexDirection::Column))
+        .with_inline_css(CssProperty::box_shadow_right(StyleBoxShadowRight::new(PixelValue::px(0.0), PixelValue::px(0.0), PixelValue::px(3.0), StyleColor::black())));
+
+        // first column: contains the "top left rect" + the column
+        let row_number_wrapper = Dom::div()
+        .with_inline_css(CssProperty::flex_direction(LayoutFlexDirection::Column))
+        .with_inline_css(CssProperty::max_width(LayoutMaxWidth::px(30.0)))
+        .with_child(top_left_empty_rect)
+        .with_child(row_numbers);
+
+        // currently active cell handle
+        let current_active_selection_handle = Dom::div()
+        .with_inline_css(CssProperty::position(LayoutPosition::Absolute))
+        .with_inline_css(CssProperty::width(LayoutWidth::px(10.0)))
+        .with_inline_css(CssProperty::height(LayoutHeight::px(10.0)))
+        .with_inline_css(CssProperty::background_content(StyleBackgroundContent::Color(StyleColor::parse("#407c40"))))
+        .with_inline_css(CssProperty::bottom(LayoutBottom::px(-5.0)))
+        .with_inline_css(CssProperty::right(LayoutRight::px(-5.0)));
+
+
+        // currently selected cell(s)
+        let current_active_selection = Dom::div()
+        .with_inline_css(CssProperty::width(LayoutWidth::px(100.0)))
+        .with_inline_css(CssProperty::height(LayoutHeight::px(20.0)))
+        .with_inline_css(CssProperty::margin_top(LayoutMarginTop::px(500.0))) // TODO: replace with transform-y
+        .with_inline_css(CssProperty::margin_left(LayoutMarginLeft::px(100.0))) // TODO: replace with transform-x
+        .with_inline_css(CssProperty::position(LayoutPosition::Absolute))
+        .with_inline_css(CssProperty::border(StyleBorder::new(PixelValue::px(2.0), StyleBorderStyle::Solid, StyleColor::parse("#407c40"))))
+        .with_child(current_active_selection_handle);
+
+        let columns_table_container = columns.map(|col_idx| {
+
+            let column_names = Dom::label(column_name_from_number(col_idx).into())
+            .with_inline_css(CssProperty::height(LayoutHeight::px(20.0)))
+            .with_inline_css(CssProperty::font_family(StyleFontFamily { fonts: vec!["sans-serif".into()].into()))
+            .with_inline_css(CssProperty::color(StyleColor::parse("#2d2d2d")))
+            .with_inline_css(CssProperty::font_size(StyleFontSize::px(14.0)))
+            .with_inline_css(CssProperty::background_content(StyleBackgroundContent::Color(StyleColor::parse("#e6e6e6"))))
+            .with_inline_css(CssProperty::flex_direction(LayoutFlexDirection::Row))
+            .with_inline_css(CssProperty::align_items(LayoutAlignItems::Center))
+            .with_inline_css(CssProperty::border_right(StyleBorderRight::new(PixelValue::px(1.0), StyleBorderStyle::Solid, StyleColor::parse("#b5b5b5"))))
+            .with_inline_css(CssProperty::box_shadow_bottom(
+                StyleBoxShadowBottom::new(PixelValue::px(0.0), PixelValue::px(0.0), PixelValue::px(3.0), StyleColor::black()))
+            );
+
+
+            // rows in this column, laid out vertically
+            let rows_in_this_column = (rows.start..rows.end)
                 .map(|row_idx| {
-                    let classes: Vec<AzString> = vec!["__azul-native-table-row".into()];
-                    NodeData::label(format!("{}", row_idx + 1).into())
-                    .with_classes(classes.into())
+                    let node_type = match self.work_sheet.get(&col_idx).and_then(|col| col.get(&row_idx)) {
+                        Some(string) => NodeType::Label(string.clone().into()),
+                        None => NodeType::Div,
+                    };
+
+                    NodeData::new(node_type)
+                    .with_inline_css(CssProperty::font_family(sans_serif_font_family.clone()))
+                    .with_inline_css(CssProperty::color(StyleColor::black()))
+                    .with_inline_css(CssProperty::text_align(LayoutTextAlign::Left))
+                    .with_inline_css(CssProperty::align_items(LayoutAlignItems::FlexStart))
+                    .with_inline_css(CssProperty::font_size(StyleFontSize::px(14.0)))
+                    .with_inline_css(CssProperty::border_bottom(StyleBorderBottom::new(PixelValue::px(1.0), StyleBorderStyle::Solid, StyleColor::parse("#d1d1d1"))))
+                    .with_inline_css(CssProperty::height(LayoutHeight::px(20.0)))
                 })
                 .collect::<Dom>()
-                .with_class("__azul-native-table-row-numbers".into())
-            )
-        )
-        .with_child(
-            columns
-            .map(|col_idx|
-                // Column name
-                Dom::new(NodeType::Div)
-                .with_class("__azul-native-table-column".into())
-                .with_child(
-                    Dom::label(column_name_from_number(col_idx).into())
-                    .with_class("__azul-native-table-column-name".into())
-                )
-                .with_child(
-                    // row contents - if no content is given, they are simply empty
-                    (rows.start..rows.end)
-                    .map(|row_idx|
-                        NodeData::new(
-                            if let Some(data) = self.work_sheet.get(&col_idx).and_then(|col| col.get(&row_idx)) {
-                                NodeType::Label(data.clone().into())
-                            } else {
-                                NodeType::Div
-                            }
-                        ).with_classes({
-                            let v: Vec<AzString> = vec!["__azul-native-table-cell".into()];
-                            v.into()
-                        })
-                    )
-                    .collect::<Dom>()
-                    .with_class("__azul-native-table-rows".into())
-                )
-            )
-            .collect::<Dom>()
-            .with_class("__azul-native-table-column-container".into())
-            // current active selection (s)
-            .with_child(
-                Dom::div()
-                    .with_class("__azul-native-table-selection".into())
-                    .with_child(Dom::div().with_class("__azul-native-table-selection-handle".into()))
-            )
-        );
+                .with_class("__azul-native-table-rows".into());
 
-        println!("dom:\r\n{}", dom.get_html_string());
+            // Column name
+            Dom::div()
+                .with_inline_css(CssProperty::flex_direction(LayoutFlexDirection::Column))
+                .with_inline_css(CssProperty::min_width(LayoutMinWidth::px(100.0)))
+                .with_inline_css(CssProperty::border_right(StyleBorderRight::new(PixelValue::px(1.0), StyleBorderStyle::Solid, StyleColor::parse("#d1d1d1"))))
+                .with_child(column_names)
+                .with_child(rows_in_this_column)
+        })
+        .collect::<Dom>()
+        .with_inline_css(CssProperty::flex_direction(LayoutFlexDirection::Row))
+        .with_inline_css(CssProperty::position(LayoutPosition::Relative))
+        .with_child(current_active_selection);
 
-        dom
+
+        Dom::div()
+        .with_inline_css(CssProperty::display(LayoutDisplay::Flex))
+        .with_inline_css(CssProperty::box_sizing(LayoutBoxSizing::BorderBox))
+        .with_inline_css(CssProperty::flex_direction(LayoutFlexDirection::Row))
+        .with_child(row_number_wrapper)
+        .with_child(columns_table_container)
+        .style(Css::empty(), style_options)
     }
 
     pub fn set_cell<I: Into<String>>(&mut self, x: usize, y: usize, value: I) {
@@ -153,10 +189,15 @@ impl TableView {
     }
 
     #[inline]
-    pub fn dom(self) -> Dom {
+    pub fn dom(self, style_options: StyleOptions) -> StyledDom {
         Dom::iframe(self.state.clone(), Self::render_table_iframe_contents)
-            .with_class("__azul-native-table-iframe".into())
+            .with_inline_css(CssProperty::display(Display::Flex))
+            .with_inline_css(CssProperty::flex_grow(FlexGrow::new(1.0)))
+            .with_inline_css(CssProperty::width(Width::percent(100.0)))
+            .with_inline_css(CssProperty::height(Height::percent(100.0)))
+            .with_inline_css(CssProperty::box_sizing(BoxSizing::BorderBox))
             .with_callback(On::MouseUp.into(), self.state, self.on_mouse_up.cb)
+            .style(Css::empty(), style_options)
     }
 
     pub extern "C" fn default_on_mouse_up(_info: CallbackInfo) -> CallbackReturn {

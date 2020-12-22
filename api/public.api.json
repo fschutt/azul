@@ -353,6 +353,37 @@
 					},
 					"destructor": "unsafe { std::ptr::drop_in_place(object.as_mut()); } deallocate_vec(object.as_mut_ptr(), object.capacity());"
 				},
+				"CascadeInfoVec": {
+					"doc": "Wrapper over a Rust-allocated `CascadeInfo`",
+					"external": "azul_impl::style::CascadeInfoVec",
+					"struct_fields": [
+						{ "ptr": { "type": "*mut CascadeInfo" } },
+						{ "len": { "type": "usize" } },
+						{ "cap": { "type": "usize" } }
+					],
+					"constructors": {
+						"new": {
+							"doc": "Creates a new, empty Rust `Vec<CascadeInfo>`",
+							"fn_body": "Vec::<CascadeInfo>::new().into()"
+						},
+						"with_capacity": {
+							"doc": "Creates a new, empty Rust `Vec<CascadeInfo>` with a given, pre-allocated capacity",
+							"fn_args": [
+							    {"cap": "usize"}
+							],
+							"fn_body": "Vec::<CascadeInfo>::with_capacity(cap).into()"
+						},
+					    "copy_from": {
+					        "doc": "Creates + allocates a Rust `Vec<CascadeInfo>` by **copying** it from a bytes source",
+					        "fn_args": [
+					            {"ptr": "*const CascadeInfo"},
+					            {"len": "usize"}
+					        ],
+					        "fn_body": "unsafe { std::slice::from_raw_parts(ptr, len).iter().cloned().collect::<Vec<_>>() }.into()"
+					    }
+					},
+					"destructor": "unsafe { std::ptr::drop_in_place(object.as_mut()); } deallocate_vec(object.as_mut_ptr(), object.capacity());"
+				},
 				"ScanCodeVec": {
 					"doc": "Wrapper over a Rust-allocated `ScanCode`",
 					"external": "azul_impl::window::ScanCodeVec",
@@ -1072,13 +1103,6 @@
 						{"Some": { "type": "LogicalPosition" }}
 					]
 				},
-				"OptionHotReloadOptions": {
-					"external": "azul_impl::window::OptionHotReloadOptions",
-					"enum_fields": [
-						{"None": {}},
-						{"Some": { "type": "HotReloadOptions" }}
-					]
-				},
 				"OptionPhysicalPositionI32": {
 					"external": "azul_impl::window::OptionPhysicalPositionI32",
 					"enum_fields": [
@@ -1634,13 +1658,6 @@
 				        {"Some": {"type": "LayoutAlignContent"}}
 				    ]
 				},
-				"OptionHoverGroup": {
-				    "external": "azul_impl::styled_dom::OptionHoverGroup",
-				    "enum_fields": [
-				        {"None": {}},
-				        {"Some": {"type": "HoverGroup"}}
-				    ]
-				},
 				"OptionTagId": {
 				    "external": "azul_impl::styled_dom::OptionTagId",
 				    "enum_fields": [
@@ -1931,13 +1948,13 @@
 				"NodeId": {
 					"external": "azul_impl::callbacks::NodeId",
 					"struct_fields": [
-						{"inner": {"type": "u32"}}
+						{"inner": {"type": "usize"}}
 					]
 				},
 				"DomId": {
 					"external": "azul_impl::callbacks::DomId",
 					"struct_fields": [
-						{"inner": {"type": "u32"}}
+						{"inner": {"type": "usize"}}
 					]
 				},
 				"DomNodeId": {
@@ -2066,6 +2083,14 @@
 							],
 							"returns": "RefAny",
 							"fn_body": "az_i_frame_callback_info_ptr_downcast_ref(iframecallbackinfo, |ci| ci.state.clone())"
+						},
+						"get_style_options": {
+							"doc": "Returns a copy of the internal `StyleOptions`",
+							"fn_args": [
+								{"self": "ref"}
+							],
+							"returns": "StyleOptions",
+							"fn_body": "az_i_frame_callback_info_ptr_downcast_ref(iframecallbackinfo, |ci| ci.style_options.clone())"
 						},
 						"get_bounds": {
 							"doc": "Returns a copy of the internal `HidpiAdjustedBounds`",
@@ -3781,11 +3806,11 @@
 					"external": "azul_impl::styled_dom::AzNode",
 					"derive": ["PartialEq", "Eq", "PartialOrd", "Ord", "Hash"],
 					"struct_fields": [
-						{"parent": {"type": "u32"}},
-						{"previous_sibling": {"type": "u32"}},
-						{"next_sibling": {"type": "u32"}},
-						{"first_child": {"type": "u32"}},
-						{"last_child": {"type": "u32"}}
+						{"parent": {"type": "usize"}},
+						{"previous_sibling": {"type": "usize"}},
+						{"next_sibling": {"type": "usize"}},
+						{"first_child": {"type": "usize"}},
+						{"last_child": {"type": "usize"}}
 					]
 				},
 				"CascadeInfo": {
@@ -3794,9 +3819,6 @@
 					"struct_fields": [
 						{"index_in_parent": {"type": "u32"}},
 						{"is_last_child": {"type": "bool"}},
-						{"is_hovered_over": {"type": "bool"}},
-						{"is_focused": {"type": "bool"}},
-						{"is_active": {"type": "bool"}}
 			  		]
 				},
 				"RectStyle": {
@@ -3891,13 +3913,26 @@
 						{"Inline": {}}
 					]
 				},
+				"StyledNodeState": {
+					"external": "azul_impl::styled_dom::StyledNodeState",
+					"derive": ["PartialEq", "Eq", "PartialOrd", "Ord", "Hash"],
+					"enum_fields": [
+						{"Uninitialized": {}},
+						{"Normal": {}},
+						{"Hover": {}},
+						{"Active": {}},
+						{"Focused": {}}
+					]
+				},
 				"StyledNode": {
 					"external": "azul_impl::styled_dom::StyledNode",
 					"derive": ["PartialEq", "Eq", "PartialOrd", "Ord", "Hash"],
 					"struct_fields": [
 						{"css_constraints": {"type": "CascadedCssPropertyWithSourceVec", "doc": "Full list of all applied CSS rules (with source mapping) after cascading"}},
-						{"cascade_info": {"type": "CascadeInfo", "doc": "Stores information about the DOM node - used to match the node to a CSS path"}},
-						{"hover_group": {"type": "OptionHoverGroup", "doc": "In order to hit-test `:hover` and `:active` selectors, azul needs to insert `TagId`s for all nodes that have a `:hover` selector, for example if we have `#thing:hover`, then all nodes selected by `#thing` need to get a TagId, otherwise, they can't be hit-tested"}},
+						{"hover_css_constraints": {"type": "CascadedCssPropertyWithSourceVec", "doc": "Full list of all applied CSS rules (with source mapping) after cascading"}},
+						{"active_css_constraints": {"type": "CascadedCssPropertyWithSourceVec", "doc": "Full list of all applied CSS rules (with source mapping) after cascading"}},
+						{"focus_css_constraints": {"type": "CascadedCssPropertyWithSourceVec", "doc": "Full list of all applied CSS rules (with source mapping) after cascading"}},
+						{"state": {"type": "StyledNodeState", "doc": ""}},
 						{"tag_id": {"type": "OptionTagId", "doc": "Optional hit-testing tag ID (NOTE: The tag ID has to be adjusted after the layout is done (to account for scroll tags))"}},
 						{"style": {"type": "RectStyle", "doc": "Final computed rect style, after all CSS rules are applied in order"}},
 						{"layout": {"type": "RectLayout", "doc": "Final computed rect layout, after all CSS rules are applied in order"}}
@@ -3907,7 +3942,7 @@
 					"external": "azul_impl::styled_dom::AzTagId",
 					"derive": ["PartialEq", "Eq", "PartialOrd", "Ord", "Hash"],
 					"struct_fields": [
-						{"inner": {"type": "u32"}}
+						{"inner": {"type": "u64"}}
 					]
 				},
 				"TagIdToNodeIdMapping": {
@@ -3917,30 +3952,13 @@
 						{"tag_id": {"type": "TagId"}},
 						{"node_id": {"type": "NodeId"}},
 						{"tab_index": {"type": "OptionTabIndex"}},
-						{"hover_group": {"type": "OptionHoverGroup"}}
-					]
-				},
-				"HoverGroup": {
-					"external": "azul_impl::styled_dom::HoverGroup",
-					"derive": ["PartialEq", "Eq", "PartialOrd", "Ord", "Hash"],
-					"struct_fields": [
-						{"affects_layout": {"type": "bool", "doc": "Whether any CSS property in the `:hover` or `:active` group will trigger a re-layout"}},
-						{"active_or_hover": {"type": "ActiveHover", "doc": "Whether this path ends with `:active` or with `:hover`"}}
-					]
-				},
-				"ActiveHover": {
-					"external": "azul_impl::styled_dom::ActiveHover",
-					"derive": ["PartialEq", "Eq", "PartialOrd", "Ord", "Hash"],
-					"enum_fields": [
-						{"Active": {}},
-    					{"Hover": {}}
 					]
 				},
 				"ParentWithNodeDepth": {
 					"external": "azul_impl::styled_dom::ParentWithNodeDepth",
 					"derive": ["PartialEq", "Eq", "PartialOrd", "Ord", "Hash"],
 					"struct_fields": [
-						{"depth": {"type": "u32"}},
+						{"depth": {"type": "usize"}},
 						{"node_id": {"type": "NodeId"}}
 					]
 				},
@@ -3969,6 +3987,7 @@
 						{"node_hierarchy": {"type": "NodeVec" }},
 						{"node_data": {"type": "NodeDataVec" }},
 						{"styled_nodes": {"type": "StyledNodeVec" }},
+						{"cascade_info": {"type": "CascadeInfoVec" }},
 						{"tag_ids_to_node_ids": {"type": "TagIdsToNodeIdsMappingVec" }},
 						{"non_leaf_nodes": {"type": "ParentWithNodeDepthVec" }},
 						{"rects_in_rendering_order": {"type": "ContentGroup" }}
@@ -4169,6 +4188,57 @@
 							"returns": "Dom",
 							"fn_body": "az_dom_add_inline_css(&mut dom, prop); dom"
 						},
+						"add_inline_hover_css": {
+							"doc": "Overrides the CSS property of this DOM node with a value (for example `\"width = 200px\"`)",
+							"fn_args": [
+								{"self": "refmut"},
+								{"prop": "CssProperty"}
+							],
+							"fn_body": "dom.add_inline_hover_css(prop);"
+						},
+						"with_inline_hover_css": {
+							"doc": "Same as [`Dom::add_inline_hover_css`](#method.add_inline_hover_css), but as a builder method",
+							"fn_args": [
+								{"self": "mut value"},
+								{"prop": "CssProperty"}
+							],
+							"returns": "Dom",
+							"fn_body": "az_dom_add_inline_hover_css(&mut dom, prop); dom"
+						},
+						"add_inline_active_css": {
+							"doc": "Overrides the CSS property of this DOM node with a value (for example `\"width = 200px\"`)",
+							"fn_args": [
+								{"self": "refmut"},
+								{"prop": "CssProperty"}
+							],
+							"fn_body": "dom.add_inline_active_css(prop);"
+						},
+						"with_inline_active_css": {
+							"doc": "Same as [`Dom::add_inline_active_css`](#method.add_inline_active_css), but as a builder method",
+							"fn_args": [
+								{"self": "mut value"},
+								{"prop": "CssProperty"}
+							],
+							"returns": "Dom",
+							"fn_body": "az_dom_add_inline_active_css(&mut dom, prop); dom"
+						},
+						"add_inline_focus_css": {
+							"doc": "Overrides the CSS property of this DOM node with a value (for example `\"width = 200px\"`)",
+							"fn_args": [
+								{"self": "refmut"},
+								{"prop": "CssProperty"}
+							],
+							"fn_body": "dom.add_inline_focus_css(prop);"
+						},
+						"with_inline_focus_css": {
+							"doc": "Same as [`Dom::add_inline_focus_css`](#method.add_inline_active_css), but as a builder method",
+							"fn_args": [
+								{"self": "mut value"},
+								{"prop": "CssProperty"}
+							],
+							"returns": "Dom",
+							"fn_body": "az_dom_add_inline_focus_css(&mut dom, prop); dom"
+						},
 						"set_is_draggable": {
 							"doc": "Sets the `is_draggable` attribute of this DOM node (default: false)",
 							"fn_args": [
@@ -4306,6 +4376,9 @@
 						{"classes": {"type": "StringVec", "doc": "Stores the classes of the node, i.e. `[.myclass, .otherclass]`"}},
 						{"callbacks": {"type": "CallbackDataVec", "doc": "Stores the callbacks of the node, i.e. `On::MouseUp` -> `Callback(my_button_click_handler)`"}},
 						{"inline_css_props": {"type": "CssPropertyVec", "doc": "Override certain dynamic styling properties for this DOM node"}},
+						{"inline_hover_css_props": {"type": "CssPropertyVec", "doc": "Inline CSS properties that are applied on `:hover`"}},
+						{"inline_active_css_props": {"type": "CssPropertyVec", "doc": "Inline CSS properties that are applied on `:active`"}},
+						{"inline_focus_css_props": {"type": "CssPropertyVec", "doc": "Inline CSS properties that are applied on `:focus`"}},
 						{"clip_mask": {"type": "OptionImageMask", "doc": "Optional clip mask for this DOM node"}},
 						{"is_draggable": {"type": "bool", "doc": "Whether this div can be dragged or not, similar to `draggable = \"true\"` in HTML"}},
 						{"tab_index": {"type": "OptionTabIndex", "doc": "Whether this div can be focused, and if yes, in what default to `None` (not focusable). Note that without this, there can be no `On::FocusReceived` / `On::FocusLost` (equivalent to onfocus). For this reason, this is automatically set to `TabIndex::Auto` if a callback with `On::Focus*` is inserted"}}
@@ -4474,6 +4547,57 @@
 							],
 							"returns": "NodeData",
 							"fn_body": "az_node_data_add_inline_css(&mut nodedata, prop); nodedata"
+						},
+						"add_inline_hover_css": {
+							"doc": "Overrides the CSS property of this `NodeData` node with a value (for example `\"width = 200px\"`)",
+							"fn_args": [
+								{"self": "refmut"},
+								{"prop": "CssProperty"}
+							],
+							"fn_body": "nodedata.add_inline_hover_css(prop);"
+						},
+						"with_inline_css": {
+							"doc": "Same as [`NodeData::add_inline_hover_css`](#method.add_inline_hover_css), but as a builder method",
+							"fn_args": [
+								{"self": "mut value"},
+								{"prop": "CssProperty"}
+							],
+							"returns": "NodeData",
+							"fn_body": "az_node_data_add_inline_hover_css(&mut nodedata, prop); nodedata"
+						},
+						"add_inline_active_css": {
+							"doc": "Overrides the CSS property of this `NodeData` node with a value (for example `\"width = 200px\"`)",
+							"fn_args": [
+								{"self": "refmut"},
+								{"prop": "CssProperty"}
+							],
+							"fn_body": "nodedata.add_inline_active_css(prop);"
+						},
+						"with_inline_css": {
+							"doc": "Same as [`NodeData::add_inline_active_css`](#method.add_inline_active_css), but as a builder method",
+							"fn_args": [
+								{"self": "mut value"},
+								{"prop": "CssProperty"}
+							],
+							"returns": "NodeData",
+							"fn_body": "az_node_data_add_inline_active_css(&mut nodedata, prop); nodedata"
+						},
+						"add_inline_focus_css": {
+							"doc": "Overrides the CSS property of this `NodeData` node with a value (for example `\"width = 200px\"`)",
+							"fn_args": [
+								{"self": "refmut"},
+								{"prop": "CssProperty"}
+							],
+							"fn_body": "nodedata.add_inline_focus_css(prop);"
+						},
+						"with_inline_css": {
+							"doc": "Same as [`NodeData::add_inline_focus_css`](#method.add_inline_focus_css), but as a builder method",
+							"fn_args": [
+								{"self": "mut value"},
+								{"prop": "CssProperty"}
+							],
+							"returns": "NodeData",
+							"fn_body": "az_node_data_add_inline_focus_css(&mut nodedata, prop); nodedata"
 						},
 						"with_clip_mask": {
 							"doc": "Same as [`NodeData::set_clip_mask`](#method.set_clip_mask), but as a builder method",
@@ -7649,35 +7773,18 @@
 						{"height": {"type": "f32"}}
 					]
 				},
-				"HotReloadOptions": {
-					"external": "azul_impl::window::HotReloadOptions",
-					"struct_fields": [
-						{"path": {"type": "String"}},
-						{"reload_interval": {"type": "Duration"}},
-						{"apply_native_css": {"type": "bool"}}
-					]
-				},
 				"WindowCreateOptions": {
 					"external": "azul_impl::window::WindowCreateOptions",
 					"struct_fields": [
 						{"state": {"type": "WindowState"}},
-						{"renderer_type": {"type": "RendererType"}},
-						{"hot_reload": {"type": "OptionHotReloadOptions"}}
+						{"renderer_type": {"type": "RendererType"}}
 					],
 					"constructors": {
 						"new": {
 							"fn_args":[
-								{"layout_callback": "LayoutCallbackType"},
-								{"css": "Css"}
+								{"layout_callback": "LayoutCallbackType"}
 							],
-							"fn_body":"WindowCreateOptions::new(layout_callback, css)"
-						},
-						"new_hot_reload": {
-							"fn_args":[
-								{"layout_callback": "LayoutCallbackType"},
-								{"hot_reload_options": "HotReloadOptions"}
-							],
-							"fn_body":"WindowCreateOptions::new_hot_reload(layout_callback, hot_reload_options)"
+							"fn_body":"WindowCreateOptions::new(layout_callback)"
 						}
 					}
 				}

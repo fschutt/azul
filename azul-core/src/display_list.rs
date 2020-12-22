@@ -26,9 +26,9 @@ use crate::{
         ImageKey, FontInstanceKey, ImageInfo, ImageId, LayoutedGlyphs, PrimitiveFlags,
         Epoch, ExternalImageId, GlyphOptions, LoadFontFn, LoadImageFn, ParseFontFn,
     },
-    styled_dom::StyledDom,
+    styled_dom::{DomId, StyledDom, ContentGroup},
     id_tree::{NodeDataContainer, NodeId},
-    dom::{DomId, NodeData, TagId, ScrollTagId},
+    dom::{NodeData, TagId, ScrollTagId},
 };
 #[cfg(feature = "opengl")]
 use crate::gl::{Texture, GlContextPtr};
@@ -76,23 +76,20 @@ impl CachedDisplayList {
         epoch: Epoch,
         pipeline_id: PipelineId,
         full_window_state: &FullWindowState,
-        styled_doms: &[StyledDom],
-        layout_results: &[SolvedLayout],
-        gl_texture_cache: &GlTextureCache,
+        solved_layout: &SolvedLayout,
         app_resources: &AppResources,
     ) -> Self {
         const DOM_ID: DomId = DomId::ROOT_ID;
         CachedDisplayList {
             root: push_rectangles_into_displaylist(
-                &layout_result_cache.rects_in_rendering_order[&DOM_ID],
+                &solved_layout.solved_layout_cache[DOM_ID.inner].styled_dom.rects_in_rendering_order,
                 &DisplayListParametersRef {
                     dom_id: DOM_ID,
                     epoch,
-                    full_window_state,
                     pipeline_id,
-                    layout_result: layout_result_cache,
-                    gl_texture_cache,
-                    ui_state_cache,
+                    full_window_state,
+                    layout_results: &solved_layout.solved_layout_cache[..],
+                    gl_texture_cache: &solved_layout.gl_texture_cache,
                     app_resources,
                 },
             )
@@ -518,7 +515,7 @@ pub struct DisplayListParametersRef<'a> {
     /// The current pipeline of the display list
     pub pipeline_id: PipelineId,
     /// Cached layouts (+ solved layouts for iframes)
-    pub layout_result: &'a [LayoutResult],
+    pub layout_results: &'a [LayoutResult],
     /// Cached rendered OpenGL textures
     pub gl_texture_cache: &'a GlTextureCache,
     /// Reference to the AppResources, necessary to query info about image and font keys
@@ -543,7 +540,7 @@ pub struct SolvedLayout {
 
 pub struct RenderCallbacks<U: FontImageApi> {
     pub insert_into_active_gl_textures: GlStoreImageFn,
-    pub layout_func: LayoutFn<U>,
+    pub layout_fn: LayoutFn<U>,
     pub load_font_fn: LoadFontFn,
     pub load_image_fn: LoadImageFn,
     pub parse_font_fn: ParseFontFn,
@@ -569,9 +566,13 @@ impl SolvedLayout {
                 RawImageFormat, AddImage, ExternalImageData, TextureTarget, ExternalImageType,
                 ImageData, add_resources, garbage_collect_fonts_and_images,
             },
+            callbacks::{GlCallbackInfo, HidpiAdjustedBounds, GlCallbackInfoPtr},
+            gl::insert_into_active_gl_textures,
         };
+        use gleam::gl;
+        use std::ffi::c_void;
 
-        let layouted_doms = (callbacks.layout_fn)(
+        let layout_results = (callbacks.layout_fn)(
             styled_dom,
             app_resources,
             render_api,
@@ -583,23 +584,21 @@ impl SolvedLayout {
         let mut solved_textures = BTreeMap::new();
 
         // Now that the layout is done, render the OpenGL textures and add them to the RenderAPI
-        for layouted_dom in layouted_doms.iter() {
-            for (node_id, gl_texture_node) in layouted_dom.styled_dom.scan_for_gltexture_callbacks() {
+        for layout_result in layout_results.iter() {
+            for (node_id, gl_texture_node) in layout_result.styled_dom.scan_for_gltexture_callbacks() {
 
                 let cb = gl_texture_node.callback;
                 let ptr = &gl_texture_node.data;
 
                 // Invoke OpenGL callback, render texture
-                let rect_size = layout_result.rects[node_id].size;
+                let rect_size = layout_result.rects.as_ref()[node_id].size;
 
                 let texture = {
-                    use crate::callbacks::GlCallbackInfoPtr;
-                    use std::ffi::c_void;
 
                     let callback_info = GlCallbackInfo {
                         state: ptr,
                         gl_context: &gl_context,
-                        app_resources,
+                        resources: app_resources,
                         bounds: HidpiAdjustedBounds::from_bounds(
                             rect_size,
                             full_window_state.size.hidpi_factor,
@@ -620,7 +619,7 @@ impl SolvedLayout {
 
                 if let Some(t) = texture {
                     solved_textures
-                        .entry(layouted_dom.dom_id.clone())
+                        .entry(layout_result.dom_id.clone())
                         .or_insert_with(|| BTreeMap::default())
                         .insert(node_id, t);
                 }
@@ -679,7 +678,7 @@ impl SolvedLayout {
         add_resources(app_resources, render_api, &pipeline_id, Vec::new(), image_resource_updates);
 
         SolvedLayout {
-            solved_layout_cache: layouted_doms,
+            solved_layout_cache: layout_results,
             gl_texture_cache,
         }
     }
@@ -691,7 +690,7 @@ pub fn push_rectangles_into_displaylist<'a>(
 ) -> DisplayListMsg {
 
     let mut content = displaylist_handle_rect(
-        root_content_group.root,
+        root_content_group.root.into_crate_internal().unwrap(),
         referenced_content,
     );
 
@@ -714,25 +713,26 @@ pub fn displaylist_handle_rect<'a>(
 ) -> DisplayListMsg {
 
     use crate::dom::NodeType::*;
+    use crate::styled_dom::{AzNodeId, AzTagId};
 
     let DisplayListParametersRef {
         dom_id,
         pipeline_id,
-        ui_state_cache,
-        layout_result,
+        layout_results,
         gl_texture_cache,
         app_resources,
         ..
     } = referenced_content;
 
-    let rect = &layout_result.display_lists[dom_id].rectangles[rect_idx];
-    let bounds = &layout_result.solved_layouts[dom_id].rects[rect_idx];
-    let html_node = &ui_state_cache[&dom_id].dom.arena.node_data[rect_idx];
+    let layout_result = &layout_results[dom_id.inner];
+    let styled_node = &layout_result.styled_dom.styled_nodes.as_container()[rect_idx];
+    let bounds = &layout_result.rects.as_ref()[rect_idx];
+    let html_node = &layout_result.styled_dom.node_data.as_container()[rect_idx];
 
-    let tag_id = rect.tag.or({
-        layout_result.scrollable_nodes[dom_id].overflowing_nodes
-        .get(&rect_idx)
-        .map(|scrolled| scrolled.scroll_tag_id.0)
+    let tag_id = styled_node.tag_id.into_option().or({
+        layout_result.scrollable_nodes.overflowing_nodes
+        .get(&AzNodeId::from_crate_internal(Some(rect_idx)))
+        .map(|scrolled| AzTagId::from_crate_internal(scrolled.scroll_tag_id.0))
     });
 
     let (size, position) = bounds.get_background_bounds();
@@ -747,14 +747,14 @@ pub fn displaylist_handle_rect<'a>(
     });
 
     let mut frame = DisplayListFrame {
-        tag: tag_id,
+        tag: tag_id.map(|t| t.into_crate_internal()),
         size,
         position,
         border_radius: StyleBorderRadius {
-            top_left: rect.style.border_top_left_radius,
-            top_right: rect.style.border_top_right_radius,
-            bottom_left: rect.style.border_bottom_left_radius,
-            bottom_right: rect.style.border_bottom_right_radius,
+            top_left: styled_node.style.border_top_left_radius,
+            top_right: styled_node.style.border_top_right_radius,
+            bottom_left: styled_node.style.border_bottom_left_radius,
+            bottom_right: styled_node.style.border_bottom_right_radius,
         },
         flags: PrimitiveFlags {
             is_backface_visible: true,
@@ -766,13 +766,13 @@ pub fn displaylist_handle_rect<'a>(
         clip_mask,
     };
 
-    if rect.style.has_box_shadow() {
+    if styled_node.style.has_box_shadow() {
         frame.content.push(LayoutRectContent::BoxShadow {
             shadow: StyleBoxShadow {
-                left: rect.style.box_shadow_left,
-                right: rect.style.box_shadow_right,
-                top: rect.style.box_shadow_top,
-                bottom: rect.style.box_shadow_bottom,
+                left: styled_node.style.box_shadow_left,
+                right: styled_node.style.box_shadow_right,
+                top: styled_node.style.box_shadow_top,
+                bottom: styled_node.style.box_shadow_bottom,
             },
             clip_mode: BoxShadowClipMode::Outset,
         });
@@ -780,7 +780,7 @@ pub fn displaylist_handle_rect<'a>(
 
     // If the rect is hit-testing relevant, we need to push a rect anyway.
     // Otherwise the hit-testing gets confused
-    if let Some(bg) = rect.style.background.as_ref().and_then(|br| br.get_property()) {
+    if let Some(bg) = styled_node.style.background.as_ref().and_then(|br| br.get_property()) {
 
         use azul_css::{CssImageId, StyleBackgroundContent::*};
 
@@ -793,16 +793,16 @@ pub fn displaylist_handle_rect<'a>(
         let background_content = match bg {
             LinearGradient(lg) => Some(RectBackground::LinearGradient(lg.clone())),
             RadialGradient(rg) => Some(RectBackground::RadialGradient(rg.clone())),
-            Image(style_image_id) => get_image_info(&app_resources, &pipeline_id, style_image_id),
+            Image(style_image_id) => get_image_info(&app_resources, &pipeline_id, &style_image_id),
             Color(c) => Some(RectBackground::Color(*c)),
         };
 
         if let Some(background_content) = background_content {
             frame.content.push(LayoutRectContent::Background {
                 content: background_content,
-                size: rect.style.background_size.and_then(|bs| bs.get_property().cloned()),
-                offset: rect.style.background_position.and_then(|bs| bs.get_property().cloned()),
-                repeat: rect.style.background_repeat.and_then(|bs| bs.get_property().cloned()),
+                size: styled_node.style.background_size.and_then(|bs| bs.get_property().cloned()),
+                offset: styled_node.style.background_position.and_then(|bs| bs.get_property().cloned()),
+                repeat: styled_node.style.background_repeat.and_then(|bs| bs.get_property().cloned()),
             });
         }
     }
@@ -810,19 +810,19 @@ pub fn displaylist_handle_rect<'a>(
     match html_node.get_node_type() {
         Div | Body => { },
         Text(_) | Label(_) => {
-            if let Some(layouted_glyphs) = layout_result.solved_layouts.get(dom_id).and_then(|lr| lr.layouted_glyph_cache.get(&rect_idx)).cloned() {
+            if let Some(layouted_glyphs) = layout_result.layouted_glyph_cache.get(&rect_idx).cloned() {
 
                 use crate::ui_solver::DEFAULT_FONT_COLOR;
 
-                let text_color = rect.style.text_color.and_then(|tc| tc.get_property().cloned()).unwrap_or(DEFAULT_FONT_COLOR).inner;
-                let positioned_words = &layout_result.solved_layouts[dom_id].positioned_word_cache[&rect_idx];
+                let text_color = styled_node.style.text_color.and_then(|tc| tc.get_property().cloned()).unwrap_or(DEFAULT_FONT_COLOR).inner;
+                let positioned_words = &layout_result.positioned_word_cache[&rect_idx];
                 let font_instance_key = positioned_words.1;
 
                 frame.content.push(get_text(
                     layouted_glyphs,
                     font_instance_key,
                     text_color,
-                    &rect.layout,
+                    &styled_node.layout,
                 ));
             }
         },
@@ -852,9 +852,10 @@ pub fn displaylist_handle_rect<'a>(
             }
         },
         IFrame(_) => {
-            if let Some(iframe_dom_id) = layout_result.iframe_mappings.get(&(dom_id.clone(), rect_idx)) {
+            if let Some(iframe_dom_id) = layout_result.iframe_mapping.iter()
+            .find_map(|(node_id, dom_id)| if *node_id == rect_idx { Some(*dom_id) } else { None }) {
                 frame.children.push(push_rectangles_into_displaylist(
-                    &layout_result.rects_in_rendering_order[&iframe_dom_id],
+                    &layout_results[iframe_dom_id.inner].styled_dom.rects_in_rendering_order,
                     // layout_result.rects_in_rendering_order.root,
                     &DisplayListParametersRef {
                         // Important: Need to update the DOM ID,
@@ -867,42 +868,42 @@ pub fn displaylist_handle_rect<'a>(
         },
     };
 
-    if rect.style.has_border() {
+    if styled_node.style.has_border() {
         frame.content.push(LayoutRectContent::Border {
             widths: StyleBorderWidths {
-                top: rect.layout.border_top_width,
-                left: rect.layout.border_left_width,
-                bottom: rect.layout.border_bottom_width,
-                right: rect.layout.border_right_width,
+                top: styled_node.layout.border_top_width,
+                left: styled_node.layout.border_left_width,
+                bottom: styled_node.layout.border_bottom_width,
+                right: styled_node.layout.border_right_width,
             },
             colors: StyleBorderColors {
-                top: rect.style.border_top_color,
-                left: rect.style.border_left_color,
-                bottom: rect.style.border_bottom_color,
-                right: rect.style.border_right_color,
+                top: styled_node.style.border_top_color,
+                left: styled_node.style.border_left_color,
+                bottom: styled_node.style.border_bottom_color,
+                right: styled_node.style.border_right_color,
             },
             styles: StyleBorderStyles {
-                top: rect.style.border_top_style,
-                left: rect.style.border_left_style,
-                bottom: rect.style.border_bottom_style,
-                right: rect.style.border_right_style,
+                top: styled_node.style.border_top_style,
+                left: styled_node.style.border_left_style,
+                bottom: styled_node.style.border_bottom_style,
+                right: styled_node.style.border_right_style,
             },
         });
     }
 
-    if rect.style.has_box_shadow() {
+    if styled_node.style.has_box_shadow() {
         frame.content.push(LayoutRectContent::BoxShadow {
             shadow: StyleBoxShadow {
-                left: rect.style.box_shadow_left,
-                right: rect.style.box_shadow_right,
-                top: rect.style.box_shadow_top,
-                bottom: rect.style.box_shadow_bottom,
+                left: styled_node.style.box_shadow_left,
+                right: styled_node.style.box_shadow_right,
+                top: styled_node.style.box_shadow_top,
+                bottom: styled_node.style.box_shadow_bottom,
             },
             clip_mode: BoxShadowClipMode::Inset,
         });
     }
 
-    match layout_result.scrollable_nodes[dom_id].overflowing_nodes.get(&rect_idx) {
+    match layout_result.scrollable_nodes.overflowing_nodes.get(&AzNodeId::from_crate_internal(Some(rect_idx))) {
         Some(scroll_node) => DisplayListMsg::ScrollFrame(DisplayListScrollFrame {
             content_rect: scroll_node.child_rect,
             scroll_id: scroll_node.parent_external_scroll_id,

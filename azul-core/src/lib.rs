@@ -27,8 +27,8 @@ pub mod app_resources;
 pub mod display_list;
 /// `Dom` construction, `NodeData` and `NodeType` management functions
 pub mod dom;
-/// Algorithms to create git-like diffs between two doms in linear time
-pub mod diff;
+// Algorithms to create git-like diffs between two doms in linear time
+// pub mod diff;
 /// Contains OpenGL helper functions (to compile / link shaders), `VirtualGlDriver` for unit testing
 #[cfg(feature = "opengl")]
 pub mod gl;
