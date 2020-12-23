@@ -429,8 +429,6 @@ macro_rules! typed_arena {(
                 parent_node.min_inner_size_px + parent_node.flex_grow_px - parent_node.$get_padding_fn(parent_parent_width)
             };
 
-            println!("parent inner node width: {:?}", parent_node_inner_width);
-
             // 1. Set all child elements that have an exact width to that width, record their violations
             //    and add their violation to the leftover horizontal space.
             // let mut horizontal_space_from_fixed_width_items = 0.0;

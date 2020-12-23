@@ -120,7 +120,7 @@ fn test_full_dom() {
         LayoutRect::new(LayoutPoint::zero(), LayoutSize::new(800.0, 600.0))
     );
 
-    println!("layout result: {:#?}", layout_result);
+    assert_eq!(layout_result.rects.as_ref()[NodeId::new(0)].size, LayoutSize::new(800.0, 600.0));
 
     // loop {
     //

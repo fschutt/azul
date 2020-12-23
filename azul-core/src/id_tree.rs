@@ -45,20 +45,20 @@ mod node_id {
         pub const fn from_usize(value: usize) -> Option<Self> {
             match value {
                 0 => None,
-                i => Some(NodeId::new(i)),
+                i => Some(NodeId::new(i - 1)),
             }
         }
 
         pub const fn into_usize(val: &Option<Self>) -> usize {
             match val {
                 None => 0,
-                Some(s) => s.index.get() - 1,
+                Some(s) => s.index.get(),
             }
         }
 
         #[inline(always)]
         pub fn index(&self) -> usize {
-            (self.index.get() - 1)
+            self.index.get() - 1
         }
 
         /// Return an iterator of references to this node’s children.
