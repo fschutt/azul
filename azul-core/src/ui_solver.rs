@@ -2,7 +2,9 @@ use std::{fmt, collections::BTreeMap};
 use azul_css::{
     LayoutRect, LayoutPoint, LayoutSize, PixelValue, StyleFontSize,
     StyleTextColor, ColorU as StyleColorU,
-    StyleTextAlignmentHorz, StyleTextAlignmentVert,
+    StyleTextAlignmentHorz, StyleTextAlignmentVert, LayoutPosition,
+    CssPropertyValue, LayoutMarginTop, LayoutMarginRight, LayoutMarginLeft, LayoutMarginBottom,
+    LayoutPaddingTop, LayoutPaddingLeft, LayoutPaddingRight, LayoutPaddingBottom
 };
 use crate::{
     styled_dom::{StyledDom, AzNodeId, DomId},
@@ -161,16 +163,193 @@ pub struct OverflowingScrollNode {
     pub scroll_tag_id: ScrollTagId,
 }
 
-#[derive(Debug, Default, Clone)]
+
+#[derive(Debug, Copy, Clone, PartialEq)]
+pub enum WhConstraint {
+    /// between min, max
+    Between(f32, f32),
+    /// Value needs to be exactly X
+    EqualTo(f32),
+    /// Value can be anything
+    Unconstrained,
+}
+
+impl Default for WhConstraint {
+    fn default() -> Self { WhConstraint::Unconstrained }
+}
+
+impl WhConstraint {
+
+    /// Returns the minimum value or 0 on `Unconstrained`
+    /// (warning: this might not be what you want)
+    pub fn min_needed_space(&self) -> Option<f32> {
+        use self::WhConstraint::*;
+        match self {
+            Between(min, _) => Some(*min),
+            EqualTo(exact) => Some(*exact),
+            Unconstrained => None,
+        }
+    }
+
+    /// Returns the maximum space until the constraint is violated - returns
+    /// `None` if the constraint is unbounded
+    pub fn max_available_space(&self) -> Option<f32> {
+        use self::WhConstraint::*;
+        match self {
+            Between(_, max) => { Some(*max) },
+            EqualTo(exact) => Some(*exact),
+            Unconstrained => None,
+        }
+    }
+
+    /// Returns if this `WhConstraint` is an `EqualTo` constraint
+    pub fn is_fixed_constraint(&self) -> bool {
+        use self::WhConstraint::*;
+        match self {
+            EqualTo(_) => true,
+            _ => false,
+        }
+    }
+}
+
+#[derive(Debug, Default, Copy, Clone, PartialEq)]
+pub struct WidthCalculatedRect {
+    pub preferred_width: WhConstraint,
+    pub margin_top: CssPropertyValue<LayoutMarginTop>,
+    pub margin_right: CssPropertyValue<LayoutMarginRight>,
+    pub margin_left: CssPropertyValue<LayoutMarginLeft>,
+    pub margin_bottom: CssPropertyValue<LayoutMarginBottom>,
+    pub padding_top: CssPropertyValue<LayoutPaddingTop>,
+    pub padding_left: CssPropertyValue<LayoutPaddingLeft>,
+    pub padding_right: CssPropertyValue<LayoutPaddingRight>,
+    pub padding_bottom: CssPropertyValue<LayoutPaddingBottom>,
+    pub flex_grow_px: f32,
+    pub min_inner_size_px: f32,
+}
+
+impl WidthCalculatedRect {
+    /// Get the flex basis in the horizontal direction - vertical axis has to be calculated differently
+    pub fn get_flex_basis_horizontal(&self, parent_width: f32) -> f32 {
+        self.preferred_width.min_needed_space().unwrap_or(0.0) +
+        self.margin_left.get_property().map(|px| px.inner.to_pixels(parent_width)).unwrap_or(0.0) +
+        self.margin_right.get_property().map(|px| px.inner.to_pixels(parent_width)).unwrap_or(0.0) +
+        self.padding_left.get_property().map(|px| px.inner.to_pixels(parent_width)).unwrap_or(0.0) +
+        self.padding_right.get_property().map(|px| px.inner.to_pixels(parent_width)).unwrap_or(0.0)
+    }
+
+    /// Get the sum of the horizontal padding amount (`padding.left + padding.right`)
+    pub fn get_horizontal_padding(&self, parent_width: f32) -> f32 {
+        self.padding_left.get_property().map(|px| px.inner.to_pixels(parent_width)).unwrap_or(0.0) +
+        self.padding_right.get_property().map(|px| px.inner.to_pixels(parent_width)).unwrap_or(0.0)
+    }
+
+    /// Called after solver has run: Solved width of rectangle
+    pub fn solved_result(&self) -> WidthSolvedResult {
+        WidthSolvedResult {
+            min_width: self.min_inner_size_px,
+            space_added: self.flex_grow_px,
+        }
+    }
+}
+
+#[derive(Debug, Default, Copy, Clone, PartialEq)]
+pub struct HeightCalculatedRect {
+    pub preferred_height: WhConstraint,
+    pub margin_top: CssPropertyValue<LayoutMarginTop>,
+    pub margin_right: CssPropertyValue<LayoutMarginRight>,
+    pub margin_left: CssPropertyValue<LayoutMarginLeft>,
+    pub margin_bottom: CssPropertyValue<LayoutMarginBottom>,
+    pub padding_top: CssPropertyValue<LayoutPaddingTop>,
+    pub padding_left: CssPropertyValue<LayoutPaddingLeft>,
+    pub padding_right: CssPropertyValue<LayoutPaddingRight>,
+    pub padding_bottom: CssPropertyValue<LayoutPaddingBottom>,
+    pub flex_grow_px: f32,
+    pub min_inner_size_px: f32,
+}
+
+impl HeightCalculatedRect {
+    /// Get the flex basis in the horizontal direction - vertical axis has to be calculated differently
+    pub fn get_flex_basis_vertical(&self, parent_height: f32) -> f32 {
+        self.preferred_height.min_needed_space().unwrap_or(0.0) +
+        self.margin_top.get_property().map(|px| px.inner.to_pixels(parent_height)).unwrap_or(0.0) +
+        self.margin_bottom.get_property().map(|px| px.inner.to_pixels(parent_height)).unwrap_or(0.0) +
+        self.padding_top.get_property().map(|px| px.inner.to_pixels(parent_height)).unwrap_or(0.0) +
+        self.padding_bottom.get_property().map(|px| px.inner.to_pixels(parent_height)).unwrap_or(0.0)
+    }
+
+    /// Get the sum of the horizontal padding amount (`padding_top + padding_bottom`)
+    pub fn get_vertical_padding(&self, parent_height: f32) -> f32 {
+        self.padding_top.get_property().map(|px| px.inner.to_pixels(parent_height)).unwrap_or(0.0) +
+        self.padding_bottom.get_property().map(|px| px.inner.to_pixels(parent_height)).unwrap_or(0.0)
+    }
+
+    /// Called after solver has run: Solved width of rectangle
+    pub fn solved_result(&self) -> HeightSolvedResult {
+        HeightSolvedResult {
+            min_height: self.min_inner_size_px,
+            space_added: self.flex_grow_px,
+        }
+    }
+}
+
+#[derive(Debug, Copy, Clone, PartialEq)]
+pub struct WidthSolvedResult {
+    pub min_width: f32,
+    pub space_added: f32,
+}
+
+impl WidthSolvedResult {
+    pub fn total(&self) -> f32 {
+        self.min_width + self.space_added
+    }
+}
+
+#[derive(Debug, Copy, Clone, PartialEq)]
+pub struct HeightSolvedResult {
+    pub min_height: f32,
+    pub space_added: f32,
+}
+
+impl HeightSolvedResult {
+    pub fn total(&self) -> f32 {
+        self.min_height + self.space_added
+    }
+}
+
+#[derive(Debug, Copy, Clone, PartialEq, PartialOrd)]
+pub struct HorizontalSolvedPosition(pub f32);
+
+#[derive(Debug, Copy, Clone, PartialEq, PartialOrd)]
+pub struct VerticalSolvedPosition(pub f32);
+
+#[derive(Debug, Clone)]
+pub struct SolvedWidthLayout {
+    pub width_calculated_arena: NodeDataContainer<WidthCalculatedRect>,
+}
+
+#[derive(Debug, Clone)]
+pub struct SolvedHeightLayout {
+    pub height_calculated_arena: NodeDataContainer<HeightCalculatedRect>,
+}
+
+#[derive(Debug, Clone)]
 pub struct LayoutResult {
     pub dom_id: DomId,
     pub parent_dom_id: Option<DomId>,
     pub styled_dom: StyledDom,
+    pub root_size: LayoutSize,
+    pub preferred_widths: NodeDataContainer<Option<f32>>,
+    pub preferred_heights: NodeDataContainer<Option<f32>>,
+    pub solved_width_layout: SolvedWidthLayout,
+    pub solved_height_layout: SolvedHeightLayout,
+    pub solved_pos_x: NodeDataContainer<HorizontalSolvedPosition>,
+    pub solved_pos_y: NodeDataContainer<VerticalSolvedPosition>,
+    pub layout_positions: NodeDataContainer<LayoutPosition>,
     pub rects: NodeDataContainer<PositionedRectangle>,
-    pub word_cache: BTreeMap<NodeId, Words>,
-    pub shaped_words: BTreeMap<NodeId, ShapedWords>,
-    pub positioned_word_cache: BTreeMap<NodeId, (WordPositions, FontInstanceKey)>,
-    pub layouted_glyph_cache: BTreeMap<NodeId, LayoutedGlyphs>,
+    pub words_cache: BTreeMap<NodeId, Words>,
+    pub shaped_words_cache: BTreeMap<NodeId, ShapedWords>,
+    pub positioned_words_cache: BTreeMap<NodeId, (WordPositions, FontInstanceKey)>,
+    pub layouted_glyphs_cache: BTreeMap<NodeId, LayoutedGlyphs>,
     pub scrollable_nodes: ScrolledNodes,
     pub iframe_mapping: Vec<(NodeId, DomId)>,
 }

@@ -29,15 +29,13 @@ use crate::{
 use azul_core::{
     FastHashMap,
     window::{RendererType, WindowCreateOptions, WindowSize, DebugState, WindowState, FullWindowState},
-    dom::{DomId, NodeId, ScrollTagId},
+    dom::{NodeId, ScrollTagId},
     gl::{GlShader, GlContextPtr},
-    ui_state::UiState,
     ui_solver::ScrolledNodes,
     callbacks::{RefAny, HitTestItem, UpdateScreen},
     task::{Task, Timer, TimerId},
     window::{AzulUpdateEvent, CallbacksOfHitTest, KeyboardState, WindowId},
     callbacks::PipelineId,
-    ui_description::UiDescription,
     display_list::CachedDisplayList,
     app_resources::{
         AppResources, Epoch, FontId, ImageId, LoadedFont, ImmediateFontId,
@@ -609,7 +607,8 @@ impl App {
                 *control_flow = ControlFlow::Wait;
 
                 // Reload CSS if necessary
-                #[cfg(all(debug_assertions, any(feature = "css_parser", feature = "native_style")))] {
+                if let Some(interval) = app_config.hot_reload_interval.into_option() {
+
                     const DONT_FORCE_CSS_RELOAD: bool = false;
 
                     let mut should_update = false;
@@ -644,16 +643,8 @@ impl App {
 
                         for window_id in eld.window_id_mapping.clone().values() {
                             send_user_event(AzulUpdateEvent::RebuildUi { window_id: *window_id }, &mut eld);
-                        }
-
-                        // for (window_id, _window) in eld.active_windows.iter() {
-                        //     if let Some(window_id) = eld.window_id_mapping.get(&window_id).cloned() {
-                        for window_id in eld.window_id_mapping.clone().values() {
                             send_user_event(AzulUpdateEvent::RedrawRequested { window_id: *window_id }, &mut eld);
                         }
-                        //     }
-                        //     // window.display.window().request_redraw();
-                        // }
                     }
                 }
 
@@ -1206,14 +1197,6 @@ fn initialize_ui_state_cache(
     let mut ui_state_map = BTreeMap::new();
 
     for (glutin_window_id, _) in windows {
-        DomId::reset();
-
-        #[cfg(all(debug_assertions, any(feature = "css_parser", feature = "native_style")))] {
-            const FORCE_CSS_RELOAD: bool = true;
-            let full_window_state = full_window_states.get_mut(glutin_window_id).unwrap();
-            let hot_reload_options = window.hot_reload.as_ref();
-            let _ = hot_reload_css(full_window_state, hot_reload_options, &mut Instant::now(), FORCE_CSS_RELOAD);
-        }
 
         let full_window_state = full_window_states.get(glutin_window_id).unwrap();
         let dom_id_map = call_layout_fn(
@@ -1225,36 +1208,7 @@ fn initialize_ui_state_cache(
         ui_state_map.insert(*glutin_window_id, dom_id_map);
     }
 
-    DomId::reset();
-
     ui_state_map
-}
-
-/// Returns (whether the screen should update, whether the CSS had an error).
-#[cfg(all(debug_assertions, any(feature = "css_parser", feature = "native_style")))]
-fn hot_reload_css(
-    full_window_state: &mut FullWindowState,
-    hot_reload_handler: Option<&HotReloadOptions>,
-    last_style_reload: &mut Instant,
-    force_css_reload: bool,
-) -> (bool, bool) {
-
-    let hot_reload_result = crate::css::hot_reload_css(
-        &mut full_window_state.css,
-        hot_reload_handler,
-        last_style_reload,
-        force_css_reload,
-    );
-
-    match hot_reload_result {
-        Ok(has_reloaded) => (has_reloaded, false),
-        Err(css_error) => {
-            #[cfg(feature = "logging")] {
-                error!("{}", css_error)
-            }
-            (true, true)
-        },
-    }
 }
 
 // call the root layout() fn and relayout automatically
@@ -1335,14 +1289,18 @@ fn do_hit_test(
 
 /// Given the current (and previous) window state and the hit test results,
 /// determines which `On::X` filters to actually call.
-fn determine_events(
+fn determine_events<'a>(
     hit_test_results: &[HitTestItem],
     full_window_state: &mut FullWindowState,
-    ui_state_map: &BTreeMap<DomId, UiState>,
-) -> BTreeMap<DomId, CallbacksOfHitTest> {
+    layout_results: &'a mut [LayoutResult],
+) -> BTreeMap<DomId, CallbacksOfHitTest<'a>> {
     use azul_core::window_state::determine_callbacks;
-    ui_state_map.iter().map(|(dom_id, ui_state)| {
-        (dom_id.clone(), determine_callbacks(full_window_state, &hit_test_results, ui_state))
+    layout_results.iter_mut().map(|(dom_id, layout_result)| {
+        let callbacks_to_call = determine_callbacks(full_window_state, &hit_test_results, layout_result);
+        if !callbacks_to_call.layout_changes.is_empty() {
+            let relayouted_nodes = do_the_relayout(layout_result, &callbacks_to_call.layout_changes);
+        }
+        (dom_id.clone(), callbacks_to_call)
     }).collect()
 }
 

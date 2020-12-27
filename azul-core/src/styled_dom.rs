@@ -392,24 +392,6 @@ impl_vec_partialeq!(TagIdToNodeIdMapping, TagIdsToNodeIdsMappingVec);
 
 #[derive(Debug, Clone, PartialEq, PartialOrd)]
 #[repr(C)]
-pub struct StyleOptions {
-    pub focused_node: OptionNodeId,
-    pub hovered_nodes: NodeIdVec,
-    pub is_mouse_down: bool,
-}
-
-impl Default for StyleOptions {
-    fn default() -> StyleOptions {
-        StyleOptions {
-            focused_node: None.into(),
-            hovered_nodes: Vec::new().into(),
-            is_mouse_down: false,
-        }
-    }
-}
-
-#[derive(Debug, Clone, PartialEq, PartialOrd)]
-#[repr(C)]
 pub struct StyledDom {
     pub root: AzNodeId,
     pub node_hierarchy: AzNodeVec,

@@ -30,7 +30,6 @@ pub fn determine_callbacks<'a>(
 
     let event_was_mouse_down    = current_window_events.contains(&WindowEventFilter::MouseDown);
     let event_was_mouse_release = current_window_events.contains(&WindowEventFilter::MouseUp);
-    let event_was_mouse_enter   = current_window_events.contains(&WindowEventFilter::MouseEnter);
     let event_was_mouse_leave   = current_window_events.contains(&WindowEventFilter::MouseLeave);
 
     let event_is_click_or_release = event_was_mouse_down || event_was_mouse_release;
@@ -91,16 +90,12 @@ pub fn determine_callbacks<'a>(
         .map(|(x, y)| (*x, y.clone()))
         .collect();
 
-    let onmouseenter_empty = onmouseenter_nodes.is_empty();
-
     // Collect all On::MouseLeave nodes (for both hover and focus events)
     let onmouseleave_nodes = old_hit_node_ids
         .iter()
         .filter(|(prev_node_id, _)| new_hit_node_ids.get(prev_node_id).is_none())
         .map(|(x, y)| (*x, y.clone()))
         .collect::<BTreeMap<NodeId, HitTestItem>>();
-
-    let onmouseleave_empty = onmouseleave_nodes.is_empty();
 
     // iterate through all callbacks of all nodes
     for (node_id, node_data) in layout_result.styled_dom.node_data.as_ref().iter().enumerate() {

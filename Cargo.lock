@@ -126,7 +126,6 @@ dependencies = [
  "azul-css",
  "azul-css-parser",
  "azul-layout",
- "azul-native-style",
  "azul-webrender",
  "azulc",
  "backtrace",

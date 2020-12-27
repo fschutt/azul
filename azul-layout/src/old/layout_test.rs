@@ -121,23 +121,6 @@ fn test_full_dom() {
     );
 
     assert_eq!(layout_result.rects.as_ref()[NodeId::new(0)].size, LayoutSize::new(800.0, 600.0));
-
-    // loop {
-    //
-    //     let scroll_tags = styled_dom.get_scroll_tags(&layout_result);
-    //     let cached_display_list = CachedDisplayList::new(&styled_dom, &scroll_tags);
-    //     let hit_test_tags = cached_display_list.hit_test(LayoutPoint);
-    //     let events = styled_dom.get_events(&old_hit_test_tags, &new_hit_test_tags);
-    //
-    //     for (node_id, (callback, data)) in styled_dom.get_callbacks_for_events(&events) {
-    //         if (callback)(data) == UpdateScreen::Relayout {
-    //             let new_styled_dom = (layout)(app_data);
-    //             let diff = styled_dom.get_diff(&new_styled_dom);
-    //             layout_result = relayout(&layout_result, &new_styled_dom, &diff, &mut app_resources);
-    //         }
-    //     }
-    //
-    // }
 }
 
 #[test]

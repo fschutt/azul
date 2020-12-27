@@ -17,7 +17,7 @@ use crate::{
     styled_dom::StyledDom,
     ui_solver::{PositionedRectangle, LayoutedRectangle, ScrolledNodes, LayoutResult},
     id_tree::{Node, NodeId},
-    styled_dom::{DomId, StyleOptions, AzNodeId},
+    styled_dom::{DomId, AzNodeId},
     window::{
         WindowSize, WindowState, FullWindowState, CallbacksOfHitTest,
         KeyboardState, MouseState, LogicalSize, PhysicalSize,

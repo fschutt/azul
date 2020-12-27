@@ -22,7 +22,6 @@ azul-css                = { path = "../azul-css", version = "0.0.1",  default-fe
 azul-core               = { path = "../azul-core", version = "0.0.2",  default-features = false, features = ["opengl"] }
 azul-layout             = { path = "../azul-layout", version = "0.0.4",  default-features = false, features = ["text_layout"] }
 azul-css-parser         = { path = "../azul-css-parser", version = "0.0.1",  default-features = false, optional = true }
-azul-native-style       = { path = "../azul-native-style", version = "0.0.1",  default-features = false, optional = true }
 log                     = { version = "0.4.8",  default-features = false, optional = true }
 fern                    = { version = "0.5.7",  default-features = false, optional = true }
 backtrace               = { version = "0.3.43", default-features = false, optional = true, features = ["std", "libunwind", "libbacktrace", "coresymbolication", "dladdr", "dbghelp"] }
@@ -31,13 +30,11 @@ backtrace               = { version = "0.3.43", default-features = false, option
 core-foundation              = { version = "0.9.0",     default-features = false, features = ["mac_os_10_7_support"] }
 
 [features]
-default = ["logging", "native_style", "css_parser", "image_loading", "font_loading", "text_layout", "svg"]
+default = ["logging", "css_parser", "image_loading", "font_loading", "text_layout", "svg"]
 # Enable this feature to enable crash logging & reporting.
 # Azul will insert custom panic handlers to pop up a message and log
 # crashes to an "error.log" file, see AppConfig for more details
 logging = ["fern", "backtrace", "log"]
-# Enable / disable the OS-native CSS style loader
-native_style = ["azul-native-style"]
 # Enable / diable the CSS parser
 css_parser = ["azul-core/css_parser", "azul-css-parser"]
 # On some applications you might not want to load any images. For these purposes

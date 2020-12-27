@@ -810,12 +810,12 @@ pub fn displaylist_handle_rect<'a>(
     match html_node.get_node_type() {
         Div | Body => { },
         Text(_) | Label(_) => {
-            if let Some(layouted_glyphs) = layout_result.layouted_glyph_cache.get(&rect_idx).cloned() {
+            if let Some(layouted_glyphs) = layout_result.layouted_glyphs_cache.get(&rect_idx).cloned() {
 
                 use crate::ui_solver::DEFAULT_FONT_COLOR;
 
                 let text_color = styled_node.style.text_color.and_then(|tc| tc.get_property().cloned()).unwrap_or(DEFAULT_FONT_COLOR).inner;
-                let positioned_words = &layout_result.positioned_word_cache[&rect_idx];
+                let positioned_words = &layout_result.positioned_words_cache[&rect_idx];
                 let font_instance_key = positioned_words.1;
 
                 frame.content.push(get_text(
