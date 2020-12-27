@@ -244,6 +244,10 @@ impl WidthCalculatedRect {
     }
 
     /// Called after solver has run: Solved width of rectangle
+    pub fn total(&self) -> f32 {
+        self.min_inner_size_px + self.flex_grow_px
+    }
+
     pub fn solved_result(&self) -> WidthSolvedResult {
         WidthSolvedResult {
             min_width: self.min_inner_size_px,
@@ -283,6 +287,11 @@ impl HeightCalculatedRect {
         self.padding_bottom.get_property().map(|px| px.inner.to_pixels(parent_height)).unwrap_or(0.0)
     }
 
+    /// Called after solver has run: Solved height of rectangle
+    pub fn total(&self) -> f32 {
+        self.min_inner_size_px + self.flex_grow_px
+    }
+
     /// Called after solver has run: Solved width of rectangle
     pub fn solved_result(&self) -> HeightSolvedResult {
         HeightSolvedResult {
@@ -298,39 +307,19 @@ pub struct WidthSolvedResult {
     pub space_added: f32,
 }
 
-impl WidthSolvedResult {
-    pub fn total(&self) -> f32 {
-        self.min_width + self.space_added
-    }
-}
-
 #[derive(Debug, Copy, Clone, PartialEq)]
 pub struct HeightSolvedResult {
     pub min_height: f32,
     pub space_added: f32,
 }
 
-impl HeightSolvedResult {
-    pub fn total(&self) -> f32 {
-        self.min_height + self.space_added
-    }
-}
-
+#[repr(transparent)]
 #[derive(Debug, Copy, Clone, PartialEq, PartialOrd)]
 pub struct HorizontalSolvedPosition(pub f32);
 
+#[repr(transparent)]
 #[derive(Debug, Copy, Clone, PartialEq, PartialOrd)]
 pub struct VerticalSolvedPosition(pub f32);
-
-#[derive(Debug, Clone)]
-pub struct SolvedWidthLayout {
-    pub width_calculated_arena: NodeDataContainer<WidthCalculatedRect>,
-}
-
-#[derive(Debug, Clone)]
-pub struct SolvedHeightLayout {
-    pub height_calculated_arena: NodeDataContainer<HeightCalculatedRect>,
-}
 
 #[derive(Debug, Clone)]
 pub struct LayoutResult {
@@ -340,8 +329,8 @@ pub struct LayoutResult {
     pub root_size: LayoutSize,
     pub preferred_widths: NodeDataContainer<Option<f32>>,
     pub preferred_heights: NodeDataContainer<Option<f32>>,
-    pub solved_width_layout: SolvedWidthLayout,
-    pub solved_height_layout: SolvedHeightLayout,
+    pub width_calculated_rects: NodeDataContainer<WidthCalculatedRect>,
+    pub height_calculated_rects: NodeDataContainer<HeightCalculatedRect>,
     pub solved_pos_x: NodeDataContainer<HorizontalSolvedPosition>,
     pub solved_pos_y: NodeDataContainer<VerticalSolvedPosition>,
     pub layout_positions: NodeDataContainer<LayoutPosition>,

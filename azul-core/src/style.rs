@@ -182,7 +182,6 @@ pub(crate) fn construct_html_cascade_tree(node_hierarchy: &NodeHierarchyRef, nod
         nodes[parent_id.index()] = parent_html_matcher;
 
         for (child_idx, child_id) in parent_id.children(node_hierarchy).enumerate() {
-            let az_child_id = AzNodeId::from_crate_internal(Some(child_id));
             let child_html_matcher = HtmlCascadeInfo {
                 index_in_parent: child_idx as u32 + 1, // necessary for nth-child
                 is_last_child: node_hierarchy[child_id].next_sibling.is_none(),

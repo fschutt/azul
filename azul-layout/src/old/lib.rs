@@ -16,10 +16,16 @@ pub use azul_core::{
     callbacks::PipelineId,
     id_tree::{NodeHierarchy, NodeDataContainer},
     app_resources::AppResources,
-    ui_solver::LayoutResult,
+    ui_solver::{
+        LayoutResult, WidthCalculatedRect, HeightCalculatedRect,
+        WidthSolvedResult, HeightSolvedResult, WhConstraint
+    },
     dom::NodeData,
     styled_dom::StyledDom,
 };
 pub use azul_css::{LayoutSize, LayoutPoint, LayoutRect};
 
-pub use layout_solver::do_the_layout;
+pub use layout_solver::{
+    do_the_layout,
+    do_the_relayout,
+};

@@ -18,7 +18,6 @@ pub fn determine_callbacks<'a>(
     layout_result: &'a mut LayoutResult,
 ) -> CallbacksOfHitTest<'a> {
 
-    use std::collections::BTreeSet;
     use crate::callbacks::DomNodeId;
     use crate::styled_dom::{AzNodeId, ChangedCssProperty};
 
@@ -31,8 +30,6 @@ pub fn determine_callbacks<'a>(
     let event_was_mouse_down    = current_window_events.contains(&WindowEventFilter::MouseDown);
     let event_was_mouse_release = current_window_events.contains(&WindowEventFilter::MouseUp);
     let event_was_mouse_leave   = current_window_events.contains(&WindowEventFilter::MouseLeave);
-
-    let event_is_click_or_release = event_was_mouse_down || event_was_mouse_release;
 
     // Store the current window state so we can set it in this.previous_window_state later on
     window_state.previous_window_state = None;

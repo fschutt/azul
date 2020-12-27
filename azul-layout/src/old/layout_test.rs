@@ -1,10 +1,11 @@
 use azul_css::RectLayout;
-use azul_core::id_tree::{Node, NodeId, NodeHierarchy, NodeDataContainer};
-use azul_core::styled_dom::{AzNode, AzNodeId, StyledNode, ParentWithNodeDepth};
-use azul_core::id_tree::NodeDepths;
+use azul_core::{
+    id_tree::{Node, NodeDepths, NodeId, NodeHierarchy, NodeDataContainer},
+    styled_dom::{AzNode, AzNodeId, StyledNode, ParentWithNodeDepth},
+    ui_solver::{WhConstraint, WidthSolvedResult, WidthCalculatedRect},
+};
 use crate::layout_solver::{
-    WhConstraint, determine_preferred_width,
-    WidthCalculatedRect, WidthSolvedResult,
+    determine_preferred_width,
     width_calculated_rect_arena_from_rect_layout_arena,
     width_calculated_rect_arena_sum_children_flex_basis,
     bubble_preferred_widths_to_parents,
@@ -233,6 +234,7 @@ fn test_determine_preferred_width() {
 fn test_fill_out_preferred_width() {
 
     use azul_css::*;
+    use std::collections::BTreeSet;
 
     let (node_hierarchy, node_depths, node_data) = get_display_rectangle_arena(&[
         (0, RectLayout {
@@ -282,9 +284,9 @@ fn test_fill_out_preferred_width() {
     assert_eq!(width_filled_out_data.as_ref()[NodeId::new(5)].preferred_width, WhConstraint::Unconstrained);
 
     // Test the flex-basis sum
-    assert_eq!(width_calculated_rect_arena_sum_children_flex_basis(&width_filled_out_data.as_ref(), NodeId::new(2), &node_hierarchy.as_ref(), &node_data.as_ref()), 0.0);
-    assert_eq!(width_calculated_rect_arena_sum_children_flex_basis(&width_filled_out_data.as_ref(), NodeId::new(1), &node_hierarchy.as_ref(), &node_data.as_ref()), 0.0);
-    assert_eq!(width_calculated_rect_arena_sum_children_flex_basis(&width_filled_out_data.as_ref(), NodeId::new(0), &node_hierarchy.as_ref(), &node_data.as_ref()), 40.0);
+    assert_eq!(width_calculated_rect_arena_sum_children_flex_basis(&mut width_filled_out_data.as_ref_mut(), NodeId::new(2), &node_hierarchy.as_ref(), &node_data.as_ref()), 0.0);
+    assert_eq!(width_calculated_rect_arena_sum_children_flex_basis(&mut width_filled_out_data.as_ref_mut(), NodeId::new(1), &node_hierarchy.as_ref(), &node_data.as_ref()), 0.0);
+    assert_eq!(width_calculated_rect_arena_sum_children_flex_basis(&mut width_filled_out_data.as_ref_mut(), NodeId::new(0), &node_hierarchy.as_ref(), &node_data.as_ref()), 40.0);
 
     // -- Section 2: Test that size-bubbling works:
     //
@@ -297,7 +299,7 @@ fn test_fill_out_preferred_width() {
         ParentWithNodeDepth { depth: 2, node_id: AzNodeId::from_crate_internal(Some(NodeId::new(2))) },
     ]);
 
-    bubble_preferred_widths_to_parents(&mut width_filled_out_data, &node_hierarchy.as_ref(), &node_data.as_ref(), &node_depths);
+    bubble_preferred_widths_to_parents(&mut width_filled_out_data.as_ref_mut(), &node_hierarchy.as_ref(), &node_data.as_ref(), &node_depths);
 
     // This step shouldn't have touched the flex_grow_px
     for node in &width_filled_out_data.internal {
@@ -337,7 +339,8 @@ fn test_fill_out_preferred_width() {
     //    '   '-- 4     -- [] - expecting width to stretch to 80px (half of 160)
     //    '-- 5         -- [] - expecting width to stretch to 554px (754 - 200px max-width of earlier sibling)
 
-    width_calculated_rect_arena_apply_flex_grow(&mut width_filled_out_data, &node_hierarchy.as_ref(), &node_data.as_ref(), &node_depths, window_width);
+    let parents_to_recalc = node_depths.iter().filter_map(|n| n.node_id.into_crate_internal()).collect::<BTreeSet<_>>();
+    width_calculated_rect_arena_apply_flex_grow(&mut width_filled_out_data.as_ref_mut(), &node_hierarchy.as_ref(), &node_data.as_ref(), &node_depths, window_width, &parents_to_recalc);
 
     assert_eq!(width_filled_out_data.as_ref()[NodeId::new(0)].solved_result(), WidthSolvedResult {
         min_width: 40.0,
