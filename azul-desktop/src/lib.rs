@@ -43,7 +43,6 @@ pub mod css;
 /// Bindings to the native file-chooser, color picker, etc. dialogs
 pub mod dialogs;
 pub use azul_core::dom;
-pub use azul_core::diff;
 pub use azul_core::gl;
 /// Window state handling and window-related information
 pub mod window;
@@ -91,7 +90,6 @@ pub mod prelude {
             WindowState, KeyboardState, MouseState, DebugState, AcceleratorKey,
             VirtualKeyCode, ScanCode,
         },
-        window_state::keymap,
         display_list::GlyphInstance,
         app_resources::{
             AppResources, RawImageFormat, ImageId, FontId,
@@ -113,7 +111,6 @@ pub mod prelude {
     };
     pub use crate::app::{App, AppConfig};
     pub use crate::window::{Window, MonitorHandle, Monitor};
-    pub use azulc::xml_parser::{XmlComponent, XmlComponentMap, DomXml};
     #[cfg(any(feature = "css_parser", feature = "native_style"))]
     pub use crate::css;
     #[cfg(feature = "logging")]

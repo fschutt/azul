@@ -17,8 +17,8 @@ use harfbuzz_sys::{
 use azul_core::{
     display_list::GlyphInstance,
     app_resources::{GlyphInfo, FontMetrics, GlyphPosition},
+    window::{LogicalPosition, LogicalSize},
 };
-use azul_css::{LayoutPoint, LayoutSize};
 
 const MEMORY_MODE_READONLY: hb_memory_mode_t = HB_MEMORY_MODE_READONLY;
 pub(crate) const HB_SCALE_FACTOR: f32 = 128.0;
@@ -251,8 +251,8 @@ pub(crate) fn get_glyph_instances_hb(
         let x_advance = glyph_pos.x_advance as f32 / HB_SCALE_FACTOR;
         let y_advance = glyph_pos.y_advance as f32 / HB_SCALE_FACTOR;
 
-        let point = LayoutPoint::new(current_cursor_x + x_offset, current_cursor_y + y_offset);
-        let size = LayoutSize::new(x_advance, y_advance);
+        let point = LogicalPosition::new(current_cursor_x + x_offset, current_cursor_y + y_offset);
+        let size = LogicalSize::new(x_advance, y_advance);
 
         current_cursor_x += x_advance;
         current_cursor_y += y_advance;

@@ -73,6 +73,7 @@ extern crate azul_css;
 extern crate azul_core;
 extern crate unicode_normalization;
 extern crate allsorts;
+extern crate whatlang;
 
 use std::any::Any;
 

@@ -1,7 +1,6 @@
 //! Contains functions for breaking a string into words, calculate
 //! the positions of words / lines and do glyph positioning
 
-use azul_css::{LayoutSize, LayoutRect, LayoutPoint};
 pub use crate::text_shaping::ParsedFont;
 pub use azul_core::{
     app_resources::{
@@ -14,7 +13,9 @@ pub use azul_core::{
         ResolvedTextLayoutOptions, TextLayoutOptions, InlineTextLayout,
         DEFAULT_LINE_HEIGHT, DEFAULT_WORD_SPACING, DEFAULT_LETTER_SPACING, DEFAULT_TAB_WIDTH,
     },
+    window::{LogicalRect, LogicalSize, LogicalPosition},
 };
+use azul_css::LayoutRect;
 
 /// Creates a font from a font file (TTF, OTF, WOFF, etc.)
 ///
@@ -257,7 +258,7 @@ pub fn position_words(words: &Words, shaped_words: &ShapedWords, text_layout_opt
 
         if !is_line_break {
             let line_caret_y = get_line_y_position(line_number, font_size_px, line_height_px);
-            word_positions.push(LayoutPoint::new(line_caret_x, line_caret_y));
+            word_positions.push(LogicalPosition::new(line_caret_x, line_caret_y));
         }
 
         // Correct and advance the line caret position
@@ -272,7 +273,7 @@ pub fn position_words(words: &Words, shaped_words: &ShapedWords, text_layout_opt
         // If there was a line break, the position needs to be determined after the line break happened
         if is_line_break {
             let line_caret_y = get_line_y_position(line_number, font_size_px, line_height_px);
-            word_positions.push(LayoutPoint::new(line_caret_x, line_caret_y));
+            word_positions.push(LogicalPosition::new(line_caret_x, line_caret_y));
             // important! - if the word is pushed onto the next line, the caret has to be
             // advanced by that words width!
             line_caret_x += word_advance_x;
@@ -325,7 +326,7 @@ pub fn position_words(words: &Words, shaped_words: &ShapedWords, text_layout_opt
     let longest_line_width = line_breaks.iter().map(|(_word_idx, line_length)| *line_length).fold(0.0_f32, f32::max);
     let content_size_y = get_line_y_position(line_number, font_size_px, line_height_px);
     let content_size_x = text_layout_options.max_horizontal_width.unwrap_or(longest_line_width);
-    let content_size = LayoutSize::new(content_size_x, content_size_y);
+    let content_size = LogicalSize::new(content_size_x, content_size_y);
 
     WordPositions {
         text_layout_options: text_layout_options.clone(),
@@ -357,9 +358,9 @@ pub fn word_positions_to_inline_text_layout(word_positions: &WordPositions, scal
             .map(|(line_number, (word_idx, line_length))| {
                 let start_word_idx = last_word_index;
                 let line = InlineTextLine {
-                    bounds: LayoutRect {
-                        origin: LayoutPoint { x: 0.0, y: get_line_y_position(line_number, regular_line_height, line_height_px) },
-                        size: LayoutSize { width: *line_length, height: regular_line_height },
+                    bounds: LogicalRect {
+                        origin: LogicalPosition { x: 0.0, y: get_line_y_position(line_number, regular_line_height, line_height_px) },
+                        size: LogicalSize { width: *line_length, height: regular_line_height },
                     },
                     word_start: start_word_idx,
                     word_end: *word_idx,
@@ -408,15 +409,15 @@ pub fn get_layouted_glyphs(word_positions: &WordPositions, scaled_words: &Shaped
                 // if the character is a mark, the mark displacement has to be added ON TOP OF the existing displacement
                 let (letter_spacing_for_glyph, origin) = match glyph_info.mark_placement {
                     MarkPlacement::None => {
-                        (letter_spacing_px, LayoutPoint::new(line_x + word_position.x + x_pos_in_word_px + x_displacement, baseline_y + y_displacement))
+                        (letter_spacing_px, LogicalPosition::new(line_x + word_position.x + x_pos_in_word_px + x_displacement, baseline_y + y_displacement))
                     },
                     MarkPlacement::MarkAnchor(index, _, _) => {
                         let anchor = &all_glyphs_in_this_word[index];
-                        (0.0, LayoutPoint::new(anchor.point.x + x_displacement, anchor.point.y + y_displacement)) // TODO: wrong
+                        (0.0, LogicalPosition::new(anchor.point.x + x_displacement, anchor.point.y + y_displacement)) // TODO: wrong
                     },
                     MarkPlacement::MarkOverprint(index) => {
                         let anchor = &all_glyphs_in_this_word[index];
-                        (0.0, LayoutPoint::new(anchor.point.x + x_displacement, anchor.point.y + y_displacement))
+                        (0.0, LogicalPosition::new(anchor.point.x + x_displacement, anchor.point.y + y_displacement))
                     },
                 };
 
@@ -425,7 +426,7 @@ pub fn get_layouted_glyphs(word_positions: &WordPositions, scaled_words: &Shaped
                 let glyph_scale_y = glyph_info.size.get_y_size_scaled(font_metrics, font_size_px);
                 let kerning_x = glyph_info.size.get_kerning_scaled(font_metrics, font_size_px);
 
-                let size = LayoutSize::new(glyph_scale_x, glyph_scale_y);
+                let size = LogicalSize::new(glyph_scale_x, glyph_scale_y);
 
                 let instance = GlyphInstance {
                     index: glyph_info.glyph.glyph_index as u32,
@@ -497,36 +498,36 @@ pub fn caret_intersects_with_holes(
         let mut should_move_caret = false;
         let mut current_line_advance = 0;
         let mut new_line_number = line_number + current_line_advance;
-        let mut current_caret = LayoutPoint::new(
+        let mut current_caret = LogicalPosition::new(
             new_line_caret_x.unwrap_or(line_caret_x),
             get_line_y_position(new_line_number, font_size_px, line_height_px)
         );
 
         // NOTE: holes need to be sorted by Y origin (from smallest to largest Y),
         // and be sorted from left to right
-        while hole.contains(&current_caret) {
+        while hole.contains_f32(current_caret.x, current_caret.y) {
             should_move_caret = true;
             if let Some(max_width) = max_width {
-                if hole.origin.x + hole.size.width >= max_width {
+                if hole.max_x() as f32 >= max_width {
                     // Need to break the line here
                     current_line_advance += 1;
                     new_line_number = line_number + current_line_advance;
-                    current_caret = LayoutPoint::new(
+                    current_caret = LogicalPosition::new(
                         new_line_caret_x.unwrap_or(line_caret_x),
                         get_line_y_position(new_line_number, font_size_px, line_height_px)
                     );
                 } else {
                     new_line_number = line_number + current_line_advance;
-                    current_caret = LayoutPoint::new(
-                        hole.origin.x + hole.size.width,
+                    current_caret = LogicalPosition::new(
+                        hole.max_x() as f32,
                         get_line_y_position(new_line_number, font_size_px, line_height_px)
                     );
                 }
             } else {
                 // No max width, so no need to break the line, move the caret to the right side of the hole
                 new_line_number = line_number + current_line_advance;
-                current_caret = LayoutPoint::new(
-                    hole.origin.x + hole.size.width,
+                current_caret = LogicalPosition::new(
+                    hole.max_x() as f32,
                     get_line_y_position(new_line_number, font_size_px, line_height_px)
                 );
             }
@@ -666,7 +667,7 @@ fn test_caret_intersects_with_holes_1() {
     let font_size_px = 20.0;
     let line_height_px = 0.0;
     let max_width = None;
-    let holes = vec![LayoutRect::new(LayoutPoint::new(0.0, 0.0), LayoutSize::new(200.0, 100.0))];
+    let holes = vec![LogicalRect::new(LogicalPosition::new(0.0, 0.0), LogicalSize::new(200.0, 100.0))];
 
     let result = caret_intersects_with_holes(
         line_caret_x,
@@ -701,7 +702,7 @@ fn test_caret_intersects_with_holes_2() {
     let font_size_px = 20.0;
     let line_height_px = 0.0;
     let max_width = Some(200.0);
-    let holes = vec![LayoutRect::new(LayoutPoint::new(0.0, 0.0), LayoutSize::new(200.0, 100.0))];
+    let holes = vec![LogicalRect::new(LogicalPosition::new(0.0, 0.0), LogicalSize::new(200.0, 100.0))];
 
     let result = caret_intersects_with_holes(
         line_caret_x,
@@ -736,7 +737,7 @@ fn test_caret_intersects_with_holes_3() {
     let font_size_px = 20.0;
     let line_height_px = 0.0;
     let max_width = Some(400.0);
-    let holes = vec![LayoutRect::new(LayoutPoint::new(0.0, 0.0), LayoutSize::new(200.0, 100.0))];
+    let holes = vec![LogicalRect::new(LogicalPosition::new(0.0, 0.0), LogicalSize::new(200.0, 100.0))];
 
     let result = caret_intersects_with_holes(
         line_caret_x,
@@ -771,7 +772,7 @@ fn test_caret_intersects_with_holes_4() {
     let font_size_px = 20.0;
     let line_height_px = 0.0;
     let max_width = Some(400.0);
-    let holes = vec![LayoutRect::new(LayoutPoint::new(80.0, 20.0), LayoutSize::new(200.0, 100.0))];
+    let holes = vec![LogicalRect::new(LogicalPosition::new(80.0, 20.0), LogicalSize::new(200.0, 100.0))];
 
     let result = caret_intersects_with_holes(
         line_caret_x,

@@ -11,7 +11,8 @@ use crate::{
     app_resources::{Words, ShapedWords, FontInstanceKey, WordPositions, LayoutedGlyphs},
     id_tree::{NodeId, NodeDataContainer},
     dom::{DomHash, ScrollTagId},
-    callbacks::PipelineId,
+    callbacks::{PipelineId, HitTestItem, ScrollHitTestItem},
+    window::{ScrollStates, LogicalRect},
 };
 
 pub const DEFAULT_FONT_SIZE_PX: isize = 16;
@@ -30,7 +31,7 @@ pub struct InlineTextLayout {
 
 #[derive(Debug, Clone, PartialEq, PartialOrd)]
 pub struct InlineTextLine {
-    pub bounds: LayoutRect,
+    pub bounds: LogicalRect,
     /// At which word does this line start?
     pub word_start: usize,
     /// At which word does this line end
@@ -38,7 +39,7 @@ pub struct InlineTextLine {
 }
 
 impl InlineTextLine {
-    pub const fn new(bounds: LayoutRect, word_start: usize, word_end: usize) -> Self {
+    pub const fn new(bounds: LogicalRect, word_start: usize, word_end: usize) -> Self {
         Self { bounds, word_start, word_end }
     }
 }
@@ -48,14 +49,14 @@ impl InlineTextLayout {
     pub fn get_leading(&self) -> f32 {
         match self.lines.first() {
             None => 0.0,
-            Some(s) => s.bounds.origin.x,
+            Some(s) => s.bounds.origin.x as f32,
         }
     }
 
     pub fn get_trailing(&self) -> f32 {
         match self.lines.first() {
             None => 0.0,
-            Some(s) => s.bounds.origin.x + s.bounds.size.width,
+            Some(s) => (s.bounds.origin.x + s.bounds.size.width) as f32,
         }
     }
 
@@ -66,17 +67,24 @@ impl InlineTextLayout {
     #[inline]
     #[must_use = "get_bounds calls union(self.lines) and is expensive to call"]
     pub fn get_bounds(&self) -> LayoutRect {
-        LayoutRect::union(self.lines.iter().map(|c| c.bounds)).unwrap_or(LayoutRect::zero())
+        // because of sub-pixel text positioning, calculating the bound has to be done using floating point
+        match LogicalRect::union(self.lines.iter().map(|c| c.bounds)) {
+            Some(s) => LayoutRect {
+                origin: LayoutPoint::new(s.origin.x.floor() as isize, s.origin.y.floor() as isize),
+                size: LayoutSize::new(s.size.width.ceil() as isize, s.size.height.ceil() as isize),
+            },
+            None => LayoutRect::zero(),
+        }
     }
 
     #[must_use = "function is expensive to call since it iterates + collects over self.lines"]
     pub fn get_children_horizontal_diff_to_right_edge(&self, parent: &LayoutRect) -> Vec<f32> {
-        let parent_right_edge = parent.origin.x + parent.size.width;
-        let parent_left_edge = parent.origin.x;
+        let parent_right_edge = (parent.origin.x + parent.size.width) as f32;
+        let parent_left_edge = parent.origin.x as f32;
         self.lines.iter().map(|line| {
             let child_right_edge = line.bounds.origin.x + line.bounds.size.width;
             let child_left_edge = line.bounds.origin.x;
-            (child_left_edge - parent_left_edge) + (parent_right_edge - child_right_edge)
+            ((child_left_edge - parent_left_edge) + (parent_right_edge - child_right_edge)) as f32
         }).collect()
     }
 
@@ -103,9 +111,9 @@ impl InlineTextLayout {
         };
 
         let self_bounds = self.get_bounds();
-        let child_bottom_edge = self_bounds.origin.y + self_bounds.size.height;
-        let child_top_edge = self_bounds.origin.y;
-        let shift = child_top_edge + (parent_size.height - child_bottom_edge);
+        let child_bottom_edge = (self_bounds.origin.y + self_bounds.size.height) as f32;
+        let child_top_edge = self_bounds.origin.y as f32;
+        let shift = child_top_edge + (parent_size.height as f32 - child_bottom_edge);
 
         for line in self.lines.iter_mut() {
             line.bounds.origin.y += shift * shift_multiplier;
@@ -149,13 +157,13 @@ impl ::std::fmt::Debug for ExternalScrollId {
     }
 }
 
-#[derive(Default, Debug, Clone)]
+#[derive(Debug, Default, Clone, PartialEq, PartialOrd)]
 pub struct ScrolledNodes {
     pub overflowing_nodes: BTreeMap<AzNodeId, OverflowingScrollNode>,
     pub tags_to_node_ids: BTreeMap<ScrollTagId, AzNodeId>,
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Copy, Clone, PartialEq, PartialOrd)]
 pub struct OverflowingScrollNode {
     pub child_rect: LayoutRect,
     pub parent_external_scroll_id: ExternalScrollId,
@@ -163,13 +171,12 @@ pub struct OverflowingScrollNode {
     pub scroll_tag_id: ScrollTagId,
 }
 
-
 #[derive(Debug, Copy, Clone, PartialEq)]
 pub enum WhConstraint {
     /// between min, max
-    Between(f32, f32),
+    Between(isize, isize),
     /// Value needs to be exactly X
-    EqualTo(f32),
+    EqualTo(isize),
     /// Value can be anything
     Unconstrained,
 }
@@ -182,7 +189,7 @@ impl WhConstraint {
 
     /// Returns the minimum value or 0 on `Unconstrained`
     /// (warning: this might not be what you want)
-    pub fn min_needed_space(&self) -> Option<f32> {
+    pub fn min_needed_space(&self) -> Option<isize> {
         use self::WhConstraint::*;
         match self {
             Between(min, _) => Some(*min),
@@ -193,7 +200,7 @@ impl WhConstraint {
 
     /// Returns the maximum space until the constraint is violated - returns
     /// `None` if the constraint is unbounded
-    pub fn max_available_space(&self) -> Option<f32> {
+    pub fn max_available_space(&self) -> Option<isize> {
         use self::WhConstraint::*;
         match self {
             Between(_, max) => { Some(*max) },
@@ -223,28 +230,30 @@ pub struct WidthCalculatedRect {
     pub padding_left: CssPropertyValue<LayoutPaddingLeft>,
     pub padding_right: CssPropertyValue<LayoutPaddingRight>,
     pub padding_bottom: CssPropertyValue<LayoutPaddingBottom>,
-    pub flex_grow_px: f32,
-    pub min_inner_size_px: f32,
+    pub flex_grow_px: isize,
+    pub min_inner_size_px: isize,
 }
 
 impl WidthCalculatedRect {
     /// Get the flex basis in the horizontal direction - vertical axis has to be calculated differently
-    pub fn get_flex_basis_horizontal(&self, parent_width: f32) -> f32 {
-        self.preferred_width.min_needed_space().unwrap_or(0.0) +
-        self.margin_left.get_property().map(|px| px.inner.to_pixels(parent_width)).unwrap_or(0.0) +
-        self.margin_right.get_property().map(|px| px.inner.to_pixels(parent_width)).unwrap_or(0.0) +
-        self.padding_left.get_property().map(|px| px.inner.to_pixels(parent_width)).unwrap_or(0.0) +
-        self.padding_right.get_property().map(|px| px.inner.to_pixels(parent_width)).unwrap_or(0.0)
+    pub fn get_flex_basis_horizontal(&self, parent_width: isize) -> isize {
+        let parent_width = parent_width as f32;
+        self.preferred_width.min_needed_space().unwrap_or(0) +
+        self.margin_left.get_property().map(|px| px.inner.to_pixels(parent_width)).unwrap_or(0.0) as isize +
+        self.margin_right.get_property().map(|px| px.inner.to_pixels(parent_width)).unwrap_or(0.0) as isize +
+        self.padding_left.get_property().map(|px| px.inner.to_pixels(parent_width)).unwrap_or(0.0) as isize +
+        self.padding_right.get_property().map(|px| px.inner.to_pixels(parent_width)).unwrap_or(0.0) as isize
     }
 
     /// Get the sum of the horizontal padding amount (`padding.left + padding.right`)
-    pub fn get_horizontal_padding(&self, parent_width: f32) -> f32 {
-        self.padding_left.get_property().map(|px| px.inner.to_pixels(parent_width)).unwrap_or(0.0) +
-        self.padding_right.get_property().map(|px| px.inner.to_pixels(parent_width)).unwrap_or(0.0)
+    pub fn get_horizontal_padding(&self, parent_width: isize) -> isize {
+        let parent_width = parent_width as f32;
+        self.padding_left.get_property().map(|px| px.inner.to_pixels(parent_width)).unwrap_or(0.0) as isize +
+        self.padding_right.get_property().map(|px| px.inner.to_pixels(parent_width)).unwrap_or(0.0) as isize
     }
 
     /// Called after solver has run: Solved width of rectangle
-    pub fn total(&self) -> f32 {
+    pub fn total(&self) -> isize {
         self.min_inner_size_px + self.flex_grow_px
     }
 
@@ -267,28 +276,30 @@ pub struct HeightCalculatedRect {
     pub padding_left: CssPropertyValue<LayoutPaddingLeft>,
     pub padding_right: CssPropertyValue<LayoutPaddingRight>,
     pub padding_bottom: CssPropertyValue<LayoutPaddingBottom>,
-    pub flex_grow_px: f32,
-    pub min_inner_size_px: f32,
+    pub flex_grow_px: isize,
+    pub min_inner_size_px: isize,
 }
 
 impl HeightCalculatedRect {
     /// Get the flex basis in the horizontal direction - vertical axis has to be calculated differently
-    pub fn get_flex_basis_vertical(&self, parent_height: f32) -> f32 {
-        self.preferred_height.min_needed_space().unwrap_or(0.0) +
-        self.margin_top.get_property().map(|px| px.inner.to_pixels(parent_height)).unwrap_or(0.0) +
-        self.margin_bottom.get_property().map(|px| px.inner.to_pixels(parent_height)).unwrap_or(0.0) +
-        self.padding_top.get_property().map(|px| px.inner.to_pixels(parent_height)).unwrap_or(0.0) +
-        self.padding_bottom.get_property().map(|px| px.inner.to_pixels(parent_height)).unwrap_or(0.0)
+    pub fn get_flex_basis_vertical(&self, parent_height: isize) -> isize {
+        let parent_height = parent_height as f32;
+        self.preferred_height.min_needed_space().unwrap_or(0) +
+        self.margin_top.get_property().map(|px| px.inner.to_pixels(parent_height)).unwrap_or(0.0) as isize +
+        self.margin_bottom.get_property().map(|px| px.inner.to_pixels(parent_height)).unwrap_or(0.0) as isize +
+        self.padding_top.get_property().map(|px| px.inner.to_pixels(parent_height)).unwrap_or(0.0) as isize +
+        self.padding_bottom.get_property().map(|px| px.inner.to_pixels(parent_height)).unwrap_or(0.0) as isize
     }
 
     /// Get the sum of the horizontal padding amount (`padding_top + padding_bottom`)
-    pub fn get_vertical_padding(&self, parent_height: f32) -> f32 {
-        self.padding_top.get_property().map(|px| px.inner.to_pixels(parent_height)).unwrap_or(0.0) +
-        self.padding_bottom.get_property().map(|px| px.inner.to_pixels(parent_height)).unwrap_or(0.0)
+    pub fn get_vertical_padding(&self, parent_height: isize) -> isize {
+        let parent_height = parent_height as f32;
+        self.padding_top.get_property().map(|px| px.inner.to_pixels(parent_height)).unwrap_or(0.0) as isize +
+        self.padding_bottom.get_property().map(|px| px.inner.to_pixels(parent_height)).unwrap_or(0.0) as isize
     }
 
     /// Called after solver has run: Solved height of rectangle
-    pub fn total(&self) -> f32 {
+    pub fn total(&self) -> isize {
         self.min_inner_size_px + self.flex_grow_px
     }
 
@@ -303,23 +314,23 @@ impl HeightCalculatedRect {
 
 #[derive(Debug, Copy, Clone, PartialEq)]
 pub struct WidthSolvedResult {
-    pub min_width: f32,
-    pub space_added: f32,
+    pub min_width: isize,
+    pub space_added: isize,
 }
 
 #[derive(Debug, Copy, Clone, PartialEq)]
 pub struct HeightSolvedResult {
-    pub min_height: f32,
-    pub space_added: f32,
+    pub min_height: isize,
+    pub space_added: isize,
 }
 
 #[repr(transparent)]
 #[derive(Debug, Copy, Clone, PartialEq, PartialOrd)]
-pub struct HorizontalSolvedPosition(pub f32);
+pub struct HorizontalSolvedPosition(pub isize);
 
 #[repr(transparent)]
 #[derive(Debug, Copy, Clone, PartialEq, PartialOrd)]
-pub struct VerticalSolvedPosition(pub f32);
+pub struct VerticalSolvedPosition(pub isize);
 
 #[derive(Debug, Clone)]
 pub struct LayoutResult {
@@ -327,8 +338,9 @@ pub struct LayoutResult {
     pub parent_dom_id: Option<DomId>,
     pub styled_dom: StyledDom,
     pub root_size: LayoutSize,
-    pub preferred_widths: NodeDataContainer<Option<f32>>,
-    pub preferred_heights: NodeDataContainer<Option<f32>>,
+    pub root_position: LayoutPoint,
+    pub preferred_widths: NodeDataContainer<Option<isize>>,
+    pub preferred_heights: NodeDataContainer<Option<isize>>,
     pub width_calculated_rects: NodeDataContainer<WidthCalculatedRect>,
     pub height_calculated_rects: NodeDataContainer<HeightCalculatedRect>,
     pub solved_pos_x: NodeDataContainer<HorizontalSolvedPosition>,
@@ -340,7 +352,81 @@ pub struct LayoutResult {
     pub positioned_words_cache: BTreeMap<NodeId, (WordPositions, FontInstanceKey)>,
     pub layouted_glyphs_cache: BTreeMap<NodeId, LayoutedGlyphs>,
     pub scrollable_nodes: ScrolledNodes,
-    pub iframe_mapping: Vec<(NodeId, DomId)>,
+    pub iframe_mapping: BTreeMap<NodeId, DomId>,
+}
+
+impl LayoutResult {
+    pub fn get_bounds(&self) -> LayoutRect { LayoutRect::new(self.root_position, self.root_size) }
+}
+
+#[derive(Debug, Clone, PartialEq, PartialOrd)]
+pub struct HitTest {
+    pub regular_hit_test_nodes: BTreeMap<NodeId, HitTestItem>,
+    pub scroll_hit_test_nodes: BTreeMap<NodeId, ScrollHitTestItem>,
+}
+
+impl HitTest {
+    pub fn is_empty(&self) -> bool {
+        self.regular_hit_test_nodes.is_empty() && self.scroll_hit_test_nodes.is_empty()
+    }
+}
+
+impl LayoutResult {
+    pub fn get_hits(&self, cursor: &LayoutPoint, scroll_states: &ScrollStates) -> HitTest {
+
+        // insert the regular hit items
+        let regular_hit_test_nodes =
+        self.styled_dom.tag_ids_to_node_ids
+        .as_ref().iter().filter_map(|t| {
+
+            let node_id = t.node_id.into_crate_internal()?;
+            let layout_offset = self.rects.as_ref()[node_id].get_static_offset();
+            let layout_size = LayoutSize::new(self.width_calculated_rects.as_ref()[node_id].total() as isize, self.height_calculated_rects.as_ref()[node_id].total() as isize);
+            let layout_rect = LayoutRect::new(layout_offset, layout_size);
+
+            layout_rect
+            .hit_test(cursor)
+            .map(|relative_to_item| {
+                (node_id, HitTestItem {
+                    point_in_viewport: *cursor,
+                    point_relative_to_item: relative_to_item,
+                    is_iframe_hit: self.iframe_mapping.get(&node_id).map(|iframe_dom_id| {
+                        (*iframe_dom_id, layout_offset)
+                    }),
+                    is_focusable: self.styled_dom.node_data.as_container()[node_id].get_tab_index().into_option().is_some(),
+                })
+            })
+        }).collect();
+
+        // insert the scroll node hit items
+        let scroll_hit_test_nodes =
+        self.scrollable_nodes.tags_to_node_ids
+        .iter().filter_map(|(scroll_tag_id, node_id)| {
+
+            let overflowing_scroll_node = self.scrollable_nodes.overflowing_nodes.get(node_id)?;
+            let node_id = node_id.into_crate_internal()?;
+            let scroll_state = scroll_states.get_scroll_position(&overflowing_scroll_node.parent_external_scroll_id)?;
+
+            let mut scrolled_cursor = *cursor;
+            scrolled_cursor.x += scroll_state.x.round() as isize;
+            scrolled_cursor.y += scroll_state.y.round() as isize;
+
+            let rect = overflowing_scroll_node.child_rect.clone();
+
+            rect.hit_test(&scrolled_cursor).map(|relative_to_scroll| {
+                (node_id, ScrollHitTestItem {
+                    point_in_viewport: *cursor,
+                    point_relative_to_item: relative_to_scroll,
+                    scroll_node: overflowing_scroll_node.clone(),
+                })
+            })
+        }).collect();
+
+        HitTest {
+            regular_hit_test_nodes,
+            scroll_hit_test_nodes,
+        }
+    }
 }
 
 /// Layout options that can impact the flow of word positions
@@ -398,16 +484,16 @@ pub struct ResolvedTextLayoutOptions {
 
 #[derive(Debug, Default, Copy, Clone, PartialEq, PartialOrd)]
 pub struct ResolvedOffsets {
-    pub top: f32,
-    pub left: f32,
-    pub right: f32,
-    pub bottom: f32,
+    pub top: isize,
+    pub left: isize,
+    pub right: isize,
+    pub bottom: isize,
 }
 
 impl ResolvedOffsets {
-    pub const fn zero() -> Self { Self { top: 0.0, left: 0.0, right: 0.0, bottom: 0.0 } }
-    pub fn total_vertical(&self) -> f32 { self.top + self.bottom }
-    pub fn total_horizontal(&self) -> f32 { self.left + self.right }
+    pub const fn zero() -> Self { Self { top: 0, left: 0, right: 0, bottom: 0 } }
+    pub fn total_vertical(&self) -> isize { self.top + self.bottom }
+    pub fn total_horizontal(&self) -> isize { self.left + self.right }
 }
 
 #[derive(Debug, Clone, PartialEq, PartialOrd)]
@@ -433,7 +519,7 @@ impl Default for PositionedRectangle {
     fn default() -> Self {
         PositionedRectangle {
             size: LayoutSize::zero(),
-            position: PositionInfo::Static { x_offset: 0.0, y_offset: 0.0, static_x_offset: 0.0, static_y_offset: 0.0 },
+            position: PositionInfo::Static { x_offset: 0, y_offset: 0, static_x_offset: 0, static_y_offset: 0 },
             padding: ResolvedOffsets::zero(),
             margin: ResolvedOffsets::zero(),
             border_widths: ResolvedOffsets::zero(),
@@ -454,10 +540,10 @@ pub struct OverflowInfo {
 // if the amount is set to None, that means there are no children for this node, so no overflow can be calculated
 #[derive(Debug, Copy, Clone, PartialEq, PartialOrd)]
 pub enum DirectionalOverflowInfo {
-    Scroll { amount: Option<f32> },
-    Auto { amount: Option<f32> },
-    Hidden { amount: Option<f32> },
-    Visible { amount: Option<f32> },
+    Scroll { amount: Option<isize> },
+    Auto { amount: Option<isize> },
+    Hidden { amount: Option<isize> },
+    Visible { amount: Option<isize> },
 }
 
 impl Default for DirectionalOverflowInfo {
@@ -469,7 +555,7 @@ impl Default for DirectionalOverflowInfo {
 impl DirectionalOverflowInfo {
 
     #[inline]
-    pub fn get_amount(&self) -> Option<f32> {
+    pub fn get_amount(&self) -> Option<isize> {
         match self {
             DirectionalOverflowInfo::Scroll { amount: Some(s) } |
             DirectionalOverflowInfo::Auto { amount: Some(s) } |
@@ -485,7 +571,7 @@ impl DirectionalOverflowInfo {
             DirectionalOverflowInfo::Scroll { amount: Some(s) } |
             DirectionalOverflowInfo::Auto { amount: Some(s) } |
             DirectionalOverflowInfo::Hidden { amount: Some(s) } |
-            DirectionalOverflowInfo::Visible { amount: Some(s) } => { !s.is_sign_positive() },
+            DirectionalOverflowInfo::Visible { amount: Some(s) } => { *s < 0_isize },
             _ => true // no overflow = no scrollbar
         }
     }
@@ -503,10 +589,10 @@ impl DirectionalOverflowInfo {
 }
 #[derive(Debug, Copy, Clone, PartialEq, PartialOrd)]
 pub enum PositionInfo {
-    Static { x_offset: f32, y_offset: f32, static_x_offset: f32, static_y_offset: f32 },
-    Fixed { x_offset: f32, y_offset: f32, static_x_offset: f32, static_y_offset: f32 },
-    Absolute { x_offset: f32, y_offset: f32, static_x_offset: f32, static_y_offset: f32 },
-    Relative { x_offset: f32, y_offset: f32, static_x_offset: f32, static_y_offset: f32 },
+    Static { x_offset: isize, y_offset: isize, static_x_offset: isize, static_y_offset: isize },
+    Fixed { x_offset: isize, y_offset: isize, static_x_offset: isize, static_y_offset: isize },
+    Absolute { x_offset: isize, y_offset: isize, static_x_offset: isize, static_y_offset: isize },
+    Relative { x_offset: isize, y_offset: isize, static_x_offset: isize, static_y_offset: isize },
 }
 
 impl PositionInfo {
@@ -534,7 +620,20 @@ impl PositionedRectangle {
         }
     }
 
-    pub fn to_layouted_rectangle(&self) -> LayoutedRectangle {
+    pub const fn get_approximate_static_bounds(&self) -> LayoutRect {
+        LayoutRect::new(self.get_static_offset(), self.size)
+    }
+
+    pub const fn get_static_offset(&self) -> LayoutPoint {
+        match self.position {
+            PositionInfo::Static { static_x_offset, static_y_offset, .. } |
+            PositionInfo::Fixed { static_x_offset, static_y_offset, .. } |
+            PositionInfo::Absolute { static_x_offset, static_y_offset, .. } |
+            PositionInfo::Relative { static_x_offset, static_y_offset, .. } => LayoutPoint::new(static_x_offset, static_y_offset),
+        }
+    }
+
+    pub const fn to_layouted_rectangle(&self) -> LayoutedRectangle {
         LayoutedRectangle {
             size: self.size,
             position: self.position,
@@ -546,7 +645,7 @@ impl PositionedRectangle {
     }
 
     // Returns the rect where the content should be placed (for example the text itself)
-    pub fn get_content_size(&self) -> LayoutSize {
+    pub const fn get_content_size(&self) -> LayoutSize {
         self.size
     }
 
@@ -560,8 +659,8 @@ impl PositionedRectangle {
             height: self.size.height + self.padding.total_vertical() + self.border_widths.total_vertical(),
         };
 
-        let x_offset_add = 0.0 - self.padding.left - self.border_widths.left;
-        let y_offset_add = 0.0 - self.padding.top - self.border_widths.top;
+        let x_offset_add = 0 - self.padding.left - self.border_widths.left;
+        let y_offset_add = 0 - self.padding.top - self.border_widths.top;
 
         let b_position = match self.position {
             Static { x_offset, y_offset, static_x_offset, static_y_offset } => Static { x_offset: x_offset + x_offset_add, y_offset: y_offset + y_offset_add, static_x_offset, static_y_offset },
@@ -573,27 +672,27 @@ impl PositionedRectangle {
         (b_size, b_position)
     }
 
-    pub fn get_margin_box_width(&self) -> f32 {
+    pub fn get_margin_box_width(&self) -> isize {
         self.size.width +
         self.padding.total_horizontal() +
         self.border_widths.total_horizontal() +
         self.margin.total_horizontal()
     }
 
-    pub fn get_margin_box_height(&self) -> f32 {
+    pub fn get_margin_box_height(&self) -> isize {
         self.size.height +
         self.padding.total_vertical() +
         self.border_widths.total_vertical() +
         self.margin.total_vertical()
     }
 
-    pub fn get_left_leading(&self) -> f32 {
+    pub fn get_left_leading(&self) -> isize {
         self.margin.left +
         self.padding.left +
         self.border_widths.left
     }
 
-    pub fn get_top_leading(&self) -> f32 {
+    pub fn get_top_leading(&self) -> isize {
         self.margin.top +
         self.padding.top +
         self.border_widths.top

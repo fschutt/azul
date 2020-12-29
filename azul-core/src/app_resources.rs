@@ -16,6 +16,7 @@ use crate::{
     callbacks::PipelineId,
     dom::{NodeData, OptionImageMask},
     svg::{SvgStyledNode, TesselatedCPUSvgNode},
+    window::{LogicalPosition, LogicalSize},
 };
 
 #[cfg(feature = "opengl")]
@@ -810,7 +811,7 @@ pub struct WordPositions {
     /// used to layout these glyphs
     pub text_layout_options: ResolvedTextLayoutOptions,
     /// Stores the positions of words.
-    pub word_positions: Vec<LayoutPoint>,
+    pub word_positions: Vec<LogicalPosition>,
     /// Index of the word at which the line breaks + length of line
     /// (useful for text selection + horizontal centering)
     pub line_breaks: Vec<(WordIndex, LineLength)>,
@@ -828,7 +829,7 @@ pub struct WordPositions {
     ///
     /// Note that the vertical extent can be larger than the last words' position,
     /// because of trailing negative glyph advances.
-    pub content_size: LayoutSize,
+    pub content_size: LogicalSize,
 }
 
 /// Returns the layouted glyph instances

@@ -31,7 +31,7 @@ use crate::{
 };
 use azul_core::{
     callbacks::PipelineId,
-    display_list::{CachedDisplayList, SolvedLayoutCache, GlTextureCache},
+    display_list::{CachedDisplayList, SolvedLayout, GlTextureCache},
     app_resources::{Epoch, AppResources},
     gl::GlContextPtr,
 };
@@ -143,11 +143,6 @@ impl Default for Monitor {
 pub struct Window {
     /// System that can identify this window
     pub(crate) id: WindowId,
-    /// Renderer type: Hardware-with-software-fallback, pure software or pure hardware renderer?
-    pub(crate) renderer_type: RendererType,
-    /// An optional style hot-reloader for the current window, only
-    /// available with debug_assertions enabled
-    pub(crate) hot_reload: Option<HotReloadOptions>,
     /// Stores things like scroll states, display list + epoch for the window
     pub(crate) internal: WindowInternal,
     /// The display, i.e. the actual window (+ the attached OpenGL context)
@@ -319,7 +314,6 @@ impl Window {
         let window = Window {
             id: WindowId::new(),
             renderer_type: options.renderer_type,
-            hot_reload: options.hot_reload.clone().into(),
             display: ContextState::NotCurrent(gl_window),
             internal: WindowInternal {
                 epoch: Epoch(0),
@@ -327,13 +321,61 @@ impl Window {
                 document_id: translate_document_id_wr(document_id),
                 scrolled_nodes: BTreeMap::new(),
                 scroll_states: ScrollStates::new(),
-                layout_result: SolvedLayoutCache::default(),
-                gl_texture_cache: GlTextureCache::default(),
-                cached_display_list: CachedDisplayList::empty(display_list_dimensions, LayoutPoint::zero()),
+                layout_results: // SolvedLayoutCache::default(),
+                gl_texture_cache: // GlTextureCache::default(),
             },
         };
 
         Ok(window)
+    }
+
+    /// Calls the layout function again and
+    pub fn relayout(&mut self, app_resources: &mut AppResources) {
+
+        use azul_core::callbacks::LayoutInfo;
+
+        // TODO: Use these "stop sizes" to optimize not calling layout() on redrawing!
+        let mut stop_sizes_width = Vec::new();
+        let mut stop_sizes_height = Vec::new();
+
+        let styled_dom = {
+
+            let layout_callback = full_window_state.layout_callback.clone();
+            let layout_info = LayoutInfo {
+                window_size: &full_window_state.size,
+                window_size_width_stops: &mut stop_sizes_width,
+                window_size_height_stops: &mut stop_sizes_height,
+                resources: app_resources,
+            };
+            let layout_info_ptr = LayoutInfoPtr { ptr: Box::into_raw(Box::new(layout_info)) as *mut c_void };
+
+            let styled_dom = (layout_callback.cb)(data.clone(), layout_info_ptr);
+
+            let hovered_nodes = full_window_state.hovered_nodes.get(&iframe_dom_id).cloned().unwrap_or_default();
+            let active_nodes = if !full_window_state.mouse_state.mouse_down() { Vec::new() } else { hovered_nodes.clone() };
+
+            if !hovered_nodes.is_empty() { styled_dom.restyle_nodes_hover(&hovered_nodes[..]); }
+            if !active_nodes.is_empty() { styled_dom.restyle_nodes_hover(&active_nodes[..]); }
+            if let Some(focus) = full_window_state.focused_node {
+                if focus.dom == DomId::ROOT_ID {
+                    styled_dom.restyle_nodes_hover(&focus.node.into_crate_internal().unwrap());
+                }
+            }
+
+            styled_dom
+        };
+
+        let window_size = LayoutSize::new(full_window_state.dimensions.size.width.round() as isize, full_window_state.dimensions.size.height.round() as isize);
+        let layout_result = azul_layout::layout_solver::do_the_layout(
+            DomId::ROOT_ID,
+            None,
+            styled_dom,
+            &mut app_resources,
+            pipeline_id,
+            window_size
+        );
+
+        // resolve_gl_textures(&styled_dom);
     }
 
     /// Returns what monitor the window is currently residing on (to query monitor size, etc.).

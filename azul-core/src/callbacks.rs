@@ -15,14 +15,13 @@ use crate::{
     dom::{Dom, OptionDom, TagId, NodeType, NodeData},
     display_list::CachedDisplayList,
     styled_dom::StyledDom,
-    ui_solver::{PositionedRectangle, LayoutedRectangle, ScrolledNodes, LayoutResult},
+    ui_solver::{OverflowingScrollNode, PositionedRectangle, LayoutedRectangle, ScrolledNodes, LayoutResult},
     id_tree::{Node, NodeId},
     styled_dom::{DomId, AzNodeId},
     window::{
-        WindowSize, WindowState, FullWindowState, CallbacksOfHitTest,
+        WindowSize, WindowState, FullWindowState, LogicalPosition,
         KeyboardState, MouseState, LogicalSize, PhysicalSize,
         UpdateFocusWarning, CallCallbacksResult, ScrollStates,
-        CallbackToCall,
     },
     task::{Timer, DropCheckPtr, TerminateTimer, ArcMutexRefAnyPtr, Task, TimerId},
 };
@@ -258,7 +257,7 @@ pub struct ScrollPosition {
     /// How big is the parent container (so that things like "scroll to left edge" can be implemented)?
     pub parent_rect: LayoutedRectangle,
     /// Where (measured from the top left corner) is the frame currently scrolled to?
-    pub scroll_location: LayoutPoint,
+    pub scroll_location: LogicalPosition,
 }
 
 #[derive(Copy, Clone, Eq, Hash, PartialEq, PartialOrd, Ord)]
@@ -307,16 +306,28 @@ impl PipelineId {
 
 #[derive(Debug, Copy, Clone, PartialEq, PartialOrd)]
 pub struct HitTestItem {
-    /// The pipeline that the display item that was hit belongs to.
-    pub pipeline: PipelineId,
-    /// The tag of the hit display item.
-    pub tag: TagId,
     /// The hit point in the coordinate space of the "viewport" of the display item.
     /// The viewport is the scroll node formed by the root reference frame of the display item's pipeline.
     pub point_in_viewport: LayoutPoint,
     /// The coordinates of the original hit test point relative to the origin of this item.
     /// This is useful for calculating things like text offsets in the client.
     pub point_relative_to_item: LayoutPoint,
+    /// Necessary to easily get the nearest IFrame node
+    pub is_focusable: bool,
+    /// If this hit is an IFrame node, stores the IFrames DomId + the origin of the IFrame
+    pub is_iframe_hit: Option<(DomId, LayoutPoint)>,
+}
+
+#[derive(Debug, Copy, Clone, PartialEq, PartialOrd)]
+pub struct ScrollHitTestItem {
+    /// The hit point in the coordinate space of the "viewport" of the display item.
+    /// The viewport is the scroll node formed by the root reference frame of the display item's pipeline.
+    pub point_in_viewport: LayoutPoint,
+    /// The coordinates of the original hit test point relative to the origin of this item.
+    /// This is useful for calculating things like text offsets in the client.
+    pub point_relative_to_item: LayoutPoint,
+    /// If this hit is an IFrame node, stores the IFrames DomId + the origin of the IFrame
+    pub scroll_node: OverflowingScrollNode,
 }
 
 /// Implements `Display, Debug, Copy, Clone, PartialEq, Eq, Hash, PartialOrd, Ord, Hash`
@@ -448,7 +459,7 @@ pub struct CallbackInfo<'a> {
     /// Currently running tasks (asynchronous functions running each on a different thread)
     pub tasks: &'a mut Vec<Task>,
     /// Currently active, layouted rectangles
-    pub layout_results: &'a Vec<LayoutResult>,
+    pub layout_results: &'a [LayoutResult],
     /// Sets whether the event should be propagated to the parent hit node or not
     pub stop_propagation: &'a mut bool,
     /// The callback can change the focus_target - note that the focus_target is set before the
@@ -457,7 +468,7 @@ pub struct CallbackInfo<'a> {
     /// Immutable (!) reference to where the nodes are currently scrolled (current position)
     pub current_scroll_states: &'a BTreeMap<DomId, BTreeMap<AzNodeId, ScrollPosition>>,
     /// Mutable map where a user can set where he wants the nodes to be scrolled to (for the next frame)
-    pub nodes_scrolled_in_callback: &'a mut BTreeMap<DomId, BTreeMap<AzNodeId, LayoutPoint>>,
+    pub nodes_scrolled_in_callback: &'a mut BTreeMap<DomId, BTreeMap<AzNodeId, LogicalPosition>>,
     /// The ID of the DOM + the node that was hit. You can use this to query
     /// information about the node, but please don't hard-code any if / else
     /// statements based on the `NodeId`
@@ -881,7 +892,7 @@ impl HidpiAdjustedBounds {
 
     #[inline(always)]
     pub fn from_bounds(bounds: LayoutSize, hidpi_factor: f32) -> Self {
-        let logical_size = LogicalSize::new(bounds.width, bounds.height);
+        let logical_size = LogicalSize::new(bounds.width as f32, bounds.height as f32);
         Self {
             logical_size,
             hidpi_factor,
@@ -948,252 +959,4 @@ impl FocusTarget {
             },
         }
     }
-}
-
-/// The actual function that calls the callback in their proper hierarchy and order
-#[cfg(feature = "opengl")]
-pub fn call_callbacks<'a>(
-    dom_id: DomId,
-    callbacks_filter_list: &[CallbackToCall<'a>],
-    layout_results: &mut Vec<LayoutResult>,
-    timers: &mut FastHashMap<TimerId, Timer>,
-    tasks: &mut Vec<Task>,
-    scroll_states: &BTreeMap<DomId, BTreeMap<AzNodeId, ScrollPosition>>,
-    modifiable_scroll_states: &mut ScrollStates,
-    full_window_state: &mut FullWindowState,
-    gl_context: &GlContextPtr,
-    scrolled_nodes: &BTreeMap<DomId, ScrolledNodes>,
-    resources: &mut AppResources,
-) -> CallCallbacksResult {
-
-    use std::collections::BTreeSet;
-    use crate::styled_dom::{ParentWithNodeDepth, ChangedCssPropertyVec};
-    use crate::dom::{EventFilter, FocusEventFilter};
-
-    let mut ret = CallCallbacksResult {
-        should_scroll_render: false,
-        callbacks_update_screen: UpdateScreen::DontRedraw,
-        modified_window_state: full_window_state.clone().into(),
-        focus_properties_changed: ChangedCssPropertyVec::new(),
-    };
-    let mut new_focus_target = None;
-    let mut nodes_scrolled_in_callbacks = BTreeMap::new();
-
-    {
-        let layout_result = match layout_results.get(dom_id.inner) {
-            Some(s) => s,
-            None => { return ret; },
-        };
-
-        let callbacks = callbacks_filter_list.iter().map(|cbtc| (cbtc.node_id, (cbtc.hit_test_item, cbtc.callback))).collect::<BTreeMap<_, _>>();
-
-        let mut blacklisted_event_types = BTreeSet::new();
-
-        // Run all callbacks (front to back)
-        for ParentWithNodeDepth { depth, node_id } in layout_result.styled_dom.non_leaf_nodes.as_ref().iter().rev() {
-           let parent_node_id = node_id;
-           for child_id in parent_node_id.into_crate_internal().unwrap().az_children(&layout_result.styled_dom.node_hierarchy.as_container()) {
-                if let Some((hit_test_item, callback_data)) = callbacks.get(&child_id) {
-
-                    if blacklisted_event_types.contains(&callback_data.event) {
-                        continue;
-                    }
-
-                    let mut new_focus = None;
-                    let mut stop_propagation = false;
-
-                    let callback_info = CallbackInfo {
-                        state: &callback_data.data,
-                        current_window_state: &full_window_state,
-                        modifiable_window_state: &mut ret.modified_window_state,
-                        layout_results,
-                        gl_context,
-                        resources,
-                        timers,
-                        tasks,
-                        stop_propagation: &mut stop_propagation,
-                        focus_target: &mut new_focus,
-                        current_scroll_states: scroll_states,
-                        nodes_scrolled_in_callback: &mut nodes_scrolled_in_callbacks,
-                        hit_dom_node: DomNodeId { dom: dom_id, node: AzNodeId::from_crate_internal(Some(child_id)) },
-                        cursor_relative_to_item: hit_test_item.as_ref().map(|hi| LayoutPoint::new(hi.point_relative_to_item.x, hi.point_relative_to_item.y)),
-                        cursor_in_viewport: hit_test_item.as_ref().map(|hi| LayoutPoint::new(hi.point_in_viewport.x, hi.point_in_viewport.y)),
-                    };
-
-                    let callback_info_ptr = CallbackInfoPtr { ptr: Box::into_raw(Box::new(callback_info)) as *mut c_void };
-
-                    // Invoke callback
-                    let callback_return = (callback_data.callback.cb)(callback_info_ptr);
-
-                    if callback_return == UpdateScreen::Redraw {
-                        ret.callbacks_update_screen = UpdateScreen::Redraw;
-                    }
-
-                    if let Some(new_focus) = new_focus.clone() {
-                        new_focus_target = Some(new_focus);
-                    }
-
-                    if stop_propagation {
-                       blacklisted_event_types.insert(callback_data.event);
-                    }
-                }
-           }
-        }
-
-        // run the callbacks for node ID 0
-        loop {
-            if let Some((hit_test_item, callback_data)) = layout_result.styled_dom.root.into_crate_internal().and_then(|ci| callbacks.get(&ci)) {
-
-                if blacklisted_event_types.contains(&callback_data.event) {
-                    break; // break out of loop
-                }
-
-                let mut new_focus = None;
-                let mut stop_propagation = false;
-
-                let callback_info = CallbackInfo {
-                    state: &callback_data.data,
-                    current_window_state: &full_window_state,
-                    modifiable_window_state: &mut ret.modified_window_state,
-                    layout_results,
-                    gl_context,
-                    resources,
-                    timers,
-                    tasks,
-                    stop_propagation: &mut stop_propagation,
-                    focus_target: &mut new_focus,
-                    current_scroll_states: scroll_states,
-                    nodes_scrolled_in_callback: &mut nodes_scrolled_in_callbacks,
-                    hit_dom_node: DomNodeId { dom: dom_id, node: layout_result.styled_dom.root },
-                    cursor_relative_to_item: hit_test_item.as_ref().map(|hi| LayoutPoint::new(hi.point_relative_to_item.x, hi.point_relative_to_item.y)),
-                    cursor_in_viewport: hit_test_item.as_ref().map(|hi| LayoutPoint::new(hi.point_in_viewport.x, hi.point_in_viewport.y)),
-                };
-
-                let callback_info_ptr = CallbackInfoPtr { ptr: Box::into_raw(Box::new(callback_info)) as *mut c_void };
-
-                // Invoke callback
-                let callback_return = (callback_data.callback.cb)(callback_info_ptr);
-
-                if callback_return == UpdateScreen::Redraw {
-                    ret.callbacks_update_screen = UpdateScreen::Redraw;
-                }
-
-                if let Some(new_focus) = new_focus.clone() {
-                    new_focus_target = Some(new_focus);
-                }
-
-                if stop_propagation {
-                   blacklisted_event_types.insert(callback_data.event);
-                }
-            }
-            break;
-        }
-    }
-
-    // Scroll nodes from programmatic callbacks
-    for (dom_id, callback_scrolled_nodes) in nodes_scrolled_in_callbacks.iter() {
-        let scrolled_nodes = match scrolled_nodes.get(&dom_id) {
-            Some(s) => s,
-            None => continue,
-        };
-
-        for (scroll_node_id, scroll_position) in callback_scrolled_nodes.iter() {
-            let overflowing_node = match scrolled_nodes.overflowing_nodes.get(&scroll_node_id) {
-                Some(s) => s,
-                None => continue,
-            };
-
-            modifiable_scroll_states.set_scroll_position(&overflowing_node, *scroll_position);
-            ret.should_scroll_render = true;
-        }
-    }
-
-    let new_focus_node = new_focus_target.and_then(|ft| ft.resolve(&layout_results).ok()?);
-    let focus_has_changed = full_window_state.focused_node != new_focus_node;
-
-    if focus_has_changed {
-
-        // Restyle the old and new focus node(s) and
-        // emit On::FocusReceived / On::FocusLost events
-
-        if let Some(old_focus) = full_window_state.focused_node {
-            ret.focus_properties_changed.append(&mut layout_results[old_focus.dom.inner].styled_dom.styled_nodes.as_container_mut()[old_focus.node.into_crate_internal().unwrap()].restyle_focus());
-            if let Some(callback_data) = layout_results[old_focus.dom.inner].styled_dom.node_data.as_container()[old_focus.node.into_crate_internal().unwrap()].get_callbacks().iter().find(|c| c.event == EventFilter::Focus(FocusEventFilter::FocusLost)) {
-                let mut new_focus_id = None;
-                let mut stop_propagation = false;
-
-                let callback_info = CallbackInfo {
-                    state: &callback_data.data,
-                    current_window_state: &full_window_state,
-                    modifiable_window_state: &mut ret.modified_window_state,
-                    layout_results,
-                    gl_context,
-                    resources,
-                    timers,
-                    tasks,
-                    stop_propagation: &mut stop_propagation,
-                    focus_target: &mut new_focus_id,
-                    current_scroll_states: scroll_states,
-                    nodes_scrolled_in_callback: &mut nodes_scrolled_in_callbacks,
-                    hit_dom_node: old_focus,
-                    cursor_relative_to_item: None,
-                    cursor_in_viewport: None,
-                };
-
-                let callback_info_ptr = CallbackInfoPtr { ptr: Box::into_raw(Box::new(callback_info)) as *mut c_void };
-
-                // Invoke callback
-                let callback_return = (callback_data.callback.cb)(callback_info_ptr);
-
-                if callback_return == UpdateScreen::Redraw {
-                    ret.callbacks_update_screen = UpdateScreen::Redraw;
-                }
-
-                // ignore new_focus and stop_propagation
-            }
-        }
-
-        if let Some(new_focus) = new_focus_node {
-            ret.focus_properties_changed.append(&mut layout_results[new_focus.dom.inner].styled_dom.styled_nodes.as_container_mut()[new_focus.node.into_crate_internal().unwrap()].restyle_focus());
-            if let Some(callback_data) = layout_results[new_focus.dom.inner].styled_dom.node_data.as_container()[new_focus.node.into_crate_internal().unwrap()].get_callbacks().iter().find(|c| c.event == EventFilter::Focus(FocusEventFilter::FocusLost)) {
-
-                let mut new_focus_id = None;
-                let mut stop_propagation = false;
-
-                let callback_info = CallbackInfo {
-                    state: &callback_data.data,
-                    current_window_state: &full_window_state,
-                    modifiable_window_state: &mut ret.modified_window_state,
-                    layout_results,
-                    gl_context,
-                    resources,
-                    timers,
-                    tasks,
-                    stop_propagation: &mut stop_propagation,
-                    focus_target: &mut new_focus_id,
-                    current_scroll_states: scroll_states,
-                    nodes_scrolled_in_callback: &mut nodes_scrolled_in_callbacks,
-                    hit_dom_node: new_focus,
-                    cursor_relative_to_item: None,
-                    cursor_in_viewport: None,
-                };
-
-                let callback_info_ptr = CallbackInfoPtr { ptr: Box::into_raw(Box::new(callback_info)) as *mut c_void };
-
-                // Invoke callback
-                let callback_return = (callback_data.callback.cb)(callback_info_ptr);
-
-                if callback_return == UpdateScreen::Redraw {
-                    ret.callbacks_update_screen = UpdateScreen::Redraw;
-                }
-
-                // ignore new_focus and stop_propagation
-            }
-        }
-    }
-
-    // Update the FullWindowState that we got from the frame event (updates window dimensions and DPI)
-    full_window_state.focused_node = new_focus_node;
-
-    ret
 }

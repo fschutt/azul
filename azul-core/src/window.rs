@@ -16,7 +16,7 @@ use crate::{
     id_tree::NodeId,
     task::AzDuration,
     callbacks::{PipelineId, DocumentId, Callback, DomNodeId, ScrollPosition, HitTestItem, UpdateScreen},
-    ui_solver::{OverflowingScrollNode, LayoutResult, ExternalScrollId, ScrolledNodes},
+    ui_solver::{OverflowingScrollNode, HitTest, LayoutResult, ExternalScrollId, ScrolledNodes},
     display_list::{GlTextureCache, CachedDisplayList},
     callbacks::{LayoutCallback, LayoutCallbackType},
 };
@@ -295,14 +295,13 @@ impl ScrollStates {
         ScrollStates::default()
     }
 
-    #[must_use = "function marks the scroll node as dirty, therefore marked as must_use"]
-    pub fn get_scroll_position(&self, scroll_id: &ExternalScrollId) -> Option<LayoutPoint> {
+    pub fn get_scroll_position(&self, scroll_id: &ExternalScrollId) -> Option<LogicalPosition> {
         self.0.get(&scroll_id).map(|entry| entry.get())
     }
 
     /// Set the scroll amount - does not update the `entry.used_this_frame`,
     /// since that is only relevant when we are actually querying the renderer.
-    pub fn set_scroll_position(&mut self, node: &OverflowingScrollNode, scroll_position: LayoutPoint) {
+    pub fn set_scroll_position(&mut self, node: &OverflowingScrollNode, scroll_position: LogicalPosition) {
         self.0.entry(node.parent_external_scroll_id)
         .or_insert_with(|| ScrollState::default())
         .set(scroll_position.x, scroll_position.y, &node.child_rect);
@@ -310,7 +309,7 @@ impl ScrollStates {
 
     /// NOTE: This has to be a getter, because we need to update
     #[must_use = "function marks the scroll ID as dirty, therefore the function is must_use"]
-    pub fn get_scroll_position_and_mark_as_used(&mut self, scroll_id: &ExternalScrollId) -> Option<LayoutPoint> {
+    pub fn get_scroll_position_and_mark_as_used(&mut self, scroll_id: &ExternalScrollId) -> Option<LogicalPosition> {
         let entry = self.0.get_mut(&scroll_id)?;
         Some(entry.get_and_mark_as_used())
     }
@@ -332,7 +331,7 @@ impl ScrollStates {
 #[derive(Debug, Copy, Clone, PartialEq, PartialOrd)]
 pub struct ScrollState {
     /// Amount in pixel that the current node is scrolled
-    pub scroll_position: LayoutPoint,
+    pub scroll_position: LogicalPosition,
     /// Was the scroll amount used in this frame?
     pub used_this_frame: bool,
 }
@@ -340,24 +339,24 @@ pub struct ScrollState {
 impl ScrollState {
 
     /// Return the current position of the scroll state
-    pub fn get(&self) -> LayoutPoint {
+    pub fn get(&self) -> LogicalPosition {
         self.scroll_position
     }
 
     /// Add a scroll X / Y onto the existing scroll state
     pub fn add(&mut self, x: f32, y: f32, child_rect: &LayoutRect) {
-        self.scroll_position.x = (self.scroll_position.x + x).max(0.0).min(child_rect.size.width);
-        self.scroll_position.y = (self.scroll_position.y + y).max(0.0).min(child_rect.size.height);
+        self.scroll_position.x = (self.scroll_position.x + x).max(0.0).min(child_rect.size.width as f32);
+        self.scroll_position.y = (self.scroll_position.y + y).max(0.0).min(child_rect.size.height as f32);
     }
 
     /// Set the scroll state to a new position
     pub fn set(&mut self, x: f32, y: f32, child_rect: &LayoutRect) {
-        self.scroll_position.x = x.max(0.0).min(child_rect.size.width);
-        self.scroll_position.y = y.max(0.0).min(child_rect.size.height);
+        self.scroll_position.x = x.max(0.0).min(child_rect.size.width as f32);
+        self.scroll_position.y = y.max(0.0).min(child_rect.size.height as f32);
     }
 
     /// Returns the scroll position and also set the "used_this_frame" flag
-    pub fn get_and_mark_as_used(&mut self) -> LayoutPoint {
+    pub fn get_and_mark_as_used(&mut self) -> LogicalPosition {
         self.used_this_frame = true;
         self.scroll_position
     }
@@ -366,7 +365,7 @@ impl ScrollState {
 impl Default for ScrollState {
     fn default() -> Self {
         ScrollState {
-            scroll_position: LayoutPoint::zero(),
+            scroll_position: LogicalPosition::zero(),
             used_this_frame: true,
         }
     }
@@ -396,6 +395,12 @@ pub fn clear_scroll_state(window_state: &mut FullWindowState) {
 }
 
 pub struct WindowInternal {
+    /// Renderer type: Hardware-with-software-fallback, pure software or pure hardware renderer?
+    pub renderer_type: RendererType,
+    /// Previous state of the window (initialized to None on startup), to abstract the event diffing
+    pub previous_state: Option<FullWindowState>,
+    /// Window state of this current window
+    pub state: FullWindowState,
     /// A "document" in WebRender usually corresponds to one tab (i.e. in Azuls case, the whole window).
     pub document_id: DocumentId,
     /// One "document" (tab) can have multiple "pipelines" (important for hit-testing).
@@ -415,6 +420,69 @@ pub struct WindowInternal {
     pub scrolled_nodes: BTreeMap<DomId, ScrolledNodes>,
     /// States of scrolling animations, updated every frame
     pub scroll_states: ScrollStates,
+}
+
+#[derive(Debug, Clone, Default, PartialEq)]
+pub struct FullHitTest {
+    pub hovered_nodes: BTreeMap<DomId, HitTest>,
+    pub focused_node: Option<(DomId, NodeId)>,
+}
+
+impl FullHitTest {
+    /// Does the hit-test for all hovered nodes
+    ///
+    /// NOTE: This is much faster than calling webrender
+    pub fn new(layout_results: &[LayoutResult], cursor_position: &Option<LayoutPoint>, scroll_states: &ScrollStates) -> Self {
+
+        let cursor_location = match cursor_position.as_ref() {
+            Some(pos) => *pos,
+            None => return FullHitTest::default(),
+        };
+
+        let mut map = BTreeMap::new();
+        let mut focused_node = None;
+
+        // project the cursor relative to the DOM that is being hit-tested
+        let mut dom_ids = vec![(DomId { inner: 0 }, cursor_location)];
+
+        loop {
+
+            let mut new_dom_ids = Vec::new();
+
+            for (dom_id, cursor_relative_to_dom) in dom_ids.iter() {
+
+                let layout_result = &layout_results[dom_id.inner];
+                let hit_test = layout_result.get_hits(cursor_relative_to_dom, scroll_states);
+
+                for (node_id, hit_item) in hit_test.regular_hit_test_nodes.iter() {
+                    // if the hit node is an IFrame node, translate the cursor so that
+                    // it is relative to the IFrame origin, then recurse
+                    if let Some((iframe_dom_id, origin_of_iframe)) = hit_item.is_iframe_hit {
+                        let mut new_cursor_relative = cursor_location.clone();
+                        new_cursor_relative.x -= origin_of_iframe.x;
+                        new_cursor_relative.y -= origin_of_iframe.y;
+                        new_dom_ids.push((iframe_dom_id, new_cursor_relative));
+                    }
+
+                    if hit_item.is_focusable && focused_node.is_none(){
+                        focused_node = Some((*dom_id, *node_id));
+                    }
+                }
+
+                if !hit_test.is_empty() {
+                    map.insert(*dom_id, hit_test);
+                }
+            }
+
+            if new_dom_ids.is_empty() {
+                break;
+            } else {
+                dom_ids = new_dom_ids;
+            }
+        }
+
+        FullHitTest { hovered_nodes: map, focused_node }
+    }
 }
 
 impl WindowInternal {
@@ -516,8 +584,6 @@ pub struct FullWindowState {
 
     // --
 
-    /// Previous window state, used for determining mouseout, etc. events
-    pub previous_window_state: Option<Box<FullWindowState>>,
     /// Whether there is a file currently hovering over the window
     pub hovered_file: Option<PathBuf>,
     /// Whether there was a file currently dropped on the window
@@ -547,7 +613,6 @@ impl Default for FullWindowState {
 
             // --
 
-            previous_window_state: None,
             hovered_file: None,
             dropped_file: None,
             focused_node: None,
@@ -572,14 +637,6 @@ impl FullWindowState {
 
     pub fn get_dropped_file(&self) -> Option<&PathBuf> {
         self.dropped_file.as_ref()
-    }
-
-    /// Returns the window state of the previous frame, useful for calculating
-    /// metrics for dragging motions. Note that you can't call this function
-    /// recursively - calling `get_previous_window_state()` on the returned
-    /// `WindowState` will yield a `None` value.
-    pub fn get_previous_window_state(&self) -> Option<&Box<FullWindowState>> {
-        self.previous_window_state.as_ref()
     }
 }
 
@@ -630,7 +687,11 @@ pub struct CallCallbacksResult {
     pub modified_window_state: WindowState,
     /// If the focus target changes in the callbacks, the function will automatically
     /// restyle the DOM and set the new focus target
-    pub focus_properties_changed: ChangedCssPropertyVec,
+    pub focus_properties_changed: BTreeMap<DomId, ChangedCssPropertyVec>,
+    /// If the focus node was updated, did it affect any nodes?
+    pub focus_nodes_changed_layout: BTreeMap<DomId, Vec<NodeId>>,
+    /// Whether the focused node was changed from the callbacks
+    pub update_focused_node: Option<Option<DomNodeId>>,
 }
 
 #[derive(Debug, Copy, Clone, PartialEq, Eq, Ord, PartialOrd, Hash)]
@@ -1181,35 +1242,6 @@ impl ::std::fmt::Display for UpdateFocusWarning {
     }
 }
 
-#[derive(Debug, Clone)]
-pub struct CallbackToCall<'a> {
-    pub node_id: NodeId,
-    pub hit_test_item: Option<HitTestItem>,
-    pub callback: &'a CallbackData,
-}
-
-#[derive(Debug, Clone)]
-pub struct CallbacksOfHitTest<'a> {
-    /// A BTreeMap where each item is already filtered by the proper hit-testing type,
-    /// meaning in order to get the proper callbacks, you simply have to iterate through
-    /// all node IDs
-    pub nodes_with_callbacks: Vec<CallbackToCall<'a>>,
-    /// Changes that were made to style properties of nodes
-    pub style_changes: BTreeMap<NodeId, Vec<ChangedCssProperty>>,
-    /// Changes that were made to layout properties of nodes
-    pub layout_changes: BTreeMap<NodeId, Vec<ChangedCssProperty>>,
-}
-
-impl<'a> CallbacksOfHitTest<'a> {
-    pub fn needs_to_rebuild_display_list(&self) -> bool {
-        self.needs_to_rebuild_layout() || !self.style_changes.is_empty()
-    }
-    pub fn needs_to_rebuild_layout(&self) -> bool {
-        // TODO: more fine-grained control
-        !self.layout_changes.is_empty()
-    }
-}
-
 #[derive(Debug, Copy, Clone, PartialEq, PartialOrd, Eq, Ord, Hash)]
 #[repr(C)]
 pub struct LogicalRect {
@@ -1217,7 +1249,34 @@ pub struct LogicalRect {
     pub size: LogicalSize,
 }
 
-#[derive(Debug, Copy, Clone, PartialEq, PartialOrd)]
+impl LogicalRect {
+    /// Faster union for a Vec<LayoutRect>
+    #[inline]
+    pub fn union<I: Iterator<Item=Self>>(mut rects: I) -> Option<Self> {
+        let first = rects.next()?;
+
+        let mut max_width = first.size.width;
+        let mut max_height = first.size.height;
+        let mut min_x = first.origin.x;
+        let mut min_y = first.origin.y;
+
+        while let Some(Self { origin: LogicalPosition { x, y }, size: LogicalSize { width, height } }) = rects.next() {
+            let cur_lower_right_x = x + width;
+            let cur_lower_right_y = y + height;
+            max_width = max_width.max(cur_lower_right_x - min_x);
+            max_height = max_height.max(cur_lower_right_y - min_y);
+            min_x = min_x.min(x);
+            min_y = min_y.min(y);
+        }
+
+        Some(Self {
+            origin: LogicalPosition { x: min_x, y: min_y },
+            size: LogicalSize { width: max_width, height: max_height },
+        })
+    }
+}
+
+#[derive(Debug, Default, Copy, Clone, PartialEq, PartialOrd)]
 #[repr(C)]
 pub struct LogicalPosition {
     pub x: f32,
@@ -1249,7 +1308,7 @@ impl Hash for LogicalPosition {
     }
 }
 
-#[derive(Debug, Copy, Clone, PartialEq, PartialOrd)]
+#[derive(Debug, Default, Copy, Clone, PartialEq, PartialOrd)]
 #[repr(C)]
 pub struct LogicalSize {
     pub width: f32,

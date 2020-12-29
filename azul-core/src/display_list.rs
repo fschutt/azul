@@ -20,7 +20,7 @@ use crate::{
         LayoutResult, ScrolledNodes, OverflowingScrollNode,
         PositionInfo,
     },
-    window::{FullWindowState, LogicalRect},
+    window::{FullWindowState, LogicalRect, LogicalPosition, LogicalSize},
     app_resources::{
         AppResources, AddImageMsg, FontImageApi, ImageDescriptor, ImageDescriptorFlags,
         ImageKey, FontInstanceKey, ImageInfo, ImageId, LayoutedGlyphs, PrimitiveFlags,
@@ -51,8 +51,8 @@ pub fn parse_display_list_size(output_size: &str) -> Option<(f32, f32)> {
 #[derive(Debug, Default, Copy, Clone, PartialEq, PartialOrd)]
 pub struct GlyphInstance {
     pub index: GlyphIndex,
-    pub point: LayoutPoint,
-    pub size: LayoutSize,
+    pub point: LogicalPosition,
+    pub size: LogicalSize,
 }
 
 #[derive(Debug, Copy, Clone, PartialEq, PartialOrd)]
@@ -830,7 +830,7 @@ pub fn displaylist_handle_rect<'a>(
             if let Some(image_info) = app_resources.get_image_info(pipeline_id, image_id) {
                 frame.content.push(LayoutRectContent::Image {
                     size: LayoutSize::new(bounds.size.width, bounds.size.height),
-                    offset: LayoutPoint::new(0.0, 0.0),
+                    offset: LayoutPoint::zero(),
                     image_rendering: ImageRendering::Auto,
                     alpha_type: AlphaType::PremultipliedAlpha,
                     image_key: image_info.key,
@@ -842,8 +842,8 @@ pub fn displaylist_handle_rect<'a>(
         GlTexture(_) => {
             if let Some((key, descriptor)) = gl_texture_cache.solved_textures.get(&dom_id).and_then(|textures| textures.get(&rect_idx)) {
                 frame.content.push(LayoutRectContent::Image {
-                    size: LayoutSize::new(descriptor.dimensions.0 as f32, descriptor.dimensions.1 as f32),
-                    offset: LayoutPoint::new(0.0, 0.0),
+                    size: LayoutSize::new(descriptor.dimensions.0 as isize, descriptor.dimensions.1 as isize),
+                    offset: LayoutPoint::zero(),
                     image_rendering: ImageRendering::Auto,
                     alpha_type: AlphaType::Alpha,
                     image_key: *key,

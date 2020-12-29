@@ -60,20 +60,11 @@ const COLOR_WHITE: ColorU = ColorU { r: 255, g: 255, b: 255, a: 0 };
 pub struct App {
     /// Your data (the global struct which all callbacks will have access to)
     pub data: RefAny,
-    /// Fonts, images and cached text that is currently loaded inside the app (window-independent).
-    ///
-    /// Accessing this field is often required to load new fonts or images, so instead of
-    /// requiring the `FontHashMap`, a lot of functions just require the whole `AppResources` field.
-    pub resources: AppResources,
-    /// Currently running timers (polling functions, run on the main thread)
-    pub timers: FastHashMap<TimerId, Timer>,
-    /// Currently running tasks (asynchronous functions running each on a different thread)
-    pub tasks: Vec<Task>,
     /// Application configuration, whether to enable logging, etc.
     pub config: AppConfig,
     /// The window create options (only set at startup), get moved into the `.run_inner()` method
     /// No window is actually shown until the `.run_inner()` method is called.
-    windows: BTreeMap<WindowId, WindowCreateOptions>,
+    pub windows: Vec<WindowCreateOptions>,
     /// The actual renderer of this application
     #[cfg(not(test))]
     fake_display: FakeDisplay,
@@ -102,11 +93,9 @@ pub struct AppConfig {
     pub log_file_path: Option<String>,
     /// If the app crashes / panics, a window with a message box pops up.
     /// Setting this to `false` disables the popup box.
-    #[cfg(feature = "logging")]
     pub enable_visual_panic_hook: bool,
     /// If this is set to `true` (the default), a backtrace + error information
     /// gets logged to stdout and the logging file (only if logging is enabled).
-    #[cfg(feature = "logging")]
     pub enable_logging_on_panic: bool,
     /// (STUB) Whether keyboard navigation should be enabled (default: true).
     /// Currently not implemented.
@@ -181,11 +170,8 @@ impl App {
                 set_webrender_debug_flags(r, &app_config.debug_state);
             }
             Ok(Self {
-                windows: BTreeMap::new(),
+                windows: Vec::new(),
                 data: initial_data,
-                resources: AppResources::default(),
-                timers: FastHashMap::default(),
-                tasks: Vec::new(),
                 config: app_config,
                 fake_display,
             })
@@ -193,11 +179,8 @@ impl App {
 
         #[cfg(test)] {
            Ok(Self {
-               windows: BTreeMap::new(),
+               windows: Vec::new(),
                data: initial_data,
-               resources: AppResources::default(),
-               timers: FastHashMap::default(),
-               tasks: Vec::new(),
                config: app_config,
                render_api: FakeRenderApi::new(),
            })
@@ -221,7 +204,7 @@ impl App {
     /// create extra windows, the default window will be the window submitted to
     /// the `.run` method.
     pub fn add_window(&mut self, create_options: WindowCreateOptions) {
-        self.windows.insert(WindowId::new(), create_options);
+        self.windows.push(create_options);
     }
 
     /// Start the rendering loop for the currently added windows. The run() function
@@ -258,50 +241,15 @@ impl App {
             winit_translate_physical_size, winit_translate_physical_position,
         };
 
-        let App { mut data, mut resources, mut timers, mut tasks, config, windows, mut fake_display } = self;
+        let App { mut data, config, windows, mut fake_display } = self;
 
-        let window_states = initialize_window_states(&windows);
-        let initialized_windows = initialize_windows(windows, &mut fake_display, &mut resources, &config);
-
-        let (mut active_windows, mut window_id_mapping, mut reverse_window_id_mapping) = initialized_windows;
-        let mut full_window_states = initialize_full_window_states(&reverse_window_id_mapping, &window_states);
-        let mut ui_state_cache = initialize_ui_state_cache(&data, &fake_display.gl_context, &resources, &active_windows, &mut full_window_states);
-        let mut ui_description_cache = initialize_ui_description_cache(&mut ui_state_cache, &mut full_window_states);
+        let mut timers = FastHashMap::new();
+        let mut tasks = Vec::new();
+        let mut resources = AppResources::default();
+        let mut last_style_reload = Instant::now();
+        let mut active_windows = initialize_windows(windows, &mut fake_display, &mut resources, &config);
 
         let FakeDisplay { mut render_api, mut renderer, mut hidden_context, hidden_event_loop, gl_context } = fake_display;
-
-        // TODO: When the callbacks are run, rebuild the default callbacks again,
-        // otherwise there could be a memory "leak" as default callbacks only
-        // get added and never removed.
-
-        {
-            let mut eld = EventLoopData {
-                data: &mut data,
-                event_loop_target: None,
-                resources: &mut resources,
-                timers: &mut timers,
-                tasks: &mut tasks,
-                config: &config,
-                active_windows: &mut active_windows,
-                window_id_mapping: &mut window_id_mapping,
-                reverse_window_id_mapping: &mut reverse_window_id_mapping,
-                full_window_states: &mut full_window_states,
-                ui_state_cache: &mut ui_state_cache,
-                ui_description_cache: &mut ui_description_cache,
-                render_api: &mut render_api,
-                renderer: &mut renderer,
-                hidden_context: &mut hidden_context,
-                gl_context: gl_context.clone(),
-            };
-
-            let window_keys = eld.reverse_window_id_mapping.keys().cloned().collect::<Vec<_>>();
-            for window_id in window_keys {
-                send_user_event(AzulUpdateEvent::RelayoutUi { window_id }, &mut eld);
-            }
-        }
-
-        #[cfg(debug_assertions)]
-        let mut last_style_reload = Instant::now();
 
         hidden_event_loop.run(move |event, event_loop_target, control_flow| {
 
@@ -316,11 +264,6 @@ impl App {
                     tasks: &mut tasks,
                     config: &config,
                     active_windows: &mut active_windows,
-                    window_id_mapping: &mut window_id_mapping,
-                    reverse_window_id_mapping: &mut reverse_window_id_mapping,
-                    full_window_states: &mut full_window_states,
-                    ui_state_cache: &mut ui_state_cache,
-                    ui_description_cache: &mut ui_description_cache,
                     render_api: &mut render_api,
                     renderer: &mut renderer,
                     hidden_context: &mut hidden_context,
@@ -510,7 +453,7 @@ impl App {
                                 }
 
                                 if should_scroll_render_from_input_events {
-                                    send_user_event(AzulUpdateEvent::UpdateScrollStates { window_id }, &mut eld);
+                                    send_user_event(AzulUpdateEvent::ScrollRender { window_id }, &mut eld);
                                 }
                             },
                             WindowEvent::Touch(Touch { phase, location, .. }) => {
@@ -530,7 +473,7 @@ impl App {
                                     },
                                     Moved => {
                                         // TODO: Do hit test and update window.internal.scroll_states!
-                                        send_user_event(AzulUpdateEvent::UpdateScrollStates { window_id }, &mut eld);
+                                        send_user_event(AzulUpdateEvent::ScrollRender { window_id }, &mut eld);
                                     },
                                     Ended => {
                                         send_user_event(AzulUpdateEvent::DoHitTest { window_id }, &mut eld);
@@ -581,28 +524,7 @@ impl App {
                 }
             }
 
-            // Application shutdown
-            if active_windows.is_empty() {
-
-                use azul_core::gl::gl_textures_clear_opengl_cache;
-
-                // NOTE: For some reason this is necessary, otherwise the renderer crashes on shutdown
-                hidden_context.make_current();
-
-                // Important: destroy all OpenGL textures before the shared
-                // OpenGL context is destroyed.
-                gl_textures_clear_opengl_cache();
-
-                gl_context.disable(gl::FRAMEBUFFER_SRGB);
-                gl_context.disable(gl::MULTISAMPLE);
-                gl_context.disable(gl::POLYGON_SMOOTH);
-
-                if let Some(renderer) = renderer.take() {
-                    renderer.deinit();
-                }
-
-                *control_flow = ControlFlow::Exit;
-            } else {
+            if !active_windows.is_empty() {
 
                 *control_flow = ControlFlow::Wait;
 
@@ -630,11 +552,6 @@ impl App {
                             tasks: &mut tasks,
                             config: &config,
                             active_windows: &mut active_windows,
-                            window_id_mapping: &mut window_id_mapping,
-                            reverse_window_id_mapping: &mut reverse_window_id_mapping,
-                            full_window_states: &mut full_window_states,
-                            ui_state_cache: &mut ui_state_cache,
-                            ui_description_cache: &mut ui_description_cache,
                             render_api: &mut render_api,
                             renderer: &mut renderer,
                             hidden_context: &mut hidden_context,
@@ -643,7 +560,6 @@ impl App {
 
                         for window_id in eld.window_id_mapping.clone().values() {
                             send_user_event(AzulUpdateEvent::RebuildUi { window_id: *window_id }, &mut eld);
-                            send_user_event(AzulUpdateEvent::RedrawRequested { window_id: *window_id }, &mut eld);
                         }
                     }
                 }
@@ -670,6 +586,28 @@ impl App {
                 }
             }
 
+            // Application shutdown
+            if active_windows.is_empty() {
+
+                use azul_core::gl::gl_textures_clear_opengl_cache;
+
+                // NOTE: For some reason this is necessary, otherwise the renderer crashes on shutdown
+                hidden_context.make_current();
+
+                // Important: destroy all OpenGL textures before the shared
+                // OpenGL context is destroyed.
+                gl_textures_clear_opengl_cache();
+
+                gl_context.disable(gl::FRAMEBUFFER_SRGB);
+                gl_context.disable(gl::MULTISAMPLE);
+                gl_context.disable(gl::POLYGON_SMOOTH);
+
+                if let Some(renderer) = renderer.take() {
+                    renderer.deinit();
+                }
+
+                *control_flow = ControlFlow::Exit;
+            }
         })
     }
 }
@@ -744,34 +682,8 @@ fn send_user_event<'a>(
             };
 
             let glutin_window_id = window.display.window().id();
-            let window_id = window.id;
-
-            eld.full_window_states.insert(glutin_window_id, full_window_state);
-
-            #[cfg(all(debug_assertions, any(feature = "css_parser", feature = "native_style")))] {
-                const FORCE_CSS_RELOAD: bool = true;
-                let full_window_state = eld.full_window_states.get_mut(&glutin_window_id).unwrap();
-                let hot_reload_options = window.hot_reload.as_ref();
-                let _ = hot_reload_css(full_window_state, hot_reload_options, &mut Instant::now(), FORCE_CSS_RELOAD);
-            }
-
-            let dom_id_map = call_layout_fn(
-                eld.data,
-                &eld.gl_context,
-                eld.resources,
-                &eld.full_window_states[&glutin_window_id],
-            );
-
             eld.active_windows.insert(glutin_window_id, window);
-            eld.ui_state_cache.insert(glutin_window_id, dom_id_map);
-            eld.ui_description_cache.insert(glutin_window_id,
-                cascade_style(
-                    eld.ui_state_cache.get_mut(&glutin_window_id).unwrap(),
-                    eld.full_window_states.get_mut(&glutin_window_id).unwrap()
-                )
-            );
-            eld.window_id_mapping.insert(glutin_window_id, window_id);
-            eld.reverse_window_id_mapping.insert(window_id, glutin_window_id);
+            // redraw()
         },
         CloseWindow { window_id } => {
 
@@ -851,7 +763,7 @@ fn send_user_event<'a>(
                     let resources = &mut *eld.resources;
 
                     let call_callbacks_results = active_windows.values_mut().map(|window| {
-                        let scroll_states = window.internal.get_current_scroll_states(&ui_state);
+                        let scroll_states = window.internal.get_current_scroll_states();
                         let mut ret = callbacks::call_callbacks(
                             &events,
                             ui_state,
@@ -930,133 +842,6 @@ fn send_user_event<'a>(
             // - if diff is empty (same UI), skip restyle, go straight to re-layouting
             send_user_event(AzulUpdateEvent::RestyleUi { window_id, skip_layout: false }, eld);
         },
-        RestyleUi { window_id, skip_layout } => {
-
-            // Cascade the CSS to the HTML nodes
-            {
-                let glutin_window_id = match eld.reverse_window_id_mapping.get(&window_id) {
-                    Some(s) => s.clone(),
-                    None => return,
-                };
-
-                let full_window_state = eld.full_window_states.get_mut(&glutin_window_id).unwrap();
-                let ui_state = eld.ui_state_cache.get_mut(&glutin_window_id).unwrap();
-                *eld.ui_description_cache.get_mut(&glutin_window_id).unwrap() = cascade_style(ui_state, full_window_state);
-            } // end of borrowing eld
-
-            // in cases like `:hover` and `:active`, layouting can be skipped
-            // (if it is known that the re-styling doesn't modify the layout)
-            if skip_layout {
-                send_user_event(AzulUpdateEvent::RebuildDisplayList { window_id }, eld);
-            } else {
-                send_user_event(AzulUpdateEvent::RelayoutUi { window_id }, eld);
-            }
-        },
-        RelayoutUi { window_id } => {
-
-            use azul_core::display_list::SolvedLayout;
-
-            // Layout the CSSOM
-            {
-                let glutin_window_id = match eld.reverse_window_id_mapping.get(&window_id) {
-                    Some(s) => s.clone(),
-                    None => return,
-                };
-
-                let window = eld.active_windows.get_mut(&glutin_window_id).unwrap();
-                let full_window_state = &eld.full_window_states[&glutin_window_id];
-
-                // Make sure unused scroll states are garbage collected.
-                window.internal.scroll_states.remove_unused_scroll_states();
-                eld.hidden_context.make_not_current();
-                window.display.make_current();
-
-                let SolvedLayout { solved_layout_cache, gl_texture_cache } = SolvedLayout::new(
-                    window.internal.epoch,
-                    window.internal.pipeline_id,
-                    full_window_state,
-                    &eld.gl_context,
-                    eld.render_api,
-                    eld.resources,
-                    eld.ui_state_cache.get_mut(&glutin_window_id).unwrap(),
-                    eld.ui_description_cache.get_mut(&glutin_window_id).unwrap(),
-                    azul_core::gl::insert_into_active_gl_textures,
-                    azulc::layout::do_the_layout,
-                    eld.config.font_loading_fn,
-                    eld.config.image_loading_fn,
-                    azul_layout::text_layout::parse_font_fn,
-                );
-
-                window.display.make_not_current();
-                eld.hidden_context.make_current();
-                eld.hidden_context.make_not_current();
-
-                window.internal.layout_result = solved_layout_cache;
-                window.internal.gl_texture_cache = gl_texture_cache;
-            } // end of borrowing eld
-
-            // optimization with diff:
-            // - only relayout the nodes that were added / removed
-            // - if diff is empty (same UI), skip relayout, go straight to rebuilding display list
-            send_user_event(AzulUpdateEvent::RebuildDisplayList { window_id }, eld);
-        },
-        RebuildDisplayList { window_id } => {
-
-            // Build the display list
-            {
-                let glutin_window_id = match eld.reverse_window_id_mapping.get(&window_id) {
-                    Some(s) => s.clone(),
-                    None => return,
-                };
-
-                let window = eld.active_windows.get_mut(&glutin_window_id).unwrap();
-                let full_window_state = &eld.full_window_states[&glutin_window_id];
-
-                let cached_display_list = CachedDisplayList::new(
-                    window.internal.epoch,
-                    window.internal.pipeline_id,
-                    &full_window_state,
-                    &eld.ui_state_cache[&glutin_window_id],
-                    &window.internal.layout_result,
-                    &window.internal.gl_texture_cache,
-                    &eld.resources,
-                );
-
-                println!("cached display list: {:#?}", cached_display_list);
-
-                // optimization with diff:
-                // - only rebuild the nodes that were added / removed
-                // - if diff is empty (same UI), skip rebuilding the display list, go straight to sending the DL
-
-                window.internal.cached_display_list = cached_display_list;
-            } // end borrowing &mut eld
-
-            send_user_event(AzulUpdateEvent::SendDisplayListToWebRender { window_id }, eld);
-        },
-        SendDisplayListToWebRender { window_id } => {
-
-            // Build the display list
-            {
-                let glutin_window_id = match eld.reverse_window_id_mapping.get(&window_id) {
-                    Some(s) => s.clone(),
-                    None => return,
-                };
-
-                let window = eld.active_windows.get_mut(&glutin_window_id).unwrap();
-                let full_window_state = &eld.full_window_states[&glutin_window_id];
-
-                send_display_list_to_webrender(
-                    window,
-                    full_window_state,
-                    eld.render_api,
-                );
-
-                send_user_event(AzulUpdateEvent::UpdateScrollStates { window_id }, eld);
-
-            } // end borrowing &mut eld
-
-            redraw_all_windows!();
-        },
         RedrawRequested { window_id } => {
 
             let glutin_window_id = match eld.reverse_window_id_mapping.get(&window_id) {
@@ -1064,6 +849,87 @@ fn send_user_event<'a>(
                 None => return,
             };
 
+            // if the display list needs to be rebuilt (style or layout change),
+            // do that and send it to webrender to be drawn
+
+            // if !changes.style_changes.is_empty() || !changes.layout_changes.is_empty() {
+            /*
+                // Build the display list
+                {
+                    let glutin_window_id = match eld.reverse_window_id_mapping.get(&window_id) {
+                        Some(s) => s.clone(),
+                        None => return,
+                    };
+
+                    let window = eld.active_windows.get_mut(&glutin_window_id).unwrap();
+                    let full_window_state = &eld.full_window_states[&glutin_window_id];
+
+                    let cached_display_list = CachedDisplayList::new(
+                        window.internal.epoch,
+                        window.internal.pipeline_id,
+                        &full_window_state,
+                        &eld.ui_state_cache[&glutin_window_id],
+                        &window.internal.layout_result,
+                        &window.internal.gl_texture_cache,
+                        &eld.resources,
+                    );
+
+                    println!("cached display list: {:#?}", cached_display_list);
+
+                    // optimization with diff:
+                    // - only rebuild the nodes that were added / removed
+                    // - if diff is empty (same UI), skip rebuilding the display list, go straight to sending the DL
+
+                    window.internal.cached_display_list = cached_display_list;
+                } // end borrowing &mut eld
+
+                send_user_event(AzulUpdateEvent::SendDisplayListToWebRender { window_id }, eld);
+
+                // Build the display list
+                {
+                    let glutin_window_id = match eld.reverse_window_id_mapping.get(&window_id) {
+                        Some(s) => s.clone(),
+                        None => return,
+                    };
+
+                    let window = eld.active_windows.get_mut(&glutin_window_id).unwrap();
+                    let full_window_state = &eld.full_window_states[&glutin_window_id];
+
+                    send_display_list_to_webrender(
+                        window,
+                        full_window_state,
+                        eld.render_api,
+                    );
+
+                    send_user_event(AzulUpdateEvent::UpdateScrollStates { window_id }, eld);
+
+                } // end borrowing &mut eld
+            */
+            // }
+
+            // scroll all the nodes that need to be scrolled and rerender
+            send_user_event(AzulUpdateEvent::ScrollRender { window_id }, eld);
+        },
+        ScrollRender { window_id } => {
+            // optimized path for just scrolling + rendering (not rebuilding display list)
+
+            // ---- scrolling
+
+            // Synchronize all the scroll states from window.internal.scroll_states with webrender
+            let glutin_window_id = match eld.reverse_window_id_mapping.get(&window_id) {
+                Some(s) => s.clone(),
+                None => return,
+            };
+
+            let window = eld.active_windows.get_mut(&glutin_window_id).unwrap();
+            let mut txn = WrTransaction::new();
+            scroll_all_nodes(&mut window.internal.scroll_states, &mut txn);
+            eld.render_api.api.send_transaction(wr_translate_document_id(window.internal.document_id), txn);
+
+
+            // ---- rendering
+
+            // TODO: separate out into different function for scroll rendering
             let full_window_state = eld.full_window_states.get(&glutin_window_id).unwrap();
             let mut windowed_context = eld.active_windows.get_mut(&glutin_window_id);
             let mut windowed_context = windowed_context.as_mut().unwrap();
@@ -1082,36 +948,9 @@ fn send_user_event<'a>(
                 eld.config.background_color,
             );
 
-
             // After rendering + swapping, remove the unused OpenGL textures
             clean_up_unused_opengl_textures(eld.renderer.as_mut().unwrap().flush_pipeline_info(), &pipeline_id);
-        },
-        UpdateScrollStates { window_id } => {
-
-
-            // Synchronize all the scroll states from window.internal.scroll_states with webrender
-            let glutin_window_id = match eld.reverse_window_id_mapping.get(&window_id) {
-                Some(s) => s.clone(),
-                None => return,
-            };
-
-            let window = eld.active_windows.get_mut(&glutin_window_id).unwrap();
-            let mut txn = WrTransaction::new();
-            scroll_all_nodes(&mut window.internal.scroll_states, &mut txn);
-            eld.render_api.api.send_transaction(wr_translate_document_id(window.internal.document_id), txn);
-        },
-        UpdateAnimations { window_id } => {
-
-            // send transaction to update animations in WR
-            // if no other events happened, skip to SendDisplayListToWebRender step
-            send_user_event(AzulUpdateEvent::SendDisplayListToWebRender { window_id }, eld);
-        },
-        UpdateImages { window_id } => {
-
-            // send transaction to update images in WR
-            // if no other events happened, skip to SendDisplayListToWebRender step
-            send_user_event(AzulUpdateEvent::SendDisplayListToWebRender { window_id }, eld);
-        },
+        }
     }
 }
 
@@ -1122,12 +961,6 @@ fn update_keyboard_state_from_modifier_state(keyboard_state: &mut KeyboardState,
     keyboard_state.super_down = modifiers.logo();
 }
 
-fn initialize_window_states(
-    window_create_options: &BTreeMap<WindowId, WindowCreateOptions>,
-) -> BTreeMap<WindowId, WindowState> {
-    window_create_options.iter().map(|(id, s)| (*id, s.state.clone())).collect()
-}
-
 /// Creates the intial windows on the screen and returns a mapping from
 /// the (azul-internal) WindowId to the (glutin-internal) WindowId.
 ///
@@ -1135,17 +968,13 @@ fn initialize_window_states(
 /// be useful for future refactoring.
 #[cfg(not(test))]
 fn initialize_windows(
-    window_create_options: BTreeMap<WindowId, WindowCreateOptions>,
+    window_create_options: Vec<WindowCreateOptions>,
     fake_display: &mut FakeDisplay,
     app_resources: &mut AppResources,
     config: &AppConfig,
-) -> (
-    BTreeMap<GlutinWindowId, Window>,
-    BTreeMap<GlutinWindowId, WindowId>,
-    BTreeMap<WindowId, GlutinWindowId>
-) {
+) -> BTreeMap<GlutinWindowId, Window> {
 
-    let windows = window_create_options.into_iter().filter_map(|(window_id, window_create_options)| {
+    window_create_options.into_iter().filter_map(|window_create_options| {
         let window = Window::new(
             &mut fake_display.render_api,
             fake_display.hidden_context.headless_context_not_current().unwrap(),
@@ -1156,107 +985,7 @@ fn initialize_windows(
         ).ok()?;
         let glutin_window_id = window.display.window().id();
         Some(((window_id, glutin_window_id), window))
-    }).collect::<BTreeMap<_, _>>();
-
-    let window_id_mapping = windows.keys().cloned()
-        .map(|(window_id, glutin_window_id)| (glutin_window_id, window_id))
-        .collect();
-
-    let reverse_window_id_mapping = windows.keys().cloned()
-        .map(|(window_id, glutin_window_id)| (window_id, glutin_window_id))
-        .collect();
-
-    let windows = windows.into_iter()
-        .map(|((_, glutin_window_id), window)| (glutin_window_id, window))
-        .collect();
-
-    (windows, window_id_mapping, reverse_window_id_mapping)
-}
-
-fn initialize_full_window_states(
-    active_window_ids: &BTreeMap<WindowId, GlutinWindowId>,
-    window_states: &BTreeMap<WindowId, WindowState>,
-) -> BTreeMap<GlutinWindowId, FullWindowState> {
-    active_window_ids.iter().filter_map(|(window_id, glutin_window_id)| {
-        let window_state = window_states.get(window_id)?;
-        let full_window_state: FullWindowState = window_state.clone().into();
-        Some((*glutin_window_id, full_window_state))
-    }).collect()
-}
-
-#[cfg(not(test))]
-fn initialize_ui_state_cache(
-    data: &RefAny,
-    gl_context: &GlContextPtr,
-    app_resources: &AppResources,
-    windows: &BTreeMap<GlutinWindowId, Window>,
-    full_window_states: &mut BTreeMap<GlutinWindowId, FullWindowState>,
-) -> BTreeMap<GlutinWindowId, BTreeMap<DomId, UiState>> {
-
-
-    let mut ui_state_map = BTreeMap::new();
-
-    for (glutin_window_id, _) in windows {
-
-        let full_window_state = full_window_states.get(glutin_window_id).unwrap();
-        let dom_id_map = call_layout_fn(
-            data,
-            gl_context,
-            app_resources,
-            &full_window_state,
-        );
-        ui_state_map.insert(*glutin_window_id, dom_id_map);
-    }
-
-    ui_state_map
-}
-
-// call the root layout() fn and relayout automatically
-fn call_layout_fn(
-    data: &RefAny,
-    gl_context: &GlContextPtr,
-    app_resources: &AppResources,
-    full_window_state: &FullWindowState,
-) -> Vec<LayoutResult> {
-
-    use azul_core::callbacks::LayoutInfo;
-
-    // TODO: Use these "stop sizes" to optimize not calling layout() on redrawing!
-    let mut stop_sizes_width = Vec::new();
-    let mut stop_sizes_height = Vec::new();
-
-    let styled_dom = {
-        let full_window_state = &full_window_state;
-        let layout_callback = full_window_state.layout_callback.clone();
-        let layout_info = LayoutInfo {
-            window_size: &full_window_state.size,
-            window_size_width_stops: &mut stop_sizes_width,
-            window_size_height_stops: &mut stop_sizes_height,
-            resources: app_resources,
-        };
-        let layout_info_ptr = LayoutInfoPtr { ptr: Box::into_raw(Box::new(layout_info)) as *mut c_void };
-
-        let styled_dom = (layout_callback.cb)(data.clone(), layout_info_ptr);
-
-        let hovered_nodes = full_window_state.hovered_nodes.get(&iframe_dom_id).cloned().unwrap_or_default();
-        let active_nodes = if !full_window_state.mouse_state.mouse_down() { Vec::new() } else { hovered_nodes.clone() };
-        let mut focused_nodes = Vec::new();
-        if let Some(DomNodeId { dom_id, node_id }) = full_window_state.get_previous_window_state().focused_node {
-            if dom_id == iframe_dom_id { focused_nodes.push(node_id); }
-        }
-        if let Some(DomNodeId { dom_id, node_id }) = full_window_state.focused_node {
-            if dom_id == iframe_dom_id { focused_nodes.push(node_id); }
-        }
-
-        if !hovered_nodes.is_empty() { iframe_dom.restyle_nodes_hover(&hovered_nodes[..]); }
-        if !active_nodes.is_empty() { iframe_dom.restyle_nodes_hover(&active_nodes[..]); }
-        if !focused_nodes.is_empty() { iframe_dom.restyle_nodes_hover(&focused_nodes[..]); }
-
-        styled_dom
-    };
-
-    // do_the_layout(&styled_dom);
-    // resolve_gl_textures(&styled_dom);
+    }).collect::<BTreeMap<_, _>>()
 }
 
 /// Returns the currently hit-tested results, in back-to-front order

@@ -133,21 +133,46 @@ impl fmt::Display for LayoutRect {
 
 impl LayoutRect {
     #[inline(always)]
-    pub fn new(origin: LayoutPoint, size: LayoutSize) -> Self { Self { origin, size } }
+    pub const fn new(origin: LayoutPoint, size: LayoutSize) -> Self { Self { origin, size } }
     #[inline(always)]
-    pub fn zero() -> Self { Self::new(LayoutPoint::zero(), LayoutSize::zero()) }
+    pub const fn zero() -> Self { Self::new(LayoutPoint::zero(), LayoutSize::zero()) }
     #[inline(always)]
-    pub fn max_x(&self) -> f32 { self.origin.x + self.size.width }
+    pub const fn max_x(&self) -> isize { self.origin.x + self.size.width }
     #[inline(always)]
-    pub fn min_x(&self) -> f32 { self.origin.x }
+    pub const fn min_x(&self) -> isize { self.origin.x }
     #[inline(always)]
-    pub fn max_y(&self) -> f32 { self.origin.y + self.size.height }
+    pub const fn max_y(&self) -> isize { self.origin.y + self.size.height }
     #[inline(always)]
-    pub fn min_y(&self) -> f32 { self.origin.y }
-    #[inline(always)]
-    pub fn contains(&self, other: &LayoutPoint) -> bool {
+    pub const fn min_y(&self) -> isize { self.origin.y }
+
+    pub const fn contains(&self, other: &LayoutPoint) -> bool {
         self.min_x() <= other.x && other.x < self.max_x() &&
         self.min_y() <= other.y && other.y < self.max_y()
+    }
+
+    pub fn contains_f32(&self, other_x: f32, other_y: f32) -> bool {
+        self.min_x() as f32 <= other_x && other_x < self.max_x() as f32 &&
+        self.min_y() as f32 <= other_y && other_y < self.max_y() as f32
+    }
+
+    /// Same as `contains()`, but returns the (x, y) offset of the hit point
+    ///
+    /// On a regular computer this function takes ~3.2ns to run
+    #[inline]
+    pub const fn hit_test(&self, other: &LayoutPoint) -> Option<LayoutPoint> {
+        let dx_left_edge = other.x - self.min_x();
+        let dx_right_edge = self.max_x() - other.x;
+        let dy_top_edge = other.y - self.min_y();
+        let dy_bottom_edge = self.max_y() - other.y;
+        if dx_left_edge > 0 &&
+           dx_right_edge > 0 &&
+           dy_top_edge > 0 &&
+           dy_bottom_edge > 0
+        {
+            Some(LayoutPoint::new(dx_left_edge, dy_top_edge))
+        } else {
+            None
+        }
     }
 
     /// Faster union for a Vec<LayoutRect>
@@ -208,7 +233,7 @@ impl LayoutRect {
 /// Only used for calculations: Size (width, height) in layout space.
 #[derive(Copy, Default, Clone, PartialEq, PartialOrd)]
 #[repr(C)]
-pub struct LayoutSize { pub width: f32, pub height: f32 }
+pub struct LayoutSize { pub width: isize, pub height: isize }
 
 impl fmt::Debug for LayoutSize {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
@@ -224,15 +249,15 @@ impl fmt::Display for LayoutSize {
 
 impl LayoutSize {
     #[inline(always)]
-    pub const fn new(width: f32, height: f32) -> Self { Self { width, height } }
+    pub const fn new(width: isize, height: isize) -> Self { Self { width, height } }
     #[inline(always)]
-    pub const fn zero() -> Self { Self::new(0.0, 0.0) }
+    pub const fn zero() -> Self { Self::new(0, 0) }
 }
 
 /// Only used for calculations: Point coordinate (x, y) in layout space.
 #[derive(Copy, Default, Clone, PartialEq, PartialOrd)]
 #[repr(C)]
-pub struct LayoutPoint { pub x: f32, pub y: f32 }
+pub struct LayoutPoint { pub x: isize, pub y: isize }
 
 impl fmt::Debug for LayoutPoint {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
@@ -248,9 +273,9 @@ impl fmt::Display for LayoutPoint {
 
 impl LayoutPoint {
     #[inline(always)]
-    pub const fn new(x: f32, y: f32) -> Self { Self { x, y } }
+    pub const fn new(x: isize, y: isize) -> Self { Self { x, y } }
     #[inline(always)]
-    pub const fn zero() -> Self { Self::new(0.0, 0.0) }
+    pub const fn zero() -> Self { Self::new(0, 0) }
 }
 
 impl_option!(LayoutPoint, OptionLayoutPoint, [Debug, Copy, Clone, PartialEq, PartialOrd]);
@@ -1887,17 +1912,17 @@ impl Direction {
 
                 let deg = -deg; // negate winding direction
 
-                let width_half = rect.size.width as usize / 2;
-                let height_half = rect.size.height as usize / 2;
+                let width_half = rect.size.width as f32 / 2.0;
+                let height_half = rect.size.height as f32 / 2.0;
 
                 // hypotenuse_len is the length of the center of the rect to the corners
-                let hypotenuse_len = (((width_half * width_half) + (height_half * height_half)) as f64).sqrt();
+                let hypotenuse_len = (((width_half * width_half) + (height_half * height_half))).sqrt();
 
                 // The corner also serves to determine what quadrant we're in
                 // Get the quadrant (corner) the angle is in and get the degree associated
                 // with that corner.
 
-                let angle_to_top_left = (height_half as f64 / width_half as f64).atan().to_degrees();
+                let angle_to_top_left = (height_half as f32 / width_half as f32).atan().to_degrees();
 
                 // We need to calculate the angle from the center to the corner!
                 let ending_point_degrees = if deg < 90.0 {
@@ -1915,21 +1940,21 @@ impl Direction {
                 };
 
                 // assuming deg = 36deg, then degree_diff_to_corner = 9deg
-                let degree_diff_to_corner = ending_point_degrees - deg as f64;
+                let degree_diff_to_corner = ending_point_degrees - deg;
 
                 // Searched_len is the distance between the center of the rect and the
                 // ending point of the gradient
-                let searched_len = (hypotenuse_len * degree_diff_to_corner.to_radians().cos()).abs();
+                let searched_len = (hypotenuse_len * degree_diff_to_corner.to_radians().cos()).abs() as f32;
 
                 // TODO: This searched_len is incorrect...
 
                 // Once we have the length, we can simply rotate the length by the angle,
                 // then translate it to the center of the rect
-                let dx = deg.to_radians().sin() * searched_len as f32;
-                let dy = deg.to_radians().cos() * searched_len as f32;
+                let dx = deg.to_radians().sin() * searched_len;
+                let dy = deg.to_radians().cos() * searched_len;
 
-                let start_point_location = LayoutPoint { x: width_half as f32 + dx, y: height_half as f32 + dy };
-                let end_point_location = LayoutPoint { x: width_half as f32 - dx, y: height_half as f32 - dy };
+                let start_point_location = LayoutPoint { x: (width_half + dx).round() as isize, y: (height_half + dy).round() as isize };
+                let end_point_location = LayoutPoint { x: (width_half - dx).round() as isize, y: (height_half - dy).round() as isize };
 
                 (start_point_location, end_point_location)
             },
@@ -2059,7 +2084,7 @@ impl fmt::Display for DirectionCorner {
 
 impl DirectionCorner {
 
-    pub fn opposite(&self) -> Self {
+    pub const fn opposite(&self) -> Self {
         use self::DirectionCorner::*;
         match *self {
             Right => Left,
@@ -2073,7 +2098,7 @@ impl DirectionCorner {
         }
     }
 
-    pub fn combine(&self, other: &Self) -> Option<Self> {
+    pub const fn combine(&self, other: &Self) -> Option<Self> {
         use self::DirectionCorner::*;
         match (*self, *other) {
             (Right, Top) | (Top, Right) => Some(TopRight),
@@ -2084,18 +2109,17 @@ impl DirectionCorner {
         }
     }
 
-    pub fn to_point(&self, rect: &LayoutRect) -> LayoutPoint
-    {
+    pub const fn to_point(&self, rect: &LayoutRect) -> LayoutPoint {
         use self::DirectionCorner::*;
         match *self {
-            Right       => LayoutPoint { x: rect.size.width,          y: rect.size.height / 2.0     },
-            Left        => LayoutPoint { x: 0.0,                      y: rect.size.height / 2.0     },
-            Top         => LayoutPoint { x: rect.size.width / 2.0,    y: 0.0                        },
-            Bottom      => LayoutPoint { x: rect.size.width / 2.0,    y: rect.size.height           },
-            TopRight    => LayoutPoint { x: rect.size.width,          y: 0.0                        },
-            TopLeft     => LayoutPoint { x: 0.0,                      y: 0.0                        },
-            BottomRight => LayoutPoint { x: rect.size.width,          y: rect.size.height           },
-            BottomLeft  => LayoutPoint { x: 0.0,                      y: rect.size.height           },
+            Right       => LayoutPoint { x: rect.size.width,          y: rect.size.height / 2     },
+            Left        => LayoutPoint { x: 0,                        y: rect.size.height / 2     },
+            Top         => LayoutPoint { x: rect.size.width / 2,      y: 0                        },
+            Bottom      => LayoutPoint { x: rect.size.width / 2,      y: rect.size.height         },
+            TopRight    => LayoutPoint { x: rect.size.width,          y: 0                        },
+            TopLeft     => LayoutPoint { x: 0,                        y: 0                        },
+            BottomRight => LayoutPoint { x: rect.size.width,          y: rect.size.height         },
+            BottomLeft  => LayoutPoint { x: 0,                        y: rect.size.height         },
         }
     }
 }
