@@ -81,28 +81,48 @@ use crate::gl::GlContextPtr;
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct Events {
-    pub window_events: HashSet<WindowEventFilter>,
-    pub hover_events: HashSet<HoverEventFilter>,
-    pub focus_events: HashSet<FocusEventFilter>,
+    pub window_events: Vec<WindowEventFilter>,
+    pub hover_events: Vec<HoverEventFilter>,
+    pub focus_events: Vec<FocusEventFilter>,
     pub old_hit_node_ids: BTreeMap<DomId, BTreeMap<NodeId, HitTestItem>>,
+    pub old_focus_node: Option<DomNodeId>,
+    pub current_window_state_mouse_is_down: bool,
+    pub previous_window_state_mouse_is_down: bool,
     pub event_was_mouse_down: bool,
     pub event_was_mouse_leave: bool,
     pub event_was_mouse_release: bool,
-    pub current_window_state_mouse_is_down: bool,
-    pub old_focus_node: Option<DomNodeId>,
 }
 
 impl Events {
     pub fn new(current_window_state: &FullWindowState, previous_window_state: &Option<FullWindowState>) -> Self {
 
         let current_window_events = get_window_events(current_window_state, previous_window_state);
-        let current_hover_events = get_hover_events(&current_window_events);
-        let current_focus_events = get_focus_events(&current_hover_events);
+        let mut current_hover_events = get_hover_events(&current_window_events);
+        let mut current_focus_events = get_focus_events(&current_hover_events);
 
         let event_was_mouse_down    = current_window_events.contains(&WindowEventFilter::MouseDown);
         let event_was_mouse_release = current_window_events.contains(&WindowEventFilter::MouseUp);
         let event_was_mouse_leave   = current_window_events.contains(&WindowEventFilter::MouseLeave);
         let current_window_state_mouse_is_down = current_window_state.mouse_state.mouse_down();
+        let previous_window_state_mouse_is_down = previous_window_state.as_ref().map(|f| f.mouse_state.mouse_down()).unwrap_or(false);
+
+        let old_focus_node = previous_window_state.as_ref().and_then(|f| f.focused_node.clone());
+        let old_hit_node_ids = previous_window_state.as_ref().map(|f| f.hovered_nodes.clone()).unwrap_or_default();
+
+        if current_window_state.hovered_nodes != old_hit_node_ids {
+            current_hover_events.insert(HoverEventFilter::MouseLeave);
+            current_hover_events.insert(HoverEventFilter::MouseEnter);
+        }
+
+        // even if there are no window events, the focus node can changed
+        if current_window_state.focused_node != old_focus_node {
+            current_focus_events.insert(FocusEventFilter::FocusReceived);
+            current_focus_events.insert(FocusEventFilter::FocusLost);
+        }
+
+        let current_hover_events = current_hover_events.into_iter().collect::<Vec<_>>();
+        let current_focus_events = current_focus_events.into_iter().collect::<Vec<_>>();
+        let current_window_events = current_window_events.into_iter().collect::<Vec<_>>();
 
         Events {
             window_events: current_window_events,
@@ -112,13 +132,23 @@ impl Events {
             event_was_mouse_release,
             event_was_mouse_leave,
             current_window_state_mouse_is_down,
-            old_focus_node: previous_window_state.as_ref().and_then(|f| f.focused_node.clone()),
-            old_hit_node_ids: previous_window_state.as_ref().map(|f| f.hovered_nodes.clone()).unwrap_or_default(),
+            previous_window_state_mouse_is_down,
+            old_focus_node,
+            old_hit_node_ids,
         }
     }
 
     pub fn is_empty(&self) -> bool {
         self.window_events.is_empty() && self.hover_events.is_empty() && self.focus_events.is_empty()
+    }
+
+    pub fn event_was_mouse_scroll(&self) -> bool {
+        // TODO: also need to look at TouchStart / TouchDrag
+        self.window_events.contains(&WindowEventFilter::Scroll)
+    }
+
+    pub fn needs_hit_test(&self) -> bool {
+        !(self.hover_events.is_empty() && self.focus_events.is_empty())
     }
 }
 
@@ -182,6 +212,14 @@ impl NodesToCheck {
             new_focus_node: new_focus_node,
             current_window_state_mouse_is_down: events.current_window_state_mouse_is_down,
         }
+    }
+
+    pub fn needs_hover_active_restyle(&self) -> bool {
+        !(self.onmouseenter_nodes.is_empty() && self.onmouseleave_nodes.is_empty())
+    }
+
+    pub fn needs_focus_result(&self) -> bool {
+        self.old_focus_node != self.new_focus_node
     }
 }
 
@@ -487,18 +525,15 @@ impl<'a> CallbacksOfHitTest<'a> {
         }
     }
 
-    /// The actual function that calls the callback in their proper hierarchy and order
+    /// The actual function that calls the callbacks in their proper hierarchy and order
     #[cfg(feature = "opengl")]
     pub fn call(
         &self,
         pipeline_id: PipelineId,
-        current_window_state: &FullWindowState,
-        scrolled_nodes: &ScrolledNodes,
+        full_window_state: &FullWindowState,
         scroll_states: &BTreeMap<DomId, BTreeMap<AzNodeId, ScrollPosition>>,
         gl_context: &GlContextPtr,
         layout_results: &mut [LayoutResult],
-        timers: &mut FastHashMap<TimerId, Timer>,
-        tasks: &mut Vec<Task>,
         modifiable_scroll_states: &mut ScrollStates,
         resources: &mut AppResources,
         relayout_cb: fn(LayoutRect, &mut LayoutResult, &mut AppResources, PipelineId, &RelayoutNodes) -> Vec<NodeId>
@@ -510,14 +545,15 @@ impl<'a> CallbacksOfHitTest<'a> {
         use crate::callbacks::{CallbackInfo, CallbackInfoPtr};
         use std::ffi::c_void;
 
-        let full_window_state = current_window_state;
         let mut ret = CallCallbacksResult {
             should_scroll_render: false,
-            callbacks_update_screen: UpdateScreen::DontRedraw,
-            modified_window_state: current_window_state.clone().into(),
+            callbacks_update_screen: UpdateScreen::DoNothing,
+            modified_window_state: full_window_state.clone().into(),
             focus_properties_changed: BTreeMap::new(),
             focus_nodes_changed_layout: BTreeMap::new(),
             update_focused_node: None,
+            timers: FastHashMap::new(),
+            tasks: Vec::new(),
         };
         let mut new_focus_target = None;
         let mut nodes_scrolled_in_callbacks = BTreeMap::new();
@@ -547,13 +583,13 @@ impl<'a> CallbacksOfHitTest<'a> {
 
                         let callback_info = CallbackInfo {
                             state: &callback_data.data,
-                            current_window_state: &current_window_state,
+                            current_window_state: &full_window_state,
                             modifiable_window_state: &mut ret.modified_window_state,
                             layout_results,
                             gl_context,
                             resources,
-                            timers,
-                            tasks,
+                            timers: &mut ret.timers,
+                            tasks: &mut ret.tasks,
                             stop_propagation: &mut stop_propagation,
                             focus_target: &mut new_focus,
                             current_scroll_states: scroll_states,
@@ -568,8 +604,16 @@ impl<'a> CallbacksOfHitTest<'a> {
                         // Invoke callback
                         let callback_return = (callback_data.callback.cb)(callback_info_ptr);
 
-                        if callback_return == UpdateScreen::Redraw {
-                            ret.callbacks_update_screen = UpdateScreen::Redraw;
+                        match callback_return {
+                            UpdateScreen::RegenerateStyledDomForCurrentWindow => {
+                                if ret.callbacks_update_screen == UpdateScreen::DoNothing { ret.callbacks_update_screen = callback_return;  }
+                            },
+                            UpdateScreen::RegenerateStyledDomForAllWindows => {
+                                if ret.callbacks_update_screen == UpdateScreen::DoNothing || ret.callbacks_update_screen == UpdateScreen::RegenerateStyledDomForCurrentWindow  {
+                                    ret.callbacks_update_screen = callback_return;
+                                }
+                            },
+                            UpdateScreen::DoNothing => { }
                         }
 
                         if let Some(new_focus) = new_focus.clone() {
@@ -596,13 +640,13 @@ impl<'a> CallbacksOfHitTest<'a> {
 
                     let callback_info = CallbackInfo {
                         state: &callback_data.data,
-                        current_window_state: &current_window_state,
+                        current_window_state: &full_window_state,
                         modifiable_window_state: &mut ret.modified_window_state,
                         layout_results,
                         gl_context,
                         resources,
-                        timers,
-                        tasks,
+                        timers: &mut ret.timers,
+                        tasks: &mut ret.tasks,
                         stop_propagation: &mut stop_propagation,
                         focus_target: &mut new_focus,
                         current_scroll_states: scroll_states,
@@ -617,8 +661,16 @@ impl<'a> CallbacksOfHitTest<'a> {
                     // Invoke callback
                     let callback_return = (callback_data.callback.cb)(callback_info_ptr);
 
-                    if callback_return == UpdateScreen::Redraw {
-                        ret.callbacks_update_screen = UpdateScreen::Redraw;
+                    match callback_return {
+                        UpdateScreen::RegenerateStyledDomForCurrentWindow => {
+                            if ret.callbacks_update_screen == UpdateScreen::DoNothing { ret.callbacks_update_screen = callback_return;  }
+                        },
+                        UpdateScreen::RegenerateStyledDomForAllWindows => {
+                            if ret.callbacks_update_screen == UpdateScreen::DoNothing || ret.callbacks_update_screen == UpdateScreen::RegenerateStyledDomForCurrentWindow  {
+                                ret.callbacks_update_screen = callback_return;
+                            }
+                        },
+                        UpdateScreen::DoNothing => { }
                     }
 
                     if let Some(new_focus) = new_focus.clone() {
@@ -635,143 +687,72 @@ impl<'a> CallbacksOfHitTest<'a> {
 
         // Scroll nodes from programmatic callbacks
         for (dom_id, callback_scrolled_nodes) in nodes_scrolled_in_callbacks.iter() {
+            let scrollable_nodes = &layout_results[dom_id.inner].scrollable_nodes;
             for (scroll_node_id, scroll_position) in callback_scrolled_nodes.iter() {
-                let overflowing_node = match scrolled_nodes.overflowing_nodes.get(&scroll_node_id) {
+                let scroll_node = match scrollable_nodes.overflowing_nodes.get(&scroll_node_id) {
                     Some(s) => s,
                     None => continue,
                 };
 
-                modifiable_scroll_states.set_scroll_position(&overflowing_node, *scroll_position);
+                modifiable_scroll_states.set_scroll_position(&scroll_node, *scroll_position);
                 ret.should_scroll_render = true;
             }
         }
 
         let new_focus_node = new_focus_target.and_then(|ft| ft.resolve(&layout_results).ok()?);
-        let focus_has_changed = current_window_state.focused_node != new_focus_node;
+        let focus_has_changed = full_window_state.focused_node != new_focus_node;
 
-        if focus_has_changed {
+        if !focus_has_changed {
+            ret.update_focused_node = None;
+            return ret;
+        }
 
-            // Restyle the old and new focus node(s) and
-            // emit On::FocusReceived / On::FocusLost events
+        // Restyle and relayout the old and new focus nodes
+        let mut old_focus_layout_props: Option<BTreeMap<NodeId, Vec<ChangedCssProperty>>> = None;
 
-            let mut old_focus_layout_props: Option<BTreeMap<NodeId, Vec<ChangedCssProperty>>> = None;
+        if let Some(old_focus) = full_window_state.focused_node {
 
-            if let Some(old_focus) = current_window_state.focused_node {
+            let old_focus_node_id = old_focus.node.into_crate_internal().unwrap();
+            let old_focus_restyle_props = layout_results[old_focus.dom.inner].styled_dom.styled_nodes.as_container_mut()[old_focus.node.into_crate_internal().unwrap()].restyle_focus();
+            ret.focus_properties_changed.entry(old_focus.dom).or_insert_with(|| ChangedCssPropertyVec::new()).append(&mut old_focus_restyle_props.clone());
+            let old_focus_relayout_props = old_focus_restyle_props.iter().filter(|p| p.previous_prop.get_type().can_trigger_relayout()).cloned().collect();
 
-                let old_focus_node_id = old_focus.node.into_crate_internal().unwrap();
-                let old_focus_restyle_props = layout_results[old_focus.dom.inner].styled_dom.styled_nodes.as_container_mut()[old_focus.node.into_crate_internal().unwrap()].restyle_focus();
-                ret.focus_properties_changed.entry(old_focus.dom).or_insert_with(|| ChangedCssPropertyVec::new()).append(&mut old_focus_restyle_props.clone());
-                let old_focus_relayout_props = old_focus_restyle_props.iter().filter(|p| p.previous_prop.get_type().can_trigger_relayout()).cloned().collect();
-
-                // if the old_focus.dom_id and the new_focus.dom_id differ, relayout the old_dom.dom_id first
-                // (avoids calling relayout_cb) twice
-                let mut needs_to_relayout_old_dom = false;
-                if let Some(new_focus) = new_focus_node {
-                    if new_focus.dom != old_focus.dom { needs_to_relayout_old_dom = true; }
-                }
-
-                let mut of_relayout_props = BTreeMap::new();
-                of_relayout_props.insert(old_focus_node_id, old_focus_relayout_props);
-
-                if needs_to_relayout_old_dom {
-                    let old_dom_size = layout_results[old_focus.dom.inner].get_bounds();
-                    let mut relayouted_nodes = (relayout_cb)(old_dom_size, &mut layout_results[old_focus.dom.inner], resources, pipeline_id, &of_relayout_props);
-                    ret.focus_nodes_changed_layout.entry(old_focus.dom).or_insert_with(|| Vec::new()).append(&mut relayouted_nodes);
-                } else {
-                    // defer the layout until the second focus node
-                    old_focus_layout_props = Some(of_relayout_props.clone());
-                }
-
-                // Call the On::FocusLost event
-                if let Some(callback_data) = layout_results[old_focus.dom.inner].styled_dom.node_data.as_container()[old_focus.node.into_crate_internal().unwrap()].get_callbacks().iter().find(|c| c.event == EventFilter::Focus(FocusEventFilter::FocusLost)) {
-                    let mut new_focus_id = None;
-                    let mut stop_propagation = false;
-
-                    let callback_info = CallbackInfo {
-                        state: &callback_data.data,
-                        current_window_state: &current_window_state,
-                        modifiable_window_state: &mut ret.modified_window_state,
-                        layout_results,
-                        gl_context,
-                        resources,
-                        timers,
-                        tasks,
-                        stop_propagation: &mut stop_propagation,
-                        focus_target: &mut new_focus_id,
-                        current_scroll_states: scroll_states,
-                        nodes_scrolled_in_callback: &mut nodes_scrolled_in_callbacks,
-                        hit_dom_node: old_focus,
-                        cursor_relative_to_item: None,
-                        cursor_in_viewport: None,
-                    };
-
-                    let callback_info_ptr = CallbackInfoPtr { ptr: Box::into_raw(Box::new(callback_info)) as *mut c_void };
-
-                    // Invoke callback
-                    let callback_return = (callback_data.callback.cb)(callback_info_ptr);
-
-                    if callback_return == UpdateScreen::Redraw {
-                        ret.callbacks_update_screen = UpdateScreen::Redraw;
-                    }
-
-                    // ignore new_focus and stop_propagation
-                }
+            // if the old_focus.dom_id and the new_focus.dom_id differ, relayout the old_dom.dom_id first
+            // (avoids calling relayout_cb) twice
+            let mut needs_to_relayout_old_dom = false;
+            if let Some(new_focus) = new_focus_node {
+                if new_focus.dom != old_focus.dom { needs_to_relayout_old_dom = true; }
             }
 
-            if let Some(new_focus) = new_focus_node {
+            let mut of_relayout_props = BTreeMap::new();
+            of_relayout_props.insert(old_focus_node_id, old_focus_relayout_props);
 
-                let new_focus_node_id = new_focus.node.into_crate_internal().unwrap();
-                let new_dom_size = layout_results[new_focus.dom.inner].get_bounds();
-                let new_focus_restyle_props = layout_results[new_focus.dom.inner].styled_dom.styled_nodes.as_container_mut()[new_focus.node.into_crate_internal().unwrap()].restyle_focus();
-                ret.focus_properties_changed.entry(new_focus.dom).or_insert_with(|| ChangedCssPropertyVec::new()).append(&mut new_focus_restyle_props.clone());
-                let mut new_focus_relayout_props = new_focus_restyle_props.iter().filter(|p| p.previous_prop.get_type().can_trigger_relayout()).cloned().collect();
-
-                let mut combined_layout_props = old_focus_layout_props.unwrap_or_default();
-                combined_layout_props.entry(new_focus_node_id).or_insert_with(|| Vec::new()).append(&mut new_focus_relayout_props);
-
-                let mut relayouted_nodes = (relayout_cb)(new_dom_size, &mut layout_results[new_focus.dom.inner], resources, pipeline_id, &combined_layout_props);
-                ret.focus_nodes_changed_layout.entry(new_focus.dom).or_insert_with(|| Vec::new()).append(&mut relayouted_nodes);
-
-                if let Some(callback_data) = layout_results[new_focus.dom.inner].styled_dom.node_data.as_container()[new_focus.node.into_crate_internal().unwrap()].get_callbacks().iter().find(|c| c.event == EventFilter::Focus(FocusEventFilter::FocusLost)) {
-
-                    let mut new_focus_id = None;
-                    let mut stop_propagation = false;
-
-                    let callback_info = CallbackInfo {
-                        state: &callback_data.data,
-                        current_window_state: &current_window_state,
-                        modifiable_window_state: &mut ret.modified_window_state,
-                        layout_results,
-                        gl_context,
-                        resources,
-                        timers,
-                        tasks,
-                        stop_propagation: &mut stop_propagation,
-                        focus_target: &mut new_focus_id,
-                        current_scroll_states: scroll_states,
-                        nodes_scrolled_in_callback: &mut nodes_scrolled_in_callbacks,
-                        hit_dom_node: new_focus,
-                        cursor_relative_to_item: None,
-                        cursor_in_viewport: None,
-                    };
-
-                    let callback_info_ptr = CallbackInfoPtr { ptr: Box::into_raw(Box::new(callback_info)) as *mut c_void };
-
-                    // Invoke callback
-                    let callback_return = (callback_data.callback.cb)(callback_info_ptr);
-
-                    if callback_return == UpdateScreen::Redraw {
-                        ret.callbacks_update_screen = UpdateScreen::Redraw;
-                    }
-
-                    // ignore new_focus and stop_propagation
-                }
+            if needs_to_relayout_old_dom {
+                let old_dom_size = layout_results[old_focus.dom.inner].get_bounds();
+                let mut relayouted_nodes = (relayout_cb)(old_dom_size, &mut layout_results[old_focus.dom.inner], resources, pipeline_id, &of_relayout_props);
+                ret.focus_nodes_changed_layout.entry(old_focus.dom).or_insert_with(|| Vec::new()).append(&mut relayouted_nodes);
+            } else {
+                // defer the layout until the second focus node
+                old_focus_layout_props = Some(of_relayout_props.clone());
             }
         }
 
-        // Update the FullWindowState that we got from the frame event
-        // (updates window dimensions and DPI)
-        ret.update_focused_node = if focus_has_changed { Some(new_focus_node) } else { None };
+        if let Some(new_focus) = new_focus_node {
+
+            let new_focus_node_id = new_focus.node.into_crate_internal().unwrap();
+            let new_dom_size = layout_results[new_focus.dom.inner].get_bounds();
+            let new_focus_restyle_props = layout_results[new_focus.dom.inner].styled_dom.styled_nodes.as_container_mut()[new_focus.node.into_crate_internal().unwrap()].restyle_focus();
+            ret.focus_properties_changed.entry(new_focus.dom).or_insert_with(|| ChangedCssPropertyVec::new()).append(&mut new_focus_restyle_props.clone());
+            let mut new_focus_relayout_props = new_focus_restyle_props.iter().filter(|p| p.previous_prop.get_type().can_trigger_relayout()).cloned().collect();
+
+            let mut combined_layout_props = old_focus_layout_props.unwrap_or_default();
+            combined_layout_props.entry(new_focus_node_id).or_insert_with(|| Vec::new()).append(&mut new_focus_relayout_props);
+
+            let mut relayouted_nodes = (relayout_cb)(new_dom_size, &mut layout_results[new_focus.dom.inner], resources, pipeline_id, &combined_layout_props);
+            ret.focus_nodes_changed_layout.entry(new_focus.dom).or_insert_with(|| Vec::new()).append(&mut relayouted_nodes);
+        }
+
+        ret.update_focused_node = Some(new_focus_node);
 
         ret
     }
@@ -780,6 +761,7 @@ impl<'a> CallbacksOfHitTest<'a> {
 fn get_window_events(current_window_state: &FullWindowState, previous_window_state: &Option<FullWindowState>) -> HashSet<WindowEventFilter> {
 
     use crate::window::CursorPosition::*;
+    use crate::window::WindowPosition;
 
     let mut events_vec = HashSet::<WindowEventFilter>::new();
 
@@ -787,6 +769,33 @@ fn get_window_events(current_window_state: &FullWindowState, previous_window_sta
         Some(s) => s,
         None => return events_vec,
     };
+
+    // resize, move, close events
+
+    if current_window_state.flags.has_focus != previous_window_state.flags.has_focus {
+        if current_window_state.flags.has_focus {
+            events_vec.insert(WindowEventFilter::FocusReceived);
+        } else {
+            events_vec.insert(WindowEventFilter::FocusLost);
+        }
+    }
+
+    if current_window_state.size.dimensions != previous_window_state.size.dimensions ||
+       current_window_state.size.hidpi_factor != previous_window_state.size.hidpi_factor ||
+       current_window_state.size.system_hidpi_factor != previous_window_state.size.system_hidpi_factor {
+        events_vec.insert(WindowEventFilter::Resized);
+    }
+
+    match (current_window_state.position, previous_window_state.position) {
+        (WindowPosition::Initialized(cur_pos), WindowPosition::Initialized(prev_pos)) => {
+            events_vec.insert(WindowEventFilter::Moved);
+        },
+        _ => { }
+    }
+
+    if current_window_state.flags.is_about_to_close {
+        events_vec.insert(WindowEventFilter::CloseRequested);
+    }
 
     // mouse move events
 
@@ -806,8 +815,6 @@ fn get_window_events(current_window_state: &FullWindowState, previous_window_sta
         },
         _ => { },
     }
-
-    // click events
 
     if current_window_state.mouse_state.mouse_down() && !previous_window_state.mouse_state.mouse_down() {
         events_vec.insert(WindowEventFilter::MouseDown);
@@ -889,6 +896,10 @@ fn get_window_events(current_window_state: &FullWindowState, previous_window_sta
         } else {
             events_vec.insert(WindowEventFilter::HoveredFileCancelled);
         }
+    }
+
+    if current_window_state.theme != previous_window_state.theme {
+        events_vec.insert(WindowEventFilter::ThemeChanged);
     }
 
     events_vec

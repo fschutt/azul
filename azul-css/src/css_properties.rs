@@ -328,10 +328,10 @@ impl fmt::Display for ColorU {
 }
 
 impl ColorU {
-    pub const RED: ColorU = ColorU { r: 255, g: 0, b: 0, a: 255 };
-    pub const WHITE: ColorU = ColorU { r: 255, g: 255, b: 255, a: 255 };
-    pub const BLACK: ColorU = ColorU { r: 0, g: 0, b: 0, a: 255 };
-    pub const TRANSPARENT: ColorU = ColorU { r: 0, g: 0, b: 0, a: 0 };
+    pub const RED: ColorU = ColorU { r: 255, g: 0, b: 0, a: 0 };
+    pub const WHITE: ColorU = ColorU { r: 255, g: 255, b: 255, a: 0 };
+    pub const BLACK: ColorU = ColorU { r: 0, g: 0, b: 0, a: 0 };
+    pub const TRANSPARENT: ColorU = ColorU { r: 0, g: 0, b: 0, a: 255 };
 
     pub fn write_hash(&self, f: &mut fmt::Formatter) -> fmt::Result {
         write!(f, "#{:x}{:x}{:x}{:x}", self.r, self.g, self.b, self.a)

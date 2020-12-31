@@ -76,20 +76,21 @@ impl CachedDisplayList {
         epoch: Epoch,
         pipeline_id: PipelineId,
         full_window_state: &FullWindowState,
-        solved_layout: &SolvedLayout,
+        layout_results: &[LayoutResult],
+        gl_texture_cache: &GlTextureCache,
         app_resources: &AppResources,
     ) -> Self {
         const DOM_ID: DomId = DomId::ROOT_ID;
         CachedDisplayList {
             root: push_rectangles_into_displaylist(
-                &solved_layout.solved_layout_cache[DOM_ID.inner].styled_dom.rects_in_rendering_order,
+                &layout_results[DOM_ID.inner].styled_dom.rects_in_rendering_order,
                 &DisplayListParametersRef {
                     dom_id: DOM_ID,
                     epoch,
                     pipeline_id,
                     full_window_state,
-                    layout_results: &solved_layout.solved_layout_cache[..],
-                    gl_texture_cache: &solved_layout.gl_texture_cache,
+                    layout_results: &layout_results,
+                    gl_texture_cache: &gl_texture_cache,
                     app_resources,
                 },
             )
@@ -534,7 +535,7 @@ pub type GlStoreImageFn = fn(PipelineId, Epoch, Texture) -> ExternalImageId;
 
 #[derive(Default)]
 pub struct SolvedLayout {
-    pub solved_layout_cache: Vec<LayoutResult>,
+    pub layout_results: Vec<LayoutResult>,
     pub gl_texture_cache: GlTextureCache,
 }
 
@@ -678,7 +679,7 @@ impl SolvedLayout {
         add_resources(app_resources, render_api, &pipeline_id, Vec::new(), image_resource_updates);
 
         SolvedLayout {
-            solved_layout_cache: layout_results,
+            layout_results,
             gl_texture_cache,
         }
     }

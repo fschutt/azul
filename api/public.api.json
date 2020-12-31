@@ -2056,10 +2056,9 @@
 					"external": "azul_impl::callbacks::UpdateScreen",
 					"doc": "Specifies if the screen should be updated after the callback function has returned",
 					"enum_fields": [
-						{"Redraw": {"doc": "After the callback is called, the screen needs to redraw (layout() function being called again)"}},
-						{"DontRedraw": {"doc": "The screen does not need to redraw after the callback has been called"}},
-						{"UpdateScrollStates": {"doc": "The callback only changed the scroll positions of nodes (no re-layout is done)"}},
-						{"UpdateTransforms": {"doc": "Update **scroll states + GPU transforms** and redraw (no re-layout is done)"}}
+						{"RedrawCurrentWindow": {"doc": "After the callback is called, the screen needs to redraw (layout() function being called again)"}},
+						{"RedrawAllWindows": {"doc": "After the callback is called, the layout() function needs to be called again for ALL windows"}},
+						{"DontRedraw": {"doc": "The screen does not need to redraw after the callback has been called"}}
 					],
 					"use_patches": ["rust"]
 				},
@@ -4750,7 +4749,11 @@
 						{ "VirtualKeyUp": {}} ,
 						{ "HoveredFile": {}} ,
 						{ "DroppedFile": {}} ,
-						{ "HoveredFileCancelled": {}}
+						{ "HoveredFileCancelled": {}},
+						{"TouchStart": {}},
+						{"TouchMove": {}},
+						{"TouchEnd": {}},
+						{"TouchCancel": {}}
 					]
 				},
 				"FocusEventFilter": {
@@ -4806,7 +4809,17 @@
 						{ "VirtualKeyUp": {}} ,
 						{ "HoveredFile": {}} ,
 						{ "DroppedFile": {}} ,
-						{ "HoveredFileCancelled": {}}
+						{ "HoveredFileCancelled": {}},
+						{ "Resized": {}},
+						{ "Moved": {}},
+						{ "TouchStart": {}},
+						{ "TouchMove": {}},
+						{ "TouchEnd": {}},
+						{ "TouchCancel": {}},
+						{ "WindowFocusReceived": {}},
+						{ "WindowFocusLost": {}},
+						{ "WindowCloseRequested": {}},
+						{ "ThemeChanged": {}}
 					]
 				},
 				"TabIndex": {
@@ -7546,7 +7559,7 @@
 					"struct_fields": [
 						{"dimensions": {"type": "LogicalSize"}},
 						{"hidpi_factor": {"type": "f32"}},
-						{"winit_hidpi_factor": {"type": "f32"}},
+						{"system_hidpi_factor": {"type": "f32"}},
 						{"min_dimensions": {"type": "OptionLogicalSize"}},
 						{"max_dimensions": {"type": "OptionLogicalSize"}}
 					]
@@ -7556,10 +7569,13 @@
 					"struct_fields": [
 						{"is_maximized": {"type": "bool", "doc": "Is the window currently maximized"}},
 						{"is_fullscreen": {"type": "bool", "doc": "Is the window currently fullscreened?"}},
+						{"is_about_to_close": {"type": "bool", "doc": "Is the window about to close on the next frame? Setting this to true will close the window."}},
 						{"has_decorations": {"type": "bool", "doc": "Does the window have decorations (close, minimize, maximize, title bar)?"}},
 						{"is_visible": {"type": "bool", "doc": "Is the window currently visible?"}},
 						{"is_always_on_top": {"type": "bool", "doc": "Is the window always on top?"}},
-						{"is_resizable": {"type": "bool", "doc": "Whether the window is resizable"}}
+						{"is_resizable": {"type": "bool", "doc": "Whether the window is resizable"}},
+						{"has_focus": {"type": "bool", "doc": "Whether the window is currently focused (changing this field will request user attention)"}},
+						{"has_blur_behind_window": {"type": "bool", "doc": "Whether the window has a background blur"}}
 					]
 				},
 				"DebugState": {
@@ -7666,6 +7682,7 @@
 				"WindowsWindowOptions": {
 					"external": "azul_impl::window::WindowsWindowOptions",
 					"struct_fields": [
+						{"allow_drag_drop": {"type": "bool", "doc": "STARTUP ONLY: Whether the window should allow drag + drop operations (default: true)"}},
 						{"no_redirection_bitmap": {"type": "bool", "doc": "STARTUP ONLY: Sets `WS_EX_NOREDIRECTIONBITMAP`"}},
 						{"window_icon": {"type": "OptionWindowIcon", "doc": "STARTUP ONLY: Window icon (decoded bytes), usually 32x32x4 bytes large (`ICON_SMALL`), appears at the top right corner of the window"}},
 						{"taskbar_icon": {"type": "OptionTaskBarIcon", "doc": "READWRITE: Taskbar icon (decoded bytes), usually 256x256x4 bytes large (`ICON_BIG`). Can be changed in callbacks / at runtime."}},
@@ -7743,17 +7760,46 @@
 						{"FastWindowed": {"doc": "If the window is in fullscreen mode, will immediately go back to windowed mode (on macOS this is not the default behaviour)."}}
 					]
 				},
+				"WindowTheme": {
+					"external": "azul_impl::window::WindowTheme",
+					"enum_fields": [
+						{"Dark": {}},
+						{"Light": {}}
+					]
+				},
+				"WindowPosition": {
+					"external": "azul_impl::window::WindowPosition",
+					"enum_fields": [
+						{"Uninitialized": {}},
+						{"Initialized": {"type": "PhysicalPositionI32"}}
+					]
+				},
+				"ImePosition": {
+					"external": "azul_impl::window::ImePosition",
+					"enum_fields": [
+						{"Uninitialized": {}},
+						{"Initialized": {"type": "LogicalPosition"}}
+					]
+				},
+				"TouchState": {
+					"external": "azul_impl::window::TouchState",
+					"struct_fields": [
+						{"unused": {"type": "u8"}}
+					]
+				},
 				"WindowState": {
 					"external": "azul_impl::window::WindowState",
 					"struct_fields": [
+						{"theme": {"type": "WindowTheme", "doc": "Current theme of the window (dark or light mode)"}},
 						{"title": {"type": "String", "doc": "Current title of the window"}},
 						{"size": {"type": "WindowSize", "doc": "Size of the window + max width / max height: 800 x 600 by default"}},
-						{"position": {"type": "OptionPhysicalPositionI32", "doc": "The x and y position, or None to let the WM decide where to put the window (default)"}},
+						{"position": {"type": "WindowPosition", "doc": "The x and y position, or None to let the WM decide where to put the window (default)"}},
 						{"flags": {"type": "WindowFlags", "doc": "Flags such as whether the window is minimized / maximized, fullscreen, etc."}},
 						{"debug_state": {"type": "DebugState", "doc": "Mostly used for debugging, shows WebRender-builtin graphs on the screen. Used for performance monitoring and displaying frame times (rendering-only)."}},
 						{"keyboard_state": {"type": "KeyboardState", "doc": "Current keyboard state - NOTE: mutating this field (currently) does nothing (doesn't get synchronized with OS-level window)!"}},
 						{"mouse_state": {"type": "MouseState", "doc": "Current mouse state"}},
-						{"ime_position": {"type": "OptionLogicalPosition", "doc": "Sets location of IME candidate box in client area coordinates (relative to the top left of the window)"}},
+						{"touch_state": {"type": "TouchState", "doc": "Current touch state, stores all states of currently connected touch input devices, pencils, tablets, etc. - NOTE: readonly field - mutating this field will not get synchronized with the OS"}},
+						{"ime_position": {"type": "ImePosition", "doc": "Sets location of IME candidate box in client area coordinates (relative to the top left of the window)"}},
 						{"platform_specific_options": {"type": "PlatformSpecificOptions", "doc": "Window options that can only be set on a certain platform (`WindowsWindowOptions` / `LinuxWindowOptions` / `MacWindowOptions`)."}},
 						{"layout_callback": {"type": "LayoutCallback"}}
 					],
@@ -7777,7 +7823,8 @@
 					"external": "azul_impl::window::WindowCreateOptions",
 					"struct_fields": [
 						{"state": {"type": "WindowState"}},
-						{"renderer_type": {"type": "RendererType"}}
+						{"renderer_type": {"type": "RendererType"}},
+						{"background_color": {"type": "ColorU"}}
 					],
 					"constructors": {
 						"new": {

@@ -213,7 +213,7 @@ impl Timer {
         // Check if the timers timeout is reached
         if let OptionDuration::Some(timeout) = self.timeout {
             if instant_now - self.created.get() > timeout.get() {
-                return TimerCallbackReturn { should_update: UpdateScreen::DontRedraw, should_terminate: TerminateTimer::Terminate };
+                return TimerCallbackReturn { should_update: UpdateScreen::DoNothing, should_terminate: TerminateTimer::Terminate };
             }
         }
 
@@ -223,7 +223,7 @@ impl Timer {
                 None => self.created.get() + delay.get(),
             };
             if instant_now - last_run < interval.get() {
-                return TimerCallbackReturn { should_update: UpdateScreen::DontRedraw, should_terminate: TerminateTimer::Continue };
+                return TimerCallbackReturn { should_update: UpdateScreen::DoNothing, should_terminate: TerminateTimer::Continue };
             }
         }
 
@@ -429,7 +429,7 @@ pub fn run_all_timers(
     resources: &mut AppResources,
 ) -> UpdateScreen {
 
-    let mut should_update_screen = UpdateScreen::DontRedraw;
+    let mut should_update_screen = UpdateScreen::DoNothing;
     let mut timers_to_terminate = Vec::new();
 
     for (key, timer) in timers.iter_mut() {
@@ -438,8 +438,18 @@ pub fn run_all_timers(
             app_resources: resources,
         });
 
-        if should_update == UpdateScreen::Redraw {
-            should_update_screen = UpdateScreen::Redraw;
+        match should_update {
+            UpdateScreen::RegenerateStyledDomForCurrentWindow => {
+                if should_update_screen == UpdateScreen::DoNothing {
+                    should_update_screen = should_update;
+                }
+            },
+            UpdateScreen::RegenerateStyledDomForAllWindows => {
+                if should_update_screen == UpdateScreen::DoNothing || should_update_screen == UpdateScreen::RegenerateStyledDomForCurrentWindow  {
+                    should_update_screen = should_update;
+                }
+            },
+            UpdateScreen::DoNothing => { }
         }
 
         if should_terminate == TerminateTimer::Terminate {
@@ -484,8 +494,8 @@ pub fn clean_up_finished_tasks(
     }
 
     if old_count == new_count && timers_is_empty {
-        UpdateScreen::DontRedraw
+        UpdateScreen::DoNothing
     } else {
-        UpdateScreen::Redraw
+        UpdateScreen::RegenerateStyledDomForCurrentWindow
     }
 }

@@ -7,18 +7,19 @@ use std::{
     path::PathBuf,
     ffi::c_void,
 };
-use azul_css::{U8Vec, AzString, Css, LayoutPoint, LayoutRect, CssPath};
+use azul_css::{U8Vec, ColorU, AzString, Css, LayoutPoint, LayoutRect, CssPath};
 use crate::{
     FastHashMap,
-    app_resources::Epoch,
+    app_resources::{AppResources, Epoch, FontImageApi},
     dom::{EventFilter, CallbackData},
     styled_dom::{DomId, AzNodeId, ChangedCssProperty, ChangedCssPropertyVec},
     id_tree::NodeId,
     task::AzDuration,
-    callbacks::{PipelineId, DocumentId, Callback, DomNodeId, ScrollPosition, HitTestItem, UpdateScreen},
+    callbacks::{PipelineId, RefAny, DocumentId, Callback, DomNodeId, ScrollPosition, HitTestItem, UpdateScreen},
     ui_solver::{OverflowingScrollNode, HitTest, LayoutResult, ExternalScrollId, ScrolledNodes},
-    display_list::{GlTextureCache, CachedDisplayList},
+    display_list::{GlTextureCache, RenderCallbacks, CachedDisplayList},
     callbacks::{LayoutCallback, LayoutCallbackType},
+    task::{TimerId, Timer, Task},
 };
 
 #[cfg(feature = "opengl")]
@@ -227,6 +228,29 @@ impl MouseState {
     pub fn get_scroll(&self) -> (f32, f32) {
         (self.get_scroll_x(), self.get_scroll_y())
     }
+
+    pub fn get_scroll_amount(&self) -> Option<(f32, f32)> {
+        const SCROLL_THRESHOLD: f32 = 0.5; // px
+
+        if self.scroll_x.is_none() && self.scroll_y.is_none() {
+            return None;
+        }
+
+        let scroll_x = self.get_scroll_x();
+        let scroll_y = self.get_scroll_y();
+
+        if scroll_x.abs() < SCROLL_THRESHOLD && scroll_y.abs() < SCROLL_THRESHOLD {
+            return None;
+        }
+
+        Some((scroll_x, scroll_y))
+    }
+
+    /// Function reset the `scroll_x` and `scroll_y` to `None` to clear the scroll amount
+    pub fn reset_scroll_to_zero(&mut self) {
+        self.scroll_x = OptionF32::None;
+        self.scroll_y = OptionF32::None;
+    }
 }
 
 #[derive(Debug, Copy, Clone, PartialEq, PartialOrd)]
@@ -290,6 +314,24 @@ pub struct DebugState {
 pub struct ScrollStates(pub FastHashMap<ExternalScrollId, ScrollState>);
 
 impl ScrollStates {
+
+    /// Special rendering function that skips building a layout and only does
+    /// hit-testing and rendering - called on pure scroll events, since it's
+    /// significantly less CPU-intensive to just render the last display list instead of
+    /// re-layouting on every single scroll event.
+    #[must_use]
+    pub fn should_scroll_render(&mut self, (scroll_x, scroll_y): &(f32, f32), hit_test: &FullHitTest) -> bool {
+        let mut should_scroll_render = false;
+
+        for (dom_id, hit_test) in hit_test.hovered_nodes.iter() {
+            for (node_id, scroll_hit_test_item) in hit_test.scroll_hit_test_nodes.iter() {
+                self.scroll_node(&scroll_hit_test_item.scroll_node, *scroll_x, *scroll_y);
+                should_scroll_render = true;
+            }
+        }
+
+        should_scroll_render
+    }
 
     pub fn new() -> ScrollStates {
         ScrollStates::default()
@@ -388,21 +430,19 @@ pub fn update_full_window_state(
     full_window_state.platform_specific_options = window_state.platform_specific_options.clone();
 }
 
-/// Resets the mouse states `scroll_x` and `scroll_y` to 0
-pub fn clear_scroll_state(window_state: &mut FullWindowState) {
-    window_state.mouse_state.scroll_x = OptionF32::None;
-    window_state.mouse_state.scroll_y = OptionF32::None;
-}
-
 pub struct WindowInternal {
     /// Renderer type: Hardware-with-software-fallback, pure software or pure hardware renderer?
     pub renderer_type: RendererType,
-    /// Previous state of the window (initialized to None on startup), to abstract the event diffing
-    pub previous_state: Option<FullWindowState>,
-    /// Window state of this current window
-    pub state: FullWindowState,
+    /// Windows state of the window of (current frame - 1): initialized to None on startup
+    pub previous_window_state: Option<FullWindowState>,
+    /// Window state of this current window (current frame): initialized to the state of WindowCreateOptions
+    pub current_window_state: FullWindowState,
     /// A "document" in WebRender usually corresponds to one tab (i.e. in Azuls case, the whole window).
     pub document_id: DocumentId,
+    /// Stores at which points the UI has to be reloaded (if the window width increases or decreases above / below these thresholds)
+    pub stop_sizes_width: Vec<f32>,
+    /// Stores at which point the UI has to be reloaded (if the window height increases or decreases above / below these thresholds)
+    pub stop_sizes_height: Vec<f32>,
     /// One "document" (tab) can have multiple "pipelines" (important for hit-testing).
     ///
     /// A document can have multiple pipelines, for example in Firefox the tab / navigation bar,
@@ -416,8 +456,6 @@ pub struct WindowInternal {
     pub layout_results: Vec<LayoutResult>,
     /// Currently GL textures inside the active CachedDisplayList
     pub gl_texture_cache: GlTextureCache,
-    /// Current scroll states of nodes (x and y position of where they are scrolled)
-    pub scrolled_nodes: BTreeMap<DomId, ScrolledNodes>,
     /// States of scrolling animations, updated every frame
     pub scroll_states: ScrollStates,
 }
@@ -429,6 +467,7 @@ pub struct FullHitTest {
 }
 
 impl FullHitTest {
+
     /// Does the hit-test for all hovered nodes
     ///
     /// NOTE: This is much faster than calling webrender
@@ -485,16 +524,211 @@ impl FullHitTest {
     }
 }
 
+
+#[derive(Debug, Clone, Default, PartialEq)]
+pub struct CursorTypeHitTest {
+    /// closest-node is used for determining the cursor: property
+    /// The node is guaranteed to have a non-default cursor: property,
+    /// so that the cursor icon can be set accordingly
+    pub cursor_node: Option<(DomId, NodeId)>,
+    /// Mouse cursor type to set (if cursor_node is None, this is set to `MouseCursorType::Default`)
+    pub cursor_icon: MouseCursorType,
+}
+
+impl CursorTypeHitTest {
+    pub fn new(hit_test: &FullHitTest, layout_results: &[LayoutResult]) -> Self {
+
+        use azul_css::StyleCursor;
+
+        let mut cursor_node = None;
+        let mut cursor_icon = MouseCursorType::Default;
+
+        for (dom_id, hit_nodes) in hit_test.hovered_nodes.iter() {
+            for (node_id, _) in hit_nodes.regular_hit_test_nodes. iter() {
+
+                // if the node has a non-default cursor: property, insert it
+                if let Some(cursor_prop) = layout_results[dom_id.inner].styled_dom.styled_nodes.as_container()[*node_id].style.cursor {
+                    cursor_node = Some((*dom_id, *node_id));
+                    cursor_icon = match cursor_prop.get_property().copied().unwrap_or_default() {
+                        StyleCursor::Alias => MouseCursorType::Alias,
+                        StyleCursor::AllScroll => MouseCursorType::AllScroll,
+                        StyleCursor::Cell => MouseCursorType::Cell,
+                        StyleCursor::ColResize => MouseCursorType::ColResize,
+                        StyleCursor::ContextMenu => MouseCursorType::ContextMenu,
+                        StyleCursor::Copy => MouseCursorType::Copy,
+                        StyleCursor::Crosshair => MouseCursorType::Crosshair,
+                        StyleCursor::Default => MouseCursorType::Default,
+                        StyleCursor::EResize => MouseCursorType::EResize,
+                        StyleCursor::EwResize => MouseCursorType::EwResize,
+                        StyleCursor::Grab => MouseCursorType::Grab,
+                        StyleCursor::Grabbing => MouseCursorType::Grabbing,
+                        StyleCursor::Help => MouseCursorType::Help,
+                        StyleCursor::Move => MouseCursorType::Move,
+                        StyleCursor::NResize => MouseCursorType::NResize,
+                        StyleCursor::NsResize => MouseCursorType::NsResize,
+                        StyleCursor::NeswResize => MouseCursorType::NeswResize,
+                        StyleCursor::NwseResize => MouseCursorType::NwseResize,
+                        StyleCursor::Pointer => MouseCursorType::Hand,
+                        StyleCursor::Progress => MouseCursorType::Progress,
+                        StyleCursor::RowResize => MouseCursorType::RowResize,
+                        StyleCursor::SResize => MouseCursorType::SResize,
+                        StyleCursor::SeResize => MouseCursorType::SeResize,
+                        StyleCursor::Text => MouseCursorType::Text,
+                        StyleCursor::Unset => MouseCursorType::Default,
+                        StyleCursor::VerticalText => MouseCursorType::VerticalText,
+                        StyleCursor::WResize => MouseCursorType::WResize,
+                        StyleCursor::Wait => MouseCursorType::Wait,
+                        StyleCursor::ZoomIn => MouseCursorType::ZoomIn,
+                        StyleCursor::ZoomOut => MouseCursorType::ZoomOut,
+                    }
+                }
+            }
+        }
+
+        Self {
+            cursor_node,
+            cursor_icon,
+        }
+    }
+}
+pub struct WindowInternalInit {
+    pub window_create_options: WindowCreateOptions,
+    pub document_id: DocumentId,
+    pub pipeline_id: PipelineId,
+}
+
 impl WindowInternal {
+
+    /// Initializes the `WindowInternal` on window creation. Calls the layout() method once to initializes the layout
+    #[cfg(feature = "opengl")]
+    pub fn new<U: FontImageApi>(init: WindowInternalInit, data: RefAny, app_resources: &mut AppResources, gl_context: &GlContextPtr, render_api: &mut U, callbacks: RenderCallbacks<U>) -> Self {
+
+        use crate::callbacks::{LayoutInfo, LayoutInfoPtr};
+        use crate::display_list::SolvedLayout;
+
+        let mut stop_sizes_width = Vec::new();
+        let mut stop_sizes_height = Vec::new();
+
+        let current_window_state: FullWindowState = init.window_create_options.state.into();
+
+        let styled_dom = {
+
+            let layout_callback = current_window_state.layout_callback.clone();
+            let layout_info = LayoutInfo {
+                window_size: &current_window_state.size,
+                window_size_width_stops: &mut stop_sizes_width,
+                window_size_height_stops: &mut stop_sizes_height,
+                resources: app_resources,
+            };
+            let layout_info_ptr = LayoutInfoPtr { ptr: Box::into_raw(Box::new(layout_info)) as *mut c_void };
+
+            let mut styled_dom = (layout_callback.cb)(data, layout_info_ptr);
+
+            let hovered_nodes = current_window_state.hovered_nodes.get(&DomId::ROOT_ID).map(|k| k.keys().cloned().collect::<Vec<_>>()).unwrap_or_default();
+            let active_nodes = if !current_window_state.mouse_state.mouse_down() { Vec::new() } else { hovered_nodes.clone() };
+
+            if !hovered_nodes.is_empty() { let _ = styled_dom.styled_nodes.restyle_nodes_hover(&hovered_nodes); }
+            if !active_nodes.is_empty() { let _ = styled_dom.styled_nodes.restyle_nodes_hover(&active_nodes); }
+            if let Some(focus) = current_window_state.focused_node.as_ref() {
+                if focus.dom == DomId::ROOT_ID {
+                    let _ = styled_dom.styled_nodes.restyle_nodes_hover(&[focus.node.into_crate_internal().unwrap()]);
+                }
+            }
+
+            styled_dom
+        };
+
+        let epoch = Epoch(0);
+
+        let SolvedLayout { layout_results, gl_texture_cache } = SolvedLayout::new(
+            styled_dom,
+            epoch,
+            init.pipeline_id,
+            &current_window_state,
+            gl_context,
+            render_api,
+            app_resources,
+            callbacks,
+        );
+
+        WindowInternal {
+            renderer_type: init.window_create_options.renderer_type,
+            stop_sizes_width,
+            stop_sizes_height,
+            previous_window_state: None,
+            current_window_state,
+            document_id: init.document_id,
+            pipeline_id: init.pipeline_id,
+            epoch, // = 0
+            layout_results,
+            gl_texture_cache,
+            scroll_states: ScrollStates::default()
+        }
+    }
+
+    /// Calls the layout function again and updates the self.internal.gl_texture_cache field
+    #[cfg(feature = "opengl")]
+    pub fn relayout<U: FontImageApi>(&mut self, data: RefAny, app_resources: &mut AppResources, gl_context: &GlContextPtr, render_api: &mut U, callbacks: RenderCallbacks<U>) {
+
+        use crate::callbacks::{LayoutInfo, LayoutInfoPtr};
+        use crate::display_list::SolvedLayout;
+
+        // TODO: Use these "stop sizes" to optimize not calling layout() on redrawing!
+        let mut stop_sizes_width = Vec::new();
+        let mut stop_sizes_height = Vec::new();
+
+        let styled_dom = {
+
+            let layout_callback = self.current_window_state.layout_callback.clone();
+            let layout_info = LayoutInfo {
+                window_size: &self.current_window_state.size,
+                window_size_width_stops: &mut stop_sizes_width,
+                window_size_height_stops: &mut stop_sizes_height,
+                resources: app_resources,
+            };
+            let layout_info_ptr = LayoutInfoPtr { ptr: Box::into_raw(Box::new(layout_info)) as *mut c_void };
+
+            let mut styled_dom = (layout_callback.cb)(data, layout_info_ptr);
+
+            let hovered_nodes = self.current_window_state.hovered_nodes.get(&DomId::ROOT_ID).map(|k| k.keys().cloned().collect::<Vec<_>>()).unwrap_or_default();
+            let active_nodes = if !self.current_window_state.mouse_state.mouse_down() { Vec::new() } else { hovered_nodes.clone() };
+
+            if !hovered_nodes.is_empty() { let _ = styled_dom.styled_nodes.restyle_nodes_hover(&hovered_nodes); }
+            if !active_nodes.is_empty() { let _ = styled_dom.styled_nodes.restyle_nodes_hover(&active_nodes); }
+            if let Some(focus) = self.current_window_state.focused_node {
+                if focus.dom == DomId::ROOT_ID {
+                    let _ = styled_dom.styled_nodes.restyle_nodes_hover(&[focus.node.into_crate_internal().unwrap()]);
+                }
+            }
+
+            styled_dom
+        };
+
+        let SolvedLayout { layout_results, gl_texture_cache } = SolvedLayout::new(
+            styled_dom,
+            self.epoch,
+            self.pipeline_id,
+            &self.current_window_state,
+            gl_context,
+            render_api,
+            app_resources,
+            callbacks,
+        );
+
+        self.layout_results = layout_results;
+        self.stop_sizes_width = stop_sizes_width;
+        self.stop_sizes_height = stop_sizes_height;
+        self.gl_texture_cache = gl_texture_cache;
+        self.epoch.0 += 1;
+    }
+
     /// Returns a copy of the current scroll states + scroll positions
     pub fn get_current_scroll_states(&self) -> BTreeMap<DomId, BTreeMap<AzNodeId, ScrollPosition>> {
 
-        self.scrolled_nodes.iter().filter_map(|(dom_id, scrolled_nodes)| {
+        self.layout_results.iter().enumerate().filter_map(|(dom_id, layout_result)| {
 
-            let layout_result = self.layout_results.get(dom_id.inner as usize)?;
-
-            let scroll_positions = scrolled_nodes.overflowing_nodes.iter().filter_map(|(node_id, overflowing_node)| {
-                let scroll_location = self.scroll_states.get_scroll_position(&overflowing_node.parent_external_scroll_id)?;
+            let scroll_positions = layout_result.scrollable_nodes.overflowing_nodes.iter().filter_map(|(node_id, overflowing_node)| {
+                let scroll_location = self.scroll_states.get_scroll_position(&overflowing_node.parent_external_scroll_id)?; // TODO: unwrap_or_default()?
                 let parent_node = layout_result.styled_dom.node_hierarchy.as_container()[node_id.into_crate_internal()?].parent_id().unwrap_or(NodeId::ZERO);
                 let scroll_position = ScrollPosition {
                     scroll_frame_rect: overflowing_node.child_rect,
@@ -502,23 +736,52 @@ impl WindowInternal {
                     scroll_location,
                 };
                 Some((*node_id, scroll_position))
-            }).collect();
+            }).collect::<BTreeMap<_, _>>();
 
-            Some((dom_id.clone(), scroll_positions))
+            if scroll_positions.is_empty() {
+                None
+            } else {
+                Some((DomId { inner: dom_id }, scroll_positions))
+            }
         }).collect()
     }
 }
 
+#[derive(Debug, Default, Copy, Clone, PartialEq, PartialOrd, Hash, Ord, Eq)]
+#[repr(C)]
+pub struct TouchState {
+    /// TODO: not yet implemented
+    pub unimplemented: u8,
+}
+
 /// State, size, etc of the window, for comparing to the last frame
+#[derive(Debug, Copy, Clone, PartialEq, PartialOrd, Hash, Ord, Eq)]
+#[repr(C)]
+pub enum WindowTheme {
+    DarkMode,
+    LightMode,
+}
+
+impl Default for WindowTheme {
+    fn default() -> WindowTheme {
+        WindowTheme::LightMode // sorry!
+    }
+}
+
 #[derive(Debug, Clone, PartialEq)]
 #[repr(C)]
 pub struct WindowState {
+    /// Theme of this window (dark or light) - can be set / overridden by the user
+    ///
+    /// Usually the operating system will set this field. On change, it will
+    /// emit a `WindowEventFilter::ThemeChanged` event
+    pub theme: WindowTheme,
     /// Current title of the window
     pub title: AzString,
     /// Size of the window + max width / max height: 800 x 600 by default
     pub size: WindowSize,
     /// The x and y position, or None to let the WM decide where to put the window (default)
-    pub position: OptionPhysicalPositionI32,
+    pub position: WindowPosition,
     /// Flags such as whether the window is minimized / maximized, fullscreen, etc.
     pub flags: WindowFlags,
     /// Mostly used for debugging, shows WebRender-builtin graphs on the screen.
@@ -529,9 +792,11 @@ pub struct WindowState {
     pub keyboard_state: KeyboardState,
     /// Current mouse state
     pub mouse_state: MouseState,
+    /// Stores all states of currently connected touch input devices, pencils, tablets, etc.
+    pub touch_state: TouchState,
     /// Sets location of IME candidate box in client area coordinates
     /// relative to the top left of the window.
-    pub ime_position: OptionLogicalPosition,
+    pub ime_position: ImePosition,
     /// Window options that can only be set on a certain platform
     /// (`WindowsWindowOptions` / `LinuxWindowOptions` / `MacWindowOptions`).
     pub platform_specific_options: PlatformSpecificOptions,
@@ -547,14 +812,45 @@ pub struct WindowState {
     pub layout_callback: LayoutCallback,
 }
 
+#[derive(Debug, Copy, Clone, PartialEq)]
+#[repr(C, u8)]
+pub enum WindowPosition {
+    Uninitialized,
+    Initialized(PhysicalPositionI32)
+}
+
+impl Default for WindowPosition {
+    fn default() -> WindowPosition {
+        WindowPosition::Uninitialized
+    }
+}
+
+#[derive(Debug, Copy, Clone, PartialEq)]
+#[repr(C, u8)]
+pub enum ImePosition {
+    Uninitialized,
+    Initialized(LogicalPosition)
+}
+
+impl Default for ImePosition {
+    fn default() -> ImePosition {
+        ImePosition::Uninitialized
+    }
+}
+
 #[derive(Debug, Clone, PartialEq)]
 pub struct FullWindowState {
+    /// Theme of this window (dark or light) - can be set / overridden by the user
+    ///
+    /// Usually the operating system will set this field. On change, it will
+    /// emit a `WindowEventFilter::ThemeChanged` event
+    pub theme: WindowTheme,
     /// Current title of the window
     pub title: String,
     /// Size of the window + max width / max height: 800 x 600 by default
     pub size: WindowSize,
     /// The x and y position, or None to let the WM decide where to put the window (default)
-    pub position: Option<PhysicalPosition<i32>>,
+    pub position: WindowPosition,
     /// Flags such as whether the window is minimized / maximized, fullscreen, etc.
     pub flags: WindowFlags,
     /// Mostly used for debugging, shows WebRender-builtin graphs on the screen.
@@ -565,9 +861,11 @@ pub struct FullWindowState {
     pub keyboard_state: KeyboardState,
     /// Current mouse state
     pub mouse_state: MouseState,
+    /// Stores all states of currently connected touch input devices, pencils, tablets, etc.
+    pub touch_state: TouchState,
     /// Sets location of IME candidate box in client area coordinates
     /// relative to the top left of the window.
-    pub ime_position: Option<LogicalPosition>,
+    pub ime_position: ImePosition,
     /// Window options that can only be set on a certain platform
     /// (`WindowsWindowOptions` / `LinuxWindowOptions` / `MacWindowOptions`).
     pub platform_specific_options: PlatformSpecificOptions,
@@ -600,14 +898,16 @@ pub struct FullWindowState {
 impl Default for FullWindowState {
     fn default() -> Self {
         Self {
+            theme: WindowTheme::default(),
             title: DEFAULT_TITLE.into(),
             size: WindowSize::default(),
-            position: None,
+            position: WindowPosition::Uninitialized,
             flags: WindowFlags::default(),
             debug_state: DebugState::default(),
             keyboard_state: KeyboardState::default(),
             mouse_state: MouseState::default(),
-            ime_position: None,
+            touch_state: TouchState::default(),
+            ime_position: ImePosition::Uninitialized,
             platform_specific_options: PlatformSpecificOptions::default(),
             layout_callback: LayoutCallback::default(),
 
@@ -645,6 +945,7 @@ impl From<WindowState> for FullWindowState {
     /// fields with their default values
     fn from(window_state: WindowState) -> FullWindowState {
         FullWindowState {
+            theme: window_state.theme,
             title: window_state.title.into(),
             size: window_state.size,
             position: window_state.position.into(),
@@ -652,6 +953,7 @@ impl From<WindowState> for FullWindowState {
             debug_state: window_state.debug_state,
             keyboard_state: window_state.keyboard_state,
             mouse_state: window_state.mouse_state,
+            touch_state: window_state.touch_state,
             ime_position: window_state.ime_position.into(),
             platform_specific_options: window_state.platform_specific_options,
             layout_callback: window_state.layout_callback,
@@ -663,6 +965,7 @@ impl From<WindowState> for FullWindowState {
 impl From<FullWindowState> for WindowState {
     fn from(full_window_state: FullWindowState) -> WindowState {
         WindowState {
+            theme: full_window_state.theme,
             title: full_window_state.title.into(),
             size: full_window_state.size,
             position: full_window_state.position.into(),
@@ -670,6 +973,7 @@ impl From<FullWindowState> for WindowState {
             debug_state: full_window_state.debug_state,
             keyboard_state: full_window_state.keyboard_state,
             mouse_state: full_window_state.mouse_state,
+            touch_state: full_window_state.touch_state,
             ime_position: full_window_state.ime_position.into(),
             platform_specific_options: full_window_state.platform_specific_options,
             layout_callback: full_window_state.layout_callback,
@@ -677,7 +981,7 @@ impl From<FullWindowState> for WindowState {
     }
 }
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug)]
 pub struct CallCallbacksResult {
     /// Whether the UI should be rendered anyways due to a (programmatic or user input) scroll event
     pub should_scroll_render: bool,
@@ -692,6 +996,16 @@ pub struct CallCallbacksResult {
     pub focus_nodes_changed_layout: BTreeMap<DomId, Vec<NodeId>>,
     /// Whether the focused node was changed from the callbacks
     pub update_focused_node: Option<Option<DomNodeId>>,
+    /// Timers that were added in the callbacks
+    pub timers: FastHashMap<TimerId, Timer>,
+    /// Tasks that were added in the callbacks
+    pub tasks: Vec<Task>,
+}
+
+impl CallCallbacksResult {
+    pub fn focus_properties_changed(&self) -> bool {
+        !self.focus_properties_changed.is_empty()
+    }
 }
 
 #[derive(Debug, Copy, Clone, PartialEq, Eq, Ord, PartialOrd, Hash)]
@@ -701,6 +1015,8 @@ pub struct WindowFlags {
     pub is_maximized: bool,
     /// Is the window currently fullscreened?
     pub is_fullscreen: bool,
+    /// Is the window about to close on the next frame?
+    pub is_about_to_close: bool,
     /// Does the window have decorations (close, minimize, maximize, title bar)?
     pub has_decorations: bool,
     /// Is the window currently visible?
@@ -709,6 +1025,10 @@ pub struct WindowFlags {
     pub is_always_on_top: bool,
     /// Whether the window is resizable
     pub is_resizable: bool,
+    /// Whether the window has focus or not (mutating this will request user attention)
+    pub has_focus: bool,
+    /// Whether or not the compositor should blur the application background
+    pub has_blur_behind_window: bool,
 }
 
 impl Default for WindowFlags {
@@ -716,10 +1036,13 @@ impl Default for WindowFlags {
         Self {
             is_maximized: false,
             is_fullscreen: false,
+            is_about_to_close: false,
             has_decorations: true,
             is_visible: true,
             is_always_on_top: false,
             is_resizable: true,
+            has_focus: true,
+            has_blur_behind_window: false,
         }
     }
 }
@@ -733,9 +1056,11 @@ pub struct PlatformSpecificOptions {
     pub wasm_options: WasmWindowOptions,
 }
 
-#[derive(Debug, Default, Clone, PartialEq, PartialOrd)]
+#[derive(Debug, Clone, PartialEq, PartialOrd)]
 #[repr(C)]
 pub struct WindowsWindowOptions {
+    /// STARTUP ONLY: Whether the window should allow drag + drop operations (default: true)
+    pub allow_drag_and_drop: bool,
     /// STARTUP ONLY: Sets `WS_EX_NOREDIRECTIONBITMAP`
     pub no_redirection_bitmap: bool,
     /// STARTUP ONLY: Window icon (decoded bytes), appears at the top right corner of the window
@@ -748,6 +1073,19 @@ pub struct WindowsWindowOptions {
     pub parent_window: OptionHwndHandle,
 }
 
+impl Default for WindowsWindowOptions {
+    fn default() -> WindowsWindowOptions {
+        WindowsWindowOptions {
+            allow_drag_and_drop: true,
+            no_redirection_bitmap: false,
+            window_icon: OptionWindowIcon::None,
+            taskbar_icon: OptionTaskBarIcon::None,
+            parent_window: OptionHwndHandle::None,
+        }
+    }
+}
+
+/// Note: this should be a *mut HWND
 type HwndHandle = *mut c_void;
 
 impl_option!(HwndHandle, OptionHwndHandle, copy = false, [Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash]);
@@ -971,7 +1309,7 @@ pub struct WindowSize {
     /// DPI factor of the window
     pub hidpi_factor: f32,
     /// (Internal only, unused): winit HiDPI factor
-    pub winit_hidpi_factor: f32,
+    pub system_hidpi_factor: f32,
     /// Minimum dimensions of the window
     pub min_dimensions: OptionLogicalSize,
     /// Maximum dimensions of the window
@@ -992,8 +1330,8 @@ impl WindowSize {
     /// Get a size that is usually smaller than the logical one, so that the winit DPI factor is compensated for.
     pub fn get_reverse_logical_size(&self) -> LogicalSize {
         LogicalSize::new(
-            self.dimensions.width * self.hidpi_factor / self.winit_hidpi_factor,
-            self.dimensions.height * self.hidpi_factor / self.winit_hidpi_factor,
+            self.dimensions.width * self.hidpi_factor / self.system_hidpi_factor,
+            self.dimensions.height * self.hidpi_factor / self.system_hidpi_factor,
         )
     }
 }
@@ -1003,7 +1341,7 @@ impl Default for WindowSize {
         Self {
             dimensions: LogicalSize::new(DEFAULT_WIDTH, DEFAULT_HEIGHT),
             hidpi_factor: 1.0,
-            winit_hidpi_factor: 1.0,
+            system_hidpi_factor: 1.0,
             min_dimensions: None.into(),
             max_dimensions: None.into(),
         }
@@ -1012,18 +1350,7 @@ impl Default for WindowSize {
 
 impl Default for WindowState {
     fn default() -> Self {
-        Self {
-            title: DEFAULT_TITLE.to_string().into(),
-            size: WindowSize::default(),
-            position: None.into(),
-            flags: WindowFlags::default(),
-            debug_state: DebugState::default(),
-            keyboard_state: KeyboardState::default(),
-            mouse_state: MouseState::default(),
-            ime_position: None.into(),
-            platform_specific_options: PlatformSpecificOptions::default(),
-            layout_callback: LayoutCallback::default(),
-        }
+        FullWindowState::default().into()
     }
 }
 
@@ -1037,6 +1364,8 @@ pub struct WindowCreateOptions {
     // pub monitor: Monitor,
     /// Renderer type: Hardware-with-software-fallback, pure software or pure hardware renderer?
     pub renderer_type: RendererType,
+    /// Color of the window background (can be transparent if necessary)
+    pub background_color: ColorU,
 }
 
 impl Default for WindowCreateOptions {
@@ -1044,6 +1373,7 @@ impl Default for WindowCreateOptions {
         Self {
             state: WindowState::default(),
             renderer_type: RendererType::default(),
+            background_color: ColorU::WHITE,
         }
     }
 }
@@ -1158,69 +1488,6 @@ impl fmt::Debug for RendererType {
 impl Default for RendererType {
     fn default() -> Self {
         RendererType::Default
-    }
-}
-
-/// Custom event type, to construct an `EventLoop<AzulWindowUpdateEvent>`.
-/// This is dispatched into the `EventLoop` (to send a "custom" event)
-pub enum AzulUpdateEvent {
-    CreateWindow {
-        window_create_options: WindowCreateOptions,
-    },
-    CloseWindow {
-        window_id: WindowId,
-    },
-    DoHitTest {
-        window_id: WindowId,
-    },
-    RebuildUi {
-        window_id: WindowId,
-    },
-    RestyleUi {
-        window_id: WindowId,
-        skip_layout: bool,
-    },
-    RelayoutUi {
-        window_id: WindowId,
-    },
-    RebuildDisplayList {
-        window_id: WindowId,
-    },
-    SendDisplayListToWebRender {
-        window_id: WindowId,
-    },
-    RedrawRequested {
-        window_id: WindowId,
-    },
-    UpdateScrollStates {
-        window_id: WindowId,
-    },
-    UpdateAnimations {
-        window_id: WindowId,
-    },
-    UpdateImages {
-        window_id: WindowId,
-    },
-    // ... etc.
-}
-
-impl fmt::Debug for AzulUpdateEvent {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        use self::AzulUpdateEvent::*;
-        match self {
-            CreateWindow { window_create_options } => write!(f, "CreateWindow {{ window_create_options: {:?} }}", window_create_options),
-            CloseWindow { window_id } => write!(f, "CloseWindow {{ window_id: {:?} }}", window_id),
-            DoHitTest { window_id } => write!(f, "DoHitTest {{ window_id: {:?} }}", window_id),
-            RebuildUi { window_id } => write!(f, "RebuildUi {{ window_id: {:?} }}", window_id),
-            RestyleUi { window_id, skip_layout } => write!(f, "RestyleUi {{ window_id: {:?}, skip_layout: {:?} }}", window_id, skip_layout),
-            RelayoutUi { window_id } => write!(f, "RelayoutUi {{ window_id: {:?} }}", window_id),
-            RebuildDisplayList { window_id } => write!(f, "RebuildDisplayList {{ window_id: {:?} }}", window_id),
-            SendDisplayListToWebRender { window_id } => write!(f, "SendDisplayListToWebRender {{ window_id: {:?} }}", window_id),
-            RedrawRequested { window_id } => write!(f, "RedrawRequested {{ window_id: {:?} }}", window_id),
-            UpdateScrollStates { window_id } => write!(f, "UpdateScrollStates {{ window_id: {:?} }}", window_id),
-            UpdateAnimations { window_id } => write!(f, "UpdateAnimations {{ window_id: {:?} }}", window_id),
-            UpdateImages { window_id } => write!(f, "UpdateImages {{ window_id: {:?} }}", window_id),
-        }
     }
 }
 

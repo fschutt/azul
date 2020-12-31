@@ -47,8 +47,9 @@ pub use azul_core::gl;
 /// Window state handling and window-related information
 pub mod window;
 /// Font & image resource handling, lookup and caching
-#[path = "./app_resources.rs"]
-pub mod resources;
+pub mod resources {
+    pub use azul_core::app_resources::*;
+}
 mod compositor;
 #[cfg(feature = "logging")]
 mod logging;

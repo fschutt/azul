@@ -566,15 +566,6 @@ const fn wr_translate_tag_id(input: TagId) -> (u64, u16) {
     (input.0, 0)
 }
 
-pub(crate) fn wr_translate_hittest_item(input: WrHitTestItem) -> HitTestItem {
-    HitTestItem {
-        pipeline: PipelineId(input.pipeline.0, input.pipeline.1),
-        tag: TagId(input.tag.0),
-        point_in_viewport: CssLayoutPoint::new(input.point_in_viewport.x, input.point_in_viewport.y),
-        point_relative_to_item: CssLayoutPoint::new(input.point_relative_to_item.x, input.point_relative_to_item.y),
-    }
-}
-
 // webrender -> core
 
 #[inline(always)]

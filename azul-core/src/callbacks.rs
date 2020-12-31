@@ -33,30 +33,12 @@ use crate::gl::{OptionTexture, GlContextPtr};
 #[repr(C)]
 #[derive(Copy, Clone, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub enum UpdateScreen {
-    /// After the callback is called, the screen needs to redraw (layout() function being called again)
-    Redraw,
     /// The screen does not need to redraw after the callback has been called
-    DontRedraw,
-    /// The callback only changed the scroll positions of nodes (no re-layout is done)
-    UpdateScrollStates,
-    /// Update **scroll states + GPU transforms** and redraw (no re-layout is done)
-    UpdateTransforms,
-}
-
-impl UpdateScreen {
-    pub fn into_option(self) -> Option<()> { self.into() }
-}
-
-impl From<UpdateScreen> for Option<()> {
-    fn from(o: UpdateScreen) -> Option<()> {
-        match o { UpdateScreen::DontRedraw => None, _ => Some(()) }
-    }
-}
-
-impl<T> From<Option<T>> for UpdateScreen {
-    fn from(o: Option<T>) -> Self {
-        match o { None => UpdateScreen::DontRedraw, Some(_) => UpdateScreen::Redraw }
-    }
+    DoNothing = 0,
+    /// After the callback is called, the screen needs to redraw (layout() function being called again)
+    RegenerateStyledDomForCurrentWindow = 1,
+    /// The layout has to be re-calculated for all windows
+    RegenerateStyledDomForAllWindows = 2,
 }
 
 #[repr(C)]
@@ -904,7 +886,7 @@ impl HidpiAdjustedBounds {
     }
 
     pub fn get_logical_size(&self) -> LogicalSize {
-        // NOTE: hidpi factor, not winit_hidpi_factor!
+        // NOTE: hidpi factor, not system_hidpi_factor!
         LogicalSize::new(
             self.logical_size.width * self.hidpi_factor,
             self.logical_size.height * self.hidpi_factor

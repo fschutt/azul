@@ -1335,6 +1335,19 @@ pub struct FontVariation {
 #[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
 pub struct Epoch(pub u32);
 
+impl Epoch {
+    // We don't want the epoch to increase to u32::MAX, since
+    // u32::MAX represents an invalid epoch, which could confuse webrender
+    pub fn increment(&mut self) {
+        use std::u32;
+        const MAX_ID: u32 = u32::MAX - 1;
+        *self = match self.0 {
+            MAX_ID => Epoch(0),
+            other => Epoch(other + 1),
+        };
+    }
+}
+
 #[derive(Debug, Clone, Copy, Hash, PartialEq, PartialOrd, Eq, Ord)]
 pub struct Au(pub i32);
 

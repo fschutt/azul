@@ -405,7 +405,7 @@ pub struct StyledDom {
 
 impl Default for StyledDom {
     fn default() -> Self {
-        StyledDom::new(Dom::body(), &Css::empty())
+        StyledDom::new(Dom::body(), Css::empty())
     }
 }
 
@@ -427,7 +427,7 @@ impl_vec_partialeq!(ContentGroup, ContentGroupVec);
 
 impl StyledDom {
 
-    pub fn new(dom: Dom, css: &Css) -> Self {
+    pub fn new(dom: Dom, mut css: Css) -> Self {
 
         use azul_css::CssDeclaration;
         use crate::dom::TabIndex;
@@ -440,6 +440,8 @@ impl StyledDom {
 
         // set the tag = is the item focusable or does it have a hit
         let html_tree = construct_html_cascade_tree(&compact_dom.node_hierarchy.as_ref(), &non_leaf_nodes[..]);
+
+        css.sort_by_specificity();
 
         // First, apply all rules normally (no inheritance) of CSS values
         // This is an O(n^2) operation, but it can be parallelized in the future
@@ -645,16 +647,20 @@ impl StyledDom {
                 None => if should_auto_insert_tabindex { Some(TabIndex::Auto) } else { None }
             };
 
+            let styled_node = &mut styled_nodes.as_ref_mut()[node_id];
+
             let node_has_hover_props = !node.get_inline_hover_css_props().is_empty();
             let node_has_active_props = !node.get_inline_active_css_props().is_empty();
             let node_has_only_window_callbacks = node.get_callbacks().iter().all(|cb| cb.event.is_window_callback());
+            let node_has_non_default_cursor = styled_node.style.cursor.unwrap_or_default().get_property().is_some();
 
             let node_should_have_tag =
                 tab_index.is_some() ||
                 node_has_hover_props ||
                 node_has_active_props ||
                 node.get_is_draggable() ||
-                !node_has_only_window_callbacks;
+                !node_has_only_window_callbacks ||
+                node_has_non_default_cursor;
 
             let tag_id = if node_should_have_tag {
                 let tag_id = TagId::new();
@@ -666,7 +672,6 @@ impl StyledDom {
                 Some(tag_id)
             } else { None };
 
-            let styled_node = &mut styled_nodes.as_ref_mut()[node_id];
             styled_node.tag_id = tag_id.map(|z| AzTagId::from_crate_internal(z)).into();
 
             // Compute the final "normal" style
