@@ -4,10 +4,7 @@ use std::{
     num::NonZeroU16,
     any::Any,
 };
-use azul_css::{
-    LayoutPoint, LayoutRect, LayoutSize,
-    RectStyle, StyleFontSize, ColorU, U8Vec, AzString
-};
+use azul_css::{LayoutRect, RectStyle, StyleFontSize, ColorU, U8Vec, AzString};
 use crate::{
     FastHashMap, FastHashSet,
     ui_solver::ResolvedTextLayoutOptions,

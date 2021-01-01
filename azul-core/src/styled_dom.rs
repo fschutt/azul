@@ -7,7 +7,7 @@ use crate::{
     id_tree::{NodeDataContainerRef, Node, NodeId, NodeHierarchyRef, NodeDataContainerRefMut},
     dom::{Dom, IFrameNode, GlTextureNode, CompactDom, NodeData, TagId, OptionTabIndex},
     style::{
-        HtmlCascadeInfo, HtmlCascadeInfoVec, construct_html_cascade_tree,
+        HtmlCascadeInfoVec, construct_html_cascade_tree,
         matches_html_element, apply_style_property, classify_css_path,
     },
 };
@@ -446,7 +446,7 @@ impl StyledDom {
         // First, apply all rules normally (no inheritance) of CSS values
         // This is an O(n^2) operation, but it can be parallelized in the future
         // TODO: can be done in parallel
-        let mut styled_nodes = compact_dom.node_data.as_ref().transform(|node, node_id| {
+        let mut styled_nodes = compact_dom.node_data.as_ref().transform(|_, node_id| {
 
             macro_rules! filter_rules {($styled_node_state:expr) => {{
                 if css.is_empty() {

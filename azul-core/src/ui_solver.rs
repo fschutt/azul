@@ -399,9 +399,7 @@ impl LayoutResult {
         }).collect();
 
         // insert the scroll node hit items
-        let scroll_hit_test_nodes =
-        self.scrollable_nodes.tags_to_node_ids
-        .iter().filter_map(|(scroll_tag_id, node_id)| {
+        let scroll_hit_test_nodes = self.scrollable_nodes.tags_to_node_ids.iter().filter_map(|(_scroll_tag_id, node_id)| {
 
             let overflowing_scroll_node = self.scrollable_nodes.overflowing_nodes.get(node_id)?;
             let node_id = node_id.into_crate_internal()?;

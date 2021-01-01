@@ -13,10 +13,11 @@ edition = "2018"
 [dependencies]
 webrender               = { version = "0.61.0", default-features = false, package = "azul-webrender" }
 gleam                   = { version = "0.11.0", default-features = false }
-glutin                  = { version = "0.25.1", default-features = false }
+glutin                  = { version = "0.26.0", default-features = false }
 app_units               = { version = "0.7.1",  default-features = false }
 tinyfiledialogs         = { version = "3.3.9",  default-features = false }
 clipboard2              = { version = "0.1.1",  default-features = false }
+raw-window-handle       = { version = "0.3.3", default-features = false }
 azulc                   = { path = "../azulc", version = "0.0.3",  default-features = false, features = ["image_loading", "font_loading"] }
 azul-css                = { path = "../azul-css", version = "0.0.1",  default-features = false }
 azul-core               = { path = "../azul-core", version = "0.0.2",  default-features = false, features = ["opengl"] }

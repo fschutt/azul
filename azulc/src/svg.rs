@@ -606,6 +606,7 @@ pub struct SvgRenderOptions {
     pub fit: SvgFitTo,
 }
 
+#[allow(dead_code)]
 const fn translate_color(i: ColorU) -> usvg::Color {
     usvg::Color { red: i.r, green: i.g, blue: i.b }
 }
@@ -623,7 +624,8 @@ impl Default for SvgFitTo {
     fn default() -> Self { SvgFitTo::Original }
 }
 
-fn translate_fit_to(i: SvgFitTo) -> usvg::FitTo {
+#[allow(dead_code)]
+const fn translate_fit_to(i: SvgFitTo) -> usvg::FitTo {
     match i {
         SvgFitTo::Original => usvg::FitTo::Original,
         SvgFitTo::Width(w) => usvg::FitTo::Width(w),

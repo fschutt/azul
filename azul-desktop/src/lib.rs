@@ -15,6 +15,7 @@ extern crate azul_css;
 #[macro_use(impl_task_api, impl_font_api, impl_image_api, impl_from, impl_display)]
 extern crate azul_core;
 extern crate azulc;
+extern crate raw_window_handle;
 extern crate glutin;
 extern crate webrender;
 extern crate app_units;
@@ -54,6 +55,8 @@ mod compositor;
 #[cfg(feature = "logging")]
 mod logging;
 mod wr_translate;
+mod display_shader;
+mod wr_api;
 
 pub use azul_core::{FastHashMap, FastHashSet};
 

@@ -1,3 +1,5 @@
+use azul_core::gl::{GlShader, GlShaderCreateError, GlContextPtr, Texture};
+use gleam::gl;
 
 /// When called with glDrawArrays(0, 3), generates a simple triangle that
 /// spans the whole screen.
@@ -24,6 +26,7 @@ const DISPLAY_FRAGMENT_SHADER: &str = "
     }
 ";
 
+#[derive(Debug)]
 pub struct DisplayShader {
     shader: GlShader,
 }
@@ -39,8 +42,10 @@ impl DisplayShader {
     // to draw to the window.
     pub fn draw_texture_to_current_fb(&mut self, texture: &Texture) {
 
+        // Save the current state that will be modified in the function
+
         // Compile or get the cached shader
-        let texture_location = context.get_uniform_location(self.shader.program_id, "fScreenTex".into());
+        let texture_location = texture.gl_context.get_uniform_location(self.shader.program_id, "fScreenTex".into());
 
         // The uniform value for a sampler refers to the texture unit, not the texture id, i.e.:
         //
@@ -56,15 +61,16 @@ impl DisplayShader {
         // drawing without a VAO is not allowed (except for glDrawArraysInstanced,
         // which is only available in OGL 3.3)
 
-        let vao = context.gen_vertex_arrays(1);
+        let vao = texture.gl_context.gen_vertex_arrays(1);
         texture.gl_context.bind_vertex_array(vao.get(0).copied().unwrap());
-        texture.gl_context.viewport(0, 0, texture.size.width, texture.size.height);
+        texture.gl_context.viewport(0, 0, texture.size.width as i32, texture.size.height as i32); // TODO: use framebuffer_size instead?
         texture.gl_context.draw_arrays(gl::TRIANGLE_STRIP, 0, 3);
         texture.gl_context.delete_vertex_arrays(vao.as_ref().into());
 
         texture.gl_context.bind_vertex_array(0);
         texture.gl_context.use_program(0);
         texture.gl_context.bind_texture(gl::TEXTURE_2D, 0);
+        // texture.gl_context.active_texture();
     }
 
 }

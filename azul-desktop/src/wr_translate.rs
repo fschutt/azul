@@ -14,7 +14,6 @@ use webrender::api::{
         LayoutVector2D as WrLayoutVector2D,
     },
     CommonItemProperties as WrCommonItemProperties,
-    HitTestItem as WrHitTestItem,
     FontKey as WrFontKey,
     FontInstanceKey as WrFontInstanceKey,
     ImageKey as WrImageKey,
@@ -68,7 +67,7 @@ use webrender::api::{
 };
 
 use azul_core::{
-    callbacks::{HitTestItem, PipelineId, DocumentId},
+    callbacks::{PipelineId, DocumentId},
     app_resources::{
         FontKey, Au, FontInstanceKey, ImageKey,
         IdNamespace, RawImageFormat as ImageFormat, ImageDescriptor, ImageDescriptorFlags,
@@ -110,7 +109,7 @@ pub(crate) mod winit_translate {
     use azul_core::{
         window::{
             LogicalSize, PhysicalSize, LogicalPosition, PhysicalPosition,
-            WindowIcon, TaskBarIcon, MouseCursorType, VirtualKeyCode, Theme,
+            WindowIcon, TaskBarIcon, MouseCursorType, VirtualKeyCode, WindowTheme,
         },
     };
     use glutin::{
@@ -119,7 +118,7 @@ pub(crate) mod winit_translate {
             CursorIcon as WinitCursorIcon,
             BadIcon as WinitBadIcon,
             Icon as WinitIcon,
-            Theme as WinitTheme,
+            Theme as WinitWindowTheme,
         },
     };
     #[cfg(target_os = "linux")]
@@ -177,18 +176,18 @@ pub(crate) mod winit_translate {
     }
 
     #[inline(always)]
-    pub(crate) fn translate_winit_theme(input: WinitTheme) -> Theme {
+    pub(crate) const fn translate_winit_theme(input: WinitWindowTheme) -> WindowTheme {
         match input {
-            WinitTheme::Dark => Theme::Dark,
-            WinitTheme::Light => Theme::Light,
+            WinitWindowTheme::Dark => WindowTheme::DarkMode,
+            WinitWindowTheme::Light => WindowTheme::LightMode,
         }
     }
 
     #[inline(always)]
-    pub(crate) fn translate_theme(input: Theme) -> WinitTheme {
+    pub(crate) const fn translate_theme(input: WindowTheme) -> WinitWindowTheme {
         match input {
-            Theme::Dark => WinitTheme::Dark,
-            Theme::Light => WinitTheme::Light,
+            WindowTheme::DarkMode => WinitWindowTheme::Dark,
+            WindowTheme::LightMode => WinitWindowTheme::Light,
         }
     }
 
@@ -673,11 +672,6 @@ pub(crate) fn wr_translate_logical_size(logical_size: LogicalSize) -> WrLayoutSi
     WrLayoutSize::new(logical_size.width, logical_size.height)
 }
 
-#[inline(always)]
-pub(crate) const fn translate_logical_size_to_css_layout_size(logical_size: LogicalSize) -> CssLayoutSize {
-    CssLayoutSize::new(logical_size.width, logical_size.height)
-}
-
 #[inline]
 pub(crate) fn wr_translate_image_descriptor(descriptor: ImageDescriptor) -> WrImageDescriptor {
     use webrender::api::units::DeviceIntSize;
@@ -856,8 +850,8 @@ pub fn wr_translate_border_radius(border_radius: StyleBorderRadius, rect_size: C
 
     let StyleBorderRadius { top_left, top_right, bottom_left, bottom_right } = border_radius;
 
-    let w = rect_size.width;
-    let h = rect_size.height;
+    let w = rect_size.width as f32;
+    let h = rect_size.height as f32;
 
     // The "w / h" is necessary to convert percentage-based values into pixels, for example "border-radius: 50%;"
 
@@ -874,10 +868,10 @@ pub fn wr_translate_border_radius(border_radius: StyleBorderRadius, rect_size: C
     let bottom_right_px_v = bottom_right.and_then(|br| br.get_property_or_default()).unwrap_or_default().inner.to_pixels(h);
 
     WrBorderRadius {
-        top_left: WrLayoutSize::new(top_left_px_h, top_left_px_v),
-        top_right: WrLayoutSize::new(top_right_px_h, top_right_px_v),
-        bottom_left: WrLayoutSize::new(bottom_left_px_h, bottom_left_px_v),
-        bottom_right: WrLayoutSize::new(bottom_right_px_h, bottom_right_px_v),
+        top_left: WrLayoutSize::new(top_left_px_h as f32, top_left_px_v as f32),
+        top_right: WrLayoutSize::new(top_right_px_h as f32, top_right_px_v as f32),
+        bottom_left: WrLayoutSize::new(bottom_left_px_h as f32, bottom_left_px_v as f32),
+        bottom_right: WrLayoutSize::new(bottom_right_px_h as f32, bottom_right_px_v as f32),
     }
 }
 
@@ -891,25 +885,25 @@ pub fn wr_translate_border_side(input: CssBorderSide) -> WrBorderSide {
 
 // NOTE: Reverse direction: Translate from webrender::LayoutRect to css::LayoutRect
 #[inline(always)]
-pub const fn wr_translate_css_layout_rect(input: WrLayoutRect) -> CssLayoutRect {
+pub fn wr_translate_css_layout_rect(input: WrLayoutRect) -> CssLayoutRect {
     CssLayoutRect {
-        origin: CssLayoutPoint { x: input.origin.x, y: input.origin.y },
-        size: CssLayoutSize { width: input.size.width, height: input.size.height },
+        origin: CssLayoutPoint { x: input.origin.x.round() as isize, y: input.origin.y.round() as isize },
+        size: CssLayoutSize { width: input.size.width.round() as isize, height: input.size.height.round() as isize },
     }
 }
 
 #[inline]
 fn wr_translate_layout_size(input: CssLayoutSize) -> WrLayoutSize {
-    WrLayoutSize::new(input.width, input.height)
+    WrLayoutSize::new(input.width as f32, input.height as f32)
 }
 
 #[inline]
 pub(crate) fn wr_translate_layout_point(input: CssLayoutPoint) -> WrLayoutPoint {
-    WrLayoutPoint::new(input.x, input.y)
+    WrLayoutPoint::new(input.x as f32, input.y as f32)
 }
 
 #[inline]
-fn wr_translate_logical_position(input: LogicalPosition) -> WrLayoutPoint {
+pub(crate) fn wr_translate_logical_position(input: LogicalPosition) -> WrLayoutPoint {
     WrLayoutPoint::new(input.x, input.y)
 }
 
@@ -925,12 +919,12 @@ fn wr_translate_layout_rect(input: CssLayoutRect) -> WrLayoutRect {
 
 #[inline]
 fn translate_layout_size_wr(input: WrLayoutSize) -> CssLayoutSize {
-    CssLayoutSize::new(input.width, input.height)
+    CssLayoutSize::new(input.width.round() as isize, input.height.round() as isize)
 }
 
 #[inline]
 fn translate_layout_point_wr(input: WrLayoutPoint) -> CssLayoutPoint {
-    CssLayoutPoint::new(input.x, input.y)
+    CssLayoutPoint::new(input.x.round() as isize, input.y.round() as isize)
 }
 
 #[inline]
@@ -1158,7 +1152,7 @@ fn push_display_list_msg(
     let (spatial_id, clip_id) = match msg.get_position() {
         Static { x_offset, y_offset, .. } | Relative { x_offset, y_offset, .. } => {
             builder.push_simple_stacking_context(
-                WrLayoutPoint::new(x_offset, y_offset),
+                WrLayoutPoint::new(x_offset as f32, y_offset as f32),
                 parent_spatial_id,
                 WrPrimitiveFlags::IS_BACKFACE_VISIBLE,
             );
@@ -1169,7 +1163,7 @@ fn push_display_list_msg(
             .last().copied().unwrap_or((WrSpatialId::root_scroll_node(builder.pipeline_id), WrClipId::root(builder.pipeline_id)));
 
             builder.push_simple_stacking_context(
-                WrLayoutPoint::new(x_offset, y_offset),
+                WrLayoutPoint::new(x_offset as f32, y_offset as f32),
                 last_positioned_spatial_id,
                 WrPrimitiveFlags::IS_BACKFACE_VISIBLE,
             );
@@ -1177,7 +1171,7 @@ fn push_display_list_msg(
         },
         Fixed { x_offset, y_offset, .. } => {
             builder.push_simple_stacking_context(
-                WrLayoutPoint::new(x_offset, y_offset),
+                WrLayoutPoint::new(x_offset as f32, y_offset as f32),
                 WrSpatialId::root_scroll_node(builder.pipeline_id),
                 WrPrimitiveFlags::IS_BACKFACE_VISIBLE,
             );
@@ -1504,8 +1498,8 @@ mod background {
         let offset = calculate_background_position(info, background_position, background_size);
 
         let mut offset_info = *info;
-        offset_info.clip_rect.origin.x += offset.x;
-        offset_info.clip_rect.origin.y += offset.y;
+        offset_info.clip_rect.origin.x += offset.x as f32;
+        offset_info.clip_rect.origin.y += offset.y as f32;
 
         let stops: Vec<WrGradientStop> = radial_gradient.stops.as_ref().iter().map(|gradient_pre|
             WrGradientStop {
@@ -1517,10 +1511,10 @@ mod background {
 
         // Note: division by 2.0 because it's the radius, not the diameter
         let radius = match radial_gradient.shape {
-            Shape::Ellipse => WrLayoutSize::new(background_size.width / 2.0, background_size.height / 2.0),
+            Shape::Ellipse => WrLayoutSize::new(background_size.width as f32 / 2.0, background_size.height as f32 / 2.0),
             Shape::Circle => {
                 let largest_bound_size = background_size.width.max(background_size.height);
-                WrLayoutSize::new(largest_bound_size / 2.0, largest_bound_size / 2.0)
+                WrLayoutSize::new(largest_bound_size as f32 / 2.0, largest_bound_size as f32 / 2.0)
             },
         };
 
@@ -1556,8 +1550,8 @@ mod background {
         let offset = calculate_background_position(info, background_position, background_size);
 
         let mut offset_info = *info;
-        offset_info.clip_rect.origin.x += offset.x;
-        offset_info.clip_rect.origin.y += offset.y;
+        offset_info.clip_rect.origin.x += offset.x as f32;
+        offset_info.clip_rect.origin.y += offset.y as f32;
 
         let stops: Vec<WrGradientStop> = linear_gradient.stops.as_ref().iter().map(|gradient_pre|
             WrGradientStop {
@@ -1624,10 +1618,10 @@ mod background {
         let offset = calculate_background_position(info, background_position, background_size);
 
         let mut offset_info = *info;
-        offset_info.clip_rect.origin.x += offset.x;
-        offset_info.clip_rect.origin.y += offset.y;
-        offset_info.clip_rect.size.width = background_size.width;
-        offset_info.clip_rect.size.height = background_size.height;
+        offset_info.clip_rect.origin.x += offset.x as f32;
+        offset_info.clip_rect.origin.y += offset.y as f32;
+        offset_info.clip_rect.size.width = background_size.width as f32;
+        offset_info.clip_rect.size.height = background_size.height as f32;
 
         builder.push_rect(
             &offset_info,
@@ -1648,7 +1642,7 @@ mod background {
             NoRepeat => WrCommonItemProperties {
                 clip_rect: WrLayoutRect::new(
                     info.clip_rect.origin,
-                    WrLayoutSize::new(background_size.width, background_size.height),
+                    WrLayoutSize::new(background_size.width as f32, background_size.height as f32),
                 ),
                 .. *info
             },
@@ -1656,14 +1650,14 @@ mod background {
             RepeatX => WrCommonItemProperties {
                 clip_rect: WrLayoutRect::new(
                     info.clip_rect.origin,
-                    WrLayoutSize::new(info.clip_rect.size.width, background_size.height),
+                    WrLayoutSize::new(info.clip_rect.size.width as f32, background_size.height as f32),
                 ),
                 .. *info
             },
             RepeatY => WrCommonItemProperties {
                 clip_rect: WrLayoutRect::new(
                     info.clip_rect.origin,
-                    WrLayoutSize::new(background_size.width, info.clip_rect.size.height),
+                    WrLayoutSize::new(background_size.width as f32, info.clip_rect.size.height as f32),
                 ),
                 .. *info
             },
@@ -1680,7 +1674,7 @@ mod background {
         let content_size = content_size.unwrap_or((info.clip_rect.size.width, info.clip_rect.size.height));
 
         let bg_size = match bg_size {
-            None => return LayoutSize::new(content_size.0 as f32, content_size.1 as f32),
+            None => return LayoutSize::new(content_size.0.round() as isize, content_size.1.round() as isize),
             Some(s) => s,
         };
 
@@ -1699,7 +1693,7 @@ mod background {
             StyleBackgroundSize::Cover => content_aspect_ratio.width.max(content_aspect_ratio.height),
         };
 
-        LayoutSize::new(content_size.0 as f32 * ratio, content_size.1 as f32 * ratio)
+        LayoutSize::new((content_size.0 as f32 * ratio).round() as isize, (content_size.1 as f32 * ratio).round() as isize)
     }
 
     /// Transforma background-position attribute into pixel coordinates
@@ -1712,21 +1706,21 @@ mod background {
         use azul_css::BackgroundPositionVertical;
         use azul_css::BackgroundPositionHorizontal;
 
-        let width = info.clip_rect.size.width;
-        let height = info.clip_rect.size.height;
+        let width = info.clip_rect.size.width.round();
+        let height = info.clip_rect.size.height.round();
 
         let horizontal_offset = match background_position.horizontal {
-            BackgroundPositionHorizontal::Right => 0.0,
-            BackgroundPositionHorizontal::Center => (width - background_size.width) / 2.0,
-            BackgroundPositionHorizontal::Left => (width - background_size.width),
-            BackgroundPositionHorizontal::Exact(e) => e.to_pixels(width),
+            BackgroundPositionHorizontal::Right => 0,
+            BackgroundPositionHorizontal::Center => (width as isize - background_size.width) / 2,
+            BackgroundPositionHorizontal::Left => (width as isize - background_size.width),
+            BackgroundPositionHorizontal::Exact(e) => e.to_pixels(width).round() as isize,
         };
 
         let vertical_offset = match background_position.vertical {
-            BackgroundPositionVertical::Top => 0.0,
-            BackgroundPositionVertical::Center => (height - background_size.height) / 2.0,
-            BackgroundPositionVertical::Bottom => (height - background_size.height),
-            BackgroundPositionVertical::Exact(e) => e.to_pixels(height),
+            BackgroundPositionVertical::Top => 0,
+            BackgroundPositionVertical::Center => (height as isize - background_size.height) / 2,
+            BackgroundPositionVertical::Bottom => (height as isize - background_size.height),
+            BackgroundPositionVertical::Exact(e) => e.to_pixels(height).round() as isize,
         };
 
         LayoutPoint { x: horizontal_offset, y: vertical_offset }
@@ -1763,8 +1757,8 @@ mod image {
         use webrender::api::units::LayoutSize as WrLayoutSize;
 
         let mut offset_info = *info;
-        offset_info.clip_rect.origin.x += offset.x;
-        offset_info.clip_rect.origin.y += offset.y;
+        offset_info.clip_rect.origin.x += offset.x as f32;
+        offset_info.clip_rect.origin.y += offset.y as f32;
 
         let tile_spacing = WrLayoutSize::zero();
 
@@ -1921,7 +1915,7 @@ mod box_shadow {
         parent_clip_id: WrClipId,
     ) {
         let is_inset_shadow = current_shadow.clip_mode == BoxShadowClipMode::Inset;
-        let origin_displace = (current_shadow.spread_radius.to_pixels() + current_shadow.blur_radius.to_pixels()) * 2.0;
+        let origin_displace = (current_shadow.spread_radius.to_pixels().round() as isize + current_shadow.blur_radius.to_pixels().round() as isize) * 2;
 
         let mut shadow_bounds = bounds;
         let mut clip_rect = bounds;
@@ -1932,43 +1926,43 @@ mod box_shadow {
             if let Some(_top) = top {
                 clip_rect.size.height = origin_displace;
                 shadow_bounds.size.width += origin_displace;
-                shadow_bounds.origin.x -= origin_displace / 2.0;
+                shadow_bounds.origin.x -= origin_displace / 2;
             } else if let Some(_bottom) = bottom {
                 clip_rect.size.height = origin_displace;
                 clip_rect.origin.y += bounds.size.height - origin_displace;
                 shadow_bounds.size.width += origin_displace;
-                shadow_bounds.origin.x -= origin_displace / 2.0;
+                shadow_bounds.origin.x -= origin_displace / 2;
             } else if let Some(_left) = left {
                 clip_rect.size.width = origin_displace;
                 shadow_bounds.size.height += origin_displace;
-                shadow_bounds.origin.y -= origin_displace / 2.0;
+                shadow_bounds.origin.y -= origin_displace / 2;
             } else if let Some(_right) = right {
                 clip_rect.size.width = origin_displace;
                 clip_rect.origin.x += bounds.size.width - origin_displace;
                 shadow_bounds.size.height += origin_displace;
-                shadow_bounds.origin.y -= origin_displace / 2.0;
+                shadow_bounds.origin.y -= origin_displace / 2;
             }
         } else {
             if let Some(_top) = top {
                 clip_rect.size.height = origin_displace;
                 clip_rect.origin.y -= origin_displace;
                 shadow_bounds.size.width += origin_displace;
-                shadow_bounds.origin.x -= origin_displace / 2.0;
+                shadow_bounds.origin.x -= origin_displace / 2;
             } else if let Some(_bottom) = bottom {
                 clip_rect.size.height = origin_displace;
                 clip_rect.origin.y += bounds.size.height;
                 shadow_bounds.size.width += origin_displace;
-                shadow_bounds.origin.x -= origin_displace / 2.0;
+                shadow_bounds.origin.x -= origin_displace / 2;
             } else if let Some(_left) = left {
                 clip_rect.size.width = origin_displace;
                 clip_rect.origin.x -= origin_displace;
                 shadow_bounds.size.height += origin_displace;
-                shadow_bounds.origin.y -= origin_displace / 2.0;
+                shadow_bounds.origin.y -= origin_displace / 2;
             } else if let Some(_right) = right {
                 clip_rect.size.width = origin_displace;
                 clip_rect.origin.x += bounds.size.width;
                 shadow_bounds.size.height += origin_displace;
-                shadow_bounds.origin.y -= origin_displace / 2.0;
+                shadow_bounds.origin.y -= origin_displace / 2;
             }
         }
 
@@ -2053,12 +2047,12 @@ mod box_shadow {
             // calculate the maximum extent of the outset shadow
             let mut clip_rect = bounds;
 
-            let origin_displace = (pre_shadow.spread_radius.to_pixels() + pre_shadow.blur_radius.to_pixels()) * 2.0;
-            clip_rect.origin.x = clip_rect.origin.x - pre_shadow.offset[0].to_pixels() - origin_displace;
-            clip_rect.origin.y = clip_rect.origin.y - pre_shadow.offset[1].to_pixels() - origin_displace;
+            let origin_displace = (pre_shadow.spread_radius.to_pixels().round() as isize + pre_shadow.blur_radius.to_pixels().round() as isize) * 2;
+            clip_rect.origin.x = clip_rect.origin.x - pre_shadow.offset[0].to_pixels().round() as isize - origin_displace;
+            clip_rect.origin.y = clip_rect.origin.y - pre_shadow.offset[1].to_pixels().round() as isize - origin_displace;
 
-            clip_rect.size.height = clip_rect.size.height + (origin_displace * 2.0);
-            clip_rect.size.width = clip_rect.size.width + (origin_displace * 2.0);
+            clip_rect.size.height = clip_rect.size.height + (origin_displace * 2);
+            clip_rect.size.width = clip_rect.size.width + (origin_displace * 2);
             clip_rect
         }
     }
@@ -2097,7 +2091,7 @@ mod border {
         colors: StyleBorderColors,
         styles: StyleBorderStyles,
     ) {
-        let rect_size = LayoutSize::new(info.clip_rect.size.width, info.clip_rect.size.height);
+        let rect_size = LayoutSize::new(info.clip_rect.size.width.round() as isize, info.clip_rect.size.height.round() as isize);
 
         if let Some((border_widths, border_details)) = get_webrender_border(rect_size, radii, widths, colors, styles) {
             builder.push_border(&info, info.clip_rect, border_widths, border_details);
@@ -2165,10 +2159,10 @@ mod border {
         );
 
         let border_widths = WrLayoutSideOffsets::new(
-            width_top.map(|v| v.to_pixels(rect_size.height)).unwrap_or(0.0),
-            width_right.map(|v| v.to_pixels(rect_size.width)).unwrap_or(0.0),
-            width_bottom.map(|v| v.to_pixels(rect_size.height)).unwrap_or(0.0),
-            width_left.map(|v| v.to_pixels(rect_size.width)).unwrap_or(0.0),
+            width_top.map(|v| v.to_pixels(rect_size.height as f32)).unwrap_or(0.0),
+            width_right.map(|v| v.to_pixels(rect_size.width as f32)).unwrap_or(0.0),
+            width_bottom.map(|v| v.to_pixels(rect_size.height as f32)).unwrap_or(0.0),
+            width_left.map(|v| v.to_pixels(rect_size.width as f32)).unwrap_or(0.0),
         );
 
         let border_details = WrBorderDetails::Normal(WrNormalBorder {

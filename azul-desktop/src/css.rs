@@ -38,7 +38,6 @@
 
 #[cfg(feature = "css_parser")]
 use azul_css_parser::{self, CssParseError};
-use std::time::Instant;
 pub use azul_css::*;
 #[cfg(feature = "css_parser")]
 pub mod css_parser {

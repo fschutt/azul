@@ -1040,6 +1040,13 @@
 		"option": {
 			"doc": "Definition of azuls internal `Option<*>` wrappers",
 			"classes": {
+				"OptionWindowTheme": {
+					"external": "azul_impl::window::OptionTheme",
+					"enum_fields": [
+						{"None": {}},
+						{"Some": { "type": "WindowTheme" }}
+					]
+				},
 				"OptionNodeId": {
 					"external": "azul_impl::styled_dom::OptionNodeId",
 					"enum_fields": [
@@ -2012,19 +2019,108 @@
 						{"cb": {"type": "CallbackType"}}
 					]
 				},
+				"FocusTarget": {
+					"external": "azul_impl::callbacks::FocusTarget",
+					"doc": "Defines the focus target for the next frame",
+					"derive": ["PartialEq", "Eq", "PartialOrd", "Ord", "Hash"],
+					"enum_fields": [
+						{"Id": {"type": "DomNodeId"}},
+						{"Path": {"type": "FocusTargetPath"}},
+						{"PreviousFocusItem": {}},
+						{"NextFocusItem": {}},
+						{"NoFocus": {}}
+					]
+				},
+				"FocusTargetPath": {
+					"external": "azul_impl::callbacks::FocusTargetPath",
+					"derive": ["PartialEq", "Eq", "PartialOrd", "Ord", "Hash"],
+					"struct_fields": [
+						{"dom": {"type": "DomId"}},
+						{"css_path": {"type": "CssPath"}}
+					]
+				},
 				"CallbackType": { "use_patches": ["dll", "rust"], "typedef": true },
 				"CallbackInfo": {
 					"external": "azul_impl::callbacks::CallbackInfoPtr",
 					"rust_class_name": "CallbackInfo<'a>",
 					"is_boxed_object": true,
 					"functions": {
-						"get_state": {
-							"doc": "Returns a copy of the internal `RefAny`",
+						"get_hit_node": {
+							"doc": "Returns the `DomNodeId` of the element that the callback was attached to.",
 							"fn_args": [
 								{"self": "ref"}
 							],
-							"returns": "RefAny",
-							"fn_body": "az_callback_info_ptr_downcast_ref(callbackinfo, |ci| ci.state.clone())"
+							"returns": "DomNodeId",
+							"fn_body": "az_callback_info_ptr_downcast_ref(callbackinfo, |ci| { *ci.hit_dom_node })"
+						},
+						"get_cursor_relative_to_viewport": {
+							"doc": "Returns the `LayoutPoint` of the cursor in the viewport (relative to the origin of the `Dom`). Set to `None` if the cursor is not in the current window.",
+							"fn_args": [
+								{"self": "ref"}
+							],
+							"returns": "OptionLayoutPoint",
+							"fn_body": "az_callback_info_ptr_downcast_ref(callbackinfo, |ci| { *ci.cursor_in_viewport.into() })"
+						},
+						"get_cursor_relative_to_node": {
+							"doc": "Returns the `LayoutPoint` of the cursor in the viewport (relative to the origin of the `Dom`). Set to `None` if the cursor is not hovering over the current node.",
+							"fn_args": [
+								{"self": "ref"}
+							],
+							"returns": "OptionLayoutPoint",
+							"fn_body": "az_callback_info_ptr_downcast_ref(callbackinfo, |ci| { *ci.cursor_relative_to_item.into() })"
+						},
+						"get_parent": {
+							"doc": "Returns the parent `DomNodeId` of the given `DomNodeId`. Returns `None` on an invalid NodeId.",
+							"fn_args": [
+								{"self": "ref"},
+								{"node_id": "DomNodeId"}
+							],
+							"returns": "OptionDomNodeId",
+							"fn_body": "az_callback_info_ptr_downcast_ref(callbackinfo, |ci| { ci.layout_results.get(node_id.dom.inner as usize).and_then(|layout_result| layout_result.styled_dom.node_hierarchy.as_container().get(node_id.node.into_crate_internal()?)?.parent_id()).map(|nid| DomNodeId { dom: node_id.dom, node: AzNodeId::from_crate_internal(Some(nid)) }).into() })"
+						},
+						"get_previous_sibling": {
+							"doc": "Returns the previous siblings `DomNodeId` of the given `DomNodeId`. Returns `None` on an invalid NodeId.",
+							"fn_args": [
+								{"self": "ref"},
+								{"node_id": "DomNodeId"}
+							],
+							"returns": "OptionDomNodeId",
+							"fn_body": "az_callback_info_ptr_downcast_ref(callbackinfo, |ci| { ci.layout_results.get(node_id.dom.inner as usize).and_then(|layout_result| layout_result.styled_dom.node_hierarchy.as_container().get(node_id.node.into_crate_internal()?)?.previous_sibling_id()).map(|nid| DomNodeId { dom: node_id.dom, node: AzNodeId::from_crate_internal(Some(nid)) }).into() })"
+						},
+						"get_next_sibling": {
+							"doc": "Returns the next siblings `DomNodeId` of the given `DomNodeId`. Returns `None` on an invalid NodeId.",
+							"fn_args": [
+								{"self": "ref"},
+								{"node_id": "DomNodeId"}
+							],
+							"returns": "OptionDomNodeId",
+							"fn_body": "az_callback_info_ptr_downcast_ref(callbackinfo, |ci| { ci.layout_results.get(node_id.dom.inner as usize).and_then(|layout_result| layout_result.styled_dom.node_hierarchy.as_container().get(node_id.node.into_crate_internal()?)?.next_sibling_id()).map(|nid| DomNodeId { dom: node_id.dom, node: AzNodeId::from_crate_internal(Some(nid)) }).into() })"
+						},
+						"get_first_child": {
+							"doc": "Returns the next siblings `DomNodeId` of the given `DomNodeId`. Returns `None` on an invalid NodeId.",
+							"fn_args": [
+								{"self": "ref"},
+								{"node_id": "DomNodeId"}
+							],
+							"returns": "OptionDomNodeId",
+							"fn_body": "az_callback_info_ptr_downcast_ref(callbackinfo, |ci| { ci.layout_results.get(node_id.dom.inner as usize).and_then(|layout_result| layout_result.styled_dom.node_hierarchy.as_container().get(node_id.node.into_crate_internal()?)?.first_child_id()).map(|nid| DomNodeId { dom: node_id.dom, node: AzNodeId::from_crate_internal(Some(nid)) }).into() })"
+						},
+						"get_last_child": {
+							"doc": "Returns the next siblings `DomNodeId` of the given `DomNodeId`. Returns `None` on an invalid NodeId.",
+							"fn_args": [
+								{"self": "ref"},
+								{"node_id": "DomNodeId"}
+							],
+							"returns": "OptionDomNodeId",
+							"fn_body": "az_callback_info_ptr_downcast_ref(callbackinfo, |ci| { ci.layout_results.get(node_id.dom.inner as usize).and_then(|layout_result| layout_result.styled_dom.node_hierarchy.as_container().get(node_id.node.into_crate_internal()?)?.last_child_id()).map(|nid| DomNodeId { dom: node_id.dom, node: AzNodeId::from_crate_internal(Some(nid)) }).into() })"
+						},
+						"get_window_state": {
+							"doc": "Returns a copy of the current windows `WindowState`.",
+							"fn_args": [
+								{"self": "ref"}
+							],
+							"returns": "WindowState",
+							"fn_body": "az_callback_info_ptr_downcast_ref(callbackinfo, |ci| { ci.current_window_state.clone() })"
 						},
 						"get_keyboard_state": {
 							"doc": "Returns a copy of the internal `KeyboardState`. Same as `self.get_window_state().keyboard_state`",
@@ -2042,6 +2138,52 @@
 							"returns": "MouseState",
 							"fn_body": "az_callback_info_ptr_downcast_ref(callbackinfo, |ci| ci.current_window_state.mouse_state.clone())"
 						},
+						"get_current_window_handle": {
+							"doc": "Returns a copy of the current windows `RawWindowHandle`.",
+							"fn_args": [
+								{"self": "ref"}
+							],
+							"returns": "RawWindowHandle",
+							"fn_body": "az_callback_info_ptr_downcast_ref(callbackinfo, |ci| { ci.current_window_handle.clone() })"
+						},
+						"get_gl_context": {
+							"doc": "Returns a **reference-counted copy** of the current windows `GlContextPtr`. You can use this to render OpenGL textures.",
+							"fn_args": [
+								{"self": "ref"}
+							],
+							"returns": "GlContextPtr",
+							"fn_body": "az_callback_info_ptr_downcast_ref(callbackinfo, |ci| { ci.gl_context.clone() })"
+						},
+						"node_is_type": {
+							"doc": "Returns whether the node has a given `NodeType`. Returns `false` on an invalid NodeId.",
+							"fn_args": [
+								{"self": "ref"},
+								{"node_id": "DomNodeId"},
+								{"node_type": "NodeType"}
+							],
+							"returns": "bool",
+							"fn_body": "az_callback_info_ptr_downcast_ref(callbackinfo, |ci| { ci.layout_results.get(node_id.dom.inner as usize).and_then(|layout_result| Some(layout_result.styled_dom.node_data.as_container().get(node_id.node.into_crate_internal()?)?.is_node_type(node_type))).unwrap_or(false) })"
+						},
+						"node_has_id": {
+							"doc": "Returns whether the node has a given `id`. Returns `false` on an invalid NodeId.",
+							"fn_args": [
+								{"self": "ref"},
+								{"node_id": "DomNodeId"},
+								{"id": "AzString"}
+							],
+							"returns": "bool",
+							"fn_body": "az_callback_info_ptr_downcast_ref(callbackinfo, |ci| { ci.layout_results.get(node_id.dom.inner as usize).and_then(|layout_result| Some(layout_result.styled_dom.node_data.as_container().get(node_id.node.into_crate_internal()?)?.has_id(id.as_str()))).unwrap_or(false) })"
+						},
+						"node_has_class": {
+							"doc": "Returns whether the node has a given `id`. Returns `false` on an invalid NodeId.",
+							"fn_args": [
+								{"self": "ref"},
+								{"node_id": "DomNodeId"},
+								{"id": "AzString"}
+							],
+							"returns": "bool",
+							"fn_body": "az_callback_info_ptr_downcast_ref(callbackinfo, |ci| { ci.layout_results.get(node_id.dom.inner as usize).and_then(|layout_result| Some(layout_result.styled_dom.node_data.as_container().get(node_id.node.into_crate_internal()?)?.has_class(class.as_str()))).unwrap_or(false) })"
+						},
 						"set_window_state": {
 							"doc": "Sets the new `WindowState` for the next frame. The window is updated after all callbacks are run.",
 							"fn_args": [
@@ -2049,6 +2191,46 @@
 								{"new_state": "WindowState"}
 							],
 							"fn_body": "az_callback_info_ptr_downcast_refmut(callbackinfo, |ci| { *ci.modifiable_window_state = new_state; })"
+						},
+						"set_focus": {
+							"doc": "Sets the new `FocusTarget` for the next frame. Note that this will emit a `On::FocusLost` and `On::FocusReceived` event, if the focused node has changed.",
+							"fn_args": [
+								{"self": "refmut"},
+								{"target": "FocusTarget"}
+							],
+							"fn_body": "az_callback_info_ptr_downcast_refmut(callbackinfo, |ci| { *ci.focus_target = Some(target); })"
+						},
+						"stop_propagation": {
+							"doc": "Stops the propagation of the current callback event type to the parent. Events are bubbled from the inside out (children first, then parents), this event stops the propagation of the event to the parent.",
+							"fn_args": [
+								{"self": "refmut"}
+							],
+							"fn_body": "az_callback_info_ptr_downcast_refmut(callbackinfo, |ci| { *ci.stop_propagation = true; })"
+						},
+						"create_window": {
+							"doc": "Spawns a new window with the given `WindowCreateOptions`.",
+							"fn_args": [
+								{"self": "refmut"},
+								{"new_window": "WindowCreateOptions"}
+							],
+							"fn_body": "az_callback_info_ptr_downcast_ref(callbackinfo, |ci| { ci.new_windows.push(new_window); })"
+						},
+						"add_task": {
+							"doc": "Adds a new `Task` to the runtime. See the documentation for `Task` for more information.",
+							"fn_args": [
+								{"self": "refmut"},
+								{"task": "Task"}
+							],
+							"fn_body": "az_callback_info_ptr_downcast_refmut(callbackinfo, |ci| { *ci.tasks.push(task); })"
+						},
+						"add_timer": {
+							"doc": "Adds a new `Timer` to the runtime. See the documentation for `Timer` for more information.",
+							"fn_args": [
+								{"self": "refmut"},
+								{"id": "TimerId"},
+								{"timer": "Timer"}
+							],
+							"fn_body": "az_callback_info_ptr_downcast_refmut(callbackinfo, |ci| { *ci.timers.insert(id, timer); })"
 						}
 					}
 				},
@@ -7287,6 +7469,84 @@
 		"window": {
 			"doc": "Window creation / startup configuration",
 			"classes": {
+				"RawWindowHandle": {
+					"external": "azul_impl::window::RawWindowHandle",
+					"derive": ["Debug", "Copy", "Clone", "PartialEq", "Eq", "PartialOrd", "Ord", "Hash"],
+					"enum_fields": [
+						{"IOS": {"type": "IOSHandle"}},
+						{"MacOS": {"type": "MacOSHandle"}},
+						{"Xlib": {"type": "XlibHandle"}},
+						{"Xcb": {"type": "XcbHandle"}},
+						{"Wayland": {"type": "WaylandHandle"}},
+						{"Windows": {"type": "WindowsHandle"}},
+						{"Web": {"type": "WebHandle"}},
+						{"Android": {"type": "AndroidHandle"}},
+						{"Unsupported": {}},
+					]
+				},
+				"IOSHandle": {
+					"external": "azul_impl::window::IOSHandle",
+					"derive": ["Debug", "Copy", "Clone", "PartialEq", "Eq", "PartialOrd", "Ord", "Hash"],
+					"struct_fields": [
+						{"ui_window": {"type": "*mut c_void"}},
+						{"ui_view": {"type": "*mut c_void"}},
+						{"ui_view_controller": {"type": "*mut c_void"}}
+					]
+				},
+				"MacOSHandle": {
+					"external": "azul_impl::window::MacOSHandle",
+					"derive": ["Debug", "Copy", "Clone", "PartialEq", "Eq", "PartialOrd", "Ord", "Hash"],
+					"struct_fields": [
+						{"ns_window": {"type": "*mut c_void"}},
+						{"ns_view": {"type": "*mut c_void"}}
+					]
+				},
+				"XlibHandle": {
+					"external": "azul_impl::window::XlibHandle",
+					"derive": ["Debug", "Copy", "Clone", "PartialEq", "Eq", "PartialOrd", "Ord", "Hash"],
+					"struct_fields": [
+						{"window": {"type": "u64", "doc": "An Xlib Window"}},
+						{"display": {"type": "*mut c_void", "doc": "A pointer to an Xlib `Display`"}}
+					]
+				},
+				"XcbHandle": {
+					"external": "azul_impl::window::XcbHandle",
+					"derive": ["Debug", "Copy", "Clone", "PartialEq", "Eq", "PartialOrd", "Ord", "Hash"],
+					"struct_fields": [
+						{"window": {"type": "u32", "doc": "An X11 `xcb_window_t`"}},
+						{"connection": {"type": "*mut c_void", "doc": "A pointer to an X server `xcb_connection_t`"}}
+					]
+				},
+				"WaylandHandle": {
+					"external": "azul_impl::window::WaylandHandle",
+					"derive": ["Debug", "Copy", "Clone", "PartialEq", "Eq", "PartialOrd", "Ord", "Hash"],
+					"struct_fields": [
+						{"surface": {"type": "*mut c_void", "doc": "A pointer to a `wl_surface`"}},
+						{"display": {"type": "*mut c_void", "doc": "A pointer to a `wl_display`"}}
+					]
+				},
+				"WindowsHandle": {
+					"external": "azul_impl::window::WindowsHandle",
+					"derive": ["Debug", "Copy", "Clone", "PartialEq", "Eq", "PartialOrd", "Ord", "Hash"],
+					"struct_fields": [
+						{"hwnd": {"type": "*mut c_void", "doc": "A Win32 HWND handle"}},
+						{"hinstance": {"type": "*mut c_void", "doc": "The HINSTANCE associated with this type's HWND"}}
+					]
+				},
+				"WebHandle": {
+					"external": "azul_impl::window::WebHandle",
+					"derive": ["Debug", "Copy", "Clone", "PartialEq", "Eq", "PartialOrd", "Ord", "Hash"],
+					"struct_fields": [
+						{"id": {"type": "u32", "doc": "An ID value inserted into the data attributes of the canvas element as 'raw-handle'. Invalid = 0."}}
+					]
+				},
+				"AndroidHandle": {
+					"external": "azul_impl::window::AndroidHandle",
+					"derive": ["Debug", "Copy", "Clone", "PartialEq", "Eq", "PartialOrd", "Ord", "Hash"],
+					"struct_fields": [
+						{"a_native_window": {"type": "*mut c_void", "doc": "A pointer to an ANativeWindow"}}
+					]
+				},
 				"TaskBarIcon": {
 					"external": "azul_impl::window::TaskBarIcon",
 					"struct_fields": [
@@ -7568,8 +7828,9 @@
 					"external": "azul_impl::window::WindowFlags",
 					"struct_fields": [
 						{"is_maximized": {"type": "bool", "doc": "Is the window currently maximized"}},
-						{"is_fullscreen": {"type": "bool", "doc": "Is the window currently fullscreened?"}},
+						{"is_minimized": {"type": "bool", "doc": "Is the window currently minimized"}},
 						{"is_about_to_close": {"type": "bool", "doc": "Is the window about to close on the next frame? Setting this to true will close the window."}},
+						{"is_fullscreen": {"type": "bool", "doc": "Is the window currently fullscreened?"}},
 						{"has_decorations": {"type": "bool", "doc": "Does the window have decorations (close, minimize, maximize, title bar)?"}},
 						{"is_visible": {"type": "bool", "doc": "Is the window currently visible?"}},
 						{"is_always_on_top": {"type": "bool", "doc": "Is the window always on top?"}},
@@ -7743,12 +8004,13 @@
 				"MacWindowOptions": {
 					"external": "azul_impl::window::MacWindowOptions",
 					"struct_fields": [
-						{"request_user_attention": {"type": "bool", "doc": "Whether the window icon should blink to request the users attention."}}
+						{"_reserved": {"type": "u8", "doc": "Reserved empty field"}}
 					]
 				},
 				"WasmWindowOptions": {
 					"external": "azul_impl::window::WasmWindowOptions",
 					"struct_fields": [
+						{"_reserved": {"type": "u8", "doc": "Reserved empty field"}}
 					]
 				},
 				"FullScreenMode": {
@@ -7801,6 +8063,7 @@
 						{"touch_state": {"type": "TouchState", "doc": "Current touch state, stores all states of currently connected touch input devices, pencils, tablets, etc. - NOTE: readonly field - mutating this field will not get synchronized with the OS"}},
 						{"ime_position": {"type": "ImePosition", "doc": "Sets location of IME candidate box in client area coordinates (relative to the top left of the window)"}},
 						{"platform_specific_options": {"type": "PlatformSpecificOptions", "doc": "Window options that can only be set on a certain platform (`WindowsWindowOptions` / `LinuxWindowOptions` / `MacWindowOptions`)."}},
+						{"background_color": {"type": "ColorU", "doc": "Color of the window background (can be transparent if necessary)"}},
 						{"layout_callback": {"type": "LayoutCallback"}}
 					],
 					"constructors": {
@@ -7824,7 +8087,7 @@
 					"struct_fields": [
 						{"state": {"type": "WindowState"}},
 						{"renderer_type": {"type": "RendererType"}},
-						{"background_color": {"type": "ColorU"}}
+						{"theme": {"type": "OptionWindowTheme"}}
 					],
 					"constructors": {
 						"new": {

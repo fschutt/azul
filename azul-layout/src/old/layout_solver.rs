@@ -168,7 +168,7 @@ macro_rules! typed_arena {(
             internal: vec![$struct_name::default();node_data.len()]
         };
 
-        for ParentWithNodeDepth { depth, node_id } in node_depths.iter() {
+        for ParentWithNodeDepth { depth: _, node_id } in node_depths.iter() {
 
             let parent_id = match node_id.into_crate_internal() { Some(s) => s, None => continue, };
 
@@ -238,7 +238,7 @@ macro_rules! typed_arena {(
         // Reverse, since we want to go from the inside out (depth 5 needs to be filled out first)
         //
         // Set the preferred_width of the parent nodes
-        for ParentWithNodeDepth { depth, node_id } in node_depths.iter().rev() {
+        for ParentWithNodeDepth { depth: _, node_id } in node_depths.iter().rev() {
 
             use self::WhConstraint::*;
 
@@ -596,7 +596,7 @@ macro_rules! typed_arena {(
         // Keep track of the nearest relative or absolute positioned element
         let mut positioned_node_stack = vec![NodeId::new(0)];
 
-        for ParentWithNodeDepth { depth, node_id } in node_depths.iter() {
+        for ParentWithNodeDepth { depth: _, node_id } in node_depths.iter() {
 
             use azul_css::{LayoutAxis, LayoutPosition};
 
@@ -856,7 +856,7 @@ fn $fn_name<'a>(
     // Stack of the positioned nodes (nearest relative or absolute positioned node)
     let mut positioned_node_stack = vec![NodeId::new(0)];
 
-    for ParentWithNodeDepth { depth, node_id } in node_depths.iter() {
+    for ParentWithNodeDepth { depth: _, node_id } in node_depths.iter() {
 
         let parent_id = match node_id.into_crate_internal() { Some(s) => s, None => continue, };
         if !parents_to_solve.contains(&parent_id) { continue; }
@@ -1111,8 +1111,6 @@ pub fn do_the_layout<U: FontImageApi>(
     full_window_state: &FullWindowState,
 ) -> Vec<LayoutResult> {
 
-    use azul_core::callbacks::DomNodeId;
-
     let mut current_dom_id = 0;
     let window_size = LayoutSize::new(full_window_state.size.dimensions.width.round() as isize, full_window_state.size.dimensions.height.round() as isize);
 
@@ -1181,7 +1179,7 @@ pub fn do_the_layout<U: FontImageApi>(
                     (cb.cb)(ptr).styled_dom
                 };
 
-                let hovered_nodes = full_window_state.hovered_nodes.get(&iframe_dom_id).cloned().unwrap_or_default().keys().cloned().collect::<Vec<_>>();
+                let hovered_nodes = full_window_state.hovered_nodes.get(&iframe_dom_id).map(|i| i.regular_hit_test_nodes.clone()).unwrap_or_default().keys().cloned().collect::<Vec<_>>();
                 let active_nodes = if !full_window_state.mouse_state.mouse_down() { Vec::new() } else { hovered_nodes.clone() };
 
                 if !hovered_nodes.is_empty() { iframe_dom.styled_nodes.restyle_nodes_hover(hovered_nodes.as_slice()); }
@@ -1400,7 +1398,7 @@ fn position_nodes<'a>(
     let mut positioned_node_stack = vec![NodeId::new(0)];
 
     // create the final positioned rectangles
-    for ParentWithNodeDepth { depth, node_id } in styled_dom.non_leaf_nodes.as_ref().iter() {
+    for ParentWithNodeDepth { depth: _, node_id } in styled_dom.non_leaf_nodes.as_ref().iter() {
 
         let parent_node_id = match node_id.into_crate_internal() { Some(s) => s, None => continue, };
 
@@ -1760,7 +1758,7 @@ fn get_nodes_that_need_scroll_clip(
     let mut nodes = BTreeMap::new();
     let mut tags_to_node_ids = BTreeMap::new();
 
-    for ParentWithNodeDepth { depth, node_id } in parents.iter() {
+    for ParentWithNodeDepth { depth: _, node_id } in parents.iter() {
 
         let parent_id = match node_id.into_crate_internal() { Some(s) => s, None => continue, };
         let parent_rect = &layouted_rects[parent_id];
@@ -1927,7 +1925,7 @@ pub fn do_the_relayout(
     }
 
     // parents need to be adjust before children
-    for ParentWithNodeDepth { depth, node_id } in layout_result.styled_dom.non_leaf_nodes.iter() {
+    for ParentWithNodeDepth { depth: _, node_id } in layout_result.styled_dom.non_leaf_nodes.iter() {
 
         let node_id = match node_id.into_crate_internal() { Some(s) => s, None => continue, };
         let parent_id = layout_result.styled_dom.node_hierarchy.as_container()[node_id].parent_id().unwrap_or(layout_result.styled_dom.root.into_crate_internal().unwrap());
@@ -2111,7 +2109,7 @@ pub fn do_the_relayout(
     }
 
     // propagate min_inner_size_px change from the inside out
-    for ParentWithNodeDepth { depth, node_id } in layout_result.styled_dom.non_leaf_nodes.iter().rev() {
+    for ParentWithNodeDepth { depth: _, node_id } in layout_result.styled_dom.non_leaf_nodes.iter().rev() {
 
         let node_id = match node_id.into_crate_internal() { Some(s) => s, None => continue, };
 

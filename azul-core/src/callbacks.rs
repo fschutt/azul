@@ -6,26 +6,20 @@ use std::{
     ffi::c_void,
     alloc::Layout,
 };
-use azul_css::{LayoutPoint, OptionLayoutPoint, AzString, LayoutRect, LayoutSize, CssPath};
-#[cfg(feature = "css_parser")]
-use azul_css_parser::CssPathParseError;
+use azul_css::{LayoutPoint, AzString, LayoutRect, LayoutSize, CssPath};
 use crate::{
     FastHashMap,
-    app_resources::{AppResources, IdNamespace, Words, WordPositions, ShapedWords, LayoutedGlyphs},
-    dom::{Dom, OptionDom, TagId, NodeType, NodeData},
-    display_list::CachedDisplayList,
+    app_resources::{AppResources, IdNamespace},
     styled_dom::StyledDom,
-    ui_solver::{OverflowingScrollNode, PositionedRectangle, LayoutedRectangle, ScrolledNodes, LayoutResult},
-    id_tree::{Node, NodeId},
+    ui_solver::{OverflowingScrollNode, LayoutedRectangle, LayoutResult},
     styled_dom::{DomId, AzNodeId},
     window::{
         WindowSize, WindowState, FullWindowState, LogicalPosition,
-        KeyboardState, MouseState, LogicalSize, PhysicalSize,
-        UpdateFocusWarning, CallCallbacksResult, ScrollStates,
+        LogicalSize, PhysicalSize, UpdateFocusWarning, WindowCreateOptions,
+        RawWindowHandle,
     },
     task::{Timer, DropCheckPtr, TerminateTimer, ArcMutexRefAnyPtr, Task, TimerId},
 };
-
 #[cfg(feature = "opengl")]
 use crate::gl::{OptionTexture, GlContextPtr};
 
@@ -374,6 +368,7 @@ macro_rules! impl_callback {($callback_value:ident) => (
     impl Copy for $callback_value { }
 )}
 
+#[allow(unused_macros)]
 macro_rules! impl_get_gl_context {() => {
     /// Returns a reference-counted pointer to the OpenGL context
     #[cfg(feature = "opengl")]
@@ -440,6 +435,10 @@ pub struct CallbackInfo<'a> {
     pub timers: &'a mut FastHashMap<TimerId, Timer>,
     /// Currently running tasks (asynchronous functions running each on a different thread)
     pub tasks: &'a mut Vec<Task>,
+    /// Used to spawn new windows from callbacks. You can use `get_current_window_handle()` to spawn child windows.
+    pub new_windows: &'a mut Vec<WindowCreateOptions>,
+    /// Handle of the current window
+    pub current_window_handle: &'a RawWindowHandle,
     /// Currently active, layouted rectangles
     pub layout_results: &'a [LayoutResult],
     /// Sets whether the event should be propagated to the parent hit node or not
@@ -475,85 +474,6 @@ impl_option!(DomNodeId, OptionDomNodeId, [Debug, Copy, Clone, PartialEq, Eq, Par
 
 impl CallbackInfoPtr {
 
-    pub fn get_hit_node<'a>(&'a self) -> DomNodeId {
-        let self_ptr = self.ptr as *const CallbackInfo<'a>;
-        unsafe { (*self_ptr).hit_dom_node }
-    }
-
-    pub fn get_parent<'a>(&'a self, node_id: DomNodeId) -> OptionDomNodeId {
-        let self_ptr = self.ptr as *const CallbackInfo<'a>;
-        unsafe { (*self_ptr).layout_results }
-        .get(node_id.dom.inner as usize)
-        .and_then(|layout_result| layout_result.styled_dom.node_hierarchy.as_container().get(node_id.node.into_crate_internal()?)?.parent_id())
-        .map(|nid| DomNodeId { dom: node_id.dom, node: AzNodeId::from_crate_internal(Some(nid)) })
-        .into()
-    }
-
-    pub fn get_previous_sibling<'a>(&'a self, node_id: DomNodeId) -> OptionDomNodeId {
-        let self_ptr = self.ptr as *const CallbackInfo<'a>;
-        unsafe { (*self_ptr).layout_results }
-        .get(node_id.dom.inner as usize)
-        .and_then(|layout_result| layout_result.styled_dom.node_hierarchy.as_container().get(node_id.node.into_crate_internal()?)?.previous_sibling_id())
-        .map(|nid| DomNodeId { dom: node_id.dom, node: AzNodeId::from_crate_internal(Some(nid)) })
-        .into()
-    }
-
-    pub fn get_next_sibling<'a>(&'a self, node_id: DomNodeId) -> OptionDomNodeId {
-        let self_ptr = self.ptr as *const CallbackInfo<'a>;
-        unsafe { (*self_ptr).layout_results }
-        .get(node_id.dom.inner as usize)
-        .and_then(|layout_result| layout_result.styled_dom.node_hierarchy.as_container().get(node_id.node.into_crate_internal()?)?.next_sibling_id())
-        .map(|nid| DomNodeId { dom: node_id.dom, node: AzNodeId::from_crate_internal(Some(nid)) })
-        .into()
-    }
-
-    pub fn get_first_child<'a>(&'a self, node_id: DomNodeId) -> OptionDomNodeId {
-        let self_ptr = self.ptr as *const CallbackInfo<'a>;
-        unsafe { (*self_ptr).layout_results }
-        .get(node_id.dom.inner as usize)
-        .and_then(|layout_result| layout_result.styled_dom.node_hierarchy.as_container().get(node_id.node.into_crate_internal()?)?.first_child_id())
-        .map(|nid| DomNodeId { dom: node_id.dom, node: AzNodeId::from_crate_internal(Some(nid)) })
-        .into()
-    }
-
-    pub fn node_is_type<'a>(&'a self, node_id: DomNodeId, node_type: NodeType) -> bool {
-        let self_ptr = self.ptr as *const CallbackInfo<'a>;
-        unsafe { (*self_ptr).layout_results }
-        .get(node_id.dom.inner as usize)
-        .and_then(|layout_result| Some(layout_result.styled_dom.node_data.as_container().get(node_id.node.into_crate_internal()?)?.is_node_type(node_type)))
-        .unwrap_or(false)
-    }
-
-    pub fn node_has_id<'a>(&'a self, node_id: DomNodeId, id: AzString) -> bool {
-        let self_ptr = self.ptr as *const CallbackInfo<'a>;
-        unsafe { (*self_ptr).layout_results }
-        .get(node_id.dom.inner as usize)
-        .and_then(|layout_result| Some(layout_result.styled_dom.node_data.as_container().get(node_id.node.into_crate_internal()?)?.has_id(id.as_str())))
-        .unwrap_or(false)
-    }
-
-    pub fn node_has_class<'a>(&'a self, node_id: DomNodeId, class: AzString) -> bool {
-        let self_ptr = self.ptr as *const CallbackInfo<'a>;
-        unsafe { (*self_ptr).layout_results }
-        .get(node_id.dom.inner as usize)
-        .and_then(|layout_result| Some(layout_result.styled_dom.node_data.as_container().get(node_id.node.into_crate_internal()?)?.has_class(class.as_str())))
-        .unwrap_or(false)
-    }
-
-    pub fn get_current_window_state<'a>(&'a self) -> FullWindowState {
-        let self_ptr = self.ptr as *const CallbackInfo<'a>;
-        unsafe { (*self_ptr).current_window_state.clone() }
-    }
-
-    pub fn get_cursor_in_viewport<'a>(&'a self) -> OptionLayoutPoint {
-        let self_ptr = self.ptr as *const CallbackInfo<'a>;
-        unsafe { (*self_ptr).cursor_in_viewport.into() }
-    }
-
-    pub fn get_cursor_relative_to_item<'a>(&'a self) -> OptionLayoutPoint {
-        let self_ptr = self.ptr as *const CallbackInfo<'a>;
-        unsafe { (*self_ptr).cursor_relative_to_item.into() }
-    }
 
     // pub fn add_font_source()
     // pub fn remove_font_source()
@@ -568,30 +488,7 @@ impl CallbackInfoPtr {
     // pub fn exchange_image_source(old_image_source, new_image_source)
     // pub fn exchange_image_mask(old_image_mask, new_image_mask)
 
-    pub fn add_task<'a>(&'a mut self, task: Task) {
-        let self_ptr = self.ptr as *mut CallbackInfo<'a>;
-        unsafe { (*self_ptr).tasks.push(task); }
-    }
 
-    pub fn add_timer<'a>(&'a mut self, timer_id: TimerId, timer: Timer) {
-        let self_ptr = self.ptr as *mut CallbackInfo<'a>;
-        unsafe { (*self_ptr).timers.insert(timer_id, timer); }
-    }
-
-    pub fn set_window_state<'a>(&'a mut self, new_window_state: WindowState) {
-        let self_ptr = self.ptr as *mut CallbackInfo<'a>;
-        unsafe { *(*self_ptr).modifiable_window_state = new_window_state; }
-    }
-
-    pub fn stop_propagation<'a>(&'a mut self) {
-        let self_ptr = self.ptr as *mut CallbackInfo<'a>;
-        unsafe { *(*self_ptr).stop_propagation = true; }
-    }
-
-    pub fn get_gl_context<'a>(&'a self) -> GlContextPtr {
-        let self_ptr = self.ptr as *const CallbackInfo<'a>;
-        unsafe { (*self_ptr).gl_context.clone() }
-    }
 }
 
 impl Drop for CallbackInfoPtr {
@@ -900,10 +797,20 @@ impl HidpiAdjustedBounds {
 
 /// Defines the focus_targeted node ID for the next frame
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
+#[repr(C, u8)]
 pub enum FocusTarget {
     Id(DomNodeId),
-    Path((DomId, CssPath)),
+    Path(FocusTargetPath),
+    PreviousFocusItem,
+    NextFocusItem,
     NoFocus,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
+#[repr(C)]
+pub struct FocusTargetPath {
+    pub dom: DomId,
+    pub css_path: CssPath,
 }
 
 impl FocusTarget {
@@ -927,8 +834,10 @@ impl FocusTarget {
                 }
             },
             NoFocus => Ok(None),
-            Path((dom_id, css_path)) => {
-                let layout_result = layout_results.get(dom_id.inner).ok_or(UpdateFocusWarning::FocusInvalidDomId(dom_id.clone()))?;
+            PreviousFocusItem => Ok(None), // TODO - select the next focusable element or `None` if this was the first focusable element in the DOM
+            NextFocusItem => Ok(None), // TODO - select the previous focusable element or `None` if this was the last focusable element in the DOM
+            Path(FocusTargetPath { dom, css_path }) => {
+                let layout_result = layout_results.get(dom.inner).ok_or(UpdateFocusWarning::FocusInvalidDomId(dom.clone()))?;
                 let html_node_tree = &layout_result.styled_dom.cascade_info;
                 let node_hierarchy = &layout_result.styled_dom.node_hierarchy;
                 let node_data = &layout_result.styled_dom.node_data;
@@ -937,7 +846,7 @@ impl FocusTarget {
                     .linear_iter()
                     .find(|node_id| matches_html_element(css_path, *node_id, &node_hierarchy.as_container(), &node_data.as_container(), &html_node_tree.as_container()))
                     .ok_or(UpdateFocusWarning::CouldNotFindFocusNode(css_path.clone()))?;
-                Ok(Some(DomNodeId { dom: dom_id.clone(), node: AzNodeId::from_crate_internal(Some(resolved_node_id)) }))
+                Ok(Some(DomNodeId { dom: dom.clone(), node: AzNodeId::from_crate_internal(Some(resolved_node_id)) }))
             },
         }
     }

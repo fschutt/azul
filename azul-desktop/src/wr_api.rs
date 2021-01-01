@@ -1,4 +1,7 @@
 use webrender::api::{RenderApi as WrRenderApi};
+use azul_core::app_resources::{
+    ImageKey, FontKey, FontImageApi, FontInstanceKey, ResourceUpdate
+};
 
 /// Wrapper struct because it's not possible to implement traits on foreign types
 pub struct WrApi {

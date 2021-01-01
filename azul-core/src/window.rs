@@ -7,17 +7,15 @@ use std::{
     path::PathBuf,
     ffi::c_void,
 };
-use azul_css::{U8Vec, ColorU, AzString, Css, LayoutPoint, LayoutRect, CssPath};
+use azul_css::{U8Vec, ColorU, AzString, LayoutPoint, LayoutRect, CssPath};
 use crate::{
     FastHashMap,
     app_resources::{AppResources, Epoch, FontImageApi},
-    dom::{EventFilter, CallbackData},
-    styled_dom::{DomId, AzNodeId, ChangedCssProperty, ChangedCssPropertyVec},
+    styled_dom::{DomId, AzNodeId, ChangedCssPropertyVec},
     id_tree::NodeId,
-    task::AzDuration,
-    callbacks::{PipelineId, RefAny, DocumentId, Callback, DomNodeId, ScrollPosition, HitTestItem, UpdateScreen},
-    ui_solver::{OverflowingScrollNode, HitTest, LayoutResult, ExternalScrollId, ScrolledNodes},
-    display_list::{GlTextureCache, RenderCallbacks, CachedDisplayList},
+    callbacks::{PipelineId, RefAny, DocumentId, DomNodeId, ScrollPosition, UpdateScreen},
+    ui_solver::{OverflowingScrollNode, HitTest, LayoutResult, ExternalScrollId},
+    display_list::{GlTextureCache, RenderCallbacks},
     callbacks::{LayoutCallback, LayoutCallbackType},
     task::{TimerId, Timer, Task},
 };
@@ -56,6 +54,88 @@ impl IconKey {
     pub fn new() -> Self {
         Self { id: LAST_ICON_KEY.fetch_add(1, AtomicOrdering::SeqCst) }
     }
+}
+
+#[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
+#[repr(C, u8)]
+pub enum RawWindowHandle {
+    IOS(IOSHandle),
+    MacOS(MacOSHandle),
+    Xlib(XlibHandle),
+    Xcb(XcbHandle),
+    Wayland(WaylandHandle),
+    Windows(WindowsHandle),
+    Web(WebHandle),
+    Android(AndroidHandle),
+    Unsupported,
+}
+
+#[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
+#[repr(C)]
+pub struct IOSHandle {
+    pub ui_window: *mut c_void,
+    pub ui_view: *mut c_void,
+    pub ui_view_controller: *mut c_void,
+}
+
+#[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
+#[repr(C)]
+pub struct MacOSHandle {
+    pub ns_window: *mut c_void,
+    pub ns_view: *mut c_void,
+}
+
+#[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
+#[repr(C)]
+pub struct XlibHandle {
+    /// An Xlib Window
+    pub window: u64,
+    pub display: *mut c_void,
+}
+
+#[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
+#[repr(C)]
+pub struct XcbHandle {
+    /// An X11 xcb_window_t.
+    pub window: u32,
+    /// A pointer to an X server xcb_connection_t.
+    pub connection: *mut c_void,
+}
+
+#[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
+#[repr(C)]
+pub struct WaylandHandle {
+    /// A pointer to a wl_surface
+    pub surface: *mut c_void,
+    /// A pointer to a wl_display.
+    pub display: *mut c_void,
+}
+
+#[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
+#[repr(C)]
+pub struct WindowsHandle {
+    /// A Win32 HWND handle.
+    pub hwnd: *mut c_void,
+    /// The HINSTANCE associated with this type's HWND.
+    pub hinstance: *mut c_void,
+}
+
+#[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
+#[repr(C)]
+pub struct WebHandle {
+    /// An ID value inserted into the data attributes of the canvas element as 'raw-handle'
+    ///
+    /// When accessing from JS, the attribute will automatically be called rawHandle. Each canvas
+    /// created by the windowing system should be assigned their own unique ID.
+    /// 0 should be reserved for invalid / null IDs.
+    pub id: u32,
+}
+
+#[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
+#[repr(C)]
+pub struct AndroidHandle {
+    /// A pointer to an ANativeWindow.
+    pub a_native_window: *mut c_void,
 }
 
 #[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
@@ -323,8 +403,8 @@ impl ScrollStates {
     pub fn should_scroll_render(&mut self, (scroll_x, scroll_y): &(f32, f32), hit_test: &FullHitTest) -> bool {
         let mut should_scroll_render = false;
 
-        for (dom_id, hit_test) in hit_test.hovered_nodes.iter() {
-            for (node_id, scroll_hit_test_item) in hit_test.scroll_hit_test_nodes.iter() {
+        for hit_test in hit_test.hovered_nodes.values() {
+            for scroll_hit_test_item in hit_test.scroll_hit_test_nodes.values() {
                 self.scroll_node(&scroll_hit_test_item.scroll_node, *scroll_x, *scroll_y);
                 should_scroll_render = true;
             }
@@ -468,14 +548,21 @@ pub struct FullHitTest {
 
 impl FullHitTest {
 
+    pub fn empty() -> Self {
+        Self {
+            hovered_nodes: BTreeMap::new(),
+            focused_node: None,
+        }
+    }
+
     /// Does the hit-test for all hovered nodes
     ///
     /// NOTE: This is much faster than calling webrender
-    pub fn new(layout_results: &[LayoutResult], cursor_position: &Option<LayoutPoint>, scroll_states: &ScrollStates) -> Self {
+    pub fn new(layout_results: &[LayoutResult], cursor_position: &CursorPosition, scroll_states: &ScrollStates) -> Self {
 
-        let cursor_location = match cursor_position.as_ref() {
-            Some(pos) => *pos,
-            None => return FullHitTest::default(),
+        let cursor_location = match cursor_position {
+            CursorPosition::OutOfWindow | CursorPosition::Uninitialized => return FullHitTest::default(),
+            CursorPosition::InWindow(pos) => LayoutPoint::new(pos.x.round() as isize, pos.y.round() as isize),
         };
 
         let mut map = BTreeMap::new();
@@ -601,7 +688,7 @@ impl WindowInternal {
 
     /// Initializes the `WindowInternal` on window creation. Calls the layout() method once to initializes the layout
     #[cfg(feature = "opengl")]
-    pub fn new<U: FontImageApi>(init: WindowInternalInit, data: RefAny, app_resources: &mut AppResources, gl_context: &GlContextPtr, render_api: &mut U, callbacks: RenderCallbacks<U>) -> Self {
+    pub fn new<U: FontImageApi>(init: WindowInternalInit, data: &RefAny, app_resources: &mut AppResources, gl_context: &GlContextPtr, render_api: &mut U, callbacks: RenderCallbacks<U>) -> Self {
 
         use crate::callbacks::{LayoutInfo, LayoutInfoPtr};
         use crate::display_list::SolvedLayout;
@@ -622,9 +709,10 @@ impl WindowInternal {
             };
             let layout_info_ptr = LayoutInfoPtr { ptr: Box::into_raw(Box::new(layout_info)) as *mut c_void };
 
-            let mut styled_dom = (layout_callback.cb)(data, layout_info_ptr);
+            // TODO: remove the .clone()!
+            let mut styled_dom = (layout_callback.cb)(data.clone(), layout_info_ptr);
 
-            let hovered_nodes = current_window_state.hovered_nodes.get(&DomId::ROOT_ID).map(|k| k.keys().cloned().collect::<Vec<_>>()).unwrap_or_default();
+            let hovered_nodes = current_window_state.hovered_nodes.get(&DomId::ROOT_ID).map(|k| k.regular_hit_test_nodes.keys().cloned().collect::<Vec<_>>()).unwrap_or_default();
             let active_nodes = if !current_window_state.mouse_state.mouse_down() { Vec::new() } else { hovered_nodes.clone() };
 
             if !hovered_nodes.is_empty() { let _ = styled_dom.styled_nodes.restyle_nodes_hover(&hovered_nodes); }
@@ -668,7 +756,7 @@ impl WindowInternal {
 
     /// Calls the layout function again and updates the self.internal.gl_texture_cache field
     #[cfg(feature = "opengl")]
-    pub fn relayout<U: FontImageApi>(&mut self, data: RefAny, app_resources: &mut AppResources, gl_context: &GlContextPtr, render_api: &mut U, callbacks: RenderCallbacks<U>) {
+    pub fn regenerate_styled_dom<U: FontImageApi>(&mut self, data: &RefAny, app_resources: &mut AppResources, gl_context: &GlContextPtr, render_api: &mut U, callbacks: RenderCallbacks<U>) {
 
         use crate::callbacks::{LayoutInfo, LayoutInfoPtr};
         use crate::display_list::SolvedLayout;
@@ -688,9 +776,10 @@ impl WindowInternal {
             };
             let layout_info_ptr = LayoutInfoPtr { ptr: Box::into_raw(Box::new(layout_info)) as *mut c_void };
 
-            let mut styled_dom = (layout_callback.cb)(data, layout_info_ptr);
+            // TODO: remove clone()
+            let mut styled_dom = (layout_callback.cb)(data.clone(), layout_info_ptr);
 
-            let hovered_nodes = self.current_window_state.hovered_nodes.get(&DomId::ROOT_ID).map(|k| k.keys().cloned().collect::<Vec<_>>()).unwrap_or_default();
+            let hovered_nodes = self.current_window_state.hovered_nodes.get(&DomId::ROOT_ID).map(|k| k.regular_hit_test_nodes.keys().cloned().collect::<Vec<_>>()).unwrap_or_default();
             let active_nodes = if !self.current_window_state.mouse_state.mouse_down() { Vec::new() } else { hovered_nodes.clone() };
 
             if !hovered_nodes.is_empty() { let _ = styled_dom.styled_nodes.restyle_nodes_hover(&hovered_nodes); }
@@ -721,6 +810,10 @@ impl WindowInternal {
         self.gl_texture_cache = gl_texture_cache;
         self.epoch.0 += 1;
     }
+
+    // Only do the restyling
+
+    // Only do the relayout
 
     /// Returns a copy of the current scroll states + scroll positions
     pub fn get_current_scroll_states(&self) -> BTreeMap<DomId, BTreeMap<AzNodeId, ScrollPosition>> {
@@ -768,6 +861,8 @@ impl Default for WindowTheme {
     }
 }
 
+impl_option!(WindowTheme, OptionWindowTheme, [Debug, Copy, Clone, PartialEq, PartialOrd, Ord, Eq, Hash]);
+
 #[derive(Debug, Clone, PartialEq)]
 #[repr(C)]
 pub struct WindowState {
@@ -800,6 +895,8 @@ pub struct WindowState {
     /// Window options that can only be set on a certain platform
     /// (`WindowsWindowOptions` / `LinuxWindowOptions` / `MacWindowOptions`).
     pub platform_specific_options: PlatformSpecificOptions,
+    /// Color of the window background (can be transparent if necessary)
+    pub background_color: ColorU,
     /// The `layout()` function for this window, stored as a callback function pointer,
     /// There are multiple reasons for doing this (instead of requiring `T: Layout` everywhere):
     ///
@@ -869,6 +966,8 @@ pub struct FullWindowState {
     /// Window options that can only be set on a certain platform
     /// (`WindowsWindowOptions` / `LinuxWindowOptions` / `MacWindowOptions`).
     pub platform_specific_options: PlatformSpecificOptions,
+    /// Background color of the window
+    pub background_color: ColorU,
     /// The `layout()` function for this window, stored as a callback function pointer,
     /// There are multiple reasons for doing this (instead of requiring `T: Layout` everywhere):
     ///
@@ -892,7 +991,7 @@ pub struct FullWindowState {
     pub focused_node: Option<DomNodeId>,
     /// Currently hovered nodes, default to an empty Vec. Important for
     /// styling `:hover` elements.
-    pub hovered_nodes: BTreeMap<DomId, BTreeMap<NodeId, HitTestItem>>,
+    pub hovered_nodes: BTreeMap<DomId, HitTest>,
 }
 
 impl Default for FullWindowState {
@@ -909,6 +1008,7 @@ impl Default for FullWindowState {
             touch_state: TouchState::default(),
             ime_position: ImePosition::Uninitialized,
             platform_specific_options: PlatformSpecificOptions::default(),
+            background_color: ColorU::WHITE,
             layout_callback: LayoutCallback::default(),
 
             // --
@@ -938,6 +1038,17 @@ impl FullWindowState {
     pub fn get_dropped_file(&self) -> Option<&PathBuf> {
         self.dropped_file.as_ref()
     }
+
+    pub fn get_scroll_amount(&self) -> Option<(f32, f32)> {
+        self.mouse_state.get_scroll_amount()
+    }
+
+    pub fn layout_callback_changed(&self, other: &Option<Self>) -> bool {
+        match other {
+            Some(s) => self.layout_callback != s.layout_callback,
+            None => false,
+        }
+    }
 }
 
 impl From<WindowState> for FullWindowState {
@@ -956,6 +1067,7 @@ impl From<WindowState> for FullWindowState {
             touch_state: window_state.touch_state,
             ime_position: window_state.ime_position.into(),
             platform_specific_options: window_state.platform_specific_options,
+            background_color: window_state.background_color,
             layout_callback: window_state.layout_callback,
             .. Default::default()
         }
@@ -976,6 +1088,7 @@ impl From<FullWindowState> for WindowState {
             touch_state: full_window_state.touch_state,
             ime_position: full_window_state.ime_position.into(),
             platform_specific_options: full_window_state.platform_specific_options,
+            background_color: full_window_state.background_color,
             layout_callback: full_window_state.layout_callback,
         }
     }
@@ -1000,11 +1113,21 @@ pub struct CallCallbacksResult {
     pub timers: FastHashMap<TimerId, Timer>,
     /// Tasks that were added in the callbacks
     pub tasks: Vec<Task>,
+    /// Windows that were created in the callbacks
+    pub windows_created: Vec<WindowCreateOptions>,
+    /// Whether the cursor changed in the callbacks
+    pub cursor_changed: bool,
 }
 
 impl CallCallbacksResult {
     pub fn focus_properties_changed(&self) -> bool {
         !self.focus_properties_changed.is_empty()
+    }
+    pub fn cursor_changed(&self) -> bool {
+        self.cursor_changed
+    }
+    pub fn focus_changed(&self) -> bool {
+        self.update_focused_node.is_some()
     }
 }
 
@@ -1013,10 +1136,12 @@ impl CallCallbacksResult {
 pub struct WindowFlags {
     /// Is the window currently maximized
     pub is_maximized: bool,
-    /// Is the window currently fullscreened?
-    pub is_fullscreen: bool,
+    /// Is the window currently minimized
+    pub is_minimized: bool,
     /// Is the window about to close on the next frame?
     pub is_about_to_close: bool,
+    /// Is the window currently fullscreened?
+    pub is_fullscreen: bool,
     /// Does the window have decorations (close, minimize, maximize, title bar)?
     pub has_decorations: bool,
     /// Is the window currently visible?
@@ -1035,6 +1160,7 @@ impl Default for WindowFlags {
     fn default() -> Self {
         Self {
             is_maximized: false,
+            is_minimized: false,
             is_fullscreen: false,
             is_about_to_close: false,
             has_decorations: true,
@@ -1209,7 +1335,7 @@ impl_option!(WaylandTheme, OptionWaylandTheme, [Debug, Copy, Clone, PartialEq, E
 #[derive(Debug, Default, Copy, Clone, PartialEq, PartialOrd, Eq, Ord, Hash)]
 #[repr(C)]
 pub struct MacWindowOptions {
-    pub request_user_attention: bool,
+    pub reserved: u8,
 }
 
 #[derive(Debug, Default, Copy, Clone, PartialEq, PartialOrd, Eq, Ord, Hash)]
@@ -1260,13 +1386,6 @@ pub enum FullScreenMode {
     SlowWindowed,
     /// If the window is in fullscreen mode, will immediately go back to windowed mode (on macOS this is not the default behaviour).
     FastWindowed,
-}
-
-#[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
-#[repr(C)]
-pub enum Theme {
-    Dark,
-    Light,
 }
 
 #[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
@@ -1364,8 +1483,8 @@ pub struct WindowCreateOptions {
     // pub monitor: Monitor,
     /// Renderer type: Hardware-with-software-fallback, pure software or pure hardware renderer?
     pub renderer_type: RendererType,
-    /// Color of the window background (can be transparent if necessary)
-    pub background_color: ColorU,
+    /// Override the default window theme (set to `None` to use the OS-provided theme)
+    pub theme: OptionWindowTheme,
 }
 
 impl Default for WindowCreateOptions {
@@ -1373,7 +1492,7 @@ impl Default for WindowCreateOptions {
         Self {
             state: WindowState::default(),
             renderer_type: RendererType::default(),
-            background_color: ColorU::WHITE,
+            theme: OptionWindowTheme::None,
         }
     }
 }

@@ -66,14 +66,13 @@
 use std::collections::{HashSet, BTreeMap};
 use crate::{
     FastHashMap,
-    task::{Task, Timer, TimerId},
     app_resources::AppResources,
     dom::{EventFilter, CallbackData, NotEventFilter, HoverEventFilter, FocusEventFilter, WindowEventFilter},
-    callbacks:: {CallbackInfo, ScrollPosition, PipelineId, DomNodeId, CallbackType, HitTestItem, UpdateScreen},
+    callbacks:: {ScrollPosition, PipelineId, DomNodeId, HitTestItem, UpdateScreen},
     id_tree::NodeId,
     styled_dom::{DomId, ChangedCssProperty, AzNodeId},
-    ui_solver::{LayoutResult, ScrolledNodes},
-    window::{AcceleratorKey, FullHitTest, FullWindowState, ScrollStates, CallCallbacksResult},
+    ui_solver::LayoutResult,
+    window::{FullHitTest, RawWindowHandle, FullWindowState, ScrollStates, CallCallbacksResult},
 };
 use azul_css::{LayoutSize, LayoutPoint, LayoutRect};
 #[cfg(feature = "opengl")]
@@ -96,7 +95,7 @@ pub struct Events {
 impl Events {
     pub fn new(current_window_state: &FullWindowState, previous_window_state: &Option<FullWindowState>) -> Self {
 
-        let current_window_events = get_window_events(current_window_state, previous_window_state);
+        let mut current_window_events = get_window_events(current_window_state, previous_window_state);
         let mut current_hover_events = get_hover_events(&current_window_events);
         let mut current_focus_events = get_focus_events(&current_hover_events);
 
@@ -107,11 +106,16 @@ impl Events {
         let previous_window_state_mouse_is_down = previous_window_state.as_ref().map(|f| f.mouse_state.mouse_down()).unwrap_or(false);
 
         let old_focus_node = previous_window_state.as_ref().and_then(|f| f.focused_node.clone());
-        let old_hit_node_ids = previous_window_state.as_ref().map(|f| f.hovered_nodes.clone()).unwrap_or_default();
+        let old_hit_node_ids = previous_window_state.as_ref().map(|f| f.hovered_nodes.iter().map(|(dom_id, hit_test)| (*dom_id, hit_test.regular_hit_test_nodes.clone())).collect()).unwrap_or_default();
 
-        if current_window_state.hovered_nodes != old_hit_node_ids {
-            current_hover_events.insert(HoverEventFilter::MouseLeave);
-            current_hover_events.insert(HoverEventFilter::MouseEnter);
+        if let Some(prev_state) = previous_window_state.as_ref() {
+            if prev_state.theme != current_window_state.theme {
+                current_window_events.insert(WindowEventFilter::ThemeChanged);
+            }
+            if current_window_state.hovered_nodes != prev_state.hovered_nodes.clone() {
+                current_hover_events.insert(HoverEventFilter::MouseLeave);
+                current_hover_events.insert(HoverEventFilter::MouseEnter);
+            }
         }
 
         // even if there are no window events, the focus node can changed
@@ -247,9 +251,6 @@ impl StyleAndLayoutChanges {
         pipeline_id: PipelineId,
         relayout_cb: fn(LayoutRect, &mut LayoutResult, &mut AppResources, PipelineId, &RelayoutNodes) -> Vec<NodeId>
     ) -> StyleAndLayoutChanges {
-
-        use crate::callbacks::DomNodeId;
-        use crate::styled_dom::{AzNodeId, ChangedCssProperty};
 
         // immediately restyle the DOM to reflect the new :hover, :active and :focus nodes
         // and determine if the DOM needs a redraw or a relayout
@@ -531,6 +532,7 @@ impl<'a> CallbacksOfHitTest<'a> {
         &self,
         pipeline_id: PipelineId,
         full_window_state: &FullWindowState,
+        raw_window_handle: &RawWindowHandle,
         scroll_states: &BTreeMap<DomId, BTreeMap<AzNodeId, ScrollPosition>>,
         gl_context: &GlContextPtr,
         layout_results: &mut [LayoutResult],
@@ -541,7 +543,6 @@ impl<'a> CallbacksOfHitTest<'a> {
 
         use std::collections::BTreeSet;
         use crate::styled_dom::{ParentWithNodeDepth, ChangedCssPropertyVec};
-        use crate::dom::{EventFilter, FocusEventFilter};
         use crate::callbacks::{CallbackInfo, CallbackInfoPtr};
         use std::ffi::c_void;
 
@@ -554,9 +555,12 @@ impl<'a> CallbacksOfHitTest<'a> {
             update_focused_node: None,
             timers: FastHashMap::new(),
             tasks: Vec::new(),
+            windows_created: Vec::new(),
+            cursor_changed: false,
         };
         let mut new_focus_target = None;
         let mut nodes_scrolled_in_callbacks = BTreeMap::new();
+        let current_cursor = full_window_state.mouse_state.mouse_cursor_type.clone();
 
         for (dom_id, callbacks_filter_list) in self.nodes_with_callbacks.iter() {
             let layout_result = match layout_results.get(dom_id.inner) {
@@ -569,7 +573,7 @@ impl<'a> CallbacksOfHitTest<'a> {
             let mut blacklisted_event_types = BTreeSet::new();
 
             // Run all callbacks (front to back)
-            for ParentWithNodeDepth { depth, node_id } in layout_result.styled_dom.non_leaf_nodes.as_ref().iter().rev() {
+            for ParentWithNodeDepth { depth: _, node_id } in layout_result.styled_dom.non_leaf_nodes.as_ref().iter().rev() {
                let parent_node_id = node_id;
                for child_id in parent_node_id.into_crate_internal().unwrap().az_children(&layout_result.styled_dom.node_hierarchy.as_container()) {
                     if let Some((hit_test_item, callback_data)) = callbacks.get(&child_id) {
@@ -590,6 +594,8 @@ impl<'a> CallbacksOfHitTest<'a> {
                             resources,
                             timers: &mut ret.timers,
                             tasks: &mut ret.tasks,
+                            new_windows: &mut ret.windows_created,
+                            current_window_handle: raw_window_handle,
                             stop_propagation: &mut stop_propagation,
                             focus_target: &mut new_focus,
                             current_scroll_states: scroll_states,
@@ -647,6 +653,8 @@ impl<'a> CallbacksOfHitTest<'a> {
                         resources,
                         timers: &mut ret.timers,
                         tasks: &mut ret.tasks,
+                        new_windows: &mut ret.windows_created,
+                        current_window_handle: raw_window_handle,
                         stop_propagation: &mut stop_propagation,
                         focus_target: &mut new_focus,
                         current_scroll_states: scroll_states,
@@ -702,11 +710,16 @@ impl<'a> CallbacksOfHitTest<'a> {
         let new_focus_node = new_focus_target.and_then(|ft| ft.resolve(&layout_results).ok()?);
         let focus_has_changed = full_window_state.focused_node != new_focus_node;
 
-        if !focus_has_changed {
-            ret.update_focused_node = None;
-            return ret;
+        if current_cursor != ret.modified_window_state.mouse_state.mouse_cursor_type {
+            ret.cursor_changed = true;
         }
 
+        if !focus_has_changed {
+            ret.update_focused_node = None;
+        }
+
+        // The restyle and relayout for the focus node will be done in the next loop!
+        /*
         // Restyle and relayout the old and new focus nodes
         let mut old_focus_layout_props: Option<BTreeMap<NodeId, Vec<ChangedCssProperty>>> = None;
 
@@ -751,6 +764,7 @@ impl<'a> CallbacksOfHitTest<'a> {
             let mut relayouted_nodes = (relayout_cb)(new_dom_size, &mut layout_results[new_focus.dom.inner], resources, pipeline_id, &combined_layout_props);
             ret.focus_nodes_changed_layout.entry(new_focus.dom).or_insert_with(|| Vec::new()).append(&mut relayouted_nodes);
         }
+        */
 
         ret.update_focused_node = Some(new_focus_node);
 
@@ -788,6 +802,11 @@ fn get_window_events(current_window_state: &FullWindowState, previous_window_sta
 
     match (current_window_state.position, previous_window_state.position) {
         (WindowPosition::Initialized(cur_pos), WindowPosition::Initialized(prev_pos)) => {
+            if prev_pos != cur_pos {
+                events_vec.insert(WindowEventFilter::Moved);
+            }
+        },
+        (WindowPosition::Initialized(_), WindowPosition::Uninitialized) => {
             events_vec.insert(WindowEventFilter::Moved);
         },
         _ => { }

@@ -1,13 +1,13 @@
-use std::{
-    fmt,
-    collections::BTreeMap,
-};
+use std::fmt;
 use webrender::{
     api::{
         DocumentId as WrDocumentId,
         RenderApi as WrRenderApi,
         RenderNotifier as WrRenderNotifier,
-        units::DeviceIntSize as WrDeviceIntSize,
+        units::{
+            LayoutSize as WrLayoutSize,
+            DeviceIntSize as WrDeviceIntSize
+        },
     },
     Renderer as WrRenderer,
     RendererOptions as WrRendererOptions,
@@ -24,16 +24,17 @@ use glutin::{
 };
 use gleam::gl;
 use clipboard2::{Clipboard as _, ClipboardError, SystemClipboard};
-use azul_css::ColorU;
 use crate::{
-    resources::WrApi,
-    compositor::Compositor
+    wr_api::WrApi,
+    compositor::Compositor,
+    display_shader::DisplayShader,
 };
 use azul_core::{
-    callbacks::PipelineId,
-    display_list::{CachedDisplayList, SolvedLayout, GlTextureCache},
-    app_resources::{Epoch, AppResources},
-    gl::GlContextPtr,
+    callbacks::{PipelineId, RefAny},
+    display_list::{CachedDisplayList, RenderCallbacks},
+    app_resources::{AppResources, LoadFontFn, LoadImageFn},
+    gl::{GlContextPtr, GlShaderCreateError, Texture},
+    window_state::{Events, NodesToCheck},
 };
 pub use glutin::monitor::MonitorHandle;
 pub use azul_core::window::*;
@@ -247,16 +248,18 @@ impl HeadlessContextState {
 
 impl Window {
 
-    const CALLBACKS: RenderCallbacks = RenderCallbacks {
+    const CALLBACKS: RenderCallbacks<WrApi> = RenderCallbacks {
         insert_into_active_gl_textures: azul_core::gl::insert_into_active_gl_textures,
         layout_fn: azul_layout::do_the_layout,
-        load_font_fn: azul_core::app_resources::load_font,
-        load_image_fn: azul_core::app_resources::load_image,
-        parse_font_fn: azul_text_layout::parse_font,
+        load_font_fn: LoadFontFn { cb: azulc::font_loading::font_source_get_bytes },
+        load_image_fn: LoadImageFn { cb: azulc::image_loading::image_source_get_bytes },
+        parse_font_fn: azul_layout::text_layout::parse_font_fn,
     };
 
     /// Creates a new window
     pub(crate) fn new(
+        data: &RefAny,
+        gl_context: &GlContextPtr,
         mut options: WindowCreateOptions,
         shared_context: &Context<NotCurrent>,
         events_loop: &EventLoopWindowTarget<()>,
@@ -264,11 +267,7 @@ impl Window {
         render_api: &mut WrApi,
     ) -> Result<Self, GlutinCreationError> {
 
-        use crate::wr_translate::{
-            translate_logical_size_to_css_layout_size,
-            translate_document_id_wr
-        };
-        use azul_css::LayoutPoint;
+        use crate::wr_translate::translate_document_id_wr;
 
         // NOTE: It would be OK to use &RenderApi here, but it's better
         // to make sure that the RenderApi is currently not in use by anything else.
@@ -276,16 +275,16 @@ impl Window {
         // NOTE: All windows MUST have a shared EventsLoop, creating a new EventLoop for the
         // new window causes a segfault.
 
-        let is_transparent_background = options.background_color.a != 0;
+        let is_transparent_background = options.state.background_color.a != 0;
 
-        let window_builder = create_window_builder(is_transparent_background, &options.state.platform_specific_options);
+        let window_builder = create_window_builder(is_transparent_background, options.theme.into_option(), &options.state.platform_specific_options);
 
         // Only create a context with VSync and SRGB if the context creation works
         let gl_window = create_gl_window(window_builder, &events_loop, Some(shared_context))?;
 
-        let (hidpi_factor, winit_hidpi_factor) = get_hidpi_factor(&gl_window.window(), &events_loop);
+        let (hidpi_factor, system_hidpi_factor) = get_hidpi_factor(&gl_window.window(), &events_loop);
         options.state.size.hidpi_factor = hidpi_factor;
-        options.state.size.winit_hidpi_factor = winit_hidpi_factor;
+        options.state.size.system_hidpi_factor = system_hidpi_factor;
 
         // Synchronize the state from the WindowCreateOptions with the window for the first time
         // (set maxmimization, etc.)
@@ -313,17 +312,21 @@ impl Window {
         app_resources.add_pipeline(pipeline_id);
 
         let context_state = ContextState::NotCurrent(gl_window);
-        let init = WindowInternalInit { window_create_options, document_id, pipeline_id };
-        let internal = WindowInternal::new(init, app_resources, render_api, Window::CALLBACKS);
+        #[cfg(target_os = "windows")] {
+            use crate::wr_translate::winit_translate::translate_winit_theme;
+            use glutin::platform::windows::WindowExtWindows;
+            options.state.theme = translate_winit_theme(context_state.window().theme());
+        }
+        let init = WindowInternalInit { window_create_options: options, document_id, pipeline_id };
+        let internal = WindowInternal::new(init, data, app_resources, gl_context, render_api, Window::CALLBACKS);
         let mut window = Window { display: context_state, internal };
-        window.rebuild_display_list();
+        window.rebuild_display_list(&app_resources, render_api);
         Ok(window)
     }
 
     /// Calls the layout function again and updates the self.internal.gl_texture_cache field
-    pub fn relayout_everything(&mut self, gl_context: &GlContextPtr, app_resources: &mut AppResources, render_api: &mut WrApi) {
+    pub fn regenerate_styled_dom(&mut self, gl_context: &GlContextPtr, app_resources: &mut AppResources, render_api: &mut WrApi) {
         self.internal.relayout(gl_context, app_resources, render_api, Window::CALLBACKS);
-        self.rebuild_display_list();
     }
 
     /// Only re-build the display list and send it to webrender
@@ -336,12 +339,13 @@ impl Window {
             wr_translate_display_list,
             wr_translate_epoch,
         };
+        use webrender::api::Transaction as WrTransaction;
 
         // NOTE: Display list has to be rebuilt every frame, otherwise, the epochs get out of sync
         let cached_display_list = CachedDisplayList::new(self.internal.epoch, self.internal.pipeline_id, &self.internal.current_window_state, &self.internal.layout_results, &self.internal.gl_texture_cache, app_resources);
         let display_list = wr_translate_display_list(cached_display_list, self.internal.pipeline_id);
 
-        let logical_size = WrLayoutSize::new(elf.internal.current_window_state.size.dimensions.width, elf.internal.current_window_state.size.dimensions.height);
+        let logical_size = WrLayoutSize::new(self.internal.current_window_state.size.dimensions.width, self.internal.current_window_state.size.dimensions.height);
 
         let mut txn = WrTransaction::new();
         txn.set_display_list(
@@ -352,7 +356,7 @@ impl Window {
             true,
         );
 
-        render_api.api.send_transaction(wr_translate_document_id(window.internal.document_id), txn);
+        render_api.api.send_transaction(wr_translate_document_id(self.internal.document_id), txn);
     }
 
     // Function wrapper that is invoked on scrolling and normal rendering - only renders the
@@ -376,10 +380,10 @@ impl Window {
         /// indicate whether it was used during the current frame or not.
         fn scroll_all_nodes(scroll_states: &mut ScrollStates, txn: &mut WrTransaction) {
             use webrender::api::ScrollClamping;
-            use crate::wr_translate::{wr_translate_external_scroll_id, wr_translate_layout_point};
+            use crate::wr_translate::{wr_translate_external_scroll_id, wr_translate_logical_position};
             for (key, value) in scroll_states.0.iter_mut() {
                 txn.scroll_node_with_id(
-                    wr_translate_layout_point(value.get()),
+                    wr_translate_logical_position(value.get()),
                     wr_translate_external_scroll_id(*key),
                     ScrollClamping::ToContentBounds
                 );
@@ -387,14 +391,18 @@ impl Window {
         }
 
         use azul_css::ColorF;
+        use azul_core::gl::TextureFlags;
         use crate::wr_translate;
-
+        use webrender::{
+            PipelineInfo as WrPipelineInfo,
+            api::Transaction as WrTransaction,
+        };
         let mut txn = WrTransaction::new();
 
-        let physical_size = internal.current_window_state.size.get_physical_size();
+        let physical_size = self.internal.current_window_state.size.get_physical_size();
         let framebuffer_size = WrDeviceIntSize::new(physical_size.width as i32, physical_size.height as i32);
-        let background_color_f: ColorF = internal.current_window_state.background_color.into();
-        let is_opaque = internal.current_window_state.background_color.a == 0;
+        let background_color_f: ColorF = self.internal.current_window_state.background_color.into();
+        let is_opaque = self.internal.current_window_state.background_color.a == 0;
 
         // Especially during minimization / maximization of a window, it can happen that the window
         // width or height is zero. In that case, no rendering is necessary (doing so would crash
@@ -403,13 +411,13 @@ impl Window {
             return None;
         }
 
-        internal.epoch.increment();
+        self.internal.epoch.increment();
 
-        txn.set_root_pipeline(wr_translate::wr_translate_pipeline_id(window.internal.pipeline_id));
-        scroll_all_nodes(&mut internal.scroll_states, &mut txn);
+        txn.set_root_pipeline(wr_translate::wr_translate_pipeline_id(self.internal.pipeline_id));
+        scroll_all_nodes(&mut self.internal.scroll_states, &mut txn);
         txn.generate_frame();
 
-        render_api.api.send_transaction(wr_translate::wr_translate_document_id(window.internal.document_id), txn);
+        render_api.api.send_transaction(wr_translate::wr_translate_document_id(self.internal.document_id), txn);
 
         // Update WR texture cache
         renderer.update();
@@ -423,22 +431,27 @@ impl Window {
         // hidden_display context, otherwise this will segfault on Windows.
         headless_shared_context.make_current();
 
+        // save the current state (program, texture binding, framebuffer)
         let mut current_program = [0_i32];
         gl_context.get_integer_v(gl::CURRENT_PROGRAM, (&mut current_program[..]).into());
         let mut current_textures = [0_i32];
-        gl_context.get_integer_v(gl::CURRENT_TEXTURE, (&mut current_textures[..]).into());
-        let mut current_framebuffers = [0_i32];
-        gl_context.get_integer_v(gl::CURRENT_FRAMEBUFFER, (&mut current_framebuffers[..]).into());
+        gl_context.get_integer_v(gl::TEXTURE_BINDING_2D, (&mut current_textures[..]).into());
+        let mut current_read_framebuffers = [0_i32];
+        gl_context.get_integer_v(gl::READ_FRAMEBUFFER_BINDING, (&mut current_read_framebuffers[..]).into());
+        let mut current_draw_framebuffers = [0_i32];
+        gl_context.get_integer_v(gl::DRAW_FRAMEBUFFER_BINDING, (&mut current_draw_framebuffers[..]).into());
+        let mut current_renderbuffers = [0_i32];
+        gl_context.get_integer_v(gl::RENDERBUFFER_BINDING, (&mut current_renderbuffers[..]).into());
 
         // Generate a framebuffer (that will contain the final, rendered screen output).
         let framebuffers = gl_context.gen_framebuffers(1);
-        gl_context.bind_framebuffer(gl::FRAMEBUFFER, framebuffers.get(0).copied().unwrap());
+        gl_context.bind_framebuffer(gl::DRAW_FRAMEBUFFER, framebuffers.get(0).copied().unwrap());
 
         // Create the texture to render to
         let textures = gl_context.gen_textures(1);
 
         gl_context.bind_texture(gl::TEXTURE_2D, textures.get(0).copied().unwrap());
-        gl_context.tex_image_2d(gl::TEXTURE_2D, 0, gl::RGB as i32, framebuffer_size.width, framebuffer_size.height, 0, gl::RGB, gl::UNSIGNED_BYTE, None.into());
+        gl_context.tex_image_2d(gl::TEXTURE_2D, 0, gl::RGB as i32, framebuffer_size.width, framebuffer_size.height, 0, gl::RGBA, gl::UNSIGNED_BYTE, None.into());
 
         gl_context.tex_parameter_i(gl::TEXTURE_2D, gl::TEXTURE_MAG_FILTER, gl::NEAREST as i32);
         gl_context.tex_parameter_i(gl::TEXTURE_2D, gl::TEXTURE_MIN_FILTER, gl::NEAREST as i32);
@@ -474,12 +487,12 @@ impl Window {
         // In order to draw on the windows backbuffer, first make the window current, then draw to FB 0
 
         let texture = Texture {
-            texture_id: textures[0],
+            texture_id: textures.get(0).copied().unwrap(),
             flags: TextureFlags {
                 is_opaque,
                 is_video_texture: false,
             },
-            size: PhysicalSizeU32 { width: framebuffer_size.width, height: framebuffer_size.height },
+            size: PhysicalSizeU32 { width: framebuffer_size.width as u32, height: framebuffer_size.height as u32 },
             gl_context: gl_context.clone(),
         };
 
@@ -488,8 +501,10 @@ impl Window {
         gl_context.delete_renderbuffers(depthbuffers.as_ref().into());
 
         // reset the state to what it was before
-        gl_context.bind_framebuffer(gl::FRAMEBUFFER, current_framebuffer[0]);
-        gl_context.bind_texture(gl::TEXTURE_2D, current_texture[0]);
+        gl_context.bind_framebuffer(gl::RENDERBUFFER, current_renderbuffers[0] as u32);
+        gl_context.bind_framebuffer(gl::DRAW_FRAMEBUFFER, current_draw_framebuffers[0] as u32);
+        gl_context.bind_framebuffer(gl::READ_FRAMEBUFFER, current_read_framebuffers[0] as u32);
+        gl_context.bind_texture(gl::TEXTURE_2D, current_textures[0] as u32);
         gl_context.use_program(current_program[0] as u32);
 
         headless_shared_context.make_not_current();
@@ -521,110 +536,284 @@ impl Window {
         }
 
         // After rendering + swapping, remove the unused OpenGL textures
-        clean_up_unused_opengl_textures(renderer.flush_pipeline_info(), &window.internal.pipeline_id);
+        clean_up_unused_opengl_textures(renderer.flush_pipeline_info(), &self.internal.pipeline_id);
 
         Some(texture)
     }
 
+    #[cfg(not(test))]
+    pub fn draw_texture_to_screen_and_swap(&mut self, texture: &Texture, shader: &DisplayShader) {
+        self.display.make_current();
+        let mut current_draw_framebuffers = [0_i32];
+        texture.gl_context.get_integer_v(gl::DRAW_FRAMEBUFFER_BINDING, (&mut current_draw_framebuffers[..]).into());
+        texture.gl_context.bind_framebuffer(gl::DRAW_FRAMEBUFFER, 0);
+        shader.draw_texture_to_current_fb(texture);
+        self.display.windowed_context().unwrap().swap_buffers().unwrap();
+        texture.gl_context.bind_framebuffer(gl::DRAW_FRAMEBUFFER, current_draw_framebuffers[0] as u32);
+        self.display.make_not_current();
+    }
+
     /// Synchronize the `self.internal.previous_window_state` with the `self.internal.current_window_state`
     ///  updating the OS-level window to reflect the new state
-    pub fn synchronize_window_state_with_os(&mut self, new_state: &WindowState) -> bool {
+    pub fn synchronize_window_state_with_os(&mut self, new_state: WindowState) -> bool {
 
         use crate::wr_translate::winit_translate::{translate_logical_position, translate_logical_size};
         use glutin::window::Fullscreen;
 
         let mut window_was_updated = false;
 
-        if self.current_window_state.title.as_str() != new_state.title.as_str() {
-            window.set_title(new_state.title.as_str());
-        }
-
-        if self.current_window_state.flags.is_maximized != new_state.flags.is_maximized {
-            window.set_maximized(new_state.flags.is_maximized);
+        // theme
+        if self.internal.current_window_state.theme != new_state.theme {
+            // self.display.window().set_theme(new_state.theme); // - doesn't work
+            self.internal.current_window_state.theme = new_state.theme;
             window_was_updated = true;
         }
 
-        if self.current_window_state.flags.is_fullscreen != new_state.flags.is_fullscreen {
+
+        // title
+        if self.internal.current_window_state.title.as_str() != new_state.title.as_str() {
+            self.display.window().set_title(new_state.title.as_str());
+        }
+
+
+
+        // size
+        if self.internal.current_window_state.size.dimensions != new_state.size.dimensions {
+            self.display.window().set_inner_size(translate_logical_size(new_state.size.dimensions));
+            window_was_updated = true;
+        }
+
+        if self.internal.current_window_state.size.min_dimensions != new_state.size.min_dimensions {
+            self.display.window().set_min_inner_size(new_state.size.min_dimensions.into_option().map(Into::into).map(translate_logical_size));
+            window_was_updated = true;
+        }
+
+        if self.internal.current_window_state.size.max_dimensions != new_state.size.max_dimensions {
+            self.display.window().set_max_inner_size(new_state.size.max_dimensions.into_option().map(Into::into).map(translate_logical_size));
+            window_was_updated = true;
+        }
+
+
+        // position
+        if self.internal.current_window_state.position != new_state.position.into() {
+            if let WindowPosition::Initialized(new_position) = new_state.position {
+                let new_position: PhysicalPosition<i32> = new_position.into();
+                self.display.window().set_outer_position(translate_logical_position(new_position.to_logical(new_state.size.hidpi_factor)));
+                window_was_updated = true;
+            }
+        }
+
+
+
+        // flags:is_maximized, flags:is_minimized
+        if self.internal.current_window_state.flags.is_maximized != new_state.flags.is_maximized {
+            self.display.window().set_maximized(new_state.flags.is_maximized);
+            window_was_updated = true;
+        } else if self.internal.current_window_state.flags.is_minimized != new_state.flags.is_minimized {
+            self.display.window().set_minimized(new_state.flags.is_maximized);
+            window_was_updated = true;
+        }
+
+        // flags:is_fullscreen
+        if self.internal.current_window_state.flags.is_fullscreen != new_state.flags.is_fullscreen {
             if new_state.flags.is_fullscreen {
                 // TODO: implement exclusive fullscreen!
-                window.set_fullscreen(Some(Fullscreen::Borderless(window.current_monitor())));
+                self.display.window().set_fullscreen(Some(Fullscreen::Borderless(self.display.window().current_monitor())));
                 window_was_updated = true;
             } else {
-                window.set_fullscreen(None);
+                self.display.window().set_fullscreen(None);
                 window_was_updated = true;
             }
         }
 
-        if self.current_window_state.flags.has_decorations != new_state.flags.has_decorations {
-            window.set_decorations(new_state.flags.has_decorations);
+        // flags:has_decorations
+        if self.internal.current_window_state.flags.has_decorations != new_state.flags.has_decorations {
+            self.display.window().set_decorations(new_state.flags.has_decorations);
+        }
+
+        // flags:is_visible
+        if self.internal.current_window_state.flags.is_visible != new_state.flags.is_visible {
+            self.display.window().set_visible(new_state.flags.is_visible);
+        }
+
+        // flags:is_always_on_top
+        if self.internal.current_window_state.flags.is_always_on_top != new_state.flags.is_always_on_top {
+            self.display.window().set_always_on_top(new_state.flags.is_always_on_top);
+        }
+
+        // flags:is_resizable
+        if self.internal.current_window_state.flags.is_resizable != new_state.flags.is_resizable {
+            self.display.window().set_resizable(new_state.flags.is_resizable);
             window_was_updated = true;
         }
 
-        if self.current_window_state.flags.is_visible != new_state.flags.is_visible {
-            window.set_visible(new_state.flags.is_visible);
-            window_was_updated = true;
-        }
-
-        if self.current_window_state.size.dimensions != new_state.size.dimensions {
-            window.set_inner_size(translate_logical_size(new_state.size.dimensions));
-            window_was_updated = true;
-        }
-
-        if self.current_window_state.size.min_dimensions != new_state.size.min_dimensions {
-            window.set_min_inner_size(new_state.size.min_dimensions.into_option().map(Into::into).map(translate_logical_size));
-            window_was_updated = true;
-        }
-
-        if self.current_window_state.size.max_dimensions != new_state.size.max_dimensions {
-            window.set_max_inner_size(new_state.size.max_dimensions.into_option().map(Into::into).map(translate_logical_size));
-            window_was_updated = true;
-        }
-
-        if self.current_window_state.position != new_state.position.into() {
-            if let OptionPhysicalPositionI32::Some(new_position) = new_state.position {
-                let new_position: PhysicalPosition<i32> = new_position.into();
-                window.set_outer_position(translate_logical_position(new_position.to_logical(new_state.size.hidpi_factor)));
-                window_was_updated = true;
+        // flags:has_focus
+        if self.internal.current_window_state.flags.has_focus != new_state.flags.has_focus {
+            if new_state.flags.has_focus {
+                use glutin::window::UserAttentionType;
+                self.display.window().request_user_attention(Some(UserAttentionType::Informational));
+            } else {
+                self.display.window().request_user_attention(None);
             }
         }
 
-        if self.current_window_state.ime_position != new_state.ime_position.into() {
-            if let OptionLogicalPosition::Some(new_ime_position) = new_state.ime_position {
-                window.set_ime_position(translate_logical_position(new_ime_position.into()));
-                window_was_updated = true;
+        // TODO: flags:has_blur_behind_window
+
+        if self.internal.current_window_state.ime_position != new_state.ime_position.into() {
+            if let ImePosition::Initialized(new_ime_position) = new_state.ime_position {
+                self.display.window().set_ime_position(translate_logical_position(new_ime_position.into()));
+                self.internal.current_window_state.ime_position = new_state.ime_position;
             }
         }
 
-        if self.current_window_state.flags.is_always_on_top != new_state.flags.is_always_on_top {
-            window.set_always_on_top(new_state.flags.is_always_on_top);
-            window_was_updated = true;
+        fn synchronize_mouse_state(old_mouse_state: &MouseState, new_mouse_state: &MouseState, window: &GlutinWindow) -> bool {
+            use crate::wr_translate::winit_translate::translate_cursor_icon;
+
+            let mut window_was_updated = false;
+
+            match (old_mouse_state.mouse_cursor_type, new_mouse_state.mouse_cursor_type) {
+                (OptionMouseCursorType::Some(_old_mouse_cursor), OptionMouseCursorType::None) => {
+                    window.set_cursor_visible(false);
+                },
+                (OptionMouseCursorType::None, OptionMouseCursorType::Some(new_mouse_cursor)) => {
+                    window.set_cursor_visible(true);
+                    window.set_cursor_icon(translate_cursor_icon(new_mouse_cursor));
+                },
+                (OptionMouseCursorType::Some(old_mouse_cursor), OptionMouseCursorType::Some(new_mouse_cursor)) => {
+                    if old_mouse_cursor != new_mouse_cursor {
+                        window.set_cursor_icon(translate_cursor_icon(new_mouse_cursor));
+                    }
+                },
+                (OptionMouseCursorType::None, OptionMouseCursorType::None) => { },
+            }
+
+            if old_mouse_state.is_cursor_locked != new_mouse_state.is_cursor_locked {
+                window.set_cursor_grab(new_mouse_state.is_cursor_locked)
+                .map_err(|e| { #[cfg(feature = "logging")] { warn!("{}", e); } })
+                .unwrap_or(());
+            }
+
+            if old_mouse_state.cursor_position != new_mouse_state.cursor_position {
+                if let Some(new_cursor_position) = new_mouse_state.cursor_position.get_position() {
+                    window.set_cursor_position(translate_logical_position(new_cursor_position))
+                    .map_err(|e| { #[cfg(feature = "logging")] { warn!("{}", e); } })
+                    .unwrap_or(());
+                    window_was_updated = true;
+                }
+            }
+
+            window_was_updated
         }
 
-        if self.current_window_state.flags.is_resizable != new_state.flags.is_resizable {
-            window.set_resizable(new_state.flags.is_resizable);
-            window_was_updated = true;
-        }
+        // TODO!
+        // if synchronize_debug_state(...) { window_was_updated = true; }
+        // if synchronize_keyboard_state(...) { window_was_updated = true; }
+        // if synchronize_touch_state(...) { window_was_updated = true; }
 
         // mouse position, cursor type, etc.
-        if synchronize_mouse_state(&self.current_window_state.mouse_state, &new_state.mouse_state, &window) {
+        if synchronize_mouse_state(&self.internal.current_window_state.mouse_state, &new_state.mouse_state, &self.display.window()) {
             window_was_updated = true;
         }
 
-        if synchronize_os_window_platform_extensions(&self.current_window_state.platform_specific_options, &new_state.platform_specific_options, &window) {
+        if synchronize_os_window_platform_extensions(&self.internal.current_window_state.platform_specific_options, &new_state.platform_specific_options, &self.display.window()) {
             window_was_updated = true;
         }
+
+        if self.internal.current_window_state.layout_callback != new_state.layout_callback {
+            window_was_updated = true;
+        }
+
+        let WindowState {
+            theme,
+            title,
+            size,
+            position,
+            flags,
+            debug_state,
+            keyboard_state,
+            mouse_state,
+            touch_state,
+            ime_position,
+            platform_specific_options,
+            background_color,
+            layout_callback,
+        } = new_state;
+
+        self.internal.current_window_state.theme = theme;
+        self.internal.current_window_state.title = title.into();
+        self.internal.current_window_state.size = size;
+        self.internal.current_window_state.position = position;
+        self.internal.current_window_state.flags = flags;
+        self.internal.current_window_state.debug_state = debug_state;
+        self.internal.current_window_state.keyboard_state = keyboard_state;
+        self.internal.current_window_state.mouse_state = mouse_state;
+        self.internal.current_window_state.touch_state = touch_state;
+        self.internal.current_window_state.ime_position = ime_position;
+        self.internal.current_window_state.platform_specific_options = platform_specific_options;
+        self.internal.current_window_state.background_color = background_color;
+        self.internal.current_window_state.layout_callback = layout_callback;
 
         window_was_updated
     }
 
     /// Calls the callbacks and restyles / re-layouts the self.layout_results if necessary
     pub fn call_callbacks(&mut self, nodes_to_check: &NodesToCheck, events: &Events, gl_context: &GlContextPtr, app_resources: &mut AppResources) -> CallCallbacksResult {
+        use azul_core::window_state::CallbacksOfHitTest;
+        use raw_window_handle::HasRawWindowHandle;
+
+        const fn translate_raw_window_handle(input: raw_window_handle::RawWindowHandle) -> RawWindowHandle {
+            match input {
+                #[cfg(target_os = "ios")]
+                raw_window_handle::RawWindowHandle::IOS(h) => RawWindowHandle::IOS(IOSHandle {
+                    ui_window: h.ui_window,
+                    ui_view: h.ui_view,
+                    ui_view_controller: h.ui_view_controller
+                }),
+                #[cfg(target_os = "macos")]
+                raw_window_handle::RawWindowHandle::MacOS(h) => RawWindowHandle::MacOS(MacOSHandle {
+                    ns_window: h.ns_window,
+                    ns_view: h.ns_view,
+                }),
+                #[cfg(any(target_os = "linux", target_os = "dragonfly", target_os = "freebsd", target_os = "netbsd", target_os = "openbsd"))]
+                raw_window_handle::RawWindowHandle::Xlib(h) => RawWindowHandle::Xlib(XlibHandle {
+                    window: h.window,
+                    display: h.display,
+                }),
+                #[cfg(any(target_os = "linux", target_os = "dragonfly", target_os = "freebsd", target_os = "netbsd", target_os = "openbsd"))]
+                raw_window_handle::RawWindowHandle::Xcb(h) => RawWindowHandle::Xcb(XcbHandle {
+                    window: h.window,
+                    connection: h.connection,
+                }),
+                #[cfg(any(target_os = "linux", target_os = "dragonfly", target_os = "freebsd", target_os = "netbsd", target_os = "openbsd"))]
+                raw_window_handle::RawWindowHandle::Wayland(h) => RawWindowHandle::Wayland(WaylandHandle {
+                    surface: h.surface,
+                    display: h.display,
+                }),
+                #[cfg(target_os = "windows")]
+                raw_window_handle::RawWindowHandle::Windows(h) => RawWindowHandle::Windows(WindowsHandle {
+                    hwnd: h.hwnd,
+                    hinstance: h.hinstance,
+                }),
+                #[cfg(target_arch = "wasm32")]
+                raw_window_handle::RawWindowHandle::Web(h) => RawWindowHandle::Web(WebHandle {
+                    id: h.id,
+                }),
+                #[cfg(target_os = "android")]
+                raw_window_handle::RawWindowHandle::Android(h) => RawWindowHandle::Android(AndroidHandle {
+                    a_native_window: h.a_native_window,
+                }),
+                _ => RawWindowHandle::Unsupported,
+            }
+        }
+
         let callbacks = CallbacksOfHitTest::new(&nodes_to_check, &events, &self.internal.layout_results);
-        let current_scroll_states = self.internal.scroll_states.get_copy();
+        let current_scroll_states = self.internal.get_current_scroll_states();
+        let raw_window_handle = translate_raw_window_handle(self.display.window().raw_window_handle());
         // likely won't work because callbacks and &mut layout_results are borrowed
         callbacks.call(
             self.internal.pipeline_id,
             &self.internal.current_window_state,
+            &raw_window_handle,
             &current_scroll_states,
             gl_context,
             &mut self.internal.layout_results,
@@ -662,10 +851,11 @@ impl Clipboard {
 
 fn create_window_builder(
     has_transparent_background: bool,
+    theme: Option<WindowTheme>,
     platform_options: &PlatformSpecificOptions,
 ) -> GlutinWindowBuilder {
     #[cfg(target_os = "linux")] { create_window_builder_linux(has_transparent_background, &platform_options.linux_options) }
-    #[cfg(target_os = "windows")] { create_window_builder_windows(has_transparent_background, &platform_options.windows_options) }
+    #[cfg(target_os = "windows")] { create_window_builder_windows(has_transparent_background, theme, &platform_options.windows_options) }
     #[cfg(target_os = "macos")] { create_window_builder_macos(has_transparent_background, &platform_options.mac_options) }
     #[cfg(target_arch = "wasm32")] { create_window_builder_wasm(has_transparent_background, &platform_options.wasm_options) }
 }
@@ -685,14 +875,16 @@ fn create_window_builder_wasm(
 #[cfg(target_os = "windows")]
 fn create_window_builder_windows(
     has_transparent_background: bool,
+    theme: Option<WindowTheme>,
     platform_options: &WindowsWindowOptions,
 ) -> GlutinWindowBuilder {
 
     use glutin::platform::windows::WindowBuilderExtWindows;
-    use crate::wr_translate::winit_translate::translate_taskbar_icon;
+    use crate::wr_translate::winit_translate::{translate_taskbar_icon, translate_theme};
 
     let mut window_builder = GlutinWindowBuilder::new()
         .with_transparent(has_transparent_background)
+        .with_theme(theme.map(translate_theme))
         .with_no_redirection_bitmap(platform_options.no_redirection_bitmap)
         .with_taskbar_icon(platform_options.taskbar_icon.clone().into_option().and_then(|ic| translate_taskbar_icon(ic).ok()));
 
@@ -759,17 +951,19 @@ fn synchronize_os_window_platform_extensions(
     old_state: &PlatformSpecificOptions,
     new_state: &PlatformSpecificOptions,
     window: &GlutinWindow,
-) {
+) -> bool {
+    let mut window_was_updated = false;
     // platform-specific extensions
     #[cfg(target_os = "windows")] {
-        synchronize_os_window_windows_extensions(&old_state.windows_options, &new_state.windows_options, window);
+        if synchronize_os_window_windows_extensions(&old_state.windows_options, &new_state.windows_options, window) { window_was_updated = true; }
     }
     #[cfg(target_os = "linux")] {
-        synchronize_os_window_linux_extensions( &old_state.linux_options, &new_state.linux_options, window);
+        if synchronize_os_window_linux_extensions( &old_state.linux_options, &new_state.linux_options, window) { window_was_updated = true; }
     }
     #[cfg(target_os = "macos")] {
-        synchronize_os_window_mac_extensions(&old_state.mac_options, &new_state.mac_options, window);
+        if synchronize_os_window_mac_extensions(&old_state.mac_options, &new_state.mac_options, window) { window_was_updated = true; }
     }
+    window_was_updated
 }
 
 /// Do the inital synchronization of the window with the OS-level window
@@ -795,12 +989,12 @@ fn initialize_os_window(
     window.set_min_inner_size(new_state.size.min_dimensions.into_option().map(translate_logical_size));
     window.set_min_inner_size(new_state.size.max_dimensions.into_option().map(translate_logical_size));
 
-    if let OptionPhysicalPositionI32::Some(new_position) = new_state.position {
+    if let WindowPosition::Initialized(new_position) = new_state.position {
         let new_position: PhysicalPosition<i32> = new_position.into();
         window.set_outer_position(translate_logical_position(new_position.to_logical(new_state.size.hidpi_factor)));
     }
 
-    if let OptionLogicalPosition::Some(new_ime_position) = new_state.ime_position {
+    if let ImePosition::Initialized(new_ime_position) = new_state.ime_position {
         window.set_ime_position(translate_logical_position(new_ime_position));
     }
 
@@ -824,43 +1018,6 @@ fn initialize_os_window_platform_extensions(
     #[cfg(target_arch = "wasm32")] { initialize_os_window_wasm_extensions(&platform_options.wasm_options, window); }
 }
 
-fn synchronize_mouse_state(
-    old_mouse_state: &MouseState,
-    new_mouse_state: &MouseState,
-    window: &GlutinWindow,
-) {
-    use crate::wr_translate::winit_translate::{translate_cursor_icon, translate_logical_position};
-
-    match (old_mouse_state.mouse_cursor_type, new_mouse_state.mouse_cursor_type) {
-        (OptionMouseCursorType::Some(_old_mouse_cursor), OptionMouseCursorType::None) => {
-            window.set_cursor_visible(false);
-        },
-        (OptionMouseCursorType::None, OptionMouseCursorType::Some(new_mouse_cursor)) => {
-            window.set_cursor_visible(true);
-            window.set_cursor_icon(translate_cursor_icon(new_mouse_cursor));
-        },
-        (OptionMouseCursorType::Some(old_mouse_cursor), OptionMouseCursorType::Some(new_mouse_cursor)) => {
-            if old_mouse_cursor != new_mouse_cursor {
-                window.set_cursor_icon(translate_cursor_icon(new_mouse_cursor));
-            }
-        },
-        (OptionMouseCursorType::None, OptionMouseCursorType::None) => { },
-    }
-
-    if old_mouse_state.is_cursor_locked != new_mouse_state.is_cursor_locked {
-        window.set_cursor_grab(new_mouse_state.is_cursor_locked)
-        .map_err(|e| { #[cfg(feature = "logging")] { warn!("{}", e); } })
-        .unwrap_or(());
-    }
-
-    if old_mouse_state.cursor_position != new_mouse_state.cursor_position {
-        if let Some(new_cursor_position) = new_mouse_state.cursor_position.get_position() {
-            window.set_cursor_position(translate_logical_position(new_cursor_position))
-            .map_err(|e| { #[cfg(feature = "logging")] { warn!("{}", e); } })
-            .unwrap_or(());
-        }
-    }
-}
 
 fn initialize_mouse_state(
     new_mouse_state: &MouseState,
@@ -893,9 +1050,11 @@ fn synchronize_os_window_windows_extensions(
     old_state: &WindowsWindowOptions,
     new_state: &WindowsWindowOptions,
     window: &GlutinWindow,
-) {
+) -> bool {
     use glutin::platform::windows::WindowExtWindows;
     use crate::wr_translate::winit_translate::{translate_window_icon, translate_taskbar_icon};
+
+    let window_was_updated = false;
 
     if old_state.window_icon != new_state.window_icon {
         window.set_window_icon(new_state.window_icon.clone().into_option().and_then(|ic| translate_window_icon(ic).ok()));
@@ -904,6 +1063,8 @@ fn synchronize_os_window_windows_extensions(
     if old_state.taskbar_icon != new_state.taskbar_icon {
         window.set_taskbar_icon(new_state.taskbar_icon.clone().into_option().and_then(|ic| translate_taskbar_icon(ic).ok()));
     }
+
+    window_was_updated
 }
 
 // Linux-specific window options
@@ -912,9 +1073,11 @@ fn synchronize_os_window_linux_extensions(
     old_state: &LinuxWindowOptions,
     new_state: &LinuxWindowOptions,
     window: &GlutinWindow,
-) {
+) -> bool {
     use glutin::platform::unix::WindowExtUnix;
     use crate::wr_translate::winit_translate::{translate_window_icon, translate_wayland_theme};
+
+    let window_was_updated = false;
 
     if old_state.request_user_attention != new_state.request_user_attention {
         window.set_urgent(new_state.request_user_attention);
@@ -929,6 +1092,8 @@ fn synchronize_os_window_linux_extensions(
     if old_state.window_icon != new_state.window_icon {
         window.set_window_icon(new_state.window_icon.clone().into_option().and_then(|ic| translate_window_icon(ic).ok()));
     }
+
+    window_was_updated
 }
 
 // Mac-specific window options
@@ -937,13 +1102,12 @@ fn synchronize_os_window_mac_extensions(
     old_state: &MacWindowOptions,
     new_state: &MacWindowOptions,
     window: &GlutinWindow,
-) {
+) -> bool {
     use glutin::platform::macos::WindowExtMacOS;
-    use glutin::platform::macos::RequestUserAttentionType;
 
-    if old_state.request_user_attention != new_state.request_user_attention && new_state.request_user_attention {
-        window.request_user_attention(RequestUserAttentionType::Informational);
-    }
+    let window_was_updated = false;
+
+    window_was_updated
 }
 
 #[cfg(target_arch = "wasm32")]
@@ -1013,6 +1177,10 @@ pub(crate) struct FakeDisplay {
     /// Main render API that can be used to register and un-register fonts and images
     pub(crate) render_api: WrApi,
     /// Main renderer, responsible for rendering all windows
+    ///
+    /// This is `Some()` because of the `FakeDisplay` destructor: On shutdown,
+    /// the `renderer` gets destroyed before the other fields do, that is why the
+    /// renderer can be `None`
     pub(crate) renderer: Option<WrRenderer>,
     /// Fake / invisible display, only used because OpenGL is tied to a display context
     /// (offscreen rendering is not supported out-of-the-box on many platforms)
@@ -1069,19 +1237,19 @@ fn get_gl_context(gl_window: &Context<PossiblyCurrent>) -> Result<GlContextPtr, 
 
 /// Returns the actual hidpi factor and the winit DPI factor for the current window
 #[allow(unused_variables)]
-fn get_hidpi_factor(window: &GlutinWindow, event_loop: &EventLoopWindowTarget<()>) -> (f32, f32) {
+pub(crate) fn get_hidpi_factor(window: &GlutinWindow, event_loop: &EventLoopWindowTarget<()>) -> (f32, f32) {
 
-    let winit_hidpi_factor = window.scale_factor() as f32;
+    let system_hidpi_factor = window.scale_factor() as f32;
 
     #[cfg(target_os = "linux")] {
         use crate::glutin::platform::unix::EventLoopWindowTargetExtUnix;
 
         let is_x11 = event_loop.is_x11();
-        (linux_get_hidpi_factor(is_x11).unwrap_or(winit_hidpi_factor), winit_hidpi_factor)
+        (linux_get_hidpi_factor(is_x11).unwrap_or(system_hidpi_factor), system_hidpi_factor)
     }
 
     #[cfg(not(target_os = "linux"))] {
-        (winit_hidpi_factor, winit_hidpi_factor)
+        (system_hidpi_factor, system_hidpi_factor)
     }
 }
 
@@ -1198,12 +1366,16 @@ fn get_renderer_opts(native: bool, device_pixel_ratio: f32) -> WrRendererOptions
 #[derive(Debug)]
 pub enum RendererCreationError {
     Glutin(GlutinCreationError),
-    ShaderCompileError(GlShaderCompileError),
+    ShaderCompileError(GlShaderCreateError),
     Wr,
 }
 
 impl From<GlutinCreationError> for RendererCreationError {
     fn from(e: GlutinCreationError) -> Self { RendererCreationError::Glutin(e) }
+}
+
+impl From<GlShaderCreateError> for RendererCreationError {
+    fn from(e: GlShaderCreateError) -> Self { RendererCreationError::ShaderCompileError(e) }
 }
 
 // Startup function of the renderer
@@ -1317,7 +1489,7 @@ fn linux_get_hidpi_factor(is_x11: bool) -> Option<f32> {
     use std::env;
     use std::process::Command;
 
-    let winit_hidpi_factor = env::var("WINIT_HIDPI_FACTOR").ok().and_then(|hidpi_factor| hidpi_factor.parse::<f32>().ok());
+    let system_hidpi_factor = env::var("system_hidpi_factor").ok().and_then(|hidpi_factor| hidpi_factor.parse::<f32>().ok());
     let qt_font_dpi = env::var("QT_FONT_DPI").ok().and_then(|font_dpi| font_dpi.parse::<f32>().ok());
 
     // Execute "gsettings get org.gnome.desktop.interface text-scaling-factor" and parse the output
@@ -1335,6 +1507,6 @@ fn linux_get_hidpi_factor(is_x11: bool) -> Option<f32> {
     // Wayland: Ignore Xft.dpi
     let xft_dpi = if is_x11 { get_xft_dpi() } else { None };
 
-    let options = [winit_hidpi_factor, qt_font_dpi, gsettings_dpi_factor, xft_dpi];
+    let options = [system_hidpi_factor, qt_font_dpi, gsettings_dpi_factor, xft_dpi];
     options.iter().filter_map(|x| *x).next()
 }

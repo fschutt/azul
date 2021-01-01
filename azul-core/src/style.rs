@@ -1,15 +1,13 @@
 //! DOM tree to CSS style tree cascading
 
-use std::collections::{BTreeMap, BTreeSet};
 use azul_css::{
-    Css, CssContentGroup, CssPath, RectStyle, RectLayout, CssProperty,
+    CssContentGroup, CssPath, RectStyle, RectLayout, CssProperty,
     CssPathSelector, CssPathPseudoSelector, CssNthChildSelector::*,
 };
 use crate::{
     dom::NodeData,
-    styled_dom::{AzNode, AzNodeId, StyledNodeState},
+    styled_dom::{AzNode, StyledNodeState},
     id_tree::{NodeId, NodeHierarchyRef, NodeDataContainer, NodeDataContainerRef, NodeDataContainerRefMut},
-    callbacks::HitTestItem,
 };
 
 /// Has all the necessary information about the style CSS path

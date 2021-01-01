@@ -7,7 +7,7 @@
 
 extern crate gleam;
 extern crate xmlparser;
-#[macro_use(impl_from, impl_display)]
+#[macro_use(impl_display)]
 extern crate azul_core;
 #[macro_use]
 extern crate azul_css;

@@ -6,7 +6,7 @@ use azul_css::{
     LayoutPoint, LayoutSize, LayoutRect,
     StyleBackgroundRepeat, StyleBackgroundPosition, ColorU, BoxShadowClipMode,
     LinearGradient, RadialGradient, BoxShadowPreDisplayItem, StyleBackgroundSize,
-    CssPropertyValue, CssProperty, RectStyle, RectLayout,
+    CssPropertyValue, RectLayout,
 
     StyleBorderTopWidth, StyleBorderRightWidth, StyleBorderBottomWidth, StyleBorderLeftWidth,
     StyleBorderTopColor, StyleBorderRightColor, StyleBorderBottomColor, StyleBorderLeftColor,
@@ -15,11 +15,7 @@ use azul_css::{
 };
 use crate::{
     callbacks::PipelineId,
-    ui_solver::{
-        PositionedRectangle, ResolvedOffsets, ExternalScrollId,
-        LayoutResult, ScrolledNodes, OverflowingScrollNode,
-        PositionInfo,
-    },
+    ui_solver::{ResolvedOffsets, ExternalScrollId, LayoutResult, PositionInfo},
     window::{FullWindowState, LogicalRect, LogicalPosition, LogicalSize},
     app_resources::{
         AppResources, AddImageMsg, FontImageApi, ImageDescriptor, ImageDescriptorFlags,
@@ -27,8 +23,8 @@ use crate::{
         Epoch, ExternalImageId, GlyphOptions, LoadFontFn, LoadImageFn, ParseFontFn,
     },
     styled_dom::{DomId, StyledDom, ContentGroup},
-    id_tree::{NodeDataContainer, NodeId},
-    dom::{NodeData, TagId, ScrollTagId},
+    id_tree::NodeId,
+    dom::{TagId, ScrollTagId},
 };
 #[cfg(feature = "opengl")]
 use crate::gl::{Texture, GlContextPtr};
@@ -529,7 +525,7 @@ pub struct GlTextureCache {
 }
 
 // todo: very unclean
-pub type LayoutFn<U: FontImageApi> = fn(StyledDom, &mut AppResources, &mut U, PipelineId, RenderCallbacks<U>, &FullWindowState) -> Vec<LayoutResult>;
+pub type LayoutFn<U> = fn(StyledDom, &mut AppResources, &mut U, PipelineId, RenderCallbacks<U>, &FullWindowState) -> Vec<LayoutResult>;
 #[cfg(feature = "opengl")]
 pub type GlStoreImageFn = fn(PipelineId, Epoch, Texture) -> ExternalImageId;
 

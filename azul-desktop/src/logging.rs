@@ -10,24 +10,19 @@ pub(crate) fn set_up_logging(log_file_path: Option<&str>, log_level: LevelFilter
     use std::error::Error;
 
     /// Sets up the global logger
-    fn set_up_logging_internal(log_file_path: Option<&str>, log_level: LevelFilter)
-    -> Result<(), InitError>
-    {
-        use std::io::{Error as IoError, ErrorKind as IoErrorKind};
-        use fern::{Dispatch, log_file};
-
-        Dispatch::new()
-            .format(|out, message, record| {
-                out.finish(format_args!(
-                    "[{}][{}] {}",
-                    record.level(),
-                    record.target(),
-                    message
-                ))
-            })
-            .level(log_level)
-            .chain(::std::io::stdout())
-            .apply()?;
+    fn set_up_logging_internal(log_file_path: Option<&str>, log_level: LevelFilter) -> Result<(), InitError> {
+        fern::Dispatch::new()
+        .format(|out, message, record| {
+            out.finish(format_args!(
+                "[{}][{}] {}",
+                record.level(),
+                record.target(),
+                message
+            ))
+        })
+        .level(log_level)
+        .chain(::std::io::stdout())
+        .apply()?;
         Ok(())
     }
 
