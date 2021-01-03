@@ -192,6 +192,11 @@ fn format_static_css_prop(prop: &CssProperty, tabs: usize) -> String {
         CssProperty::BoxShadowRight(p) => format!("CssProperty::BoxShadowRight({})", print_css_property_value(p, tabs)),
         CssProperty::BoxShadowTop(p) => format!("CssProperty::BoxShadowTop({})", print_css_property_value(p, tabs)),
         CssProperty::BoxShadowBottom(p) => format!("CssProperty::BoxShadowBottom({})", print_css_property_value(p, tabs)),
+        CssProperty::Opacity(p) => format!("CssProperty::Opacity({})", print_css_property_value(p, tabs)),
+        CssProperty::Transform(p) => format!("CssProperty::Transform({})", print_css_property_value(p, tabs)),
+        CssProperty::TransformOrigin(p) => format!("CssProperty::TransformOrigin({})", print_css_property_value(p, tabs)),
+        CssProperty::PerspectiveOrigin(p) => format!("CssProperty::PerspectiveOrigin({})", print_css_property_value(p, tabs)),
+        CssProperty::BackfaceVisibility(p) => format!("CssProperty::BackfaceVisibility({})", print_css_property_value(p, tabs)),
     }
 }
 
@@ -237,6 +242,7 @@ macro_rules! impl_float_value_fmt {($struct_name:ident) => (
 
 impl_float_value_fmt!(LayoutFlexGrow);
 impl_float_value_fmt!(LayoutFlexShrink);
+impl_float_value_fmt!(StyleOpacity);
 
 macro_rules! impl_percentage_value_fmt {($struct_name:ident) => (
     impl FormatAsRustCode for $struct_name {
@@ -474,6 +480,11 @@ impl_enum_fmt!(ExtendMode,
     Repeat
 );
 
+impl_enum_fmt!(StyleBackfaceVisibility,
+    Visible,
+    Hidden
+);
+
 impl FormatAsRustCode for StyleBackgroundContent {
     fn format_as_rust_code(&self, tabs: usize) -> String {
         match self {
@@ -530,6 +541,70 @@ fn format_gradient_stop(g: &GradientStopPre) -> String {
         },
         format_color_value(&g.color),
     )
+}
+
+impl FormatAsRustCode for StyleTransformVec {
+    fn format_as_rust_code(&self, tabs: usize) -> String {
+        let t1 = String::from("    ").repeat(tabs + 1);
+        format!("vec![\r\n{}{}\r\n{}].into()",
+            t1, format_style_transforms(self.as_ref(), tabs + 1), t1,
+        )
+    }
+}
+
+fn format_style_transforms(stops: &[StyleTransform], tabs: usize) -> String {
+    let t = String::from("    ").repeat(tabs);
+    stops.iter()
+        .map(|s| format_style_transform(s, tabs))
+        .collect::<Vec<_>>()
+        .join(&format!(",\r\n{}", t))
+}
+
+fn format_style_transform(st: &StyleTransform, tabs: usize) -> String {
+    let tabs_minus_one = String::from("    ").repeat(tabs);
+    let tabs = String::from("    ").repeat(tabs + 1);
+    match st {
+        StyleTransform::Matrix(m) => format!("StyleTransform::Matrix(StyleTransformMatrix2D {{ a: {}, b: {}, c: {}, d: {}, tx: {}, ty: {} }})", format_pixel_value(&m.a), format_pixel_value(&m.b), format_pixel_value(&m.c), format_pixel_value(&m.d), format_pixel_value(&m.tx), format_pixel_value(&m.ty)),
+        StyleTransform::Matrix3D(m) => format!("StyleTransform::Matrix3D(StyleTransformMatrix3D {{\r\n{tabs}m11: {},\r\n{tabs}m12: {},\r\n{tabs}m13: {},\r\n{tabs}m14: {},\r\n{tabs}m21: {},\r\n{tabs}m22: {},\r\n{tabs}m23: {},\r\n{tabs}m24: {},\r\n{tabs}m31: {},\r\n{tabs}m32: {},\r\n{tabs}m33: {},\r\n{tabs}m34: {},\r\n{tabs}m41: {},\r\n{tabs}m42: {},\r\n{tabs}m43: {},\r\n{tabs}m44: {}\r\n{tabs_minus_one}}})",
+           format_pixel_value(&m.m11),
+           format_pixel_value(&m.m12),
+           format_pixel_value(&m.m13),
+           format_pixel_value(&m.m14),
+           format_pixel_value(&m.m21),
+           format_pixel_value(&m.m22),
+           format_pixel_value(&m.m23),
+           format_pixel_value(&m.m24),
+           format_pixel_value(&m.m31),
+           format_pixel_value(&m.m32),
+           format_pixel_value(&m.m33),
+           format_pixel_value(&m.m34),
+           format_pixel_value(&m.m41),
+           format_pixel_value(&m.m42),
+           format_pixel_value(&m.m43),
+           format_pixel_value(&m.m44),
+           tabs = tabs,
+           tabs_minus_one = tabs_minus_one,
+       ),
+        StyleTransform::Translate(t) => format!("StyleTransform::Translate(StyleTransformTranslate2D {{ x: {}, y: {} }})", format_pixel_value(&t.x), format_pixel_value(&t.y)),
+        StyleTransform::Translate3D(t) => format!("StyleTransform::Translate3D(StyleTransformTranslate3D {{ x: {}, y: {}, z: {})", format_pixel_value(&t.x), format_pixel_value(&t.y), format_pixel_value(&t.z)),
+        StyleTransform::TranslateX(x) => format!("StyleTransform::TranslateX({})", format_pixel_value(&x)),
+        StyleTransform::TranslateY(y) => format!("StyleTransform::TranslateY({})", format_pixel_value(&y)),
+        StyleTransform::TranslateZ(z) => format!("StyleTransform::TranslateZ({})", format_pixel_value(&z)),
+        StyleTransform::Rotate(r) => format!("StyleTransform::Rotate({})", format_percentage_value(&r)),
+        StyleTransform::Rotate3D(r) => format!("StyleTransform::Rotate3D(StyleTransformRotate3D {{ {}, {}, {}, {} }})", format_percentage_value(&r.x), format_percentage_value(&r.y), format_percentage_value(&r.z), format_percentage_value(&r.angle)),
+        StyleTransform::RotateX(x) => format!("StyleTransform::RotateX({})", format_percentage_value(&x)),
+        StyleTransform::RotateY(y) => format!("StyleTransform::RotateY({})", format_percentage_value(&y)),
+        StyleTransform::RotateZ(z) => format!("StyleTransform::RotateZ({})", format_percentage_value(&z)),
+        StyleTransform::Scale(s) => format!("StyleTransform::Scale(StyleTransformScale2D {{ x: {}, y: {} }})", format_percentage_value(&s.x), format_percentage_value(&s.y)),
+        StyleTransform::Scale3D(s) => format!("StyleTransform::Scale3D(StyleTransformScale3D {{ x; {}, y: {}, z: {} }})", format_percentage_value(&s.x), format_percentage_value(&s.y), format_percentage_value(&s.z)),
+        StyleTransform::ScaleX(x) => format!("StyleTransform::ScaleX({})", format_percentage_value(&x)),
+        StyleTransform::ScaleY(y) => format!("StyleTransform::ScaleY({})", format_percentage_value(&y)),
+        StyleTransform::ScaleZ(z) => format!("StyleTransform::ScaleZ({})", format_percentage_value(&z)),
+        StyleTransform::Skew(sk) => format!("StyleTransform::Skew(StyleTransformSkew2D {{ x: {}, y: {} }})", format_percentage_value(&sk.x), format_percentage_value(&sk.y)),
+        StyleTransform::SkewX(x) => format!("StyleTransform::SkewX({})", format_percentage_value(&x)),
+        StyleTransform::SkewY(y) => format!("StyleTransform::SkewY({})", format_percentage_value(&y)),
+        StyleTransform::Perspective(dist) => format!("StyleTransform::Perspective({})", format_pixel_value(&dist)),
+    }
 }
 
 fn format_font_ids(stops: &[AzString], tabs: usize) -> String {
@@ -618,3 +693,14 @@ impl FormatAsRustCode for BoxShadowPreDisplayItem {
     }
 }
 
+impl FormatAsRustCode for StyleTransformOrigin {
+    fn format_as_rust_code(&self, _tabs: usize) -> String {
+        format!("StyleTransformOrigin {{ x: {}, y: {} }}", format_pixel_value(&self.x), format_pixel_value(&self.y))
+    }
+}
+
+impl FormatAsRustCode for StylePerspectiveOrigin {
+    fn format_as_rust_code(&self, _tabs: usize) -> String {
+        format!("StylePerspectiveOrigin {{ x: {}, y: {} }}", format_pixel_value(&self.x), format_pixel_value(&self.y))
+    }
+}

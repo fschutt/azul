@@ -1,5 +1,5 @@
 use std::{
-    time::{Duration, Instant},
+    time::Duration,
     collections::BTreeMap,
 };
 use glutin::{
@@ -61,8 +61,6 @@ pub struct AppConfig {
     /// Default is `Some(LevelFilter::Error)` to log all errors by default
     #[cfg(feature = "logging")]
     pub enable_logging: Option<LevelFilter>,
-    /// Path to the output log if the logger is enabled
-    pub log_file_path: Option<String>,
     /// If the app crashes / panics, a window with a message box pops up.
     /// Setting this to `false` disables the popup box.
     pub enable_visual_panic_hook: bool,
@@ -94,7 +92,6 @@ impl Default for AppConfig {
         Self {
             #[cfg(feature = "logging")]
             enable_logging: Some(LevelFilter::Error),
-            log_file_path: None,
             enable_visual_panic_hook: true,
             enable_logging_on_panic: true,
             enable_tab_navigation: true,
@@ -116,7 +113,7 @@ impl App {
 
         #[cfg(feature = "logging")] {
             if let Some(log_level) = app_config.enable_logging {
-                crate::logging::set_up_logging(app_config.log_file_path.as_ref().map(|s| s.as_str()), log_level);
+                crate::logging::set_up_logging(log_level);
 
                 if app_config.enable_logging_on_panic {
                     crate::logging::set_up_panic_hooks();
@@ -203,15 +200,18 @@ impl App {
     #[allow(unused_variables)]
     fn run_inner(self) -> ! {
 
-        let App { mut data, mut fake_display, mut display_shader, config, windows } = self;
+        let App {
+            mut data,
+            fake_display:  FakeDisplay { mut render_api, mut renderer, mut hidden_context, hidden_event_loop, gl_context },
+            mut display_shader,
+            config,
+            windows
+        } = self;
 
         let mut timers = FastHashMap::new();
         let mut tasks = Vec::new();
         let mut resources = AppResources::default();
-        let mut last_style_reload = Instant::now();
         let mut active_windows = BTreeMap::new();
-
-        let FakeDisplay { mut render_api, mut renderer, mut hidden_context, hidden_event_loop, gl_context } = fake_display;
 
         // Create the windows (makes them actually show up on the screen)
         for window_create_options in windows {
@@ -254,7 +254,7 @@ impl App {
                     // render the display list to a texture
                     if let Some(texture) = window.render_display_list_to_texture(&mut hidden_context, &mut render_api, renderer.as_mut().unwrap(), &gl_context) {
                         // if the rendering went OK, render the texture to the screen
-                        window.draw_texture_to_screen_and_swap(&texture, &display_shader);
+                        window.draw_texture_to_screen_and_swap(&texture, &mut display_shader);
                     }
                 },
                 Event::WindowEvent { event, window_id } => {
@@ -276,11 +276,11 @@ impl App {
                     let mut should_callback_render = false;
 
                     loop {
-                        let mut events = Events::new(&window.internal.current_window_state, &window.internal.previous_window_state);
+                        let events = Events::new(&window.internal.current_window_state, &window.internal.previous_window_state);
                         let layout_callback_changed = window.internal.current_window_state.layout_callback_changed(&window.internal.previous_window_state);
                         let hit_test = if !events.needs_hit_test() { FullHitTest::empty() } else {
                             let ht = FullHitTest::new(&window.internal.layout_results, &window.internal.current_window_state.mouse_state.cursor_position, &window.internal.scroll_states);
-                            window.internal.current_window_state.hovered_nodes = ht.hovered_nodes;
+                            window.internal.current_window_state.hovered_nodes = ht.hovered_nodes.clone();
                             ht
                         };
 
@@ -288,23 +288,22 @@ impl App {
 
                         let scroll_event = window.internal.current_window_state.get_scroll_amount();
                         let nodes_to_check = NodesToCheck::new(&hit_test, &events);
-                        let callback_results = window.call_callbacks(&nodes_to_check, &events, &gl_context, &mut resources);
+                        let mut callback_results = window.call_callbacks(&nodes_to_check, &events, &gl_context, &mut resources);
 
                         let cur_should_callback_render = callback_results.should_scroll_render;
                         if cur_should_callback_render { should_callback_render = true; }
                         let cur_should_scroll_render = window.internal.current_window_state.get_scroll_amount().as_ref().map(|se| window.internal.scroll_states.should_scroll_render(se, &hit_test)).unwrap_or(false);
                         if cur_should_scroll_render { should_scroll_render = true; }
                         window.internal.current_window_state.mouse_state.reset_scroll_to_zero();
-                        let mut dom_changed = false;
 
                         if layout_callback_changed {
-                            window.regenerate_styled_dom(&gl_context, &mut resources, &mut render_api);
+                            window.regenerate_styled_dom(&data, &mut resources, &gl_context, &mut render_api);
                             need_regenerate_display_list = true;
                             callback_results.update_focused_node = Some(None); // unset the focus
                         } else {
                             match callback_results.callbacks_update_screen {
                                 UpdateScreen::RegenerateStyledDomForCurrentWindow => {
-                                    window.regenerate_styled_dom(&gl_context, &mut resources, &mut render_api);
+                                    window.regenerate_styled_dom(&data, &mut resources, &gl_context, &mut render_api);
                                     need_regenerate_display_list = true;
                                     callback_results.update_focused_node = Some(None); // unset the focus
                                 },
@@ -312,30 +311,32 @@ impl App {
                                     /* for window in active_windows { window.regenerate_styled_dom(); } */
                                 },
                                 UpdateScreen::DoNothing => {
-                                    // let changes = StyleAndLayoutChanges::new(&nodes_to_check, &mut window.internal.layout_results, &mut resources, window.internal.current_window_state.size.dimensions, window.internal.);
+                                    use azul_core::window_state::StyleAndLayoutChanges;
+                                    use azul_css::LayoutSize;
 
-                                    /*
-                                    new(
-                                            nodes: &NodesToCheck,
-                                            layout_results: &mut [LayoutResult],
-                                            app_resources: &mut AppResources,
-                                            window_size: LayoutSize,
-                                            pipeline_id: PipelineId,
-                                            relayout_cb: fn(LayoutRect, &mut LayoutResult, &mut AppResources, PipelineId, &RelayoutNodes) -> Vec<NodeId>
-                                        )
-                                        callback_results.
-                                    */
+                                    let current_window_size = LayoutSize::new(
+                                        window.internal.current_window_state.size.dimensions.width.round() as isize,
+                                        window.internal.current_window_state.size.dimensions.height.round() as isize
+                                    );
 
-                                    let mut need_relayout = false;
-                                    if nodes_to_check.need_restyle() || callback_results.need_restyle() {
-                                        need_relayout = window.internal.restyle();
+                                    // re-layouts and re-styles the window.internal.layout_results
+                                    let changes = StyleAndLayoutChanges::new(
+                                        &nodes_to_check,
+                                        &mut window.internal.layout_results,
+                                        &mut resources,
+                                        current_window_size,
+                                        window.internal.pipeline_id,
+                                        &callback_results.css_properties_changed,
+                                        &callback_results.update_focused_node,
+                                        azul_layout::do_the_relayout,
+                                    );
+
+                                    if changes.need_regenerate_display_list() {
+                                        // this can be false in case that only opacity: / transform: properties changed!
                                         need_regenerate_display_list = true;
                                     }
-                                    if events.need_relayout() || callback_results.need_relayout() || need_relayout {
-                                        let need_layout_redraw = window.internal.relayout();
-                                        if need_layout_redraw {
-                                            need_regenerate_display_list = true;
-                                        }
+                                    if changes.need_redraw() {
+                                        should_callback_render = true;
                                     }
                                 }
                             }
@@ -348,7 +349,6 @@ impl App {
                         // see if the callbacks modified the WindowState - if yes, re-determine the events
                         let current_window_save_state = window.internal.current_window_state.clone();
                         let callbacks_changed_cursor = callback_results.cursor_changed();
-                        let callbacks_changed_focus = callback_results.focus_changed();
                         if !callbacks_changed_cursor {
                             let ht = FullHitTest::new(&window.internal.layout_results, &window.internal.current_window_state.mouse_state.cursor_position, &window.internal.scroll_states);
                             let cht = CursorTypeHitTest::new(&ht, &window.internal.layout_results);
@@ -359,7 +359,7 @@ impl App {
                         }
                         let window_state_changed_in_callbacks = window.synchronize_window_state_with_os(callback_results.modified_window_state);
                         window.internal.previous_window_state = Some(current_window_save_state);
-                        if !window_state_changed_in_callbacks || callbacks_changed_focus { break; } else { continue; }
+                        if !window_state_changed_in_callbacks { break; } else { continue; }
                     }
 
                     if need_regenerate_display_list {
@@ -377,7 +377,7 @@ impl App {
             // close windows
             let windows_to_remove = active_windows.iter()
             .filter(|(id, window)| window.internal.current_window_state.flags.is_about_to_close)
-            .map(|(id, window)| id)
+            .map(|(id, window)| id.clone())
             .collect::<Vec<_>>();
 
             for window_id in windows_to_remove {
@@ -478,9 +478,10 @@ fn process_window_event(event: &GlutinWindowEvent, current_window_state: &mut Fu
         },
         GlutinWindowEvent::ScaleFactorChanged { scale_factor, new_inner_size } => {
             use crate::window::get_hidpi_factor;
-            let (hidpi_factor, system_hidpi_factor) = get_hidpi_factor(window, event_loop);
-            current_window_state.size.system_hidpi_factor = system_hidpi_factor;
+            let (hidpi_factor, _) = get_hidpi_factor(window, event_loop);
+            current_window_state.size.system_hidpi_factor = *scale_factor as f32;
             current_window_state.size.hidpi_factor = hidpi_factor;
+            current_window_state.size.dimensions = winit_translate_physical_size(**new_inner_size).to_logical(current_window_state.size.system_hidpi_factor as f32);
         },
         GlutinWindowEvent::Moved(new_window_position) => {
             current_window_state.position = WindowPosition::Initialized(winit_translate_physical_position(*new_window_position));
@@ -577,7 +578,7 @@ fn process_window_event(event: &GlutinWindowEvent, current_window_state: &mut Fu
         GlutinWindowEvent::CloseRequested => {
             current_window_state.flags.is_about_to_close = true;
         },
-        GlutinWindowEvent::Touch(Touch { phase, location, .. }) => {
+        GlutinWindowEvent::Touch(Touch { location, .. }) => {
             // TODO: use current_window_state.touch_state instead, this is wrong
             // TODO: multitouch
             let world_pos_x = location.x as f32 / current_window_state.size.hidpi_factor * current_window_state.size.system_hidpi_factor;
@@ -591,11 +592,16 @@ fn process_window_event(event: &GlutinWindowEvent, current_window_state: &mut Fu
 
             // TODO!
         },
+        GlutinWindowEvent::ThemeChanged(new_theme) => {
+            use crate::wr_translate::winit_translate::translate_winit_theme;
+            current_window_state.theme = translate_winit_theme(*new_theme);
+        },
         GlutinWindowEvent::AxisMotion { .. } => {
             // Motion on some analog axis. May report data redundant to other, more specific events.
 
             // TODO!
         },
+        GlutinWindowEvent::Destroyed => { },
     }
 }
 

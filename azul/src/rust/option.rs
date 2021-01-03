@@ -143,6 +143,62 @@
     impl_option!(AzTaskBarIcon, AzOptionTaskBarIcon, copy = false, [Debug, Clone, PartialOrd, PartialEq, Eq, Hash, Ord]);
 
 
+    /// `OptionStyleOpacityValue` struct
+    pub use crate::dll::AzOptionStyleOpacityValue as OptionStyleOpacityValue;
+
+    impl std::fmt::Debug for OptionStyleOpacityValue { fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result { write!(f, "{}", (crate::dll::get_azul_dll().az_option_style_opacity_value_fmt_debug)(self)) } }
+    impl Clone for OptionStyleOpacityValue { fn clone(&self) -> Self { (crate::dll::get_azul_dll().az_option_style_opacity_value_deep_copy)(self) } }
+    impl Drop for OptionStyleOpacityValue { fn drop(&mut self) { (crate::dll::get_azul_dll().az_option_style_opacity_value_delete)(self); } }
+
+
+    /// `OptionStyleTransformVecValue` struct
+    pub use crate::dll::AzOptionStyleTransformVecValue as OptionStyleTransformVecValue;
+
+    impl std::fmt::Debug for OptionStyleTransformVecValue { fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result { write!(f, "{}", (crate::dll::get_azul_dll().az_option_style_transform_vec_value_fmt_debug)(self)) } }
+    impl Clone for OptionStyleTransformVecValue { fn clone(&self) -> Self { (crate::dll::get_azul_dll().az_option_style_transform_vec_value_deep_copy)(self) } }
+    impl Drop for OptionStyleTransformVecValue { fn drop(&mut self) { (crate::dll::get_azul_dll().az_option_style_transform_vec_value_delete)(self); } }
+
+
+    /// `OptionStyleTransformOriginValue` struct
+    pub use crate::dll::AzOptionStyleTransformOriginValue as OptionStyleTransformOriginValue;
+
+    impl std::fmt::Debug for OptionStyleTransformOriginValue { fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result { write!(f, "{}", (crate::dll::get_azul_dll().az_option_style_transform_origin_value_fmt_debug)(self)) } }
+    impl Clone for OptionStyleTransformOriginValue { fn clone(&self) -> Self { (crate::dll::get_azul_dll().az_option_style_transform_origin_value_deep_copy)(self) } }
+    impl Drop for OptionStyleTransformOriginValue { fn drop(&mut self) { (crate::dll::get_azul_dll().az_option_style_transform_origin_value_delete)(self); } }
+
+
+    /// `OptionStylePerspectiveOriginValue` struct
+    pub use crate::dll::AzOptionStylePerspectiveOriginValue as OptionStylePerspectiveOriginValue;
+
+    impl std::fmt::Debug for OptionStylePerspectiveOriginValue { fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result { write!(f, "{}", (crate::dll::get_azul_dll().az_option_style_perspective_origin_value_fmt_debug)(self)) } }
+    impl Clone for OptionStylePerspectiveOriginValue { fn clone(&self) -> Self { (crate::dll::get_azul_dll().az_option_style_perspective_origin_value_deep_copy)(self) } }
+    impl Drop for OptionStylePerspectiveOriginValue { fn drop(&mut self) { (crate::dll::get_azul_dll().az_option_style_perspective_origin_value_delete)(self); } }
+
+
+    /// `OptionStyleBackfaceVisibilityValue` struct
+    pub use crate::dll::AzOptionStyleBackfaceVisibilityValue as OptionStyleBackfaceVisibilityValue;
+
+    impl std::fmt::Debug for OptionStyleBackfaceVisibilityValue { fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result { write!(f, "{}", (crate::dll::get_azul_dll().az_option_style_backface_visibility_value_fmt_debug)(self)) } }
+    impl Clone for OptionStyleBackfaceVisibilityValue { fn clone(&self) -> Self { (crate::dll::get_azul_dll().az_option_style_backface_visibility_value_deep_copy)(self) } }
+    impl Drop for OptionStyleBackfaceVisibilityValue { fn drop(&mut self) { (crate::dll::get_azul_dll().az_option_style_backface_visibility_value_delete)(self); } }
+
+
+    /// `OptionLayoutPoint` struct
+    pub use crate::dll::AzOptionLayoutPoint as OptionLayoutPoint;
+
+    impl std::fmt::Debug for OptionLayoutPoint { fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result { write!(f, "{}", (crate::dll::get_azul_dll().az_option_layout_point_fmt_debug)(self)) } }
+    impl Clone for OptionLayoutPoint { fn clone(&self) -> Self { (crate::dll::get_azul_dll().az_option_layout_point_deep_copy)(self) } }
+    impl Drop for OptionLayoutPoint { fn drop(&mut self) { (crate::dll::get_azul_dll().az_option_layout_point_delete)(self); } }
+
+
+    /// `OptionWindowTheme` struct
+    pub use crate::dll::AzOptionWindowTheme as OptionWindowTheme;
+
+    impl std::fmt::Debug for OptionWindowTheme { fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result { write!(f, "{}", (crate::dll::get_azul_dll().az_option_window_theme_fmt_debug)(self)) } }
+    impl Clone for OptionWindowTheme { fn clone(&self) -> Self { (crate::dll::get_azul_dll().az_option_window_theme_deep_copy)(self) } }
+    impl Drop for OptionWindowTheme { fn drop(&mut self) { (crate::dll::get_azul_dll().az_option_window_theme_delete)(self); } }
+
+
     /// `OptionNodeId` struct
     pub use crate::dll::AzOptionNodeId as OptionNodeId;
 
@@ -812,14 +868,6 @@
     impl std::fmt::Debug for OptionLayoutAlignContentValue { fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result { write!(f, "{}", (crate::dll::get_azul_dll().az_option_layout_align_content_value_fmt_debug)(self)) } }
     impl Clone for OptionLayoutAlignContentValue { fn clone(&self) -> Self { (crate::dll::get_azul_dll().az_option_layout_align_content_value_deep_copy)(self) } }
     impl Drop for OptionLayoutAlignContentValue { fn drop(&mut self) { (crate::dll::get_azul_dll().az_option_layout_align_content_value_delete)(self); } }
-
-
-    /// `OptionHoverGroup` struct
-    pub use crate::dll::AzOptionHoverGroup as OptionHoverGroup;
-
-    impl std::fmt::Debug for OptionHoverGroup { fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result { write!(f, "{}", (crate::dll::get_azul_dll().az_option_hover_group_fmt_debug)(self)) } }
-    impl Clone for OptionHoverGroup { fn clone(&self) -> Self { (crate::dll::get_azul_dll().az_option_hover_group_deep_copy)(self) } }
-    impl Drop for OptionHoverGroup { fn drop(&mut self) { (crate::dll::get_azul_dll().az_option_hover_group_delete)(self); } }
 
 
     /// `OptionTagId` struct

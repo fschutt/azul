@@ -99,6 +99,18 @@
         pub fn add_inline_css(&mut self, prop: CssProperty)  { (crate::dll::get_azul_dll().az_dom_add_inline_css)(self, prop) }
         /// Same as [`Dom::add_inline_css`](#method.add_inline_css), but as a builder method
         pub fn with_inline_css(self, prop: CssProperty)  -> crate::dom::Dom { (crate::dll::get_azul_dll().az_dom_with_inline_css)(self, prop) }
+        /// Overrides the CSS property of this DOM node with a value (for example `"width = 200px"`)
+        pub fn add_inline_hover_css(&mut self, prop: CssProperty)  { (crate::dll::get_azul_dll().az_dom_add_inline_hover_css)(self, prop) }
+        /// Same as [`Dom::add_inline_hover_css`](#method.add_inline_hover_css), but as a builder method
+        pub fn with_inline_hover_css(self, prop: CssProperty)  -> crate::dom::Dom { (crate::dll::get_azul_dll().az_dom_with_inline_hover_css)(self, prop) }
+        /// Overrides the CSS property of this DOM node with a value (for example `"width = 200px"`)
+        pub fn add_inline_active_css(&mut self, prop: CssProperty)  { (crate::dll::get_azul_dll().az_dom_add_inline_active_css)(self, prop) }
+        /// Same as [`Dom::add_inline_active_css`](#method.add_inline_active_css), but as a builder method
+        pub fn with_inline_active_css(self, prop: CssProperty)  -> crate::dom::Dom { (crate::dll::get_azul_dll().az_dom_with_inline_active_css)(self, prop) }
+        /// Overrides the CSS property of this DOM node with a value (for example `"width = 200px"`)
+        pub fn add_inline_focus_css(&mut self, prop: CssProperty)  { (crate::dll::get_azul_dll().az_dom_add_inline_focus_css)(self, prop) }
+        /// Same as [`Dom::add_inline_focus_css`](#method.add_inline_active_css), but as a builder method
+        pub fn with_inline_focus_css(self, prop: CssProperty)  -> crate::dom::Dom { (crate::dll::get_azul_dll().az_dom_with_inline_focus_css)(self, prop) }
         /// Sets the `is_draggable` attribute of this DOM node (default: false)
         pub fn set_is_draggable(&mut self, is_draggable: bool)  { (crate::dll::get_azul_dll().az_dom_set_is_draggable)(self, is_draggable) }
         /// Same as [`Dom::set_clip_mask`](#method.set_clip_mask), but as a builder method
@@ -204,8 +216,14 @@
         pub fn with_callback(self, event: EventFilter, data: RefAny, callback: CallbackType)  -> crate::dom::NodeData { (crate::dll::get_azul_dll().az_node_data_with_callback)(self, event, data, callback) }
         /// Overrides the CSS property of this `NodeData` node with a value (for example `"width = 200px"`)
         pub fn add_inline_css(&mut self, prop: CssProperty)  { (crate::dll::get_azul_dll().az_node_data_add_inline_css)(self, prop) }
-        /// Same as [`NodeData::add_inline_css`](#method.add_inline_css), but as a builder method
+        /// Same as [`NodeData::add_inline_focus_css`](#method.add_inline_focus_css), but as a builder method
         pub fn with_inline_css(self, prop: CssProperty)  -> crate::dom::NodeData { (crate::dll::get_azul_dll().az_node_data_with_inline_css)(self, prop) }
+        /// Overrides the CSS property of this `NodeData` node with a value (for example `"width = 200px"`)
+        pub fn add_inline_hover_css(&mut self, prop: CssProperty)  { (crate::dll::get_azul_dll().az_node_data_add_inline_hover_css)(self, prop) }
+        /// Overrides the CSS property of this `NodeData` node with a value (for example `"width = 200px"`)
+        pub fn add_inline_active_css(&mut self, prop: CssProperty)  { (crate::dll::get_azul_dll().az_node_data_add_inline_active_css)(self, prop) }
+        /// Overrides the CSS property of this `NodeData` node with a value (for example `"width = 200px"`)
+        pub fn add_inline_focus_css(&mut self, prop: CssProperty)  { (crate::dll::get_azul_dll().az_node_data_add_inline_focus_css)(self, prop) }
         /// Same as [`NodeData::set_clip_mask`](#method.set_clip_mask), but as a builder method
         pub fn with_clip_mask(self, clip_mask: OptionImageMask)  -> crate::dom::NodeData { (crate::dll::get_azul_dll().az_node_data_with_clip_mask)(self, clip_mask) }
         /// Sets the `clip_mask` attribute of this `NodeData` (default: None)

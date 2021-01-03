@@ -124,8 +124,11 @@
             let struct_as_bytes = unsafe { ::std::slice::from_raw_parts((&t_id as *const TypeId) as *const u8, mem::size_of::<TypeId>()) };
             struct_as_bytes.into_iter().enumerate().map(|(s_pos, s)| ((*s as u64) << s_pos)).sum()
         }
-    }    use crate::window::WindowState;
+    }    use crate::dom::NodeType;
     use crate::str::String;
+    use crate::window::{WindowCreateOptions, WindowState};
+    use crate::css::CssProperty;
+    use crate::task::{Task, Timer, TimerId};
 
 
     /// `NodeId` struct
@@ -187,6 +190,22 @@
     impl Drop for Callback { fn drop(&mut self) { (crate::dll::get_azul_dll().az_callback_delete)(self); } }
 
 
+    /// Defines the focus target for the next frame
+    pub use crate::dll::AzFocusTarget as FocusTarget;
+
+    impl std::fmt::Debug for FocusTarget { fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result { write!(f, "{}", (crate::dll::get_azul_dll().az_focus_target_fmt_debug)(self)) } }
+    impl Clone for FocusTarget { fn clone(&self) -> Self { (crate::dll::get_azul_dll().az_focus_target_deep_copy)(self) } }
+    impl Drop for FocusTarget { fn drop(&mut self) { (crate::dll::get_azul_dll().az_focus_target_delete)(self); } }
+
+
+    /// `FocusTargetPath` struct
+    pub use crate::dll::AzFocusTargetPath as FocusTargetPath;
+
+    impl std::fmt::Debug for FocusTargetPath { fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result { write!(f, "{}", (crate::dll::get_azul_dll().az_focus_target_path_fmt_debug)(self)) } }
+    impl Clone for FocusTargetPath { fn clone(&self) -> Self { (crate::dll::get_azul_dll().az_focus_target_path_deep_copy)(self) } }
+    impl Drop for FocusTargetPath { fn drop(&mut self) { (crate::dll::get_azul_dll().az_focus_target_path_delete)(self); } }
+
+
     pub use crate::dll::AzCallbackReturn as CallbackReturn;
     pub use crate::dll::AzCallbackType as CallbackType;
 
@@ -194,14 +213,52 @@
     pub use crate::dll::AzCallbackInfoPtr as CallbackInfo;
 
     impl CallbackInfo {
-        /// Returns a copy of the internal `RefAny`
-        pub fn get_state(&self)  -> crate::callbacks::RefAny { (crate::dll::get_azul_dll().az_callback_info_ptr_get_state)(self) }
+        /// Returns the `DomNodeId` of the element that the callback was attached to.
+        pub fn get_hit_node(&self)  -> crate::callbacks::DomNodeId { (crate::dll::get_azul_dll().az_callback_info_ptr_get_hit_node)(self) }
+        /// Returns the `LayoutPoint` of the cursor in the viewport (relative to the origin of the `Dom`). Set to `None` if the cursor is not in the current window.
+        pub fn get_cursor_relative_to_viewport(&self)  -> crate::option::OptionLayoutPoint { (crate::dll::get_azul_dll().az_callback_info_ptr_get_cursor_relative_to_viewport)(self) }
+        /// Returns the `LayoutPoint` of the cursor in the viewport (relative to the origin of the `Dom`). Set to `None` if the cursor is not hovering over the current node.
+        pub fn get_cursor_relative_to_node(&self)  -> crate::option::OptionLayoutPoint { (crate::dll::get_azul_dll().az_callback_info_ptr_get_cursor_relative_to_node)(self) }
+        /// Returns the parent `DomNodeId` of the given `DomNodeId`. Returns `None` on an invalid NodeId.
+        pub fn get_parent(&self, node_id: DomNodeId)  -> crate::option::OptionDomNodeId { (crate::dll::get_azul_dll().az_callback_info_ptr_get_parent)(self, node_id) }
+        /// Returns the previous siblings `DomNodeId` of the given `DomNodeId`. Returns `None` on an invalid NodeId.
+        pub fn get_previous_sibling(&self, node_id: DomNodeId)  -> crate::option::OptionDomNodeId { (crate::dll::get_azul_dll().az_callback_info_ptr_get_previous_sibling)(self, node_id) }
+        /// Returns the next siblings `DomNodeId` of the given `DomNodeId`. Returns `None` on an invalid NodeId.
+        pub fn get_next_sibling(&self, node_id: DomNodeId)  -> crate::option::OptionDomNodeId { (crate::dll::get_azul_dll().az_callback_info_ptr_get_next_sibling)(self, node_id) }
+        /// Returns the next siblings `DomNodeId` of the given `DomNodeId`. Returns `None` on an invalid NodeId.
+        pub fn get_first_child(&self, node_id: DomNodeId)  -> crate::option::OptionDomNodeId { (crate::dll::get_azul_dll().az_callback_info_ptr_get_first_child)(self, node_id) }
+        /// Returns the next siblings `DomNodeId` of the given `DomNodeId`. Returns `None` on an invalid NodeId.
+        pub fn get_last_child(&self, node_id: DomNodeId)  -> crate::option::OptionDomNodeId { (crate::dll::get_azul_dll().az_callback_info_ptr_get_last_child)(self, node_id) }
+        /// Returns a copy of the current windows `WindowState`.
+        pub fn get_window_state(&self)  -> crate::window::WindowState { (crate::dll::get_azul_dll().az_callback_info_ptr_get_window_state)(self) }
         /// Returns a copy of the internal `KeyboardState`. Same as `self.get_window_state().keyboard_state`
         pub fn get_keyboard_state(&self)  -> crate::window::KeyboardState { (crate::dll::get_azul_dll().az_callback_info_ptr_get_keyboard_state)(self) }
         /// Returns a copy of the internal `MouseState`. Same as `self.get_window_state().mouse_state`
         pub fn get_mouse_state(&self)  -> crate::window::MouseState { (crate::dll::get_azul_dll().az_callback_info_ptr_get_mouse_state)(self) }
+        /// Returns a copy of the current windows `RawWindowHandle`.
+        pub fn get_current_window_handle(&self)  -> crate::window::RawWindowHandle { (crate::dll::get_azul_dll().az_callback_info_ptr_get_current_window_handle)(self) }
+        /// Returns a **reference-counted copy** of the current windows `GlContextPtr`. You can use this to render OpenGL textures.
+        pub fn get_gl_context(&self)  -> crate::gl::GlContextPtr { (crate::dll::get_azul_dll().az_callback_info_ptr_get_gl_context)(self) }
+        /// Returns whether the node has a given `NodeType`. Returns `false` on an invalid NodeId.
+        pub fn node_is_type(&self, node_id: DomNodeId, node_type: NodeType)  -> bool { (crate::dll::get_azul_dll().az_callback_info_ptr_node_is_type)(self, node_id, node_type) }
+        /// Returns whether the node has a given `id`. Returns `false` on an invalid NodeId.
+        pub fn node_has_id(&self, node_id: DomNodeId, id: String)  -> bool { (crate::dll::get_azul_dll().az_callback_info_ptr_node_has_id)(self, node_id, id) }
+        /// Returns whether the node has a given `id`. Returns `false` on an invalid NodeId.
+        pub fn node_has_class(&self, node_id: DomNodeId, id: String)  -> bool { (crate::dll::get_azul_dll().az_callback_info_ptr_node_has_class)(self, node_id, id) }
         /// Sets the new `WindowState` for the next frame. The window is updated after all callbacks are run.
         pub fn set_window_state(&mut self, new_state: WindowState)  { (crate::dll::get_azul_dll().az_callback_info_ptr_set_window_state)(self, new_state) }
+        /// Sets the new `FocusTarget` for the next frame. Note that this will emit a `On::FocusLost` and `On::FocusReceived` event, if the focused node has changed.
+        pub fn set_focus(&mut self, target: FocusTarget)  { (crate::dll::get_azul_dll().az_callback_info_ptr_set_focus)(self, target) }
+        /// Sets a `CssProperty` on a given ndoe to its new value. If this property change affects the layout, this will automatically trigger a relayout and redraw of the screen.
+        pub fn set_css_property(&mut self, node_id: DomNodeId, new_property: CssProperty)  { (crate::dll::get_azul_dll().az_callback_info_ptr_set_css_property)(self, node_id, new_property) }
+        /// Stops the propagation of the current callback event type to the parent. Events are bubbled from the inside out (children first, then parents), this event stops the propagation of the event to the parent.
+        pub fn stop_propagation(&mut self)  { (crate::dll::get_azul_dll().az_callback_info_ptr_stop_propagation)(self) }
+        /// Spawns a new window with the given `WindowCreateOptions`.
+        pub fn create_window(&mut self, new_window: WindowCreateOptions)  { (crate::dll::get_azul_dll().az_callback_info_ptr_create_window)(self, new_window) }
+        /// Adds a new `Task` to the runtime. See the documentation for `Task` for more information.
+        pub fn add_task(&mut self, task: Task)  { (crate::dll::get_azul_dll().az_callback_info_ptr_add_task)(self, task) }
+        /// Adds a new `Timer` to the runtime. See the documentation for `Timer` for more information.
+        pub fn add_timer(&mut self, id: TimerId, timer: Timer)  { (crate::dll::get_azul_dll().az_callback_info_ptr_add_timer)(self, id, timer) }
     }
 
     impl std::fmt::Debug for CallbackInfo { fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result { write!(f, "{}", (crate::dll::get_azul_dll().az_callback_info_ptr_fmt_debug)(self)) } }

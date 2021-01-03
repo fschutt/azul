@@ -4,13 +4,13 @@ use crate::dialogs::msg_box_ok;
 
 pub(crate) static SHOULD_ENABLE_PANIC_HOOK: AtomicBool = AtomicBool::new(false);
 
-pub(crate) fn set_up_logging(log_file_path: Option<&str>, log_level: LevelFilter) {
+pub(crate) fn set_up_logging(log_level: LevelFilter) {
 
     use fern::InitError;
     use std::error::Error;
 
     /// Sets up the global logger
-    fn set_up_logging_internal(log_file_path: Option<&str>, log_level: LevelFilter) -> Result<(), InitError> {
+    fn set_up_logging_internal(log_level: LevelFilter) -> Result<(), InitError> {
         fern::Dispatch::new()
         .format(|out, message, record| {
             out.finish(format_args!(
@@ -26,7 +26,7 @@ pub(crate) fn set_up_logging(log_file_path: Option<&str>, log_level: LevelFilter
         Ok(())
     }
 
-    match set_up_logging_internal(log_file_path, log_level) {
+    match set_up_logging_internal(log_level) {
         Ok(_) => { },
         Err(e) => match e {
             InitError::Io(e) => {

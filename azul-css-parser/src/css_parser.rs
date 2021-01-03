@@ -17,7 +17,8 @@ use azul_css::{
     StyleBorderRightColor, StyleBorderLeftColor, StyleBorderBottomColor,
     StyleBorderTopStyle, StyleBorderRightStyle, StyleBorderLeftStyle,
     StyleBorderBottomStyle, StyleBorderTopWidth, StyleBorderRightWidth,
-    StyleBorderLeftWidth, StyleBorderBottomWidth,
+    StyleBorderLeftWidth, StyleBorderBottomWidth, StyleTransform, StyleTransformOrigin,
+    StylePerspectiveOrigin, StyleBackfaceVisibility, StyleOpacity, StyleTransformVec,
 
     LayoutDisplay, LayoutFloat, LayoutWidth, LayoutHeight, LayoutBoxSizing,
     LayoutMinWidth, LayoutMinHeight, LayoutMaxWidth, LayoutMaxHeight,
@@ -199,6 +200,12 @@ pub fn parse_css_property<'a>(key: CssPropertyType, value: &'a str) -> Result<Cs
             BoxShadowRight              => CssProperty::BoxShadowRight(CssPropertyValue::Exact(parse_style_box_shadow(value)?)).into(),
             BoxShadowTop                => CssProperty::BoxShadowTop(CssPropertyValue::Exact(parse_style_box_shadow(value)?)).into(),
             BoxShadowBottom             => CssProperty::BoxShadowBottom(CssPropertyValue::Exact(parse_style_box_shadow(value)?)).into(),
+
+            Opacity                     => parse_style_opacity(value)?.into(),
+            Transform                   => parse_style_transform_vec(value)?.into(),
+            TransformOrigin             => parse_style_transform_origin(value)?.into(),
+            PerspectiveOrigin           => parse_style_perspective_origin(value)?.into(),
+            BackfaceVisibility          => parse_style_backface_visibility(value)?.into(),
         }
     })
 }
@@ -446,6 +453,10 @@ pub enum CssParsingError<'a> {
     FlexShrinkParseError(FlexShrinkParseError<'a>),
     FlexGrowParseError(FlexGrowParseError<'a>),
     BackgroundPositionParseError(CssBackgroundPositionParseError<'a>),
+    TransformParseError(CssStyleTransformParseError<'a>),
+    TransformOriginParseError(CssStyleTransformOriginParseError<'a>),
+    PerspectiveOriginParseError(CssStylePerspectiveOriginParseError<'a>),
+    Opacity(OpacityParseError<'a>),
 }
 
 impl_debug_as_display!(CssParsingError<'a>);
@@ -465,6 +476,10 @@ impl_display!{ CssParsingError<'a>, {
     FlexShrinkParseError(e) => format!("{}", e),
     FlexGrowParseError(e) => format!("{}", e),
     BackgroundPositionParseError(e) => format!("{}", e),
+    TransformParseError(e) => format!("{}", e),
+    TransformOriginParseError(e) => format!("{}", e),
+    PerspectiveOriginParseError(e) => format!("{}", e),
+    Opacity(e) => format!("{}", e),
 }}
 
 impl_from!(CssBorderParseError<'a>, CssParsingError::CssBorderParseError);
@@ -481,6 +496,10 @@ impl_from!(LayoutMarginParseError<'a>, CssParsingError::MarginParseError);
 impl_from!(FlexShrinkParseError<'a>, CssParsingError::FlexShrinkParseError);
 impl_from!(FlexGrowParseError<'a>, CssParsingError::FlexGrowParseError);
 impl_from!(CssBackgroundPositionParseError<'a>, CssParsingError::BackgroundPositionParseError);
+impl_from!(CssStyleTransformParseError<'a>, CssParsingError::TransformParseError);
+impl_from!(CssStyleTransformOriginParseError<'a>, CssParsingError::TransformOriginParseError);
+impl_from!(CssStylePerspectiveOriginParseError<'a>, CssParsingError::PerspectiveOriginParseError);
+impl_from!(OpacityParseError<'a>, CssParsingError::Opacity);
 
 impl<'a> From<PercentageParseError> for CssParsingError<'a> {
     fn from(e: PercentageParseError) -> Self {
@@ -1637,6 +1656,7 @@ impl_from!(CssColorParseError<'a>, CssBackgroundParseError::ColorParseError);
 pub fn parse_style_background_content<'a>(input: &'a str)
 -> Result<StyleBackgroundContent, CssBackgroundParseError<'a>>
 {
+    // TODO: multiple backgrounds
     match parse_parentheses(input, &[
         "linear-gradient", "repeating-linear-gradient",
         "radial-gradient", "repeating-radial-gradient",
@@ -1658,6 +1678,278 @@ pub fn parse_style_background_content<'a>(input: &'a str)
             Ok(StyleBackgroundContent::Color(parse_css_color(input)?))
         }
     }
+}
+
+#[derive(Clone, PartialEq)]
+pub enum CssStyleTransformParseError<'a> {
+    InvalidTransform(&'a str),
+    InvalidParenthesis(ParenthesisParseError<'a>),
+    WrongNumberOfComponents { expected: usize, got: usize, input: &'a str },
+    PixelValueParseError(PixelParseError<'a>),
+    PercentageValueParseError(PercentageParseError),
+}
+
+impl_debug_as_display!(CssStyleTransformParseError<'a>);
+impl_display!{ CssStyleTransformParseError<'a>, {
+    InvalidTransform(e) => format!("Invalid transform property: \"{}\"", e),
+    InvalidParenthesis(e) => format!("Invalid transform property - parenthesis error: {}", e),
+    WrongNumberOfComponents { expected, got, input } => format!("Invalid number of components on transform property: expected {} components, got {}: \"{}\"", expected, got, input),
+    PixelValueParseError(e) => format!("Invalid transform property: {}", e),
+    PercentageValueParseError(e) => format!("Invalid transform property - error parsing percentage: {}", e),
+}}
+
+impl_from!(ParenthesisParseError<'a>, CssStyleTransformParseError::InvalidParenthesis);
+impl_from!(PixelParseError<'a>, CssStyleTransformParseError::PixelValueParseError);
+
+impl<'a> From<PercentageParseError> for CssStyleTransformParseError<'a> {
+    fn from(p: PercentageParseError) -> CssStyleTransformParseError<'a> {
+        CssStyleTransformParseError::PercentageValueParseError(p)
+    }
+}
+
+// parses a background, such as "linear-gradient(red, green)"
+pub fn parse_style_transform_vec<'a>(input: &'a str)
+-> Result<StyleTransformVec, CssStyleTransformParseError<'a>>
+{
+    // Splitting the input by "," doesn't work since rgba() might contain commas
+    let mut comma_separated_items = Vec::<&str>::new();
+    let mut current_input = &input[..];
+
+    'outer: loop {
+        let (skip_next_braces_result, character_was_found) =
+        match skip_next_braces(&current_input, ',') {
+            Some(s) => s,
+            None => break 'outer,
+        };
+        let new_push_item = if character_was_found {
+            &current_input[..skip_next_braces_result]
+        } else {
+            &current_input[..]
+        };
+        let new_current_input = &current_input[(skip_next_braces_result + 1)..];
+        comma_separated_items.push(new_push_item);
+        current_input = new_current_input;
+        if !character_was_found {
+            break 'outer;
+        }
+    }
+
+    let vec = comma_separated_items.iter().map(|i| parse_style_transform(i)).collect::<Result<Vec<_>, _>>()?;
+
+    Ok(vec.into())
+}
+
+pub fn parse_style_transform<'a>(input: &'a str)
+-> Result<StyleTransform, CssStyleTransformParseError<'a>>
+{
+    use azul_css::{
+        StyleTransformMatrix2D, StyleTransformMatrix3D,
+        StyleTransformTranslate2D, StyleTransformTranslate3D, StyleTransformRotate3D,
+        StyleTransformScale2D, StyleTransformScale3D, StyleTransformSkew2D
+    };
+
+    let (transform_type, transform_values) = parse_parentheses(input, &[
+        "matrix",
+        "matrix3d",
+        "translate",
+        "translate3d",
+        "translateX",
+        "translateY",
+        "translateZ",
+        "rotate",
+        "rotate3d",
+        "rotateX",
+        "rotateY",
+        "rotateZ",
+        "scale",
+        "scale3d",
+        "scaleX",
+        "scaleY",
+        "scaleZ",
+        "skew",
+        "skewX",
+        "skewY",
+        "perspective",
+    ])?;
+
+    fn parse_matrix<'a>(input: &'a str) -> Result<StyleTransformMatrix2D, CssStyleTransformParseError<'a>> {
+
+        let input = input.trim();
+        let mut iter = input.split(",");
+
+        let a =  parse_pixel_value(iter.next().ok_or(CssStyleTransformParseError::WrongNumberOfComponents { expected: 6, got: 0, input })?)?;
+        let b =  parse_pixel_value(iter.next().ok_or(CssStyleTransformParseError::WrongNumberOfComponents { expected: 6, got: 1, input })?)?;
+        let c =  parse_pixel_value(iter.next().ok_or(CssStyleTransformParseError::WrongNumberOfComponents { expected: 6, got: 2, input })?)?;
+        let d =  parse_pixel_value(iter.next().ok_or(CssStyleTransformParseError::WrongNumberOfComponents { expected: 6, got: 3, input })?)?;
+        let tx = parse_pixel_value(iter.next().ok_or(CssStyleTransformParseError::WrongNumberOfComponents { expected: 6, got: 4, input })?)?;
+        let ty = parse_pixel_value(iter.next().ok_or(CssStyleTransformParseError::WrongNumberOfComponents { expected: 6, got: 5, input })?)?;
+
+        Ok(StyleTransformMatrix2D { a, b, c, d, tx, ty })
+    }
+
+    fn parse_matrix_3d<'a>(input: &'a str) -> Result<StyleTransformMatrix3D, CssStyleTransformParseError<'a>> {
+        let input = input.trim();
+        let mut iter = input.split(",");
+
+        // I realize I could use a loop here, but that makes passing the variables to the StyleTransformMatrix3D simpler
+        let m11 = parse_pixel_value(iter.next().ok_or(CssStyleTransformParseError::WrongNumberOfComponents { expected: 16, got: 0, input })?)?;
+        let m12 = parse_pixel_value(iter.next().ok_or(CssStyleTransformParseError::WrongNumberOfComponents { expected: 16, got: 1, input })?)?;
+        let m13 = parse_pixel_value(iter.next().ok_or(CssStyleTransformParseError::WrongNumberOfComponents { expected: 16, got: 2, input })?)?;
+        let m14 = parse_pixel_value(iter.next().ok_or(CssStyleTransformParseError::WrongNumberOfComponents { expected: 16, got: 3, input })?)?;
+        let m21 = parse_pixel_value(iter.next().ok_or(CssStyleTransformParseError::WrongNumberOfComponents { expected: 16, got: 4, input })?)?;
+        let m22 = parse_pixel_value(iter.next().ok_or(CssStyleTransformParseError::WrongNumberOfComponents { expected: 16, got: 5, input })?)?;
+        let m23 = parse_pixel_value(iter.next().ok_or(CssStyleTransformParseError::WrongNumberOfComponents { expected: 16, got: 6, input })?)?;
+        let m24 = parse_pixel_value(iter.next().ok_or(CssStyleTransformParseError::WrongNumberOfComponents { expected: 16, got: 7, input })?)?;
+        let m31 = parse_pixel_value(iter.next().ok_or(CssStyleTransformParseError::WrongNumberOfComponents { expected: 16, got: 8, input })?)?;
+        let m32 = parse_pixel_value(iter.next().ok_or(CssStyleTransformParseError::WrongNumberOfComponents { expected: 16, got: 9, input })?)?;
+        let m33 = parse_pixel_value(iter.next().ok_or(CssStyleTransformParseError::WrongNumberOfComponents { expected: 16, got: 10, input })?)?;
+        let m34 = parse_pixel_value(iter.next().ok_or(CssStyleTransformParseError::WrongNumberOfComponents { expected: 16, got: 11, input })?)?;
+        let m41 = parse_pixel_value(iter.next().ok_or(CssStyleTransformParseError::WrongNumberOfComponents { expected: 16, got: 12, input })?)?;
+        let m42 = parse_pixel_value(iter.next().ok_or(CssStyleTransformParseError::WrongNumberOfComponents { expected: 16, got: 13, input })?)?;
+        let m43 = parse_pixel_value(iter.next().ok_or(CssStyleTransformParseError::WrongNumberOfComponents { expected: 16, got: 14, input })?)?;
+        let m44 = parse_pixel_value(iter.next().ok_or(CssStyleTransformParseError::WrongNumberOfComponents { expected: 16, got: 15, input })?)?;
+
+        Ok(StyleTransformMatrix3D { m11, m12, m13, m14, m21, m22, m23, m24, m31, m32, m33, m34, m41, m42, m43, m44 })
+    }
+
+    fn parse_translate<'a>(input: &'a str) -> Result<StyleTransformTranslate2D, CssStyleTransformParseError<'a>> {
+        let input = input.trim();
+        let mut iter = input.split(",");
+
+        let x = parse_pixel_value(iter.next().ok_or(CssStyleTransformParseError::WrongNumberOfComponents { expected: 2, got: 0, input })?)?;
+        let y = parse_pixel_value(iter.next().ok_or(CssStyleTransformParseError::WrongNumberOfComponents { expected: 2, got: 1, input })?)?;
+
+        Ok(StyleTransformTranslate2D { x, y })
+    }
+
+    fn parse_translate_3d<'a>(input: &'a str) -> Result<StyleTransformTranslate3D, CssStyleTransformParseError<'a>> {
+        let input = input.trim();
+        let mut iter = input.split(",");
+
+        let x = parse_pixel_value(iter.next().ok_or(CssStyleTransformParseError::WrongNumberOfComponents { expected: 3, got: 0, input })?)?;
+        let y = parse_pixel_value(iter.next().ok_or(CssStyleTransformParseError::WrongNumberOfComponents { expected: 3, got: 1, input })?)?;
+        let z = parse_pixel_value(iter.next().ok_or(CssStyleTransformParseError::WrongNumberOfComponents { expected: 3, got: 2, input })?)?;
+
+        Ok(StyleTransformTranslate3D { x, y, z })
+    }
+
+    fn parse_rotate_3d<'a>(input: &'a str) -> Result<StyleTransformRotate3D, CssStyleTransformParseError<'a>> {
+        let input = input.trim();
+        let mut iter = input.split(",");
+
+        let x     = parse_percentage_value(iter.next().ok_or(CssStyleTransformParseError::WrongNumberOfComponents { expected: 4, got: 0, input })?)?;
+        let y     = parse_percentage_value(iter.next().ok_or(CssStyleTransformParseError::WrongNumberOfComponents { expected: 4, got: 1, input })?)?;
+        let z     = parse_percentage_value(iter.next().ok_or(CssStyleTransformParseError::WrongNumberOfComponents { expected: 4, got: 2, input })?)?;
+        let angle = parse_percentage_value(iter.next().ok_or(CssStyleTransformParseError::WrongNumberOfComponents { expected: 4, got: 3, input })?)?;
+
+        Ok(StyleTransformRotate3D { x, y, z, angle })
+    }
+
+    fn parse_scale<'a>(input: &'a str) -> Result<StyleTransformScale2D, CssStyleTransformParseError<'a>> {
+        let input = input.trim();
+        let mut iter = input.split(",");
+
+        let x = parse_percentage_value(iter.next().ok_or(CssStyleTransformParseError::WrongNumberOfComponents { expected: 2, got: 0, input })?)?;
+        let y = parse_percentage_value(iter.next().ok_or(CssStyleTransformParseError::WrongNumberOfComponents { expected: 2, got: 1, input })?)?;
+
+        Ok(StyleTransformScale2D { x, y })
+    }
+
+    fn parse_scale_3d<'a>(input: &'a str) -> Result<StyleTransformScale3D, CssStyleTransformParseError<'a>> {
+        let input = input.trim();
+        let mut iter = input.split(",");
+
+        let x = parse_percentage_value(iter.next().ok_or(CssStyleTransformParseError::WrongNumberOfComponents { expected: 2, got: 0, input })?)?;
+        let y = parse_percentage_value(iter.next().ok_or(CssStyleTransformParseError::WrongNumberOfComponents { expected: 2, got: 1, input })?)?;
+        let z = parse_percentage_value(iter.next().ok_or(CssStyleTransformParseError::WrongNumberOfComponents { expected: 2, got: 1, input })?)?;
+
+        Ok(StyleTransformScale3D { x, y, z })
+    }
+
+    fn parse_skew<'a>(input: &'a str) -> Result<StyleTransformSkew2D, CssStyleTransformParseError<'a>> {
+        let input = input.trim();
+        let mut iter = input.split(",");
+
+        let x = parse_percentage_value(iter.next().ok_or(CssStyleTransformParseError::WrongNumberOfComponents { expected: 2, got: 0, input })?)?;
+        let y = parse_percentage_value(iter.next().ok_or(CssStyleTransformParseError::WrongNumberOfComponents { expected: 2, got: 1, input })?)?;
+
+        Ok(StyleTransformSkew2D { x, y })
+    }
+
+    match transform_type {
+        "matrix" => Ok(StyleTransform::Matrix(parse_matrix(input)?)),
+        "matrix3d" => Ok(StyleTransform::Matrix3D(parse_matrix_3d(input)?)),
+        "translate" => Ok(StyleTransform::Translate(parse_translate(input)?)),
+        "translate3d" => Ok(StyleTransform::Translate3D(parse_translate_3d(input)?)),
+        "translateX" => Ok(StyleTransform::TranslateX(parse_pixel_value(input)?)),
+        "translateY" => Ok(StyleTransform::TranslateY(parse_pixel_value(input)?)),
+        "translateZ" => Ok(StyleTransform::TranslateZ(parse_pixel_value(input)?)),
+        "rotate" => Ok(StyleTransform::Rotate(parse_percentage_value(input)?)),
+        "rotate3d" => Ok(StyleTransform::Rotate3D(parse_rotate_3d(input)?)),
+        "rotateX" => Ok(StyleTransform::RotateX(parse_percentage_value(input)?)),
+        "rotateY" => Ok(StyleTransform::RotateY(parse_percentage_value(input)?)),
+        "rotateZ" => Ok(StyleTransform::RotateZ(parse_percentage_value(input)?)),
+        "scale" => Ok(StyleTransform::Scale(parse_scale(input)?)),
+        "scale3d" => Ok(StyleTransform::Scale3D(parse_scale_3d(input)?)),
+        "scaleX" => Ok(StyleTransform::ScaleX(parse_percentage_value(input)?)),
+        "scaleY" => Ok(StyleTransform::ScaleY(parse_percentage_value(input)?)),
+        "scaleZ" => Ok(StyleTransform::ScaleZ(parse_percentage_value(input)?)),
+        "skew" => Ok(StyleTransform::Skew(parse_skew(input)?)),
+        "skewX" => Ok(StyleTransform::SkewX(parse_percentage_value(input)?)),
+        "skewY" => Ok(StyleTransform::SkewY(parse_percentage_value(input)?)),
+        "perspective" => Ok(StyleTransform::Perspective(parse_pixel_value(input)?)),
+        _ => unreachable!(),
+    }
+}
+
+#[derive(Clone, PartialEq)]
+pub enum CssStyleTransformOriginParseError<'a> {
+    WrongNumberOfComponents { expected: usize, got: usize, input: &'a str },
+    PixelValueParseError(PixelParseError<'a>),
+}
+
+impl_debug_as_display!(CssStyleTransformOriginParseError<'a>);
+impl_display!{ CssStyleTransformOriginParseError<'a>, {
+    WrongNumberOfComponents { expected, got, input } => format!("Invalid number of components on transform property: expected {} components, got {}: \"{}\"", expected, got, input),
+    PixelValueParseError(e) => format!("Invalid transform property: {}", e),
+}}
+impl_from!(PixelParseError<'a>, CssStyleTransformOriginParseError::PixelValueParseError);
+
+pub fn parse_style_transform_origin<'a>(input: &'a str)
+-> Result<StyleTransformOrigin, CssStyleTransformOriginParseError<'a>>
+{
+    let input = input.trim();
+    let mut iter = input.split(",");
+
+    let x =  parse_pixel_value(iter.next().ok_or(CssStyleTransformOriginParseError::WrongNumberOfComponents { expected: 6, got: 0, input })?)?;
+    let y =  parse_pixel_value(iter.next().ok_or(CssStyleTransformOriginParseError::WrongNumberOfComponents { expected: 6, got: 1, input })?)?;
+
+    Ok(StyleTransformOrigin { x, y })
+}
+
+#[derive(Clone, PartialEq)]
+pub enum CssStylePerspectiveOriginParseError<'a> {
+    WrongNumberOfComponents { expected: usize, got: usize, input: &'a str },
+    PixelValueParseError(PixelParseError<'a>),
+}
+
+impl_debug_as_display!(CssStylePerspectiveOriginParseError<'a>);
+impl_display!{ CssStylePerspectiveOriginParseError<'a>, {
+    WrongNumberOfComponents { expected, got, input } => format!("Invalid number of components on transform property: expected {} components, got {}: \"{}\"", expected, got, input),
+    PixelValueParseError(e) => format!("Invalid transform property: {}", e),
+}}
+impl_from!(PixelParseError<'a>, CssStylePerspectiveOriginParseError::PixelValueParseError);
+
+pub fn parse_style_perspective_origin<'a>(input: &'a str)
+-> Result<StylePerspectiveOrigin, CssStylePerspectiveOriginParseError<'a>>
+{
+    let input = input.trim();
+    let mut iter = input.split(",");
+
+    let x =  parse_pixel_value(iter.next().ok_or(CssStylePerspectiveOriginParseError::WrongNumberOfComponents { expected: 6, got: 0, input })?)?;
+    let y =  parse_pixel_value(iter.next().ok_or(CssStylePerspectiveOriginParseError::WrongNumberOfComponents { expected: 6, got: 1, input })?)?;
+
+    Ok(StylePerspectiveOrigin { x, y })
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -2262,6 +2554,23 @@ pub fn parse_style_line_height(input: &str)
 
 typed_pixel_value_parser!(parse_style_font_size, StyleFontSize);
 
+#[derive(Debug, Clone, PartialEq)]
+pub enum OpacityParseError<'a> {
+    ParseFloat(ParseFloatError, &'a str),
+}
+
+impl_display!{OpacityParseError<'a>, {
+    ParseFloat(e, orig_str) => format!("opacity: Could not parse floating-point value: \"{}\" - Error: \"{}\"", orig_str, e),
+}}
+
+pub fn parse_style_opacity<'a>(input: &'a str)
+-> Result<StyleOpacity, OpacityParseError<'a>>
+{
+    parse_float_value(input)
+    .map_err(|e| OpacityParseError::ParseFloat(e, input))
+    .and_then(|e| Ok(StyleOpacity { inner: e }))
+}
+
 #[derive(Debug, PartialEq, Copy, Clone)]
 pub enum CssStyleFontFamilyParseError<'a> {
     InvalidStyleFontFamily(&'a str),
@@ -2417,6 +2726,10 @@ multi_type_parser!(parse_style_cursor, StyleCursor,
                     ["wait", Wait],
                     ["zoom-in", ZoomIn],
                     ["zoom-out", ZoomOut]);
+
+multi_type_parser!(parse_style_backface_visibility, StyleBackfaceVisibility,
+                    ["hidden", Hidden],
+                    ["visible", Visible]);
 
 multi_type_parser!(parse_style_background_size, StyleBackgroundSize,
                     ["contain", Contain],

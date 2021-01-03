@@ -7,11 +7,11 @@ use std::{
     path::PathBuf,
     ffi::c_void,
 };
-use azul_css::{U8Vec, ColorU, AzString, LayoutPoint, LayoutRect, CssPath};
+use azul_css::{CssProperty, U8Vec, ColorU, AzString, LayoutPoint, LayoutRect, CssPath};
 use crate::{
     FastHashMap,
     app_resources::{AppResources, Epoch, FontImageApi},
-    styled_dom::{DomId, AzNodeId, ChangedCssPropertyVec},
+    styled_dom::{DomId, AzNodeId},
     id_tree::NodeId,
     callbacks::{PipelineId, RefAny, DocumentId, DomNodeId, ScrollPosition, UpdateScreen},
     ui_solver::{OverflowingScrollNode, HitTest, LayoutResult, ExternalScrollId},
@@ -1104,9 +1104,7 @@ pub struct CallCallbacksResult {
     pub modified_window_state: WindowState,
     /// If the focus target changes in the callbacks, the function will automatically
     /// restyle the DOM and set the new focus target
-    pub focus_properties_changed: BTreeMap<DomId, ChangedCssPropertyVec>,
-    /// If the focus node was updated, did it affect any nodes?
-    pub focus_nodes_changed_layout: BTreeMap<DomId, Vec<NodeId>>,
+    pub css_properties_changed: BTreeMap<DomId, BTreeMap<NodeId, Vec<CssProperty>>>,
     /// Whether the focused node was changed from the callbacks
     pub update_focused_node: Option<Option<DomNodeId>>,
     /// Timers that were added in the callbacks
@@ -1120,9 +1118,6 @@ pub struct CallCallbacksResult {
 }
 
 impl CallCallbacksResult {
-    pub fn focus_properties_changed(&self) -> bool {
-        !self.focus_properties_changed.is_empty()
-    }
     pub fn cursor_changed(&self) -> bool {
         self.cursor_changed
     }

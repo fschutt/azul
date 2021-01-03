@@ -114,6 +114,20 @@ impl StyledNode {
         !self.focus_css_constraints.is_empty()
     }
 
+    /// Adjusts the property only in the `node.style` or `node.layout`, compares the property against
+    /// the current value and returns if the css property has changed.
+    pub fn restyle_single_property(&mut self, prop: &CssProperty) -> Option<ChangedCssProperty> {
+        apply_style_property(&mut self.style, &mut self.layout, prop)
+        .map(|prev_prop| {
+            ChangedCssProperty {
+                previous_state: self.state.clone(),
+                previous_prop: prev_prop,
+                current_state: self.state.clone(),
+                current_prop: prop.clone(),
+            }
+        })
+    }
+
     pub fn restyle_normal(&mut self) -> ChangedCssPropertyVec {
 
         let mut changed_css_props = Vec::new();

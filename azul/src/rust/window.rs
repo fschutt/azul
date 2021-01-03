@@ -5,6 +5,86 @@
     use crate::callbacks::LayoutCallbackType;
 
 
+    /// `LayoutPoint` struct
+    pub use crate::dll::AzLayoutPoint as LayoutPoint;
+
+    impl std::fmt::Debug for LayoutPoint { fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result { write!(f, "{}", (crate::dll::get_azul_dll().az_layout_point_fmt_debug)(self)) } }
+    impl Clone for LayoutPoint { fn clone(&self) -> Self { (crate::dll::get_azul_dll().az_layout_point_deep_copy)(self) } }
+    impl Drop for LayoutPoint { fn drop(&mut self) { (crate::dll::get_azul_dll().az_layout_point_delete)(self); } }
+
+
+    /// `RawWindowHandle` struct
+    pub use crate::dll::AzRawWindowHandle as RawWindowHandle;
+
+    impl std::fmt::Debug for RawWindowHandle { fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result { write!(f, "{}", (crate::dll::get_azul_dll().az_raw_window_handle_fmt_debug)(self)) } }
+    impl Clone for RawWindowHandle { fn clone(&self) -> Self { (crate::dll::get_azul_dll().az_raw_window_handle_deep_copy)(self) } }
+    impl Drop for RawWindowHandle { fn drop(&mut self) { (crate::dll::get_azul_dll().az_raw_window_handle_delete)(self); } }
+
+
+    /// `IOSHandle` struct
+    pub use crate::dll::AzIOSHandle as IOSHandle;
+
+    impl std::fmt::Debug for IOSHandle { fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result { write!(f, "{}", (crate::dll::get_azul_dll().az_ios_handle_fmt_debug)(self)) } }
+    impl Clone for IOSHandle { fn clone(&self) -> Self { (crate::dll::get_azul_dll().az_ios_handle_deep_copy)(self) } }
+    impl Drop for IOSHandle { fn drop(&mut self) { (crate::dll::get_azul_dll().az_ios_handle_delete)(self); } }
+
+
+    /// `MacOSHandle` struct
+    pub use crate::dll::AzMacOSHandle as MacOSHandle;
+
+    impl std::fmt::Debug for MacOSHandle { fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result { write!(f, "{}", (crate::dll::get_azul_dll().az_mac_os_handle_fmt_debug)(self)) } }
+    impl Clone for MacOSHandle { fn clone(&self) -> Self { (crate::dll::get_azul_dll().az_mac_os_handle_deep_copy)(self) } }
+    impl Drop for MacOSHandle { fn drop(&mut self) { (crate::dll::get_azul_dll().az_mac_os_handle_delete)(self); } }
+
+
+    /// `XlibHandle` struct
+    pub use crate::dll::AzXlibHandle as XlibHandle;
+
+    impl std::fmt::Debug for XlibHandle { fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result { write!(f, "{}", (crate::dll::get_azul_dll().az_xlib_handle_fmt_debug)(self)) } }
+    impl Clone for XlibHandle { fn clone(&self) -> Self { (crate::dll::get_azul_dll().az_xlib_handle_deep_copy)(self) } }
+    impl Drop for XlibHandle { fn drop(&mut self) { (crate::dll::get_azul_dll().az_xlib_handle_delete)(self); } }
+
+
+    /// `XcbHandle` struct
+    pub use crate::dll::AzXcbHandle as XcbHandle;
+
+    impl std::fmt::Debug for XcbHandle { fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result { write!(f, "{}", (crate::dll::get_azul_dll().az_xcb_handle_fmt_debug)(self)) } }
+    impl Clone for XcbHandle { fn clone(&self) -> Self { (crate::dll::get_azul_dll().az_xcb_handle_deep_copy)(self) } }
+    impl Drop for XcbHandle { fn drop(&mut self) { (crate::dll::get_azul_dll().az_xcb_handle_delete)(self); } }
+
+
+    /// `WaylandHandle` struct
+    pub use crate::dll::AzWaylandHandle as WaylandHandle;
+
+    impl std::fmt::Debug for WaylandHandle { fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result { write!(f, "{}", (crate::dll::get_azul_dll().az_wayland_handle_fmt_debug)(self)) } }
+    impl Clone for WaylandHandle { fn clone(&self) -> Self { (crate::dll::get_azul_dll().az_wayland_handle_deep_copy)(self) } }
+    impl Drop for WaylandHandle { fn drop(&mut self) { (crate::dll::get_azul_dll().az_wayland_handle_delete)(self); } }
+
+
+    /// `WindowsHandle` struct
+    pub use crate::dll::AzWindowsHandle as WindowsHandle;
+
+    impl std::fmt::Debug for WindowsHandle { fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result { write!(f, "{}", (crate::dll::get_azul_dll().az_windows_handle_fmt_debug)(self)) } }
+    impl Clone for WindowsHandle { fn clone(&self) -> Self { (crate::dll::get_azul_dll().az_windows_handle_deep_copy)(self) } }
+    impl Drop for WindowsHandle { fn drop(&mut self) { (crate::dll::get_azul_dll().az_windows_handle_delete)(self); } }
+
+
+    /// `WebHandle` struct
+    pub use crate::dll::AzWebHandle as WebHandle;
+
+    impl std::fmt::Debug for WebHandle { fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result { write!(f, "{}", (crate::dll::get_azul_dll().az_web_handle_fmt_debug)(self)) } }
+    impl Clone for WebHandle { fn clone(&self) -> Self { (crate::dll::get_azul_dll().az_web_handle_deep_copy)(self) } }
+    impl Drop for WebHandle { fn drop(&mut self) { (crate::dll::get_azul_dll().az_web_handle_delete)(self); } }
+
+
+    /// `AndroidHandle` struct
+    pub use crate::dll::AzAndroidHandle as AndroidHandle;
+
+    impl std::fmt::Debug for AndroidHandle { fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result { write!(f, "{}", (crate::dll::get_azul_dll().az_android_handle_fmt_debug)(self)) } }
+    impl Clone for AndroidHandle { fn clone(&self) -> Self { (crate::dll::get_azul_dll().az_android_handle_deep_copy)(self) } }
+    impl Drop for AndroidHandle { fn drop(&mut self) { (crate::dll::get_azul_dll().az_android_handle_delete)(self); } }
+
+
     /// `TaskBarIcon` struct
     pub use crate::dll::AzTaskBarIcon as TaskBarIcon;
 
@@ -227,6 +307,38 @@
     impl std::fmt::Debug for FullScreenMode { fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result { write!(f, "{}", (crate::dll::get_azul_dll().az_full_screen_mode_fmt_debug)(self)) } }
     impl Clone for FullScreenMode { fn clone(&self) -> Self { (crate::dll::get_azul_dll().az_full_screen_mode_deep_copy)(self) } }
     impl Drop for FullScreenMode { fn drop(&mut self) { (crate::dll::get_azul_dll().az_full_screen_mode_delete)(self); } }
+
+
+    /// `WindowTheme` struct
+    pub use crate::dll::AzWindowTheme as WindowTheme;
+
+    impl std::fmt::Debug for WindowTheme { fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result { write!(f, "{}", (crate::dll::get_azul_dll().az_window_theme_fmt_debug)(self)) } }
+    impl Clone for WindowTheme { fn clone(&self) -> Self { (crate::dll::get_azul_dll().az_window_theme_deep_copy)(self) } }
+    impl Drop for WindowTheme { fn drop(&mut self) { (crate::dll::get_azul_dll().az_window_theme_delete)(self); } }
+
+
+    /// `WindowPosition` struct
+    pub use crate::dll::AzWindowPosition as WindowPosition;
+
+    impl std::fmt::Debug for WindowPosition { fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result { write!(f, "{}", (crate::dll::get_azul_dll().az_window_position_fmt_debug)(self)) } }
+    impl Clone for WindowPosition { fn clone(&self) -> Self { (crate::dll::get_azul_dll().az_window_position_deep_copy)(self) } }
+    impl Drop for WindowPosition { fn drop(&mut self) { (crate::dll::get_azul_dll().az_window_position_delete)(self); } }
+
+
+    /// `ImePosition` struct
+    pub use crate::dll::AzImePosition as ImePosition;
+
+    impl std::fmt::Debug for ImePosition { fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result { write!(f, "{}", (crate::dll::get_azul_dll().az_ime_position_fmt_debug)(self)) } }
+    impl Clone for ImePosition { fn clone(&self) -> Self { (crate::dll::get_azul_dll().az_ime_position_deep_copy)(self) } }
+    impl Drop for ImePosition { fn drop(&mut self) { (crate::dll::get_azul_dll().az_ime_position_delete)(self); } }
+
+
+    /// `TouchState` struct
+    pub use crate::dll::AzTouchState as TouchState;
+
+    impl std::fmt::Debug for TouchState { fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result { write!(f, "{}", (crate::dll::get_azul_dll().az_touch_state_fmt_debug)(self)) } }
+    impl Clone for TouchState { fn clone(&self) -> Self { (crate::dll::get_azul_dll().az_touch_state_deep_copy)(self) } }
+    impl Drop for TouchState { fn drop(&mut self) { (crate::dll::get_azul_dll().az_touch_state_delete)(self); } }
 
 
     /// `WindowState` struct

@@ -27,7 +27,7 @@ const COMBINED_CSS_PROPERTIES_KEY_MAP: [(CombinedCssPropertyType, &'static str);
 ];
 
 /// Map between CSS keys and a statically typed enum
-const CSS_PROPERTY_KEY_MAP: [(CssPropertyType, &'static str);66] = [
+const CSS_PROPERTY_KEY_MAP: [(CssPropertyType, &'static str);71] = [
 
     (CssPropertyType::Display,              "display"),
     (CssPropertyType::Float,                "float"),
@@ -109,6 +109,12 @@ const CSS_PROPERTY_KEY_MAP: [(CssPropertyType, &'static str);66] = [
     (CssPropertyType::BoxShadowRight, "box-shadow-right"),
     (CssPropertyType::BoxShadowLeft, "box-shadow-left"),
     (CssPropertyType::BoxShadowBottom, "box-shadow-bottom"),
+
+    (CssPropertyType::Opacity, "opacity"),
+    (CssPropertyType::Transform, "transform"),
+    (CssPropertyType::PerspectiveOrigin, "perspective-origin"),
+    (CssPropertyType::TransformOrigin, "transform-origin"),
+    (CssPropertyType::BackfaceVisibility, "backface-visibility"),
 ];
 
 // The following types are present in webrender, however, azul-css should not
@@ -738,6 +744,14 @@ pub enum CssPropertyType {
     BoxShadowRight,
     BoxShadowTop,
     BoxShadowBottom,
+
+    // GPU properties:
+    Opacity,
+    Transform,
+    PerspectiveOrigin,
+    TransformOrigin,
+    BackfaceVisibility,
+    // Color? - update webrender to use GPU colors
 }
 
 impl CssPropertyType {
@@ -813,6 +827,15 @@ impl CssPropertyType {
             | BoxShadowBottom
             => false,
             _ => true,
+        }
+    }
+
+    /// Returns whether the property is a GPU property (currently only opacity and transforms)
+    pub fn is_gpu_only_property(&self) -> bool {
+        match self {
+            CssPropertyType::Opacity |
+            CssPropertyType::Transform /* | CssPropertyType::Color */ => true,
+            _ => false
         }
     }
 }
@@ -907,6 +930,12 @@ pub enum CssProperty {
     BoxShadowRight(CssPropertyValue<BoxShadowPreDisplayItem>),
     BoxShadowTop(CssPropertyValue<BoxShadowPreDisplayItem>),
     BoxShadowBottom(CssPropertyValue<BoxShadowPreDisplayItem>),
+
+    Opacity(CssPropertyValue<StyleOpacity>),
+    Transform(CssPropertyValue<StyleTransformVec>),
+    TransformOrigin(CssPropertyValue<StyleTransformOrigin>),
+    PerspectiveOrigin(CssPropertyValue<StylePerspectiveOrigin>),
+    BackfaceVisibility(CssPropertyValue<StyleBackfaceVisibility>),
 }
 
 impl_vec!(CssProperty, CssPropertyVec);
@@ -986,6 +1015,11 @@ macro_rules! css_property_from_type {($prop_type:expr, $content_type:ident) => (
         CssPropertyType::BoxShadowRight => CssProperty::BoxShadowRight(CssPropertyValue::$content_type),
         CssPropertyType::BoxShadowTop => CssProperty::BoxShadowTop(CssPropertyValue::$content_type),
         CssPropertyType::BoxShadowBottom => CssProperty::BoxShadowBottom(CssPropertyValue::$content_type),
+        CssPropertyType::Opacity => CssProperty::Opacity(CssPropertyValue::$content_type),
+        CssPropertyType::Transform => CssProperty::Transform(CssPropertyValue::$content_type),
+        CssPropertyType::PerspectiveOrigin => CssProperty::PerspectiveOrigin(CssPropertyValue::$content_type),
+        CssPropertyType::TransformOrigin => CssProperty::TransformOrigin(CssPropertyValue::$content_type),
+        CssPropertyType::BackfaceVisibility => CssProperty::BackfaceVisibility(CssPropertyValue::$content_type),
     }
 })}
 
@@ -1060,6 +1094,11 @@ impl CssProperty {
             CssProperty::BoxShadowRight(_) => CssPropertyType::BoxShadowRight,
             CssProperty::BoxShadowTop(_) => CssPropertyType::BoxShadowTop,
             CssProperty::BoxShadowBottom(_) => CssPropertyType::BoxShadowBottom,
+            CssProperty::Opacity(_) => CssPropertyType::Opacity,
+            CssProperty::Transform(_) => CssPropertyType::Transform,
+            CssProperty::PerspectiveOrigin(_) => CssPropertyType::PerspectiveOrigin,
+            CssProperty::TransformOrigin(_) => CssPropertyType::TransformOrigin,
+            CssProperty::BackfaceVisibility(_) => CssPropertyType::BackfaceVisibility,
         }
     }
 
@@ -1272,6 +1311,20 @@ impl CssProperty {
     /// Creates a `box_shadow_bottom` CSS attribute
     pub const fn box_shadow_bottom(input: BoxShadowPreDisplayItem) -> Self { CssProperty::BoxShadowBottom(CssPropertyValue::Exact(input)) }
 
+    /// Creates a `opacity` CSS attribute
+    pub const fn opacity(input: StyleOpacity) -> Self { CssProperty::Opacity(CssPropertyValue::Exact(input)) }
+
+    /// Creates a `transform` CSS attribute
+    pub const fn transform(input: StyleTransformVec) -> Self { CssProperty::Transform(CssPropertyValue::Exact(input)) }
+
+    /// Creates a `transform-origin` CSS attribute
+    pub const fn transform_origin(input: StyleTransformOrigin) -> Self { CssProperty::TransformOrigin(CssPropertyValue::Exact(input)) }
+
+    /// Creates a `perspective-origin` CSS attribute
+    pub const fn perspective_origin(input: StylePerspectiveOrigin) -> Self { CssProperty::PerspectiveOrigin(CssPropertyValue::Exact(input)) }
+
+    /// Creates a `backface-visibility` CSS attribute
+    pub const fn backface_visiblity(input: StyleBackfaceVisibility) -> Self { CssProperty::BackfaceVisibility(CssPropertyValue::Exact(input)) }
 }
 
 macro_rules! impl_from_css_prop {
@@ -1342,6 +1395,11 @@ impl_from_css_prop!(StyleBorderTopWidth, CssProperty::BorderTopWidth);
 impl_from_css_prop!(StyleBorderRightWidth, CssProperty::BorderRightWidth);
 impl_from_css_prop!(StyleBorderLeftWidth, CssProperty::BorderLeftWidth);
 impl_from_css_prop!(StyleBorderBottomWidth, CssProperty::BorderBottomWidth);
+impl_from_css_prop!(StyleOpacity, CssProperty::Opacity);
+impl_from_css_prop!(StyleTransformVec, CssProperty::Transform);
+impl_from_css_prop!(StyleTransformOrigin, CssProperty::TransformOrigin);
+impl_from_css_prop!(StylePerspectiveOrigin, CssProperty::PerspectiveOrigin);
+impl_from_css_prop!(StyleBackfaceVisibility, CssProperty::BackfaceVisibility);
 
 /// Multiplier for floating point accuracy. Elements such as px or %
 /// are only accurate until a certain number of decimal points, therefore
@@ -2575,6 +2633,271 @@ impl Default for StyleTextAlignmentVert {
     }
 }
 
+/// Represents an `opacity` attribute
+#[derive(Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
+#[repr(C)]
+pub struct StyleOpacity { pub inner: FloatValue }
+
+impl Default for StyleOpacity {
+    fn default() -> Self {
+        StyleOpacity { inner: FloatValue::const_new(0) }
+    }
+}
+
+impl_float_value!(StyleOpacity);
+
+/// Represents a `perspective-origin` attribute
+#[derive(Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
+#[repr(C)]
+pub struct StylePerspectiveOrigin {
+    pub x: PixelValue,
+    pub y: PixelValue,
+}
+
+impl ::std::fmt::Display for StylePerspectiveOrigin {
+    fn fmt(&self, f: &mut ::std::fmt::Formatter) -> ::std::fmt::Result {
+        self.format_as_css_value(f)
+    }
+}
+
+impl ::std::fmt::Debug for StylePerspectiveOrigin {
+    fn fmt(&self, f: &mut ::std::fmt::Formatter) -> ::std::fmt::Result {
+        self.format_as_css_value(f)
+    }
+}
+
+impl FormatAsCssValue for StylePerspectiveOrigin {
+    fn format_as_css_value(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        write!(f, "{} {}", self.x, self.y)
+    }
+}
+
+impl Default for StylePerspectiveOrigin {
+    fn default() -> Self {
+        StylePerspectiveOrigin { x: PixelValue::const_px(0), y: PixelValue::const_px(0) }
+    }
+}
+
+/// Represents a `transform-origin` attribute
+#[derive(Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
+#[repr(C)]
+pub struct StyleTransformOrigin {
+    pub x: PixelValue,
+    pub y: PixelValue,
+}
+
+impl ::std::fmt::Display for StyleTransformOrigin {
+    fn fmt(&self, f: &mut ::std::fmt::Formatter) -> ::std::fmt::Result {
+        self.format_as_css_value(f)
+    }
+}
+
+impl ::std::fmt::Debug for StyleTransformOrigin {
+    fn fmt(&self, f: &mut ::std::fmt::Formatter) -> ::std::fmt::Result {
+        self.format_as_css_value(f)
+    }
+}
+
+impl FormatAsCssValue for StyleTransformOrigin {
+    fn format_as_css_value(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        write!(f, "{} {}", self.x, self.y)
+    }
+}
+
+impl Default for StyleTransformOrigin {
+    fn default() -> Self {
+        StyleTransformOrigin { x: PixelValue::const_px(0), y: PixelValue::const_px(0) }
+    }
+}
+
+/// Represents a `backface-visibility` attribute
+#[derive(Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
+#[repr(C)]
+pub enum StyleBackfaceVisibility {
+    Hidden,
+    Visible,
+}
+
+impl Default for StyleBackfaceVisibility {
+    fn default() -> Self { StyleBackfaceVisibility::Visible }
+}
+
+impl ::std::fmt::Display for StyleBackfaceVisibility {
+    fn fmt(&self, f: &mut ::std::fmt::Formatter) -> ::std::fmt::Result {
+        self.format_as_css_value(f)
+    }
+}
+
+impl ::std::fmt::Debug for StyleBackfaceVisibility {
+    fn fmt(&self, f: &mut ::std::fmt::Formatter) -> ::std::fmt::Result {
+        self.format_as_css_value(f)
+    }
+}
+
+impl FormatAsCssValue for StyleBackfaceVisibility {
+    fn format_as_css_value(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        match self {
+            StyleBackfaceVisibility::Hidden => write!(f, "hidden"),
+            StyleBackfaceVisibility::Visible => write!(f, "visible"),
+        }
+    }
+}
+
+/// Represents an `opacity` attribute
+#[derive(Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
+#[repr(C, u8)]
+pub enum StyleTransform {
+    Matrix(StyleTransformMatrix2D),
+    Matrix3D(StyleTransformMatrix3D),
+    Translate(StyleTransformTranslate2D),
+    Translate3D(StyleTransformTranslate3D),
+    TranslateX(PixelValue),
+    TranslateY(PixelValue),
+    TranslateZ(PixelValue),
+    Rotate(PercentageValue),
+    Rotate3D(StyleTransformRotate3D),
+    RotateX(PercentageValue),
+    RotateY(PercentageValue),
+    RotateZ(PercentageValue),
+    Scale(StyleTransformScale2D),
+    Scale3D(StyleTransformScale3D),
+    ScaleX(PercentageValue),
+    ScaleY(PercentageValue),
+    ScaleZ(PercentageValue),
+    Skew(StyleTransformSkew2D),
+    SkewX(PercentageValue),
+    SkewY(PercentageValue),
+    Perspective(PixelValue),
+}
+
+impl_vec!(StyleTransform, StyleTransformVec);
+impl_vec_debug!(StyleTransform, StyleTransformVec);
+impl_vec_partialord!(StyleTransform, StyleTransformVec);
+impl_vec_ord!(StyleTransform, StyleTransformVec);
+impl_vec_clone!(StyleTransform, StyleTransformVec);
+impl_vec_partialeq!(StyleTransform, StyleTransformVec);
+impl_vec_eq!(StyleTransform, StyleTransformVec);
+impl_vec_hash!(StyleTransform, StyleTransformVec);
+
+#[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
+#[repr(C)]
+pub struct StyleTransformMatrix2D {
+    pub a: PixelValue,
+    pub b: PixelValue,
+    pub c: PixelValue,
+    pub d: PixelValue,
+    pub tx: PixelValue,
+    pub ty: PixelValue,
+}
+
+#[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
+#[repr(C)]
+pub struct StyleTransformMatrix3D {
+    pub m11: PixelValue,
+    pub m12: PixelValue,
+    pub m13: PixelValue,
+    pub m14: PixelValue,
+    pub m21: PixelValue,
+    pub m22: PixelValue,
+    pub m23: PixelValue,
+    pub m24: PixelValue,
+    pub m31: PixelValue,
+    pub m32: PixelValue,
+    pub m33: PixelValue,
+    pub m34: PixelValue,
+    pub m41: PixelValue,
+    pub m42: PixelValue,
+    pub m43: PixelValue,
+    pub m44: PixelValue,
+}
+
+#[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
+#[repr(C)]
+pub struct StyleTransformTranslate2D {
+    pub x: PixelValue,
+    pub y: PixelValue,
+}
+
+#[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
+#[repr(C)]
+pub struct StyleTransformTranslate3D {
+    pub x: PixelValue,
+    pub y: PixelValue,
+    pub z: PixelValue,
+}
+
+#[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
+#[repr(C)]
+pub struct StyleTransformRotate3D {
+    pub x: PercentageValue,
+    pub y: PercentageValue,
+    pub z: PercentageValue,
+    pub angle: PercentageValue,
+}
+
+#[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
+#[repr(C)]
+pub struct StyleTransformScale2D {
+    pub x: PercentageValue,
+    pub y: PercentageValue,
+}
+
+#[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
+#[repr(C)]
+pub struct StyleTransformScale3D {
+    pub x: PercentageValue,
+    pub y: PercentageValue,
+    pub z: PercentageValue,
+}
+
+
+#[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
+#[repr(C)]
+pub struct StyleTransformSkew2D {
+    pub x: PercentageValue,
+    pub y: PercentageValue,
+}
+
+impl ::std::fmt::Display for StyleTransform {
+    fn fmt(&self, f: &mut ::std::fmt::Formatter) -> ::std::fmt::Result {
+        self.format_as_css_value(f)
+    }
+}
+
+impl ::std::fmt::Debug for StyleTransform {
+    fn fmt(&self, f: &mut ::std::fmt::Formatter) -> ::std::fmt::Result {
+        self.format_as_css_value(f)
+    }
+}
+
+impl FormatAsCssValue for StyleTransform {
+    fn format_as_css_value(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        match self {
+            StyleTransform::Matrix(m) => write!(f, "matrix({}, {}, {}, {}, {}, {})", m.a, m.b, m.c, m.d, m.tx, m.ty),
+            StyleTransform::Matrix3D(m) => write!(f, "matrix3d({}, {}, {}, {}, {}, {}, {}, {}, {}, {}, {}, {}, {}, {}, {}, {})", m.m11, m.m12, m.m13, m.m14, m.m21, m.m22, m.m23, m.m24, m.m31, m.m32, m.m33, m.m34, m.m41, m.m42, m.m43, m.m44),
+            StyleTransform::Translate(t) => write!(f, "translate({}, {})", t.x, t.y),
+            StyleTransform::Translate3D(t) => write!(f, "translate3d({}, {}, {})", t.x, t.y, t.z),
+            StyleTransform::TranslateX(x) => write!(f, "translateX({})", x),
+            StyleTransform::TranslateY(y) => write!(f, "translateY({})", y),
+            StyleTransform::TranslateZ(z) => write!(f, "translateZ({})", z),
+            StyleTransform::Rotate(r) => write!(f, "rotate({})", r),
+            StyleTransform::Rotate3D(r) => write!(f, "rotate3d({}, {}, {}, {})", r.x, r.y, r.z, r.angle),
+            StyleTransform::RotateX(x) => write!(f, "rotateX({})", x),
+            StyleTransform::RotateY(y) => write!(f, "rotateY({})", y),
+            StyleTransform::RotateZ(z) => write!(f, "rotateZ({})", z),
+            StyleTransform::Scale(s) => write!(f, "scale({}, {})", s.x, s.y),
+            StyleTransform::Scale3D(s) => write!(f, "scale3d({}, {}, {})", s.x, s.y, s.z),
+            StyleTransform::ScaleX(x) => write!(f, "scaleX({})", x),
+            StyleTransform::ScaleY(y) => write!(f, "scaleY({})", y),
+            StyleTransform::ScaleZ(z) => write!(f, "scaleZ({})", z),
+            StyleTransform::Skew(sk) => write!(f, "skew({}, {})", sk.x, sk.y),
+            StyleTransform::SkewX(x) => write!(f, "skewX({})", x),
+            StyleTransform::SkewY(y) => write!(f, "skewY({})", y),
+            StyleTransform::Perspective(dist) => write!(f, "perspective({})", dist),
+        }
+    }
+}
+
 /// Stylistic options of the rectangle that don't influence the layout
 #[derive(Default, Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
 #[repr(C)]
@@ -2613,6 +2936,12 @@ pub struct RectStyle {
     pub border_top_right_radius: Option<CssPropertyValue<StyleBorderTopRightRadius>>,
     pub border_bottom_left_radius: Option<CssPropertyValue<StyleBorderBottomLeftRadius>>,
     pub border_bottom_right_radius: Option<CssPropertyValue<StyleBorderBottomRightRadius>>,
+
+    pub opacity: Option<CssPropertyValue<StyleOpacity>>,
+    pub transform: Option<CssPropertyValue<StyleTransformVec>>,
+    pub transform_origin: Option<CssPropertyValue<StyleTransformOrigin>>,
+    pub perspective_origin: Option<CssPropertyValue<StylePerspectiveOrigin>>,
+    pub backface_visibility: Option<CssPropertyValue<StyleBackfaceVisibility>>,
 }
 
 // Layout constraints for a given rectangle, such as "width", "min-width", "height", etc.

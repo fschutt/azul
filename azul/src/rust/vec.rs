@@ -227,14 +227,31 @@
 
             // delete() not necessary because StringVec is stack-allocated
         }
-    }    use crate::style::{CascadeInfo, CascadedCssPropertyWithSource, ContentGroup, Node, ParentWithNodeDepth, StyledNode, TagIdToNodeIdMapping};
-    use crate::css::{CssDeclaration, CssPathSelector, CssProperty, CssRuleBlock, GradientStopPre, Stylesheet};
+    }    use crate::css::{CssDeclaration, CssPathSelector, CssProperty, CssRuleBlock, GradientStopPre, StyleTransform, Stylesheet};
+    use crate::style::{CascadeInfo, CascadedCssPropertyWithSource, ContentGroup, Node, ParentWithNodeDepth, StyledNode, TagIdToNodeIdMapping};
     use crate::svg::{SvgMultiPolygon, SvgPath, SvgPathElement, SvgVertex};
     use crate::gl::{DebugMessage, VertexAttribute};
     use crate::window::{StringPair, VirtualKeyCode, XWindowType};
     use crate::dom::{CallbackData, Dom, NodeData};
     use crate::str::String;
     use crate::callbacks::NodeId;
+
+
+    /// Wrapper over a Rust-allocated `Vec<StyleTransform>`
+    pub use crate::dll::AzStyleTransformVec as StyleTransformVec;
+
+    impl StyleTransformVec {
+        /// Creates a new, empty Rust `Vec<StyleTransform>`
+        pub fn new() -> Self { (crate::dll::get_azul_dll().az_style_transform_vec_new)() }
+        /// Creates a new, empty Rust `Vec<StyleTransform>` with a given, pre-allocated capacity
+        pub fn with_capacity(cap: usize) -> Self { (crate::dll::get_azul_dll().az_style_transform_vec_with_capacity)(cap) }
+        /// Creates + allocates a Rust `Vec<StyleTransform>` by **copying** it from a bytes source
+        pub fn copy_from(ptr: *const AzStyleTransform, len: usize) -> Self { (crate::dll::get_azul_dll().az_style_transform_vec_copy_from)(ptr, len) }
+    }
+
+    impl std::fmt::Debug for StyleTransformVec { fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result { write!(f, "{}", (crate::dll::get_azul_dll().az_style_transform_vec_fmt_debug)(self)) } }
+    impl Clone for StyleTransformVec { fn clone(&self) -> Self { (crate::dll::get_azul_dll().az_style_transform_vec_deep_copy)(self) } }
+    impl Drop for StyleTransformVec { fn drop(&mut self) { (crate::dll::get_azul_dll().az_style_transform_vec_delete)(self); } }
 
 
     /// Wrapper over a Rust-allocated `Vec<ContentGroup>`

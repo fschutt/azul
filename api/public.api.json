@@ -43,6 +43,37 @@
 		"vec": {
 			"doc": "Definition of azuls internal `Vec<*>` wrappers",
 			"classes": {
+				"StyleTransformVec": {
+					"doc": "Wrapper over a Rust-allocated `Vec<StyleTransform>`",
+					"external": "azul_impl::styled_dom::StyleTransformVec",
+					"struct_fields": [
+						{ "ptr": { "type": "*mut StyleTransform" } },
+						{ "len": { "type": "usize" } },
+						{ "cap": { "type": "usize" } }
+					],
+					"constructors": {
+						"new": {
+							"doc": "Creates a new, empty Rust `Vec<StyleTransform>`",
+							"fn_body": "Vec::<AzStyleTransformp>::new().into()"
+						},
+						"with_capacity": {
+							"doc": "Creates a new, empty Rust `Vec<StyleTransform>` with a given, pre-allocated capacity",
+							"fn_args": [
+							    {"cap": "usize"}
+							],
+							"fn_body": "Vec::<AzStyleTransform>::with_capacity(cap).into()"
+						},
+					    "copy_from": {
+					        "doc": "Creates + allocates a Rust `Vec<StyleTransform>` by **copying** it from a bytes source",
+					        "fn_args": [
+					            {"ptr": "*const StyleTransform"},
+					            {"len": "usize"}
+					        ],
+					        "fn_body": "unsafe { std::slice::from_raw_parts(ptr, len).to_vec() }.into()"
+					    }
+					},
+					"destructor": "unsafe { std::ptr::drop_in_place(object.as_mut()); } deallocate_vec(object.as_mut_ptr(), object.capacity());"
+				},
 				"ContentGroupVec": {
 					"doc": "Wrapper over a Rust-allocated `Vec<ContentGroup>`",
 					"external": "azul_impl::styled_dom::ContentGroupVec",
@@ -1040,6 +1071,48 @@
 		"option": {
 			"doc": "Definition of azuls internal `Option<*>` wrappers",
 			"classes": {
+				"OptionStyleOpacityValue": {
+					"external": "azul_impl::css::OptionStyleOpacityValue",
+					"enum_fields": [
+						{"None": {}},
+						{"Some": { "type": "StyleOpacityValue" }}
+					]
+				},
+				"OptionStyleTransformVecValue": {
+					"external": "azul_impl::css::OptionStyleTransformVecValue",
+					"enum_fields": [
+						{"None": {}},
+						{"Some": { "type": "StyleTransformVecValue" }}
+					]
+				},
+				"OptionStyleTransformOriginValue": {
+					"external": "azul_impl::css::OptionStyleTransformOriginValue",
+					"enum_fields": [
+						{"None": {}},
+						{"Some": { "type": "StyleTransformOriginValue" }}
+					]
+				},
+				"OptionStylePerspectiveOriginValue": {
+					"external": "azul_impl::css::OptionStylePerspectiveOriginValue",
+					"enum_fields": [
+						{"None": {}},
+						{"Some": { "type": "StylePerspectiveOriginValue" }}
+					]
+				},
+				"OptionStyleBackfaceVisibilityValue": {
+					"external": "azul_impl::css::OptionStyleBackfaceVisibilityValue",
+					"enum_fields": [
+						{"None": {}},
+						{"Some": { "type": "StyleBackfaceVisibilityValue" }}
+					]
+				},
+				"OptionLayoutPoint": {
+					"external": "azul_impl::window::OptionLayoutPoint",
+					"enum_fields": [
+						{"None": {}},
+						{"Some": { "type": "LayoutPoint" }}
+					]
+				},
 				"OptionWindowTheme": {
 					"external": "azul_impl::window::OptionTheme",
 					"enum_fields": [
@@ -2169,7 +2242,7 @@
 							"fn_args": [
 								{"self": "ref"},
 								{"node_id": "DomNodeId"},
-								{"id": "AzString"}
+								{"id": "String"}
 							],
 							"returns": "bool",
 							"fn_body": "az_callback_info_ptr_downcast_ref(callbackinfo, |ci| { ci.layout_results.get(node_id.dom.inner as usize).and_then(|layout_result| Some(layout_result.styled_dom.node_data.as_container().get(node_id.node.into_crate_internal()?)?.has_id(id.as_str()))).unwrap_or(false) })"
@@ -2179,7 +2252,7 @@
 							"fn_args": [
 								{"self": "ref"},
 								{"node_id": "DomNodeId"},
-								{"id": "AzString"}
+								{"id": "String"}
 							],
 							"returns": "bool",
 							"fn_body": "az_callback_info_ptr_downcast_ref(callbackinfo, |ci| { ci.layout_results.get(node_id.dom.inner as usize).and_then(|layout_result| Some(layout_result.styled_dom.node_data.as_container().get(node_id.node.into_crate_internal()?)?.has_class(class.as_str()))).unwrap_or(false) })"
@@ -2199,6 +2272,15 @@
 								{"target": "FocusTarget"}
 							],
 							"fn_body": "az_callback_info_ptr_downcast_refmut(callbackinfo, |ci| { *ci.focus_target = Some(target); })"
+						},
+						"set_css_property": {
+							"doc": "Sets a `CssProperty` on a given ndoe to its new value. If this property change affects the layout, this will automatically trigger a relayout and redraw of the screen.",
+							"fn_args": [
+								{"self": "refmut"},
+								{"node_id": "DomNodeId"},
+								{"new_property": "CssProperty"}
+							],
+							"fn_body": "az_callback_info_ptr_downcast_ref(callbackinfo, |ci| { if let Some(nid) = node_id.node.into_crate_internal() { *ci.css_properties_changed_in_callbacks.entry(node_id.dom.inner as usize).or_insert_with(|| BTreeMap::new()).entry(nid).or_insert_with(|| Vec::new()).push(new_property); } })"
 						},
 						"stop_propagation": {
 							"doc": "Stops the propagation of the current callback event type to the parent. Events are bubbled from the inside out (children first, then parents), this event stops the propagation of the event to the parent.",
@@ -3227,6 +3309,148 @@
 						{"inner": {"type": "PercentageValue"}}
 					]
 				},
+				"StyleOpacity": {
+					"external": "azul_impl::css::StyleOpacity",
+					"struct_fields": [
+						{"inner": {"type": "FloatValue"}}
+					]
+				},
+				"StyleTransformOrigin": {
+					"external": "azul_impl::css::StyleTransformOrigin",
+					"derive": ["Copy", "Clone", "PartialEq", "Eq", "PartialOrd", "Ord", "Hash"],
+					"struct_fields": [
+						{"x": {"type": "PixelValue"}},
+						{"y": {"type": "PixelValue"}}
+					]
+				},
+				"StylePerspectiveOrigin": {
+					"external": "azul_impl::css::StyleTransformOrigin",
+					"derive": ["Copy", "Clone", "PartialEq", "Eq", "PartialOrd", "Ord", "Hash"],
+					"struct_fields": [
+						{"x": {"type": "PixelValue"}},
+						{"y": {"type": "PixelValue"}}
+					]
+				},
+				"StyleBackfaceVisibility": {
+					"external": "azul_impl::css::StyleBackfaceVisibility",
+					"derive": ["Copy", "Clone", "PartialEq", "Eq", "PartialOrd", "Ord", "Hash"],
+					"enum_fields": [
+						{"Hidden": {}},
+						{"Visible": {}}
+					]
+				},
+				"StyleTransform": {
+					"external": "azul_impl::css::StyleTransform",
+					"derive": ["Copy", "Clone", "PartialEq", "Eq", "PartialOrd", "Ord", "Hash"],
+					"enum_fields": [
+						{"Matrix": {"type": "StyleTransformMatrix2D"}},
+						{"Matrix3D": {"type": "StyleTransformMatrix3D"}},
+						{"Translate": {"type": "StyleTransformTranslate2D"}},
+						{"Translate3D": {"type": "StyleTransformTranslate3D"}},
+						{"TranslateX": {"type": "PixelValue"}},
+						{"TranslateY": {"type": "PixelValue"}},
+						{"TranslateZ": {"type": "PixelValue"}},
+						{"Rotate": {"type": "PercentageValue"}},
+						{"Rotate3D": {"type": "StyleTransformRotate3D"}},
+						{"RotateX": {"type": "PercentageValue"}},
+						{"RotateY": {"type": "PercentageValue"}},
+						{"RotateZ": {"type": "PercentageValue"}},
+						{"Scale": {"type": "StyleTransformScale2D"}},
+						{"Scale3D": {"type": "StyleTransformScale3D"}},
+						{"ScaleX": {"type": "PercentageValue"}},
+						{"ScaleY": {"type": "PercentageValue"}},
+						{"ScaleZ": {"type": "PercentageValue"}},
+						{"Skew": {"type": "StyleTransformSkew2D"}},
+						{"SkewX": {"type": "PercentageValue"}},
+						{"SkewY": {"type": "PercentageValue"}},
+						{"Perspective": {"type": "PixelValue"}}
+					]
+				},
+				"StyleTransformMatrix2D": {
+					"external": "azul_impl::css::StyleTransformMatrix2D",
+					"derive": ["Copy", "Clone", "PartialEq", "Eq", "PartialOrd", "Ord", "Hash"],
+					"struct_fields": [
+						{"a": {"type": "PixelValue" }},
+						{"b": {"type": "PixelValue" }},
+						{"c": {"type": "PixelValue" }},
+						{"d": {"type": "PixelValue" }},
+						{"tx": {"type": "PixelValue" }},
+						{"ty": {"type": "PixelValue" }}
+					]
+				},
+				"StyleTransformMatrix3D": {
+					"external": "azul_impl::css::StyleTransformMatrix3D",
+					"derive": ["Copy", "Clone", "PartialEq", "Eq", "PartialOrd", "Ord", "Hash"],
+					"struct_fields": [
+						{"m11": {"type": "PixelValue"}},
+						{"m12": {"type": "PixelValue"}},
+						{"m13": {"type": "PixelValue"}},
+						{"m14": {"type": "PixelValue"}},
+						{"m21": {"type": "PixelValue"}},
+						{"m22": {"type": "PixelValue"}},
+						{"m23": {"type": "PixelValue"}},
+						{"m24": {"type": "PixelValue"}},
+						{"m31": {"type": "PixelValue"}},
+						{"m32": {"type": "PixelValue"}},
+						{"m33": {"type": "PixelValue"}},
+						{"m34": {"type": "PixelValue"}},
+						{"m41": {"type": "PixelValue"}},
+						{"m42": {"type": "PixelValue"}},
+						{"m43": {"type": "PixelValue"}},
+						{"m44": {"type": "PixelValue"}}
+					]
+				},
+				"StyleTransformTranslate2D": {
+					"external": "azul_impl::css::StyleTransformTranslate2D",
+					"derive": ["Copy", "Clone", "PartialEq", "Eq", "PartialOrd", "Ord", "Hash"],
+					"struct_fields": [
+						{"x": {"type": "PixelValue"}},
+						{"y": {"type": "PixelValue"}}
+					]
+				},
+				"StyleTransformTranslate3D": {
+					"external": "azul_impl::css::StyleTransformTranslate3D",
+					"derive": ["Copy", "Clone", "PartialEq", "Eq", "PartialOrd", "Ord", "Hash"],
+					"struct_fields": [
+						{"x": {"type": "PixelValue"}},
+						{"y": {"type": "PixelValue"}},
+						{"z": {"type": "PixelValue"}}
+					]
+				},
+				"StyleTransformRotate3D": {
+					"external": "azul_impl::css::StyleTransformRotate3D",
+					"derive": ["Copy", "Clone", "PartialEq", "Eq", "PartialOrd", "Ord", "Hash"],
+					"struct_fields": [
+						{"x": {"type": "PercentageValue"}},
+						{"y": {"type": "PercentageValue"}},
+						{"z": {"type": "PercentageValue"}},
+						{"angle": {"type": "PercentageValue"}}
+					]
+				},
+				"StyleTransformScale2D": {
+					"external": "azul_impl::css::StyleTransformScale2D",
+					"derive": ["Copy", "Clone", "PartialEq", "Eq", "PartialOrd", "Ord", "Hash"],
+					"struct_fields": [
+						{"x": {"type": "PercentageValue"}},
+						{"y": {"type": "PercentageValue"}}
+					]
+				},
+				"StyleTransformScale3D": {
+					"external": "azul_impl::css::StyleTransformScale3D",
+					"derive": ["Copy", "Clone", "PartialEq", "Eq", "PartialOrd", "Ord", "Hash"],
+					"struct_fields": [
+						{"x": {"type": "PercentageValue"}},
+						{"y": {"type": "PercentageValue"}},
+						{"z": {"type": "PercentageValue"}}
+					]
+				},
+				"StyleTransformSkew2D": {
+					"external": "azul_impl::css::StyleTransformSkew",
+					"struct_fields": [
+						{"x": {"type": "PercentageValue"}},
+						{"y": {"type": "PercentageValue"}}
+					]
+				},
 				"StyleTextAlignmentHorz": {
 					"external": "azul_impl::css::StyleTextAlignmentHorz",
 					"enum_fields": [
@@ -3907,6 +4131,61 @@
 						{ "Exact": { "type": "StyleWordSpacing" }}
 					]
 				},
+				"StyleOpacityValue": {
+					"rust_class_name": "CssPropertyValue<StyleOpacity>",
+					"external": "azul_impl::css::CssPropertyValue::<StyleOpacity>",
+					"enum_fields": [
+						{ "Auto": { }} ,
+						{ "None": { }} ,
+						{ "Inherit": { }} ,
+						{ "Initial": { }} ,
+						{ "Exact": { "type": "StyleOpacity" }}
+					]
+				},
+				"StyleTransformVecValue": {
+					"rust_class_name": "CssPropertyValue<StyleTransformVec>",
+					"external": "azul_impl::css::CssPropertyValue::<StyleTransformVec>",
+					"enum_fields": [
+						{ "Auto": { }} ,
+						{ "None": { }} ,
+						{ "Inherit": { }} ,
+						{ "Initial": { }} ,
+						{ "Exact": { "type": "StyleTransformVec" }}
+					]
+				},
+				"StyleTransformOriginValue": {
+					"rust_class_name": "CssPropertyValue<StyleTransformOrigin>",
+					"external": "azul_impl::css::CssPropertyValue::<StyleTransformOrigin>",
+					"enum_fields": [
+						{ "Auto": { }} ,
+						{ "None": { }} ,
+						{ "Inherit": { }} ,
+						{ "Initial": { }} ,
+						{ "Exact": { "type": "StyleTransformOrigin" }}
+					]
+				},
+				"StylePerspectiveOriginValue": {
+					"rust_class_name": "CssPropertyValue<StylePerspectiveOrigin>",
+					"external": "azul_impl::css::CssPropertyValue::<StylePerspectiveOrigin>",
+					"enum_fields": [
+						{ "Auto": { }} ,
+						{ "None": { }} ,
+						{ "Inherit": { }} ,
+						{ "Initial": { }} ,
+						{ "Exact": { "type": "StylePerspectiveOrigin" }}
+					]
+				},
+				"StyleBackfaceVisibilityValue": {
+					"rust_class_name": "CssPropertyValue<StyleBackfaceVisibility>",
+					"external": "azul_impl::css::CssPropertyValue::<StyleBackfaceVisibility>",
+					"enum_fields": [
+						{ "Auto": { }} ,
+						{ "None": { }} ,
+						{ "Inherit": { }} ,
+						{ "Initial": { }} ,
+						{ "Exact": { "type": "StyleBackfaceVisibility" }}
+					]
+				},
 				"CssProperty": {
 					"doc": "Parsed CSS key-value pair",
 					"external": "azul_impl::css::CssProperty",
@@ -3975,7 +4254,12 @@
 						{ "BoxShadowLeft": { "type": "CssPropertyValue<BoxShadowPreDisplayItem>" }} ,
 						{ "BoxShadowRight": { "type": "CssPropertyValue<BoxShadowPreDisplayItem>" }} ,
 						{ "BoxShadowTop": { "type": "CssPropertyValue<BoxShadowPreDisplayItem>" }} ,
-						{ "BoxShadowBottom": { "type": "CssPropertyValue<BoxShadowPreDisplayItem>" }}
+						{ "BoxShadowBottom": { "type": "CssPropertyValue<BoxShadowPreDisplayItem>" }},
+						{ "Opacity": { "type": "CssPropertyValue<StyleOpacity>" }},
+						{ "Transform": { "type": "CssPropertyValue<StyleTransformVec>" }},
+						{ "TransformOrigin": {"type": "CssPropertyValue<StyleTransformOrigin>" }},
+						{ "PerspectiveOrigin": {"type": "CssPropertyValue<StylePerspectiveOrigin>" }},
+						{ "BackfaceVisibility": {"type": "CssPropertyValue<StyleBackfaceVisibility>" }}
 					]
 				}
 			}
@@ -3999,7 +4283,7 @@
 					"derive": ["PartialEq", "Eq", "PartialOrd", "Ord", "Hash"],
 					"struct_fields": [
 						{"index_in_parent": {"type": "u32"}},
-						{"is_last_child": {"type": "bool"}},
+						{"is_last_child": {"type": "bool"}}
 			  		]
 				},
 				"RectStyle": {
@@ -4034,7 +4318,12 @@
 						{"border_top_left_radius": {"type": "OptionStyleBorderTopLeftRadiusValue"}},
 						{"border_top_right_radius": {"type": "OptionStyleBorderTopRightRadiusValue"}},
 						{"border_bottom_left_radius": {"type": "OptionStyleBorderBottomLeftRadiusValue"}},
-						{"border_bottom_right_radius": {"type": "OptionStyleBorderBottomRightRadiusValue"}}
+						{"border_bottom_right_radius": {"type": "OptionStyleBorderBottomRightRadiusValue"}},
+						{"opacity": {"type": "OptionStyleOpacityValue"}},
+						{"transform": {"type": "OptionStyleTransformVecValue"}},
+						{"transform_origin": {"type": "OptionStyleTransformOriginValue"}},
+						{"perspective_origin": {"type": "OptionStylePerspectiveOriginValue"}},
+						{"backface_visibility": {"type": "OptionStyleBackfaceVisibilityValue"}}
 					]
 				},
 				"RectLayout": {
@@ -4132,7 +4421,7 @@
 					"struct_fields": [
 						{"tag_id": {"type": "TagId"}},
 						{"node_id": {"type": "NodeId"}},
-						{"tab_index": {"type": "OptionTabIndex"}},
+						{"tab_index": {"type": "OptionTabIndex"}}
 					]
 				},
 				"ParentWithNodeDepth": {
@@ -7469,6 +7758,14 @@
 		"window": {
 			"doc": "Window creation / startup configuration",
 			"classes": {
+				"LayoutPoint": {
+					"external": "azul_impl::window::RawWindowHandle",
+					"derive": ["Debug", "Copy", "Clone", "PartialEq", "Eq", "PartialOrd", "Ord", "Hash"],
+					"struct_fields": [
+						{"x": {"type": "isize"}},
+						{"y": {"type": "isize"}}
+					]
+				},
 				"RawWindowHandle": {
 					"external": "azul_impl::window::RawWindowHandle",
 					"derive": ["Debug", "Copy", "Clone", "PartialEq", "Eq", "PartialOrd", "Ord", "Hash"],
@@ -7481,7 +7778,7 @@
 						{"Windows": {"type": "WindowsHandle"}},
 						{"Web": {"type": "WebHandle"}},
 						{"Android": {"type": "AndroidHandle"}},
-						{"Unsupported": {}},
+						{"Unsupported": {}}
 					]
 				},
 				"IOSHandle": {

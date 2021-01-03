@@ -54,6 +54,14 @@
     impl Drop for CssPropertySource { fn drop(&mut self) { (crate::dll::get_azul_dll().az_css_property_source_delete)(self); } }
 
 
+    /// `StyledNodeState` struct
+    pub use crate::dll::AzStyledNodeState as StyledNodeState;
+
+    impl std::fmt::Debug for StyledNodeState { fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result { write!(f, "{}", (crate::dll::get_azul_dll().az_styled_node_state_fmt_debug)(self)) } }
+    impl Clone for StyledNodeState { fn clone(&self) -> Self { (crate::dll::get_azul_dll().az_styled_node_state_deep_copy)(self) } }
+    impl Drop for StyledNodeState { fn drop(&mut self) { (crate::dll::get_azul_dll().az_styled_node_state_delete)(self); } }
+
+
     /// `StyledNode` struct
     pub use crate::dll::AzStyledNode as StyledNode;
 
@@ -76,22 +84,6 @@
     impl std::fmt::Debug for TagIdToNodeIdMapping { fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result { write!(f, "{}", (crate::dll::get_azul_dll().az_tag_id_to_node_id_mapping_fmt_debug)(self)) } }
     impl Clone for TagIdToNodeIdMapping { fn clone(&self) -> Self { (crate::dll::get_azul_dll().az_tag_id_to_node_id_mapping_deep_copy)(self) } }
     impl Drop for TagIdToNodeIdMapping { fn drop(&mut self) { (crate::dll::get_azul_dll().az_tag_id_to_node_id_mapping_delete)(self); } }
-
-
-    /// `HoverGroup` struct
-    pub use crate::dll::AzHoverGroup as HoverGroup;
-
-    impl std::fmt::Debug for HoverGroup { fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result { write!(f, "{}", (crate::dll::get_azul_dll().az_hover_group_fmt_debug)(self)) } }
-    impl Clone for HoverGroup { fn clone(&self) -> Self { (crate::dll::get_azul_dll().az_hover_group_deep_copy)(self) } }
-    impl Drop for HoverGroup { fn drop(&mut self) { (crate::dll::get_azul_dll().az_hover_group_delete)(self); } }
-
-
-    /// `ActiveHover` struct
-    pub use crate::dll::AzActiveHover as ActiveHover;
-
-    impl std::fmt::Debug for ActiveHover { fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result { write!(f, "{}", (crate::dll::get_azul_dll().az_active_hover_fmt_debug)(self)) } }
-    impl Clone for ActiveHover { fn clone(&self) -> Self { (crate::dll::get_azul_dll().az_active_hover_deep_copy)(self) } }
-    impl Drop for ActiveHover { fn drop(&mut self) { (crate::dll::get_azul_dll().az_active_hover_delete)(self); } }
 
 
     /// `ParentWithNodeDepth` struct

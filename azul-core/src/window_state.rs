@@ -74,7 +74,7 @@ use crate::{
     ui_solver::LayoutResult,
     window::{FullHitTest, RawWindowHandle, FullWindowState, ScrollStates, CallCallbacksResult},
 };
-use azul_css::{LayoutSize, LayoutPoint, LayoutRect};
+use azul_css::{LayoutSize, CssProperty, LayoutPoint, LayoutRect};
 #[cfg(feature = "opengl")]
 use crate::gl::GlContextPtr;
 
@@ -249,6 +249,8 @@ impl StyleAndLayoutChanges {
         app_resources: &mut AppResources,
         window_size: LayoutSize,
         pipeline_id: PipelineId,
+        css_changes: &BTreeMap<DomId, BTreeMap<NodeId, Vec<CssProperty>>>,
+        callbacks_new_focus: &Option<Option<DomNodeId>>,
         relayout_cb: fn(LayoutRect, &mut LayoutResult, &mut AppResources, PipelineId, &RelayoutNodes) -> Vec<NodeId>
     ) -> StyleAndLayoutChanges {
 
@@ -332,7 +334,9 @@ impl StyleAndLayoutChanges {
             }
         }
 
-        if nodes.old_focus_node != nodes.new_focus_node {
+        let new_focus_node = if let Some(new) = callbacks_new_focus.as_ref() { new } else { &nodes.new_focus_node };
+
+        if nodes.old_focus_node != *new_focus_node {
 
             if let Some(DomNodeId { dom, node }) = nodes.old_focus_node {
                 let layout_result = &mut layout_results[dom.inner];
@@ -352,7 +356,7 @@ impl StyleAndLayoutChanges {
                 }
             }
 
-            if let Some(DomNodeId { dom, node }) = nodes.new_focus_node {
+            if let Some(DomNodeId { dom, node }) = *new_focus_node {
                 let layout_result = &mut layout_results[dom.inner];
                 let node = node.into_crate_internal().unwrap();
                 let new_focus_node = &mut layout_result.styled_dom.styled_nodes.as_container_mut()[node];
@@ -366,6 +370,22 @@ impl StyleAndLayoutChanges {
                     }
                     if !style_layout_props.is_empty() {
                         layout_changes.entry(dom).or_insert_with(|| BTreeMap::new()).entry(node).or_insert_with(|| Vec::new()).append(&mut style_layout_props);
+                    }
+                }
+            }
+        }
+
+        // restyle all the nodes according to the existing_changed_styles
+        for (dom_id, existing_changes_map) in css_changes.iter() {
+            for (node_id, changed_css_property_vec) in existing_changes_map.iter() {
+                for changed_css_property in changed_css_property_vec.iter() {
+                    if let Some(changed_prop) = layout_results[dom_id.inner].styled_dom.styled_nodes.as_container_mut()[*node_id].restyle_single_property(changed_css_property) {
+                        // css property changed, now figure out if it was a style or a layout prop
+                        if changed_prop.previous_prop.get_type().can_trigger_relayout() {
+                            layout_changes.entry(*dom_id).or_insert_with(|| BTreeMap::default()).entry(*node_id).or_insert_with(|| Vec::new()).push(changed_prop);
+                        } else {
+                            style_changes.entry(*dom_id).or_insert_with(|| BTreeMap::default()).entry(*node_id).or_insert_with(|| Vec::new()).push(changed_prop);
+                        }
                     }
                 }
             }
@@ -392,35 +412,45 @@ impl StyleAndLayoutChanges {
         }
     }
 
-    pub fn is_empty(&self) -> bool {
-        self.style_changes.is_empty() &&
-        self.layout_changes.is_empty()
+    // Note: this can be false in case that only opacity: / transform: properties changed!
+    pub fn need_regenerate_display_list(&self) -> bool {
+        if !self.need_redraw() { return false; }
+        // is_gpu_only_property = is the changed CSS property an opacity / transform / rotate property (which doesn't require to regenerate the display list)
+        self.style_changes.iter().all(|(_, restyle_nodes)| {
+            restyle_nodes.iter().all(|(_, changed_css_properties)| {
+                changed_css_properties.iter().all(|changed_prop| changed_prop.current_prop.get_type().is_gpu_only_property())
+            })
+        })
+    }
+
+    pub fn need_redraw(&self) -> bool {
+        !self.style_changes.is_empty() && !self.layout_changes.is_empty() && !self.nodes_that_changed_size.is_empty()
     }
 }
 
 
 #[derive(Debug, Clone, PartialEq)]
-pub struct CallbackToCall<'a> {
+pub struct CallbackToCall {
     pub node_id: NodeId,
     pub hit_test_item: Option<HitTestItem>,
-    pub callback: &'a CallbackData,
+    pub callback: CallbackData,
 }
 
 #[derive(Debug, Clone)]
-pub struct CallbacksOfHitTest<'a> {
+pub struct CallbacksOfHitTest {
     /// A BTreeMap where each item is already filtered by the proper hit-testing type,
     /// meaning in order to get the proper callbacks, you simply have to iterate through
     /// all node IDs
-    pub nodes_with_callbacks: BTreeMap<DomId, Vec<CallbackToCall<'a>>>,
+    pub nodes_with_callbacks: BTreeMap<DomId, Vec<CallbackToCall>>,
 }
 
-impl<'a> CallbacksOfHitTest<'a> {
+impl CallbacksOfHitTest {
 
     /// Determine which event / which callback(s) should be called and in which order
     ///
     /// This function also updates / mutates the current window states `focused_node`
     /// as well as the `window_state.previous_state`
-    pub fn new(nodes_to_check: &NodesToCheck, events: &Events, layout_results: &'a [LayoutResult]) -> Self {
+    pub fn new(nodes_to_check: &NodesToCheck, events: &Events, layout_results: &[LayoutResult]) -> Self {
 
         let mut nodes_with_callbacks = BTreeMap::new();
 
@@ -436,7 +466,7 @@ impl<'a> CallbacksOfHitTest<'a> {
                         EventFilter::Window(wev) => {
                             if events.window_events.contains(&wev) {
                                 nodes_with_callbacks.entry(dom_id).or_insert_with(|| Vec::new()).push(CallbackToCall {
-                                    callback,
+                                    callback: callback.clone(),
                                     hit_test_item: None,
                                     node_id,
                                 })
@@ -445,7 +475,7 @@ impl<'a> CallbacksOfHitTest<'a> {
                         EventFilter::Hover(HoverEventFilter::MouseEnter) => {
                             if let Some(hit_test_item) = nodes_to_check.onmouseenter_nodes.get(&dom_id).and_then(|n| n.get(&node_id)) {
                                 nodes_with_callbacks.entry(dom_id).or_insert_with(|| Vec::new()).push(CallbackToCall {
-                                    callback,
+                                    callback: callback.clone(),
                                     hit_test_item: Some(*hit_test_item),
                                     node_id,
                                 });
@@ -454,7 +484,7 @@ impl<'a> CallbacksOfHitTest<'a> {
                         EventFilter::Hover(HoverEventFilter::MouseLeave) => {
                             if let Some(hit_test_item) = nodes_to_check.onmouseleave_nodes.get(&dom_id).and_then(|n| n.get(&node_id)) {
                                 nodes_with_callbacks.entry(dom_id).or_insert_with(|| Vec::new()).push(CallbackToCall {
-                                    callback,
+                                    callback: callback.clone(),
                                     hit_test_item: Some(*hit_test_item),
                                     node_id,
                                 });
@@ -464,7 +494,7 @@ impl<'a> CallbacksOfHitTest<'a> {
                             if let Some(hit_test_item) = nodes_to_check.new_hit_node_ids.get(&dom_id).and_then(|n| n.get(&node_id)) {
                                 if events.hover_events.contains(&hev) {
                                     nodes_with_callbacks.entry(dom_id).or_insert_with(|| Vec::new()).push(CallbackToCall {
-                                        callback,
+                                        callback: callback.clone(),
                                         hit_test_item: Some(*hit_test_item),
                                         node_id,
                                     });
@@ -474,7 +504,7 @@ impl<'a> CallbacksOfHitTest<'a> {
                         EventFilter::Focus(FocusEventFilter::FocusReceived) => {
                             if nodes_to_check.new_focus_node == Some(DomNodeId { dom: dom_id, node: az_node_id }) && nodes_to_check.old_focus_node != nodes_to_check.new_focus_node {
                                 nodes_with_callbacks.entry(dom_id).or_insert_with(|| Vec::new()).push(CallbackToCall {
-                                    callback,
+                                    callback: callback.clone(),
                                     hit_test_item: None,
                                     node_id,
                                 });
@@ -483,7 +513,7 @@ impl<'a> CallbacksOfHitTest<'a> {
                         EventFilter::Focus(FocusEventFilter::FocusLost) => {
                             if nodes_to_check.old_focus_node == Some(DomNodeId { dom: layout_result.dom_id, node: az_node_id }) && nodes_to_check.old_focus_node != nodes_to_check.new_focus_node {
                                 nodes_with_callbacks.entry(dom_id).or_insert_with(|| Vec::new()).push(CallbackToCall {
-                                    callback,
+                                    callback: callback.clone(),
                                     hit_test_item: None,
                                     node_id,
                                 });
@@ -492,7 +522,7 @@ impl<'a> CallbacksOfHitTest<'a> {
                         EventFilter::Focus(fev) => {
                             if nodes_to_check.new_focus_node == Some(DomNodeId { dom: layout_result.dom_id, node: az_node_id }) && events.focus_events.contains(&fev) {
                                 nodes_with_callbacks.entry(dom_id).or_insert_with(|| Vec::new()).push(CallbackToCall {
-                                    callback,
+                                    callback: callback.clone(),
                                     hit_test_item: None,
                                     node_id,
                                 });
@@ -501,7 +531,7 @@ impl<'a> CallbacksOfHitTest<'a> {
                         EventFilter::Not(NotEventFilter::Focus(fev)) => {
                             if nodes_to_check.new_focus_node != Some(DomNodeId { dom: layout_result.dom_id, node: az_node_id }) && events.focus_events.contains(&fev) {
                                 nodes_with_callbacks.entry(dom_id).or_insert_with(|| Vec::new()).push(CallbackToCall {
-                                    callback,
+                                    callback: callback.clone(),
                                     hit_test_item: None,
                                     node_id,
                                 });
@@ -510,7 +540,7 @@ impl<'a> CallbacksOfHitTest<'a> {
                         EventFilter::Not(NotEventFilter::Hover(hev)) => {
                             if nodes_to_check.new_hit_node_ids.get(&dom_id).and_then(|n| n.get(&node_id)).is_none() && events.hover_events.contains(&hev) {
                                 nodes_with_callbacks.entry(dom_id).or_insert_with(|| Vec::new()).push(CallbackToCall {
-                                    callback,
+                                    callback: callback.clone(),
                                     hit_test_item: None,
                                     node_id,
                                 });
@@ -530,7 +560,6 @@ impl<'a> CallbacksOfHitTest<'a> {
     #[cfg(feature = "opengl")]
     pub fn call(
         &self,
-        pipeline_id: PipelineId,
         full_window_state: &FullWindowState,
         raw_window_handle: &RawWindowHandle,
         scroll_states: &BTreeMap<DomId, BTreeMap<AzNodeId, ScrollPosition>>,
@@ -538,11 +567,10 @@ impl<'a> CallbacksOfHitTest<'a> {
         layout_results: &mut [LayoutResult],
         modifiable_scroll_states: &mut ScrollStates,
         resources: &mut AppResources,
-        relayout_cb: fn(LayoutRect, &mut LayoutResult, &mut AppResources, PipelineId, &RelayoutNodes) -> Vec<NodeId>
     ) -> CallCallbacksResult {
 
         use std::collections::BTreeSet;
-        use crate::styled_dom::{ParentWithNodeDepth, ChangedCssPropertyVec};
+        use crate::styled_dom::ParentWithNodeDepth;
         use crate::callbacks::{CallbackInfo, CallbackInfoPtr};
         use std::ffi::c_void;
 
@@ -550,8 +578,7 @@ impl<'a> CallbacksOfHitTest<'a> {
             should_scroll_render: false,
             callbacks_update_screen: UpdateScreen::DoNothing,
             modified_window_state: full_window_state.clone().into(),
-            focus_properties_changed: BTreeMap::new(),
-            focus_nodes_changed_layout: BTreeMap::new(),
+            css_properties_changed: BTreeMap::new(),
             update_focused_node: None,
             timers: FastHashMap::new(),
             tasks: Vec::new(),
@@ -568,7 +595,7 @@ impl<'a> CallbacksOfHitTest<'a> {
                 None => { return ret; },
             };
 
-            let callbacks = callbacks_filter_list.iter().map(|cbtc| (cbtc.node_id, (cbtc.hit_test_item, cbtc.callback))).collect::<BTreeMap<_, _>>();
+            let callbacks = callbacks_filter_list.iter().map(|cbtc| (cbtc.node_id, (cbtc.hit_test_item, &cbtc.callback))).collect::<BTreeMap<_, _>>();
 
             let mut blacklisted_event_types = BTreeSet::new();
 
@@ -599,6 +626,7 @@ impl<'a> CallbacksOfHitTest<'a> {
                             stop_propagation: &mut stop_propagation,
                             focus_target: &mut new_focus,
                             current_scroll_states: scroll_states,
+                            css_properties_changed_in_callbacks: &mut ret.css_properties_changed,
                             nodes_scrolled_in_callback: &mut nodes_scrolled_in_callbacks,
                             hit_dom_node: DomNodeId { dom: *dom_id, node: AzNodeId::from_crate_internal(Some(child_id)) },
                             cursor_relative_to_item: hit_test_item.as_ref().map(|hi| LayoutPoint::new(hi.point_relative_to_item.x, hi.point_relative_to_item.y)),
@@ -658,6 +686,7 @@ impl<'a> CallbacksOfHitTest<'a> {
                         stop_propagation: &mut stop_propagation,
                         focus_target: &mut new_focus,
                         current_scroll_states: scroll_states,
+                        css_properties_changed_in_callbacks: &mut ret.css_properties_changed,
                         nodes_scrolled_in_callback: &mut nodes_scrolled_in_callbacks,
                         hit_dom_node: DomNodeId { dom: *dom_id, node: layout_result.styled_dom.root },
                         cursor_relative_to_item: hit_test_item.as_ref().map(|hi| LayoutPoint::new(hi.point_relative_to_item.x, hi.point_relative_to_item.y)),
@@ -716,57 +745,9 @@ impl<'a> CallbacksOfHitTest<'a> {
 
         if !focus_has_changed {
             ret.update_focused_node = None;
+        } else {
+            ret.update_focused_node = Some(new_focus_node);
         }
-
-        // The restyle and relayout for the focus node will be done in the next loop!
-        /*
-        // Restyle and relayout the old and new focus nodes
-        let mut old_focus_layout_props: Option<BTreeMap<NodeId, Vec<ChangedCssProperty>>> = None;
-
-        if let Some(old_focus) = full_window_state.focused_node {
-
-            let old_focus_node_id = old_focus.node.into_crate_internal().unwrap();
-            let old_focus_restyle_props = layout_results[old_focus.dom.inner].styled_dom.styled_nodes.as_container_mut()[old_focus.node.into_crate_internal().unwrap()].restyle_focus();
-            ret.focus_properties_changed.entry(old_focus.dom).or_insert_with(|| ChangedCssPropertyVec::new()).append(&mut old_focus_restyle_props.clone());
-            let old_focus_relayout_props = old_focus_restyle_props.iter().filter(|p| p.previous_prop.get_type().can_trigger_relayout()).cloned().collect();
-
-            // if the old_focus.dom_id and the new_focus.dom_id differ, relayout the old_dom.dom_id first
-            // (avoids calling relayout_cb) twice
-            let mut needs_to_relayout_old_dom = false;
-            if let Some(new_focus) = new_focus_node {
-                if new_focus.dom != old_focus.dom { needs_to_relayout_old_dom = true; }
-            }
-
-            let mut of_relayout_props = BTreeMap::new();
-            of_relayout_props.insert(old_focus_node_id, old_focus_relayout_props);
-
-            if needs_to_relayout_old_dom {
-                let old_dom_size = layout_results[old_focus.dom.inner].get_bounds();
-                let mut relayouted_nodes = (relayout_cb)(old_dom_size, &mut layout_results[old_focus.dom.inner], resources, pipeline_id, &of_relayout_props);
-                ret.focus_nodes_changed_layout.entry(old_focus.dom).or_insert_with(|| Vec::new()).append(&mut relayouted_nodes);
-            } else {
-                // defer the layout until the second focus node
-                old_focus_layout_props = Some(of_relayout_props.clone());
-            }
-        }
-
-        if let Some(new_focus) = new_focus_node {
-
-            let new_focus_node_id = new_focus.node.into_crate_internal().unwrap();
-            let new_dom_size = layout_results[new_focus.dom.inner].get_bounds();
-            let new_focus_restyle_props = layout_results[new_focus.dom.inner].styled_dom.styled_nodes.as_container_mut()[new_focus.node.into_crate_internal().unwrap()].restyle_focus();
-            ret.focus_properties_changed.entry(new_focus.dom).or_insert_with(|| ChangedCssPropertyVec::new()).append(&mut new_focus_restyle_props.clone());
-            let mut new_focus_relayout_props = new_focus_restyle_props.iter().filter(|p| p.previous_prop.get_type().can_trigger_relayout()).cloned().collect();
-
-            let mut combined_layout_props = old_focus_layout_props.unwrap_or_default();
-            combined_layout_props.entry(new_focus_node_id).or_insert_with(|| Vec::new()).append(&mut new_focus_relayout_props);
-
-            let mut relayouted_nodes = (relayout_cb)(new_dom_size, &mut layout_results[new_focus.dom.inner], resources, pipeline_id, &combined_layout_props);
-            ret.focus_nodes_changed_layout.entry(new_focus.dom).or_insert_with(|| Vec::new()).append(&mut relayouted_nodes);
-        }
-        */
-
-        ret.update_focused_node = Some(new_focus_node);
 
         ret
     }

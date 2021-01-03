@@ -32,6 +32,12 @@
     impl Ord for AzString { fn cmp(&self, rhs: &AzString) -> std::cmp::Ordering { use std::cmp::Ordering::*; match (crate::dll::get_azul_dll().az_string_cmp)(self, rhs) { 0 => Less, 1 => Equal, _ => Greater } } }
 
     impl std::hash::Hash for AzString { fn hash<H: std::hash::Hasher>(&self, state: &mut H) { ((crate::dll::get_azul_dll().az_string_hash)(self)).hash(state) } }
+    /// Wrapper over a Rust-allocated `Vec<StyleTransform>`
+    #[repr(C)] pub struct AzStyleTransformVec {
+        pub(crate) ptr: *mut AzStyleTransform,
+        pub len: usize,
+        pub cap: usize,
+    }
     /// Wrapper over a Rust-allocated `Vec<ContentGroup>`
     #[repr(C)] pub struct AzContentGroupVec {
         pub(crate) ptr: *mut AzContentGroup,
@@ -223,6 +229,41 @@
         pub(crate) ptr: *mut AzNodeData,
         pub len: usize,
         pub cap: usize,
+    }
+    /// Re-export of rust-allocated (stack based) `OptionStyleOpacityValue` struct
+    #[repr(C, u8)] pub enum AzOptionStyleOpacityValue {
+        None,
+        Some(AzStyleOpacityValue),
+    }
+    /// Re-export of rust-allocated (stack based) `OptionStyleTransformVecValue` struct
+    #[repr(C, u8)] pub enum AzOptionStyleTransformVecValue {
+        None,
+        Some(AzStyleTransformVecValue),
+    }
+    /// Re-export of rust-allocated (stack based) `OptionStyleTransformOriginValue` struct
+    #[repr(C, u8)] pub enum AzOptionStyleTransformOriginValue {
+        None,
+        Some(AzStyleTransformOriginValue),
+    }
+    /// Re-export of rust-allocated (stack based) `OptionStylePerspectiveOriginValue` struct
+    #[repr(C, u8)] pub enum AzOptionStylePerspectiveOriginValue {
+        None,
+        Some(AzStylePerspectiveOriginValue),
+    }
+    /// Re-export of rust-allocated (stack based) `OptionStyleBackfaceVisibilityValue` struct
+    #[repr(C, u8)] pub enum AzOptionStyleBackfaceVisibilityValue {
+        None,
+        Some(AzStyleBackfaceVisibilityValue),
+    }
+    /// Re-export of rust-allocated (stack based) `OptionLayoutPoint` struct
+    #[repr(C, u8)] pub enum AzOptionLayoutPoint {
+        None,
+        Some(AzLayoutPoint),
+    }
+    /// Re-export of rust-allocated (stack based) `OptionWindowTheme` struct
+    #[repr(C, u8)] pub enum AzOptionWindowTheme {
+        None,
+        Some(AzWindowTheme),
     }
     /// Re-export of rust-allocated (stack based) `OptionNodeId` struct
     #[repr(C, u8)] pub enum AzOptionNodeId {
@@ -644,11 +685,6 @@
         None,
         Some(AzLayoutAlignContent),
     }
-    /// Re-export of rust-allocated (stack based) `OptionHoverGroup` struct
-    #[repr(C, u8)] pub enum AzOptionHoverGroup {
-        None,
-        Some(AzHoverGroup),
-    }
     /// Re-export of rust-allocated (stack based) `OptionTagId` struct
     #[repr(C, u8)] pub enum AzOptionTagId {
         None,
@@ -870,16 +906,48 @@
     impl Ord for AzCallback { fn cmp(&self, rhs: &AzCallback) -> std::cmp::Ordering { use std::cmp::Ordering::*; match (crate::dll::get_azul_dll().az_callback_cmp)(self, rhs) { 0 => Less, 1 => Equal, _ => Greater } } }
 
     impl std::hash::Hash for AzCallback { fn hash<H: std::hash::Hasher>(&self, state: &mut H) { ((crate::dll::get_azul_dll().az_callback_hash)(self)).hash(state) } }
+    /// Defines the focus target for the next frame
+    #[repr(C, u8)] pub enum AzFocusTarget {
+        Id(AzDomNodeId),
+        Path(AzFocusTargetPath),
+        PreviousFocusItem,
+        NextFocusItem,
+        NoFocus,
+    }
+
+    impl PartialEq for AzFocusTarget { fn eq(&self, rhs: &AzFocusTarget) -> bool { (crate::dll::get_azul_dll().az_focus_target_partial_eq)(self, rhs) } }
+
+    impl Eq for AzFocusTarget { }
+
+    impl PartialOrd for AzFocusTarget { fn partial_cmp(&self, rhs: &AzFocusTarget) -> Option<std::cmp::Ordering> { use std::cmp::Ordering::*; match (crate::dll::get_azul_dll().az_focus_target_partial_cmp)(self, rhs) { 1 => Some(Less), 2 => Some(Equal), 3 => Some(Greater), _ => None } } }
+
+    impl Ord for AzFocusTarget { fn cmp(&self, rhs: &AzFocusTarget) -> std::cmp::Ordering { use std::cmp::Ordering::*; match (crate::dll::get_azul_dll().az_focus_target_cmp)(self, rhs) { 0 => Less, 1 => Equal, _ => Greater } } }
+
+    impl std::hash::Hash for AzFocusTarget { fn hash<H: std::hash::Hasher>(&self, state: &mut H) { ((crate::dll::get_azul_dll().az_focus_target_hash)(self)).hash(state) } }
+    /// Re-export of rust-allocated (stack based) `FocusTargetPath` struct
+    #[repr(C)] pub struct AzFocusTargetPath {
+        pub dom: AzDomId,
+        pub css_path: AzCssPath,
+    }
+
+    impl PartialEq for AzFocusTargetPath { fn eq(&self, rhs: &AzFocusTargetPath) -> bool { (crate::dll::get_azul_dll().az_focus_target_path_partial_eq)(self, rhs) } }
+
+    impl Eq for AzFocusTargetPath { }
+
+    impl PartialOrd for AzFocusTargetPath { fn partial_cmp(&self, rhs: &AzFocusTargetPath) -> Option<std::cmp::Ordering> { use std::cmp::Ordering::*; match (crate::dll::get_azul_dll().az_focus_target_path_partial_cmp)(self, rhs) { 1 => Some(Less), 2 => Some(Equal), 3 => Some(Greater), _ => None } } }
+
+    impl Ord for AzFocusTargetPath { fn cmp(&self, rhs: &AzFocusTargetPath) -> std::cmp::Ordering { use std::cmp::Ordering::*; match (crate::dll::get_azul_dll().az_focus_target_path_cmp)(self, rhs) { 0 => Less, 1 => Equal, _ => Greater } } }
+
+    impl std::hash::Hash for AzFocusTargetPath { fn hash<H: std::hash::Hasher>(&self, state: &mut H) { ((crate::dll::get_azul_dll().az_focus_target_path_hash)(self)).hash(state) } }
     /// Pointer to rust-allocated `Box<CallbackInfo>` struct
     #[repr(C)] pub struct AzCallbackInfoPtr {
         pub(crate) ptr: *mut c_void,
     }
     /// Specifies if the screen should be updated after the callback function has returned
     #[repr(C)] pub enum AzUpdateScreen {
-        Redraw,
+        RedrawCurrentWindow,
+        RedrawAllWindows,
         DontRedraw,
-        UpdateScrollStates,
-        UpdateTransforms,
     }
     /// Re-export of rust-allocated (stack based) `IFrameCallback` struct
     #[repr(C)] pub struct AzIFrameCallback {
@@ -1440,6 +1508,243 @@
     #[repr(C)] pub struct AzStyleTabWidth {
         pub inner: AzPercentageValue,
     }
+    /// Re-export of rust-allocated (stack based) `StyleOpacity` struct
+    #[repr(C)] pub struct AzStyleOpacity {
+        pub inner: AzFloatValue,
+    }
+    /// Re-export of rust-allocated (stack based) `StyleTransformOrigin` struct
+    #[repr(C)] pub struct AzStyleTransformOrigin {
+        pub x: AzPixelValue,
+        pub y: AzPixelValue,
+    }
+
+    impl Copy for AzStyleTransformOrigin { }
+
+    impl PartialEq for AzStyleTransformOrigin { fn eq(&self, rhs: &AzStyleTransformOrigin) -> bool { (crate::dll::get_azul_dll().az_style_transform_origin_partial_eq)(self, rhs) } }
+
+    impl Eq for AzStyleTransformOrigin { }
+
+    impl PartialOrd for AzStyleTransformOrigin { fn partial_cmp(&self, rhs: &AzStyleTransformOrigin) -> Option<std::cmp::Ordering> { use std::cmp::Ordering::*; match (crate::dll::get_azul_dll().az_style_transform_origin_partial_cmp)(self, rhs) { 1 => Some(Less), 2 => Some(Equal), 3 => Some(Greater), _ => None } } }
+
+    impl Ord for AzStyleTransformOrigin { fn cmp(&self, rhs: &AzStyleTransformOrigin) -> std::cmp::Ordering { use std::cmp::Ordering::*; match (crate::dll::get_azul_dll().az_style_transform_origin_cmp)(self, rhs) { 0 => Less, 1 => Equal, _ => Greater } } }
+
+    impl std::hash::Hash for AzStyleTransformOrigin { fn hash<H: std::hash::Hasher>(&self, state: &mut H) { ((crate::dll::get_azul_dll().az_style_transform_origin_hash)(self)).hash(state) } }
+    /// Re-export of rust-allocated (stack based) `StylePerspectiveOrigin` struct
+    #[repr(C)] pub struct AzStylePerspectiveOrigin {
+        pub x: AzPixelValue,
+        pub y: AzPixelValue,
+    }
+
+    impl Copy for AzStylePerspectiveOrigin { }
+
+    impl PartialEq for AzStylePerspectiveOrigin { fn eq(&self, rhs: &AzStylePerspectiveOrigin) -> bool { (crate::dll::get_azul_dll().az_style_perspective_origin_partial_eq)(self, rhs) } }
+
+    impl Eq for AzStylePerspectiveOrigin { }
+
+    impl PartialOrd for AzStylePerspectiveOrigin { fn partial_cmp(&self, rhs: &AzStylePerspectiveOrigin) -> Option<std::cmp::Ordering> { use std::cmp::Ordering::*; match (crate::dll::get_azul_dll().az_style_perspective_origin_partial_cmp)(self, rhs) { 1 => Some(Less), 2 => Some(Equal), 3 => Some(Greater), _ => None } } }
+
+    impl Ord for AzStylePerspectiveOrigin { fn cmp(&self, rhs: &AzStylePerspectiveOrigin) -> std::cmp::Ordering { use std::cmp::Ordering::*; match (crate::dll::get_azul_dll().az_style_perspective_origin_cmp)(self, rhs) { 0 => Less, 1 => Equal, _ => Greater } } }
+
+    impl std::hash::Hash for AzStylePerspectiveOrigin { fn hash<H: std::hash::Hasher>(&self, state: &mut H) { ((crate::dll::get_azul_dll().az_style_perspective_origin_hash)(self)).hash(state) } }
+    /// Re-export of rust-allocated (stack based) `StyleBackfaceVisibility` struct
+    #[repr(C)] pub enum AzStyleBackfaceVisibility {
+        Hidden,
+        Visible,
+    }
+
+    impl Copy for AzStyleBackfaceVisibility { }
+
+    impl PartialEq for AzStyleBackfaceVisibility { fn eq(&self, rhs: &AzStyleBackfaceVisibility) -> bool { (crate::dll::get_azul_dll().az_style_backface_visibility_partial_eq)(self, rhs) } }
+
+    impl Eq for AzStyleBackfaceVisibility { }
+
+    impl PartialOrd for AzStyleBackfaceVisibility { fn partial_cmp(&self, rhs: &AzStyleBackfaceVisibility) -> Option<std::cmp::Ordering> { use std::cmp::Ordering::*; match (crate::dll::get_azul_dll().az_style_backface_visibility_partial_cmp)(self, rhs) { 1 => Some(Less), 2 => Some(Equal), 3 => Some(Greater), _ => None } } }
+
+    impl Ord for AzStyleBackfaceVisibility { fn cmp(&self, rhs: &AzStyleBackfaceVisibility) -> std::cmp::Ordering { use std::cmp::Ordering::*; match (crate::dll::get_azul_dll().az_style_backface_visibility_cmp)(self, rhs) { 0 => Less, 1 => Equal, _ => Greater } } }
+
+    impl std::hash::Hash for AzStyleBackfaceVisibility { fn hash<H: std::hash::Hasher>(&self, state: &mut H) { ((crate::dll::get_azul_dll().az_style_backface_visibility_hash)(self)).hash(state) } }
+    /// Re-export of rust-allocated (stack based) `StyleTransform` struct
+    #[repr(C, u8)] pub enum AzStyleTransform {
+        Matrix(AzStyleTransformMatrix2D),
+        Matrix3D(AzStyleTransformMatrix3D),
+        Translate(AzStyleTransformTranslate2D),
+        Translate3D(AzStyleTransformTranslate3D),
+        TranslateX(AzPixelValue),
+        TranslateY(AzPixelValue),
+        TranslateZ(AzPixelValue),
+        Rotate(AzPercentageValue),
+        Rotate3D(AzStyleTransformRotate3D),
+        RotateX(AzPercentageValue),
+        RotateY(AzPercentageValue),
+        RotateZ(AzPercentageValue),
+        Scale(AzStyleTransformScale2D),
+        Scale3D(AzStyleTransformScale3D),
+        ScaleX(AzPercentageValue),
+        ScaleY(AzPercentageValue),
+        ScaleZ(AzPercentageValue),
+        Skew(AzStyleTransformSkew2D),
+        SkewX(AzPercentageValue),
+        SkewY(AzPercentageValue),
+        Perspective(AzPixelValue),
+    }
+
+    impl Copy for AzStyleTransform { }
+
+    impl PartialEq for AzStyleTransform { fn eq(&self, rhs: &AzStyleTransform) -> bool { (crate::dll::get_azul_dll().az_style_transform_partial_eq)(self, rhs) } }
+
+    impl Eq for AzStyleTransform { }
+
+    impl PartialOrd for AzStyleTransform { fn partial_cmp(&self, rhs: &AzStyleTransform) -> Option<std::cmp::Ordering> { use std::cmp::Ordering::*; match (crate::dll::get_azul_dll().az_style_transform_partial_cmp)(self, rhs) { 1 => Some(Less), 2 => Some(Equal), 3 => Some(Greater), _ => None } } }
+
+    impl Ord for AzStyleTransform { fn cmp(&self, rhs: &AzStyleTransform) -> std::cmp::Ordering { use std::cmp::Ordering::*; match (crate::dll::get_azul_dll().az_style_transform_cmp)(self, rhs) { 0 => Less, 1 => Equal, _ => Greater } } }
+
+    impl std::hash::Hash for AzStyleTransform { fn hash<H: std::hash::Hasher>(&self, state: &mut H) { ((crate::dll::get_azul_dll().az_style_transform_hash)(self)).hash(state) } }
+    /// Re-export of rust-allocated (stack based) `StyleTransformMatrix2D` struct
+    #[repr(C)] pub struct AzStyleTransformMatrix2D {
+        pub a: AzPixelValue,
+        pub b: AzPixelValue,
+        pub c: AzPixelValue,
+        pub d: AzPixelValue,
+        pub tx: AzPixelValue,
+        pub ty: AzPixelValue,
+    }
+
+    impl Copy for AzStyleTransformMatrix2D { }
+
+    impl PartialEq for AzStyleTransformMatrix2D { fn eq(&self, rhs: &AzStyleTransformMatrix2D) -> bool { (crate::dll::get_azul_dll().az_style_transform_matrix2_d_partial_eq)(self, rhs) } }
+
+    impl Eq for AzStyleTransformMatrix2D { }
+
+    impl PartialOrd for AzStyleTransformMatrix2D { fn partial_cmp(&self, rhs: &AzStyleTransformMatrix2D) -> Option<std::cmp::Ordering> { use std::cmp::Ordering::*; match (crate::dll::get_azul_dll().az_style_transform_matrix2_d_partial_cmp)(self, rhs) { 1 => Some(Less), 2 => Some(Equal), 3 => Some(Greater), _ => None } } }
+
+    impl Ord for AzStyleTransformMatrix2D { fn cmp(&self, rhs: &AzStyleTransformMatrix2D) -> std::cmp::Ordering { use std::cmp::Ordering::*; match (crate::dll::get_azul_dll().az_style_transform_matrix2_d_cmp)(self, rhs) { 0 => Less, 1 => Equal, _ => Greater } } }
+
+    impl std::hash::Hash for AzStyleTransformMatrix2D { fn hash<H: std::hash::Hasher>(&self, state: &mut H) { ((crate::dll::get_azul_dll().az_style_transform_matrix2_d_hash)(self)).hash(state) } }
+    /// Re-export of rust-allocated (stack based) `StyleTransformMatrix3D` struct
+    #[repr(C)] pub struct AzStyleTransformMatrix3D {
+        pub m11: AzPixelValue,
+        pub m12: AzPixelValue,
+        pub m13: AzPixelValue,
+        pub m14: AzPixelValue,
+        pub m21: AzPixelValue,
+        pub m22: AzPixelValue,
+        pub m23: AzPixelValue,
+        pub m24: AzPixelValue,
+        pub m31: AzPixelValue,
+        pub m32: AzPixelValue,
+        pub m33: AzPixelValue,
+        pub m34: AzPixelValue,
+        pub m41: AzPixelValue,
+        pub m42: AzPixelValue,
+        pub m43: AzPixelValue,
+        pub m44: AzPixelValue,
+    }
+
+    impl Copy for AzStyleTransformMatrix3D { }
+
+    impl PartialEq for AzStyleTransformMatrix3D { fn eq(&self, rhs: &AzStyleTransformMatrix3D) -> bool { (crate::dll::get_azul_dll().az_style_transform_matrix3_d_partial_eq)(self, rhs) } }
+
+    impl Eq for AzStyleTransformMatrix3D { }
+
+    impl PartialOrd for AzStyleTransformMatrix3D { fn partial_cmp(&self, rhs: &AzStyleTransformMatrix3D) -> Option<std::cmp::Ordering> { use std::cmp::Ordering::*; match (crate::dll::get_azul_dll().az_style_transform_matrix3_d_partial_cmp)(self, rhs) { 1 => Some(Less), 2 => Some(Equal), 3 => Some(Greater), _ => None } } }
+
+    impl Ord for AzStyleTransformMatrix3D { fn cmp(&self, rhs: &AzStyleTransformMatrix3D) -> std::cmp::Ordering { use std::cmp::Ordering::*; match (crate::dll::get_azul_dll().az_style_transform_matrix3_d_cmp)(self, rhs) { 0 => Less, 1 => Equal, _ => Greater } } }
+
+    impl std::hash::Hash for AzStyleTransformMatrix3D { fn hash<H: std::hash::Hasher>(&self, state: &mut H) { ((crate::dll::get_azul_dll().az_style_transform_matrix3_d_hash)(self)).hash(state) } }
+    /// Re-export of rust-allocated (stack based) `StyleTransformTranslate2D` struct
+    #[repr(C)] pub struct AzStyleTransformTranslate2D {
+        pub x: AzPixelValue,
+        pub y: AzPixelValue,
+    }
+
+    impl Copy for AzStyleTransformTranslate2D { }
+
+    impl PartialEq for AzStyleTransformTranslate2D { fn eq(&self, rhs: &AzStyleTransformTranslate2D) -> bool { (crate::dll::get_azul_dll().az_style_transform_translate2_d_partial_eq)(self, rhs) } }
+
+    impl Eq for AzStyleTransformTranslate2D { }
+
+    impl PartialOrd for AzStyleTransformTranslate2D { fn partial_cmp(&self, rhs: &AzStyleTransformTranslate2D) -> Option<std::cmp::Ordering> { use std::cmp::Ordering::*; match (crate::dll::get_azul_dll().az_style_transform_translate2_d_partial_cmp)(self, rhs) { 1 => Some(Less), 2 => Some(Equal), 3 => Some(Greater), _ => None } } }
+
+    impl Ord for AzStyleTransformTranslate2D { fn cmp(&self, rhs: &AzStyleTransformTranslate2D) -> std::cmp::Ordering { use std::cmp::Ordering::*; match (crate::dll::get_azul_dll().az_style_transform_translate2_d_cmp)(self, rhs) { 0 => Less, 1 => Equal, _ => Greater } } }
+
+    impl std::hash::Hash for AzStyleTransformTranslate2D { fn hash<H: std::hash::Hasher>(&self, state: &mut H) { ((crate::dll::get_azul_dll().az_style_transform_translate2_d_hash)(self)).hash(state) } }
+    /// Re-export of rust-allocated (stack based) `StyleTransformTranslate3D` struct
+    #[repr(C)] pub struct AzStyleTransformTranslate3D {
+        pub x: AzPixelValue,
+        pub y: AzPixelValue,
+        pub z: AzPixelValue,
+    }
+
+    impl Copy for AzStyleTransformTranslate3D { }
+
+    impl PartialEq for AzStyleTransformTranslate3D { fn eq(&self, rhs: &AzStyleTransformTranslate3D) -> bool { (crate::dll::get_azul_dll().az_style_transform_translate3_d_partial_eq)(self, rhs) } }
+
+    impl Eq for AzStyleTransformTranslate3D { }
+
+    impl PartialOrd for AzStyleTransformTranslate3D { fn partial_cmp(&self, rhs: &AzStyleTransformTranslate3D) -> Option<std::cmp::Ordering> { use std::cmp::Ordering::*; match (crate::dll::get_azul_dll().az_style_transform_translate3_d_partial_cmp)(self, rhs) { 1 => Some(Less), 2 => Some(Equal), 3 => Some(Greater), _ => None } } }
+
+    impl Ord for AzStyleTransformTranslate3D { fn cmp(&self, rhs: &AzStyleTransformTranslate3D) -> std::cmp::Ordering { use std::cmp::Ordering::*; match (crate::dll::get_azul_dll().az_style_transform_translate3_d_cmp)(self, rhs) { 0 => Less, 1 => Equal, _ => Greater } } }
+
+    impl std::hash::Hash for AzStyleTransformTranslate3D { fn hash<H: std::hash::Hasher>(&self, state: &mut H) { ((crate::dll::get_azul_dll().az_style_transform_translate3_d_hash)(self)).hash(state) } }
+    /// Re-export of rust-allocated (stack based) `StyleTransformRotate3D` struct
+    #[repr(C)] pub struct AzStyleTransformRotate3D {
+        pub x: AzPercentageValue,
+        pub y: AzPercentageValue,
+        pub z: AzPercentageValue,
+        pub angle: AzPercentageValue,
+    }
+
+    impl Copy for AzStyleTransformRotate3D { }
+
+    impl PartialEq for AzStyleTransformRotate3D { fn eq(&self, rhs: &AzStyleTransformRotate3D) -> bool { (crate::dll::get_azul_dll().az_style_transform_rotate3_d_partial_eq)(self, rhs) } }
+
+    impl Eq for AzStyleTransformRotate3D { }
+
+    impl PartialOrd for AzStyleTransformRotate3D { fn partial_cmp(&self, rhs: &AzStyleTransformRotate3D) -> Option<std::cmp::Ordering> { use std::cmp::Ordering::*; match (crate::dll::get_azul_dll().az_style_transform_rotate3_d_partial_cmp)(self, rhs) { 1 => Some(Less), 2 => Some(Equal), 3 => Some(Greater), _ => None } } }
+
+    impl Ord for AzStyleTransformRotate3D { fn cmp(&self, rhs: &AzStyleTransformRotate3D) -> std::cmp::Ordering { use std::cmp::Ordering::*; match (crate::dll::get_azul_dll().az_style_transform_rotate3_d_cmp)(self, rhs) { 0 => Less, 1 => Equal, _ => Greater } } }
+
+    impl std::hash::Hash for AzStyleTransformRotate3D { fn hash<H: std::hash::Hasher>(&self, state: &mut H) { ((crate::dll::get_azul_dll().az_style_transform_rotate3_d_hash)(self)).hash(state) } }
+    /// Re-export of rust-allocated (stack based) `StyleTransformScale2D` struct
+    #[repr(C)] pub struct AzStyleTransformScale2D {
+        pub x: AzPercentageValue,
+        pub y: AzPercentageValue,
+    }
+
+    impl Copy for AzStyleTransformScale2D { }
+
+    impl PartialEq for AzStyleTransformScale2D { fn eq(&self, rhs: &AzStyleTransformScale2D) -> bool { (crate::dll::get_azul_dll().az_style_transform_scale2_d_partial_eq)(self, rhs) } }
+
+    impl Eq for AzStyleTransformScale2D { }
+
+    impl PartialOrd for AzStyleTransformScale2D { fn partial_cmp(&self, rhs: &AzStyleTransformScale2D) -> Option<std::cmp::Ordering> { use std::cmp::Ordering::*; match (crate::dll::get_azul_dll().az_style_transform_scale2_d_partial_cmp)(self, rhs) { 1 => Some(Less), 2 => Some(Equal), 3 => Some(Greater), _ => None } } }
+
+    impl Ord for AzStyleTransformScale2D { fn cmp(&self, rhs: &AzStyleTransformScale2D) -> std::cmp::Ordering { use std::cmp::Ordering::*; match (crate::dll::get_azul_dll().az_style_transform_scale2_d_cmp)(self, rhs) { 0 => Less, 1 => Equal, _ => Greater } } }
+
+    impl std::hash::Hash for AzStyleTransformScale2D { fn hash<H: std::hash::Hasher>(&self, state: &mut H) { ((crate::dll::get_azul_dll().az_style_transform_scale2_d_hash)(self)).hash(state) } }
+    /// Re-export of rust-allocated (stack based) `StyleTransformScale3D` struct
+    #[repr(C)] pub struct AzStyleTransformScale3D {
+        pub x: AzPercentageValue,
+        pub y: AzPercentageValue,
+        pub z: AzPercentageValue,
+    }
+
+    impl Copy for AzStyleTransformScale3D { }
+
+    impl PartialEq for AzStyleTransformScale3D { fn eq(&self, rhs: &AzStyleTransformScale3D) -> bool { (crate::dll::get_azul_dll().az_style_transform_scale3_d_partial_eq)(self, rhs) } }
+
+    impl Eq for AzStyleTransformScale3D { }
+
+    impl PartialOrd for AzStyleTransformScale3D { fn partial_cmp(&self, rhs: &AzStyleTransformScale3D) -> Option<std::cmp::Ordering> { use std::cmp::Ordering::*; match (crate::dll::get_azul_dll().az_style_transform_scale3_d_partial_cmp)(self, rhs) { 1 => Some(Less), 2 => Some(Equal), 3 => Some(Greater), _ => None } } }
+
+    impl Ord for AzStyleTransformScale3D { fn cmp(&self, rhs: &AzStyleTransformScale3D) -> std::cmp::Ordering { use std::cmp::Ordering::*; match (crate::dll::get_azul_dll().az_style_transform_scale3_d_cmp)(self, rhs) { 0 => Less, 1 => Equal, _ => Greater } } }
+
+    impl std::hash::Hash for AzStyleTransformScale3D { fn hash<H: std::hash::Hasher>(&self, state: &mut H) { ((crate::dll::get_azul_dll().az_style_transform_scale3_d_hash)(self)).hash(state) } }
+    /// Re-export of rust-allocated (stack based) `StyleTransformSkew2D` struct
+    #[repr(C)] pub struct AzStyleTransformSkew2D {
+        pub x: AzPixelValue,
+        pub y: AzPixelValue,
+    }
     /// Re-export of rust-allocated (stack based) `StyleTextAlignmentHorz` struct
     #[repr(C)] pub enum AzStyleTextAlignmentHorz {
         Left,
@@ -1934,6 +2239,46 @@
         Initial,
         Exact(AzStyleWordSpacing),
     }
+    /// Re-export of rust-allocated (stack based) `StyleOpacityValue` struct
+    #[repr(C, u8)] pub enum AzStyleOpacityValue {
+        Auto,
+        None,
+        Inherit,
+        Initial,
+        Exact(AzStyleOpacity),
+    }
+    /// Re-export of rust-allocated (stack based) `StyleTransformVecValue` struct
+    #[repr(C, u8)] pub enum AzStyleTransformVecValue {
+        Auto,
+        None,
+        Inherit,
+        Initial,
+        Exact(AzStyleTransformVec),
+    }
+    /// Re-export of rust-allocated (stack based) `StyleTransformOriginValue` struct
+    #[repr(C, u8)] pub enum AzStyleTransformOriginValue {
+        Auto,
+        None,
+        Inherit,
+        Initial,
+        Exact(AzStyleTransformOrigin),
+    }
+    /// Re-export of rust-allocated (stack based) `StylePerspectiveOriginValue` struct
+    #[repr(C, u8)] pub enum AzStylePerspectiveOriginValue {
+        Auto,
+        None,
+        Inherit,
+        Initial,
+        Exact(AzStylePerspectiveOrigin),
+    }
+    /// Re-export of rust-allocated (stack based) `StyleBackfaceVisibilityValue` struct
+    #[repr(C, u8)] pub enum AzStyleBackfaceVisibilityValue {
+        Auto,
+        None,
+        Inherit,
+        Initial,
+        Exact(AzStyleBackfaceVisibility),
+    }
     /// Parsed CSS key-value pair
     #[repr(C, u8)] pub enum AzCssProperty {
         TextColor(AzStyleTextColorValue),
@@ -2000,6 +2345,11 @@
         BoxShadowRight(AzBoxShadowPreDisplayItemValue),
         BoxShadowTop(AzBoxShadowPreDisplayItemValue),
         BoxShadowBottom(AzBoxShadowPreDisplayItemValue),
+        Opacity(AzStyleOpacityValue),
+        Transform(AzStyleTransformVecValue),
+        TransformOrigin(AzStyleTransformOriginValue),
+        PerspectiveOrigin(AzStylePerspectiveOriginValue),
+        BackfaceVisibility(AzStyleBackfaceVisibilityValue),
     }
 
     impl PartialEq for AzCssProperty { fn eq(&self, rhs: &AzCssProperty) -> bool { (crate::dll::get_azul_dll().az_css_property_partial_eq)(self, rhs) } }
@@ -2033,9 +2383,6 @@
     #[repr(C)] pub struct AzCascadeInfo {
         pub index_in_parent: u32,
         pub is_last_child: bool,
-        pub is_hovered_over: bool,
-        pub is_focused: bool,
-        pub is_active: bool,
     }
 
     impl PartialEq for AzCascadeInfo { fn eq(&self, rhs: &AzCascadeInfo) -> bool { (crate::dll::get_azul_dll().az_cascade_info_partial_eq)(self, rhs) } }
@@ -2078,6 +2425,11 @@
         pub border_top_right_radius: AzOptionStyleBorderTopRightRadiusValue,
         pub border_bottom_left_radius: AzOptionStyleBorderBottomLeftRadiusValue,
         pub border_bottom_right_radius: AzOptionStyleBorderBottomRightRadiusValue,
+        pub opacity: AzOptionStyleOpacityValue,
+        pub transform: AzOptionStyleTransformVecValue,
+        pub transform_origin: AzOptionStyleTransformOriginValue,
+        pub perspective_origin: AzOptionStylePerspectiveOriginValue,
+        pub backface_visibility: AzOptionStyleBackfaceVisibilityValue,
     }
 
     impl PartialEq for AzRectStyle { fn eq(&self, rhs: &AzRectStyle) -> bool { (crate::dll::get_azul_dll().az_rect_style_partial_eq)(self, rhs) } }
@@ -2167,10 +2519,31 @@
     impl Ord for AzCssPropertySource { fn cmp(&self, rhs: &AzCssPropertySource) -> std::cmp::Ordering { use std::cmp::Ordering::*; match (crate::dll::get_azul_dll().az_css_property_source_cmp)(self, rhs) { 0 => Less, 1 => Equal, _ => Greater } } }
 
     impl std::hash::Hash for AzCssPropertySource { fn hash<H: std::hash::Hasher>(&self, state: &mut H) { ((crate::dll::get_azul_dll().az_css_property_source_hash)(self)).hash(state) } }
+    /// Re-export of rust-allocated (stack based) `StyledNodeState` struct
+    #[repr(C)] pub enum AzStyledNodeState {
+        Uninitialized,
+        Normal,
+        Hover,
+        Active,
+        Focused,
+    }
+
+    impl PartialEq for AzStyledNodeState { fn eq(&self, rhs: &AzStyledNodeState) -> bool { (crate::dll::get_azul_dll().az_styled_node_state_partial_eq)(self, rhs) } }
+
+    impl Eq for AzStyledNodeState { }
+
+    impl PartialOrd for AzStyledNodeState { fn partial_cmp(&self, rhs: &AzStyledNodeState) -> Option<std::cmp::Ordering> { use std::cmp::Ordering::*; match (crate::dll::get_azul_dll().az_styled_node_state_partial_cmp)(self, rhs) { 1 => Some(Less), 2 => Some(Equal), 3 => Some(Greater), _ => None } } }
+
+    impl Ord for AzStyledNodeState { fn cmp(&self, rhs: &AzStyledNodeState) -> std::cmp::Ordering { use std::cmp::Ordering::*; match (crate::dll::get_azul_dll().az_styled_node_state_cmp)(self, rhs) { 0 => Less, 1 => Equal, _ => Greater } } }
+
+    impl std::hash::Hash for AzStyledNodeState { fn hash<H: std::hash::Hasher>(&self, state: &mut H) { ((crate::dll::get_azul_dll().az_styled_node_state_hash)(self)).hash(state) } }
     /// Re-export of rust-allocated (stack based) `StyledNode` struct
     #[repr(C)] pub struct AzStyledNode {
         pub css_constraints: AzCascadedCssPropertyWithSourceVec,
-        pub hover_group: AzOptionHoverGroup,
+        pub hover_css_constraints: AzCascadedCssPropertyWithSourceVec,
+        pub active_css_constraints: AzCascadedCssPropertyWithSourceVec,
+        pub focus_css_constraints: AzCascadedCssPropertyWithSourceVec,
+        pub state: AzStyledNodeState,
         pub tag_id: AzOptionTagId,
         pub style: AzRectStyle,
         pub layout: AzRectLayout,
@@ -2204,7 +2577,6 @@
         pub tag_id: AzTagId,
         pub node_id: AzNodeId,
         pub tab_index: AzOptionTabIndex,
-        pub hover_group: AzOptionHoverGroup,
     }
 
     impl PartialEq for AzTagIdToNodeIdMapping { fn eq(&self, rhs: &AzTagIdToNodeIdMapping) -> bool { (crate::dll::get_azul_dll().az_tag_id_to_node_id_mapping_partial_eq)(self, rhs) } }
@@ -2216,39 +2588,9 @@
     impl Ord for AzTagIdToNodeIdMapping { fn cmp(&self, rhs: &AzTagIdToNodeIdMapping) -> std::cmp::Ordering { use std::cmp::Ordering::*; match (crate::dll::get_azul_dll().az_tag_id_to_node_id_mapping_cmp)(self, rhs) { 0 => Less, 1 => Equal, _ => Greater } } }
 
     impl std::hash::Hash for AzTagIdToNodeIdMapping { fn hash<H: std::hash::Hasher>(&self, state: &mut H) { ((crate::dll::get_azul_dll().az_tag_id_to_node_id_mapping_hash)(self)).hash(state) } }
-    /// Re-export of rust-allocated (stack based) `HoverGroup` struct
-    #[repr(C)] pub struct AzHoverGroup {
-        pub affects_layout: bool,
-        pub active_or_hover: AzActiveHover,
-    }
-
-    impl PartialEq for AzHoverGroup { fn eq(&self, rhs: &AzHoverGroup) -> bool { (crate::dll::get_azul_dll().az_hover_group_partial_eq)(self, rhs) } }
-
-    impl Eq for AzHoverGroup { }
-
-    impl PartialOrd for AzHoverGroup { fn partial_cmp(&self, rhs: &AzHoverGroup) -> Option<std::cmp::Ordering> { use std::cmp::Ordering::*; match (crate::dll::get_azul_dll().az_hover_group_partial_cmp)(self, rhs) { 1 => Some(Less), 2 => Some(Equal), 3 => Some(Greater), _ => None } } }
-
-    impl Ord for AzHoverGroup { fn cmp(&self, rhs: &AzHoverGroup) -> std::cmp::Ordering { use std::cmp::Ordering::*; match (crate::dll::get_azul_dll().az_hover_group_cmp)(self, rhs) { 0 => Less, 1 => Equal, _ => Greater } } }
-
-    impl std::hash::Hash for AzHoverGroup { fn hash<H: std::hash::Hasher>(&self, state: &mut H) { ((crate::dll::get_azul_dll().az_hover_group_hash)(self)).hash(state) } }
-    /// Re-export of rust-allocated (stack based) `ActiveHover` struct
-    #[repr(C)] pub enum AzActiveHover {
-        Active,
-        Hover,
-    }
-
-    impl PartialEq for AzActiveHover { fn eq(&self, rhs: &AzActiveHover) -> bool { (crate::dll::get_azul_dll().az_active_hover_partial_eq)(self, rhs) } }
-
-    impl Eq for AzActiveHover { }
-
-    impl PartialOrd for AzActiveHover { fn partial_cmp(&self, rhs: &AzActiveHover) -> Option<std::cmp::Ordering> { use std::cmp::Ordering::*; match (crate::dll::get_azul_dll().az_active_hover_partial_cmp)(self, rhs) { 1 => Some(Less), 2 => Some(Equal), 3 => Some(Greater), _ => None } } }
-
-    impl Ord for AzActiveHover { fn cmp(&self, rhs: &AzActiveHover) -> std::cmp::Ordering { use std::cmp::Ordering::*; match (crate::dll::get_azul_dll().az_active_hover_cmp)(self, rhs) { 0 => Less, 1 => Equal, _ => Greater } } }
-
-    impl std::hash::Hash for AzActiveHover { fn hash<H: std::hash::Hasher>(&self, state: &mut H) { ((crate::dll::get_azul_dll().az_active_hover_hash)(self)).hash(state) } }
     /// Re-export of rust-allocated (stack based) `ParentWithNodeDepth` struct
     #[repr(C)] pub struct AzParentWithNodeDepth {
-        pub depth: u32,
+        pub depth: usize,
         pub node_id: AzNodeId,
     }
 
@@ -2378,6 +2720,9 @@
         pub classes: AzStringVec,
         pub callbacks: AzCallbackDataVec,
         pub inline_css_props: AzCssPropertyVec,
+        pub inline_hover_css_props: AzCssPropertyVec,
+        pub inline_active_css_props: AzCssPropertyVec,
+        pub inline_focus_css_props: AzCssPropertyVec,
         pub clip_mask: AzOptionImageMask,
         pub is_draggable: bool,
         pub tab_index: AzOptionTabIndex,
@@ -2444,6 +2789,10 @@
         HoveredFile,
         DroppedFile,
         HoveredFileCancelled,
+        TouchStart,
+        TouchMove,
+        TouchEnd,
+        TouchCancel,
     }
     /// Re-export of rust-allocated (stack based) `FocusEventFilter` struct
     #[repr(C)] pub enum AzFocusEventFilter {
@@ -2494,6 +2843,16 @@
         HoveredFile,
         DroppedFile,
         HoveredFileCancelled,
+        Resized,
+        Moved,
+        TouchStart,
+        TouchMove,
+        TouchEnd,
+        TouchCancel,
+        WindowFocusReceived,
+        WindowFocusLost,
+        WindowCloseRequested,
+        ThemeChanged,
     }
     /// Re-export of rust-allocated (stack based) `TabIndex` struct
     #[repr(C, u8)] pub enum AzTabIndex {
@@ -2951,6 +3310,182 @@
         ThreadJoinError,
         MutexIntoInnerError,
     }
+    /// Re-export of rust-allocated (stack based) `LayoutPoint` struct
+    #[repr(C)] pub struct AzLayoutPoint {
+        pub x: isize,
+        pub y: isize,
+    }
+
+    impl Copy for AzLayoutPoint { }
+
+    impl PartialEq for AzLayoutPoint { fn eq(&self, rhs: &AzLayoutPoint) -> bool { (crate::dll::get_azul_dll().az_layout_point_partial_eq)(self, rhs) } }
+
+    impl Eq for AzLayoutPoint { }
+
+    impl PartialOrd for AzLayoutPoint { fn partial_cmp(&self, rhs: &AzLayoutPoint) -> Option<std::cmp::Ordering> { use std::cmp::Ordering::*; match (crate::dll::get_azul_dll().az_layout_point_partial_cmp)(self, rhs) { 1 => Some(Less), 2 => Some(Equal), 3 => Some(Greater), _ => None } } }
+
+    impl Ord for AzLayoutPoint { fn cmp(&self, rhs: &AzLayoutPoint) -> std::cmp::Ordering { use std::cmp::Ordering::*; match (crate::dll::get_azul_dll().az_layout_point_cmp)(self, rhs) { 0 => Less, 1 => Equal, _ => Greater } } }
+
+    impl std::hash::Hash for AzLayoutPoint { fn hash<H: std::hash::Hasher>(&self, state: &mut H) { ((crate::dll::get_azul_dll().az_layout_point_hash)(self)).hash(state) } }
+    /// Re-export of rust-allocated (stack based) `RawWindowHandle` struct
+    #[repr(C, u8)] pub enum AzRawWindowHandle {
+        IOS(AzIOSHandle),
+        MacOS(AzMacOSHandle),
+        Xlib(AzXlibHandle),
+        Xcb(AzXcbHandle),
+        Wayland(AzWaylandHandle),
+        Windows(AzWindowsHandle),
+        Web(AzWebHandle),
+        Android(AzAndroidHandle),
+        Unsupported,
+    }
+
+    impl Copy for AzRawWindowHandle { }
+
+    impl PartialEq for AzRawWindowHandle { fn eq(&self, rhs: &AzRawWindowHandle) -> bool { (crate::dll::get_azul_dll().az_raw_window_handle_partial_eq)(self, rhs) } }
+
+    impl Eq for AzRawWindowHandle { }
+
+    impl PartialOrd for AzRawWindowHandle { fn partial_cmp(&self, rhs: &AzRawWindowHandle) -> Option<std::cmp::Ordering> { use std::cmp::Ordering::*; match (crate::dll::get_azul_dll().az_raw_window_handle_partial_cmp)(self, rhs) { 1 => Some(Less), 2 => Some(Equal), 3 => Some(Greater), _ => None } } }
+
+    impl Ord for AzRawWindowHandle { fn cmp(&self, rhs: &AzRawWindowHandle) -> std::cmp::Ordering { use std::cmp::Ordering::*; match (crate::dll::get_azul_dll().az_raw_window_handle_cmp)(self, rhs) { 0 => Less, 1 => Equal, _ => Greater } } }
+
+    impl std::hash::Hash for AzRawWindowHandle { fn hash<H: std::hash::Hasher>(&self, state: &mut H) { ((crate::dll::get_azul_dll().az_raw_window_handle_hash)(self)).hash(state) } }
+    /// Re-export of rust-allocated (stack based) `IOSHandle` struct
+    #[repr(C)] pub struct AzIOSHandle {
+        pub ui_window: *mut c_void,
+        pub ui_view: *mut c_void,
+        pub ui_view_controller: *mut c_void,
+    }
+
+    impl Copy for AzIOSHandle { }
+
+    impl PartialEq for AzIOSHandle { fn eq(&self, rhs: &AzIOSHandle) -> bool { (crate::dll::get_azul_dll().az_ios_handle_partial_eq)(self, rhs) } }
+
+    impl Eq for AzIOSHandle { }
+
+    impl PartialOrd for AzIOSHandle { fn partial_cmp(&self, rhs: &AzIOSHandle) -> Option<std::cmp::Ordering> { use std::cmp::Ordering::*; match (crate::dll::get_azul_dll().az_ios_handle_partial_cmp)(self, rhs) { 1 => Some(Less), 2 => Some(Equal), 3 => Some(Greater), _ => None } } }
+
+    impl Ord for AzIOSHandle { fn cmp(&self, rhs: &AzIOSHandle) -> std::cmp::Ordering { use std::cmp::Ordering::*; match (crate::dll::get_azul_dll().az_ios_handle_cmp)(self, rhs) { 0 => Less, 1 => Equal, _ => Greater } } }
+
+    impl std::hash::Hash for AzIOSHandle { fn hash<H: std::hash::Hasher>(&self, state: &mut H) { ((crate::dll::get_azul_dll().az_ios_handle_hash)(self)).hash(state) } }
+    /// Re-export of rust-allocated (stack based) `MacOSHandle` struct
+    #[repr(C)] pub struct AzMacOSHandle {
+        pub ns_window: *mut c_void,
+        pub ns_view: *mut c_void,
+    }
+
+    impl Copy for AzMacOSHandle { }
+
+    impl PartialEq for AzMacOSHandle { fn eq(&self, rhs: &AzMacOSHandle) -> bool { (crate::dll::get_azul_dll().az_mac_os_handle_partial_eq)(self, rhs) } }
+
+    impl Eq for AzMacOSHandle { }
+
+    impl PartialOrd for AzMacOSHandle { fn partial_cmp(&self, rhs: &AzMacOSHandle) -> Option<std::cmp::Ordering> { use std::cmp::Ordering::*; match (crate::dll::get_azul_dll().az_mac_os_handle_partial_cmp)(self, rhs) { 1 => Some(Less), 2 => Some(Equal), 3 => Some(Greater), _ => None } } }
+
+    impl Ord for AzMacOSHandle { fn cmp(&self, rhs: &AzMacOSHandle) -> std::cmp::Ordering { use std::cmp::Ordering::*; match (crate::dll::get_azul_dll().az_mac_os_handle_cmp)(self, rhs) { 0 => Less, 1 => Equal, _ => Greater } } }
+
+    impl std::hash::Hash for AzMacOSHandle { fn hash<H: std::hash::Hasher>(&self, state: &mut H) { ((crate::dll::get_azul_dll().az_mac_os_handle_hash)(self)).hash(state) } }
+    /// Re-export of rust-allocated (stack based) `XlibHandle` struct
+    #[repr(C)] pub struct AzXlibHandle {
+        pub window: u64,
+        pub display: *mut c_void,
+    }
+
+    impl Copy for AzXlibHandle { }
+
+    impl PartialEq for AzXlibHandle { fn eq(&self, rhs: &AzXlibHandle) -> bool { (crate::dll::get_azul_dll().az_xlib_handle_partial_eq)(self, rhs) } }
+
+    impl Eq for AzXlibHandle { }
+
+    impl PartialOrd for AzXlibHandle { fn partial_cmp(&self, rhs: &AzXlibHandle) -> Option<std::cmp::Ordering> { use std::cmp::Ordering::*; match (crate::dll::get_azul_dll().az_xlib_handle_partial_cmp)(self, rhs) { 1 => Some(Less), 2 => Some(Equal), 3 => Some(Greater), _ => None } } }
+
+    impl Ord for AzXlibHandle { fn cmp(&self, rhs: &AzXlibHandle) -> std::cmp::Ordering { use std::cmp::Ordering::*; match (crate::dll::get_azul_dll().az_xlib_handle_cmp)(self, rhs) { 0 => Less, 1 => Equal, _ => Greater } } }
+
+    impl std::hash::Hash for AzXlibHandle { fn hash<H: std::hash::Hasher>(&self, state: &mut H) { ((crate::dll::get_azul_dll().az_xlib_handle_hash)(self)).hash(state) } }
+    /// Re-export of rust-allocated (stack based) `XcbHandle` struct
+    #[repr(C)] pub struct AzXcbHandle {
+        pub window: u32,
+        pub connection: *mut c_void,
+    }
+
+    impl Copy for AzXcbHandle { }
+
+    impl PartialEq for AzXcbHandle { fn eq(&self, rhs: &AzXcbHandle) -> bool { (crate::dll::get_azul_dll().az_xcb_handle_partial_eq)(self, rhs) } }
+
+    impl Eq for AzXcbHandle { }
+
+    impl PartialOrd for AzXcbHandle { fn partial_cmp(&self, rhs: &AzXcbHandle) -> Option<std::cmp::Ordering> { use std::cmp::Ordering::*; match (crate::dll::get_azul_dll().az_xcb_handle_partial_cmp)(self, rhs) { 1 => Some(Less), 2 => Some(Equal), 3 => Some(Greater), _ => None } } }
+
+    impl Ord for AzXcbHandle { fn cmp(&self, rhs: &AzXcbHandle) -> std::cmp::Ordering { use std::cmp::Ordering::*; match (crate::dll::get_azul_dll().az_xcb_handle_cmp)(self, rhs) { 0 => Less, 1 => Equal, _ => Greater } } }
+
+    impl std::hash::Hash for AzXcbHandle { fn hash<H: std::hash::Hasher>(&self, state: &mut H) { ((crate::dll::get_azul_dll().az_xcb_handle_hash)(self)).hash(state) } }
+    /// Re-export of rust-allocated (stack based) `WaylandHandle` struct
+    #[repr(C)] pub struct AzWaylandHandle {
+        pub surface: *mut c_void,
+        pub display: *mut c_void,
+    }
+
+    impl Copy for AzWaylandHandle { }
+
+    impl PartialEq for AzWaylandHandle { fn eq(&self, rhs: &AzWaylandHandle) -> bool { (crate::dll::get_azul_dll().az_wayland_handle_partial_eq)(self, rhs) } }
+
+    impl Eq for AzWaylandHandle { }
+
+    impl PartialOrd for AzWaylandHandle { fn partial_cmp(&self, rhs: &AzWaylandHandle) -> Option<std::cmp::Ordering> { use std::cmp::Ordering::*; match (crate::dll::get_azul_dll().az_wayland_handle_partial_cmp)(self, rhs) { 1 => Some(Less), 2 => Some(Equal), 3 => Some(Greater), _ => None } } }
+
+    impl Ord for AzWaylandHandle { fn cmp(&self, rhs: &AzWaylandHandle) -> std::cmp::Ordering { use std::cmp::Ordering::*; match (crate::dll::get_azul_dll().az_wayland_handle_cmp)(self, rhs) { 0 => Less, 1 => Equal, _ => Greater } } }
+
+    impl std::hash::Hash for AzWaylandHandle { fn hash<H: std::hash::Hasher>(&self, state: &mut H) { ((crate::dll::get_azul_dll().az_wayland_handle_hash)(self)).hash(state) } }
+    /// Re-export of rust-allocated (stack based) `WindowsHandle` struct
+    #[repr(C)] pub struct AzWindowsHandle {
+        pub hwnd: *mut c_void,
+        pub hinstance: *mut c_void,
+    }
+
+    impl Copy for AzWindowsHandle { }
+
+    impl PartialEq for AzWindowsHandle { fn eq(&self, rhs: &AzWindowsHandle) -> bool { (crate::dll::get_azul_dll().az_windows_handle_partial_eq)(self, rhs) } }
+
+    impl Eq for AzWindowsHandle { }
+
+    impl PartialOrd for AzWindowsHandle { fn partial_cmp(&self, rhs: &AzWindowsHandle) -> Option<std::cmp::Ordering> { use std::cmp::Ordering::*; match (crate::dll::get_azul_dll().az_windows_handle_partial_cmp)(self, rhs) { 1 => Some(Less), 2 => Some(Equal), 3 => Some(Greater), _ => None } } }
+
+    impl Ord for AzWindowsHandle { fn cmp(&self, rhs: &AzWindowsHandle) -> std::cmp::Ordering { use std::cmp::Ordering::*; match (crate::dll::get_azul_dll().az_windows_handle_cmp)(self, rhs) { 0 => Less, 1 => Equal, _ => Greater } } }
+
+    impl std::hash::Hash for AzWindowsHandle { fn hash<H: std::hash::Hasher>(&self, state: &mut H) { ((crate::dll::get_azul_dll().az_windows_handle_hash)(self)).hash(state) } }
+    /// Re-export of rust-allocated (stack based) `WebHandle` struct
+    #[repr(C)] pub struct AzWebHandle {
+        pub id: u32,
+    }
+
+    impl Copy for AzWebHandle { }
+
+    impl PartialEq for AzWebHandle { fn eq(&self, rhs: &AzWebHandle) -> bool { (crate::dll::get_azul_dll().az_web_handle_partial_eq)(self, rhs) } }
+
+    impl Eq for AzWebHandle { }
+
+    impl PartialOrd for AzWebHandle { fn partial_cmp(&self, rhs: &AzWebHandle) -> Option<std::cmp::Ordering> { use std::cmp::Ordering::*; match (crate::dll::get_azul_dll().az_web_handle_partial_cmp)(self, rhs) { 1 => Some(Less), 2 => Some(Equal), 3 => Some(Greater), _ => None } } }
+
+    impl Ord for AzWebHandle { fn cmp(&self, rhs: &AzWebHandle) -> std::cmp::Ordering { use std::cmp::Ordering::*; match (crate::dll::get_azul_dll().az_web_handle_cmp)(self, rhs) { 0 => Less, 1 => Equal, _ => Greater } } }
+
+    impl std::hash::Hash for AzWebHandle { fn hash<H: std::hash::Hasher>(&self, state: &mut H) { ((crate::dll::get_azul_dll().az_web_handle_hash)(self)).hash(state) } }
+    /// Re-export of rust-allocated (stack based) `AndroidHandle` struct
+    #[repr(C)] pub struct AzAndroidHandle {
+        pub a_native_window: *mut c_void,
+    }
+
+    impl Copy for AzAndroidHandle { }
+
+    impl PartialEq for AzAndroidHandle { fn eq(&self, rhs: &AzAndroidHandle) -> bool { (crate::dll::get_azul_dll().az_android_handle_partial_eq)(self, rhs) } }
+
+    impl Eq for AzAndroidHandle { }
+
+    impl PartialOrd for AzAndroidHandle { fn partial_cmp(&self, rhs: &AzAndroidHandle) -> Option<std::cmp::Ordering> { use std::cmp::Ordering::*; match (crate::dll::get_azul_dll().az_android_handle_partial_cmp)(self, rhs) { 1 => Some(Less), 2 => Some(Equal), 3 => Some(Greater), _ => None } } }
+
+    impl Ord for AzAndroidHandle { fn cmp(&self, rhs: &AzAndroidHandle) -> std::cmp::Ordering { use std::cmp::Ordering::*; match (crate::dll::get_azul_dll().az_android_handle_cmp)(self, rhs) { 0 => Less, 1 => Equal, _ => Greater } } }
+
+    impl std::hash::Hash for AzAndroidHandle { fn hash<H: std::hash::Hasher>(&self, state: &mut H) { ((crate::dll::get_azul_dll().az_android_handle_hash)(self)).hash(state) } }
     /// Re-export of rust-allocated (stack based) `TaskBarIcon` struct
     #[repr(C)] pub struct AzTaskBarIcon {
         pub key: AzIconKey,
@@ -3209,18 +3744,22 @@
     #[repr(C)] pub struct AzWindowSize {
         pub dimensions: AzLogicalSize,
         pub hidpi_factor: f32,
-        pub winit_hidpi_factor: f32,
+        pub system_hidpi_factor: f32,
         pub min_dimensions: AzOptionLogicalSize,
         pub max_dimensions: AzOptionLogicalSize,
     }
     /// Re-export of rust-allocated (stack based) `WindowFlags` struct
     #[repr(C)] pub struct AzWindowFlags {
         pub is_maximized: bool,
+        pub is_minimized: bool,
+        pub is_about_to_close: bool,
         pub is_fullscreen: bool,
         pub has_decorations: bool,
         pub is_visible: bool,
         pub is_always_on_top: bool,
         pub is_resizable: bool,
+        pub has_focus: bool,
+        pub has_blur_behind_window: bool,
     }
     /// Re-export of rust-allocated (stack based) `DebugState` struct
     #[repr(C)] pub struct AzDebugState {
@@ -3313,6 +3852,7 @@
     }
     /// Re-export of rust-allocated (stack based) `WindowsWindowOptions` struct
     #[repr(C)] pub struct AzWindowsWindowOptions {
+        pub allow_drag_drop: bool,
         pub no_redirection_bitmap: bool,
         pub window_icon: AzOptionWindowIcon,
         pub taskbar_icon: AzOptionTaskBarIcon,
@@ -3363,10 +3903,11 @@
     }
     /// Re-export of rust-allocated (stack based) `MacWindowOptions` struct
     #[repr(C)] pub struct AzMacWindowOptions {
-        pub request_user_attention: bool,
+        pub _reserved: u8,
     }
     /// Re-export of rust-allocated (stack based) `WasmWindowOptions` struct
     #[repr(C)] pub struct AzWasmWindowOptions {
+        pub _reserved: u8,
     }
     /// Re-export of rust-allocated (stack based) `FullScreenMode` struct
     #[repr(C)] pub enum AzFullScreenMode {
@@ -3375,17 +3916,39 @@
         SlowWindowed,
         FastWindowed,
     }
+    /// Re-export of rust-allocated (stack based) `WindowTheme` struct
+    #[repr(C)] pub enum AzWindowTheme {
+        Dark,
+        Light,
+    }
+    /// Re-export of rust-allocated (stack based) `WindowPosition` struct
+    #[repr(C, u8)] pub enum AzWindowPosition {
+        Uninitialized,
+        Initialized(AzPhysicalPositionI32),
+    }
+    /// Re-export of rust-allocated (stack based) `ImePosition` struct
+    #[repr(C, u8)] pub enum AzImePosition {
+        Uninitialized,
+        Initialized(AzLogicalPosition),
+    }
+    /// Re-export of rust-allocated (stack based) `TouchState` struct
+    #[repr(C)] pub struct AzTouchState {
+        pub unused: u8,
+    }
     /// Re-export of rust-allocated (stack based) `WindowState` struct
     #[repr(C)] pub struct AzWindowState {
+        pub theme: AzWindowTheme,
         pub title: AzString,
         pub size: AzWindowSize,
-        pub position: AzOptionPhysicalPositionI32,
+        pub position: AzWindowPosition,
         pub flags: AzWindowFlags,
         pub debug_state: AzDebugState,
         pub keyboard_state: AzKeyboardState,
         pub mouse_state: AzMouseState,
-        pub ime_position: AzOptionLogicalPosition,
+        pub touch_state: AzTouchState,
+        pub ime_position: AzImePosition,
         pub platform_specific_options: AzPlatformSpecificOptions,
+        pub background_color: AzColorU,
         pub layout_callback: AzLayoutCallback,
     }
     /// Re-export of rust-allocated (stack based) `LogicalSize` struct
@@ -3397,6 +3960,7 @@
     #[repr(C)] pub struct AzWindowCreateOptions {
         pub state: AzWindowState,
         pub renderer_type: AzRendererType,
+        pub theme: AzOptionWindowTheme,
     }
 
 
@@ -3413,6 +3977,12 @@
         pub az_string_partial_cmp: extern "C" fn(_:  &AzString, _:  &AzString) -> u8,
         pub az_string_cmp: extern "C" fn(_:  &AzString, _:  &AzString) -> u8,
         pub az_string_hash: extern "C" fn(_:  &AzString) -> u64,
+        pub az_style_transform_vec_new: extern "C" fn() -> AzStyleTransformVec,
+        pub az_style_transform_vec_with_capacity: extern "C" fn(_:  usize) -> AzStyleTransformVec,
+        pub az_style_transform_vec_copy_from: extern "C" fn(_:  *const AzStyleTransform, _:  usize) -> AzStyleTransformVec,
+        pub az_style_transform_vec_delete: extern "C" fn(_:  &mut AzStyleTransformVec),
+        pub az_style_transform_vec_deep_copy: extern "C" fn(_:  &AzStyleTransformVec) -> AzStyleTransformVec,
+        pub az_style_transform_vec_fmt_debug: extern "C" fn(_:  &AzStyleTransformVec) -> AzString,
         pub az_content_group_vec_new: extern "C" fn() -> AzContentGroupVec,
         pub az_content_group_vec_with_capacity: extern "C" fn(_:  usize) -> AzContentGroupVec,
         pub az_content_group_vec_copy_from: extern "C" fn(_:  *const AzContentGroup, _:  usize) -> AzContentGroupVec,
@@ -3605,6 +4175,27 @@
         pub az_node_data_vec_delete: extern "C" fn(_:  &mut AzNodeDataVec),
         pub az_node_data_vec_deep_copy: extern "C" fn(_:  &AzNodeDataVec) -> AzNodeDataVec,
         pub az_node_data_vec_fmt_debug: extern "C" fn(_:  &AzNodeDataVec) -> AzString,
+        pub az_option_style_opacity_value_delete: extern "C" fn(_:  &mut AzOptionStyleOpacityValue),
+        pub az_option_style_opacity_value_deep_copy: extern "C" fn(_:  &AzOptionStyleOpacityValue) -> AzOptionStyleOpacityValue,
+        pub az_option_style_opacity_value_fmt_debug: extern "C" fn(_:  &AzOptionStyleOpacityValue) -> AzString,
+        pub az_option_style_transform_vec_value_delete: extern "C" fn(_:  &mut AzOptionStyleTransformVecValue),
+        pub az_option_style_transform_vec_value_deep_copy: extern "C" fn(_:  &AzOptionStyleTransformVecValue) -> AzOptionStyleTransformVecValue,
+        pub az_option_style_transform_vec_value_fmt_debug: extern "C" fn(_:  &AzOptionStyleTransformVecValue) -> AzString,
+        pub az_option_style_transform_origin_value_delete: extern "C" fn(_:  &mut AzOptionStyleTransformOriginValue),
+        pub az_option_style_transform_origin_value_deep_copy: extern "C" fn(_:  &AzOptionStyleTransformOriginValue) -> AzOptionStyleTransformOriginValue,
+        pub az_option_style_transform_origin_value_fmt_debug: extern "C" fn(_:  &AzOptionStyleTransformOriginValue) -> AzString,
+        pub az_option_style_perspective_origin_value_delete: extern "C" fn(_:  &mut AzOptionStylePerspectiveOriginValue),
+        pub az_option_style_perspective_origin_value_deep_copy: extern "C" fn(_:  &AzOptionStylePerspectiveOriginValue) -> AzOptionStylePerspectiveOriginValue,
+        pub az_option_style_perspective_origin_value_fmt_debug: extern "C" fn(_:  &AzOptionStylePerspectiveOriginValue) -> AzString,
+        pub az_option_style_backface_visibility_value_delete: extern "C" fn(_:  &mut AzOptionStyleBackfaceVisibilityValue),
+        pub az_option_style_backface_visibility_value_deep_copy: extern "C" fn(_:  &AzOptionStyleBackfaceVisibilityValue) -> AzOptionStyleBackfaceVisibilityValue,
+        pub az_option_style_backface_visibility_value_fmt_debug: extern "C" fn(_:  &AzOptionStyleBackfaceVisibilityValue) -> AzString,
+        pub az_option_layout_point_delete: extern "C" fn(_:  &mut AzOptionLayoutPoint),
+        pub az_option_layout_point_deep_copy: extern "C" fn(_:  &AzOptionLayoutPoint) -> AzOptionLayoutPoint,
+        pub az_option_layout_point_fmt_debug: extern "C" fn(_:  &AzOptionLayoutPoint) -> AzString,
+        pub az_option_window_theme_delete: extern "C" fn(_:  &mut AzOptionWindowTheme),
+        pub az_option_window_theme_deep_copy: extern "C" fn(_:  &AzOptionWindowTheme) -> AzOptionWindowTheme,
+        pub az_option_window_theme_fmt_debug: extern "C" fn(_:  &AzOptionWindowTheme) -> AzString,
         pub az_option_node_id_delete: extern "C" fn(_:  &mut AzOptionNodeId),
         pub az_option_node_id_deep_copy: extern "C" fn(_:  &AzOptionNodeId) -> AzOptionNodeId,
         pub az_option_node_id_fmt_debug: extern "C" fn(_:  &AzOptionNodeId) -> AzString,
@@ -3856,9 +4447,6 @@
         pub az_option_layout_align_content_value_delete: extern "C" fn(_:  &mut AzOptionLayoutAlignContentValue),
         pub az_option_layout_align_content_value_deep_copy: extern "C" fn(_:  &AzOptionLayoutAlignContentValue) -> AzOptionLayoutAlignContentValue,
         pub az_option_layout_align_content_value_fmt_debug: extern "C" fn(_:  &AzOptionLayoutAlignContentValue) -> AzString,
-        pub az_option_hover_group_delete: extern "C" fn(_:  &mut AzOptionHoverGroup),
-        pub az_option_hover_group_deep_copy: extern "C" fn(_:  &AzOptionHoverGroup) -> AzOptionHoverGroup,
-        pub az_option_hover_group_fmt_debug: extern "C" fn(_:  &AzOptionHoverGroup) -> AzString,
         pub az_option_tag_id_delete: extern "C" fn(_:  &mut AzOptionTagId),
         pub az_option_tag_id_deep_copy: extern "C" fn(_:  &AzOptionTagId) -> AzOptionTagId,
         pub az_option_tag_id_fmt_debug: extern "C" fn(_:  &AzOptionTagId) -> AzString,
@@ -3971,10 +4559,43 @@
         pub az_callback_partial_cmp: extern "C" fn(_:  &AzCallback, _:  &AzCallback) -> u8,
         pub az_callback_cmp: extern "C" fn(_:  &AzCallback, _:  &AzCallback) -> u8,
         pub az_callback_hash: extern "C" fn(_:  &AzCallback) -> u64,
-        pub az_callback_info_ptr_get_state: extern "C" fn(_:  &AzCallbackInfoPtr) -> AzRefAny,
+        pub az_focus_target_delete: extern "C" fn(_:  &mut AzFocusTarget),
+        pub az_focus_target_deep_copy: extern "C" fn(_:  &AzFocusTarget) -> AzFocusTarget,
+        pub az_focus_target_fmt_debug: extern "C" fn(_:  &AzFocusTarget) -> AzString,
+        pub az_focus_target_partial_eq: extern "C" fn(_:  &AzFocusTarget, _:  &AzFocusTarget) -> bool,
+        pub az_focus_target_partial_cmp: extern "C" fn(_:  &AzFocusTarget, _:  &AzFocusTarget) -> u8,
+        pub az_focus_target_cmp: extern "C" fn(_:  &AzFocusTarget, _:  &AzFocusTarget) -> u8,
+        pub az_focus_target_hash: extern "C" fn(_:  &AzFocusTarget) -> u64,
+        pub az_focus_target_path_delete: extern "C" fn(_:  &mut AzFocusTargetPath),
+        pub az_focus_target_path_deep_copy: extern "C" fn(_:  &AzFocusTargetPath) -> AzFocusTargetPath,
+        pub az_focus_target_path_fmt_debug: extern "C" fn(_:  &AzFocusTargetPath) -> AzString,
+        pub az_focus_target_path_partial_eq: extern "C" fn(_:  &AzFocusTargetPath, _:  &AzFocusTargetPath) -> bool,
+        pub az_focus_target_path_partial_cmp: extern "C" fn(_:  &AzFocusTargetPath, _:  &AzFocusTargetPath) -> u8,
+        pub az_focus_target_path_cmp: extern "C" fn(_:  &AzFocusTargetPath, _:  &AzFocusTargetPath) -> u8,
+        pub az_focus_target_path_hash: extern "C" fn(_:  &AzFocusTargetPath) -> u64,
+        pub az_callback_info_ptr_get_hit_node: extern "C" fn(_:  &AzCallbackInfoPtr) -> AzDomNodeId,
+        pub az_callback_info_ptr_get_cursor_relative_to_viewport: extern "C" fn(_:  &AzCallbackInfoPtr) -> AzOptionLayoutPoint,
+        pub az_callback_info_ptr_get_cursor_relative_to_node: extern "C" fn(_:  &AzCallbackInfoPtr) -> AzOptionLayoutPoint,
+        pub az_callback_info_ptr_get_parent: extern "C" fn(_:  &AzCallbackInfoPtr, _:  AzDomNodeId) -> AzOptionDomNodeId,
+        pub az_callback_info_ptr_get_previous_sibling: extern "C" fn(_:  &AzCallbackInfoPtr, _:  AzDomNodeId) -> AzOptionDomNodeId,
+        pub az_callback_info_ptr_get_next_sibling: extern "C" fn(_:  &AzCallbackInfoPtr, _:  AzDomNodeId) -> AzOptionDomNodeId,
+        pub az_callback_info_ptr_get_first_child: extern "C" fn(_:  &AzCallbackInfoPtr, _:  AzDomNodeId) -> AzOptionDomNodeId,
+        pub az_callback_info_ptr_get_last_child: extern "C" fn(_:  &AzCallbackInfoPtr, _:  AzDomNodeId) -> AzOptionDomNodeId,
+        pub az_callback_info_ptr_get_window_state: extern "C" fn(_:  &AzCallbackInfoPtr) -> AzWindowState,
         pub az_callback_info_ptr_get_keyboard_state: extern "C" fn(_:  &AzCallbackInfoPtr) -> AzKeyboardState,
         pub az_callback_info_ptr_get_mouse_state: extern "C" fn(_:  &AzCallbackInfoPtr) -> AzMouseState,
+        pub az_callback_info_ptr_get_current_window_handle: extern "C" fn(_:  &AzCallbackInfoPtr) -> AzRawWindowHandle,
+        pub az_callback_info_ptr_get_gl_context: extern "C" fn(_:  &AzCallbackInfoPtr) -> AzGlContextPtr,
+        pub az_callback_info_ptr_node_is_type: extern "C" fn(_:  &AzCallbackInfoPtr, _:  AzDomNodeId, _:  AzNodeType) -> bool,
+        pub az_callback_info_ptr_node_has_id: extern "C" fn(_:  &AzCallbackInfoPtr, _:  AzDomNodeId, _:  AzString) -> bool,
+        pub az_callback_info_ptr_node_has_class: extern "C" fn(_:  &AzCallbackInfoPtr, _:  AzDomNodeId, _:  AzString) -> bool,
         pub az_callback_info_ptr_set_window_state: extern "C" fn(_:  &mut AzCallbackInfoPtr, _:  AzWindowState),
+        pub az_callback_info_ptr_set_focus: extern "C" fn(_:  &mut AzCallbackInfoPtr, _:  AzFocusTarget),
+        pub az_callback_info_ptr_set_css_property: extern "C" fn(_:  &mut AzCallbackInfoPtr, _:  AzDomNodeId, _:  AzCssProperty),
+        pub az_callback_info_ptr_stop_propagation: extern "C" fn(_:  &mut AzCallbackInfoPtr),
+        pub az_callback_info_ptr_create_window: extern "C" fn(_:  &mut AzCallbackInfoPtr, _:  AzWindowCreateOptions),
+        pub az_callback_info_ptr_add_task: extern "C" fn(_:  &mut AzCallbackInfoPtr, _:  AzTaskPtr),
+        pub az_callback_info_ptr_add_timer: extern "C" fn(_:  &mut AzCallbackInfoPtr, _:  AzTimerId, _:  AzTimer),
         pub az_callback_info_ptr_delete: extern "C" fn(_:  &mut AzCallbackInfoPtr),
         pub az_callback_info_ptr_fmt_debug: extern "C" fn(_:  &AzCallbackInfoPtr) -> AzString,
         pub az_update_screen_delete: extern "C" fn(_:  &mut AzUpdateScreen),
@@ -4302,6 +4923,89 @@
         pub az_style_tab_width_delete: extern "C" fn(_:  &mut AzStyleTabWidth),
         pub az_style_tab_width_deep_copy: extern "C" fn(_:  &AzStyleTabWidth) -> AzStyleTabWidth,
         pub az_style_tab_width_fmt_debug: extern "C" fn(_:  &AzStyleTabWidth) -> AzString,
+        pub az_style_opacity_delete: extern "C" fn(_:  &mut AzStyleOpacity),
+        pub az_style_opacity_deep_copy: extern "C" fn(_:  &AzStyleOpacity) -> AzStyleOpacity,
+        pub az_style_opacity_fmt_debug: extern "C" fn(_:  &AzStyleOpacity) -> AzString,
+        pub az_style_transform_origin_delete: extern "C" fn(_:  &mut AzStyleTransformOrigin),
+        pub az_style_transform_origin_deep_copy: extern "C" fn(_:  &AzStyleTransformOrigin) -> AzStyleTransformOrigin,
+        pub az_style_transform_origin_fmt_debug: extern "C" fn(_:  &AzStyleTransformOrigin) -> AzString,
+        pub az_style_transform_origin_partial_eq: extern "C" fn(_:  &AzStyleTransformOrigin, _:  &AzStyleTransformOrigin) -> bool,
+        pub az_style_transform_origin_partial_cmp: extern "C" fn(_:  &AzStyleTransformOrigin, _:  &AzStyleTransformOrigin) -> u8,
+        pub az_style_transform_origin_cmp: extern "C" fn(_:  &AzStyleTransformOrigin, _:  &AzStyleTransformOrigin) -> u8,
+        pub az_style_transform_origin_hash: extern "C" fn(_:  &AzStyleTransformOrigin) -> u64,
+        pub az_style_perspective_origin_delete: extern "C" fn(_:  &mut AzStylePerspectiveOrigin),
+        pub az_style_perspective_origin_deep_copy: extern "C" fn(_:  &AzStylePerspectiveOrigin) -> AzStylePerspectiveOrigin,
+        pub az_style_perspective_origin_fmt_debug: extern "C" fn(_:  &AzStylePerspectiveOrigin) -> AzString,
+        pub az_style_perspective_origin_partial_eq: extern "C" fn(_:  &AzStylePerspectiveOrigin, _:  &AzStylePerspectiveOrigin) -> bool,
+        pub az_style_perspective_origin_partial_cmp: extern "C" fn(_:  &AzStylePerspectiveOrigin, _:  &AzStylePerspectiveOrigin) -> u8,
+        pub az_style_perspective_origin_cmp: extern "C" fn(_:  &AzStylePerspectiveOrigin, _:  &AzStylePerspectiveOrigin) -> u8,
+        pub az_style_perspective_origin_hash: extern "C" fn(_:  &AzStylePerspectiveOrigin) -> u64,
+        pub az_style_backface_visibility_delete: extern "C" fn(_:  &mut AzStyleBackfaceVisibility),
+        pub az_style_backface_visibility_deep_copy: extern "C" fn(_:  &AzStyleBackfaceVisibility) -> AzStyleBackfaceVisibility,
+        pub az_style_backface_visibility_fmt_debug: extern "C" fn(_:  &AzStyleBackfaceVisibility) -> AzString,
+        pub az_style_backface_visibility_partial_eq: extern "C" fn(_:  &AzStyleBackfaceVisibility, _:  &AzStyleBackfaceVisibility) -> bool,
+        pub az_style_backface_visibility_partial_cmp: extern "C" fn(_:  &AzStyleBackfaceVisibility, _:  &AzStyleBackfaceVisibility) -> u8,
+        pub az_style_backface_visibility_cmp: extern "C" fn(_:  &AzStyleBackfaceVisibility, _:  &AzStyleBackfaceVisibility) -> u8,
+        pub az_style_backface_visibility_hash: extern "C" fn(_:  &AzStyleBackfaceVisibility) -> u64,
+        pub az_style_transform_delete: extern "C" fn(_:  &mut AzStyleTransform),
+        pub az_style_transform_deep_copy: extern "C" fn(_:  &AzStyleTransform) -> AzStyleTransform,
+        pub az_style_transform_fmt_debug: extern "C" fn(_:  &AzStyleTransform) -> AzString,
+        pub az_style_transform_partial_eq: extern "C" fn(_:  &AzStyleTransform, _:  &AzStyleTransform) -> bool,
+        pub az_style_transform_partial_cmp: extern "C" fn(_:  &AzStyleTransform, _:  &AzStyleTransform) -> u8,
+        pub az_style_transform_cmp: extern "C" fn(_:  &AzStyleTransform, _:  &AzStyleTransform) -> u8,
+        pub az_style_transform_hash: extern "C" fn(_:  &AzStyleTransform) -> u64,
+        pub az_style_transform_matrix2_d_delete: extern "C" fn(_:  &mut AzStyleTransformMatrix2D),
+        pub az_style_transform_matrix2_d_deep_copy: extern "C" fn(_:  &AzStyleTransformMatrix2D) -> AzStyleTransformMatrix2D,
+        pub az_style_transform_matrix2_d_fmt_debug: extern "C" fn(_:  &AzStyleTransformMatrix2D) -> AzString,
+        pub az_style_transform_matrix2_d_partial_eq: extern "C" fn(_:  &AzStyleTransformMatrix2D, _:  &AzStyleTransformMatrix2D) -> bool,
+        pub az_style_transform_matrix2_d_partial_cmp: extern "C" fn(_:  &AzStyleTransformMatrix2D, _:  &AzStyleTransformMatrix2D) -> u8,
+        pub az_style_transform_matrix2_d_cmp: extern "C" fn(_:  &AzStyleTransformMatrix2D, _:  &AzStyleTransformMatrix2D) -> u8,
+        pub az_style_transform_matrix2_d_hash: extern "C" fn(_:  &AzStyleTransformMatrix2D) -> u64,
+        pub az_style_transform_matrix3_d_delete: extern "C" fn(_:  &mut AzStyleTransformMatrix3D),
+        pub az_style_transform_matrix3_d_deep_copy: extern "C" fn(_:  &AzStyleTransformMatrix3D) -> AzStyleTransformMatrix3D,
+        pub az_style_transform_matrix3_d_fmt_debug: extern "C" fn(_:  &AzStyleTransformMatrix3D) -> AzString,
+        pub az_style_transform_matrix3_d_partial_eq: extern "C" fn(_:  &AzStyleTransformMatrix3D, _:  &AzStyleTransformMatrix3D) -> bool,
+        pub az_style_transform_matrix3_d_partial_cmp: extern "C" fn(_:  &AzStyleTransformMatrix3D, _:  &AzStyleTransformMatrix3D) -> u8,
+        pub az_style_transform_matrix3_d_cmp: extern "C" fn(_:  &AzStyleTransformMatrix3D, _:  &AzStyleTransformMatrix3D) -> u8,
+        pub az_style_transform_matrix3_d_hash: extern "C" fn(_:  &AzStyleTransformMatrix3D) -> u64,
+        pub az_style_transform_translate2_d_delete: extern "C" fn(_:  &mut AzStyleTransformTranslate2D),
+        pub az_style_transform_translate2_d_deep_copy: extern "C" fn(_:  &AzStyleTransformTranslate2D) -> AzStyleTransformTranslate2D,
+        pub az_style_transform_translate2_d_fmt_debug: extern "C" fn(_:  &AzStyleTransformTranslate2D) -> AzString,
+        pub az_style_transform_translate2_d_partial_eq: extern "C" fn(_:  &AzStyleTransformTranslate2D, _:  &AzStyleTransformTranslate2D) -> bool,
+        pub az_style_transform_translate2_d_partial_cmp: extern "C" fn(_:  &AzStyleTransformTranslate2D, _:  &AzStyleTransformTranslate2D) -> u8,
+        pub az_style_transform_translate2_d_cmp: extern "C" fn(_:  &AzStyleTransformTranslate2D, _:  &AzStyleTransformTranslate2D) -> u8,
+        pub az_style_transform_translate2_d_hash: extern "C" fn(_:  &AzStyleTransformTranslate2D) -> u64,
+        pub az_style_transform_translate3_d_delete: extern "C" fn(_:  &mut AzStyleTransformTranslate3D),
+        pub az_style_transform_translate3_d_deep_copy: extern "C" fn(_:  &AzStyleTransformTranslate3D) -> AzStyleTransformTranslate3D,
+        pub az_style_transform_translate3_d_fmt_debug: extern "C" fn(_:  &AzStyleTransformTranslate3D) -> AzString,
+        pub az_style_transform_translate3_d_partial_eq: extern "C" fn(_:  &AzStyleTransformTranslate3D, _:  &AzStyleTransformTranslate3D) -> bool,
+        pub az_style_transform_translate3_d_partial_cmp: extern "C" fn(_:  &AzStyleTransformTranslate3D, _:  &AzStyleTransformTranslate3D) -> u8,
+        pub az_style_transform_translate3_d_cmp: extern "C" fn(_:  &AzStyleTransformTranslate3D, _:  &AzStyleTransformTranslate3D) -> u8,
+        pub az_style_transform_translate3_d_hash: extern "C" fn(_:  &AzStyleTransformTranslate3D) -> u64,
+        pub az_style_transform_rotate3_d_delete: extern "C" fn(_:  &mut AzStyleTransformRotate3D),
+        pub az_style_transform_rotate3_d_deep_copy: extern "C" fn(_:  &AzStyleTransformRotate3D) -> AzStyleTransformRotate3D,
+        pub az_style_transform_rotate3_d_fmt_debug: extern "C" fn(_:  &AzStyleTransformRotate3D) -> AzString,
+        pub az_style_transform_rotate3_d_partial_eq: extern "C" fn(_:  &AzStyleTransformRotate3D, _:  &AzStyleTransformRotate3D) -> bool,
+        pub az_style_transform_rotate3_d_partial_cmp: extern "C" fn(_:  &AzStyleTransformRotate3D, _:  &AzStyleTransformRotate3D) -> u8,
+        pub az_style_transform_rotate3_d_cmp: extern "C" fn(_:  &AzStyleTransformRotate3D, _:  &AzStyleTransformRotate3D) -> u8,
+        pub az_style_transform_rotate3_d_hash: extern "C" fn(_:  &AzStyleTransformRotate3D) -> u64,
+        pub az_style_transform_scale2_d_delete: extern "C" fn(_:  &mut AzStyleTransformScale2D),
+        pub az_style_transform_scale2_d_deep_copy: extern "C" fn(_:  &AzStyleTransformScale2D) -> AzStyleTransformScale2D,
+        pub az_style_transform_scale2_d_fmt_debug: extern "C" fn(_:  &AzStyleTransformScale2D) -> AzString,
+        pub az_style_transform_scale2_d_partial_eq: extern "C" fn(_:  &AzStyleTransformScale2D, _:  &AzStyleTransformScale2D) -> bool,
+        pub az_style_transform_scale2_d_partial_cmp: extern "C" fn(_:  &AzStyleTransformScale2D, _:  &AzStyleTransformScale2D) -> u8,
+        pub az_style_transform_scale2_d_cmp: extern "C" fn(_:  &AzStyleTransformScale2D, _:  &AzStyleTransformScale2D) -> u8,
+        pub az_style_transform_scale2_d_hash: extern "C" fn(_:  &AzStyleTransformScale2D) -> u64,
+        pub az_style_transform_scale3_d_delete: extern "C" fn(_:  &mut AzStyleTransformScale3D),
+        pub az_style_transform_scale3_d_deep_copy: extern "C" fn(_:  &AzStyleTransformScale3D) -> AzStyleTransformScale3D,
+        pub az_style_transform_scale3_d_fmt_debug: extern "C" fn(_:  &AzStyleTransformScale3D) -> AzString,
+        pub az_style_transform_scale3_d_partial_eq: extern "C" fn(_:  &AzStyleTransformScale3D, _:  &AzStyleTransformScale3D) -> bool,
+        pub az_style_transform_scale3_d_partial_cmp: extern "C" fn(_:  &AzStyleTransformScale3D, _:  &AzStyleTransformScale3D) -> u8,
+        pub az_style_transform_scale3_d_cmp: extern "C" fn(_:  &AzStyleTransformScale3D, _:  &AzStyleTransformScale3D) -> u8,
+        pub az_style_transform_scale3_d_hash: extern "C" fn(_:  &AzStyleTransformScale3D) -> u64,
+        pub az_style_transform_skew2_d_delete: extern "C" fn(_:  &mut AzStyleTransformSkew2D),
+        pub az_style_transform_skew2_d_deep_copy: extern "C" fn(_:  &AzStyleTransformSkew2D) -> AzStyleTransformSkew2D,
+        pub az_style_transform_skew2_d_fmt_debug: extern "C" fn(_:  &AzStyleTransformSkew2D) -> AzString,
         pub az_style_text_alignment_horz_delete: extern "C" fn(_:  &mut AzStyleTextAlignmentHorz),
         pub az_style_text_alignment_horz_deep_copy: extern "C" fn(_:  &AzStyleTextAlignmentHorz) -> AzStyleTextAlignmentHorz,
         pub az_style_text_alignment_horz_fmt_debug: extern "C" fn(_:  &AzStyleTextAlignmentHorz) -> AzString,
@@ -4491,6 +5195,21 @@
         pub az_style_word_spacing_value_delete: extern "C" fn(_:  &mut AzStyleWordSpacingValue),
         pub az_style_word_spacing_value_deep_copy: extern "C" fn(_:  &AzStyleWordSpacingValue) -> AzStyleWordSpacingValue,
         pub az_style_word_spacing_value_fmt_debug: extern "C" fn(_:  &AzStyleWordSpacingValue) -> AzString,
+        pub az_style_opacity_value_delete: extern "C" fn(_:  &mut AzStyleOpacityValue),
+        pub az_style_opacity_value_deep_copy: extern "C" fn(_:  &AzStyleOpacityValue) -> AzStyleOpacityValue,
+        pub az_style_opacity_value_fmt_debug: extern "C" fn(_:  &AzStyleOpacityValue) -> AzString,
+        pub az_style_transform_vec_value_delete: extern "C" fn(_:  &mut AzStyleTransformVecValue),
+        pub az_style_transform_vec_value_deep_copy: extern "C" fn(_:  &AzStyleTransformVecValue) -> AzStyleTransformVecValue,
+        pub az_style_transform_vec_value_fmt_debug: extern "C" fn(_:  &AzStyleTransformVecValue) -> AzString,
+        pub az_style_transform_origin_value_delete: extern "C" fn(_:  &mut AzStyleTransformOriginValue),
+        pub az_style_transform_origin_value_deep_copy: extern "C" fn(_:  &AzStyleTransformOriginValue) -> AzStyleTransformOriginValue,
+        pub az_style_transform_origin_value_fmt_debug: extern "C" fn(_:  &AzStyleTransformOriginValue) -> AzString,
+        pub az_style_perspective_origin_value_delete: extern "C" fn(_:  &mut AzStylePerspectiveOriginValue),
+        pub az_style_perspective_origin_value_deep_copy: extern "C" fn(_:  &AzStylePerspectiveOriginValue) -> AzStylePerspectiveOriginValue,
+        pub az_style_perspective_origin_value_fmt_debug: extern "C" fn(_:  &AzStylePerspectiveOriginValue) -> AzString,
+        pub az_style_backface_visibility_value_delete: extern "C" fn(_:  &mut AzStyleBackfaceVisibilityValue),
+        pub az_style_backface_visibility_value_deep_copy: extern "C" fn(_:  &AzStyleBackfaceVisibilityValue) -> AzStyleBackfaceVisibilityValue,
+        pub az_style_backface_visibility_value_fmt_debug: extern "C" fn(_:  &AzStyleBackfaceVisibilityValue) -> AzString,
         pub az_css_property_delete: extern "C" fn(_:  &mut AzCssProperty),
         pub az_css_property_deep_copy: extern "C" fn(_:  &AzCssProperty) -> AzCssProperty,
         pub az_css_property_fmt_debug: extern "C" fn(_:  &AzCssProperty) -> AzString,
@@ -4540,6 +5259,13 @@
         pub az_css_property_source_partial_cmp: extern "C" fn(_:  &AzCssPropertySource, _:  &AzCssPropertySource) -> u8,
         pub az_css_property_source_cmp: extern "C" fn(_:  &AzCssPropertySource, _:  &AzCssPropertySource) -> u8,
         pub az_css_property_source_hash: extern "C" fn(_:  &AzCssPropertySource) -> u64,
+        pub az_styled_node_state_delete: extern "C" fn(_:  &mut AzStyledNodeState),
+        pub az_styled_node_state_deep_copy: extern "C" fn(_:  &AzStyledNodeState) -> AzStyledNodeState,
+        pub az_styled_node_state_fmt_debug: extern "C" fn(_:  &AzStyledNodeState) -> AzString,
+        pub az_styled_node_state_partial_eq: extern "C" fn(_:  &AzStyledNodeState, _:  &AzStyledNodeState) -> bool,
+        pub az_styled_node_state_partial_cmp: extern "C" fn(_:  &AzStyledNodeState, _:  &AzStyledNodeState) -> u8,
+        pub az_styled_node_state_cmp: extern "C" fn(_:  &AzStyledNodeState, _:  &AzStyledNodeState) -> u8,
+        pub az_styled_node_state_hash: extern "C" fn(_:  &AzStyledNodeState) -> u64,
         pub az_styled_node_delete: extern "C" fn(_:  &mut AzStyledNode),
         pub az_styled_node_deep_copy: extern "C" fn(_:  &AzStyledNode) -> AzStyledNode,
         pub az_styled_node_fmt_debug: extern "C" fn(_:  &AzStyledNode) -> AzString,
@@ -4561,20 +5287,6 @@
         pub az_tag_id_to_node_id_mapping_partial_cmp: extern "C" fn(_:  &AzTagIdToNodeIdMapping, _:  &AzTagIdToNodeIdMapping) -> u8,
         pub az_tag_id_to_node_id_mapping_cmp: extern "C" fn(_:  &AzTagIdToNodeIdMapping, _:  &AzTagIdToNodeIdMapping) -> u8,
         pub az_tag_id_to_node_id_mapping_hash: extern "C" fn(_:  &AzTagIdToNodeIdMapping) -> u64,
-        pub az_hover_group_delete: extern "C" fn(_:  &mut AzHoverGroup),
-        pub az_hover_group_deep_copy: extern "C" fn(_:  &AzHoverGroup) -> AzHoverGroup,
-        pub az_hover_group_fmt_debug: extern "C" fn(_:  &AzHoverGroup) -> AzString,
-        pub az_hover_group_partial_eq: extern "C" fn(_:  &AzHoverGroup, _:  &AzHoverGroup) -> bool,
-        pub az_hover_group_partial_cmp: extern "C" fn(_:  &AzHoverGroup, _:  &AzHoverGroup) -> u8,
-        pub az_hover_group_cmp: extern "C" fn(_:  &AzHoverGroup, _:  &AzHoverGroup) -> u8,
-        pub az_hover_group_hash: extern "C" fn(_:  &AzHoverGroup) -> u64,
-        pub az_active_hover_delete: extern "C" fn(_:  &mut AzActiveHover),
-        pub az_active_hover_deep_copy: extern "C" fn(_:  &AzActiveHover) -> AzActiveHover,
-        pub az_active_hover_fmt_debug: extern "C" fn(_:  &AzActiveHover) -> AzString,
-        pub az_active_hover_partial_eq: extern "C" fn(_:  &AzActiveHover, _:  &AzActiveHover) -> bool,
-        pub az_active_hover_partial_cmp: extern "C" fn(_:  &AzActiveHover, _:  &AzActiveHover) -> u8,
-        pub az_active_hover_cmp: extern "C" fn(_:  &AzActiveHover, _:  &AzActiveHover) -> u8,
-        pub az_active_hover_hash: extern "C" fn(_:  &AzActiveHover) -> u64,
         pub az_parent_with_node_depth_delete: extern "C" fn(_:  &mut AzParentWithNodeDepth),
         pub az_parent_with_node_depth_deep_copy: extern "C" fn(_:  &AzParentWithNodeDepth) -> AzParentWithNodeDepth,
         pub az_parent_with_node_depth_fmt_debug: extern "C" fn(_:  &AzParentWithNodeDepth) -> AzString,
@@ -4625,6 +5337,12 @@
         pub az_dom_with_callback: extern "C" fn(_:  AzDom, _:  AzEventFilter, _:  AzRefAny, _:  AzCallbackType) -> AzDom,
         pub az_dom_add_inline_css: extern "C" fn(_:  &mut AzDom, _:  AzCssProperty),
         pub az_dom_with_inline_css: extern "C" fn(_:  AzDom, _:  AzCssProperty) -> AzDom,
+        pub az_dom_add_inline_hover_css: extern "C" fn(_:  &mut AzDom, _:  AzCssProperty),
+        pub az_dom_with_inline_hover_css: extern "C" fn(_:  AzDom, _:  AzCssProperty) -> AzDom,
+        pub az_dom_add_inline_active_css: extern "C" fn(_:  &mut AzDom, _:  AzCssProperty),
+        pub az_dom_with_inline_active_css: extern "C" fn(_:  AzDom, _:  AzCssProperty) -> AzDom,
+        pub az_dom_add_inline_focus_css: extern "C" fn(_:  &mut AzDom, _:  AzCssProperty),
+        pub az_dom_with_inline_focus_css: extern "C" fn(_:  AzDom, _:  AzCssProperty) -> AzDom,
         pub az_dom_set_is_draggable: extern "C" fn(_:  &mut AzDom, _:  bool),
         pub az_dom_with_clip_mask: extern "C" fn(_:  AzDom, _:  AzOptionImageMask) -> AzDom,
         pub az_dom_set_clip_mask: extern "C" fn(_:  &mut AzDom, _:  AzOptionImageMask),
@@ -4684,6 +5402,9 @@
         pub az_node_data_with_callback: extern "C" fn(_:  AzNodeData, _:  AzEventFilter, _:  AzRefAny, _:  AzCallbackType) -> AzNodeData,
         pub az_node_data_add_inline_css: extern "C" fn(_:  &mut AzNodeData, _:  AzCssProperty),
         pub az_node_data_with_inline_css: extern "C" fn(_:  AzNodeData, _:  AzCssProperty) -> AzNodeData,
+        pub az_node_data_add_inline_hover_css: extern "C" fn(_:  &mut AzNodeData, _:  AzCssProperty),
+        pub az_node_data_add_inline_active_css: extern "C" fn(_:  &mut AzNodeData, _:  AzCssProperty),
+        pub az_node_data_add_inline_focus_css: extern "C" fn(_:  &mut AzNodeData, _:  AzCssProperty),
         pub az_node_data_with_clip_mask: extern "C" fn(_:  AzNodeData, _:  AzOptionImageMask) -> AzNodeData,
         pub az_node_data_set_clip_mask: extern "C" fn(_:  &mut AzNodeData, _:  AzOptionImageMask),
         pub az_node_data_set_is_draggable: extern "C" fn(_:  &mut AzNodeData, _:  bool),
@@ -5159,6 +5880,76 @@
         pub az_block_error_delete: extern "C" fn(_:  &mut AzBlockError),
         pub az_block_error_deep_copy: extern "C" fn(_:  &AzBlockError) -> AzBlockError,
         pub az_block_error_fmt_debug: extern "C" fn(_:  &AzBlockError) -> AzString,
+        pub az_layout_point_delete: extern "C" fn(_:  &mut AzLayoutPoint),
+        pub az_layout_point_deep_copy: extern "C" fn(_:  &AzLayoutPoint) -> AzLayoutPoint,
+        pub az_layout_point_fmt_debug: extern "C" fn(_:  &AzLayoutPoint) -> AzString,
+        pub az_layout_point_partial_eq: extern "C" fn(_:  &AzLayoutPoint, _:  &AzLayoutPoint) -> bool,
+        pub az_layout_point_partial_cmp: extern "C" fn(_:  &AzLayoutPoint, _:  &AzLayoutPoint) -> u8,
+        pub az_layout_point_cmp: extern "C" fn(_:  &AzLayoutPoint, _:  &AzLayoutPoint) -> u8,
+        pub az_layout_point_hash: extern "C" fn(_:  &AzLayoutPoint) -> u64,
+        pub az_raw_window_handle_delete: extern "C" fn(_:  &mut AzRawWindowHandle),
+        pub az_raw_window_handle_deep_copy: extern "C" fn(_:  &AzRawWindowHandle) -> AzRawWindowHandle,
+        pub az_raw_window_handle_fmt_debug: extern "C" fn(_:  &AzRawWindowHandle) -> AzString,
+        pub az_raw_window_handle_partial_eq: extern "C" fn(_:  &AzRawWindowHandle, _:  &AzRawWindowHandle) -> bool,
+        pub az_raw_window_handle_partial_cmp: extern "C" fn(_:  &AzRawWindowHandle, _:  &AzRawWindowHandle) -> u8,
+        pub az_raw_window_handle_cmp: extern "C" fn(_:  &AzRawWindowHandle, _:  &AzRawWindowHandle) -> u8,
+        pub az_raw_window_handle_hash: extern "C" fn(_:  &AzRawWindowHandle) -> u64,
+        pub az_ios_handle_delete: extern "C" fn(_:  &mut AzIOSHandle),
+        pub az_ios_handle_deep_copy: extern "C" fn(_:  &AzIOSHandle) -> AzIOSHandle,
+        pub az_ios_handle_fmt_debug: extern "C" fn(_:  &AzIOSHandle) -> AzString,
+        pub az_ios_handle_partial_eq: extern "C" fn(_:  &AzIOSHandle, _:  &AzIOSHandle) -> bool,
+        pub az_ios_handle_partial_cmp: extern "C" fn(_:  &AzIOSHandle, _:  &AzIOSHandle) -> u8,
+        pub az_ios_handle_cmp: extern "C" fn(_:  &AzIOSHandle, _:  &AzIOSHandle) -> u8,
+        pub az_ios_handle_hash: extern "C" fn(_:  &AzIOSHandle) -> u64,
+        pub az_mac_os_handle_delete: extern "C" fn(_:  &mut AzMacOSHandle),
+        pub az_mac_os_handle_deep_copy: extern "C" fn(_:  &AzMacOSHandle) -> AzMacOSHandle,
+        pub az_mac_os_handle_fmt_debug: extern "C" fn(_:  &AzMacOSHandle) -> AzString,
+        pub az_mac_os_handle_partial_eq: extern "C" fn(_:  &AzMacOSHandle, _:  &AzMacOSHandle) -> bool,
+        pub az_mac_os_handle_partial_cmp: extern "C" fn(_:  &AzMacOSHandle, _:  &AzMacOSHandle) -> u8,
+        pub az_mac_os_handle_cmp: extern "C" fn(_:  &AzMacOSHandle, _:  &AzMacOSHandle) -> u8,
+        pub az_mac_os_handle_hash: extern "C" fn(_:  &AzMacOSHandle) -> u64,
+        pub az_xlib_handle_delete: extern "C" fn(_:  &mut AzXlibHandle),
+        pub az_xlib_handle_deep_copy: extern "C" fn(_:  &AzXlibHandle) -> AzXlibHandle,
+        pub az_xlib_handle_fmt_debug: extern "C" fn(_:  &AzXlibHandle) -> AzString,
+        pub az_xlib_handle_partial_eq: extern "C" fn(_:  &AzXlibHandle, _:  &AzXlibHandle) -> bool,
+        pub az_xlib_handle_partial_cmp: extern "C" fn(_:  &AzXlibHandle, _:  &AzXlibHandle) -> u8,
+        pub az_xlib_handle_cmp: extern "C" fn(_:  &AzXlibHandle, _:  &AzXlibHandle) -> u8,
+        pub az_xlib_handle_hash: extern "C" fn(_:  &AzXlibHandle) -> u64,
+        pub az_xcb_handle_delete: extern "C" fn(_:  &mut AzXcbHandle),
+        pub az_xcb_handle_deep_copy: extern "C" fn(_:  &AzXcbHandle) -> AzXcbHandle,
+        pub az_xcb_handle_fmt_debug: extern "C" fn(_:  &AzXcbHandle) -> AzString,
+        pub az_xcb_handle_partial_eq: extern "C" fn(_:  &AzXcbHandle, _:  &AzXcbHandle) -> bool,
+        pub az_xcb_handle_partial_cmp: extern "C" fn(_:  &AzXcbHandle, _:  &AzXcbHandle) -> u8,
+        pub az_xcb_handle_cmp: extern "C" fn(_:  &AzXcbHandle, _:  &AzXcbHandle) -> u8,
+        pub az_xcb_handle_hash: extern "C" fn(_:  &AzXcbHandle) -> u64,
+        pub az_wayland_handle_delete: extern "C" fn(_:  &mut AzWaylandHandle),
+        pub az_wayland_handle_deep_copy: extern "C" fn(_:  &AzWaylandHandle) -> AzWaylandHandle,
+        pub az_wayland_handle_fmt_debug: extern "C" fn(_:  &AzWaylandHandle) -> AzString,
+        pub az_wayland_handle_partial_eq: extern "C" fn(_:  &AzWaylandHandle, _:  &AzWaylandHandle) -> bool,
+        pub az_wayland_handle_partial_cmp: extern "C" fn(_:  &AzWaylandHandle, _:  &AzWaylandHandle) -> u8,
+        pub az_wayland_handle_cmp: extern "C" fn(_:  &AzWaylandHandle, _:  &AzWaylandHandle) -> u8,
+        pub az_wayland_handle_hash: extern "C" fn(_:  &AzWaylandHandle) -> u64,
+        pub az_windows_handle_delete: extern "C" fn(_:  &mut AzWindowsHandle),
+        pub az_windows_handle_deep_copy: extern "C" fn(_:  &AzWindowsHandle) -> AzWindowsHandle,
+        pub az_windows_handle_fmt_debug: extern "C" fn(_:  &AzWindowsHandle) -> AzString,
+        pub az_windows_handle_partial_eq: extern "C" fn(_:  &AzWindowsHandle, _:  &AzWindowsHandle) -> bool,
+        pub az_windows_handle_partial_cmp: extern "C" fn(_:  &AzWindowsHandle, _:  &AzWindowsHandle) -> u8,
+        pub az_windows_handle_cmp: extern "C" fn(_:  &AzWindowsHandle, _:  &AzWindowsHandle) -> u8,
+        pub az_windows_handle_hash: extern "C" fn(_:  &AzWindowsHandle) -> u64,
+        pub az_web_handle_delete: extern "C" fn(_:  &mut AzWebHandle),
+        pub az_web_handle_deep_copy: extern "C" fn(_:  &AzWebHandle) -> AzWebHandle,
+        pub az_web_handle_fmt_debug: extern "C" fn(_:  &AzWebHandle) -> AzString,
+        pub az_web_handle_partial_eq: extern "C" fn(_:  &AzWebHandle, _:  &AzWebHandle) -> bool,
+        pub az_web_handle_partial_cmp: extern "C" fn(_:  &AzWebHandle, _:  &AzWebHandle) -> u8,
+        pub az_web_handle_cmp: extern "C" fn(_:  &AzWebHandle, _:  &AzWebHandle) -> u8,
+        pub az_web_handle_hash: extern "C" fn(_:  &AzWebHandle) -> u64,
+        pub az_android_handle_delete: extern "C" fn(_:  &mut AzAndroidHandle),
+        pub az_android_handle_deep_copy: extern "C" fn(_:  &AzAndroidHandle) -> AzAndroidHandle,
+        pub az_android_handle_fmt_debug: extern "C" fn(_:  &AzAndroidHandle) -> AzString,
+        pub az_android_handle_partial_eq: extern "C" fn(_:  &AzAndroidHandle, _:  &AzAndroidHandle) -> bool,
+        pub az_android_handle_partial_cmp: extern "C" fn(_:  &AzAndroidHandle, _:  &AzAndroidHandle) -> u8,
+        pub az_android_handle_cmp: extern "C" fn(_:  &AzAndroidHandle, _:  &AzAndroidHandle) -> u8,
+        pub az_android_handle_hash: extern "C" fn(_:  &AzAndroidHandle) -> u64,
         pub az_task_bar_icon_delete: extern "C" fn(_:  &mut AzTaskBarIcon),
         pub az_task_bar_icon_deep_copy: extern "C" fn(_:  &AzTaskBarIcon) -> AzTaskBarIcon,
         pub az_task_bar_icon_fmt_debug: extern "C" fn(_:  &AzTaskBarIcon) -> AzString,
@@ -5251,6 +6042,18 @@
         pub az_full_screen_mode_delete: extern "C" fn(_:  &mut AzFullScreenMode),
         pub az_full_screen_mode_deep_copy: extern "C" fn(_:  &AzFullScreenMode) -> AzFullScreenMode,
         pub az_full_screen_mode_fmt_debug: extern "C" fn(_:  &AzFullScreenMode) -> AzString,
+        pub az_window_theme_delete: extern "C" fn(_:  &mut AzWindowTheme),
+        pub az_window_theme_deep_copy: extern "C" fn(_:  &AzWindowTheme) -> AzWindowTheme,
+        pub az_window_theme_fmt_debug: extern "C" fn(_:  &AzWindowTheme) -> AzString,
+        pub az_window_position_delete: extern "C" fn(_:  &mut AzWindowPosition),
+        pub az_window_position_deep_copy: extern "C" fn(_:  &AzWindowPosition) -> AzWindowPosition,
+        pub az_window_position_fmt_debug: extern "C" fn(_:  &AzWindowPosition) -> AzString,
+        pub az_ime_position_delete: extern "C" fn(_:  &mut AzImePosition),
+        pub az_ime_position_deep_copy: extern "C" fn(_:  &AzImePosition) -> AzImePosition,
+        pub az_ime_position_fmt_debug: extern "C" fn(_:  &AzImePosition) -> AzString,
+        pub az_touch_state_delete: extern "C" fn(_:  &mut AzTouchState),
+        pub az_touch_state_deep_copy: extern "C" fn(_:  &AzTouchState) -> AzTouchState,
+        pub az_touch_state_fmt_debug: extern "C" fn(_:  &AzTouchState) -> AzString,
         pub az_window_state_new: extern "C" fn(_:  AzLayoutCallbackType) -> AzWindowState,
         pub az_window_state_delete: extern "C" fn(_:  &mut AzWindowState),
         pub az_window_state_deep_copy: extern "C" fn(_:  &AzWindowState) -> AzWindowState,
@@ -5278,6 +6081,12 @@
             let az_string_partial_cmp: extern "C" fn(_:  &AzString, _:  &AzString) -> u8 = transmute(lib.get(b"az_string_partial_cmp")?);
             let az_string_cmp: extern "C" fn(_:  &AzString, _:  &AzString) -> u8 = transmute(lib.get(b"az_string_cmp")?);
             let az_string_hash: extern "C" fn(_:  &AzString) -> u64 = transmute(lib.get(b"az_string_hash")?);
+            let az_style_transform_vec_new: extern "C" fn() -> AzStyleTransformVec = transmute(lib.get(b"az_style_transform_vec_new")?);
+            let az_style_transform_vec_with_capacity: extern "C" fn(_:  usize) -> AzStyleTransformVec = transmute(lib.get(b"az_style_transform_vec_with_capacity")?);
+            let az_style_transform_vec_copy_from: extern "C" fn(_:  *const AzStyleTransform, _:  usize) -> AzStyleTransformVec = transmute(lib.get(b"az_style_transform_vec_copy_from")?);
+            let az_style_transform_vec_delete: extern "C" fn(_:  &mut AzStyleTransformVec) = transmute(lib.get(b"az_style_transform_vec_delete")?);
+            let az_style_transform_vec_deep_copy: extern "C" fn(_:  &AzStyleTransformVec) -> AzStyleTransformVec = transmute(lib.get(b"az_style_transform_vec_deep_copy")?);
+            let az_style_transform_vec_fmt_debug: extern "C" fn(_:  &AzStyleTransformVec) -> AzString = transmute(lib.get(b"az_style_transform_vec_fmt_debug")?);
             let az_content_group_vec_new: extern "C" fn() -> AzContentGroupVec = transmute(lib.get(b"az_content_group_vec_new")?);
             let az_content_group_vec_with_capacity: extern "C" fn(_:  usize) -> AzContentGroupVec = transmute(lib.get(b"az_content_group_vec_with_capacity")?);
             let az_content_group_vec_copy_from: extern "C" fn(_:  *const AzContentGroup, _:  usize) -> AzContentGroupVec = transmute(lib.get(b"az_content_group_vec_copy_from")?);
@@ -5470,6 +6279,27 @@
             let az_node_data_vec_delete: extern "C" fn(_:  &mut AzNodeDataVec) = transmute(lib.get(b"az_node_data_vec_delete")?);
             let az_node_data_vec_deep_copy: extern "C" fn(_:  &AzNodeDataVec) -> AzNodeDataVec = transmute(lib.get(b"az_node_data_vec_deep_copy")?);
             let az_node_data_vec_fmt_debug: extern "C" fn(_:  &AzNodeDataVec) -> AzString = transmute(lib.get(b"az_node_data_vec_fmt_debug")?);
+            let az_option_style_opacity_value_delete: extern "C" fn(_:  &mut AzOptionStyleOpacityValue) = transmute(lib.get(b"az_option_style_opacity_value_delete")?);
+            let az_option_style_opacity_value_deep_copy: extern "C" fn(_:  &AzOptionStyleOpacityValue) -> AzOptionStyleOpacityValue = transmute(lib.get(b"az_option_style_opacity_value_deep_copy")?);
+            let az_option_style_opacity_value_fmt_debug: extern "C" fn(_:  &AzOptionStyleOpacityValue) -> AzString = transmute(lib.get(b"az_option_style_opacity_value_fmt_debug")?);
+            let az_option_style_transform_vec_value_delete: extern "C" fn(_:  &mut AzOptionStyleTransformVecValue) = transmute(lib.get(b"az_option_style_transform_vec_value_delete")?);
+            let az_option_style_transform_vec_value_deep_copy: extern "C" fn(_:  &AzOptionStyleTransformVecValue) -> AzOptionStyleTransformVecValue = transmute(lib.get(b"az_option_style_transform_vec_value_deep_copy")?);
+            let az_option_style_transform_vec_value_fmt_debug: extern "C" fn(_:  &AzOptionStyleTransformVecValue) -> AzString = transmute(lib.get(b"az_option_style_transform_vec_value_fmt_debug")?);
+            let az_option_style_transform_origin_value_delete: extern "C" fn(_:  &mut AzOptionStyleTransformOriginValue) = transmute(lib.get(b"az_option_style_transform_origin_value_delete")?);
+            let az_option_style_transform_origin_value_deep_copy: extern "C" fn(_:  &AzOptionStyleTransformOriginValue) -> AzOptionStyleTransformOriginValue = transmute(lib.get(b"az_option_style_transform_origin_value_deep_copy")?);
+            let az_option_style_transform_origin_value_fmt_debug: extern "C" fn(_:  &AzOptionStyleTransformOriginValue) -> AzString = transmute(lib.get(b"az_option_style_transform_origin_value_fmt_debug")?);
+            let az_option_style_perspective_origin_value_delete: extern "C" fn(_:  &mut AzOptionStylePerspectiveOriginValue) = transmute(lib.get(b"az_option_style_perspective_origin_value_delete")?);
+            let az_option_style_perspective_origin_value_deep_copy: extern "C" fn(_:  &AzOptionStylePerspectiveOriginValue) -> AzOptionStylePerspectiveOriginValue = transmute(lib.get(b"az_option_style_perspective_origin_value_deep_copy")?);
+            let az_option_style_perspective_origin_value_fmt_debug: extern "C" fn(_:  &AzOptionStylePerspectiveOriginValue) -> AzString = transmute(lib.get(b"az_option_style_perspective_origin_value_fmt_debug")?);
+            let az_option_style_backface_visibility_value_delete: extern "C" fn(_:  &mut AzOptionStyleBackfaceVisibilityValue) = transmute(lib.get(b"az_option_style_backface_visibility_value_delete")?);
+            let az_option_style_backface_visibility_value_deep_copy: extern "C" fn(_:  &AzOptionStyleBackfaceVisibilityValue) -> AzOptionStyleBackfaceVisibilityValue = transmute(lib.get(b"az_option_style_backface_visibility_value_deep_copy")?);
+            let az_option_style_backface_visibility_value_fmt_debug: extern "C" fn(_:  &AzOptionStyleBackfaceVisibilityValue) -> AzString = transmute(lib.get(b"az_option_style_backface_visibility_value_fmt_debug")?);
+            let az_option_layout_point_delete: extern "C" fn(_:  &mut AzOptionLayoutPoint) = transmute(lib.get(b"az_option_layout_point_delete")?);
+            let az_option_layout_point_deep_copy: extern "C" fn(_:  &AzOptionLayoutPoint) -> AzOptionLayoutPoint = transmute(lib.get(b"az_option_layout_point_deep_copy")?);
+            let az_option_layout_point_fmt_debug: extern "C" fn(_:  &AzOptionLayoutPoint) -> AzString = transmute(lib.get(b"az_option_layout_point_fmt_debug")?);
+            let az_option_window_theme_delete: extern "C" fn(_:  &mut AzOptionWindowTheme) = transmute(lib.get(b"az_option_window_theme_delete")?);
+            let az_option_window_theme_deep_copy: extern "C" fn(_:  &AzOptionWindowTheme) -> AzOptionWindowTheme = transmute(lib.get(b"az_option_window_theme_deep_copy")?);
+            let az_option_window_theme_fmt_debug: extern "C" fn(_:  &AzOptionWindowTheme) -> AzString = transmute(lib.get(b"az_option_window_theme_fmt_debug")?);
             let az_option_node_id_delete: extern "C" fn(_:  &mut AzOptionNodeId) = transmute(lib.get(b"az_option_node_id_delete")?);
             let az_option_node_id_deep_copy: extern "C" fn(_:  &AzOptionNodeId) -> AzOptionNodeId = transmute(lib.get(b"az_option_node_id_deep_copy")?);
             let az_option_node_id_fmt_debug: extern "C" fn(_:  &AzOptionNodeId) -> AzString = transmute(lib.get(b"az_option_node_id_fmt_debug")?);
@@ -5721,9 +6551,6 @@
             let az_option_layout_align_content_value_delete: extern "C" fn(_:  &mut AzOptionLayoutAlignContentValue) = transmute(lib.get(b"az_option_layout_align_content_value_delete")?);
             let az_option_layout_align_content_value_deep_copy: extern "C" fn(_:  &AzOptionLayoutAlignContentValue) -> AzOptionLayoutAlignContentValue = transmute(lib.get(b"az_option_layout_align_content_value_deep_copy")?);
             let az_option_layout_align_content_value_fmt_debug: extern "C" fn(_:  &AzOptionLayoutAlignContentValue) -> AzString = transmute(lib.get(b"az_option_layout_align_content_value_fmt_debug")?);
-            let az_option_hover_group_delete: extern "C" fn(_:  &mut AzOptionHoverGroup) = transmute(lib.get(b"az_option_hover_group_delete")?);
-            let az_option_hover_group_deep_copy: extern "C" fn(_:  &AzOptionHoverGroup) -> AzOptionHoverGroup = transmute(lib.get(b"az_option_hover_group_deep_copy")?);
-            let az_option_hover_group_fmt_debug: extern "C" fn(_:  &AzOptionHoverGroup) -> AzString = transmute(lib.get(b"az_option_hover_group_fmt_debug")?);
             let az_option_tag_id_delete: extern "C" fn(_:  &mut AzOptionTagId) = transmute(lib.get(b"az_option_tag_id_delete")?);
             let az_option_tag_id_deep_copy: extern "C" fn(_:  &AzOptionTagId) -> AzOptionTagId = transmute(lib.get(b"az_option_tag_id_deep_copy")?);
             let az_option_tag_id_fmt_debug: extern "C" fn(_:  &AzOptionTagId) -> AzString = transmute(lib.get(b"az_option_tag_id_fmt_debug")?);
@@ -5836,10 +6663,43 @@
             let az_callback_partial_cmp: extern "C" fn(_:  &AzCallback, _:  &AzCallback) -> u8 = transmute(lib.get(b"az_callback_partial_cmp")?);
             let az_callback_cmp: extern "C" fn(_:  &AzCallback, _:  &AzCallback) -> u8 = transmute(lib.get(b"az_callback_cmp")?);
             let az_callback_hash: extern "C" fn(_:  &AzCallback) -> u64 = transmute(lib.get(b"az_callback_hash")?);
-            let az_callback_info_ptr_get_state: extern "C" fn(_:  &AzCallbackInfoPtr) -> AzRefAny = transmute(lib.get(b"az_callback_info_ptr_get_state")?);
+            let az_focus_target_delete: extern "C" fn(_:  &mut AzFocusTarget) = transmute(lib.get(b"az_focus_target_delete")?);
+            let az_focus_target_deep_copy: extern "C" fn(_:  &AzFocusTarget) -> AzFocusTarget = transmute(lib.get(b"az_focus_target_deep_copy")?);
+            let az_focus_target_fmt_debug: extern "C" fn(_:  &AzFocusTarget) -> AzString = transmute(lib.get(b"az_focus_target_fmt_debug")?);
+            let az_focus_target_partial_eq: extern "C" fn(_:  &AzFocusTarget, _:  &AzFocusTarget) -> bool = transmute(lib.get(b"az_focus_target_partial_eq")?);
+            let az_focus_target_partial_cmp: extern "C" fn(_:  &AzFocusTarget, _:  &AzFocusTarget) -> u8 = transmute(lib.get(b"az_focus_target_partial_cmp")?);
+            let az_focus_target_cmp: extern "C" fn(_:  &AzFocusTarget, _:  &AzFocusTarget) -> u8 = transmute(lib.get(b"az_focus_target_cmp")?);
+            let az_focus_target_hash: extern "C" fn(_:  &AzFocusTarget) -> u64 = transmute(lib.get(b"az_focus_target_hash")?);
+            let az_focus_target_path_delete: extern "C" fn(_:  &mut AzFocusTargetPath) = transmute(lib.get(b"az_focus_target_path_delete")?);
+            let az_focus_target_path_deep_copy: extern "C" fn(_:  &AzFocusTargetPath) -> AzFocusTargetPath = transmute(lib.get(b"az_focus_target_path_deep_copy")?);
+            let az_focus_target_path_fmt_debug: extern "C" fn(_:  &AzFocusTargetPath) -> AzString = transmute(lib.get(b"az_focus_target_path_fmt_debug")?);
+            let az_focus_target_path_partial_eq: extern "C" fn(_:  &AzFocusTargetPath, _:  &AzFocusTargetPath) -> bool = transmute(lib.get(b"az_focus_target_path_partial_eq")?);
+            let az_focus_target_path_partial_cmp: extern "C" fn(_:  &AzFocusTargetPath, _:  &AzFocusTargetPath) -> u8 = transmute(lib.get(b"az_focus_target_path_partial_cmp")?);
+            let az_focus_target_path_cmp: extern "C" fn(_:  &AzFocusTargetPath, _:  &AzFocusTargetPath) -> u8 = transmute(lib.get(b"az_focus_target_path_cmp")?);
+            let az_focus_target_path_hash: extern "C" fn(_:  &AzFocusTargetPath) -> u64 = transmute(lib.get(b"az_focus_target_path_hash")?);
+            let az_callback_info_ptr_get_hit_node: extern "C" fn(_:  &AzCallbackInfoPtr) -> AzDomNodeId = transmute(lib.get(b"az_callback_info_ptr_get_hit_node")?);
+            let az_callback_info_ptr_get_cursor_relative_to_viewport: extern "C" fn(_:  &AzCallbackInfoPtr) -> AzOptionLayoutPoint = transmute(lib.get(b"az_callback_info_ptr_get_cursor_relative_to_viewport")?);
+            let az_callback_info_ptr_get_cursor_relative_to_node: extern "C" fn(_:  &AzCallbackInfoPtr) -> AzOptionLayoutPoint = transmute(lib.get(b"az_callback_info_ptr_get_cursor_relative_to_node")?);
+            let az_callback_info_ptr_get_parent: extern "C" fn(_:  &AzCallbackInfoPtr, _:  AzDomNodeId) -> AzOptionDomNodeId = transmute(lib.get(b"az_callback_info_ptr_get_parent")?);
+            let az_callback_info_ptr_get_previous_sibling: extern "C" fn(_:  &AzCallbackInfoPtr, _:  AzDomNodeId) -> AzOptionDomNodeId = transmute(lib.get(b"az_callback_info_ptr_get_previous_sibling")?);
+            let az_callback_info_ptr_get_next_sibling: extern "C" fn(_:  &AzCallbackInfoPtr, _:  AzDomNodeId) -> AzOptionDomNodeId = transmute(lib.get(b"az_callback_info_ptr_get_next_sibling")?);
+            let az_callback_info_ptr_get_first_child: extern "C" fn(_:  &AzCallbackInfoPtr, _:  AzDomNodeId) -> AzOptionDomNodeId = transmute(lib.get(b"az_callback_info_ptr_get_first_child")?);
+            let az_callback_info_ptr_get_last_child: extern "C" fn(_:  &AzCallbackInfoPtr, _:  AzDomNodeId) -> AzOptionDomNodeId = transmute(lib.get(b"az_callback_info_ptr_get_last_child")?);
+            let az_callback_info_ptr_get_window_state: extern "C" fn(_:  &AzCallbackInfoPtr) -> AzWindowState = transmute(lib.get(b"az_callback_info_ptr_get_window_state")?);
             let az_callback_info_ptr_get_keyboard_state: extern "C" fn(_:  &AzCallbackInfoPtr) -> AzKeyboardState = transmute(lib.get(b"az_callback_info_ptr_get_keyboard_state")?);
             let az_callback_info_ptr_get_mouse_state: extern "C" fn(_:  &AzCallbackInfoPtr) -> AzMouseState = transmute(lib.get(b"az_callback_info_ptr_get_mouse_state")?);
+            let az_callback_info_ptr_get_current_window_handle: extern "C" fn(_:  &AzCallbackInfoPtr) -> AzRawWindowHandle = transmute(lib.get(b"az_callback_info_ptr_get_current_window_handle")?);
+            let az_callback_info_ptr_get_gl_context: extern "C" fn(_:  &AzCallbackInfoPtr) -> AzGlContextPtr = transmute(lib.get(b"az_callback_info_ptr_get_gl_context")?);
+            let az_callback_info_ptr_node_is_type: extern "C" fn(_:  &AzCallbackInfoPtr, _:  AzDomNodeId, _:  AzNodeType) -> bool = transmute(lib.get(b"az_callback_info_ptr_node_is_type")?);
+            let az_callback_info_ptr_node_has_id: extern "C" fn(_:  &AzCallbackInfoPtr, _:  AzDomNodeId, _:  AzString) -> bool = transmute(lib.get(b"az_callback_info_ptr_node_has_id")?);
+            let az_callback_info_ptr_node_has_class: extern "C" fn(_:  &AzCallbackInfoPtr, _:  AzDomNodeId, _:  AzString) -> bool = transmute(lib.get(b"az_callback_info_ptr_node_has_class")?);
             let az_callback_info_ptr_set_window_state: extern "C" fn(_:  &mut AzCallbackInfoPtr, _:  AzWindowState) = transmute(lib.get(b"az_callback_info_ptr_set_window_state")?);
+            let az_callback_info_ptr_set_focus: extern "C" fn(_:  &mut AzCallbackInfoPtr, _:  AzFocusTarget) = transmute(lib.get(b"az_callback_info_ptr_set_focus")?);
+            let az_callback_info_ptr_set_css_property: extern "C" fn(_:  &mut AzCallbackInfoPtr, _:  AzDomNodeId, _:  AzCssProperty) = transmute(lib.get(b"az_callback_info_ptr_set_css_property")?);
+            let az_callback_info_ptr_stop_propagation: extern "C" fn(_:  &mut AzCallbackInfoPtr) = transmute(lib.get(b"az_callback_info_ptr_stop_propagation")?);
+            let az_callback_info_ptr_create_window: extern "C" fn(_:  &mut AzCallbackInfoPtr, _:  AzWindowCreateOptions) = transmute(lib.get(b"az_callback_info_ptr_create_window")?);
+            let az_callback_info_ptr_add_task: extern "C" fn(_:  &mut AzCallbackInfoPtr, _:  AzTaskPtr) = transmute(lib.get(b"az_callback_info_ptr_add_task")?);
+            let az_callback_info_ptr_add_timer: extern "C" fn(_:  &mut AzCallbackInfoPtr, _:  AzTimerId, _:  AzTimer) = transmute(lib.get(b"az_callback_info_ptr_add_timer")?);
             let az_callback_info_ptr_delete: extern "C" fn(_:  &mut AzCallbackInfoPtr) = transmute(lib.get(b"az_callback_info_ptr_delete")?);
             let az_callback_info_ptr_fmt_debug: extern "C" fn(_:  &AzCallbackInfoPtr) -> AzString = transmute(lib.get(b"az_callback_info_ptr_fmt_debug")?);
             let az_update_screen_delete: extern "C" fn(_:  &mut AzUpdateScreen) = transmute(lib.get(b"az_update_screen_delete")?);
@@ -6167,6 +7027,89 @@
             let az_style_tab_width_delete: extern "C" fn(_:  &mut AzStyleTabWidth) = transmute(lib.get(b"az_style_tab_width_delete")?);
             let az_style_tab_width_deep_copy: extern "C" fn(_:  &AzStyleTabWidth) -> AzStyleTabWidth = transmute(lib.get(b"az_style_tab_width_deep_copy")?);
             let az_style_tab_width_fmt_debug: extern "C" fn(_:  &AzStyleTabWidth) -> AzString = transmute(lib.get(b"az_style_tab_width_fmt_debug")?);
+            let az_style_opacity_delete: extern "C" fn(_:  &mut AzStyleOpacity) = transmute(lib.get(b"az_style_opacity_delete")?);
+            let az_style_opacity_deep_copy: extern "C" fn(_:  &AzStyleOpacity) -> AzStyleOpacity = transmute(lib.get(b"az_style_opacity_deep_copy")?);
+            let az_style_opacity_fmt_debug: extern "C" fn(_:  &AzStyleOpacity) -> AzString = transmute(lib.get(b"az_style_opacity_fmt_debug")?);
+            let az_style_transform_origin_delete: extern "C" fn(_:  &mut AzStyleTransformOrigin) = transmute(lib.get(b"az_style_transform_origin_delete")?);
+            let az_style_transform_origin_deep_copy: extern "C" fn(_:  &AzStyleTransformOrigin) -> AzStyleTransformOrigin = transmute(lib.get(b"az_style_transform_origin_deep_copy")?);
+            let az_style_transform_origin_fmt_debug: extern "C" fn(_:  &AzStyleTransformOrigin) -> AzString = transmute(lib.get(b"az_style_transform_origin_fmt_debug")?);
+            let az_style_transform_origin_partial_eq: extern "C" fn(_:  &AzStyleTransformOrigin, _:  &AzStyleTransformOrigin) -> bool = transmute(lib.get(b"az_style_transform_origin_partial_eq")?);
+            let az_style_transform_origin_partial_cmp: extern "C" fn(_:  &AzStyleTransformOrigin, _:  &AzStyleTransformOrigin) -> u8 = transmute(lib.get(b"az_style_transform_origin_partial_cmp")?);
+            let az_style_transform_origin_cmp: extern "C" fn(_:  &AzStyleTransformOrigin, _:  &AzStyleTransformOrigin) -> u8 = transmute(lib.get(b"az_style_transform_origin_cmp")?);
+            let az_style_transform_origin_hash: extern "C" fn(_:  &AzStyleTransformOrigin) -> u64 = transmute(lib.get(b"az_style_transform_origin_hash")?);
+            let az_style_perspective_origin_delete: extern "C" fn(_:  &mut AzStylePerspectiveOrigin) = transmute(lib.get(b"az_style_perspective_origin_delete")?);
+            let az_style_perspective_origin_deep_copy: extern "C" fn(_:  &AzStylePerspectiveOrigin) -> AzStylePerspectiveOrigin = transmute(lib.get(b"az_style_perspective_origin_deep_copy")?);
+            let az_style_perspective_origin_fmt_debug: extern "C" fn(_:  &AzStylePerspectiveOrigin) -> AzString = transmute(lib.get(b"az_style_perspective_origin_fmt_debug")?);
+            let az_style_perspective_origin_partial_eq: extern "C" fn(_:  &AzStylePerspectiveOrigin, _:  &AzStylePerspectiveOrigin) -> bool = transmute(lib.get(b"az_style_perspective_origin_partial_eq")?);
+            let az_style_perspective_origin_partial_cmp: extern "C" fn(_:  &AzStylePerspectiveOrigin, _:  &AzStylePerspectiveOrigin) -> u8 = transmute(lib.get(b"az_style_perspective_origin_partial_cmp")?);
+            let az_style_perspective_origin_cmp: extern "C" fn(_:  &AzStylePerspectiveOrigin, _:  &AzStylePerspectiveOrigin) -> u8 = transmute(lib.get(b"az_style_perspective_origin_cmp")?);
+            let az_style_perspective_origin_hash: extern "C" fn(_:  &AzStylePerspectiveOrigin) -> u64 = transmute(lib.get(b"az_style_perspective_origin_hash")?);
+            let az_style_backface_visibility_delete: extern "C" fn(_:  &mut AzStyleBackfaceVisibility) = transmute(lib.get(b"az_style_backface_visibility_delete")?);
+            let az_style_backface_visibility_deep_copy: extern "C" fn(_:  &AzStyleBackfaceVisibility) -> AzStyleBackfaceVisibility = transmute(lib.get(b"az_style_backface_visibility_deep_copy")?);
+            let az_style_backface_visibility_fmt_debug: extern "C" fn(_:  &AzStyleBackfaceVisibility) -> AzString = transmute(lib.get(b"az_style_backface_visibility_fmt_debug")?);
+            let az_style_backface_visibility_partial_eq: extern "C" fn(_:  &AzStyleBackfaceVisibility, _:  &AzStyleBackfaceVisibility) -> bool = transmute(lib.get(b"az_style_backface_visibility_partial_eq")?);
+            let az_style_backface_visibility_partial_cmp: extern "C" fn(_:  &AzStyleBackfaceVisibility, _:  &AzStyleBackfaceVisibility) -> u8 = transmute(lib.get(b"az_style_backface_visibility_partial_cmp")?);
+            let az_style_backface_visibility_cmp: extern "C" fn(_:  &AzStyleBackfaceVisibility, _:  &AzStyleBackfaceVisibility) -> u8 = transmute(lib.get(b"az_style_backface_visibility_cmp")?);
+            let az_style_backface_visibility_hash: extern "C" fn(_:  &AzStyleBackfaceVisibility) -> u64 = transmute(lib.get(b"az_style_backface_visibility_hash")?);
+            let az_style_transform_delete: extern "C" fn(_:  &mut AzStyleTransform) = transmute(lib.get(b"az_style_transform_delete")?);
+            let az_style_transform_deep_copy: extern "C" fn(_:  &AzStyleTransform) -> AzStyleTransform = transmute(lib.get(b"az_style_transform_deep_copy")?);
+            let az_style_transform_fmt_debug: extern "C" fn(_:  &AzStyleTransform) -> AzString = transmute(lib.get(b"az_style_transform_fmt_debug")?);
+            let az_style_transform_partial_eq: extern "C" fn(_:  &AzStyleTransform, _:  &AzStyleTransform) -> bool = transmute(lib.get(b"az_style_transform_partial_eq")?);
+            let az_style_transform_partial_cmp: extern "C" fn(_:  &AzStyleTransform, _:  &AzStyleTransform) -> u8 = transmute(lib.get(b"az_style_transform_partial_cmp")?);
+            let az_style_transform_cmp: extern "C" fn(_:  &AzStyleTransform, _:  &AzStyleTransform) -> u8 = transmute(lib.get(b"az_style_transform_cmp")?);
+            let az_style_transform_hash: extern "C" fn(_:  &AzStyleTransform) -> u64 = transmute(lib.get(b"az_style_transform_hash")?);
+            let az_style_transform_matrix2_d_delete: extern "C" fn(_:  &mut AzStyleTransformMatrix2D) = transmute(lib.get(b"az_style_transform_matrix2_d_delete")?);
+            let az_style_transform_matrix2_d_deep_copy: extern "C" fn(_:  &AzStyleTransformMatrix2D) -> AzStyleTransformMatrix2D = transmute(lib.get(b"az_style_transform_matrix2_d_deep_copy")?);
+            let az_style_transform_matrix2_d_fmt_debug: extern "C" fn(_:  &AzStyleTransformMatrix2D) -> AzString = transmute(lib.get(b"az_style_transform_matrix2_d_fmt_debug")?);
+            let az_style_transform_matrix2_d_partial_eq: extern "C" fn(_:  &AzStyleTransformMatrix2D, _:  &AzStyleTransformMatrix2D) -> bool = transmute(lib.get(b"az_style_transform_matrix2_d_partial_eq")?);
+            let az_style_transform_matrix2_d_partial_cmp: extern "C" fn(_:  &AzStyleTransformMatrix2D, _:  &AzStyleTransformMatrix2D) -> u8 = transmute(lib.get(b"az_style_transform_matrix2_d_partial_cmp")?);
+            let az_style_transform_matrix2_d_cmp: extern "C" fn(_:  &AzStyleTransformMatrix2D, _:  &AzStyleTransformMatrix2D) -> u8 = transmute(lib.get(b"az_style_transform_matrix2_d_cmp")?);
+            let az_style_transform_matrix2_d_hash: extern "C" fn(_:  &AzStyleTransformMatrix2D) -> u64 = transmute(lib.get(b"az_style_transform_matrix2_d_hash")?);
+            let az_style_transform_matrix3_d_delete: extern "C" fn(_:  &mut AzStyleTransformMatrix3D) = transmute(lib.get(b"az_style_transform_matrix3_d_delete")?);
+            let az_style_transform_matrix3_d_deep_copy: extern "C" fn(_:  &AzStyleTransformMatrix3D) -> AzStyleTransformMatrix3D = transmute(lib.get(b"az_style_transform_matrix3_d_deep_copy")?);
+            let az_style_transform_matrix3_d_fmt_debug: extern "C" fn(_:  &AzStyleTransformMatrix3D) -> AzString = transmute(lib.get(b"az_style_transform_matrix3_d_fmt_debug")?);
+            let az_style_transform_matrix3_d_partial_eq: extern "C" fn(_:  &AzStyleTransformMatrix3D, _:  &AzStyleTransformMatrix3D) -> bool = transmute(lib.get(b"az_style_transform_matrix3_d_partial_eq")?);
+            let az_style_transform_matrix3_d_partial_cmp: extern "C" fn(_:  &AzStyleTransformMatrix3D, _:  &AzStyleTransformMatrix3D) -> u8 = transmute(lib.get(b"az_style_transform_matrix3_d_partial_cmp")?);
+            let az_style_transform_matrix3_d_cmp: extern "C" fn(_:  &AzStyleTransformMatrix3D, _:  &AzStyleTransformMatrix3D) -> u8 = transmute(lib.get(b"az_style_transform_matrix3_d_cmp")?);
+            let az_style_transform_matrix3_d_hash: extern "C" fn(_:  &AzStyleTransformMatrix3D) -> u64 = transmute(lib.get(b"az_style_transform_matrix3_d_hash")?);
+            let az_style_transform_translate2_d_delete: extern "C" fn(_:  &mut AzStyleTransformTranslate2D) = transmute(lib.get(b"az_style_transform_translate2_d_delete")?);
+            let az_style_transform_translate2_d_deep_copy: extern "C" fn(_:  &AzStyleTransformTranslate2D) -> AzStyleTransformTranslate2D = transmute(lib.get(b"az_style_transform_translate2_d_deep_copy")?);
+            let az_style_transform_translate2_d_fmt_debug: extern "C" fn(_:  &AzStyleTransformTranslate2D) -> AzString = transmute(lib.get(b"az_style_transform_translate2_d_fmt_debug")?);
+            let az_style_transform_translate2_d_partial_eq: extern "C" fn(_:  &AzStyleTransformTranslate2D, _:  &AzStyleTransformTranslate2D) -> bool = transmute(lib.get(b"az_style_transform_translate2_d_partial_eq")?);
+            let az_style_transform_translate2_d_partial_cmp: extern "C" fn(_:  &AzStyleTransformTranslate2D, _:  &AzStyleTransformTranslate2D) -> u8 = transmute(lib.get(b"az_style_transform_translate2_d_partial_cmp")?);
+            let az_style_transform_translate2_d_cmp: extern "C" fn(_:  &AzStyleTransformTranslate2D, _:  &AzStyleTransformTranslate2D) -> u8 = transmute(lib.get(b"az_style_transform_translate2_d_cmp")?);
+            let az_style_transform_translate2_d_hash: extern "C" fn(_:  &AzStyleTransformTranslate2D) -> u64 = transmute(lib.get(b"az_style_transform_translate2_d_hash")?);
+            let az_style_transform_translate3_d_delete: extern "C" fn(_:  &mut AzStyleTransformTranslate3D) = transmute(lib.get(b"az_style_transform_translate3_d_delete")?);
+            let az_style_transform_translate3_d_deep_copy: extern "C" fn(_:  &AzStyleTransformTranslate3D) -> AzStyleTransformTranslate3D = transmute(lib.get(b"az_style_transform_translate3_d_deep_copy")?);
+            let az_style_transform_translate3_d_fmt_debug: extern "C" fn(_:  &AzStyleTransformTranslate3D) -> AzString = transmute(lib.get(b"az_style_transform_translate3_d_fmt_debug")?);
+            let az_style_transform_translate3_d_partial_eq: extern "C" fn(_:  &AzStyleTransformTranslate3D, _:  &AzStyleTransformTranslate3D) -> bool = transmute(lib.get(b"az_style_transform_translate3_d_partial_eq")?);
+            let az_style_transform_translate3_d_partial_cmp: extern "C" fn(_:  &AzStyleTransformTranslate3D, _:  &AzStyleTransformTranslate3D) -> u8 = transmute(lib.get(b"az_style_transform_translate3_d_partial_cmp")?);
+            let az_style_transform_translate3_d_cmp: extern "C" fn(_:  &AzStyleTransformTranslate3D, _:  &AzStyleTransformTranslate3D) -> u8 = transmute(lib.get(b"az_style_transform_translate3_d_cmp")?);
+            let az_style_transform_translate3_d_hash: extern "C" fn(_:  &AzStyleTransformTranslate3D) -> u64 = transmute(lib.get(b"az_style_transform_translate3_d_hash")?);
+            let az_style_transform_rotate3_d_delete: extern "C" fn(_:  &mut AzStyleTransformRotate3D) = transmute(lib.get(b"az_style_transform_rotate3_d_delete")?);
+            let az_style_transform_rotate3_d_deep_copy: extern "C" fn(_:  &AzStyleTransformRotate3D) -> AzStyleTransformRotate3D = transmute(lib.get(b"az_style_transform_rotate3_d_deep_copy")?);
+            let az_style_transform_rotate3_d_fmt_debug: extern "C" fn(_:  &AzStyleTransformRotate3D) -> AzString = transmute(lib.get(b"az_style_transform_rotate3_d_fmt_debug")?);
+            let az_style_transform_rotate3_d_partial_eq: extern "C" fn(_:  &AzStyleTransformRotate3D, _:  &AzStyleTransformRotate3D) -> bool = transmute(lib.get(b"az_style_transform_rotate3_d_partial_eq")?);
+            let az_style_transform_rotate3_d_partial_cmp: extern "C" fn(_:  &AzStyleTransformRotate3D, _:  &AzStyleTransformRotate3D) -> u8 = transmute(lib.get(b"az_style_transform_rotate3_d_partial_cmp")?);
+            let az_style_transform_rotate3_d_cmp: extern "C" fn(_:  &AzStyleTransformRotate3D, _:  &AzStyleTransformRotate3D) -> u8 = transmute(lib.get(b"az_style_transform_rotate3_d_cmp")?);
+            let az_style_transform_rotate3_d_hash: extern "C" fn(_:  &AzStyleTransformRotate3D) -> u64 = transmute(lib.get(b"az_style_transform_rotate3_d_hash")?);
+            let az_style_transform_scale2_d_delete: extern "C" fn(_:  &mut AzStyleTransformScale2D) = transmute(lib.get(b"az_style_transform_scale2_d_delete")?);
+            let az_style_transform_scale2_d_deep_copy: extern "C" fn(_:  &AzStyleTransformScale2D) -> AzStyleTransformScale2D = transmute(lib.get(b"az_style_transform_scale2_d_deep_copy")?);
+            let az_style_transform_scale2_d_fmt_debug: extern "C" fn(_:  &AzStyleTransformScale2D) -> AzString = transmute(lib.get(b"az_style_transform_scale2_d_fmt_debug")?);
+            let az_style_transform_scale2_d_partial_eq: extern "C" fn(_:  &AzStyleTransformScale2D, _:  &AzStyleTransformScale2D) -> bool = transmute(lib.get(b"az_style_transform_scale2_d_partial_eq")?);
+            let az_style_transform_scale2_d_partial_cmp: extern "C" fn(_:  &AzStyleTransformScale2D, _:  &AzStyleTransformScale2D) -> u8 = transmute(lib.get(b"az_style_transform_scale2_d_partial_cmp")?);
+            let az_style_transform_scale2_d_cmp: extern "C" fn(_:  &AzStyleTransformScale2D, _:  &AzStyleTransformScale2D) -> u8 = transmute(lib.get(b"az_style_transform_scale2_d_cmp")?);
+            let az_style_transform_scale2_d_hash: extern "C" fn(_:  &AzStyleTransformScale2D) -> u64 = transmute(lib.get(b"az_style_transform_scale2_d_hash")?);
+            let az_style_transform_scale3_d_delete: extern "C" fn(_:  &mut AzStyleTransformScale3D) = transmute(lib.get(b"az_style_transform_scale3_d_delete")?);
+            let az_style_transform_scale3_d_deep_copy: extern "C" fn(_:  &AzStyleTransformScale3D) -> AzStyleTransformScale3D = transmute(lib.get(b"az_style_transform_scale3_d_deep_copy")?);
+            let az_style_transform_scale3_d_fmt_debug: extern "C" fn(_:  &AzStyleTransformScale3D) -> AzString = transmute(lib.get(b"az_style_transform_scale3_d_fmt_debug")?);
+            let az_style_transform_scale3_d_partial_eq: extern "C" fn(_:  &AzStyleTransformScale3D, _:  &AzStyleTransformScale3D) -> bool = transmute(lib.get(b"az_style_transform_scale3_d_partial_eq")?);
+            let az_style_transform_scale3_d_partial_cmp: extern "C" fn(_:  &AzStyleTransformScale3D, _:  &AzStyleTransformScale3D) -> u8 = transmute(lib.get(b"az_style_transform_scale3_d_partial_cmp")?);
+            let az_style_transform_scale3_d_cmp: extern "C" fn(_:  &AzStyleTransformScale3D, _:  &AzStyleTransformScale3D) -> u8 = transmute(lib.get(b"az_style_transform_scale3_d_cmp")?);
+            let az_style_transform_scale3_d_hash: extern "C" fn(_:  &AzStyleTransformScale3D) -> u64 = transmute(lib.get(b"az_style_transform_scale3_d_hash")?);
+            let az_style_transform_skew2_d_delete: extern "C" fn(_:  &mut AzStyleTransformSkew2D) = transmute(lib.get(b"az_style_transform_skew2_d_delete")?);
+            let az_style_transform_skew2_d_deep_copy: extern "C" fn(_:  &AzStyleTransformSkew2D) -> AzStyleTransformSkew2D = transmute(lib.get(b"az_style_transform_skew2_d_deep_copy")?);
+            let az_style_transform_skew2_d_fmt_debug: extern "C" fn(_:  &AzStyleTransformSkew2D) -> AzString = transmute(lib.get(b"az_style_transform_skew2_d_fmt_debug")?);
             let az_style_text_alignment_horz_delete: extern "C" fn(_:  &mut AzStyleTextAlignmentHorz) = transmute(lib.get(b"az_style_text_alignment_horz_delete")?);
             let az_style_text_alignment_horz_deep_copy: extern "C" fn(_:  &AzStyleTextAlignmentHorz) -> AzStyleTextAlignmentHorz = transmute(lib.get(b"az_style_text_alignment_horz_deep_copy")?);
             let az_style_text_alignment_horz_fmt_debug: extern "C" fn(_:  &AzStyleTextAlignmentHorz) -> AzString = transmute(lib.get(b"az_style_text_alignment_horz_fmt_debug")?);
@@ -6356,6 +7299,21 @@
             let az_style_word_spacing_value_delete: extern "C" fn(_:  &mut AzStyleWordSpacingValue) = transmute(lib.get(b"az_style_word_spacing_value_delete")?);
             let az_style_word_spacing_value_deep_copy: extern "C" fn(_:  &AzStyleWordSpacingValue) -> AzStyleWordSpacingValue = transmute(lib.get(b"az_style_word_spacing_value_deep_copy")?);
             let az_style_word_spacing_value_fmt_debug: extern "C" fn(_:  &AzStyleWordSpacingValue) -> AzString = transmute(lib.get(b"az_style_word_spacing_value_fmt_debug")?);
+            let az_style_opacity_value_delete: extern "C" fn(_:  &mut AzStyleOpacityValue) = transmute(lib.get(b"az_style_opacity_value_delete")?);
+            let az_style_opacity_value_deep_copy: extern "C" fn(_:  &AzStyleOpacityValue) -> AzStyleOpacityValue = transmute(lib.get(b"az_style_opacity_value_deep_copy")?);
+            let az_style_opacity_value_fmt_debug: extern "C" fn(_:  &AzStyleOpacityValue) -> AzString = transmute(lib.get(b"az_style_opacity_value_fmt_debug")?);
+            let az_style_transform_vec_value_delete: extern "C" fn(_:  &mut AzStyleTransformVecValue) = transmute(lib.get(b"az_style_transform_vec_value_delete")?);
+            let az_style_transform_vec_value_deep_copy: extern "C" fn(_:  &AzStyleTransformVecValue) -> AzStyleTransformVecValue = transmute(lib.get(b"az_style_transform_vec_value_deep_copy")?);
+            let az_style_transform_vec_value_fmt_debug: extern "C" fn(_:  &AzStyleTransformVecValue) -> AzString = transmute(lib.get(b"az_style_transform_vec_value_fmt_debug")?);
+            let az_style_transform_origin_value_delete: extern "C" fn(_:  &mut AzStyleTransformOriginValue) = transmute(lib.get(b"az_style_transform_origin_value_delete")?);
+            let az_style_transform_origin_value_deep_copy: extern "C" fn(_:  &AzStyleTransformOriginValue) -> AzStyleTransformOriginValue = transmute(lib.get(b"az_style_transform_origin_value_deep_copy")?);
+            let az_style_transform_origin_value_fmt_debug: extern "C" fn(_:  &AzStyleTransformOriginValue) -> AzString = transmute(lib.get(b"az_style_transform_origin_value_fmt_debug")?);
+            let az_style_perspective_origin_value_delete: extern "C" fn(_:  &mut AzStylePerspectiveOriginValue) = transmute(lib.get(b"az_style_perspective_origin_value_delete")?);
+            let az_style_perspective_origin_value_deep_copy: extern "C" fn(_:  &AzStylePerspectiveOriginValue) -> AzStylePerspectiveOriginValue = transmute(lib.get(b"az_style_perspective_origin_value_deep_copy")?);
+            let az_style_perspective_origin_value_fmt_debug: extern "C" fn(_:  &AzStylePerspectiveOriginValue) -> AzString = transmute(lib.get(b"az_style_perspective_origin_value_fmt_debug")?);
+            let az_style_backface_visibility_value_delete: extern "C" fn(_:  &mut AzStyleBackfaceVisibilityValue) = transmute(lib.get(b"az_style_backface_visibility_value_delete")?);
+            let az_style_backface_visibility_value_deep_copy: extern "C" fn(_:  &AzStyleBackfaceVisibilityValue) -> AzStyleBackfaceVisibilityValue = transmute(lib.get(b"az_style_backface_visibility_value_deep_copy")?);
+            let az_style_backface_visibility_value_fmt_debug: extern "C" fn(_:  &AzStyleBackfaceVisibilityValue) -> AzString = transmute(lib.get(b"az_style_backface_visibility_value_fmt_debug")?);
             let az_css_property_delete: extern "C" fn(_:  &mut AzCssProperty) = transmute(lib.get(b"az_css_property_delete")?);
             let az_css_property_deep_copy: extern "C" fn(_:  &AzCssProperty) -> AzCssProperty = transmute(lib.get(b"az_css_property_deep_copy")?);
             let az_css_property_fmt_debug: extern "C" fn(_:  &AzCssProperty) -> AzString = transmute(lib.get(b"az_css_property_fmt_debug")?);
@@ -6405,6 +7363,13 @@
             let az_css_property_source_partial_cmp: extern "C" fn(_:  &AzCssPropertySource, _:  &AzCssPropertySource) -> u8 = transmute(lib.get(b"az_css_property_source_partial_cmp")?);
             let az_css_property_source_cmp: extern "C" fn(_:  &AzCssPropertySource, _:  &AzCssPropertySource) -> u8 = transmute(lib.get(b"az_css_property_source_cmp")?);
             let az_css_property_source_hash: extern "C" fn(_:  &AzCssPropertySource) -> u64 = transmute(lib.get(b"az_css_property_source_hash")?);
+            let az_styled_node_state_delete: extern "C" fn(_:  &mut AzStyledNodeState) = transmute(lib.get(b"az_styled_node_state_delete")?);
+            let az_styled_node_state_deep_copy: extern "C" fn(_:  &AzStyledNodeState) -> AzStyledNodeState = transmute(lib.get(b"az_styled_node_state_deep_copy")?);
+            let az_styled_node_state_fmt_debug: extern "C" fn(_:  &AzStyledNodeState) -> AzString = transmute(lib.get(b"az_styled_node_state_fmt_debug")?);
+            let az_styled_node_state_partial_eq: extern "C" fn(_:  &AzStyledNodeState, _:  &AzStyledNodeState) -> bool = transmute(lib.get(b"az_styled_node_state_partial_eq")?);
+            let az_styled_node_state_partial_cmp: extern "C" fn(_:  &AzStyledNodeState, _:  &AzStyledNodeState) -> u8 = transmute(lib.get(b"az_styled_node_state_partial_cmp")?);
+            let az_styled_node_state_cmp: extern "C" fn(_:  &AzStyledNodeState, _:  &AzStyledNodeState) -> u8 = transmute(lib.get(b"az_styled_node_state_cmp")?);
+            let az_styled_node_state_hash: extern "C" fn(_:  &AzStyledNodeState) -> u64 = transmute(lib.get(b"az_styled_node_state_hash")?);
             let az_styled_node_delete: extern "C" fn(_:  &mut AzStyledNode) = transmute(lib.get(b"az_styled_node_delete")?);
             let az_styled_node_deep_copy: extern "C" fn(_:  &AzStyledNode) -> AzStyledNode = transmute(lib.get(b"az_styled_node_deep_copy")?);
             let az_styled_node_fmt_debug: extern "C" fn(_:  &AzStyledNode) -> AzString = transmute(lib.get(b"az_styled_node_fmt_debug")?);
@@ -6426,20 +7391,6 @@
             let az_tag_id_to_node_id_mapping_partial_cmp: extern "C" fn(_:  &AzTagIdToNodeIdMapping, _:  &AzTagIdToNodeIdMapping) -> u8 = transmute(lib.get(b"az_tag_id_to_node_id_mapping_partial_cmp")?);
             let az_tag_id_to_node_id_mapping_cmp: extern "C" fn(_:  &AzTagIdToNodeIdMapping, _:  &AzTagIdToNodeIdMapping) -> u8 = transmute(lib.get(b"az_tag_id_to_node_id_mapping_cmp")?);
             let az_tag_id_to_node_id_mapping_hash: extern "C" fn(_:  &AzTagIdToNodeIdMapping) -> u64 = transmute(lib.get(b"az_tag_id_to_node_id_mapping_hash")?);
-            let az_hover_group_delete: extern "C" fn(_:  &mut AzHoverGroup) = transmute(lib.get(b"az_hover_group_delete")?);
-            let az_hover_group_deep_copy: extern "C" fn(_:  &AzHoverGroup) -> AzHoverGroup = transmute(lib.get(b"az_hover_group_deep_copy")?);
-            let az_hover_group_fmt_debug: extern "C" fn(_:  &AzHoverGroup) -> AzString = transmute(lib.get(b"az_hover_group_fmt_debug")?);
-            let az_hover_group_partial_eq: extern "C" fn(_:  &AzHoverGroup, _:  &AzHoverGroup) -> bool = transmute(lib.get(b"az_hover_group_partial_eq")?);
-            let az_hover_group_partial_cmp: extern "C" fn(_:  &AzHoverGroup, _:  &AzHoverGroup) -> u8 = transmute(lib.get(b"az_hover_group_partial_cmp")?);
-            let az_hover_group_cmp: extern "C" fn(_:  &AzHoverGroup, _:  &AzHoverGroup) -> u8 = transmute(lib.get(b"az_hover_group_cmp")?);
-            let az_hover_group_hash: extern "C" fn(_:  &AzHoverGroup) -> u64 = transmute(lib.get(b"az_hover_group_hash")?);
-            let az_active_hover_delete: extern "C" fn(_:  &mut AzActiveHover) = transmute(lib.get(b"az_active_hover_delete")?);
-            let az_active_hover_deep_copy: extern "C" fn(_:  &AzActiveHover) -> AzActiveHover = transmute(lib.get(b"az_active_hover_deep_copy")?);
-            let az_active_hover_fmt_debug: extern "C" fn(_:  &AzActiveHover) -> AzString = transmute(lib.get(b"az_active_hover_fmt_debug")?);
-            let az_active_hover_partial_eq: extern "C" fn(_:  &AzActiveHover, _:  &AzActiveHover) -> bool = transmute(lib.get(b"az_active_hover_partial_eq")?);
-            let az_active_hover_partial_cmp: extern "C" fn(_:  &AzActiveHover, _:  &AzActiveHover) -> u8 = transmute(lib.get(b"az_active_hover_partial_cmp")?);
-            let az_active_hover_cmp: extern "C" fn(_:  &AzActiveHover, _:  &AzActiveHover) -> u8 = transmute(lib.get(b"az_active_hover_cmp")?);
-            let az_active_hover_hash: extern "C" fn(_:  &AzActiveHover) -> u64 = transmute(lib.get(b"az_active_hover_hash")?);
             let az_parent_with_node_depth_delete: extern "C" fn(_:  &mut AzParentWithNodeDepth) = transmute(lib.get(b"az_parent_with_node_depth_delete")?);
             let az_parent_with_node_depth_deep_copy: extern "C" fn(_:  &AzParentWithNodeDepth) -> AzParentWithNodeDepth = transmute(lib.get(b"az_parent_with_node_depth_deep_copy")?);
             let az_parent_with_node_depth_fmt_debug: extern "C" fn(_:  &AzParentWithNodeDepth) -> AzString = transmute(lib.get(b"az_parent_with_node_depth_fmt_debug")?);
@@ -6490,6 +7441,12 @@
             let az_dom_with_callback: extern "C" fn(_:  AzDom, _:  AzEventFilter, _:  AzRefAny, _:  AzCallbackType) -> AzDom = transmute(lib.get(b"az_dom_with_callback")?);
             let az_dom_add_inline_css: extern "C" fn(_:  &mut AzDom, _:  AzCssProperty) = transmute(lib.get(b"az_dom_add_inline_css")?);
             let az_dom_with_inline_css: extern "C" fn(_:  AzDom, _:  AzCssProperty) -> AzDom = transmute(lib.get(b"az_dom_with_inline_css")?);
+            let az_dom_add_inline_hover_css: extern "C" fn(_:  &mut AzDom, _:  AzCssProperty) = transmute(lib.get(b"az_dom_add_inline_hover_css")?);
+            let az_dom_with_inline_hover_css: extern "C" fn(_:  AzDom, _:  AzCssProperty) -> AzDom = transmute(lib.get(b"az_dom_with_inline_hover_css")?);
+            let az_dom_add_inline_active_css: extern "C" fn(_:  &mut AzDom, _:  AzCssProperty) = transmute(lib.get(b"az_dom_add_inline_active_css")?);
+            let az_dom_with_inline_active_css: extern "C" fn(_:  AzDom, _:  AzCssProperty) -> AzDom = transmute(lib.get(b"az_dom_with_inline_active_css")?);
+            let az_dom_add_inline_focus_css: extern "C" fn(_:  &mut AzDom, _:  AzCssProperty) = transmute(lib.get(b"az_dom_add_inline_focus_css")?);
+            let az_dom_with_inline_focus_css: extern "C" fn(_:  AzDom, _:  AzCssProperty) -> AzDom = transmute(lib.get(b"az_dom_with_inline_focus_css")?);
             let az_dom_set_is_draggable: extern "C" fn(_:  &mut AzDom, _:  bool) = transmute(lib.get(b"az_dom_set_is_draggable")?);
             let az_dom_with_clip_mask: extern "C" fn(_:  AzDom, _:  AzOptionImageMask) -> AzDom = transmute(lib.get(b"az_dom_with_clip_mask")?);
             let az_dom_set_clip_mask: extern "C" fn(_:  &mut AzDom, _:  AzOptionImageMask) = transmute(lib.get(b"az_dom_set_clip_mask")?);
@@ -6549,6 +7506,9 @@
             let az_node_data_with_callback: extern "C" fn(_:  AzNodeData, _:  AzEventFilter, _:  AzRefAny, _:  AzCallbackType) -> AzNodeData = transmute(lib.get(b"az_node_data_with_callback")?);
             let az_node_data_add_inline_css: extern "C" fn(_:  &mut AzNodeData, _:  AzCssProperty) = transmute(lib.get(b"az_node_data_add_inline_css")?);
             let az_node_data_with_inline_css: extern "C" fn(_:  AzNodeData, _:  AzCssProperty) -> AzNodeData = transmute(lib.get(b"az_node_data_with_inline_css")?);
+            let az_node_data_add_inline_hover_css: extern "C" fn(_:  &mut AzNodeData, _:  AzCssProperty) = transmute(lib.get(b"az_node_data_add_inline_hover_css")?);
+            let az_node_data_add_inline_active_css: extern "C" fn(_:  &mut AzNodeData, _:  AzCssProperty) = transmute(lib.get(b"az_node_data_add_inline_active_css")?);
+            let az_node_data_add_inline_focus_css: extern "C" fn(_:  &mut AzNodeData, _:  AzCssProperty) = transmute(lib.get(b"az_node_data_add_inline_focus_css")?);
             let az_node_data_with_clip_mask: extern "C" fn(_:  AzNodeData, _:  AzOptionImageMask) -> AzNodeData = transmute(lib.get(b"az_node_data_with_clip_mask")?);
             let az_node_data_set_clip_mask: extern "C" fn(_:  &mut AzNodeData, _:  AzOptionImageMask) = transmute(lib.get(b"az_node_data_set_clip_mask")?);
             let az_node_data_set_is_draggable: extern "C" fn(_:  &mut AzNodeData, _:  bool) = transmute(lib.get(b"az_node_data_set_is_draggable")?);
@@ -7024,6 +7984,76 @@
             let az_block_error_delete: extern "C" fn(_:  &mut AzBlockError) = transmute(lib.get(b"az_block_error_delete")?);
             let az_block_error_deep_copy: extern "C" fn(_:  &AzBlockError) -> AzBlockError = transmute(lib.get(b"az_block_error_deep_copy")?);
             let az_block_error_fmt_debug: extern "C" fn(_:  &AzBlockError) -> AzString = transmute(lib.get(b"az_block_error_fmt_debug")?);
+            let az_layout_point_delete: extern "C" fn(_:  &mut AzLayoutPoint) = transmute(lib.get(b"az_layout_point_delete")?);
+            let az_layout_point_deep_copy: extern "C" fn(_:  &AzLayoutPoint) -> AzLayoutPoint = transmute(lib.get(b"az_layout_point_deep_copy")?);
+            let az_layout_point_fmt_debug: extern "C" fn(_:  &AzLayoutPoint) -> AzString = transmute(lib.get(b"az_layout_point_fmt_debug")?);
+            let az_layout_point_partial_eq: extern "C" fn(_:  &AzLayoutPoint, _:  &AzLayoutPoint) -> bool = transmute(lib.get(b"az_layout_point_partial_eq")?);
+            let az_layout_point_partial_cmp: extern "C" fn(_:  &AzLayoutPoint, _:  &AzLayoutPoint) -> u8 = transmute(lib.get(b"az_layout_point_partial_cmp")?);
+            let az_layout_point_cmp: extern "C" fn(_:  &AzLayoutPoint, _:  &AzLayoutPoint) -> u8 = transmute(lib.get(b"az_layout_point_cmp")?);
+            let az_layout_point_hash: extern "C" fn(_:  &AzLayoutPoint) -> u64 = transmute(lib.get(b"az_layout_point_hash")?);
+            let az_raw_window_handle_delete: extern "C" fn(_:  &mut AzRawWindowHandle) = transmute(lib.get(b"az_raw_window_handle_delete")?);
+            let az_raw_window_handle_deep_copy: extern "C" fn(_:  &AzRawWindowHandle) -> AzRawWindowHandle = transmute(lib.get(b"az_raw_window_handle_deep_copy")?);
+            let az_raw_window_handle_fmt_debug: extern "C" fn(_:  &AzRawWindowHandle) -> AzString = transmute(lib.get(b"az_raw_window_handle_fmt_debug")?);
+            let az_raw_window_handle_partial_eq: extern "C" fn(_:  &AzRawWindowHandle, _:  &AzRawWindowHandle) -> bool = transmute(lib.get(b"az_raw_window_handle_partial_eq")?);
+            let az_raw_window_handle_partial_cmp: extern "C" fn(_:  &AzRawWindowHandle, _:  &AzRawWindowHandle) -> u8 = transmute(lib.get(b"az_raw_window_handle_partial_cmp")?);
+            let az_raw_window_handle_cmp: extern "C" fn(_:  &AzRawWindowHandle, _:  &AzRawWindowHandle) -> u8 = transmute(lib.get(b"az_raw_window_handle_cmp")?);
+            let az_raw_window_handle_hash: extern "C" fn(_:  &AzRawWindowHandle) -> u64 = transmute(lib.get(b"az_raw_window_handle_hash")?);
+            let az_ios_handle_delete: extern "C" fn(_:  &mut AzIOSHandle) = transmute(lib.get(b"az_ios_handle_delete")?);
+            let az_ios_handle_deep_copy: extern "C" fn(_:  &AzIOSHandle) -> AzIOSHandle = transmute(lib.get(b"az_ios_handle_deep_copy")?);
+            let az_ios_handle_fmt_debug: extern "C" fn(_:  &AzIOSHandle) -> AzString = transmute(lib.get(b"az_ios_handle_fmt_debug")?);
+            let az_ios_handle_partial_eq: extern "C" fn(_:  &AzIOSHandle, _:  &AzIOSHandle) -> bool = transmute(lib.get(b"az_ios_handle_partial_eq")?);
+            let az_ios_handle_partial_cmp: extern "C" fn(_:  &AzIOSHandle, _:  &AzIOSHandle) -> u8 = transmute(lib.get(b"az_ios_handle_partial_cmp")?);
+            let az_ios_handle_cmp: extern "C" fn(_:  &AzIOSHandle, _:  &AzIOSHandle) -> u8 = transmute(lib.get(b"az_ios_handle_cmp")?);
+            let az_ios_handle_hash: extern "C" fn(_:  &AzIOSHandle) -> u64 = transmute(lib.get(b"az_ios_handle_hash")?);
+            let az_mac_os_handle_delete: extern "C" fn(_:  &mut AzMacOSHandle) = transmute(lib.get(b"az_mac_os_handle_delete")?);
+            let az_mac_os_handle_deep_copy: extern "C" fn(_:  &AzMacOSHandle) -> AzMacOSHandle = transmute(lib.get(b"az_mac_os_handle_deep_copy")?);
+            let az_mac_os_handle_fmt_debug: extern "C" fn(_:  &AzMacOSHandle) -> AzString = transmute(lib.get(b"az_mac_os_handle_fmt_debug")?);
+            let az_mac_os_handle_partial_eq: extern "C" fn(_:  &AzMacOSHandle, _:  &AzMacOSHandle) -> bool = transmute(lib.get(b"az_mac_os_handle_partial_eq")?);
+            let az_mac_os_handle_partial_cmp: extern "C" fn(_:  &AzMacOSHandle, _:  &AzMacOSHandle) -> u8 = transmute(lib.get(b"az_mac_os_handle_partial_cmp")?);
+            let az_mac_os_handle_cmp: extern "C" fn(_:  &AzMacOSHandle, _:  &AzMacOSHandle) -> u8 = transmute(lib.get(b"az_mac_os_handle_cmp")?);
+            let az_mac_os_handle_hash: extern "C" fn(_:  &AzMacOSHandle) -> u64 = transmute(lib.get(b"az_mac_os_handle_hash")?);
+            let az_xlib_handle_delete: extern "C" fn(_:  &mut AzXlibHandle) = transmute(lib.get(b"az_xlib_handle_delete")?);
+            let az_xlib_handle_deep_copy: extern "C" fn(_:  &AzXlibHandle) -> AzXlibHandle = transmute(lib.get(b"az_xlib_handle_deep_copy")?);
+            let az_xlib_handle_fmt_debug: extern "C" fn(_:  &AzXlibHandle) -> AzString = transmute(lib.get(b"az_xlib_handle_fmt_debug")?);
+            let az_xlib_handle_partial_eq: extern "C" fn(_:  &AzXlibHandle, _:  &AzXlibHandle) -> bool = transmute(lib.get(b"az_xlib_handle_partial_eq")?);
+            let az_xlib_handle_partial_cmp: extern "C" fn(_:  &AzXlibHandle, _:  &AzXlibHandle) -> u8 = transmute(lib.get(b"az_xlib_handle_partial_cmp")?);
+            let az_xlib_handle_cmp: extern "C" fn(_:  &AzXlibHandle, _:  &AzXlibHandle) -> u8 = transmute(lib.get(b"az_xlib_handle_cmp")?);
+            let az_xlib_handle_hash: extern "C" fn(_:  &AzXlibHandle) -> u64 = transmute(lib.get(b"az_xlib_handle_hash")?);
+            let az_xcb_handle_delete: extern "C" fn(_:  &mut AzXcbHandle) = transmute(lib.get(b"az_xcb_handle_delete")?);
+            let az_xcb_handle_deep_copy: extern "C" fn(_:  &AzXcbHandle) -> AzXcbHandle = transmute(lib.get(b"az_xcb_handle_deep_copy")?);
+            let az_xcb_handle_fmt_debug: extern "C" fn(_:  &AzXcbHandle) -> AzString = transmute(lib.get(b"az_xcb_handle_fmt_debug")?);
+            let az_xcb_handle_partial_eq: extern "C" fn(_:  &AzXcbHandle, _:  &AzXcbHandle) -> bool = transmute(lib.get(b"az_xcb_handle_partial_eq")?);
+            let az_xcb_handle_partial_cmp: extern "C" fn(_:  &AzXcbHandle, _:  &AzXcbHandle) -> u8 = transmute(lib.get(b"az_xcb_handle_partial_cmp")?);
+            let az_xcb_handle_cmp: extern "C" fn(_:  &AzXcbHandle, _:  &AzXcbHandle) -> u8 = transmute(lib.get(b"az_xcb_handle_cmp")?);
+            let az_xcb_handle_hash: extern "C" fn(_:  &AzXcbHandle) -> u64 = transmute(lib.get(b"az_xcb_handle_hash")?);
+            let az_wayland_handle_delete: extern "C" fn(_:  &mut AzWaylandHandle) = transmute(lib.get(b"az_wayland_handle_delete")?);
+            let az_wayland_handle_deep_copy: extern "C" fn(_:  &AzWaylandHandle) -> AzWaylandHandle = transmute(lib.get(b"az_wayland_handle_deep_copy")?);
+            let az_wayland_handle_fmt_debug: extern "C" fn(_:  &AzWaylandHandle) -> AzString = transmute(lib.get(b"az_wayland_handle_fmt_debug")?);
+            let az_wayland_handle_partial_eq: extern "C" fn(_:  &AzWaylandHandle, _:  &AzWaylandHandle) -> bool = transmute(lib.get(b"az_wayland_handle_partial_eq")?);
+            let az_wayland_handle_partial_cmp: extern "C" fn(_:  &AzWaylandHandle, _:  &AzWaylandHandle) -> u8 = transmute(lib.get(b"az_wayland_handle_partial_cmp")?);
+            let az_wayland_handle_cmp: extern "C" fn(_:  &AzWaylandHandle, _:  &AzWaylandHandle) -> u8 = transmute(lib.get(b"az_wayland_handle_cmp")?);
+            let az_wayland_handle_hash: extern "C" fn(_:  &AzWaylandHandle) -> u64 = transmute(lib.get(b"az_wayland_handle_hash")?);
+            let az_windows_handle_delete: extern "C" fn(_:  &mut AzWindowsHandle) = transmute(lib.get(b"az_windows_handle_delete")?);
+            let az_windows_handle_deep_copy: extern "C" fn(_:  &AzWindowsHandle) -> AzWindowsHandle = transmute(lib.get(b"az_windows_handle_deep_copy")?);
+            let az_windows_handle_fmt_debug: extern "C" fn(_:  &AzWindowsHandle) -> AzString = transmute(lib.get(b"az_windows_handle_fmt_debug")?);
+            let az_windows_handle_partial_eq: extern "C" fn(_:  &AzWindowsHandle, _:  &AzWindowsHandle) -> bool = transmute(lib.get(b"az_windows_handle_partial_eq")?);
+            let az_windows_handle_partial_cmp: extern "C" fn(_:  &AzWindowsHandle, _:  &AzWindowsHandle) -> u8 = transmute(lib.get(b"az_windows_handle_partial_cmp")?);
+            let az_windows_handle_cmp: extern "C" fn(_:  &AzWindowsHandle, _:  &AzWindowsHandle) -> u8 = transmute(lib.get(b"az_windows_handle_cmp")?);
+            let az_windows_handle_hash: extern "C" fn(_:  &AzWindowsHandle) -> u64 = transmute(lib.get(b"az_windows_handle_hash")?);
+            let az_web_handle_delete: extern "C" fn(_:  &mut AzWebHandle) = transmute(lib.get(b"az_web_handle_delete")?);
+            let az_web_handle_deep_copy: extern "C" fn(_:  &AzWebHandle) -> AzWebHandle = transmute(lib.get(b"az_web_handle_deep_copy")?);
+            let az_web_handle_fmt_debug: extern "C" fn(_:  &AzWebHandle) -> AzString = transmute(lib.get(b"az_web_handle_fmt_debug")?);
+            let az_web_handle_partial_eq: extern "C" fn(_:  &AzWebHandle, _:  &AzWebHandle) -> bool = transmute(lib.get(b"az_web_handle_partial_eq")?);
+            let az_web_handle_partial_cmp: extern "C" fn(_:  &AzWebHandle, _:  &AzWebHandle) -> u8 = transmute(lib.get(b"az_web_handle_partial_cmp")?);
+            let az_web_handle_cmp: extern "C" fn(_:  &AzWebHandle, _:  &AzWebHandle) -> u8 = transmute(lib.get(b"az_web_handle_cmp")?);
+            let az_web_handle_hash: extern "C" fn(_:  &AzWebHandle) -> u64 = transmute(lib.get(b"az_web_handle_hash")?);
+            let az_android_handle_delete: extern "C" fn(_:  &mut AzAndroidHandle) = transmute(lib.get(b"az_android_handle_delete")?);
+            let az_android_handle_deep_copy: extern "C" fn(_:  &AzAndroidHandle) -> AzAndroidHandle = transmute(lib.get(b"az_android_handle_deep_copy")?);
+            let az_android_handle_fmt_debug: extern "C" fn(_:  &AzAndroidHandle) -> AzString = transmute(lib.get(b"az_android_handle_fmt_debug")?);
+            let az_android_handle_partial_eq: extern "C" fn(_:  &AzAndroidHandle, _:  &AzAndroidHandle) -> bool = transmute(lib.get(b"az_android_handle_partial_eq")?);
+            let az_android_handle_partial_cmp: extern "C" fn(_:  &AzAndroidHandle, _:  &AzAndroidHandle) -> u8 = transmute(lib.get(b"az_android_handle_partial_cmp")?);
+            let az_android_handle_cmp: extern "C" fn(_:  &AzAndroidHandle, _:  &AzAndroidHandle) -> u8 = transmute(lib.get(b"az_android_handle_cmp")?);
+            let az_android_handle_hash: extern "C" fn(_:  &AzAndroidHandle) -> u64 = transmute(lib.get(b"az_android_handle_hash")?);
             let az_task_bar_icon_delete: extern "C" fn(_:  &mut AzTaskBarIcon) = transmute(lib.get(b"az_task_bar_icon_delete")?);
             let az_task_bar_icon_deep_copy: extern "C" fn(_:  &AzTaskBarIcon) -> AzTaskBarIcon = transmute(lib.get(b"az_task_bar_icon_deep_copy")?);
             let az_task_bar_icon_fmt_debug: extern "C" fn(_:  &AzTaskBarIcon) -> AzString = transmute(lib.get(b"az_task_bar_icon_fmt_debug")?);
@@ -7116,6 +8146,18 @@
             let az_full_screen_mode_delete: extern "C" fn(_:  &mut AzFullScreenMode) = transmute(lib.get(b"az_full_screen_mode_delete")?);
             let az_full_screen_mode_deep_copy: extern "C" fn(_:  &AzFullScreenMode) -> AzFullScreenMode = transmute(lib.get(b"az_full_screen_mode_deep_copy")?);
             let az_full_screen_mode_fmt_debug: extern "C" fn(_:  &AzFullScreenMode) -> AzString = transmute(lib.get(b"az_full_screen_mode_fmt_debug")?);
+            let az_window_theme_delete: extern "C" fn(_:  &mut AzWindowTheme) = transmute(lib.get(b"az_window_theme_delete")?);
+            let az_window_theme_deep_copy: extern "C" fn(_:  &AzWindowTheme) -> AzWindowTheme = transmute(lib.get(b"az_window_theme_deep_copy")?);
+            let az_window_theme_fmt_debug: extern "C" fn(_:  &AzWindowTheme) -> AzString = transmute(lib.get(b"az_window_theme_fmt_debug")?);
+            let az_window_position_delete: extern "C" fn(_:  &mut AzWindowPosition) = transmute(lib.get(b"az_window_position_delete")?);
+            let az_window_position_deep_copy: extern "C" fn(_:  &AzWindowPosition) -> AzWindowPosition = transmute(lib.get(b"az_window_position_deep_copy")?);
+            let az_window_position_fmt_debug: extern "C" fn(_:  &AzWindowPosition) -> AzString = transmute(lib.get(b"az_window_position_fmt_debug")?);
+            let az_ime_position_delete: extern "C" fn(_:  &mut AzImePosition) = transmute(lib.get(b"az_ime_position_delete")?);
+            let az_ime_position_deep_copy: extern "C" fn(_:  &AzImePosition) -> AzImePosition = transmute(lib.get(b"az_ime_position_deep_copy")?);
+            let az_ime_position_fmt_debug: extern "C" fn(_:  &AzImePosition) -> AzString = transmute(lib.get(b"az_ime_position_fmt_debug")?);
+            let az_touch_state_delete: extern "C" fn(_:  &mut AzTouchState) = transmute(lib.get(b"az_touch_state_delete")?);
+            let az_touch_state_deep_copy: extern "C" fn(_:  &AzTouchState) -> AzTouchState = transmute(lib.get(b"az_touch_state_deep_copy")?);
+            let az_touch_state_fmt_debug: extern "C" fn(_:  &AzTouchState) -> AzString = transmute(lib.get(b"az_touch_state_fmt_debug")?);
             let az_window_state_new: extern "C" fn(_:  AzLayoutCallbackType) -> AzWindowState = transmute(lib.get(b"az_window_state_new")?);
             let az_window_state_delete: extern "C" fn(_:  &mut AzWindowState) = transmute(lib.get(b"az_window_state_delete")?);
             let az_window_state_deep_copy: extern "C" fn(_:  &AzWindowState) -> AzWindowState = transmute(lib.get(b"az_window_state_deep_copy")?);
@@ -7139,6 +8181,12 @@
                 az_string_partial_cmp,
                 az_string_cmp,
                 az_string_hash,
+                az_style_transform_vec_new,
+                az_style_transform_vec_with_capacity,
+                az_style_transform_vec_copy_from,
+                az_style_transform_vec_delete,
+                az_style_transform_vec_deep_copy,
+                az_style_transform_vec_fmt_debug,
                 az_content_group_vec_new,
                 az_content_group_vec_with_capacity,
                 az_content_group_vec_copy_from,
@@ -7331,6 +8379,27 @@
                 az_node_data_vec_delete,
                 az_node_data_vec_deep_copy,
                 az_node_data_vec_fmt_debug,
+                az_option_style_opacity_value_delete,
+                az_option_style_opacity_value_deep_copy,
+                az_option_style_opacity_value_fmt_debug,
+                az_option_style_transform_vec_value_delete,
+                az_option_style_transform_vec_value_deep_copy,
+                az_option_style_transform_vec_value_fmt_debug,
+                az_option_style_transform_origin_value_delete,
+                az_option_style_transform_origin_value_deep_copy,
+                az_option_style_transform_origin_value_fmt_debug,
+                az_option_style_perspective_origin_value_delete,
+                az_option_style_perspective_origin_value_deep_copy,
+                az_option_style_perspective_origin_value_fmt_debug,
+                az_option_style_backface_visibility_value_delete,
+                az_option_style_backface_visibility_value_deep_copy,
+                az_option_style_backface_visibility_value_fmt_debug,
+                az_option_layout_point_delete,
+                az_option_layout_point_deep_copy,
+                az_option_layout_point_fmt_debug,
+                az_option_window_theme_delete,
+                az_option_window_theme_deep_copy,
+                az_option_window_theme_fmt_debug,
                 az_option_node_id_delete,
                 az_option_node_id_deep_copy,
                 az_option_node_id_fmt_debug,
@@ -7582,9 +8651,6 @@
                 az_option_layout_align_content_value_delete,
                 az_option_layout_align_content_value_deep_copy,
                 az_option_layout_align_content_value_fmt_debug,
-                az_option_hover_group_delete,
-                az_option_hover_group_deep_copy,
-                az_option_hover_group_fmt_debug,
                 az_option_tag_id_delete,
                 az_option_tag_id_deep_copy,
                 az_option_tag_id_fmt_debug,
@@ -7697,10 +8763,43 @@
                 az_callback_partial_cmp,
                 az_callback_cmp,
                 az_callback_hash,
-                az_callback_info_ptr_get_state,
+                az_focus_target_delete,
+                az_focus_target_deep_copy,
+                az_focus_target_fmt_debug,
+                az_focus_target_partial_eq,
+                az_focus_target_partial_cmp,
+                az_focus_target_cmp,
+                az_focus_target_hash,
+                az_focus_target_path_delete,
+                az_focus_target_path_deep_copy,
+                az_focus_target_path_fmt_debug,
+                az_focus_target_path_partial_eq,
+                az_focus_target_path_partial_cmp,
+                az_focus_target_path_cmp,
+                az_focus_target_path_hash,
+                az_callback_info_ptr_get_hit_node,
+                az_callback_info_ptr_get_cursor_relative_to_viewport,
+                az_callback_info_ptr_get_cursor_relative_to_node,
+                az_callback_info_ptr_get_parent,
+                az_callback_info_ptr_get_previous_sibling,
+                az_callback_info_ptr_get_next_sibling,
+                az_callback_info_ptr_get_first_child,
+                az_callback_info_ptr_get_last_child,
+                az_callback_info_ptr_get_window_state,
                 az_callback_info_ptr_get_keyboard_state,
                 az_callback_info_ptr_get_mouse_state,
+                az_callback_info_ptr_get_current_window_handle,
+                az_callback_info_ptr_get_gl_context,
+                az_callback_info_ptr_node_is_type,
+                az_callback_info_ptr_node_has_id,
+                az_callback_info_ptr_node_has_class,
                 az_callback_info_ptr_set_window_state,
+                az_callback_info_ptr_set_focus,
+                az_callback_info_ptr_set_css_property,
+                az_callback_info_ptr_stop_propagation,
+                az_callback_info_ptr_create_window,
+                az_callback_info_ptr_add_task,
+                az_callback_info_ptr_add_timer,
                 az_callback_info_ptr_delete,
                 az_callback_info_ptr_fmt_debug,
                 az_update_screen_delete,
@@ -8028,6 +9127,89 @@
                 az_style_tab_width_delete,
                 az_style_tab_width_deep_copy,
                 az_style_tab_width_fmt_debug,
+                az_style_opacity_delete,
+                az_style_opacity_deep_copy,
+                az_style_opacity_fmt_debug,
+                az_style_transform_origin_delete,
+                az_style_transform_origin_deep_copy,
+                az_style_transform_origin_fmt_debug,
+                az_style_transform_origin_partial_eq,
+                az_style_transform_origin_partial_cmp,
+                az_style_transform_origin_cmp,
+                az_style_transform_origin_hash,
+                az_style_perspective_origin_delete,
+                az_style_perspective_origin_deep_copy,
+                az_style_perspective_origin_fmt_debug,
+                az_style_perspective_origin_partial_eq,
+                az_style_perspective_origin_partial_cmp,
+                az_style_perspective_origin_cmp,
+                az_style_perspective_origin_hash,
+                az_style_backface_visibility_delete,
+                az_style_backface_visibility_deep_copy,
+                az_style_backface_visibility_fmt_debug,
+                az_style_backface_visibility_partial_eq,
+                az_style_backface_visibility_partial_cmp,
+                az_style_backface_visibility_cmp,
+                az_style_backface_visibility_hash,
+                az_style_transform_delete,
+                az_style_transform_deep_copy,
+                az_style_transform_fmt_debug,
+                az_style_transform_partial_eq,
+                az_style_transform_partial_cmp,
+                az_style_transform_cmp,
+                az_style_transform_hash,
+                az_style_transform_matrix2_d_delete,
+                az_style_transform_matrix2_d_deep_copy,
+                az_style_transform_matrix2_d_fmt_debug,
+                az_style_transform_matrix2_d_partial_eq,
+                az_style_transform_matrix2_d_partial_cmp,
+                az_style_transform_matrix2_d_cmp,
+                az_style_transform_matrix2_d_hash,
+                az_style_transform_matrix3_d_delete,
+                az_style_transform_matrix3_d_deep_copy,
+                az_style_transform_matrix3_d_fmt_debug,
+                az_style_transform_matrix3_d_partial_eq,
+                az_style_transform_matrix3_d_partial_cmp,
+                az_style_transform_matrix3_d_cmp,
+                az_style_transform_matrix3_d_hash,
+                az_style_transform_translate2_d_delete,
+                az_style_transform_translate2_d_deep_copy,
+                az_style_transform_translate2_d_fmt_debug,
+                az_style_transform_translate2_d_partial_eq,
+                az_style_transform_translate2_d_partial_cmp,
+                az_style_transform_translate2_d_cmp,
+                az_style_transform_translate2_d_hash,
+                az_style_transform_translate3_d_delete,
+                az_style_transform_translate3_d_deep_copy,
+                az_style_transform_translate3_d_fmt_debug,
+                az_style_transform_translate3_d_partial_eq,
+                az_style_transform_translate3_d_partial_cmp,
+                az_style_transform_translate3_d_cmp,
+                az_style_transform_translate3_d_hash,
+                az_style_transform_rotate3_d_delete,
+                az_style_transform_rotate3_d_deep_copy,
+                az_style_transform_rotate3_d_fmt_debug,
+                az_style_transform_rotate3_d_partial_eq,
+                az_style_transform_rotate3_d_partial_cmp,
+                az_style_transform_rotate3_d_cmp,
+                az_style_transform_rotate3_d_hash,
+                az_style_transform_scale2_d_delete,
+                az_style_transform_scale2_d_deep_copy,
+                az_style_transform_scale2_d_fmt_debug,
+                az_style_transform_scale2_d_partial_eq,
+                az_style_transform_scale2_d_partial_cmp,
+                az_style_transform_scale2_d_cmp,
+                az_style_transform_scale2_d_hash,
+                az_style_transform_scale3_d_delete,
+                az_style_transform_scale3_d_deep_copy,
+                az_style_transform_scale3_d_fmt_debug,
+                az_style_transform_scale3_d_partial_eq,
+                az_style_transform_scale3_d_partial_cmp,
+                az_style_transform_scale3_d_cmp,
+                az_style_transform_scale3_d_hash,
+                az_style_transform_skew2_d_delete,
+                az_style_transform_skew2_d_deep_copy,
+                az_style_transform_skew2_d_fmt_debug,
                 az_style_text_alignment_horz_delete,
                 az_style_text_alignment_horz_deep_copy,
                 az_style_text_alignment_horz_fmt_debug,
@@ -8217,6 +9399,21 @@
                 az_style_word_spacing_value_delete,
                 az_style_word_spacing_value_deep_copy,
                 az_style_word_spacing_value_fmt_debug,
+                az_style_opacity_value_delete,
+                az_style_opacity_value_deep_copy,
+                az_style_opacity_value_fmt_debug,
+                az_style_transform_vec_value_delete,
+                az_style_transform_vec_value_deep_copy,
+                az_style_transform_vec_value_fmt_debug,
+                az_style_transform_origin_value_delete,
+                az_style_transform_origin_value_deep_copy,
+                az_style_transform_origin_value_fmt_debug,
+                az_style_perspective_origin_value_delete,
+                az_style_perspective_origin_value_deep_copy,
+                az_style_perspective_origin_value_fmt_debug,
+                az_style_backface_visibility_value_delete,
+                az_style_backface_visibility_value_deep_copy,
+                az_style_backface_visibility_value_fmt_debug,
                 az_css_property_delete,
                 az_css_property_deep_copy,
                 az_css_property_fmt_debug,
@@ -8266,6 +9463,13 @@
                 az_css_property_source_partial_cmp,
                 az_css_property_source_cmp,
                 az_css_property_source_hash,
+                az_styled_node_state_delete,
+                az_styled_node_state_deep_copy,
+                az_styled_node_state_fmt_debug,
+                az_styled_node_state_partial_eq,
+                az_styled_node_state_partial_cmp,
+                az_styled_node_state_cmp,
+                az_styled_node_state_hash,
                 az_styled_node_delete,
                 az_styled_node_deep_copy,
                 az_styled_node_fmt_debug,
@@ -8287,20 +9491,6 @@
                 az_tag_id_to_node_id_mapping_partial_cmp,
                 az_tag_id_to_node_id_mapping_cmp,
                 az_tag_id_to_node_id_mapping_hash,
-                az_hover_group_delete,
-                az_hover_group_deep_copy,
-                az_hover_group_fmt_debug,
-                az_hover_group_partial_eq,
-                az_hover_group_partial_cmp,
-                az_hover_group_cmp,
-                az_hover_group_hash,
-                az_active_hover_delete,
-                az_active_hover_deep_copy,
-                az_active_hover_fmt_debug,
-                az_active_hover_partial_eq,
-                az_active_hover_partial_cmp,
-                az_active_hover_cmp,
-                az_active_hover_hash,
                 az_parent_with_node_depth_delete,
                 az_parent_with_node_depth_deep_copy,
                 az_parent_with_node_depth_fmt_debug,
@@ -8351,6 +9541,12 @@
                 az_dom_with_callback,
                 az_dom_add_inline_css,
                 az_dom_with_inline_css,
+                az_dom_add_inline_hover_css,
+                az_dom_with_inline_hover_css,
+                az_dom_add_inline_active_css,
+                az_dom_with_inline_active_css,
+                az_dom_add_inline_focus_css,
+                az_dom_with_inline_focus_css,
                 az_dom_set_is_draggable,
                 az_dom_with_clip_mask,
                 az_dom_set_clip_mask,
@@ -8410,6 +9606,9 @@
                 az_node_data_with_callback,
                 az_node_data_add_inline_css,
                 az_node_data_with_inline_css,
+                az_node_data_add_inline_hover_css,
+                az_node_data_add_inline_active_css,
+                az_node_data_add_inline_focus_css,
                 az_node_data_with_clip_mask,
                 az_node_data_set_clip_mask,
                 az_node_data_set_is_draggable,
@@ -8885,6 +10084,76 @@
                 az_block_error_delete,
                 az_block_error_deep_copy,
                 az_block_error_fmt_debug,
+                az_layout_point_delete,
+                az_layout_point_deep_copy,
+                az_layout_point_fmt_debug,
+                az_layout_point_partial_eq,
+                az_layout_point_partial_cmp,
+                az_layout_point_cmp,
+                az_layout_point_hash,
+                az_raw_window_handle_delete,
+                az_raw_window_handle_deep_copy,
+                az_raw_window_handle_fmt_debug,
+                az_raw_window_handle_partial_eq,
+                az_raw_window_handle_partial_cmp,
+                az_raw_window_handle_cmp,
+                az_raw_window_handle_hash,
+                az_ios_handle_delete,
+                az_ios_handle_deep_copy,
+                az_ios_handle_fmt_debug,
+                az_ios_handle_partial_eq,
+                az_ios_handle_partial_cmp,
+                az_ios_handle_cmp,
+                az_ios_handle_hash,
+                az_mac_os_handle_delete,
+                az_mac_os_handle_deep_copy,
+                az_mac_os_handle_fmt_debug,
+                az_mac_os_handle_partial_eq,
+                az_mac_os_handle_partial_cmp,
+                az_mac_os_handle_cmp,
+                az_mac_os_handle_hash,
+                az_xlib_handle_delete,
+                az_xlib_handle_deep_copy,
+                az_xlib_handle_fmt_debug,
+                az_xlib_handle_partial_eq,
+                az_xlib_handle_partial_cmp,
+                az_xlib_handle_cmp,
+                az_xlib_handle_hash,
+                az_xcb_handle_delete,
+                az_xcb_handle_deep_copy,
+                az_xcb_handle_fmt_debug,
+                az_xcb_handle_partial_eq,
+                az_xcb_handle_partial_cmp,
+                az_xcb_handle_cmp,
+                az_xcb_handle_hash,
+                az_wayland_handle_delete,
+                az_wayland_handle_deep_copy,
+                az_wayland_handle_fmt_debug,
+                az_wayland_handle_partial_eq,
+                az_wayland_handle_partial_cmp,
+                az_wayland_handle_cmp,
+                az_wayland_handle_hash,
+                az_windows_handle_delete,
+                az_windows_handle_deep_copy,
+                az_windows_handle_fmt_debug,
+                az_windows_handle_partial_eq,
+                az_windows_handle_partial_cmp,
+                az_windows_handle_cmp,
+                az_windows_handle_hash,
+                az_web_handle_delete,
+                az_web_handle_deep_copy,
+                az_web_handle_fmt_debug,
+                az_web_handle_partial_eq,
+                az_web_handle_partial_cmp,
+                az_web_handle_cmp,
+                az_web_handle_hash,
+                az_android_handle_delete,
+                az_android_handle_deep_copy,
+                az_android_handle_fmt_debug,
+                az_android_handle_partial_eq,
+                az_android_handle_partial_cmp,
+                az_android_handle_cmp,
+                az_android_handle_hash,
                 az_task_bar_icon_delete,
                 az_task_bar_icon_deep_copy,
                 az_task_bar_icon_fmt_debug,
@@ -8977,6 +10246,18 @@
                 az_full_screen_mode_delete,
                 az_full_screen_mode_deep_copy,
                 az_full_screen_mode_fmt_debug,
+                az_window_theme_delete,
+                az_window_theme_deep_copy,
+                az_window_theme_fmt_debug,
+                az_window_position_delete,
+                az_window_position_deep_copy,
+                az_window_position_fmt_debug,
+                az_ime_position_delete,
+                az_ime_position_deep_copy,
+                az_ime_position_fmt_debug,
+                az_touch_state_delete,
+                az_touch_state_deep_copy,
+                az_touch_state_fmt_debug,
                 az_window_state_new,
                 az_window_state_delete,
                 az_window_state_deep_copy,

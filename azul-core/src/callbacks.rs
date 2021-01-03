@@ -6,13 +6,14 @@ use std::{
     ffi::c_void,
     alloc::Layout,
 };
-use azul_css::{LayoutPoint, AzString, LayoutRect, LayoutSize, CssPath};
+use azul_css::{CssProperty, LayoutPoint, AzString, LayoutRect, LayoutSize, CssPath};
 use crate::{
     FastHashMap,
     app_resources::{AppResources, IdNamespace},
     styled_dom::StyledDom,
     ui_solver::{OverflowingScrollNode, LayoutedRectangle, LayoutResult},
     styled_dom::{DomId, AzNodeId},
+    id_tree::NodeId,
     window::{
         WindowSize, WindowState, FullWindowState, LogicalPosition,
         LogicalSize, PhysicalSize, UpdateFocusWarning, WindowCreateOptions,
@@ -448,6 +449,8 @@ pub struct CallbackInfo<'a> {
     pub focus_target: &'a mut Option<FocusTarget>,
     /// Immutable (!) reference to where the nodes are currently scrolled (current position)
     pub current_scroll_states: &'a BTreeMap<DomId, BTreeMap<AzNodeId, ScrollPosition>>,
+    /// Mutable reference to a list of CSS property changes, so that the callbacks can change CSS properties
+    pub css_properties_changed_in_callbacks: &'a mut BTreeMap<DomId, BTreeMap<NodeId, Vec<CssProperty>>>,
     /// Mutable map where a user can set where he wants the nodes to be scrolled to (for the next frame)
     pub nodes_scrolled_in_callback: &'a mut BTreeMap<DomId, BTreeMap<AzNodeId, LogicalPosition>>,
     /// The ID of the DOM + the node that was hit. You can use this to query
@@ -535,15 +538,6 @@ impl<'a> fmt::Debug for CallbackInfo<'a> {
             self.cursor_relative_to_item,
             self.cursor_in_viewport,
         )
-    }
-}
-
-impl<'a> CallbackInfo<'a> {
-    /// Sets whether the event should be propagated to the parent hit node or not
-    ///
-    /// Similar to `e.stopPropagation()` in JavaScript
-    pub fn stop_propagation(&mut self) {
-        *self.stop_propagation = true;
     }
 }
 

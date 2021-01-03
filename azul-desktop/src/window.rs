@@ -325,8 +325,8 @@ impl Window {
     }
 
     /// Calls the layout function again and updates the self.internal.gl_texture_cache field
-    pub fn regenerate_styled_dom(&mut self, gl_context: &GlContextPtr, app_resources: &mut AppResources, render_api: &mut WrApi) {
-        self.internal.relayout(gl_context, app_resources, render_api, Window::CALLBACKS);
+    pub fn regenerate_styled_dom(&mut self, data: &RefAny, app_resources: &mut AppResources, gl_context: &GlContextPtr, render_api: &mut WrApi) {
+        self.internal.regenerate_styled_dom(data, app_resources, gl_context, render_api, Window::CALLBACKS);
     }
 
     /// Only re-build the display list and send it to webrender
@@ -371,7 +371,7 @@ impl Window {
     // NOTE: For some reason, webrender allows rendering to a framebuffer with a
     // negative width / height, although that doesn't make sense
     #[cfg(not(test))]
-    pub fn render_display_list_to_texture(&mut self, headless_shared_context: &mut HeadlessContextState, render_api: &mut WrApi, renderer: &mut WrRenderer, gl_context: &GlContextPtr) -> Option<Texture> {
+    pub(crate) fn render_display_list_to_texture(&mut self, headless_shared_context: &mut HeadlessContextState, render_api: &mut WrApi, renderer: &mut WrRenderer, gl_context: &GlContextPtr) -> Option<Texture> {
 
         /// Scroll all nodes in the ScrollStates to their correct position and insert
         /// the positions into the transaction
@@ -542,7 +542,7 @@ impl Window {
     }
 
     #[cfg(not(test))]
-    pub fn draw_texture_to_screen_and_swap(&mut self, texture: &Texture, shader: &DisplayShader) {
+    pub fn draw_texture_to_screen_and_swap(&mut self, texture: &Texture, shader: &mut DisplayShader) {
         self.display.make_current();
         let mut current_draw_framebuffers = [0_i32];
         texture.gl_context.get_integer_v(gl::DRAW_FRAMEBUFFER_BINDING, (&mut current_draw_framebuffers[..]).into());
@@ -811,7 +811,6 @@ impl Window {
         let raw_window_handle = translate_raw_window_handle(self.display.window().raw_window_handle());
         // likely won't work because callbacks and &mut layout_results are borrowed
         callbacks.call(
-            self.internal.pipeline_id,
             &self.internal.current_window_state,
             &raw_window_handle,
             &current_scroll_states,
@@ -819,7 +818,6 @@ impl Window {
             &mut self.internal.layout_results,
             &mut self.internal.scroll_states,
             app_resources,
-            azul_layout::do_the_relayout,
         )
     }
 

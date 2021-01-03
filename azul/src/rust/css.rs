@@ -712,6 +712,110 @@
     impl Drop for StyleTabWidth { fn drop(&mut self) { (crate::dll::get_azul_dll().az_style_tab_width_delete)(self); } }
 
 
+    /// `StyleOpacity` struct
+    pub use crate::dll::AzStyleOpacity as StyleOpacity;
+
+    impl std::fmt::Debug for StyleOpacity { fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result { write!(f, "{}", (crate::dll::get_azul_dll().az_style_opacity_fmt_debug)(self)) } }
+    impl Clone for StyleOpacity { fn clone(&self) -> Self { (crate::dll::get_azul_dll().az_style_opacity_deep_copy)(self) } }
+    impl Drop for StyleOpacity { fn drop(&mut self) { (crate::dll::get_azul_dll().az_style_opacity_delete)(self); } }
+
+
+    /// `StyleTransformOrigin` struct
+    pub use crate::dll::AzStyleTransformOrigin as StyleTransformOrigin;
+
+    impl std::fmt::Debug for StyleTransformOrigin { fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result { write!(f, "{}", (crate::dll::get_azul_dll().az_style_transform_origin_fmt_debug)(self)) } }
+    impl Clone for StyleTransformOrigin { fn clone(&self) -> Self { (crate::dll::get_azul_dll().az_style_transform_origin_deep_copy)(self) } }
+    impl Drop for StyleTransformOrigin { fn drop(&mut self) { (crate::dll::get_azul_dll().az_style_transform_origin_delete)(self); } }
+
+
+    /// `StylePerspectiveOrigin` struct
+    pub use crate::dll::AzStylePerspectiveOrigin as StylePerspectiveOrigin;
+
+    impl std::fmt::Debug for StylePerspectiveOrigin { fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result { write!(f, "{}", (crate::dll::get_azul_dll().az_style_perspective_origin_fmt_debug)(self)) } }
+    impl Clone for StylePerspectiveOrigin { fn clone(&self) -> Self { (crate::dll::get_azul_dll().az_style_perspective_origin_deep_copy)(self) } }
+    impl Drop for StylePerspectiveOrigin { fn drop(&mut self) { (crate::dll::get_azul_dll().az_style_perspective_origin_delete)(self); } }
+
+
+    /// `StyleBackfaceVisibility` struct
+    pub use crate::dll::AzStyleBackfaceVisibility as StyleBackfaceVisibility;
+
+    impl std::fmt::Debug for StyleBackfaceVisibility { fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result { write!(f, "{}", (crate::dll::get_azul_dll().az_style_backface_visibility_fmt_debug)(self)) } }
+    impl Clone for StyleBackfaceVisibility { fn clone(&self) -> Self { (crate::dll::get_azul_dll().az_style_backface_visibility_deep_copy)(self) } }
+    impl Drop for StyleBackfaceVisibility { fn drop(&mut self) { (crate::dll::get_azul_dll().az_style_backface_visibility_delete)(self); } }
+
+
+    /// `StyleTransform` struct
+    pub use crate::dll::AzStyleTransform as StyleTransform;
+
+    impl std::fmt::Debug for StyleTransform { fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result { write!(f, "{}", (crate::dll::get_azul_dll().az_style_transform_fmt_debug)(self)) } }
+    impl Clone for StyleTransform { fn clone(&self) -> Self { (crate::dll::get_azul_dll().az_style_transform_deep_copy)(self) } }
+    impl Drop for StyleTransform { fn drop(&mut self) { (crate::dll::get_azul_dll().az_style_transform_delete)(self); } }
+
+
+    /// `StyleTransformMatrix2D` struct
+    pub use crate::dll::AzStyleTransformMatrix2D as StyleTransformMatrix2D;
+
+    impl std::fmt::Debug for StyleTransformMatrix2D { fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result { write!(f, "{}", (crate::dll::get_azul_dll().az_style_transform_matrix2_d_fmt_debug)(self)) } }
+    impl Clone for StyleTransformMatrix2D { fn clone(&self) -> Self { (crate::dll::get_azul_dll().az_style_transform_matrix2_d_deep_copy)(self) } }
+    impl Drop for StyleTransformMatrix2D { fn drop(&mut self) { (crate::dll::get_azul_dll().az_style_transform_matrix2_d_delete)(self); } }
+
+
+    /// `StyleTransformMatrix3D` struct
+    pub use crate::dll::AzStyleTransformMatrix3D as StyleTransformMatrix3D;
+
+    impl std::fmt::Debug for StyleTransformMatrix3D { fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result { write!(f, "{}", (crate::dll::get_azul_dll().az_style_transform_matrix3_d_fmt_debug)(self)) } }
+    impl Clone for StyleTransformMatrix3D { fn clone(&self) -> Self { (crate::dll::get_azul_dll().az_style_transform_matrix3_d_deep_copy)(self) } }
+    impl Drop for StyleTransformMatrix3D { fn drop(&mut self) { (crate::dll::get_azul_dll().az_style_transform_matrix3_d_delete)(self); } }
+
+
+    /// `StyleTransformTranslate2D` struct
+    pub use crate::dll::AzStyleTransformTranslate2D as StyleTransformTranslate2D;
+
+    impl std::fmt::Debug for StyleTransformTranslate2D { fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result { write!(f, "{}", (crate::dll::get_azul_dll().az_style_transform_translate2_d_fmt_debug)(self)) } }
+    impl Clone for StyleTransformTranslate2D { fn clone(&self) -> Self { (crate::dll::get_azul_dll().az_style_transform_translate2_d_deep_copy)(self) } }
+    impl Drop for StyleTransformTranslate2D { fn drop(&mut self) { (crate::dll::get_azul_dll().az_style_transform_translate2_d_delete)(self); } }
+
+
+    /// `StyleTransformTranslate3D` struct
+    pub use crate::dll::AzStyleTransformTranslate3D as StyleTransformTranslate3D;
+
+    impl std::fmt::Debug for StyleTransformTranslate3D { fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result { write!(f, "{}", (crate::dll::get_azul_dll().az_style_transform_translate3_d_fmt_debug)(self)) } }
+    impl Clone for StyleTransformTranslate3D { fn clone(&self) -> Self { (crate::dll::get_azul_dll().az_style_transform_translate3_d_deep_copy)(self) } }
+    impl Drop for StyleTransformTranslate3D { fn drop(&mut self) { (crate::dll::get_azul_dll().az_style_transform_translate3_d_delete)(self); } }
+
+
+    /// `StyleTransformRotate3D` struct
+    pub use crate::dll::AzStyleTransformRotate3D as StyleTransformRotate3D;
+
+    impl std::fmt::Debug for StyleTransformRotate3D { fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result { write!(f, "{}", (crate::dll::get_azul_dll().az_style_transform_rotate3_d_fmt_debug)(self)) } }
+    impl Clone for StyleTransformRotate3D { fn clone(&self) -> Self { (crate::dll::get_azul_dll().az_style_transform_rotate3_d_deep_copy)(self) } }
+    impl Drop for StyleTransformRotate3D { fn drop(&mut self) { (crate::dll::get_azul_dll().az_style_transform_rotate3_d_delete)(self); } }
+
+
+    /// `StyleTransformScale2D` struct
+    pub use crate::dll::AzStyleTransformScale2D as StyleTransformScale2D;
+
+    impl std::fmt::Debug for StyleTransformScale2D { fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result { write!(f, "{}", (crate::dll::get_azul_dll().az_style_transform_scale2_d_fmt_debug)(self)) } }
+    impl Clone for StyleTransformScale2D { fn clone(&self) -> Self { (crate::dll::get_azul_dll().az_style_transform_scale2_d_deep_copy)(self) } }
+    impl Drop for StyleTransformScale2D { fn drop(&mut self) { (crate::dll::get_azul_dll().az_style_transform_scale2_d_delete)(self); } }
+
+
+    /// `StyleTransformScale3D` struct
+    pub use crate::dll::AzStyleTransformScale3D as StyleTransformScale3D;
+
+    impl std::fmt::Debug for StyleTransformScale3D { fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result { write!(f, "{}", (crate::dll::get_azul_dll().az_style_transform_scale3_d_fmt_debug)(self)) } }
+    impl Clone for StyleTransformScale3D { fn clone(&self) -> Self { (crate::dll::get_azul_dll().az_style_transform_scale3_d_deep_copy)(self) } }
+    impl Drop for StyleTransformScale3D { fn drop(&mut self) { (crate::dll::get_azul_dll().az_style_transform_scale3_d_delete)(self); } }
+
+
+    /// `StyleTransformSkew2D` struct
+    pub use crate::dll::AzStyleTransformSkew2D as StyleTransformSkew2D;
+
+    impl std::fmt::Debug for StyleTransformSkew2D { fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result { write!(f, "{}", (crate::dll::get_azul_dll().az_style_transform_skew2_d_fmt_debug)(self)) } }
+    impl Clone for StyleTransformSkew2D { fn clone(&self) -> Self { (crate::dll::get_azul_dll().az_style_transform_skew2_d_deep_copy)(self) } }
+    impl Drop for StyleTransformSkew2D { fn drop(&mut self) { (crate::dll::get_azul_dll().az_style_transform_skew2_d_delete)(self); } }
+
+
     /// `StyleTextAlignmentHorz` struct
     pub use crate::dll::AzStyleTextAlignmentHorz as StyleTextAlignmentHorz;
 
@@ -1214,6 +1318,46 @@
     impl std::fmt::Debug for StyleWordSpacingValue { fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result { write!(f, "{}", (crate::dll::get_azul_dll().az_style_word_spacing_value_fmt_debug)(self)) } }
     impl Clone for StyleWordSpacingValue { fn clone(&self) -> Self { (crate::dll::get_azul_dll().az_style_word_spacing_value_deep_copy)(self) } }
     impl Drop for StyleWordSpacingValue { fn drop(&mut self) { (crate::dll::get_azul_dll().az_style_word_spacing_value_delete)(self); } }
+
+
+    /// `StyleOpacityValue` struct
+    pub use crate::dll::AzStyleOpacityValue as StyleOpacityValue;
+
+    impl std::fmt::Debug for StyleOpacityValue { fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result { write!(f, "{}", (crate::dll::get_azul_dll().az_style_opacity_value_fmt_debug)(self)) } }
+    impl Clone for StyleOpacityValue { fn clone(&self) -> Self { (crate::dll::get_azul_dll().az_style_opacity_value_deep_copy)(self) } }
+    impl Drop for StyleOpacityValue { fn drop(&mut self) { (crate::dll::get_azul_dll().az_style_opacity_value_delete)(self); } }
+
+
+    /// `StyleTransformVecValue` struct
+    pub use crate::dll::AzStyleTransformVecValue as StyleTransformVecValue;
+
+    impl std::fmt::Debug for StyleTransformVecValue { fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result { write!(f, "{}", (crate::dll::get_azul_dll().az_style_transform_vec_value_fmt_debug)(self)) } }
+    impl Clone for StyleTransformVecValue { fn clone(&self) -> Self { (crate::dll::get_azul_dll().az_style_transform_vec_value_deep_copy)(self) } }
+    impl Drop for StyleTransformVecValue { fn drop(&mut self) { (crate::dll::get_azul_dll().az_style_transform_vec_value_delete)(self); } }
+
+
+    /// `StyleTransformOriginValue` struct
+    pub use crate::dll::AzStyleTransformOriginValue as StyleTransformOriginValue;
+
+    impl std::fmt::Debug for StyleTransformOriginValue { fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result { write!(f, "{}", (crate::dll::get_azul_dll().az_style_transform_origin_value_fmt_debug)(self)) } }
+    impl Clone for StyleTransformOriginValue { fn clone(&self) -> Self { (crate::dll::get_azul_dll().az_style_transform_origin_value_deep_copy)(self) } }
+    impl Drop for StyleTransformOriginValue { fn drop(&mut self) { (crate::dll::get_azul_dll().az_style_transform_origin_value_delete)(self); } }
+
+
+    /// `StylePerspectiveOriginValue` struct
+    pub use crate::dll::AzStylePerspectiveOriginValue as StylePerspectiveOriginValue;
+
+    impl std::fmt::Debug for StylePerspectiveOriginValue { fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result { write!(f, "{}", (crate::dll::get_azul_dll().az_style_perspective_origin_value_fmt_debug)(self)) } }
+    impl Clone for StylePerspectiveOriginValue { fn clone(&self) -> Self { (crate::dll::get_azul_dll().az_style_perspective_origin_value_deep_copy)(self) } }
+    impl Drop for StylePerspectiveOriginValue { fn drop(&mut self) { (crate::dll::get_azul_dll().az_style_perspective_origin_value_delete)(self); } }
+
+
+    /// `StyleBackfaceVisibilityValue` struct
+    pub use crate::dll::AzStyleBackfaceVisibilityValue as StyleBackfaceVisibilityValue;
+
+    impl std::fmt::Debug for StyleBackfaceVisibilityValue { fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result { write!(f, "{}", (crate::dll::get_azul_dll().az_style_backface_visibility_value_fmt_debug)(self)) } }
+    impl Clone for StyleBackfaceVisibilityValue { fn clone(&self) -> Self { (crate::dll::get_azul_dll().az_style_backface_visibility_value_deep_copy)(self) } }
+    impl Drop for StyleBackfaceVisibilityValue { fn drop(&mut self) { (crate::dll::get_azul_dll().az_style_backface_visibility_value_delete)(self); } }
 
 
     /// Parsed CSS key-value pair
