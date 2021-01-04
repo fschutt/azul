@@ -7,7 +7,7 @@ use crate::{
     id_tree::{NodeDataContainerRef, Node, NodeId, NodeHierarchyRef, NodeDataContainerRefMut},
     dom::{Dom, IFrameNode, GlTextureNode, CompactDom, NodeData, TagId, OptionTabIndex},
     style::{
-        HtmlCascadeInfoVec, construct_html_cascade_tree,
+        CascadeInfoVec, construct_html_cascade_tree,
         matches_html_element, apply_style_property, classify_css_path,
     },
 };
@@ -317,7 +317,7 @@ impl AzTagId {
 }
 
 
-#[derive(Debug, Copy, Clone, PartialEq, Eq, Ord, PartialOrd)]
+#[derive(Debug, Copy, Clone, PartialEq, Eq, Ord, PartialOrd, Hash)]
 #[repr(C)]
 pub struct AzNode {
     pub parent: usize,
@@ -376,7 +376,7 @@ impl NodeDataVec {
     }
 }
 
-#[derive(Debug, Copy, Clone, PartialEq, Eq, Ord, PartialOrd)]
+#[derive(Debug, Copy, Clone, PartialEq, Eq, Ord, PartialOrd, Hash)]
 #[repr(C)]
 pub struct ParentWithNodeDepth {
     pub depth: usize,
@@ -411,7 +411,7 @@ pub struct StyledDom {
     pub node_hierarchy: AzNodeVec,
     pub node_data: NodeDataVec,
     pub styled_nodes: StyledNodeVec,
-    pub cascade_info: HtmlCascadeInfoVec,
+    pub cascade_info: CascadeInfoVec,
     pub tag_ids_to_node_ids: TagIdsToNodeIdsMappingVec,
     pub non_leaf_nodes: ParentWithNodeDepthVec,
     pub rects_in_rendering_order: ContentGroup,
@@ -666,7 +666,7 @@ impl StyledDom {
             let node_has_hover_props = !node.get_inline_hover_css_props().is_empty();
             let node_has_active_props = !node.get_inline_active_css_props().is_empty();
             let node_has_only_window_callbacks = node.get_callbacks().iter().all(|cb| cb.event.is_window_callback());
-            let node_has_non_default_cursor = styled_node.style.cursor.unwrap_or_default().get_property().is_some();
+            let node_has_non_default_cursor = styled_node.style.cursor.as_ref().cloned().unwrap_or_default().get_property().is_some();
 
             let node_should_have_tag =
                 tab_index.is_some() ||
@@ -800,13 +800,13 @@ impl StyledDom {
 
             let mut not_absolute_children = parent
                 .children(node_hierarchy)
-                .filter(|id| rectangles[*id].layout.position.and_then(|p| p.get_property_or_default()).unwrap_or_default() != Absolute)
+                .filter(|id| rectangles[*id].layout.position.as_ref().and_then(|p| p.clone().get_property_or_default()).unwrap_or_default() != Absolute)
                 .map(|nid| AzNodeId::from_crate_internal(Some(nid)))
                 .collect::<Vec<AzNodeId>>();
 
             let mut absolute_children = parent
                 .children(node_hierarchy)
-                .filter(|id| rectangles[*id].layout.position.and_then(|p| p.get_property_or_default()).unwrap_or_default() == Absolute)
+                .filter(|id| rectangles[*id].layout.position.as_ref().and_then(|p| p.clone().get_property_or_default()).unwrap_or_default() == Absolute)
                 .map(|nid| AzNodeId::from_crate_internal(Some(nid)))
                 .collect::<Vec<AzNodeId>>();
 

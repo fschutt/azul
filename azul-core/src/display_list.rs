@@ -748,10 +748,10 @@ pub fn displaylist_handle_rect<'a>(
         size,
         position,
         border_radius: StyleBorderRadius {
-            top_left: styled_node.style.border_top_left_radius,
-            top_right: styled_node.style.border_top_right_radius,
-            bottom_left: styled_node.style.border_bottom_left_radius,
-            bottom_right: styled_node.style.border_bottom_right_radius,
+            top_left: styled_node.style.border_top_left_radius.as_ref().cloned(),
+            top_right: styled_node.style.border_top_right_radius.as_ref().cloned(),
+            bottom_left: styled_node.style.border_bottom_left_radius.as_ref().cloned(),
+            bottom_right: styled_node.style.border_bottom_right_radius.as_ref().cloned(),
         },
         flags: PrimitiveFlags {
             is_backface_visible: true,
@@ -766,10 +766,10 @@ pub fn displaylist_handle_rect<'a>(
     if styled_node.style.has_box_shadow() {
         frame.content.push(LayoutRectContent::BoxShadow {
             shadow: StyleBoxShadow {
-                left: styled_node.style.box_shadow_left,
-                right: styled_node.style.box_shadow_right,
-                top: styled_node.style.box_shadow_top,
-                bottom: styled_node.style.box_shadow_bottom,
+                left: styled_node.style.box_shadow_left.as_ref().cloned(),
+                right: styled_node.style.box_shadow_right.as_ref().cloned(),
+                top: styled_node.style.box_shadow_top.as_ref().cloned(),
+                bottom: styled_node.style.box_shadow_bottom.as_ref().cloned(),
             },
             clip_mode: BoxShadowClipMode::Outset,
         });
@@ -797,9 +797,9 @@ pub fn displaylist_handle_rect<'a>(
         if let Some(background_content) = background_content {
             frame.content.push(LayoutRectContent::Background {
                 content: background_content,
-                size: styled_node.style.background_size.and_then(|bs| bs.get_property().cloned()),
-                offset: styled_node.style.background_position.and_then(|bs| bs.get_property().cloned()),
-                repeat: styled_node.style.background_repeat.and_then(|bs| bs.get_property().cloned()),
+                size: styled_node.style.background_size.as_ref().and_then(|bs| bs.get_property().copied()),
+                offset: styled_node.style.background_position.as_ref().and_then(|bs| bs.get_property().copied()),
+                repeat: styled_node.style.background_repeat.as_ref().and_then(|bs| bs.get_property().copied()),
             });
         }
     }
@@ -811,7 +811,7 @@ pub fn displaylist_handle_rect<'a>(
 
                 use crate::ui_solver::DEFAULT_FONT_COLOR;
 
-                let text_color = styled_node.style.text_color.and_then(|tc| tc.get_property().cloned()).unwrap_or(DEFAULT_FONT_COLOR).inner;
+                let text_color = styled_node.style.text_color.as_ref().and_then(|tc| tc.get_property().cloned()).unwrap_or(DEFAULT_FONT_COLOR).inner;
                 let positioned_words = &layout_result.positioned_words_cache[&rect_idx];
                 let font_instance_key = positioned_words.1;
 
@@ -868,22 +868,22 @@ pub fn displaylist_handle_rect<'a>(
     if styled_node.style.has_border() {
         frame.content.push(LayoutRectContent::Border {
             widths: StyleBorderWidths {
-                top: styled_node.layout.border_top_width,
-                left: styled_node.layout.border_left_width,
-                bottom: styled_node.layout.border_bottom_width,
-                right: styled_node.layout.border_right_width,
+                top: styled_node.layout.border_top_width.as_ref().copied(),
+                left: styled_node.layout.border_left_width.as_ref().copied(),
+                bottom: styled_node.layout.border_bottom_width.as_ref().copied(),
+                right: styled_node.layout.border_right_width.as_ref().copied(),
             },
             colors: StyleBorderColors {
-                top: styled_node.style.border_top_color,
-                left: styled_node.style.border_left_color,
-                bottom: styled_node.style.border_bottom_color,
-                right: styled_node.style.border_right_color,
+                top: styled_node.style.border_top_color.as_ref().copied(),
+                left: styled_node.style.border_left_color.as_ref().copied(),
+                bottom: styled_node.style.border_bottom_color.as_ref().copied(),
+                right: styled_node.style.border_right_color.as_ref().copied(),
             },
             styles: StyleBorderStyles {
-                top: styled_node.style.border_top_style,
-                left: styled_node.style.border_left_style,
-                bottom: styled_node.style.border_bottom_style,
-                right: styled_node.style.border_right_style,
+                top: styled_node.style.border_top_style.as_ref().copied(),
+                left: styled_node.style.border_left_style.as_ref().copied(),
+                bottom: styled_node.style.border_bottom_style.as_ref().copied(),
+                right: styled_node.style.border_right_style.as_ref().copied(),
             },
         });
     }
@@ -891,10 +891,10 @@ pub fn displaylist_handle_rect<'a>(
     if styled_node.style.has_box_shadow() {
         frame.content.push(LayoutRectContent::BoxShadow {
             shadow: StyleBoxShadow {
-                left: styled_node.style.box_shadow_left,
-                right: styled_node.style.box_shadow_right,
-                top: styled_node.style.box_shadow_top,
-                bottom: styled_node.style.box_shadow_bottom,
+                left: styled_node.style.box_shadow_left.as_ref().copied(),
+                right: styled_node.style.box_shadow_right.as_ref().copied(),
+                top: styled_node.style.box_shadow_top.as_ref().copied(),
+                bottom: styled_node.style.box_shadow_bottom.as_ref().copied(),
             },
             clip_mode: BoxShadowClipMode::Inset,
         });

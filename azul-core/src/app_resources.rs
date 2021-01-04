@@ -1367,7 +1367,7 @@ pub fn get_font_id(rect_style: &RectStyle) -> &str {
 
 pub fn get_font_size(rect_style: &RectStyle) -> StyleFontSize {
     use crate::ui_solver::DEFAULT_FONT_SIZE;
-    rect_style.font_size.and_then(|fs| fs.get_property().cloned()).unwrap_or(DEFAULT_FONT_SIZE)
+    rect_style.font_size.as_ref().and_then(|fs| fs.get_property().cloned()).unwrap_or(DEFAULT_FONT_SIZE)
 }
 
 

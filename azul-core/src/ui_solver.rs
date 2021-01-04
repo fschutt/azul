@@ -4,7 +4,8 @@ use azul_css::{
     StyleTextColor, ColorU as StyleColorU,
     StyleTextAlignmentHorz, StyleTextAlignmentVert, LayoutPosition,
     CssPropertyValue, LayoutMarginTop, LayoutMarginRight, LayoutMarginLeft, LayoutMarginBottom,
-    LayoutPaddingTop, LayoutPaddingLeft, LayoutPaddingRight, LayoutPaddingBottom
+    LayoutPaddingTop, LayoutPaddingLeft, LayoutPaddingRight, LayoutPaddingBottom,
+    LayoutLeft, LayoutRight, LayoutTop, LayoutBottom, LayoutDirection, LayoutJustifyContent,
 };
 use crate::{
     styled_dom::{StyledDom, AzNodeId, DomId},
@@ -222,14 +223,12 @@ impl WhConstraint {
 #[derive(Debug, Default, Copy, Clone, PartialEq)]
 pub struct WidthCalculatedRect {
     pub preferred_width: WhConstraint,
-    pub margin_top: CssPropertyValue<LayoutMarginTop>,
-    pub margin_right: CssPropertyValue<LayoutMarginRight>,
-    pub margin_left: CssPropertyValue<LayoutMarginLeft>,
-    pub margin_bottom: CssPropertyValue<LayoutMarginBottom>,
-    pub padding_top: CssPropertyValue<LayoutPaddingTop>,
-    pub padding_left: CssPropertyValue<LayoutPaddingLeft>,
-    pub padding_right: CssPropertyValue<LayoutPaddingRight>,
-    pub padding_bottom: CssPropertyValue<LayoutPaddingBottom>,
+    pub margin_right: Option<CssPropertyValue<LayoutMarginRight>>,
+    pub margin_left: Option<CssPropertyValue<LayoutMarginLeft>>,
+    pub padding_right: Option<CssPropertyValue<LayoutPaddingRight>>,
+    pub padding_left: Option<CssPropertyValue<LayoutPaddingLeft>>,
+    pub left: Option<CssPropertyValue<LayoutLeft>>,
+    pub right: Option<CssPropertyValue<LayoutRight>>,
     pub flex_grow_px: isize,
     pub min_inner_size_px: isize,
 }
@@ -239,17 +238,17 @@ impl WidthCalculatedRect {
     pub fn get_flex_basis_horizontal(&self, parent_width: isize) -> isize {
         let parent_width = parent_width as f32;
         self.preferred_width.min_needed_space().unwrap_or(0) +
-        self.margin_left.get_property().map(|px| px.inner.to_pixels(parent_width)).unwrap_or(0.0) as isize +
-        self.margin_right.get_property().map(|px| px.inner.to_pixels(parent_width)).unwrap_or(0.0) as isize +
-        self.padding_left.get_property().map(|px| px.inner.to_pixels(parent_width)).unwrap_or(0.0) as isize +
-        self.padding_right.get_property().map(|px| px.inner.to_pixels(parent_width)).unwrap_or(0.0) as isize
+        self.margin_left.as_ref().and_then(|p| p.get_property().map(|px| px.inner.to_pixels(parent_width))).unwrap_or(0.0) as isize +
+        self.margin_right.as_ref().and_then(|p| p.get_property().map(|px| px.inner.to_pixels(parent_width))).unwrap_or(0.0) as isize +
+        self.padding_left.as_ref().and_then(|p| p.get_property().map(|px| px.inner.to_pixels(parent_width))).unwrap_or(0.0) as isize +
+        self.padding_right.as_ref().and_then(|p| p.get_property().map(|px| px.inner.to_pixels(parent_width))).unwrap_or(0.0) as isize
     }
 
     /// Get the sum of the horizontal padding amount (`padding.left + padding.right`)
     pub fn get_horizontal_padding(&self, parent_width: isize) -> isize {
         let parent_width = parent_width as f32;
-        self.padding_left.get_property().map(|px| px.inner.to_pixels(parent_width)).unwrap_or(0.0) as isize +
-        self.padding_right.get_property().map(|px| px.inner.to_pixels(parent_width)).unwrap_or(0.0) as isize
+        self.padding_left.as_ref().and_then(|p| p.get_property().map(|px| px.inner.to_pixels(parent_width))).unwrap_or(0.0) as isize +
+        self.padding_right.as_ref().and_then(|p| p.get_property().map(|px| px.inner.to_pixels(parent_width))).unwrap_or(0.0) as isize
     }
 
     /// Called after solver has run: Solved width of rectangle
@@ -268,14 +267,12 @@ impl WidthCalculatedRect {
 #[derive(Debug, Default, Copy, Clone, PartialEq)]
 pub struct HeightCalculatedRect {
     pub preferred_height: WhConstraint,
-    pub margin_top: CssPropertyValue<LayoutMarginTop>,
-    pub margin_right: CssPropertyValue<LayoutMarginRight>,
-    pub margin_left: CssPropertyValue<LayoutMarginLeft>,
-    pub margin_bottom: CssPropertyValue<LayoutMarginBottom>,
-    pub padding_top: CssPropertyValue<LayoutPaddingTop>,
-    pub padding_left: CssPropertyValue<LayoutPaddingLeft>,
-    pub padding_right: CssPropertyValue<LayoutPaddingRight>,
-    pub padding_bottom: CssPropertyValue<LayoutPaddingBottom>,
+    pub margin_top: Option<CssPropertyValue<LayoutMarginTop>>,
+    pub margin_bottom: Option<CssPropertyValue<LayoutMarginBottom>>,
+    pub padding_top: Option<CssPropertyValue<LayoutPaddingTop>>,
+    pub padding_bottom: Option<CssPropertyValue<LayoutPaddingBottom>>,
+    pub top: Option<CssPropertyValue<LayoutTop>>,
+    pub bottom: Option<CssPropertyValue<LayoutBottom>>,
     pub flex_grow_px: isize,
     pub min_inner_size_px: isize,
 }
@@ -285,17 +282,17 @@ impl HeightCalculatedRect {
     pub fn get_flex_basis_vertical(&self, parent_height: isize) -> isize {
         let parent_height = parent_height as f32;
         self.preferred_height.min_needed_space().unwrap_or(0) +
-        self.margin_top.get_property().map(|px| px.inner.to_pixels(parent_height)).unwrap_or(0.0) as isize +
-        self.margin_bottom.get_property().map(|px| px.inner.to_pixels(parent_height)).unwrap_or(0.0) as isize +
-        self.padding_top.get_property().map(|px| px.inner.to_pixels(parent_height)).unwrap_or(0.0) as isize +
-        self.padding_bottom.get_property().map(|px| px.inner.to_pixels(parent_height)).unwrap_or(0.0) as isize
+        self.margin_top.as_ref().and_then(|p| p.get_property().map(|px| px.inner.to_pixels(parent_height))).unwrap_or(0.0) as isize +
+        self.margin_bottom.as_ref().and_then(|p| p.get_property().map(|px| px.inner.to_pixels(parent_height))).unwrap_or(0.0) as isize +
+        self.padding_top.as_ref().and_then(|p| p.get_property().map(|px| px.inner.to_pixels(parent_height))).unwrap_or(0.0) as isize +
+        self.padding_bottom.as_ref().and_then(|p| p.get_property().map(|px| px.inner.to_pixels(parent_height))).unwrap_or(0.0) as isize
     }
 
     /// Get the sum of the horizontal padding amount (`padding_top + padding_bottom`)
     pub fn get_vertical_padding(&self, parent_height: isize) -> isize {
         let parent_height = parent_height as f32;
-        self.padding_top.get_property().map(|px| px.inner.to_pixels(parent_height)).unwrap_or(0.0) as isize +
-        self.padding_bottom.get_property().map(|px| px.inner.to_pixels(parent_height)).unwrap_or(0.0) as isize
+        self.padding_top.as_ref().and_then(|p| p.get_property().map(|px| px.inner.to_pixels(parent_height))).unwrap_or(0.0) as isize +
+        self.padding_bottom.as_ref().and_then(|p| p.get_property().map(|px| px.inner.to_pixels(parent_height))).unwrap_or(0.0) as isize
     }
 
     /// Called after solver has run: Solved height of rectangle
@@ -345,7 +342,10 @@ pub struct LayoutResult {
     pub height_calculated_rects: NodeDataContainer<HeightCalculatedRect>,
     pub solved_pos_x: NodeDataContainer<HorizontalSolvedPosition>,
     pub solved_pos_y: NodeDataContainer<VerticalSolvedPosition>,
+    pub layout_flex_grows: NodeDataContainer<f32>,
     pub layout_positions: NodeDataContainer<LayoutPosition>,
+    pub layout_flex_directions: NodeDataContainer<LayoutDirection>,
+    pub layout_justify_contents: NodeDataContainer<LayoutJustifyContent>,
     pub rects: NodeDataContainer<PositionedRectangle>,
     pub words_cache: BTreeMap<NodeId, Words>,
     pub shaped_words_cache: BTreeMap<NodeId, ShapedWords>,

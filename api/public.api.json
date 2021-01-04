@@ -1777,7 +1777,7 @@
 			}
 		},
 		"result": {
-			"doc": "Definition of azuls internal `Option<*>` wrappers",
+			"doc": "Definition of azuls internal `Result<*>` wrappers",
 			"classes": {
 				"ResultSvgSvgParseError": {
 					"external": "azul_impl::svg::ResultSvgSvgParseError",
@@ -2320,9 +2320,9 @@
 					"external": "azul_impl::callbacks::UpdateScreen",
 					"doc": "Specifies if the screen should be updated after the callback function has returned",
 					"enum_fields": [
-						{"RedrawCurrentWindow": {"doc": "After the callback is called, the screen needs to redraw (layout() function being called again)"}},
-						{"RedrawAllWindows": {"doc": "After the callback is called, the layout() function needs to be called again for ALL windows"}},
-						{"DontRedraw": {"doc": "The screen does not need to redraw after the callback has been called"}}
+						{"DoNothing": {"doc": "The screen does not need to redraw after the callback has been called"}},
+						{"RegenerateStyledDomForCurrentWindow": {"doc": "After the callback is called, the screen needs to redraw (layout() function being called again)"}},
+						{"RegenerateStyledDomForAllWindows": {"doc": "After the callback is called, the layout() function needs to be called again for ALL windows"}}
 					],
 					"use_patches": ["rust"]
 				},
@@ -2602,7 +2602,7 @@
 								{"self": "ref"}
 							],
 							"returns": "GlContextPtr",
-							"fn_body": "az_layout_info_ptr_downcast_ref(layoutinfo, |ci| ci.gl_context.clone())"
+							"fn_body": "az_gl_callback_info_ptr_downcast_ref(glcallbackinfo, |ci| ci.gl_context.clone())"
 						}
 					}
 				}
@@ -4287,7 +4287,7 @@
 			  		]
 				},
 				"RectStyle": {
-					"external": "azul_impl::styled_dom::RectStyle",
+					"external": "azul_impl::css::RectStyle",
 					"derive": ["PartialEq", "Eq", "PartialOrd", "Ord", "Hash"],
 					"struct_fields": [
 						{"background": {"type": "OptionStyleBackgroundContentValue"}},
@@ -4327,7 +4327,7 @@
 					]
 				},
 				"RectLayout": {
-					"external": "azul_impl::styled_dom::RectLayout",
+					"external": "azul_impl::css::RectLayout",
 					"derive": ["PartialEq", "Eq", "PartialOrd", "Ord", "Hash"],
 					"struct_fields": [
 						{"display": {"type": "OptionLayoutDisplayValue"}},
@@ -4396,7 +4396,7 @@
 				},
 				"StyledNode": {
 					"external": "azul_impl::styled_dom::StyledNode",
-					"derive": ["PartialEq", "Eq", "PartialOrd", "Ord", "Hash"],
+					"derive": ["PartialEq", "PartialOrd"],
 					"struct_fields": [
 						{"css_constraints": {"type": "CascadedCssPropertyWithSourceVec", "doc": "Full list of all applied CSS rules (with source mapping) after cascading"}},
 						{"hover_css_constraints": {"type": "CascadedCssPropertyWithSourceVec", "doc": "Full list of all applied CSS rules (with source mapping) after cascading"}},
@@ -4410,14 +4410,14 @@
 				},
 				"TagId": {
 					"external": "azul_impl::styled_dom::AzTagId",
-					"derive": ["PartialEq", "Eq", "PartialOrd", "Ord", "Hash"],
+					"derive": ["PartialEq", "Copy", "Clone", "Eq", "PartialOrd", "Ord", "Hash"],
 					"struct_fields": [
 						{"inner": {"type": "u64"}}
 					]
 				},
 				"TagIdToNodeIdMapping": {
 					"external": "azul_impl::styled_dom::TagIdToNodeIdMapping",
-					"derive": ["PartialEq", "Eq", "PartialOrd", "Ord", "Hash"],
+					"derive": ["PartialEq", "Copy", "PartialOrd", "Ord"],
 					"struct_fields": [
 						{"tag_id": {"type": "TagId"}},
 						{"node_id": {"type": "NodeId"}},
@@ -4426,24 +4426,15 @@
 				},
 				"ParentWithNodeDepth": {
 					"external": "azul_impl::styled_dom::ParentWithNodeDepth",
-					"derive": ["PartialEq", "Eq", "PartialOrd", "Ord", "Hash"],
+					"derive": ["PartialEq", "Copy", "Eq", "PartialOrd", "Ord", "Hash"],
 					"struct_fields": [
 						{"depth": {"type": "usize"}},
 						{"node_id": {"type": "NodeId"}}
 					]
 				},
-				"StyleOptions": {
-					"external": "azul_impl::styled_dom::StyledDom",
-					"derive": ["PartialEq", "Eq", "PartialOrd", "Ord", "Hash"],
-					"struct_fields": [
-						{"focused_node": {"type": "OptionNodeId"}},
-						{"hovered_nodes": {"type": "NodeIdVec"}},
-						{"is_mouse_down": {"type": "bool"}}
-					]
-				},
 				"ContentGroup": {
-					"external": "azul_impl::styled_dom::StyledDom",
-					"derive": ["PartialEq", "Eq", "PartialOrd", "Ord", "Hash"],
+					"external": "azul_impl::styled_dom::ContentGroup",
+					"derive": ["PartialEq"],
 					"struct_fields": [
 						{"root": {"type": "NodeId" }},
 						{"children": {"type": "ContentGroupVec"}}
@@ -4451,7 +4442,7 @@
 				},
 				"StyledDom": {
 					"external": "azul_impl::styled_dom::StyledDom",
-					"derive": ["PartialEq", "Eq", "PartialOrd", "Ord", "Hash"],
+					"derive": ["PartialEq", "Clone"],
 					"struct_fields": [
 						{"root": {"type": "NodeId" }},
 						{"node_hierarchy": {"type": "NodeVec" }},
@@ -4467,10 +4458,9 @@
 							"doc": "Styles a `Dom` with the given `Css`, returning the `StyledDom` - complexity `O(count(dom_nodes) * count(css_blocks))`: make sure that the `Dom` and the `Css` are as small as possible, use inline CSS if the performance isn't good enough",
 							"fn_args": [
 								{"dom": "Dom"},
-								{"css": "Css"},
-								{"style_options": "StyleOptions"}
+								{"css": "Css"}
 							],
-							"fn_body":"StyledDom::new(dom, &css, style_options)"
+							"fn_body":"StyledDom::new(dom, css)"
 						}
 					},
 					"functions": {
@@ -5287,9 +5277,9 @@
 						{ "TouchMove": {}},
 						{ "TouchEnd": {}},
 						{ "TouchCancel": {}},
-						{ "WindowFocusReceived": {}},
-						{ "WindowFocusLost": {}},
-						{ "WindowCloseRequested": {}},
+						{ "FocusReceived": {}},
+						{ "FocusLost": {}},
+						{ "CloseRequested": {}},
 						{ "ThemeChanged": {}}
 					]
 				},
@@ -8322,8 +8312,8 @@
 				"WindowTheme": {
 					"external": "azul_impl::window::WindowTheme",
 					"enum_fields": [
-						{"Dark": {}},
-						{"Light": {}}
+						{"DarkMode": {}},
+						{"LightMode": {}}
 					]
 				},
 				"WindowPosition": {

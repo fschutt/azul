@@ -94,14 +94,6 @@
     impl Drop for ParentWithNodeDepth { fn drop(&mut self) { (crate::dll::get_azul_dll().az_parent_with_node_depth_delete)(self); } }
 
 
-    /// `StyleOptions` struct
-    pub use crate::dll::AzStyleOptions as StyleOptions;
-
-    impl std::fmt::Debug for StyleOptions { fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result { write!(f, "{}", (crate::dll::get_azul_dll().az_style_options_fmt_debug)(self)) } }
-    impl Clone for StyleOptions { fn clone(&self) -> Self { (crate::dll::get_azul_dll().az_style_options_deep_copy)(self) } }
-    impl Drop for StyleOptions { fn drop(&mut self) { (crate::dll::get_azul_dll().az_style_options_delete)(self); } }
-
-
     /// `ContentGroup` struct
     pub use crate::dll::AzContentGroup as ContentGroup;
 
@@ -115,7 +107,7 @@
 
     impl StyledDom {
         /// Styles a `Dom` with the given `Css`, returning the `StyledDom` - complexity `O(count(dom_nodes) * count(css_blocks))`: make sure that the `Dom` and the `Css` are as small as possible, use inline CSS if the performance isn't good enough
-        pub fn new(dom: Dom, css: Css, style_options: StyleOptions) -> Self { (crate::dll::get_azul_dll().az_styled_dom_new)(dom, css, style_options) }
+        pub fn new(dom: Dom, css: Css) -> Self { (crate::dll::get_azul_dll().az_styled_dom_new)(dom, css) }
         /// Appends an already styled list of DOM nodes to the current `dom.root` - complexity `O(count(dom.dom_nodes))`
         pub fn append(&mut self, dom: StyledDom)  { (crate::dll::get_azul_dll().az_styled_dom_append)(self, dom) }
     }

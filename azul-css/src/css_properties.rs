@@ -2206,7 +2206,7 @@ impl fmt::Display for CssImageId {
     }
 }
 
-impl_option!(PercentageValue, OptionPercentageValue, [Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash]);
+impl_option!(PercentageValue, OptionPercentageValue, copy = false, [Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash]);
 
 #[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
 #[repr(C)]
@@ -2898,98 +2898,216 @@ impl FormatAsCssValue for StyleTransform {
     }
 }
 
+pub type StyleBackgroundContentValue = CssPropertyValue<StyleBackgroundContent>;
+impl_option!(StyleBackgroundContentValue, OptionStyleBackgroundContentValue, copy = false, [Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash]);
+pub type StyleBackgroundPositionValue = CssPropertyValue<StyleBackgroundPosition>;
+impl_option!(StyleBackgroundPositionValue, OptionStyleBackgroundPositionValue, copy = false, [Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash]);
+pub type StyleBackgroundSizeValue = CssPropertyValue<StyleBackgroundSize>;
+impl_option!(StyleBackgroundSizeValue, OptionStyleBackgroundSizeValue, copy = false, [Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash]);
+pub type StyleBackgroundRepeatValue = CssPropertyValue<StyleBackgroundRepeat>;
+impl_option!(StyleBackgroundRepeatValue, OptionStyleBackgroundRepeatValue, copy = false, [Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash]);
+pub type StyleFontSizeValue = CssPropertyValue<StyleFontSize>;
+impl_option!(StyleFontSizeValue, OptionStyleFontSizeValue, copy = false, [Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash]);
+pub type StyleFontFamilyValue = CssPropertyValue<StyleFontFamily>;
+impl_option!(StyleFontFamilyValue, OptionStyleFontFamilyValue, copy = false, [Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash]);
+pub type StyleTextColorValue = CssPropertyValue<StyleTextColor>;
+impl_option!(StyleTextColorValue, OptionStyleTextColorValue, copy = false, [Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash]);
+pub type StyleTextAlignmentHorzValue = CssPropertyValue<StyleTextAlignmentHorz>;
+impl_option!(StyleTextAlignmentHorzValue, OptionStyleTextAlignmentHorzValue, copy = false, [Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash]);
+pub type StyleLineHeightValue = CssPropertyValue<StyleLineHeight>;
+impl_option!(StyleLineHeightValue, OptionStyleLineHeightValue, copy = false, [Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash]);
+pub type StyleLetterSpacingValue = CssPropertyValue<StyleLetterSpacing>;
+impl_option!(StyleLetterSpacingValue, OptionStyleLetterSpacingValue, copy = false, [Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash]);
+pub type StyleWordSpacingValue = CssPropertyValue<StyleWordSpacing>;
+impl_option!(StyleWordSpacingValue, OptionStyleWordSpacingValue, copy = false, [Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash]);
+pub type StyleTabWidthValue = CssPropertyValue<StyleTabWidth>;
+impl_option!(StyleTabWidthValue, OptionStyleTabWidthValue, copy = false, [Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash]);
+pub type StyleCursorValue = CssPropertyValue<StyleCursor>;
+impl_option!(StyleCursorValue, OptionStyleCursorValue, copy = false, [Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash]);
+pub type BoxShadowPreDisplayItemValue = CssPropertyValue<BoxShadowPreDisplayItem>;
+impl_option!(BoxShadowPreDisplayItemValue, OptionBoxShadowPreDisplayItemValue, copy = false, [Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash]);
+pub type StyleBorderTopColorValue = CssPropertyValue<StyleBorderTopColor>;
+impl_option!(StyleBorderTopColorValue, OptionStyleBorderTopColorValue, copy = false, [Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash]);
+pub type StyleBorderLeftColorValue = CssPropertyValue<StyleBorderLeftColor>;
+impl_option!(StyleBorderLeftColorValue, OptionStyleBorderLeftColorValue, copy = false, [Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash]);
+pub type StyleBorderRightColorValue = CssPropertyValue<StyleBorderRightColor>;
+impl_option!(StyleBorderRightColorValue, OptionStyleBorderRightColorValue, copy = false, [Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash]);
+pub type StyleBorderBottomColorValue = CssPropertyValue<StyleBorderBottomColor>;
+impl_option!(StyleBorderBottomColorValue, OptionStyleBorderBottomColorValue, copy = false, [Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash]);
+pub type StyleBorderTopStyleValue = CssPropertyValue<StyleBorderTopStyle>;
+impl_option!(StyleBorderTopStyleValue, OptionStyleBorderTopStyleValue, copy = false, [Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash]);
+pub type StyleBorderLeftStyleValue = CssPropertyValue<StyleBorderLeftStyle>;
+impl_option!(StyleBorderLeftStyleValue, OptionStyleBorderLeftStyleValue, copy = false, [Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash]);
+pub type StyleBorderRightStyleValue = CssPropertyValue<StyleBorderRightStyle>;
+impl_option!(StyleBorderRightStyleValue, OptionStyleBorderRightStyleValue, copy = false, [Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash]);
+pub type StyleBorderBottomStyleValue = CssPropertyValue<StyleBorderBottomStyle>;
+impl_option!(StyleBorderBottomStyleValue, OptionStyleBorderBottomStyleValue, copy = false, [Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash]);
+pub type StyleBorderTopLeftRadiusValue = CssPropertyValue<StyleBorderTopLeftRadius>;
+impl_option!(StyleBorderTopLeftRadiusValue, OptionStyleBorderTopLeftRadiusValue, copy = false, [Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash]);
+pub type StyleBorderTopRightRadiusValue = CssPropertyValue<StyleBorderTopRightRadius>;
+impl_option!(StyleBorderTopRightRadiusValue, OptionStyleBorderTopRightRadiusValue, copy = false, [Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash]);
+pub type StyleBorderBottomLeftRadiusValue = CssPropertyValue<StyleBorderBottomLeftRadius>;
+impl_option!(StyleBorderBottomLeftRadiusValue, OptionStyleBorderBottomLeftRadiusValue, copy = false, [Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash]);
+pub type StyleBorderBottomRightRadiusValue = CssPropertyValue<StyleBorderBottomRightRadius>;
+impl_option!(StyleBorderBottomRightRadiusValue, OptionStyleBorderBottomRightRadiusValue, copy = false, [Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash]);
+pub type StyleOpacityValue = CssPropertyValue<StyleOpacity>;
+impl_option!(StyleOpacityValue, OptionStyleOpacityValue, copy = false, [Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash]);
+pub type StyleTransformVecValue = CssPropertyValue<StyleTransformVec>;
+impl_option!(StyleTransformVecValue, OptionStyleTransformVecValue, copy = false, [Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash]);
+pub type StyleTransformOriginValue = CssPropertyValue<StyleTransformOrigin>;
+impl_option!(StyleTransformOriginValue, OptionStyleTransformOriginValue, copy = false, [Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash]);
+pub type StylePerspectiveOriginValue = CssPropertyValue<StylePerspectiveOrigin>;
+impl_option!(StylePerspectiveOriginValue, OptionStylePerspectiveOriginValue, copy = false, [Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash]);
+pub type StyleBackfaceVisibilityValue = CssPropertyValue<StyleBackfaceVisibility>;
+impl_option!(StyleBackfaceVisibilityValue, OptionStyleBackfaceVisibilityValue, copy = false, [Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash]);
+pub type LayoutDisplayValue = CssPropertyValue<LayoutDisplay>;
+impl_option!(LayoutDisplayValue, OptionLayoutDisplayValue, copy = false, [Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash]);
+pub type LayoutFloatValue = CssPropertyValue<LayoutFloat>;
+impl_option!(LayoutFloatValue, OptionLayoutFloatValue, copy = false, [Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash]);
+pub type LayoutBoxSizingValue = CssPropertyValue<LayoutBoxSizing>;
+impl_option!(LayoutBoxSizingValue, OptionLayoutBoxSizingValue, copy = false, [Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash]);
+pub type LayoutWidthValue = CssPropertyValue<LayoutWidth>;
+impl_option!(LayoutWidthValue, OptionLayoutWidthValue, copy = false, [Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash]);
+pub type LayoutHeightValue = CssPropertyValue<LayoutHeight>;
+impl_option!(LayoutHeightValue, OptionLayoutHeightValue, copy = false, [Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash]);
+pub type LayoutMinWidthValue = CssPropertyValue<LayoutMinWidth>;
+impl_option!(LayoutMinWidthValue, OptionLayoutMinWidthValue, copy = false, [Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash]);
+pub type LayoutMinHeightValue = CssPropertyValue<LayoutMinHeight>;
+impl_option!(LayoutMinHeightValue, OptionLayoutMinHeightValue, copy = false, [Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash]);
+pub type LayoutMaxWidthValue = CssPropertyValue<LayoutMaxWidth>;
+impl_option!(LayoutMaxWidthValue, OptionLayoutMaxWidthValue, copy = false, [Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash]);
+pub type LayoutMaxHeightValue = CssPropertyValue<LayoutMaxHeight>;
+impl_option!(LayoutMaxHeightValue, OptionLayoutMaxHeightValue, copy = false, [Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash]);
+pub type LayoutPositionValue = CssPropertyValue<LayoutPosition>;
+impl_option!(LayoutPositionValue, OptionLayoutPositionValue, copy = false, [Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash]);
+pub type LayoutTopValue = CssPropertyValue<LayoutTop>;
+impl_option!(LayoutTopValue, OptionLayoutTopValue, copy = false, [Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash]);
+pub type LayoutBottomValue = CssPropertyValue<LayoutBottom>;
+impl_option!(LayoutBottomValue, OptionLayoutBottomValue, copy = false, [Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash]);
+pub type LayoutRightValue = CssPropertyValue<LayoutRight>;
+impl_option!(LayoutRightValue, OptionLayoutRightValue, copy = false, [Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash]);
+pub type LayoutLeftValue = CssPropertyValue<LayoutLeft>;
+impl_option!(LayoutLeftValue, OptionLayoutLeftValue, copy = false, [Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash]);
+pub type LayoutPaddingTopValue = CssPropertyValue<LayoutPaddingTop>;
+impl_option!(LayoutPaddingTopValue, OptionLayoutPaddingTopValue, copy = false, [Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash]);
+pub type LayoutPaddingBottomValue = CssPropertyValue<LayoutPaddingBottom>;
+impl_option!(LayoutPaddingBottomValue, OptionLayoutPaddingBottomValue, copy = false, [Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash]);
+pub type LayoutPaddingLeftValue = CssPropertyValue<LayoutPaddingLeft>;
+impl_option!(LayoutPaddingLeftValue, OptionLayoutPaddingLeftValue, copy = false, [Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash]);
+pub type LayoutPaddingRightValue = CssPropertyValue<LayoutPaddingRight>;
+impl_option!(LayoutPaddingRightValue, OptionLayoutPaddingRightValue, copy = false, [Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash]);
+pub type LayoutMarginTopValue = CssPropertyValue<LayoutMarginTop>;
+impl_option!(LayoutMarginTopValue, OptionLayoutMarginTopValue, copy = false, [Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash]);
+pub type LayoutMarginBottomValue = CssPropertyValue<LayoutMarginBottom>;
+impl_option!(LayoutMarginBottomValue, OptionLayoutMarginBottomValue, copy = false, [Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash]);
+pub type LayoutMarginLeftValue = CssPropertyValue<LayoutMarginLeft>;
+impl_option!(LayoutMarginLeftValue, OptionLayoutMarginLeftValue, copy = false, [Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash]);
+pub type LayoutMarginRightValue = CssPropertyValue<LayoutMarginRight>;
+impl_option!(LayoutMarginRightValue, OptionLayoutMarginRightValue, copy = false, [Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash]);
+pub type StyleBorderTopWidthValue = CssPropertyValue<StyleBorderTopWidth>;
+impl_option!(StyleBorderTopWidthValue, OptionStyleBorderTopWidthValue, copy = false, [Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash]);
+pub type StyleBorderLeftWidthValue = CssPropertyValue<StyleBorderLeftWidth>;
+impl_option!(StyleBorderLeftWidthValue, OptionStyleBorderLeftWidthValue, copy = false, [Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash]);
+pub type StyleBorderRightWidthValue = CssPropertyValue<StyleBorderRightWidth>;
+impl_option!(StyleBorderRightWidthValue, OptionStyleBorderRightWidthValue, copy = false, [Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash]);
+pub type StyleBorderBottomWidthValue = CssPropertyValue<StyleBorderBottomWidth>;
+impl_option!(StyleBorderBottomWidthValue, OptionStyleBorderBottomWidthValue, copy = false, [Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash]);
+pub type OverflowValue = CssPropertyValue<Overflow>;
+impl_option!(OverflowValue, OptionOverflowValue, copy = false, [Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash]);
+pub type LayoutDirectionValue = CssPropertyValue<LayoutDirection>;
+impl_option!(LayoutDirectionValue, OptionLayoutDirectionValue, copy = false, [Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash]);
+pub type LayoutWrapValue = CssPropertyValue<LayoutWrap>;
+impl_option!(LayoutWrapValue, OptionLayoutWrapValue, copy = false, [Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash]);
+pub type LayoutFlexGrowValue = CssPropertyValue<LayoutFlexGrow>;
+impl_option!(LayoutFlexGrowValue, OptionLayoutFlexGrowValue, copy = false, [Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash]);
+pub type LayoutFlexShrinkValue = CssPropertyValue<LayoutFlexShrink>;
+impl_option!(LayoutFlexShrinkValue, OptionLayoutFlexShrinkValue, copy = false, [Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash]);
+pub type LayoutJustifyContentValue = CssPropertyValue<LayoutJustifyContent>;
+impl_option!(LayoutJustifyContentValue, OptionLayoutJustifyContentValue, copy = false, [Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash]);
+pub type LayoutAlignItemsValue = CssPropertyValue<LayoutAlignItems>;
+impl_option!(LayoutAlignItemsValue, OptionLayoutAlignItemsValue, copy = false, [Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash]);
+pub type LayoutAlignContentValue = CssPropertyValue<LayoutAlignContent>;
+impl_option!(LayoutAlignContentValue, OptionLayoutAlignContentValue, copy = false, [Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash]);
+
 /// Stylistic options of the rectangle that don't influence the layout
 #[derive(Default, Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
 #[repr(C)]
 pub struct RectStyle {
-
-    pub background: Option<CssPropertyValue<StyleBackgroundContent>>,
-    pub background_position: Option<CssPropertyValue<StyleBackgroundPosition>>,
-    pub background_size: Option<CssPropertyValue<StyleBackgroundSize>>,
-    pub background_repeat: Option<CssPropertyValue<StyleBackgroundRepeat>>,
-    pub font_size: Option<CssPropertyValue<StyleFontSize>>,
-    pub font_family: Option<CssPropertyValue<StyleFontFamily>>,
-    pub text_color: Option<CssPropertyValue<StyleTextColor>>,
-    pub text_align: Option<CssPropertyValue<StyleTextAlignmentHorz>>,
-    pub line_height: Option<CssPropertyValue<StyleLineHeight>>,
-    pub letter_spacing: Option<CssPropertyValue<StyleLetterSpacing>>,
-    pub word_spacing: Option<CssPropertyValue<StyleWordSpacing>>,
-    pub tab_width: Option<CssPropertyValue<StyleTabWidth>>,
-    pub cursor: Option<CssPropertyValue<StyleCursor>>,
-
-    pub box_shadow_left: Option<CssPropertyValue<BoxShadowPreDisplayItem>>,
-    pub box_shadow_right: Option<CssPropertyValue<BoxShadowPreDisplayItem>>,
-    pub box_shadow_top: Option<CssPropertyValue<BoxShadowPreDisplayItem>>,
-    pub box_shadow_bottom: Option<CssPropertyValue<BoxShadowPreDisplayItem>>,
-
-    pub border_top_color: Option<CssPropertyValue<StyleBorderTopColor>>,
-    pub border_left_color: Option<CssPropertyValue<StyleBorderLeftColor>>,
-    pub border_right_color: Option<CssPropertyValue<StyleBorderRightColor>>,
-    pub border_bottom_color: Option<CssPropertyValue<StyleBorderBottomColor>>,
-
-    pub border_top_style: Option<CssPropertyValue<StyleBorderTopStyle>>,
-    pub border_left_style: Option<CssPropertyValue<StyleBorderLeftStyle>>,
-    pub border_right_style: Option<CssPropertyValue<StyleBorderRightStyle>>,
-    pub border_bottom_style: Option<CssPropertyValue<StyleBorderBottomStyle>>,
-
-    pub border_top_left_radius: Option<CssPropertyValue<StyleBorderTopLeftRadius>>,
-    pub border_top_right_radius: Option<CssPropertyValue<StyleBorderTopRightRadius>>,
-    pub border_bottom_left_radius: Option<CssPropertyValue<StyleBorderBottomLeftRadius>>,
-    pub border_bottom_right_radius: Option<CssPropertyValue<StyleBorderBottomRightRadius>>,
-
-    pub opacity: Option<CssPropertyValue<StyleOpacity>>,
-    pub transform: Option<CssPropertyValue<StyleTransformVec>>,
-    pub transform_origin: Option<CssPropertyValue<StyleTransformOrigin>>,
-    pub perspective_origin: Option<CssPropertyValue<StylePerspectiveOrigin>>,
-    pub backface_visibility: Option<CssPropertyValue<StyleBackfaceVisibility>>,
+    pub background: OptionStyleBackgroundContentValue,
+    pub background_position: OptionStyleBackgroundPositionValue,
+    pub background_size: OptionStyleBackgroundSizeValue,
+    pub background_repeat: OptionStyleBackgroundRepeatValue,
+    pub font_size: OptionStyleFontSizeValue,
+    pub font_family: OptionStyleFontFamilyValue,
+    pub text_color: OptionStyleTextColorValue,
+    pub text_align: OptionStyleTextAlignmentHorzValue,
+    pub line_height: OptionStyleLineHeightValue,
+    pub letter_spacing: OptionStyleLetterSpacingValue,
+    pub word_spacing: OptionStyleWordSpacingValue,
+    pub tab_width: OptionStyleTabWidthValue,
+    pub cursor: OptionStyleCursorValue,
+    pub box_shadow_left: OptionBoxShadowPreDisplayItemValue,
+    pub box_shadow_right: OptionBoxShadowPreDisplayItemValue,
+    pub box_shadow_top: OptionBoxShadowPreDisplayItemValue,
+    pub box_shadow_bottom: OptionBoxShadowPreDisplayItemValue,
+    pub border_top_color: OptionStyleBorderTopColorValue,
+    pub border_left_color: OptionStyleBorderLeftColorValue,
+    pub border_right_color: OptionStyleBorderRightColorValue,
+    pub border_bottom_color: OptionStyleBorderBottomColorValue,
+    pub border_top_style: OptionStyleBorderTopStyleValue,
+    pub border_left_style: OptionStyleBorderLeftStyleValue,
+    pub border_right_style: OptionStyleBorderRightStyleValue,
+    pub border_bottom_style: OptionStyleBorderBottomStyleValue,
+    pub border_top_left_radius: OptionStyleBorderTopLeftRadiusValue,
+    pub border_top_right_radius: OptionStyleBorderTopRightRadiusValue,
+    pub border_bottom_left_radius: OptionStyleBorderBottomLeftRadiusValue,
+    pub border_bottom_right_radius: OptionStyleBorderBottomRightRadiusValue,
+    pub opacity: OptionStyleOpacityValue,
+    pub transform: OptionStyleTransformVecValue,
+    pub transform_origin: OptionStyleTransformOriginValue,
+    pub perspective_origin: OptionStylePerspectiveOriginValue,
+    pub backface_visibility: OptionStyleBackfaceVisibilityValue,
 }
 
 // Layout constraints for a given rectangle, such as "width", "min-width", "height", etc.
-#[derive(Default, Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
+#[derive(Default, Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
 #[repr(C)]
 pub struct RectLayout {
-    pub display: Option<CssPropertyValue<LayoutDisplay>>,
-    pub float: Option<CssPropertyValue<LayoutFloat>>,
-    pub box_sizing: Option<CssPropertyValue<LayoutBoxSizing>>,
-
-    pub width: Option<CssPropertyValue<LayoutWidth>>,
-    pub height: Option<CssPropertyValue<LayoutHeight>>,
-    pub min_width: Option<CssPropertyValue<LayoutMinWidth>>,
-    pub min_height: Option<CssPropertyValue<LayoutMinHeight>>,
-    pub max_width: Option<CssPropertyValue<LayoutMaxWidth>>,
-    pub max_height: Option<CssPropertyValue<LayoutMaxHeight>>,
-
-    pub position: Option<CssPropertyValue<LayoutPosition>>,
-    pub top: Option<CssPropertyValue<LayoutTop>>,
-    pub bottom: Option<CssPropertyValue<LayoutBottom>>,
-    pub right: Option<CssPropertyValue<LayoutRight>>,
-    pub left: Option<CssPropertyValue<LayoutLeft>>,
-
-    pub padding_top: Option<CssPropertyValue<LayoutPaddingTop>>,
-    pub padding_bottom: Option<CssPropertyValue<LayoutPaddingBottom>>,
-    pub padding_left: Option<CssPropertyValue<LayoutPaddingLeft>>,
-    pub padding_right: Option<CssPropertyValue<LayoutPaddingRight>>,
-
-    pub margin_top: Option<CssPropertyValue<LayoutMarginTop>>,
-    pub margin_bottom: Option<CssPropertyValue<LayoutMarginBottom>>,
-    pub margin_left: Option<CssPropertyValue<LayoutMarginLeft>>,
-    pub margin_right: Option<CssPropertyValue<LayoutMarginRight>>,
-
-    pub border_top_width: Option<CssPropertyValue<StyleBorderTopWidth>>,
-    pub border_left_width: Option<CssPropertyValue<StyleBorderLeftWidth>>,
-    pub border_right_width: Option<CssPropertyValue<StyleBorderRightWidth>>,
-    pub border_bottom_width: Option<CssPropertyValue<StyleBorderBottomWidth>>,
-
-    pub overflow_x: Option<CssPropertyValue<Overflow>>,
-    pub overflow_y: Option<CssPropertyValue<Overflow>>,
-
-    pub direction: Option<CssPropertyValue<LayoutDirection>>,
-    pub wrap: Option<CssPropertyValue<LayoutWrap>>,
-    pub flex_grow: Option<CssPropertyValue<LayoutFlexGrow>>,
-    pub flex_shrink: Option<CssPropertyValue<LayoutFlexShrink>>,
-    pub justify_content: Option<CssPropertyValue<LayoutJustifyContent>>,
-    pub align_items: Option<CssPropertyValue<LayoutAlignItems>>,
-    pub align_content: Option<CssPropertyValue<LayoutAlignContent>>,
+    pub display: OptionLayoutDisplayValue,
+    pub float: OptionLayoutFloatValue,
+    pub box_sizing: OptionLayoutBoxSizingValue,
+    pub width: OptionLayoutWidthValue,
+    pub height: OptionLayoutHeightValue,
+    pub min_width: OptionLayoutMinWidthValue,
+    pub min_height: OptionLayoutMinHeightValue,
+    pub max_width: OptionLayoutMaxWidthValue,
+    pub max_height: OptionLayoutMaxHeightValue,
+    pub position: OptionLayoutPositionValue,
+    pub top: OptionLayoutTopValue,
+    pub bottom: OptionLayoutBottomValue,
+    pub right: OptionLayoutRightValue,
+    pub left: OptionLayoutLeftValue,
+    pub padding_top: OptionLayoutPaddingTopValue,
+    pub padding_bottom: OptionLayoutPaddingBottomValue,
+    pub padding_left: OptionLayoutPaddingLeftValue,
+    pub padding_right: OptionLayoutPaddingRightValue,
+    pub margin_top: OptionLayoutMarginTopValue,
+    pub margin_bottom: OptionLayoutMarginBottomValue,
+    pub margin_left: OptionLayoutMarginLeftValue,
+    pub margin_right: OptionLayoutMarginRightValue,
+    pub border_top_width: OptionStyleBorderTopWidthValue,
+    pub border_left_width: OptionStyleBorderLeftWidthValue,
+    pub border_right_width: OptionStyleBorderRightWidthValue,
+    pub border_bottom_width: OptionStyleBorderBottomWidthValue,
+    pub overflow_x: OptionOverflowValue,
+    pub overflow_y: OptionOverflowValue,
+    pub direction: OptionLayoutDirectionValue,
+    pub wrap: OptionLayoutWrapValue,
+    pub flex_grow: OptionLayoutFlexGrowValue,
+    pub flex_shrink: OptionLayoutFlexShrinkValue,
+    pub justify_content: OptionLayoutJustifyContentValue,
+    pub align_items: OptionLayoutAlignItemsValue,
+    pub align_content: OptionLayoutAlignContentValue,
 }
 
 /// Holds info necessary for layouting / styling scrollbars (-webkit-scrollbar)
@@ -3022,19 +3140,19 @@ impl Default for ScrollbarInfo {
             padding_left: LayoutPaddingLeft::px(2.0),
             padding_right: LayoutPaddingRight::px(2.0),
             track: RectStyle {
-                background: Some(CssPropertyValue::Exact(StyleBackgroundContent::Color(ColorU {
+                background: OptionStyleBackgroundContentValue::Some(CssPropertyValue::Exact(StyleBackgroundContent::Color(ColorU {
                     r: 241, g: 241, b: 241, a: 255
                 }))),
                 .. Default::default()
             },
             thumb: RectStyle {
-                background: Some(CssPropertyValue::Exact(StyleBackgroundContent::Color(ColorU {
+                background: OptionStyleBackgroundContentValue::Some(CssPropertyValue::Exact(StyleBackgroundContent::Color(ColorU {
                     r: 193, g: 193, b: 193, a: 255
                 }))),
                 .. Default::default()
             },
             button: RectStyle {
-                background: Some(CssPropertyValue::Exact(StyleBackgroundContent::Color(ColorU {
+                background: OptionStyleBackgroundContentValue::Some(CssPropertyValue::Exact(StyleBackgroundContent::Color(ColorU {
                     r: 163, g: 163, b: 163, a: 255
                 }))),
                 .. Default::default()
@@ -3070,28 +3188,28 @@ impl RectStyle {
     }
 
     pub fn has_box_shadow(&self) -> bool {
-        self.box_shadow_left.and_then(|bs| bs.get_property().map(|_| ())).is_some() ||
-        self.box_shadow_right.and_then(|bs| bs.get_property().map(|_| ())).is_some() ||
-        self.box_shadow_top.and_then(|bs| bs.get_property().map(|_| ())).is_some() ||
-        self.box_shadow_bottom.and_then(|bs| bs.get_property().map(|_| ())).is_some()
+        self.box_shadow_left.as_ref().and_then(|bs| bs.get_property().map(|_| ())).is_some() ||
+        self.box_shadow_right.as_ref().and_then(|bs| bs.get_property().map(|_| ())).is_some() ||
+        self.box_shadow_top.as_ref().and_then(|bs| bs.get_property().map(|_| ())).is_some() ||
+        self.box_shadow_bottom.as_ref().and_then(|bs| bs.get_property().map(|_| ())).is_some()
     }
 
     pub fn has_border(&self) -> bool {
-        self.border_left_style.and_then(|bs| bs.get_property_or_default()).is_some() ||
-        self.border_right_style.and_then(|bs| bs.get_property_or_default()).is_some() ||
-        self.border_top_style.and_then(|bs| bs.get_property_or_default()).is_some() ||
-        self.border_bottom_style.and_then(|bs| bs.get_property_or_default()).is_some()
+        self.border_left_style.as_ref().and_then(|bs| bs.get_property_or_default()).is_some() ||
+        self.border_right_style.as_ref().and_then(|bs| bs.get_property_or_default()).is_some() ||
+        self.border_top_style.as_ref().and_then(|bs| bs.get_property_or_default()).is_some() ||
+        self.border_bottom_style.as_ref().and_then(|bs| bs.get_property_or_default()).is_some()
     }
 }
 
 impl RectLayout {
 
     pub fn is_horizontal_overflow_visible(&self) -> bool {
-        self.overflow_x.map(|css_prop| css_prop.get_property().map(|overflow| overflow.is_overflow_visible()).unwrap_or_default()) == Some(true)
+        self.overflow_x.as_ref().map(|css_prop| css_prop.get_property().map(|overflow| overflow.is_overflow_visible()).unwrap_or_default()) == Some(true)
     }
 
     pub fn is_vertical_overflow_visible(&self) -> bool {
-        self.overflow_y.map(|css_prop| css_prop.get_property().map(|overflow| overflow.is_overflow_visible()).unwrap_or_default()) == Some(true)
+        self.overflow_y.as_ref().map(|css_prop| css_prop.get_property().map(|overflow| overflow.is_overflow_visible()).unwrap_or_default()) == Some(true)
     }
 }
 

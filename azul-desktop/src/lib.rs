@@ -45,6 +45,8 @@ pub mod css;
 pub mod dialogs;
 pub use azul_core::dom;
 pub use azul_core::gl;
+pub use azul_core::styled_dom;
+pub use azul_core::style;
 /// Window state handling and window-related information
 pub mod window;
 /// Font & image resource handling, lookup and caching

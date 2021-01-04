@@ -2101,7 +2101,7 @@ pub use AzCallbackInfoPtrTT as AzCallbackInfoPtr;
 pub type AzUpdateScreenTT = azul_impl::callbacks::UpdateScreen;
 pub use AzUpdateScreenTT as AzUpdateScreen;
 /// Destructor: Takes ownership of the `UpdateScreen` pointer and deletes it.
-#[no_mangle] #[allow(unused_variables)] pub extern "C" fn az_update_screen_delete(object: &mut AzUpdateScreen) { match object { azul_impl::callbacks::UpdateScreen::RedrawCurrentWindow => { }, azul_impl::callbacks::UpdateScreen::RedrawAllWindows => { }, azul_impl::callbacks::UpdateScreen::DontRedraw => { }, }
+#[no_mangle] #[allow(unused_variables)] pub extern "C" fn az_update_screen_delete(object: &mut AzUpdateScreen) { match object { azul_impl::callbacks::UpdateScreen::DoNothing => { }, azul_impl::callbacks::UpdateScreen::RegenerateStyledDomForCurrentWindow => { }, azul_impl::callbacks::UpdateScreen::RegenerateStyledDomForAllWindows => { }, }
 }
 /// Clones the object
 #[no_mangle] pub extern "C" fn az_update_screen_deep_copy(object: &AzUpdateScreen) -> AzUpdateScreen { object.clone() }
@@ -2160,7 +2160,7 @@ pub type AzGlCallbackType = extern "C" fn(AzGlCallbackInfoPtr) -> AzGlCallbackRe
 pub type AzGlCallbackInfoPtrTT = azul_impl::callbacks::GlCallbackInfoPtr;
 pub use AzGlCallbackInfoPtrTT as AzGlCallbackInfoPtr;
 /// Returns a copy of the internal `GlContextPtr`
-#[no_mangle] pub extern "C" fn az_gl_callback_info_ptr_get_gl_context(glcallbackinfo: &AzGlCallbackInfoPtr) -> AzGlContextPtr { az_layout_info_ptr_downcast_ref(layoutinfo, |ci| ci.gl_context.clone()) }
+#[no_mangle] pub extern "C" fn az_gl_callback_info_ptr_get_gl_context(glcallbackinfo: &AzGlCallbackInfoPtr) -> AzGlContextPtr { az_gl_callback_info_ptr_downcast_ref(glcallbackinfo, |ci| ci.gl_context.clone()) }
 /// Destructor: Takes ownership of the `GlCallbackInfo` pointer and deletes it.
 #[no_mangle] pub extern "C" fn az_gl_callback_info_ptr_delete<'a>(ptr: &mut AzGlCallbackInfoPtr) { let _ = unsafe { Box::<GlCallbackInfo<'a>>::from_raw(ptr.ptr  as *mut GlCallbackInfo<'a>) };}
 /// (private): Downcasts the `AzGlCallbackInfoPtr` to a `Box<GlCallbackInfo<'a>>`. Note that this takes ownership of the pointer.
@@ -4241,7 +4241,7 @@ pub use AzCascadeInfoTT as AzCascadeInfo;
 #[no_mangle] pub extern "C" fn az_cascade_info_hash(object: &AzCascadeInfo) -> u64 { use std::collections::hash_map::DefaultHasher; use std::hash::{Hash, Hasher}; let mut hasher = DefaultHasher::new(); object.hash(&mut hasher); hasher.finish() }
 
 /// Re-export of rust-allocated (stack based) `RectStyle` struct
-pub type AzRectStyleTT = azul_impl::styled_dom::RectStyle;
+pub type AzRectStyleTT = azul_impl::css::RectStyle;
 pub use AzRectStyleTT as AzRectStyle;
 /// Destructor: Takes ownership of the `RectStyle` pointer and deletes it.
 #[no_mangle] #[allow(unused_variables)] pub extern "C" fn az_rect_style_delete(object: &mut AzRectStyle) { }
@@ -4259,7 +4259,7 @@ pub use AzRectStyleTT as AzRectStyle;
 #[no_mangle] pub extern "C" fn az_rect_style_hash(object: &AzRectStyle) -> u64 { use std::collections::hash_map::DefaultHasher; use std::hash::{Hash, Hasher}; let mut hasher = DefaultHasher::new(); object.hash(&mut hasher); hasher.finish() }
 
 /// Re-export of rust-allocated (stack based) `RectLayout` struct
-pub type AzRectLayoutTT = azul_impl::styled_dom::RectLayout;
+pub type AzRectLayoutTT = azul_impl::css::RectLayout;
 pub use AzRectLayoutTT as AzRectLayout;
 /// Destructor: Takes ownership of the `RectLayout` pointer and deletes it.
 #[no_mangle] #[allow(unused_variables)] pub extern "C" fn az_rect_layout_delete(object: &mut AzRectLayout) { }
@@ -4345,10 +4345,6 @@ pub use AzStyledNodeTT as AzStyledNode;
 #[no_mangle] pub extern "C" fn az_styled_node_partial_eq(a: &AzStyledNode, b: &AzStyledNode) -> bool { a.eq(b) }
 /// Compares two instances of `AzStyledNode` for ordering. Returns 0 for None (equality), 1 on Some(Less), 2 on Some(Equal) and 3 on Some(Greater). 
 #[no_mangle] pub extern "C" fn az_styled_node_partial_cmp(a: &AzStyledNode, b: &AzStyledNode) -> u8 { use std::cmp::Ordering::*;match a.partial_cmp(b) { None => 0, Some(Less) => 1, Some(Equal) => 2, Some(Greater) => 3 } }
-/// Compares two instances of `AzStyledNode` for full ordering. Returns 0 for Less, 1 for Equal, 2 for Greater. 
-#[no_mangle] pub extern "C" fn az_styled_node_cmp(a: &AzStyledNode, b: &AzStyledNode) -> u8 { use std::cmp::Ordering::*; match a.cmp(b) { Less => 0, Equal => 1, Greater => 2 } }
-/// Returns the hash of a `AzStyledNode` instance 
-#[no_mangle] pub extern "C" fn az_styled_node_hash(object: &AzStyledNode) -> u64 { use std::collections::hash_map::DefaultHasher; use std::hash::{Hash, Hasher}; let mut hasher = DefaultHasher::new(); object.hash(&mut hasher); hasher.finish() }
 
 /// Re-export of rust-allocated (stack based) `TagId` struct
 pub type AzTagIdTT = azul_impl::styled_dom::AzTagId;
@@ -4383,8 +4379,6 @@ pub use AzTagIdToNodeIdMappingTT as AzTagIdToNodeIdMapping;
 #[no_mangle] pub extern "C" fn az_tag_id_to_node_id_mapping_partial_cmp(a: &AzTagIdToNodeIdMapping, b: &AzTagIdToNodeIdMapping) -> u8 { use std::cmp::Ordering::*;match a.partial_cmp(b) { None => 0, Some(Less) => 1, Some(Equal) => 2, Some(Greater) => 3 } }
 /// Compares two instances of `AzTagIdToNodeIdMapping` for full ordering. Returns 0 for Less, 1 for Equal, 2 for Greater. 
 #[no_mangle] pub extern "C" fn az_tag_id_to_node_id_mapping_cmp(a: &AzTagIdToNodeIdMapping, b: &AzTagIdToNodeIdMapping) -> u8 { use std::cmp::Ordering::*; match a.cmp(b) { Less => 0, Equal => 1, Greater => 2 } }
-/// Returns the hash of a `AzTagIdToNodeIdMapping` instance 
-#[no_mangle] pub extern "C" fn az_tag_id_to_node_id_mapping_hash(object: &AzTagIdToNodeIdMapping) -> u64 { use std::collections::hash_map::DefaultHasher; use std::hash::{Hash, Hasher}; let mut hasher = DefaultHasher::new(); object.hash(&mut hasher); hasher.finish() }
 
 /// Re-export of rust-allocated (stack based) `ParentWithNodeDepth` struct
 pub type AzParentWithNodeDepthTT = azul_impl::styled_dom::ParentWithNodeDepth;
@@ -4404,26 +4398,8 @@ pub use AzParentWithNodeDepthTT as AzParentWithNodeDepth;
 /// Returns the hash of a `AzParentWithNodeDepth` instance 
 #[no_mangle] pub extern "C" fn az_parent_with_node_depth_hash(object: &AzParentWithNodeDepth) -> u64 { use std::collections::hash_map::DefaultHasher; use std::hash::{Hash, Hasher}; let mut hasher = DefaultHasher::new(); object.hash(&mut hasher); hasher.finish() }
 
-/// Re-export of rust-allocated (stack based) `StyleOptions` struct
-pub type AzStyleOptionsTT = azul_impl::styled_dom::StyledDom;
-pub use AzStyleOptionsTT as AzStyleOptions;
-/// Destructor: Takes ownership of the `StyleOptions` pointer and deletes it.
-#[no_mangle] #[allow(unused_variables)] pub extern "C" fn az_style_options_delete(object: &mut AzStyleOptions) { }
-/// Clones the object
-#[no_mangle] pub extern "C" fn az_style_options_deep_copy(object: &AzStyleOptions) -> AzStyleOptions { object.clone() }
-/// Creates a string with the debug representation of the object
-#[no_mangle] pub extern "C" fn az_style_options_fmt_debug(object: &AzStyleOptions) -> AzString { format!("{:#?}", object).into() }
-/// Compares two instances of `AzStyleOptions` for equality
-#[no_mangle] pub extern "C" fn az_style_options_partial_eq(a: &AzStyleOptions, b: &AzStyleOptions) -> bool { a.eq(b) }
-/// Compares two instances of `AzStyleOptions` for ordering. Returns 0 for None (equality), 1 on Some(Less), 2 on Some(Equal) and 3 on Some(Greater). 
-#[no_mangle] pub extern "C" fn az_style_options_partial_cmp(a: &AzStyleOptions, b: &AzStyleOptions) -> u8 { use std::cmp::Ordering::*;match a.partial_cmp(b) { None => 0, Some(Less) => 1, Some(Equal) => 2, Some(Greater) => 3 } }
-/// Compares two instances of `AzStyleOptions` for full ordering. Returns 0 for Less, 1 for Equal, 2 for Greater. 
-#[no_mangle] pub extern "C" fn az_style_options_cmp(a: &AzStyleOptions, b: &AzStyleOptions) -> u8 { use std::cmp::Ordering::*; match a.cmp(b) { Less => 0, Equal => 1, Greater => 2 } }
-/// Returns the hash of a `AzStyleOptions` instance 
-#[no_mangle] pub extern "C" fn az_style_options_hash(object: &AzStyleOptions) -> u64 { use std::collections::hash_map::DefaultHasher; use std::hash::{Hash, Hasher}; let mut hasher = DefaultHasher::new(); object.hash(&mut hasher); hasher.finish() }
-
 /// Re-export of rust-allocated (stack based) `ContentGroup` struct
-pub type AzContentGroupTT = azul_impl::styled_dom::StyledDom;
+pub type AzContentGroupTT = azul_impl::styled_dom::ContentGroup;
 pub use AzContentGroupTT as AzContentGroup;
 /// Destructor: Takes ownership of the `ContentGroup` pointer and deletes it.
 #[no_mangle] #[allow(unused_variables)] pub extern "C" fn az_content_group_delete(object: &mut AzContentGroup) { }
@@ -4433,18 +4409,12 @@ pub use AzContentGroupTT as AzContentGroup;
 #[no_mangle] pub extern "C" fn az_content_group_fmt_debug(object: &AzContentGroup) -> AzString { format!("{:#?}", object).into() }
 /// Compares two instances of `AzContentGroup` for equality
 #[no_mangle] pub extern "C" fn az_content_group_partial_eq(a: &AzContentGroup, b: &AzContentGroup) -> bool { a.eq(b) }
-/// Compares two instances of `AzContentGroup` for ordering. Returns 0 for None (equality), 1 on Some(Less), 2 on Some(Equal) and 3 on Some(Greater). 
-#[no_mangle] pub extern "C" fn az_content_group_partial_cmp(a: &AzContentGroup, b: &AzContentGroup) -> u8 { use std::cmp::Ordering::*;match a.partial_cmp(b) { None => 0, Some(Less) => 1, Some(Equal) => 2, Some(Greater) => 3 } }
-/// Compares two instances of `AzContentGroup` for full ordering. Returns 0 for Less, 1 for Equal, 2 for Greater. 
-#[no_mangle] pub extern "C" fn az_content_group_cmp(a: &AzContentGroup, b: &AzContentGroup) -> u8 { use std::cmp::Ordering::*; match a.cmp(b) { Less => 0, Equal => 1, Greater => 2 } }
-/// Returns the hash of a `AzContentGroup` instance 
-#[no_mangle] pub extern "C" fn az_content_group_hash(object: &AzContentGroup) -> u64 { use std::collections::hash_map::DefaultHasher; use std::hash::{Hash, Hasher}; let mut hasher = DefaultHasher::new(); object.hash(&mut hasher); hasher.finish() }
 
 /// Re-export of rust-allocated (stack based) `StyledDom` struct
 pub type AzStyledDomTT = azul_impl::styled_dom::StyledDom;
 pub use AzStyledDomTT as AzStyledDom;
 /// Styles a `Dom` with the given `Css`, returning the `StyledDom` - complexity `O(count(dom_nodes) * count(css_blocks))`: make sure that the `Dom` and the `Css` are as small as possible, use inline CSS if the performance isn't good enough
-#[no_mangle] pub extern "C" fn az_styled_dom_new(dom: AzDom, css: AzCss, style_options: AzStyleOptions) -> AzStyledDom { StyledDom::new(dom, &css, style_options) }
+#[no_mangle] pub extern "C" fn az_styled_dom_new(dom: AzDom, css: AzCss) -> AzStyledDom { StyledDom::new(dom, css) }
 /// Appends an already styled list of DOM nodes to the current `dom.root` - complexity `O(count(dom.dom_nodes))`
 #[no_mangle] pub extern "C" fn az_styled_dom_append(styleddom: &mut AzStyledDom, dom: AzStyledDom) { styled_dom.append(dom); }
 /// Destructor: Takes ownership of the `StyledDom` pointer and deletes it.
@@ -4455,12 +4425,6 @@ pub use AzStyledDomTT as AzStyledDom;
 #[no_mangle] pub extern "C" fn az_styled_dom_fmt_debug(object: &AzStyledDom) -> AzString { format!("{:#?}", object).into() }
 /// Compares two instances of `AzStyledDom` for equality
 #[no_mangle] pub extern "C" fn az_styled_dom_partial_eq(a: &AzStyledDom, b: &AzStyledDom) -> bool { a.eq(b) }
-/// Compares two instances of `AzStyledDom` for ordering. Returns 0 for None (equality), 1 on Some(Less), 2 on Some(Equal) and 3 on Some(Greater). 
-#[no_mangle] pub extern "C" fn az_styled_dom_partial_cmp(a: &AzStyledDom, b: &AzStyledDom) -> u8 { use std::cmp::Ordering::*;match a.partial_cmp(b) { None => 0, Some(Less) => 1, Some(Equal) => 2, Some(Greater) => 3 } }
-/// Compares two instances of `AzStyledDom` for full ordering. Returns 0 for Less, 1 for Equal, 2 for Greater. 
-#[no_mangle] pub extern "C" fn az_styled_dom_cmp(a: &AzStyledDom, b: &AzStyledDom) -> u8 { use std::cmp::Ordering::*; match a.cmp(b) { Less => 0, Equal => 1, Greater => 2 } }
-/// Returns the hash of a `AzStyledDom` instance 
-#[no_mangle] pub extern "C" fn az_styled_dom_hash(object: &AzStyledDom) -> u64 { use std::collections::hash_map::DefaultHasher; use std::hash::{Hash, Hasher}; let mut hasher = DefaultHasher::new(); object.hash(&mut hasher); hasher.finish() }
 
 /// Re-export of rust-allocated (stack based) `Dom` struct
 pub type AzDomTT = azul_impl::dom::Dom;
@@ -4756,7 +4720,7 @@ pub use AzNotEventFilterTT as AzNotEventFilter;
 pub type AzWindowEventFilterTT = azul_impl::dom::WindowEventFilter;
 pub use AzWindowEventFilterTT as AzWindowEventFilter;
 /// Destructor: Takes ownership of the `WindowEventFilter` pointer and deletes it.
-#[no_mangle] #[allow(unused_variables)] pub extern "C" fn az_window_event_filter_delete(object: &mut AzWindowEventFilter) { match object { azul_impl::dom::WindowEventFilter::MouseOver => { }, azul_impl::dom::WindowEventFilter::MouseDown => { }, azul_impl::dom::WindowEventFilter::LeftMouseDown => { }, azul_impl::dom::WindowEventFilter::RightMouseDown => { }, azul_impl::dom::WindowEventFilter::MiddleMouseDown => { }, azul_impl::dom::WindowEventFilter::MouseUp => { }, azul_impl::dom::WindowEventFilter::LeftMouseUp => { }, azul_impl::dom::WindowEventFilter::RightMouseUp => { }, azul_impl::dom::WindowEventFilter::MiddleMouseUp => { }, azul_impl::dom::WindowEventFilter::MouseEnter => { }, azul_impl::dom::WindowEventFilter::MouseLeave => { }, azul_impl::dom::WindowEventFilter::Scroll => { }, azul_impl::dom::WindowEventFilter::ScrollStart => { }, azul_impl::dom::WindowEventFilter::ScrollEnd => { }, azul_impl::dom::WindowEventFilter::TextInput => { }, azul_impl::dom::WindowEventFilter::VirtualKeyDown => { }, azul_impl::dom::WindowEventFilter::VirtualKeyUp => { }, azul_impl::dom::WindowEventFilter::HoveredFile => { }, azul_impl::dom::WindowEventFilter::DroppedFile => { }, azul_impl::dom::WindowEventFilter::HoveredFileCancelled => { }, azul_impl::dom::WindowEventFilter::Resized => { }, azul_impl::dom::WindowEventFilter::Moved => { }, azul_impl::dom::WindowEventFilter::TouchStart => { }, azul_impl::dom::WindowEventFilter::TouchMove => { }, azul_impl::dom::WindowEventFilter::TouchEnd => { }, azul_impl::dom::WindowEventFilter::TouchCancel => { }, azul_impl::dom::WindowEventFilter::WindowFocusReceived => { }, azul_impl::dom::WindowEventFilter::WindowFocusLost => { }, azul_impl::dom::WindowEventFilter::WindowCloseRequested => { }, azul_impl::dom::WindowEventFilter::ThemeChanged => { }, }
+#[no_mangle] #[allow(unused_variables)] pub extern "C" fn az_window_event_filter_delete(object: &mut AzWindowEventFilter) { match object { azul_impl::dom::WindowEventFilter::MouseOver => { }, azul_impl::dom::WindowEventFilter::MouseDown => { }, azul_impl::dom::WindowEventFilter::LeftMouseDown => { }, azul_impl::dom::WindowEventFilter::RightMouseDown => { }, azul_impl::dom::WindowEventFilter::MiddleMouseDown => { }, azul_impl::dom::WindowEventFilter::MouseUp => { }, azul_impl::dom::WindowEventFilter::LeftMouseUp => { }, azul_impl::dom::WindowEventFilter::RightMouseUp => { }, azul_impl::dom::WindowEventFilter::MiddleMouseUp => { }, azul_impl::dom::WindowEventFilter::MouseEnter => { }, azul_impl::dom::WindowEventFilter::MouseLeave => { }, azul_impl::dom::WindowEventFilter::Scroll => { }, azul_impl::dom::WindowEventFilter::ScrollStart => { }, azul_impl::dom::WindowEventFilter::ScrollEnd => { }, azul_impl::dom::WindowEventFilter::TextInput => { }, azul_impl::dom::WindowEventFilter::VirtualKeyDown => { }, azul_impl::dom::WindowEventFilter::VirtualKeyUp => { }, azul_impl::dom::WindowEventFilter::HoveredFile => { }, azul_impl::dom::WindowEventFilter::DroppedFile => { }, azul_impl::dom::WindowEventFilter::HoveredFileCancelled => { }, azul_impl::dom::WindowEventFilter::Resized => { }, azul_impl::dom::WindowEventFilter::Moved => { }, azul_impl::dom::WindowEventFilter::TouchStart => { }, azul_impl::dom::WindowEventFilter::TouchMove => { }, azul_impl::dom::WindowEventFilter::TouchEnd => { }, azul_impl::dom::WindowEventFilter::TouchCancel => { }, azul_impl::dom::WindowEventFilter::FocusReceived => { }, azul_impl::dom::WindowEventFilter::FocusLost => { }, azul_impl::dom::WindowEventFilter::CloseRequested => { }, azul_impl::dom::WindowEventFilter::ThemeChanged => { }, }
 }
 /// Clones the object
 #[no_mangle] pub extern "C" fn az_window_event_filter_deep_copy(object: &AzWindowEventFilter) -> AzWindowEventFilter { object.clone() }
@@ -6486,7 +6450,7 @@ pub use AzFullScreenModeTT as AzFullScreenMode;
 pub type AzWindowThemeTT = azul_impl::window::WindowTheme;
 pub use AzWindowThemeTT as AzWindowTheme;
 /// Destructor: Takes ownership of the `WindowTheme` pointer and deletes it.
-#[no_mangle] #[allow(unused_variables)] pub extern "C" fn az_window_theme_delete(object: &mut AzWindowTheme) { match object { azul_impl::window::WindowTheme::Dark => { }, azul_impl::window::WindowTheme::Light => { }, }
+#[no_mangle] #[allow(unused_variables)] pub extern "C" fn az_window_theme_delete(object: &mut AzWindowTheme) { match object { azul_impl::window::WindowTheme::DarkMode => { }, azul_impl::window::WindowTheme::LightMode => { }, }
 }
 /// Clones the object
 #[no_mangle] pub extern "C" fn az_window_theme_deep_copy(object: &AzWindowTheme) -> AzWindowTheme { object.clone() }

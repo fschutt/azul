@@ -414,6 +414,9 @@ macro_rules! impl_option_inner {
                 $struct_name::Some(t) => Some(t),
             }
         }
+        pub fn replace(&mut self, value: $struct_type) -> $struct_name {
+            ::std::mem::replace(self, $struct_name::Some(value))
+        }
         pub fn is_some(&self) -> bool {
             match self {
                 $struct_name::None => false,
@@ -422,6 +425,24 @@ macro_rules! impl_option_inner {
         }
         pub fn is_none(&self) -> bool {
             !self.is_some()
+        }
+        pub const fn as_ref(&self) -> Option<&$struct_type> {
+            match *self {
+                $struct_name::Some(ref x) => Some(x),
+                $struct_name::None => None,
+            }
+        }
+        pub fn map<U, F: FnOnce($struct_type) -> U>(self, f: F) -> Option<U> {
+            match self {
+                $struct_name::Some(x) => Some(f(x)),
+                $struct_name::None => None,
+            }
+        }
+        pub fn and_then<U, F>(self, f: F) -> Option<U> where F: FnOnce($struct_type) -> Option<U> {
+            match self {
+                $struct_name::None => None,
+                $struct_name::Some(x) => f(x),
+            }
         }
     }
 )}

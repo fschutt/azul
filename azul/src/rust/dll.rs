@@ -945,9 +945,9 @@
     }
     /// Specifies if the screen should be updated after the callback function has returned
     #[repr(C)] pub enum AzUpdateScreen {
-        RedrawCurrentWindow,
-        RedrawAllWindows,
-        DontRedraw,
+        DoNothing,
+        RegenerateStyledDomForCurrentWindow,
+        RegenerateStyledDomForAllWindows,
     }
     /// Re-export of rust-allocated (stack based) `IFrameCallback` struct
     #[repr(C)] pub struct AzIFrameCallback {
@@ -1742,8 +1742,8 @@
     impl std::hash::Hash for AzStyleTransformScale3D { fn hash<H: std::hash::Hasher>(&self, state: &mut H) { ((crate::dll::get_azul_dll().az_style_transform_scale3_d_hash)(self)).hash(state) } }
     /// Re-export of rust-allocated (stack based) `StyleTransformSkew2D` struct
     #[repr(C)] pub struct AzStyleTransformSkew2D {
-        pub x: AzPixelValue,
-        pub y: AzPixelValue,
+        pub x: AzPercentageValue,
+        pub y: AzPercentageValue,
     }
     /// Re-export of rust-allocated (stack based) `StyleTextAlignmentHorz` struct
     #[repr(C)] pub enum AzStyleTextAlignmentHorz {
@@ -2551,17 +2551,13 @@
 
     impl PartialEq for AzStyledNode { fn eq(&self, rhs: &AzStyledNode) -> bool { (crate::dll::get_azul_dll().az_styled_node_partial_eq)(self, rhs) } }
 
-    impl Eq for AzStyledNode { }
-
     impl PartialOrd for AzStyledNode { fn partial_cmp(&self, rhs: &AzStyledNode) -> Option<std::cmp::Ordering> { use std::cmp::Ordering::*; match (crate::dll::get_azul_dll().az_styled_node_partial_cmp)(self, rhs) { 1 => Some(Less), 2 => Some(Equal), 3 => Some(Greater), _ => None } } }
-
-    impl Ord for AzStyledNode { fn cmp(&self, rhs: &AzStyledNode) -> std::cmp::Ordering { use std::cmp::Ordering::*; match (crate::dll::get_azul_dll().az_styled_node_cmp)(self, rhs) { 0 => Less, 1 => Equal, _ => Greater } } }
-
-    impl std::hash::Hash for AzStyledNode { fn hash<H: std::hash::Hasher>(&self, state: &mut H) { ((crate::dll::get_azul_dll().az_styled_node_hash)(self)).hash(state) } }
     /// Re-export of rust-allocated (stack based) `TagId` struct
     #[repr(C)] pub struct AzTagId {
         pub inner: u64,
     }
+
+    impl Copy for AzTagId { }
 
     impl PartialEq for AzTagId { fn eq(&self, rhs: &AzTagId) -> bool { (crate::dll::get_azul_dll().az_tag_id_partial_eq)(self, rhs) } }
 
@@ -2579,20 +2575,20 @@
         pub tab_index: AzOptionTabIndex,
     }
 
-    impl PartialEq for AzTagIdToNodeIdMapping { fn eq(&self, rhs: &AzTagIdToNodeIdMapping) -> bool { (crate::dll::get_azul_dll().az_tag_id_to_node_id_mapping_partial_eq)(self, rhs) } }
+    impl Copy for AzTagIdToNodeIdMapping { }
 
-    impl Eq for AzTagIdToNodeIdMapping { }
+    impl PartialEq for AzTagIdToNodeIdMapping { fn eq(&self, rhs: &AzTagIdToNodeIdMapping) -> bool { (crate::dll::get_azul_dll().az_tag_id_to_node_id_mapping_partial_eq)(self, rhs) } }
 
     impl PartialOrd for AzTagIdToNodeIdMapping { fn partial_cmp(&self, rhs: &AzTagIdToNodeIdMapping) -> Option<std::cmp::Ordering> { use std::cmp::Ordering::*; match (crate::dll::get_azul_dll().az_tag_id_to_node_id_mapping_partial_cmp)(self, rhs) { 1 => Some(Less), 2 => Some(Equal), 3 => Some(Greater), _ => None } } }
 
     impl Ord for AzTagIdToNodeIdMapping { fn cmp(&self, rhs: &AzTagIdToNodeIdMapping) -> std::cmp::Ordering { use std::cmp::Ordering::*; match (crate::dll::get_azul_dll().az_tag_id_to_node_id_mapping_cmp)(self, rhs) { 0 => Less, 1 => Equal, _ => Greater } } }
-
-    impl std::hash::Hash for AzTagIdToNodeIdMapping { fn hash<H: std::hash::Hasher>(&self, state: &mut H) { ((crate::dll::get_azul_dll().az_tag_id_to_node_id_mapping_hash)(self)).hash(state) } }
     /// Re-export of rust-allocated (stack based) `ParentWithNodeDepth` struct
     #[repr(C)] pub struct AzParentWithNodeDepth {
         pub depth: usize,
         pub node_id: AzNodeId,
     }
+
+    impl Copy for AzParentWithNodeDepth { }
 
     impl PartialEq for AzParentWithNodeDepth { fn eq(&self, rhs: &AzParentWithNodeDepth) -> bool { (crate::dll::get_azul_dll().az_parent_with_node_depth_partial_eq)(self, rhs) } }
 
@@ -2603,22 +2599,6 @@
     impl Ord for AzParentWithNodeDepth { fn cmp(&self, rhs: &AzParentWithNodeDepth) -> std::cmp::Ordering { use std::cmp::Ordering::*; match (crate::dll::get_azul_dll().az_parent_with_node_depth_cmp)(self, rhs) { 0 => Less, 1 => Equal, _ => Greater } } }
 
     impl std::hash::Hash for AzParentWithNodeDepth { fn hash<H: std::hash::Hasher>(&self, state: &mut H) { ((crate::dll::get_azul_dll().az_parent_with_node_depth_hash)(self)).hash(state) } }
-    /// Re-export of rust-allocated (stack based) `StyleOptions` struct
-    #[repr(C)] pub struct AzStyleOptions {
-        pub focused_node: AzOptionNodeId,
-        pub hovered_nodes: AzNodeIdVec,
-        pub is_mouse_down: bool,
-    }
-
-    impl PartialEq for AzStyleOptions { fn eq(&self, rhs: &AzStyleOptions) -> bool { (crate::dll::get_azul_dll().az_style_options_partial_eq)(self, rhs) } }
-
-    impl Eq for AzStyleOptions { }
-
-    impl PartialOrd for AzStyleOptions { fn partial_cmp(&self, rhs: &AzStyleOptions) -> Option<std::cmp::Ordering> { use std::cmp::Ordering::*; match (crate::dll::get_azul_dll().az_style_options_partial_cmp)(self, rhs) { 1 => Some(Less), 2 => Some(Equal), 3 => Some(Greater), _ => None } } }
-
-    impl Ord for AzStyleOptions { fn cmp(&self, rhs: &AzStyleOptions) -> std::cmp::Ordering { use std::cmp::Ordering::*; match (crate::dll::get_azul_dll().az_style_options_cmp)(self, rhs) { 0 => Less, 1 => Equal, _ => Greater } } }
-
-    impl std::hash::Hash for AzStyleOptions { fn hash<H: std::hash::Hasher>(&self, state: &mut H) { ((crate::dll::get_azul_dll().az_style_options_hash)(self)).hash(state) } }
     /// Re-export of rust-allocated (stack based) `ContentGroup` struct
     #[repr(C)] pub struct AzContentGroup {
         pub root: AzNodeId,
@@ -2626,14 +2606,6 @@
     }
 
     impl PartialEq for AzContentGroup { fn eq(&self, rhs: &AzContentGroup) -> bool { (crate::dll::get_azul_dll().az_content_group_partial_eq)(self, rhs) } }
-
-    impl Eq for AzContentGroup { }
-
-    impl PartialOrd for AzContentGroup { fn partial_cmp(&self, rhs: &AzContentGroup) -> Option<std::cmp::Ordering> { use std::cmp::Ordering::*; match (crate::dll::get_azul_dll().az_content_group_partial_cmp)(self, rhs) { 1 => Some(Less), 2 => Some(Equal), 3 => Some(Greater), _ => None } } }
-
-    impl Ord for AzContentGroup { fn cmp(&self, rhs: &AzContentGroup) -> std::cmp::Ordering { use std::cmp::Ordering::*; match (crate::dll::get_azul_dll().az_content_group_cmp)(self, rhs) { 0 => Less, 1 => Equal, _ => Greater } } }
-
-    impl std::hash::Hash for AzContentGroup { fn hash<H: std::hash::Hasher>(&self, state: &mut H) { ((crate::dll::get_azul_dll().az_content_group_hash)(self)).hash(state) } }
     /// Re-export of rust-allocated (stack based) `StyledDom` struct
     #[repr(C)] pub struct AzStyledDom {
         pub root: AzNodeId,
@@ -2647,14 +2619,6 @@
     }
 
     impl PartialEq for AzStyledDom { fn eq(&self, rhs: &AzStyledDom) -> bool { (crate::dll::get_azul_dll().az_styled_dom_partial_eq)(self, rhs) } }
-
-    impl Eq for AzStyledDom { }
-
-    impl PartialOrd for AzStyledDom { fn partial_cmp(&self, rhs: &AzStyledDom) -> Option<std::cmp::Ordering> { use std::cmp::Ordering::*; match (crate::dll::get_azul_dll().az_styled_dom_partial_cmp)(self, rhs) { 1 => Some(Less), 2 => Some(Equal), 3 => Some(Greater), _ => None } } }
-
-    impl Ord for AzStyledDom { fn cmp(&self, rhs: &AzStyledDom) -> std::cmp::Ordering { use std::cmp::Ordering::*; match (crate::dll::get_azul_dll().az_styled_dom_cmp)(self, rhs) { 0 => Less, 1 => Equal, _ => Greater } } }
-
-    impl std::hash::Hash for AzStyledDom { fn hash<H: std::hash::Hasher>(&self, state: &mut H) { ((crate::dll::get_azul_dll().az_styled_dom_hash)(self)).hash(state) } }
     /// Re-export of rust-allocated (stack based) `Dom` struct
     #[repr(C)] pub struct AzDom {
         pub root: AzNodeData,
@@ -2849,9 +2813,9 @@
         TouchMove,
         TouchEnd,
         TouchCancel,
-        WindowFocusReceived,
-        WindowFocusLost,
-        WindowCloseRequested,
+        FocusReceived,
+        FocusLost,
+        CloseRequested,
         ThemeChanged,
     }
     /// Re-export of rust-allocated (stack based) `TabIndex` struct
@@ -3918,8 +3882,8 @@
     }
     /// Re-export of rust-allocated (stack based) `WindowTheme` struct
     #[repr(C)] pub enum AzWindowTheme {
-        Dark,
-        Light,
+        DarkMode,
+        LightMode,
     }
     /// Re-export of rust-allocated (stack based) `WindowPosition` struct
     #[repr(C, u8)] pub enum AzWindowPosition {
@@ -5271,8 +5235,6 @@
         pub az_styled_node_fmt_debug: extern "C" fn(_:  &AzStyledNode) -> AzString,
         pub az_styled_node_partial_eq: extern "C" fn(_:  &AzStyledNode, _:  &AzStyledNode) -> bool,
         pub az_styled_node_partial_cmp: extern "C" fn(_:  &AzStyledNode, _:  &AzStyledNode) -> u8,
-        pub az_styled_node_cmp: extern "C" fn(_:  &AzStyledNode, _:  &AzStyledNode) -> u8,
-        pub az_styled_node_hash: extern "C" fn(_:  &AzStyledNode) -> u64,
         pub az_tag_id_delete: extern "C" fn(_:  &mut AzTagId),
         pub az_tag_id_deep_copy: extern "C" fn(_:  &AzTagId) -> AzTagId,
         pub az_tag_id_fmt_debug: extern "C" fn(_:  &AzTagId) -> AzString,
@@ -5286,7 +5248,6 @@
         pub az_tag_id_to_node_id_mapping_partial_eq: extern "C" fn(_:  &AzTagIdToNodeIdMapping, _:  &AzTagIdToNodeIdMapping) -> bool,
         pub az_tag_id_to_node_id_mapping_partial_cmp: extern "C" fn(_:  &AzTagIdToNodeIdMapping, _:  &AzTagIdToNodeIdMapping) -> u8,
         pub az_tag_id_to_node_id_mapping_cmp: extern "C" fn(_:  &AzTagIdToNodeIdMapping, _:  &AzTagIdToNodeIdMapping) -> u8,
-        pub az_tag_id_to_node_id_mapping_hash: extern "C" fn(_:  &AzTagIdToNodeIdMapping) -> u64,
         pub az_parent_with_node_depth_delete: extern "C" fn(_:  &mut AzParentWithNodeDepth),
         pub az_parent_with_node_depth_deep_copy: extern "C" fn(_:  &AzParentWithNodeDepth) -> AzParentWithNodeDepth,
         pub az_parent_with_node_depth_fmt_debug: extern "C" fn(_:  &AzParentWithNodeDepth) -> AzString,
@@ -5294,29 +5255,16 @@
         pub az_parent_with_node_depth_partial_cmp: extern "C" fn(_:  &AzParentWithNodeDepth, _:  &AzParentWithNodeDepth) -> u8,
         pub az_parent_with_node_depth_cmp: extern "C" fn(_:  &AzParentWithNodeDepth, _:  &AzParentWithNodeDepth) -> u8,
         pub az_parent_with_node_depth_hash: extern "C" fn(_:  &AzParentWithNodeDepth) -> u64,
-        pub az_style_options_delete: extern "C" fn(_:  &mut AzStyleOptions),
-        pub az_style_options_deep_copy: extern "C" fn(_:  &AzStyleOptions) -> AzStyleOptions,
-        pub az_style_options_fmt_debug: extern "C" fn(_:  &AzStyleOptions) -> AzString,
-        pub az_style_options_partial_eq: extern "C" fn(_:  &AzStyleOptions, _:  &AzStyleOptions) -> bool,
-        pub az_style_options_partial_cmp: extern "C" fn(_:  &AzStyleOptions, _:  &AzStyleOptions) -> u8,
-        pub az_style_options_cmp: extern "C" fn(_:  &AzStyleOptions, _:  &AzStyleOptions) -> u8,
-        pub az_style_options_hash: extern "C" fn(_:  &AzStyleOptions) -> u64,
         pub az_content_group_delete: extern "C" fn(_:  &mut AzContentGroup),
         pub az_content_group_deep_copy: extern "C" fn(_:  &AzContentGroup) -> AzContentGroup,
         pub az_content_group_fmt_debug: extern "C" fn(_:  &AzContentGroup) -> AzString,
         pub az_content_group_partial_eq: extern "C" fn(_:  &AzContentGroup, _:  &AzContentGroup) -> bool,
-        pub az_content_group_partial_cmp: extern "C" fn(_:  &AzContentGroup, _:  &AzContentGroup) -> u8,
-        pub az_content_group_cmp: extern "C" fn(_:  &AzContentGroup, _:  &AzContentGroup) -> u8,
-        pub az_content_group_hash: extern "C" fn(_:  &AzContentGroup) -> u64,
-        pub az_styled_dom_new: extern "C" fn(_:  AzDom, _:  AzCss, _:  AzStyleOptions) -> AzStyledDom,
+        pub az_styled_dom_new: extern "C" fn(_:  AzDom, _:  AzCss) -> AzStyledDom,
         pub az_styled_dom_append: extern "C" fn(_:  &mut AzStyledDom, _:  AzStyledDom),
         pub az_styled_dom_delete: extern "C" fn(_:  &mut AzStyledDom),
         pub az_styled_dom_deep_copy: extern "C" fn(_:  &AzStyledDom) -> AzStyledDom,
         pub az_styled_dom_fmt_debug: extern "C" fn(_:  &AzStyledDom) -> AzString,
         pub az_styled_dom_partial_eq: extern "C" fn(_:  &AzStyledDom, _:  &AzStyledDom) -> bool,
-        pub az_styled_dom_partial_cmp: extern "C" fn(_:  &AzStyledDom, _:  &AzStyledDom) -> u8,
-        pub az_styled_dom_cmp: extern "C" fn(_:  &AzStyledDom, _:  &AzStyledDom) -> u8,
-        pub az_styled_dom_hash: extern "C" fn(_:  &AzStyledDom) -> u64,
         pub az_dom_new: extern "C" fn(_:  AzNodeType) -> AzDom,
         pub az_dom_div: extern "C" fn() -> AzDom,
         pub az_dom_body: extern "C" fn() -> AzDom,
@@ -7375,8 +7323,6 @@
             let az_styled_node_fmt_debug: extern "C" fn(_:  &AzStyledNode) -> AzString = transmute(lib.get(b"az_styled_node_fmt_debug")?);
             let az_styled_node_partial_eq: extern "C" fn(_:  &AzStyledNode, _:  &AzStyledNode) -> bool = transmute(lib.get(b"az_styled_node_partial_eq")?);
             let az_styled_node_partial_cmp: extern "C" fn(_:  &AzStyledNode, _:  &AzStyledNode) -> u8 = transmute(lib.get(b"az_styled_node_partial_cmp")?);
-            let az_styled_node_cmp: extern "C" fn(_:  &AzStyledNode, _:  &AzStyledNode) -> u8 = transmute(lib.get(b"az_styled_node_cmp")?);
-            let az_styled_node_hash: extern "C" fn(_:  &AzStyledNode) -> u64 = transmute(lib.get(b"az_styled_node_hash")?);
             let az_tag_id_delete: extern "C" fn(_:  &mut AzTagId) = transmute(lib.get(b"az_tag_id_delete")?);
             let az_tag_id_deep_copy: extern "C" fn(_:  &AzTagId) -> AzTagId = transmute(lib.get(b"az_tag_id_deep_copy")?);
             let az_tag_id_fmt_debug: extern "C" fn(_:  &AzTagId) -> AzString = transmute(lib.get(b"az_tag_id_fmt_debug")?);
@@ -7390,7 +7336,6 @@
             let az_tag_id_to_node_id_mapping_partial_eq: extern "C" fn(_:  &AzTagIdToNodeIdMapping, _:  &AzTagIdToNodeIdMapping) -> bool = transmute(lib.get(b"az_tag_id_to_node_id_mapping_partial_eq")?);
             let az_tag_id_to_node_id_mapping_partial_cmp: extern "C" fn(_:  &AzTagIdToNodeIdMapping, _:  &AzTagIdToNodeIdMapping) -> u8 = transmute(lib.get(b"az_tag_id_to_node_id_mapping_partial_cmp")?);
             let az_tag_id_to_node_id_mapping_cmp: extern "C" fn(_:  &AzTagIdToNodeIdMapping, _:  &AzTagIdToNodeIdMapping) -> u8 = transmute(lib.get(b"az_tag_id_to_node_id_mapping_cmp")?);
-            let az_tag_id_to_node_id_mapping_hash: extern "C" fn(_:  &AzTagIdToNodeIdMapping) -> u64 = transmute(lib.get(b"az_tag_id_to_node_id_mapping_hash")?);
             let az_parent_with_node_depth_delete: extern "C" fn(_:  &mut AzParentWithNodeDepth) = transmute(lib.get(b"az_parent_with_node_depth_delete")?);
             let az_parent_with_node_depth_deep_copy: extern "C" fn(_:  &AzParentWithNodeDepth) -> AzParentWithNodeDepth = transmute(lib.get(b"az_parent_with_node_depth_deep_copy")?);
             let az_parent_with_node_depth_fmt_debug: extern "C" fn(_:  &AzParentWithNodeDepth) -> AzString = transmute(lib.get(b"az_parent_with_node_depth_fmt_debug")?);
@@ -7398,29 +7343,16 @@
             let az_parent_with_node_depth_partial_cmp: extern "C" fn(_:  &AzParentWithNodeDepth, _:  &AzParentWithNodeDepth) -> u8 = transmute(lib.get(b"az_parent_with_node_depth_partial_cmp")?);
             let az_parent_with_node_depth_cmp: extern "C" fn(_:  &AzParentWithNodeDepth, _:  &AzParentWithNodeDepth) -> u8 = transmute(lib.get(b"az_parent_with_node_depth_cmp")?);
             let az_parent_with_node_depth_hash: extern "C" fn(_:  &AzParentWithNodeDepth) -> u64 = transmute(lib.get(b"az_parent_with_node_depth_hash")?);
-            let az_style_options_delete: extern "C" fn(_:  &mut AzStyleOptions) = transmute(lib.get(b"az_style_options_delete")?);
-            let az_style_options_deep_copy: extern "C" fn(_:  &AzStyleOptions) -> AzStyleOptions = transmute(lib.get(b"az_style_options_deep_copy")?);
-            let az_style_options_fmt_debug: extern "C" fn(_:  &AzStyleOptions) -> AzString = transmute(lib.get(b"az_style_options_fmt_debug")?);
-            let az_style_options_partial_eq: extern "C" fn(_:  &AzStyleOptions, _:  &AzStyleOptions) -> bool = transmute(lib.get(b"az_style_options_partial_eq")?);
-            let az_style_options_partial_cmp: extern "C" fn(_:  &AzStyleOptions, _:  &AzStyleOptions) -> u8 = transmute(lib.get(b"az_style_options_partial_cmp")?);
-            let az_style_options_cmp: extern "C" fn(_:  &AzStyleOptions, _:  &AzStyleOptions) -> u8 = transmute(lib.get(b"az_style_options_cmp")?);
-            let az_style_options_hash: extern "C" fn(_:  &AzStyleOptions) -> u64 = transmute(lib.get(b"az_style_options_hash")?);
             let az_content_group_delete: extern "C" fn(_:  &mut AzContentGroup) = transmute(lib.get(b"az_content_group_delete")?);
             let az_content_group_deep_copy: extern "C" fn(_:  &AzContentGroup) -> AzContentGroup = transmute(lib.get(b"az_content_group_deep_copy")?);
             let az_content_group_fmt_debug: extern "C" fn(_:  &AzContentGroup) -> AzString = transmute(lib.get(b"az_content_group_fmt_debug")?);
             let az_content_group_partial_eq: extern "C" fn(_:  &AzContentGroup, _:  &AzContentGroup) -> bool = transmute(lib.get(b"az_content_group_partial_eq")?);
-            let az_content_group_partial_cmp: extern "C" fn(_:  &AzContentGroup, _:  &AzContentGroup) -> u8 = transmute(lib.get(b"az_content_group_partial_cmp")?);
-            let az_content_group_cmp: extern "C" fn(_:  &AzContentGroup, _:  &AzContentGroup) -> u8 = transmute(lib.get(b"az_content_group_cmp")?);
-            let az_content_group_hash: extern "C" fn(_:  &AzContentGroup) -> u64 = transmute(lib.get(b"az_content_group_hash")?);
-            let az_styled_dom_new: extern "C" fn(_:  AzDom, _:  AzCss, _:  AzStyleOptions) -> AzStyledDom = transmute(lib.get(b"az_styled_dom_new")?);
+            let az_styled_dom_new: extern "C" fn(_:  AzDom, _:  AzCss) -> AzStyledDom = transmute(lib.get(b"az_styled_dom_new")?);
             let az_styled_dom_append: extern "C" fn(_:  &mut AzStyledDom, _:  AzStyledDom) = transmute(lib.get(b"az_styled_dom_append")?);
             let az_styled_dom_delete: extern "C" fn(_:  &mut AzStyledDom) = transmute(lib.get(b"az_styled_dom_delete")?);
             let az_styled_dom_deep_copy: extern "C" fn(_:  &AzStyledDom) -> AzStyledDom = transmute(lib.get(b"az_styled_dom_deep_copy")?);
             let az_styled_dom_fmt_debug: extern "C" fn(_:  &AzStyledDom) -> AzString = transmute(lib.get(b"az_styled_dom_fmt_debug")?);
             let az_styled_dom_partial_eq: extern "C" fn(_:  &AzStyledDom, _:  &AzStyledDom) -> bool = transmute(lib.get(b"az_styled_dom_partial_eq")?);
-            let az_styled_dom_partial_cmp: extern "C" fn(_:  &AzStyledDom, _:  &AzStyledDom) -> u8 = transmute(lib.get(b"az_styled_dom_partial_cmp")?);
-            let az_styled_dom_cmp: extern "C" fn(_:  &AzStyledDom, _:  &AzStyledDom) -> u8 = transmute(lib.get(b"az_styled_dom_cmp")?);
-            let az_styled_dom_hash: extern "C" fn(_:  &AzStyledDom) -> u64 = transmute(lib.get(b"az_styled_dom_hash")?);
             let az_dom_new: extern "C" fn(_:  AzNodeType) -> AzDom = transmute(lib.get(b"az_dom_new")?);
             let az_dom_div: extern "C" fn() -> AzDom = transmute(lib.get(b"az_dom_div")?);
             let az_dom_body: extern "C" fn() -> AzDom = transmute(lib.get(b"az_dom_body")?);
@@ -9475,8 +9407,6 @@
                 az_styled_node_fmt_debug,
                 az_styled_node_partial_eq,
                 az_styled_node_partial_cmp,
-                az_styled_node_cmp,
-                az_styled_node_hash,
                 az_tag_id_delete,
                 az_tag_id_deep_copy,
                 az_tag_id_fmt_debug,
@@ -9490,7 +9420,6 @@
                 az_tag_id_to_node_id_mapping_partial_eq,
                 az_tag_id_to_node_id_mapping_partial_cmp,
                 az_tag_id_to_node_id_mapping_cmp,
-                az_tag_id_to_node_id_mapping_hash,
                 az_parent_with_node_depth_delete,
                 az_parent_with_node_depth_deep_copy,
                 az_parent_with_node_depth_fmt_debug,
@@ -9498,29 +9427,16 @@
                 az_parent_with_node_depth_partial_cmp,
                 az_parent_with_node_depth_cmp,
                 az_parent_with_node_depth_hash,
-                az_style_options_delete,
-                az_style_options_deep_copy,
-                az_style_options_fmt_debug,
-                az_style_options_partial_eq,
-                az_style_options_partial_cmp,
-                az_style_options_cmp,
-                az_style_options_hash,
                 az_content_group_delete,
                 az_content_group_deep_copy,
                 az_content_group_fmt_debug,
                 az_content_group_partial_eq,
-                az_content_group_partial_cmp,
-                az_content_group_cmp,
-                az_content_group_hash,
                 az_styled_dom_new,
                 az_styled_dom_append,
                 az_styled_dom_delete,
                 az_styled_dom_deep_copy,
                 az_styled_dom_fmt_debug,
                 az_styled_dom_partial_eq,
-                az_styled_dom_partial_cmp,
-                az_styled_dom_cmp,
-                az_styled_dom_hash,
                 az_dom_new,
                 az_dom_div,
                 az_dom_body,

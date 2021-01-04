@@ -1,5 +1,5 @@
     #![allow(dead_code, unused_imports)]
-    //! Definition of azuls internal `Option<*>` wrappers
+    //! Definition of azuls internal `Result<*>` wrappers
     use crate::dll::*;
     use std::ffi::c_void;
 

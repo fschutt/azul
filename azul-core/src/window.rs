@@ -634,7 +634,7 @@ impl CursorTypeHitTest {
             for (node_id, _) in hit_nodes.regular_hit_test_nodes. iter() {
 
                 // if the node has a non-default cursor: property, insert it
-                if let Some(cursor_prop) = layout_results[dom_id.inner].styled_dom.styled_nodes.as_container()[*node_id].style.cursor {
+                if let Some(cursor_prop) = layout_results[dom_id.inner].styled_dom.styled_nodes.as_container()[*node_id].style.cursor.as_ref() {
                     cursor_node = Some((*dom_id, *node_id));
                     cursor_icon = match cursor_prop.get_property().copied().unwrap_or_default() {
                         StyleCursor::Alias => MouseCursorType::Alias,
