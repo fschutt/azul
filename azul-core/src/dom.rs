@@ -8,7 +8,7 @@ use crate::{
     callbacks::{
         Callback, CallbackType,
         IFrameCallback, IFrameCallbackType,
-        RefAny,
+        RefAny, OptionRefAny,
     },
     app_resources::{ImageId, TextId},
     id_tree::{NodeDataContainer, NodeHierarchyRefMut, NodeDataContainerRefMut},
@@ -229,6 +229,10 @@ pub enum EventFilter {
     /// (i.e. global gestures that aren't attached to any component, but rather
     /// the "window" itself).
     Window(WindowEventFilter),
+    /// API stub: Something happened with the node itself (node resized, created or removed)
+    Component(ComponentEventFilter),
+    /// Something happened with the application (started, shutdown, device plugged in)
+    Application(ApplicationEventFilter),
 }
 
 impl EventFilter {
@@ -484,6 +488,22 @@ impl WindowEventFilter {
     }
 }
 
+#[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
+#[repr(C)]
+pub enum ComponentEventFilter {
+    AfterMount,
+    BeforeUnmount,
+    NodeResized,
+}
+
+#[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
+#[repr(C)]
+pub enum ApplicationEventFilter {
+    DeviceConnected,
+    DeviceDisconnected,
+    // ... TODO: more events
+}
+
 #[cfg(feature = "opengl")]
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
 #[repr(C)]
@@ -513,6 +533,8 @@ pub struct CallbackData {
 pub struct NodeData {
     /// `div`
     node_type: NodeType,
+    /// data-* attributes for this node, useful to store UI-related data on the node itself
+    dataset: OptionRefAny,
     /// `#main #something`
     ids: StringVec,
     /// `.myclass .otherclass`
@@ -691,6 +713,7 @@ impl NodeData {
     pub fn new(node_type: NodeType) -> Self {
         Self {
             node_type,
+            dataset: OptionRefAny::None,
             ids: StringVec::new(),
             classes: StringVec::new(),
             callbacks: CallbackDataVec::new(),
@@ -702,6 +725,11 @@ impl NodeData {
             is_draggable: false,
             tab_index: OptionTabIndex::None,
         }
+    }
+
+    #[inline]
+    pub fn add_dataset(&mut self, data: RefAny) {
+        self.dataset = Some(data).into();
     }
 
     #[inline]
@@ -812,6 +840,8 @@ impl NodeData {
     #[inline(always)]
     pub const fn get_node_type(&self) -> &NodeType { &self.node_type }
     #[inline(always)]
+    pub const fn get_dataset(&self) -> &OptionRefAny { &self.dataset }
+    #[inline(always)]
     pub const fn get_ids(&self) -> &StringVec { &self.ids }
     #[inline(always)]
     pub const fn get_classes(&self) -> &StringVec { &self.classes }
@@ -835,6 +865,8 @@ impl NodeData {
     #[inline(always)]
     pub fn set_node_type(&mut self, node_type: NodeType) { self.node_type = node_type; }
     #[inline(always)]
+    pub fn set_dataset(&mut self, data: OptionRefAny) { self.dataset = data; }
+    #[inline(always)]
     pub fn set_ids(&mut self, ids: StringVec) { self.ids = ids; }
     #[inline(always)]
     pub fn set_classes(&mut self, classes: StringVec) { self.classes = classes; }
@@ -857,6 +889,8 @@ impl NodeData {
 
     #[inline(always)]
     pub fn with_node_type(self, node_type: NodeType) -> Self { Self { node_type, .. self } }
+    #[inline(always)]
+    pub fn with_dataset(self, data: OptionRefAny) -> Self { Self { dataset: data, .. self } }
     #[inline(always)]
     pub fn with_ids(self, ids: StringVec) -> Self { Self { ids, .. self } }
     #[inline(always)]
@@ -966,12 +1000,19 @@ impl Dom {
 
     /// Same as `id`, but easier to use for method chaining in a builder-style pattern
     #[inline]
+    pub fn with_dataset(mut self, data: RefAny) -> Self {
+        self.set_dataset(data);
+        self
+    }
+
+    /// Same as `id`, but easier to use for method chaining in a builder-style pattern
+    #[inline]
     pub fn with_id<S: Into<AzString>>(mut self, id: S) -> Self {
         self.add_id(id);
         self
     }
 
-    /// Same as `id`, but easier to use for method chaining in a builder-style pattern
+    /// Same as `class`, but easier to use for method chaining in a builder-style pattern
     #[inline]
     pub fn with_class<S: Into<AzString>>(mut self, class: S) -> Self {
         self.add_class(class);
@@ -1031,6 +1072,12 @@ impl Dom {
     pub fn is_draggable(mut self, draggable: bool) -> Self {
         self.set_is_draggable(draggable);
         self
+    }
+
+    /// Same as `id`, but easier to use for method chaining in a builder-style pattern
+    #[inline]
+    pub fn set_dataset(&mut self, data: RefAny){
+        self.root.set_dataset(Some(data).into());
     }
 
     #[inline]
@@ -1137,14 +1184,6 @@ impl Dom {
         get_html_string_inner(self, &mut output, 0);
         output.trim().to_string()
     }
-
-    /// Checks whether this node is of the given node type (div, image, text)
-    #[inline]
-    pub fn is_node_type(&self, searched_type: NodeType) -> bool { self.root.is_node_type(searched_type) }
-    /// Checks whether this node has the searched ID attached
-    pub fn has_id(&self, id: &str) -> bool { self.root.has_id(id) }
-    /// Checks whether this node has the searched class attached
-    pub fn has_class(&self, class: &str) -> bool { self.root.has_class(class) }
 }
 
 impl_vec!(Dom, DomVec);

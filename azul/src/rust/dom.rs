@@ -95,6 +95,10 @@
         pub fn add_callback(&mut self, event: EventFilter, data: RefAny, callback: CallbackType)  { (crate::dll::get_azul_dll().az_dom_add_callback)(self, event, data, callback) }
         /// Same as [`Dom::add_callback`](#method.add_callback), but as a builder method
         pub fn with_callback(self, event: EventFilter, data: RefAny, callback: CallbackType)  -> crate::dom::Dom { (crate::dll::get_azul_dll().az_dom_with_callback)(self, event, data, callback) }
+        /// Adds a dataset to the `Dom` root
+        pub fn set_dataset(&mut self, data: RefAny)  { (crate::dll::get_azul_dll().az_dom_set_dataset)(self, data) }
+        /// Same as [`Dom::set_dataset`](#method.set_dataset), but as a builder method
+        pub fn with_dataset(self, data: RefAny)  -> crate::dom::Dom { (crate::dll::get_azul_dll().az_dom_with_dataset)(self, data) }
         /// Overrides the CSS property of this DOM node with a value (for example `"width = 200px"`)
         pub fn add_inline_css(&mut self, prop: CssProperty)  { (crate::dll::get_azul_dll().az_dom_add_inline_css)(self, prop) }
         /// Same as [`Dom::add_inline_css`](#method.add_inline_css), but as a builder method
@@ -123,10 +127,6 @@
         pub fn set_tab_index(&mut self, tab_index: OptionTabIndex)  { (crate::dll::get_azul_dll().az_dom_set_tab_index)(self, tab_index) }
         /// Same as [`Dom::set_tab_index`](#method.set_tab_index), but as a builder method
         pub fn with_tab_index(self, tab_index: OptionTabIndex)  -> crate::dom::Dom { (crate::dll::get_azul_dll().az_dom_with_tab_index)(self, tab_index) }
-        /// Returns if the DOM node has a certain CSS ID
-        pub fn has_id(&mut self, id: String)  -> bool { (crate::dll::get_azul_dll().az_dom_has_id)(self, id) }
-        /// Returns if the DOM node has a certain CSS class
-        pub fn has_class(&mut self, class: String)  -> bool { (crate::dll::get_azul_dll().az_dom_has_class)(self, class) }
         /// Reparents another `Dom` to be the child node of this `Dom`
         pub fn add_child(&mut self, child: Dom)  { (crate::dll::get_azul_dll().az_dom_add_child)(self, child) }
         /// Same as [`Dom::add_child`](#method.add_child), but as a builder method
@@ -210,6 +210,10 @@
         pub fn set_classes(&mut self, classes: StringVec)  { (crate::dll::get_azul_dll().az_node_data_set_classes)(self, classes) }
         /// Same as [`NodeData::set_classes`](#method.set_classes), but as a builder method
         pub fn with_classes(self, classes: StringVec)  -> crate::dom::NodeData { (crate::dll::get_azul_dll().az_node_data_with_classes)(self, classes) }
+        /// Adds a dataset to the `NodeData`
+        pub fn add_dataset(&mut self, data: RefAny)  { (crate::dll::get_azul_dll().az_node_data_add_dataset)(self, data) }
+        /// Same as [`NodeData::add_dataset`](#method.add_dataset), but as a builder method
+        pub fn with_dataset(self, data: RefAny)  -> crate::dom::NodeData { (crate::dll::get_azul_dll().az_node_data_with_dataset)(self, data) }
         /// Adds a [`Callback`](callbacks/type.Callback) that acts on the `data` the `event` happens
         pub fn add_callback(&mut self, event: EventFilter, data: RefAny, callback: CallbackType)  { (crate::dll::get_azul_dll().az_node_data_add_callback)(self, event, data, callback) }
         /// Same as [`NodeData::add_callback`](#method.add_callback), but as a builder method
@@ -236,10 +240,6 @@
         pub fn set_tab_index(&mut self, tab_index: OptionTabIndex)  { (crate::dll::get_azul_dll().az_node_data_set_tab_index)(self, tab_index) }
         /// Same as [`NodeData::set_tab_index`](#method.set_tab_index), but as a builder method
         pub fn with_tab_index(self, tab_index: OptionTabIndex)  -> crate::dom::NodeData { (crate::dll::get_azul_dll().az_node_data_with_tab_index)(self, tab_index) }
-        /// Returns if the `NodeData` has a certain CSS ID
-        pub fn has_id(&mut self, id: String)  -> bool { (crate::dll::get_azul_dll().az_node_data_has_id)(self, id) }
-        /// Returns if the `NodeData` has a certain CSS class
-        pub fn has_class(&mut self, class: String)  -> bool { (crate::dll::get_azul_dll().az_node_data_has_class)(self, class) }
     }
 
     impl std::fmt::Debug for NodeData { fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result { write!(f, "{}", (crate::dll::get_azul_dll().az_node_data_fmt_debug)(self)) } }
@@ -306,6 +306,22 @@
     impl std::fmt::Debug for WindowEventFilter { fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result { write!(f, "{}", (crate::dll::get_azul_dll().az_window_event_filter_fmt_debug)(self)) } }
     impl Clone for WindowEventFilter { fn clone(&self) -> Self { (crate::dll::get_azul_dll().az_window_event_filter_deep_copy)(self) } }
     impl Drop for WindowEventFilter { fn drop(&mut self) { (crate::dll::get_azul_dll().az_window_event_filter_delete)(self); } }
+
+
+    /// `ComponentEventFilter` struct
+    pub use crate::dll::AzComponentEventFilter as ComponentEventFilter;
+
+    impl std::fmt::Debug for ComponentEventFilter { fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result { write!(f, "{}", (crate::dll::get_azul_dll().az_component_event_filter_fmt_debug)(self)) } }
+    impl Clone for ComponentEventFilter { fn clone(&self) -> Self { (crate::dll::get_azul_dll().az_component_event_filter_deep_copy)(self) } }
+    impl Drop for ComponentEventFilter { fn drop(&mut self) { (crate::dll::get_azul_dll().az_component_event_filter_delete)(self); } }
+
+
+    /// `ApplicationEventFilter` struct
+    pub use crate::dll::AzApplicationEventFilter as ApplicationEventFilter;
+
+    impl std::fmt::Debug for ApplicationEventFilter { fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result { write!(f, "{}", (crate::dll::get_azul_dll().az_application_event_filter_fmt_debug)(self)) } }
+    impl Clone for ApplicationEventFilter { fn clone(&self) -> Self { (crate::dll::get_azul_dll().az_application_event_filter_deep_copy)(self) } }
+    impl Drop for ApplicationEventFilter { fn drop(&mut self) { (crate::dll::get_azul_dll().az_application_event_filter_delete)(self); } }
 
 
     /// `TabIndex` struct

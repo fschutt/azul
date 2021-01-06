@@ -208,8 +208,8 @@ impl App {
             windows
         } = self;
 
-        let mut timers = FastHashMap::new();
-        let mut tasks = Vec::new();
+        let mut timers = BTreeMap::new();
+        let mut threads = BTreeMap::new();
         let mut resources = AppResources::default();
         let mut active_windows = BTreeMap::new();
 
@@ -229,14 +229,20 @@ impl App {
 
         hidden_event_loop.run(move |event, event_loop_target, control_flow| {
 
-            use glutin::event::Event;
+            use glutin::event::{Event, StartCause};
             use glutin::event_loop::ControlFlow;
             use std::collections::HashSet;
+            use azul_core::task::{run_all_timers, clean_up_finished_threads};
+            use azul_core::window_state::StyleAndLayoutChanges;
+            use azul_core::window_state::{Events, NodesToCheck};
+            use azul_core::window::{FullHitTest, CursorTypeHitTest};
+            use std::time::Instant;
 
-            let mut redrawn_from_event = HashSet::new();
+            let frame_start = Instant::now();
+
+            let mut windows_that_need_to_rebuild_dl = HashSet::new();
+            let mut windows_that_need_to_redraw = HashSet::new();
             let mut windows_created = Vec::<WindowCreateOptions>::new();
-
-            let now = std::time::Instant::now();
 
             match event {
                 Event::DeviceEvent { .. } => {
@@ -244,6 +250,193 @@ impl App {
                     *control_flow = ControlFlow::Wait;
                     return;
                 },
+                Event::NewEvents(StartCause::ResumeTimeReached { .. }) => {
+
+                    // run timers / tasks only every 60ms, not on every window event
+
+                    let mut update_screen_timers_tasks = UpdateScreen::DoNothing;
+
+                    // run timers
+                    let mut all_new_current_timers = BTreeMap::new();
+                    for (window_id, mut timer_map) in timers.iter_mut() {
+
+                        // for timers it makes sense to call them on the window,
+                        // since that's mostly what they're for (animations, etc.)
+                        //
+                        // for threads this model doesn't make that much sense
+                        let window = match active_windows.get_mut(&window_id) {
+                            Some(s) => s,
+                            None => continue,
+                        };
+
+                        let mut css_properties_changed_in_timers = BTreeMap::new();
+                        let mut nodes_scrolled_in_timers = BTreeMap::new();
+                        let mut new_focus_node = None;
+                        let mut new_timers = FastHashMap::new();
+                        let mut modifiable_window_state = window.internal.current_window_state.clone().into();
+                        let mut cur_threads = threads.get_mut(window_id).unwrap();
+
+                        let raw_window_handle = window.get_raw_window_handle();
+                        let update_screen_timers = run_all_timers(
+                            &mut data,
+                            &mut timer_map,
+                            frame_start,
+
+                            &window.internal.current_window_state,
+                            &mut modifiable_window_state,
+                            &gl_context,
+                            &mut resources,
+                            &mut new_timers,
+                            &mut cur_threads,
+                            &mut windows_created,
+                            &raw_window_handle,
+                            &window.internal.layout_results,
+                            &mut false, // stop_propagation - can't be set in timer
+                            &mut new_focus_node,
+                            &window.internal.get_current_scroll_states(),
+                            &mut css_properties_changed_in_timers,
+                            &mut nodes_scrolled_in_timers,
+                        );
+
+                        match update_screen_timers {
+                            UpdateScreen::DoNothing => {
+                                let new_focus_node = new_focus_node.and_then(|ft| ft.resolve(&window.internal.layout_results).ok());
+                                let window_size = window.internal.get_layout_size();
+                                // re-layouts and re-styles the window.internal.layout_results
+                                let changes = StyleAndLayoutChanges::new(
+                                    &NodesToCheck::empty(window.internal.current_window_state.mouse_state.mouse_down()),
+                                    &mut window.internal.layout_results,
+                                    &mut resources,
+                                    window_size,
+                                    window.internal.pipeline_id,
+                                    &css_properties_changed_in_timers,
+                                    &new_focus_node,
+                                    azul_layout::do_the_relayout,
+                                );
+
+                                if changes.need_regenerate_display_list() {
+                                    windows_that_need_to_rebuild_dl.insert(*window_id);
+                                }
+                                if changes.need_redraw() {
+                                    windows_that_need_to_redraw.insert(*window_id);
+                                }
+                            },
+                            UpdateScreen::RegenerateStyledDomForCurrentWindow => {
+                                window.regenerate_styled_dom(&data, &mut resources, &gl_context, &mut render_api);
+                                windows_that_need_to_rebuild_dl.insert(*window_id);
+                                windows_that_need_to_redraw.insert(*window_id);
+                                window.internal.current_window_state.focused_node = None; // unset the focus
+                            },
+                            UpdateScreen::RegenerateStyledDomForAllWindows => {
+                                if update_screen_timers_tasks == UpdateScreen::DoNothing ||
+                                   update_screen_timers_tasks == UpdateScreen::RegenerateStyledDomForCurrentWindow {
+                                    update_screen_timers_tasks = update_screen_timers;
+                                }
+                            }
+                        }
+
+                        if !new_timers.is_empty() {
+                            all_new_current_timers.insert(window_id, new_timers);
+                        }
+                    }
+
+                    // -- doesn't work somehow???
+                    // for (window_id, mut nct) in all_new_current_timers.into_iter() {
+                    //     timers.entry(*window_id).or_insert_with(|| FastHashMap::default()).extend(nct.drain());
+                    // }
+
+                    // run threads
+                    // TODO: threads should not depend on the window being active (?)
+                    let mut all_new_current_threads = BTreeMap::new();
+                    for (window_id, mut thread_map) in threads.iter_mut() {
+                        let window = match active_windows.get_mut(&window_id) {
+                            Some(s) => s,
+                            None => continue,
+                        };
+
+                        let mut css_properties_changed_in_threads = BTreeMap::new();
+                        let mut nodes_scrolled_in_threads = BTreeMap::new();
+                        let mut new_focus_node = None;
+                        let mut modifiable_window_state = window.internal.current_window_state.clone().into();
+                        let mut cur_timers = timers.get_mut(window_id).unwrap();
+                        let mut new_threads = FastHashMap::new();
+
+                        let raw_window_handle = window.get_raw_window_handle();
+                        let update_screen_threads = clean_up_finished_threads(
+                            &mut thread_map,
+
+                            &window.internal.current_window_state,
+                            &mut modifiable_window_state,
+                            &gl_context,
+                            &mut resources,
+                            &mut cur_timers,
+                            &mut new_threads,
+                            &mut windows_created,
+                            &raw_window_handle,
+                            &window.internal.layout_results,
+                            &mut false, // stop_propagation - can't be set in timer
+                            &mut new_focus_node,
+                            &window.internal.get_current_scroll_states(),
+                            &mut css_properties_changed_in_threads,
+                            &mut nodes_scrolled_in_threads,
+                        );
+
+                        match update_screen_threads {
+                            UpdateScreen::DoNothing => {
+                                let new_focus_node = new_focus_node.and_then(|ft| ft.resolve(&window.internal.layout_results).ok());
+                                let window_size = window.internal.get_layout_size();
+                                // re-layouts and re-styles the window.internal.layout_results
+                                let changes = StyleAndLayoutChanges::new(
+                                    &NodesToCheck::empty(window.internal.current_window_state.mouse_state.mouse_down()),
+                                    &mut window.internal.layout_results,
+                                    &mut resources,
+                                    window_size,
+                                    window.internal.pipeline_id,
+                                    &css_properties_changed_in_threads,
+                                    &new_focus_node,
+                                    azul_layout::do_the_relayout,
+                                );
+
+                                if changes.need_regenerate_display_list() {
+                                    windows_that_need_to_rebuild_dl.insert(*window_id);
+                                }
+                                if changes.need_redraw() {
+                                    windows_that_need_to_redraw.insert(*window_id);
+                                }
+                            },
+                            UpdateScreen::RegenerateStyledDomForCurrentWindow => {
+                                window.regenerate_styled_dom(&data, &mut resources, &gl_context, &mut render_api);
+                                windows_that_need_to_rebuild_dl.insert(*window_id);
+                                windows_that_need_to_redraw.insert(*window_id);
+                                window.internal.current_window_state.focused_node = None; // unset the focus
+                            },
+                            UpdateScreen::RegenerateStyledDomForAllWindows => {
+                                if update_screen_timers_tasks == UpdateScreen::DoNothing ||
+                                   update_screen_timers_tasks == UpdateScreen::RegenerateStyledDomForCurrentWindow {
+                                    update_screen_timers_tasks = update_screen_threads;
+                                }
+                            }
+                        }
+
+                        if !new_threads.is_empty() {
+                            all_new_current_threads.entry(*window_id).or_insert_with(|| FastHashMap::new()).extend(new_threads.drain());
+                        }
+                    }
+
+                    for (window_id, mut new_current_threads) in all_new_current_threads {
+                        threads.entry(window_id).or_insert_with(|| FastHashMap::default()).extend(new_current_threads.drain());
+                    }
+
+                    if update_screen_timers_tasks == UpdateScreen::RegenerateStyledDomForAllWindows {
+                        for (window_id, window) in active_windows.iter_mut() {
+                            window.regenerate_styled_dom(&data, &mut resources, &gl_context, &mut render_api);
+                            windows_that_need_to_rebuild_dl.insert(*window_id);
+                            windows_that_need_to_redraw.insert(*window_id);
+                            window.internal.current_window_state.focused_node = None; // unset the focus
+                        }
+                    }
+
+                }
                 Event::RedrawRequested(window_id) => {
 
                     let window = match active_windows.get_mut(&window_id) {
@@ -258,9 +451,6 @@ impl App {
                     }
                 },
                 Event::WindowEvent { event, window_id } => {
-
-                    use azul_core::window_state::{Events, NodesToCheck};
-                    use azul_core::window::{FullHitTest, CursorTypeHitTest};
 
                     let window = match active_windows.get_mut(&window_id) {
                         Some(s) => s,
@@ -311,20 +501,14 @@ impl App {
                                     /* for window in active_windows { window.regenerate_styled_dom(); } */
                                 },
                                 UpdateScreen::DoNothing => {
-                                    use azul_core::window_state::StyleAndLayoutChanges;
-                                    use azul_css::LayoutSize;
-
-                                    let current_window_size = LayoutSize::new(
-                                        window.internal.current_window_state.size.dimensions.width.round() as isize,
-                                        window.internal.current_window_state.size.dimensions.height.round() as isize
-                                    );
+                                    let window_size = window.internal.get_layout_size();
 
                                     // re-layouts and re-styles the window.internal.layout_results
                                     let changes = StyleAndLayoutChanges::new(
                                         &nodes_to_check,
                                         &mut window.internal.layout_results,
                                         &mut resources,
-                                        current_window_size,
+                                        window_size,
                                         window.internal.pipeline_id,
                                         &callback_results.css_properties_changed,
                                         &callback_results.update_focused_node,
@@ -343,8 +527,9 @@ impl App {
                         }
 
                         windows_created.extend(callback_results.windows_created.drain(..));
-                        timers.extend(callback_results.timers.drain());
-                        tasks.append(&mut callback_results.tasks);
+
+                        timers.entry(window_id).or_insert_with(|| FastHashMap::new()).extend(callback_results.timers.drain());
+                        threads.entry(window_id).or_insert_with(|| FastHashMap::new()).extend(callback_results.threads.drain());
 
                         // see if the callbacks modified the WindowState - if yes, re-determine the events
                         let current_window_save_state = window.internal.current_window_state.clone();
@@ -363,12 +548,11 @@ impl App {
                     }
 
                     if need_regenerate_display_list {
-                        window.rebuild_display_list(&resources, &mut render_api);
+                        windows_that_need_to_rebuild_dl.insert(window_id);
                         should_callback_render = true;
                     }
                     if should_scroll_render || should_callback_render {
-                        redrawn_from_event.insert(window_id);
-                        window.display.window().request_redraw();
+                        windows_that_need_to_redraw.insert(window_id);
                     }
                 },
                 _ => { },
@@ -405,36 +589,38 @@ impl App {
                 );
             }
 
+            // rebuild display lists
+            for window_id in windows_that_need_to_rebuild_dl {
+                let window = match active_windows.get_mut(&window_id) {
+                    Some(s) => s,
+                    None => continue,
+                };
+
+                window.rebuild_display_list(&resources, &mut render_api);
+            }
+
+            // trigger redraw
+            for window_id in windows_that_need_to_redraw.iter() {
+                let window = match active_windows.get_mut(window_id) {
+                    Some(s) => s,
+                    None => continue,
+                };
+                window.display.window().request_redraw();
+            }
+
+            // end: handle control flow and app shutdown
             *control_flow = if !active_windows.is_empty() {
-                // If no timers / tasks are running, wait until next user event
-                if timers.is_empty() && tasks.is_empty() {
+                // If no timers / threads are running, wait until next user event
+                if timers.is_empty() && threads.is_empty() {
                      ControlFlow::Wait
                 } else {
-                    use azul_core::task::{run_all_timers, clean_up_finished_tasks};
-
-                    // If timers are running, check whether they need to redraw
-                    let should_redraw_timers = run_all_timers(&mut timers, &mut data, &mut resources);
-                    let should_redraw_tasks = clean_up_finished_tasks(&mut tasks, &mut timers);
-                    let should_redraw_timers_tasks = [should_redraw_timers, should_redraw_tasks].iter().any(|i| *i != UpdateScreen::DoNothing);
-
-                    if should_redraw_timers_tasks {
-                        for (win_id, window) in active_windows.iter() {
-                            if !redrawn_from_event.contains(win_id) {
-                                window.display.window().request_redraw();
-                            }
-                        }
-                        ControlFlow::Poll
-                    } else {
-                        ControlFlow::WaitUntil(now + config.min_frame_duration)
-                    }
+                    ControlFlow::WaitUntil(frame_start + config.min_frame_duration)
                 }
             } else {
 
                 // Application shutdown
 
                 use gleam::gl;
-
-                // for task in tasks.iter() { task.sender.send_event(TaskEvent::ApplicationShutdown); }
 
                 // NOTE: For some reason this is necessary, otherwise the renderer crashes on shutdown
                 hidden_context.make_current();
@@ -453,6 +639,10 @@ impl App {
 
                 ControlFlow::Exit
             };
+
+            let frame_end = Instant::now();
+
+            println!("--- frame time update: {:?}", frame_end - frame_start);
         })
     }
 }

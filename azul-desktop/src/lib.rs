@@ -112,7 +112,7 @@ pub mod prelude {
             Dom, DomHash, NodeType, NodeData, On, TabIndex,
             EventFilter, HoverEventFilter, FocusEventFilter, NotEventFilter, WindowEventFilter,
         },
-        task::{Task, TerminateTimer, TimerId, Timer, DropCheck},
+        task::{TimerId, Timer, TerminateTimer, ThreadId, Thread, ThreadSender, ThreadReceiver, ThreadSendMsg, ThreadReceiveMsg, ThreadWriteBackMsg},
         traits::*,
     };
     pub use crate::app::{App, AppConfig};

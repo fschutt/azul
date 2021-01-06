@@ -143,6 +143,30 @@
     impl_option!(AzTaskBarIcon, AzOptionTaskBarIcon, copy = false, [Debug, Clone, PartialOrd, PartialEq, Eq, Hash, Ord]);
 
 
+    /// `OptionThreadSendMsg` struct
+    pub use crate::dll::AzOptionThreadSendMsg as OptionThreadSendMsg;
+
+    impl std::fmt::Debug for OptionThreadSendMsg { fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result { write!(f, "{}", (crate::dll::get_azul_dll().az_option_thread_send_msg_fmt_debug)(self)) } }
+    impl Clone for OptionThreadSendMsg { fn clone(&self) -> Self { (crate::dll::get_azul_dll().az_option_thread_send_msg_deep_copy)(self) } }
+    impl Drop for OptionThreadSendMsg { fn drop(&mut self) { (crate::dll::get_azul_dll().az_option_thread_send_msg_delete)(self); } }
+
+
+    /// `OptionLayoutRect` struct
+    pub use crate::dll::AzOptionLayoutRect as OptionLayoutRect;
+
+    impl std::fmt::Debug for OptionLayoutRect { fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result { write!(f, "{}", (crate::dll::get_azul_dll().az_option_layout_rect_fmt_debug)(self)) } }
+    impl Clone for OptionLayoutRect { fn clone(&self) -> Self { (crate::dll::get_azul_dll().az_option_layout_rect_deep_copy)(self) } }
+    impl Drop for OptionLayoutRect { fn drop(&mut self) { (crate::dll::get_azul_dll().az_option_layout_rect_delete)(self); } }
+
+
+    /// `OptionRefAny` struct
+    pub use crate::dll::AzOptionRefAny as OptionRefAny;
+
+    impl std::fmt::Debug for OptionRefAny { fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result { write!(f, "{}", (crate::dll::get_azul_dll().az_option_ref_any_fmt_debug)(self)) } }
+    impl Clone for OptionRefAny { fn clone(&self) -> Self { (crate::dll::get_azul_dll().az_option_ref_any_deep_copy)(self) } }
+    impl Drop for OptionRefAny { fn drop(&mut self) { (crate::dll::get_azul_dll().az_option_ref_any_delete)(self); } }
+
+
     /// `OptionStyleOpacityValue` struct
     pub use crate::dll::AzOptionStyleOpacityValue as OptionStyleOpacityValue;
 

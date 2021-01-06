@@ -13,6 +13,22 @@
     impl Drop for LayoutPoint { fn drop(&mut self) { (crate::dll::get_azul_dll().az_layout_point_delete)(self); } }
 
 
+    /// `LayoutSize` struct
+    pub use crate::dll::AzLayoutSize as LayoutSize;
+
+    impl std::fmt::Debug for LayoutSize { fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result { write!(f, "{}", (crate::dll::get_azul_dll().az_layout_size_fmt_debug)(self)) } }
+    impl Clone for LayoutSize { fn clone(&self) -> Self { (crate::dll::get_azul_dll().az_layout_size_deep_copy)(self) } }
+    impl Drop for LayoutSize { fn drop(&mut self) { (crate::dll::get_azul_dll().az_layout_size_delete)(self); } }
+
+
+    /// `LayoutRect` struct
+    pub use crate::dll::AzLayoutRect as LayoutRect;
+
+    impl std::fmt::Debug for LayoutRect { fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result { write!(f, "{}", (crate::dll::get_azul_dll().az_layout_rect_fmt_debug)(self)) } }
+    impl Clone for LayoutRect { fn clone(&self) -> Self { (crate::dll::get_azul_dll().az_layout_rect_deep_copy)(self) } }
+    impl Drop for LayoutRect { fn drop(&mut self) { (crate::dll::get_azul_dll().az_layout_rect_delete)(self); } }
+
+
     /// `RawWindowHandle` struct
     pub use crate::dll::AzRawWindowHandle as RawWindowHandle;
 

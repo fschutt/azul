@@ -1,7 +1,8 @@
 use std::{
-    sync::{Arc, Mutex, Weak, atomic::{AtomicUsize, Ordering}},
+    sync::{Arc, Weak, atomic::{AtomicUsize, Ordering}, mpsc::{Sender, Receiver}},
     thread::{self, JoinHandle},
     ffi::c_void,
+    collections::BTreeMap,
 };
 use std::time::Instant as StdInstant;
 use std::time::Duration as StdDuration;
@@ -10,10 +11,17 @@ use crate::{
     callbacks::{
         TimerCallback, TimerCallbackInfo, RefAny,
         TimerCallbackReturn, TimerCallbackType, UpdateScreen,
-        ThreadCallbackType, TaskCallbackType,
+        ThreadCallbackType, WriteBackCallback, WriteBackCallbackType,
+        CallbackInfo, FocusTarget, ScrollPosition, DomNodeId
     },
     app_resources::AppResources,
+    window::{FullWindowState, LogicalPosition, RawWindowHandle, WindowState, WindowCreateOptions},
+    gl::GlContextPtr,
+    ui_solver::LayoutResult,
+    styled_dom::{DomId, AzNodeId},
+    id_tree::NodeId,
 };
+use azul_css::{OptionLayoutPoint, CssProperty};
 
 /// Should a timer terminate or not - used to remove active timers
 #[derive(Copy, Clone, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
@@ -25,7 +33,7 @@ pub enum TerminateTimer {
     Continue,
 }
 
-static MAX_DAEMON_ID: AtomicUsize = AtomicUsize::new(0);
+static MAX_TIMER_ID: AtomicUsize = AtomicUsize::new(0);
 
 /// ID for uniquely identifying a timer
 #[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
@@ -35,7 +43,21 @@ pub struct TimerId { id: usize }
 impl TimerId {
     /// Generates a new, unique `TimerId`.
     pub fn new() -> Self {
-        TimerId { id: MAX_DAEMON_ID.fetch_add(1, Ordering::SeqCst) }
+        TimerId { id: MAX_TIMER_ID.fetch_add(1, Ordering::SeqCst) }
+    }
+}
+
+static MAX_THREAD_ID: AtomicUsize = AtomicUsize::new(0);
+
+/// ID for uniquely identifying a timer
+#[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
+#[repr(C)]
+pub struct ThreadId { id: usize }
+
+impl ThreadId {
+    /// Generates a new, unique `TimerId`.
+    pub fn new() -> Self {
+        ThreadId { id: MAX_THREAD_ID.fetch_add(1, Ordering::SeqCst) }
     }
 }
 
@@ -135,7 +157,7 @@ impl_option!(AzDuration, OptionDuration, [Debug, Copy, Clone, PartialEq, Eq, Par
 
 /// A `Timer` is a function that is run on every frame.
 ///
-/// There are often a lot of visual tasks such as animations or fetching the
+/// There are often a lot of visual Threads such as animations or fetching the
 /// next frame for a GIF or video, etc. - that need to run every frame or every X milliseconds,
 /// but they aren't heavy enough to warrant creating a thread - otherwise the framework
 /// would create too many threads, which leads to a lot of context switching and bad performance.
@@ -145,10 +167,14 @@ impl_option!(AzDuration, OptionDuration, [Debug, Copy, Clone, PartialEq, Eq, Par
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 #[repr(C)]
 pub struct Timer {
+    /// Data that is internal to the timer
+    pub data: RefAny,
     /// Stores when the timer was created (usually acquired by `Instant::now()`)
     pub created: AzInstantPtr,
     /// When the timer was last called (`None` only when the timer hasn't been called yet).
     pub last_run: OptionInstantPtr,
+    /// How many times the callback was run
+    pub run_count: usize,
     /// If the timer shouldn't start instantly, but rather be delayed by a certain timeframe
     pub delay: OptionDuration,
     /// How frequently the timer should run, i.e. set this to `Some(Duration::from_millis(16))`
@@ -166,9 +192,11 @@ pub struct Timer {
 impl Timer {
 
     /// Create a new timer
-    pub fn new(callback: TimerCallbackType) -> Self {
+    pub fn new(data: RefAny, callback: TimerCallbackType) -> Self {
         Timer {
+            data,
             created: AzInstantPtr::new(StdInstant::now()),
+            run_count: 0,
             last_run: OptionInstantPtr::None,
             delay: OptionDuration::None,
             interval: OptionDuration::None,
@@ -201,11 +229,8 @@ impl Timer {
         self
     }
 
-    /// Crate-internal: Invokes the timer if the timer and
-    /// the `self.timeout` allow it to
-    pub fn invoke<'a>(&mut self, info: TimerCallbackInfo<'a>) -> TimerCallbackReturn {
-
-        use crate::callbacks::TimerCallbackInfoPtr;
+    /// Crate-internal: Invokes the timer if the timer should run. Otherwise returns `UpdateScreen::DoNothing`
+    pub fn invoke(&mut self, data: &mut RefAny, callback_info: CallbackInfo, frame_start: StdInstant) -> TimerCallbackReturn {
 
         let instant_now = StdInstant::now();
         let delay = self.delay.clone().into_option().unwrap_or_else(|| AzDuration::from_millis(0));
@@ -227,196 +252,177 @@ impl Timer {
             }
         }
 
-        let info_ptr = TimerCallbackInfoPtr { ptr: Box::into_raw(Box::new(info)) as *const c_void };
-        let res = (self.callback.cb)(info_ptr);
+        let run_count = self.run_count;
+        let timer_callback_info = TimerCallbackInfo {
+            callback_info,
+            frame_start: AzInstantPtr::new(frame_start),
+            call_count: run_count,
+        };
+        let res = (self.callback.cb)(data, &mut self.data, timer_callback_info);
 
         self.last_run = OptionInstantPtr::Some(instant_now.into());
+        self.run_count += 1;
 
         res
     }
 }
 
-/// Simple struct that is used by Azul internally to determine when the thread has finished executing.
-/// When this struct goes out of scope, Azul will call `.join()` on the thread (so in order to not
-/// block the main thread, simply let it go out of scope naturally.
-#[derive(Debug)]
-pub struct DropCheck(Arc<()>);
-
-#[repr(C)]
-pub struct DropCheckPtr { /* *const DropCheck */ pub ptr: *const c_void }
-
-impl DropCheckPtr {
-    pub fn new(d: DropCheck) -> Self { Self { ptr: Box::into_raw(Box::new(d)) as *const c_void }}
-    pub fn get(&self) -> &DropCheck { unsafe { &*(self.ptr as *const DropCheck) } }
-}
-
-impl std::fmt::Debug for DropCheckPtr {
-    fn fmt<'a>(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
-        let self_ptr = self.ptr as *const DropCheck;
-        self_ptr.fmt(f)
-    }
-}
-
-impl Drop for DropCheckPtr {
-    fn drop(&mut self) {
-        let _ = unsafe { Box::from_raw(self.ptr as *mut DropCheck) };
-    }
-}
-
-/// A `Task` is a seperate thread that is owned by the framework.
+/// Message that can be sent from the main thread to the Thread using the ThreadId.
 ///
-/// In difference to a `Thread`, you don't have to `await()` the result of a `Task`,
-/// you can just hand the task to the framework (via `AppResources::add_task`) and
-/// the framework will automatically update the UI when the task is finished.
+/// The thread can ignore the event.
+#[derive(Debug, Copy, Clone, PartialEq, PartialOrd, Eq, Ord, Hash)]
+#[repr(C)]
+pub enum ThreadSendMsg {
+    /// The thread should terminate at the nearest
+    TerminateThread,
+    /// Next frame tick
+    Tick,
+}
+
+impl_option!(ThreadSendMsg, OptionThreadSendMsg, [Debug, Copy, Clone, PartialEq, PartialOrd, Eq, Ord, Hash]);
+
+// Message that is received from the running thread
+#[derive(Debug, PartialEq, PartialOrd, Eq, Ord, Hash)]
+#[repr(C, u8)]
+pub enum ThreadReceiveMsg {
+    WriteBack(ThreadWriteBackMsg),
+    Update(UpdateScreen),
+}
+
+#[derive(Debug, PartialEq, PartialOrd, Eq, Ord, Hash)]
+#[repr(C)]
+pub struct ThreadWriteBackMsg {
+    // The data to write back into. Will be passed as the second argument to the thread
+    pub data: RefAny,
+    // The callback to call on this data.
+    pub callback: WriteBackCallback,
+}
+
+impl ThreadWriteBackMsg {
+    pub fn new(callback: WriteBackCallbackType, data: RefAny) -> Self {
+        Self { data, callback: WriteBackCallback { cb: callback } }
+    }
+}
+
+#[derive(Debug, PartialEq, PartialOrd, Eq, Ord, Hash)]
+#[repr(C)]
+pub struct ThreadSender {
+    pub ptr: *const c_void, // *const Box<Sender<ThreadReceiveMsg>>
+}
+
+unsafe impl Send for ThreadSender { }
+
+impl ThreadSender {
+
+    pub fn new() -> (Self, Receiver<ThreadReceiveMsg>){
+        let (sender, receiver) = std::sync::mpsc::channel::<ThreadReceiveMsg>();
+        let sender: Sender<ThreadReceiveMsg> = sender;
+        (Self { ptr: Box::into_raw(Box::new(sender)) as *const c_void }, receiver)
+    }
+
+    fn downcast<'a>(&'a mut self) -> &mut Sender<ThreadReceiveMsg> {
+        unsafe { &mut *(self.ptr as *mut Sender<ThreadReceiveMsg>) }
+    }
+
+    // send data from the user thread to the main thread
+    pub fn send(&mut self, msg: ThreadReceiveMsg) -> bool {
+        self.downcast().send(msg).is_ok()
+    }
+}
+
+impl Drop for ThreadSender {
+    fn drop(&mut self) {
+        let _ = unsafe { Box::from_raw(self.ptr as *mut Sender<ThreadReceiveMsg>) };
+    }
+}
+
+#[derive(Debug, PartialEq, PartialOrd, Eq, Ord, Hash)]
+#[repr(C)]
+pub struct ThreadReceiver {
+    pub ptr: *const c_void, // *const Box<Receiver<ThreadSendMsg>>
+}
+
+unsafe impl Send for ThreadReceiver { }
+
+impl ThreadReceiver {
+    pub fn new() -> (Self, Sender<ThreadSendMsg>) {
+        let (sender, receiver) = std::sync::mpsc::channel::<ThreadSendMsg>();
+        let receiver: Receiver<ThreadSendMsg> = receiver;
+        (Self { ptr: Box::into_raw(Box::new(receiver)) as *const c_void }, sender)
+    }
+
+    fn downcast<'a>(&'a mut self) -> &mut Receiver<ThreadSendMsg> {
+        unsafe { &mut *(self.ptr as *mut Receiver<ThreadSendMsg>) }
+    }
+
+    // receive data from the main thread
+    pub fn recv(&mut self) -> Option<ThreadSendMsg> {
+        self.downcast().try_recv().ok()
+    }
+}
+
+impl Drop for ThreadReceiver {
+    fn drop(&mut self) {
+        let _ = unsafe { Box::from_raw(self.ptr as *mut Receiver<ThreadSendMsg>) };
+        // ThreadSendMsg::TerminateThread
+    }
+}
+
+/// A `Thread` is a seperate thread that is owned by the framework.
+///
+/// In difference to a `Thread`, you don't have to `await()` the result of a `Thread`,
+/// you can just hand the Thread to the framework (via `AppResources::add_Thread`) and
+/// the framework will automatically update the UI when the Thread is finished.
 /// This is useful to offload actions such as loading long files, etc. to a background thread.
 ///
 /// Azul will join the thread automatically after it is finished (joining won't block the UI).
 #[derive(Debug)]
-pub struct Task {
-    // Thread handle of the currently in-progress task
-    join_handle: Option<JoinHandle<UpdateScreen>>,
-    dropcheck: Weak<()>,
-    /// Timer that will run directly after this task is completed.
-    pub after_completion_timer: Option<Timer>,
-}
-
-#[repr(C)]
-pub struct ArcMutexRefAnyPtr { /* *const Arc<Mutex<RefAny>> */ pub ptr: *const c_void }
-
-impl ArcMutexRefAnyPtr {
-    pub fn new(d: Arc<Mutex<RefAny>>) -> Self {
-        Self { ptr: Box::into_raw(Box::new(d)) as *const c_void }
-    }
-    pub fn get(&self) -> &Arc<Mutex<RefAny>> { unsafe { &*(self.ptr as *const Arc<Mutex<RefAny>>) } }
-}
-
-impl Clone for ArcMutexRefAnyPtr {
-    fn clone(&self) -> Self {
-        Self::new(self.get().clone())
-    }
-}
-
-unsafe impl Send for ArcMutexRefAnyPtr { }
-unsafe impl Sync for ArcMutexRefAnyPtr { }
-
-impl Drop for ArcMutexRefAnyPtr {
-    fn drop(&mut self) {
-        let _ = unsafe { Box::from_raw(self.ptr as *mut Arc<Mutex<RefAny>>) };
-    }
-}
-
-impl Task {
-
-    /// Creates a new task from a callback and a set of input data - which has to be wrapped in an `Arc<Mutex<T>>>`.
-    pub fn new(data: ArcMutexRefAnyPtr, callback: TaskCallbackType) -> Self {
-
-        let thread_check = Arc::new(());
-        let thread_weak = Arc::downgrade(&thread_check);
-        let thread_handle = thread::spawn(move || callback(data, DropCheckPtr::new(DropCheck(thread_check))));
-
-        Self {
-            join_handle: Some(thread_handle),
-            dropcheck: thread_weak,
-            after_completion_timer: None,
-        }
-    }
-
-    /// Stores a `Timer` that will run after the task has finished.
-    ///
-    /// Often necessary to "clean up" or copy data from the background task into the UI.
-    #[inline]
-    pub fn then(mut self, timer: Timer) -> Self {
-        self.after_completion_timer = Some(timer);
-        self
-    }
-
-    /// Returns true if the task has been finished, false otherwise
-    pub fn is_finished(&self) -> bool {
-        self.dropcheck.upgrade().is_none()
-    }
-}
-
-impl Drop for Task {
-    fn drop(&mut self) {
-        if let Some(thread_handle) = self.join_handle.take() {
-            let _ = thread_handle.join().unwrap();
-        }
-    }
-}
-
-/// A `Thread` is a simple abstraction over `std::thread` that allows to offload a pure
-/// function to a different thread (essentially emulating async / await for older compilers).
-///
-/// # Warning
-///
-/// `Thread` panics if it goes out of scope before `.block()` was called.
-#[derive(Debug)]
 pub struct Thread {
-    join_handle: Option<JoinHandle<RefAny>>,
-}
-
-/// Error that can happen while calling `.block()`
-#[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
-#[repr(C)]
-pub enum BlockError {
-    /// Arc::into_inner() failed
-    ArcUnlockError,
-    /// The background thread panicked
-    ThreadJoinError,
-    /// Mutex::into_inner() failed
-    MutexIntoInnerError,
+    // Thread handle of the currently in-progress Thread
+    pub thread: Option<JoinHandle<()>>,
+    pub sender: Sender<ThreadSendMsg>,
+    pub receiver: Receiver<ThreadReceiveMsg>,
+    pub writeback_data: RefAny,
+    pub dropcheck: Weak<()>,
 }
 
 impl Thread {
 
-    /// Creates a new thread that spawns a certain (pure) function on a separate thread.
-    /// This is a workaround until `await` is implemented. Note that invoking this function
-    /// will create an OS-level thread.
-    ///
-    /// **Warning**: You *must* call `.await()`, otherwise the `Thread` will panic when it is dropped!
-    ///
-    /// # Example
-    ///
-    /// ```rust
-    /// # extern crate azul_core;
-    /// # use azul_core::task::Thread;
-    /// #
-    /// fn pure_function(input: usize) -> usize { input + 1 }
-    ///
-    /// let thread_1 = Thread::new(5, pure_function);
-    /// let thread_2 = Thread::new(10, pure_function);
-    /// let thread_3 = Thread::new(20, pure_function);
-    ///
-    /// // thread_1, thread_2 and thread_3 run in parallel here...
-    ///
-    /// let result_1 = thread_1.block();
-    /// let result_2 = thread_2.block();
-    /// let result_3 = thread_3.block();
-    ///
-    /// assert_eq!(result_1, Ok(6));
-    /// assert_eq!(result_2, Ok(11));
-    /// assert_eq!(result_3, Ok(21));
-    /// ```
-    pub fn new(initial_data: RefAny, callback: ThreadCallbackType) -> Self {
+    /// Creates a new Thread from a callback and a set of input data - which has to be wrapped in an `Arc<Mutex<T>>>`.
+    pub(crate) fn new(thread_initialize_data: RefAny, writeback_data: RefAny, callback: ThreadCallbackType) -> Self {
+
+        let (sender_receiver, receiver_receiver) = ThreadSender::new();
+        let (receiver_sender, sender_sender) = ThreadReceiver::new();
+
+        let thread_check = Arc::new(());
+        let thread_weak = Arc::downgrade(&thread_check);
+
+        let thread_handle = thread::spawn(move || {
+            let _ = thread_check;
+            callback(thread_initialize_data, sender_receiver, receiver_sender);
+            // thread_check gets dropped here, signals that the thread has finished
+        });
+
         Self {
-            join_handle: Some(thread::spawn(move || callback(initial_data))),
+            thread: Some(thread_handle),
+            sender: sender_sender,
+            receiver: receiver_receiver,
+            dropcheck: thread_weak,
+            writeback_data,
         }
     }
 
-    /// Block until the internal thread has finished and returns the result of the operation
-    pub fn block(mut self) -> ResultRefAnyBlockError {
-        // .block() can only be called once, so these .unwrap()s are safe
-        let handle = self.join_handle.take().unwrap();
-        handle.join().map_err(|_| BlockError::ThreadJoinError).into()
+    /// Returns true if the Thread has been finished, false otherwise
+    pub(crate) fn is_finished(&self) -> bool {
+        self.dropcheck.upgrade().is_none()
     }
 }
 
-impl_result!(RefAny, BlockError, ResultRefAnyBlockError, copy = false, [Debug, Clone, PartialEq, PartialOrd]);
-
 impl Drop for Thread {
     fn drop(&mut self) {
-        if self.join_handle.take().is_some() {
-            panic!("Thread has not been await()-ed correctly!");
+        if let Some(thread_handle) = self.thread.take() {
+            let _ = self.sender.send(ThreadSendMsg::TerminateThread);
+            let _ = thread_handle.join(); // ignore the result, don't panic
         }
     }
 }
@@ -424,19 +430,56 @@ impl Drop for Thread {
 /// Run all currently registered timers
 #[must_use = "the UpdateScreen result of running timers should not be ignored"]
 pub fn run_all_timers(
-    timers: &mut FastHashMap<TimerId, Timer>,
     data: &mut RefAny,
-    resources: &mut AppResources,
+    current_timers: &mut FastHashMap<TimerId, Timer>,
+    frame_start: StdInstant,
+
+    current_window_state: &FullWindowState,
+    modifiable_window_state: &mut WindowState,
+    gl_context: &GlContextPtr,
+    resources : &mut AppResources,
+    timers: &mut FastHashMap<TimerId, Timer>,
+    threads: &mut FastHashMap<ThreadId, Thread>,
+    new_windows: &mut Vec<WindowCreateOptions>,
+    current_window_handle: &RawWindowHandle,
+    layout_results: &[LayoutResult],
+    stop_propagation: &mut bool,
+    focus_target: &mut Option<FocusTarget>,
+    current_scroll_states: &BTreeMap<DomId, BTreeMap<AzNodeId, ScrollPosition>>,
+    css_properties_changed_in_callbacks: &mut BTreeMap<DomId, BTreeMap<NodeId, Vec<CssProperty>>>,
+    nodes_scrolled_in_callback: &mut BTreeMap<DomId, BTreeMap<AzNodeId, LogicalPosition>>,
 ) -> UpdateScreen {
 
     let mut should_update_screen = UpdateScreen::DoNothing;
     let mut timers_to_terminate = Vec::new();
 
-    for (key, timer) in timers.iter_mut() {
-        let TimerCallbackReturn { should_update, should_terminate } = timer.invoke(TimerCallbackInfo {
-            state: data,
-            app_resources: resources,
-        });
+    for (key, timer) in current_timers.iter_mut() {
+
+        let hit_dom_node = DomNodeId { dom: DomId::ROOT_ID, node: AzNodeId::from_crate_internal(None) };
+        let cursor_relative_to_item = OptionLayoutPoint::None;
+        let cursor_in_viewport = OptionLayoutPoint::None;
+
+        let callback_info = CallbackInfo::new(
+            current_window_state,
+            modifiable_window_state,
+            gl_context,
+            resources ,
+            timers,
+            threads,
+            new_windows,
+            current_window_handle,
+            layout_results,
+            stop_propagation,
+            focus_target,
+            current_scroll_states,
+            css_properties_changed_in_callbacks,
+            nodes_scrolled_in_callback,
+            hit_dom_node,
+            cursor_relative_to_item,
+            cursor_in_viewport,
+        );
+
+        let TimerCallbackReturn { should_update, should_terminate } = timer.invoke(data, callback_info, frame_start);
 
         match should_update {
             UpdateScreen::RegenerateStyledDomForCurrentWindow => {
@@ -464,38 +507,81 @@ pub fn run_all_timers(
     should_update_screen
 }
 
-/// Remove all tasks that have finished executing
-#[must_use = "the UpdateScreen result of running tasks should not be ignored"]
-pub fn clean_up_finished_tasks(
-    tasks: &mut Vec<Task>,
+/// Remove all Threads that have finished executing
+#[must_use = "the UpdateScreen result of running Threads should not be ignored"]
+pub fn clean_up_finished_threads(
+    cleanup_threads: &mut FastHashMap<ThreadId, Thread>,
+
+    current_window_state: &FullWindowState,
+    modifiable_window_state: &mut WindowState,
+    gl_context: &GlContextPtr,
+    resources : &mut AppResources,
     timers: &mut FastHashMap<TimerId, Timer>,
+    threads: &mut FastHashMap<ThreadId, Thread>,
+    new_windows: &mut Vec<WindowCreateOptions>,
+    current_window_handle: &RawWindowHandle,
+    layout_results: &[LayoutResult],
+    stop_propagation: &mut bool,
+    focus_target: &mut Option<FocusTarget>,
+    current_scroll_states: &BTreeMap<DomId, BTreeMap<AzNodeId, ScrollPosition>>,
+    css_properties_changed_in_callbacks: &mut BTreeMap<DomId, BTreeMap<NodeId, Vec<CssProperty>>>,
+    nodes_scrolled_in_callback: &mut BTreeMap<DomId, BTreeMap<AzNodeId, LogicalPosition>>,
 ) -> UpdateScreen {
 
-    let old_count = tasks.len();
-    let mut timers_to_add = Vec::new();
+    let mut update_screen = UpdateScreen::DoNothing;
 
-    tasks.retain(|task| {
-        if task.is_finished() {
-            if let Some(timer) = &task.after_completion_timer {
-                timers_to_add.push((TimerId::new(), timer.clone()));
+    let hit_dom_node = DomNodeId { dom: DomId::ROOT_ID, node: AzNodeId::from_crate_internal(None) };
+    let cursor_relative_to_item = OptionLayoutPoint::None;
+    let cursor_in_viewport = OptionLayoutPoint::None;
+
+    cleanup_threads.retain(|_thread_id, thread| {
+
+        let _ = thread.sender.send(ThreadSendMsg::Tick);
+
+        let update = match thread.receiver.try_recv().ok() {
+            None => UpdateScreen::DoNothing,
+            Some(ThreadReceiveMsg::WriteBack(ThreadWriteBackMsg { data, callback })) => {
+                let callback_info = CallbackInfo::new(
+                    current_window_state,
+                    modifiable_window_state,
+                    gl_context,
+                    resources ,
+                    timers,
+                    threads,
+                    new_windows,
+                    current_window_handle,
+                    layout_results,
+                    stop_propagation,
+                    focus_target,
+                    current_scroll_states,
+                    css_properties_changed_in_callbacks,
+                    nodes_scrolled_in_callback,
+                    hit_dom_node,
+                    cursor_relative_to_item,
+                    cursor_in_viewport,
+                );
+
+                (callback.cb)(&mut thread.writeback_data, data, callback_info)
+            },
+            Some(ThreadReceiveMsg::Update(update_screen)) => update_screen,
+        };
+
+        match update {
+            UpdateScreen::DoNothing => { },
+            UpdateScreen::RegenerateStyledDomForCurrentWindow => {
+                if update_screen == UpdateScreen::DoNothing {
+                    update_screen = UpdateScreen::RegenerateStyledDomForCurrentWindow;
+                }
+            },
+            UpdateScreen::RegenerateStyledDomForAllWindows => {
+                if update_screen == UpdateScreen::DoNothing || update_screen == UpdateScreen::RegenerateStyledDomForCurrentWindow {
+                    update_screen = UpdateScreen::RegenerateStyledDomForAllWindows;
+                }
             }
-            false
-        } else {
-            true
         }
+
+        !thread.is_finished()
     });
 
-    let timers_is_empty = timers_to_add.is_empty();
-    let new_count = tasks.len();
-
-    // Start all the timers that should run after the completion of the task
-    for (timer_id, timer) in timers_to_add {
-        timers.insert(timer_id, timer);
-    }
-
-    if old_count == new_count && timers_is_empty {
-        UpdateScreen::DoNothing
-    } else {
-        UpdateScreen::RegenerateStyledDomForCurrentWindow
-    }
+    update_screen
 }

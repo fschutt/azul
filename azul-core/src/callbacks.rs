@@ -1,3 +1,5 @@
+#![allow(dead_code)]
+
 use std::{
     fmt,
     sync::atomic::{AtomicUsize, Ordering},
@@ -6,7 +8,10 @@ use std::{
     ffi::c_void,
     alloc::Layout,
 };
-use azul_css::{CssProperty, LayoutPoint, AzString, LayoutRect, LayoutSize, CssPath};
+use azul_css::{
+    CssProperty, LayoutPoint, OptionLayoutPoint, AzString, LayoutRect,
+    LayoutSize, CssPath, OptionLayoutRect
+};
 use crate::{
     FastHashMap,
     app_resources::{AppResources, IdNamespace},
@@ -17,9 +22,12 @@ use crate::{
     window::{
         WindowSize, WindowState, FullWindowState, LogicalPosition,
         LogicalSize, PhysicalSize, UpdateFocusWarning, WindowCreateOptions,
-        RawWindowHandle,
+        RawWindowHandle, KeyboardState, MouseState,
     },
-    task::{Timer, DropCheckPtr, TerminateTimer, ArcMutexRefAnyPtr, Task, TimerId},
+    task::{
+        Timer, Thread, TimerId, ThreadId, AzInstantPtr,
+        TerminateTimer, ThreadSender, ThreadReceiver,
+    },
 };
 #[cfg(feature = "opengl")]
 use crate::gl::{OptionTexture, GlContextPtr};
@@ -37,13 +45,13 @@ pub enum UpdateScreen {
 }
 
 #[repr(C)]
-pub struct RefAnySharingInfoInner {
+pub struct AtomicRefCountInner {
     pub num_copies: AtomicUsize,
     pub num_refs: AtomicUsize,
     pub num_mutable_refs: AtomicUsize,
 }
 
-impl RefAnySharingInfoInner {
+impl AtomicRefCountInner {
     const fn initial() -> Self {
         Self {
             num_copies: AtomicUsize::new(1),
@@ -55,23 +63,23 @@ impl RefAnySharingInfoInner {
 
 #[derive(Debug, Hash, PartialEq, PartialOrd, Ord, Eq)]
 #[repr(C)]
-pub struct RefAnySharingInfo {
-    pub ptr: *const c_void, /* *const RefAnySharingInfoInner */
+pub struct AtomicRefCount {
+    pub ptr: *const c_void, /* *const AtomicRefCountInner */
 }
 
-impl Drop for RefAnySharingInfo {
+impl Drop for AtomicRefCount {
     fn drop(&mut self) {
-        let _ = unsafe { Box::from_raw(self.ptr as *mut RefAnySharingInfoInner) };
+        let _ = unsafe { Box::from_raw(self.ptr as *mut AtomicRefCountInner) };
     }
 }
 
-impl RefAnySharingInfo {
+impl AtomicRefCount {
 
-    fn new(r: RefAnySharingInfoInner) -> Self {
-        RefAnySharingInfo { ptr: Box::into_raw(Box::new(r)) as *const c_void }
+    fn new(r: AtomicRefCountInner) -> Self {
+        AtomicRefCount { ptr: Box::into_raw(Box::new(r)) as *const c_void }
     }
-    fn downcast(&self) -> &RefAnySharingInfoInner { unsafe { &*(self.ptr as *const RefAnySharingInfoInner) } }
-    fn downcast_mut(&mut self) -> &mut RefAnySharingInfoInner { unsafe { &mut *(self.ptr as *mut RefAnySharingInfoInner) } }
+    fn downcast(&self) -> &AtomicRefCountInner { unsafe { &*(self.ptr as *const AtomicRefCountInner) } }
+    fn downcast_mut(&mut self) -> &mut AtomicRefCountInner { unsafe { &mut *(self.ptr as *mut AtomicRefCountInner) } }
 
     /// Runtime check to check whether this `RefAny` can be borrowed
     pub fn can_be_shared(&self) -> bool {
@@ -110,17 +118,18 @@ pub struct RefAny {
     pub _internal_layout_align: usize,
     pub type_id: u64,
     pub type_name: AzString,
-    pub _sharing_info_ptr: *const RefAnySharingInfo,
+    pub _sharing_info_ptr: *const AtomicRefCount,
     pub custom_destructor: extern "C" fn(*const c_void),
 }
 
-// the refcount of RefAny is atomic, therefore `RefAny` is not `Send`
-// however, RefAny is not Sync, since the data access is not protected by a lock!
+impl_option!(RefAny, OptionRefAny, copy = false, [Debug, Clone, Hash, PartialEq, PartialOrd, Ord, Eq]);
+
+// the refcount of RefAny is atomic, therefore `RefAny` is not `Sync`, but it is `Send`
 unsafe impl Send for RefAny { }
 
 impl Clone for RefAny {
     fn clone(&self) -> Self {
-        unsafe { (&mut *(self._sharing_info_ptr as *mut RefAnySharingInfo)).downcast_mut().num_copies.fetch_add(1, Ordering::SeqCst); };
+        unsafe { (&mut *(self._sharing_info_ptr as *mut AtomicRefCount)).downcast_mut().num_copies.fetch_add(1, Ordering::SeqCst); };
         Self {
             _internal_ptr: self._internal_ptr,
             _internal_len: self._internal_len,
@@ -147,7 +156,7 @@ impl RefAny {
         let heap_struct_as_bytes = unsafe { alloc::alloc(layout) };
         unsafe { ptr::copy_nonoverlapping(struct_as_bytes.as_ptr(), heap_struct_as_bytes, struct_as_bytes.len()) };
 
-        let sharing_info_ptr = Box::into_raw(Box::new(RefAnySharingInfo::new(RefAnySharingInfoInner::initial())));
+        let sharing_info_ptr = Box::into_raw(Box::new(AtomicRefCount::new(AtomicRefCountInner::initial())));
 
         let s = Self {
             _internal_ptr: heap_struct_as_bytes as *const c_void,
@@ -183,27 +192,27 @@ impl RefAny {
 
     /// Runtime check to check whether this `RefAny` can be borrowed mutably
     pub fn can_be_shared_mut(&self) -> bool {
-        let info = unsafe { &mut *(self._sharing_info_ptr as *mut RefAnySharingInfo) };
+        let info = unsafe { &mut *(self._sharing_info_ptr as *mut AtomicRefCount) };
         info.can_be_shared_mut()
     }
 
     pub fn increase_ref(&self) {
-        let info = unsafe { &mut *(self._sharing_info_ptr as *mut RefAnySharingInfo) };
+        let info = unsafe { &mut *(self._sharing_info_ptr as *mut AtomicRefCount) };
         info.increase_ref()
     }
 
     pub fn decrease_ref(&self) {
-        let info = unsafe { &mut *(self._sharing_info_ptr as *mut RefAnySharingInfo) };
+        let info = unsafe { &mut *(self._sharing_info_ptr as *mut AtomicRefCount) };
         info.decrease_ref()
     }
 
     pub fn increase_refmut(&self) {
-        let info = unsafe { &mut *(self._sharing_info_ptr as *mut RefAnySharingInfo) };
+        let info = unsafe { &mut *(self._sharing_info_ptr as *mut AtomicRefCount) };
         info.increase_refmut()
     }
 
     pub fn decrease_refmut(&self) {
-        let info = unsafe { &mut *(self._sharing_info_ptr as *mut RefAnySharingInfo) };
+        let info = unsafe { &mut *(self._sharing_info_ptr as *mut AtomicRefCount) };
         info.decrease_refmut()
     }
 }
@@ -215,7 +224,7 @@ impl Drop for RefAny {
         if info.downcast().num_copies.load(Ordering::SeqCst) <= 1 {
             (self.custom_destructor)(self._internal_ptr);
             unsafe { alloc::dealloc(self._internal_ptr as *mut u8, Layout::from_size_align_unchecked(self._internal_layout_size, self._internal_layout_align)); }
-            unsafe { let _ = Box::from_raw(self._sharing_info_ptr as *mut RefAnySharingInfo); }
+            unsafe { let _ = Box::from_raw(self._sharing_info_ptr as *mut AtomicRefCount); }
         }
     }
 }
@@ -378,6 +387,15 @@ macro_rules! impl_get_gl_context {() => {
     }
 };}
 
+#[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
+#[repr(C)]
+pub struct DomNodeId {
+    pub dom: DomId,
+    pub node: AzNodeId,
+}
+
+impl_option!(DomNodeId, OptionDomNodeId, [Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash]);
+
 // -- layout callback
 
 /// Callback function pointer (has to be a function pointer in
@@ -394,13 +412,13 @@ macro_rules! impl_get_gl_context {() => {
 ///
 /// See azul-core/ui_state.rs:298 for how the memory is managed
 /// across the callback boundary.
-pub type LayoutCallbackType = extern "C" fn(RefAny, LayoutInfoPtr) -> StyledDom;
+pub type LayoutCallbackType = extern "C" fn(&RefAny, LayoutInfo) -> StyledDom;
 
 #[repr(C)]
 pub struct LayoutCallback { pub cb: LayoutCallbackType }
 impl_callback!(LayoutCallback);
 
-extern "C" fn default_layout_callback(_: RefAny, _: LayoutInfoPtr) -> StyledDom { StyledDom::default() }
+extern "C" fn default_layout_callback(_: &RefAny, _: LayoutInfo) -> StyledDom { StyledDom::default() }
 
 impl Default for LayoutCallback {
     fn default() -> Self {
@@ -420,126 +438,217 @@ pub struct Callback { pub cb: CallbackType }
 impl_callback!(Callback);
 
 /// Information about the callback that is passed to the callback whenever a callback is invoked
-pub struct CallbackInfo<'a> {
-    /// Your data (the global struct which all callbacks will have access to)
-    pub state: &'a RefAny,
+#[derive(Debug)]
+#[repr(C)]
+pub struct CallbackInfo {
     /// State of the current window that the callback was called on (read only!)
-    pub current_window_state: &'a FullWindowState,
+    current_window_state: *const FullWindowState,
     /// User-modifiable state of the window that the callback was called on
-    pub modifiable_window_state: &'a mut WindowState,
+    modifiable_window_state: *mut WindowState,
     /// An Rc to the OpenGL context, in order to be able to render to OpenGL textures
     #[cfg(feature = "opengl")]
-    pub gl_context: &'a GlContextPtr,
+    gl_context: *const GlContextPtr,
     /// See [`AppState.resources`](./struct.AppState.html#structfield.resources)
-    pub resources : &'a mut AppResources,
+    resources : *mut AppResources,
     /// Currently running timers (polling functions, run on the main thread)
-    pub timers: &'a mut FastHashMap<TimerId, Timer>,
-    /// Currently running tasks (asynchronous functions running each on a different thread)
-    pub tasks: &'a mut Vec<Task>,
+    timers: *mut FastHashMap<TimerId, Timer>,
+    /// Currently running threads (asynchronous functions running each on a different thread)
+    threads: *mut FastHashMap<ThreadId, Thread>,
     /// Used to spawn new windows from callbacks. You can use `get_current_window_handle()` to spawn child windows.
-    pub new_windows: &'a mut Vec<WindowCreateOptions>,
+    new_windows: *mut Vec<WindowCreateOptions>,
     /// Handle of the current window
-    pub current_window_handle: &'a RawWindowHandle,
+    current_window_handle: *const RawWindowHandle,
     /// Currently active, layouted rectangles
-    pub layout_results: &'a [LayoutResult],
+    layout_results: *const [LayoutResult],
     /// Sets whether the event should be propagated to the parent hit node or not
-    pub stop_propagation: &'a mut bool,
+    stop_propagation: *mut bool,
     /// The callback can change the focus_target - note that the focus_target is set before the
     /// next frames' layout() function is invoked, but the current frames callbacks are not affected.
-    pub focus_target: &'a mut Option<FocusTarget>,
+    focus_target: *mut Option<FocusTarget>,
     /// Immutable (!) reference to where the nodes are currently scrolled (current position)
-    pub current_scroll_states: &'a BTreeMap<DomId, BTreeMap<AzNodeId, ScrollPosition>>,
+    current_scroll_states: *const BTreeMap<DomId, BTreeMap<AzNodeId, ScrollPosition>>,
     /// Mutable reference to a list of CSS property changes, so that the callbacks can change CSS properties
-    pub css_properties_changed_in_callbacks: &'a mut BTreeMap<DomId, BTreeMap<NodeId, Vec<CssProperty>>>,
+    css_properties_changed_in_callbacks: *mut BTreeMap<DomId, BTreeMap<NodeId, Vec<CssProperty>>>,
     /// Mutable map where a user can set where he wants the nodes to be scrolled to (for the next frame)
-    pub nodes_scrolled_in_callback: &'a mut BTreeMap<DomId, BTreeMap<AzNodeId, LogicalPosition>>,
+    nodes_scrolled_in_callback: *mut BTreeMap<DomId, BTreeMap<AzNodeId, LogicalPosition>>,
     /// The ID of the DOM + the node that was hit. You can use this to query
     /// information about the node, but please don't hard-code any if / else
     /// statements based on the `NodeId`
-    pub hit_dom_node: DomNodeId,
+    hit_dom_node: DomNodeId,
     /// The (x, y) position of the mouse cursor, **relative to top left of the element that was hit**.
-    pub cursor_relative_to_item: Option<LayoutPoint>,
+    cursor_relative_to_item: OptionLayoutPoint,
     /// The (x, y) position of the mouse cursor, **relative to top left of the window**.
-    pub cursor_in_viewport: Option<LayoutPoint>,
+    cursor_in_viewport: OptionLayoutPoint,
 }
 
-/// Pointer to rust-allocated `Box<CallbackInfo<'a>>` struct
-#[repr(C)] pub struct CallbackInfoPtr { pub ptr: *mut c_void }
+impl CallbackInfo {
 
-#[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
-#[repr(C)]
-pub struct DomNodeId {
-    pub dom: DomId,
-    pub node: AzNodeId,
-}
+    // this function is necessary to get rid of the lifetimes and to make CallbackInfo C-compatible
+    //
+    // since the call_callbacks() function is the only function
+    #[cfg(feature = "opengl")]
+    #[inline]
+    pub fn new<'a>(
+       current_window_state: &'a FullWindowState,
+       modifiable_window_state: &'a mut WindowState,
+       gl_context: &'a GlContextPtr,
+       resources : &'a mut AppResources,
+       timers: &'a mut FastHashMap<TimerId, Timer>,
+       threads: &'a mut FastHashMap<ThreadId, Thread>,
+       new_windows: &'a mut Vec<WindowCreateOptions>,
+       current_window_handle: &'a RawWindowHandle,
+       layout_results: &'a [LayoutResult],
+       stop_propagation: &'a mut bool,
+       focus_target: &'a mut Option<FocusTarget>,
+       current_scroll_states: &'a BTreeMap<DomId, BTreeMap<AzNodeId, ScrollPosition>>,
+       css_properties_changed_in_callbacks: &'a mut BTreeMap<DomId, BTreeMap<NodeId, Vec<CssProperty>>>,
+       nodes_scrolled_in_callback: &'a mut BTreeMap<DomId, BTreeMap<AzNodeId, LogicalPosition>>,
+       hit_dom_node: DomNodeId,
+       cursor_relative_to_item: OptionLayoutPoint,
+       cursor_in_viewport: OptionLayoutPoint,
+    ) -> Self {
+        Self {
+            current_window_state: current_window_state as *const FullWindowState,
+            modifiable_window_state: modifiable_window_state as *mut WindowState,
+            gl_context: gl_context as *const GlContextPtr,
+            resources: resources as *mut AppResources,
+            timers: timers as *mut FastHashMap<TimerId, Timer>,
+            threads: threads as *mut FastHashMap<ThreadId, Thread>,
+            new_windows: new_windows as *mut Vec<WindowCreateOptions>,
+            current_window_handle: current_window_handle as *const RawWindowHandle,
+            layout_results: layout_results as *const [LayoutResult],
+            stop_propagation: stop_propagation as *mut bool,
+            focus_target: focus_target as *mut Option<FocusTarget>,
+            current_scroll_states: current_scroll_states as *const BTreeMap<DomId, BTreeMap<AzNodeId, ScrollPosition>>,
+            css_properties_changed_in_callbacks: css_properties_changed_in_callbacks as *mut BTreeMap<DomId, BTreeMap<NodeId, Vec<CssProperty>>>,
+            nodes_scrolled_in_callback: nodes_scrolled_in_callback as *mut BTreeMap<DomId, BTreeMap<AzNodeId, LogicalPosition>>,
+            hit_dom_node: hit_dom_node,
+            cursor_relative_to_item: cursor_relative_to_item,
+            cursor_in_viewport: cursor_in_viewport,
+        }
+    }
 
-impl_option!(DomNodeId, OptionDomNodeId, [Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash]);
+    fn internal_get_current_window_state<'a>(&'a self) -> &'a FullWindowState { unsafe { &*self.current_window_state } }
+    fn internal_get_modifiable_window_state<'a>(&'a mut self)-> &'a mut WindowState { unsafe { &mut *self.modifiable_window_state } }
+    fn internal_get_gl_context<'a>(&'a self) -> &'a GlContextPtr { unsafe { &*self.gl_context } }
+    fn internal_get_resources<'a>(&'a self) -> &'a mut AppResources { unsafe { &mut *self.resources } }
+    fn internal_get_timers<'a>(&'a self) -> &'a mut FastHashMap<TimerId, Timer> { unsafe { &mut *self.timers } }
+    fn internal_get_threads<'a>(&'a self) -> &'a mut FastHashMap<ThreadId, Thread> { unsafe { &mut *self.threads } }
+    fn internal_get_new_windows<'a>(&'a self) -> &'a mut Vec<WindowCreateOptions> { unsafe { &mut *self.new_windows } }
+    fn internal_get_current_window_handle<'a>(&'a self) -> &'a RawWindowHandle { unsafe { &*self.current_window_handle } }
+    fn internal_get_layout_results<'a>(&'a self) -> &'a [LayoutResult] { unsafe { &*self.layout_results } }
+    fn internal_get_stop_propagation<'a>(&'a self) -> &'a mut bool { unsafe { &mut *self.stop_propagation } }
+    fn internal_get_focus_target<'a>(&'a self) -> &'a mut Option<FocusTarget> { unsafe { &mut *self.focus_target } }
+    fn internal_get_current_scroll_states<'a>(&'a self) -> &'a BTreeMap<DomId, BTreeMap<AzNodeId, ScrollPosition>> { unsafe { &*self.current_scroll_states } }
+    fn internal_get_css_properties_changed_in_callbacks<'a>(&'a self) -> &'a mut BTreeMap<DomId, BTreeMap<NodeId, Vec<CssProperty>>> { unsafe { &mut *self.css_properties_changed_in_callbacks } }
+    fn internal_get_nodes_scrolled_in_callback<'a>(&'a self) -> &'a mut BTreeMap<DomId, BTreeMap<AzNodeId, LogicalPosition>> { unsafe { &mut *self.nodes_scrolled_in_callback } }
+    fn internal_get_hit_dom_node<'a>(&'a self) -> DomNodeId { self.hit_dom_node }
+    fn internal_get_cursor_relative_to_item<'a>(&'a self) -> OptionLayoutPoint { self.cursor_relative_to_item }
+    fn internal_get_cursor_in_viewport<'a>(&'a self) -> OptionLayoutPoint { self.cursor_in_viewport }
 
-impl CallbackInfoPtr {
+    pub fn get_hit_node(&self) -> DomNodeId { self.internal_get_hit_dom_node() }
 
+    pub fn get_cursor_relative_to_node(&self) -> OptionLayoutPoint { self.internal_get_cursor_relative_to_item() }
+
+    pub fn get_cursor_relative_to_viewport(&self) -> OptionLayoutPoint { self.internal_get_cursor_in_viewport() }
+
+    pub fn get_window_state(&self) -> WindowState { self.internal_get_current_window_state().clone().into() }
+
+    pub fn get_keyboard_state(&self) -> KeyboardState { self.internal_get_current_window_state().keyboard_state.clone() }
+
+    pub fn get_mouse_state(&self) -> MouseState { self.internal_get_current_window_state().mouse_state.clone() }
+
+    pub fn get_current_window_handle(&self) -> RawWindowHandle { self.internal_get_current_window_handle().clone() }
+
+    pub fn get_gl_context(&self) -> GlContextPtr { self.internal_get_gl_context().clone() }
+
+    pub fn get_parent(&self, node_id: DomNodeId) -> Option<DomNodeId> {
+        self.internal_get_layout_results()
+        .get(node_id.dom.inner as usize)
+        .and_then(|layout_result| layout_result.styled_dom.node_hierarchy.as_container().get(node_id.node.into_crate_internal()?)?.parent_id())
+        .map(|nid| DomNodeId { dom: node_id.dom, node: AzNodeId::from_crate_internal(Some(nid)) })
+    }
+
+    pub fn get_previous_sibling(&self, node_id: DomNodeId) -> Option<DomNodeId> {
+        self.internal_get_layout_results()
+        .get(node_id.dom.inner as usize)
+        .and_then(|layout_result| layout_result.styled_dom.node_hierarchy.as_container().get(node_id.node.into_crate_internal()?)?.previous_sibling_id())
+        .map(|nid| DomNodeId { dom: node_id.dom, node: AzNodeId::from_crate_internal(Some(nid)) })
+    }
+
+    pub fn get_next_sibling(&self, node_id: DomNodeId) -> Option<DomNodeId> {
+        self.internal_get_layout_results()
+        .get(node_id.dom.inner as usize)
+        .and_then(|layout_result| layout_result.styled_dom.node_hierarchy.as_container().get(node_id.node.into_crate_internal()?)?.next_sibling_id())
+        .map(|nid| DomNodeId { dom: node_id.dom, node: AzNodeId::from_crate_internal(Some(nid)) })
+    }
+
+    pub fn get_first_child(&self, node_id: DomNodeId) -> Option<DomNodeId> {
+        self.internal_get_layout_results()
+        .get(node_id.dom.inner as usize)
+        .and_then(|layout_result| layout_result.styled_dom.node_hierarchy.as_container().get(node_id.node.into_crate_internal()?)?.first_child_id())
+        .map(|nid| DomNodeId { dom: node_id.dom, node: AzNodeId::from_crate_internal(Some(nid)) })
+    }
+
+    pub fn get_last_child(&self, node_id: DomNodeId) -> Option<DomNodeId> {
+        self.internal_get_layout_results()
+        .get(node_id.dom.inner as usize)
+        .and_then(|layout_result| layout_result.styled_dom.node_hierarchy.as_container().get(node_id.node.into_crate_internal()?)?.last_child_id())
+        .map(|nid| DomNodeId { dom: node_id.dom, node: AzNodeId::from_crate_internal(Some(nid)) })
+    }
+
+    pub fn get_dataset(&self, node_id: DomNodeId) -> OptionRefAny {
+        self.internal_get_layout_results()
+        .get(node_id.dom.inner as usize)
+        .and_then(|layout_result| layout_result.styled_dom.node_data.as_container().get(node_id.node.into_crate_internal()?)?.get_dataset().into_option())
+        .into()
+    }
+
+    pub fn set_window_state(&mut self, new_state: WindowState) { *self.internal_get_modifiable_window_state() = new_state; }
+
+    pub fn set_css_property(&mut self, node_id: DomNodeId, prop: CssProperty) {
+        if let Some(nid) = node_id.node.into_crate_internal() {
+            self.internal_get_css_properties_changed_in_callbacks()
+            .entry(node_id.dom)
+            .or_insert_with(|| BTreeMap::new())
+            .entry(nid)
+            .or_insert_with(|| Vec::new()).push(prop);
+        }
+    }
+
+    pub fn set_focus(&mut self, target: FocusTarget) {
+        *self.internal_get_focus_target() = Some(target);
+    }
+
+    pub fn stop_propagation(&mut self) {
+        *self.internal_get_stop_propagation() = true;
+    }
+
+    pub fn create_window(&mut self, window: WindowCreateOptions) {
+        self.internal_get_new_windows().push(window);
+    }
+
+    pub fn start_thread(&mut self, id: ThreadId, thread_initialize_data: RefAny, writeback_data: RefAny, callback: ThreadCallbackType) {
+        let thread = Thread::new(thread_initialize_data, writeback_data, callback);
+        self.internal_get_threads().insert(id, thread);
+    }
+
+    pub fn start_timer(&mut self, id: TimerId, timer: Timer) {
+        self.internal_get_timers().insert(id, timer);
+    }
 
     // pub fn add_font_source()
     // pub fn remove_font_source()
     // pub fn add_image_source()
     // pub fn remove_image_source()
-    // pub fn render_gl_image_mask(curve: [BezierCurve], mask_width: usize, mask_height: usize) -> ImageMask
 
-    // put fn set_gpu_transform(&mut self, node: NodeId, transform: GpuTransform) { }
-    // put fn set_gpu_opacity(&mut self, node: NodeId, opacity: f32) { }
-    // put fn set_gpu_rotation(&mut self, node: NodeId, rotation: f32) { }
-    // put fn set_gpu_scale(&mut self, node: NodeId, scale: f32) { }
     // pub fn exchange_image_source(old_image_source, new_image_source)
     // pub fn exchange_image_mask(old_image_mask, new_image_mask)
-
-
 }
 
-impl Drop for CallbackInfoPtr {
-    fn drop<'a>(&mut self) {
-        let _ = unsafe { Box::<CallbackInfo<'a>>::from_raw(self.ptr as *mut CallbackInfo<'a>) };
-    }
-}
-
-impl std::fmt::Debug for CallbackInfoPtr {
-    fn fmt<'a>(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
-        let self_ptr = self.ptr as *const CallbackInfo<'a>;
-        self_ptr.fmt(f)
-    }
-}
 
 pub type CallbackReturn = UpdateScreen;
-pub type CallbackType = extern "C" fn(CallbackInfoPtr) -> CallbackReturn;
-
-impl<'a> fmt::Debug for CallbackInfo<'a> {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        write!(f, "CallbackInfo {{
-            data: {{ .. }}, \
-            current_window_state: {:?}, \
-            modifiable_window_state: {:?}, \
-            layout_results: {:?}, \
-            gl_context: {{ .. }}, \
-            resources: {{ .. }}, \
-            timers: {{ .. }}, \
-            tasks: {{ .. }}, \
-            focus_target: {:?}, \
-            current_scroll_states: {:?}, \
-            nodes_scrolled_in_callback: {:?}, \
-            hit_dom_node: {:?}, \
-            cursor_relative_to_item: {:?}, \
-            cursor_in_viewport: {:?}, \
-        }}",
-            self.current_window_state,
-            self.modifiable_window_state,
-            self.layout_results,
-            self.focus_target,
-            self.current_scroll_states,
-            self.nodes_scrolled_in_callback,
-            self.hit_dom_node,
-            self.cursor_relative_to_item,
-            self.cursor_in_viewport,
-        )
-    }
-}
+pub type CallbackType = extern "C" fn(&mut RefAny, CallbackInfo) -> CallbackReturn;
 
 // -- opengl callback
 
@@ -551,28 +660,39 @@ pub struct GlCallback { pub cb: GlCallbackType }
 impl_callback!(GlCallback);
 
 #[derive(Debug)]
-pub struct GlCallbackInfo<'a> {
-    pub state: &'a RefAny,
+#[repr(C)]
+pub struct GlCallbackInfo {
     #[cfg(feature = "opengl")]
-    pub gl_context: &'a GlContextPtr,
-    pub resources: &'a AppResources,
-    pub bounds: HidpiAdjustedBounds,
+    gl_context: *const GlContextPtr,
+    resources: *const AppResources,
+    bounds: HidpiAdjustedBounds,
 }
 
-/// Pointer to rust-allocated `Box<GlCallbackInfo<'a>>` struct
-#[repr(C)] pub struct GlCallbackInfoPtr { pub ptr: *mut c_void }
+#[cfg(feature = "opengl")]
+pub type GlCallbackType = extern "C" fn(&RefAny, GlCallbackInfo) -> GlCallbackReturn;
 
-impl Drop for GlCallbackInfoPtr {
-    fn drop<'a>(&mut self) {
-        let _ = unsafe { Box::<GlCallbackInfo<'a>>::from_raw(self.ptr as *mut GlCallbackInfo<'a>) };
+impl GlCallbackInfo {
+    pub fn new<'a>(
+       gl_context: &'a GlContextPtr,
+       resources: &'a AppResources,
+       bounds: HidpiAdjustedBounds,
+    ) -> Self {
+        Self {
+            gl_context: gl_context as *const GlContextPtr,
+            resources: resources as *const AppResources,
+            bounds
+        }
     }
-}
 
-impl std::fmt::Debug for GlCallbackInfoPtr {
-    fn fmt<'a>(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
-        let self_ptr = self.ptr as *const GlCallbackInfo<'a>;
-        self_ptr.fmt(f)
-    }
+    pub fn get_gl_context(&self) -> GlContextPtr { self.internal_get_gl_context().clone() }
+    pub fn get_bounds(&self) -> HidpiAdjustedBounds { self.internal_get_bounds() }
+
+    // fn get_font()
+    // fn get_image()
+
+    fn internal_get_gl_context<'a>(&'a self) -> &'a GlContextPtr { unsafe { &*self.gl_context } }
+    fn internal_get_resources<'a>(&'a self) -> &'a AppResources { unsafe { &*self.resources } }
+    fn internal_get_bounds<'a>(&'a self) -> HidpiAdjustedBounds { self.bounds }
 }
 
 #[cfg(feature = "opengl")]
@@ -580,10 +700,10 @@ impl std::fmt::Debug for GlCallbackInfoPtr {
 #[derive(Debug)]
 pub struct GlCallbackReturn { pub texture: OptionTexture }
 
-#[cfg(feature = "opengl")]
-pub type GlCallbackType = extern "C" fn(GlCallbackInfoPtr) -> GlCallbackReturn;
 
 // -- iframe callback
+
+pub type IFrameCallbackType = extern "C" fn(&RefAny, IFrameCallbackInfo) -> IFrameCallbackReturn;
 
 /// Callback that, given a rectangle area on the screen, returns the DOM
 /// appropriate for that bounds (useful for infinite lists)
@@ -592,41 +712,46 @@ pub struct IFrameCallback { pub cb: IFrameCallbackType }
 impl_callback!(IFrameCallback);
 
 #[derive(Debug)]
-pub struct IFrameCallbackInfo<'a> {
-    pub state: &'a RefAny,
-    pub resources: &'a AppResources,
+#[repr(C)]
+pub struct IFrameCallbackInfo {
+    pub resources: *const AppResources,
     pub bounds: HidpiAdjustedBounds,
 }
 
-/// Pointer to rust-allocated `Box<IFrameCallbackInfo<'a>>` struct
-#[repr(C)] pub struct IFrameCallbackInfoPtr { pub ptr: *mut c_void }
-
-impl Drop for IFrameCallbackInfoPtr {
-    fn drop<'a>(&mut self) {
-        let _ = unsafe { Box::<IFrameCallbackInfo<'a>>::from_raw(self.ptr as *mut IFrameCallbackInfo<'a>) };
+impl IFrameCallbackInfo {
+    pub fn new<'a>(
+       resources: &'a AppResources,
+       bounds: HidpiAdjustedBounds,
+    ) -> Self {
+        Self {
+            resources: resources as *const AppResources,
+            bounds
+        }
     }
-}
 
-impl std::fmt::Debug for IFrameCallbackInfoPtr {
-    fn fmt<'a>(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
-        let self_ptr = self.ptr as *const IFrameCallbackInfo<'a>;
-        self_ptr.fmt(f)
-    }
+    pub fn get_bounds(&self) -> HidpiAdjustedBounds { self.internal_get_bounds() }
+
+    // fn get_font()
+    // fn get_image()
+
+    fn internal_get_resources<'a>(&'a self) -> &'a AppResources { unsafe { &*self.resources } }
+    fn internal_get_bounds<'a>(&'a self) -> HidpiAdjustedBounds { self.bounds }
 }
 
 #[derive(Debug, Clone)]
 #[repr(C)]
 pub struct IFrameCallbackReturn {
-    pub styled_dom: StyledDom
+    pub styled_dom: StyledDom,
+    pub size: LayoutRect,
+    pub virtual_size: OptionLayoutRect,
 }
 
-pub type IFrameCallbackType = extern "C" fn(IFrameCallbackInfoPtr) -> IFrameCallbackReturn;
+// --  thread callback
+pub type ThreadCallbackType = extern "C" fn(RefAny, ThreadSender, ThreadReceiver);
 
-// -- thread callback
-pub type ThreadCallbackType = extern "C" fn(RefAny) -> RefAny;
-
-// --  task callback
-pub type TaskCallbackType = extern "C" fn(ArcMutexRefAnyPtr, DropCheckPtr) -> UpdateScreen;
+#[repr(C)]
+pub struct ThreadCallback { pub cb: ThreadCallbackType }
+impl_callback!(ThreadCallback);
 
 // -- timer callback
 
@@ -636,26 +761,22 @@ pub struct TimerCallback { pub cb: TimerCallbackType }
 impl_callback!(TimerCallback);
 
 #[derive(Debug)]
-pub struct TimerCallbackInfo<'a> {
-    pub state: &'a mut RefAny,
-    pub app_resources: &'a mut AppResources,
+#[repr(C)]
+pub struct TimerCallbackInfo {
+    /// Callback info for this timer
+    pub callback_info: CallbackInfo,
+    /// Time when the frame was started rendering
+    pub frame_start: AzInstantPtr,
+    /// How many times this callback has been called
+    pub call_count: usize,
 }
 
-/// Pointer to rust-allocated `Box<TimerCallbackInfo<'a>>` struct
-#[repr(C)] pub struct TimerCallbackInfoPtr { pub ptr: *const c_void }
+pub type WriteBackCallbackType = extern "C" fn(/* original data */ &mut RefAny, /*data to write back*/ RefAny, CallbackInfo) -> UpdateScreen;
 
-impl Drop for TimerCallbackInfoPtr {
-    fn drop<'a>(&mut self) {
-        let _ = unsafe { Box::<TimerCallbackInfo<'a>>::from_raw(self.ptr as *mut TimerCallbackInfo<'a>) };
-    }
-}
-
-impl std::fmt::Debug for TimerCallbackInfoPtr {
-    fn fmt<'a>(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
-        let self_ptr = self.ptr as *const TimerCallbackInfo<'a>;
-        self_ptr.fmt(f)
-    }
-}
+/// Callback that can runs when a thread receives a `WriteBack` message
+#[repr(C)]
+pub struct WriteBackCallback { pub cb: WriteBackCallbackType }
+impl_callback!(WriteBackCallback);
 
 #[derive(Copy, Clone, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
 #[repr(C)]
@@ -664,32 +785,17 @@ pub struct TimerCallbackReturn {
     pub should_terminate: TerminateTimer,
 }
 
-pub type TimerCallbackType = extern "C" fn(TimerCallbackInfoPtr) -> TimerCallbackReturn;
-
-/// Pointer to rust-allocated `Box<LayoutInfo<'a>>` struct
-#[repr(C)] pub struct LayoutInfoPtr { pub ptr: *mut c_void }
-
-impl Drop for LayoutInfoPtr {
-    fn drop<'a>(&mut self) {
-        let _ = unsafe { Box::<LayoutInfo<'a>>::from_raw(self.ptr as *mut LayoutInfo<'a>) };
-    }
-}
-
-impl std::fmt::Debug for LayoutInfoPtr {
-    fn fmt<'a>(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
-        let self_ptr = self.ptr as *const LayoutInfo<'a>;
-        self_ptr.fmt(f)
-    }
-}
+pub type TimerCallbackType = extern "C" fn(/* application data */ &mut RefAny, /* timer internal data */ &mut RefAny, TimerCallbackInfo) -> TimerCallbackReturn;
 
 /// Gives the `layout()` function access to the `AppResources` and the `Window`
 /// (for querying images and fonts, as well as width / height)
 #[derive(Debug)]
-pub struct LayoutInfo<'a> {
+#[repr(C)]
+pub struct LayoutInfo {
     /// Window size (so that apps can return a different UI depending on
     /// the window size - mobile / desktop view). Should be later removed
     /// in favor of "resize" handlers and @media queries.
-    pub window_size: &'a WindowSize,
+    window_size: *const WindowSize,
     /// Optimization for resizing: If a DOM has no Iframes and the window size
     /// does not change the state of the UI, then resizing the window will not
     /// result in calls to the .layout() function (since the resulting UI would
@@ -697,14 +803,33 @@ pub struct LayoutInfo<'a> {
     ///
     /// Stores "stops" in logical pixels where the UI needs to be re-generated
     /// should the width of the window change.
-    pub window_size_width_stops: &'a mut Vec<f32>,
+    window_size_width_stops: *mut Vec<f32>,
     /// Same as `window_size_width_stops` but for the height of the window.
-    pub window_size_height_stops: &'a mut Vec<f32>,
+    window_size_height_stops: *mut Vec<f32>,
     /// Allows the layout() function to reference app resources such as FontIDs or ImageIDs
-    pub resources: &'a AppResources,
+    resources: *const AppResources,
 }
 
-impl<'a> LayoutInfo<'a> {
+impl LayoutInfo {
+
+    pub fn new<'a>(
+        window_size: &'a WindowSize,
+        window_size_width_stops: &'a mut Vec<f32>,
+        window_size_height_stops: &'a mut Vec<f32>,
+        resources: &'a AppResources,
+    ) -> Self {
+        Self {
+            window_size: window_size as *const WindowSize,
+            window_size_width_stops: window_size_width_stops as *mut Vec<f32>,
+            window_size_height_stops: window_size_height_stops as *mut Vec<f32>,
+            resources: resources as *const AppResources,
+        }
+    }
+
+    fn internal_get_window_size<'a>(&'a self) -> &'a WindowSize { unsafe { &*self.window_size } }
+    fn internal_get_window_size_width_stops<'a>(&'a self) -> &'a mut Vec<f32> { unsafe { &mut *self.window_size_width_stops } }
+    fn internal_get_window_size_height_stops<'a>(&'a self) -> &'a mut Vec<f32> { unsafe { &mut *self.window_size_height_stops } }
+    fn internal_get_resources<'a>(&'a self) -> &'a AppResources { unsafe { &*self.resources } }
 
     /// Returns whether the window width is larger than `width`,
     /// but sets an internal "dirty" flag - so that the UI is re-generated when
@@ -730,23 +855,23 @@ impl<'a> LayoutInfo<'a> {
     /// NOTE: This should be later depreceated into `On::Resize` handlers and
     /// `@media` queries.
     pub fn window_width_larger_than(&mut self, width: f32) -> bool {
-        self.window_size_width_stops.push(width);
-        self.window_size.get_logical_size().width > width
+        self.internal_get_window_size_width_stops().push(width);
+        self.internal_get_window_size().get_logical_size().width > width
     }
 
     pub fn window_width_smaller_than(&mut self, width: f32) -> bool {
-        self.window_size_width_stops.push(width);
-        self.window_size.get_logical_size().width < width
+        self.internal_get_window_size_width_stops().push(width);
+        self.internal_get_window_size().get_logical_size().width < width
     }
 
     pub fn window_height_larger_than(&mut self, height: f32) -> bool {
-        self.window_size_height_stops.push(height);
-        self.window_size.get_logical_size().height > height
+        self.internal_get_window_size_height_stops().push(height);
+        self.internal_get_window_size().get_logical_size().height > height
     }
 
     pub fn window_height_smaller_than(&mut self, height: f32) -> bool {
-        self.window_size_height_stops.push(height);
-        self.window_size.get_logical_size().height < height
+        self.internal_get_window_size_height_stops().push(height);
+        self.internal_get_window_size().get_logical_size().height < height
     }
 }
 

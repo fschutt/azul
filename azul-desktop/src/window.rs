@@ -756,9 +756,7 @@ impl Window {
         window_was_updated
     }
 
-    /// Calls the callbacks and restyles / re-layouts the self.layout_results if necessary
-    pub fn call_callbacks(&mut self, nodes_to_check: &NodesToCheck, events: &Events, gl_context: &GlContextPtr, app_resources: &mut AppResources) -> CallCallbacksResult {
-        use azul_core::window_state::CallbacksOfHitTest;
+    pub fn get_raw_window_handle(&self) -> RawWindowHandle {
         use raw_window_handle::HasRawWindowHandle;
 
         const fn translate_raw_window_handle(input: raw_window_handle::RawWindowHandle) -> RawWindowHandle {
@@ -806,9 +804,17 @@ impl Window {
             }
         }
 
-        let callbacks = CallbacksOfHitTest::new(&nodes_to_check, &events, &self.internal.layout_results);
+        translate_raw_window_handle(self.display.window().raw_window_handle())
+    }
+
+    /// Calls the callbacks and restyles / re-layouts the self.layout_results if necessary
+    pub fn call_callbacks(&mut self, nodes_to_check: &NodesToCheck, events: &Events, gl_context: &GlContextPtr, app_resources: &mut AppResources) -> CallCallbacksResult {
+        use azul_core::window_state::CallbacksOfHitTest;
+
+        let mut callbacks = CallbacksOfHitTest::new(&nodes_to_check, &events, &self.internal.layout_results);
+        let raw_window_handle = self.get_raw_window_handle();
         let current_scroll_states = self.internal.get_current_scroll_states();
-        let raw_window_handle = translate_raw_window_handle(self.display.window().raw_window_handle());
+
         // likely won't work because callbacks and &mut layout_results are borrowed
         callbacks.call(
             &self.internal.current_window_state,

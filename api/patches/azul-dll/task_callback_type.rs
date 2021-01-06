@@ -1,1 +1,0 @@
-pub type AzTaskCallbackType = extern "C" fn(AzArcMutexRefAnyPtr, AzDropCheckPtr) -> AzUpdateScreen;

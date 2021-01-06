@@ -563,11 +563,10 @@ impl SolvedLayout {
                 RawImageFormat, AddImage, ExternalImageData, TextureTarget, ExternalImageType,
                 ImageData, add_resources, garbage_collect_fonts_and_images,
             },
-            callbacks::{GlCallbackInfo, HidpiAdjustedBounds, GlCallbackInfoPtr},
+            callbacks::{GlCallbackInfo, HidpiAdjustedBounds},
             gl::insert_into_active_gl_textures,
         };
         use gleam::gl;
-        use std::ffi::c_void;
 
         let layout_results = (callbacks.layout_fn)(
             styled_dom,
@@ -584,26 +583,18 @@ impl SolvedLayout {
         for layout_result in layout_results.iter() {
             for (node_id, gl_texture_node) in layout_result.styled_dom.scan_for_gltexture_callbacks() {
 
-                let cb = gl_texture_node.callback;
-                let ptr = &gl_texture_node.data;
-
                 // Invoke OpenGL callback, render texture
                 let rect_size = layout_result.rects.as_ref()[node_id].size;
 
                 let texture = {
 
-                    let callback_info = GlCallbackInfo {
-                        state: ptr,
-                        gl_context: &gl_context,
-                        resources: app_resources,
-                        bounds: HidpiAdjustedBounds::from_bounds(
-                            rect_size,
-                            full_window_state.size.hidpi_factor,
-                        ),
-                    };
+                    let gl_callback_info = GlCallbackInfo::new(
+                        /*gl_context:*/ &gl_context,
+                        /*resources:*/ app_resources,
+                        /*bounds:*/ HidpiAdjustedBounds::from_bounds(rect_size, full_window_state.size.hidpi_factor),
+                    );
 
-                    let ptr = GlCallbackInfoPtr { ptr: Box::into_raw(Box::new(callback_info)) as *mut c_void };
-                    let gl_callback_return = (cb.cb)(ptr);
+                    let gl_callback_return = (gl_texture_node.callback.cb)(&gl_texture_node.data, gl_callback_info);
                     let tex: Option<Texture> = gl_callback_return.texture.into();
 
                     // Reset the framebuffer and SRGB color target to 0

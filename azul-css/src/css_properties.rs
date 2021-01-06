@@ -125,6 +125,8 @@ const CSS_PROPERTY_KEY_MAP: [(CssPropertyType, &'static str);71] = [
 #[repr(C)]
 pub struct LayoutRect { pub origin: LayoutPoint, pub size: LayoutSize }
 
+impl_option!(LayoutRect, OptionLayoutRect, [Debug, Copy, Clone, PartialEq, PartialOrd]);
+
 impl fmt::Debug for LayoutRect {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         write!(f, "{}", self)

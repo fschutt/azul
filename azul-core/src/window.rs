@@ -7,7 +7,7 @@ use std::{
     path::PathBuf,
     ffi::c_void,
 };
-use azul_css::{CssProperty, U8Vec, ColorU, AzString, LayoutPoint, LayoutRect, CssPath};
+use azul_css::{CssProperty, LayoutSize, U8Vec, ColorU, AzString, LayoutPoint, LayoutRect, CssPath};
 use crate::{
     FastHashMap,
     app_resources::{AppResources, Epoch, FontImageApi},
@@ -17,7 +17,7 @@ use crate::{
     ui_solver::{OverflowingScrollNode, HitTest, LayoutResult, ExternalScrollId},
     display_list::{GlTextureCache, RenderCallbacks},
     callbacks::{LayoutCallback, LayoutCallbackType},
-    task::{TimerId, Timer, Task},
+    task::{TimerId, Timer, ThreadId, Thread},
 };
 
 #[cfg(feature = "opengl")]
@@ -690,7 +690,7 @@ impl WindowInternal {
     #[cfg(feature = "opengl")]
     pub fn new<U: FontImageApi>(init: WindowInternalInit, data: &RefAny, app_resources: &mut AppResources, gl_context: &GlContextPtr, render_api: &mut U, callbacks: RenderCallbacks<U>) -> Self {
 
-        use crate::callbacks::{LayoutInfo, LayoutInfoPtr};
+        use crate::callbacks::LayoutInfo;
         use crate::display_list::SolvedLayout;
 
         let mut stop_sizes_width = Vec::new();
@@ -701,16 +701,14 @@ impl WindowInternal {
         let styled_dom = {
 
             let layout_callback = current_window_state.layout_callback.clone();
-            let layout_info = LayoutInfo {
-                window_size: &current_window_state.size,
-                window_size_width_stops: &mut stop_sizes_width,
-                window_size_height_stops: &mut stop_sizes_height,
-                resources: app_resources,
-            };
-            let layout_info_ptr = LayoutInfoPtr { ptr: Box::into_raw(Box::new(layout_info)) as *mut c_void };
+            let layout_info = LayoutInfo::new(
+                &current_window_state.size,
+                &mut stop_sizes_width,
+                &mut stop_sizes_height,
+                app_resources,
+            );
 
-            // TODO: remove the .clone()!
-            let mut styled_dom = (layout_callback.cb)(data.clone(), layout_info_ptr);
+            let mut styled_dom = (layout_callback.cb)(data, layout_info);
 
             let hovered_nodes = current_window_state.hovered_nodes.get(&DomId::ROOT_ID).map(|k| k.regular_hit_test_nodes.keys().cloned().collect::<Vec<_>>()).unwrap_or_default();
             let active_nodes = if !current_window_state.mouse_state.mouse_down() { Vec::new() } else { hovered_nodes.clone() };
@@ -758,7 +756,7 @@ impl WindowInternal {
     #[cfg(feature = "opengl")]
     pub fn regenerate_styled_dom<U: FontImageApi>(&mut self, data: &RefAny, app_resources: &mut AppResources, gl_context: &GlContextPtr, render_api: &mut U, callbacks: RenderCallbacks<U>) {
 
-        use crate::callbacks::{LayoutInfo, LayoutInfoPtr};
+        use crate::callbacks::LayoutInfo;
         use crate::display_list::SolvedLayout;
 
         // TODO: Use these "stop sizes" to optimize not calling layout() on redrawing!
@@ -768,16 +766,14 @@ impl WindowInternal {
         let styled_dom = {
 
             let layout_callback = self.current_window_state.layout_callback.clone();
-            let layout_info = LayoutInfo {
-                window_size: &self.current_window_state.size,
-                window_size_width_stops: &mut stop_sizes_width,
-                window_size_height_stops: &mut stop_sizes_height,
-                resources: app_resources,
-            };
-            let layout_info_ptr = LayoutInfoPtr { ptr: Box::into_raw(Box::new(layout_info)) as *mut c_void };
+            let layout_info = LayoutInfo::new(
+                &self.current_window_state.size,
+                &mut stop_sizes_width,
+                &mut stop_sizes_height,
+                app_resources,
+            );
 
-            // TODO: remove clone()
-            let mut styled_dom = (layout_callback.cb)(data.clone(), layout_info_ptr);
+            let mut styled_dom = (layout_callback.cb)(data, layout_info);
 
             let hovered_nodes = self.current_window_state.hovered_nodes.get(&DomId::ROOT_ID).map(|k| k.regular_hit_test_nodes.keys().cloned().collect::<Vec<_>>()).unwrap_or_default();
             let active_nodes = if !self.current_window_state.mouse_state.mouse_down() { Vec::new() } else { hovered_nodes.clone() };
@@ -811,10 +807,6 @@ impl WindowInternal {
         self.epoch.0 += 1;
     }
 
-    // Only do the restyling
-
-    // Only do the relayout
-
     /// Returns a copy of the current scroll states + scroll positions
     pub fn get_current_scroll_states(&self) -> BTreeMap<DomId, BTreeMap<AzNodeId, ScrollPosition>> {
 
@@ -837,6 +829,13 @@ impl WindowInternal {
                 Some((DomId { inner: dom_id }, scroll_positions))
             }
         }).collect()
+    }
+
+    pub fn get_layout_size(&self) -> LayoutSize {
+        LayoutSize::new(
+            self.current_window_state.size.dimensions.width.round() as isize,
+            self.current_window_state.size.dimensions.height.round() as isize
+        )
     }
 }
 
@@ -1110,7 +1109,7 @@ pub struct CallCallbacksResult {
     /// Timers that were added in the callbacks
     pub timers: FastHashMap<TimerId, Timer>,
     /// Tasks that were added in the callbacks
-    pub tasks: Vec<Task>,
+    pub threads: FastHashMap<ThreadId, Thread>,
     /// Windows that were created in the callbacks
     pub windows_created: Vec<WindowCreateOptions>,
     /// Whether the cursor changed in the callbacks

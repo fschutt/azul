@@ -5,7 +5,6 @@
 			"classes": {
 				"String": {
 					"external": "azul_impl::css::AzString",
-					"derive": ["PartialEq", "Eq", "PartialOrd", "Ord", "Hash"],
 					"struct_fields": [
 						{ "vec": { "type": "U8Vec" } }
 					],
@@ -45,7 +44,7 @@
 			"classes": {
 				"StyleTransformVec": {
 					"doc": "Wrapper over a Rust-allocated `Vec<StyleTransform>`",
-					"external": "azul_impl::styled_dom::StyleTransformVec",
+					"external": "azul_impl::css::StyleTransformVec",
 					"struct_fields": [
 						{ "ptr": { "type": "*mut StyleTransform" } },
 						{ "len": { "type": "usize" } },
@@ -54,7 +53,7 @@
 					"constructors": {
 						"new": {
 							"doc": "Creates a new, empty Rust `Vec<StyleTransform>`",
-							"fn_body": "Vec::<AzStyleTransformp>::new().into()"
+							"fn_body": "Vec::<AzStyleTransform>::new().into()"
 						},
 						"with_capacity": {
 							"doc": "Creates a new, empty Rust `Vec<StyleTransform>` with a given, pre-allocated capacity",
@@ -395,14 +394,14 @@
 					"constructors": {
 						"new": {
 							"doc": "Creates a new, empty Rust `Vec<CascadeInfo>`",
-							"fn_body": "Vec::<CascadeInfo>::new().into()"
+							"fn_body": "Vec::<AzCascadeInfo>::new().into()"
 						},
 						"with_capacity": {
 							"doc": "Creates a new, empty Rust `Vec<CascadeInfo>` with a given, pre-allocated capacity",
 							"fn_args": [
 							    {"cap": "usize"}
 							],
-							"fn_body": "Vec::<CascadeInfo>::with_capacity(cap).into()"
+							"fn_body": "Vec::<AzCascadeInfo>::with_capacity(cap).into()"
 						},
 					    "copy_from": {
 					        "doc": "Creates + allocates a Rust `Vec<CascadeInfo>` by **copying** it from a bytes source",
@@ -891,7 +890,7 @@
 					"constructors": {
 						"new": {
 							"doc": "Creates a new, empty Rust `Vec<NodeId>`",
-							"fn_body": "Vec::<NodeId>::new().into()"
+							"fn_body": "Vec::<AzNodeId>::new().into()"
 						},
 						"with_capacity": {
 							"doc": "Creates a new, empty Rust `Vec<NodeId>` with a given, pre-allocated capacity",
@@ -913,7 +912,7 @@
 				},
 				"NodeVec": {
 					"doc": "Wrapper over a Rust-allocated `NodeVec`",
-					"external": "azul_impl::styled_dom::NodeVec",
+					"external": "azul_impl::styled_dom::AzNodeVec",
 					"struct_fields": [
 						{ "ptr": { "type": "*mut Node" } },
 						{ "len": { "type": "usize" } },
@@ -922,7 +921,7 @@
 					"constructors": {
 						"new": {
 							"doc": "Creates a new, empty Rust `Vec<Node>`",
-							"fn_body": "Vec::<Node>::new().into()"
+							"fn_body": "Vec::<AzNode>::new().into()"
 						},
 						"with_capacity": {
 							"doc": "Creates a new, empty Rust `Vec<Node>` with a given, pre-allocated capacity",
@@ -953,7 +952,7 @@
 					"constructors": {
 						"new": {
 							"doc": "Creates a new, empty Rust `Vec<StyledNode>`",
-							"fn_body": "Vec::<StyledNode>::new().into()"
+							"fn_body": "Vec::<AzStyledNode>::new().into()"
 						},
 						"with_capacity": {
 							"doc": "Creates a new, empty Rust `Vec<StyledNode>` with a given, pre-allocated capacity",
@@ -984,7 +983,7 @@
 					"constructors": {
 						"new": {
 							"doc": "Creates a new, empty Rust `Vec<TagIdToNodeIdMapping>`",
-							"fn_body": "Vec::<TagIdToNodeIdMapping>::new().into()"
+							"fn_body": "Vec::<AzTagIdToNodeIdMapping>::new().into()"
 						},
 						"with_capacity": {
 							"doc": "Creates a new, empty Rust `Vec<TagIdToNodeIdMapping>` with a given, pre-allocated capacity",
@@ -1015,7 +1014,7 @@
 					"constructors": {
 						"new": {
 							"doc": "Creates a new, empty Rust `Vec<ParentWithNodeDepth>`",
-							"fn_body": "Vec::<ParentWithNodeDepth>::new().into()"
+							"fn_body": "Vec::<AzParentWithNodeDepth>::new().into()"
 						},
 						"with_capacity": {
 							"doc": "Creates a new, empty Rust `Vec<ParentWithNodeDepth>` with a given, pre-allocated capacity",
@@ -1071,6 +1070,27 @@
 		"option": {
 			"doc": "Definition of azuls internal `Option<*>` wrappers",
 			"classes": {
+				"OptionThreadSendMsg": {
+					"external": "azul_impl::task::OptionThreadSendMsg",
+					"enum_fields": [
+						{"None": {}},
+						{"Some": { "type": "ThreadReceiveMsg" }}
+					]
+				},
+				"OptionLayoutRect": {
+					"external": "azul_impl::css::OptionLayoutRect",
+					"enum_fields": [
+						{"None": {}},
+						{"Some": { "type": "LayoutRect" }}
+					]
+				},
+				"OptionRefAny": {
+					"external": "azul_impl::callbacks::OptionRefAny",
+					"enum_fields": [
+						{"None": {}},
+						{"Some": { "type": "RefAny" }}
+					]
+				},
 				"OptionStyleOpacityValue": {
 					"external": "azul_impl::css::OptionStyleOpacityValue",
 					"enum_fields": [
@@ -1107,14 +1127,14 @@
 					]
 				},
 				"OptionLayoutPoint": {
-					"external": "azul_impl::window::OptionLayoutPoint",
+					"external": "azul_impl::css::OptionLayoutPoint",
 					"enum_fields": [
 						{"None": {}},
 						{"Some": { "type": "LayoutPoint" }}
 					]
 				},
 				"OptionWindowTheme": {
-					"external": "azul_impl::window::OptionTheme",
+					"external": "azul_impl::window::OptionWindowTheme",
 					"enum_fields": [
 						{"None": {}},
 						{"Some": { "type": "WindowTheme" }}
@@ -1785,13 +1805,6 @@
 						{"Ok": {"type": "Svg"}},
 						{"Err": { "type": "SvgParseError" }}
 					]
-				},
-				"ResultRefAnyBlockError": {
-					"external": "azul_impl::task::ResultRefAnyBlockError",
-					"enum_fields": [
-						{"Ok": {"type": "RefAny"}},
-						{"Err": { "type": "BlockError" }}
-					]
 				}
 			}
 		},
@@ -1971,7 +1984,6 @@
 					"external": "azul_impl::task::AzInstantPtr",
 					"rust_class_name": "std::time::Instant",
 					"is_boxed_object": true,
-					"derive": ["PartialEq", "Eq", "PartialOrd", "Ord"],
 					"constructors": {
 						"now": {
 							"fn_body": "std::time::Instant::now()"
@@ -2026,13 +2038,13 @@
 			"doc": "Callback type definitions + struct definitions of `CallbackInfo`s",
 			"classes": {
 				"NodeId": {
-					"external": "azul_impl::callbacks::NodeId",
+					"external": "azul_impl::styled_dom::AzNodeId",
 					"struct_fields": [
 						{"inner": {"type": "usize"}}
 					]
 				},
 				"DomId": {
-					"external": "azul_impl::callbacks::DomId",
+					"external": "azul_impl::styled_dom::DomId",
 					"struct_fields": [
 						{"inner": {"type": "usize"}}
 					]
@@ -2087,7 +2099,6 @@
 
 				"Callback": {
 					"external": "azul_impl::callbacks::Callback",
-					"derive": ["PartialEq", "Eq", "PartialOrd", "Ord", "Hash"],
 					"struct_fields": [
 						{"cb": {"type": "CallbackType"}}
 					]
@@ -2095,7 +2106,6 @@
 				"FocusTarget": {
 					"external": "azul_impl::callbacks::FocusTarget",
 					"doc": "Defines the focus target for the next frame",
-					"derive": ["PartialEq", "Eq", "PartialOrd", "Ord", "Hash"],
 					"enum_fields": [
 						{"Id": {"type": "DomNodeId"}},
 						{"Path": {"type": "FocusTargetPath"}},
@@ -2106,7 +2116,6 @@
 				},
 				"FocusTargetPath": {
 					"external": "azul_impl::callbacks::FocusTargetPath",
-					"derive": ["PartialEq", "Eq", "PartialOrd", "Ord", "Hash"],
 					"struct_fields": [
 						{"dom": {"type": "DomId"}},
 						{"css_path": {"type": "CssPath"}}
@@ -2114,9 +2123,27 @@
 				},
 				"CallbackType": { "use_patches": ["dll", "rust"], "typedef": true },
 				"CallbackInfo": {
-					"external": "azul_impl::callbacks::CallbackInfoPtr",
-					"rust_class_name": "CallbackInfo<'a>",
-					"is_boxed_object": true,
+					"external": "azul_impl::callbacks::CallbackInfo",
+					"clone": false,
+					"struct_fields": [
+						{"current_window_state": {"type": "*const c_void"}},
+						{"modifiable_window_state": {"type": "*mut WindowState"}},
+						{"gl_context": {"type": "*const GlContextPtr"}},
+						{"resources": {"type": "*mut c_void"}},
+						{"timers": {"type": "*mut c_void"}},
+						{"threads": {"type": "*mut c_void"}},
+						{"new_windows": {"type": "*mut c_void"}},
+						{"current_window_handle": {"type": "*const RawWindowHandle"}},
+						{"layout_results": {"type": "*const c_void"}},
+						{"stop_propagation": {"type": "*mut bool"}},
+						{"focus_target": {"type": "*const c_void"}},
+						{"current_scroll_states": {"type": "*const c_void"}},
+						{"css_properties_changed_in_callbacks": {"type": "*const c_void"}},
+						{"nodes_scrolled_in_callback": {"type": "*const c_void"}},
+						{"hit_dom_node": {"type": "DomNodeId"}},
+						{"cursor_relative_to_item": {"type": "OptionLayoutPoint"}},
+						{"cursor_in_viewport": {"type": "OptionLayoutPoint"}}
+					],
 					"functions": {
 						"get_hit_node": {
 							"doc": "Returns the `DomNodeId` of the element that the callback was attached to.",
@@ -2124,7 +2151,7 @@
 								{"self": "ref"}
 							],
 							"returns": "DomNodeId",
-							"fn_body": "az_callback_info_ptr_downcast_ref(callbackinfo, |ci| { *ci.hit_dom_node })"
+							"fn_body": "callbackinfo.get_hit_node()"
 						},
 						"get_cursor_relative_to_viewport": {
 							"doc": "Returns the `LayoutPoint` of the cursor in the viewport (relative to the origin of the `Dom`). Set to `None` if the cursor is not in the current window.",
@@ -2132,7 +2159,7 @@
 								{"self": "ref"}
 							],
 							"returns": "OptionLayoutPoint",
-							"fn_body": "az_callback_info_ptr_downcast_ref(callbackinfo, |ci| { *ci.cursor_in_viewport.into() })"
+							"fn_body": "callbackinfo.get_cursor_relative_to_viewport()"
 						},
 						"get_cursor_relative_to_node": {
 							"doc": "Returns the `LayoutPoint` of the cursor in the viewport (relative to the origin of the `Dom`). Set to `None` if the cursor is not hovering over the current node.",
@@ -2140,7 +2167,7 @@
 								{"self": "ref"}
 							],
 							"returns": "OptionLayoutPoint",
-							"fn_body": "az_callback_info_ptr_downcast_ref(callbackinfo, |ci| { *ci.cursor_relative_to_item.into() })"
+							"fn_body": "callbackinfo.get_cursor_relative_to_node()"
 						},
 						"get_parent": {
 							"doc": "Returns the parent `DomNodeId` of the given `DomNodeId`. Returns `None` on an invalid NodeId.",
@@ -2149,7 +2176,7 @@
 								{"node_id": "DomNodeId"}
 							],
 							"returns": "OptionDomNodeId",
-							"fn_body": "az_callback_info_ptr_downcast_ref(callbackinfo, |ci| { ci.layout_results.get(node_id.dom.inner as usize).and_then(|layout_result| layout_result.styled_dom.node_hierarchy.as_container().get(node_id.node.into_crate_internal()?)?.parent_id()).map(|nid| DomNodeId { dom: node_id.dom, node: AzNodeId::from_crate_internal(Some(nid)) }).into() })"
+							"fn_body": "callbackinfo.get_parent(node_id).into()"
 						},
 						"get_previous_sibling": {
 							"doc": "Returns the previous siblings `DomNodeId` of the given `DomNodeId`. Returns `None` on an invalid NodeId.",
@@ -2158,7 +2185,7 @@
 								{"node_id": "DomNodeId"}
 							],
 							"returns": "OptionDomNodeId",
-							"fn_body": "az_callback_info_ptr_downcast_ref(callbackinfo, |ci| { ci.layout_results.get(node_id.dom.inner as usize).and_then(|layout_result| layout_result.styled_dom.node_hierarchy.as_container().get(node_id.node.into_crate_internal()?)?.previous_sibling_id()).map(|nid| DomNodeId { dom: node_id.dom, node: AzNodeId::from_crate_internal(Some(nid)) }).into() })"
+							"fn_body": "callbackinfo.get_previous_sibling(node_id).into()"
 						},
 						"get_next_sibling": {
 							"doc": "Returns the next siblings `DomNodeId` of the given `DomNodeId`. Returns `None` on an invalid NodeId.",
@@ -2167,7 +2194,7 @@
 								{"node_id": "DomNodeId"}
 							],
 							"returns": "OptionDomNodeId",
-							"fn_body": "az_callback_info_ptr_downcast_ref(callbackinfo, |ci| { ci.layout_results.get(node_id.dom.inner as usize).and_then(|layout_result| layout_result.styled_dom.node_hierarchy.as_container().get(node_id.node.into_crate_internal()?)?.next_sibling_id()).map(|nid| DomNodeId { dom: node_id.dom, node: AzNodeId::from_crate_internal(Some(nid)) }).into() })"
+							"fn_body": "callbackinfo.get_next_sibling(node_id).into()"
 						},
 						"get_first_child": {
 							"doc": "Returns the next siblings `DomNodeId` of the given `DomNodeId`. Returns `None` on an invalid NodeId.",
@@ -2176,7 +2203,7 @@
 								{"node_id": "DomNodeId"}
 							],
 							"returns": "OptionDomNodeId",
-							"fn_body": "az_callback_info_ptr_downcast_ref(callbackinfo, |ci| { ci.layout_results.get(node_id.dom.inner as usize).and_then(|layout_result| layout_result.styled_dom.node_hierarchy.as_container().get(node_id.node.into_crate_internal()?)?.first_child_id()).map(|nid| DomNodeId { dom: node_id.dom, node: AzNodeId::from_crate_internal(Some(nid)) }).into() })"
+							"fn_body": "callbackinfo.get_first_child(node_id).into()"
 						},
 						"get_last_child": {
 							"doc": "Returns the next siblings `DomNodeId` of the given `DomNodeId`. Returns `None` on an invalid NodeId.",
@@ -2185,7 +2212,16 @@
 								{"node_id": "DomNodeId"}
 							],
 							"returns": "OptionDomNodeId",
-							"fn_body": "az_callback_info_ptr_downcast_ref(callbackinfo, |ci| { ci.layout_results.get(node_id.dom.inner as usize).and_then(|layout_result| layout_result.styled_dom.node_hierarchy.as_container().get(node_id.node.into_crate_internal()?)?.last_child_id()).map(|nid| DomNodeId { dom: node_id.dom, node: AzNodeId::from_crate_internal(Some(nid)) }).into() })"
+							"fn_body": "callbackinfo.get_last_child(node_id).into()"
+						},
+						"get_dataset": {
+							"doc": "Returns the `Dataset` of the given `DomNodeId`. Returns `None` on an invalid NodeId.",
+							"fn_args": [
+								{"self": "ref"},
+								{"node_id": "DomNodeId"}
+							],
+							"returns": "OptionRefAny",
+							"fn_body": "callbackinfo.get_dataset(node_id).into()"
 						},
 						"get_window_state": {
 							"doc": "Returns a copy of the current windows `WindowState`.",
@@ -2193,7 +2229,7 @@
 								{"self": "ref"}
 							],
 							"returns": "WindowState",
-							"fn_body": "az_callback_info_ptr_downcast_ref(callbackinfo, |ci| { ci.current_window_state.clone() })"
+							"fn_body": "callbackinfo.get_window_state()"
 						},
 						"get_keyboard_state": {
 							"doc": "Returns a copy of the internal `KeyboardState`. Same as `self.get_window_state().keyboard_state`",
@@ -2201,7 +2237,7 @@
 								{"self": "ref"}
 							],
 							"returns": "KeyboardState",
-							"fn_body": "az_callback_info_ptr_downcast_ref(callbackinfo, |ci| ci.current_window_state.keyboard_state.clone())"
+							"fn_body": "callbackinfo.get_keyboard_state()"
 						},
 						"get_mouse_state": {
 							"doc": "Returns a copy of the internal `MouseState`. Same as `self.get_window_state().mouse_state`",
@@ -2209,7 +2245,7 @@
 								{"self": "ref"}
 							],
 							"returns": "MouseState",
-							"fn_body": "az_callback_info_ptr_downcast_ref(callbackinfo, |ci| ci.current_window_state.mouse_state.clone())"
+							"fn_body": "callbackinfo.get_mouse_state()"
 						},
 						"get_current_window_handle": {
 							"doc": "Returns a copy of the current windows `RawWindowHandle`.",
@@ -2217,7 +2253,7 @@
 								{"self": "ref"}
 							],
 							"returns": "RawWindowHandle",
-							"fn_body": "az_callback_info_ptr_downcast_ref(callbackinfo, |ci| { ci.current_window_handle.clone() })"
+							"fn_body": "callbackinfo.get_current_window_handle()"
 						},
 						"get_gl_context": {
 							"doc": "Returns a **reference-counted copy** of the current windows `GlContextPtr`. You can use this to render OpenGL textures.",
@@ -2225,37 +2261,7 @@
 								{"self": "ref"}
 							],
 							"returns": "GlContextPtr",
-							"fn_body": "az_callback_info_ptr_downcast_ref(callbackinfo, |ci| { ci.gl_context.clone() })"
-						},
-						"node_is_type": {
-							"doc": "Returns whether the node has a given `NodeType`. Returns `false` on an invalid NodeId.",
-							"fn_args": [
-								{"self": "ref"},
-								{"node_id": "DomNodeId"},
-								{"node_type": "NodeType"}
-							],
-							"returns": "bool",
-							"fn_body": "az_callback_info_ptr_downcast_ref(callbackinfo, |ci| { ci.layout_results.get(node_id.dom.inner as usize).and_then(|layout_result| Some(layout_result.styled_dom.node_data.as_container().get(node_id.node.into_crate_internal()?)?.is_node_type(node_type))).unwrap_or(false) })"
-						},
-						"node_has_id": {
-							"doc": "Returns whether the node has a given `id`. Returns `false` on an invalid NodeId.",
-							"fn_args": [
-								{"self": "ref"},
-								{"node_id": "DomNodeId"},
-								{"id": "String"}
-							],
-							"returns": "bool",
-							"fn_body": "az_callback_info_ptr_downcast_ref(callbackinfo, |ci| { ci.layout_results.get(node_id.dom.inner as usize).and_then(|layout_result| Some(layout_result.styled_dom.node_data.as_container().get(node_id.node.into_crate_internal()?)?.has_id(id.as_str()))).unwrap_or(false) })"
-						},
-						"node_has_class": {
-							"doc": "Returns whether the node has a given `id`. Returns `false` on an invalid NodeId.",
-							"fn_args": [
-								{"self": "ref"},
-								{"node_id": "DomNodeId"},
-								{"id": "String"}
-							],
-							"returns": "bool",
-							"fn_body": "az_callback_info_ptr_downcast_ref(callbackinfo, |ci| { ci.layout_results.get(node_id.dom.inner as usize).and_then(|layout_result| Some(layout_result.styled_dom.node_data.as_container().get(node_id.node.into_crate_internal()?)?.has_class(class.as_str()))).unwrap_or(false) })"
+							"fn_body": "callbackinfo.get_gl_context()"
 						},
 						"set_window_state": {
 							"doc": "Sets the new `WindowState` for the next frame. The window is updated after all callbacks are run.",
@@ -2263,7 +2269,7 @@
 								{"self": "refmut"},
 								{"new_state": "WindowState"}
 							],
-							"fn_body": "az_callback_info_ptr_downcast_refmut(callbackinfo, |ci| { *ci.modifiable_window_state = new_state; })"
+							"fn_body": "callbackinfo.set_window_state(new_state);"
 						},
 						"set_focus": {
 							"doc": "Sets the new `FocusTarget` for the next frame. Note that this will emit a `On::FocusLost` and `On::FocusReceived` event, if the focused node has changed.",
@@ -2271,7 +2277,7 @@
 								{"self": "refmut"},
 								{"target": "FocusTarget"}
 							],
-							"fn_body": "az_callback_info_ptr_downcast_refmut(callbackinfo, |ci| { *ci.focus_target = Some(target); })"
+							"fn_body": "callbackinfo.set_focus(target);"
 						},
 						"set_css_property": {
 							"doc": "Sets a `CssProperty` on a given ndoe to its new value. If this property change affects the layout, this will automatically trigger a relayout and redraw of the screen.",
@@ -2280,14 +2286,14 @@
 								{"node_id": "DomNodeId"},
 								{"new_property": "CssProperty"}
 							],
-							"fn_body": "az_callback_info_ptr_downcast_ref(callbackinfo, |ci| { if let Some(nid) = node_id.node.into_crate_internal() { *ci.css_properties_changed_in_callbacks.entry(node_id.dom.inner as usize).or_insert_with(|| BTreeMap::new()).entry(nid).or_insert_with(|| Vec::new()).push(new_property); } })"
+							"fn_body": "callbackinfo.set_css_property(node_id, new_property); "
 						},
 						"stop_propagation": {
 							"doc": "Stops the propagation of the current callback event type to the parent. Events are bubbled from the inside out (children first, then parents), this event stops the propagation of the event to the parent.",
 							"fn_args": [
 								{"self": "refmut"}
 							],
-							"fn_body": "az_callback_info_ptr_downcast_refmut(callbackinfo, |ci| { *ci.stop_propagation = true; })"
+							"fn_body": "callbackinfo.stop_propagation();"
 						},
 						"create_window": {
 							"doc": "Spawns a new window with the given `WindowCreateOptions`.",
@@ -2295,24 +2301,27 @@
 								{"self": "refmut"},
 								{"new_window": "WindowCreateOptions"}
 							],
-							"fn_body": "az_callback_info_ptr_downcast_ref(callbackinfo, |ci| { ci.new_windows.push(new_window); })"
+							"fn_body": "callbackinfo.create_window(new_window);"
 						},
-						"add_task": {
-							"doc": "Adds a new `Task` to the runtime. See the documentation for `Task` for more information.",
+						"start_thread": {
+							"doc": "Starts a new `Thread` to the runtime. See the documentation for `Thread` for more information.",
 							"fn_args": [
 								{"self": "refmut"},
-								{"task": "Task"}
+								{"id": "ThreadId"},
+								{"thread_initialize_data": "RefAny"},
+								{"writeback_data": "RefAny"},
+								{"callback": "ThreadCallbackType"}
 							],
-							"fn_body": "az_callback_info_ptr_downcast_refmut(callbackinfo, |ci| { *ci.tasks.push(task); })"
+							"fn_body": "callbackinfo.start_thread(id, thread_initialize_data, writeback_data, callback);"
 						},
-						"add_timer": {
+						"start_timer": {
 							"doc": "Adds a new `Timer` to the runtime. See the documentation for `Timer` for more information.",
 							"fn_args": [
 								{"self": "refmut"},
 								{"id": "TimerId"},
 								{"timer": "Timer"}
 							],
-							"fn_body": "az_callback_info_ptr_downcast_refmut(callbackinfo, |ci| { *ci.timers.insert(id, timer); })"
+							"fn_body": "callbackinfo.start_timer(id, timer);"
 						}
 					}
 				},
@@ -2335,40 +2344,19 @@
 				},
 				"IFrameCallbackType": { "use_patches": ["dll", "rust"], "typedef": true },
 				"IFrameCallbackInfo": {
-					"external": "azul_impl::callbacks::IFrameCallbackInfoPtr",
-					"rust_class_name": "IFrameCallbackInfo<'a>",
-					"is_boxed_object": true,
-					"functions": {
-						"get_state": {
-							"doc": "Returns a copy of the internal `RefAny`",
-							"fn_args": [
-								{"self": "ref"}
-							],
-							"returns": "RefAny",
-							"fn_body": "az_i_frame_callback_info_ptr_downcast_ref(iframecallbackinfo, |ci| ci.state.clone())"
-						},
-						"get_style_options": {
-							"doc": "Returns a copy of the internal `StyleOptions`",
-							"fn_args": [
-								{"self": "ref"}
-							],
-							"returns": "StyleOptions",
-							"fn_body": "az_i_frame_callback_info_ptr_downcast_ref(iframecallbackinfo, |ci| ci.style_options.clone())"
-						},
-						"get_bounds": {
-							"doc": "Returns a copy of the internal `HidpiAdjustedBounds`",
-							"fn_args": [
-								{"self": "ref"}
-							],
-							"returns": "HidpiAdjustedBounds",
-							"fn_body": "az_i_frame_callback_info_ptr_downcast_ref(iframecallbackinfo, |ci| ci.bounds.clone())"
-						}
-					}
+					"external": "azul_impl::callbacks::IFrameCallbackInfo",
+					"clone": false,
+					"struct_fields": [
+						{"resources": {"type": "*const c_void"}},
+						{"bounds": {"type": "HidpiAdjustedBounds"}}
+					]
 				},
 				"IFrameCallbackReturn": {
 					"external": "azul_impl::callbacks::IFrameCallbackReturn",
 					"struct_fields": [
-						{"dom": { "type": "StyledDom" }}
+						{"dom": { "type": "StyledDom" }},
+						{"size": {"type": "LayoutRect"}},
+						{"virtual_size": {"type": "OptionLayoutRect"}}
 					]
 				},
 
@@ -2380,25 +2368,21 @@
 				},
 				"GlCallbackType": { "use_patches": ["dll", "rust"], "typedef": true },
 				"GlCallbackInfo": {
-					"external": "azul_impl::callbacks::GlCallbackInfoPtr",
-					"rust_class_name": "GlCallbackInfo<'a>",
-					"is_boxed_object": true,
+					"external": "azul_impl::callbacks::GlCallbackInfo",
+					"clone": false,
+					"struct_fields": [
+						{"gl_context": {"type": "*const GlContextPtr"}},
+						{"resources": {"type": "*const c_void"}},
+						{"bounds": {"type": "HidpiAdjustedBounds"}}
+					],
 					"functions": {
-						"get_state": {
-							"doc": "Returns a copy of the internal `RefAny`",
-							"fn_args": [
-								{"self": "ref"}
-							],
-							"returns": "RefAny",
-							"fn_body": "az_gl_callback_info_ptr_downcast_ref(glcallbackinfo, |ci| ci.state.clone())"
-						},
 						"get_gl_context": {
 							"doc": "Returns a copy of the internal `GlContextPtr`",
 							"fn_args": [
 								{"self": "ref"}
 							],
 							"returns": "GlContextPtr",
-							"fn_body": "az_gl_callback_info_ptr_downcast_ref(glcallbackinfo, |ci| ci.gl_context.clone())"
+							"fn_body": "glcallbackinfo.get_gl_context()"
 						},
 						"get_bounds": {
 							"doc": "Returns a copy of the internal `HidpiAdjustedBounds`",
@@ -2406,7 +2390,7 @@
 								{"self": "ref"}
 							],
 							"returns": "HidpiAdjustedBounds",
-							"fn_body": "az_gl_callback_info_ptr_downcast_ref(glcallbackinfo, |ci| ci.bounds.clone())"
+							"fn_body": "glcallbackinfo.get_bounds()"
 						}
 					}
 				},
@@ -2426,19 +2410,13 @@
 				},
 				"TimerCallbackType": { "use_patches": ["dll", "rust"], "typedef": true },
 				"TimerCallbackInfo": {
-					"external": "azul_impl::callbacks::TimerCallbackInfoPtr",
-					"rust_class_name": "azul_impl::callbacks::TimerCallbackInfo<'a>",
-					"is_boxed_object": true,
-					"functions": {
-						"get_state": {
-							"doc": "Returns a copy of the internal `RefAny`",
-							"fn_args": [
-								{"self": "ref"}
-							],
-							"returns": "RefAny",
-							"fn_body": "az_timer_callback_info_ptr_downcast_ref(timercallbackinfo, |ci| ci.state.clone())"
-						}
-					}
+					"external": "azul_impl::callbacks::TimerCallbackInfo",
+					"clone": false,
+					"struct_fields": [
+						{"callback_info": {"type": "CallbackInfo"}},
+						{"frame_start": {"type": "Instant"}},
+						{"call_count": {"type": "usize"}}
+					]
 				},
 				"TimerCallbackReturn": {
 					"external": "azul_impl::callbacks::TimerCallbackReturn",
@@ -2448,12 +2426,19 @@
 					]
 				},
 
+				"WriteBackCallbackType": { "use_patches": ["dll", "rust"], "typedef": true },
+				"WriteBackCallback": {
+					"external": "azul_impl::callbacks::WriteBackCallback",
+					"struct_fields": [
+						{"cb": {"type": "WriteBackCallbackType"}}
+					]
+				},
+
 				"ThreadCallbackType": { "use_patches": ["dll", "rust"], "typedef": true },
-				"TaskCallbackType": { "use_patches": ["dll", "rust"], "typedef": true },
 				"RefAnyDestructorType": { "use_patches": ["dll", "rust"], "typedef": true },
 
-				"RefAnySharingInfo": {
-					"external": "azul_impl::callbacks::RefAnySharingInfo",
+				"AtomicRefCount": {
+					"external": "azul_impl::callbacks::AtomicRefCount",
 					"struct_fields": [
 						{"ptr": {"type": "*const c_void"}}
 					],
@@ -2464,45 +2449,44 @@
 								{"self": "ref"}
 							],
 							"returns": "bool",
-							"fn_body": "refanysharinginfo.can_be_shared()"
+							"fn_body": "atomicrefcount.can_be_shared()"
 						},
 						"can_be_shared_mut": {
 							"fn_args": [
 								{"self": "ref"}
 							],
 							"returns": "bool",
-							"fn_body": "refanysharinginfo.can_be_shared_mut()"
+							"fn_body": "atomicrefcount.can_be_shared_mut()"
 						},
 						"increase_ref": {
 							"fn_args": [
 								{"self": "refmut"}
 							],
-							"fn_body": "refanysharinginfo.increase_ref()"
+							"fn_body": "atomicrefcount.increase_ref()"
 						},
 						"decrease_ref": {
 							"fn_args": [
 								{"self": "refmut"}
 							],
-							"fn_body": "refanysharinginfo.decrease_ref()"
+							"fn_body": "atomicrefcount.decrease_ref()"
 						},
 						"increase_refmut": {
 							"fn_args": [
 								{"self": "refmut"}
 							],
-							"fn_body": "refanysharinginfo.increase_refmut()"
+							"fn_body": "atomicrefcount.increase_refmut()"
 						},
 						"decrease_refmut": {
 							"fn_args": [
 								{"self": "refmut"}
 							],
-							"fn_body": "refanysharinginfo.decrease_refmut()"
+							"fn_body": "atomicrefcount.decrease_refmut()"
 						}
 					}
 				},
 				"RefAny": {
 					"external": "azul_impl::callbacks::RefAny",
 					"doc": "RefAny is a reference-counted, type-erased pointer, which stores a reference to a struct. `RefAny` can be up- and downcasted (this usually done via generics and can't be expressed in the Rust API)",
-					"derive": ["PartialEq", "Eq", "PartialOrd", "Ord", "Hash"],
 					"struct_fields": [
 						{"_internal_ptr":  {"type": "*const c_void", "doc": "Pointer to the type-erased struct"}},
 						{"_internal_len":  {"type": "usize", "doc": "Length of Vec holding type-erased struct"}},
@@ -2510,7 +2494,7 @@
 						{"_internal_layout_align":  {"type": "usize", "doc": "Alignment of the type-erased struct (usually 0 or 8)"}},
 						{"type_id":  {"type": "u64", "doc": "TypeId that can uniquely identify the type of the struct, usually generated by the compiler (i.e. in Rust it would be `std::any::TypeId`)"}},
 						{"type_name":  {"type": "String", "doc": "Optional, name of the type, usually compiler-generated (in Rust, `std::any::type_name<T>()`)"}},
-						{"_sharing_info_ptr":  {"type": "*const RefAnySharingInfo", "doc": "Pointer to the reference count of this `RefAny`. Calling `.clone()` will not clone the data, only bump the reference count by 1. When the `num_copies` reaches 0, the destructor of this `RefAny` is called"}},
+						{"ref_count":  {"type": "*const AtomicRefCount", "doc": "Pointer to the reference count of this `RefAny`. Calling `.clone()` will not clone the data, only bump the reference count by 1. When the `num_copies` reaches 0, the destructor of this `RefAny` is called"}},
 						{"custom_destructor":  {"type": "RefAnyDestructorType", "doc": "Function pointer to the destructor of `T`. Is called when the `num_copies` count of the `RefAny` reaches 0"}}
 					],
 					"constructors": {
@@ -2582,19 +2566,65 @@
 					}
 				},
 				"LayoutInfo": {
-					"rust_class_name": "LayoutInfo<'a>",
-					"external": "azul_impl::callbacks::LayoutInfoPtr",
-					"is_boxed_object": true
+					"external": "azul_impl::callbacks::LayoutInfo",
+					"clone": false,
+					"struct_fields": [
+						{"window_size": {"type": "*const WindowSize"}},
+						{"window_size_width_stops": {"type": "*mut c_void"}},
+						{"window_size_height_stops": {"type": "*mut c_void"}},
+						{"resources": {"type": "*const c_void"}}
+					],
+					"functions": {
+						"window_width_larger_than": {
+							"fn_args": [
+								{"self": "refmut"},
+								{"width": "f32"}
+							],
+							"returns": "bool",
+							"fn_body": "layoutinfo.window_width_larger_than(width)"
+						},
+						"window_width_smaller_than": {
+							"fn_args": [
+								{"self": "refmut"},
+								{"width": "f32"}
+							],
+							"returns": "bool",
+							"fn_body": "layoutinfo.window_width_smaller_than(width)"
+						},
+						"window_height_larger_than": {
+							"fn_args": [
+								{"self": "refmut"},
+								{"width": "f32"}
+							],
+							"returns": "bool",
+							"fn_body": "layoutinfo.window_height_larger_than(width)"
+						},
+						"window_height_smaller_than": {
+							"fn_args": [
+								{"self": "refmut"},
+								{"width": "f32"}
+							],
+							"returns": "bool",
+							"fn_body": "layoutinfo.window_height_smaller_than(width)"
+						}
+					}
 				},
 				"IFrameCallbackInfo": {
-					"rust_class_name": "IFrameCallbackInfo<'a>",
-					"external": "azul_impl::callbacks::IFrameCallbackInfoPtr",
-					"is_boxed_object": true
+					"external": "azul_impl::callbacks::IFrameCallbackInfo",
+					"clone": false,
+					"struct_fields": [
+						{"resources": {"type": "*const c_void"}},
+						{"bounds": {"type": "HidpiAdjustedBounds"}}
+					]
 				},
 				"GlCallbackInfo": {
-					"rust_class_name": "GlCallbackInfo<'a>",
-					"external": "azul_impl::callbacks::GlCallbackInfoPtr",
-					"is_boxed_object": true,
+					"external": "azul_impl::callbacks::GlCallbackInfo",
+					"clone": false,
+					"struct_fields": [
+						{"gl_context": {"type": "*const GlContextPtr"}},
+						{"resources": {"type": "*const c_void"}},
+						{"bounds": {"type": "HidpiAdjustedBounds"}}
+					],
 					"functions": {
 						"get_gl_context": {
 							"doc": "Returns a copy of the internal `GlContextPtr`",
@@ -2602,7 +2632,7 @@
 								{"self": "ref"}
 							],
 							"returns": "GlContextPtr",
-							"fn_body": "az_gl_callback_info_ptr_downcast_ref(glcallbackinfo, |ci| ci.gl_context.clone())"
+							"fn_body": "glcallbackinfo.get_gl_context()"
 						}
 					}
 				}
@@ -2700,13 +2730,9 @@
 						{"stylesheets": {"type": "StylesheetVec"}}
 					],
 					"constructors": {
-						"native": {
-							"doc": "Loads the native style for the given operating system",
-							"fn_body":"css::native()"
-						},
 						"empty": {
 							"doc": "Returns an empty CSS style",
-							"fn_body":"css::empty()"
+							"fn_body":"AzCss::empty()"
 						},
 						"from_string": {
 							"doc": "Returns a CSS style parsed from a `String`",
@@ -2714,13 +2740,6 @@
 								{"s": "String"}
 							],
 							"fn_body":"css::from_str(s.as_str()).unwrap()"
-						},
-						"override_native": {
-							"doc": "Appends a parsed stylesheet to `Css::native()`",
-							"fn_args": [
-								{"s": "String"}
-							],
-							"fn_body":"css::override_native(s.as_str()).unwrap()"
 						}
 					}
 				},
@@ -3013,7 +3032,6 @@
 				},
 				"GradientStopPre": {
 					"external": "azul_impl::css::GradientStopPre",
-					"derive": ["PartialEq", "Eq", "PartialOrd", "Ord", "Hash"],
 					"struct_fields": [
 						{"offset": {"type": "OptionPercentageValue"}},
 						{"color": {"type": "ColorU"}}
@@ -3317,7 +3335,6 @@
 				},
 				"StyleTransformOrigin": {
 					"external": "azul_impl::css::StyleTransformOrigin",
-					"derive": ["Copy", "Clone", "PartialEq", "Eq", "PartialOrd", "Ord", "Hash"],
 					"struct_fields": [
 						{"x": {"type": "PixelValue"}},
 						{"y": {"type": "PixelValue"}}
@@ -3325,7 +3342,6 @@
 				},
 				"StylePerspectiveOrigin": {
 					"external": "azul_impl::css::StyleTransformOrigin",
-					"derive": ["Copy", "Clone", "PartialEq", "Eq", "PartialOrd", "Ord", "Hash"],
 					"struct_fields": [
 						{"x": {"type": "PixelValue"}},
 						{"y": {"type": "PixelValue"}}
@@ -3333,7 +3349,6 @@
 				},
 				"StyleBackfaceVisibility": {
 					"external": "azul_impl::css::StyleBackfaceVisibility",
-					"derive": ["Copy", "Clone", "PartialEq", "Eq", "PartialOrd", "Ord", "Hash"],
 					"enum_fields": [
 						{"Hidden": {}},
 						{"Visible": {}}
@@ -3341,7 +3356,6 @@
 				},
 				"StyleTransform": {
 					"external": "azul_impl::css::StyleTransform",
-					"derive": ["Copy", "Clone", "PartialEq", "Eq", "PartialOrd", "Ord", "Hash"],
 					"enum_fields": [
 						{"Matrix": {"type": "StyleTransformMatrix2D"}},
 						{"Matrix3D": {"type": "StyleTransformMatrix3D"}},
@@ -3368,7 +3382,6 @@
 				},
 				"StyleTransformMatrix2D": {
 					"external": "azul_impl::css::StyleTransformMatrix2D",
-					"derive": ["Copy", "Clone", "PartialEq", "Eq", "PartialOrd", "Ord", "Hash"],
 					"struct_fields": [
 						{"a": {"type": "PixelValue" }},
 						{"b": {"type": "PixelValue" }},
@@ -3380,7 +3393,6 @@
 				},
 				"StyleTransformMatrix3D": {
 					"external": "azul_impl::css::StyleTransformMatrix3D",
-					"derive": ["Copy", "Clone", "PartialEq", "Eq", "PartialOrd", "Ord", "Hash"],
 					"struct_fields": [
 						{"m11": {"type": "PixelValue"}},
 						{"m12": {"type": "PixelValue"}},
@@ -3402,7 +3414,6 @@
 				},
 				"StyleTransformTranslate2D": {
 					"external": "azul_impl::css::StyleTransformTranslate2D",
-					"derive": ["Copy", "Clone", "PartialEq", "Eq", "PartialOrd", "Ord", "Hash"],
 					"struct_fields": [
 						{"x": {"type": "PixelValue"}},
 						{"y": {"type": "PixelValue"}}
@@ -3410,7 +3421,6 @@
 				},
 				"StyleTransformTranslate3D": {
 					"external": "azul_impl::css::StyleTransformTranslate3D",
-					"derive": ["Copy", "Clone", "PartialEq", "Eq", "PartialOrd", "Ord", "Hash"],
 					"struct_fields": [
 						{"x": {"type": "PixelValue"}},
 						{"y": {"type": "PixelValue"}},
@@ -3419,7 +3429,6 @@
 				},
 				"StyleTransformRotate3D": {
 					"external": "azul_impl::css::StyleTransformRotate3D",
-					"derive": ["Copy", "Clone", "PartialEq", "Eq", "PartialOrd", "Ord", "Hash"],
 					"struct_fields": [
 						{"x": {"type": "PercentageValue"}},
 						{"y": {"type": "PercentageValue"}},
@@ -3429,7 +3438,6 @@
 				},
 				"StyleTransformScale2D": {
 					"external": "azul_impl::css::StyleTransformScale2D",
-					"derive": ["Copy", "Clone", "PartialEq", "Eq", "PartialOrd", "Ord", "Hash"],
 					"struct_fields": [
 						{"x": {"type": "PercentageValue"}},
 						{"y": {"type": "PercentageValue"}}
@@ -3437,7 +3445,6 @@
 				},
 				"StyleTransformScale3D": {
 					"external": "azul_impl::css::StyleTransformScale3D",
-					"derive": ["Copy", "Clone", "PartialEq", "Eq", "PartialOrd", "Ord", "Hash"],
 					"struct_fields": [
 						{"x": {"type": "PercentageValue"}},
 						{"y": {"type": "PercentageValue"}},
@@ -3445,7 +3452,7 @@
 					]
 				},
 				"StyleTransformSkew2D": {
-					"external": "azul_impl::css::StyleTransformSkew",
+					"external": "azul_impl::css::StyleTransformSkew2D",
 					"struct_fields": [
 						{"x": {"type": "PercentageValue"}},
 						{"y": {"type": "PercentageValue"}}
@@ -4189,7 +4196,6 @@
 				"CssProperty": {
 					"doc": "Parsed CSS key-value pair",
 					"external": "azul_impl::css::CssProperty",
-					"derive": ["PartialEq", "Eq", "PartialOrd", "Ord", "Hash"],
 					"enum_fields": [
 						{ "TextColor": { "type": "CssPropertyValue<StyleTextColor>" }} ,
 						{ "FontSize": { "type": "CssPropertyValue<StyleFontSize>" }} ,
@@ -4269,7 +4275,6 @@
 			"classes": {
 				"Node": {
 					"external": "azul_impl::styled_dom::AzNode",
-					"derive": ["PartialEq", "Eq", "PartialOrd", "Ord", "Hash"],
 					"struct_fields": [
 						{"parent": {"type": "usize"}},
 						{"previous_sibling": {"type": "usize"}},
@@ -4279,8 +4284,7 @@
 					]
 				},
 				"CascadeInfo": {
-					"external": "azul_impl::styled_dom::CascadeInfo",
-					"derive": ["PartialEq", "Eq", "PartialOrd", "Ord", "Hash"],
+					"external": "azul_impl::style::CascadeInfo",
 					"struct_fields": [
 						{"index_in_parent": {"type": "u32"}},
 						{"is_last_child": {"type": "bool"}}
@@ -4288,7 +4292,6 @@
 				},
 				"RectStyle": {
 					"external": "azul_impl::css::RectStyle",
-					"derive": ["PartialEq", "Eq", "PartialOrd", "Ord", "Hash"],
 					"struct_fields": [
 						{"background": {"type": "OptionStyleBackgroundContentValue"}},
 						{"background_position": {"type": "OptionStyleBackgroundPositionValue"}},
@@ -4328,7 +4331,6 @@
 				},
 				"RectLayout": {
 					"external": "azul_impl::css::RectLayout",
-					"derive": ["PartialEq", "Eq", "PartialOrd", "Ord", "Hash"],
 					"struct_fields": [
 						{"display": {"type": "OptionLayoutDisplayValue"}},
 						{"float": {"type": "OptionLayoutFloatValue"}},
@@ -4369,7 +4371,6 @@
 				},
 				"CascadedCssPropertyWithSource": {
 					"external": "azul_impl::styled_dom::CascadedCssPropertyWithSource",
-					"derive": ["PartialEq", "Eq", "PartialOrd", "Ord", "Hash"],
 					"struct_fields": [
 						{"prop": {"type": "CssProperty"}},
 						{"source": {"type": "CssPropertySource"}}
@@ -4377,7 +4378,6 @@
 				},
 				"CssPropertySource": {
 					"external": "azul_impl::styled_dom::CssPropertySource",
-					"derive": ["PartialEq", "Eq", "PartialOrd", "Ord", "Hash"],
 					"enum_fields": [
 						{"Css": {"type": "CssPath"}},
 						{"Inline": {}}
@@ -4385,7 +4385,6 @@
 				},
 				"StyledNodeState": {
 					"external": "azul_impl::styled_dom::StyledNodeState",
-					"derive": ["PartialEq", "Eq", "PartialOrd", "Ord", "Hash"],
 					"enum_fields": [
 						{"Uninitialized": {}},
 						{"Normal": {}},
@@ -4396,7 +4395,6 @@
 				},
 				"StyledNode": {
 					"external": "azul_impl::styled_dom::StyledNode",
-					"derive": ["PartialEq", "PartialOrd"],
 					"struct_fields": [
 						{"css_constraints": {"type": "CascadedCssPropertyWithSourceVec", "doc": "Full list of all applied CSS rules (with source mapping) after cascading"}},
 						{"hover_css_constraints": {"type": "CascadedCssPropertyWithSourceVec", "doc": "Full list of all applied CSS rules (with source mapping) after cascading"}},
@@ -4410,14 +4408,12 @@
 				},
 				"TagId": {
 					"external": "azul_impl::styled_dom::AzTagId",
-					"derive": ["PartialEq", "Copy", "Clone", "Eq", "PartialOrd", "Ord", "Hash"],
 					"struct_fields": [
 						{"inner": {"type": "u64"}}
 					]
 				},
 				"TagIdToNodeIdMapping": {
 					"external": "azul_impl::styled_dom::TagIdToNodeIdMapping",
-					"derive": ["PartialEq", "Copy", "PartialOrd", "Ord"],
 					"struct_fields": [
 						{"tag_id": {"type": "TagId"}},
 						{"node_id": {"type": "NodeId"}},
@@ -4426,7 +4422,6 @@
 				},
 				"ParentWithNodeDepth": {
 					"external": "azul_impl::styled_dom::ParentWithNodeDepth",
-					"derive": ["PartialEq", "Copy", "Eq", "PartialOrd", "Ord", "Hash"],
 					"struct_fields": [
 						{"depth": {"type": "usize"}},
 						{"node_id": {"type": "NodeId"}}
@@ -4434,7 +4429,6 @@
 				},
 				"ContentGroup": {
 					"external": "azul_impl::styled_dom::ContentGroup",
-					"derive": ["PartialEq"],
 					"struct_fields": [
 						{"root": {"type": "NodeId" }},
 						{"children": {"type": "ContentGroupVec"}}
@@ -4442,7 +4436,6 @@
 				},
 				"StyledDom": {
 					"external": "azul_impl::styled_dom::StyledDom",
-					"derive": ["PartialEq", "Clone"],
 					"struct_fields": [
 						{"root": {"type": "NodeId" }},
 						{"node_hierarchy": {"type": "NodeVec" }},
@@ -4460,7 +4453,7 @@
 								{"dom": "Dom"},
 								{"css": "Css"}
 							],
-							"fn_body":"StyledDom::new(dom, css)"
+							"fn_body":"AzStyledDom::new(dom, css)"
 						}
 					},
 					"functions": {
@@ -4470,7 +4463,7 @@
 								{"self": "refmut"},
 								{"dom": "StyledDom"}
 							],
-							"fn_body": "styled_dom.append(dom);"
+							"fn_body": "styleddom.append(dom);"
 						}
 					}
 				}
@@ -4481,7 +4474,6 @@
 			"classes": {
 				"Dom": {
 					"external": "azul_impl::dom::Dom",
-					"derive": ["PartialEq", "Eq", "PartialOrd", "Ord", "Hash"],
 					"struct_fields": [
 						{"root": {"type": "NodeData"}},
 						{"children": {"type": "DomVec"}},
@@ -4631,6 +4623,23 @@
 							"returns": "Dom",
 							"fn_body": "az_dom_add_callback(&mut dom, event, data, callback); dom"
 						},
+						"set_dataset": {
+							"doc": "Adds a dataset to the `Dom` root",
+							"fn_args": [
+								{"self": "refmut"},
+								{"data": "RefAny"}
+							],
+							"fn_body": "dom.set_dataset(data);"
+						},
+						"with_dataset": {
+							"doc": "Same as [`Dom::set_dataset`](#method.set_dataset), but as a builder method",
+							"fn_args": [
+								{"self": "mut value"},
+								{"data": "RefAny"}
+							],
+							"returns": "Dom",
+							"fn_body": "az_dom_set_dataset(&mut dom, data); dom"
+						},
 						"add_inline_css": {
 							"doc": "Overrides the CSS property of this DOM node with a value (for example `\"width = 200px\"`)",
 							"fn_args": [
@@ -4750,24 +4759,6 @@
 							"returns": "Dom",
 							"fn_body": "az_dom_set_tab_index(&mut dom, tab_index); dom"
 						},
-						"has_id": {
-							"doc": "Returns if the DOM node has a certain CSS ID",
-							"fn_args": [
-								{"self": "refmut"},
-								{"id": "String"}
-							],
-							"returns": "bool",
-							"fn_body": "dom.has_id(id.as_ref())"
-						},
-						"has_class": {
-							"doc": "Returns if the DOM node has a certain CSS class",
-							"fn_args": [
-								{"self": "refmut"},
-								{"class": "String"}
-							],
-							"returns": "bool",
-							"fn_body": "dom.has_class(class.as_ref())"
-						},
 						"add_child": {
 							"doc": "Reparents another `Dom` to be the child node of this `Dom`",
 							"fn_args": [
@@ -4811,7 +4802,6 @@
 				},
 				"CallbackData": {
 					"external": "azul_impl::dom::CallbackData",
-					"derive": ["PartialEq", "Eq", "PartialOrd", "Ord", "Hash"],
 					"struct_fields": [
 						{"event": {"type": "EventFilter"}},
 						{"callback": {"type": "Callback"}},
@@ -4820,7 +4810,6 @@
 				},
 				"ImageMask": {
 					"external": "azul_impl::dom::ImageMask",
-					"derive": ["PartialEq", "Eq", "PartialOrd", "Ord", "Hash"],
 					"struct_fields": [
 						{"image": {"type": "ImageId"}},
 						{"rect": {"type": "LogicalRect"}},
@@ -4832,6 +4821,7 @@
 					"external": "azul_impl::dom::NodeData",
 					"struct_fields": [
 						{"node_type": {"type": "NodeType", "doc": "Stores the type of the node, i.e. `div`, `img`, `p`, etc."}},
+						{"dataset": {"type": "OptionRefAny", "doc": "`dataset` attribute of the node, useful to store any UI-related data on the node itself"}},
 						{"ids": {"type": "StringVec", "doc": "Stores the ids of the node, i.e. `[#main, #something]`"}},
 						{"classes": {"type": "StringVec", "doc": "Stores the classes of the node, i.e. `[.myclass, .otherclass]`"}},
 						{"callbacks": {"type": "CallbackDataVec", "doc": "Stores the callbacks of the node, i.e. `On::MouseUp` -> `Callback(my_button_click_handler)`"}},
@@ -4969,6 +4959,23 @@
 							],
 							"returns": "NodeData",
 							"fn_body": "az_node_data_set_classes(&mut nodedata, classes); nodedata"
+						},
+						"add_dataset": {
+							"doc": "Adds a dataset to the `NodeData`",
+							"fn_args": [
+								{"self": "refmut"},
+								{"data": "RefAny"}
+							],
+							"fn_body": "nodedata.add_dataset(data);"
+						},
+						"with_dataset": {
+							"doc": "Same as [`NodeData::add_dataset`](#method.add_dataset), but as a builder method",
+							"fn_args": [
+								{"self": "mut value"},
+								{"data": "RefAny"}
+							],
+							"returns": "NodeData",
+							"fn_body": "az_node_data_add_dataset(&mut nodedata, data); nodedata"
 						},
 						"add_callback": {
 							"doc": "Adds a [`Callback`](callbacks/type.Callback) that acts on the `data` the `event` happens",
@@ -5109,24 +5116,6 @@
 							],
 							"returns": "NodeData",
 							"fn_body": "az_node_data_set_tab_index(&mut nodedata, tab_index); nodedata"
-						},
-						"has_id": {
-							"doc": "Returns if the `NodeData` has a certain CSS ID",
-							"fn_args": [
-								{"self": "refmut"},
-								{"id": "String"}
-							],
-							"returns": "bool",
-							"fn_body": "nodedata.has_id(id.as_ref())"
-						},
-						"has_class": {
-							"doc": "Returns if the `NodeData` has a certain CSS class",
-							"fn_args": [
-								{"self": "refmut"},
-								{"class": "String"}
-							],
-							"returns": "bool",
-							"fn_body": "nodedata.has_class(class.as_ref())"
 						}
 					}
 				},
@@ -5185,7 +5174,9 @@
 						{ "Hover": {"type": "HoverEventFilter" } },
 						{ "Not": {"type": "NotEventFilter" } },
 						{ "Focus": {"type": "FocusEventFilter" } },
-						{ "Window": {"type": "WindowEventFilter" } }
+						{ "Window": {"type": "WindowEventFilter" } },
+						{ "Component": { "type": "ComponentEventFilter" } },
+						{ "Application": { "type": "ApplicationEventFilter" } }
 					]
 				},
 				"HoverEventFilter": {
@@ -5283,6 +5274,21 @@
 						{ "ThemeChanged": {}}
 					]
 				},
+				"ComponentEventFilter": {
+					"external": "azul_impl::dom::ComponentEventFilter",
+					"enum_fields": [
+						{"AfterMount": {}},
+						{"BeforeUnmount": {}},
+						{"NodeResized": {}}
+					]
+				},
+				"ApplicationEventFilter": {
+					"external": "azul_impl::dom::ApplicationEventFilter",
+					"enum_fields": [
+						{"DeviceConnected": {}},
+						{"DeviceDisconnected": {}}
+					]
+				},
 				"TabIndex": {
 					"external": "azul_impl::dom::TabIndex",
 					"enum_fields": [
@@ -5370,7 +5376,6 @@
 				},
 				"DebugMessage": {
 					"external": "azul_impl::gl::AzDebugMessage",
-					"derive": ["PartialEq", "Eq", "PartialOrd", "Ord", "Hash"],
 					"struct_fields": [
 						{"message": {"type": "String"}},
 						{"source": {"type": "u32"}},
@@ -7298,7 +7303,6 @@
 				},
 				"ImageId": {
 					"external": "azul_impl::resources::ImageId",
-					"derive": ["PartialEq", "Eq", "PartialOrd", "Ord", "Hash"],
 					"struct_fields": [
 						{ "id": { "type": "usize" } }
 					],
@@ -7649,15 +7653,11 @@
 		"task": {
 			"doc": "Asyncronous timers / task / thread handlers for easy async loading",
 			"classes": {
-				"DropCheckPtr": {
-					"external": "azul_impl::task::DropCheckPtr",
-					"rust_class_name": "azul_impl::task::DropCheck",
-					"is_boxed_object": true
-				},
-				"ArcMutexRefAny": {
-					"external": "azul_impl::task::ArcMutexRefAnyPtr",
-					"rust_class_name": "std::sync::Arc<std::sync::Mutex<RefAny>>",
-					"is_boxed_object": true
+				"TimerId": {
+					"external": "azul_impl::task::TimerId",
+					"struct_fields": [
+						{"id": {"type": "usize"}}
+					]
 				},
 				"Timer": {
 					"external": "azul_impl::task::Timer",
@@ -7670,63 +7670,6 @@
 						{"callback": {"type": "TimerCallback", "doc": "Callback to be called for this timer"}}
 					]
 				},
-				"Task": {
-					"external": "azul_impl::task::Task",
-					"constructors": {
-						"new": {
-							"doc": "Creates and starts a new `Task`",
-							"fn_args": [
-								{"data": "ArcMutexRefAny"},
-								{"callback": "TaskCallbackType"}
-							],
-							"fn_body": "azul_impl::task::Task::new(data, callback)"
-						}
-					},
-					"functions": {
-						"then": {
-							"doc": "Creates and starts a new `Task`",
-							"fn_args": [
-								{"self": "value"},
-								{"timer": "Timer"}
-							],
-							"returns": "Task",
-							"fn_body": "AzTaskPtr { ptr: Box::into_raw(Box::new(az_task_ptr_downcast(task).then(timer))) as *mut c_void }"
-						}
-					}
-				},
-				"Thread": {
-					"external": "azul_impl::task::Thread",
-					"constructors": {
-						"new": {
-							"doc": "Creates and starts a new thread that calls the `callback` on the `data`.",
-							"fn_args": [
-								{"data": "RefAny"},
-								{"callback": "ThreadCallbackType"}
-							],
-							"fn_body": "Thread::new(data, callback)"
-						}
-					},
-					"functions": {
-						"block": {
-							"doc": "Blocks until the internal thread has finished and returns the result of the operation",
-							"fn_args": [
-								{"self": "value"}
-							],
-							"returns": "ResultRefAnyBlockError",
-							"fn_body": "(*az_thread_ptr_downcast(thread)).block()"
-						}
-					}
-				},
-				"DropCheck": {
-					"external": "azul_impl::task::DropCheckPtr",
-					"is_boxed_object": true
-				},
-				"TimerId": {
-					"external": "azul_impl::task::TimerId",
-					"struct_fields": [
-						{"id": {"type": "usize"}}
-					]
-				},
 				"TerminateTimer": {
 					"external": "azul_impl::task::TerminateTimer",
 					"doc": "Should a timer terminate or not - used to remove active timers",
@@ -7735,12 +7678,66 @@
 						{"Continue": {"doc": "Do nothing and let the timers continue to run"}}
 					]
 				},
-				"BlockError": {
-					"external": "azul_impl::task::BlockError",
+				"ThreadSender": {
+					"external": "azul_impl::task::ThreadSender",
+					"clone": false,
+					"struct_fields": [
+						{"ptr": {"type": "*const c_void"}}
+					],
+					"functions": {
+						"send": {
+							"fn_args": [
+								{"self": "refmut"},
+								{"msg": "ThreadReceiveMsg"}
+							],
+							"returns": "bool",
+							"fn_body": "threadsender.send(msg)"
+						}
+					}
+				},
+				"ThreadReceiver": {
+					"external": "azul_impl::task::ThreadReceiver",
+					"clone": false,
+					"struct_fields": [
+						{"ptr": {"type": "*const c_void"}}
+					],
+					"functions": {
+						"receive": {
+							"fn_args": [
+								{"self": "refmut"}
+							],
+							"returns": "OptionThreadSendMsg",
+							"fn_body": "threadreceiver.recv().into()"
+						}
+					}
+				},
+				"ThreadSendMsg": {
+					"external": "azul_impl::task::ThreadSendMsg",
 					"enum_fields": [
-						{"ArcUnlockError": {"doc": "Arc::into_inner() failed"}},
-						{"ThreadJoinError": {"doc": "The background thread panicked"}},
-						{"MutexIntoInnerError": {"doc": "Mutex::into_inner() failed"}}
+						{"TerminateThread": {}},
+						{"Tick": {}}
+					]
+				},
+				"ThreadReceiveMsg": {
+					"external": "azul_impl::task::ThreadReceiveMsg",
+					"clone": false,
+					"enum_fields": [
+						{"WriteBack": {"type": "ThreadWriteBackMsg"}},
+						{"Update": {"type": "UpdateScreen"}}
+					]
+				},
+				"ThreadWriteBackMsg": {
+					"external": "azul_impl::task::ThreadWriteBackMsg",
+					"clone": false,
+					"struct_fields": [
+						{"data": {"type": "RefAny"}},
+						{"callback": {"type": "WriteBackCallback"}}
+					]
+				},
+				"ThreadId": {
+					"external": "azul_impl::task::ThreadId",
+					"struct_fields": [
+						{"id": {"type": "usize"}}
 					]
 				}
 			}
@@ -7749,16 +7746,28 @@
 			"doc": "Window creation / startup configuration",
 			"classes": {
 				"LayoutPoint": {
-					"external": "azul_impl::window::RawWindowHandle",
-					"derive": ["Debug", "Copy", "Clone", "PartialEq", "Eq", "PartialOrd", "Ord", "Hash"],
+					"external": "azul_impl::css::LayoutPoint",
 					"struct_fields": [
 						{"x": {"type": "isize"}},
 						{"y": {"type": "isize"}}
 					]
 				},
+				"LayoutSize": {
+					"external": "azul_impl::css::LayoutSize",
+					"struct_fields": [
+						{"width": {"type": "isize"}},
+						{"height": {"type": "isize"}}
+					]
+				},
+				"LayoutRect": {
+					"external": "azul_impl::css::LayoutRect",
+					"struct_fields": [
+						{"origin": {"type": "LayoutPoint"}},
+						{"size": {"type": "LayoutSize"}}
+					]
+				},
 				"RawWindowHandle": {
 					"external": "azul_impl::window::RawWindowHandle",
-					"derive": ["Debug", "Copy", "Clone", "PartialEq", "Eq", "PartialOrd", "Ord", "Hash"],
 					"enum_fields": [
 						{"IOS": {"type": "IOSHandle"}},
 						{"MacOS": {"type": "MacOSHandle"}},
@@ -7773,7 +7782,6 @@
 				},
 				"IOSHandle": {
 					"external": "azul_impl::window::IOSHandle",
-					"derive": ["Debug", "Copy", "Clone", "PartialEq", "Eq", "PartialOrd", "Ord", "Hash"],
 					"struct_fields": [
 						{"ui_window": {"type": "*mut c_void"}},
 						{"ui_view": {"type": "*mut c_void"}},
@@ -7782,7 +7790,6 @@
 				},
 				"MacOSHandle": {
 					"external": "azul_impl::window::MacOSHandle",
-					"derive": ["Debug", "Copy", "Clone", "PartialEq", "Eq", "PartialOrd", "Ord", "Hash"],
 					"struct_fields": [
 						{"ns_window": {"type": "*mut c_void"}},
 						{"ns_view": {"type": "*mut c_void"}}
@@ -7790,7 +7797,6 @@
 				},
 				"XlibHandle": {
 					"external": "azul_impl::window::XlibHandle",
-					"derive": ["Debug", "Copy", "Clone", "PartialEq", "Eq", "PartialOrd", "Ord", "Hash"],
 					"struct_fields": [
 						{"window": {"type": "u64", "doc": "An Xlib Window"}},
 						{"display": {"type": "*mut c_void", "doc": "A pointer to an Xlib `Display`"}}
@@ -7798,7 +7804,6 @@
 				},
 				"XcbHandle": {
 					"external": "azul_impl::window::XcbHandle",
-					"derive": ["Debug", "Copy", "Clone", "PartialEq", "Eq", "PartialOrd", "Ord", "Hash"],
 					"struct_fields": [
 						{"window": {"type": "u32", "doc": "An X11 `xcb_window_t`"}},
 						{"connection": {"type": "*mut c_void", "doc": "A pointer to an X server `xcb_connection_t`"}}
@@ -7806,7 +7811,6 @@
 				},
 				"WaylandHandle": {
 					"external": "azul_impl::window::WaylandHandle",
-					"derive": ["Debug", "Copy", "Clone", "PartialEq", "Eq", "PartialOrd", "Ord", "Hash"],
 					"struct_fields": [
 						{"surface": {"type": "*mut c_void", "doc": "A pointer to a `wl_surface`"}},
 						{"display": {"type": "*mut c_void", "doc": "A pointer to a `wl_display`"}}
@@ -7814,7 +7818,6 @@
 				},
 				"WindowsHandle": {
 					"external": "azul_impl::window::WindowsHandle",
-					"derive": ["Debug", "Copy", "Clone", "PartialEq", "Eq", "PartialOrd", "Ord", "Hash"],
 					"struct_fields": [
 						{"hwnd": {"type": "*mut c_void", "doc": "A Win32 HWND handle"}},
 						{"hinstance": {"type": "*mut c_void", "doc": "The HINSTANCE associated with this type's HWND"}}
@@ -7822,14 +7825,12 @@
 				},
 				"WebHandle": {
 					"external": "azul_impl::window::WebHandle",
-					"derive": ["Debug", "Copy", "Clone", "PartialEq", "Eq", "PartialOrd", "Ord", "Hash"],
 					"struct_fields": [
 						{"id": {"type": "u32", "doc": "An ID value inserted into the data attributes of the canvas element as 'raw-handle'. Invalid = 0."}}
 					]
 				},
 				"AndroidHandle": {
 					"external": "azul_impl::window::AndroidHandle",
-					"derive": ["Debug", "Copy", "Clone", "PartialEq", "Eq", "PartialOrd", "Ord", "Hash"],
 					"struct_fields": [
 						{"a_native_window": {"type": "*mut c_void", "doc": "A pointer to an ANativeWindow"}}
 					]
@@ -7862,7 +7863,6 @@
 				},
 				"PhysicalPositionI32": {
 					"external": "azul_impl::window::PhysicalPosition<i32>",
-					"derive": ["PartialEq", "Eq", "PartialOrd", "Ord", "Hash"],
 					"struct_fields": [
 						{"x": {"type": "i32"}},
 						{"y": {"type": "i32"}}
@@ -7870,7 +7870,6 @@
 				},
 				"PhysicalSizeU32": {
 					"external": "azul_impl::window::PhysicalSize<u32>",
-					"derive": ["PartialEq", "Eq", "PartialOrd", "Ord", "Hash"],
 					"struct_fields": [
 						{"width": {"type": "u32"}},
 						{"height": {"type": "u32"}}

@@ -1188,31 +1188,30 @@ pub fn do_the_layout<U: FontImageApi>(
 
             for (node_id, iframe_node) in iframes.iter() {
 
-                use azul_core::callbacks::{HidpiAdjustedBounds, IFrameCallbackInfoPtr, IFrameCallbackInfo};
-                use std::ffi::c_void;
+                use azul_core::callbacks::{HidpiAdjustedBounds, IFrameCallbackInfo, IFrameCallbackReturn};
 
                 // Generate a new DomID
                 current_dom_id += 1;
                 let iframe_dom_id = DomId { inner: current_dom_id };
                 iframe_mapping.insert(*node_id, iframe_dom_id);
 
-                let cb = iframe_node.callback;
-                let ptr = &iframe_node.data;
                 let bounds = &layout_result.rects.as_ref()[*node_id];
                 let hidpi_bounds = HidpiAdjustedBounds::from_bounds(bounds.size, full_window_state.size.hidpi_factor);
 
-                // Invoke the IFrame
-                let mut iframe_dom: StyledDom = {
+                // Invoke the IFrame callback
+                let iframe_return: IFrameCallbackReturn = {
 
-                    let callback_info = IFrameCallbackInfo {
-                        state: ptr,
-                        resources: &app_resources,
-                        bounds: hidpi_bounds,
-                    };
+                    let iframe_callback_info = IFrameCallbackInfo::new(
+                        &app_resources,
+                        hidpi_bounds,
+                    );
 
-                    let ptr = IFrameCallbackInfoPtr { ptr: Box::into_raw(Box::new(callback_info)) as *mut c_void };
-                    (cb.cb)(ptr).styled_dom
+                    (iframe_node.callback.cb)(&iframe_node.data, iframe_callback_info)
                 };
+
+                let mut iframe_dom = iframe_return.styled_dom;
+
+                // TODO: use other fields of iframe_return here!
 
                 let hovered_nodes = full_window_state.hovered_nodes.get(&iframe_dom_id).map(|i| i.regular_hit_test_nodes.clone()).unwrap_or_default().keys().cloned().collect::<Vec<_>>();
                 let active_nodes = if !full_window_state.mouse_state.mouse_down() { Vec::new() } else { hovered_nodes.clone() };

@@ -89,14 +89,10 @@
     pub use crate::dll::AzCss as Css;
 
     impl Css {
-        /// Loads the native style for the given operating system
-        pub fn native() -> Self { (crate::dll::get_azul_dll().az_css_native)() }
         /// Returns an empty CSS style
         pub fn empty() -> Self { (crate::dll::get_azul_dll().az_css_empty)() }
         /// Returns a CSS style parsed from a `String`
         pub fn from_string(s: String) -> Self { (crate::dll::get_azul_dll().az_css_from_string)(s) }
-        /// Appends a parsed stylesheet to `Css::native()`
-        pub fn override_native(s: String) -> Self { (crate::dll::get_azul_dll().az_css_override_native)(s) }
     }
 
     impl std::fmt::Debug for Css { fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result { write!(f, "{}", (crate::dll::get_azul_dll().az_css_fmt_debug)(self)) } }

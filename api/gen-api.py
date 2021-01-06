@@ -35,7 +35,8 @@ dll_patches = {
     tuple(['callbacks', 'GlCallbackType']): read_file("./patches/azul-dll/gl_callback_type.rs"),
     tuple(['callbacks', 'IFrameCallbackType']): read_file("./patches/azul-dll/iframe_callback_type.rs"),
     tuple(['callbacks', 'ThreadCallbackType']): read_file("./patches/azul-dll/thread_callback_type.rs"),
-    tuple(['callbacks', 'TaskCallbackType']): read_file("./patches/azul-dll/task_callback_type.rs"),
+    tuple(['callbacks', 'TimerCallbackType']): read_file("./patches/azul-dll/timer_callback_type.rs"),
+    tuple(['callbacks', 'WriteBackCallbackType']): read_file("./patches/azul-dll/write_back_callback_type.rs"),
     tuple(['callbacks', 'RefAnyDestructorType']): read_file("./patches/azul-dll/ref_any_destructor_type.rs"),
 }
 
@@ -54,7 +55,8 @@ rust_api_patches = {
     tuple(['callbacks', 'GlCallbackType']): read_file("./patches/azul.rs/gl_callback_type.rs"),
     tuple(['callbacks', 'IFrameCallbackType']): read_file("./patches/azul.rs/iframe_callback_type.rs"),
     tuple(['callbacks', 'ThreadCallbackType']): read_file("./patches/azul.rs/thread_callback_type.rs"),
-    tuple(['callbacks', 'TaskCallbackType']): read_file("./patches/azul.rs/task_callback_type.rs"),
+    tuple(['callbacks', 'TimerCallbackType']): read_file("./patches/azul.rs/timer_callback_type.rs"),
+    tuple(['callbacks', 'WriteBackCallbackType']): read_file("./patches/azul.rs/write_back_callback_type.rs"),
     tuple(['callbacks', 'RefAnyDestructorType']): read_file("./patches/azul.rs/ref_any_destructor_type.rs"),
 }
 

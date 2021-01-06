@@ -34,7 +34,7 @@ use azul_impl::{
     window::{WindowCreateOptions, WindowState},
     resources::{RawImage, RawImageFormat, FontId, TextId, ImageId},
     app::{App, AppConfig},
-    task::{OptionDuration, Timer, DropCheck, Task, Thread},
+    task::{OptionDuration, Timer, TimerId, Thread},
     gl::{OptionTexture, TextureFlags, Texture, GlContextPtr},
 };
 

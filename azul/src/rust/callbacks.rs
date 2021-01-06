@@ -124,11 +124,10 @@
             let struct_as_bytes = unsafe { ::std::slice::from_raw_parts((&t_id as *const TypeId) as *const u8, mem::size_of::<TypeId>()) };
             struct_as_bytes.into_iter().enumerate().map(|(s_pos, s)| ((*s as u64) << s_pos)).sum()
         }
-    }    use crate::dom::NodeType;
-    use crate::str::String;
-    use crate::window::{WindowCreateOptions, WindowState};
+    }    use crate::window::{WindowCreateOptions, WindowState};
     use crate::css::CssProperty;
-    use crate::task::{Task, Timer, TimerId};
+    use crate::task::{ThreadId, Timer, TimerId};
+    use crate::str::String;
 
 
     /// `NodeId` struct
@@ -210,59 +209,55 @@
     pub use crate::dll::AzCallbackType as CallbackType;
 
     /// `CallbackInfo` struct
-    pub use crate::dll::AzCallbackInfoPtr as CallbackInfo;
+    pub use crate::dll::AzCallbackInfo as CallbackInfo;
 
     impl CallbackInfo {
         /// Returns the `DomNodeId` of the element that the callback was attached to.
-        pub fn get_hit_node(&self)  -> crate::callbacks::DomNodeId { (crate::dll::get_azul_dll().az_callback_info_ptr_get_hit_node)(self) }
+        pub fn get_hit_node(&self)  -> crate::callbacks::DomNodeId { (crate::dll::get_azul_dll().az_callback_info_get_hit_node)(self) }
         /// Returns the `LayoutPoint` of the cursor in the viewport (relative to the origin of the `Dom`). Set to `None` if the cursor is not in the current window.
-        pub fn get_cursor_relative_to_viewport(&self)  -> crate::option::OptionLayoutPoint { (crate::dll::get_azul_dll().az_callback_info_ptr_get_cursor_relative_to_viewport)(self) }
+        pub fn get_cursor_relative_to_viewport(&self)  -> crate::option::OptionLayoutPoint { (crate::dll::get_azul_dll().az_callback_info_get_cursor_relative_to_viewport)(self) }
         /// Returns the `LayoutPoint` of the cursor in the viewport (relative to the origin of the `Dom`). Set to `None` if the cursor is not hovering over the current node.
-        pub fn get_cursor_relative_to_node(&self)  -> crate::option::OptionLayoutPoint { (crate::dll::get_azul_dll().az_callback_info_ptr_get_cursor_relative_to_node)(self) }
+        pub fn get_cursor_relative_to_node(&self)  -> crate::option::OptionLayoutPoint { (crate::dll::get_azul_dll().az_callback_info_get_cursor_relative_to_node)(self) }
         /// Returns the parent `DomNodeId` of the given `DomNodeId`. Returns `None` on an invalid NodeId.
-        pub fn get_parent(&self, node_id: DomNodeId)  -> crate::option::OptionDomNodeId { (crate::dll::get_azul_dll().az_callback_info_ptr_get_parent)(self, node_id) }
+        pub fn get_parent(&self, node_id: DomNodeId)  -> crate::option::OptionDomNodeId { (crate::dll::get_azul_dll().az_callback_info_get_parent)(self, node_id) }
         /// Returns the previous siblings `DomNodeId` of the given `DomNodeId`. Returns `None` on an invalid NodeId.
-        pub fn get_previous_sibling(&self, node_id: DomNodeId)  -> crate::option::OptionDomNodeId { (crate::dll::get_azul_dll().az_callback_info_ptr_get_previous_sibling)(self, node_id) }
+        pub fn get_previous_sibling(&self, node_id: DomNodeId)  -> crate::option::OptionDomNodeId { (crate::dll::get_azul_dll().az_callback_info_get_previous_sibling)(self, node_id) }
         /// Returns the next siblings `DomNodeId` of the given `DomNodeId`. Returns `None` on an invalid NodeId.
-        pub fn get_next_sibling(&self, node_id: DomNodeId)  -> crate::option::OptionDomNodeId { (crate::dll::get_azul_dll().az_callback_info_ptr_get_next_sibling)(self, node_id) }
+        pub fn get_next_sibling(&self, node_id: DomNodeId)  -> crate::option::OptionDomNodeId { (crate::dll::get_azul_dll().az_callback_info_get_next_sibling)(self, node_id) }
         /// Returns the next siblings `DomNodeId` of the given `DomNodeId`. Returns `None` on an invalid NodeId.
-        pub fn get_first_child(&self, node_id: DomNodeId)  -> crate::option::OptionDomNodeId { (crate::dll::get_azul_dll().az_callback_info_ptr_get_first_child)(self, node_id) }
+        pub fn get_first_child(&self, node_id: DomNodeId)  -> crate::option::OptionDomNodeId { (crate::dll::get_azul_dll().az_callback_info_get_first_child)(self, node_id) }
         /// Returns the next siblings `DomNodeId` of the given `DomNodeId`. Returns `None` on an invalid NodeId.
-        pub fn get_last_child(&self, node_id: DomNodeId)  -> crate::option::OptionDomNodeId { (crate::dll::get_azul_dll().az_callback_info_ptr_get_last_child)(self, node_id) }
+        pub fn get_last_child(&self, node_id: DomNodeId)  -> crate::option::OptionDomNodeId { (crate::dll::get_azul_dll().az_callback_info_get_last_child)(self, node_id) }
+        /// Returns the `Dataset` of the given `DomNodeId`. Returns `None` on an invalid NodeId.
+        pub fn get_dataset(&self, node_id: DomNodeId)  -> crate::option::OptionRefAny { (crate::dll::get_azul_dll().az_callback_info_get_dataset)(self, node_id) }
         /// Returns a copy of the current windows `WindowState`.
-        pub fn get_window_state(&self)  -> crate::window::WindowState { (crate::dll::get_azul_dll().az_callback_info_ptr_get_window_state)(self) }
+        pub fn get_window_state(&self)  -> crate::window::WindowState { (crate::dll::get_azul_dll().az_callback_info_get_window_state)(self) }
         /// Returns a copy of the internal `KeyboardState`. Same as `self.get_window_state().keyboard_state`
-        pub fn get_keyboard_state(&self)  -> crate::window::KeyboardState { (crate::dll::get_azul_dll().az_callback_info_ptr_get_keyboard_state)(self) }
+        pub fn get_keyboard_state(&self)  -> crate::window::KeyboardState { (crate::dll::get_azul_dll().az_callback_info_get_keyboard_state)(self) }
         /// Returns a copy of the internal `MouseState`. Same as `self.get_window_state().mouse_state`
-        pub fn get_mouse_state(&self)  -> crate::window::MouseState { (crate::dll::get_azul_dll().az_callback_info_ptr_get_mouse_state)(self) }
+        pub fn get_mouse_state(&self)  -> crate::window::MouseState { (crate::dll::get_azul_dll().az_callback_info_get_mouse_state)(self) }
         /// Returns a copy of the current windows `RawWindowHandle`.
-        pub fn get_current_window_handle(&self)  -> crate::window::RawWindowHandle { (crate::dll::get_azul_dll().az_callback_info_ptr_get_current_window_handle)(self) }
+        pub fn get_current_window_handle(&self)  -> crate::window::RawWindowHandle { (crate::dll::get_azul_dll().az_callback_info_get_current_window_handle)(self) }
         /// Returns a **reference-counted copy** of the current windows `GlContextPtr`. You can use this to render OpenGL textures.
-        pub fn get_gl_context(&self)  -> crate::gl::GlContextPtr { (crate::dll::get_azul_dll().az_callback_info_ptr_get_gl_context)(self) }
-        /// Returns whether the node has a given `NodeType`. Returns `false` on an invalid NodeId.
-        pub fn node_is_type(&self, node_id: DomNodeId, node_type: NodeType)  -> bool { (crate::dll::get_azul_dll().az_callback_info_ptr_node_is_type)(self, node_id, node_type) }
-        /// Returns whether the node has a given `id`. Returns `false` on an invalid NodeId.
-        pub fn node_has_id(&self, node_id: DomNodeId, id: String)  -> bool { (crate::dll::get_azul_dll().az_callback_info_ptr_node_has_id)(self, node_id, id) }
-        /// Returns whether the node has a given `id`. Returns `false` on an invalid NodeId.
-        pub fn node_has_class(&self, node_id: DomNodeId, id: String)  -> bool { (crate::dll::get_azul_dll().az_callback_info_ptr_node_has_class)(self, node_id, id) }
+        pub fn get_gl_context(&self)  -> crate::gl::GlContextPtr { (crate::dll::get_azul_dll().az_callback_info_get_gl_context)(self) }
         /// Sets the new `WindowState` for the next frame. The window is updated after all callbacks are run.
-        pub fn set_window_state(&mut self, new_state: WindowState)  { (crate::dll::get_azul_dll().az_callback_info_ptr_set_window_state)(self, new_state) }
+        pub fn set_window_state(&mut self, new_state: WindowState)  { (crate::dll::get_azul_dll().az_callback_info_set_window_state)(self, new_state) }
         /// Sets the new `FocusTarget` for the next frame. Note that this will emit a `On::FocusLost` and `On::FocusReceived` event, if the focused node has changed.
-        pub fn set_focus(&mut self, target: FocusTarget)  { (crate::dll::get_azul_dll().az_callback_info_ptr_set_focus)(self, target) }
+        pub fn set_focus(&mut self, target: FocusTarget)  { (crate::dll::get_azul_dll().az_callback_info_set_focus)(self, target) }
         /// Sets a `CssProperty` on a given ndoe to its new value. If this property change affects the layout, this will automatically trigger a relayout and redraw of the screen.
-        pub fn set_css_property(&mut self, node_id: DomNodeId, new_property: CssProperty)  { (crate::dll::get_azul_dll().az_callback_info_ptr_set_css_property)(self, node_id, new_property) }
+        pub fn set_css_property(&mut self, node_id: DomNodeId, new_property: CssProperty)  { (crate::dll::get_azul_dll().az_callback_info_set_css_property)(self, node_id, new_property) }
         /// Stops the propagation of the current callback event type to the parent. Events are bubbled from the inside out (children first, then parents), this event stops the propagation of the event to the parent.
-        pub fn stop_propagation(&mut self)  { (crate::dll::get_azul_dll().az_callback_info_ptr_stop_propagation)(self) }
+        pub fn stop_propagation(&mut self)  { (crate::dll::get_azul_dll().az_callback_info_stop_propagation)(self) }
         /// Spawns a new window with the given `WindowCreateOptions`.
-        pub fn create_window(&mut self, new_window: WindowCreateOptions)  { (crate::dll::get_azul_dll().az_callback_info_ptr_create_window)(self, new_window) }
-        /// Adds a new `Task` to the runtime. See the documentation for `Task` for more information.
-        pub fn add_task(&mut self, task: Task)  { (crate::dll::get_azul_dll().az_callback_info_ptr_add_task)(self, task) }
+        pub fn create_window(&mut self, new_window: WindowCreateOptions)  { (crate::dll::get_azul_dll().az_callback_info_create_window)(self, new_window) }
+        /// Starts a new `Thread` to the runtime. See the documentation for `Thread` for more information.
+        pub fn start_thread(&mut self, id: ThreadId, thread_initialize_data: RefAny, writeback_data: RefAny, callback: ThreadCallbackType)  { (crate::dll::get_azul_dll().az_callback_info_start_thread)(self, id, thread_initialize_data, writeback_data, callback) }
         /// Adds a new `Timer` to the runtime. See the documentation for `Timer` for more information.
-        pub fn add_timer(&mut self, id: TimerId, timer: Timer)  { (crate::dll::get_azul_dll().az_callback_info_ptr_add_timer)(self, id, timer) }
+        pub fn start_timer(&mut self, id: TimerId, timer: Timer)  { (crate::dll::get_azul_dll().az_callback_info_start_timer)(self, id, timer) }
     }
 
-    impl std::fmt::Debug for CallbackInfo { fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result { write!(f, "{}", (crate::dll::get_azul_dll().az_callback_info_ptr_fmt_debug)(self)) } }
-    impl Drop for CallbackInfo { fn drop(&mut self) { (crate::dll::get_azul_dll().az_callback_info_ptr_delete)(self); } }
+    impl std::fmt::Debug for CallbackInfo { fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result { write!(f, "{}", (crate::dll::get_azul_dll().az_callback_info_fmt_debug)(self)) } }
+    impl Drop for CallbackInfo { fn drop(&mut self) { (crate::dll::get_azul_dll().az_callback_info_delete)(self); } }
 
 
     /// `UpdateScreen` struct
@@ -288,10 +283,10 @@
     pub use crate::dll::AzIFrameCallbackType as IFrameCallbackType;
 
     /// `IFrameCallbackInfo` struct
-    pub use crate::dll::AzIFrameCallbackInfoPtr as IFrameCallbackInfo;
+    pub use crate::dll::AzIFrameCallbackInfo as IFrameCallbackInfo;
 
-    impl std::fmt::Debug for IFrameCallbackInfo { fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result { write!(f, "{}", (crate::dll::get_azul_dll().az_i_frame_callback_info_ptr_fmt_debug)(self)) } }
-    impl Drop for IFrameCallbackInfo { fn drop(&mut self) { (crate::dll::get_azul_dll().az_i_frame_callback_info_ptr_delete)(self); } }
+    impl std::fmt::Debug for IFrameCallbackInfo { fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result { write!(f, "{}", (crate::dll::get_azul_dll().az_i_frame_callback_info_fmt_debug)(self)) } }
+    impl Drop for IFrameCallbackInfo { fn drop(&mut self) { (crate::dll::get_azul_dll().az_i_frame_callback_info_delete)(self); } }
 
 
     /// `IFrameCallbackReturn` struct
@@ -313,15 +308,15 @@
     pub use crate::dll::AzGlCallbackType as GlCallbackType;
 
     /// `GlCallbackInfo` struct
-    pub use crate::dll::AzGlCallbackInfoPtr as GlCallbackInfo;
+    pub use crate::dll::AzGlCallbackInfo as GlCallbackInfo;
 
     impl GlCallbackInfo {
         /// Returns a copy of the internal `GlContextPtr`
-        pub fn get_gl_context(&self)  -> crate::gl::GlContextPtr { (crate::dll::get_azul_dll().az_gl_callback_info_ptr_get_gl_context)(self) }
+        pub fn get_gl_context(&self)  -> crate::gl::GlContextPtr { (crate::dll::get_azul_dll().az_gl_callback_info_get_gl_context)(self) }
     }
 
-    impl std::fmt::Debug for GlCallbackInfo { fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result { write!(f, "{}", (crate::dll::get_azul_dll().az_gl_callback_info_ptr_fmt_debug)(self)) } }
-    impl Drop for GlCallbackInfo { fn drop(&mut self) { (crate::dll::get_azul_dll().az_gl_callback_info_ptr_delete)(self); } }
+    impl std::fmt::Debug for GlCallbackInfo { fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result { write!(f, "{}", (crate::dll::get_azul_dll().az_gl_callback_info_fmt_debug)(self)) } }
+    impl Drop for GlCallbackInfo { fn drop(&mut self) { (crate::dll::get_azul_dll().az_gl_callback_info_delete)(self); } }
 
 
     /// `GlCallbackReturn` struct
@@ -339,22 +334,13 @@
     impl Drop for TimerCallback { fn drop(&mut self) { (crate::dll::get_azul_dll().az_timer_callback_delete)(self); } }
 
 
-    /// `TimerCallbackType` struct
-    pub use crate::dll::AzTimerCallbackTypePtr as TimerCallbackType;
-
-    impl std::fmt::Debug for TimerCallbackType { fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result { write!(f, "{}", (crate::dll::get_azul_dll().az_timer_callback_type_ptr_fmt_debug)(self)) } }
-
+    pub use crate::dll::AzTimerCallbackType as TimerCallbackType;
 
     /// `TimerCallbackInfo` struct
-    pub use crate::dll::AzTimerCallbackInfoPtr as TimerCallbackInfo;
+    pub use crate::dll::AzTimerCallbackInfo as TimerCallbackInfo;
 
-    impl TimerCallbackInfo {
-        /// Returns a copy of the internal `RefAny`
-        pub fn get_state(&self)  -> crate::callbacks::RefAny { (crate::dll::get_azul_dll().az_timer_callback_info_ptr_get_state)(self) }
-    }
-
-    impl std::fmt::Debug for TimerCallbackInfo { fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result { write!(f, "{}", (crate::dll::get_azul_dll().az_timer_callback_info_ptr_fmt_debug)(self)) } }
-    impl Drop for TimerCallbackInfo { fn drop(&mut self) { (crate::dll::get_azul_dll().az_timer_callback_info_ptr_delete)(self); } }
+    impl std::fmt::Debug for TimerCallbackInfo { fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result { write!(f, "{}", (crate::dll::get_azul_dll().az_timer_callback_info_fmt_debug)(self)) } }
+    impl Drop for TimerCallbackInfo { fn drop(&mut self) { (crate::dll::get_azul_dll().az_timer_callback_info_delete)(self); } }
 
 
     /// `TimerCallbackReturn` struct
@@ -365,32 +351,40 @@
     impl Drop for TimerCallbackReturn { fn drop(&mut self) { (crate::dll::get_azul_dll().az_timer_callback_return_delete)(self); } }
 
 
-    pub use crate::dll::AzThreadCallbackType as ThreadCallbackType;
+    pub use crate::dll::AzWriteBackCallbackType as WriteBackCallbackType;
 
-    pub use crate::dll::AzTaskCallbackType as TaskCallbackType;
+    /// `WriteBackCallback` struct
+    pub use crate::dll::AzWriteBackCallback as WriteBackCallback;
+
+    impl std::fmt::Debug for WriteBackCallback { fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result { write!(f, "{}", (crate::dll::get_azul_dll().az_write_back_callback_fmt_debug)(self)) } }
+    impl Clone for WriteBackCallback { fn clone(&self) -> Self { (crate::dll::get_azul_dll().az_write_back_callback_deep_copy)(self) } }
+    impl Drop for WriteBackCallback { fn drop(&mut self) { (crate::dll::get_azul_dll().az_write_back_callback_delete)(self); } }
+
+
+    pub use crate::dll::AzThreadCallbackType as ThreadCallbackType;
 
     pub use crate::dll::AzRefAnyDestructorType as RefAnyDestructorType;
 
-    /// `RefAnySharingInfo` struct
-    pub use crate::dll::AzRefAnySharingInfo as RefAnySharingInfo;
+    /// `AtomicRefCount` struct
+    pub use crate::dll::AzAtomicRefCount as AtomicRefCount;
 
-    impl RefAnySharingInfo {
-        /// Calls the `RefAnySharingInfo::can_be_shared` function.
-        pub fn can_be_shared(&self)  -> bool { (crate::dll::get_azul_dll().az_ref_any_sharing_info_can_be_shared)(self) }
-        /// Calls the `RefAnySharingInfo::can_be_shared_mut` function.
-        pub fn can_be_shared_mut(&self)  -> bool { (crate::dll::get_azul_dll().az_ref_any_sharing_info_can_be_shared_mut)(self) }
-        /// Calls the `RefAnySharingInfo::increase_ref` function.
-        pub fn increase_ref(&mut self)  { (crate::dll::get_azul_dll().az_ref_any_sharing_info_increase_ref)(self) }
-        /// Calls the `RefAnySharingInfo::decrease_ref` function.
-        pub fn decrease_ref(&mut self)  { (crate::dll::get_azul_dll().az_ref_any_sharing_info_decrease_ref)(self) }
-        /// Calls the `RefAnySharingInfo::increase_refmut` function.
-        pub fn increase_refmut(&mut self)  { (crate::dll::get_azul_dll().az_ref_any_sharing_info_increase_refmut)(self) }
-        /// Calls the `RefAnySharingInfo::decrease_refmut` function.
-        pub fn decrease_refmut(&mut self)  { (crate::dll::get_azul_dll().az_ref_any_sharing_info_decrease_refmut)(self) }
+    impl AtomicRefCount {
+        /// Calls the `AtomicRefCount::can_be_shared` function.
+        pub fn can_be_shared(&self)  -> bool { (crate::dll::get_azul_dll().az_atomic_ref_count_can_be_shared)(self) }
+        /// Calls the `AtomicRefCount::can_be_shared_mut` function.
+        pub fn can_be_shared_mut(&self)  -> bool { (crate::dll::get_azul_dll().az_atomic_ref_count_can_be_shared_mut)(self) }
+        /// Calls the `AtomicRefCount::increase_ref` function.
+        pub fn increase_ref(&mut self)  { (crate::dll::get_azul_dll().az_atomic_ref_count_increase_ref)(self) }
+        /// Calls the `AtomicRefCount::decrease_ref` function.
+        pub fn decrease_ref(&mut self)  { (crate::dll::get_azul_dll().az_atomic_ref_count_decrease_ref)(self) }
+        /// Calls the `AtomicRefCount::increase_refmut` function.
+        pub fn increase_refmut(&mut self)  { (crate::dll::get_azul_dll().az_atomic_ref_count_increase_refmut)(self) }
+        /// Calls the `AtomicRefCount::decrease_refmut` function.
+        pub fn decrease_refmut(&mut self)  { (crate::dll::get_azul_dll().az_atomic_ref_count_decrease_refmut)(self) }
     }
 
-    impl std::fmt::Debug for RefAnySharingInfo { fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result { write!(f, "{}", (crate::dll::get_azul_dll().az_ref_any_sharing_info_fmt_debug)(self)) } }
-    impl Drop for RefAnySharingInfo { fn drop(&mut self) { (crate::dll::get_azul_dll().az_ref_any_sharing_info_delete)(self); } }
+    impl std::fmt::Debug for AtomicRefCount { fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result { write!(f, "{}", (crate::dll::get_azul_dll().az_atomic_ref_count_fmt_debug)(self)) } }
+    impl Drop for AtomicRefCount { fn drop(&mut self) { (crate::dll::get_azul_dll().az_atomic_ref_count_delete)(self); } }
 
 
     /// RefAny is a reference-counted, type-erased pointer, which stores a reference to a struct. `RefAny` can be up- and downcasted (this usually done via generics and can't be expressed in the Rust API)
@@ -423,7 +417,18 @@
 
 
     /// `LayoutInfo` struct
-    pub use crate::dll::AzLayoutInfoPtr as LayoutInfo;
+    pub use crate::dll::AzLayoutInfo as LayoutInfo;
 
-    impl std::fmt::Debug for LayoutInfo { fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result { write!(f, "{}", (crate::dll::get_azul_dll().az_layout_info_ptr_fmt_debug)(self)) } }
-    impl Drop for LayoutInfo { fn drop(&mut self) { (crate::dll::get_azul_dll().az_layout_info_ptr_delete)(self); } }
+    impl LayoutInfo {
+        /// Calls the `LayoutInfo::window_width_larger_than` function.
+        pub fn window_width_larger_than(&mut self, width: f32)  -> bool { (crate::dll::get_azul_dll().az_layout_info_window_width_larger_than)(self, width) }
+        /// Calls the `LayoutInfo::window_width_smaller_than` function.
+        pub fn window_width_smaller_than(&mut self, width: f32)  -> bool { (crate::dll::get_azul_dll().az_layout_info_window_width_smaller_than)(self, width) }
+        /// Calls the `LayoutInfo::window_height_larger_than` function.
+        pub fn window_height_larger_than(&mut self, width: f32)  -> bool { (crate::dll::get_azul_dll().az_layout_info_window_height_larger_than)(self, width) }
+        /// Calls the `LayoutInfo::window_height_smaller_than` function.
+        pub fn window_height_smaller_than(&mut self, width: f32)  -> bool { (crate::dll::get_azul_dll().az_layout_info_window_height_smaller_than)(self, width) }
+    }
+
+    impl std::fmt::Debug for LayoutInfo { fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result { write!(f, "{}", (crate::dll::get_azul_dll().az_layout_info_fmt_debug)(self)) } }
+    impl Drop for LayoutInfo { fn drop(&mut self) { (crate::dll::get_azul_dll().az_layout_info_delete)(self); } }
