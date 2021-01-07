@@ -65,6 +65,5 @@
         pub fn into_bytes(self)  -> crate::vec::U8Vec { (crate::dll::get_azul_dll().az_string_into_bytes)(self) }
     }
 
-    impl std::fmt::Debug for String { fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result { write!(f, "{}", (crate::dll::get_azul_dll().az_string_fmt_debug)(self)) } }
     impl Clone for String { fn clone(&self) -> Self { (crate::dll::get_azul_dll().az_string_deep_copy)(self) } }
     impl Drop for String { fn drop(&mut self) { (crate::dll::get_azul_dll().az_string_delete)(self); } }

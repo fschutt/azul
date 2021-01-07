@@ -135,7 +135,6 @@
         pub fn get_html_string(&self)  -> crate::str::String { (crate::dll::get_azul_dll().az_dom_get_html_string)(self) }
     }
 
-    impl std::fmt::Debug for Dom { fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result { write!(f, "{}", (crate::dll::get_azul_dll().az_dom_fmt_debug)(self)) } }
     impl Clone for Dom { fn clone(&self) -> Self { (crate::dll::get_azul_dll().az_dom_deep_copy)(self) } }
     impl Drop for Dom { fn drop(&mut self) { (crate::dll::get_azul_dll().az_dom_delete)(self); } }
 
@@ -143,7 +142,6 @@
     /// `GlTextureNode` struct
     pub use crate::dll::AzGlTextureNode as GlTextureNode;
 
-    impl std::fmt::Debug for GlTextureNode { fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result { write!(f, "{}", (crate::dll::get_azul_dll().az_gl_texture_node_fmt_debug)(self)) } }
     impl Clone for GlTextureNode { fn clone(&self) -> Self { (crate::dll::get_azul_dll().az_gl_texture_node_deep_copy)(self) } }
     impl Drop for GlTextureNode { fn drop(&mut self) { (crate::dll::get_azul_dll().az_gl_texture_node_delete)(self); } }
 
@@ -151,7 +149,6 @@
     /// `IFrameNode` struct
     pub use crate::dll::AzIFrameNode as IFrameNode;
 
-    impl std::fmt::Debug for IFrameNode { fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result { write!(f, "{}", (crate::dll::get_azul_dll().az_i_frame_node_fmt_debug)(self)) } }
     impl Clone for IFrameNode { fn clone(&self) -> Self { (crate::dll::get_azul_dll().az_i_frame_node_deep_copy)(self) } }
     impl Drop for IFrameNode { fn drop(&mut self) { (crate::dll::get_azul_dll().az_i_frame_node_delete)(self); } }
 
@@ -159,7 +156,6 @@
     /// `CallbackData` struct
     pub use crate::dll::AzCallbackData as CallbackData;
 
-    impl std::fmt::Debug for CallbackData { fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result { write!(f, "{}", (crate::dll::get_azul_dll().az_callback_data_fmt_debug)(self)) } }
     impl Clone for CallbackData { fn clone(&self) -> Self { (crate::dll::get_azul_dll().az_callback_data_deep_copy)(self) } }
     impl Drop for CallbackData { fn drop(&mut self) { (crate::dll::get_azul_dll().az_callback_data_delete)(self); } }
 
@@ -167,7 +163,6 @@
     /// `ImageMask` struct
     pub use crate::dll::AzImageMask as ImageMask;
 
-    impl std::fmt::Debug for ImageMask { fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result { write!(f, "{}", (crate::dll::get_azul_dll().az_image_mask_fmt_debug)(self)) } }
     impl Clone for ImageMask { fn clone(&self) -> Self { (crate::dll::get_azul_dll().az_image_mask_deep_copy)(self) } }
     impl Drop for ImageMask { fn drop(&mut self) { (crate::dll::get_azul_dll().az_image_mask_delete)(self); } }
 
@@ -242,7 +237,6 @@
         pub fn with_tab_index(self, tab_index: OptionTabIndex)  -> crate::dom::NodeData { (crate::dll::get_azul_dll().az_node_data_with_tab_index)(self, tab_index) }
     }
 
-    impl std::fmt::Debug for NodeData { fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result { write!(f, "{}", (crate::dll::get_azul_dll().az_node_data_fmt_debug)(self)) } }
     impl Clone for NodeData { fn clone(&self) -> Self { (crate::dll::get_azul_dll().az_node_data_deep_copy)(self) } }
     impl Drop for NodeData { fn drop(&mut self) { (crate::dll::get_azul_dll().az_node_data_delete)(self); } }
 
@@ -250,7 +244,6 @@
     /// List of core DOM node types built-into by `azul`
     pub use crate::dll::AzNodeType as NodeType;
 
-    impl std::fmt::Debug for NodeType { fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result { write!(f, "{}", (crate::dll::get_azul_dll().az_node_type_fmt_debug)(self)) } }
     impl Clone for NodeType { fn clone(&self) -> Self { (crate::dll::get_azul_dll().az_node_type_deep_copy)(self) } }
     impl Drop for NodeType { fn drop(&mut self) { (crate::dll::get_azul_dll().az_node_type_delete)(self); } }
 
@@ -263,70 +256,61 @@
         pub fn into_event_filter(self)  -> crate::dom::EventFilter { (crate::dll::get_azul_dll().az_on_into_event_filter)(self) }
     }
 
-    impl std::fmt::Debug for On { fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result { write!(f, "{}", (crate::dll::get_azul_dll().az_on_fmt_debug)(self)) } }
-    impl Clone for On { fn clone(&self) -> Self { (crate::dll::get_azul_dll().az_on_deep_copy)(self) } }
-    impl Drop for On { fn drop(&mut self) { (crate::dll::get_azul_dll().az_on_delete)(self); } }
+    impl Clone for On { fn clone(&self) -> Self { *self } }
+    impl Copy for On { }
 
 
     /// `EventFilter` struct
     pub use crate::dll::AzEventFilter as EventFilter;
 
-    impl std::fmt::Debug for EventFilter { fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result { write!(f, "{}", (crate::dll::get_azul_dll().az_event_filter_fmt_debug)(self)) } }
-    impl Clone for EventFilter { fn clone(&self) -> Self { (crate::dll::get_azul_dll().az_event_filter_deep_copy)(self) } }
-    impl Drop for EventFilter { fn drop(&mut self) { (crate::dll::get_azul_dll().az_event_filter_delete)(self); } }
+    impl Clone for EventFilter { fn clone(&self) -> Self { *self } }
+    impl Copy for EventFilter { }
 
 
     /// `HoverEventFilter` struct
     pub use crate::dll::AzHoverEventFilter as HoverEventFilter;
 
-    impl std::fmt::Debug for HoverEventFilter { fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result { write!(f, "{}", (crate::dll::get_azul_dll().az_hover_event_filter_fmt_debug)(self)) } }
-    impl Clone for HoverEventFilter { fn clone(&self) -> Self { (crate::dll::get_azul_dll().az_hover_event_filter_deep_copy)(self) } }
-    impl Drop for HoverEventFilter { fn drop(&mut self) { (crate::dll::get_azul_dll().az_hover_event_filter_delete)(self); } }
+    impl Clone for HoverEventFilter { fn clone(&self) -> Self { *self } }
+    impl Copy for HoverEventFilter { }
 
 
     /// `FocusEventFilter` struct
     pub use crate::dll::AzFocusEventFilter as FocusEventFilter;
 
-    impl std::fmt::Debug for FocusEventFilter { fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result { write!(f, "{}", (crate::dll::get_azul_dll().az_focus_event_filter_fmt_debug)(self)) } }
-    impl Clone for FocusEventFilter { fn clone(&self) -> Self { (crate::dll::get_azul_dll().az_focus_event_filter_deep_copy)(self) } }
-    impl Drop for FocusEventFilter { fn drop(&mut self) { (crate::dll::get_azul_dll().az_focus_event_filter_delete)(self); } }
+    impl Clone for FocusEventFilter { fn clone(&self) -> Self { *self } }
+    impl Copy for FocusEventFilter { }
 
 
     /// `NotEventFilter` struct
     pub use crate::dll::AzNotEventFilter as NotEventFilter;
 
-    impl std::fmt::Debug for NotEventFilter { fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result { write!(f, "{}", (crate::dll::get_azul_dll().az_not_event_filter_fmt_debug)(self)) } }
-    impl Clone for NotEventFilter { fn clone(&self) -> Self { (crate::dll::get_azul_dll().az_not_event_filter_deep_copy)(self) } }
-    impl Drop for NotEventFilter { fn drop(&mut self) { (crate::dll::get_azul_dll().az_not_event_filter_delete)(self); } }
+    impl Clone for NotEventFilter { fn clone(&self) -> Self { *self } }
+    impl Copy for NotEventFilter { }
 
 
     /// `WindowEventFilter` struct
     pub use crate::dll::AzWindowEventFilter as WindowEventFilter;
 
-    impl std::fmt::Debug for WindowEventFilter { fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result { write!(f, "{}", (crate::dll::get_azul_dll().az_window_event_filter_fmt_debug)(self)) } }
-    impl Clone for WindowEventFilter { fn clone(&self) -> Self { (crate::dll::get_azul_dll().az_window_event_filter_deep_copy)(self) } }
-    impl Drop for WindowEventFilter { fn drop(&mut self) { (crate::dll::get_azul_dll().az_window_event_filter_delete)(self); } }
+    impl Clone for WindowEventFilter { fn clone(&self) -> Self { *self } }
+    impl Copy for WindowEventFilter { }
 
 
     /// `ComponentEventFilter` struct
     pub use crate::dll::AzComponentEventFilter as ComponentEventFilter;
 
-    impl std::fmt::Debug for ComponentEventFilter { fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result { write!(f, "{}", (crate::dll::get_azul_dll().az_component_event_filter_fmt_debug)(self)) } }
-    impl Clone for ComponentEventFilter { fn clone(&self) -> Self { (crate::dll::get_azul_dll().az_component_event_filter_deep_copy)(self) } }
-    impl Drop for ComponentEventFilter { fn drop(&mut self) { (crate::dll::get_azul_dll().az_component_event_filter_delete)(self); } }
+    impl Clone for ComponentEventFilter { fn clone(&self) -> Self { *self } }
+    impl Copy for ComponentEventFilter { }
 
 
     /// `ApplicationEventFilter` struct
     pub use crate::dll::AzApplicationEventFilter as ApplicationEventFilter;
 
-    impl std::fmt::Debug for ApplicationEventFilter { fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result { write!(f, "{}", (crate::dll::get_azul_dll().az_application_event_filter_fmt_debug)(self)) } }
-    impl Clone for ApplicationEventFilter { fn clone(&self) -> Self { (crate::dll::get_azul_dll().az_application_event_filter_deep_copy)(self) } }
-    impl Drop for ApplicationEventFilter { fn drop(&mut self) { (crate::dll::get_azul_dll().az_application_event_filter_delete)(self); } }
+    impl Clone for ApplicationEventFilter { fn clone(&self) -> Self { *self } }
+    impl Copy for ApplicationEventFilter { }
 
 
     /// `TabIndex` struct
     pub use crate::dll::AzTabIndex as TabIndex;
 
-    impl std::fmt::Debug for TabIndex { fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result { write!(f, "{}", (crate::dll::get_azul_dll().az_tab_index_fmt_debug)(self)) } }
-    impl Clone for TabIndex { fn clone(&self) -> Self { (crate::dll::get_azul_dll().az_tab_index_deep_copy)(self) } }
-    impl Drop for TabIndex { fn drop(&mut self) { (crate::dll::get_azul_dll().az_tab_index_delete)(self); } }
+    impl Clone for TabIndex { fn clone(&self) -> Self { *self } }
+    impl Copy for TabIndex { }

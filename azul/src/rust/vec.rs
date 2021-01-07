@@ -110,6 +110,7 @@
         // Drop, Debug + Clone already implemented by default
     )}
 
+/*
     macro_rules! impl_vec_partialord {($struct_type:ident, $struct_name:ident) => (
         impl PartialOrd for $struct_name {
             fn partial_cmp(&self, rhs: &Self) -> Option<std::cmp::Ordering> {
@@ -145,69 +146,41 @@
             }
         }
     )}
+*/
 
-    impl_vec!(u8, AzU8Vec);
-    impl_vec_partialord!(u8, AzU8Vec);
-    impl_vec_ord!(u8, AzU8Vec);
-    impl_vec_partialeq!(u8, AzU8Vec);
-    impl_vec_eq!(u8, AzU8Vec);
-    impl_vec_hash!(u8, AzU8Vec);
-
-    impl_vec!(AzCallbackData, AzCallbackDataVec);
-    impl_vec_partialord!(AzCallbackData, AzCallbackDataVec);
-    impl_vec_ord!(AzCallbackData, AzCallbackDataVec);
-    impl_vec_partialeq!(AzCallbackData, AzCallbackDataVec);
-    impl_vec_eq!(AzCallbackData, AzCallbackDataVec);
-    impl_vec_hash!(AzCallbackData, AzCallbackDataVec);
-
+    impl_vec!(u8,  AzU8Vec);
+    impl_vec!(u32, AzU32Vec);
+    impl_vec!(u32, AzScanCodeVec);
+    impl_vec!(u32, AzGLuintVec);
+    impl_vec!(i32, AzGLintVec);
+    impl_vec!(AzStyleTransform, AzStyleTransformVec);
+    impl_vec!(AzContentGroup, AzContentGroupVec);
     impl_vec!(AzCssProperty, AzCssPropertyVec);
-    impl_vec_partialord!(AzCssProperty, AzCssPropertyVec);
-    impl_vec_ord!(AzCssProperty, AzCssPropertyVec);
-    impl_vec_partialeq!(AzCssProperty, AzCssPropertyVec);
-    impl_vec_eq!(AzCssProperty, AzCssPropertyVec);
-    impl_vec_hash!(AzCssProperty, AzCssPropertyVec);
-
-    impl_vec!(AzDom, AzDomVec);
-    impl_vec_partialord!(AzDom, AzDomVec);
-    impl_vec_ord!(AzDom, AzDomVec);
-    impl_vec_partialeq!(AzDom, AzDomVec);
-    impl_vec_eq!(AzDom, AzDomVec);
-    impl_vec_hash!(AzDom, AzDomVec);
-
-    impl_vec!(AzString, AzStringVec);
-    impl_vec_partialord!(AzString, AzStringVec);
-    impl_vec_ord!(AzString, AzStringVec);
-    impl_vec_partialeq!(AzString, AzStringVec);
-    impl_vec_eq!(AzString, AzStringVec);
-    impl_vec_hash!(AzString, AzStringVec);
-
-    impl_vec!(AzGradientStopPre, AzGradientStopPreVec);
-    impl_vec_partialord!(AzGradientStopPre, AzGradientStopPreVec);
-    impl_vec_ord!(AzGradientStopPre, AzGradientStopPreVec);
-    impl_vec_partialeq!(AzGradientStopPre, AzGradientStopPreVec);
-    impl_vec_eq!(AzGradientStopPre, AzGradientStopPreVec);
-    impl_vec_hash!(AzGradientStopPre, AzGradientStopPreVec);
-
+    impl_vec!(AzSvgMultiPolygon, AzSvgMultiPolygonVec);
+    impl_vec!(AzSvgPath, AzSvgPathVec);
+    impl_vec!(AzVertexAttribute, AzVertexAttributeVec);
+    impl_vec!(AzSvgPathElement, AzSvgPathElementVec);
+    impl_vec!(AzSvgVertex, AzSvgVertexVec);
+    impl_vec!(AzXWindowType, AzXWindowTypeVec);
+    impl_vec!(AzVirtualKeyCode, AzVirtualKeyCodeVec);
+    impl_vec!(AzCascadeInfo, AzCascadeInfoVec);
+    impl_vec!(AzCssDeclaration, AzCssDeclarationVec);
+    impl_vec!(AzCssPathSelector, AzCssPathSelectorVec);
+    impl_vec!(AzStylesheet, AzStylesheetVec);
+    impl_vec!(AzCssRuleBlock, AzCssRuleBlockVec);
+    impl_vec!(AzCallbackData, AzCallbackDataVec);
     impl_vec!(AzDebugMessage, AzDebugMessageVec);
-    impl_vec_partialord!(AzDebugMessage, AzDebugMessageVec);
-    impl_vec_ord!(AzDebugMessage, AzDebugMessageVec);
-    impl_vec_partialeq!(AzDebugMessage, AzDebugMessageVec);
-    impl_vec_eq!(AzDebugMessage, AzDebugMessageVec);
-    impl_vec_hash!(AzDebugMessage, AzDebugMessageVec);
-
-    impl_vec!(AzGLint, AzGLintVec);
-    impl_vec_partialord!(AzGLint, AzGLintVec);
-    impl_vec_ord!(AzGLint, AzGLintVec);
-    impl_vec_partialeq!(AzGLint, AzGLintVec);
-    impl_vec_eq!(AzGLint, AzGLintVec);
-    impl_vec_hash!(AzGLint, AzGLintVec);
-
-    impl_vec!(AzGLuint, AzGLuintVec);
-    impl_vec_partialord!(AzGLuint, AzGLuintVec);
-    impl_vec_ord!(AzGLuint, AzGLuintVec);
-    impl_vec_partialeq!(AzGLuint, AzGLuintVec);
-    impl_vec_eq!(AzGLuint, AzGLuintVec);
-    impl_vec_hash!(AzGLuint, AzGLuintVec);
+    impl_vec!(AzDom, AzDomVec);
+    impl_vec!(AzString, AzStringVec);
+    impl_vec!(AzStringPair, AzStringPairVec);
+    impl_vec!(AzGradientStopPre, AzGradientStopPreVec);
+    impl_vec!(AzCascadedCssPropertyWithSource, AzCascadedCssPropertyWithSourceVec);
+    impl_vec!(AzNodeId, AzNodeIdVec);
+    impl_vec!(AzNode, AzNodeVec);
+    impl_vec!(AzStyledNode, AzStyledNodeVec);
+    impl_vec!(AzTagIdToNodeIdMapping, AzTagIdsToNodeIdsMappingVec);
+    impl_vec!(AzParentWithNodeDepth, AzParentWithNodeDepthVec);
+    impl_vec!(AzNodeData, AzNodeDataVec);
 
     impl From<std::vec::Vec<std::string::String>> for crate::vec::StringVec {
         fn from(v: std::vec::Vec<std::string::String>) -> crate::vec::StringVec {
@@ -249,7 +222,6 @@
         pub fn copy_from(ptr: *const AzStyleTransform, len: usize) -> Self { (crate::dll::get_azul_dll().az_style_transform_vec_copy_from)(ptr, len) }
     }
 
-    impl std::fmt::Debug for StyleTransformVec { fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result { write!(f, "{}", (crate::dll::get_azul_dll().az_style_transform_vec_fmt_debug)(self)) } }
     impl Clone for StyleTransformVec { fn clone(&self) -> Self { (crate::dll::get_azul_dll().az_style_transform_vec_deep_copy)(self) } }
     impl Drop for StyleTransformVec { fn drop(&mut self) { (crate::dll::get_azul_dll().az_style_transform_vec_delete)(self); } }
 
@@ -266,7 +238,6 @@
         pub fn copy_from(ptr: *const AzContentGroup, len: usize) -> Self { (crate::dll::get_azul_dll().az_content_group_vec_copy_from)(ptr, len) }
     }
 
-    impl std::fmt::Debug for ContentGroupVec { fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result { write!(f, "{}", (crate::dll::get_azul_dll().az_content_group_vec_fmt_debug)(self)) } }
     impl Clone for ContentGroupVec { fn clone(&self) -> Self { (crate::dll::get_azul_dll().az_content_group_vec_deep_copy)(self) } }
     impl Drop for ContentGroupVec { fn drop(&mut self) { (crate::dll::get_azul_dll().az_content_group_vec_delete)(self); } }
 
@@ -283,7 +254,6 @@
         pub fn copy_from(ptr: *const AzCssProperty, len: usize) -> Self { (crate::dll::get_azul_dll().az_css_property_vec_copy_from)(ptr, len) }
     }
 
-    impl std::fmt::Debug for CssPropertyVec { fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result { write!(f, "{}", (crate::dll::get_azul_dll().az_css_property_vec_fmt_debug)(self)) } }
     impl Clone for CssPropertyVec { fn clone(&self) -> Self { (crate::dll::get_azul_dll().az_css_property_vec_deep_copy)(self) } }
     impl Drop for CssPropertyVec { fn drop(&mut self) { (crate::dll::get_azul_dll().az_css_property_vec_delete)(self); } }
 
@@ -300,7 +270,6 @@
         pub fn copy_from(ptr: *const AzSvgMultiPolygon, len: usize) -> Self { (crate::dll::get_azul_dll().az_svg_multi_polygon_vec_copy_from)(ptr, len) }
     }
 
-    impl std::fmt::Debug for SvgMultiPolygonVec { fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result { write!(f, "{}", (crate::dll::get_azul_dll().az_svg_multi_polygon_vec_fmt_debug)(self)) } }
     impl Clone for SvgMultiPolygonVec { fn clone(&self) -> Self { (crate::dll::get_azul_dll().az_svg_multi_polygon_vec_deep_copy)(self) } }
     impl Drop for SvgMultiPolygonVec { fn drop(&mut self) { (crate::dll::get_azul_dll().az_svg_multi_polygon_vec_delete)(self); } }
 
@@ -317,7 +286,6 @@
         pub fn copy_from(ptr: *const AzSvgPath, len: usize) -> Self { (crate::dll::get_azul_dll().az_svg_path_vec_copy_from)(ptr, len) }
     }
 
-    impl std::fmt::Debug for SvgPathVec { fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result { write!(f, "{}", (crate::dll::get_azul_dll().az_svg_path_vec_fmt_debug)(self)) } }
     impl Clone for SvgPathVec { fn clone(&self) -> Self { (crate::dll::get_azul_dll().az_svg_path_vec_deep_copy)(self) } }
     impl Drop for SvgPathVec { fn drop(&mut self) { (crate::dll::get_azul_dll().az_svg_path_vec_delete)(self); } }
 
@@ -334,7 +302,6 @@
         pub fn copy_from(ptr: *const AzVertexAttribute, len: usize) -> Self { (crate::dll::get_azul_dll().az_vertex_attribute_vec_copy_from)(ptr, len) }
     }
 
-    impl std::fmt::Debug for VertexAttributeVec { fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result { write!(f, "{}", (crate::dll::get_azul_dll().az_vertex_attribute_vec_fmt_debug)(self)) } }
     impl Clone for VertexAttributeVec { fn clone(&self) -> Self { (crate::dll::get_azul_dll().az_vertex_attribute_vec_deep_copy)(self) } }
     impl Drop for VertexAttributeVec { fn drop(&mut self) { (crate::dll::get_azul_dll().az_vertex_attribute_vec_delete)(self); } }
 
@@ -351,7 +318,6 @@
         pub fn copy_from(ptr: *const AzSvgPathElement, len: usize) -> Self { (crate::dll::get_azul_dll().az_svg_path_element_vec_copy_from)(ptr, len) }
     }
 
-    impl std::fmt::Debug for SvgPathElementVec { fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result { write!(f, "{}", (crate::dll::get_azul_dll().az_svg_path_element_vec_fmt_debug)(self)) } }
     impl Clone for SvgPathElementVec { fn clone(&self) -> Self { (crate::dll::get_azul_dll().az_svg_path_element_vec_deep_copy)(self) } }
     impl Drop for SvgPathElementVec { fn drop(&mut self) { (crate::dll::get_azul_dll().az_svg_path_element_vec_delete)(self); } }
 
@@ -368,7 +334,6 @@
         pub fn copy_from(ptr: *const AzSvgVertex, len: usize) -> Self { (crate::dll::get_azul_dll().az_svg_vertex_vec_copy_from)(ptr, len) }
     }
 
-    impl std::fmt::Debug for SvgVertexVec { fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result { write!(f, "{}", (crate::dll::get_azul_dll().az_svg_vertex_vec_fmt_debug)(self)) } }
     impl Clone for SvgVertexVec { fn clone(&self) -> Self { (crate::dll::get_azul_dll().az_svg_vertex_vec_deep_copy)(self) } }
     impl Drop for SvgVertexVec { fn drop(&mut self) { (crate::dll::get_azul_dll().az_svg_vertex_vec_delete)(self); } }
 
@@ -385,7 +350,6 @@
         pub fn copy_from(ptr: *const u32, len: usize) -> Self { (crate::dll::get_azul_dll().az_u32_vec_copy_from)(ptr, len) }
     }
 
-    impl std::fmt::Debug for U32Vec { fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result { write!(f, "{}", (crate::dll::get_azul_dll().az_u32_vec_fmt_debug)(self)) } }
     impl Clone for U32Vec { fn clone(&self) -> Self { (crate::dll::get_azul_dll().az_u32_vec_deep_copy)(self) } }
     impl Drop for U32Vec { fn drop(&mut self) { (crate::dll::get_azul_dll().az_u32_vec_delete)(self); } }
 
@@ -402,7 +366,6 @@
         pub fn copy_from(ptr: *const AzXWindowType, len: usize) -> Self { (crate::dll::get_azul_dll().az_x_window_type_vec_copy_from)(ptr, len) }
     }
 
-    impl std::fmt::Debug for XWindowTypeVec { fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result { write!(f, "{}", (crate::dll::get_azul_dll().az_x_window_type_vec_fmt_debug)(self)) } }
     impl Clone for XWindowTypeVec { fn clone(&self) -> Self { (crate::dll::get_azul_dll().az_x_window_type_vec_deep_copy)(self) } }
     impl Drop for XWindowTypeVec { fn drop(&mut self) { (crate::dll::get_azul_dll().az_x_window_type_vec_delete)(self); } }
 
@@ -419,7 +382,6 @@
         pub fn copy_from(ptr: *const AzVirtualKeyCode, len: usize) -> Self { (crate::dll::get_azul_dll().az_virtual_key_code_vec_copy_from)(ptr, len) }
     }
 
-    impl std::fmt::Debug for VirtualKeyCodeVec { fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result { write!(f, "{}", (crate::dll::get_azul_dll().az_virtual_key_code_vec_fmt_debug)(self)) } }
     impl Clone for VirtualKeyCodeVec { fn clone(&self) -> Self { (crate::dll::get_azul_dll().az_virtual_key_code_vec_deep_copy)(self) } }
     impl Drop for VirtualKeyCodeVec { fn drop(&mut self) { (crate::dll::get_azul_dll().az_virtual_key_code_vec_delete)(self); } }
 
@@ -436,7 +398,6 @@
         pub fn copy_from(ptr: *const AzCascadeInfo, len: usize) -> Self { (crate::dll::get_azul_dll().az_cascade_info_vec_copy_from)(ptr, len) }
     }
 
-    impl std::fmt::Debug for CascadeInfoVec { fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result { write!(f, "{}", (crate::dll::get_azul_dll().az_cascade_info_vec_fmt_debug)(self)) } }
     impl Clone for CascadeInfoVec { fn clone(&self) -> Self { (crate::dll::get_azul_dll().az_cascade_info_vec_deep_copy)(self) } }
     impl Drop for CascadeInfoVec { fn drop(&mut self) { (crate::dll::get_azul_dll().az_cascade_info_vec_delete)(self); } }
 
@@ -453,7 +414,6 @@
         pub fn copy_from(ptr: *const u32, len: usize) -> Self { (crate::dll::get_azul_dll().az_scan_code_vec_copy_from)(ptr, len) }
     }
 
-    impl std::fmt::Debug for ScanCodeVec { fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result { write!(f, "{}", (crate::dll::get_azul_dll().az_scan_code_vec_fmt_debug)(self)) } }
     impl Clone for ScanCodeVec { fn clone(&self) -> Self { (crate::dll::get_azul_dll().az_scan_code_vec_deep_copy)(self) } }
     impl Drop for ScanCodeVec { fn drop(&mut self) { (crate::dll::get_azul_dll().az_scan_code_vec_delete)(self); } }
 
@@ -470,7 +430,6 @@
         pub fn copy_from(ptr: *const AzCssDeclaration, len: usize) -> Self { (crate::dll::get_azul_dll().az_css_declaration_vec_copy_from)(ptr, len) }
     }
 
-    impl std::fmt::Debug for CssDeclarationVec { fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result { write!(f, "{}", (crate::dll::get_azul_dll().az_css_declaration_vec_fmt_debug)(self)) } }
     impl Clone for CssDeclarationVec { fn clone(&self) -> Self { (crate::dll::get_azul_dll().az_css_declaration_vec_deep_copy)(self) } }
     impl Drop for CssDeclarationVec { fn drop(&mut self) { (crate::dll::get_azul_dll().az_css_declaration_vec_delete)(self); } }
 
@@ -487,7 +446,6 @@
         pub fn copy_from(ptr: *const AzCssPathSelector, len: usize) -> Self { (crate::dll::get_azul_dll().az_css_path_selector_vec_copy_from)(ptr, len) }
     }
 
-    impl std::fmt::Debug for CssPathSelectorVec { fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result { write!(f, "{}", (crate::dll::get_azul_dll().az_css_path_selector_vec_fmt_debug)(self)) } }
     impl Clone for CssPathSelectorVec { fn clone(&self) -> Self { (crate::dll::get_azul_dll().az_css_path_selector_vec_deep_copy)(self) } }
     impl Drop for CssPathSelectorVec { fn drop(&mut self) { (crate::dll::get_azul_dll().az_css_path_selector_vec_delete)(self); } }
 
@@ -504,7 +462,6 @@
         pub fn copy_from(ptr: *const AzStylesheet, len: usize) -> Self { (crate::dll::get_azul_dll().az_stylesheet_vec_copy_from)(ptr, len) }
     }
 
-    impl std::fmt::Debug for StylesheetVec { fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result { write!(f, "{}", (crate::dll::get_azul_dll().az_stylesheet_vec_fmt_debug)(self)) } }
     impl Clone for StylesheetVec { fn clone(&self) -> Self { (crate::dll::get_azul_dll().az_stylesheet_vec_deep_copy)(self) } }
     impl Drop for StylesheetVec { fn drop(&mut self) { (crate::dll::get_azul_dll().az_stylesheet_vec_delete)(self); } }
 
@@ -521,7 +478,6 @@
         pub fn copy_from(ptr: *const AzCssRuleBlock, len: usize) -> Self { (crate::dll::get_azul_dll().az_css_rule_block_vec_copy_from)(ptr, len) }
     }
 
-    impl std::fmt::Debug for CssRuleBlockVec { fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result { write!(f, "{}", (crate::dll::get_azul_dll().az_css_rule_block_vec_fmt_debug)(self)) } }
     impl Clone for CssRuleBlockVec { fn clone(&self) -> Self { (crate::dll::get_azul_dll().az_css_rule_block_vec_deep_copy)(self) } }
     impl Drop for CssRuleBlockVec { fn drop(&mut self) { (crate::dll::get_azul_dll().az_css_rule_block_vec_delete)(self); } }
 
@@ -538,7 +494,6 @@
         pub fn copy_from(ptr: *const u8, len: usize) -> Self { (crate::dll::get_azul_dll().az_u8_vec_copy_from)(ptr, len) }
     }
 
-    impl std::fmt::Debug for U8Vec { fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result { write!(f, "{}", (crate::dll::get_azul_dll().az_u8_vec_fmt_debug)(self)) } }
     impl Clone for U8Vec { fn clone(&self) -> Self { (crate::dll::get_azul_dll().az_u8_vec_deep_copy)(self) } }
     impl Drop for U8Vec { fn drop(&mut self) { (crate::dll::get_azul_dll().az_u8_vec_delete)(self); } }
 
@@ -555,7 +510,6 @@
         pub fn copy_from(ptr: *const AzCallbackData, len: usize) -> Self { (crate::dll::get_azul_dll().az_callback_data_vec_copy_from)(ptr, len) }
     }
 
-    impl std::fmt::Debug for CallbackDataVec { fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result { write!(f, "{}", (crate::dll::get_azul_dll().az_callback_data_vec_fmt_debug)(self)) } }
     impl Clone for CallbackDataVec { fn clone(&self) -> Self { (crate::dll::get_azul_dll().az_callback_data_vec_deep_copy)(self) } }
     impl Drop for CallbackDataVec { fn drop(&mut self) { (crate::dll::get_azul_dll().az_callback_data_vec_delete)(self); } }
 
@@ -572,7 +526,6 @@
         pub fn copy_from(ptr: *const AzDebugMessage, len: usize) -> Self { (crate::dll::get_azul_dll().az_debug_message_vec_copy_from)(ptr, len) }
     }
 
-    impl std::fmt::Debug for DebugMessageVec { fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result { write!(f, "{}", (crate::dll::get_azul_dll().az_debug_message_vec_fmt_debug)(self)) } }
     impl Clone for DebugMessageVec { fn clone(&self) -> Self { (crate::dll::get_azul_dll().az_debug_message_vec_deep_copy)(self) } }
     impl Drop for DebugMessageVec { fn drop(&mut self) { (crate::dll::get_azul_dll().az_debug_message_vec_delete)(self); } }
 
@@ -589,7 +542,6 @@
         pub fn copy_from(ptr: *const u32, len: usize) -> Self { (crate::dll::get_azul_dll().az_g_luint_vec_copy_from)(ptr, len) }
     }
 
-    impl std::fmt::Debug for GLuintVec { fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result { write!(f, "{}", (crate::dll::get_azul_dll().az_g_luint_vec_fmt_debug)(self)) } }
     impl Clone for GLuintVec { fn clone(&self) -> Self { (crate::dll::get_azul_dll().az_g_luint_vec_deep_copy)(self) } }
     impl Drop for GLuintVec { fn drop(&mut self) { (crate::dll::get_azul_dll().az_g_luint_vec_delete)(self); } }
 
@@ -606,7 +558,6 @@
         pub fn copy_from(ptr: *const i32, len: usize) -> Self { (crate::dll::get_azul_dll().az_g_lint_vec_copy_from)(ptr, len) }
     }
 
-    impl std::fmt::Debug for GLintVec { fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result { write!(f, "{}", (crate::dll::get_azul_dll().az_g_lint_vec_fmt_debug)(self)) } }
     impl Clone for GLintVec { fn clone(&self) -> Self { (crate::dll::get_azul_dll().az_g_lint_vec_deep_copy)(self) } }
     impl Drop for GLintVec { fn drop(&mut self) { (crate::dll::get_azul_dll().az_g_lint_vec_delete)(self); } }
 
@@ -623,7 +574,6 @@
         pub fn copy_from(ptr: *const AzDom, len: usize) -> Self { (crate::dll::get_azul_dll().az_dom_vec_copy_from)(ptr, len) }
     }
 
-    impl std::fmt::Debug for DomVec { fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result { write!(f, "{}", (crate::dll::get_azul_dll().az_dom_vec_fmt_debug)(self)) } }
     impl Clone for DomVec { fn clone(&self) -> Self { (crate::dll::get_azul_dll().az_dom_vec_deep_copy)(self) } }
     impl Drop for DomVec { fn drop(&mut self) { (crate::dll::get_azul_dll().az_dom_vec_delete)(self); } }
 
@@ -640,7 +590,6 @@
         pub fn copy_from(ptr: *const AzString, len: usize) -> Self { (crate::dll::get_azul_dll().az_string_vec_copy_from)(ptr, len) }
     }
 
-    impl std::fmt::Debug for StringVec { fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result { write!(f, "{}", (crate::dll::get_azul_dll().az_string_vec_fmt_debug)(self)) } }
     impl Clone for StringVec { fn clone(&self) -> Self { (crate::dll::get_azul_dll().az_string_vec_deep_copy)(self) } }
     impl Drop for StringVec { fn drop(&mut self) { (crate::dll::get_azul_dll().az_string_vec_delete)(self); } }
 
@@ -657,7 +606,6 @@
         pub fn copy_from(ptr: *const AzStringPair, len: usize) -> Self { (crate::dll::get_azul_dll().az_string_pair_vec_copy_from)(ptr, len) }
     }
 
-    impl std::fmt::Debug for StringPairVec { fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result { write!(f, "{}", (crate::dll::get_azul_dll().az_string_pair_vec_fmt_debug)(self)) } }
     impl Clone for StringPairVec { fn clone(&self) -> Self { (crate::dll::get_azul_dll().az_string_pair_vec_deep_copy)(self) } }
     impl Drop for StringPairVec { fn drop(&mut self) { (crate::dll::get_azul_dll().az_string_pair_vec_delete)(self); } }
 
@@ -674,7 +622,6 @@
         pub fn copy_from(ptr: *const AzGradientStopPre, len: usize) -> Self { (crate::dll::get_azul_dll().az_gradient_stop_pre_vec_copy_from)(ptr, len) }
     }
 
-    impl std::fmt::Debug for GradientStopPreVec { fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result { write!(f, "{}", (crate::dll::get_azul_dll().az_gradient_stop_pre_vec_fmt_debug)(self)) } }
     impl Clone for GradientStopPreVec { fn clone(&self) -> Self { (crate::dll::get_azul_dll().az_gradient_stop_pre_vec_deep_copy)(self) } }
     impl Drop for GradientStopPreVec { fn drop(&mut self) { (crate::dll::get_azul_dll().az_gradient_stop_pre_vec_delete)(self); } }
 
@@ -691,7 +638,6 @@
         pub fn copy_from(ptr: *const AzCascadedCssPropertyWithSource, len: usize) -> Self { (crate::dll::get_azul_dll().az_cascaded_css_property_with_source_vec_copy_from)(ptr, len) }
     }
 
-    impl std::fmt::Debug for CascadedCssPropertyWithSourceVec { fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result { write!(f, "{}", (crate::dll::get_azul_dll().az_cascaded_css_property_with_source_vec_fmt_debug)(self)) } }
     impl Clone for CascadedCssPropertyWithSourceVec { fn clone(&self) -> Self { (crate::dll::get_azul_dll().az_cascaded_css_property_with_source_vec_deep_copy)(self) } }
     impl Drop for CascadedCssPropertyWithSourceVec { fn drop(&mut self) { (crate::dll::get_azul_dll().az_cascaded_css_property_with_source_vec_delete)(self); } }
 
@@ -708,7 +654,6 @@
         pub fn copy_from(ptr: *const AzNodeId, len: usize) -> Self { (crate::dll::get_azul_dll().az_node_id_vec_copy_from)(ptr, len) }
     }
 
-    impl std::fmt::Debug for NodeIdVec { fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result { write!(f, "{}", (crate::dll::get_azul_dll().az_node_id_vec_fmt_debug)(self)) } }
     impl Clone for NodeIdVec { fn clone(&self) -> Self { (crate::dll::get_azul_dll().az_node_id_vec_deep_copy)(self) } }
     impl Drop for NodeIdVec { fn drop(&mut self) { (crate::dll::get_azul_dll().az_node_id_vec_delete)(self); } }
 
@@ -725,7 +670,6 @@
         pub fn copy_from(ptr: *const AzNode, len: usize) -> Self { (crate::dll::get_azul_dll().az_node_vec_copy_from)(ptr, len) }
     }
 
-    impl std::fmt::Debug for NodeVec { fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result { write!(f, "{}", (crate::dll::get_azul_dll().az_node_vec_fmt_debug)(self)) } }
     impl Clone for NodeVec { fn clone(&self) -> Self { (crate::dll::get_azul_dll().az_node_vec_deep_copy)(self) } }
     impl Drop for NodeVec { fn drop(&mut self) { (crate::dll::get_azul_dll().az_node_vec_delete)(self); } }
 
@@ -742,7 +686,6 @@
         pub fn copy_from(ptr: *const AzStyledNode, len: usize) -> Self { (crate::dll::get_azul_dll().az_styled_node_vec_copy_from)(ptr, len) }
     }
 
-    impl std::fmt::Debug for StyledNodeVec { fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result { write!(f, "{}", (crate::dll::get_azul_dll().az_styled_node_vec_fmt_debug)(self)) } }
     impl Clone for StyledNodeVec { fn clone(&self) -> Self { (crate::dll::get_azul_dll().az_styled_node_vec_deep_copy)(self) } }
     impl Drop for StyledNodeVec { fn drop(&mut self) { (crate::dll::get_azul_dll().az_styled_node_vec_delete)(self); } }
 
@@ -759,7 +702,6 @@
         pub fn copy_from(ptr: *const AzTagIdToNodeIdMapping, len: usize) -> Self { (crate::dll::get_azul_dll().az_tag_ids_to_node_ids_mapping_vec_copy_from)(ptr, len) }
     }
 
-    impl std::fmt::Debug for TagIdsToNodeIdsMappingVec { fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result { write!(f, "{}", (crate::dll::get_azul_dll().az_tag_ids_to_node_ids_mapping_vec_fmt_debug)(self)) } }
     impl Clone for TagIdsToNodeIdsMappingVec { fn clone(&self) -> Self { (crate::dll::get_azul_dll().az_tag_ids_to_node_ids_mapping_vec_deep_copy)(self) } }
     impl Drop for TagIdsToNodeIdsMappingVec { fn drop(&mut self) { (crate::dll::get_azul_dll().az_tag_ids_to_node_ids_mapping_vec_delete)(self); } }
 
@@ -776,7 +718,6 @@
         pub fn copy_from(ptr: *const AzParentWithNodeDepth, len: usize) -> Self { (crate::dll::get_azul_dll().az_parent_with_node_depth_vec_copy_from)(ptr, len) }
     }
 
-    impl std::fmt::Debug for ParentWithNodeDepthVec { fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result { write!(f, "{}", (crate::dll::get_azul_dll().az_parent_with_node_depth_vec_fmt_debug)(self)) } }
     impl Clone for ParentWithNodeDepthVec { fn clone(&self) -> Self { (crate::dll::get_azul_dll().az_parent_with_node_depth_vec_deep_copy)(self) } }
     impl Drop for ParentWithNodeDepthVec { fn drop(&mut self) { (crate::dll::get_azul_dll().az_parent_with_node_depth_vec_delete)(self); } }
 
@@ -793,6 +734,5 @@
         pub fn copy_from(ptr: *const AzNodeData, len: usize) -> Self { (crate::dll::get_azul_dll().az_node_data_vec_copy_from)(ptr, len) }
     }
 
-    impl std::fmt::Debug for NodeDataVec { fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result { write!(f, "{}", (crate::dll::get_azul_dll().az_node_data_vec_fmt_debug)(self)) } }
     impl Clone for NodeDataVec { fn clone(&self) -> Self { (crate::dll::get_azul_dll().az_node_data_vec_deep_copy)(self) } }
     impl Drop for NodeDataVec { fn drop(&mut self) { (crate::dll::get_azul_dll().az_node_data_vec_delete)(self); } }

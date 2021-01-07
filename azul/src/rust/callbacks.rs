@@ -7,12 +7,12 @@
     #[repr(C)]
     pub struct Ref<'a, T> {
         ptr: &'a T,
-        _sharing_info_ptr: *const RefAnySharingInfo,
+        _sharing_info_ptr: *const AtomicRefCount,
     }
 
     impl<'a, T> Drop for Ref<'a, T> {
         fn drop(&mut self) {
-            (crate::dll::get_azul_dll().az_ref_any_sharing_info_decrease_ref)(unsafe { &mut *(self._sharing_info_ptr as *mut RefAnySharingInfo) });
+            (crate::dll::get_azul_dll().az_atomic_ref_count_decrease_ref)(unsafe { &mut *(self._sharing_info_ptr as *mut AtomicRefCount) });
         }
     }
 
@@ -28,12 +28,12 @@
     #[repr(C)]
     pub struct RefMut<'a, T> {
         ptr: &'a mut T,
-        _sharing_info_ptr: *const RefAnySharingInfo,
+        _sharing_info_ptr: *const AtomicRefCount,
     }
 
     impl<'a, T> Drop for RefMut<'a, T> {
         fn drop(&mut self) {
-            (crate::dll::get_azul_dll().az_ref_any_sharing_info_decrease_refmut)(unsafe { &mut *(self._sharing_info_ptr as *mut RefAnySharingInfo) });
+            (crate::dll::get_azul_dll().az_atomic_ref_count_decrease_refmut)(unsafe { &mut *(self._sharing_info_ptr as *mut AtomicRefCount) });
         }
     }
 
@@ -133,25 +133,22 @@
     /// `NodeId` struct
     pub use crate::dll::AzNodeId as NodeId;
 
-    impl std::fmt::Debug for NodeId { fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result { write!(f, "{}", (crate::dll::get_azul_dll().az_node_id_fmt_debug)(self)) } }
-    impl Clone for NodeId { fn clone(&self) -> Self { (crate::dll::get_azul_dll().az_node_id_deep_copy)(self) } }
-    impl Drop for NodeId { fn drop(&mut self) { (crate::dll::get_azul_dll().az_node_id_delete)(self); } }
+    impl Clone for NodeId { fn clone(&self) -> Self { *self } }
+    impl Copy for NodeId { }
 
 
     /// `DomId` struct
     pub use crate::dll::AzDomId as DomId;
 
-    impl std::fmt::Debug for DomId { fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result { write!(f, "{}", (crate::dll::get_azul_dll().az_dom_id_fmt_debug)(self)) } }
-    impl Clone for DomId { fn clone(&self) -> Self { (crate::dll::get_azul_dll().az_dom_id_deep_copy)(self) } }
-    impl Drop for DomId { fn drop(&mut self) { (crate::dll::get_azul_dll().az_dom_id_delete)(self); } }
+    impl Clone for DomId { fn clone(&self) -> Self { *self } }
+    impl Copy for DomId { }
 
 
     /// `DomNodeId` struct
     pub use crate::dll::AzDomNodeId as DomNodeId;
 
-    impl std::fmt::Debug for DomNodeId { fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result { write!(f, "{}", (crate::dll::get_azul_dll().az_dom_node_id_fmt_debug)(self)) } }
-    impl Clone for DomNodeId { fn clone(&self) -> Self { (crate::dll::get_azul_dll().az_dom_node_id_deep_copy)(self) } }
-    impl Drop for DomNodeId { fn drop(&mut self) { (crate::dll::get_azul_dll().az_dom_node_id_delete)(self); } }
+    impl Clone for DomNodeId { fn clone(&self) -> Self { *self } }
+    impl Copy for DomNodeId { }
 
 
     /// `HidpiAdjustedBounds` struct
@@ -166,17 +163,15 @@
         pub fn get_hidpi_factor(&self)  -> f32 { (crate::dll::get_azul_dll().az_hidpi_adjusted_bounds_get_hidpi_factor)(self) }
     }
 
-    impl std::fmt::Debug for HidpiAdjustedBounds { fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result { write!(f, "{}", (crate::dll::get_azul_dll().az_hidpi_adjusted_bounds_fmt_debug)(self)) } }
-    impl Clone for HidpiAdjustedBounds { fn clone(&self) -> Self { (crate::dll::get_azul_dll().az_hidpi_adjusted_bounds_deep_copy)(self) } }
-    impl Drop for HidpiAdjustedBounds { fn drop(&mut self) { (crate::dll::get_azul_dll().az_hidpi_adjusted_bounds_delete)(self); } }
+    impl Clone for HidpiAdjustedBounds { fn clone(&self) -> Self { *self } }
+    impl Copy for HidpiAdjustedBounds { }
 
 
     /// `LayoutCallback` struct
     pub use crate::dll::AzLayoutCallback as LayoutCallback;
 
-    impl std::fmt::Debug for LayoutCallback { fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result { write!(f, "{}", (crate::dll::get_azul_dll().az_layout_callback_fmt_debug)(self)) } }
-    impl Clone for LayoutCallback { fn clone(&self) -> Self { (crate::dll::get_azul_dll().az_layout_callback_deep_copy)(self) } }
-    impl Drop for LayoutCallback { fn drop(&mut self) { (crate::dll::get_azul_dll().az_layout_callback_delete)(self); } }
+    impl Clone for LayoutCallback { fn clone(&self) -> Self { *self } }
+    impl Copy for LayoutCallback { }
 
 
     pub use crate::dll::AzLayoutCallbackType as LayoutCallbackType;
@@ -184,15 +179,13 @@
     /// `Callback` struct
     pub use crate::dll::AzCallback as Callback;
 
-    impl std::fmt::Debug for Callback { fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result { write!(f, "{}", (crate::dll::get_azul_dll().az_callback_fmt_debug)(self)) } }
-    impl Clone for Callback { fn clone(&self) -> Self { (crate::dll::get_azul_dll().az_callback_deep_copy)(self) } }
-    impl Drop for Callback { fn drop(&mut self) { (crate::dll::get_azul_dll().az_callback_delete)(self); } }
+    impl Clone for Callback { fn clone(&self) -> Self { *self } }
+    impl Copy for Callback { }
 
 
     /// Defines the focus target for the next frame
     pub use crate::dll::AzFocusTarget as FocusTarget;
 
-    impl std::fmt::Debug for FocusTarget { fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result { write!(f, "{}", (crate::dll::get_azul_dll().az_focus_target_fmt_debug)(self)) } }
     impl Clone for FocusTarget { fn clone(&self) -> Self { (crate::dll::get_azul_dll().az_focus_target_deep_copy)(self) } }
     impl Drop for FocusTarget { fn drop(&mut self) { (crate::dll::get_azul_dll().az_focus_target_delete)(self); } }
 
@@ -200,7 +193,6 @@
     /// `FocusTargetPath` struct
     pub use crate::dll::AzFocusTargetPath as FocusTargetPath;
 
-    impl std::fmt::Debug for FocusTargetPath { fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result { write!(f, "{}", (crate::dll::get_azul_dll().az_focus_target_path_fmt_debug)(self)) } }
     impl Clone for FocusTargetPath { fn clone(&self) -> Self { (crate::dll::get_azul_dll().az_focus_target_path_deep_copy)(self) } }
     impl Drop for FocusTargetPath { fn drop(&mut self) { (crate::dll::get_azul_dll().az_focus_target_path_delete)(self); } }
 
@@ -256,28 +248,20 @@
         pub fn start_timer(&mut self, id: TimerId, timer: Timer)  { (crate::dll::get_azul_dll().az_callback_info_start_timer)(self, id, timer) }
     }
 
-    impl std::fmt::Debug for CallbackInfo { fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result { write!(f, "{}", (crate::dll::get_azul_dll().az_callback_info_fmt_debug)(self)) } }
     impl Drop for CallbackInfo { fn drop(&mut self) { (crate::dll::get_azul_dll().az_callback_info_delete)(self); } }
 
 
     /// `UpdateScreen` struct
     pub use crate::dll::AzUpdateScreen as UpdateScreen;
 
-    impl std::fmt::Debug for UpdateScreen { fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result { write!(f, "{}", (crate::dll::get_azul_dll().az_update_screen_fmt_debug)(self)) } }
-    impl Clone for UpdateScreen { fn clone(&self) -> Self { (crate::dll::get_azul_dll().az_update_screen_deep_copy)(self) } }
-    impl Drop for UpdateScreen { fn drop(&mut self) { (crate::dll::get_azul_dll().az_update_screen_delete)(self); } }
-
-    impl From<Option<()>> for UpdateScreen { fn from(o: Option<()>) -> Self { match o { None => UpdateScreen::DontRedraw, Some(_) => UpdateScreen::Redraw } } }
-
-    impl From<UpdateScreen> for Option<()> { fn from(o: UpdateScreen) -> Self { match o { UpdateScreen::Redraw => Some(()), _ => None } } }
-
+    impl Clone for UpdateScreen { fn clone(&self) -> Self { *self } }
+    impl Copy for UpdateScreen { }
 
     /// `IFrameCallback` struct
     pub use crate::dll::AzIFrameCallback as IFrameCallback;
 
-    impl std::fmt::Debug for IFrameCallback { fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result { write!(f, "{}", (crate::dll::get_azul_dll().az_i_frame_callback_fmt_debug)(self)) } }
-    impl Clone for IFrameCallback { fn clone(&self) -> Self { (crate::dll::get_azul_dll().az_i_frame_callback_deep_copy)(self) } }
-    impl Drop for IFrameCallback { fn drop(&mut self) { (crate::dll::get_azul_dll().az_i_frame_callback_delete)(self); } }
+    impl Clone for IFrameCallback { fn clone(&self) -> Self { *self } }
+    impl Copy for IFrameCallback { }
 
 
     pub use crate::dll::AzIFrameCallbackType as IFrameCallbackType;
@@ -285,14 +269,12 @@
     /// `IFrameCallbackInfo` struct
     pub use crate::dll::AzIFrameCallbackInfo as IFrameCallbackInfo;
 
-    impl std::fmt::Debug for IFrameCallbackInfo { fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result { write!(f, "{}", (crate::dll::get_azul_dll().az_i_frame_callback_info_fmt_debug)(self)) } }
     impl Drop for IFrameCallbackInfo { fn drop(&mut self) { (crate::dll::get_azul_dll().az_i_frame_callback_info_delete)(self); } }
 
 
     /// `IFrameCallbackReturn` struct
     pub use crate::dll::AzIFrameCallbackReturn as IFrameCallbackReturn;
 
-    impl std::fmt::Debug for IFrameCallbackReturn { fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result { write!(f, "{}", (crate::dll::get_azul_dll().az_i_frame_callback_return_fmt_debug)(self)) } }
     impl Clone for IFrameCallbackReturn { fn clone(&self) -> Self { (crate::dll::get_azul_dll().az_i_frame_callback_return_deep_copy)(self) } }
     impl Drop for IFrameCallbackReturn { fn drop(&mut self) { (crate::dll::get_azul_dll().az_i_frame_callback_return_delete)(self); } }
 
@@ -300,9 +282,8 @@
     /// `GlCallback` struct
     pub use crate::dll::AzGlCallback as GlCallback;
 
-    impl std::fmt::Debug for GlCallback { fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result { write!(f, "{}", (crate::dll::get_azul_dll().az_gl_callback_fmt_debug)(self)) } }
-    impl Clone for GlCallback { fn clone(&self) -> Self { (crate::dll::get_azul_dll().az_gl_callback_deep_copy)(self) } }
-    impl Drop for GlCallback { fn drop(&mut self) { (crate::dll::get_azul_dll().az_gl_callback_delete)(self); } }
+    impl Clone for GlCallback { fn clone(&self) -> Self { *self } }
+    impl Copy for GlCallback { }
 
 
     pub use crate::dll::AzGlCallbackType as GlCallbackType;
@@ -315,23 +296,20 @@
         pub fn get_gl_context(&self)  -> crate::gl::GlContextPtr { (crate::dll::get_azul_dll().az_gl_callback_info_get_gl_context)(self) }
     }
 
-    impl std::fmt::Debug for GlCallbackInfo { fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result { write!(f, "{}", (crate::dll::get_azul_dll().az_gl_callback_info_fmt_debug)(self)) } }
     impl Drop for GlCallbackInfo { fn drop(&mut self) { (crate::dll::get_azul_dll().az_gl_callback_info_delete)(self); } }
 
 
     /// `GlCallbackReturn` struct
     pub use crate::dll::AzGlCallbackReturn as GlCallbackReturn;
 
-    impl std::fmt::Debug for GlCallbackReturn { fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result { write!(f, "{}", (crate::dll::get_azul_dll().az_gl_callback_return_fmt_debug)(self)) } }
     impl Drop for GlCallbackReturn { fn drop(&mut self) { (crate::dll::get_azul_dll().az_gl_callback_return_delete)(self); } }
 
 
     /// `TimerCallback` struct
     pub use crate::dll::AzTimerCallback as TimerCallback;
 
-    impl std::fmt::Debug for TimerCallback { fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result { write!(f, "{}", (crate::dll::get_azul_dll().az_timer_callback_fmt_debug)(self)) } }
-    impl Clone for TimerCallback { fn clone(&self) -> Self { (crate::dll::get_azul_dll().az_timer_callback_deep_copy)(self) } }
-    impl Drop for TimerCallback { fn drop(&mut self) { (crate::dll::get_azul_dll().az_timer_callback_delete)(self); } }
+    impl Clone for TimerCallback { fn clone(&self) -> Self { *self } }
+    impl Copy for TimerCallback { }
 
 
     pub use crate::dll::AzTimerCallbackType as TimerCallbackType;
@@ -339,14 +317,12 @@
     /// `TimerCallbackInfo` struct
     pub use crate::dll::AzTimerCallbackInfo as TimerCallbackInfo;
 
-    impl std::fmt::Debug for TimerCallbackInfo { fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result { write!(f, "{}", (crate::dll::get_azul_dll().az_timer_callback_info_fmt_debug)(self)) } }
     impl Drop for TimerCallbackInfo { fn drop(&mut self) { (crate::dll::get_azul_dll().az_timer_callback_info_delete)(self); } }
 
 
     /// `TimerCallbackReturn` struct
     pub use crate::dll::AzTimerCallbackReturn as TimerCallbackReturn;
 
-    impl std::fmt::Debug for TimerCallbackReturn { fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result { write!(f, "{}", (crate::dll::get_azul_dll().az_timer_callback_return_fmt_debug)(self)) } }
     impl Clone for TimerCallbackReturn { fn clone(&self) -> Self { (crate::dll::get_azul_dll().az_timer_callback_return_deep_copy)(self) } }
     impl Drop for TimerCallbackReturn { fn drop(&mut self) { (crate::dll::get_azul_dll().az_timer_callback_return_delete)(self); } }
 
@@ -356,7 +332,6 @@
     /// `WriteBackCallback` struct
     pub use crate::dll::AzWriteBackCallback as WriteBackCallback;
 
-    impl std::fmt::Debug for WriteBackCallback { fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result { write!(f, "{}", (crate::dll::get_azul_dll().az_write_back_callback_fmt_debug)(self)) } }
     impl Clone for WriteBackCallback { fn clone(&self) -> Self { (crate::dll::get_azul_dll().az_write_back_callback_deep_copy)(self) } }
     impl Drop for WriteBackCallback { fn drop(&mut self) { (crate::dll::get_azul_dll().az_write_back_callback_delete)(self); } }
 
@@ -383,7 +358,6 @@
         pub fn decrease_refmut(&mut self)  { (crate::dll::get_azul_dll().az_atomic_ref_count_decrease_refmut)(self) }
     }
 
-    impl std::fmt::Debug for AtomicRefCount { fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result { write!(f, "{}", (crate::dll::get_azul_dll().az_atomic_ref_count_fmt_debug)(self)) } }
     impl Drop for AtomicRefCount { fn drop(&mut self) { (crate::dll::get_azul_dll().az_atomic_ref_count_delete)(self); } }
 
 
@@ -411,7 +385,6 @@
         pub fn decrease_refmut(&self)  { (crate::dll::get_azul_dll().az_ref_any_decrease_refmut)(self) }
     }
 
-    impl std::fmt::Debug for RefAny { fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result { write!(f, "{}", (crate::dll::get_azul_dll().az_ref_any_fmt_debug)(self)) } }
     impl Clone for RefAny { fn clone(&self) -> Self { (crate::dll::get_azul_dll().az_ref_any_deep_copy)(self) } }
     impl Drop for RefAny { fn drop(&mut self) { (crate::dll::get_azul_dll().az_ref_any_delete)(self); } }
 
@@ -430,5 +403,4 @@
         pub fn window_height_smaller_than(&mut self, width: f32)  -> bool { (crate::dll::get_azul_dll().az_layout_info_window_height_smaller_than)(self, width) }
     }
 
-    impl std::fmt::Debug for LayoutInfo { fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result { write!(f, "{}", (crate::dll::get_azul_dll().az_layout_info_fmt_debug)(self)) } }
     impl Drop for LayoutInfo { fn drop(&mut self) { (crate::dll::get_azul_dll().az_layout_info_delete)(self); } }

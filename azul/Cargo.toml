@@ -31,8 +31,6 @@ libloading-mini = "0.1.1"
 
 [dev-dependencies]
 azul-widgets = { version = "0.0.2", path = "../azul-widgets" }
-azul-core = { version = "0.0.2", path = "../azul-core" }
-azul-layout = { version = "0.0.4", path = "../azul-layout" }
 
 [[example]]
 name = "public"

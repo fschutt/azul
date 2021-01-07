@@ -106,6 +106,7 @@
         // Drop, Debug + Clone already implemented by default
     )}
 
+/*
     macro_rules! impl_vec_partialord {($struct_type:ident, $struct_name:ident) => (
         impl PartialOrd for $struct_name {
             fn partial_cmp(&self, rhs: &Self) -> Option<std::cmp::Ordering> {
@@ -141,69 +142,41 @@
             }
         }
     )}
+*/
 
-    impl_vec!(u8, AzU8Vec);
-    impl_vec_partialord!(u8, AzU8Vec);
-    impl_vec_ord!(u8, AzU8Vec);
-    impl_vec_partialeq!(u8, AzU8Vec);
-    impl_vec_eq!(u8, AzU8Vec);
-    impl_vec_hash!(u8, AzU8Vec);
-
-    impl_vec!(AzCallbackData, AzCallbackDataVec);
-    impl_vec_partialord!(AzCallbackData, AzCallbackDataVec);
-    impl_vec_ord!(AzCallbackData, AzCallbackDataVec);
-    impl_vec_partialeq!(AzCallbackData, AzCallbackDataVec);
-    impl_vec_eq!(AzCallbackData, AzCallbackDataVec);
-    impl_vec_hash!(AzCallbackData, AzCallbackDataVec);
-
+    impl_vec!(u8,  AzU8Vec);
+    impl_vec!(u32, AzU32Vec);
+    impl_vec!(u32, AzScanCodeVec);
+    impl_vec!(u32, AzGLuintVec);
+    impl_vec!(i32, AzGLintVec);
+    impl_vec!(AzStyleTransform, AzStyleTransformVec);
+    impl_vec!(AzContentGroup, AzContentGroupVec);
     impl_vec!(AzCssProperty, AzCssPropertyVec);
-    impl_vec_partialord!(AzCssProperty, AzCssPropertyVec);
-    impl_vec_ord!(AzCssProperty, AzCssPropertyVec);
-    impl_vec_partialeq!(AzCssProperty, AzCssPropertyVec);
-    impl_vec_eq!(AzCssProperty, AzCssPropertyVec);
-    impl_vec_hash!(AzCssProperty, AzCssPropertyVec);
-
-    impl_vec!(AzDom, AzDomVec);
-    impl_vec_partialord!(AzDom, AzDomVec);
-    impl_vec_ord!(AzDom, AzDomVec);
-    impl_vec_partialeq!(AzDom, AzDomVec);
-    impl_vec_eq!(AzDom, AzDomVec);
-    impl_vec_hash!(AzDom, AzDomVec);
-
-    impl_vec!(AzString, AzStringVec);
-    impl_vec_partialord!(AzString, AzStringVec);
-    impl_vec_ord!(AzString, AzStringVec);
-    impl_vec_partialeq!(AzString, AzStringVec);
-    impl_vec_eq!(AzString, AzStringVec);
-    impl_vec_hash!(AzString, AzStringVec);
-
-    impl_vec!(AzGradientStopPre, AzGradientStopPreVec);
-    impl_vec_partialord!(AzGradientStopPre, AzGradientStopPreVec);
-    impl_vec_ord!(AzGradientStopPre, AzGradientStopPreVec);
-    impl_vec_partialeq!(AzGradientStopPre, AzGradientStopPreVec);
-    impl_vec_eq!(AzGradientStopPre, AzGradientStopPreVec);
-    impl_vec_hash!(AzGradientStopPre, AzGradientStopPreVec);
-
+    impl_vec!(AzSvgMultiPolygon, AzSvgMultiPolygonVec);
+    impl_vec!(AzSvgPath, AzSvgPathVec);
+    impl_vec!(AzVertexAttribute, AzVertexAttributeVec);
+    impl_vec!(AzSvgPathElement, AzSvgPathElementVec);
+    impl_vec!(AzSvgVertex, AzSvgVertexVec);
+    impl_vec!(AzXWindowType, AzXWindowTypeVec);
+    impl_vec!(AzVirtualKeyCode, AzVirtualKeyCodeVec);
+    impl_vec!(AzCascadeInfo, AzCascadeInfoVec);
+    impl_vec!(AzCssDeclaration, AzCssDeclarationVec);
+    impl_vec!(AzCssPathSelector, AzCssPathSelectorVec);
+    impl_vec!(AzStylesheet, AzStylesheetVec);
+    impl_vec!(AzCssRuleBlock, AzCssRuleBlockVec);
+    impl_vec!(AzCallbackData, AzCallbackDataVec);
     impl_vec!(AzDebugMessage, AzDebugMessageVec);
-    impl_vec_partialord!(AzDebugMessage, AzDebugMessageVec);
-    impl_vec_ord!(AzDebugMessage, AzDebugMessageVec);
-    impl_vec_partialeq!(AzDebugMessage, AzDebugMessageVec);
-    impl_vec_eq!(AzDebugMessage, AzDebugMessageVec);
-    impl_vec_hash!(AzDebugMessage, AzDebugMessageVec);
-
-    impl_vec!(AzGLint, AzGLintVec);
-    impl_vec_partialord!(AzGLint, AzGLintVec);
-    impl_vec_ord!(AzGLint, AzGLintVec);
-    impl_vec_partialeq!(AzGLint, AzGLintVec);
-    impl_vec_eq!(AzGLint, AzGLintVec);
-    impl_vec_hash!(AzGLint, AzGLintVec);
-
-    impl_vec!(AzGLuint, AzGLuintVec);
-    impl_vec_partialord!(AzGLuint, AzGLuintVec);
-    impl_vec_ord!(AzGLuint, AzGLuintVec);
-    impl_vec_partialeq!(AzGLuint, AzGLuintVec);
-    impl_vec_eq!(AzGLuint, AzGLuintVec);
-    impl_vec_hash!(AzGLuint, AzGLuintVec);
+    impl_vec!(AzDom, AzDomVec);
+    impl_vec!(AzString, AzStringVec);
+    impl_vec!(AzStringPair, AzStringPairVec);
+    impl_vec!(AzGradientStopPre, AzGradientStopPreVec);
+    impl_vec!(AzCascadedCssPropertyWithSource, AzCascadedCssPropertyWithSourceVec);
+    impl_vec!(AzNodeId, AzNodeIdVec);
+    impl_vec!(AzNode, AzNodeVec);
+    impl_vec!(AzStyledNode, AzStyledNodeVec);
+    impl_vec!(AzTagIdToNodeIdMapping, AzTagIdsToNodeIdsMappingVec);
+    impl_vec!(AzParentWithNodeDepth, AzParentWithNodeDepthVec);
+    impl_vec!(AzNodeData, AzNodeDataVec);
 
     impl From<std::vec::Vec<std::string::String>> for crate::vec::StringVec {
         fn from(v: std::vec::Vec<std::string::String>) -> crate::vec::StringVec {

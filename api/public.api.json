@@ -1072,13 +1072,15 @@
 			"classes": {
 				"OptionThreadSendMsg": {
 					"external": "azul_impl::task::OptionThreadSendMsg",
+					"derive": ["Copy"],
 					"enum_fields": [
 						{"None": {}},
-						{"Some": { "type": "ThreadReceiveMsg" }}
+						{"Some": { "type": "ThreadSendMsg" }}
 					]
 				},
 				"OptionLayoutRect": {
 					"external": "azul_impl::css::OptionLayoutRect",
+					"derive": ["Copy"],
 					"enum_fields": [
 						{"None": {}},
 						{"Some": { "type": "LayoutRect" }}
@@ -1093,6 +1095,7 @@
 				},
 				"OptionStyleOpacityValue": {
 					"external": "azul_impl::css::OptionStyleOpacityValue",
+					"derive": ["Copy"],
 					"enum_fields": [
 						{"None": {}},
 						{"Some": { "type": "StyleOpacityValue" }}
@@ -1107,6 +1110,7 @@
 				},
 				"OptionStyleTransformOriginValue": {
 					"external": "azul_impl::css::OptionStyleTransformOriginValue",
+					"derive": ["Copy"],
 					"enum_fields": [
 						{"None": {}},
 						{"Some": { "type": "StyleTransformOriginValue" }}
@@ -1114,6 +1118,7 @@
 				},
 				"OptionStylePerspectiveOriginValue": {
 					"external": "azul_impl::css::OptionStylePerspectiveOriginValue",
+					"derive": ["Copy"],
 					"enum_fields": [
 						{"None": {}},
 						{"Some": { "type": "StylePerspectiveOriginValue" }}
@@ -1121,6 +1126,7 @@
 				},
 				"OptionStyleBackfaceVisibilityValue": {
 					"external": "azul_impl::css::OptionStyleBackfaceVisibilityValue",
+					"derive": ["Copy"],
 					"enum_fields": [
 						{"None": {}},
 						{"Some": { "type": "StyleBackfaceVisibilityValue" }}
@@ -1128,6 +1134,7 @@
 				},
 				"OptionLayoutPoint": {
 					"external": "azul_impl::css::OptionLayoutPoint",
+					"derive": ["Copy"],
 					"enum_fields": [
 						{"None": {}},
 						{"Some": { "type": "LayoutPoint" }}
@@ -1135,6 +1142,7 @@
 				},
 				"OptionWindowTheme": {
 					"external": "azul_impl::window::OptionWindowTheme",
+					"derive": ["Copy"],
 					"enum_fields": [
 						{"None": {}},
 						{"Some": { "type": "WindowTheme" }}
@@ -1142,6 +1150,7 @@
 				},
 				"OptionNodeId": {
 					"external": "azul_impl::styled_dom::OptionNodeId",
+					"derive": ["Copy"],
 					"enum_fields": [
 						{"None": {}},
 						{"Some": { "type": "NodeId" }}
@@ -1149,6 +1158,7 @@
 				},
 				"OptionDomNodeId": {
 					"external": "azul_impl::callbacks::OptionDomNodeId",
+					"derive": ["Copy"],
 					"enum_fields": [
 						{"None": {}},
 						{"Some": { "type": "DomNodeId" }}
@@ -1156,6 +1166,7 @@
 				},
 				"OptionColorU": {
 					"external": "azul_impl::css::OptionColorU",
+					"derive": ["Copy"],
 					"enum_fields": [
 						{"None": {}},
 						{"Some": { "type": "ColorU" }}
@@ -1170,6 +1181,7 @@
 				},
 				"OptionSvgDashPattern": {
 					"external": "azul_impl::svg::OptionSvgDashPattern",
+					"derive": ["Copy"],
 					"enum_fields": [
 						{"None": {}},
 						{"Some": { "type": "SvgDashPattern" }}
@@ -1191,6 +1203,7 @@
 				},
 				"OptionHwndHandle": {
 					"external": "azul_impl::window::OptionHwndHandle",
+					"derive": ["Copy"],
 					"enum_fields": [
 						{"None": {}},
 						{"Some": { "type": "*mut c_void" }}
@@ -1198,6 +1211,7 @@
 				},
 				"OptionLogicalPosition": {
 					"external": "azul_impl::window::OptionLogicalPosition",
+					"derive": ["Copy"],
 					"enum_fields": [
 						{"None": {}},
 						{"Some": { "type": "LogicalPosition" }}
@@ -1205,6 +1219,7 @@
 				},
 				"OptionPhysicalPositionI32": {
 					"external": "azul_impl::window::OptionPhysicalPositionI32",
+					"derive": ["Copy"],
 					"enum_fields": [
 						{"None": {}},
 						{"Some": { "type": "PhysicalPositionI32" }}
@@ -1226,6 +1241,7 @@
 				},
 				"OptionX11Visual": {
 					"external": "azul_impl::window::OptionX11Visual",
+					"derive": ["Copy"],
 					"enum_fields": [
 						{"None": {}},
 						{"Some": { "type": "*const c_void" }}
@@ -1233,6 +1249,7 @@
 				},
 				"OptionI32": {
 					"external": "azul_impl::window::OptionI32",
+					"derive": ["Copy"],
 					"enum_fields": [
 						{"None": {}},
 						{"Some": { "type": "i32" }}
@@ -1240,6 +1257,7 @@
 				},
 				"OptionF32": {
 					"external": "azul_impl::window::OptionF32",
+					"derive": ["Copy"],
 					"enum_fields": [
 						{"None": {}},
 						{"Some": { "type": "f32" }}
@@ -1247,6 +1265,7 @@
 				},
 				"OptionMouseCursorType": {
 					"external": "azul_impl::window::OptionMouseCursorType",
+					"derive": ["Copy"],
 					"enum_fields": [
 						{"None": {}},
 						{"Some": { "type": "MouseCursorType" }}
@@ -1254,6 +1273,7 @@
 				},
 				"OptionLogicalSize": {
 					"external": "azul_impl::window::OptionLogicalSize",
+					"derive": ["Copy"],
 					"enum_fields": [
 						{"None": {}},
 						{"Some": { "type": "LogicalSize" }}
@@ -1262,6 +1282,7 @@
 				"OptionChar": {
 					"external": "azul_impl::window::OptionChar",
 					"doc": "Option<char> but the char is a u32, for C FFI stability reasons",
+					"derive": ["Copy"],
 					"enum_fields": [
 						{"None": {}},
 						{"Some": { "type": "u32" }}
@@ -1269,6 +1290,7 @@
 				},
 				"OptionVirtualKeyCode": {
 					"external": "azul_impl::window::OptionVirtualKeyCode",
+					"derive": ["Copy"],
 					"enum_fields": [
 						{"None": {}},
 						{"Some": { "type": "VirtualKeyCode" }}
@@ -1276,6 +1298,7 @@
 				},
 				"OptionPercentageValue": {
 					"external": "azul_impl::css::OptionPercentageValue",
+					"derive": ["Copy"],
 					"enum_fields": [
 						{"None": {}},
 						{"Some": { "type": "PercentageValue" }}
@@ -1305,6 +1328,7 @@
 				},
 				"OptionTabIndex": {
 					"external": "azul_impl::dom::OptionTabIndex",
+					"derive": ["Copy"],
 					"enum_fields": [
 						{"None": {}},
 						{"Some": { "type": "TabIndex" }}
@@ -1314,452 +1338,482 @@
 				    "external": "azul_impl::css::OptionStyleBackgroundContentValue",
 				    "enum_fields": [
 				        {"None": {}},
-				        {"Some": {"type": "StyleBackgroundContent"}}
+				        {"Some": {"type": "StyleBackgroundContentValue"}}
 				    ]
 				},
 				"OptionStyleBackgroundPositionValue": {
 				    "external": "azul_impl::css::OptionStyleBackgroundPositionValue",
+				    "derive": ["Copy"],
 				    "enum_fields": [
 				        {"None": {}},
-				        {"Some": {"type": "StyleBackgroundPosition"}}
+				        {"Some": {"type": "StyleBackgroundPositionValue"}}
 				    ]
 				},
 				"OptionStyleBackgroundSizeValue": {
 				    "external": "azul_impl::css::OptionStyleBackgroundSizeValue",
+				    "derive": ["Copy"],
 				    "enum_fields": [
 				        {"None": {}},
-				        {"Some": {"type": "StyleBackgroundSize"}}
+				        {"Some": {"type": "StyleBackgroundSizeValue"}}
 				    ]
 				},
 				"OptionStyleBackgroundRepeatValue": {
 				    "external": "azul_impl::css::OptionStyleBackgroundRepeatValue",
+				    "derive": ["Copy"],
 				    "enum_fields": [
 				        {"None": {}},
-				        {"Some": {"type": "StyleBackgroundRepeat"}}
+				        {"Some": {"type": "StyleBackgroundRepeatValue"}}
 				    ]
 				},
 				"OptionStyleFontSizeValue": {
 				    "external": "azul_impl::css::OptionStyleFontSizeValue",
+				    "derive": ["Copy"],
 				    "enum_fields": [
 				        {"None": {}},
-				        {"Some": {"type": "StyleFontSize"}}
+				        {"Some": {"type": "StyleFontSizeValue"}}
 				    ]
 				},
 				"OptionStyleFontFamilyValue": {
 				    "external": "azul_impl::css::OptionStyleFontFamilyValue",
 				    "enum_fields": [
 				        {"None": {}},
-				        {"Some": {"type": "StyleFontFamily"}}
+				        {"Some": {"type": "StyleFontFamilyValue"}}
 				    ]
 				},
 				"OptionStyleTextColorValue": {
 				    "external": "azul_impl::css::OptionStyleTextColorValue",
+				    "derive": ["Copy"],
 				    "enum_fields": [
 				        {"None": {}},
-				        {"Some": {"type": "StyleTextColor"}}
+				        {"Some": {"type": "StyleTextColorValue"}}
 				    ]
 				},
 				"OptionStyleTextAlignmentHorzValue": {
 				    "external": "azul_impl::css::OptionStyleTextAlignmentHorzValue",
+				    "derive": ["Copy"],
 				    "enum_fields": [
 				        {"None": {}},
-				        {"Some": {"type": "StyleTextAlignmentHorz"}}
+				        {"Some": {"type": "StyleTextAlignmentHorzValue"}}
 				    ]
 				},
 				"OptionStyleLineHeightValue": {
 				    "external": "azul_impl::css::OptionStyleLineHeightValue",
+				    "derive": ["Copy"],
 				    "enum_fields": [
 				        {"None": {}},
-				        {"Some": {"type": "StyleLineHeight"}}
+				        {"Some": {"type": "StyleLineHeightValue"}}
 				    ]
 				},
 				"OptionStyleLetterSpacingValue": {
 				    "external": "azul_impl::css::OptionStyleLetterSpacingValue",
+				    "derive": ["Copy"],
 				    "enum_fields": [
 				        {"None": {}},
-				        {"Some": {"type": "StyleLetterSpacing"}}
+				        {"Some": {"type": "StyleLetterSpacingValue"}}
 				    ]
 				},
 				"OptionStyleWordSpacingValue": {
 				    "external": "azul_impl::css::OptionStyleWordSpacingValue",
+				    "derive": ["Copy"],
 				    "enum_fields": [
 				        {"None": {}},
-				        {"Some": {"type": "StyleWordSpacing"}}
+				        {"Some": {"type": "StyleWordSpacingValue"}}
 				    ]
 				},
 				"OptionStyleTabWidthValue": {
 				    "external": "azul_impl::css::OptionStyleTabWidthValue",
+				    "derive": ["Copy"],
 				    "enum_fields": [
 				        {"None": {}},
-				        {"Some": {"type": "StyleTabWidth"}}
+				        {"Some": {"type": "StyleTabWidthValue"}}
 				    ]
 				},
 				"OptionStyleCursorValue": {
 				    "external": "azul_impl::css::OptionStyleCursorValue",
+				    "derive": ["Copy"],
 				    "enum_fields": [
 				        {"None": {}},
-				        {"Some": {"type": "StyleCursor"}}
+				        {"Some": {"type": "StyleCursorValue"}}
 				    ]
 				},
 				"OptionBoxShadowPreDisplayItemValue": {
 				    "external": "azul_impl::css::OptionBoxShadowPreDisplayItemValue",
 				    "enum_fields": [
 				        {"None": {}},
-				        {"Some": {"type": "BoxShadowPreDisplayItem"}}
-				    ]
-				},
-				"OptionBoxShadowPreDisplayItemValue": {
-				    "external": "azul_impl::css::OptionBoxShadowPreDisplayItemValue",
-				    "enum_fields": [
-				        {"None": {}},
-				        {"Some": {"type": "BoxShadowPreDisplayItem"}}
-				    ]
-				},
-				"OptionBoxShadowPreDisplayItemValue": {
-				    "external": "azul_impl::css::OptionBoxShadowPreDisplayItemValue",
-				    "enum_fields": [
-				        {"None": {}},
-				        {"Some": {"type": "BoxShadowPreDisplayItem"}}
-				    ]
-				},
-				"OptionBoxShadowPreDisplayItemValue": {
-				    "external": "azul_impl::css::OptionBoxShadowPreDisplayItemValue",
-				    "enum_fields": [
-				        {"None": {}},
-				        {"Some": {"type": "BoxShadowPreDisplayItem"}}
+				        {"Some": {"type": "BoxShadowPreDisplayItemValue"}}
 				    ]
 				},
 				"OptionStyleBorderTopColorValue": {
 				    "external": "azul_impl::css::OptionStyleBorderTopColorValue",
+				    "derive": ["Copy"],
 				    "enum_fields": [
 				        {"None": {}},
-				        {"Some": {"type": "StyleBorderTopColor"}}
+				        {"Some": {"type": "StyleBorderTopColorValue"}}
 				    ]
 				},
 				"OptionStyleBorderLeftColorValue": {
 				    "external": "azul_impl::css::OptionStyleBorderLeftColorValue",
+				    "derive": ["Copy"],
 				    "enum_fields": [
 				        {"None": {}},
-				        {"Some": {"type": "StyleBorderLeftColor"}}
+				        {"Some": {"type": "StyleBorderLeftColorValue"}}
 				    ]
 				},
 				"OptionStyleBorderRightColorValue": {
 				    "external": "azul_impl::css::OptionStyleBorderRightColorValue",
+				    "derive": ["Copy"],
 				    "enum_fields": [
 				        {"None": {}},
-				        {"Some": {"type": "StyleBorderRightColor"}}
+				        {"Some": {"type": "StyleBorderRightColorValue"}}
 				    ]
 				},
 				"OptionStyleBorderBottomColorValue": {
 				    "external": "azul_impl::css::OptionStyleBorderBottomColorValue",
+				    "derive": ["Copy"],
 				    "enum_fields": [
 				        {"None": {}},
-				        {"Some": {"type": "StyleBorderBottomColor"}}
+				        {"Some": {"type": "StyleBorderBottomColorValue"}}
 				    ]
 				},
 				"OptionStyleBorderTopStyleValue": {
 				    "external": "azul_impl::css::OptionStyleBorderTopStyleValue",
+				    "derive": ["Copy"],
 				    "enum_fields": [
 				        {"None": {}},
-				        {"Some": {"type": "StyleBorderTopStyle"}}
+				        {"Some": {"type": "StyleBorderTopStyleValue"}}
 				    ]
 				},
 				"OptionStyleBorderLeftStyleValue": {
 				    "external": "azul_impl::css::OptionStyleBorderLeftStyleValue",
+				    "derive": ["Copy"],
 				    "enum_fields": [
 				        {"None": {}},
-				        {"Some": {"type": "StyleBorderLeftStyle"}}
+				        {"Some": {"type": "StyleBorderLeftStyleValue"}}
 				    ]
 				},
 				"OptionStyleBorderRightStyleValue": {
 				    "external": "azul_impl::css::OptionStyleBorderRightStyleValue",
+				    "derive": ["Copy"],
 				    "enum_fields": [
 				        {"None": {}},
-				        {"Some": {"type": "StyleBorderRightStyle"}}
+				        {"Some": {"type": "StyleBorderRightStyleValue"}}
 				    ]
 				},
 				"OptionStyleBorderBottomStyleValue": {
 				    "external": "azul_impl::css::OptionStyleBorderBottomStyleValue",
+				    "derive": ["Copy"],
 				    "enum_fields": [
 				        {"None": {}},
-				        {"Some": {"type": "StyleBorderBottomStyle"}}
+				        {"Some": {"type": "StyleBorderBottomStyleValue"}}
 				    ]
 				},
 				"OptionStyleBorderTopLeftRadiusValue": {
 				    "external": "azul_impl::css::OptionStyleBorderTopLeftRadiusValue",
+				    "derive": ["Copy"],
 				    "enum_fields": [
 				        {"None": {}},
-				        {"Some": {"type": "StyleBorderTopLeftRadius"}}
+				        {"Some": {"type": "StyleBorderTopLeftRadiusValue"}}
 				    ]
 				},
 				"OptionStyleBorderTopRightRadiusValue": {
 				    "external": "azul_impl::css::OptionStyleBorderTopRightRadiusValue",
+				    "derive": ["Copy"],
 				    "enum_fields": [
 				        {"None": {}},
-				        {"Some": {"type": "StyleBorderTopRightRadius"}}
+				        {"Some": {"type": "StyleBorderTopRightRadiusValue"}}
 				    ]
 				},
 				"OptionStyleBorderBottomLeftRadiusValue": {
 				    "external": "azul_impl::css::OptionStyleBorderBottomLeftRadiusValue",
+				    "derive": ["Copy"],
 				    "enum_fields": [
 				        {"None": {}},
-				        {"Some": {"type": "StyleBorderBottomLeftRadius"}}
+				        {"Some": {"type": "StyleBorderBottomLeftRadiusValue"}}
 				    ]
 				},
 				"OptionStyleBorderBottomRightRadiusValue": {
 				    "external": "azul_impl::css::OptionStyleBorderBottomRightRadiusValue",
+				    "derive": ["Copy"],
 				    "enum_fields": [
 				        {"None": {}},
-				        {"Some": {"type": "StyleBorderBottomRightRadius"}}
+				        {"Some": {"type": "StyleBorderBottomRightRadiusValue"}}
 				    ]
 				},
 				"OptionLayoutDisplayValue": {
 				    "external": "azul_impl::css::OptionLayoutDisplayValue",
+				    "derive": ["Copy"],
 				    "enum_fields": [
 				        {"None": {}},
-				        {"Some": {"type": "LayoutDisplay"}}
+				        {"Some": {"type": "LayoutDisplayValue"}}
 				    ]
 				},
 				"OptionLayoutFloatValue": {
 				    "external": "azul_impl::css::OptionLayoutFloatValue",
+				    "derive": ["Copy"],
 				    "enum_fields": [
 				        {"None": {}},
-				        {"Some": {"type": "LayoutFloat"}}
+				        {"Some": {"type": "LayoutFloatValue"}}
 				    ]
 				},
 				"OptionLayoutBoxSizingValue": {
 				    "external": "azul_impl::css::OptionLayoutBoxSizingValue",
+				    "derive": ["Copy"],
 				    "enum_fields": [
 				        {"None": {}},
-				        {"Some": {"type": "LayoutBoxSizing"}}
+				        {"Some": {"type": "LayoutBoxSizingValue"}}
 				    ]
 				},
 				"OptionLayoutWidthValue": {
 				    "external": "azul_impl::css::OptionLayoutWidthValue",
+				    "derive": ["Copy"],
 				    "enum_fields": [
 				        {"None": {}},
-				        {"Some": {"type": "LayoutWidth"}}
+				        {"Some": {"type": "LayoutWidthValue"}}
 				    ]
 				},
 				"OptionLayoutHeightValue": {
 				    "external": "azul_impl::css::OptionLayoutHeightValue",
+				    "derive": ["Copy"],
 				    "enum_fields": [
 				        {"None": {}},
-				        {"Some": {"type": "LayoutHeight"}}
+				        {"Some": {"type": "LayoutHeightValue"}}
 				    ]
 				},
 				"OptionLayoutMinWidthValue": {
 				    "external": "azul_impl::css::OptionLayoutMinWidthValue",
+				    "derive": ["Copy"],
 				    "enum_fields": [
 				        {"None": {}},
-				        {"Some": {"type": "LayoutMinWidth"}}
+				        {"Some": {"type": "LayoutMinWidthValue"}}
 				    ]
 				},
 				"OptionLayoutMinHeightValue": {
 				    "external": "azul_impl::css::OptionLayoutMinHeightValue",
+				    "derive": ["Copy"],
 				    "enum_fields": [
 				        {"None": {}},
-				        {"Some": {"type": "LayoutMinHeight"}}
+				        {"Some": {"type": "LayoutMinHeightValue"}}
 				    ]
 				},
 				"OptionLayoutMaxWidthValue": {
 				    "external": "azul_impl::css::OptionLayoutMaxWidthValue",
+				    "derive": ["Copy"],
 				    "enum_fields": [
 				        {"None": {}},
-				        {"Some": {"type": "LayoutMaxWidth"}}
+				        {"Some": {"type": "LayoutMaxWidthValue"}}
 				    ]
 				},
 				"OptionLayoutMaxHeightValue": {
 				    "external": "azul_impl::css::OptionLayoutMaxHeightValue",
+				    "derive": ["Copy"],
 				    "enum_fields": [
 				        {"None": {}},
-				        {"Some": {"type": "LayoutMaxHeight"}}
+				        {"Some": {"type": "LayoutMaxHeightValue"}}
 				    ]
 				},
 				"OptionLayoutPositionValue": {
 				    "external": "azul_impl::css::OptionLayoutPositionValue",
+				    "derive": ["Copy"],
 				    "enum_fields": [
 				        {"None": {}},
-				        {"Some": {"type": "LayoutPosition"}}
+				        {"Some": {"type": "LayoutPositionValue"}}
 				    ]
 				},
 				"OptionLayoutTopValue": {
 				    "external": "azul_impl::css::OptionLayoutTopValue",
+				    "derive": ["Copy"],
 				    "enum_fields": [
 				        {"None": {}},
-				        {"Some": {"type": "LayoutTop"}}
+				        {"Some": {"type": "LayoutTopValue"}}
 				    ]
 				},
 				"OptionLayoutBottomValue": {
 				    "external": "azul_impl::css::OptionLayoutBottomValue",
+				    "derive": ["Copy"],
 				    "enum_fields": [
 				        {"None": {}},
-				        {"Some": {"type": "LayoutBottom"}}
+				        {"Some": {"type": "LayoutBottomValue"}}
 				    ]
 				},
 				"OptionLayoutRightValue": {
 				    "external": "azul_impl::css::OptionLayoutRightValue",
+				    "derive": ["Copy"],
 				    "enum_fields": [
 				        {"None": {}},
-				        {"Some": {"type": "LayoutRight"}}
+				        {"Some": {"type": "LayoutRightValue"}}
 				    ]
 				},
 				"OptionLayoutLeftValue": {
 				    "external": "azul_impl::css::OptionLayoutLeftValue",
+				    "derive": ["Copy"],
 				    "enum_fields": [
 				        {"None": {}},
-				        {"Some": {"type": "LayoutLeft"}}
+				        {"Some": {"type": "LayoutLeftValue"}}
 				    ]
 				},
 				"OptionLayoutPaddingTopValue": {
 				    "external": "azul_impl::css::OptionLayoutPaddingTopValue",
+				    "derive": ["Copy"],
 				    "enum_fields": [
 				        {"None": {}},
-				        {"Some": {"type": "LayoutPaddingTop"}}
+				        {"Some": {"type": "LayoutPaddingTopValue"}}
 				    ]
 				},
 				"OptionLayoutPaddingBottomValue": {
 				    "external": "azul_impl::css::OptionLayoutPaddingBottomValue",
+				    "derive": ["Copy"],
 				    "enum_fields": [
 				        {"None": {}},
-				        {"Some": {"type": "LayoutPaddingBottom"}}
+				        {"Some": {"type": "LayoutPaddingBottomValue"}}
 				    ]
 				},
 				"OptionLayoutPaddingLeftValue": {
 				    "external": "azul_impl::css::OptionLayoutPaddingLeftValue",
+				    "derive": ["Copy"],
 				    "enum_fields": [
 				        {"None": {}},
-				        {"Some": {"type": "LayoutPaddingLeft"}}
+				        {"Some": {"type": "LayoutPaddingLeftValue"}}
 				    ]
 				},
 				"OptionLayoutPaddingRightValue": {
 				    "external": "azul_impl::css::OptionLayoutPaddingRightValue",
+				    "derive": ["Copy"],
 				    "enum_fields": [
 				        {"None": {}},
-				        {"Some": {"type": "LayoutPaddingRight"}}
+				        {"Some": {"type": "LayoutPaddingRightValue"}}
 				    ]
 				},
 				"OptionLayoutMarginTopValue": {
 				    "external": "azul_impl::css::OptionLayoutMarginTopValue",
+				    "derive": ["Copy"],
 				    "enum_fields": [
 				        {"None": {}},
-				        {"Some": {"type": "LayoutMarginTop"}}
+				        {"Some": {"type": "LayoutMarginTopValue"}}
 				    ]
 				},
 				"OptionLayoutMarginBottomValue": {
 				    "external": "azul_impl::css::OptionLayoutMarginBottomValue",
+				    "derive": ["Copy"],
 				    "enum_fields": [
 				        {"None": {}},
-				        {"Some": {"type": "LayoutMarginBottom"}}
+				        {"Some": {"type": "LayoutMarginBottomValue"}}
 				    ]
 				},
 				"OptionLayoutMarginLeftValue": {
 				    "external": "azul_impl::css::OptionLayoutMarginLeftValue",
+				    "derive": ["Copy"],
 				    "enum_fields": [
 				        {"None": {}},
-				        {"Some": {"type": "LayoutMarginLeft"}}
+				        {"Some": {"type": "LayoutMarginLeftValue"}}
 				    ]
 				},
 				"OptionLayoutMarginRightValue": {
 				    "external": "azul_impl::css::OptionLayoutMarginRightValue",
+				    "derive": ["Copy"],
 				    "enum_fields": [
 				        {"None": {}},
-				        {"Some": {"type": "LayoutMarginRight"}}
+				        {"Some": {"type": "LayoutMarginRightValue"}}
 				    ]
 				},
 				"OptionStyleBorderTopWidthValue": {
 				    "external": "azul_impl::css::OptionStyleBorderTopWidthValue",
+				    "derive": ["Copy"],
 				    "enum_fields": [
 				        {"None": {}},
-				        {"Some": {"type": "StyleBorderTopWidth"}}
+				        {"Some": {"type": "StyleBorderTopWidthValue"}}
 				    ]
 				},
 				"OptionStyleBorderLeftWidthValue": {
 				    "external": "azul_impl::css::OptionStyleBorderLeftWidthValue",
+				    "derive": ["Copy"],
 				    "enum_fields": [
 				        {"None": {}},
-				        {"Some": {"type": "StyleBorderLeftWidth"}}
+				        {"Some": {"type": "StyleBorderLeftWidthValue"}}
 				    ]
 				},
 				"OptionStyleBorderRightWidthValue": {
 				    "external": "azul_impl::css::OptionStyleBorderRightWidthValue",
+				    "derive": ["Copy"],
 				    "enum_fields": [
 				        {"None": {}},
-				        {"Some": {"type": "StyleBorderRightWidth"}}
+				        {"Some": {"type": "StyleBorderRightWidthValue"}}
 				    ]
 				},
 				"OptionStyleBorderBottomWidthValue": {
 				    "external": "azul_impl::css::OptionStyleBorderBottomWidthValue",
+				    "derive": ["Copy"],
 				    "enum_fields": [
 				        {"None": {}},
-				        {"Some": {"type": "StyleBorderBottomWidth"}}
+				        {"Some": {"type": "StyleBorderBottomWidthValue"}}
 				    ]
 				},
 				"OptionOverflowValue": {
 				    "external": "azul_impl::css::OptionOverflowValue",
+				    "derive": ["Copy"],
 				    "enum_fields": [
 				        {"None": {}},
-				        {"Some": {"type": "Overflow"}}
-				    ]
-				},
-				"OptionOverflowValue": {
-				    "external": "azul_impl::css::OptionOverflowValue",
-				    "enum_fields": [
-				        {"None": {}},
-				        {"Some": {"type": "Overflow"}}
+				        {"Some": {"type": "OverflowValue"}}
 				    ]
 				},
 				"OptionLayoutDirectionValue": {
 				    "external": "azul_impl::css::OptionLayoutDirectionValue",
+				    "derive": ["Copy"],
 				    "enum_fields": [
 				        {"None": {}},
-				        {"Some": {"type": "LayoutDirection"}}
+				        {"Some": {"type": "LayoutDirectionValue"}}
 				    ]
 				},
 				"OptionLayoutWrapValue": {
 				    "external": "azul_impl::css::OptionLayoutWrapValue",
+				    "derive": ["Copy"],
 				    "enum_fields": [
 				        {"None": {}},
-				        {"Some": {"type": "LayoutWrap"}}
+				        {"Some": {"type": "LayoutWrapValue"}}
 				    ]
 				},
 				"OptionLayoutFlexGrowValue": {
 				    "external": "azul_impl::css::OptionLayoutFlexGrowValue",
+				    "derive": ["Copy"],
 				    "enum_fields": [
 				        {"None": {}},
-				        {"Some": {"type": "LayoutFlexGrow"}}
+				        {"Some": {"type": "LayoutFlexGrowValue"}}
 				    ]
 				},
 				"OptionLayoutFlexShrinkValue": {
 				    "external": "azul_impl::css::OptionLayoutFlexShrinkValue",
+				    "derive": ["Copy"],
 				    "enum_fields": [
 				        {"None": {}},
-				        {"Some": {"type": "LayoutFlexShrink"}}
+				        {"Some": {"type": "LayoutFlexShrinkValue"}}
 				    ]
 				},
 				"OptionLayoutJustifyContentValue": {
 				    "external": "azul_impl::css::OptionLayoutJustifyContentValue",
+				    "derive": ["Copy"],
 				    "enum_fields": [
 				        {"None": {}},
-				        {"Some": {"type": "LayoutJustifyContent"}}
+				        {"Some": {"type": "LayoutJustifyContentValue"}}
 				    ]
 				},
 				"OptionLayoutAlignItemsValue": {
 				    "external": "azul_impl::css::OptionLayoutAlignItemsValue",
+				    "derive": ["Copy"],
 				    "enum_fields": [
 				        {"None": {}},
-				        {"Some": {"type": "LayoutAlignItems"}}
+				        {"Some": {"type": "LayoutAlignItemsValue"}}
 				    ]
 				},
 				"OptionLayoutAlignContentValue": {
 				    "external": "azul_impl::css::OptionLayoutAlignContentValue",
+				    "derive": ["Copy"],
 				    "enum_fields": [
 				        {"None": {}},
-				        {"Some": {"type": "LayoutAlignContent"}}
+				        {"Some": {"type": "LayoutAlignContentValue"}}
 				    ]
 				},
 				"OptionTagId": {
 				    "external": "azul_impl::styled_dom::OptionTagId",
+				    "derive": ["Copy"],
 				    "enum_fields": [
 				        {"None": {}},
 				        {"Some": {"type": "TagId"}}
@@ -1767,6 +1821,7 @@
 				},
 				"OptionDuration": {
 					"external": "azul_impl::task::OptionDuration",
+					"derive": ["Copy"],
 					"enum_fields": [
 						{"None": {}},
 						{"Some": { "type": "Duration" }}
@@ -1781,6 +1836,7 @@
 				},
 				"OptionUsize": {
 					"external": "azul_impl::gl::OptionUsize",
+					"derive": ["Copy"],
 					"enum_fields": [
 						{"None": {}},
 						{"Some": { "type": "usize" }}
@@ -1992,6 +2048,7 @@
 				},
 				"Duration": {
 					"external": "azul_impl::task::AzDuration",
+					"derive": ["Copy"],
 					"struct_fields": [
 						{"secs": {"type": "u64"}},
 						{"nanos": {"type": "u32"}}
@@ -2039,18 +2096,21 @@
 			"classes": {
 				"NodeId": {
 					"external": "azul_impl::styled_dom::AzNodeId",
+					"derive": ["Copy"],
 					"struct_fields": [
 						{"inner": {"type": "usize"}}
 					]
 				},
 				"DomId": {
 					"external": "azul_impl::styled_dom::DomId",
+					"derive": ["Copy"],
 					"struct_fields": [
 						{"inner": {"type": "usize"}}
 					]
 				},
 				"DomNodeId": {
 					"external": "azul_impl::callbacks::DomNodeId",
+					"derive": ["Copy"],
 					"struct_fields": [
 						{"dom": {"type": "DomId"}},
 						{"node": {"type": "NodeId"}}
@@ -2058,6 +2118,7 @@
 				},
 				"HidpiAdjustedBounds": {
 					"external": "azul_impl::callbacks::HidpiAdjustedBounds",
+					"derive": ["Copy"],
 					"struct_fields": [
 						{"logical_size": {"type": "LogicalSize"}},
 						{"hidpi_factor": {"type": "f32"}}
@@ -2091,6 +2152,7 @@
 				},
 				"LayoutCallback": {
 					"external": "azul_impl::callbacks::LayoutCallback",
+					"derive": ["Copy"],
 					"struct_fields": [
 						{"cb": {"type": "LayoutCallbackType"}}
 					]
@@ -2099,6 +2161,7 @@
 
 				"Callback": {
 					"external": "azul_impl::callbacks::Callback",
+					"derive": ["Copy"],
 					"struct_fields": [
 						{"cb": {"type": "CallbackType"}}
 					]
@@ -2328,6 +2391,7 @@
 				"UpdateScreen": {
 					"external": "azul_impl::callbacks::UpdateScreen",
 					"doc": "Specifies if the screen should be updated after the callback function has returned",
+					"derive": ["Copy"],
 					"enum_fields": [
 						{"DoNothing": {"doc": "The screen does not need to redraw after the callback has been called"}},
 						{"RegenerateStyledDomForCurrentWindow": {"doc": "After the callback is called, the screen needs to redraw (layout() function being called again)"}},
@@ -2338,6 +2402,7 @@
 
 				"IFrameCallback": {
 					"external": "azul_impl::callbacks::IFrameCallback",
+					"derive": ["Copy"],
 					"struct_fields": [
 						{"cb": {"type": "IFrameCallbackType"}}
 					]
@@ -2362,6 +2427,7 @@
 
 				"GlCallback": {
 					"external": "azul_impl::callbacks::GlCallback",
+					"derive": ["Copy"],
 					"struct_fields": [
 						{"cb": {"type": "GlCallbackType"}}
 					]
@@ -2404,6 +2470,7 @@
 
 				"TimerCallback": {
 					"external": "azul_impl::callbacks::TimerCallback",
+					"derive": ["Copy"],
 					"struct_fields": [
 						{"cb": {"type": "TimerCallbackType"}}
 					]
@@ -2494,7 +2561,7 @@
 						{"_internal_layout_align":  {"type": "usize", "doc": "Alignment of the type-erased struct (usually 0 or 8)"}},
 						{"type_id":  {"type": "u64", "doc": "TypeId that can uniquely identify the type of the struct, usually generated by the compiler (i.e. in Rust it would be `std::any::TypeId`)"}},
 						{"type_name":  {"type": "String", "doc": "Optional, name of the type, usually compiler-generated (in Rust, `std::any::type_name<T>()`)"}},
-						{"ref_count":  {"type": "*const AtomicRefCount", "doc": "Pointer to the reference count of this `RefAny`. Calling `.clone()` will not clone the data, only bump the reference count by 1. When the `num_copies` reaches 0, the destructor of this `RefAny` is called"}},
+						{"_sharing_info_ptr":  {"type": "*const AtomicRefCount", "doc": "Pointer to the reference count of this `RefAny`. Calling `.clone()` will not clone the data, only bump the reference count by 1. When the `num_copies` reaches 0, the destructor of this `RefAny` is called"}},
 						{"custom_destructor":  {"type": "RefAnyDestructorType", "doc": "Function pointer to the destructor of `T`. Is called when the `num_copies` count of the `RefAny` reaches 0"}}
 					],
 					"constructors": {
@@ -2682,6 +2749,7 @@
 				},
 				"NodeTypePath": {
 					"external": "azul_impl::css::NodeTypePath",
+					"derive": ["Copy"],
 					"enum_fields": [
 						{"Body": {}},
 						{"Div": {}},
@@ -2693,6 +2761,7 @@
 				},
 				"CssPathPseudoSelector": {
 					"external": "azul_impl::css::CssPathPseudoSelector",
+					"derive": ["Copy"],
 					"enum_fields": [
 						{"First": {}},
 						{"Last": {}},
@@ -2704,6 +2773,7 @@
 				},
 				"CssNthChildSelector": {
 					"external": "azul_impl::css::CssNthChildSelector",
+					"derive": ["Copy"],
 					"enum_fields": [
 						{"Number": {"type": "u32"}},
 						{"Even": {}},
@@ -2713,6 +2783,7 @@
 				},
 				"CssNthChildPattern": {
 					"external": "azul_impl::css::CssNthChildPattern",
+					"derive": ["Copy"],
 					"struct_fields": [
 						{"repeat": {"type": "u32"}},
 						{"offset": {"type": "u32"}}
@@ -2759,6 +2830,7 @@
 				},
 				"ColorU": {
 					"external": "azul_impl::css::ColorU",
+					"derive": ["Copy"],
 					"struct_fields": [
 						{"r": {"type": "u8"}},
 						{"g": {"type": "u8"}},
@@ -2768,6 +2840,7 @@
 				},
 				"SizeMetric": {
 					"external": "azul_impl::css::SizeMetric",
+					"derive": ["Copy"],
 					"enum_fields": [
 						{"Px": {}},
 						{"Pt": {}},
@@ -2777,12 +2850,14 @@
 				},
 				"FloatValue": {
 					"external": "azul_impl::css::FloatValue",
+					"derive": ["Copy"],
 					"struct_fields": [
 						{"number": {"type": "isize"}}
 					]
 				},
 				"PixelValue": {
 					"external": "azul_impl::css::PixelValue",
+					"derive": ["Copy"],
 					"struct_fields": [
 						{"metric": {"type": "SizeMetric"}},
 						{"number": {"type": "FloatValue"}}
@@ -2790,12 +2865,14 @@
 				},
 				"PixelValueNoPercent": {
 					"external": "azul_impl::css::PixelValueNoPercent",
+					"derive": ["Copy"],
 					"struct_fields": [
 						{"inner": {"type": "PixelValue"}}
 					]
 				},
 				"BoxShadowClipMode": {
 					"external": "azul_impl::css::BoxShadowClipMode",
+					"derive": ["Copy"],
 					"enum_fields": [
 						{"Outset": {}},
 						{"Inset": {}}
@@ -2803,6 +2880,7 @@
 				},
 				"BoxShadowPreDisplayItem": {
 					"external": "azul_impl::css::BoxShadowPreDisplayItem",
+					"derive": ["Copy"],
 					"struct_fields": [
 						{ "offset": {"type": "[PixelValueNoPercent;2]" }},
 						{ "color": {"type": "ColorU" }},
@@ -2813,6 +2891,7 @@
 				},
 				"LayoutAlignContent": {
 					"external": "azul_impl::css::LayoutAlignContent",
+					"derive": ["Copy"],
 					"enum_fields": [
 						{"Stretch": {"doc": "Default value. Lines stretch to take up the remaining space"}},
 						{"Center": {"doc": "Lines are packed toward the center of the flex container"}},
@@ -2824,6 +2903,7 @@
 				},
 				"LayoutAlignItems": {
 					"external": "azul_impl::css::LayoutAlignItems",
+					"derive": ["Copy"],
 					"enum_fields": [
 						{"Stretch": {"doc": "Items are stretched to fit the container"}},
 						{"Center": {"doc": "Items are positioned at the center of the container"}},
@@ -2833,12 +2913,14 @@
 				},
 				"LayoutBottom": {
 					"external": "azul_impl::css::LayoutBottom",
+					"derive": ["Copy"],
 					"struct_fields": [
 						{"inner": {"type": "PixelValue"}}
 					]
 				},
 				"LayoutBoxSizing": {
 					"external": "azul_impl::css::LayoutBoxSizing",
+					"derive": ["Copy"],
 					"enum_fields": [
 						{"ContentBox": {}},
 						{"BorderBox": {}}
@@ -2846,6 +2928,7 @@
 				},
 				"LayoutDirection": {
 					"external": "azul_impl::css::LayoutDirection",
+					"derive": ["Copy"],
 					"enum_fields": [
 						{"Row": {}},
 						{"RowReverse": {}},
@@ -2855,6 +2938,7 @@
 				},
 				"LayoutDisplay": {
 					"external": "azul_impl::css::LayoutDisplay",
+					"derive": ["Copy"],
 					"enum_fields": [
 						{"Flex": {}},
 						{"Block": {}},
@@ -2863,18 +2947,21 @@
 				},
 				"LayoutFlexGrow": {
 					"external": "azul_impl::css::LayoutFlexGrow",
+					"derive": ["Copy"],
 					"struct_fields": [
 						{"inner": { "type": "FloatValue" }}
 					]
 				},
 				"LayoutFlexShrink": {
 					"external": "azul_impl::css::LayoutFlexShrink",
+					"derive": ["Copy"],
 					"struct_fields": [
 						{"inner": { "type": "FloatValue" }}
 					]
 				},
 				"LayoutFloat": {
 					"external": "azul_impl::css::LayoutFloat",
+					"derive": ["Copy"],
 					"enum_fields": [
 						{"Left": {}},
 						{"Right": {}}
@@ -2882,12 +2969,14 @@
 				},
 				"LayoutHeight": {
 					"external": "azul_impl::css::LayoutHeight",
+					"derive": ["Copy"],
 					"struct_fields": [
 						{"inner": { "type": "PixelValue" }}
 					]
 				},
 				"LayoutJustifyContent": {
 					"external": "azul_impl::css::LayoutJustifyContent",
+					"derive": ["Copy"],
 					"enum_fields": [
 						 {"Start": {"doc": "Default value. Items are positioned at the beginning of the container"}},
 						 {"End": {"doc": "Items are positioned at the end of the container"}},
@@ -2899,84 +2988,98 @@
 				},
 				"LayoutLeft": {
 					"external": "azul_impl::css::LayoutLeft",
+					"derive": ["Copy"],
 					"struct_fields": [
 						{"inner": { "type": "PixelValue" }}
 					]
 				},
 				"LayoutMarginBottom": {
 					"external": "azul_impl::css::LayoutMarginBottom",
+					"derive": ["Copy"],
 					"struct_fields": [
 						{"inner": { "type": "PixelValue" }}
 					]
 				},
 				"LayoutMarginLeft": {
 					"external": "azul_impl::css::LayoutMarginLeft",
+					"derive": ["Copy"],
 					"struct_fields": [
 						{"inner": { "type": "PixelValue" }}
 					]
 				},
 				"LayoutMarginRight": {
 					"external": "azul_impl::css::LayoutMarginRight",
+					"derive": ["Copy"],
 					"struct_fields": [
 						{"inner": { "type": "PixelValue" }}
 					]
 				},
 				"LayoutMarginTop": {
 					"external": "azul_impl::css::LayoutMarginTop",
+					"derive": ["Copy"],
 					"struct_fields": [
 						{"inner": { "type": "PixelValue" }}
 					]
 				},
 				"LayoutMaxHeight": {
 					"external": "azul_impl::css::LayoutMaxHeight",
+					"derive": ["Copy"],
 					"struct_fields": [
 						{"inner": { "type": "PixelValue" }}
 					]
 				},
 				"LayoutMaxWidth": {
 					"external": "azul_impl::css::LayoutMaxWidth",
+					"derive": ["Copy"],
 					"struct_fields": [
 						{"inner": { "type": "PixelValue" }}
 					]
 				},
 				"LayoutMinHeight": {
 					"external": "azul_impl::css::LayoutMinHeight",
+					"derive": ["Copy"],
 					"struct_fields": [
 						{"inner": { "type": "PixelValue" }}
 					]
 				},
 				"LayoutMinWidth": {
 					"external": "azul_impl::css::LayoutMinWidth",
+					"derive": ["Copy"],
 					"struct_fields": [
 						{"inner": { "type": "PixelValue" }}
 					]
 				},
 				"LayoutPaddingBottom": {
 					"external": "azul_impl::css::LayoutPaddingBottom",
+					"derive": ["Copy"],
 					"struct_fields": [
 						{"inner": { "type": "PixelValue" }}
 					]
 				},
 				"LayoutPaddingLeft": {
 					"external": "azul_impl::css::LayoutPaddingLeft",
+					"derive": ["Copy"],
 					"struct_fields": [
 						{"inner": { "type": "PixelValue" }}
 					]
 				},
 				"LayoutPaddingRight": {
 					"external": "azul_impl::css::LayoutPaddingRight",
+					"derive": ["Copy"],
 					"struct_fields": [
 						{"inner": { "type": "PixelValue" }}
 					]
 				},
 				"LayoutPaddingTop": {
 					"external": "azul_impl::css::LayoutPaddingTop",
+					"derive": ["Copy"],
 					"struct_fields": [
 						{"inner": { "type": "PixelValue" }}
 					]
 				},
 				"LayoutPosition": {
 					"external": "azul_impl::css::LayoutPosition",
+					"derive": ["Copy"],
 					"enum_fields": [
 						{"Static": {}},
 						{"Relative": {}},
@@ -2986,24 +3089,28 @@
 				},
 				"LayoutRight": {
 					"external": "azul_impl::css::LayoutRight",
+					"derive": ["Copy"],
 					"struct_fields": [
 						{"inner": { "type": "PixelValue" }}
 					]
 				},
 				"LayoutTop": {
 					"external": "azul_impl::css::LayoutTop",
+					"derive": ["Copy"],
 					"struct_fields": [
 						{"inner": { "type": "PixelValue" }}
 					]
 				},
 				"LayoutWidth": {
 					"external": "azul_impl::css::LayoutWidth",
+					"derive": ["Copy"],
 					"struct_fields": [
 						{"inner": { "type": "PixelValue" }}
 					]
 				},
 				"LayoutWrap": {
 					"external": "azul_impl::css::LayoutWrap",
+					"derive": ["Copy"],
 					"enum_fields": [
 						{"Wrap": {}},
 						{"NoWrap": {}}
@@ -3011,6 +3118,7 @@
 				},
 				"Overflow": {
 					"external": "azul_impl::css::Overflow",
+					"derive": ["Copy"],
 					"enum_fields": [
 						 {"Scroll": {"doc": "Always shows a scroll bar, overflows on scroll"}},
 						 {"Auto": {"doc": "Does not show a scroll bar by default, only when text is overflowing"}},
@@ -3020,18 +3128,21 @@
 				},
 				"FloatValue": {
 					"external": "azul_impl::css::FloatValue",
+					"derive": ["Copy"],
 					"struct_fields": [
 						{ "number": {"type": "isize" }}
 					]
 				},
 				"PercentageValue": {
 					"external": "azul_impl::css::PercentageValue",
+					"derive": ["Copy"],
 					"struct_fields": [
 						{ "number": {"type": "FloatValue" }}
 					]
 				},
 				"GradientStopPre": {
 					"external": "azul_impl::css::GradientStopPre",
+					"derive": ["Copy"],
 					"struct_fields": [
 						{"offset": {"type": "OptionPercentageValue"}},
 						{"color": {"type": "ColorU"}}
@@ -3039,6 +3150,7 @@
 				},
 				"DirectionCorner": {
 					"external": "azul_impl::css::DirectionCorner",
+					"derive": ["Copy"],
 					"enum_fields": [
 						{"Right": {}},
 						{"Left": {}},
@@ -3052,6 +3164,7 @@
 				},
 				"DirectionCorners": {
 					"external": "azul_impl::css::DirectionCorners",
+					"derive": ["Copy"],
 					"struct_fields": [
 						{"from": {"type": "DirectionCorner"}},
 						{"to": {"type": "DirectionCorner"}}
@@ -3059,6 +3172,7 @@
 				},
 				"Direction": {
 					"external": "azul_impl::css::Direction",
+					"derive": ["Copy"],
 					"enum_fields": [
 						{"Angle": {"type": "FloatValue"}},
 						{"FromTo": {"type": "DirectionCorners"}}
@@ -3066,6 +3180,7 @@
 				},
 				"ExtendMode": {
 					"external": "azul_impl::css::ExtendMode",
+					"derive": ["Copy"],
 					"enum_fields": [
 						{"Clamp": {}},
 						{"Repeat": {}}
@@ -3081,6 +3196,7 @@
 				},
 				"Shape": {
 					"external": "azul_impl::css::Shape",
+					"derive": ["Copy"],
 					"enum_fields": [
 						{"Ellipse": {}},
 						{"Circle": {}}
@@ -3111,6 +3227,7 @@
 				},
 				"BackgroundPositionHorizontal": {
 					"external": "azul_impl::css::BackgroundPositionHorizontal",
+					"derive": ["Copy"],
 					"enum_fields": [
 						{"Left": {}},
 						{"Center": {}},
@@ -3120,6 +3237,7 @@
 				},
 				"BackgroundPositionVertical": {
 					"external": "azul_impl::css::BackgroundPositionVertical",
+					"derive": ["Copy"],
 					"enum_fields": [
 						{"Top": {}},
 						{"Center": {}},
@@ -3129,6 +3247,7 @@
 				},
 				"StyleBackgroundPosition": {
 					"external": "azul_impl::css::StyleBackgroundPosition",
+					"derive": ["Copy"],
 					"struct_fields": [
 						{"horizontal": {"type": "BackgroundPositionHorizontal"}},
 						{"vertical": {"type": "BackgroundPositionVertical"}}
@@ -3136,6 +3255,7 @@
 				},
 				"StyleBackgroundRepeat": {
 					"external": "azul_impl::css::StyleBackgroundRepeat",
+					"derive": ["Copy"],
 					"enum_fields": [
 						{"NoRepeat": {}},
 						{"Repeat": {}},
@@ -3145,6 +3265,7 @@
 				},
 				"StyleBackgroundSize": {
 					"external": "azul_impl::css::StyleBackgroundSize",
+					"derive": ["Copy"],
 					"enum_fields": [
 						{"ExactSize": {"type": "[PixelValue;2]"}},
 						{"Contain": {}},
@@ -3153,24 +3274,28 @@
 				},
 				"StyleBorderBottomColor": {
 					"external": "azul_impl::css::StyleBorderBottomColor",
+					"derive": ["Copy"],
 					"struct_fields": [
 						{"inner": {"type": "ColorU"}}
 					]
 				},
 				"StyleBorderBottomLeftRadius": {
 					"external": "azul_impl::css::StyleBorderBottomLeftRadius",
+					"derive": ["Copy"],
 					"struct_fields": [
 						{"inner": {"type": "PixelValue"}}
 					]
 				},
 				"StyleBorderBottomRightRadius": {
 					"external": "azul_impl::css::StyleBorderBottomRightRadius",
+					"derive": ["Copy"],
 					"struct_fields": [
 						{"inner": {"type": "PixelValue"}}
 					]
 				},
 				"BorderStyle": {
 					"external": "azul_impl::css::BorderStyle",
+					"derive": ["Copy"],
 					"enum_fields": [
 						{"None": {}},
 						{"Solid": {}},
@@ -3186,84 +3311,98 @@
 				},
 				"StyleBorderBottomStyle": {
 					"external": "azul_impl::css::StyleBorderBottomStyle",
+					"derive": ["Copy"],
 					"struct_fields": [
 						{"inner": {"type": "BorderStyle"}}
 					]
 				},
 				"StyleBorderBottomWidth": {
 					"external": "azul_impl::css::StyleBorderBottomWidth",
+					"derive": ["Copy"],
 					"struct_fields": [
 						{"inner": {"type": "PixelValue"}}
 					]
 				},
 				"StyleBorderLeftColor": {
 					"external": "azul_impl::css::StyleBorderLeftColor",
+					"derive": ["Copy"],
 					"struct_fields": [
 						{"inner": {"type": "ColorU"}}
 					]
 				},
 				"StyleBorderLeftStyle": {
 					"external": "azul_impl::css::StyleBorderLeftStyle",
+					"derive": ["Copy"],
 					"struct_fields": [
 						{"inner": {"type": "BorderStyle"}}
 					]
 				},
 				"StyleBorderLeftWidth": {
 					"external": "azul_impl::css::StyleBorderLeftWidth",
+					"derive": ["Copy"],
 					"struct_fields": [
 						{"inner": {"type": "PixelValue"}}
 					]
 				},
 				"StyleBorderRightColor": {
 					"external": "azul_impl::css::StyleBorderRightColor",
+					"derive": ["Copy"],
 					"struct_fields": [
 						{"inner": {"type": "ColorU"}}
 					]
 				},
 				"StyleBorderRightStyle": {
 					"external": "azul_impl::css::StyleBorderRightStyle",
+					"derive": ["Copy"],
 					"struct_fields": [
 						{"inner": {"type": "BorderStyle"}}
 					]
 				},
 				"StyleBorderRightWidth": {
 					"external": "azul_impl::css::StyleBorderRightWidth",
+					"derive": ["Copy"],
 					"struct_fields": [
 						{"inner": {"type": "PixelValue"}}
 					]
 				},
 				"StyleBorderTopColor": {
 					"external": "azul_impl::css::StyleBorderTopColor",
+					"derive": ["Copy"],
 					"struct_fields": [
 						{"inner": {"type": "ColorU"}}
 					]
 				},
 				"StyleBorderTopLeftRadius": {
 					"external": "azul_impl::css::StyleBorderTopLeftRadius",
+					"derive": ["Copy"],
 					"struct_fields": [
 						{"inner": {"type": "PixelValue"}}
 					]
 				},
 				"StyleBorderTopRightRadius": {
 					"external": "azul_impl::css::StyleBorderTopRightRadius",
+					"derive": ["Copy"],
 					"struct_fields": [
 						{"inner": {"type": "PixelValue"}}
 					]
 				},
 				"StyleBorderTopStyle": {
 					"external": "azul_impl::css::StyleBorderTopStyle",
+					"derive": ["Copy"],
 					"struct_fields": [
 						{"inner": {"type": "BorderStyle"}}
 					]
 				},
 				"StyleBorderTopWidth": {
 					"external": "azul_impl::css::StyleBorderTopWidth",
+					"derive": ["Copy"],
 					"struct_fields": [
 						{"inner": {"type": "PixelValue"}}
 					]
 				},
 				"StyleCursor": {
 					"external": "azul_impl::css::StyleCursor",
+					"derive": ["Copy"],
 					"enum_fields": [
 						{"Alias": {}},
 						{"AllScroll": {}},
@@ -3305,36 +3444,42 @@
 				},
 				"StyleFontSize": {
 					"external": "azul_impl::css::StyleFontSize",
+					"derive": ["Copy"],
 					"struct_fields": [
 						{"inner": {"type": "PixelValue"}}
 					]
 				},
 				"StyleLetterSpacing": {
 					"external": "azul_impl::css::StyleLetterSpacing",
+					"derive": ["Copy"],
 					"struct_fields": [
 						{"inner": {"type": "PixelValue"}}
 					]
 				},
 				"StyleLineHeight": {
 					"external": "azul_impl::css::StyleLineHeight",
+					"derive": ["Copy"],
 					"struct_fields": [
 						{"inner": {"type": "PercentageValue"}}
 					]
 				},
 				"StyleTabWidth": {
 					"external": "azul_impl::css::StyleTabWidth",
+					"derive": ["Copy"],
 					"struct_fields": [
 						{"inner": {"type": "PercentageValue"}}
 					]
 				},
 				"StyleOpacity": {
 					"external": "azul_impl::css::StyleOpacity",
+					"derive": ["Copy"],
 					"struct_fields": [
 						{"inner": {"type": "FloatValue"}}
 					]
 				},
 				"StyleTransformOrigin": {
 					"external": "azul_impl::css::StyleTransformOrigin",
+					"derive": ["Copy"],
 					"struct_fields": [
 						{"x": {"type": "PixelValue"}},
 						{"y": {"type": "PixelValue"}}
@@ -3342,6 +3487,7 @@
 				},
 				"StylePerspectiveOrigin": {
 					"external": "azul_impl::css::StyleTransformOrigin",
+					"derive": ["Copy"],
 					"struct_fields": [
 						{"x": {"type": "PixelValue"}},
 						{"y": {"type": "PixelValue"}}
@@ -3349,6 +3495,7 @@
 				},
 				"StyleBackfaceVisibility": {
 					"external": "azul_impl::css::StyleBackfaceVisibility",
+					"derive": ["Copy"],
 					"enum_fields": [
 						{"Hidden": {}},
 						{"Visible": {}}
@@ -3356,6 +3503,7 @@
 				},
 				"StyleTransform": {
 					"external": "azul_impl::css::StyleTransform",
+					"derive": ["Copy"],
 					"enum_fields": [
 						{"Matrix": {"type": "StyleTransformMatrix2D"}},
 						{"Matrix3D": {"type": "StyleTransformMatrix3D"}},
@@ -3382,6 +3530,7 @@
 				},
 				"StyleTransformMatrix2D": {
 					"external": "azul_impl::css::StyleTransformMatrix2D",
+					"derive": ["Copy"],
 					"struct_fields": [
 						{"a": {"type": "PixelValue" }},
 						{"b": {"type": "PixelValue" }},
@@ -3393,6 +3542,7 @@
 				},
 				"StyleTransformMatrix3D": {
 					"external": "azul_impl::css::StyleTransformMatrix3D",
+					"derive": ["Copy"],
 					"struct_fields": [
 						{"m11": {"type": "PixelValue"}},
 						{"m12": {"type": "PixelValue"}},
@@ -3414,6 +3564,7 @@
 				},
 				"StyleTransformTranslate2D": {
 					"external": "azul_impl::css::StyleTransformTranslate2D",
+					"derive": ["Copy"],
 					"struct_fields": [
 						{"x": {"type": "PixelValue"}},
 						{"y": {"type": "PixelValue"}}
@@ -3421,6 +3572,7 @@
 				},
 				"StyleTransformTranslate3D": {
 					"external": "azul_impl::css::StyleTransformTranslate3D",
+					"derive": ["Copy"],
 					"struct_fields": [
 						{"x": {"type": "PixelValue"}},
 						{"y": {"type": "PixelValue"}},
@@ -3429,6 +3581,7 @@
 				},
 				"StyleTransformRotate3D": {
 					"external": "azul_impl::css::StyleTransformRotate3D",
+					"derive": ["Copy"],
 					"struct_fields": [
 						{"x": {"type": "PercentageValue"}},
 						{"y": {"type": "PercentageValue"}},
@@ -3438,6 +3591,7 @@
 				},
 				"StyleTransformScale2D": {
 					"external": "azul_impl::css::StyleTransformScale2D",
+					"derive": ["Copy"],
 					"struct_fields": [
 						{"x": {"type": "PercentageValue"}},
 						{"y": {"type": "PercentageValue"}}
@@ -3445,6 +3599,7 @@
 				},
 				"StyleTransformScale3D": {
 					"external": "azul_impl::css::StyleTransformScale3D",
+					"derive": ["Copy"],
 					"struct_fields": [
 						{"x": {"type": "PercentageValue"}},
 						{"y": {"type": "PercentageValue"}},
@@ -3453,6 +3608,7 @@
 				},
 				"StyleTransformSkew2D": {
 					"external": "azul_impl::css::StyleTransformSkew2D",
+					"derive": ["Copy"],
 					"struct_fields": [
 						{"x": {"type": "PercentageValue"}},
 						{"y": {"type": "PercentageValue"}}
@@ -3460,6 +3616,7 @@
 				},
 				"StyleTextAlignmentHorz": {
 					"external": "azul_impl::css::StyleTextAlignmentHorz",
+					"derive": ["Copy"],
 					"enum_fields": [
 						{"Left": {}},
 						{"Center": {}},
@@ -3468,12 +3625,14 @@
 				},
 				"StyleTextColor": {
 					"external": "azul_impl::css::StyleTextColor",
+					"derive": ["Copy"],
 					"struct_fields": [
 						{"inner": {"type": "ColorU"}}
 					]
 				},
 				"StyleWordSpacing": {
 					"external": "azul_impl::css::StyleWordSpacing",
+					"derive": ["Copy"],
 					"struct_fields": [
 						{"inner": {"type": "PixelValue"}}
 					]
@@ -3481,6 +3640,7 @@
 				"BoxShadowPreDisplayItemValue": {
 					"rust_class_name": "CssPropertyValue<BoxShadowPreDisplayItem>",
 					"external": "azul_impl::css::CssPropertyValue::<BoxShadowPreDisplayItem>",
+					"derive": ["Copy"],
 					"enum_fields": [
 						{ "Auto": { }} ,
 						{ "None": { }} ,
@@ -3492,6 +3652,7 @@
 				"LayoutAlignContentValue": {
 					"rust_class_name": "CssPropertyValue<LayoutAlignContent>",
 					"external": "azul_impl::css::CssPropertyValue::<LayoutAlignContent>",
+					"derive": ["Copy"],
 					"enum_fields": [
 						{ "Auto": { }} ,
 						{ "None": { }} ,
@@ -3503,6 +3664,7 @@
 				"LayoutAlignItemsValue": {
 					"rust_class_name": "CssPropertyValue<LayoutAlignItems>",
 					"external": "azul_impl::css::CssPropertyValue::<LayoutAlignItems>",
+					"derive": ["Copy"],
 					"enum_fields": [
 						{ "Auto": { }} ,
 						{ "None": { }} ,
@@ -3514,6 +3676,7 @@
 				"LayoutBottomValue": {
 					"rust_class_name": "CssPropertyValue<LayoutBottom>",
 					"external": "azul_impl::css::CssPropertyValue::<LayoutBottom>",
+					"derive": ["Copy"],
 					"enum_fields": [
 						{ "Auto": { }} ,
 						{ "None": { }} ,
@@ -3525,6 +3688,7 @@
 				"LayoutBoxSizingValue": {
 					"rust_class_name": "CssPropertyValue<LayoutBoxSizing>",
 					"external": "azul_impl::css::CssPropertyValue::<LayoutBoxSizing>",
+					"derive": ["Copy"],
 					"enum_fields": [
 						{ "Auto": { }} ,
 						{ "None": { }} ,
@@ -3536,6 +3700,7 @@
 				"LayoutDirectionValue": {
 					"rust_class_name": "CssPropertyValue<LayoutDirection>",
 					"external": "azul_impl::css::CssPropertyValue::<LayoutDirection>",
+					"derive": ["Copy"],
 					"enum_fields": [
 						{ "Auto": { }} ,
 						{ "None": { }} ,
@@ -3547,6 +3712,7 @@
 				"LayoutDisplayValue": {
 					"rust_class_name": "CssPropertyValue<LayoutDisplay>",
 					"external": "azul_impl::css::CssPropertyValue::<LayoutDisplay>",
+					"derive": ["Copy"],
 					"enum_fields": [
 						{ "Auto": { }} ,
 						{ "None": { }} ,
@@ -3558,6 +3724,7 @@
 				"LayoutFlexGrowValue": {
 					"rust_class_name": "CssPropertyValue<LayoutFlexGrow>",
 					"external": "azul_impl::css::CssPropertyValue::<LayoutFlexGrow>",
+					"derive": ["Copy"],
 					"enum_fields": [
 						{ "Auto": { }} ,
 						{ "None": { }} ,
@@ -3569,6 +3736,7 @@
 				"LayoutFlexShrinkValue": {
 					"rust_class_name": "CssPropertyValue<LayoutFlexShrink>",
 					"external": "azul_impl::css::CssPropertyValue::<LayoutFlexShrink>",
+					"derive": ["Copy"],
 					"enum_fields": [
 						{ "Auto": { }} ,
 						{ "None": { }} ,
@@ -3580,6 +3748,7 @@
 				"LayoutFloatValue": {
 					"rust_class_name": "CssPropertyValue<LayoutFloat>",
 					"external": "azul_impl::css::CssPropertyValue::<LayoutFloat>",
+					"derive": ["Copy"],
 					"enum_fields": [
 						{ "Auto": { }} ,
 						{ "None": { }} ,
@@ -3591,6 +3760,7 @@
 				"LayoutHeightValue": {
 					"rust_class_name": "CssPropertyValue<LayoutHeight>",
 					"external": "azul_impl::css::CssPropertyValue::<LayoutHeight>",
+					"derive": ["Copy"],
 					"enum_fields": [
 						{ "Auto": { }} ,
 						{ "None": { }} ,
@@ -3602,6 +3772,7 @@
 				"LayoutJustifyContentValue": {
 					"rust_class_name": "CssPropertyValue<LayoutJustifyContent>",
 					"external": "azul_impl::css::CssPropertyValue::<LayoutJustifyContent>",
+					"derive": ["Copy"],
 					"enum_fields": [
 						{ "Auto": { }} ,
 						{ "None": { }} ,
@@ -3613,6 +3784,7 @@
 				"LayoutLeftValue": {
 					"rust_class_name": "CssPropertyValue<LayoutLeft>",
 					"external": "azul_impl::css::CssPropertyValue::<LayoutLeft>",
+					"derive": ["Copy"],
 					"enum_fields": [
 						{ "Auto": { }} ,
 						{ "None": { }} ,
@@ -3624,6 +3796,7 @@
 				"LayoutMarginBottomValue": {
 					"rust_class_name": "CssPropertyValue<LayoutMarginBottom>",
 					"external": "azul_impl::css::CssPropertyValue::<LayoutMarginBottom>",
+					"derive": ["Copy"],
 					"enum_fields": [
 						{ "Auto": { }} ,
 						{ "None": { }} ,
@@ -3635,6 +3808,7 @@
 				"LayoutMarginLeftValue": {
 					"rust_class_name": "CssPropertyValue<LayoutMarginLeft>",
 					"external": "azul_impl::css::CssPropertyValue::<LayoutMarginLeft>",
+					"derive": ["Copy"],
 					"enum_fields": [
 						{ "Auto": { }} ,
 						{ "None": { }} ,
@@ -3646,6 +3820,7 @@
 				"LayoutMarginRightValue": {
 					"rust_class_name": "CssPropertyValue<LayoutMarginRight>",
 					"external": "azul_impl::css::CssPropertyValue::<LayoutMarginRight>",
+					"derive": ["Copy"],
 					"enum_fields": [
 						{ "Auto": { }} ,
 						{ "None": { }} ,
@@ -3657,6 +3832,7 @@
 				"LayoutMarginTopValue": {
 					"rust_class_name": "CssPropertyValue<LayoutMarginTop>",
 					"external": "azul_impl::css::CssPropertyValue::<LayoutMarginTop>",
+					"derive": ["Copy"],
 					"enum_fields": [
 						{ "Auto": { }} ,
 						{ "None": { }} ,
@@ -3668,6 +3844,7 @@
 				"LayoutMaxHeightValue": {
 					"rust_class_name": "CssPropertyValue<LayoutMaxHeight>",
 					"external": "azul_impl::css::CssPropertyValue::<LayoutMaxHeight>",
+					"derive": ["Copy"],
 					"enum_fields": [
 						{ "Auto": { }} ,
 						{ "None": { }} ,
@@ -3679,6 +3856,7 @@
 				"LayoutMaxWidthValue": {
 					"rust_class_name": "CssPropertyValue<LayoutMaxWidth>",
 					"external": "azul_impl::css::CssPropertyValue::<LayoutMaxWidth>",
+					"derive": ["Copy"],
 					"enum_fields": [
 						{ "Auto": { }} ,
 						{ "None": { }} ,
@@ -3690,6 +3868,7 @@
 				"LayoutMinHeightValue": {
 					"rust_class_name": "CssPropertyValue<LayoutMinHeight>",
 					"external": "azul_impl::css::CssPropertyValue::<LayoutMinHeight>",
+					"derive": ["Copy"],
 					"enum_fields": [
 						{ "Auto": { }} ,
 						{ "None": { }} ,
@@ -3701,6 +3880,7 @@
 				"LayoutMinWidthValue": {
 					"rust_class_name": "CssPropertyValue<LayoutMinWidth>",
 					"external": "azul_impl::css::CssPropertyValue::<LayoutMinWidth>",
+					"derive": ["Copy"],
 					"enum_fields": [
 						{ "Auto": { }} ,
 						{ "None": { }} ,
@@ -3712,6 +3892,7 @@
 				"LayoutPaddingBottomValue": {
 					"rust_class_name": "CssPropertyValue<LayoutPaddingBottom>",
 					"external": "azul_impl::css::CssPropertyValue::<LayoutPaddingBottom>",
+					"derive": ["Copy"],
 					"enum_fields": [
 						{ "Auto": { }} ,
 						{ "None": { }} ,
@@ -3723,6 +3904,7 @@
 				"LayoutPaddingLeftValue": {
 					"rust_class_name": "CssPropertyValue<LayoutPaddingLeft>",
 					"external": "azul_impl::css::CssPropertyValue::<LayoutPaddingLeft>",
+					"derive": ["Copy"],
 					"enum_fields": [
 						{ "Auto": { }} ,
 						{ "None": { }} ,
@@ -3734,6 +3916,7 @@
 				"LayoutPaddingRightValue": {
 					"rust_class_name": "CssPropertyValue<LayoutPaddingRight>",
 					"external": "azul_impl::css::CssPropertyValue::<LayoutPaddingRight>",
+					"derive": ["Copy"],
 					"enum_fields": [
 						{ "Auto": { }} ,
 						{ "None": { }} ,
@@ -3745,6 +3928,7 @@
 				"LayoutPaddingTopValue": {
 					"rust_class_name": "CssPropertyValue<LayoutPaddingTop>",
 					"external": "azul_impl::css::CssPropertyValue::<LayoutPaddingTop>",
+					"derive": ["Copy"],
 					"enum_fields": [
 						{ "Auto": { }} ,
 						{ "None": { }} ,
@@ -3756,6 +3940,7 @@
 				"LayoutPositionValue": {
 					"rust_class_name": "CssPropertyValue<LayoutPosition>",
 					"external": "azul_impl::css::CssPropertyValue::<LayoutPosition>",
+					"derive": ["Copy"],
 					"enum_fields": [
 						{ "Auto": { }} ,
 						{ "None": { }} ,
@@ -3767,6 +3952,7 @@
 				"LayoutRightValue": {
 					"rust_class_name": "CssPropertyValue<LayoutRight>",
 					"external": "azul_impl::css::CssPropertyValue::<LayoutRight>",
+					"derive": ["Copy"],
 					"enum_fields": [
 						{ "Auto": { }} ,
 						{ "None": { }} ,
@@ -3778,6 +3964,7 @@
 				"LayoutTopValue": {
 					"rust_class_name": "CssPropertyValue<LayoutTop>",
 					"external": "azul_impl::css::CssPropertyValue::<LayoutTop>",
+					"derive": ["Copy"],
 					"enum_fields": [
 						{ "Auto": { }} ,
 						{ "None": { }} ,
@@ -3789,6 +3976,7 @@
 				"LayoutWidthValue": {
 					"rust_class_name": "CssPropertyValue<LayoutWidth>",
 					"external": "azul_impl::css::CssPropertyValue::<LayoutWidth>",
+					"derive": ["Copy"],
 					"enum_fields": [
 						{ "Auto": { }} ,
 						{ "None": { }} ,
@@ -3800,6 +3988,7 @@
 				"LayoutWrapValue": {
 					"rust_class_name": "CssPropertyValue<LayoutWrap>",
 					"external": "azul_impl::css::CssPropertyValue::<LayoutWrap>",
+					"derive": ["Copy"],
 					"enum_fields": [
 						{ "Auto": { }} ,
 						{ "None": { }} ,
@@ -3811,6 +4000,7 @@
 				"OverflowValue": {
 					"rust_class_name": "CssPropertyValue<Overflow>",
 					"external": "azul_impl::css::CssPropertyValue::<Overflow>",
+					"derive": ["Copy"],
 					"enum_fields": [
 						{ "Auto": { }} ,
 						{ "None": { }} ,
@@ -3833,6 +4023,7 @@
 				"StyleBackgroundPositionValue": {
 					"rust_class_name": "CssPropertyValue<StyleBackgroundPosition>",
 					"external": "azul_impl::css::CssPropertyValue::<StyleBackgroundPosition>",
+					"derive": ["Copy"],
 					"enum_fields": [
 						{ "Auto": { }} ,
 						{ "None": { }} ,
@@ -3844,6 +4035,7 @@
 				"StyleBackgroundRepeatValue": {
 					"rust_class_name": "CssPropertyValue<StyleBackgroundRepeat>",
 					"external": "azul_impl::css::CssPropertyValue::<StyleBackgroundRepeat>",
+					"derive": ["Copy"],
 					"enum_fields": [
 						{ "Auto": { }} ,
 						{ "None": { }} ,
@@ -3855,6 +4047,7 @@
 				"StyleBackgroundSizeValue": {
 					"rust_class_name": "CssPropertyValue<StyleBackgroundSize>",
 					"external": "azul_impl::css::CssPropertyValue::<StyleBackgroundSize>",
+					"derive": ["Copy"],
 					"enum_fields": [
 						{ "Auto": { }} ,
 						{ "None": { }} ,
@@ -3866,6 +4059,7 @@
 				"StyleBorderBottomColorValue": {
 					"rust_class_name": "CssPropertyValue<StyleBorderBottomColor>",
 					"external": "azul_impl::css::CssPropertyValue::<StyleBorderBottomColor>",
+					"derive": ["Copy"],
 					"enum_fields": [
 						{ "Auto": { }} ,
 						{ "None": { }} ,
@@ -3877,6 +4071,7 @@
 				"StyleBorderBottomLeftRadiusValue": {
 					"rust_class_name": "CssPropertyValue<StyleBorderBottomLeftRadius>",
 					"external": "azul_impl::css::CssPropertyValue::<StyleBorderBottomLeftRadius>",
+					"derive": ["Copy"],
 					"enum_fields": [
 						{ "Auto": { }} ,
 						{ "None": { }} ,
@@ -3888,6 +4083,7 @@
 				"StyleBorderBottomRightRadiusValue": {
 					"rust_class_name": "CssPropertyValue<StyleBorderBottomRightRadius>",
 					"external": "azul_impl::css::CssPropertyValue::<StyleBorderBottomRightRadius>",
+					"derive": ["Copy"],
 					"enum_fields": [
 						{ "Auto": { }} ,
 						{ "None": { }} ,
@@ -3899,6 +4095,7 @@
 				"StyleBorderBottomStyleValue": {
 					"rust_class_name": "CssPropertyValue<StyleBorderBottomStyle>",
 					"external": "azul_impl::css::CssPropertyValue::<StyleBorderBottomStyle>",
+					"derive": ["Copy"],
 					"enum_fields": [
 						{ "Auto": { }} ,
 						{ "None": { }} ,
@@ -3910,6 +4107,7 @@
 				"StyleBorderBottomWidthValue": {
 					"rust_class_name": "CssPropertyValue<StyleBorderBottomWidth>",
 					"external": "azul_impl::css::CssPropertyValue::<StyleBorderBottomWidth>",
+					"derive": ["Copy"],
 					"enum_fields": [
 						{ "Auto": { }} ,
 						{ "None": { }} ,
@@ -3921,6 +4119,7 @@
 				"StyleBorderLeftColorValue": {
 					"rust_class_name": "CssPropertyValue<StyleBorderLeftColor>",
 					"external": "azul_impl::css::CssPropertyValue::<StyleBorderLeftColor>",
+					"derive": ["Copy"],
 					"enum_fields": [
 						{ "Auto": { }} ,
 						{ "None": { }} ,
@@ -3932,6 +4131,7 @@
 				"StyleBorderLeftStyleValue": {
 					"rust_class_name": "CssPropertyValue<StyleBorderLeftStyle>",
 					"external": "azul_impl::css::CssPropertyValue::<StyleBorderLeftStyle>",
+					"derive": ["Copy"],
 					"enum_fields": [
 						{ "Auto": { }} ,
 						{ "None": { }} ,
@@ -3943,6 +4143,7 @@
 				"StyleBorderLeftWidthValue": {
 					"rust_class_name": "CssPropertyValue<StyleBorderLeftWidth>",
 					"external": "azul_impl::css::CssPropertyValue::<StyleBorderLeftWidth>",
+					"derive": ["Copy"],
 					"enum_fields": [
 						{ "Auto": { }} ,
 						{ "None": { }} ,
@@ -3954,6 +4155,7 @@
 				"StyleBorderRightColorValue": {
 					"rust_class_name": "CssPropertyValue<StyleBorderRightColor>",
 					"external": "azul_impl::css::CssPropertyValue::<StyleBorderRightColor>",
+					"derive": ["Copy"],
 					"enum_fields": [
 						{ "Auto": { }} ,
 						{ "None": { }} ,
@@ -3965,6 +4167,7 @@
 				"StyleBorderRightStyleValue": {
 					"rust_class_name": "CssPropertyValue<StyleBorderRightStyle>",
 					"external": "azul_impl::css::CssPropertyValue::<StyleBorderRightStyle>",
+					"derive": ["Copy"],
 					"enum_fields": [
 						{ "Auto": { }} ,
 						{ "None": { }} ,
@@ -3976,6 +4179,7 @@
 				"StyleBorderRightWidthValue": {
 					"rust_class_name": "CssPropertyValue<StyleBorderRightWidth>",
 					"external": "azul_impl::css::CssPropertyValue::<StyleBorderRightWidth>",
+					"derive": ["Copy"],
 					"enum_fields": [
 						{ "Auto": { }} ,
 						{ "None": { }} ,
@@ -3987,6 +4191,7 @@
 				"StyleBorderTopColorValue": {
 					"rust_class_name": "CssPropertyValue<StyleBorderTopColor>",
 					"external": "azul_impl::css::CssPropertyValue::<StyleBorderTopColor>",
+					"derive": ["Copy"],
 					"enum_fields": [
 						{ "Auto": { }} ,
 						{ "None": { }} ,
@@ -3998,6 +4203,7 @@
 				"StyleBorderTopLeftRadiusValue": {
 					"rust_class_name": "CssPropertyValue<StyleBorderTopLeftRadius>",
 					"external": "azul_impl::css::CssPropertyValue::<StyleBorderTopLeftRadius>",
+					"derive": ["Copy"],
 					"enum_fields": [
 						{ "Auto": { }} ,
 						{ "None": { }} ,
@@ -4009,6 +4215,7 @@
 				"StyleBorderTopRightRadiusValue": {
 					"rust_class_name": "CssPropertyValue<StyleBorderTopRightRadius>",
 					"external": "azul_impl::css::CssPropertyValue::<StyleBorderTopRightRadius>",
+					"derive": ["Copy"],
 					"enum_fields": [
 						{ "Auto": { }} ,
 						{ "None": { }} ,
@@ -4020,6 +4227,7 @@
 				"StyleBorderTopStyleValue": {
 					"rust_class_name": "CssPropertyValue<StyleBorderTopStyle>",
 					"external": "azul_impl::css::CssPropertyValue::<StyleBorderTopStyle>",
+					"derive": ["Copy"],
 					"enum_fields": [
 						{ "Auto": { }} ,
 						{ "None": { }} ,
@@ -4031,6 +4239,7 @@
 				"StyleBorderTopWidthValue": {
 					"rust_class_name": "CssPropertyValue<StyleBorderTopWidth>",
 					"external": "azul_impl::css::CssPropertyValue::<StyleBorderTopWidth>",
+					"derive": ["Copy"],
 					"enum_fields": [
 						{ "Auto": { }} ,
 						{ "None": { }} ,
@@ -4042,6 +4251,7 @@
 				"StyleCursorValue": {
 					"rust_class_name": "CssPropertyValue<StyleCursor>",
 					"external": "azul_impl::css::CssPropertyValue::<StyleCursor>",
+					"derive": ["Copy"],
 					"enum_fields": [
 						{ "Auto": { }} ,
 						{ "None": { }} ,
@@ -4064,6 +4274,7 @@
 				"StyleFontSizeValue": {
 					"rust_class_name": "CssPropertyValue<StyleFontSize>",
 					"external": "azul_impl::css::CssPropertyValue::<StyleFontSize>",
+					"derive": ["Copy"],
 					"enum_fields": [
 						{ "Auto": { }} ,
 						{ "None": { }} ,
@@ -4075,6 +4286,7 @@
 				"StyleLetterSpacingValue": {
 					"rust_class_name": "CssPropertyValue<StyleLetterSpacing>",
 					"external": "azul_impl::css::CssPropertyValue::<StyleLetterSpacing>",
+					"derive": ["Copy"],
 					"enum_fields": [
 						{ "Auto": { }} ,
 						{ "None": { }} ,
@@ -4086,6 +4298,7 @@
 				"StyleLineHeightValue": {
 					"rust_class_name": "CssPropertyValue<StyleLineHeight>",
 					"external": "azul_impl::css::CssPropertyValue::<StyleLineHeight>",
+					"derive": ["Copy"],
 					"enum_fields": [
 						{ "Auto": { }} ,
 						{ "None": { }} ,
@@ -4097,6 +4310,7 @@
 				"StyleTabWidthValue": {
 					"rust_class_name": "CssPropertyValue<StyleTabWidth>",
 					"external": "azul_impl::css::CssPropertyValue::<StyleTabWidth>",
+					"derive": ["Copy"],
 					"enum_fields": [
 						{ "Auto": { }} ,
 						{ "None": { }} ,
@@ -4108,6 +4322,7 @@
 				"StyleTextAlignmentHorzValue": {
 					"rust_class_name": "CssPropertyValue<StyleTextAlignmentHorz>",
 					"external": "azul_impl::css::CssPropertyValue::<StyleTextAlignmentHorz>",
+					"derive": ["Copy"],
 					"enum_fields": [
 						{ "Auto": { }} ,
 						{ "None": { }} ,
@@ -4119,6 +4334,7 @@
 				"StyleTextColorValue": {
 					"rust_class_name": "CssPropertyValue<StyleTextColor>",
 					"external": "azul_impl::css::CssPropertyValue::<StyleTextColor>",
+					"derive": ["Copy"],
 					"enum_fields": [
 						{ "Auto": { }} ,
 						{ "None": { }} ,
@@ -4130,6 +4346,7 @@
 				"StyleWordSpacingValue": {
 					"rust_class_name": "CssPropertyValue<StyleWordSpacing>",
 					"external": "azul_impl::css::CssPropertyValue::<StyleWordSpacing>",
+					"derive": ["Copy"],
 					"enum_fields": [
 						{ "Auto": { }} ,
 						{ "None": { }} ,
@@ -4141,6 +4358,7 @@
 				"StyleOpacityValue": {
 					"rust_class_name": "CssPropertyValue<StyleOpacity>",
 					"external": "azul_impl::css::CssPropertyValue::<StyleOpacity>",
+					"derive": ["Copy"],
 					"enum_fields": [
 						{ "Auto": { }} ,
 						{ "None": { }} ,
@@ -4163,6 +4381,7 @@
 				"StyleTransformOriginValue": {
 					"rust_class_name": "CssPropertyValue<StyleTransformOrigin>",
 					"external": "azul_impl::css::CssPropertyValue::<StyleTransformOrigin>",
+					"derive": ["Copy"],
 					"enum_fields": [
 						{ "Auto": { }} ,
 						{ "None": { }} ,
@@ -4174,6 +4393,7 @@
 				"StylePerspectiveOriginValue": {
 					"rust_class_name": "CssPropertyValue<StylePerspectiveOrigin>",
 					"external": "azul_impl::css::CssPropertyValue::<StylePerspectiveOrigin>",
+					"derive": ["Copy"],
 					"enum_fields": [
 						{ "Auto": { }} ,
 						{ "None": { }} ,
@@ -4185,6 +4405,7 @@
 				"StyleBackfaceVisibilityValue": {
 					"rust_class_name": "CssPropertyValue<StyleBackfaceVisibility>",
 					"external": "azul_impl::css::CssPropertyValue::<StyleBackfaceVisibility>",
+					"derive": ["Copy"],
 					"enum_fields": [
 						{ "Auto": { }} ,
 						{ "None": { }} ,
@@ -4275,6 +4496,7 @@
 			"classes": {
 				"Node": {
 					"external": "azul_impl::styled_dom::AzNode",
+					"derive": ["Copy"],
 					"struct_fields": [
 						{"parent": {"type": "usize"}},
 						{"previous_sibling": {"type": "usize"}},
@@ -4285,6 +4507,7 @@
 				},
 				"CascadeInfo": {
 					"external": "azul_impl::style::CascadeInfo",
+					"derive": ["Copy"],
 					"struct_fields": [
 						{"index_in_parent": {"type": "u32"}},
 						{"is_last_child": {"type": "bool"}}
@@ -4385,6 +4608,7 @@
 				},
 				"StyledNodeState": {
 					"external": "azul_impl::styled_dom::StyledNodeState",
+					"derive": ["Copy"],
 					"enum_fields": [
 						{"Uninitialized": {}},
 						{"Normal": {}},
@@ -4408,12 +4632,14 @@
 				},
 				"TagId": {
 					"external": "azul_impl::styled_dom::AzTagId",
+					"derive": ["Copy"],
 					"struct_fields": [
 						{"inner": {"type": "u64"}}
 					]
 				},
 				"TagIdToNodeIdMapping": {
 					"external": "azul_impl::styled_dom::TagIdToNodeIdMapping",
+					"derive": ["Copy"],
 					"struct_fields": [
 						{"tag_id": {"type": "TagId"}},
 						{"node_id": {"type": "NodeId"}},
@@ -4422,6 +4648,7 @@
 				},
 				"ParentWithNodeDepth": {
 					"external": "azul_impl::styled_dom::ParentWithNodeDepth",
+					"derive": ["Copy"],
 					"struct_fields": [
 						{"depth": {"type": "usize"}},
 						{"node_id": {"type": "NodeId"}}
@@ -5134,6 +5361,7 @@
 				},
 				"On": {
 					"external": "azul_impl::dom::On",
+					"derive": ["Copy"],
 					"doc": "When to call a callback action - `On::MouseOver`, `On::MouseOut`, etc.",
 					"enum_fields": [
 						{ "MouseOver": {"doc": "Mouse cursor is hovering over the element"}},
@@ -5170,6 +5398,7 @@
 				},
 				"EventFilter": {
 					"external": "azul_impl::dom::EventFilter",
+					"derive": ["Copy"],
 					"enum_fields": [
 						{ "Hover": {"type": "HoverEventFilter" } },
 						{ "Not": {"type": "NotEventFilter" } },
@@ -5181,6 +5410,7 @@
 				},
 				"HoverEventFilter": {
 					"external": "azul_impl::dom::HoverEventFilter",
+					"derive": ["Copy"],
 					"enum_fields": [
 						{ "MouseOver": {}} ,
 						{ "MouseDown": {}} ,
@@ -5210,6 +5440,7 @@
 				},
 				"FocusEventFilter": {
 					"external": "azul_impl::dom::FocusEventFilter",
+					"derive": ["Copy"],
 					"enum_fields": [
 						{ "MouseOver": {}} ,
 						{ "MouseDown": {}} ,
@@ -5234,6 +5465,7 @@
 				},
 				"NotEventFilter": {
 					"external": "azul_impl::dom::NotEventFilter",
+					"derive": ["Copy"],
 					"enum_fields": [
 						{ "Hover": {"type": "HoverEventFilter" } },
 						{ "Focus": {"type": "FocusEventFilter" } }
@@ -5241,6 +5473,7 @@
 				},
 				"WindowEventFilter": {
 					"external": "azul_impl::dom::WindowEventFilter",
+					"derive": ["Copy"],
 					"enum_fields": [
 						{ "MouseOver": {}} ,
 						{ "MouseDown": {}} ,
@@ -5276,6 +5509,7 @@
 				},
 				"ComponentEventFilter": {
 					"external": "azul_impl::dom::ComponentEventFilter",
+					"derive": ["Copy"],
 					"enum_fields": [
 						{"AfterMount": {}},
 						{"BeforeUnmount": {}},
@@ -5284,6 +5518,7 @@
 				},
 				"ApplicationEventFilter": {
 					"external": "azul_impl::dom::ApplicationEventFilter",
+					"derive": ["Copy"],
 					"enum_fields": [
 						{"DeviceConnected": {}},
 						{"DeviceDisconnected": {}}
@@ -5291,6 +5526,7 @@
 				},
 				"TabIndex": {
 					"external": "azul_impl::dom::TabIndex",
+					"derive": ["Copy"],
 					"enum_fields": [
 						{ "Auto": { "doc": "Automatic tab index, similar to simply setting `focusable = \"true\"` or `tabindex = 0`, (both have the effect of making the element focusable)" }} ,
 						{ "OverrideInParent": { "type": "usize", "doc": " Set the tab index in relation to its parent element (`tabindex = n`)" }} ,
@@ -5304,6 +5540,7 @@
 			"classes": {
 				"GlShaderPrecisionFormatReturn": {
 					"external": "azul_impl::gl::GlShaderPrecisionFormatReturn",
+					"derive": ["Copy"],
 					"struct_fields": [
 						{"_0": {"type": "i32"}},
 						{"_1": {"type": "i32"}},
@@ -5312,6 +5549,7 @@
 				},
 				"VertexAttributeType": {
 					"external": "azul_impl::gl::VertexAttributeType",
+					"derive": ["Copy"],
 					"enum_fields": [
 						{"Float": {"doc": "Vertex attribute has type `f32`"}},
 						{"Double": {"doc": "Vertex attribute has type `f64`"}},
@@ -5346,6 +5584,7 @@
 				},
 				"IndexBufferFormat": {
 					"external": "azul_impl::gl::IndexBufferFormat",
+					"derive": ["Copy"],
 					"enum_fields": [
 					    {"Points": {}},
 					    {"Lines": {}},
@@ -5369,6 +5608,7 @@
 				},
 				"GlType": {
 					"external": "azul_impl::gl::AzGlType",
+					"derive": ["Copy"],
 					"enum_fields": [
 						{"Gl": {}},
 						{"Gles": {}}
@@ -7273,6 +7513,7 @@
 				},
 				"TextureFlags": {
 					"external": "azul_impl::gl::TextureFlags",
+					"derive": ["Copy"],
 					"struct_fields": [
 						{"is_opaque": {"type": "bool", "doc": "Whether this texture contains an alpha component"}},
 						{"is_video_texture": {"type": "bool", "doc": "Optimization: use the compositor instead of OpenGL for energy efficiency"}}
@@ -7405,6 +7646,7 @@
 				},
 				"SvgCircle": {
 					"external": "azul_impl::svg::SvgCircle",
+					"derive": ["Copy"],
 					"struct_fields": [
 						{"center_x": {"type": "f32"}},
 						{"center_y": {"type": "f32"}},
@@ -7419,6 +7661,7 @@
 				},
 				"SvgPathElement": {
 					"external": "azul_impl::svg::SvgPathElement",
+					"derive": ["Copy"],
 					"enum_fields": [
 						{"Line": {"type": "SvgLine"}},
 						{"QuadraticCurve": {"type": "SvgQuadraticCurve"}},
@@ -7427,6 +7670,7 @@
 				},
 				"SvgLine": {
 					"external": "azul_impl::svg::SvgLine",
+					"derive": ["Copy"],
 					"struct_fields": [
 						{"start": {"type": "SvgPoint"}},
 						{"end": {"type": "SvgPoint"}}
@@ -7434,6 +7678,7 @@
 				},
 				"SvgPoint": {
 					"external": "azul_impl::svg::SvgPoint",
+					"derive": ["Copy"],
 					"struct_fields": [
 						{"x": {"type": "f32"}},
 						{"y": {"type": "f32"}}
@@ -7441,6 +7686,7 @@
 				},
 				"SvgVertex": {
 					"external": "azul_impl::svg::SvgVertex",
+					"derive": ["Copy"],
 					"struct_fields": [
 						{"x": {"type": "f32"}},
 						{"y": {"type": "f32"}}
@@ -7448,6 +7694,7 @@
 				},
 				"SvgQuadraticCurve": {
 					"external": "azul_impl::svg::SvgQuadraticCurve",
+					"derive": ["Copy"],
 					"struct_fields": [
 						{"start": {"type": "SvgPoint"}},
 						{"ctrl": {"type": "SvgPoint"}},
@@ -7456,6 +7703,7 @@
 				},
 				"SvgCubicCurve": {
 					"external": "azul_impl::svg::SvgCubicCurve",
+					"derive": ["Copy"],
 					"struct_fields": [
 						{"start": {"type": "SvgPoint"}},
 						{"ctrl_1": {"type": "SvgPoint"}},
@@ -7465,6 +7713,7 @@
 				},
 				"SvgRect": {
 					"external": "azul_impl::svg::SvgRect",
+					"derive": ["Copy"],
 					"struct_fields": [
 						{"width": {"type": "f32"}},
 						{"height": {"type": "f32"}},
@@ -7483,15 +7732,9 @@
 						{"indices": {"type": "U32Vec"}}
 					]
 				},
-				"TesselatedGPUSvgNode": {
-					"external": "azul_impl::svg::TesselatedGPUSvgNode",
-					"clone": false,
-					"struct_fields": [
-						{"vertex_index_buffer": {"type": "VertexBuffer"}}
-					]
-				},
 				"SvgLineCap": {
 					"external": "azul_impl::svg::SvgLineCap",
+					"derive": ["Copy"],
 					"enum_fields": [
 						{"Butt": {}},
 						{"Square": {}},
@@ -7520,6 +7763,7 @@
 				},
 				"ShapeRendering": {
 					"external": "azul_impl::svg::ShapeRendering",
+					"derive": ["Copy"],
 					"enum_fields": [
 						{"OptimizeSpeed": {}},
 						{"CrispEdges": {}},
@@ -7528,6 +7772,7 @@
 				},
 				"TextRendering": {
 					"external": "azul_impl::svg::TextRendering",
+					"derive": ["Copy"],
 					"enum_fields": [
 						{"OptimizeSpeed": {}},
 						{"OptimizeLegibility": {}},
@@ -7536,6 +7781,7 @@
 				},
 				"ImageRendering": {
 					"external": "azul_impl::svg::ImageRendering",
+					"derive": ["Copy"],
 					"enum_fields": [
 						{"OptimizeQuality": {}},
 						{"OptimizeSpeed": {}}
@@ -7543,6 +7789,7 @@
 				},
 				"FontDatabase": {
 					"external": "azul_impl::svg::FontDatabase",
+					"derive": ["Copy"],
 					"enum_fields": [
 						{"Empty": {}},
 						{"System": {}}
@@ -7562,6 +7809,7 @@
 				},
 				"SvgFitTo": {
 					"external": "azul_impl::svg::SvgFitTo",
+					"derive": ["Copy"],
 					"enum_fields": [
 						{"Original": {}},
 						{"Width": {"type": "u32"}},
@@ -7595,6 +7843,7 @@
 				},
 				"SvgLineJoin": {
 					"external": "azul_impl::svg::SvgLineJoin",
+					"derive": ["Copy"],
 					"enum_fields": [
 						{"Miter": {}},
 						{"MiterClip": {}},
@@ -7604,6 +7853,7 @@
 				},
 				"SvgDashPattern": {
 					"external": "azul_impl::svg::SvgDashPattern",
+					"derive": ["Copy"],
 					"struct_fields": [
 						{"offset": {"type": "f32"}},
 						{"length_1": {"type": "f32"}},
@@ -7616,6 +7866,7 @@
 				},
 				"SvgStyle": {
 					"external": "azul_impl::svg::SvgStyle",
+					"derive": ["Copy"],
 					"enum_fields": [
 						{"Fill": {"type": "SvgFillStyle"}},
 						{"Stroke": {"type": "SvgStrokeStyle"}}
@@ -7623,6 +7874,7 @@
 				},
 				"SvgFillStyle": {
 					"external": "azul_impl::svg::SvgFillStyle",
+					"derive": ["Copy"],
 					"struct_fields": [
 						{"line_join": {"type": "SvgLineJoin", "doc": "How to tesselate edges in a path, default value = `Miter`"}},
 						{"miter_limit": {"type": "usize", "doc": "Limit for caps on path edges if line_join is set to `Miter`, (multiplied * 1000 as usize). Must be greater than or equal to 1px (`1000`). Default value = 1px (`1000`)"}},
@@ -7631,6 +7883,7 @@
 				},
 				"SvgStrokeStyle": {
 					"external": "azul_impl::svg::SvgStrokeStyle",
+					"derive": ["Copy"],
 					"struct_fields": [
 						{"start_cap": {"type": "SvgLineCap", "doc": "What cap to use at the start of each sub-path, default value = `Butt`"}},
 						{"end_cap": {"type": "SvgLineCap", "doc": "What cap to use at the end of each sub-path, default value = `Butt`"}},
@@ -7644,6 +7897,7 @@
 				},
 				"SvgNodeId": {
 					"external": "azul_impl::resources::SvgNodeId",
+					"derive": ["Copy"],
 					"struct_fields": [
 						{"id": {"type": "usize"}}
 					]
@@ -7713,6 +7967,7 @@
 				},
 				"ThreadSendMsg": {
 					"external": "azul_impl::task::ThreadSendMsg",
+					"derive": ["Copy"],
 					"enum_fields": [
 						{"TerminateThread": {}},
 						{"Tick": {}}
@@ -7747,6 +8002,7 @@
 			"classes": {
 				"LayoutPoint": {
 					"external": "azul_impl::css::LayoutPoint",
+					"derive": ["Copy"],
 					"struct_fields": [
 						{"x": {"type": "isize"}},
 						{"y": {"type": "isize"}}
@@ -7754,6 +8010,7 @@
 				},
 				"LayoutSize": {
 					"external": "azul_impl::css::LayoutSize",
+					"derive": ["Copy"],
 					"struct_fields": [
 						{"width": {"type": "isize"}},
 						{"height": {"type": "isize"}}
@@ -7761,6 +8018,7 @@
 				},
 				"LayoutRect": {
 					"external": "azul_impl::css::LayoutRect",
+					"derive": ["Copy"],
 					"struct_fields": [
 						{"origin": {"type": "LayoutPoint"}},
 						{"size": {"type": "LayoutSize"}}
@@ -7768,6 +8026,7 @@
 				},
 				"RawWindowHandle": {
 					"external": "azul_impl::window::RawWindowHandle",
+					"derive": ["Copy"],
 					"enum_fields": [
 						{"IOS": {"type": "IOSHandle"}},
 						{"MacOS": {"type": "MacOSHandle"}},
@@ -7782,6 +8041,7 @@
 				},
 				"IOSHandle": {
 					"external": "azul_impl::window::IOSHandle",
+					"derive": ["Copy"],
 					"struct_fields": [
 						{"ui_window": {"type": "*mut c_void"}},
 						{"ui_view": {"type": "*mut c_void"}},
@@ -7790,6 +8050,7 @@
 				},
 				"MacOSHandle": {
 					"external": "azul_impl::window::MacOSHandle",
+					"derive": ["Copy"],
 					"struct_fields": [
 						{"ns_window": {"type": "*mut c_void"}},
 						{"ns_view": {"type": "*mut c_void"}}
@@ -7797,6 +8058,7 @@
 				},
 				"XlibHandle": {
 					"external": "azul_impl::window::XlibHandle",
+					"derive": ["Copy"],
 					"struct_fields": [
 						{"window": {"type": "u64", "doc": "An Xlib Window"}},
 						{"display": {"type": "*mut c_void", "doc": "A pointer to an Xlib `Display`"}}
@@ -7804,6 +8066,7 @@
 				},
 				"XcbHandle": {
 					"external": "azul_impl::window::XcbHandle",
+					"derive": ["Copy"],
 					"struct_fields": [
 						{"window": {"type": "u32", "doc": "An X11 `xcb_window_t`"}},
 						{"connection": {"type": "*mut c_void", "doc": "A pointer to an X server `xcb_connection_t`"}}
@@ -7811,6 +8074,7 @@
 				},
 				"WaylandHandle": {
 					"external": "azul_impl::window::WaylandHandle",
+					"derive": ["Copy"],
 					"struct_fields": [
 						{"surface": {"type": "*mut c_void", "doc": "A pointer to a `wl_surface`"}},
 						{"display": {"type": "*mut c_void", "doc": "A pointer to a `wl_display`"}}
@@ -7818,6 +8082,7 @@
 				},
 				"WindowsHandle": {
 					"external": "azul_impl::window::WindowsHandle",
+					"derive": ["Copy"],
 					"struct_fields": [
 						{"hwnd": {"type": "*mut c_void", "doc": "A Win32 HWND handle"}},
 						{"hinstance": {"type": "*mut c_void", "doc": "The HINSTANCE associated with this type's HWND"}}
@@ -7825,12 +8090,14 @@
 				},
 				"WebHandle": {
 					"external": "azul_impl::window::WebHandle",
+					"derive": ["Copy"],
 					"struct_fields": [
 						{"id": {"type": "u32", "doc": "An ID value inserted into the data attributes of the canvas element as 'raw-handle'. Invalid = 0."}}
 					]
 				},
 				"AndroidHandle": {
 					"external": "azul_impl::window::AndroidHandle",
+					"derive": ["Copy"],
 					"struct_fields": [
 						{"a_native_window": {"type": "*mut c_void", "doc": "A pointer to an ANativeWindow"}}
 					]
@@ -7844,6 +8111,7 @@
 				},
 				"XWindowType": {
 					"external": "azul_impl::window::XWindowType",
+					"derive": ["Copy"],
 					"enum_fields": [
 						{"Desktop": {"doc": "A desktop feature. This can include a single window containing desktop icons with the same dimensions as the screen, allowing the desktop environment to have full control of the desktop, without the need for proxying root window clicks"}},
 						{"Dock": {"doc": "A dock or panel feature. Typically a Window Manager would keep such windows on top of all other windows"}},
@@ -7863,6 +8131,7 @@
 				},
 				"PhysicalPositionI32": {
 					"external": "azul_impl::window::PhysicalPosition<i32>",
+					"derive": ["Copy"],
 					"struct_fields": [
 						{"x": {"type": "i32"}},
 						{"y": {"type": "i32"}}
@@ -7870,6 +8139,7 @@
 				},
 				"PhysicalSizeU32": {
 					"external": "azul_impl::window::PhysicalSize<u32>",
+					"derive": ["Copy"],
 					"struct_fields": [
 						{"width": {"type": "u32"}},
 						{"height": {"type": "u32"}}
@@ -7877,6 +8147,7 @@
 				},
 				"LogicalPosition": {
 					"external": "azul_impl::window::LogicalPosition",
+					"derive": ["Copy"],
 					"struct_fields": [
 						{"x": {"type": "f32"}},
 						{"y": {"type": "f32"}}
@@ -7884,6 +8155,7 @@
 				},
 				"LogicalRect": {
 					"external": "azul_impl::window::LogicalRect",
+					"derive": ["Copy"],
 					"struct_fields": [
 						{"origin": {"type": "LogicalPosition"}},
 						{"size": {"type": "LogicalSize"}}
@@ -7891,6 +8163,7 @@
 				},
 				"IconKey": {
 					"external": "azul_impl::window::IconKey",
+					"derive": ["Copy"],
 					"struct_fields": [
 						{"id": {"type": "usize"}}
 					]
@@ -7925,6 +8198,7 @@
 				},
 				"VirtualKeyCode": {
 					"external": "azul_impl::window::VirtualKeyCode",
+					"derive": ["Copy"],
 					"enum_fields": [
 						{"Key1": {}},
 						{"Key2": {}},
@@ -8093,6 +8367,7 @@
 				},
 				"AcceleratorKey": {
 					"external": "azul_impl::window::AcceleratorKey",
+					"derive": ["Copy"],
 					"enum_fields": [
 						{"Ctrl": {}},
 						{"Alt": {}},
@@ -8102,6 +8377,7 @@
 				},
 				"WindowSize": {
 					"external": "azul_impl::window::WindowSize",
+					"derive": ["Copy"],
 					"struct_fields": [
 						{"dimensions": {"type": "LogicalSize"}},
 						{"hidpi_factor": {"type": "f32"}},
@@ -8112,6 +8388,7 @@
 				},
 				"WindowFlags": {
 					"external": "azul_impl::window::WindowFlags",
+					"derive": ["Copy"],
 					"struct_fields": [
 						{"is_maximized": {"type": "bool", "doc": "Is the window currently maximized"}},
 						{"is_minimized": {"type": "bool", "doc": "Is the window currently minimized"}},
@@ -8158,6 +8435,7 @@
 				},
 				"MouseCursorType": {
 					"external": "azul_impl::window::MouseCursorType",
+					"derive": ["Copy"],
 					"enum_fields": [
 					    {"Default": {}},
 					    {"Crosshair": {}},
@@ -8198,6 +8476,7 @@
 				},
 				"CursorPosition": {
 					"external": "azul_impl::window::CursorPosition",
+					"derive": ["Copy"],
 					"enum_fields": [
 						{"OutOfWindow": {}},
 						{"Uninitialized": {}},
@@ -8301,6 +8580,7 @@
 				},
 				"FullScreenMode": {
 					"external": "azul_impl::window::FullScreenMode",
+					"derive": ["Copy"],
 					"enum_fields": [
 						{"SlowFullScreen": {"doc": "- macOS: If the window is in windowed mode, transitions it slowly to fullscreen mode}\r\n- other: Does the same as `FastFullScreen`."}},
 						{"FastFullScreen": {"doc": "Window should immediately go into fullscreen mode (on macOS this is not the default behaviour)."}},
@@ -8310,6 +8590,7 @@
 				},
 				"WindowTheme": {
 					"external": "azul_impl::window::WindowTheme",
+					"derive": ["Copy"],
 					"enum_fields": [
 						{"DarkMode": {}},
 						{"LightMode": {}}
@@ -8317,6 +8598,7 @@
 				},
 				"WindowPosition": {
 					"external": "azul_impl::window::WindowPosition",
+					"derive": ["Copy"],
 					"enum_fields": [
 						{"Uninitialized": {}},
 						{"Initialized": {"type": "PhysicalPositionI32"}}
@@ -8324,6 +8606,7 @@
 				},
 				"ImePosition": {
 					"external": "azul_impl::window::ImePosition",
+					"derive": ["Copy"],
 					"enum_fields": [
 						{"Uninitialized": {}},
 						{"Initialized": {"type": "LogicalPosition"}}
@@ -8331,6 +8614,7 @@
 				},
 				"TouchState": {
 					"external": "azul_impl::window::TouchState",
+					"derive": ["Copy"],
 					"struct_fields": [
 						{"unused": {"type": "u8"}}
 					]
@@ -8363,6 +8647,7 @@
 				},
 				"LogicalSize": {
 					"external": "azul_impl::window::LogicalSize",
+					"derive": ["Copy"],
 					"struct_fields": [
 						{"width": {"type": "f32"}},
 						{"height": {"type": "f32"}}

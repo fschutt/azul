@@ -3,12 +3,12 @@
     #[repr(C)]
     pub struct Ref<'a, T> {
         ptr: &'a T,
-        _sharing_info_ptr: *const RefAnySharingInfo,
+        _sharing_info_ptr: *const AtomicRefCount,
     }
 
     impl<'a, T> Drop for Ref<'a, T> {
         fn drop(&mut self) {
-            (crate::dll::get_azul_dll().az_ref_any_sharing_info_decrease_ref)(unsafe { &mut *(self._sharing_info_ptr as *mut RefAnySharingInfo) });
+            (crate::dll::get_azul_dll().az_atomic_ref_count_decrease_ref)(unsafe { &mut *(self._sharing_info_ptr as *mut AtomicRefCount) });
         }
     }
 
@@ -24,12 +24,12 @@
     #[repr(C)]
     pub struct RefMut<'a, T> {
         ptr: &'a mut T,
-        _sharing_info_ptr: *const RefAnySharingInfo,
+        _sharing_info_ptr: *const AtomicRefCount,
     }
 
     impl<'a, T> Drop for RefMut<'a, T> {
         fn drop(&mut self) {
-            (crate::dll::get_azul_dll().az_ref_any_sharing_info_decrease_refmut)(unsafe { &mut *(self._sharing_info_ptr as *mut RefAnySharingInfo) });
+            (crate::dll::get_azul_dll().az_atomic_ref_count_decrease_refmut)(unsafe { &mut *(self._sharing_info_ptr as *mut AtomicRefCount) });
         }
     }
 

@@ -465,6 +465,7 @@ def generate_rust_dll(apiData):
             if "derive" in c.keys():
                 struct_derive = c["derive"]
 
+            class_can_derive_debug = "derive" in c.keys() and "Debug" in c["derive"]
             class_can_be_copied = "derive" in c.keys() and "Copy" in c["derive"]
             class_has_partialeq = "derive" in c.keys() and "PartialEq" in c["derive"]
             class_has_eq = "derive" in c.keys()and "Eq" in c["derive"]
@@ -613,9 +614,11 @@ def generate_rust_dll(apiData):
             if "<'a>" in rust_class_name:
                 lifetime = "<'a>"
 
-
             if c_is_stack_allocated:
-                if not(class_is_const or class_is_typedef):
+                if class_can_be_copied:
+                    # intentionally empty, no destructor necessary
+                    pass
+                elif not(class_is_const or class_is_typedef):
 
                     # Generate the destructor for an enum
                     stack_delete_body = ""
@@ -680,18 +683,19 @@ def generate_rust_dll(apiData):
                 code += "    func(unsafe { &*(ptr.ptr as *const " + rust_class_name + ") })"
                 code += "}\r\n"
 
-            # az_item_fmt_debug()
-            code += "/// Creates a string with the debug representation of the object\r\n"
-            functions_map[str(to_snake_case(class_ptr_name) + "_fmt_debug")] = ["object: &" + class_ptr_name, "AzString"];
-            code += "#[no_mangle] pub extern \"C\" fn " + to_snake_case(class_ptr_name) + "_fmt_debug" + lifetime + "(object: &" + class_ptr_name + ") -> AzString { "
-            if c_is_stack_allocated:
-                code += "format!(\"{:#?}\", object).into()"
-            else:
-                code += "" + to_snake_case(class_ptr_name) + "_downcast_ref(object, |o| format!(\"{:#?}\", o)).into()"
-            code += " }\r\n"
+            if class_can_derive_debug:
+                # az_item_fmt_debug()
+                code += "/// Creates a string with the debug representation of the object\r\n"
+                functions_map[str(to_snake_case(class_ptr_name) + "_fmt_debug")] = ["object: &" + class_ptr_name, "AzString"];
+                code += "#[no_mangle] pub extern \"C\" fn " + to_snake_case(class_ptr_name) + "_fmt_debug" + lifetime + "(object: &" + class_ptr_name + ") -> AzString { "
+                if c_is_stack_allocated:
+                    code += "format!(\"{:#?}\", object).into()"
+                else:
+                    code += "" + to_snake_case(class_ptr_name) + "_downcast_ref(object, |o| format!(\"{:#?}\", o)).into()"
+                code += " }\r\n"
 
             if class_has_partialeq:
-                # az_item_copy()
+                # az_item_partialeq()
                 code += "/// Compares two instances of `" + class_ptr_name + "` for equality\r\n"
                 functions_map[str(to_snake_case(class_ptr_name) + "_partial_eq")] = ["a: &" + class_ptr_name + ", b: &" + class_ptr_name, "bool"];
                 code += "#[no_mangle] pub extern \"C\" fn " + to_snake_case(class_ptr_name) + "_partial_eq" + lifetime + "(a: &" + class_ptr_name + ", b: &" + class_ptr_name + ") -> bool { "
@@ -738,6 +742,7 @@ def generate_dll_loader(apiData, structs_map, functions_map, version):
     for struct_name in structs_map.keys():
         struct = structs_map[struct_name]
 
+        class_can_derive_debug = "derive" in struct.keys() and "Debug" in struct["derive"]
         class_can_be_copied = "derive" in struct.keys() and "Copy" in struct["derive"]
         class_has_partialeq = "derive" in struct.keys() and "PartialEq" in struct["derive"]
         class_has_eq = "derive" in struct.keys() and "Eq" in struct["derive"]
@@ -752,7 +757,24 @@ def generate_dll_loader(apiData, structs_map, functions_map, version):
 
         if "struct" in struct.keys():
             struct = struct["struct"]
-            code += "    #[repr(C)] pub struct " + struct_name + " {\r\n"
+
+            # for LayoutCallback and RefAny, etc. the #[derive(Debug)] has to be implemented manually
+            opt_derive_debug = "#[derive(Debug)]"
+            if struct_name != "AzRefAny":
+                for field in struct:
+                    if "type" in list(field.values())[0]:
+                        analyzed_arg_type = analyze_type(list(field.values())[0]["type"])
+                        if not(is_primitive_arg(analyzed_arg_type[1])):
+                            field_type_class_path = search_for_class_by_rust_class_name(apiData, analyzed_arg_type[1])
+                            if field_type_class_path is None:
+                                print("no field_type_class_path found for " + str(analyzed_arg_type))
+                            found_c = get_class(apiData, field_type_class_path[0], field_type_class_path[1])
+                            found_c_is_typedef = "typedef" in found_c.keys() and found_c["typedef"]
+                            if found_c_is_typedef:
+                                opt_derive_debug = ""
+
+            code += "    #[repr(C)] "  + opt_derive_debug + " pub struct " + struct_name + " {\r\n"
+
             for field in struct:
                 if type(field) is str:
                     print("Struct " + struct_name + " should have a dictionary as fields")
@@ -795,7 +817,7 @@ def generate_dll_loader(apiData, structs_map, functions_map, version):
                 if "type" in variant.keys():
                     repr = "#[repr(C, u8)]"
 
-            code += "    " + repr + " pub enum " + struct_name + " {\r\n"
+            code += "    " + repr + " #[derive(Debug)] pub enum " + struct_name + " {\r\n"
             for variant in enum:
                 variant_name = list(variant.keys())[0]
                 variant = list(variant.values())[0]
@@ -818,8 +840,6 @@ def generate_dll_loader(apiData, structs_map, functions_map, version):
                     code += "        " + variant_name + ",\r\n"
             code += "    }\r\n"
 
-        if class_can_be_copied:
-            code += "\r\n    impl Copy for " + struct_name + " { }\r\n"
         if class_has_partialeq:
             code += "\r\n    impl PartialEq for " + struct_name + " { fn eq(&self, rhs: &" + struct_name + ") -> bool { (crate::dll::get_azul_dll()." + to_snake_case(struct_name) + "_partial_eq)(self, rhs) } }\r\n"
         if class_has_eq:
@@ -986,6 +1006,14 @@ def generate_rust_api(apiData, structs_map, functions_map):
         for class_name in module.keys():
             c = module[class_name]
 
+            class_can_derive_debug = "derive" in c.keys() and "Debug" in c["derive"]
+            class_can_be_copied = "derive" in c.keys() and "Copy" in c["derive"]
+            class_has_partialeq = "derive" in c.keys() and "PartialEq" in c["derive"]
+            class_has_eq = "derive" in c.keys() and "Eq" in c["derive"]
+            class_has_partialord = "derive" in c.keys() and "PartialOrd" in c["derive"]
+            class_has_ord = "derive" in c.keys() and "Ord" in c["derive"]
+            class_can_be_hashed = "derive" in c.keys() and "Hash" in c["derive"]
+
             class_is_boxed_object = not(class_is_stack_allocated(c))
             class_is_const = "const" in c.keys()
             class_is_typedef = "typedef" in c.keys() and c["typedef"]
@@ -1107,12 +1135,16 @@ def generate_rust_api(apiData, structs_map, functions_map):
             if "<'a>" in rust_class_name:
                 lifetime = "<'a>"
 
-            code += "    impl std::fmt::Debug for " + class_name + " { fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result { write!(f, \"{}\", (crate::dll::get_azul_dll()." + to_snake_case(class_ptr_name) + "_fmt_debug)(self)) } }\r\n"
+            if class_can_derive_debug:
+                code += "    impl std::fmt::Debug for " + class_name + " { fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result { write!(f, \"{}\", (crate::dll::get_azul_dll()." + to_snake_case(class_ptr_name) + "_fmt_debug)(self)) } }\r\n"
 
-            if c_is_stack_allocated and class_can_be_cloned and lifetime == "" and not(class_is_const or class_is_typedef):
+            if class_can_be_copied:
+                code += "    impl Clone for " + class_name + " { fn clone(&self) -> Self { *self } }\r\n"
+                code += "    impl Copy for " + class_name + " { }\r\n"
+            elif c_is_stack_allocated and class_can_be_cloned and lifetime == "" and not(class_is_const or class_is_typedef):
                 code += "    impl Clone for " + class_name + " { fn clone(&self) -> Self { (crate::dll::get_azul_dll()." + to_snake_case(class_ptr_name) + "_deep_copy)(self) } }\r\n"
 
-            if not(class_is_const or class_is_typedef):
+            if not(class_is_const or class_is_typedef or class_can_be_copied):
                 code += "    impl Drop for " + class_name + " { fn drop(&mut self) { (crate::dll::get_azul_dll()." + to_snake_case(class_ptr_name) + "_delete)(self); } }\r\n"
 
         module_file_name = module_name + ".rs"
