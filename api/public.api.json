@@ -1881,18 +1881,18 @@
 				"XmlError": {
 					"external": "azul_impl::xml::XmlError",
 					"enum_fields": [
-						{"InvalidXmlPrefixUri": {"type": "XmlTextPos"}},
-						{"UnexpectedXmlUri": {"type": "XmlTextPos"}},
-						{"UnexpectedXmlnsUri": {"type": "XmlTextPos"}},
-						{"InvalidElementNamePrefix": {"type": "XmlTextPos"}},
+						{"InvalidXmlPrefixUri": {"type": "SvgParseErrorPosition"}},
+						{"UnexpectedXmlUri": {"type": "SvgParseErrorPosition"}},
+						{"UnexpectedXmlnsUri": {"type": "SvgParseErrorPosition"}},
+						{"InvalidElementNamePrefix": {"type": "SvgParseErrorPosition"}},
 						{"DuplicatedNamespace": {"type": "DuplicatedNamespaceError"}},
 						{"UnknownNamespace": {"type": "UnknownNamespaceError"}},
 						{"UnexpectedCloseTag": {"type": "UnexpectedCloseTagError"}},
-						{"UnexpectedEntityCloseTag": {"type": "XmlTextPos"}},
+						{"UnexpectedEntityCloseTag": {"type": "SvgParseErrorPosition"}},
 						{"UnknownEntityReference": {"type": "UnknownEntityReferenceError"}},
-						{"MalformedEntityReference": {"type": "XmlTextPos"}},
-						{"EntityReferenceLoop": {"type": "XmlTextPos"}},
-						{"InvalidAttributeValue": {"type": "XmlTextPos"}},
+						{"MalformedEntityReference": {"type": "SvgParseErrorPosition"}},
+						{"EntityReferenceLoop": {"type": "SvgParseErrorPosition"}},
+						{"InvalidAttributeValue": {"type": "SvgParseErrorPosition"}},
 						{"DuplicatedAttribute": {"type": "DuplicatedAttributeError"}},
 						{"NoRootNode": {}},
 						{"SizeLimit": {}},
@@ -1903,14 +1903,14 @@
 					"external": "azul_impl::xml::DuplicatedNamespaceError",
 					"struct_fields": [
 						{"ns": {"type": "String"}},
-						{"pos": {"type": "XmlTextPos"}}
+						{"pos": {"type": "SvgParseErrorPosition"}}
 					]
 				},
 				"UnknownNamespaceError": {
 					"external": "azul_impl::xml::UnknownNamespaceError",
 					"struct_fields": [
 						{"ns": {"type": "String"}},
-						{"pos": {"type": "XmlTextPos"}}
+						{"pos": {"type": "SvgParseErrorPosition"}}
 					]
 				},
 				"UnexpectedCloseTagError": {
@@ -1918,21 +1918,21 @@
 					"struct_fields": [
 						{"expected": {"type": "String"}},
 						{"actual": {"type": "String"}},
-						{"pos": {"type": "XmlTextPos"}}
+						{"pos": {"type": "SvgParseErrorPosition"}}
 					]
 				},
 				"UnknownEntityReferenceError": {
 					"external": "azul_impl::xml::UnknownEntityReferenceError",
 					"struct_fields": [
 						{"entity": {"type": "String"}},
-						{"pos": {"type": "XmlTextPos"}}
+						{"pos": {"type": "SvgParseErrorPosition"}}
 					]
 				},
 				"DuplicatedAttributeError": {
 					"external": "azul_impl::xml::DuplicatedAttributeError",
 					"struct_fields": [
 						{"attribute": {"type": "String"}},
-						{"pos": {"type": "XmlTextPos"}}
+						{"pos": {"type": "SvgParseErrorPosition"}}
 					]
 				},
 				"XmlParseError": {
@@ -1947,14 +1947,14 @@
 						{"InvalidAttribute": {"type": "XmlTextError"}},
 						{"InvalidCdata": {"type": "XmlTextError"}},
 						{"InvalidCharData": {"type": "XmlTextError"}},
-						{"UnknownToken": {"type": "XmlTextPos"}}
+						{"UnknownToken": {"type": "SvgParseErrorPosition"}}
 					]
 				},
 				"XmlTextError": {
 					"external": "azul_impl::xml::XmlTextError",
 					"struct_fields": [
 						{"stream_error": {"type": "XmlStreamError"}},
-						{"pos": {"type": "XmlTextPos"}}
+						{"pos": {"type": "SvgParseErrorPosition"}}
 					]
 				},
 				"XmlStreamError": {
@@ -1977,17 +1977,19 @@
 				},
 				"NonXmlCharError": {
 					"external": "azul_impl::xml::NonXmlCharError",
+					"derive": ["Copy"],
 					"struct_fields": [
 						{"ch": {"type": "char"}},
-						{"pos": {"type": "XmlTextPos"}}
+						{"pos": {"type": "SvgParseErrorPosition"}}
 					]
 				},
 				"InvalidCharError": {
 					"external": "azul_impl::xml::InvalidCharError",
+					"derive": ["Copy"],
 					"struct_fields": [
 						{"expected": {"type": "u8"}},
 						{"got": {"type": "u8"}},
-						{"pos": {"type": "XmlTextPos"}}
+						{"pos": {"type": "SvgParseErrorPosition"}}
 					]
 				},
 				"InvalidCharMultipleError": {
@@ -1995,37 +1997,35 @@
 					"struct_fields": [
 						{"expected": {"type": "u8"}},
 						{"got": {"type": "U8Vec"}},
-						{"pos": {"type": "XmlTextPos"}}
+						{"pos": {"type": "SvgParseErrorPosition"}}
 					]
 				},
 				"InvalidQuoteError": {
 					"external": "azul_impl::xml::InvalidQuoteError",
+					"derive": ["Copy"],
 					"struct_fields": [
 						{"got": {"type": "u8"}},
-						{"pos": {"type": "XmlTextPos"}}
+						{"pos": {"type": "SvgParseErrorPosition"}}
 					]
 				},
 				"InvalidSpaceError": {
 					"external": "azul_impl::xml::InvalidSpaceError",
+					"derive": ["Copy"],
 					"struct_fields": [
 						{"got": {"type": "u8"}},
-						{"pos": {"type": "XmlTextPos"}}
+						{"pos": {"type": "SvgParseErrorPosition"}}
 					]
 				},
 				"InvalidStringError": {
 					"external": "azul_impl::xml::InvalidStringError",
 					"struct_fields": [
 						{"got": {"type": "String"}},
-						{"pos": {"type": "XmlTextPos"}}
+						{"pos": {"type": "SvgParseErrorPosition"}}
 					]
-				}
-			}
-		},
-		"xml": {
-			"doc": "XML parsing + XML type definitions",
-			"classes": {
-				"XmlTextPos": {
+				},
+				"SvgParseErrorPosition": {
 					"external": "azul_impl::xml::XmlTextPos",
+					"derive": ["Copy"],
 					"struct_fields": [
 						{"row": {"type": "u32"}},
 						{"col": {"type": "u32"}}
@@ -7532,6 +7532,7 @@
 			"classes": {
 				"TextId": {
 					"external": "azul_impl::resources::TextId",
+					"derive": ["Copy"],
 					"struct_fields": [
 						{ "id": { "type": "usize" } }
 					],
@@ -7544,6 +7545,7 @@
 				},
 				"ImageId": {
 					"external": "azul_impl::resources::ImageId",
+					"derive": ["Copy"],
 					"struct_fields": [
 						{ "id": { "type": "usize" } }
 					],
@@ -7556,6 +7558,7 @@
 				},
 				"FontId": {
 					"external": "azul_impl::resources::FontId",
+					"derive": ["Copy"],
 					"struct_fields": [
 						{ "id": { "type": "usize" } }
 					],
@@ -7909,6 +7912,7 @@
 			"classes": {
 				"TimerId": {
 					"external": "azul_impl::task::TimerId",
+					"derive": ["Copy"],
 					"struct_fields": [
 						{"id": {"type": "usize"}}
 					]
@@ -7926,6 +7930,7 @@
 				},
 				"TerminateTimer": {
 					"external": "azul_impl::task::TerminateTimer",
+					"derive": ["Copy"],
 					"doc": "Should a timer terminate or not - used to remove active timers",
 					"enum_fields": [
 						{"Terminate": {"doc": "Remove the timer from the list of active timers"}},
@@ -7991,6 +7996,7 @@
 				},
 				"ThreadId": {
 					"external": "azul_impl::task::ThreadId",
+					"derive": ["Copy"],
 					"struct_fields": [
 						{"id": {"type": "usize"}}
 					]
@@ -8568,12 +8574,14 @@
 				},
 				"MacWindowOptions": {
 					"external": "azul_impl::window::MacWindowOptions",
+					"derive": ["Copy"],
 					"struct_fields": [
 						{"_reserved": {"type": "u8", "doc": "Reserved empty field"}}
 					]
 				},
 				"WasmWindowOptions": {
 					"external": "azul_impl::window::WasmWindowOptions",
+					"derive": ["Copy"],
 					"struct_fields": [
 						{"_reserved": {"type": "u8", "doc": "Reserved empty field"}}
 					]

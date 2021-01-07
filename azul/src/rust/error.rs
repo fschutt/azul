@@ -77,15 +77,15 @@
     /// `NonXmlCharError` struct
     #[doc(inline)] pub use crate::dll::AzNonXmlCharError as NonXmlCharError;
 
-    impl Clone for NonXmlCharError { fn clone(&self) -> Self { (crate::dll::get_azul_dll().az_non_xml_char_error_deep_copy)(self) } }
-    impl Drop for NonXmlCharError { fn drop(&mut self) { (crate::dll::get_azul_dll().az_non_xml_char_error_delete)(self); } }
+    impl Clone for NonXmlCharError { fn clone(&self) -> Self { *self } }
+    impl Copy for NonXmlCharError { }
 
 
     /// `InvalidCharError` struct
     #[doc(inline)] pub use crate::dll::AzInvalidCharError as InvalidCharError;
 
-    impl Clone for InvalidCharError { fn clone(&self) -> Self { (crate::dll::get_azul_dll().az_invalid_char_error_deep_copy)(self) } }
-    impl Drop for InvalidCharError { fn drop(&mut self) { (crate::dll::get_azul_dll().az_invalid_char_error_delete)(self); } }
+    impl Clone for InvalidCharError { fn clone(&self) -> Self { *self } }
+    impl Copy for InvalidCharError { }
 
 
     /// `InvalidCharMultipleError` struct
@@ -98,15 +98,15 @@
     /// `InvalidQuoteError` struct
     #[doc(inline)] pub use crate::dll::AzInvalidQuoteError as InvalidQuoteError;
 
-    impl Clone for InvalidQuoteError { fn clone(&self) -> Self { (crate::dll::get_azul_dll().az_invalid_quote_error_deep_copy)(self) } }
-    impl Drop for InvalidQuoteError { fn drop(&mut self) { (crate::dll::get_azul_dll().az_invalid_quote_error_delete)(self); } }
+    impl Clone for InvalidQuoteError { fn clone(&self) -> Self { *self } }
+    impl Copy for InvalidQuoteError { }
 
 
     /// `InvalidSpaceError` struct
     #[doc(inline)] pub use crate::dll::AzInvalidSpaceError as InvalidSpaceError;
 
-    impl Clone for InvalidSpaceError { fn clone(&self) -> Self { (crate::dll::get_azul_dll().az_invalid_space_error_deep_copy)(self) } }
-    impl Drop for InvalidSpaceError { fn drop(&mut self) { (crate::dll::get_azul_dll().az_invalid_space_error_delete)(self); } }
+    impl Clone for InvalidSpaceError { fn clone(&self) -> Self { *self } }
+    impl Copy for InvalidSpaceError { }
 
 
     /// `InvalidStringError` struct
@@ -114,3 +114,10 @@
 
     impl Clone for InvalidStringError { fn clone(&self) -> Self { (crate::dll::get_azul_dll().az_invalid_string_error_deep_copy)(self) } }
     impl Drop for InvalidStringError { fn drop(&mut self) { (crate::dll::get_azul_dll().az_invalid_string_error_delete)(self); } }
+
+
+    /// `SvgParseErrorPosition` struct
+    #[doc(inline)] pub use crate::dll::AzSvgParseErrorPosition as SvgParseErrorPosition;
+
+    impl Clone for SvgParseErrorPosition { fn clone(&self) -> Self { *self } }
+    impl Copy for SvgParseErrorPosition { }

@@ -1095,18 +1095,10 @@ pub use AzXmlStreamErrorTT as AzXmlStreamError;
 /// Re-export of rust-allocated (stack based) `NonXmlCharError` struct
 pub type AzNonXmlCharErrorTT = azul_impl::xml::NonXmlCharError;
 pub use AzNonXmlCharErrorTT as AzNonXmlCharError;
-/// Destructor: Takes ownership of the `NonXmlCharError` pointer and deletes it.
-#[no_mangle] #[allow(unused_variables)] pub extern "C" fn az_non_xml_char_error_delete(object: &mut AzNonXmlCharError) { }
-/// Clones the object
-#[no_mangle] pub extern "C" fn az_non_xml_char_error_deep_copy(object: &AzNonXmlCharError) -> AzNonXmlCharError { object.clone() }
 
 /// Re-export of rust-allocated (stack based) `InvalidCharError` struct
 pub type AzInvalidCharErrorTT = azul_impl::xml::InvalidCharError;
 pub use AzInvalidCharErrorTT as AzInvalidCharError;
-/// Destructor: Takes ownership of the `InvalidCharError` pointer and deletes it.
-#[no_mangle] #[allow(unused_variables)] pub extern "C" fn az_invalid_char_error_delete(object: &mut AzInvalidCharError) { }
-/// Clones the object
-#[no_mangle] pub extern "C" fn az_invalid_char_error_deep_copy(object: &AzInvalidCharError) -> AzInvalidCharError { object.clone() }
 
 /// Re-export of rust-allocated (stack based) `InvalidCharMultipleError` struct
 pub type AzInvalidCharMultipleErrorTT = azul_impl::xml::InvalidCharMultipleError;
@@ -1119,18 +1111,10 @@ pub use AzInvalidCharMultipleErrorTT as AzInvalidCharMultipleError;
 /// Re-export of rust-allocated (stack based) `InvalidQuoteError` struct
 pub type AzInvalidQuoteErrorTT = azul_impl::xml::InvalidQuoteError;
 pub use AzInvalidQuoteErrorTT as AzInvalidQuoteError;
-/// Destructor: Takes ownership of the `InvalidQuoteError` pointer and deletes it.
-#[no_mangle] #[allow(unused_variables)] pub extern "C" fn az_invalid_quote_error_delete(object: &mut AzInvalidQuoteError) { }
-/// Clones the object
-#[no_mangle] pub extern "C" fn az_invalid_quote_error_deep_copy(object: &AzInvalidQuoteError) -> AzInvalidQuoteError { object.clone() }
 
 /// Re-export of rust-allocated (stack based) `InvalidSpaceError` struct
 pub type AzInvalidSpaceErrorTT = azul_impl::xml::InvalidSpaceError;
 pub use AzInvalidSpaceErrorTT as AzInvalidSpaceError;
-/// Destructor: Takes ownership of the `InvalidSpaceError` pointer and deletes it.
-#[no_mangle] #[allow(unused_variables)] pub extern "C" fn az_invalid_space_error_delete(object: &mut AzInvalidSpaceError) { }
-/// Clones the object
-#[no_mangle] pub extern "C" fn az_invalid_space_error_deep_copy(object: &AzInvalidSpaceError) -> AzInvalidSpaceError { object.clone() }
 
 /// Re-export of rust-allocated (stack based) `InvalidStringError` struct
 pub type AzInvalidStringErrorTT = azul_impl::xml::InvalidStringError;
@@ -1140,13 +1124,9 @@ pub use AzInvalidStringErrorTT as AzInvalidStringError;
 /// Clones the object
 #[no_mangle] pub extern "C" fn az_invalid_string_error_deep_copy(object: &AzInvalidStringError) -> AzInvalidStringError { object.clone() }
 
-/// Re-export of rust-allocated (stack based) `XmlTextPos` struct
-pub type AzXmlTextPosTT = azul_impl::xml::XmlTextPos;
-pub use AzXmlTextPosTT as AzXmlTextPos;
-/// Destructor: Takes ownership of the `XmlTextPos` pointer and deletes it.
-#[no_mangle] #[allow(unused_variables)] pub extern "C" fn az_xml_text_pos_delete(object: &mut AzXmlTextPos) { }
-/// Clones the object
-#[no_mangle] pub extern "C" fn az_xml_text_pos_deep_copy(object: &AzXmlTextPos) -> AzXmlTextPos { object.clone() }
+/// Re-export of rust-allocated (stack based) `SvgParseErrorPosition` struct
+pub type AzSvgParseErrorPositionTT = azul_impl::xml::XmlTextPos;
+pub use AzSvgParseErrorPositionTT as AzSvgParseErrorPosition;
 
 /// Pointer to rust-allocated `Box<Instant>` struct
 pub type AzInstantPtrTT = azul_impl::task::AzInstantPtr;
@@ -3115,30 +3095,18 @@ pub type AzTextIdTT = azul_impl::resources::TextId;
 pub use AzTextIdTT as AzTextId;
 /// Creates a new, unique `TextId`
 #[no_mangle] pub extern "C" fn az_text_id_new() -> AzTextId { TextId::new() }
-/// Destructor: Takes ownership of the `TextId` pointer and deletes it.
-#[no_mangle] #[allow(unused_variables)] pub extern "C" fn az_text_id_delete(object: &mut AzTextId) { }
-/// Clones the object
-#[no_mangle] pub extern "C" fn az_text_id_deep_copy(object: &AzTextId) -> AzTextId { object.clone() }
 
 /// Re-export of rust-allocated (stack based) `ImageId` struct
 pub type AzImageIdTT = azul_impl::resources::ImageId;
 pub use AzImageIdTT as AzImageId;
 /// Creates a new, unique `ImageId`
 #[no_mangle] pub extern "C" fn az_image_id_new() -> AzImageId { ImageId::new() }
-/// Destructor: Takes ownership of the `ImageId` pointer and deletes it.
-#[no_mangle] #[allow(unused_variables)] pub extern "C" fn az_image_id_delete(object: &mut AzImageId) { }
-/// Clones the object
-#[no_mangle] pub extern "C" fn az_image_id_deep_copy(object: &AzImageId) -> AzImageId { object.clone() }
 
 /// Re-export of rust-allocated (stack based) `FontId` struct
 pub type AzFontIdTT = azul_impl::resources::FontId;
 pub use AzFontIdTT as AzFontId;
 /// Creates a new, unique `FontId`
 #[no_mangle] pub extern "C" fn az_font_id_new() -> AzFontId { FontId::new() }
-/// Destructor: Takes ownership of the `FontId` pointer and deletes it.
-#[no_mangle] #[allow(unused_variables)] pub extern "C" fn az_font_id_delete(object: &mut AzFontId) { }
-/// Clones the object
-#[no_mangle] pub extern "C" fn az_font_id_deep_copy(object: &AzFontId) -> AzFontId { object.clone() }
 
 /// Re-export of rust-allocated (stack based) `ImageSource` struct
 pub type AzImageSourceTT = azul_impl::resources::ImageSource;
@@ -3342,10 +3310,6 @@ pub use AzSvgNodeIdTT as AzSvgNodeId;
 /// Re-export of rust-allocated (stack based) `TimerId` struct
 pub type AzTimerIdTT = azul_impl::task::TimerId;
 pub use AzTimerIdTT as AzTimerId;
-/// Destructor: Takes ownership of the `TimerId` pointer and deletes it.
-#[no_mangle] #[allow(unused_variables)] pub extern "C" fn az_timer_id_delete(object: &mut AzTimerId) { }
-/// Clones the object
-#[no_mangle] pub extern "C" fn az_timer_id_deep_copy(object: &AzTimerId) -> AzTimerId { object.clone() }
 
 /// Re-export of rust-allocated (stack based) `Timer` struct
 pub type AzTimerTT = azul_impl::task::Timer;
@@ -3358,11 +3322,6 @@ pub use AzTimerTT as AzTimer;
 /// Should a timer terminate or not - used to remove active timers
 pub type AzTerminateTimerTT = azul_impl::task::TerminateTimer;
 pub use AzTerminateTimerTT as AzTerminateTimer;
-/// Destructor: Takes ownership of the `TerminateTimer` pointer and deletes it.
-#[no_mangle] #[allow(unused_variables)] pub extern "C" fn az_terminate_timer_delete(object: &mut AzTerminateTimer) { match object { azul_impl::task::TerminateTimer::Terminate => { }, azul_impl::task::TerminateTimer::Continue => { }, }
-}
-/// Clones the object
-#[no_mangle] pub extern "C" fn az_terminate_timer_deep_copy(object: &AzTerminateTimer) -> AzTerminateTimer { object.clone() }
 
 /// Re-export of rust-allocated (stack based) `ThreadSender` struct
 pub type AzThreadSenderTT = azul_impl::task::ThreadSender;
@@ -3400,10 +3359,6 @@ pub use AzThreadWriteBackMsgTT as AzThreadWriteBackMsg;
 /// Re-export of rust-allocated (stack based) `ThreadId` struct
 pub type AzThreadIdTT = azul_impl::task::ThreadId;
 pub use AzThreadIdTT as AzThreadId;
-/// Destructor: Takes ownership of the `ThreadId` pointer and deletes it.
-#[no_mangle] #[allow(unused_variables)] pub extern "C" fn az_thread_id_delete(object: &mut AzThreadId) { }
-/// Clones the object
-#[no_mangle] pub extern "C" fn az_thread_id_deep_copy(object: &AzThreadId) -> AzThreadId { object.clone() }
 
 /// Re-export of rust-allocated (stack based) `LayoutPoint` struct
 pub type AzLayoutPointTT = azul_impl::css::LayoutPoint;
@@ -3610,18 +3565,10 @@ pub use AzLinuxWindowOptionsTT as AzLinuxWindowOptions;
 /// Re-export of rust-allocated (stack based) `MacWindowOptions` struct
 pub type AzMacWindowOptionsTT = azul_impl::window::MacWindowOptions;
 pub use AzMacWindowOptionsTT as AzMacWindowOptions;
-/// Destructor: Takes ownership of the `MacWindowOptions` pointer and deletes it.
-#[no_mangle] #[allow(unused_variables)] pub extern "C" fn az_mac_window_options_delete(object: &mut AzMacWindowOptions) { }
-/// Clones the object
-#[no_mangle] pub extern "C" fn az_mac_window_options_deep_copy(object: &AzMacWindowOptions) -> AzMacWindowOptions { object.clone() }
 
 /// Re-export of rust-allocated (stack based) `WasmWindowOptions` struct
 pub type AzWasmWindowOptionsTT = azul_impl::window::WasmWindowOptions;
 pub use AzWasmWindowOptionsTT as AzWasmWindowOptions;
-/// Destructor: Takes ownership of the `WasmWindowOptions` pointer and deletes it.
-#[no_mangle] #[allow(unused_variables)] pub extern "C" fn az_wasm_window_options_delete(object: &mut AzWasmWindowOptions) { }
-/// Clones the object
-#[no_mangle] pub extern "C" fn az_wasm_window_options_deep_copy(object: &AzWasmWindowOptions) -> AzWasmWindowOptions { object.clone() }
 
 /// Re-export of rust-allocated (stack based) `FullScreenMode` struct
 pub type AzFullScreenModeTT = azul_impl::window::FullScreenMode;

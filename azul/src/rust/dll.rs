@@ -737,18 +737,18 @@
     }
     /// Re-export of rust-allocated (stack based) `XmlError` struct
     #[repr(C, u8)] #[derive(Debug)] pub enum AzXmlError {
-        InvalidXmlPrefixUri(AzXmlTextPos),
-        UnexpectedXmlUri(AzXmlTextPos),
-        UnexpectedXmlnsUri(AzXmlTextPos),
-        InvalidElementNamePrefix(AzXmlTextPos),
+        InvalidXmlPrefixUri(AzSvgParseErrorPosition),
+        UnexpectedXmlUri(AzSvgParseErrorPosition),
+        UnexpectedXmlnsUri(AzSvgParseErrorPosition),
+        InvalidElementNamePrefix(AzSvgParseErrorPosition),
         DuplicatedNamespace(AzDuplicatedNamespaceError),
         UnknownNamespace(AzUnknownNamespaceError),
         UnexpectedCloseTag(AzUnexpectedCloseTagError),
-        UnexpectedEntityCloseTag(AzXmlTextPos),
+        UnexpectedEntityCloseTag(AzSvgParseErrorPosition),
         UnknownEntityReference(AzUnknownEntityReferenceError),
-        MalformedEntityReference(AzXmlTextPos),
-        EntityReferenceLoop(AzXmlTextPos),
-        InvalidAttributeValue(AzXmlTextPos),
+        MalformedEntityReference(AzSvgParseErrorPosition),
+        EntityReferenceLoop(AzSvgParseErrorPosition),
+        InvalidAttributeValue(AzSvgParseErrorPosition),
         DuplicatedAttribute(AzDuplicatedAttributeError),
         NoRootNode,
         SizeLimit,
@@ -757,28 +757,28 @@
     /// Re-export of rust-allocated (stack based) `DuplicatedNamespaceError` struct
     #[repr(C)] #[derive(Debug)] pub struct AzDuplicatedNamespaceError {
         pub ns: AzString,
-        pub pos: AzXmlTextPos,
+        pub pos: AzSvgParseErrorPosition,
     }
     /// Re-export of rust-allocated (stack based) `UnknownNamespaceError` struct
     #[repr(C)] #[derive(Debug)] pub struct AzUnknownNamespaceError {
         pub ns: AzString,
-        pub pos: AzXmlTextPos,
+        pub pos: AzSvgParseErrorPosition,
     }
     /// Re-export of rust-allocated (stack based) `UnexpectedCloseTagError` struct
     #[repr(C)] #[derive(Debug)] pub struct AzUnexpectedCloseTagError {
         pub expected: AzString,
         pub actual: AzString,
-        pub pos: AzXmlTextPos,
+        pub pos: AzSvgParseErrorPosition,
     }
     /// Re-export of rust-allocated (stack based) `UnknownEntityReferenceError` struct
     #[repr(C)] #[derive(Debug)] pub struct AzUnknownEntityReferenceError {
         pub entity: AzString,
-        pub pos: AzXmlTextPos,
+        pub pos: AzSvgParseErrorPosition,
     }
     /// Re-export of rust-allocated (stack based) `DuplicatedAttributeError` struct
     #[repr(C)] #[derive(Debug)] pub struct AzDuplicatedAttributeError {
         pub attribute: AzString,
-        pub pos: AzXmlTextPos,
+        pub pos: AzSvgParseErrorPosition,
     }
     /// Re-export of rust-allocated (stack based) `XmlParseError` struct
     #[repr(C, u8)] #[derive(Debug)] pub enum AzXmlParseError {
@@ -791,12 +791,12 @@
         InvalidAttribute(AzXmlTextError),
         InvalidCdata(AzXmlTextError),
         InvalidCharData(AzXmlTextError),
-        UnknownToken(AzXmlTextPos),
+        UnknownToken(AzSvgParseErrorPosition),
     }
     /// Re-export of rust-allocated (stack based) `XmlTextError` struct
     #[repr(C)] #[derive(Debug)] pub struct AzXmlTextError {
         pub stream_error: AzXmlStreamError,
-        pub pos: AzXmlTextPos,
+        pub pos: AzSvgParseErrorPosition,
     }
     /// Re-export of rust-allocated (stack based) `XmlStreamError` struct
     #[repr(C, u8)] #[derive(Debug)] pub enum AzXmlStreamError {
@@ -817,37 +817,37 @@
     /// Re-export of rust-allocated (stack based) `NonXmlCharError` struct
     #[repr(C)] #[derive(Debug)] pub struct AzNonXmlCharError {
         pub ch: char,
-        pub pos: AzXmlTextPos,
+        pub pos: AzSvgParseErrorPosition,
     }
     /// Re-export of rust-allocated (stack based) `InvalidCharError` struct
     #[repr(C)] #[derive(Debug)] pub struct AzInvalidCharError {
         pub expected: u8,
         pub got: u8,
-        pub pos: AzXmlTextPos,
+        pub pos: AzSvgParseErrorPosition,
     }
     /// Re-export of rust-allocated (stack based) `InvalidCharMultipleError` struct
     #[repr(C)] #[derive(Debug)] pub struct AzInvalidCharMultipleError {
         pub expected: u8,
         pub got: AzU8Vec,
-        pub pos: AzXmlTextPos,
+        pub pos: AzSvgParseErrorPosition,
     }
     /// Re-export of rust-allocated (stack based) `InvalidQuoteError` struct
     #[repr(C)] #[derive(Debug)] pub struct AzInvalidQuoteError {
         pub got: u8,
-        pub pos: AzXmlTextPos,
+        pub pos: AzSvgParseErrorPosition,
     }
     /// Re-export of rust-allocated (stack based) `InvalidSpaceError` struct
     #[repr(C)] #[derive(Debug)] pub struct AzInvalidSpaceError {
         pub got: u8,
-        pub pos: AzXmlTextPos,
+        pub pos: AzSvgParseErrorPosition,
     }
     /// Re-export of rust-allocated (stack based) `InvalidStringError` struct
     #[repr(C)] #[derive(Debug)] pub struct AzInvalidStringError {
         pub got: AzString,
-        pub pos: AzXmlTextPos,
+        pub pos: AzSvgParseErrorPosition,
     }
-    /// Re-export of rust-allocated (stack based) `XmlTextPos` struct
-    #[repr(C)] #[derive(Debug)] pub struct AzXmlTextPos {
+    /// Re-export of rust-allocated (stack based) `SvgParseErrorPosition` struct
+    #[repr(C)] #[derive(Debug)] pub struct AzSvgParseErrorPosition {
         pub row: u32,
         pub col: u32,
     }
@@ -3704,20 +3704,10 @@
         pub az_xml_text_error_deep_copy: extern "C" fn(_:  &AzXmlTextError) -> AzXmlTextError,
         pub az_xml_stream_error_delete: extern "C" fn(_:  &mut AzXmlStreamError),
         pub az_xml_stream_error_deep_copy: extern "C" fn(_:  &AzXmlStreamError) -> AzXmlStreamError,
-        pub az_non_xml_char_error_delete: extern "C" fn(_:  &mut AzNonXmlCharError),
-        pub az_non_xml_char_error_deep_copy: extern "C" fn(_:  &AzNonXmlCharError) -> AzNonXmlCharError,
-        pub az_invalid_char_error_delete: extern "C" fn(_:  &mut AzInvalidCharError),
-        pub az_invalid_char_error_deep_copy: extern "C" fn(_:  &AzInvalidCharError) -> AzInvalidCharError,
         pub az_invalid_char_multiple_error_delete: extern "C" fn(_:  &mut AzInvalidCharMultipleError),
         pub az_invalid_char_multiple_error_deep_copy: extern "C" fn(_:  &AzInvalidCharMultipleError) -> AzInvalidCharMultipleError,
-        pub az_invalid_quote_error_delete: extern "C" fn(_:  &mut AzInvalidQuoteError),
-        pub az_invalid_quote_error_deep_copy: extern "C" fn(_:  &AzInvalidQuoteError) -> AzInvalidQuoteError,
-        pub az_invalid_space_error_delete: extern "C" fn(_:  &mut AzInvalidSpaceError),
-        pub az_invalid_space_error_deep_copy: extern "C" fn(_:  &AzInvalidSpaceError) -> AzInvalidSpaceError,
         pub az_invalid_string_error_delete: extern "C" fn(_:  &mut AzInvalidStringError),
         pub az_invalid_string_error_deep_copy: extern "C" fn(_:  &AzInvalidStringError) -> AzInvalidStringError,
-        pub az_xml_text_pos_delete: extern "C" fn(_:  &mut AzXmlTextPos),
-        pub az_xml_text_pos_deep_copy: extern "C" fn(_:  &AzXmlTextPos) -> AzXmlTextPos,
         pub az_instant_ptr_now: extern "C" fn() -> AzInstantPtr,
         pub az_instant_ptr_delete: extern "C" fn(_:  &mut AzInstantPtr),
         pub az_app_config_ptr_default: extern "C" fn() -> AzAppConfigPtr,
@@ -4173,14 +4163,8 @@
         pub az_texture_delete: extern "C" fn(_:  &mut AzTexture),
         pub az_texture_flags_default: extern "C" fn() -> AzTextureFlags,
         pub az_text_id_new: extern "C" fn() -> AzTextId,
-        pub az_text_id_delete: extern "C" fn(_:  &mut AzTextId),
-        pub az_text_id_deep_copy: extern "C" fn(_:  &AzTextId) -> AzTextId,
         pub az_image_id_new: extern "C" fn() -> AzImageId,
-        pub az_image_id_delete: extern "C" fn(_:  &mut AzImageId),
-        pub az_image_id_deep_copy: extern "C" fn(_:  &AzImageId) -> AzImageId,
         pub az_font_id_new: extern "C" fn() -> AzFontId,
-        pub az_font_id_delete: extern "C" fn(_:  &mut AzFontId),
-        pub az_font_id_deep_copy: extern "C" fn(_:  &AzFontId) -> AzFontId,
         pub az_image_source_delete: extern "C" fn(_:  &mut AzImageSource),
         pub az_image_source_deep_copy: extern "C" fn(_:  &AzImageSource) -> AzImageSource,
         pub az_font_source_delete: extern "C" fn(_:  &mut AzFontSource),
@@ -4211,20 +4195,14 @@
         pub az_svg_deep_copy: extern "C" fn(_:  &AzSvg) -> AzSvg,
         pub az_svg_xml_node_delete: extern "C" fn(_:  &mut AzSvgXmlNode),
         pub az_svg_xml_node_deep_copy: extern "C" fn(_:  &AzSvgXmlNode) -> AzSvgXmlNode,
-        pub az_timer_id_delete: extern "C" fn(_:  &mut AzTimerId),
-        pub az_timer_id_deep_copy: extern "C" fn(_:  &AzTimerId) -> AzTimerId,
         pub az_timer_delete: extern "C" fn(_:  &mut AzTimer),
         pub az_timer_deep_copy: extern "C" fn(_:  &AzTimer) -> AzTimer,
-        pub az_terminate_timer_delete: extern "C" fn(_:  &mut AzTerminateTimer),
-        pub az_terminate_timer_deep_copy: extern "C" fn(_:  &AzTerminateTimer) -> AzTerminateTimer,
         pub az_thread_sender_send: extern "C" fn(_:  &mut AzThreadSender, _:  AzThreadReceiveMsg) -> bool,
         pub az_thread_sender_delete: extern "C" fn(_:  &mut AzThreadSender),
         pub az_thread_receiver_receive: extern "C" fn(_:  &mut AzThreadReceiver) -> AzOptionThreadSendMsg,
         pub az_thread_receiver_delete: extern "C" fn(_:  &mut AzThreadReceiver),
         pub az_thread_receive_msg_delete: extern "C" fn(_:  &mut AzThreadReceiveMsg),
         pub az_thread_write_back_msg_delete: extern "C" fn(_:  &mut AzThreadWriteBackMsg),
-        pub az_thread_id_delete: extern "C" fn(_:  &mut AzThreadId),
-        pub az_thread_id_deep_copy: extern "C" fn(_:  &AzThreadId) -> AzThreadId,
         pub az_task_bar_icon_delete: extern "C" fn(_:  &mut AzTaskBarIcon),
         pub az_task_bar_icon_deep_copy: extern "C" fn(_:  &AzTaskBarIcon) -> AzTaskBarIcon,
         pub az_small_window_icon_bytes_delete: extern "C" fn(_:  &mut AzSmallWindowIconBytes),
@@ -4251,10 +4229,6 @@
         pub az_string_pair_deep_copy: extern "C" fn(_:  &AzStringPair) -> AzStringPair,
         pub az_linux_window_options_delete: extern "C" fn(_:  &mut AzLinuxWindowOptions),
         pub az_linux_window_options_deep_copy: extern "C" fn(_:  &AzLinuxWindowOptions) -> AzLinuxWindowOptions,
-        pub az_mac_window_options_delete: extern "C" fn(_:  &mut AzMacWindowOptions),
-        pub az_mac_window_options_deep_copy: extern "C" fn(_:  &AzMacWindowOptions) -> AzMacWindowOptions,
-        pub az_wasm_window_options_delete: extern "C" fn(_:  &mut AzWasmWindowOptions),
-        pub az_wasm_window_options_deep_copy: extern "C" fn(_:  &AzWasmWindowOptions) -> AzWasmWindowOptions,
         pub az_window_state_new: extern "C" fn(_:  AzLayoutCallbackType) -> AzWindowState,
         pub az_window_state_delete: extern "C" fn(_:  &mut AzWindowState),
         pub az_window_state_deep_copy: extern "C" fn(_:  &AzWindowState) -> AzWindowState,
@@ -4487,20 +4461,10 @@
             let az_xml_text_error_deep_copy: extern "C" fn(_:  &AzXmlTextError) -> AzXmlTextError = transmute(lib.get(b"az_xml_text_error_deep_copy")?);
             let az_xml_stream_error_delete: extern "C" fn(_:  &mut AzXmlStreamError) = transmute(lib.get(b"az_xml_stream_error_delete")?);
             let az_xml_stream_error_deep_copy: extern "C" fn(_:  &AzXmlStreamError) -> AzXmlStreamError = transmute(lib.get(b"az_xml_stream_error_deep_copy")?);
-            let az_non_xml_char_error_delete: extern "C" fn(_:  &mut AzNonXmlCharError) = transmute(lib.get(b"az_non_xml_char_error_delete")?);
-            let az_non_xml_char_error_deep_copy: extern "C" fn(_:  &AzNonXmlCharError) -> AzNonXmlCharError = transmute(lib.get(b"az_non_xml_char_error_deep_copy")?);
-            let az_invalid_char_error_delete: extern "C" fn(_:  &mut AzInvalidCharError) = transmute(lib.get(b"az_invalid_char_error_delete")?);
-            let az_invalid_char_error_deep_copy: extern "C" fn(_:  &AzInvalidCharError) -> AzInvalidCharError = transmute(lib.get(b"az_invalid_char_error_deep_copy")?);
             let az_invalid_char_multiple_error_delete: extern "C" fn(_:  &mut AzInvalidCharMultipleError) = transmute(lib.get(b"az_invalid_char_multiple_error_delete")?);
             let az_invalid_char_multiple_error_deep_copy: extern "C" fn(_:  &AzInvalidCharMultipleError) -> AzInvalidCharMultipleError = transmute(lib.get(b"az_invalid_char_multiple_error_deep_copy")?);
-            let az_invalid_quote_error_delete: extern "C" fn(_:  &mut AzInvalidQuoteError) = transmute(lib.get(b"az_invalid_quote_error_delete")?);
-            let az_invalid_quote_error_deep_copy: extern "C" fn(_:  &AzInvalidQuoteError) -> AzInvalidQuoteError = transmute(lib.get(b"az_invalid_quote_error_deep_copy")?);
-            let az_invalid_space_error_delete: extern "C" fn(_:  &mut AzInvalidSpaceError) = transmute(lib.get(b"az_invalid_space_error_delete")?);
-            let az_invalid_space_error_deep_copy: extern "C" fn(_:  &AzInvalidSpaceError) -> AzInvalidSpaceError = transmute(lib.get(b"az_invalid_space_error_deep_copy")?);
             let az_invalid_string_error_delete: extern "C" fn(_:  &mut AzInvalidStringError) = transmute(lib.get(b"az_invalid_string_error_delete")?);
             let az_invalid_string_error_deep_copy: extern "C" fn(_:  &AzInvalidStringError) -> AzInvalidStringError = transmute(lib.get(b"az_invalid_string_error_deep_copy")?);
-            let az_xml_text_pos_delete: extern "C" fn(_:  &mut AzXmlTextPos) = transmute(lib.get(b"az_xml_text_pos_delete")?);
-            let az_xml_text_pos_deep_copy: extern "C" fn(_:  &AzXmlTextPos) -> AzXmlTextPos = transmute(lib.get(b"az_xml_text_pos_deep_copy")?);
             let az_instant_ptr_now: extern "C" fn() -> AzInstantPtr = transmute(lib.get(b"az_instant_ptr_now")?);
             let az_instant_ptr_delete: extern "C" fn(_:  &mut AzInstantPtr) = transmute(lib.get(b"az_instant_ptr_delete")?);
             let az_app_config_ptr_default: extern "C" fn() -> AzAppConfigPtr = transmute(lib.get(b"az_app_config_ptr_default")?);
@@ -4956,14 +4920,8 @@
             let az_texture_delete: extern "C" fn(_:  &mut AzTexture) = transmute(lib.get(b"az_texture_delete")?);
             let az_texture_flags_default: extern "C" fn() -> AzTextureFlags = transmute(lib.get(b"az_texture_flags_default")?);
             let az_text_id_new: extern "C" fn() -> AzTextId = transmute(lib.get(b"az_text_id_new")?);
-            let az_text_id_delete: extern "C" fn(_:  &mut AzTextId) = transmute(lib.get(b"az_text_id_delete")?);
-            let az_text_id_deep_copy: extern "C" fn(_:  &AzTextId) -> AzTextId = transmute(lib.get(b"az_text_id_deep_copy")?);
             let az_image_id_new: extern "C" fn() -> AzImageId = transmute(lib.get(b"az_image_id_new")?);
-            let az_image_id_delete: extern "C" fn(_:  &mut AzImageId) = transmute(lib.get(b"az_image_id_delete")?);
-            let az_image_id_deep_copy: extern "C" fn(_:  &AzImageId) -> AzImageId = transmute(lib.get(b"az_image_id_deep_copy")?);
             let az_font_id_new: extern "C" fn() -> AzFontId = transmute(lib.get(b"az_font_id_new")?);
-            let az_font_id_delete: extern "C" fn(_:  &mut AzFontId) = transmute(lib.get(b"az_font_id_delete")?);
-            let az_font_id_deep_copy: extern "C" fn(_:  &AzFontId) -> AzFontId = transmute(lib.get(b"az_font_id_deep_copy")?);
             let az_image_source_delete: extern "C" fn(_:  &mut AzImageSource) = transmute(lib.get(b"az_image_source_delete")?);
             let az_image_source_deep_copy: extern "C" fn(_:  &AzImageSource) -> AzImageSource = transmute(lib.get(b"az_image_source_deep_copy")?);
             let az_font_source_delete: extern "C" fn(_:  &mut AzFontSource) = transmute(lib.get(b"az_font_source_delete")?);
@@ -4994,20 +4952,14 @@
             let az_svg_deep_copy: extern "C" fn(_:  &AzSvg) -> AzSvg = transmute(lib.get(b"az_svg_deep_copy")?);
             let az_svg_xml_node_delete: extern "C" fn(_:  &mut AzSvgXmlNode) = transmute(lib.get(b"az_svg_xml_node_delete")?);
             let az_svg_xml_node_deep_copy: extern "C" fn(_:  &AzSvgXmlNode) -> AzSvgXmlNode = transmute(lib.get(b"az_svg_xml_node_deep_copy")?);
-            let az_timer_id_delete: extern "C" fn(_:  &mut AzTimerId) = transmute(lib.get(b"az_timer_id_delete")?);
-            let az_timer_id_deep_copy: extern "C" fn(_:  &AzTimerId) -> AzTimerId = transmute(lib.get(b"az_timer_id_deep_copy")?);
             let az_timer_delete: extern "C" fn(_:  &mut AzTimer) = transmute(lib.get(b"az_timer_delete")?);
             let az_timer_deep_copy: extern "C" fn(_:  &AzTimer) -> AzTimer = transmute(lib.get(b"az_timer_deep_copy")?);
-            let az_terminate_timer_delete: extern "C" fn(_:  &mut AzTerminateTimer) = transmute(lib.get(b"az_terminate_timer_delete")?);
-            let az_terminate_timer_deep_copy: extern "C" fn(_:  &AzTerminateTimer) -> AzTerminateTimer = transmute(lib.get(b"az_terminate_timer_deep_copy")?);
             let az_thread_sender_send: extern "C" fn(_:  &mut AzThreadSender, _:  AzThreadReceiveMsg) -> bool = transmute(lib.get(b"az_thread_sender_send")?);
             let az_thread_sender_delete: extern "C" fn(_:  &mut AzThreadSender) = transmute(lib.get(b"az_thread_sender_delete")?);
             let az_thread_receiver_receive: extern "C" fn(_:  &mut AzThreadReceiver) -> AzOptionThreadSendMsg = transmute(lib.get(b"az_thread_receiver_receive")?);
             let az_thread_receiver_delete: extern "C" fn(_:  &mut AzThreadReceiver) = transmute(lib.get(b"az_thread_receiver_delete")?);
             let az_thread_receive_msg_delete: extern "C" fn(_:  &mut AzThreadReceiveMsg) = transmute(lib.get(b"az_thread_receive_msg_delete")?);
             let az_thread_write_back_msg_delete: extern "C" fn(_:  &mut AzThreadWriteBackMsg) = transmute(lib.get(b"az_thread_write_back_msg_delete")?);
-            let az_thread_id_delete: extern "C" fn(_:  &mut AzThreadId) = transmute(lib.get(b"az_thread_id_delete")?);
-            let az_thread_id_deep_copy: extern "C" fn(_:  &AzThreadId) -> AzThreadId = transmute(lib.get(b"az_thread_id_deep_copy")?);
             let az_task_bar_icon_delete: extern "C" fn(_:  &mut AzTaskBarIcon) = transmute(lib.get(b"az_task_bar_icon_delete")?);
             let az_task_bar_icon_deep_copy: extern "C" fn(_:  &AzTaskBarIcon) -> AzTaskBarIcon = transmute(lib.get(b"az_task_bar_icon_deep_copy")?);
             let az_small_window_icon_bytes_delete: extern "C" fn(_:  &mut AzSmallWindowIconBytes) = transmute(lib.get(b"az_small_window_icon_bytes_delete")?);
@@ -5034,10 +4986,6 @@
             let az_string_pair_deep_copy: extern "C" fn(_:  &AzStringPair) -> AzStringPair = transmute(lib.get(b"az_string_pair_deep_copy")?);
             let az_linux_window_options_delete: extern "C" fn(_:  &mut AzLinuxWindowOptions) = transmute(lib.get(b"az_linux_window_options_delete")?);
             let az_linux_window_options_deep_copy: extern "C" fn(_:  &AzLinuxWindowOptions) -> AzLinuxWindowOptions = transmute(lib.get(b"az_linux_window_options_deep_copy")?);
-            let az_mac_window_options_delete: extern "C" fn(_:  &mut AzMacWindowOptions) = transmute(lib.get(b"az_mac_window_options_delete")?);
-            let az_mac_window_options_deep_copy: extern "C" fn(_:  &AzMacWindowOptions) -> AzMacWindowOptions = transmute(lib.get(b"az_mac_window_options_deep_copy")?);
-            let az_wasm_window_options_delete: extern "C" fn(_:  &mut AzWasmWindowOptions) = transmute(lib.get(b"az_wasm_window_options_delete")?);
-            let az_wasm_window_options_deep_copy: extern "C" fn(_:  &AzWasmWindowOptions) -> AzWasmWindowOptions = transmute(lib.get(b"az_wasm_window_options_deep_copy")?);
             let az_window_state_new: extern "C" fn(_:  AzLayoutCallbackType) -> AzWindowState = transmute(lib.get(b"az_window_state_new")?);
             let az_window_state_delete: extern "C" fn(_:  &mut AzWindowState) = transmute(lib.get(b"az_window_state_delete")?);
             let az_window_state_deep_copy: extern "C" fn(_:  &AzWindowState) -> AzWindowState = transmute(lib.get(b"az_window_state_deep_copy")?);
@@ -5266,20 +5214,10 @@
                 az_xml_text_error_deep_copy,
                 az_xml_stream_error_delete,
                 az_xml_stream_error_deep_copy,
-                az_non_xml_char_error_delete,
-                az_non_xml_char_error_deep_copy,
-                az_invalid_char_error_delete,
-                az_invalid_char_error_deep_copy,
                 az_invalid_char_multiple_error_delete,
                 az_invalid_char_multiple_error_deep_copy,
-                az_invalid_quote_error_delete,
-                az_invalid_quote_error_deep_copy,
-                az_invalid_space_error_delete,
-                az_invalid_space_error_deep_copy,
                 az_invalid_string_error_delete,
                 az_invalid_string_error_deep_copy,
-                az_xml_text_pos_delete,
-                az_xml_text_pos_deep_copy,
                 az_instant_ptr_now,
                 az_instant_ptr_delete,
                 az_app_config_ptr_default,
@@ -5735,14 +5673,8 @@
                 az_texture_delete,
                 az_texture_flags_default,
                 az_text_id_new,
-                az_text_id_delete,
-                az_text_id_deep_copy,
                 az_image_id_new,
-                az_image_id_delete,
-                az_image_id_deep_copy,
                 az_font_id_new,
-                az_font_id_delete,
-                az_font_id_deep_copy,
                 az_image_source_delete,
                 az_image_source_deep_copy,
                 az_font_source_delete,
@@ -5773,20 +5705,14 @@
                 az_svg_deep_copy,
                 az_svg_xml_node_delete,
                 az_svg_xml_node_deep_copy,
-                az_timer_id_delete,
-                az_timer_id_deep_copy,
                 az_timer_delete,
                 az_timer_deep_copy,
-                az_terminate_timer_delete,
-                az_terminate_timer_deep_copy,
                 az_thread_sender_send,
                 az_thread_sender_delete,
                 az_thread_receiver_receive,
                 az_thread_receiver_delete,
                 az_thread_receive_msg_delete,
                 az_thread_write_back_msg_delete,
-                az_thread_id_delete,
-                az_thread_id_deep_copy,
                 az_task_bar_icon_delete,
                 az_task_bar_icon_deep_copy,
                 az_small_window_icon_bytes_delete,
@@ -5813,10 +5739,6 @@
                 az_string_pair_deep_copy,
                 az_linux_window_options_delete,
                 az_linux_window_options_deep_copy,
-                az_mac_window_options_delete,
-                az_mac_window_options_deep_copy,
-                az_wasm_window_options_delete,
-                az_wasm_window_options_deep_copy,
                 az_window_state_new,
                 az_window_state_delete,
                 az_window_state_deep_copy,

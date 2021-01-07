@@ -36,7 +36,6 @@ pub mod vec;
 pub mod option;
 pub mod result;
 pub mod error;
-pub mod xml;
 pub mod time;
 pub mod app;
 pub mod callbacks;

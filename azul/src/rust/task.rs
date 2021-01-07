@@ -7,8 +7,8 @@
     /// `TimerId` struct
     #[doc(inline)] pub use crate::dll::AzTimerId as TimerId;
 
-    impl Clone for TimerId { fn clone(&self) -> Self { (crate::dll::get_azul_dll().az_timer_id_deep_copy)(self) } }
-    impl Drop for TimerId { fn drop(&mut self) { (crate::dll::get_azul_dll().az_timer_id_delete)(self); } }
+    impl Clone for TimerId { fn clone(&self) -> Self { *self } }
+    impl Copy for TimerId { }
 
 
     /// `Timer` struct
@@ -21,8 +21,8 @@
     /// Should a timer terminate or not - used to remove active timers
     #[doc(inline)] pub use crate::dll::AzTerminateTimer as TerminateTimer;
 
-    impl Clone for TerminateTimer { fn clone(&self) -> Self { (crate::dll::get_azul_dll().az_terminate_timer_deep_copy)(self) } }
-    impl Drop for TerminateTimer { fn drop(&mut self) { (crate::dll::get_azul_dll().az_terminate_timer_delete)(self); } }
+    impl Clone for TerminateTimer { fn clone(&self) -> Self { *self } }
+    impl Copy for TerminateTimer { }
 
 
     /// `ThreadSender` struct
@@ -69,5 +69,5 @@
     /// `ThreadId` struct
     #[doc(inline)] pub use crate::dll::AzThreadId as ThreadId;
 
-    impl Clone for ThreadId { fn clone(&self) -> Self { (crate::dll::get_azul_dll().az_thread_id_deep_copy)(self) } }
-    impl Drop for ThreadId { fn drop(&mut self) { (crate::dll::get_azul_dll().az_thread_id_delete)(self); } }
+    impl Clone for ThreadId { fn clone(&self) -> Self { *self } }
+    impl Copy for ThreadId { }

@@ -267,15 +267,15 @@
     /// `MacWindowOptions` struct
     #[doc(inline)] pub use crate::dll::AzMacWindowOptions as MacWindowOptions;
 
-    impl Clone for MacWindowOptions { fn clone(&self) -> Self { (crate::dll::get_azul_dll().az_mac_window_options_deep_copy)(self) } }
-    impl Drop for MacWindowOptions { fn drop(&mut self) { (crate::dll::get_azul_dll().az_mac_window_options_delete)(self); } }
+    impl Clone for MacWindowOptions { fn clone(&self) -> Self { *self } }
+    impl Copy for MacWindowOptions { }
 
 
     /// `WasmWindowOptions` struct
     #[doc(inline)] pub use crate::dll::AzWasmWindowOptions as WasmWindowOptions;
 
-    impl Clone for WasmWindowOptions { fn clone(&self) -> Self { (crate::dll::get_azul_dll().az_wasm_window_options_deep_copy)(self) } }
-    impl Drop for WasmWindowOptions { fn drop(&mut self) { (crate::dll::get_azul_dll().az_wasm_window_options_delete)(self); } }
+    impl Clone for WasmWindowOptions { fn clone(&self) -> Self { *self } }
+    impl Copy for WasmWindowOptions { }
 
 
     /// `FullScreenMode` struct

@@ -13,8 +13,8 @@
         pub fn new() -> Self { (crate::dll::get_azul_dll().az_text_id_new)() }
     }
 
-    impl Clone for TextId { fn clone(&self) -> Self { (crate::dll::get_azul_dll().az_text_id_deep_copy)(self) } }
-    impl Drop for TextId { fn drop(&mut self) { (crate::dll::get_azul_dll().az_text_id_delete)(self); } }
+    impl Clone for TextId { fn clone(&self) -> Self { *self } }
+    impl Copy for TextId { }
 
 
     /// `ImageId` struct
@@ -25,8 +25,8 @@
         pub fn new() -> Self { (crate::dll::get_azul_dll().az_image_id_new)() }
     }
 
-    impl Clone for ImageId { fn clone(&self) -> Self { (crate::dll::get_azul_dll().az_image_id_deep_copy)(self) } }
-    impl Drop for ImageId { fn drop(&mut self) { (crate::dll::get_azul_dll().az_image_id_delete)(self); } }
+    impl Clone for ImageId { fn clone(&self) -> Self { *self } }
+    impl Copy for ImageId { }
 
 
     /// `FontId` struct
@@ -37,8 +37,8 @@
         pub fn new() -> Self { (crate::dll::get_azul_dll().az_font_id_new)() }
     }
 
-    impl Clone for FontId { fn clone(&self) -> Self { (crate::dll::get_azul_dll().az_font_id_deep_copy)(self) } }
-    impl Drop for FontId { fn drop(&mut self) { (crate::dll::get_azul_dll().az_font_id_delete)(self); } }
+    impl Clone for FontId { fn clone(&self) -> Self { *self } }
+    impl Copy for FontId { }
 
 
     /// `ImageSource` struct
