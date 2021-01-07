@@ -7,7 +7,7 @@
 
 
     /// `AppConfig` struct
-    pub use crate::dll::AzAppConfigPtr as AppConfig;
+    #[doc(inline)] pub use crate::dll::AzAppConfigPtr as AppConfig;
 
     impl AppConfig {
         /// Creates a new AppConfig with default values
@@ -18,7 +18,7 @@
 
 
     /// `App` struct
-    pub use crate::dll::AzAppPtr as App;
+    #[doc(inline)] pub use crate::dll::AzAppPtr as App;
 
     impl App {
         /// Creates a new App instance from the given `AppConfig`

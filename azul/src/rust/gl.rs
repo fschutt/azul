@@ -1644,167 +1644,167 @@
 
 
     /// `GlShaderPrecisionFormatReturn` struct
-    pub use crate::dll::AzGlShaderPrecisionFormatReturn as GlShaderPrecisionFormatReturn;
+    #[doc(inline)] pub use crate::dll::AzGlShaderPrecisionFormatReturn as GlShaderPrecisionFormatReturn;
 
     impl Clone for GlShaderPrecisionFormatReturn { fn clone(&self) -> Self { *self } }
     impl Copy for GlShaderPrecisionFormatReturn { }
 
 
     /// `VertexAttributeType` struct
-    pub use crate::dll::AzVertexAttributeType as VertexAttributeType;
+    #[doc(inline)] pub use crate::dll::AzVertexAttributeType as VertexAttributeType;
 
     impl Clone for VertexAttributeType { fn clone(&self) -> Self { *self } }
     impl Copy for VertexAttributeType { }
 
 
     /// `VertexAttribute` struct
-    pub use crate::dll::AzVertexAttribute as VertexAttribute;
+    #[doc(inline)] pub use crate::dll::AzVertexAttribute as VertexAttribute;
 
     impl Clone for VertexAttribute { fn clone(&self) -> Self { (crate::dll::get_azul_dll().az_vertex_attribute_deep_copy)(self) } }
     impl Drop for VertexAttribute { fn drop(&mut self) { (crate::dll::get_azul_dll().az_vertex_attribute_delete)(self); } }
 
 
     /// `VertexLayout` struct
-    pub use crate::dll::AzVertexLayout as VertexLayout;
+    #[doc(inline)] pub use crate::dll::AzVertexLayout as VertexLayout;
 
     impl Clone for VertexLayout { fn clone(&self) -> Self { (crate::dll::get_azul_dll().az_vertex_layout_deep_copy)(self) } }
     impl Drop for VertexLayout { fn drop(&mut self) { (crate::dll::get_azul_dll().az_vertex_layout_delete)(self); } }
 
 
     /// `VertexArrayObject` struct
-    pub use crate::dll::AzVertexArrayObject as VertexArrayObject;
+    #[doc(inline)] pub use crate::dll::AzVertexArrayObject as VertexArrayObject;
 
     impl Drop for VertexArrayObject { fn drop(&mut self) { (crate::dll::get_azul_dll().az_vertex_array_object_delete)(self); } }
 
 
     /// `IndexBufferFormat` struct
-    pub use crate::dll::AzIndexBufferFormat as IndexBufferFormat;
+    #[doc(inline)] pub use crate::dll::AzIndexBufferFormat as IndexBufferFormat;
 
     impl Clone for IndexBufferFormat { fn clone(&self) -> Self { *self } }
     impl Copy for IndexBufferFormat { }
 
 
     /// `VertexBuffer` struct
-    pub use crate::dll::AzVertexBuffer as VertexBuffer;
+    #[doc(inline)] pub use crate::dll::AzVertexBuffer as VertexBuffer;
 
     impl Drop for VertexBuffer { fn drop(&mut self) { (crate::dll::get_azul_dll().az_vertex_buffer_delete)(self); } }
 
 
     /// `GlType` struct
-    pub use crate::dll::AzGlType as GlType;
+    #[doc(inline)] pub use crate::dll::AzGlType as GlType;
 
     impl Clone for GlType { fn clone(&self) -> Self { *self } }
     impl Copy for GlType { }
 
 
     /// `DebugMessage` struct
-    pub use crate::dll::AzDebugMessage as DebugMessage;
+    #[doc(inline)] pub use crate::dll::AzDebugMessage as DebugMessage;
 
     impl Clone for DebugMessage { fn clone(&self) -> Self { (crate::dll::get_azul_dll().az_debug_message_deep_copy)(self) } }
     impl Drop for DebugMessage { fn drop(&mut self) { (crate::dll::get_azul_dll().az_debug_message_delete)(self); } }
 
 
     /// C-ABI stable reexport of `&[u8]`
-    pub use crate::dll::AzU8VecRef as U8VecRef;
+    #[doc(inline)] pub use crate::dll::AzU8VecRef as U8VecRef;
 
     impl Drop for U8VecRef { fn drop(&mut self) { (crate::dll::get_azul_dll().az_u8_vec_ref_delete)(self); } }
 
 
     /// C-ABI stable reexport of `&mut [u8]`
-    pub use crate::dll::AzU8VecRefMut as U8VecRefMut;
+    #[doc(inline)] pub use crate::dll::AzU8VecRefMut as U8VecRefMut;
 
     impl Drop for U8VecRefMut { fn drop(&mut self) { (crate::dll::get_azul_dll().az_u8_vec_ref_mut_delete)(self); } }
 
 
     /// C-ABI stable reexport of `&[f32]`
-    pub use crate::dll::AzF32VecRef as F32VecRef;
+    #[doc(inline)] pub use crate::dll::AzF32VecRef as F32VecRef;
 
     impl Drop for F32VecRef { fn drop(&mut self) { (crate::dll::get_azul_dll().az_f32_vec_ref_delete)(self); } }
 
 
     /// C-ABI stable reexport of `&[i32]`
-    pub use crate::dll::AzI32VecRef as I32VecRef;
+    #[doc(inline)] pub use crate::dll::AzI32VecRef as I32VecRef;
 
     impl Drop for I32VecRef { fn drop(&mut self) { (crate::dll::get_azul_dll().az_i32_vec_ref_delete)(self); } }
 
 
     /// C-ABI stable reexport of `&[GLuint]` aka `&[u32]`
-    pub use crate::dll::AzGLuintVecRef as GLuintVecRef;
+    #[doc(inline)] pub use crate::dll::AzGLuintVecRef as GLuintVecRef;
 
     impl Drop for GLuintVecRef { fn drop(&mut self) { (crate::dll::get_azul_dll().az_g_luint_vec_ref_delete)(self); } }
 
 
     /// C-ABI stable reexport of `&[GLenum]` aka `&[u32]`
-    pub use crate::dll::AzGLenumVecRef as GLenumVecRef;
+    #[doc(inline)] pub use crate::dll::AzGLenumVecRef as GLenumVecRef;
 
     impl Drop for GLenumVecRef { fn drop(&mut self) { (crate::dll::get_azul_dll().az_g_lenum_vec_ref_delete)(self); } }
 
 
     /// C-ABI stable reexport of `&mut [GLint]` aka `&mut [i32]`
-    pub use crate::dll::AzGLintVecRefMut as GLintVecRefMut;
+    #[doc(inline)] pub use crate::dll::AzGLintVecRefMut as GLintVecRefMut;
 
     impl Drop for GLintVecRefMut { fn drop(&mut self) { (crate::dll::get_azul_dll().az_g_lint_vec_ref_mut_delete)(self); } }
 
 
     /// C-ABI stable reexport of `&mut [GLint64]` aka `&mut [i64]`
-    pub use crate::dll::AzGLint64VecRefMut as GLint64VecRefMut;
+    #[doc(inline)] pub use crate::dll::AzGLint64VecRefMut as GLint64VecRefMut;
 
     impl Drop for GLint64VecRefMut { fn drop(&mut self) { (crate::dll::get_azul_dll().az_g_lint64_vec_ref_mut_delete)(self); } }
 
 
     /// C-ABI stable reexport of `&mut [GLboolean]` aka `&mut [u8]`
-    pub use crate::dll::AzGLbooleanVecRefMut as GLbooleanVecRefMut;
+    #[doc(inline)] pub use crate::dll::AzGLbooleanVecRefMut as GLbooleanVecRefMut;
 
     impl Drop for GLbooleanVecRefMut { fn drop(&mut self) { (crate::dll::get_azul_dll().az_g_lboolean_vec_ref_mut_delete)(self); } }
 
 
     /// C-ABI stable reexport of `&mut [GLfloat]` aka `&mut [f32]`
-    pub use crate::dll::AzGLfloatVecRefMut as GLfloatVecRefMut;
+    #[doc(inline)] pub use crate::dll::AzGLfloatVecRefMut as GLfloatVecRefMut;
 
     impl Drop for GLfloatVecRefMut { fn drop(&mut self) { (crate::dll::get_azul_dll().az_g_lfloat_vec_ref_mut_delete)(self); } }
 
 
     /// C-ABI stable reexport of `&[Refstr]` aka `&mut [&str]`
-    pub use crate::dll::AzRefstrVecRef as RefstrVecRef;
+    #[doc(inline)] pub use crate::dll::AzRefstrVecRef as RefstrVecRef;
 
     impl Drop for RefstrVecRef { fn drop(&mut self) { (crate::dll::get_azul_dll().az_refstr_vec_ref_delete)(self); } }
 
 
     /// C-ABI stable reexport of `&str`
-    pub use crate::dll::AzRefstr as Refstr;
+    #[doc(inline)] pub use crate::dll::AzRefstr as Refstr;
 
     impl Drop for Refstr { fn drop(&mut self) { (crate::dll::get_azul_dll().az_refstr_delete)(self); } }
 
 
     /// C-ABI stable reexport of `(U8Vec, u32)`
-    pub use crate::dll::AzGetProgramBinaryReturn as GetProgramBinaryReturn;
+    #[doc(inline)] pub use crate::dll::AzGetProgramBinaryReturn as GetProgramBinaryReturn;
 
     impl Clone for GetProgramBinaryReturn { fn clone(&self) -> Self { (crate::dll::get_azul_dll().az_get_program_binary_return_deep_copy)(self) } }
     impl Drop for GetProgramBinaryReturn { fn drop(&mut self) { (crate::dll::get_azul_dll().az_get_program_binary_return_delete)(self); } }
 
 
     /// C-ABI stable reexport of `(i32, u32, AzString)`
-    pub use crate::dll::AzGetActiveAttribReturn as GetActiveAttribReturn;
+    #[doc(inline)] pub use crate::dll::AzGetActiveAttribReturn as GetActiveAttribReturn;
 
     impl Clone for GetActiveAttribReturn { fn clone(&self) -> Self { (crate::dll::get_azul_dll().az_get_active_attrib_return_deep_copy)(self) } }
     impl Drop for GetActiveAttribReturn { fn drop(&mut self) { (crate::dll::get_azul_dll().az_get_active_attrib_return_delete)(self); } }
 
 
     /// C-ABI stable reexport of `*const gleam::gl::GLsync`
-    pub use crate::dll::AzGLsyncPtr as GLsyncPtr;
+    #[doc(inline)] pub use crate::dll::AzGLsyncPtr as GLsyncPtr;
 
     impl Drop for GLsyncPtr { fn drop(&mut self) { (crate::dll::get_azul_dll().az_g_lsync_ptr_delete)(self); } }
 
 
     /// C-ABI stable reexport of `(i32, u32, AzString)`
-    pub use crate::dll::AzGetActiveUniformReturn as GetActiveUniformReturn;
+    #[doc(inline)] pub use crate::dll::AzGetActiveUniformReturn as GetActiveUniformReturn;
 
     impl Clone for GetActiveUniformReturn { fn clone(&self) -> Self { (crate::dll::get_azul_dll().az_get_active_uniform_return_deep_copy)(self) } }
     impl Drop for GetActiveUniformReturn { fn drop(&mut self) { (crate::dll::get_azul_dll().az_get_active_uniform_return_delete)(self); } }
 
 
     /// `GlContextPtr` struct
-    pub use crate::dll::AzGlContextPtr as GlContextPtr;
+    #[doc(inline)] pub use crate::dll::AzGlContextPtr as GlContextPtr;
 
     impl GlContextPtr {
         /// Calls the `GlContextPtr::get_type` function.
@@ -2252,13 +2252,13 @@
 
 
     /// `Texture` struct
-    pub use crate::dll::AzTexture as Texture;
+    #[doc(inline)] pub use crate::dll::AzTexture as Texture;
 
     impl Drop for Texture { fn drop(&mut self) { (crate::dll::get_azul_dll().az_texture_delete)(self); } }
 
 
     /// `TextureFlags` struct
-    pub use crate::dll::AzTextureFlags as TextureFlags;
+    #[doc(inline)] pub use crate::dll::AzTextureFlags as TextureFlags;
 
     impl TextureFlags {
         /// Default texture flags (not opaque, not a video texture)

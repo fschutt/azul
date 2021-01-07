@@ -6,7 +6,7 @@
 
 
     /// `TextId` struct
-    pub use crate::dll::AzTextId as TextId;
+    #[doc(inline)] pub use crate::dll::AzTextId as TextId;
 
     impl TextId {
         /// Creates a new, unique `TextId`
@@ -18,7 +18,7 @@
 
 
     /// `ImageId` struct
-    pub use crate::dll::AzImageId as ImageId;
+    #[doc(inline)] pub use crate::dll::AzImageId as ImageId;
 
     impl ImageId {
         /// Creates a new, unique `ImageId`
@@ -30,7 +30,7 @@
 
 
     /// `FontId` struct
-    pub use crate::dll::AzFontId as FontId;
+    #[doc(inline)] pub use crate::dll::AzFontId as FontId;
 
     impl FontId {
         /// Creates a new, unique `FontId`
@@ -42,21 +42,21 @@
 
 
     /// `ImageSource` struct
-    pub use crate::dll::AzImageSource as ImageSource;
+    #[doc(inline)] pub use crate::dll::AzImageSource as ImageSource;
 
     impl Clone for ImageSource { fn clone(&self) -> Self { (crate::dll::get_azul_dll().az_image_source_deep_copy)(self) } }
     impl Drop for ImageSource { fn drop(&mut self) { (crate::dll::get_azul_dll().az_image_source_delete)(self); } }
 
 
     /// `FontSource` struct
-    pub use crate::dll::AzFontSource as FontSource;
+    #[doc(inline)] pub use crate::dll::AzFontSource as FontSource;
 
     impl Clone for FontSource { fn clone(&self) -> Self { (crate::dll::get_azul_dll().az_font_source_deep_copy)(self) } }
     impl Drop for FontSource { fn drop(&mut self) { (crate::dll::get_azul_dll().az_font_source_delete)(self); } }
 
 
     /// `RawImage` struct
-    pub use crate::dll::AzRawImage as RawImage;
+    #[doc(inline)] pub use crate::dll::AzRawImage as RawImage;
 
     impl RawImage {
         /// Creates a new `RawImage` by loading the decoded bytes
@@ -68,7 +68,7 @@
 
 
     /// `RawImageFormat` struct
-    pub use crate::dll::AzRawImageFormat as RawImageFormat;
+    #[doc(inline)] pub use crate::dll::AzRawImageFormat as RawImageFormat;
 
     impl Clone for RawImageFormat { fn clone(&self) -> Self { (crate::dll::get_azul_dll().az_raw_image_format_deep_copy)(self) } }
     impl Drop for RawImageFormat { fn drop(&mut self) { (crate::dll::get_azul_dll().az_raw_image_format_delete)(self); } }

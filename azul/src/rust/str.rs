@@ -54,7 +54,7 @@
     }
 
     /// `String` struct
-    pub use crate::dll::AzString as String;
+    #[doc(inline)] pub use crate::dll::AzString as String;
 
     impl String {
         /// Creates + allocates a Rust `String` by **copying** it from another utf8-encoded string

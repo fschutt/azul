@@ -6,105 +6,105 @@
 
 
     /// `SvgMultiPolygon` struct
-    pub use crate::dll::AzSvgMultiPolygon as SvgMultiPolygon;
+    #[doc(inline)] pub use crate::dll::AzSvgMultiPolygon as SvgMultiPolygon;
 
     impl Clone for SvgMultiPolygon { fn clone(&self) -> Self { (crate::dll::get_azul_dll().az_svg_multi_polygon_deep_copy)(self) } }
     impl Drop for SvgMultiPolygon { fn drop(&mut self) { (crate::dll::get_azul_dll().az_svg_multi_polygon_delete)(self); } }
 
 
     /// `SvgNode` struct
-    pub use crate::dll::AzSvgNode as SvgNode;
+    #[doc(inline)] pub use crate::dll::AzSvgNode as SvgNode;
 
     impl Clone for SvgNode { fn clone(&self) -> Self { (crate::dll::get_azul_dll().az_svg_node_deep_copy)(self) } }
     impl Drop for SvgNode { fn drop(&mut self) { (crate::dll::get_azul_dll().az_svg_node_delete)(self); } }
 
 
     /// `SvgStyledNode` struct
-    pub use crate::dll::AzSvgStyledNode as SvgStyledNode;
+    #[doc(inline)] pub use crate::dll::AzSvgStyledNode as SvgStyledNode;
 
     impl Clone for SvgStyledNode { fn clone(&self) -> Self { (crate::dll::get_azul_dll().az_svg_styled_node_deep_copy)(self) } }
     impl Drop for SvgStyledNode { fn drop(&mut self) { (crate::dll::get_azul_dll().az_svg_styled_node_delete)(self); } }
 
 
     /// `SvgCircle` struct
-    pub use crate::dll::AzSvgCircle as SvgCircle;
+    #[doc(inline)] pub use crate::dll::AzSvgCircle as SvgCircle;
 
     impl Clone for SvgCircle { fn clone(&self) -> Self { *self } }
     impl Copy for SvgCircle { }
 
 
     /// `SvgPath` struct
-    pub use crate::dll::AzSvgPath as SvgPath;
+    #[doc(inline)] pub use crate::dll::AzSvgPath as SvgPath;
 
     impl Clone for SvgPath { fn clone(&self) -> Self { (crate::dll::get_azul_dll().az_svg_path_deep_copy)(self) } }
     impl Drop for SvgPath { fn drop(&mut self) { (crate::dll::get_azul_dll().az_svg_path_delete)(self); } }
 
 
     /// `SvgPathElement` struct
-    pub use crate::dll::AzSvgPathElement as SvgPathElement;
+    #[doc(inline)] pub use crate::dll::AzSvgPathElement as SvgPathElement;
 
     impl Clone for SvgPathElement { fn clone(&self) -> Self { *self } }
     impl Copy for SvgPathElement { }
 
 
     /// `SvgLine` struct
-    pub use crate::dll::AzSvgLine as SvgLine;
+    #[doc(inline)] pub use crate::dll::AzSvgLine as SvgLine;
 
     impl Clone for SvgLine { fn clone(&self) -> Self { *self } }
     impl Copy for SvgLine { }
 
 
     /// `SvgPoint` struct
-    pub use crate::dll::AzSvgPoint as SvgPoint;
+    #[doc(inline)] pub use crate::dll::AzSvgPoint as SvgPoint;
 
     impl Clone for SvgPoint { fn clone(&self) -> Self { *self } }
     impl Copy for SvgPoint { }
 
 
     /// `SvgVertex` struct
-    pub use crate::dll::AzSvgVertex as SvgVertex;
+    #[doc(inline)] pub use crate::dll::AzSvgVertex as SvgVertex;
 
     impl Clone for SvgVertex { fn clone(&self) -> Self { *self } }
     impl Copy for SvgVertex { }
 
 
     /// `SvgQuadraticCurve` struct
-    pub use crate::dll::AzSvgQuadraticCurve as SvgQuadraticCurve;
+    #[doc(inline)] pub use crate::dll::AzSvgQuadraticCurve as SvgQuadraticCurve;
 
     impl Clone for SvgQuadraticCurve { fn clone(&self) -> Self { *self } }
     impl Copy for SvgQuadraticCurve { }
 
 
     /// `SvgCubicCurve` struct
-    pub use crate::dll::AzSvgCubicCurve as SvgCubicCurve;
+    #[doc(inline)] pub use crate::dll::AzSvgCubicCurve as SvgCubicCurve;
 
     impl Clone for SvgCubicCurve { fn clone(&self) -> Self { *self } }
     impl Copy for SvgCubicCurve { }
 
 
     /// `SvgRect` struct
-    pub use crate::dll::AzSvgRect as SvgRect;
+    #[doc(inline)] pub use crate::dll::AzSvgRect as SvgRect;
 
     impl Clone for SvgRect { fn clone(&self) -> Self { *self } }
     impl Copy for SvgRect { }
 
 
     /// `TesselatedCPUSvgNode` struct
-    pub use crate::dll::AzTesselatedCPUSvgNode as TesselatedCPUSvgNode;
+    #[doc(inline)] pub use crate::dll::AzTesselatedCPUSvgNode as TesselatedCPUSvgNode;
 
     impl Clone for TesselatedCPUSvgNode { fn clone(&self) -> Self { (crate::dll::get_azul_dll().az_tesselated_cpu_svg_node_deep_copy)(self) } }
     impl Drop for TesselatedCPUSvgNode { fn drop(&mut self) { (crate::dll::get_azul_dll().az_tesselated_cpu_svg_node_delete)(self); } }
 
 
     /// `SvgLineCap` struct
-    pub use crate::dll::AzSvgLineCap as SvgLineCap;
+    #[doc(inline)] pub use crate::dll::AzSvgLineCap as SvgLineCap;
 
     impl Clone for SvgLineCap { fn clone(&self) -> Self { *self } }
     impl Copy for SvgLineCap { }
 
 
     /// `SvgParseOptions` struct
-    pub use crate::dll::AzSvgParseOptions as SvgParseOptions;
+    #[doc(inline)] pub use crate::dll::AzSvgParseOptions as SvgParseOptions;
 
     impl SvgParseOptions {
         /// Creates a new `SvgParseOptions` instance.
@@ -116,35 +116,35 @@
 
 
     /// `ShapeRendering` struct
-    pub use crate::dll::AzShapeRendering as ShapeRendering;
+    #[doc(inline)] pub use crate::dll::AzShapeRendering as ShapeRendering;
 
     impl Clone for ShapeRendering { fn clone(&self) -> Self { *self } }
     impl Copy for ShapeRendering { }
 
 
     /// `TextRendering` struct
-    pub use crate::dll::AzTextRendering as TextRendering;
+    #[doc(inline)] pub use crate::dll::AzTextRendering as TextRendering;
 
     impl Clone for TextRendering { fn clone(&self) -> Self { *self } }
     impl Copy for TextRendering { }
 
 
     /// `ImageRendering` struct
-    pub use crate::dll::AzImageRendering as ImageRendering;
+    #[doc(inline)] pub use crate::dll::AzImageRendering as ImageRendering;
 
     impl Clone for ImageRendering { fn clone(&self) -> Self { *self } }
     impl Copy for ImageRendering { }
 
 
     /// `FontDatabase` struct
-    pub use crate::dll::AzFontDatabase as FontDatabase;
+    #[doc(inline)] pub use crate::dll::AzFontDatabase as FontDatabase;
 
     impl Clone for FontDatabase { fn clone(&self) -> Self { *self } }
     impl Copy for FontDatabase { }
 
 
     /// `SvgRenderOptions` struct
-    pub use crate::dll::AzSvgRenderOptions as SvgRenderOptions;
+    #[doc(inline)] pub use crate::dll::AzSvgRenderOptions as SvgRenderOptions;
 
     impl SvgRenderOptions {
         /// Creates a new `SvgRenderOptions` instance.
@@ -156,14 +156,14 @@
 
 
     /// `SvgFitTo` struct
-    pub use crate::dll::AzSvgFitTo as SvgFitTo;
+    #[doc(inline)] pub use crate::dll::AzSvgFitTo as SvgFitTo;
 
     impl Clone for SvgFitTo { fn clone(&self) -> Self { *self } }
     impl Copy for SvgFitTo { }
 
 
     /// `Svg` struct
-    pub use crate::dll::AzSvg as Svg;
+    #[doc(inline)] pub use crate::dll::AzSvg as Svg;
 
     impl Svg {
         /// Creates a new `Svg` instance.
@@ -175,49 +175,49 @@
 
 
     /// `SvgXmlNode` struct
-    pub use crate::dll::AzSvgXmlNode as SvgXmlNode;
+    #[doc(inline)] pub use crate::dll::AzSvgXmlNode as SvgXmlNode;
 
     impl Clone for SvgXmlNode { fn clone(&self) -> Self { (crate::dll::get_azul_dll().az_svg_xml_node_deep_copy)(self) } }
     impl Drop for SvgXmlNode { fn drop(&mut self) { (crate::dll::get_azul_dll().az_svg_xml_node_delete)(self); } }
 
 
     /// `SvgLineJoin` struct
-    pub use crate::dll::AzSvgLineJoin as SvgLineJoin;
+    #[doc(inline)] pub use crate::dll::AzSvgLineJoin as SvgLineJoin;
 
     impl Clone for SvgLineJoin { fn clone(&self) -> Self { *self } }
     impl Copy for SvgLineJoin { }
 
 
     /// `SvgDashPattern` struct
-    pub use crate::dll::AzSvgDashPattern as SvgDashPattern;
+    #[doc(inline)] pub use crate::dll::AzSvgDashPattern as SvgDashPattern;
 
     impl Clone for SvgDashPattern { fn clone(&self) -> Self { *self } }
     impl Copy for SvgDashPattern { }
 
 
     /// `SvgStyle` struct
-    pub use crate::dll::AzSvgStyle as SvgStyle;
+    #[doc(inline)] pub use crate::dll::AzSvgStyle as SvgStyle;
 
     impl Clone for SvgStyle { fn clone(&self) -> Self { *self } }
     impl Copy for SvgStyle { }
 
 
     /// `SvgFillStyle` struct
-    pub use crate::dll::AzSvgFillStyle as SvgFillStyle;
+    #[doc(inline)] pub use crate::dll::AzSvgFillStyle as SvgFillStyle;
 
     impl Clone for SvgFillStyle { fn clone(&self) -> Self { *self } }
     impl Copy for SvgFillStyle { }
 
 
     /// `SvgStrokeStyle` struct
-    pub use crate::dll::AzSvgStrokeStyle as SvgStrokeStyle;
+    #[doc(inline)] pub use crate::dll::AzSvgStrokeStyle as SvgStrokeStyle;
 
     impl Clone for SvgStrokeStyle { fn clone(&self) -> Self { *self } }
     impl Copy for SvgStrokeStyle { }
 
 
     /// `SvgNodeId` struct
-    pub use crate::dll::AzSvgNodeId as SvgNodeId;
+    #[doc(inline)] pub use crate::dll::AzSvgNodeId as SvgNodeId;
 
     impl Clone for SvgNodeId { fn clone(&self) -> Self { *self } }
     impl Copy for SvgNodeId { }

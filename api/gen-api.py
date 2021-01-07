@@ -972,7 +972,7 @@ def generate_rust_api(apiData, structs_map, functions_map):
 
     code += "\r\n\r\n"
     code += "extern crate libloading_mini;\r\n"
-    code += "pub mod dll;\r\n"
+    code += "mod dll;\r\n"
 
     for module_name in apiData.keys():
         code += "pub mod " + module_name + ";\r\n"
@@ -1038,7 +1038,7 @@ def generate_rust_api(apiData, structs_map, functions_map):
             else:
                 code += "    /// `" + class_name + "` struct\r\n    "
 
-            code += "pub use crate::dll::" + class_ptr_name + " as " + class_name + ";\r\n\r\n"
+            code += "#[doc(inline)] pub use crate::dll::" + class_ptr_name + " as " + class_name + ";\r\n\r\n"
 
             should_emit_impl = not(class_is_const or class_is_typedef) and (("constructors" in c.keys() and len(c["constructors"]) > 0) or ("functions" in c.keys() and len(c["functions"]) > 0))
             if should_emit_impl:

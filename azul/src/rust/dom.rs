@@ -56,7 +56,7 @@
 
 
     /// `Dom` struct
-    pub use crate::dll::AzDom as Dom;
+    #[doc(inline)] pub use crate::dll::AzDom as Dom;
 
     impl Dom {
         /// Creates a new node with the given `NodeType`
@@ -140,35 +140,35 @@
 
 
     /// `GlTextureNode` struct
-    pub use crate::dll::AzGlTextureNode as GlTextureNode;
+    #[doc(inline)] pub use crate::dll::AzGlTextureNode as GlTextureNode;
 
     impl Clone for GlTextureNode { fn clone(&self) -> Self { (crate::dll::get_azul_dll().az_gl_texture_node_deep_copy)(self) } }
     impl Drop for GlTextureNode { fn drop(&mut self) { (crate::dll::get_azul_dll().az_gl_texture_node_delete)(self); } }
 
 
     /// `IFrameNode` struct
-    pub use crate::dll::AzIFrameNode as IFrameNode;
+    #[doc(inline)] pub use crate::dll::AzIFrameNode as IFrameNode;
 
     impl Clone for IFrameNode { fn clone(&self) -> Self { (crate::dll::get_azul_dll().az_i_frame_node_deep_copy)(self) } }
     impl Drop for IFrameNode { fn drop(&mut self) { (crate::dll::get_azul_dll().az_i_frame_node_delete)(self); } }
 
 
     /// `CallbackData` struct
-    pub use crate::dll::AzCallbackData as CallbackData;
+    #[doc(inline)] pub use crate::dll::AzCallbackData as CallbackData;
 
     impl Clone for CallbackData { fn clone(&self) -> Self { (crate::dll::get_azul_dll().az_callback_data_deep_copy)(self) } }
     impl Drop for CallbackData { fn drop(&mut self) { (crate::dll::get_azul_dll().az_callback_data_delete)(self); } }
 
 
     /// `ImageMask` struct
-    pub use crate::dll::AzImageMask as ImageMask;
+    #[doc(inline)] pub use crate::dll::AzImageMask as ImageMask;
 
     impl Clone for ImageMask { fn clone(&self) -> Self { (crate::dll::get_azul_dll().az_image_mask_deep_copy)(self) } }
     impl Drop for ImageMask { fn drop(&mut self) { (crate::dll::get_azul_dll().az_image_mask_delete)(self); } }
 
 
     /// Represents one single DOM node (node type, classes, ids and callbacks are stored here)
-    pub use crate::dll::AzNodeData as NodeData;
+    #[doc(inline)] pub use crate::dll::AzNodeData as NodeData;
 
     impl NodeData {
         /// Creates a new node without any classes or ids from a NodeType
@@ -242,14 +242,14 @@
 
 
     /// List of core DOM node types built-into by `azul`
-    pub use crate::dll::AzNodeType as NodeType;
+    #[doc(inline)] pub use crate::dll::AzNodeType as NodeType;
 
     impl Clone for NodeType { fn clone(&self) -> Self { (crate::dll::get_azul_dll().az_node_type_deep_copy)(self) } }
     impl Drop for NodeType { fn drop(&mut self) { (crate::dll::get_azul_dll().az_node_type_delete)(self); } }
 
 
     /// When to call a callback action - `On::MouseOver`, `On::MouseOut`, etc.
-    pub use crate::dll::AzOn as On;
+    #[doc(inline)] pub use crate::dll::AzOn as On;
 
     impl On {
         /// Converts the `On` shorthand into a `EventFilter`
@@ -261,56 +261,56 @@
 
 
     /// `EventFilter` struct
-    pub use crate::dll::AzEventFilter as EventFilter;
+    #[doc(inline)] pub use crate::dll::AzEventFilter as EventFilter;
 
     impl Clone for EventFilter { fn clone(&self) -> Self { *self } }
     impl Copy for EventFilter { }
 
 
     /// `HoverEventFilter` struct
-    pub use crate::dll::AzHoverEventFilter as HoverEventFilter;
+    #[doc(inline)] pub use crate::dll::AzHoverEventFilter as HoverEventFilter;
 
     impl Clone for HoverEventFilter { fn clone(&self) -> Self { *self } }
     impl Copy for HoverEventFilter { }
 
 
     /// `FocusEventFilter` struct
-    pub use crate::dll::AzFocusEventFilter as FocusEventFilter;
+    #[doc(inline)] pub use crate::dll::AzFocusEventFilter as FocusEventFilter;
 
     impl Clone for FocusEventFilter { fn clone(&self) -> Self { *self } }
     impl Copy for FocusEventFilter { }
 
 
     /// `NotEventFilter` struct
-    pub use crate::dll::AzNotEventFilter as NotEventFilter;
+    #[doc(inline)] pub use crate::dll::AzNotEventFilter as NotEventFilter;
 
     impl Clone for NotEventFilter { fn clone(&self) -> Self { *self } }
     impl Copy for NotEventFilter { }
 
 
     /// `WindowEventFilter` struct
-    pub use crate::dll::AzWindowEventFilter as WindowEventFilter;
+    #[doc(inline)] pub use crate::dll::AzWindowEventFilter as WindowEventFilter;
 
     impl Clone for WindowEventFilter { fn clone(&self) -> Self { *self } }
     impl Copy for WindowEventFilter { }
 
 
     /// `ComponentEventFilter` struct
-    pub use crate::dll::AzComponentEventFilter as ComponentEventFilter;
+    #[doc(inline)] pub use crate::dll::AzComponentEventFilter as ComponentEventFilter;
 
     impl Clone for ComponentEventFilter { fn clone(&self) -> Self { *self } }
     impl Copy for ComponentEventFilter { }
 
 
     /// `ApplicationEventFilter` struct
-    pub use crate::dll::AzApplicationEventFilter as ApplicationEventFilter;
+    #[doc(inline)] pub use crate::dll::AzApplicationEventFilter as ApplicationEventFilter;
 
     impl Clone for ApplicationEventFilter { fn clone(&self) -> Self { *self } }
     impl Copy for ApplicationEventFilter { }
 
 
     /// `TabIndex` struct
-    pub use crate::dll::AzTabIndex as TabIndex;
+    #[doc(inline)] pub use crate::dll::AzTabIndex as TabIndex;
 
     impl Clone for TabIndex { fn clone(&self) -> Self { *self } }
     impl Copy for TabIndex { }

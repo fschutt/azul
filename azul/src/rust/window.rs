@@ -6,315 +6,315 @@
 
 
     /// `LayoutPoint` struct
-    pub use crate::dll::AzLayoutPoint as LayoutPoint;
+    #[doc(inline)] pub use crate::dll::AzLayoutPoint as LayoutPoint;
 
     impl Clone for LayoutPoint { fn clone(&self) -> Self { *self } }
     impl Copy for LayoutPoint { }
 
 
     /// `LayoutSize` struct
-    pub use crate::dll::AzLayoutSize as LayoutSize;
+    #[doc(inline)] pub use crate::dll::AzLayoutSize as LayoutSize;
 
     impl Clone for LayoutSize { fn clone(&self) -> Self { *self } }
     impl Copy for LayoutSize { }
 
 
     /// `LayoutRect` struct
-    pub use crate::dll::AzLayoutRect as LayoutRect;
+    #[doc(inline)] pub use crate::dll::AzLayoutRect as LayoutRect;
 
     impl Clone for LayoutRect { fn clone(&self) -> Self { *self } }
     impl Copy for LayoutRect { }
 
 
     /// `RawWindowHandle` struct
-    pub use crate::dll::AzRawWindowHandle as RawWindowHandle;
+    #[doc(inline)] pub use crate::dll::AzRawWindowHandle as RawWindowHandle;
 
     impl Clone for RawWindowHandle { fn clone(&self) -> Self { *self } }
     impl Copy for RawWindowHandle { }
 
 
     /// `IOSHandle` struct
-    pub use crate::dll::AzIOSHandle as IOSHandle;
+    #[doc(inline)] pub use crate::dll::AzIOSHandle as IOSHandle;
 
     impl Clone for IOSHandle { fn clone(&self) -> Self { *self } }
     impl Copy for IOSHandle { }
 
 
     /// `MacOSHandle` struct
-    pub use crate::dll::AzMacOSHandle as MacOSHandle;
+    #[doc(inline)] pub use crate::dll::AzMacOSHandle as MacOSHandle;
 
     impl Clone for MacOSHandle { fn clone(&self) -> Self { *self } }
     impl Copy for MacOSHandle { }
 
 
     /// `XlibHandle` struct
-    pub use crate::dll::AzXlibHandle as XlibHandle;
+    #[doc(inline)] pub use crate::dll::AzXlibHandle as XlibHandle;
 
     impl Clone for XlibHandle { fn clone(&self) -> Self { *self } }
     impl Copy for XlibHandle { }
 
 
     /// `XcbHandle` struct
-    pub use crate::dll::AzXcbHandle as XcbHandle;
+    #[doc(inline)] pub use crate::dll::AzXcbHandle as XcbHandle;
 
     impl Clone for XcbHandle { fn clone(&self) -> Self { *self } }
     impl Copy for XcbHandle { }
 
 
     /// `WaylandHandle` struct
-    pub use crate::dll::AzWaylandHandle as WaylandHandle;
+    #[doc(inline)] pub use crate::dll::AzWaylandHandle as WaylandHandle;
 
     impl Clone for WaylandHandle { fn clone(&self) -> Self { *self } }
     impl Copy for WaylandHandle { }
 
 
     /// `WindowsHandle` struct
-    pub use crate::dll::AzWindowsHandle as WindowsHandle;
+    #[doc(inline)] pub use crate::dll::AzWindowsHandle as WindowsHandle;
 
     impl Clone for WindowsHandle { fn clone(&self) -> Self { *self } }
     impl Copy for WindowsHandle { }
 
 
     /// `WebHandle` struct
-    pub use crate::dll::AzWebHandle as WebHandle;
+    #[doc(inline)] pub use crate::dll::AzWebHandle as WebHandle;
 
     impl Clone for WebHandle { fn clone(&self) -> Self { *self } }
     impl Copy for WebHandle { }
 
 
     /// `AndroidHandle` struct
-    pub use crate::dll::AzAndroidHandle as AndroidHandle;
+    #[doc(inline)] pub use crate::dll::AzAndroidHandle as AndroidHandle;
 
     impl Clone for AndroidHandle { fn clone(&self) -> Self { *self } }
     impl Copy for AndroidHandle { }
 
 
     /// `TaskBarIcon` struct
-    pub use crate::dll::AzTaskBarIcon as TaskBarIcon;
+    #[doc(inline)] pub use crate::dll::AzTaskBarIcon as TaskBarIcon;
 
     impl Clone for TaskBarIcon { fn clone(&self) -> Self { (crate::dll::get_azul_dll().az_task_bar_icon_deep_copy)(self) } }
     impl Drop for TaskBarIcon { fn drop(&mut self) { (crate::dll::get_azul_dll().az_task_bar_icon_delete)(self); } }
 
 
     /// `XWindowType` struct
-    pub use crate::dll::AzXWindowType as XWindowType;
+    #[doc(inline)] pub use crate::dll::AzXWindowType as XWindowType;
 
     impl Clone for XWindowType { fn clone(&self) -> Self { *self } }
     impl Copy for XWindowType { }
 
 
     /// `PhysicalPositionI32` struct
-    pub use crate::dll::AzPhysicalPositionI32 as PhysicalPositionI32;
+    #[doc(inline)] pub use crate::dll::AzPhysicalPositionI32 as PhysicalPositionI32;
 
     impl Clone for PhysicalPositionI32 { fn clone(&self) -> Self { *self } }
     impl Copy for PhysicalPositionI32 { }
 
 
     /// `PhysicalSizeU32` struct
-    pub use crate::dll::AzPhysicalSizeU32 as PhysicalSizeU32;
+    #[doc(inline)] pub use crate::dll::AzPhysicalSizeU32 as PhysicalSizeU32;
 
     impl Clone for PhysicalSizeU32 { fn clone(&self) -> Self { *self } }
     impl Copy for PhysicalSizeU32 { }
 
 
     /// `LogicalPosition` struct
-    pub use crate::dll::AzLogicalPosition as LogicalPosition;
+    #[doc(inline)] pub use crate::dll::AzLogicalPosition as LogicalPosition;
 
     impl Clone for LogicalPosition { fn clone(&self) -> Self { *self } }
     impl Copy for LogicalPosition { }
 
 
     /// `LogicalRect` struct
-    pub use crate::dll::AzLogicalRect as LogicalRect;
+    #[doc(inline)] pub use crate::dll::AzLogicalRect as LogicalRect;
 
     impl Clone for LogicalRect { fn clone(&self) -> Self { *self } }
     impl Copy for LogicalRect { }
 
 
     /// `IconKey` struct
-    pub use crate::dll::AzIconKey as IconKey;
+    #[doc(inline)] pub use crate::dll::AzIconKey as IconKey;
 
     impl Clone for IconKey { fn clone(&self) -> Self { *self } }
     impl Copy for IconKey { }
 
 
     /// `SmallWindowIconBytes` struct
-    pub use crate::dll::AzSmallWindowIconBytes as SmallWindowIconBytes;
+    #[doc(inline)] pub use crate::dll::AzSmallWindowIconBytes as SmallWindowIconBytes;
 
     impl Clone for SmallWindowIconBytes { fn clone(&self) -> Self { (crate::dll::get_azul_dll().az_small_window_icon_bytes_deep_copy)(self) } }
     impl Drop for SmallWindowIconBytes { fn drop(&mut self) { (crate::dll::get_azul_dll().az_small_window_icon_bytes_delete)(self); } }
 
 
     /// `LargeWindowIconBytes` struct
-    pub use crate::dll::AzLargeWindowIconBytes as LargeWindowIconBytes;
+    #[doc(inline)] pub use crate::dll::AzLargeWindowIconBytes as LargeWindowIconBytes;
 
     impl Clone for LargeWindowIconBytes { fn clone(&self) -> Self { (crate::dll::get_azul_dll().az_large_window_icon_bytes_deep_copy)(self) } }
     impl Drop for LargeWindowIconBytes { fn drop(&mut self) { (crate::dll::get_azul_dll().az_large_window_icon_bytes_delete)(self); } }
 
 
     /// `WindowIcon` struct
-    pub use crate::dll::AzWindowIcon as WindowIcon;
+    #[doc(inline)] pub use crate::dll::AzWindowIcon as WindowIcon;
 
     impl Clone for WindowIcon { fn clone(&self) -> Self { (crate::dll::get_azul_dll().az_window_icon_deep_copy)(self) } }
     impl Drop for WindowIcon { fn drop(&mut self) { (crate::dll::get_azul_dll().az_window_icon_delete)(self); } }
 
 
     /// `VirtualKeyCode` struct
-    pub use crate::dll::AzVirtualKeyCode as VirtualKeyCode;
+    #[doc(inline)] pub use crate::dll::AzVirtualKeyCode as VirtualKeyCode;
 
     impl Clone for VirtualKeyCode { fn clone(&self) -> Self { *self } }
     impl Copy for VirtualKeyCode { }
 
 
     /// `AcceleratorKey` struct
-    pub use crate::dll::AzAcceleratorKey as AcceleratorKey;
+    #[doc(inline)] pub use crate::dll::AzAcceleratorKey as AcceleratorKey;
 
     impl Clone for AcceleratorKey { fn clone(&self) -> Self { *self } }
     impl Copy for AcceleratorKey { }
 
 
     /// `WindowSize` struct
-    pub use crate::dll::AzWindowSize as WindowSize;
+    #[doc(inline)] pub use crate::dll::AzWindowSize as WindowSize;
 
     impl Clone for WindowSize { fn clone(&self) -> Self { *self } }
     impl Copy for WindowSize { }
 
 
     /// `WindowFlags` struct
-    pub use crate::dll::AzWindowFlags as WindowFlags;
+    #[doc(inline)] pub use crate::dll::AzWindowFlags as WindowFlags;
 
     impl Clone for WindowFlags { fn clone(&self) -> Self { *self } }
     impl Copy for WindowFlags { }
 
 
     /// `DebugState` struct
-    pub use crate::dll::AzDebugState as DebugState;
+    #[doc(inline)] pub use crate::dll::AzDebugState as DebugState;
 
     impl Clone for DebugState { fn clone(&self) -> Self { (crate::dll::get_azul_dll().az_debug_state_deep_copy)(self) } }
     impl Drop for DebugState { fn drop(&mut self) { (crate::dll::get_azul_dll().az_debug_state_delete)(self); } }
 
 
     /// `KeyboardState` struct
-    pub use crate::dll::AzKeyboardState as KeyboardState;
+    #[doc(inline)] pub use crate::dll::AzKeyboardState as KeyboardState;
 
     impl Clone for KeyboardState { fn clone(&self) -> Self { (crate::dll::get_azul_dll().az_keyboard_state_deep_copy)(self) } }
     impl Drop for KeyboardState { fn drop(&mut self) { (crate::dll::get_azul_dll().az_keyboard_state_delete)(self); } }
 
 
     /// `MouseCursorType` struct
-    pub use crate::dll::AzMouseCursorType as MouseCursorType;
+    #[doc(inline)] pub use crate::dll::AzMouseCursorType as MouseCursorType;
 
     impl Clone for MouseCursorType { fn clone(&self) -> Self { *self } }
     impl Copy for MouseCursorType { }
 
 
     /// `CursorPosition` struct
-    pub use crate::dll::AzCursorPosition as CursorPosition;
+    #[doc(inline)] pub use crate::dll::AzCursorPosition as CursorPosition;
 
     impl Clone for CursorPosition { fn clone(&self) -> Self { *self } }
     impl Copy for CursorPosition { }
 
 
     /// `MouseState` struct
-    pub use crate::dll::AzMouseState as MouseState;
+    #[doc(inline)] pub use crate::dll::AzMouseState as MouseState;
 
     impl Clone for MouseState { fn clone(&self) -> Self { (crate::dll::get_azul_dll().az_mouse_state_deep_copy)(self) } }
     impl Drop for MouseState { fn drop(&mut self) { (crate::dll::get_azul_dll().az_mouse_state_delete)(self); } }
 
 
     /// `PlatformSpecificOptions` struct
-    pub use crate::dll::AzPlatformSpecificOptions as PlatformSpecificOptions;
+    #[doc(inline)] pub use crate::dll::AzPlatformSpecificOptions as PlatformSpecificOptions;
 
     impl Clone for PlatformSpecificOptions { fn clone(&self) -> Self { (crate::dll::get_azul_dll().az_platform_specific_options_deep_copy)(self) } }
     impl Drop for PlatformSpecificOptions { fn drop(&mut self) { (crate::dll::get_azul_dll().az_platform_specific_options_delete)(self); } }
 
 
     /// `WindowsWindowOptions` struct
-    pub use crate::dll::AzWindowsWindowOptions as WindowsWindowOptions;
+    #[doc(inline)] pub use crate::dll::AzWindowsWindowOptions as WindowsWindowOptions;
 
     impl Clone for WindowsWindowOptions { fn clone(&self) -> Self { (crate::dll::get_azul_dll().az_windows_window_options_deep_copy)(self) } }
     impl Drop for WindowsWindowOptions { fn drop(&mut self) { (crate::dll::get_azul_dll().az_windows_window_options_delete)(self); } }
 
 
     /// `WaylandTheme` struct
-    pub use crate::dll::AzWaylandTheme as WaylandTheme;
+    #[doc(inline)] pub use crate::dll::AzWaylandTheme as WaylandTheme;
 
     impl Clone for WaylandTheme { fn clone(&self) -> Self { (crate::dll::get_azul_dll().az_wayland_theme_deep_copy)(self) } }
     impl Drop for WaylandTheme { fn drop(&mut self) { (crate::dll::get_azul_dll().az_wayland_theme_delete)(self); } }
 
 
     /// `RendererType` struct
-    pub use crate::dll::AzRendererType as RendererType;
+    #[doc(inline)] pub use crate::dll::AzRendererType as RendererType;
 
     impl Clone for RendererType { fn clone(&self) -> Self { (crate::dll::get_azul_dll().az_renderer_type_deep_copy)(self) } }
     impl Drop for RendererType { fn drop(&mut self) { (crate::dll::get_azul_dll().az_renderer_type_delete)(self); } }
 
 
     /// `StringPair` struct
-    pub use crate::dll::AzStringPair as StringPair;
+    #[doc(inline)] pub use crate::dll::AzStringPair as StringPair;
 
     impl Clone for StringPair { fn clone(&self) -> Self { (crate::dll::get_azul_dll().az_string_pair_deep_copy)(self) } }
     impl Drop for StringPair { fn drop(&mut self) { (crate::dll::get_azul_dll().az_string_pair_delete)(self); } }
 
 
     /// `LinuxWindowOptions` struct
-    pub use crate::dll::AzLinuxWindowOptions as LinuxWindowOptions;
+    #[doc(inline)] pub use crate::dll::AzLinuxWindowOptions as LinuxWindowOptions;
 
     impl Clone for LinuxWindowOptions { fn clone(&self) -> Self { (crate::dll::get_azul_dll().az_linux_window_options_deep_copy)(self) } }
     impl Drop for LinuxWindowOptions { fn drop(&mut self) { (crate::dll::get_azul_dll().az_linux_window_options_delete)(self); } }
 
 
     /// `MacWindowOptions` struct
-    pub use crate::dll::AzMacWindowOptions as MacWindowOptions;
+    #[doc(inline)] pub use crate::dll::AzMacWindowOptions as MacWindowOptions;
 
     impl Clone for MacWindowOptions { fn clone(&self) -> Self { (crate::dll::get_azul_dll().az_mac_window_options_deep_copy)(self) } }
     impl Drop for MacWindowOptions { fn drop(&mut self) { (crate::dll::get_azul_dll().az_mac_window_options_delete)(self); } }
 
 
     /// `WasmWindowOptions` struct
-    pub use crate::dll::AzWasmWindowOptions as WasmWindowOptions;
+    #[doc(inline)] pub use crate::dll::AzWasmWindowOptions as WasmWindowOptions;
 
     impl Clone for WasmWindowOptions { fn clone(&self) -> Self { (crate::dll::get_azul_dll().az_wasm_window_options_deep_copy)(self) } }
     impl Drop for WasmWindowOptions { fn drop(&mut self) { (crate::dll::get_azul_dll().az_wasm_window_options_delete)(self); } }
 
 
     /// `FullScreenMode` struct
-    pub use crate::dll::AzFullScreenMode as FullScreenMode;
+    #[doc(inline)] pub use crate::dll::AzFullScreenMode as FullScreenMode;
 
     impl Clone for FullScreenMode { fn clone(&self) -> Self { *self } }
     impl Copy for FullScreenMode { }
 
 
     /// `WindowTheme` struct
-    pub use crate::dll::AzWindowTheme as WindowTheme;
+    #[doc(inline)] pub use crate::dll::AzWindowTheme as WindowTheme;
 
     impl Clone for WindowTheme { fn clone(&self) -> Self { *self } }
     impl Copy for WindowTheme { }
 
 
     /// `WindowPosition` struct
-    pub use crate::dll::AzWindowPosition as WindowPosition;
+    #[doc(inline)] pub use crate::dll::AzWindowPosition as WindowPosition;
 
     impl Clone for WindowPosition { fn clone(&self) -> Self { *self } }
     impl Copy for WindowPosition { }
 
 
     /// `ImePosition` struct
-    pub use crate::dll::AzImePosition as ImePosition;
+    #[doc(inline)] pub use crate::dll::AzImePosition as ImePosition;
 
     impl Clone for ImePosition { fn clone(&self) -> Self { *self } }
     impl Copy for ImePosition { }
 
 
     /// `TouchState` struct
-    pub use crate::dll::AzTouchState as TouchState;
+    #[doc(inline)] pub use crate::dll::AzTouchState as TouchState;
 
     impl Clone for TouchState { fn clone(&self) -> Self { *self } }
     impl Copy for TouchState { }
 
 
     /// `WindowState` struct
-    pub use crate::dll::AzWindowState as WindowState;
+    #[doc(inline)] pub use crate::dll::AzWindowState as WindowState;
 
     impl WindowState {
         /// Creates a new `WindowState` instance.
@@ -326,14 +326,14 @@
 
 
     /// `LogicalSize` struct
-    pub use crate::dll::AzLogicalSize as LogicalSize;
+    #[doc(inline)] pub use crate::dll::AzLogicalSize as LogicalSize;
 
     impl Clone for LogicalSize { fn clone(&self) -> Self { *self } }
     impl Copy for LogicalSize { }
 
 
     /// `WindowCreateOptions` struct
-    pub use crate::dll::AzWindowCreateOptions as WindowCreateOptions;
+    #[doc(inline)] pub use crate::dll::AzWindowCreateOptions as WindowCreateOptions;
 
     impl WindowCreateOptions {
         /// Creates a new `WindowCreateOptions` instance.

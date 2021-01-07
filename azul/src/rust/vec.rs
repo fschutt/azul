@@ -211,7 +211,7 @@
 
 
     /// Wrapper over a Rust-allocated `Vec<StyleTransform>`
-    pub use crate::dll::AzStyleTransformVec as StyleTransformVec;
+    #[doc(inline)] pub use crate::dll::AzStyleTransformVec as StyleTransformVec;
 
     impl StyleTransformVec {
         /// Creates a new, empty Rust `Vec<StyleTransform>`
@@ -227,7 +227,7 @@
 
 
     /// Wrapper over a Rust-allocated `Vec<ContentGroup>`
-    pub use crate::dll::AzContentGroupVec as ContentGroupVec;
+    #[doc(inline)] pub use crate::dll::AzContentGroupVec as ContentGroupVec;
 
     impl ContentGroupVec {
         /// Creates a new, empty Rust `Vec<ContentGroup>`
@@ -243,7 +243,7 @@
 
 
     /// Wrapper over a Rust-allocated `Vec<CssProperty>`
-    pub use crate::dll::AzCssPropertyVec as CssPropertyVec;
+    #[doc(inline)] pub use crate::dll::AzCssPropertyVec as CssPropertyVec;
 
     impl CssPropertyVec {
         /// Creates a new, empty Rust `Vec<CssProperty>`
@@ -259,7 +259,7 @@
 
 
     /// Wrapper over a Rust-allocated `Vec<SvgMultiPolygon>`
-    pub use crate::dll::AzSvgMultiPolygonVec as SvgMultiPolygonVec;
+    #[doc(inline)] pub use crate::dll::AzSvgMultiPolygonVec as SvgMultiPolygonVec;
 
     impl SvgMultiPolygonVec {
         /// Creates a new, empty Rust `Vec<SvgMultiPolygon>`
@@ -275,7 +275,7 @@
 
 
     /// Wrapper over a Rust-allocated `Vec<SvgPath>`
-    pub use crate::dll::AzSvgPathVec as SvgPathVec;
+    #[doc(inline)] pub use crate::dll::AzSvgPathVec as SvgPathVec;
 
     impl SvgPathVec {
         /// Creates a new, empty Rust `Vec<SvgPath>`
@@ -291,7 +291,7 @@
 
 
     /// Wrapper over a Rust-allocated `Vec<VertexAttribute>`
-    pub use crate::dll::AzVertexAttributeVec as VertexAttributeVec;
+    #[doc(inline)] pub use crate::dll::AzVertexAttributeVec as VertexAttributeVec;
 
     impl VertexAttributeVec {
         /// Creates a new, empty Rust `Vec<VertexAttribute>`
@@ -307,7 +307,7 @@
 
 
     /// Wrapper over a Rust-allocated `VertexAttribute`
-    pub use crate::dll::AzSvgPathElementVec as SvgPathElementVec;
+    #[doc(inline)] pub use crate::dll::AzSvgPathElementVec as SvgPathElementVec;
 
     impl SvgPathElementVec {
         /// Creates a new, empty Rust `Vec<SvgPathElement>`
@@ -323,7 +323,7 @@
 
 
     /// Wrapper over a Rust-allocated `SvgVertex`
-    pub use crate::dll::AzSvgVertexVec as SvgVertexVec;
+    #[doc(inline)] pub use crate::dll::AzSvgVertexVec as SvgVertexVec;
 
     impl SvgVertexVec {
         /// Creates a new, empty Rust `Vec<SvgVertex>`
@@ -339,7 +339,7 @@
 
 
     /// Wrapper over a Rust-allocated `Vec<u32>`
-    pub use crate::dll::AzU32Vec as U32Vec;
+    #[doc(inline)] pub use crate::dll::AzU32Vec as U32Vec;
 
     impl U32Vec {
         /// Creates a new, empty Rust `Vec<u32>`
@@ -355,7 +355,7 @@
 
 
     /// Wrapper over a Rust-allocated `XWindowType`
-    pub use crate::dll::AzXWindowTypeVec as XWindowTypeVec;
+    #[doc(inline)] pub use crate::dll::AzXWindowTypeVec as XWindowTypeVec;
 
     impl XWindowTypeVec {
         /// Creates a new, empty Rust `Vec<XWindowType>`
@@ -371,7 +371,7 @@
 
 
     /// Wrapper over a Rust-allocated `VirtualKeyCode`
-    pub use crate::dll::AzVirtualKeyCodeVec as VirtualKeyCodeVec;
+    #[doc(inline)] pub use crate::dll::AzVirtualKeyCodeVec as VirtualKeyCodeVec;
 
     impl VirtualKeyCodeVec {
         /// Creates a new, empty Rust `Vec<VirtualKeyCode>`
@@ -387,7 +387,7 @@
 
 
     /// Wrapper over a Rust-allocated `CascadeInfo`
-    pub use crate::dll::AzCascadeInfoVec as CascadeInfoVec;
+    #[doc(inline)] pub use crate::dll::AzCascadeInfoVec as CascadeInfoVec;
 
     impl CascadeInfoVec {
         /// Creates a new, empty Rust `Vec<CascadeInfo>`
@@ -403,7 +403,7 @@
 
 
     /// Wrapper over a Rust-allocated `ScanCode`
-    pub use crate::dll::AzScanCodeVec as ScanCodeVec;
+    #[doc(inline)] pub use crate::dll::AzScanCodeVec as ScanCodeVec;
 
     impl ScanCodeVec {
         /// Creates a new, empty Rust `Vec<ScanCode>`
@@ -419,7 +419,7 @@
 
 
     /// Wrapper over a Rust-allocated `CssDeclaration`
-    pub use crate::dll::AzCssDeclarationVec as CssDeclarationVec;
+    #[doc(inline)] pub use crate::dll::AzCssDeclarationVec as CssDeclarationVec;
 
     impl CssDeclarationVec {
         /// Creates a new, empty Rust `Vec<CssDeclaration>`
@@ -435,7 +435,7 @@
 
 
     /// Wrapper over a Rust-allocated `CssPathSelector`
-    pub use crate::dll::AzCssPathSelectorVec as CssPathSelectorVec;
+    #[doc(inline)] pub use crate::dll::AzCssPathSelectorVec as CssPathSelectorVec;
 
     impl CssPathSelectorVec {
         /// Creates a new, empty Rust `Vec<CssPathSelector>`
@@ -451,7 +451,7 @@
 
 
     /// Wrapper over a Rust-allocated `Stylesheet`
-    pub use crate::dll::AzStylesheetVec as StylesheetVec;
+    #[doc(inline)] pub use crate::dll::AzStylesheetVec as StylesheetVec;
 
     impl StylesheetVec {
         /// Creates a new, empty Rust `Vec<Stylesheet>`
@@ -467,7 +467,7 @@
 
 
     /// Wrapper over a Rust-allocated `CssRuleBlock`
-    pub use crate::dll::AzCssRuleBlockVec as CssRuleBlockVec;
+    #[doc(inline)] pub use crate::dll::AzCssRuleBlockVec as CssRuleBlockVec;
 
     impl CssRuleBlockVec {
         /// Creates a new, empty Rust `Vec<CssRuleBlock>`
@@ -483,7 +483,7 @@
 
 
     /// Wrapper over a Rust-allocated `U8Vec`
-    pub use crate::dll::AzU8Vec as U8Vec;
+    #[doc(inline)] pub use crate::dll::AzU8Vec as U8Vec;
 
     impl U8Vec {
         /// Creates a new, empty Rust `Vec<u8>`
@@ -499,7 +499,7 @@
 
 
     /// Wrapper over a Rust-allocated `CallbackData`
-    pub use crate::dll::AzCallbackDataVec as CallbackDataVec;
+    #[doc(inline)] pub use crate::dll::AzCallbackDataVec as CallbackDataVec;
 
     impl CallbackDataVec {
         /// Creates a new, empty Rust `Vec<CallbackData>`
@@ -515,7 +515,7 @@
 
 
     /// Wrapper over a Rust-allocated `Vec<DebugMessage>`
-    pub use crate::dll::AzDebugMessageVec as DebugMessageVec;
+    #[doc(inline)] pub use crate::dll::AzDebugMessageVec as DebugMessageVec;
 
     impl DebugMessageVec {
         /// Creates a new, empty Rust `Vec<DebugMessage>`
@@ -531,7 +531,7 @@
 
 
     /// Wrapper over a Rust-allocated `U32Vec`
-    pub use crate::dll::AzGLuintVec as GLuintVec;
+    #[doc(inline)] pub use crate::dll::AzGLuintVec as GLuintVec;
 
     impl GLuintVec {
         /// Creates a new, empty Rust `Vec<u32>`
@@ -547,7 +547,7 @@
 
 
     /// Wrapper over a Rust-allocated `GLintVec`
-    pub use crate::dll::AzGLintVec as GLintVec;
+    #[doc(inline)] pub use crate::dll::AzGLintVec as GLintVec;
 
     impl GLintVec {
         /// Creates a new, empty Rust `Vec<GLint>`
@@ -563,7 +563,7 @@
 
 
     /// Wrapper over a Rust-allocated `DomVec`
-    pub use crate::dll::AzDomVec as DomVec;
+    #[doc(inline)] pub use crate::dll::AzDomVec as DomVec;
 
     impl DomVec {
         /// Creates a new, empty Rust `Vec<Dom>`
@@ -579,7 +579,7 @@
 
 
     /// Wrapper over a Rust-allocated `StringVec`
-    pub use crate::dll::AzStringVec as StringVec;
+    #[doc(inline)] pub use crate::dll::AzStringVec as StringVec;
 
     impl StringVec {
         /// Creates a new, empty Rust `Vec<String>`
@@ -595,7 +595,7 @@
 
 
     /// Wrapper over a Rust-allocated `StringPairVec`
-    pub use crate::dll::AzStringPairVec as StringPairVec;
+    #[doc(inline)] pub use crate::dll::AzStringPairVec as StringPairVec;
 
     impl StringPairVec {
         /// Creates a new, empty Rust `Vec<StringPair>`
@@ -611,7 +611,7 @@
 
 
     /// Wrapper over a Rust-allocated `GradientStopPreVec`
-    pub use crate::dll::AzGradientStopPreVec as GradientStopPreVec;
+    #[doc(inline)] pub use crate::dll::AzGradientStopPreVec as GradientStopPreVec;
 
     impl GradientStopPreVec {
         /// Creates a new, empty Rust `Vec<GradientStopPre>`
@@ -627,7 +627,7 @@
 
 
     /// Wrapper over a Rust-allocated `CascadedCssPropertyWithSourceVec`
-    pub use crate::dll::AzCascadedCssPropertyWithSourceVec as CascadedCssPropertyWithSourceVec;
+    #[doc(inline)] pub use crate::dll::AzCascadedCssPropertyWithSourceVec as CascadedCssPropertyWithSourceVec;
 
     impl CascadedCssPropertyWithSourceVec {
         /// Creates a new, empty Rust `Vec<CascadedCssPropertyWithSource>`
@@ -643,7 +643,7 @@
 
 
     /// Wrapper over a Rust-allocated `NodeIdVec`
-    pub use crate::dll::AzNodeIdVec as NodeIdVec;
+    #[doc(inline)] pub use crate::dll::AzNodeIdVec as NodeIdVec;
 
     impl NodeIdVec {
         /// Creates a new, empty Rust `Vec<NodeId>`
@@ -659,7 +659,7 @@
 
 
     /// Wrapper over a Rust-allocated `NodeVec`
-    pub use crate::dll::AzNodeVec as NodeVec;
+    #[doc(inline)] pub use crate::dll::AzNodeVec as NodeVec;
 
     impl NodeVec {
         /// Creates a new, empty Rust `Vec<Node>`
@@ -675,7 +675,7 @@
 
 
     /// Wrapper over a Rust-allocated `StyledNodeVec`
-    pub use crate::dll::AzStyledNodeVec as StyledNodeVec;
+    #[doc(inline)] pub use crate::dll::AzStyledNodeVec as StyledNodeVec;
 
     impl StyledNodeVec {
         /// Creates a new, empty Rust `Vec<StyledNode>`
@@ -691,7 +691,7 @@
 
 
     /// Wrapper over a Rust-allocated `TagIdsToNodeIdsMappingVec`
-    pub use crate::dll::AzTagIdsToNodeIdsMappingVec as TagIdsToNodeIdsMappingVec;
+    #[doc(inline)] pub use crate::dll::AzTagIdsToNodeIdsMappingVec as TagIdsToNodeIdsMappingVec;
 
     impl TagIdsToNodeIdsMappingVec {
         /// Creates a new, empty Rust `Vec<TagIdToNodeIdMapping>`
@@ -707,7 +707,7 @@
 
 
     /// Wrapper over a Rust-allocated `ParentWithNodeDepthVec`
-    pub use crate::dll::AzParentWithNodeDepthVec as ParentWithNodeDepthVec;
+    #[doc(inline)] pub use crate::dll::AzParentWithNodeDepthVec as ParentWithNodeDepthVec;
 
     impl ParentWithNodeDepthVec {
         /// Creates a new, empty Rust `Vec<ParentWithNodeDepth>`
@@ -723,7 +723,7 @@
 
 
     /// Wrapper over a Rust-allocated `NodeDataVec`
-    pub use crate::dll::AzNodeDataVec as NodeDataVec;
+    #[doc(inline)] pub use crate::dll::AzNodeDataVec as NodeDataVec;
 
     impl NodeDataVec {
         /// Creates a new, empty Rust `Vec<NodeData>`

@@ -30,7 +30,7 @@
 
 
 extern crate libloading_mini;
-pub mod dll;
+mod dll;
 pub mod str;
 pub mod vec;
 pub mod option;

@@ -5,7 +5,7 @@
 
 
     /// `Instant` struct
-    pub use crate::dll::AzInstantPtr as Instant;
+    #[doc(inline)] pub use crate::dll::AzInstantPtr as Instant;
 
     impl Instant {
         /// Creates a new `Instant` instance.
@@ -16,7 +16,7 @@
 
 
     /// `Duration` struct
-    pub use crate::dll::AzDuration as Duration;
+    #[doc(inline)] pub use crate::dll::AzDuration as Duration;
 
     impl Clone for Duration { fn clone(&self) -> Self { *self } }
     impl Copy for Duration { }

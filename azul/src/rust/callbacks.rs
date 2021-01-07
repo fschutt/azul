@@ -131,28 +131,28 @@
 
 
     /// `NodeId` struct
-    pub use crate::dll::AzNodeId as NodeId;
+    #[doc(inline)] pub use crate::dll::AzNodeId as NodeId;
 
     impl Clone for NodeId { fn clone(&self) -> Self { *self } }
     impl Copy for NodeId { }
 
 
     /// `DomId` struct
-    pub use crate::dll::AzDomId as DomId;
+    #[doc(inline)] pub use crate::dll::AzDomId as DomId;
 
     impl Clone for DomId { fn clone(&self) -> Self { *self } }
     impl Copy for DomId { }
 
 
     /// `DomNodeId` struct
-    pub use crate::dll::AzDomNodeId as DomNodeId;
+    #[doc(inline)] pub use crate::dll::AzDomNodeId as DomNodeId;
 
     impl Clone for DomNodeId { fn clone(&self) -> Self { *self } }
     impl Copy for DomNodeId { }
 
 
     /// `HidpiAdjustedBounds` struct
-    pub use crate::dll::AzHidpiAdjustedBounds as HidpiAdjustedBounds;
+    #[doc(inline)] pub use crate::dll::AzHidpiAdjustedBounds as HidpiAdjustedBounds;
 
     impl HidpiAdjustedBounds {
         /// Returns the size of the bounds in logical units
@@ -168,7 +168,7 @@
 
 
     /// `LayoutCallback` struct
-    pub use crate::dll::AzLayoutCallback as LayoutCallback;
+    #[doc(inline)] pub use crate::dll::AzLayoutCallback as LayoutCallback;
 
     impl Clone for LayoutCallback { fn clone(&self) -> Self { *self } }
     impl Copy for LayoutCallback { }
@@ -177,21 +177,21 @@
     pub use crate::dll::AzLayoutCallbackType as LayoutCallbackType;
 
     /// `Callback` struct
-    pub use crate::dll::AzCallback as Callback;
+    #[doc(inline)] pub use crate::dll::AzCallback as Callback;
 
     impl Clone for Callback { fn clone(&self) -> Self { *self } }
     impl Copy for Callback { }
 
 
     /// Defines the focus target for the next frame
-    pub use crate::dll::AzFocusTarget as FocusTarget;
+    #[doc(inline)] pub use crate::dll::AzFocusTarget as FocusTarget;
 
     impl Clone for FocusTarget { fn clone(&self) -> Self { (crate::dll::get_azul_dll().az_focus_target_deep_copy)(self) } }
     impl Drop for FocusTarget { fn drop(&mut self) { (crate::dll::get_azul_dll().az_focus_target_delete)(self); } }
 
 
     /// `FocusTargetPath` struct
-    pub use crate::dll::AzFocusTargetPath as FocusTargetPath;
+    #[doc(inline)] pub use crate::dll::AzFocusTargetPath as FocusTargetPath;
 
     impl Clone for FocusTargetPath { fn clone(&self) -> Self { (crate::dll::get_azul_dll().az_focus_target_path_deep_copy)(self) } }
     impl Drop for FocusTargetPath { fn drop(&mut self) { (crate::dll::get_azul_dll().az_focus_target_path_delete)(self); } }
@@ -201,7 +201,7 @@
     pub use crate::dll::AzCallbackType as CallbackType;
 
     /// `CallbackInfo` struct
-    pub use crate::dll::AzCallbackInfo as CallbackInfo;
+    #[doc(inline)] pub use crate::dll::AzCallbackInfo as CallbackInfo;
 
     impl CallbackInfo {
         /// Returns the `DomNodeId` of the element that the callback was attached to.
@@ -258,7 +258,7 @@
     impl Copy for UpdateScreen { }
 
     /// `IFrameCallback` struct
-    pub use crate::dll::AzIFrameCallback as IFrameCallback;
+    #[doc(inline)] pub use crate::dll::AzIFrameCallback as IFrameCallback;
 
     impl Clone for IFrameCallback { fn clone(&self) -> Self { *self } }
     impl Copy for IFrameCallback { }
@@ -267,20 +267,20 @@
     pub use crate::dll::AzIFrameCallbackType as IFrameCallbackType;
 
     /// `IFrameCallbackInfo` struct
-    pub use crate::dll::AzIFrameCallbackInfo as IFrameCallbackInfo;
+    #[doc(inline)] pub use crate::dll::AzIFrameCallbackInfo as IFrameCallbackInfo;
 
     impl Drop for IFrameCallbackInfo { fn drop(&mut self) { (crate::dll::get_azul_dll().az_i_frame_callback_info_delete)(self); } }
 
 
     /// `IFrameCallbackReturn` struct
-    pub use crate::dll::AzIFrameCallbackReturn as IFrameCallbackReturn;
+    #[doc(inline)] pub use crate::dll::AzIFrameCallbackReturn as IFrameCallbackReturn;
 
     impl Clone for IFrameCallbackReturn { fn clone(&self) -> Self { (crate::dll::get_azul_dll().az_i_frame_callback_return_deep_copy)(self) } }
     impl Drop for IFrameCallbackReturn { fn drop(&mut self) { (crate::dll::get_azul_dll().az_i_frame_callback_return_delete)(self); } }
 
 
     /// `GlCallback` struct
-    pub use crate::dll::AzGlCallback as GlCallback;
+    #[doc(inline)] pub use crate::dll::AzGlCallback as GlCallback;
 
     impl Clone for GlCallback { fn clone(&self) -> Self { *self } }
     impl Copy for GlCallback { }
@@ -289,7 +289,7 @@
     pub use crate::dll::AzGlCallbackType as GlCallbackType;
 
     /// `GlCallbackInfo` struct
-    pub use crate::dll::AzGlCallbackInfo as GlCallbackInfo;
+    #[doc(inline)] pub use crate::dll::AzGlCallbackInfo as GlCallbackInfo;
 
     impl GlCallbackInfo {
         /// Returns a copy of the internal `GlContextPtr`
@@ -300,13 +300,13 @@
 
 
     /// `GlCallbackReturn` struct
-    pub use crate::dll::AzGlCallbackReturn as GlCallbackReturn;
+    #[doc(inline)] pub use crate::dll::AzGlCallbackReturn as GlCallbackReturn;
 
     impl Drop for GlCallbackReturn { fn drop(&mut self) { (crate::dll::get_azul_dll().az_gl_callback_return_delete)(self); } }
 
 
     /// `TimerCallback` struct
-    pub use crate::dll::AzTimerCallback as TimerCallback;
+    #[doc(inline)] pub use crate::dll::AzTimerCallback as TimerCallback;
 
     impl Clone for TimerCallback { fn clone(&self) -> Self { *self } }
     impl Copy for TimerCallback { }
@@ -315,13 +315,13 @@
     pub use crate::dll::AzTimerCallbackType as TimerCallbackType;
 
     /// `TimerCallbackInfo` struct
-    pub use crate::dll::AzTimerCallbackInfo as TimerCallbackInfo;
+    #[doc(inline)] pub use crate::dll::AzTimerCallbackInfo as TimerCallbackInfo;
 
     impl Drop for TimerCallbackInfo { fn drop(&mut self) { (crate::dll::get_azul_dll().az_timer_callback_info_delete)(self); } }
 
 
     /// `TimerCallbackReturn` struct
-    pub use crate::dll::AzTimerCallbackReturn as TimerCallbackReturn;
+    #[doc(inline)] pub use crate::dll::AzTimerCallbackReturn as TimerCallbackReturn;
 
     impl Clone for TimerCallbackReturn { fn clone(&self) -> Self { (crate::dll::get_azul_dll().az_timer_callback_return_deep_copy)(self) } }
     impl Drop for TimerCallbackReturn { fn drop(&mut self) { (crate::dll::get_azul_dll().az_timer_callback_return_delete)(self); } }
@@ -330,7 +330,7 @@
     pub use crate::dll::AzWriteBackCallbackType as WriteBackCallbackType;
 
     /// `WriteBackCallback` struct
-    pub use crate::dll::AzWriteBackCallback as WriteBackCallback;
+    #[doc(inline)] pub use crate::dll::AzWriteBackCallback as WriteBackCallback;
 
     impl Clone for WriteBackCallback { fn clone(&self) -> Self { (crate::dll::get_azul_dll().az_write_back_callback_deep_copy)(self) } }
     impl Drop for WriteBackCallback { fn drop(&mut self) { (crate::dll::get_azul_dll().az_write_back_callback_delete)(self); } }
@@ -341,7 +341,7 @@
     pub use crate::dll::AzRefAnyDestructorType as RefAnyDestructorType;
 
     /// `AtomicRefCount` struct
-    pub use crate::dll::AzAtomicRefCount as AtomicRefCount;
+    #[doc(inline)] pub use crate::dll::AzAtomicRefCount as AtomicRefCount;
 
     impl AtomicRefCount {
         /// Calls the `AtomicRefCount::can_be_shared` function.
@@ -362,7 +362,7 @@
 
 
     /// RefAny is a reference-counted, type-erased pointer, which stores a reference to a struct. `RefAny` can be up- and downcasted (this usually done via generics and can't be expressed in the Rust API)
-    pub use crate::dll::AzRefAny as RefAny;
+    #[doc(inline)] pub use crate::dll::AzRefAny as RefAny;
 
     impl RefAny {
         /// Creates a new `RefAny` instance.
@@ -390,7 +390,7 @@
 
 
     /// `LayoutInfo` struct
-    pub use crate::dll::AzLayoutInfo as LayoutInfo;
+    #[doc(inline)] pub use crate::dll::AzLayoutInfo as LayoutInfo;
 
     impl LayoutInfo {
         /// Calls the `LayoutInfo::window_width_larger_than` function.
