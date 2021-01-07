@@ -160,14 +160,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "azul-native-style"
-version = "0.0.1"
-dependencies = [
- "azul-css",
- "azul-css-parser",
-]
-
-[[package]]
 name = "azul-simplecss"
 version = "0.1.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"

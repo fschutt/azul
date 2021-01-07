@@ -11,5 +11,4 @@ members = [
     "azul-text-layout",
     "azul-widgets",
     "azul-css-parser",
-    "azul-native-style",
 ]
