@@ -1755,12 +1755,12 @@
 				        {"Some": {"type": "OverflowValue"}}
 				    ]
 				},
-				"OptionLayoutDirectionValue": {
-				    "external": "azul_impl::css::OptionLayoutDirectionValue",
+				"OptionLayoutFlexDirectionValue": {
+				    "external": "azul_impl::css::OptionLayoutFlexDirectionValue",
 				    "derive": ["Copy"],
 				    "enum_fields": [
 				        {"None": {}},
-				        {"Some": {"type": "LayoutDirectionValue"}}
+				        {"Some": {"type": "LayoutFlexDirectionValue"}}
 				    ]
 				},
 				"OptionLayoutWrapValue": {
@@ -2682,7 +2682,17 @@
 					"struct_fields": [
 						{"resources": {"type": "*const c_void"}},
 						{"bounds": {"type": "HidpiAdjustedBounds"}}
-					]
+					],
+					"functions": {
+						"get_bounds": {
+							"doc": "Returns a copy of the IFrame bounds",
+							"fn_args": [
+								{"self": "ref"}
+							],
+							"returns": "HidpiAdjustedBounds",
+							"fn_body": "iframecallbackinfo.get_bounds()"
+						}
+					}
 				},
 				"GlCallbackInfo": {
 					"external": "azul_impl::callbacks::GlCallbackInfo",
@@ -2828,6 +2838,83 @@
 						{"default_value": {"type": "CssProperty"}}
 					]
 				},
+				"CssPropertyType": {
+					"external": "azul_impl::css::CssPropertyType",
+					"derive": ["Copy"],
+					"enum_fields": [
+						{"TextColor": {}},
+						{"FontSize": {}},
+						{"FontFamily": {}},
+						{"TextAlign": {}},
+						{"LetterSpacing": {}},
+						{"LineHeight": {}},
+						{"WordSpacing": {}},
+						{"TabWidth": {}},
+						{"Cursor": {}},
+						{"Display": {}},
+						{"Float": {}},
+						{"BoxSizing": {}},
+						{"Width": {}},
+						{"Height": {}},
+						{"MinWidth": {}},
+						{"MinHeight": {}},
+						{"MaxWidth": {}},
+						{"MaxHeight": {}},
+						{"Position": {}},
+						{"Top": {}},
+						{"Right": {}},
+						{"Left": {}},
+						{"Bottom": {}},
+						{"FlexWrap": {}},
+						{"FlexDirection": {}},
+						{"FlexGrow": {}},
+						{"FlexShrink": {}},
+						{"JustifyContent": {}},
+						{"AlignItems": {}},
+						{"AlignContent": {}},
+						{"OverflowX": {}},
+						{"OverflowY": {}},
+						{"PaddingTop": {}},
+						{"PaddingLeft": {}},
+						{"PaddingRight": {}},
+						{"PaddingBottom": {}},
+						{"MarginTop": {}},
+						{"MarginLeft": {}},
+						{"MarginRight": {}},
+						{"MarginBottom": {}},
+						{"Background": {}},
+						{"BackgroundImage": {}},
+						{"BackgroundColor": {}},
+						{"BackgroundPosition": {}},
+						{"BackgroundSize": {}},
+						{"BackgroundRepeat": {}},
+						{"BorderTopLeftRadius": {}},
+						{"BorderTopRightRadius": {}},
+						{"BorderBottomLeftRadius": {}},
+						{"BorderBottomRightRadius": {}},
+						{"BorderTopColor": {}},
+						{"BorderRightColor": {}},
+						{"BorderLeftColor": {}},
+						{"BorderBottomColor": {}},
+						{"BorderTopStyle": {}},
+						{"BorderRightStyle": {}},
+						{"BorderLeftStyle": {}},
+						{"BorderBottomStyle": {}},
+						{"BorderTopWidth": {}},
+						{"BorderRightWidth": {}},
+						{"BorderLeftWidth": {}},
+						{"BorderBottomWidth": {}},
+						{"BoxShadowLeft": {}},
+						{"BoxShadowRight": {}},
+						{"BoxShadowTop": {}},
+						{"BoxShadowBottom": {}},
+						{"Opacity": {}},
+						{"Transform": {}},
+						{"PerspectiveOrigin": {}},
+						{"TransformOrigin": {}},
+						{"BackfaceVisibility": {}}
+					]
+				},
 				"ColorU": {
 					"external": "azul_impl::css::ColorU",
 					"derive": ["Copy"],
@@ -2836,7 +2923,24 @@
 						{"g": {"type": "u8"}},
 						{"b": {"type": "u8"}},
 						{"a": {"type": "u8"}}
-					]
+					],
+					"constructors": {
+						"from_str": {
+							"fn_args":[
+								{"string": "String"}
+							],
+							"fn_body": "azul_impl::css::css_parser::parse_css_color(string.as_str()).ok().unwrap_or(ColorU::BLACK)"
+						}
+					},
+					"functions": {
+						"to_hash": {
+							"fn_args":[
+								{"self": "ref"}
+							],
+							"returns": "String",
+							"fn_body": "coloru.to_hash().into()"
+						}
+					}
 				},
 				"SizeMetric": {
 					"external": "azul_impl::css::SizeMetric",
@@ -2907,8 +3011,8 @@
 					"enum_fields": [
 						{"Stretch": {"doc": "Items are stretched to fit the container"}},
 						{"Center": {"doc": "Items are positioned at the center of the container"}},
-						{"Start": {"doc": "Items are positioned at the beginning of the container"}},
-						{"End": {"doc": "Items are positioned at the end of the container"}}
+						{"FlexStart": {"doc": "Items are positioned at the beginning of the container"}},
+						{"FlexEnd": {"doc": "Items are positioned at the end of the container"}}
 					]
 				},
 				"LayoutBottom": {
@@ -2926,8 +3030,8 @@
 						{"BorderBox": {}}
 					]
 				},
-				"LayoutDirection": {
-					"external": "azul_impl::css::LayoutDirection",
+				"LayoutFlexDirection": {
+					"external": "azul_impl::css::LayoutFlexDirection",
 					"derive": ["Copy"],
 					"enum_fields": [
 						{"Row": {}},
@@ -3697,16 +3801,16 @@
 						{ "Exact": { "type": "LayoutBoxSizing" }}
 					]
 				},
-				"LayoutDirectionValue": {
-					"rust_class_name": "CssPropertyValue<LayoutDirection>",
-					"external": "azul_impl::css::CssPropertyValue::<LayoutDirection>",
+				"LayoutFlexDirectionValue": {
+					"rust_class_name": "CssPropertyValue<LayoutFlexDirection>",
+					"external": "azul_impl::css::CssPropertyValue::<LayoutFlexDirection>",
 					"derive": ["Copy"],
 					"enum_fields": [
 						{ "Auto": { }} ,
 						{ "None": { }} ,
 						{ "Inherit": { }} ,
 						{ "Initial": { }} ,
-						{ "Exact": { "type": "LayoutDirection" }}
+						{ "Exact": { "type": "LayoutFlexDirection" }}
 					]
 				},
 				"LayoutDisplayValue": {
@@ -4442,7 +4546,7 @@
 						{ "Left": { "type": "CssPropertyValue<LayoutLeft>" }} ,
 						{ "Bottom": { "type": "CssPropertyValue<LayoutBottom>" }} ,
 						{ "FlexWrap": { "type": "CssPropertyValue<LayoutWrap>" }} ,
-						{ "FlexDirection": { "type": "CssPropertyValue<LayoutDirection>" }} ,
+						{ "FlexDirection": { "type": "CssPropertyValue<LayoutFlexDirection>" }} ,
 						{ "FlexGrow": { "type": "CssPropertyValue<LayoutFlexGrow>" }} ,
 						{ "FlexShrink": { "type": "CssPropertyValue<LayoutFlexShrink>" }} ,
 						{ "JustifyContent": { "type": "CssPropertyValue<LayoutJustifyContent>" }} ,
@@ -4583,7 +4687,7 @@
 						{"border_bottom_width": {"type": "OptionStyleBorderBottomWidthValue"}},
 						{"overflow_x": {"type": "OptionOverflowValue"}},
 						{"overflow_y": {"type": "OptionOverflowValue"}},
-						{"direction": {"type": "OptionLayoutDirectionValue"}},
+						{"direction": {"type": "OptionLayoutFlexDirectionValue"}},
 						{"wrap": {"type": "OptionLayoutWrapValue"}},
 						{"flex_grow": {"type": "OptionLayoutFlexGrowValue"}},
 						{"flex_shrink": {"type": "OptionLayoutFlexShrinkValue"}},
@@ -5010,6 +5114,15 @@
 							],
 							"returns": "String",
 							"fn_body": "dom.get_html_string().into()"
+						},
+						"style": {
+							"doc": "Returns the HTML String for this DOM",
+							"fn_args": [
+								{"self": "value"},
+								{"css": "Css"}
+							],
+							"returns": "StyledDom",
+							"fn_body": "dom.style(css)"
 						}
 					}
 				},

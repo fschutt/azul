@@ -13,10 +13,12 @@ use crate::{
     app_resources::{ImageId, TextId},
     id_tree::{NodeDataContainer, NodeHierarchyRefMut, NodeDataContainerRefMut},
     window::LogicalRect,
+    styled_dom::StyledDom,
 };
 #[cfg(feature = "opengl")]
 use crate::callbacks::{GlCallback, GlCallbackType};
-use azul_css::{AzString, StringVec, NodeTypePath, CssProperty, CssPropertyVec};
+use azul_css::{Css, AzString, StringVec, NodeTypePath, CssProperty, CssPropertyVec};
+
 pub use crate::id_tree::{NodeHierarchy, Node, NodeId};
 
 static TAG_ID: AtomicUsize = AtomicUsize::new(1);
@@ -1183,6 +1185,10 @@ impl Dom {
         let mut output = String::new();
         get_html_string_inner(self, &mut output, 0);
         output.trim().to_string()
+    }
+
+    pub fn style(self, css: Css) -> StyledDom {
+        StyledDom::new(self, css)
     }
 }
 

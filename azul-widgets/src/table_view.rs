@@ -2,80 +2,158 @@
 
 use std::{ops::Range, collections::BTreeMap};
 use azul::{
-    dom::{Dom, On, NodeData, NodeType},
-    callbacks::{
-        RefAny, Callback, CallbackInfo, CallbackReturn,
-        IFrameCallbackInfo, IFrameCallbackReturn, UpdateScreen,
-    },
+    style::StyledDom,
+    dom::{Dom, NodeData, NodeType},
+    callbacks::{RefAny, IFrameCallbackInfo, IFrameCallbackReturn},
 };
 
 #[derive(Debug, Clone)]
 pub struct TableView {
-    state: RefAny, // Ref<TableViewState>,
-    on_mouse_up: Callback,
+    state: TableViewState,
 }
 
 impl Default for TableView {
     fn default() -> Self {
         Self {
-            state: RefAny::new(TableViewState::default()),
-            on_mouse_up: Callback { cb: Self::default_on_mouse_up },
+            state: TableViewState::default(),
         }
     }
 }
 
 #[derive(Debug, Clone)]
 pub struct TableViewState {
-    pub work_sheet: BTreeMap<usize, BTreeMap<usize, String>>,
+    /// Width of the column in pixels
     pub column_width: f32,
+    /// Height of the column in pixels
     pub row_height: f32,
-    pub selected_cell: Option<(usize, usize)>,
+    /// Optional selection
+    pub selection: Option<TableCellSelection>,
+    /// Currently edited cells
+    pub edited_cells: BTreeMap<TableCell, String>,
 }
 
 impl Default for TableViewState {
     fn default() -> Self {
         Self {
-            work_sheet: BTreeMap::default(),
             column_width: 100.0,
             row_height: 20.0,
-            selected_cell: None,
+            selection: None,
+            edited_cells: BTreeMap::default(),
         }
+    }
+}
+
+/// Represents the index of a single cell (row + column)
+#[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
+pub struct TableCell {
+    pub row: usize,
+    pub column: usize,
+}
+
+/// Represents a selection of table cells from the top left to the bottom right cell
+#[derive(Debug, Clone)]
+pub struct TableCellSelection {
+    pub from_top_left: TableCell,
+    pub to_bottom_right: TableCell,
+}
+
+impl TableCellSelection {
+
+    pub fn from(row: usize, column: usize) -> Self {
+        Self {
+            from_top_left: TableCell { row, column },
+            to_bottom_right: TableCell { row, column },
+        }
+    }
+
+    pub fn to(self, row: usize, column: usize) -> Self {
+        Self { to_bottom_right: TableCell { row, column }, .. self }
+    }
+
+    pub fn number_of_rows_selected(&self) -> usize {
+        let max_row = self.from_top_left.row.max(self.to_bottom_right.row);
+        let min_row = self.from_top_left.row.min(self.to_bottom_right.row);
+        if max_row < min_row { 0 } else { (max_row - min_row) + 1 }
+    }
+    pub fn number_of_columns_selected(&self) -> usize {
+        let max_col = self.from_top_left.column.max(self.to_bottom_right.column);
+        let min_col = self.from_top_left.column.min(self.to_bottom_right.column);
+        if max_col < min_col { 0 } else { (max_col - min_col) + 1 }
     }
 }
 
 impl TableViewState {
 
+    pub fn new() -> Self {
+        TableViewState::default()
+    }
+
+    pub fn set_cell<I: Into<String>>(&mut self, cell: TableCell, value: I) {
+        self.edited_cells.insert(cell, value.into());
+    }
+
+    pub fn get_cell_contents(&self, cell: &TableCell) -> Option<&String> {
+        self.edited_cells.get(cell)
+    }
+
+    pub fn set_selection(&mut self, selection: Option<TableCellSelection>) {
+        self.selection = selection;
+    }
+
     /// Renders a cutout of the table from, horizontally from (col_start..col_end)
     /// and vertically from (row_start..row_end)
-    pub fn render(&self, rows: Range<usize>, columns: Range<usize>, style_options: StyleOptions) -> StyledDom {
+    pub fn render(&self, rows: Range<usize>, columns: Range<usize>) -> StyledDom {
 
+        use azul::css::*;
         use azul::str::String as AzString;
 
-        let sans_serif_font_family = StyleFontFamily { fonts: vec!["sans-serif".into()].into() };
+        let font: AzString = "sans-serif".into();
+        let sans_serif_font_family = StyleFontFamily { fonts: vec![font].into() };
+
+        const COLOR_407C40: ColorU = ColorU { r: 64, g: 124, b: 64, a: 0 }; // green
+        const COLOR_2D2D2D: ColorU = ColorU { r: 45, g: 45, b: 45, a: 0 };
+        const COLOR_E6E6E6: ColorU = ColorU { r: 230, g: 230, b: 230, a: 0 };
+        const COLOR_B5B5B5: ColorU = ColorU { r: 181, g: 181, b: 181, a: 0 };
+        const COLOR_D1D1D1: ColorU = ColorU { r: 209, g: 209, b: 209, a: 0 };
+        const COLOR_BLACK: ColorU = ColorU { r: 0, g: 0, b: 0, a: 0 };
+
+        const SELECTED_CELL_BORDER_WIDTH: isize = 2;
+        const SELECTED_CELL_BORDER_STYLE: BorderStyle = BorderStyle::Solid;
+        const SELECTED_CELL_BORDER_COLOR: ColorU = COLOR_407C40;
+
+        let shadow = BoxShadowPreDisplayItem {
+            offset: [PixelValueNoPercent::zero(), PixelValueNoPercent::zero()],
+            color: COLOR_BLACK,
+            blur_radius: PixelValueNoPercent::const_px(3),
+            spread_radius: PixelValueNoPercent::const_px(3),
+            clip_mode: BoxShadowClipMode::Outset,
+        };
 
         // Empty rectangle at the top left of the table
         let top_left_empty_rect = Dom::div()
-        .with_inline_css(CssProperty::height(LayoutHeight::px(20.0)))
-        .with_inline_css(CssProperty::background_content(StyleBackgroundContent::Color(StyleColor::parse("#e6e6e6"))))
-        .with_inline_css(CssProperty::border_bottom(StyleBorderBottom::Color(StyleColor::parse("#b5b5b5"))))
-        .with_inline_css(CssProperty::border_right(StyleBorderRight::Color(StyleColor::parse("#b5b5b5"))));
+        .with_inline_css(CssProperty::height(LayoutHeight::const_px(20)))
+        .with_inline_css(CssProperty::background_content(StyleBackgroundContent::Color(COLOR_E6E6E6)))
+        .with_inline_css(CssProperty::border_bottom_color(StyleBorderBottomColor { inner: COLOR_B5B5B5 }))
+        .with_inline_css(CssProperty::border_right_color(StyleBorderRightColor { inner: COLOR_B5B5B5 }));
 
         // Row numbers (first column - laid out vertical) - "1", "2", "3"
         let row_numbers = (rows.start..rows.end.saturating_sub(1)).map(|row_idx| {
             NodeData::label(format!("{}", row_idx + 1).into())
-            .with_inline_css(CssProperty::font_size(StyleFontSize::px(14.0)))
+            .with_inline_css(CssProperty::font_size(StyleFontSize::const_px(14)))
             .with_inline_css(CssProperty::flex_direction(LayoutFlexDirection::Row))
             .with_inline_css(CssProperty::justify_content(LayoutJustifyContent::Center))
             .with_inline_css(CssProperty::align_items(LayoutAlignItems::Center))
-            .with_inline_css(CssProperty::min_height(LayoutMinHeight::px(20.0)))
-            .with_inline_css(CssProperty::border_bottom(StyleBorderBottom::new(PixelValue::px(0.6), StyleBorderStyle::Solid, StyleColor::parse("#b5b5b5"))))
+            .with_inline_css(CssProperty::min_height(LayoutMinHeight::const_px(20)))
+            .with_inline_css(CssProperty::border_bottom_width(StyleBorderBottomWidth::const_px(1)))
+            .with_inline_css(CssProperty::border_bottom_style(StyleBorderBottomStyle { inner: BorderStyle::Solid }))
+            .with_inline_css(CssProperty::border_bottom_color(StyleBorderBottomColor { inner: COLOR_B5B5B5 }))
         })
         .collect::<Dom>()
         .with_inline_css(CssProperty::font_family(sans_serif_font_family.clone()))
-        .with_inline_css(CssProperty::color(StyleColor::parse("#2d2d2d")))
-        .with_inline_css(CssProperty::background_content(StyleBackgroundContent::Color(StyleColor::parse("#e6e6e6"))))
+        .with_inline_css(CssProperty::text_color(StyleTextColor { inner: COLOR_2D2D2D }))
+        .with_inline_css(CssProperty::background_content(StyleBackgroundContent::Color(COLOR_E6E6E6)))
         .with_inline_css(CssProperty::flex_direction(LayoutFlexDirection::Column))
-        .with_inline_css(CssProperty::box_shadow_right(StyleBoxShadowRight::new(PixelValue::px(0.0), PixelValue::px(0.0), PixelValue::px(3.0), StyleColor::black())));
+        .with_inline_css(CssProperty::box_shadow_right(shadow));
 
         // first column: contains the "top left rect" + the column
         let row_number_wrapper = Dom::div()
@@ -89,62 +167,98 @@ impl TableViewState {
         .with_inline_css(CssProperty::position(LayoutPosition::Absolute))
         .with_inline_css(CssProperty::width(LayoutWidth::px(10.0)))
         .with_inline_css(CssProperty::height(LayoutHeight::px(10.0)))
-        .with_inline_css(CssProperty::background_content(StyleBackgroundContent::Color(StyleColor::parse("#407c40"))))
+        .with_inline_css(CssProperty::background_content(StyleBackgroundContent::Color(COLOR_407C40)))
         .with_inline_css(CssProperty::bottom(LayoutBottom::px(-5.0)))
-        .with_inline_css(CssProperty::right(LayoutRight::px(-5.0)));
-
+        .with_inline_css(CssProperty::right(LayoutRight::px(-5.0))); // TODO: add callbacks to modify selection
 
         // currently selected cell(s)
         let current_active_selection = Dom::div()
-        .with_inline_css(CssProperty::width(LayoutWidth::px(100.0)))
-        .with_inline_css(CssProperty::height(LayoutHeight::px(20.0)))
-        .with_inline_css(CssProperty::margin_top(LayoutMarginTop::px(500.0))) // TODO: replace with transform-y
-        .with_inline_css(CssProperty::margin_left(LayoutMarginLeft::px(100.0))) // TODO: replace with transform-x
         .with_inline_css(CssProperty::position(LayoutPosition::Absolute))
-        .with_inline_css(CssProperty::border(StyleBorder::new(PixelValue::px(2.0), StyleBorderStyle::Solid, StyleColor::parse("#407c40"))))
+        .with_inline_css(CssProperty::width({
+            self.selection.as_ref()
+            .map(|selection| LayoutWidth::px(selection.number_of_columns_selected() as f32 * self.column_width))
+            .unwrap_or(LayoutWidth::zero()) // TODO: replace with transform: scale-x
+        }))
+        .with_inline_css(CssProperty::height({
+            self.selection.as_ref()
+            .map(|selection| LayoutHeight::px(selection.number_of_rows_selected() as f32 * self.row_height))
+            .unwrap_or(LayoutHeight::zero())  // TODO: replace with transform: scale-y
+        }))
+        .with_inline_css(CssProperty::margin_left({
+            self.selection.as_ref()
+            .map(|selection| LayoutMarginLeft::px(selection.from_top_left.column as f32 * self.column_width))
+            .unwrap_or(LayoutMarginLeft::zero()) // TODO: replace with transform-y
+        }))
+        .with_inline_css(CssProperty::margin_top({
+            self.selection.as_ref()
+            .map(|selection| LayoutMarginTop::px(selection.from_top_left.row as f32 * self.row_height))
+            .unwrap_or(LayoutMarginTop::zero()) // TODO: replace with transform-y
+        }))
+
+        .with_inline_css(CssProperty::border_bottom_width(StyleBorderBottomWidth::const_px(SELECTED_CELL_BORDER_WIDTH)))
+        .with_inline_css(CssProperty::border_bottom_style(StyleBorderBottomStyle { inner: SELECTED_CELL_BORDER_STYLE }))
+        .with_inline_css(CssProperty::border_bottom_color(StyleBorderBottomColor { inner: SELECTED_CELL_BORDER_COLOR }))
+        .with_inline_css(CssProperty::border_top_width(StyleBorderTopWidth::const_px(SELECTED_CELL_BORDER_WIDTH)))
+        .with_inline_css(CssProperty::border_top_style(StyleBorderTopStyle { inner: SELECTED_CELL_BORDER_STYLE }))
+        .with_inline_css(CssProperty::border_top_color(StyleBorderTopColor { inner: SELECTED_CELL_BORDER_COLOR }))
+        .with_inline_css(CssProperty::border_left_width(StyleBorderLeftWidth::const_px(SELECTED_CELL_BORDER_WIDTH)))
+        .with_inline_css(CssProperty::border_left_style(StyleBorderLeftStyle { inner: SELECTED_CELL_BORDER_STYLE }))
+        .with_inline_css(CssProperty::border_left_color(StyleBorderLeftColor { inner: SELECTED_CELL_BORDER_COLOR }))
+        .with_inline_css(CssProperty::border_right_width(StyleBorderRightWidth::const_px(SELECTED_CELL_BORDER_WIDTH)))
+        .with_inline_css(CssProperty::border_right_style(StyleBorderRightStyle { inner: SELECTED_CELL_BORDER_STYLE }))
+        .with_inline_css(CssProperty::border_right_color(StyleBorderRightColor { inner: SELECTED_CELL_BORDER_COLOR }))
+
+        // don't show the selection when the table doesn't have one
+        // TODO: animate / fade in / fade out
+        .with_inline_css(CssProperty::opacity(if self.selection.is_some() { StyleOpacity::const_new(1) } else { StyleOpacity::const_new(0) }))
+
         .with_child(current_active_selection_handle);
 
         let columns_table_container = columns.map(|col_idx| {
 
             let column_names = Dom::label(column_name_from_number(col_idx).into())
             .with_inline_css(CssProperty::height(LayoutHeight::px(20.0)))
-            .with_inline_css(CssProperty::font_family(StyleFontFamily { fonts: vec!["sans-serif".into()].into()))
-            .with_inline_css(CssProperty::color(StyleColor::parse("#2d2d2d")))
+            .with_inline_css(CssProperty::font_family(sans_serif_font_family.clone()))
+            .with_inline_css(CssProperty::text_color(StyleTextColor { inner: COLOR_2D2D2D }))
             .with_inline_css(CssProperty::font_size(StyleFontSize::px(14.0)))
-            .with_inline_css(CssProperty::background_content(StyleBackgroundContent::Color(StyleColor::parse("#e6e6e6"))))
+            .with_inline_css(CssProperty::background_content(StyleBackgroundContent::Color(COLOR_E6E6E6)))
             .with_inline_css(CssProperty::flex_direction(LayoutFlexDirection::Row))
             .with_inline_css(CssProperty::align_items(LayoutAlignItems::Center))
-            .with_inline_css(CssProperty::border_right(StyleBorderRight::new(PixelValue::px(1.0), StyleBorderStyle::Solid, StyleColor::parse("#b5b5b5"))))
-            .with_inline_css(CssProperty::box_shadow_bottom(
-                StyleBoxShadowBottom::new(PixelValue::px(0.0), PixelValue::px(0.0), PixelValue::px(3.0), StyleColor::black()))
-            );
+            .with_inline_css(CssProperty::border_right_width(StyleBorderRightWidth::const_px(1)))
+            .with_inline_css(CssProperty::border_right_style(StyleBorderRightStyle { inner: BorderStyle::Solid }))
+            .with_inline_css(CssProperty::border_right_color(StyleBorderRightColor { inner: COLOR_B5B5B5 }))
+            .with_inline_css(CssProperty::box_shadow_bottom(shadow));
 
 
             // rows in this column, laid out vertically
             let rows_in_this_column = (rows.start..rows.end)
                 .map(|row_idx| {
-                    let node_type = match self.work_sheet.get(&col_idx).and_then(|col| col.get(&row_idx)) {
-                        Some(string) => NodeType::Label(string.clone().into()),
-                        None => NodeType::Div,
+
+                    let node_type = match self.get_cell_contents(&TableCell { row: row_idx, column: col_idx }) {
+                        Some(string) => NodeType::Label(string.as_str().into()),
+                        None => NodeType::Label("".into()),
                     };
 
                     NodeData::new(node_type)
-                    .with_inline_css(CssProperty::font_family(sans_serif_font_family.clone()))
-                    .with_inline_css(CssProperty::color(StyleColor::black()))
-                    .with_inline_css(CssProperty::text_align(LayoutTextAlign::Left))
                     .with_inline_css(CssProperty::align_items(LayoutAlignItems::FlexStart))
-                    .with_inline_css(CssProperty::font_size(StyleFontSize::px(14.0)))
-                    .with_inline_css(CssProperty::border_bottom(StyleBorderBottom::new(PixelValue::px(1.0), StyleBorderStyle::Solid, StyleColor::parse("#d1d1d1"))))
                     .with_inline_css(CssProperty::height(LayoutHeight::px(20.0)))
+                    .with_inline_css(CssProperty::font_size(StyleFontSize::px(14.0)))
+                    .with_inline_css(CssProperty::text_align(StyleTextAlignmentHorz::Left))
+                    .with_inline_css(CssProperty::text_color(StyleTextColor { inner: COLOR_BLACK }))
+                    .with_inline_css(CssProperty::font_family(sans_serif_font_family.clone()))
+                    .with_inline_css(CssProperty::border_bottom_width(StyleBorderBottomWidth::px(1.0)))
+                    .with_inline_css(CssProperty::border_bottom_style(StyleBorderBottomStyle { inner: BorderStyle::Solid }))
+                    .with_inline_css(CssProperty::border_bottom_color(StyleBorderBottomColor { inner: COLOR_D1D1D1 }))
                 })
-                .collect::<Dom>()
-                .with_class("__azul-native-table-rows".into());
+                .collect::<Dom>();
 
             // Column name
             Dom::div()
                 .with_inline_css(CssProperty::flex_direction(LayoutFlexDirection::Column))
                 .with_inline_css(CssProperty::min_width(LayoutMinWidth::px(100.0)))
-                .with_inline_css(CssProperty::border_right(StyleBorderRight::new(PixelValue::px(1.0), StyleBorderStyle::Solid, StyleColor::parse("#d1d1d1"))))
+                .with_inline_css(CssProperty::border_right_width(StyleBorderRightWidth::px(1.0)))
+                .with_inline_css(CssProperty::border_right_style(StyleBorderRightStyle { inner: BorderStyle::Solid }))
+                .with_inline_css(CssProperty::border_right_color(StyleBorderRightColor { inner: COLOR_D1D1D1 }))
                 .with_child(column_names)
                 .with_child(rows_in_this_column)
         })
@@ -153,75 +267,81 @@ impl TableViewState {
         .with_inline_css(CssProperty::position(LayoutPosition::Relative))
         .with_child(current_active_selection);
 
-
         Dom::div()
         .with_inline_css(CssProperty::display(LayoutDisplay::Flex))
         .with_inline_css(CssProperty::box_sizing(LayoutBoxSizing::BorderBox))
         .with_inline_css(CssProperty::flex_direction(LayoutFlexDirection::Row))
-        .with_child(row_number_wrapper)
-        .with_child(columns_table_container)
-        .style(Css::empty(), style_options)
-    }
-
-    pub fn set_cell<I: Into<String>>(&mut self, x: usize, y: usize, value: I) {
-        self.work_sheet
-            .entry(x)
-            .or_insert_with(|| BTreeMap::new())
-            .insert(y, value.into());
+            .with_child(row_number_wrapper)
+            .with_child(columns_table_container)
+        .style(Css::empty())
     }
 }
 
 impl TableView {
 
     #[inline]
-    pub fn new(state: TableViewState) -> Self {
-        Self { state: RefAny::new(state), .. Default::default() }
+    pub fn new() -> Self {
+        Self::default()
     }
 
     #[inline]
     pub fn with_state(self, state: TableViewState) -> Self {
-        Self { state: RefAny::new(state), .. self }
+        Self { state, .. self }
     }
 
     #[inline]
-    pub fn on_mouse_up(self, cb: Callback) -> Self {
-        Self { on_mouse_up: cb, .. self }
+    pub fn dom(self) -> StyledDom {
+
+        use azul::css::*;
+
+        let state_ref = RefAny::new(self.state);
+
+        Dom::iframe(state_ref, Self::render_table_iframe_contents)
+            .with_inline_css(CssProperty::display(LayoutDisplay::Flex))
+            .with_inline_css(CssProperty::flex_grow(LayoutFlexGrow::const_new(1)))
+            .with_inline_css(CssProperty::width(LayoutWidth::const_percent(100)))
+            .with_inline_css(CssProperty::height(LayoutHeight::const_percent(100)))
+            .with_inline_css(CssProperty::box_sizing(LayoutBoxSizing::BorderBox))
+            .style(Css::empty())
     }
 
-    #[inline]
-    pub fn dom(self, style_options: StyleOptions) -> StyledDom {
-        Dom::iframe(self.state.clone(), Self::render_table_iframe_contents)
-            .with_inline_css(CssProperty::display(Display::Flex))
-            .with_inline_css(CssProperty::flex_grow(FlexGrow::new(1.0)))
-            .with_inline_css(CssProperty::width(Width::percent(100.0)))
-            .with_inline_css(CssProperty::height(Height::percent(100.0)))
-            .with_inline_css(CssProperty::box_sizing(BoxSizing::BorderBox))
-            .with_callback(On::MouseUp.into(), self.state, self.on_mouse_up.cb)
-            .style(Css::empty(), style_options)
-    }
+    extern "C" fn render_table_iframe_contents(state: &RefAny, info: IFrameCallbackInfo) -> IFrameCallbackReturn {
 
-    pub extern "C" fn default_on_mouse_up(_info: CallbackInfo) -> CallbackReturn {
-        println!("table was clicked");
-        UpdateScreen::DontRedraw
-    }
+        use azul::window::{LayoutRect, LayoutSize, LayoutPoint};
 
-    extern "C" fn render_table_iframe_contents(info: IFrameCallbackInfo) -> IFrameCallbackReturn {
-        println!("rendering table iframe: {:?}", info.get_bounds().get_logical_size());
-        fn render_table_iframe_contents_inner(info: IFrameCallbackInfo) -> Option<Dom> {
-            let state = info.get_state();
-            let table_view_state = state.borrow::<TableViewState>()?;
-            let logical_size = info.get_bounds().get_logical_size();
-            let necessary_rows = (logical_size.height as f32 / table_view_state.row_height).ceil() as usize;
-            let necessary_columns = (logical_size.width as f32 / table_view_state.column_width).ceil() as usize;
-            Some(table_view_state.render(0..necessary_rows, 0..necessary_columns)).into()
+        let table_view_state = state.borrow::<TableViewState>().unwrap();
+        let logical_size = info.get_bounds().get_logical_size();
+
+        let padding_rows = 0;
+        let padding_columns = 0;
+        let row_start = 0; // bounds.top / table_view_state.row_height
+        let column_start = 0; // bounds.left / table_view_state.column_width
+
+        let necessary_rows = (logical_size.height as f32 / table_view_state.row_height).ceil() as usize;
+        let necessary_columns = (logical_size.width as f32 / table_view_state.column_width).ceil() as usize;
+
+        let table_height = (necessary_rows + padding_rows) as f32 * table_view_state.row_height;
+        let table_width = (necessary_columns + padding_columns) as f32 * table_view_state.column_width;
+
+        let styled_dom = table_view_state.render(
+            row_start..(row_start + necessary_rows + padding_rows),
+            column_start..(column_start + necessary_columns + padding_columns)
+        );
+
+        IFrameCallbackReturn {
+            dom: styled_dom,
+            size: LayoutRect {
+                origin: LayoutPoint::zero(), // TODO: info.get_bounds().origin,
+                size: LayoutSize::new(table_width.floor() as isize, table_height.floor() as isize),
+            },
+            virtual_size: None.into(),
         }
-        IFrameCallbackReturn { dom: render_table_iframe_contents_inner(info).into() }
     }
 }
 
-impl Into<Dom> for TableView {
-    fn into(self) -> Dom {
-        self.dom()
+impl From<TableView> for StyledDom  {
+    fn from(t: TableView) -> StyledDom {
+        t.dom()
     }
 }
 

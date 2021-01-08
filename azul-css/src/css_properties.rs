@@ -217,7 +217,7 @@ impl LayoutRect {
 
     // Returns if b overlaps a
     #[inline(always)]
-    pub fn contains_rect(&self, b: &LayoutRect) -> bool {
+    pub const fn contains_rect(&self, b: &LayoutRect) -> bool {
 
         let a = self;
 
@@ -340,6 +340,10 @@ impl ColorU {
     pub const WHITE: ColorU = ColorU { r: 255, g: 255, b: 255, a: 0 };
     pub const BLACK: ColorU = ColorU { r: 0, g: 0, b: 0, a: 0 };
     pub const TRANSPARENT: ColorU = ColorU { r: 0, g: 0, b: 0, a: 255 };
+
+    pub fn to_hash(&self) -> String {
+        format!("#{:x}{:x}{:x}{:x}", self.r, self.g, self.b, self.a)
+    }
 
     pub fn write_hash(&self, f: &mut fmt::Formatter) -> fmt::Result {
         write!(f, "#{:x}{:x}{:x}{:x}", self.r, self.g, self.b, self.a)
@@ -665,6 +669,7 @@ pub fn get_css_key_map() -> CssKeyMap {
 /// Represents a CSS key (for example `"border-radius"` => `BorderRadius`).
 /// You can also derive this key from a `CssProperty` by calling `CssProperty::get_type()`.
 #[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
+#[repr(C)]
 pub enum CssPropertyType {
 
     TextColor,
@@ -883,7 +888,7 @@ pub enum CssProperty {
     Bottom(CssPropertyValue<LayoutBottom>),
 
     FlexWrap(CssPropertyValue<LayoutWrap>),
-    FlexDirection(CssPropertyValue<LayoutDirection>),
+    FlexDirection(CssPropertyValue<LayoutFlexDirection>),
     FlexGrow(CssPropertyValue<LayoutFlexGrow>),
     FlexShrink(CssPropertyValue<LayoutFlexShrink>),
     JustifyContent(CssPropertyValue<LayoutJustifyContent>),
@@ -1026,9 +1031,8 @@ macro_rules! css_property_from_type {($prop_type:expr, $content_type:ident) => (
 })}
 
 impl CssProperty {
-
     /// Return the type (key) of this property as a statically typed enum
-    pub fn get_type(&self) -> CssPropertyType {
+    pub const fn get_type(&self) -> CssPropertyType {
         match &self {
             CssProperty::TextColor(_) => CssPropertyType::TextColor,
             CssProperty::FontSize(_) => CssPropertyType::FontSize,
@@ -1060,12 +1064,10 @@ impl CssProperty {
             CssProperty::JustifyContent(_) => CssPropertyType::JustifyContent,
             CssProperty::AlignItems(_) => CssPropertyType::AlignItems,
             CssProperty::AlignContent(_) => CssPropertyType::AlignContent,
-
             CssProperty::BackgroundContent(_) => CssPropertyType::BackgroundImage, // TODO: wrong!
             CssProperty::BackgroundPosition(_) => CssPropertyType::BackgroundPosition,
             CssProperty::BackgroundSize(_) => CssPropertyType::BackgroundSize,
             CssProperty::BackgroundRepeat(_) => CssPropertyType::BackgroundRepeat,
-
             CssProperty::OverflowX(_) => CssPropertyType::OverflowX,
             CssProperty::OverflowY(_) => CssPropertyType::OverflowY,
             CssProperty::PaddingTop(_) => CssPropertyType::PaddingTop,
@@ -1104,19 +1106,20 @@ impl CssProperty {
         }
     }
 
-    pub fn none(prop_type: CssPropertyType) -> Self {
+
+    pub const fn none(prop_type: CssPropertyType) -> Self {
         css_property_from_type!(prop_type, None)
     }
 
-    pub fn auto(prop_type: CssPropertyType) -> Self {
+    pub const fn auto(prop_type: CssPropertyType) -> Self {
         css_property_from_type!(prop_type, Auto)
     }
 
-    pub fn initial(prop_type: CssPropertyType) -> Self {
+    pub const fn initial(prop_type: CssPropertyType) -> Self {
         css_property_from_type!(prop_type, Initial)
     }
 
-    pub fn inherit(prop_type: CssPropertyType) -> Self {
+    pub const fn inherit(prop_type: CssPropertyType) -> Self {
         css_property_from_type!(prop_type, Inherit)
     }
 
@@ -1194,7 +1197,7 @@ impl CssProperty {
     pub const fn flex_wrap(input: LayoutWrap) -> Self { CssProperty::FlexWrap(CssPropertyValue::Exact(input)) }
 
     /// Creates a `flex_direction` CSS attribute
-    pub const fn flex_direction(input: LayoutDirection) -> Self { CssProperty::FlexDirection(CssPropertyValue::Exact(input)) }
+    pub const fn flex_direction(input: LayoutFlexDirection) -> Self { CssProperty::FlexDirection(CssPropertyValue::Exact(input)) }
 
     /// Creates a `flex_grow` CSS attribute
     pub const fn flex_grow(input: LayoutFlexGrow) -> Self { CssProperty::FlexGrow(CssPropertyValue::Exact(input)) }
@@ -1363,7 +1366,7 @@ impl_from_css_prop!(LayoutRight, CssProperty::Right);
 impl_from_css_prop!(LayoutLeft, CssProperty::Left);
 impl_from_css_prop!(LayoutBottom, CssProperty::Bottom);
 impl_from_css_prop!(LayoutWrap, CssProperty::FlexWrap);
-impl_from_css_prop!(LayoutDirection, CssProperty::FlexDirection);
+impl_from_css_prop!(LayoutFlexDirection, CssProperty::FlexDirection);
 impl_from_css_prop!(LayoutFlexGrow, CssProperty::FlexGrow);
 impl_from_css_prop!(LayoutFlexShrink, CssProperty::FlexShrink);
 impl_from_css_prop!(LayoutJustifyContent, CssProperty::JustifyContent);
@@ -2354,22 +2357,22 @@ impl_float_value!(LayoutFlexShrink);
 /// Represents a `flex-direction` attribute - default: `Column`
 #[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
 #[repr(C)]
-pub enum LayoutDirection {
+pub enum LayoutFlexDirection {
     Row,
     RowReverse,
     Column,
     ColumnReverse,
 }
 
-impl Default for LayoutDirection {
+impl Default for LayoutFlexDirection {
     fn default() -> Self {
-        LayoutDirection::Row
+        LayoutFlexDirection::Row
     }
 }
 
-impl LayoutDirection {
+impl LayoutFlexDirection {
     pub fn get_axis(&self) -> LayoutAxis {
-        use self::{LayoutAxis::*, LayoutDirection::*};
+        use self::{LayoutAxis::*, LayoutFlexDirection::*};
         match self {
             Row | RowReverse => Horizontal,
             Column | ColumnReverse => Vertical,
@@ -2378,7 +2381,7 @@ impl LayoutDirection {
 
     /// Returns true, if this direction is a `column-reverse` or `row-reverse` direction
     pub fn is_reverse(&self) -> bool {
-        *self == LayoutDirection::RowReverse || *self == LayoutDirection::ColumnReverse
+        *self == LayoutFlexDirection::RowReverse || *self == LayoutFlexDirection::ColumnReverse
     }
 }
 
@@ -2420,9 +2423,9 @@ pub struct StyleWordSpacing { pub inner: PixelValue }
 impl_pixel_value!(StyleLetterSpacing);
 impl_pixel_value!(StyleWordSpacing);
 
-/// Same as the `LayoutDirection`, but without the `-reverse` properties, used in the layout solver,
+/// Same as the `LayoutFlexDirection`, but without the `-reverse` properties, used in the layout solver,
 /// makes decisions based on horizontal / vertical direction easier to write.
-/// Use `LayoutDirection::get_axis()` to get the axis for a given `LayoutDirection`.
+/// Use `LayoutFlexDirection::get_axis()` to get the axis for a given `LayoutFlexDirection`.
 #[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
 #[repr(C)]
 pub enum LayoutAxis {
@@ -2526,14 +2529,14 @@ pub enum LayoutAlignItems {
     /// Items are positioned at the center of the container
     Center,
     /// Items are positioned at the beginning of the container
-    Start,
+    FlexStart,
     /// Items are positioned at the end of the container
-    End,
+    FlexEnd,
 }
 
 impl Default for LayoutAlignItems {
     fn default() -> Self {
-        LayoutAlignItems::Start
+        LayoutAlignItems::FlexStart
     }
 }
 
@@ -3016,8 +3019,8 @@ pub type StyleBorderBottomWidthValue = CssPropertyValue<StyleBorderBottomWidth>;
 impl_option!(StyleBorderBottomWidthValue, OptionStyleBorderBottomWidthValue, copy = false, [Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash]);
 pub type OverflowValue = CssPropertyValue<Overflow>;
 impl_option!(OverflowValue, OptionOverflowValue, copy = false, [Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash]);
-pub type LayoutDirectionValue = CssPropertyValue<LayoutDirection>;
-impl_option!(LayoutDirectionValue, OptionLayoutDirectionValue, copy = false, [Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash]);
+pub type LayoutFlexDirectionValue = CssPropertyValue<LayoutFlexDirection>;
+impl_option!(LayoutFlexDirectionValue, OptionLayoutFlexDirectionValue, copy = false, [Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash]);
 pub type LayoutWrapValue = CssPropertyValue<LayoutWrap>;
 impl_option!(LayoutWrapValue, OptionLayoutWrapValue, copy = false, [Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash]);
 pub type LayoutFlexGrowValue = CssPropertyValue<LayoutFlexGrow>;
@@ -3103,7 +3106,7 @@ pub struct RectLayout {
     pub border_bottom_width: OptionStyleBorderBottomWidthValue,
     pub overflow_x: OptionOverflowValue,
     pub overflow_y: OptionOverflowValue,
-    pub direction: OptionLayoutDirectionValue,
+    pub direction: OptionLayoutFlexDirectionValue,
     pub wrap: OptionLayoutWrapValue,
     pub flex_grow: OptionLayoutFlexGrowValue,
     pub flex_shrink: OptionLayoutFlexShrinkValue,

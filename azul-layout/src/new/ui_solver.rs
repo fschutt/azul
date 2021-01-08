@@ -197,8 +197,8 @@ fn determine_text_alignment(
         // Vertical text alignment
         use azul_css::LayoutAlignItems;
         match align_items {
-            LayoutAlignItems::Start => vert_alignment = StyleTextAlignmentVert::Top,
-            LayoutAlignItems::End => vert_alignment = StyleTextAlignmentVert::Bottom,
+            LayoutAlignItems::FlexStart => vert_alignment = StyleTextAlignmentVert::Top,
+            LayoutAlignItems::FlexEnd => vert_alignment = StyleTextAlignmentVert::Bottom,
             // technically stretch = blocktext, but we don't have that yet
             _ => vert_alignment = StyleTextAlignmentVert::Center,
         }

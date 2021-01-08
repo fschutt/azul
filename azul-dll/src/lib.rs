@@ -943,9 +943,9 @@ pub use AzOptionStyleBorderBottomWidthValueTT as AzOptionStyleBorderBottomWidthV
 pub type AzOptionOverflowValueTT = azul_impl::css::OptionOverflowValue;
 pub use AzOptionOverflowValueTT as AzOptionOverflowValue;
 
-/// Re-export of rust-allocated (stack based) `OptionLayoutDirectionValue` struct
-pub type AzOptionLayoutDirectionValueTT = azul_impl::css::OptionLayoutDirectionValue;
-pub use AzOptionLayoutDirectionValueTT as AzOptionLayoutDirectionValue;
+/// Re-export of rust-allocated (stack based) `OptionLayoutFlexDirectionValue` struct
+pub type AzOptionLayoutFlexDirectionValueTT = azul_impl::css::OptionLayoutFlexDirectionValue;
+pub use AzOptionLayoutFlexDirectionValueTT as AzOptionLayoutFlexDirectionValue;
 
 /// Re-export of rust-allocated (stack based) `OptionLayoutWrapValue` struct
 pub type AzOptionLayoutWrapValueTT = azul_impl::css::OptionLayoutWrapValue;
@@ -1288,6 +1288,8 @@ pub type AzIFrameCallbackType = extern "C" fn(&AzRefAny, AzIFrameCallbackInfo) -
 /// Re-export of rust-allocated (stack based) `IFrameCallbackInfo` struct
 pub type AzIFrameCallbackInfoTT = azul_impl::callbacks::IFrameCallbackInfo;
 pub use AzIFrameCallbackInfoTT as AzIFrameCallbackInfo;
+/// Returns a copy of the IFrame bounds
+#[no_mangle] pub extern "C" fn az_i_frame_callback_info_get_bounds(iframecallbackinfo: &AzIFrameCallbackInfo) -> AzHidpiAdjustedBounds { iframecallbackinfo.get_bounds() }
 /// Destructor: Takes ownership of the `IFrameCallbackInfo` pointer and deletes it.
 #[no_mangle] #[allow(unused_variables)] pub extern "C" fn az_i_frame_callback_info_delete(object: &mut AzIFrameCallbackInfo) { }
 
@@ -1487,9 +1489,18 @@ pub use AzCssTT as AzCss;
 /// Clones the object
 #[no_mangle] pub extern "C" fn az_css_deep_copy(object: &AzCss) -> AzCss { object.clone() }
 
+/// Re-export of rust-allocated (stack based) `CssPropertyType` struct
+pub type AzCssPropertyTypeTT = azul_impl::css::CssPropertyType;
+pub use AzCssPropertyTypeTT as AzCssPropertyType;
+
 /// Re-export of rust-allocated (stack based) `ColorU` struct
 pub type AzColorUTT = azul_impl::css::ColorU;
 pub use AzColorUTT as AzColorU;
+/// Creates a new `ColorU` instance whose memory is owned by the rust allocator
+/// Equivalent to the Rust `ColorU::from_str()` constructor.
+#[no_mangle] pub extern "C" fn az_color_u_from_str(string: AzString) -> AzColorU { azul_impl::css::css_parser::parse_css_color(string.as_str()).ok().unwrap_or(ColorU::BLACK) }
+/// Equivalent to the Rust `ColorU::to_hash()` function.
+#[no_mangle] pub extern "C" fn az_color_u_to_hash(coloru: &AzColorU) -> AzString { coloru.to_hash().into() }
 
 /// Re-export of rust-allocated (stack based) `SizeMetric` struct
 pub type AzSizeMetricTT = azul_impl::css::SizeMetric;
@@ -1531,9 +1542,9 @@ pub use AzLayoutBottomTT as AzLayoutBottom;
 pub type AzLayoutBoxSizingTT = azul_impl::css::LayoutBoxSizing;
 pub use AzLayoutBoxSizingTT as AzLayoutBoxSizing;
 
-/// Re-export of rust-allocated (stack based) `LayoutDirection` struct
-pub type AzLayoutDirectionTT = azul_impl::css::LayoutDirection;
-pub use AzLayoutDirectionTT as AzLayoutDirection;
+/// Re-export of rust-allocated (stack based) `LayoutFlexDirection` struct
+pub type AzLayoutFlexDirectionTT = azul_impl::css::LayoutFlexDirection;
+pub use AzLayoutFlexDirectionTT as AzLayoutFlexDirection;
 
 /// Re-export of rust-allocated (stack based) `LayoutDisplay` struct
 pub type AzLayoutDisplayTT = azul_impl::css::LayoutDisplay;
@@ -1896,9 +1907,9 @@ pub use AzLayoutBottomValueTT as AzLayoutBottomValue;
 pub type AzLayoutBoxSizingValueTT = azul_impl::css::CssPropertyValue::<LayoutBoxSizing>;
 pub use AzLayoutBoxSizingValueTT as AzLayoutBoxSizingValue;
 
-/// Re-export of rust-allocated (stack based) `LayoutDirectionValue` struct
-pub type AzLayoutDirectionValueTT = azul_impl::css::CssPropertyValue::<LayoutDirection>;
-pub use AzLayoutDirectionValueTT as AzLayoutDirectionValue;
+/// Re-export of rust-allocated (stack based) `LayoutFlexDirectionValue` struct
+pub type AzLayoutFlexDirectionValueTT = azul_impl::css::CssPropertyValue::<LayoutFlexDirection>;
+pub use AzLayoutFlexDirectionValueTT as AzLayoutFlexDirectionValue;
 
 /// Re-export of rust-allocated (stack based) `LayoutDisplayValue` struct
 pub type AzLayoutDisplayValueTT = azul_impl::css::CssPropertyValue::<LayoutDisplay>;
@@ -2322,6 +2333,8 @@ pub use AzDomTT as AzDom;
 #[no_mangle] pub extern "C" fn az_dom_with_child(mut dom: AzDom, child: AzDom) -> AzDom { az_dom_add_child(&mut dom, child); dom }
 /// Returns the HTML String for this DOM
 #[no_mangle] pub extern "C" fn az_dom_get_html_string(dom: &AzDom) -> AzString { dom.get_html_string().into() }
+/// Returns the HTML String for this DOM
+#[no_mangle] pub extern "C" fn az_dom_style(dom: AzDom, css: AzCss) -> AzStyledDom { dom.style(css) }
 /// Destructor: Takes ownership of the `Dom` pointer and deletes it.
 #[no_mangle] #[allow(unused_variables)] pub extern "C" fn az_dom_delete(object: &mut AzDom) { }
 /// Clones the object

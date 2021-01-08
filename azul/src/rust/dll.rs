@@ -661,10 +661,10 @@
         None,
         Some(AzOverflowValue),
     }
-    /// Re-export of rust-allocated (stack based) `OptionLayoutDirectionValue` struct
-    #[repr(C, u8)] #[derive(Debug)] pub enum AzOptionLayoutDirectionValue {
+    /// Re-export of rust-allocated (stack based) `OptionLayoutFlexDirectionValue` struct
+    #[repr(C, u8)] #[derive(Debug)] pub enum AzOptionLayoutFlexDirectionValue {
         None,
-        Some(AzLayoutDirectionValue),
+        Some(AzLayoutFlexDirectionValue),
     }
     /// Re-export of rust-allocated (stack based) `OptionLayoutWrapValue` struct
     #[repr(C, u8)] #[derive(Debug)] pub enum AzOptionLayoutWrapValue {
@@ -1070,6 +1070,80 @@
     #[repr(C)] #[derive(Debug)] pub struct AzCss {
         pub stylesheets: AzStylesheetVec,
     }
+    /// Re-export of rust-allocated (stack based) `CssPropertyType` struct
+    #[repr(C)] #[derive(Debug)] pub enum AzCssPropertyType {
+        TextColor,
+        FontSize,
+        FontFamily,
+        TextAlign,
+        LetterSpacing,
+        LineHeight,
+        WordSpacing,
+        TabWidth,
+        Cursor,
+        Display,
+        Float,
+        BoxSizing,
+        Width,
+        Height,
+        MinWidth,
+        MinHeight,
+        MaxWidth,
+        MaxHeight,
+        Position,
+        Top,
+        Right,
+        Left,
+        Bottom,
+        FlexWrap,
+        FlexDirection,
+        FlexGrow,
+        FlexShrink,
+        JustifyContent,
+        AlignItems,
+        AlignContent,
+        OverflowX,
+        OverflowY,
+        PaddingTop,
+        PaddingLeft,
+        PaddingRight,
+        PaddingBottom,
+        MarginTop,
+        MarginLeft,
+        MarginRight,
+        MarginBottom,
+        Background,
+        BackgroundImage,
+        BackgroundColor,
+        BackgroundPosition,
+        BackgroundSize,
+        BackgroundRepeat,
+        BorderTopLeftRadius,
+        BorderTopRightRadius,
+        BorderBottomLeftRadius,
+        BorderBottomRightRadius,
+        BorderTopColor,
+        BorderRightColor,
+        BorderLeftColor,
+        BorderBottomColor,
+        BorderTopStyle,
+        BorderRightStyle,
+        BorderLeftStyle,
+        BorderBottomStyle,
+        BorderTopWidth,
+        BorderRightWidth,
+        BorderLeftWidth,
+        BorderBottomWidth,
+        BoxShadowLeft,
+        BoxShadowRight,
+        BoxShadowTop,
+        BoxShadowBottom,
+        Opacity,
+        Transform,
+        PerspectiveOrigin,
+        TransformOrigin,
+        BackfaceVisibility,
+    }
     /// Re-export of rust-allocated (stack based) `ColorU` struct
     #[repr(C)] #[derive(Debug)] pub struct AzColorU {
         pub r: u8,
@@ -1123,8 +1197,8 @@
     #[repr(C)] #[derive(Debug)] pub enum AzLayoutAlignItems {
         Stretch,
         Center,
-        Start,
-        End,
+        FlexStart,
+        FlexEnd,
     }
     /// Re-export of rust-allocated (stack based) `LayoutBottom` struct
     #[repr(C)] #[derive(Debug)] pub struct AzLayoutBottom {
@@ -1135,8 +1209,8 @@
         ContentBox,
         BorderBox,
     }
-    /// Re-export of rust-allocated (stack based) `LayoutDirection` struct
-    #[repr(C)] #[derive(Debug)] pub enum AzLayoutDirection {
+    /// Re-export of rust-allocated (stack based) `LayoutFlexDirection` struct
+    #[repr(C)] #[derive(Debug)] pub enum AzLayoutFlexDirection {
         Row,
         RowReverse,
         Column,
@@ -1641,13 +1715,13 @@
         Initial,
         Exact(AzLayoutBoxSizing),
     }
-    /// Re-export of rust-allocated (stack based) `LayoutDirectionValue` struct
-    #[repr(C, u8)] #[derive(Debug)] pub enum AzLayoutDirectionValue {
+    /// Re-export of rust-allocated (stack based) `LayoutFlexDirectionValue` struct
+    #[repr(C, u8)] #[derive(Debug)] pub enum AzLayoutFlexDirectionValue {
         Auto,
         None,
         Inherit,
         Initial,
-        Exact(AzLayoutDirection),
+        Exact(AzLayoutFlexDirection),
     }
     /// Re-export of rust-allocated (stack based) `LayoutDisplayValue` struct
     #[repr(C, u8)] #[derive(Debug)] pub enum AzLayoutDisplayValue {
@@ -2147,7 +2221,7 @@
         Left(AzLayoutLeftValue),
         Bottom(AzLayoutBottomValue),
         FlexWrap(AzLayoutWrapValue),
-        FlexDirection(AzLayoutDirectionValue),
+        FlexDirection(AzLayoutFlexDirectionValue),
         FlexGrow(AzLayoutFlexGrowValue),
         FlexShrink(AzLayoutFlexShrinkValue),
         JustifyContent(AzLayoutJustifyContentValue),
@@ -2273,7 +2347,7 @@
         pub border_bottom_width: AzOptionStyleBorderBottomWidthValue,
         pub overflow_x: AzOptionOverflowValue,
         pub overflow_y: AzOptionOverflowValue,
-        pub direction: AzOptionLayoutDirectionValue,
+        pub direction: AzOptionLayoutFlexDirectionValue,
         pub wrap: AzOptionLayoutWrapValue,
         pub flex_grow: AzOptionLayoutFlexGrowValue,
         pub flex_shrink: AzOptionLayoutFlexShrinkValue,
@@ -3744,6 +3818,7 @@
         pub az_callback_info_start_thread: extern "C" fn(_:  &mut AzCallbackInfo, _:  AzThreadId, _:  AzRefAny, _:  AzRefAny, _:  AzThreadCallbackType),
         pub az_callback_info_start_timer: extern "C" fn(_:  &mut AzCallbackInfo, _:  AzTimerId, _:  AzTimer),
         pub az_callback_info_delete: extern "C" fn(_:  &mut AzCallbackInfo),
+        pub az_i_frame_callback_info_get_bounds: extern "C" fn(_:  &AzIFrameCallbackInfo) -> AzHidpiAdjustedBounds,
         pub az_i_frame_callback_info_delete: extern "C" fn(_:  &mut AzIFrameCallbackInfo),
         pub az_i_frame_callback_return_delete: extern "C" fn(_:  &mut AzIFrameCallbackReturn),
         pub az_i_frame_callback_return_deep_copy: extern "C" fn(_:  &AzIFrameCallbackReturn) -> AzIFrameCallbackReturn,
@@ -3794,6 +3869,8 @@
         pub az_css_from_string: extern "C" fn(_:  AzString) -> AzCss,
         pub az_css_delete: extern "C" fn(_:  &mut AzCss),
         pub az_css_deep_copy: extern "C" fn(_:  &AzCss) -> AzCss,
+        pub az_color_u_from_str: extern "C" fn(_:  AzString) -> AzColorU,
+        pub az_color_u_to_hash: extern "C" fn(_:  &AzColorU) -> AzString,
         pub az_linear_gradient_delete: extern "C" fn(_:  &mut AzLinearGradient),
         pub az_linear_gradient_deep_copy: extern "C" fn(_:  &AzLinearGradient) -> AzLinearGradient,
         pub az_radial_gradient_delete: extern "C" fn(_:  &mut AzRadialGradient),
@@ -3865,6 +3942,7 @@
         pub az_dom_add_child: extern "C" fn(_:  &mut AzDom, _:  AzDom),
         pub az_dom_with_child: extern "C" fn(_:  AzDom, _:  AzDom) -> AzDom,
         pub az_dom_get_html_string: extern "C" fn(_:  &AzDom) -> AzString,
+        pub az_dom_style: extern "C" fn(_:  AzDom, _:  AzCss) -> AzStyledDom,
         pub az_dom_delete: extern "C" fn(_:  &mut AzDom),
         pub az_dom_deep_copy: extern "C" fn(_:  &AzDom) -> AzDom,
         pub az_gl_texture_node_delete: extern "C" fn(_:  &mut AzGlTextureNode),
@@ -4501,6 +4579,7 @@
             let az_callback_info_start_thread: extern "C" fn(_:  &mut AzCallbackInfo, _:  AzThreadId, _:  AzRefAny, _:  AzRefAny, _:  AzThreadCallbackType) = transmute(lib.get(b"az_callback_info_start_thread")?);
             let az_callback_info_start_timer: extern "C" fn(_:  &mut AzCallbackInfo, _:  AzTimerId, _:  AzTimer) = transmute(lib.get(b"az_callback_info_start_timer")?);
             let az_callback_info_delete: extern "C" fn(_:  &mut AzCallbackInfo) = transmute(lib.get(b"az_callback_info_delete")?);
+            let az_i_frame_callback_info_get_bounds: extern "C" fn(_:  &AzIFrameCallbackInfo) -> AzHidpiAdjustedBounds = transmute(lib.get(b"az_i_frame_callback_info_get_bounds")?);
             let az_i_frame_callback_info_delete: extern "C" fn(_:  &mut AzIFrameCallbackInfo) = transmute(lib.get(b"az_i_frame_callback_info_delete")?);
             let az_i_frame_callback_return_delete: extern "C" fn(_:  &mut AzIFrameCallbackReturn) = transmute(lib.get(b"az_i_frame_callback_return_delete")?);
             let az_i_frame_callback_return_deep_copy: extern "C" fn(_:  &AzIFrameCallbackReturn) -> AzIFrameCallbackReturn = transmute(lib.get(b"az_i_frame_callback_return_deep_copy")?);
@@ -4551,6 +4630,8 @@
             let az_css_from_string: extern "C" fn(_:  AzString) -> AzCss = transmute(lib.get(b"az_css_from_string")?);
             let az_css_delete: extern "C" fn(_:  &mut AzCss) = transmute(lib.get(b"az_css_delete")?);
             let az_css_deep_copy: extern "C" fn(_:  &AzCss) -> AzCss = transmute(lib.get(b"az_css_deep_copy")?);
+            let az_color_u_from_str: extern "C" fn(_:  AzString) -> AzColorU = transmute(lib.get(b"az_color_u_from_str")?);
+            let az_color_u_to_hash: extern "C" fn(_:  &AzColorU) -> AzString = transmute(lib.get(b"az_color_u_to_hash")?);
             let az_linear_gradient_delete: extern "C" fn(_:  &mut AzLinearGradient) = transmute(lib.get(b"az_linear_gradient_delete")?);
             let az_linear_gradient_deep_copy: extern "C" fn(_:  &AzLinearGradient) -> AzLinearGradient = transmute(lib.get(b"az_linear_gradient_deep_copy")?);
             let az_radial_gradient_delete: extern "C" fn(_:  &mut AzRadialGradient) = transmute(lib.get(b"az_radial_gradient_delete")?);
@@ -4622,6 +4703,7 @@
             let az_dom_add_child: extern "C" fn(_:  &mut AzDom, _:  AzDom) = transmute(lib.get(b"az_dom_add_child")?);
             let az_dom_with_child: extern "C" fn(_:  AzDom, _:  AzDom) -> AzDom = transmute(lib.get(b"az_dom_with_child")?);
             let az_dom_get_html_string: extern "C" fn(_:  &AzDom) -> AzString = transmute(lib.get(b"az_dom_get_html_string")?);
+            let az_dom_style: extern "C" fn(_:  AzDom, _:  AzCss) -> AzStyledDom = transmute(lib.get(b"az_dom_style")?);
             let az_dom_delete: extern "C" fn(_:  &mut AzDom) = transmute(lib.get(b"az_dom_delete")?);
             let az_dom_deep_copy: extern "C" fn(_:  &AzDom) -> AzDom = transmute(lib.get(b"az_dom_deep_copy")?);
             let az_gl_texture_node_delete: extern "C" fn(_:  &mut AzGlTextureNode) = transmute(lib.get(b"az_gl_texture_node_delete")?);
@@ -5254,6 +5336,7 @@
                 az_callback_info_start_thread,
                 az_callback_info_start_timer,
                 az_callback_info_delete,
+                az_i_frame_callback_info_get_bounds,
                 az_i_frame_callback_info_delete,
                 az_i_frame_callback_return_delete,
                 az_i_frame_callback_return_deep_copy,
@@ -5304,6 +5387,8 @@
                 az_css_from_string,
                 az_css_delete,
                 az_css_deep_copy,
+                az_color_u_from_str,
+                az_color_u_to_hash,
                 az_linear_gradient_delete,
                 az_linear_gradient_deep_copy,
                 az_radial_gradient_delete,
@@ -5375,6 +5460,7 @@
                 az_dom_add_child,
                 az_dom_with_child,
                 az_dom_get_html_string,
+                az_dom_style,
                 az_dom_delete,
                 az_dom_deep_copy,
                 az_gl_texture_node_delete,

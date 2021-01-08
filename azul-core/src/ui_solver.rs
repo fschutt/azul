@@ -5,7 +5,7 @@ use azul_css::{
     StyleTextAlignmentHorz, StyleTextAlignmentVert, LayoutPosition,
     CssPropertyValue, LayoutMarginTop, LayoutMarginRight, LayoutMarginLeft, LayoutMarginBottom,
     LayoutPaddingTop, LayoutPaddingLeft, LayoutPaddingRight, LayoutPaddingBottom,
-    LayoutLeft, LayoutRight, LayoutTop, LayoutBottom, LayoutDirection, LayoutJustifyContent,
+    LayoutLeft, LayoutRight, LayoutTop, LayoutBottom, LayoutFlexDirection, LayoutJustifyContent,
 };
 use crate::{
     styled_dom::{StyledDom, AzNodeId, DomId},
@@ -344,7 +344,7 @@ pub struct LayoutResult {
     pub solved_pos_y: NodeDataContainer<VerticalSolvedPosition>,
     pub layout_flex_grows: NodeDataContainer<f32>,
     pub layout_positions: NodeDataContainer<LayoutPosition>,
-    pub layout_flex_directions: NodeDataContainer<LayoutDirection>,
+    pub layout_flex_directions: NodeDataContainer<LayoutFlexDirection>,
     pub layout_justify_contents: NodeDataContainer<LayoutJustifyContent>,
     pub rects: NodeDataContainer<PositionedRectangle>,
     pub words_cache: BTreeMap<NodeId, Words>,

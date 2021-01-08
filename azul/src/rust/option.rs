@@ -231,7 +231,7 @@
     impl_option!(AzStyleBorderRightWidthValue, AzOptionStyleBorderRightWidthValue, [Debug, Copy, Clone]);
     impl_option!(AzStyleBorderBottomWidthValue, AzOptionStyleBorderBottomWidthValue, [Debug, Copy, Clone]);
     impl_option!(AzOverflowValue, AzOptionOverflowValue, [Debug, Copy, Clone]);
-    impl_option!(AzLayoutDirectionValue, AzOptionLayoutDirectionValue, [Debug, Copy, Clone]);
+    impl_option!(AzLayoutFlexDirectionValue, AzOptionLayoutFlexDirectionValue, [Debug, Copy, Clone]);
     impl_option!(AzLayoutWrapValue, AzOptionLayoutWrapValue, [Debug, Copy, Clone]);
     impl_option!(AzLayoutFlexGrowValue, AzOptionLayoutFlexGrowValue, [Debug, Copy, Clone]);
     impl_option!(AzLayoutFlexShrinkValue, AzOptionLayoutFlexShrinkValue, [Debug, Copy, Clone]);
@@ -243,66 +243,6 @@
     impl_option!(AzInstantPtr, AzOptionInstantPtr, copy = false, clone = false, [Debug]); // TODO: impl clone!
     impl_option!(AzU8VecRef, AzOptionU8VecRef, copy = false, clone = false, [Debug]);
 
-/*
-    impl_option!(AzRawImage, AzOptionRawImage, copy = false, [Debug, Clone, PartialEq, Eq]);
-    impl_option!(AzRefAny, AzOptionRefAny, copy = false, [Debug, Clone, Hash, PartialEq, PartialOrd, Ord, Eq]);
-    impl_option!(AzDomNodeId, AzOptionDomNodeId, [Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash]);
-    impl_option!(AzImageMask, AzOptionImageMask, [Debug, Copy, Clone, PartialEq, PartialOrd, Eq, Ord, Hash]);
-    impl_option!(AzTabIndex, AzOptionTabIndex, [Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash]);
-    impl_option!(AzDom, AzOptionDom, copy = false, [Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash]);
-    impl_option!(AzU8VecRef, AzOptionU8VecRef, copy = false, clone = false, [Debug, PartialEq, Eq, PartialOrd, Ord, Hash]);
-    impl_option!(AzTexture, AzOptionTexture, copy = false, clone = false, [Debug, PartialEq, Eq, PartialOrd, Ord, Hash]);
-    impl_option!(usize, AzOptionUsize, [Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash]);
-    // impl_option!(AzDomId, AzOptionDomId, [Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash]);
-    impl_option!(AzNodeId, AzOptionNodeId, [Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash]);
-    impl_option!(AzTagId, AzOptionTagId, [Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash]);
-    impl_option!(AzSvgDashPattern, AzOptionSvgDashPattern, [Debug, Copy, Clone, PartialEq, PartialOrd, Ord, Eq, Hash]);
-    impl_option!(AzInstantPtr, AzOptionInstantPtr, copy = false, [Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash]);
-    impl_option!(AzDuration, AzOptionDuration, [Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash]);
-    impl_option!(AzThreadSendMsg, AzOptionThreadSendMsg, [Debug, Copy, Clone, PartialEq, PartialOrd, Eq, Ord, Hash]);
-    impl_option!(u32, AzOptionChar, [Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash]);
-    impl_option!(AzVirtualKeyCode, AzOptionVirtualKeyCode, [Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash]);
-    impl_option!(i32, AzOptionI32, [Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash]);
-    impl_option!(f32, AzOptionF32, [Debug, Copy, Clone, PartialEq, PartialOrd]);
-    impl_option!(AzMouseCursorType, AzOptionMouseCursorType, [Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash]);
-    impl_option!(AzString, AzOptionString, copy = false, [Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash]);
-    impl_option!(AzWindowTheme, AzOptionWindowTheme, [Debug, Copy, Clone, PartialEq, PartialOrd, Ord, Eq, Hash]);
-    impl_option!(AzHwndHandle, AzOptionHwndHandle, copy = false, [Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash]);
-    impl_option!(AzX11Visual, AzOptionX11Visual, [Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash]);
-    impl_option!(AzWaylandTheme, AzOptionWaylandTheme, [Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash]);
-    impl_option!(AzLogicalPosition, AzOptionLogicalPosition, [Debug, Copy, Clone, PartialEq, PartialOrd]);
-    impl_option!(AzLogicalSize, AzOptionLogicalSize, [Debug, Copy, Clone, PartialEq, PartialOrd]);
-    impl_option!(AzPhysicalPositionI32, AzOptionPhysicalPositionI32, [Debug, Copy, Clone, PartialEq, PartialOrd]);
-    // impl_option!(AzPhysicalSizeU32, AzOptionPhysicalSizeU32, [Debug, Copy, Clone, PartialEq, PartialOrd, Eq, Ord, Hash]);
-    // impl_option!(AzPhysicalSizeF32, AzOptionPhysicalSizeF32, [Debug, Copy, Clone, PartialEq, PartialOrd]);
-    impl_option!(AzWindowIcon, AzOptionWindowIcon, copy = false, [Debug, Clone, PartialOrd, PartialEq, Eq, Hash, Ord]);
-    impl_option!(AzTaskBarIcon, AzOptionTaskBarIcon, copy = false, [Debug, Clone, PartialOrd, PartialEq, Eq, Hash, Ord]);
-*/
-/*
-    impl_option!(AzTabIndex, AzOptionTabIndex, copy = false, [Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash]);
-    impl_option!(AzDom, AzOptionDom, copy = false, [Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash]);
-
-    impl_option!(AzU8VecRef, AzOptionU8VecRef, copy = false, clone = false, [Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash]);
-    impl_option!(AzTexture, AzOptionTexture, copy = false, clone = false, [Debug, PartialEq, Eq, PartialOrd, Ord, Hash]);
-    impl_option!(usize, AzOptionUsize, [Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash]);
-
-    impl_option!(AzInstantPtr, AzOptionInstantPtr, copy = false, clone = false, [Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash]);
-    impl_option!(AzDuration, AzOptionDuration, copy = false, [Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash]);
-
-    impl_option!(AzVirtualKeyCode, AzOptionVirtualKeyCode, copy = false, [Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash]);
-    impl_option!(i32, AzOptionI32, [Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash]);
-    impl_option!(f32, AzOptionF32, [Debug, Copy, Clone, PartialEq, PartialOrd]);
-    impl_option!(AzMouseCursorType, AzOptionMouseCursorType, copy = false, [Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash]);
-    impl_option!(AzString, AzOptionString, copy = false, [Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash]);
-    impl_option!(AzHwndHandle, AzOptionHwndHandle, copy = false, [Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash]);
-    impl_option!(AzX11Visual, AzOptionX11Visual, copy = false, [Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash]);
-    impl_option!(AzWaylandTheme, AzOptionWaylandTheme, copy = false, [Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash]);
-    impl_option!(AzLogicalPosition, AzOptionLogicalPosition, copy = false, [Debug, Copy, Clone, PartialEq, PartialOrd]);
-    impl_option!(AzLogicalSize, AzOptionLogicalSize, copy = false, [Debug, Copy, Clone, PartialEq, PartialOrd]);
-    impl_option!(AzPhysicalPositionI32, AzOptionPhysicalPositionI32, copy = false, [Debug, Copy, Clone, PartialEq, PartialOrd]);
-    impl_option!(AzWindowIcon, AzOptionWindowIcon, copy = false, [Debug, Clone, PartialOrd, PartialEq, Eq, Hash, Ord]);
-    impl_option!(AzTaskBarIcon, AzOptionTaskBarIcon, copy = false, [Debug, Clone, PartialOrd, PartialEq, Eq, Hash, Ord]);
-*/
 
     /// `OptionThreadSendMsg` struct
     #[doc(inline)] pub use crate::dll::AzOptionThreadSendMsg as OptionThreadSendMsg;
@@ -912,11 +852,11 @@
     impl Copy for OptionOverflowValue { }
 
 
-    /// `OptionLayoutDirectionValue` struct
-    #[doc(inline)] pub use crate::dll::AzOptionLayoutDirectionValue as OptionLayoutDirectionValue;
+    /// `OptionLayoutFlexDirectionValue` struct
+    #[doc(inline)] pub use crate::dll::AzOptionLayoutFlexDirectionValue as OptionLayoutFlexDirectionValue;
 
-    impl Clone for OptionLayoutDirectionValue { fn clone(&self) -> Self { *self } }
-    impl Copy for OptionLayoutDirectionValue { }
+    impl Clone for OptionLayoutFlexDirectionValue { fn clone(&self) -> Self { *self } }
+    impl Copy for OptionLayoutFlexDirectionValue { }
 
 
     /// `OptionLayoutWrapValue` struct

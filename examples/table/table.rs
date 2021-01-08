@@ -2,21 +2,24 @@
 
 use azul::prelude::*;
 use azul_widgets::table_view::*;
+use azul::style::StyledDom;
 
 struct TableDemo {
-    table_view_state: RefAny,
+    // cells: BTreeMap<TableCell, String>,
 }
 
-extern "C" fn layout(data: RefAny, _info: LayoutInfo) -> Dom {
-    let data = data.borrow::<TableDemo>().expect("wrong downcast");
-    let table_view_state = data.table_view_state.borrow::<TableViewState>().expect("wrong downcast table_view");
-    TableView::new(table_view_state.clone()).dom()
+extern "C" fn layout(data: &RefAny, _: LayoutInfo) -> StyledDom {
+
+    let mut table_view_state = TableViewState::default();
+    table_view_state.set_cell(TableCell { row: 3, column: 4 }, "Hello World");
+    table_view_state.set_selection(Some(TableCellSelection::from(3, 4).to(6, 7)));
+
+    TableView::new()
+        .with_state(table_view_state)
+        .dom()
 }
 
 fn main() {
-    let mut table_view_state = TableViewState::default();
-    table_view_state.set_cell(3, 4, "Hello World");
-    let data = TableDemo { table_view_state: RefAny::new(table_view_state) };
-    let app = App::new(RefAny::new(data), AppConfig::default());
-    app.run(WindowCreateOptions::new(layout, Css::native()));
+    let app = App::new(RefAny::new(TableDemo { }), AppConfig::default());
+    app.run(WindowCreateOptions::new(layout));
 }

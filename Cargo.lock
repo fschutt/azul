@@ -1177,9 +1177,9 @@ dependencies = [
 
 [[package]]
 name = "libloading-mini"
-version = "0.1.1"
+version = "0.1.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "e7282645ad86d67989c5568019dae518c9cd7a3a6cf2f723e754b3b744923236"
+checksum = "29209934c0715bfb13cec639c4584b564540471cb8f27fefb1e430576811ef7b"
 dependencies = [
  "winapi",
 ]

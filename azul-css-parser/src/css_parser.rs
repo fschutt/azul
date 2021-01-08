@@ -23,7 +23,7 @@ use azul_css::{
     LayoutDisplay, LayoutFloat, LayoutWidth, LayoutHeight, LayoutBoxSizing,
     LayoutMinWidth, LayoutMinHeight, LayoutMaxWidth, LayoutMaxHeight,
     LayoutPosition, LayoutTop, LayoutRight, LayoutLeft, LayoutBottom, LayoutWrap,
-    LayoutDirection, LayoutFlexGrow, LayoutFlexShrink, LayoutJustifyContent,
+    LayoutFlexDirection, LayoutFlexGrow, LayoutFlexShrink, LayoutJustifyContent,
     LayoutAlignItems, LayoutAlignContent, LayoutPaddingRight, LayoutPaddingBottom,
     LayoutMarginTop, LayoutMarginLeft, LayoutMarginRight, LayoutMarginBottom,
     LayoutPaddingTop, LayoutPaddingLeft,
@@ -2754,7 +2754,7 @@ multi_type_parser!(parse_layout_box_sizing, LayoutBoxSizing,
     ["content-box", ContentBox],
     ["border-box", BorderBox]);
 
-multi_type_parser!(parse_layout_direction, LayoutDirection,
+multi_type_parser!(parse_layout_direction, LayoutFlexDirection,
                     ["row", Row],
                     ["row-reverse", RowReverse],
                     ["column", Column],
@@ -2773,8 +2773,8 @@ multi_type_parser!(parse_layout_justify_content, LayoutJustifyContent,
                     ["space-evenly", SpaceEvenly]);
 
 multi_type_parser!(parse_layout_align_items, LayoutAlignItems,
-                    ["flex-start", Start],
-                    ["flex-end", End],
+                    ["flex-start", FlexStart],
+                    ["flex-end", FlexEnd],
                     ["stretch", Stretch],
                     ["center", Center]);
 

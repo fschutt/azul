@@ -7,13 +7,11 @@
 
 extern crate azul;
 
-/// Widget to render SVGs to a DOM or to an image
-pub mod svg;
 /// Button widget
 pub mod button;
 /// Label widget
 pub mod label;
-/// Text input (two-way binding) widget
-pub mod text_input;
-/// Table view (iframe) widget
+// Text input (two-way binding) widget
+// pub mod text_input;
+// Table view (iframe) widget
 pub mod table_view;

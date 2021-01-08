@@ -51,7 +51,7 @@
     use crate::resources::{ImageId, TextId};
     use crate::callbacks::{CallbackType, GlCallbackType, IFrameCallbackType, RefAny};
     use crate::vec::StringVec;
-    use crate::css::CssProperty;
+    use crate::css::{Css, CssProperty};
     use crate::option::{OptionImageMask, OptionTabIndex};
 
 
@@ -133,6 +133,8 @@
         pub fn with_child(self, child: Dom)  -> crate::dom::Dom { (crate::dll::get_azul_dll().az_dom_with_child)(self, child) }
         /// Returns the HTML String for this DOM
         pub fn get_html_string(&self)  -> crate::str::String { (crate::dll::get_azul_dll().az_dom_get_html_string)(self) }
+        /// Returns the HTML String for this DOM
+        pub fn style(self, css: Css)  -> crate::style::StyledDom { (crate::dll::get_azul_dll().az_dom_style)(self, css) }
     }
 
     impl Clone for Dom { fn clone(&self) -> Self { (crate::dll::get_azul_dll().az_dom_deep_copy)(self) } }

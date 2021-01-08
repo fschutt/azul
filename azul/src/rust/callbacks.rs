@@ -269,6 +269,11 @@
     /// `IFrameCallbackInfo` struct
     #[doc(inline)] pub use crate::dll::AzIFrameCallbackInfo as IFrameCallbackInfo;
 
+    impl IFrameCallbackInfo {
+        /// Returns a copy of the IFrame bounds
+        pub fn get_bounds(&self)  -> crate::callbacks::HidpiAdjustedBounds { (crate::dll::get_azul_dll().az_i_frame_callback_info_get_bounds)(self) }
+    }
+
     impl Drop for IFrameCallbackInfo { fn drop(&mut self) { (crate::dll::get_azul_dll().az_i_frame_callback_info_delete)(self); } }
 
 

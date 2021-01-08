@@ -133,7 +133,7 @@ impl GetStyle for DisplayRectangle {
 
         use crate::style::*;
         use azul_css::{
-            PixelValue, LayoutDisplay, LayoutDirection, LayoutWrap, LayoutPosition,
+            PixelValue, LayoutDisplay, LayoutFlexDirection, LayoutWrap, LayoutPosition,
             LayoutAlignItems, LayoutAlignContent, LayoutJustifyContent,
             LayoutBoxSizing, Overflow as LayoutOverflow, CssPropertyValue,
         };
@@ -185,10 +185,10 @@ impl GetStyle for DisplayRectangle {
             },
             direction: Direction::LTR,
             flex_direction: match rect_layout.direction.unwrap_or_default().get_property_or_default() {
-                Some(LayoutDirection::Row) => FlexDirection::Row,
-                Some(LayoutDirection::RowReverse) => FlexDirection::RowReverse,
-                Some(LayoutDirection::Column) => FlexDirection::Column,
-                Some(LayoutDirection::ColumnReverse) => FlexDirection::ColumnReverse,
+                Some(LayoutFlexDirection::Row) => FlexDirection::Row,
+                Some(LayoutFlexDirection::RowReverse) => FlexDirection::RowReverse,
+                Some(LayoutFlexDirection::Column) => FlexDirection::Column,
+                Some(LayoutFlexDirection::ColumnReverse) => FlexDirection::ColumnReverse,
                 None => FlexDirection::Row,
             },
             flex_wrap: match rect_layout.wrap.unwrap_or_default().get_property_or_default() {
@@ -206,8 +206,8 @@ impl GetStyle for DisplayRectangle {
             align_items: match rect_layout.align_items.unwrap_or_default().get_property_or_default() {
                 Some(LayoutAlignItems::Stretch) => AlignItems::Stretch,
                 Some(LayoutAlignItems::Center) => AlignItems::Center,
-                Some(LayoutAlignItems::Start) => AlignItems::FlexStart,
-                Some(LayoutAlignItems::End) => AlignItems::FlexEnd,
+                Some(LayoutAlignItems::FlexStart) => AlignItems::FlexStart,
+                Some(LayoutAlignItems::FlexEnd) => AlignItems::FlexEnd,
                 None => AlignItems::FlexStart,
             },
             align_content: match rect_layout.align_content.unwrap_or_default().get_property_or_default() {

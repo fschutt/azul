@@ -238,18 +238,18 @@ fn test_fill_out_preferred_width() {
 
     let (node_hierarchy, node_depths, node_data) = get_display_rectangle_arena(&[
         (0, RectLayout {
-            direction: Some(LayoutDirection::Row.into()),
+            direction: Some(LayoutFlexDirection::Row.into()),
             .. Default::default()
         }),
         (1, RectLayout {
             max_width: Some(LayoutMaxWidth { inner: PixelValue::px(200.0) }.into()),
             padding_left: Some(LayoutPaddingLeft { inner: PixelValue::px(20.0) }.into()),
             padding_right: Some(LayoutPaddingRight { inner: PixelValue::px(20.0) }.into()),
-            direction: Some(LayoutDirection::Row.into()),
+            direction: Some(LayoutFlexDirection::Row.into()),
             .. Default::default()
         }),
         (2, RectLayout {
-            direction: Some(LayoutDirection::Row.into()),
+            direction: Some(LayoutFlexDirection::Row.into()),
             .. Default::default()
         })
     ]);

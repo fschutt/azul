@@ -2,7 +2,7 @@ use std::{f32, collections::{BTreeMap, BTreeSet}};
 use azul_css::{
     LayoutPosition, LayoutPoint, LayoutSize, LayoutRect,
     RectLayout, StyleTextAlignmentHorz, StyleTextAlignmentVert,
-    LayoutDirection, LayoutJustifyContent,
+    LayoutFlexDirection, LayoutJustifyContent,
 };
 use azul_core::{
     traits::GetTextLayout,
@@ -286,7 +286,7 @@ macro_rules! typed_arena {(
         node_hierarchy: &NodeDataContainerRef<'a, AzNode>,
         layout_flex_grows: &NodeDataContainerRef<'a, f32>,
         layout_positions: &NodeDataContainerRef<'a, LayoutPosition>,
-        layout_directions: &NodeDataContainerRef<'a, LayoutDirection>,
+        layout_directions: &NodeDataContainerRef<'a, LayoutFlexDirection>,
         node_depths: &[ParentWithNodeDepth],
         root_width: isize,
         parents_to_recalc: &BTreeSet<NodeId>,
@@ -678,7 +678,7 @@ pub(crate) fn solve_flex_layout_width<'a, 'b>(
     width_calculated_arena: &'a mut NodeDataContainerRefMut<'a, WidthCalculatedRect>,
     layout_flex_grow: &NodeDataContainerRef<'a, f32>,
     layout_positions: &NodeDataContainerRef<'a, LayoutPosition>,
-    layout_directions: &NodeDataContainerRef<'a, LayoutDirection>,
+    layout_directions: &NodeDataContainerRef<'a, LayoutFlexDirection>,
     node_hierarchy: &'b NodeDataContainerRef<'a, AzNode>,
     node_depths: &[ParentWithNodeDepth],
     window_width: isize,
@@ -693,7 +693,7 @@ pub(crate) fn solve_flex_layout_height<'a, 'b>(
     height_calculated_arena: &'a mut NodeDataContainerRefMut<'a, HeightCalculatedRect>,
     layout_flex_grow: &NodeDataContainerRef<'a, f32>,
     layout_positions: &NodeDataContainerRef<'a, LayoutPosition>,
-    layout_directions: &NodeDataContainerRef<'a, LayoutDirection>,
+    layout_directions: &NodeDataContainerRef<'a, LayoutFlexDirection>,
     node_hierarchy: &'b NodeDataContainerRef<'a, AzNode>,
     node_depths: &[ParentWithNodeDepth],
     window_height: isize,
@@ -722,7 +722,7 @@ fn $fn_name<'a>(
     arena: &mut NodeDataContainerRefMut<'a, $height_solved_position>,
     node_hierarchy: &NodeDataContainerRef<'a, AzNode>,
     layout_positions: &NodeDataContainerRef<'a, LayoutPosition>,
-    layout_directions: &NodeDataContainerRef<'a, LayoutDirection>,
+    layout_directions: &NodeDataContainerRef<'a, LayoutFlexDirection>,
     layout_justify_contents: &NodeDataContainerRef<'a, LayoutJustifyContent>,
     node_depths: &[ParentWithNodeDepth],
     solved_widths: &NodeDataContainerRef<'a, $width_layout>,
@@ -986,7 +986,7 @@ fn get_x_positions<'a>(
     solved_widths: &NodeDataContainerRef<'a, WidthCalculatedRect>,
     node_hierarchy: &NodeDataContainerRef<'a, AzNode>,
     layout_positions: &NodeDataContainerRef<'a, LayoutPosition>,
-    layout_directions: &NodeDataContainerRef<'a, LayoutDirection>,
+    layout_directions: &NodeDataContainerRef<'a, LayoutFlexDirection>,
     layout_justify_contents: &NodeDataContainerRef<'a, LayoutJustifyContent>,
     node_depths: &[ParentWithNodeDepth],
     origin: LayoutPoint,
@@ -1017,7 +1017,7 @@ fn get_y_positions<'a>(
     solved_heights: &NodeDataContainerRef<'a, HeightCalculatedRect>,
     node_hierarchy: &NodeDataContainerRef<'a, AzNode>,
     layout_positions: &NodeDataContainerRef<'a, LayoutPosition>,
-    layout_directions: &NodeDataContainerRef<'a, LayoutDirection>,
+    layout_directions: &NodeDataContainerRef<'a, LayoutFlexDirection>,
     layout_justify_contents: &NodeDataContainerRef<'a, LayoutJustifyContent>,
     node_depths: &[ParentWithNodeDepth],
     origin: LayoutPoint,
@@ -1054,7 +1054,7 @@ fn get_layout_justify_contents<'a>(display_rects: &NodeDataContainerRef<'a, Styl
 }
 
 #[inline]
-fn get_layout_flex_directions<'a>(display_rects: &NodeDataContainerRef<'a, StyledNode>) -> NodeDataContainer<LayoutDirection> {
+fn get_layout_flex_directions<'a>(display_rects: &NodeDataContainerRef<'a, StyledNode>) -> NodeDataContainer<LayoutFlexDirection> {
     display_rects.transform(|node, _| node.layout.direction.as_ref().copied().unwrap_or_default().get_property_or_default().unwrap_or_default())
 }
 
@@ -1760,8 +1760,8 @@ fn determine_text_alignment(rect: &StyledNode)
         // Vertical text alignment
         use azul_css::LayoutAlignItems;
         match align_items.get_property_or_default().unwrap_or_default() {
-            LayoutAlignItems::Start => vert_alignment = StyleTextAlignmentVert::Top,
-            LayoutAlignItems::End => vert_alignment = StyleTextAlignmentVert::Bottom,
+            LayoutAlignItems::FlexStart => vert_alignment = StyleTextAlignmentVert::Top,
+            LayoutAlignItems::FlexEnd => vert_alignment = StyleTextAlignmentVert::Bottom,
             // technically stretch = blocktext, but we don't have that yet
             _ => vert_alignment = StyleTextAlignmentVert::Center,
         }

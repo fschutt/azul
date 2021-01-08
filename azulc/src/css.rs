@@ -402,7 +402,7 @@ impl_enum_fmt!(LayoutBoxSizing,
     BorderBox
 );
 
-impl_enum_fmt!(LayoutDirection,
+impl_enum_fmt!(LayoutFlexDirection,
     Row,
     RowReverse,
     Column,
@@ -424,8 +424,8 @@ impl_enum_fmt!(LayoutJustifyContent,
 );
 
 impl_enum_fmt!(LayoutAlignItems,
-    Start,
-    End,
+    FlexStart,
+    FlexEnd,
     Stretch,
     Center
 );
