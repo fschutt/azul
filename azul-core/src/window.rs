@@ -1641,6 +1641,11 @@ pub struct LogicalRect {
 }
 
 impl LogicalRect {
+
+    pub const fn new(origin: LogicalPosition, size: LogicalSize) -> Self {
+        Self { origin, size }
+    }
+
     /// Faster union for a Vec<LayoutRect>
     #[inline]
     pub fn union<I: Iterator<Item=Self>>(mut rects: I) -> Option<Self> {

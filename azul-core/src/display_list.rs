@@ -15,7 +15,7 @@ use azul_css::{
 };
 use crate::{
     callbacks::PipelineId,
-    ui_solver::{ResolvedOffsets, ExternalScrollId, LayoutResult, PositionInfo},
+    ui_solver::{ExternalScrollId, LayoutResult, PositionInfo},
     window::{FullWindowState, LogicalRect, LogicalPosition, LogicalSize},
     app_resources::{
         AppResources, AddImageMsg, FontImageApi, ImageDescriptor, ImageDescriptorFlags,
@@ -126,7 +126,7 @@ impl DisplayListMsg {
         }
     }
 
-    pub fn get_size(&self) -> LayoutSize {
+    pub fn get_size(&self) -> LogicalSize {
         use self::DisplayListMsg::*;
         match self {
             Frame(f) => f.size,
@@ -165,7 +165,7 @@ impl fmt::Debug for DisplayListScrollFrame {
 
 #[derive(Clone, PartialEq, PartialOrd)]
 pub struct DisplayListFrame {
-    pub size: LayoutSize,
+    pub size: LogicalSize,
     pub position: PositionInfo,
     pub flags: PrimitiveFlags,
     pub clip_mask: Option<DisplayListImageMask>,
@@ -207,8 +207,13 @@ impl DisplayListFrame {
     pub fn root(dimensions: LayoutSize, root_origin: LayoutPoint) -> Self {
         DisplayListFrame {
             tag: None,
-            size: dimensions,
-            position: PositionInfo::Static { x_offset: root_origin.x, y_offset: root_origin.y, static_x_offset: root_origin.x, static_y_offset: root_origin.y },
+            size: LogicalSize::new(dimensions.width as f32, dimensions.height as f32),
+            position: PositionInfo::Static {
+                x_offset: root_origin.x as f32,
+                y_offset: root_origin.y as f32,
+                static_x_offset: root_origin.x as f32,
+                static_y_offset: root_origin.y as f32
+            },
             flags: PrimitiveFlags {
                 is_backface_visible: true,
                 is_scrollbar_container: false,
@@ -380,8 +385,8 @@ pub enum LayoutRectContent {
         repeat: Option<StyleBackgroundRepeat>,
     },
     Image {
-        size: LayoutSize,
-        offset: LayoutPoint,
+        size: LogicalSize,
+        offset: LogicalPosition,
         image_rendering: ImageRendering,
         alpha_type: AlphaType,
         image_key: ImageKey,
@@ -592,10 +597,11 @@ impl SolvedLayout {
 
                 let texture = {
 
+                    let size = LayoutSize::new(rect_size.width.round() as isize, rect_size.height.round() as isize);
                     let gl_callback_info = GlCallbackInfo::new(
                         /*gl_context:*/ &gl_context,
                         /*resources:*/ app_resources,
-                        /*bounds:*/ HidpiAdjustedBounds::from_bounds(rect_size, full_window_state.size.hidpi_factor),
+                        /*bounds:*/ HidpiAdjustedBounds::from_bounds(size, full_window_state.size.hidpi_factor),
                     );
 
                     let gl_callback_return = (gl_texture_node.callback.cb)(&gl_texture_node.data, gl_callback_info);
@@ -822,8 +828,8 @@ pub fn displaylist_handle_rect<'a>(
         Image(image_id) => {
             if let Some(image_info) = app_resources.get_image_info(pipeline_id, image_id) {
                 frame.content.push(LayoutRectContent::Image {
-                    size: LayoutSize::new(bounds.size.width, bounds.size.height),
-                    offset: LayoutPoint::zero(),
+                    size: LogicalSize::new(bounds.size.width, bounds.size.height),
+                    offset: LogicalPosition::zero(),
                     image_rendering: ImageRendering::Auto,
                     alpha_type: AlphaType::PremultipliedAlpha,
                     image_key: image_info.key,
@@ -835,8 +841,8 @@ pub fn displaylist_handle_rect<'a>(
         GlTexture(_) => {
             if let Some((key, descriptor)) = gl_texture_cache.solved_textures.get(&dom_id).and_then(|textures| textures.get(&rect_idx)) {
                 frame.content.push(LayoutRectContent::Image {
-                    size: LayoutSize::new(descriptor.width as isize, descriptor.height as isize),
-                    offset: LayoutPoint::zero(),
+                    size: LogicalSize::new(descriptor.width as f32, descriptor.height as f32),
+                    offset: LogicalPosition::zero(),
                     image_rendering: ImageRendering::Auto,
                     alpha_type: AlphaType::Alpha,
                     image_key: *key,
@@ -923,17 +929,6 @@ pub fn get_text(
         color: font_color,
         glyph_options: None,
         overflow: (overflow_horizontal_visible, overflow_vertical_visible),
-    }
-}
-
-/// Subtracts the padding from the size, returning the new size
-///
-/// Warning: The resulting rectangle may have negative width or height
-#[inline]
-pub fn subtract_padding(size: &LayoutSize, padding: &ResolvedOffsets) -> LayoutSize {
-    LayoutSize {
-        width: size.width - padding.right + padding.left,
-        height: size.height - padding.top + padding.bottom,
     }
 }
 

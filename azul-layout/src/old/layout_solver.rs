@@ -18,7 +18,7 @@ use azul_core::{
     app_resources::{AppResources, FontInstanceKey, FontImageApi, LayoutedGlyphs},
     callbacks::PipelineId,
     display_list::RenderCallbacks,
-    window::FullWindowState,
+    window::{FullWindowState, LogicalRect, LogicalSize, LogicalPosition},
 };
 use azul_text_layout::{InlineText, text_layout::{Words, ShapedWords, WordPositions}};
 
@@ -32,12 +32,11 @@ macro_rules! determine_preferred {
     ///
     /// For example, if you have an image, the `preferred_inner_width` is the images width,
     /// if the node type is an text, the `preferred_inner_width` is the text height.
-    pub(crate) fn $fn_name(styled_node: &StyledNode, preferred_inner_width: Option<isize>, parent_width: isize) -> WhConstraint {
+    pub(crate) fn $fn_name(styled_node: &StyledNode, preferred_inner_width: Option<f32>, parent_width: f32) -> WhConstraint {
 
-        let parent_width = parent_width as f32;
-        let mut width = styled_node.layout.$width.as_ref().and_then(|w| w.get_property().map(|x| x.inner.to_pixels(parent_width))).map(|x| x.round() as isize);
-        let min_width = styled_node.layout.$min_width.as_ref().and_then(|w| w.get_property().map(|x| x.inner.to_pixels(parent_width))).map(|x| x.round() as isize);
-        let max_width = styled_node.layout.$max_width.as_ref().and_then(|w| w.get_property().map(|x| x.inner.to_pixels(parent_width))).map(|x| x.round() as isize);
+        let mut width = styled_node.layout.$width.as_ref().and_then(|w| w.get_property().map(|x| x.inner.to_pixels(parent_width)));
+        let min_width = styled_node.layout.$min_width.as_ref().and_then(|w| w.get_property().map(|x| x.inner.to_pixels(parent_width)));
+        let max_width = styled_node.layout.$max_width.as_ref().and_then(|w| w.get_property().map(|x| x.inner.to_pixels(parent_width)));
 
         // TODO: correct for width / height less than 0 - "negative" width is impossible!
 
@@ -58,8 +57,8 @@ macro_rules! determine_preferred {
         // between min & max and the width isn't already specified as a style
         if let Some(preferred_width) = preferred_inner_width {
             if width.is_none() &&
-               preferred_width > absolute_min.unwrap_or(0) &&
-               preferred_width < absolute_max.unwrap_or(isize::MAX)
+               preferred_width > absolute_min.unwrap_or(0.0) &&
+               preferred_width < absolute_max.unwrap_or(f32::MAX)
             {
                 width = Some(preferred_width);
             }
@@ -96,11 +95,11 @@ macro_rules! determine_preferred {
                     WhConstraint::Between(min_width, max_width)
                 } else {
                     // TODO: check sign positive on max_width!
-                    WhConstraint::Between(0, max_width)
+                    WhConstraint::Between(0.0, max_width)
                 }
             } else {
                 if let Some(min_width) = absolute_min {
-                    WhConstraint::Between(min_width, isize::MAX)
+                    WhConstraint::Between(min_width, f32::MAX)
                 } else {
                     // no width, min_width or max_width
                     WhConstraint::Unconstrained
@@ -113,13 +112,13 @@ macro_rules! determine_preferred {
 // Returns the preferred width, given [width, min_width, max_width] inside a RectLayout
 // or `None` if the height can't be determined from the node alone.
 //
-// fn determine_preferred_width(layout: &RectLayout) -> Option<isize>
+// fn determine_preferred_width(layout: &RectLayout) -> Option<f32>
 determine_preferred!(determine_preferred_width, width, min_width, max_width);
 
 // Returns the preferred height, given [height, min_height, max_height] inside a RectLayout
 // or `None` if the height can't be determined from the node alone.
 //
-// fn determine_preferred_height(layout: &RectLayout) -> Option<isize>
+// fn determine_preferred_height(layout: &RectLayout) -> Option<f32>
 determine_preferred!(determine_preferred_height, height, min_height, max_height);
 
 /// ```rust
@@ -166,7 +165,7 @@ macro_rules! typed_arena {(
     #[must_use]
     pub(crate) fn $from_rect_layout_arena_fn_name<'a>(
         node_data: &NodeDataContainerRef<'a, StyledNode>,
-        widths: &NodeDataContainerRef<'a, Option<isize>>,
+        widths: &NodeDataContainerRef<'a, Option<f32>>,
         node_hierarchy: &NodeDataContainerRef<'a, AzNode>,
         node_depths: &[ParentWithNodeDepth],
     ) -> NodeDataContainer<$struct_name> {
@@ -187,7 +186,7 @@ macro_rules! typed_arena {(
             .and_then(|t| new_nodes.as_ref().get(t.parent_id()?).map(|parent| parent.$preferred_field))
             .unwrap_or_default()
             .min_needed_space()
-            .unwrap_or(0);
+            .unwrap_or(0.0);
             let parent_width = $determine_preferred_fn(&nd, width, parent_width);
 
             new_nodes.as_ref_mut()[parent_id] = $struct_name {
@@ -201,8 +200,8 @@ macro_rules! typed_arena {(
                 $left: nd.layout.$left.as_ref().copied(),
                 $right: nd.layout.$right.as_ref().copied(),
 
-                flex_grow_px: 0,
-                min_inner_size_px: 0,
+                flex_grow_px: 0.0,
+                min_inner_size_px: 0.0,
             };
 
             for child_id in parent_id.az_children(node_hierarchy) {
@@ -210,7 +209,7 @@ macro_rules! typed_arena {(
                 let width = match widths.get(child_id) { Some(s) => *s, None => continue, };
                 new_nodes.as_ref_mut()[child_id] = $struct_name {
                     // TODO: get the initial width of the rect content
-                    $preferred_field: $determine_preferred_fn(&nd, width, parent_width.min_needed_space().unwrap_or(0)),
+                    $preferred_field: $determine_preferred_fn(&nd, width, parent_width.min_needed_space().unwrap_or(0.0)),
 
                     $margin_left: nd.layout.$margin_left.as_ref().copied(),
                     $margin_right: nd.layout.$margin_right.as_ref().copied(),
@@ -219,8 +218,8 @@ macro_rules! typed_arena {(
                     $left: nd.layout.$left.as_ref().copied(),
                     $right: nd.layout.$right.as_ref().copied(),
 
-                    flex_grow_px: 0,
-                    min_inner_size_px: 0,
+                    flex_grow_px: 0.0,
+                    min_inner_size_px: 0.0,
                 }
             }
         }
@@ -246,7 +245,7 @@ macro_rules! typed_arena {(
 
             let non_leaf_id = match node_id.into_crate_internal() { Some(s) => s, None => continue, };
 
-            let parent_width = node_hierarchy[non_leaf_id].parent_id().and_then(|parent_id| node_data[parent_id].$preferred_field.min_needed_space()).unwrap_or(0);
+            let parent_width = node_hierarchy[non_leaf_id].parent_id().and_then(|parent_id| node_data[parent_id].$preferred_field.min_needed_space()).unwrap_or(0.0);
 
             // Sum of the direct children's flex-basis = the parents preferred width
             let children_flex_basis = $sum_children_flex_basis_fn_name(node_data, non_leaf_id, node_hierarchy, layout_positions);
@@ -289,7 +288,7 @@ macro_rules! typed_arena {(
         layout_positions: &NodeDataContainerRef<'a, LayoutPosition>,
         layout_directions: &NodeDataContainerRef<'a, LayoutFlexDirection>,
         node_depths: &[ParentWithNodeDepth],
-        root_width: isize,
+        root_width: f32,
         parents_to_recalc: &BTreeSet<NodeId>,
     ) {
         /// Does the actual width layout, respects the `width`, `min_width` and `max_width`
@@ -301,7 +300,7 @@ macro_rules! typed_arena {(
             layout_positions: &NodeDataContainerRef<'a, LayoutPosition>,
             width_calculated_arena: &'a mut NodeDataContainerRefMut<$struct_name>,
             positioned_node_stack: &[NodeId],
-            root_width: isize
+            root_width: f32
         ) {
             // The inner space of the parent node, without the padding
             let mut parent_node_inner_width = {
@@ -313,7 +312,7 @@ macro_rules! typed_arena {(
             // 1. Set all child elements that have an exact width to that width, record their violations
             //    and add their violation to the leftover horizontal space.
             // let mut horizontal_space_from_fixed_width_items = 0.0;
-            let mut horizontal_space_taken_up_by_fixed_width_items = 0;
+            let mut horizontal_space_taken_up_by_fixed_width_items = 0.0;
 
             {
                 // Vec<(NodeId, PreferredWidth)>
@@ -324,7 +323,7 @@ macro_rules! typed_arena {(
                         } else {
                             None
                         })
-                        .collect::<Vec<(NodeId, isize)>>();
+                        .collect::<Vec<(NodeId, f32)>>();
 
                 for (exact_width_child_id, exact_width) in exact_width_childs {
 
@@ -347,7 +346,7 @@ macro_rules! typed_arena {(
             // and not be influenced by flex in any way.
 
             // 2. Set all items to their minimum width. Record how much space is gained by doing so.
-            let mut horizontal_space_taken_up_by_variable_items = 0;
+            let mut horizontal_space_taken_up_by_variable_items = 0.0;
 
             let mut variable_width_childs = node_id
                 .az_children(node_hierarchy)
@@ -360,7 +359,7 @@ macro_rules! typed_arena {(
 
                 if layout_positions[*variable_child_id] != LayoutPosition::Absolute {
 
-                    let min_width = width_calculated_arena[*variable_child_id].$preferred_field.min_needed_space().unwrap_or(0);
+                    let min_width = width_calculated_arena[*variable_child_id].$preferred_field.min_needed_space().unwrap_or(0.0);
 
                     horizontal_space_taken_up_by_variable_items += min_width;
 
@@ -427,7 +426,7 @@ macro_rules! typed_arena {(
 
             loop {
 
-                if total_horizontal_space_available <= 0 || variable_width_childs.is_empty() {
+                if total_horizontal_space_available <= 0.0 || variable_width_childs.is_empty() {
                     break;
                 }
 
@@ -441,9 +440,6 @@ macro_rules! typed_arena {(
                     .sum();
 
                 let size_per_child = total_horizontal_space_available as f32 / children_combined_flex_grow;
-                let use_ping_pong = !(size_per_child.fract() < f32::EPSILON);
-                let mut ping_pong = false;
-                let mut last_variable_child_id = None;
 
                 // Grow all variable children by the same amount.
                 for variable_child_id in &variable_width_childs {
@@ -451,17 +447,6 @@ macro_rules! typed_arena {(
                     let flex_grow_of_child = layout_flex_grows[*variable_child_id];
 
                     let added_space_for_one_child = size_per_child * flex_grow_of_child;
-                    let added_space_for_one_child = if use_ping_pong {
-                        let ret = if ping_pong {
-                            added_space_for_one_child.floor() as isize
-                        } else {
-                            added_space_for_one_child.ceil() as isize
-                        };
-                        ping_pong = !ping_pong;
-                        ret
-                    } else {
-                        added_space_for_one_child as isize
-                    };
 
                     let current_width_of_child = width_calculated_arena[*variable_child_id].total();
 
@@ -484,22 +469,11 @@ macro_rules! typed_arena {(
                         let flex_grow_px = added_space_for_one_child - width_calculated_arena[*variable_child_id].min_inner_size_px;
                         width_calculated_arena[*variable_child_id].flex_grow_px = flex_grow_px;
                     }
-
-                    last_variable_child_id = Some(*variable_child_id);
                 }
 
                 // If we haven't violated any max_width constraints, then we have
                 // added all remaining widths and thereby successfully solved the layout
                 if max_width_violations.is_empty() {
-                    // if we will break out of the loop but the distributed space is still bigger than 0
-                    // the maximum error will be 1px, due to the ping-pong variable
-                    //
-                    // this complication allows us to use integer math for layout
-                    if total_horizontal_space_available > 0 {
-                        if let Some(last_variable_child) = last_variable_child_id {
-                            width_calculated_arena[last_variable_child].flex_grow_px += total_horizontal_space_available;
-                        }
-                    }
                     break;
                 } else {
                     // Nodes that were violated can't grow anymore in the next iteration,
@@ -523,7 +497,7 @@ macro_rules! typed_arena {(
             layout_positions: &NodeDataContainerRef<'a, LayoutPosition>,
             width_calculated_arena: &'a mut NodeDataContainerRefMut< $struct_name>,
             positioned_node_stack: &[NodeId],
-            root_width: isize
+            root_width: f32
         ) {
             // The inner space of the parent node, without the padding
             let parent_node_inner_width = {
@@ -549,7 +523,7 @@ macro_rules! typed_arena {(
                 };
 
                 let preferred_width = {
-                    let min_width = width_calculated_arena[child_id].$preferred_field.min_needed_space().unwrap_or(0);
+                    let min_width = width_calculated_arena[child_id].$preferred_field.min_needed_space().unwrap_or(0.0);
                     // In this case we want to overflow if the min width of the cross axis
                     if min_width > parent_node_inner_width {
                         min_width
@@ -572,7 +546,7 @@ macro_rules! typed_arena {(
             }
         }
 
-        debug_assert!(node_data[NodeId::ZERO].flex_grow_px == 0);
+        debug_assert!(node_data[NodeId::ZERO].flex_grow_px == 0.0);
 
         // Set the window width on the root node (since there is only one root node, we can
         // calculate the `flex_grow_px` directly)
@@ -625,8 +599,8 @@ macro_rules! typed_arena {(
         node_id: NodeId,
         node_hierarchy: &NodeDataContainerRef<'a, AzNode>,
         layout_positions: &NodeDataContainerRef<'a, LayoutPosition>,
-    ) -> isize {
-        let parent_width = node_data[node_id].$preferred_field.max_available_space().unwrap_or(0);
+    ) -> f32 {
+        let parent_width = node_data[node_id].$preferred_field.max_available_space().unwrap_or(0.0);
         node_id
             .az_children(node_hierarchy)
             .filter(|child_node_id| layout_positions[*child_node_id] != LayoutPosition::Absolute)
@@ -682,7 +656,7 @@ pub(crate) fn solve_flex_layout_width<'a, 'b>(
     layout_directions: &NodeDataContainerRef<'a, LayoutFlexDirection>,
     node_hierarchy: &'b NodeDataContainerRef<'a, AzNode>,
     node_depths: &[ParentWithNodeDepth],
-    window_width: isize,
+    window_width: f32,
     parents_to_recalc: &BTreeSet<NodeId>,
 ) {
     bubble_preferred_widths_to_parents(width_calculated_arena, node_hierarchy, layout_positions, node_depths);
@@ -697,7 +671,7 @@ pub(crate) fn solve_flex_layout_height<'a, 'b>(
     layout_directions: &NodeDataContainerRef<'a, LayoutFlexDirection>,
     node_hierarchy: &'b NodeDataContainerRef<'a, AzNode>,
     node_depths: &[ParentWithNodeDepth],
-    window_height: isize,
+    window_height: f32,
     parents_to_recalc: &BTreeSet<NodeId>,
 ) {
     bubble_preferred_heights_to_parents(height_calculated_arena, node_hierarchy, layout_positions, node_depths);
@@ -743,16 +717,16 @@ fn $fn_name<'a>(
         };
 
         let child_node = &solved_widths[child_id];
-        let child_node_parent_width = node_hierarchy[child_id].parent_id().map(|p| solved_widths[p].total()).unwrap_or(0) as f32;
-        let child_margin_left = child_node.$margin_left.and_then(|x| Some(x.get_property()?.inner.to_pixels(child_node_parent_width))).unwrap_or(0.0).round() as isize;
-        let child_margin_right = child_node.$margin_right.and_then(|x| Some(x.get_property()?.inner.to_pixels(child_node_parent_width))).unwrap_or(0.0).round() as isize;
+        let child_node_parent_width = node_hierarchy[child_id].parent_id().map(|p| solved_widths[p].total()).unwrap_or(0.0) as f32;
+        let child_margin_left = child_node.$margin_left.and_then(|x| Some(x.get_property()?.inner.to_pixels(child_node_parent_width))).unwrap_or(0.0);
+        let child_margin_right = child_node.$margin_right.and_then(|x| Some(x.get_property()?.inner.to_pixels(child_node_parent_width))).unwrap_or(0.0);
 
         let zero_node = NodeId::new(0);
         let last_relative_node_id = positioned_node_stack.get(positioned_node_stack.len() - 1).unwrap_or(&zero_node);
 
         let last_relative_node = &solved_widths[*last_relative_node_id];
-        let last_relative_padding_left = last_relative_node.$padding_left.and_then(|x| Some(x.get_property()?.inner.to_pixels(child_node_parent_width))).unwrap_or(0.0).round() as isize;
-        let last_relative_padding_right = last_relative_node.$padding_right.and_then(|x| Some(x.get_property()?.inner.to_pixels(child_node_parent_width))).unwrap_or(0.0).round() as isize;
+        let last_relative_padding_left = last_relative_node.$padding_left.and_then(|x| Some(x.get_property()?.inner.to_pixels(child_node_parent_width))).unwrap_or(0.0);
+        let last_relative_padding_right = last_relative_node.$padding_right.and_then(|x| Some(x.get_property()?.inner.to_pixels(child_node_parent_width))).unwrap_or(0.0);
 
         let last_relative_node_x = arena_solved_data[*last_relative_node_id].0 + last_relative_padding_left;
         let last_relative_node_inner_width = {
@@ -770,13 +744,13 @@ fn $fn_name<'a>(
                 + last_relative_node_inner_width
                 - child_width_with_padding
                 - child_margin_right
-                - child_right.round() as isize;
+                - child_right;
         } else {
             // align left / top of last relative parent
             arena_solved_data[child_id].0 =
                 last_relative_node_x
                 + child_margin_left
-                + child_left.unwrap_or(0.0).round() as isize;
+                + child_left.unwrap_or(0.0);
         }
     }
 
@@ -786,9 +760,9 @@ fn $fn_name<'a>(
         arena_solved_data: &mut NodeDataContainerRefMut<'a, $height_solved_position>,
         solved_widths: &NodeDataContainerRef<'a, $width_layout>,
         child_id: NodeId,
-        parent_x_position: isize,
-        parent_inner_width: isize,
-        sum_x_of_children_so_far: &mut isize,
+        parent_x_position: f32,
+        parent_inner_width: f32,
+        sum_x_of_children_so_far: &mut f32,
         positioned_node_stack: &[NodeId],
         node_hierarchy: &NodeDataContainerRef<'a, AzNode>,
     ) {
@@ -801,9 +775,9 @@ fn $fn_name<'a>(
 
         // width: increase X according to the main axis, Y according to the cross_axis
         let child_node = &solved_widths[child_id];
-        let child_node_parent_width = node_hierarchy[child_id].parent_id().map(|p| solved_widths[p].total()).unwrap_or(0) as f32;
-        let child_margin_left = child_node.$margin_left.and_then(|x| Some(x.get_property()?.inner.to_pixels(child_node_parent_width))).unwrap_or(0.0).round() as isize;
-        let child_margin_right = child_node.$margin_right.and_then(|x| Some(x.get_property()?.inner.to_pixels(child_node_parent_width))).unwrap_or(0.0).round() as isize;
+        let child_node_parent_width = node_hierarchy[child_id].parent_id().map(|p| solved_widths[p].total()).unwrap_or(0.0) as f32;
+        let child_margin_left = child_node.$margin_left.and_then(|x| Some(x.get_property()?.inner.to_pixels(child_node_parent_width))).unwrap_or(0.0);
+        let child_margin_right = child_node.$margin_right.and_then(|x| Some(x.get_property()?.inner.to_pixels(child_node_parent_width))).unwrap_or(0.0);
 
         if layout_positions[child_id] == LayoutPosition::Absolute {
             determine_child_x_absolute(
@@ -822,8 +796,8 @@ fn $fn_name<'a>(
                 },
                 Center => {
                     parent_x_position
-                    + ((parent_inner_width as f32 / 2.0).round() as isize
-                    - ((*sum_x_of_children_so_far + child_margin_right + child_width_with_padding) as f32 / 2.0).round() as isize)
+                    + ((parent_inner_width as f32 / 2.0)
+                    - ((*sum_x_of_children_so_far + child_margin_right + child_width_with_padding) as f32 / 2.0))
                 },
                 SpaceBetween => {
                     parent_x_position // TODO!
@@ -847,12 +821,12 @@ fn $fn_name<'a>(
         child_id: NodeId,
         positioned_node_stack: &[NodeId],
         arena_solved_data: &mut NodeDataContainerRefMut<'a, $height_solved_position>,
-        parent_x_position: isize,
+        parent_x_position: f32,
         node_hierarchy: &NodeDataContainerRef<'a, AzNode>
     ) {
         let child_node = &solved_widths[child_id];
-        let child_node_parent_width = node_hierarchy[child_id].parent_id().map(|p| solved_widths[p].total()).unwrap_or(0) as f32;
-        let child_margin_left = child_node.$margin_left.and_then(|x| Some(x.get_property()?.inner.to_pixels(child_node_parent_width))).unwrap_or(0.0).round() as isize;
+        let child_node_parent_width = node_hierarchy[child_id].parent_id().map(|p| solved_widths[p].total()).unwrap_or(0.0) as f32;
+        let child_margin_left = child_node.$margin_left.and_then(|x| Some(x.get_property()?.inner.to_pixels(child_node_parent_width))).unwrap_or(0.0);
 
         if layout_positions[child_id] == LayoutPosition::Absolute {
             determine_child_x_absolute(
@@ -877,9 +851,9 @@ fn $fn_name<'a>(
         let parent_id = match node_id.into_crate_internal() { Some(s) => s, None => continue, };
         if !parents_to_solve.contains(&parent_id) { continue; }
         let parent_node = &solved_widths[parent_id];
-        let parent_parent_width = node_hierarchy[parent_id].parent_id().map(|p| solved_widths[p].total()).unwrap_or(0) as f32;
-        let parent_padding_left = parent_node.$padding_left.and_then(|x| Some(x.get_property()?.inner.to_pixels(parent_parent_width))).unwrap_or(0.0) as isize;
-        let parent_padding_right = parent_node.$padding_right.and_then(|x| Some(x.get_property()?.inner.to_pixels(parent_parent_width))).unwrap_or(0.0) as isize;
+        let parent_parent_width = node_hierarchy[parent_id].parent_id().map(|p| solved_widths[p].total()).unwrap_or(0.0) as f32;
+        let parent_padding_left = parent_node.$padding_left.and_then(|x| Some(x.get_property()?.inner.to_pixels(parent_parent_width))).unwrap_or(0.0) as f32;
+        let parent_padding_right = parent_node.$padding_right.and_then(|x| Some(x.get_property()?.inner.to_pixels(parent_parent_width))).unwrap_or(0.0) as f32;
         let parent_x_position = arena[parent_id].0 + parent_padding_left;
         let parent_direction = layout_directions[parent_id];
 
@@ -896,7 +870,7 @@ fn $fn_name<'a>(
         if parent_direction.get_axis() == LayoutAxis::$axis {
             // Along main axis: Take X of parent
             let main_axis_alignment = layout_justify_contents[parent_id];
-            let mut sum_x_of_children_so_far = 0;
+            let mut sum_x_of_children_so_far = 0.0;
 
             if parent_direction.is_reverse() {
                 for child_id in parent_id.az_reverse_children(node_hierarchy) {
@@ -990,7 +964,7 @@ fn get_x_positions<'a>(
     layout_directions: &NodeDataContainerRef<'a, LayoutFlexDirection>,
     layout_justify_contents: &NodeDataContainerRef<'a, LayoutJustifyContent>,
     node_depths: &[ParentWithNodeDepth],
-    origin: LayoutPoint,
+    origin: LogicalPosition,
     parents_to_solve: &BTreeSet<NodeId>,
 ) {
     get_position!(
@@ -1021,7 +995,7 @@ fn get_y_positions<'a>(
     layout_directions: &NodeDataContainerRef<'a, LayoutFlexDirection>,
     layout_justify_contents: &NodeDataContainerRef<'a, LayoutJustifyContent>,
     node_depths: &[ParentWithNodeDepth],
-    origin: LayoutPoint,
+    origin: LogicalPosition,
     parents_to_solve: &BTreeSet<NodeId>,
 ) {
     get_position!(
@@ -1045,22 +1019,22 @@ fn get_y_positions<'a>(
 }
 
 #[inline]
-fn get_layout_positions<'a>(display_rects: &NodeDataContainerRef<'a, StyledNode>) -> NodeDataContainer<LayoutPosition> {
+pub fn get_layout_positions<'a>(display_rects: &NodeDataContainerRef<'a, StyledNode>) -> NodeDataContainer<LayoutPosition> {
     display_rects.transform(|node, _| node.layout.position.as_ref().copied().unwrap_or_default().get_property_or_default().unwrap_or_default())
 }
 
 #[inline]
-fn get_layout_justify_contents<'a>(display_rects: &NodeDataContainerRef<'a, StyledNode>) -> NodeDataContainer<LayoutJustifyContent> {
+pub fn get_layout_justify_contents<'a>(display_rects: &NodeDataContainerRef<'a, StyledNode>) -> NodeDataContainer<LayoutJustifyContent> {
     display_rects.transform(|node, _| node.layout.justify_content.as_ref().copied().unwrap_or_default().get_property_or_default().unwrap_or_default())
 }
 
 #[inline]
-fn get_layout_flex_directions<'a>(display_rects: &NodeDataContainerRef<'a, StyledNode>) -> NodeDataContainer<LayoutFlexDirection> {
+pub fn get_layout_flex_directions<'a>(display_rects: &NodeDataContainerRef<'a, StyledNode>) -> NodeDataContainer<LayoutFlexDirection> {
     display_rects.transform(|node, _| node.layout.direction.as_ref().copied().unwrap_or_default().get_property_or_default().unwrap_or_default())
 }
 
 #[inline]
-fn get_layout_flex_grows<'a>(display_rects: &NodeDataContainerRef<'a, StyledNode>) -> NodeDataContainer<f32> {
+pub fn get_layout_flex_grows<'a>(display_rects: &NodeDataContainerRef<'a, StyledNode>) -> NodeDataContainer<f32> {
     // Prevent flex-grow and flex-shrink to be less than 0
     display_rects.transform(|node, _| node.layout.flex_grow.as_ref()
     .and_then(|g| g.get_property().copied())
@@ -1121,14 +1095,14 @@ macro_rules! get_resolved_offsets {(
     $bottom:ident,
     $right:ident
 ) => (
-    fn $fn_name(layout: &RectLayout, scale_x: isize, scale_y: isize) -> ResolvedOffsets {
+    fn $fn_name(layout: &RectLayout, scale_x: f32, scale_y: f32) -> ResolvedOffsets {
         let scale_x = scale_x as f32;
         let scale_y = scale_y as f32;
         ResolvedOffsets {
-            left: layout.$left.as_ref().copied().unwrap_or_default().get_property_or_default().unwrap_or_default().inner.to_pixels(scale_x).round() as isize,
-            top: layout.$top.as_ref().copied().unwrap_or_default().get_property_or_default().unwrap_or_default().inner.to_pixels(scale_y).round() as isize,
-            bottom: layout.$bottom.as_ref().copied().unwrap_or_default().get_property_or_default().unwrap_or_default().inner.to_pixels(scale_y).round() as isize,
-            right: layout.$right.as_ref().copied().unwrap_or_default().get_property_or_default().unwrap_or_default().inner.to_pixels(scale_x).round() as isize,
+            left: layout.$left.as_ref().copied().unwrap_or_default().get_property_or_default().unwrap_or_default().inner.to_pixels(scale_x),
+            top: layout.$top.as_ref().copied().unwrap_or_default().get_property_or_default().unwrap_or_default().inner.to_pixels(scale_y),
+            bottom: layout.$bottom.as_ref().copied().unwrap_or_default().get_property_or_default().unwrap_or_default().inner.to_pixels(scale_y),
+            right: layout.$right.as_ref().copied().unwrap_or_default().get_property_or_default().unwrap_or_default().inner.to_pixels(scale_x),
         }
     }
 )}
@@ -1148,10 +1122,8 @@ pub fn do_the_layout<U: FontImageApi>(
 ) -> Vec<LayoutResult> {
 
     let mut current_dom_id = 0;
-    let window_size = LayoutSize::new(full_window_state.size.dimensions.width.round() as isize, full_window_state.size.dimensions.height.round() as isize);
-
     let mut doms = vec![
-        (None, DomId { inner: current_dom_id }, styled_dom, LayoutRect::new(LayoutPoint::zero(), window_size)),
+        (None, DomId { inner: current_dom_id }, styled_dom, LogicalRect::new(LogicalPosition::zero(), full_window_state.size.dimensions)),
     ];
     let mut resolved_doms = Vec::new();
 
@@ -1203,7 +1175,8 @@ pub fn do_the_layout<U: FontImageApi>(
                 iframe_mapping.insert(*node_id, iframe_dom_id);
 
                 let bounds = &layout_result.rects.as_ref()[*node_id];
-                let hidpi_bounds = HidpiAdjustedBounds::from_bounds(bounds.size, full_window_state.size.hidpi_factor);
+                let bounds_size = LayoutSize::new(bounds.size.width.round() as isize, bounds.size.height.round() as isize);
+                let hidpi_bounds = HidpiAdjustedBounds::from_bounds(bounds_size, full_window_state.size.hidpi_factor);
 
                 // Invoke the IFrame callback
                 let iframe_return: IFrameCallbackReturn = {
@@ -1234,9 +1207,7 @@ pub fn do_the_layout<U: FontImageApi>(
                     }
                 }
 
-                let iframe_size = hidpi_bounds.get_logical_size();
-                let iframe_size = LayoutSize::new(iframe_size.width.round() as isize, iframe_size.height.round() as isize);
-                let bounds = LayoutRect::new(LayoutPoint::zero(), iframe_size); // TODO: use the iframe static position here?
+                let bounds = LogicalRect::new(LogicalPosition::zero(), hidpi_bounds.get_logical_size()); // TODO: use the iframe static position here?
                 // push the styled iframe dom into the next iframes and repeat (recurse)
                 new_doms.push((Some(dom_id), iframe_dom_id, iframe_dom, bounds));
             }
@@ -1263,7 +1234,7 @@ pub fn do_the_layout_internal(
     styled_dom: StyledDom,
     app_resources: &mut AppResources,
     pipeline_id: PipelineId,
-    bounds: LayoutRect
+    bounds: LogicalRect
 ) -> LayoutResult {
 
     println!("do_the_layout on {} nodes!", styled_dom.styled_nodes.len());
@@ -1360,7 +1331,7 @@ pub fn do_the_layout_internal(
         &all_parents_btreeset,
     );
 
-    let mut x_positions = NodeDataContainer::new(vec![HorizontalSolvedPosition(0); styled_dom.node_data.as_ref().len()]);
+    let mut x_positions = NodeDataContainer::new(vec![HorizontalSolvedPosition(0.0); styled_dom.node_data.as_ref().len()]);
     get_x_positions(
         &mut x_positions.as_ref_mut(),
         &width_calculated_arena.as_ref(),
@@ -1373,7 +1344,7 @@ pub fn do_the_layout_internal(
         &all_parents_btreeset,
     );
 
-    let mut y_positions = NodeDataContainer::new(vec![VerticalSolvedPosition(0); styled_dom.node_data.as_ref().len()]);
+    let mut y_positions = NodeDataContainer::new(vec![VerticalSolvedPosition(0.0); styled_dom.node_data.as_ref().len()]);
     get_y_positions(
         &mut y_positions.as_ref_mut(),
         &height_calculated_arena.as_ref(),
@@ -1423,8 +1394,8 @@ pub fn do_the_layout_internal(
         dom_id,
         parent_dom_id,
         styled_dom,
-        root_size: rect_size,
-        root_position: rect_offset,
+        root_size: LayoutSize::new(rect_size.width.round() as isize, rect_size.height.round() as isize),
+        root_position: LayoutPoint::new(rect_offset.x.round() as isize, rect_offset.y.round() as isize),
         preferred_widths: content_widths_pre,
         preferred_heights: content_heights_pre,
         width_calculated_rects: width_calculated_arena,
@@ -1520,13 +1491,16 @@ fn position_nodes<'a>(
                 static_y_offset: y_pos,
             },
         };
-        let parent_size = LayoutSize::new(width.total(), height.total());
+        let parent_size = LogicalSize::new(width.total(), height.total());
         let parent_padding = get_padding(&parent_rect_layout, parent_parent_width.total(), parent_parent_height.total());
         let parent_margin = get_margin(&parent_rect_layout, parent_parent_width.total(), parent_parent_height.total());
         let parent_border_widths = get_border_widths(&parent_rect_layout, parent_parent_width.total(), parent_parent_height.total());
-        let parent_parent_size = LayoutSize::new(parent_parent_width.total(), parent_parent_height.total());
+        let parent_parent_size = LogicalSize::new(parent_parent_width.total(), parent_parent_height.total());
 
-        let parent_sum_rect = LayoutRect::new(LayoutPoint::new(x_pos, y_pos), parent_size);
+        let parent_sum_rect = LayoutRect::new(
+            LayoutPoint::new(x_pos.round() as isize, y_pos.round() as isize),
+            LayoutSize::new(width.total().round() as isize, height.total().round() as isize),
+        );
         let mut children_sum_rects = Vec::new();
 
         // push positioned item and layout children
@@ -1598,9 +1572,9 @@ fn position_nodes<'a>(
                 },
             };
 
-            let parent_size = LayoutSize::new(parent_width.total(), parent_height.total());
-            let child_size = LayoutSize::new(width.total(), height.total());
-            let child_rect = LayoutRect::new(LayoutPoint::new(x_pos, y_pos), child_size);
+            let parent_size = LogicalSize::new(parent_width.total(), parent_height.total());
+            let child_size = LayoutSize::new(width.total().round() as isize, height.total().round() as isize);
+            let child_rect = LayoutRect::new(LayoutPoint::new(x_pos.round() as isize, y_pos.round() as isize), child_size);
 
             children_sum_rects.push(child_rect);
 
@@ -1629,7 +1603,7 @@ fn position_nodes<'a>(
             let child_overflow = get_overflow(&child_rect_layout, &child_rect, &None);
 
             positioned_rects[child_node_id] = PositionedRectangle {
-                size: child_size,
+                size: LogicalSize::new(width.total(), height.total()),
                 position: child_position,
                 padding: child_padding,
                 margin: child_margin,
@@ -1843,7 +1817,7 @@ fn get_nodes_that_need_scroll_clip(
                 // overflow in y, but not in x direction
                 match overflow_y {
                     DirectionalOverflowInfo::Scroll { amount: Some(s) } | DirectionalOverflowInfo::Auto { amount: Some(s) } => {
-                        Some(LayoutRect::new(LayoutPoint::zero(), LayoutSize::new(parent_rect.size.width, parent_rect.size.height + *s)))
+                        Some(LayoutRect::new(LayoutPoint::zero(), LayoutSize::new(parent_rect.size.width.round() as isize, parent_rect.size.height.round() as isize + *s)))
                     },
                     _ => None
                 }
@@ -1853,7 +1827,7 @@ fn get_nodes_that_need_scroll_clip(
                 // overflow in x, but not in y direction
                 match overflow_x {
                     DirectionalOverflowInfo::Scroll { amount: Some(s) } | DirectionalOverflowInfo::Auto { amount: Some(s) } => {
-                        Some(LayoutRect::new(LayoutPoint::zero(), LayoutSize::new(parent_rect.size.width + *s, parent_rect.size.height)))
+                        Some(LayoutRect::new(LayoutPoint::zero(), LayoutSize::new(parent_rect.size.width.round() as isize + *s, parent_rect.size.height.round() as isize)))
                     },
                     _ => None
                 }
@@ -1863,7 +1837,7 @@ fn get_nodes_that_need_scroll_clip(
                     DirectionalOverflowInfo::Scroll { amount: Some(q) } | DirectionalOverflowInfo::Auto { amount: Some(q) } => {
                         match overflow_y {
                             DirectionalOverflowInfo::Scroll { amount: Some(s) } | DirectionalOverflowInfo::Auto { amount: Some(s) } => {
-                                Some(LayoutRect::new(LayoutPoint::zero(), LayoutSize::new(parent_rect.size.width + *q, parent_rect.size.height + *s)))
+                                Some(LayoutRect::new(LayoutPoint::zero(), LayoutSize::new(parent_rect.size.width.round() as isize + *q, parent_rect.size.height.round() as isize + *s)))
                             },
                             _ => None
                         }
@@ -2021,8 +1995,8 @@ pub fn do_the_relayout(
             Some(s) => s,
         };
 
-        let mut preferred_width_changed = (false, 0);
-        let mut preferred_height_changed = (false, 0);
+        let mut preferred_width_changed = (false, 0.0);
+        let mut preferred_height_changed = (false, 0.0);
         let mut padding_x_changed = false;
         let mut padding_y_changed = false;
         let mut margin_x_changed = false;
@@ -2034,10 +2008,10 @@ pub fn do_the_relayout(
         if changes_for_this_node.contains_key(&CssPropertyType::MinWidth) ||
            changes_for_this_node.contains_key(&CssPropertyType::MaxWidth) ||
            changes_for_this_node.contains_key(&CssPropertyType::Width) {
-            let parent_width = layout_result.preferred_widths.as_ref()[parent_id].clone().unwrap_or(root_size.width);
+            let parent_width = layout_result.preferred_widths.as_ref()[parent_id].clone().unwrap_or(root_size.width as f32);
             let new_preferred_width = determine_preferred_width(&layout_result.styled_dom.styled_nodes.as_container()[node_id], layout_result.preferred_widths.as_ref()[node_id], parent_width);
             if new_preferred_width != solved_width_layout.preferred_width {
-                preferred_width_changed = (true, solved_width_layout.preferred_width.min_needed_space().unwrap_or(0));
+                preferred_width_changed = (true, solved_width_layout.preferred_width.min_needed_space().unwrap_or(0.0));
                 solved_width_layout.preferred_width = new_preferred_width;
             }
         }
@@ -2045,10 +2019,10 @@ pub fn do_the_relayout(
         if changes_for_this_node.contains_key(&CssPropertyType::MinHeight) ||
            changes_for_this_node.contains_key(&CssPropertyType::MaxHeight) ||
            changes_for_this_node.contains_key(&CssPropertyType::Height) {
-            let parent_height = layout_result.preferred_heights.as_ref()[parent_id].clone().unwrap_or(root_size.height);
+            let parent_height = layout_result.preferred_heights.as_ref()[parent_id].clone().unwrap_or(root_size.height as f32);
             let new_preferred_height = determine_preferred_height(&layout_result.styled_dom.styled_nodes.as_container()[node_id], layout_result.preferred_heights.as_ref()[node_id], parent_height);
             if new_preferred_height != solved_height_layout.preferred_height {
-                preferred_height_changed = (true, solved_height_layout.preferred_height.min_needed_space().unwrap_or(0));
+                preferred_height_changed = (true, solved_height_layout.preferred_height.min_needed_space().unwrap_or(0.0));
                 solved_height_layout.preferred_height = new_preferred_height;
             }
         }
@@ -2206,10 +2180,10 @@ pub fn do_the_relayout(
     for (node_id, old_preferred_width) in nodes_that_need_to_bubble_width.iter() {
         if let Some(parent_id) = layout_result.styled_dom.node_hierarchy.as_container()[*node_id].parent_id() {
             let new_preferred_width = layout_result.width_calculated_rects.as_ref()[*node_id].preferred_width;
-            let change = new_preferred_width.min_needed_space().unwrap_or(0) - old_preferred_width;
+            let change = new_preferred_width.min_needed_space().unwrap_or(0.0) - old_preferred_width;
             layout_result.width_calculated_rects.as_ref_mut()[parent_id].min_inner_size_px += change;
-            if change != 0 {
-                *rebubble_parent_widths.entry(parent_id).or_insert_with(|| 0) += change;
+            if change != 0.0 {
+                *rebubble_parent_widths.entry(parent_id).or_insert_with(|| 0.0) += change;
                 parents_that_need_to_recalc_width_of_children.insert(parent_id);
             }
         }
@@ -2220,10 +2194,10 @@ pub fn do_the_relayout(
     for (node_id, old_preferred_height) in nodes_that_need_to_bubble_height.iter() {
         if let Some(parent_id) = layout_result.styled_dom.node_hierarchy.as_container()[*node_id].parent_id() {
             let new_preferred_height = layout_result.height_calculated_rects.as_ref()[*node_id].preferred_height;
-            let change = new_preferred_height.min_needed_space().unwrap_or(0) - old_preferred_height;
+            let change = new_preferred_height.min_needed_space().unwrap_or(0.0) - old_preferred_height;
             layout_result.height_calculated_rects.as_ref_mut()[parent_id].min_inner_size_px += change;
-            if change != 0 {
-                *rebubble_parent_heights.entry(parent_id).or_insert_with(|| 0) += change;
+            if change != 0.0 {
+                *rebubble_parent_heights.entry(parent_id).or_insert_with(|| 0.0) += change;
                 parents_that_need_to_recalc_height_of_children.insert(parent_id);
             }
         }
@@ -2237,7 +2211,7 @@ pub fn do_the_relayout(
         if let Some(change_amount) = rebubble_parent_widths.remove(&node_id) {
             layout_result.width_calculated_rects.as_ref_mut()[node_id].min_inner_size_px += change_amount;
             if let Some(parent_id) = layout_result.styled_dom.node_hierarchy.as_container()[node_id].parent_id() {
-                *rebubble_parent_widths.entry(parent_id).or_insert_with(|| 0) += change_amount;
+                *rebubble_parent_widths.entry(parent_id).or_insert_with(|| 0.0) += change_amount;
                 parents_that_need_to_recalc_width_of_children.insert(parent_id);
             }
         }
@@ -2245,7 +2219,7 @@ pub fn do_the_relayout(
         if let Some(change_amount) = rebubble_parent_heights.remove(&node_id) {
             layout_result.height_calculated_rects.as_ref_mut()[node_id].min_inner_size_px += change_amount;
             if let Some(parent_id) = layout_result.styled_dom.node_hierarchy.as_container()[node_id].parent_id() {
-                *rebubble_parent_heights.entry(parent_id).or_insert_with(|| 0) += change_amount;
+                *rebubble_parent_heights.entry(parent_id).or_insert_with(|| 0.0) += change_amount;
                 parents_that_need_to_recalc_height_of_children.insert(parent_id);
             }
         }
@@ -2261,7 +2235,7 @@ pub fn do_the_relayout(
         &layout_result.layout_positions.as_ref(),
         &layout_result.layout_flex_directions.as_ref(),
         &layout_result.styled_dom.non_leaf_nodes.as_ref(),
-        root_size.width,
+        root_size.width as f32,
         &parents_that_need_to_recalc_width_of_children // <- important - only recalc the widths necessary!
     );
 
@@ -2272,7 +2246,7 @@ pub fn do_the_relayout(
         &layout_result.layout_positions.as_ref(),
         &layout_result.layout_flex_directions.as_ref(),
         &layout_result.styled_dom.non_leaf_nodes.as_ref(),
-        root_size.height,
+        root_size.height as f32,
         &parents_that_need_to_recalc_height_of_children // <- important - only recalc the heights necessary!
     );
 
@@ -2286,7 +2260,7 @@ pub fn do_the_relayout(
         &layout_result.layout_flex_directions.as_ref(),
         &layout_result.layout_justify_contents.as_ref(),
         &layout_result.styled_dom.non_leaf_nodes.as_ref(),
-        root_bounds.origin.clone(),
+        LogicalPosition::new(root_bounds.origin.x as f32, root_bounds.origin.y as f32),
         &parents_that_need_to_reposition_children_x, // <- important
     );
 
@@ -2298,7 +2272,7 @@ pub fn do_the_relayout(
         &layout_result.layout_flex_directions.as_ref(),
         &layout_result.layout_justify_contents.as_ref(),
         &layout_result.styled_dom.non_leaf_nodes.as_ref(),
-        root_bounds.origin.clone(),
+        LogicalPosition::new(root_bounds.origin.x as f32, root_bounds.origin.y as f32),
         &parents_that_need_to_reposition_children_y, // <- important
     );
 

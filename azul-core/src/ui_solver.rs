@@ -13,7 +13,7 @@ use crate::{
     id_tree::{NodeId, NodeDataContainer},
     dom::{DomHash, ScrollTagId},
     callbacks::{PipelineId, HitTestItem, ScrollHitTestItem},
-    window::{ScrollStates, LogicalRect},
+    window::{ScrollStates, LogicalRect, LogicalSize},
 };
 
 pub const DEFAULT_FONT_SIZE_PX: isize = 16;
@@ -104,7 +104,7 @@ impl InlineTextLayout {
     }
 
     /// Align the lines vertical to *their parents container*
-    pub fn align_children_vertical_in_parent_bounds(&mut self, parent_size: &LayoutSize, vertical_alignment: StyleTextAlignmentVert) {
+    pub fn align_children_vertical_in_parent_bounds(&mut self, parent_size: &LogicalSize, vertical_alignment: StyleTextAlignmentVert) {
 
         let shift_multiplier = match calculate_vertical_shift_multiplier(vertical_alignment) {
             None =>  return,
@@ -114,7 +114,7 @@ impl InlineTextLayout {
         let self_bounds = self.get_bounds();
         let child_bottom_edge = (self_bounds.origin.y + self_bounds.size.height) as f32;
         let child_top_edge = self_bounds.origin.y as f32;
-        let shift = child_top_edge + (parent_size.height as f32 - child_bottom_edge);
+        let shift = child_top_edge + (parent_size.height - child_bottom_edge);
 
         for line in self.lines.iter_mut() {
             line.bounds.origin.y += shift * shift_multiplier;
@@ -175,9 +175,9 @@ pub struct OverflowingScrollNode {
 #[derive(Debug, Copy, Clone, PartialEq)]
 pub enum WhConstraint {
     /// between min, max
-    Between(isize, isize),
+    Between(f32, f32),
     /// Value needs to be exactly X
-    EqualTo(isize),
+    EqualTo(f32),
     /// Value can be anything
     Unconstrained,
 }
@@ -190,7 +190,7 @@ impl WhConstraint {
 
     /// Returns the minimum value or 0 on `Unconstrained`
     /// (warning: this might not be what you want)
-    pub fn min_needed_space(&self) -> Option<isize> {
+    pub fn min_needed_space(&self) -> Option<f32> {
         use self::WhConstraint::*;
         match self {
             Between(min, _) => Some(*min),
@@ -201,7 +201,7 @@ impl WhConstraint {
 
     /// Returns the maximum space until the constraint is violated - returns
     /// `None` if the constraint is unbounded
-    pub fn max_available_space(&self) -> Option<isize> {
+    pub fn max_available_space(&self) -> Option<f32> {
         use self::WhConstraint::*;
         match self {
             Between(_, max) => { Some(*max) },
@@ -229,30 +229,28 @@ pub struct WidthCalculatedRect {
     pub padding_left: Option<CssPropertyValue<LayoutPaddingLeft>>,
     pub left: Option<CssPropertyValue<LayoutLeft>>,
     pub right: Option<CssPropertyValue<LayoutRight>>,
-    pub flex_grow_px: isize,
-    pub min_inner_size_px: isize,
+    pub flex_grow_px: f32,
+    pub min_inner_size_px: f32,
 }
 
 impl WidthCalculatedRect {
     /// Get the flex basis in the horizontal direction - vertical axis has to be calculated differently
-    pub fn get_flex_basis_horizontal(&self, parent_width: isize) -> isize {
-        let parent_width = parent_width as f32;
-        self.preferred_width.min_needed_space().unwrap_or(0) +
-        self.margin_left.as_ref().and_then(|p| p.get_property().map(|px| px.inner.to_pixels(parent_width))).unwrap_or(0.0) as isize +
-        self.margin_right.as_ref().and_then(|p| p.get_property().map(|px| px.inner.to_pixels(parent_width))).unwrap_or(0.0) as isize +
-        self.padding_left.as_ref().and_then(|p| p.get_property().map(|px| px.inner.to_pixels(parent_width))).unwrap_or(0.0) as isize +
-        self.padding_right.as_ref().and_then(|p| p.get_property().map(|px| px.inner.to_pixels(parent_width))).unwrap_or(0.0) as isize
+    pub fn get_flex_basis_horizontal(&self, parent_width: f32) -> f32 {
+        self.preferred_width.min_needed_space().unwrap_or(0.0) +
+        self.margin_left.as_ref().and_then(|p| p.get_property().map(|px| px.inner.to_pixels(parent_width))).unwrap_or(0.0) +
+        self.margin_right.as_ref().and_then(|p| p.get_property().map(|px| px.inner.to_pixels(parent_width))).unwrap_or(0.0) +
+        self.padding_left.as_ref().and_then(|p| p.get_property().map(|px| px.inner.to_pixels(parent_width))).unwrap_or(0.0) +
+        self.padding_right.as_ref().and_then(|p| p.get_property().map(|px| px.inner.to_pixels(parent_width))).unwrap_or(0.0)
     }
 
     /// Get the sum of the horizontal padding amount (`padding.left + padding.right`)
-    pub fn get_horizontal_padding(&self, parent_width: isize) -> isize {
-        let parent_width = parent_width as f32;
-        self.padding_left.as_ref().and_then(|p| p.get_property().map(|px| px.inner.to_pixels(parent_width))).unwrap_or(0.0) as isize +
-        self.padding_right.as_ref().and_then(|p| p.get_property().map(|px| px.inner.to_pixels(parent_width))).unwrap_or(0.0) as isize
+    pub fn get_horizontal_padding(&self, parent_width: f32) -> f32 {
+        self.padding_left.as_ref().and_then(|p| p.get_property().map(|px| px.inner.to_pixels(parent_width))).unwrap_or(0.0) +
+        self.padding_right.as_ref().and_then(|p| p.get_property().map(|px| px.inner.to_pixels(parent_width))).unwrap_or(0.0)
     }
 
     /// Called after solver has run: Solved width of rectangle
-    pub fn total(&self) -> isize {
+    pub fn total(&self) -> f32 {
         self.min_inner_size_px + self.flex_grow_px
     }
 
@@ -273,30 +271,29 @@ pub struct HeightCalculatedRect {
     pub padding_bottom: Option<CssPropertyValue<LayoutPaddingBottom>>,
     pub top: Option<CssPropertyValue<LayoutTop>>,
     pub bottom: Option<CssPropertyValue<LayoutBottom>>,
-    pub flex_grow_px: isize,
-    pub min_inner_size_px: isize,
+    pub flex_grow_px: f32,
+    pub min_inner_size_px: f32,
 }
 
 impl HeightCalculatedRect {
     /// Get the flex basis in the horizontal direction - vertical axis has to be calculated differently
-    pub fn get_flex_basis_vertical(&self, parent_height: isize) -> isize {
+    pub fn get_flex_basis_vertical(&self, parent_height: f32) -> f32 {
         let parent_height = parent_height as f32;
-        self.preferred_height.min_needed_space().unwrap_or(0) +
-        self.margin_top.as_ref().and_then(|p| p.get_property().map(|px| px.inner.to_pixels(parent_height))).unwrap_or(0.0) as isize +
-        self.margin_bottom.as_ref().and_then(|p| p.get_property().map(|px| px.inner.to_pixels(parent_height))).unwrap_or(0.0) as isize +
-        self.padding_top.as_ref().and_then(|p| p.get_property().map(|px| px.inner.to_pixels(parent_height))).unwrap_or(0.0) as isize +
-        self.padding_bottom.as_ref().and_then(|p| p.get_property().map(|px| px.inner.to_pixels(parent_height))).unwrap_or(0.0) as isize
+        self.preferred_height.min_needed_space().unwrap_or(0.0) +
+        self.margin_top.as_ref().and_then(|p| p.get_property().map(|px| px.inner.to_pixels(parent_height))).unwrap_or(0.0) +
+        self.margin_bottom.as_ref().and_then(|p| p.get_property().map(|px| px.inner.to_pixels(parent_height))).unwrap_or(0.0) +
+        self.padding_top.as_ref().and_then(|p| p.get_property().map(|px| px.inner.to_pixels(parent_height))).unwrap_or(0.0) +
+        self.padding_bottom.as_ref().and_then(|p| p.get_property().map(|px| px.inner.to_pixels(parent_height))).unwrap_or(0.0)
     }
 
     /// Get the sum of the horizontal padding amount (`padding_top + padding_bottom`)
-    pub fn get_vertical_padding(&self, parent_height: isize) -> isize {
-        let parent_height = parent_height as f32;
-        self.padding_top.as_ref().and_then(|p| p.get_property().map(|px| px.inner.to_pixels(parent_height))).unwrap_or(0.0) as isize +
-        self.padding_bottom.as_ref().and_then(|p| p.get_property().map(|px| px.inner.to_pixels(parent_height))).unwrap_or(0.0) as isize
+    pub fn get_vertical_padding(&self, parent_height: f32) -> f32 {
+        self.padding_top.as_ref().and_then(|p| p.get_property().map(|px| px.inner.to_pixels(parent_height))).unwrap_or(0.0) +
+        self.padding_bottom.as_ref().and_then(|p| p.get_property().map(|px| px.inner.to_pixels(parent_height))).unwrap_or(0.0)
     }
 
     /// Called after solver has run: Solved height of rectangle
-    pub fn total(&self) -> isize {
+    pub fn total(&self) -> f32 {
         self.min_inner_size_px + self.flex_grow_px
     }
 
@@ -311,23 +308,23 @@ impl HeightCalculatedRect {
 
 #[derive(Debug, Copy, Clone, PartialEq)]
 pub struct WidthSolvedResult {
-    pub min_width: isize,
-    pub space_added: isize,
+    pub min_width: f32,
+    pub space_added: f32,
 }
 
 #[derive(Debug, Copy, Clone, PartialEq)]
 pub struct HeightSolvedResult {
-    pub min_height: isize,
-    pub space_added: isize,
+    pub min_height: f32,
+    pub space_added: f32,
 }
 
 #[repr(transparent)]
 #[derive(Debug, Copy, Clone, PartialEq, PartialOrd)]
-pub struct HorizontalSolvedPosition(pub isize);
+pub struct HorizontalSolvedPosition(pub f32);
 
 #[repr(transparent)]
 #[derive(Debug, Copy, Clone, PartialEq, PartialOrd)]
-pub struct VerticalSolvedPosition(pub isize);
+pub struct VerticalSolvedPosition(pub f32);
 
 #[derive(Debug, Clone)]
 pub struct LayoutResult {
@@ -336,8 +333,8 @@ pub struct LayoutResult {
     pub styled_dom: StyledDom,
     pub root_size: LayoutSize,
     pub root_position: LayoutPoint,
-    pub preferred_widths: NodeDataContainer<Option<isize>>,
-    pub preferred_heights: NodeDataContainer<Option<isize>>,
+    pub preferred_widths: NodeDataContainer<Option<f32>>,
+    pub preferred_heights: NodeDataContainer<Option<f32>>,
     pub width_calculated_rects: NodeDataContainer<WidthCalculatedRect>,
     pub height_calculated_rects: NodeDataContainer<HeightCalculatedRect>,
     pub solved_pos_x: NodeDataContainer<HorizontalSolvedPosition>,
@@ -482,22 +479,22 @@ pub struct ResolvedTextLayoutOptions {
 
 #[derive(Debug, Default, Copy, Clone, PartialEq, PartialOrd)]
 pub struct ResolvedOffsets {
-    pub top: isize,
-    pub left: isize,
-    pub right: isize,
-    pub bottom: isize,
+    pub top: f32,
+    pub left: f32,
+    pub right: f32,
+    pub bottom: f32,
 }
 
 impl ResolvedOffsets {
-    pub const fn zero() -> Self { Self { top: 0, left: 0, right: 0, bottom: 0 } }
-    pub fn total_vertical(&self) -> isize { self.top + self.bottom }
-    pub fn total_horizontal(&self) -> isize { self.left + self.right }
+    pub const fn zero() -> Self { Self { top: 0.0, left: 0.0, right: 0.0, bottom: 0.0 } }
+    pub fn total_vertical(&self) -> f32 { self.top + self.bottom }
+    pub fn total_horizontal(&self) -> f32 { self.left + self.right }
 }
 
 #[derive(Debug, Clone, PartialEq, PartialOrd)]
 pub struct PositionedRectangle {
     /// Outer bounds of the rectangle
-    pub size: LayoutSize,
+    pub size: LogicalSize,
     /// How the rectangle should be positioned
     pub position: PositionInfo,
     /// Padding of the rectangle
@@ -516,8 +513,8 @@ pub struct PositionedRectangle {
 impl Default for PositionedRectangle {
     fn default() -> Self {
         PositionedRectangle {
-            size: LayoutSize::zero(),
-            position: PositionInfo::Static { x_offset: 0, y_offset: 0, static_x_offset: 0, static_y_offset: 0 },
+            size: LogicalSize::zero(),
+            position: PositionInfo::Static { x_offset: 0.0, y_offset: 0.0, static_x_offset: 0.0, static_y_offset: 0.0 },
             padding: ResolvedOffsets::zero(),
             margin: ResolvedOffsets::zero(),
             border_widths: ResolvedOffsets::zero(),
@@ -587,10 +584,10 @@ impl DirectionalOverflowInfo {
 }
 #[derive(Debug, Copy, Clone, PartialEq, PartialOrd)]
 pub enum PositionInfo {
-    Static { x_offset: isize, y_offset: isize, static_x_offset: isize, static_y_offset: isize },
-    Fixed { x_offset: isize, y_offset: isize, static_x_offset: isize, static_y_offset: isize },
-    Absolute { x_offset: isize, y_offset: isize, static_x_offset: isize, static_y_offset: isize },
-    Relative { x_offset: isize, y_offset: isize, static_x_offset: isize, static_y_offset: isize },
+    Static { x_offset: f32, y_offset: f32, static_x_offset: f32, static_y_offset: f32 },
+    Fixed { x_offset: f32, y_offset: f32, static_x_offset: f32, static_y_offset: f32 },
+    Absolute { x_offset: f32, y_offset: f32, static_x_offset: f32, static_y_offset: f32 },
+    Relative { x_offset: f32, y_offset: f32, static_x_offset: f32, static_y_offset: f32 },
 }
 
 impl PositionInfo {
@@ -608,26 +605,30 @@ impl PositionedRectangle {
     pub fn get_static_bounds(&self) -> Option<LayoutRect> {
         match self.position {
             PositionInfo::Static { static_x_offset, static_y_offset, .. }     => Some(LayoutRect::new(
-                LayoutPoint::new(static_x_offset, static_y_offset), self.size
+                LayoutPoint::new(static_x_offset.round() as isize, static_y_offset.round() as isize),
+                self.get_content_size()
             )),
             PositionInfo::Fixed { .. }      => None,
             PositionInfo::Absolute { .. }   => None, // TODO?
             PositionInfo::Relative { static_x_offset, static_y_offset, .. }   => Some(LayoutRect::new(
-                LayoutPoint::new(static_x_offset, static_y_offset), self.size
+                LayoutPoint::new(static_x_offset.round() as isize, static_y_offset.round() as isize),
+                self.get_content_size()
             )),
         }
     }
 
-    pub const fn get_approximate_static_bounds(&self) -> LayoutRect {
-        LayoutRect::new(self.get_static_offset(), self.size)
+    pub fn get_approximate_static_bounds(&self) -> LayoutRect {
+        LayoutRect::new(self.get_static_offset(), self.get_content_size())
     }
 
-    pub const fn get_static_offset(&self) -> LayoutPoint {
+    pub fn get_static_offset(&self) -> LayoutPoint {
         match self.position {
             PositionInfo::Static { static_x_offset, static_y_offset, .. } |
             PositionInfo::Fixed { static_x_offset, static_y_offset, .. } |
             PositionInfo::Absolute { static_x_offset, static_y_offset, .. } |
-            PositionInfo::Relative { static_x_offset, static_y_offset, .. } => LayoutPoint::new(static_x_offset, static_y_offset),
+            PositionInfo::Relative { static_x_offset, static_y_offset, .. } => {
+                LayoutPoint::new(static_x_offset.round() as isize, static_y_offset.round() as isize)
+            },
         }
     }
 
@@ -643,22 +644,22 @@ impl PositionedRectangle {
     }
 
     // Returns the rect where the content should be placed (for example the text itself)
-    pub const fn get_content_size(&self) -> LayoutSize {
-        self.size
+    pub fn get_content_size(&self) -> LayoutSize {
+        LayoutSize::new(self.size.width.round() as isize, self.size.height.round() as isize)
     }
 
     // Returns the rect that includes bounds, expanded by the padding + the border widths
-    pub fn get_background_bounds(&self) -> (LayoutSize, PositionInfo) {
+    pub fn get_background_bounds(&self) -> (LogicalSize, PositionInfo) {
 
         use crate::ui_solver::PositionInfo::*;
 
-        let b_size = LayoutSize {
+        let b_size = LogicalSize {
             width: self.size.width + self.padding.total_horizontal() + self.border_widths.total_horizontal(),
             height: self.size.height + self.padding.total_vertical() + self.border_widths.total_vertical(),
         };
 
-        let x_offset_add = 0 - self.padding.left - self.border_widths.left;
-        let y_offset_add = 0 - self.padding.top - self.border_widths.top;
+        let x_offset_add = 0.0 - self.padding.left - self.border_widths.left;
+        let y_offset_add = 0.0 - self.padding.top - self.border_widths.top;
 
         let b_position = match self.position {
             Static { x_offset, y_offset, static_x_offset, static_y_offset } => Static { x_offset: x_offset + x_offset_add, y_offset: y_offset + y_offset_add, static_x_offset, static_y_offset },
@@ -670,27 +671,27 @@ impl PositionedRectangle {
         (b_size, b_position)
     }
 
-    pub fn get_margin_box_width(&self) -> isize {
+    pub fn get_margin_box_width(&self) -> f32 {
         self.size.width +
         self.padding.total_horizontal() +
         self.border_widths.total_horizontal() +
         self.margin.total_horizontal()
     }
 
-    pub fn get_margin_box_height(&self) -> isize {
+    pub fn get_margin_box_height(&self) -> f32 {
         self.size.height +
         self.padding.total_vertical() +
         self.border_widths.total_vertical() +
         self.margin.total_vertical()
     }
 
-    pub fn get_left_leading(&self) -> isize {
+    pub fn get_left_leading(&self) -> f32 {
         self.margin.left +
         self.padding.left +
         self.border_widths.left
     }
 
-    pub fn get_top_leading(&self) -> isize {
+    pub fn get_top_leading(&self) -> f32 {
         self.margin.top +
         self.padding.top +
         self.border_widths.top
@@ -702,7 +703,7 @@ impl PositionedRectangle {
 #[derive(Debug, Copy, Clone, PartialEq, PartialOrd)]
 pub struct LayoutedRectangle {
     /// Outer bounds of the rectangle
-    pub size: LayoutSize,
+    pub size: LogicalSize,
     /// How the rectangle should be positioned
     pub position: PositionInfo,
     /// Padding of the rectangle

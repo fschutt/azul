@@ -847,12 +847,12 @@ pub const fn wr_translate_color_f(input: CssColorF) -> WrColorF {
 }
 
 #[inline]
-pub fn wr_translate_border_radius(border_radius: StyleBorderRadius, rect_size: CssLayoutSize) -> WrBorderRadius {
+pub fn wr_translate_border_radius(border_radius: StyleBorderRadius, rect_size: LogicalSize) -> WrBorderRadius {
 
     let StyleBorderRadius { top_left, top_right, bottom_left, bottom_right } = border_radius;
 
-    let w = rect_size.width as f32;
-    let h = rect_size.height as f32;
+    let w = rect_size.width;
+    let h = rect_size.height;
 
     // The "w / h" is necessary to convert percentage-based values into pixels, for example "border-radius: 50%;"
 
@@ -1129,7 +1129,7 @@ pub(crate) fn wr_translate_display_list(input: CachedDisplayList, pipeline_id: P
     let mut positioned_items = Vec::new();
     let mut builder = WrDisplayListBuilder::new(
         wr_translate_pipeline_id(pipeline_id),
-        wr_translate_layout_size(input.root.get_size())
+        wr_translate_logical_size(input.root.get_size())
     );
     builder.push_simple_stacking_context(
         WrLayoutPoint::zero(),
@@ -1233,13 +1233,13 @@ fn push_frame(
     }
 }
 
-fn get_frame_clip_rect(position_info: PositionInfo, rect_size: CssLayoutSize) -> CssLayoutRect {
+fn get_frame_clip_rect(position_info: PositionInfo, rect_size: LogicalSize) -> LogicalRect {
     match position_info {
         PositionInfo::Static { x_offset, y_offset, .. } |
         PositionInfo::Relative { x_offset, y_offset, .. } |
         PositionInfo::Absolute { x_offset, y_offset, .. } |
         PositionInfo::Fixed { x_offset, y_offset, .. } => {
-            CssLayoutRect::new(CssLayoutPoint::new(x_offset, y_offset), rect_size)
+            LogicalRect::new(LogicalPosition::new(x_offset, y_offset), rect_size)
         }
     }
 }
@@ -1281,7 +1281,7 @@ fn push_scroll_frame(
     let wr_border_radius = wr_translate_border_radius(scroll_frame.frame.border_radius, scroll_frame.frame.size);
     let hit_testing_clip_id = define_border_radius_clip(builder, clip_rect, wr_border_radius, parent_spatial_id, parent_clip_id, scroll_frame.frame.clip_mask.map(wr_translate_image_mask));
     let hit_test_info = WrCommonItemProperties {
-        clip_rect: wr_translate_layout_rect(clip_rect),
+        clip_rect: wr_translate_logical_rect(clip_rect),
         flags: wr_translate_primitive_flags(scroll_frame.frame.flags),
         hit_info: Some(wr_translate_tag_id(scroll_frame.scroll_tag.0)),
         clip_id: hit_testing_clip_id,
@@ -1290,7 +1290,7 @@ fn push_scroll_frame(
 
     builder.push_rect(&hit_test_info, hit_test_info.clip_rect, wr_translate_color_u(ColorU::TRANSPARENT).into());
 
-    let scroll_frame_clip_region = WrComplexClipRegion::new(wr_translate_layout_rect(clip_rect), wr_border_radius, WrClipMode::Clip);
+    let scroll_frame_clip_region = WrComplexClipRegion::new(wr_translate_logical_rect(clip_rect), wr_border_radius, WrClipMode::Clip);
 
     // scroll frame has the hit-testing clip as a parent
     let scroll_frame_clip_info = builder.define_scroll_frame(
@@ -1300,7 +1300,7 @@ fn push_scroll_frame(
         },
         /* external id*/ Some(wr_translate_external_scroll_id(scroll_frame.scroll_id)),
         /* content_rect */ wr_translate_layout_rect(scroll_frame.content_rect),
-        /* clip_rect */ wr_translate_layout_rect(clip_rect),
+        /* clip_rect */ wr_translate_logical_rect(clip_rect),
         /* complex_clips */ vec![scroll_frame_clip_region],
         /* image_mask */ None,
         /* sensitivity */ WrScrollSensitivity::Script,
@@ -1314,7 +1314,7 @@ fn push_scroll_frame(
 
 fn define_border_radius_clip(
     builder: &mut WrDisplayListBuilder,
-    layout_rect: CssLayoutRect,
+    layout_rect: LogicalRect,
     wr_border_radius: WrBorderRadius,
     parent_spatial_id: WrSpatialId,
     parent_clip_id: WrClipId,
@@ -1326,7 +1326,7 @@ fn define_border_radius_clip(
         ComplexClipRegion as WrComplexClipRegion,
     };
 
-    let wr_layout_rect = wr_translate_layout_rect(layout_rect);
+    let wr_layout_rect = wr_translate_logical_rect(layout_rect);
     builder.define_clip(
         &WrSpaceAndClipInfo { spatial_id: parent_spatial_id, clip_id: parent_clip_id },
         wr_layout_rect,
@@ -1339,7 +1339,7 @@ fn define_border_radius_clip(
 fn push_display_list_content(
     builder: &mut WrDisplayListBuilder,
     content: LayoutRectContent,
-    clip_rect: CssLayoutRect,
+    clip_rect: LogicalRect,
     border_radius: StyleBorderRadius,
     hit_info: Option<TagId>,
     flags: PrimitiveFlags,
@@ -1350,7 +1350,7 @@ fn push_display_list_content(
     use azul_core::display_list::LayoutRectContent::*;
 
     let mut normal_info = WrCommonItemProperties {
-        clip_rect: wr_translate_layout_rect(clip_rect),
+        clip_rect: wr_translate_logical_rect(clip_rect),
         clip_id: parent_clip_id,
         spatial_id: parent_spatial_id,
         flags: wr_translate_primitive_flags(flags),
@@ -1408,6 +1408,7 @@ mod text {
     use azul_core::{
         app_resources::{FontInstanceKey, GlyphOptions},
         display_list::GlyphInstance,
+        window::LogicalSize,
     };
     use azul_css::ColorU;
 
@@ -1453,6 +1454,7 @@ mod background {
     use azul_core::{
         app_resources::ImageInfo,
         display_list::RectBackground,
+        window::{LogicalSize, LogicalPosition},
     };
     use super::image;
 
@@ -1492,7 +1494,7 @@ mod background {
         content_size: Option<(f32, f32)>,
     ) {
         use azul_css::Shape;
-        use super::{wr_translate_color_u, wr_translate_layout_size, wr_translate_extend_mode};
+        use super::{wr_translate_color_u, wr_translate_logical_size, wr_translate_extend_mode};
 
         let background_position = background_position.unwrap_or_default();
         let _background_repeat = background_repeat.unwrap_or_default();
@@ -1500,8 +1502,8 @@ mod background {
         let offset = calculate_background_position(info, background_position, background_size);
 
         let mut offset_info = *info;
-        offset_info.clip_rect.origin.x += offset.x as f32;
-        offset_info.clip_rect.origin.y += offset.y as f32;
+        offset_info.clip_rect.origin.x += offset.x;
+        offset_info.clip_rect.origin.y += offset.y;
 
         let stops: Vec<WrGradientStop> = radial_gradient.stops.as_ref().iter().map(|gradient_pre|
             WrGradientStop {
@@ -1513,10 +1515,10 @@ mod background {
 
         // Note: division by 2.0 because it's the radius, not the diameter
         let radius = match radial_gradient.shape {
-            Shape::Ellipse => WrLayoutSize::new(background_size.width as f32 / 2.0, background_size.height as f32 / 2.0),
+            Shape::Ellipse => WrLayoutSize::new(background_size.width / 2.0, background_size.height / 2.0),
             Shape::Circle => {
                 let largest_bound_size = background_size.width.max(background_size.height);
-                WrLayoutSize::new(largest_bound_size as f32 / 2.0, largest_bound_size as f32 / 2.0)
+                WrLayoutSize::new(largest_bound_size / 2.0, largest_bound_size / 2.0)
             },
         };
 
@@ -1526,7 +1528,7 @@ mod background {
             &offset_info,
             offset_info.clip_rect,
             gradient,
-            wr_translate_layout_size(background_size),
+            wr_translate_logical_size(background_size),
             WrLayoutSize::zero()
         );
     }
@@ -1542,7 +1544,7 @@ mod background {
     ) {
         use super::{
             wr_translate_color_u, wr_translate_extend_mode,
-            wr_translate_layout_size, wr_translate_css_layout_rect,
+            wr_translate_logical_size, wr_translate_css_layout_rect,
             wr_translate_layout_point,
         };
 
@@ -1552,8 +1554,8 @@ mod background {
         let offset = calculate_background_position(info, background_position, background_size);
 
         let mut offset_info = *info;
-        offset_info.clip_rect.origin.x += offset.x as f32;
-        offset_info.clip_rect.origin.y += offset.y as f32;
+        offset_info.clip_rect.origin.x += offset.x;
+        offset_info.clip_rect.origin.y += offset.y;
 
         let stops: Vec<WrGradientStop> = linear_gradient.stops.as_ref().iter().map(|gradient_pre|
             WrGradientStop {
@@ -1573,7 +1575,7 @@ mod background {
             &offset_info,
             offset_info.clip_rect,
             gradient,
-            wr_translate_layout_size(background_size),
+            wr_translate_logical_size(background_size),
             WrLayoutSize::zero()
         );
     }
@@ -1620,10 +1622,10 @@ mod background {
         let offset = calculate_background_position(info, background_position, background_size);
 
         let mut offset_info = *info;
-        offset_info.clip_rect.origin.x += offset.x as f32;
-        offset_info.clip_rect.origin.y += offset.y as f32;
-        offset_info.clip_rect.size.width = background_size.width as f32;
-        offset_info.clip_rect.size.height = background_size.height as f32;
+        offset_info.clip_rect.origin.x += offset.x;
+        offset_info.clip_rect.origin.y += offset.y;
+        offset_info.clip_rect.size.width = background_size.width;
+        offset_info.clip_rect.size.height = background_size.height;
 
         builder.push_rect(
             &offset_info,
@@ -1635,7 +1637,7 @@ mod background {
     fn get_background_repeat_info(
         info: &WrCommonItemProperties,
         background_repeat: StyleBackgroundRepeat,
-        background_size: LayoutSize,
+        background_size: LogicalSize,
     ) -> WrCommonItemProperties {
 
         use azul_css::StyleBackgroundRepeat::*;
@@ -1644,7 +1646,7 @@ mod background {
             NoRepeat => WrCommonItemProperties {
                 clip_rect: WrLayoutRect::new(
                     info.clip_rect.origin,
-                    WrLayoutSize::new(background_size.width as f32, background_size.height as f32),
+                    WrLayoutSize::new(background_size.width, background_size.height),
                 ),
                 .. *info
             },
@@ -1652,14 +1654,14 @@ mod background {
             RepeatX => WrCommonItemProperties {
                 clip_rect: WrLayoutRect::new(
                     info.clip_rect.origin,
-                    WrLayoutSize::new(info.clip_rect.size.width as f32, background_size.height as f32),
+                    WrLayoutSize::new(info.clip_rect.size.width, background_size.height),
                 ),
                 .. *info
             },
             RepeatY => WrCommonItemProperties {
                 clip_rect: WrLayoutRect::new(
                     info.clip_rect.origin,
-                    WrLayoutSize::new(background_size.width as f32, info.clip_rect.size.height as f32),
+                    WrLayoutSize::new(background_size.width, info.clip_rect.size.height),
                 ),
                 .. *info
             },
@@ -1671,18 +1673,18 @@ mod background {
         info: &WrCommonItemProperties,
         bg_size: Option<StyleBackgroundSize>,
         content_size: Option<(f32, f32)>,
-    ) -> LayoutSize {
+    ) -> LogicalSize {
 
         let content_size = content_size.unwrap_or((info.clip_rect.size.width, info.clip_rect.size.height));
 
         let bg_size = match bg_size {
-            None => return LayoutSize::new(content_size.0.round() as isize, content_size.1.round() as isize),
+            None => return LogicalSize::new(content_size.0, content_size.1),
             Some(s) => s,
         };
 
         let content_aspect_ratio = Ratio {
-            width: info.clip_rect.size.width / content_size.0 as f32,
-            height: info.clip_rect.size.height / content_size.1 as f32,
+            width: info.clip_rect.size.width / content_size.0,
+            height: info.clip_rect.size.height / content_size.1,
         };
 
         let ratio = match bg_size {
@@ -1695,15 +1697,15 @@ mod background {
             StyleBackgroundSize::Cover => content_aspect_ratio.width.max(content_aspect_ratio.height),
         };
 
-        LayoutSize::new((content_size.0 as f32 * ratio).round() as isize, (content_size.1 as f32 * ratio).round() as isize)
+        LogicalSize::new(content_size.0 * ratio, content_size.1 * ratio)
     }
 
     /// Transforma background-position attribute into pixel coordinates
     fn calculate_background_position(
         info: &WrCommonItemProperties,
         background_position: StyleBackgroundPosition,
-        background_size: LayoutSize,
-    ) -> LayoutPoint {
+        background_size: LogicalSize,
+    ) -> LogicalPosition {
 
         use azul_css::BackgroundPositionVertical;
         use azul_css::BackgroundPositionHorizontal;
@@ -1712,20 +1714,20 @@ mod background {
         let height = info.clip_rect.size.height.round();
 
         let horizontal_offset = match background_position.horizontal {
-            BackgroundPositionHorizontal::Right => 0,
-            BackgroundPositionHorizontal::Center => (width as isize - background_size.width) / 2,
-            BackgroundPositionHorizontal::Left => (width as isize - background_size.width),
-            BackgroundPositionHorizontal::Exact(e) => e.to_pixels(width).round() as isize,
+            BackgroundPositionHorizontal::Right => 0.0,
+            BackgroundPositionHorizontal::Center => (width - background_size.width) / 2.0,
+            BackgroundPositionHorizontal::Left => (width - background_size.width),
+            BackgroundPositionHorizontal::Exact(e) => e.to_pixels(width),
         };
 
         let vertical_offset = match background_position.vertical {
-            BackgroundPositionVertical::Top => 0,
-            BackgroundPositionVertical::Center => (height as isize - background_size.height) / 2,
-            BackgroundPositionVertical::Bottom => (height as isize - background_size.height),
-            BackgroundPositionVertical::Exact(e) => e.to_pixels(height).round() as isize,
+            BackgroundPositionVertical::Top => 0.0,
+            BackgroundPositionVertical::Center => (height - background_size.height) / 2.0,
+            BackgroundPositionVertical::Bottom => (height - background_size.height),
+            BackgroundPositionVertical::Exact(e) => e.to_pixels(height),
         };
 
-        LayoutPoint { x: horizontal_offset, y: vertical_offset }
+        LogicalPosition { x: horizontal_offset, y: vertical_offset }
     }
 }
 
@@ -1738,15 +1740,16 @@ mod image {
     use azul_css::{LayoutPoint, LayoutSize, ColorU};
     use azul_core::{
         app_resources::ImageKey,
-        display_list::{AlphaType, ImageRendering}
+        window::{LogicalSize, LogicalPosition},
+        display_list::{AlphaType, ImageRendering},
     };
 
     #[inline]
     pub(in super) fn push_image(
         builder: &mut WrDisplayListBuilder,
         info: &WrCommonItemProperties,
-        size: LayoutSize,
-        offset: LayoutPoint,
+        size: LogicalSize,
+        offset: LogicalPosition,
         image_key: ImageKey,
         alpha_type: AlphaType,
         image_rendering: ImageRendering,
@@ -1754,20 +1757,20 @@ mod image {
     ) {
         use super::{
             wr_translate_image_rendering, wr_translate_alpha_type,
-            wr_translate_color_u, wr_translate_image_key, wr_translate_layout_size,
+            wr_translate_color_u, wr_translate_image_key, wr_translate_logical_size,
         };
         use webrender::api::units::LayoutSize as WrLayoutSize;
 
         let mut offset_info = *info;
-        offset_info.clip_rect.origin.x += offset.x as f32;
-        offset_info.clip_rect.origin.y += offset.y as f32;
+        offset_info.clip_rect.origin.x += offset.x;
+        offset_info.clip_rect.origin.y += offset.y;
 
         let tile_spacing = WrLayoutSize::zero();
 
         builder.push_repeating_image(
             &offset_info,
             offset_info.clip_rect,
-            wr_translate_layout_size(size),
+            wr_translate_logical_size(size),
             tile_spacing,
             wr_translate_image_rendering(image_rendering),
             wr_translate_alpha_type(alpha_type),
@@ -1782,6 +1785,8 @@ mod box_shadow {
     use azul_css::{BoxShadowClipMode, LayoutRect, ColorF, BoxShadowPreDisplayItem};
     use azul_core::{
         display_list::{StyleBoxShadow, StyleBorderRadius},
+        window::LogicalRect,
+        window::LogicalSize,
     };
     use webrender::api::{
         ClipId as WrClipId,
@@ -1804,7 +1809,7 @@ mod box_shadow {
     #[inline]
     pub(in super) fn push_box_shadow(
         builder: &mut WrDisplayListBuilder,
-        bounds: LayoutRect,
+        bounds: LogicalRect,
         shadow_type: BoxShadowClipMode,
         box_shadow: StyleBoxShadow,
         border_radius: StyleBorderRadius,
@@ -1906,7 +1911,7 @@ mod box_shadow {
     fn push_single_box_shadow_edge(
         builder: &mut WrDisplayListBuilder,
         current_shadow: &BoxShadowPreDisplayItem,
-        bounds: LayoutRect,
+        bounds: LogicalRect,
         border_radius: StyleBorderRadius,
         shadow_type: BoxShadowClipMode,
         top: &Option<BoxShadowPreDisplayItem>,
@@ -1917,7 +1922,7 @@ mod box_shadow {
         parent_clip_id: WrClipId,
     ) {
         let is_inset_shadow = current_shadow.clip_mode == BoxShadowClipMode::Inset;
-        let origin_displace = (current_shadow.spread_radius.to_pixels().round() as isize + current_shadow.blur_radius.to_pixels().round() as isize) * 2;
+        let origin_displace = (current_shadow.spread_radius.to_pixels() + current_shadow.blur_radius.to_pixels()) * 2.0;
 
         let mut shadow_bounds = bounds;
         let mut clip_rect = bounds;
@@ -1928,43 +1933,43 @@ mod box_shadow {
             if let Some(_top) = top {
                 clip_rect.size.height = origin_displace;
                 shadow_bounds.size.width += origin_displace;
-                shadow_bounds.origin.x -= origin_displace / 2;
+                shadow_bounds.origin.x -= origin_displace / 2.0;
             } else if let Some(_bottom) = bottom {
                 clip_rect.size.height = origin_displace;
                 clip_rect.origin.y += bounds.size.height - origin_displace;
                 shadow_bounds.size.width += origin_displace;
-                shadow_bounds.origin.x -= origin_displace / 2;
+                shadow_bounds.origin.x -= origin_displace / 2.0;
             } else if let Some(_left) = left {
                 clip_rect.size.width = origin_displace;
                 shadow_bounds.size.height += origin_displace;
-                shadow_bounds.origin.y -= origin_displace / 2;
+                shadow_bounds.origin.y -= origin_displace / 2.0;
             } else if let Some(_right) = right {
                 clip_rect.size.width = origin_displace;
                 clip_rect.origin.x += bounds.size.width - origin_displace;
                 shadow_bounds.size.height += origin_displace;
-                shadow_bounds.origin.y -= origin_displace / 2;
+                shadow_bounds.origin.y -= origin_displace / 2.0;
             }
         } else {
             if let Some(_top) = top {
                 clip_rect.size.height = origin_displace;
                 clip_rect.origin.y -= origin_displace;
                 shadow_bounds.size.width += origin_displace;
-                shadow_bounds.origin.x -= origin_displace / 2;
+                shadow_bounds.origin.x -= origin_displace / 2.0;
             } else if let Some(_bottom) = bottom {
                 clip_rect.size.height = origin_displace;
                 clip_rect.origin.y += bounds.size.height;
                 shadow_bounds.size.width += origin_displace;
-                shadow_bounds.origin.x -= origin_displace / 2;
+                shadow_bounds.origin.x -= origin_displace / 2.0;
             } else if let Some(_left) = left {
                 clip_rect.size.width = origin_displace;
                 clip_rect.origin.x -= origin_displace;
                 shadow_bounds.size.height += origin_displace;
-                shadow_bounds.origin.y -= origin_displace / 2;
+                shadow_bounds.origin.y -= origin_displace / 2.0;
             } else if let Some(_right) = right {
                 clip_rect.size.width = origin_displace;
                 clip_rect.origin.x += bounds.size.width;
                 shadow_bounds.size.height += origin_displace;
-                shadow_bounds.origin.y -= origin_displace / 2;
+                shadow_bounds.origin.y -= origin_displace / 2.0;
             }
         }
 
@@ -1985,8 +1990,8 @@ mod box_shadow {
         builder: &mut WrDisplayListBuilder,
         pre_shadow: BoxShadowPreDisplayItem,
         border_radius: StyleBorderRadius,
-        bounds: LayoutRect,
-        clip_rect: LayoutRect,
+        bounds: LogicalRect,
+        clip_rect: LogicalRect,
         shadow_type: BoxShadowClipMode,
         parent_spatial_id: WrSpatialId,
         parent_clip_id: WrClipId,
@@ -1994,7 +1999,7 @@ mod box_shadow {
         use webrender::api::{PrimitiveFlags as WrPrimitiveFlags, units::LayoutVector2D};
         use super::{
             wr_translate_color_f, wr_translate_border_radius,
-            wr_translate_box_shadow_clip_mode, wr_translate_layout_rect,
+            wr_translate_box_shadow_clip_mode, wr_translate_logical_rect,
         };
 
         // The pre_shadow is missing the StyleBorderRadius & LayoutRect
@@ -2003,7 +2008,7 @@ mod box_shadow {
         }
 
         let info = WrCommonItemProperties {
-            clip_rect: wr_translate_layout_rect(clip_rect),
+            clip_rect: wr_translate_logical_rect(clip_rect),
             spatial_id: parent_spatial_id,
             clip_id: parent_clip_id,
             flags: WrPrimitiveFlags::IS_BACKFACE_VISIBLE,
@@ -2012,7 +2017,7 @@ mod box_shadow {
 
         builder.push_box_shadow(
             &info,
-            wr_translate_layout_rect(bounds),
+            wr_translate_logical_rect(bounds),
             LayoutVector2D::new(pre_shadow.offset[0].to_pixels(), pre_shadow.offset[1].to_pixels()),
             wr_translate_color_f(apply_gamma(pre_shadow.color.into())),
             pre_shadow.blur_radius.to_pixels(),
@@ -2039,7 +2044,7 @@ mod box_shadow {
         }
     }
 
-    fn get_clip_rect(pre_shadow: &BoxShadowPreDisplayItem, bounds: LayoutRect) -> LayoutRect {
+    fn get_clip_rect(pre_shadow: &BoxShadowPreDisplayItem, bounds: LogicalRect) -> LogicalRect {
         if pre_shadow.clip_mode == BoxShadowClipMode::Inset {
             // inset shadows do not work like outset shadows
             // for inset shadows, you have to push a clip ID first, so that they are
@@ -2049,12 +2054,12 @@ mod box_shadow {
             // calculate the maximum extent of the outset shadow
             let mut clip_rect = bounds;
 
-            let origin_displace = (pre_shadow.spread_radius.to_pixels().round() as isize + pre_shadow.blur_radius.to_pixels().round() as isize) * 2;
-            clip_rect.origin.x = clip_rect.origin.x - pre_shadow.offset[0].to_pixels().round() as isize - origin_displace;
-            clip_rect.origin.y = clip_rect.origin.y - pre_shadow.offset[1].to_pixels().round() as isize - origin_displace;
+            let origin_displace = (pre_shadow.spread_radius.to_pixels() + pre_shadow.blur_radius.to_pixels()) * 2.0;
+            clip_rect.origin.x = clip_rect.origin.x - pre_shadow.offset[0].to_pixels() - origin_displace;
+            clip_rect.origin.y = clip_rect.origin.y - pre_shadow.offset[1].to_pixels() - origin_displace;
 
-            clip_rect.size.height = clip_rect.size.height + (origin_displace * 2);
-            clip_rect.size.width = clip_rect.size.width + (origin_displace * 2);
+            clip_rect.size.height = clip_rect.size.height + (origin_displace * 2.0);
+            clip_rect.size.width = clip_rect.size.width + (origin_displace * 2.0);
             clip_rect
         }
     }
@@ -2076,6 +2081,7 @@ mod border {
     };
     use azul_core::{
         display_list::{StyleBorderRadius, StyleBorderWidths, StyleBorderColors, StyleBorderStyles},
+        window::LogicalSize,
     };
 
     pub(in super) fn is_zero_border_radius(border_radius: &StyleBorderRadius) -> bool {
@@ -2093,7 +2099,7 @@ mod border {
         colors: StyleBorderColors,
         styles: StyleBorderStyles,
     ) {
-        let rect_size = LayoutSize::new(info.clip_rect.size.width.round() as isize, info.clip_rect.size.height.round() as isize);
+        let rect_size = LogicalSize::new(info.clip_rect.size.width, info.clip_rect.size.height);
 
         if let Some((border_widths, border_details)) = get_webrender_border(rect_size, radii, widths, colors, styles) {
             builder.push_border(&info, info.clip_rect, border_widths, border_details);
@@ -2104,7 +2110,7 @@ mod border {
     /// right and bottom styles - necessary, so we can combine `border-top`,
     /// `border-left`, etc. into one border
     fn get_webrender_border(
-        rect_size: LayoutSize,
+        rect_size: LogicalSize,
         radii: StyleBorderRadius,
         widths: StyleBorderWidths,
         colors: StyleBorderColors,
@@ -2161,10 +2167,10 @@ mod border {
         );
 
         let border_widths = WrLayoutSideOffsets::new(
-            width_top.map(|v| v.to_pixels(rect_size.height as f32)).unwrap_or(0.0),
-            width_right.map(|v| v.to_pixels(rect_size.width as f32)).unwrap_or(0.0),
-            width_bottom.map(|v| v.to_pixels(rect_size.height as f32)).unwrap_or(0.0),
-            width_left.map(|v| v.to_pixels(rect_size.width as f32)).unwrap_or(0.0),
+            width_top.map(|v| v.to_pixels(rect_size.height)).unwrap_or(0.0),
+            width_right.map(|v| v.to_pixels(rect_size.width)).unwrap_or(0.0),
+            width_bottom.map(|v| v.to_pixels(rect_size.height)).unwrap_or(0.0),
+            width_left.map(|v| v.to_pixels(rect_size.width)).unwrap_or(0.0),
         );
 
         let border_details = WrBorderDetails::Normal(WrNormalBorder {
