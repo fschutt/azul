@@ -145,6 +145,8 @@ impl App {
     #[allow(unused_variables)]
     fn run_inner(self) -> ! {
 
+        use std::time::Instant;
+
         let App {
             mut data,
             fake_display:  FakeDisplay { mut render_api, mut renderer, mut hidden_context, hidden_event_loop, gl_context },
@@ -160,6 +162,8 @@ impl App {
 
         println!("creating window...");
 
+        let window_created_instant = Instant::now();
+
         // Create the windows (makes them actually show up on the screen)
         for window_create_options in windows {
             create_window(
@@ -174,7 +178,7 @@ impl App {
             );
         };
 
-        println!("windows created!");
+        println!("windows created: {:?}", Instant::now() - window_created_instant);
 
         hidden_event_loop.run(move |event, event_loop_target, control_flow| {
 
@@ -185,7 +189,6 @@ impl App {
             use azul_core::window_state::StyleAndLayoutChanges;
             use azul_core::window_state::{Events, NodesToCheck};
             use azul_core::window::{FullHitTest, CursorTypeHitTest};
-            use std::time::Instant;
 
             let frame_start = Instant::now();
 
@@ -393,8 +396,14 @@ impl App {
                         None => { return; },
                     };
 
+                    println!("got rendering event!");
+
+                    let render_start = Instant::now();
+
                     // render the display list to a texture
                     if let Some(texture) = window.render_display_list_to_texture(&mut hidden_context, &mut render_api, renderer.as_mut().unwrap(), &gl_context) {
+                        println!("rendering done: {:?}", Instant::now() - render_start);
+
                         // if the rendering went OK, render the texture to the screen
                         window.draw_texture_to_screen_and_swap(&texture, &mut display_shader);
                     }
@@ -406,6 +415,8 @@ impl App {
                         None => {return; },
                     };
 
+                    let window_event_start = Instant::now();
+
                     // ONLY update the window_state of the window, don't do anything else
                     // everything is then
                     process_window_event(&event, &mut window.internal.current_window_state, &window.display.window(), &event_loop_target);
@@ -416,6 +427,8 @@ impl App {
 
                     loop {
                         let events = Events::new(&window.internal.current_window_state, &window.internal.previous_window_state);
+                        let is_first_frame = window.internal.previous_window_state.is_none();
+                        println!("events: {:?}", events);
                         let layout_callback_changed = window.internal.current_window_state.layout_callback_changed(&window.internal.previous_window_state);
                         let hit_test = if !events.needs_hit_test() { FullHitTest::empty() } else {
                             let ht = FullHitTest::new(&window.internal.layout_results, &window.internal.current_window_state.mouse_state.cursor_position, &window.internal.scroll_states);
@@ -423,7 +436,7 @@ impl App {
                             ht
                         };
 
-                        if events.is_empty() || layout_callback_changed { break; } // previous_window_state = current_window_state, nothing to do
+                        if (events.is_empty() && !is_first_frame) || layout_callback_changed { break; } // previous_window_state = current_window_state, nothing to do
 
                         let scroll_event = window.internal.current_window_state.get_scroll_amount();
                         let nodes_to_check = NodesToCheck::new(&hit_test, &events);
@@ -440,6 +453,7 @@ impl App {
                             need_regenerate_display_list = true;
                             callback_results.update_focused_node = Some(None); // unset the focus
                         } else {
+                            println!("callback_results.callbacks_update_screen: ({:?})", callback_results.callbacks_update_screen);
                             match callback_results.callbacks_update_screen {
                                 UpdateScreen::RegenerateStyledDomForCurrentWindow => {
                                     window.regenerate_styled_dom(&data, &mut resources, &gl_context, &mut render_api);
@@ -450,6 +464,8 @@ impl App {
                                     /* for window in active_windows { window.regenerate_styled_dom(); } */
                                 },
                                 UpdateScreen::DoNothing => {
+
+                                    println!("calculating style and layout changes!");
                                     let window_size = window.internal.get_layout_size();
 
                                     // re-layouts and re-styles the window.internal.layout_results
@@ -463,6 +479,8 @@ impl App {
                                         &callback_results.update_focused_node,
                                         azul_layout::do_the_relayout,
                                     );
+
+                                    println!("changes: {:#?}", changes);
 
                                     if changes.need_regenerate_display_list() {
                                         // this can be false in case that only opacity: / transform: properties changed!
@@ -503,6 +521,14 @@ impl App {
                     if should_scroll_render || should_callback_render {
                         windows_that_need_to_redraw.insert(window_id);
                     }
+
+                    println!("--- window event handled: {:?} - need_regenerate_display_list: {:?}, should_scroll_render: {:?}, should_callback_render: {:?}",
+                             Instant::now() - window_event_start,
+                             need_regenerate_display_list,
+                             should_scroll_render,
+                             should_callback_render,
+                    );
+
                 },
                 _ => { },
             }
@@ -545,7 +571,9 @@ impl App {
                     None => continue,
                 };
 
+                let rebuild_display_list_start = Instant::now();
                 window.rebuild_display_list(&resources, &mut render_api);
+                println!("rebuilt display list in {:?}", Instant::now() - rebuild_display_list_start);
             }
 
             // trigger redraw
@@ -603,10 +631,6 @@ impl App {
 
                 ControlFlow::Exit
             };
-
-            let frame_end = Instant::now();
-
-            println!("--- frame time update: {:?}", frame_end - frame_start);
         })
     }
 }
@@ -628,6 +652,7 @@ fn process_window_event(event: &GlutinWindowEvent, current_window_state: &mut Fu
             current_window_state.keyboard_state.super_down = modifier_state.logo();
         },
         GlutinWindowEvent::Resized(physical_size) => {
+            println!("resized window to {:?}", physical_size);
             current_window_state.size.dimensions = winit_translate_physical_size(*physical_size).to_logical(current_window_state.size.system_hidpi_factor as f32);
         },
         GlutinWindowEvent::ScaleFactorChanged { scale_factor, new_inner_size } => {

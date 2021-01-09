@@ -1,4 +1,5 @@
 use std::{f32, collections::{BTreeMap, BTreeSet}};
+use std::time::Instant;
 use azul_css::{
     LayoutPosition, LayoutPoint, LayoutSize, LayoutRect,
     RectLayout, StyleTextAlignmentHorz, StyleTextAlignmentVert,
@@ -1146,8 +1147,6 @@ pub fn do_the_layout<U: FontImageApi>(
     full_window_state: &FullWindowState,
 ) -> Vec<LayoutResult> {
 
-    println!("do_the_layout!");
-
     let mut current_dom_id = 0;
     let window_size = LayoutSize::new(full_window_state.size.dimensions.width.round() as isize, full_window_state.size.dimensions.height.round() as isize);
 
@@ -1266,6 +1265,10 @@ pub fn do_the_layout_internal(
     pipeline_id: PipelineId,
     bounds: LayoutRect
 ) -> LayoutResult {
+
+    println!("do_the_layout on {} nodes!", styled_dom.styled_nodes.len());
+
+    let do_the_layout_start = Instant::now();
 
     let rect_size = bounds.size;
     let rect_offset = bounds.origin;
@@ -1413,6 +1416,8 @@ pub fn do_the_layout_internal(
         styled_dom.non_leaf_nodes.as_ref(),
         pipeline_id,
     );
+
+    println!("do_the_layout done on {} nodes - {:?}!", styled_dom.node_data.len(), Instant::now() - do_the_layout_start);
 
     LayoutResult {
         dom_id,
@@ -1924,8 +1929,17 @@ pub fn do_the_relayout(
     let root_size = root_bounds.size;
     let root_size_changed = root_bounds != layout_result.get_bounds();
 
+    println!("do the relayout!");
+    println!("root size: {:?}", root_bounds);
+    println!("current_bounds: {:?}", layout_result.get_bounds());
+
     if !root_size_changed && nodes_to_relayout.is_empty() {
         return Vec::new();
+    }
+
+    let root_changed_start = Instant::now();
+    if root_size_changed {
+        println!("root size changed! - do the relayout on {} nodes!", layout_result.styled_dom.styled_nodes.len());
     }
 
     // merge the nodes to relayout by type so that we don't relayout twice
@@ -2353,6 +2367,10 @@ pub fn do_the_relayout(
         &layout_result.styled_dom.non_leaf_nodes.as_ref(),
         pipeline_id,
     );
+
+    if root_size_changed {
+        println!("root size changed finished! - relayout took {:?}!", Instant::now() - root_changed_start);
+    }
 
     nodes_that_changed_size.into_iter().collect()
 }

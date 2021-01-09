@@ -93,6 +93,8 @@ pub struct Events {
 }
 
 impl Events {
+
+    /// Warning: if the previous_window_state is none, this will return an empty Vec!
     pub fn new(current_window_state: &FullWindowState, previous_window_state: &Option<FullWindowState>) -> Self {
 
         let mut current_window_events = get_window_events(current_window_state, previous_window_state);
@@ -403,19 +405,44 @@ impl StyleAndLayoutChanges {
             }
         }
 
-        let nodes_that_changed_size = layout_changes.iter().filter_map(|(dom_id, relayout_nodes)| {
-            if relayout_nodes.is_empty() { return None; }
-            let parent_rect = match layout_results[dom_id.inner].parent_dom_id.as_ref() {
-                None => LayoutRect::new(LayoutPoint::zero(), window_size),
-                Some(parent_dom_id) => {
-                    let parent_layout_result = &layout_results[parent_dom_id.inner];
-                    let parent_iframe_node_id = parent_layout_result.iframe_mapping.iter().find_map(|(k, v)| if *v == *dom_id { Some(*k) } else { None }).unwrap();
-                    parent_layout_result.rects.as_ref()[parent_iframe_node_id].get_approximate_static_bounds()
+        let mut nodes_that_changed_size = BTreeMap::new();
+
+        // recursively relayout if there are layout_changes or the window size has changed
+        let window_was_resized = window_size != layout_results[DomId::ROOT_ID.inner].root_size;
+        let mut doms_to_relayout = if layout_changes.is_empty() && !window_was_resized { Vec::new() } else { vec![DomId::ROOT_ID] };
+
+        loop {
+            let mut new_iframes_to_relayout = Vec::new();
+
+            for dom_id in doms_to_relayout.drain(..) {
+
+                let parent_rect = match layout_results[dom_id.inner].parent_dom_id.as_ref() {
+                    None => LayoutRect::new(LayoutPoint::zero(), window_size),
+                    Some(parent_dom_id) => {
+                        let parent_layout_result = &layout_results[parent_dom_id.inner];
+                        let parent_iframe_node_id = parent_layout_result.iframe_mapping.iter().find_map(|(k, v)| if *v == dom_id { Some(*k) } else { None }).unwrap();
+                        parent_layout_result.rects.as_ref()[parent_iframe_node_id].get_approximate_static_bounds()
+                    }
+                };
+                let default_layout_changes = BTreeMap::new();
+                let layout_changes = layout_changes.get(&dom_id).unwrap_or(&default_layout_changes);
+                let relayouted_nodes = (relayout_cb)(parent_rect, &mut layout_results[dom_id.inner], app_resources, pipeline_id, layout_changes);
+
+                if !relayouted_nodes.is_empty() {
+                    new_iframes_to_relayout.extend(layout_results[dom_id.inner].iframe_mapping.iter()
+                    .filter_map(|(node_id, dom_id)| {
+                        if relayouted_nodes.contains(node_id) { Some(dom_id) } else { None }
+                    }));
+                    nodes_that_changed_size.insert(dom_id, relayouted_nodes);
                 }
-            };
-            let nodes_that_changed_size = (relayout_cb)(parent_rect, &mut layout_results[dom_id.inner], app_resources, pipeline_id, relayout_nodes);
-            if !nodes_that_changed_size.is_empty() { Some((*dom_id, nodes_that_changed_size)) } else { None }
-        }).collect();
+            }
+
+            if new_iframes_to_relayout.is_empty() {
+                break;
+            } else {
+                doms_to_relayout = new_iframes_to_relayout;
+            }
+        }
 
         StyleAndLayoutChanges {
             style_changes,
@@ -426,6 +453,7 @@ impl StyleAndLayoutChanges {
 
     // Note: this can be false in case that only opacity: / transform: properties changed!
     pub fn need_regenerate_display_list(&self) -> bool {
+        if !self.nodes_that_changed_size.is_empty() { return true; }
         if !self.need_redraw() { return false; }
         // is_gpu_only_property = is the changed CSS property an opacity / transform / rotate property (which doesn't require to regenerate the display list)
         self.style_changes.iter().all(|(_, restyle_nodes)| {
@@ -436,7 +464,9 @@ impl StyleAndLayoutChanges {
     }
 
     pub fn need_redraw(&self) -> bool {
-        !self.style_changes.is_empty() && !self.layout_changes.is_empty() && !self.nodes_that_changed_size.is_empty()
+        !self.style_changes.is_empty() &&
+        !self.layout_changes.is_empty() &&
+        !self.nodes_that_changed_size.is_empty()
     }
 }
 

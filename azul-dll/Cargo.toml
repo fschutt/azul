@@ -29,12 +29,12 @@ panic = "abort"
 debug = true
 
 [profile.release]
-opt-level = 1
-# lto = "fat"
-# panic = "abort"
-# codegen-units = 1
+opt-level = 3
+lto = "fat"
+panic = "abort"
+codegen-units = 1
 debug = true
-# overflow-checks = false
+overflow-checks = false
 
 [dependencies]
 azul-core = { path = "../azul-core", version = "0.0.2", default-features = false, features = ["opengl"] }
