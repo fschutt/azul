@@ -606,8 +606,9 @@ pub(crate) const fn translate_epoch_wr(epoch: WrEpoch) -> Epoch {
 pub(crate) fn translate_image_descriptor_wr(descriptor: WrImageDescriptor) -> ImageDescriptor {
     ImageDescriptor {
         format: translate_image_format_wr(descriptor.format),
-        dimensions: (descriptor.size.width as usize, descriptor.size.height as usize),
-        stride: descriptor.stride,
+        width: descriptor.size.width as usize,
+        height: descriptor.size.height as usize,
+        stride: descriptor.stride.into(),
         offset: descriptor.offset,
         flags: translate_image_descriptor_flags_wr(descriptor.flags),
     }
@@ -677,8 +678,8 @@ pub(crate) fn wr_translate_image_descriptor(descriptor: ImageDescriptor) -> WrIm
     use webrender::api::units::DeviceIntSize;
     WrImageDescriptor {
         format: wr_translate_image_format(descriptor.format),
-        size: DeviceIntSize::new(descriptor.dimensions.0 as i32, descriptor.dimensions.1 as i32),
-        stride: descriptor.stride,
+        size: DeviceIntSize::new(descriptor.width as i32, descriptor.height as i32),
+        stride: descriptor.stride.into(),
         offset: descriptor.offset,
         flags: wr_translate_image_descriptor_flags(descriptor.flags),
     }
@@ -1043,8 +1044,9 @@ fn wr_translate_add_image(add_image: AddImage) -> WrAddImage {
 
 #[inline(always)]
 fn wr_translate_image_data(image_data: ImageData) -> WrImageData {
+    use std::sync::Arc;
     match image_data {
-        ImageData::Raw(data) => WrImageData::Raw(data),
+        ImageData::Raw(data) => WrImageData::Raw(Arc::new(data.into())),
         ImageData::External(external) => WrImageData::External(wr_translate_external_image_data(external)),
     }
 }
@@ -1060,12 +1062,12 @@ fn wr_translate_external_image_data(external: ExternalImageData) -> WrExternalIm
 
 #[inline(always)]
 pub(crate) const fn wr_translate_external_image_id(external: ExternalImageId) -> WrExternalImageId {
-    WrExternalImageId(external.0)
+    WrExternalImageId(external.inner)
 }
 
 #[inline(always)]
 pub(crate) const fn translate_external_image_id_wr(external: WrExternalImageId) -> ExternalImageId {
-    ExternalImageId(external.0)
+    ExternalImageId { inner: external.0 }
 }
 
 #[inline(always)]

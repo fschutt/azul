@@ -5,6 +5,13 @@
     use crate::vec::U8Vec;
 
 
+    /// `RawImageFormat` struct
+    #[doc(inline)] pub use crate::dll::AzRawImageFormat as RawImageFormat;
+
+    impl Clone for RawImageFormat { fn clone(&self) -> Self { (crate::dll::get_azul_dll().az_raw_image_format_deep_copy)(self) } }
+    impl Drop for RawImageFormat { fn drop(&mut self) { (crate::dll::get_azul_dll().az_raw_image_format_delete)(self); } }
+
+
     /// `TextId` struct
     #[doc(inline)] pub use crate::dll::AzTextId as TextId;
 
@@ -65,10 +72,3 @@
 
     impl Clone for RawImage { fn clone(&self) -> Self { (crate::dll::get_azul_dll().az_raw_image_deep_copy)(self) } }
     impl Drop for RawImage { fn drop(&mut self) { (crate::dll::get_azul_dll().az_raw_image_delete)(self); } }
-
-
-    /// `RawImageFormat` struct
-    #[doc(inline)] pub use crate::dll::AzRawImageFormat as RawImageFormat;
-
-    impl Clone for RawImageFormat { fn clone(&self) -> Self { (crate::dll::get_azul_dll().az_raw_image_format_deep_copy)(self) } }
-    impl Drop for RawImageFormat { fn drop(&mut self) { (crate::dll::get_azul_dll().az_raw_image_format_delete)(self); } }

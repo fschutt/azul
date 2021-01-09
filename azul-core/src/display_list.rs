@@ -519,7 +519,7 @@ pub struct DisplayListParametersRef<'a> {
     pub app_resources: &'a AppResources,
 }
 
-#[derive(Default)]
+#[derive(Debug, Default)]
 pub struct GlTextureCache {
     pub solved_textures: BTreeMap<DomId, BTreeMap<NodeId, (ImageKey, ImageDescriptor)>>,
 }
@@ -529,7 +529,7 @@ pub type LayoutFn<U> = fn(StyledDom, &mut AppResources, &mut U, PipelineId, Rend
 #[cfg(feature = "opengl")]
 pub type GlStoreImageFn = fn(PipelineId, Epoch, Texture) -> ExternalImageId;
 
-#[derive(Default)]
+#[derive(Debug, Default)]
 pub struct SolvedLayout {
     pub layout_results: Vec<LayoutResult>,
     pub gl_texture_cache: GlTextureCache,
@@ -560,13 +560,15 @@ impl SolvedLayout {
 
         use crate::{
             app_resources::{
-                RawImageFormat, AddImage, ExternalImageData, TextureTarget, ExternalImageType,
+                AddImage, ExternalImageData, TextureTarget, ExternalImageType,
                 ImageData, add_resources, garbage_collect_fonts_and_images,
             },
             callbacks::{GlCallbackInfo, HidpiAdjustedBounds},
             gl::insert_into_active_gl_textures,
         };
         use gleam::gl;
+
+        println!("solving layout...");
 
         let layout_results = (callbacks.layout_fn)(
             styled_dom,
@@ -576,6 +578,8 @@ impl SolvedLayout {
             callbacks,
             &full_window_state,
         );
+
+        println!("layout solved! rendering textures...");
 
         let mut solved_textures = BTreeMap::new();
 
@@ -624,9 +628,10 @@ impl SolvedLayout {
 
                 // Note: The ImageDescriptor has no effect on how large the image appears on-screen
                 let descriptor = ImageDescriptor {
-                    format: RawImageFormat::RGBA8,
-                    dimensions: (texture.size.width as usize, texture.size.height as usize),
-                    stride: None,
+                    format: texture.format,
+                    width: texture.size.width as usize,
+                    height: texture.size.height as usize,
+                    stride: None.into(),
                     offset: 0,
                     flags: ImageDescriptorFlags {
                         is_opaque: texture.flags.is_opaque,
@@ -830,7 +835,7 @@ pub fn displaylist_handle_rect<'a>(
         GlTexture(_) => {
             if let Some((key, descriptor)) = gl_texture_cache.solved_textures.get(&dom_id).and_then(|textures| textures.get(&rect_idx)) {
                 frame.content.push(LayoutRectContent::Image {
-                    size: LayoutSize::new(descriptor.dimensions.0 as isize, descriptor.dimensions.1 as isize),
+                    size: LayoutSize::new(descriptor.width as isize, descriptor.height as isize),
                     offset: LayoutPoint::zero(),
                     image_rendering: ImageRendering::Auto,
                     alpha_type: AlphaType::Alpha,

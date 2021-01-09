@@ -13,8 +13,6 @@ use glutin::{
     event_loop::EventLoopWindowTarget as GlutinEventLoopWindowTarget,
     Context, NotCurrent,
 };
-#[cfg(feature = "logging")]
-use log::LevelFilter;
 use crate::{
     wr_api::WrApi,
     display_shader::DisplayShader,
@@ -22,15 +20,14 @@ use crate::{
 };
 use azul_core::{
     FastHashMap,
-    window::{RendererType, WindowCreateOptions, DebugState, FullWindowState},
+    window::{WindowCreateOptions, FullWindowState},
     gl::GlContextPtr,
     callbacks::{RefAny, UpdateScreen},
-    app_resources::{AppResources, LoadFontFn, LoadImageFn},
+    app_resources::{AppConfig, AppResources},
 };
 
 #[cfg(not(test))]
 use crate::window::{FakeDisplay, RendererCreationError};
-
 #[cfg(test)]
 use azul_core::app_resources::FakeRenderApi;
 
@@ -53,57 +50,6 @@ pub struct App {
     render_api: FakeRenderApi,
 }
 
-/// Configuration for optional features, such as whether to enable logging or panic hooks
-#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
-pub struct AppConfig {
-    /// If enabled, logs error and info messages.
-    ///
-    /// Default is `Some(LevelFilter::Error)` to log all errors by default
-    #[cfg(feature = "logging")]
-    pub enable_logging: Option<LevelFilter>,
-    /// If the app crashes / panics, a window with a message box pops up.
-    /// Setting this to `false` disables the popup box.
-    pub enable_visual_panic_hook: bool,
-    /// If this is set to `true` (the default), a backtrace + error information
-    /// gets logged to stdout and the logging file (only if logging is enabled).
-    pub enable_logging_on_panic: bool,
-    /// (STUB) Whether keyboard navigation should be enabled (default: true).
-    /// Currently not implemented.
-    pub enable_tab_navigation: bool,
-    /// Whether to force a hardware or software renderer
-    pub renderer_type: RendererType,
-    /// Debug state for all windows
-    pub debug_state: DebugState,
-    /// Framerate (i.e. 16ms) - sets how often the timer / tasks should check
-    /// for updates. Default: 30ms
-    pub min_frame_duration: Duration,
-    /// Function that is called when a font should be loaded. This is necessary to be
-    /// configurable so that "desktop" and "web" versions of azul can have different
-    /// implementations of loading fonts
-    pub font_loading_fn: LoadFontFn,
-    /// Function that is called when a font should be loaded. Necessary to be
-    /// configurable so that "desktop" and "web" versions of azul can have
-    /// different implementations of loading images.
-    pub image_loading_fn: LoadImageFn,
-}
-
-impl Default for AppConfig {
-    fn default() -> Self {
-        Self {
-            #[cfg(feature = "logging")]
-            enable_logging: Some(LevelFilter::Error),
-            enable_visual_panic_hook: true,
-            enable_logging_on_panic: true,
-            enable_tab_navigation: true,
-            renderer_type: RendererType::default(),
-            debug_state: DebugState::default(),
-            min_frame_duration: Duration::from_millis(30),
-            font_loading_fn: LoadFontFn { cb: azulc::font_loading::font_source_get_bytes }, // assumes "font_loading" feature enabled
-            image_loading_fn: LoadImageFn { cb: azulc::image_loading::image_source_get_bytes }, // assumes "image_loading" feature enabled
-        }
-    }
-}
-
 impl App {
 
     #[cfg(not(test))]
@@ -112,17 +58,27 @@ impl App {
     pub fn new(initial_data: RefAny, app_config: AppConfig) -> Result<Self, RendererCreationError> {
 
         #[cfg(feature = "logging")] {
-            if let Some(log_level) = app_config.enable_logging {
-                crate::logging::set_up_logging(log_level);
 
-                if app_config.enable_logging_on_panic {
-                    crate::logging::set_up_panic_hooks();
+            const fn translate_log_level(log_level: azul_core::app_resources::AppLogLevel) -> log::LevelFilter {
+                match log_level {
+                    azul_core::app_resources::AppLogLevel::Off => log::LevelFilter::Off,
+                    azul_core::app_resources::AppLogLevel::Error => log::LevelFilter::Error,
+                    azul_core::app_resources::AppLogLevel::Warn => log::LevelFilter::Warn,
+                    azul_core::app_resources::AppLogLevel::Info => log::LevelFilter::Info,
+                    azul_core::app_resources::AppLogLevel::Debug => log::LevelFilter::Debug,
+                    azul_core::app_resources::AppLogLevel::Trace => log::LevelFilter::Trace,
                 }
+            }
 
-                if app_config.enable_visual_panic_hook {
-                    use std::sync::atomic::Ordering;
-                    crate::logging::SHOULD_ENABLE_PANIC_HOOK.store(true, Ordering::SeqCst);
-                }
+            crate::logging::set_up_logging(translate_log_level(app_config.log_level));
+
+            if app_config.enable_logging_on_panic {
+                crate::logging::set_up_panic_hooks();
+            }
+
+            if app_config.enable_visual_panic_hook {
+                use std::sync::atomic::Ordering;
+                crate::logging::SHOULD_ENABLE_PANIC_HOOK.store(true, Ordering::SeqCst);
             }
         }
 
@@ -130,7 +86,9 @@ impl App {
             use crate::wr_translate::set_webrender_debug_flags;
 
             let mut fake_display = FakeDisplay::new(app_config.renderer_type.clone())?;
+            let _ = fake_display.hidden_context.make_current();
             let display_shader = DisplayShader::compile(&fake_display.gl_context)?;
+            let _ = fake_display.hidden_context.make_not_current();
 
             if let Some(r) = &mut fake_display.renderer {
                 set_webrender_debug_flags(r, &app_config.debug_state);
@@ -147,26 +105,13 @@ impl App {
 
         #[cfg(test)] {
            Ok(Self {
-               windows: Vec::new(),
-               data: initial_data,
-               config: app_config,
-               render_api: FakeRenderApi::new(),
-           })
+                windows: Vec::new(),
+                data: initial_data,
+                config: app_config,
+                render_api: FakeRenderApi::new(),
+            })
         }
     }
-
-    /// Toggles debugging flags in webrender, updates `self.config.debug_state`
-    #[cfg(not(test))]
-    pub fn toggle_debug_flags(&mut self, new_state: DebugState) {
-        use crate::wr_translate::set_webrender_debug_flags;
-        if let Some(r) = &mut self.fake_display.renderer {
-            set_webrender_debug_flags(r, &new_state);
-        }
-        self.config.debug_state = new_state;
-    }
-}
-
-impl App {
 
     /// Spawn a new window on the screen. Note that this should only be used to
     /// create extra windows, the default window will be the window submitted to
@@ -213,6 +158,8 @@ impl App {
         let mut resources = AppResources::default();
         let mut active_windows = BTreeMap::new();
 
+        println!("creating window...");
+
         // Create the windows (makes them actually show up on the screen)
         for window_create_options in windows {
             create_window(
@@ -226,6 +173,8 @@ impl App {
                 &mut resources,
             );
         };
+
+        println!("windows created!");
 
         hidden_event_loop.run(move |event, event_loop_target, control_flow| {
 
@@ -614,7 +563,22 @@ impl App {
                 if timers.is_empty() && threads.is_empty() {
                      ControlFlow::Wait
                 } else {
-                    ControlFlow::WaitUntil(frame_start + config.min_frame_duration)
+                    let min_frame_duration = if timers.is_empty() {
+                        // minimum time to re-poll for threads = 16ms
+                        Duration::from_millis(16)
+                    } else {
+                        // timers are not empty, select the minimum time that the next timer needs to run
+                        // ex. if one timer is set to run every 2 seconds, then we only need
+                        // to poll in 2 seconds, not every 16ms
+                        let mut min_time = Duration::from_secs(1000); // really long time
+                        for timer_map in timers.values() {
+                            for timer in timer_map.values() {
+                                min_time = min_time.min(timer.instant_of_next_run() - frame_start);
+                            }
+                        }
+                        min_time
+                    };
+                    ControlFlow::WaitUntil(frame_start + min_frame_duration)
                 }
             } else {
 

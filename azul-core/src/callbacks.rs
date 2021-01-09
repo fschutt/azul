@@ -459,7 +459,7 @@ pub struct CallbackInfo {
     /// Handle of the current window
     current_window_handle: *const RawWindowHandle,
     /// Currently active, layouted rectangles
-    layout_results: *const [LayoutResult],
+    layout_results: *const Vec<LayoutResult>,
     /// Sets whether the event should be propagated to the parent hit node or not
     stop_propagation: *mut bool,
     /// The callback can change the focus_target - note that the focus_target is set before the
@@ -497,7 +497,7 @@ impl CallbackInfo {
        threads: &'a mut FastHashMap<ThreadId, Thread>,
        new_windows: &'a mut Vec<WindowCreateOptions>,
        current_window_handle: &'a RawWindowHandle,
-       layout_results: &'a [LayoutResult],
+       layout_results: &'a Vec<LayoutResult>,
        stop_propagation: &'a mut bool,
        focus_target: &'a mut Option<FocusTarget>,
        current_scroll_states: &'a BTreeMap<DomId, BTreeMap<AzNodeId, ScrollPosition>>,
@@ -516,7 +516,7 @@ impl CallbackInfo {
             threads: threads as *mut FastHashMap<ThreadId, Thread>,
             new_windows: new_windows as *mut Vec<WindowCreateOptions>,
             current_window_handle: current_window_handle as *const RawWindowHandle,
-            layout_results: layout_results as *const [LayoutResult],
+            layout_results: layout_results as *const Vec<LayoutResult>,
             stop_propagation: stop_propagation as *mut bool,
             focus_target: focus_target as *mut Option<FocusTarget>,
             current_scroll_states: current_scroll_states as *const BTreeMap<DomId, BTreeMap<AzNodeId, ScrollPosition>>,
@@ -536,7 +536,7 @@ impl CallbackInfo {
     fn internal_get_threads<'a>(&'a self) -> &'a mut FastHashMap<ThreadId, Thread> { unsafe { &mut *self.threads } }
     fn internal_get_new_windows<'a>(&'a self) -> &'a mut Vec<WindowCreateOptions> { unsafe { &mut *self.new_windows } }
     fn internal_get_current_window_handle<'a>(&'a self) -> &'a RawWindowHandle { unsafe { &*self.current_window_handle } }
-    fn internal_get_layout_results<'a>(&'a self) -> &'a [LayoutResult] { unsafe { &*self.layout_results } }
+    fn internal_get_layout_results<'a>(&'a self) -> &'a Vec<LayoutResult> { unsafe { &*self.layout_results } }
     fn internal_get_stop_propagation<'a>(&'a self) -> &'a mut bool { unsafe { &mut *self.stop_propagation } }
     fn internal_get_focus_target<'a>(&'a self) -> &'a mut Option<FocusTarget> { unsafe { &mut *self.focus_target } }
     fn internal_get_current_scroll_states<'a>(&'a self) -> &'a BTreeMap<DomId, BTreeMap<AzNodeId, ScrollPosition>> { unsafe { &*self.current_scroll_states } }

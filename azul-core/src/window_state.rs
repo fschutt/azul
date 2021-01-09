@@ -584,7 +584,7 @@ impl CallbacksOfHitTest {
         raw_window_handle: &RawWindowHandle,
         scroll_states: &BTreeMap<DomId, BTreeMap<AzNodeId, ScrollPosition>>,
         gl_context: &GlContextPtr,
-        layout_results: &mut [LayoutResult],
+        layout_results: &mut Vec<LayoutResult>,
         modifiable_scroll_states: &mut ScrollStates,
         resources: &mut AppResources,
     ) -> CallCallbacksResult {

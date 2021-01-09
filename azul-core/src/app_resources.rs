@@ -1,6 +1,6 @@
 use std::{
     fmt,
-    sync::{Arc, atomic::{AtomicUsize, Ordering}},
+    sync::atomic::{AtomicUsize, Ordering},
     num::NonZeroU16,
     any::Any,
 };
@@ -13,11 +13,58 @@ use crate::{
     callbacks::PipelineId,
     dom::{NodeData, OptionImageMask},
     svg::{SvgStyledNode, TesselatedCPUSvgNode},
-    window::{LogicalPosition, LogicalSize},
+    window::{RendererType, DebugState, LogicalPosition, LogicalSize, OptionI32},
 };
 
 #[cfg(feature = "opengl")]
 use crate::{gl::Texture, svg::TesselatedGPUSvgNode};
+
+/// Configuration for optional features, such as whether to enable logging or panic hooks
+#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
+#[repr(C)]
+pub struct AppConfig {
+    /// If enabled, logs error and info messages.
+    ///
+    /// Default is `LevelFilter::Error` to log all errors by default
+    pub log_level: AppLogLevel,
+    /// If the app crashes / panics, a window with a message box pops up.
+    /// Setting this to `false` disables the popup box.
+    pub enable_visual_panic_hook: bool,
+    /// If this is set to `true` (the default), a backtrace + error information
+    /// gets logged to stdout and the logging file (only if logging is enabled).
+    pub enable_logging_on_panic: bool,
+    /// (STUB) Whether keyboard navigation should be enabled (default: true).
+    /// Currently not implemented.
+    pub enable_tab_navigation: bool,
+    /// Whether to force a hardware or software renderer
+    pub renderer_type: RendererType,
+    /// Debug state for all windows
+    pub debug_state: DebugState,
+}
+
+impl Default for AppConfig {
+    fn default() -> Self {
+        Self {
+            log_level: AppLogLevel::Error,
+            enable_visual_panic_hook: true,
+            enable_logging_on_panic: true,
+            enable_tab_navigation: true,
+            renderer_type: RendererType::default(),
+            debug_state: DebugState::default(),
+        }
+    }
+}
+
+#[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
+#[repr(C)]
+pub enum AppLogLevel {
+    Off,
+    Error,
+    Warn,
+    Info,
+    Debug,
+    Trace,
+}
 
 pub type CssImageId = String;
 pub type CssFontId = String;
@@ -258,16 +305,18 @@ pub struct PrimitiveFlags {
 
 /// Metadata (but not storage) describing an image In WebRender.
 #[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
+#[repr(C)]
 pub struct ImageDescriptor {
     /// Format of the image data.
     pub format: RawImageFormat,
     /// Width and height of the image data, in pixels.
-    pub dimensions: (usize, usize),
+    pub width: usize,
+    pub height: usize,
     /// The number of bytes from the start of one row to the next. If non-None,
     /// `compute_stride` will return this value, otherwise it returns
     /// `width * bpp`. Different source of images have different alignment
     /// constraints for rows, so the stride isn't always equal to width * bpp.
-    pub stride: Option<i32>,
+    pub stride: OptionI32,
     /// Offset in bytes of the first pixel of this image in its backing buffer.
     /// This is used for tiling, wherein WebRender extracts chunks of input images
     /// in order to cache, manipulate, and render them individually. This offset
@@ -280,6 +329,7 @@ pub struct ImageDescriptor {
 
 /// Various flags that are part of an image descriptor.
 #[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
+#[repr(C)]
 pub struct ImageDescriptorFlags {
     /// Whether this image is opaque, or has an alpha channel. Avoiding blending
     /// for opaque surfaces is an important optimization.
@@ -844,7 +894,7 @@ pub struct ImageInfo {
 impl ImageInfo {
     /// Returns the (width, height) of this image.
     pub fn get_dimensions(&self) -> (usize, usize) {
-        self.descriptor.dimensions
+        (self.descriptor.width, self.descriptor.height)
     }
 }
 
@@ -1182,28 +1232,19 @@ impl Default for SyntheticItalics {
 /// Represents the backing store of an arbitrary series of pixels for display by
 /// WebRender. This storage can take several forms.
 #[derive(Debug, Clone, PartialEq, Eq, Ord, PartialOrd, Hash)]
+#[repr(C, u8)]
 pub enum ImageData {
     /// A simple series of bytes, provided by the embedding and owned by WebRender.
     /// The format is stored out-of-band, currently in ImageDescriptor.
-    Raw(Arc<Vec<u8>>),
+    Raw(U8Vec),
     /// An image owned by the embedding, and referenced by WebRender. This may
     /// take the form of a texture or a heap-allocated buffer.
     External(ExternalImageData),
 }
 
-impl ImageData {
-
-    pub fn new_raw(data: Vec<u8>) -> Self {
-        ImageData::Raw(Arc::new(data))
-    }
-
-    pub fn new_external(data: ExternalImageData) -> Self {
-        ImageData::External(data)
-    }
-}
 /// Storage format identifier for externally-managed images.
-#[repr(u32)]
 #[derive(Debug, Copy, Clone, Eq, Hash, PartialEq, PartialOrd, Ord)]
+#[repr(C, u8)]
 pub enum ExternalImageType {
     /// The image is texture-backed.
     TextureHandle(TextureTarget),
@@ -1216,19 +1257,20 @@ pub enum ExternalImageType {
 /// image.
 #[repr(C)]
 #[derive(Copy, Clone, Debug, Eq, PartialEq, Hash, PartialOrd, Ord)]
-pub struct ExternalImageId(pub u64);
+pub struct ExternalImageId { pub inner: u64 }
 
 static LAST_EXTERNAL_IMAGE_ID: AtomicUsize = AtomicUsize::new(0);
 
 impl ExternalImageId {
     /// Creates a new, unique ExternalImageId
     pub fn new() -> Self {
-        Self(LAST_EXTERNAL_IMAGE_ID.fetch_add(1, Ordering::SeqCst) as u64)
+        Self { inner: LAST_EXTERNAL_IMAGE_ID.fetch_add(1, Ordering::SeqCst) as u64 }
     }
 }
 
 /// Specifies the type of texture target in driver terms.
 #[derive(Copy, Clone, Debug, Eq, Hash, PartialEq, PartialOrd, Ord)]
+#[repr(C)]
 pub enum TextureTarget {
     /// Standard texture. This maps to GL_TEXTURE_2D in OpenGL.
     Default = 0,
@@ -1502,25 +1544,31 @@ impl DeleteImageMsg {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
+#[repr(C)]
 pub struct LoadedImageSource {
     pub image_bytes_decoded: ImageData,
     pub image_descriptor: ImageDescriptor,
 }
 
+impl_option!(LoadedImageSource, OptionLoadedImageSource, copy = false, [Debug, Clone, PartialEq, Eq, Hash]);
+
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
+#[repr(C)]
 pub struct LoadedFontSource {
     /// Bytes of the font file
-    pub font_bytes: Vec<u8>,
+    pub font_bytes: U8Vec,
     /// Index of the font in the file (if not known, set to 0) -
     /// only relevant if the file is a font collection
     pub font_index: u32,
 }
 
+impl_option!(LoadedFontSource, OptionLoadedFontSource, copy = false, [Debug, Clone, PartialEq, Eq, Hash]);
+
 #[repr(C)]
-pub struct LoadFontFn { pub cb: fn(&FontSource) -> Option<LoadedFontSource> }
+pub struct LoadFontFn { pub cb: extern "C" fn(&FontSource) -> OptionLoadedFontSource }
 impl_callback!(LoadFontFn);
 #[repr(C)]
-pub struct LoadImageFn { pub cb: fn(&ImageSource) -> Option<LoadedImageSource> }
+pub struct LoadImageFn { pub cb: extern "C" fn(&ImageSource) -> OptionLoadedImageSource }
 impl_callback!(LoadImageFn);
 
 // function to parse the font given the loaded font source
@@ -1615,7 +1663,7 @@ pub fn build_add_font_resource_updates<T: FontImageApi>(
                     Unresolved(css_font_id) => FontSource::System(css_font_id.clone().into()),
                 };
 
-                let loaded_font_source = match (font_source_load_fn.cb)(&font_source) {
+                let loaded_font_source = match (font_source_load_fn.cb)(&font_source).into_option() {
                     Some(s) => s,
                     None => continue,
                 };
@@ -1636,7 +1684,7 @@ pub fn build_add_font_resource_updates<T: FontImageApi>(
                         font_metrics,
                         font_instances: FastHashMap::new(),
                     };
-                    resource_updates.push((im_font_id.clone(), AddFontMsg::Font(font_key, font_bytes, font_index, loaded_font)));
+                    resource_updates.push((im_font_id.clone(), AddFontMsg::Font(font_key, font_bytes.into(), font_index, loaded_font)));
 
                     for font_size in font_sizes {
                         insert_font_instances!(im_font_id.clone(), font_key, font_index, *font_size);
@@ -1670,7 +1718,7 @@ pub fn build_add_image_resource_updates<T: FontImageApi>(
     .filter(|image_id| !app_resources.currently_registered_images[pipeline_id].contains_key(*image_id))
     .filter_map(|image_id| {
         let image_source = app_resources.image_sources.get(image_id)?;
-        let LoadedImageSource { image_bytes_decoded, image_descriptor } = (image_source_load_fn.cb)(image_source)?;
+        let LoadedImageSource { image_bytes_decoded, image_descriptor } = (image_source_load_fn.cb)(image_source).into_option()?;
         let key = render_api.new_image_key();
         let add_image = AddImage { key, data: image_bytes_decoded, descriptor: image_descriptor, tiling: None };
         Some((*image_id, AddImageMsg(add_image, ImageInfo { key, descriptor: image_descriptor })))

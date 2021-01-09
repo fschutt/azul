@@ -609,7 +609,6 @@ macro_rules! impl_result {
     );
 }
 
-#[derive(Debug)]
 #[repr(C)]
 pub struct AzString { pub vec: U8Vec }
 
@@ -628,6 +627,12 @@ impl AsRef<str> for AzString {
 impl Default for AzString {
     fn default() -> Self {
         String::new().into()
+    }
+}
+
+impl std::fmt::Debug for AzString {
+    fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
+        self.as_str().fmt(f)
     }
 }
 

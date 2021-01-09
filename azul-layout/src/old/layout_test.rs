@@ -107,10 +107,8 @@ fn test_full_dom() {
     use azul_css::{Css, LayoutPoint, LayoutSize, LayoutRect};
 
     let mut app_resources = AppResources::default();
-    let dom = Dom::body();
-    let css = Css::empty();
 
-    let styled_dom = StyledDom::new(dom, &css);
+    let styled_dom = StyledDom::new(Dom::body(), Css::empty());
 
     let layout_result = crate::layout_solver::do_the_layout_internal(
         DomId::ROOT_ID,
@@ -118,10 +116,10 @@ fn test_full_dom() {
         styled_dom,
         &mut app_resources,
         PipelineId::DUMMY,
-        LayoutRect::new(LayoutPoint::zero(), LayoutSize::new(800.0, 600.0))
+        LayoutRect::new(LayoutPoint::zero(), LayoutSize::new(800, 600))
     );
 
-    assert_eq!(layout_result.rects.as_ref()[NodeId::new(0)].size, LayoutSize::new(800.0, 600.0));
+    assert_eq!(layout_result.rects.as_ref()[NodeId::new(0)].size, LayoutSize::new(800, 600));
 }
 
 #[test]
@@ -303,7 +301,7 @@ fn test_fill_out_preferred_width() {
 
     // This step shouldn't have touched the flex_grow_px
     for node in &width_filled_out_data.internal {
-        assert_eq!(node.flex_grow_px, 0.0);
+        assert_eq!(node.flex_grow_px, 0);
     }
 
     // This step should not modify the `preferred_width`
@@ -329,7 +327,7 @@ fn test_fill_out_preferred_width() {
 
     // -- Section 3: Test if growing the sizes works
 
-    let window_width = 754.0; // pixel
+    let window_width = 754; // pixel
 
     // - window_width: 754px
     // 0                -- [] - expecting width to stretch to 754 px
@@ -343,27 +341,27 @@ fn test_fill_out_preferred_width() {
     width_calculated_rect_arena_apply_flex_grow(&mut width_filled_out_data.as_ref_mut(), &node_hierarchy.as_ref(), &node_data.as_ref(), &node_depths, window_width, &parents_to_recalc);
 
     assert_eq!(width_filled_out_data.as_ref()[NodeId::new(0)].solved_result(), WidthSolvedResult {
-        min_width: 40.0,
-        space_added: window_width - 40.0,
+        min_width: 40,
+        space_added: window_width - 40,
     });
     assert_eq!(width_filled_out_data.as_ref()[NodeId::new(1)].solved_result(), WidthSolvedResult {
-        min_width: 0.0,
-        space_added: 200.0,
+        min_width: 0,
+        space_added: 200,
     });
     assert_eq!(width_filled_out_data.as_ref()[NodeId::new(2)].solved_result(), WidthSolvedResult {
-        min_width: 0.0,
-        space_added: 160.0,
+        min_width: 0,
+        space_added: 160,
     });
     assert_eq!(width_filled_out_data.as_ref()[NodeId::new(3)].solved_result(), WidthSolvedResult {
-        min_width: 0.0,
-        space_added: 80.0,
+        min_width: 0,
+        space_added: 80,
     });
     assert_eq!(width_filled_out_data.as_ref()[NodeId::new(4)].solved_result(), WidthSolvedResult {
-        min_width: 0.0,
-        space_added: 80.0,
+        min_width: 0,
+        space_added: 80,
     });
     assert_eq!(width_filled_out_data.as_ref()[NodeId::new(5)].solved_result(), WidthSolvedResult {
-        min_width: 0.0,
-        space_added: window_width - 200.0,
+        min_width: 0,
+        space_added: window_width - 200,
     });
 }

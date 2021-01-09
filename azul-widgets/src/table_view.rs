@@ -107,6 +107,8 @@ impl TableViewState {
         use azul::css::*;
         use azul::str::String as AzString;
 
+        println!("ok1!");
+
         let font: AzString = "sans-serif".into();
         let sans_serif_font_family = StyleFontFamily { fonts: vec![font].into() };
 
@@ -129,12 +131,16 @@ impl TableViewState {
             clip_mode: BoxShadowClipMode::Outset,
         };
 
+        println!("ok2!");
+
         // Empty rectangle at the top left of the table
         let top_left_empty_rect = Dom::div()
         .with_inline_css(CssProperty::height(LayoutHeight::const_px(20)))
         .with_inline_css(CssProperty::background_content(StyleBackgroundContent::Color(COLOR_E6E6E6)))
         .with_inline_css(CssProperty::border_bottom_color(StyleBorderBottomColor { inner: COLOR_B5B5B5 }))
         .with_inline_css(CssProperty::border_right_color(StyleBorderRightColor { inner: COLOR_B5B5B5 }));
+
+        println!("ok3!");
 
         // Row numbers (first column - laid out vertical) - "1", "2", "3"
         let row_numbers = (rows.start..rows.end.saturating_sub(1)).map(|row_idx| {
@@ -155,12 +161,16 @@ impl TableViewState {
         .with_inline_css(CssProperty::flex_direction(LayoutFlexDirection::Column))
         .with_inline_css(CssProperty::box_shadow_right(shadow));
 
+        println!("ok4!");
+
         // first column: contains the "top left rect" + the column
         let row_number_wrapper = Dom::div()
         .with_inline_css(CssProperty::flex_direction(LayoutFlexDirection::Column))
         .with_inline_css(CssProperty::max_width(LayoutMaxWidth::px(30.0)))
         .with_child(top_left_empty_rect)
         .with_child(row_numbers);
+
+        println!("ok5!");
 
         // currently active cell handle
         let current_active_selection_handle = Dom::div()
@@ -214,6 +224,8 @@ impl TableViewState {
 
         .with_child(current_active_selection_handle);
 
+        println!("ok6!");
+
         let columns_table_container = columns.map(|col_idx| {
 
             let column_names = Dom::label(column_name_from_number(col_idx).into())
@@ -264,16 +276,31 @@ impl TableViewState {
         })
         .collect::<Dom>()
         .with_inline_css(CssProperty::flex_direction(LayoutFlexDirection::Row))
-        .with_inline_css(CssProperty::position(LayoutPosition::Relative))
+        .with_inline_css(CssProperty::position(LayoutPosition::Relative));
+
+
+        println!("current_active_selection is now: {:#?}", current_active_selection);
+        println!("dom is now: {:#?}", columns_table_container);
+
+        let columns_table_container =  columns_table_container
         .with_child(current_active_selection);
 
-        Dom::div()
+        println!("ok7!");
+
+        let dom = Dom::div()
         .with_inline_css(CssProperty::display(LayoutDisplay::Flex))
         .with_inline_css(CssProperty::box_sizing(LayoutBoxSizing::BorderBox))
         .with_inline_css(CssProperty::flex_direction(LayoutFlexDirection::Row))
             .with_child(row_number_wrapper)
-            .with_child(columns_table_container)
-        .style(Css::empty())
+            .with_child(columns_table_container);
+
+        println!("ok: {:?}!", dom);
+
+        let styled = dom.style(Css::empty());
+
+        println!("ok: styled dom!");
+
+        styled
     }
 }
 
@@ -309,8 +336,13 @@ impl TableView {
 
         use azul::window::{LayoutRect, LayoutSize, LayoutPoint};
 
+        println!("in function render_table_iframe_contents!");
+        println!("state: {:?}", state);
+
         let table_view_state = state.borrow::<TableViewState>().unwrap();
+        println!("downcast worked!");
         let logical_size = info.get_bounds().get_logical_size();
+        println!("info get bounds: {:?}!", logical_size);
 
         let padding_rows = 0;
         let padding_columns = 0;
@@ -323,10 +355,13 @@ impl TableView {
         let table_height = (necessary_rows + padding_rows) as f32 * table_view_state.row_height;
         let table_width = (necessary_columns + padding_columns) as f32 * table_view_state.column_width;
 
+        println!("calling table view state render!");
         let styled_dom = table_view_state.render(
             row_start..(row_start + necessary_rows + padding_rows),
             column_start..(column_start + necessary_columns + padding_columns)
         );
+
+        println!("styled dom rendered: {:#?}", styled_dom);
 
         IFrameCallbackReturn {
             dom: styled_dom,

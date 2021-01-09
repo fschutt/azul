@@ -19,12 +19,38 @@
     /// Callback for the `WriteBack` class
     pub type AzWriteBackCallbackType =  extern "C" fn(&mut AzRefAny, AzRefAny, AzCallbackInfo) -> AzUpdateScreen;
 
+    impl AzString {
+        #[inline]
+        pub fn as_str(&self) -> &str {
+            unsafe { std::str::from_utf8_unchecked(self.as_bytes()) }
+        }
+        #[inline]
+        pub fn as_bytes(&self) -> &[u8] {
+            unsafe { std::slice::from_raw_parts(self.vec.ptr, self.vec.len) }
+        }
+    }
+
     impl ::std::fmt::Debug for AzCallback                   { fn fmt(&self, f: &mut ::std::fmt::Formatter) -> ::std::fmt::Result { write!(f, "{:x}", self.cb as usize) }}
     impl ::std::fmt::Debug for AzLayoutCallback             { fn fmt(&self, f: &mut ::std::fmt::Formatter) -> ::std::fmt::Result { write!(f, "{:x}", self.cb as usize) }}
     impl ::std::fmt::Debug for AzGlCallback                 { fn fmt(&self, f: &mut ::std::fmt::Formatter) -> ::std::fmt::Result { write!(f, "{:x}", self.cb as usize) }}
     impl ::std::fmt::Debug for AzIFrameCallback             { fn fmt(&self, f: &mut ::std::fmt::Formatter) -> ::std::fmt::Result { write!(f, "{:x}", self.cb as usize) }}
     impl ::std::fmt::Debug for AzTimerCallback              { fn fmt(&self, f: &mut ::std::fmt::Formatter) -> ::std::fmt::Result { write!(f, "{:x}", self.cb as usize) }}
-    impl ::std::fmt::Debug for AzWriteBackCallback          { fn fmt(&self, f: &mut ::std::fmt::Formatter) -> ::std::fmt::Result { write!(f, "{:x}", self.cb as usize) }}    /// Re-export of rust-allocated (stack based) `String` struct
+    impl ::std::fmt::Debug for AzWriteBackCallback          { fn fmt(&self, f: &mut ::std::fmt::Formatter) -> ::std::fmt::Result { write!(f, "{:x}", self.cb as usize) }}
+    impl ::std::fmt::Debug for AzRefAny                     {
+        fn fmt(&self, f: &mut ::std::fmt::Formatter) -> ::std::fmt::Result {
+            write!(f, "RefAny {{")?;
+            write!(f, "_internal_ptr: {:x}", self._internal_ptr as usize)?;
+            write!(f, "_internal_len: {}", self._internal_len)?;
+            write!(f, "_internal_layout_size: {}", self._internal_layout_size)?;
+            write!(f, "_internal_layout_align: {}", self._internal_layout_align)?;
+            write!(f, "type_id: {}", self.type_id)?;
+            write!(f, "type_name: \"{}\"", self.type_name.as_str())?;
+            write!(f, "_sharing_info_ptr: \"{}\"", self._sharing_info_ptr as usize)?;
+            write!(f, "custom_destructor: \"{}\"", self.custom_destructor as usize)?;
+            write!(f, "}}")?;
+            Ok(())
+        }
+    }    /// Re-export of rust-allocated (stack based) `String` struct
     #[repr(C)] #[derive(Debug)] pub struct AzString {
         pub vec: AzU8Vec,
     }
@@ -860,9 +886,23 @@
         pub secs: u64,
         pub nanos: u32,
     }
-    /// Pointer to rust-allocated `Box<AppConfig>` struct
-    #[repr(C)] #[derive(Debug)] pub struct AzAppConfigPtr {
-        pub(crate) ptr: *mut c_void,
+    /// Re-export of rust-allocated (stack based) `AppLogLevel` struct
+    #[repr(C)] #[derive(Debug)] pub enum AzAppLogLevel {
+        Off,
+        Error,
+        Warn,
+        Info,
+        Debug,
+        Trace,
+    }
+    /// Configuration for optional features, such as whether to enable logging or panic hooks
+    #[repr(C)] #[derive(Debug)] pub struct AzAppConfig {
+        pub log_level: AzAppLogLevel,
+        pub enable_visual_panic_hook: bool,
+        pub enable_logging_on_panic: bool,
+        pub enable_tab_navigation: bool,
+        pub renderer_type: AzRendererType,
+        pub debug_state: AzDebugState,
     }
     /// Pointer to rust-allocated `Box<App>` struct
     #[repr(C)] #[derive(Debug)] pub struct AzAppPtr {
@@ -986,7 +1026,7 @@
         pub(crate) ptr: *const c_void,
     }
     /// RefAny is a reference-counted, type-erased pointer, which stores a reference to a struct. `RefAny` can be up- and downcasted (this usually done via generics and can't be expressed in the Rust API)
-    #[repr(C)] #[derive(Debug)] pub struct AzRefAny {
+    #[repr(C)]  pub struct AzRefAny {
         pub _internal_ptr: *const c_void,
         pub _internal_len: usize,
         pub _internal_layout_size: usize,
@@ -2601,7 +2641,7 @@
     /// Re-export of rust-allocated (stack based) `TabIndex` struct
     #[repr(C, u8)] #[derive(Debug)] pub enum AzTabIndex {
         Auto,
-        OverrideInParent(usize),
+        OverrideInParent(u32),
         NoKeyboardFocus,
     }
     /// Re-export of rust-allocated (stack based) `GlShaderPrecisionFormatReturn` struct
@@ -2754,6 +2794,7 @@
     /// Re-export of rust-allocated (stack based) `Texture` struct
     #[repr(C)] #[derive(Debug)] pub struct AzTexture {
         pub texture_id: u32,
+        pub format: AzRawImageFormat,
         pub flags: AzTextureFlags,
         pub size: AzPhysicalSizeU32,
         pub gl_context: AzGlContextPtr,
@@ -2762,6 +2803,17 @@
     #[repr(C)] #[derive(Debug)] pub struct AzTextureFlags {
         pub is_opaque: bool,
         pub is_video_texture: bool,
+    }
+    /// Re-export of rust-allocated (stack based) `RawImageFormat` struct
+    #[repr(C)] #[derive(Debug)] pub enum AzRawImageFormat {
+        R8,
+        R16,
+        RG16,
+        BGRA8,
+        RGBAF32,
+        RG8,
+        RGBAI32,
+        RGBA8,
     }
     /// Re-export of rust-allocated (stack based) `TextId` struct
     #[repr(C)] #[derive(Debug)] pub struct AzTextId {
@@ -2793,17 +2845,6 @@
         pub width: usize,
         pub height: usize,
         pub data_format: AzRawImageFormat,
-    }
-    /// Re-export of rust-allocated (stack based) `RawImageFormat` struct
-    #[repr(C)] #[derive(Debug)] pub enum AzRawImageFormat {
-        R8,
-        R16,
-        RG16,
-        BGRA8,
-        RGBAF32,
-        RG8,
-        RGBAI32,
-        RGBA8,
     }
     /// Re-export of rust-allocated (stack based) `SvgMultiPolygon` struct
     #[repr(C)] #[derive(Debug)] pub struct AzSvgMultiPolygon {
@@ -2952,13 +2993,13 @@
     }
     /// Re-export of rust-allocated (stack based) `SvgDashPattern` struct
     #[repr(C)] #[derive(Debug)] pub struct AzSvgDashPattern {
-        pub offset: f32,
-        pub length_1: f32,
-        pub gap_1: f32,
-        pub length_2: f32,
-        pub gap_2: f32,
-        pub length_3: f32,
-        pub gap_3: f32,
+        pub offset: usize,
+        pub length_1: usize,
+        pub gap_1: usize,
+        pub length_2: usize,
+        pub gap_2: usize,
+        pub length_3: usize,
+        pub gap_3: usize,
     }
     /// Re-export of rust-allocated (stack based) `SvgStyle` struct
     #[repr(C, u8)] #[derive(Debug)] pub enum AzSvgStyle {
@@ -2992,9 +3033,11 @@
     }
     /// Re-export of rust-allocated (stack based) `Timer` struct
     #[repr(C)] #[derive(Debug)] pub struct AzTimer {
+        pub data: AzRefAny,
         pub created: AzInstantPtr,
         pub last_run: AzOptionInstantPtr,
-        pub delay: AzOptionInstantPtr,
+        pub run_count: usize,
+        pub delay: AzOptionDuration,
         pub interval: AzOptionDuration,
         pub timeout: AzOptionDuration,
         pub callback: AzTimerCallback,
@@ -3784,9 +3827,11 @@
         pub az_invalid_string_error_deep_copy: extern "C" fn(_:  &AzInvalidStringError) -> AzInvalidStringError,
         pub az_instant_ptr_now: extern "C" fn() -> AzInstantPtr,
         pub az_instant_ptr_delete: extern "C" fn(_:  &mut AzInstantPtr),
-        pub az_app_config_ptr_default: extern "C" fn() -> AzAppConfigPtr,
-        pub az_app_config_ptr_delete: extern "C" fn(_:  &mut AzAppConfigPtr),
-        pub az_app_ptr_new: extern "C" fn(_:  AzRefAny, _:  AzAppConfigPtr) -> AzAppPtr,
+        pub az_app_config_default: extern "C" fn() -> AzAppConfig,
+        pub az_app_config_delete: extern "C" fn(_:  &mut AzAppConfig),
+        pub az_app_config_deep_copy: extern "C" fn(_:  &AzAppConfig) -> AzAppConfig,
+        pub az_app_ptr_new: extern "C" fn(_:  AzRefAny, _:  AzAppConfig) -> AzAppPtr,
+        pub az_app_ptr_add_window: extern "C" fn(_:  &mut AzAppPtr, _:  AzWindowCreateOptions),
         pub az_app_ptr_run: extern "C" fn(_:  AzAppPtr, _:  AzWindowCreateOptions),
         pub az_app_ptr_delete: extern "C" fn(_:  &mut AzAppPtr),
         pub az_hidpi_adjusted_bounds_get_logical_size: extern "C" fn(_:  &AzHidpiAdjustedBounds) -> AzLogicalSize,
@@ -4240,6 +4285,8 @@
         pub az_gl_context_ptr_deep_copy: extern "C" fn(_:  &AzGlContextPtr) -> AzGlContextPtr,
         pub az_texture_delete: extern "C" fn(_:  &mut AzTexture),
         pub az_texture_flags_default: extern "C" fn() -> AzTextureFlags,
+        pub az_raw_image_format_delete: extern "C" fn(_:  &mut AzRawImageFormat),
+        pub az_raw_image_format_deep_copy: extern "C" fn(_:  &AzRawImageFormat) -> AzRawImageFormat,
         pub az_text_id_new: extern "C" fn() -> AzTextId,
         pub az_image_id_new: extern "C" fn() -> AzImageId,
         pub az_font_id_new: extern "C" fn() -> AzFontId,
@@ -4250,8 +4297,6 @@
         pub az_raw_image_new: extern "C" fn(_:  AzU8Vec, _:  usize, _:  usize, _:  AzRawImageFormat) -> AzRawImage,
         pub az_raw_image_delete: extern "C" fn(_:  &mut AzRawImage),
         pub az_raw_image_deep_copy: extern "C" fn(_:  &AzRawImage) -> AzRawImage,
-        pub az_raw_image_format_delete: extern "C" fn(_:  &mut AzRawImageFormat),
-        pub az_raw_image_format_deep_copy: extern "C" fn(_:  &AzRawImageFormat) -> AzRawImageFormat,
         pub az_svg_multi_polygon_delete: extern "C" fn(_:  &mut AzSvgMultiPolygon),
         pub az_svg_multi_polygon_deep_copy: extern "C" fn(_:  &AzSvgMultiPolygon) -> AzSvgMultiPolygon,
         pub az_svg_node_delete: extern "C" fn(_:  &mut AzSvgNode),
@@ -4545,9 +4590,11 @@
             let az_invalid_string_error_deep_copy: extern "C" fn(_:  &AzInvalidStringError) -> AzInvalidStringError = transmute(lib.get(b"az_invalid_string_error_deep_copy")?);
             let az_instant_ptr_now: extern "C" fn() -> AzInstantPtr = transmute(lib.get(b"az_instant_ptr_now")?);
             let az_instant_ptr_delete: extern "C" fn(_:  &mut AzInstantPtr) = transmute(lib.get(b"az_instant_ptr_delete")?);
-            let az_app_config_ptr_default: extern "C" fn() -> AzAppConfigPtr = transmute(lib.get(b"az_app_config_ptr_default")?);
-            let az_app_config_ptr_delete: extern "C" fn(_:  &mut AzAppConfigPtr) = transmute(lib.get(b"az_app_config_ptr_delete")?);
-            let az_app_ptr_new: extern "C" fn(_:  AzRefAny, _:  AzAppConfigPtr) -> AzAppPtr = transmute(lib.get(b"az_app_ptr_new")?);
+            let az_app_config_default: extern "C" fn() -> AzAppConfig = transmute(lib.get(b"az_app_config_default")?);
+            let az_app_config_delete: extern "C" fn(_:  &mut AzAppConfig) = transmute(lib.get(b"az_app_config_delete")?);
+            let az_app_config_deep_copy: extern "C" fn(_:  &AzAppConfig) -> AzAppConfig = transmute(lib.get(b"az_app_config_deep_copy")?);
+            let az_app_ptr_new: extern "C" fn(_:  AzRefAny, _:  AzAppConfig) -> AzAppPtr = transmute(lib.get(b"az_app_ptr_new")?);
+            let az_app_ptr_add_window: extern "C" fn(_:  &mut AzAppPtr, _:  AzWindowCreateOptions) = transmute(lib.get(b"az_app_ptr_add_window")?);
             let az_app_ptr_run: extern "C" fn(_:  AzAppPtr, _:  AzWindowCreateOptions) = transmute(lib.get(b"az_app_ptr_run")?);
             let az_app_ptr_delete: extern "C" fn(_:  &mut AzAppPtr) = transmute(lib.get(b"az_app_ptr_delete")?);
             let az_hidpi_adjusted_bounds_get_logical_size: extern "C" fn(_:  &AzHidpiAdjustedBounds) -> AzLogicalSize = transmute(lib.get(b"az_hidpi_adjusted_bounds_get_logical_size")?);
@@ -5001,6 +5048,8 @@
             let az_gl_context_ptr_deep_copy: extern "C" fn(_:  &AzGlContextPtr) -> AzGlContextPtr = transmute(lib.get(b"az_gl_context_ptr_deep_copy")?);
             let az_texture_delete: extern "C" fn(_:  &mut AzTexture) = transmute(lib.get(b"az_texture_delete")?);
             let az_texture_flags_default: extern "C" fn() -> AzTextureFlags = transmute(lib.get(b"az_texture_flags_default")?);
+            let az_raw_image_format_delete: extern "C" fn(_:  &mut AzRawImageFormat) = transmute(lib.get(b"az_raw_image_format_delete")?);
+            let az_raw_image_format_deep_copy: extern "C" fn(_:  &AzRawImageFormat) -> AzRawImageFormat = transmute(lib.get(b"az_raw_image_format_deep_copy")?);
             let az_text_id_new: extern "C" fn() -> AzTextId = transmute(lib.get(b"az_text_id_new")?);
             let az_image_id_new: extern "C" fn() -> AzImageId = transmute(lib.get(b"az_image_id_new")?);
             let az_font_id_new: extern "C" fn() -> AzFontId = transmute(lib.get(b"az_font_id_new")?);
@@ -5011,8 +5060,6 @@
             let az_raw_image_new: extern "C" fn(_:  AzU8Vec, _:  usize, _:  usize, _:  AzRawImageFormat) -> AzRawImage = transmute(lib.get(b"az_raw_image_new")?);
             let az_raw_image_delete: extern "C" fn(_:  &mut AzRawImage) = transmute(lib.get(b"az_raw_image_delete")?);
             let az_raw_image_deep_copy: extern "C" fn(_:  &AzRawImage) -> AzRawImage = transmute(lib.get(b"az_raw_image_deep_copy")?);
-            let az_raw_image_format_delete: extern "C" fn(_:  &mut AzRawImageFormat) = transmute(lib.get(b"az_raw_image_format_delete")?);
-            let az_raw_image_format_deep_copy: extern "C" fn(_:  &AzRawImageFormat) -> AzRawImageFormat = transmute(lib.get(b"az_raw_image_format_deep_copy")?);
             let az_svg_multi_polygon_delete: extern "C" fn(_:  &mut AzSvgMultiPolygon) = transmute(lib.get(b"az_svg_multi_polygon_delete")?);
             let az_svg_multi_polygon_deep_copy: extern "C" fn(_:  &AzSvgMultiPolygon) -> AzSvgMultiPolygon = transmute(lib.get(b"az_svg_multi_polygon_deep_copy")?);
             let az_svg_node_delete: extern "C" fn(_:  &mut AzSvgNode) = transmute(lib.get(b"az_svg_node_delete")?);
@@ -5302,9 +5349,11 @@
                 az_invalid_string_error_deep_copy,
                 az_instant_ptr_now,
                 az_instant_ptr_delete,
-                az_app_config_ptr_default,
-                az_app_config_ptr_delete,
+                az_app_config_default,
+                az_app_config_delete,
+                az_app_config_deep_copy,
                 az_app_ptr_new,
+                az_app_ptr_add_window,
                 az_app_ptr_run,
                 az_app_ptr_delete,
                 az_hidpi_adjusted_bounds_get_logical_size,
@@ -5758,6 +5807,8 @@
                 az_gl_context_ptr_deep_copy,
                 az_texture_delete,
                 az_texture_flags_default,
+                az_raw_image_format_delete,
+                az_raw_image_format_deep_copy,
                 az_text_id_new,
                 az_image_id_new,
                 az_font_id_new,
@@ -5768,8 +5819,6 @@
                 az_raw_image_new,
                 az_raw_image_delete,
                 az_raw_image_deep_copy,
-                az_raw_image_format_delete,
-                az_raw_image_format_deep_copy,
                 az_svg_multi_polygon_delete,
                 az_svg_multi_polygon_deep_copy,
                 az_svg_node_delete,

@@ -155,15 +155,16 @@ pub fn prepare_image(image_decoded: DynamicImage) -> Result<LoadedImageSource, I
     let allow_mipmaps = true;
     let descriptor = ImageDescriptor {
         format,
-        dimensions: (image_dims.0 as usize, image_dims.1 as usize),
+        width: image_dims.0 as usize,
+        height: image_dims.1 as usize,
         offset: 0,
-        stride: None,
+        stride: None.into(),
         flags: ImageDescriptorFlags {
             is_opaque,
             allow_mipmaps,
         }
     };
-    let data = ImageData::new_raw(bytes);
+    let data = ImageData::Raw(bytes.into());
 
     Ok(LoadedImageSource { image_bytes_decoded: data, image_descriptor: descriptor })
 }

@@ -99,8 +99,9 @@ pub mod prelude {
         display_list::GlyphInstance,
         app_resources::{
             AppResources, RawImageFormat, ImageId, FontId,
-            FontSource, ImageSource, TextCache, TextId,
+            FontSource, ImageSource, TextCache, TextId, AppConfig,
         },
+        styled_dom::StyledDom,
         callbacks::*,
         gl::{
             GLuint, Texture, VertexLayout, VertexAttribute, VertexAttributeType,
@@ -115,7 +116,7 @@ pub mod prelude {
         task::{TimerId, Timer, TerminateTimer, ThreadId, Thread, ThreadSender, ThreadReceiver, ThreadSendMsg, ThreadReceiveMsg, ThreadWriteBackMsg},
         traits::*,
     };
-    pub use crate::app::{App, AppConfig};
+    pub use crate::app::App;
     pub use crate::window::{Window, MonitorHandle, Monitor};
     #[cfg(any(feature = "css_parser", feature = "native_style"))]
     pub use crate::css;

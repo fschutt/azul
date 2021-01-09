@@ -1146,6 +1146,8 @@ pub fn do_the_layout<U: FontImageApi>(
     full_window_state: &FullWindowState,
 ) -> Vec<LayoutResult> {
 
+    println!("do_the_layout!");
+
     let mut current_dom_id = 0;
     let window_size = LayoutSize::new(full_window_state.size.dimensions.width.round() as isize, full_window_state.size.dimensions.height.round() as isize);
 
@@ -1161,6 +1163,8 @@ pub fn do_the_layout<U: FontImageApi>(
         for (parent_dom_id, dom_id, styled_dom, rect) in doms.drain(..) {
 
             use azul_core::app_resources::add_fonts_and_images;
+
+            println!("adding fonts and images!");
 
             add_fonts_and_images(
                 app_resources,
@@ -1182,7 +1186,11 @@ pub fn do_the_layout<U: FontImageApi>(
                 rect,
             );
 
+            println!("layout done for DOM {:?}: {:#?}", dom_id, layout_result);
+
             let iframes = layout_result.styled_dom.scan_for_iframe_callbacks();
+
+            println!("resolving {} iframes", iframes.len());
 
             let mut iframe_mapping = BTreeMap::new();
 
@@ -1206,8 +1214,11 @@ pub fn do_the_layout<U: FontImageApi>(
                         hidpi_bounds,
                     );
 
+                    println!("calling iframe callback...: {:?}", iframe_callback_info);
                     (iframe_node.callback.cb)(&iframe_node.data, iframe_callback_info)
                 };
+
+                println!("calling iframe callback done: {:#?}", iframe_return);
 
                 let mut iframe_dom = iframe_return.styled_dom;
 

@@ -10,7 +10,7 @@ use gleam::gl::{self, Gl, GlType, DebugMessage};
 use crate::{
     FastHashMap,
     window::PhysicalSizeU32,
-    app_resources::{Epoch, ExternalImageId},
+    app_resources::{Epoch, RawImageFormat, ExternalImageId},
     callbacks::PipelineId,
     svg::TesselatedGPUSvgNode,
 };
@@ -1734,6 +1734,8 @@ impl Drop for GlContextPtr {
 pub struct Texture {
     /// Raw OpenGL texture ID
     pub texture_id: GLuint,
+    /// Format of the texture (rgba8, brga8, etc.)
+    pub format: RawImageFormat,
     /// Hints and flags for optimization purposes
     pub flags: TextureFlags,
     /// Size of this texture (in pixels)
@@ -2507,6 +2509,7 @@ impl GlShader {
 
         Texture {
             texture_id: *texture_id,
+            format: RawImageFormat::RGBA8,
             size: texture_size,
             flags: TextureFlags {
                 is_opaque: true,

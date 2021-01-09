@@ -2059,7 +2059,29 @@
 		"app": {
 			"doc": "`App` construction and configuration",
 			"classes": {
+				"AppLogLevel": {
+					"external": "azul_impl::resources::AppLogLevel",
+					"derive": ["Copy"],
+					"enum_fields": [
+						{"Off": {}},
+						{"Error": {}},
+						{"Warn": {}},
+						{"Info": {}},
+						{"Debug": {}},
+						{"Trace": {}}
+					]
+				},
 				"AppConfig": {
+					"external": "azul_impl::resources::AppConfig",
+					"doc": "Configuration for optional features, such as whether to enable logging or panic hooks",
+					"struct_fields": [
+						{"log_level": {"type": "AppLogLevel", "doc": "If enabled, logs error and info messages"}},
+						{"enable_visual_panic_hook": {"type": "bool", "doc": "If the app crashes / panics, a window with a message box pops up"}},
+						{"enable_logging_on_panic": {"type": "bool", "doc": "If set, a backtrace + error information gets logged to stdout (if the log_level is not `LogLevel::Off`)"}},
+						{"enable_tab_navigation": {"type": "bool", "doc": "Whether keyboard navigation should be enabled"}},
+						{"renderer_type": {"type": "RendererType", "doc": "Whether to force a hardware, software or custom renderer backend"}},
+						{"debug_state": {"type": "DebugState", "doc": "WebRender debug state for all windows (draws overdraw / frame time info on the screen)"}}
+					],
 					"constructors": {
 						"default": {
 							"doc": "Creates a new AppConfig with default values",
@@ -2068,24 +2090,32 @@
 					}
 				},
 				"App": {
-					"constructors":{
+					"constructors": {
 						"new": {
-						"doc":"Creates a new App instance from the given `AppConfig`",
-						"fn_args": [
-							{"data": "RefAny"},
-							{"config": "AppConfig"}
-						],
-						"fn_body": "App::new(data, *az_app_config_ptr_downcast(config)).unwrap()"
+							"doc":"Creates a new App instance from the given `AppConfig`",
+							"fn_args": [
+								{"data": "RefAny"},
+								{"config": "AppConfig"}
+							],
+							"fn_body": "App::new(data, config).unwrap()"
 						}
 					},
 					"functions": {
+						"add_window": {
+							"doc": "Spawn a new window on the screen when the app is run.",
+							"fn_args": [
+								{"self": "refmut"},
+								{"window": "WindowCreateOptions"}
+							],
+							"fn_body":"az_app_ptr_downcast_refmut(app, |a| a.add_window(window))"
+						},
 						"run": {
-						"doc": "Runs the application. Due to platform restrictions (specifically `WinMain` on Windows), this function never returns.",
-						"fn_args": [
-							{"self": "value"},
-							{"window": "WindowCreateOptions"}
-						],
-						"fn_body":"az_app_ptr_downcast(app).run(window)"
+							"doc": "Runs the application. Due to platform restrictions (specifically `WinMain` on Windows), this function never returns.",
+							"fn_args": [
+								{"self": "value"},
+								{"window": "WindowCreateOptions"}
+							],
+							"fn_body":"az_app_ptr_downcast(app).run(window)"
 						}
 					}
 				}
@@ -5642,7 +5672,7 @@
 					"derive": ["Copy"],
 					"enum_fields": [
 						{ "Auto": { "doc": "Automatic tab index, similar to simply setting `focusable = \"true\"` or `tabindex = 0`, (both have the effect of making the element focusable)" }} ,
-						{ "OverrideInParent": { "type": "usize", "doc": " Set the tab index in relation to its parent element (`tabindex = n`)" }} ,
+						{ "OverrideInParent": { "type": "u32", "doc": " Set the tab index in relation to its parent element (`tabindex = n`)" }} ,
 						{ "NoKeyboardFocus": { "doc": "Elements can be focused in callbacks, but are not accessible via keyboard / tab navigation (`tabindex = -1` ) "}}
 					]
 				}
@@ -7619,6 +7649,7 @@
 					"clone": false,
 					"struct_fields": [
 						{"texture_id": {"type": "u32", "doc": "Raw OpenGL texture ID"}},
+						{"format": {"type": "RawImageFormat", "doc": "Format of this texture (rgba, brga, etc.)"}},
 						{"flags": {"type": "TextureFlags", "doc": "Hints and flags for optimization purposes"}},
 						{"size": {"type": "PhysicalSizeU32", "doc": "Size of this texture (in pixels)"}},
 						{"gl_context": {"type": "GlContextPtr", "doc": "A reference-counted pointer to the OpenGL context (so that the texture can be deleted in the destructor)"}}
@@ -7643,6 +7674,20 @@
 		"resources": {
 			"doc": "Struct definition for image / font / text IDs",
 			"classes": {
+				"RawImageFormat": {
+					"external": "azul_impl::resources::RawImageFormat",
+					"derive": ["Copy"],
+					"enum_fields": [
+						{"R8": {}},
+						{"R16": {}},
+						{"RG16": {}},
+						{"BGRA8": {}},
+						{"RGBAF32": {}},
+						{"RG8": {}},
+						{"RGBAI32": {}},
+						{"RGBA8": {}}
+					]
+				},
 				"TextId": {
 					"external": "azul_impl::resources::TextId",
 					"derive": ["Copy"],
@@ -7971,13 +8016,13 @@
 					"external": "azul_impl::svg::SvgDashPattern",
 					"derive": ["Copy"],
 					"struct_fields": [
-						{"offset": {"type": "f32"}},
-						{"length_1": {"type": "f32"}},
-						{"gap_1": {"type": "f32"}},
-						{"length_2": {"type": "f32"}},
-						{"gap_2": {"type": "f32"}},
-						{"length_3": {"type": "f32"}},
-						{"gap_3": {"type": "f32"}}
+						{"offset": {"type": "usize"}},
+						{"length_1": {"type": "usize"}},
+						{"gap_1": {"type": "usize"}},
+						{"length_2": {"type": "usize"}},
+						{"gap_2": {"type": "usize"}},
+						{"length_3": {"type": "usize"}},
+						{"gap_3": {"type": "usize"}}
 					]
 				},
 				"SvgStyle": {
@@ -8033,9 +8078,11 @@
 				"Timer": {
 					"external": "azul_impl::task::Timer",
 					"struct_fields": [
+						{"data": {"type": "RefAny", "doc": "Stores some timer-specific data (usually animation data)"}},
 						{"created": {"type": "Instant", "doc": "Stores when the timer was created (usually acquired by `Instant::now()`)"}},
 						{"last_run": {"type": "OptionInstantPtr", "doc": "When the timer was last called (`None` only when the timer hasn't been called yet)"}},
-						{"delay": {"type": "OptionInstantPtr", "doc": "If the timer shouldn't start instantly, but rather be delayed by a certain duration"}},
+						{"run_count": {"type": "usize", "doc": "How often the timer was run already"}},
+						{"delay": {"type": "OptionDuration", "doc": "If the timer shouldn't start instantly, but rather be delayed by a certain duration"}},
 						{"interval": {"type": "OptionDuration", "doc": "How frequently the timer should run, i.e. set this to `Some(Duration::from_millis(16))` to run the timer every 16ms. If this value is set to `None`, (the default), the timer will execute the timer as-fast-as-possible (i.e. at a faster framerate than the framework itself) - which might be  performance intensive."}},
 						{"timeout": {"type": "OptionDuration", "doc": "When to stop the timer (for example, you can stop the execution after 5s using `Some(Duration::from_secs(5))`)."}},
 						{"callback": {"type": "TimerCallback", "doc": "Callback to be called for this timer"}}

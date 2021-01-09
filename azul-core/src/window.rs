@@ -510,6 +510,7 @@ pub fn update_full_window_state(
     full_window_state.platform_specific_options = window_state.platform_specific_options.clone();
 }
 
+#[derive(Debug)]
 pub struct WindowInternal {
     /// Renderer type: Hardware-with-software-fallback, pure software or pure hardware renderer?
     pub renderer_type: RendererType,
@@ -698,6 +699,8 @@ impl WindowInternal {
 
         let current_window_state: FullWindowState = init.window_create_options.state.into();
 
+        println!("invoking styled dom...");
+
         let styled_dom = {
 
             let layout_callback = current_window_state.layout_callback.clone();
@@ -708,7 +711,11 @@ impl WindowInternal {
                 app_resources,
             );
 
+            println!("data: {:#?}", data);
+            println!("layout info: {:#?}", layout_info);
             let mut styled_dom = (layout_callback.cb)(data, layout_info);
+
+            println!("styled dom: {:#?}", styled_dom);
 
             let hovered_nodes = current_window_state.hovered_nodes.get(&DomId::ROOT_ID).map(|k| k.regular_hit_test_nodes.keys().cloned().collect::<Vec<_>>()).unwrap_or_default();
             let active_nodes = if !current_window_state.mouse_state.mouse_down() { Vec::new() } else { hovered_nodes.clone() };
@@ -726,6 +733,8 @@ impl WindowInternal {
 
         let epoch = Epoch(0);
 
+        println!("solving layout...");
+
         let SolvedLayout { layout_results, gl_texture_cache } = SolvedLayout::new(
             styled_dom,
             epoch,
@@ -736,6 +745,8 @@ impl WindowInternal {
             app_resources,
             callbacks,
         );
+
+        println!("layout solved: {:#?}", layout_results);
 
         WindowInternal {
             renderer_type: init.window_create_options.renderer_type,

@@ -205,6 +205,18 @@ impl Timer {
         }
     }
 
+    /// Returns when the timer needs to run again
+    pub fn instant_of_next_run(&self) -> StdInstant {
+        let last_run = match self.last_run.as_ref() {
+            Some(s) => s,
+            None => &self.created,
+        };
+        let last_run: StdInstant = last_run.clone().into();
+        let delay = self.delay.as_ref().map(|i| i.clone().into()).unwrap_or(StdDuration::from_millis(0));
+        let interval = self.interval.as_ref().map(|i| i.clone().into()).unwrap_or(StdDuration::from_millis(16));
+        last_run + delay + interval
+    }
+
     /// Delays the timer to not start immediately but rather
     /// start after a certain time frame has elapsed.
     #[inline]
@@ -442,7 +454,7 @@ pub fn run_all_timers(
     threads: &mut FastHashMap<ThreadId, Thread>,
     new_windows: &mut Vec<WindowCreateOptions>,
     current_window_handle: &RawWindowHandle,
-    layout_results: &[LayoutResult],
+    layout_results: &Vec<LayoutResult>,
     stop_propagation: &mut bool,
     focus_target: &mut Option<FocusTarget>,
     current_scroll_states: &BTreeMap<DomId, BTreeMap<AzNodeId, ScrollPosition>>,
@@ -520,7 +532,7 @@ pub fn clean_up_finished_threads(
     threads: &mut FastHashMap<ThreadId, Thread>,
     new_windows: &mut Vec<WindowCreateOptions>,
     current_window_handle: &RawWindowHandle,
-    layout_results: &[LayoutResult],
+    layout_results: &Vec<LayoutResult>,
     stop_propagation: &mut bool,
     focus_target: &mut Option<FocusTarget>,
     current_scroll_states: &BTreeMap<DomId, BTreeMap<AzNodeId, ScrollPosition>>,

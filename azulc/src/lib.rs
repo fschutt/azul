@@ -43,7 +43,7 @@ pub mod font_loading {
     };
     use azul_core::app_resources::FontSource;
     #[cfg(feature = "text_layout")]
-    use azul_core::app_resources::LoadedFontSource;
+    use azul_core::app_resources::{LoadedFontSource, OptionLoadedFontSource};
 
     const DEFAULT_FONT_INDEX: i32 = 0;
 
@@ -71,10 +71,13 @@ pub mod font_loading {
         FontLoadingNotActive(id) => format!("Could not load system font: \"{}\": crate was not compiled with --features=\"font_loading\"", id)
     });
 
-    pub fn font_source_get_bytes(font_source: &FontSource) -> Option<LoadedFontSource> {
+    pub extern "C" fn font_source_get_bytes(font_source: &FontSource) -> OptionLoadedFontSource {
         // TODO: logging!
-        let (font_bytes, font_index) = font_source_get_bytes_inner(font_source).ok()?;
-        Some(LoadedFontSource{ font_bytes, font_index: font_index as u32 })
+        let (font_bytes, font_index) = match font_source_get_bytes_inner(font_source).ok() {
+            Some(s) => s,
+            None => { return OptionLoadedFontSource::None; },
+        };
+        Some(LoadedFontSource{ font_bytes: font_bytes.into(), font_index: font_index as u32 }).into()
     }
 
     /// Returns the bytes of the font (loads the font from the system in case it is a `FontSource::System` font).
@@ -111,7 +114,7 @@ pub mod image_loading {
         path::PathBuf,
         io::Error as IoError,
     };
-    use azul_core::app_resources::{ImageSource, LoadedImageSource};
+    use azul_core::app_resources::{ImageSource, LoadedImageSource, OptionLoadedImageSource};
     #[cfg(feature = "image_loading")]
     use image::ImageError;
 
@@ -137,12 +140,12 @@ pub mod image_loading {
         }
     }
 
-    /// Returns the **decoded** bytes of the image + the descriptor (contains width / height).
-    /// Returns an error if the data is encoded, but the crate wasn't built with `--features="image_loading"`
-    pub fn image_source_get_bytes(image_source: &ImageSource) -> Option<LoadedImageSource> {
-        image_source_get_bytes_inner(image_source).ok()
+    pub extern "C" fn image_source_get_bytes(image_source: &ImageSource) -> OptionLoadedImageSource {
+        image_source_get_bytes_inner(image_source).ok().into()
     }
 
+    /// Returns the **decoded** bytes of the image + the descriptor (contains width / height).
+    /// Returns an error if the data is encoded, but the crate wasn't built with `--features="image_loading"`
     pub fn image_source_get_bytes_inner(image_source: &ImageSource) -> Result<LoadedImageSource, ImageReloadError> {
 
         use azul_core::app_resources::{ImageDescriptor, ImageDescriptorFlags, ImageData};
@@ -158,20 +161,20 @@ pub mod image_loading {
                 }
             },
             ImageSource::Raw(raw_image) => {
-                use std::sync::Arc;
                 use azul_core::app_resources::is_image_opaque;
                 let is_opaque = is_image_opaque(raw_image.data_format, &raw_image.pixels.as_ref());
                 let descriptor = ImageDescriptor {
                     format: raw_image.data_format,
-                    dimensions: (raw_image.width, raw_image.height),
-                    stride: None,
+                    width: raw_image.width,
+                    height: raw_image.height,
+                    stride: None.into(),
                     offset: 0,
                     flags: ImageDescriptorFlags {
                         is_opaque,
                         allow_mipmaps: true,
                     },
                 };
-                let data = ImageData::Raw(Arc::new(raw_image.pixels.clone().into()));
+                let data = ImageData::Raw(raw_image.pixels.clone().into());
                 Ok(LoadedImageSource { image_bytes_decoded: data, image_descriptor: descriptor })
             },
             ImageSource::File(file_path) => {

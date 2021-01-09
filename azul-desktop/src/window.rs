@@ -275,16 +275,23 @@ impl Window {
         // NOTE: All windows MUST have a shared EventsLoop, creating a new EventLoop for the
         // new window causes a segfault.
 
+        println!("in Window::new function... ");
+        println!("window create options: {:#?}", options);
+
         let is_transparent_background = options.state.background_color.a != 0;
 
+        println!("creating window builder...");
         let window_builder = create_window_builder(is_transparent_background, options.theme.into_option(), &options.state.platform_specific_options);
 
+        println!("creating gl window...");
         // Only create a context with VSync and SRGB if the context creation works
         let gl_window = create_gl_window(window_builder, &events_loop, Some(shared_context))?;
 
         let (hidpi_factor, system_hidpi_factor) = get_hidpi_factor(&gl_window.window(), &events_loop);
         options.state.size.hidpi_factor = hidpi_factor;
         options.state.size.system_hidpi_factor = system_hidpi_factor;
+
+        println!("initializing os window...");
 
         // Synchronize the state from the WindowCreateOptions with the window for the first time
         // (set maxmimization, etc.)
@@ -318,8 +325,11 @@ impl Window {
             options.state.theme = translate_winit_theme(context_state.window().theme());
         }
         let init = WindowInternalInit { window_create_options: options, document_id, pipeline_id };
+        println!("initializing internal window...");
         let internal = WindowInternal::new(init, data, app_resources, gl_context, render_api, Window::CALLBACKS);
+        println!("window internal ok: {:#?}", internal);
         let mut window = Window { display: context_state, internal };
+        println!("rebuilding display list...");
         window.rebuild_display_list(&app_resources, render_api);
         Ok(window)
     }
@@ -392,6 +402,7 @@ impl Window {
 
         use azul_css::ColorF;
         use azul_core::gl::TextureFlags;
+        use azul_core::app_resources::RawImageFormat;
         use crate::wr_translate;
         use webrender::{
             PipelineInfo as WrPipelineInfo,
@@ -451,7 +462,7 @@ impl Window {
         let textures = gl_context.gen_textures(1);
 
         gl_context.bind_texture(gl::TEXTURE_2D, textures.get(0).copied().unwrap());
-        gl_context.tex_image_2d(gl::TEXTURE_2D, 0, gl::RGB as i32, framebuffer_size.width, framebuffer_size.height, 0, gl::RGBA, gl::UNSIGNED_BYTE, None.into());
+        gl_context.tex_image_2d(gl::TEXTURE_2D, 0, gl::RGBA as i32, framebuffer_size.width, framebuffer_size.height, 0, gl::RGBA, gl::UNSIGNED_BYTE, None.into());
 
         gl_context.tex_parameter_i(gl::TEXTURE_2D, gl::TEXTURE_MAG_FILTER, gl::NEAREST as i32);
         gl_context.tex_parameter_i(gl::TEXTURE_2D, gl::TEXTURE_MIN_FILTER, gl::NEAREST as i32);
@@ -488,6 +499,7 @@ impl Window {
 
         let texture = Texture {
             texture_id: textures.get(0).copied().unwrap(),
+            format: RawImageFormat::RGBA8,
             flags: TextureFlags {
                 is_opaque,
                 is_video_texture: false,
