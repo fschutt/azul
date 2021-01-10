@@ -2275,9 +2275,9 @@ pub use AzDomTT as AzDom;
 /// Creates a new `img` node from a (cached) text referenced by a `ImageId`
 #[no_mangle] pub extern "C" fn az_dom_image(image_id: AzImageId) -> AzDom { Dom::image(image_id) }
 /// Creates a new node which will render an OpenGL texture after the layout step is finished. See the documentation for [GlCallback]() for more info about OpenGL rendering callbacks.
-#[no_mangle] pub extern "C" fn az_dom_gl_texture(data: AzRefAny, callback: AzGlCallbackType) -> AzDom { Dom::gl_texture(callback, data) }
+#[no_mangle] pub extern "C" fn az_dom_gl_texture(data: AzRefAny, callback: AzGlCallbackType) -> AzDom { Dom::gl_texture(data, callback) }
 /// Creates a new node with a callback that will return a `Dom` after being layouted. See the documentation for [IFrameCallback]() for more info about iframe callbacks.
-#[no_mangle] pub extern "C" fn az_dom_iframe(data: AzRefAny, callback: AzIFrameCallbackType) -> AzDom { Dom::iframe(callback, data) }
+#[no_mangle] pub extern "C" fn az_dom_iframe(data: AzRefAny, callback: AzIFrameCallbackType) -> AzDom { Dom::iframe(data, callback) }
 /// Adds a CSS ID (`#something`) to the DOM node
 #[no_mangle] pub extern "C" fn az_dom_add_id(dom: &mut AzDom, id: AzString) { dom.add_id(id); }
 /// Same as [`Dom::add_id`](#method.add_id), but as a builder method
@@ -2391,9 +2391,9 @@ pub use AzNodeDataTT as AzNodeData;
 /// Creates a new `img` node from a (cached) text referenced by a `ImageId`
 #[no_mangle] pub extern "C" fn az_node_data_image(image_id: AzImageId) -> AzNodeData { NodeData::image(image_id) }
 /// Creates a new node which will render an OpenGL texture after the layout step is finished. See the documentation for [GlCallback]() for more info about OpenGL rendering callbacks.
-#[no_mangle] pub extern "C" fn az_node_data_gl_texture(data: AzRefAny, callback: AzGlCallbackType) -> AzNodeData { NodeData::gl_texture(callback, data) }
+#[no_mangle] pub extern "C" fn az_node_data_gl_texture(data: AzRefAny, callback: AzGlCallbackType) -> AzNodeData { NodeData::gl_texture(data, callback) }
 /// Creates a `NodeData` with a callback that will return a `Dom` after being layouted. See the documentation for [IFrameCallback]() for more info about iframe callbacks.
-#[no_mangle] pub extern "C" fn az_node_data_iframe(data: AzRefAny, callback: AzIFrameCallbackType) -> AzNodeData { NodeData::iframe(callback, data) }
+#[no_mangle] pub extern "C" fn az_node_data_iframe(data: AzRefAny, callback: AzIFrameCallbackType) -> AzNodeData { NodeData::iframe(data, callback) }
 /// Creates a default (div) node without any classes
 #[no_mangle] pub extern "C" fn az_node_data_default() -> AzNodeData { NodeData::default() }
 /// Adds a CSS ID (`#something`) to the `NodeData`

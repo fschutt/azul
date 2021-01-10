@@ -4883,7 +4883,7 @@
 								{"data": "RefAny"},
 								{"callback": "GlCallbackType"}
 							],
-							"fn_body": "Dom::gl_texture(callback, data)"
+							"fn_body": "Dom::gl_texture(data, callback)"
 						},
 						"iframe": {
 							"doc": "Creates a new node with a callback that will return a `Dom` after being layouted. See the documentation for [IFrameCallback]() for more info about iframe callbacks.",
@@ -4891,7 +4891,7 @@
 								{"data": "RefAny"},
 								{"callback": "IFrameCallbackType"}
 							],
-							"fn_body": "Dom::iframe(callback, data)"
+							"fn_body": "Dom::iframe(data, callback)"
 						}
 					},
 					"functions": {
@@ -5246,7 +5246,7 @@
 								{"data": "RefAny"},
 								{"callback": "GlCallbackType"}
 							],
-							"fn_body": "NodeData::gl_texture(callback, data)"
+							"fn_body": "NodeData::gl_texture(data, callback)"
 						},
 						"iframe": {
 							"doc": "Creates a `NodeData` with a callback that will return a `Dom` after being layouted. See the documentation for [IFrameCallback]() for more info about iframe callbacks.",
@@ -5254,7 +5254,7 @@
 								{"data": "RefAny"},
 								{"callback": "IFrameCallbackType"}
 							],
-							"fn_body": "NodeData::iframe(callback, data)"
+							"fn_body": "NodeData::iframe(data, callback)"
 						},
 						"default": {
 							"doc": "Creates a default (div) node without any classes",

@@ -827,12 +827,12 @@ impl NodeData {
 
     #[inline(always)]
     #[cfg(feature = "opengl")]
-    pub fn gl_texture(callback: GlCallbackType, data: RefAny) -> Self {
+    pub fn gl_texture(data: RefAny, callback: GlCallbackType) -> Self {
         Self::new(NodeType::GlTexture(GlTextureNode { callback: GlCallback { cb: callback }, data }))
     }
 
     #[inline(always)]
-    pub fn iframe(callback: IFrameCallbackType, data: RefAny) -> Self {
+    pub fn iframe(data: RefAny, callback: IFrameCallbackType) -> Self {
         Self::new(NodeType::IFrame(IFrameNode { callback: IFrameCallback { cb: callback }, data }))
     }
 
@@ -982,13 +982,13 @@ impl Dom {
     /// Shorthand for `Dom::new(NodeType::GlTexture((callback, ptr)))`
     #[inline(always)]
     #[cfg(feature = "opengl")]
-    pub fn gl_texture(callback: GlCallbackType, data: RefAny) -> Self {
+    pub fn gl_texture(data: RefAny, callback: GlCallbackType) -> Self {
         Self::new(NodeType::GlTexture(GlTextureNode { callback: GlCallback { cb: callback }, data }))
     }
 
     /// Shorthand for `Dom::new(NodeType::IFrame((callback, ptr)))`
     #[inline(always)]
-    pub fn iframe(callback: IFrameCallbackType, data: RefAny) -> Self {
+    pub fn iframe(data: RefAny, callback: IFrameCallbackType) -> Self {
         Self::new(NodeType::IFrame(IFrameNode { callback: IFrameCallback { cb: callback }, data }))
     }
 

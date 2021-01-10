@@ -106,6 +106,9 @@ impl TableViewState {
 
         use azul::css::*;
         use azul::str::String as AzString;
+        use std::time::Instant;
+
+        let i_start = Instant::now();
 
         println!("ok1!");
 
@@ -298,7 +301,7 @@ impl TableViewState {
 
         let styled = dom.style(Css::empty());
 
-        println!("ok: styled dom!");
+        println!("ok: styled dom in {:?}", Instant::now() - i_start);
 
         styled
     }

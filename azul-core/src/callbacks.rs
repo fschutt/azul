@@ -145,6 +145,35 @@ impl Clone for RefAny {
 
 impl RefAny {
 
+
+    /// Creates a new, type-erased pointer by casting the `T` value into a `Vec<u8>` and saving the length + type ID
+    pub fn new<T: 'static>(value: T) -> Self {
+
+        extern "C" fn default_custom_destructor<U: 'static>(ptr: *const c_void) {
+            use std::{mem, ptr};
+
+            // note: in the default constructor, we do not need to check whether U == T
+
+            unsafe {
+                // copy the struct from the heap to the stack and call mem::drop on U to run the destructor
+                let mut stack_mem = mem::MaybeUninit::<U>::uninit().assume_init();
+                ptr::copy_nonoverlapping(ptr as *const U, &mut stack_mem as *mut U, mem::size_of::<U>());
+                mem::drop(stack_mem);
+            }
+        }
+
+        let type_name = ::std::any::type_name::<T>().to_string();
+        let s = Self::new_c(
+            (&value as *const T) as *const c_void,
+            ::std::mem::size_of::<T>(),
+            Self::get_type_id_static::<T>(),
+            type_name.into(),
+            default_custom_destructor::<T>,
+        );
+        ::std::mem::forget(value); // do not run the destructor of T here!
+        s
+    }
+
     pub fn new_c(ptr: *const c_void, len: usize, type_id: u64, type_name: AzString, custom_destructor: extern "C" fn(*const c_void)) -> Self {
         use std::{alloc, ptr};
 
@@ -174,6 +203,18 @@ impl RefAny {
 
     pub fn is_type(&self, type_id: u64) -> bool {
         self.type_id == type_id
+    }
+
+    // Returns the typeid of `T` as a u64 (necessary because `std::any::TypeId` is not C-ABI compatible)
+    #[inline]
+    pub fn get_type_id_static<T: 'static>() -> u64 {
+        use std::any::TypeId;
+        use std::mem;
+
+        // fast method to serialize the type id into a u64
+        let t_id = TypeId::of::<T>();
+        let struct_as_bytes = unsafe { ::std::slice::from_raw_parts((&t_id as *const TypeId) as *const u8, mem::size_of::<TypeId>()) };
+        struct_as_bytes.into_iter().enumerate().map(|(s_pos, s)| ((*s as u64) << s_pos)).sum()
     }
 
     pub fn get_type_id(&self) -> u64 {

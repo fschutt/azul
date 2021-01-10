@@ -34,7 +34,12 @@ macro_rules! determine_preferred {
     /// if the node type is an text, the `preferred_inner_width` is the text height.
     pub(crate) fn $fn_name(styled_node: &StyledNode, preferred_inner_width: Option<f32>, parent_width: f32) -> WhConstraint {
 
-        let mut width = styled_node.layout.$width.as_ref().and_then(|w| w.get_property().map(|x| x.inner.to_pixels(parent_width)));
+        println!("styled node layout: {:#?}", styled_node.layout);
+
+        let mut width = styled_node.layout.$width.as_ref().and_then(|w| w.get_property().map(|x| {
+            println!("width to pixels - {:?}, parent_width = {:?}", x, parent_width);
+            x.inner.to_pixels(parent_width)
+        }));
         let min_width = styled_node.layout.$min_width.as_ref().and_then(|w| w.get_property().map(|x| x.inner.to_pixels(parent_width)));
         let max_width = styled_node.layout.$max_width.as_ref().and_then(|w| w.get_property().map(|x| x.inner.to_pixels(parent_width)));
 
@@ -168,6 +173,7 @@ macro_rules! typed_arena {(
         widths: &NodeDataContainerRef<'a, Option<f32>>,
         node_hierarchy: &NodeDataContainerRef<'a, AzNode>,
         node_depths: &[ParentWithNodeDepth],
+        root_size_width: f32,
     ) -> NodeDataContainer<$struct_name> {
 
         // then calculate the widths again, but this time using the parent nodes
@@ -185,8 +191,8 @@ macro_rules! typed_arena {(
             .get(parent_id)
             .and_then(|t| new_nodes.as_ref().get(t.parent_id()?).map(|parent| parent.$preferred_field))
             .unwrap_or_default()
-            .min_needed_space()
-            .unwrap_or(0.0);
+            .max_available_space()
+            .unwrap_or(root_size_width);
             let parent_width = $determine_preferred_fn(&nd, width, parent_width);
 
             new_nodes.as_ref_mut()[parent_id] = $struct_name {
@@ -209,7 +215,7 @@ macro_rules! typed_arena {(
                 let width = match widths.get(child_id) { Some(s) => *s, None => continue, };
                 new_nodes.as_ref_mut()[child_id] = $struct_name {
                     // TODO: get the initial width of the rect content
-                    $preferred_field: $determine_preferred_fn(&nd, width, parent_width.min_needed_space().unwrap_or(0.0)),
+                    $preferred_field: $determine_preferred_fn(&nd, width, parent_width.max_available_space().unwrap_or(0.0)),
 
                     $margin_left: nd.layout.$margin_left.as_ref().copied(),
                     $margin_right: nd.layout.$margin_right.as_ref().copied(),
@@ -1262,8 +1268,11 @@ pub fn do_the_layout_internal(
         &styled_dom.styled_nodes.as_container(),
         &content_widths_pre.as_ref(),
         &styled_dom.node_hierarchy.as_container(),
-        &styled_dom.non_leaf_nodes.as_ref()
+        &styled_dom.non_leaf_nodes.as_ref(),
+        rect_size.width,
     );
+
+    println!("width calculated arena: {:#?}", width_calculated_arena);
 
     solve_flex_layout_width(
         &mut width_calculated_arena.as_ref_mut(),
@@ -1318,7 +1327,8 @@ pub fn do_the_layout_internal(
         &styled_dom.styled_nodes.as_container(),
         &content_heights_pre.as_ref(),
         &styled_dom.node_hierarchy.as_container(),
-        &styled_dom.non_leaf_nodes.as_ref()
+        &styled_dom.non_leaf_nodes.as_ref(),
+        rect_size.height,
     );
     solve_flex_layout_height(
         &mut height_calculated_arena.as_ref_mut(),
@@ -1648,7 +1658,8 @@ fn create_word_cache<'a>(
             },
             _ => None,
         }
-    }).collect()
+    })
+    .collect()
 }
 
 pub fn create_shaped_words<'a>(

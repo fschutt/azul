@@ -225,37 +225,29 @@ impl FontMetrics {
         self.fs_selection & (1 << 7) != 0
     }
 
-    pub fn get_ascender(&self, target_font_size: f32) -> f32 {
+    pub fn get_ascender_unscaled(&self) -> i16 {
         let use_typo = if !self.use_typo_metrics() { None } else { self.s_typo_ascender };
-        if let Some(s) = use_typo {
-            s as f32 / self.units_per_em.get() as f32 * target_font_size
-        } else {
-            self.ascender as f32 / self.units_per_em.get() as f32 * target_font_size
+        match use_typo {
+            Some(s) => s,
+            None => self.ascender
         }
     }
 
     /// NOTE: descender is NEGATIVE
-    pub fn get_descender(&self, target_font_size: f32) -> f32 {
+    pub fn get_descender_unscaled(&self) -> i16 {
         let use_typo = if !self.use_typo_metrics() { None } else { self.s_typo_descender };
-        if let Some(s) = use_typo {
-            s as f32 / self.units_per_em.get() as f32 * target_font_size
-        } else {
-            self.descender as f32 / self.units_per_em.get() as f32 * target_font_size
+        match use_typo {
+            Some(s) => s,
+            None => self.descender
         }
     }
 
-    pub fn get_line_gap(&self, target_font_size: f32) -> f32 {
+    pub fn get_line_gap_unscaled(&self) -> i16 {
         let use_typo = if !self.use_typo_metrics() { None } else { self.s_typo_line_gap };
-        if let Some(s) = use_typo {
-            s as f32 / self.units_per_em.get() as f32 * target_font_size
-        } else {
-            self.line_gap as f32 / self.units_per_em.get() as f32 * target_font_size
+        match use_typo {
+            Some(s) => s,
+            None => self.line_gap
         }
-    }
-
-    /// `height = sTypoAscender - sTypoDescender + sTypoLineGap`
-    pub fn get_height(&self, target_font_size: f32) -> f32 {
-        self.get_ascender(target_font_size) - self.get_descender(target_font_size) + self.get_line_gap(target_font_size)
     }
 
     pub fn get_x_min(&self, target_font_size: f32) -> f32 { self.x_min as f32 / self.units_per_em.get() as f32 * target_font_size }
@@ -681,20 +673,44 @@ pub struct ShapedWords {
     pub longest_word_width: usize,
     /// Horizontal advance of the space glyph
     pub space_advance: usize,
-    /// Metrics necessary for baseline calculation
-    pub font_metrics: FontMetrics,
+    /// Units per EM square
+    pub font_metrics_units_per_em: NonZeroU16,
+    /// Descender of the font
+    pub font_metrics_ascender: i16,
+    pub font_metrics_descender: i16,
+    pub font_metrics_line_gap: i16,
 }
 
 impl ShapedWords {
     pub fn get_longest_word_width_px(&self, target_font_size: f32) -> f32 {
-        self.longest_word_width as f32 / self.font_metrics.units_per_em.get() as f32 * target_font_size
+        self.longest_word_width as f32 / self.font_metrics_units_per_em.get() as f32 * target_font_size
     }
     pub fn get_space_advance_px(&self, target_font_size: f32) -> f32 {
-        self.space_advance as f32 / self.font_metrics.units_per_em.get() as f32 * target_font_size
+        self.space_advance as f32 / self.font_metrics_units_per_em.get() as f32 * target_font_size
     }
     /// Get the distance from the top of the text to the baseline of the text (= ascender)
     pub fn get_baseline_px(&self, target_font_size: f32) -> f32 {
-        target_font_size + self.font_metrics.get_descender(target_font_size)
+        target_font_size + self.get_descender(target_font_size)
+    }
+
+    /// NOTE: descender is NEGATIVE
+    pub fn get_descender(&self, target_font_size: f32) -> f32 {
+        (self.font_metrics_descender / self.font_metrics_units_per_em.get() as i16) as f32 * target_font_size
+    }
+
+    /// `height = sTypoAscender - sTypoDescender + sTypoLineGap`
+    pub fn get_line_height(&self, target_font_size: f32) -> f32 {
+        ((self.font_metrics_ascender / self.font_metrics_units_per_em.get() as i16) -
+        (self.font_metrics_descender / self.font_metrics_units_per_em.get() as i16) +
+        (self.font_metrics_line_gap / self.font_metrics_units_per_em.get() as i16)) as f32 * target_font_size
+    }
+
+    pub fn get_ascender(&self, target_font_size: f32) -> f32 {
+        (self.font_metrics_ascender / self.font_metrics_units_per_em.get() as i16) as f32 * target_font_size
+    }
+
+    fn get_line_gap(&self, target_font_size: f32) -> f32 {
+        (self.font_metrics_line_gap / self.font_metrics_units_per_em.get() as i16) as f32 * target_font_size
     }
 }
 
@@ -730,8 +746,8 @@ pub enum Placement {
 
 impl Placement {
     #[inline]
-    pub fn get_placement_relative(&self, font_metrics: &FontMetrics, target_font_size: f32) -> (f32, f32) {
-        let font_metrics_divisor = font_metrics.units_per_em.get() as f32 / target_font_size;
+    pub fn get_placement_relative(&self, units_per_em: &NonZeroU16, target_font_size: f32) -> (f32, f32) {
+        let font_metrics_divisor = units_per_em.get() as f32 / target_font_size;
         match self {
             Placement::None | Placement::Anchor(_, _) => (0.0, 0.0),
             Placement::Distance(x, y) => (*x as f32 / font_metrics_divisor, *y as f32 / font_metrics_divisor),
@@ -748,11 +764,11 @@ pub enum MarkPlacement {
 
 impl MarkPlacement {
     #[inline]
-    pub fn get_placement_relative(&self, font_metrics: &FontMetrics, target_font_size: f32) -> (f32, f32) {
+    pub fn get_placement_relative(&self, units_per_em: &NonZeroU16, target_font_size: f32) -> (f32, f32) {
         match self {
             MarkPlacement::None => (0.0, 0.0),
             MarkPlacement::MarkAnchor(_, a, _) => {
-                let font_metrics_divisor = font_metrics.units_per_em.get() as f32 / target_font_size;
+                let font_metrics_divisor = units_per_em.get() as f32 / target_font_size;
                 (a.x as f32 / font_metrics_divisor, a.y as f32 / font_metrics_divisor)
             },
             MarkPlacement::MarkOverprint(_) => (0.0, 0.0),
@@ -802,33 +818,33 @@ impl Advance {
     #[inline]
     pub fn get_x_advance_total_unscaled(&self) -> i32 { self.advance_x as i32 + self.kerning as i32 }
     #[inline]
-    pub fn get_x_advance_unscaled(&self) -> i32 { self.advance_x as i32 }
+    pub fn get_x_advance_unscaled(&self) -> u16 { self.advance_x }
     #[inline]
-    pub fn get_x_size_unscaled(&self) -> i32 { self.size_x as i32 }
+    pub fn get_x_size_unscaled(&self) -> i32 { self.size_x }
     #[inline]
-    pub fn get_y_size_unscaled(&self) -> i32 { self.size_y as i32 }
+    pub fn get_y_size_unscaled(&self) -> i32 { self.size_y }
     #[inline]
-    pub fn get_kerning_unscaled(&self) -> i32 { self.kerning as i32 }
+    pub fn get_kerning_unscaled(&self) -> i16 { self.kerning }
 
     #[inline]
-    pub fn get_x_advance_total_scaled(&self, font_metrics: &FontMetrics, target_font_size: f32) -> f32 {
-        self.get_x_advance_total_unscaled() as f32 / font_metrics.units_per_em.get() as f32 * target_font_size
+    pub fn get_x_advance_total_scaled(&self, units_per_em: &NonZeroU16, target_font_size: f32) -> f32 {
+        (self.get_x_advance_total_unscaled() / units_per_em.get() as i32) as f32 * target_font_size
     }
     #[inline]
-    pub fn get_x_advance_scaled(&self, font_metrics: &FontMetrics, target_font_size: f32) -> f32 {
-        self.get_x_advance_unscaled() as f32 / font_metrics.units_per_em.get() as f32 * target_font_size
+    pub fn get_x_advance_scaled(&self, units_per_em: &NonZeroU16, target_font_size: f32) -> f32 {
+        (self.get_x_advance_unscaled() / units_per_em.get()) as f32 * target_font_size
     }
     #[inline]
-    pub fn get_x_size_scaled(&self, font_metrics: &FontMetrics, target_font_size: f32) -> f32 {
-        self.get_x_size_unscaled() as f32 / font_metrics.units_per_em.get() as f32 * target_font_size
+    pub fn get_x_size_scaled(&self, units_per_em: &NonZeroU16, target_font_size: f32) -> f32 {
+        (self.get_x_size_unscaled() / units_per_em.get() as i32) as f32 * target_font_size
     }
     #[inline]
-    pub fn get_y_size_scaled(&self, font_metrics: &FontMetrics, target_font_size: f32) -> f32 {
-        self.get_y_size_unscaled() as f32 / font_metrics.units_per_em.get() as f32 * target_font_size
+    pub fn get_y_size_scaled(&self, units_per_em: &NonZeroU16, target_font_size: f32) -> f32 {
+        (self.get_y_size_unscaled() / units_per_em.get() as i32) as f32 * target_font_size
     }
     #[inline]
-    pub fn get_kerning_scaled(&self, font_metrics: &FontMetrics, target_font_size: f32) -> f32 {
-        self.get_kerning_unscaled() as f32 / font_metrics.units_per_em.get() as f32 * target_font_size
+    pub fn get_kerning_scaled(&self, units_per_em: &NonZeroU16, target_font_size: f32) -> f32 {
+        (self.get_kerning_unscaled() / units_per_em.get() as i16) as f32 * target_font_size
     }
 }
 
@@ -842,8 +858,8 @@ pub struct ShapedWord {
 }
 
 impl ShapedWord {
-    pub fn get_word_width(&self, font_metrics: &FontMetrics, target_font_size: f32) -> f32 {
-        self.word_width as f32 / font_metrics.units_per_em.get() as f32 * target_font_size
+    pub fn get_word_width(&self, units_per_em: &NonZeroU16, target_font_size: f32) -> f32 {
+        self.word_width as f32 / units_per_em.get() as f32 * target_font_size
     }
     /// Returns the number of glyphs THAT ARE NOT DIACRITIC MARKS
     pub fn number_of_glyphs(&self) -> usize {

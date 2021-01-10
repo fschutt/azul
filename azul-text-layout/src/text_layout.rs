@@ -163,10 +163,13 @@ pub fn shape_words(words: &Words, font: &mut ParsedFont) -> ShapedWords {
     }).collect();
 
     ShapedWords {
-        font_metrics: font.font_metrics,
         items: shaped_words,
         longest_word_width: longest_word_width,
         space_advance,
+        font_metrics_units_per_em: font.font_metrics.units_per_em,
+        font_metrics_ascender: font.font_metrics.get_ascender_unscaled(),
+        font_metrics_descender: font.font_metrics.get_descender_unscaled(),
+        font_metrics_line_gap: font.font_metrics.get_line_gap_unscaled(),
     }
 }
 
@@ -235,7 +238,7 @@ pub fn position_words(words: &Words, shaped_words: &ShapedWords, text_layout_opt
         };
 
         // Calculate where the caret would be for the next word
-        let word_advance_x = shaped_word.get_word_width(&shaped_words.font_metrics, text_layout_options.font_size_px) + reserved_letter_spacing_px;
+        let word_advance_x = shaped_word.get_word_width(&shaped_words.font_metrics_units_per_em, text_layout_options.font_size_px) + reserved_letter_spacing_px;
 
         let mut new_caret_x = line_caret_x + word_advance_x;
 
@@ -345,7 +348,7 @@ pub fn word_positions_to_inline_text_layout(word_positions: &WordPositions, scal
     use azul_core::ui_solver::InlineTextLine;
 
     let font_size_px = word_positions.text_layout_options.font_size_px;
-    let regular_line_height = scaled_words.font_metrics.get_height(font_size_px);
+    let regular_line_height = scaled_words.get_line_height(font_size_px);
     let space_advance_px = scaled_words.get_space_advance_px(font_size_px);
     let line_height_px = space_advance_px * word_positions.text_layout_options.line_height.unwrap_or(DEFAULT_LINE_HEIGHT);
 
@@ -377,11 +380,10 @@ pub fn get_layouted_glyphs(word_positions: &WordPositions, scaled_words: &Shaped
     // most text blocks are very short, use stack space
     let mut all_glyphs: Vec<GlyphInstance> = Vec::with_capacity(scaled_words.items.len() * 4);
 
-    let font_metrics = &scaled_words.font_metrics;
     let font_size_px = word_positions.text_layout_options.font_size_px;
-
+    let ascender_px = &scaled_words.get_ascender(font_size_px);
     let letter_spacing_px = word_positions.text_layout_options.letter_spacing.unwrap_or(0.0);
-    let ascender_px = font_metrics.get_ascender(font_size_px);
+    let units_per_em = scaled_words.font_metrics_units_per_em;
 
     for line in inline_text_layout.lines.iter() {
 
@@ -404,7 +406,7 @@ pub fn get_layouted_glyphs(word_positions: &WordPositions, scaled_words: &Shaped
                 use azul_core::app_resources::MarkPlacement;
 
                 // local x and y displacement of the glyph - does NOT advance the horizontal cursor!
-                let (x_displacement, y_displacement) = glyph_info.placement.get_placement_relative(font_metrics, font_size_px);
+                let (x_displacement, y_displacement) = glyph_info.placement.get_placement_relative(&units_per_em, font_size_px);
 
                 // if the character is a mark, the mark displacement has to be added ON TOP OF the existing displacement
                 let (letter_spacing_for_glyph, origin) = match glyph_info.mark_placement {
@@ -421,10 +423,10 @@ pub fn get_layouted_glyphs(word_positions: &WordPositions, scaled_words: &Shaped
                     },
                 };
 
-                let glyph_scale_x = glyph_info.size.get_x_size_scaled(font_metrics, font_size_px);
-                let glyph_advance_x = glyph_info.size.get_x_advance_scaled(font_metrics, font_size_px);
-                let glyph_scale_y = glyph_info.size.get_y_size_scaled(font_metrics, font_size_px);
-                let kerning_x = glyph_info.size.get_kerning_scaled(font_metrics, font_size_px);
+                let glyph_scale_x = glyph_info.size.get_x_size_scaled(&units_per_em, font_size_px);
+                let glyph_advance_x = glyph_info.size.get_x_advance_scaled(&units_per_em, font_size_px);
+                let glyph_scale_y = glyph_info.size.get_y_size_scaled(&units_per_em, font_size_px);
+                let kerning_x = glyph_info.size.get_kerning_scaled(&units_per_em, font_size_px);
 
                 let size = LogicalSize::new(glyph_scale_x, glyph_scale_y);
 

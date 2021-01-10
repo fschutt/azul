@@ -95,32 +95,75 @@ fn get_display_rectangle_arena(constraints: &[(usize, RectLayout)]) -> (NodeData
     )
 }
 
-#[test]
-fn test_full_dom() {
+
+#[cfg(test)]
+mod dom_tests {
 
     use azul_core::{
         dom::Dom,
-        callbacks::PipelineId,
+        callbacks::{RefAny, PipelineId, IFrameCallbackInfo, IFrameCallbackReturn},
         app_resources::AppResources,
         styled_dom::{DomId, StyledDom},
+        id_tree::NodeId,
         window::{LogicalRect, LogicalPosition, LogicalSize},
     };
-    use azul_css::Css;
+    use azul_css::*;
 
-    let mut app_resources = AppResources::default();
+    struct A { }
 
-    let styled_dom = StyledDom::new(Dom::body(), Css::empty());
+    extern "C" fn render_iframe(_: &RefAny, _: IFrameCallbackInfo) -> IFrameCallbackReturn {
+        IFrameCallbackReturn {
+            styled_dom: StyledDom::default(),
+            size: LayoutRect::zero(),
+            virtual_size: None.into(),
+        }
+    }
 
-    let layout_result = crate::layout_solver::do_the_layout_internal(
-        DomId::ROOT_ID,
-        None,
-        styled_dom,
-        &mut app_resources,
-        PipelineId::DUMMY,
-        LogicalRect::new(LogicalPosition::zero(), LogicalSize::new(800.0, 600.0))
-    );
+    #[test]
+    fn test_full_dom() {
 
-    assert_eq!(layout_result.rects.as_ref()[NodeId::new(0)].size, LogicalSize::new(800.0, 600.0));
+        let mut app_resources = AppResources::default();
+
+        let styled_dom = StyledDom::new(Dom::body(), Css::empty());
+
+        let layout_result = crate::layout_solver::do_the_layout_internal(
+            DomId::ROOT_ID,
+            None,
+            styled_dom,
+            &mut app_resources,
+            PipelineId::DUMMY,
+            LogicalRect::new(LogicalPosition::zero(), LogicalSize::new(800.0, 600.0))
+        );
+
+        assert_eq!(layout_result.rects.as_ref()[NodeId::new(0)].size, LogicalSize::new(800.0, 600.0));
+    }
+
+    #[test]
+    fn test_full_dom_2() {
+
+        let mut app_resources = AppResources::default();
+
+        // tag_ids_to_node_ids gets generated?
+
+        let styled_dom = Dom::iframe(RefAny::new(A { }), render_iframe)
+            .with_inline_css(CssProperty::display(LayoutDisplay::Flex))
+            .with_inline_css(CssProperty::flex_grow(LayoutFlexGrow { inner: FloatValue::const_new(1) }))
+            .with_inline_css(CssProperty::width(LayoutWidth { inner: PixelValue::const_percent(100) }))
+            .with_inline_css(CssProperty::height(LayoutHeight { inner: PixelValue::const_percent(100) }))
+            .with_inline_css(CssProperty::box_sizing(LayoutBoxSizing::BorderBox))
+            .style(Css::empty());
+
+        let layout_result = crate::layout_solver::do_the_layout_internal(
+            DomId::ROOT_ID,
+            None,
+            styled_dom,
+            &mut app_resources,
+            PipelineId::DUMMY,
+            LogicalRect::new(LogicalPosition::zero(), LogicalSize::new(800.0, 600.0))
+        );
+
+        println!("layout result: {:#?}", layout_result);
+    }
 }
 
 #[test]
@@ -240,6 +283,8 @@ fn test_fill_out_preferred_width() {
         get_layout_flex_directions,
     };
 
+    let window_width = 754.0; // pixel
+
     let (node_hierarchy, node_depths, node_data) = get_display_rectangle_arena(&[
         (0, RectLayout {
             direction: Some(LayoutFlexDirection::Row.into()).into(),
@@ -264,6 +309,7 @@ fn test_fill_out_preferred_width() {
         &preferred_widths.as_ref(),
         &node_hierarchy.as_ref(),
         &node_depths,
+        window_width,
     );
 
     // Test some basic stuff - test that `get_flex_basis` works
@@ -336,8 +382,6 @@ fn test_fill_out_preferred_width() {
     assert_eq!(width_filled_out_data.as_ref()[NodeId::new(5)].min_inner_size_px, 0.0);
 
     // -- Section 3: Test if growing the sizes works
-
-    let window_width = 754.0; // pixel
 
     // - window_width: 754px
     // 0                -- [] - expecting width to stretch to 754 px
