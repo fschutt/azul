@@ -1868,6 +1868,7 @@ impl_traits_for_gl_object!(Texture, texture_id);
 
 impl Drop for Texture {
     fn drop(&mut self) {
+        println!("deleting texture {:?}", self.texture_id);
         self.gl_context.delete_textures((&[self.texture_id])[..].into());
     }
 }

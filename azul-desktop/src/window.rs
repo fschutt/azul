@@ -275,15 +275,11 @@ impl Window {
         // NOTE: All windows MUST have a shared EventsLoop, creating a new EventLoop for the
         // new window causes a segfault.
 
-        println!("in Window::new function... ");
-        println!("window create options: {:#?}", options);
 
         let is_transparent_background = options.state.background_color.a != 0;
 
-        println!("creating window builder...");
         let window_builder = create_window_builder(is_transparent_background, options.theme.into_option(), &options.state.platform_specific_options);
 
-        println!("creating gl window...");
         // Only create a context with VSync and SRGB if the context creation works
         let gl_window = create_gl_window(window_builder, &events_loop, Some(shared_context))?;
 
@@ -291,7 +287,6 @@ impl Window {
         options.state.size.hidpi_factor = hidpi_factor;
         options.state.size.system_hidpi_factor = system_hidpi_factor;
 
-        println!("initializing os window...");
 
         // Synchronize the state from the WindowCreateOptions with the window for the first time
         // (set maxmimization, etc.)
@@ -325,11 +320,8 @@ impl Window {
             options.state.theme = translate_winit_theme(context_state.window().theme());
         }
         let init = WindowInternalInit { window_create_options: options, document_id, pipeline_id };
-        println!("initializing internal window...");
         let internal = WindowInternal::new(init, data, app_resources, gl_context, render_api, Window::CALLBACKS);
-        println!("window internal ok: {:#?}", internal);
         let mut window = Window { display: context_state, internal };
-        println!("rebuilding display list...");
         window.rebuild_display_list(&app_resources, render_api);
         Ok(window)
     }
@@ -343,6 +335,8 @@ impl Window {
     #[cfg(not(test))]
     pub fn rebuild_display_list(&mut self, app_resources: &AppResources, render_api: &mut WrApi) {
 
+        println!("rebuild display list!");
+
         use crate::wr_translate::{
             wr_translate_pipeline_id,
             wr_translate_document_id,
@@ -353,6 +347,8 @@ impl Window {
 
         // NOTE: Display list has to be rebuilt every frame, otherwise, the epochs get out of sync
         let cached_display_list = CachedDisplayList::new(self.internal.epoch, self.internal.pipeline_id, &self.internal.current_window_state, &self.internal.layout_results, &self.internal.gl_texture_cache, app_resources);
+        println!("sending display list: {:#?}", cached_display_list);
+
         let display_list = wr_translate_display_list(cached_display_list, self.internal.pipeline_id);
 
         let logical_size = WrLayoutSize::new(self.internal.current_window_state.size.dimensions.width, self.internal.current_window_state.size.dimensions.height);
@@ -367,202 +363,6 @@ impl Window {
         );
 
         render_api.api.send_transaction(wr_translate_document_id(self.internal.document_id), txn);
-    }
-
-    // Function wrapper that is invoked on scrolling and normal rendering - only renders the
-    // window contents and updates the screen, assumes that all transactions via the WrApi
-    // have been committed before this function is called.
-    //
-    // WebRender doesn't reset the active shader back to what it was, but rather sets it
-    // to zero, which glutin doesn't know about, so on the next frame it tries to draw with shader 0.
-    // This leads to problems when invoking GlCallbacks, because those don't expect
-    // the OpenGL state to change between calls. Also see: https://github.com/servo/webrender/pull/2880
-    //
-    // NOTE: For some reason, webrender allows rendering to a framebuffer with a
-    // negative width / height, although that doesn't make sense
-    #[cfg(not(test))]
-    pub(crate) fn render_display_list_to_texture(&mut self, headless_shared_context: &mut HeadlessContextState, render_api: &mut WrApi, renderer: &mut WrRenderer, gl_context: &GlContextPtr) -> Option<Texture> {
-
-        /// Scroll all nodes in the ScrollStates to their correct position and insert
-        /// the positions into the transaction
-        ///
-        /// NOTE: scroll_states has to be mutable, since every key has a "visited" field, to
-        /// indicate whether it was used during the current frame or not.
-        fn scroll_all_nodes(scroll_states: &mut ScrollStates, txn: &mut WrTransaction) {
-            use webrender::api::ScrollClamping;
-            use crate::wr_translate::{wr_translate_external_scroll_id, wr_translate_logical_position};
-            for (key, value) in scroll_states.0.iter_mut() {
-                txn.scroll_node_with_id(
-                    wr_translate_logical_position(value.get()),
-                    wr_translate_external_scroll_id(*key),
-                    ScrollClamping::ToContentBounds
-                );
-            }
-        }
-
-        use azul_css::ColorF;
-        use azul_core::gl::TextureFlags;
-        use azul_core::app_resources::RawImageFormat;
-        use crate::wr_translate;
-        use webrender::{
-            PipelineInfo as WrPipelineInfo,
-            api::Transaction as WrTransaction,
-        };
-        let mut txn = WrTransaction::new();
-
-        let physical_size = self.internal.current_window_state.size.get_physical_size();
-        let framebuffer_size = WrDeviceIntSize::new(physical_size.width as i32, physical_size.height as i32);
-        let background_color_f: ColorF = self.internal.current_window_state.background_color.into();
-        let is_opaque = self.internal.current_window_state.background_color.a == 0;
-
-        // Especially during minimization / maximization of a window, it can happen that the window
-        // width or height is zero. In that case, no rendering is necessary (doing so would crash
-        // the application, since glTexImage2D may never have a 0 as the width or height.
-        if framebuffer_size.width == 0 || framebuffer_size.height == 0 {
-            return None;
-        }
-
-        self.internal.epoch.increment();
-
-        txn.set_root_pipeline(wr_translate::wr_translate_pipeline_id(self.internal.pipeline_id));
-        scroll_all_nodes(&mut self.internal.scroll_states, &mut txn);
-        txn.generate_frame();
-
-        render_api.api.send_transaction(wr_translate::wr_translate_document_id(self.internal.document_id), txn);
-
-        // Update WR texture cache
-        renderer.update();
-
-        // NOTE: The `hidden_display` must share the OpenGL context with the `window`,
-        // otherwise this will segfault! Use `ContextBuilder::with_shared_lists` to share the
-        // OpenGL context across different windows.
-        //
-        // The context **must** be made current before calling `.bind_framebuffer()`,
-        // otherwise EGL will panic with EGL_BAD_MATCH. The current context has to be the
-        // hidden_display context, otherwise this will segfault on Windows.
-        headless_shared_context.make_current();
-
-        // save the current state (program, texture binding, framebuffer)
-        let mut current_program = [0_i32];
-        gl_context.get_integer_v(gl::CURRENT_PROGRAM, (&mut current_program[..]).into());
-        let mut current_textures = [0_i32];
-        gl_context.get_integer_v(gl::TEXTURE_BINDING_2D, (&mut current_textures[..]).into());
-        let mut current_read_framebuffers = [0_i32];
-        gl_context.get_integer_v(gl::READ_FRAMEBUFFER_BINDING, (&mut current_read_framebuffers[..]).into());
-        let mut current_draw_framebuffers = [0_i32];
-        gl_context.get_integer_v(gl::DRAW_FRAMEBUFFER_BINDING, (&mut current_draw_framebuffers[..]).into());
-        let mut current_renderbuffers = [0_i32];
-        gl_context.get_integer_v(gl::RENDERBUFFER_BINDING, (&mut current_renderbuffers[..]).into());
-
-        // Generate a framebuffer (that will contain the final, rendered screen output).
-        let framebuffers = gl_context.gen_framebuffers(1);
-        gl_context.bind_framebuffer(gl::DRAW_FRAMEBUFFER, framebuffers.get(0).copied().unwrap());
-
-        // Create the texture to render to
-        let textures = gl_context.gen_textures(1);
-
-        gl_context.bind_texture(gl::TEXTURE_2D, textures.get(0).copied().unwrap());
-        gl_context.tex_image_2d(gl::TEXTURE_2D, 0, gl::RGBA as i32, framebuffer_size.width, framebuffer_size.height, 0, gl::RGBA, gl::UNSIGNED_BYTE, None.into());
-
-        gl_context.tex_parameter_i(gl::TEXTURE_2D, gl::TEXTURE_MAG_FILTER, gl::NEAREST as i32);
-        gl_context.tex_parameter_i(gl::TEXTURE_2D, gl::TEXTURE_MIN_FILTER, gl::NEAREST as i32);
-        gl_context.tex_parameter_i(gl::TEXTURE_2D, gl::TEXTURE_WRAP_S, gl::CLAMP_TO_EDGE as i32);
-        gl_context.tex_parameter_i(gl::TEXTURE_2D, gl::TEXTURE_WRAP_T, gl::CLAMP_TO_EDGE as i32);
-
-        let depthbuffers = gl_context.gen_renderbuffers(1);
-        gl_context.bind_renderbuffer(gl::RENDERBUFFER, depthbuffers.get(0).copied().unwrap());
-        gl_context.renderbuffer_storage(gl::RENDERBUFFER, gl::DEPTH_COMPONENT, framebuffer_size.width, framebuffer_size.height);
-        gl_context.framebuffer_renderbuffer(gl::FRAMEBUFFER, gl::DEPTH_ATTACHMENT, gl::RENDERBUFFER, depthbuffers.get(0).copied().unwrap());
-
-        // Set "textures[0]" as the color attachement #0
-        gl_context.framebuffer_texture_2d(gl::FRAMEBUFFER, gl::COLOR_ATTACHMENT0, gl::TEXTURE_2D, textures.get(0).copied().unwrap(), 0);
-
-        gl_context.draw_buffers([gl::COLOR_ATTACHMENT0][..].into());
-
-        // Check that the framebuffer is complete
-        debug_assert!(gl_context.check_frame_buffer_status(gl::FRAMEBUFFER) == gl::FRAMEBUFFER_COMPLETE);
-
-        // Disable SRGB and multisample, otherwise, WebRender will crash
-        gl_context.disable(gl::FRAMEBUFFER_SRGB);
-        gl_context.disable(gl::MULTISAMPLE);
-        gl_context.disable(gl::POLYGON_SMOOTH);
-
-        // Invoke WebRender to render the frame - renders to the currently bound FB
-        gl_context.clear_color(background_color_f.r, background_color_f.g, background_color_f.b, background_color_f.a);
-        gl_context.clear(gl::COLOR_BUFFER_BIT);
-        gl_context.clear_depth(0.0);
-        gl_context.clear(gl::DEPTH_BUFFER_BIT);
-        renderer.render(framebuffer_size).unwrap();
-
-        // FBOs can't be shared between windows, but textures can.
-        // In order to draw on the windows backbuffer, first make the window current, then draw to FB 0
-
-        let texture = Texture {
-            texture_id: textures.get(0).copied().unwrap(),
-            format: RawImageFormat::RGBA8,
-            flags: TextureFlags {
-                is_opaque,
-                is_video_texture: false,
-            },
-            size: PhysicalSizeU32 { width: framebuffer_size.width as u32, height: framebuffer_size.height as u32 },
-            gl_context: gl_context.clone(),
-        };
-
-        // Do not delete the texture here...
-        gl_context.delete_framebuffers(framebuffers.as_ref().into());
-        gl_context.delete_renderbuffers(depthbuffers.as_ref().into());
-
-        // reset the state to what it was before
-        gl_context.bind_framebuffer(gl::RENDERBUFFER, current_renderbuffers[0] as u32);
-        gl_context.bind_framebuffer(gl::DRAW_FRAMEBUFFER, current_draw_framebuffers[0] as u32);
-        gl_context.bind_framebuffer(gl::READ_FRAMEBUFFER, current_read_framebuffers[0] as u32);
-        gl_context.bind_texture(gl::TEXTURE_2D, current_textures[0] as u32);
-        gl_context.use_program(current_program[0] as u32);
-
-        headless_shared_context.make_not_current();
-
-        fn clean_up_unused_opengl_textures(pipeline_info: WrPipelineInfo, pipeline_id: &PipelineId) {
-
-            use azul_core::gl::gl_textures_remove_epochs_from_pipeline;
-            use crate::wr_translate::translate_epoch_wr;
-
-            // TODO: currently active epochs can be empty, why?
-            //
-            // I mean, while the renderer is rendering, there can never be "no epochs" active,
-            // at least one epoch must always be active.
-            if pipeline_info.epochs.is_empty() {
-                return;
-            }
-
-            // TODO: pipeline_info.epochs does not contain all active epochs,
-            // at best it contains the lowest in-use epoch. I.e. if `Epoch(43)`
-            // is listed, you can remove all textures from Epochs **lower than 43**
-            // BUT NOT EPOCHS HIGHER THAN 43.
-            //
-            // This means that "all active epochs" (in the documentation) is misleading
-            // since it doesn't actually list all active epochs, otherwise it'd list Epoch(43),
-            // Epoch(44), Epoch(45), which are currently active.
-            let oldest_to_remove_epoch = pipeline_info.epochs.values().min().unwrap();
-
-            gl_textures_remove_epochs_from_pipeline(pipeline_id, translate_epoch_wr(*oldest_to_remove_epoch));
-        }
-
-        // After rendering + swapping, remove the unused OpenGL textures
-        clean_up_unused_opengl_textures(renderer.flush_pipeline_info(), &self.internal.pipeline_id);
-
-        Some(texture)
-    }
-
-    #[cfg(not(test))]
-    pub fn draw_texture_to_screen_and_swap(&mut self, texture: &Texture, shader: &mut DisplayShader) {
-        self.display.make_current();
-        let mut current_draw_framebuffers = [0_i32];
-        texture.gl_context.get_integer_v(gl::DRAW_FRAMEBUFFER_BINDING, (&mut current_draw_framebuffers[..]).into());
-        texture.gl_context.bind_framebuffer(gl::DRAW_FRAMEBUFFER, 0);
-        shader.draw_texture_to_current_fb(texture);
-        self.display.windowed_context().unwrap().swap_buffers().unwrap();
-        texture.gl_context.bind_framebuffer(gl::DRAW_FRAMEBUFFER, current_draw_framebuffers[0] as u32);
-        self.display.make_not_current();
     }
 
     /// Synchronize the `self.internal.previous_window_state` with the `self.internal.current_window_state`
@@ -843,6 +643,242 @@ impl Window {
     pub fn get_current_monitor(&self) -> Option<MonitorHandle> {
         self.display.window().current_monitor()
     }
+}
+
+use webrender::PipelineInfo as WrPipelineInfo;
+
+// Function wrapper that is invoked on scrolling and normal rendering - only renders the
+// window contents and updates the screen, assumes that all transactions via the WrApi
+// have been committed before this function is called.
+//
+// WebRender doesn't reset the active shader back to what it was, but rather sets it
+// to zero, which glutin doesn't know about, so on the next frame it tries to draw with shader 0.
+// This leads to problems when invoking GlCallbacks, because those don't expect
+// the OpenGL state to change between calls. Also see: https://github.com/servo/webrender/pull/2880
+//
+// NOTE: For some reason, webrender allows rendering to a framebuffer with a
+// negative width / height, although that doesn't make sense
+pub(crate) fn render_inner(
+    window: &mut Window,
+    headless_shared_context: &mut HeadlessContextState,
+    render_api: &mut WrApi,
+    renderer: &mut WrRenderer,
+    gl_context: GlContextPtr,
+) {
+
+    /// Scroll all nodes in the ScrollStates to their correct position and insert
+    /// the positions into the transaction
+    ///
+    /// NOTE: scroll_states has to be mutable, since every key has a "visited" field, to
+    /// indicate whether it was used during the current frame or not.
+    fn scroll_all_nodes(scroll_states: &mut ScrollStates, txn: &mut WrTransaction) {
+        use webrender::api::ScrollClamping;
+        use crate::wr_translate::{wr_translate_external_scroll_id, wr_translate_logical_position};
+        for (key, value) in scroll_states.0.iter_mut() {
+            txn.scroll_node_with_id(
+                wr_translate_logical_position(value.get()),
+                wr_translate_external_scroll_id(*key),
+                ScrollClamping::ToContentBounds
+            );
+        }
+    }
+
+    use azul_css::ColorF;
+    use crate::wr_translate;
+    use webrender::api::Transaction as WrTransaction;
+
+    let mut txn = WrTransaction::new();
+
+    let physical_size = window.internal.current_window_state.size.get_physical_size();
+    let framebuffer_size = WrDeviceIntSize::new(physical_size.width as i32, physical_size.height as i32);
+    let background_color_f: ColorF = window.internal.current_window_state.background_color.into();
+
+    println!("rendering framebuffer: {:?}", physical_size);
+
+    // Especially during minimization / maximization of a window, it can happen that the window
+    // width or height is zero. In that case, no rendering is necessary (doing so would crash
+    // the application, since glTexImage2D may never have a 0 as the width or height.
+    if framebuffer_size.width == 0 || framebuffer_size.height == 0 {
+        return;
+    }
+
+    window.internal.epoch.increment();
+
+    txn.set_root_pipeline(wr_translate::wr_translate_pipeline_id(window.internal.pipeline_id));
+    scroll_all_nodes(&mut window.internal.scroll_states, &mut txn);
+    txn.generate_frame();
+
+    render_api.api.send_transaction(wr_translate::wr_translate_document_id(window.internal.document_id), txn);
+
+    // Update WR texture cache
+    renderer.update();
+
+    // NOTE: The `hidden_display` must share the OpenGL context with the `window`,
+    // otherwise this will segfault! Use `ContextBuilder::with_shared_lists` to share the
+    // OpenGL context across different windows.
+    //
+    // The context **must** be made current before calling `.bind_framebuffer()`,
+    // otherwise EGL will panic with EGL_BAD_MATCH. The current context has to be the
+    // hidden_display context, otherwise this will segfault on Windows.
+    headless_shared_context.make_current();
+
+    let mut current_program = [0_i32];
+    gl_context.get_integer_v(gl::CURRENT_PROGRAM, (&mut current_program[..]).into());
+
+    // Generate a framebuffer (that will contain the final, rendered screen output).
+    let framebuffers = gl_context.gen_framebuffers(1);
+    gl_context.bind_framebuffer(gl::FRAMEBUFFER, framebuffers.get(0).copied().unwrap());
+
+    // Create the texture to render to
+    let textures = gl_context.gen_textures(1);
+
+    gl_context.bind_texture(gl::TEXTURE_2D, textures.get(0).copied().unwrap());
+    gl_context.tex_image_2d(gl::TEXTURE_2D, 0, gl::RGB as i32, framebuffer_size.width, framebuffer_size.height, 0, gl::RGB, gl::UNSIGNED_BYTE, None.into());
+
+    gl_context.tex_parameter_i(gl::TEXTURE_2D, gl::TEXTURE_MAG_FILTER, gl::NEAREST as i32);
+    gl_context.tex_parameter_i(gl::TEXTURE_2D, gl::TEXTURE_MIN_FILTER, gl::NEAREST as i32);
+    gl_context.tex_parameter_i(gl::TEXTURE_2D, gl::TEXTURE_WRAP_S, gl::CLAMP_TO_EDGE as i32);
+    gl_context.tex_parameter_i(gl::TEXTURE_2D, gl::TEXTURE_WRAP_T, gl::CLAMP_TO_EDGE as i32);
+
+    let depthbuffers = gl_context.gen_renderbuffers(1);
+    gl_context.bind_renderbuffer(gl::RENDERBUFFER, depthbuffers.get(0).copied().unwrap());
+    gl_context.renderbuffer_storage(gl::RENDERBUFFER, gl::DEPTH_COMPONENT, framebuffer_size.width, framebuffer_size.height);
+    gl_context.framebuffer_renderbuffer(gl::FRAMEBUFFER, gl::DEPTH_ATTACHMENT, gl::RENDERBUFFER, depthbuffers.get(0).copied().unwrap());
+
+    // Set "textures[0]" as the color attachement #0
+    gl_context.framebuffer_texture_2d(gl::FRAMEBUFFER, gl::COLOR_ATTACHMENT0, gl::TEXTURE_2D, textures.get(0).copied().unwrap(), 0);
+
+    gl_context.draw_buffers([gl::COLOR_ATTACHMENT0][..].into());
+
+    // Check that the framebuffer is complete
+    debug_assert!(gl_context.check_frame_buffer_status(gl::FRAMEBUFFER) == gl::FRAMEBUFFER_COMPLETE);
+
+    // Disable SRGB and multisample, otherwise, WebRender will crash
+    gl_context.disable(gl::FRAMEBUFFER_SRGB);
+    gl_context.disable(gl::MULTISAMPLE);
+    gl_context.disable(gl::POLYGON_SMOOTH);
+
+    // Invoke WebRender to render the frame - renders to the currently bound FB
+    gl_context.clear_color(background_color_f.r, background_color_f.g, background_color_f.b, background_color_f.a);
+    gl_context.clear(gl::COLOR_BUFFER_BIT);
+    gl_context.clear_depth(0.0);
+    gl_context.clear(gl::DEPTH_BUFFER_BIT);
+    renderer.render(framebuffer_size).unwrap();
+
+    // FBOs can't be shared between windows, but textures can.
+    // In order to draw on the windows backbuffer, first make the window current, then draw to FB 0
+    headless_shared_context.make_not_current();
+    window.display.make_current();
+    draw_texture_to_screen(gl_context.clone(), textures.get(0).copied().unwrap(), framebuffer_size);
+    window.display.windowed_context().unwrap().swap_buffers().unwrap();
+    window.display.make_not_current();
+    headless_shared_context.make_current();
+
+    // Only delete the texture here...
+    gl_context.delete_framebuffers(framebuffers.as_ref().into());
+    gl_context.delete_renderbuffers(depthbuffers.as_ref().into());
+    gl_context.delete_textures(textures.as_ref().into());
+
+    gl_context.bind_framebuffer(gl::FRAMEBUFFER, 0);
+    gl_context.bind_texture(gl::TEXTURE_2D, 0);
+    gl_context.use_program(current_program[0] as u32);
+    headless_shared_context.make_not_current();
+}
+
+use azul_core::gl::{GlShader, GLuint};
+
+/// When called with glDrawArrays(0, 3), generates a simple triangle that
+/// spans the whole screen.
+const DISPLAY_VERTEX_SHADER: &str = "
+    #version 130
+    out vec2 vTexCoords;
+    void main() {
+        float x = -1.0 + float((gl_VertexID & 1) << 2);
+        float y = -1.0 + float((gl_VertexID & 2) << 1);
+        vTexCoords = vec2((x+1.0)*0.5, (y+1.0)*0.5);
+        gl_Position = vec4(x, y, 0, 1);
+    }
+";
+
+/// Shader that samples an input texture (`fScreenTex`) to the output FB.
+const DISPLAY_FRAGMENT_SHADER: &str = "
+    #version 130
+    in vec2 vTexCoords;
+    uniform sampler2D fScreenTex;
+    out vec4 fColorOut;
+    void main() {
+        fColorOut = texture(fScreenTex, vTexCoords);
+    }
+";
+
+// NOTE: Compilation is thread-unsafe, should only be compiled on the main thread
+static mut DISPLAY_SHADER: Option<GlShader> = None;
+
+/// Compiles the display vertex / fragment shader, returns the compiled shaders.
+fn compile_screen_shader(context: &GlContextPtr) -> GLuint {
+    unsafe { DISPLAY_SHADER.get_or_insert_with(|| {
+        GlShader::new(context, DISPLAY_VERTEX_SHADER, DISPLAY_FRAGMENT_SHADER).unwrap()
+    }) }.program_id
+}
+
+// Draws a texture to the currently bound framebuffer. Texture has to be cleaned up by the caller.
+fn draw_texture_to_screen(context: GlContextPtr, texture: GLuint, framebuffer_size: WrDeviceIntSize) {
+
+    context.bind_framebuffer(gl::FRAMEBUFFER, 0);
+
+    // Compile or get the cached shader
+    let shader = compile_screen_shader(&context);
+    let texture_location = context.get_uniform_location(shader, "fScreenTex".into());
+
+    // The uniform value for a sampler refers to the texture unit, not the texture id, i.e.:
+    //
+    // TEXTURE0 = uniform_1i(location, 0);
+    // TEXTURE1 = uniform_1i(location, 1);
+
+    context.active_texture(gl::TEXTURE0);
+    context.bind_texture(gl::TEXTURE_2D, texture);
+    context.use_program(shader);
+    context.uniform_1i(texture_location, 0);
+
+    // The vertices are generated in the vertex shader using gl_VertexID, however,
+    // drawing without a VAO is not allowed (except for glDrawArraysInstanced,
+    // which is only available in OGL 3.3)
+
+    let vao = context.gen_vertex_arrays(1);
+    context.bind_vertex_array(vao.get(0).copied().unwrap());
+    context.viewport(0, 0, framebuffer_size.width, framebuffer_size.height);
+    context.draw_arrays(gl::TRIANGLE_STRIP, 0, 3);
+    context.delete_vertex_arrays(vao.as_ref().into());
+
+    context.bind_vertex_array(0);
+    context.use_program(0);
+    context.bind_texture(gl::TEXTURE_2D, 0);
+}
+
+pub(crate) fn clean_up_unused_opengl_textures(pipeline_info: WrPipelineInfo, pipeline_id: &PipelineId) {
+
+    use azul_core::gl::gl_textures_remove_epochs_from_pipeline;
+    use crate::wr_translate::translate_epoch_wr;
+
+    // TODO: currently active epochs can be empty, why?
+    //
+    // I mean, while the renderer is rendering, there can never be "no epochs" active,
+    // at least one epoch must always be active.
+    if pipeline_info.epochs.is_empty() {
+        return;
+    }
+
+    // TODO: pipeline_info.epochs does not contain all active epochs,
+    // at best it contains the lowest in-use epoch. I.e. if `Epoch(43)`
+    // is listed, you can remove all textures from Epochs **lower than 43**
+    // BUT NOT EPOCHS HIGHER THAN 43.
+    //
+    // This means that "all active epochs" (in the documentation) is misleading
+    // since it doesn't actually list all active epochs, otherwise it'd list Epoch(43),
+    // Epoch(44), Epoch(45), which are currently active.
+    let oldest_to_remove_epoch = pipeline_info.epochs.values().min().unwrap();
+
+    gl_textures_remove_epochs_from_pipeline(pipeline_id, translate_epoch_wr(*oldest_to_remove_epoch));
 }
 
 /// Clipboard is an empty class with only static methods,

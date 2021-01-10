@@ -28,7 +28,7 @@ const DISPLAY_FRAGMENT_SHADER: &str = "
 
 #[derive(Debug)]
 pub struct DisplayShader {
-    shader: GlShader,
+    pub(crate) shader: GlShader,
 }
 
 impl DisplayShader {
@@ -37,6 +37,7 @@ impl DisplayShader {
         let shader = GlShader::new(context, DISPLAY_VERTEX_SHADER, DISPLAY_FRAGMENT_SHADER)?;
         Ok(DisplayShader { shader })
     }
+    /*
 
     // Draws a texture to the currently bound framebuffer. Use `context..bind_framebuffer(gl::FRAMEBUFFER, 0)`
     // to draw to the window.
@@ -73,4 +74,5 @@ impl DisplayShader {
         // texture.gl_context.active_texture();
     }
 
+    */
 }

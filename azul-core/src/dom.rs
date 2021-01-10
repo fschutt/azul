@@ -110,7 +110,7 @@ pub enum NodeType {
 }
 
 impl NodeType {
-    fn get_text_content(&self) -> Option<String> {
+    pub(crate) fn get_text_content(&self) -> Option<String> {
         use self::NodeType::*;
         match self {
             Div | Body => None,
@@ -677,19 +677,7 @@ fn node_data_to_string(node_data: &NodeData) -> String {
         String::new()
     };
 
-    let callbacks = if node_data.callbacks.is_empty() {
-        String::new()
-    } else {
-        format!(" callbacks=\"{}\"", node_data.callbacks.iter().map(|callbackdata| format!("({:?}={:?})", callbackdata.event, callbackdata.callback)).collect::<Vec<String>>().join(" "))
-    };
-
-    let inline_css = if node_data.inline_css_props.is_empty() {
-        String::new()
-    } else {
-        format!(" style=\"{}\"", node_data.inline_css_props.iter().map(|overrideprop| format!("{}={:?};", overrideprop.get_type(), overrideprop)).collect::<Vec<String>>().join(" "))
-    };
-
-    format!("{}{}{}{}{}{}", id_string, class_string, tabindex, draggable, callbacks, inline_css)
+    format!("{}{}{}{}", id_string, class_string, tabindex, draggable)
 }
 
 impl fmt::Debug for NodeData {
@@ -1136,22 +1124,7 @@ impl Dom {
         self.root.set_is_draggable(draggable);
     }
 
-    /// Returns a HTML-formatted version of the DOM for easier debugging, i.e.
-    ///
-    /// ```rust,no_run,ignore
-    /// Dom::div().with_id("hello")
-    ///     .with_child(Dom::div().with_id("test"))
-    /// ```
-    ///
-    /// will return:
-    ///
-    /// ```xml,no_run,ignore
-    /// <div id="hello">
-    ///      <div id="test" />
-    /// </div>
-    /// ```
     pub fn get_html_string(&self) -> String {
-
 
         fn get_html_string_inner(dom: &Dom, output: &mut String, indent: usize) {
             let tabs = String::from("    ").repeat(indent);
@@ -1164,9 +1137,6 @@ impl Dom {
             output.push_str(&dom.root.debug_print_start(print_self_closing_tag));
 
             if let Some(content) = &content {
-                output.push_str("\r\n");
-                output.push_str(&tabs);
-                output.push_str(&"    ");
                 output.push_str(content);
             }
 

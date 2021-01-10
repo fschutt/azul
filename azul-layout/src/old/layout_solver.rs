@@ -34,12 +34,8 @@ macro_rules! determine_preferred {
     /// if the node type is an text, the `preferred_inner_width` is the text height.
     pub(crate) fn $fn_name(styled_node: &StyledNode, preferred_inner_width: Option<f32>, parent_width: f32) -> WhConstraint {
 
-        println!("styled node layout: {:#?}", styled_node.layout);
 
-        let mut width = styled_node.layout.$width.as_ref().and_then(|w| w.get_property().map(|x| {
-            println!("width to pixels - {:?}, parent_width = {:?}", x, parent_width);
-            x.inner.to_pixels(parent_width)
-        }));
+        let mut width = styled_node.layout.$width.as_ref().and_then(|w| w.get_property().map(|x| { x.inner.to_pixels(parent_width) }));
         let min_width = styled_node.layout.$min_width.as_ref().and_then(|w| w.get_property().map(|x| x.inner.to_pixels(parent_width)));
         let max_width = styled_node.layout.$max_width.as_ref().and_then(|w| w.get_property().map(|x| x.inner.to_pixels(parent_width)));
 
@@ -1141,7 +1137,6 @@ pub fn do_the_layout<U: FontImageApi>(
 
             use azul_core::app_resources::add_fonts_and_images;
 
-            println!("adding fonts and images!");
 
             add_fonts_and_images(
                 app_resources,
@@ -1163,11 +1158,9 @@ pub fn do_the_layout<U: FontImageApi>(
                 rect,
             );
 
-            println!("layout done for DOM {:?}: {:#?}", dom_id, layout_result);
 
             let iframes = layout_result.styled_dom.scan_for_iframe_callbacks();
 
-            println!("resolving {} iframes", iframes.len());
 
             let mut iframe_mapping = BTreeMap::new();
 
@@ -1192,11 +1185,9 @@ pub fn do_the_layout<U: FontImageApi>(
                         hidpi_bounds,
                     );
 
-                    println!("calling iframe callback...: {:?}", iframe_callback_info);
                     (iframe_node.callback.cb)(&iframe_node.data, iframe_callback_info)
                 };
 
-                println!("calling iframe callback done: {:#?}", iframe_return);
 
                 let mut iframe_dom = iframe_return.styled_dom;
 
@@ -1243,7 +1234,6 @@ pub fn do_the_layout_internal(
     bounds: LogicalRect
 ) -> LayoutResult {
 
-    println!("do_the_layout on {} nodes!", styled_dom.styled_nodes.len());
 
     let do_the_layout_start = Instant::now();
 
@@ -1272,7 +1262,6 @@ pub fn do_the_layout_internal(
         rect_size.width,
     );
 
-    println!("width calculated arena: {:#?}", width_calculated_arena);
 
     solve_flex_layout_width(
         &mut width_calculated_arena.as_ref_mut(),
@@ -1924,7 +1913,6 @@ pub fn do_the_relayout(
 
     let root_changed_start = Instant::now();
     if root_size_changed {
-        println!("root size changed! - do the relayout on {} nodes!", layout_result.styled_dom.styled_nodes.len());
     }
 
     // merge the nodes to relayout by type so that we don't relayout twice

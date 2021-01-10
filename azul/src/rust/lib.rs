@@ -53,6 +53,7 @@ pub mod prelude {
         app::{App, AppConfig},
         css::Css,
         dom::Dom,
+        style::StyledDom,
         window::WindowCreateOptions,
         callbacks::{RefAny, LayoutInfo},
     };

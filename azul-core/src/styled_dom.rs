@@ -423,6 +423,76 @@ impl Default for StyledDom {
     }
 }
 
+impl StyledDom {
+
+    /// Returns a HTML-formatted version of the DOM for easier debugging, i.e.
+    ///
+    /// ```rust,no_run,ignore
+    /// Dom::div().with_id("hello")
+    ///     .with_child(Dom::div().with_id("test"))
+    /// ```
+    ///
+    /// will return:
+    ///
+    /// ```xml,no_run,ignore
+    /// <div id="hello">
+    ///      <div id="test" />
+    /// </div>
+    /// ```
+    pub fn get_html_string(&self) -> String {
+        // TODO: This is wrong!
+
+        let mut output = String::new();
+
+        for ParentWithNodeDepth { depth, node_id } in self.non_leaf_nodes.iter() {
+
+            let node_id = match node_id.into_crate_internal() {
+                Some(s) => s,
+                None => continue,
+            };
+            let node_data = &self.node_data.as_container()[node_id];
+            let tabs = String::from("    ").repeat(*depth);
+            let node_has_children = self.node_hierarchy.as_container()[node_id].first_child_id().is_some();
+
+            output.push_str("\r\n");
+            output.push_str(&tabs);
+            output.push_str(&node_data.debug_print_start(node_has_children));
+
+            if let Some(content) = node_data.get_node_type().get_text_content().as_ref() {
+                output.push_str(content);
+            }
+
+            for child_id in node_id.az_children(&self.node_hierarchy.as_container()) {
+
+                let node_data = &self.node_data.as_container()[child_id];
+                let node_has_children = self.node_hierarchy.as_container()[child_id].first_child_id().is_some();
+                let tabs = String::from("    ").repeat(*depth + 1);
+
+                output.push_str("\r\n");
+                output.push_str(&tabs);
+                output.push_str(&node_data.debug_print_start(node_has_children));
+
+                let content = node_data.get_node_type().get_text_content();
+                if let Some(content) = content.as_ref() {
+                    output.push_str(content);
+                }
+
+                if node_has_children || content.is_some() {
+                    output.push_str(&node_data.debug_print_end());
+                }
+            }
+
+            if node_has_children {
+                output.push_str("\r\n");
+                output.push_str(&tabs);
+                output.push_str(&node_data.debug_print_end());
+            }
+        }
+
+        output.trim().to_string()
+    }
+}
+
 #[derive(Debug, Clone, PartialEq, PartialOrd)]
 #[repr(C)]
 pub struct ContentGroup {
@@ -663,18 +733,29 @@ impl StyledDom {
 
             let styled_node = &mut styled_nodes.as_ref_mut()[node_id];
 
+            let node_has_focus_props = !node.get_inline_focus_css_props().is_empty();
             let node_has_hover_props = !node.get_inline_hover_css_props().is_empty();
             let node_has_active_props = !node.get_inline_active_css_props().is_empty();
-            let node_has_only_window_callbacks = node.get_callbacks().iter().all(|cb| cb.event.is_window_callback());
-            let node_has_non_default_cursor = styled_node.style.cursor.as_ref().cloned().unwrap_or_default().get_property().is_some();
+            let node_has_not_only_window_callbacks = !node.get_callbacks().is_empty() && !node.get_callbacks().iter().all(|cb| cb.event.is_window_callback());
+            let node_has_non_default_cursor = styled_node.style.cursor.as_ref().cloned().is_some();
 
             let node_should_have_tag =
                 tab_index.is_some() ||
                 node_has_hover_props ||
+                node_has_focus_props ||
                 node_has_active_props ||
                 node.get_is_draggable() ||
-                !node_has_only_window_callbacks ||
+                node_has_not_only_window_callbacks ||
                 node_has_non_default_cursor;
+
+            println!("node should have tag ({:?}):", node_id);
+            println!("    tab_index.is_some(): {:?}", tab_index.is_some());
+            println!("    node_has_focus_props: {:?}", node_has_focus_props);
+            println!("    node_has_hover_props: {:?}", node_has_hover_props);
+            println!("    node_has_active_props: {:?}", node_has_active_props);
+            println!("    node.get_is_draggable(): {:?}", node.get_is_draggable());
+            println!("    node_has_not_only_window_callbacks: {:?}", node_has_not_only_window_callbacks);
+            println!("    node_has_non_default_cursor: {:?}", node_has_non_default_cursor);
 
             let tag_id = if node_should_have_tag {
                 let tag_id = TagId::new();

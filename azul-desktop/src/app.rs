@@ -178,6 +178,19 @@ impl App {
             );
         };
 
+/*
+        // initial redraw
+        for window in active_windows.values_mut() {
+            window.render_display_list_to_screen(
+                 &mut hidden_context,
+                 &mut render_api,
+                 renderer.as_mut().unwrap(),
+                 &gl_context,
+                 &mut display_shader
+            );
+        }
+*/
+
         println!("windows created: {:?}", Instant::now() - window_created_instant);
 
         hidden_event_loop.run(move |event, event_loop_target, control_flow| {
@@ -391,22 +404,24 @@ impl App {
                 }
                 Event::RedrawRequested(window_id) => {
 
-                    let window = match active_windows.get_mut(&window_id) {
+                    let mut window = match active_windows.get_mut(&window_id) {
                         Some(s) => s,
                         None => { return; },
                     };
 
-                    println!("got rendering event!");
+                    let pipeline_id = window.internal.pipeline_id;
 
-                    let render_start = Instant::now();
+                    // Render + swap the screen (call webrender + draw to texture)
+                    crate::window::render_inner(
+                        &mut window,
+                        &mut hidden_context,
+                        &mut render_api,
+                        renderer.as_mut().unwrap(),
+                        gl_context.clone(),
+                    );
 
-                    // render the display list to a texture
-                    if let Some(texture) = window.render_display_list_to_texture(&mut hidden_context, &mut render_api, renderer.as_mut().unwrap(), &gl_context) {
-                        println!("rendering done: {:?}", Instant::now() - render_start);
-
-                        // if the rendering went OK, render the texture to the screen
-                        window.draw_texture_to_screen_and_swap(&texture, &mut display_shader);
-                    }
+                    // After rendering + swapping, remove the unused OpenGL textures
+                    crate::window::clean_up_unused_opengl_textures(renderer.as_mut().unwrap().flush_pipeline_info(), &pipeline_id);
                 },
                 Event::WindowEvent { event, window_id } => {
 
