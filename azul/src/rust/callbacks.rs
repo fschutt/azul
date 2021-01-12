@@ -3,16 +3,16 @@
     use crate::dll::*;
     use std::ffi::c_void;
 
-    #[derive(Debug, Hash, PartialEq, PartialOrd, Ord, Eq)]
+    #[derive(Debug)]
     #[repr(C)]
     pub struct Ref<'a, T> {
         ptr: &'a T,
-        _sharing_info_ptr: *const AtomicRefCount,
+        sharing_info: AtomicRefCount,
     }
 
     impl<'a, T> Drop for Ref<'a, T> {
         fn drop(&mut self) {
-            (crate::dll::get_azul_dll().az_atomic_ref_count_decrease_ref)(unsafe { &mut *(self._sharing_info_ptr as *mut AtomicRefCount) });
+            self.sharing_info.decrease_ref();
         }
     }
 
@@ -24,16 +24,16 @@
         }
     }
 
-    #[derive(Debug, Hash, PartialEq, PartialOrd, Ord, Eq)]
+    #[derive(Debug)]
     #[repr(C)]
     pub struct RefMut<'a, T> {
         ptr: &'a mut T,
-        _sharing_info_ptr: *const AtomicRefCount,
+        sharing_info: AtomicRefCount,
     }
 
     impl<'a, T> Drop for RefMut<'a, T> {
         fn drop(&mut self) {
-            (crate::dll::get_azul_dll().az_atomic_ref_count_decrease_refmut)(unsafe { &mut *(self._sharing_info_ptr as *mut AtomicRefCount) });
+            self.sharing_info.decrease_refmut();
         }
     }
 
@@ -64,7 +64,7 @@
 
                 unsafe {
                     // copy the struct from the heap to the stack and call mem::drop on U to run the destructor
-                    let mut stack_mem = mem::MaybeUninit::<U>::uninit().assume_init();
+                    let mut stack_mem = mem::zeroed::<U>();
                     ptr::copy_nonoverlapping(ptr as *const U, &mut stack_mem as *mut U, mem::size_of::<U>());
                     mem::drop(stack_mem);
                 }
@@ -92,9 +92,10 @@
             let can_be_shared = (crate::dll::get_azul_dll().az_ref_any_can_be_shared)(self);
             if !can_be_shared { return None; }
 
+            self.sharing_info.increase_ref();
             Some(Ref {
                 ptr: unsafe { &*(self._internal_ptr as *const U) },
-                _sharing_info_ptr: self._sharing_info_ptr,
+                sharing_info: self.sharing_info.clone(),
             })
         }
 
@@ -107,9 +108,11 @@
             let can_be_shared_mut = (crate::dll::get_azul_dll().az_ref_any_can_be_shared_mut)(self);
             if !can_be_shared_mut { return None; }
 
+            self.sharing_info.increase_refmut();
+
             Some(RefMut {
                 ptr: unsafe { &mut *(self._internal_ptr as *mut U) },
-                _sharing_info_ptr: self._sharing_info_ptr,
+                sharing_info: self.sharing_info.clone(),
             })
         }
 
@@ -354,15 +357,17 @@
         /// Calls the `AtomicRefCount::can_be_shared_mut` function.
         pub fn can_be_shared_mut(&self)  -> bool { (crate::dll::get_azul_dll().az_atomic_ref_count_can_be_shared_mut)(self) }
         /// Calls the `AtomicRefCount::increase_ref` function.
-        pub fn increase_ref(&mut self)  { (crate::dll::get_azul_dll().az_atomic_ref_count_increase_ref)(self) }
+        pub fn increase_ref(&self)  { (crate::dll::get_azul_dll().az_atomic_ref_count_increase_ref)(self) }
         /// Calls the `AtomicRefCount::decrease_ref` function.
-        pub fn decrease_ref(&mut self)  { (crate::dll::get_azul_dll().az_atomic_ref_count_decrease_ref)(self) }
+        pub fn decrease_ref(&self)  { (crate::dll::get_azul_dll().az_atomic_ref_count_decrease_ref)(self) }
         /// Calls the `AtomicRefCount::increase_refmut` function.
-        pub fn increase_refmut(&mut self)  { (crate::dll::get_azul_dll().az_atomic_ref_count_increase_refmut)(self) }
+        pub fn increase_refmut(&self)  { (crate::dll::get_azul_dll().az_atomic_ref_count_increase_refmut)(self) }
         /// Calls the `AtomicRefCount::decrease_refmut` function.
-        pub fn decrease_refmut(&mut self)  { (crate::dll::get_azul_dll().az_atomic_ref_count_decrease_refmut)(self) }
+        pub fn decrease_refmut(&self)  { (crate::dll::get_azul_dll().az_atomic_ref_count_decrease_refmut)(self) }
     }
 
+    impl std::fmt::Debug for AtomicRefCount { fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result { write!(f, "{}", (crate::dll::get_azul_dll().az_atomic_ref_count_fmt_debug)(self)) } }
+    impl Clone for AtomicRefCount { fn clone(&self) -> Self { (crate::dll::get_azul_dll().az_atomic_ref_count_deep_copy)(self) } }
     impl Drop for AtomicRefCount { fn drop(&mut self) { (crate::dll::get_azul_dll().az_atomic_ref_count_delete)(self); } }
 
 

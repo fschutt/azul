@@ -1150,6 +1150,12 @@ pub use AzInstantPtrTT as AzInstantPtr;
 /// Re-export of rust-allocated (stack based) `Duration` struct
 pub type AzDurationTT = azul_impl::task::AzDuration;
 pub use AzDurationTT as AzDuration;
+/// Creates a new `Duration` instance whose memory is owned by the rust allocator
+/// Equivalent to the Rust `Duration::milliseconds()` constructor.
+#[no_mangle] pub extern "C" fn az_duration_milliseconds(milliseconds: usize) -> AzDuration { std::time::Duration::from_millis(milliseconds as u64).into() }
+/// Creates a new `Duration` instance whose memory is owned by the rust allocator
+/// Equivalent to the Rust `Duration::seconds()` constructor.
+#[no_mangle] pub extern "C" fn az_duration_seconds(seconds: usize) -> AzDuration { std::time::Duration::from_secs(seconds as u64).into() }
 
 /// Re-export of rust-allocated (stack based) `AppLogLevel` struct
 pub type AzAppLogLevelTT = azul_impl::resources::AppLogLevel;
@@ -1367,15 +1373,19 @@ pub use AzAtomicRefCountTT as AzAtomicRefCount;
 /// Equivalent to the Rust `AtomicRefCount::can_be_shared_mut()` function.
 #[no_mangle] pub extern "C" fn az_atomic_ref_count_can_be_shared_mut(atomicrefcount: &AzAtomicRefCount) -> bool { atomicrefcount.can_be_shared_mut() }
 /// Equivalent to the Rust `AtomicRefCount::increase_ref()` function.
-#[no_mangle] pub extern "C" fn az_atomic_ref_count_increase_ref(atomicrefcount: &mut AzAtomicRefCount) { atomicrefcount.increase_ref() }
+#[no_mangle] pub extern "C" fn az_atomic_ref_count_increase_ref(atomicrefcount: &AzAtomicRefCount) { atomicrefcount.increase_ref() }
 /// Equivalent to the Rust `AtomicRefCount::decrease_ref()` function.
-#[no_mangle] pub extern "C" fn az_atomic_ref_count_decrease_ref(atomicrefcount: &mut AzAtomicRefCount) { atomicrefcount.decrease_ref() }
+#[no_mangle] pub extern "C" fn az_atomic_ref_count_decrease_ref(atomicrefcount: &AzAtomicRefCount) { atomicrefcount.decrease_ref() }
 /// Equivalent to the Rust `AtomicRefCount::increase_refmut()` function.
-#[no_mangle] pub extern "C" fn az_atomic_ref_count_increase_refmut(atomicrefcount: &mut AzAtomicRefCount) { atomicrefcount.increase_refmut() }
+#[no_mangle] pub extern "C" fn az_atomic_ref_count_increase_refmut(atomicrefcount: &AzAtomicRefCount) { atomicrefcount.increase_refmut() }
 /// Equivalent to the Rust `AtomicRefCount::decrease_refmut()` function.
-#[no_mangle] pub extern "C" fn az_atomic_ref_count_decrease_refmut(atomicrefcount: &mut AzAtomicRefCount) { atomicrefcount.decrease_refmut() }
+#[no_mangle] pub extern "C" fn az_atomic_ref_count_decrease_refmut(atomicrefcount: &AzAtomicRefCount) { atomicrefcount.decrease_refmut() }
 /// Destructor: Takes ownership of the `AtomicRefCount` pointer and deletes it.
 #[no_mangle] #[allow(unused_variables)] pub extern "C" fn az_atomic_ref_count_delete(object: &mut AzAtomicRefCount) { }
+/// Clones the object
+#[no_mangle] pub extern "C" fn az_atomic_ref_count_deep_copy(object: &AzAtomicRefCount) -> AzAtomicRefCount { object.clone() }
+/// Creates a string with the debug representation of the object
+#[no_mangle] pub extern "C" fn az_atomic_ref_count_fmt_debug(object: &AzAtomicRefCount) -> AzString { format!("{:#?}", object).into() }
 
 /// RefAny is a reference-counted, type-erased pointer, which stores a reference to a struct. `RefAny` can be up- and downcasted (this usually done via generics and can't be expressed in the Rust API)
 pub type AzRefAnyTT = azul_impl::callbacks::RefAny;
@@ -3340,6 +3350,12 @@ pub use AzTimerTT as AzTimer;
 /// Creates a new `Timer` instance whose memory is owned by the rust allocator
 /// Equivalent to the Rust `Timer::new()` constructor.
 #[no_mangle] pub extern "C" fn az_timer_new(timer_data: AzRefAny, callback: AzTimerCallbackType) -> AzTimer { Timer::new(timer_data, callback) }
+/// Equivalent to the Rust `Timer::with_delay()` function.
+#[no_mangle] pub extern "C" fn az_timer_with_delay(timer: AzTimer, delay: AzDuration) -> AzTimer { timer.with_delay(delay) }
+/// Equivalent to the Rust `Timer::with_interval()` function.
+#[no_mangle] pub extern "C" fn az_timer_with_interval(timer: AzTimer, interval: AzDuration) -> AzTimer { timer.with_interval(interval) }
+/// Equivalent to the Rust `Timer::with_timeout()` function.
+#[no_mangle] pub extern "C" fn az_timer_with_timeout(timer: AzTimer, timeout: AzDuration) -> AzTimer { timer.with_timeout(timeout) }
 /// Destructor: Takes ownership of the `Timer` pointer and deletes it.
 #[no_mangle] #[allow(unused_variables)] pub extern "C" fn az_timer_delete(object: &mut AzTimer) { }
 /// Clones the object
@@ -3689,19 +3705,20 @@ mod test_sizes {
     impl ::std::fmt::Debug for AzWriteBackCallback          { fn fmt(&self, f: &mut ::std::fmt::Formatter) -> ::std::fmt::Result { write!(f, "{:x}", self.cb as usize) }}
     impl ::std::fmt::Debug for AzRefAny                     {
         fn fmt(&self, f: &mut ::std::fmt::Formatter) -> ::std::fmt::Result {
-            write!(f, "RefAny {{")?;
-            write!(f, "_internal_ptr: {:x}", self._internal_ptr as usize)?;
-            write!(f, "_internal_len: {}", self._internal_len)?;
-            write!(f, "_internal_layout_size: {}", self._internal_layout_size)?;
-            write!(f, "_internal_layout_align: {}", self._internal_layout_align)?;
-            write!(f, "type_id: {}", self.type_id)?;
-            write!(f, "type_name: \"{}\"", self.type_name.as_str())?;
-            write!(f, "_sharing_info_ptr: \"{}\"", self._sharing_info_ptr as usize)?;
-            write!(f, "custom_destructor: \"{}\"", self.custom_destructor as usize)?;
-            write!(f, "}}")?;
+            write!(f, "RefAny {{\r\n")?;
+            write!(f, "    _internal_ptr: 0x{:x}\r\n", self._internal_ptr as usize)?;
+            write!(f, "    _internal_len: {}\r\n", self._internal_len)?;
+            write!(f, "    _internal_layout_size: {}\r\n", self._internal_layout_size)?;
+            write!(f, "    _internal_layout_align: {}\r\n", self._internal_layout_align)?;
+            write!(f, "    type_name: \"{}\"\r\n", self.type_name.as_str())?;
+            write!(f, "    type_id: {}\r\n", self.type_id)?;
+            write!(f, "    sharing_info: {:x}\r\n", &self.sharing_info as *const _ as usize)?;
+            write!(f, "    custom_destructor: 0x{:x}\r\n", self.custom_destructor as usize)?;
+            write!(f, "}}\r\n")?;
             Ok(())
         }
-    }    /// Re-export of rust-allocated (stack based) `String` struct
+    }
+    /// Re-export of rust-allocated (stack based) `String` struct
     #[repr(C)] #[derive(Debug)] pub struct AzString {
         pub vec: AzU8Vec,
     }
@@ -4678,7 +4695,7 @@ mod test_sizes {
         pub cb: AzWriteBackCallbackType,
     }
     /// Re-export of rust-allocated (stack based) `AtomicRefCount` struct
-    #[repr(C)] #[derive(Debug)] pub struct AzAtomicRefCount {
+    #[repr(C)]  pub struct AzAtomicRefCount {
         pub(crate) ptr: *const c_void,
     }
     /// RefAny is a reference-counted, type-erased pointer, which stores a reference to a struct. `RefAny` can be up- and downcasted (this usually done via generics and can't be expressed in the Rust API)
@@ -4689,7 +4706,7 @@ mod test_sizes {
         pub _internal_layout_align: usize,
         pub type_id: u64,
         pub type_name: AzString,
-        pub _sharing_info_ptr: *const AzAtomicRefCount,
+        pub sharing_info: AzAtomicRefCount,
         pub custom_destructor: AzRefAnyDestructorType,
     }
     /// Re-export of rust-allocated (stack based) `LayoutInfo` struct

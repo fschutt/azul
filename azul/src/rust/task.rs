@@ -3,6 +3,7 @@
     use crate::dll::*;
     use std::ffi::c_void;
     use crate::callbacks::{RefAny, TimerCallbackType};
+    use crate::time::Duration;
 
 
     /// `TimerId` struct
@@ -23,6 +24,12 @@
     impl Timer {
         /// Creates a new `Timer` instance.
         pub fn new(timer_data: RefAny, callback: TimerCallbackType) -> Self { (crate::dll::get_azul_dll().az_timer_new)(timer_data, callback) }
+        /// Calls the `Timer::with_delay` function.
+        pub fn with_delay(self, delay: Duration)  -> crate::task::Timer { (crate::dll::get_azul_dll().az_timer_with_delay)(self, delay) }
+        /// Calls the `Timer::with_interval` function.
+        pub fn with_interval(self, interval: Duration)  -> crate::task::Timer { (crate::dll::get_azul_dll().az_timer_with_interval)(self, interval) }
+        /// Calls the `Timer::with_timeout` function.
+        pub fn with_timeout(self, timeout: Duration)  -> crate::task::Timer { (crate::dll::get_azul_dll().az_timer_with_timeout)(self, timeout) }
     }
 
     impl Clone for Timer { fn clone(&self) -> Self { (crate::dll::get_azul_dll().az_timer_deep_copy)(self) } }

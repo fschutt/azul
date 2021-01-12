@@ -1125,6 +1125,7 @@ pub(crate) fn wr_translate_external_scroll_id(scroll_id: ExternalScrollId) -> Wr
 }
 
 pub(crate) fn wr_translate_display_list(input: CachedDisplayList, pipeline_id: PipelineId) -> WrBuiltDisplayList {
+    println!("sending dl: {:#?}", input);
     let root_space_and_clip = WrSpaceAndClipInfo::root_scroll(wr_translate_pipeline_id(pipeline_id));
     let mut positioned_items = Vec::new();
     let mut builder = WrDisplayListBuilder::new(
@@ -1136,7 +1137,8 @@ pub(crate) fn wr_translate_display_list(input: CachedDisplayList, pipeline_id: P
         root_space_and_clip.spatial_id,
         WrPrimitiveFlags::IS_BACKFACE_VISIBLE,
     );
-    push_display_list_msg(&mut builder, input.root,root_space_and_clip.spatial_id, root_space_and_clip.clip_id, &mut positioned_items);
+    push_display_list_msg(&mut builder, input.root, root_space_and_clip.spatial_id, root_space_and_clip.clip_id, &mut positioned_items);
+    println!("builder content_size: {:?}", builder.content_size());
     builder.finalize().2
 }
 

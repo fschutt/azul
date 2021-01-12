@@ -38,16 +38,16 @@
     impl ::std::fmt::Debug for AzWriteBackCallback          { fn fmt(&self, f: &mut ::std::fmt::Formatter) -> ::std::fmt::Result { write!(f, "{:x}", self.cb as usize) }}
     impl ::std::fmt::Debug for AzRefAny                     {
         fn fmt(&self, f: &mut ::std::fmt::Formatter) -> ::std::fmt::Result {
-            write!(f, "RefAny {{")?;
-            write!(f, "_internal_ptr: {:x}", self._internal_ptr as usize)?;
-            write!(f, "_internal_len: {}", self._internal_len)?;
-            write!(f, "_internal_layout_size: {}", self._internal_layout_size)?;
-            write!(f, "_internal_layout_align: {}", self._internal_layout_align)?;
-            write!(f, "type_id: {}", self.type_id)?;
-            write!(f, "type_name: \"{}\"", self.type_name.as_str())?;
-            write!(f, "_sharing_info_ptr: \"{}\"", self._sharing_info_ptr as usize)?;
-            write!(f, "custom_destructor: \"{}\"", self.custom_destructor as usize)?;
-            write!(f, "}}")?;
+            write!(f, "RefAny {{\r\n")?;
+            write!(f, "    _internal_ptr: 0x{:x}\r\n", self._internal_ptr as usize)?;
+            write!(f, "    _internal_len: {}\r\n", self._internal_len)?;
+            write!(f, "    _internal_layout_size: {}\r\n", self._internal_layout_size)?;
+            write!(f, "    _internal_layout_align: {}\r\n", self._internal_layout_align)?;
+            write!(f, "    type_name: \"{}\"\r\n", self.type_name.as_str())?;
+            write!(f, "    type_id: {}\r\n", self.type_id)?;
+            write!(f, "    sharing_info: {:#?}\r\n", self.sharing_info)?;
+            write!(f, "    custom_destructor: 0x{:x}\r\n", self.custom_destructor as usize)?;
+            write!(f, "}}\r\n")?;
             Ok(())
         }
     }    /// Re-export of rust-allocated (stack based) `String` struct
@@ -1027,7 +1027,7 @@
         pub cb: AzWriteBackCallbackType,
     }
     /// Re-export of rust-allocated (stack based) `AtomicRefCount` struct
-    #[repr(C)] #[derive(Debug)] pub struct AzAtomicRefCount {
+    #[repr(C)]  pub struct AzAtomicRefCount {
         pub(crate) ptr: *const c_void,
     }
     /// RefAny is a reference-counted, type-erased pointer, which stores a reference to a struct. `RefAny` can be up- and downcasted (this usually done via generics and can't be expressed in the Rust API)
@@ -1038,7 +1038,7 @@
         pub _internal_layout_align: usize,
         pub type_id: u64,
         pub type_name: AzString,
-        pub _sharing_info_ptr: *const AzAtomicRefCount,
+        pub sharing_info: AzAtomicRefCount,
         pub custom_destructor: AzRefAnyDestructorType,
     }
     /// Re-export of rust-allocated (stack based) `LayoutInfo` struct
@@ -3834,6 +3834,8 @@
         pub az_invalid_string_error_deep_copy: extern "C" fn(_:  &AzInvalidStringError) -> AzInvalidStringError,
         pub az_instant_ptr_now: extern "C" fn() -> AzInstantPtr,
         pub az_instant_ptr_delete: extern "C" fn(_:  &mut AzInstantPtr),
+        pub az_duration_milliseconds: extern "C" fn(_:  usize) -> AzDuration,
+        pub az_duration_seconds: extern "C" fn(_:  usize) -> AzDuration,
         pub az_app_config_default: extern "C" fn() -> AzAppConfig,
         pub az_app_config_delete: extern "C" fn(_:  &mut AzAppConfig),
         pub az_app_config_deep_copy: extern "C" fn(_:  &AzAppConfig) -> AzAppConfig,
@@ -3884,11 +3886,13 @@
         pub az_write_back_callback_deep_copy: extern "C" fn(_:  &AzWriteBackCallback) -> AzWriteBackCallback,
         pub az_atomic_ref_count_can_be_shared: extern "C" fn(_:  &AzAtomicRefCount) -> bool,
         pub az_atomic_ref_count_can_be_shared_mut: extern "C" fn(_:  &AzAtomicRefCount) -> bool,
-        pub az_atomic_ref_count_increase_ref: extern "C" fn(_:  &mut AzAtomicRefCount),
-        pub az_atomic_ref_count_decrease_ref: extern "C" fn(_:  &mut AzAtomicRefCount),
-        pub az_atomic_ref_count_increase_refmut: extern "C" fn(_:  &mut AzAtomicRefCount),
-        pub az_atomic_ref_count_decrease_refmut: extern "C" fn(_:  &mut AzAtomicRefCount),
+        pub az_atomic_ref_count_increase_ref: extern "C" fn(_:  &AzAtomicRefCount),
+        pub az_atomic_ref_count_decrease_ref: extern "C" fn(_:  &AzAtomicRefCount),
+        pub az_atomic_ref_count_increase_refmut: extern "C" fn(_:  &AzAtomicRefCount),
+        pub az_atomic_ref_count_decrease_refmut: extern "C" fn(_:  &AzAtomicRefCount),
         pub az_atomic_ref_count_delete: extern "C" fn(_:  &mut AzAtomicRefCount),
+        pub az_atomic_ref_count_deep_copy: extern "C" fn(_:  &AzAtomicRefCount) -> AzAtomicRefCount,
+        pub az_atomic_ref_count_fmt_debug: extern "C" fn(_:  &AzAtomicRefCount) -> AzString,
         pub az_ref_any_new_c: extern "C" fn(_:  *const c_void, _:  usize, _:  u64, _:  AzString, _:  AzRefAnyDestructorType) -> AzRefAny,
         pub az_ref_any_is_type: extern "C" fn(_:  &AzRefAny, _:  u64) -> bool,
         pub az_ref_any_get_type_name: extern "C" fn(_:  &AzRefAny) -> AzString,
@@ -4327,6 +4331,9 @@
         pub az_svg_xml_node_deep_copy: extern "C" fn(_:  &AzSvgXmlNode) -> AzSvgXmlNode,
         pub az_timer_id_unique: extern "C" fn() -> AzTimerId,
         pub az_timer_new: extern "C" fn(_:  AzRefAny, _:  AzTimerCallbackType) -> AzTimer,
+        pub az_timer_with_delay: extern "C" fn(_:  AzTimer, _:  AzDuration) -> AzTimer,
+        pub az_timer_with_interval: extern "C" fn(_:  AzTimer, _:  AzDuration) -> AzTimer,
+        pub az_timer_with_timeout: extern "C" fn(_:  AzTimer, _:  AzDuration) -> AzTimer,
         pub az_timer_delete: extern "C" fn(_:  &mut AzTimer),
         pub az_timer_deep_copy: extern "C" fn(_:  &AzTimer) -> AzTimer,
         pub az_thread_sender_send: extern "C" fn(_:  &mut AzThreadSender, _:  AzThreadReceiveMsg) -> bool,
@@ -4601,6 +4608,8 @@
             let az_invalid_string_error_deep_copy: extern "C" fn(_:  &AzInvalidStringError) -> AzInvalidStringError = transmute(lib.get(b"az_invalid_string_error_deep_copy")?);
             let az_instant_ptr_now: extern "C" fn() -> AzInstantPtr = transmute(lib.get(b"az_instant_ptr_now")?);
             let az_instant_ptr_delete: extern "C" fn(_:  &mut AzInstantPtr) = transmute(lib.get(b"az_instant_ptr_delete")?);
+            let az_duration_milliseconds: extern "C" fn(_:  usize) -> AzDuration = transmute(lib.get(b"az_duration_milliseconds")?);
+            let az_duration_seconds: extern "C" fn(_:  usize) -> AzDuration = transmute(lib.get(b"az_duration_seconds")?);
             let az_app_config_default: extern "C" fn() -> AzAppConfig = transmute(lib.get(b"az_app_config_default")?);
             let az_app_config_delete: extern "C" fn(_:  &mut AzAppConfig) = transmute(lib.get(b"az_app_config_delete")?);
             let az_app_config_deep_copy: extern "C" fn(_:  &AzAppConfig) -> AzAppConfig = transmute(lib.get(b"az_app_config_deep_copy")?);
@@ -4651,11 +4660,13 @@
             let az_write_back_callback_deep_copy: extern "C" fn(_:  &AzWriteBackCallback) -> AzWriteBackCallback = transmute(lib.get(b"az_write_back_callback_deep_copy")?);
             let az_atomic_ref_count_can_be_shared: extern "C" fn(_:  &AzAtomicRefCount) -> bool = transmute(lib.get(b"az_atomic_ref_count_can_be_shared")?);
             let az_atomic_ref_count_can_be_shared_mut: extern "C" fn(_:  &AzAtomicRefCount) -> bool = transmute(lib.get(b"az_atomic_ref_count_can_be_shared_mut")?);
-            let az_atomic_ref_count_increase_ref: extern "C" fn(_:  &mut AzAtomicRefCount) = transmute(lib.get(b"az_atomic_ref_count_increase_ref")?);
-            let az_atomic_ref_count_decrease_ref: extern "C" fn(_:  &mut AzAtomicRefCount) = transmute(lib.get(b"az_atomic_ref_count_decrease_ref")?);
-            let az_atomic_ref_count_increase_refmut: extern "C" fn(_:  &mut AzAtomicRefCount) = transmute(lib.get(b"az_atomic_ref_count_increase_refmut")?);
-            let az_atomic_ref_count_decrease_refmut: extern "C" fn(_:  &mut AzAtomicRefCount) = transmute(lib.get(b"az_atomic_ref_count_decrease_refmut")?);
+            let az_atomic_ref_count_increase_ref: extern "C" fn(_:  &AzAtomicRefCount) = transmute(lib.get(b"az_atomic_ref_count_increase_ref")?);
+            let az_atomic_ref_count_decrease_ref: extern "C" fn(_:  &AzAtomicRefCount) = transmute(lib.get(b"az_atomic_ref_count_decrease_ref")?);
+            let az_atomic_ref_count_increase_refmut: extern "C" fn(_:  &AzAtomicRefCount) = transmute(lib.get(b"az_atomic_ref_count_increase_refmut")?);
+            let az_atomic_ref_count_decrease_refmut: extern "C" fn(_:  &AzAtomicRefCount) = transmute(lib.get(b"az_atomic_ref_count_decrease_refmut")?);
             let az_atomic_ref_count_delete: extern "C" fn(_:  &mut AzAtomicRefCount) = transmute(lib.get(b"az_atomic_ref_count_delete")?);
+            let az_atomic_ref_count_deep_copy: extern "C" fn(_:  &AzAtomicRefCount) -> AzAtomicRefCount = transmute(lib.get(b"az_atomic_ref_count_deep_copy")?);
+            let az_atomic_ref_count_fmt_debug: extern "C" fn(_:  &AzAtomicRefCount) -> AzString = transmute(lib.get(b"az_atomic_ref_count_fmt_debug")?);
             let az_ref_any_new_c: extern "C" fn(_:  *const c_void, _:  usize, _:  u64, _:  AzString, _:  AzRefAnyDestructorType) -> AzRefAny = transmute(lib.get(b"az_ref_any_new_c")?);
             let az_ref_any_is_type: extern "C" fn(_:  &AzRefAny, _:  u64) -> bool = transmute(lib.get(b"az_ref_any_is_type")?);
             let az_ref_any_get_type_name: extern "C" fn(_:  &AzRefAny) -> AzString = transmute(lib.get(b"az_ref_any_get_type_name")?);
@@ -5094,6 +5105,9 @@
             let az_svg_xml_node_deep_copy: extern "C" fn(_:  &AzSvgXmlNode) -> AzSvgXmlNode = transmute(lib.get(b"az_svg_xml_node_deep_copy")?);
             let az_timer_id_unique: extern "C" fn() -> AzTimerId = transmute(lib.get(b"az_timer_id_unique")?);
             let az_timer_new: extern "C" fn(_:  AzRefAny, _:  AzTimerCallbackType) -> AzTimer = transmute(lib.get(b"az_timer_new")?);
+            let az_timer_with_delay: extern "C" fn(_:  AzTimer, _:  AzDuration) -> AzTimer = transmute(lib.get(b"az_timer_with_delay")?);
+            let az_timer_with_interval: extern "C" fn(_:  AzTimer, _:  AzDuration) -> AzTimer = transmute(lib.get(b"az_timer_with_interval")?);
+            let az_timer_with_timeout: extern "C" fn(_:  AzTimer, _:  AzDuration) -> AzTimer = transmute(lib.get(b"az_timer_with_timeout")?);
             let az_timer_delete: extern "C" fn(_:  &mut AzTimer) = transmute(lib.get(b"az_timer_delete")?);
             let az_timer_deep_copy: extern "C" fn(_:  &AzTimer) -> AzTimer = transmute(lib.get(b"az_timer_deep_copy")?);
             let az_thread_sender_send: extern "C" fn(_:  &mut AzThreadSender, _:  AzThreadReceiveMsg) -> bool = transmute(lib.get(b"az_thread_sender_send")?);
@@ -5364,6 +5378,8 @@
                 az_invalid_string_error_deep_copy,
                 az_instant_ptr_now,
                 az_instant_ptr_delete,
+                az_duration_milliseconds,
+                az_duration_seconds,
                 az_app_config_default,
                 az_app_config_delete,
                 az_app_config_deep_copy,
@@ -5419,6 +5435,8 @@
                 az_atomic_ref_count_increase_refmut,
                 az_atomic_ref_count_decrease_refmut,
                 az_atomic_ref_count_delete,
+                az_atomic_ref_count_deep_copy,
+                az_atomic_ref_count_fmt_debug,
                 az_ref_any_new_c,
                 az_ref_any_is_type,
                 az_ref_any_get_type_name,
@@ -5857,6 +5875,9 @@
                 az_svg_xml_node_deep_copy,
                 az_timer_id_unique,
                 az_timer_new,
+                az_timer_with_delay,
+                az_timer_with_interval,
+                az_timer_with_timeout,
                 az_timer_delete,
                 az_timer_deep_copy,
                 az_thread_sender_send,

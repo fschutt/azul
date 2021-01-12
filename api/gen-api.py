@@ -28,6 +28,10 @@ rust_api_path = "../azul/src/rust"
 python_api_path = "../azul/src/python/azul.py"
 js_api_path = "../azul/src/js/azul.js"
 
+test_sizes_patches = {
+    tuple(['dll']): read_file("./patches/azul-dll/test-sizes.rs"),
+}
+
 dll_patches = {
     tuple(['*']): read_file("./patches/azul-dll/header.rs"),
     tuple(['callbacks', 'LayoutCallbackType']): read_file("./patches/azul-dll/layout_callback_type.rs"),
@@ -756,6 +760,9 @@ def generate_structs(apiData, structs_map, version):
 
             # for LayoutCallback and RefAny, etc. the #[derive(Debug)] has to be implemented manually
             opt_derive_debug = "#[derive(Debug)]"
+            if struct_name == "AzAtomicRefCount":
+                opt_derive_debug = ""
+
             for field in struct:
                 if "type" in list(field.values())[0]:
                     analyzed_arg_type = analyze_type(list(field.values())[0]["type"])
@@ -1196,8 +1203,8 @@ def generate_size_test(apiData, structs_map):
     test_str += "#[cfg(test)]\r\n"
     test_str += "mod test_sizes {\r\n"
 
-    if tuple(['dll']) in rust_api_patches.keys():
-        test_str += rust_api_patches[tuple(['dll'])]
+    if tuple(['dll']) in test_sizes_patches.keys():
+        test_str += test_sizes_patches[tuple(['dll'])]
 
     test_str += generated_structs
     test_str += "    use std::os::raw::c_void;\r\n"

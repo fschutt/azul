@@ -229,20 +229,6 @@ impl App {
             }
         };
 
-
-        // initial redraw
-        for mut window in active_windows.values_mut() {
-            // Render + swap the screen (call webrender + draw to texture)
-            crate::window::render_inner(
-                &mut window,
-                &mut hidden_context,
-                &mut render_api,
-                renderer.as_mut().unwrap(),
-                gl_context.clone(),
-                &mut display_shader,
-            );
-        }
-
         hidden_event_loop.run(move |event, event_loop_target, control_flow| {
 
             use glutin::event::{Event, StartCause};
@@ -265,7 +251,33 @@ impl App {
                     *control_flow = ControlFlow::Wait;
                     return;
                 },
-                Event::NewEvents(StartCause::ResumeTimeReached { .. }) => {
+                /*
+                Event::MainEventsCleared => {
+                    for mut window in active_vindows.values_mut() {
+                        let window_size = window.display.window().inner_size();
+                        if earlier_size != window_size {
+                            earlier_size = window_size;
+                            window.display.resize(window_size);
+                        }
+                    }
+                },
+                */
+                Event::NewEvents(StartCause::Init) => {
+                    // initial redraw
+                    for mut window in active_windows.values_mut() {
+                        // Render + swap the screen (call webrender + draw to texture)
+                        crate::window::render_inner(
+                            &mut window,
+                            &mut hidden_context,
+                            &mut render_api,
+                            renderer.as_mut().unwrap(),
+                            gl_context.clone(),
+                            &mut display_shader,
+                        );
+                    }
+                },
+                Event::NewEvents(StartCause::ResumeTimeReached { .. }) |
+                Event::NewEvents(StartCause::Poll) => {
 
                     // run timers / tasks only every 60ms, not on every window event
 
@@ -353,6 +365,11 @@ impl App {
                         if !new_timers.is_empty() {
                             all_new_current_timers.insert(window_id, new_timers);
                         }
+
+                        println!("timer running!");
+                        let current_window_save_state = window.internal.current_window_state.clone();
+                        let window_state_changed_in_callbacks = window.synchronize_window_state_with_os(modifiable_window_state);
+                        window.internal.previous_window_state = Some(current_window_save_state);
                     }
 
                     // -- doesn't work somehow???
@@ -436,6 +453,10 @@ impl App {
                         if !new_threads.is_empty() {
                             all_new_current_threads.entry(*window_id).or_insert_with(|| FastHashMap::new()).extend(new_threads.drain());
                         }
+
+                        let current_window_save_state = window.internal.current_window_state.clone();
+                        let window_state_changed_in_callbacks = window.synchronize_window_state_with_os(modifiable_window_state);
+                        window.internal.previous_window_state = Some(current_window_save_state);
                     }
 
                     for (window_id, mut new_current_threads) in all_new_current_threads {
@@ -470,7 +491,7 @@ impl App {
                 },
                 Event::WindowEvent { event, window_id } => {
 
-                    let window = match active_windows.get_mut(&window_id) {
+                    let mut window = match active_windows.get_mut(&window_id) {
                         Some(s) => s,
                         None => {return; },
                     };
@@ -479,7 +500,7 @@ impl App {
 
                     // ONLY update the window_state of the window, don't do anything else
                     // everything is then
-                    process_window_event(&event, &mut window.internal.current_window_state, &window.display.window(), &event_loop_target);
+                    process_window_event(&mut window, &event_loop_target, &event);
 
                     let mut need_regenerate_display_list = false;
                     let mut should_scroll_render = false;
@@ -495,7 +516,8 @@ impl App {
                             ht
                         };
 
-                        if (events.is_empty() && !is_first_frame) || layout_callback_changed { break; } // previous_window_state = current_window_state, nothing to do
+                        // previous_window_state = current_window_state, nothing to do
+                        if (events.is_empty() && !is_first_frame) || layout_callback_changed { break; }
 
                         let scroll_event = window.internal.current_window_state.get_scroll_amount();
                         let nodes_to_check = NodesToCheck::new(&hit_test, &events);
@@ -536,11 +558,12 @@ impl App {
                                         &callback_results.update_focused_node,
                                         azul_layout::do_the_relayout,
                                     );
-
-                                    if changes.need_regenerate_display_list() {
+                                    if changes.need_regenerate_display_list() || events.contains_resize_event() {
                                         // this can be false in case that only opacity: / transform: properties changed!
                                         need_regenerate_display_list = true;
+                                        println!("current window size: {:?}", window.internal.current_window_state.size.dimensions);
                                     }
+
                                     if changes.need_redraw() {
                                         should_callback_render = true;
                                     }
@@ -564,9 +587,14 @@ impl App {
                         if let Some(callback_new_focus) = callback_results.update_focused_node.as_ref() {
                             window.internal.current_window_state.focused_node = *callback_new_focus;
                         }
+
                         let window_state_changed_in_callbacks = window.synchronize_window_state_with_os(callback_results.modified_window_state);
                         window.internal.previous_window_state = Some(current_window_save_state);
-                        if !window_state_changed_in_callbacks { break; } else { continue; }
+                        if !window_state_changed_in_callbacks {
+                            break;
+                        } else {
+                            continue;
+                        }
                     }
 
                     if need_regenerate_display_list {
@@ -800,13 +828,15 @@ impl App {
 }
 
 /// Updates the `FullWindowState` with the new event
-fn process_window_event(event: &GlutinWindowEvent, current_window_state: &mut FullWindowState, window: &GlutinWindow, event_loop: &GlutinEventLoopWindowTarget<()>) {
+fn process_window_event(window: &mut Window, event_loop: &GlutinEventLoopWindowTarget<()>, event: &GlutinWindowEvent) {
 
     use glutin::event::{KeyboardInput, Touch};
     use azul_core::window::{CursorPosition, WindowPosition, LogicalPosition};
     use crate::wr_translate::winit_translate::{
         winit_translate_physical_size, winit_translate_physical_position,
     };
+
+    let mut current_window_state = &mut window.internal.current_window_state;
 
     match event {
         GlutinWindowEvent::ModifiersChanged(modifier_state) => {
@@ -816,11 +846,14 @@ fn process_window_event(event: &GlutinWindowEvent, current_window_state: &mut Fu
             current_window_state.keyboard_state.super_down = modifier_state.logo();
         },
         GlutinWindowEvent::Resized(physical_size) => {
+            window.display.make_current();
+            window.display.windowed_context().unwrap().resize(*physical_size);
+            window.display.make_not_current();
             current_window_state.size.dimensions = winit_translate_physical_size(*physical_size).to_logical(current_window_state.size.system_hidpi_factor as f32);
         },
         GlutinWindowEvent::ScaleFactorChanged { scale_factor, new_inner_size } => {
             use crate::window::get_hidpi_factor;
-            let (hidpi_factor, _) = get_hidpi_factor(window, event_loop);
+            let (hidpi_factor, _) = get_hidpi_factor(&window.display.window(), event_loop);
             current_window_state.size.system_hidpi_factor = *scale_factor as f32;
             current_window_state.size.hidpi_factor = hidpi_factor;
             current_window_state.size.dimensions = winit_translate_physical_size(**new_inner_size).to_logical(current_window_state.size.system_hidpi_factor as f32);

@@ -275,7 +275,7 @@ impl Window {
         // NOTE: All windows MUST have a shared EventsLoop, creating a new EventLoop for the
         // new window causes a segfault.
 
-        let is_transparent_background = true; // options.state.background_color.has_alpha();
+        let is_transparent_background = false; // true; // options.state.background_color.has_alpha();
 
         let window_builder = create_window_builder(
             is_transparent_background,
@@ -358,8 +358,8 @@ impl Window {
         let display_list = wr_translate_display_list(cached_display_list, self.internal.pipeline_id);
 
         let logical_size = WrLayoutSize::new(self.internal.current_window_state.size.dimensions.width, self.internal.current_window_state.size.dimensions.height);
-
         let mut txn = WrTransaction::new();
+        println!("setting display list: {:?}", logical_size);
         txn.set_display_list(
             wr_translate_epoch(self.internal.epoch),
             None,
@@ -708,6 +708,8 @@ pub(crate) fn render_inner(
     let framebuffer_size = WrDeviceIntSize::new(physical_size.width as i32, physical_size.height as i32);
     let background_color_f: ColorF = window.internal.current_window_state.background_color.into();
 
+    println!("framebuffer size: {:?}", framebuffer_size);
+
     // Especially during minimization / maximization of a window, it can happen that the window
     // width or height is zero. In that case, no rendering is necessary (doing so would crash
     // the application, since glTexImage2D may never have a 0 as the width or height.
@@ -772,10 +774,10 @@ pub(crate) fn render_inner(
     gl_context.disable(gl::POLYGON_SMOOTH);
 
     // Invoke WebRender to render the frame - renders to the currently bound FB
-    // gl_context.clear_color(background_color_f.r, background_color_f.g, background_color_f.b, background_color_f.a);
-    // gl_context.clear(gl::COLOR_BUFFER_BIT);
-    // gl_context.clear_depth(0.0);
-    // gl_context.clear(gl::DEPTH_BUFFER_BIT);
+    gl_context.clear_color(background_color_f.r, background_color_f.g, background_color_f.b, background_color_f.a);
+    gl_context.clear(gl::COLOR_BUFFER_BIT);
+    gl_context.clear_depth(0.0);
+    gl_context.clear(gl::DEPTH_BUFFER_BIT);
     renderer.render(framebuffer_size).unwrap();
 
     // FBOs can't be shared between windows, but textures can.
@@ -825,6 +827,8 @@ pub(crate) fn render_inner(
         // The vertices are generated in the vertex shader using gl_VertexID, however,
         // drawing without a VAO is not allowed (except for glDrawArraysInstanced,
         // which is only available in OGL 3.3)
+
+        println!("context.viewport({:?})", framebuffer_size);
 
         let vao = context.gen_vertex_arrays(1);
         context.bind_vertex_array(vao.get(0).copied().unwrap());

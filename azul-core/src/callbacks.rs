@@ -44,6 +44,7 @@ pub enum UpdateScreen {
     RegenerateStyledDomForAllWindows = 2,
 }
 
+#[derive(Debug)]
 #[repr(C)]
 pub struct AtomicRefCountInner {
     pub num_copies: AtomicUsize,
@@ -61,15 +62,32 @@ impl AtomicRefCountInner {
     }
 }
 
-#[derive(Debug, Hash, PartialEq, PartialOrd, Ord, Eq)]
+#[derive(Hash, PartialEq, PartialOrd, Ord, Eq)]
 #[repr(C)]
 pub struct AtomicRefCount {
     pub ptr: *const c_void, /* *const AtomicRefCountInner */
 }
 
+impl fmt::Debug for AtomicRefCount {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        self.downcast().fmt(f)
+    }
+}
+
 impl Drop for AtomicRefCount {
     fn drop(&mut self) {
-        let _ = unsafe { Box::from_raw(self.ptr as *mut AtomicRefCountInner) };
+        let previous = self.downcast().num_copies.fetch_sub(1, Ordering::SeqCst);
+        if previous == 1 {
+            let _ = unsafe { Box::from_raw(self.ptr as *mut AtomicRefCountInner) };
+        }
+    }
+}
+
+impl Clone for AtomicRefCount {
+    fn clone(&self) -> Self {
+        Self {
+            ptr: self.ptr,
+        }
     }
 }
 
@@ -92,20 +110,20 @@ impl AtomicRefCount {
         info.num_mutable_refs.load(Ordering::SeqCst) == 0 && info.num_refs.load(Ordering::SeqCst) == 0
     }
 
-    pub fn increase_ref(&mut self) {
-        self.downcast_mut().num_refs.fetch_add(1, Ordering::SeqCst);
+    pub fn increase_ref(&self) {
+        self.downcast().num_refs.fetch_add(1, Ordering::SeqCst);
     }
 
-    pub fn decrease_ref(&mut self) {
-        self.downcast_mut().num_refs.fetch_sub(1, Ordering::SeqCst);
+    pub fn decrease_ref(&self) {
+        self.downcast().num_refs.fetch_sub(1, Ordering::SeqCst);
     }
 
-    pub fn increase_refmut(&mut self) {
-        self.downcast_mut().num_mutable_refs.fetch_add(1, Ordering::SeqCst);
+    pub fn increase_refmut(&self) {
+        self.downcast().num_mutable_refs.fetch_add(1, Ordering::SeqCst);
     }
 
-    pub fn decrease_refmut(&mut self) {
-        self.downcast_mut().num_mutable_refs.fetch_sub(1, Ordering::SeqCst);
+    pub fn decrease_refmut(&self) {
+        self.downcast().num_mutable_refs.fetch_sub(1, Ordering::SeqCst);
     }
 }
 
@@ -118,7 +136,7 @@ pub struct RefAny {
     pub _internal_layout_align: usize,
     pub type_id: u64,
     pub type_name: AzString,
-    pub _sharing_info_ptr: *const AtomicRefCount,
+    pub sharing_info: AtomicRefCount,
     pub custom_destructor: extern "C" fn(*const c_void),
 }
 
@@ -129,7 +147,7 @@ unsafe impl Send for RefAny { }
 
 impl Clone for RefAny {
     fn clone(&self) -> Self {
-        unsafe { (&mut *(self._sharing_info_ptr as *mut AtomicRefCount)).downcast_mut().num_copies.fetch_add(1, Ordering::SeqCst); };
+        self.sharing_info.downcast().num_copies.fetch_add(1, Ordering::SeqCst);
         Self {
             _internal_ptr: self._internal_ptr,
             _internal_len: self._internal_len,
@@ -137,14 +155,13 @@ impl Clone for RefAny {
             _internal_layout_align: self._internal_layout_align,
             type_id: self.type_id,
             type_name: self.type_name.clone(),
-            _sharing_info_ptr: self._sharing_info_ptr,
+            sharing_info: self.sharing_info.clone(),
             custom_destructor: self.custom_destructor,
         }
     }
 }
 
 impl RefAny {
-
 
     /// Creates a new, type-erased pointer by casting the `T` value into a `Vec<u8>` and saving the length + type ID
     pub fn new<T: 'static>(value: T) -> Self {
@@ -156,7 +173,7 @@ impl RefAny {
 
             unsafe {
                 // copy the struct from the heap to the stack and call mem::drop on U to run the destructor
-                let mut stack_mem = mem::MaybeUninit::<U>::uninit().assume_init();
+                let mut stack_mem = mem::zeroed::<U>();
                 ptr::copy_nonoverlapping(ptr as *const U, &mut stack_mem as *mut U, mem::size_of::<U>());
                 mem::drop(stack_mem);
             }
@@ -185,7 +202,7 @@ impl RefAny {
         let heap_struct_as_bytes = unsafe { alloc::alloc(layout) };
         unsafe { ptr::copy_nonoverlapping(struct_as_bytes.as_ptr(), heap_struct_as_bytes, struct_as_bytes.len()) };
 
-        let sharing_info_ptr = Box::into_raw(Box::new(AtomicRefCount::new(AtomicRefCountInner::initial())));
+        let sharing_info = AtomicRefCount::new(AtomicRefCountInner::initial());
 
         let s = Self {
             _internal_ptr: heap_struct_as_bytes as *const c_void,
@@ -194,7 +211,7 @@ impl RefAny {
             _internal_layout_align: layout.align(),
             type_id,
             type_name,
-            _sharing_info_ptr: sharing_info_ptr,
+            sharing_info: sharing_info,
             custom_destructor,
         };
 
@@ -227,45 +244,37 @@ impl RefAny {
 
     /// Runtime check to check whether this `RefAny` can be borrowed
     pub fn can_be_shared(&self) -> bool {
-        let info = unsafe { &*self._sharing_info_ptr };
-        info.can_be_shared()
+        self.sharing_info.can_be_shared()
     }
 
     /// Runtime check to check whether this `RefAny` can be borrowed mutably
     pub fn can_be_shared_mut(&self) -> bool {
-        let info = unsafe { &mut *(self._sharing_info_ptr as *mut AtomicRefCount) };
-        info.can_be_shared_mut()
+        self.sharing_info.can_be_shared_mut()
     }
 
     pub fn increase_ref(&self) {
-        let info = unsafe { &mut *(self._sharing_info_ptr as *mut AtomicRefCount) };
-        info.increase_ref()
+        self.sharing_info.increase_ref()
     }
 
     pub fn decrease_ref(&self) {
-        let info = unsafe { &mut *(self._sharing_info_ptr as *mut AtomicRefCount) };
-        info.decrease_ref()
+        self.sharing_info.decrease_ref()
     }
 
     pub fn increase_refmut(&self) {
-        let info = unsafe { &mut *(self._sharing_info_ptr as *mut AtomicRefCount) };
-        info.increase_refmut()
+        self.sharing_info.increase_refmut()
     }
 
     pub fn decrease_refmut(&self) {
-        let info = unsafe { &mut *(self._sharing_info_ptr as *mut AtomicRefCount) };
-        info.decrease_refmut()
+        self.sharing_info.decrease_refmut();
     }
 }
 
 impl Drop for RefAny {
     fn drop(&mut self) {
         use std::alloc;
-        let info = unsafe { &*self._sharing_info_ptr };
-        if info.downcast().num_copies.load(Ordering::SeqCst) <= 1 {
+        if self.sharing_info.downcast().num_copies.fetch_sub(1, Ordering::SeqCst) == 1 {
             (self.custom_destructor)(self._internal_ptr);
             unsafe { alloc::dealloc(self._internal_ptr as *mut u8, Layout::from_size_align_unchecked(self._internal_layout_size, self._internal_layout_align)); }
-            unsafe { let _ = Box::from_raw(self._sharing_info_ptr as *mut AtomicRefCount); }
         }
     }
 }

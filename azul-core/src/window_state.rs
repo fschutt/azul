@@ -148,6 +148,11 @@ impl Events {
         self.window_events.is_empty() && self.hover_events.is_empty() && self.focus_events.is_empty()
     }
 
+    /// Checks whether the event was a resize event
+    pub fn contains_resize_event(&self) -> bool {
+        self.window_events.contains(&WindowEventFilter::Resized)
+    }
+
     pub fn event_was_mouse_scroll(&self) -> bool {
         // TODO: also need to look at TouchStart / TouchDrag
         self.window_events.contains(&WindowEventFilter::Scroll)
