@@ -85,7 +85,7 @@
 
         /// Downcasts the type-erased pointer to a type `&U`, returns `None` if the types don't match
         #[inline]
-        pub fn borrow<'a, U: 'static>(&'a self) -> Option<Ref<'a, U>> {
+        pub fn downcast_ref<'a, U: 'static>(&'a self) -> Option<Ref<'a, U>> {
             let is_same_type = (crate::dll::get_azul_dll().az_ref_any_is_type)(self, Self::get_type_id::<U>());
             if !is_same_type { return None; }
 
@@ -100,7 +100,7 @@
 
         /// Downcasts the type-erased pointer to a type `&mut U`, returns `None` if the types don't match
         #[inline]
-        pub fn borrow_mut<'a, U: 'static>(&'a mut self) -> Option<RefMut<'a, U>> {
+        pub fn downcast_mut<'a, U: 'static>(&'a mut self) -> Option<RefMut<'a, U>> {
             let is_same_type = (crate::dll::get_azul_dll().az_ref_any_is_type)(self, Self::get_type_id::<U>());
             if !is_same_type { return None; }
 

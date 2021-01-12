@@ -160,13 +160,13 @@ impl App {
         let mut resources = AppResources::default();
         let mut active_windows = BTreeMap::new();
 
-        println!("creating window...");
-
         let window_created_instant = Instant::now();
 
         // Create the windows (makes them actually show up on the screen)
         for window_create_options in windows {
-            create_window(
+            let create_callback = window_create_options.create_callback.clone();
+
+            let id = create_window(
                 &data,
                 window_create_options,
                 &gl_context,
@@ -176,22 +176,72 @@ impl App {
                 &mut active_windows,
                 &mut resources,
             );
+
+            if let Some(init_callback) = create_callback.as_ref() {
+                if let Some(window_id) = id.as_ref() {
+
+                    use azul_core::callbacks::DomNodeId;
+                    use azul_core::callbacks::CallbackInfo;
+                    use azul_core::window::WindowState;
+
+                    let window = match active_windows.get_mut(&window_id) {
+                        Some(s) => s,
+                        None => continue,
+                    };
+
+                    let mut window_state: WindowState = window.internal.current_window_state.clone().into();
+                    let mut new_windows = Vec::new();
+                    let window_handle = window.get_raw_window_handle();
+                    let mut stop_propagation = false;
+                    let mut focus_target = None; // TODO: useful to implement autofocus
+                    let scroll_states = window.internal.get_current_scroll_states();
+                    let mut css_properties_changed = BTreeMap::new();
+                    let mut nodes_scrolled_in_callback = BTreeMap::new();
+
+                    let mut new_timers = FastHashMap::new();
+                    let mut new_threads = FastHashMap::new();
+
+                    let callback_info = CallbackInfo::new(
+                        &window.internal.current_window_state,
+                        &mut window_state,
+                        &gl_context,
+                        &mut resources,
+                        &mut new_timers,
+                        &mut new_threads,
+                        &mut new_windows,
+                        &window_handle,
+                        &window.internal.layout_results,
+                        &mut stop_propagation,
+                        &mut focus_target,
+                        &scroll_states,
+                        &mut css_properties_changed,
+                        &mut nodes_scrolled_in_callback,
+                        DomNodeId::ROOT,
+                        None.into(),
+                        None.into(),
+                    );
+
+                    let _ = (init_callback.cb)(&mut data, callback_info);
+
+                    timers.entry(*window_id).or_insert_with(|| FastHashMap::new()).extend(new_timers.drain());
+                    threads.entry(*window_id).or_insert_with(|| FastHashMap::new()).extend(new_threads.drain());
+                }
+            }
         };
 
-/*
+
         // initial redraw
-        for window in active_windows.values_mut() {
-            window.render_display_list_to_screen(
-                 &mut hidden_context,
-                 &mut render_api,
-                 renderer.as_mut().unwrap(),
-                 &gl_context,
-                 &mut display_shader
+        for mut window in active_windows.values_mut() {
+            // Render + swap the screen (call webrender + draw to texture)
+            crate::window::render_inner(
+                &mut window,
+                &mut hidden_context,
+                &mut render_api,
+                renderer.as_mut().unwrap(),
+                gl_context.clone(),
+                &mut display_shader,
             );
         }
-*/
-
-        println!("windows created: {:?}", Instant::now() - window_created_instant);
 
         hidden_event_loop.run(move |event, event_loop_target, control_flow| {
 
@@ -400,7 +450,6 @@ impl App {
                             window.internal.current_window_state.focused_node = None; // unset the focus
                         }
                     }
-
                 }
                 Event::RedrawRequested(window_id) => {
 
@@ -409,8 +458,6 @@ impl App {
                         None => { return; },
                     };
 
-                    let pipeline_id = window.internal.pipeline_id;
-
                     // Render + swap the screen (call webrender + draw to texture)
                     crate::window::render_inner(
                         &mut window,
@@ -418,10 +465,8 @@ impl App {
                         &mut render_api,
                         renderer.as_mut().unwrap(),
                         gl_context.clone(),
+                        &mut display_shader,
                     );
-
-                    // After rendering + swapping, remove the unused OpenGL textures
-                    crate::window::clean_up_unused_opengl_textures(renderer.as_mut().unwrap().flush_pipeline_info(), &pipeline_id);
                 },
                 Event::WindowEvent { event, window_id } => {
 
@@ -443,7 +488,6 @@ impl App {
                     loop {
                         let events = Events::new(&window.internal.current_window_state, &window.internal.previous_window_state);
                         let is_first_frame = window.internal.previous_window_state.is_none();
-                        println!("events: {:?}", events);
                         let layout_callback_changed = window.internal.current_window_state.layout_callback_changed(&window.internal.previous_window_state);
                         let hit_test = if !events.needs_hit_test() { FullHitTest::empty() } else {
                             let ht = FullHitTest::new(&window.internal.layout_results, &window.internal.current_window_state.mouse_state.cursor_position, &window.internal.scroll_states);
@@ -468,7 +512,6 @@ impl App {
                             need_regenerate_display_list = true;
                             callback_results.update_focused_node = Some(None); // unset the focus
                         } else {
-                            println!("callback_results.callbacks_update_screen: ({:?})", callback_results.callbacks_update_screen);
                             match callback_results.callbacks_update_screen {
                                 UpdateScreen::RegenerateStyledDomForCurrentWindow => {
                                     window.regenerate_styled_dom(&data, &mut resources, &gl_context, &mut render_api);
@@ -480,7 +523,6 @@ impl App {
                                 },
                                 UpdateScreen::DoNothing => {
 
-                                    println!("calculating style and layout changes!");
                                     let window_size = window.internal.get_layout_size();
 
                                     // re-layouts and re-styles the window.internal.layout_results
@@ -494,8 +536,6 @@ impl App {
                                         &callback_results.update_focused_node,
                                         azul_layout::do_the_relayout,
                                     );
-
-                                    println!("changes: {:#?}", changes);
 
                                     if changes.need_regenerate_display_list() {
                                         // this can be false in case that only opacity: / transform: properties changed!
@@ -533,17 +573,10 @@ impl App {
                         windows_that_need_to_rebuild_dl.insert(window_id);
                         should_callback_render = true;
                     }
+
                     if should_scroll_render || should_callback_render {
                         windows_that_need_to_redraw.insert(window_id);
                     }
-
-                    println!("--- window event handled: {:?} - need_regenerate_display_list: {:?}, should_scroll_render: {:?}, should_callback_render: {:?}",
-                             Instant::now() - window_event_start,
-                             need_regenerate_display_list,
-                             should_scroll_render,
-                             should_callback_render,
-                    );
-
                 },
                 _ => { },
             }
@@ -555,19 +588,80 @@ impl App {
             .collect::<Vec<_>>();
 
             for window_id in windows_to_remove {
-                let window = match active_windows.remove(&window_id) {
-                    Some(w) => w,
-                    None => continue,
-                };
-                // TODO: implement on_window_close callback!
-                // if window.state.invoke_on_window_close_callback(&mut data) {
-                close_window(window, &mut resources, &mut render_api);
-                // }
+
+                let mut window_should_close = true;
+
+                {
+                    let window = match active_windows.get_mut(&window_id) {
+                        Some(s) => s,
+                        None => continue,
+                    };
+                    let close_callback = window.internal.current_window_state.close_callback.clone();
+                    if let Some(close_callback) = close_callback.as_ref() {
+
+                        use azul_core::callbacks::DomNodeId;
+                        use azul_core::callbacks::CallbackInfo;
+                        use azul_core::window::WindowState;
+
+                        let mut window_state: WindowState = window.internal.current_window_state.clone().into();
+                        let mut new_windows = Vec::new();
+                        let window_handle = window.get_raw_window_handle();
+                        let mut stop_propagation = false;
+                        let mut focus_target = None; // TODO: useful to implement autofocus
+                        let scroll_states = window.internal.get_current_scroll_states();
+                        let mut css_properties_changed = BTreeMap::new();
+                        let mut nodes_scrolled_in_callback = BTreeMap::new();
+
+                        let mut new_timers = FastHashMap::new();
+                        let mut new_threads = FastHashMap::new();
+
+                        let callback_info = CallbackInfo::new(
+                            &window.internal.current_window_state,
+                            &mut window_state,
+                            &gl_context,
+                            &mut resources,
+                            &mut new_timers,
+                            &mut new_threads,
+                            &mut new_windows,
+                            &window_handle,
+                            &window.internal.layout_results,
+                            &mut stop_propagation,
+                            &mut focus_target,
+                            &scroll_states,
+                            &mut css_properties_changed,
+                            &mut nodes_scrolled_in_callback,
+                            DomNodeId::ROOT,
+                            None.into(),
+                            None.into(),
+                        );
+
+                        let result = (close_callback.cb)(&mut data, callback_info);
+
+                        timers.entry(window_id).or_insert_with(|| FastHashMap::new()).extend(new_timers.drain());
+                        threads.entry(window_id).or_insert_with(|| FastHashMap::new()).extend(new_threads.drain());
+                        if result == UpdateScreen::DoNothing {
+                            window_should_close = false;
+                        }
+                    }
+                }
+
+                if window_should_close {
+
+                    let window = match active_windows.remove(&window_id) {
+                        Some(w) => w,
+                        None => continue,
+                    };
+
+                    close_window(window, &mut resources, &mut render_api);
+                }
             }
 
             // open windows
             for window_create_options in windows_created.into_iter() {
-                create_window(
+
+                let create_callback = window_create_options.create_callback.clone();
+
+                let id = create_window(
                     &data,
                     window_create_options,
                     &gl_context,
@@ -577,6 +671,57 @@ impl App {
                     &mut active_windows,
                     &mut resources,
                 );
+
+                if let Some(init_callback) = create_callback.as_ref() {
+                    if let Some(window_id) = id.as_ref() {
+
+                        use azul_core::callbacks::DomNodeId;
+                        use azul_core::callbacks::CallbackInfo;
+                        use azul_core::window::WindowState;
+
+                        let window = match active_windows.get_mut(&window_id) {
+                            Some(s) => s,
+                            None => continue,
+                        };
+
+                        let mut window_state: WindowState = window.internal.current_window_state.clone().into();
+                        let mut new_windows = Vec::new();
+                        let window_handle = window.get_raw_window_handle();
+                        let mut stop_propagation = false;
+                        let mut focus_target = None; // TODO: useful to implement autofocus
+                        let scroll_states = window.internal.get_current_scroll_states();
+                        let mut css_properties_changed = BTreeMap::new();
+                        let mut nodes_scrolled_in_callback = BTreeMap::new();
+
+                        let mut new_timers = FastHashMap::new();
+                        let mut new_threads = FastHashMap::new();
+
+                        let callback_info = CallbackInfo::new(
+                            &window.internal.current_window_state,
+                            &mut window_state,
+                            &gl_context,
+                            &mut resources,
+                            &mut new_timers,
+                            &mut new_threads,
+                            &mut new_windows,
+                            &window_handle,
+                            &window.internal.layout_results,
+                            &mut stop_propagation,
+                            &mut focus_target,
+                            &scroll_states,
+                            &mut css_properties_changed,
+                            &mut nodes_scrolled_in_callback,
+                            DomNodeId::ROOT,
+                            None.into(),
+                            None.into(),
+                        );
+
+                        let _ = (init_callback.cb)(&mut data, callback_info);
+
+                        timers.entry(*window_id).or_insert_with(|| FastHashMap::new()).extend(new_timers.drain());
+                        threads.entry(*window_id).or_insert_with(|| FastHashMap::new()).extend(new_threads.drain());
+                    }
+                }
             }
 
             // rebuild display lists
@@ -588,7 +733,6 @@ impl App {
 
                 let rebuild_display_list_start = Instant::now();
                 window.rebuild_display_list(&resources, &mut render_api);
-                println!("rebuilt display list in {:?}", Instant::now() - rebuild_display_list_start);
             }
 
             // trigger redraw
@@ -606,22 +750,27 @@ impl App {
                 if timers.is_empty() && threads.is_empty() {
                      ControlFlow::Wait
                 } else {
-                    let min_frame_duration = if timers.is_empty() {
+                    if timers.is_empty() {
                         // minimum time to re-poll for threads = 16ms
-                        Duration::from_millis(16)
+                        ControlFlow::WaitUntil(frame_start + Duration::from_millis(16))
+                    } else if timers.values().any(|timer_map| timer_map.values().any(|t| t.interval.as_ref().is_none())) {
+                        ControlFlow::Poll
                     } else {
                         // timers are not empty, select the minimum time that the next timer needs to run
                         // ex. if one timer is set to run every 2 seconds, then we only need
                         // to poll in 2 seconds, not every 16ms
                         let mut min_time = Duration::from_secs(1000); // really long time
+
                         for timer_map in timers.values() {
                             for timer in timer_map.values() {
-                                min_time = min_time.min(timer.instant_of_next_run() - frame_start);
+                                if let Some(new_min) = timer.instant_of_next_run().checked_duration_since(frame_start) {
+                                    min_time = min_time.min(new_min);
+                                }
                             }
                         }
-                        min_time
-                    };
-                    ControlFlow::WaitUntil(frame_start + min_frame_duration)
+
+                        ControlFlow::WaitUntil(frame_start + min_time)
+                    }
                 }
             } else {
 
@@ -667,7 +816,6 @@ fn process_window_event(event: &GlutinWindowEvent, current_window_state: &mut Fu
             current_window_state.keyboard_state.super_down = modifier_state.logo();
         },
         GlutinWindowEvent::Resized(physical_size) => {
-            println!("resized window to {:?}", physical_size);
             current_window_state.size.dimensions = winit_translate_physical_size(*physical_size).to_logical(current_window_state.size.system_hidpi_factor as f32);
         },
         GlutinWindowEvent::ScaleFactorChanged { scale_factor, new_inner_size } => {
@@ -808,7 +956,7 @@ fn create_window(
     render_api: &mut WrApi,
     active_windows: &mut BTreeMap<GlutinWindowId, Window>,
     app_resources: &mut AppResources,
-) {
+) -> Option<GlutinWindowId> {
 
     let window = Window::new(
          &data,
@@ -826,7 +974,7 @@ fn create_window(
             #[cfg(feature = "logging")] {
                 error!("Error initializing window: {}", e);
             }
-            return;
+            return None;
         }
     };
 
@@ -834,6 +982,7 @@ fn create_window(
 
     let glutin_window_id = window.display.window().id();
     active_windows.insert(glutin_window_id, window);
+    Some(glutin_window_id)
 }
 
 fn close_window(window: Window, app_resources: &mut AppResources, render_api: &mut WrApi) {

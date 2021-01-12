@@ -317,17 +317,11 @@ pub struct LayoutSideOffsets {
 }
 
 /// u8-based color, range 0 to 255 (similar to webrenders ColorU)
-#[derive(Copy, Clone, PartialEq, Ord, PartialOrd, Eq, Hash)]
+#[derive(Debug, Copy, Clone, PartialEq, Ord, PartialOrd, Eq, Hash)]
 #[repr(C)]
 pub struct ColorU { pub r: u8, pub g: u8, pub b: u8, pub a: u8 }
 
 impl Default for ColorU { fn default() -> Self { ColorU::BLACK } }
-
-impl fmt::Debug for ColorU {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        write!(f, "rgba({}, {}, {}, {})", self.r, self.g, self.b, self.a as f32 / 255.0)
-    }
-}
 
 impl fmt::Display for ColorU {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
@@ -336,10 +330,20 @@ impl fmt::Display for ColorU {
 }
 
 impl ColorU {
-    pub const RED: ColorU = ColorU { r: 255, g: 0, b: 0, a: 0 };
-    pub const WHITE: ColorU = ColorU { r: 255, g: 255, b: 255, a: 0 };
-    pub const BLACK: ColorU = ColorU { r: 0, g: 0, b: 0, a: 0 };
-    pub const TRANSPARENT: ColorU = ColorU { r: 0, g: 0, b: 0, a: 255 };
+
+    pub const ALPHA_TRANSPARENT: u8 = 0;
+    pub const ALPHA_OPAQUE: u8 = 255;
+
+    pub const RED: ColorU = ColorU { r: 255, g: 0, b: 0, a: Self::ALPHA_OPAQUE };
+    pub const GREEN: ColorU = ColorU { r: 0, g: 255, b: 0, a: Self::ALPHA_OPAQUE };
+    pub const BLUE: ColorU = ColorU { r: 0, g: 0, b: 255, a: Self::ALPHA_OPAQUE };
+    pub const WHITE: ColorU = ColorU { r: 255, g: 255, b: 255, a: Self::ALPHA_OPAQUE };
+    pub const BLACK: ColorU = ColorU { r: 0, g: 0, b: 0, a: Self::ALPHA_OPAQUE };
+    pub const TRANSPARENT: ColorU = ColorU { r: 0, g: 0, b: 0, a: Self::ALPHA_TRANSPARENT };
+
+    pub const fn has_alpha(&self) -> bool {
+        self.a != Self::ALPHA_OPAQUE
+    }
 
     pub fn to_hash(&self) -> String {
         format!("#{:x}{:x}{:x}{:x}", self.r, self.g, self.b, self.a)
@@ -363,9 +367,12 @@ impl fmt::Display for ColorF {
 }
 
 impl ColorF {
-    pub const WHITE: ColorF = ColorF { r: 1.0, g: 1.0, b: 1.0, a: 1.0 };
-    pub const BLACK: ColorF = ColorF { r: 0.0, g: 0.0, b: 0.0, a: 1.0 };
-    pub const TRANSPARENT: ColorF = ColorF { r: 0.0, g: 0.0, b: 0.0, a: 0.0 };
+    pub const ALPHA_TRANSPARENT: f32 = 0.0;
+    pub const ALPHA_OPAQUE: f32 = 1.0;
+
+    pub const WHITE: ColorF = ColorF { r: 1.0, g: 1.0, b: 1.0, a: Self::ALPHA_OPAQUE };
+    pub const BLACK: ColorF = ColorF { r: 0.0, g: 0.0, b: 0.0, a: Self::ALPHA_OPAQUE };
+    pub const TRANSPARENT: ColorF = ColorF { r: 0.0, g: 0.0, b: 0.0, a: Self::ALPHA_TRANSPARENT };
 }
 
 impl From<ColorU> for ColorF {

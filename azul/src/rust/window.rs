@@ -399,6 +399,8 @@
     impl WindowState {
         /// Creates a new `WindowState` instance.
         pub fn new(layout_callback: LayoutCallbackType) -> Self { (crate::dll::get_azul_dll().az_window_state_new)(layout_callback) }
+        /// Creates a new `WindowState` instance.
+        pub fn default() -> Self { (crate::dll::get_azul_dll().az_window_state_default)() }
     }
 
     impl Clone for WindowState { fn clone(&self) -> Self { (crate::dll::get_azul_dll().az_window_state_deep_copy)(self) } }
@@ -418,6 +420,8 @@
     impl WindowCreateOptions {
         /// Creates a new `WindowCreateOptions` instance.
         pub fn new(layout_callback: LayoutCallbackType) -> Self { (crate::dll::get_azul_dll().az_window_create_options_new)(layout_callback) }
+        /// Creates a new `WindowCreateOptions` instance.
+        pub fn default() -> Self { (crate::dll::get_azul_dll().az_window_create_options_default)() }
     }
 
     impl Clone for WindowCreateOptions { fn clone(&self) -> Self { (crate::dll::get_azul_dll().az_window_create_options_deep_copy)(self) } }

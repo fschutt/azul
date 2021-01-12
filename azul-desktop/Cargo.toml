@@ -11,7 +11,8 @@ repository = "https://github.com/maps4print/azul"
 edition = "2018"
 
 [dependencies]
-webrender               = { version = "0.61.0", default-features = false, package = "azul-webrender" }
+# webrender               = { git = "https://github.com/servo/webrender", rev = "b0c64ce52fab7d55bf0f2858269d462c8d82c25e", default-features = false }
+webrender             = { version = "0.61.0", default-features = false, features = ["no_static_freetype", "leak_checks"], package = "azul-webrender" }
 gleam                   = { version = "0.11.0", default-features = false }
 glutin                  = { version = "0.26.0", default-features = false }
 app_units               = { version = "0.7.1",  default-features = false }

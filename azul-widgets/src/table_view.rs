@@ -279,11 +279,9 @@ impl TableViewState {
             .with_child(row_number_wrapper)
             .with_child(columns_table_container);
 
-        println!("ok: {:?}!", dom.get_html_string());
-
         let styled = dom.style(Css::empty());
 
-        println!("ok: styled dom in {:?}", Instant::now() - i_start);
+        println!("ok: iframe callback finished in {:?}", Instant::now() - i_start);
 
         styled
     }
@@ -324,7 +322,7 @@ impl TableView {
         println!("in function render_table_iframe_contents!");
         println!("state: {:?}", state);
 
-        let table_view_state = state.borrow::<TableViewState>().unwrap();
+        let table_view_state = state.downcast_ref::<TableViewState>().unwrap();
         println!("downcast worked!");
         let logical_size = info.get_bounds().get_logical_size();
         println!("info get bounds: {:?}!", logical_size);

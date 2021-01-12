@@ -532,6 +532,10 @@ pub use AzNodeDataVecTT as AzNodeDataVec;
 /// Clones the object
 #[no_mangle] pub extern "C" fn az_node_data_vec_deep_copy(object: &AzNodeDataVec) -> AzNodeDataVec { object.clone() }
 
+/// Re-export of rust-allocated (stack based) `OptionCallback` struct
+pub type AzOptionCallbackTT = azul_impl::callbacks::OptionCallback;
+pub use AzOptionCallbackTT as AzOptionCallback;
+
 /// Re-export of rust-allocated (stack based) `OptionThreadSendMsg` struct
 pub type AzOptionThreadSendMsgTT = azul_impl::task::OptionThreadSendMsg;
 pub use AzOptionThreadSendMsgTT as AzOptionThreadSendMsg;
@@ -3326,10 +3330,16 @@ pub use AzSvgNodeIdTT as AzSvgNodeId;
 /// Re-export of rust-allocated (stack based) `TimerId` struct
 pub type AzTimerIdTT = azul_impl::task::TimerId;
 pub use AzTimerIdTT as AzTimerId;
+/// Creates a new `TimerId` instance whose memory is owned by the rust allocator
+/// Equivalent to the Rust `TimerId::unique()` constructor.
+#[no_mangle] pub extern "C" fn az_timer_id_unique() -> AzTimerId { TimerId::unique() }
 
 /// Re-export of rust-allocated (stack based) `Timer` struct
 pub type AzTimerTT = azul_impl::task::Timer;
 pub use AzTimerTT as AzTimer;
+/// Creates a new `Timer` instance whose memory is owned by the rust allocator
+/// Equivalent to the Rust `Timer::new()` constructor.
+#[no_mangle] pub extern "C" fn az_timer_new(timer_data: AzRefAny, callback: AzTimerCallbackType) -> AzTimer { Timer::new(timer_data, callback) }
 /// Destructor: Takes ownership of the `Timer` pointer and deletes it.
 #[no_mangle] #[allow(unused_variables)] pub extern "C" fn az_timer_delete(object: &mut AzTimer) { }
 /// Clones the object
@@ -3612,6 +3622,9 @@ pub use AzWindowStateTT as AzWindowState;
 /// Creates a new `WindowState` instance whose memory is owned by the rust allocator
 /// Equivalent to the Rust `WindowState::new()` constructor.
 #[no_mangle] pub extern "C" fn az_window_state_new(layout_callback: AzLayoutCallbackType) -> AzWindowState { WindowState::new(layout_callback) }
+/// Creates a new `WindowState` instance whose memory is owned by the rust allocator
+/// Equivalent to the Rust `WindowState::default()` constructor.
+#[no_mangle] pub extern "C" fn az_window_state_default() -> AzWindowState { WindowState::default() }
 /// Destructor: Takes ownership of the `WindowState` pointer and deletes it.
 #[no_mangle] #[allow(unused_variables)] pub extern "C" fn az_window_state_delete(object: &mut AzWindowState) { }
 /// Clones the object
@@ -3627,6 +3640,9 @@ pub use AzWindowCreateOptionsTT as AzWindowCreateOptions;
 /// Creates a new `WindowCreateOptions` instance whose memory is owned by the rust allocator
 /// Equivalent to the Rust `WindowCreateOptions::new()` constructor.
 #[no_mangle] pub extern "C" fn az_window_create_options_new(layout_callback: AzLayoutCallbackType) -> AzWindowCreateOptions { WindowCreateOptions::new(layout_callback) }
+/// Creates a new `WindowCreateOptions` instance whose memory is owned by the rust allocator
+/// Equivalent to the Rust `WindowCreateOptions::default()` constructor.
+#[no_mangle] pub extern "C" fn az_window_create_options_default() -> AzWindowCreateOptions { WindowCreateOptions::default() }
 /// Destructor: Takes ownership of the `WindowCreateOptions` pointer and deletes it.
 #[no_mangle] #[allow(unused_variables)] pub extern "C" fn az_window_create_options_delete(object: &mut AzWindowCreateOptions) { }
 /// Clones the object
@@ -3886,6 +3902,11 @@ mod test_sizes {
         pub(crate) ptr: *mut AzNodeData,
         pub len: usize,
         pub cap: usize,
+    }
+    /// Re-export of rust-allocated (stack based) `OptionCallback` struct
+    #[repr(C, u8)] #[derive(Debug)] pub enum AzOptionCallback {
+        None,
+        Some(AzCallback),
     }
     /// Re-export of rust-allocated (stack based) `OptionThreadSendMsg` struct
     #[repr(C, u8)] #[derive(Debug)] pub enum AzOptionThreadSendMsg {
@@ -7219,6 +7240,7 @@ mod test_sizes {
         pub platform_specific_options: AzPlatformSpecificOptions,
         pub background_color: AzColorU,
         pub layout_callback: AzLayoutCallback,
+        pub close_callback: AzOptionCallback,
     }
     /// Re-export of rust-allocated (stack based) `LogicalSize` struct
     #[repr(C)] #[derive(Debug)] pub struct AzLogicalSize {
@@ -7230,6 +7252,7 @@ mod test_sizes {
         pub state: AzWindowState,
         pub renderer_type: AzRendererType,
         pub theme: AzOptionWindowTheme,
+        pub create_callback: AzOptionCallback,
     }
     use std::os::raw::c_void;
     use azul_impl::css::*;
@@ -7271,6 +7294,7 @@ mod test_sizes {
         assert_eq!(Layout::new::<azul_impl::styled_dom::TagIdsToNodeIdsMappingVec>(), Layout::new::<AzTagIdsToNodeIdsMappingVec>());
         assert_eq!(Layout::new::<azul_impl::styled_dom::ParentWithNodeDepthVec>(), Layout::new::<AzParentWithNodeDepthVec>());
         assert_eq!(Layout::new::<azul_impl::styled_dom::NodeDataVec>(), Layout::new::<AzNodeDataVec>());
+        assert_eq!(Layout::new::<azul_impl::callbacks::OptionCallback>(), Layout::new::<AzOptionCallback>());
         assert_eq!(Layout::new::<azul_impl::task::OptionThreadSendMsg>(), Layout::new::<AzOptionThreadSendMsg>());
         assert_eq!(Layout::new::<azul_impl::css::OptionLayoutRect>(), Layout::new::<AzOptionLayoutRect>());
         assert_eq!(Layout::new::<azul_impl::callbacks::OptionRefAny>(), Layout::new::<AzOptionRefAny>());

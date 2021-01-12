@@ -234,6 +234,7 @@
     impl_option!(AzLayoutJustifyContentValue, AzOptionLayoutJustifyContentValue, [Debug, Copy, Clone]);
     impl_option!(AzLayoutAlignItemsValue, AzOptionLayoutAlignItemsValue, [Debug, Copy, Clone]);
     impl_option!(AzLayoutAlignContentValue, AzOptionLayoutAlignContentValue, [Debug, Copy, Clone]);
+    impl_option!(AzCallback, AzOptionCallback, [Debug, Copy, Clone]);
     impl_option!(AzTagId, AzOptionTagId, [Debug, Copy, Clone]);
     impl_option!(AzDuration, AzOptionDuration, [Debug, Copy, Clone]);
     impl_option!(AzInstantPtr, AzOptionInstantPtr, copy = false, clone = false, [Debug]); // TODO: impl clone!

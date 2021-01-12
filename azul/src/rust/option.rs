@@ -238,10 +238,18 @@
     impl_option!(AzLayoutJustifyContentValue, AzOptionLayoutJustifyContentValue, [Debug, Copy, Clone]);
     impl_option!(AzLayoutAlignItemsValue, AzOptionLayoutAlignItemsValue, [Debug, Copy, Clone]);
     impl_option!(AzLayoutAlignContentValue, AzOptionLayoutAlignContentValue, [Debug, Copy, Clone]);
+    impl_option!(AzCallback, AzOptionCallback, [Debug, Copy, Clone]);
     impl_option!(AzTagId, AzOptionTagId, [Debug, Copy, Clone]);
     impl_option!(AzDuration, AzOptionDuration, [Debug, Copy, Clone]);
     impl_option!(AzInstantPtr, AzOptionInstantPtr, copy = false, clone = false, [Debug]); // TODO: impl clone!
     impl_option!(AzU8VecRef, AzOptionU8VecRef, copy = false, clone = false, [Debug]);
+
+
+    /// `OptionCallback` struct
+    #[doc(inline)] pub use crate::dll::AzOptionCallback as OptionCallback;
+
+    impl Clone for OptionCallback { fn clone(&self) -> Self { *self } }
+    impl Copy for OptionCallback { }
 
 
     /// `OptionThreadSendMsg` struct

@@ -252,6 +252,11 @@
         pub len: usize,
         pub cap: usize,
     }
+    /// Re-export of rust-allocated (stack based) `OptionCallback` struct
+    #[repr(C, u8)] #[derive(Debug)] pub enum AzOptionCallback {
+        None,
+        Some(AzCallback),
+    }
     /// Re-export of rust-allocated (stack based) `OptionThreadSendMsg` struct
     #[repr(C, u8)] #[derive(Debug)] pub enum AzOptionThreadSendMsg {
         None,
@@ -3584,6 +3589,7 @@
         pub platform_specific_options: AzPlatformSpecificOptions,
         pub background_color: AzColorU,
         pub layout_callback: AzLayoutCallback,
+        pub close_callback: AzOptionCallback,
     }
     /// Re-export of rust-allocated (stack based) `LogicalSize` struct
     #[repr(C)] #[derive(Debug)] pub struct AzLogicalSize {
@@ -3595,6 +3601,7 @@
         pub state: AzWindowState,
         pub renderer_type: AzRendererType,
         pub theme: AzOptionWindowTheme,
+        pub create_callback: AzOptionCallback,
     }
 
 
@@ -4318,6 +4325,8 @@
         pub az_svg_deep_copy: extern "C" fn(_:  &AzSvg) -> AzSvg,
         pub az_svg_xml_node_delete: extern "C" fn(_:  &mut AzSvgXmlNode),
         pub az_svg_xml_node_deep_copy: extern "C" fn(_:  &AzSvgXmlNode) -> AzSvgXmlNode,
+        pub az_timer_id_unique: extern "C" fn() -> AzTimerId,
+        pub az_timer_new: extern "C" fn(_:  AzRefAny, _:  AzTimerCallbackType) -> AzTimer,
         pub az_timer_delete: extern "C" fn(_:  &mut AzTimer),
         pub az_timer_deep_copy: extern "C" fn(_:  &AzTimer) -> AzTimer,
         pub az_thread_sender_send: extern "C" fn(_:  &mut AzThreadSender, _:  AzThreadReceiveMsg) -> bool,
@@ -4353,9 +4362,11 @@
         pub az_linux_window_options_delete: extern "C" fn(_:  &mut AzLinuxWindowOptions),
         pub az_linux_window_options_deep_copy: extern "C" fn(_:  &AzLinuxWindowOptions) -> AzLinuxWindowOptions,
         pub az_window_state_new: extern "C" fn(_:  AzLayoutCallbackType) -> AzWindowState,
+        pub az_window_state_default: extern "C" fn() -> AzWindowState,
         pub az_window_state_delete: extern "C" fn(_:  &mut AzWindowState),
         pub az_window_state_deep_copy: extern "C" fn(_:  &AzWindowState) -> AzWindowState,
         pub az_window_create_options_new: extern "C" fn(_:  AzLayoutCallbackType) -> AzWindowCreateOptions,
+        pub az_window_create_options_default: extern "C" fn() -> AzWindowCreateOptions,
         pub az_window_create_options_delete: extern "C" fn(_:  &mut AzWindowCreateOptions),
         pub az_window_create_options_deep_copy: extern "C" fn(_:  &AzWindowCreateOptions) -> AzWindowCreateOptions,
     }
@@ -5081,6 +5092,8 @@
             let az_svg_deep_copy: extern "C" fn(_:  &AzSvg) -> AzSvg = transmute(lib.get(b"az_svg_deep_copy")?);
             let az_svg_xml_node_delete: extern "C" fn(_:  &mut AzSvgXmlNode) = transmute(lib.get(b"az_svg_xml_node_delete")?);
             let az_svg_xml_node_deep_copy: extern "C" fn(_:  &AzSvgXmlNode) -> AzSvgXmlNode = transmute(lib.get(b"az_svg_xml_node_deep_copy")?);
+            let az_timer_id_unique: extern "C" fn() -> AzTimerId = transmute(lib.get(b"az_timer_id_unique")?);
+            let az_timer_new: extern "C" fn(_:  AzRefAny, _:  AzTimerCallbackType) -> AzTimer = transmute(lib.get(b"az_timer_new")?);
             let az_timer_delete: extern "C" fn(_:  &mut AzTimer) = transmute(lib.get(b"az_timer_delete")?);
             let az_timer_deep_copy: extern "C" fn(_:  &AzTimer) -> AzTimer = transmute(lib.get(b"az_timer_deep_copy")?);
             let az_thread_sender_send: extern "C" fn(_:  &mut AzThreadSender, _:  AzThreadReceiveMsg) -> bool = transmute(lib.get(b"az_thread_sender_send")?);
@@ -5116,9 +5129,11 @@
             let az_linux_window_options_delete: extern "C" fn(_:  &mut AzLinuxWindowOptions) = transmute(lib.get(b"az_linux_window_options_delete")?);
             let az_linux_window_options_deep_copy: extern "C" fn(_:  &AzLinuxWindowOptions) -> AzLinuxWindowOptions = transmute(lib.get(b"az_linux_window_options_deep_copy")?);
             let az_window_state_new: extern "C" fn(_:  AzLayoutCallbackType) -> AzWindowState = transmute(lib.get(b"az_window_state_new")?);
+            let az_window_state_default: extern "C" fn() -> AzWindowState = transmute(lib.get(b"az_window_state_default")?);
             let az_window_state_delete: extern "C" fn(_:  &mut AzWindowState) = transmute(lib.get(b"az_window_state_delete")?);
             let az_window_state_deep_copy: extern "C" fn(_:  &AzWindowState) -> AzWindowState = transmute(lib.get(b"az_window_state_deep_copy")?);
             let az_window_create_options_new: extern "C" fn(_:  AzLayoutCallbackType) -> AzWindowCreateOptions = transmute(lib.get(b"az_window_create_options_new")?);
+            let az_window_create_options_default: extern "C" fn() -> AzWindowCreateOptions = transmute(lib.get(b"az_window_create_options_default")?);
             let az_window_create_options_delete: extern "C" fn(_:  &mut AzWindowCreateOptions) = transmute(lib.get(b"az_window_create_options_delete")?);
             let az_window_create_options_deep_copy: extern "C" fn(_:  &AzWindowCreateOptions) -> AzWindowCreateOptions = transmute(lib.get(b"az_window_create_options_deep_copy")?);
             Some(AzulDll {
@@ -5840,6 +5855,8 @@
                 az_svg_deep_copy,
                 az_svg_xml_node_delete,
                 az_svg_xml_node_deep_copy,
+                az_timer_id_unique,
+                az_timer_new,
                 az_timer_delete,
                 az_timer_deep_copy,
                 az_thread_sender_send,
@@ -5875,9 +5892,11 @@
                 az_linux_window_options_delete,
                 az_linux_window_options_deep_copy,
                 az_window_state_new,
+                az_window_state_default,
                 az_window_state_delete,
                 az_window_state_deep_copy,
                 az_window_create_options_new,
+                az_window_create_options_default,
                 az_window_create_options_delete,
                 az_window_create_options_deep_copy,
             })

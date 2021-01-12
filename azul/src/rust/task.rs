@@ -2,10 +2,16 @@
     //! Asyncronous timers / task / thread handlers for easy async loading
     use crate::dll::*;
     use std::ffi::c_void;
+    use crate::callbacks::{RefAny, TimerCallbackType};
 
 
     /// `TimerId` struct
     #[doc(inline)] pub use crate::dll::AzTimerId as TimerId;
+
+    impl TimerId {
+        /// Creates a new `TimerId` instance.
+        pub fn unique() -> Self { (crate::dll::get_azul_dll().az_timer_id_unique)() }
+    }
 
     impl Clone for TimerId { fn clone(&self) -> Self { *self } }
     impl Copy for TimerId { }
@@ -13,6 +19,11 @@
 
     /// `Timer` struct
     #[doc(inline)] pub use crate::dll::AzTimer as Timer;
+
+    impl Timer {
+        /// Creates a new `Timer` instance.
+        pub fn new(timer_data: RefAny, callback: TimerCallbackType) -> Self { (crate::dll::get_azul_dll().az_timer_new)(timer_data, callback) }
+    }
 
     impl Clone for Timer { fn clone(&self) -> Self { (crate::dll::get_azul_dll().az_timer_deep_copy)(self) } }
     impl Drop for Timer { fn drop(&mut self) { (crate::dll::get_azul_dll().az_timer_delete)(self); } }

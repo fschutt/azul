@@ -285,6 +285,10 @@ impl fmt::Display for AzNodeId {
     }
 }
 
+impl AzNodeId {
+    pub const NONE: AzNodeId = AzNodeId { inner: 0 };
+}
+
 impl_option!(AzNodeId, OptionNodeId, [Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash]);
 
 impl_vec!(AzNodeId, NodeIdVec);
@@ -747,15 +751,6 @@ impl StyledDom {
                 node.get_is_draggable() ||
                 node_has_not_only_window_callbacks ||
                 node_has_non_default_cursor;
-
-            println!("node should have tag ({:?}):", node_id);
-            println!("    tab_index.is_some(): {:?}", tab_index.is_some());
-            println!("    node_has_focus_props: {:?}", node_has_focus_props);
-            println!("    node_has_hover_props: {:?}", node_has_hover_props);
-            println!("    node_has_active_props: {:?}", node_has_active_props);
-            println!("    node.get_is_draggable(): {:?}", node.get_is_draggable());
-            println!("    node_has_not_only_window_callbacks: {:?}", node_has_not_only_window_callbacks);
-            println!("    node_has_non_default_cursor: {:?}", node_has_non_default_cursor);
 
             let tag_id = if node_should_have_tag {
                 let tag_id = TagId::new();

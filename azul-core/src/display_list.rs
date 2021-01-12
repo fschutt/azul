@@ -76,8 +76,10 @@ impl CachedDisplayList {
         gl_texture_cache: &GlTextureCache,
         app_resources: &AppResources,
     ) -> Self {
+
         const DOM_ID: DomId = DomId::ROOT_ID;
-        CachedDisplayList {
+
+        let mut dl = CachedDisplayList {
             root: push_rectangles_into_displaylist(
                 &layout_results[DOM_ID.inner].styled_dom.rects_in_rendering_order,
                 &DisplayListParametersRef {
@@ -90,7 +92,20 @@ impl CachedDisplayList {
                     app_resources,
                 },
             )
+        };
+
+        // push the window background color, if the root node doesn't
+        // have any content
+        if dl.root.is_content_empty() {
+            dl.root.push_content(LayoutRectContent::Background {
+                content: RectBackground::Color(full_window_state.background_color),
+                size: None,
+                offset: None,
+                repeat: None,
+            });
         }
+
+        dl
     }
 }
 
@@ -107,6 +122,22 @@ impl DisplayListMsg {
         match self {
             Frame(f) => f.position,
             ScrollFrame(sf) => sf.frame.position,
+        }
+    }
+
+    pub fn is_content_empty(&self) -> bool {
+        use self::DisplayListMsg::*;
+        match self {
+            Frame(f) => { f.content.is_empty() },
+            ScrollFrame(sf) => { sf.frame.content.is_empty() },
+        }
+    }
+
+    pub fn push_content(&mut self, content: LayoutRectContent) {
+        use self::DisplayListMsg::*;
+        match self {
+            Frame(f) => { f.content.push(content); },
+            ScrollFrame(sf) => { sf.frame.content.push(content); },
         }
     }
 
@@ -573,8 +604,6 @@ impl SolvedLayout {
         };
         use gleam::gl;
 
-        println!("solving layout...");
-
         let layout_results = (callbacks.layout_fn)(
             styled_dom,
             app_resources,
@@ -583,8 +612,6 @@ impl SolvedLayout {
             callbacks,
             &full_window_state,
         );
-
-        println!("layout solved! rendering textures...");
 
         let mut solved_textures = BTreeMap::new();
 

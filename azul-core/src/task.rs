@@ -42,7 +42,7 @@ pub struct TimerId { id: usize }
 
 impl TimerId {
     /// Generates a new, unique `TimerId`.
-    pub fn new() -> Self {
+    pub fn unique() -> Self {
         TimerId { id: MAX_TIMER_ID.fetch_add(1, Ordering::SeqCst) }
     }
 }
@@ -55,8 +55,8 @@ static MAX_THREAD_ID: AtomicUsize = AtomicUsize::new(0);
 pub struct ThreadId { id: usize }
 
 impl ThreadId {
-    /// Generates a new, unique `TimerId`.
-    pub fn new() -> Self {
+    /// Generates a new, unique `ThreadId`.
+    pub fn unique() -> Self {
         ThreadId { id: MAX_THREAD_ID.fetch_add(1, Ordering::SeqCst) }
     }
 }

@@ -1070,6 +1070,14 @@
 		"option": {
 			"doc": "Definition of azuls internal `Option<*>` wrappers",
 			"classes": {
+				"OptionCallback": {
+					"external": "azul_impl::callbacks::OptionCallback",
+					"derive": ["Copy"],
+					"enum_fields": [
+						{"None": {}},
+						{"Some": { "type": "Callback" }}
+					]
+				},
 				"OptionThreadSendMsg": {
 					"external": "azul_impl::task::OptionThreadSendMsg",
 					"derive": ["Copy"],
@@ -8073,7 +8081,13 @@
 					"derive": ["Copy"],
 					"struct_fields": [
 						{"id": {"type": "usize"}}
-					]
+					],
+					"constructors": {
+						"unique": {
+							"fn_args": [],
+							"fn_body": "TimerId::unique()"
+						}
+					}
 				},
 				"Timer": {
 					"external": "azul_impl::task::Timer",
@@ -8086,7 +8100,16 @@
 						{"interval": {"type": "OptionDuration", "doc": "How frequently the timer should run, i.e. set this to `Some(Duration::from_millis(16))` to run the timer every 16ms. If this value is set to `None`, (the default), the timer will execute the timer as-fast-as-possible (i.e. at a faster framerate than the framework itself) - which might be  performance intensive."}},
 						{"timeout": {"type": "OptionDuration", "doc": "When to stop the timer (for example, you can stop the execution after 5s using `Some(Duration::from_secs(5))`)."}},
 						{"callback": {"type": "TimerCallback", "doc": "Callback to be called for this timer"}}
-					]
+					],
+					"constructors": {
+						"new": {
+							"fn_args": [
+								{"timer_data": "RefAny"},
+								{"callback": "TimerCallbackType"}
+							],
+							"fn_body": "Timer::new(timer_data, callback)"
+						}
+					}
 				},
 				"TerminateTimer": {
 					"external": "azul_impl::task::TerminateTimer",
@@ -8802,7 +8825,8 @@
 						{"ime_position": {"type": "ImePosition", "doc": "Sets location of IME candidate box in client area coordinates (relative to the top left of the window)"}},
 						{"platform_specific_options": {"type": "PlatformSpecificOptions", "doc": "Window options that can only be set on a certain platform (`WindowsWindowOptions` / `LinuxWindowOptions` / `MacWindowOptions`)."}},
 						{"background_color": {"type": "ColorU", "doc": "Color of the window background (can be transparent if necessary)"}},
-						{"layout_callback": {"type": "LayoutCallback"}}
+						{"layout_callback": {"type": "LayoutCallback"}},
+						{"close_callback": {"type": "OptionCallback", "doc": "Callback to run before the window closes, if `DoNothing` is returned, window won't close"}}
 					],
 					"constructors": {
 						"new": {
@@ -8810,6 +8834,10 @@
 								{"layout_callback": "LayoutCallbackType"}
 							],
 							"fn_body": "WindowState::new(layout_callback)"
+						},
+						"default": {
+							"fn_args": [],
+							"fn_body": "WindowState::default()"
 						}
 					}
 				},
@@ -8826,7 +8854,8 @@
 					"struct_fields": [
 						{"state": {"type": "WindowState"}},
 						{"renderer_type": {"type": "RendererType"}},
-						{"theme": {"type": "OptionWindowTheme"}}
+						{"theme": {"type": "OptionWindowTheme"}},
+						{"create_callback": {"type": "OptionCallback", "doc": "Callback to run once when the window is created"}}
 					],
 					"constructors": {
 						"new": {
@@ -8834,6 +8863,10 @@
 								{"layout_callback": "LayoutCallbackType"}
 							],
 							"fn_body":"WindowCreateOptions::new(layout_callback)"
+						},
+						"default": {
+							"fn_args":[],
+							"fn_body":"WindowCreateOptions::default()"
 						}
 					}
 				}

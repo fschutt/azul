@@ -275,10 +275,13 @@ impl Window {
         // NOTE: All windows MUST have a shared EventsLoop, creating a new EventLoop for the
         // new window causes a segfault.
 
+        let is_transparent_background = true; // options.state.background_color.has_alpha();
 
-        let is_transparent_background = options.state.background_color.a != 0;
-
-        let window_builder = create_window_builder(is_transparent_background, options.theme.into_option(), &options.state.platform_specific_options);
+        let window_builder = create_window_builder(
+            is_transparent_background,
+            options.theme.into_option(),
+            &options.state.platform_specific_options
+        );
 
         // Only create a context with VSync and SRGB if the context creation works
         let gl_window = create_gl_window(window_builder, &events_loop, Some(shared_context))?;
@@ -335,8 +338,6 @@ impl Window {
     #[cfg(not(test))]
     pub fn rebuild_display_list(&mut self, app_resources: &AppResources, render_api: &mut WrApi) {
 
-        println!("rebuild display list!");
-
         use crate::wr_translate::{
             wr_translate_pipeline_id,
             wr_translate_document_id,
@@ -346,9 +347,14 @@ impl Window {
         use webrender::api::Transaction as WrTransaction;
 
         // NOTE: Display list has to be rebuilt every frame, otherwise, the epochs get out of sync
-        let cached_display_list = CachedDisplayList::new(self.internal.epoch, self.internal.pipeline_id, &self.internal.current_window_state, &self.internal.layout_results, &self.internal.gl_texture_cache, app_resources);
-        println!("sending display list: {:#?}", cached_display_list);
-
+        let cached_display_list = CachedDisplayList::new(
+            self.internal.epoch,
+            self.internal.pipeline_id,
+            &self.internal.current_window_state,
+            &self.internal.layout_results,
+            &self.internal.gl_texture_cache,
+            app_resources
+        );
         let display_list = wr_translate_display_list(cached_display_list, self.internal.pipeline_id);
 
         let logical_size = WrLayoutSize::new(self.internal.current_window_state.size.dimensions.width, self.internal.current_window_state.size.dimensions.height);
@@ -535,6 +541,10 @@ impl Window {
             window_was_updated = true;
         }
 
+        if self.internal.current_window_state.close_callback != new_state.close_callback {
+            window_was_updated = true;
+        }
+
         let WindowState {
             theme,
             title,
@@ -549,6 +559,7 @@ impl Window {
             platform_specific_options,
             background_color,
             layout_callback,
+            close_callback,
         } = new_state;
 
         self.internal.current_window_state.theme = theme;
@@ -564,6 +575,7 @@ impl Window {
         self.internal.current_window_state.platform_specific_options = platform_specific_options;
         self.internal.current_window_state.background_color = background_color;
         self.internal.current_window_state.layout_callback = layout_callback;
+        self.internal.current_window_state.close_callback = close_callback;
 
         window_was_updated
     }
@@ -664,7 +676,10 @@ pub(crate) fn render_inner(
     render_api: &mut WrApi,
     renderer: &mut WrRenderer,
     gl_context: GlContextPtr,
+    display_shader: &mut DisplayShader,
 ) {
+
+    use azul_core::gl::GLuint;
 
     /// Scroll all nodes in the ScrollStates to their correct position and insert
     /// the positions into the transaction
@@ -692,8 +707,6 @@ pub(crate) fn render_inner(
     let physical_size = window.internal.current_window_state.size.get_physical_size();
     let framebuffer_size = WrDeviceIntSize::new(physical_size.width as i32, physical_size.height as i32);
     let background_color_f: ColorF = window.internal.current_window_state.background_color.into();
-
-    println!("rendering framebuffer: {:?}", physical_size);
 
     // Especially during minimization / maximization of a window, it can happen that the window
     // width or height is zero. In that case, no rendering is necessary (doing so would crash
@@ -733,7 +746,7 @@ pub(crate) fn render_inner(
     let textures = gl_context.gen_textures(1);
 
     gl_context.bind_texture(gl::TEXTURE_2D, textures.get(0).copied().unwrap());
-    gl_context.tex_image_2d(gl::TEXTURE_2D, 0, gl::RGB as i32, framebuffer_size.width, framebuffer_size.height, 0, gl::RGB, gl::UNSIGNED_BYTE, None.into());
+    gl_context.tex_image_2d(gl::TEXTURE_2D, 0, gl::RGBA as i32, framebuffer_size.width, framebuffer_size.height, 0, gl::RGBA, gl::UNSIGNED_BYTE, None.into());
 
     gl_context.tex_parameter_i(gl::TEXTURE_2D, gl::TEXTURE_MAG_FILTER, gl::NEAREST as i32);
     gl_context.tex_parameter_i(gl::TEXTURE_2D, gl::TEXTURE_MIN_FILTER, gl::NEAREST as i32);
@@ -759,18 +772,24 @@ pub(crate) fn render_inner(
     gl_context.disable(gl::POLYGON_SMOOTH);
 
     // Invoke WebRender to render the frame - renders to the currently bound FB
-    gl_context.clear_color(background_color_f.r, background_color_f.g, background_color_f.b, background_color_f.a);
-    gl_context.clear(gl::COLOR_BUFFER_BIT);
-    gl_context.clear_depth(0.0);
-    gl_context.clear(gl::DEPTH_BUFFER_BIT);
+    // gl_context.clear_color(background_color_f.r, background_color_f.g, background_color_f.b, background_color_f.a);
+    // gl_context.clear(gl::COLOR_BUFFER_BIT);
+    // gl_context.clear_depth(0.0);
+    // gl_context.clear(gl::DEPTH_BUFFER_BIT);
     renderer.render(framebuffer_size).unwrap();
 
     // FBOs can't be shared between windows, but textures can.
     // In order to draw on the windows backbuffer, first make the window current, then draw to FB 0
     headless_shared_context.make_not_current();
     window.display.make_current();
-    draw_texture_to_screen(gl_context.clone(), textures.get(0).copied().unwrap(), framebuffer_size);
+    draw_texture_to_screen(display_shader, gl_context.clone(), textures.get(0).copied().unwrap(), framebuffer_size);
     window.display.windowed_context().unwrap().swap_buffers().unwrap();
+    // After rendering + swapping, remove the unused OpenGL textures
+    clean_up_unused_opengl_textures(renderer.flush_pipeline_info(), &window.internal.pipeline_id);
+    // println!("---- memory: {:#?}", renderer.report_memory());
+    // let _ = render_api.send(WrApiMsg::MemoryPressure).unwrap();
+
+    // renderer.notify_memory_pressure(); // memory optimization
     window.display.make_not_current();
     headless_shared_context.make_current();
 
@@ -783,102 +802,67 @@ pub(crate) fn render_inner(
     gl_context.bind_texture(gl::TEXTURE_2D, 0);
     gl_context.use_program(current_program[0] as u32);
     headless_shared_context.make_not_current();
-}
 
-use azul_core::gl::{GlShader, GLuint};
 
-/// When called with glDrawArrays(0, 3), generates a simple triangle that
-/// spans the whole screen.
-const DISPLAY_VERTEX_SHADER: &str = "
-    #version 130
-    out vec2 vTexCoords;
-    void main() {
-        float x = -1.0 + float((gl_VertexID & 1) << 2);
-        float y = -1.0 + float((gl_VertexID & 2) << 1);
-        vTexCoords = vec2((x+1.0)*0.5, (y+1.0)*0.5);
-        gl_Position = vec4(x, y, 0, 1);
-    }
-";
+    // Draws a texture to the currently bound framebuffer. Texture has to be cleaned up by the caller.
+    fn draw_texture_to_screen(display_shader: &mut DisplayShader, context: GlContextPtr, texture: GLuint, framebuffer_size: WrDeviceIntSize) {
 
-/// Shader that samples an input texture (`fScreenTex`) to the output FB.
-const DISPLAY_FRAGMENT_SHADER: &str = "
-    #version 130
-    in vec2 vTexCoords;
-    uniform sampler2D fScreenTex;
-    out vec4 fColorOut;
-    void main() {
-        fColorOut = texture(fScreenTex, vTexCoords);
-    }
-";
+        context.bind_framebuffer(gl::FRAMEBUFFER, 0);
 
-// NOTE: Compilation is thread-unsafe, should only be compiled on the main thread
-static mut DISPLAY_SHADER: Option<GlShader> = None;
+        // Compile or get the cached shader
+        let texture_location = context.get_uniform_location(display_shader.shader.program_id, "fScreenTex".into());
 
-/// Compiles the display vertex / fragment shader, returns the compiled shaders.
-fn compile_screen_shader(context: &GlContextPtr) -> GLuint {
-    unsafe { DISPLAY_SHADER.get_or_insert_with(|| {
-        GlShader::new(context, DISPLAY_VERTEX_SHADER, DISPLAY_FRAGMENT_SHADER).unwrap()
-    }) }.program_id
-}
+        // The uniform value for a sampler refers to the texture unit, not the texture id, i.e.:
+        //
+        // TEXTURE0 = uniform_1i(location, 0);
+        // TEXTURE1 = uniform_1i(location, 1);
 
-// Draws a texture to the currently bound framebuffer. Texture has to be cleaned up by the caller.
-fn draw_texture_to_screen(context: GlContextPtr, texture: GLuint, framebuffer_size: WrDeviceIntSize) {
+        context.active_texture(gl::TEXTURE0);
+        context.bind_texture(gl::TEXTURE_2D, texture);
+        context.use_program(display_shader.shader.program_id);
+        context.uniform_1i(texture_location, 0);
 
-    context.bind_framebuffer(gl::FRAMEBUFFER, 0);
+        // The vertices are generated in the vertex shader using gl_VertexID, however,
+        // drawing without a VAO is not allowed (except for glDrawArraysInstanced,
+        // which is only available in OGL 3.3)
 
-    // Compile or get the cached shader
-    let shader = compile_screen_shader(&context);
-    let texture_location = context.get_uniform_location(shader, "fScreenTex".into());
+        let vao = context.gen_vertex_arrays(1);
+        context.bind_vertex_array(vao.get(0).copied().unwrap());
+        context.viewport(0, 0, framebuffer_size.width, framebuffer_size.height);
+        context.draw_arrays(gl::TRIANGLE_STRIP, 0, 3);
+        context.delete_vertex_arrays(vao.as_ref().into());
 
-    // The uniform value for a sampler refers to the texture unit, not the texture id, i.e.:
-    //
-    // TEXTURE0 = uniform_1i(location, 0);
-    // TEXTURE1 = uniform_1i(location, 1);
-
-    context.active_texture(gl::TEXTURE0);
-    context.bind_texture(gl::TEXTURE_2D, texture);
-    context.use_program(shader);
-    context.uniform_1i(texture_location, 0);
-
-    // The vertices are generated in the vertex shader using gl_VertexID, however,
-    // drawing without a VAO is not allowed (except for glDrawArraysInstanced,
-    // which is only available in OGL 3.3)
-
-    let vao = context.gen_vertex_arrays(1);
-    context.bind_vertex_array(vao.get(0).copied().unwrap());
-    context.viewport(0, 0, framebuffer_size.width, framebuffer_size.height);
-    context.draw_arrays(gl::TRIANGLE_STRIP, 0, 3);
-    context.delete_vertex_arrays(vao.as_ref().into());
-
-    context.bind_vertex_array(0);
-    context.use_program(0);
-    context.bind_texture(gl::TEXTURE_2D, 0);
-}
-
-pub(crate) fn clean_up_unused_opengl_textures(pipeline_info: WrPipelineInfo, pipeline_id: &PipelineId) {
-
-    use azul_core::gl::gl_textures_remove_epochs_from_pipeline;
-    use crate::wr_translate::translate_epoch_wr;
-
-    // TODO: currently active epochs can be empty, why?
-    //
-    // I mean, while the renderer is rendering, there can never be "no epochs" active,
-    // at least one epoch must always be active.
-    if pipeline_info.epochs.is_empty() {
-        return;
+        context.bind_vertex_array(0);
+        context.use_program(0);
+        context.bind_texture(gl::TEXTURE_2D, 0);
     }
 
-    // TODO: pipeline_info.epochs does not contain all active epochs,
-    // at best it contains the lowest in-use epoch. I.e. if `Epoch(43)`
-    // is listed, you can remove all textures from Epochs **lower than 43**
-    // BUT NOT EPOCHS HIGHER THAN 43.
-    //
-    // This means that "all active epochs" (in the documentation) is misleading
-    // since it doesn't actually list all active epochs, otherwise it'd list Epoch(43),
-    // Epoch(44), Epoch(45), which are currently active.
-    let oldest_to_remove_epoch = pipeline_info.epochs.values().min().unwrap();
 
-    gl_textures_remove_epochs_from_pipeline(pipeline_id, translate_epoch_wr(*oldest_to_remove_epoch));
+    fn clean_up_unused_opengl_textures(pipeline_info: WrPipelineInfo, pipeline_id: &PipelineId) {
+
+        use azul_core::gl::gl_textures_remove_epochs_from_pipeline;
+        use crate::wr_translate::translate_epoch_wr;
+
+        // TODO: currently active epochs can be empty, why?
+        //
+        // I mean, while the renderer is rendering, there can never be "no epochs" active,
+        // at least one epoch must always be active.
+        if pipeline_info.epochs.is_empty() {
+            return;
+        }
+
+        // TODO: pipeline_info.epochs does not contain all active epochs,
+        // at best it contains the lowest in-use epoch. I.e. if `Epoch(43)`
+        // is listed, you can remove all textures from Epochs **lower than 43**
+        // BUT NOT EPOCHS HIGHER THAN 43.
+        //
+        // This means that "all active epochs" (in the documentation) is misleading
+        // since it doesn't actually list all active epochs, otherwise it'd list Epoch(43),
+        // Epoch(44), Epoch(45), which are currently active.
+        let oldest_to_remove_epoch = pipeline_info.epochs.values().min().unwrap();
+
+        gl_textures_remove_epochs_from_pipeline(pipeline_id, translate_epoch_wr(*oldest_to_remove_epoch));
+    }
 }
 
 /// Clipboard is an empty class with only static methods,
@@ -1388,6 +1372,7 @@ fn create_window_context_builder<'a>(
 fn get_renderer_opts(native: bool, device_pixel_ratio: f32) -> WrRendererOptions {
 
     use webrender::ProgramCache as WrProgramCache;
+    use webrender::api::ColorF as WrColorF;
 
     // pre-caching shaders means to compile all shaders on startup
     // this can take significant time and should be only used for testing the shaders
@@ -1406,6 +1391,8 @@ fn get_renderer_opts(native: bool, device_pixel_ratio: f32) -> WrRendererOptions
         enable_subpixel_aa: true,
         enable_aa: true,
         cached_programs: Some(WrProgramCache::new(None)),
+        clear_color: Some(WrColorF { r: 0.0, g: 0.0, b: 0.0, a: 0.0 }), // transparent
+        enable_multithreading: false, // reduces memory
         renderer_kind: if native {
             WrRendererKind::Native
         } else {

@@ -437,6 +437,12 @@ pub struct DomNodeId {
 
 impl_option!(DomNodeId, OptionDomNodeId, [Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash]);
 
+impl DomNodeId {
+    pub const ROOT: DomNodeId = DomNodeId {
+        dom: DomId::ROOT_ID,
+        node: AzNodeId::NONE,
+    };
+}
 // -- layout callback
 
 /// Callback function pointer (has to be a function pointer in
@@ -477,6 +483,8 @@ impl Default for LayoutCallback {
 #[repr(C)]
 pub struct Callback { pub cb: CallbackType }
 impl_callback!(Callback);
+
+impl_option!(Callback, OptionCallback, [Debug, Eq, Copy, Clone, PartialEq, PartialOrd, Ord, Hash]);
 
 /// Information about the callback that is passed to the callback whenever a callback is invoked
 #[derive(Debug)]

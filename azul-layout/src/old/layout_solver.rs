@@ -1387,8 +1387,6 @@ pub fn do_the_layout_internal(
         pipeline_id,
     );
 
-    println!("do_the_layout done on {} nodes - {:?}!", styled_dom.node_data.len(), Instant::now() - do_the_layout_start);
-
     LayoutResult {
         dom_id,
         parent_dom_id,
@@ -1903,10 +1901,6 @@ pub fn do_the_relayout(
     let root_size = root_bounds.size;
     let root_size_changed = root_bounds != layout_result.get_bounds();
 
-    println!("do the relayout!");
-    println!("root size: {:?}", root_bounds);
-    println!("current_bounds: {:?}", layout_result.get_bounds());
-
     if !root_size_changed && nodes_to_relayout.is_empty() {
         return Vec::new();
     }
@@ -2340,10 +2334,6 @@ pub fn do_the_relayout(
         &layout_result.styled_dom.non_leaf_nodes.as_ref(),
         pipeline_id,
     );
-
-    if root_size_changed {
-        println!("root size changed finished! - relayout took {:?}!", Instant::now() - root_changed_start);
-    }
 
     nodes_that_changed_size.into_iter().collect()
 }

@@ -13,7 +13,7 @@ use crate::{
     app_resources::{AppResources, Epoch, FontImageApi},
     styled_dom::{DomId, AzNodeId},
     id_tree::NodeId,
-    callbacks::{PipelineId, RefAny, DocumentId, DomNodeId, ScrollPosition, UpdateScreen},
+    callbacks::{OptionCallback, PipelineId, RefAny, DocumentId, DomNodeId, ScrollPosition, UpdateScreen},
     ui_solver::{OverflowingScrollNode, HitTest, LayoutResult, ExternalScrollId},
     display_list::{GlTextureCache, RenderCallbacks},
     callbacks::{LayoutCallback, LayoutCallbackType},
@@ -699,7 +699,6 @@ impl WindowInternal {
 
         let current_window_state: FullWindowState = init.window_create_options.state.into();
 
-
         let styled_dom = {
 
             let layout_callback = current_window_state.layout_callback.clone();
@@ -909,6 +908,8 @@ pub struct WindowState {
     /// - It's a preparation for the C ABI, in which traits don't exist (for language bindings).
     ///   In the C ABI "traits" are simply structs with function pointers (and void* instead of T)
     pub layout_callback: LayoutCallback,
+    /// Optional callback to run when the window closes
+    pub close_callback: OptionCallback,
 }
 
 #[derive(Debug, Copy, Clone, PartialEq)]
@@ -980,7 +981,9 @@ pub struct FullWindowState {
     /// - It's a preparation for the C ABI, in which traits don't exist (for language bindings).
     ///   In the C ABI "traits" are simply structs with function pointers (and void* instead of T)
     pub layout_callback: LayoutCallback,
-
+    /// Callback to run before the window closes. If this callback returns `DoNothing`,
+    /// the window won't close, otherwise it'll close regardless
+    pub close_callback: OptionCallback,
     // --
 
     /// Whether there is a file currently hovering over the window
@@ -1012,6 +1015,7 @@ impl Default for FullWindowState {
             platform_specific_options: PlatformSpecificOptions::default(),
             background_color: ColorU::WHITE,
             layout_callback: LayoutCallback::default(),
+            close_callback: OptionCallback::None,
 
             // --
 
@@ -1092,6 +1096,7 @@ impl From<FullWindowState> for WindowState {
             platform_specific_options: full_window_state.platform_specific_options,
             background_color: full_window_state.background_color,
             layout_callback: full_window_state.layout_callback,
+            close_callback: full_window_state.close_callback,
         }
     }
 }
@@ -1482,6 +1487,8 @@ pub struct WindowCreateOptions {
     pub renderer_type: RendererType,
     /// Override the default window theme (set to `None` to use the OS-provided theme)
     pub theme: OptionWindowTheme,
+    /// Optional callback to run when the window has been created (runs only once on startup)
+    pub create_callback: OptionCallback,
 }
 
 impl Default for WindowCreateOptions {
@@ -1490,6 +1497,7 @@ impl Default for WindowCreateOptions {
             state: WindowState::default(),
             renderer_type: RendererType::default(),
             theme: OptionWindowTheme::None,
+            create_callback: OptionCallback::None,
         }
     }
 }
