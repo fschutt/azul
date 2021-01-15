@@ -23,9 +23,9 @@ copy "%~dp0\target\release\azul.dll" "%CARGO_HOME%\lib\azul-dll-0.0.1\target\rel
 if exist "%~dp0\target\debug\examples" del "%~dp0\target\debug\examples\azul.dll"
 if exist "%~dp0\target\release\examples" del "%~dp0\target\release\examples\azul.dll"
 
-if exist "%~dp0\target\release\examples\test\" del "%~dp0\target\release\examples\test\azul.dll"
-copy "%~dp0\target\release\azul.dll" "%~dp0\target\release\examples\test\"
+if exist "%~dp0\target\release\examples\" del "%~dp0\target\release\examples\azul.dll"
+copy "%~dp0\target\release\azul.dll" "%~dp0\target\release\examples\"
 
-cd "%~dp0\target\release\examples\test"
+cd "%~dp0\target\release\examples\"
 table.exe > out.txt
 cd "../../../.."

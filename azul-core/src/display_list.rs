@@ -95,8 +95,6 @@ impl CachedDisplayList {
             )
         };
 
-        println!("display list root get_size: {:?}", dl.root.get_size());
-
         // push the window background color, if the root node doesn't
         // have any content
         if dl.root.is_content_empty() {

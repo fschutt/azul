@@ -26,7 +26,7 @@ use webrender::{
     RendererError as WrRendererError,
 };
 use glutin::{
-    event_loop::{EventLoopWindowTarget, EventLoop},
+    event_loop::{EventLoopProxy as GlutinEventLoopProxy, EventLoopWindowTarget, EventLoop},
     window::{Window as GlutinWindow, WindowBuilder as GlutinWindowBuilder},
     CreationError as GlutinCreationError,
     ContextError as GlutinContextError,
@@ -54,22 +54,34 @@ pub use azul_core::window::*;
 // renderers - notify webrender about this.
 const WR_SHADER_CACHE: Option<&Rc<RefCell<WrShaders>>> = None;
 
-struct Notifier { }
+struct Notifier {
+    events_proxy: GlutinEventLoopProxy<()>,
+}
+
+impl Notifier {
+    fn new(events_proxy: GlutinEventLoopProxy<()>) -> Notifier {
+        Notifier { events_proxy }
+    }
+}
 
 impl WrRenderNotifier for Notifier {
     fn clone(&self) -> Box<dyn WrRenderNotifier> {
-        Box::new(Notifier { })
+        Box::new(Notifier {
+            events_proxy: self.events_proxy.clone(),
+        })
     }
 
-    // NOTE: Rendering is single threaded (because that's the nature of OpenGL),
-    // so when the Renderer::render() function is finished, then the rendering
-    // is finished and done, the rendering is currently blocking (but only takes about 0..
-    // There is no point in implementing RenderNotifier, it only leads to
-    // synchronization problems (when handling Event::Awakened).
+    fn wake_up(&self, _composite_needed: bool) {
+        #[cfg(not(target_os = "android"))]
+        let _ = self.events_proxy.send_event(());
+    }
 
-    fn wake_up(&self, _composite_needed: bool) { }
-    fn new_frame_ready(&self, _id: WrDocumentId, _scrolled: bool, _composite_needed: bool, _render_time: Option<u64>) {
-        println!("window {} rerendered (scrolled = {:?}, composite = {:?}0) in {:?}", _id.id, _scrolled, _composite_needed, _render_time);
+    fn new_frame_ready(&self,
+                       _: WrDocumentId,
+                       _scrolled: bool,
+                       composite_needed: bool,
+                       _render_time: Option<u64>) {
+        self.wake_up(composite_needed);
     }
 }
 
@@ -176,6 +188,7 @@ impl ContextState {
         mem::swap(self, &mut new_state);
     }
 
+    /*
     pub fn make_not_current(&mut self) {
 
         use std::mem;
@@ -189,6 +202,7 @@ impl ContextState {
 
         mem::swap(self, &mut new_state);
     }
+    */
 
     pub fn window(&self) -> &GlutinWindow {
         use self::ContextState::*;
@@ -315,6 +329,7 @@ impl Window {
         data: &RefAny,
         mut options: WindowCreateOptions,
         events_loop: &EventLoopWindowTarget<()>,
+        proxy: &GlutinEventLoopProxy<()>,
         app_resources: &mut AppResources
     ) -> Result<Self, WindowCreateError> {
 
@@ -342,7 +357,7 @@ impl Window {
             &options.state.platform_specific_options
         );
 
-        let window_builder = window_builder.with_visible(false);
+        // let window_builder = window_builder.with_visible(false);
 
         // Only create a context with VSync and SRGB if the context creation works
         let (glutin_window, window_renderer_info) = Self::create_glutin_window(window_builder, options.renderer.into_option().unwrap_or_default(), &events_loop)?;
@@ -401,14 +416,16 @@ impl Window {
             match rt {
                 RendererType::Software => {
                     let s = Self::initialize_software_gl_context();
-                    if let Ok(r) = WrRenderer::new(s.clone(), Box::new(Notifier { }), gen_opts(), WR_SHADER_CACHE) {
+                    let notifier = Box::new(Notifier::new(proxy.clone()));
+                    if let Ok(r) = WrRenderer::new(s.clone(), notifier, gen_opts(), WR_SHADER_CACHE) {
                         renderer_sender = Some(r);
                     }
                     software_gl = Some(s);
                     break;
                 },
                 RendererType::Hardware => {
-                    let renderer = WrRenderer::new(hardware_gl.clone(), Box::new(Notifier { }), gen_opts(), WR_SHADER_CACHE);
+                    let notifier = Box::new(Notifier::new(proxy.clone()));
+                    let renderer = WrRenderer::new(hardware_gl.clone(), notifier, gen_opts(), WR_SHADER_CACHE);
                     match renderer {
                         Ok(r) => {
                             renderer_sender = Some(r);
@@ -423,8 +440,6 @@ impl Window {
                 }
             }
         }
-
-        window_context.make_not_current();
 
         let (mut renderer, sender) = match renderer_sender {
             Some(s) => s,
@@ -492,12 +507,13 @@ impl Window {
         };
 
         let mut txn = WrTransaction::new();
+        println!("WrTransaction::new() (window.rs:510)");
 
         window.rebuild_display_list(&mut txn, &app_resources, initial_resource_updates);
         window.render_async(txn, /* display list was rebuilt */ true);
-        window.render_block_and_swap();
+        // window.render_block_and_swap();
 
-        window.display.window().set_visible(is_initially_visible);
+        // window.display.window().set_visible(is_initially_visible);
 
         Ok(window)
     }
@@ -618,7 +634,6 @@ impl Window {
         let display_list = wr_translate_display_list(cached_display_list, self.internal.pipeline_id);
 
         let logical_size = WrLayoutSize::new(self.internal.current_window_state.size.dimensions.width, self.internal.current_window_state.size.dimensions.height);
-        let mut txn = WrTransaction::new();
         txn.update_resources(resources.into_iter().map(wr_translate_resource_update).collect());
         txn.set_display_list(
             wr_translate_epoch(self.internal.epoch),
@@ -915,7 +930,6 @@ impl Window {
         self.display.window().current_monitor()
     }
 
-
     fn create_window_builder(
         has_transparent_background: bool,
         theme: Option<WindowTheme>,
@@ -1050,6 +1064,8 @@ impl Window {
             }
         }
 
+        println!("render async: - rebuilt DL: {:?}", display_list_was_rebuilt);
+
         use azul_css::ColorF;
         use crate::wr_translate;
 
@@ -1076,11 +1092,10 @@ impl Window {
 
         txn.generate_frame(0);
 
+        println!("sending transaction!");
+
         // Update WR texture cache
         self.render_api.send_transaction(wr_translate::wr_translate_document_id(self.internal.document_id), txn);
-        if let Some(r) = self.renderer.as_mut() {
-            r.update();
-        }
     }
 
     /// Does the actual rendering + swapping
@@ -1123,17 +1138,24 @@ impl Window {
         // otherwise EGL will panic with EGL_BAD_MATCH. The current context has to be the
         // hidden_display context, otherwise this will segfault on Windows.
         self.display.make_current();
-        let gl = self.get_gl_context();
-        let mut current_program = [0_i32];
-        unsafe { gl.get_integer_v(gl::CURRENT_PROGRAM, (&mut current_program[..]).into()); }
+
+        // let gl = self.get_gl_context();
+        // let mut current_program = [0_i32];
+        // unsafe { gl.get_integer_v(gl::CURRENT_PROGRAM, (&mut current_program[..]).into()); }
+
         if let Some(r) = self.renderer.as_mut() {
+            println!("rendering: {:?}", framebuffer_size);
+            r.update();
             let _ = r.render(framebuffer_size, 0);
+            clean_up_unused_opengl_textures(r.flush_pipeline_info(), &self.internal.pipeline_id);
+            self.display.window().request_redraw();
         }
-        self.upload_software_to_native(); // does nothing if hardware acceleration is on
-        gl.bind_framebuffer(gl::FRAMEBUFFER, 0);
-        gl.bind_texture(gl::TEXTURE_2D, 0);
-        gl.use_program(current_program[0] as u32);
-        self.display.make_not_current();
+
+        // self.upload_software_to_native(); // does nothing if hardware acceleration is on
+        // gl.bind_framebuffer(gl::FRAMEBUFFER, 0);
+        // gl.bind_texture(gl::TEXTURE_2D, 0);
+        // gl.use_program(current_program[0] as u32);
+        // self.display.make_not_current();
     }
 }
 
@@ -1157,8 +1179,6 @@ impl Drop for Window {
         if let Some(sw) = self.software_gl.as_mut() {
             sw.destroy();
         }
-
-        self.display.make_not_current();
     }
 }
 

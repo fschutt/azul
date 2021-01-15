@@ -1256,8 +1256,6 @@ pub fn do_the_layout_internal(
 
     let content_widths_pre = NodeDataContainer { internal: vec![None; styled_dom.node_hierarchy.len()] };
 
-    println!("full layout done (no width_calculated_rect_arena_from_rect_layout_arena): {:?}", Instant::now() - do_the_layout_start);
-
     let mut width_calculated_arena = width_calculated_rect_arena_from_rect_layout_arena(
         &styled_dom.styled_nodes.as_container(),
         &content_widths_pre.as_ref(),
@@ -1265,9 +1263,6 @@ pub fn do_the_layout_internal(
         &styled_dom.non_leaf_nodes.as_ref(),
         rect_size.width,
     );
-
-
-    println!("full layout done (no solve_flex_layout_width): {:?}", Instant::now() - do_the_layout_start);
 
     solve_flex_layout_width(
         &mut width_calculated_arena.as_ref_mut(),
@@ -1280,13 +1275,10 @@ pub fn do_the_layout_internal(
         &all_parents_btreeset,
     );
 
-    println!("full layout done (no create_word_cache): {:?}", Instant::now() - do_the_layout_start);
     // Break all strings into words and / or resolve the TextIds
     let word_cache = create_word_cache(&app_resources.text_cache, &mut styled_dom.node_data.as_container_mut());
-    println!("full layout done (no create_shaped_words): {:?}", Instant::now() - do_the_layout_start);
     // Scale the words to the correct size - TODO: Cache this in the app_resources!
     let shaped_words = create_shaped_words(&pipeline_id, app_resources, &word_cache, &styled_dom.styled_nodes.as_container());
-    println!("full layout done (no create_word_positions): {:?}", Instant::now() - do_the_layout_start);
 
     // Layout all words as if there was no max-width constraint (to get the texts "content width").
     let mut word_positions_no_max_width = BTreeMap::new();
@@ -1321,8 +1313,6 @@ pub fn do_the_layout_internal(
 
     let content_heights_pre = NodeDataContainer { internal: vec![None; styled_dom.node_data.len()] };
 
-    println!("full layout done (no height_calculated_arena): {:?}", Instant::now() - do_the_layout_start);
-
     // TODO: The content height is not the final height!
     let mut height_calculated_arena = height_calculated_rect_arena_from_rect_layout_arena(
         &styled_dom.styled_nodes.as_container(),
@@ -1331,8 +1321,6 @@ pub fn do_the_layout_internal(
         &styled_dom.non_leaf_nodes.as_ref(),
         rect_size.height,
     );
-
-    println!("full layout done (no solve_flex_layout_height): {:?}", Instant::now() - do_the_layout_start);
 
     solve_flex_layout_height(
         &mut height_calculated_arena.as_ref_mut(),
@@ -1344,8 +1332,6 @@ pub fn do_the_layout_internal(
         rect_size.height,
         &all_parents_btreeset,
     );
-
-    println!("full layout done (no get_x_positions): {:?}", Instant::now() - do_the_layout_start);
 
     let mut x_positions = NodeDataContainer::new(vec![HorizontalSolvedPosition(0.0); styled_dom.node_data.as_ref().len()]);
     get_x_positions(
@@ -1360,8 +1346,6 @@ pub fn do_the_layout_internal(
         &all_parents_btreeset,
     );
 
-    println!("full layout done (no get_y_positions): {:?}", Instant::now() - do_the_layout_start);
-
     let mut y_positions = NodeDataContainer::new(vec![VerticalSolvedPosition(0.0); styled_dom.node_data.as_ref().len()]);
     get_y_positions(
         &mut y_positions.as_ref_mut(),
@@ -1374,8 +1358,6 @@ pub fn do_the_layout_internal(
         rect_offset,
         &all_parents_btreeset,
     );
-
-    println!("full layout done (no position nodes): {:?}", Instant::now() - do_the_layout_start);
 
     let mut glyph_map = BTreeMap::new();
     let mut positioned_rects = NodeDataContainer { internal: vec![PositionedRectangle::default(); styled_dom.node_data.len()].into() };
@@ -1398,8 +1380,6 @@ pub fn do_the_layout_internal(
         pipeline_id
     );
 
-    println!("full layout done (no overflow determined): {:?}", Instant::now() - do_the_layout_start);
-
     let mut overflowing_rects = ScrolledNodes::default();
     get_nodes_that_need_scroll_clip(
         &mut overflowing_rects,
@@ -1409,8 +1389,6 @@ pub fn do_the_layout_internal(
         styled_dom.non_leaf_nodes.as_ref(),
         pipeline_id,
     );
-
-    println!("full layout done in {:?}", Instant::now() - do_the_layout_start);
 
     LayoutResult {
         dom_id,

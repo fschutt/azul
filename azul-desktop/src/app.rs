@@ -11,6 +11,7 @@ use glutin::{
         WindowEvent as GlutinWindowEvent,
     },
     event_loop::{
+        EventLoopProxy as GlutinEventLoopProxy,
         EventLoopWindowTarget as GlutinEventLoopWindowTarget,
         EventLoop as GlutinEventLoop,
     },
@@ -79,11 +80,43 @@ impl App {
             }
         }
 
+        // NOTE: Usually when the program is started, it's started on the main thread
+        // However, if a debugger (such as RenderDoc) is attached, it can happen that the
+        // event loop isn't created on the main thread.
+        //
+        // While it's discouraged to call new_any_thread(), it's necessary to do so here.
+        // Do NOT create an application from a non-main thread!
+        let event_loop = {
+
+            #[cfg(any(target_os = "linux", target_os = "dragonfly", target_os = "freebsd", target_os = "netbsd", target_os = "openbsd"))] {
+                use  glutin::platform::unix::EventLoopExtUnix;
+                GlutinEventLoop::new_any_thread()
+            }
+
+            #[cfg(target_os = "windows")] {
+                use glutin::platform::windows::EventLoopExtWindows;
+
+                // Note that any Window created on the new
+                // thread will be destroyed when the thread terminates.
+                // Attempting to use a Window after its parent
+                // thread terminates has unspecified, although explicitly
+                // not undefined, behavior.
+                GlutinEventLoop::new_any_thread()
+            }
+
+            #[cfg(not(any(
+              target_os = "linux", target_os = "dragonfly", target_os = "freebsd", target_os = "netbsd", target_os = "openbsd",
+              target_os = "windows",
+            )))] {
+                GlutinEventLoop::new()
+            }
+        };
+
         Self {
             windows: Vec::new(),
             data: initial_data,
             config: app_config,
-            event_loop: GlutinEventLoop::new(),
+            event_loop,
         }
     }
 
@@ -136,6 +169,8 @@ fn run_inner(app: App) -> ! {
 
     let window_created_instant = Instant::now();
 
+    let proxy = event_loop.create_proxy();
+
     // Create the windows (makes them actually show up on the screen)
     for window_create_options in windows {
         let create_callback = window_create_options.create_callback.clone();
@@ -144,6 +179,7 @@ fn run_inner(app: App) -> ! {
             &data,
             window_create_options,
             &event_loop,
+            &proxy,
             &mut active_windows,
             &mut resources,
         );
@@ -289,6 +325,7 @@ fn run_inner(app: App) -> ! {
                             let changes_need_regenerate_dl = changes.need_regenerate_display_list();
 
                             let mut transaction = WrTransaction::new();
+                            println!("WrTransaction::new() - (app.rs:{})", line!());
 
                             if changes_need_regenerate_dl {
                                 let resource_updates = Vec::new(); // when re-generating the display list, no resource updates necessary
@@ -296,7 +333,7 @@ fn run_inner(app: App) -> ! {
                                 windows_that_need_to_redraw.insert(*window_id);
                             }
 
-                            if changes.need_redraw() {
+                            if changes_need_regenerate_dl || changes.need_redraw() {
                                 window.render_async(transaction, changes_need_regenerate_dl);
                                 windows_that_need_to_redraw.insert(*window_id);
                             }
@@ -304,6 +341,7 @@ fn run_inner(app: App) -> ! {
                         UpdateScreen::RegenerateStyledDomForCurrentWindow => {
                             let mut resource_updates = Vec::new();
                             let mut transaction = WrTransaction::new();
+                            println!("WrTransaction::new() - (app.rs:{})", line!());
                             window.regenerate_styled_dom(&data, &mut resources, &mut resource_updates);
                             window.rebuild_display_list(&mut transaction, &resources, resource_updates);
                             window.render_async(transaction, /* display list was rebuilt */ true);
@@ -387,6 +425,7 @@ fn run_inner(app: App) -> ! {
 
                                 let changes_need_regenerate_dl = changes.need_regenerate_display_list();
                                 let mut transaction = WrTransaction::new();
+                                println!("WrTransaction::new() - (app.rs:{})", line!());
 
                                 if changes_need_regenerate_dl {
                                     let resource_updates = Vec::new(); // when re-generating the display list, no resource updates necessary
@@ -394,7 +433,7 @@ fn run_inner(app: App) -> ! {
                                     windows_that_need_to_redraw.insert(*window_id);
                                 }
 
-                                if changes.need_redraw() {
+                                if changes_need_regenerate_dl || changes.need_redraw() {
                                     window.render_async(transaction, changes_need_regenerate_dl);
                                     windows_that_need_to_redraw.insert(*window_id);
                                 }
@@ -402,6 +441,7 @@ fn run_inner(app: App) -> ! {
                             UpdateScreen::RegenerateStyledDomForCurrentWindow => {
                                 let mut resource_updates = Vec::new();
                                 let mut transaction = WrTransaction::new();
+                                println!("WrTransaction::new() - (app.rs:{})", line!());
                                 window.regenerate_styled_dom(&data, &mut resources, &mut resource_updates);
                                 window.rebuild_display_list(&mut transaction, &resources, resource_updates);
                                 window.render_async(transaction, /* display list was rebuilt */ true);
@@ -433,6 +473,7 @@ fn run_inner(app: App) -> ! {
                     for (window_id, window) in active_windows.iter_mut() {
                         let mut resource_updates = Vec::new();
                         let mut transaction = WrTransaction::new();
+                        println!("WrTransaction::new() - (app.rs:{})", line!());
 
                         window.regenerate_styled_dom(&data, &mut resources, &mut resource_updates);
                         window.rebuild_display_list(&mut transaction, &resources, resource_updates);
@@ -450,7 +491,9 @@ fn run_inner(app: App) -> ! {
                 };
 
                 // Render + swap the screen (call webrender + draw to texture)
-                window.render_block_and_swap();
+                println!("frame finished, swapping!");
+                window.display.make_current();
+                window.display.windowed_context().unwrap().swap_buffers().unwrap();
             },
             Event::WindowEvent { event, window_id } => {
 
@@ -562,17 +605,25 @@ fn run_inner(app: App) -> ! {
                     }
                 }
 
-                let mut transaction = WrTransaction::new();
-
                 if need_regenerate_display_list {
+                    let mut transaction = WrTransaction::new();
+                    println!("WrTransaction::new() - (app.rs:{})", line!());
                     window.rebuild_display_list(&mut transaction, &resources, updated_resources);
                     window.render_async(transaction, need_regenerate_display_list);
                     windows_that_need_to_redraw.insert(window_id);
                 } else if should_scroll_render || should_callback_render {
+                    let mut transaction = WrTransaction::new();
+                    println!("WrTransaction::new() - (app.rs:{})", line!());
                     window.render_async(transaction, need_regenerate_display_list);
                     windows_that_need_to_redraw.insert(window_id);
                 }
             },
+            Event::UserEvent(()) => {
+                for window in active_windows.values_mut() {
+                    // transaction has finished
+                    window.render_block_and_swap();
+                }
+            }
             _ => { },
         }
 
@@ -661,6 +712,7 @@ fn run_inner(app: App) -> ! {
                 &data,
                 window_create_options,
                 &event_loop_target,
+                &proxy,
                 &mut active_windows,
                 &mut resources,
             );
@@ -717,7 +769,7 @@ fn run_inner(app: App) -> ! {
                 }
             }
         }
-
+/*
         for window_id in windows_that_need_to_redraw.into_iter() {
             let window = match active_windows.get_mut(&window_id) {
                 Some(s) => s,
@@ -725,7 +777,7 @@ fn run_inner(app: App) -> ! {
             };
             window.display.window().request_redraw();
         }
-
+*/
         // end: handle control flow and app shutdown
         *control_flow = if !active_windows.is_empty() {
             // If no timers / threads are running, wait until next user event
@@ -782,9 +834,8 @@ fn process_window_event(window: &mut Window, event_loop: &GlutinEventLoopWindowT
             current_window_state.keyboard_state.super_down = modifier_state.logo();
         },
         GlutinWindowEvent::Resized(physical_size) => {
-            window.display.make_current();
-            window.display.windowed_context().unwrap().resize(*physical_size);
-            window.display.make_not_current();
+            // window.display.make_current();
+            // window.display.windowed_context().unwrap().resize(*physical_size);
             current_window_state.size.dimensions = winit_translate_physical_size(*physical_size).to_logical(current_window_state.size.system_hidpi_factor as f32);
         },
         GlutinWindowEvent::ScaleFactorChanged { scale_factor, new_inner_size } => {
@@ -920,6 +971,7 @@ fn create_window(
     data: &RefAny,
     window_create_options: WindowCreateOptions,
     events_loop: &GlutinEventLoopWindowTarget<()>,
+    proxy: &GlutinEventLoopProxy<()>,
     active_windows: &mut BTreeMap<GlutinWindowId, Window>,
     app_resources: &mut AppResources,
 ) -> Option<GlutinWindowId> {
@@ -928,6 +980,7 @@ fn create_window(
          &data,
          window_create_options,
          events_loop,
+         proxy,
          app_resources,
     );
 
@@ -955,6 +1008,7 @@ fn close_window(mut window: Window, app_resources: &mut AppResources) {
     let mut resources_to_delete = Vec::new();
     app_resources.delete_pipeline(&window.internal.pipeline_id, &mut resources_to_delete);
     let mut txn = WrTransaction::new();
+    println!("WrTransaction::new() - (app.rs:{})", line!());
     txn.skip_scene_builder();
     txn.update_resources(resources_to_delete.into_iter().map(wr_translate_resource_update).collect());
     window.render_api.send_transaction(wr_translate_document_id(window.internal.document_id), txn);

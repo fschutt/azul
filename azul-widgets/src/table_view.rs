@@ -302,8 +302,6 @@ impl TableViewState {
 
         let styled = dom.style(Css::empty());
 
-        println!("ok: iframe callback finished in {:?}", Instant::now() - i_start);
-
         styled
     }
 }
@@ -340,14 +338,7 @@ impl TableView {
 
         use azul::window::{LayoutRect, LayoutSize, LayoutPoint};
 
-        println!("in function render_table_iframe_contents!");
-        println!("state: {:?}", state);
-
-        let table_view_state = state.downcast_ref::<TableViewState>().unwrap();
-        println!("downcast worked!");
-        let logical_size = info.get_bounds().get_logical_size();
-        println!("info get bounds: {:?}!", logical_size);
-
+        let table_view_state = state.downcast_ref::<TableViewState>().unwrap();        let logical_size = info.get_bounds().get_logical_size();
         let padding_rows = 0;
         let padding_columns = 0;
         let row_start = 0; // bounds.top / table_view_state.row_height
@@ -358,14 +349,10 @@ impl TableView {
 
         let table_height = (necessary_rows + padding_rows) as f32 * table_view_state.row_height;
         let table_width = (necessary_columns + padding_columns) as f32 * table_view_state.column_width;
-
-        println!("calling table view state render!");
         let styled_dom = table_view_state.render(
             row_start..(row_start + necessary_rows + padding_rows),
             column_start..(column_start + necessary_columns + padding_columns)
         );
-
-        println!("styled dom rendered: {:#?}", styled_dom);
 
         IFrameCallbackReturn {
             dom: styled_dom,
